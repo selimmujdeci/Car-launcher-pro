@@ -58,7 +58,14 @@ const resources = {
         "settings_saved": "Kaydedildi",
         "settings_saving": "Kaydediliyor…",
         "settings_no_results": "Sonuç bulunamadı",
-        "settings_location_unavailable": "Konum alınamadı"
+        "settings_location_unavailable": "Konum alınamadı",
+        "nearby_hospital_starting": "En yakın hastane için rota başlatılıyor.",
+        "nearby_hospital_none": "Yakınında uygun bir hastane bulunamadı.",
+        "nearby_hospital_error": "Hastane araması şu anda tamamlanamadı. Lütfen tekrar dene.",
+        "nearby_gps_unavailable": "Konumun alınamadığı için yakındaki hastaneler aranamadı.",
+        "nearby_gas_starting": "En yakın benzinlik için rota başlatılıyor.",
+        "nearby_gas_none": "Yakınında uygun bir benzinlik bulunamadı.",
+        "nearby_gas_error": "Benzinlik araması şu anda tamamlanamadı. Lütfen tekrar dene."
       }
     }
   },
@@ -117,7 +124,14 @@ const resources = {
         "settings_saved": "Saved",
         "settings_saving": "Saving…",
         "settings_no_results": "No results",
-        "settings_location_unavailable": "Location unavailable"
+        "settings_location_unavailable": "Location unavailable",
+        "nearby_hospital_starting": "Starting navigation to the nearest hospital.",
+        "nearby_hospital_none": "No suitable hospital was found nearby.",
+        "nearby_hospital_error": "The hospital search could not be completed right now. Please try again.",
+        "nearby_gps_unavailable": "Nearby hospitals could not be searched because your location is unavailable.",
+        "nearby_gas_starting": "Starting navigation to the nearest gas station.",
+        "nearby_gas_none": "No suitable gas station was found nearby.",
+        "nearby_gas_error": "The gas station search could not be completed right now. Please try again."
       }
     }
   }

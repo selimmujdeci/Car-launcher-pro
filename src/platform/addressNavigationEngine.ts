@@ -155,22 +155,33 @@ function _confirmResult(result: GeoResult): void {
 /* ── Public API ──────────────────────────────────────────── */
 
 /**
+ * resolveAndNavigate'in NAVIGATION-P0-2 ile eklenen opsiyonel sonuç callback'i.
+ * Geriye dönük UYUMLU — çağıran vermiyorsa davranış birebir aynı kalır.
+ * Yalnız TTS/telemetri gibi yan etkiler için; state zaten useAddressNavState
+ * üzerinden akar, bu callback state'in YERİNE geçmez.
+ */
+export type AddressNavOutcome = 'confirmed' | 'multiple' | 'empty' | 'error';
+
+/**
  * Ana giriş noktası: metin veya yakın-hedef sorgusunu çözer ve navigasyonu başlatır.
  *
  * destination özel değerleri:
- *   '__nearby_gas__'     → Overpass yakın benzinlik
- *   '__nearby_parking__' → Overpass yakın otopark
+ *   '__nearby_gas__'      → Overpass yakın benzinlik
+ *   '__nearby_parking__'  → Overpass yakın otopark
+ *   '__nearby_hospital__' → Overpass yakın hastane (NAVIGATION-P0-2)
  */
 export function resolveAndNavigate(
   destination: string,
   location?: { lat: number; lng: number },
+  onResult?: (outcome: AddressNavOutcome) => void,
 ): void {
   const gen = ++_searchGeneration;
 
   _push({
     phase:        'searching',
-    query:        destination === '__nearby_gas__'     ? 'En yakın benzinlik'
-                : destination === '__nearby_parking__' ? 'En yakın otopark'
+    query:        destination === '__nearby_gas__'      ? 'En yakın benzinlik'
+                : destination === '__nearby_parking__'  ? 'En yakın otopark'
+                : destination === '__nearby_hospital__' ? 'En yakın hastane'
                 : destination,
     results:      [],
     selected:     null,
@@ -179,7 +190,7 @@ export function resolveAndNavigate(
     shouldOpenMap: false,
   });
 
-  const isNearby = destination === '__nearby_gas__' || destination === '__nearby_parking__';
+  const isNearby = destination === '__nearby_gas__' || destination === '__nearby_parking__' || destination === '__nearby_hospital__';
 
   // ── Offline-first lookup: internet yoksa önbellek + IndexedDB ────
   if (!isNearby && !navigator.onLine) {
@@ -254,7 +265,9 @@ export function resolveAndNavigate(
   const fetch = isNearby
     ? (location
         ? searchNearby(
-            destination === '__nearby_gas__' ? 'fuel' : 'parking',
+            destination === '__nearby_gas__' ? 'fuel'
+              : destination === '__nearby_parking__' ? 'parking'
+              : 'hospital',
             location.lat,
             location.lng,
           )
@@ -285,6 +298,7 @@ export function resolveAndNavigate(
           _activeTimerId = null;
           if (gen === _searchGeneration) _push({ phase: 'idle' });
         }, 6_000);
+        onResult?.('empty');
         return;
       }
 
@@ -292,11 +306,13 @@ export function resolveAndNavigate(
         // Tek sonuç: direkt rota
         _push({ results });
         _confirmResult(results[0]);
+        onResult?.('confirmed');
         return;
       }
 
       // Çok sonuç: kullanıcı seçimi
       _push({ phase: 'selecting', results });
+      onResult?.('multiple');
     })
     .catch((e: unknown) => {
       if (gen !== _searchGeneration) return;
@@ -311,6 +327,7 @@ export function resolveAndNavigate(
         _activeTimerId = null;
         if (gen === _searchGeneration) _push({ phase: 'idle' });
       }, 6_000);
+      onResult?.('error');
     });
 }
 

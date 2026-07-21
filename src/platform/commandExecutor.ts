@@ -228,6 +228,15 @@ async function dispatchIntent(intent: AppIntent, ctx: CommandContext): Promise<v
         _speak('Yakın park yeri aranıyor', isDriving);
         break;
       }
+      case 'FIND_NEARBY_HOSPITAL': {
+        // Sentinel kullanılır — resolveAndNavigate '__nearby_hospital__'i
+        // Overpass amenity=hospital aramasına eşler (bkz. intentEngine.ts
+        // aynı case, addressNavigationEngine.ts).
+        if (ctx.navigateToPlace) ctx.navigateToPlace('__nearby_hospital__');
+        else ctx.launch(ctx.defaultNav);
+        _speak('Yakın hastane aranıyor', isDriving);
+        break;
+      }
 
       /* ── Müzik ──────────────────────────────────────────── */
       // Genel "müzik aç": harici uygulamayı ÖN PLANA almadan arka planda çal ve

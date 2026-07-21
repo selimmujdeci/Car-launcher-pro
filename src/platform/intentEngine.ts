@@ -33,6 +33,7 @@ export type IntentType =
   | 'NAVIGATE_PLACE'
   | 'FIND_NEARBY_GAS'
   | 'FIND_NEARBY_PARKING'
+  | 'FIND_NEARBY_HOSPITAL'
   | 'OPEN_MUSIC'
   | 'PLAY_MUSIC_SEARCH'
   | 'PLAY_MUSIC_QUERY'
@@ -172,7 +173,7 @@ const CMD_TO_INTENT: Record<CommandType, IntentType> = {
   find_nearby_gas:        'FIND_NEARBY_GAS',
   find_nearby_parking:    'FIND_NEARBY_PARKING',
   find_nearby_restaurant: 'UNKNOWN',
-  find_nearby_hospital:   'UNKNOWN',
+  find_nearby_hospital:   'FIND_NEARBY_HOSPITAL',
   show_traffic:           'OPEN_NAVIGATION',
   open_dashcam:           'UNKNOWN',
   toggle_bluetooth:       'SET_SETTING',
@@ -420,6 +421,14 @@ export async function routeIntent(intent: AppIntent, ctx: RouterContext): Promis
       ctx.navigateToPlace?.('yakın park yeri');
       break;
     }
+    case 'FIND_NEARBY_HOSPITAL': {
+      // Sentinel kullanılır (fuel/parking gibi düz metin DEĞİL) — resolveAndNavigate
+      // bu değeri doğrudan Overpass amenity=hospital aramasına yönlendirir
+      // (bkz. addressNavigationEngine.ts, geocodingService.searchNearby).
+      // Fuel/parking'in düz-metin yolu bilinçli olarak DEĞİŞTİRİLMEDİ (regresyon riski).
+      ctx.navigateToPlace?.('__nearby_hospital__');
+      break;
+    }
     case 'OPEN_SETTINGS':
       ctx.openDrawer('settings');
       break;
@@ -536,7 +545,7 @@ export async function routeIntent(intent: AppIntent, ctx: RouterContext): Promis
 const VALID_INTENTS = new Set<IntentType>([
   'SEARCH_POI',
   'OPEN_NAVIGATION', 'NAVIGATE_ADDRESS', 'NAVIGATE_PLACE',
-  'FIND_NEARBY_GAS', 'FIND_NEARBY_PARKING',
+  'FIND_NEARBY_GAS', 'FIND_NEARBY_PARKING', 'FIND_NEARBY_HOSPITAL',
   'OPEN_MUSIC', 'PLAY_MUSIC_SEARCH', 'PLAY_MUSIC_QUERY', 'ADD_MUSIC_FAVORITE', 'OPEN_PHONE', 'OPEN_APP', 'OPEN_SCREEN', 'OPEN_SETTINGS',
   'PLAY_MEDIA', 'PAUSE_MEDIA', 'MEDIA_NEXT', 'MEDIA_PREV', 'MEDIA_VIDEO_MODE',
   'VOLUME_UP', 'VOLUME_DOWN', 'OPEN_FAVORITES',

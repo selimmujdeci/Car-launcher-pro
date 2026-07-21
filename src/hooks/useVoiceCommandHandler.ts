@@ -193,6 +193,7 @@ async function _speakAndToast(msg: string): Promise<void> {
 }
 
 import { resolveAndNavigate } from '../platform/addressNavigationEngine';
+import { dispatchNearbyPoiNavigation } from '../platform/nearbyPoiNavigation';
 import { getGPSState } from '../platform/gpsService';
 import type { ParsedCommand } from '../platform/commandParser';
 import type { SmartSnapshot } from '../platform/smartEngine';
@@ -276,6 +277,19 @@ export function useVoiceCommandHandler({
       const { settings: s, smart: sm, handleLaunch: launch, updateSettings: update, setDrawer: open, openWeather: showWeather } = voiceCtxRef.current;
       void reportVoiceDiag('voice_command_execute', { command: cmd.type });
       if (cmd.type === 'toggle_sleep_mode') { update({ sleepMode: !s.sleepMode }); return; }
+
+      // "En yakın hastane" — NAVIGATION-P0-2: fuel/parking'in düz resolveAndNavigate
+      // yolundan FARKLI olarak merkezi dispatchNearbyPoiNavigation'a delege edilir
+      // (GPS fail-closed + dedupe + bounded TTS için — bkz. nearbyPoiNavigation.ts).
+      // Fuel/parking BİLİNÇLİ OLARAK değiştirilmedi (regresyon riski).
+      if (cmd.type === 'find_nearby_hospital') {
+        const gps = getGPSState().location;
+        dispatchNearbyPoiNavigation(
+          'hospital',
+          gps ? { lat: gps.latitude, lng: gps.longitude } : undefined,
+        );
+        return;
+      }
 
       // Serbest adres navigasyonu — intentEngine'e geçmeden burada çözülür
       if (

@@ -17,7 +17,8 @@ export type NavIntent =
   | 'navigate_address'
   | 'navigate_place'
   | 'find_nearby_gas'
-  | 'find_nearby_parking';
+  | 'find_nearby_parking'
+  | 'find_nearby_hospital';
 
 export interface ParsedNavAddress {
   intent:      NavIntent;
@@ -119,6 +120,27 @@ export function tryParseNavAddress(rawText: string): ParsedNavAddress | null {
       destination: '__nearby_parking__',
       displayText: 'En yakın otopark',
       feedback:    'En yakın otopark aranıyor',
+    };
+  }
+
+  /* ── Yakın hastane ────────────────────────────────────────
+   * SADECE genel ifadeleri yakalar ("en yakın hastane", "hastane bul",
+   * "doktor bul", "acil servis", "hastaneye git"). İSİMLİ hastane
+   * ("Mersin Şehir Hastanesi'ne git") buraya DÜŞMEMELİ — o navigate_place
+   * olarak kalmalı (aşağıdaki sondan-fiil / PLACE_KEYWORDS akışı işler).
+   * Ayırt edici: iyelik eki "hastanesi" (özel isim + hastane) buradaki
+   * anchored regex'lerle EŞLEŞMEZ; yalnız bare "hastane(ye|yi)?" ve
+   * cümlenin BAŞINDAN İTİBAREN (^) eşleşen kısa kalıplar kabul edilir. */
+  if (
+    /en\s*yakin\s*(hastane|acil)/.test(lower) ||
+    /yakin\w{0,6}\s*hastane/.test(lower) ||
+    /^(acil(e|\s*servis)?|doktor|hastane(ye|yi)?)\s*(bul|git|gotur|goturun)?$/.test(lower)
+  ) {
+    return {
+      intent:      'find_nearby_hospital',
+      destination: '__nearby_hospital__',
+      displayText: 'En yakın hastane',
+      feedback:    'En yakın hastane aranıyor',
     };
   }
 

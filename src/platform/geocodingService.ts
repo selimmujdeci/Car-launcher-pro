@@ -256,14 +256,21 @@ interface OverpassElement {
 }
 
 /**
- * Mevcut konuma yakın benzinlik veya otopark ara — max 5 sonuç, 5 km yarıçap.
+ * Mevcut konuma yakın benzinlik / otopark / hastane ara — max 5 sonuç, 5 km yarıçap.
+ *
+ * NAVIGATION-P0-2: 'hospital' eklendi (amenity=hospital). Tüm tipler için
+ * (fuel dahil — güvenli iyileştirme) koordinat doğrulaması eklendi:
+ *   - 0,0 (Null Island) reddedilir
+ *   - |lat|>90 veya |lng|>180 (sınır dışı) reddedilir
+ *   - yuvarlanmış lat/lng ile tekilleştirilir (Overpass node+way aynı tesisi
+ *     iki kez döndürebilir)
  */
 export async function searchNearby(
-  type:   'fuel' | 'parking',
+  type:   'fuel' | 'parking' | 'hospital',
   lat:    number,
   lng:    number,
 ): Promise<GeoResult[]> {
-  const amenity = type === 'fuel' ? 'fuel' : 'parking';
+  const amenity = type === 'fuel' ? 'fuel' : type === 'parking' ? 'parking' : 'hospital';
   const query   = `[out:json][timeout:10];(node[amenity=${amenity}](around:5000,${lat},${lng});way[amenity=${amenity}](around:5000,${lat},${lng}););out center 5;`;
 
   const { ctrl, clear } = abort(TIMEOUT);
@@ -279,13 +286,21 @@ export async function searchNearby(
   }
 
   const results: GeoResult[] = [];
+  const seen = new Set<string>();
   for (const el of data.elements) {
     const elLat = el.lat ?? el.center?.lat;
     const elLng = el.lon ?? el.center?.lon;
     if (elLat == null || elLng == null) continue;
+    if (!Number.isFinite(elLat) || !Number.isFinite(elLng)) continue;   // malformed
+    if (elLat === 0 && elLng === 0) continue;                          // Null Island reddi
+    if (Math.abs(elLat) > 90 || Math.abs(elLng) > 180) continue;        // sınır-dışı reddi
+
+    const dedupKey = `${elLat.toFixed(5)}_${elLng.toFixed(5)}`;
+    if (seen.has(dedupKey)) continue;
+    seen.add(dedupKey);
 
     const rawName  = el.tags?.name ?? el.tags?.brand ?? el.tags?.operator;
-    const typeName = type === 'fuel' ? 'Benzinlik' : 'Otopark';
+    const typeName = type === 'fuel' ? 'Benzinlik' : type === 'parking' ? 'Otopark' : 'Hastane';
     const name     = rawName ? String(rawName) : typeName;
 
     results.push({
