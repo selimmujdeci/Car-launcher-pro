@@ -2138,6 +2138,29 @@ public class CarLauncherPlugin extends Plugin {
     private static final long  VOSK_VAD_SILENCE_MS   = 1100;   // 900 → 1100 (duraklama toleransı)
     private static final float VOSK_VAD_MIN_THRESH   = 0.010f; // 0.015 → 0.010 (sessiz kabinde daha hassas)
     private static final float VOSK_VAD_FLOOR_FACTOR = 1.9f;   // 2.5 → 1.9 (gürültü tabanına daha yakın konuşmayı yakala)
+    // ── Mikrofon kaynağı prob'u (head unit uyumluluğu) — SAHA 2026-07-19 (Duster)
+    // Bazı head unit'ler mikrofonu yalnız belirli AudioSource'a bağlar; yanlış
+    // kaynak init OLUR ama SIFIR (ölü) ses okur → "dinliyor görünüyor, tanımıyor".
+    // Açılışta adaylar prob edilir: canlı ADC sessizken bile gürültü tabanı verir,
+    // ölü kaynak tam sıfır okur. Sinyal üreten İLK kaynak seçilir (yoksa fallback).
+    private static final long MIC_PROBE_MS          = 350;  // kaynak başına prob süresi (ms)
+    private static final int  MIC_PROBE_MIN_ABS     = 3;    // bu genliğin üstü = canlı gürültü tabanı (0 = ölü)
+    private static final int  MIC_PROBE_MIN_SAMPLES = 12;   // bu kadar canlı örnek → kaynak canlı sayılır
+    // Bir kez SİNYAL üretmiş kaynak burada önbelleklenir → sonraki oturumlarda ÖNCE
+    // denenir (ölü kaynağı her seferinde 350ms prob etmeyiz; dinleme anında başlar,
+    // konuşmanın ilk hecesi prob'a yem olmaz — OEM tepkisellik). -1 = henüz bilinmiyor.
+    private volatile int voskPreferredSource = -1;
+    // HİBRİT STT (2026-07-19): returnAudio=true iken aktif dinleme, yakaladığı (kazançlı)
+    // PCM'i WAV base64 olarak sonuca ekler → JS online'da bulut STT'ye (Gemini/Groq)
+    // gönderir, offline'da Vosk metnini kullanır. TEK yakalama: Vosk + bulut AYNI sesi
+    // kullanır, mikrofon için yarışmaz (modül çakışması yok). Yalnız aktif dinleme
+    // (startSpeechRecognition) bu bayrağı geçer; wake grammar thread + enroll GEÇMEZ.
+    private volatile boolean voskReturnAudio   = false;
+    private volatile String  voskPendingWavB64 = null;   // capture thread → resolveVosk (aynı thread)
+    // OFFLINE KOMUT GRAMMAR'ı (Yol A): JS internetsizken komut sözlüğünü geçer → Vosk
+    // yalnız buna + "[unk]"a kısıtlanır (offline doğruluk fırlar). null = full-vocab.
+    private volatile String  voskActiveGrammarJson = null;
+    private static final int VOSK_WAV_MAX_BYTES = 16000 * 2 * 16; // ~16 sn PCM tavanı (bellek sınırı)
     private volatile float voskGain        = VOSK_GAIN_DEFAULT;
     private volatile long  voskMaxListenMs = VOSK_MAX_LISTEN_MS_DEFAULT;
     // Wake word pasif döngüsü müziği KISMAMALI (sürekli %12 duck = müzik
@@ -2184,6 +2207,24 @@ public class CarLauncherPlugin extends Plugin {
         long reqMaxMs = maxMsOpt != null ? maxMsOpt.longValue() : VOSK_MAX_LISTEN_MS_DEFAULT;
         voskMaxListenMs = Math.max(VOSK_MAX_LISTEN_MIN_MS, Math.min(VOSK_MAX_LISTEN_MAX_MS, reqMaxMs));
         voskDuckEnabled = !Boolean.FALSE.equals(call.getBoolean("duckWhileListening", Boolean.TRUE));
+        // HİBRİT STT: JS online+anahtar varsa returnAudio:true geçer → Vosk yolu yakaladığı
+        // PCM'i WAV base64 olarak sonuca ekler (JS bulut STT'ye gönderir). Google (telefon)
+        // yolu bu bayrağı YOK SAYAR — yalnız Vosk yakalama döngüsü WAV üretir.
+        voskReturnAudio = Boolean.TRUE.equals(call.getBoolean("returnAudio", Boolean.FALSE));
+        // OFFLINE KOMUT GRAMMAR'ı: JS komut sözlüğünü (+ "[unk]") geçerse Vosk'u kısıtla.
+        // Verilmezse (online) null → full-vocab. Kelimeler modelde yoksa Vosk yok sayar.
+        voskActiveGrammarJson = null;
+        try {
+            JSArray gr = call.getArray("grammar");
+            if (gr != null && gr.length() > 0) {
+                org.json.JSONArray gj = new org.json.JSONArray();
+                for (int i = 0; i < gr.length(); i++) {
+                    String w = String.valueOf(gr.get(i)).trim();
+                    if (!w.isEmpty() && !"null".equals(w)) gj.put(w);
+                }
+                if (gj.length() > 0) voskActiveGrammarJson = gj.toString();
+            }
+        } catch (Exception ignored) { voskActiveGrammarJson = null; }
         // YÖNLENDİRME (2026-06-12 saha: "telefonda %40 anlıyor") — Vosk küçük TR modeli
         // araç-içinde yeterli ama telefonda online tanıma çok daha doğru:
         //   • preferOffline=false + Google tanıma MEVCUT (telefon, internetli) → yüksek
@@ -2341,16 +2382,106 @@ public class CarLauncherPlugin extends Plugin {
      * ilk çağrıda filesDir'e açılır (StorageService), sonra RAM'de tutulur.
      * Başarısız olursa Google SpeechRecognizer'a (beginSpeechRecognition) düşülür. */
 
+    // ── STT-LATENCY-2: native Vosk faz enstrümantasyonu (YALNIZ ÖLÇÜM) ──────────
+    // Monotonic (SystemClock.elapsedRealtime) faz zaman damgaları — davranışı ASLA
+    // etkilemez, yalnız resolveVosk/rejectVosk sonucuna bounded telemetry ekler
+    // (transcript/PII/dosya yolu/uuid TAŞINMAZ). Alanlar mutlak elapsedRealtime (ms);
+    // JSON'a yazılırken listenRequestedAt'a göre delta'ya çevrilir (buildSttTelemetryJson),
+    // ulaşılmayan faz (0 kalır) HİÇ YAZILMAZ (açık segment sızmaz). Süre TÜREVİ burada
+    // DEĞİL, saf/test edilebilir src/platform/sttLatencyTelemetry.ts katmanında hesaplanır.
+    private static final class VoskLatencyTelemetry {
+        long listenRequestedAt;
+        long audioRecordStartAt;
+        long firstPcmFrameAt;
+        long vadFloorReadyAt;
+        long firstSpeechDetectedAt;
+        long lastSpeechFrameAt;
+        long speechEndDetectedAt;
+        long decodeStartAt;
+        long decodeEndAt;
+        long bridgeResolveAt;
+        int  pcmFrameCount;
+        int  acceptedWaveformCount;
+        int  sampleRate;
+        int  bufferSize;
+        boolean modelLoadAttempted;
+        boolean modelLoadSucceeded;
+        String  modelSourceCategory;  // preloaded | runtime_retry | unavailable
+        String  modelErrorCategory;   // bounded kategori — HAM hata metni/uuid/yol YOK
+        String  terminalStatus;       // success|no_speech|cancelled|timeout|model_error|audio_error|decode_error
+    }
+
+    /** Aktif oturumun ölçüm nesnesi — tek kullanım, resolveVosk/rejectVosk tüketip null'lar. */
+    private volatile VoskLatencyTelemetry voskTelemetry = null;
+
+    /** STT-LATENCY-2: model yükleme hatasını bounded kategoriye eşler — HAM `reason`
+     *  (dosya yolu/uuid içerebilir, örn. "vosk-model-tr/uuid") ASLA telemetriye taşınmaz,
+     *  yalnız bilinen sabit önek eşlemesi (ensureVoskModel/drainVoskFail — bkz. yukarısı). */
+    private static String categorizeVoskModelError(String reason) {
+        if (reason == null) return "unknown";
+        if (reason.startsWith("model açılamadı"))       return "unpack_failed";
+        if (reason.startsWith("model unpack istisnası")) return "unpack_exception";
+        return "unknown";
+    }
+
+    /** STT-LATENCY-2: `tel`'den bounded, gizlilik-güvenli JSON üretir (delta-from-request ms).
+     *  Ulaşılmamış faz (timestamp==0) alanı HİÇ YAZILMAZ. Transcript/PII/dosya yolu YOK. */
+    private JSObject buildSttTelemetryJson(VoskLatencyTelemetry tel) {
+        JSObject t = new JSObject();
+        long base = tel.listenRequestedAt;
+        putRelMs(t, "audioRecordStartAtMs",    tel.audioRecordStartAt,    base);
+        putRelMs(t, "firstPcmFrameAtMs",       tel.firstPcmFrameAt,      base);
+        putRelMs(t, "vadFloorReadyAtMs",       tel.vadFloorReadyAt,      base);
+        putRelMs(t, "firstSpeechDetectedAtMs", tel.firstSpeechDetectedAt, base);
+        putRelMs(t, "lastSpeechFrameAtMs",     tel.lastSpeechFrameAt,    base);
+        putRelMs(t, "speechEndDetectedAtMs",   tel.speechEndDetectedAt,  base);
+        putRelMs(t, "decodeStartAtMs",         tel.decodeStartAt,        base);
+        putRelMs(t, "decodeEndAtMs",           tel.decodeEndAt,          base);
+        putRelMs(t, "bridgeResolveAtMs",       tel.bridgeResolveAt,      base);
+        if (tel.pcmFrameCount > 0)         t.put("pcmFrameCount", tel.pcmFrameCount);
+        if (tel.acceptedWaveformCount > 0) t.put("acceptedWaveformCount", tel.acceptedWaveformCount);
+        if (tel.sampleRate > 0) t.put("sampleRate", tel.sampleRate);
+        if (tel.bufferSize > 0) t.put("bufferSize", tel.bufferSize);
+        t.put("modelLoadAttempted", tel.modelLoadAttempted);
+        t.put("modelLoadSucceeded", tel.modelLoadSucceeded);
+        if (tel.modelSourceCategory != null) t.put("modelSourceCategory", tel.modelSourceCategory);
+        if (tel.modelErrorCategory  != null) t.put("modelErrorCategory",  tel.modelErrorCategory);
+        if (tel.terminalStatus     != null) t.put("terminalStatus",      tel.terminalStatus);
+        return t;
+    }
+
+    private static void putRelMs(JSObject t, String key, long at, long base) {
+        if (at <= 0 || base <= 0) return; // ulaşılmadı — alan yazılmaz (açık segment sızmaz)
+        t.put(key, at - base);
+    }
+
     private void startVoskRecognition(String language, int maxResults,
                                       boolean preferOffline, boolean onlineFallback) {
         // n-best: Recognizer.setMaxAlternatives için (runVoskListening argümansız çağrılıyor).
         voskMaxAlternatives = Math.max(1, Math.min(5, maxResults));
+        // STT-LATENCY-2: ölçüm oturumu burada başlar (native Vosk yoluna giriş anı).
+        final VoskLatencyTelemetry tel = new VoskLatencyTelemetry();
+        tel.listenRequestedAt = SystemClock.elapsedRealtime();
+        final boolean modelAlreadyWarm;
+        synchronized (voskOnReady) { modelAlreadyWarm = (voskModel != null); }
+        tel.modelLoadAttempted = !modelAlreadyWarm;
+        voskTelemetry = tel;
         // Model yüklemesi (gerekirse) ensureVoskModel'de kuyruklanır — yükleme sürerken
         // gelen istek REDDEDİLMEZ, model hazır olunca dinleme başlar. savedSpeechCall
         // korunur; runVoskListening onu çözer.
         ensureVoskModel(
-            this::runVoskListening,
-            (reason) -> voskFailed(reason, language, maxResults, preferOffline, onlineFallback));
+            () -> {
+                tel.modelLoadSucceeded = true;
+                tel.modelSourceCategory = modelAlreadyWarm ? "preloaded" : "runtime_retry";
+                runVoskListening();
+            },
+            (reason) -> {
+                tel.modelLoadSucceeded = false;
+                tel.modelSourceCategory = "unavailable";
+                tel.modelErrorCategory = categorizeVoskModelError(reason);
+                tel.terminalStatus = "model_error";
+                voskFailed(reason, language, maxResults, preferOffline, onlineFallback);
+            });
     }
 
     /**
@@ -2411,6 +2542,104 @@ public class CarLauncherPlugin extends Plugin {
         } catch (Exception ignored) {}
     }
 
+    /**
+     * Head unit uyumluluğu: mikrofon SİNYALİ üreten AudioSource'u seç.
+     *
+     * SAHA 2026-07-19 (Duster): VOICE_RECOGNITION kaynağı BAŞLATILIYOR ama sıfıra
+     * yakın (ölü) ses okuyordu → ses göstergesi düz, "dinliyor görünüyor ama
+     * tanımıyor". Bazı head unit'ler mikrofonu yalnız MIC / VOICE_COMMUNICATION
+     * kaynağına bağlar. Adaylar sırayla prob edilir; kısa prob'da GERÇEK sinyal
+     * (sıfırdan farklı gürültü tabanı) üreten İLK kaynak seçilir. Hiçbiri sinyal
+     * üretmezse (gerçekten ölü mik / gate'li kaynak) mevcut davranış korunur:
+     * init olan İLK kaynakla devam edilir (fail-soft — regresyon yok).
+     *
+     * Prob RAW okunur (AGC/NS bağlanmaz — NS gürültü tabanını bastırıp canlı
+     * kaynağı "ölü" gösterebilir). Efektler seçimden SONRA çağıran tarafça açılır.
+     *
+     * @return kayda BAŞLAMIŞ AudioRecord (çağıran ayrıca startRecording çağırmaz).
+     */
+    /** Aday kaynak dizisini, önbelleklenmiş tercih (varsa ve dizide varsa) EN ÖNE alacak
+     *  şekilde yeniden sıralar. Tercih yoksa/bulunmazsa diziyi aynen döndürür. */
+    private static int[] orderWithPreferred(int[] base, int preferred) {
+        if (preferred < 0) return base;
+        boolean found = false;
+        for (int s : base) if (s == preferred) { found = true; break; }
+        if (!found) return base;
+        int[] out = new int[base.length];
+        out[0] = preferred;
+        int i = 1;
+        for (int s : base) if (s != preferred) out[i++] = s;
+        return out;
+    }
+
+    private AudioRecord openBestMicRecorder(int bufBytes) {
+        // Sıra: ASR-ideal → en evrensel ham mik → çağrı yolu → sistem → kamera.
+        final int[] base = {
+            MediaRecorder.AudioSource.VOICE_RECOGNITION,
+            MediaRecorder.AudioSource.MIC,
+            MediaRecorder.AudioSource.VOICE_COMMUNICATION,
+            MediaRecorder.AudioSource.DEFAULT,
+            MediaRecorder.AudioSource.CAMCORDER,
+        };
+        // Daha önce sinyal üretmiş kaynağı en öne al (ölü kaynağı yeniden prob etme).
+        final int[] sources = orderWithPreferred(base, voskPreferredSource);
+        AudioRecord firstInited = null; // sinyal bulunamazsa fallback (mevcut davranış)
+        for (int src : sources) {
+            AudioRecord ar = null;
+            try {
+                ar = new AudioRecord(src, VOSK_SAMPLE_RATE, AudioFormat.CHANNEL_IN_MONO,
+                        AudioFormat.ENCODING_PCM_16BIT, bufBytes * 2);
+                if (ar.getState() != AudioRecord.STATE_INITIALIZED) {
+                    try { ar.release(); } catch (Exception ignored) {}
+                    continue;
+                }
+                ar.startRecording();
+                if (micSourceHasSignal(ar, bufBytes)) {
+                    voskPreferredSource = src; // sonraki oturumlar bunu ÖNCE dener
+                    android.util.Log.i("VoskMic", "AudioSource seçildi (sinyal var): " + src);
+                    return ar; // kayda başlamış + sinyal doğrulanmış
+                }
+                // Sinyal yok: ilk init olanı yedekte tut, sonrakini dene.
+                if (firstInited == null) {
+                    firstInited = ar; // yedek — release ETME
+                } else {
+                    try { ar.stop(); } catch (Exception ignored) {}
+                    try { ar.release(); } catch (Exception ignored) {}
+                }
+            } catch (Throwable t) {
+                if (ar != null && ar != firstInited) {
+                    try { ar.release(); } catch (Exception ignored) {}
+                }
+            }
+        }
+        if (firstInited != null) {
+            android.util.Log.w("VoskMic", "Hiçbir kaynak sinyal üretmedi — fallback ilk init kaynağı");
+            return firstInited; // zaten startRecording çağrıldı
+        }
+        throw new IllegalStateException("AudioRecord init başarısız (mikrofon izni/donanım)");
+    }
+
+    /**
+     * Kısa prob: kaynak sıfırdan farklı (canlı) sinyal üretiyor mu? Ölü/yönlendirilmemiş
+     * dijital kaynak genelde tam sıfır okur; canlı ADC sessizken bile gürültü tabanı verir.
+     * Kullanıcı prob sırasında konuşursa zaten anında sinyal görülür.
+     */
+    private boolean micSourceHasSignal(AudioRecord ar, int bufBytes) {
+        short[] probe = new short[bufBytes / 2];
+        long deadline = System.currentTimeMillis() + MIC_PROBE_MS;
+        int nonZero = 0;
+        int emptyReads = 0;
+        while (System.currentTimeMillis() < deadline) {
+            int n = ar.read(probe, 0, probe.length);
+            if (n <= 0) { if (++emptyReads > 8) break; continue; }
+            for (int i = 0; i < n; i++) {
+                int a = probe[i] >= 0 ? probe[i] : -probe[i];
+                if (a >= MIC_PROBE_MIN_ABS && ++nonZero >= MIC_PROBE_MIN_SAMPLES) return true;
+            }
+        }
+        return nonZero >= MIC_PROBE_MIN_SAMPLES;
+    }
+
     private void runVoskListening() {
         // Bekleyen JS çağrısı yoksa (kullanıcı vazgeçti / preload yolu) mikrofonu boşuna açma
         if (savedSpeechCall == null) return;
@@ -2440,50 +2669,73 @@ public class CarLauncherPlugin extends Plugin {
             NoiseSuppressor      ns  = null;
             AcousticEchoCanceler aec = null;
             boolean gotResult = false;
+            // STT-LATENCY-2: ölçüm — yalnız gözlem, hiçbir kararı etkilemez.
+            final VoskLatencyTelemetry tel = voskTelemetry;
+            String telPhase = "audio_init"; // catch bloğunda hata kategorisi için
             try {
                 int minBuf = AudioRecord.getMinBufferSize(VOSK_SAMPLE_RATE,
                         AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT);
                 if (minBuf <= 0) minBuf = VOSK_SAMPLE_RATE; // güvenli taban
                 int bufBytes = Math.max(minBuf, VOSK_SAMPLE_RATE / 2); // ~250ms pencere
 
-                // VOICE_RECOGNITION: ASR için tasarlı kaynak; AGC/NS'yi biz açıyoruz.
-                recorder = new AudioRecord(MediaRecorder.AudioSource.VOICE_RECOGNITION,
-                        VOSK_SAMPLE_RATE, AudioFormat.CHANNEL_IN_MONO,
-                        AudioFormat.ENCODING_PCM_16BIT, bufBytes * 2);
-                if (recorder.getState() != AudioRecord.STATE_INITIALIZED) {
-                    try { recorder.release(); } catch (Exception ignored) {}
-                    // Bazı head unit'lerde VOICE_RECOGNITION kaynağı yok → MIC'e düş
-                    recorder = new AudioRecord(MediaRecorder.AudioSource.MIC,
-                            VOSK_SAMPLE_RATE, AudioFormat.CHANNEL_IN_MONO,
-                            AudioFormat.ENCODING_PCM_16BIT, bufBytes * 2);
+                // Head unit uyumluluğu: SİNYAL üreten AudioSource'u seç (Duster saha
+                // 2026-07-19: VOICE_RECOGNITION init oluyor ama ölü/sıfır ses okuyordu →
+                // "dinliyor görünüyor, tanımıyor"). Kayda BAŞLAMIŞ recorder döner.
+                recorder = openBestMicRecorder(bufBytes);
+                if (tel != null) {
+                    tel.audioRecordStartAt = SystemClock.elapsedRealtime();
+                    tel.sampleRate = VOSK_SAMPLE_RATE;
+                    tel.bufferSize = bufBytes;
                 }
-                if (recorder.getState() != AudioRecord.STATE_INITIALIZED) {
-                    throw new IllegalStateException("AudioRecord init başarısız (mikrofon izni/donanım)");
-                }
+                telPhase = "recognizer_init";
 
-                // Donanım ses efektleri — araç içi alçak ses + yol gürültüsü için kritik
+                // Donanım ses efektleri — araç içi alçak ses + yol gürültüsü için kritik.
+                // Prob'tan SONRA bağlanır: NS gürültü tabanını bastırıp canlı kaynağı
+                // "ölü" gösterebilirdi; seçim raw sinyalle yapılır, efektler burada açılır.
                 int sid = recorder.getAudioSessionId();
                 try { if (AutomaticGainControl.isAvailable())  { agc = AutomaticGainControl.create(sid);  if (agc != null) agc.setEnabled(true); } } catch (Exception ignored) {}
                 try { if (NoiseSuppressor.isAvailable())       { ns  = NoiseSuppressor.create(sid);        if (ns  != null) ns.setEnabled(true);  } } catch (Exception ignored) {}
                 try { if (AcousticEchoCanceler.isAvailable())  { aec = AcousticEchoCanceler.create(sid);   if (aec != null) aec.setEnabled(true); } } catch (Exception ignored) {}
 
-                recognizer = new Recognizer(voskModel, (float) VOSK_SAMPLE_RATE);
+                // OFFLINE KOMUT GRAMMAR'ı (Yol A): varsa Vosk'u komut sözlüğüne kısıtla
+                // (offline doğruluk fırlar). Grammar kurulamazsa full-vocab'a düş (fail-soft).
+                String activeGrammar = voskActiveGrammarJson;
+                if (activeGrammar != null) {
+                    try {
+                        recognizer = new Recognizer(voskModel, (float) VOSK_SAMPLE_RATE, activeGrammar);
+                    } catch (Throwable grammarErr) {
+                        recognizer = new Recognizer(voskModel, (float) VOSK_SAMPLE_RATE);
+                    }
+                } else {
+                    recognizer = new Recognizer(voskModel, (float) VOSK_SAMPLE_RATE);
+                }
                 // n-best: >1 istenirse Vosk alternatifleri JSON'da {"alternatives":[...]} döndürür.
-                if (voskMaxAlternatives > 1) {
+                // NOT: grammar modunda setMaxAlternatives Vosk'ta çelişebilir → yalnız full-vocab'da.
+                if (voskMaxAlternatives > 1 && activeGrammar == null) {
                     try { recognizer.setMaxAlternatives(voskMaxAlternatives); } catch (Throwable ignored) {}
                 }
-                recorder.startRecording();
+                // recorder ZATEN kayıtta (openBestMicRecorder startRecording çağırdı).
 
                 short[] buf = new short[bufBytes / 2];
                 int rmsThrottle = 0;
+                // HİBRİT STT: returnAudio iken kazançlı PCM burada birikir → finalize'da
+                // WAV base64. Bounded (VOSK_WAV_MAX_BYTES). returnAudio=false ise hiç
+                // ayrılmaz (wake/enroll yolu maliyet görmez).
+                java.io.ByteArrayOutputStream pcm =
+                    voskReturnAudio ? new java.io.ByteArrayOutputStream(64 * 1024) : null;
                 // RMS-VAD durumu (pencere ~250ms): taban öğrenimi → konuşma → sessizlik
                 double vadFloorSum = 0; int vadFloorWin = 0; double vadFloor = 0;
                 boolean vadSpeechSeen = false; long vadSilenceStart = 0;
+                telPhase = "capture";
                 while (voskCapturing && !Thread.currentThread().isInterrupted()) {
                     int n = recorder.read(buf, 0, buf.length);
                     if (n <= 0) {
                         if (System.currentTimeMillis() - startedAt > sessionMaxMs) break;
                         continue;
+                    }
+                    if (tel != null) {
+                        if (tel.firstPcmFrameAt == 0) tel.firstPcmFrameAt = SystemClock.elapsedRealtime();
+                        tel.pcmFrameCount++;
                     }
                     // ADAPTİF yazılım kazancı: pencere tepesine göre kazanç sınırlanır —
                     // naif clamp dalgayı tepeden kesip distorsiyon yaratıyordu (yakın
@@ -2505,6 +2757,10 @@ public class CarLauncherPlugin extends Plugin {
                         buf[i] = (short) v;
                         sumSq += (double) v * v;
                     }
+                    // HİBRİT STT: kazançlı PCM'i biriktir (little-endian 16-bit), tavana kadar.
+                    if (pcm != null && pcm.size() < VOSK_WAV_MAX_BYTES) {
+                        for (int i = 0; i < n; i++) { pcm.write(buf[i] & 0xFF); pcm.write((buf[i] >> 8) & 0xFF); }
+                    }
                     if (++rmsThrottle >= 2) {
                         rmsThrottle = 0;
                         double rms = Math.sqrt(sumSq / n) / 32768.0;
@@ -2513,11 +2769,24 @@ public class CarLauncherPlugin extends Plugin {
                         notifyListeners("rmsData", d);
                     }
 
-                    if (recognizer.acceptWaveForm(buf, n)) {
+                    boolean endpointHit = recognizer.acceptWaveForm(buf, n);
+                    if (endpointHit) {
+                        if (tel != null) tel.acceptedWaveformCount++;
                         // Endpoint (konuşma + sessizlik) → sonuç hazır
+                        telPhase = "decode";
+                        if (tel != null) {
+                            tel.speechEndDetectedAt = SystemClock.elapsedRealtime();
+                            tel.decodeStartAt = tel.speechEndDetectedAt;
+                        }
                         String json = recognizer.getResult();
+                        if (tel != null) tel.decodeEndAt = SystemClock.elapsedRealtime();
                         String text = extractVoskText(json);
-                        if (text != null && !text.isEmpty()) { gotResult = true; resolveVosk(text, extractVoskAlternatives(json)); break; }
+                        if (text != null && !text.isEmpty()) {
+                            gotResult = true;
+                            if (tel != null) tel.terminalStatus = "success";
+                            resolveVoskWithAudio(text, extractVoskAlternatives(json), pcm);
+                            break;
+                        }
                     }
 
                     // ── RMS-VAD endpoint yardımcısı ─────────────────────────
@@ -2530,16 +2799,32 @@ public class CarLauncherPlugin extends Plugin {
                     } else {
                         double thresh = Math.max(vadFloor * VOSK_VAD_FLOOR_FACTOR, VOSK_VAD_MIN_THRESH);
                         if (vadRms >= thresh) {
+                            if (tel != null) {
+                                long now = SystemClock.elapsedRealtime();
+                                if (!vadSpeechSeen) tel.firstSpeechDetectedAt = now;
+                                tel.lastSpeechFrameAt = now;
+                            }
                             vadSpeechSeen = true; vadSilenceStart = 0;
                         } else if (vadSpeechSeen) {
                             long nowMs = System.currentTimeMillis();
                             if (vadSilenceStart == 0) vadSilenceStart = nowMs;
                             else if (nowMs - vadSilenceStart >= VOSK_VAD_SILENCE_MS) {
                                 gotResult = true; // final iki kez ÇAĞRILMAZ (aşağıdaki blok atlanır)
+                                telPhase = "decode";
+                                if (tel != null) {
+                                    tel.speechEndDetectedAt = SystemClock.elapsedRealtime();
+                                    tel.decodeStartAt = tel.speechEndDetectedAt;
+                                }
                                 String json = recognizer.getFinalResult();
+                                if (tel != null) tel.decodeEndAt = SystemClock.elapsedRealtime();
                                 String text = extractVoskText(json);
-                                if (text != null && !text.isEmpty()) resolveVosk(text, extractVoskAlternatives(json));
-                                else rejectVosk("No speech detected");
+                                if (text != null && !text.isEmpty()) {
+                                    if (tel != null) tel.terminalStatus = "success";
+                                    resolveVoskWithAudio(text, extractVoskAlternatives(json), pcm);
+                                } else {
+                                    if (tel != null) tel.terminalStatus = "no_speech";
+                                    finishNoSpeech(pcm);
+                                }
                                 break;
                             }
                         }
@@ -2548,12 +2833,30 @@ public class CarLauncherPlugin extends Plugin {
                 }
 
                 if (!gotResult && voskCapturing) {
+                    telPhase = "decode";
+                    if (tel != null) {
+                        long now = SystemClock.elapsedRealtime();
+                        tel.speechEndDetectedAt = now;
+                        tel.decodeStartAt = now;
+                    }
                     String json = recognizer.getFinalResult();
+                    if (tel != null) tel.decodeEndAt = SystemClock.elapsedRealtime();
                     String text = extractVoskText(json);
-                    if (text != null && !text.isEmpty()) resolveVosk(text, extractVoskAlternatives(json));
-                    else rejectVosk("No speech detected"); // JS bunu sessizce idle eder
+                    if (text != null && !text.isEmpty()) {
+                        if (tel != null) tel.terminalStatus = "success";
+                        resolveVoskWithAudio(text, extractVoskAlternatives(json), pcm);
+                    } else {
+                        // Site A (Vosk endpoint) / Site B (RMS-VAD sessizlik) hiç tetiklenmedi,
+                        // maxListenMs tavanı doldu → "timeout" (finishNoSpeech no_speech'ten ayrışır).
+                        if (tel != null) tel.terminalStatus = "timeout";
+                        finishNoSpeech(pcm); // boş: WAV varsa buluta şans (yoksa eski sessiz idle)
+                    }
                 }
             } catch (Throwable th) {
+                if (tel != null && tel.terminalStatus == null) {
+                    tel.terminalStatus = "recognizer_init".equals(telPhase) ? "model_error"
+                        : "decode".equals(telPhase) ? "decode_error" : "audio_error";
+                }
                 if (voskCapturing) rejectVosk("Vosk başlatılamadı: " + th.getMessage());
             } finally {
                 voskCapturing = false;
@@ -2571,9 +2874,43 @@ public class CarLauncherPlugin extends Plugin {
 
     private void resolveVosk(String text) { resolveVosk(text, null); }
 
+    /** HİBRİT STT — Vosk BOŞ döndü: WAV yakalandıysa (returnAudio + online) BOŞ metin +
+     *  WAV ile ÇÖZ → JS bulut STT'ye (Whisper/Gemini) gönderir (tam da Vosk'un başarısız
+     *  olduğu an bulut kurtarır). WAV yoksa (offline/kapalı) eski davranış: sessiz reddet.
+     *  SAHA 2026-07-19: eskiden boşta hep reddediliyordu → mik ses alsa bile bulut hiç
+     *  denenmiyordu ("dinliyor ama boş"). */
+    private void finishNoSpeech(java.io.ByteArrayOutputStream pcm) {
+        if (voskReturnAudio && pcm != null && pcm.size() > 0) {
+            resolveVoskWithAudio("", java.util.Collections.<String>emptyList(), pcm);
+        } else {
+            rejectVosk("No speech detected");
+        }
+    }
+
+    /** HİBRİT STT: birikmiş PCM'i WAV base64'e çevir (returnAudio iken), sonra resolveVosk.
+     *  WAV yalnız sonuca (audioWav) eklenir; Vosk metni yine döner → bulut başarısızsa JS
+     *  Vosk'a düşer (fail-soft, tek yakalama). */
+    private void resolveVoskWithAudio(String text, java.util.List<String> alts,
+                                      java.io.ByteArrayOutputStream pcm) {
+        if (voskReturnAudio && pcm != null && pcm.size() > 0) {
+            try { voskPendingWavB64 = encodeWavBase64(pcm.toByteArray()); }
+            catch (Throwable ignored) { voskPendingWavB64 = null; }
+        }
+        resolveVosk(text, alts);
+    }
+
     private void resolveVosk(String text, java.util.List<String> alts) {
         PluginCall c = savedSpeechCall;
         savedSpeechCall = null;
+        String wav = voskPendingWavB64;   // tek kullanım — hemen temizle (stale sızıntısı yok)
+        voskPendingWavB64 = null;
+        // STT-LATENCY-2: tek kullanım — hemen temizle (stale sızıntısı yok).
+        VoskLatencyTelemetry tel = voskTelemetry;
+        voskTelemetry = null;
+        if (tel != null) {
+            tel.bridgeResolveAt = SystemClock.elapsedRealtime();
+            if (tel.terminalStatus == null) tel.terminalStatus = "success";
+        }
         if (c != null) {
             JSObject r = new JSObject();
             r.put("transcript", text);
@@ -2582,18 +2919,52 @@ public class CarLauncherPlugin extends Plugin {
             if (alts != null && !alts.isEmpty()) { for (String a : alts) arr.put(a); }
             else if (text != null && !text.isEmpty()) { arr.put(text); }
             r.put("alternatives", arr);
+            // HİBRİT: WAV varsa ekle → JS online'da bulut STT'ye gönderir (Vosk metni yedek).
+            if (wav != null) r.put("audioWav", wav);
+            // STT-LATENCY-2: bounded ölçüm metadata'sı (transcript/PII taşımaz).
+            if (tel != null) r.put("sttTelemetry", buildSttTelemetryJson(tel));
             c.resolve(r);
         }
         stopVosk();
     }
 
+    /** PCM16 mono 16kHz → WAV (44 bayt header) → base64. */
+    private static String encodeWavBase64(byte[] pcm) {
+        int sr = VOSK_SAMPLE_RATE, ch = 1, bits = 16;
+        int byteRate = sr * ch * bits / 8, blockAlign = ch * bits / 8;
+        int dataLen = pcm.length, riffLen = 36 + dataLen;
+        byte[] w = new byte[44 + dataLen];
+        writeAscii(w, 0, "RIFF");   writeLE32(w, 4, riffLen);   writeAscii(w, 8, "WAVE");
+        writeAscii(w, 12, "fmt ");  writeLE32(w, 16, 16);       writeLE16(w, 20, 1); // PCM
+        writeLE16(w, 22, ch);       writeLE32(w, 24, sr);       writeLE32(w, 28, byteRate);
+        writeLE16(w, 32, blockAlign); writeLE16(w, 34, bits);
+        writeAscii(w, 36, "data");  writeLE32(w, 40, dataLen);
+        System.arraycopy(pcm, 0, w, 44, dataLen);
+        return android.util.Base64.encodeToString(w, android.util.Base64.NO_WRAP);
+    }
+    private static void writeAscii(byte[] b, int off, String s) { for (int i = 0; i < s.length(); i++) b[off + i] = (byte) s.charAt(i); }
+    private static void writeLE16(byte[] b, int off, int v) { b[off] = (byte) (v & 0xFF); b[off + 1] = (byte) ((v >> 8) & 0xFF); }
+    private static void writeLE32(byte[] b, int off, int v) { b[off] = (byte) (v & 0xFF); b[off + 1] = (byte) ((v >> 8) & 0xFF); b[off + 2] = (byte) ((v >> 16) & 0xFF); b[off + 3] = (byte) ((v >> 24) & 0xFF); }
+
     private void rejectVosk(String msg) {
         PluginCall c = savedSpeechCall;
         savedSpeechCall = null;
+        // STT-LATENCY-2: tek kullanım — hemen temizle (stale sızıntısı yok).
+        VoskLatencyTelemetry tel = voskTelemetry;
+        voskTelemetry = null;
+        if (tel != null) {
+            tel.bridgeResolveAt = SystemClock.elapsedRealtime();
+            if (tel.terminalStatus == null) tel.terminalStatus = "audio_error"; // bilinmeyen native hata — güvenli varsayılan
+        }
         // Capacitor imzası reject(MESAJ, kod) — eskiden ("NO_RESULT", msg) ters veriliyordu →
         // JS'e err.message="NO_RESULT" gidiyor, gerçek Vosk sebebi kod alanında kayboluyor →
         // yanıltıcı "internet gerekli" mesajı. Gerçek sebebi MESAJ olarak ver.
-        if (c != null) c.reject(msg, "NO_RESULT");
+        // STT-LATENCY-2: reject(msg, code, data) — data yalnız bounded ölçüm metadata'sı
+        // (transcript/PII taşımaz), Capacitor bunu JS'te err.data olarak teslim eder.
+        if (c != null) {
+            if (tel != null) c.reject(msg, "NO_RESULT", buildSttTelemetryJson(tel));
+            else c.reject(msg, "NO_RESULT");
+        }
         stopVosk();
     }
 
@@ -2764,18 +3135,13 @@ public class CarLauncherPlugin extends Plugin {
                     // her pencerede partial kontrolü yapılır.
                     int frameSamples = Math.max(minBuf / 2, VOSK_SAMPLE_RATE / 10);
 
-                    recorder = new AudioRecord(MediaRecorder.AudioSource.VOICE_RECOGNITION,
-                            VOSK_SAMPLE_RATE, AudioFormat.CHANNEL_IN_MONO,
-                            AudioFormat.ENCODING_PCM_16BIT, frameSamples * 4);
-                    if (recorder.getState() != AudioRecord.STATE_INITIALIZED) {
-                        try { recorder.release(); } catch (Exception ignored) {}
-                        recorder = new AudioRecord(MediaRecorder.AudioSource.MIC,
-                                VOSK_SAMPLE_RATE, AudioFormat.CHANNEL_IN_MONO,
-                                AudioFormat.ENCODING_PCM_16BIT, frameSamples * 4);
-                    }
-                    if (recorder.getState() != AudioRecord.STATE_INITIALIZED) {
-                        throw new IllegalStateException("AudioRecord init başarısız");
-                    }
+                    // Head unit uyumluluğu (Duster saha 2026-07-19): wake thread de
+                    // SİNYAL üreten AudioSource'u seçmeli. Aktif dinleme düzeldi ama
+                    // "hey mavi" hâlâ ölü kalıyordu çünkü bu thread eski tek-kaynak
+                    // VOICE_RECOGNITION'ı kullanıyordu (Duster'da o kaynak sıfır ses okur).
+                    // openBestMicRecorder kayda BAŞLAMIŞ döner (aşağıda startRecording YOK).
+                    // frameSamples*2 → AudioRecord buffer frameSamples*4 bayt (eski davranış).
+                    recorder = openBestMicRecorder(frameSamples * 2);
 
                     // NO DUCKING (Faz 5, bilinçli): requestAudioFocus YOK,
                     // duckMusicForListening YOK — pasif dinleme müziğe görünmezdir.
@@ -2787,7 +3153,7 @@ public class CarLauncherPlugin extends Plugin {
                         // Fail-soft: grammar desteklenmiyorsa tam sözlük (eşleşme yine contains)
                         recognizer = new Recognizer(voskModel, (float) VOSK_SAMPLE_RATE);
                     }
-                    recorder.startRecording();
+                    // recorder ZATEN kayıtta (openBestMicRecorder startRecording çağırdı).
 
                     final float gain = wakeWordGain;
                     short[] buf = new short[frameSamples];

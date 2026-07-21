@@ -5,6 +5,7 @@
 import { registerPlugin } from '@capacitor/core';
 import type { PluginListenerHandle } from '@capacitor/core';
 import type { VehicleHALData } from './vehicleDataLayer/types';
+import type { RawSttTelemetry } from './sttLatencyTelemetry';
 
 export interface LaunchAppOptions {
   packageName?: string; // startActivity by package
@@ -202,6 +203,10 @@ export interface SpeechRecognitionResult {
   /** HİBRİT STT: returnAudio:true iken Vosk yolunun yakaladığı ses (WAV base64).
    *  Yalnız Vosk yolunda gelir (Google yolu üretmez). JS bulut STT'ye gönderir. */
   audioWav?: string;
+  /** STT-LATENCY-2: yalnız native Vosk yolunda gelir (Google yolu üretmez) — bounded
+   *  faz zaman damgaları/sayaçlar (transcript/PII/dosya yolu YOK). Süre türetimi
+   *  saf src/platform/sttLatencyTelemetry.ts#deriveSttLatencyMetrics ile yapılır. */
+  sttTelemetry?: RawSttTelemetry;
 }
 
 /* ── Contacts types ──────────────────────────────────────── */

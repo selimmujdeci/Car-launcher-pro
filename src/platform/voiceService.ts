@@ -27,6 +27,7 @@ import { showToast } from './errorBus';
 import { VOICE_TUNING } from './voiceTuning';
 import { reportVoiceDiag } from './voiceDiagService';
 import { pushTrail } from './diagnosticTrailCore';  // çekirdek: ağır obd/store zinciri GİRMESİN
+import { deriveSttLatencyMetrics, recordSttLatencyMetrics, type RawSttTelemetry } from './sttLatencyTelemetry';
 
 /* ── Types ───────────────────────────────────────────────── */
 
@@ -1500,6 +1501,11 @@ export function startListening(opts?: StartListeningOpts): void {
           _stopNativeVolumeListener();
           unduckMedia();
           const voskTranscript = result.transcript?.trim() ?? '';
+          // STT-LATENCY-2: native Vosk yolunda geldiyse (Google yolu üretmez) türet +
+          // yerel halkaya kaydet — YALNIZ ÖLÇÜM, hiçbir kararı etkilemez.
+          if (result.sttTelemetry) {
+            recordSttLatencyMetrics(deriveSttLatencyMetrics(result.sttTelemetry));
+          }
           // HİBRİT STT: native WAV döndürdüyse (Vosk yolu + online) bulut STT dene.
           // Vosk BOŞ dönse bile WAV varsa denenir (Vosk kaçırdığını bulut yakalayabilir).
           const wav = (result as { audioWav?: string }).audioWav;
@@ -1553,6 +1559,12 @@ export function startListening(opts?: StartListeningOpts): void {
           clearTimeout(sttFailsafe);
           _stopNativeVolumeListener();
           unduckMedia();
+          // STT-LATENCY-2: native reject(msg,code,data) → Capacitor err.data'ya kopyalar
+          // (native-bridge.js: result.error alanları err üstüne taşınır). YALNIZ ÖLÇÜM.
+          const sttTelemetry = (err as { data?: RawSttTelemetry } | null | undefined)?.data;
+          if (sttTelemetry) {
+            recordSttLatencyMetrics(deriveSttLatencyMetrics(sttTelemetry));
+          }
           const msg = err instanceof Error ? err.message : String(err ?? '');
           // cancel/abort/timeout/no-speech → kullanıcı vazgeçti veya sessiz kaldı → sessizce idle
           // "Ses algılanamadı" hatasından ayrı tutulur: bu yol kullanıcıyı suçlamaz
