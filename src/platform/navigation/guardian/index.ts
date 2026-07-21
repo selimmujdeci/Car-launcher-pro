@@ -31,6 +31,16 @@ export {
 } from './adapters/guardianAdapterRegistry';
 
 export {
+  buildGuardianRawPlatformData,
+  type GuardianProviderSources,
+} from './providers/guardianProviderRegistry';
+export type { GpsSource, RawGpsData } from './providers/gpsSource';
+export type { MapSource, RawMapData } from './providers/mapSource';
+export type { ObdSource } from './providers/obdSource';
+export type { WeatherSource } from './providers/weatherSource';
+export type { DriverSource } from './providers/driverSource';
+
+export {
   evaluateCurveRisk,
   CURVE_RISK_RULE_ID,
   type CurveRiskInput,
