@@ -57,6 +57,15 @@ export {
   type GpsSourcePolicy,
   type GpsServiceSourceDependencies,
 } from './providers/concrete/gpsServiceSource';
+// NOT: concrete OBD binding (`createObdServiceHealthPort`) obdService'i import
+// eder (import-time yan etki) → BİLİNÇLİ olarak bu barrel'dan dışa VERİLMEZ;
+// wiring onu doğrudan `providers/concrete/obdServiceHealthPort`ten alır.
+export {
+  createObdServiceSource,
+  type ObdHealthPort,
+  type ObdHealthSnapshot,
+  type ObdServiceSourceDependencies,
+} from './providers/concrete/obdServiceSource';
 
 export {
   evaluateCurveRisk,
