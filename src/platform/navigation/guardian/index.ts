@@ -60,4 +60,12 @@ export {
   type VehicleHealthOilPressureThresholds,
   type VehicleHealthBatteryVoltageThresholds,
   type VehicleHealthBooleanSeverities,
+  evaluateRoadHazardRisk,
+  ROAD_HAZARD_RULE_ID,
+  type RoadHazardRiskInput,
+  type RoadHazardInput,
+  type RoadHazardRiskPolicyInput,
+  type RoadHazardSeverityByHazard,
+  type RoadHazardSeverityOrNone,
+  type RoadHazardType,
 } from './rules';

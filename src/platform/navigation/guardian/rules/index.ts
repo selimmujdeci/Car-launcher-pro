@@ -1,5 +1,5 @@
 /**
- * Guardian Rules — barrel — GUARDIAN-AI-G2/G3/G4/G5/G6.
+ * Guardian Rules — barrel — GUARDIAN-AI-G2/G3/G4/G5/G6/G7.
  *
  * Her kural SAF bir fonksiyondur, `GuardianRuleResult` üretir.
  * `guardianEngine.ts`e OTOMATİK bağlanmaz — DI ile wiring katmanı bağlar
@@ -60,3 +60,14 @@ export {
   type VehicleHealthBatteryVoltageThresholds,
   type VehicleHealthBooleanSeverities,
 } from './vehicleHealthRule';
+
+export {
+  evaluateRoadHazardRisk,
+  ROAD_HAZARD_RULE_ID,
+  type RoadHazardRiskInput,
+  type RoadHazardInput,
+  type RoadHazardRiskPolicyInput,
+  type RoadHazardSeverityByHazard,
+  type RoadHazardSeverityOrNone,
+  type RoadHazardType,
+} from './roadHazardRule';
