@@ -360,6 +360,43 @@ export function setMaviMechanicEnabled(enabled: boolean): void {
   _mechanicCached = null;
 }
 
+/* ── Alt tercih: AI Usta GEÇMİŞİ (Faz 2 — tekrar/eğilim/tazelik) ──────────── */
+
+/**
+ * Geçmiş yorumu, MEVCUT bus geçmişi + MEVCUT Vehicle Memory'nin SALT OKUNUR
+ * yorumudur; teşhisi değiştirmez, hiçbir yere yazmaz. Kendi şalteri vardır:
+ * varsayılan KAPALI ve AI Usta kapalıyken açılamaz (zincirleme fail-closed).
+ */
+export const AI_MECHANIC_HISTORY_REMOTE_FLAG = 'mavi_ai_mechanic_history';
+export const AI_MECHANIC_HISTORY_LOCAL_FLAG  = 'mavi.aiMechanicHistory.enabled';
+
+let _mechanicHistoryCached: boolean | null = null;
+
+export function isMaviMechanicHistoryEnabled(): boolean {
+  if (!isMaviMechanicEnabled()) return false;
+  if (_mechanicHistoryCached === null) {
+    let local = false;
+    try {
+      local = typeof localStorage !== 'undefined'
+        && localStorage.getItem(AI_MECHANIC_HISTORY_LOCAL_FLAG) === 'true';
+    } catch { local = false; }
+    let remote = false;
+    try { remote = getFlag(AI_MECHANIC_HISTORY_REMOTE_FLAG) === true; } catch { remote = false; }
+    _mechanicHistoryCached = remote || local;
+  }
+  return _mechanicHistoryCached;
+}
+
+export function setMaviMechanicHistoryEnabled(enabled: boolean): void {
+  try {
+    if (typeof localStorage !== 'undefined') {
+      if (enabled) localStorage.setItem(AI_MECHANIC_HISTORY_LOCAL_FLAG, 'true');
+      else         localStorage.removeItem(AI_MECHANIC_HISTORY_LOCAL_FLAG);
+    }
+  } catch { /* depo kilitli */ }
+  _mechanicHistoryCached = null;
+}
+
 /**
  * Şalteri kullanıcı tercihine göre AÇAR/KAPATIR (ayarlar ekranı).
  *
@@ -388,4 +425,7 @@ export function _resetAiGatewayFlagForTest(): void {
   _contextCached = null;
   _memoryCached = null;
   _toolsCached = null;
+  _plannerCached = null;
+  _mechanicCached = null;
+  _mechanicHistoryCached = null;
 }

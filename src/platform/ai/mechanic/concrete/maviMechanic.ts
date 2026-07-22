@@ -15,6 +15,7 @@ import { getLastAiMechanicResult } from '../../../system/platformCoreAiRuntimeWi
 import { isMaviMechanicEnabled } from '../../gateway/aiGatewayFlag';
 import { mapMechanicReport, type MechanicReportLike } from '../mechanicMapper';
 import { serializeMechanicDiagnosis } from '../mechanicSerializer';
+import { buildMechanicInsightBlock } from './maviMechanicHistory';
 import type { MechanicDiagnosis, MechanicTelemetry } from '../mechanicTypes';
 
 /** aiCore ajan kimliği — rapor bu ajandan seçilir. */
@@ -52,8 +53,13 @@ export function buildMechanicBlock(): MechanicOutcome {
     const diagnosis = mapMechanicReport(report ?? null);
     const block = serializeMechanicDiagnosis(diagnosis);
 
+    /* Faz 2 — geçmiş/eğilim/tazelik YORUMU. Teşhis bloğu DEĞİŞMEZ; yorum ayrı
+       bütçeli İKİNCİ blok olarak eklenir. Kendi şalteri kapalıysa boş gelir.
+       Teşhis bloğu boşsa yorum TEK BAŞINA gönderilmez (bağlamsız yorum olmaz). */
+    const insightBlock = block ? buildMechanicInsightBlock(diagnosis, Date.now()).block : '';
+
     return {
-      block,
+      block: insightBlock ? `${block}\n\n${insightBlock}` : block,
       diagnosis,
       telemetry: {
         enabled:           true,
