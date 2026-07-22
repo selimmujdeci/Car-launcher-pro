@@ -101,6 +101,18 @@ function _pruneStale(): void {
  * Dışarı exception KAÇIRMAZ. İDEMPOTENT (ikinci çağrı yeni abonelik AÇMAZ). Bus yoksa fail-soft
  * no-op (boot sürer).
  */
+/**
+ * CANLI araç hafızası deposu — Faz-2'de KURULAN örneğin salt-okunur referansı.
+ * YENİ DEPO DEĞİL: burada zaten oluşturulan `VehicleMemoryStore` paylaşılır ki
+ * Mavi hafıza katmanı İKİNCİ bir depo kurmasın. Runtime kapanınca temizlenir.
+ */
+let _liveVehicleMemory: VehicleMemoryStore | null = null;
+
+/** Canlı araç hafızası (yoksa null → çağıran fail-closed davranır). */
+export function getLiveVehicleMemoryStore(): VehicleMemoryStore | null {
+  return _liveVehicleMemory;
+}
+
 export function startPlatformCoreAiRuntimeWiring(deps: AiRuntimeWiringDeps = {}): AiRuntimeWiringCleanup {
   let runtime: AiCoreRuntime | null = null;
   try {
@@ -116,6 +128,7 @@ export function startPlatformCoreAiRuntimeWiring(deps: AiRuntimeWiringDeps = {})
     let orchestrator = deps.orchestrator;
     if (!orchestrator) {
       const memory = deps.memory ?? createVehicleMemoryStore();
+      _liveVehicleMemory = memory;              // paylaşımlı referans (yeni depo YOK)
       orchestrator = new AiOrchestrator({ memory });
       orchestrator.register(aiMechanic);
     }
@@ -139,6 +152,7 @@ export function startPlatformCoreAiRuntimeWiring(deps: AiRuntimeWiringDeps = {})
         logError('aiRuntimeWiring:cleanup', e);    // cleanup hatası shutdown'ı engellemez
       }
       if (_active === own) _active = null;         // yalnız KENDİ kaydını siler
+      _liveVehicleMemory = null;                   // referans bırakılmaz (zero-leak)
     };
   } catch (e) {
     if (runtime && _active === runtime) _active = null;   // yarım kayıt bırakma

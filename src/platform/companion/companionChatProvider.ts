@@ -1786,7 +1786,37 @@ export async function tryCompanionBrain(
   if (safetyReply) return { kind: 'chat', response: safetyReply, route: 'companion_safety' };
 
   const result = await runCompanionBrain(raw, opts, allowOnline);
-  return _postGateBrain(result, ctx, isDriving);
+  const gated = _postGateBrain(result, ctx, isDriving);
+  _noteSessionAction(gated);
+  return gated;
+}
+
+/**
+ * KISA DÖNEM HAFIZA (Faz-2 wiring): bu oturumda Mavi'nin GERÇEKTEN YAPTIĞI
+ * işleri kaydeder — konuşma metnini DEĞİL.
+ *
+ * Neden yalnız aksiyonlar: ham konuşma zaten `_history` ile taşınıyor; onu
+ * hafızaya da yazmak veriyi ÇOĞALTIR. "Bu oturumda ne yaptım" ise ayrı ve
+ * yararlı bir sinyaldir ("onu tekrar aç" gibi devam cümleleri için).
+ *
+ * Gizlilik: yalnız hafıza özelliği AÇIK ve İZİN VERİLMİŞKEN yazılır
+ * (kullanamayacağımız veriyi toplamayız); depo YALNIZ RAM'dir; her kayıt
+ * hassas-veri kapısından geçer. Hata isteği ETKİLEMEZ (fail-soft).
+ */
+function _noteSessionAction(result: CompanionBrainResult | null): void {
+  if (!result || result.kind !== 'action') return;
+  const feedback = result.semantic?.feedback;
+  if (typeof feedback !== 'string' || !feedback.trim()) return;
+  void (async () => {
+    try {
+      const [{ isMaviMemoryEnabled, getMaviMemoryConsent }, { rememberShortTerm }] = await Promise.all([
+        import('../ai/gateway/aiGatewayFlag'),
+        import('../ai/memory/shortTermMemory'),
+      ]);
+      if (!isMaviMemoryEnabled() || getMaviMemoryConsent() !== 'memory') return;
+      rememberShortTerm(feedback, _now());
+    } catch { /* hafıza yazımı asistanı ETKİLEMEZ */ }
+  })();
 }
 
 /* ── ASR müzik sorgu onarımı (yerel parser yakaladığında) ───── *

@@ -9,13 +9,19 @@
  * Yazma/silme yolları DEĞİŞTİRİLMEZ: kullanıcı "şunu hatırla/unut" dediğinde
  * mevcut akış aynen çalışır; bu dosya yalnız OKUR.
  *
- * Araç geçmişi bugün OPSİYONELDİR: `vehicleMemory` deposu uygulamada henüz
- * wire edilmemiştir ve aktif araç fingerprint'i sağlanmadan okunamaz. Bu yüzden
- * fingerprint DI ile gelir; yoksa araç geçmişi BOŞ döner (uydurma yok).
+ * ── FAZ-2: ARAÇ GEÇMİŞİ ARTIK CANLI ────────────────────────────────────────
+ * Depo `SystemBoot` içindeki AI runtime wiring'de ZATEN kuruluyor; buraya o
+ * örneğin salt-okunur referansı bağlanır (`getLiveVehicleMemoryStore`).
+ * Fingerprint `vehicleHal.getVehicleIdentity()`ten gelir ve YALNIZ
+ * `supported` iken taşınır (ham VIN İÇERMEZ — aiCore halAdapter'ıyla aynı
+ * kural). İkisinden biri yoksa geçmiş BOŞ döner (fail-closed, uydurma yok).
+ * DI ile ezilebilir (test/izolasyon).
  */
 
 import { getFacts } from '../../../companion/companionMemory';
 import { getShortTermMemory } from '../shortTermMemory';
+import { getLiveVehicleMemoryStore } from '../../../system/platformCoreAiRuntimeWiring';
+import { vehicleHal } from '../../../vehicleHal';
 import type { MemoryRecord, MemorySources } from '../memoryTypes';
 
 /** Araç geçmişi okuyucusu — depo + aktif fingerprint DI ile verilir. */
@@ -33,7 +39,49 @@ export interface MaviMemorySourcesDeps {
  * Üretim kaynak seti. Tüm okumalar fail-soft: kaynak patlarsa boş liste döner
  * ve motor diğer türlerle devam eder.
  */
+/**
+ * VARSAYILAN araç geçmişi bağlaması — Faz-2.
+ *
+ * İKİ otorite de MEVCUTTUR, yenisi kurulmaz:
+ *   - depo        ← `platformCoreAiRuntimeWiring.getLiveVehicleMemoryStore()`
+ *                   (SystemBoot'ta zaten kurulan `VehicleMemoryStore`)
+ *   - fingerprint ← `vehicleHal.getVehicleIdentity()` (ham VIN İÇERMEZ; yalnız
+ *                   `supported` iken hash taşınır — aiCore'un halAdapter'ıyla
+ *                   AYNI kural)
+ * Herhangi biri yoksa BOŞ döner (fail-closed, uydurma yok).
+ */
+function defaultVehicleFingerprint(): string | undefined {
+  try {
+    const identity = vehicleHal.getVehicleIdentity();
+    if (!identity || identity.supported !== true) return undefined;
+    const hash = identity.fingerprintHash;
+    return typeof hash === 'string' && hash ? hash : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function defaultVehicleHistoryPort(): VehicleHistoryPort | undefined {
+  try {
+    const store = getLiveVehicleMemoryStore();
+    if (!store) return undefined;                 // runtime kapalı → geçmiş yok
+    return {
+      recall: (fingerprintHash: string) => store.recall(fingerprintHash).map((f) => ({
+        statement:  f.statement,
+        confidence: f.confidence,
+        lastSeen:   f.lastSeen,
+      })),
+    };
+  } catch {
+    return undefined;
+  }
+}
+
 export function createMaviMemorySources(deps: MaviMemorySourcesDeps = {}): MemorySources {
+  // DI verilmezse CANLI otoriteler kullanılır (yeni depo kurulmaz).
+  const fingerprintOf = deps.vehicleFingerprint ?? defaultVehicleFingerprint;
+  const historyPort   = deps.vehicleHistory     ?? defaultVehicleHistoryPort();
+
   return {
     readUserPreferences: (): readonly string[] => {
       try {
@@ -45,8 +93,8 @@ export function createMaviMemorySources(deps: MaviMemorySourcesDeps = {}): Memor
 
     readVehicleHistory: () => {
       try {
-        const port = deps.vehicleHistory;
-        const fingerprint = deps.vehicleFingerprint?.();
+        const port = historyPort;
+        const fingerprint = fingerprintOf();
         if (!port || !fingerprint) return [];       // otorite yok → BOŞ (uydurma yok)
         return port.recall(fingerprint);
       } catch {
