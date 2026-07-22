@@ -24,6 +24,8 @@ export interface OperatorRecipe {
   readonly hints?:          PlannerHints;
   /** MEVCUT AI Usta bloğu (teşhis + geçmiş + Bilgi Beyni açıklamaları) eklensin mi. */
   readonly includeMechanic: boolean;
+  /** Kullanıcının verdiği ARIZA KODU için MEVCUT Bilgi Beyni açıklaması eklensin mi. */
+  readonly includeKnowledgeForCode?: boolean;
 }
 
 /**
@@ -56,6 +58,13 @@ export const OPERATOR_TASKS: Readonly<Record<OperatorTaskId, OperatorRecipe>> = 
   diagnosis_summary: {
     label:           'Son teşhis özeti',
     includeMechanic: true,
+  },
+  // Belirli arıza kodu açıklaması — yeni araç sorgusu YOK; MEVCUT Bilgi Beyni'ni
+  // kullanıcının verdiği koda (ör. P0401) uygular. Plan/teşhis çalıştırmaz.
+  knowledge_explanation: {
+    label:                  'Arıza kodu açıklaması',
+    includeMechanic:        false,
+    includeKnowledgeForCode: true,
   },
   // Tek birleşik rapor — tüm salt-okunur veriler + teşhis + geçmiş + bilgi.
   unified_report: {

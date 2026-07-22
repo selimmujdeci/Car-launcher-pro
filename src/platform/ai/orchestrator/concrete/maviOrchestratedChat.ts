@@ -47,6 +47,11 @@ import { executePlan, type PlanExecutionOutcome } from '../../planner/planExecut
 import { derivePlannerHints } from '../../planner/plannerIntent';
 import { buildMechanicBlock } from '../../mechanic/concrete/maviMechanic';
 import type { MaviPlan } from '../../planner/plannerTypes';
+import { isMaviOperatorChatEnabled } from '../../gateway/aiGatewayFlag';
+import { resolveOperatorIntent } from '../../operator/intent/operatorIntentResolver';
+import { presentOperatorOutcome } from '../../operator/intent/operatorPresenter';
+import { runMaviOperator } from '../../operator/concrete/maviOperator';
+import type { OperatorReport } from '../../operator/operatorTypes';
 
 /** Monotonik saat — clock-jump güvenli (CLAUDE.md §4). */
 const clock = { nowMs: (): number => (typeof performance !== 'undefined' ? performance.now() : 0) };
@@ -258,6 +263,48 @@ function withPlanResults(system: string, block: string): string {
   return block ? `${system}\n\n${block}` : system;
 }
 
+/**
+ * OPERATÖR (Faz 2): kullanıcı mesajını DETERMİNİSTİK niyet motoruyla çözer ve
+ * uygun MEVCUT operatör görevini güvenle çalıştırıp sonucu ETİKETLİ blok olarak
+ * döndürür. Kapı: `isMaviOperatorChatEnabled()` (Operatör→gateway'e zincirli,
+ * varsayılan KAPALI). Kapalıysa BOŞ blok → system prompt AYNEN kalır.
+ *
+ * Güvenlik: niyet allowlist görev kataloğuna eşlenir; belirsiz→netleştirme,
+ * araç-dışı→boş, yazma→onay notu (çalıştırma YOK). Operatör alt kapıları
+ * (planner/tools/mechanic/knowledge + salt-okunur yürütme) BYPASS EDİLMEZ.
+ * timeout/signal zinciri operatöre AYNEN geçirilir. ASLA throw etmez.
+ */
+async function runOperatorForRequest(
+  userText: string | undefined,
+  signal?: AbortSignal,
+  timeoutMs?: number,
+): Promise<{ block: string }> {
+  try {
+    if (!safeBool(() => isMaviOperatorChatEnabled())) return { block: '' };
+
+    const intent = resolveOperatorIntent(userText);
+
+    // Görev çözülmediyse (chat/clarify/needs_approval) operatör ÇALIŞTIRILMAZ.
+    let report: OperatorReport | undefined;
+    if (intent.kind === 'operator_task' && intent.taskId) {
+      report = await runMaviOperator(intent.taskId, {
+        ...(signal    ? { signal }    : {}),
+        ...(timeoutMs !== undefined ? { timeoutMs } : {}),
+        ...(intent.code ? { code: intent.code } : {}),
+      });
+    }
+
+    return { block: presentOperatorOutcome(intent, report) };
+  } catch {
+    return { block: '' };                // operatör hatası isteği DÜŞÜRMEZ
+  }
+}
+
+/** Operatör bloğunu system prompt'a ekler (boşsa AYNEN döner). */
+function withOperator(system: string, block: string): string {
+  return block ? `${system}\n\n${block}` : system;
+}
+
 function safeBool(read: () => boolean): boolean {
   try { return read() === true; } catch { return false; }
 }
@@ -289,6 +336,13 @@ export async function askOrchestratedChat(params: OrchestratedChatParams): Promi
      ÇALIŞTIRILMAZ. Plan ve sonuçlar İSTEK-SCOPE'tur. */
   const planRun = await runPlanForRequest(task, params.classifyText ?? params.user, params.signal);
 
+  /* OPERATÖR (Faz 2): kendi şalteri açıksa (varsayılan KAPALI) kullanıcı mesajı
+     deterministik niyet motoruyla çözülür ve uygun operatör görevi güvenle
+     çalıştırılıp ETİKETLİ blok döndürülür. İSTEK-SCOPE; şalter kapalıysa boş. */
+  const operatorRun = await runOperatorForRequest(
+    params.classifyText ?? params.user, params.signal, params.timeoutMs,
+  );
+
   const gateway = params.gateway ?? getDefaultAiGateway();
 
   /* ARAÇLAR (Faz 2): yalnız gerçekten destekleyen bir sağlayıcı varsa ve
@@ -298,7 +352,10 @@ export async function askOrchestratedChat(params: OrchestratedChatParams): Promi
 
   const baseRequest: AiGenerateRequest = {
     messages: buildChatMessages(
-      withDiagnosis(withPlanResults(withMemory(withVehicleContext(params.system, task, clock.nowMs()), task), planRun.block)),
+      withOperator(
+        withDiagnosis(withPlanResults(withMemory(withVehicleContext(params.system, task, clock.nowMs()), task), planRun.block)),
+        operatorRun.block,
+      ),
       params.user, params.history,
     ),
     ...(params.timeoutMs   !== undefined ? { timeoutMs:   params.timeoutMs }   : {}),

@@ -199,4 +199,27 @@ describe('aiGatewayFlag — varsayılan KAPALI, tek şalter', () => {
     m._resetAiGatewayFlagForTest();
     expect(m.isMaviOperatorEnabled()).toBe(false);
   });
+
+  it('Operatör SOHBET bağlaması — varsayılan KAPALI, Operatör’e zincirli', async () => {
+    vi.doMock('../platform/remoteConfigService', () => ({ getFlag: () => false }));
+    const m = await import('../platform/ai/gateway/aiGatewayFlag');
+
+    expect(m.isMaviOperatorChatEnabled()).toBe(false);
+
+    // Yalnız chat yerel açık ama üst zincir kapalı → HÂLÂ kapalı.
+    localStorage.setItem('mavi.aiOperatorChat.enabled', 'true');
+    m._resetAiGatewayFlagForTest();
+    expect(m.isMaviOperatorChatEnabled()).toBe(false);
+
+    // Gateway + Operatör açık → chat bağlaması açılır.
+    localStorage.setItem('mavi.aiGateway.enabled', 'true');
+    localStorage.setItem('mavi.aiOperator.enabled', 'true');
+    m._resetAiGatewayFlagForTest();
+    expect(m.isMaviOperatorChatEnabled()).toBe(true);
+
+    // Operatör kapanınca chat bağlaması da kapanır (zincirleme fail-closed).
+    localStorage.removeItem('mavi.aiOperator.enabled');
+    m._resetAiGatewayFlagForTest();
+    expect(m.isMaviOperatorChatEnabled()).toBe(false);
+  });
 });

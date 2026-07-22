@@ -472,6 +472,45 @@ export function setMaviOperatorEnabled(enabled: boolean): void {
     }
   } catch { /* depo kilitli */ }
   _operatorCached = null;
+  _operatorChatCached = null;
+}
+
+/* ── Alt tercih: Operatör SOHBET BAĞLAMASI (Intent Engine → orchestrated chat) ── */
+
+/**
+ * Operatör'ün orkestre sohbet akışına bağlanması (Faz 2). Niyet motoru kullanıcı
+ * mesajını çözer ve uygun görevi çalıştırıp sonucu system prompt'a EKLER. Kendi
+ * şalteri vardır: varsayılan KAPALI ve Operatör kapalıyken açılamaz (zincirleme
+ * fail-closed). Kapalıyken mevcut sohbet davranışı BAYT BAYT aynıdır.
+ */
+export const AI_OPERATOR_CHAT_REMOTE_FLAG = 'mavi_ai_operator_chat';
+export const AI_OPERATOR_CHAT_LOCAL_FLAG  = 'mavi.aiOperatorChat.enabled';
+
+let _operatorChatCached: boolean | null = null;
+
+export function isMaviOperatorChatEnabled(): boolean {
+  if (!isMaviOperatorEnabled()) return false;          // üst şalter kapalıysa asla
+  if (_operatorChatCached === null) {
+    let local = false;
+    try {
+      local = typeof localStorage !== 'undefined'
+        && localStorage.getItem(AI_OPERATOR_CHAT_LOCAL_FLAG) === 'true';   // YALNIZ tam "true"
+    } catch { local = false; }
+    let remote = false;
+    try { remote = getFlag(AI_OPERATOR_CHAT_REMOTE_FLAG) === true; } catch { remote = false; }
+    _operatorChatCached = remote || local;
+  }
+  return _operatorChatCached;
+}
+
+export function setMaviOperatorChatEnabled(enabled: boolean): void {
+  try {
+    if (typeof localStorage !== 'undefined') {
+      if (enabled) localStorage.setItem(AI_OPERATOR_CHAT_LOCAL_FLAG, 'true');
+      else         localStorage.removeItem(AI_OPERATOR_CHAT_LOCAL_FLAG);
+    }
+  } catch { /* depo kilitli */ }
+  _operatorChatCached = null;
 }
 
 /**
@@ -507,4 +546,5 @@ export function _resetAiGatewayFlagForTest(): void {
   _mechanicHistoryCached = null;
   _mechanicKnowledgeCached = null;
   _operatorCached = null;
+  _operatorChatCached = null;
 }

@@ -20,11 +20,13 @@ import { diagnoseDtc } from '../../../diagnosticKnowledgeEngine';
 import { isMaviMechanicKnowledgeEnabled } from '../../gateway/aiGatewayFlag';
 import {
   buildVehicleKnowledgeReport,
+  buildKnowledgeCard,
+  MAX_KNOWLEDGE_CODES,
   type KnowledgeSource,
 } from '../knowledgeMapper';
 import { serializeVehicleKnowledge } from '../knowledgeSerializer';
 import type { MechanicDiagnosis } from '../mechanicTypes';
-import type { KnowledgeTelemetry, VehicleKnowledgeReport } from '../knowledgeTypes';
+import type { KnowledgeTelemetry, VehicleKnowledgeCard, VehicleKnowledgeReport } from '../knowledgeTypes';
 
 export interface KnowledgeOutcome {
   /** System prompt'a eklenecek etiketli blok; yoksa BOŞ. */
@@ -67,6 +69,41 @@ export function buildVehicleKnowledgeBlock(diagnosis: MechanicDiagnosis | undefi
     if (!diagnosis) return { ...DISABLED, telemetry: { ...DISABLED.telemetry, enabled: true } };
 
     const report = buildVehicleKnowledgeReport(diagnosis, resolveKnowledge);
+    const block = serializeVehicleKnowledge(report);
+
+    return {
+      block,
+      report,
+      telemetry: {
+        enabled:        true,
+        requestedCount: report.requestedCodes.length,
+        foundCount:     report.cards.filter((c) => c.found).length,
+        cardCount:      report.cards.length,
+      },
+    };
+  } catch {
+    return { ...DISABLED, telemetry: { ...DISABLED.telemetry, enabled: true } };
+  }
+}
+
+/**
+ * KULLANICININ VERDİĞİ arıza kodları için bilgi notu üretir (ör. "P0401 ne demek?").
+ * Teşhisten değil, doğrudan kod listesinden çalışır — MEVCUT Bilgi Beyni saf
+ * fonksiyonlarını (buildKnowledgeCard + serializeVehicleKnowledge) yeniden kullanır.
+ * YENİ MOTOR/DEPO YOK, yeni OBD sorgusu YOK. Aynı şalter kapısına tabidir
+ * (fail-closed). Kod bilgi tabanında yoksa AÇIKÇA belirtilir (uydurma yok).
+ */
+export function buildVehicleKnowledgeBlockForCodes(codes: readonly string[]): KnowledgeOutcome {
+  try {
+    if (!isMaviMechanicKnowledgeEnabled()) return DISABLED;
+
+    const bounded = [...new Set((codes ?? [])
+      .filter((c): c is string => typeof c === 'string' && !!c)
+      .map((c) => c.toUpperCase()))].slice(0, MAX_KNOWLEDGE_CODES);
+    if (bounded.length === 0) return { ...DISABLED, telemetry: { ...DISABLED.telemetry, enabled: true } };
+
+    const cards: VehicleKnowledgeCard[] = bounded.map((code) => buildKnowledgeCard(code, resolveKnowledge(code)));
+    const report: VehicleKnowledgeReport = { cards, requestedCodes: bounded, available: true };
     const block = serializeVehicleKnowledge(report);
 
     return {

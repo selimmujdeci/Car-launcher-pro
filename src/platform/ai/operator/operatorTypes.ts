@@ -18,14 +18,15 @@ import type { PlanStepReason } from '../planner/plannerTypes';
 
 /** Operatörün desteklediği çok-adımlı görevler (kapalı küme). */
 export type OperatorTaskId =
-  | 'health_check'        // Araç sağlık kontrolü
-  | 'dtc_report'          // Hata kodlarını oku ve raporla
-  | 'status_summary'      // Araç durum özeti
-  | 'diagnosis_summary'   // Son teşhisleri özetle
-  | 'unified_report';     // Tek birleşik rapor
+  | 'health_check'         // Araç sağlık kontrolü (intent: vehicle_health_check)
+  | 'dtc_report'           // Hata kodlarını oku ve raporla
+  | 'status_summary'       // Araç durum özeti (intent: vehicle_status_summary)
+  | 'diagnosis_summary'    // Son teşhisleri özetle
+  | 'knowledge_explanation'// Belirli arıza kodu açıklaması (Bilgi Beyni, kod bazlı)
+  | 'unified_report';      // Tek birleşik rapor (intent: unified_vehicle_report)
 
 /** Rapor bölümü kaynağı. */
-export type OperatorSectionKind = 'plan_execution' | 'mechanic';
+export type OperatorSectionKind = 'plan_execution' | 'mechanic' | 'knowledge';
 
 /** Bölümün sonucu. */
 export type OperatorSectionStatus = 'executed' | 'empty' | 'skipped' | 'failed';

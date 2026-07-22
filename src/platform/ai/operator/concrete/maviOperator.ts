@@ -19,6 +19,7 @@
 import { planWithRouter } from '../../planner/concrete/maviPlannerRuntime';
 import { executePlan } from '../../planner/planExecutor';
 import { buildMechanicBlock } from '../../mechanic/concrete/maviMechanic';
+import { buildVehicleKnowledgeBlockForCodes } from '../../mechanic/concrete/maviMechanicKnowledge';
 import { isMaviOperatorEnabled } from '../../gateway/aiGatewayFlag';
 import {
   runOperatorTask,
@@ -31,6 +32,8 @@ import type { OperatorReport, OperatorTaskId } from '../operatorTypes';
 export interface OperatorRunOptions {
   readonly signal?:    AbortSignal;
   readonly timeoutMs?: number;
+  /** knowledge_explanation için kullanıcıdan çıkarılmış arıza kodu (ör. P0401). */
+  readonly code?:      string;
 }
 
 function disabledReport(taskId: OperatorTaskId, enabled: boolean): OperatorReport {
@@ -74,9 +77,15 @@ export async function runMaviOperator(
       mechanicBlock(): string {
         return buildMechanicBlock().block;               // MEVCUT AI Usta bloğu
       },
+      knowledgeForCode(code: string): string {
+        return buildVehicleKnowledgeBlockForCodes([code]).block;  // MEVCUT Bilgi Beyni
+      },
     };
 
-    return await runOperatorTask(taskId, caps, opts.signal ? { signal: opts.signal } : {});
+    return await runOperatorTask(taskId, caps, {
+      ...(opts.signal ? { signal: opts.signal } : {}),
+      ...(opts.code   ? { code:   opts.code }   : {}),
+    });
   } catch {
     return disabledReport(taskId, true);                 // fail-closed
   }

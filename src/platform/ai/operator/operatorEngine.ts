@@ -54,10 +54,14 @@ export interface OperatorCapabilities {
   planAndExecute(taskType: MaviTaskType, hints: PlannerHints | undefined): Promise<PlanSectionResult>;
   /** MEVCUT AI Usta bloğu (teşhis + geçmiş + Bilgi Beyni). */
   mechanicBlock(): string;
+  /** MEVCUT Bilgi Beyni — belirli arıza kodu açıklaması (opsiyonel yetenek). */
+  knowledgeForCode?(code: string): string;
 }
 
 export interface OperatorRunContext {
   readonly signal?: AbortSignal;
+  /** knowledge_explanation için kullanıcıdan çıkarılmış arıza kodu (bounded, sanitize). */
+  readonly code?:   string;
 }
 
 /* ── Onay bekleyen adımların toplanması ────────────────────────────────────── */
@@ -186,6 +190,18 @@ export async function runOperatorTask(
       block = '';                                          // fail-soft
     }
     sections.push({ kind: 'mechanic', status: block ? 'executed' : 'empty', block });
+  }
+
+  /* 3) MEVCUT Bilgi Beyni — belirli koda göre açıklama (knowledge_explanation).
+     Kod yoksa/yetenek yoksa bölüm eklenmez (uydurma yok). İptal → atla. */
+  if (recipe.includeKnowledgeForCode && ctx.code && !ctx.signal?.aborted) {
+    let block = '';
+    try {
+      block = caps.knowledgeForCode?.(ctx.code) || '';
+    } catch {
+      block = '';                                          // fail-soft
+    }
+    sections.push({ kind: 'knowledge', status: block ? 'executed' : 'empty', block });
   }
 
   const { block, truncated } = assembleOperatorBlock(recipe, sections, pending);
