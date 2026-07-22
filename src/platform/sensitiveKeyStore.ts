@@ -308,7 +308,12 @@ export const sensitiveKeyStore = {
       // dirilirdi. Recovery boş değerle ezilir; cihaz blob sync'i güncel
       // değerleri nativeGet ile topladığından silinen anahtar otomatik düşer.
       await _recoverySet(key, '');
-      if (RECOVERY_KEYS.includes(key)) void _deviceBackupSync();
+      // ⚠️ AWAIT ZORUNLU (fire-and-forget DEĞİL): blob senkronu beklenmezse,
+      // silmenin hemen ardından gelen bir get() ESKİ blob'u okuyup silinen
+      // anahtarı GERİ DİRİLTEBİLİR ("silinen anahtar tekrar gelmesin" ihlali).
+      // set() yolunda beklememek serbesttir (orada eski blob zararsızdır),
+      // silmede değil.
+      if (RECOVERY_KEYS.includes(key)) await _deviceBackupSync();
       return;
     }
     const store = _webLoadRaw();
