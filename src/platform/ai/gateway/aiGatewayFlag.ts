@@ -92,6 +92,75 @@ export function setMaviOrchestratorEnabled(enabled: boolean): void {
   _orchestratorCached = null;                        // bir sonraki okumada tazelenir
 }
 
+/* ── Alt tercih: Araç Bağlamı (Context Engine) ────────────────────────────── */
+
+/**
+ * Bağlam enjeksiyonu, gateway hattının AYRI bir alt tercihidir ve İKİ KAPI
+ * gerektirir:
+ *   1) özellik şalteri (`mavi.aiContext.enabled` / uzak bayrak)
+ *   2) KULLANICI İZNİ (`mavi.aiContext.consent` === 'vehicle_context')
+ * İkisi de olmadan araç verisi AI'ya GÖNDERİLMEZ. Varsayılan: KAPALI + izin YOK.
+ *
+ * Not: bunlar gizli veri değil KULLANICI TERCİHİDİR; diğer Mavi alt tercihleriyle
+ * aynı mekanizmada tutulur (anahtar/sır depolamasıyla karıştırılmaz).
+ */
+export const AI_CONTEXT_REMOTE_FLAG = 'mavi_ai_context';
+export const AI_CONTEXT_LOCAL_FLAG  = 'mavi.aiContext.enabled';
+export const AI_CONTEXT_CONSENT_KEY = 'mavi.aiContext.consent';
+
+/** İzin seviyeleri — konum izni bu fazda YOK. */
+export type MaviContextConsent = 'off' | 'vehicle_context';
+
+let _contextCached: boolean | null = null;
+
+export function isMaviContextEnabled(): boolean {
+  if (!isAiGatewayEnabled()) return false;            // üst şalter kapalıysa asla
+  if (_contextCached === null) {
+    let local = false;
+    try {
+      local = typeof localStorage !== 'undefined'
+        && localStorage.getItem(AI_CONTEXT_LOCAL_FLAG) === 'true';
+    } catch { local = false; }
+    let remote = false;
+    try { remote = getFlag(AI_CONTEXT_REMOTE_FLAG) === true; } catch { remote = false; }
+    _contextCached = remote || local;
+  }
+  return _contextCached;
+}
+
+/**
+ * Kullanıcının bağlam izni. Değer okunamaz/tanınmazsa FAIL-CLOSED (`off`) —
+ * belirsiz profil/misafir durumunda araç verisi paylaşılmaz.
+ */
+export function getMaviContextConsent(): MaviContextConsent {
+  try {
+    if (typeof localStorage === 'undefined') return 'off';
+    return localStorage.getItem(AI_CONTEXT_CONSENT_KEY) === 'vehicle_context'
+      ? 'vehicle_context'
+      : 'off';                                        // YALNIZ tam eşleşme açar
+  } catch {
+    return 'off';
+  }
+}
+
+export function setMaviContextConsent(level: MaviContextConsent): void {
+  try {
+    if (typeof localStorage === 'undefined') return;
+    if (level === 'vehicle_context') localStorage.setItem(AI_CONTEXT_CONSENT_KEY, 'vehicle_context');
+    else                             localStorage.removeItem(AI_CONTEXT_CONSENT_KEY);
+  } catch { /* depo kilitli */ }
+}
+
+export function setMaviContextEnabled(enabled: boolean): void {
+  try {
+    if (typeof localStorage !== 'undefined') {
+      if (enabled) localStorage.setItem(AI_CONTEXT_LOCAL_FLAG, 'true');
+      else         localStorage.removeItem(AI_CONTEXT_LOCAL_FLAG);
+    }
+  } catch { /* depo kilitli */ }
+  _contextCached = null;
+}
+
 /**
  * Şalteri kullanıcı tercihine göre AÇAR/KAPATIR (ayarlar ekranı).
  *
@@ -117,4 +186,5 @@ export function setAiGatewayEnabled(enabled: boolean): void {
 export function _resetAiGatewayFlagForTest(): void {
   _cached = null;
   _orchestratorCached = null;
+  _contextCached = null;
 }

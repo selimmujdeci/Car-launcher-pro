@@ -28,6 +28,11 @@ import {
   recordProviderSuccess,
 } from '../providerHealthStore';
 import type { MaviTaskType } from '../orchestratorTypes';
+import { getMaviContextConsent, isMaviContextEnabled } from '../../gateway/aiGatewayFlag';
+import { collectMaviContext } from '../../context/contextCollector';
+import { serializeMaviContext, type SerializedContext } from '../../context/contextSerializer';
+import { createMaviContextSources } from '../../context/concrete/maviContextSources';
+import type { ContextTelemetry } from '../../context/contextTypes';
 
 /** Monotonik saat — clock-jump güvenli (CLAUDE.md §4). */
 const clock = { nowMs: (): number => (typeof performance !== 'undefined' ? performance.now() : 0) };
@@ -58,6 +63,72 @@ export interface OrchestratedChatParams extends GatewayChatParams {
 export interface OrchestratedChatResult {
   readonly outcome:   GatewayChatOutcome;
   readonly telemetry: ExecutionTelemetry;
+  /** Bağlam enjeksiyonunun GÜVENLİ metadata'sı (değer/kod TAŞIMAZ). */
+  readonly context?:  ContextTelemetry;
+}
+
+/** Son bağlam telemetrisi (yalnız güvenli sayaçlar) — test/teşhis içindir. */
+let _lastContextTelemetry: ContextTelemetry | undefined;
+
+/** @internal */
+export function _getLastContextTelemetry(): ContextTelemetry | undefined {
+  return _lastContextTelemetry;
+}
+
+/**
+ * Araç bağlamını İKİ KAPIDAN geçirerek system prompt'a EKLER.
+ *
+ * Kapılar (ikisi de gerekli, fail-closed):
+ *   1) özellik şalteri açık   2) kullanıcı izni `vehicle_context`
+ * Herhangi biri yoksa system prompt AYNEN döner — araç verisi gönderilmez.
+ *
+ * Bağlam AYRI ve AÇIK ETİKETLİ bir blok olarak system seviyesinde taşınır:
+ * kullanıcı mesajı DEĞİŞTİRİLMEZ, bağlam kullanıcı yazmış gibi gösterilmez.
+ * Toplama/serileştirme hatası isteği DÜŞÜRMEZ — bağlamsız devam edilir.
+ */
+function withVehicleContext(system: string, task: MaviTaskType, nowMs: number): string {
+  const enabled = safeBool(() => isMaviContextEnabled());
+  const consent = safeConsent();
+  const record = (outcome: ContextTelemetry['contextOutcome'], s?: SerializedContext, durationMs = 0): void => {
+    _lastContextTelemetry = {
+      taskType:             task,
+      contextEnabled:       enabled,
+      consentGranted:       consent === 'vehicle_context',
+      contextFieldCount:    s?.fieldCount ?? 0,
+      staleFieldCount:      s?.staleFieldCount ?? 0,
+      droppedFieldCount:    s?.droppedFieldCount ?? 0,
+      collectionDurationMs: durationMs,
+      contextSourceCount:   s?.sourceCount ?? 0,
+      contextOutcome:       outcome,
+    };
+  };
+
+  if (!enabled)                        { record('disabled');   return system; }
+  if (consent !== 'vehicle_context')   { record('no_consent'); return system; }
+
+  const started = clock.nowMs();
+  try {
+    const context = collectMaviContext({ taskType: task, nowMs, sources: createMaviContextSources() });
+    const serialized = serializeMaviContext(context, nowMs);
+    const durationMs = Math.max(0, clock.nowMs() - started);
+
+    if (!serialized.text) { record('empty', serialized, durationMs); return system; }
+    record('injected', serialized, durationMs);
+    return `${system}\n\n${serialized.text}`;
+  } catch {
+    // Bağlam hatası AI çağrısını ENGELLEMEZ; yanlış veri göndermektense
+    // bağlamsız devam edilir.
+    record('unavailable', undefined, Math.max(0, clock.nowMs() - started));
+    return system;
+  }
+}
+
+function safeBool(read: () => boolean): boolean {
+  try { return read() === true; } catch { return false; }
+}
+
+function safeConsent(): string {
+  try { return getMaviContextConsent(); } catch { return 'off'; }
 }
 
 /**
@@ -90,7 +161,7 @@ export async function askOrchestratedChat(params: OrchestratedChatParams): Promi
       ...(params.vehicleConnected !== undefined ? { vehicleConnected: params.vehicleConnected } : {}),
     },
     request: {
-      messages: buildChatMessages(params.system, params.user, params.history),
+      messages: buildChatMessages(withVehicleContext(params.system, task, clock.nowMs()), params.user, params.history),
       ...(params.timeoutMs   !== undefined ? { timeoutMs:   params.timeoutMs }   : {}),
       ...(params.maxTokens   !== undefined ? { maxTokens:   params.maxTokens }   : {}),
       ...(params.temperature !== undefined ? { temperature: params.temperature } : {}),
@@ -111,6 +182,7 @@ export async function askOrchestratedChat(params: OrchestratedChatParams): Promi
         ? { ok: true, text }
         : { ok: false, netFailure: false, errorKind: 'malformed_response' },
       telemetry: result.telemetry,
+      ...(_lastContextTelemetry ? { context: _lastContextTelemetry } : {}),
     };
   }
 
@@ -124,5 +196,6 @@ export async function askOrchestratedChat(params: OrchestratedChatParams): Promi
       errorKind: result.failureType === 'aborted' ? 'aborted' : 'unknown',
     },
     telemetry: result.telemetry,
+    ...(_lastContextTelemetry ? { context: _lastContextTelemetry } : {}),
   };
 }

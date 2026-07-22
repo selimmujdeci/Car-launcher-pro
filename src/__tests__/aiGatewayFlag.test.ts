@@ -74,6 +74,46 @@ describe('aiGatewayFlag — varsayılan KAPALI, tek şalter', () => {
     expect(m.isAiGatewayEnabled()).toBe(true);                       // üst hat KORUNUR
   });
 
+  it('CONTEXT: varsayılan KAPALI ve izin YOK', async () => {
+    vi.doMock('../platform/remoteConfigService', () => ({ getFlag: () => false }));
+    localStorage.setItem('mavi.aiGateway.enabled', 'true');
+    const m = await import('../platform/ai/gateway/aiGatewayFlag');
+    expect(m.isMaviContextEnabled()).toBe(false);
+    expect(m.getMaviContextConsent()).toBe('off');
+  });
+
+  it('CONTEXT: gateway KAPALIYKEN tek başına açılamaz (fail-closed)', async () => {
+    vi.doMock('../platform/remoteConfigService', () => ({ getFlag: () => false }));
+    localStorage.setItem('mavi.aiContext.enabled', 'true');
+    localStorage.setItem('mavi.aiContext.consent', 'vehicle_context');
+    const m = await import('../platform/ai/gateway/aiGatewayFlag');
+    expect(m.isMaviContextEnabled()).toBe(false);
+  });
+
+  it('CONTEXT: izin YALNIZ tam "vehicle_context" ile verilir (fail-closed)', async () => {
+    vi.doMock('../platform/remoteConfigService', () => ({ getFlag: () => false }));
+    const m = await import('../platform/ai/gateway/aiGatewayFlag');
+    for (const bad of ['true', 'on', 'VEHICLE_CONTEXT', 'evet', '']) {
+      localStorage.setItem('mavi.aiContext.consent', bad);
+      expect(m.getMaviContextConsent()).toBe('off');
+    }
+    m.setMaviContextConsent('vehicle_context');
+    expect(m.getMaviContextConsent()).toBe('vehicle_context');
+    m.setMaviContextConsent('off');
+    expect(m.getMaviContextConsent()).toBe('off');          // rollback
+  });
+
+  it('CONTEXT: gateway açık + şalter açık → etkin; setter geri alır', async () => {
+    vi.doMock('../platform/remoteConfigService', () => ({ getFlag: () => false }));
+    localStorage.setItem('mavi.aiGateway.enabled', 'true');
+    localStorage.setItem('mavi.aiContext.enabled', 'true');
+    const m = await import('../platform/ai/gateway/aiGatewayFlag');
+    expect(m.isMaviContextEnabled()).toBe(true);
+    m.setMaviContextEnabled(false);
+    expect(m.isMaviContextEnabled()).toBe(false);
+    expect(m.isAiGatewayEnabled()).toBe(true);              // üst hat korunur
+  });
+
   it('değer önbelleğe alınır — tur ortasında değişmez', async () => {
     vi.doMock('../platform/remoteConfigService', () => ({ getFlag: () => false }));
     const m = await import('../platform/ai/gateway/aiGatewayFlag');
