@@ -42,7 +42,9 @@ import { toOpenAiTools } from '../../tools/providerToolSchema';
 import { runToolLoop } from '../../tools/toolLoop';
 import type { ToolDefinition } from '../../tools/toolTypes';
 import type { AiGenerateRequest, AiToolSpec } from '../../gateway/types';
-import { planForTask } from '../../planner/concrete/maviPlannerRuntime';
+import { planWithRouter } from '../../planner/concrete/maviPlannerRuntime';
+import { executePlan, type PlanExecutionOutcome } from '../../planner/planExecutor';
+import { derivePlannerHints } from '../../planner/plannerIntent';
 import type { MaviPlan } from '../../planner/plannerTypes';
 
 /** Monotonik saat — clock-jump güvenli (CLAUDE.md §4). */
@@ -215,20 +217,31 @@ function toOpenAiToolSpecs(tools: readonly ToolDefinition[]): readonly AiToolSpe
     }));
 }
 
-/** Son üretilen plan (YALNIZ karar — yürütülmez). @internal */
-let _lastPlan: MaviPlan | undefined;
-
-/** @internal */
-export function _getLastPlan(): MaviPlan | undefined {
-  return _lastPlan;
+/**
+ * Planı üretir, YÜRÜTÜLEBİLİR (ready + salt-okunur) adımları çalıştırır ve
+ * sonuçları ETİKETLİ blok olarak döndürür. Plan ve sonuçlar İSTEK-SCOPE'tur —
+ * modül seviyesinde saklanmaz. Hata durumunda BOŞ blok (akış etkilenmez).
+ */
+async function runPlanForRequest(
+  task: MaviTaskType,
+  userText: string | undefined,
+  signal?: AbortSignal,
+): Promise<{ block: string; plan: MaviPlan; execution: PlanExecutionOutcome }> {
+  const emptyExec: PlanExecutionOutcome = { block: '', executed: 0, skipped: 0, failed: 0, telemetry: [] };
+  try {
+    const hints = derivePlannerHints(userText);
+    const { plan, router } = planWithRouter(task, hints);
+    if (!router || plan.steps.length === 0) return { block: '', plan, execution: emptyExec };
+    const execution = await executePlan({ plan, router, ...(signal ? { signal } : {}) });
+    return { block: execution.block, plan, execution };
+  } catch {
+    return { block: '', plan: { taskType: task, steps: [], status: 'empty', truncated: false }, execution: emptyExec };
+  }
 }
 
-/**
- * Planı ÜRETİR ve saklar. İSTEĞİ DEĞİŞTİRMEZ, ARAÇ ÇALIŞTIRMAZ — Faz 1'de plan
- * yalnız karar/teşhis çıktısıdır. Hata durumunda plan üretimi sessizce atlanır.
- */
-function computePlan(task: MaviTaskType): void {
-  try { _lastPlan = planForTask(task); } catch { _lastPlan = undefined; }
+/** Plan sonuç bloğunu system prompt'a ekler (boşsa AYNEN döner). */
+function withPlanResults(system: string, block: string): string {
+  return block ? `${system}\n\n${block}` : system;
 }
 
 function safeBool(read: () => boolean): boolean {
@@ -245,7 +258,6 @@ function safeConsent(): string {
  */
 export async function askOrchestratedChat(params: OrchestratedChatParams): Promise<OrchestratedChatResult> {
   const task = params.task ?? classifyTask(params.classifyText ?? params.user);
-  computePlan(task);          // YALNIZ karar üretir; istek/akış DEĞİŞMEZ
 
   /* Yetenekler: gateway'de KAYITLI sağlayıcılar + anahtarı olanlar. */
   const credentials = await getAllCredentialInfo().catch(() => []);
@@ -258,6 +270,11 @@ export async function askOrchestratedChat(params: OrchestratedChatParams): Promi
   const nowMs = clock.nowMs();
   const availableIds = availableProviderIdsOf(providers);
 
+  /* PLAN (Faz 2): yalnız ready + SALT-OKUNUR adımlar çalıştırılır; sonuç
+     ETİKETLİ blok olarak system seviyesine eklenir. Navigasyon/yazma bu fazda
+     ÇALIŞTIRILMAZ. Plan ve sonuçlar İSTEK-SCOPE'tur. */
+  const planRun = await runPlanForRequest(task, params.classifyText ?? params.user, params.signal);
+
   const gateway = params.gateway ?? getDefaultAiGateway();
 
   /* ARAÇLAR (Faz 2): yalnız gerçekten destekleyen bir sağlayıcı varsa ve
@@ -266,7 +283,10 @@ export async function askOrchestratedChat(params: OrchestratedChatParams): Promi
   const tooling = resolveToolSpecs(providers);
 
   const baseRequest: AiGenerateRequest = {
-    messages: buildChatMessages(withMemory(withVehicleContext(params.system, task, clock.nowMs()), task), params.user, params.history),
+    messages: buildChatMessages(
+      withPlanResults(withMemory(withVehicleContext(params.system, task, clock.nowMs()), task), planRun.block),
+      params.user, params.history,
+    ),
     ...(params.timeoutMs   !== undefined ? { timeoutMs:   params.timeoutMs }   : {}),
     ...(params.maxTokens   !== undefined ? { maxTokens:   params.maxTokens }   : {}),
     ...(params.temperature !== undefined ? { temperature: params.temperature } : {}),

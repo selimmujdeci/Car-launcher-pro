@@ -68,6 +68,10 @@ export interface PlannerToolInfo {
 export interface PlannerHints {
   /** Kullanıcı belirli bir ekran istediyse kanonik kimliği. */
   readonly screenId?: string;
+  /** Tanı (arıza kodu) sorusu mu — plan gereksiz araç eklemez. */
+  readonly wantsDiagnostics?: boolean;
+  /** Anlık ölçüm sorusu mu. */
+  readonly wantsLiveData?: boolean;
 }
 
 /** YALNIZ güvenli metadata — argüman/kullanıcı metni TAŞIMAZ. */

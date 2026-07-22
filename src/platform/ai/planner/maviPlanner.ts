@@ -92,8 +92,20 @@ export function buildMaviPlan(input: BuildPlanInput): MaviPlan {
   if (!blueprint) return empty;
 
   /* ── İstenen adımlar: görev planı + (varsa) açık navigasyon isteği ── */
+  /* NİYET AYRIMI: kullanıcı yalnız arıza sorduysa canlı ölçüm okunmaz (ve
+     tersi). İpucu verilmemişse (undefined) filtre UYGULANMAZ — geriye uyum. */
+  const hints = input?.hints;
+  const wantsDiag = hints?.wantsDiagnostics;
+  const wantsLive = hints?.wantsLiveData;
+  const intentAllows = (reason: PlanStepReason): boolean => {
+    if (reason === 'task_requires_diagnostics' && wantsDiag === false) return false;
+    if (reason === 'task_requires_live_data'   && wantsLive === false) return false;
+    return true;
+  };
+
   const wanted: Array<{ tool: string; reason: PlanStepReason; args: Record<string, string | number | boolean> }> =
-    blueprint.map((b) => ({ tool: b.tool, reason: b.reason, args: {} }));
+    blueprint.filter((b) => intentAllows(b.reason))
+             .map((b) => ({ tool: b.tool, reason: b.reason, args: {} }));
 
   const screenId = input?.hints?.screenId;
   if (typeof screenId === 'string' && screenId) {

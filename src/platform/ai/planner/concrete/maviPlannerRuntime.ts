@@ -37,9 +37,24 @@ const EMPTY_PLAN = (taskType: MaviTaskType): MaviPlan =>
   ({ taskType, steps: [], status: 'empty', truncated: false });
 
 /**
- * Şu anki katalogla plan üretir. Şalter kapalıysa BOŞ plan döner (fail-closed);
- * hata durumunda da BOŞ plan — plan üretimi asistan akışını ETKİLEMEZ.
+ * Plan + o planı yürütecek router'ı BİRLİKTE döndürür (İSTEK-SCOPE — global
+ * durum tutulmaz). Şalter kapalıysa veya katalog boşsa `router: null` →
+ * yürütme YAPILAMAZ (fail-closed).
  */
+export function planWithRouter(taskType: MaviTaskType, hints?: PlannerHints): {
+  plan: MaviPlan; router: ReturnType<typeof getMaviToolRouter> | null;
+} {
+  try {
+    if (!isMaviPlannerEnabled()) return { plan: EMPTY_PLAN(taskType), router: null };
+    const router = getMaviToolRouter();
+    const tools = router.listTools().map(toPlannerInfo);
+    if (tools.length === 0) return { plan: EMPTY_PLAN(taskType), router: null };
+    return { plan: buildMaviPlan({ taskType, tools, ...(hints ? { hints } : {}) }), router };
+  } catch {
+    return { plan: EMPTY_PLAN(taskType), router: null };
+  }
+}
+
 export function planForTask(taskType: MaviTaskType, hints?: PlannerHints): MaviPlan {
   try {
     if (!isMaviPlannerEnabled()) return EMPTY_PLAN(taskType);
