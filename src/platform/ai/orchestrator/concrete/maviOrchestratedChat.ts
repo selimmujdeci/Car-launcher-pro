@@ -42,6 +42,8 @@ import { toOpenAiTools } from '../../tools/providerToolSchema';
 import { runToolLoop } from '../../tools/toolLoop';
 import type { ToolDefinition } from '../../tools/toolTypes';
 import type { AiGenerateRequest, AiToolSpec } from '../../gateway/types';
+import { planForTask } from '../../planner/concrete/maviPlannerRuntime';
+import type { MaviPlan } from '../../planner/plannerTypes';
 
 /** Monotonik saat — clock-jump güvenli (CLAUDE.md §4). */
 const clock = { nowMs: (): number => (typeof performance !== 'undefined' ? performance.now() : 0) };
@@ -213,6 +215,22 @@ function toOpenAiToolSpecs(tools: readonly ToolDefinition[]): readonly AiToolSpe
     }));
 }
 
+/** Son üretilen plan (YALNIZ karar — yürütülmez). @internal */
+let _lastPlan: MaviPlan | undefined;
+
+/** @internal */
+export function _getLastPlan(): MaviPlan | undefined {
+  return _lastPlan;
+}
+
+/**
+ * Planı ÜRETİR ve saklar. İSTEĞİ DEĞİŞTİRMEZ, ARAÇ ÇALIŞTIRMAZ — Faz 1'de plan
+ * yalnız karar/teşhis çıktısıdır. Hata durumunda plan üretimi sessizce atlanır.
+ */
+function computePlan(task: MaviTaskType): void {
+  try { _lastPlan = planForTask(task); } catch { _lastPlan = undefined; }
+}
+
 function safeBool(read: () => boolean): boolean {
   try { return read() === true; } catch { return false; }
 }
@@ -227,6 +245,7 @@ function safeConsent(): string {
  */
 export async function askOrchestratedChat(params: OrchestratedChatParams): Promise<OrchestratedChatResult> {
   const task = params.task ?? classifyTask(params.classifyText ?? params.user);
+  computePlan(task);          // YALNIZ karar üretir; istek/akış DEĞİŞMEZ
 
   /* Yetenekler: gateway'de KAYITLI sağlayıcılar + anahtarı olanlar. */
   const credentials = await getAllCredentialInfo().catch(() => []);

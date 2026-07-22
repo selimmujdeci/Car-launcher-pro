@@ -281,6 +281,45 @@ export function setMaviToolsEnabled(enabled: boolean): void {
     }
   } catch { /* depo kilitli */ }
   _toolsCached = null;
+  _plannerCached = null;
+}
+
+/* ── Alt tercih: Planner ──────────────────────────────────────────────────── */
+
+/**
+ * Planner YALNIZ KARAR üretir (araç çalıştırmaz), bu yüzden ek KULLANICI İZNİ
+ * gerektirmez; ama yine de kendi şalteri vardır ve araç kataloğu Tool Router'ın
+ * izin kapılarından geçtiği için pratikte tool izni olmadan plan BOŞ kalır.
+ * Varsayılan KAPALI; gateway kapalıyken açılamaz.
+ */
+export const AI_PLANNER_REMOTE_FLAG = 'mavi_ai_planner';
+export const AI_PLANNER_LOCAL_FLAG  = 'mavi.aiPlanner.enabled';
+
+let _plannerCached: boolean | null = null;
+
+export function isMaviPlannerEnabled(): boolean {
+  if (!isAiGatewayEnabled()) return false;
+  if (_plannerCached === null) {
+    let local = false;
+    try {
+      local = typeof localStorage !== 'undefined'
+        && localStorage.getItem(AI_PLANNER_LOCAL_FLAG) === 'true';
+    } catch { local = false; }
+    let remote = false;
+    try { remote = getFlag(AI_PLANNER_REMOTE_FLAG) === true; } catch { remote = false; }
+    _plannerCached = remote || local;
+  }
+  return _plannerCached;
+}
+
+export function setMaviPlannerEnabled(enabled: boolean): void {
+  try {
+    if (typeof localStorage !== 'undefined') {
+      if (enabled) localStorage.setItem(AI_PLANNER_LOCAL_FLAG, 'true');
+      else         localStorage.removeItem(AI_PLANNER_LOCAL_FLAG);
+    }
+  } catch { /* depo kilitli */ }
+  _plannerCached = null;
 }
 
 /**
