@@ -229,6 +229,12 @@ public final class OBDManager {
     private volatile int    commFailStreak = 0;
     /** Kaç ardışık send hatasından sonra yeniden bağlanma tetiklenir. */
     private static final int RECONNECT_AFTER_FAILS  = 2;
+    /**
+     * Timeout sonrası '>' prompt'unu yakalamak için ek pencere (ms). Yanıtların bir komut
+     * kaymasını (desenkronizasyon) önler. Poll kadansını bozmayacak kadar KISA tutulur;
+     * bulunamazsa vazgeçilir (fail-soft) — reconnect tetiklemez.
+     */
+    private static final int RESYNC_WINDOW_MS = 300;
     /** Bir kopma başına en fazla yeniden bağlanma denemesi. */
     private static final int MAX_RECONNECT_ATTEMPTS = 3;
     /** Denemeler arası backoff (adaptörün AP'yi/soketi toparlaması için). */
@@ -780,10 +786,16 @@ public final class OBDManager {
         // PR-OBD-DIAG-3: yeni poll oturumu — extended kanıt sayaçlarını sıfırla (niyet korunur).
         ExtendedPollEvidence.INSTANCE.reset("classic");
         KwpRecoveryEvidence.INSTANCE.reset(); // PR-KWP-EVID: yeni bağlantı = yeni kurtarma oturumu
+        LiveStreamStopEvidence.INSTANCE.reset(); // yeni oturum = yeni durma muhasebesi
         // PR-OBD-KWP-1: yeni oturum = NO_DATA öğrenmesi sıfırlanır (farklı araç olabilir).
         extNoData.reset();
         while (obdRunning && isTransportAlive()) {
             try {
+                // Durma kaydının taşıma künyesi (adapter/durum/kuyruk derinliği) — tur başında
+                // tazelenir; LIVE_STREAM_STOP_REASON satırı "?" yerine gerçek değer bassın.
+                LiveStreamStopEvidence.INSTANCE.setTransportContext(
+                        lastTransport, isTransportAlive() ? "connected" : "disconnected",
+                        cmdQueue.depth());
                 // Kendini iyileştirme: PID okumaları hataları fail-soft yutar (ERROR→-1),
                 // bu yüzden kopma catch'e DÜŞMEZ — ardışık send hatası eşiği aşılırsa
                 // burada, tur başında yakala ve transport'u yeniden kur.
@@ -1441,11 +1453,12 @@ public final class OBDManager {
                 StringBuilder sb   = new StringBuilder();
                 long          dead = System.currentTimeMillis() + timeoutMs;
 
+                boolean promptSeen = false;
                 while (System.currentTimeMillis() < dead) {
                     if (in.available() > 0) {
                         int c = in.read();
                         if (c < 0) throw new IOException("Stream kapandı");
-                        if (c == '>') break;
+                        if (c == '>') { promptSeen = true; break; }
                         if (c != '\r') sb.append((char) c);
                     } else {
                         try { Thread.sleep(20); }
@@ -1457,7 +1470,20 @@ public final class OBDManager {
                 }
                 String resp = sb.toString().trim();
                 emitTraffic(cmd, resp, started);
-                commFailStreak = 0; // başarılı I/O → kopma serisini sıfırla
+                if (promptSeen) {
+                    commFailStreak = 0; // gerçek tam yanıt → kopma serisini sıfırla
+                } else {
+                    // ── P0 SAHA 2026-07-23 (Trafic/KWP "veri 30-60sn sonra donuyor") ──
+                    // '>' GÖRÜLMEDEN süre doldu. Eskiden bu durum:
+                    //   (a) commFailStreak = 0 ile "başarılı I/O" sayılıyordu (yanlış), ve
+                    //   (b) prompt tüketilmediği için ELM327'nin GECİKEN yanıtı + prompt'u
+                    //       soket tamponunda kalıyordu → bir sonraki komutun yanıtı KAYIYOR
+                    //       (kalıcı desenkronizasyon). Adaptörün fiziksel power-cycle'ı
+                    //       ELM tamponunu sıfırladığı için "çıkar-tak düzeltiyor".
+                    // Artık: sayaç sıfırlanmaz (timeout başarı değildir) ve kanal KISA bir
+                    // ek pencerede prompt'a kadar boşaltılarak YENİDEN SENKRONLANIR.
+                    resyncToPrompt(in);
+                }
                 return resp;
             } catch (IOException e) {
                 // Teşhis: hatayı da yakala — "araç yanıt vermiyor mu, kanal mı öldü" ekrandan görülür.
@@ -1466,6 +1492,34 @@ public final class OBDManager {
                 // hataları burada sayılır; pollLoop eşiği görünce transport'u yeniden kurar.
                 commFailStreak++;
                 throw e;
+            }
+        }
+
+        /**
+         * Timeout sonrası kanalı '>' prompt'una kadar boşaltır (yeniden senkronizasyon).
+         *
+         * ELM327 tek prompt üretir; onu tüketmeden yeni komut göndermek yanıtların bir
+         * komut KAYMASINA yol açar (RPM sorgusuna sıcaklık yanıtı → kalıcı bozuk parse).
+         * Kısa ve SINIRLI bir penceredir: bulamazsa sessizce vazgeçer (fail-soft) — üstteki
+         * {@code in.skip(available)} zaten ikinci savunma hattıdır. Poll kadansını bozmamak
+         * için bilinçli olarak küçüktür.
+         */
+        private void resyncToPrompt(InputStream in) {
+            final long until = System.currentTimeMillis() + RESYNC_WINDOW_MS;
+            try {
+                while (System.currentTimeMillis() < until) {
+                    if (in.available() > 0) {
+                        int c = in.read();
+                        if (c < 0) return;          // stream kapandı — reconnect'in işi
+                        if (c == '>') return;       // senkron geri geldi
+                    } else {
+                        Thread.sleep(10);
+                    }
+                }
+            } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+            } catch (IOException ignored) {
+                // Resync best-effort — hata bir sonraki send()'in stale-skip'ine bırakılır.
             }
         }
 

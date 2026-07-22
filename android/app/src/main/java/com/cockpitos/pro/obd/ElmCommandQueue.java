@@ -91,6 +91,15 @@ public final class ElmCommandQueue {
         worker.submit(this::runLoop);
     }
 
+    /**
+     * BEKLEYEN (henüz çalışmamış) görev sayısı — teşhis içindir, karar mantığında kullanılmaz.
+     * Canlı akış durduğunda "kuyruk mu tıkandı, ECU mu sustu" sorusunu ayırt eder
+     * (bkz. {@link LiveStreamStopEvidence}). Çalışmakta olan görev bu sayıya DAHİL DEĞİLDİR.
+     */
+    public int depth() {
+        return queue.size();
+    }
+
     private void runLoop() {
         while (running) {
             Task t;

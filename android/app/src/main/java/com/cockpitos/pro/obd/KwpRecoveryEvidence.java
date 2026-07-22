@@ -28,7 +28,22 @@ public final class KwpRecoveryEvidence {
     /** Süreç-genişliği tekil — ExtendedPollEvidence ile aynı desen. */
     public static final KwpRecoveryEvidence INSTANCE = new KwpRecoveryEvidence();
 
-    /** Bir bağlantı oturumunda uygulanacak EN FAZLA kurtarma. Aşılırsa ATPC GÖNDERİLMEZ. */
+    /**
+     * ARDIŞIK BAŞARISIZ kurtarma tavanı. Aşılırsa ATPC GÖNDERİLMEZ (ölü ECU'da sonsuz tur yok).
+     *
+     * ⚠️ P0 SAHA 2026-07-23 — ANLAM DEĞİŞTİ (kusur düzeltmesi): eskiden bu tavan
+     * OTURUM BAŞINA TOPLAM kurtarmayı sınırlıyordu ve {@code recoveryCount} yalnız
+     * {@link #reset()} (yeni bağlantı) ile sıfırlanıyordu — BAŞARILI kurtarma bile
+     * tavanı geri vermiyordu. Sonuç: KWP oturumu ~dakikada bir ölen bir araçta
+     * (Trafic) 3 kurtarmadan sonra motor kalıcı olarak SUSUYOR → veri bir daha
+     * akmıyor, yalnız adaptörün fiziksel power-cycle'ı (yeni oturum → reset) düzeltiyor.
+     * Bu, kullanıcının "1 dakika sonra tekrar donuyor, sürekli tekrarlanıyor"
+     * belirtisinin ikinci nedenidir.
+     *
+     * DOĞRU SEMANTİK (devre kesici): BAŞARI seriyi SIFIRLAR, yalnız ARDIŞIK
+     * BAŞARISIZLIK tavanı doldurur. Böylece hem sonsuz döngü önlenir (ölü ECU'da 3
+     * denemede durur) hem 20 dakikalık sürüşte çalışan kurtarma tükenmez.
+     */
     public static final int MAX_RECOVERIES_PER_SESSION = 3;
 
     /** Kurtarma akışının son durumu. */
@@ -49,8 +64,13 @@ public final class KwpRecoveryEvidence {
     private int coreNoDataStreak;
     /** Oturum boyunca görülen EN YÜKSEK ardışık NO_DATA — eşiğe yaklaşıldı mı görünsün. */
     private int maxCoreNoDataStreak;
-    /** Kurtarma kaç kez TETİKLENDİ (ATPC gönderildi). */
+    /** Kurtarma kaç kez TETİKLENDİ (ATPC gönderildi) — oturum toplamı, RAPOR içindir. */
     private int recoveryCount;
+    /**
+     * ARDIŞIK BAŞARISIZ kurtarma sayısı — TAVAN KARARI BUNA BAKAR (recoveryCount'a DEĞİL).
+     * Veri geri geldiğinde ({@link #noteCoreOk}) SIFIRLANIR.
+     */
+    private int consecutiveFailedRecoveries;
     /** Tavan dolduğu için ATPC'nin GÖNDERİLMEDİĞİ kez. */
     private int suppressedCount;
     /** ATPC gönderme hatası (channel.send throw etti). */
@@ -76,6 +96,7 @@ public final class KwpRecoveryEvidence {
             coreNoDataStreak = 0;
             maxCoreNoDataStreak = 0;
             recoveryCount = 0;
+            consecutiveFailedRecoveries = 0;
             suppressedCount = 0;
             atpcSendFailures = 0;
             lastRecoveryAt = 0;
@@ -96,6 +117,9 @@ public final class KwpRecoveryEvidence {
         synchronized (lock) {
             coreNoDataStreak = 0;
             if (status == Status.IN_PROGRESS) {
+                // Kurtarma İŞE YARADI → ardışık başarısızlık serisi kırılır, tavan tazelenir.
+                // (Tavan "çalışan kurtarmayı" değil, "ölü ECU'da sonsuz turu" engellemek içindir.)
+                consecutiveFailedRecoveries = 0;
                 status = Status.RECOVERED;
                 lastRecoveryToFirstPidMs = lastRecoveryAt > 0 ? Math.max(0, nowMs - lastRecoveryAt) : -1;
             }
@@ -118,14 +142,18 @@ public final class KwpRecoveryEvidence {
     public boolean shouldAttemptRecovery(long nowMs, String activeProtocol) {
         synchronized (lock) {
             coreNoDataStreak = 0; // eşik tüketildi (davranış: eski kodla aynı)
-            if (recoveryCount >= MAX_RECOVERIES_PER_SESSION) {
+            // Önceki kurtarma hâlâ IN_PROGRESS iken YENİ eşik doldu → öncekisi İŞE YARAMADI.
+            // Tavan kararından ÖNCE sayılır ki "3 ardışık başarısız" doğru ölçülsün.
+            if (status == Status.IN_PROGRESS) {
+                status = Status.FAILED;
+                consecutiveFailedRecoveries = sat(consecutiveFailedRecoveries);
+            }
+            // TAVAN: toplam kurtarmaya DEĞİL, ARDIŞIK BAŞARISIZ kurtarmaya bakar. Veri bir kez
+            // geri geldiyse (noteCoreOk → seri sıfır) motor uzun sürüşte tükenmez.
+            if (consecutiveFailedRecoveries >= MAX_RECOVERIES_PER_SESSION) {
                 suppressedCount = sat(suppressedCount);
-                // Tavan dolduysa oturum kurtarılamamış demektir — IN_PROGRESS'te asılı kalma.
-                if (status == Status.IN_PROGRESS) status = Status.FAILED;
                 return false;
             }
-            // Önceki kurtarma hâlâ IN_PROGRESS iken YENİ eşik doldu → öncekisi İŞE YARAMADI.
-            if (status == Status.IN_PROGRESS) status = Status.FAILED;
             recoveryCount = sat(recoveryCount);
             lastRecoveryAt = nowMs;
             lastRecoveryToFirstPidMs = -1;

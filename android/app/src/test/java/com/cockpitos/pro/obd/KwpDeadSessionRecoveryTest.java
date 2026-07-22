@@ -4,6 +4,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
+import org.junit.Before;
 import org.junit.Test;
 
 /**
@@ -21,6 +22,15 @@ import org.junit.Test;
  *  5. KWP init'i ATWM (TesterPresent wakeup mesajı) set eder; CAN init'i ETMEZ.
  */
 public class KwpDeadSessionRecoveryTest {
+
+    /**
+     * {@link KwpRecoveryEvidence} STATİK singleton (kurtarma tavanı dahil) — testler
+     * arası sızıntı sıra bağımlılığı yaratır. Her testten önce sıfırlanır.
+     */
+    @Before
+    public void resetEvidence() {
+        KwpRecoveryEvidence.INSTANCE.reset();
+    }
 
     /** Gönderilen her komutu kaydeden + komut→yanıt haritalı sahte kanal. */
     private static final class RecordingChannel implements ElmCommandChannel {

@@ -35,6 +35,19 @@ public final class ElmProtocol {
     /** Ardışık çekirdek Mode-01 NO_DATA sayacı — tüm komutlar tek executor'dan geçer (cmdQueue). */
     private int coreNoDataStreak = 0;
 
+    /* ── LIVE_STREAM_STOP_REASON izlenebilirliği (P0 saha 2026-07-23) ──────────
+     * Akış durduğunda "neden durdu" sorusu KANITLA yanıtlanmalı. Aşağıdaki alanlar
+     * yalnız çekirdek Mode-01 yolunda güncellenir (ek maliyet ihmal edilebilir). */
+
+    /** Her çekirdek istek için artan kimlik — bir durma olayını isteğe bağlar. */
+    private long coreRequestSeq = 0;
+    /** En son GEÇERLİ yanıt veren çekirdek PID (ör. "010C"); null = henüz yok. */
+    private String lastSuccessfulPid = null;
+    /** O PID'in ham ELM yanıtı — kırpılmış (log güvenliği). */
+    private String lastSuccessfulResponse = null;
+    /** Son geçerli paketin zamanı (epoch ms); 0 = hiç veri gelmedi. */
+    private long lastGoodPacketAtMs = 0;
+
     /** Bu kadar ardışık çekirdek NO_DATA = oturum ölü kabul (≈2 poll turu / ~6s). */
     static final int KWP_DEAD_SESSION_THRESHOLD = 4;
 
@@ -469,12 +482,53 @@ public final class ElmProtocol {
 
     /** channel.send() + ElmResponseParser.classify() — iletişim hatasını ERROR sınıfına çevirir. */
     private ElmResponseParser.Result sendAndClassify(String cmd, int timeoutMs, String mode, String pid) {
+        boolean core = cmd != null && CORE_MODE01.contains(cmd);
+        if (core) coreRequestSeq++;
         try {
-            ElmResponseParser.Result r = ElmResponseParser.classify(channel.send(cmd, timeoutMs), mode, pid);
+            String raw = channel.send(cmd, timeoutMs);
+            ElmResponseParser.Result r = ElmResponseParser.classify(raw, mode, pid);
+            // Son BAŞARILI paketin künyesi — durma kaydı "en son ne çalışmıştı"yı söylesin.
+            if (core) {
+                if (r.kind == ElmResponseParser.Kind.OK) {
+                    lastSuccessfulPid      = cmd;
+                    lastSuccessfulResponse = raw == null ? null
+                            : (raw.length() > 40 ? raw.substring(0, 40) : raw);
+                    lastGoodPacketAtMs     = System.currentTimeMillis();
+                    // Akış CANLI → sonraki durma yeniden loglanabilsin.
+                    LiveStreamStopEvidence.INSTANCE.noteFlowing();
+                } else {
+                    // Akış DURDU — SESSİZ KALMA (protokolden bağımsız: CAN'de de yazılır).
+                    LiveStreamStopEvidence.INSTANCE.noteStop(
+                            stopReasonOf(r.kind), System.currentTimeMillis(), activeProtocol,
+                            coreRequestSeq, lastSuccessfulPid, lastSuccessfulResponse,
+                            lastGoodPacketAtMs > 0 ? System.currentTimeMillis() - lastGoodPacketAtMs : -1,
+                            coreNoDataStreak);
+                }
+            }
             noteKwpSessionHealth(cmd, r.kind);
             return r;
         } catch (Exception e) {
+            // SESSİZ EXCEPTION YASAK (P0 saha 2026-07-23): kanal hatası eskiden hiçbir
+            // yere yazılmıyordu — "veri neden durdu" sorusu cevapsız kalıyordu.
+            if (core) {
+                LiveStreamStopEvidence.INSTANCE.noteStop(
+                        LiveStreamStopEvidence.Reason.SOCKET_ERROR, System.currentTimeMillis(),
+                        activeProtocol, coreRequestSeq, lastSuccessfulPid, lastSuccessfulResponse,
+                        lastGoodPacketAtMs > 0 ? System.currentTimeMillis() - lastGoodPacketAtMs : -1,
+                        coreNoDataStreak);
+            }
             return new ElmResponseParser.Result(ElmResponseParser.Kind.ERROR, null, null);
+        }
+    }
+
+    /** Yanıt sınıfı → canlı akış durma sebebi. Tek eşleme noktası (tahmin YOK). */
+    private static LiveStreamStopEvidence.Reason stopReasonOf(ElmResponseParser.Kind kind) {
+        switch (kind) {
+            case NO_DATA:         return LiveStreamStopEvidence.Reason.ECU_NO_RESPONSE;
+            case TIMEOUT_PARTIAL: return LiveStreamStopEvidence.Reason.READ_TIMEOUT;
+            case ERROR:           return LiveStreamStopEvidence.Reason.ELM_NO_RESPONSE;
+            case BUSY:            return LiveStreamStopEvidence.Reason.SESSION_TIMEOUT;
+            default:              return LiveStreamStopEvidence.Reason.UNKNOWN;
         }
     }
 
@@ -496,7 +550,16 @@ public final class ElmProtocol {
             KwpRecoveryEvidence.INSTANCE.noteCoreOk(System.currentTimeMillis());
             return;
         }
-        if (kind != ElmResponseParser.Kind.NO_DATA) return;
+        // SESSİZ TIMEOUT DA ÖLÜ-OTURUM KANITIDIR (P0 saha 2026-07-23, Trafic/KWP):
+        // ECU susunca ELM327 her zaman "NO DATA" METNİ üretmez — çoğu zaman '>' prompt'una
+        // kadar HİÇBİR ŞEY göndermez. O durumda RfcommChannel.send() süre dolunca BOŞ string
+        // döner ve ElmResponseParser bunu NO_DATA değil TIMEOUT_PARTIAL sınıfına koyar.
+        // Eskiden yalnız NO_DATA sayıldığı için sayaç ASLA eşiğe ulaşmıyordu → ATPC hiç
+        // gönderilmiyordu → oturum ölü kalıyor, veri kalıcı DONUYORDU (yalnız adaptörün
+        // fiziksel power-cycle'ı düzeltiyordu). İki sınıf da "ECU cevap vermedi" demektir.
+        // BUSY/ERROR/7F hâlâ SAYILMAZ: onlar ELM/ECU'nun KONUŞTUĞUNUN kanıtıdır.
+        if (kind != ElmResponseParser.Kind.NO_DATA
+            && kind != ElmResponseParser.Kind.TIMEOUT_PARTIAL) return;
         KwpRecoveryEvidence.INSTANCE.noteCoreNoData();
         if (++coreNoDataStreak < KWP_DEAD_SESSION_THRESHOLD) return;
         coreNoDataStreak = 0;
