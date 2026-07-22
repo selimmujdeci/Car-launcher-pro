@@ -38,6 +38,7 @@ import { recordAiNetFailure, recordAiNetSuccess } from '../aiHealth';
 import { tavilySearch } from '../webSearchService';
 import { getWeatherNarrative, refreshWeather, onWeatherState, weatherQueryNamesCity, type WeatherState } from '../weatherService';
 import type { SemanticResult } from '../ai/semanticAiService';
+import { isAiGatewayEnabled } from '../ai/gateway/aiGatewayFlag';
 import {
   buildSafetyContext, evaluatePreGate, verifyResponse,
   type SafetyContext,
@@ -45,7 +46,7 @@ import {
 
 /* ── Tipler ─────────────────────────────────────────────────── */
 
-export type CompanionChatRoute = 'companion_gemini' | 'companion_groq' | 'companion_haiku' | 'companion_offline' | 'companion_rate_limited' | 'companion_key_invalid' | 'companion_safety';
+export type CompanionChatRoute = 'companion_gemini' | 'companion_groq' | 'companion_haiku' | 'companion_gateway' | 'companion_offline' | 'companion_rate_limited' | 'companion_key_invalid' | 'companion_safety';
 
 export interface CompanionChatResult {
   response: string;
@@ -722,6 +723,90 @@ async function tryGroqBrainAndRecord(
   pushHistory('user', text);
   pushHistory('model', result.kind === 'chat' ? result.response : result.semantic.feedback);
   return result;
+}
+
+/* ── AI Gateway beyin çağrısı (sağlayıcı-BAĞIMSIZ) ────────────── *
+ * Zincirdeki diğer adaylardan tek farkı: HANGİ MODELE gittiğini BİLMEZ.
+ * Gateway hangi sağlayıcıyı (bugün OpenRouter, yarın Gemini Direct/Ollama)
+ * kullanacağına kendi karar verir; burada sağlayıcı adı, endpoint, anahtar ya
+ * da HTTP DETAYI GEÇMEZ. Prompt/geçmiş/parse AYNEN diğer adaylarla aynıdır —
+ * yalnız TAŞIMA değişir.
+ *
+ * Grounding: gateway'in google_search muadili YOKTUR → system prompt Groq'un
+ * anahtarsız hâliyle aynı biçimde (supportsGrounding=false) kurulur; beyin
+ * yine de "web" derse yerel hava servisi denenir, o da yoksa DÜRÜST cevap
+ * verilir (uydurma yok). Kota penceresi YOK: gateway kendi devre kesicisini
+ * ve tekrar politikasını içeride yönetir.
+ *
+ * Modüller DİNAMİK import edilir → bayrak KAPALIYKEN gateway kodu hiç
+ * yüklenmez (sıfır import-time maliyet, eski yolda performans etkisi yok). */
+
+const GATEWAY_BRAIN_TIMEOUT_MS = 6000;
+
+/** Dürüst "canlı bilgi yok" cevabı — Groq'un anahtarsız hâliyle aynı metin. */
+const GATEWAY_NO_LIVE_INFO_REPLY =
+  'Şu an canlı bilgilere bakamıyorum ama bildiğimce yardımcı olmaya çalışırım.';
+
+async function askCompanionBrainGateway(
+  text: string,
+  id: CompanionIdentity,
+  isDriving: boolean,
+  timeoutMs?: number,
+): Promise<{ result: BrainRaw | null; netFailure: boolean }> {
+  const [{ getDefaultAiGateway }, { askGatewayChat }] = await Promise.all([
+    import('../ai/gateway/concrete/defaultAiGateway'),
+    import('../ai/gateway/gatewayChatBridge'),
+  ]);
+
+  const decisionMs = Math.min(timeoutMs ?? GATEWAY_BRAIN_TIMEOUT_MS, GATEWAY_BRAIN_TIMEOUT_MS);
+  const outcome = await askGatewayChat({
+    gateway:     getDefaultAiGateway(),
+    system:      buildBrainSystemPrompt(id, isDriving, buildInterpretedVehicleContext(), false),
+    history:     historyToOpenAI(),
+    user:        text,
+    timeoutMs:   decisionMs,
+    maxTokens:   isDriving ? 160 : 220,
+    temperature: 0.4,
+  });
+
+  if (!outcome.ok) return { result: null, netFailure: outcome.netFailure };
+  return { result: parseBrainJson(outcome.text), netFailure: false };
+}
+
+/**
+ * Gateway beyin çağrısını yapıp başarılıysa geçmişe/devre-kesiciye işler.
+ * `tryGroqBrainAndRecord` ile aynı desen; ek olarak `netFailure` bilgisini
+ * yukarı taşır (gateway throw etmediği için kesici semantiği bayrakla korunur).
+ */
+async function tryGatewayBrainAndRecord(
+  brainInput: string,
+  cleanText:  string,
+  id:         CompanionIdentity,
+  isDriving:  boolean,
+  timeoutMs?: number,
+): Promise<{ result: CompanionBrainResult | null; netFailure: boolean }> {
+  const { result, netFailure } = await askCompanionBrainGateway(brainInput, id, isDriving, timeoutMs);
+  if (!result) return { result: null, netFailure };
+
+  recordAiNetSuccess(); // beyin cevap verdi → ağ sağlıklı, kesici sayacı sıfır
+
+  if (result.kind === 'web') {
+    // Canlı bilgi kararı: önce yerel hava servisi (gerçek veri), yoksa dürüst cevap.
+    const localWeather = await tryLocalWeatherAnswer(result.query, cleanText);
+    const response = localWeather ?? GATEWAY_NO_LIVE_INFO_REPLY;
+    pushHistory('user', cleanText);
+    pushHistory('model', response);
+    return { result: { kind: 'chat', response, route: 'companion_gateway' }, netFailure: false };
+  }
+
+  // parseBrainJson CHAT'e her zaman 'companion_gemini' yazar (paylaşılan parser) —
+  // gateway'den geldiğinde düzeltilir, aksi halde tanı/log'da yanlış görünür.
+  const fixed: CompanionBrainResult =
+    result.kind === 'chat' ? { ...result, route: 'companion_gateway' } : result;
+
+  pushHistory('user', cleanText);
+  pushHistory('model', fixed.kind === 'chat' ? fixed.response : fixed.semantic.feedback);
+  return { result: fixed, netFailure: false };
 }
 
 /**
@@ -1438,6 +1523,13 @@ async function groundGeminiViaTavily(
  * dener. Zincirin tamamı düşerse offline sohbet fallback'i (yalnız chat)
  * döner; o da yoksa null → eski zincir devam eder.
  */
+/**
+ * Beyin zinciri adayı. `gateway` SAĞLAYICI-BAĞIMSIZ hattır (hangi modele
+ * gittiğini bilmez, anahtarını kendi çözer); diğerleri doğrudan sağlayıcı
+ * çağrılarıdır ve kendi kota pencerelerini kullanır.
+ */
+type BrainCandidate = { provider: 'gemini' | 'groq' | 'haiku' | 'gateway'; apiKey: string };
+
 async function runCompanionBrain(
   raw: string,
   opts: CompanionChatOpts,
@@ -1451,12 +1543,20 @@ async function runCompanionBrain(
 
   // Geriye uyum: chain verilmezse opts.provider/apiKey ile eski tek-sağlayıcı
   // davranışı üretilir (testler ve tryCompanionChat gibi diğer çağıranlar için).
-  const chain: ReadonlyArray<{ provider: 'gemini' | 'groq' | 'haiku'; apiKey: string }> =
+  const baseChain: ReadonlyArray<{ provider: 'gemini' | 'groq' | 'haiku'; apiKey: string }> =
     opts.chain && opts.chain.length > 0
       ? opts.chain
       : (opts.provider === 'gemini' || opts.provider === 'groq' || opts.provider === 'haiku') && opts.apiKey
         ? [{ provider: opts.provider, apiKey: opts.apiKey }]
         : [];
+
+  // AI GATEWAY (bayrak — VARSAYILAN KAPALI): açıkken zincirin BAŞINA sağlayıcı-
+  // bağımsız gateway adayı eklenir; mevcut adaylar KALDIRILMAZ, arkada yedek
+  // olarak durur (rollback tek şalter). Kapalıyken `chain` birebir eski dizidir
+  // → tek satır davranış değişmez. Gateway anahtarını kendi çözer (BYOK), bu
+  // yüzden apiKey alanı boştur ve anahtarsız kullanıcıda da zincire girebilir.
+  const chain: ReadonlyArray<BrainCandidate> =
+    isAiGatewayEnabled() ? [{ provider: 'gateway', apiKey: '' }, ...baseChain] : baseChain;
 
   // Safety Kernel PRE-GATE: allowOnline=false ise online zincir HİÇ denenmez;
   // offline fallback doğal olarak devreye girer (provider sırası korunur).
@@ -1494,6 +1594,16 @@ async function runCompanionBrain(
       aiAttempted = true;
 
       try {
+        if (cand.provider === 'gateway') {
+          // Sağlayıcı-bağımsız hat: gateway kendi tekrar/timeout/devre-kesici
+          // politikasını içeride uygular. Başarısızsa zincirdeki eski adaylar
+          // (Gemini/Groq/Haiku) aynen denenmeye devam eder.
+          const gw = await tryGatewayBrainAndRecord(brainInput, trimmed, id, isDriving, opts.timeoutMs);
+          if (gw.result) return gw.result;
+          if (gw.netFailure) sawNetFailure = true; // GERÇEK ağ ölümü → kesiciye say
+          continue;
+        }
+
         if (cand.provider === 'gemini') {
           // Gemini attarsa (timeout/ağ hatası) zincirdeki sıradakini de
           // deneyebilmek için yalnız Gemini çağrısı kendi try/catch'inde izole
@@ -1618,7 +1728,7 @@ async function runCompanionBrain(
  *   doğrulanır (offline/rate/key/safety metni zaten yereldir → dokunulmaz). */
 
 const ONLINE_ROUTES: ReadonlySet<CompanionChatRoute> = new Set<CompanionChatRoute>([
-  'companion_gemini', 'companion_groq', 'companion_haiku',
+  'companion_gemini', 'companion_groq', 'companion_haiku', 'companion_gateway',
 ]);
 
 /** Online CHAT cevabını POST-GATE'ten geçirir; değişirse yeni sonuç döner. */

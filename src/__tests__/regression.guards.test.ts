@@ -458,11 +458,31 @@ describe('Grounding hatası beyin devre kesicisini tetiklemez kilidi', () => {
     expect(src, 'sawNetFailure ayrımı kaldırılmış (sağlayıcı hatası yine ağ hatası sayılıyor olabilir)').toMatch(/if \(sawNetFailure\) recordAiNetFailure\(\)/);
     const assignments = [...src.matchAll(/sawNetFailure = true/g)];
     expect(assignments.length, 'sawNetFailure set eden yol yok — throw yolu kesiciye hiç sayılmıyor').toBeGreaterThanOrEqual(2);
-    // Her set YALNIZ catch içinde olmalı (throw = gerçek ağ hatası)
-    const inCatch = [...src.matchAll(/catch \{[^}]*sawNetFailure = true/g)];
-    expect(inCatch.length, 'sawNetFailure = true catch DIŞINDA set ediliyor → HTTP-yanıtlı sağlayıcı hatası yine "internet yok" sayılır').toBe(assignments.length);
+    // Her set GERÇEK ağ ölümü kanıtına bağlı olmalı. İki kabul edilebilir kanıt:
+    //   (a) catch bloğu            → fetch THROW etti (timeout/DNS/kopma)
+    //   (b) `if (gw.netFailure)`   → AI Gateway hattı; gateway ASLA throw etmez,
+    //       gerçek ağ ölümü tipli `netFailure` bayrağıyla taşınır (aşağıdaki
+    //       kilit bu bayrağın YALNIZ network/timeout için doğru olmasını zorlar).
+    const inCatch   = [...src.matchAll(/catch \{[^}]*sawNetFailure = true/g)];
+    const viaNetFlag = [...src.matchAll(/if \(gw\.netFailure\) sawNetFailure = true/g)];
+    expect(inCatch.length + viaNetFlag.length,
+      'sawNetFailure = true GERÇEK ağ ölümü kanıtı olmadan set ediliyor (catch veya gw.netFailure dışında) → HTTP-yanıtlı sağlayıcı hatası yine "internet yok" sayılır',
+    ).toBe(assignments.length);
     // Eski isim geri gelmesin (null-yollarında sayan desen)
     expect(src, 'eski sawFailure deseni geri gelmiş').not.toMatch(/\bsawFailure\b/);
+  });
+
+  it('YAPISAL: AI Gateway köprüsü YALNIZ network/timeout\'u gerçek ağ ölümü sayar', () => {
+    // Yukarıdaki kilidin (b) şıkkının dayanağı: `gw.netFailure` bayrağı gateway
+    // köprüsünde üretilir. Köprü 429/4xx/5xx/parse/anahtar/çevrimdışı gibi
+    // "sunucudan yanıt geldi / yerel kapı" hatalarını da netFailure sayarsa
+    // devre kesici yine yanlış tetiklenir (SAHA 2026-07-04 hatası geri gelir).
+    const bridgeSrc = read('src/platform/ai/gateway/gatewayChatBridge.ts');
+    const kinds = bridgeSrc.match(/NET_DEATH_KINDS[^=]*=\s*\[([^\]]*)\]/);
+    expect(kinds, 'NET_DEATH_KINDS bulunamadı — köprünün kesici semantiği kaybolmuş').toBeTruthy();
+    const list = kinds![1].split(',').map((s) => s.trim().replace(/['"]/g, '')).filter(Boolean);
+    expect(list.sort(), 'gateway köprüsü network/timeout DIŞINDA bir hatayı da ağ ölümü sayıyor').toEqual(['network', 'timeout']);
+    expect(bridgeSrc, 'köprü doğrudan recordAiNetFailure çağırıyor (kesici sayımı çift olur)').not.toMatch(/recordAiNetFailure\s*\(/);
   });
 
   it('YAPISAL: repairMusicQuery catch BEYİN kesicisini BESLEMEZ (mikro-bütçe timeout ≠ ağ ölümü)', () => {
