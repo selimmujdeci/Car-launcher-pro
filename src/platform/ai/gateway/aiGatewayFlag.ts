@@ -161,6 +161,67 @@ export function setMaviContextEnabled(enabled: boolean): void {
   _contextCached = null;
 }
 
+/* ── Alt tercih: Hafıza (Memory Engine) ───────────────────────────────────── */
+
+/**
+ * Hafıza enjeksiyonu KİŞİSEL VERİ taşıdığı için araç bağlamından AYRI izin
+ * gerektirir (araç telemetrisine izin vermek, kişisel tercihlerin AI'ya
+ * gönderilmesine izin vermek anlamına GELMEZ).
+ *
+ * İki kapı: şalter + `mavi.aiMemory.consent === 'memory'`. Gateway kapalıyken
+ * tek başına açılamaz. Varsayılan: KAPALI + izin YOK.
+ */
+export const AI_MEMORY_REMOTE_FLAG = 'mavi_ai_memory';
+export const AI_MEMORY_LOCAL_FLAG  = 'mavi.aiMemory.enabled';
+export const AI_MEMORY_CONSENT_KEY = 'mavi.aiMemory.consent';
+
+export type MaviMemoryConsent = 'off' | 'memory';
+
+let _memoryCached: boolean | null = null;
+
+export function isMaviMemoryEnabled(): boolean {
+  if (!isAiGatewayEnabled()) return false;
+  if (_memoryCached === null) {
+    let local = false;
+    try {
+      local = typeof localStorage !== 'undefined'
+        && localStorage.getItem(AI_MEMORY_LOCAL_FLAG) === 'true';
+    } catch { local = false; }
+    let remote = false;
+    try { remote = getFlag(AI_MEMORY_REMOTE_FLAG) === true; } catch { remote = false; }
+    _memoryCached = remote || local;
+  }
+  return _memoryCached;
+}
+
+/** Okunamaz/tanınmaz değer → FAIL-CLOSED (`off`). */
+export function getMaviMemoryConsent(): MaviMemoryConsent {
+  try {
+    if (typeof localStorage === 'undefined') return 'off';
+    return localStorage.getItem(AI_MEMORY_CONSENT_KEY) === 'memory' ? 'memory' : 'off';
+  } catch {
+    return 'off';
+  }
+}
+
+export function setMaviMemoryConsent(level: MaviMemoryConsent): void {
+  try {
+    if (typeof localStorage === 'undefined') return;
+    if (level === 'memory') localStorage.setItem(AI_MEMORY_CONSENT_KEY, 'memory');
+    else                    localStorage.removeItem(AI_MEMORY_CONSENT_KEY);
+  } catch { /* depo kilitli */ }
+}
+
+export function setMaviMemoryEnabled(enabled: boolean): void {
+  try {
+    if (typeof localStorage !== 'undefined') {
+      if (enabled) localStorage.setItem(AI_MEMORY_LOCAL_FLAG, 'true');
+      else         localStorage.removeItem(AI_MEMORY_LOCAL_FLAG);
+    }
+  } catch { /* depo kilitli */ }
+  _memoryCached = null;
+}
+
 /**
  * Şalteri kullanıcı tercihine göre AÇAR/KAPATIR (ayarlar ekranı).
  *
@@ -187,4 +248,5 @@ export function _resetAiGatewayFlagForTest(): void {
   _cached = null;
   _orchestratorCached = null;
   _contextCached = null;
+  _memoryCached = null;
 }

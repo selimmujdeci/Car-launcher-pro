@@ -33,6 +33,10 @@ import { collectMaviContext } from '../../context/contextCollector';
 import { serializeMaviContext, type SerializedContext } from '../../context/contextSerializer';
 import { createMaviContextSources } from '../../context/concrete/maviContextSources';
 import type { ContextTelemetry } from '../../context/contextTypes';
+import { getMaviMemoryConsent, isMaviMemoryEnabled } from '../../gateway/aiGatewayFlag';
+import { buildMemoryBlock } from '../../memory/memoryEngine';
+import { createMaviMemorySources } from '../../memory/concrete/maviMemorySources';
+import type { MemoryBlock, MemoryTelemetry } from '../../memory/memoryTypes';
 
 /** Monotonik saat — clock-jump güvenli (CLAUDE.md §4). */
 const clock = { nowMs: (): number => (typeof performance !== 'undefined' ? performance.now() : 0) };
@@ -123,6 +127,54 @@ function withVehicleContext(system: string, task: MaviTaskType, nowMs: number): 
   }
 }
 
+/** Son hafıza telemetrisi (yalnız güvenli sayaçlar). */
+let _lastMemoryTelemetry: MemoryTelemetry | undefined;
+
+/** @internal */
+export function _getLastMemoryTelemetry(): MemoryTelemetry | undefined {
+  return _lastMemoryTelemetry;
+}
+
+/**
+ * Hafızayı İKİ KAPIDAN geçirerek system prompt'a EKLER.
+ *
+ * Araç bağlamından AYRI izin gerektirir: `mavi.aiMemory.consent === 'memory'`.
+ * Kapılardan biri yoksa system prompt AYNEN döner. Hafıza AYRI ve ETİKETLİ blok
+ * olarak system seviyesinde taşınır; kullanıcı mesajı DEĞİŞTİRİLMEZ. Okuma
+ * hatası isteği DÜŞÜRMEZ.
+ */
+function withMemory(system: string, task: MaviTaskType): string {
+  const enabled = safeBool(() => isMaviMemoryEnabled());
+  const consent = (() => { try { return getMaviMemoryConsent(); } catch { return 'off'; } })();
+
+  const record = (outcome: MemoryTelemetry['outcome'], b?: MemoryBlock): void => {
+    _lastMemoryTelemetry = {
+      taskType:       task,
+      memoryEnabled:  enabled,
+      consentGranted: consent === 'memory',
+      recordCount:    b?.recordCount ?? 0,
+      longTermCount:  b?.longTermCount ?? 0,
+      shortTermCount: b?.shortTermCount ?? 0,
+      rejectedCount:  b?.rejectedCount ?? 0,
+      droppedCount:   b?.droppedCount ?? 0,
+      outcome,
+    };
+  };
+
+  if (!enabled)             { record('disabled');   return system; }
+  if (consent !== 'memory') { record('no_consent'); return system; }
+
+  try {
+    const block = buildMemoryBlock({ taskType: task, sources: createMaviMemorySources() });
+    if (!block.text) { record('empty', block); return system; }
+    record('injected', block);
+    return `${system}\n\n${block.text}`;
+  } catch {
+    record('unavailable');
+    return system;                       // hafıza hatası AI çağrısını engellemez
+  }
+}
+
 function safeBool(read: () => boolean): boolean {
   try { return read() === true; } catch { return false; }
 }
@@ -161,7 +213,7 @@ export async function askOrchestratedChat(params: OrchestratedChatParams): Promi
       ...(params.vehicleConnected !== undefined ? { vehicleConnected: params.vehicleConnected } : {}),
     },
     request: {
-      messages: buildChatMessages(withVehicleContext(params.system, task, clock.nowMs()), params.user, params.history),
+      messages: buildChatMessages(withMemory(withVehicleContext(params.system, task, clock.nowMs()), task), params.user, params.history),
       ...(params.timeoutMs   !== undefined ? { timeoutMs:   params.timeoutMs }   : {}),
       ...(params.maxTokens   !== undefined ? { maxTokens:   params.maxTokens }   : {}),
       ...(params.temperature !== undefined ? { temperature: params.temperature } : {}),

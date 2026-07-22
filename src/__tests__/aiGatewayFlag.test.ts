@@ -114,6 +114,35 @@ describe('aiGatewayFlag — varsayılan KAPALI, tek şalter', () => {
     expect(m.isAiGatewayEnabled()).toBe(true);              // üst hat korunur
   });
 
+
+  it('MEMORY: varsayılan KAPALI ve izin YOK', async () => {
+    vi.doMock('../platform/remoteConfigService', () => ({ getFlag: () => false }));
+    localStorage.setItem('mavi.aiGateway.enabled', 'true');
+    const m = await import('../platform/ai/gateway/aiGatewayFlag');
+    expect(m.isMaviMemoryEnabled()).toBe(false);
+    expect(m.getMaviMemoryConsent()).toBe('off');
+  });
+
+  it('MEMORY: gateway KAPALIYKEN tek başına açılamaz (fail-closed)', async () => {
+    vi.doMock('../platform/remoteConfigService', () => ({ getFlag: () => false }));
+    localStorage.setItem('mavi.aiMemory.enabled', 'true');
+    localStorage.setItem('mavi.aiMemory.consent', 'memory');
+    const m = await import('../platform/ai/gateway/aiGatewayFlag');
+    expect(m.isMaviMemoryEnabled()).toBe(false);
+  });
+
+  it('MEMORY: izni araç bağlamı izninden AYRIDIR', async () => {
+    vi.doMock('../platform/remoteConfigService', () => ({ getFlag: () => false }));
+    localStorage.setItem('mavi.aiContext.consent', 'vehicle_context');
+    const m = await import('../platform/ai/gateway/aiGatewayFlag');
+    expect(m.getMaviContextConsent()).toBe('vehicle_context');
+    expect(m.getMaviMemoryConsent()).toBe('off');          // araç izni hafıza izni DEĞİL
+    m.setMaviMemoryConsent('memory');
+    expect(m.getMaviMemoryConsent()).toBe('memory');
+    m.setMaviMemoryConsent('off');
+    expect(m.getMaviMemoryConsent()).toBe('off');          // rollback
+  });
+
   it('değer önbelleğe alınır — tur ortasında değişmez', async () => {
     vi.doMock('../platform/remoteConfigService', () => ({ getFlag: () => false }));
     const m = await import('../platform/ai/gateway/aiGatewayFlag');
