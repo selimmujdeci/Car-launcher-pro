@@ -282,6 +282,7 @@ export function setMaviToolsEnabled(enabled: boolean): void {
   } catch { /* depo kilitli */ }
   _toolsCached = null;
   _plannerCached = null;
+  _mechanicCached = null;
 }
 
 /* ── Alt tercih: Planner ──────────────────────────────────────────────────── */
@@ -320,6 +321,43 @@ export function setMaviPlannerEnabled(enabled: boolean): void {
     }
   } catch { /* depo kilitli */ }
   _plannerCached = null;
+}
+
+/* ── Alt tercih: AI Usta (Mechanic) ───────────────────────────────────────── */
+
+/**
+ * Teşhis bloğu, ZATEN çalışan aiCore AI Usta sonucunun Mavi'ye taşınmasıdır;
+ * yeni ölçüm/sorgu YAPMAZ. Yine de kendi şalteri vardır. Varsayılan KAPALI;
+ * gateway kapalıyken açılamaz.
+ */
+export const AI_MECHANIC_REMOTE_FLAG = 'mavi_ai_mechanic';
+export const AI_MECHANIC_LOCAL_FLAG  = 'mavi.aiMechanic.enabled';
+
+let _mechanicCached: boolean | null = null;
+
+export function isMaviMechanicEnabled(): boolean {
+  if (!isAiGatewayEnabled()) return false;
+  if (_mechanicCached === null) {
+    let local = false;
+    try {
+      local = typeof localStorage !== 'undefined'
+        && localStorage.getItem(AI_MECHANIC_LOCAL_FLAG) === 'true';
+    } catch { local = false; }
+    let remote = false;
+    try { remote = getFlag(AI_MECHANIC_REMOTE_FLAG) === true; } catch { remote = false; }
+    _mechanicCached = remote || local;
+  }
+  return _mechanicCached;
+}
+
+export function setMaviMechanicEnabled(enabled: boolean): void {
+  try {
+    if (typeof localStorage !== 'undefined') {
+      if (enabled) localStorage.setItem(AI_MECHANIC_LOCAL_FLAG, 'true');
+      else         localStorage.removeItem(AI_MECHANIC_LOCAL_FLAG);
+    }
+  } catch { /* depo kilitli */ }
+  _mechanicCached = null;
 }
 
 /**

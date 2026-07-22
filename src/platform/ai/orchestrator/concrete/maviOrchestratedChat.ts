@@ -45,6 +45,7 @@ import type { AiGenerateRequest, AiToolSpec } from '../../gateway/types';
 import { planWithRouter } from '../../planner/concrete/maviPlannerRuntime';
 import { executePlan, type PlanExecutionOutcome } from '../../planner/planExecutor';
 import { derivePlannerHints } from '../../planner/plannerIntent';
+import { buildMechanicBlock } from '../../mechanic/concrete/maviMechanic';
 import type { MaviPlan } from '../../planner/plannerTypes';
 
 /** Monotonik saat — clock-jump güvenli (CLAUDE.md §4). */
@@ -239,6 +240,19 @@ async function runPlanForRequest(
   }
 }
 
+/**
+ * AI Usta teşhisini system prompt'a ekler (boşsa AYNEN döner).
+ * Karar DETERMİNİSTİK katmandan gelir; LLM yalnız YORUMLAR.
+ */
+function withDiagnosis(system: string): string {
+  try {
+    const block = buildMechanicBlock().block;
+    return block ? `${system}\n\n${block}` : system;
+  } catch {
+    return system;                       // teşhis hatası isteği DÜŞÜRMEZ
+  }
+}
+
 /** Plan sonuç bloğunu system prompt'a ekler (boşsa AYNEN döner). */
 function withPlanResults(system: string, block: string): string {
   return block ? `${system}\n\n${block}` : system;
@@ -284,7 +298,7 @@ export async function askOrchestratedChat(params: OrchestratedChatParams): Promi
 
   const baseRequest: AiGenerateRequest = {
     messages: buildChatMessages(
-      withPlanResults(withMemory(withVehicleContext(params.system, task, clock.nowMs()), task), planRun.block),
+      withDiagnosis(withPlanResults(withMemory(withVehicleContext(params.system, task, clock.nowMs()), task), planRun.block)),
       params.user, params.history,
     ),
     ...(params.timeoutMs   !== undefined ? { timeoutMs:   params.timeoutMs }   : {}),
