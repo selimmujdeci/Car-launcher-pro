@@ -84,6 +84,7 @@ function snapshotWith(patch: Partial<ValidationSnapshot>): ValidationSnapshot {
     perf: PERF_METRICS_TEMPLATE,
     mavi: [],
     log: [],
+    checklistDone: [],
     ...patch,
   };
 }

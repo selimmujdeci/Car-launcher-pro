@@ -41,6 +41,12 @@ import {
 export const MAX_LOG_ENTRIES  = 300;
 /** Mavi kayıt tavanı. */
 export const MAX_MAVI_RECORDS = 100;
+/**
+ * Azami oturum süresi (ms). Kayıt artık panel kapanınca DURMAZ (saha testi
+ * boyunca sürmesi gerekir); bu yüzden unutulmuş bir oturum sonsuza dek kaynak
+ * tüketmesin diye MUTLAK bir tavan vardır. 4 saat, en uzun saha turundan uzun.
+ */
+export const MAX_SESSION_MS   = 4 * 60 * 60 * 1_000;
 
 /* ── Modül durumu ──────────────────────────────────────────────────────────── */
 
@@ -70,6 +76,9 @@ const _fps = { sum: 0, count: 0, min: -1 };
 const _mem = { lastMb: -1, peakMb: -1 };
 const _cnt = { timeoutCount: 0, recoveryCount: 0 };
 
+/** İşaretlenmiş saha adımları (`validationChecklist` id'leri). */
+const _checklist = new Set<string>();
+
 const _subscribers = new Set<() => void>();
 const _disposers: Array<() => void> = [];
 
@@ -81,6 +90,15 @@ function _now(): number {
 
 function _notify(): void {
   _subscribers.forEach((cb) => { try { cb(); } catch { /* yoksay */ } });
+}
+
+/**
+ * Oturum başından bu yana geçen monotonik süre (ms, TAM SAYI).
+ * `performance.now()` mikrosaniye kesiri taşır; rapora ham float yazmak JSON'u
+ * gürültülendirir ve sahte hassasiyet izlenimi verir.
+ */
+function _elapsedMs(): number {
+  return Math.round(_now() - _origin);
 }
 
 /** Ortalama — hiç örnek yoksa `null` ("ölçülmedi"), UYDURMA YOK. */
@@ -113,6 +131,7 @@ export function startValidationSession(): string {
   _logSlots.fill(null);  _logHead = 0;  _logFilled = 0;  _logSeq = 0;
   _maviSlots.fill(null); _maviHead = 0; _maviFilled = 0; _maviSeq = 0;
   _obd = OBD_METRICS_TEMPLATE;
+  _checklist.clear();
   _resetAccumulators();
 
   _origin = _now();
@@ -154,7 +173,7 @@ export function recordLog(channel: ValidationChannel, level: ValidationLevel, me
 
   const entry: ValidationLogEntry = {
     id:       `vlog-${_logSeq++}`,
-    tsMonoMs: _now() - _origin,
+    tsMonoMs: _elapsedMs(),
     tsWallMs: Date.now(),
     channel,
     level,
@@ -225,11 +244,44 @@ export function recordMemorySample(usedMb: number): void {
   if (usedMb > _mem.peakMb) _mem.peakMb = usedMb;
 }
 
-/** Timeout / kurtarma sayaçlarını MUTLAK değerle senkronlar (çift sayım yok). */
+/**
+ * Timeout / kurtarma sayaçlarını senkronlar (çift sayım yok).
+ *
+ * MONOTONİK: kaynak sayaçların bir kısmı BOUNDED pencereden okunur
+ * (`getHandshakeDiagnostics().reconnectHistory` yalnız son 8 kaydı tutar) → ham
+ * değer AZALABİLİR. Bir oturum içinde "3 timeout gördük" bilgisi sonradan
+ * "1 timeout"a düşerse rapor YALAN söyler. Bu yüzden yalnız YUKARI güncellenir.
+ */
 export function recordPerfCounters(timeoutCount: number, recoveryCount: number): void {
   if (!_active) return;
-  if (Number.isFinite(timeoutCount) && timeoutCount >= 0) _cnt.timeoutCount = timeoutCount;
-  if (Number.isFinite(recoveryCount) && recoveryCount >= 0) _cnt.recoveryCount = recoveryCount;
+  if (Number.isFinite(timeoutCount) && timeoutCount > _cnt.timeoutCount) {
+    _cnt.timeoutCount = timeoutCount;
+  }
+  if (Number.isFinite(recoveryCount) && recoveryCount > _cnt.recoveryCount) {
+    _cnt.recoveryCount = recoveryCount;
+  }
+}
+
+/* ── Kayıt: saha kontrol listesi ───────────────────────────────────────────── */
+
+/**
+ * Bir saha adımını işaretler/kaldırır. Bilinmeyen id REDDEDİLİR (fail-closed) —
+ * doğrulama `validationChecklist.isChecklistId` çağıranındadır; burada yalnız
+ * boş/bozuk değer elenir.
+ */
+export function setChecklistDone(id: string, done: boolean): void {
+  if (!_active) return;
+  const key = (id ?? '').trim();
+  if (!key) return;
+  if (done) _checklist.add(key);
+  else      _checklist.delete(key);
+  _notify();
+}
+
+/** Oturum tavanı aşıldı mı — collector otomatik durdurma için okur. */
+export function isSessionExpired(): boolean {
+  if (!_active || !_sessionId) return false;
+  return (_now() - _origin) > MAX_SESSION_MS;
 }
 
 /* ── Kayıt: Mavi ───────────────────────────────────────────────────────────── */
@@ -246,7 +298,7 @@ export function recordMaviRun(input: MaviValidationInput): void {
     ...MAVI_RECORD_TEMPLATE,
     ...input,
     id:       `mavi-${_maviSeq++}`,
-    tsMonoMs: _now() - _origin,
+    tsMonoMs: _elapsedMs(),
   };
 
   _maviSlots[_maviHead] = rec;
@@ -309,6 +361,7 @@ export function getValidationSnapshot(): ValidationSnapshot {
     perf:          _perfMetrics(),
     mavi:          _readMavi(),
     log:           _readLog(),
+    checklistDone: [..._checklist],
   };
 }
 
@@ -329,6 +382,7 @@ export function _resetValidationRecorderForTest(): void {
   _logSlots.fill(null);  _logHead = 0;  _logFilled = 0;  _logSeq = 0;
   _maviSlots.fill(null); _maviHead = 0; _maviFilled = 0; _maviSeq = 0;
   _obd = OBD_METRICS_TEMPLATE;
+  _checklist.clear();
   _resetAccumulators();
   _disposers.length = 0;
   _subscribers.clear();

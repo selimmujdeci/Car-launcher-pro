@@ -53,9 +53,16 @@ const MASKS: ReadonlyArray<readonly [RegExp, string]> = [
   [/\b-?\d{1,3}\.\d{4,}\s*,\s*-?\d{1,3}\.\d{4,}\b/g, '**.****,**.****'],
 ];
 
-/** Metni maskeler ve kırpar — SAF. */
-export function maskSensitiveText(input: string): string {
-  let s = (input ?? '').slice(0, MAX_STRING);
+/**
+ * Metni maskeler ve kırpar — SAF.
+ *
+ * `maxLen` varsayılanı alan-bazlı tavandır (rapor alanları kısa olmalı). İnsan-okur
+ * ÖZET METNİ gibi uzun belgeler `Infinity` geçerek kırpmayı devre dışı bırakır —
+ * maskeleme yine uygulanır (gizlilik kapısı hiçbir yolda atlanmaz).
+ */
+export function maskSensitiveText(input: string, maxLen: number = MAX_STRING): string {
+  const raw = input ?? '';
+  let s = Number.isFinite(maxLen) ? raw.slice(0, maxLen) : raw;
   for (const [re, rep] of MASKS) s = s.replace(re, rep);
   return s;
 }
@@ -158,6 +165,9 @@ export function buildValidationReport(
     },
     mavi: snap.mavi.map((r) => ({ ...r })),
     log:  snap.log.map((e) => ({ ...e })),
+    /* Teknisyen BEYANI (ölçüm değil): raporun hangi koşulda toplandığını taşır.
+       İşaretlenmemiş adım = o koşulun BİLİNMEDİĞİ anlamına gelir. */
+    checklistDone: [...(snap.checklistDone ?? [])],   // fail-soft: eski snapshot şekli
   };
 
   return sanitizeValue(body) as Record<string, unknown>;

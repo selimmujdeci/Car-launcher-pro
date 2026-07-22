@@ -193,6 +193,11 @@ export interface ValidationSnapshot {
   readonly perf:          PerfValidationMetrics;
   readonly mavi:          readonly MaviValidationRecord[];
   readonly log:           readonly ValidationLogEntry[];
+  /**
+   * Teknisyenin işaretlediği saha adımları (`validationChecklist` id'leri).
+   * Ölçüm DEĞİL beyandır: raporun hangi koşullarda toplandığını dürüstçe taşır.
+   */
+  readonly checklistDone: readonly string[];
 }
 
 /* ── Test sonucu ───────────────────────────────────────────────────────────── */

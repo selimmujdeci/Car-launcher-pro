@@ -13,10 +13,21 @@
  *   onOBDData()                → canlı paket varışı (polling aralığı)
  *   performance.memory / rAF   → bellek · FPS (altyapı varsa)
  *
- * ── YAŞAM DÖNGÜSÜ ───────────────────────────────────────────────────────────
+ * ── YAŞAM DÖNGÜSÜ (SAHA SÖZLEŞMESİ) ─────────────────────────────────────────
  * `startValidationCollector()` YALNIZ şalter açıkken çalışır (fail-closed).
+ *
+ * ⚠️ Oturum, panel KAPANINCA DURMAZ. Bir yol testi boyunca teknisyenin debug
+ * panelini açık tutması imkânsızdır (harita, sürüş, telefon uykusu); panelin
+ * kapanması kaydı bitirseydi saha testi hiç yapılamazdı. Bu yüzden kayıt
+ * AÇIKÇA başlatılır ve AÇIKÇA durdurulur.
+ *
+ * Bunun bedeli sınırlıdır ve bilinçlidir: yalnız 1 sn'lik örnekleyici + 1 rAF
+ * sayacı + mevcut `onOBDData` aboneliği. Unutulmuş oturum için `MAX_SESSION_MS`
+ * mutlak tavanı vardır (aşılırsa kendiliğinden durur). Kayıt başlatılmadıysa
+ * hiçbir kaynak tüketilmez — "kapalıyken sıfır ek yük" sözü korunur.
+ *
  * Durdurulduğunda kaydedilen tüm disposer'lar çalışır: abonelik, zamanlayıcı
- * ve rAF döngüsü kapanır (zero-leak). Kapalıyken hiçbir kaynak tüketilmez.
+ * ve rAF döngüsü kapanır (zero-leak); toplanan veri rapor için OKUNABİLİR kalır.
  */
 
 import {
@@ -31,6 +42,7 @@ import { getHandshakeVin } from '../../safety/vinContext';
 import { maskVin } from '../validationExport';
 import { isValidationModeEnabled } from '../validationFlag';
 import {
+  isSessionExpired,
   isValidationActive,
   recordDataAge,
   recordFpsSample,
@@ -113,6 +125,12 @@ function sampleOnce(): void {
     if (life.connectionState !== _lastConnState) {
       recordLog('obd', 'info', `Bağlantı durumu: ${life.connectionState}.`);
       _lastConnState = life.connectionState;
+    }
+
+    /* Unutulmuş oturum koruması — mutlak tavan aşıldıysa kendiliğinden durur. */
+    if (isSessionExpired()) {
+      recordLog('system', 'warn', 'Azami oturum süresi doldu — kayıt otomatik durduruldu.');
+      stopValidationSession();
     }
   } catch {
     /* Örnekleme hatası oturumu DÜŞÜRMEZ — bir tur atlanır (fail-soft). */
