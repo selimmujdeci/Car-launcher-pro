@@ -54,8 +54,23 @@ const DEFAULT_MAX_ATTEMPTS = 2;      // 1 ilk deneme + 1 tekrar
 const DEFAULT_BASE_DELAY_MS = 400;   // 400ms → 800ms → 1600ms (üstel, jitter yok)
 const MAX_ATTEMPTS_CEILING  = 5;     // savunmacı tavan (yanlış config kaçağı)
 
-/** Ağ kaynaklı sayılan (devre kesiciyi besleyen) hata sınıfları. */
-const NET_FAILURE_KINDS: readonly AiErrorKind[] = ['network', 'timeout', 'server', 'rate_limited'];
+/**
+ * GERÇEK ağ ölümü sayılan (devre kesiciyi besleyen) hata sınıfları.
+ *
+ * ⚠️ SAHA 2026-07-22 ("internet var ama Mavi offline'a düşüyor") — KÖK NEDEN:
+ * bu küme eskiden `server` (5xx) ve `rate_limited` (429) DE içeriyordu. Oysa
+ * sunucudan HTTP yanıtı gelmesi ağın CANLI olduğunun KANITIDIR; bunları global
+ * devre kesiciye yazmak `gatewayChatBridge`'in NET_DEATH_KINDS sözleşmesiyle
+ * (yalnız network/timeout) doğrudan ÇELİŞİYORDU. Üstelik kesici HER DENEMEDE
+ * besleniyordu: 1 istek × 2 deneme × 2 sağlayıcı = 4 sayım → TEK BİR 429
+ * kullanıcıyı anında 90sn tam offline'a kilitliyordu.
+ *
+ * Kural: yalnız sunucuya ULAŞILAMADIĞINDA (bağlantı kopması/süre aşımı) sayılır
+ * ve İSTEK BAŞINA EN FAZLA BİR KEZ (aşağıda `netDeathCounted`).
+ * Sağlayıcı-bazlı 429/5xx cezası kesicinin işi DEĞİLDİR — o `providerHealthStore`
+ * ve sağlayıcı soğuma pencerelerinin sorumluluğudur.
+ */
+const NET_FAILURE_KINDS: readonly AiErrorKind[] = ['network', 'timeout'];
 
 /* ── Bağımlılıklar ─────────────────────────────────────────────────────────── */
 
@@ -82,6 +97,11 @@ export interface AiGatewayDependencies {
   /** Verilmezse devre kesici kapısı UYGULANMAZ. */
   readonly health?:            AiHealthPort;
   readonly sleep?:             AiSleep;
+  /**
+   * MONOTONİK saat (DI) — yalnız gecikme ÖLÇÜMÜ için (offline sebep künyesi).
+   * Karar mantığında KULLANILMAZ; `Date.now`/duvar saati asla okunmaz.
+   */
+  readonly now?:               () => number;
 }
 
 /* ── Yardımcılar ───────────────────────────────────────────────────────────── */
@@ -128,6 +148,9 @@ function validateRequest(request: AiGenerateRequest): AiError | undefined {
 
 const defaultSleep: AiSleep = (ms) => new Promise((resolve) => { setTimeout(resolve, ms); });
 
+/** Varsayılan monotonik saat — yalnız gecikme ölçümü (clock-jump güvenli, §4). */
+const defaultNow = (): number => (typeof performance !== 'undefined' ? performance.now() : 0);
+
 /* ── Factory ───────────────────────────────────────────────────────────────── */
 
 /**
@@ -151,6 +174,7 @@ export function createAiGateway(deps: AiGatewayDependencies): AiGateway {
     network,
     health,
     sleep = defaultSleep,
+    now   = defaultNow,
   } = deps;
 
   if (typeof defaultModel !== 'string' || !defaultModel.trim()) {
@@ -234,20 +258,46 @@ export function createAiGateway(deps: AiGatewayDependencies): AiGateway {
       const attempts: AiAttemptLog[] = [];
       let lastError: AiError = fail('unknown', 'AI yanıtı alınamadı.');
 
+      /* Devre kesici muhasebesi — İSTEK BAŞINA EN FAZLA BİR KEZ beslenir.
+         Eskiden her denemede sayılıyordu (2 deneme × 2 sağlayıcı = 4) → tek
+         istek eşiği (2) tek başına aşıyordu (SAHA 2026-07-22). */
+      const startedAtMs = now();
+      let retries       = 0;
+      let netDeath: AiError | undefined;
+
+      /** Zincir bittiğinde/erken çıkışta kesiciyi TEK KEZ besler. */
+      const flushHealth = (): void => {
+        if (!netDeath) return;
+        health?.recordFailure({
+          ...(netDeath.provider !== undefined ? { provider: netDeath.provider } : {}),
+          model:         providerRequest.model,
+          latencyMs:     Math.round(now() - startedAtMs),
+          ...(netDeath.status !== undefined ? { httpStatus: netDeath.status } : {}),
+          exceptionType: netDeath.kind,
+          retries,
+        });
+        netDeath = undefined;
+      };
+
       /* ── Sağlayıcı zinciri (fallback) ── */
       for (const provider of activeProviders) {
         for (let attempt = 1; attempt <= maxAttempts; attempt++) {
           if (options?.signal?.aborted) {
+            flushHealth();
             return { ok: false, error: fail('aborted', 'İstek iptal edildi.'), attempts };
           }
 
           const result = await callProvider(provider, providerRequest, onToken, options?.signal);
 
           if (result.ok) {
+            /* Sağlıklı yanıt gelen an seri SIFIRLANIR — aynı turda daha önce
+               görülen ağ hatası artık kesiciye yazılmaz (failover BAŞARILI). */
+            netDeath = undefined;
             health?.recordSuccess();
             return result;
           }
 
+          if (attempt > 1) retries++;
           lastError = result.error;
           attempts.push({
             provider:  provider.id,
@@ -257,14 +307,21 @@ export function createAiGateway(deps: AiGatewayDependencies): AiGateway {
             ...(result.error.status !== undefined ? { status: result.error.status } : {}),
           });
 
-          if (NET_FAILURE_KINDS.includes(result.error.kind)) health?.recordFailure();
+          /* Yalnız GERÇEK ağ ölümü (sunucuya ulaşılamadı) işaretlenir; HTTP
+             yanıtı gelen hatalar (429/5xx/auth) ağın CANLI olduğunun kanıtıdır. */
+          if (NET_FAILURE_KINDS.includes(result.error.kind)) {
+            netDeath = { ...result.error, provider: result.error.provider ?? provider.id };
+          }
 
           /* ÇİFT TOKEN YASAĞI: kullanıcı zaten metin duyduysa/gördüyse dur. */
           if (emittedTokens > 0) {
+            flushHealth();
             return { ok: false, error: lastError, attempts };
           }
-          /* İptal → zincirin tamamı durur. */
+          /* İptal → zincirin tamamı durur. Kullanıcı iptali AĞ HATASI DEĞİLDİR
+             (barge-in kesiciyi beslemez). */
           if (result.error.kind === 'aborted') {
+            netDeath = undefined;
             return { ok: false, error: lastError, attempts };
           }
           /* Tekrar anlamsızsa bu sağlayıcıyı bırak, sıradakine geç. */
@@ -276,6 +333,7 @@ export function createAiGateway(deps: AiGatewayDependencies): AiGateway {
         }
       }
 
+      flushHealth();
       return { ok: false, error: lastError, attempts };
     },
   };

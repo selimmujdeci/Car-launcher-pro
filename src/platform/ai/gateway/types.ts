@@ -19,6 +19,8 @@
  * ANAHTARI/gizli veri İÇEREMEZ.
  */
 
+import type { AiOfflineDetail } from '../aiOfflineReason';
+
 /* ── Konuşma (conversation) ────────────────────────────────────────────────── */
 
 /** Konuşma rolleri — sağlayıcıdan bağımsız kanonik küme. */
@@ -243,7 +245,15 @@ export interface AiNetworkStatus {
 export interface AiHealthPort {
   isHealthy():     boolean;
   recordSuccess(): void;
-  recordFailure(): void;
+  /**
+   * GERÇEK ağ ölümü bildirimi (yalnız network/timeout; 429/5xx ağın CANLI
+   * olduğunun kanıtıdır → BURAYA GELMEZ). İstek başına EN FAZLA BİR KEZ çağrılır.
+   *
+   * `detail` OPSİYONELDİR: mevcut uygulamalar imzayı değiştirmeden çalışır
+   * (geriye dönük uyumlu). Verildiğinde offline sebep kaydına künye olarak
+   * yazılır — "sessizce offline'a düşmek yasak" kuralının veri kaynağı.
+   */
+  recordFailure(detail?: AiOfflineDetail): void;
 }
 
 /** Yeniden deneme beklemesi — DI (testte sahte, üretimde setTimeout). */

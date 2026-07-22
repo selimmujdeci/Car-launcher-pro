@@ -35,6 +35,7 @@ import { getNavigationState } from '../navigationService';
 import { buildMemoryPromptSection } from './companionMemory';
 import { signalWithTimeout } from '../../utils/abortCompat';
 import { recordAiNetFailure, recordAiNetSuccess } from '../aiHealth';
+import { errorKindFromException } from '../ai/aiOfflineReason';
 import { tavilySearch } from '../webSearchService';
 import { getWeatherNarrative, refreshWeather, onWeatherState, weatherQueryNamesCity, type WeatherState } from '../weatherService';
 import type { SemanticResult } from '../ai/semanticAiService';
@@ -1912,7 +1913,10 @@ async function runCompanionChat(
         pushHistory('model', reply);
         return { response: reply, route: 'companion_gemini' };
       }
-    } catch { recordAiNetFailure(); /* timeout / ağ — sessizce offline'a düş */ }
+    } catch (e) {
+      // SESSİZ OFFLINE YASAK (SAHA 2026-07-22): sebep kodu + künye kaydedilir.
+      recordAiNetFailure({ provider: 'gemini', exceptionType: errorKindFromException(e) });
+    }
   } else if (groqUsable) {
     try {
       const reply = await askCompanionGroq(trimmed, opts.apiKey as string, resolveCompanionIdentity(settings), isDriving);
@@ -1922,7 +1926,9 @@ async function runCompanionChat(
         pushHistory('model', reply);
         return { response: reply, route: 'companion_groq' };
       }
-    } catch { recordAiNetFailure(); /* timeout / ağ — sessizce offline'a düş */ }
+    } catch (e) {
+      recordAiNetFailure({ provider: 'groq', exceptionType: errorKindFromException(e) });
+    }
   }
 
   // ── Offline fallback: internet yok · key yok · hata/timeout · 429 ──

@@ -21,6 +21,7 @@ import { callProcessIntent } from '../supabaseClient';
 import { buildPidRegistryIntegrityPromptBlock } from './pidDescriptionGate';
 import { signalWithTimeout } from '../../utils/abortCompat';
 import { recordAiNetFailure, recordAiNetSuccess } from '../aiHealth';
+import { errorKindFromException } from './aiOfflineReason';
 
 /* ── POI Kategorileri ────────────────────────────────────────── */
 
@@ -264,8 +265,10 @@ export async function classifySemantic(
     if (provider === 'gemini') result = await _askGemini(text, resolvedKey, ctx);
     if (provider === 'haiku')  result = await _askHaiku(text, resolvedKey, ctx);
     if (result) { recordAiNetSuccess(); return result; }
-  } catch {
-    recordAiNetFailure(); // ağ hatası/timeout — devre kesici art arda hatada AI'yı kapatır
+  } catch (e) {
+    // Ağ hatası/timeout — kesici art arda hatada AI'yı kapatır. Sebep kodu +
+    // künye kaydedilir (sessiz offline yasak — SAHA 2026-07-22).
+    recordAiNetFailure({ provider, exceptionType: errorKindFromException(e) });
   }
 
   // ── 3. Offline fallback ─────────────────────────────────────

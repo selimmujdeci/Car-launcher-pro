@@ -18,6 +18,7 @@ import type { DTCCode } from './dtcService';
 import { buildPidRegistryIntegrityPromptBlock } from './ai/pidDescriptionGate';
 import { signalWithTimeout } from '../utils/abortCompat';
 import { recordAiNetFailure, recordAiNetSuccess } from './aiHealth';
+import { errorKindFromException } from './ai/aiOfflineReason';
 
 /* ── Types ─────────────────────────────────────────────────── */
 
@@ -359,9 +360,10 @@ export async function askAI(
     if (provider === 'groq')   result = await askGroq(text, key, ctx);
     if (result) recordAiNetSuccess(); // ağ sağlıklı — devre kesici sayacı sıfırla
     return result;
-  } catch {
-    // Network error, timeout, etc. — silent fallback
-    recordAiNetFailure(); // devre kesici art arda hatada AI yollarını kapatır
+  } catch (e) {
+    // Ağ hatası/timeout — yerel zincire düşülür. SESSİZ DEĞİL: sebep kodu +
+    // künye kaydedilir (SAHA 2026-07-22, "sessizce offline'a düşmek yasak").
+    recordAiNetFailure({ provider, exceptionType: errorKindFromException(e) });
     return null;
   }
 }

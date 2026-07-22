@@ -27,13 +27,25 @@ import { createGeminiProvider } from '../providers/geminiProvider';
 import { createOpenRouterKeySource } from './openRouterKeySource';
 import { createGeminiKeySource } from './geminiKeySource';
 import { isAiNetHealthy, recordAiNetFailure, recordAiNetSuccess } from '../../../aiHealth';
+import { nextAiRequestId } from '../../aiOfflineReason';
 import type { AiGateway, AiHealthPort, AiKeyVerification, AiNetworkStatus, AiProvider } from '../types';
 
-/** Mevcut devre kesiciyi gateway portuna uyarlar (yeni state YOK). */
+/**
+ * Mevcut devre kesiciyi gateway portuna uyarlar (yeni state YOK).
+ *
+ * Künye (`detail`) aynen taşınır; `requestId` yoksa BURADA üretilir — kimlik
+ * üretimi bir wiring sorumluluğudur, saf gateway katmanının işi değildir.
+ * Gateway yalnız GERÇEK ağ ölümünde ve istek başına BİR KEZ çağırır.
+ */
 const aiHealthPort: AiHealthPort = {
   isHealthy:     () => isAiNetHealthy(),
   recordSuccess: () => { recordAiNetSuccess(); },
-  recordFailure: () => { recordAiNetFailure(); },
+  recordFailure: (detail) => {
+    recordAiNetFailure({
+      ...(detail ?? {}),
+      requestId: detail?.requestId ?? nextAiRequestId(),
+    });
+  },
 };
 
 /** Tarayıcı/WebView ağ durumu (yoksa "çevrimiçi" varsayılır — kapı yanlış kapanmasın). */
