@@ -54,6 +54,13 @@ let _active = false;
 let _sessionId = '';
 let _startedWallMs = 0;
 let _origin = 0;          // performance.now() oturum başlangıcı
+/**
+ * Oturum DURDURULDUĞU andaki monotonik süre (ms). `-1` = henüz durdurulmadı.
+ * Durdurulmuş oturumda süre buradan okunur → rapor ile kütük AYNI gerçeği söyler.
+ */
+let _endedMonoMs = -1;
+/** Kenar tetiklemeli kopma sayacı — aynı fiziksel olay iki kez sayılmaz. */
+let _disconnectCount = 0;
 let _logSeq = 0;
 let _maviSeq = 0;
 
@@ -137,6 +144,8 @@ export function startValidationSession(): string {
   _origin = _now();
   _startedWallMs = Date.now();
   _sessionId = `val-${_startedWallMs.toString(36)}`;
+  _endedMonoMs = -1;
+  _disconnectCount = 0;
   _active = true;
 
   recordLog('system', 'info', 'Doğrulama oturumu başladı.');
@@ -148,7 +157,11 @@ export function startValidationSession(): string {
  * Toplanan veri OKUNABİLİR kalır (rapor export'u için) — yalnız kayıt durur.
  */
 export function stopValidationSession(): void {
-  if (_active) recordLog('system', 'info', 'Doğrulama oturumu durduruldu.');
+  if (_active) {
+    recordLog('system', 'info', 'Doğrulama oturumu durduruldu.');
+    // SÜREYİ DONDUR — kütükteki durdurma damgasıyla rapor artık aynı gerçeği söyler.
+    _endedMonoMs = _elapsedMs();
+  }
   _active = false;
   while (_disposers.length) {
     const fn = _disposers.pop();
@@ -278,6 +291,19 @@ export function setChecklistDone(id: string, done: boolean): void {
   _notify();
 }
 
+/**
+ * GERÇEK bir bağlantı kopması olayını kaydeder (KENAR tetiklemeli).
+ *
+ * Çağıran sözleşmesi: bu fonksiyon YALNIZ 'connected' → bağlı-olmayan GEÇİŞİNDE
+ * çağrılır. Aynı fiziksel kopmanın yinelenen log satırları/örnekleme turları
+ * tekrar çağırmaz → çift sayım YOK. Sayaç oturum içinde MONOTONİKtir.
+ */
+export function recordObdDisconnect(): void {
+  if (!_active) return;
+  _disconnectCount++;
+  recordLog('obd', 'warn', `Bağlantı koptu (oturumda toplam ${_disconnectCount}).`);
+}
+
 /** Oturum tavanı aşıldı mı — collector otomatik durdurma için okur. */
 export function isSessionExpired(): boolean {
   if (!_active || !_sessionId) return false;
@@ -355,9 +381,15 @@ export function getValidationSnapshot(): ValidationSnapshot {
   return {
     sessionId:     _sessionId,
     startedWallMs: _startedWallMs,
-    durationMs:    _sessionId ? Math.max(0, _now() - _origin) : 0,
+    // FAIL-CLOSED SÜRE: oturum hiç başlamadıysa 0; durdurulduysa DONDURULMUŞ değer;
+    // yalnız CANLI oturumda saatten türetilir.
+    durationMs:    !_sessionId ? 0
+                 : _endedMonoMs >= 0 ? _endedMonoMs
+                 : Math.max(0, _elapsedMs()),
     active:        _active,
-    obd:           { ..._obd },
+    // Kopma sayısı TEK OTORİTEDEN gelir (kenar sayacı) — `recordObdMetrics`
+    // ile dışarıdan üzerine yazılamaz (çelişkili kaynak yasağı).
+    obd:           { ..._obd, disconnectCount: _disconnectCount },
     perf:          _perfMetrics(),
     mavi:          _readMavi(),
     log:           _readLog(),
@@ -379,6 +411,8 @@ export function _resetValidationRecorderForTest(): void {
   _sessionId = '';
   _startedWallMs = 0;
   _origin = 0;
+  _endedMonoMs = -1;
+  _disconnectCount = 0;
   _logSlots.fill(null);  _logHead = 0;  _logFilled = 0;  _logSeq = 0;
   _maviSlots.fill(null); _maviHead = 0; _maviFilled = 0; _maviSeq = 0;
   _obd = OBD_METRICS_TEMPLATE;

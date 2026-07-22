@@ -32,12 +32,14 @@
 
 import {
   getHandshakeDiagnostics,
+  getOBDDataSnapshot,
   getObdConnLifecycle,
   getTransportStats,
   onOBDData,
 } from '../../obdService';
+import { loadObdAddress } from '../../obdStorage';
 import { getDTCStateSnapshot } from '../../dtcService';
-import { getSession as getObdDiagSession } from '../../obdDiagnosticRecorder';
+import { getSession as getObdDiagSession, maskMac } from '../../obdDiagnosticRecorder';
 import { getHandshakeVin } from '../../safety/vinContext';
 import { maskVin } from '../validationExport';
 import { isValidationModeEnabled } from '../validationFlag';
@@ -49,6 +51,7 @@ import {
   recordLivePacket,
   recordLog,
   recordMemorySample,
+  recordObdDisconnect,
   recordObdMetrics,
   recordPerfCounters,
   registerValidationDisposer,
@@ -59,9 +62,13 @@ import {
 /** Örnekleme periyodu — 1 sn (mevcut debugStore Hz örneklemesiyle aynı kadans). */
 const SAMPLE_INTERVAL_MS = 1_000;
 
-/** Son gözlenen kopma sayısı — kütüğe YALNIZ değişimde satır yazmak için. */
-let _lastDisconnects = -1;
-let _lastConnState   = '';
+let _lastConnState = '';
+/** Bu örnekleme turuna kadar gözlenen canlı paket sayısı (gecikme kapısı için). */
+let _pktSeen = 0;
+let _pktSeenAtLastSample = -1;
+
+/** Bağlı sayılan durumlar — bunların DIŞINA çıkış bir kopmadır. */
+const CONNECTED_STATES: ReadonlySet<string> = new Set(['connected']);
 
 /* ── Yardımcılar ───────────────────────────────────────────────────────────── */
 
@@ -92,11 +99,21 @@ function sampleOnce(): void {
     /* Timeout: reconnect geçmişindeki `timeout` nedenli kayıtlar. */
     const timeoutCount = hs.reconnectHistory.reduce((n, r) => n + (r.reason === 'timeout' ? 1 : 0), 0);
 
+    /* ADAPTÖR — MEVCUT gerçek kaynaklar; yeni keşif YAZILMAZ.
+       Öncelik: obdDiagnosticRecorder oturumu (yalnız OBDConnectModal ile bağlanınca
+       dolar) → yoksa obdService'in canlı `deviceName`'i + kalıcı adres (maskeli).
+       Hiçbiri yoksa `null` — boş string ile "bilinmiyor"u karıştırma. */
+    const liveName = (getOBDDataSnapshot().deviceName ?? '').trim();
+    const storedAddr = (() => { try { return loadObdAddress(); } catch { return null; } })();
+    const adapterName = diag.device?.name?.trim() || liveName || null;
+    const adapterAddrMasked =
+      diag.device?.addrMasked || (storedAddr ? maskMac(storedAddr) : null);
+
     recordObdMetrics({
       connectStartedWallMs: hs.ranAt,
       connectDurationMs:    hs.durationMs,
-      adapterName:          diag.device?.name ?? '',
-      adapterAddrMasked:    diag.device?.addrMasked ?? '',
+      adapterName,
+      adapterAddrMasked,
       transport:            tr.transport,
       protocolTried:        hs.protocolTried,
       protocolActive:       hs.protocolActive,
@@ -104,25 +121,33 @@ function sampleOnce(): void {
       vinMasked:            maskVin(getHandshakeVin()),
       pidCount:             hs.supportedCount,
       dtcCount,
-      disconnectCount:      life.disconnectCalledCount,
       reconnectAttempts:    tr.reconnectAttempts,
     });
 
     recordPerfCounters(timeoutCount, life.resetCompletedCount);
 
-    /* Canlı veri yaşı — -1 "hiç paket yok" demektir, örnek sayılmaz. */
-    if (life.lastPacketAgeMs >= 0) recordDataAge(life.lastPacketAgeMs);
+    /* GECİKME ÖRNEĞİ — İKİ KAPI (ikisi de gerekli):
+         1) bağlantı AKTİF (kopuk/reconnecting dönemleri ortalamaya GİRMEZ),
+         2) bu tur içinde GERÇEKTEN yeni paket geldi (aksi halde ölçülen şey
+            gecikme değil, sessizliğin süresidir).
+       Geçerli örnek yoksa hiçbir şey kaydedilmez → metrik `null` kalır. */
+    const connected = CONNECTED_STATES.has(life.connectionState);
+    const yeniPaketVar = _pktSeen > _pktSeenAtLastSample;
+    if (connected && yeniPaketVar && life.lastPacketAgeMs >= 0) {
+      recordDataAge(life.lastPacketAgeMs);
+    }
+    _pktSeenAtLastSample = _pktSeen;
 
     const mem = readMemoryMb();
     if (mem !== null) recordMemorySample(mem);
 
-    /* Durum değişimlerini kütüğe yaz (her turda değil — gürültü yok). */
-    if (_lastDisconnects >= 0 && life.disconnectCalledCount > _lastDisconnects) {
-      recordLog('obd', 'warn', `Bağlantı koptu (toplam ${life.disconnectCalledCount}).`);
-    }
-    _lastDisconnects = life.disconnectCalledCount;
-
+    /* KOPMA — KENAR tetiklemeli: yalnız 'connected' durumundan ÇIKIŞ bir kopmadır.
+       Aynı kopmanın sonraki turlarında durum zaten 'connected' değildir → tekrar
+       sayılmaz. Böylece tek fiziksel olay tek kez sayılır. */
     if (life.connectionState !== _lastConnState) {
+      const oncekiBagli = CONNECTED_STATES.has(_lastConnState);
+      const simdiBagli  = CONNECTED_STATES.has(life.connectionState);
+      if (oncekiBagli && !simdiBagli) recordObdDisconnect();
       recordLog('obd', 'info', `Bağlantı durumu: ${life.connectionState}.`);
       _lastConnState = life.connectionState;
     }
@@ -149,13 +174,14 @@ export function startValidationCollector(): boolean {
   if (isValidationActive()) return true;
   if (!isValidationModeEnabled()) return false;
 
-  _lastDisconnects = -1;
-  _lastConnState   = '';
+  _lastConnState = '';
+  _pktSeen = 0;
+  _pktSeenAtLastSample = -1;
   startValidationSession();
 
   /* 1) Canlı OBD paketleri — MEVCUT yayın; ek sorgu YOK. */
   try {
-    const off = onOBDData(() => { recordLivePacket(); });
+    const off = onOBDData(() => { _pktSeen++; recordLivePacket(); });
     registerValidationDisposer(off);
   } catch { /* abonelik kurulamadı — diğer ölçümler devam eder */ }
 

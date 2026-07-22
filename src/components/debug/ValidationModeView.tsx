@@ -328,7 +328,7 @@ export const ValidationModeView = memo(function ValidationModeView() {
       {/* ── OBD ── */}
       <div>
         <p className="text-gray-500 text-xs font-mono uppercase mb-2">OBD</p>
-        <Row label="Adaptör"          value={`${o.adapterName || '(bilinmiyor)'} ${o.adapterAddrMasked}`} />
+        <Row label="Adaptör"          value={`${o.adapterName ?? 'bilinmiyor'}${o.adapterAddrMasked ? ` ${o.adapterAddrMasked}` : ''}`} />
         <Row label="Transport"        value={o.transport} />
         <Row label="Bağlantı süresi"  value={num(o.connectDurationMs, ' ms')} />
         <Row label="Protokol"         value={`${o.protocolActive ?? '—'} (denenen ${o.protocolTried ?? '—'})`} />

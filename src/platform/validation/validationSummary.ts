@@ -66,7 +66,9 @@ export function buildValidationSummaryText(
   /* ── Ölçümler ── */
   L.push('OBD');
   L.push('-'.repeat(44));
-  L.push(`  Adaptör        : ${o.adapterName || '(bilinmiyor)'} ${o.adapterAddrMasked}`.trimEnd());
+  // `null` = MEVCUT kaynaklardan okunamadı; boş string ile karıştırma (JSON ile aynı gerçek).
+  L.push(`  Adaptör        : ${o.adapterName ?? 'bilinmiyor'}`
+    + `${o.adapterAddrMasked ? ` ${o.adapterAddrMasked}` : ''}`);
   L.push(`  Transport      : ${o.transport}`);
   L.push(`  Bağlantı süresi: ${v(o.connectDurationMs, ' ms')}`);
   L.push(`  Protokol       : aktif ${o.protocolActive ?? 'yok'} / denenen ${o.protocolTried ?? 'yok'}`);

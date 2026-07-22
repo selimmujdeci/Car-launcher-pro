@@ -13,12 +13,26 @@
  *    hiç ölçüm yoksa `skip`; aksi halde `pass` (fail-closed özet).
  */
 
+import { isCanRecoveryApplicable } from '../obdRetryPolicy';
 import type {
   ValidationSnapshot,
   ValidationStatus,
   ValidationSummary,
   ValidationTest,
 } from './validationTypes';
+
+/**
+ * Çoklu ECU taraması bu protokolde UYGULANABİLİR mi? — SAF.
+ *
+ * `multiEcuScan`/`ecuDiscovery` fonksiyonel `0100` yanıtındaki CAN başlıklarını
+ * ayrıştırır → yalnız CAN sınıfı protokollerde (ELM 6/7/8/9/A/B/C) anlamlıdır.
+ * Sınıflandırma MEVCUT `isCanRecoveryApplicable` ile AYNI kaynaktan gelir
+ * (ikinci bir protokol tablosu tutmamak için); o da bilinmeyen protokolde
+ * fail-closed `false` döner.
+ */
+export function isMultiEcuScanApplicable(protocol: string | null | undefined): boolean {
+  return isCanRecoveryApplicable(protocol);
+}
 
 /* ── Eşikler (gerekçeli) ───────────────────────────────────────────────────── */
 
@@ -109,14 +123,27 @@ export function evaluateObdTests(snap: ValidationSnapshot): ValidationTest[] {
       : test('obd_vin', 'VIN okuma', 'warn', 'VIN okunamadı — araç Mode 09 desteklemiyor olabilir.'),
   );
 
-  /* 4) ECU sayısı — tarama çalışmadıysa yargı YOK. */
-  out.push(
-    o.ecuCount === null
-      ? test('obd_ecu', 'ECU keşfi', 'skip', 'Çoklu ECU taraması bu oturumda çalışmadı.')
-      : o.ecuCount > 0
-        ? test('obd_ecu', 'ECU keşfi', 'pass', `${o.ecuCount} ECU bulundu.`)
-        : test('obd_ecu', 'ECU keşfi', 'fail', 'Hiç ECU yanıt vermedi.'),
-  );
+  /* 4) ECU keşfi — PROTOKOL FARKINDA.
+     `multiEcuScan` `ATH1` + fonksiyonel `0100` ile CAN başlıklarını ayrıştırır
+     (ecuDiscovery.ts: "11 = standart CAN ID, 29 = genişletilmiş adresleme") →
+     KWP2000/ISO9141/J1850'de YAPISAL olarak sonuç veremez. Saha turunda bu,
+     Trafic'te (proto 5) yanlışlıkla "Hiç ECU yanıt vermedi" FAIL'i üretiyordu.
+     Protokol bilinmiyorsa da FAIL VERİLMEZ (fail-closed → skip). */
+  const ecuScanApplies = isMultiEcuScanApplicable(o.protocolActive ?? o.protocolTried);
+  if (!ecuScanApplies) {
+    const p = o.protocolActive ?? o.protocolTried;
+    out.push(test('obd_ecu', 'ECU keşfi', 'skip',
+      p ? `Bu protokolde (${p}) çoklu ECU taraması desteklenmiyor — yargı yok.`
+        : 'Protokol bilinmiyor — çoklu ECU taraması yorumlanamaz.'));
+  } else {
+    out.push(
+      o.ecuCount === null
+        ? test('obd_ecu', 'ECU keşfi', 'skip', 'Çoklu ECU taraması bu oturumda çalışmadı.')
+        : o.ecuCount > 0
+          ? test('obd_ecu', 'ECU keşfi', 'pass', `${o.ecuCount} ECU bulundu.`)
+          : test('obd_ecu', 'ECU keşfi', 'fail', 'Hiç ECU yanıt vermedi.'),
+    );
+  }
 
   /* 5) PID kapsamı. */
   out.push(

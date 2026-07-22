@@ -51,10 +51,10 @@ export interface ObdValidationMetrics {
   readonly connectStartedWallMs: number | null;
   /** Bağlantı süresi (ms) — handshake `durationMs`. null = ölçülmedi. */
   readonly connectDurationMs:    number | null;
-  /** Adaptör adı (bounded). '' = bilinmiyor. */
-  readonly adapterName:          string;
-  /** Adaptör adresi — MASKELİ (ham MAC ASLA). */
-  readonly adapterAddrMasked:    string;
+  /** Adaptör adı (bounded). `null` = MEVCUT kaynaklardan okunamadı (uydurma YOK). */
+  readonly adapterName:          string | null;
+  /** Adaptör adresi — MASKELİ (ham MAC ASLA). `null` = okunamadı. */
+  readonly adapterAddrMasked:    string | null;
   /** 'ble' | 'classic' | 'tcp' | 'none' | 'unknown'. */
   readonly transport:            string;
   /** ZORLANAN protokol (ATSP<n>). */
@@ -71,7 +71,16 @@ export interface ObdValidationMetrics {
   readonly pidCount:             number;
   /** Okunan DTC sayısı. null = DTC okuması ÇALIŞMADI. */
   readonly dtcCount:             number | null;
-  /** Bağlantı kopması sayısı (lifecycle `disconnectCalled`). */
+  /**
+   * Bağlantı kopması sayısı — GERÇEK durum geçişlerinden türetilir
+   * ('connected' → bağlı-olmayan bir duruma geçiş = 1 kopma, KENAR tetiklemeli).
+   *
+   * ⚠️ Eskiden `getObdConnLifecycle().disconnectCalledCount` okunuyordu; o sayaç
+   * YALNIZ açık `disconnectOBD()` çağrılarını sayar, watchdog/link-dead yolundan
+   * gelen kopmaları SAYMAZ → saha turunda kütükte iki `reconnecting` varken rapor
+   * "0 kopma" diyordu. Kenar tetikleme aynı fiziksel olayın yinelenen loglarını
+   * çift saymaz.
+   */
   readonly disconnectCount:      number;
   /** Yeniden bağlanma denemesi sayısı. */
   readonly reconnectAttempts:    number;
@@ -80,8 +89,8 @@ export interface ObdValidationMetrics {
 export const OBD_METRICS_TEMPLATE: Readonly<ObdValidationMetrics> = Object.freeze({
   connectStartedWallMs: null,
   connectDurationMs:    null,
-  adapterName:          '',
-  adapterAddrMasked:    '',
+  adapterName:          null,
+  adapterAddrMasked:    null,
   transport:            'unknown',
   protocolTried:        null,
   protocolActive:       null,
@@ -104,7 +113,14 @@ export const OBD_METRICS_TEMPLATE: Readonly<ObdValidationMetrics> = Object.freez
 export interface PerfValidationMetrics {
   /** Gözlemlenen canlı veri paketi sayısı. */
   readonly liveDataSamples:   number;
-  /** Ortalama canlı veri gecikmesi (son paket yaşı ortalaması, ms). */
+  /**
+   * Ortalama canlı veri gecikmesi (ms) — YALNIZ bağlantı AKTİFken ve o örnekleme
+   * turunda GERÇEKTEN yeni paket geldiğinde ölçülür.
+   *
+   * ⚠️ Eskiden kopuk/reconnecting dönemlerde büyüyen `lastPacketAgeMs` de ortalamaya
+   * giriyordu → saha turunda 7.7 s poll ile 78.736 ms "ortalama" üretti (anlamsız).
+   * Geçerli örnek yoksa `null` — sıfır veya uydurma değer YOK.
+   */
   readonly avgLiveLatencyMs:  number | null;
   /** Ortalama polling süresi (paketler arası aralık ortalaması, ms). */
   readonly avgPollIntervalMs: number | null;
@@ -186,7 +202,13 @@ export type MaviValidationInput = Omit<MaviValidationRecord, 'id' | 'tsMonoMs'>;
 export interface ValidationSnapshot {
   readonly sessionId:     string;
   readonly startedWallMs: number;
-  /** Oturum süresi (monotonik, ms). */
+  /**
+   * Oturum süresi (monotonik, ms). Oturum DURDURULMUŞSA bu değer DONDURULUR —
+   * `getValidationSnapshot()` sistem saatinden yeniden hesaplamaz.
+   *
+   * ⚠️ Eskiden durdurma sonrası da artıyordu: kütük 447 s'de "durduruldu" derken
+   * rapor 931.987 ms yazıyordu (aynı gerçeğe iki farklı cevap).
+   */
   readonly durationMs:    number;
   readonly active:        boolean;
   readonly obd:           ObdValidationMetrics;
