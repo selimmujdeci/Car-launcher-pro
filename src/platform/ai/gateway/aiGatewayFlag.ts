@@ -222,6 +222,67 @@ export function setMaviMemoryEnabled(enabled: boolean): void {
   _memoryCached = null;
 }
 
+/* ── Alt tercih: Tool Router ──────────────────────────────────────────────── */
+
+/**
+ * Araç kullanımı (tool calling) AYRI izin gerektirir: araçlar uygulama içinde
+ * EYLEM yapabilir (ekran açma) ve araç verisi okuyabilir — bu, sohbet bağlamı
+ * iznden farklı bir yetkidir.
+ *
+ * İki kapı: şalter + izin `'tools'`. Gateway kapalıyken tek başına açılamaz.
+ * Varsayılan: KAPALI + izin YOK.
+ */
+export const AI_TOOLS_REMOTE_FLAG = 'mavi_ai_tools';
+export const AI_TOOLS_LOCAL_FLAG  = 'mavi.aiTools.enabled';
+export const AI_TOOLS_CONSENT_KEY = 'mavi.aiTools.consent';
+
+export type MaviToolsConsent = 'off' | 'tools';
+
+let _toolsCached: boolean | null = null;
+
+export function isMaviToolsEnabled(): boolean {
+  if (!isAiGatewayEnabled()) return false;
+  if (_toolsCached === null) {
+    let local = false;
+    try {
+      local = typeof localStorage !== 'undefined'
+        && localStorage.getItem(AI_TOOLS_LOCAL_FLAG) === 'true';
+    } catch { local = false; }
+    let remote = false;
+    try { remote = getFlag(AI_TOOLS_REMOTE_FLAG) === true; } catch { remote = false; }
+    _toolsCached = remote || local;
+  }
+  return _toolsCached;
+}
+
+/** Okunamaz/tanınmaz değer → FAIL-CLOSED. */
+export function getMaviToolsConsent(): MaviToolsConsent {
+  try {
+    if (typeof localStorage === 'undefined') return 'off';
+    return localStorage.getItem(AI_TOOLS_CONSENT_KEY) === 'tools' ? 'tools' : 'off';
+  } catch {
+    return 'off';
+  }
+}
+
+export function setMaviToolsConsent(level: MaviToolsConsent): void {
+  try {
+    if (typeof localStorage === 'undefined') return;
+    if (level === 'tools') localStorage.setItem(AI_TOOLS_CONSENT_KEY, 'tools');
+    else                   localStorage.removeItem(AI_TOOLS_CONSENT_KEY);
+  } catch { /* depo kilitli */ }
+}
+
+export function setMaviToolsEnabled(enabled: boolean): void {
+  try {
+    if (typeof localStorage !== 'undefined') {
+      if (enabled) localStorage.setItem(AI_TOOLS_LOCAL_FLAG, 'true');
+      else         localStorage.removeItem(AI_TOOLS_LOCAL_FLAG);
+    }
+  } catch { /* depo kilitli */ }
+  _toolsCached = null;
+}
+
 /**
  * Şalteri kullanıcı tercihine göre AÇAR/KAPATIR (ayarlar ekranı).
  *
@@ -249,4 +310,5 @@ export function _resetAiGatewayFlagForTest(): void {
   _orchestratorCached = null;
   _contextCached = null;
   _memoryCached = null;
+  _toolsCached = null;
 }
