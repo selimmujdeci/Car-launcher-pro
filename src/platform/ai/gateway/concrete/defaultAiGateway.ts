@@ -24,7 +24,7 @@ import { createAiGateway } from '../aiGateway';
 import { createOpenRouterProvider } from '../providers/openRouterProvider';
 import { createOpenRouterKeySource } from './openRouterKeySource';
 import { isAiNetHealthy, recordAiNetFailure, recordAiNetSuccess } from '../../../aiHealth';
-import type { AiGateway, AiHealthPort, AiNetworkStatus } from '../types';
+import type { AiGateway, AiHealthPort, AiKeyVerification, AiNetworkStatus, AiProvider } from '../types';
 
 /** Mevcut devre kesiciyi gateway portuna uyarlar (yeni state YOK). */
 const aiHealthPort: AiHealthPort = {
@@ -38,25 +38,61 @@ const browserNetworkStatus: AiNetworkStatus = {
   isOnline: () => (typeof navigator === 'undefined' ? true : navigator.onLine !== false),
 };
 
-let _gateway: AiGateway | null = null;
+let _gateway:   AiGateway | null = null;
+let _providers: readonly AiProvider[] = [];
 
 /** Uygulamanın varsayılan gateway'i (tembel kurulum, tek örnek). */
 export function getDefaultAiGateway(): AiGateway {
   if (_gateway) return _gateway;
+  _providers = [
+    createOpenRouterProvider({
+      keySource: createOpenRouterKeySource(),
+      title:     'CarOS Pro',
+    }),
+  ];
   _gateway = createAiGateway({
-    providers: [
-      createOpenRouterProvider({
-        keySource: createOpenRouterKeySource(),
-        title:     'CarOS Pro',
-      }),
-    ],
-    network: browserNetworkStatus,
-    health:  aiHealthPort,
+    providers: _providers,
+    network:   browserNetworkStatus,
+    health:    aiHealthPort,
   });
   return _gateway;
 }
 
+/**
+ * Kayıtlı anahtarın GERÇEKTEN çalıştığını doğrular (ayarlar ekranı için).
+ *
+ * Sağlayıcı-bağımsız: zincirin İLK sağlayıcısına sorar. Sağlayıcı düşük
+ * maliyetli `verifyKey` sunuyorsa (OpenRouter `GET /key` — SIFIR token) o
+ * kullanılır; sunmuyorsa MİNİMUM bütçeli bir sohbet isteğine düşülür
+ * (`maxTokens:1`, streaming KAPALI, geçmiş/araç verisi/kişisel veri YOK).
+ *
+ * Devre kesiciyi BESLEMEZ: bu bir kullanıcı-tetikli teşhis çağrısıdır, asistan
+ * trafiği değildir — başarısız test Mavi'yi 90sn offline'a kilitlememelidir.
+ */
+export async function verifyDefaultAiConnection(timeoutMs?: number): Promise<AiKeyVerification> {
+  const gateway  = getDefaultAiGateway();
+  const provider = _providers[0];
+
+  if (provider?.verifyKey) {
+    return provider.verifyKey(timeoutMs !== undefined ? { timeoutMs } : undefined);
+  }
+
+  // Yedek yol: en küçük olası üretim isteği (kullanıcı verisi TAŞIMAZ).
+  const result = await gateway.generateResponse({
+    messages:  [{ role: 'user', content: 'ping' }],
+    maxTokens: 1,
+    ...(timeoutMs !== undefined ? { timeoutMs } : {}),
+  });
+  // `maxTokens:1` yanıtı boş/kesik dönebilir; ÖNEMLİ OLAN anahtarın kabul
+  // edilmesidir — yalnız kimlik/kota/ağ hataları başarısızlık sayılır.
+  if (result.ok) return { ok: true };
+  return result.error.kind === 'malformed_response'
+    ? { ok: true }
+    : { ok: false, error: result.error };
+}
+
 /** @internal — testler arası izolasyon (üretim yolunda çağrılmaz). */
 export function _resetDefaultAiGatewayForTest(): void {
-  _gateway = null;
+  _gateway   = null;
+  _providers = [];
 }

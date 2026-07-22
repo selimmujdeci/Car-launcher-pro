@@ -51,6 +51,27 @@ export function isAiGatewayEnabled(): boolean {
   return _cached;
 }
 
+/**
+ * Şalteri kullanıcı tercihine göre AÇAR/KAPATIR (ayarlar ekranı).
+ *
+ * Yalnız YEREL kaldıracı yazar — uzak bayrak filoya aittir, cihazdan
+ * değiştirilmez. Önbellek hemen tazelenir ki kullanıcı ayarı çevirince bir
+ * sonraki konuşma turu yeni değeri görsün (yeniden başlatma gerekmez).
+ *
+ * ⚠️ Bu fonksiyon anahtarın GEÇERLİ olduğunu DOĞRULAMAZ — çağıran taraf
+ * (openRouterKeyService) fail-closed kapıyı uygular.
+ */
+export function setAiGatewayEnabled(enabled: boolean): void {
+  try {
+    if (typeof localStorage !== 'undefined') {
+      if (enabled) localStorage.setItem(AI_GATEWAY_LOCAL_FLAG, 'true');
+      else         localStorage.removeItem(AI_GATEWAY_LOCAL_FLAG);
+    }
+  } catch { /* depo kilitli/kotalı — yalnız bellek içi karar güncellenir */ }
+  // Uzak bayrak AÇIKSA kullanıcı yerelden kapatamaz (filo politikası üstündür).
+  _cached = enabled || readRemoteFlag();
+}
+
 /** @internal — testler arası izolasyon (üretim yolunda çağrılmaz). */
 export function _resetAiGatewayFlagForTest(): void {
   _cached = null;

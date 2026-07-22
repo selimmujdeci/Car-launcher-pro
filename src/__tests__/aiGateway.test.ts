@@ -633,6 +633,86 @@ describe('OpenRouter Provider — SSE streaming', () => {
   });
 });
 
+describe('OpenRouter Provider — verifyKey (sıfır-token anahtar doğrulama)', () => {
+  it('anahtar yoksa AĞA ÇIKMAZ → no_api_key', async () => {
+    const fetchImpl = vi.fn();
+    const p = createOpenRouterProvider({ keySource: keySource(''), fetchImpl: fetchImpl as never });
+    const r = await p.verifyKey!();
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(r.ok).toBe(false);
+    expect(r.error?.kind).toBe('no_api_key');
+  });
+
+  it('TOKEN HARCAMAZ: GET /key çağrılır, gövde YOK, model/mesaj gönderilmez', async () => {
+    const fetchImpl = vi.fn(async () => jsonResponse({ data: { label: 'test' } }));
+    const p = createOpenRouterProvider({ keySource: keySource('sk-or-v1-gizli'), fetchImpl: fetchImpl as never });
+    const r = await p.verifyKey!();
+
+    const [url, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe('https://openrouter.ai/api/v1/key');
+    expect(init.method).toBe('GET');
+    expect(init.body).toBeUndefined();                    // istek gövdesi YOK → 0 token
+    expect(r.ok).toBe(true);
+  });
+
+  it('anahtar YALNIZ Authorization başlığında — URL query\'ye yazılmaz', async () => {
+    const fetchImpl = vi.fn(async () => jsonResponse({}));
+    const p = createOpenRouterProvider({ keySource: keySource('sk-or-v1-gizli'), fetchImpl: fetchImpl as never });
+    await p.verifyKey!();
+
+    const [url, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).not.toContain('gizli');
+    expect(url).not.toContain('?');
+    expect((init.headers as Record<string, string>)['Authorization']).toBe('Bearer sk-or-v1-gizli');
+  });
+
+  it('HTTP durumları generate ile AYNI taksonomiye eşlenir', async () => {
+    const cases: Array<[number, string]> = [
+      [401, 'auth'], [403, 'auth'], [429, 'rate_limited'], [500, 'server'], [400, 'invalid_request'],
+    ];
+    for (const [status, kind] of cases) {
+      const p = createOpenRouterProvider({
+        keySource: keySource('k'),
+        fetchImpl: (async () => textResponse('{"error":"x"}', status)) as never,
+      });
+      const r = await p.verifyKey!();
+      expect(r.ok).toBe(false);
+      expect(r.error?.kind).toBe(kind);
+      expect(r.error?.status).toBe(status);
+    }
+  });
+
+  it('ağ hatası → network; iptal → aborted; ASLA throw etmez', async () => {
+    const netP = createOpenRouterProvider({
+      keySource: keySource('k'),
+      fetchImpl: (async () => { throw new Error('bağlantı yok'); }) as never,
+    });
+    const netR = await netP.verifyKey!();
+    expect(netR.ok).toBe(false);
+    expect(netR.error?.kind).toBe('network');
+
+    const abortErr = Object.assign(new Error('aborted'), { name: 'AbortError' });
+    const abP = createOpenRouterProvider({
+      keySource: keySource('k'),
+      fetchImpl: (async () => { throw abortErr; }) as never,
+    });
+    const ctrl = new AbortController();
+    ctrl.abort();
+    const abR = await abP.verifyKey!({ signal: ctrl.signal });
+    expect(abR.error?.kind).toBe('aborted');
+  });
+
+  it('hata gövdesindeki anahtar-benzeri dizi REDAKTE edilir', async () => {
+    const p = createOpenRouterProvider({
+      keySource: keySource('k'),
+      fetchImpl: (async () => textResponse('bad key sk-or-v1-abcdef123456', 401)) as never,
+    });
+    const r = await p.verifyKey!();
+    expect(r.error?.message).not.toContain('abcdef123456');
+    expect(r.error?.message).toContain('***');
+  });
+});
+
 describe('Model kataloğu', () => {
   it('varsayılan model katalogdan gelir ve takma adlar çözülür', () => {
     expect(DEFAULT_AI_MODEL).toBe(AI_MODELS.claudeHaiku);

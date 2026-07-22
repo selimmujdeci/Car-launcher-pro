@@ -21,6 +21,7 @@ import {
 import { enrollWakeWord } from '../../platform/wakeWordService';
 import { testAIConnection, getEnvGeminiKey, getEnvHaikuKey, getEnvGroqKey, type AIProvider } from '../../platform/aiVoiceService';
 import { openInApp } from '../../platform/inAppBrowser';
+import { MaviGatewayPanel } from './MaviGatewayPanel';
 import { registerSettingsFocus } from '../../platform/settingsFocusBus';
 import { Clipboard } from '@capacitor/clipboard';
 import { isNative, bridge } from '../../platform/bridge';
@@ -770,6 +771,11 @@ const AIVoicePanel = memo(function AIVoicePanel() {
 
       </div>
       )}
+
+      {/* Mavi Yapay Zekâ Bağlantısı (OpenRouter BYOK) — anahtar yaşam döngüsü
+          + bağlantı testi + fail-closed gateway şalteri. Mevcut Gemini/Groq/
+          Haiku hattına DOKUNMAZ; şalter kapalıyken davranış birebir aynıdır. */}
+      <MaviGatewayPanel />
 
       {/* Info box */}
       <div className="p-3 rounded-xl bg-[var(--oem-surface-2)] border border-[var(--oem-line)] text-[10px] text-[color:var(--oem-ink-3)] leading-relaxed">

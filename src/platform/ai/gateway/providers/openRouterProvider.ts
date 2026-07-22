@@ -28,6 +28,8 @@ import type {
   AiErrorKind,
   AiGenerateResult,
   AiApiKeySource,
+  AiKeyVerification,
+  AiKeyVerifyOptions,
   AiProvider,
   AiProviderCallOptions,
   AiProviderRequest,
@@ -39,6 +41,8 @@ export const OPEN_ROUTER_PROVIDER_ID = 'openrouter';
 const DEFAULT_BASE_URL = 'https://openrouter.ai/api/v1';
 /** Sağlayıcı hata gövdesinden sonuca taşınacak azami karakter (log şişmesi yok). */
 const MAX_ERROR_BODY_CHARS = 200;
+/** Anahtar doğrulama isteği için varsayılan kısa bütçe (ayarlar ekranı bekler). */
+const DEFAULT_VERIFY_TIMEOUT_MS = 8_000;
 
 export interface OpenRouterProviderDependencies {
   /** BYOK anahtar kaynağı (boş string → anahtar yok → ağa ÇIKILMAZ). */
@@ -213,6 +217,55 @@ export function createOpenRouterProvider(deps: OpenRouterProviderDependencies): 
 
   return {
     id: OPEN_ROUTER_PROVIDER_ID,
+
+    /**
+     * SIFIR-TOKEN anahtar doğrulama: OpenRouter'ın anahtar metadata uç noktası
+     * (`GET /key`) yalnız `Authorization` başlığıyla çalışır, model çalıştırmaz
+     * → kota/ücret yakmaz. Hiçbir kullanıcı verisi (sohbet, araç, konum)
+     * GÖNDERİLMEZ. Hata sınıflandırması `generate` ile AYNI taksonomiyi kullanır.
+     */
+    async verifyKey(options?: AiKeyVerifyOptions): Promise<AiKeyVerification> {
+      let apiKey = '';
+      try {
+        apiKey = (await deps.keySource.getApiKey()) ?? '';
+      } catch {
+        apiKey = '';
+      }
+      apiKey = apiKey.trim();
+      if (!apiKey) {
+        return { ok: false, error: mkError('no_api_key', 'OpenRouter API anahtarı tanımlı değil.', false) };
+      }
+
+      const { signal, dispose } = makeSignal(options?.timeoutMs ?? DEFAULT_VERIFY_TIMEOUT_MS, options?.signal);
+      try {
+        const headers: Record<string, string> = { 'Authorization': `Bearer ${apiKey}` };
+        if (deps.referer) headers['HTTP-Referer'] = deps.referer;
+        if (deps.title)   headers['X-Title']      = deps.title;
+
+        const response = await fetchImpl(`${baseUrl}/key`, {
+          method: 'GET',
+          headers,                                        // anahtar YALNIZ başlıkta
+          ...(signal ? { signal } : {}),
+        });
+
+        if (!response || typeof response.ok !== 'boolean') {
+          return { ok: false, error: mkError('malformed_response', 'AI sağlayıcısından yanıt alınamadı.', false) };
+        }
+        if (response.ok) return { ok: true };
+
+        const cls = classifyStatus(response.status);
+        let detail = '';
+        try { detail = redact(await response.text()).slice(0, MAX_ERROR_BODY_CHARS); } catch { /* gövde okunamadı */ }
+        return {
+          ok: false,
+          error: mkError(cls.kind, detail ? `${cls.message} (${detail})` : cls.message, cls.retryable, response.status),
+        };
+      } catch (err) {
+        return { ok: false, error: classifyThrown(err, options?.signal) };
+      } finally {
+        dispose();                                        // timer + listener (zero-leak)
+      }
+    },
 
     async generate(request: AiProviderRequest, options?: AiProviderCallOptions): Promise<AiGenerateResult> {
       /* ── Anahtar (BYOK) — yoksa AĞA ÇIKILMAZ ── */

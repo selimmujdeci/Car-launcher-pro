@@ -149,6 +149,17 @@ export interface AiProviderCallOptions {
   readonly signal?:  AbortSignal;
 }
 
+/** Anahtar doğrulama sonucu — hata tipi `generate` ile AYNI taksonomiden. */
+export interface AiKeyVerification {
+  readonly ok:     boolean;
+  readonly error?: AiError;
+}
+
+export interface AiKeyVerifyOptions {
+  readonly timeoutMs?: number;
+  readonly signal?:    AbortSignal;
+}
+
 /**
  * Sağlayıcı sözleşmesi. UYGULAYAN TARAF İÇİN KURAL: `generate` ASLA throw
  * ETMEZ — her hata `ok:false` + tipli `AiError` olarak döner (fail-closed).
@@ -160,6 +171,13 @@ export interface AiProvider {
     request:  AiProviderRequest,
     options?: AiProviderCallOptions,
   ): Promise<AiGenerateResult>;
+  /**
+   * OPSİYONEL: anahtarı TOKEN HARCAMADAN doğrulayan düşük maliyetli kontrol
+   * (sağlayıcının metadata uç noktası). Uygulamayan sağlayıcılarda çağıran
+   * taraf minimum bütçeli bir `generate` isteğine düşer. `generate` gibi ASLA
+   * throw ETMEZ.
+   */
+  verifyKey?(options?: AiKeyVerifyOptions): Promise<AiKeyVerification>;
 }
 
 /* ── Yardımcı portlar (hepsi DI — gateway hiçbirini kendisi yaratmaz) ──────── */
