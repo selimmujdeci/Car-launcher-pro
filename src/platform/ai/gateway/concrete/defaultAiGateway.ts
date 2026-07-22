@@ -21,6 +21,7 @@
  */
 
 import { createAiGateway } from '../aiGateway';
+import { DEFAULT_AI_MODEL } from '../models';
 import { createOpenRouterProvider } from '../providers/openRouterProvider';
 import { createOpenRouterKeySource } from './openRouterKeySource';
 import { isAiNetHealthy, recordAiNetFailure, recordAiNetSuccess } from '../../../aiHealth';
@@ -56,6 +57,15 @@ export function getDefaultAiGateway(): AiGateway {
     health:    aiHealthPort,
   });
   return _gateway;
+}
+
+/**
+ * Kayıtlı sağlayıcıların kimlik + varsayılan model listesi (capability adapter
+ * için). Gateway'i kurar (tembel) ama İSTEK GÖNDERMEZ.
+ */
+export function getDefaultProviderRegistryEntries(): readonly { id: string; defaultModel: string }[] {
+  getDefaultAiGateway();                       // tembel kurulum
+  return _providers.map((p) => ({ id: p.id, defaultModel: DEFAULT_AI_MODEL }));
 }
 
 /**

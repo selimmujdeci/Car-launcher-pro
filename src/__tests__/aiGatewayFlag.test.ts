@@ -46,6 +46,34 @@ describe('aiGatewayFlag — varsayılan KAPALI, tek şalter', () => {
     expect(m.isAiGatewayEnabled()).toBe(false);
   });
 
+  it('ORCHESTRATOR alt tercihi: varsayılan KAPALI', async () => {
+    vi.doMock('../platform/remoteConfigService', () => ({ getFlag: () => false }));
+    localStorage.setItem('mavi.aiGateway.enabled', 'true');          // üst şalter açık
+    const m = await import('../platform/ai/gateway/aiGatewayFlag');
+    expect(m.isAiGatewayEnabled()).toBe(true);
+    expect(m.isMaviOrchestratorEnabled()).toBe(false);               // alt tercih kapalı
+  });
+
+  it('ORCHESTRATOR gateway KAPALIYKEN tek başına açılamaz (fail-closed)', async () => {
+    vi.doMock('../platform/remoteConfigService', () => ({ getFlag: () => false }));
+    localStorage.setItem('mavi.aiOrchestrator.enabled', 'true');     // yalnız alt tercih
+    const m = await import('../platform/ai/gateway/aiGatewayFlag');
+    expect(m.isAiGatewayEnabled()).toBe(false);
+    expect(m.isMaviOrchestratorEnabled()).toBe(false);               // üst şalter kapalı → ASLA
+  });
+
+  it('ORCHESTRATOR: gateway açık + alt tercih "true" → açılır; setter geri alır', async () => {
+    vi.doMock('../platform/remoteConfigService', () => ({ getFlag: () => false }));
+    localStorage.setItem('mavi.aiGateway.enabled', 'true');
+    localStorage.setItem('mavi.aiOrchestrator.enabled', 'true');
+    const m = await import('../platform/ai/gateway/aiGatewayFlag');
+    expect(m.isMaviOrchestratorEnabled()).toBe(true);
+
+    m.setMaviOrchestratorEnabled(false);                             // TEK ayarla rollback
+    expect(m.isMaviOrchestratorEnabled()).toBe(false);
+    expect(m.isAiGatewayEnabled()).toBe(true);                       // üst hat KORUNUR
+  });
+
   it('değer önbelleğe alınır — tur ortasında değişmez', async () => {
     vi.doMock('../platform/remoteConfigService', () => ({ getFlag: () => false }));
     const m = await import('../platform/ai/gateway/aiGatewayFlag');

@@ -179,9 +179,21 @@ export function createAiGateway(deps: AiGatewayDependencies): AiGateway {
       const invalid = validateRequest(request);
       if (invalid) return { ok: false, error: invalid };
 
-      /* ── Kapı 2: sağlayıcı ── */
-      if (providers.length === 0) {
-        return { ok: false, error: fail('no_provider', 'Yapılandırılmış AI sağlayıcısı yok.') };
+      /* ── Kapı 2: sağlayıcı ──
+         `providerId` verilmişse zincir O TEK sağlayıcıya daraltılır: dışarıda
+         (orchestrator) zincir yönetiliyordur, gateway kendi fallback'ini
+         uygulamamalıdır. Verilmezse davranış BİREBİR eskisi. */
+      const activeProviders = request.providerId
+        ? providers.filter((p) => p.id === request.providerId)
+        : providers;
+
+      if (activeProviders.length === 0) {
+        return {
+          ok: false,
+          error: fail('no_provider', request.providerId
+            ? 'İstenen AI sağlayıcısı kayıtlı değil.'
+            : 'Yapılandırılmış AI sağlayıcısı yok.'),
+        };
       }
 
       /* ── Kapı 3: çevrimdışı (port verilmişse) ── */
@@ -222,7 +234,7 @@ export function createAiGateway(deps: AiGatewayDependencies): AiGateway {
       let lastError: AiError = fail('unknown', 'AI yanıtı alınamadı.');
 
       /* ── Sağlayıcı zinciri (fallback) ── */
-      for (const provider of providers) {
+      for (const provider of activeProviders) {
         for (let attempt = 1; attempt <= maxAttempts; attempt++) {
           if (options?.signal?.aborted) {
             return { ok: false, error: fail('aborted', 'İstek iptal edildi.'), attempts };

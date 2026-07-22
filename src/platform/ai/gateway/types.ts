@@ -41,6 +41,13 @@ export interface AiGenerateRequest {
   readonly messages:     readonly AiMessage[];
   /** Bu istek için model; verilmezse gateway varsayılan modeli kullanılır. */
   readonly model?:       AiModelId;
+  /**
+   * OPSİYONEL sağlayıcı kısıtı: verilirse gateway YALNIZ bu kimliğe sahip
+   * sağlayıcıyı dener (kendi fallback zincirini UYGULAMAZ). Orchestrator gibi
+   * dışarıda zincir yöneten çağıranlar için; verilmezse davranış BİREBİR eskisi
+   * (kayıtlı sağlayıcılar sırayla denenir).
+   */
+  readonly providerId?:  string;
   /** 0..2 — verilmezse sağlayıcı varsayılanı. */
   readonly temperature?: number;
   /** Üretilecek azami token; verilmezse sağlayıcı varsayılanı. */

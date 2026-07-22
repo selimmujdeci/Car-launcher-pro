@@ -66,15 +66,28 @@ const NET_DEATH_KINDS: readonly AiErrorKind[] = ['network', 'timeout'];
  * ASLA throw etmez: her hata tipli `ok:false` sonucudur (fail-soft) — çağıran
  * zinciri eskisi gibi sürdürür.
  */
-export async function askGatewayChat(params: GatewayChatParams): Promise<GatewayChatOutcome> {
-  const { gateway, system, user, history, timeoutMs, maxTokens, temperature, onToken, signal } = params;
-
+/**
+ * (system + geçmiş + kullanıcı) → gateway mesaj dizisi. Orchestrator yolu da
+ * AYNI kurulumu kullanabilsin diye dışa verilir (kopya prompt mantığı YOK).
+ */
+export function buildChatMessages(
+  system: string,
+  user: string,
+  history?: readonly GatewayChatTurn[],
+): readonly AiMessage[] {
   const messages: AiMessage[] = [{ role: 'system', content: system }];
   for (const turn of history ?? []) {
     if (!turn || typeof turn.content !== 'string' || turn.content.length === 0) continue;
     messages.push({ role: turn.role === 'assistant' ? 'assistant' : 'user', content: turn.content });
   }
   messages.push({ role: 'user', content: user });
+  return messages;
+}
+
+export async function askGatewayChat(params: GatewayChatParams): Promise<GatewayChatOutcome> {
+  const { gateway, system, user, history, timeoutMs, maxTokens, temperature, onToken, signal } = params;
+
+  const messages = buildChatMessages(system, user, history);
 
   try {
     const result = await gateway.generateResponse(

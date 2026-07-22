@@ -22,12 +22,25 @@ const C = vi.hoisted(() => ({
   flagEnabled:  false,
   gatewayCalls: [] as Array<Record<string, unknown>>,
   gatewayReply: null as unknown,
+  orchestratorEnabled: false,
+  orchestratedCalls: [] as Array<Record<string, unknown>>,
+  orchestratedReply: null as unknown,
   geminiCalls:  0,
   geminiReply:  null as string | null,
 }));
 
 vi.mock('../platform/ai/gateway/aiGatewayFlag', () => ({
-  isAiGatewayEnabled: () => C.flagEnabled,
+  isAiGatewayEnabled:        () => C.flagEnabled,
+  isMaviOrchestratorEnabled: () => C.orchestratorEnabled,
+}));
+vi.mock('../platform/ai/orchestrator/concrete/maviOrchestratedChat', () => ({
+  askOrchestratedChat: async (p: Record<string, unknown>) => {
+    C.orchestratedCalls.push(p);
+    return {
+      outcome: C.orchestratedReply ?? { ok: false, netFailure: false, errorKind: 'server' },
+      telemetry: { taskType: 'general_chat' },
+    };
+  },
 }));
 vi.mock('../platform/ai/gateway/concrete/defaultAiGateway', () => ({
   getDefaultAiGateway: () => ({ generateResponse: async () => ({ ok: true, text: '', model: 'm', provider: 'p', streamed: false }) }),
@@ -69,6 +82,9 @@ describe('companionChatProvider — gateway adayı (flag arkasında)', () => {
     C.flagEnabled  = false;
     C.gatewayCalls = [];
     C.gatewayReply = null;
+    C.orchestratorEnabled = false;
+    C.orchestratedCalls = [];
+    C.orchestratedReply = null;
     C.geminiCalls  = 0;
     C.geminiReply  = null;
     const mod = await import('../platform/companion/companionChatProvider');
@@ -169,6 +185,64 @@ describe('companionChatProvider — gateway adayı (flag arkasında)', () => {
 
     expect(r?.kind).toBe('action');
     if (r?.kind === 'action') expect(r.semantic.intent).toBe('PLAY_MUSIC_SEARCH');
+  });
+
+  /* ── Faz 2: orchestrator ALT TERCİHİ ── */
+
+  it('Gateway AÇIK · Orchestrator KAPALI → mevcut tek-sağlayıcı gateway davranışı', async () => {
+    C.flagEnabled = true;
+    C.orchestratorEnabled = false;
+    C.gatewayReply = { ok: true, text: JSON.stringify({ type: 'chat', say: 'gateway cevabı' }) };
+
+    const { tryCompanionBrain } = await import('../platform/companion/companionChatProvider');
+    const r = await tryCompanionBrain('merhaba', { hasNet: true });
+
+    expect(C.gatewayCalls).toHaveLength(1);       // köprü yolu
+    expect(C.orchestratedCalls).toHaveLength(0);  // orkestratör HİÇ çağrılmadı
+    if (r?.kind === 'chat') expect(r.route).toBe('companion_gateway');
+  });
+
+  it('Gateway AÇIK · Orchestrator AÇIK → orkestre edilmiş yürütücü kullanılır', async () => {
+    C.flagEnabled = true;
+    C.orchestratorEnabled = true;
+    C.orchestratedReply = { ok: true, text: JSON.stringify({ type: 'chat', say: 'orkestre cevabı' }) };
+
+    const { tryCompanionBrain } = await import('../platform/companion/companionChatProvider');
+    const r = await tryCompanionBrain('motor sıcaklığı kaç', { hasNet: true });
+
+    expect(C.orchestratedCalls).toHaveLength(1);
+    expect(C.gatewayCalls).toHaveLength(0);       // köprü yolu ATLANDI
+    expect(C.geminiCalls).toBe(0);
+    if (r?.kind === 'chat') {
+      expect(r.response).toBe('orkestre cevabı');
+      expect(r.route).toBe('companion_gateway');  // rota DEĞİŞMEDİ (geriye uyum)
+    }
+  });
+
+  it('orkestratöre sınıflandırma metni geçer ama SAĞLAYICI/ANAHTAR detayı geçmez', async () => {
+    C.flagEnabled = true;
+    C.orchestratorEnabled = true;
+    C.orchestratedReply = { ok: true, text: JSON.stringify({ type: 'chat', say: 'ok' }) };
+
+    const { tryCompanionBrain } = await import('../platform/companion/companionChatProvider');
+    await tryCompanionBrain('merhaba', { provider: 'gemini', apiKey: 'gizli-anahtar', hasNet: true });
+
+    const call = C.orchestratedCalls[0] as Record<string, unknown>;
+    expect(call['classifyText']).toBe('merhaba');
+    expect(JSON.stringify(call)).not.toContain('gizli-anahtar');
+  });
+
+  it('orkestratör düşerse ESKİ ZİNCİR yedek olarak devam eder', async () => {
+    C.flagEnabled = true;
+    C.orchestratorEnabled = true;
+    C.orchestratedReply = { ok: false, netFailure: false, errorKind: 'unknown' };
+
+    const { tryCompanionBrain } = await import('../platform/companion/companionChatProvider');
+    const r = await tryCompanionBrain('merhaba', { provider: 'gemini', apiKey: 'k', hasNet: true });
+
+    expect(C.orchestratedCalls).toHaveLength(1);
+    expect(C.geminiCalls).toBeGreaterThan(0);     // Gemini yedeği çalıştı
+    if (r?.kind === 'chat') expect(r.route).toBe('companion_gemini');
   });
 
   it('sohbet geçmişi gateway turunda da birikir (conversation korunur)', async () => {

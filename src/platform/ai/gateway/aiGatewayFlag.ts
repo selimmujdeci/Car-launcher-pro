@@ -51,6 +51,47 @@ export function isAiGatewayEnabled(): boolean {
   return _cached;
 }
 
+/* ── Alt tercih: Model Orchestrator ───────────────────────────────────────── */
+
+/**
+ * Orchestrator, gateway hattının ALT TERCİHİDİR (ayrı bir üst şalter DEĞİL):
+ *   Gateway KAPALI                    → eski Mavi yolu birebir
+ *   Gateway AÇIK · Orchestrator KAPALI → mevcut tek-sağlayıcı gateway davranışı
+ *   Gateway AÇIK · Orchestrator AÇIK   → orkestre edilmiş yürütücü
+ * Gateway kapalıyken orchestrator TEK BAŞINA devreye GİREMEZ (fail-closed).
+ * Varsayılan KAPALI; rollback tek ayarla.
+ */
+export const AI_ORCHESTRATOR_REMOTE_FLAG = 'mavi_ai_orchestrator';
+export const AI_ORCHESTRATOR_LOCAL_FLAG  = 'mavi.aiOrchestrator.enabled';
+
+let _orchestratorCached: boolean | null = null;
+
+export function isMaviOrchestratorEnabled(): boolean {
+  if (!isAiGatewayEnabled()) return false;          // üst şalter kapalıysa asla
+  if (_orchestratorCached === null) {
+    let local = false;
+    try {
+      local = typeof localStorage !== 'undefined'
+        && localStorage.getItem(AI_ORCHESTRATOR_LOCAL_FLAG) === 'true';   // YALNIZ tam "true"
+    } catch { local = false; }
+    let remote = false;
+    try { remote = getFlag(AI_ORCHESTRATOR_REMOTE_FLAG) === true; } catch { remote = false; }
+    _orchestratorCached = remote || local;
+  }
+  return _orchestratorCached;
+}
+
+/** Orchestrator alt tercihini çevirir (yalnız yerel kaldıraç yazılır). */
+export function setMaviOrchestratorEnabled(enabled: boolean): void {
+  try {
+    if (typeof localStorage !== 'undefined') {
+      if (enabled) localStorage.setItem(AI_ORCHESTRATOR_LOCAL_FLAG, 'true');
+      else         localStorage.removeItem(AI_ORCHESTRATOR_LOCAL_FLAG);
+    }
+  } catch { /* depo kilitli */ }
+  _orchestratorCached = null;                        // bir sonraki okumada tazelenir
+}
+
 /**
  * Şalteri kullanıcı tercihine göre AÇAR/KAPATIR (ayarlar ekranı).
  *
@@ -75,4 +116,5 @@ export function setAiGatewayEnabled(enabled: boolean): void {
 /** @internal — testler arası izolasyon (üretim yolunda çağrılmaz). */
 export function _resetAiGatewayFlagForTest(): void {
   _cached = null;
+  _orchestratorCached = null;
 }

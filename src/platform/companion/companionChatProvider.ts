@@ -753,13 +753,14 @@ async function askCompanionBrainGateway(
   isDriving: boolean,
   timeoutMs?: number,
 ): Promise<{ result: BrainRaw | null; netFailure: boolean }> {
-  const [{ getDefaultAiGateway }, { askGatewayChat }] = await Promise.all([
+  const [{ getDefaultAiGateway }, { askGatewayChat }, { isMaviOrchestratorEnabled }] = await Promise.all([
     import('../ai/gateway/concrete/defaultAiGateway'),
     import('../ai/gateway/gatewayChatBridge'),
+    import('../ai/gateway/aiGatewayFlag'),
   ]);
 
   const decisionMs = Math.min(timeoutMs ?? GATEWAY_BRAIN_TIMEOUT_MS, GATEWAY_BRAIN_TIMEOUT_MS);
-  const outcome = await askGatewayChat({
+  const chatParams = {
     gateway:     getDefaultAiGateway(),
     system:      buildBrainSystemPrompt(id, isDriving, buildInterpretedVehicleContext(), false),
     history:     historyToOpenAI(),
@@ -767,7 +768,15 @@ async function askCompanionBrainGateway(
     timeoutMs:   decisionMs,
     maxTokens:   isDriving ? 160 : 220,
     temperature: 0.4,
-  });
+  };
+
+  /* ALT TERCİH: orchestrator açıkken aynı prompt/geçmiş orkestre edilmiş
+     yürütücüden geçer (sağlayıcı/model zinciri). Kapalıyken davranış BİREBİR
+     mevcut tek-sağlayıcı gateway yolu. Her iki yol da AYNI sonucu döndürür. */
+  const outcome = isMaviOrchestratorEnabled()
+    ? (await (await import('../ai/orchestrator/concrete/maviOrchestratedChat'))
+        .askOrchestratedChat({ ...chatParams, classifyText: text })).outcome
+    : await askGatewayChat(chatParams);
 
   if (!outcome.ok) return { result: null, netFailure: outcome.netFailure };
   return { result: parseBrainJson(outcome.text), netFailure: false };
