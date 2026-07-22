@@ -13,7 +13,7 @@
 import type { SensitiveKey } from '../../sensitiveKeyStore';
 
 /** Kayıtlı sağlayıcı kimlikleri. Yeni sağlayıcı = buraya bir değer + kayıt. */
-export type ApiCredentialId = 'openrouter' | 'gemini' | 'groq' | 'tavily';
+export type ApiCredentialId = 'openrouter' | 'gemini' | 'groq' | 'haiku' | 'tavily';
 
 /**
  * Bir kimlik bilgisinin doğrulama durumu — kullanıcıya gösterilebilir.
@@ -73,4 +73,27 @@ export interface ApiCredentialDescriptor {
    */
   readonly verifyCostsQuota: boolean;
   verify(apiKey: string, options?: CredentialVerifyOptions): Promise<ApiCredentialStatus>;
+
+  /* ── Opsiyonel UI metadata (ayarlar paneli tamamen tanımdan sürülür) ────── */
+
+  /** Kullanıcıya bu anahtarın NE İŞE YARADIĞINI anlatan tek cümle. */
+  readonly roleHint?: string;
+  /** `true` → "Gelişmiş" bölümünde gizli; `false`/yok → ana listede görünür. */
+  readonly advanced?: boolean;
+  /** Giriş alanı ipucu (biçim ÖRNEĞİ — doğrulama kuralı DEĞİL). */
+  readonly placeholder?: string;
+  /**
+   * Panoda bu desene uyan metin görülürse anahtar OTOMATİK algılanır.
+   * Yalnız KOLAYLIK içindir — kaydetme doğrulaması prefix'e BAĞLI DEĞİLDİR
+   * (sağlayıcı biçimi değişirse kullanıcı elle yapıştırmaya devam edebilir).
+   */
+  readonly clipboardPattern?: RegExp;
+  /** QR ile telefondan anahtar aktarımı destekleniyorsa `keyBeamService` türü. */
+  readonly keyBeamKind?: 'gemini' | 'groq' | 'haiku' | 'tavily';
+  /**
+   * `.env` yedeği okuyucusu (yalnız GELİŞTİRME kolaylığı). Değer döndürürse UI
+   * ".env'den okunuyor" rozetini gösterir. Anahtar DEĞERİ UI state'ine girmez —
+   * yalnız "dolu mu" bilgisi kullanılır.
+   */
+  readonly getEnvKey?: () => string;
 }

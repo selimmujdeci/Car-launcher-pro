@@ -120,6 +120,24 @@ export function verifyGroqKey(apiKey: string, options?: CredentialVerifyOptions)
 }
 
 /**
+ * Claude Haiku (Anthropic) — `GET /v1/models`: model listesi, üretim yok → SIFIR
+ * token. `anthropic-version` zorunlu; tarayıcı/WebView'dan doğrudan çağrı için
+ * `anthropic-dangerous-direct-browser-access` gerekir (mevcut POST çağrılarıyla
+ * aynı yöntem). Anahtar `x-api-key` header'ında.
+ */
+export function verifyHaikuKey(apiKey: string, options?: CredentialVerifyOptions): Promise<ApiCredentialStatus> {
+  return httpProbe({
+    url:     'https://api.anthropic.com/v1/models',
+    method:  'GET',
+    headers: {
+      'x-api-key':                                  apiKey,
+      'anthropic-version':                          '2023-06-01',
+      'anthropic-dangerous-direct-browser-access':  'true',
+    },
+  }, options);
+}
+
+/**
  * Tavily — ücretsiz metadata/anahtar uç noktası YOKTUR. En düşük maliyetli
  * doğrulama mümkün olan EN KÜÇÜK aramadır: tek karakterlik sorgu, `max_results:1`,
  * `basic` derinlik, ek alan yok. ⚠️ Bu çağrı hesabın 1 ARAMA KREDİSİNİ harcar

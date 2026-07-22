@@ -258,39 +258,68 @@ describe('gateway şalteri — fail-closed kapı', () => {
 
 /* ══════════════ 7-8) UI sözleşmesi ══════════════ */
 
-describe('MaviGatewayPanel — UI gizlilik sözleşmesi', () => {
-  it('render: tam anahtar EKRANA BASILMAZ, maskeli özet gösterilir', async () => {
+describe('Birleşik ayar paneli — UI gizlilik sözleşmesi', () => {
+  it('render: tam anahtar EKRANA BASILMAZ, giriş alanı boş ve maskeli', async () => {
     await saveOpenRouterKey(REAL_KEY);
     const { renderToStaticMarkup } = await import('react-dom/server');
-    const { MaviGatewayPanel } = await import('../components/settings/MaviGatewayPanel');
+    const { ApiCredentialsPanel } = await import('../components/settings/ApiCredentialsPanel');
 
     let html = '';
-    expect(() => { html = renderToStaticMarkup(<MaviGatewayPanel />); }).not.toThrow();
+    expect(() => { html = renderToStaticMarkup(<ApiCredentialsPanel />); }).not.toThrow();
 
     expect(html).not.toContain(REAL_KEY);
     expect(html).not.toContain('0123456789abcdef');
-    expect(html).toContain('Mavi Yapay Zekâ Bağlantısı');
-    expect(html).toContain('kendi hesabınızın kota ve ücretlendirmesine tabidir');
-    expect(html).toContain('Model seçimi sonraki geliştirme aşamasında eklenecek');
-    // Giriş alanı varsayılan olarak MASKELİ (password) — değeri boş
+    expect(html).toContain('Yapay Zekâ Anahtarları');
+    expect(html).toContain('kota ve ücretlendirmesine tabidir');
+    // Giriş alanları varsayılan olarak MASKELİ (password) ve BOŞ
     expect(html).toMatch(/type="password"/);
     expect(html).toContain('value=""');
   });
 
+  it('gateway şalteri: model notu ve fail-closed açıklaması korunur', async () => {
+    const { renderToStaticMarkup } = await import('react-dom/server');
+    const { MaviGatewayToggle } = await import('../components/settings/MaviGatewayToggle');
+
+    const locked = renderToStaticMarkup(<MaviGatewayToggle configured={false} verified={false} />);
+    expect(locked).toContain('Mavi&#x27;de yeni AI Gateway&#x27;i kullan');
+    expect(locked).toContain('Model seçimi sonraki geliştirme aşamasında eklenecek');
+    expect(locked).toContain('Önce anahtarı kaydedip bağlantıyı test et');
+    expect(locked).toMatch(/disabled=""/);            // doğrulanmadan AÇILAMAZ
+
+    const ready = renderToStaticMarkup(<MaviGatewayToggle configured verified />);
+    expect(ready).not.toMatch(/disabled=""/);
+  });
+
   it('model slug\'ı UI\'a HARDCODE edilmez', async () => {
     const { readFileSync } = await import('node:fs');
-    const src = readFileSync('src/components/settings/MaviGatewayPanel.tsx', 'utf8');
-    expect(src).not.toMatch(/anthropic\/|openai\/|google\/|deepseek\/|qwen\/|meta-llama\/|mistralai\//);
+    for (const f of ['src/components/settings/ApiCredentialsPanel.tsx',
+                     'src/components/settings/MaviGatewayToggle.tsx']) {
+      const src = readFileSync(f, 'utf8');
+      expect(src, f).not.toMatch(/anthropic\/|openai\/|google\/|deepseek\/|qwen\/|meta-llama\/|mistralai\//);
+    }
   });
 
   it('UI kaynağı anahtarı loglamaz / telemetriye göndermez', async () => {
     const { readFileSync } = await import('node:fs');
-    const ui  = readFileSync('src/components/settings/MaviGatewayPanel.tsx', 'utf8');
-    const svc = readFileSync('src/platform/ai/gateway/openRouterKeyService.ts', 'utf8');
-    for (const src of [ui, svc]) {
-      expect(src).not.toMatch(/console\.(log|info|warn|error)/);
-      expect(src).not.toMatch(/localStorage\.setItem\([^)]*[Kk]ey/);
-      expect(src).not.toMatch(/pushVehicleEvent|logInfo|telemetry/i);
+    const files = [
+      'src/components/settings/ApiCredentialsPanel.tsx',
+      'src/components/settings/MaviGatewayToggle.tsx',
+      'src/platform/ai/gateway/openRouterKeyService.ts',
+    ];
+    for (const f of files) {
+      const src = readFileSync(f, 'utf8');
+      expect(src, f).not.toMatch(/console\.(log|info|warn|error)/);
+      expect(src, f).not.toMatch(/localStorage\.setItem\([^)]*[Kk]ey/);
+      expect(src, f).not.toMatch(/pushVehicleEvent|logInfo|telemetry/i);
+    }
+  });
+
+  it('panel sağlayıcıya özel UI kodu İÇERMEZ (tamamen kayıt defterinden sürülür)', async () => {
+    const { readFileSync } = await import('node:fs');
+    const src = readFileSync('src/components/settings/ApiCredentialsPanel.tsx', 'utf8');
+    for (const name of ['Gemini', 'Tavily', 'Groq', 'Haiku', 'geminiApiKey', 'tavilyApiKey', 'groqApiKey']) {
+      expect(src, `panel '${name}' adını biliyor — kayıt defteri bağımsızlığı bozulmuş`)
+        .not.toMatch(new RegExp(`['"\`]${name}`));
     }
   });
 });

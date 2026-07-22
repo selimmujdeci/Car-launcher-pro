@@ -53,7 +53,7 @@ import { statusFromHttp, verifyGeminiKey, verifyGroqKey, verifyTavilyKey } from 
 import type { ApiCredentialId } from '../platform/ai/credentials/credentialTypes';
 
 const KEY = 'abcdefghijklmnop0123456789XYZ7F3A';
-const ALL: ApiCredentialId[] = ['openrouter', 'gemini', 'groq', 'tavily'];
+const ALL: ApiCredentialId[] = ['openrouter', 'gemini', 'groq', 'haiku', 'tavily'];
 
 beforeEach(() => {
   S.store.clear();
@@ -64,8 +64,8 @@ beforeEach(() => {
 
 /* ══════════════ 1) Kayıt defteri + kurtarma kapsamı ══════════════ */
 
-describe('kayıt defteri — 4 sağlayıcı ve kurtarma kapsamı', () => {
-  it('istenen 4 sağlayıcının TAMAMI kayıtlı', () => {
+describe('kayıt defteri — sağlayıcılar ve kurtarma kapsamı', () => {
+  it('istenen sağlayıcıların TAMAMI kayıtlı (Haiku dahil — birleşik panelde kaybolmadı)', () => {
     expect([...listCredentialIds()].sort()).toEqual([...ALL].sort());
   });
 
