@@ -742,11 +742,34 @@ function _protocolProfile(): ProtocolTimeoutProfile {
  * Bu bağlantının bayatlık eşiği — protokol tabanı + AKTİF poll kadansından türer.
  * Sabit 12s eşiği POWER_SAVE (15s poll) / SAFE_MODE (10s poll) modlarında SAHTE
  * bayatlık üretiyordu (bkz. computeStaleThresholdMs kök-neden yorumu).
+ *
+ * ⚠️ FAIL-CLOSED KADANS (saha 2026-07-22 — reconnect dalgalanması kök düzeltmesi):
+ * `profile.fastMs` native'e gönderilen bir TALEPTİR, GARANTİ DEĞİL:
+ *   - `setObdPollProfile` eski APK'da YOKTUR (`_applyObdPollProfile` sessizce atlar),
+ *   - köprü hatasında `.catch` ile düşer,
+ *   - native periyodu kendi tarafında clamp'leyebilir.
+ * Bu durumlarda gerçek çekirdek PID kadansı hâlâ `modePollingMs`'tir. Watchdog EN
+ * YAVAŞ olası kadansa göre boyutlanmalıdır; aksi halde talep uygulanmadığında SAĞLIKLI
+ * bir hat "link_dead" sayılır → her poll turunda teardown + reconnect (dalgalanma).
+ *
+ * `WEAK_FAST_FLOOR_MS` gelene kadar zayıf modda `fastMs === modePollingMs` olduğu için
+ * bu iki değer AYNI şeydi ve fark görünmüyordu; FAST grubu (RPM/hız) çekirdek kadanstan
+ * ayrıştığı an eşik 47s'den 12s'ye düştü ve 15s'lik sağlıklı poll sahte kopma üretti.
+ * Bu yüzden en yavaş kadans artık AÇIKÇA seçilir.
+ *
+ * Hızlı modlarda (modePollingMs < WEAK_MODE_THRESHOLD_MS) sonuç DEĞİŞMEZ — protokol
+ * tabanı zaten üstte kalır → mevcut CAN davranışı BİREBİR aynı.
  */
 function _staleThresholdMs(): number {
   const floor = _protocolProfile().staleThresholdMs;
-  const fastMs = computeObdPollProfile(getDeviceTier(), runtimeManager.getConfig().obdPollingMs).fastMs;
-  return computeStaleThresholdMs(floor, fastMs);
+  const modePollingMs = runtimeManager.getConfig().obdPollingMs;
+  const fastMs = computeObdPollProfile(getDeviceTier(), modePollingMs).fastMs;
+  // Geçersiz mod değeri (0/NaN) → yalnız profile güven (computeObdPollProfile zaten
+  // fail-soft 3s'e sabitledi); uydurma bir kadans üretme.
+  const worstCaseCadenceMs = Number.isFinite(modePollingMs) && modePollingMs > 0
+    ? Math.max(fastMs, modePollingMs)
+    : fastMs;
+  return computeStaleThresholdMs(floor, worstCaseCadenceMs);
 }
 
 /**
