@@ -228,6 +228,7 @@ export function createAiGateway(deps: AiGatewayDependencies): AiGateway {
         stream:    onToken !== undefined,
         ...(request.temperature !== undefined ? { temperature: request.temperature } : {}),
         ...(request.maxTokens   !== undefined ? { maxTokens:   request.maxTokens   } : {}),
+        ...(request.tools && request.tools.length > 0 ? { tools: request.tools } : {}),
       };
 
       const attempts: AiAttemptLog[] = [];

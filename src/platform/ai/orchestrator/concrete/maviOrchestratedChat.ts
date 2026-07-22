@@ -37,6 +37,11 @@ import { getMaviMemoryConsent, isMaviMemoryEnabled } from '../../gateway/aiGatew
 import { buildMemoryBlock } from '../../memory/memoryEngine';
 import { createMaviMemorySources } from '../../memory/concrete/maviMemorySources';
 import type { MemoryBlock, MemoryTelemetry } from '../../memory/memoryTypes';
+import { getMaviToolRouter } from '../../tools/concrete/maviToolRouter';
+import { toOpenAiTools } from '../../tools/providerToolSchema';
+import { runToolLoop } from '../../tools/toolLoop';
+import type { ToolDefinition } from '../../tools/toolTypes';
+import type { AiGenerateRequest, AiToolSpec } from '../../gateway/types';
 
 /** Monotonik saat — clock-jump güvenli (CLAUDE.md §4). */
 const clock = { nowMs: (): number => (typeof performance !== 'undefined' ? performance.now() : 0) };
@@ -175,6 +180,39 @@ function withMemory(system: string, task: MaviTaskType): string {
   }
 }
 
+/**
+ * Araç tanımlarını hazırlar. Router izin/şalter kapalıysa `listTools()` BOŞ
+ * döner → hiç araç bildirilmez (fail-closed). Sağlayıcı `supportsTools`
+ * bildirmiyorsa da araç GÖNDERİLMEZ — sahte yetenek kullanılmaz.
+ */
+function resolveToolSpecs(providers: readonly { id: string; supportsTools?: boolean; available?: boolean }[]): {
+  specs: readonly AiToolSpec[];
+  router: ReturnType<typeof getMaviToolRouter> | null;
+} {
+  try {
+    // Araçlar YALNIZ gerçekten destekleyen (ve kullanılabilir) bir sağlayıcı
+    // varsa bildirilir; desteklemeyen sağlayıcı alanı sessizce yok sayar.
+    const anySupports = providers.some((p) => p.supportsTools === true && p.available !== false);
+    if (!anySupports) return { specs: [], router: null };
+    const router = getMaviToolRouter();
+    const tools = router.listTools();
+    if (tools.length === 0) return { specs: [], router: null };
+    return { specs: toOpenAiToolSpecs(tools), router };
+  } catch {
+    return { specs: [], router: null };
+  }
+}
+
+/** Ortak tool sözleşmesi → gateway'in sağlayıcı-nötr `AiToolSpec` şekli. */
+function toOpenAiToolSpecs(tools: readonly ToolDefinition[]): readonly AiToolSpec[] {
+  return (toOpenAiTools(tools) as Array<{ function: { name: string; description: string; parameters: Record<string, unknown> } }>)
+    .map((t) => ({
+      name:        t.function.name,
+      description: t.function.description,
+      parameters:  t.function.parameters,
+    }));
+}
+
 function safeBool(read: () => boolean): boolean {
   try { return read() === true; } catch { return false; }
 }
@@ -201,8 +239,28 @@ export async function askOrchestratedChat(params: OrchestratedChatParams): Promi
   const nowMs = clock.nowMs();
   const availableIds = availableProviderIdsOf(providers);
 
+  const gateway = params.gateway ?? getDefaultAiGateway();
+
+  /* ARAÇLAR (Faz 2): yalnız gerçekten destekleyen bir sağlayıcı varsa ve
+     router izin veriyorsa bildirilir. İkisinden biri yoksa istek BİREBİR
+     eskisi gibi (tool alanı hiç eklenmez). */
+  const tooling = resolveToolSpecs(providers);
+
+  const baseRequest: AiGenerateRequest = {
+    messages: buildChatMessages(withMemory(withVehicleContext(params.system, task, clock.nowMs()), task), params.user, params.history),
+    ...(params.timeoutMs   !== undefined ? { timeoutMs:   params.timeoutMs }   : {}),
+    ...(params.maxTokens   !== undefined ? { maxTokens:   params.maxTokens }   : {}),
+    ...(params.temperature !== undefined ? { temperature: params.temperature } : {}),
+    ...(tooling.specs.length > 0 ? { tools: tooling.specs } : {}),
+  };
+
+  const options = {
+    ...(params.onToken ? { onToken: params.onToken } : {}),
+    ...(params.signal  ? { signal:  params.signal }  : {}),
+  };
+
   const result = await executeOrchestratedRequest({
-    gateway:   params.gateway ?? getDefaultAiGateway(),
+    gateway,
     task,
     providers,
     context: {
@@ -212,42 +270,54 @@ export async function askOrchestratedChat(params: OrchestratedChatParams): Promi
       nowMs,
       ...(params.vehicleConnected !== undefined ? { vehicleConnected: params.vehicleConnected } : {}),
     },
-    request: {
-      messages: buildChatMessages(withMemory(withVehicleContext(params.system, task, clock.nowMs()), task), params.user, params.history),
-      ...(params.timeoutMs   !== undefined ? { timeoutMs:   params.timeoutMs }   : {}),
-      ...(params.maxTokens   !== undefined ? { maxTokens:   params.maxTokens }   : {}),
-      ...(params.temperature !== undefined ? { temperature: params.temperature } : {}),
-    },
-    options: {
-      ...(params.onToken ? { onToken: params.onToken } : {}),
-      ...(params.signal  ? { signal:  params.signal }  : {}),
-    },
+    request: baseRequest,
+    options,
     health:        healthPort,
     globalCircuit,
     clock,
   });
 
-  if (result.ok) {
-    const text = result.result.text.trim();
+  /* Model ARAÇ çağırdıysa: router'dan geçir, sonucu ETİKETLİ system bloğu
+     olarak ekle ve SEÇİLEN sağlayıcıya sabitlenmiş şekilde yeniden sor.
+     Zincir/fallback İLK turda zaten uygulandı. */
+  let finalResult = result;
+  if (result.ok && tooling.router && (result.result.toolCalls?.length ?? 0) > 0) {
+    try {
+      const loop = await runToolLoop(baseRequest, {
+        generate: (req) => gateway.generateResponse(
+          { ...req, providerId: result.providerId, model: result.model },
+          options,
+        ),
+        router:        tooling.router,
+        toolSpecs:     tooling.specs,
+        initialResult: result.result,
+        ...(params.signal ? { signal: params.signal } : {}),
+      });
+      if (loop.result.ok) finalResult = { ...result, result: loop.result };
+    } catch { /* araç turu hatası isteği DÜŞÜRMEZ — ilk sonuçla devam */ }
+  }
+
+  if (finalResult.ok) {
+    const text = finalResult.result.text.trim();
     return {
       outcome: text
         ? { ok: true, text }
         : { ok: false, netFailure: false, errorKind: 'malformed_response' },
-      telemetry: result.telemetry,
+      telemetry: finalResult.telemetry,
       ...(_lastContextTelemetry ? { context: _lastContextTelemetry } : {}),
     };
   }
 
   /* Yürütme hatası → köprünün devre-kesici semantiğine çevrilir:
      YALNIZ gerçek ağ ölümü (network/timeout) global kesiciye sayılır. */
-  const netFailure = result.failureType === 'network' || result.failureType === 'timeout';
+  const netFailure = finalResult.failureType === 'network' || finalResult.failureType === 'timeout';
   return {
     outcome: {
       ok: false,
       netFailure,
-      errorKind: result.failureType === 'aborted' ? 'aborted' : 'unknown',
+      errorKind: finalResult.failureType === 'aborted' ? 'aborted' : 'unknown',
     },
-    telemetry: result.telemetry,
+    telemetry: finalResult.telemetry,
     ...(_lastContextTelemetry ? { context: _lastContextTelemetry } : {}),
   };
 }

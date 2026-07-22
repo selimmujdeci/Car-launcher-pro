@@ -48,12 +48,36 @@ export interface AiGenerateRequest {
    * (kayıtlı sağlayıcılar sırayla denenir).
    */
   readonly providerId?:  string;
+  /**
+   * Modele bildirilecek araçlar. Verilmezse tool YOK (varsayılan davranış).
+   * Sağlayıcı desteklemiyorsa SESSİZCE yok sayılır (sahte destek yok).
+   */
+  readonly tools?:       readonly AiToolSpec[];
   /** 0..2 — verilmezse sağlayıcı varsayılanı. */
   readonly temperature?: number;
   /** Üretilecek azami token; verilmezse sağlayıcı varsayılanı. */
   readonly maxTokens?:   number;
   /** Bu istek için timeout; verilmezse gateway varsayılanı. */
   readonly timeoutMs?:   number;
+}
+
+/**
+ * Modele bildirilecek araç TANIMI — sağlayıcı-nötr. `parameters` JSON Schema
+ * nesnesidir (Tool Router'ın `providerToolSchema` çeviricileri üretir); gateway
+ * ve provider bu şemayı YORUMLAMAZ, yalnız taşır.
+ */
+export interface AiToolSpec {
+  readonly name:        string;
+  readonly description: string;
+  readonly parameters:  Readonly<Record<string, unknown>>;
+}
+
+/** Modelin talep ettiği araç çağrısı — argümanlar HAM'dır, router doğrular. */
+export interface AiToolCall {
+  readonly id?:        string;
+  readonly name:       string;
+  /** Ayrıştırılmış argüman nesnesi; ayrıştırılamadıysa `undefined`. */
+  readonly arguments?: unknown;
 }
 
 export interface AiGenerateOptions {
@@ -124,6 +148,11 @@ export interface AiGenerateSuccess {
   readonly streamed:      boolean;
   readonly finishReason?: string;
   readonly usage?:        AiUsage;
+  /**
+   * Model araç çağırdıysa doldurulur. Bu durumda `text` BOŞ olabilir —
+   * çağıran taraf (tool loop) araçları çalıştırıp yeniden sorar.
+   */
+  readonly toolCalls?:    readonly AiToolCall[];
 }
 
 /** Tek bir denemenin kaydı — teşhis/telemetri için (gizli veri YOK). */
@@ -155,6 +184,8 @@ export interface AiProviderRequest {
   readonly stream:       boolean;
   readonly temperature?: number;
   readonly maxTokens?:   number;
+  /** Modele bildirilecek araçlar; desteklemeyen sağlayıcı YOK SAYAR. */
+  readonly tools?:       readonly AiToolSpec[];
 }
 
 export interface AiProviderCallOptions {

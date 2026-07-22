@@ -45,6 +45,7 @@ const CAPABILITY_HINTS: Readonly<Record<string, CapabilityHints>> = {
   openrouter: {
     supportsStreaming:   true,     // kanıt: provider SSE ayrıştırıcısı
     supportsLongContext: true,     // kanıt: yönlendirdiği modeller uzun bağlam sunar
+    supportsTools:       true,     // kanıt: OpenAI-uyumlu tools gönderimi + tool_calls ayrıştırma UYGULANDI
     // supportsReasoning: modele göre değişir → BİLDİRİLMEZ
     // costTier/latencyTier/reliabilityTier: modele göre değişir → BİLDİRİLMEZ
     freeTier:            false,    // kullanıcı hesabı ücretlendirilir

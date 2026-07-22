@@ -33,6 +33,7 @@ import type {
   AiProvider,
   AiProviderCallOptions,
   AiProviderRequest,
+  AiToolCall,
   AiUsage,
 } from '../types';
 
@@ -43,6 +44,9 @@ const DEFAULT_BASE_URL = 'https://openrouter.ai/api/v1';
 const MAX_ERROR_BODY_CHARS = 200;
 /** Anahtar doğrulama isteği için varsayılan kısa bütçe (ayarlar ekranı bekler). */
 const DEFAULT_VERIFY_TIMEOUT_MS = 8_000;
+/** Tek turda taşınacak azami araç çağrısı ve argüman uzunluğu (bounded). */
+const MAX_TOOL_CALLS = 4;
+const MAX_TOOL_ARGS_CHARS = 2_000;
 
 export interface OpenRouterProviderDependencies {
   /** BYOK anahtar kaynağı (boş string → anahtar yok → ağa ÇIKILMAZ). */
@@ -287,6 +291,15 @@ export function createOpenRouterProvider(deps: OpenRouterProviderDependencies): 
       };
       if (request.temperature !== undefined) body['temperature'] = request.temperature;
       if (request.maxTokens   !== undefined) body['max_tokens']  = request.maxTokens;
+      /* TOOL DESTEĞİ (OpenAI-uyumlu): tanımlar aynen taşınır; şema Tool
+         Router'da üretilir, burada YORUMLANMAZ. Araç yoksa alan hiç eklenmez
+         (mevcut istekler birebir aynı kalır). */
+      if (request.tools && request.tools.length > 0) {
+        body['tools'] = request.tools.map((t) => ({
+          type: 'function',
+          function: { name: t.name, description: t.description, parameters: t.parameters },
+        }));
+      }
 
       const headers: Record<string, string> = {
         'Authorization': `Bearer ${apiKey}`,                     // anahtarın TEK yeri
@@ -344,6 +357,35 @@ function classifyThrown(err: unknown, external?: AbortSignal): AiError {
 
 /* ── Yanıt okuyucular ──────────────────────────────────────────────────────── */
 
+/**
+ * OpenAI-uyumlu `tool_calls` dizisini sağlayıcı-nötr `AiToolCall`e çevirir.
+ * Argüman JSON'u BOZUKSA `arguments` tanımsız bırakılır (uydurma YOK) —
+ * Tool Router zaten şema doğrulaması yapar ve geçersizi reddeder.
+ * Bounded: en fazla MAX_TOOL_CALLS çağrı taşınır.
+ */
+function readToolCalls(raw: unknown): readonly AiToolCall[] | undefined {
+  if (!Array.isArray(raw) || raw.length === 0) return undefined;
+  const out: AiToolCall[] = [];
+  for (const entry of raw.slice(0, MAX_TOOL_CALLS)) {
+    if (!isObject(entry)) continue;
+    const fn = entry['function'];
+    if (!isObject(fn) || typeof fn['name'] !== 'string' || !fn['name']) continue;
+    let args: unknown;
+    const rawArgs = fn['arguments'];
+    if (typeof rawArgs === 'string' && rawArgs.length <= MAX_TOOL_ARGS_CHARS) {
+      try { args = JSON.parse(rawArgs); } catch { args = undefined; }
+    } else if (isObject(rawArgs)) {
+      args = rawArgs;
+    }
+    out.push({
+      name: fn['name'] as string,
+      ...(typeof entry['id'] === 'string' ? { id: entry['id'] as string } : {}),
+      ...(args !== undefined ? { arguments: args } : {}),
+    });
+  }
+  return out.length > 0 ? out : undefined;
+}
+
 async function readJsonResponse(response: Response, model: string): Promise<AiGenerateResult> {
   let payload: unknown;
   try { payload = await response.json(); } catch {
@@ -363,18 +405,25 @@ async function readJsonResponse(response: Response, model: string): Promise<AiGe
   const choice = choices[0] as unknown;
   const message = isObject(choice) ? choice['message'] : undefined;
   const content = isObject(message) ? message['content'] : undefined;
+
+  /* Model ARAÇ çağırdıysa `content` boş gelebilir — bu GEÇERLİ bir yanıttır. */
+  const toolCalls = isObject(message) ? readToolCalls(message['tool_calls']) : undefined;
+
   if (typeof content !== 'string' || content.length === 0) {
-    return { ok: false, error: mkError('malformed_response', 'AI yanıtı boş döndü.', false) };
+    if (!toolCalls || toolCalls.length === 0) {
+      return { ok: false, error: mkError('malformed_response', 'AI yanıtı boş döndü.', false) };
+    }
   }
 
   const finish = isObject(choice) && typeof choice['finish_reason'] === 'string' ? choice['finish_reason'] as string : undefined;
   const usage  = readUsage(payload['usage']);
   return {
     ok:       true,
-    text:     content,
+    text:     typeof content === 'string' ? content : '',
     model,
     provider: OPEN_ROUTER_PROVIDER_ID,
     streamed: false,
+    ...(toolCalls && toolCalls.length > 0 ? { toolCalls } : {}),
     ...(finish ? { finishReason: finish } : {}),
     ...(usage  ? { usage } : {}),
   };

@@ -309,9 +309,22 @@ describe('Faz 1 araçları SALT-OKUNUR', () => {
     }
   });
 
-  it('capability adapter HÂLÂ supportsTools:false bildirir (sahte yetenek yok)', () => {
-    const src = code('src/platform/ai/orchestrator/capabilityAdapter.ts');
-    const table = src.slice(src.indexOf('CAPABILITY_HINTS'), src.indexOf('ProviderRegistryEntry'));
-    expect(table).not.toMatch(/supportsTools:\s*true/);
+  it('supportsTools YALNIZ tool yolu GERÇEKTEN uygulanmış sağlayıcıda true', () => {
+    // Faz 2'de OpenRouter'ın tool gönderimi + tool_calls ayrıştırması UYGULANDI
+    // → yeteneği bildirmek artık DOĞRU. Uygulanmayan sağlayıcı (Gemini) hâlâ
+    // false olmalı; aksi hâlde SAHTE yetenek ilan edilmiş olur.
+    const adapter = code('src/platform/ai/orchestrator/capabilityAdapter.ts');
+    const table = adapter.slice(adapter.indexOf('CAPABILITY_HINTS'), adapter.indexOf('ProviderRegistryEntry'));
+    const geminiBlock = table.slice(table.indexOf('gemini:'));
+    expect(geminiBlock, 'Gemini tool yolu yokken supportsTools:true bildirmiş').toMatch(/supportsTools:\s*false/);
+
+    // Kanıt: OpenRouter provider'ı tools gönderiyor VE tool_calls ayrıştırıyor.
+    const provider = code('src/platform/ai/gateway/providers/openRouterProvider.ts');
+    expect(provider, 'supportsTools:true iddiası için tools gönderimi yok').toMatch(/body\['tools'\]/);
+    expect(provider, 'supportsTools:true iddiası için tool_calls ayrıştırması yok').toMatch(/readToolCalls/);
+
+    // Gemini provider'ı tool GÖNDERMİYOR olmalı (iddia ile kod tutarlı).
+    const gemini = code('src/platform/ai/gateway/providers/geminiProvider.ts');
+    expect(gemini).not.toMatch(/functionDeclarations|body\['tools'\]/);
   });
 });
