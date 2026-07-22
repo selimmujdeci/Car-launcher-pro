@@ -16,17 +16,41 @@ import { readFileSync } from 'node:fs';
 
 /* ── Güvenli depo sahtesi ──────────────────────────────────────────────────── */
 
-const S = vi.hoisted(() => ({
-  store:   new Map<string, string>(),
-  removed: [] as string[],
-  throwOnGet: false,
-}));
+/**
+ * Güvenli depo sahtesi + ÇAĞRI SAYACI.
+ * `reads` her `get()` çağrısını kaydeder → panel/manager'ın gerçekte kaç
+ * güvenli-depo okuması yaptığı ölçülebilir. `gate` eşzamanlılık ölçümü içindir.
+ */
+const S = vi.hoisted(() => {
+  const state = {
+    store:       new Map<string, string>(),
+    removed:     [] as string[],
+    reads:       [] as string[],
+    throwOnGet:  false,
+    throwOnKey:  null as string | null,
+    gate:        false,
+    inFlight:    0,
+    maxInFlight: 0,
+    waiters:     [] as Array<() => void>,
+    release(): void { for (const w of state.waiters.splice(0)) w(); state.gate = false; },
+  };
+  return state;
+});
 
 vi.mock('../platform/sensitiveKeyStore', () => ({
+  isRecoveryKey: () => true,
   sensitiveKeyStore: {
     get: async (k: string) => {
-      if (S.throwOnGet) throw new Error('keystore kilitli');
-      return S.store.get(k) ?? '';
+      S.reads.push(k);
+      S.inFlight++;
+      S.maxInFlight = Math.max(S.maxInFlight, S.inFlight);
+      try {
+        if (S.gate) await new Promise<void>((resolve) => { S.waiters.push(resolve); });
+        if (S.throwOnGet || S.throwOnKey === k) throw new Error('keystore kilitli');
+        return S.store.get(k) ?? '';
+      } finally {
+        S.inFlight--;
+      }
     },
     set:    async (k: string, v: string) => { S.store.set(k, v); },
     remove: async (k: string) => { S.removed.push(k); S.store.delete(k); },
@@ -39,9 +63,12 @@ vi.mock('../platform/ai/gateway/concrete/defaultAiGateway', () => ({
 }));
 
 import {
+  clearCredentialStatusCache,
   credentialStatusMessage,
   getAllCredentialInfo,
   getCredentialInfo,
+  getCredentialStatus,
+  listCredentialStatuses,
   maskApiKey,
   removeCredential,
   saveCredential,
@@ -60,6 +87,13 @@ beforeEach(() => {
   S.removed = [];
   S.throwOnGet = false;
   G.result = { ok: true };
+  clearCredentialStatusCache();
+  S.reads = [];
+  S.throwOnKey = null;
+  S.gate = false;
+  S.inFlight = 0;
+  S.maxInFlight = 0;
+  S.waiters.length = 0;
 });
 
 /* ══════════════ 1) Kayıt defteri + kurtarma kapsamı ══════════════ */
@@ -275,7 +309,150 @@ describe('doğrulama — en düşük maliyet, header-only, fail-closed', () => {
   });
 });
 
-/* ══════════════ 4) Güvenlik yapısal kilitleri ══════════════ */
+/* ══════════════ 4) Toplu durum okuma (Keystore optimizasyonu) ══════════════ */
+
+describe('listCredentialStatuses — tek toplu okuma', () => {
+  it('TÜM registry kayıtları sonuçta yer alır ve her kayıt için TEK okuma yapılır', async () => {
+    S.reads = [];
+    const map = await listCredentialStatuses();
+
+    expect(Object.keys(map).sort()).toEqual([...ALL].sort());
+    // Sağlayıcı başına TAM 1 güvenli-depo okuması (satır başına ayrı okuma YOK)
+    expect(S.reads).toHaveLength(API_CREDENTIALS.length);
+    expect(new Set(S.reads).size).toBe(API_CREDENTIALS.length);
+  });
+
+  it('önbellek: ikinci çağrı HİÇ okuma yapmaz', async () => {
+    await listCredentialStatuses();
+    S.reads = [];
+    await listCredentialStatuses();
+    expect(S.reads).toHaveLength(0);
+  });
+
+  it('force: önbelleği atlar ve yeniden okur', async () => {
+    await listCredentialStatuses();
+    S.reads = [];
+    await listCredentialStatuses({ force: true });
+    expect(S.reads).toHaveLength(API_CREDENTIALS.length);
+  });
+
+  it('TEK sağlayıcının okuma hatası diğerlerini BOZMAZ (fail-closed kayıt)', async () => {
+    await saveCredential('gemini', KEY);
+    clearCredentialStatusCache();
+    S.throwOnKey = 'groqApiKey';
+
+    const map = await listCredentialStatuses();
+
+    expect(Object.keys(map)).toHaveLength(API_CREDENTIALS.length);   // liste KIRILMADI
+    expect(map['groq']?.configured).toBe(false);
+    expect(map['groq']?.readError).toBe(true);
+    expect(map['groq']?.source).toBe('none');
+    expect(map['gemini']?.configured).toBe(true);                    // diğerleri sağlam
+  });
+
+  it('sonuç GERÇEK ANAHTAR İÇERMEZ ve hassas alan adı taşımaz', async () => {
+    for (const id of ALL) await saveCredential(id, KEY);
+    clearCredentialStatusCache();
+    const map = await listCredentialStatuses();
+
+    const dump = JSON.stringify(map);
+    expect(dump).not.toContain(KEY);
+    expect(dump).not.toContain('abcdefghijklmnop');
+    for (const forbidden of ['rawKey', '"value"', 'secret', '"apiKey"', 'plaintext']) {
+      expect(dump, `toplu sonuçta '${forbidden}' alanı var`).not.toContain(forbidden);
+    }
+    // Yalnız güvenli alanlar
+    for (const s of Object.values(map)) {
+      expect(Object.keys(s).sort()).toEqual(
+        ['configured', 'keyId', 'maskedSummary', 'recoveryAvailable', 'source'].sort(),
+      );
+      expect(s.maskedSummary).toContain('•');
+      expect(s.maskedSummary).not.toBe(KEY);
+    }
+  });
+
+  it('kaynak ayrımı: depo → secure_store, yalnız env → environment, hiçbiri → none', async () => {
+    await saveCredential('gemini', KEY);
+    clearCredentialStatusCache();
+    const map = await listCredentialStatuses();
+    expect(map['gemini']?.source).toBe('secure_store');
+    expect(map['groq']?.source).toBe('none');        // env stub'ı boş
+    expect(map['groq']?.configured).toBe(false);
+  });
+
+  it('recoveryAvailable statik metadata olarak taşınır', async () => {
+    const map = await listCredentialStatuses({ force: true });
+    for (const id of ALL) expect(map[id]?.recoveryAvailable).toBe(true);
+  });
+
+  it('kaydetme ilgili kaydı GÜNCELLER, diğerlerini KORUR ve okuma YAPMAZ', async () => {
+    await listCredentialStatuses();          // önbellek dolsun
+    S.reads = [];
+
+    const saved = await saveCredential('tavily', KEY);
+    expect(saved.ok).toBe(true);
+    if (!saved.ok) return;
+
+    expect(S.reads).toHaveLength(0);                       // ek native okuma YOK
+    expect(saved.status.configured).toBe(true);
+    expect(saved.status.source).toBe('secure_store');
+    expect(saved.status.maskedSummary).toContain('7F3A');
+
+    const map = await listCredentialStatuses();            // önbellekten
+    expect(map['tavily']?.configured).toBe(true);
+    expect(map['gemini']?.configured).toBe(false);         // diğerleri korunur
+    expect(S.reads).toHaveLength(0);
+  });
+
+  it('silme ilgili kaydı TEMİZLER (maskedSummary düşer) ve okuma YAPMAZ', async () => {
+    await saveCredential('haiku', KEY);
+    await listCredentialStatuses();
+    S.reads = [];
+
+    const next = await removeCredential('haiku');
+
+    expect(S.reads).toHaveLength(0);
+    expect(next.configured).toBe(false);
+    expect(next.source).toBe('none');
+    expect(next.maskedSummary).toBeUndefined();
+    expect(Object.keys(next)).not.toContain('maskedSummary');
+
+    const map = await listCredentialStatuses();
+    expect(map['haiku']?.configured).toBe(false);
+  });
+
+  it('getCredentialStatus tekil çağrıda önbelleği kullanır', async () => {
+    await listCredentialStatuses();
+    S.reads = [];
+    const s = await getCredentialStatus('gemini');
+    expect(s.keyId).toBe('gemini');
+    expect(S.reads).toHaveLength(0);
+    await getCredentialStatus('gemini', { force: true });
+    expect(S.reads).toHaveLength(1);
+  });
+
+  it('eşzamanlılık SINIRLI (sınırsız Promise.all değil)', async () => {
+    clearCredentialStatusCache();
+    S.gate = true;
+    const promise = listCredentialStatuses();
+    await Promise.resolve();                                // mikro-görevler aksın
+    await Promise.resolve();
+    expect(S.maxInFlight).toBeLessThanOrEqual(3);
+    S.release();
+    await promise;
+    expect(S.maxInFlight).toBeLessThanOrEqual(3);
+    expect(S.maxInFlight).toBeGreaterThan(0);
+  });
+
+  it('registry\'ye yeni kayıt eklenirse toplu sonuçta OTOMATİK yer alır', async () => {
+    // Yapısal: harita registry uzunluğuyla birebir — panel de bu haritayı map'ler.
+    const map = await listCredentialStatuses({ force: true });
+    expect(Object.keys(map)).toHaveLength(API_CREDENTIALS.length);
+    for (const c of API_CREDENTIALS) expect(map[c.id]).toBeDefined();
+  });
+});
+
+/* ══════════════ 5) Güvenlik yapısal kilitleri ══════════════ */
 
 describe('güvenlik — kaynak seviyesi kilitler', () => {
   const files = [

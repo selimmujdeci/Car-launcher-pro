@@ -24,6 +24,7 @@ const S = vi.hoisted(() => ({
 }));
 
 vi.mock('../platform/sensitiveKeyStore', () => ({
+  isRecoveryKey: () => true,
   sensitiveKeyStore: {
     get: async (k: string) => {
       S.getCalls.push(k);
@@ -54,6 +55,7 @@ import {
   validateKeyFormat,
 } from '../platform/ai/gateway/openRouterKeyService';
 import { isAiGatewayEnabled, _resetAiGatewayFlagForTest } from '../platform/ai/gateway/aiGatewayFlag';
+import { clearCredentialStatusCache } from '../platform/ai/credentials/apiCredentialManager';
 
 const REAL_KEY = 'sk-or-v1-0123456789abcdef0123456789abcdef4F9A';
 
@@ -64,6 +66,7 @@ beforeEach(() => {
   V.result = { ok: true };
   localStorage.clear();
   _resetAiGatewayFlagForTest();
+  clearCredentialStatusCache();
 });
 
 /* ══════════════ 1) Biçim doğrulaması ══════════════ */
@@ -259,7 +262,7 @@ describe('gateway şalteri — fail-closed kapı', () => {
 /* ══════════════ 7-8) UI sözleşmesi ══════════════ */
 
 describe('Birleşik ayar paneli — UI gizlilik sözleşmesi', () => {
-  it('render: tam anahtar EKRANA BASILMAZ, giriş alanı boş ve maskeli', async () => {
+  it('panel ilk kare: durum okunurken yükleniyor gösterir, anahtar SIZDIRMAZ', async () => {
     await saveOpenRouterKey(REAL_KEY);
     const { renderToStaticMarkup } = await import('react-dom/server');
     const { ApiCredentialsPanel } = await import('../components/settings/ApiCredentialsPanel');
@@ -271,9 +274,28 @@ describe('Birleşik ayar paneli — UI gizlilik sözleşmesi', () => {
     expect(html).not.toContain('0123456789abcdef');
     expect(html).toContain('Yapay Zekâ Anahtarları');
     expect(html).toContain('kota ve ücretlendirmesine tabidir');
-    // Giriş alanları varsayılan olarak MASKELİ (password) ve BOŞ
-    expect(html).toMatch(/type="password"/);
-    expect(html).toContain('value=""');
+    expect(html).toContain('Anahtar durumu okunuyor');   // toplu okuma beklenirken
+  });
+
+  it('satır: kayıtlı anahtar input\'a GERİ KONMAZ — yalnız maske, alan boş', async () => {
+    const { renderToStaticMarkup } = await import('react-dom/server');
+    const { CredentialRow } = await import('../components/settings/ApiCredentialsPanel');
+    const { getCredentialDescriptor } = await import('../platform/ai/credentials/credentialRegistry');
+
+    const desc = getCredentialDescriptor('openrouter')!;
+    const html = renderToStaticMarkup(
+      <CredentialRow
+        desc={desc}
+        status={{ keyId: 'openrouter', configured: true, source: 'secure_store', maskedSummary: 'sk-or-••••••••••4F9A' }}
+        onStatusChange={() => {}}
+      />,
+    );
+
+    expect(html).not.toContain(REAL_KEY);
+    expect(html).not.toContain('0123456789abcdef');
+    expect(html).toContain('sk-or-••••••••••4F9A');       // yalnız maskeli özet
+    expect(html).toMatch(/type="password"/);              // alan MASKELİ
+    expect(html).toContain('value=""');                   // ve BOŞ
   });
 
   it('gateway şalteri: model notu ve fail-closed açıklaması korunur', async () => {

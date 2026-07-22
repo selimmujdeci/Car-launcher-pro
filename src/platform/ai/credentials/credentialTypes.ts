@@ -44,6 +44,32 @@ export interface ApiCredentialInfo {
   readonly masked:     string;
 }
 
+/** Anahtarın nereden geldiği. `environment` YALNIZ geliştirme yedeğidir. */
+export type CredentialSource = 'secure_store' | 'environment' | 'none';
+
+/**
+ * Bir kimlik bilgisinin GÜVENLİ metadata özeti — toplu okumanın çıktı birimi.
+ *
+ * ⚠️ SÖZLEŞME: bu tipte anahtar materyali TAŞIYAN alan BULUNAMAZ (`value`,
+ * `rawKey`, `secret`, `apiKey`…). Yapısal testle kilitlidir. `maskedSummary`
+ * yalnız kısa bir önek + madde işaretleri + son 4 karakter içerir.
+ */
+export interface CredentialStatus {
+  readonly keyId:              ApiCredentialId;
+  /** GÜVENLİ DEPODA kayıtlı mı (env yedeği bunu `true` YAPMAZ — bkz. `source`). */
+  readonly configured:         boolean;
+  readonly source:             CredentialSource;
+  /** Yalnız `secure_store` kaynağında üretilir; env değeri MASKELENMEZ/okunmaz. */
+  readonly maskedSummary?:     string;
+  /** Anahtar reinstall kurtarma kapsamında mı (statik metadata). */
+  readonly recoveryAvailable?: boolean;
+  /** true → okuma sırasında hata oldu; fail-closed olarak `configured:false`. */
+  readonly readError?:         boolean;
+}
+
+/** Kimlik → durum haritası (`ApiCredentialId` anahtarlı). */
+export type CredentialStatusMap = Readonly<Record<string, CredentialStatus>>;
+
 export interface CredentialVerifyOptions {
   readonly timeoutMs?: number;
   readonly fetchImpl?: typeof fetch;

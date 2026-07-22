@@ -30,14 +30,20 @@ import { KeyBeamPanel } from './KeyBeamPanel';
 import { MaviGatewayToggle } from './MaviGatewayToggle';
 import {
   credentialStatusMessage,
-  getCredentialInfo,
   keyFormatMessage,
+  listCredentialStatuses,
   removeCredential,
   saveCredential,
   verifyCredential,
 } from '../../platform/ai/credentials/apiCredentialManager';
 import { API_CREDENTIALS, matchCredentialByClipboard } from '../../platform/ai/credentials/credentialRegistry';
-import type { ApiCredentialDescriptor, ApiCredentialId, ApiCredentialStatus } from '../../platform/ai/credentials/credentialTypes';
+import type {
+  ApiCredentialDescriptor,
+  ApiCredentialId,
+  ApiCredentialStatus,
+  CredentialStatus,
+  CredentialStatusMap,
+} from '../../platform/ai/credentials/credentialTypes';
 
 /** Gateway şalteri yalnız bu kimliğin satırında gösterilir (tek özel durum). */
 const GATEWAY_CREDENTIAL_ID: ApiCredentialId = 'openrouter';
@@ -52,42 +58,41 @@ function toneOf(status: ApiCredentialStatus): string {
 /* ── Tek kimlik bilgisi satırı (tamamen tanımdan sürülür) ─────────────────── */
 
 interface RowProps {
-  readonly desc:      ApiCredentialDescriptor;
-  /** Pano algılaması bu satıra yazdıysa dışarıdan tetiklenen tazeleme sayacı. */
-  readonly refreshTick: number;
-  readonly onSaved:   () => void;
+  readonly desc:   ApiCredentialDescriptor;
+  /** Ortak toplu okumadan gelen GÜVENLİ durum — satır kendi okumasını YAPMAZ. */
+  readonly status: CredentialStatus | undefined;
+  /** Satır bir mutasyon yaptığında ortak haritayı ATOMİK günceller. */
+  readonly onStatusChange: (next: CredentialStatus) => void;
 }
 
-const CredentialRow = memo(function CredentialRow({ desc, refreshTick, onSaved }: RowProps) {
-  const [draft, setDraft]           = useState('');
-  const [showDraft, setShowDraft]   = useState(false);
-  const [configured, setConfigured] = useState(false);
-  const [masked, setMasked]         = useState('');
-  const [status, setStatus]         = useState<ApiCredentialStatus>('not_configured');
-  const [notice, setNotice]         = useState<string | null>(null);
-  const [busy, setBusy]             = useState(false);
-  const [showBeam, setShowBeam]     = useState(false);
+/** @internal — testler doğrudan render edebilsin diye dışa verilir. */
+export const CredentialRow = memo(function CredentialRow({ desc, status, onStatusChange }: RowProps) {
+  const [draft, setDraft]         = useState('');
+  const [showDraft, setShowDraft] = useState(false);
+  const [conn, setConn]           = useState<ApiCredentialStatus>('not_configured');
+  const [notice, setNotice]       = useState<string | null>(null);
+  const [busy, setBusy]           = useState(false);
+  const [showBeam, setShowBeam]   = useState(false);
   const aliveRef = useRef(true);
 
-  const envKey = desc.getEnvKey?.() ?? '';
-
-  const refresh = useCallback(async () => {
-    const info = await getCredentialInfo(desc.id);
-    if (!aliveRef.current) return;
-    setConfigured(info.configured);
-    setMasked(info.masked);
-    if (!info.configured) setStatus('not_configured');
-  }, [desc.id]);
+  // Kayıtlılık/kaynak/maske ARTIK PROP — satır mount'ta Keystore'a GİTMEZ.
+  const configured = status?.configured === true;
+  const masked     = status?.maskedSummary ?? '';
+  const usesEnv    = status?.source === 'environment';
 
   useEffect(() => {
     aliveRef.current = true;
-    void refresh();
     return () => {
       aliveRef.current = false;
       setDraft('');            // hassas girdi temizlenir (zero-retention)
       setShowDraft(false);
     };
-  }, [refresh, refreshTick]);
+  }, []);
+
+  /** Anahtar depodan düşerse doğrulama sonucu da geçersizdir. */
+  useEffect(() => {
+    if (!configured) setConn('not_configured');
+  }, [configured]);
 
   const handleSave = useCallback(async (raw?: string) => {
     const value = raw ?? draft;
@@ -102,38 +107,34 @@ const CredentialRow = memo(function CredentialRow({ desc, refreshTick, onSaved }
     }
     setDraft('');                                   // ham anahtar UI'dan SİLİNİR
     setShowDraft(false);
-    setConfigured(true);
-    setMasked(result.masked);
-    setStatus('not_configured');                    // yeni anahtar henüz doğrulanmadı
+    setConn('not_configured');                      // yeni anahtar henüz doğrulanmadı
     setNotice('Anahtar cihaza güvenli biçimde kaydedildi.');
     setBusy(false);
-    onSaved();
-  }, [desc.id, draft, onSaved]);
+    onStatusChange(result.status);                  // yeniden OKUMA YOK
+  }, [desc.id, draft, onStatusChange]);
 
   const handleTest = useCallback(async () => {
     setBusy(true);
     setNotice(null);
-    setStatus('checking');
+    setConn('checking');
     const result = await verifyCredential(desc.id);
     if (!aliveRef.current) return;
-    setStatus(result);
+    setConn(result);
     setBusy(false);
   }, [desc.id]);
 
   const handleRemove = useCallback(async () => {
     setBusy(true);
     setNotice(null);
-    await removeCredential(desc.id);
+    const next = await removeCredential(desc.id);
     if (!aliveRef.current) return;
     setDraft('');
     setShowDraft(false);
-    setConfigured(false);
-    setMasked('');
-    setStatus('not_configured');
+    setConn('not_configured');
     setNotice('Anahtar silindi.');
     setBusy(false);
-    onSaved();
-  }, [desc.id, onSaved]);
+    onStatusChange(next);                           // yeniden OKUMA YOK
+  }, [desc.id, onStatusChange]);
 
   return (
     <div className="flex flex-col gap-2 p-3 rounded-xl bg-[var(--oem-surface-2)] border border-[var(--oem-line)]">
@@ -141,7 +142,7 @@ const CredentialRow = memo(function CredentialRow({ desc, refreshTick, onSaved }
         <span className="text-[11px] font-bold text-[color:var(--oem-ink)] uppercase tracking-wider">{desc.label}</span>
         {configured
           ? <span className="text-[9px] px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/20 font-mono">Kayıtlı ✓ {masked}</span>
-          : envKey
+          : usesEnv
             ? <span className="text-[9px] px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/20 font-mono">.env&apos;den okunuyor</span>
             : <span className="text-[9px] px-2 py-0.5 rounded bg-white/10 text-[color:var(--oem-ink-3)] border border-white/10">Yapılandırılmadı</span>
         }
@@ -205,11 +206,11 @@ const CredentialRow = memo(function CredentialRow({ desc, refreshTick, onSaved }
         </button>
         <button
           onClick={() => { void handleTest(); }}
-          disabled={busy || (!configured && !envKey)}
+          disabled={busy || (!configured && !usesEnv)}
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-[11px] font-bold transition-all active:scale-95 disabled:opacity-40"
           style={{ borderColor: 'rgba(255,255,255,0.15)', color: 'var(--oem-ink-2, rgba(255,255,255,0.6))' }}
         >
-          {status === 'checking' ? <Loader className="w-3.5 h-3.5 animate-spin" /> : <ShieldCheck className="w-3.5 h-3.5" />}
+          {conn === 'checking' ? <Loader className="w-3.5 h-3.5 animate-spin" /> : <ShieldCheck className="w-3.5 h-3.5" />}
           Bağlantıyı Test Et
         </button>
         <button
@@ -228,13 +229,13 @@ const CredentialRow = memo(function CredentialRow({ desc, refreshTick, onSaved }
       )}
 
       <div className="flex items-center gap-1.5 text-[11px] font-medium">
-        {status === 'connected'
+        {conn === 'connected'
           ? <CheckCircle className="w-3.5 h-3.5 text-emerald-400" />
-          : status === 'checking'
+          : conn === 'checking'
             ? <Loader className="w-3.5 h-3.5 text-sky-400 animate-spin" />
             : <Info className="w-3.5 h-3.5 text-[color:var(--oem-ink-3)]" />
         }
-        <span className={toneOf(status)}>{credentialStatusMessage(status)}</span>
+        <span className={toneOf(conn)}>{credentialStatusMessage(conn)}</span>
       </div>
 
       {notice && (
@@ -245,7 +246,7 @@ const CredentialRow = memo(function CredentialRow({ desc, refreshTick, onSaved }
 
       {/* Yalnız OpenRouter satırında: Mavi'nin yeni AI Gateway şalteri */}
       {desc.id === GATEWAY_CREDENTIAL_ID && (
-        <MaviGatewayToggle configured={configured} verified={status === 'connected'} />
+        <MaviGatewayToggle configured={configured} verified={conn === 'connected'} />
       )}
     </div>
   );
@@ -257,10 +258,33 @@ export const ApiCredentialsPanel = memo(function ApiCredentialsPanel() {
   const [showAdvanced, setShowAdvanced]   = useState(false);
   const [clipboardHint, setClipboardHint] = useState<string | null>(null);
   const [waitingClip, setWaitingClip]     = useState(false);
-  const [refreshTick, setRefreshTick]     = useState(0);
+  /** Ortak durum haritası — panelin TEK güvenli-depo temas noktası. */
+  const [statuses, setStatuses]           = useState<CredentialStatusMap>({});
+  const [loading, setLoading]             = useState(true);
   const [deviceBackupStatus, setDeviceBackupStatus] =
     useState<{ writable: boolean; needsAllFiles: boolean } | null>(null);
   const clipTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const aliveRef     = useRef(true);
+
+  /**
+   * TEK TOPLU OKUMA: panel açılışında kayıt defterindeki TÜM sağlayıcılar için
+   * bir kez çağrılır (satır başına ayrı okuma YOK). Sonraki değişiklikler
+   * mutasyon sonuçlarından ATOMİK uygulanır → ek native çağrı olmaz.
+   */
+  useEffect(() => {
+    aliveRef.current = true;
+    void listCredentialStatuses().then((map) => {
+      if (!aliveRef.current) return;
+      setStatuses(map);
+      setLoading(false);
+    });
+    return () => { aliveRef.current = false; };
+  }, []);
+
+  /** Tek kaydı yerinde günceller — diğer satırların durumu KORUNUR. */
+  const applyStatus = useCallback((next: CredentialStatus) => {
+    setStatuses((prev) => ({ ...prev, [next.keyId]: next }));
+  }, []);
 
   const primary  = API_CREDENTIALS.filter((c) => !c.advanced);
   const advanced = API_CREDENTIALS.filter((c) => c.advanced);
@@ -293,7 +317,7 @@ export const ApiCredentialsPanel = memo(function ApiCredentialsPanel() {
         const saved = await saveCredential(desc.id, text);
         if (saved.ok) {
           if (desc.advanced) setShowAdvanced(true);   // girilen anahtar görünür kalsın
-          setRefreshTick((t) => t + 1);               // satırlar kendini tazelesin
+          applyStatus(saved.status);                  // yeniden OKUMA YOK
           setClipboardHint(`${desc.label} anahtarı otomatik algılandı!`);
           setWaitingClip(false);
         }
@@ -314,8 +338,6 @@ export const ApiCredentialsPanel = memo(function ApiCredentialsPanel() {
       document.removeEventListener('visibilitychange', onVisibility);
     };
   }, [waitingClip, checkClipboard]);
-
-  const onSaved = useCallback(() => { setRefreshTick((t) => t + 1); }, []);
 
   return (
     <div className="mt-8 pt-8 border-t border-white/10 flex flex-col gap-4">
@@ -380,11 +402,18 @@ export const ApiCredentialsPanel = memo(function ApiCredentialsPanel() {
         </div>
       )}
 
-      {primary.map((c) => (
-        <CredentialRow key={c.id} desc={c} refreshTick={refreshTick} onSaved={onSaved} />
+      {loading && (
+        <div className="flex items-center gap-2 px-3 py-3 rounded-xl text-[11px] font-medium border bg-[var(--oem-surface-2)] border-[var(--oem-line)] text-[color:var(--oem-ink-3)]">
+          <Loader className="w-3.5 h-3.5 animate-spin" />
+          Anahtar durumu okunuyor…
+        </div>
+      )}
+
+      {!loading && primary.map((c) => (
+        <CredentialRow key={c.id} desc={c} status={statuses[c.id]} onStatusChange={applyStatus} />
       ))}
 
-      {advanced.length > 0 && (
+      {!loading && advanced.length > 0 && (
         <>
           <button
             onClick={() => setShowAdvanced((v) => !v)}
@@ -394,7 +423,7 @@ export const ApiCredentialsPanel = memo(function ApiCredentialsPanel() {
             Gelişmiş — yedek beyinler ve internet araması ({advanced.length})
           </button>
           {showAdvanced && advanced.map((c) => (
-            <CredentialRow key={c.id} desc={c} refreshTick={refreshTick} onSaved={onSaved} />
+            <CredentialRow key={c.id} desc={c} status={statuses[c.id]} onStatusChange={applyStatus} />
           ))}
         </>
       )}

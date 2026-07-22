@@ -53,6 +53,14 @@ const _isNative = Capacitor.isNativePlatform();
  */
 const RECOVERY_KEYS: SensitiveKey[] = ['geminiApiKey', 'claudeHaikuApiKey', 'groqApiKey', 'tavilyApiKey', 'openRouterApiKey'];
 
+/**
+ * Bu anahtar reinstall kurtarma kapsamında mı? (STATİK metadata — depoya
+ * dokunmaz, native çağrı YAPMAZ.) UI "kurtarılabilir" rozetini bununla gösterir.
+ */
+export function isRecoveryKey(key: SensitiveKey): boolean {
+  return RECOVERY_KEYS.includes(key);
+}
+
 async function _recoverySet(key: SensitiveKey, value: string): Promise<void> {
   if (!_isNative || !RECOVERY_KEYS.includes(key)) return;
   try {
