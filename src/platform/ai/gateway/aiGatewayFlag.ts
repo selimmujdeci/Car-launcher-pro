@@ -397,6 +397,44 @@ export function setMaviMechanicHistoryEnabled(enabled: boolean): void {
   _mechanicHistoryCached = null;
 }
 
+/* ── Alt tercih: AI Usta BİLGİ NOTU (otomotiv bilgi tabanı) ───────────────── */
+
+/**
+ * Bilgi notu, MEVCUT deterministik bilgi kaynaklarının (bundled DTC kataloğu +
+ * `diagnosticKnowledgeEngine`) SALT OKUNUR yorumudur; teşhisi/güveni/riski
+ * değiştirmez, yeni ölçüm/OBD sorgusu YAPMAZ, hiçbir yere yazmaz. Kendi şalteri
+ * vardır: varsayılan KAPALI ve AI Usta kapalıyken açılamaz (zincirleme fail-closed).
+ */
+export const AI_MECHANIC_KNOWLEDGE_REMOTE_FLAG = 'mavi_ai_mechanic_knowledge';
+export const AI_MECHANIC_KNOWLEDGE_LOCAL_FLAG  = 'mavi.aiMechanicKnowledge.enabled';
+
+let _mechanicKnowledgeCached: boolean | null = null;
+
+export function isMaviMechanicKnowledgeEnabled(): boolean {
+  if (!isMaviMechanicEnabled()) return false;          // üst şalter kapalıysa asla
+  if (_mechanicKnowledgeCached === null) {
+    let local = false;
+    try {
+      local = typeof localStorage !== 'undefined'
+        && localStorage.getItem(AI_MECHANIC_KNOWLEDGE_LOCAL_FLAG) === 'true';   // YALNIZ tam "true"
+    } catch { local = false; }
+    let remote = false;
+    try { remote = getFlag(AI_MECHANIC_KNOWLEDGE_REMOTE_FLAG) === true; } catch { remote = false; }
+    _mechanicKnowledgeCached = remote || local;
+  }
+  return _mechanicKnowledgeCached;
+}
+
+export function setMaviMechanicKnowledgeEnabled(enabled: boolean): void {
+  try {
+    if (typeof localStorage !== 'undefined') {
+      if (enabled) localStorage.setItem(AI_MECHANIC_KNOWLEDGE_LOCAL_FLAG, 'true');
+      else         localStorage.removeItem(AI_MECHANIC_KNOWLEDGE_LOCAL_FLAG);
+    }
+  } catch { /* depo kilitli */ }
+  _mechanicKnowledgeCached = null;
+}
+
 /**
  * Şalteri kullanıcı tercihine göre AÇAR/KAPATIR (ayarlar ekranı).
  *
@@ -428,4 +466,5 @@ export function _resetAiGatewayFlagForTest(): void {
   _plannerCached = null;
   _mechanicCached = null;
   _mechanicHistoryCached = null;
+  _mechanicKnowledgeCached = null;
 }

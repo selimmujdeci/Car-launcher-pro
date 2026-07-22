@@ -16,6 +16,7 @@ import { isMaviMechanicEnabled } from '../../gateway/aiGatewayFlag';
 import { mapMechanicReport, type MechanicReportLike } from '../mechanicMapper';
 import { serializeMechanicDiagnosis } from '../mechanicSerializer';
 import { buildMechanicInsightBlock } from './maviMechanicHistory';
+import { buildVehicleKnowledgeBlock } from './maviMechanicKnowledge';
 import type { MechanicDiagnosis, MechanicTelemetry } from '../mechanicTypes';
 
 /** aiCore ajan kimliği — rapor bu ajandan seçilir. */
@@ -58,8 +59,18 @@ export function buildMechanicBlock(): MechanicOutcome {
        Teşhis bloğu boşsa yorum TEK BAŞINA gönderilmez (bağlamsız yorum olmaz). */
     const insightBlock = block ? buildMechanicInsightBlock(diagnosis, Date.now()).block : '';
 
+    /* Bilgi Beyni — kod bazlı GENEL otomotiv bilgisi (mevcut katalog + bilgi motoru,
+       SALT OKUNUR). Teşhis bloğu DEĞİŞMEZ; bilgi notu ayrı bütçeli ÜÇÜNCÜ blok
+       olarak eklenir. Kendi şalteri kapalıysa boş gelir. Teşhis bloğu boşsa bilgi
+       notu TEK BAŞINA gönderilmez (bağlamsız bilgi olmaz). */
+    const knowledgeBlock = block ? buildVehicleKnowledgeBlock(diagnosis).block : '';
+
+    /* Boş olmayan blokları sırayla birleştir — hiçbiri yoksa Faz 1 bloğu
+       (veya boş) bayt bayt korunur (tek elemanlı join = kendisi). */
+    const combined = [block, insightBlock, knowledgeBlock].filter(Boolean).join('\n\n');
+
     return {
-      block: insightBlock ? `${block}\n\n${insightBlock}` : block,
+      block: combined,
       diagnosis,
       telemetry: {
         enabled:           true,

@@ -152,4 +152,28 @@ describe('aiGatewayFlag — varsayılan KAPALI, tek şalter', () => {
     m._resetAiGatewayFlagForTest();
     expect(m.isAiGatewayEnabled()).toBe(true);
   });
+
+  it('AI Usta Bilgi Notu — varsayılan KAPALI, zincirleme fail-closed', async () => {
+    vi.doMock('../platform/remoteConfigService', () => ({ getFlag: () => false }));
+    const m = await import('../platform/ai/gateway/aiGatewayFlag');
+
+    // Her şey kapalı → bilgi notu kapalı.
+    expect(m.isMaviMechanicKnowledgeEnabled()).toBe(false);
+
+    // Yalnız bilgi yerel açık ama üst zincir kapalı → HÂLÂ kapalı.
+    localStorage.setItem('mavi.aiMechanicKnowledge.enabled', 'true');
+    m._resetAiGatewayFlagForTest();
+    expect(m.isMaviMechanicKnowledgeEnabled()).toBe(false);
+
+    // Gateway + AI Usta açık → bilgi notu açılır.
+    localStorage.setItem('mavi.aiGateway.enabled', 'true');
+    localStorage.setItem('mavi.aiMechanic.enabled', 'true');
+    m._resetAiGatewayFlagForTest();
+    expect(m.isMaviMechanicKnowledgeEnabled()).toBe(true);
+
+    // AI Usta kapanınca bilgi notu da kapanır (zincirleme fail-closed).
+    localStorage.removeItem('mavi.aiMechanic.enabled');
+    m._resetAiGatewayFlagForTest();
+    expect(m.isMaviMechanicKnowledgeEnabled()).toBe(false);
+  });
 });
