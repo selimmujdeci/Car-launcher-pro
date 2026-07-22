@@ -435,6 +435,45 @@ export function setMaviMechanicKnowledgeEnabled(enabled: boolean): void {
   _mechanicKnowledgeCached = null;
 }
 
+/* ── Alt tercih: Operatör (çok-adımlı görev yönetimi) ─────────────────────── */
+
+/**
+ * Operatör, MEVCUT katmanları (Planner + Tool Router + AI Usta/Bilgi Beyni)
+ * çok-adımlı bir görevde ORKESTRE eder; yeni motor/router/planner KURMAZ.
+ * Alt katmanların her biri kendi kapısını uygular (planner/tools izni, mechanic
+ * şalteri) — operatör bunları BYPASS ETMEZ. Kendi şalteri vardır: varsayılan
+ * KAPALI ve gateway kapalıyken açılamaz (fail-closed).
+ */
+export const AI_OPERATOR_REMOTE_FLAG = 'mavi_ai_operator';
+export const AI_OPERATOR_LOCAL_FLAG  = 'mavi.aiOperator.enabled';
+
+let _operatorCached: boolean | null = null;
+
+export function isMaviOperatorEnabled(): boolean {
+  if (!isAiGatewayEnabled()) return false;             // üst şalter kapalıysa asla
+  if (_operatorCached === null) {
+    let local = false;
+    try {
+      local = typeof localStorage !== 'undefined'
+        && localStorage.getItem(AI_OPERATOR_LOCAL_FLAG) === 'true';   // YALNIZ tam "true"
+    } catch { local = false; }
+    let remote = false;
+    try { remote = getFlag(AI_OPERATOR_REMOTE_FLAG) === true; } catch { remote = false; }
+    _operatorCached = remote || local;
+  }
+  return _operatorCached;
+}
+
+export function setMaviOperatorEnabled(enabled: boolean): void {
+  try {
+    if (typeof localStorage !== 'undefined') {
+      if (enabled) localStorage.setItem(AI_OPERATOR_LOCAL_FLAG, 'true');
+      else         localStorage.removeItem(AI_OPERATOR_LOCAL_FLAG);
+    }
+  } catch { /* depo kilitli */ }
+  _operatorCached = null;
+}
+
 /**
  * Şalteri kullanıcı tercihine göre AÇAR/KAPATIR (ayarlar ekranı).
  *
@@ -467,4 +506,5 @@ export function _resetAiGatewayFlagForTest(): void {
   _mechanicCached = null;
   _mechanicHistoryCached = null;
   _mechanicKnowledgeCached = null;
+  _operatorCached = null;
 }

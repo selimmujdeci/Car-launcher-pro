@@ -176,4 +176,27 @@ describe('aiGatewayFlag — varsayılan KAPALI, tek şalter', () => {
     m._resetAiGatewayFlagForTest();
     expect(m.isMaviMechanicKnowledgeEnabled()).toBe(false);
   });
+
+  it('Operatör — varsayılan KAPALI, gateway kapalıyken açılamaz', async () => {
+    vi.doMock('../platform/remoteConfigService', () => ({ getFlag: () => false }));
+    const m = await import('../platform/ai/gateway/aiGatewayFlag');
+
+    // Her şey kapalı → operatör kapalı.
+    expect(m.isMaviOperatorEnabled()).toBe(false);
+
+    // Yalnız operatör yerel açık ama gateway kapalı → HÂLÂ kapalı.
+    localStorage.setItem('mavi.aiOperator.enabled', 'true');
+    m._resetAiGatewayFlagForTest();
+    expect(m.isMaviOperatorEnabled()).toBe(false);
+
+    // Gateway açık → operatör açılır (alt katmanlar kendi kapılarını uygular).
+    localStorage.setItem('mavi.aiGateway.enabled', 'true');
+    m._resetAiGatewayFlagForTest();
+    expect(m.isMaviOperatorEnabled()).toBe(true);
+
+    // Gateway kapanınca operatör de kapanır (rollback).
+    localStorage.removeItem('mavi.aiGateway.enabled');
+    m._resetAiGatewayFlagForTest();
+    expect(m.isMaviOperatorEnabled()).toBe(false);
+  });
 });
