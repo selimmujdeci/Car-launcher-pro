@@ -19,6 +19,7 @@ import { buildVehicleVerdict } from '../../platform/obd/verdictEngine';
 import { logError } from '../../platform/crashLogger';
 import { CarLauncher } from '../../platform/nativePlugin';
 import { useDebugStore } from '../../platform/debug';
+import { isValidationActive, recordLog, recordObdMetrics } from '../../platform/validation/validationRecorder';
 import { ObdRawView } from '../debug/ObdRawView';
 import { SensorPanel } from './SensorPanel';
 import { ObdLiveTestPanel } from './ObdLiveTestPanel';
@@ -243,6 +244,12 @@ function DTCPanelInner({ active = false }: { active?: boolean }) {
       try {
         const scan = await runFullVehicleScan();
         setMultiEcu(scan);
+        // Saha Doğrulama Modu: ECU sayısının TEK gerçek kaynağı bu taramadır.
+        // Oturum kapalıysa tek boolean kontrolüyle döner (ek yük yok).
+        if (isValidationActive()) {
+          recordObdMetrics({ ecuCount: scan.scannedEcus });
+          recordLog('obd', 'info', `ECU taraması: ${scan.scannedEcus} tarandı, ${scan.skippedEcus} atlandı.`);
+        }
       } catch (e) {
         logError('DTCPanel:MultiEcuScanFailed', e);
         setMultiEcu(null);

@@ -10,16 +10,21 @@ import { ReverseLogView }     from './ReverseLogView';
 import { PerformanceView }    from './PerformanceView';
 import { BlackBoxReplayView } from './BlackBoxReplayView';
 const TestControlPanel = lazy(() => import('./TestControlPanel'));
-type Tab = 'can' | 'obd' | 'signals' | 'reverse' | 'perf' | 'replay' | 'tests';
+/* Saha Doğrulama Modu — yalnız sekme açılınca yüklenir (kapalıyken chunk inmez). */
+const ValidationModeView = lazy(() =>
+  import('./ValidationModeView').then((m) => ({ default: m.ValidationModeView })),
+);
+type Tab = 'can' | 'obd' | 'signals' | 'reverse' | 'perf' | 'replay' | 'tests' | 'validation';
 
 const TABS: Array<{ id: Tab; label: string }> = [
-  { id: 'can',     label: 'CAN LOG'      },
-  { id: 'obd',     label: 'OBD TRAFİK'   },
-  { id: 'signals', label: 'SIGNALS'      },
-  { id: 'reverse', label: 'REVERSE'      },
-  { id: 'perf',    label: 'PERF / HATA'  },
-  { id: 'replay',  label: 'BB REPLAY'    },
-  { id: 'tests',   label: 'TESTLER'      },
+  { id: 'can',        label: 'CAN LOG'         },
+  { id: 'obd',        label: 'OBD TRAFİK'      },
+  { id: 'signals',    label: 'SIGNALS'         },
+  { id: 'reverse',    label: 'REVERSE'         },
+  { id: 'perf',       label: 'PERF / HATA'     },
+  { id: 'replay',     label: 'BB REPLAY'       },
+  { id: 'tests',      label: 'TESTLER'         },
+  { id: 'validation', label: 'VALIDATION MODE' },
 ];
 
 function downloadJson(data: object, filename: string) {
@@ -140,6 +145,11 @@ export const DebugPanel = memo(function DebugPanel({ onClose }: { onClose: () =>
         {tab === 'perf'    && <PerformanceView />}
         {tab === 'replay'  && <BlackBoxReplayView />}
         {tab === 'tests'   && <Suspense fallback={null}><TestControlPanel /></Suspense>}
+        {tab === 'validation' && (
+          <div className="h-full overflow-y-auto">
+            <Suspense fallback={null}><ValidationModeView /></Suspense>
+          </div>
+        )}
       </div>
     </div>
   );

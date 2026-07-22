@@ -52,6 +52,7 @@ import { resolveOperatorIntent } from '../../operator/intent/operatorIntentResol
 import { presentOperatorOutcome } from '../../operator/intent/operatorPresenter';
 import { runMaviOperator } from '../../operator/concrete/maviOperator';
 import type { OperatorReport } from '../../operator/operatorTypes';
+import { isValidationActive, recordMaviRun } from '../../../validation/validationRecorder';
 
 /** Monotonik saat — clock-jump güvenli (CLAUDE.md §4). */
 const clock = { nowMs: (): number => (typeof performance !== 'undefined' ? performance.now() : 0) };
@@ -245,13 +246,18 @@ async function runPlanForRequest(
   }
 }
 
+/** Son turda AI Usta bloğu GERÇEKTEN eklendi mi (yalnız güvenli bayrak). */
+let _lastDiagnosisUsed = false;
+
 /**
  * AI Usta teşhisini system prompt'a ekler (boşsa AYNEN döner).
  * Karar DETERMİNİSTİK katmandan gelir; LLM yalnız YORUMLAR.
  */
 function withDiagnosis(system: string): string {
+  _lastDiagnosisUsed = false;
   try {
     const block = buildMechanicBlock().block;
+    _lastDiagnosisUsed = !!block;
     return block ? `${system}\n\n${block}` : system;
   } catch {
     return system;                       // teşhis hatası isteği DÜŞÜRMEZ
@@ -262,6 +268,24 @@ function withDiagnosis(system: string): string {
 function withPlanResults(system: string, block: string): string {
   return block ? `${system}\n\n${block}` : system;
 }
+
+/**
+ * Operatör turunun sonucu: system prompt bloğu + YALNIZ güvenli metadata
+ * (sabit jetonlar/bayraklar). Kullanıcı metni veya rapor içeriği TAŞIMAZ.
+ */
+interface OperatorRunSummary {
+  readonly block:         string;
+  readonly intentKind:    string;
+  readonly operatorTask:  string;
+  readonly knowledgeUsed: boolean;
+  readonly mechanicUsed:  boolean;
+}
+
+/** Operatör çalışmadığında dönen sabit özet (şalter kapalı / hata). */
+const EMPTY_OPERATOR_RUN: OperatorRunSummary = {
+  block: '', intentKind: 'disabled', operatorTask: 'none',
+  knowledgeUsed: false, mechanicUsed: false,
+};
 
 /**
  * OPERATÖR (Faz 2): kullanıcı mesajını DETERMİNİSTİK niyet motoruyla çözer ve
@@ -278,9 +302,9 @@ async function runOperatorForRequest(
   userText: string | undefined,
   signal?: AbortSignal,
   timeoutMs?: number,
-): Promise<{ block: string }> {
+): Promise<OperatorRunSummary> {
   try {
-    if (!safeBool(() => isMaviOperatorChatEnabled())) return { block: '' };
+    if (!safeBool(() => isMaviOperatorChatEnabled())) return EMPTY_OPERATOR_RUN;
 
     const intent = resolveOperatorIntent(userText);
 
@@ -294,9 +318,15 @@ async function runOperatorForRequest(
       });
     }
 
-    return { block: presentOperatorOutcome(intent, report) };
+    return {
+      block:         presentOperatorOutcome(intent, report),
+      intentKind:    intent.kind,
+      operatorTask:  intent.taskId ?? 'none',
+      knowledgeUsed: (report?.sections ?? []).some((s) => s.kind === 'knowledge' && s.status === 'executed'),
+      mechanicUsed:  (report?.sections ?? []).some((s) => s.kind === 'mechanic'  && s.status === 'executed'),
+    };
   } catch {
-    return { block: '' };                // operatör hatası isteği DÜŞÜRMEZ
+    return EMPTY_OPERATOR_RUN;           // operatör hatası isteği DÜŞÜRMEZ
   }
 }
 
@@ -318,6 +348,7 @@ function safeConsent(): string {
  * ASLA throw etmez; her sonuç `GatewayChatOutcome` sözleşmesindedir.
  */
 export async function askOrchestratedChat(params: OrchestratedChatParams): Promise<OrchestratedChatResult> {
+  const startedMs = clock.nowMs();
   const task = params.task ?? classifyTask(params.classifyText ?? params.user);
 
   /* Yetenekler: gateway'de KAYITLI sağlayıcılar + anahtarı olanlar. */
@@ -390,6 +421,9 @@ export async function askOrchestratedChat(params: OrchestratedChatParams): Promi
   /* Model ARAÇ çağırdıysa: router'dan geçir, sonucu ETİKETLİ system bloğu
      olarak ekle ve SEÇİLEN sağlayıcıya sabitlenmiş şekilde yeniden sor.
      Zincir/fallback İLK turda zaten uygulandı. */
+  /** Modelin bu turda istediği araç çağrısı sayısı (yalnız sayı — argüman YOK). */
+  const toolCallCount = result.ok ? (result.result.toolCalls?.length ?? 0) : 0;
+
   let finalResult = result;
   if (result.ok && tooling.router && (result.result.toolCalls?.length ?? 0) > 0) {
     try {
@@ -407,8 +441,29 @@ export async function askOrchestratedChat(params: OrchestratedChatParams): Promi
     } catch { /* araç turu hatası isteği DÜŞÜRMEZ — ilk sonuçla devam */ }
   }
 
+  /* SAHA DOĞRULAMA (varsayılan KAPALI): oturum çalışmıyorsa TEK boolean
+     kontrolüyle atlanır — üretim yolunda ek yük YOK. Yazılan her alan sabit
+     jeton/sayıdır; prompt, cevap veya araç verisi TAŞINMAZ. */
+  const emitValidation = (ok: boolean, errorKind: string | null): void => {
+    if (!isValidationActive()) return;
+    recordMaviRun({
+      intentKind:         operatorRun.intentKind,
+      operatorTask:       operatorRun.operatorTask,
+      plannerUsed:        planRun.plan.steps.length > 0,
+      toolCalls:          toolCallCount,
+      mechanicUsed:       _lastDiagnosisUsed || operatorRun.mechanicUsed,
+      knowledgeUsed:      operatorRun.knowledgeUsed,
+      memoryUsed:         _lastMemoryTelemetry?.outcome === 'injected',
+      vehicleContextUsed: _lastContextTelemetry?.contextOutcome === 'injected',
+      durationMs:         Math.max(0, clock.nowMs() - startedMs),
+      ok,
+      errorKind,
+    });
+  };
+
   if (finalResult.ok) {
     const text = finalResult.result.text.trim();
+    emitValidation(!!text, text ? null : 'malformed_response');
     return {
       outcome: text
         ? { ok: true, text }
@@ -421,12 +476,10 @@ export async function askOrchestratedChat(params: OrchestratedChatParams): Promi
   /* Yürütme hatası → köprünün devre-kesici semantiğine çevrilir:
      YALNIZ gerçek ağ ölümü (network/timeout) global kesiciye sayılır. */
   const netFailure = finalResult.failureType === 'network' || finalResult.failureType === 'timeout';
+  const errorKind  = finalResult.failureType === 'aborted' ? 'aborted' : 'unknown';
+  emitValidation(false, errorKind);
   return {
-    outcome: {
-      ok: false,
-      netFailure,
-      errorKind: finalResult.failureType === 'aborted' ? 'aborted' : 'unknown',
-    },
+    outcome: { ok: false, netFailure, errorKind },
     telemetry: finalResult.telemetry,
     ...(_lastContextTelemetry ? { context: _lastContextTelemetry } : {}),
   };
