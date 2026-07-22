@@ -66,14 +66,26 @@ describe('P2 — Zustand notify disiplini (Test A)', () => {
     probe.unsub();
   });
 
-  it('sanitization guard: imkânsız hız (>300) reddedilir → notify yok, UI bozulmaz', () => {
+  /**
+   * KİLİT GÜNCELLENDİ (P0 hız-doğruluğu, saha 2026-07-22 · Trafic/KWP):
+   * Eski davranış "bozuk değer → önceki hızı KORU" idi. Saha kanıtı bunun tehlikeli
+   * olduğunu gösterdi: bozuk/eksik yanıt eski hızı canlıymış gibi ekranda tutuyordu.
+   * Yeni sözleşme: bozuk değer hız olarak KULLANILAMAZ → `null` ("bilinmiyor").
+   *
+   * Notify disiplini KORUNUR: geçiş TEK bir notify üretir (spam yok) ve tekrar eden
+   * bozuk değerler ek notify üretmez. Kilit kaldırılmadı, yeni doğru davranışa taşındı.
+   */
+  it('sanitization guard: imkânsız hız (>300) hız olarak KULLANILMAZ → null, tek notify', () => {
     store.getState().updateVehicleState({ speed: 50 }); // geçerli baseline
     const probe = subscribeProbe(store);
 
-    store.getState().updateVehicleState({ speed: 999 }); // SafetyGate → cur.speed korunur
+    store.getState().updateVehicleState({ speed: 999 }); // garbage → bilinmiyor
 
-    expect(probe.count()).toBe(0);            // bozuk değer dirty yapmaz → notify yok
-    expect(store.getState().speed).toBe(50);  // garbage UI'a ulaşmadı
+    expect(store.getState().speed).toBeNull();   // garbage UI'a ulaşmadı, eski değer de tutulmadı
+    expect(probe.count()).toBe(1);               // 50 → null tek geçiş
+
+    store.getState().updateVehicleState({ speed: 999 }); // tekrar garbage → değişim yok
+    expect(probe.count()).toBe(1);               // over-notify yok
     probe.unsub();
   });
 

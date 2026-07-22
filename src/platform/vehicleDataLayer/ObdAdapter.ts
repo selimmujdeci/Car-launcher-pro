@@ -1,4 +1,4 @@
-import { onOBDData } from '../obdService';
+import { onOBDData, getObdSpeedFresh } from '../obdService';
 import type { ObdAdapterData } from './types';
 import { dbgIncObd } from '../debug';
 
@@ -16,11 +16,14 @@ export class ObdAdapter {
   start(): void {
     this._unsub = onOBDData((obd) => {
       // Zero-allocation: sadece değişen alanlar güncellenir
-      if (obd.speed >= 0) {
-        this._data.speed = obd.speed;
-      } else {
-        this._data.speed = undefined;
-      }
+      //
+      // HIZ — KAYNAK DOĞRULUĞU KAPISI (saha 2026-07-22, Trafic/KWP):
+      // `obd.speed` tipi `number` ve varsayılanı `0`'dır; `010D` hiç gelmese bile
+      // `0 >= 0` doğrudur → "hız verisi yok" durumu aşağı akışa GEÇERLİ "0 km/h"
+      // olarak sızıyordu. Artık damgalı kapıdan geçer: doğrulanmamış/bayat hız
+      // `undefined` olur → resolver `null` yayar → store hızı DÜŞÜRÜR.
+      const freshSpeed = getObdSpeedFresh();
+      this._data.speed = freshSpeed === null ? undefined : freshSpeed;
 
       if (obd.fuelLevel >= 0) {
         this._data.fuel = obd.fuelLevel;

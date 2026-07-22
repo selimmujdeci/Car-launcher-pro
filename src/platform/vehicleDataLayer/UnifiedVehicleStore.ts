@@ -22,7 +22,16 @@ import { safeStorage, safeFlushKey } from '../../utils/safeStorage';
 
 export type { GPSLocation };
 
-const OBD_SPEED_STALE_MS = 5_000;
+/**
+ * Hız değerinin MUTLAK son kullanma süresi (ms) — "son savunma hattı".
+ *
+ * Asıl tazelik kapısı `obdService.getObdSpeedFresh()`tir (protokol kadansına göre
+ * uyarlanır). Bu sabit, o kapı hiç çalışmazsa (OBD servisi ölürse, yama akışı
+ * kesilirse) hızın ekranda SONSUZA DEK donmasını engeller. En yavaş protokol
+ * tabanının (ISO9141 20 s) üstünde seçildi → sağlıklı KWP/ISO kadansında sahte
+ * "bilinmiyor" üretmez.
+ */
+const SPEED_EXPIRY_MS = 30_000;
 
 export interface GPSStatePatch {
   location?:    GPSLocation | null;
@@ -186,11 +195,26 @@ export const useUnifiedVehicleStore = create<UnifiedVehicleState>()(
         let dirty = false;
 
         if ('speed' in patch) {
-          // Final Gate: bozuk hız değerlerinin UI'a ulaşmasını önle
-          const safeSpeed = (typeof patch.speed === 'number' && isFinite(patch.speed) && patch.speed <= 300)
-            ? patch.speed
-            : (patch.speed === null ? null : cur.speed);
-          if (safeSpeed !== patch.speed) {
+          // Final Gate: bozuk hız değerlerinin UI'a ulaşmasını önle.
+          //
+          // `undefined` = "bu yamada hız YOK". Eskiden koşulsuz `cur.speed` geri
+          // yazılırdı → değer SONSUZA DEK canlı kalırdı (saha: `[SafetyGate] Rejected
+          // Speed: undefined` sn'de ~1, ekranda donuk hız). Artık eski değer YALNIZ
+          // tazelik penceresi içinde korunur; pencere dolunca `null` (bilinmiyor) olur.
+          const valid = typeof patch.speed === 'number' && isFinite(patch.speed) && patch.speed <= 300;
+          let safeSpeed: number | null;
+          if (valid) {
+            safeSpeed = patch.speed as number;
+          } else if (patch.speed === null) {
+            safeSpeed = null;                                   // kaynak açıkça "bilinmiyor" dedi
+          } else if (patch.speed === undefined) {
+            // Son savunma hattı: asıl kapı obdService/ObdAdapter tazelik damgasıdır.
+            const age = performance.now() - cur._vehicleSpeedTs;
+            safeSpeed = age > SPEED_EXPIRY_MS ? null : cur.speed;
+          } else {
+            safeSpeed = null;                                   // bozuk/aralık dışı → ASLA korunmaz
+          }
+          if (!valid && patch.speed !== undefined && patch.speed !== null) {
             console.warn('[SafetyGate] Rejected Speed:', patch.speed);
           }
           if (safeSpeed !== cur.speed) {
@@ -257,13 +281,21 @@ export const useUnifiedVehicleStore = create<UnifiedVehicleState>()(
             dirty = true;
           }
 
-          // Smooth handover: worker hızı stale → GPS location.speed'den devral
-          const stale = performance.now() - cur._vehicleSpeedTs > OBD_SPEED_STALE_MS;
-          if (stale && next?.speed != null) {
-            const kmh = Math.round(next.speed * 3.6);
-            const clamped = kmh >= 0 ? kmh : 0;
-            if (clamped !== cur.speed) { u.speed = clamped; dirty = true; }
-          }
+          // ⛔ HAYALET HIZ KALDIRILDI (P0, saha 2026-07-22 · Trafic/KWP):
+          // Burada "smooth handover" adı altında GPS Doppler hızı ARAÇ HIZI alanına
+          // yazılıyordu. Araç dururken GPS gürültüsü (fix doğruluğu 400 m ölçüldü)
+          // hız alanını kendi kendine değiştiriyordu; kaynak işaretlenmediği ve
+          // `_vehicleSpeedTs` tazelenmediği için devralma KALICI hale geliyor, ayrıca
+          // yeniden gönderilen eski OBD değeriyle salınıma giriyordu.
+          //
+          // GÜVENLİK SÖZLEŞMESİ: `speed` = ARACIN kendi doğrulanmış hızıdır. Araçtan
+          // taze/geçerli hız yoksa değer `null`dır ("bilinmiyor") — GPS'ten TÜRETİLMEZ.
+          // GPS hızı KAYBOLMADI: `location.speed` alanında ham haliyle durur; navigasyon
+          // gibi GPS hızını meşru kullanan tüketiciler oradan okur.
+          //
+          // NOT: worker tarafındaki `_resolveSpeedSource()` GPS fallback'i AYRI bir
+          // yoldur ve bu commit'in kapsamı DIŞINDADIR (navigasyon/odometre/sürüş
+          // olaylarını taşır → ayrı atomik değişiklik gerektirir).
         }
         if ('heading' in gpsPatch && (gpsPatch.heading ?? null) !== cur.heading) {
           u.heading = gpsPatch.heading ?? null; dirty = true;

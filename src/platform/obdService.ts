@@ -189,6 +189,16 @@ const _connSat = (n: number): number => (n >= 1_000_000_000 ? n : n + 1);
 /** Son GEÇERLİ ECU frame'i (ATRV HARİÇ — bkz. _hasEcuData). "dataFresh" bundan türer. */
 let _lastRealDataMs = 0;
 /**
+ * Son GEÇERLİ hız (Mode-01 `010D`) kabul zamanı. `0` = bu oturumda hız HİÇ gelmedi.
+ *
+ * ⚠️ NEDEN AYRI BİR DAMGA: `OBDData.speed` tipi `number` ve varsayılanı `0`'dır →
+ * "araç duruyor" ile "hız verisi hiç yok" AYIRT EDİLEMEZ. Saha kanıtı (Renault
+ * Trafic · KWP2000/proto 5, 2026-07-22): `010D` hiç gelmiyor, ekran motor 1702 rpm
+ * iken bile "0 km/h" gösteriyordu. Bu damga, hızın KAYNAK DOĞRULUĞUNU taşır;
+ * `speed` alanının kendisi (geriye uyumluluk için) DEĞİŞTİRİLMEZ.
+ */
+let _lastSpeedRxMs = 0;
+/**
  * Son HERHANGİ bir native paket (ATRV DAHİL) — LINK HEARTBEAT. "transportConnected"
  * bundan türer. `_lastRealDataMs`'ten AYRI olması şart: ATRV, ECU ölse bile ~5s'de bir
  * gelir → aynı damgada tutulursa donmayı maskeler (saha 2026-07-16 Doblo kökü).
@@ -1005,6 +1015,10 @@ function _stopStaleWatchdog(): void {
 function _clearDataGate(): void {
   if (_dataGateTimer) { clearTimeout(_dataGateTimer); _dataGateTimer = null; }
   _dataGatePassed = false;
+  // OTURUM SINIRI: hız oturuma bağlı canlı bir PID'dir. Yeni oturum ESKİ oturumun
+  // hızını MİRAS ALMAZ (saha kuralı) — damga sıfırlanır, `getObdSpeedFresh()`
+  // yeni bir 010D gelene kadar `null` döner.
+  _lastSpeedRxMs = 0;
 }
 
 /**
@@ -1085,6 +1099,10 @@ function _onRealData(patch: Partial<OBDData>): void {
   // Bu, `_lastRealDataMs`'ten AYRI tutulur — ATRV eskiden ECU donmasını maskeliyordu;
   // artık ayrı damgada yaşayıp tam tersini yapıyor: canlılığı kanıtlıyor, donmayı gizlemiyor.
   _lastRxAt = _rxNow;
+  // HIZ DOĞRULUĞU: damga YALNIZ sanitizer'dan GEÇMİŞ gerçek bir hız alanı geldiğinde
+  // tazelenir. NO_DATA / timeout / parse hatası / eksik alan bu satıra ULAŞMAZ
+  // (`_sanitizeNative` onları patch'e hiç koymaz) → hız "bilinmiyor" kalır.
+  if (patch.speed !== undefined) _lastSpeedRxMs = _rxNow;
   if (_hasEcuData(patch)) {
     _lastRealDataMs = _rxNow;
     // KURTARMA BAŞARISI — TEK OTORİTER SİNYAL: ECU yeniden konuşuyor. Sıfırlama BURADA
@@ -2459,6 +2477,28 @@ export function getTransportStats(): {
  */
 export function getOBDDataSnapshot(): OBDData {
   return { ..._current };
+}
+
+/**
+ * KAYNAĞI DOĞRULANMIŞ araç hızı (km/h) — yoksa `null`.
+ *
+ * `null` döndüğü durumlar (hepsi "hız BİLİNMİYOR" demektir, "0 km/h" DEĞİL):
+ *   - bu oturumda hiç `010D` gelmedi (araç/adaptör PID'i desteklemiyor),
+ *   - son geçerli hızın üstünden protokol kadansının izin verdiğinden fazla geçti,
+ *   - oturum yeniden kuruldu (reconnect) ve henüz yeni bir hız gelmedi.
+ *
+ * Tazelik penceresi MEVCUT `_staleThresholdMs()`ten türer (protokol tabanı + aktif
+ * poll kadansı) → KWP'nin yavaş kadansında sahte "veri yok" üretmez, hızlı CAN'de
+ * de gereksiz uzun tutmaz. `getOBDDataSnapshot().speed` sözleşmesi DEĞİŞMEZ
+ * (geriye uyumluluk); yeni tüketiciler bu kapıyı kullanmalıdır.
+ */
+export function getObdSpeedFresh(): number | null {
+  if (_lastSpeedRxMs === 0) return null;                 // hiç hız gelmedi
+  let windowMs: number;
+  try { windowMs = _staleThresholdMs(); } catch { windowMs = STALE_THRESHOLD_MS; }
+  if (Date.now() - _lastSpeedRxMs > windowMs) return null;   // bayat → bilinmiyor
+  const v = _current.speed;
+  return typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : null;
 }
 
 export function onOBDData(fn: (d: OBDData) => void): () => void {
