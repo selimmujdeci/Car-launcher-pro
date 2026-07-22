@@ -98,6 +98,12 @@ export interface AiError {
   readonly status?:   number;
   /** Hatayı üreten sağlayıcı kimliği (varsa). */
   readonly provider?: string;
+  /**
+   * Sağlayıcının BİLDİRDİĞİ bekleme penceresi (ms) — ör. 429 gövdesindeki
+   * `retryDelay`/`Retry-After`. Yalnız GÜVENİLİR kaynaktan gelir; tahmin
+   * EDİLMEZ. Yürütücü bunu sağlık deposuna aynen taşır.
+   */
+  readonly retryAfterMs?: number;
 }
 
 /* ── Sonuç ─────────────────────────────────────────────────────────────────── */

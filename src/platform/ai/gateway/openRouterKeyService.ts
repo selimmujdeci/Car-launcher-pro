@@ -93,7 +93,7 @@ export async function testOpenRouterConnection(): Promise<OpenRouterConnectionSt
 
   try {
     const { verifyDefaultAiConnection } = await import('./concrete/defaultAiGateway');
-    const result = await verifyDefaultAiConnection(CONNECTION_TEST_TIMEOUT_MS);
+    const result = await verifyDefaultAiConnection(CONNECTION_TEST_TIMEOUT_MS, CREDENTIAL_ID);
     if (result.ok) return 'connected';
     return result.error ? statusFromErrorKind(result.error.kind) : 'unknown_error';
   } catch {

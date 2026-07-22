@@ -49,6 +49,28 @@ const CAPABILITY_HINTS: Readonly<Record<string, CapabilityHints>> = {
     // costTier/latencyTier/reliabilityTier: modele göre değişir → BİLDİRİLMEZ
     freeTier:            false,    // kullanıcı hesabı ücretlendirilir
   },
+
+  /* Gemini doğrudan API. Yalnız BU KOD TABANINDA kanıtlanmış nitelikler:
+     - streaming: provider'ın İLK sürümü NON-STREAMING (`generateContent`);
+       sahte destek ilan etmemek için AÇIKÇA false.
+     - freeTier: ücretsiz katman kanıtı repo içinde mevcut — ayarlar ekranı
+       "ücretsiz key al" akışı + saha notlarındaki ücretsiz-katman 429 kotaları.
+     - supportsReasoning: flash-latest düşünen bir modeldir AMA araç-içi gecikme
+       için `thinkingBudget:0` ile KAPATILIR (mevcut tüm yollarla aynı) →
+       akıl yürütme SUNULMADIĞI için false.
+     - supportsLongContext/Vision/Tools: bu kod tabanında KULLANILMADI/
+       doğrulanmadı → false (varsayım yapılmaz).
+     - costTier/latencyTier/reliabilityTier: saha notları soğuk başlangıç ~7sn
+       ile sıcak ~1-1.8sn arasında GENİŞ değişim ve sık 429 gösteriyor →
+       tek bir kademe dürüstçe iddia EDİLEMEZ, BİLDİRİLMEZ (nötr). */
+  gemini: {
+    supportsStreaming:   false,
+    supportsReasoning:   false,
+    supportsVision:      false,
+    supportsTools:       false,
+    supportsLongContext: false,
+    freeTier:            true,
+  },
 };
 
 export interface ProviderRegistryEntry {

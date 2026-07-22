@@ -47,6 +47,23 @@ export const AI_MODELS = {
 export type AiModelAlias = keyof typeof AI_MODELS;
 
 /**
+ * GEMINI DOĞRUDAN API model kimlikleri (OpenRouter slug'ı DEĞİL — Google
+ * `generativelanguage` uç noktasının kendi adlandırması).
+ *
+ * ⚠️ `gemini-flash-latest` bu kod tabanında SAHA DOĞRULAMASIYLA seçilmiştir
+ * (2026-07-03): yeni `AQ.` biçimli anahtarların ücretsiz katmanı SABİT ADLI
+ * modellerde (ör. `gemini-2.0-flash`) anında 429 veriyor, `flash-latest` 200
+ * dönüyor. `aiVoiceService`, `companionChatProvider` ve `semanticAiService`
+ * aynı modeli kullanır — tek kaynak burasıdır.
+ */
+export const GEMINI_MODELS = {
+  flashLatest: 'gemini-flash-latest',
+} as const satisfies Record<string, AiModelId>;
+
+/** Gemini sağlayıcısının varsayılan metin modeli. */
+export const DEFAULT_GEMINI_MODEL: AiModelId = GEMINI_MODELS.flashLatest;
+
+/**
  * VARSAYILAN MODEL — model değiştirmek için DEĞİŞTİRİLECEK TEK SATIR.
  * Araç-içi kullanım gereği: düşük gecikme + düşük maliyet önceliklidir.
  */

@@ -383,11 +383,23 @@ describe('capability adapter — konservatif', () => {
   });
 
   it('gerçek kayıt tablosu yalnız KANITLI yetenek bildirir', () => {
-    const src = readFileSync('src/platform/ai/orchestrator/capabilityAdapter.ts', 'utf8');
-    // Tier'lar modele göre değiştiği için varsayılan tabloda BİLDİRİLMEMELİ.
+    // Yorumlar HARİÇ: açıklamada "reliabilityTier BİLDİRİLMEZ" yazması meşrudur;
+    // kilit yalnız GERÇEK KODU denetler.
+    const src = readFileSync('src/platform/ai/orchestrator/capabilityAdapter.ts', 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, ' ')
+      .replace(/(^|[^:])\/\/.*$/gm, '$1');
     const table = src.slice(src.indexOf('CAPABILITY_HINTS'), src.indexOf('ProviderRegistryEntry'));
-    expect(table).not.toMatch(/reliabilityTier:\s*'high'/);
-    expect(table).not.toMatch(/freeTier:\s*true/);
+
+    // Güvenilirlik/gecikme/maliyet kademesi seçilen modele göre GENİŞ değişir →
+    // hiçbir sağlayıcı için kademe İDDİA EDİLEMEZ.
+    expect(table, 'kanıtsız yüksek güvenilirlik iddiası').not.toMatch(/reliabilityTier:/);
+    expect(table, 'kanıtsız gecikme kademesi iddiası').not.toMatch(/latencyTier:/);
+    expect(table, 'kanıtsız maliyet kademesi iddiası').not.toMatch(/costTier:/);
+
+    // `freeTier:true` YALNIZ ücretsiz katmanı repo içinde kanıtlanmış sağlayıcıda
+    // olabilir. Kullanıcı hesabı ÜCRETLENDİRİLEN sağlayıcı asla ücretsiz sayılmaz.
+    const openrouterBlock = table.slice(table.indexOf('openrouter:'), table.indexOf('gemini:'));
+    expect(openrouterBlock, 'ücretli sağlayıcı freeTier:true bildirmiş').toMatch(/freeTier:\s*false/);
   });
 });
 

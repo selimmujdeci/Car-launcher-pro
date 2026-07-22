@@ -290,7 +290,9 @@ export async function executeOrchestratedRequest(input: ExecuteOrchestratedInput
 
     if (failureType === 'rate_limit') {
       // Pencere bilgisi varsa AÇIKÇA yazılır; yoksa store kendi varsayılanını kurar.
-      input.health?.recordRateLimit(candidate.providerId, 0, now());
+      // Sağlayıcı GÜVENİLİR pencere bildirdiyse (429 retryDelay/Retry-After)
+      // aynen taşınır; yoksa 0 → depo kendi varsayılan penceresini kurar.
+      input.health?.recordRateLimit(candidate.providerId, result.error.retryAfterMs ?? 0, now());
     } else if (failureType !== 'aborted' && failureType !== 'invalid_request') {
       // Kullanıcı iptali ve istemci hatası SAĞLAYICI sağlığı değildir → yazılmaz.
       input.health?.recordFailure(candidate.providerId, healthKindOf(failureType), now());
