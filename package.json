@@ -14,7 +14,7 @@
     "cap:copy": "npm run build && npx cap copy",
     "guard": "vitest run src/__tests__/regression.guards.test.ts",
     "compat:verify": "node scripts/verify-webview-compat.mjs",
-    "apk:safe": "npm run test && npm run build && npm run compat:verify && npx cap sync android && cd android && gradlew clean assembleDebug",
+    "apk:safe": "npm run test && npm run build && npm run compat:verify && npx cap sync android && node scripts/gradle-build.mjs clean assembleDebug",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
@@ -28,8 +28,8 @@
     "setup:e2e": "playwright install --with-deps chromium",
     "fetch:vosk": "node scripts/fetch-vosk-model.mjs",
     "release:bump": "node scripts/bump-version.mjs",
-    "release:apk": "npm run build && npx cap sync android && cd android && gradlew assembleRelease",
-    "release:aab": "npm run build && npx cap sync android && cd android && gradlew bundleRelease",
+    "release:apk": "npm run build && npx cap sync android && node scripts/gradle-build.mjs assembleRelease",
+    "release:aab": "npm run build && npx cap sync android && node scripts/gradle-build.mjs bundleRelease",
     "ota:publish": "node scripts/publish-ota.mjs"
   },
   "dependencies": {
