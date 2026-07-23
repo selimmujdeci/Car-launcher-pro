@@ -37,6 +37,8 @@ public final class LiveStreamStopEvidence {
         ELM_NO_RESPONSE,
         /** ECU susuyor (K-line oturumu ölü) — ELM canlı. */
         ECU_NO_RESPONSE,
+        /** "BUS INIT: ERROR" — ELM327 K-line/KWP bus'ını init edemedi (adaptör canlı, bus ölü). */
+        BUS_INIT_ERROR,
         /** Soket/stream hatası (broken pipe, stream kapandı). */
         SOCKET_ERROR,
         /** Komut kuyruğu ilerlemiyor (worker bloklandı / iş birikti). */

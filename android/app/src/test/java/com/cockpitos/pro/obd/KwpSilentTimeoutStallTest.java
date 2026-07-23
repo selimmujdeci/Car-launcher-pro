@@ -234,6 +234,66 @@ public class KwpSilentTimeoutStallTest {
         assertEquals("ilk deneme tam 1 ATPC", 1, countAtpc(ch.sent));
     }
 
+    /* ── KÖK NEDEN (P0 saha 2026-07-23, HAM TRAFİK): "BUS INIT: ERROR" ────────── */
+
+    /**
+     * SAHA KANITI: Trafic/KWP oturumu ölünce ELM327 NO_DATA değil "BUS INIT: ERROR"
+     * döndürüyor (adaptör AT'lere OK). Parser bunu Kind.BUSY sınıflar; recovery eskiden
+     * BUSY'yi dışlıyordu → HER core PID = BUS INIT: ERROR olmasına rağmen recovery=0,
+     * veri ~2dk donuk. Bus-init hatası artık ölü-oturum sayılıp ATPC/reinit tetiklemeli.
+     */
+    @Test
+    public void busInitError_onCorePids_triggersRecovery() throws Exception {
+        SilentTimeoutChannel ch = new SilentTimeoutChannel();
+        ch.on("010C", "BUS INIT: ERROR");           // readPID_rpm → 010C
+        ElmProtocol p = initProtocol(ch, "5");
+
+        // Eşik kadar ardışık "BUS INIT: ERROR" → recovery (ATPC) beklenir.
+        for (int i = 0; i < ElmProtocol.KWP_DEAD_SESSION_THRESHOLD; i++) p.readPID_rpm();
+
+        assertTrue("BUS INIT: ERROR ölü-oturum sayılmıyor → recovery HİÇ tetiklenmiyor "
+                + "(saha: adaptör canlı, bus init başarısız, veri ~2dk donuk)",
+                countAtpc(ch.sent) >= 1);
+    }
+
+    /** Yalın "BUS INIT" (init SÜRÜYOR, ERROR yok) recovery TETİKLEMEZ — ELM zaten deniyor. */
+    @Test
+    public void transientBusInit_noError_doesNotTriggerRecovery() throws Exception {
+        SilentTimeoutChannel ch = new SilentTimeoutChannel();
+        ch.on("010C", "BUS INIT:");                 // ERROR yok — geçici init
+        ElmProtocol p = initProtocol(ch, "5");
+
+        for (int i = 0; i < ElmProtocol.KWP_DEAD_SESSION_THRESHOLD * 2; i++) p.readPID_rpm();
+
+        assertEquals("yalın 'BUS INIT' (init sürüyor) recovery tetikledi (yanlış pozitif)",
+                0, countAtpc(ch.sent));
+    }
+
+    /** UNABLE TO CONNECT de terminal bus-ölüm → recovery tetikler. */
+    @Test
+    public void unableToConnect_triggersRecovery() throws Exception {
+        SilentTimeoutChannel ch = new SilentTimeoutChannel();
+        ch.on("010C", "UNABLE TO CONNECT");
+        ElmProtocol p = initProtocol(ch, "5");
+
+        for (int i = 0; i < ElmProtocol.KWP_DEAD_SESSION_THRESHOLD; i++) p.readPID_rpm();
+
+        assertTrue("UNABLE TO CONNECT ölü-oturum sayılmalı", countAtpc(ch.sent) >= 1);
+    }
+
+    /** CAN'de (protokol 6) bus-init hatası olsa bile KWP recovery TETİKLENMEZ (ayrı motor). */
+    @Test
+    public void busInitError_onCan_noAtpc() throws Exception {
+        SilentTimeoutChannel ch = new SilentTimeoutChannel();
+        ch.on("010C", "BUS INIT: ERROR");
+        ElmProtocol p = initProtocol(ch, "6");
+
+        for (int i = 0; i < ElmProtocol.KWP_DEAD_SESSION_THRESHOLD * 3; i++) p.readPID_rpm();
+
+        assertEquals("CAN'de KWP ATPC recovery tetiklendi (CAN kurtarması TS'in işidir)",
+                0, countAtpc(ch.sent));
+    }
+
     /* ── İZLENEBİLİRLİK: akış sessizce duramaz ────────────────────────────────── */
 
     @Test

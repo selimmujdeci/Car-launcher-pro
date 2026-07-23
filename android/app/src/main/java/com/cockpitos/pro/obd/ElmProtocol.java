@@ -498,14 +498,18 @@ public final class ElmProtocol {
                     LiveStreamStopEvidence.INSTANCE.noteFlowing();
                 } else {
                     // Akış DURDU — SESSİZ KALMA (protokolden bağımsız: CAN'de de yazılır).
+                    // Bus-init hatası ("BUS INIT: ERROR") ayrı sebep kodu alır (saha 2026-07-23).
+                    LiveStreamStopEvidence.Reason reason = isKwpBusFailure(raw)
+                            ? LiveStreamStopEvidence.Reason.BUS_INIT_ERROR
+                            : stopReasonOf(r.kind);
                     LiveStreamStopEvidence.INSTANCE.noteStop(
-                            stopReasonOf(r.kind), System.currentTimeMillis(), activeProtocol,
+                            reason, System.currentTimeMillis(), activeProtocol,
                             coreRequestSeq, lastSuccessfulPid, lastSuccessfulResponse,
                             lastGoodPacketAtMs > 0 ? System.currentTimeMillis() - lastGoodPacketAtMs : -1,
                             coreNoDataStreak);
                 }
             }
-            noteKwpSessionHealth(cmd, r.kind);
+            noteKwpSessionHealth(cmd, r.kind, raw);
             return r;
         } catch (Exception e) {
             // SESSİZ EXCEPTION YASAK (P0 saha 2026-07-23): kanal hatası eskiden hiçbir
@@ -519,6 +523,21 @@ public final class ElmProtocol {
             }
             return new ElmResponseParser.Result(ElmResponseParser.Kind.ERROR, null, null);
         }
+    }
+
+    /**
+     * Terminal KWP/K-line BUS-ÖLÜM sinyali mi (ATPC/reinit recovery tetiklenmeli)?
+     *
+     * "BUS INIT: ERROR" = ELM327 K-line/KWP bus'ını init edemedi (saha 2026-07-23, Trafic:
+     * her core PID bunu döndürüyordu, adaptör AT'lere OK). Parser "BUSINIT" içerdiği için
+     * Kind.BUSY sınıflar → recovery bu moda kördü. YALIN "BUS INIT" (init SÜRÜYOR, ERROR yok)
+     * DÂHİL EDİLMEZ — ELM zaten deniyor; yalnız BAŞARISIZLIK formları recovery tetikler.
+     */
+    private static boolean isKwpBusFailure(String raw) {
+        if (raw == null) return false;
+        String c = raw.replaceAll("\\s+", "").toUpperCase(java.util.Locale.ROOT);
+        if (c.contains("BUSINIT")) return c.contains("ERROR"); // "BUS INIT: ERROR" ✓ · yalın "BUS INIT" ✗
+        return c.contains("BUSERROR") || c.contains("UNABLETOCONNECT") || c.contains("STOPPED");
     }
 
     /** Yanıt sınıfı → canlı akış durma sebebi. Tek eşleme noktası (tahmin YOK). */
@@ -539,7 +558,7 @@ public final class ElmProtocol {
      * oturum kanıtı sayılmaz. Fail-soft: ATPC yanıtı önemsiz, hata yutulur (sonraki eşikte
      * yeniden denenir). Log çağrısı JVM unit testte mock'suz diye ayrıca korunur.
      */
-    private void noteKwpSessionHealth(String cmd, ElmResponseParser.Kind kind) {
+    private void noteKwpSessionHealth(String cmd, ElmResponseParser.Kind kind, String raw) {
         if (cmd == null || !CORE_MODE01.contains(cmd) || !isSlowSerialActive()) return;
         // PR-KWP-EVID: kanıt YALNIZ bu kapının içinde toplanır → CAN/J1850'de (isSlowSerialActive
         // false) HİÇBİR alan dolmaz ve status NOT_ATTEMPTED kalır. CAN kurtarma davranışı ile
@@ -550,16 +569,21 @@ public final class ElmProtocol {
             KwpRecoveryEvidence.INSTANCE.noteCoreOk(System.currentTimeMillis());
             return;
         }
-        // SESSİZ TIMEOUT DA ÖLÜ-OTURUM KANITIDIR (P0 saha 2026-07-23, Trafic/KWP):
-        // ECU susunca ELM327 her zaman "NO DATA" METNİ üretmez — çoğu zaman '>' prompt'una
-        // kadar HİÇBİR ŞEY göndermez. O durumda RfcommChannel.send() süre dolunca BOŞ string
-        // döner ve ElmResponseParser bunu NO_DATA değil TIMEOUT_PARTIAL sınıfına koyar.
-        // Eskiden yalnız NO_DATA sayıldığı için sayaç ASLA eşiğe ulaşmıyordu → ATPC hiç
-        // gönderilmiyordu → oturum ölü kalıyor, veri kalıcı DONUYORDU (yalnız adaptörün
-        // fiziksel power-cycle'ı düzeltiyordu). İki sınıf da "ECU cevap vermedi" demektir.
-        // BUSY/ERROR/7F hâlâ SAYILMAZ: onlar ELM/ECU'nun KONUŞTUĞUNUN kanıtıdır.
+        // ÖLÜ-OTURUM SİNYALLERİ (üçü de ATPC/reinit merdivenini tetikler):
+        //  1) NO_DATA           — ECU "NO DATA" METNİ döndü.
+        //  2) TIMEOUT_PARTIAL   — ECU sustu, '>' gelmedi (sessiz timeout; saha 2026-07-23).
+        //  3) BUS-INIT HATASI   — "BUS INIT: ERROR" (K-line/KWP bus init BAŞARISIZ).
+        // (3) KRİTİK KÖK (SAHA 2026-07-23, HAM TRAFİK): Trafic/KWP oturumu ölünce ELM327
+        // NO_DATA değil "BUS INIT: ERROR" döndürüyor (~1480ms) — parser bunu Kind.BUSY
+        // sınıflar. Adaptör AT'lere OK, HER core PID + 22F190 = BUS INIT: ERROR, recovery=0
+        // idi: recovery bu moda TAMAMEN KÖRDÜ (yalnız transport reconnect ~2dk sonra
+        // kurtarıyordu). Bus-ölüm formu (BUS INIT: ERROR / UNABLE TO CONNECT / BUS ERROR /
+        // STOPPED) TAM ATPC/reinit'in düzelttiği durumdur. Yalın "BUS INIT" (init sürüyor,
+        // ERROR yok) TETİKLEMEZ — ELM zaten deniyor.
+        boolean deadBus = isKwpBusFailure(raw);
         if (kind != ElmResponseParser.Kind.NO_DATA
-            && kind != ElmResponseParser.Kind.TIMEOUT_PARTIAL) return;
+            && kind != ElmResponseParser.Kind.TIMEOUT_PARTIAL
+            && !deadBus) return;
         KwpRecoveryEvidence.INSTANCE.noteCoreNoData();
         if (++coreNoDataStreak < KWP_DEAD_SESSION_THRESHOLD) return;
         coreNoDataStreak = 0;
