@@ -1392,7 +1392,16 @@ function _scheduleReconnect(): void {
   // Fix 2: A2DP glitch önleme — reconnect sırasında BT INQUIRY scan'i durdur.
   // BT inquiry scan sırasında PLL çakışması → GPS ±15 m jitter + A2DP sniff-mode askıya → müzik atlaması.
   if (Capacitor.isNativePlatform()) {
-    try { void (CarLauncher as unknown as { stopScan?: () => Promise<void> }).stopScan?.(); } catch { /* ignore */ }
+    // stopScan Capacitor PROXY'sinde tanımlıdır ama native tarafta @PluginMethod YOK →
+    // çağrı "not implemented on android" ile REDDEDİLEN promise döner. Eski `void …?.()`
+    // bu rejection'ı zincire bırakıyordu; try/catch yalnız SENKRON hatayı yakaladığı için
+    // her reconnect'te UNHANDLED REJECTION olarak konsola düşüyordu (saha 2026-07-23, CDP).
+    // `?.()?.catch` ile async rejection sessizce yutulur (niyet korunur: native ileride
+    // stopScan eklerse çalışır; yoksa gürültü üretmez).
+    try {
+      (CarLauncher as unknown as { stopScan?: () => Promise<void> })
+        .stopScan?.()?.catch(() => { /* native stopScan yok/desteklenmiyor — sessiz */ });
+    } catch { /* senkron kenar durumu — yoksay */ }
   }
 
   // OBD disconnect → RuntimeEngine'e bildir (bir adım downgrade — hysteresis bypass)

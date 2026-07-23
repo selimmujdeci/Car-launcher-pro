@@ -1262,6 +1262,12 @@ export async function processTextCommand(
       alternatives: alts.length > 1 ? alts : undefined,
       timeoutMs: ctx?.isDriving ? BRAIN_TIMEOUT_DRIVING_MS : BRAIN_TIMEOUT_PARKED_MS,
     });
+    // KESİLME FIX (saha 2026-07-23, CDP: 429/400 → yavaş sağlayıcı zinciri): beyin/fallback
+    // cevabı geldi → BEKLEYEN "Bir saniye..." ara sözünü KONUŞMADAN ÖNCE iptal et. Eskiden
+    // timer yalnız `finally`'de (dispatch'ten SONRA) temizleniyordu; 1.5s eşiğine denk gelen
+    // geç filler, cevap TTS'i başladıktan sonra ateşleyip cevabı KESİYORDU
+    // ("Mavi konuşurken araya ses girip kesiliyor"). Burada erken temizlik yarışı kapatır.
+    if (_thinkingTimer !== null) { clearTimeout(_thinkingTimer); _thinkingTimer = null; }
     if (brain) {
       _lastCommandTime = now;
       if (brain.kind === 'chat') {
