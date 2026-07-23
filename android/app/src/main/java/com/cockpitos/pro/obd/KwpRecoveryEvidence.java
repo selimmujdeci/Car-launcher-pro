@@ -46,6 +46,31 @@ public final class KwpRecoveryEvidence {
      */
     public static final int MAX_RECOVERIES_PER_SESSION = 3;
 
+    /**
+     * Kaç ardışık BAŞARISIZ ATPC'den sonra GÜÇLÜ kurtarmaya (ATWS+reinit) yükseltilir.
+     *
+     * ⚠️ P0 SAHA 2026-07-23 (Trafic/KWP "veri ~1 dk sonra tekrar bayat"): saha kanıtı
+     * ATPC (Protocol Close) tek başına K-line oturumunu HER ZAMAN diriltmiyor. ATPC
+     * ELM327'ye "protokolü bir sonraki istekte yeniden kur" der; ama bazı KWP ECU'ları
+     * (Trafic) yalnız protokol resetiyle uyanmıyor, tam ELM warm-start + init dizisi
+     * (ATWS + ATSP + 0100) gerekiyor. Eskiden merdiven yoktu: ATPC başarısız olsa bile
+     * hep ATPC deneniyor, hiç yükselmiyordu → oturum bayat kalıyordu.
+     *
+     * MERDİVEN: ATPC (hafif/hızlı) → [bu eşikten sonra] ATWS+reinit (güçlü) → tavan → dur.
+     * 1 = ATPC bir şans alır, sonra güce geçilir (bayat kalma süresi kısa).
+     */
+    public static final int REINIT_AFTER_FAILURES = 1;
+
+    /** Eşik dolunca uygulanacak kurtarma SEVİYESİ (tek karar noktası). */
+    public enum RecoveryAction {
+        /** Tavan doldu / oturum sağlıklı → hiçbir şey gönderme. */
+        NONE,
+        /** Hafif: ATPC (Protocol Close) — ELM327 bir sonraki istekte protokolü tazeler. */
+        PROTOCOL_CLOSE,
+        /** Güçlü: ATWS + tam init (öğrenilmiş protokol korunur) — ATPC yetmediğinde. */
+        REINIT,
+    }
+
     /** Kurtarma akışının son durumu. */
     public enum Status {
         /** Bu oturumda hiç kurtarma tetiklenmedi (KWP değil VEYA oturum sağlıklı). */
@@ -135,15 +160,18 @@ public final class KwpRecoveryEvidence {
     }
 
     /**
-     * Eşik doldu — kurtarma UYGULANMALI MI? Tavan kontrolü BURADADIR (tek karar noktası).
+     * Eşik doldu — HANGİ kurtarma seviyesi uygulanmalı? Tavan + MERDİVEN kararı BURADADIR
+     * (tek karar noktası). {@code NONE} dışında bir sonuç döndüğünde sayaçlar "tetiklendi"
+     * sayılır (recoveryCount++/status=IN_PROGRESS) — çağıran komutu göndermekle yükümlüdür.
      *
-     * @return true = ATPC gönder (sayaçlar tetiklenmiş sayılır) · false = tavan doldu, GÖNDERME
+     * MERDİVEN: ilk ardışık başarısızlıklarda ATPC (hafif); {@link #REINIT_AFTER_FAILURES}
+     * aşılınca ATWS+reinit (güçlü); {@link #MAX_RECOVERIES_PER_SESSION} aşılınca dur.
      */
-    public boolean shouldAttemptRecovery(long nowMs, String activeProtocol) {
+    public RecoveryAction nextRecoveryAction(long nowMs, String activeProtocol) {
         synchronized (lock) {
-            coreNoDataStreak = 0; // eşik tüketildi (davranış: eski kodla aynı)
+            coreNoDataStreak = 0; // eşik tüketildi
             // Önceki kurtarma hâlâ IN_PROGRESS iken YENİ eşik doldu → öncekisi İŞE YARAMADI.
-            // Tavan kararından ÖNCE sayılır ki "3 ardışık başarısız" doğru ölçülsün.
+            // Tavan/merdiven kararından ÖNCE sayılır ki seviye doğru seçilsin.
             if (status == Status.IN_PROGRESS) {
                 status = Status.FAILED;
                 consecutiveFailedRecoveries = sat(consecutiveFailedRecoveries);
@@ -152,15 +180,28 @@ public final class KwpRecoveryEvidence {
             // geri geldiyse (noteCoreOk → seri sıfır) motor uzun sürüşte tükenmez.
             if (consecutiveFailedRecoveries >= MAX_RECOVERIES_PER_SESSION) {
                 suppressedCount = sat(suppressedCount);
-                return false;
+                return RecoveryAction.NONE;
             }
             recoveryCount = sat(recoveryCount);
             lastRecoveryAt = nowMs;
             lastRecoveryToFirstPidMs = -1;
             protocolAtRecovery = activeProtocol;
             status = Status.IN_PROGRESS;
-            return true;
+            // MERDİVEN: ATPC birkaç kez başarısızsa güçlü kurtarmaya (reinit) yüksel.
+            return consecutiveFailedRecoveries >= REINIT_AFTER_FAILURES
+                ? RecoveryAction.REINIT
+                : RecoveryAction.PROTOCOL_CLOSE;
         }
+    }
+
+    /**
+     * Geriye dönük uyumlu boolean sarmalayıcı (eski çağıranlar/testler). Merdiveni
+     * {@link #nextRecoveryAction} yönetir; burada yalnız "bir şey yapılmalı mı" sorulur.
+     * ⚠️ Durum mutasyonludur → çağrı başına BİR KEZ çağrılmalı (nextRecoveryAction ile
+     * BİRLİKTE değil).
+     */
+    public boolean shouldAttemptRecovery(long nowMs, String activeProtocol) {
+        return nextRecoveryAction(nowMs, activeProtocol) != RecoveryAction.NONE;
     }
 
     /** ATPC gönderimi başarısız oldu (channel hatası) — fail-soft, sonraki eşikte tekrar denenir. */

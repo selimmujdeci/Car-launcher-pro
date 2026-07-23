@@ -149,8 +149,11 @@ public class KwpRecoveryEvidenceTest {
         assertEquals("FAILED", s.status);
         assertEquals("kurtarma oturum başına BOUNDED olmalı",
             KwpRecoveryEvidence.MAX_RECOVERIES_PER_SESSION, s.recoveryCount);
-        assertEquals("tavan aşıldıktan sonra ATPC GÖNDERİLMEMELİ",
-            KwpRecoveryEvidence.MAX_RECOVERIES_PER_SESSION, ch.countOf("ATPC"));
+        // MERDİVEN (P0 2026-07-23): toplam kurtarma = MAX ama ATPC yalnız 1 kez (hafif),
+        // kalanı ATWS+reinit (güçlü). ATPC ısrarı yerine yükseltme.
+        assertEquals("ilk deneme tam 1 ATPC", 1, ch.countOf("ATPC"));
+        assertEquals("kalan denemeler ATWS+reinit'e yükselmeli",
+            KwpRecoveryEvidence.MAX_RECOVERIES_PER_SESSION - 1, ch.countOf("ATWS"));
         assertTrue("tavan sonrası bastırma sayılmalı", s.suppressedCount > 0);
     }
 

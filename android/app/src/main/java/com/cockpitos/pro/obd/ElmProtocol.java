@@ -563,12 +563,29 @@ public final class ElmProtocol {
         KwpRecoveryEvidence.INSTANCE.noteCoreNoData();
         if (++coreNoDataStreak < KWP_DEAD_SESSION_THRESHOLD) return;
         coreNoDataStreak = 0;
-        // TAVAN (yeni): oturum başına en fazla MAX_RECOVERIES_PER_SESSION kurtarma. Eskiden
-        // sınırsızdı — her 4 NO_DATA'da sonsuza dek ATPC gidiyordu (ölü ECU'da bitmeyen tur).
-        // Karar TEK yerde (evidence.shouldAttemptRecovery) → sayaç/durum ile ATPC hep tutarlı.
-        if (!KwpRecoveryEvidence.INSTANCE.shouldAttemptRecovery(System.currentTimeMillis(), activeProtocol)) {
-            return; // tavan doldu → ATPC GÖNDERİLMEZ (status FAILED'a düşer)
+        // MERDİVEN (P0 saha 2026-07-23): ATPC tek başına Trafic/KWP oturumunu her zaman
+        // diriltmiyordu → veri ~1 dk sonra tekrar bayat. Karar TEK yerde
+        // (evidence.nextRecoveryAction): ilk denemelerde ATPC (hafif), ATPC tekrar tekrar
+        // başarısızsa ATWS+reinit (güçlü), tavan dolunca dur. Sayaç/durum ile tutarlı.
+        KwpRecoveryEvidence.RecoveryAction action =
+            KwpRecoveryEvidence.INSTANCE.nextRecoveryAction(System.currentTimeMillis(), activeProtocol);
+        if (action == KwpRecoveryEvidence.RecoveryAction.NONE) {
+            return; // tavan doldu → kurtarma GÖNDERİLMEZ (status FAILED'a düşer)
         }
+        if (action == KwpRecoveryEvidence.RecoveryAction.REINIT) {
+            // GÜÇLÜ kurtarma: ATWS (warm start) + tam init (ÖĞRENİLMİŞ protokol korunur,
+            // ATSP0 arama turu YOK). Soket'e dokunmaz. reinitSession kendi hatasını yutar
+            // ve coreNoDataStreak'i sıfırlar; false = init tutmadı → send hatası say.
+            try {
+                android.util.Log.w("OBD", "[KwpRecover] ATPC yetmedi (protokol=" + activeProtocol
+                    + ") → ATWS+reinit (güçlü kurtarma)");
+            } catch (Throwable ignored) { /* JVM unit test: Log mock yok */ }
+            if (!reinitSession()) {
+                KwpRecoveryEvidence.INSTANCE.noteAtpcSendFailed();
+            }
+            return;
+        }
+        // HAFİF kurtarma: ATPC (Protocol Close) — bir sonraki istekte taze fast-init.
         try {
             android.util.Log.w("OBD", "[KwpRecover] " + KWP_DEAD_SESSION_THRESHOLD
                 + " ardışık çekirdek NO DATA (protokol=" + activeProtocol

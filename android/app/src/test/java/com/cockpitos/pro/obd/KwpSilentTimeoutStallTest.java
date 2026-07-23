@@ -86,6 +86,13 @@ public class KwpSilentTimeoutStallTest {
         return n;
     }
 
+    /** ATWS = güçlü kurtarmanın (reinitSession) imzası. */
+    private static int countAtws(java.util.List<String> sent) {
+        int n = 0;
+        for (String s : sent) if ("ATWS".equals(s)) n++;
+        return n;
+    }
+
     /* ── KANIT 1: boş yanıt NO_DATA değil TIMEOUT_PARTIAL'dır ─────────────────── */
 
     @Test
@@ -191,8 +198,26 @@ public class KwpSilentTimeoutStallTest {
     }
 
     /**
-     * Karşı kilit: kurtarma HİÇ işe yaramıyorsa (ölü ECU) sonsuz ATPC turu OLMAZ —
-     * ardışık başarısızlık tavanında durur ("sürekli reconnect döngüsü yasak").
+     * MERDİVEN (P0 saha 2026-07-23): ATPC yetmezse GÜÇLÜ kurtarmaya (ATWS+reinit) yüksel.
+     * Sessiz timeout üstüne ATPC işe yaramayınca ikinci kurtarma reinit olmalı.
+     */
+    @Test
+    public void silentTimeout_atpcFails_escalatesToReinit() throws Exception {
+        SilentTimeoutChannel ch = new SilentTimeoutChannel();
+        ElmProtocol p = initProtocol(ch, "5");
+        ch.stalled = true;
+
+        // İki tam eşik: 1. ATPC, 2. (ATPC tutmadı) → ATWS+reinit.
+        for (int i = 0; i < ElmProtocol.KWP_DEAD_SESSION_THRESHOLD * 2; i++) p.readPID_rpm();
+
+        assertEquals("ilk deneme ATPC olmalı", 1, countAtpc(ch.sent));
+        assertTrue("ATPC yetmeyince ATWS+reinit'e yükselmeli (Trafic ATPC ile uyanmıyor)",
+                countAtws(ch.sent) >= 1);
+    }
+
+    /**
+     * Karşı kilit: kurtarma HİÇ işe yaramıyorsa (ölü ECU) sonsuz tur OLMAZ — merdiven
+     * (ATPC + reinit'ler) tavanda durur ("sürekli reconnect döngüsü yasak").
      */
     @Test
     public void deadEcu_recoveryStopsAtCeiling_noInfiniteLoop() throws Exception {
@@ -202,8 +227,11 @@ public class KwpSilentTimeoutStallTest {
 
         for (int i = 0; i < ElmProtocol.KWP_DEAD_SESSION_THRESHOLD * 12; i++) p.readPID_rpm();
 
-        assertEquals("ölü ECU'da ATPC tavanı aşıldı (sonsuz kurtarma turu)",
-                KwpRecoveryEvidence.MAX_RECOVERIES_PER_SESSION, countAtpc(ch.sent));
+        // Merdiven: 1 ATPC + (MAX-1) REINIT = MAX toplam kurtarma, sonra dur.
+        int total = countAtpc(ch.sent) + countAtws(ch.sent);
+        assertEquals("toplam kurtarma denemesi tavanı aşamaz (sonsuz tur yok)",
+                KwpRecoveryEvidence.MAX_RECOVERIES_PER_SESSION, total);
+        assertEquals("ilk deneme tam 1 ATPC", 1, countAtpc(ch.sent));
     }
 
     /* ── İZLENEBİLİRLİK: akış sessizce duramaz ────────────────────────────────── */

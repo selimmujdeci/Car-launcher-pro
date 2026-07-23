@@ -78,6 +78,13 @@ public class KwpDeadSessionRecoveryTest {
         return n;
     }
 
+    /** ATWS = güçlü kurtarmanın (reinitSession) imzası — merdiven yükselişini ölçer. */
+    private static int countAtws(java.util.List<String> sent) {
+        int n = 0;
+        for (String s : sent) if ("ATWS".equals(s)) n++;
+        return n;
+    }
+
     // ── Kilit 1: KWP ölü oturum → eşikte ATPC ──────────────────────────────────
 
     @Test
@@ -122,15 +129,24 @@ public class KwpDeadSessionRecoveryTest {
         assertEquals("CAN'de ATPC ASLA gönderilmez", 0, countAtpc(ch.sent));
     }
 
-    // ── Kilit 4: kurtarma sürekli — oturum yine ölürse ikinci ATPC ─────────────
+    // ── Kilit 4: kurtarma sürekli VE MERDİVENLİ — 2. ölüm ATPC'den REINIT'e yükselir ──
+    // (P0 saha 2026-07-23) ATPC tek başına Trafic/KWP oturumunu diriltmediğinden, ilk
+    // ölüm ATPC dener, ikinci ölüm GÜÇLÜ kurtarmaya (ATWS+reinit) yükselir.
 
     @Test
-    public void kwpRecoveryIsContinuous_secondDeathTriggersSecondAtpc() throws Exception {
+    public void kwpRecoveryEscalates_firstAtpc_secondReinit() throws Exception {
         RecordingChannel ch = new RecordingChannel().defaultTo("NO DATA");
         ElmProtocol p = initProtocol(ch, "5");
 
-        for (int i = 0; i < ElmProtocol.KWP_DEAD_SESSION_THRESHOLD * 2; i++) p.readPID_speed();
-        assertEquals("iki tam eşik = iki ATPC (sayaç ATPC sonrası sıfırdan)", 2, countAtpc(ch.sent));
+        // İlk eşik → ATPC (hafif), henüz REINIT yok.
+        for (int i = 0; i < ElmProtocol.KWP_DEAD_SESSION_THRESHOLD; i++) p.readPID_speed();
+        assertEquals("ilk ölüm ATPC denemeli", 1, countAtpc(ch.sent));
+        assertEquals("ilk ölümde REINIT olmamalı", 0, countAtws(ch.sent));
+
+        // İkinci eşik → ATPC işe yaramadı (hâlâ NO DATA) → ATWS+reinit'e yüksel.
+        for (int i = 0; i < ElmProtocol.KWP_DEAD_SESSION_THRESHOLD; i++) p.readPID_speed();
+        assertEquals("ATPC hâlâ 1 kalmalı (ikinci deneme REINIT'e yükseldi)", 1, countAtpc(ch.sent));
+        assertEquals("ikinci ölüm ATWS+reinit'e yükselmeli", 1, countAtws(ch.sent));
     }
 
     // ── Kilit 6 (PR-OBD-PROTO-CYCLE): yanlış protokol zorlanınca DÜRÜST hata ───
