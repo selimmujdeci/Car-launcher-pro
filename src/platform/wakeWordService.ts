@@ -131,6 +131,45 @@ function clearRestartTimer(): void {
   if (_restartTimer) { clearTimeout(_restartTimer); _restartTimer = null; }
 }
 
+/* ── Canlılık denetimi (watchdog) — "bir süre sonra uyanmıyor" self-heal ──────
+ * SAHA (2026-07-23): "hey mavi" bir süre çalışıyor, sonra uyanmıyor; uygulama
+ * yeniden açılınca düzeliyor. KÖK: native grammar wake thread'i (vosk-wake-gramm)
+ * SESSİZCE ölebilir (ses odağı kaybı, mikrofonu başka uygulama kapması, native
+ * çökme) ve onu yeniden başlatan HİÇBİR ŞEY yoktu → uygulama yeniden açılana
+ * kadar sağır. Grammar modu olay-güdümlü olduğundan JS tarafına "canlıyım"
+ * sinyali GELMEZ (sessizlikte olay yok) → thread ölümü ile sessizlik ayırt
+ * edilemez. Çözüm: periyodik YENİDEN KUR — thread öldüyse geri gelir, canlıysa
+ * jenerasyon-artışlı temiz takas olur (çift dinleme yok). Yalnız voiceService
+ * idle + etkileşim-duraklama yokken çalışır (aktif oturumu/wake selamını kesmez).
+ * Aralık uzun (churn/CPU düşük) ama "yeniden başlatana kadar sağır"dan çok iyi. */
+let _watchdogTimer: ReturnType<typeof setInterval> | null = null;
+const WAKE_WATCHDOG_INTERVAL_MS = 90_000;
+
+function _stopWatchdog(): void {
+  if (_watchdogTimer) { clearInterval(_watchdogTimer); _watchdogTimer = null; }
+}
+
+function _startWatchdog(): void {
+  if (!isNative) return;
+  _stopWatchdog();
+  _watchdogTimer = setInterval(() => {
+    // Yalnız hâlâ açık + model hazır + etkileşim duraklaması yokken.
+    if (!_state.enabled || !_voskReady || _interactionPaused) return;
+    // Aktif oturum/wake selamı sürerken DOKUNMA (idle değilse re-arm dinlemeyi keser).
+    const snap = getVoiceSnapshot();
+    if (snap.status !== 'idle' || snap.followUp) return;
+    // Native wake akışını taze jenerasyonla yeniden kur: thread öldüyse dirilir,
+    // canlıysa temiz takas olur. ÖNCE eski grammar thread'i/listener'ı kapat
+    // (yoksa her tick'te listener yığılır — çift dinleme/leak), SONRA taze başlat.
+    console.warn('[WakeWord] watchdog → wake thread yeniden kuruluyor (self-heal)');
+    void (async () => {
+      await stopGrammarMode();
+      if (!_state.enabled || _interactionPaused || !_voskReady) return;
+      _startNativeWake(++_loopGen);
+    })();
+  }, WAKE_WATCHDOG_INTERVAL_MS);
+}
+
 function _matches(transcript: string): boolean {
   // ÖZEL/sözlük-dışı mod: serbest tanıma çıktısını yazılan hedefe + öğretilen
   // örneklere FONETİK yakınlıkla eşle (grammar sözlük-dışı kelimeyi düşürdüğü için
@@ -450,6 +489,8 @@ export function enableWakeWord(words?: string | string[], opts?: EnableWakeWordO
         }, VOSK_READY_BACKSTOP_MS);
       }
     }
+    // Canlılık denetimi: native wake thread'i sessizce ölürse periyodik yeniden kur.
+    _startWatchdog();
   } else {
     // Web: sürekli dinleme yok — push-to-talk yeterli
     // Wake word toggle ayarları kayıt altında kalır ama web'de mikrofon açılmaz
@@ -462,6 +503,7 @@ export function disableWakeWord(): void {
   _loopGen++; // in-flight döngü adımı uyanınca kendini sonlandırır
   _pendingNativeGen = null;   // bekleyen (ertelenmiş) native start iptal
   _clearVoskBackstop();
+  _stopWatchdog();
   // Etkileşim-duraklatma durumunu sıfırla: geç gelen resume timer'ı yeniden başlatmasın
   _interactionPaused = false;
   if (_interactionResumeTimer) { clearTimeout(_interactionResumeTimer); _interactionResumeTimer = null; }
@@ -494,6 +536,7 @@ export function pauseWakeWordForInteraction(): void {
   _interactionPaused = true;
   _nativeLoopActive = false;     // legacy polling döngüsü adımında kendini sonlandırır
   void stopGrammarMode();        // grammar thread (vosk-wake-gramm) durur → CPU geri gelir
+  _stopWatchdog();               // duraklamada watchdog re-arm etmesin
 }
 
 export function resumeWakeWordAfterInteraction(): void {
@@ -503,7 +546,7 @@ export function resumeWakeWordAfterInteraction(): void {
     _interactionResumeTimer = null;
     _interactionPaused = false;
     // Hâlâ açık ve model hazırsa yeniden kur (jenerasyon artır → eski instance ölür)
-    if (_state.enabled && _voskReady) _startNativeWake(++_loopGen);
+    if (_state.enabled && _voskReady) { _startNativeWake(++_loopGen); _startWatchdog(); }
   }, INTERACTION_RESUME_MS);
 }
 
@@ -641,6 +684,7 @@ export function _resetWakeWordForTest(): void {
   _interactionPaused = false;
   if (_interactionResumeTimer) { clearTimeout(_interactionResumeTimer); _interactionResumeTimer = null; }
   if (_detectedTimer) { clearTimeout(_detectedTimer); _detectedTimer = null; }
+  _stopWatchdog();
   clearRestartTimer();
   _greetCounter = 0;
   _state = { ...INITIAL };
@@ -661,6 +705,7 @@ if (import.meta.hot) {
     _clearVoskBackstop();                                           // backstop timer sızmasın
     if (_wakeServiceUnsub) { _wakeServiceUnsub(); }                 // store aboneliği + disable
     void stopGrammarMode();                                         // native grammar thread + listener
+    _stopWatchdog();                                                // watchdog interval sızmasın
     if (_detectedTimer) { clearTimeout(_detectedTimer); _detectedTimer = null; }
     stopWebListening();                                             // SpeechRecognition.abort() + _restartTimer iptal
     _listeners.clear();                                            // stale React setState callback'leri temizle

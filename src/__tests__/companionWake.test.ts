@@ -698,3 +698,47 @@ describe('Vosk model hazırlık kapısı (uyanmama kökü)', () => {
     expect(getWakeWordState().enabled).toBe(false);
   });
 });
+
+describe('Wake watchdog (self-heal — "bir süre sonra uyanmıyor" kökü)', () => {
+  const WATCHDOG_MS = 90_000;
+
+  it('periyodik yeniden kurar → ölü native thread kendini iyileştirir', async () => {
+    M.grammarAvailable = true;
+    _setVoskReadyForTest(true);
+    enableWakeWord(wakeWordsFor('Mavi', 'both'), { companion: true });
+    await vi.advanceTimersByTimeAsync(10);
+    expect(M.grammarStarts).toHaveLength(1);           // ilk kurulum
+
+    // Watchdog bir tur: idle + açık → yeniden kur (thread ölmüş olsaydı geri gelir).
+    await vi.advanceTimersByTimeAsync(WATCHDOG_MS);
+    expect(M.grammarStarts.length).toBeGreaterThanOrEqual(2);
+    // İkinci tur da çalışır (süreklilik).
+    const afterFirst = M.grammarStarts.length;
+    await vi.advanceTimersByTimeAsync(WATCHDOG_MS);
+    expect(M.grammarStarts.length).toBeGreaterThan(afterFirst);
+  });
+
+  it('aktif oturum sürerken (idle değil) re-arm YAPMAZ (dinlemeyi kesmez)', async () => {
+    M.grammarAvailable = true;
+    _setVoskReadyForTest(true);
+    enableWakeWord(wakeWordsFor('Mavi', 'both'), { companion: true });
+    await vi.advanceTimersByTimeAsync(10);
+    const baseline = M.grammarStarts.length;
+
+    M.voiceStatus = 'listening';                        // kullanıcı konuşuyor
+    await vi.advanceTimersByTimeAsync(WATCHDOG_MS);
+    expect(M.grammarStarts.length).toBe(baseline);      // re-arm yok
+  });
+
+  it('disable watchdog\'u durdurur (interval sızmaz)', async () => {
+    M.grammarAvailable = true;
+    _setVoskReadyForTest(true);
+    enableWakeWord(wakeWordsFor('Mavi', 'both'), { companion: true });
+    await vi.advanceTimersByTimeAsync(10);
+    disableWakeWord();
+    const baseline = M.grammarStarts.length;
+
+    await vi.advanceTimersByTimeAsync(WATCHDOG_MS * 2);
+    expect(M.grammarStarts.length).toBe(baseline);      // disable sonrası re-arm yok
+  });
+});
