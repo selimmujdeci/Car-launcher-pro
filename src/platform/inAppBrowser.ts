@@ -17,6 +17,9 @@ const BLOCKED_HOSTS = [
   'twitter.com', 'x.com', 'play.google.com', 'market://',
   // API key konsolları — iframe'i reddeder (X-Frame-Options/CSP frame-ancestors)
   'anthropic.com', 'aistudio.google.com', 'groq.com', 'tavily.com',
+  // OpenRouter (openrouter.ai/keys) — Cloudflare-fronted auth konsolu, iframe'de
+  // BOŞ açılıyordu ("Anahtar Al gitmiyor", saha 2026-07-23). Diğer konsollarla aynı yol.
+  'openrouter.ai',
 ];
 
 function isBlocked(url: string): boolean {
