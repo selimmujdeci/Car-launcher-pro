@@ -197,6 +197,10 @@ DOĞRULANDI 6 · SAHADA DOĞRULANDI 1 · **ÜRÜN HAZIR: 1**
   geri kalanı dürüst PLACEHOLDER/DISABLED. Yeni motor YOK — mevcut paneller ve
   salt-okunur kaynaklar yeniden kullanıldı. tsc temiz, tam suite **6819 yeşil (358 dosya)**,
   yeni 39 kilit. **Cihazda doğrulanmadı** (kütük #91). Durum: **ENTEGRE**.
+  **Faz A2 (Raw OBD Traffic Inspector)** üstüne geldi: TX/RX/SYSTEM/ERROR sınıflandırma
+  (yalnız gerçek veriden türetilir), yön + metin filtresi, PAUSE/CLEAR/maskeli EXPORT.
+  Native olayda bulunmayan protokol/oturum/transport alanları **uydurulmadı**. Tam suite
+  **6887 yeşil (359 dosya)**, +68 kilit. **Cihazda doğrulanmadı** (kütük #92).
 
 > **Uyarı — en yüksek riskli açık test:** Tam tarama sonrası ana ekrana dönüldüğünde
 > hız/RPM/coolant **hâlâ akıyor mu?** Çoklu-ECU probu `ATH1` + UDS extended session açar;

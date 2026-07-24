@@ -1,7 +1,6 @@
 import { memo, useEffect, useRef } from 'react';
 import { useDebugStore } from '../../platform/debug';
 import type { ObdTrafficEntry } from '../../platform/debug';
-import { maskObdTrafficEntry } from '../../platform/devtools/obdTrafficMask';
 
 function fmtTs(ts: number): string {
   const d = new Date(ts);
@@ -31,16 +30,7 @@ function respColor(resp: string): string {
   return 'text-[color:var(--oem-ink)]';
 }
 
-interface ObdRawViewProps {
-  /**
-   * Hassas alanları (VIN yükü / token / MAC / e-posta) maskele. Varsayılan FALSE —
-   * mevcut DebugPanel davranışı DEĞİŞMEZ. CAROS LAB bu görünümü `maskSensitive`
-   * ile açar (görev §F: ham trafikte kimlik taşıyan yük gizlenir).
-   */
-  maskSensitive?: boolean;
-}
-
-export const ObdRawView = memo(function ObdRawView({ maskSensitive = false }: ObdRawViewProps = {}) {
+export const ObdRawView = memo(function ObdRawView() {
   const log = useDebugStore((s) => s.obdTrafficLog);
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -87,24 +77,17 @@ export const ObdRawView = memo(function ObdRawView({ maskSensitive = false }: Ob
             Handshake (ATZ/ATE0/ATSP…) ve ham DTC yanıtı (03 → 43…) burada akar.
           </p>
         ) : (
-          log.map((entry: ObdTrafficEntry, i) => {
-            const view = maskSensitive
-              ? maskObdTrafficEntry(entry.cmd, entry.resp)
-              : { cmd: entry.cmd, resp: entry.resp, masked: false };
-            return (
-              <div
-                key={i}
-                className="grid grid-cols-[8rem_3.5rem_5rem_1fr] gap-x-3 px-2 py-0.5 text-xs font-mono hover:bg-[var(--oem-surface-3)] even:bg-[var(--oem-surface-1)]"
-              >
-                <span className="text-[color:var(--oem-ink-2)]">{fmtTs(entry.ts)}</span>
-                <span className={entry.ms > 1000 ? 'text-orange-400' : 'text-[color:var(--oem-ink-3)]'}>{entry.ms}</span>
-                <span className={cmdColor(view.cmd)}>{view.cmd}</span>
-                <span className={`${view.masked ? 'text-[color:var(--oem-ink-3)] italic' : respColor(view.resp)} break-all whitespace-pre-wrap`}>
-                  {view.resp || '—'}
-                </span>
-              </div>
-            );
-          })
+          log.map((entry: ObdTrafficEntry, i) => (
+            <div
+              key={i}
+              className="grid grid-cols-[8rem_3.5rem_5rem_1fr] gap-x-3 px-2 py-0.5 text-xs font-mono hover:bg-[var(--oem-surface-3)] even:bg-[var(--oem-surface-1)]"
+            >
+              <span className="text-[color:var(--oem-ink-2)]">{fmtTs(entry.ts)}</span>
+              <span className={entry.ms > 1000 ? 'text-orange-400' : 'text-[color:var(--oem-ink-3)]'}>{entry.ms}</span>
+              <span className={cmdColor(entry.cmd)}>{entry.cmd}</span>
+              <span className={`${respColor(entry.resp)} break-all whitespace-pre-wrap`}>{entry.resp || '—'}</span>
+            </div>
+          ))
         )}
       </div>
     </div>
