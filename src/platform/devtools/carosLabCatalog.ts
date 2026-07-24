@@ -123,9 +123,8 @@ export const CAROS_LAB_TOOLS: readonly CarosLabTool[] = Object.freeze([
   },
   {
     id: 'session-inspector', category: 'communication', name: 'Session Inspector',
-    desc: 'Bağlantı oturumu yaşam döngüsü: handshake, protokol geçişleri, kopma/yeniden bağlanma.',
-    status: 'PLACEHOLDER', layer: null,
-    note: 'Ekran yok; veri kaynakları (getHandshakeDiagnostics, obd lifecycle) mevcut ama görünüm yazılmadı.',
+    desc: 'Oturum durumunun 6 katmanlı salt-okunur görünümü: transport · handshake · data gate · KWP · HAL · runtime. Her değer OBSERVED/DERIVED/UNAVAILABLE/STALE işaretli; kaynak çelişkileri ayrı gösterilir.',
+    status: 'AVAILABLE', layer: null, note: null,
   },
   {
     id: 'adapter-diagnostics', category: 'communication', name: 'Adapter Diagnostics',

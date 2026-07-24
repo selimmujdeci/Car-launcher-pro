@@ -201,6 +201,12 @@ DOĞRULANDI 6 · SAHADA DOĞRULANDI 1 · **ÜRÜN HAZIR: 1**
   (yalnız gerçek veriden türetilir), yön + metin filtresi, PAUSE/CLEAR/maskeli EXPORT.
   Native olayda bulunmayan protokol/oturum/transport alanları **uydurulmadı**. Tam suite
   **6887 yeşil (359 dosya)**, +68 kilit. **Cihazda doğrulanmadı** (kütük #92).
+  **Faz A3 (Session Inspector)** eklendi: 6 katmanlı salt-okunur oturum görünümü,
+  OBSERVED/DERIVED/UNAVAILABLE/STALE sınıflandırması, SOURCE MISMATCH bölümü ve
+  fail-closed genel özet. Yeni session engine/store YAZILMADI; yalnız mevcut senkron
+  getter'lar okundu. Kaynağı olmayan alanlar (poll kadansı · kuyruk · keep-alive) ve
+  yazıcısı olmayan ölü debugStore alanları UNAVAILABLE olarak beyan edildi. Tam suite
+  **6941 yeşil (360 dosya)**, +54 kilit. **Cihazda doğrulanmadı** (kütük #93).
 
 > **Uyarı — en yüksek riskli açık test:** Tam tarama sonrası ana ekrana dönüldüğünde
 > hız/RPM/coolant **hâlâ akıyor mu?** Çoklu-ECU probu `ATH1` + UDS extended session açar;

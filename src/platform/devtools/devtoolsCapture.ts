@@ -129,3 +129,11 @@ export function _resetDevtoolsCaptureForTest(): void {
 export function _devtoolsCaptureRefs(): { obd: number; can: number } {
   return { obd: _obdRefs, can: _canRefs };
 }
+
+/**
+ * Yakalama kanallarının SALT-OKUNUR durumu (Session Inspector okur).
+ * Yan etkisiz: hiçbir kanalı açmaz/kapatmaz, yalnız ref sayaçlarını yansıtır.
+ */
+export function getDevtoolsCaptureStatus(): { obdRefs: number; canRefs: number } {
+  return { obdRefs: _obdRefs, canRefs: _canRefs };
+}
