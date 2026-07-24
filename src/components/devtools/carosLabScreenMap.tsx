@@ -22,6 +22,8 @@ const CanMonitorScreen = lazyWithRetry(() =>
   import('./screens/CanMonitorScreen').then((m) => ({ default: m.CanMonitorScreen })));
 const SessionInspectorScreen = lazyWithRetry(() =>
   import('./screens/SessionInspectorScreen').then((m) => ({ default: m.SessionInspectorScreen })));
+const RuntimeSchedulingScreen = lazyWithRetry(() =>
+  import('./screens/RuntimeSchedulingScreen').then((m) => ({ default: m.RuntimeSchedulingScreen })));
 const EvidenceViewerScreen = lazyWithRetry(() =>
   import('./screens/EvidenceViewerScreen').then((m) => ({ default: m.EvidenceViewerScreen })));
 const PerformanceView = lazyWithRetry(() =>
@@ -39,6 +41,9 @@ export function renderAvailableTool(id: CarosLabToolId): ReactElement | null {
     case 'raw-obd-traffic':    return <RawObdTrafficScreen />;
     case 'can-monitor':        return <CanMonitorScreen />;
     case 'session-inspector':  return <SessionInspectorScreen />;
+    // Queue Monitor ve Poll Scheduler ORTAK görünümü paylaşır (görev gereği).
+    case 'queue-monitor':      return <RuntimeSchedulingScreen />;
+    case 'poll-scheduler':     return <RuntimeSchedulingScreen />;
     case 'evidence-viewer':    return <EvidenceViewerScreen />;
     case 'performance':        return <PerformanceView />;
     case 'replay-log':         return <BlackBoxReplayView />;

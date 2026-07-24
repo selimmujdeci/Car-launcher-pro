@@ -207,6 +207,13 @@ DOĞRULANDI 6 · SAHADA DOĞRULANDI 1 · **ÜRÜN HAZIR: 1**
   getter'lar okundu. Kaynağı olmayan alanlar (poll kadansı · kuyruk · keep-alive) ve
   yazıcısı olmayan ölü debugStore alanları UNAVAILABLE olarak beyan edildi. Tam suite
   **6941 yeşil (360 dosya)**, +54 kilit. **Cihazda doğrulanmadı** (kütük #93).
+  **Faz A4 (Runtime Scheduling Inspector)** eklendi: Queue Monitor + Poll Scheduler ortak
+  salt-okunur görünümü; 6 AYRI runtime otoritesi birleştirilmeden ayrı kanal olarak
+  gösterilir. Yeni scheduler/queue/motor YAZILMADI, production instrumentation EKLENMEDİ.
+  Beşinci gözlemlenebilirlik sınıfı **UNSAFE_TO_OBSERVE** eklendi (yan etkili getter
+  okunmaz). Kuyruk derinliği · poll kadansı · keep-alive UNAVAILABLE; özet fail-closed
+  (ACTIVE/PARTIAL/IDLE/BLOCKED/UNKNOWN, "timer var" ACTIVE saydırmaz). Tam suite
+  **6999 yeşil (361 dosya)**, +58 kilit. **Cihazda doğrulanmadı** (kütük #94).
 
 > **Uyarı — en yüksek riskli açık test:** Tam tarama sonrası ana ekrana dönüldüğünde
 > hız/RPM/coolant **hâlâ akıyor mu?** Çoklu-ECU probu `ATH1` + UDS extended session açar;

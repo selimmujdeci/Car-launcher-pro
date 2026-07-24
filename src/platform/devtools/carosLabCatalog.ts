@@ -136,15 +136,15 @@ export const CAROS_LAB_TOOLS: readonly CarosLabTool[] = Object.freeze([
   /* ── Runtime ────────────────────────────────────────────────────────── */
   {
     id: 'queue-monitor', category: 'runtime', name: 'Queue Monitor',
-    desc: 'OBD komut kuyruğu derinliği, bekleme süresi, düşen istekler.',
-    status: 'PLACEHOLDER', layer: null,
-    note: 'Ekran yok. Mevcut kuyruk davranışına dokunmadan salt-okunur bir görünüm gerekiyor (Faz A2).',
+    desc: 'Runtime Scheduling ortak görünümü: 6 ayrı runtime otoritesi (command execution · live polling · handshake · KWP · discovery/deep scan · CAN collection) salt-okunur listelenir.',
+    status: 'AVAILABLE', layer: null,
+    note: 'Native komut kuyruğunun DERİNLİĞİ JS\'e açılmamıştır; o alan UNAVAILABLE olarak gösterilir (boş kuyruk varsayılmaz).',
   },
   {
     id: 'poll-scheduler', category: 'runtime', name: 'Poll Scheduler',
-    desc: 'Adaptif poll kadansı, tier bütçesi, hızlı/yavaş grup dağılımı.',
-    status: 'PLACEHOLDER', layer: null,
-    note: 'Ekran yok.',
+    desc: 'Runtime Scheduling ortak görünümü (Queue Monitor ile aynı ekran): poll zamanlayıcısı, tazelik kapısı ve native poll kanıtı salt-okunur.',
+    status: 'AVAILABLE', layer: null,
+    note: 'Aktif poll kadansı UNAVAILABLE: computeObdPollProfile saf bir fonksiyondur, hesaplanan profil hiçbir yerde saklanmaz.',
   },
   {
     id: 'recovery-monitor', category: 'runtime', name: 'Recovery Monitor',
