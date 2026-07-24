@@ -191,6 +191,12 @@ DOĞRULANDI 6 · SAHADA DOĞRULANDI 1 · **ÜRÜN HAZIR: 1**
   ilk `connect()` çağrısı, insan PIN girişi asenkron bitse bile aynı çağrı içinde devam eder
   (native receiver-latch bond bekleme + JS pairing-grace timeout). JUnit 10/10 + tam suite
   4378/4378 + tsc temiz. **Cihazda doğrulanmadı** (§8.4, kütük #82).
+- **CAROS LAB Faz A1 (geliştirici platformu shell'i):** FAZ A / Developer First
+  politikasının ilk somut ürünü (`docs/CAROS_LAB_DEVELOPER_PLATFORM_STRATEGY.md`).
+  5 kategori · 26 araç kartı · fail-closed geliştirici kapısı; 8 araç GERÇEKTEN bağlı,
+  geri kalanı dürüst PLACEHOLDER/DISABLED. Yeni motor YOK — mevcut paneller ve
+  salt-okunur kaynaklar yeniden kullanıldı. tsc temiz, tam suite **6819 yeşil (358 dosya)**,
+  yeni 39 kilit. **Cihazda doğrulanmadı** (kütük #91). Durum: **ENTEGRE**.
 
 > **Uyarı — en yüksek riskli açık test:** Tam tarama sonrası ana ekrana dönüldüğünde
 > hız/RPM/coolant **hâlâ akıyor mu?** Çoklu-ECU probu `ATH1` + UDS extended session açar;

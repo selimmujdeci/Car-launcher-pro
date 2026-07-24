@@ -1,11 +1,13 @@
 import { memo, useCallback } from 'react';
-import { Star, ShieldAlert, ChevronRight } from 'lucide-react';
+import { Star, ShieldAlert, ChevronRight, FlaskConical } from 'lucide-react';
 import type { AppItem } from '../../data/apps';
 import { getNativeIcon }    from '../../platform/appDiscovery';
 import { useRoleStore }     from '../../platform/roleSystem/RoleStore';
 import { openDrawer }       from '../../platform/drawerBus';
 import { useStore }         from '../../store/useStore';
 import { RuntimeMode }      from '../../core/runtime/runtimeTypes';
+import { isCarosLabAllowedFromEnv } from '../../platform/devtools/carosLabGate';
+import { openCarosLab }     from '../../platform/devtools/carosLabEntry';
 
 interface Props {
   apps: AppItem[];
@@ -155,9 +157,54 @@ const AdminManagementCard = memo(function AdminManagementCard() {
   );
 });
 
+// ── CAROS LAB Card (FAZ A · geliştirici merkezi) ─────────────────────────────
+// Yalnız geliştirici kapısı AÇIKKEN render edilir (DEBUG_ENABLED && canDebug).
+// Kapı kapalıysa bu kart navigasyonda HİÇ görünmez.
+
+const CarosLabCard = memo(function CarosLabCard() {
+  return (
+    <button
+      data-testid="caros-lab-entry"
+      onClick={() => { openCarosLab(); }}
+      className="w-full flex items-center gap-4 mb-6"
+      style={{
+        background:   'rgba(34,211,238,0.06)',
+        border:       '1px solid rgba(34,211,238,0.2)',
+        borderRadius:  24,
+        padding:      '14px 18px',
+        textAlign:    'left',
+        cursor:       'pointer',
+      }}
+    >
+      <div
+        style={{
+          width: 44, height: 44, borderRadius: 12,
+          background: 'rgba(34,211,238,0.12)',
+          border:     '1px solid rgba(34,211,238,0.25)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          flexShrink: 0,
+        }}
+      >
+        <FlaskConical size={22} style={{ color: '#22d3ee' }} />
+      </div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <p style={{ fontSize: 15, fontWeight: 700, color: '#e5e7eb', letterSpacing: '0.02em' }}>
+          CAROS LAB
+        </p>
+        <p style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>
+          Geliştirici ve teşhis araçları — Vehicle · Communication · Runtime · AI · Developer
+        </p>
+      </div>
+      <ChevronRight size={18} style={{ color: '#4b5563', flexShrink: 0 }} />
+    </button>
+  );
+});
+
 export const AppGrid = memo(function AppGrid({ apps, favorites, onToggleFavorite, onLaunch, gridColumns = 3 }: Props) {
   const { can } = useRoleStore();
   const isSuperAdmin = can('accessAdminPanel');
+  // CAROS LAB kapısı: derleme bayrağı + canDebug izni (mevcut DebugPanel kuralı).
+  const carosLabAllowed = isCarosLabAllowedFromEnv(can('canDebug'));
 
   // Giriş animasyonu yalnız BALANCED ve üzeri modlarda. BASIC_JS/POWER_SAVE/
   // SAFE_MODE (Mali-400 / zayıf HU): animate-slide-up + animationDelay hiç
@@ -182,6 +229,9 @@ export const AppGrid = memo(function AppGrid({ apps, favorites, onToggleFavorite
 
         {/* Super Admin Kartı — sadece super_admin rolünde görünür */}
         {isSuperAdmin && <AdminManagementCard />}
+
+        {/* CAROS LAB — yalnız geliştirici kapısı açıkken görünür (fail-closed) */}
+        {carosLabAllowed && <CarosLabCard />}
 
         {/* Grid */}
         <div className={`grid ${COL_CLASS[gridColumns] ?? 'grid-cols-3'} gap-6`}>

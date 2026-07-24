@@ -14,7 +14,10 @@ export type DrawerType =
   | 'none' | 'apps' | 'settings' | 'dashcam' | 'triplog' | 'dtc'
   | 'notifications' | 'weather' | 'sport' | 'security' | 'entertainment'
   | 'traffic' | 'music' | 'phone' | 'vehicle-reminder' | 'climate'
-  | 'super-admin';
+  | 'super-admin'
+  // CAROS LAB — geliştirici merkezi (FAZ A). Dock'ta YOK, sesle açılamaz;
+  // yalnız yetkili girişten (AppGrid kartı) ve fail-closed kapıdan açılır.
+  | 'caros-lab';
 
 interface Props {
   appMap: Record<string, AppItem>;

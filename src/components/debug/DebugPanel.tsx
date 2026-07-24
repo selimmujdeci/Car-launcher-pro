@@ -1,8 +1,6 @@
-import { memo, useState, useEffect, useCallback, lazy, Suspense } from 'react';
-import { Capacitor } from '@capacitor/core';
-import type { PluginListenerHandle } from '@capacitor/core';
+import { memo, useState, useCallback, lazy, Suspense } from 'react';
 import { useDebugStore } from '../../platform/debug';
-import { CarLauncher } from '../../platform/nativePlugin';
+import { useObdTrafficCapture } from '../../hooks/useDevtoolsCapture';
 import { CanRawView }         from './CanRawView';
 import { ObdRawView }         from './ObdRawView';
 import { SignalView }         from './SignalView';
@@ -61,26 +59,9 @@ export const DebugPanel = memo(function DebugPanel({ onClose }: { onClose: () =>
 
   // OBD ham trafik: panel açıkken native yakalamayı aç + olayı store'a köprüle,
   // kapanınca kapat (normal sürüşte sıfır ek yük). adb'siz teşhis kanalı.
-  useEffect(() => {
-    if (!Capacitor.isNativePlatform()) return;
-    let handle: PluginListenerHandle | null = null;
-    let cancelled = false;
-
-    CarLauncher.setObdTrafficCapture?.({ enable: true }).catch(() => {});
-    CarLauncher.addListener('obdTraffic', (e) => {
-      useDebugStore.getState().pushObdTraffic({
-        ts: e.ts || Date.now(), cmd: e.cmd, resp: e.resp, ms: e.ms,
-      });
-    })
-      .then((h) => { if (cancelled) h.remove(); else handle = h; })
-      .catch(() => {});
-
-    return () => {
-      cancelled = true;
-      handle?.remove();
-      CarLauncher.setObdTrafficCapture?.({ enable: false }).catch(() => {});
-    };
-  }, []);
+  // Mantık `platform/devtools/devtoolsCapture` içinde REF-COUNT'lu: CAROS LAB'ın
+  // Raw OBD Traffic ekranı aynı kanalı kullanır; biri kapanınca diğerininki kapanmaz.
+  useObdTrafficCapture();
 
   return (
     <div

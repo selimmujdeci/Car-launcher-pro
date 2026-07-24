@@ -18,9 +18,16 @@ import { MediaScreen } from '../media/MediaScreen';
 import { PhoneScreen } from '../phone/PhoneScreen';
 import type { AppItem, MusicOptionKey } from '../../data/apps';
 import type { DrawerType }              from './DockBar';
+import { useCarosLabAllowed }           from '../../hooks/useCarosLabAllowed';
+import { shouldRenderCarosLab }         from '../../platform/devtools/carosLabGate';
 
 const SuperAdminShell = lazy(() =>
   import('../admin/SuperAdminShell').then((m) => ({ default: m.SuperAdminShell })),
+);
+
+// CAROS LAB — yalnız geliştirici kapısı açıkken indirilir/mount edilir.
+const CarosLabShell = lazy(() =>
+  import('../devtools/CarosLabShell').then((m) => ({ default: m.CarosLabShell })),
 );
 
 // Ağır paneller — ilk render'da yüklenmez, ilk açılışta indir
@@ -61,6 +68,10 @@ export const DrawerPanel = memo(function DrawerPanel({
   fullMapOpen, onCloseMap, passengerOpen, onClosePassenger,
   onOpenDrawerFromMap,
 }: Props) {
+  // CAROS LAB kapısı — FAIL-CLOSED. Kapı kapalıysa 'caros-lab' drawer'ı istense bile
+  // (doğrudan openDrawer çağrısı dahil) ekran RENDER EDİLMEZ.
+  const carosLabOpen = shouldRenderCarosLab(drawer, useCarosLabAllowed());
+
   return (
     <>
       <DrawerShell open={drawer === 'apps'} onClose={onClose}>
@@ -131,6 +142,17 @@ export const DrawerPanel = memo(function DrawerPanel({
         <Suspense fallback={null}>
           <SuperAdminShell />
         </Suspense>
+      </DrawerShell>
+
+      {/* CAROS LAB — DrawerShell kapalıyken de çocuğu MOUNT tuttuğu için (Freeze deseni)
+          içerik KOŞULLU render edilir: kapalıyken hiçbir geliştirici ekranı, aboneliği
+          veya yakalama kanalı yaşamaz (TrafficPanel ile aynı kanıtlanmış desen). */}
+      <DrawerShell open={carosLabOpen} onClose={onClose} fullscreen>
+        {carosLabOpen && (
+          <Suspense fallback={null}>
+            <CarosLabShell onClose={onClose} />
+          </Suspense>
+        )}
       </DrawerShell>
 
       <Suspense fallback={null}>

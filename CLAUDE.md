@@ -43,6 +43,28 @@ patch · real-device doğrulama · performans bütçesi); vizyon-hizalı yeni ze
 gerçek araçta o ölçüt gözlemlenince **🟢 "doğrulandı"**ya taşınır, cihazda düşerse
 **❌ "düştü"**ye. Kütükte 🔴 bekleyen bir özelliği "tamam/çalışıyor" diye sunma.
 
+## 🧪 FAZ A — DEVELOPER FIRST / CAROS LAB (AKTİF ÜRÜN POLİTİKASI)
+
+CAROS PRO **şu an son kullanıcı ürünü değildir**; aktif geliştirilen profesyonel bir
+**Vehicle OS / Diagnostic Platform**'dur. Bağlayıcı öncelik sırası:
+
+**1) Sağlam mimari · 2) Doğruluk · 3) Güvenlik · 4) Gözlemlenebilirlik (Evidence/Logs)
+· 5) Profesyonel geliştirici araçları · 6) Performans · 7) Son kullanıcı deneyimi.**
+
+- **UX / tasarım / sadeleştirme şu an öncelik DEĞİL.**
+- Her yeni özellik **önce geliştirici kullanımına** göre tasarlanır: teknik ekran,
+  teknik isim (PID/DID/NRC/KWP/UDS), **ham log ve ham hex gösterimi serbesttir**.
+- **"Kullanıcı bunu anlamaz" gerekçesiyle özellik kısıtlamak YASAK.** Önce tüm
+  profesyonel altyapı kurulur; son kullanıcı ekranı ayrıca ve sonra yapılır.
+- Tüm geliştirici araçları tek çatı altında toplanır: **CAROS LAB**
+  (Vehicle · Communication · Runtime · AI · Developer kategorileri).
+- Fazlar: **Faz A = Developer Platform (ŞU AN)** → Faz B Servis/Expert Mode →
+  Faz C Son Kullanıcı. Bugün yazılan araç çöpe gitmez, sonra uygun katmana taşınır.
+
+Bu politika öncelik sırasını değiştirir; **stabilite invaryantlarını EZMEZ**
+(fail-soft · zero-leak · atomik patch · performans bütçesi · saha doğrulama kütüğü ·
+lisans ve Supabase kuralları). Tam metin: `docs/CAROS_LAB_DEVELOPER_PLATFORM_STRATEGY.md`.
+
 ## CAROS PRO Vizyon Kaynağı
 
 CAROS PRO ürün vizyonunun, capability roadmap'inin ve özellik gerçeklik
