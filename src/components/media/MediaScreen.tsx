@@ -467,6 +467,26 @@ function VideoFullscreenChrome({
           "geri gelmiyor" kök nedeni). onClick her yerde çalışır; ikisi birlikte güvenli. */}
       <div onPointerDown={onBgTap} onClick={onBgTap} style={{ position: 'absolute', inset: 0, pointerEvents: 'auto' }} />
 
+      {/* HER ZAMAN görünür KAPAT — auto-hide'a TABİ DEĞİL. SAHA (Duster head unit
+          2026-07-19): kontroller 3.5s sonra gizlenince "ekrana dokun → reveal" bazı head
+          unit WebView'lerinde çalışmıyor → kullanıcı tam ekran videoda KİLİTLİ kalıyor,
+          video çalıyor ama çıkamıyor. Çözüm: Kapat asla gizlenmez + pointer-events:auto
+          HER ZAMAN → çıkış garanti (dokunma-reveal'e bağımlı değil). Merkez/alt kontroller
+          eskisi gibi auto-hide (temiz izleme). */}
+      <div style={{ position: 'absolute', top: 'calc(env(safe-area-inset-top, 0px) + 16px)', left: 24, zIndex: 1 }}>
+        <button
+          onClick={onClose}
+          aria-label="Tam ekranı kapat"
+          style={{
+            ...ctrlBtn(52), pointerEvents: 'auto', width: 'auto', padding: '0 22px', gap: 9, borderRadius: 9999,
+            opacity: show ? 1 : 0.72, transition: 'opacity 0.25s ease',
+          }}
+        >
+          <X className="w-6 h-6" />
+          <span style={{ fontWeight: 800, fontSize: 17, letterSpacing: '0.02em' }}>Kapat</span>
+        </button>
+      </div>
+
       {/* Kontroller — show'a göre fade; container pointer-events:none (boş alan alttaki yakalayıcıya düşer) */}
       <div
         style={{
@@ -479,21 +499,12 @@ function VideoFullscreenChrome({
           position: 'absolute', top: 0, left: 0, right: 0, height: 132,
           background: 'linear-gradient(to bottom, rgba(0,0,0,0.6), transparent)',
         }} />
+        {/* Başlık satırı — Kapat artık HER ZAMAN görünür ayrı katmanda (yukarıda);
+            burada yalnız başlık + indir kaldı. Sol offset kalıcı Kapat'ı geçmesin diye. */}
         <div style={{
-          position: 'absolute', top: 'calc(env(safe-area-inset-top, 0px) + 16px)', left: 24, right: 20,
+          position: 'absolute', top: 'calc(env(safe-area-inset-top, 0px) + 16px)', left: 172, right: 20,
           display: 'flex', alignItems: 'center', gap: 14,
         }}>
-          {/* Kapat — ŞOFÖR TARAFI (sol), "Kapat" etiketli + büyük: sürücü rahatça bassın */}
-          <button
-            onClick={onClose}
-            aria-label="Tam ekranı kapat"
-            style={{
-              ...ctrlBtn(52), width: 'auto', padding: '0 22px', gap: 9, borderRadius: 9999,
-            }}
-          >
-            <X className="w-6 h-6" />
-            <span style={{ fontWeight: 800, fontSize: 17, letterSpacing: '0.02em' }}>Kapat</span>
-          </button>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{
               color: '#fff', fontWeight: 900, fontSize: 22, lineHeight: 1.15,

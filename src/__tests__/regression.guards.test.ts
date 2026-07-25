@@ -38,6 +38,7 @@ import orientationGateSrc from '../platform/sensors/orientationSensorGate.ts?raw
 import remoteLogServiceSrc from '../platform/remoteLogService.ts?raw';
 import diagnosticTriageSrc from '../platform/diagnosticTriage.ts?raw';
 import dtcServiceSrc from '../platform/dtcService.ts?raw';
+import mediaScreenSrc from '../components/media/MediaScreen.tsx?raw';
 import { AdaptiveRuntimeManager } from '../core/runtime/AdaptiveRuntimeManager';
 import { RuntimeMode } from '../core/runtime/runtimeTypes';
 import { forceMode } from './sim/runtimeSimulator';
@@ -1666,5 +1667,37 @@ describe('Tanı raporu sanitize sertleştirme kilidi', () => {
   it('sanitize düğüm-bazlı fail-soft — tek zehirli alan raporu öldürmez', () => {
     expect(remoteLogServiceSrc, 'UNREADABLE işareti kaldırılmış — getter throw tüm raporu düşürebilir')
       .toMatch(/UNREADABLE_MARKER/);
+  });
+});
+
+/* ───────────────────────────────────────────────────────────────
+   Tam ekran video KAPAT butonu — kilitlenme tuzağı kilidi
+   Regresyon (Duster head unit 2026-07-19): kontroller 3.5s sonra
+   gizlenince "dokun → reveal" bazı head unit WebView'lerinde
+   çalışmıyor → kullanıcı tam ekran videoda KİLİTLİ kalıyor (çıkamıyor).
+   KİLİT: Kapat butonu auto-hide `show` state'ine TABİ OLMAMALI —
+   her zaman görünür + pointer-events:auto olmalı ki çıkış garanti.
+   ─────────────────────────────────────────────────────────────── */
+describe('Tam ekran video Kapat butonu — çıkış garanti kilidi', () => {
+  it('YAPISAL: Kapat butonu auto-hide fade container\'ının DIŞINDA (kalıcı katman)', () => {
+    // Kalıcı Kapat bloğu, opacity:(show?1:0) container'ından ÖNCE gelmeli.
+    const persistentIdx = mediaScreenSrc.indexOf('HER ZAMAN görünür KAPAT');
+    const fadeContainerIdx = mediaScreenSrc.indexOf('Kontroller — show\'a göre fade');
+    expect(persistentIdx, 'kalıcı KAPAT bloğu kaldırılmış — kilitlenme tuzağı geri döner')
+      .toBeGreaterThan(-1);
+    expect(fadeContainerIdx, 'auto-hide container yorumu bulunamadı').toBeGreaterThan(-1);
+    expect(persistentIdx, 'Kapat fade container İÇİNE taşınmış — show=false iken görünmez olur')
+      .toBeLessThan(fadeContainerIdx);
+  });
+
+  it('YAPISAL: kalıcı Kapat pointer-events:auto ile SABİTLENMİŞ (show gating değil)', () => {
+    // Kalıcı blokta onClose + pointerEvents:'auto' override birlikte olmalı.
+    const block = mediaScreenSrc.slice(
+      mediaScreenSrc.indexOf('HER ZAMAN görünür KAPAT'),
+      mediaScreenSrc.indexOf('Kontroller — show\'a göre fade'),
+    );
+    expect(block, 'kalıcı Kapat onClose bağlamıyor').toMatch(/onClick=\{onClose\}/);
+    expect(block, 'kalıcı Kapat pointerEvents:auto override yok — show=false\'da tıklanamaz olur')
+      .toMatch(/pointerEvents:\s*'auto'/);
   });
 });
