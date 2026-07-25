@@ -69,6 +69,7 @@ function setup(opts: {
     setVolume: vi.fn(), navigateTo: vi.fn(), openNavScreen: () => true,
     cancelNavigation: vi.fn(),
     readHealth: async () => ({ dtcCount: 0, criticalCount: 0, summary: 'temiz' }),
+    readCurrentLocation: () => ({ ok: true, text: 'test konumu' }),
   };
 
   const arbiter = opts.arbiter ?? createTakeoverArbiter();
@@ -380,6 +381,7 @@ describe('MAVI3-4c — araç/ECU eylemleri hiçbir bayrakla takeover olamaz', ()
         setTheme: vi.fn(), openScreen: () => true, mediaPlay: vi.fn(), mediaPause: vi.fn(),
         mediaNext: vi.fn(), setVolume: vi.fn(), navigateTo: vi.fn(), openNavScreen: () => true,
         cancelNavigation: vi.fn(), readHealth: maviHealth,
+        readCurrentLocation: () => ({ ok: true, text: 'test konumu' }),
       },
       registerCommandHandler: (fn) => { listeners.push(fn); return () => {}; },
       ttsCancel: vi.fn(),

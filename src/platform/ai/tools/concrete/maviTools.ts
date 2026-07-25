@@ -1,5 +1,5 @@
 /**
- * maviTools — Faz 1 ALLOWLIST'i: 4 güvenli, SALT-OKUNUR/navigasyon aracı.
+ * maviTools — Faz 1 ALLOWLIST'i: 5 güvenli, SALT-OKUNUR/navigasyon aracı.
  *
  * ── YENİ VERİ YOLU YOK ──────────────────────────────────────────────────────
  * Araçlar MEVCUT otoriteleri kullanır:
@@ -14,6 +14,7 @@
 
 import { createMaviContextSources } from '../../context/concrete/maviContextSources';
 import { getScreenById, screenIds } from '../../../screenRegistry';
+import { readCurrentLocation } from '../../../location/currentLocationService';
 import type { ToolDefinition, ToolResult } from '../toolTypes';
 
 /** Fiziksel geçerlilik — Context Engine'le AYNI mantık (sentinel/NaN elenir). */
@@ -143,6 +144,48 @@ const openScreenTool: ToolDefinition = {
   },
 };
 
+/* ── 5) Mevcut konum ("Neredeyim?") ────────────────────────────────────────── */
+
+/**
+ * SALT-OKUNUR konum sorgusu. Yeni GPS aboneliği/watch AÇMAZ — mevcut store snapshot'ını
+ * (`UnifiedVehicleStore` ← gpsService) okur. Adres için mevcut Nominatim sağlayıcısı
+ * bounded (3s) çağrılır; başarısızlık cevabı ENGELLEMEZ (koordinatla dürüstçe cevaplanır).
+ *
+ * Konum PII'dir: `data` alanına yalnız cevabın dayandığı asgari alanlar konur ve hiçbir
+ * şey LOGLANMAZ (toolTypes telemetrisi zaten yalnız alan SAYISINI taşır).
+ */
+const currentLocationTool: ToolDefinition = {
+  name:        'get_current_location',
+  description: 'Kullanıcının şu anki konumunu okur ve varsa adresini söyler ("Neredeyim?"). Navigasyon BAŞLATMAZ, rota kurmaz.',
+  effect:      'read',
+  parameters:  {},
+  handler: async (): Promise<ToolResult> => {
+    let readout: Awaited<ReturnType<typeof readCurrentLocation>>;
+    try {
+      readout = await readCurrentLocation();
+    } catch {
+      return unavailable('Konum verisini şu anda alamıyorum.');
+    }
+
+    // Fix yok / geçersiz / çok eski → fail-closed. Tahmin YÜRÜTÜLMEZ.
+    if (!readout.ok) return unavailable(readout.text);
+
+    const data: Record<string, string | number | boolean> = {
+      answer:    readout.text,
+      latitude:  readout.latitude as number,
+      longitude: readout.longitude as number,
+      stale:     readout.classification.klass === 'aging',
+    };
+    if (readout.address) data['address'] = readout.address;
+    if (typeof readout.timestampMs === 'number') data['observedAtMs'] = readout.timestampMs;
+    if (typeof readout.ageMs === 'number')       data['ageMs'] = readout.ageMs;
+    if (typeof readout.accuracyM === 'number')   data['accuracyM'] = readout.accuracyM;
+    if (readout.provider)                        data['provider'] = readout.provider;
+
+    return { ok: true, data, summary: readout.text };
+  },
+};
+
 /* ── Yardımcı ──────────────────────────────────────────────────────────────── */
 
 function safeObd(): ReturnType<NonNullable<ReturnType<typeof createMaviContextSources>['readObd']>> | undefined {
@@ -162,4 +205,5 @@ export const MAVI_TOOLS: readonly ToolDefinition[] = [
   liveSnapshotTool,
   dtcSummaryTool,
   openScreenTool,
+  currentLocationTool,
 ];

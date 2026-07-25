@@ -22,6 +22,25 @@ import type { ActionHandler, ActionExecResult } from '../executionEngine';
 
 export type PilotThemeMode = 'night' | 'day' | 'oled' | 'dark';
 
+/**
+ * location.current.read sonucu. maviCore saf kalsın diye YAPISAL tip olarak tanımlanır —
+ * `currentLocationService.CurrentLocationReadout` bunu karşılar, ama bu dosya o servisi
+ * IMPORT ETMEZ (VehicleHealthReadout ile aynı desen).
+ */
+export interface CurrentLocationReadout {
+  /** Sunulabilir bir konum cevabı üretilebildi mi (fail-closed: false → dürüst "bilmiyorum"). */
+  readonly ok: boolean;
+  /** Türkçe cevap cümlesi — feedback katmanı bunu okur. */
+  readonly text: string;
+  readonly latitude?: number;
+  readonly longitude?: number;
+  readonly timestampMs?: number | null;
+  readonly accuracyM?: number | null;
+  readonly ageMs?: number | null;
+  readonly provider?: string | null;
+  readonly address?: string | null;
+}
+
 export interface VehicleHealthReadout {
   readonly dtcCount: number;
   readonly criticalCount: number;
@@ -58,6 +77,11 @@ export interface PilotHandlerDeps {
   readonly cancelNavigation: () => void;
   /** vehicle.health.read — SALT-OKUMA DTC okuması (readDTCCodes + snapshot). */
   readonly readHealth: () => Promise<VehicleHealthReadout> | VehicleHealthReadout;
+  /**
+   * location.current.read — SALT-OKUMA mevcut konum sorgusu ("Neredeyim?").
+   * Wiring `currentLocationService.readCurrentLocation`'ı bağlar; navigasyon BAŞLATMAZ.
+   */
+  readonly readCurrentLocation: () => Promise<CurrentLocationReadout> | CurrentLocationReadout;
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
@@ -183,6 +207,21 @@ export function createPilotHandlers(deps: PilotHandlerDeps): Record<string, Acti
         return fail(`sağlık okuma: ${e instanceof Error ? e.message : String(e)}`);
       }
     },
+
+    /* ── Mevcut konum (SALT-OKUMA · "Neredeyim?") ───────────── */
+    'location.current.read': async (_payload, signal): Promise<ActionExecResult> => {
+      try {
+        const readout = await deps.readCurrentLocation();
+        if (signal.aborted) return fail('konum okuma iptal edildi');
+        if (!readout || typeof readout.text !== 'string') return fail('konum verisi alınamadı');
+        /* Fix yoksa/bayatsa `ok:false` gelir — bu bir HATA değil, DÜRÜST cevaptır. Eylemi
+           "başarısız" saymak yanlış olur (servis çalıştı, cevabı üretti); ok:true döner ve
+           dürüst metin `value` ile feedback katmanına taşınır. Salt-okuma → rollback yok. */
+        return ok(readout);
+      } catch (e) {
+        return fail(`konum okuma: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    },
   };
 }
 
@@ -205,5 +244,7 @@ export function createShadowHandlers(): Record<string, ActionHandler> {
     'navigation.open': noop,
     'navigation.cancel': noop,
     'vehicle.health.read': () => ({ ok: true, value: { dtcCount: 0, criticalCount: 0, summary: 'gölge' } }),
+    // Gölgede GERÇEK konum OKUNMAZ (PII'ye dokunulmaz) ve uydurma koordinat üretilmez.
+    'location.current.read': () => ({ ok: true, value: { ok: false, text: 'gölge' } }),
   };
 }

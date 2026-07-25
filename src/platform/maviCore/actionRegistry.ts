@@ -249,6 +249,14 @@ export const PILOT_ACTIONS: readonly ActionDefinition[] = Object.freeze([
     timeoutMs: 2_000, resultContract: 'ack', validate: validateEmpty,
   },
   {
+    /* "Neredeyim?" — SALT-OKUMA konum sorgusu. Araç ECU'suna DOKUNMAZ (GPS cihaz sensörüdür)
+       → `vehicleScope` YOK, AiSafetyGate araç kapsamı gerektirmez. Yan etkisiz: navigasyon
+       başlatmaz, rota kurmaz, hiçbir şey yazmaz → reversible (geri alınacak etki yok).
+       timeout: GPS snapshot senkron + reverse geocoding bütçesi 3s → 5s güvenli tavan. */
+    id: 'location.current.read', title: 'Mevcut konumu oku', risk: 'low', reversible: true,
+    timeoutMs: 5_000, resultContract: 'value', validate: validateEmpty,
+  },
+  {
     // Araç-ETKİLİ (salt okuma) → AiSafetyGate 'read' kapsamından geçer. EXTENDED DID okuması
     // 12s'e kadar sürebilir (sensorQueryService deseni) → timeout geniş. Yan etkisiz → reversible.
     id: 'vehicle.health.read', title: 'Araç sağlığı oku', risk: 'low', reversible: true,

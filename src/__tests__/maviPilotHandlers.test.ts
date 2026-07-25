@@ -23,6 +23,7 @@ function makeDeps(over: Partial<PilotHandlerDeps> = {}): { deps: PilotHandlerDep
     setVolume: vi.fn(), navigateTo: vi.fn(), openNavScreen: vi.fn(() => true),
     cancelNavigation: vi.fn(),
     readHealth: vi.fn(() => ({ dtcCount: 2, criticalCount: 1, summary: 'iki kod' })),
+    readCurrentLocation: vi.fn(() => ({ ok: true, text: 'Şu anda Bağlar Mahallesi civarındasınız.' })),
   };
   const deps: PilotHandlerDeps = {
     setTheme: spies.setTheme as never,
@@ -37,6 +38,7 @@ function makeDeps(over: Partial<PilotHandlerDeps> = {}): { deps: PilotHandlerDep
     openNavScreen: spies.openNavScreen as never,
     cancelNavigation: spies.cancelNavigation as never,
     readHealth: spies.readHealth as never,
+    readCurrentLocation: spies.readCurrentLocation as never,
     ...over,
   };
   return { deps, spies };

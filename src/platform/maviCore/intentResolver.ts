@@ -341,6 +341,21 @@ export const DRIVE_INTENT_CATALOG: readonly IntentDefinition[] = Object.freeze([
     description: 'Ses seviyesini ayarla (0..100).',
     aliases: ['ses', 'sesi ayarla', 'ses seviyesi', 'sesi değiştir', 'ses düzeyi'],
   },
+  {
+    /* "Neredeyim?" — SALT-OKUMA konum sorgusu. Kataloğun SONUNA eklenir: skor eşitliğinde
+       sıralama katalog sırasına düştüğü için mevcut niyetlerin önceliği DEĞİŞMEZ.
+       Bu bir NAVİGASYON niyeti DEĞİLDİR — rota kurmaz, yalnız mevcut konumu söyler
+       ('navigasyon'/'rota'/'git' alias'ları bilinçli olarak YOK, çakışma üretmesin). */
+    intent: 'query.current_location', actionId: 'location.current.read',
+    requiredEntities: [], optionalEntities: [],
+    description: 'Mevcut konumu oku ve söyle (salt okuma).',
+    aliases: [
+      'neredeyim', 'şu an neredeyim', 'neredeyim şu an', 'neredeyiz', 'şu an neredeyiz',
+      'konumumu söyle', 'konumum ne', 'konumum nedir', 'konumumu ver',
+      'bulunduğum yer neresi', 'bulunduğumuz yer neresi', 'hangi konumdayım',
+      'neresideyiz', 'buranın neresi olduğunu söyle',
+    ],
+  },
 ]);
 
 // Kurulum-zamanı hizalama güvencesi: tema leksikonundaki tüm değerler gerçek bir PILOT_THEMES olmalı.

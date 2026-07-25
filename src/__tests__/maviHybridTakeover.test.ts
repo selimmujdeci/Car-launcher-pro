@@ -59,6 +59,7 @@ function makePilotDeps(s: Spies): PilotHandlerDeps {
     openNavScreen: () => true,
     cancelNavigation: s.cancelNavigation,
     readHealth: s.readHealth,
+    readCurrentLocation: () => ({ ok: true, text: 'test konumu' }),
   };
 }
 
@@ -166,6 +167,7 @@ describe('MAVI3-4b — hibrit handler seçimi (TAKEOVER global DEĞİL)', () => 
     expect(handlers['ecu.write']).toBeUndefined();
     expect(handlers['coding.apply']).toBeUndefined();
     expect(Object.keys(handlers).sort()).toEqual([
+      'location.current.read',
       'media.next', 'media.pause', 'media.play', 'media.volume.set',
       'navigation.cancel', 'navigation.open', 'ui.page.open', 'ui.theme.set', 'vehicle.health.read',
     ]);

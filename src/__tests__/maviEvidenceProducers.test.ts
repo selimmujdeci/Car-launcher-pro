@@ -25,6 +25,7 @@ function pilotDeps(over: Partial<PilotHandlerDeps> = {}): PilotHandlerDeps {
     mediaNext: vi.fn(), setVolume: vi.fn(), navigateTo: vi.fn(), openNavScreen: () => true,
     cancelNavigation: vi.fn(),
     readHealth: async () => ({ dtcCount: 0, criticalCount: 0, summary: 'x' }),
+    readCurrentLocation: () => ({ ok: true, text: 'test konumu' }),
     ...over,
   };
 }

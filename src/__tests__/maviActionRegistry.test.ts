@@ -103,15 +103,30 @@ describe('payload doğrulayıcılar', () => {
 });
 
 describe('PİLOT eylem seti', () => {
-  it('10 pilot eylem beklenen id/metadata ile kayıtlı', () => {
+  it('11 pilot eylem beklenen id/metadata ile kayıtlı', () => {
     const reg = createPilotActionRegistry();
-    expect(reg.size).toBe(10);
+    expect(reg.size).toBe(11);
     expect(reg.ids()).toEqual([
+      'location.current.read',
       'media.next', 'media.pause', 'media.play', 'media.volume.set',
       'navigation.cancel', 'navigation.open',
       'ui.brightness.set', 'ui.page.open', 'ui.theme.set',
       'vehicle.health.read',
     ]);
+  });
+
+  /* "Neredeyim?" eylemi ARAÇ eylemi DEĞİLDİR: GPS cihaz sensörüdür, ECU'ya dokunmaz →
+     vehicleScope taşımamalı (taşısaydı gereksiz araç güvenlik kapısına takılırdı).
+     Ayrıca salt-okuma olduğu için navigasyon/yazma yan etkisi ASLA olmamalı. */
+  it('location.current.read: araç kapsamsız + value kontratı + salt-okuma', () => {
+    const reg = createPilotActionRegistry();
+    const loc = reg.get('location.current.read')!;
+    expect(loc.vehicleScope).toBeUndefined();
+    expect(loc.resultContract).toBe('value');
+    expect(loc.risk).toBe('low');
+    expect(loc.reversible).toBe(true);        // yan etki yok → geri alınacak bir şey yok
+    expect(loc.timeoutMs).toBeGreaterThan(0);
+    expect(loc.timeoutMs).toBeLessThanOrEqual(12_000);
   });
 
   it('vehicle.health.read yalnız araç-etkili: read kapsamı + value kontratı', () => {

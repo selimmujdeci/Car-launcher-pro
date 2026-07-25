@@ -273,7 +273,7 @@ describe('Faz 1 araçları SALT-OKUNUR', () => {
 
   it('yalnız read/navigate etkili araçlar tanımlı', async () => {
     const { MAVI_TOOLS } = await import('../platform/ai/tools/concrete/maviTools');
-    expect(MAVI_TOOLS).toHaveLength(4);
+    expect(MAVI_TOOLS).toHaveLength(5);
     for (const t of MAVI_TOOLS) {
       expect(['read', 'navigate']).toContain(t.effect);
       expect(t.requiresConfirmation).not.toBe(true);

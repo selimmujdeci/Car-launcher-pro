@@ -25,6 +25,7 @@ import { setVolume } from '../systemSettingsService';
 import { stopNavigation } from '../navigationService';
 import { resolveAndNavigate } from '../addressNavigationEngine';
 import { getGPSState } from '../gpsService';
+import { readCurrentLocation } from '../location/currentLocationService';
 import { readDTCCodes, onDTCState, type DTCState } from '../dtcService';
 import { createMaviWiring, type MaviWiringHandle } from '../maviCore/wiring/maviWiring';
 // PR-DIAG-3: tanı raporunun segment kaynağı — MEVCUT voiceState.recent()'e REFERANS göstericisi
@@ -120,6 +121,9 @@ function buildPilotDeps(): PilotHandlerDeps {
     },
     cancelNavigation: () => stopNavigation(),
     readHealth: readVehicleHealth,
+    // "Neredeyim?" — SALT-OKUMA. Mevcut GPS snapshot'ı + bounded reverse geocoding;
+    // navigasyon başlatmaz, yeni GPS watch açmaz (bkz. currentLocationService).
+    readCurrentLocation: () => readCurrentLocation(),
   };
 }
 

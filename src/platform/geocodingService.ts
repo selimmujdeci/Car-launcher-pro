@@ -17,6 +17,7 @@ import { searchOffline, searchPOI } from './offlineSearchService';
 import type { POISearchResult }      from './offlineSearchService';
 
 const NOMINATIM          = 'https://nominatim.openstreetmap.org/search';
+const NOMINATIM_REVERSE  = 'https://nominatim.openstreetmap.org/reverse';
 const OVERPASS           = 'https://overpass-api.de/api/interpreter';
 const UA                 = 'CarLauncherPro/1.0';
 const TIMEOUT            = 8_000;
@@ -236,6 +237,73 @@ export async function geocodeAddress(
     return _offlineFallback(query, currentLat, currentLng);
   } finally {
     if (automotiveTimer !== null) clearTimeout(automotiveTimer);
+    clear();
+  }
+}
+
+/* ── Nominatim reverse (koordinat → adres) ───────────────── */
+
+interface NominatimReverseItem {
+  display_name?: string;
+  error?:        string;
+}
+
+/** Reverse geocoding toplam bütçesi (ms) — rate-limit beklemesi DAHİL. */
+export const REVERSE_GEOCODE_TIMEOUT_MS = 3_000;
+
+/**
+ * Koordinattan kısa adres üretir ("Mahalle, İlçe"). Bulunamazsa/hata/timeout → **null**.
+ *
+ * SÖZLEŞME (çağıranlar buna güvenir):
+ *  - RETRY YOK — tek deneme, sonsuz döngü riski yok.
+ *  - BOUNDED — `timeoutMs` toplam bütçedir; Nominatim ToS rate-limit beklemesi de bu
+ *    bütçeden harcanır, bütçe biterse istek HİÇ yapılmaz ve null döner (aşım olamaz).
+ *  - THROW ETMEZ — ağ · HTTP · JSON parse · abort, hepsi null'a indirgenir.
+ *  - Çevrimdışıyken (navigator.onLine === false) ağa HİÇ çıkılmaz → anında null.
+ *  - LOG YOK: URL, koordinat, header ve yanıt gövdesi hiçbir yere yazılmaz (konum PII'dir;
+ *    ayrıca diagnostic loglara hassas alan yazma yasağı — CLAUDE.md).
+ */
+export async function reverseGeocode(
+  lat:       number,
+  lng:       number,
+  timeoutMs: number = REVERSE_GEOCODE_TIMEOUT_MS,
+): Promise<string | null> {
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  if (lat < -90 || lat > 90 || lng < -180 || lng > 180) return null;
+  if (typeof navigator !== 'undefined' && !navigator.onLine) return null;
+
+  const budget = Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : REVERSE_GEOCODE_TIMEOUT_MS;
+  const startedAt = Date.now();
+
+  /* ToS rate-limiter — geocodeAddress ile AYNI kapı (1 req/sn) kullanılır ki iki yol
+     birlikte limiti aşmasın. Bekleme bütçeden sayılır. */
+  await _waitNominatim();
+
+  const remaining = budget - (Date.now() - startedAt);
+  if (remaining <= 0) return null;   // bütçe rate-limit beklemesinde bitti → istek YAPILMAZ
+
+  const params = new URLSearchParams({
+    lat:            String(lat),
+    lon:            String(lng),
+    format:         'json',
+    zoom:           '16',            // ~mahalle/sokak ayrıntısı
+    addressdetails: '0',
+  });
+
+  const { ctrl, clear } = abort(remaining);
+  try {
+    const res = await fetch(`${NOMINATIM_REVERSE}?${params}`, {
+      headers: { 'User-Agent': UA, 'Accept-Language': 'tr' },
+      signal:  ctrl.signal,
+    });
+    if (!res.ok) return null;
+    const data = (await res.json()) as NominatimReverseItem;
+    const display = typeof data?.display_name === 'string' ? data.display_name.trim() : '';
+    if (display.length === 0) return null;
+    return shortName(display);
+  } catch {
+    return null;                     // ağ · abort · parse — hepsi sessiz null
+  } finally {
     clear();
   }
 }
