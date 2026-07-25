@@ -10,7 +10,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { parseCommandFull, parseCommand } from '../platform/commandParser';
+import { parseCommandFull, parseCommand, buildCommandGrammar } from '../platform/commandParser';
 import { tryParseMusicCommand } from '../platform/musicCommandParser';
 
 describe('parseCommandFull — exact match', () => {
@@ -291,5 +291,27 @@ describe('regresyon — genel-fiil token gasp düzeltmesi (2026-06-12)', () => {
 
   it('"alarmı kapat" → hw_alarm_off KORUNDU', () => {
     expect(parseCommandFull('alarmı kapat').command?.type).toBe('hw_alarm_off');
+  });
+});
+
+describe('buildCommandGrammar — offline komut grammar (Yol A)', () => {
+  it('komut sözlüğünü + "[unk]" içerir, boş değil', () => {
+    const g = buildCommandGrammar();
+    expect(Array.isArray(g)).toBe(true);
+    expect(g.length).toBeGreaterThan(50);          // yüzlerce komut ifadesi
+    expect(g).toContain('[unk]');                   // ŞART: liste dışı → tek [unk]
+    expect(g).toContain('haritayı aç');             // gerçek komut ifadesi
+    expect(g).toContain('eve git');
+  });
+
+  it('grammar içinden Vosk çıktısı parser tarafından çözülür (uçtan uca)', () => {
+    // Grammar bir komut ifadesi üretir → parser onu doğru komuta bağlar.
+    expect(parseCommandFull('haritayı aç').command?.type).toBe('open_maps');
+    // "[unk]" ekli varyant (grammar dışı dolgu) yine yakalanır.
+    expect(parseCommandFull('haritayı aç lütfen').command?.type).toBe('open_maps');
+  });
+
+  it('memoize: aynı referansı döndürür (her dinlemede yeniden kurulmaz)', () => {
+    expect(buildCommandGrammar()).toBe(buildCommandGrammar());
   });
 });

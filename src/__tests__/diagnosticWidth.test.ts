@@ -169,6 +169,15 @@ describe('SESLİ / STT bölümü — fail-soft yapı + mahremiyet kilidi', () =>
     const voice = buildVoiceSnapshot();
     expect(Object.keys(voice)).not.toContain('transcript');
   });
+
+  it('ASİSTAN TEŞHİSİ: mik sağlığı + wake duyduğu + oturum izi taşınır (saha kökü ayrımı)', () => {
+    const voice = buildVoiceSnapshot();
+    // Mikrofon sağlığı: ~0 = mik sessiz (ölü kaynak), >0.1 = ses alıyor (tanıma sorunu).
+    expect(typeof voice.micPeakVolume).toBe('number');
+    // Wake'in duydukları + son oturum izi dizidir (kaynak yokken bile boş dizi).
+    expect(Array.isArray(voice.wakeHeard)).toBe(true);
+    expect(Array.isArray(voice.recent)).toBe(true);
+  });
 });
 
 describe('GÜVENLİ BÖLGE (GEOFENCE) bölümü — fail-soft yapı + durum geçişleri', () => {

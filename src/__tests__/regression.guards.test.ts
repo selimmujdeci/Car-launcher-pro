@@ -32,6 +32,8 @@ import obdServiceSrc from '../platform/obdService.ts?raw';
 import mainLayoutSrc from '../components/layout/MainLayout.tsx?raw';
 import mediaScreenSrc from '../components/media/MediaScreen.tsx?raw';
 import voiceAssistantSrc from '../components/modals/VoiceAssistant.tsx?raw';
+import voiceServiceSrc from '../platform/voiceService.ts?raw';
+import cloudSttServiceSrc from '../platform/cloudSttService.ts?raw';
 import vehicleComputeWorkerSrc from '../platform/vehicleDataLayer/VehicleCompute.worker.ts?raw';
 import vehicleEventHubSrc from '../platform/vehicleDataLayer/VehicleEventHub.ts?raw';
 import systemOrchestratorSrc from '../platform/system/SystemOrchestrator.ts?raw';
@@ -622,6 +624,29 @@ describe('Grounding hatası beyin devre kesicisini tetiklemez kilidi', () => {
     }
     expect(prov, 'beyin çağrısında model failover döngüsü yok — 429\'da hemen soğumaya düşer').toMatch(/while \(!resp\.ok && _advanceGeminiModel\(resp\.status\)\)/);
     expect(prov, 'model değişimi sessiz — sahada "neden başka model?" kanıtsız kalır').toMatch(/GEMINI_MODEL_SWITCH/);
+  });
+
+  it('YAPISAL: emniyet zamanlayıcıları TTS konuşurken cevabı KESMEZ', () => {
+    // SAHA 2026-07-24 ("uzun muhabbetlerde cümlenin ortasında kesilip dut sesiyle
+    // dinlemeye geçiyor"): takip (20sn) ve sohbet-idle (15sn) emniyet pencereleri
+    // konuşmanın bitip bitmediğini SORMUYOR, sabit süreyle varsayıyordu. ~250
+    // karakteri aşan her cevapta pencere doluyor, startListening() → ttsCancel()
+    // cevabı ortadan kesiyordu.
+    const vs = read('src/platform/voiceService.ts');
+    expect(vs, 'voiceService isTtsSpeaking\'i import etmiyor — emniyet zamanlayıcıları yine kör').toMatch(/isTtsSpeaking/);
+    for (const [fn, label] of [
+      ['_scheduleFollowUpFallback', 'takip dinlemesi'],
+      ['_scheduleConvIdleFallback', 'sohbet-idle'],
+    ] as const) {
+      const body = vs.match(new RegExp(`function ${fn}\\([\\s\\S]*?\\n\\}`));
+      expect(body, `${fn} bulunamadı`).toBeTruthy();
+      expect(body![0], `${label} penceresi konuşma sürerken uzatmıyor → uzun cevap yine ortadan kesilir`).toMatch(/isTtsSpeaking\(\)/);
+      expect(body![0], `${label} penceresi SINIRSIZ uzuyor — takılı TTS motorunda emniyet rolü kaybolur`).toMatch(/MAX_SPEAKING_EXTENSIONS/);
+    }
+    // ttsService tarafı: uzatma sonsuza gitmesin diye konuşma bayrağının TAVANI olmalı.
+    const ttsSrc = read('src/platform/ttsService.ts');
+    expect(ttsSrc, 'MAX_SPEAKING_MS tavanı kaldırılmış — takılan TTS "sonsuz konuşuyor" sayılır, akış asılı kalır').toMatch(/MAX_SPEAKING_MS/);
+    expect(ttsSrc, 'ttsCancel konuşma bayrağını temizlemiyor — kesilen cevap sonrası pencere gereksiz uzar').toMatch(/_markSpeakingEnd\(\); \/\/ konuşma kesildi/);
   });
 
   it('YAPISAL: 429 pencereleri SAĞLAYICI-BAZLI — Groq/Haiku 429\'u Gemini\'yi kilitlemez', () => {
@@ -1844,6 +1869,67 @@ describe('Sesli asistan modalı tema-duyarlı yüzey kilidi', () => {
   it('YAPISAL: yüzeyler OEM tema token\'ı (--oem-surface-0) ile türetiliyor', () => {
     expect(voiceAssistantSrc, 'OEM tema yüzeyi kullanılmıyor — tema-duyarlılık kayboldu')
       .toMatch(/var\(--oem-surface-0\)/);
+  });
+});
+
+/* ───────────────────────────────────────────────────────────────
+   Hibrit STT — bulut STT + Vosk yedek kilidi
+   Duster saha 2026-07-19: Vosk küçük TR modeli araç gürültüsünde
+   yetersiz ("anlamıyor"). Hibrit: online'da bulut STT (Groq/Gemini),
+   offline/hata'da Vosk. KİLİT: (1) bulut BAŞARISIZ olursa Vosk metni
+   KORUNUR (fail-soft — offline asla bozulmaz); (2) bulut STT BYOK +
+   fail-soft (gömülü anahtar YOK, throw YOK); (3) native mik kaynağı
+   seçimi HEM aktif dinleme HEM wake thread'inde (tek yardımcı).
+   ─────────────────────────────────────────────────────────────── */
+describe('Hibrit STT bulut + Vosk yedek kilidi', () => {
+  it('YAPISAL: voiceService returnAudio geçer + cloudTranscribe dener + Vosk yedeği korur', () => {
+    expect(voiceServiceSrc, 'returnAudio kapısı kaldırılmış — bulut STT hiç tetiklenmez')
+      .toMatch(/returnAudio:/);
+    expect(voiceServiceSrc, 'cloudTranscribe çağrısı yok — hibrit yol kopmuş')
+      .toMatch(/cloudTranscribe/);
+    // Fail-soft: transcript Vosk metniyle BAŞLAR (bulut yalnız iyileştirir, bozamaz).
+    expect(voiceServiceSrc, 'Vosk yedeği kaldırılmış — bulut hatası dinlemeyi öldürür')
+      .toMatch(/let\s+transcript\s*=\s*voskTranscript/);
+  });
+
+  it('YAPISAL: cloudSttService BYOK + fail-soft (gömülü anahtar yok, online kapısı var)', () => {
+    // Gömülü anahtar yasağı (CLAUDE.md ticari kural): kaynakta düz API anahtarı sabiti olmaz.
+    expect(cloudSttServiceSrc, 'gömülü Groq anahtarı sızıntısı')
+      .not.toMatch(/gsk_[A-Za-z0-9]/);
+    expect(cloudSttServiceSrc, 'gömülü Gemini anahtarı sızıntısı')
+      .not.toMatch(/AIza[A-Za-z0-9]/);
+    // Online kapısı: offline/sahte-online'da bulut denenmez (Vosk kalır).
+    expect(cloudSttServiceSrc, 'gerçek-net kapısı kaldırılmış — offline\'da boşuna bulut denemesi')
+      .toMatch(/hasRealNet/);
+  });
+
+  it('YAPISAL: native mik kaynağı seçimi HEM aktif dinleme HEM wake thread\'inde', () => {
+    const java = read('android/app/src/main/java/com/cockpitos/pro/CarLauncherPlugin.java');
+    // openBestMicRecorder tanımı + EN AZ 2 çağrı yeri (runVoskListening + wake grammar).
+    const calls = (java.match(/openBestMicRecorder\(/g) ?? []).length;
+    expect(calls, 'openBestMicRecorder yalnız 1 yerde — bir yol hâlâ tek-kaynak (ölü mik riski)')
+      .toBeGreaterThanOrEqual(3); // 1 tanım + 2 çağrı
+  });
+});
+
+/* ───────────────────────────────────────────────────────────────
+   RPM/hız göstergesi — sıcak-sinyal hızlı bildirim kilidi
+   Saha (2026-07-19): RPM kartı obdListenerDebounce (POWER_SAVE'de 5s)
+   yüzünden 5-8s'de bir güncelleniyordu ("veri hızlı ama kart geç").
+   KİLİT: RPM/hız değişince bildirim kaba debounce yerine hızlı pencereye
+   (~5Hz) düşmeli; yavaş sinyaller (yakıt/sıcaklık) kaba debounce'ta kalır.
+   ─────────────────────────────────────────────────────────────── */
+describe('OBD RPM/hız sıcak-sinyal hızlı bildirim kilidi', () => {
+  it('YAPISAL: obdService sıcak-sinyal hızlı debounce yolu içerir', () => {
+    const src = read('src/platform/obdService.ts');
+    expect(src, 'HOT_NOTIFY_DEBOUNCE_MS kaldırılmış — RPM kartı kaba debounce\'a düşer (geç)')
+      .toMatch(/HOT_NOTIFY_DEBOUNCE_MS/);
+    // _merge rpm/speed değişiminde sıcak bayrağı set etmeli.
+    expect(src, 'sıcak-sinyal bayrağı rpm/speed değişiminde set edilmiyor')
+      .toMatch(/partial\.rpm !== undefined \|\| partial\.speed !== undefined.*_hotChangePending = true/s);
+    // _notify sıcak beklemede kaba yerine hızlı debounce kullanmalı.
+    expect(src, '_notify sıcak sinyalde hızlı pencereyi kullanmıyor')
+      .toMatch(/_hotChangePending \? Math\.min\(HOT_NOTIFY_DEBOUNCE_MS/);
   });
 });
 
