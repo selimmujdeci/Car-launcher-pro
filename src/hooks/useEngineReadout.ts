@@ -1,4 +1,4 @@
-import { useOBDState } from '../platform/obdService';
+import { useOBDField } from '../platform/obdService';
 import { useUnifiedVehicleStore } from '../platform/vehicleDataLayer/UnifiedVehicleStore';
 
 /**
@@ -21,23 +21,29 @@ export interface EngineReadout {
 }
 
 export function useEngineReadout(): EngineReadout {
-  const obd = useOBDState();
+  // DAR ALAN ABONELİĞİ (SAHA 2026-07-19): eskiden useOBDState() TÜM objeye abone olup her
+  // OBD alanı değişince (5Hz sıcak-sinyal bildirimiyle) tema layout'unu KOMPLE re-render
+  // ediyordu. Artık yalnız gösterdiğimiz 3 alan (rpm/engineTemp/fuel) izlenir → RPM hızlı
+  // AMA hafif; tüm temalar (Expedition/Horizon/…) bu tek hook'tan faydalanır.
+  const obdRpm     = useOBDField('rpm');
+  const obdTemp    = useOBDField('engineTemp');
+  const obdFuel    = useOBDField('fuelLevel');
   const canRpm     = useUnifiedVehicleStore(s => s.canRpm);
   const canCoolant = useUnifiedVehicleStore(s => s.canCoolantTemp);
   const storeFuel  = useUnifiedVehicleStore(s => s.fuel);
 
   const rpm =
-    obd.rpm != null && obd.rpm >= 0 ? obd.rpm
+    obdRpm != null && obdRpm >= 0 ? obdRpm
     : canRpm != null && canRpm >= 0 ? canRpm
     : null;
 
   const engineTemp =
-    obd.engineTemp != null && obd.engineTemp >= 0 ? obd.engineTemp
+    obdTemp != null && obdTemp >= 0 ? obdTemp
     : canCoolant != null && canCoolant > -40 && canCoolant < 200 ? canCoolant
     : null;
 
   const fuel =
-    obd.fuelLevel != null && obd.fuelLevel >= 0 ? obd.fuelLevel
+    obdFuel != null && obdFuel >= 0 ? obdFuel
     : storeFuel != null && storeFuel >= 0 ? storeFuel
     : null;
 
