@@ -7,7 +7,10 @@ import {
   Map as MapIcon, Music2, Lock, Plug, Fan, ChevronRight,
   CornerUpRight, Snowflake, BatteryCharging, Plus, Check, X,
   AlertTriangle, Camera, Route, ShieldAlert, Shield, Tv2, Zap, Wrench, Gauge,
+  FlaskConical,
 } from 'lucide-react';
+import { useCarosLabAllowed } from '../../hooks/useCarosLabAllowed';
+import { openCarosLab } from '../../platform/devtools/carosLabEntry';
 import { safeGetRaw, safeSetRaw } from '../../utils/safeStorage';
 import { useStore } from '../../store/useStore';
 import { useClock } from '../../hooks/useClock';
@@ -604,6 +607,9 @@ const ProDock = memo(function ProDock({ onOpenMap, onVoice, onOpenApps, onOpenSe
 }) {
   const p = usePal();
   const n = useNotificationState();
+  /* CAROS LAB — AppGrid kartı ve DockBar kısayoluyla AYNI fail-closed kapı
+     (DEBUG_ENABLED && canDebug); kapı kapalıyken hiç render edilmez. */
+  const carosLabAllowed = useCarosLabAllowed();
   const [pickerOpen, setPickerOpen] = useState(false);
   const [editMode, setEditMode] = useState(false);
   const [dockApps, setDockApps] = useState<string[]>(loadDockApps);
@@ -668,6 +674,10 @@ const ProDock = memo(function ProDock({ onOpenMap, onVoice, onOpenApps, onOpenSe
     { label: 'İklim', color: '#14b8a6', Icon: Wind, fn: () => openDrawer('climate') },
     { label: 'Menü', color: '#3b82f6', Icon: LayoutGrid, fn: onOpenApps },
     ...MORE_ITEMS.map(m => ({ label: m.label, color: m.color, Icon: m.Icon, fn: () => openDrawer(m.drawer) })),
+    // Dock'un EN SONUNDA → sürücü akışındaki kısayolların sırası değişmez.
+    ...(carosLabAllowed
+      ? [{ label: 'CAROS LAB', color: '#22d3ee', Icon: FlaskConical, fn: () => { openCarosLab(); } }]
+      : []),
   ];
   void onOpenSettings;
 

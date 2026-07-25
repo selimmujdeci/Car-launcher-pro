@@ -7,7 +7,10 @@ import {
   ChevronRight, Maximize2, CornerUpRight,
   Thermometer, BatteryCharging, Gauge, Fuel,
   Phone, Cloud, AlertTriangle, Camera, Route, ShieldAlert, Shield, Tv2, Zap,
+  FlaskConical,
 } from 'lucide-react';
+import { useCarosLabAllowed } from '../../hooks/useCarosLabAllowed';
+import { openCarosLab } from '../../platform/devtools/carosLabEntry';
 import { useStore } from '../../store/useStore';
 import { useDayNightAttr } from '../../hooks/useDayNightAttr';
 import { useMediaState, togglePlayPause, startMediaHub, stopMediaHub } from '../../platform/mediaService';
@@ -601,6 +604,9 @@ const ExpeditionDock = memo(function ExpeditionDock({ onOpenMap, onOpenApps, onO
   onOpenMap: () => void; onOpenApps: () => void; onOpenSettings: () => void; onVoice: () => void;
 }) {
   const p = usePal();
+  /* CAROS LAB — AppGrid kartı ve DockBar kısayoluyla AYNI fail-closed kapı
+     (DEBUG_ENABLED && canDebug); kapı kapalıyken hiç render edilmez. */
+  const carosLabAllowed = useCarosLabAllowed();
   // Expedition mantığı: iki BAĞIMSIZ sürekli-kaydırma bölgesi, ortada her zaman
   // görünür saat (kaydırma kabı DIŞINDA overlay). Sol/sağ grup serbest kaydırılır →
   // tüm fonksiyonlara ulaşılır (pager/snap-sayfa kilidi yok).
@@ -634,6 +640,9 @@ const ExpeditionDock = memo(function ExpeditionDock({ onOpenMap, onOpenApps, onO
           <DockPlate Icon={Shield}        label="Güvenlik" onClick={() => openDrawer('security')} />
           <DockPlate Icon={Tv2}           label="Eğlence"  onClick={() => openDrawer('entertainment')} />
           <DockPlate Icon={Zap}           label="Sport"    onClick={() => openDrawer('sport')} />
+          {carosLabAllowed && (
+            <DockPlate Icon={FlaskConical} label="CAROS LAB" onClick={() => { openCarosLab(); }} />
+          )}
         </DockScrollZone>
       </div>
 

@@ -6,7 +6,10 @@ import {
   ChevronRight, CornerUpRight,
   Fuel, Phone, Cloud, AlertTriangle, Camera, Route, ShieldAlert, Shield, Tv2, Zap,
   LayoutGrid, Wind, Crosshair, Mountain, Gauge, Thermometer, Battery, Droplet,
+  FlaskConical,
 } from 'lucide-react';
+import { useCarosLabAllowed } from '../../hooks/useCarosLabAllowed';
+import { openCarosLab } from '../../platform/devtools/carosLabEntry';
 import { useStore } from '../../store/useStore';
 import { useDayNightAttr } from '../../hooks/useDayNightAttr';
 import { useMediaState, togglePlayPause, startMediaHub, stopMediaHub } from '../../platform/mediaService';
@@ -745,6 +748,9 @@ const HzDock = memo(function HzDock({ onOpenMap, onOpenApps, onOpenSettings, onV
 }) {
   const p = usePalH();
   const n = useNotificationState();
+  /* CAROS LAB — AppGrid kartı ve DockBar kısayoluyla AYNI fail-closed kapı
+     (DEBUG_ENABLED && canDebug); kapı kapalıyken hiç render edilmez. */
+  const carosLabAllowed = useCarosLabAllowed();
   return (
     <div style={{ position: 'relative', flex: '0 0 auto', height: HZ_DOCK_H }}>
       <div style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, borderRadius: 17, background: p.metal, border: `1px solid ${p.edgeHi}`, boxShadow: `${p.elev}, ${p.bevel}`, display: 'flex', alignItems: 'stretch', padding: '0 10px' }}>
@@ -772,6 +778,9 @@ const HzDock = memo(function HzDock({ onOpenMap, onOpenApps, onOpenSettings, onV
           <HzDockBtn Icon={Shield}        cap="Güvenlik" onClick={() => openDrawer('security')} />
           <HzDockBtn Icon={Tv2}           cap="Eğlence"  onClick={() => openDrawer('entertainment')} />
           <HzDockBtn Icon={Zap}           cap="Sport"    onClick={() => openDrawer('sport')} />
+          {carosLabAllowed && (
+            <HzDockBtn Icon={FlaskConical} cap="CAROS LAB" onClick={() => { openCarosLab(); }} />
+          )}
         </HzDockScroll>
       </div>
       <HorizonClock onClick={onOpenApps} />
