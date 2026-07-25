@@ -85,7 +85,50 @@ export function registerTtsEndListener(cb: TtsEndListener): () => void {
   return () => { _ttsEndListeners.delete(cb); };
 }
 
+/* ── Aktif konuşma durumu ───────────────────────────────────
+ * SAHA HATASI (2026-07-24): "uzun muhabbetlerde Mavi cümlenin ortasında kesilip
+ * dinlemeye geçiyor (dut sesi)". KÖK: voiceService'in EMNİYET zamanlayıcıları
+ * (takip dinlemesi 20sn, sohbet-idle 15sn) TTS bitiş eventi hiç gelmezse akış
+ * asılı kalmasın diye konmuştu — ama "konuşma bitti mi?" diye SORMUYOR, sabit
+ * süreyle VARSAYIYORLARDI. 20 saniyeden uzun bir cevap (TR ~12-15 karakter/sn →
+ * ~250 karakterden sonrası) hâlâ konuşulurken zamanlayıcı ateşliyor,
+ * startListening() → ttsCancel() cevabı ortadan kesiyordu.
+ *
+ * Bu bayrak zamanlayıcılara GERÇEK konuşma durumunu verir: konuşma sürerken
+ * emniyet penceresi uzatılır, kesilmez. Emniyet rolü kaybolmaz — tavan (aşağıda)
+ * takılı kalmış bir konuşmayı yine de "bitmiş" sayar (fail-soft, CLAUDE.md §2).
+ *
+ * Süre MONOTONİK saatten (performance.now) — clock-jump güvenli (§4).
+ */
+
+/** Bir konuşma bundan uzun sürüyorsa motoru takılmış say (sonsuz uzatma YASAK). */
+const MAX_SPEAKING_MS = 120_000;
+/** Aktif konuşmanın başlangıcı (monotonik); 0 = konuşmuyor. */
+let _speakingSince = 0;
+
+function _nowMono(): number {
+  return typeof performance !== 'undefined' ? performance.now() : Date.now();
+}
+
+function _markSpeakingStart(): void { _speakingSince = _nowMono(); }
+function _markSpeakingEnd():   void { _speakingSince = 0; }
+
+/**
+ * Şu anda bir asistan/geri bildirim sözü seslendiriliyor mu?
+ *
+ * Tüm yolları (premium klip · Edge · online · native · web) kapsar: bayrak
+ * konuşma giriş noktalarında kurulur, `_notifyTtsEnd`/`ttsCancel` tek çıkışında
+ * sıfırlanır. Motor onDone'u hiç göndermezse `MAX_SPEAKING_MS` tavanı devreye
+ * girer → asla kalıcı "konuşuyor" durumunda kilitlenmez.
+ */
+export function isTtsSpeaking(): boolean {
+  if (_speakingSince === 0) return false;
+  if (_nowMono() - _speakingSince > MAX_SPEAKING_MS) { _speakingSince = 0; return false; }
+  return true;
+}
+
 function _notifyTtsEnd(): void {
+  _markSpeakingEnd();
   _ttsEndListeners.forEach((fn) => { try { fn(); } catch { /* dinleyici hatası TTS'i kırmasın */ } });
 }
 
@@ -151,6 +194,9 @@ export function ttsSpeak(text: string, opts: SpeakOptions = {}): void {
   }
   _lastSpokenText = text;
   _lastSpokenAt   = now;
+  // Bu noktadan sonra gerçekten bir söz üretilecek → emniyet zamanlayıcıları
+  // konuşma bitene kadar akışı kesmesin (isTtsSpeaking).
+  _markSpeakingStart();
 
   // ── Üst üste binme önleme (kuyruğa alınmadıkça) ──────────────────────────────
   // Yeni bir söz, uçuştaki HER kanalı (premium klip + tarayıcı SpeechSynthesis)
@@ -179,7 +225,7 @@ export function ttsSpeak(text: string, opts: SpeakOptions = {}): void {
   const segments: SpeechSegment[] = opts.segment === false
     ? [{ text: spoken, rate: baseRate, pitch: basePitch, pauseMs: 0 }]
     : segmentSpeech(spoken, { rate: baseRate, pitch: basePitch, lowEnd: isLowEndDevice() });
-  if (segments.length === 0) return;
+  if (segments.length === 0) { _markSpeakingEnd(); return; }
 
   // ── Native path: Android TextToSpeech (güvenilir, Türkçe destekli) ──
   if (_isNative) {
@@ -216,7 +262,7 @@ export function ttsSpeak(text: string, opts: SpeakOptions = {}): void {
   }
 
   // ── Web fallback: SpeechSynthesis API ──────────────────────────────
-  if (!isTTSAvailable()) return;
+  if (!isTTSAvailable()) { _markSpeakingEnd(); return; }
 
   if (!opts.queue) window.speechSynthesis.cancel();
 
@@ -258,6 +304,7 @@ export function ttsSpeak(text: string, opts: SpeakOptions = {}): void {
 /** Devam eden seslendirmeyi anında durdur */
 export function ttsCancel(): void {
   _speakSeq++;     // uçuştaki sözü bayatlat → kesilen bitiş follow-up/idle tetiklemesin
+  _markSpeakingEnd(); // konuşma kesildi: emniyet zamanlayıcıları artık uzatma yapmasın
   cancelClip();    // çalan premium klibi de durdur
   cancelEdge();    // uçuştaki/çalan Edge asistan sesini de durdur
   cancelOnline();  // uçuştaki/çalan online asistan sesini de durdur
@@ -385,6 +432,9 @@ export function speakAssistant(text: string, onEnd?: () => void): void {
   if (!_isNative && isTTSAvailable()) window.speechSynthesis.cancel();
   cancelClip(); cancelEdge(); cancelOnline();
   _speakSeq++;
+  // Asistan cevabı BAŞLIYOR — hangi tier'a düşerse düşsün (klip/Edge/online/native)
+  // emniyet zamanlayıcıları bu cevabı ortasından kesmesin (isTtsSpeaking).
+  _markSpeakingStart();
   const gen = ++_assistantGen; // bu cevabın nesli — supersede'de yedeğe düşmeyi engeller
 
   // 1) Sabit ifade → premium klip (online olsa bile: hızlı + maliyetsiz + offline)

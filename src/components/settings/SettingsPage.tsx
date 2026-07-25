@@ -361,14 +361,17 @@ const CompanionPanel = memo(function CompanionPanel() {
   const handleEnroll = useCallback(async () => {
     setEnrollState('recording');
     setEnrollHeard('');
-    const heard = await enrollWakeWord();          // Vosk'un DUYDUĞU (normalize)
-    if (!heard) { setEnrollState('fail'); return; }
+    // n-best (Vosk varyansı) + online'da bulut STT'nin doğru kelimesi — hepsi eklenir
+    // (doğru kelime başta). Tek örnek yerine çoklu hedef → OOV/uydurma kelime eşleşmesi
+    // çok daha güvenilir.
+    const heardList = await enrollWakeWord();
+    if (heardList.length === 0) { setEnrollState('fail'); return; }
     const next = sanitizeWakeEnrollment([
       ...(Array.isArray(settings.companionWakeEnrollment) ? settings.companionWakeEnrollment : []),
-      heard,
+      ...heardList,
     ]);
     updateSettings({ companionWakeEnrollment: next });
-    setEnrollHeard(heard);
+    setEnrollHeard(heardList[0]);
     setEnrollState('ok');
   }, [settings.companionWakeEnrollment, updateSettings]);
 

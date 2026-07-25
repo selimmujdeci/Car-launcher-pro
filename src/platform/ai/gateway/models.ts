@@ -50,18 +50,62 @@ export type AiModelAlias = keyof typeof AI_MODELS;
  * GEMINI DOĞRUDAN API model kimlikleri (OpenRouter slug'ı DEĞİL — Google
  * `generativelanguage` uç noktasının kendi adlandırması).
  *
- * ⚠️ `gemini-flash-latest` bu kod tabanında SAHA DOĞRULAMASIYLA seçilmiştir
- * (2026-07-03): yeni `AQ.` biçimli anahtarların ücretsiz katmanı SABİT ADLI
- * modellerde (ör. `gemini-2.0-flash`) anında 429 veriyor, `flash-latest` 200
- * dönüyor. `aiVoiceService`, `companionChatProvider` ve `semanticAiService`
- * aynı modeli kullanır — tek kaynak burasıdır.
+ * ⚠️ MODEL KOTASI MODEL-BAZLIDIR — bu yüzden TEK model asla yeterli değildir.
+ * SAHA 2026-07-24 (kullanıcının GERÇEK anahtarıyla cihazda ölçüldü):
+ *   gemini-flash-latest      → 429 (kota dolu — eski varsayılan, ARTIK ÇALIŞMIYOR)
+ *   gemini-2.0-flash         → 429
+ *   gemini-2.5-flash         → 200 OK   ~880ms
+ *   gemini-3.6-flash         → 200 OK  ~1330ms (en yeni)
+ *   gemini-flash-lite-latest → 200 OK   ~710ms (en hızlı)
+ *   gemini-3.5-flash         → 503 (geçici yoğunluk)
+ *   gemini-2.5-flash-lite    → 404 (emekli)
+ * AYNI ANAHTARLA bir model 429 verirken diğeri 200 döndüğü için, tek modele
+ * bağlı kalmak asistanı sebepsiz susturur (2026-07-03'te seçilen
+ * `gemini-flash-latest` bugün kotası dolu olan model). Çözüm: SIRALI ZİNCİR.
  */
 export const GEMINI_MODELS = {
-  flashLatest: 'gemini-flash-latest',
+  flash25:      'gemini-2.5-flash',
+  flash36:      'gemini-3.6-flash',
+  flashLite31:  'gemini-3.1-flash-lite',
+  flashLite:    'gemini-flash-lite-latest',
+  flashLatest:  'gemini-flash-latest',
 } as const satisfies Record<string, AiModelId>;
 
-/** Gemini sağlayıcısının varsayılan metin modeli. */
-export const DEFAULT_GEMINI_MODEL: AiModelId = GEMINI_MODELS.flashLatest;
+/**
+ * Gemini model TERCİH SIRASI — kota (429) / emekli model (404) / geçici
+ * yoğunluk (503) durumunda sıradaki DENENİR. Sıra: denge → en yeni → en hızlı.
+ * `flashLatest` en sonda bilinçli tutulur: bugün kotası dolu ama kota
+ * yenilendiğinde yeniden kullanılabilir olur (kalıcı olarak silmeye gerek yok).
+ */
+export const GEMINI_MODEL_CHAIN: readonly AiModelId[] = [
+  GEMINI_MODELS.flash25,
+  GEMINI_MODELS.flash36,
+  GEMINI_MODELS.flashLite31,  // saha: thinkingConfig İLE de 200 (kota ayrı havuz)
+  GEMINI_MODELS.flashLite,    // saha: yalnız thinkingConfig'SİZ 200 (aşağıdaki nota bak)
+  GEMINI_MODELS.flashLatest,
+];
+
+/**
+ * ⚠️ `thinkingConfig` UYUMU (SAHA 2026-07-24, cihazda ölçüldü): bazı "lite"
+ * modeller `generationConfig.thinkingConfig` alanını REDDEDER →
+ * `400 Request contains an invalid argument`. AYNI model bu alan olmadan 200
+ * döner (`gemini-flash-lite-latest`, `gemini-3.5-flash-lite`), buna karşılık
+ * `gemini-3.1-flash-lite` alanı KABUL eder. Model adından çıkarım YAPILAMAZ —
+ * bu yüzden çağıran taraf 400'de alanı düşürüp BİR KEZ yeniden dener
+ * (companionChatProvider). Liste tutmak yerine kendi kendini onaran davranış.
+ */
+
+/** Gemini sağlayıcısının varsayılan metin modeli (zincirin ilki). */
+export const DEFAULT_GEMINI_MODEL: AiModelId = GEMINI_MODEL_CHAIN[0] as AiModelId;
+
+/**
+ * Gemini sohbet uç noktası — model adı TEK KAYNAKTAN gelir.
+ * Model adının URL'e gömülü olması (4 ayrı dosyada) modelin emekliye
+ * ayrılmasını sessiz bir arızaya çeviriyordu; artık tek yerden üretilir.
+ */
+export function geminiChatEndpoint(model: AiModelId = DEFAULT_GEMINI_MODEL): string {
+  return `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
+}
 
 /**
  * VARSAYILAN MODEL — model değiştirmek için DEĞİŞTİRİLECEK TEK SATIR.
