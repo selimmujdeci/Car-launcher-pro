@@ -1,5 +1,6 @@
 import { memo } from 'react';
 import { useDebugStore } from '../../platform/debug';
+import { useHALStatusStore } from '../../platform/vehicleDataLayer/halStatusStore';
 
 function msAgo(ts: number) {
   if (!ts) return 'never';
@@ -42,11 +43,24 @@ function fmtBytes(bytes: number): string {
   return `${(bytes / (1_024 * 1_024 * 1_024)).toFixed(2)} GB`;
 }
 
+/** `null` = BİLİNMİYOR (ölçülmedi), `false` = ÖLÜ. İkisi ASLA karıştırılmaz. */
+function aliveLabel(v: boolean | null): string {
+  if (v === true)  return 'canlı';
+  if (v === false) return 'ÖLÜ';
+  return 'BİLİNMİYOR';
+}
+
 export const PerformanceView = memo(function PerformanceView() {
   const perf       = useDebugStore((s) => s.perf);
-  const fallback   = useDebugStore((s) => s.fallback);
   const errorLog   = useDebugStore((s) => s.errorLog);
   const cacheStats = useDebugStore((s) => s.cacheStats);
+  /* KAYNAK DURUMU (SAHA 2026-07-25): bu kart daha önce `debugStore.fallback`ten
+     besleniyordu — ama `dbgUpdateFallback`in ÇAĞIRANI YOK, alan ÖLÜ. Kart her koşulda
+     "stale / inactive / no" gösteriyordu: sahte bir durum beyanı. Artık GERÇEK kaynağa
+     (Vehicle HAL `sourceHealth`) bağlıdır ve üç durumu AYIRIR: canlı / ÖLÜ / BİLİNMİYOR.
+     `updatedAt` worker MONOTONİK saatidir (performance.now()) — duvar saatiyle yaş
+     hesaplamak YANLIŞ olur, o yüzden ham gösterilir. */
+  const sourceHealth = useHALStatusStore((s) => s.sourceHealth);
 
   return (
     <div className="flex flex-col gap-4 px-1">
@@ -116,30 +130,24 @@ export const PerformanceView = memo(function PerformanceView() {
         </div>
       </div>
 
-      {/* Fallback status */}
+      {/* Kaynak durumu — GERÇEK HAL sourceHealth (ölü `fallback` alanı DEĞİL) */}
       <div>
-        <p className="text-gray-500 text-xs font-mono uppercase mb-2">Source Status</p>
-        <div className="border border-gray-700 rounded px-3">
+        <p className="text-gray-500 text-xs font-mono uppercase mb-2">Kaynak Durumu</p>
+        <div className="border border-gray-700 rounded px-3" data-testid="perf-source-health">
+          <StatRow label="CAN" value={aliveLabel(sourceHealth.canAlive)} sub="HAL sourceHealth" />
+          <StatRow label="OBD" value={aliveLabel(sourceHealth.obdAlive)} sub="HAL sourceHealth" />
+          <StatRow label="GPS" value={aliveLabel(sourceHealth.gpsAlive)} sub="HAL sourceHealth" />
           <StatRow
-            label="CAN"
-            value={fallback.canAlive ? 'alive' : 'stale'}
-            sub={fallback.canLastSeen ? msAgo(fallback.canLastSeen) : 'never seen'}
-          />
-          <StatRow
-            label="OBD fallback"
-            value={fallback.obdFallbackActive ? 'ACTIVE' : 'inactive'}
-            sub={fallback.obdLastSeen ? msAgo(fallback.obdLastSeen) : 'never seen'}
-          />
-          <StatRow
-            label="GPS fallback"
-            value={fallback.gpsFallbackActive ? 'ACTIVE' : 'inactive'}
-            sub={fallback.gpsLastSeen ? msAgo(fallback.gpsLastSeen) : 'never seen'}
-          />
-          <StatRow
-            label="All dead"
-            value={fallback.allDead ? 'YES' : 'no'}
+            label="Son güncelleme"
+            value={sourceHealth.updatedAt === null ? 'BİLİNMİYOR' : String(Math.round(sourceHealth.updatedAt))}
+            sub="worker monotonik saati (ms) — duvar saati DEĞİL"
           />
         </div>
+        <p className="mt-1 text-[10px] leading-relaxed text-gray-500 font-mono">
+          Worker yalnız DURUM GEÇİŞİNDE mesaj yollar; hiç geçiş olmadıysa üç alan da
+          BİLİNMİYOR kalır — bu "ölü" DEMEK DEĞİLDİR. Ayrıntılı oturum kırılımı için
+          Oturum Denetçisi ekranını kullanın.
+        </p>
       </div>
 
       {/* Error log */}
