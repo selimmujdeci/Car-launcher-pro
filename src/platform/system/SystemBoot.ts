@@ -106,6 +106,62 @@ interface BackoffState {
   restartTimer: ReturnType<typeof setTimeout> | null;
   /** Max deneme sonrası soğuma timer'ı (yoksa null). */
   cooloffTimer: ReturnType<typeof setTimeout> | null;
+  /** TEŞHİS: bekleyen restart planının kurulma anı (Date.now(); yoksa null). */
+  scheduledAtMs: number | null;
+  /** TEŞHİS: bekleyen restart planının gecikmesi (ms; yoksa null). */
+  delayMs: number | null;
+}
+
+/* ── Yaşam döngüsü teşhisi (B-1) ──────────────────────────────────────────────
+   SALT GÖZLEM: aşağıdaki sayaçlar ve `getLifecycleDiagnostics()` hiçbir karar
+   veya kontrol akışında OKUNMAZ; backoff süreleri, kapı koşulları ve cleanup
+   sırası bunlardan ETKİLENMEZ. */
+
+/**
+ * Teşhis sayaçlarının DOYGUN üst sınırı. Sayaç bu değere ulaşınca artmaz →
+ * sınırsız büyüme / taşma yok.
+ */
+export const DIAG_COUNTER_MAX = 1_000_000;
+
+/** Doygun artış — `DIAG_COUNTER_MAX`'ta sabitlenir. */
+function _satInc(n: number): number {
+  return n >= DIAG_COUNTER_MAX ? DIAG_COUNTER_MAX : n + 1;
+}
+
+/** Bekleyen bir gecikmeli restart planının salt-okunur görünümü. */
+export interface PendingRestartDiagnostic {
+  /** Worker/servis anahtarı (ör. 'VehicleCompute'). Hassas veri içermez. */
+  readonly key: string;
+  /** Planın kurulduğu an (Date.now()). */
+  readonly scheduledAtMs: number;
+  /** Planlanan gecikme (ms). */
+  readonly delayMs: number;
+  /** Kalan süre (ms) — negatif olmaz (geçmişte kalmışsa 0). */
+  readonly remainingMs: number;
+}
+
+/** SystemBoot yaşam döngüsü teşhis anlık görüntüsü (salt-okunur, bounded). */
+export interface SystemBootLifecycleDiagnostics {
+  /** Yaşam döngüsü şu an aktif mi. */
+  readonly started: boolean;
+  /** Gerçekleşen start() sayısı (idempotent no-op çağrılar SAYILMAZ). */
+  readonly starts: number;
+  /** stop() çağrısı sayısı (her çağrı sayılır — stop() idempotent gövdedir). */
+  readonly stops: number;
+  /** PLANLANAN restart sayısı (backoff timer'ı kurulan). */
+  readonly restartAttempts: number;
+  /** TAMAMLANAN restart sayısı (bilinen servis yeniden başlatıldı). */
+  readonly restartSuccesses: number;
+  /** İki yaşam döngüsü kapısı tarafından REDDEDİLEN restart sayısı. */
+  readonly rejectedPostStopRestarts: number;
+  /** LIFO cleanup yığınındaki kayıt sayısı. */
+  readonly activeCleanupCount: number;
+  /** İsimli cleanup anahtarları (servis adları; hassas veri yok). */
+  readonly namedCleanupKeys: readonly string[];
+  /** Bekleyen restart planları — uzunluk kayıtlı backoff durumu sayısını aşamaz. */
+  readonly pendingRestarts: readonly PendingRestartDiagnostic[];
+  /** Sayaç doygunluk sınırı (tüketici doygunluğu ayırt edebilsin). */
+  readonly counterMax: number;
 }
 
 /** Kısmi kayıt log satırı */
@@ -134,6 +190,15 @@ class SystemBoot {
    * servisler anında temizlenir (zombi servis önleme).
    */
   private _bootAbort: AbortController | null = null;
+
+  /* ── Yaşam döngüsü teşhis sayaçları (B-1 · SALT GÖZLEM) ─────────────────────
+     Hiçbir karar/kontrol akışı bu alanları OKUMAZ. Hepsi `_satInc` ile doygun
+     artar; `getLifecycleDiagnostics()` dışında tüketicisi yoktur. */
+  private _diagStarts           = 0;
+  private _diagStops            = 0;
+  private _diagRestartAttempts  = 0;
+  private _diagRestartSuccesses = 0;
+  private _diagRejectedPostStop = 0;
 
   /** Boot şu an iptal edilmiş mi? */
   private get _aborted(): boolean {
@@ -176,6 +241,53 @@ class SystemBoot {
   private _clearBackoffTimers(state: BackoffState): void {
     if (state.restartTimer !== null) { clearTimeout(state.restartTimer); state.restartTimer = null; }
     if (state.cooloffTimer !== null) { clearTimeout(state.cooloffTimer); state.cooloffTimer = null; }
+    // TEŞHİS alanları da bırakılır (bekleyen plan kalmadı) — davranışsal etkisi YOK.
+    state.scheduledAtMs = null;
+    state.delayMs       = null;
+  }
+
+  /* ══════════════════════════════════════════════════════════════
+     Yaşam döngüsü teşhisi (B-1) — SALT-OKUMA
+  ══════════════════════════════════════════════════════════════ */
+
+  /**
+   * Yaşam döngüsü sayaçlarının ve bekleyen restart planlarının anlık görüntüsü.
+   *
+   * YAN ETKİSİZ: hiçbir alanı değiştirmez, timer kurmaz/iptal etmez, servis
+   *   başlatmaz/durdurmaz; yalnız mevcut durumu okur ve DONDURULMUŞ kopya döner.
+   *   Tekrarlanan çağrılar durumu MUTASYONA UĞRATMAZ.
+   * BOUNDED: `pendingRestarts` uzunluğu kayıtlı backoff durumu sayısını AŞAMAZ;
+   *   `namedCleanupKeys` isimli cleanup haritası boyutundadır.
+   * GİZLİLİK: yalnız servis/worker anahtarları + sayılar. VIN · GPS · OBD verisi ·
+   *   kimlik bilgisi · kullanıcı verisi İÇERMEZ.
+   */
+  getLifecycleDiagnostics(): SystemBootLifecycleDiagnostics {
+    const now = Date.now();
+    const pending: PendingRestartDiagnostic[] = [];
+    this._backoffState.forEach((s, key) => {
+      // Yalnız GERÇEKTEN bekleyen plan raporlanır (timer + teşhis alanları dolu).
+      if (s.restartTimer === null || s.scheduledAtMs === null || s.delayMs === null) return;
+      const remaining = s.scheduledAtMs + s.delayMs - now;
+      pending.push(Object.freeze({
+        key,
+        scheduledAtMs: s.scheduledAtMs,
+        delayMs:       s.delayMs,
+        remainingMs:   remaining > 0 ? remaining : 0,
+      }));
+    });
+
+    return Object.freeze({
+      started:                  this._started,
+      starts:                   this._diagStarts,
+      stops:                    this._diagStops,
+      restartAttempts:          this._diagRestartAttempts,
+      restartSuccesses:         this._diagRestartSuccesses,
+      rejectedPostStopRestarts: this._diagRejectedPostStop,
+      activeCleanupCount:       this._cleanups.length,
+      namedCleanupKeys:         Object.freeze([...this._namedCleanups.keys()]),
+      pendingRestarts:          Object.freeze(pending),
+      counterMax:               DIAG_COUNTER_MAX,
+    });
   }
 
   /**
@@ -195,7 +307,8 @@ class SystemBoot {
     const BACKOFF_MAX_MS  = 160_000;      // üst limit ~2.5 dakika
     const COOLOFF_MS      = 5 * 60_000;  // max limit sonrası 5 dk bekleme
 
-    const state = this._backoffState.get(workerKey) ?? { count: 0, restartTimer: null, cooloffTimer: null };
+    const state = this._backoffState.get(workerKey)
+      ?? { count: 0, restartTimer: null, cooloffTimer: null, scheduledAtMs: null, delayMs: null };
 
     // Zaten cool-off dönemindeyse — reset öncesi gelen crash'i yok say
     if (state.cooloffTimer) {
@@ -216,15 +329,23 @@ class SystemBoot {
       if (state.restartTimer !== null) clearTimeout(state.restartTimer);
       state.restartTimer = setTimeout(() => {
         // Önce kendi referansını bırak: geri çağrı çalışırken durumda bayat handle kalmaz.
-        state.restartTimer = null;
+        state.restartTimer  = null;
+        state.scheduledAtMs = null;   // TEŞHİS: plan artık bekliyor değil
+        state.delayMs       = null;
         void this.restartService(restartServiceName).catch((e) => logError(`SystemBoot:restart:${restartServiceName}`, e));
       }, delayMs);
+      // TEŞHİS (yan etkisiz gözlem): planlanan restart + bekleyen plan künyesi.
+      state.scheduledAtMs      = Date.now();
+      state.delayMs            = delayMs;
+      this._diagRestartAttempts = _satInc(this._diagRestartAttempts);
       this._backoffState.set(workerKey, state);
     } else {
       _log(`  › ${workerKey} max restart limitine ulaştı — ${COOLOFF_MS / 60_000}dk cool-off başlatıldı`);
       state.cooloffTimer = setTimeout(() => {
         _log(`  › ${workerKey} cool-off bitti — sayaç sıfırlandı`);
-        this._backoffState.set(workerKey, { count: 0, restartTimer: null, cooloffTimer: null });
+        this._backoffState.set(workerKey, {
+          count: 0, restartTimer: null, cooloffTimer: null, scheduledAtMs: null, delayMs: null,
+        });
       }, COOLOFF_MS);
       this._backoffState.set(workerKey, state);
     }
@@ -240,6 +361,7 @@ class SystemBoot {
     // geri çağrısı, HealthMonitor veya worker onerror yolu stop() sonrası buraya
     // ulaşabilir; kapanmış bir sistemde yeni servis doğurmak zombi üretir.
     if (!this._started || this._aborted) {
+      this._diagRejectedPostStop = _satInc(this._diagRejectedPostStop);   // TEŞHİS
       _log(`Restart reddedildi (SystemBoot aktif değil): ${name}`);
       return;
     }
@@ -266,6 +388,7 @@ class SystemBoot {
     // zaten çalıştı ve kayıtlardan düştü; burada erken çıkmak servisi KAPALI bırakır
     // (doğru davranış: sistem kapanıyor).
     if (!this._started || this._aborted) {
+      this._diagRejectedPostStop = _satInc(this._diagRejectedPostStop);   // TEŞHİS
       _log(`  › Restart iptal edildi (settle sırasında kapanış): ${name}`);
       return;
     }
@@ -280,18 +403,21 @@ class SystemBoot {
           this._cleanups.splice(_insertIdx, 0, newCleanup);
           this._namedCleanups.set('VehicleDataLayer', newCleanup);
         }
+        this._diagRestartSuccesses = _satInc(this._diagRestartSuccesses);   // TEŞHİS
         _log(`  › VehicleDataLayer restarted`);
         break;
       }
       case 'VisionCompute': {
         const { restartVisionWorker } = await import('../vision/visionCore');
         restartVisionWorker();
+        this._diagRestartSuccesses = _satInc(this._diagRestartSuccesses);   // TEŞHİS
         _log(`  › VisionCompute worker restarted`);
         break;
       }
       case 'NavigationCompute': {
         const { restartNavWorker } = await import('../offlineRoutingService');
         restartNavWorker();
+        this._diagRestartSuccesses = _satInc(this._diagRestartSuccesses);   // TEŞHİS
         _log(`  › NavigationCompute worker restarted`);
         break;
       }
@@ -397,6 +523,7 @@ class SystemBoot {
   async start(): Promise<void> {
     if (this._started) return;
     this._started = true;
+    this._diagStarts = _satInc(this._diagStarts);   // TEŞHİS (idempotent no-op sayılmaz)
     this._bootAbort = new AbortController();
 
     // Boot Zaman Çizelgesi (tanı genişliği) — yalnız ölçüm, dalga sırası/mantığı DEĞİŞMEZ.
@@ -452,6 +579,7 @@ class SystemBoot {
    * start() sonrasında yeniden çağrılabilir (stop → start döngüsü güvenli).
    */
   stop(): void {
+    this._diagStops = _satInc(this._diagStops);   // TEŞHİS (her çağrı sayılır)
     _log('Stopping all services (LIFO)...');
     // platform.runtime.stopped — LIFO cleanup'lardan (ve bus dispose'undan) ÖNCE, BİR KEZ.
     // "started" hiç yayınlanmadıysa (hiç başlamamış / yarım boot) SESSİZ kalır; tekrar stop()
