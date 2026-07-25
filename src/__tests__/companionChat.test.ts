@@ -319,14 +319,16 @@ describe('tryCompanionChat — AI-first router ucu', () => {
 
     await tryCompanionChat('nasılsın', { ...GEMINI_OPTS, isDriving: true });
     const body = lastRequestBody(fetchSpy);
-    expect(body.generationConfig.maxOutputTokens).toBe(100);        // 60 cevapları ortadan kesiyordu
+    // SAHA 2026-07-24: sürüş bütçesi 100→220 (yarım cümle üretmeyecek kadar);
+    // sürüş KISALIK KURALI (2-3 cümle) bilinçli olarak KORUNUR — ISO 15008.
+    expect(body.generationConfig.maxOutputTokens).toBe(220);
     const prompt = body.system_instruction.parts[0].text;
     expect(prompt).toContain('2-3 kısa cümle');
     expect(prompt).not.toContain('8 kelime');                       // robotik sınır kaldırıldı
     expect(prompt).toContain('Doğal ve akıcı konuş');
   });
 
-  it('park halinde: 3 doğal cümleye izin + hitap her cümlede tekrarlanmaz kuralı', async () => {
+  it('park halinde: uzunluk SORUYA uyarlanır (sabit cümle tavanı yok) + hitap her cümlede tekrarlanmaz', async () => {
     setupCompanion(true);
     useStore.getState().updateSettings({ companionUserCallsign: 'Selim' });
     const fetchSpy = mockGeminiOk();
@@ -334,9 +336,14 @@ describe('tryCompanionChat — AI-first router ucu', () => {
 
     await tryCompanionChat('nasılsın', GEMINI_OPTS);
     const body = lastRequestBody(fetchSpy);
-    expect(body.generationConfig.maxOutputTokens).toBe(160);
+    // SAHA 2026-07-24: park bütçesi 160→900. Eski 160 token uzun anlatımı
+    // `finishReason=MAX_TOKENS` ile cümle ortasında kesiyordu (cihazda ölçüldü).
+    expect(body.generationConfig.maxOutputTokens).toBe(900);
     const prompt = body.system_instruction.parts[0].text;
-    expect(prompt).toContain('3 doğal cümle');
+    // Sabit "en fazla 3 cümle" tavanı KALDIRILDI — uzunluk soruya uyar.
+    expect(prompt).not.toContain('en fazla 3 doğal cümleyle');
+    expect(prompt).toContain('SORUYA göre ayarla');
+    expect(prompt).toContain('yarıda bırakma');
     expect(prompt).toContain('her cümlede kullanma');               // hitap tekrarı engeli
   });
 

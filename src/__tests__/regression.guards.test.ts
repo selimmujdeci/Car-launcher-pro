@@ -561,6 +561,36 @@ describe('Grounding hatası beyin devre kesicisini tetiklemez kilidi', () => {
     expect(src, 'gemini dalında threw ayrımı yok — throw ile HTTP yanıtı karışır').toMatch(/if \(!threw\) sawHttpResponse = true/);
   });
 
+  it('YAPISAL: cevap uzunluğu park halinde SABİT 300 karakter/220 token ile kesilmez', () => {
+    // SAHA 2026-07-24 ("uzun anlatımlar yarıda kesiliyor"): İKİ ayrı tavan vardı.
+    // (1) maxOutputTokens=220 → cihazda ÖLÇÜLDÜ: `finishReason=MAX_TOKENS`, metin
+    //     "…5. İç Anadolu Bölgesi:" diye CÜMLE ORTASINDA bitiyor (bazen metin BOŞ);
+    //     1200 token ile aynı soru `finishReason=STOP` + 970-1058 karakter TAM cevap.
+    // (2) Metin ayrıca 300 karakterde kırpılıyordu (`flat.slice(0,297)+'...'`) →
+    //     token açılsa bile cevap üçte birine iniyordu.
+    // SÜRÜŞ tavanları KORUNUR (ISO 15008 dikkat bütçesi) — kilit yalnız PARK'ı savunur.
+    expect(src, 'ANSWER_TOKENS tek kapısı kaldırılmış — token bütçeleri yine dağınık sabit').toMatch(/ANSWER_TOKENS/);
+    expect(src, 'ANSWER_CHAR_LIMIT kaldırılmış — seslendirme tavanı yine sabit 300').toMatch(/ANSWER_CHAR_LIMIT/);
+    // Sabit 300/297 kırpma deseni GERİ GELMEMELİ.
+    expect(src, 'sabit 297 karakter kırpması geri gelmiş — park halinde uzun anlatım yine üçte birine iner').not.toMatch(/slice\(0,\s*297\)/);
+    // Park bütçeleri sürüş bütçelerinden belirgin BÜYÜK olmalı.
+    const tok = src.match(/const ANSWER_TOKENS = \{([\s\S]*?)\n\} as const;/);
+    expect(tok, 'ANSWER_TOKENS tanımı bulunamadı').toBeTruthy();
+    const pairs = [...tok![1].matchAll(/driving:\s*(\d+),\s*parked:\s*(\d+)/g)];
+    expect(pairs.length, 'ANSWER_TOKENS içinde driving/parked çifti yok').toBeGreaterThanOrEqual(4);
+    for (const p of pairs) {
+      expect(Number(p[2]), `park token bütçesi (${p[2]}) uzun anlatıma yetmiyor — MAX_TOKENS ile yarıda keser`).toBeGreaterThanOrEqual(800);
+      expect(Number(p[2])).toBeGreaterThan(Number(p[1]));
+    }
+    const chars = src.match(/const ANSWER_CHAR_LIMIT = \{ driving: (\d+), parked: (\d+) \}/);
+    expect(chars, 'ANSWER_CHAR_LIMIT tanımı bulunamadı').toBeTruthy();
+    expect(Number(chars![1]), 'sürüş karakter tavanı gevşetilmiş — dikkat bütçesi (ISO 15008) ihlali').toBeLessThanOrEqual(400);
+    expect(Number(chars![2]), 'park karakter tavanı hâlâ düşük — uzun anlatım kırpılır').toBeGreaterThanOrEqual(1500);
+    // Beyin JSON yolu da bağlama duyarlı tavanı KULLANMALI (en kritik yol).
+    expect(src, 'parseBrainJson bağlam almıyor — beyin cevabı yine sabit tavanla kırpılır').toMatch(/function parseBrainJson\(raw: string, isDriving/);
+    expect(src, 'beyin cevabı trimForSpeech\'ten geçmiyor').toMatch(/response: trimForSpeech\(obj\.say, isDriving\)/);
+  });
+
   it('YAPISAL: Gemini model adı URL\'e GÖMÜLMEZ + model zinciri korunur', () => {
     // SAHA 2026-07-24 (cihazda gerçek anahtarla ölçüldü): model adı 4 AYRI dosyada
     // URL'e gömülüydü (`.../models/gemini-flash-latest:generateContent`). O model

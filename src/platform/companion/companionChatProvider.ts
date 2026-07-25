@@ -50,6 +50,73 @@ import { errorKindFromException } from '../ai/aiOfflineReason';
 const NO_NET_EVIDENCE_KINDS: ReadonlySet<string> = new Set([
   'no_provider', 'no_api_key', 'offline', 'circuit_open', 'network', 'timeout', 'aborted',
 ]);
+
+/**
+ * CEVAP TOKEN BÜTÇELERİ — "uzun anlatım yarıda kesiliyor" KÖKÜ (SAHA 2026-07-24).
+ *
+ * Cihazda kullanıcının anahtarıyla ÖLÇÜLDÜ (`gemini-3.1-flash-lite`, "Türkiye'nin
+ * coğrafi bölgelerini detaylıca anlat"):
+ *   maxOutputTokens=220  → `finishReason=MAX_TOKENS`, metin "…5. İç Anadolu Bölgesi:"
+ *                          diye CÜMLE ORTASINDA bitiyor (bir ölçümde metin BOŞ bile geldi)
+ *   maxOutputTokens=1200 → `finishReason=STOP`, 970-1058 karakter TAM cevap
+ *
+ * Yani kesilme TTS'te DEĞİL, cevabın KENDİSİNDEYDİ: model bütçeyi doldurup
+ * susuyor, TTS o yarım metni sonuna kadar okuyup bitiriyordu. Kullanıcı bunu
+ * "Mavi cümlenin ortasında kesiliyor" olarak yaşıyordu.
+ *
+ * SÜRÜŞ değerleri bilinçli olarak DÜŞÜK ama "yarım cümle" üretmeyecek kadar
+ * geniş: sürüşte kısalık bir güvenlik tercihidir (ISO 15008 dikkat bütçesi),
+ * ancak yarıda kesilen cümle hem güvensiz hem de tekrar sordurur.
+ */
+const ANSWER_TOKENS = {
+  /** Tek-beyin karar/sohbet cevabı (JSON modu). */
+  brain:    { driving: 320, parked: 1200 },
+  /** Klasik companion sohbeti (serbest metin). */
+  chat:     { driving: 220, parked:  900 },
+  /** Google Search destekli güncel-bilgi cevabı. */
+  grounded: { driving: 300, parked:  900 },
+  /** Arama sonuçlarından sentezlenen cevap. */
+  synth:    { driving: 260, parked:  800 },
+} as const;
+
+/** Bağlama göre token bütçesi (tek kapı — dağınık sabit YOK). */
+function answerTokens(kind: keyof typeof ANSWER_TOKENS, isDriving: boolean): number {
+  const b = ANSWER_TOKENS[kind];
+  return isDriving ? b.driving : b.parked;
+}
+
+/**
+ * SESLENDİRME KARAKTER TAVANI — token bütçesinin İKİZ kusuru (SAHA 2026-07-24).
+ *
+ * Token bütçesi açılsa bile cevap metni burada **300 karakterde** kırpılıyordu
+ * (sabit 297 karakter + "..." kırpması). Ölçülen 970-1058 karakterlik TAM cevap
+ * üçte birine iniyordu → kullanıcı yine "yarıda kesildi" yaşıyordu.
+ *
+ * SÜRÜŞTE 300 KORUNUR: sürücünün dikkat bütçesi sınırlıdır (§2.1) — uzun
+ * anlatım sürüş güvenliğine aykırıdır. PARK halinde böyle bir gerekçe YOKTUR;
+ * kullanıcı bilinçli olarak detaylı anlatım istiyor.
+ */
+const ANSWER_CHAR_LIMIT = { driving: 300, parked: 2400 } as const;
+
+function answerCharLimit(isDriving: boolean): number {
+  return isDriving ? ANSWER_CHAR_LIMIT.driving : ANSWER_CHAR_LIMIT.parked;
+}
+
+/**
+ * Seslendirilecek metni tek satıra indirir ve tavanı aşarsa CÜMLE SINIRINDA
+ * kırpar (yarıda kesilen cümle robotik algı yaratır). Tavan bağlama duyarlıdır.
+ */
+function trimForSpeech(raw: string, isDriving: boolean): string {
+  const flat = raw.replace(/\s+/g, ' ').trim();
+  const limit = answerCharLimit(isDriving);
+  if (flat.length <= limit) return flat;
+  const head = flat.slice(0, limit - 3);
+  const lastSentenceEnd = Math.max(
+    head.lastIndexOf('. '), head.lastIndexOf('! '), head.lastIndexOf('? '),
+  );
+  // Cümle sınırı çok başta kalıyorsa kırpma yerine "..." ile bitir.
+  return lastSentenceEnd > limit * 0.4 ? head.slice(0, lastSentenceEnd + 1) : `${head}...`;
+}
 import { geminiChatEndpoint, GEMINI_MODEL_CHAIN } from '../ai/gateway/models';
 import { tavilySearch } from '../webSearchService';
 import { getWeatherNarrative, refreshWeather, onWeatherState, weatherQueryNamesCity, type WeatherState } from '../weatherService';
@@ -466,7 +533,10 @@ function buildCompanionSystemPrompt(id: CompanionIdentity, isDriving: boolean, v
   // "tek cümle robot" değil (ISO 15008 dikkat sınırı korunur).
   const driving = isDriving
     ? 'Sürücü ŞU AN ARAÇ KULLANIYOR: kısa tut — çoğu zaman birkaç kelimelik doğal tepki yeter ("Tamam, hallettim."), gerekirse en fazla 2-3 kısa cümle. Dikkatini dağıtma.'
-    : 'Araç PARK HALİNDE — acele yok: en fazla 3 doğal cümleyle, ama daha sohbet odaklı, derinlemesine ve içten konuşabilirsin.';
+    // PARK: sabit cümle tavanı KALDIRILDI (SAHA 2026-07-24 — kullanıcı "uzun
+    // anlatımlar yarıda kesiliyor"). Uzunluk artık SORUYA uyar: sohbet kısa,
+    // "anlat/açıkla/detaylıca" gibi istekler kapsamlı. Sürüş kısıtı DEĞİŞMEDİ.
+    : 'Araç PARK HALİNDE — acele yok: sohbet odaklı, derinlemesine ve içten konuş. Uzunluğu SORUYA göre ayarla: sıradan sohbette 2-4 cümle yeter, ama kullanıcı açıkça anlatım/açıklama/detay isterse (ör. "anlat", "açıkla", "detaylıca") konuyu BÖLMEDEN, baştan sona kapsamlı anlat — yarıda bırakma.';
   const lines = [
     `Sen "${id.assistantName}" adında, araçta sürücüye eşlik eden Türkçe konuşan bir yol arkadaşısın — bu arabanın ruhusun, bir çağrı merkezi robotu değilsin.`,
     'Doğal ve akıcı konuş; robotik, kalıp ya da tek kelimelik cevaplar verme.',
@@ -521,9 +591,9 @@ async function askCompanionGemini(
     contents,
     generationConfig: {
       temperature:     0.7,
-      // 2-3 doğal cümleye alan tanır (eski 60/120 cevapları ortadan kesiyordu);
-      // üst sınır yine TTS kırpma katmanıyla (aşağıda) sigortalı.
-      maxOutputTokens: isDriving ? 100 : 160,
+      // Bütçe tek kapıdan (ANSWER_TOKENS) — eski 100/160 uzun anlatımı cümle
+      // ortasında kesiyordu (SAHA 2026-07-24, finishReason=MAX_TOKENS).
+      maxOutputTokens: answerTokens('chat', isDriving),
       // flash-latest düşünen model: düşünme kapalı — küçük bütçeyi yemesin,
       // araç içi gecikme kısa kalsın (SAHA 2026-07-03).
       thinkingConfig:  { thinkingBudget: 0 },
@@ -550,15 +620,9 @@ async function askCompanionGemini(
   };
   const raw = (data.candidates?.[0]?.content?.parts?.[0]?.text ?? '').trim();
   if (!raw) return null;
-  // TTS güvenliği: tek satıra indir, aşırı uzunsa kırp (dikkat dağıtma — §2.1).
-  // Kırpma cümle sınırında yapılır — yarıda kesilen cümle robotik algı yaratır.
-  const flat = raw.replace(/\s+/g, ' ').trim();
-  if (flat.length <= 300) return flat;
-  const head = flat.slice(0, 297);
-  const lastSentenceEnd = Math.max(
-    head.lastIndexOf('. '), head.lastIndexOf('! '), head.lastIndexOf('? '),
-  );
-  return lastSentenceEnd > 120 ? head.slice(0, lastSentenceEnd + 1) : `${head}...`;
+  // TTS güvenliği: tek satıra indir, tavanı aşarsa CÜMLE SINIRINDA kırp.
+  // Tavan bağlama duyarlı (sürüş 300 / park 2400) — bkz. ANSWER_CHAR_LIMIT.
+  return trimForSpeech(raw, isDriving);
 }
 
 /* ── Groq sohbet çağrısı (OpenAI-uyumlu) ───────────────────── */
@@ -615,14 +679,8 @@ async function askCompanionGroq(
   const data = await resp.json() as { choices?: { message?: { content?: string } }[] };
   const raw = (data.choices?.[0]?.message?.content ?? '').trim();
   if (!raw) return null;
-  // TTS güvenliği: tek satıra indir, aşırı uzunsa cümle sınırında kırp.
-  const flat = raw.replace(/\s+/g, ' ').trim();
-  if (flat.length <= 300) return flat;
-  const head = flat.slice(0, 297);
-  const lastSentenceEnd = Math.max(
-    head.lastIndexOf('. '), head.lastIndexOf('! '), head.lastIndexOf('? '),
-  );
-  return lastSentenceEnd > 120 ? head.slice(0, lastSentenceEnd + 1) : `${head}...`;
+  // TTS güvenliği: tek satıra indir, tavanı aşarsa cümle sınırında kırp (bağlama duyarlı).
+  return trimForSpeech(raw, isDriving);
 }
 
 /* ── Hava sorusu — beyin öncesi/web-kesişimi kısayolu ─────────
@@ -719,7 +777,7 @@ async function askCompanionBrainGroq(
   const raw  = (data.choices?.[0]?.message?.content ?? '').trim();
   // Groq'tan gelen type:"web" kararı: canlı internet erişimi yok.
   // Kişiliğe uygun doğal bir sohbet yanıtına dönüştür (No Dead-Ends koruması).
-  const parsed = parseBrainJson(raw);
+  const parsed = parseBrainJson(raw, isDriving);
   if (parsed && parsed.kind === 'web') {
     // Hava sorgusu mu? → arama harcamadan ÖNCE yerel hava servisi denenir
     // (Groq'un "canlı bilgilere bakamıyorum" demesi böyle önlenir — hava zaten
@@ -816,7 +874,7 @@ async function askCompanionBrainGateway(
     history:     historyToOpenAI(),
     user:        text,
     timeoutMs:   decisionMs,
-    maxTokens:   isDriving ? 160 : 220,
+    maxTokens:   answerTokens('brain', isDriving),
     temperature: 0.4,
   };
 
@@ -831,7 +889,7 @@ async function askCompanionBrainGateway(
   // errorKind yukarı taşınır: kesici bütçe timeout'unu gerçek ulaşılamazlıktan
   // ayrı ve yüksek eşikte sayar (aiHealth) — gateway yolu da bu ayrımdan yararlanır.
   if (!outcome.ok) return { result: null, netFailure: outcome.netFailure, errorKind: outcome.errorKind };
-  return { result: parseBrainJson(outcome.text), netFailure: false, errorKind: 'none' };
+  return { result: parseBrainJson(outcome.text, isDriving), netFailure: false, errorKind: 'none' };
 }
 
 /**
@@ -895,7 +953,7 @@ async function groundGroqWithTavily(
     `Sen ${id.assistantName} adlı araç asistanısın. Aşağıdaki GÜNCEL web arama sonuçlarına ` +
     `DAYANARAK kullanıcının sorusunu kısa, doğal Türkçe ile yanıtla. ` +
     `Sadece sonuçlardaki bilgiyi kullan, uydurma. Emin değilsen belirt. ` +
-    `${isDriving ? 'Sürüş halinde: 1-2 cümle, çok kısa.' : 'En fazla 3-4 cümle.'} ` +
+    `${isDriving ? 'Sürüş halinde: 1-2 cümle, çok kısa.' : 'Sıradan sohbette 2-4 cümle; detay/anlatım istenirse konuyu yarıda bırakmadan kapsamlı anlat.'} ` +
     `Kaynak numarası/URL okuma.`;
 
   const body = {
@@ -980,7 +1038,7 @@ async function askCompanionBrainHaiku(
 
   const data = await resp.json() as { content?: { type?: string; text?: string }[] };
   const raw  = (data.content?.find((c) => c.type === 'text')?.text ?? '').trim();
-  const parsed = parseBrainJson(raw);
+  const parsed = parseBrainJson(raw, isDriving);
   if (parsed && parsed.kind === 'web') {
     // Hava sorgusu mu? → yerel hava servisi aramadan ÖNCE denenir (bkz. Groq).
     const localWeather = await tryLocalWeatherAnswer(parsed.query, text);
@@ -1052,7 +1110,7 @@ async function groundHaikuWithTavily(
     `Sen ${id.assistantName} adlı araç asistanısın. Aşağıdaki GÜNCEL web arama sonuçlarına ` +
     `DAYANARAK kullanıcının sorusunu kısa, doğal Türkçe ile yanıtla. ` +
     `Sadece sonuçlardaki bilgiyi kullan, uydurma. Emin değilsen belirt. ` +
-    `${isDriving ? 'Sürüş halinde: 1-2 cümle, çok kısa.' : 'En fazla 3-4 cümle.'} ` +
+    `${isDriving ? 'Sürüş halinde: 1-2 cümle, çok kısa.' : 'Sıradan sohbette 2-4 cümle; detay/anlatım istenirse konuyu yarıda bırakmadan kapsamlı anlat.'} ` +
     `Kaynak numarası/URL okuma.`;
 
   const body = {
@@ -1376,7 +1434,12 @@ interface BrainJson {
   say?:         string;
 }
 
-function parseBrainJson(raw: string): BrainRaw | null {
+/**
+ * @param isDriving Seslendirme karakter tavanını belirler (sürüş 300 / park 2400).
+ *   SAHA 2026-07-24: sabit 300 tavanı park halinde de uygulanıyordu → 970-1058
+ *   karakterlik TAM cevaplar üçte birine kırpılıp "..." ile bitiyordu.
+ */
+function parseBrainJson(raw: string, isDriving = false): BrainRaw | null {
   try {
     const cleaned = raw.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/\s*```$/i, '').trim();
     const obj = JSON.parse(cleaned) as BrainJson;
@@ -1384,8 +1447,7 @@ function parseBrainJson(raw: string): BrainRaw | null {
       return { kind: 'web', query: obj.query.replace(/\s+/g, ' ').trim().slice(0, 200) };
     }
     if (obj.type === 'chat' && typeof obj.say === 'string' && obj.say.trim()) {
-      const flat = obj.say.replace(/\s+/g, ' ').trim();
-      return { kind: 'chat', response: flat.length > 300 ? `${flat.slice(0, 297)}...` : flat, route: 'companion_gemini' };
+      return { kind: 'chat', response: trimForSpeech(obj.say, isDriving), route: 'companion_gemini' };
     }
     if (obj.type === 'action' && typeof obj.intent === 'string' && BRAIN_INTENTS.has(obj.intent)) {
       return {
@@ -1447,7 +1509,7 @@ async function askCompanionBrain(
     generationConfig: {
       responseMimeType: 'application/json',
       temperature:      0.4,
-      maxOutputTokens:  isDriving ? 160 : 220,
+      maxOutputTokens:  answerTokens('brain', isDriving),
       // düşünen model bütçe koruması (SAHA 2026-07-03)
       ...(withThinking ? { thinkingConfig: { thinkingBudget: 0 } } : {}),
     },
@@ -1495,7 +1557,7 @@ async function askCompanionBrain(
   if (!resp.ok) { await _noteGeminiAuthFailure(resp); return null; }
   _geminiKeyInvalidAtMs = 0; // Gemini 200 döndü — anahtar geçerli, işaret temizlenir
   const data = await resp.json() as { candidates?: { content?: { parts?: { text?: string }[] } }[] };
-  return parseBrainJson((data.candidates?.[0]?.content?.parts?.[0]?.text ?? '').trim());
+  return parseBrainJson((data.candidates?.[0]?.content?.parts?.[0]?.text ?? '').trim(), isDriving);
 }
 
 /* ── GROUNDED yanıt (Google Search) — güncel/internet bilgisi ──
@@ -1509,7 +1571,7 @@ function buildGroundedSystemPrompt(id: CompanionIdentity, isDriving: boolean): s
   const personaRole = BRAIN_PERSONA_ROLE[id.personality] ?? BRAIN_PERSONA_ROLE.samimi;
   const brevity = isDriving
     ? 'Sürücü ŞU AN ARAÇ KULLANIYOR: en fazla 2 kısa cümle, en kritik bilgiyi ver.'
-    : 'En fazla 4-5 akıcı cümle; haber/özet istenirse en önemli 2-3 gelişmeyi tek paragrafta topla.';
+    : 'Sıradan soruda 3-5 akıcı cümle; detaylı anlatım istenirse yarıda bırakmadan kapsamlı anlat. Haber/özet istenirse en önemli gelişmeleri tek paragrafta topla.';
   return [
     `Sen "${id.assistantName}" adlı, araçta sürücüye eşlik eden Türkçe konuşan bir sesli asistansın.`,
     'Sana verilen Google arama sonuçlarını kullanarak kullanıcının sorusunu GÜNCEL ve DOĞRU yanıtla.',
@@ -1533,7 +1595,7 @@ async function askGroundedGemini(
       { role: 'user', parts: [{ text: query }] },
     ],
     tools: [{ google_search: {} }],
-    generationConfig: { temperature: 0.3, maxOutputTokens: isDriving ? 140 : 360, thinkingConfig: { thinkingBudget: 0 } },
+    generationConfig: { temperature: 0.3, maxOutputTokens: answerTokens('grounded', isDriving), thinkingConfig: { thinkingBudget: 0 } },
   };
   try {
     const resp = await fetch(_geminiEndpoint(), {
@@ -1592,7 +1654,7 @@ async function groundGeminiViaTavily(
   const sysPrompt =
     `Sen ${id.assistantName} adlı araç asistanısın. Aşağıdaki GÜNCEL web arama sonuçlarına ` +
     `DAYANARAK kullanıcının sorusunu kısa, doğal Türkçe ile yanıtla. Sadece sonuçlardaki bilgiyi ` +
-    `kullan, uydurma. ${isDriving ? 'Sürüş halinde: 1-2 cümle.' : 'En fazla 3-4 cümle.'} Kaynak numarası/URL okuma.`;
+    `kullan, uydurma. ${isDriving ? 'Sürüş halinde: 1-2 cümle.' : 'Sıradan sohbette 2-4 cümle; detay/anlatım istenirse yarıda bırakmadan kapsamlı anlat.'} Kaynak numarası/URL okuma.`;
   try {
     const resp = await fetch(_geminiEndpoint(), {
       method:  'POST',
@@ -1600,7 +1662,7 @@ async function groundGeminiViaTavily(
       body:    JSON.stringify({
         system_instruction: { parts: [{ text: sysPrompt }] },
         contents: [{ role: 'user', parts: [{ text: `Soru: ${userText}\n\n${ctxBlock}` }] }],
-        generationConfig: { temperature: 0.3, maxOutputTokens: isDriving ? 120 : 240, thinkingConfig: { thinkingBudget: 0 } },
+        generationConfig: { temperature: 0.3, maxOutputTokens: answerTokens('synth', isDriving), thinkingConfig: { thinkingBudget: 0 } },
       }),
       signal: signalWithTimeout(GEMINI_TIMEOUT_MS),
     });
