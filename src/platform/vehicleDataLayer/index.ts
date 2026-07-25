@@ -31,6 +31,61 @@ export type { GPSLocation }                            from './types';
 // Resolver referansı — geofence güncellemelerini worker'a iletmek için
 let _activeResolver: VehicleSignalResolver | null = null;
 
+/* ── Yaşam döngüsü teşhisi (B-2) ──────────────────────────────────────────────
+   SALT GÖZLEM: aşağıdaki sayaçlar ve `getVehicleDataLayerLifecycleDiagnostics()`
+   hiçbir karar veya kontrol akışında OKUNMAZ; adapter/resolver başlatma sırası,
+   cleanup sırası ve zamanlamalar bunlardan ETKİLENMEZ. */
+
+/** Teşhis sayaçlarının DOYGUN üst sınırı (SystemBoot B-1 ile aynı desen). */
+export const VDL_DIAG_COUNTER_MAX = 1_000_000;
+
+/** Doygun artış — `VDL_DIAG_COUNTER_MAX`'ta sabitlenir (taşma/sınırsız büyüme yok). */
+function _satInc(n: number): number {
+  return n >= VDL_DIAG_COUNTER_MAX ? VDL_DIAG_COUNTER_MAX : n + 1;
+}
+
+let _dlStarts = 0;
+let _dlStops  = 0;
+let _dlLastStartedAtMs: number | null = null;
+let _dlLastStoppedAtMs: number | null = null;
+
+/** VehicleDataLayer yaşam döngüsü teşhis anlık görüntüsü (salt-okunur, bounded). */
+export interface VehicleDataLayerLifecycleDiagnostics {
+  /** Katman şu an ayakta mı — `_activeResolver !== null` türevi. */
+  readonly active: boolean;
+  /** TAMAMLANMIŞ başlatma sayısı (herhangi bir adım throw ederse SAYILMAZ). */
+  readonly starts: number;
+  /** GERÇEKLEŞEN dispose sayısı (idempotent guard sayesinde cleanup başına en fazla 1). */
+  readonly stops: number;
+  /** Son tamamlanan başlatmanın anı (ms) — hiç başlatılmadıysa null. */
+  readonly lastStartedAtMs: number | null;
+  /** Son gerçekleşen dispose'un anı (ms) — hiç dispose olmadıysa null. */
+  readonly lastStoppedAtMs: number | null;
+  /** Sayaç doygunluk sınırı (tüketici doygunluğu ayırt edebilsin). */
+  readonly counterMax: number;
+}
+
+/**
+ * VehicleDataLayer yaşam döngüsü teşhisinin senkron, salt-okuma anlık görüntüsü.
+ *
+ * YAN ETKİSİZ: hiçbir alanı değiştirmez, timer/abonelik kurmaz, servis başlatmaz;
+ *   yalnız mevcut modül durumunu okur ve DONDURULMUŞ kopya döner. Tekrarlanan
+ *   çağrılar durumu MUTASYONA UĞRATMAZ.
+ * BOUNDED: sabit sayıda skaler alan — dizi/geçmiş YOK.
+ * GİZLİLİK: yalnız sayı/boolean/zaman damgası. VIN · GPS · OBD değeri · hata metni ·
+ *   token · kimlik · kullanıcı verisi İÇERMEZ.
+ */
+export function getVehicleDataLayerLifecycleDiagnostics(): VehicleDataLayerLifecycleDiagnostics {
+  return Object.freeze({
+    active:          _activeResolver !== null,
+    starts:          _dlStarts,
+    stops:           _dlStops,
+    lastStartedAtMs: _dlLastStartedAtMs,
+    lastStoppedAtMs: _dlLastStoppedAtMs,
+    counterMax:      VDL_DIAG_COUNTER_MAX,
+  });
+}
+
 /**
  * Geofence zona listesini Worker'a gönderir.
  * startVehicleDataLayer() çağrısından önce çağrılırsa sessizce yok sayılır.
@@ -245,7 +300,19 @@ export function startVehicleDataLayer(opts?: { onWorkerCrash?: () => void }): ()
     }, 0);
   });
 
+  // TEŞHİS (B-2): başlatma zinciri TAMAMLANDIKTAN sonra sayılır. Yukarıdaki
+  // adımlardan biri throw ederse buraya ulaşılmaz → yarım başlatma SAYILMAZ.
+  _dlStarts          = _satInc(_dlStarts);
+  _dlLastStartedAtMs = Date.now();
+
+  // Dispose bir kez çalışır: ikinci çağrı no-op (çift stop sayımı ve
+  // gereksiz tekrar-teardown YOK).
+  let _disposed = false;
+
   return () => {
+    if (_disposed) return;
+    _disposed = true;
+
     if (_rafId) { cancelAnimationFrame(_rafId); _rafId = 0; }
     _hasPending = false;
     unsubCanExtras();
@@ -259,6 +326,10 @@ export function startVehicleDataLayer(opts?: { onWorkerCrash?: () => void }): ()
     cleanupLiveStyle();
     telemetryService.stop();
     resolver.stop();
+
+    // TEŞHİS (B-2): gerçek dispose tamamlandıktan SONRA — yalnız defter tutma.
+    _dlStops          = _satInc(_dlStops);
+    _dlLastStoppedAtMs = Date.now();
   };
 }
 
