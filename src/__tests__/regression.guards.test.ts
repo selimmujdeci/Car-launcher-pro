@@ -39,6 +39,7 @@ import remoteLogServiceSrc from '../platform/remoteLogService.ts?raw';
 import diagnosticTriageSrc from '../platform/diagnosticTriage.ts?raw';
 import dtcServiceSrc from '../platform/dtcService.ts?raw';
 import mediaScreenSrc from '../components/media/MediaScreen.tsx?raw';
+import voiceAssistantSrc from '../components/modals/VoiceAssistant.tsx?raw';
 import { AdaptiveRuntimeManager } from '../core/runtime/AdaptiveRuntimeManager';
 import { RuntimeMode } from '../core/runtime/runtimeTypes';
 import { forceMode } from './sim/runtimeSimulator';
@@ -1699,5 +1700,26 @@ describe('Tam ekran video Kapat butonu — çıkış garanti kilidi', () => {
     expect(block, 'kalıcı Kapat onClose bağlamıyor').toMatch(/onClick=\{onClose\}/);
     expect(block, 'kalıcı Kapat pointerEvents:auto override yok — show=false\'da tıklanamaz olur')
       .toMatch(/pointerEvents:\s*'auto'/);
+  });
+});
+
+/* ───────────────────────────────────────────────────────────────
+   Sesli asistan modalı — tema-duyarlı yüzey kilidi
+   Regresyon (Duster 2026-07-19): dinleme modalı/pili sabit koyu
+   (#0d1628 / rgba(6,10,24)) idi → aydınlık OEM temada "gece modu"
+   gibi duruyordu. KİLİT: yüzeyler OEM token (--oem-surface-*) ile
+   tema-duyarlı olmalı; sabit koyu hex zemin GERİ GELMEMELİ.
+   ─────────────────────────────────────────────────────────────── */
+describe('Sesli asistan modalı tema-duyarlı yüzey kilidi', () => {
+  it('YAPISAL: modal/pil sabit koyu zemin (#0d1628 / rgba(6,10,24)) KULLANMAZ', () => {
+    expect(voiceAssistantSrc, 'sabit koyu kart zemini #0d1628 geri gelmiş (aydınlık temada gece modu)')
+      .not.toMatch(/bg-\[#0d1628\]/);
+    expect(voiceAssistantSrc, 'sabit koyu pil zemini rgba(6,10,24) geri gelmiş')
+      .not.toMatch(/rgba\(6,\s*10,\s*24/);
+  });
+
+  it('YAPISAL: yüzeyler OEM tema token\'ı (--oem-surface-0) ile türetiliyor', () => {
+    expect(voiceAssistantSrc, 'OEM tema yüzeyi kullanılmıyor — tema-duyarlılık kayboldu')
+      .toMatch(/var\(--oem-surface-0\)/);
   });
 });
