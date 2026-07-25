@@ -4,7 +4,7 @@ import type { Map as MapLibreMap } from 'maplibre-gl';
 type MapRef = MapLibreMap & { _fullMapInitialized?: boolean };
 import { X, Map, Globe, ArrowLeft } from 'lucide-react';
 import {
-  interpolateNavPoint, projectDeadReckon, resolveDrSpeed, type NavPoint
+  interpolateNavPoint, projectDeadReckon, resolveDrSpeed, drIsEstimated, type NavPoint
 } from '../../utils/interpolation';
 import { bearingBetween } from '../../platform/cameraEngine';
 import { logInfo } from '../../platform/debug';
@@ -15,6 +15,7 @@ import {
   setMapCenter,
   addUserMarker,
   updateUserMarker,
+  setUserMarkerEstimated,
   applyMapDayNight,
   setMarkerNavActive,
   setMapHeading,
@@ -113,6 +114,8 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
   const headingRef         = useRef<number | null>(null);
   const lastDrivingPosRef  = useRef<{ lat: number; lng: number; heading: number } | null>(null);
   const navPointsRef       = useRef<NavPoint[]>([]);
+  // NAV-1: araç marker'ı "tahmini" (DR >5s) modda mı — yalnız DEĞİŞİMDE paint güncellenir.
+  const drEstimatedRef     = useRef(false);
   // SAHA 2026-07-04: Doppler=0 saplanan cihazda yer-değiştirme tabanlı wake çapası
   const wakeAnchorRef      = useRef<{ lat: number; lng: number; ts: number } | null>(null);
   const interpolatedStateRef = useRef<NavPoint | null>(null);
@@ -755,6 +758,17 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
       const GPS_STALE_MS = 5000;
       const fixFresh = lastFixTsRef.current !== null && (now - lastFixTsRef.current) <= GPS_STALE_MS;
       const gpsOk = !!(fixFresh && locationRef.current && Number.isFinite(locationRef.current.accuracy) && locationRef.current.accuracy < 1000);
+
+      // NAV-1: DR "tahmini" görsel işareti — GPS kayıp + son fix >5s ise marker soluklaşır
+      // (dürüst sinyal: GPS teyitli değil). GPS dönünce netleşir. Yalnız DEĞİŞİMDE paint yaz.
+      {
+        const _buf = navPointsRef.current;
+        const _wantEst = !gpsOk && _buf.length > 0 && drIsEstimated(_buf[_buf.length - 1].ts, now);
+        if (_wantEst !== drEstimatedRef.current) {
+          drEstimatedRef.current = _wantEst;
+          setUserMarkerEstimated(_wantEst);
+        }
+      }
 
       if (!gpsOk && navPointsRef.current.length > 0) {
         const lastKnown = navPointsRef.current[navPointsRef.current.length - 1];

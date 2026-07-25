@@ -389,6 +389,20 @@ export function setMarkerTheme(night: boolean): void {
 }
 
 /**
+ * NAV-1: DR "tahmini" konumda araç marker'ını soluklaştırır (icon-opacity 0.5) — GPS teyitli
+ * DEĞİL, dürüst görsel sinyal. GPS dönünce 1'e döner. Yalnız paint değişir → marker'ı bozamaz.
+ * Çağıran (FullMapView) durum DEĞİŞİMİNDE çağırır (her rAF tick'inde değil).
+ */
+export function setUserMarkerEstimated(estimated: boolean): void {
+  const map = useMapStore.getState().mapInstance;
+  if (!map || !map.getLayer('user-vehicle')) return;
+  try {
+    map.setPaintProperty('user-vehicle', 'icon-opacity', estimated ? 0.5 : 1);
+    if (map.getLayer('user-ring')) map.setPaintProperty('user-ring', 'circle-opacity', estimated ? 0.4 : 1);
+  } catch { /* stil reload — sonraki tick düzeltir */ }
+}
+
+/**
  * Harita gün/gece geçişi — RESTYLE OLMADAN canlı paint güncellemesi (rota katmanları korunur).
  */
 export function applyMapDayNight(night: boolean, mapArg?: ReturnType<typeof useMapStore.getState>['mapInstance']): void {

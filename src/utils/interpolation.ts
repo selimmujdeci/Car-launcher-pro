@@ -30,12 +30,30 @@ export interface NavPoint {
  * Davranış FullMapView'daki orijinal blokla aynıdır.
  */
 
-/** DR projeksiyonu için pencere üst sınırı (saniye). */
-export const DR_MAX_DT_SEC = 5;
+/**
+ * DR projeksiyonu için pencere üst sınırı (saniye).
+ * NAV-1 (2026-07-19): 5 → 60. Eski 5s clamp'i tünelde 5 saniye sonra projeksiyonu
+ * DONDURUYORDU (araç ikonu + ETA + sesli anons takılı kalıyordu) — Türkiye tünellerinin
+ * çoğu 5s'den çok uzun. 60s tipik tünelleri kapsar; hareket devam eder, GPS dönünce
+ * gpsService fusion-ramp'i zaten yumuşak snap yapar. Üst sınır KORUNUR (sonsuz projeksiyon
+ * yok): hız 0'ken (dur/park) distDeg=0 → ikon zaten sabit; yalnız gerçekten hareket varken
+ * projeksiyon büyür ve 60s'de tavan yapar (bayat-hız edge'inde marker uçup gitmez).
+ */
+export const DR_MAX_DT_SEC = 60;
+/** Bu süreye kadar DR "güvenilir"; üstünde "tahmini" (UI marker'ı soluklaştırıp işaretleyebilir). */
+export const DR_CONFIDENT_SEC = 5;
 /** Bir derece enlem ≈ bu kadar metre (WGS84 yaklaşık). */
 export const DR_METERS_PER_DEG = 111_320;
 /** cosLat bölme guard'ı — kutuplara yakın 0'a bölmeyi engeller. */
 export const DR_COS_LAT_FLOOR = 0.001;
+
+/**
+ * DR konumu "tahmini" mi (GPS kaybı DR_CONFIDENT_SEC'i aştı)? UI bunu marker'ı soluklaştırıp
+ * "~" işaretiyle göstermek için kullanabilir — kullanıcıya dürüst sinyal (kesin değil, tahmin).
+ */
+export function drIsEstimated(lastKnownTs: number, now: number): boolean {
+  return (now - lastKnownTs) / 1000 > DR_CONFIDENT_SEC;
+}
 
 /**
  * DR için kullanılacak hızı (km/h) seçer.
