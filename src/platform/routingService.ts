@@ -722,13 +722,21 @@ export async function fetchRoute(
   }
 
   // ── Katman 4: Straight-line (son çare) ───────────────────────
-  console.warn('[ROUTE] All OSRM layers failed — straight-line fallback');
-  speakNavigation('İnternet bağlantısı yok. Düz hat navigasyon aktif.');
+  // NAV-2: DÜRÜST TEŞHİS — bu katmana iki AYRI sebeple düşülür: (1) navigator.onLine=false
+  // (gerçekten internet yok), (2) internet AÇIK ama tüm rota sunucuları hata/timeout verdi
+  // (sunucu tarafı). Eskiden ikisinde de "internet yok" deniyordu → yanlış teşhis. Artık ayrık.
+  const _offline = typeof navigator !== 'undefined' && !navigator.onLine;
+  console.warn(`[ROUTE] All OSRM layers failed — straight-line fallback (offline=${_offline})`);
+  speakNavigation(_offline
+    ? 'İnternet bağlantısı yok. Düz hat navigasyon aktif.'
+    : 'Rota sunucusu şu an yanıt vermiyor. Düz hat navigasyon aktif.');
   const sl = straightLineRoute(fromLat, fromLon, toLat, toLon);
   await _waitForStyleReady(); // stil yenileniyorsa layer hazır olana kadar bekle
   useRouteStore.setState({
     loading: false,
-    error:   'Offline harita verisi yok — düz hat navigasyon aktif.',
+    error:   _offline
+      ? 'İnternet yok — düz hat navigasyon aktif.'
+      : 'Rota sunucusu yanıt vermiyor — düz hat navigasyon aktif.',
     geometry:             sl.geometry,
     cumulativeDistances:  buildCumulativeDistances(sl.geometry),
     steps:                [_makeSentinelStep(toLon, toLat, sl.distanceM, sl.durationS)],
