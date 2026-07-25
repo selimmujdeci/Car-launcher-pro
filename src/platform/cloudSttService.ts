@@ -12,9 +12,10 @@
  *   2) Gemini (ses girişi) — kullanıcı zaten beyin için anahtar girmişse.
  * İkisi de yoksa null (Vosk kalır).
  */
+import { geminiChatEndpoint } from './ai/gateway/models';
+
 const GROQ_STT_ENDPOINT = 'https://api.groq.com/openai/v1/audio/transcriptions';
-const GEMINI_STT_ENDPOINT =
-  'https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent';
+const GEMINI_STT_ENDPOINT = geminiChatEndpoint();
 
 const DEFAULT_TIMEOUT_MS = 6_000;
 

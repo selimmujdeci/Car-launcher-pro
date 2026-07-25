@@ -21,8 +21,10 @@ import { getDTCStateSnapshot } from './dtcService';
 import { getAiHealthSnapshot } from './aiHealth';
 import { getProviderQuotaSnapshot } from './companion/companionChatProvider';
 import { getGPSState, isDeadReckoningActive } from './gpsService';
-import { getVoiceSnapshot, getLastSttOutcome } from './voiceService';
+import { getVoiceSnapshot, getLastSttOutcome, getSessionPeakVolume } from './voiceService';
 import { getWakeWordState, isVoskModelReady } from './wakeWordService';
+import { getRecentVoiceDiag, type VoiceDiagRingEntry } from './voiceDiagService';
+import { getCloudSttKeyPresent } from './cloudSttService';
 import { getAutoDiscoveredDids } from './obd/autoDidDiscovery';
 import { getGeofenceStatus } from './security/geofenceService';
 import { connectivityService } from './connectivityService';
@@ -279,20 +281,49 @@ export interface VoiceDiagSnapshot {
   lastSttAgeMs: number;
   /** Son STT sonucu başarılı mı — hiç olmadıysa null. Ham transkript YOK (PII). */
   lastSttOk: boolean | null;
+  /**
+   * MİKROFON SAĞLIĞI: son dinleme oturumundaki TEPE ses seviyesi (0..1). ~0 ise
+   * mikrofon sessizlik yakalıyor (ölü kaynak/donanım) — "dinliyor ama boş" kökü.
+   * >0.1 ise mikrofon ses alıyor → sorun tanıma/model tarafında.
+   */
+  micPeakVolume: number;
+  /**
+   * WAKE'İN DUYDUKLARI: pasif döngünün son duyduğu transcript'ler (en yeni başta,
+   * max 5). "hey mavi tetiklemiyor" / "kendi kendine tetikliyor" (yanlış-wake)
+   * teşhisi — Vosk'un GERÇEKTE ne duyduğunu gösterir. Kullanıcının KENDİ aracı +
+   * yalnız SUPPORT_SECRET ile çekilebilir; saha teşhisi için bilinçli dahil.
+   */
+  wakeHeard: string[];
+  /**
+   * SON SES OTURUMLARININ İZİ: her olay {aşama, hata kodu, rota (vosk/bulut), süre,
+   * transcript uzunluğu, zaman}. Nerede düştüğünü (mik sessiz→timeout, tanıdı ama
+   * parser→error, bulut devrede mi) ve yanlış-wake sıklığını gösterir. Transcript
+   * METNİ YOK.
+   */
+  recent: VoiceDiagRingEntry[];
+  /**
+   * HİBRİT BULUT: bulut STT için anahtar (Groq/Gemini) girili mi. null = henüz
+   * bakılmadı (bulut hiç denenmedi). false + online → OEM tanıma için anahtar EKSİK.
+   */
+  cloudKey: boolean | null;
 }
 
 export function buildVoiceSnapshot(): VoiceDiagSnapshot {
   const voskReady       = _safe(() => isVoskModelReady(), true);
-  const wakeWordEnabled = _safe(() => getWakeWordState().enabled, false);
+  const wakeState       = _safe(() => getWakeWordState(), null as ReturnType<typeof getWakeWordState> | null);
   const status          = _safe(() => getVoiceSnapshot().status as string, 'idle');
   const outcome         = _safe(() => getLastSttOutcome(), { atMs: -1, ok: null as boolean | null });
 
   return {
     voskReady,
-    wakeWordEnabled,
+    wakeWordEnabled: wakeState?.enabled ?? false,
     status,
     lastSttAgeMs: outcome.atMs >= 0 ? Date.now() - outcome.atMs : -1,
     lastSttOk:    outcome.ok,
+    micPeakVolume: _safe(() => Math.round(getSessionPeakVolume() * 100) / 100, -1),
+    wakeHeard:     wakeState?.lastHeard ?? [],
+    recent:        _safe(() => getRecentVoiceDiag(), []),
+    cloudKey:      _safe(() => getCloudSttKeyPresent(), null),
   };
 }
 

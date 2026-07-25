@@ -16,7 +16,7 @@ import { parseCommandFull, buildCommandGrammar, type ParsedCommand, type ParseSu
 import { repairTranscript } from './asrRepair';
 import { tryOfflineConversation } from './offlineConversationEngine';
 import { getConfig } from './performanceMode';
-import { speakFeedback, speakAssistant, registerTtsEndListener, ttsCancel } from './ttsService';
+import { speakFeedback, speakAssistant, registerTtsEndListener, ttsCancel, isTtsSpeaking } from './ttsService';
 import { duckMedia, unduckMedia } from './audioService';
 import { resolveApiKey, type AIProvider, type AIVoiceResult, type VehicleContext } from './aiVoiceService';
 import { isAiNetHealthy } from './aiHealth';
@@ -253,6 +253,25 @@ let _convIdleOnTtsEnd = false;
 let _convIdleFallbackTimer: ReturnType<typeof setTimeout> | null = null;
 const CONV_IDLE_FALLBACK_MS = 15_000;
 
+/* ── Emniyet penceresi uzatması (SAHA 2026-07-24) ──────────────
+ * ŞİKAYET: "uzun muhabbetlerde Mavi cümlenin ortasında kesiliyor, dut sesiyle
+ * dinlemeye geçiyor."
+ * KÖK: aşağıdaki iki emniyet zamanlayıcısı (takip 20sn · sohbet-idle 15sn)
+ * "TTS bitiş eventi hiç gelmezse akış asılı kalmasın" diye konmuştu, ama
+ * konuşmanın GERÇEKTEN bitip bitmediğini sormuyor, sabit süreyle varsayıyorlardı.
+ * Türkçe TTS ~12-15 karakter/sn → ~250 karakteri aşan her cevap hâlâ konuşulurken
+ * pencere doluyor; takip zamanlayıcısı `startListening()` çağırıyor, o da
+ * `ttsCancel()` ile cevabı ORTASINDAN kesip mikrofonu açıyordu (Android STT
+ * başlangıç bipi = kullanıcının duyduğu "dut").
+ *
+ * ÇÖZÜM: pencere dolduğunda konuşma sürüyorsa (isTtsSpeaking) kesme — pencereyi
+ * kısa adımlarla UZAT. Emniyet rolü KAYBOLMAZ: uzatma sayısı tavanlıdır, ayrıca
+ * ttsService'in kendi MAX_SPEAKING_MS tavanı takılı motoru "bitmiş" sayar.
+ * Böylece gerçek asılma yine kurtarılır, gerçek konuşma asla kesilmez. */
+const SPEAKING_EXTEND_MS = 5_000;
+/** Azami uzatma — sonsuz uzatma YASAK (24 × 5sn = 120sn ek tavan). */
+const MAX_SPEAKING_EXTENSIONS = 24;
+
 function _clearConvIdle(): void {
   _convIdleOnTtsEnd = false;
   if (_convIdleFallbackTimer !== null) {
@@ -261,15 +280,29 @@ function _clearConvIdle(): void {
   }
 }
 
+let _convIdleExtensions = 0;
+
 function _armConvIdleOnTtsEnd(): void {
   _convIdleOnTtsEnd = true;
+  _convIdleExtensions = 0;
+  _scheduleConvIdleFallback(CONV_IDLE_FALLBACK_MS);
+}
+
+function _scheduleConvIdleFallback(delayMs: number): void {
   if (_convIdleFallbackTimer !== null) clearTimeout(_convIdleFallbackTimer);
   _convIdleFallbackTimer = setTimeout(() => {
     _convIdleFallbackTimer = null;
     if (!_convIdleOnTtsEnd) return;
+    // Cevap HÂLÂ konuşuluyor → UI'yı idle'a düşürmek konuşmayı yarıda "bitmiş"
+    // gösterirdi. Pencereyi uzat (tavanlı).
+    if (isTtsSpeaking() && _convIdleExtensions < MAX_SPEAKING_EXTENSIONS) {
+      _convIdleExtensions++;
+      _scheduleConvIdleFallback(SPEAKING_EXTEND_MS);
+      return;
+    }
     _convIdleOnTtsEnd = false;
     if (_current.status === 'success') push({ status: 'idle' });
-  }, CONV_IDLE_FALLBACK_MS);
+  }, delayMs);
 }
 
 function _disarmFollowUp(): void {
@@ -292,23 +325,38 @@ function _endConvSession(): void {
  * Cevap seslendirilmeden HEMEN ÖNCE çağrılır: TTS bitişinde mikrofonun yeniden
  * açılacağını işaretler. Yalnız sesli oturumda (_convSession) etkilidir.
  */
+let _followUpExtensions = 0;
+
 function _armFollowUp(): void {
   if (!_convSession || _voiceCogPaused) return;
   _followUpArmed = true;
+  _followUpExtensions = 0;
+  _scheduleFollowUpFallback(FOLLOWUP_FALLBACK_MS);
+  if (!_current.followUp) push({ followUp: true });
+}
+
+// SAHA FİX 2026-06-12: TTS bitiş eventi hiç gelmezse (bazı head unit TTS
+// motorlarında onDone güvenilmez) eskiden SESSİZCE vazgeçiliyordu — kullanıcı
+// "cevaptan sonra dinlemiyor" yaşıyordu. Bu süre dolduğunda konuşma bitmiş
+// SAYILIR: vazgeçmek yerine mikrofonu best-effort AÇ (sohbet döngüsü kopmaz).
+// SAHA FİX 2026-07-24: "bitmiş sayma" varsayımı uzun cevaplarda YANLIŞTI —
+// konuşma sürerken startListening() → ttsCancel() cevabı kesiyordu. Artık
+// konuşma sürüyorsa pencere uzatılır (tavanlı), kesilmez.
+function _scheduleFollowUpFallback(delayMs: number): void {
   if (_followUpFallbackTimer !== null) clearTimeout(_followUpFallbackTimer);
-  // SAHA FİX 2026-06-12: TTS bitiş eventi hiç gelmezse (bazı head unit TTS
-  // motorlarında onDone güvenilmez) eskiden SESSİZCE vazgeçiliyordu — kullanıcı
-  // "cevaptan sonra dinlemiyor" yaşıyordu. Bu süre dolduğunda konuşma kesin
-  // bitmiştir: vazgeçmek yerine mikrofonu best-effort AÇ (sohbet döngüsü kopmaz).
   _followUpFallbackTimer = setTimeout(() => {
     _followUpFallbackTimer = null;
     if (!_followUpArmed) return;
+    if (isTtsSpeaking() && _followUpExtensions < MAX_SPEAKING_EXTENSIONS) {
+      _followUpExtensions++;
+      _scheduleFollowUpFallback(SPEAKING_EXTEND_MS);
+      return;
+    }
     _followUpArmed = false;
     if (!_convSession || _voiceCogPaused) { _disarmFollowUp(); return; }
     if (_current.status === 'listening' || _current.status === 'processing') return;
     startListening({ followUpWindow: true });
-  }, FOLLOWUP_FALLBACK_MS);
-  if (!_current.followUp) push({ followUp: true });
+  }, delayMs);
 }
 
 // TTS bitti → (A) kurulu takip varsa mikrofonu yeniden aç, yoksa
@@ -1406,6 +1454,11 @@ export interface StartListeningOpts {
    * konuşmazsa sistem hızla idle'a döner, tekrar wake word İSTENMEZ.
    */
   followUpWindow?: boolean;
+  /**
+   * HIZLI warmup: wake selamı sonrası dinleme devrinde ses donanımı zaten aktif →
+   * mikrofon açılış pipeline'ı kısalır (warmupFastMs). "Buradayım der demez dinleme".
+   */
+  fastWarmup?: boolean;
 }
 
 export function startListening(opts?: StartListeningOpts): void {
@@ -1440,7 +1493,10 @@ export function startListening(opts?: StartListeningOpts): void {
 
   if (isNative) {
     // Mikrofon donanım ısınması — süreler voiceTuning.ts tek kaynağından.
-    const warmupMs = isLowEndDevice() ? VOICE_TUNING.warmupLowEndMs : VOICE_TUNING.warmupMs;
+    // Wake selamı devri: TTS az önce çaldı → donanım aktif → hızlı warmup (pipeline kısa).
+    const warmupMs = opts?.fastWarmup
+      ? VOICE_TUNING.warmupFastMs
+      : (isLowEndDevice() ? VOICE_TUNING.warmupLowEndMs : VOICE_TUNING.warmupMs);
 
     // Failsafe > warmup + maxListenMs (voiceTuning hiyerarşisi): aktif dinleme
     // ASLA buradan kesilmez; yalnız native'in hiç dönmediği anormal durumu toparlar.

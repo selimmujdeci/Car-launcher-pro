@@ -57,6 +57,35 @@ export interface VoiceDiagExtra {
   route?: string;
 }
 
+/* ── Yerel tanı halkası (support snapshot için) ──────────────
+ * reportVoiceDiag tek funnel — her aşama buradan geçer. Ağ'a giden fırtına
+ * guard'ından BAĞIMSIZ, tam sıklıkla yerel bir halkaya da yazılır. Amaç: "Tanı
+ * Gönder" ile son ses oturumlarının izini (hangi aşamada düştü, hata kodu,
+ * vosk/bulut rotası, süre) taşımak → saha teşhisi (transcript METNİ YOK, PII değil).
+ * Yanlış-wake tespiti: guard voice_start'ı 5/60s'e kapar ama halka HEPSİNİ görür. */
+export interface VoiceDiagRingEntry {
+  /** Duvar-saati (ms) — oturumlar arası aralık + sıklık için. */
+  at: number;
+  stage: string;
+  transcriptLength?: number;
+  errorCode?: string;
+  route?: string;
+  intent?: string;
+}
+
+const VOICE_DIAG_RING_MAX = 40;
+const _ring: VoiceDiagRingEntry[] = [];
+
+function _ringPush(e: VoiceDiagRingEntry): void {
+  _ring.push(e);
+  if (_ring.length > VOICE_DIAG_RING_MAX) _ring.splice(0, _ring.length - VOICE_DIAG_RING_MAX);
+}
+
+/** Son ses tanı olayları (en eski→en yeni). Support snapshot buildVoiceSnapshot'ta okur. */
+export function getRecentVoiceDiag(): VoiceDiagRingEntry[] {
+  return _ring.slice();
+}
+
 /* ── Fırtına koruması: stage başına 60sn/5 ──────────────────── */
 
 export const VOICE_DIAG_WINDOW_MS = 60_000;
@@ -115,7 +144,16 @@ export async function reportVoiceDiag(
 ): Promise<boolean> {
   try {
     if (!_STAGE_SET.has(stage)) return false;          // runtime guard (JS çağrıları)
-    if (!_stormAllow(stage)) return false;              // 60sn/5 stage tavanı
+    // Yerel halka: fırtına guard'ından ÖNCE (gerçek sıklık — yanlış-wake sayısı).
+    _ringPush({
+      at:               Date.now(),
+      stage,
+      transcriptLength: _cleanLen(extra?.transcriptLength),
+      errorCode:        _cleanStr(extra?.errorCode),
+      route:            _cleanStr(extra?.route),
+      intent:           _cleanStr(extra?.intent),
+    });
+    if (!_stormAllow(stage)) return false;              // 60sn/5 stage tavanı (yalnız AĞ)
 
     const now = _now();
     if (stage === 'voice_start') _sessionT0 = now;
@@ -160,4 +198,5 @@ export async function reportVoiceDiag(
 export function _resetVoiceDiagForTest(): void {
   _stageWindows.clear();
   _sessionT0 = null;
+  _ring.length = 0;
 }
