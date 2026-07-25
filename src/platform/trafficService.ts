@@ -114,6 +114,27 @@ function jamFactorToLevel(jf: number): TrafficLevel {
   return 'standstill';
 }
 
+/**
+ * NAV-5: tek nokta jamFactor'ü (rota trafik renklendirmesi örneklemesi için). HERE anahtarı
+ * yoksa null (BYOK). Küçük bbox (~3km) → ilk flow sonucunun jamFactor'ü. Fail-soft, bounded.
+ */
+export async function fetchHereJamFactorAt(lat: number, lng: number): Promise<number | null> {
+  if (!HERE_KEY || !Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  const d = 0.03; // ~3 km bbox (nokta çevresi)
+  const url =
+    `https://data.traffic.hereapi.com/v7/flow` +
+    `?apiKey=${HERE_KEY}` +
+    `&in=bbox:${lng - d},${lat - d},${lng + d},${lat + d}` +
+    `&locationReferencing=shape`;
+  try {
+    const res = await fetch(url, { signal: signalWithTimeout(6000) });
+    if (!res.ok) return null;
+    const data = await res.json() as { results?: HereFlowResult[] };
+    const jf = data.results?.[0]?.currentFlow?.jamFactor;
+    return typeof jf === 'number' ? jf : null;
+  } catch { return null; }
+}
+
 /* ── NAV-4: HERE Traffic Incidents v7 → resmi tehlike (kaza/yol kapama) ──── */
 
 interface HereIncidentResult {

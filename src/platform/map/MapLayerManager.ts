@@ -1011,6 +1011,12 @@ export function _applyRouteGeometry(
     };
     (map.getSource(SEL_SRC) as any).setData(routeFeature);
 
+    // NAV-5: rotayı TRAFİK YOĞUNLUĞUNA göre renklendir (best-effort, BYOK, fail-soft).
+    // Yalnız SEL_LAYER'ın line-gradient paint'ini değiştirir → rota ÇİZGİSİNİ bozamaz.
+    // Trafik verisi yoksa (anahtar yok/hata) mevcut dekoratif gradient AYNEN kalır.
+    // Düşük-uçta gradient zaten yok (solid renk) → atla.
+    if (!_isLowEnd) void _refreshRouteTrafficGradient(map, coords as [number, number][]);
+
     // ── Step 5: z-ordering — alt→üst: shadow→glow→case→core→flow→araç ────────
     try { map.moveLayer(ALT_FILL); }        catch { /* ignore */ }
     try { map.moveLayer(ALT_BADGE_LAYER); } catch { /* ignore */ }
@@ -1046,6 +1052,27 @@ export function _applyRouteGeometry(
   }
 
   M.pendingRouteGeometry = null;
+}
+
+/* ── NAV-5: rota trafik-yoğunluğu gradient'i ───────────────────────────────
+ * Rota çizilince trafik stop'larını örnekler ve SEL_LAYER line-gradient'ini günceller.
+ * Generation guard: örnekleme uzun sürerken rota değişirse ESKİ sonuç UYGULANMAZ (yarış yok).
+ * Fail-soft: veri yok / anahtar yok / hata → dekoratif gradient'e DOKUNULMAZ. */
+let _trafficGradientGen = 0;
+async function _refreshRouteTrafficGradient(map: MapLibreMap, coords: [number, number][]): Promise<void> {
+  const gen = ++_trafficGradientGen;
+  try {
+    if (coords.length < 2) return;
+    const { sampleRouteTrafficStops, buildTrafficGradient } = await import('./routeTrafficGradient');
+    const stops = await sampleRouteTrafficStops(coords);
+    if (gen !== _trafficGradientGen) return;               // rota değişti → eski sonucu bırak
+    const grad = stops ? buildTrafficGradient(stops) : null;
+    if (grad && map.getLayer(SEL_LAYER)) {
+      try { map.setPaintProperty(SEL_LAYER, 'line-gradient', grad as unknown as maplibregl.ExpressionSpecification); }
+      catch { /* stil reload — sonraki çizimde tekrar denenir */ }
+    }
+    // grad null → trafik verisi yok → dekoratif kalkış→varış gradient'i AYNEN korunur.
+  } catch { /* fail-soft — trafik gradient'i rota akışını ASLA etkilemez */ }
 }
 
 /**
