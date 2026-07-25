@@ -93,6 +93,21 @@ import { useCognitiveStore }       from '../../store/useCognitiveStore';
 
 type Cleanup = () => void;
 
+/**
+ * Worker crash backoff durumu.
+ *
+ * ZERO-LEAK SÖZLEŞMESİ: bekleyen HER timer bu duruma AİTTİR (yaşam döngüsü sahipliği).
+ * Sahipsiz bir `setTimeout` stop() ile iptal edilemez → gecikme dolduğunda servis
+ * kapanmış yaşam döngüsünde yeniden doğar (zombi servis).
+ */
+interface BackoffState {
+  count: number;
+  /** Bekleyen gecikmeli restart timer'ı (yoksa null). */
+  restartTimer: ReturnType<typeof setTimeout> | null;
+  /** Max deneme sonrası soğuma timer'ı (yoksa null). */
+  cooloffTimer: ReturnType<typeof setTimeout> | null;
+}
+
 /** Kısmi kayıt log satırı */
 function _log(msg: string): void {
   console.info(`[Boot] ${msg}`);
@@ -106,8 +121,8 @@ class SystemBoot {
   private _cleanups:     Cleanup[] = [];
   /** İsimli servis cleanup'ları — restart ve limp mekanizması için */
   private _namedCleanups = new Map<string, Cleanup>();
-  /** Worker crash exponential backoff — sayaç + cool-off timer */
-  private _backoffState = new Map<string, { count: number; cooloffTimer: ReturnType<typeof setTimeout> | null }>();
+  /** Worker crash exponential backoff — sayaç + bekleyen restart + cool-off timer'ı */
+  private _backoffState = new Map<string, BackoffState>();
   /** LIMP_HOME izleme durumu */
   private _limpActive  = false;
   private _cogUnsub:   (() => void) | null = null;
@@ -154,15 +169,33 @@ class SystemBoot {
   }
 
   /**
+   * Bir worker'ın bekleyen backoff timer'larını iptal eder.
+   * İDEMPOTENT: null handle'a dokunmaz, iptal ettiğini null'lar → ikinci çağrı
+   * bayat handle'ı yeniden clearTimeout etmez.
+   */
+  private _clearBackoffTimers(state: BackoffState): void {
+    if (state.restartTimer !== null) { clearTimeout(state.restartTimer); state.restartTimer = null; }
+    if (state.cooloffTimer !== null) { clearTimeout(state.cooloffTimer); state.cooloffTimer = null; }
+  }
+
+  /**
    * Worker crash olduğunda çağrılır — max 2 deneme sonrası vazgeçer.
    */
   private _handleWorkerCrash(workerKey: string, restartServiceName: string): void {
+    // Yaşam döngüsü kapalıyken gelen geç crash bildirimi (teardown sırasındaki
+    // worker onerror) hiçbir timer PLANLAMAZ — aksi halde stop()'un temizleyemediği
+    // sahipsiz bir handle doğar.
+    if (!this._started) {
+      _log(`Worker crash: ${workerKey} — SystemBoot durmuş, yok sayıldı`);
+      return;
+    }
+
     const MAX_RESTARTS    = 2;
     const BACKOFF_BASE_MS = 5_000;        // 5s → 10s → 20s (her denemede 2x)
     const BACKOFF_MAX_MS  = 160_000;      // üst limit ~2.5 dakika
     const COOLOFF_MS      = 5 * 60_000;  // max limit sonrası 5 dk bekleme
 
-    const state = this._backoffState.get(workerKey) ?? { count: 0, cooloffTimer: null };
+    const state = this._backoffState.get(workerKey) ?? { count: 0, restartTimer: null, cooloffTimer: null };
 
     // Zaten cool-off dönemindeyse — reset öncesi gelen crash'i yok say
     if (state.cooloffTimer) {
@@ -177,14 +210,21 @@ class SystemBoot {
 
     if (state.count <= MAX_RESTARTS) {
       _log(`Worker crash: ${workerKey} (attempt ${state.count}/${MAX_RESTARTS}) — ${delayMs / 1000}s sonra yeniden deneniyor`);
-      setTimeout(() => {
+      // TEK BEKLEYEN RESTART invaryantı: aynı worker için önceki plan hâlâ havadaysa
+      // iptal edilir (iki timer aynı servisi iki kez diriltmesin) ve yeni handle
+      // duruma YAZILIR → stop() onu iptal edebilir.
+      if (state.restartTimer !== null) clearTimeout(state.restartTimer);
+      state.restartTimer = setTimeout(() => {
+        // Önce kendi referansını bırak: geri çağrı çalışırken durumda bayat handle kalmaz.
+        state.restartTimer = null;
         void this.restartService(restartServiceName).catch((e) => logError(`SystemBoot:restart:${restartServiceName}`, e));
       }, delayMs);
+      this._backoffState.set(workerKey, state);
     } else {
       _log(`  › ${workerKey} max restart limitine ulaştı — ${COOLOFF_MS / 60_000}dk cool-off başlatıldı`);
       state.cooloffTimer = setTimeout(() => {
         _log(`  › ${workerKey} cool-off bitti — sayaç sıfırlandı`);
-        this._backoffState.set(workerKey, { count: 0, cooloffTimer: null });
+        this._backoffState.set(workerKey, { count: 0, restartTimer: null, cooloffTimer: null });
       }, COOLOFF_MS);
       this._backoffState.set(workerKey, state);
     }
@@ -196,6 +236,14 @@ class SystemBoot {
    * Bilinmeyen isim → no-op.
    */
   async restartService(name: string): Promise<void> {
+    // KAPI 1 — yaşam döngüsü kapalı/iptal edilmişse diriltme YOK. Gecikmeli restart
+    // geri çağrısı, HealthMonitor veya worker onerror yolu stop() sonrası buraya
+    // ulaşabilir; kapanmış bir sistemde yeni servis doğurmak zombi üretir.
+    if (!this._started || this._aborted) {
+      _log(`Restart reddedildi (SystemBoot aktif değil): ${name}`);
+      return;
+    }
+
     _log(`Restarting service: ${name}`);
 
     // Mevcut cleanup'ı çalıştır ve orijinal LIFO pozisyonunu kaydet
@@ -213,6 +261,14 @@ class SystemBoot {
 
     // Kısa bekleme — cleanup settle
     await new Promise<void>((resolve) => setTimeout(resolve, 500));
+
+    // KAPI 2 — settle penceresi sırasında stop()/abort gelmiş olabilir. Eski cleanup
+    // zaten çalıştı ve kayıtlardan düştü; burada erken çıkmak servisi KAPALI bırakır
+    // (doğru davranış: sistem kapanıyor).
+    if (!this._started || this._aborted) {
+      _log(`  › Restart iptal edildi (settle sırasında kapanış): ${name}`);
+      return;
+    }
 
     switch (name) {
       case 'VehicleDataLayer': {
@@ -415,7 +471,10 @@ class SystemBoot {
     }
     this._cleanups     = [];
     this._namedCleanups.clear();
-    this._backoffState.forEach((s) => { if (s.cooloffTimer) clearTimeout(s.cooloffTimer); });
+    // Bekleyen HER backoff timer'ı iptal et (restart + cool-off). Yalnız cool-off
+    // temizlenirse bekleyen restart hayatta kalır ve kapanmış yaşam döngüsünde
+    // servisi yeniden doğurur.
+    this._backoffState.forEach((s) => this._clearBackoffTimers(s));
     this._backoffState.clear();
     this._bootAbort    = null;
     this._started      = false;
