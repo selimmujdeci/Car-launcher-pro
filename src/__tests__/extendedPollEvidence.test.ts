@@ -55,6 +55,30 @@ describe('classifyExtendedPoll — H1/H2/H3/H4 karar ağacı', () => {
     expect(classifyExtendedPoll(native({ present: false }), JS_ZERO).code).toBe('NO_NATIVE_EVIDENCE');
   });
 
+  /* SAHA (snapshot 2026-07-25, KWP/protokol 5): native kanıt yokken etiket
+     "eski APK / poll başlamadı" diyordu — ama AYNI nesnede js.eventsReceived=102 ve
+     js.valuesStored=102 vardı. Poll çalışıyordu; eksik olan KANIT KANALIydı. Yanlış
+     etiket geliştiriciyi "APK eski" teşhisine sürüklüyordu. */
+  it('kanıt yok AMA JS akışı var → poll "başlamadı" DENMEZ (yanlış teşhis kilidi)', () => {
+    const js: ExtendedJsCounters = { eventsReceived: 102, decodeFailures: 0, valuesStored: 102, valuesCached: 6 };
+    const d = classifyExtendedPoll(null, js);
+    expect(d.code).toBe('NO_NATIVE_EVIDENCE_JS_ALIVE');
+    expect(d.label).not.toMatch(/poll başlamadı/i);
+    expect(d.label).toMatch(/POLL ÇALIŞIYOR/);
+    expect(d.label).toContain('102');       // hüküm ÖLÇÜLEN sayıya dayanmalı
+  });
+
+  it('kanıt yok ve JS akışı da BOŞ → NO_NATIVE_EVIDENCE (hüküm kurulmaz)', () => {
+    const d = classifyExtendedPoll(null, JS_ZERO);
+    expect(d.code).toBe('NO_NATIVE_EVIDENCE');
+    expect(d.label).toMatch(/JS akışı da BOŞ/);
+  });
+
+  it('yalnız valuesStored>0 (olay sayacı sıfırlanmış) da akış kanıtıdır', () => {
+    const js: ExtendedJsCounters = { eventsReceived: 0, decodeFailures: 0, valuesStored: 4, valuesCached: 1 };
+    expect(classifyExtendedPoll(native({ present: false }), js).code).toBe('NO_NATIVE_EVIDENCE_JS_ALIVE');
+  });
+
   it('configured=0 & attempted=0 → NO_PIDS', () => {
     const ev = native({ configuredPidCount: 0, counters: { attempted: 0 } });
     expect(classifyExtendedPoll(ev, JS_ZERO).code).toBe('NO_PIDS');

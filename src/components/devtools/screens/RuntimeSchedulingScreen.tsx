@@ -8,14 +8,21 @@
  *
  * YAPMADIKLARI: queue temizleme/pause/resume · poll hızı değiştirme · komut önceliği ·
  * reconnect · recovery tetikleme · keep-alive gönderme · AT komutu · PID/DID sorgusu ·
- * Deep Scan başlatma · CAN capture başlatma · ECU write · DTC clear · native pull.
+ * Deep Scan başlatma · CAN capture başlatma · ECU write · DTC clear.
  *
- * YENİLE yalnız yan etkisiz senkron getter'ları yineler.
+ * NATIVE SAYAÇ OKUMASI (saha 2026-07-25): `refreshExtendedPollEvidence()` bu ekranda
+ * ÇAĞRILIR. Önceki tur bunu bilerek atlıyordu ("native pull yok") ama sonuç KÖRLÜK oldu:
+ * kanıt önbelleğini yalnız tanı raporu yolu dolduruyordu, dolayısıyla LAB'da alan HER ZAMAN
+ * "Kanıt mevcut değil (eski APK / poll başlamadı)" görünüyordu — cihazda poll çalışırken bile.
+ * Çağrılan native metot SALT SAYAÇ döndürür (`CarLauncherPlugin.getObdExtendedPollEvidence`):
+ * araca komut GÖNDERMEZ, poll/handshake TETİKLEMEZ → "araç iletişimini değiştirmez" beyanı
+ * ihlal edilmez. Fail-soft: hata/eski APK → önbellek boş kalır, ekran UNAVAILABLE gösterir.
  */
 
-import { memo, useCallback, useMemo, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { RefreshCw, ShieldCheck, AlertTriangle } from 'lucide-react';
 import { readSchedRawSnapshot } from '../../../platform/devtools/runtimeSchedulingSources';
+import { refreshExtendedPollEvidence } from '../../../platform/obd/extendedPollEvidence';
 import {
   buildSchedChannels, buildSchedConflictInput, buildRuntimeSummaryInput,
   type SchedRawSnapshot,
@@ -75,9 +82,27 @@ const FieldRow = memo(function FieldRow({ field, nowMs }: { field: SchedField; n
 });
 
 export const RuntimeSchedulingScreen = memo(function RuntimeSchedulingScreen() {
-  // Tek seferlik senkron okuma. TIMER YOK, ABONELİK YOK, POLLING YOK, NATIVE PULL YOK.
+  // Tek seferlik senkron okuma. TIMER YOK, ABONELİK YOK, POLLING YOK.
   const [snap, setSnap] = useState<SchedRawSnapshot>(() => readSchedRawSnapshot());
-  const refresh = useCallback(() => { setSnap(readSchedRawSnapshot()); }, []);
+
+  /* Unmount sonrası setState YASAK (zero-leak) — async kanıt tazelemesi geri döndüğünde
+     bileşen kapanmış olabilir. Tek ref, ek timer yok. */
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
+
+  /* Native sayaç önbelleğini tazele, SONRA senkron oku. Sıra önemli: tazeleme
+     beklenmezse ekran yine boş önbelleği okur (körlüğün ta kendisi). */
+  const refresh = useCallback(() => {
+    void refreshExtendedPollEvidence()
+      .catch(() => { /* fail-soft: kanıt yok → UNAVAILABLE */ })
+      .finally(() => { if (mountedRef.current) setSnap(readSchedRawSnapshot()); });
+  }, []);
+
+  // Açılışta bir kez: ilk görüntü de tazelenmiş kanıtla gelsin (tek atış, polling YOK).
+  useEffect(() => { refresh(); }, [refresh]);
 
   const channels  = useMemo(() => buildSchedChannels(snap), [snap]);
   const conflicts = useMemo(() => detectSchedConflicts(buildSchedConflictInput(snap)), [snap]);
@@ -112,9 +137,10 @@ export const RuntimeSchedulingScreen = memo(function RuntimeSchedulingScreen() {
         </div>
         <p className="mt-1 font-mono text-[9px] leading-relaxed text-white/30">
           Tek bir "global queue/scheduler" YOKTUR — aşağıdaki her kart AYRI bir runtime
-          otoritesidir ve birleştirilmez. YENİLE yalnız yan etkisiz senkron getter'ları
-          yineler: polling başlatmaz, kuyruk boşaltmaz, native pull yapmaz, handshake
-          veya Deep Scan tetiklemez. Kuyruk derinliği bilinmiyorsa 0 GÖSTERİLMEZ.
+          otoritesidir ve birleştirilmez. YENİLE, native SAYAÇ kanıtını tazeler ve yan
+          etkisiz senkron getter'ları yineler: araca sorgu göndermez, polling başlatmaz,
+          kuyruk boşaltmaz, handshake veya Deep Scan tetiklemez. Kuyruk derinliği
+          bilinmiyorsa 0 GÖSTERİLMEZ.
         </p>
       </div>
 

@@ -21,7 +21,8 @@ import { CarLauncher, type NativeExtendedPollEvidence } from '../nativePlugin';
 import { getExtendedJsCounters } from './extendedPidService';
 
 export type ExtendedPollDecisionCode =
-  | 'NO_NATIVE_EVIDENCE'  // eski APK / plugin metodu yok
+  | 'NO_NATIVE_EVIDENCE'  // eski APK / plugin metodu yok / kanıt hiç tazelenmedi
+  | 'NO_NATIVE_EVIDENCE_JS_ALIVE' // native kanıt yok AMA JS akışı poll'un çalıştığını kanıtlıyor
   | 'NO_PIDS'             // hiç extended PID yapılandırılmadı (panel kapalı / keşif boş)
   | 'H1_POLL_DEAD'        // liste var, hiç denenmedi
   | 'H2_ECU_SILENT'       // denendi, değer yok
@@ -46,6 +47,10 @@ export interface ExtendedPollEvidenceSnapshot {
   configuredPidCount: number;
   configuredPidPreview: string[];
   counters: NativeExtendedPollEvidence['counters'] | null;
+  /** Native son BAŞARILI PID — kanıt yoksa null (uydurulmaz). */
+  lastSuccessfulPid: string | null;
+  /** Native son poll duvar-saati damgası — kanıt yoksa/0 ise null (uydurulmaz). */
+  lastPollAt: number | null;
   lastAttempts: NativeExtendedPollEvidence['lastAttempts'];
   js: ExtendedJsCounters;
   decision: ExtendedPollDecision;
@@ -79,7 +84,21 @@ export function classifyExtendedPoll(
   js: ExtendedJsCounters,
 ): ExtendedPollDecision {
   if (!native || !native.present) {
-    return { code: 'NO_NATIVE_EVIDENCE', label: 'Kanıt mevcut değil (eski APK / poll başlamadı)' };
+    /* SAHA (snapshot 2026-07-25): native kanıt yokken etiket "eski APK / poll başlamadı"
+       diyordu — AMA aynı nesnede `js.eventsReceived=102`, `js.valuesStored=102` vardı.
+       Yani poll çalışıyordu; eksik olan POLL DEĞİL, KANIT KANALIYDI. Yanlış etiket
+       geliştiriciyi "APK eski" teşhisine sürüklüyordu. Elimizdeki veriyle çelişen
+       hüküm kurulmaz (8 Kapı §1 doğruluk). */
+    if (js.eventsReceived > 0 || js.valuesStored > 0) {
+      return {
+        code: 'NO_NATIVE_EVIDENCE_JS_ALIVE',
+        label: `Native kanıt kanalı yayın yapmıyor — POLL ÇALIŞIYOR (JS ${js.eventsReceived} olay / ${js.valuesStored} değer)`,
+      };
+    }
+    return {
+      code: 'NO_NATIVE_EVIDENCE',
+      label: 'Kanıt mevcut değil (eski APK / kanıt tazelenmedi / poll başlamadı) — JS akışı da BOŞ',
+    };
   }
   const c = native.counters;
   if (native.configuredPidCount === 0 && c.attempted === 0) {
@@ -116,6 +135,11 @@ export function getExtendedPollEvidence(): ExtendedPollEvidenceSnapshot {
     configuredPidCount: native?.configuredPidCount ?? 0,
     configuredPidPreview: native?.configuredPidPreview ?? [],
     counters: native?.counters ?? null,
+    /* SAHA (2026-07-25): bu iki alan native yanıtta VARDI ama anlık görüntüye taşınmıyordu →
+       Poll Scheduler ekranında "son poll zamanı" ve "son başarılı PID" HER ZAMAN "KAYNAK YOK"
+       görünüyordu. 0 damgası "bilinmiyor" demektir, ISO tarihine çevrilmez. */
+    lastSuccessfulPid: native?.lastSuccessfulPid ?? null,
+    lastPollAt: native && native.lastPollAt > 0 ? native.lastPollAt : null,
     lastAttempts: native?.lastAttempts ?? [],
     js,
     decision,

@@ -173,13 +173,31 @@ describe('KİLİT 3 + 10 — mount motor başlatmıyor; YAN ETKİLİ getter\'lar
     ]) expect(src).toContain(g);
   });
 
-  it('ekran bileşeni timer/abonelik kurmaz', async () => {
+  /* SAHA (snapshot 2026-07-25): bu kilit `useEffect`i TÜMDEN yasaklıyordu. Sonuç körlük
+     oldu — native kanıt önbelleğini yalnız tanı raporu yolu dolduruyordu, bu yüzden LAB'da
+     alan cihazda poll ÇALIŞIRKEN bile hep "Kanıt mevcut değil (eski APK…)" gösteriyordu.
+     Kilit KALDIRILMADI, gerçek değişmeze DARALTILDI: timer/abonelik/polling YASAK, komut
+     ve motor yüzeyi YASAK, unmount sonrası setState YASAK — tek atış salt-okunur SAYAÇ
+     tazelemesi serbest. */
+  it('ekran bileşeni timer/abonelik/polling kurmaz (tek atış sayaç tazelemesi hariç)', async () => {
     const { readFileSync } = await import('node:fs');
     const src = stripComments(
       readFileSync('src/components/devtools/screens/RuntimeSchedulingScreen.tsx', 'utf8'));
-    for (const f of ['setInterval', 'setTimeout', 'useEffect', 'subscribe', 'addListener']) {
+    for (const f of ['setInterval', 'setTimeout', 'subscribe', 'addListener']) {
       expect(src).not.toContain(f);
     }
+    // Komut / motor / müdahale yüzeyi hâlâ YASAK
+    for (const f of [
+      'sendCommand', 'connectOBD', 'disconnectOBD', 'reconnect(', 'startDeepScan',
+      'setDiagnosticBurst', 'clearDTC', 'setCollecting',
+    ]) expect(src).not.toContain(f);
+    // İzin verilen TEK async çağrı: salt-okunur native sayaç kanıtı
+    expect(src).toContain('refreshExtendedPollEvidence');
+    // Açılış efekti TEK ATIŞ olmalı — polling'e dönüşmesin (bağımlılık: kararlı refresh)
+    expect(src).toMatch(/useEffect\(\(\) => \{ refresh\(\); \}, \[refresh\]\)/);
+    // Zero-leak: unmount sonrası setState yapılmamalı
+    expect(src).toContain('mountedRef.current = false');
+    expect(src).toMatch(/if \(mountedRef\.current\) setSnap/);
   });
 
   it('shell render edilince yakalama referansı 0 kalır', () => {
@@ -321,8 +339,11 @@ describe('KİLİT 9 — bilinmeyen poll cadence sahte değerle DOLDURULMUYOR', (
     expect(f.note).toContain('YAZAN kod YOK');
   });
 
-  it('ÜRETİM YOLU: senkron kanıt lastPollAt taşımaz → UNAVAILABLE, damga uydurulmaz', () => {
-    // Kaynak okuyucu bu alanı DAİMA null verir (senkron snapshot tipinde yok).
+  /* SAHA (2026-07-25): bu kilit eskiden "senkron kanıt lastPollAt TAŞIMAZ" sınırlamasını
+     değişmez sanıyordu. Sınırlama giderildi (alan artık anlık görüntüye taşınıyor ve ekran
+     kanıtı tazeliyor). Kilit KALDIRILMADI: asıl değişmez "damga UYDURULMAZ"dır — hem
+     yokluk hem varlık yönü kilitlenir. */
+  it('lastPollAt yoksa UNAVAILABLE — damga UYDURULMAZ', () => {
     const ch = buildSchedChannels(snapshot({
       pollEvidence: { ...snapshot().pollEvidence!, lastPollAt: null },
     }));
@@ -330,7 +351,25 @@ describe('KİLİT 9 — bilinmeyen poll cadence sahte değerle DOLDURULMUYOR', (
     expect(f.klass).toBe('UNAVAILABLE');
     expect(f.value).toBe('—');
     expect(f.updatedAt).toBeNull();
-    expect(f.note).toContain('ASYNC pull');
+    expect(f.note).not.toContain('ASYNC pull');   // artık geçerli mazeret DEĞİL
+  });
+
+  it('lastPollAt VARSA gösterilir — alan kalıcı KÖR değildir', () => {
+    const f = findField(buildSchedChannels(snapshot()), 'cmdLastPollAt')!;
+    expect(f.klass).not.toBe('UNAVAILABLE');
+    expect(f.updatedAt).toBe(NOW - 800);
+    expect(f.value).toBe(new Date(NOW - 800).toISOString());
+  });
+
+  it('son BAŞARILI PID: yoksa UNAVAILABLE, varsa ÖLÇÜLDÜ ("denendi" ile karıştırılmaz)', () => {
+    const blind = findField(buildSchedChannels(snapshot()), 'cmdLastSuccessPid')!;
+    expect(blind.klass).toBe('UNAVAILABLE');   // fixture: lastSuccessfulPid = null
+    const ch = buildSchedChannels(snapshot({
+      pollEvidence: { ...snapshot().pollEvidence!, lastSuccessfulPid: '0105' },
+    }));
+    const f = findField(ch, 'cmdLastSuccessPid')!;
+    expect(f.klass).toBe('OBSERVED');
+    expect(f.value).toBe('0105');
   });
 });
 

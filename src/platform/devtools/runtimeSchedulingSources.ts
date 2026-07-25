@@ -60,10 +60,10 @@ export function readSchedRawSnapshot(): SchedRawSnapshot {
       configuredPidCount: Number(poll.configuredPidCount) || 0,
       counters:           poll.counters ?? null,
       lastAttemptedPid:   poll.lastAttempts?.length ? poll.lastAttempts[poll.lastAttempts.length - 1].pid : null,
-      lastSuccessfulPid:  null,
+      lastSuccessfulPid:  poll.lastSuccessfulPid ?? null,
       lastOutcome:        poll.lastAttempts?.length ? poll.lastAttempts[poll.lastAttempts.length - 1].outcome : null,
       lastElapsedMs:      poll.lastAttempts?.length ? poll.lastAttempts[poll.lastAttempts.length - 1].elapsedMs : null,
-      lastPollAt:         null,
+      lastPollAt:         typeof poll.lastPollAt === 'number' && poll.lastPollAt > 0 ? poll.lastPollAt : null,
       decisionLabel:      String(poll.decision?.label ?? ''),
       js: {
         eventsReceived: Number(poll.js?.eventsReceived) || 0,

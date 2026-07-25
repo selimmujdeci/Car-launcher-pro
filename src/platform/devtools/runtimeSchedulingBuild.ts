@@ -169,8 +169,14 @@ function _commandExecChannel(s: SchedRawSnapshot): SchedChannel {
       ), s.readAt, fresh)
     : schedUnavailable(
         { id: 'cmdLastPollAt', label: 'son poll zamanı', source: SRC.pollEv, note: '' },
-        'Senkron kanıt anlık görüntüsü (ExtendedPollEvidenceSnapshot) bu alanı TAŞIMIYOR — native `lastPollAt` yalnız ASYNC pull yanıtında bulunur. Damga uydurulmaz.',
+        'Native kanıt tazelenmedi ya da `lastPollAt` damgası 0 (hiç poll turu tamamlanmadı). Damga uydurulmaz.',
       ));
+
+  f.push(ev!.lastSuccessfulPid
+    ? schedObserved({ id: 'cmdLastSuccessPid', label: 'son BAŞARILI PID', source: SRC.pollEv,
+        note: 'Native son değer üreten PID — "denendi" ile "başarılı" AYNI şey değildir.' }, ev!.lastSuccessfulPid)
+    : schedUnavailable({ id: 'cmdLastSuccessPid', label: 'son BAŞARILI PID', source: SRC.pollEv, note: '' },
+        'Kanıtta başarılı PID yok (hiç değer üretilmedi ya da kanıt tazelenmedi).'));
 
   f.push(schedObserved({ id: 'cmdBurst', label: 'tanı BURST modu', source: SRC.pollEv,
     note: 'Açıkken EXTENDED grubu her turda tümüyle okunur (ekstra ECU trafiği).' }, ev!.burstEnabled));
