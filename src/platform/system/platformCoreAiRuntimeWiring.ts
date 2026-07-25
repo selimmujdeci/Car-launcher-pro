@@ -80,16 +80,33 @@ export interface AiRuntimeWiringStatus {
   readonly publishedCount: number;
   readonly errorCount: number;
   readonly lastRunAt: number | null;
+  /**
+   * SON start denemesinde Event Bus var mıydı. `null` = hiç denenmedi (BİLİNMİYOR).
+   *
+   * NEDEN: `present:false` bugün İKİ farklı kökü aynı görünüme indiriyordu —
+   *  (a) bus yoktu → wiring sessizce no-op döndü,  (b) runtime kuruldu ama dispose edildi.
+   * Bu tek bit ikisini ayırır: `busPresent:false` + `present:false` → (a);
+   * `busPresent:true` + `present:false` → (b) ya da init hatası. Bounded boolean —
+   * bus örneği, event adı veya payload TAŞIMAZ.
+   */
+  readonly busPresent: boolean | null;
 }
 
 const NOOP_CLEANUP: AiRuntimeWiringCleanup = () => { /* no-op */ };
 
 const ABSENT_STATUS: AiRuntimeWiringStatus = Object.freeze({
   present: false, started: false, disposed: false, subscriptions: 0,
-  runCount: 0, publishedCount: 0, errorCount: 0, lastRunAt: null,
+  runCount: 0, publishedCount: 0, errorCount: 0, lastRunAt: null, busPresent: null,
 });
 
 let _active: AiCoreRuntime | null = null;
+
+/**
+ * Son start denemesinde bus bulunabildi mi (`null` = hiç start denenmedi).
+ * Yalnız TEŞHİS içindir; hiçbir karar bu değere dayanmaz. Cleanup bunu SIFIRLAMAZ:
+ * "bus vardı ama runtime kapandı" bilgisi shutdown sonrası da doğrudur.
+ */
+let _lastBusPresent: boolean | null = null;
 
 /** Bayat kayıt (HMR/restart artığı: dispose edilmiş runtime) → serbest bırak. */
 function _pruneStale(): void {
@@ -121,6 +138,7 @@ export function startPlatformCoreAiRuntimeWiring(deps: AiRuntimeWiringDeps = {})
 
     const appBus = getAppEventBus();               // W3'ün TEK aktif bus'ı
     const bus: RuntimeBusLike | null = deps.bus ?? (appBus as RuntimeBusLike | null);
+    _lastBusPresent = bus !== null;                // TEŞHİS: "bus yoktu" ile "runtime kapandı"yı ayırır
     if (!bus) return NOOP_CLEANUP;                 // bus yok → sessiz no-op (boot sürer)
     const hal: RuntimeHalLike = deps.hal ?? (vehicleHal as RuntimeHalLike);
 
@@ -165,7 +183,8 @@ export function startPlatformCoreAiRuntimeWiring(deps: AiRuntimeWiringDeps = {})
 export function getAiRuntimeStatus(): AiRuntimeWiringStatus {
   _pruneStale();
   const rt = _active;
-  if (!rt) return ABSENT_STATUS;
+  // Runtime yok → "ölçülemiyor". `busPresent` yine taşınır: kökü ayırt eden tek bit odur.
+  if (!rt) return Object.freeze({ ...ABSENT_STATUS, busPresent: _lastBusPresent });
   try {
     const s: AiCoreRuntimeStatus = rt.getStatus();
     return Object.freeze({
@@ -177,9 +196,10 @@ export function getAiRuntimeStatus(): AiRuntimeWiringStatus {
       publishedCount: s.publishedCount,
       errorCount: s.errorCount,
       lastRunAt: s.lastRunAt,
+      busPresent: _lastBusPresent,
     });
   } catch {
-    return ABSENT_STATUS;   // teşhis yolu asla çökmez
+    return Object.freeze({ ...ABSENT_STATUS, busPresent: _lastBusPresent });   // teşhis yolu asla çökmez
   }
 }
 

@@ -38,6 +38,7 @@ import {
 import { getEventBusStatus } from './system/platformCoreEventBusWiring';
 import { getVehicleHalWiringStatus } from './system/platformCoreVehicleHalWiring';
 import { getVehicleHalBridgeStatus } from './system/platformCoreVehicleHalBridgeWiring';
+import { getAiRuntimeStatus } from './system/platformCoreAiRuntimeWiring';
 
 /* ── OBD DERİN ───────────────────────────────────────────────── */
 
@@ -543,11 +544,38 @@ export interface PlatformSourceHealthDiag {
   lastChangeAt: number | null;
 }
 
+/**
+ * AI Core runtime (Faz-2) — Platform Event Bus'ın üretimdeki TEK gerçek tüketicisi
+ * (`aiCoreRuntime` 4 `vehicle.*` olayına abone olur).
+ *
+ * NEDEN RAPORDA: `eventBus.activeListenerCount = 0` tek başına AYIRT EDİLEMEZ bir gözlemdi —
+ * (a) bus hiç yoktu → wiring sessizce no-op döndü, (b) runtime kuruldu sonra dispose edildi,
+ * (c) abonelik reddedildi. Bu bölüm `present` + `busPresent` + `subscriptions` üçlüsüyle kökü
+ * ayırır. `activeListenerCount` ile `subscriptions` NORMALDE eşleşir; eşleşmiyorsa çift
+ * instance ya da bayat snapshot şüphesidir (otomatik düzeltme YOK, yalnız gözlem).
+ *
+ * `present:false` = runtime RUNTIME'DA YOK ("ölçülemiyor") → sayaçlar `null`, 0 DEĞİL.
+ * Event adı, payload, AI çıktısı, prompt, araç verisi BURAYA GİRMEZ — yalnız sayaç/bayrak.
+ */
+export interface PlatformAiRuntimeDiag {
+  present: boolean;
+  started: boolean | null;
+  disposed: boolean | null;
+  /** Son start denemesinde bus var mıydı; `null` = hiç denenmedi (BİLİNMİYOR). */
+  busPresent: boolean | null;
+  /** Bus'a açılan aktif abonelik sayısı (beklenen 4). `null` = ölçülemiyor. */
+  subscriptions: number | null;
+  runCount: number | null;
+  errorCount: number | null;
+  lastRunAt: number | null;
+}
+
 export interface PlatformRuntimeSnapshot {
   eventBus: PlatformEventBusDiag;
   halWiring: PlatformHalWiringDiag;
   halBridge: PlatformHalBridgeDiag;
   sourceHealth: PlatformSourceHealthDiag;
+  aiRuntime: PlatformAiRuntimeDiag;
 }
 
 const _SOURCE_HEALTH_UNKNOWN: PlatformSourceHealthDiag = {
@@ -570,6 +598,13 @@ const _HAL_BRIDGE_ABSENT: PlatformHalBridgeDiag = {
 const _HAL_WIRING_ABSENT: PlatformHalWiringDiag = {
   started: false, lastRefreshAt: null, refreshCount: null,
   ingestedSignalCount: null, activeSubscriptionCount: null, lastErrorCode: null,
+};
+
+/* Runtime yok → sayaçlar `null` ("ölçülemiyor"), 0 DEĞİL. `busPresent` accessor'dan
+   gelirse korunur (kökü ayıran tek bit); accessor patlarsa `null` (bilinmiyor). */
+const _AI_RUNTIME_ABSENT: PlatformAiRuntimeDiag = {
+  present: false, started: null, disposed: null, busPresent: null,
+  subscriptions: null, runCount: null, errorCount: null, lastRunAt: null,
 };
 
 /** Sayaç normalizasyonu: NaN/Infinity/negatif-olmayan olmayan → null (ölçülemiyor). */
@@ -647,7 +682,27 @@ export function buildPlatformRuntimeSnapshot(): PlatformRuntimeSnapshot {
     };
   }, _SOURCE_HEALTH_UNKNOWN);
 
-  return { eventBus: bus, halWiring, halBridge, sourceHealth };
+  /* AI Core runtime — bus'ın TEK gerçek tüketicisi. `activeListenerCount` ile birlikte
+     okunur: normalde `subscriptions === activeListenerCount`. Accessor SALT-OKUNUR
+     (runtime/abonelik YARATMAZ) ve throw ederse bölüm absent'e düşer, rapor sürer. */
+  const aiRuntime = _safe<PlatformAiRuntimeDiag>(() => {
+    const s = getAiRuntimeStatus();
+    const busPresent = typeof s?.busPresent === 'boolean' ? s.busPresent : null;
+    // Runtime yok → "ölçülemiyor" (0 DEĞİL), ama busPresent korunur: kökü o ayırır.
+    if (!s || s.present !== true) return { ..._AI_RUNTIME_ABSENT, busPresent };
+    return {
+      present: true,
+      started:  s.started === true,
+      disposed: s.disposed === true,
+      busPresent,
+      subscriptions: _count(s.subscriptions),
+      runCount:      _count(s.runCount),
+      errorCount:    _count(s.errorCount),
+      lastRunAt:     _ts(s.lastRunAt),
+    };
+  }, _AI_RUNTIME_ABSENT);
+
+  return { eventBus: bus, halWiring, halBridge, sourceHealth, aiRuntime };
 }
 
 /* ── util ────────────────────────────────────────────────────── */

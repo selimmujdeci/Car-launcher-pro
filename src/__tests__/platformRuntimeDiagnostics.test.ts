@@ -71,7 +71,9 @@ describe('W4E — teşhis üretimi runtime wiring BAŞLATMAZ', () => {
     // OKUR. Değişmeyen invaryant: teşhis kendisi bridge/consumer YARATMAZ ve publish/subscribe ETMEZ.
     const snap = buildPlatformRuntimeSnapshot();
     // KİLİT GÜNCELLENDİ (PR-2): bounded `sourceHealth` bölümü eklendi (worker watchdog → store).
-    expect(Object.keys(snap)).toEqual(['eventBus', 'halWiring', 'halBridge', 'sourceHealth']);
+    // KİLİT GÜNCELLENDİ (AI-DIAG): bounded `aiRuntime` bölümü eklendi — `activeListenerCount=0`
+    // gözlemi tek başına ayırt edilemiyordu (bus yoktu / runtime kapandı / abonelik reddedildi).
+    expect(Object.keys(snap)).toEqual(['eventBus', 'halWiring', 'halBridge', 'sourceHealth', 'aiRuntime']);
     expect(snap.halBridge.present).toBe(false);     // wiring çalışmadı → "ölçülemiyor" (0 değil)
     expect(snap.halBridge.publishedCount).toBeNull();
     // sourceHealth: worker hiç bildirmediyse UNKNOWN (null) — `false` (ölü) ile KARIŞMAZ.
