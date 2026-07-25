@@ -212,6 +212,9 @@ export function createGeminiProvider(deps: GeminiProviderDependencies): AiProvid
 
   return {
     id: GEMINI_PROVIDER_ID,
+    // Google `generativelanguage` KENDİ model adlandırmasını kullanır; OpenRouter
+    // slug'ı buraya gelirse `400 unexpected model name format` olur (SAHA 2026-07-24).
+    defaultModel: DEFAULT_GEMINI_MODEL,
 
     /** SIFIR-TOKEN doğrulama: `GET /models` — üretim yapmaz, kota yakmaz. */
     async verifyKey(options?: AiKeyVerifyOptions): Promise<AiKeyVerification> {

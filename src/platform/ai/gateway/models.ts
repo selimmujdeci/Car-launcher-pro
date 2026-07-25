@@ -25,14 +25,17 @@ import type { AiModelId } from './types';
  * bakar), değerler değişebilir (slug güncellenirse tek yerde düzeltilir).
  */
 export const AI_MODELS = {
-  /* Anthropic */
-  claudeSonnet:  'anthropic/claude-3.5-sonnet',
-  claudeHaiku:   'anthropic/claude-3.5-haiku',
+  /* Anthropic
+   * ⚠️ SAHA 2026-07-24 (cihazda gerçek anahtarla ölçüldü): `anthropic/claude-3.5-haiku`
+   * OpenRouter'da EMEKLİ → `404 No endpoints found` (varsayılan model olduğu için
+   * gateway hattı tamamen ölüydü). Güncel slug 4.5 ailesidir. */
+  claudeSonnet:  'anthropic/claude-sonnet-4.5',
+  claudeHaiku:   'anthropic/claude-haiku-4.5',
   /* OpenAI */
   gpt4o:         'openai/gpt-4o',
   gpt4oMini:     'openai/gpt-4o-mini',
-  /* Google */
-  geminiFlash:   'google/gemini-2.0-flash-001',
+  /* Google — SAHA 2026-07-24: `google/gemini-2.0-flash-001` de OpenRouter'da 404. */
+  geminiFlash:   'google/gemini-2.5-flash',
   /* DeepSeek */
   deepseekChat:  'deepseek/deepseek-chat',
   /* Alibaba */

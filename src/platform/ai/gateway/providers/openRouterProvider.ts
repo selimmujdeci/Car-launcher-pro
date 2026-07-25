@@ -23,6 +23,7 @@
  *    (token'lar tek seferde teslim edilir; istek DÜŞMEZ — fail-soft).
  */
 
+import { DEFAULT_AI_MODEL } from '../models';
 import type {
   AiError,
   AiErrorKind,
@@ -221,6 +222,9 @@ export function createOpenRouterProvider(deps: OpenRouterProviderDependencies): 
 
   return {
     id: OPEN_ROUTER_PROVIDER_ID,
+    // Model kimliği SAĞLAYICIYA ÖZGÜ (`vendor/model` slug'ı) — zincirde yedeğe
+    // düşülürken bu ad kullanılır, başka sağlayıcının adı DEĞİL (SAHA 2026-07-24).
+    defaultModel: DEFAULT_AI_MODEL,
 
     /**
      * SIFIR-TOKEN anahtar doğrulama: OpenRouter'ın anahtar metadata uç noktası

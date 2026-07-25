@@ -213,6 +213,18 @@ export interface AiKeyVerifyOptions {
 export interface AiProvider {
   /** Kararlı kimlik (log/telemetri/fallback sırası için) — ör. `openrouter`. */
   readonly id: string;
+  /**
+   * BU SAĞLAYICININ KENDİ adlandırmasındaki varsayılan modeli.
+   *
+   * ⚠️ SAHA 2026-07-24 (cihazda yakalandı): gateway zincir boyunca TEK model adı
+   * kullanıyordu → OpenRouter düşünce (402) Gemini'ye geçiliyor ama istek yine
+   * `anthropic/claude-haiku-4.5` slug'ıyla gidiyordu → Gemini `400 unexpected
+   * model name format`. Yani fallback fiilen ÖLÜYDÜ: yedek sağlayıcı HER ZAMAN
+   * 400 alıyordu. Model kimlikleri sağlayıcıya özgüdür (OpenRouter `vendor/model`
+   * ≠ Gemini yerel adı) — zincirde model de sağlayıcıyla birlikte değişmelidir.
+   * Verilmezse gateway'in genel `defaultModel`'i kullanılır (geriye uyumlu).
+   */
+  readonly defaultModel?: AiModelId;
   generate(
     request:  AiProviderRequest,
     options?: AiProviderCallOptions,

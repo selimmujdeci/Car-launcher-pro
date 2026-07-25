@@ -245,15 +245,22 @@ export function createAiGateway(deps: AiGatewayDependencies): AiGateway {
           }
         : undefined;
 
-      const providerRequest: AiProviderRequest = {
+      /* MODEL SAĞLAYICIYA ÖZGÜDÜR (SAHA 2026-07-24): zincirde tek model adı
+         kullanmak yedek sağlayıcıyı öldürüyordu (OpenRouter slug'ı Gemini'ye
+         gidince `400 unexpected model name format`). Çağıran AÇIKÇA model
+         verdiyse ona saygı duyulur; vermediyse HER sağlayıcı KENDİ varsayılanını
+         kullanır, o da yoksa gateway geneli. */
+      const buildRequest = (provider: AiProvider): AiProviderRequest => ({
         messages:  request.messages,
-        model:     request.model ?? defaultModel,
+        model:     request.model ?? provider.defaultModel ?? defaultModel,
         timeoutMs: request.timeoutMs ?? defaultTimeoutMs,
         stream:    onToken !== undefined,
         ...(request.temperature !== undefined ? { temperature: request.temperature } : {}),
         ...(request.maxTokens   !== undefined ? { maxTokens:   request.maxTokens   } : {}),
         ...(request.tools && request.tools.length > 0 ? { tools: request.tools } : {}),
-      };
+      });
+      /** Kesici künyesi için son kullanılan model (zincirde değişebilir). */
+      let lastModelUsed: AiModelId = request.model ?? defaultModel;
 
       const attempts: AiAttemptLog[] = [];
       let lastError: AiError = fail('unknown', 'AI yanıtı alınamadı.');
@@ -270,7 +277,7 @@ export function createAiGateway(deps: AiGatewayDependencies): AiGateway {
         if (!netDeath) return;
         health?.recordFailure({
           ...(netDeath.provider !== undefined ? { provider: netDeath.provider } : {}),
-          model:         providerRequest.model,
+          model:         lastModelUsed,
           latencyMs:     Math.round(now() - startedAtMs),
           ...(netDeath.status !== undefined ? { httpStatus: netDeath.status } : {}),
           exceptionType: netDeath.kind,
@@ -281,6 +288,8 @@ export function createAiGateway(deps: AiGatewayDependencies): AiGateway {
 
       /* ── Sağlayıcı zinciri (fallback) ── */
       for (const provider of activeProviders) {
+        const providerRequest = buildRequest(provider);
+        lastModelUsed = providerRequest.model;
         for (let attempt = 1; attempt <= maxAttempts; attempt++) {
           if (options?.signal?.aborted) {
             flushHealth();
