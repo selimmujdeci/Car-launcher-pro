@@ -168,11 +168,15 @@ describe('kontak kapısı — motor kapalıyken ECU susması NORMALDİR', () => 
     expect(isEngineLikelyRunning(11.8)).toBe(false);
   });
 
-  it('voltaj bilinmiyorsa kurtarma YOK (çıkarım yasak — kanıt yoksa dokunma)', () => {
-    expect(isEngineLikelyRunning(null)).toBe(false);
-    expect(isEngineLikelyRunning(undefined)).toBe(false);
-    expect(isEngineLikelyRunning(NaN)).toBe(false);
-    expect(isEngineLikelyRunning(-1)).toBe(false); // "desteklenmiyor" konvansiyonu
+  it('voltaj BİLİNMİYORSA kurtarmayı ENGELLEME (iCar3 saha 2026-07-19 — donmuş oturum kalıcı kalmasın)', () => {
+    // KİLİT DEĞİŞTİ: eski davranış unknown→false, ATRV vermeyen kurulumda donmuş oturumu
+    // SONSUZA DEK kurtarılamaz bırakıyordu. Motor durumunu KANITLAYAMADIĞIMIZDA kurtarmaya
+    // İZİN verilir (bounded — 3 deneme, park'ta zararsızca tükenir). Yalnız GEÇERLİ + eşik-altı
+    // okuma (kesin motor-kapalı) atlatır.
+    expect(isEngineLikelyRunning(null)).toBe(true);
+    expect(isEngineLikelyRunning(undefined)).toBe(true);
+    expect(isEngineLikelyRunning(NaN)).toBe(true);
+    expect(isEngineLikelyRunning(-1)).toBe(true); // "desteklenmiyor" → bilinmiyor → engelleme
   });
 });
 

@@ -254,7 +254,12 @@ describe('Sesli asistan TTS senkronu kilidi', () => {
 
   it('YAPISAL: startListening ilk iş olarak ttsCancel() çağırır (kendi sesini kes)', () => {
     const src = vs();
-    expect(src).toMatch(/registerTtsEndListener,\s*ttsCancel\s*\}/); // import edildi
+    /* İmport kilidi SIRA/UZUNLUK BAĞIMSIZ: gerçek değişmez "ttsCancel `ttsService`'ten
+       import edilmiş"tir — import listesindeki konumu değil. Eski desen ttsCancel'ı
+       listenin SON elemanı sayıyordu (`ttsCancel\s*\}`) ve `isTtsSpeaking` eklenince
+       davranış bozulmadığı hâlde düştü. Kilit ZAYIFLAMADI: aşağıdaki çağrı kontrolü
+       (startListening ilk iş olarak ttsCancel()) aynen duruyor. */
+    expect(src).toMatch(/import\s*\{[^}]*\bttsCancel\b[^}]*\}\s*from\s*'\.\/ttsService'/);
     const fn = src.slice(src.indexOf('export function startListening'),
                          src.indexOf('export function startListening') + 1300);
     expect(fn).toMatch(/ttsCancel\(\)/);
