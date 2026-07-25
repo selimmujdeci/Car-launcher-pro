@@ -215,7 +215,11 @@ describe('KİLİT 6 — PLACEHOLDER kart yeni ağır servis BAŞLATMAZ', () => {
     const tool = getCarosLabTool('kwp-monitor')!;
     const html = renderToStaticMarkup(<ToolInfoScreen tool={tool} />);
     expect(html).toContain('tool-info-screen');
-    expect(html).toContain('PLACEHOLDER');
+    /* Arayüz Türkçeleştirildi (2026-07-25): görünen metin 'EKRAN YOK'. Ham enum
+       makine sözleşmesi olarak `data-status`ta AYNEN durur — dürüstlük kilidi
+       dile bağımlı olmamalı, o yüzden İKİSİ de doğrulanır. */
+    expect(html).toContain('data-status="PLACEHOLDER"');
+    expect(html).toContain('EKRAN YOK');
     expect(getLiveDiscoveryCoordinatorSpy).not.toHaveBeenCalled();
     expect(_devtoolsCaptureRefs()).toEqual({ obd: 0, can: 0 });
   });
@@ -332,8 +336,12 @@ describe('KİLİT 9 — PID/DID ekranı foundation durumunu DÜRÜST gösterir',
 
   it('ekran markup\'ı FOUNDATION_ONLY ve NOT_WIRED rozetlerini gerçekten basar', () => {
     const html = renderToStaticMarkup(<PidDidExplorerScreen />);
-    expect(html).toContain('FOUNDATION_ONLY');
-    expect(html).toContain('NOT_WIRED');
+    /* Ham enum `data-*` içinde (dile bağımsız makine sözleşmesi) + Türkçe etiket
+       görünür metinde. Çeviri turu bu dürüstlük beyanını zayıflatamaz. */
+    expect(html).toContain('data-status="FOUNDATION_ONLY"');
+    expect(html).toContain('data-state="NOT_WIRED"');
+    expect(html).toContain('YALNIZ ALTYAPI');
+    expect(html).toContain('BAĞLI DEĞİL');
     expect(html).toContain('piddid-wiring-apply-verified-consumer');
   });
 });

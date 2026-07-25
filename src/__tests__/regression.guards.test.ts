@@ -1723,3 +1723,129 @@ describe('Sesli asistan modalı tema-duyarlı yüzey kilidi', () => {
       .toMatch(/var\(--oem-surface-0\)/);
   });
 });
+
+/* ───────────────────────────────────────────────────────────────
+   CAROS LAB — gündüz/aydınlık tema kilidi
+   Saha (2026-07-25): CAROS LAB aydınlık temada SİYAH kalıyordu ve
+   düşük-opaklık metinler okunmuyordu. Kök neden: shell ve araç
+   ekranları sabit renk kullanıyordu (`bg-[#070b12]`, `text-white/xx`,
+   `border-white/xx`, `*-500/xx` tailwind paletleri) → hiçbir tema
+   değişkenine abone DEĞİLDİ, `html.light-ui` flip'i onlara ulaşmıyordu.
+   KİLİT: bu ağaçta sabit renk yok; yalnız `--oem-*` token'ları.
+   Ayrıca en soluk seviye `--oem-ink-3`'tür (ink-4 α .34 güneşte okunmuyor).
+   ─────────────────────────────────────────────────────────────── */
+describe('CAROS LAB aydınlık tema (token) kilidi', () => {
+  /* devtools ağacı + CAROS LAB'ın YENİDEN KULLANDIĞI ekranlar. İkinciler dışarıda
+     yaşıyor (DebugPanel / Uzman Modu de kullanır) ama LAB İÇİNDE açıldıkları için
+     tema düzeltmesi onlarsız EKSİKTİ — kilit ikisini birden kapsar. */
+  const files = [
+    ...walkTsx('src/components/devtools'),
+    'src/components/debug/PerformanceView.tsx',
+    'src/components/debug/BlackBoxReplayView.tsx',
+    'src/components/debug/CanRawView.tsx',
+    'src/components/discovery/DiscoveryDashboard.tsx',
+    'src/components/discovery/PidDidDeepScanPanel.tsx',
+  ];
+  /* Yorum satırları hariç tutulur — kök-neden açıklamaları yasaklı renk/token
+     ADINI içerir (kilidin kendisi belgeyi cezalandırmasın). */
+  const stripComments = (s: string) =>
+    s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+
+  it('YAPISAL: devtools ağacında en az bir ekran taranıyor', () => {
+    expect(files.length, 'devtools ekranları bulunamadı — kilit boşa çalışıyor')
+      .toBeGreaterThanOrEqual(8);
+  });
+
+  it('KİLİT: sabit renk (hex / text-white / tailwind palet) kullanılmaz', () => {
+    const BANNED = [
+      /\btext-white\b/,                       // opak/opaklıklı beyaz mürekkep
+      /\bborder-white\//,                     // beyaz hairline
+      /\bbg-white\//,                         // beyaz cam yüzey
+      /\bbg-black\//,                         // siyah cam yüzey
+      /\bbg-\[#[0-9a-fA-F]{3,8}\]/,           // sabit hex zemin
+      /\b(?:text|bg|border)-(?:cyan|emerald|amber|rose|sky|fuchsia|orange|slate|zinc|gray|neutral)-\d{2,3}\b/,
+    ];
+
+    const offenders: string[] = [];
+    for (const f of files) {
+      const src = stripComments(read(f));
+      for (const re of BANNED) {
+        const m = src.match(new RegExp(re.source, 'g'));
+        if (m) offenders.push(`${f} → ${[...new Set(m)].join(', ')}`);
+      }
+    }
+
+    expect(offenders, `CAROS LAB'da sabit renk geri geldi (aydınlık temada siyah kalır):\n${offenders.join('\n')}`)
+      .toEqual([]);
+  });
+
+  it('KİLİT: en soluk mürekkep --oem-ink-3 (ink-4 güneşte okunmuyor)', () => {
+    const offenders = files.filter((f) => stripComments(read(f)).includes('--oem-ink-4'));
+    expect(offenders, `--oem-ink-4 (α .34) geri geldi: ${offenders.join(', ')}`).toEqual([]);
+  });
+});
+
+/* ───────────────────────────────────────────────────────────────
+   CAROS LAB — TÜRKÇE ARAYÜZ kilidi (CLAUDE.md §DİL KURALI)
+   Arayüzün TAMAMI Türkçedir. Ama ham enum'lar (AVAILABLE · OBSERVED ·
+   FOUNDATION_ONLY…) MAKİNE SÖZLEŞMESİDİR: `data-*` özniteliklerinde ve
+   testlerde İngilizce kalır — dürüstlük kilitleri dile bağımlı olmamalı.
+   Bu kilit ikisini birden korur: her enum için Türkçe etiket EKSİKSİZ
+   olmalı (yoksa ekranda `undefined` basılır) ve sözlükler kaybolmamalı.
+   Protokol kısaltmaları (PID·DID·NRC·KWP·UDS·TX·RX·CAN·OBD·ELM327·HAL)
+   FAZ A politikası gereği çevrilmez — kilit onlara dokunmaz.
+   ─────────────────────────────────────────────────────────────── */
+describe('CAROS LAB Türkçe arayüz kilidi', () => {
+  it('KİLİT: her enum değerinin Türkçe etiketi vardır (eksikse ekranda undefined basar)', async () => {
+    const cat   = await import('../platform/devtools/carosLabCatalog');
+    const sess  = await import('../platform/devtools/sessionInspectorModel');
+    const sched = await import('../platform/devtools/runtimeSchedulingModel');
+    const ev    = await import('../platform/devtools/evidenceViewerModel');
+    const raw   = await import('../platform/devtools/rawTrafficModel');
+    const pid   = await import('../platform/devtools/pidDidExplorerModel');
+
+    const maps: Array<[string, Record<string, string>, readonly string[]]> = [
+      ['status',      cat.CAROS_LAB_STATUS_LABEL,        ['AVAILABLE', 'PLACEHOLDER', 'DISABLED']],
+      ['kategori',    cat.CAROS_LAB_CATEGORY_LABEL,      cat.CAROS_LAB_CATEGORIES],
+      ['gözlem',      sess.OBSERVABILITY_LABEL,          ['OBSERVED', 'DERIVED', 'UNAVAILABLE', 'STALE']],
+      ['oturum',      sess.SESSION_HEALTH_LABEL,         ['CONNECTED', 'DEGRADED', 'DISCONNECTED', 'UNKNOWN']],
+      ['sched-gözlem', sched.SCHED_OBSERVABILITY_LABEL,  ['OBSERVED', 'DERIVED', 'UNAVAILABLE', 'STALE', 'UNSAFE_TO_OBSERVE']],
+      ['kanal',       sched.CHANNEL_ACTIVITY_LABEL,      ['RUNNING', 'NOT_RUNNING', 'BLOCKED', 'UNKNOWN']],
+      ['özet',        sched.RUNTIME_SUMMARY_LABEL,       ['ACTIVE', 'PARTIAL', 'IDLE', 'BLOCKED', 'UNKNOWN']],
+      ['kanıt-kanal', ev.EVIDENCE_CHANNEL_LABEL,         ev.EVIDENCE_CHANNELS],
+      ['kanıt-önem',  ev.EVIDENCE_SEVERITY_LABEL,        ['info', 'warn', 'error', 'critical']],
+      ['trafik',      raw.RAW_TRAFFIC_KIND_LABEL,        raw.RAW_TRAFFIC_KINDS],
+      ['piddid',      pid.PIDDID_STATE_LABEL,            ['WIRED', 'NOT_WIRED', 'UNAVAILABLE']],
+      ['piddid-özet', pid.PIDDID_OVERALL_LABEL,          ['FOUNDATION_ONLY', 'WIRED']],
+    ];
+
+    const missing: string[] = [];
+    for (const [name, map, keys] of maps) {
+      for (const k of keys) {
+        const v = map[k];
+        if (typeof v !== 'string' || v.length === 0) missing.push(`${name}.${k}`);
+      }
+    }
+    expect(missing, `Türkçe etiketi olmayan enum değeri: ${missing.join(', ')}`).toEqual([]);
+  });
+
+  it('KİLİT: araç adları ve kategori etiketleri İngilizce kalmadı', async () => {
+    const cat = await import('../platform/devtools/carosLabCatalog');
+    /* Bir zamanlar İngilizce olan ve dönmemesi gereken adlar. Protokol kısaltmaları
+       (PID/DID/CAN/KWP/UDS) araç adının İÇİNDE geçebilir — bu liste tam-ad eşleşmesidir. */
+    const ENGLISH_NAMES = new Set([
+      'Live Data', 'PID/DID Explorer', 'Deep Scan', 'Vehicle Fingerprint',
+      'Raw OBD Traffic', 'CAN Monitor', 'KWP Monitor', 'UDS Explorer',
+      'Session Inspector', 'Adapter Diagnostics', 'Queue Monitor', 'Poll Scheduler',
+      'Recovery Monitor', 'Evidence Viewer', 'Mavi Console', 'Action Registry',
+      'Tool Calling', 'Memory Explorer', 'Knowledge Explorer', 'Decoder Registry',
+      'Discovery Database', 'Raw Command Console', 'Replay Log', 'Stress Test',
+    ]);
+    const back = cat.CAROS_LAB_TOOLS.filter((t) => ENGLISH_NAMES.has(t.name)).map((t) => t.id);
+    expect(back, `İngilizce araç adı geri geldi: ${back.join(', ')}`).toEqual([]);
+
+    const engCats = ['Vehicle', 'Communication', 'Runtime', 'Developer'];
+    const catBack = Object.values(cat.CAROS_LAB_CATEGORY_LABEL).filter((v) => engCats.includes(v));
+    expect(catBack, `İngilizce kategori etiketi geri geldi: ${catBack.join(', ')}`).toEqual([]);
+  });
+});

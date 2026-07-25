@@ -28,6 +28,21 @@ export interface PidDidWiringInput {
 export type PidDidOverallStatus = 'FOUNDATION_ONLY' | 'WIRED';
 
 /**
+ * Sunum etiketleri — enum DEĞERLERİ `data-state` / `data-status` özniteliklerinde
+ * ve testlerde AYNEN kalır (dürüstlük kilidi dile bağımlı değildir).
+ */
+export const PIDDID_STATE_LABEL: Readonly<Record<PidDidWiringState, string>> = {
+  WIRED:       'BAĞLI',
+  NOT_WIRED:   'BAĞLI DEĞİL',
+  UNAVAILABLE: 'KAYNAK YOK',
+} as const;
+
+export const PIDDID_OVERALL_LABEL: Readonly<Record<PidDidOverallStatus, string>> = {
+  FOUNDATION_ONLY: 'YALNIZ ALTYAPI',
+  WIRED:           'BAĞLI',
+} as const;
+
+/**
  * Wiring satırları. Sıra sabittir (deterministik render).
  */
 export function describePidDidWiring(input: PidDidWiringInput): PidDidWiringRow[] {

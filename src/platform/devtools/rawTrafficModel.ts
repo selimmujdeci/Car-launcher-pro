@@ -48,6 +48,18 @@ export type RawTrafficKind = 'TX' | 'RX' | 'SYSTEM' | 'ERROR';
 
 export const RAW_TRAFFIC_KINDS: readonly RawTrafficKind[] = ['TX', 'RX', 'SYSTEM', 'ERROR'] as const;
 
+/**
+ * Ekranda görünen Türkçe karşılık. TX/RX **çevrilmez** — PID/DID/NRC gibi endüstri
+ * standardı protokol kısaltmalarıdır (CLAUDE.md FAZ A: teknik isim serbest) ve ham
+ * hex kütüğünde bu adlarla aranır.
+ */
+export const RAW_TRAFFIC_KIND_LABEL: Readonly<Record<RawTrafficKind, string>> = {
+  TX:     'TX',
+  RX:     'RX',
+  SYSTEM: 'SİSTEM',
+  ERROR:  'HATA',
+} as const;
+
 export interface RawTrafficRow {
   /** Kararlı satır kimliği (React key). */
   readonly id:        string;

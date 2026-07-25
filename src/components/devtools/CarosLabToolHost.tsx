@@ -24,7 +24,7 @@ export const CarosLabToolHost = memo(function CarosLabToolHost({ tool }: { tool:
   }
 
   return (
-    <Suspense fallback={<div className="p-3 font-mono text-[11px] text-white/40">yükleniyor…</div>}>
+    <Suspense fallback={<div className="p-3 font-mono text-[11px] text-[var(--oem-ink-3)]">yükleniyor…</div>}>
       {screen}
     </Suspense>
   );

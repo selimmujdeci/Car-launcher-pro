@@ -54,13 +54,13 @@ export const PidDidDeepScanPanel = memo(function PidDidDeepScanPanel() {
   };
 
   return (
-    <div className="flex flex-col gap-4 rounded-xl border border-white/10 bg-black/30 p-4 text-sm text-white/90">
+    <div className="flex flex-col gap-4 rounded-xl border border-[var(--oem-line)] bg-[var(--oem-surface-1)] p-4 text-sm text-[var(--oem-ink)]">
       <div className="flex items-center gap-2 text-base font-semibold">
-        <Radar size={18} className="text-cyan-400" />
+        <Radar size={18} className="text-[var(--oem-info)]" />
         <span>PID/DID Keşfi</span>
       </div>
 
-      <div className="flex items-start gap-2 rounded-lg bg-cyan-500/10 p-3 text-xs text-cyan-200">
+      <div className="flex items-start gap-2 rounded-lg border border-[var(--oem-info)] bg-[var(--oem-info-soft)] p-3 text-xs text-[var(--oem-info)]">
         <ShieldCheck size={16} className="mt-0.5 shrink-0" />
         <span>Cevap veren her veri otomatik eklenmez. Yalnız anlamı ve güvenliği doğrulanmış veriler eklenir.</span>
       </div>
@@ -75,7 +75,7 @@ export const PidDidDeepScanPanel = memo(function PidDidDeepScanPanel() {
       </div>
 
       {result && (
-        <div className="text-xs text-white/60">
+        <div className="text-xs text-[var(--oem-ink-2)]">
           Standart PID bulundu: {result.standardPids.length} · Durma nedeni: {result.stopReason}
         </div>
       )}
@@ -85,7 +85,7 @@ export const PidDidDeepScanPanel = memo(function PidDidDeepScanPanel() {
           type="button"
           onClick={onStart}
           disabled={running}
-          className="flex-1 rounded-lg bg-cyan-600 px-3 py-2 font-medium text-white disabled:opacity-40"
+          className="flex-1 rounded-lg bg-[var(--oem-accent)] px-3 py-2 font-medium text-[var(--oem-accent-ink)] disabled:opacity-40"
         >
           {running ? 'Taranıyor…' : 'Keşfi Başlat'}
         </button>
@@ -93,7 +93,7 @@ export const PidDidDeepScanPanel = memo(function PidDidDeepScanPanel() {
           type="button"
           onClick={onCancel}
           disabled={!running}
-          className="flex items-center gap-1 rounded-lg bg-white/10 px-3 py-2 font-medium text-white disabled:opacity-40"
+          className="flex items-center gap-1 rounded-lg border border-[var(--oem-line-strong)] bg-[var(--oem-surface-2)] px-3 py-2 font-medium text-[var(--oem-ink)] disabled:opacity-40"
         >
           <Square size={14} /> İptal
         </button>
@@ -104,8 +104,8 @@ export const PidDidDeepScanPanel = memo(function PidDidDeepScanPanel() {
 
 const Stat = memo(function Stat({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-lg bg-white/5 px-2 py-1.5">
-      <div className="text-[10px] uppercase tracking-wide text-white/40">{label}</div>
+    <div className="rounded-lg border border-[var(--oem-line)] bg-[var(--oem-surface-2)] px-2 py-1.5">
+      <div className="text-[10px] uppercase tracking-wide text-[var(--oem-ink-3)]">{label}</div>
       <div className="font-medium">{value}</div>
     </div>
   );

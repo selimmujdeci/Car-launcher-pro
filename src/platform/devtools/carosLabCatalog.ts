@@ -26,16 +26,29 @@ export const CAROS_LAB_CATEGORIES: readonly CarosLabCategory[] = [
 ] as const;
 
 export const CAROS_LAB_CATEGORY_LABEL: Readonly<Record<CarosLabCategory, string>> = {
-  vehicle:       'Vehicle',
-  communication: 'Communication',
-  runtime:       'Runtime',
-  ai:            'AI',
-  developer:     'Developer',
+  vehicle:       'Araç',
+  communication: 'İletişim',
+  runtime:       'Çalışma Zamanı',
+  ai:            'Yapay Zekâ',
+  developer:     'Geliştirici',
 } as const;
 
 /* ── Durum ───────────────────────────────────────────────────────────────── */
 
 export type CarosLabToolStatus = 'AVAILABLE' | 'PLACEHOLDER' | 'DISABLED';
+
+/**
+ * Durumun EKRANDA görünen Türkçe karşılığı.
+ *
+ * Enum DEĞERİ (`AVAILABLE`…) makine sözleşmesidir — `data-status` özniteliğinde ve
+ * testlerde AYNEN kalır; kullanıcı yalnız Türkçe etiketi görür. Böylece dil değişimi
+ * dürüstlük kilitlerini (sahte "çalışıyor" yasağı) zayıflatmaz.
+ */
+export const CAROS_LAB_STATUS_LABEL: Readonly<Record<CarosLabToolStatus, string>> = {
+  AVAILABLE:   'HAZIR',
+  PLACEHOLDER: 'EKRAN YOK',
+  DISABLED:    'KAPALI',
+} as const;
 
 /* ── Araç kaydı ──────────────────────────────────────────────────────────── */
 
@@ -75,24 +88,24 @@ export interface CarosLabTool {
 export const CAROS_LAB_TOOLS: readonly CarosLabTool[] = Object.freeze([
   /* ── Vehicle ────────────────────────────────────────────────────────── */
   {
-    id: 'live-data', category: 'vehicle', name: 'Live Data',
+    id: 'live-data', category: 'vehicle', name: 'Canlı Veri',
     desc: 'Tüm Mode-01 PID + marka DID canlı akışı; ham hex, yorumlanmış değer, tazelik ve durum.',
     status: 'AVAILABLE', layer: 'OBD-II / Mode 01', note: null,
   },
   {
-    id: 'pid-did-explorer', category: 'vehicle', name: 'PID/DID Explorer',
+    id: 'pid-did-explorer', category: 'vehicle', name: 'PID/DID Gezgini',
     desc: 'Salt-okunur PID/DID keşif koordinatörü: aday tarama, doğrulanan/şüpheli/reddedilen sayaçları.',
     status: 'AVAILABLE', layer: 'Mode 22 / DID', note: null,
   },
   {
-    id: 'deep-scan', category: 'vehicle', name: 'Deep Scan',
+    id: 'deep-scan', category: 'vehicle', name: 'Derin Tarama',
     desc: 'Çok fazlı ECU/firmware derin tarama orkestrasyonu.',
     status: 'PLACEHOLDER',
     layer: 'UDS',
     note: 'Tek ve güvenli bir giriş noktası yok: deepScanOrchestrator (singleton) ve platformCoreDeepScanWiring (ignition-tetikli, fail-closed) iki ayrı akış. Yeni akış üretmemek için bağlanmadı.',
   },
   {
-    id: 'vehicle-fingerprint', category: 'vehicle', name: 'Vehicle Fingerprint',
+    id: 'vehicle-fingerprint', category: 'vehicle', name: 'Araç Parmak İzi',
     desc: 'Araç kimliği (protokol, ECU adresleri, desteklenen PID maskesi) parmak izi görünümü.',
     status: 'PLACEHOLDER', layer: null,
     note: 'Bağımsız ekranı yok; fingerprint şu an yalnız keşif akışının içinde üretiliyor.',
@@ -100,34 +113,34 @@ export const CAROS_LAB_TOOLS: readonly CarosLabTool[] = Object.freeze([
 
   /* ── Communication ──────────────────────────────────────────────────── */
   {
-    id: 'raw-obd-traffic', category: 'communication', name: 'Raw OBD Traffic',
+    id: 'raw-obd-traffic', category: 'communication', name: 'Ham OBD Trafiği',
     desc: 'Native adaptör trafiği: komut / yanıt / gecikme (ms). Yalnız OKUR — komut göndermez.',
     status: 'AVAILABLE', layer: 'ELM327', note: null,
   },
   {
-    id: 'can-monitor', category: 'communication', name: 'CAN Monitor',
+    id: 'can-monitor', category: 'communication', name: 'CAN İzleyici',
     desc: 'Ham CAN frame kütüğü (id + payload), panel açıkken toplanır.',
     status: 'AVAILABLE', layer: 'CAN', note: null,
   },
   {
-    id: 'kwp-monitor', category: 'communication', name: 'KWP Monitor',
+    id: 'kwp-monitor', category: 'communication', name: 'KWP İzleyici',
     desc: 'KWP2000 oturum durumu, keep-alive ve kurtarma merdiveni izleme.',
     status: 'PLACEHOLDER', layer: 'KWP2000',
-    note: 'Ekran yok. Kurtarma kanıtı şu an yalnız Evidence Viewer içindeki recovery.* satırlarından okunabilir.',
+    note: 'Ekran yok. Kurtarma kanıtı şu an yalnız Kanıt Görüntüleyici içindeki recovery.* satırlarından okunabilir.',
   },
   {
-    id: 'uds-explorer', category: 'communication', name: 'UDS Explorer',
+    id: 'uds-explorer', category: 'communication', name: 'UDS Gezgini',
     desc: 'UDS servis/alt-fonksiyon gezgini, NRC çözümleme.',
     status: 'PLACEHOLDER', layer: 'UDS / ISO 14229',
     note: 'Ekran yok. İstek üreten bir gezgin güvenlik incelemesi gerektirir (Faz A2).',
   },
   {
-    id: 'session-inspector', category: 'communication', name: 'Session Inspector',
+    id: 'session-inspector', category: 'communication', name: 'Oturum Denetçisi',
     desc: 'Oturum durumunun 6 katmanlı salt-okunur görünümü: transport · handshake · data gate · KWP · HAL · runtime. Her değer OBSERVED/DERIVED/UNAVAILABLE/STALE işaretli; kaynak çelişkileri ayrı gösterilir.',
     status: 'AVAILABLE', layer: null, note: null,
   },
   {
-    id: 'adapter-diagnostics', category: 'communication', name: 'Adapter Diagnostics',
+    id: 'adapter-diagnostics', category: 'communication', name: 'Adaptör Tanılama',
     desc: 'Adaptör kimliği, transport kalitesi, buffer/timeout sayaçları.',
     status: 'PLACEHOLDER', layer: null,
     note: 'Ekran yok.',
@@ -135,91 +148,91 @@ export const CAROS_LAB_TOOLS: readonly CarosLabTool[] = Object.freeze([
 
   /* ── Runtime ────────────────────────────────────────────────────────── */
   {
-    id: 'queue-monitor', category: 'runtime', name: 'Queue Monitor',
-    desc: 'Runtime Scheduling ortak görünümü: 6 ayrı runtime otoritesi (command execution · live polling · handshake · KWP · discovery/deep scan · CAN collection) salt-okunur listelenir.',
+    id: 'queue-monitor', category: 'runtime', name: 'Kuyruk İzleyici',
+    desc: 'Çalışma Zamanı Zamanlama ortak görünümü: 6 ayrı runtime otoritesi (command execution · live polling · handshake · KWP · discovery/deep scan · CAN collection) salt-okunur listelenir.',
     status: 'AVAILABLE', layer: null,
     note: 'Native komut kuyruğunun DERİNLİĞİ JS\'e açılmamıştır; o alan UNAVAILABLE olarak gösterilir (boş kuyruk varsayılmaz).',
   },
   {
-    id: 'poll-scheduler', category: 'runtime', name: 'Poll Scheduler',
-    desc: 'Runtime Scheduling ortak görünümü (Queue Monitor ile aynı ekran): poll zamanlayıcısı, tazelik kapısı ve native poll kanıtı salt-okunur.',
+    id: 'poll-scheduler', category: 'runtime', name: 'Sorgu Zamanlayıcı',
+    desc: 'Çalışma Zamanı Zamanlama ortak görünümü (Kuyruk İzleyici ile aynı ekran): poll zamanlayıcısı, tazelik kapısı ve native poll kanıtı salt-okunur.',
     status: 'AVAILABLE', layer: null,
     note: 'Aktif poll kadansı UNAVAILABLE: computeObdPollProfile saf bir fonksiyondur, hesaplanan profil hiçbir yerde saklanmaz.',
   },
   {
-    id: 'recovery-monitor', category: 'runtime', name: 'Recovery Monitor',
+    id: 'recovery-monitor', category: 'runtime', name: 'Kurtarma İzleyici',
     desc: 'Kurtarma merdiveni durumu ve tetiklenme geçmişi.',
     status: 'PLACEHOLDER', layer: null,
     note: 'Ekran yok.',
   },
   {
-    id: 'evidence-viewer', category: 'runtime', name: 'Evidence Viewer',
+    id: 'evidence-viewer', category: 'runtime', name: 'Kanıt Görüntüleyici',
     desc: 'Mevcut kanıt kaynaklarının birleşik salt-okunur görünümü: olay izi + AI Core kanıtları + doğrulama kütüğü.',
     status: 'AVAILABLE', layer: null, note: null,
   },
   {
-    id: 'performance', category: 'runtime', name: 'Performance',
+    id: 'performance', category: 'runtime', name: 'Performans',
     desc: 'FPS/bellek örnekleri, runtime modu ve hata sayaçları.',
     status: 'AVAILABLE', layer: null, note: null,
   },
 
   /* ── AI ─────────────────────────────────────────────────────────────── */
   {
-    id: 'mavi-console', category: 'ai', name: 'Mavi Console',
+    id: 'mavi-console', category: 'ai', name: 'Mavi Konsolu',
     desc: 'Mavi yaşam döngüsü, niyet çözümü ve yanıt gecikmesi konsolu.',
     status: 'PLACEHOLDER', layer: null,
     note: 'Ekran yok. Mavi Core telemetrisi mevcut ama konsol görünümü yazılmadı.',
   },
   {
-    id: 'action-registry', category: 'ai', name: 'Action Registry',
+    id: 'action-registry', category: 'ai', name: 'Eylem Kayıtları',
     desc: 'Kayıtlı typed action listesi, güvenlik sınıfı ve pilot durumu.',
     status: 'PLACEHOLDER', layer: null, note: 'Ekran yok.',
   },
   {
-    id: 'tool-calling', category: 'ai', name: 'Tool Calling',
+    id: 'tool-calling', category: 'ai', name: 'Araç Çağrısı',
     desc: 'Araç çağrısı (tool call) izleme: girdi, çıktı, red nedenleri.',
     status: 'PLACEHOLDER', layer: null, note: 'Ekran yok.',
   },
   {
-    id: 'memory-explorer', category: 'ai', name: 'Memory Explorer',
+    id: 'memory-explorer', category: 'ai', name: 'Bellek Gezgini',
     desc: 'Vehicle Memory kalıcı gerçekleri ve öğrenilmiş parmak izi kayıtları.',
     status: 'PLACEHOLDER', layer: null, note: 'Ekran yok.',
   },
   {
-    id: 'knowledge-explorer', category: 'ai', name: 'Knowledge Explorer',
+    id: 'knowledge-explorer', category: 'ai', name: 'Bilgi Tabanı Gezgini',
     desc: 'Teşhis bilgi tabanı (DTC → neden/kontrol eşlemeleri) gezgini.',
     status: 'PLACEHOLDER', layer: null, note: 'Ekran yok.',
   },
 
   /* ── Developer ──────────────────────────────────────────────────────── */
   {
-    id: 'decoder-registry', category: 'developer', name: 'Decoder Registry',
+    id: 'decoder-registry', category: 'developer', name: 'Çözücü Kayıtları',
     desc: 'Kayıtlı PID/DID decoder tanımları, birim ve ölçek eşlemeleri.',
     status: 'PLACEHOLDER', layer: null, note: 'Ekran yok.',
   },
   {
-    id: 'discovery-database', category: 'developer', name: 'Discovery Database',
+    id: 'discovery-database', category: 'developer', name: 'Keşif Veritabanı',
     desc: 'Sahada yakalanan katalog-dışı PID/DID gözlemleri; filtre, arama, JSON dışa aktarma.',
     status: 'AVAILABLE', layer: null, note: null,
   },
   {
-    id: 'raw-command-console', category: 'developer', name: 'Raw Command Console',
+    id: 'raw-command-console', category: 'developer', name: 'Ham Komut Konsolu',
     desc: 'Serbest ham komut gönderimi.',
     status: 'DISABLED', layer: 'ELM327 / UDS',
     note: 'GÜVENLİK POLİTİKASI: ham yazma/komut gönderimi kapalı (ECU write · coding · SecurityAccess · actuator · DTC clear kapsam dışı). Kart işlem çalıştırmaz.',
   },
   {
-    id: 'replay-log', category: 'developer', name: 'Replay Log',
+    id: 'replay-log', category: 'developer', name: 'Kayıt Oynatma',
     desc: 'Kara kutu kayıt oynatımı — kaydedilmiş oturumun olay akışı.',
     status: 'AVAILABLE', layer: null, note: null,
   },
   {
-    id: 'benchmark', category: 'developer', name: 'Benchmark',
+    id: 'benchmark', category: 'developer', name: 'Kıyaslama',
     desc: 'Poll turu, decode ve render bütçesi ölçümü.',
     status: 'PLACEHOLDER', layer: null, note: 'Ekran yok.',
   },
   {
-    id: 'stress-test', category: 'developer', name: 'Stress Test',
+    id: 'stress-test', category: 'developer', name: 'Yük Testi',
     desc: 'Yüksek yük altında adaptör/kuyruk dayanıklılık testi.',
     status: 'DISABLED', layer: null,
     note: 'GÜVENLİK POLİTİKASI: ECU/adaptör üzerinde kasıtlı yük üretir; canlı araçta çalıştırılabilir bir yüzey olarak açılmadı.',

@@ -13,7 +13,7 @@ import { ObdLiveTestPanel } from '../../obd/ObdLiveTestPanel';
 export const LiveDataScreen = memo(function LiveDataScreen() {
   return (
     <div className="flex h-full flex-col gap-2">
-      <div className="shrink-0 rounded border border-white/10 bg-white/[0.03] px-3 py-2 text-[10px] font-mono text-white/50">
+      <div className="shrink-0 rounded border border-[var(--oem-line)] bg-[var(--oem-surface-1)] px-3 py-2 text-[10px] font-mono text-[var(--oem-ink-2)]">
         SALT-OKUNUR · ekran açıkken native tanı burst'ü etkin (ekstra ECU trafiği); kapanınca düşük-yük
         round-robin'e döner.
       </div>

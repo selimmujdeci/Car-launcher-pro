@@ -58,12 +58,33 @@ export const INSPECTOR_CARD_ORDER: readonly InspectorCardId[] = [
 ] as const;
 
 export const INSPECTOR_CARD_TITLE: Readonly<Record<InspectorCardId, string>> = {
-  transport: '1 · Transport / Adapter',
-  protocol:  '2 · Protocol / Handshake',
-  datagate:  '3 · Data Gate / Polling',
-  kwp:       '4 · KWP / Recovery',
-  hal:       '5 · Vehicle HAL / Source Health',
-  runtime:   '6 · Runtime / Capture',
+  transport: '1 · Transport / Adaptör',
+  protocol:  '2 · Protokol / Handshake',
+  datagate:  '3 · Veri Kapısı / Sorgulama',
+  kwp:       '4 · KWP / Kurtarma',
+  hal:       '5 · Vehicle HAL / Kaynak Sağlığı',
+  runtime:   '6 · Çalışma Zamanı / Yakalama',
+} as const;
+
+/**
+ * Gözlemlenebilirlik sınıfının EKRANDA görünen Türkçe karşılığı.
+ *
+ * Enum DEĞERİ makine sözleşmesidir (`data-class` özniteliği + testler) ve DEĞİŞMEZ;
+ * çeviri yalnız sunum katmanıdır. Dil değişimi "uydurma yasak" kilidini zayıflatmaz.
+ */
+export const OBSERVABILITY_LABEL: Readonly<Record<Observability, string>> = {
+  OBSERVED:    'ÖLÇÜLDÜ',
+  DERIVED:     'TÜRETİLDİ',
+  UNAVAILABLE: 'KAYNAK YOK',
+  STALE:       'BAYAT',
+} as const;
+
+/** Oturum özetinin Türkçe karşılığı (enum değeri `data-health`'te aynen kalır). */
+export const SESSION_HEALTH_LABEL: Readonly<Record<SessionHealth, string>> = {
+  CONNECTED:    'BAĞLI',
+  DEGRADED:     'ZAYIF',
+  DISCONNECTED: 'KOPUK',
+  UNKNOWN:      'BİLİNMİYOR',
 } as const;
 
 /** Bounded: kart başına azami alan, çelişki listesi azami uzunluk. */

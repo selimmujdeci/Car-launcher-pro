@@ -676,10 +676,16 @@ describe('KİLİT 20 — saha doğrulaması olmadan "çalışıyor" iddiası YOK
     }
   });
 
+  /* Arayüz Türkçeleştirildi (2026-07-25): görünen metin artık Türkçe etiket kullanır
+     (ACTIVE→ETKİN · IDLE→BOŞTA). Kilidin AMACI değişmedi — ekran "zamanlayıcı var =
+     çalışıyor" iddiasını hâlâ AÇIKÇA reddetmeli. Ham enum `data-summary` özniteliğinde
+     durduğu için makine sözleşmesi de ayrıca doğrulanır. */
   it('ekran metni "timer var = çalışıyor" iddiasını açıkça reddeder', () => {
     const html = renderToStaticMarkup(<RuntimeSchedulingScreen />);
     expect(html).toContain('SALT OKUNUR');
-    expect(html).toContain('tek başına ACTIVE kanıtı sayılmaz');
-    expect(html).toContain('IDLE varsayılmaz');
+    expect(html).toContain('tek başına ETKİN kanıtı sayılmaz');
+    expect(html).toContain('BOŞTA varsayılmaz');
+    // Ham enum sunumdan bağımsız olarak DOM'da beyan edilir (dile bağımlı değil).
+    expect(html).toMatch(/data-summary="(ACTIVE|PARTIAL|IDLE|BLOCKED|UNKNOWN)"/);
   });
 });

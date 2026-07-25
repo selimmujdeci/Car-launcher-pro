@@ -52,11 +52,19 @@ export const EVIDENCE_CHANNELS: readonly EvidenceChannel[] = [
 
 export const EVIDENCE_CHANNEL_LABEL: Readonly<Record<EvidenceChannel, string>> = {
   'obd':          'OBD',
-  'kwp-recovery': 'KWP Recovery',
-  'discovery':    'Discovery',
-  'validation':   'Validation',
-  'ai':           'AI / Mavi',
-  'system':       'System',
+  'kwp-recovery': 'KWP Kurtarma',
+  'discovery':    'Keşif',
+  'validation':   'Doğrulama',
+  'ai':           'Yapay Zekâ / Mavi',
+  'system':       'Sistem',
+} as const;
+
+/** Önem derecesinin görünen Türkçe karşılığı (enum değeri veri katmanında AYNEN kalır). */
+export const EVIDENCE_SEVERITY_LABEL: Readonly<Record<EvidenceSeverity, string>> = {
+  info:     'BİLGİ',
+  warn:     'UYARI',
+  error:    'HATA',
+  critical: 'KRİTİK',
 } as const;
 
 /** Low-end (Mali-400) bütçesi: liste her koşulda SINIRLI kalır. */

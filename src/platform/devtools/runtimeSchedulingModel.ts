@@ -62,12 +62,39 @@ export const SCHED_CHANNEL_ORDER: readonly SchedChannelId[] = [
 ] as const;
 
 export const SCHED_CHANNEL_TITLE: Readonly<Record<SchedChannelId, string>> = {
-  'command-exec':       '1 · Command Execution',
-  'live-polling':       '2 · Live Polling',
-  'handshake':          '3 · Handshake / Initialization',
-  'kwp':                '4 · KWP Keep-Alive / Recovery',
-  'discovery-deepscan': '5 · Discovery / Deep Scan Scheduling',
-  'can-collect':        '6 · CAN Collection',
+  'command-exec':       '1 · Komut Yürütme',
+  'live-polling':       '2 · Canlı Sorgulama',
+  'handshake':          '3 · Handshake / İlk Kurulum',
+  'kwp':                '4 · KWP Keep-Alive / Kurtarma',
+  'discovery-deepscan': '5 · Keşif / Derin Tarama Zamanlaması',
+  'can-collect':        '6 · CAN Toplama',
+} as const;
+
+/**
+ * Sunum etiketleri — enum DEĞERLERİ makine sözleşmesidir (`data-class` · `data-summary` ·
+ * `data-testid`) ve DEĞİŞMEZ. Çeviri yalnız görünen metni etkiler.
+ */
+export const SCHED_OBSERVABILITY_LABEL: Readonly<Record<SchedObservability, string>> = {
+  OBSERVED:          'ÖLÇÜLDÜ',
+  DERIVED:           'TÜRETİLDİ',
+  UNAVAILABLE:       'KAYNAK YOK',
+  STALE:             'BAYAT',
+  UNSAFE_TO_OBSERVE: 'OKUMAK RİSKLİ',
+} as const;
+
+export const CHANNEL_ACTIVITY_LABEL: Readonly<Record<ChannelActivity, string>> = {
+  RUNNING:     'ÇALIŞIYOR',
+  NOT_RUNNING: 'ÇALIŞMIYOR',
+  BLOCKED:     'ENGELLİ',
+  UNKNOWN:     'BİLİNMİYOR',
+} as const;
+
+export const RUNTIME_SUMMARY_LABEL: Readonly<Record<RuntimeSummary, string>> = {
+  ACTIVE:  'ETKİN',
+  PARTIAL: 'KISMİ',
+  IDLE:    'BOŞTA',
+  BLOCKED: 'ENGELLİ',
+  UNKNOWN: 'BİLİNMİYOR',
 } as const;
 
 /** Bounded: kanal başına azami alan, çelişki listesi tavanı. */
