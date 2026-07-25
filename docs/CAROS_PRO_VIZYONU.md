@@ -32,6 +32,7 @@ hafızası uçar; bu dosya sürüm kontrolündedir.
 | `docs/DEVICE_VALIDATION_LEDGER.md` | **Saha kanıtının TEK kaynağı** | Saha durumunda **mutlak** |
 | **`docs/CAROS_PRO_VIZYONU.md`** (bu dosya) | **Ürün vizyonu + capability roadmap ana kaynağı** | Vizyon/öncelik/durum özetinde **birincil** |
 | `docs/CAROS_VEHICLE_INTELLIGENCE_ARCHITECTURE.md` | Mimari referans (katmanlar, motorlar, invaryantlar) | Mimari "nasıl" sorusunda birincil |
+| `docs/MAVI_NEXT_VISION.md` | **Mavi (sesli AI) uzun vadeli ürün vizyonu** (8 modül, Yol Arkadaşı, voice-first) | Mavi vizyon/yönünde birincil; durum bu belgede DEĞİL |
 | `docs/OBD_DIAGNOSTIC_OS_ROADMAP.md` | OBD/teşhis **alt-roadmap'i** (FAZ 0–4 görev kırılımı) | OBD görev detayında birincil |
 | `docs-local/caros-feature-audit.html` | 57 özellik **detay denetim görünümü** | Denetim ayrıntısında yardımcı |
 | `docs/CAROS_15_YIL_VIZYON_YOL_HARITASI.md` | 2026-07-08 tarihli denetim fotoğrafı | **Tarihsel** — bayat, güncellenmiyor |
@@ -197,6 +198,32 @@ DOĞRULANDI 6 · SAHADA DOĞRULANDI 1 · **ÜRÜN HAZIR: 1**
   geri kalanı dürüst PLACEHOLDER/DISABLED. Yeni motor YOK — mevcut paneller ve
   salt-okunur kaynaklar yeniden kullanıldı. tsc temiz, tam suite **6819 yeşil (358 dosya)**,
   yeni 39 kilit. **Cihazda doğrulanmadı** (kütük #91). Durum: **ENTEGRE**.
+- **Adaptif OBD tazelik eşiği + GPS hayalet kapısı (saha snapshot 2026-07-25):** gerçek
+  cihaz kopyası, OBD `connected` + rpm 758 (rölanti) iken sistemin GPS'e düştüğünü ve park
+  hâlindeki aracın 10.6 km/h "hız" + 48 m sahte odometre ürettiğini kanıtladı. Kök: sabit
+  5 s tazelik eşiği ölçülen ~4.3 s KWP kadansına dar geliyordu; ayrıca çelişki kapısı yalnız
+  tek yönlüydü. Yeni saf modül `obdCadenceGate` (eşik gözlenen kadanstan öğrenilir; taban 5 s
+  / tavan 20 s; ölü kaynak kendi eşiğini büyütemez) + `_gpsGhostSpeed` ters yön kapısı.
+  Trafic/`010D` bozuk-hız vakası korunuyor (iki kapı aynı sabitlerden okur). tam suite
+  **7092 yeşil (366 dosya)**, tsc temiz. **Cihazda doğrulanmadı** (kütük #108).
+  Durum: **ENTEGRE**.
+- **Mavi "Neredeyim?" zinciri (intent → action → tool):** Kök neden bozuk kod değil, zincirin
+  hiç var olmamasıydı — niyet kataloğunda konum niyeti, Action Registry'de konum eylemi,
+  `MAVI_TOOLS`'ta konum aracı ve `geocodingService`'te **reverse geocoding** yoktu. Dördü de
+  eklendi: `query.current_location` → `location.current.read` → `get_current_location`, adres
+  için mevcut Nominatim sağlayıcısının `/reverse` ucu (3 s bounded, retry yok, offline'da ağa
+  çıkmaz). Konum kaynağı yeni store DEĞİL — mevcut `gpsService`/`UnifiedVehicleStore` snapshot'ı.
+  Dürüstlük kademeli: taze → normal · bayat → yaşı beyan edilir · >5 dk → fail-closed ·
+  adres yoksa koordinat okunur (uydurma yer adı yok). tam suite **7146 yeşil (367 dosya)**,
+  `tsc -b` temiz. **Cihazda doğrulanmadı** (kütük #110). Durum: **ENTEGRE**.
+- **Runtime Scheduling native kanıt körlüğü giderildi:** aynı kopya, LAB'daki poll kanıtı
+  alanının cihazda poll ÇALIŞIRKEN bile hep "Kanıt mevcut değil (eski APK / poll başlamadı)"
+  dediğini gösterdi (`js.eventsReceived=102` ile açık çelişki). Üç kök: (1) kanıt önbelleğini
+  yalnız tanı raporu yolu dolduruyordu → ekran tek atış salt-okunur sayaç tazelemesi yapar
+  hâle geldi (araca komut gönderilmez), (2) hüküm elindeki veriyle çelişiyordu → yeni
+  `NO_NATIVE_EVIDENCE_JS_ALIVE` kodu, (3) `lastPollAt`/`lastSuccessfulPid` native yanıtta
+  varken anlık görüntüye taşınmıyordu → taşındı. **Cihazda doğrulanmadı** (kütük #109).
+  Durum: **ENTEGRE**.
   **Faz A2 (Raw OBD Traffic Inspector)** üstüne geldi: TX/RX/SYSTEM/ERROR sınıflandırma
   (yalnız gerçek veriden türetilir), yön + metin filtresi, PAUSE/CLEAR/maskeli EXPORT.
   Native olayda bulunmayan protokol/oturum/transport alanları **uydurulmadı**. Tam suite
@@ -214,6 +241,37 @@ DOĞRULANDI 6 · SAHADA DOĞRULANDI 1 · **ÜRÜN HAZIR: 1**
   okunmaz). Kuyruk derinliği · poll kadansı · keep-alive UNAVAILABLE; özet fail-closed
   (ACTIVE/PARTIAL/IDLE/BLOCKED/UNKNOWN, "timer var" ACTIVE saydırmaz). Tam suite
   **6999 yeşil (361 dosya)**, +58 kilit. **Cihazda doğrulanmadı** (kütük #94).
+  **Erişilebilirlik + tema turu (2026-07-25)** eklendi: (a) CAROS LAB kısayolu artık
+  **dört tema dock'unun tamamında** (Pro · Expedition · Tesla · Horizon) — AppGrid kartı
+  ve `DockBar` ile AYNI fail-closed kapının (`DEBUG_ENABLED && canDebug`) arkasında,
+  her dock'un EN SONUNDA (sürücü akışındaki kısayolların sırası değişmez). Yeni
+  entitlement/route/registry YOK — tek giriş noktası `openCarosLab()`. (b) **SAHA
+  BULGUSU:** CAROS LAB aydınlık temada SİYAH kalıyordu — shell ve 8 araç ekranının
+  tamamı sabit renk (`bg-[#070b12]`, `text-white/xx`, `border-white/xx`, tailwind
+  `*-500/xx` paletleri) kullandığı için hiçbir tema değişkenine abone DEĞİLDİ ve
+  `html.light-ui` flip'i onlara ulaşmıyordu. Tüm ağaç `--oem-*` token'larına taşındı
+  (yeni palet katmanı YOK); en soluk mürekkep `--oem-ink-3` (ink-4 α .34 güneşte
+  okunmuyor), marka aksanı cyan yerine `--oem-info`. Tam suite **7045 yeşil (364 dosya)**,
+  regresyon kasasına 3 yeni kilit (kaynak taraması: devtools ağacında sabit renk yasak).
+  **Cihazda doğrulanmadı** (kütük #103).
+  **Türkçeleştirme turu (2026-07-25)** eklendi: arayüzün tamamı (5 kategori · 26 araç adı ·
+  tüm durum/sınıf rozetleri · ekran metinleri) Türkçeye çevrildi. Ham enum'lar
+  (`AVAILABLE`·`OBSERVED`·`FOUNDATION_ONLY`…) **makine sözleşmesi** olarak `data-*`
+  özniteliklerinde korunur → dürüstlük kilitleri dile bağımlı DEĞİL. Protokol kısaltmaları
+  (PID·DID·NRC·KWP·UDS·TX·RX) ve kod alan adları FAZ A politikası gereği çevrilmedi.
+  Aynı turda #103'ün **eksik kapsamı düzeltildi**: LAB'ın yeniden kullandığı 4 ekran
+  (Performans · Kayıt Oynatma · CAN İzleyici · Keşif Veritabanı) devtools ağacının dışında
+  olduğu için tema düzeltmesine girmemişti — token'landı ve kilide eklendi. Tam suite
+  **7050 yeşil (364 dosya)**, +2 dil kilidi. **Cihazda doğrulanmadı** (kütük #104).
+  **TÜMÜNÜ KOPYALA (2026-07-25)** eklendi: LAB başlığındaki tek düğme katalog · oturum ·
+  zamanlama · kanıt · ham OBD/CAN · keşif verisini TEK maskeli metinde panoya kopyalar.
+  Salt-okunur (yeni servis/abonelik/timer/native pull YOK), 3 maskeleme kapısı HER
+  bölümde, fail-closed (maskelenemeyen kayıt düşer + sayısı beyan edilir), bounded
+  (200 satır/bölüm · 180k karakter), pano 3 kademeli fail-soft — üçü de düşerse sahte
+  "kopyalandı" DEMEZ, seçilebilir metin gösterir. İlk yazımda `maskCommonSecrets`
+  yalnız OBD bölümüne uygulandığı için KANITLAR'daki bearer token'ı ham sızdıran kusur
+  **testle yakalandı** ve düzeltildi. Tam suite **7064 yeşil (365 dosya)**, +14 kilit.
+  **Cihazda doğrulanmadı** (kütük #105).
 
 > **Uyarı — en yüksek riskli açık test:** Tam tarama sonrası ana ekrana dönüldüğünde
 > hız/RPM/coolant **hâlâ akıyor mu?** Çoklu-ECU probu `ATH1` + UDS extended session açar;
@@ -560,7 +618,7 @@ değildir** — vizyon rezervuarıdır. Bir madde ancak P0–P3'e taşındığı
 | AI Road Companion | İSKELET | HAYIR | companion iskeleti + safety kernel; ürün deneyimi yok |
 | AI DJ | YOK | HAYIR | Vizyon rezervuarı |
 | AI Radio | YOK | HAYIR | Vizyon rezervuarı |
-| Doğal konuşma | ENTEGRE | HAYIR | `semanticAiService` + parser; saha kanıtı yok |
+| Doğal konuşma | ENTEGRE | HAYIR | `semanticAiService` + parser; saha kanıtı yok. **2026-07-24:** "muhabbet edilebilirlik" 3 KÖKÜ düzeltildi — (a) emniyet pencereleri (takip 20sn/idle 15sn) uzun cevabı `ttsCancel()` ile ortadan kesiyordu → `isTtsSpeaking()` ile tavanlı uzatma **🔴 #95**, (b) kendi süre bütçemizin timeout'u "ağ öldü" sayılıp 2 komutta 90sn offline yapıyordu → kesicide ayrı/yüksek eşik **🔴 #95**, (c) **canlı cihazda yakalandı:** Anthropic CORS `TypeError`'ı ağ ölümü sayılıp ~2 dakikada bir 90sn offline üretiyordu (aynı turda 4 sağlayıcı HTTP yanıtı verirken!) → tur-kapsamlı `sawHttpResponse` kanıtı **🔴 #97**. Üçü de cihaz doğrulaması bekliyor |
 | Medya yönlendirme | ENTEGRE | HAYIR | `youtubeService`/`musicCommandParser`; tam sesli kontrol kısmi |
 | Telefon ve mesaj entegrasyonu | DOĞRULANDI | HAYIR | PhoneScreen + contacts; head unit saha kanıtı yok |
 | Güvenli hands-free kullanım | İSKELET | HAYIR | modeController var; **HFDM kısıt profili yok** |
