@@ -23,6 +23,7 @@ import { getProviderQuotaSnapshot } from './companion/companionChatProvider';
 import { getGPSState, isDeadReckoningActive } from './gpsService';
 import { getVoiceSnapshot, getLastSttOutcome } from './voiceService';
 import { getWakeWordState, isVoskModelReady } from './wakeWordService';
+import { getAutoDiscoveredDids } from './obd/autoDidDiscovery';
 import { getGeofenceStatus } from './security/geofenceService';
 import { connectivityService } from './connectivityService';
 import { getVoltageStats } from './power/BatteryProtectionService';
@@ -84,11 +85,16 @@ export interface ObdDeepSnapshot {
     count: number; isStale: boolean; error: string | null; lastReadAt: number | null;
     codes: { code: string; severity: string; system: string }[];
   };
+  /** OTOMATİK DID KEŞFİ: 2200-22FF taramasında yanıt veren marka DID'leri + ham değerler
+   *  (anlam YOK — gösterge değeriyle eşleştirmek için). Sayı + bounded örnek. */
+  autoDids: { count: number; sample: { did: string; dataHex: string; ecuRx: string }[] };
 }
 
 // Genişlik-kaçağını önlemek için tavan (payload kompakt kalsın).
 const MAX_EXT_SAMPLES = 8;
 const MAX_DTC = 10;
+/** Rapora giren otomatik-DID örneği tavanı (payload kompakt). */
+const MAX_AUTO_DIDS = 24;
 
 // Canlı raporlanacak anahtar OBD alanları (EV+ICE karışık; -1 = yok/atla).
 const LIVE_KEYS = [
@@ -189,6 +195,10 @@ export function buildObdDeepSnapshot(): ObdDeepSnapshot {
       count: dtcCount, isStale: dtcIsStale, error: dtcError,
       lastReadAt: dtcLastReadAt, codes,
     },
+    autoDids: _safe(() => {
+      const all = getAutoDiscoveredDids();
+      return { count: all.length, sample: all.slice(0, MAX_AUTO_DIDS) };
+    }, { count: 0, sample: [] }),
   };
 }
 

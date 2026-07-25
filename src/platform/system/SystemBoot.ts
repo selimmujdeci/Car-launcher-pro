@@ -34,6 +34,7 @@ import {
   startVehicleDataLayer,
   restoreOdometer,
 }                                  from '../vehicleDataLayer';
+import { startAutoDidWatcher }     from '../obd/autoDidDiscovery';
 import { startSystemOrchestrator } from './SystemOrchestrator';
 import { startPlatformCoreVehicleHalWiring } from './platformCoreVehicleHalWiring';
 import { startPlatformCoreVehicleHalBridgeWiring } from './platformCoreVehicleHalBridgeWiring';
@@ -716,6 +717,12 @@ class SystemBoot {
       alertTitle:  'GPS Sinyali Yok',
       alertMsg:    'Konum verisi alınamıyor — tünel veya sinyal kesintisi.',
     });
+
+    // Otomatik marka-DID keşfi (VIN başına 1 kez, cache'li, nazik). Bağlantı stabil
+    // sağlıklı olunca 2200-22FF'i tarar, yanıt veren DID + ham değerleri persist eder.
+    // Sağlık bozulursa abort → çekirdek poll'u (RPM) boğmaz. Fail-soft; salt-okuma.
+    _log('  › Auto DID discovery watcher');
+    this._reg(startAutoDidWatcher());
 
     // Platform Core: Vehicle HAL runtime wiring (PR-W2) — store→provider→adapter→HAL AYNA modu.
     // Additive; Wave sırası bozulmaz. VehicleDataLayer'dan SONRA kaydedilir → LIFO shutdown'da
