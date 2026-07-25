@@ -30,6 +30,8 @@ import pushServiceSrc from '../platform/pushService.ts?raw';
 import fcmServiceSrc from '../platform/fcmService.ts?raw';
 import obdServiceSrc from '../platform/obdService.ts?raw';
 import mainLayoutSrc from '../components/layout/MainLayout.tsx?raw';
+import mediaScreenSrc from '../components/media/MediaScreen.tsx?raw';
+import voiceAssistantSrc from '../components/modals/VoiceAssistant.tsx?raw';
 import vehicleComputeWorkerSrc from '../platform/vehicleDataLayer/VehicleCompute.worker.ts?raw';
 import vehicleEventHubSrc from '../platform/vehicleDataLayer/VehicleEventHub.ts?raw';
 import systemOrchestratorSrc from '../platform/system/SystemOrchestrator.ts?raw';
@@ -38,8 +40,6 @@ import orientationGateSrc from '../platform/sensors/orientationSensorGate.ts?raw
 import remoteLogServiceSrc from '../platform/remoteLogService.ts?raw';
 import diagnosticTriageSrc from '../platform/diagnosticTriage.ts?raw';
 import dtcServiceSrc from '../platform/dtcService.ts?raw';
-import mediaScreenSrc from '../components/media/MediaScreen.tsx?raw';
-import voiceAssistantSrc from '../components/modals/VoiceAssistant.tsx?raw';
 import { AdaptiveRuntimeManager } from '../core/runtime/AdaptiveRuntimeManager';
 import { RuntimeMode } from '../core/runtime/runtimeTypes';
 import { forceMode } from './sim/runtimeSimulator';
@@ -1847,5 +1847,103 @@ describe('CAROS LAB Türkçe arayüz kilidi', () => {
     const engCats = ['Vehicle', 'Communication', 'Runtime', 'Developer'];
     const catBack = Object.values(cat.CAROS_LAB_CATEGORY_LABEL).filter((v) => engCats.includes(v));
     expect(catBack, `İngilizce kategori etiketi geri geldi: ${catBack.join(', ')}`).toEqual([]);
+  });
+});
+
+/* ───────────────────────────────────────────────────────────────
+   CAROS LAB — "TÜMÜNÜ KOPYALA" sızıntı kilidi
+   Kopyalama bir DIŞA AKTARIM yüzeyidir; en büyük risk sızıntıdır.
+   BULGU (2026-07-25, ilk yazımda testle yakalandı): `maskSensitiveText`
+   `authorization: bearer_…` ve çıplak e-postayı YAKALAMAZ — onlar yalnız
+   `maskCommonSecrets` içindedir. Kapı sadece OBD trafiğine uygulanınca
+   KANITLAR bölümündeki bearer token HAM kopyalanıyordu.
+   KİLİT: her üç maskeleme kapısı da TEK ortak yolda (`maskUnknown`) olmalı;
+   biri düşerse bu test kırmızıya döner.
+   ─────────────────────────────────────────────────────────────── */
+describe('CAROS LAB kopyalama sızıntı kilidi', () => {
+  it('KİLİT: üç maskeleme kapısı da ortak yolda uygulanır', () => {
+    const src = read('src/platform/devtools/carosLabCopyModel.ts');
+    expect(src, 'maskCommonSecrets kaldırılmış — bearer/e-posta HAM sızar')
+      .toMatch(/maskCommonSecrets\(/);
+    expect(src, 'maskSensitiveText kaldırılmış — VIN/koordinat sızar')
+      .toMatch(/maskSensitiveText\(/);
+    expect(src, 'sanitizeValue kaldırılmış — deny-key ve tavanlar kalkar')
+      .toMatch(/sanitizeValue\(/);
+  });
+
+  it('KİLİT: kopyalama gerçek sırlarla test edildiğinde metne sızıntı olmaz', async () => {
+    const { buildCarosLabCopy } = await import('../platform/devtools/carosLabCopyModel');
+    const r = buildCarosLabCopy({
+      meta: {
+        generatedAtWallMs: 1, platform: 'android', appVersion: null,
+        category: 'vehicle', activeTool: null,
+      },
+      catalog: null, session: null, scheduling: null,
+      evidence: [
+        { p: 'authorization: bearer_abcdef1234567890xyz' },
+        { p: 'MAC 00:1D:A5:68:98:8B' },
+        { p: 'mail selim@example.com' },
+      ],
+      obdTraffic: [{ cmd: '0902', resp: '49 02 01 57 46 30 41 58 58 54 54 52 41 35 52 31 32 33 34 35', ms: 1, ts: 1 }],
+      canRaw: null, discovery: null,
+    });
+    for (const secret of [
+      'bearer_abcdef1234567890xyz', '00:1D:A5:68:98:8B',
+      'selim@example.com', 'WF0AXXTTRA5R12345',
+    ]) {
+      expect(r.text, `KOPYA SIZDIRDI: ${secret}`).not.toContain(secret);
+    }
+  });
+
+  it('KİLİT: kopyalama SALT-OKUNUR — kaynak okuyucu yeni motor başlatmaz', () => {
+    const src = read('src/platform/devtools/carosLabCopySources.ts');
+    expect(src).not.toMatch(/setInterval|setTimeout|requestAnimationFrame/);
+    expect(src).not.toMatch(/\.subscribe\(/);
+    expect(src, 'komut/bağlantı yüzeyi eklenmiş — kopyalama gözlem olmaktan çıktı')
+      .not.toMatch(/sendCommand|startPolling|performHandshake|clearDtc/);
+  });
+
+  /* SAHA (2026-07-25): OBD ham trafiği ve CAN YALNIZ kendi ekranları açıkken
+     toplanıyordu → katalogdan kopyalayınca o iki bölüm boş çıkıyordu. Yakalama
+     LAB kapsamına alındı. Kanal ref-count'lu olduğu için ekranların kendi
+     acquire'ı DURMAMALI (ikisi birlikte çalışır, biri kapanınca diğeri sürer). */
+  it('KİLİT: yakalama LAB açık olduğu sürece etkin (kopya boş çıkmasın)', () => {
+    const shell = read('src/components/devtools/CarosLabShell.tsx');
+    expect(shell, 'LAB kapsamlı OBD trafik yakalaması kaldırılmış — kopya boş çıkar')
+      .toMatch(/useObdTrafficCapture\(\)/);
+    expect(shell, 'LAB kapsamlı CAN toplaması kaldırılmış — kopya boş çıkar')
+      .toMatch(/useCanCollect\(\)/);
+    // Ekranların kendi acquire'ı KALMALI (ref-count simetrisi + tek başına açılabilirlik).
+    expect(read('src/components/devtools/screens/RawObdTrafficScreen.tsx'))
+      .toMatch(/useObdTrafficCapture\(\)/);
+    expect(read('src/components/devtools/screens/CanMonitorScreen.tsx'))
+      .toMatch(/useCanCollect\(\)/);
+  });
+
+  /* SAHA (2026-07-25): "Kaynak Durumu" kartı `debugStore.fallback`ten besleniyordu,
+     ama `dbgUpdateFallback`in ÇAĞIRANI YOK → kart her koşulda sahte "bayat/kapalı"
+     gösteriyordu. Gerçek HAL `sourceHealth`e bağlandı; null=BİLİNMİYOR ayrımı şart. */
+  it('KİLİT: Kaynak Durumu kartı ölü `fallback` alanına geri dönmez', () => {
+    const src = read('src/components/debug/PerformanceView.tsx');
+    expect(src, 'ölü debugStore.fallback alanı geri geldi — sahte durum beyanı')
+      .not.toMatch(/s\)\s*=>\s*s\.fallback/);
+    expect(src, 'gerçek HAL sourceHealth bağlantısı kaldırılmış')
+      .toMatch(/useHALStatusStore/);
+    expect(src, 'null (BİLİNMİYOR) ile false (ÖLÜ) ayrımı kaldırılmış')
+      .toMatch(/BİLİNMİYOR/);
+  });
+
+  /* SAHA P0 (2026-07-25, KWP/protokol 5): OBD kadansı ~4.3 s iken SABİT 5 s tazelik
+     eşiği her jitter tepesinde `obdAlive=false` bastı → HAL GPS'e düştü → park hâlindeki
+     GPS gürültüsü 10.6 km/h "hız" üretti → sürüş/park flip-flop + odometreye 48 m SAHTE km.
+     İki değişmez: (1) eşik gözlenen kadanstan öğrenilir, (2) duran araçta GPS füzyonu
+     kazanamaz. Ayrıntılı kilitler: obdAdaptiveFreshness.test.ts */
+  it('KİLİT: OBD tazelik eşiği sabite dönmez + GPS hayalet hızı füzyonu kazanmaz', () => {
+    expect(vehicleComputeWorkerSrc, 'sabit OBD eşiği geri geldi — sahte "OBD öldü" + GPS fallback')
+      .not.toMatch(/SRC_TIMEOUT_OBD_MS/);
+    expect(vehicleComputeWorkerSrc, 'adaptif kadans kapısı kaldırılmış')
+      .toMatch(/createObdCadenceGate/);
+    expect(vehicleComputeWorkerSrc, 'GPS hayalet kapısı kaldırılmış — sahte km geri döner')
+      .toMatch(/_gpsGhostSpeed\(valGPS\?\.value\)/);
   });
 });

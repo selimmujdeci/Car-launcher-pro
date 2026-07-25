@@ -11,8 +11,8 @@
  * donanım geri tuşu çekmeceyi kapatır, o yol hiç ellenmedi).
  */
 
-import { memo, useCallback, useMemo, useReducer } from 'react';
-import { ChevronLeft, FlaskConical, X } from 'lucide-react';
+import { memo, useCallback, useMemo, useReducer, useState } from 'react';
+import { ChevronLeft, ClipboardCopy, FlaskConical, X } from 'lucide-react';
 import {
   CAROS_LAB_CATEGORIES, CAROS_LAB_CATEGORY_LABEL, CAROS_LAB_STATUS_LABEL,
   toolsByCategory, getCarosLabTool, statusTone,
@@ -22,6 +22,10 @@ import {
   carosLabNavReduce, CAROS_LAB_INITIAL_NAV,
 } from '../../platform/devtools/carosLabNavigation';
 import { CarosLabToolHost } from './CarosLabToolHost';
+import { useObdTrafficCapture, useCanCollect } from '../../hooks/useDevtoolsCapture';
+import { buildCarosLabCopy } from '../../platform/devtools/carosLabCopyModel';
+import { readCarosLabCopyInput } from '../../platform/devtools/carosLabCopySources';
+import { copyTextFailSoft, describeClipboardRoute } from '../../platform/devtools/carosLabClipboard';
 
 /* TEMA (SAHA 2026-07-25): CAROS LAB gündüz/aydınlık temada da SİYAH kalıyor ve
    düşük-opaklık metinler okunmuyordu — shell ve tüm araç ekranları sabit `#070b12`
@@ -96,11 +100,64 @@ export const CarosLabShell = memo(function CarosLabShell({ onClose }: { onClose:
   const [nav, dispatch] = useReducer(carosLabNavReduce, CAROS_LAB_INITIAL_NAV);
   const { category, activeId } = nav;
 
+  /* YAKALAMA KAPSAMI (SAHA 2026-07-25): önce OBD ham trafiği ve CAN kütüğü YALNIZ
+     kendi ekranları açıkken toplanıyordu → katalogdan "TÜMÜNÜ KOPYALA" basınca o iki
+     bölüm boş çıkıyordu ("(kayıt yok)"), çünkü tampon hiç dolmamıştı. Artık yakalama
+     LAB AÇIK OLDUĞU SÜRECE etkindir; LAB kapanınca durur.
+     ZERO-LEAK / İKİNCİ MOTOR YOK: kanal ref-count'ludur — ekranlar da aynı kanalı
+     acquire eder, iki kez açılmaz ve biri kapanınca diğerininki KAPANMAZ.
+     BÜTÇE: maliyet yalnız LAB açıkken oluşur; normal sürüşte (LAB kapalı) SIFIR. */
+  useObdTrafficCapture();
+  useCanCollect();
+
   const tools  = useMemo(() => toolsByCategory(category), [category]);
   const active = useMemo(() => (activeId ? getCarosLabTool(activeId) : null), [activeId]);
 
   const openTool  = useCallback((id: CarosLabToolId) => dispatch({ type: 'open', id }), []);
   const backToHub = useCallback(() => dispatch({ type: 'back' }), []);
+
+  /* ── TÜMÜNÜ KOPYALA ────────────────────────────────────────────────────────
+     SALT-OKUNUR: yalnız mevcut senkron getter'lar okunur (yeni servis/abonelik/
+     timer/native pull YOK). Maskeleme saf modelde, ÜÇ kapıdan geçer. Pano üç
+     kademeli fail-soft; üçü de düşerse sessizce "kopyalandı" DEMEZ — metni
+     seçilebilir biçimde ekrana basar (K24 WebView gerçeği). */
+  const [copyMsg,  setCopyMsg]  = useState<string | null>(null);
+  const [copyText, setCopyText] = useState<string | null>(null);
+  const [copyBusy, setCopyBusy] = useState(false);
+
+  const copyEverything = useCallback(async () => {
+    setCopyBusy(true);
+    setCopyText(null);
+    try {
+      let platform = 'web';
+      try {
+        const { Capacitor } = await import('@capacitor/core');
+        platform = Capacitor.getPlatform();
+      } catch { /* fail-soft: platform bilinmiyor */ }
+
+      const built = buildCarosLabCopy(readCarosLabCopyInput({
+        generatedAtWallMs: Date.now(),
+        platform,
+        // vite.config `VITE_APP_VERSION`i gradle versionName'den enjekte eder.
+        appVersion: (import.meta.env.VITE_APP_VERSION as string | undefined) ?? null,
+        category,
+        activeTool: activeId,
+      }));
+
+      const route = await copyTextFailSoft(built.text);
+      const extra = [
+        built.droppedCount > 0 ? `${built.droppedCount} kayıt maskelenemedi (düşürüldü)` : null,
+        built.truncated ? 'tavan nedeniyle kırpıldı' : null,
+      ].filter(Boolean).join(' · ');
+      setCopyMsg(describeClipboardRoute(route, built.chars) + (extra ? ` · ${extra}` : ''));
+      if (route === 'failed') setCopyText(built.text);
+    } catch {
+      // Kopyalama BAŞARISIZ oldu — sahte başarı gösterme.
+      setCopyMsg('Kopyalama başarısız oldu (kaynak okunamadı).');
+    } finally {
+      setCopyBusy(false);
+    }
+  }, [category, activeId]);
 
   return (
     <div className="flex h-full w-full flex-col bg-[var(--oem-bg)] text-[var(--oem-ink)]" style={{ fontFamily: 'monospace' }}>
@@ -118,12 +175,51 @@ export const CarosLabShell = memo(function CarosLabShell({ onClose }: { onClose:
 
         <button
           type="button"
+          data-testid="lab-copy-all"
+          onClick={() => { void copyEverything(); }}
+          disabled={copyBusy}
+          title="Katalog · oturum · zamanlama · kanıt · ham OBD/CAN · keşif — hepsi maskeli olarak"
+          className="ml-auto flex shrink-0 items-center gap-1 rounded border border-[var(--oem-info)] bg-[var(--oem-info-soft)] px-2 py-1 text-[10px] text-[var(--oem-info)] disabled:opacity-50"
+        >
+          <ClipboardCopy size={11} /> {copyBusy ? 'KOPYALANIYOR…' : 'TÜMÜNÜ KOPYALA'}
+        </button>
+
+        <button
+          type="button"
           onClick={onClose}
-          className="ml-auto flex shrink-0 items-center gap-1 rounded border border-[var(--oem-line-strong)] px-2 py-1 text-[10px] text-[var(--oem-ink-2)] hover:border-[var(--oem-danger)] hover:bg-[var(--oem-danger-soft)]"
+          className="flex shrink-0 items-center gap-1 rounded border border-[var(--oem-line-strong)] px-2 py-1 text-[10px] text-[var(--oem-ink-2)] hover:border-[var(--oem-danger)] hover:bg-[var(--oem-danger-soft)]"
         >
           <X size={11} /> KAPAT
         </button>
       </div>
+
+      {copyMsg && (
+        <div
+          data-testid="lab-copy-msg"
+          className="shrink-0 border-b border-[var(--oem-line)] bg-[var(--oem-surface-1)] px-4 py-1 font-mono text-[10px] text-[var(--oem-ink-2)]"
+        >
+          {copyMsg}
+          <button
+            type="button"
+            onClick={() => { setCopyMsg(null); setCopyText(null); }}
+            className="ml-2 underline"
+          >
+            kapat
+          </button>
+        </div>
+      )}
+
+      {/* Pano üç yolda da düştüyse: metni SEÇİLEBİLİR göster (sahte başarı yerine
+          kullanıcının elle kopyalayabileceği gerçek çıkış — K24 WebView deseni). */}
+      {copyText && (
+        <textarea
+          data-testid="lab-copy-fallback"
+          readOnly
+          value={copyText}
+          onFocus={(e) => e.currentTarget.select()}
+          className="h-40 shrink-0 resize-none border-b border-[var(--oem-line)] bg-[var(--oem-surface-0)] px-4 py-2 font-mono text-[10px] text-[var(--oem-ink)] outline-none"
+        />
+      )}
 
       {active ? (
         /* ── Araç ekranı ── */
