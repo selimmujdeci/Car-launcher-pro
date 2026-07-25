@@ -531,6 +531,44 @@ export function injectCommunityHazard(
   useHazardStore.getState().upsertHazard(hazard);
 }
 
+/* ── NAV-4: RESMİ trafik olayı enjeksiyonu (HERE/TomTom Incidents) ────────── */
+
+/**
+ * RESMİ trafik olayını (HERE/TomTom Incidents API — gerçek kaza, yol kapama, çalışma)
+ * Hazard motoruna enjekte eder. Community'den FARKI: kaynak resmi → yüksek güven/şiddet,
+ * `source='HERE'|'TOMTOM'`, `isCommunity=false`. Görsel banner + NAV-3 SESLİ anons zaten
+ * devrede → "ileride kaza var" artık gerçek resmi veriyle çalışır. Aynı olay ID'si upsert
+ * ile tazelenir; API'den düşünce tipe-bağlı decay ile solar. BYOK: yalnız kullanıcı anahtar
+ * girdiyse çalışır (satışa gömülü anahtar YOK).
+ *
+ * @param sourceId  Kaynak olay kimliği (kararlı upsert için).
+ * @param confidence Resmi olay güveni [0-1] (varsayılan 0.9 — resmi kaynak yüksek).
+ */
+export function injectOfficialHazard(
+  sourceId:   string,
+  lat:        number,
+  lng:        number,
+  type:       HazardType,
+  source:     'HERE' | 'TOMTOM',
+  confidence  = 0.9,
+): void {
+  if (!Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) return;
+  const hazard: Hazard = {
+    id:                `off_${source}_${sourceId}`,
+    type,
+    lat,
+    lng,
+    severity:          0.80,                    // resmi olay → yüksek şiddet
+    source,
+    timestamp:         Date.now(),
+    initialConfidence: Math.max(0, Math.min(1, confidence)),
+    decayRate:         DEFAULT_DECAY[type],     // tipe göre solar; yeniden çekince upsert tazeler
+    influenceRadius:   DEFAULT_RADIUS[type],
+    isCommunity:       false,
+  };
+  useHazardStore.getState().upsertHazard(hazard);
+}
+
 /* ── Test enjeksiyonu ────────────────────────────────────────────────────── */
 
 const HAZARD_TYPES: HazardType[]    = ['CONSTRUCTION', 'ACCIDENT', 'WEATHER', 'SPEED_CAM', 'ROAD_DAMAGE', 'TUNNEL'];

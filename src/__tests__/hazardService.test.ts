@@ -15,7 +15,9 @@ import {
   calculateDriverAttentionBudget,
   calculateFinalIntensity,
   CONFIDENCE_REMOVAL_THRESHOLD,
+  injectOfficialHazard,
 } from '../platform/hazardService';
+import { useHazardStore } from '../store/useHazardStore';
 import type { Hazard } from '../store/useHazardStore';
 
 /* ── Test yardımcısı ────────────────────────────────────────────────────── */
@@ -357,5 +359,36 @@ describe('Sınır Değer & Savunmacı Kontroller', () => {
   it('calculateDriverAttentionBudget: distToTurn=0 → minimum budget döner', () => {
     const dab = calculateDriverAttentionBudget(100, 0, false);
     expect(dab).toBeGreaterThanOrEqual(0.10);
+  });
+});
+
+/* ── NAV-4: Resmi olay enjeksiyonu (HERE/TomTom Incidents) ──────────────── */
+
+describe('injectOfficialHazard (NAV-4) — resmi trafik olayı', () => {
+  it('resmi olay → activeHazards\'a source=HERE, isCommunity=false, yüksek şiddetle girer', () => {
+    useHazardStore.setState({ activeHazards: [] });
+    injectOfficialHazard('inc-42', 39.93, 32.86, 'ACCIDENT', 'HERE', 0.9);
+    const h = useHazardStore.getState().activeHazards.find((x) => x.id === 'off_HERE_inc-42');
+    expect(h).toBeDefined();
+    expect(h!.source).toBe('HERE');
+    expect(h!.isCommunity).toBe(false);
+    expect(h!.type).toBe('ACCIDENT');
+    expect(h!.severity).toBeGreaterThanOrEqual(0.7);
+  });
+
+  it('aynı olay ID\'si UPSERT eder (çift kayıt yok — API yeniden çekince tazeler)', () => {
+    useHazardStore.setState({ activeHazards: [] });
+    injectOfficialHazard('inc-7', 39.93, 32.86, 'CONSTRUCTION', 'HERE');
+    injectOfficialHazard('inc-7', 39.94, 32.87, 'CONSTRUCTION', 'HERE'); // aynı id, taze konum
+    const matches = useHazardStore.getState().activeHazards.filter((x) => x.id === 'off_HERE_inc-7');
+    expect(matches).toHaveLength(1);
+    expect(matches[0].lat).toBeCloseTo(39.94, 4); // üzerine yazıldı
+  });
+
+  it('geçersiz koordinat → enjekte ETMEZ (fail-closed)', () => {
+    useHazardStore.setState({ activeHazards: [] });
+    injectOfficialHazard('bad', NaN, 32.86, 'ACCIDENT', 'HERE');
+    injectOfficialHazard('bad2', 200, 32.86, 'ACCIDENT', 'TOMTOM'); // lat>90
+    expect(useHazardStore.getState().activeHazards).toHaveLength(0);
   });
 });
