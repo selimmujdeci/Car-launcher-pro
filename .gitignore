@@ -118,3 +118,13 @@ tools/can-re/
 
 # Canlı DB introspection çıktıları (hassas: grants/policies/row counts) — ASLA commit edilmez
 /docs-local/db-truth/
+
+# YEREL saha/QA koşu artefaktları (docs-local/): logcat, meminfo, ekran görüntüsü, CDP
+# izleri, .patch yedekleri… Üretilmiş kanıt dosyalarıdır, KAYNAK DEĞİL (2026-07 itibarıyla
+# ~245 MB) ve cihaz/oturum bağlamı taşırlar (MAC, konum, VIN riski). Kalıcı olması gereken
+# saha hükmü `docs/DEVICE_VALIDATION_LEDGER.md` kütüğüne YAZILIR, ham çıktı commit EDİLMEZ.
+/docs-local/
+
+# Yerel Claude Code hook'ları — makineye özgü yardımcılar, ürünün/build'in parçası değil
+# (ayarları taşıyan .claude/settings.json zaten yukarıda ignore'lu).
+/.claude/hooks/
