@@ -462,19 +462,31 @@ describe('Grounding hatası beyin devre kesicisini tetiklemez kilidi', () => {
     // breaker 90sn TÜM asistanı (STT dahil) offline'a kilitliyordu. Kural: kesici
     // YALNIZ gerçek throw'da (timeout/DNS/kopma) artar → sawNetFailure yalnız
     // catch bloklarında set edilir.
-    expect(src, 'sawNetFailure ayrımı kaldırılmış (sağlayıcı hatası yine ağ hatası sayılıyor olabilir)').toMatch(/if \(sawNetFailure\) recordAiNetFailure\(\)/);
+    // 2026-07-24 GÜNCELLEME: kesiciye artık hata TÜRÜ de taşınır (bütçe timeout'u
+    // gerçek ulaşılamazlıktan ayrı ve yüksek eşikte sayılır — aiHealth). Kilidin
+    // ASIL amacı DEĞİŞMEDİ: sağlayıcı-null'ları (HTTP yanıtlı) kesiciye YAZILMAZ.
+    expect(src, 'sawNetFailure ayrımı kaldırılmış (sağlayıcı hatası yine ağ hatası sayılıyor olabilir)').toMatch(/if \(sawNetFailure && !sawHttpResponse\) \{/);
+    expect(src, 'kesici çağrısı sawHttpResponse kapısının DIŞINA çıkmış').toMatch(/recordAiNetFailure\(\{ provider: netFailureProvider, exceptionType: netFailureKind \?\? 'unknown' \}\)/);
+    expect(src, 'kesiciye hata türü taşınmıyor — bütçe timeout\'u yine gerçek ağ ölümü gibi sayılır (2 komutta 90sn offline)').toMatch(/recordAiNetFailure\(\{ provider: netFailureProvider, exceptionType: netFailureKind \?\? 'unknown' \}\)/);
     const assignments = [...src.matchAll(/sawNetFailure = true/g)];
     expect(assignments.length, 'sawNetFailure set eden yol yok — throw yolu kesiciye hiç sayılmıyor').toBeGreaterThanOrEqual(2);
     // Her set GERÇEK ağ ölümü kanıtına bağlı olmalı. İki kabul edilebilir kanıt:
-    //   (a) catch bloğu            → fetch THROW etti (timeout/DNS/kopma)
+    //   (a) `noteNetFailure(e)` yardımcısı → YALNIZ catch bloklarından çağrılır
+    //       (aşağıda ayrıca kilitlenir); fetch THROW etti (timeout/DNS/kopma)
     //   (b) `if (gw.netFailure)`   → AI Gateway hattı; gateway ASLA throw etmez,
     //       gerçek ağ ölümü tipli `netFailure` bayrağıyla taşınır (aşağıdaki
     //       kilit bu bayrağın YALNIZ network/timeout için doğru olmasını zorlar).
-    const inCatch   = [...src.matchAll(/catch \{[^}]*sawNetFailure = true/g)];
-    const viaNetFlag = [...src.matchAll(/if \(gw\.netFailure\) sawNetFailure = true/g)];
-    expect(inCatch.length + viaNetFlag.length,
-      'sawNetFailure = true GERÇEK ağ ölümü kanıtı olmadan set ediliyor (catch veya gw.netFailure dışında) → HTTP-yanıtlı sağlayıcı hatası yine "internet yok" sayılır',
+    // Not: imza (parametre listesi) değişebilir — kilit YAPIYA bakar, imzaya değil.
+    const inHelper   = [...src.matchAll(/const noteNetFailure = \([^)]*\): void => \{\s*sawNetFailure = true/g)];
+    const viaNetFlag = [...src.matchAll(/if \(gw\.netFailure\) \{ sawNetFailure = true/g)];
+    expect(inHelper.length + viaNetFlag.length,
+      'sawNetFailure = true GERÇEK ağ ölümü kanıtı olmadan set ediliyor (noteNetFailure yardımcısı veya gw.netFailure dışında) → HTTP-yanıtlı sağlayıcı hatası yine "internet yok" sayılır',
     ).toBe(assignments.length);
+    // noteNetFailure YALNIZ catch'ten çağrılabilir — normal (throw'suz) bir yoldan
+    // çağrılırsa sağlayıcı-null'ları yine kesiciye sızar.
+    const noteCalls = [...src.matchAll(/noteNetFailure\(e[,)]/g)];
+    const noteInCatch = [...src.matchAll(/catch \(e\) \{[^}]*noteNetFailure\(e[,)]/g)];
+    expect(noteInCatch.length, 'noteNetFailure(e) catch DIŞINDAN çağrılıyor — throw kanıtı olmadan kesiciye sayım').toBe(noteCalls.length);
     // Eski isim geri gelmesin (null-yollarında sayan desen)
     expect(src, 'eski sawFailure deseni geri gelmiş').not.toMatch(/\bsawFailure\b/);
   });
@@ -499,6 +511,54 @@ describe('Grounding hatası beyin devre kesicisini tetiklemez kilidi', () => {
     const fn = src.match(/export async function repairMusicQuery\([\s\S]*?\n\}/);
     expect(fn, 'repairMusicQuery bulunamadı').toBeTruthy();
     expect(fn![0], 'repairMusicQuery hatası recordAiNetFailure() ile BEYİN kesicisine yazılıyor (iki müzik komutu → 90sn offline)').not.toMatch(/recordAiNetFailure\s*\(/);
+  });
+
+  it('YAPISAL: bütçe timeout\'u kesicide AYRI ve YÜKSEK eşikte sayılır (yavaş ≠ ölü)', () => {
+    // SAHA 2026-07-24 ("sohbet ederken bir süre sonra offline'a düşüyor"):
+    // tryCompanionBrain'in KENDİ süre bütçesi (sürüşte 4.5sn) dolduğunda atılan
+    // AbortError, gerçek ağ ölümüyle AYNI ağırlıkta sayılıyordu. Gemini soğuk
+    // başlangıçta ~7sn döndüğünden neredeyse her komut bütçeyi aşıyor → 2 komutta
+    // devre açılıp asistanı (STT dahil) 90sn kapatıyordu.
+    const healthSrc = read('src/platform/aiHealth.ts');
+    expect(healthSrc, 'TIMEOUT_FAIL_THRESHOLD kaldırılmış — bütçe timeout\'u yine 2 hatada offline yapar').toMatch(/TIMEOUT_FAIL_THRESHOLD\s*=\s*(\d+)/);
+    const hard = healthSrc.match(/const FAIL_THRESHOLD\s*=\s*(\d+)/);
+    const soft = healthSrc.match(/const TIMEOUT_FAIL_THRESHOLD\s*=\s*(\d+)/);
+    expect(hard, 'FAIL_THRESHOLD bulunamadı').toBeTruthy();
+    expect(Number(soft![1]), 'timeout eşiği gerçek-ulaşılamazlık eşiğinden BÜYÜK olmalı (tek tük yavaş cevap asistanı kilitlememeli)').toBeGreaterThan(Number(hard![1]));
+    // Ayrı sayaç şart: ortak sayaçta timeout yine sert eşiği doldurur.
+    expect(healthSrc, '_consecTimeouts ayrı sayacı kaldırılmış — timeout yine sert kovada sayılıyor').toMatch(/_consecTimeouts/);
+    // Yarı-açık + başarı YOLLARI her iki sayacı da sıfırlamalı (ratchet yasağı).
+    const settle = healthSrc.match(/function _settle\([\s\S]*?\n\}/);
+    expect(settle![0], 'soğuma dolunca _consecTimeouts sıfırlanmıyor → timeout ratchet\'i geri geldi').toMatch(/_consecTimeouts\s*=\s*0/);
+    const success = healthSrc.match(/export function recordAiNetSuccess\([\s\S]*?\n\}/);
+    expect(success![0], 'başarı _consecTimeouts\'u sıfırlamıyor').toMatch(/_consecTimeouts\s*=\s*0/);
+  });
+
+  it('YAPISAL: turda HTTP yanıtı varsa CORS/opaque TypeError ağ ölümü SAYILMAZ', () => {
+    // SAHA 2026-07-24, CANLI CİHAZDA CDP ile YAKALANDI: `api.anthropic.com`
+    // tarayıcıdan çağrılınca CORS başlığı gelmediği için fetch **TypeError:
+    // Failed to fetch** atıyor → errorKindFromException zorunlu olarak 'network'
+    // → SERT kova → 2 turda 90sn offline. Yakalanan iz: aynı turda openrouter 404
+    // + gemini 400 + gemini 429 + groq 429 HTTP yanıtları geldi (ağ APAÇIK CANLI),
+    // ardından tek anthropic TypeError'ı OFFLINE_REASON:NETWORK_UNREACHABLE
+    // tetikledi; 10sn sonra groq 200 döndü. Kural: HTTP yanıtı = ağ canlı KANITI.
+    expect(src, 'sawHttpResponse kanıtı kaldırılmış — tek CORS hatası yine tüm asistanı 90sn offline yapar').toMatch(/let sawHttpResponse = false/);
+    // Kanıt YALNIZ gerçek sunucu yanıtından gelmeli (yerel kapı hataları değil).
+    // ⚠️ KARA LİSTE olmalı: ilk denemede BEYAZ liste kullanılmış ve `invalid_request`
+    // (OpenRouter 404 · Gemini 400) listede olmadığı için sahte offline CİHAZDA
+    // DEVAM ETMİŞTİ. Beyaz liste her yeni hata sınıfında sessizce eksik kalır.
+    expect(src, 'NO_NET_EVIDENCE_KINDS kaldırılmış — "ağ canlı" kanıtı sınıflandırması kayboldu').toMatch(/NO_NET_EVIDENCE_KINDS/);
+    expect(src, 'beyaz listeye geri dönülmüş (HTTP_ANSWERED_KINDS) — yeni hata sınıfı yine sahte offline üretir').not.toMatch(/HTTP_ANSWERED_KINDS/);
+    const kinds = src.match(/const NO_NET_EVIDENCE_KINDS[^=]*=\s*new Set\(\[([^\]]*)\]/);
+    expect(kinds, 'NO_NET_EVIDENCE_KINDS tanımı bulunamadı').toBeTruthy();
+    const list = kinds![1].split(',').map((s) => s.trim().replace(/['"]/g, '')).filter(Boolean).sort();
+    expect(list, 'ağ hakkında kanıt taşımayan sınıf listesi değişmiş — sunucu-yanıtlı bir sınıf (429/4xx/5xx/parse) yanlışlıkla buraya girerse sahte offline geri gelir').toEqual(
+      ['aborted', 'circuit_open', 'network', 'no_api_key', 'no_provider', 'offline', 'timeout'],
+    );
+    // invalid_request MUTLAKA kanıt sayılmalı — cihazda sahte offline'ı sürdüren tam bu sınıftı.
+    expect(list, 'invalid_request "ağ kanıtı değil" sayılıyor — OpenRouter 404 / Gemini 400 yine 90sn offline yapar').not.toContain('invalid_request');
+    // Gemini dalında throw ile HTTP-yanıt ayrımı korunmalı.
+    expect(src, 'gemini dalında threw ayrımı yok — throw ile HTTP yanıtı karışır').toMatch(/if \(!threw\) sawHttpResponse = true/);
   });
 
   it('YAPISAL: Gemini model adı URL\'e GÖMÜLMEZ + model zinciri korunur', () => {

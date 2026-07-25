@@ -84,6 +84,48 @@ describe('aiHealth — devre kesici yarı-açık (half-open) davranışı', () =
     ).toBe(true);
   });
 
+  /* ── KUSUR-3 (SAHA 2026-07-24): bütçe timeout'u = ağ ölümü sanılıyordu ────── */
+
+  it('KİLİT: art arda İKİ bütçe timeout\'u devreyi AÇMAZ (yavaş sunucu ≠ ölü ağ)', () => {
+    // tryCompanionBrain sürüşte 4.5sn bütçe uygular; gemini-flash soğuk başlangıçta
+    // ~7sn döner → neredeyse HER komut AbortError. Eskiden 2 komutta 90sn offline.
+    recordAiNetFailure({ exceptionType: 'timeout' });
+    recordAiNetFailure({ exceptionType: 'timeout' });
+    expect(
+      isAiNetHealthy(),
+      'kendi süre bütçemizin dolması "internet öldü" sayıldı — 2 komutta asistan (STT dahil) 90sn kapandı',
+    ).toBe(true);
+  });
+
+  it('KİLİT: ISRARLI timeout (eşik) devreyi yine de açar — ölü hotspot korunur', () => {
+    // 2026-06-12 regresyonu geri gelmesin: gerçekten timeout'a koşan ağda kesici
+    // hâlâ devreye girmeli, yoksa her cümle 3 ardışık timeout bekler.
+    for (let i = 0; i < 4; i++) recordAiNetFailure({ exceptionType: 'timeout' });
+    expect(isAiNetHealthy(), 'ısrarlı timeout serisi devreyi hiç açmıyor — ölü hotspot koruması kayboldu').toBe(false);
+  });
+
+  it('KİLİT: gerçek ulaşılamazlık timeout kovasından BAĞIMSIZ — 2 hatada açar', () => {
+    recordAiNetFailure({ exceptionType: 'timeout' });   // bütçe timeout'u (yumuşak)
+    recordAiNetFailure({ exceptionType: 'network' });   // gerçek kopma (sert) 1
+    expect(isAiNetHealthy()).toBe(true);
+    recordAiNetFailure({ exceptionType: 'network' });   // gerçek kopma 2 → eşik
+    expect(isAiNetHealthy(), 'gerçek ağ kopması eşiği timeout kovasıyla karışmış').toBe(false);
+  });
+
+  it('KİLİT: sınıflandırılamayan hata SERT kovada kalır (bilinmeyene eşik gevşetilmez)', () => {
+    recordAiNetFailure({ exceptionType: 'unknown' });
+    recordAiNetFailure({ exceptionType: 'unknown' });
+    expect(isAiNetHealthy(), '"unknown" yumuşak kovaya kaydırılmış — bilinmeyen arıza için kesici zayıfladı').toBe(false);
+  });
+
+  it('başarı timeout sayacını da sıfırlar (timeout ratchet yasağı)', () => {
+    for (let i = 0; i < 3; i++) recordAiNetFailure({ exceptionType: 'timeout' });
+    recordAiNetSuccess();
+    expect(getAiHealthSnapshot().consecTimeouts).toBe(0);
+    recordAiNetFailure({ exceptionType: 'timeout' });
+    expect(isAiNetHealthy(), 'başarıdan sonraki tek timeout devreyi açtı → timeout ratchet\'i').toBe(true);
+  });
+
   it('eşik korunur: art arda İKİ gerçek ağ hatası devreyi hâlâ açar', () => {
     recordAiNetFailure();
     expect(isAiNetHealthy()).toBe(true);        // tek hata yetmez
@@ -340,7 +382,9 @@ describe('Gerçek çevrimdışı ve otomatik dönüş', () => {
 
 describe('OFFLINE_REASON izlenebilirliği', () => {
   it('devre her açıldığında künyeli bir sebep kaydı üretilir', () => {
-    recordAiNetFailure({ provider: 'openrouter', exceptionType: 'timeout' });
+    // Bütçe timeout'u AYRI/YÜKSEK eşiktedir (TIMEOUT_FAIL_THRESHOLD=4) — devre
+    // ancak ısrarlı seride açılır; künye son hatadan alınır.
+    for (let i = 0; i < 3; i++) recordAiNetFailure({ provider: 'openrouter', exceptionType: 'timeout' });
     recordAiNetFailure({
       provider: 'openrouter', model: 'x/y', requestId: 'ai-7',
       latencyMs: 9012, httpStatus: undefined, exceptionType: 'timeout', retries: 1,

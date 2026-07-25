@@ -40,7 +40,25 @@ import {
   type AiOfflineDetail,
 } from './ai/aiOfflineReason';
 
-const FAIL_THRESHOLD = 2;       // art arda kaç ağ hatasında devre açılır
+/* ── SAHA HATASI (2026-07-24): "sohbet ederken bir süre sonra offline'a düşüyor"
+ * KÖK: `tryCompanionBrain`'in UYGULAMA BÜTÇESİ (sürüşte 4.5sn / parkta 8sn)
+ * dolduğunda atılan AbortError, ağ ölümüyle AYNI ağırlıkta sayılıyordu. Oysa
+ * gemini-flash DERİN SOĞUK BAŞLANGIÇTA ~7sn dönüyor (kod içi ölçüm) → sürüşte
+ * neredeyse HER komut bütçeyi aşıyor → 2 komutta devre açılıp 90sn boyunca
+ * asistanı (STT dahil) tamamen kapatıyordu.
+ *
+ * AYRIM: bir isteği KENDİ seçtiğimiz süre dolduğu için iptal etmemiz, ağın ölü
+ * olduğunun KANITI DEĞİLDİR — sunucu yalnızca yavaş olabilir, cevap yolda
+ * olabilir. Gerçek ulaşılamazlık (DNS/TLS/bağlantı kopması → fetch TypeError,
+ * `navigator.onLine=false`) apayrı bir olaydır.
+ *
+ * Bu yüzden iki AYRI sayaç/eşik: gerçek ulaşılamazlık eskisi gibi 2 hatada
+ * devreyi açar (2026-06-12 "ölü hotspot" regresyonu korunur); bütçe timeout'u
+ * ise ancak ISRARLI olduğunda (4 art arda) açar — tek tük yavaş cevap artık
+ * asistanı offline'a kilitlemez. */
+const FAIL_THRESHOLD = 2;       // art arda kaç GERÇEK ulaşılamazlıkta devre açılır
+/** Art arda kaç UYGULAMA BÜTÇESİ timeout'unda devre açılır (yavaş ≠ ölü). */
+const TIMEOUT_FAIL_THRESHOLD = 4;
 const COOLDOWN_MS    = 90_000;  // devre açık kalma süresi
 /**
  * İki hatanın AYNI seriye sayılması için aralarındaki azami süre. Bundan uzun
@@ -50,17 +68,20 @@ const COOLDOWN_MS    = 90_000;  // devre açık kalma süresi
 const FAIL_STREAK_WINDOW_MS = 60_000;
 
 let _consecFails    = 0;
+/** Art arda UYGULAMA BÜTÇESİ timeout'u (kendi eşiği var — bkz. TIMEOUT_FAIL_THRESHOLD). */
+let _consecTimeouts = 0;
 let _blockedUntilMs = 0;
 let _lastFailureAtMs = -Infinity;
 
 /**
- * Devre AÇIKSA ve süresi DOLMUŞSA yarı-açık duruma geçer (sayaç sıfırlanır).
+ * Devre AÇIKSA ve süresi DOLMUŞSA yarı-açık duruma geçer (sayaçlar sıfırlanır).
  * Okuma yollarının hepsi bu geçişten önce çağırır → tek noktada tutarlılık.
  */
 function _settle(now: number): void {
   if (_blockedUntilMs !== 0 && now >= _blockedUntilMs) {
     _blockedUntilMs = 0;
     _consecFails    = 0;   // YARI-AÇIK: yeni bir deneme hakkı
+    _consecTimeouts = 0;
   }
 }
 
@@ -78,8 +99,21 @@ export function recordAiNetFailure(detail?: AiOfflineDetail): void {
   _settle(now);
 
   // "Art arda" zamansaldır: uzun sessizlikten sonraki hata yeni seri başlatır.
-  if (now - _lastFailureAtMs > FAIL_STREAK_WINDOW_MS) _consecFails = 0;
+  if (now - _lastFailureAtMs > FAIL_STREAK_WINDOW_MS) { _consecFails = 0; _consecTimeouts = 0; }
   _lastFailureAtMs = now;
+
+  // Bütçe timeout'u AYRI kovada, daha yüksek eşikle sayılır: kendi süre
+  // bütçemizin dolması ağın öldüğünü kanıtlamaz (yavaş ≠ ulaşılamaz).
+  // Sınıflandırılamayan ('unknown') hatalar muhafazakâr biçimde sert kovada
+  // kalır — bilinmeyen bir arıza için eşiği gevşetmek YASAK.
+  if (detail?.exceptionType === 'timeout') {
+    _consecTimeouts++;
+    if (_consecTimeouts >= TIMEOUT_FAIL_THRESHOLD && _blockedUntilMs === 0) {
+      _blockedUntilMs = now + COOLDOWN_MS;
+      recordAiOfflineTransition('NETWORK_TIMEOUT', COOLDOWN_MS, detail);
+    }
+    return;
+  }
 
   _consecFails++;
   if (_consecFails >= FAIL_THRESHOLD && _blockedUntilMs === 0) {
@@ -96,6 +130,7 @@ export function recordAiNetFailure(detail?: AiOfflineDetail): void {
 /** Başarılı AI yanıtı — devre kapanır, sayaç sıfırlanır. */
 export function recordAiNetSuccess(): void {
   _consecFails     = 0;
+  _consecTimeouts  = 0;
   _blockedUntilMs  = 0;
   _lastFailureAtMs = -Infinity;
 }
@@ -112,20 +147,22 @@ export function isAiNetHealthy(): boolean {
  * `blockedForMs` = devre daha ne kadar açık kalacak (0 = sağlıklı).
  */
 export function getAiHealthSnapshot(): {
-  healthy: boolean; consecFails: number; blockedForMs: number;
+  healthy: boolean; consecFails: number; consecTimeouts: number; blockedForMs: number;
 } {
   const now = performance.now();
   _settle(now);
   return {
-    healthy:      _blockedUntilMs === 0,
-    consecFails:  _consecFails,
-    blockedForMs: _blockedUntilMs > now ? Math.round(_blockedUntilMs - now) : 0,
+    healthy:        _blockedUntilMs === 0,
+    consecFails:    _consecFails,
+    consecTimeouts: _consecTimeouts,
+    blockedForMs:   _blockedUntilMs > now ? Math.round(_blockedUntilMs - now) : 0,
   };
 }
 
 /** @internal — testler arası izolasyon. */
 export function _resetAiHealthForTest(): void {
   _consecFails     = 0;
+  _consecTimeouts  = 0;
   _blockedUntilMs  = 0;
   _lastFailureAtMs = -Infinity;
 }

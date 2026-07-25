@@ -36,6 +36,20 @@ import { buildMemoryPromptSection } from './companionMemory';
 import { signalWithTimeout } from '../../utils/abortCompat';
 import { recordAiNetFailure, recordAiNetSuccess } from '../aiHealth';
 import { errorKindFromException } from '../ai/aiOfflineReason';
+/**
+ * Ağ hakkında HİÇBİR ŞEY kanıtlamayan hata sınıfları: ya istek hiç gönderilmedi
+ * (yerel kapı) ya da sonucu bilinmiyor (kopma/süre aşımı/iptal).
+ *
+ * ⚠️ Bu liste bilinçli olarak KARA LİSTEDİR (beyaz liste DEĞİL): "sunucu yanıt
+ * verdi" durumları çeşitlidir (429/401/402/404/4xx/5xx/parse) ve beyaz liste
+ * her yeni sınıfta sessizce eksik kalır. SAHA 2026-07-24: ilk denemede beyaz
+ * liste kullanılmıştı ve `invalid_request` (OpenRouter 404 · Gemini 400)
+ * listede olmadığı için sahte offline CİHAZDA DEVAM ETTİ. Bunun dışındaki her
+ * sınıf sunucuyla temas kurulduğu = ağın canlı olduğu anlamına gelir.
+ */
+const NO_NET_EVIDENCE_KINDS: ReadonlySet<string> = new Set([
+  'no_provider', 'no_api_key', 'offline', 'circuit_open', 'network', 'timeout', 'aborted',
+]);
 import { geminiChatEndpoint, GEMINI_MODEL_CHAIN } from '../ai/gateway/models';
 import { tavilySearch } from '../webSearchService';
 import { getWeatherNarrative, refreshWeather, onWeatherState, weatherQueryNamesCity, type WeatherState } from '../weatherService';
@@ -788,7 +802,7 @@ async function askCompanionBrainGateway(
   id: CompanionIdentity,
   isDriving: boolean,
   timeoutMs?: number,
-): Promise<{ result: BrainRaw | null; netFailure: boolean }> {
+): Promise<{ result: BrainRaw | null; netFailure: boolean; errorKind: string }> {
   const [{ getDefaultAiGateway }, { askGatewayChat }, { isMaviOrchestratorEnabled }] = await Promise.all([
     import('../ai/gateway/concrete/defaultAiGateway'),
     import('../ai/gateway/gatewayChatBridge'),
@@ -814,8 +828,10 @@ async function askCompanionBrainGateway(
         .askOrchestratedChat({ ...chatParams, classifyText: text })).outcome
     : await askGatewayChat(chatParams);
 
-  if (!outcome.ok) return { result: null, netFailure: outcome.netFailure };
-  return { result: parseBrainJson(outcome.text), netFailure: false };
+  // errorKind yukarı taşınır: kesici bütçe timeout'unu gerçek ulaşılamazlıktan
+  // ayrı ve yüksek eşikte sayar (aiHealth) — gateway yolu da bu ayrımdan yararlanır.
+  if (!outcome.ok) return { result: null, netFailure: outcome.netFailure, errorKind: outcome.errorKind };
+  return { result: parseBrainJson(outcome.text), netFailure: false, errorKind: 'none' };
 }
 
 /**
@@ -829,9 +845,9 @@ async function tryGatewayBrainAndRecord(
   id:         CompanionIdentity,
   isDriving:  boolean,
   timeoutMs?: number,
-): Promise<{ result: CompanionBrainResult | null; netFailure: boolean }> {
-  const { result, netFailure } = await askCompanionBrainGateway(brainInput, id, isDriving, timeoutMs);
-  if (!result) return { result: null, netFailure };
+): Promise<{ result: CompanionBrainResult | null; netFailure: boolean; errorKind: string }> {
+  const { result, netFailure, errorKind } = await askCompanionBrainGateway(brainInput, id, isDriving, timeoutMs);
+  if (!result) return { result: null, netFailure, errorKind };
 
   recordAiNetSuccess(); // beyin cevap verdi → ağ sağlıklı, kesici sayacı sıfır
 
@@ -841,7 +857,7 @@ async function tryGatewayBrainAndRecord(
     const response = localWeather ?? GATEWAY_NO_LIVE_INFO_REPLY;
     pushHistory('user', cleanText);
     pushHistory('model', response);
-    return { result: { kind: 'chat', response, route: 'companion_gateway' }, netFailure: false };
+    return { result: { kind: 'chat', response, route: 'companion_gateway' }, netFailure: false, errorKind: 'none' };
   }
 
   // parseBrainJson CHAT'e her zaman 'companion_gemini' yazar (paylaşılan parser) —
@@ -851,7 +867,7 @@ async function tryGatewayBrainAndRecord(
 
   pushHistory('user', cleanText);
   pushHistory('model', fixed.kind === 'chat' ? fixed.response : fixed.semantic.feedback);
-  return { result: fixed, netFailure: false };
+  return { result: fixed, netFailure: false, errorKind: 'none' };
 }
 
 /**
@@ -1654,6 +1670,42 @@ async function runCompanionBrain(
     // Eski davranış: sağlayıcı null'ları da sayılıyordu → 2 cümlede breaker açılıp
     // 90sn TÜM asistanı (STT dahil) offline'a kilitliyordu.
     let sawNetFailure = false;
+    // ⚠️ TIMEOUT ≠ ULAŞILAMAZLIK (SAHA 2026-07-24, "sohbet ederken bir süre sonra
+    // offline'a düşüyor"): buradaki throw'ların çoğu bizim KENDİ süre bütçemizin
+    // (opts.timeoutMs — sürüşte 4.5sn) doldurduğu AbortError'dır. Gemini soğuk
+    // başlangıçta ~7sn döndüğü için bu neredeyse HER komutta oluyor, 2 komutta
+    // devre açılıp asistanı 90sn kapatıyordu. Hata TÜRÜ kesiciye taşınır; kesici
+    // bütçe timeout'unu ayrı ve yüksek eşikte sayar (aiHealth).
+    let netFailureKind: string | null = null;
+    /* ⚠️ CORS/opaque HATA ≠ AĞ ÖLÜMÜ (SAHA 2026-07-24, canlı cihazda CDP ile
+     * YAKALANDI): `api.anthropic.com` tarayıcıdan çağrıldığında (429 veya
+     * tarayıcı-erişim kısıtı) yanıtta CORS başlığı gelmediği için fetch
+     * **TypeError: Failed to fetch** atar. `errorKindFromException` bunu
+     * kaçınılmaz olarak 'network' sayar → SERT kova → 2 turda 90sn offline.
+     * Sahadan alınan iz: aynı turda openrouter 404 · gemini 400 · gemini 429 ·
+     * groq 429 HTTP yanıtları geldi (ağ APAÇIK CANLI), ardından tek bir
+     * anthropic TypeError'ı `OFFLINE_REASON: NETWORK_UNREACHABLE` tetikledi;
+     * 10 sn sonra groq 200 döndü — yani asistan CANLI ağda 90sn kilitlendi.
+     *
+     * KURAL: bu turda HERHANGİ bir sağlayıcıdan HTTP yanıtı alındıysa ağın
+     * canlı olduğu KANITLANMIŞTIR — o turda hiçbir hata "ağ öldü" sayılamaz.
+     * (Kod bu ilkeyi zaten biliyordu ama yalnız sağlayıcı bazında uyguluyordu.) */
+    let sawHttpResponse = false;
+    // SERT sınıf (network/unknown) bir kez görüldüyse 'timeout' onu EZEMEZ:
+    // zincirde biri gerçekten koptuysa tüm tur sert kovada sayılır.
+    const noteNetFailureKind = (kind: string): void => {
+      if (netFailureKind === null || netFailureKind === 'timeout') netFailureKind = kind;
+    };
+    // Künyede hangi sağlayıcının düştüğü görünsün (sahada "provider=?" teşhisi
+    // imkânsız kılıyordu — sessiz offline yasağının ruhu künyenin DOLU olmasıdır).
+    let netFailureProvider: string | undefined;
+    const noteNetFailure = (e: unknown, provider?: string): void => {
+      sawNetFailure = true;
+      const kind = errorKindFromException(e);
+      // Künye, kovayı belirleyen (sert) hatayla aynı sağlayıcıyı göstermeli.
+      if (netFailureKind === null || netFailureKind === 'timeout') netFailureProvider = provider;
+      noteNetFailureKind(kind);
+    };
     // Kota teşhisi (SAHA 2026-07-04, "ilk istek online sonrakiler offline"):
     // adaylar 429 soğumasından atlanınca kullanıcı sahte "offline" yaşıyordu —
     // hepsi soğumadaysa aşağıda dürüst kota cevabı verilir.
@@ -1679,7 +1731,12 @@ async function runCompanionBrain(
           // (Gemini/Groq/Haiku) aynen denenmeye devam eder.
           const gw = await tryGatewayBrainAndRecord(brainInput, trimmed, id, isDriving, opts.timeoutMs);
           if (gw.result) return gw.result;
-          if (gw.netFailure) sawNetFailure = true; // GERÇEK ağ ölümü → kesiciye say
+          // GERÇEK ağ ölümü → kesiciye say. Gateway throw ETMEZ; hata türü tipli
+          // bayrakla taşınır, tür de kesiciye iletilir (timeout ayrı eşikte sayılır).
+          if (gw.netFailure) { sawNetFailure = true; noteNetFailureKind(gw.errorKind); }
+          // Sunucudan yanıt gelmiş her hata sınıfı = ağ CANLI kanıtı (yerel kapı
+          // ve sonucu-bilinmeyen sınıflar kanıt SAYILMAZ — bkz. NO_NET_EVIDENCE_KINDS).
+          else if (!NO_NET_EVIDENCE_KINDS.has(gw.errorKind)) sawHttpResponse = true;
           continue;
         }
 
@@ -1688,9 +1745,12 @@ async function runCompanionBrain(
           // deneyebilmek için yalnız Gemini çağrısı kendi try/catch'inde izole
           // edilir — dıştaki catch yalnız TÜM zincir tükendiğinde bir kez sayar.
           let result: BrainRaw | null = null;
+          let threw = false;
           try {
             result = await askCompanionBrain(brainInput, cand.apiKey, id, isDriving, opts.timeoutMs);
-          } catch { result = null; sawNetFailure = true; /* GERÇEK ağ hatası (throw) — sıradaki aday denenecek */ }
+          } catch (e) { result = null; threw = true; noteNetFailure(e, 'gemini'); /* GERÇEK ağ hatası (throw) — sıradaki aday denenecek */ }
+          // THROW YOKSA sunucudan yanıt alındı (200/429/4xx/parse) → ağ CANLI.
+          if (!threw) sawHttpResponse = true;
 
           if (result) {
             recordAiNetSuccess(); // ağ sağlıklı — devre kesici sayacı sıfırla
@@ -1747,22 +1807,28 @@ async function runCompanionBrain(
 
         if (cand.provider === 'groq') {
           const result = await tryGroqBrainAndRecord(brainInput, cand.apiKey, id, isDriving, opts.timeoutMs, opts.tavilyKey, opts.searchKey);
+          sawHttpResponse = true; // throw etmedi → sunucudan yanıt geldi (ağ canlı)
           if (result) return result;
           continue; // null = HTTP-yanıtlı sağlayıcı hatası → ağ canlı, sayma
         }
 
         // cand.provider === 'haiku' — zincirin son halkası
         const result = await tryHaikuBrainAndRecord(brainInput, cand.apiKey, id, isDriving, opts.timeoutMs, opts.tavilyKey, opts.searchKey);
+        sawHttpResponse = true; // throw etmedi → sunucudan yanıt geldi (ağ canlı)
         if (result) return result;
         // null → HTTP-yanıtlı sağlayıcı hatası; ağ canlı, sayma
-      } catch { sawNetFailure = true; /* bu adayda GERÇEK ağ hatası (throw) — sıradakine geç */ }
+      } catch (e) { noteNetFailure(e, cand.provider); /* bu adayda GERÇEK ağ hatası (throw) — sıradakine geç */ }
     }
 
     // Yalnız GERÇEK ağ hatası (throw/timeout) görüldüyse bir KEZ say — kesici
     // her adayda ayrı ayrı değil, tüm zincir tükendiğinde bir kez tetiklenir.
     // Sağlayıcı-null'ları (429/4xx/parse) buraya HİÇ girmez: internet varken
     // kesici açılmaz, asistan "internet yok" moduna düşmez.
-    if (sawNetFailure) recordAiNetFailure();
+    // AĞ CANLI KANITI KAZANIR: bu turda bir sağlayıcı HTTP yanıtı verdiyse (429/4xx/
+    // 5xx/parse), başka bir sağlayıcının CORS/opaque TypeError'ı ağ ölümü SAYILMAZ.
+    if (sawNetFailure && !sawHttpResponse) {
+      recordAiNetFailure({ provider: netFailureProvider, exceptionType: netFailureKind ?? 'unknown' });
+    }
 
     rateLimitedOnly = !aiAttempted && skippedByCooldown;
   }

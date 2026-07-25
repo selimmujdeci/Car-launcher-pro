@@ -208,7 +208,8 @@ export function buildObdDeepSnapshot(): ObdDeepSnapshot {
 
 export interface NetAiSnapshot {
   online: boolean;
-  ai: { healthy: boolean; consecFails: number; blockedForMs: number };
+  /** `consecTimeouts` = bütçe timeout'ları (ayrı/yüksek eşik) — `consecFails` gerçek ulaşılamazlık. */
+  ai: { healthy: boolean; consecFails: number; consecTimeouts: number; blockedForMs: number };
   quota: { geminiCooldownMs: number; groqCooldownMs: number; haikuCooldownMs: number };
 }
 
@@ -216,7 +217,7 @@ export function buildNetAiSnapshot(): NetAiSnapshot {
   const online = _safe(
     () => (typeof navigator !== 'undefined' ? !!navigator.onLine : true), true,
   );
-  const ai = _safe(() => getAiHealthSnapshot(), { healthy: true, consecFails: 0, blockedForMs: 0 });
+  const ai = _safe(() => getAiHealthSnapshot(), { healthy: true, consecFails: 0, consecTimeouts: 0, blockedForMs: 0 });
   const quota = _safe(() => getProviderQuotaSnapshot(), {
     geminiCooldownMs: 0, groqCooldownMs: 0, haikuCooldownMs: 0,
   });
