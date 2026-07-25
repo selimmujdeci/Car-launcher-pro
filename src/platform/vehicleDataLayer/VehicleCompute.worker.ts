@@ -21,6 +21,7 @@ import type { VehicleEvent } from './VehicleEventHub';
 import type { NormalizedVehicleData, SignalSource } from './valTypes';
 import { OdometerGuard } from './OdometerGuard';
 import { createSourceHealthGate } from './sourceHealthGate';
+import { createObdCadenceGate } from './obdCadenceGate';
 
 // ── Mesaj protokolü ──────────────────────────────────────────────────────
 
@@ -114,7 +115,8 @@ const DR_MAX_INTERVAL_MS   = 500;   // dead reckoning max Δt — SPEED_INTERVAL
 
 const SRC_TIMEOUT_HAL_MS   = 3_000;
 const SRC_TIMEOUT_CAN_MS   = 3_000;
-const SRC_TIMEOUT_OBD_MS   = 5_000;  // Native pollOBDLoop ~3s+ periyotla yayar; 5s tolerans = poll arası OBD stale sayılmaz (P1)
+/* OBD eşiği artık SABİT DEĞİL — gözlenen kadanstan öğrenilir (bkz. obdCadenceGate).
+ * Kanıt ve gerekçe o modülün başlığında; buradaki taban/tavan da oradan gelir. */
 const SRC_TIMEOUT_GPS_MS   = 5_000;
 const WATCHDOG_INTERVAL_MS = 1_000;
 
@@ -155,6 +157,7 @@ const _gps: GpsAdapterData & { speed?: number; heading?: number; location?: type
 
 let _canLastSeen    = 0;
 let _obdLastSeen    = 0;
+const _obdCadence   = createObdCadenceGate(); // OBD tazelik eşiğini gözlenen kadanstan öğrenir
 let _gpsLastSeen    = 0;
 let _prevGpsUpdateAt = 0; // önceki GPS_DATA zamanı — Doppler Δt hesabı için
 
@@ -422,6 +425,21 @@ function _alive(lastSeen: number, timeout: number): boolean {
   return lastSeen > 0 && (performance.now() - lastSeen) < timeout;
 }
 
+/**
+ * OBD tazelik damgası + kadans öğrenme. TÜM OBD ingest yolları buradan geçer
+ * (`_obdLastSeen`'e doğrudan yazan tek istisna: watchdog'un kasıtlı sıfırlaması).
+ * Zero-allocation, saf aritmetik.
+ */
+function _markObdSeen(nowPerf: number): void {
+  if (_obdLastSeen > 0) _obdCadence.observe(nowPerf - _obdLastSeen);
+  _obdLastSeen = nowPerf;
+}
+
+/** Gözlenen kadanstan türetilmiş OBD tazelik eşiği — taban/tavan arasına kenetli. */
+function _obdTimeoutMs(): number {
+  return _obdCadence.timeoutMs();
+}
+
 function _postPatch(patch: Partial<VehicleState>): void {
   _outState.patch = patch;
   self.postMessage(_outState);
@@ -448,7 +466,7 @@ function _postSourceHealthIfChanged(canRaw: boolean, obdRaw: boolean, gpsRaw: bo
   if (!_healthGate.isVisible()) return;   // arka plan → sağlık GEÇİŞİ DONDURULUR
   const now = performance.now();
   const can = _healthGate.decide(now, _canLastSeen, SRC_TIMEOUT_CAN_MS, canRaw, _prevCanAlive);
-  const obd = _healthGate.decide(now, _obdLastSeen, SRC_TIMEOUT_OBD_MS, obdRaw, _prevObdAlive);
+  const obd = _healthGate.decide(now, _obdLastSeen, _obdTimeoutMs(), obdRaw, _prevObdAlive);
   const gps = _healthGate.decide(now, _gpsLastSeen, SRC_TIMEOUT_GPS_MS, gpsRaw, _prevGpsAlive);
   // Foreground yeniden-tabanlama penceresi: karar verilemiyor → POSTLAMA (unknown korunur)
   if (can === null || obd === null || gps === null) return;
@@ -891,6 +909,35 @@ function _hwSpeedContradicted(hwKmh: number | undefined, gpsKmh: number | undefi
   return (_obd.rpm ?? 0) > HW_CONTRADICT_RPM_MIN;                 // motor gerçekten dönüyor
 }
 
+/**
+ * ZERO-TRUST HAYALET KAPISI — `_hwSpeedContradicted`'in TERSİ yön.
+ *
+ * KANIT (saha snapshot 2026-07-25, aynı KWP aracı): araç park hâlinde — OBD hızı 0,
+ * rpm 758 (rölanti), gaz %12 — ama GPS 10.6 km/h "hareket" gösterdi. GPS taze
+ * olduğu için efektif güveni OBD'ninkini geçti ve füzyonu KAZANDI. Sonuç: sürüş/park
+ * modu flip-flop + odometreye 48 m sahte mesafe.
+ *
+ * Kural: OBD CANLI + donanım "duruyorum" diyor + motor rölanti üstüne ÇIKMAMIŞ +
+ * GPS de anlamlı hareket eşiğinin altında → GPS hızı DRIFT sayılır, güveni 0'a düşer
+ * (kaynak OBD'ye, yani gerçek 0 km/h'ye döner).
+ *
+ * `_hwSpeedContradicted` ile ÇAKIŞMAZ — o kapı `gps > 15 && rpm > 900` ister, bu kapı
+ * `gps <= 15 && rpm <= 900`. Sınırlar aynı iki sabitten okunur, aralarında boşluk yok.
+ * Bu ayrım Trafic vakasını korur: bozuk `010D` ile 38 km/h + rpm 1434 sürüşünde bu
+ * kapı KAPALI kalır, GPS kazanmaya devam eder.
+ *
+ * OBD ölüyse kapı hiç açılmaz (fail-open) — tek kaynak GPS iken onu susturmak körlük olur.
+ * Saf predikat — mutasyon yok.
+ */
+function _gpsGhostSpeed(gpsKmh: number | undefined): boolean {
+  if (!_alive(_obdLastSeen, _obdTimeoutMs())) return false;   // OBD ölü → GPS tek kaynak, karışma
+  const hw = _obd.speed;
+  if (hw == null || !(hw < HW_ZERO_KMH))      return false;   // donanım "duruyorum" DEMİYOR (okuma yok ≠ 0)
+  const rpm = _obd.rpm;
+  if (rpm == null || rpm > HW_CONTRADICT_RPM_MIN) return false; // motor rölanti üstü → gerçek hareket olabilir
+  return (gpsKmh ?? 0) <= HW_CONTRADICT_GPS_KMH;              // 15 üstü → _hwSpeedContradicted'in alanı
+}
+
 function _resolveSpeedSource(): void {
   _resolvedSpeed = undefined;
   _resolvedSrc   = 'CAN';
@@ -907,8 +954,9 @@ function _resolveSpeedSource(): void {
     const cCAN = _hwSpeedContradicted(valCAN?.value, valGPS?.value)
       ? 0 : _effectiveConf(valCAN, SRC_TIMEOUT_CAN_MS);
     const cOBD = _hwSpeedContradicted(valOBD?.value, valGPS?.value)
-      ? 0 : _effectiveConf(valOBD, SRC_TIMEOUT_OBD_MS);
-    const cGPS = _effectiveConf(valGPS, SRC_TIMEOUT_GPS_MS);
+      ? 0 : _effectiveConf(valOBD, _obdTimeoutMs());
+    const cGPS = _gpsGhostSpeed(valGPS?.value)
+      ? 0 : _effectiveConf(valGPS, SRC_TIMEOUT_GPS_MS);
 
     if (cHAL >= cCAN && cHAL >= cOBD && cHAL >= cGPS && cHAL > 0) {
       _resolvedSpeed = valHAL!.value; _resolvedSrc = 'HAL';
@@ -934,7 +982,7 @@ function _resolveSpeedSource(): void {
   // ATLANIR → sıradaki kaynağa (nihayetinde GPS) düşülür. Zero-trust, VAL yoluyla aynı.
   if (_alive(_canLastSeen, SRC_TIMEOUT_CAN_MS) && !_hwSpeedContradicted(_can.speed, _gps.speed)) {
     _resolvedSpeed = _can.speed; _resolvedSrc = 'CAN';
-  } else if (_alive(_obdLastSeen, SRC_TIMEOUT_OBD_MS) && !_hwSpeedContradicted(_obd.speed, _gps.speed)) {
+  } else if (_alive(_obdLastSeen, _obdTimeoutMs()) && !_hwSpeedContradicted(_obd.speed, _gps.speed)) {
     _resolvedSpeed = _obd.speed; _resolvedSrc = 'OBD';
   } else if (_alive(_gpsLastSeen, SRC_TIMEOUT_GPS_MS)) {
     _resolvedSpeed = _gps.speed; _resolvedSrc = 'GPS';
@@ -1037,7 +1085,7 @@ function _emitFuel(): void {
 
   if (_alive(_canLastSeen, SRC_TIMEOUT_CAN_MS)) {
     raw = _can.fuel;
-  } else if (_alive(_obdLastSeen, SRC_TIMEOUT_OBD_MS)) {
+  } else if (_alive(_obdLastSeen, _obdTimeoutMs())) {
     raw = _obd.fuel;
   }
 
@@ -1086,7 +1134,7 @@ function _emitCoolant(): void {
 
   if (_alive(_canLastSeen, SRC_TIMEOUT_CAN_MS)) {
     raw = _can.coolantTemp;
-  } else if (_alive(_obdLastSeen, SRC_TIMEOUT_OBD_MS)) {
+  } else if (_alive(_obdLastSeen, _obdTimeoutMs())) {
     raw = _obd.coolantTemp;
   }
 
@@ -1100,7 +1148,7 @@ function _emitCoolant(): void {
 
 function _watchdog(): void {
   const canAlive = _alive(_canLastSeen, SRC_TIMEOUT_CAN_MS);
-  const obdAlive = _alive(_obdLastSeen, SRC_TIMEOUT_OBD_MS);
+  const obdAlive = _alive(_obdLastSeen, _obdTimeoutMs());
   const gpsAlive = _alive(_gpsLastSeen, SRC_TIMEOUT_GPS_MS);
 
   // PR-1: kaynak sağlığını ana thread'e taşı — MEVCUT 1 Hz watchdog, yeni timer YOK.
@@ -1126,6 +1174,7 @@ function _watchdog(): void {
   if (obdAlive && gpsAlive && (_obd.speed ?? -1) === 0 && (_gps.speed ?? 0) > 20) {
     if (++_obdZeroConsecutive >= 3) {
       _obdLastSeen        = 0; // timeout'a zorla
+      _obdCadence.reset();     // öğrenilen kadansı da sıfırla — yeni oturumda baştan öğren
       _obdZeroConsecutive = 0;
     }
   } else {
@@ -1233,7 +1282,7 @@ function _handleVehicleData(msg: Extract<WorkerInMessage, { type: 'VEHICLE_DATA'
     _can.coolantTemp  = signals.coolantTemp?.value;
     if (signals.reverse?.value != null) _handleCanReverse(signals.reverse.value);
   } else if (source === 'OBD') {
-    _obdLastSeen       = nowPerf;
+    _markObdSeen(nowPerf);
     _obd.speed         = signals.speed?.value;
     _obd.fuel          = signals.fuel?.value;
     _obd.rpm           = signals.rpm?.value;
@@ -1297,7 +1346,7 @@ function _handleCanData(msg: Extract<WorkerInMessage, { type: 'CAN_DATA' }>): vo
 
 function _handleObdData(msg: Extract<WorkerInMessage, { type: 'OBD_DATA' }>): void {
   const d = msg.payload;
-  _obdLastSeen        = performance.now();
+  _markObdSeen(performance.now());
   _obd.speed          = d.speed;
   _obd.fuel           = d.fuel;
   _obd.rpm            = d.rpm;

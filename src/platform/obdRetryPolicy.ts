@@ -169,8 +169,15 @@ export const ENGINE_RUNNING_VOLTAGE_MIN = 13.0;
  *          false = motor kapalı VEYA voltaj bilinmiyor (susma BEKLENİR → kurtarma YOK)
  */
 export function isEngineLikelyRunning(batteryVoltage: number | null | undefined): boolean {
-  if (typeof batteryVoltage !== 'number' || !Number.isFinite(batteryVoltage)) return false;
-  if (batteryVoltage < 0) return false; // -1 = desteklenmiyor konvansiyonu
+  // SAHA 2026-07-19 (iCar3): voltaj BİLİNMİYORSA (null/NaN/-1 = ATRV desteklenmiyor ya da
+  // donma ATRV'yi de durdurdu) motor durumunu KANITLAYAMAYIZ → kurtarmayı ENGELLEME (true).
+  // Eski davranış (unknown→false) → ATRV vermeyen kurulumda donmuş oturum SONSUZA DEK
+  // kurtarılamıyordu ("adaptör değil app" saha itirazı). Yalnız GEÇERLİ + eşik-altı okuma
+  // (kesin motor-kapalı KANITI) kurtarmayı atlar → park dalgalanması yine önlenir; kurtarma
+  // zaten bounded (3 deneme, üstel cooldown) → yanlış-pozitifte de sonsuz döngü YOK.
+  if (typeof batteryVoltage !== 'number' || !Number.isFinite(batteryVoltage) || batteryVoltage < 0) {
+    return true; // bilinmiyor → kurtarmayı engelleme (donmuş oturum kalıcı kalmasın)
+  }
   return batteryVoltage >= ENGINE_RUNNING_VOLTAGE_MIN;
 }
 /** connectOBD + ısınma sonrası ilk PID için bekleme süresi */

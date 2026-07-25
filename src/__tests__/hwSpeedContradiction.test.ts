@@ -72,7 +72,9 @@ describe('Zero-trust · donanım hız çelişki kapısı', () => {
   it('legacy yol: çelişen donanım kaynağı ATLANIR → GPS’e düşülür', () => {
     const legacy = workerSrc.slice(workerSrc.indexOf('// ── Legacy yol'));
     expect(legacy).toMatch(/_alive\(_canLastSeen[^)]*\)\s*&&\s*!_hwSpeedContradicted\(/);
-    expect(legacy).toMatch(/_alive\(_obdLastSeen[^)]*\)\s*&&\s*!_hwSpeedContradicted\(/);
+    // OBD eşiği artık adaptif (`_obdTimeoutMs()`) — parantez içerdiği için `[^)]*` yetmez.
+    // Değişmez AYNI: OBD dalı çelişki kapısına TABİ (bkz. obdAdaptiveFreshness.test.ts).
+    expect(legacy).toMatch(/_alive\(_obdLastSeen,\s*_obdTimeoutMs\(\)\)\s*&&\s*!_hwSpeedContradicted\(/);
     // GPS dalı kapıya TABİ DEĞİL (son çare kaynak)
     expect(legacy).toMatch(/_alive\(_gpsLastSeen[^)]*\)\)\s*\{/);
   });

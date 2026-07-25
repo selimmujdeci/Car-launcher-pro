@@ -13,6 +13,7 @@ import { sanitizeNativeOBDPacket } from '../platform/obdSanitizer';
 import {
   computeObdPollProfile,
   WEAK_MODE_THRESHOLD_MS,
+  WEAK_FAST_FLOOR_MS,
 } from '../platform/obd/AdaptivePollingController';
 
 describe('Patch 6 — sanitizer yeni alanlar', () => {
@@ -82,16 +83,20 @@ describe('Patch 6 — computeObdPollProfile', () => {
     expect(computeObdPollProfile('high', 1_000).fastMs).toBe(250);
   });
 
-  it('weak head unit modunda (obdPollingMs >= 5s) native poll moda birebir uyar', () => {
-    expect(computeObdPollProfile('high', 5_000).fastMs).toBe(5_000);
-    expect(computeObdPollProfile('low', 15_000).fastMs).toBe(15_000);
+  it('weak head unit modunda FAST grup (RPM/hız) taban hızında kalır — SAHA 2026-07-19', () => {
+    // DEĞİŞTİ: eski davranış fastMs=modePollingMs (5s+) → RPM göstergesi 5-8s'de bir
+    // güncelleniyordu. RPM/hız çekirdek gösterge; weak modda bile WEAK_FAST_FLOOR_MS (1.5s)
+    // tabanında kalır (2 ucuz PID). AĞIR PID'ler round-robin'de yine yavaş.
+    expect(computeObdPollProfile('high', 5_000).fastMs).toBe(WEAK_FAST_FLOOR_MS);   // 1500
+    expect(computeObdPollProfile('low', 15_000).fastMs).toBe(WEAK_FAST_FLOOR_MS);   // 1500 (5s değil)
     expect(computeObdPollProfile('high', 5_000).uiHz).toBe(1);
   });
 
   it('weak eşiği tam sınırda devreye girer', () => {
     expect(computeObdPollProfile('high', WEAK_MODE_THRESHOLD_MS - 1).fastMs).toBe(250);
+    // Sınırda weak devreye girer → FAST grup tabana (1.5s) iner (5s'ye çıkmaz).
     expect(computeObdPollProfile('high', WEAK_MODE_THRESHOLD_MS).fastMs)
-      .toBe(WEAK_MODE_THRESHOLD_MS);
+      .toBe(WEAK_FAST_FLOOR_MS);
   });
 
   it('geçersiz config → native varsayılanı 3s (fail-soft)', () => {

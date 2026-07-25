@@ -126,6 +126,13 @@ let _mockTimerId: ReturnType<typeof setInterval> | null = null;
 let _nativeHandles: PluginListenerHandle[] = [];
 let _running                 = false;
 let _lastNotifyTime          = 0;
+// SICAK-SİNYAL HIZLI BİLDİRİM (saha 2026-07-19): RPM/hız göstergeleri obdListenerDebounce
+// (POWER_SAVE'de 5s!) yüzünden "geç güncelleniyordu" — kart 5-8s'de bir zıplıyordu. Bu
+// sinyaller değiştiğinde bildirim ~5Hz'e kadar hızlanır (yalnız gösterge bileşenleri
+// re-render — dar selector'lar), yakıt/sıcaklık gibi yavaşlar kaba debounce'ta kalır.
+// Her tier'da açık: RPM/hız çekirdek gösterge, 5Hz store→1-2 komponent ucuzdur (CLAUDE.md).
+const HOT_NOTIFY_DEBOUNCE_MS = 200;
+let _hotChangePending        = false;
 
 // Exponential back-off reconnect state
 let _reconnectAttempts = 0;
@@ -476,7 +483,10 @@ let _testOBDOverride: Partial<OBDData> | null = null;
 
 function _notify(): void {
   const now = Date.now();
-  const debounceMs = getConfig().obdListenerDebounce;
+  // Sıcak sinyal (RPM/hız) beklemede ise kaba debounce yerine hızlı pencere (~5Hz) —
+  // gösterge akıcı olur. Yavaş sinyaller kaba debounce'ta kalır.
+  const coarseMs = getConfig().obdListenerDebounce;
+  const debounceMs = _hotChangePending ? Math.min(HOT_NOTIFY_DEBOUNCE_MS, coarseMs) : coarseMs;
   // Clock Jump Protection (CLAUDE.md §4): sistem saati GERİYE sıçrarsa (NTP senkronu,
   // RTC/DST düzeltmesi, saat dilimi değişimi) `now - _lastNotifyTime` NEGATİF olur →
   // debounce koşulu sonsuza dek doğru kalır ve bildirim SESSİZCE boğulur (UI donmuş
@@ -486,6 +496,7 @@ function _notify(): void {
   const elapsed = now - _lastNotifyTime;
   if (elapsed >= 0 && elapsed < debounceMs) return;
   _lastNotifyTime = now;
+  _hotChangePending = false;   // bildirim geçti → sıcak bekleme temizlendi
   // DEV: override varsa merge et, production build'de tree-shaked
   const snap: OBDData = (import.meta.env.DEV && _testOBDOverride)
     ? { ..._current, ..._testOBDOverride }
@@ -566,6 +577,10 @@ function _merge(partial: Partial<OBDData>): void {
       ...partial, // çağıranın açık değeri invaryantı EZER (bilinçli)
     };
   }
+
+  // SICAK SİNYAL: RPM veya hız bu patch'te değiştiyse bir sonraki bildirim hızlanır
+  // (gösterge akıcılığı). Sadece varlık kontrolü — native poll bunları ayrı ayrı gönderir.
+  if (partial.rpm !== undefined || partial.speed !== undefined) _hotChangePending = true;
 
   _current = { ..._current, ...partial };
 
@@ -2563,7 +2578,7 @@ export function useOBDState(): OBDData {
  * that need only one or two OBD values (e.g. speedometer).
  * ─────────────────────────────────────────────────────────── */
 
-function useOBDField<K extends keyof OBDData>(field: K): OBDData[K] {
+export function useOBDField<K extends keyof OBDData>(field: K): OBDData[K] {
   return useSyncExternalStore(
     (onStoreChange) => {
       _storeListeners.add(onStoreChange);
