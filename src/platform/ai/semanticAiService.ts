@@ -14,6 +14,7 @@
  *   voiceService → semanticAiService.enrichBackground() → proaktif log
  */
 
+import { geminiChatEndpoint } from './gateway/models';
 import type { IntentType } from '../intentEngine';
 import type { VehicleContext } from '../aiVoiceService';
 import { resolveApiKey, type AIProvider } from '../aiVoiceService';
@@ -164,7 +165,7 @@ function parseSemanticJson(raw: string): SemanticResult | null {
 
 async function _askGemini(text: string, apiKey: string, ctx?: VehicleContext): Promise<SemanticResult | null> {
   // gemini-flash-latest: yeni "AQ." anahtarlarda sabit-adlı modeller 429 veriyor (SAHA 2026-07-03).
-  const endpoint = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent';
+  const endpoint = geminiChatEndpoint();
   const resp = await fetch(endpoint, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'X-goog-api-key': apiKey },

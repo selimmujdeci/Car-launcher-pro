@@ -12,6 +12,7 @@
  * saklanır. Sunucu yok — trafik doğrudan cihaz ↔ API arasında (BYOK).
  */
 
+import { geminiChatEndpoint } from './ai/gateway/models';
 import type { IntentType } from './intentEngine';
 import type { MaintenanceAssessment } from './vehicleMaintenanceService';
 import type { DTCCode } from './dtcService';
@@ -193,7 +194,7 @@ const GEMINI_ENDPOINT =
   // gemini-flash-latest: yeni "AQ." anahtarların ücretsiz katmanı sabit-adlı eski
   // modellerde (gemini-2.0-flash) anında 429 veriyor; flash-latest 200 dönüyor
   // (SAHA 2026-07-03: kullanıcı anahtarıyla iki model de canlı test edildi).
-  'https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent';
+  geminiChatEndpoint();
 
 async function askGemini(text: string, apiKey: string, ctx?: VehicleContext): Promise<AIVoiceResult | null> {
   const body = {

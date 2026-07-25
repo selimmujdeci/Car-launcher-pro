@@ -501,6 +501,39 @@ describe('Grounding hatası beyin devre kesicisini tetiklemez kilidi', () => {
     expect(fn![0], 'repairMusicQuery hatası recordAiNetFailure() ile BEYİN kesicisine yazılıyor (iki müzik komutu → 90sn offline)').not.toMatch(/recordAiNetFailure\s*\(/);
   });
 
+  it('YAPISAL: Gemini model adı URL\'e GÖMÜLMEZ + model zinciri korunur', () => {
+    // SAHA 2026-07-24 (cihazda gerçek anahtarla ölçüldü): model adı 4 AYRI dosyada
+    // URL'e gömülüydü (`.../models/gemini-flash-latest:generateContent`). O model
+    // kullanıcının anahtarında 429 (kota dolu) verirken AYNI anahtarla
+    // `gemini-2.5-flash` 200 dönüyordu → asistan sebepsiz susuyor, her tur
+    // companion_offline'a düşüyordu. Kota MODEL-BAZLIDIR: tek modele bağlı kalmak
+    // tek arıza noktasıdır.
+    for (const f of [
+      'src/platform/companion/companionChatProvider.ts',
+      'src/platform/aiVoiceService.ts',
+      'src/platform/ai/semanticAiService.ts',
+      'src/platform/cloudSttService.ts',
+    ]) {
+      expect(read(f), `${f}: Gemini model adı yine URL'e gömülmüş — model emekliye ayrılınca/kotası dolunca sessiz arıza olur`)
+        .not.toMatch(/generativelanguage\.googleapis\.com\/v1beta\/models\/[a-z0-9.-]+:generateContent/);
+    }
+    const models = read('src/platform/ai/gateway/models.ts');
+    expect(models, 'GEMINI_MODEL_CHAIN kaldırılmış — tek model = tek arıza noktası').toMatch(/GEMINI_MODEL_CHAIN/);
+    const chain = models.match(/GEMINI_MODEL_CHAIN[^=]*=\s*\[([^\]]*)\]/);
+    expect(chain, 'GEMINI_MODEL_CHAIN tanımı bulunamadı').toBeTruthy();
+    const entries = chain![1].split(',').map((s) => s.trim()).filter(Boolean);
+    expect(entries.length, 'model zinciri 2\'den kısa — kota dolunca yedek model kalmaz').toBeGreaterThanOrEqual(2);
+    // Kota/emeklilik/yoğunluk → sıradaki model (sağlayıcıyı komple susturma).
+    const prov = read('src/platform/companion/companionChatProvider.ts');
+    const adv = prov.match(/function _advanceGeminiModel\([\s\S]*?\n\}/);
+    expect(adv, '_advanceGeminiModel bulunamadı — model failover kaldırılmış').toBeTruthy();
+    for (const st of ['429', '404', '503']) {
+      expect(adv![0], `${st} model failover'ı tetiklemiyor`).toContain(st);
+    }
+    expect(prov, 'beyin çağrısında model failover döngüsü yok — 429\'da hemen soğumaya düşer').toMatch(/while \(!resp\.ok && _advanceGeminiModel\(resp\.status\)\)/);
+    expect(prov, 'model değişimi sessiz — sahada "neden başka model?" kanıtsız kalır').toMatch(/GEMINI_MODEL_SWITCH/);
+  });
+
   it('YAPISAL: 429 pencereleri SAĞLAYICI-BAZLI — Groq/Haiku 429\'u Gemini\'yi kilitlemez', () => {
     // SAHA 2026-07-04: tek paylaşılan _rateLimitedUntil vardı — Groq/Haiku 429'u
     // Gemini'yi de 60sn susturuyordu (çapraz kirlenme → sahte offline).

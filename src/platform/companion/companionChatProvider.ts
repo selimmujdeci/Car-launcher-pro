@@ -36,6 +36,7 @@ import { buildMemoryPromptSection } from './companionMemory';
 import { signalWithTimeout } from '../../utils/abortCompat';
 import { recordAiNetFailure, recordAiNetSuccess } from '../aiHealth';
 import { errorKindFromException } from '../ai/aiOfflineReason';
+import { geminiChatEndpoint, GEMINI_MODEL_CHAIN } from '../ai/gateway/models';
 import { tavilySearch } from '../webSearchService';
 import { getWeatherNarrative, refreshWeather, onWeatherState, weatherQueryNamesCity, type WeatherState } from '../weatherService';
 import type { SemanticResult } from '../ai/semanticAiService';
@@ -258,6 +259,7 @@ export function _resetCompanionChatForTest(): void {
   _haikuRateLimitedUntil = 0;
   _groundingCooldownUntil = 0;
   _geminiKeyInvalidAtMs = 0;
+  _geminiModelIdx = 0;   // model zinciri testler arası SIZMASIN
 }
 
 /* ── Yorumlanmış araç bağlamı (HAM VERİ DEĞİL) ──────────────── */
@@ -359,11 +361,44 @@ function buildInterpretedVehicleContext(): string {
 
 /* ── Gemini sohbet çağrısı ──────────────────────────────────── */
 
-const GEMINI_CHAT_ENDPOINT =
-  // gemini-flash-latest: yeni "AQ." anahtarların ücretsiz katmanı sabit-adlı eski
-  // modellerde (gemini-2.0-flash) anında 429 veriyor; flash-latest çalışıyor
-  // (SAHA 2026-07-03: kullanıcı anahtarıyla canlı doğrulandı). Model tek noktadan.
-  'https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent';
+// Model adı TEK KAYNAKTAN (models.ts GEMINI_MODEL_CHAIN). SAHA 2026-07-24: eski
+// gömülü `gemini-flash-latest` kullanıcının anahtarında 429 (kota dolu) veriyor,
+// aynı anahtarla `gemini-2.5-flash` 200 dönüyor → model adı URL'e gömülü kaldığı
+// için asistan sebepsiz susuyordu. Kota MODEL-BAZLI olduğundan zincir şart.
+/**
+ * Zincirdeki AKTİF Gemini modeli (oturum-içi). Kota MODEL-BAZLI olduğu için bir
+ * model 429/404/503 verdiğinde sağlayıcıyı tamamen susturmak yerine SIRADAKİ
+ * modele geçilir — asistan kesintisiz kalır.
+ */
+let _geminiModelIdx = 0;
+
+function _geminiEndpoint(): string {
+  return geminiChatEndpoint(GEMINI_MODEL_CHAIN[_geminiModelIdx]);
+}
+
+/** Aktif Gemini modelinin adı (tanı/log için — anahtar içermez). */
+export function getActiveGeminiModel(): string {
+  return String(GEMINI_MODEL_CHAIN[_geminiModelIdx]);
+}
+
+/**
+ * Model-bazlı arıza (429 kota · 404 emekli · 503 yoğunluk) → sıradaki modele geç.
+ * @returns true = model değişti (istek YENİDEN denenebilir); false = zincir bitti.
+ */
+function _advanceGeminiModel(status: number): boolean {
+  if (status !== 429 && status !== 404 && status !== 503) return false;
+  if (_geminiModelIdx >= GEMINI_MODEL_CHAIN.length - 1) return false;
+  _geminiModelIdx++;
+  // Sessiz model değişimi YASAK: sahada "neden başka model?" kanıtla yanıtlanır.
+  console.warn(
+    `GEMINI_MODEL_SWITCH: status=${status} → ${getActiveGeminiModel()}` +
+    ` (zincir ${_geminiModelIdx + 1}/${GEMINI_MODEL_CHAIN.length})`,
+  );
+  return true;
+}
+
+/** @internal — testler arası izolasyon. */
+export function _resetGeminiModelForTest(): void { _geminiModelIdx = 0; }
 // SAHA 2026-07-04: gemini-flash-latest artık gemini-3.5-flash'a çözülüyor; SICAK
 // çağrı ~1-1.8sn ama DERİN SOĞUK BAŞLANGIÇ ~7sn (kullanıcı anahtarıyla ölçüldü).
 // 6sn tavan soğuk başlangıcı kesip null→REASK ("of orayı kaçırdım") üretiyordu.
@@ -383,7 +418,7 @@ export async function warmupGemini(apiKey: string): Promise<void> {
   // boşa kota yakar hem pencereyi tazeleyebilir (SAHA 2026-07-04).
   if (_now() < _rateLimitedUntil) return;
   try {
-    await fetch(GEMINI_CHAT_ENDPOINT, {
+    await fetch(_geminiEndpoint(), {
       method:  'POST',
       headers: { 'Content-Type': 'application/json', 'X-goog-api-key': apiKey },
       body:    JSON.stringify({
@@ -481,7 +516,7 @@ async function askCompanionGemini(
     },
   };
 
-  const resp = await fetch(GEMINI_CHAT_ENDPOINT, {
+  const resp = await fetch(_geminiEndpoint(), {
     method:  'POST',
     headers: { 'Content-Type': 'application/json', 'X-goog-api-key': apiKey },
     body:    JSON.stringify(body),
@@ -1381,7 +1416,13 @@ async function askCompanionBrain(
     ..._history.map((t) => ({ role: t.role, parts: [{ text: t.text }] })),
     { role: 'user', parts: [{ text }] },
   ];
-  const body = {
+  /* `withThinking=false` → `thinkingConfig` alanı HİÇ gönderilmez. Bazı "lite"
+     modeller bu alanı reddedip `400 Request contains an invalid argument` döner
+     (SAHA 2026-07-24: `gemini-flash-lite-latest` · `gemini-3.5-flash-lite`),
+     AYNI model alansız 200 verir. Model adından çıkarım yapılamadığı için
+     (`gemini-3.1-flash-lite` alanı KABUL eder) 400'de alan düşürülüp bir kez
+     yeniden denenir — sabit uyumluluk listesi tutmaya gerek kalmaz. */
+  const mkBody = (withThinking: boolean): string => JSON.stringify({
     system_instruction: {
       // Gemini grounding'i destekler → supportsGrounding: true (varsayılan)
       parts: [{ text: buildBrainSystemPrompt(id, isDriving, buildInterpretedVehicleContext(), true) }],
@@ -1391,19 +1432,47 @@ async function askCompanionBrain(
       responseMimeType: 'application/json',
       temperature:      0.4,
       maxOutputTokens:  isDriving ? 160 : 220,
-      thinkingConfig:   { thinkingBudget: 0 }, // düşünen model bütçe koruması (SAHA 2026-07-03)
+      // düşünen model bütçe koruması (SAHA 2026-07-03)
+      ...(withThinking ? { thinkingConfig: { thinkingBudget: 0 } } : {}),
     },
-  };
+  });
+
   // Single Brain karar bütçesi: voiceService 2.5sn iletir. GEMINI_TIMEOUT_MS
   // tavanına clamp'lenir → beyin ASLA 6sn'den uzun bloklamaz; süre dolunca fetch
   // abort olur, çağıran (tryCompanionBrain) recordAiNetFailure + fallback'e düşer.
   const decisionMs = Math.min(timeoutMs ?? GEMINI_TIMEOUT_MS, GEMINI_TIMEOUT_MS);
-  const resp = await fetch(GEMINI_CHAT_ENDPOINT, {
+  let _thinkingSupported = true;
+  const send = (): Promise<Response> => fetch(_geminiEndpoint(), {
     method:  'POST',
     headers: { 'Content-Type': 'application/json', 'X-goog-api-key': apiKey },
-    body:    JSON.stringify(body),
+    body:    mkBody(_thinkingSupported),
     signal:  signalWithTimeout(decisionMs), // Chrome <103 WebView güvenli (abortCompat)
   });
+
+  let resp = await send();
+  // PARAMETRE UYUMSUZLUĞU → alanı düşürüp BİR KEZ yeniden dene (model başına).
+  // ⚠️ 400 İKİ AYRI ŞEY olabilir: (a) `API_KEY_INVALID` — anahtar gerçekten
+  // geçersiz, KULLANICIYA DÜRÜSTÇE söylenmeli, yeniden denemek o mesajı yutar;
+  // (b) `INVALID_ARGUMENT` — bizim gönderdiğimiz alan modelce desteklenmiyor.
+  // Yalnız (b) yeniden denenir; gövde okunamıyorsa muhafazakâr davranıp DENEME.
+  if (resp.status === 400 && _thinkingSupported) {
+    let body = '';
+    try { body = await resp.clone().text(); } catch { body = ''; }
+    if (body && !/API_KEY_INVALID/i.test(body)) {
+      _thinkingSupported = false;
+      console.warn(`GEMINI_THINKING_UNSUPPORTED: ${getActiveGeminiModel()} → thinkingConfig düşürüldü`);
+      resp = await send();
+    }
+  }
+  // MODEL-BAZLI ARIZA → SIRADAKİ MODEL (SAHA 2026-07-24): kota model bazlıdır;
+  // `gemini-flash-latest` 429 verirken AYNI anahtarla `gemini-2.5-flash` 200
+  // dönüyordu. Sağlayıcıyı komple susturmak yerine önce zincirdeki sonraki
+  // modeli dene — sağlayıcı cooldown'ı YALNIZ zincir tükendiğinde uygulanır.
+  // Bütçe zaten `decisionMs` ile sınırlı; en fazla zincir uzunluğu kadar deneme.
+  while (!resp.ok && _advanceGeminiModel(resp.status)) {
+    resp = await send();
+  }
+
   // 429: Google'ın söylediği kadar bekle (retryDelay) — sabit 60sn asistanı
   // gereksiz uzun "offline" bırakıyordu (SAHA 2026-07-04).
   if (resp.status === 429) { _rateLimitedUntil = _now() + await _cooldownFrom429(resp); return null; }
@@ -1451,7 +1520,7 @@ async function askGroundedGemini(
     generationConfig: { temperature: 0.3, maxOutputTokens: isDriving ? 140 : 360, thinkingConfig: { thinkingBudget: 0 } },
   };
   try {
-    const resp = await fetch(GEMINI_CHAT_ENDPOINT, {
+    const resp = await fetch(_geminiEndpoint(), {
       method:  'POST',
       headers: { 'Content-Type': 'application/json', 'X-goog-api-key': apiKey },
       body:    JSON.stringify(body),
@@ -1509,7 +1578,7 @@ async function groundGeminiViaTavily(
     `DAYANARAK kullanıcının sorusunu kısa, doğal Türkçe ile yanıtla. Sadece sonuçlardaki bilgiyi ` +
     `kullan, uydurma. ${isDriving ? 'Sürüş halinde: 1-2 cümle.' : 'En fazla 3-4 cümle.'} Kaynak numarası/URL okuma.`;
   try {
-    const resp = await fetch(GEMINI_CHAT_ENDPOINT, {
+    const resp = await fetch(_geminiEndpoint(), {
       method:  'POST',
       headers: { 'Content-Type': 'application/json', 'X-goog-api-key': apiKey },
       body:    JSON.stringify({
@@ -1840,7 +1909,7 @@ export async function repairMusicQuery(query: string, apiKey: string): Promise<s
       contents: [{ role: 'user', parts: [{ text: q }] }],
       generationConfig: { responseMimeType: 'application/json', temperature: 0, maxOutputTokens: 50, thinkingConfig: { thinkingBudget: 0 } },
     };
-    const resp = await fetch(GEMINI_CHAT_ENDPOINT, {
+    const resp = await fetch(_geminiEndpoint(), {
       method:  'POST',
       headers: { 'Content-Type': 'application/json', 'X-goog-api-key': apiKey },
       body:    JSON.stringify(body),

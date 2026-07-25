@@ -85,6 +85,7 @@ import {
   _withAltHint,
   _resetCompanionChatForTest,
 } from '../platform/companion/companionChatProvider';
+import { GEMINI_MODEL_CHAIN } from '../platform/ai/gateway/models';
 import { isAiNetHealthy, _resetAiHealthForTest } from '../platform/aiHealth';
 import { fromSemanticResult } from '../platform/intentEngine';
 import { parseCommandFull } from '../platform/commandParser';
@@ -1005,20 +1006,25 @@ describe('tryCompanionBrain — hibrit zincir yedekleme (429/timeout sırasında
 
   it('Gemini 429 soğuma penceresindeyken + chain\'de Groq var → doğrudan Groq kullanılır', async () => {
     setupCompanion(true);
-    const fetchSpy = vi.fn()
-      .mockResolvedValueOnce({ ok: false, status: 429, json: async () => ({}) }) // 1) Gemini 429 → soğuma başlar
-      .mockResolvedValueOnce(mockGroqBrainJson({ type: 'chat', say: 'Soğuma sırasında Groq cevabı.' }));
+    // SAHA 2026-07-24: kota MODEL-BAZLI → 429'da önce zincirdeki sıradaki Gemini
+    // modeli denenir; sağlayıcı soğuması YALNIZ tüm modeller tükendiğinde başlar.
+    // Mock URL-tabanlı: zincir uzunluğu değişse de kilit bozulmaz.
+    const fetchSpy = vi.fn().mockImplementation((url: unknown) =>
+      String(url).includes('generativelanguage')
+        ? Promise.resolve({ ok: false, status: 429, json: async () => ({}) })
+        : Promise.resolve(mockGroqBrainJson({ type: 'chat', say: 'Soğuma sırasında Groq cevabı.' })));
     vi.stubGlobal('fetch', fetchSpy);
 
-    const r1 = await tryCompanionBrain('nasılsın', GEMINI_OPTS); // yalnız gemini → soğumaya düşer
+    const r1 = await tryCompanionBrain('nasılsın', GEMINI_OPTS); // yalnız gemini → tüm model zinciri tükenir → soğuma
     expect(r1!.kind).toBe('chat');
     if (r1!.kind === 'chat') expect(r1.route).toBe('companion_offline');
-    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    const geminiTries = fetchSpy.mock.calls.length;
+    expect(geminiTries, 'Gemini model zinciri denenmedi (tek modelde takılı kalmış)').toBe(GEMINI_MODEL_CHAIN.length);
 
     // İkinci çağrı: hâlâ soğuma penceresinde ama chain'de Groq VAR → Groq'a doğrudan gider.
     const r2 = await tryCompanionBrain('naber', GEMINI_GROQ_CHAIN);
-    expect(fetchSpy).toHaveBeenCalledTimes(2);
-    const [groqUrl] = fetchSpy.mock.calls[1] as [string];
+    expect(fetchSpy).toHaveBeenCalledTimes(geminiTries + 1); // Gemini HİÇ yeniden denenmedi
+    const [groqUrl] = fetchSpy.mock.calls[geminiTries] as [string];
     expect(groqUrl).toContain('api.groq.com');
     expect(r2!.kind).toBe('chat');
     if (r2!.kind === 'chat') {
@@ -1079,18 +1085,21 @@ describe('tryCompanionBrain — hibrit zincir yedekleme (429/timeout sırasında
 
   it('(b) Gemini 429 soğuma penceresinde + chain\'de Groq var → Groq direkt kullanılır (Haiku denenmez)', async () => {
     setupCompanion(true);
-    const fetchSpy = vi.fn()
-      .mockResolvedValueOnce({ ok: false, status: 429, json: async () => ({}) }) // 1) Gemini 429 → soğuma başlar
-      .mockResolvedValueOnce(mockGroqBrainJson({ type: 'chat', say: 'Groq soğuma sırasında cevap verdi.' }));
+    // Model zinciri tükenene kadar 429 (URL-tabanlı mock — zincir uzunluğundan bağımsız).
+    const fetchSpy = vi.fn().mockImplementation((url: unknown) =>
+      String(url).includes('generativelanguage')
+        ? Promise.resolve({ ok: false, status: 429, json: async () => ({}) })
+        : Promise.resolve(mockGroqBrainJson({ type: 'chat', say: 'Groq soğuma sırasında cevap verdi.' })));
     vi.stubGlobal('fetch', fetchSpy);
 
-    const r1 = await tryCompanionBrain('nasılsın', GEMINI_OPTS); // yalnız gemini → soğumaya düşer
+    const r1 = await tryCompanionBrain('nasılsın', GEMINI_OPTS); // yalnız gemini → zincir tükenir → soğuma
     expect(r1!.kind).toBe('chat');
-    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    const geminiTries = fetchSpy.mock.calls.length;
+    expect(geminiTries).toBe(GEMINI_MODEL_CHAIN.length);
 
     const r2 = await tryCompanionBrain('naber', GEMINI_GROQ_HAIKU_CHAIN); // soğuma sürüyor
-    expect(fetchSpy).toHaveBeenCalledTimes(2); // Gemini ATLANDI, doğrudan Groq — Haiku'ya hiç gerek kalmadı
-    const [groqUrl] = fetchSpy.mock.calls[1] as [string];
+    expect(fetchSpy).toHaveBeenCalledTimes(geminiTries + 1); // Gemini ATLANDI, doğrudan Groq — Haiku'ya hiç gerek kalmadı
+    const [groqUrl] = fetchSpy.mock.calls[geminiTries] as [string];
     expect(groqUrl).toContain('api.groq.com');
     expect(r2!.kind).toBe('chat');
     if (r2!.kind === 'chat') {
@@ -1134,12 +1143,13 @@ describe('429 kota — dürüst cevap + sağlayıcı-bazlı pencere (SAHA 2026-0
     const fetchSpy = vi.fn().mockResolvedValue({ ok: false, status: 429, json: async () => ({}) });
     vi.stubGlobal('fetch', fetchSpy);
 
-    const r1 = await tryCompanionBrain('xqwzt blgrh vmpld', GEMINI_CHAIN); // denendi → 429 → soğuma
-    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    // 429'da önce model zinciri denenir (kota model-bazlı), tükenince soğuma başlar.
+    const r1 = await tryCompanionBrain('xqwzt blgrh vmpld', GEMINI_CHAIN);
+    expect(fetchSpy).toHaveBeenCalledTimes(GEMINI_MODEL_CHAIN.length);
     expect(r1!.kind).toBe('chat');
 
     const r2 = await tryCompanionBrain('xqwzt blgrh vmpld', GEMINI_CHAIN); // soğumada: Gemini HİÇ denenmez
-    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(fetchSpy).toHaveBeenCalledTimes(GEMINI_MODEL_CHAIN.length);
     expect(r2!.kind).toBe('chat');
     if (r2!.kind === 'chat') {
       expect(r2.route).toBe('companion_rate_limited');
@@ -1177,10 +1187,12 @@ describe('429 kota — dürüst cevap + sağlayıcı-bazlı pencere (SAHA 2026-0
     const fetchSpy = vi.fn().mockResolvedValue({ ok: false, status: 429, json: async () => ({}) });
     vi.stubGlobal('fetch', fetchSpy);
 
-    await tryCompanionBrain('xqwzt blgrh vmpld', GEMINI_CHAIN); // 429 → soğuma başladı
-    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    // Model zinciri tükenene kadar 429 → sonra sağlayıcı soğuması başlar.
+    await tryCompanionBrain('xqwzt blgrh vmpld', GEMINI_CHAIN);
+    const tries = fetchSpy.mock.calls.length;
+    expect(tries).toBe(GEMINI_MODEL_CHAIN.length);
     await warmupGemini('AIzaTest');
-    expect(fetchSpy).toHaveBeenCalledTimes(1); // warmup fetch ATMADI
+    expect(fetchSpy).toHaveBeenCalledTimes(tries); // warmup fetch ATMADI
   });
 
   it('repairMusicQuery timeout\'u beyin devre kesicisini BESLEMEZ (iki müzik komutu ≠ 90sn offline)', async () => {
