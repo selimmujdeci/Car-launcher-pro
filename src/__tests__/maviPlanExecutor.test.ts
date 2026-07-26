@@ -12,7 +12,7 @@
  *  8) Global lastPlan KALDIRILDI (istek-scope) — yapısal kilit
  */
 
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { executePlan, isExecutableNow, MAX_EXECUTED_STEPS } from '../platform/ai/planner/planExecutor';
 import { buildMaviPlan } from '../platform/ai/planner/maviPlanner';

@@ -15,8 +15,6 @@ import type { GuardianProviderSources } from '../platform/navigation/guardian/pr
 import type { GpsSource, RawGpsData } from '../platform/navigation/guardian/providers/gpsSource';
 import type { MapSource, RawMapData } from '../platform/navigation/guardian/providers/mapSource';
 import type { ObdSource } from '../platform/navigation/guardian/providers/obdSource';
-import type { WeatherSource } from '../platform/navigation/guardian/providers/weatherSource';
-import type { DriverSource } from '../platform/navigation/guardian/providers/driverSource';
 import { buildGuardianRegistryInput } from '../platform/navigation/guardian/adapters/guardianAdapterRegistry';
 import { buildGuardianRuleResults } from '../platform/navigation/guardian/guardianRuleRegistry';
 import { runGuardian } from '../platform/navigation/guardian/guardianEngine';

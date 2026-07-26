@@ -7,7 +7,7 @@
  *  3. Plan: completed→success, partial→warning, failed/rejected→error; stale reddi → null (sessiz).
  *  4. Kanal: emit zaman damgalar + tüm dinleyicilere yayar; reset idempotent.
  */
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import {
   buildStageFeedback, buildActionFeedback, buildPlanFeedback, createFeedbackChannel,
 } from '../platform/maviCore/wiring/maviFeedback';

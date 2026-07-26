@@ -14,7 +14,7 @@
  *  7) supportsTools yalnız GERÇEKTEN çalışan sağlayıcıda true
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { createOpenRouterProvider } from '../platform/ai/gateway/providers/openRouterProvider';
 import { runToolLoop, MAX_TOOL_ROUNDS, MAX_CALLS_PER_ROUND } from '../platform/ai/tools/toolLoop';

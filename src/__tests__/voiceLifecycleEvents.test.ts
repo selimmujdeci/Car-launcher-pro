@@ -9,7 +9,7 @@
  *  5. Ardışık aynı-phase dedup (transcribing hariç).
  *  6. Unsubscribe idempotent; listener hatası voiceService'i bozmaz.
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import {
   subscribeVoiceState, notifyWakeDetected, stopListening,
   _resetVoiceServiceForTest, _setVoiceStatusForTest,

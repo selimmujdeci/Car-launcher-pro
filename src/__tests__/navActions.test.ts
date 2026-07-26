@@ -12,7 +12,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   createAppNavigationActions,
-  buildNavActionDefinitions, createNavHandlers, navActionIdForScreen,
+  buildNavActionDefinitions, createNavHandlers,
   navErrorCategory, NAV_HOME_ID, NAV_BACK_ID,
   type NavPort,
 } from '../platform/maviCore/navActions';
