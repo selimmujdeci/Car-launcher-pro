@@ -261,7 +261,6 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
     ) {
       _doStyleSwitch(map, false);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mapNight, mapStatus, navStatus]);
 
   // ── CarOS Rover marker — navigasyon aktifliği (alt halka genişler + glow güçlenir) ──

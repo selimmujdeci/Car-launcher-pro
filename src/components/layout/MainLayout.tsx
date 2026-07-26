@@ -269,7 +269,7 @@ export default function MainLayout() {
   // Remote command handler bu ref'i okur; dep array eklemek stale closure'a neden olur.
   useEffect(() => {
     _remoteRef.current = { settings, smart, location, handleLaunch, updateSettings, setDrawer };
-  }); // eslint-disable-line react-hooks/exhaustive-deps
+  });
   useEffect(() => {
     const ctx: CommandContext = {
       get vehicleCtx() {

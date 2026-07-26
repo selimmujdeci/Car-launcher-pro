@@ -63,7 +63,7 @@ interface AmbientLightSensorReading {
 
 // Global scope tip genişletme — AmbientLightSensor bazı ortamlarda eksik
 declare global {
-  // eslint-disable-next-line @typescript-eslint/naming-convention
+  // `AmbientLightSensor` bilerek PascalCase: tarayıcı API adının BİREBİR kendisi.
   interface Window { AmbientLightSensor?: new (opts: { frequency: number }) => AmbientLightSensorReading; }
 }
 
@@ -157,7 +157,6 @@ export function useDayNightManager(): void {
       if (sensor) { try { sensor.stop(); } catch { /* ignore */ } }
     };
   // ALS tek seferlik kurulur — autoBrightness değişiminde yeniden başlatılır
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [settings.autoBrightnessEnabled, settings.autoThemeEnabled]);
 
   /* ── Katman 2: OBD Far Proxy ───────────────────────────── */
@@ -199,7 +198,6 @@ export function useDayNightManager(): void {
     } else {
       applySunlightMode(false);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [settings.dayNightMode]);
 
   /* ── Mount: DOM'a yaz + saate göre gün/gece ayarla ─ */

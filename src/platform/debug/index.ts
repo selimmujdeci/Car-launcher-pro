@@ -10,7 +10,8 @@ export const DEBUG_ENABLED =
  */
 export function logInfo(...args: unknown[]): void {
   if (!DEBUG_ENABLED) return;
-  // eslint-disable-next-line no-console -- merkezi, guard'lı debug log noktası
+  // Merkezi, DEBUG_ENABLED guard'lı TEK debug log noktası. (`no-console` kuralı bu
+  // projede etkin değil; etkinleştirilirse istisna tam BURADA tanımlanmalı.)
   console.log(...args);
 }
 

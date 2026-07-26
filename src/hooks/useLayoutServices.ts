@@ -122,7 +122,6 @@ export function useLayoutServices({
       profile?.avgConsumptionL100 ?? 8.0, // varsayılan: 8 L/100 km
       profile?.obdDeviceAddress,          // Fix 3: bilinen MAC → scan atla
     );
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [storeSettings.activeVehicleProfileId, storeSettings.vehicleProfiles]);
 
   // Wake word artık SystemBoot Wave 4'teki startWakeWordService() tarafından
@@ -165,7 +164,6 @@ export function useLayoutServices({
       })();
     }, 5000);
     return () => clearTimeout(t);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Android 12+ / 13+ runtime izinleri — bildirim + Bluetooth (native only, once)
@@ -174,7 +172,6 @@ export function useLayoutServices({
     CarLauncher.requestAndroid13Permissions().catch((e: unknown) => {
       logError('useLayoutServices:requestAndroid13Permissions', e);
     });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Background GPS service + break reminder (native only, once)
@@ -288,7 +285,6 @@ export function useLayoutServices({
       unmounted = true;
       handle?.remove();
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Araç profil algılama

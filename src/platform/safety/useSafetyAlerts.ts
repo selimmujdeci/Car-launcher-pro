@@ -168,7 +168,6 @@ export function useSafetyAlerts(opts?: SafetyMapOptions): UseSafetyAlertsResult 
     // semantik olarak doğrudur (farklı sinyal mevcudiyeti farklı davranış).
     // optsRef her render'da güncellendiği için deps listesinde olması gerekmez;
     // sadece imza değişikliklerini (isDark, seatbelt, headlights) izle.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [opts?.isDark, opts?.signalsAvailable?.seatbelt, opts?.signalsAvailable?.headlights]);
 
   // mute: stabil referans (useCallback, yalnız queueRef bağımlılığı)

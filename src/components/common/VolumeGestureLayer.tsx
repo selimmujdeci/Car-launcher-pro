@@ -47,7 +47,6 @@ export function VolumeGestureLayer() {
   // oynatıcılar (YouTube IFrame / HTML5 stream) kullanıcının son seviyesinde başlasın.
   useEffect(() => {
     setVolume(volRef.current);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Jest AKTİF değilken store değerini canlı ref'e yansıt (slider'dan değişebilir).
