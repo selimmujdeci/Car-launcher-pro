@@ -56,8 +56,10 @@ export async function encryptBeamPayload(plaintext: string, key: CryptoKey): Pro
 }
 
 /**
- * QR beam ile aktarılabilen API anahtar formatları — CarOS Pro (SettingsPage/
- * AIVoicePanel) ile AYNI: Gemini · Groq · Haiku · Tavily.
- * (Eskiden yalnız Gemini kabul ediliyordu → Tavily/Groq/Haiku QR ile getirilemiyordu.)
+ * QR beam ile aktarılabilen API anahtar formatları — CarOS Pro'daki
+ * `src/platform/keyBeamCrypto.ts` İKİZİDİR: Gemini · OpenRouter · Groq · Haiku ·
+ * Tavily. İki taraf ayrı depoda/bundle'da çalıştığı için desen ELLE eşitlenir;
+ * biri güncellenip diğeri unutulursa telefon "format tanınmadı" der ve akış ölür.
+ * (OpenRouter 2026-07-26'da eklendi.)
  */
-export const API_KEY_BEAM_REGEX = /^(AIza[A-Za-z0-9_-]{35,}|AQ\.[A-Za-z0-9_.-]{20,}|gsk_[A-Za-z0-9]{20,}|sk-ant-[A-Za-z0-9_-]{20,}|tvly-[A-Za-z0-9_-]{10,})$/;
+export const API_KEY_BEAM_REGEX = /^(AIza[A-Za-z0-9_-]{35,}|AQ\.[A-Za-z0-9_.-]{20,}|sk-or-v1-[A-Za-z0-9]{20,}|gsk_[A-Za-z0-9]{20,}|sk-ant-[A-Za-z0-9_-]{20,}|tvly-[A-Za-z0-9_-]{10,})$/;

@@ -61,6 +61,7 @@ export const API_CREDENTIALS: readonly ApiCredentialDescriptor[] = [
     verify:           verifyOpenRouterKey,
     placeholder:      'sk-or-v1-...',
     clipboardPattern: /^sk-or-v1-[A-Za-z0-9]{20,}$/,
+    keyBeamKind:      'openrouter',
   },
   {
     id:               'tavily',

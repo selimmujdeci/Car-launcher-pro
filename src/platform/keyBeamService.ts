@@ -66,7 +66,7 @@ export type BeamPollResult =
 
 /** QR beam ile getirilebilen anahtar tipleri — telefon sayfası buna göre
  *  doğru talimatı/link'i gösterir (gemini→aistudio, tavily→app.tavily.com…). */
-export type KeyBeamKind = 'gemini' | 'groq' | 'haiku' | 'tavily';
+export type KeyBeamKind = 'gemini' | 'openrouter' | 'groq' | 'haiku' | 'tavily';
 
 /** Yeni bir kod + tek kullanımlık anahtar üretir. Ağ çağrısı yapmaz (kod yalnızca üretildikten sonra Supabase'e telefon tarafından yazılır).
  *  @param kind Hangi sağlayıcı için (telefon sayfası buna göre "Gemini/Tavily… anahtarını yapıştır" gösterir). Verilmezse eski jenerik davranış. */

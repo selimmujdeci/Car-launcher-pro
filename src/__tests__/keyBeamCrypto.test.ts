@@ -164,6 +164,10 @@ describe('API_KEY_BEAM_REGEX', () => {
     expect(API_KEY_BEAM_REGEX.test('sk-ant-ABCDEFGHIJKLMNOPQRSTUV')).toBe(true);
   });
 
+  it('geçerli OpenRouter format (sk-or-v1-...) kabul edilir', () => {
+    expect(API_KEY_BEAM_REGEX.test('sk-or-v1-ABCDEFGHIJKLMNOPqrstuvwx0123456789')).toBe(true);
+  });
+
   it('rastgele metin reddedilir', () => {
     expect(API_KEY_BEAM_REGEX.test('merhaba dünya')).toBe(false);
   });
@@ -176,8 +180,70 @@ describe('API_KEY_BEAM_REGEX', () => {
     expect(API_KEY_BEAM_REGEX.test('tvly-')).toBe(false);
   });
 
+  it('kısa/eksik OpenRouter reddedilir (önek doğru ama gövde yok)', () => {
+    expect(API_KEY_BEAM_REGEX.test('sk-or-v1-')).toBe(false);
+    expect(API_KEY_BEAM_REGEX.test('sk-or-v1-KISA')).toBe(false);
+  });
+
+  it('yanlış OpenRouter öneki reddedilir (sk-or- ama v1 yok)', () => {
+    expect(API_KEY_BEAM_REGEX.test('sk-or-ABCDEFGHIJKLMNOPqrstuvwx')).toBe(false);
+  });
+
   it('boş string reddedilir', () => {
     expect(API_KEY_BEAM_REGEX.test('')).toBe(false);
+  });
+});
+
+/* ═══════════════════════════════════════════════════════════════
+   5. KİLİT — kayıt defteri ile beam regex'i AYNI kümeyi kabul eder
+
+   SAHA KUSURU (2026-07-26): OpenRouter panelde `clipboardPattern` ile TANINIYOR
+   ama `keyBeamKind` taşımadığı için QR düğmesi hiç görünmüyordu; düğme eklense
+   bile `API_KEY_BEAM_REGEX` `sk-or-v1-...`i REDDEDECEĞİ için akış telefonda
+   "format tanınmadı" ile sessizce ölürdü. İki liste ayrı dosyada yaşadığı için
+   biri güncellenip diğeri unutulabiliyor.
+
+   DEĞİŞMEZ: `keyBeamKind` taşıyan HER tanımın örnek anahtarı beam regex'inden
+   GEÇMELİDİR. Yeni sağlayıcı eklerken bu test, unutulan tarafı kırmızıya çevirir.
+═══════════════════════════════════════════════════════════════ */
+
+describe('KİLİT — credentialRegistry ↔ API_KEY_BEAM_REGEX tutarlılığı', () => {
+  /** Her beam'lenebilir sağlayıcı için GERÇEKÇİ örnek anahtar (uydurma değil, biçim doğru). */
+  const ORNEK: Record<string, string> = {
+    gemini:     'AIzaSyABCDEFGHIJKLMNOPQRSTUVWXYZ01234567',
+    openrouter: 'sk-or-v1-ABCDEFGHIJKLMNOPqrstuvwx0123456789',
+    tavily:     'tvly-dev-ABCDEFGHIJKLMNOPqrstuvwx',
+    groq:       'gsk_ABCDEFGHIJKLMNOPQRSTUVWX',
+    haiku:      'sk-ant-ABCDEFGHIJKLMNOPQRSTUV',
+  };
+
+  it('keyBeamKind taşıyan her tanımın anahtarı beam regex kümesinden GEÇER', async () => {
+    const { API_CREDENTIALS } = await import('../platform/ai/credentials/credentialRegistry');
+    const beamable = API_CREDENTIALS.filter((c) => c.keyBeamKind);
+    expect(beamable.length, 'hiç beam edilebilir sağlayıcı yok — kilit boşa çalışıyor')
+      .toBeGreaterThanOrEqual(5);
+
+    const eksik: string[] = [];
+    for (const c of beamable) {
+      const ornek = ORNEK[c.keyBeamKind!];
+      if (!ornek) { eksik.push(`${c.id}: bu teste örnek anahtar eklenmemiş`); continue; }
+      // (a) panelin clipboard deseni örneği tanımalı — örnek gerçekçi mi?
+      if (c.clipboardPattern && !c.clipboardPattern.test(ornek)) {
+        eksik.push(`${c.id}: örnek anahtar clipboardPattern ile uyuşmuyor`);
+      }
+      // (b) ASIL kilit: beam regex'i de tanımalı
+      if (!API_KEY_BEAM_REGEX.test(ornek)) {
+        eksik.push(`${c.id}: API_KEY_BEAM_REGEX bu formatı REDDEDİYOR → QR akışı ölü`);
+      }
+    }
+    expect(eksik, `beam regex ile kayıt defteri ayrışmış: ${eksik.join(' | ')}`).toEqual([]);
+  });
+
+  it('OpenRouter QR ile aktarılabilir (regresyon: keyBeamKind eksikti)', async () => {
+    const { getCredentialDescriptor } = await import('../platform/ai/credentials/credentialRegistry');
+    const or = getCredentialDescriptor('openrouter');
+    expect(or, 'openrouter tanımı bulunamadı').toBeDefined();
+    expect(or!.keyBeamKind, 'OpenRouter QR düğmesi yine kayboldu (keyBeamKind yok)').toBe('openrouter');
   });
 });
 

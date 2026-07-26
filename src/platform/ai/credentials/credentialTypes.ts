@@ -115,7 +115,7 @@ export interface ApiCredentialDescriptor {
    */
   readonly clipboardPattern?: RegExp;
   /** QR ile telefondan anahtar aktarımı destekleniyorsa `keyBeamService` türü. */
-  readonly keyBeamKind?: 'gemini' | 'groq' | 'haiku' | 'tavily';
+  readonly keyBeamKind?: 'gemini' | 'openrouter' | 'groq' | 'haiku' | 'tavily';
   /**
    * `.env` yedeği okuyucusu (yalnız GELİŞTİRME kolaylığı). Değer döndürürse UI
    * ".env'den okunuyor" rozetini gösterir. Anahtar DEĞERİ UI state'ine girmez —
