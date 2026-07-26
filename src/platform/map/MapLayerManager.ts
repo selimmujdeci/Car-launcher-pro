@@ -256,7 +256,7 @@ export function addUserMarker(
   map.addSource(sourceId, {
     type: 'geojson',
     data: { type: 'FeatureCollection', features: [feature] },
-  } as any);
+  });
 
   // 1. Amber glow halesi (en altta) — gece güçlü, gündüz sade. circle-blur ile yumuşak parıltı.
   map.addLayer({
@@ -269,7 +269,7 @@ export function addUserMarker(
       'circle-blur': 1,
       'circle-opacity': M.markerNight ? 0.42 : 0.22,
       'circle-pitch-alignment': 'map',
-    } as any,
+    },
   });
 
   // 2. Amber konum halkası — aracın altında çepeçevre, pulse/expand burada animasyonlu
@@ -284,7 +284,7 @@ export function addUserMarker(
       'circle-stroke-color': M.markerNight ? '#FFB347' : '#E0A23C',
       'circle-stroke-opacity': 0.9,
       'circle-pitch-alignment': 'map',
-    } as any,
+    },
   });
 
   // 3. CarOS Rover — heading'e göre döner. pitch-alignment:map → 3D nav görünümünde
@@ -302,7 +302,7 @@ export function addUserMarker(
       'icon-allow-overlap': true,
       'icon-ignore-placement': true,
       'icon-offset': [0, 0],
-    } as any,
+    },
   });
 
   // Katmanları en üste taşı — raster/vektör geçişlerinde veya OOM sonrası
@@ -368,7 +368,7 @@ export function updateUserMarker(latitude: number, longitude: number, heading?: 
   _markerCoords[0]     = longitude;
   _markerCoords[1]     = latitude;
   _markerProps.heading = heading ?? 0;
-  source.setData(_markerCollection as any);
+  source.setData(_markerCollection);
 }
 
 /**
@@ -419,7 +419,9 @@ export function applyMapDayNight(night: boolean, mapArg?: ReturnType<typeof useM
       // RASTER (OSM) → canlı paint: restyle yok, rota/marker korunur (en yaygın yol).
       const paint = night ? RASTER_PAINT_NIGHT : RASTER_PAINT_DAY;
       for (const [prop, val] of Object.entries(paint)) {
-        map.setPaintProperty(rasterLayerId, prop as any, val as any);
+        // `paint` sözlüğü raster paint anahtarlarını taşır; MapLibre imzası
+        // `name: string` kabul eder → cast gerekmiyor.
+        map.setPaintProperty(rasterLayerId, prop, val);
       }
       if (map.getLayer('background')) {
         map.setPaintProperty('background', 'background-color', night ? '#131822' : '#e9eef3');
@@ -446,7 +448,12 @@ export function setMarkerNavActive(active: boolean): void {
  * @param riskScore   Global tehlike skoru — pulse genişliği ve parlaklığını etkiler
  * @param isAttention ATTENTION durumunda pulse daha keskin ve parlak olur
  */
-function _buildPulseGradient(p: number, riskScore = 0, isAttention = false): unknown[] {
+/* Dönüş tipi MapLibre'nin KENDİ ifade tipidir. İfade DİNAMİK kurulduğu için
+   (durak sayısı/eşikler runtime'da hesaplanır) TypeScript onu `ExpressionSpecification`
+   tuple birleşimine daraltamaz; bu yüzden dönüşlerde kütüphane tipine tek noktadan
+   assert edilir. `any` DEĞİL: tip kütüphanenin sözleşmesidir ve çağıranlar tam
+   denetime tabi kalır. */
+function _buildPulseGradient(p: number, riskScore = 0, isAttention = false): maplibregl.ExpressionSpecification {
   // Renk string'leri: sadece risk veya attention değişince yeniden oluştur
   if (Math.abs(riskScore - M.pCacheRisk) > 0.01 || isAttention !== M.pCacheAttn) {
     M.pCacheRisk  = riskScore;
@@ -467,7 +474,7 @@ function _buildPulseGradient(p: number, riskScore = 0, isAttention = false): unk
 
   if (t3 >= t4) {
     return ['interpolate', ['linear'], ['line-progress'],
-      0, PULSE_TRANSPARENT, 1, PULSE_TRANSPARENT];
+      0, PULSE_TRANSPARENT, 1, PULSE_TRANSPARENT] as maplibregl.ExpressionSpecification;
   }
   return [
     'interpolate', ['linear'], ['line-progress'],
@@ -477,7 +484,7 @@ function _buildPulseGradient(p: number, riskScore = 0, isAttention = false): unk
     t3, M.pPeakStr,
     t4, PULSE_TRANSPARENT,
     t5, PULSE_TRANSPARENT,
-  ];
+  ] as maplibregl.ExpressionSpecification;
 }
 
 /**
@@ -809,7 +816,7 @@ export function _applyRouteGeometry(
     if (!map.getSource(ALT_SRC) || !map.getLayer(ALT_FILL)) {
       try { if (map.getLayer(ALT_FILL)) map.removeLayer(ALT_FILL); } catch { /* ignore */ }
       try { if (map.getSource(ALT_SRC)) map.removeSource(ALT_SRC); } catch { /* ignore */ }
-      map.addSource(ALT_SRC, { type: 'geojson', data: altData } as any);
+      map.addSource(ALT_SRC, { type: 'geojson', data: altData });
       map.addLayer({
         id: ALT_FILL,
         type: 'line',
@@ -824,9 +831,9 @@ export function _applyRouteGeometry(
           'line-width':   ['interpolate', ['linear'], ['zoom'], 12, 5, 16, 9, 18, 13],
           'line-opacity': 0.9,
         },
-      } as any);
+      });
     } else {
-      (map.getSource(ALT_SRC) as any).setData(altData);
+      (map.getSource(ALT_SRC) as GeoJSONSource).setData(altData);
     }
 
     // ── Alternatif rota zaman etiketleri (midpoint badge) ────────────────────
@@ -849,7 +856,7 @@ export function _applyRouteGeometry(
     if (!map.getSource(ALT_BADGE_SRC) || !map.getLayer(ALT_BADGE_LAYER)) {
       try { if (map.getLayer(ALT_BADGE_LAYER)) map.removeLayer(ALT_BADGE_LAYER); } catch { /* ignore */ }
       try { if (map.getSource(ALT_BADGE_SRC)) map.removeSource(ALT_BADGE_SRC); } catch { /* ignore */ }
-      map.addSource(ALT_BADGE_SRC, { type: 'geojson', data: badgeData } as any);
+      map.addSource(ALT_BADGE_SRC, { type: 'geojson', data: badgeData });
       _ensureBadgeImage(map); // C7.3 — badge arkaplan imajını hazırla
       map.addLayer({
         id:      ALT_BADGE_LAYER,
@@ -876,9 +883,9 @@ export function _applyRouteGeometry(
           'icon-opacity':    0.92,
           'text-opacity':    1,
         },
-      } as any);
+      });
     } else {
-      (map.getSource(ALT_BADGE_SRC) as any).setData(badgeData);
+      (map.getSource(ALT_BADGE_SRC) as GeoJSONSource).setData(badgeData);
     }
 
     // Head unit / düşük GPU tespiti — line-blur, line-gradient ve ekstra katmanlar atlanır
@@ -907,7 +914,7 @@ export function _applyRouteGeometry(
         type: 'geojson',
         data: { type: 'FeatureCollection', features: [] },
         lineMetrics: !_isLowEnd, // perf-low'da gerekmiyor (gradient yok)
-      } as any);
+      });
 
       // Layer 0 — Shadow: line-blur GPU yoğun, head unit'lerde atla
       if (!_isLowEnd) {
@@ -923,7 +930,7 @@ export function _applyRouteGeometry(
             'line-blur':    8,
             'line-offset':  3,
           },
-        } as any);
+        });
 
         // Layer 1 — Outer Glow: blur ile neon halo, head unit'lerde atla
         map.addLayer({
@@ -937,7 +944,7 @@ export function _applyRouteGeometry(
             'line-opacity': 0.20,
             'line-blur':    10,
           },
-        } as any);
+        });
       }
 
       // Layer 2 — Casing: beyaz sınır (Google Maps tarzı — ince ve net)
@@ -951,8 +958,10 @@ export function _applyRouteGeometry(
           'line-width':  ['interpolate', ['linear'], ['zoom'], 12, 6, 18, 14],
           'line-opacity': 0.95,
         },
-      } as any);
-      const _coreFillPaint: any = {
+      });
+      /* Dinamik paint sözlüğü: düşük-uçta düz renk, aksi hâlde gradient eklenir.
+         MapLibre'nin KENDİ line-paint tipiyle bağlanır — `any` değil. */
+      const _coreFillPaint: NonNullable<maplibregl.LineLayerSpecification['paint']> = {
         'line-width':  ['interpolate', ['linear'], ['zoom'], 12, 4, 18, 10],
         'line-opacity': 1,
       };
@@ -972,7 +981,7 @@ export function _applyRouteGeometry(
         source: SEL_SRC,
         layout: { 'line-join': 'round', 'line-cap': 'round' },
         paint: _coreFillPaint,
-      } as any);
+      });
 
       // Layer 4 — Flow: cinematic light trail.
       if (!_isLowEnd) {
@@ -986,7 +995,7 @@ export function _applyRouteGeometry(
             'line-opacity':  0.85,
             'line-gradient': _buildPulseGradient(0.5),
           },
-        } as any);
+        });
 
         // Light trail rAF loop başlat (singleton — çift çağrı güvenli)
         _startLightTrail();
@@ -1005,11 +1014,11 @@ export function _applyRouteGeometry(
 
     // ── Step 4: set data ─────────────────────────────────────────
     const routeFeature = {
-      type: 'Feature',
+      type: 'Feature' as const,
       properties: {},
-      geometry: { type: 'LineString', coordinates: coords },
+      geometry: { type: 'LineString' as const, coordinates: coords },
     };
-    (map.getSource(SEL_SRC) as any).setData(routeFeature);
+    (map.getSource(SEL_SRC) as GeoJSONSource).setData(routeFeature);
 
     // NAV-5: rotayı TRAFİK YOĞUNLUĞUNA göre renklendir (best-effort, BYOK, fail-soft).
     // Yalnız SEL_LAYER'ın line-gradient paint'ini değiştirir → rota ÇİZGİSİNİ bozamaz.
@@ -1089,7 +1098,7 @@ export function trimRouteGeometry(map: MapLibreMap, remaining: [number, number][
   if (M.isStyleChanging) return; // stil geçişi sürerken source'a dokunma
   try {
     if (!map.isStyleLoaded() || !map.getSource(SEL_SRC)) return;
-    (map.getSource(SEL_SRC) as any).setData({
+    (map.getSource(SEL_SRC) as GeoJSONSource).setData({
       type: 'Feature',
       properties: {},
       geometry: { type: 'LineString', coordinates: remaining },

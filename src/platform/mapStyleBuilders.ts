@@ -183,7 +183,7 @@ export function buildVectorStyle(
           'fill-extrusion-vertical-gradient': true,
           'fill-extrusion-ambient-occlusion-intensity': 0.35,
           'fill-extrusion-ambient-occlusion-radius':    10,
-        } as any,
+        },
       } as LayerSpecification,
 
       // ── Roads: casings (outlines) ─────────────────────────

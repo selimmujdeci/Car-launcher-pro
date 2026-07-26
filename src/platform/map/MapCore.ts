@@ -10,6 +10,7 @@
 // YOK; mapService.ts'ten birebir taşındı.
 // ══════════════════════════════════════════════════════════════════════════
 import maplibregl, { Map as MapLibreMap } from 'maplibre-gl';
+import type { StyleSpecification } from 'maplibre-gl';
 import { logInfo } from '../debug';
 import { logError } from '../crashLogger';
 import { handleSatelliteTileError, setActiveMapSource, getMapStyle, getMapNight } from '../mapSourceManager';
@@ -26,8 +27,14 @@ try { maplibregl.removeProtocol('smart-tile'); } catch { /* not registered */ }
 cacheLRUManager.init();
 
 /** JS Heap anlık snapshot — Chrome/Android WebView destekli; diğer ortamlarda no-op. */
+/** Chrome/Android WebView'a ÖZGÜ, standart DIŞI bellek alanı (spec'te yok). */
+interface ChromePerformanceMemory {
+  usedJSHeapSize:  number;
+  totalJSHeapSize: number;
+}
+
 function _logHeap(prefix: string): void {
-  const mem = (performance as any).memory;
+  const mem = (performance as Performance & { memory?: ChromePerformanceMemory }).memory;
   if (mem) {
     console.info(
       `[MAP] ${prefix} JS Heap: ${(mem.usedJSHeapSize / 1_048_576).toFixed(1)} MB` +
@@ -108,7 +115,7 @@ export function isWebGLAvailable(): boolean {
     const gl = ctx as WebGLRenderingContext;
     const ok = typeof gl.createShader === 'function';
     // Kontrol canvas'ını hemen serbest bırak — context slotunu tıkama
-    try { (gl.getExtension('WEBGL_lose_context') as any)?.loseContext(); } catch { /* ignore */ }
+    try { (gl.getExtension('WEBGL_lose_context') as WEBGL_lose_context | null)?.loseContext(); } catch { /* ignore */ }
     M.webglAvailableCache = ok;
     return ok;
   } catch {
@@ -360,11 +367,11 @@ async function _initCore(
  *   - _cachedRoute is replayed automatically here so the route survives style switches
  * Caller is still responsible for re-adding the user marker.
  */
-export function switchMapStyle(map: MapLibreMap, style: any, retryCount = 0) {
+export function switchMapStyle(map: MapLibreMap, style: StyleSpecification | string, retryCount = 0) {
   if (!map) return;
   useMapStore.setState({ isReady: false });
 
-  const onError = (e: any) => {
+  const onError = (e: { error?: unknown }) => {
     logError('Map:StyleSwitchError', e.error || new Error('Style load failed'));
     if (retryCount < 1) {
       setTimeout(() => switchMapStyle(map, style, retryCount + 1), 2000);

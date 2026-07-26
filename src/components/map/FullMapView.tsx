@@ -100,6 +100,12 @@ function _routeHash(geometry: [number, number][] | null | undefined): string {
   return `${geometry.length}:${f[0].toFixed(5)},${f[1].toFixed(5)}:${l[0].toFixed(5)},${l[1].toFixed(5)}`;
 }
 
+/* routingService mutex bayrağı `window` üzerinden paylaşılır (modüller arası tek
+   nokta). Global `Window` arayüzünü genişletmek yerine dar bir görünüm kullanılır:
+   bayrak yalnız BURADA ve routingService'te okunur/yazılır. */
+interface MapMutexWindow { __MAP_MUTEX__?: boolean }
+const _mapMutexWindow = (): MapMutexWindow => window as unknown as MapMutexWindow;
+
 export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: FullMapViewProps) {
   const outerDivRef   = useRef<HTMLDivElement>(null);
   const containerRef  = useRef<HTMLDivElement>(null);
@@ -495,7 +501,7 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
       mapRef.current         = null;
       initializedRef.current = false;
       initDone.current       = false;
-      setMapStatus('IDLE' as any);
+      setMapStatus('IDLE');
       // ResizeObserver'ın tryInit'ini tetikle — yeni map init başlasın
       requestAnimationFrame(() => tryInitRef.current?.());
     };
@@ -1351,7 +1357,7 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
         cancelled = true;
         if (styleChangingRef.current) {
           styleChangingRef.current = false;
-          (window as any).__MAP_MUTEX__ = false;
+          _mapMutexWindow().__MAP_MUTEX__ = false;
           setMapStyleChanging(false);
           notifyStyleChange(false);
         }
@@ -1557,7 +1563,7 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
         // Stil zaten yüklü olduğundan setRouteGeometry güvenli — "source does not exist" riski yok.
         if (styleChangingRef.current) {
           styleChangingRef.current = false;
-          (window as any).__MAP_MUTEX__ = false;
+          _mapMutexWindow().__MAP_MUTEX__ = false;
         }
         notifyStyleChange(false); // module _isStyleChanging=false → setRouteGeometry erken-return etmez
         const geom = routeGeometryRef.current ?? getRouteState().geometry;
@@ -1651,7 +1657,7 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
     // notifyStyleChange(true) → fetchRoute awaits _waitForStyleReady() before setState.
     // Released unconditionally in style.load to prevent deadlock on cancelled mounts.
     styleChangingRef.current = true;
-    (window as any).__MAP_MUTEX__ = true;
+    _mapMutexWindow().__MAP_MUTEX__ = true;
     setMapStyleChanging(true);
     notifyStyleChange(true);
 
@@ -1667,7 +1673,7 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
 
       try { map.resize(); } catch { /* container transitioning */ }
       styleChangingRef.current = false;
-      (window as any).__MAP_MUTEX__ = false;
+      _mapMutexWindow().__MAP_MUTEX__ = false;
       setMapStyleChanging(false);
       notifyStyleChange(false);
       if (!mountedRef.current) return;
