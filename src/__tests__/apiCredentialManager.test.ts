@@ -126,7 +126,10 @@ describe('kayıt defteri — sağlayıcılar ve kurtarma kapsamı', () => {
 
   it('KİLİT: silme yolunda cihaz blob senkronu BEKLENİR (silinen anahtar dirilmesin)', () => {
     const src = readFileSync('src/platform/sensitiveKeyStore.ts', 'utf8');
-    const remove = src.match(/async remove\(key: SensitiveKey\)[\s\S]*?\n  \},/);
+    // Kapanış süslü parantezi 2 boşluk girintilidir. İki GÖRÜNMEZ boşluk yerine
+    // açıkça sayan `{2}` yazılır (no-regex-spaces): desen birebir AYNI metni eşler,
+    // ama boşluk sayısı gözle sayılmak zorunda kalmaz.
+    const remove = src.match(/async remove\(key: SensitiveKey\)[\s\S]*?\n {2}\},/);
     expect(remove, 'remove() bulunamadı').toBeTruthy();
     expect(remove![0], 'remove() blob senkronunu beklemiyor → silinen anahtar geri gelebilir')
       .toMatch(/await _deviceBackupSync\(\)/);
