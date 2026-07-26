@@ -1468,10 +1468,16 @@ const QuickDestinations = memo(function QuickDestinations({
   );
   // Benzinlik: en yakın ÖNBELLEKTEKİ istasyona mesafe (ağ çağrısı yok). Önbellek yoksa
   // (ilk kullanım) null → kullanıcı bir kez Benzinlik'e basınca cache dolar, km belirir.
+  // `fuelLoading` kurala göre "gereksiz" görünür ama BİLİNÇLİDİR: `_nearestCached`
+  // React dışındaki bir MODÜL ÖNBELLEĞİNİ okur, o yüzden memo'nun yeniden hesaplanması
+  // için gözlenebilir bir sinyal gerekir. Yükleme bitince (`fuelLoading` false'a döner)
+  // önbellek dolmuştur ve mesafe belirir — dep'i kaldırmak "km hiç görünmüyor"
+  // regresyonunu geri getirir.
   const fuelDistM = useMemo(() => {
     if (gpsLat == null || gpsLon == null) return null;
     const f = _nearestCached(gpsLat, gpsLon);
     return f ? _haversineMeters(gpsLat, gpsLon, f.lat, f.lon) : null;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gpsLat, gpsLon, fuelLoading]);
 
   const navigate = useCallback((dest: Address) => {

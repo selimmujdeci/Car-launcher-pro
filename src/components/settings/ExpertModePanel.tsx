@@ -104,8 +104,14 @@ export const ExpertModePanel = memo(function ExpertModePanel() {
 
   useEffect(() => subscribeSafetyBrain(() => setSafetyRev((n) => n + 1)), []);
 
+  // `safetyRev`/`vinRaw` kurala göre "gereksiz" görünür ama BİLİNÇLİDİR:
+  // `listSafetyDisabledFeatureWarnings()` argüman almaz, Safety Brain'in React
+  // DIŞINDAKİ durumunu okur. `safetyRev` yukarıdaki aboneliğin bumpladığı revizyon
+  // sayacıdır; VIN değişimi de listeyi etkiler. İkisini de kaldırmak uyarı listesini
+  // ilk render'da DONDURUR (arıza oluşsa bile ekran güncellenmez).
   const safetyWarnings = useMemo(
     () => listSafetyDisabledFeatureWarnings(),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [safetyRev, vinRaw],
   );
 

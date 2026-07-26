@@ -8,15 +8,21 @@ export const IncomingCallOverlay = memo(function IncomingCallOverlay() {
 
   const call = notifications.find(n => n.category === 'call' && !n.isRead) ?? null;
 
-  /* Animate in when call arrives */
+  /* Animate in when call arrives.
+     Effect YALNIZ çağrı KİMLİĞİNE tepki verir; `call` nesnesinin kendisine
+     bakmaz. Bakarsa her bildirim dizisi tazelemesinde (yeni nesne kimliği)
+     yeniden koşar ve 30 ms'lik giriş animasyonu sürekli baştan başlar.
+     `AppNotification.id` zorunlu string olduğundan `callId !== null`,
+     `call !== null` ile birebir aynıdır. */
+  const callId = call?.id ?? null;
   useEffect(() => {
-    if (call) {
+    if (callId !== null) {
       const t = setTimeout(() => setVisible(true), 30);
       return () => clearTimeout(t);
     } else {
       setVisible(false);
     }
-  }, [call?.id]);
+  }, [callId]);
 
   if (!call) return null;
 
