@@ -2156,3 +2156,78 @@ describe('CAROS LAB kopyalama sızıntı kilidi', () => {
       .toMatch(/_gpsGhostSpeed\(valGPS\?\.value\)/);
   });
 });
+
+/* ───────────────────────────────────────────────────────────────
+   API anahtarı — "siteden kopyala, dönünce otomatik algılansın" kilidi
+   REGRESYON (1f03aa2, 2026-07-22): 5 ayrı anahtar bölümü tek kayıt-defteri
+   panelinde birleşirken `handleOpenKeyPage` yardımcısı DÜŞTÜ. "Anahtar Al"
+   düğmesi doğrudan `openInApp()` çağırır oldu; `waitingClip` yalnız `false`a
+   çekildiği için focus/visibilitychange dinleyicisi HİÇ BAĞLANMADI →
+   otomatik pano algılaması BEŞ SAĞLAYICIDA DA sessizce öldü (kod "duruyor"
+   göründüğü için kimse fark etmedi).
+   KİLİT: zincirin üç halkası da yerinde olmalı —
+     (1) düğme ebeveyn geri çağırmasını kullanmalı (doğrudan openInApp DEĞİL),
+     (2) o geri çağırma `setWaitingClip(true)` yapmalı,
+     (3) dinleyici bu bayrağa bağlı kurulmalı.
+   ─────────────────────────────────────────────────────────────── */
+describe('Anahtar sayfasından dönünce pano otomatik algılama kilidi', () => {
+  const src = read('src/components/settings/ApiCredentialsPanel.tsx');
+
+  it('YAPISAL: "Anahtar Al" düğmesi ebeveyn geri çağırmasını kullanır', () => {
+    expect(src, '"Anahtar Al" yine doğrudan openInApp çağırıyor — pano beklemesi hiç başlamaz')
+      .toMatch(/onClick=\{\(\) => onOpenKeyPage\(desc\.docsUrl\)\}/);
+    expect(src, 'satır bileşeni onOpenKeyPage sözleşmesini kaybetmiş')
+      .toMatch(/readonly onOpenKeyPage: \(url: string\) => void;/);
+  });
+
+  it('YAPISAL: geri çağırma pano beklemesini GERÇEKTEN başlatır', () => {
+    const fn = src.match(/const handleOpenKeyPage = useCallback\([\s\S]*?\n {2}\}, \[\]\);/);
+    expect(fn, 'handleOpenKeyPage yine kayboldu (1f03aa2 regresyonu geri geldi)').toBeTruthy();
+    expect(fn![0], 'sağlayıcı sayfası açılmıyor').toMatch(/openInApp\(url\)/);
+    expect(fn![0], 'setWaitingClip(true) yok — dinleyici asla bağlanmaz, algılama ölü')
+      .toMatch(/setWaitingClip\(true\)/);
+    expect(fn![0], 'kullanıcıya "kopyalayıp geri dönün" ipucu verilmiyor')
+      .toMatch(/setClipboardHint\(/);
+  });
+
+  it('YAPISAL: dinleyici bayrağa bağlı ve HER İKİ olayı da dinler', () => {
+    expect(src, 'waitingClip kapısı kaldırılmış').toMatch(/if \(!waitingClip\) return;/);
+    expect(src, 'focus dinleyicisi yok — siteden dönüş yakalanmaz')
+      .toMatch(/addEventListener\('focus'/);
+    expect(src, 'visibilitychange dinleyicisi yok — head unit dönüşü kaçar')
+      .toMatch(/addEventListener\('visibilitychange'/);
+  });
+
+  it('YAPISAL: her satır prop\'u alır (bir sağlayıcı sessizce dışarıda kalmasın)', () => {
+    const rows = [...src.matchAll(/<CredentialRow[^>]*\/>/g)];
+    expect(rows.length, 'CredentialRow render edilmiyor').toBeGreaterThanOrEqual(2);
+    for (const r of rows) {
+      expect(r[0], `bir CredentialRow onOpenKeyPage almıyor → o grup için algılama ölü: ${r[0]}`)
+        .toContain('onOpenKeyPage={handleOpenKeyPage}');
+    }
+  });
+
+  it('KİLİT: pano deseni olan HER sağlayıcı otomatik algılanabilir', async () => {
+    const { API_CREDENTIALS, matchCredentialByClipboard } =
+      await import('../platform/ai/credentials/credentialRegistry');
+    /** Her sağlayıcı için biçimi GERÇEKÇİ örnek anahtar (uydurma değil). */
+    const ORNEK: Record<string, string> = {
+      gemini:     'AIzaSyABCDEFGHIJKLMNOPQRSTUVWXYZ01234567',
+      openrouter: 'sk-or-v1-ABCDEFGHIJKLMNOPqrstuvwx0123456789',
+      tavily:     'tvly-dev-ABCDEFGHIJKLMNOPqrstuvwx',
+      groq:       'gsk_ABCDEFGHIJKLMNOPQRSTUVWX',
+      haiku:      'sk-ant-ABCDEFGHIJKLMNOPQRSTUV',
+    };
+    const hatali: string[] = [];
+    for (const c of API_CREDENTIALS) {
+      if (!c.clipboardPattern) continue;
+      const ornek = ORNEK[c.id];
+      if (!ornek) { hatali.push(`${c.id}: teste örnek anahtar eklenmemiş`); continue; }
+      const bulunan = matchCredentialByClipboard(ornek);
+      if (bulunan?.id !== c.id) {
+        hatali.push(`${c.id}: pano eşleşmesi ${bulunan?.id ?? 'YOK'} döndü — yanlış sağlayıcıya yazılır`);
+      }
+    }
+    expect(hatali, `pano algılaması bozuk: ${hatali.join(' | ')}`).toEqual([]);
+  });
+});

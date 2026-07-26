@@ -63,10 +63,17 @@ interface RowProps {
   readonly status: CredentialStatus | undefined;
   /** Satır bir mutasyon yaptığında ortak haritayı ATOMİK günceller. */
   readonly onStatusChange: (next: CredentialStatus) => void;
+  /**
+   * "Anahtar Al" — sayfayı açar VE ebeveyni pano beklemeye geçirir.
+   * ⚠️ Satır bunu KENDİ İÇİNDE `openInApp` çağırarak yapamaz: pano dinleyicisi
+   * (focus/visibilitychange) ebeveynde yaşar. Doğrudan çağrı, kullanıcı siteden
+   * anahtarı kopyalayıp dönünce OTOMATİK ALGILAMAYI SESSİZCE ÖLDÜRÜR.
+   */
+  readonly onOpenKeyPage: (url: string) => void;
 }
 
 /** @internal — testler doğrudan render edebilsin diye dışa verilir. */
-export const CredentialRow = memo(function CredentialRow({ desc, status, onStatusChange }: RowProps) {
+export const CredentialRow = memo(function CredentialRow({ desc, status, onStatusChange, onOpenKeyPage }: RowProps) {
   const [draft, setDraft]         = useState('');
   const [showDraft, setShowDraft] = useState(false);
   const [conn, setConn]           = useState<ApiCredentialStatus>('not_configured');
@@ -154,7 +161,7 @@ export const CredentialRow = memo(function CredentialRow({ desc, status, onStatu
 
       <div className="flex flex-wrap gap-2">
         <button
-          onClick={() => openInApp(desc.docsUrl)}
+          onClick={() => onOpenKeyPage(desc.docsUrl)}
           className="flex-1 min-w-[140px] flex items-center justify-center gap-1.5 py-2 rounded-lg border border-blue-500/30 bg-blue-500/10 text-blue-400 text-[11px] font-bold hover:bg-blue-500/20 active:scale-[0.98] transition-all"
         >
           <span>🔑</span> Anahtar Al
@@ -327,6 +334,24 @@ export const ApiCredentialsPanel = memo(function ApiCredentialsPanel() {
     } catch { /* pano izni yok */ }
   }, []);
 
+  /**
+   * "Anahtar Al" → sağlayıcı sayfasını aç ve PANO BEKLEMESİNİ BAŞLAT.
+   *
+   * REGRESYON (1f03aa2, 2026-07-22 — "5 panel tek panele birleşti" refactor'ü):
+   * eski panelde bu yardımcı vardı (`handleOpenKeyPage`), birleşmede DÜŞTÜ ve
+   * düğme doğrudan `openInApp` çağırır oldu. `waitingClip` yalnız `false`a
+   * çekildiği için aşağıdaki dinleyici HİÇ BAĞLANMADI → kullanıcı siteden
+   * anahtarı kopyalayıp dönünce otomatik algılama BEŞ SAĞLAYICIDA DA ölüydü.
+   * İpucu metni de kaybolmuştu (kullanıcı ne bekleneceğini bilmiyordu).
+   */
+  const handleOpenKeyPage = useCallback((url: string) => {
+    openInApp(url);
+    setWaitingClip(true);
+    // Bekleme ipucu SÜRELİ DEĞİL: kullanıcı sitede dakikalarca kalabilir.
+    if (clipTimerRef.current) { clearTimeout(clipTimerRef.current); clipTimerRef.current = null; }
+    setClipboardHint('Anahtarı kopyalayıp geri dönün — otomatik algılanacak');
+  }, []);
+
   useEffect(() => {
     if (!waitingClip) return;
     const onFocus = () => { void checkClipboard(); };
@@ -410,7 +435,7 @@ export const ApiCredentialsPanel = memo(function ApiCredentialsPanel() {
       )}
 
       {!loading && primary.map((c) => (
-        <CredentialRow key={c.id} desc={c} status={statuses[c.id]} onStatusChange={applyStatus} />
+        <CredentialRow key={c.id} desc={c} status={statuses[c.id]} onStatusChange={applyStatus} onOpenKeyPage={handleOpenKeyPage} />
       ))}
 
       {!loading && advanced.length > 0 && (
@@ -423,7 +448,7 @@ export const ApiCredentialsPanel = memo(function ApiCredentialsPanel() {
             Gelişmiş — yedek beyinler ve internet araması ({advanced.length})
           </button>
           {showAdvanced && advanced.map((c) => (
-            <CredentialRow key={c.id} desc={c} status={statuses[c.id]} onStatusChange={applyStatus} />
+            <CredentialRow key={c.id} desc={c} status={statuses[c.id]} onStatusChange={applyStatus} onOpenKeyPage={handleOpenKeyPage} />
           ))}
         </>
       )}
