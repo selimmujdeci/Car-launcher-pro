@@ -36,7 +36,56 @@ function _logRegion(msg: string, data: Record<string, unknown>): void {
   console.warn('[YT-region]', msg, JSON.stringify(data));
 }
 
-let _player: any = null;
+/* ── YouTube IFrame Player API sözleşmesi ──────────────────────────────────
+   Bu API'nin resmî TS tipi paketi YOK ve ekleyemeyiz (yeni bağımlılık + lisans
+   denetimi). Bu yüzden YALNIZ KULLANDIĞIMIZ yüzey burada dar biçimde modellenir.
+   Yöntemler opsiyonel: script yüklenirken/parçalı yüklendiğinde eksik olabilir
+   (kod zaten `?.` ile çağırıyor — sözleşme bu gerçeği yansıtır). */
+interface YtPlayer {
+  /* Kod bunları `?.` OLMADAN çağırıyor (try/catch koruması var) → zorunlu. */
+  loadVideoById(arg: string | { videoId: string; suggestedQuality: string }): void;
+  playVideo():  void;
+  pauseVideo(): void;
+  setVolume(v: number): void;
+  seekTo(seconds: number, allowSeekAhead: boolean): void;
+  /* Kod bunları `?.` İLE çağırıyor (eski/parçalı player'da eksik olabilir). */
+  mute?():           void;
+  unMute?():         void;
+  stopVideo?():      void;
+  getPlayerState?(): number;
+  getCurrentTime?(): number;
+  getDuration?():    number;
+}
+
+/** Player olayları yalnız sayısal `data` taşır (durum kodu / hata kodu). */
+interface YtEvent { data?: number }
+
+interface YtPlayerOptions {
+  width:      string;
+  height:     string;
+  playerVars: Record<string, number>;
+  events: {
+    onReady:       () => void;
+    onStateChange: (e: YtEvent) => void;
+    onError:       (e: YtEvent) => void;
+  };
+}
+
+interface YtNamespace {
+  Player: new (elementId: string, opts: YtPlayerOptions) => YtPlayer;
+  PlayerState: { PLAYING: number; PAUSED: number; ENDED: number };
+}
+
+/** IFrame API kendini `window` üzerine yazar. */
+interface YtWindow {
+  YT?: YtNamespace;
+  onYouTubeIframeAPIReady?: () => void;
+}
+
+/** `window`u YT alanlarıyla birlikte gören dar görünüm (global kirletmeden). */
+const _ytWindow = (): YtWindow => window as unknown as YtWindow;
+
+let _player: YtPlayer | null = null;
 let _apiLoading = false;
 // Son uygulanan ses düzeyi (0–100). IFrame player web'de sistem sesinden bağımsızdır;
 // bu yüzden ses jesti/slider buraya yönlenir. Yeni video yüklenince tekrar uygulanır.
@@ -90,7 +139,7 @@ function _ensureHost(): HTMLDivElement {
 
 function _loadApi(): Promise<void> {
   return new Promise<void>((resolve) => {
-    const w = window as any;
+    const w = _ytWindow();
     if (w.YT?.Player) { resolve(); return; }
     if (_apiLoading) {
       const iv = setInterval(() => { if (w.YT?.Player) { clearInterval(iv); resolve(); } }, 100);
@@ -114,8 +163,8 @@ export function ensureYouTubeReady(): Promise<void> {
     await _loadApi();
     console.warn('[YT] IFrame API yüklendi, player kuruluyor');
     await new Promise<void>((resolve) => {
-      const w = window as any;
-      _player = new w.YT.Player('yt-player-inner', {
+      const w = _ytWindow();
+      _player = new w.YT!.Player('yt-player-inner', {
         width: '100%', height: '100%',
         playerVars: {
           autoplay: 1, controls: 0, disablekb: 1, fs: 0,
@@ -133,7 +182,7 @@ export function ensureYouTubeReady(): Promise<void> {
   return _readyPromise;
 }
 
-function _onError(e: any): void {
+function _onError(e: YtEvent): void {
   // 2=geçersiz param, 5=HTML5 hatası, 100=bulunamadı/kaldırıldı,
   // 101/150=video sahibi gömmeye (embedding) izin vermiyor (resmî kliplerde sık).
   const code = e?.data;
@@ -146,9 +195,9 @@ function _onError(e: any): void {
   }
 }
 
-function _onState(e: any): void {
+function _onState(e: YtEvent): void {
   console.warn('[YT] state:', e?.data);
-  const YT = (window as any).YT;
+  const YT = _ytWindow().YT;
   if (!YT || getMediaState().activePackage !== YOUTUBE_PKG) return;
   if (e.data === YT.PlayerState.PLAYING) {
     updateMediaState({ playing: true });
@@ -213,7 +262,13 @@ export async function playYouTube(videoId: string, title: string, artist: string
   } else {
     await ensureYouTubeReady();
     _ensureHostRendered();
-    try { _player.loadVideoById(_loadArg(videoId)); _applyVolume(); console.warn('[YT] loadVideoById (cold) çağrıldı'); }
+    // ensureYouTubeReady() sonrası player yine null olabilir (API yüklenemedi).
+    // Eski `any` sürümünde bu bir TypeError'a düşüp AYNI catch'e gidiyordu —
+    // davranış korunsun diye açıkça fırlatılır, log satırı aynı kalır.
+    try {
+      if (!_player) throw new Error('YT player oluşturulamadı');
+      _player.loadVideoById(_loadArg(videoId)); _applyVolume(); console.warn('[YT] loadVideoById (cold) çağrıldı');
+    }
     catch (e) { console.error('[YT] loadVideoById hata:', e); }
   }
 
@@ -269,7 +324,7 @@ export function youtubeSetVolume(percent: number): void {
 export function youtubeTogglePlayPause(): void {
   if (!_player) return;
   try {
-    const YT = (window as any).YT;
+    const YT = _ytWindow().YT;
     const st = _player.getPlayerState?.();
     if (st === YT?.PlayerState?.PLAYING) _player.pauseVideo();
     else _player.playVideo();

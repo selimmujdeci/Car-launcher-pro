@@ -11,6 +11,20 @@ import { showToast } from '../errorBus';
 
 const API = 'https://api.spotify.com/v1';
 
+/* ── Spotify Web API yanıt sözleşmesi (dar — yalnız KULLANDIĞIMIZ alanlar) ──
+   Yanıt sunucudan gelir; alanlar eksik gelebilir, bu yüzden hepsi opsiyonel. */
+interface SpotifyApiTrack {
+  /* Kimlik alanları Spotify şemasında bir "track" nesnesi için HER ZAMAN gelir;
+     kod bunu `any` döneminde de zaten varsayıyordu. Zorunlu bırakmak davranışı
+     DEĞİŞTİRMEZ, yalnız o varsayımı görünür kılar. */
+  id:           string;
+  uri:          string;
+  name:         string;
+  artists?:     { name?: string }[];
+  album?:       { images?: { url?: string }[] };
+  duration_ms?: number;
+}
+
 export interface SpotifyTrack {
   id:       string;
   uri:      string;
@@ -39,12 +53,12 @@ export async function searchSpotifyTracks(query: string, limit = 20): Promise<Sp
     const res = await fetch(`${API}/search?${params.toString()}`, { headers });
     if (!res.ok) return [];
     const data = await res.json();
-    const items = (data?.tracks?.items ?? []) as any[];
+    const items = (data?.tracks?.items ?? []) as SpotifyApiTrack[];
     return items.map((t) => ({
       id:         t.id,
       uri:        t.uri,
       title:      t.name,
-      artist:     (t.artists ?? []).map((a: any) => a.name).join(', '),
+      artist:     (t.artists ?? []).map((a) => a.name).join(', '),
       albumArt:   t.album?.images?.[0]?.url,
       durationMs: t.duration_ms ?? 0,
     }));

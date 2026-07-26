@@ -474,8 +474,10 @@ export function previous(): void {
 export function useMediaState(): MediaState {
   return useSyncExternalStore(
     (onStoreChange) => {
-      _listeners.add(onStoreChange as any);
-      return () => { _listeners.delete(onStoreChange as any); };
+      // `() => void`, `(s: MediaState) => void` yerine geçebilir (daha az parametre
+      // alan işlev atanabilirdir) — cast'e gerek yok.
+      _listeners.add(onStoreChange);
+      return () => { _listeners.delete(onStoreChange); };
     },
     () => _current,
     () => _current,

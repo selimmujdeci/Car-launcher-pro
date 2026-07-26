@@ -9,6 +9,19 @@ import type { MediaProvider, UnifiedTrack } from './providers';
 import { timeoutSignal } from './providers';
 
 const APP_NAME = 'CarosPro';
+
+/* ── Harici yanıt sözleşmesi (GÜVENİLMEZ — her alan opsiyonel) ─────────────
+   Şemasız üçüncü taraf JSON'u; alan eksik ya da farklı tipte gelebilir. Bu
+   arayüz API'nin ne döndürdüğünü BELGELER, garanti etmez — erişimler bu
+   yüzden opsiyonel zincir + varsayılanla korunur. */
+interface AudiusTrack {
+  id?:      string;
+  title?:   string;
+  user?:    { name?: string };
+  /** Anahtarlar boyut etiketidir: '150x150' · '480x480' · '1000x1000'. */
+  artwork?: Record<string, string | undefined>;
+}
+
 let _host = '';
 let _hostAt = 0;
 const HOST_TTL = 10 * 60_000;
@@ -35,7 +48,7 @@ export const audiusProvider: MediaProvider = {
       const res  = await fetch(url, { signal });
       if (!res.ok) return [];
       const json  = await res.json();
-      const items = (json?.data ?? []) as any[];
+      const items = (json?.data ?? []) as AudiusTrack[];
       return items.slice(0, 20).map((t): UnifiedTrack => ({
         id:         `audius-${t.id}`,
         providerId: 'audius',
