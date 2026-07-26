@@ -104,7 +104,7 @@ describe('EvidenceStore — dedup + bounded', () => {
   });
 
   it('pruneStale eski kanıtı temizler', () => {
-    let t = 10_000;
+    const t = 10_000;   // sabit saat — bu test zamanı İLERLETMEZ
     const store = createEvidenceStore({ now: () => t });
     store.ingest(makeEvidence({ key: 'old', kind: 'signal', summary: 'o', confidence: 1, observedAt: 1000, source: 'obd' }));
     store.ingest(makeEvidence({ key: 'new', kind: 'signal', summary: 'n', confidence: 1, observedAt: 9500, source: 'obd' }));

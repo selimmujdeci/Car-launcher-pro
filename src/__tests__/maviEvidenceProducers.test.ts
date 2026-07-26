@@ -40,7 +40,7 @@ function setup(opts: { takeover?: boolean; mediaNext?: () => void } = {}): Harne
   let cmdL: ((c: ParsedCommandLike) => void) | null = null;
   // Gerçek voiceService bir Set multiplexer'dır — iki abone (köprü + telemetri) AYNI olayı alır.
   const stateSubs = new Set<(e: VoiceLifecycleEventLike) => void>();
-  let clock = 1_000;
+  const clock = 1_000;   // sabit saat — bu kurulum zamanı İLERLETMEZ
   const mode = opts.takeover ? 'takeover' : 'shadow';
   const handle = createMaviWiring({
     pilotDeps: pilotDeps(opts.mediaNext ? { mediaNext: opts.mediaNext } : {}),

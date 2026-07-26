@@ -185,7 +185,7 @@ describe('MaviExecutionEngine — duplicate suppression', () => {
   });
 
   it('farklı payload aynı eylem duplicate DEĞİL', async () => {
-    let clock = 0;
+    const clock = 0;   // sabit saat — dedupe penceresi bu testte İLERLEMEZ
     const { engine } = makeEngine({ now: () => clock });
     await engine.executePlan({ mode: 'sequential', steps: [{ actionId: 'ui.theme.set', payload: { theme: 'night' } }] });
     const r = await engine.executePlan({ mode: 'sequential', steps: [{ actionId: 'ui.theme.set', payload: { theme: 'day' } }] });
