@@ -513,6 +513,17 @@ export interface CarLauncherPlugin {
     handler: (data: WakeWordEvent) => void,
   ): Promise<PluginListenerHandle>;
 
+  /**
+   * Mikrofon RMS (anlık ses seviyesi) akışı — dinleme sırasında dalga formunu
+   * besler. `value` 0–1 arası normalize edilmiş genliktir.
+   * Eski plugin sürümleri bu olayı YAYINLAMAZ; abonelik yine de güvenlidir
+   * (Capacitor bilinmeyen olay için sessizce hiç tetiklemez).
+   */
+  addListener(
+    event: 'rmsData',
+    handler: (data: { value: number }) => void,
+  ): Promise<PluginListenerHandle>;
+
   // OBD-II Bluetooth Serial
   scanOBD(): Promise<OBDScanResult>;
   /**

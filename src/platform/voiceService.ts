@@ -69,7 +69,58 @@ export type AIResultHandler = (result: AIVoiceResult, ctx?: VehicleContext) => v
 const MAX_HISTORY = 5;
 /** n-best: STT'den istenen alternatif sayısı (beyin/parser doğru olanı seçer). */
 const STT_MAX_ALTERNATIVES = 4;
-const MIC_AVAILABLE = isNative || (typeof window !== 'undefined' && !!((window as any).webkitSpeechRecognition || (window as any).SpeechRecognition));
+
+/* ── Web Speech API sözleşmesi (tarayıcı yolu) ─────────────────────────────
+   `SpeechRecognition` TypeScript'in standart DOM kütüphanesinde YOKTUR ve
+   `@types/dom-speech-recognition` eklemek yeni bir bağımlılık + lisans denetimi
+   demektir. Bu yüzden YALNIZ KULLANDIĞIMIZ yüzey burada dar biçimde modellenir.
+   Yalnız web/demo yolunu ilgilendirir — cihazda (native) Vosk yolu çalışır. */
+interface WebSpeechAlternative { readonly transcript?: string }
+interface WebSpeechResult {
+  readonly isFinal: boolean;
+  readonly [index: number]: WebSpeechAlternative | undefined;
+}
+interface WebSpeechResultList {
+  readonly length: number;
+  readonly [index: number]: WebSpeechResult;
+}
+interface WebSpeechResultEvent {
+  readonly resultIndex: number;
+  readonly results: WebSpeechResultList;
+}
+interface WebSpeechErrorEvent { readonly error: string }
+
+interface WebSpeechRecognition {
+  lang:            string;
+  interimResults:  boolean;
+  continuous:      boolean;
+  maxAlternatives: number;
+  onstart:       (() => void) | null;
+  onaudiostart:  (() => void) | null;
+  onspeechstart: (() => void) | null;
+  onspeechend:   (() => void) | null;
+  onnomatch:     (() => void) | null;
+  onend:         (() => void) | null;
+  onresult:      ((e: WebSpeechResultEvent) => void) | null;
+  onerror:       ((e: WebSpeechErrorEvent) => void) | null;
+  start(): void;
+  stop():  void;
+}
+
+type WebSpeechRecognitionCtor = new () => WebSpeechRecognition;
+
+/** Tarayıcı iki adı da kullanır (webkit önekli ve öneksiz). */
+interface SpeechCapableWindow {
+  webkitSpeechRecognition?: WebSpeechRecognitionCtor;
+  SpeechRecognition?:       WebSpeechRecognitionCtor;
+}
+
+/** `window`u Web Speech alanlarıyla gören dar görünüm (global kirletmeden). */
+const _speechWindow = (): SpeechCapableWindow =>
+  (typeof window !== 'undefined' ? window : {}) as unknown as SpeechCapableWindow;
+
+const MIC_AVAILABLE = isNative
+  || !!(_speechWindow().webkitSpeechRecognition || _speechWindow().SpeechRecognition);
 
 const INITIAL: VoiceState = {
   status:       'idle',
@@ -177,9 +228,10 @@ function _stopVolumeSimulation(): void {
 
 function _startNativeVolumeListener(): void {
   if (_rmsListenerHandle) return;
-  (CarLauncher as any).addListener('rmsData', (data: { value: number }) => {
+  // 'rmsData' artık plugin arabiriminde TANIMLI (bkz. nativePlugin.ts) — cast yok.
+  CarLauncher.addListener('rmsData', (data: { value: number }) => {
     push({ volumeLevel: data.value });
-  }).then((handle: { remove: () => Promise<void> }) => {
+  }).then((handle) => {
     _rmsListenerHandle = handle;
   }).catch(() => {});
 }
@@ -1433,7 +1485,7 @@ export async function processTextCommand(
 
 /* ── Public API (Listening) ───────────────────────────────── */
 
-let _webRecognition: any = null;
+let _webRecognition: WebSpeechRecognition | null = null;
 
 function _stopWebRecognition(): void {
   if (_webRecognition) {
@@ -1679,7 +1731,8 @@ export function startListening(opts?: StartListeningOpts): void {
     push({ status: 'listening', error: null, suggestions: [], volumeLevel: 0 });
     void reportVoiceDiag('voice_listening');
     _startVolumeSimulation();   // sentetik dalga — mikrofonu tanımaya bırak (çekişme yok)
-    const SpeechRecognition = (window as any).webkitSpeechRecognition || (window as any).SpeechRecognition;
+    const w = _speechWindow();
+    const SpeechRecognition = w.webkitSpeechRecognition || w.SpeechRecognition;
     if (!SpeechRecognition) {
       _stopVolumeSimulation();
       push({ status: 'error', error: 'Tarayıcı ses tanımayı desteklemiyor.' });
@@ -1701,7 +1754,7 @@ export function startListening(opts?: StartListeningOpts): void {
     _webRecognition.onspeechend   = () => console.warn('[Voice/web] onspeechend — konuşma bitti');
     _webRecognition.onnomatch     = () => console.warn('[Voice/web] onnomatch — eşleşme yok');
 
-    _webRecognition.onresult = (event: any) => {
+    _webRecognition.onresult = (event: WebSpeechResultEvent) => {
       // Tüm sonuçları tara: final varsa onu işle, yoksa kısmi metni canlı göster.
       let finalText = '';
       let interimText = '';
@@ -1725,7 +1778,7 @@ export function startListening(opts?: StartListeningOpts): void {
       }
     };
 
-    _webRecognition.onerror = (event: any) => {
+    _webRecognition.onerror = (event: WebSpeechErrorEvent) => {
       console.error('Web Speech Error:', event.error);
       _stopVolumeSimulation();
       _endConvSession(); // web STT hatası/sessizlik → sohbet döngüsü biter
