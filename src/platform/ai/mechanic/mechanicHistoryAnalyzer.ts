@@ -12,6 +12,7 @@
  */
 
 import type { MechanicDiagnosis, MechanicRiskLevel } from './mechanicTypes';
+import { stripControlChars } from '../controlChars';
 import type {
   MechanicFreshness,
   MechanicHistoryEvent,
@@ -47,8 +48,7 @@ const MAX_TEXT_CHARS = 140;
 /** Serbest metni tek satıra indirger → blok içine TALİMAT enjekte edilemez. */
 function sanitize(text: unknown): string {
   if (typeof text !== 'string') return '';
-  const CONTROL = new RegExp('[\\u0000-\\u001F\\u007F-\\u009F]', 'g');
-  return text.replace(CONTROL, ' ').replace(/\s+/g, ' ').trim().slice(0, MAX_TEXT_CHARS);
+  return stripControlChars(text).replace(/\s+/g, ' ').trim().slice(0, MAX_TEXT_CHARS);
 }
 
 function isFiniteNumber(v: unknown): v is number {

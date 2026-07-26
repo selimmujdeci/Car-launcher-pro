@@ -15,6 +15,8 @@
  * DEĞİLDİR.
  */
 
+import { hasControlChars } from '../controlChars';
+
 export type SensitiveReason =
   | 'vin'
   | 'plate'
@@ -34,8 +36,6 @@ export type MemoryGuardResult =
 
 /** Tek kaydın azami uzunluğu — uzun paragraf hatırlanmaz (token + gizlilik). */
 export const MAX_MEMORY_TEXT_LENGTH = 160;
-
-const CONTROL_CHARS_RE = new RegExp('[\\u0000-\\u001F\\u007F-\\u009F]');
 
 /**
  * Hassas desenler. Sıra ÖNEMLİ değildir (ilk eşleşen reddeder); her biri
@@ -68,7 +68,7 @@ export function guardMemoryText(raw: unknown): MemoryGuardResult {
   if (typeof raw !== 'string') return { allowed: false, reason: 'empty' };
   const text = raw.trim().replace(/\s+/g, ' ');
   if (text.length < 2)                       return { allowed: false, reason: 'empty' };
-  if (CONTROL_CHARS_RE.test(text))           return { allowed: false, reason: 'control_chars' };
+  if (hasControlChars(text))                 return { allowed: false, reason: 'control_chars' };
   if (text.length > MAX_MEMORY_TEXT_LENGTH)  return { allowed: false, reason: 'too_long' };
 
   for (const { reason, re } of PATTERNS) {

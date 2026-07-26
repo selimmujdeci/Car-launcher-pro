@@ -16,6 +16,7 @@
  */
 
 import type { OperatorTaskId } from '../operatorTypes';
+import { stripControlChars } from '../../controlChars';
 import type {
   OperatorIntent,
   OperatorIntentReason,
@@ -78,7 +79,7 @@ const TASK_KEYWORDS: Readonly<Record<OperatorTaskId, ReadonlyArray<readonly [str
 /** Kullanıcı metnini eşleştirme için normalize eder (aksan katlama + sanitize). */
 export function normalizeIntentText(raw: unknown): string {
   let s = typeof raw === 'string' ? raw.slice(0, MAX_INPUT_CHARS) : '';
-  s = s.replace(new RegExp('[\\u0000-\\u001F\\u007F-\\u009F]', 'g'), ' '); // kontrol karakteri
+  s = stripControlChars(s);                                               // kontrol karakteri
   s = s.replace(/İ/g, 'I').replace(/ı/g, 'i');                            // Türkçe İ/ı
   s = s.toLowerCase();
   s = s.replace(/ş/g, 's').replace(/ğ/g, 'g').replace(/ç/g, 'c')

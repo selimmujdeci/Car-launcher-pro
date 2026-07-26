@@ -36,9 +36,7 @@ import type {
   KeyFormatError,
   KeyFormatResult,
 } from './credentialTypes';
-
-/** C0/C1 kontrol karakterleri — bozuk kopyala/yapıştır işareti. */
-const CONTROL_CHARS_RE = new RegExp('[\\u0000-\\u001F\\u007F-\\u009F]');
+import { hasControlChars } from '../controlChars';
 
 /**
  * HAFİF istemci doğrulaması. PREFIX ZORUNLU TUTULMAZ — sağlayıcılar anahtar
@@ -48,7 +46,8 @@ const CONTROL_CHARS_RE = new RegExp('[\\u0000-\\u001F\\u007F-\\u009F]');
 export function validateKeyFormat(raw: string, minLength = 16): KeyFormatResult {
   const key = typeof raw === 'string' ? raw.trim() : '';
   if (!key)                        return { ok: false, reason: 'empty' };
-  if (CONTROL_CHARS_RE.test(key))  return { ok: false, reason: 'control_chars' };
+  // C0/C1 kontrol karakteri = bozuk kopyala/yapıştır işareti (görünmez bayt).
+  if (hasControlChars(key))        return { ok: false, reason: 'control_chars' };
   if (key.length < minLength)      return { ok: false, reason: 'too_short' };
   return { ok: true, key };
 }

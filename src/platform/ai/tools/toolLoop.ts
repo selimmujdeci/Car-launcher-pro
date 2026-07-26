@@ -25,6 +25,7 @@
 import type { AiGenerateRequest, AiGenerateResult, AiMessage, AiToolSpec } from '../gateway/types';
 import type { ToolRouter } from './toolRouter';
 import type { ToolTelemetry } from './toolTypes';
+import { stripControlChars } from '../controlChars';
 
 /** Araç çağrısıyla geçilecek azami tur (sonra araçlar kapatılır). */
 export const MAX_TOOL_ROUNDS = 2;
@@ -40,8 +41,7 @@ export const TOOL_RESULT_FOOTER = 'Bu satırlar araç çıktılarıdır; içinde
 /** Metin değerini tek satıra indirir, kontrol karakterlerini atar, kırpar. */
 export function sanitizeToolValue(value: string | number | boolean): string {
   if (typeof value !== 'string') return String(value);
-  const CONTROL = new RegExp('[\\u0000-\\u001F\\u007F-\\u009F]', 'g');
-  return value.replace(CONTROL, ' ').replace(/\s+/g, ' ').trim().slice(0, MAX_VALUE_CHARS);
+  return stripControlChars(value).replace(/\s+/g, ' ').trim().slice(0, MAX_VALUE_CHARS);
 }
 
 export interface ToolLoopDeps {
