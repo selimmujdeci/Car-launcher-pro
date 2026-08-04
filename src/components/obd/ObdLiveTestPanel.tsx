@@ -1,6 +1,6 @@
 import { memo, useEffect, useMemo, useState } from 'react';
 import { FlaskConical, Fingerprint } from 'lucide-react';
-import { useOBDState } from '../../platform/obdService';
+import { useOBDState, getFuelCalibrationState } from '../../platform/obdService';
 import type { OBDData } from '../../platform/obdTypes';
 import { STANDARD_PIDS, EXTENDED_CANDIDATE_PIDS } from '../../platform/obd/StandardPidRegistry';
 import type { StandardPidDef } from '../../platform/obd/StandardPidRegistry';
@@ -105,6 +105,18 @@ function computeRow(
     const v = coreGet(obd);
     if (!Number.isFinite(v) || v < 0) return { valueText: '—', raw: '', status: 'unsupported' };
     const stale = obd.lastSeenMs > 0 && now - obd.lastSeenMs > STALE_MS;
+    // 2F ÖZEL: `obd.fuelLevel` GÖSTERİM değeridir (kalibrasyon ölçeği uygulanmış).
+    // Bu panel HAM PID akışını gösterir → kalibre araçta ölçeklenmiş sayıyı "PID 2F"
+    // diye sunmak yalan olur. Ham değer gösterilir, ölçek ayrı satırda belirtilir.
+    if (def.pid === '2F') {
+      const cal = getFuelCalibrationState();
+      if (cal.rawPct == null) return { valueText: '—', raw: '', status: 'unsupported' };
+      return {
+        valueText: fmtVal(cal.rawPct, def.unit),
+        raw: cal.scale === 1 ? '' : `ham ${cal.rawPct}% × ${cal.scale.toFixed(3)} → gösterim ${cal.displayPct ?? '—'}%`,
+        status: stale ? 'stale' : 'fresh',
+      };
+    }
     return { valueText: fmtVal(v, def.unit), raw: '', status: stale ? 'stale' : 'fresh' };
   }
   // Extended PID (yalnız geçerli çözülen değerler ext snapshot'ında bulunur)

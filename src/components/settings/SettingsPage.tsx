@@ -8,7 +8,7 @@ import {
   Cpu, Shield, ShieldCheck, Gauge, Settings2, Lock,
   Mic, Loader,
   Grid3X3, Star, Users, ChevronRight, Info, MessageCircle, AlertTriangle, type LucideIcon,
-  Home,
+  Home, Fuel,
 } from 'lucide-react';
 import {
   sanitizeAssistantName, sanitizeUserCallsign, sanitizeWakePhrase,
@@ -33,6 +33,7 @@ import {
 } from '../../platform/performanceMode';
 import { setBrightness, setVolume, isSystemControlSupported } from '../../platform/systemSettingsService';
 import { MaintenancePanel } from '../obd/MaintenancePanel';
+import { FuelCalibrationPanel } from './FuelCalibrationPanel';
 import { ExpertModePanel } from './ExpertModePanel';
 import { OfflineDataPanel } from './OfflineDataPanel';
 import { HomeWorkAddressPanel } from './HomeWorkAddressPanel';
@@ -1988,6 +1989,15 @@ function SettingsPageInner({ onClose }: Props) {
                     OBD Cihazı Tara ve Bağlan
                   </button>
                 </div>
+              </Panel>
+
+              {/* ── Yakıt Seviyesi Kalibrasyonu ──
+                  Saha 2026-08-04: depo FULL iken ECU `41 2F 99` (%60) döndü. Formül
+                  doğru, ARACIN şamandıra eğrisi 0–255'in tamamını kullanmıyor. Ölçek
+                  mekanizması obdService'te vardı ama yazma ucu HİÇ BAĞLANMAMIŞTI. */}
+              <Panel accent="#fbbf24">
+                <SectionTitle icon={Fuel} title="Yakıt Seviyesi Kalibrasyonu" sub="PID 0x2F şamandıra eğrisi — ham okuma ile gerçek seviyeyi eşitle" color="#fbbf24" />
+                <FuelCalibrationPanel />
               </Panel>
 
               {/* ── OBD Sağlık Sistemi ── */}

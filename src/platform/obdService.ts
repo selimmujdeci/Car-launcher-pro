@@ -31,8 +31,9 @@ import { buildHandshakeResult, classifyHandshakeResponse, buildDiscoveryEvidence
 import type { DiscoveryEvidence } from '../core/val/OBDHandshake';
 import { vehicleProfileRegistry } from '../core/val/VehicleProfile';
 import type { IVehicleProfile }   from '../core/val/VehicleProfile';
-import { loadObdAddress, saveObdAddress, clearObdAddress, clearObdTransport, loadObdProfileId, saveObdProfileId, loadObdTransport, saveObdTransport, loadObdTransportVerified, saveObdTransportVerified, loadObdProtocol, saveObdProtocol, loadObdFuelCalib, isValidTcpAddress, markObdAddressVerified, loadVerifiedObdAddresses, type ObdTransport } from './obdStorage';
+import { loadObdAddress, saveObdAddress, clearObdAddress, clearObdTransport, loadObdProfileId, saveObdProfileId, loadObdTransport, saveObdTransport, loadObdTransportVerified, saveObdTransportVerified, loadObdProtocol, saveObdProtocol, loadObdFuelCalib, saveObdFuelCalib, isValidTcpAddress, markObdAddressVerified, loadVerifiedObdAddresses, type ObdTransport } from './obdStorage';
 import { persistHandshakeVin } from './vehicleProfileService';
+import { getHandshakeVin } from './safety/vinContext';
 import { isFeatureEnabled, recordFault } from './safety/SafetyBrain';
 import { useExpertStore } from '../store/useExpertStore';
 import { sanitizeNativeOBDPacket } from './obdSanitizer';
@@ -422,6 +423,14 @@ let _avgConsumL100    = 0;   // 0 = not configured (L per 100 km)
 // uyuşmadığında düzeltir (saha 2026-07-16 Doblo: 2F=%26 iken gerçek ~%48). 1 = kalibrasyonsuz.
 // Bağlantıda adrese göre loadObdFuelCalib ile yüklenir; _merge'de ham 2F'ye uygulanır.
 let _fuelCalibScale   = 1;
+// HAM 2F yüzdesi (ölçek UYGULANMADAN) — kalibrasyonun kendisi bundan türetilir ve
+// gözlem yüzeyi (LAB / ayarlar) ham↔gösterim ayrımını burada okur. `_merge` TEK
+// yazma noktasıdır; `_current.fuelLevel` GÖSTERİM değeridir, ham değil.
+// Saha 2026-08-04 (Xiaomi zircon, adaptör 10:21:3E:4D:71:D2): depo FULL iken ECU
+// `41 2F 99` → 0x99=153 → 153×100/255 = %60 döndü. Yani bu aracın şamandıra eğrisi
+// 0–255 aralığının tamamını KULLANMIYOR; ham 2F doğru okunuyor, araç eğrisi farklı.
+let _rawFuelPct: number | null = null;
+let _rawFuelAtMs = 0;
 
 let _prevRpm: number | null = null;
 
@@ -555,6 +564,10 @@ function _recordConnMilestone(prev: OBDConnectionState, next: OBDConnectionState
 function _merge(partial: Partial<OBDData>): void {
   // Recompute fuel metrics whenever fuelLevel is updated
   if (partial.fuelLevel !== undefined && partial.fuelLevel >= 0) {
+    // Ham 2F'yi ölçek uygulanmadan ÖNCE sakla: kalibrasyon eylemi ve gözlem yüzeyi
+    // "ECU ne dedi" ile "ekranda ne yazıyor"u ayırt edebilsin (zero-trust telemetri).
+    _rawFuelPct  = partial.fuelLevel;
+    _rawFuelAtMs = Date.now();
     // Araç-bazlı yakıt kalibrasyonu: ham OBD 2F yüzdesini gösterge-eşdeğerine ölçekle
     // (yalnız kalibre araçlarda; _fuelCalibScale=1 → dokunmaz). Native HER pakette HAM 2F
     // gönderir → burada tek yerde ölçeklenir (çift-uygulama yok). clamp 0–100.
@@ -676,6 +689,94 @@ export function setObdFuelConfig(tankL: number, avgL100: number, knownAddress?: 
   if (_current.fuelLevel >= 0) {
     _merge(computeFuelMetrics(_current.fuelLevel, tankL, avgL100));
   }
+}
+
+/* ── Yakıt seviyesi kalibrasyonu (PID 0x2F şamandıra eğrisi) ───────────────────
+ *
+ * NEDEN VAR: SAE J1979 PID 0x2F formülü (A×100/255) STANDARTTIR ve doğru uygulanır,
+ * ama şamandıra eğrisi ARAÇA aittir. Birçok araç 0–255 aralığının tamamını kullanmaz:
+ * depo AĞZINA KADAR doluyken ECU 255 değil, ör. 153 (0x99) döner. Sonuç: uygulama
+ * dürüstçe %60 gösterir, gösterge paneli FULL der → kullanıcı için "uygulama yanlış".
+ *
+ * NEDEN OTOMATİK DEĞİL: hangi ham değerin "dolu" olduğunu YALNIZ kullanıcı bilir
+ * (zero-trust telemetri — kanıtsız katsayı uydurmak yasak). Bu yüzden kalibrasyon
+ * kullanıcı beyanıyla tetiklenir: "şu an depo %X" → scale = X / ham2F.
+ *
+ * ECU'ya HİÇBİR ŞEY YAZILMAZ — bu yalnız yerel bir gösterim dönüşümüdür; bu yüzden
+ * ExpertTrust yazım kilidine (assertWritesAllowed) TABİ DEĞİLDİR.
+ */
+
+/** Kalibrasyon için ham okumanın en fazla bu kadar eski olmasına izin verilir. */
+const FUEL_CALIB_MAX_AGE_MS = 120_000;
+/** Makul ölçek aralığı — dışına çıkan istek kabul EDİLMEZ (hatalı okuma koruması). */
+const FUEL_CALIB_MIN_SCALE = 0.2;
+const FUEL_CALIB_MAX_SCALE = 5;
+
+export interface FuelCalibrationState {
+  /** Aktif ölçek katsayısı; 1 = kalibrasyonsuz (ham 2F aynen gösterilir). */
+  scale: number;
+  /** ECU'nun bildirdiği HAM 2F yüzdesi; okuma yoksa null (UNAVAILABLE). */
+  rawPct: number | null;
+  /** Ekranda gösterilen (ölçeklenmiş) yüzde; okuma yoksa null. */
+  displayPct: number | null;
+  /** Ham okumanın yaşı (ms); okuma yoksa null. */
+  rawAgeMs: number | null;
+  /** Ham okuma kalibrasyon için yeterince taze mi. */
+  rawUsable: boolean;
+  /** Kalibrasyonun yazılacağı anahtar kaynağı — VIN varsa araca, yoksa adaptöre. */
+  keyKind: 'vin' | 'adapter' | 'none';
+}
+
+export type FuelCalibrationResult =
+  | { ok: true;  scale: number; rawPct: number; actualPct: number }
+  | { ok: false; reason: 'no-reading' | 'stale-reading' | 'zero-reading' | 'bad-input' | 'out-of-range' | 'no-key' };
+
+/** Salt-okunur kalibrasyon durumu (LAB / ayarlar gözlem yüzeyi). Sahte değer ÜRETMEZ. */
+export function getFuelCalibrationState(): FuelCalibrationState {
+  const vinOk = /^[A-HJ-NPR-Z0-9]{17}$/.test((getHandshakeVin() ?? '').trim().toUpperCase());
+  return {
+    scale:      _fuelCalibScale,
+    rawPct:     _rawFuelPct,
+    displayPct: _current.fuelLevel >= 0 ? _current.fuelLevel : null,
+    rawAgeMs:   _rawFuelPct != null ? Date.now() - _rawFuelAtMs : null,
+    rawUsable:  _rawFuelPct != null && _rawFuelPct > 0 && (Date.now() - _rawFuelAtMs) <= FUEL_CALIB_MAX_AGE_MS,
+    keyKind:    vinOk ? 'vin' : (_lastKnownAddress ? 'adapter' : 'none'),
+  };
+}
+
+/**
+ * Kullanıcı beyanına göre yakıt göstergesini kalibre eder.
+ *
+ * @param actualPct Kullanıcının beyan ettiği GERÇEK seviye (0–100; depo full → 100).
+ *                  Ham 2F bu değere eşitlenecek şekilde ölçek türetilir.
+ */
+export function calibrateFuelLevel(actualPct: number): FuelCalibrationResult {
+  if (!Number.isFinite(actualPct) || actualPct <= 0 || actualPct > 100) return { ok: false, reason: 'bad-input' };
+  const raw = _rawFuelPct;
+  if (raw == null)                                        return { ok: false, reason: 'no-reading' };
+  if (raw <= 0)                                           return { ok: false, reason: 'zero-reading' };
+  if (Date.now() - _rawFuelAtMs > FUEL_CALIB_MAX_AGE_MS)  return { ok: false, reason: 'stale-reading' };
+
+  const vin = getHandshakeVin();
+  const vinOk = /^[A-HJ-NPR-Z0-9]{17}$/.test((vin ?? '').trim().toUpperCase());
+  if (!vinOk && !_lastKnownAddress)                       return { ok: false, reason: 'no-key' };
+
+  const scale = actualPct / raw;
+  if (scale < FUEL_CALIB_MIN_SCALE || scale > FUEL_CALIB_MAX_SCALE) return { ok: false, reason: 'out-of-range' };
+
+  _fuelCalibScale = scale;
+  saveObdFuelCalib(_lastKnownAddress ?? '', scale, vin);
+  // Ham değeri yeni ölçekle TEKRAR yayınla → gösterge bir sonraki 2F turunu beklemeden
+  // (bu araçta ~8 sn) düzelir. _merge tek ölçekleme noktası olduğu için çift-uygulama yok.
+  _merge({ fuelLevel: raw });
+  return { ok: true, scale, rawPct: raw, actualPct };
+}
+
+/** Kalibrasyonu kaldırır — gösterge ham 2F'ye döner (kalıcı kayıt da silinir). */
+export function clearFuelCalibration(): void {
+  _fuelCalibScale = 1;
+  saveObdFuelCalib(_lastKnownAddress ?? '', 1, getHandshakeVin());
+  if (_rawFuelPct != null) _merge({ fuelLevel: _rawFuelPct });
 }
 
 /** Aktif araç tipini güncelle ve mock verisini resetle */
@@ -1980,8 +2081,10 @@ async function _startNative(opts?: { trustBypass?: boolean }): Promise<void> {
   //    ilk geçerli PID gelince _onRealData zaten anında 'connected'e geçirir.)
   _lastKnownAddress = candidate.address;
   saveObdAddress(candidate.address);
-  // Araç-bazlı yakıt kalibrasyonunu bu adaptör/araç için yükle (yoksa 1 = kalibrasyonsuz).
-  _fuelCalibScale = loadObdFuelCalib(candidate.address);
+  // Araç-bazlı yakıt kalibrasyonunu yükle (yoksa 1 = kalibrasyonsuz).
+  // VIN bu anda genelde BİLİNMEZ (handshake bağlantıdan SONRA koşar) → MAC yolu kullanılır;
+  // handshake VIN'i getirince ölçek yeniden yüklenir (aşağıda).
+  _fuelCalibScale = loadObdFuelCalib(candidate.address, getHandshakeVin());
   _addressConnectedOnce = true; // RFCOMM/GATT+init başarılı → bu adres bu oturumda doğrulandı
   _merge({ connectionState: 'initializing', source: 'none' });
 
@@ -2019,10 +2122,41 @@ async function _startNative(opts?: { trustBypass?: boolean }): Promise<void> {
         _applyDetectedProfile(profile);
         persistHandshakeVin(result.vin ?? null);
 
+        /* ── YAKIT KALİBRASYONUNU VIN İLE YENİDEN YÜKLE (saha 2026-08-01) ─────
+         * Bağlantı anında VIN henüz yoktu; ölçek MAC yolundan (çoğu zaman 1.0)
+         * gelmişti. VIN artık belli → aracın kendi eğrisi uygulanır. Adaptör
+         * değişse bile kalibrasyon KAYBOLMAZ (kök neden: anahtar MAC'ti). */
+        if (_lastKnownAddress) {
+          _fuelCalibScale = loadObdFuelCalib(_lastKnownAddress, result.vin ?? null);
+        }
+
         // Capability keşif kanıtını sakla — bir sonraki reconnect'te refinePidList
         // desteklenmeyen PID'i eler, desteklenen 0x2F yakıtı oto-aktive eder.
         _handshakeSupportedPids = result.supportedPids;
         _handshakeReadBlocks    = result.readBlocks;
+
+        /* ── KANIT AYNI OTURUMDA UYGULANIR (saha 2026-07-31) ──────────────────
+         * Eskiden bu kanıt YALNIZ "bir sonraki reconnect"te işe yarıyordu: çekirdek
+         * PID kümesi `connectOBD({pids})` ile bir kez gönderiliyor, handshake ise
+         * bağlantıdan SONRA çalışıyordu. Sonuç ölçüldü (protokol 7, bitmap
+         * `4100983B0011` → PID 0x11 YOK): `0111` her poll turunda soruluyor, her
+         * turda `NO DATA` dönüyordu — boşa komut + sürekli `ECU_NO_RESPONSE` kanıtı.
+         * Artık rafine liste ANINDA native'e uygulanır.
+         *
+         * Fail-soft: metot eski APK'da yok → atlanır; liste boşalırsa GÖNDERİLMEZ
+         * (boş küme native'de "filtre yok" demektir, "hiç sorma" değil — yanlışlıkla
+         * tüm filtreyi kaldırmak yerine hiç dokunmamak doğrudur). */
+        if (result.readBlocks.size > 0 && CarLauncher.setObdCorePids) {
+          const refined = refinePidList(
+            getPidListForVehicle(_current.vehicleType),
+            result.supportedPids,
+            result.readBlocks,
+          );
+          if (refined.length > 0) {
+            void CarLauncher.setObdCorePids({ pids: refined })
+              .catch((e: unknown) => logError('OBD:SetCorePids', e));
+          }
+        }
 
         // Handshake keşfini extended katmana TOHUMLA — Canlı Test / SensorPanel extended
         // kanaldan YENİDEN bitmask keşfi beklemez (aksi halde _supported=null iken izlenen
@@ -2483,15 +2617,100 @@ export function getObdFreshWindowMs(): number {
 export function getTransportStats(): {
   transport:             ObdTransport | 'none';
   connected:             boolean;
+  /**
+   * T4 — DİKKAT, BU BİR "TOPLAM" DEĞİLDİR.
+   *
+   * Bu alan üstel geri-çekilme (backoff) turundaki ARDIŞIK deneme sayacıdır ve
+   * her BAŞARILI bağlantıda 0'a döner. "Bu oturumda kaç reconnect oldu" sorusunun
+   * yanıtı DEĞİLDİR.
+   *
+   * SAHA KUSURU (snapshot 2026-08-01): aynı snapshot'ta
+   * `connLifecycle.reconnectRequestedCount:1` ve `handshake.reconnectHistory:1`
+   * varken burası `0` gösteriyordu. Üçü de "reconnect" diye okunduğu için veri
+   * çelişkili görünüyordu; oysa üçü FARKLI KAPSAMLARDI. İsim yanıltıcıydı.
+   *
+   * Kapsamı açık olan `consecutiveRetryStreak` tercih edilmelidir; bu alan
+   * geriye dönük uyumluluk için AYNI değeri taşımaya devam eder.
+   */
   reconnectAttempts:     number;
+  /** T4: yukarıdakinin kapsamı açık adı — anlık backoff serisi (başarıda sıfırlanır). */
+  consecutiveRetryStreak: number;
+  /** T4: sayacın kapsamı — tüketici "toplam" sanmasın diye AÇIKÇA taşınır. */
+  reconnectAttemptsScope: 'current_backoff_streak';
   lastDisconnectReason:  string | null;
 } {
   const reason = getLastObdDiagReason();
   return {
-    transport:            _lastKnownTransport ?? 'none',
-    connected:            _current.connectionState === 'connected',
-    reconnectAttempts:    _reconnectAttempts,
-    lastDisconnectReason: reason ? reason.errorCode : null,
+    transport:              _lastKnownTransport ?? 'none',
+    connected:              _current.connectionState === 'connected',
+    reconnectAttempts:      _reconnectAttempts,
+    consecutiveRetryStreak: _reconnectAttempts,
+    reconnectAttemptsScope: 'current_backoff_streak',
+    lastDisconnectReason:   reason ? reason.errorCode : null,
+  };
+}
+
+/**
+ * T4: reconnect olayının SONUCU — saf türetim (tek olay kimliğinden, çift sayım yok).
+ *
+ * "Kopma yaşandı ama toparlandı" ile "hâlâ kopuk" ayrımının TEK kaynağıdır:
+ * son reconnect TALEBİNDEN sonra başarılı bir handshake damgası varsa recovered.
+ */
+export function deriveReconnectOutcome(
+  lastReconnectAt: number,
+  lastSuccessAt: number | null,
+): 'recovered' | 'pending' | 'none' {
+  if (!(lastReconnectAt > 0)) return 'none';
+  return lastSuccessAt !== null && lastSuccessAt >= lastReconnectAt ? 'recovered' : 'pending';
+}
+
+/**
+ * T4 — CANONICAL RECONNECT YAŞAM DÖNGÜSÜ (tek otorite).
+ *
+ * Üç ayrı sayaç ailesi vardı ve hepsi "reconnect" adıyla okunuyordu:
+ *   · `_reconnectAttempts`               → anlık backoff serisi (başarıda 0)
+ *   · `_connLifecycle.reconnectRequested`→ oturum ömrü boyunca doyumlu sayaç
+ *   · `_reconnectHistory`                → sınırlı olay geçmişi (son 8)
+ * Bu fonksiyon üçünü TEK yerde, kapsamları AÇIK adlarla sunar. Yeni sayaç
+ * EKLEMEZ — mevcut kaynaklardan TÜRETİR, dolayısıyla çift sayım imkânsızdır.
+ * Eski alanlar (`getTransportStats`, `getObdConnLifecycle`) aynen korunur.
+ */
+export function getObdReconnectLifecycle(): {
+  /** Anlık backoff serisi — başarılı bağlantıda 0'a döner. */
+  consecutiveRetryStreak: number;
+  /** Oturum ömrü: reconnect TALEP edildi (doyumlu sayaç). */
+  lifetimeRequested: number;
+  /** Bu oturumda kaydedilen reconnect OLAYI sayısı (bounded geçmişten). */
+  sessionEventCount: number;
+  /** Bu oturumdaki timeout kaynaklı reconnect sayısı. */
+  sessionTimeoutCount: number;
+  /** Son reconnect nedeni (enum, PII yok). */
+  lastReason: ReconnectReason | null;
+  /** Son reconnect talebi epoch damgası (0 = hiç). */
+  lastReconnectAt: number;
+  /** Son BAŞARILI handshake epoch damgası — reconnect'in sonuçlandığı an. */
+  lastSuccessAt: number | null;
+  /**
+   * Türetilmiş sonuç: son reconnect talebinden SONRA başarılı handshake var mı.
+   * Bu, "kopma yaşandı ama toparlandı" ile "hâlâ kopuk" ayrımının tek kaynağıdır.
+   */
+  lastOutcome: 'recovered' | 'pending' | 'none';
+} {
+  const history = _reconnectHistory;
+  const lastReconnectAt = _connLifecycle.lastReconnectAt;
+  const lastSuccessAt   = _lastHandshakeSuccessAt;
+
+  const lastOutcome = deriveReconnectOutcome(lastReconnectAt, lastSuccessAt);
+
+  return {
+    consecutiveRetryStreak: _reconnectAttempts,
+    lifetimeRequested:      _connLifecycle.reconnectRequested,
+    sessionEventCount:      history.length,
+    sessionTimeoutCount:    history.filter((h) => h.reason === 'timeout').length,
+    lastReason:             _lastReconnectReason,
+    lastReconnectAt,
+    lastSuccessAt,
+    lastOutcome,
   };
 }
 
