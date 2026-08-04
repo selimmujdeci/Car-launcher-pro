@@ -10,6 +10,8 @@ import {
   projectOnSegment,
   injectSentinelStepIfEmpty,
   clearAltRoutes,
+  clearRoute,
+  fetchRoute,
 } from './routingService';
 import { useUnifiedVehicleStore } from './vehicleDataLayer/UnifiedVehicleStore';
 import { speakNavigation } from './ttsService';
@@ -142,10 +144,72 @@ function transitionToArrived(): void {
   }, 5_000);
 }
 
+/* ── OTURUM SAHİPLİĞİ (NAVIGATION_MINI_MAP_SESSION_CONTINUITY_P0) ────────────
+ *
+ * KÖK NEDEN: rota isteği dedup'ı `FullMapView` içinde bir `useRef` idi
+ * (`lastFetchedRef`). Ref bileşenle birlikte ÖLÜR → tam ekran kapatılıp
+ * yeniden açıldığında dedup sıfırlanıyor, effect AKTİF oturumun hedefi için
+ * yeniden `fetchRoute` çağırıyor ve `setNavStatus(ROUTING)` ile durumu
+ * ACTIVE→ROUTING'e düşürüyordu: kullanıcı yalnız görünüm değiştirmişken
+ * oturum sıfırdan kuruluyordu (yeni istek · sıfırlanan ilerleme · sıfırlanan ETA).
+ *
+ * Sahiplik görünümden alınıp oturum otoritesine (bu modül) taşındı. Görünüm
+ * mount/unmount döngüsü artık istek sayısını ETKİLEMEZ.
+ *
+ * Bu blok rota HESAPLAMA davranışını değiştirmez — yalnız "bu istek daha önce
+ * yapıldı mı" sorusunun sahibini değiştirir. */
+
+/** Her YENİ hedef (startNavigation) ile artan oturum numarası. */
+let _sessionId = 0;
+/** Bu oturumda rota isteği sahiplenilen hedef: `${sessionId}:${destinationId}`. */
+let _routeClaim: string | null = null;
+
+/** Aktif navigasyon oturumunun kimliği. Görünüm geçişleri bunu DEĞİŞTİRMEZ. */
+export function getNavSessionId(): number {
+  return _sessionId;
+}
+
+/** Sahiplenilmiş rota isteği anahtarı (test/gözlem için). */
+export function getRouteRequestClaim(): string | null {
+  return _routeClaim;
+}
+
+/**
+ * Bu oturumda bu hedef için rota isteği HENÜZ yapılmadıysa sahiplen → `true`.
+ * Zaten yapıldıysa `false` döner ve çağıran YENİ İSTEK ATMAZ.
+ */
+export function claimRouteRequest(destinationId: string): boolean {
+  const key = `${_sessionId}:${destinationId}`;
+  if (_routeClaim === key) return false;
+  _routeClaim = key;
+  return true;
+}
+
+/** İstek başarısız oldu → aynı hedef için yeniden denemeye izin ver (H2 retry yolu). */
+export function releaseRouteRequest(): void {
+  _routeClaim = null;
+}
+
+/**
+ * Navigasyon oturumunu SONLANDIRAN tek giriş noktası.
+ *
+ * Görünüm kapatmak (tam ekrandan mini haritaya dönmek) bu yolu ÇAĞIRMAZ —
+ * yalnız kullanıcının açık "Navigasyonu sonlandır" eylemi çağırır. Oturum
+ * durumu (navigationService) ile rota durumu (routingService) birlikte kapanır;
+ * eskiden bu ikili her çağrı yerinde elle tekrarlanıyordu (iki kopya).
+ */
+export function endNavigation(): void {
+  stopNavigation();
+  clearRoute();
+}
+
 /**
  * Hedef seçildi — PREVIEW durumuna gir.
  */
 export function startNavigation(destination: Address, isOffline = false): void {
+  // Yeni hedef → yeni oturum; önceki oturumun istek sahipliği düşer.
+  _sessionId += 1;
+  _routeClaim = null;
   useNavigationStore.getState().setDestination(destination, isOffline);
   setRerouteContext(destination.latitude, destination.longitude);
   _unregisterReroutingCb?.();  // önceki navigasyondan kalan callback'i temizle
@@ -154,6 +218,49 @@ export function startNavigation(destination: Address, isOffline = false): void {
   );
   // Crash recovery: varış noktasını anında mühürle (debounce bypass)
   _sealNavState(destination, 0, false);
+}
+
+/* ── ROTA SAHİPLİĞİ GÖRÜNÜMDEN AYRILDI (saha 2026-08-04) ────────────────────
+ * ÖLÇÜLEN ARIZA (cihaz `4L45OFZDX84X55GE`, Ankara-Tarsus Otoyolu, 90 km/h):
+ * uygulama yeniden başladıktan sonra navigasyon `ACTIVE` göründü, ekranda
+ * "207 km · 2 sa 33 dk · Hedefe doğru ilerleyin" yazdı — ama ROTA HİÇ YOKTU:
+ *   geometryPts=0 · steps=1 (sentinel) · totalM=0 · serverUsed=null ·
+ *   match=UNKNOWN(NO_GEOMETRY) · offRoute=UNKNOWN(GPS_UNKNOWN) ·
+ *   routeRequest.committed=0  → yani rota İSTEĞİ HİÇ ATILMAMIŞTI.
+ * Gösterilen mesafe rota değil KUŞ UÇUŞU idi: tam ekran açılıp rota gelince
+ * 199,8 km → 220,1 km oldu (20 km fark) ve aynı ekranda iki çelişkili sayı vardı.
+ *
+ * KÖK: ürün kodunda `fetchRoute(...)` YALNIZ `FullMapView.tsx` içinden
+ * çağrılıyordu → rota hesaplamanın sahibi GÖRÜNÜMDÜ. Görünüm hiç açılmazsa
+ * (crash/restart sonrası geri yükleme, doğrudan sesli komut, ana ekranda kalma)
+ * navigasyon rotasız "çalışıyor" görünüyordu — sürücüye yalan.
+ *
+ * DÜZELTME: rota ihtiyacı ACTIVE'e geçişte SERVİSTE kapatılır. İKİNCİ OTORİTE
+ * KURULMAZ — çift istek kapısı hâlâ tek: `claimRouteRequest(destination.id)`.
+ * FullMapView aynı kapıdan geçtiği için davranışı değişmez (rota zaten varsa
+ * burası no-op'tur) ve durum ACTIVE→ROUTING'e DÜŞÜRÜLMEZ (sürüşte HUD bozulmaz).
+ */
+function _ensureRouteForSession(): void {
+  try {
+    const { destination, status } = useNavigationStore.getState();
+    if (!destination) return;
+    if (status !== NavStatus.ACTIVE && status !== NavStatus.REROUTING) return;
+
+    // Rota GERÇEKTEN var mı? Sentinel adım "rota var" demek DEĞİLDİR —
+    // ölçütümüz geometridir (sahada steps=1 iken geometryPts=0 idi).
+    const rs = getRouteState();
+    if (rs.geometry && rs.geometry.length > 1) return;
+
+    const loc = useUnifiedVehicleStore.getState().location;
+    if (!loc || !Number.isFinite(loc.latitude) || !Number.isFinite(loc.longitude)) return;
+
+    // Tek sahiplik kapısı — FullMapView ile yarışmaz, ikinci istek atılmaz.
+    if (!claimRouteRequest(destination.id)) return;
+
+    console.info('[NavRoute] ACTIVE oturumda rota yok → servis rotayı istiyor',
+      JSON.stringify({ dest: destination.name, geom: rs.geometry?.length ?? 0 }));
+    void fetchRoute(loc.latitude, loc.longitude, destination.latitude, destination.longitude);
+  } catch { /* fail-soft: rota isteği ürünü ASLA düşürmez */ }
 }
 
 /**
@@ -173,6 +280,8 @@ export function activateNavigation(): void {
     _proximityAlertFired    = false;
     // Alternatif rotalar ACTIVE modda gereksiz — CPU tasarrufu için temizle
     clearAltRoutes();
+    // ROTA SAHİPLİĞİ (saha 2026-08-04): rota yoksa BURADA istenir — görünüm beklenmez.
+    _ensureRouteForSession();
     // Koridor önbellekleme: tünel/sinyal kesintisi öncesi veri hazırla
     corridorSync.activate();
     // HUD güvencesi: offline/daemon modda steps boş gelebilir — sentinel enjekte et
@@ -200,6 +309,7 @@ export function setNavStatus(status: NavStatus, errorMessage?: string): void {
  */
 export function stopNavigation(): void {
   safeRemoveRaw(NAV_PERSIST_KEY); // Crash recovery mührünü temizle — kullanıcı iptal etti
+  _routeClaim = null;             // oturum kapandı — sonraki hedef temiz sahiplenir
   _lastPersistedStepIdx = -1;
   if (_arrivedTimer) { clearTimeout(_arrivedTimer); _arrivedTimer = null; }
   _unregisterReroutingCb?.(); _unregisterReroutingCb = null;
@@ -473,8 +583,18 @@ export function updateNavigationProgress(
   }
 
   // ── Sürekli düşük hız takibi ──────────────────────────────────────────────
+  /* ⚠️ BİRİM HATASI DÜZELTİLDİ (2026-08-03, NAV-CORE-P0).
+   * `UnifiedVehicleStore.speed` **ZATEN km/h**'tir (store tanımı satır 80:
+   * "km/h, fused"; GPS'in m/s değeri store'a yazılmadan ÖNCE çevriliyor).
+   * Burada 3.6 ile ÇARPILIYORDU → hız 3.6 KAT şişiyordu. Somut sonuç:
+   *   • `ARRIVAL_SPEED_GUARD_KMH = 10` gerçekte **2.8 km/h**'ye düşüyordu.
+   *     Hedefe 6 km/h ile yanaşan araç 21.6 km/h okunuyor, düşük-hız sayacı
+   *     her tick SIFIRLANIYOR ve 5 sn koşulu HİÇ sağlanmıyordu → **varış
+   *     tetiklenmiyordu.**
+   * Aynı hata `routingService.updateRouteProgress` içinde de vardı ve orada
+   * düzeltilmişti; navigationService'teki üç kopya GÖZDEN KAÇMIŞTI. */
   const { speed: _rawArrSpd } = useUnifiedVehicleStore.getState();
-  const speedAtArrival = (_rawArrSpd ?? 0) * 3.6;
+  const speedAtArrival = _rawArrSpd ?? 0;   // km/h
   if (speedAtArrival >= ARRIVAL_SPEED_GUARD_KMH) {
     _arrivalLowSpeedStartMs = null; // hız yüksek → süreç sıfırla
   } else if (_arrivalLowSpeedStartMs === null) {
@@ -534,7 +654,9 @@ export function updateNavigationProgress(
   // Koridor önbellekleme — rota geometrisi alındıkça motoru güncelle
   if (routeGeometry && routeGeometry.length >= 2) {
     const { speed: _cspd } = useUnifiedVehicleStore.getState();
-    corridorSync.onGeometryUpdate(routeGeometry, (_cspd ?? 0) * 3.6);
+    // Birim: store km/h — 3.6 çarpanı KALDIRILDI (koridor önbelleği 3.6 kat
+    // fazla ileriyi çekiyor, gereksiz veri indiriyordu).
+    corridorSync.onGeometryUpdate(routeGeometry, _cspd ?? 0);
   }
 
   // Heading
@@ -551,8 +673,14 @@ export function updateNavigationProgress(
   const now = performance.now();
 
   // Stop tracking at GPS frequency for accurate standstill duration
+  /* ⚠️ BİRİM: store km/h — 3.6 çarpanı KALDIRILDI. Eski hâlinde:
+   *   • `STOP_THRESHOLD_KMH = 3` gerçekte 0.83 km/h'ye düşüyordu → araç
+   *     trafikte gerçekten dururken bile "duruyor" sayılmıyor, trafik
+   *     tamponu (`TRAFFIC_DELAY_RATIO`) HİÇ birikmiyordu.
+   *   • `_speedHistory` 3.6 kat şişik doluyordu → `rollingAvgKmh` şişik →
+   *     ETA sistematik olarak KISA (iyimser) çıkıyordu. */
   const { speed: _rawSpd } = useUnifiedVehicleStore.getState();
-  const currentSpeedKmh    = (_rawSpd ?? 0) * 3.6;
+  const currentSpeedKmh    = _rawSpd ?? 0;   // km/h
   if (currentSpeedKmh < STOP_THRESHOLD_KMH) {
     if (_stopStartMs === null) _stopStartMs = now;
   } else {
@@ -793,9 +921,17 @@ export function getSnappedMarkerPosition(): { lat: number; lon: number } | null 
   return { lat: _lastSnappedLat, lon: _lastSnappedLon };
 }
 
-/** Kırpma için off-route toleransı — reroute eşiğinden (55m) geniş tutulur:
- *  GPS gürültüsünde kırpma sürmeli; gerçek sapmada zaten reroute tetiklenir. */
-const TRIM_OFF_ROUTE_MAX_M = 80;
+/* ── KIRPMA EŞİĞİ = GÖRSEL OTURTMA EŞİĞİ (saha 2026-08-03) ───────────────────
+ * Eskiden kırpma toleransı 80 m, işaretçiyi rotaya oturtma toleransı 20 m idi.
+ * 56 m sapmada (cihazda ölçüldü) ürün AYNI ANDA iki çelişik şey söylüyordu:
+ *   • işaretçi: "rotada DEĞİLİM" → araç gerçek GPS konumunda çizilir
+ *   • kırpma:   "rotadayım"      → çizgi 56 m ötedeki snapped noktadan kesilir
+ * Sonuç: rota aracın ÖNÜNDE kesiliyor, arada boşluk kalıyor — kullanıcının
+ * "dengesiz duruyor" dediği görüntü.
+ *
+ * Tek doğruluk: aracı oraya çizecek kadar güvenmiyorsak, rotayı da oradan
+ * kesmeyiz. Eşik ötesinde kırpma yapılmaz → çizgi tam çizilir ve aracın
+ * yakınından geçmeye devam eder. */
 
 /**
  * Kat edilen rota kırpma için ilerleme noktası: en yakın segment index'i +
@@ -809,7 +945,7 @@ export function getRouteProgressPoint(): { segIdx: number; lat: number; lon: num
   const status = useNavigationStore.getState().status;
   if (status !== NavStatus.ACTIVE && status !== NavStatus.REROUTING) return null;
   if (_lastClosestSegIdx < 0 || _lastSnappedLat === null || _lastSnappedLon === null) return null;
-  if (_lastOffRouteM > TRIM_OFF_ROUTE_MAX_M) return null;
+  if (_lastOffRouteM > SNAP_VISUAL_THRESHOLD_M) return null;
   return { segIdx: _lastClosestSegIdx, lat: _lastSnappedLat, lon: _lastSnappedLon };
 }
 
