@@ -106,6 +106,35 @@ export type ModeReason = string;
  */
 export type WorkerCriticality = 'CRITICAL' | 'OPTIONAL';
 
+/**
+ * Worker yaşam-döngüsü durumu (T2 — BlackBox şema atomikliği).
+ *
+ * ESKİ KUSUR (saha snapshot 2026-08-01): tüketiciler `entry.worker !== null` ikili
+ * testinden 'active' | 'dead' türetiyordu. Bu iki ayrı gerçeği TEK etikete eziyordu:
+ *   · SystemBoot `registerWorker('VisionCompute', null, …)` ile YER TUTUCU kaydeder
+ *     → worker hiç BAŞLATILMAMIŞTIR, ama 'dead' görünüyordu (yanlış alarm).
+ *   · `unregisterWorker()` anahtarı Map'ten TAMAMEN siliyordu → ardışık BlackBox
+ *     örneklerinde 'VehicleCompute' alanı kayboluyor, şema oynuyordu.
+ *
+ * Durumlar:
+ *   not_started — kayıt var, worker hiç oluşturulmadı (yer tutucu). ARIZA DEĞİL.
+ *   starting    — oluşturuldu, ilk PONG/hazır sinyali beklenıyor.
+ *   active      — canlı worker referansı var.
+ *   stopped     — düzenli kapatma (teardown / RAM baskısı / unregister). ARIZA DEĞİL.
+ *   dead        — YALNIZ çalışması beklenirken çöken worker (onerror / zombie).
+ *   disabled    — politika gereği kapalı (tier bütçesi).
+ *   unsupported — bu cihaz/WebView worker'ı reddetti.
+ */
+export type WorkerLifecycleStatus =
+  | 'not_started' | 'starting' | 'active' | 'stopped' | 'dead' | 'disabled' | 'unsupported';
+
+/** Atomik worker snapshot satırı — donmuş, tüketici mutasyondan etkilenmez. */
+export interface WorkerStatusRow {
+  readonly key:         string;
+  readonly status:      WorkerLifecycleStatus;
+  readonly criticality: WorkerCriticality;
+}
+
 interface WorkerEntry {
   worker:       Worker | null;
   criticality:  WorkerCriticality;
@@ -205,6 +234,15 @@ class AdaptiveRuntimeManager {
 
   /** Worker registry: key → {worker, criticality} */
   private readonly _workers = new Map<string, WorkerEntry>();
+  /**
+   * T2: yaşam-döngüsü durumu — `_workers`tan AYRI tutulur çünkü `unregisterWorker()`
+   * `_workers`tan anahtarı siler; durum kaydı ise korunur (şema stabilitesi).
+   * Bounded: anahtar kümesi sabit ve küçüktür (VehicleCompute/Vision/Navigation/…).
+   */
+  private readonly _workerStatus      = new Map<string, WorkerLifecycleStatus>();
+  private readonly _workerCriticality = new Map<string, WorkerCriticality>();
+  /** Bir kez canlı worker referansı görülen anahtarlar — 'not_started' ↔ 'stopped' ayrımı. */
+  private readonly _workerEverLive    = new Set<string>();
 
   /** Zombie Detection state */
   private _zombiePingTimer:        ReturnType<typeof setInterval> | null = null;
@@ -722,6 +760,21 @@ class AdaptiveRuntimeManager {
    * @param criticality   CRITICAL = her zaman çalışır; OPTIONAL = RAM baskısında sonlandırılır
    */
   registerWorker(key: string, worker: Worker | null, criticality: WorkerCriticality): void {
+    // T2: yaşam-döngüsü durumu — `worker === null` TEK BAŞINA 'dead' DEĞİLDİR.
+    // Hiç canlı olmamış bir anahtar için null kayıt = yer tutucu ('not_started');
+    // daha önce canlı olmuş bir anahtar için null kayıt = düzenli kapanış ('stopped').
+    if (worker) this._workerEverLive.add(key);
+    const prevStatus = this._workerStatus.get(key);
+    // Canlı referans her zaman 'active'e yükseltir (kurtarma). null kayıt ise
+    // TEŞHİS KOYAN durumları EZMEZ: 'unsupported'/'dead' zaten neden-bilgisi taşır,
+    // onları 'not_started'a düşürmek kanıt kaybı olurdu (fail-closed).
+    const nullStatus: WorkerLifecycleStatus =
+      prevStatus === 'unsupported' || prevStatus === 'disabled' || prevStatus === 'dead'
+        ? prevStatus
+        : this._workerEverLive.has(key) ? 'stopped' : 'not_started';
+    this._workerStatus.set(key, worker ? 'active' : nullStatus);
+    this._workerCriticality.set(key, criticality);
+
     this._workers.set(key, { worker, criticality });
 
     // Önceki listener'ı temizle (registerWorker yeniden çağrılabilir)
@@ -740,11 +793,57 @@ class AdaptiveRuntimeManager {
     }
   }
 
-  /** Worker kaydını kaldır. stopVision / stopNavigation çağrılarında kullanılır. */
+  /**
+   * Worker kaydını kaldır. stopVision / stopNavigation çağrılarında kullanılır.
+   *
+   * T2: `_workers` davranışı AYNEN korunur (anahtar silinir — mevcut tüketiciler
+   * bu sözleşmeye bağlı), ama yaşam-döngüsü kaydı KORUNUR. Böylece BlackBox şeması
+   * ardışık örneklerde oynamaz: anahtar kaybolmaz, 'stopped' olarak görünür.
+   * Çökme yolu bunu `markWorkerDead()` ile 'dead'e yükseltir.
+   */
   unregisterWorker(key: string): void {
     this._detachPongListener(key);
     this._pingPendingCounts.delete(key);
     this._workers.delete(key);
+    if (this._workerStatus.get(key) !== 'dead') this._workerStatus.set(key, 'stopped');
+  }
+
+  /**
+   * Worker GERÇEKTEN çöktü — çalışması beklenirken heartbeat/onerror kaybı.
+   * `unregisterWorker()`den ayrıdır: düzenli kapanış 'stopped', çökme 'dead'.
+   * Bu ayrım olmadan BlackBox her teardown'ı arıza gibi raporluyordu.
+   */
+  markWorkerDead(key: string): void {
+    this._workerStatus.set(key, 'dead');
+  }
+
+  /** Worker bu cihazda/politikada hiç çalıştırılmayacak — 'dead' ile karıştırılmaz. */
+  markWorkerUnavailable(key: string, reason: 'disabled' | 'unsupported'): void {
+    this._workerStatus.set(key, reason);
+  }
+
+  /**
+   * T2: ATOMİK, donmuş worker durumu görüntüsü.
+   *
+   * `getWorkers()` CANLI `Map` referansı döndürür — tüketici üzerinde gezerken
+   * başka bir yol `set`/`delete` çağırırsa anahtarlar örnekler arasında kaybolur
+   * (saha snapshot: 'VehicleCompute' bazı BlackBox satırlarında yok). Bu metot tek
+   * geçişte kopya üretir; dönen dizi ve satırlar donmuştur.
+   *
+   * Anahtar kümesi `_workerStatus`tan gelir (unregister sonrası da korunur) →
+   * şema ardışık örneklerde STABİLDİR.
+   */
+  getWorkerSnapshot(): readonly WorkerStatusRow[] {
+    const rows: WorkerStatusRow[] = [];
+    for (const [key, status] of this._workerStatus) {
+      rows.push(Object.freeze({
+        key,
+        status,
+        criticality: this._workerCriticality.get(key) ?? 'OPTIONAL',
+      }));
+    }
+    rows.sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
+    return Object.freeze(rows);
   }
 
   private _detachPongListener(key: string): void {
@@ -809,6 +908,9 @@ class AdaptiveRuntimeManager {
       try { entry.worker.terminate(); } catch { /* noop */ }
     }
     this._workers.set(key, { ...entry, worker: null }); // referansı null yap
+    // T2: RAM baskısı / zombie terminate = DÜZENLİ kapanış. 'dead' YALNIZ çökme yolunda
+    // (`markWorkerDead`) kullanılır — aksi halde her bellek tahliyesi arıza görünürdü.
+    if (this._workerStatus.get(key) !== 'dead') this._workerStatus.set(key, 'stopped');
     console.info(`[Runtime] Worker reference nulled: ${key} — memory released`);
   }
 
@@ -885,6 +987,11 @@ class AdaptiveRuntimeManager {
     this._workers.clear();
     this._pingPendingCounts.clear();
     this._workerMsgHandlers.clear();
+    // T2: destroy = tam teardown → yaşam-döngüsü kaydı da sıfırlanır (aggregation
+    // state'i sonraki oturuma sızmasın; test izolasyonu da buna dayanır).
+    this._workerStatus.clear();
+    this._workerCriticality.clear();
+    this._workerEverLive.clear();
     this._zombieRestartCallback = null;
 
     this._started            = false;

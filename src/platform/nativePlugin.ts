@@ -14,6 +14,35 @@ export interface LaunchAppOptions {
   category?: string;    // optional standard category (e.g. android.intent.category.APP_MAPS)
 }
 
+/**
+ * H-4 MCU donanım komutunun NATIVE sonucu (`CarLauncherPlugin.resolveMcuCommand`).
+ *
+ * `sent:true` YALNIZ paket CAN transportuna gerçekten yazıldığında gelir. Bu, ECU'nun
+ * komutu KABUL ETTİĞİ anlamına GELMEZ — yalnız "hatta bırakıldı" kanıtıdır (araç
+ * tarafı onayı bugün ölçülmüyor; kütükte açık borç).
+ *
+ * `sent:false` → `reason` makine-okur: `whitelist_rejected` (komut kodu whitelist'te
+ * yok, paket üretilmedi) · `mcu_send_failed` (transport yok veya write başarısız).
+ * Alan eksik/bozuk gelirse çağıran FAIL-CLOSED davranır (başarı VARSAYILMAZ).
+ */
+export interface NativeVehicleCommandResult {
+  sent: boolean;
+  reason?: string;
+}
+
+/**
+ * Donanım komutu GERÇEKTEN hatta bırakıldı mı — TEK doğruluk yüklemi.
+ *
+ * ⚠️ Bilerek `bridge.ts` yerine BURADA durur: `nativeCommandBridge` de bu yüklemi
+ * kullanır ve `bridge`i import etseydi obd/store/deepScan zinciri onun grafiğine
+ * girerdi (bu tam olarak yaşandı: `soak.remoteCommand` testi yüklenemez oldu).
+ * Sözleşme modülü bağımlılıksızdır → her iki yol da paralel kural üretmeden
+ * aynı gerçeği kullanır.
+ */
+export function isNativeCommandSent(native: NativeVehicleCommandResult | null | undefined): boolean {
+  return !!native && typeof native === 'object' && native.sent === true;
+}
+
 export interface NativeApp {
   name: string;
   packageName: string;
@@ -262,6 +291,47 @@ export interface NativeMediaInfo {
   positionMs:  number;  // 0 = bilinmiyor
 }
 
+/**
+ * MÜZİK HUB PAKET A — CarosPlaybackService anlık görüntüsü.
+ *
+ * `authorityAvailable: false` → servis henüz yok/öldü; DİĞER ALANLAR ANLAMSIZDIR
+ * ve "sağlıklı/duraklatılmış" gibi YORUMLANMAZ (sahte 0 üretme yasağı).
+ * `renderingVerified` tek gerçek "ses çıkıyor" kanıtıdır: ExoPlayer render
+ * ediyor + audio focus bizde + etkin ses > 0.
+ */
+export interface NativeAuthoritySnapshot {
+  authorityAvailable: boolean;
+  activeSource:       string;   // LOCAL | STREAM | INTERNET_RADIO | NONE
+  focusState:         string;   // NONE|GRANTED|DELAYED|FAILED|LOST|LOST_TRANSIENT|DUCKED
+  hasAudioFocus?:     boolean;
+  userPaused?:        boolean;
+  pausedByFocus?:     boolean;
+  duckVolume?:        number;
+  duckReasons?:       string[];
+  userVolume?:        number;
+  effectiveVolume?:   number;
+  audioRoute:         string;   // SPEAKER|BLUETOOTH_A2DP|WIRED|UNKNOWN
+  noisyReceiver?:     boolean;
+  lastPauseReason?:   string;
+  lastFailureCode?:   string;
+  queueRevision?:     number;
+  queueLength?:       number;
+  currentIndex?:      number;
+  positionMs?:        number;
+  durationMs?:        number;
+  buffering?:         boolean;
+  playing:            boolean;
+  playWhenReady?:     boolean;
+  renderingVerified:  boolean;
+  recoveryCount?:     number;
+  shuffle?:           boolean;
+  repeat?:            string;   // off|one|all
+  title?:             string;
+  artist?:            string;
+  artworkUri?:        string;
+  currentTrackId?:    string;
+}
+
 /* ── Local music types ───────────────────────────────────── */
 
 /** MediaStore'dan gelen tek şarkı kaydı */
@@ -306,6 +376,26 @@ export interface GetVideoTracksResult {
  * Hardware profile returned by getDeviceProfile().
  * Used to auto-detect the correct performance mode on startup.
  */
+/**
+ * Tek bir sysfs termal bölgesi. `tempC` YOKSA o bölge okunamadı demektir —
+ * 0 °C ile "okunamadı" AYRI şeylerdir, bu yüzden alan opsiyoneldir.
+ */
+export interface NativeThermalZone {
+  readonly index: number;
+  /** Çekirdeğin verdiği etiket: `cpu_thermal_zone` · `gpu_thermal_zone` · `ddr_thermal_zone` … */
+  readonly type?: string;
+  /** Celsius. Alan yoksa okuma BAŞARISIZ — tahmin edilmez. */
+  readonly tempC?: number;
+}
+
+export interface NativeThermalResult {
+  readonly zones: readonly NativeThermalZone[];
+  /** `tempC` üretebilen bölge sayısı. */
+  readonly readableCount: number;
+  /** `readableCount > 0` — hiçbir bölge okunamadıysa false. */
+  readonly available: boolean;
+}
+
 export interface NativeDeviceProfile {
   androidVersion: string;   // e.g. "9", "12"
   sdkInt:         number;   // e.g. 28, 31
@@ -334,7 +424,20 @@ export interface NativeScreenMetrics {
 }
 
 export interface CallNumberOptions {
-  number: string; // Phone number to open in dialer
+  number: string; // Phone number to call (or open in dialer — bkz. CallNumberResult)
+}
+
+/**
+ * Aramanın GERÇEKTEN başlayıp başlamadığı.
+ *
+ * `CALL` = `ACTION_CALL` ile arama BAŞLATILDI (CALL_PHONE izni var).
+ * `DIAL` = yalnız çevirici numarayla AÇILDI; kullanıcının arama tuşuna basması
+ *          gerekir (izin yok). **`DIAL` bir arama DEĞİLDİR** — üst katman bunu
+ *          "aranıyor" diye sunamaz (sahte onay yasağı).
+ */
+export interface CallNumberResult {
+  mode: 'CALL' | 'DIAL';
+  placed: boolean;
 }
 
 /* ── OBD Bluetooth Auto-Pair types ──────────────────────── */
@@ -423,6 +526,168 @@ export interface AppVersionInfo {
 }
 
 /**
+ * PHONE-HUB P0.5: native salt-okunur donanım gözlemi — {@code getPhoneHubHardwareProbe}'ın
+ * döndürdüğü ham şekil.
+ *
+ * PII YOK (yapısal): cihaz adı · MAC · kişi adı · telefon modeli · pairing key TAŞIYAN ALAN
+ * BULUNMAZ. Yalnız sayım ve sabit enum. Adapter adı için bile yalnız "var mı".
+ *
+ * `present:false` = native metot YOK (eski APK) veya probe patladı → SAHTE varsayılan
+ * üretilmez, alanlar okunamadı sayılır.
+ */
+export interface NativePhoneHubProbe {
+  present: boolean;
+  schemaVersion?: number;
+  /** Duvar-saati damgası (ms). 0/eksik = damga yok. */
+  capturedAt?: number;
+  platformApiLevel?: number;
+  bluetooth?: {
+    adapterAvailable: boolean; adapterEnabled: boolean; adapterNamePresent: boolean;
+    permConnect: string; permScan: string; permLegacy: string;
+    discoveryActive: string;
+    /** -1 = okunamadı (0 DEĞİL). */
+    bondedDeviceCount: number;
+    phoneLikeCount: number; audioLikeCount: number;
+    obdLikeCandidateCount: number; unknownClassCount: number;
+    evidence: string;
+  };
+  profiles?: {
+    a2dpConnectionState: string; headsetConnectionState: string; gattConnectionState: string;
+    a2dpControlAuthority: string; hfpControlAuthority: string; evidence: string;
+  };
+  vendor?: {
+    knownVendorPackageDetected: boolean; knownVendorBroadcastObserved: boolean;
+    vendorFamily: string; lastEvidenceAgeMs: number; evidence: string;
+  };
+  audio?: {
+    audioMode: number; musicActive: boolean;
+    communicationDeviceType: string; routeAuthority: string; evidence: string;
+  };
+  /** Sınıflandırılmış hata kodları (yığın izi/dosya yolu YOK). */
+  errors?: string[];
+}
+
+/**
+ * MAVI-STT-LAB-1: native salt-okunur mikrofon + STT zinciri gözlemi —
+ * {@code getVoiceMicDiagnostics}'in döndürdüğü ham şekil.
+ *
+ * PII YOK (YAPISAL): transcript · n-best · wake sözcüğü · grammar KELİMELERİ ·
+ * ham ses örneği · kişi adı · konum · VIN · cihaz kimliği TAŞIYAN ALAN BULUNMAZ.
+ * Yalnız sabit enum, sayım, normalize RMS skaleri (0..1) ve bounded gerekçe KODU.
+ *
+ * SENTINEL SÖZLEŞMESİ: `-1` = "ölçüm/uygulanabilirlik YOK" — `0` ile ASLA
+ * karıştırılmaz (0 gerçek bir RMS/eşik değeridir).
+ *
+ * `present:false` = native metot YOK (eski APK) veya hiç ölçüm yapılmadı.
+ */
+export interface NativeVoiceMicDiagnostics {
+  present: boolean;
+  schemaVersion?: number;
+  /** Duvar-saati damgası (ms). 0/eksik = damga yok. */
+  capturedAt?: number;
+  /** Hangi yakalama yolu ölçüldü: NONE | ACTIVE_LISTEN | WAKE_WORD. */
+  path?: string;
+  sessionActive?: boolean;
+  sessionStartedAt?: number;
+  source?: {
+    /** -1 = seçilmedi. */
+    selectedSource: number;
+    selectedSourceName: string;
+    sampleRate: number;
+    channelCount: number;
+    bufferBytes: number;
+    frameSamples: number;
+    attempts: { source: number; sourceName: string; outcome: string }[];
+  };
+  effects?: {
+    probed: boolean;
+    aecAvailable: boolean; aecCreated: boolean; aecEnabled: boolean;
+    nsAvailable: boolean;  nsCreated: boolean;  nsEnabled: boolean;
+    agcAvailable: boolean; agcCreated: boolean; agcEnabled: boolean;
+    /** Bounded KOD listesi (ör. "AEC_SETUP_FAILED") — ham exception metni YOK. */
+    errors: string[];
+  };
+  vad?: {
+    present: boolean;
+    /** -1 = ölçüm yok. */
+    lastRms: number;
+    /** -1 = taban ÖĞRENİLMEDİ (wake yolunda hiç öğrenilmez). */
+    noiseFloor: number;
+    effectiveThreshold: number;
+    /** -1 = bu yolda uygulanmaz. */
+    staticMinThreshold: number;
+    floorFactor: number;
+    speechDetected: boolean;
+    /** Monotonic (elapsedRealtime) ms. 0 = hiç ses paketi yok. */
+    lastAudioAtMs: number;
+    monotonicNowMs: number;
+    sampleCount: number;
+    /** Bounded (≤64) normalize RMS örnekleri — HAM SES DEĞİL. */
+    samples: number[];
+  };
+  stt?: {
+    wakeEngineActive: boolean;
+    activeRecognizerActive: boolean;
+    /** static_command | wake_word | confirmation | free. */
+    grammarType: string;
+    /** -1 = grammar yok (full-vocab). */
+    grammarWordCount: number;
+    /** success | no_match | timeout | error. Yoksa hiç gelmez. */
+    lastResultCategory?: string;
+    lastResultAt: number;
+  };
+}
+
+/**
+ * PHONE-HUB P0.8: native salt-okunur SAHA DOĞRULAMA gözlemi —
+ * {@code getPhoneHubFieldProbe}'ın döndürdüğü ham şekil.
+ *
+ * P0.5 sözleşmesini ({@link NativePhoneHubProbe}) EZMEZ, yanına EKLENİR. Eski APK'da
+ * metot bulunmadığında `present:false` gelir → SAHTE varsayılan üretilmez.
+ *
+ * PII YOK (yapısal): paket adı · MAC · telefon numarası · kişi adı · parça/sanatçı/
+ * albüm adı · bildirim içeriği · ham build fingerprint TAŞIYAN ALAN BULUNMAZ.
+ * Yalnız donanım kimliği (üretici/model), sabit enum, sayım ve geri çevrilemez karma.
+ */
+export interface NativePhoneHubFieldProbe {
+  present: boolean;
+  schemaVersion?: number;
+  /** Duvar-saati damgası (ms). 0/eksik = damga yok. */
+  capturedAt?: number;
+  identity?: {
+    manufacturer: string; model: string; device: string; product: string;
+    androidRelease: string; sdkInt: number;
+    /** Ham fingerprint DEĞİL — iki segmentlik özet. */
+    fingerprintSummary: string;
+    /** Geri çevrilemez FNV-1a karma (cihaz kaydı eşleştirmek için). */
+    fingerprintHash: string;
+    /** 'YES' | 'NO' | 'UNKNOWN' — okunamadı ile "yok" AYRI. */
+    automotiveFeature: string; carServicePresent: string; telephonyFeature: string;
+    /** -1 = okunamadı (0 DEĞİL). */
+    headUnitMarkerCount: number; phoneOemMarkerCount: number;
+    vendorFamily: string;
+    /** Native'in SAF kuralı — kullanıcı onayı KATILMAMIŞ rol. */
+    deviceRoleTechnical: string; deviceRoleConfidence: string;
+  };
+  call?: {
+    dialerClass: string; telecomManagerAvailable: string;
+    /** -1 = okunamadı. */
+    callVendorMarkerCount: number;
+  };
+  media?: {
+    mediaSessionAccess: string;
+    /** -1 = okunamadı (0 oturum DEĞİL). */
+    activeSessionCount: number;
+    ownerLocalCount: number; ownerSystemCount: number;
+    ownerVendorCount: number; ownerOtherCount: number;
+    playbackStatePresent: string; metadataPresent: string;
+    artworkPresent: string; transportControlsPresent: string;
+  };
+  /** Sınıflandırılmış hata kodları (yığın izi/dosya yolu YOK). */
+  errors?: string[];
+}
+
+/**
  * PR-OBD-DIAG-3: native EXTENDED PID poll kanıtı — {@code getObdExtendedPollEvidence}'ın
  * döndürdüğü ham şekil. Tümü bounded; ham yanıt gövdesi YOK (yalnız responseLength) → PII-güvenli.
  */
@@ -466,11 +731,17 @@ export interface CarLauncherPlugin {
   getDeviceProfile(): Promise<NativeDeviceProfile>;
   /** Native Core: real screen dimensions from WindowManager */
   getScreenMetrics(): Promise<NativeScreenMetrics>;
-  /** Native Core: open native dialer with number pre-filled */
-  callNumber(options: CallNumberOptions): Promise<void>;
+  /** Aramayı başlatır (CALL_PHONE varsa) ya da çeviriciyi açar — hangisi olduğunu DÖNDÜRÜR. */
+  callNumber(options: CallNumberOptions): Promise<CallNumberResult>;
 
   /** Launcher'ı arka plana al — çift geri basış sonrası çağrılır */
   exitApp(): Promise<void>;
+  /**
+   * Cihazın sysfs termal bölgelerini OKUR (DEBT-013 · kütük #139).
+   * Android termal HAL bu cihaz sınıfında ölü olduğu için tek gerçek kaynak budur.
+   * Okunamayan bölgede `tempC` alanı HİÇ GELMEZ — sahte sıcaklık üretilmez.
+   */
+  readThermal(): Promise<NativeThermalResult>;
   launchApp(options: LaunchAppOptions): Promise<void>;
   getApps(): Promise<GetAppsResult>;
   getDeviceStatus(): Promise<NativeDeviceStatus>;
@@ -649,6 +920,11 @@ export interface CarLauncherPlugin {
   // Boş liste = devre dışı (native poll turu ek komut çalıştırmaz, sıfır maliyet).
   // Opsiyonel: eski plugin sürümlerinde bulunmayabilir (fail-soft çağrılır).
   setObdExtendedPids?(opts: { pids: string[] }): Promise<void>;
+  /**
+   * ÇEKİRDEK poll PID kümesini oturum İÇİNDE günceller (eski APK'da YOKTUR → opsiyonel).
+   * Boş liste = filtre yok (eski davranış), "hiç sorma" DEĞİL.
+   */
+  setObdCorePids?(opts: { pids: string[] }): Promise<void>;
 
   // Teşhis BURST modu (OBD Canlı Test ekranı) — açıkken EXTENDED grubunun tüm izlenen
   // PID'leri her poll turunda okunur (hızlı tazeleme). Ekran kapanınca kapatılır.
@@ -659,6 +935,25 @@ export interface CarLauncherPlugin {
   // (attempted/success/callbackEmitted…) + son 8 deneme. "Tanı Gönder" H1/H2/H3 ayrımı için.
   // Opsiyonel: eski plugin sürümlerinde bulunmayabilir (fail-soft: kanıt yok → NO_NATIVE_EVIDENCE).
   getObdExtendedPollEvidence?(): Promise<NativeExtendedPollEvidence>;
+
+  // PHONE-HUB P0.5: SALT-OKUNUR donanım gözlemi (Bluetooth adapter/profil/izin,
+  // vendor paket varlığı, audio route). Hiçbir şey BAŞLATMAZ: keşif/tarama/eşleştirme/
+  // bağlantı/SCO/route değişimi/çağrı/izin isteği YOK. PII TAŞIMAZ (ad/MAC gönderilmez).
+  // Opsiyonel: eski plugin sürümlerinde bulunmayabilir (fail-soft → present:false).
+  getPhoneHubHardwareProbe?(): Promise<NativePhoneHubProbe>;
+
+  // PHONE-HUB P0.8: SALT-OKUNUR SAHA DOĞRULAMA gözlemi (cihaz kimliği/rol işaretleri,
+  // Telecom-dialer SINIFI, MediaSession erişimi ve anonim sahip sayımı). P0.5 metodunu
+  // EZMEZ — yanına eklenir. Hiçbir şey BAŞLATMAZ; medya/çağrı komutu ve izin isteği YOK.
+  // Opsiyonel: eski plugin sürümlerinde bulunmayabilir (fail-soft → present:false).
+  getPhoneHubFieldProbe?(): Promise<NativePhoneHubFieldProbe>;
+
+  // MAVI-STT-LAB-1: SALT-OKUNUR mikrofon + STT zinciri gözlemi (AudioSource seçimi,
+  // AEC/NS/AGC available/created/enabled, RMS/noise-floor/VAD eşiği, grammar SINIFI
+  // ve son sonuç KATEGORİSİ). Mikrofon açmaz/kapatmaz, eşik değiştirmez, motor
+  // başlatmaz. Transcript / n-best / ham ses TAŞIMAZ.
+  // Opsiyonel: eski plugin sürümlerinde bulunmayabilir (fail-soft → present:false).
+  getVoiceMicDiagnostics?(): Promise<NativeVoiceMicDiagnostics>;
 
   // Bluetooth bağlantı değişiklikleri — araç BT sistemine bağlan/bağlantı kes
   addListener(
@@ -738,6 +1033,29 @@ export interface CarLauncherPlugin {
    * Native tarafta cache'lenir — aynı URI tekrar sorgulanırsa hemen döner.
    */
   getMediaArtDataUri(options: { uri: string }): Promise<{ dataUri: string }>;
+
+  /* ── MÜZİK HUB PAKET A — Native Playback Authority ─────────────────────
+   * CarosPlaybackService (Media3 ExoPlayer + MediaSession) tek otoritedir.
+   * JS'te bu üç metodun TEK tüketicisi nativeAuthorityBridge.ts'tir;
+   * bileşenler ve diğer servisler bunları DOĞRUDAN çağırmaz. */
+
+  /** Typed komut gönderir. Yanıt "kabul edildi" demektir, "çalıyor" DEMEZ. */
+  mediaAuthorityCommand(options: {
+    commandId: string;
+    command: string;
+    payload?: Record<string, unknown>;
+  }): Promise<{ accepted: boolean; failureCode: string }>;
+
+  /** Otoritenin bounded, salt-okunur anlık görüntüsü. */
+  mediaAuthoritySnapshot(): Promise<NativeAuthoritySnapshot>;
+
+  /** Servisi başlatır/bağlar ve mediaAuthorityEvent akışını açar (idempotent). */
+  mediaAuthorityConnect(): Promise<void>;
+
+  addListener(
+    event: 'mediaAuthorityEvent',
+    handler: (data: NativeAuthoritySnapshot) => void,
+  ): Promise<PluginListenerHandle>;
 
   // Yerel müzik — cihaz depolamasından MediaPlayer ile çalma
   getMusicTracks(): Promise<GetMusicTracksResult>;
@@ -903,13 +1221,19 @@ export interface CarLauncherPlugin {
   /** Son persist edilen odometer değerini oku — crash sonrası kurtarma için */
   getPersistedOdometer?():                           Promise<{ km: number }>;
 
-  // H-4 MCU komutları — CAN bus üzerinden araç kontrolü
-  lockDoors():    Promise<void>;
-  unlockDoors():  Promise<void>;
-  honkHorn():     Promise<void>;
-  flashLights():  Promise<void>;
-  triggerAlarm(): Promise<void>;
-  stopAlarm():    Promise<void>;
+  /* H-4 MCU komutları — CAN bus üzerinden araç kontrolü.
+   *
+   * ⚠️ Dönüş tipi BİLEREK `void` DEĞİLDİR. `Promise<void>` olduğu sürece native'in
+   * bildirdiği `sent` bayrağı TİP SEVİYESİNDE görünmez oluyordu; köprü de onu
+   * okumadan `completed` üretiyordu → MCU bağlı değilken kullanıcıya "Kapılar
+   * kilitlendi" deniyordu. Sonucu tipe taşımak bu sınıf hatayı derleme zamanında
+   * imkânsız kılar. */
+  lockDoors():    Promise<NativeVehicleCommandResult>;
+  unlockDoors():  Promise<NativeVehicleCommandResult>;
+  honkHorn():     Promise<NativeVehicleCommandResult>;
+  flashLights():  Promise<NativeVehicleCommandResult>;
+  triggerAlarm(): Promise<NativeVehicleCommandResult>;
+  stopAlarm():    Promise<NativeVehicleCommandResult>;
 
   // H-4 Native Command Service — CommandService.java kuyruk okuma
   /** CommandService.java'nın WebView yokken biriktirdiği komut kuyruğunu okur (JSON) */

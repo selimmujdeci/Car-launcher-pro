@@ -18,6 +18,12 @@ import { getCapabilities, getDeviceTier } from './deviceCapabilities';
 let _compatListenersAttached = false;
 
 export interface CompatProfile {
+  /** Düşük performans sınıfı — efekt/bütçe kararları için. */
+  isLowTier: boolean;
+  /**
+   * @deprecated Kütük #411 — bu alan CİHAZ TÜRÜ değil PERFORMANS SINIFI taşır.
+   * Yerleşim kararlarında kullanmayın; `isLowTier` ile aynı değeri döndürür.
+   */
   isHeadUnit: boolean;
   supportsBackdropFilter: boolean;
   supportsDvh: boolean;
@@ -33,10 +39,27 @@ export interface CompatProfile {
  * deviceCapabilities'e taşındı. isHeadUnit artık kanonik `DeviceTier === 'low'`:
  * performanceMode + runtime ile AYNI tespit kaynağından beslenir → tutarlı. */
 
+/**
+ * ⚠️ KAVRAM AYRIMI (saha 2026-08-05 · kütük #411).
+ *
+ * ÖLÇÜLDÜ: cihaz bir TELEFONDU (Redmi 23090RA98I) ama `cl_isHeadUnit = "1"`
+ * yazılmıştı; head unit için tasarlanmış px/metre yerleşimi telefonda
+ * uygulanınca #412'deki üst üste binen/kırpılan ekranlar çıktı.
+ *
+ * KÖK: `isHeadUnit` aslında "düşük performans sınıfı"nın takma adıydı
+ * (`DeviceTier === 'low'`). Düşük RAM'li bir telefon otomatik olarak
+ * "head unit" sayılıyordu. Performans sınıfı ile CİHAZ TÜRÜ farklı sorulardır:
+ *   • sınıf  → hangi efektleri kapatayım? (blur, animasyon, worker)
+ *   • tür    → hangi YERLEŞİMİ kullanayım? (HU px ölçüleri vs telefon)
+ * Alan adı `isLowTier` olarak netleştirildi; `isHeadUnit` geriye dönük uyum
+ * için KORUNDU ama artık tek başına yerleşim kararı vermek için kullanılmaz.
+ */
 function buildProfile(): CompatProfile {
   const c = getCapabilities();
+  const lowTier = getDeviceTier() === 'low';
   return {
-    isHeadUnit:             getDeviceTier() === 'low',
+    isLowTier:              lowTier,
+    isHeadUnit:             lowTier,
     supportsBackdropFilter: c.supportsBackdropFilter,
     supportsDvh:            c.supportsDvh,
     cpuCores:               c.cores,
@@ -57,7 +80,7 @@ export function getCompatProfile(): CompatProfile {
 }
 
 export function isLowEndDevice(): boolean {
-  return getCompatProfile().isHeadUnit;
+  return getCompatProfile().isLowTier;
 }
 
 export function supportsBackdropFilter(): boolean {
@@ -151,10 +174,14 @@ function applyCompatThemeDefaults(): void {
   } catch { /* quota veya parse hatası — devam et */ }
 }
 
-/** Önceki başlatmada head unit tespit edildiyse hemen compat-mode aç (FOUC önler) */
+/** Önceki başlatmada DÜŞÜK SINIF tespit edildiyse hemen compat-mode aç (FOUC önler) */
 function applyCachedHeadUnitFlag(): boolean {
   try {
-    if (localStorage.getItem('cl_isHeadUnit') === '1') {
+    // Kütük #411: yeni anahtar `cl_compatLowTier`. Eski `cl_isHeadUnit` yalnız
+    // GERİYE DÖNÜK okunur (kurulu cihazlarda FOUC geri gelmesin) — YAZILMAZ.
+    const lowTier = localStorage.getItem('cl_compatLowTier') === '1'
+                 || localStorage.getItem('cl_isHeadUnit') === '1';
+    if (lowTier) {
       document.documentElement.setAttribute('data-compat-mode', 'true');
       document.documentElement.classList.add('perf-low');
       return true;
@@ -172,12 +199,15 @@ export function applyCompatMode(): void {
 
   const profile = getCompatProfile();
 
-  // Cache: sonraki açılış için tespit sonucunu sakla
+  // Cache: sonraki açılış için PERFORMANS SINIFI sonucunu sakla (#411).
+  // Bu bir cihaz TÜRÜ damgası değildir — telefonu head unit yapmaz.
   try {
-    localStorage.setItem('cl_isHeadUnit', profile.isHeadUnit ? '1' : '0');
+    localStorage.setItem('cl_compatLowTier', profile.isLowTier ? '1' : '0');
+    // Eski anahtarı temizle: yanlış semantiğiyle kalıcı hasar veriyordu.
+    if (localStorage.getItem('cl_isHeadUnit') !== null) localStorage.removeItem('cl_isHeadUnit');
   } catch { /* quota */ }
 
-  if (profile.isHeadUnit) {
+  if (profile.isLowTier) {
     // CSS override için data attribute + perf-low class
     document.documentElement.setAttribute('data-compat-mode', 'true');
     document.documentElement.classList.add('perf-low');

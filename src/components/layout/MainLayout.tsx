@@ -46,7 +46,10 @@ import { AddressNavCard } from '../common/AddressNavCard';
 import { useDayNightManager } from '../../hooks/useDayNightManager';
 import { VehicleReminderModal } from '../modals/VehicleReminderModal';
 import { IncomingCallOverlay } from '../common/IncomingCallOverlay';
+import FieldTestBadge from '../common/FieldTestBadge';
 import { setRemoteCommandContext } from '../../platform/vehicleDataLayer';
+import { useUnifiedVehicleStore } from '../../platform/vehicleDataLayer/UnifiedVehicleStore';
+import { canShowTripSummary } from './tripSummaryGate';
 import type { CommandContext } from '../../platform/commandExecutor';
 import { bridge } from '../../platform/bridge';
 import { useSystemStore } from '../../store/useSystemStore';
@@ -95,6 +98,9 @@ export default function MainLayout() {
   // SystemStore — Orchestrator tarafından yazılan kararlı durumlar
   const showTripSummary  = useSystemStore((s) => s.showTripSummary);
   const lastCompletedTrip = useSystemStore((s) => s.lastCompletedTrip);
+  /* T13 sürüş kapısı: yolculuk özeti SÜRÜŞ SIRASINDA açılamaz. Karar saf
+     `canShowTripSummary` içindedir (fail-closed: hız bilinmiyorsa gösterilmez). */
+  const tripSummaryBlocked = !canShowTripSummary(useUnifiedVehicleStore((s) => s.speed));
   const navOpenTrigger   = useSystemStore((s) => s.navOpenTrigger);
   const navOpenSeenRef   = useRef(navOpenTrigger);
 
@@ -395,6 +401,10 @@ export default function MainLayout() {
       <BootSplash phase={bootPhase} />
       <ErrorToast />
       <VolumeOverlay />
+      {/* Saha doğrulama göstergesi — oturum AKTİF DEĞİLKEN null render eder,
+          popup açmaz, odak çalmaz; izole leaf (root re-render yok).
+          MOUNT KİLİTLİ: longRoadFieldValidation.test.ts (bir kez sessizce kayboldu). */}
+      <FieldTestBadge />
       {/* Living theme — sabah/akşam golden-hour üst şeridi (izole; root re-render yok) */}
       <GoldenHourAccent />
 
@@ -451,8 +461,9 @@ export default function MainLayout() {
         </ChameleonScaler>
       </div>
 
-      {/* Yolculuk özet banner — navigasyon veya tam ekran harita açıkken gizle */}
-      {showTripSummary && lastCompletedTrip && !isNavigating && !fullMapOpen && (
+      {/* Yolculuk özet banner — navigasyon/tam ekran harita açıkken VE sürüş
+          sırasında gizlenir (T13: sahte "yolculuk bitti" sinyali sürüşte açamaz) */}
+      {showTripSummary && lastCompletedTrip && !isNavigating && !fullMapOpen && !tripSummaryBlocked && (
         <TripSummaryBanner
           trip={lastCompletedTrip}
           onClose={() => useSystemStore.getState().closeTripSummary()}

@@ -23,7 +23,8 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { Capacitor } from '@capacitor/core';
-import { CarLauncher } from './nativePlugin';
+import { CarLauncher, isNativeCommandSent } from './nativePlugin';
+import type { NativeVehicleCommandResult } from './nativePlugin';
 import type {
   AppVersionInfo,
   OtaDownloadOptions,
@@ -58,16 +59,27 @@ export async function executeMcuCommand(
   }
 
   try {
+    /* ⚠️ FAIL-CLOSED: native sonucu OKUNUR. Daha önce çağrı yalnız `await`
+     * ediliyor ve promise çözüldüğü an 'completed' dönülüyordu → MCU bağlı
+     * değilken uzaktaki kullanıcıya komut "tamamlandı" olarak raporlanıyordu.
+     * Doğruluk yüklemi `nativePlugin.isNativeCommandSent` ile TEK yerdedir (bu yol ve
+     * `vehicleCommandQueue` aynı gerçeği kullanır — paralel kural yok). */
+    let native: NativeVehicleCommandResult;
     switch (type) {
-      case 'lock':      await CarLauncher.lockDoors();    break;
-      case 'unlock':    await CarLauncher.unlockDoors();  break;
-      case 'horn':      await CarLauncher.honkHorn();     break;
-      case 'lights_on': await CarLauncher.flashLights();  break;
-      case 'alarm_on':  await CarLauncher.triggerAlarm(); break;
-      case 'alarm_off': await CarLauncher.stopAlarm();    break;
+      case 'lock':      native = await CarLauncher.lockDoors();    break;
+      case 'unlock':    native = await CarLauncher.unlockDoors();  break;
+      case 'horn':      native = await CarLauncher.honkHorn();     break;
+      case 'lights_on': native = await CarLauncher.flashLights();  break;
+      case 'alarm_on':  native = await CarLauncher.triggerAlarm(); break;
+      case 'alarm_off': native = await CarLauncher.stopAlarm();    break;
       default:
         console.warn(`[NativeCmdBridge] MCU desteklemez: ${type}`);
         return 'failed';
+    }
+    if (!isNativeCommandSent(native)) {
+      // Neden kodu loglanır; "gönderildi" İDDİA EDİLMEZ.
+      console.warn(`[NativeCmdBridge] MCU'ya GÖNDERİLEMEDİ (${type}): ${native?.reason ?? 'malformed_native_result'}`);
+      return 'failed';
     }
     logInfo(`[NativeCmdBridge] MCU OK: ${type}`);
     return 'completed';

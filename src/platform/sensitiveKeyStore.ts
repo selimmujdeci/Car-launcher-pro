@@ -26,6 +26,12 @@ export type SensitiveKey =
   | 'groqApiKey'
   | 'openRouterApiKey'      // AI Gateway (OpenRouter) — tek anahtarla çok-model erişimi (BYOK)
   | 'tavilyApiKey'          // Tavily web-arama anahtarı — Groq'a internet grounding sağlar
+  /* Adres/geocoding sağlayıcıları (BYOK) — bkz. geocodingProviders.ts.
+     Hangi anahtar KAYITLIYSA o sağlayıcı kullanılır; ayrı "sağlayıcı seç"
+     ayarı YOKTUR. Hiçbiri yoksa ücretsiz OSM zinciri çalışır (varsayılan). */
+  | 'geocodeGoogleApiKey'
+  | 'geocodeHereApiKey'
+  | 'geocodeYandexApiKey'
   | 'car-e2e-private-key'   // ECDH P-256 private key (JWK) — NativeCryptoManager alias'ı ile aynı (C4)
   | 'veh_device_id'
   | 'veh_api_key'
@@ -51,7 +57,7 @@ const _isNative = Capacitor.isNativePlatform();
  * bu depo Android Auto Backup ile Google Drive'a yedeklenir ve geri gelir.
  * Yalnızca geminiApiKey ve claudeHaikuApiKey bu depoya yazılır.
  */
-const RECOVERY_KEYS: SensitiveKey[] = ['geminiApiKey', 'claudeHaikuApiKey', 'groqApiKey', 'tavilyApiKey', 'openRouterApiKey'];
+const RECOVERY_KEYS: SensitiveKey[] = ['geminiApiKey', 'claudeHaikuApiKey', 'groqApiKey', 'tavilyApiKey', 'openRouterApiKey', 'geocodeGoogleApiKey', 'geocodeHereApiKey', 'geocodeYandexApiKey'];
 
 /**
  * Bu anahtar reinstall kurtarma kapsamında mı? (STATİK metadata — depoya

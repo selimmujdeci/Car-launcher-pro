@@ -23,6 +23,29 @@ import { useUnifiedVehicleStore } from './vehicleDataLayer/UnifiedVehicleStore';
 
 /* ── Tipler ──────────────────────────────────────────────────── */
 
+/**
+ * Yüzey sınıfı — "modal mı?" sorusuna KANITLA cevap (gerçek sürüş bulgusu
+ * 2026-08-03). z-index TEK BAŞINA hüküm vermez.
+ *
+ * REAL_DISTRACTING_MODAL   — bloklayan (pointer-events var), ekranın büyük
+ *                            kısmını kaplayan, dialog rolü veya yüksek-z yüzey.
+ *                            Sürüşte açılması P0 güvenlik bulgusudur.
+ * TRANSIENT_RENDER_ARTIFACT— bloklayan görünüyor AMA iki kareden kısa yaşadı;
+ *                            kullanıcıya çizildiği KANITLANAMAZ. "Zararsız"
+ *                            DEĞİL, "kanıtsız" demektir — ayrı sayılır.
+ * HIDDEN_OVERLAY           — inert / aria-hidden / pointer-events:none /
+ *                            saydam: DOM'da ama sürücüyü engellemez.
+ * UNKNOWN                  — ölçülemedi; başarı sayılmaz.
+ */
+export type UiSurfaceKind =
+  | 'REAL_DISTRACTING_MODAL'
+  | 'TRANSIENT_RENDER_ARTIFACT'
+  | 'HIDDEN_OVERLAY'
+  | 'UNKNOWN';
+
+/** Bu süreden kısa yaşayan bloklayan yüzey çizildiği KANITLANAMAZ (~2 kare). */
+export const TRANSIENT_SURFACE_MS = 34;
+
 export interface UiSurfaceEvent {
   ts:          number;   // Date.now (panelde okunur görüntü)
   sinceBootMs: number;   // monotonik
@@ -35,6 +58,10 @@ export interface UiSurfaceEvent {
   sinceUserMs: number;   // son kullanıcı dokunuşundan bu yana
   untimely:    boolean;
   reasons:     string[]; // ['sürüşte','geri-viteste','kullanıcı-dokunmadan','tekrar-tekrar']
+  /** Yüzeyin KANITA dayalı sınıfı (bkz. UiSurfaceKind). */
+  kind:        UiSurfaceKind;
+  /** 'close' olaylarında yüzeyin ekranda kaldığı süre (ms); 'open'da null. */
+  openMs:      number | null;
 }
 
 export interface UiActivitySnapshot {
@@ -56,7 +83,8 @@ let _installed   = false;
 let _bootMono    = 0;
 let _lastUserMono = 0;
 const _log:        UiSurfaceEvent[] = [];
-const _open:       Map<Element, string> = new Map();     // el → desc
+interface OpenRec { desc: string; kind: UiSurfaceKind; openMono: number }
+const _open:       Map<Element, OpenRec> = new Map();    // el → açılış kaydı
 const _flap:       Map<string, number[]> = new Map();    // desc → mono zamanları
 let _observer:     MutationObserver | null = null;
 const _userEvents = ['pointerdown', 'keydown', 'touchstart', 'wheel'] as const;
@@ -82,7 +110,7 @@ function cheapCandidate(el: HTMLElement): boolean {
   return false;
 }
 
-interface SurfaceInfo { desc: string; zIndex: number; areaPct: number }
+interface SurfaceInfo { desc: string; zIndex: number; areaPct: number; kind: UiSurfaceKind }
 
 /** Kesin tespit (pahalı — yalnız aday düğümlere). null = yüzey değil. */
 function classifySurface(el: HTMLElement): SurfaceInfo | null {
@@ -129,9 +157,21 @@ function classifySurface(el: HTMLElement): SurfaceInfo | null {
   if (!surface) return null;
   if (areaPct < 3 && !isDialog) return null;
 
+  /* ── SINIFLANDIRMA (z-index tek başına hüküm vermez) ─────────────────────
+   * Bloklayan = sürücünün dokunuşunu yutan + ekranın büyük kısmını kaplayan.
+   * `pointer-events:none` yüzeyler (örn. MainLayout adres kartı katmanı)
+   * sürücüyü ENGELLEMEZ → dikkat dağıtıcı modal sayılmaz. */
+  const inert = el.hasAttribute('inert') || el.getAttribute('aria-hidden') === 'true';
+  const clickThrough = cs.pointerEvents === 'none';
+  let kind: UiSurfaceKind;
+  if (inert || clickThrough)                        kind = 'HIDDEN_OVERLAY';
+  else if (isDialog && areaPct >= 40)               kind = 'REAL_DISTRACTING_MODAL';
+  else if (fixed && z >= 900 && areaPct >= 60)      kind = 'REAL_DISTRACTING_MODAL';
+  else                                              kind = 'UNKNOWN';
+
   const firstCls = cls ? '.' + cls.split(/\s+/).filter(Boolean)[0] : '';
   const desc = `${el.tagName.toLowerCase()}${el.id ? '#' + el.id : ''}${firstCls} z${z} ${areaPct}%`;
-  return { desc, zIndex: z, areaPct };
+  return { desc, zIndex: z, areaPct, kind };
 }
 
 /* ── Kayıt ──────────────────────────────────────────────────── */
@@ -163,23 +203,34 @@ function recordOpen(el: HTMLElement): void {
   if (sinceUserMs > NO_USER_MS)      reasons.push('kullanıcı-dokunmadan');
   if (arr.length >= 3)               reasons.push('tekrar-tekrar');
 
-  _open.set(el, info.desc);
+  _open.set(el, { desc: info.desc, kind: info.kind, openMono: m });
   pushEvent({
     ts: Date.now(), sinceBootMs: Math.round(m - _bootMono), action: 'open',
     desc: info.desc, zIndex: info.zIndex, areaPct: info.areaPct,
     speed, reverse, sinceUserMs, untimely: reasons.length > 0, reasons,
+    kind: info.kind, openMs: null,
   });
 }
 
 function recordClose(el: Element): void {
-  const desc = _open.get(el);
-  if (!desc) return;
+  const rec = _open.get(el);
+  if (!rec) return;
   _open.delete(el);
   const m = mono();
+  const openMs = Math.round(m - rec.openMono);
+  /* İKİ KAREDEN KISA yaşayan bloklayan yüzey: çizildiği KANITLANAMAZ.
+     "Zararsız" demiyoruz — ayrı sınıfa alıyoruz ki gerçek modal ile
+     karışmasın ve sayımı şişirmesin. Gerçek sürüş kaydındaki ~15 ms'lik
+     `div z9500 100%` olayı tam olarak bu belirsiz banda düşer. */
+  const kind: UiSurfaceKind =
+    rec.kind === 'REAL_DISTRACTING_MODAL' && openMs < TRANSIENT_SURFACE_MS
+      ? 'TRANSIENT_RENDER_ARTIFACT'
+      : rec.kind;
   pushEvent({
     ts: Date.now(), sinceBootMs: Math.round(m - _bootMono), action: 'close',
-    desc, zIndex: 0, areaPct: 0, speed: null, reverse: false,
+    desc: rec.desc, zIndex: 0, areaPct: 0, speed: null, reverse: false,
     sinceUserMs: 0, untimely: false, reasons: [],
+    kind, openMs,
   });
 }
 
@@ -245,7 +296,7 @@ export function getUiActivitySnapshot(): UiActivitySnapshot {
   const m = mono();
   return {
     installed:     _installed,
-    openNow:       Array.from(_open.values()),
+    openNow:       Array.from(_open.values(), (r) => r.desc),
     recent:        _log.slice(-20),
     untimelyCount: _log.filter((e) => e.action === 'open' && e.untimely).length,
     lastUserMsAgo: _installed ? Math.round(m - _lastUserMono) : -1,

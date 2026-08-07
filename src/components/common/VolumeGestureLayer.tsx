@@ -19,7 +19,7 @@ import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Volume2, VolumeX } from 'lucide-react';
 import { useStore } from '../../store/useStore';
-import { setVolume } from '../../platform/systemSettingsService';
+import { setVolume, setInAppVolume } from '../../platform/systemSettingsService';
 
 // Şoför (sol) kenar bandı genişliği — ekran genişliğinin %18'i, 90–220px arası.
 const ZONE_RATIO = 0.18;
@@ -45,8 +45,14 @@ export function VolumeGestureLayer() {
 
   // Açılışta kayıtlı ses düzeyini bir kez motorlara aktar — uygulama içi
   // oynatıcılar (YouTube IFrame / HTML5 stream) kullanıcının son seviyesinde başlasın.
+  //
+  // ⚠️ CİHAZ SESİNE DOKUNULMAZ (saha bulgusu 2026-07-31): burada `setVolume`
+  // kullanılıyordu ve o fonksiyon STREAM_MUSIC'i de yazdığı için CarOS her
+  // açılışta telefonun/aracın sesini kendi ayarına DÜŞÜRÜYORDU (15 → 2 olarak
+  // cihazda yeniden üretildi). Uygulamanın açılması bir ses komutu DEĞİLDİR;
+  // cihaz seviyesi yalnız kullanıcı AÇIKÇA değiştirince yazılır (jest/slider).
   useEffect(() => {
-    setVolume(volRef.current);
+    setInAppVolume(volRef.current);
   }, []);
 
   // Jest AKTİF değilken store değerini canlı ref'e yansıt (slider'dan değişebilir).

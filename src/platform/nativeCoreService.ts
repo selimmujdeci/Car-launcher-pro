@@ -59,7 +59,10 @@ export async function initNativeCore(): Promise<void> {
       document.documentElement.classList.add('perf-low');
       document.documentElement.setAttribute('data-compat-mode', 'true');
       // Cache: sonraki açılışta anında uygula (FOUC önler)
-      try { localStorage.setItem('cl_isHeadUnit', '1'); } catch { /* quota */ }
+      // Kütük #411: burada YAZILAN şey performans sınıfıdır, cihaz türü DEĞİL.
+      // Eskiden `cl_isHeadUnit='1'` yazılıyordu → düşük RAM'li TELEFONLAR head
+      // unit sayılıp HU yerleşimi alıyordu (sahada ölçüldü, #412'nin kökü).
+      try { localStorage.setItem('cl_compatLowTier', '1'); } catch { /* quota */ }
     } else if (profile.deviceClass === 'mid') {
       // Orta sınıf cihazda animasyon yavaşlatması yeterli; blur'a izin ver
       document.documentElement.classList.add('perf-med');

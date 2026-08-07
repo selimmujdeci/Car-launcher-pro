@@ -2,7 +2,7 @@ import { memo, useState, useCallback } from 'react';
 import { X, Wrench, Shield, Droplets, Save, Car } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import { useUnifiedVehicleStore as useVehicleStore } from '../../platform/vehicleDataLayer/UnifiedVehicleStore';
-import { computeReminders, type ReminderUrgency } from '../../platform/vehicleReminderService';
+import { computeReminders, canClaimAllHealthy, type ReminderUrgency } from '../../platform/vehicleReminderService';
 import type { MaintenanceInfo } from '../../store/useStore';
 
 /* ── Urgency badge — kanonik --oem-* status token'ları (tema + gün/gece uyumlu) ── */
@@ -12,10 +12,12 @@ const URGENCY_STYLE: Record<ReminderUrgency, string> = {
   soon:    'text-[color:var(--oem-warn)]   bg-[var(--oem-warn-soft)]   border-[var(--oem-warn)]',
   urgent:  'text-[color:var(--oem-danger)] bg-[var(--oem-danger-soft)] border-[var(--oem-danger)]',
   overdue: 'text-[color:var(--oem-danger)] bg-[var(--oem-danger-soft)] border-[var(--oem-danger)]',
+  // Kütük #420: bilinmeyen ≠ sağlıklı. Nötr ton — ne yeşil ne kırmızı.
+  unknown: 'text-[color:var(--oem-ink-3)]  bg-[var(--oem-surface-2)]   border-[var(--oem-line)]',
 };
 
 const URGENCY_LABEL: Record<ReminderUrgency, string> = {
-  ok: 'Güncel', soon: 'Yakında', urgent: 'Acil', overdue: 'Gecikti',
+  ok: 'Güncel', soon: 'Yakında', urgent: 'Acil', overdue: 'Gecikti', unknown: 'Veri yok',
 };
 
 /* ── Alt bileşenler ──────────────────────────────────────── */
@@ -105,14 +107,13 @@ export const VehicleReminderModal = memo(function VehicleReminderModal({
   // Canlı durum hesabı (kaydetmeden önce önizleme)
   const reminders = computeReminders({ ...maintenance, ...form }, odometer);
 
-  // Zero Mock filtresi: yalnızca gerçek veriye dayanan, aksiyon gerektiren satırlar gösterilir.
-  // 'ok' → aksiyon gerekmez, summary barını kirletir.
-  // oil_change + lastOilChangeKm===0 → kullanıcı baseline girmemiş, hesap anlamsız.
-  const visibleReminders = reminders.filter((r) => {
-    if (r.urgency === 'ok') return false;
-    if (r.id === 'oil_change' && (form.lastOilChangeKm ?? 0) === 0) return false;
-    return true;
-  });
+  // Zero Mock filtresi: 'ok' satırları aksiyon gerektirmez, özet barını kirletir.
+  // Kütük #420: `unknown` satırları ARTIK GİZLENMEZ — eksik veri, sürücünün
+  // görmesi gereken bir durumdur; gizlenince "sorun yok" gibi okunuyordu.
+  const visibleReminders = reminders.filter((r) => r.urgency !== 'ok');
+
+  // "Tüm bakımlar güncel" YALNIZ en az bir gerçek veri varken söylenebilir.
+  const allHealthy = canClaimAllHealthy(reminders);
 
   const setField = useCallback(
     <K extends keyof FormState>(key: K, val: FormState[K]) => {
@@ -159,8 +160,8 @@ export const VehicleReminderModal = memo(function VehicleReminderModal({
         {/* Durum özeti */}
         <div className="flex gap-2 px-5 py-3 border-b border-[var(--oem-line)] overflow-x-auto flex-shrink-0">
           {visibleReminders.length === 0 ? (
-            <span className="text-[color:var(--oem-good)] text-[11px] font-medium py-2">
-              Tüm bakımlar güncel
+            <span className={`text-[11px] font-medium py-2 ${allHealthy ? 'text-[color:var(--oem-good)]' : 'text-[color:var(--oem-ink-3)]'}`}>
+              {allHealthy ? 'Tüm bakımlar güncel' : 'Bakım bilgisi girilmedi — durum bilinmiyor'}
             </span>
           ) : (
             visibleReminders.map((r) => (

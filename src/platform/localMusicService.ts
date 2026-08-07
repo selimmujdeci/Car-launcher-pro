@@ -198,6 +198,14 @@ export async function playAtIndex(index: number): Promise<void> {
     }
   })();
 
+  /* ── MÜZİK HUB PAKET A: çalma otoritesi CarosPlaybackService'tir ─────────
+   * Ham MediaPlayer yolu audio focus istemiyor, focus kaybını dinlemiyor ve
+   * kulaklık çıkarılınca susmuyordu. Artık kuyruk native otoriteye verilir;
+   * odak · ducking · bildirim · medya tuşları oradan yönetilir.
+   * Otorite yoksa (eski cihaz / servis başlamadı) eski yol KORUNUR. */
+  const viaAuthority = await _playViaAuthority(index);
+  if (viaAuthority) return;
+
   try {
     await CarLauncher.playLocalTrack({ uri: track.uri });
     _set({ playing: true });
@@ -205,6 +213,51 @@ export async function playAtIndex(index: number): Promise<void> {
   } catch (e) {
     logError('LocalMusic:Play', e);
     _set({ error: e instanceof Error ? e.message : 'Çalma hatası' });
+  }
+}
+
+/** Kuyruğu native otoriteye verir. @returns otorite işi üstlendiyse true. */
+async function _playViaAuthority(index: number): Promise<boolean> {
+  try {
+    const [{ playSource }, { noteQueue }] = await Promise.all([
+      import('./media/authority/mediaCommandGateway'),
+      import('./media/authority/mediaAuthorityRuntime'),
+    ]);
+
+    // Kütüphane binlerce parça olabilir; aktif parça çevresinde SINIRLI pencere
+    // gönderilir (native kuyruk sınırı + bellek bütçesi).
+    const WINDOW = 120;
+    const start = Math.max(0, Math.min(index - Math.floor(WINDOW / 2), Math.max(0, _state.tracks.length - WINDOW)));
+    const slice = _state.tracks.slice(start, start + WINDOW);
+    const items = slice.map((t) => ({
+      id: t.id,
+      uri: t.uri,
+      title: t.title || 'Bilinmeyen Parça',
+      artist: t.artist || 'Bilinmeyen Sanatçı',
+      artworkUri: t.albumArtUri,
+    }));
+    if (items.length === 0) return false;
+
+    noteQueue('LOCAL', items, index - start);
+    const truth = await playSource({
+      source: 'LOCAL',
+      items,
+      startIndex: index - start,
+      autoPlay: true,
+    });
+
+    if (truth.outcome === 'VERIFIED' || truth.outcome === 'ACCEPTED_UNVERIFIED') {
+      _set({ playing: truth.observedState === 'PLAYING' });
+      return true;
+    }
+    // Otorite yoksa eski yola düşülür; başka hata varsa DÜRÜSTÇE bildirilir.
+    if (truth.failureCode && truth.failureCode !== 'authority_unavailable') {
+      _set({ error: `Çalma başarısız: ${truth.failureCode}` });
+      return true;   // eski yola düşüp ikinci bir ses kaynağı açmayız
+    }
+    return false;
+  } catch {
+    return false;   // fail-soft: otorite kurulamadıysa eski yol devrede
   }
 }
 

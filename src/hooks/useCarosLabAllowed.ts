@@ -1,14 +1,17 @@
 /**
  * useCarosLabAllowed — CAROS LAB erişim kapısının React okuyucusu.
  *
- * Yeni yetki sistemi YOK: mevcut `usePermission('canDebug')` + derleme bayrağı
- * (`DEBUG_ENABLED`) AND'lenir — App.tsx'teki DebugPanel kapısıyla aynı kural.
+ * Yeni yetki sistemi YOK ve ARTIK ROL DE OKUNMAZ: karar tek derleme-zamanı
+ * otoritesinden gelir (`DEVELOPER_FEATURES_ENABLED`). Geliştirme/test APK'sında
+ * her rolde (driver dâhil) açıktır; satış build'inde kapalıdır.
+ *
+ * Hook olarak kalması bilinçlidir: çağrı noktaları (DockBar · DrawerPanel · dört
+ * tema yerleşimi) değişmeden çalışır ve kapı ileride yeniden reaktif bir kaynağa
+ * bağlanmak isterse tek dokunma noktası burasıdır.
  */
 
-import { usePermission } from '../platform/roleSystem';
 import { isCarosLabAllowedFromEnv } from '../platform/devtools/carosLabGate';
 
 export function useCarosLabAllowed(): boolean {
-  const canDebug = usePermission('canDebug');
-  return isCarosLabAllowedFromEnv(canDebug);
+  return isCarosLabAllowedFromEnv();
 }

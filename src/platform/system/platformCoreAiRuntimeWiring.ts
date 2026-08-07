@@ -38,6 +38,7 @@ import {
 } from '../aiCore/runtime/aiCoreRuntime';
 import type { AiOrchestratorRunResult } from '../aiCore/aiOrchestrator';
 import { buildObdDeepSnapshot, buildPlatformRuntimeSnapshot } from '../diagnosticSections';
+import { handleAiCoreRunResult } from '../companion/companionProactiveWiring';
 
 /** Test için opsiyonel DI; üretimde `getAppEventBus()` + `vehicleHal` + varsayılan orchestrator. */
 export interface AiRuntimeWiringDeps {
@@ -155,6 +156,11 @@ export function startPlatformCoreAiRuntimeWiring(deps: AiRuntimeWiringDeps = {})
       bus, hal, orchestrator,
       diagnosticsProvider: deps.diagnosticsProvider ?? _defaultDiagnosticsProvider,
       online: () => (typeof navigator !== 'undefined' ? navigator.onLine !== false : true),
+      // #124 — PROAKTİF KRİTİK ARIZA UYARISI: mevcut edge çalışmasının sonuna binen
+      // fail-soft GÖZLEMCİ. YENİ POLL/TIMER/ABONELİK AÇMAZ; runtime sonucunu
+      // DEĞİŞTİREMEZ. Debounce/güvenlik kapısı/karakter tavanı köprünün DEĞİL,
+      // triggerProactiveDiagnosticAlert'in sorumluluğundadır.
+      onRunResult: (result) => { handleAiCoreRunResult(result); },
     });
     const own = runtime;
     _active = own;

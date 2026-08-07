@@ -417,7 +417,40 @@ export function pause(): void {
   _sendWithWarmup('pause').catch((e) => logError('Media:Pause', e));
 }
 
+/* ── MÜZİK HUB PAKET A: otorite yönlendirmesi ─────────────────────────────
+ * Uygulama-içi ses (yerel müzik + internet akışı) artık CarosPlaybackService
+ * tarafından çalınır. Transport komutları TEK kapıdan (MediaCommandGateway)
+ * geçmelidir — aksi halde bildirim/direksiyon tuşu ile UI farklı otoritelere
+ * konuşur ve durum ayrışır. Otorite yoksa eski yollar aynen devrededir. */
+const AUTHORITY_PACKAGES = new Set(['com.cockpitos.pro', 'com.cockpitos.pro.stream']);
+
+function _isAuthorityPackage(pkg: string): boolean {
+  return AUTHORITY_PACKAGES.has(pkg);
+}
+
+/** @returns otorite komutu üstlendiyse true (eski yol çalıştırılmaz). */
+function _routeToAuthority(action: 'play' | 'pause' | 'next' | 'previous'): boolean {
+  if (!isNative || !_isAuthorityPackage(_current.activePackage)) return false;
+  void import('./media/authority/mediaCommandGateway')
+    .then((gw) => {
+      switch (action) {
+        case 'play':     return gw.play();
+        case 'pause':    return gw.pause();
+        case 'next':     return gw.next();
+        case 'previous': return gw.previous();
+        default:         return undefined;
+      }
+    })
+    .catch((e) => logError(`Media:Authority:${action}`, e));
+  return true;
+}
+
 export function togglePlayPause(): void {
+  // Otorite sahibi kaynak (yerel müzik / internet akışı) → tek kapı.
+  if (isNative && _isAuthorityPackage(_current.activePackage)) {
+    _routeToAuthority(_current.playing ? 'pause' : 'play');
+    return;
+  }
   // Stream (uygulama içi internet akışı) aktifse → streamMusicService (web + native).
   // isNative guard'ından ÖNCE: stream web'de de çalar.
   if (_current.activePackage === 'com.cockpitos.pro.stream') {
@@ -453,6 +486,7 @@ export function cycleRepeat(): void {
 
 export function next(): void {
   if (!isNative) return;
+  if (_routeToAuthority('next')) return;
   if (_current.activePackage === 'com.cockpitos.pro') {
     import('./localMusicService').then(({ localNext }) => localNext()).catch(() => {});
     return;
@@ -462,6 +496,7 @@ export function next(): void {
 
 export function previous(): void {
   if (!isNative) return;
+  if (_routeToAuthority('previous')) return;
   if (_current.activePackage === 'com.cockpitos.pro') {
     import('./localMusicService').then(({ localPrev }) => localPrev()).catch(() => {});
     return;
@@ -744,6 +779,12 @@ export async function startMediaHub(): Promise<void> {
   // WEB MODU: tamamen pasif — fake polling yok
   if (!isNative) return;
 
+  // MÜZİK HUB PAKET A: native playback authority'yi başlat (event-driven state).
+  // Kurtarma kararı da burada uygulanır — OTOMATİK ÇALMA YOK.
+  void import('./media/authority/mediaAuthorityRuntime')
+    .then(({ startMediaAuthority }) => startMediaAuthority())
+    .catch((e) => logError('Media:AuthorityStart', e));
+
   // Gerçek zamanlı MediaSession event dinle
   try {
     const handle = await CarLauncher.addListener('mediaChanged', (info) => {
@@ -774,6 +815,12 @@ export function stopMediaHub(): void {
     _hubListenerStop = null;
     try { stop(); } catch (e) { logError('Media:StopHub', e); }
   }
+  // MÜZİK HUB PAKET A: otorite aboneliğini bırak (Zero-Leak).
+  // Native servis kendi ömrünü sürdürür — çalan müzik burada KESİLMEZ.
+  void import('./media/authority/mediaAuthorityRuntime')
+    .then(({ stopMediaAuthority }) => stopMediaAuthority())
+    .catch(() => { /* teardown fail-soft */ });
+
   // Grace timer + interpolation temizle — unmount sonrası stale update olmasın
   if (_sessionFallbackTimer) { clearTimeout(_sessionFallbackTimer); _sessionFallbackTimer = null; }
   _stopInterpolation();

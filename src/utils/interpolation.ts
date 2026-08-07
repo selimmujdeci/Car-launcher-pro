@@ -8,12 +8,23 @@ export function lerp(start: number, end: number, t: number): number {
   return start + (end - start) * t;
 }
 
-/** 
- * Açısal Interpolation (Açıların 0/360 geçişini akıllıca yönetir) 
+/**
+ * Açısal Interpolation (Açıların 0/360 geçişini akıllıca yönetir)
+ *
+ * ⚠️ DÜZELTİLEN GERÇEK KUSUR (NAVIGATION_MOTION_CAMERA_P0, testle yakalandı):
+ * Eski gövde `((b - a + 180) % 360) - 180` idi. JavaScript'te `%` **kalan**
+ * operatörüdür, matematiksel modulo DEĞİL: negatif girdide negatif döner.
+ *   `lerpAngle(350, 10, 0.5)` → `(10-350+180) = -160` · `-160 % 360 = -160`
+ *   → `diff = -340` → sonuç **180°**. Doğrusu 0°'dir.
+ * Yani araç KUZEYE giderken (350° → 10°) işaretin yönü **tam ters dönüyordu**.
+ * `lerpAngle(10, 350, 0.5)` doğru çalıştığı için kusur yalnız TEK yönde,
+ * kuzey geçişinde ortaya çıkıyordu — bu yüzden bugüne kadar fark edilmedi.
+ *
+ * Düzeltme: farkı almadan önce gerçek modulo uygulanır.
  */
 export function lerpAngle(a: number, b: number, t: number): number {
-  const diff = ((b - a + 180) % 360) - 180;
-  return (a + diff * t + 360) % 360;
+  const diff = (((b - a + 180) % 360) + 360) % 360 - 180;
+  return ((a + diff * t) % 360 + 360) % 360;
 }
 
 export interface NavPoint {

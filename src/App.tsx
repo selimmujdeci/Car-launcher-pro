@@ -8,8 +8,7 @@ import { EditController }     from './components/edit/EditController';
 import { LayoutProvider }     from './context/LayoutContext';
 import { ReverseOverlay }     from './components/camera/ReverseOverlay';
 import { DisclaimerBanner }   from './components/legal/DisclaimerBanner';
-import { usePermission }      from './platform/roleSystem';
-import { DEBUG_ENABLED }      from './platform/debug';
+import { DEVELOPER_FEATURES_ENABLED } from './platform/debug/developerFeatures';
 import { HotspotPromptModal } from './components/modals/HotspotPromptModal';
 import { isAlreadyConnected, openHotspotSettings } from './platform/tetherService';
 import { isNative }           from './platform/bridge';
@@ -29,6 +28,7 @@ import { GeofenceAlarmOverlay } from './components/security/GeofenceAlarmOverlay
 import { systemBoot }         from './platform/system/SystemBoot';
 import { onVehicleEvent }     from './platform/vehicleDataLayer/VehicleEventHub';
 import { useRoleStore }       from './platform/roleSystem/RoleStore';
+import { useNavigationOrientationMode } from './platform/navigation/navigationOrientation';
 
 const DebugPanel = lazy(() =>
   import('./components/debug/DebugPanel').then((m) => ({ default: m.DebugPanel })),
@@ -54,7 +54,6 @@ function App() {
   const language        = useStore((s) => s.settings.language);
   const hotspotMode     = useStore((s) => s.settings.hotspotMode);
   const updateSettings  = useStore((s) => s.updateSettings);
-  const canDebug        = usePermission('canDebug');
   const storeReverse    = useSystemStore((s) => s.isReverseActive);
 
   const [debugOpen,        setDebugOpen]  = useState(false);
@@ -62,6 +61,9 @@ function App() {
 
   // ── Portrait mod tespiti — araç ekranları her zaman yatay ────────────────
   const [isPortrait, setIsPortrait] = useState(() => window.innerHeight > window.innerWidth);
+  /* Tam ekran navigasyon açıkken dikey KABUL EDİLİR (görev §9) → "Telefonu
+     Yatay Tutun" uyarısı bastırılır. Ana arayüz için uyarı AYNEN kalır. */
+  const navOrientation = useNavigationOrientationMode();
   useEffect(() => {
     const check = () => setIsPortrait(window.innerHeight > window.innerWidth);
     window.addEventListener('resize', check);
@@ -145,9 +147,22 @@ function App() {
     }
   }, [hotspotMode]);
 
+  /* ── GERÇEK ARAÇ ölçüm köprüsü (SALT OKUNUR · dev-only) ────────────────────
+   * NAV-CORE-P0 saha doğrulaması, sürüş sırasında 1 Hz zaman-serisi ister;
+   * CAROS LAB ekranı ise bilinçli olarak "elle YENİLE" desenindedir (sürüşte
+   * timer YOK). Köprü mevcut senkron getter'ları `window`'a açar — yeni durum
+   * üretmez, hiçbir şey başlatmaz. Bayrak satış build'inde derleme-zamanında
+   * `false`'a katlanır → dinamik import ve modülün tamamı ölü kod olarak elenir. */
+  useEffect(() => {
+    if (!DEVELOPER_FEATURES_ENABLED) return;
+    void import('./platform/devtools/navFieldBridge')
+      .then(m => m.installNavFieldBridge())
+      .catch(() => { /* fail-soft: ölçüm köprüsü ürünü ASLA düşürmez */ });
+  }, []);
+
   // ── 5-parmak debug tetikleyici ─────────────────────────────────────────────
   function handleDebugTap() {
-    if (!DEBUG_ENABLED || !canDebug) return;
+    if (!DEVELOPER_FEATURES_ENABLED) return;
     tapCountRef.current += 1;
     if (tapTimerRef.current) clearTimeout(tapTimerRef.current);
     tapTimerRef.current = setTimeout(() => { tapCountRef.current = 0; }, 3000);
@@ -197,7 +212,7 @@ function App() {
         {!storeReverse && <GeofenceAlarmOverlay />}
 
         {/* Portrait mod uyarısı — geri vites aktifken gösterme */}
-        {isPortrait && !storeReverse && (
+        {isPortrait && !storeReverse && navOrientation !== 'FULL_SENSOR' && (
           <div style={{
             position: 'fixed', inset: 0, zIndex: 99999,
             background: 'rgba(5,10,20,0.97)',
@@ -233,7 +248,9 @@ function App() {
           />
         )}
 
-        {DEBUG_ENABLED && canDebug && (
+        {/* 5-parmak debug tetikleyici — geliştirme/test build'inde HER rolde açık;
+            satış build'inde bayrak derleme-zamanında false → blok hiç render edilmez. */}
+        {DEVELOPER_FEATURES_ENABLED && (
           <div
             onClick={handleDebugTap}
             className="fixed top-0 right-0 w-11 h-11 z-[9998]"
@@ -241,7 +258,7 @@ function App() {
           />
         )}
 
-        {debugOpen && DEBUG_ENABLED && canDebug && (
+        {debugOpen && DEVELOPER_FEATURES_ENABLED && (
           <Suspense fallback={null}>
             <DebugPanel onClose={() => setDebugOpen(false)} />
           </Suspense>

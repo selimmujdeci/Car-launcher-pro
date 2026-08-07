@@ -158,8 +158,8 @@ const AdminManagementCard = memo(function AdminManagementCard() {
 });
 
 // ── CAROS LAB Card (FAZ A · geliştirici merkezi) ─────────────────────────────
-// Yalnız geliştirici kapısı AÇIKKEN render edilir (DEBUG_ENABLED && canDebug).
-// Kapı kapalıysa bu kart navigasyonda HİÇ görünmez.
+// Yalnız geliştirici kapısı AÇIKKEN render edilir (DEVELOPER_FEATURES_ENABLED).
+// Satış build'inde kapı kapalıdır → bu kart navigasyonda HİÇ görünmez.
 
 const CarosLabCard = memo(function CarosLabCard() {
   return (
@@ -203,8 +203,9 @@ const CarosLabCard = memo(function CarosLabCard() {
 export const AppGrid = memo(function AppGrid({ apps, favorites, onToggleFavorite, onLaunch, gridColumns = 3 }: Props) {
   const { can } = useRoleStore();
   const isSuperAdmin = can('accessAdminPanel');
-  // CAROS LAB kapısı: derleme bayrağı + canDebug izni (mevcut DebugPanel kuralı).
-  const carosLabAllowed = isCarosLabAllowedFromEnv(can('canDebug'));
+  // CAROS LAB kapısı: YALNIZ derleme bayrağı (DEVELOPER_FEATURES_ENABLED).
+  // Rol artık görünürlüğü etkilemez — geliştirme/test APK'sında driver rolünde de açık.
+  const carosLabAllowed = isCarosLabAllowedFromEnv();
 
   // Giriş animasyonu yalnız BALANCED ve üzeri modlarda. BASIC_JS/POWER_SAVE/
   // SAFE_MODE (Mali-400 / zayıf HU): animate-slide-up + animationDelay hiç

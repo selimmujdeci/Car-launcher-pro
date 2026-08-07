@@ -34,6 +34,7 @@ import {
 import { setBrightness, setVolume, isSystemControlSupported } from '../../platform/systemSettingsService';
 import { MaintenancePanel } from '../obd/MaintenancePanel';
 import { FuelCalibrationPanel } from './FuelCalibrationPanel';
+import { VehicleClassSettings } from './VehicleClassSettings';
 import { ExpertModePanel } from './ExpertModePanel';
 import { OfflineDataPanel } from './OfflineDataPanel';
 import { HomeWorkAddressPanel } from './HomeWorkAddressPanel';
@@ -279,7 +280,7 @@ function Panel({ children, className = '', accent }: { children: ReactNode; clas
 /* ════════════════════════════════════════
    SECTION TITLE
 ════════════════════════════════════════ */
-function SectionTitle({ icon: Icon, title, sub, color = '#3b82f6' }: {
+function SectionTitle({ icon: Icon, title, sub, color = 'var(--oem-accent)' }: {
   icon: typeof Settings2; title: string; sub?: string; color?: string;
 }) {
   return (
@@ -869,10 +870,10 @@ function LiveStatsRow() {
   }, []);
 
   const stats = [
-    { label: 'YÜK', val: `${load}%`, color: '#3b82f6', Icon: Cpu },
+    { label: 'YÜK', val: `${load}%`, color: 'var(--oem-accent)', Icon: Cpu },
     { label: 'BAT', val: ready ? `%${battery}${charging ? '+' : ''}` : '—', color: '#f97316', Icon: Zap },
-    { label: 'RAM', val: ramMb > 0 ? (ramMb >= 1024 ? `${(ramMb / 1024).toFixed(1)}G` : `${ramMb}M`) : '—', color: '#10b981', Icon: HardDrive },
-    { label: 'NET', val: !online ? 'OFF' : netMs > 0 ? `${netMs}ms` : 'ON', color: '#8b5cf6', Icon: Gauge },
+    { label: 'RAM', val: ramMb > 0 ? (ramMb >= 1024 ? `${(ramMb / 1024).toFixed(1)}G` : `${ramMb}M`) : '—', color: 'var(--oem-good)', Icon: HardDrive },
+    { label: 'NET', val: !online ? 'OFF' : netMs > 0 ? `${netMs}ms` : 'ON', color: 'var(--oem-accent)', Icon: Gauge },
   ];
   return (
     <>
@@ -1703,18 +1704,18 @@ function SettingsPageInner({ onClose }: Props) {
           {tab === 'general' && (
             <div className="flex flex-col gap-4 mx-auto w-full" style={{ maxWidth: 760 }}>
               {nativeControls && (
-                <Panel accent="#3b82f6">
-                  <SectionTitle icon={Settings2} title="Donanım Kontrolleri" sub="Sistem öncelikli ayarlar" color="#3b82f6" />
+                <Panel accent="var(--oem-accent)">
+                  <SectionTitle icon={Settings2} title="Donanım Kontrolleri" sub="Sistem öncelikli ayarlar" color="var(--oem-accent)" />
                   <div className="flex flex-col gap-6">
-                    <PremiumSlider icon={Sun}     label="Parlaklık Seviyesi" value={settings.brightness} onChange={handleBrightness} colorA="#f59e0b" colorB="#f97316" />
-                    <PremiumSlider icon={Volume2} label="Ses Düzeyi" value={settings.volume} onChange={handleVolume} colorA="#3b82f6" colorB="#06b6d4" />
+                    <PremiumSlider icon={Sun}     label="Parlaklık Seviyesi" value={settings.brightness} onChange={handleBrightness} colorA="var(--oem-warn)" colorB="#f97316" />
+                    <PremiumSlider icon={Volume2} label="Ses Düzeyi" value={settings.volume} onChange={handleVolume} colorA="var(--oem-accent)" colorB="var(--oem-accent-strong)" />
                   </div>
                 </Panel>
               )}
 
               {/* ── Crystal Cabin DSP v3 ── */}
-              <Panel accent="#8b5cf6">
-                <SectionTitle icon={Volume2} title="Crystal Cabin DSP" sub="Otomotiv sınıfı ses işleme" color="#8b5cf6" />
+              <Panel accent="var(--oem-accent)">
+                <SectionTitle icon={Volume2} title="Crystal Cabin DSP" sub="Otomotiv sınıfı ses işleme" color="var(--oem-accent)" />
                 <div className="flex flex-col gap-3">
                   <PremiumToggle
                     icon={Volume2}
@@ -1722,7 +1723,7 @@ function SettingsPageInner({ onClose }: Props) {
                     desc="YouTube, Spotify gibi kaynaklar arasında ses eşitler (AGC)"
                     value={agcOn}
                     onChange={(v) => { setAgcOn(v); setAGCEnabled(v); }}
-                    accent="#8b5cf6"
+                    accent="var(--oem-accent)"
                   />
                   <PremiumToggle
                     icon={Cpu}
@@ -1835,8 +1836,8 @@ function SettingsPageInner({ onClose }: Props) {
               <ThemePanel />
 
               <div className="grid grid-cols-1 gap-4">
-                <Panel accent="#06b6d4">
-                  <SectionTitle icon={Layout} title="Duvar Kağıdı Motoru" sub={`${WALLPAPERS.length - 1} premium tema · offline kullanılabilir`} color="#06b6d4" />
+                <Panel accent="var(--oem-accent-strong)">
+                  <SectionTitle icon={Layout} title="Duvar Kağıdı Motoru" sub={`${WALLPAPERS.length - 1} premium tema · offline kullanılabilir`} color="var(--oem-accent-strong)" />
                   <div className="grid grid-cols-4 gap-2.5">
                     {WALLPAPERS.map(w => {
                       const isActive = settings.wallpaper === w.url || (w.id === 'none' && (!settings.wallpaper || settings.wallpaper === 'none'));
@@ -1878,6 +1879,15 @@ function SettingsPageInner({ onClose }: Props) {
 
           {tab === 'maintenance' && (
             <div className="flex flex-col gap-4">
+
+              {/* ── Ruhsat Sınıfı (uygulanabilir hız sınırını belirler) ── */}
+              <Panel accent="#60a5fa">
+                <div className="mb-3">
+                  <SectionTitle icon={Gauge} title="Ruhsat Sınıfı"
+                    sub="Hız sınırı kartı bu sınıfa göre hesaplanır" color="#60a5fa" />
+                </div>
+                <VehicleClassSettings />
+              </Panel>
 
               {/* ── Araç Profilleri ── */}
               <Panel accent="#60a5fa">
@@ -1926,7 +1936,7 @@ function SettingsPageInner({ onClose }: Props) {
                                 style={{ caretColor: '#60a5fa', color: 'var(--oem-ink, #fff)' }}
                               />
                               {isActive && (
-                                <span className="text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-400 border border-blue-500/30 shrink-0">AKTİF</span>
+                                <span className="text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full bg-[var(--oem-accent-soft)] text-[color:var(--oem-accent)] border border-[var(--oem-accent)] shrink-0">AKTİF</span>
                               )}
                             </div>
                             {/* Araç tipi seçici */}
@@ -2013,8 +2023,8 @@ function SettingsPageInner({ onClose }: Props) {
                   Alt servisler (canDiag listener, EventRecorder) duruyor — UI'sız uyur. */}
 
               {/* ── Expert Mode (AI Safety Layer) ── */}
-              <Panel accent="#10b981">
-                <SectionTitle icon={ShieldCheck} title="CarOS Pro Expert Mode" sub="AI tabanlı otomotiv güvenlik katmanı ve mühürlü diagnostik" color="#10b981" />
+              <Panel accent="var(--oem-good)">
+                <SectionTitle icon={ShieldCheck} title="CarOS Pro Expert Mode" sub="AI tabanlı otomotiv güvenlik katmanı ve mühürlü diagnostik" color="var(--oem-good)" />
                 <ExpertModePanel />
               </Panel>
             </div>

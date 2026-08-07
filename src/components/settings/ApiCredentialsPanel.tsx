@@ -445,7 +445,9 @@ export const ApiCredentialsPanel = memo(function ApiCredentialsPanel() {
             className="flex items-center gap-2 w-full py-2 text-[11px] font-bold text-[color:var(--oem-ink-3)] hover:text-[color:var(--oem-ink)] transition-colors"
           >
             <ChevronRight className={`w-4 h-4 transition-transform ${showAdvanced ? 'rotate-90' : ''}`} />
-            Gelişmiş — yedek beyinler ve internet araması ({advanced.length})
+            {/* Etiket kayıt defterine göre DÜRÜST kalmalı: burada artık yalnız
+                "yedek beyin" yok, adres/geocoding sağlayıcıları da var (#336). */}
+            Gelişmiş — yedek beyinler, internet araması ve adres sağlayıcıları ({advanced.length})
           </button>
           {showAdvanced && advanced.map((c) => (
             <CredentialRow key={c.id} desc={c} status={statuses[c.id]} onStatusChange={applyStatus} onOpenKeyPage={handleOpenKeyPage} />

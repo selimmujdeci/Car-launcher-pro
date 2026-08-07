@@ -31,7 +31,32 @@ import { createMaviWiring, type MaviWiringHandle } from '../maviCore/wiring/mavi
 // PR-DIAG-3: tanı raporunun segment kaynağı — MEVCUT voiceState.recent()'e REFERANS göstericisi
 // (yeni buffer/telemetri DEĞİL). start/dispose ile set/temizlenir.
 import { setMaviVoiceTimingsSource } from '../maviCore/wiring/maviEvidenceSection';
+// MAVI-M2: Mavi'nin komut başına araç bağlamı — canlı okuma adaptörü YALNIZ burada
+// (composition root) import edilir; saf resolver `voiceService` tarafında kullanılır.
+import { setMaviVehicleSnapshotSource } from '../assistant/maviVehicleContext';
+import { captureMaviVehicleSnapshot } from '../assistant/maviVehicleSnapshotSource';
 import { createMediaNextPort } from '../maviCore/wiring/maviMediaPort';
+// MÜZİK HUB PAKET A: Mavi'nin medya komutları tek kapıdan (MediaCommandGateway)
+// geçer ve DÜRÜST sonuç döner. Otoritenin sahiplenmediği kaynaklarda (Spotify
+// Connect / YouTube / harici oturum) eski hat AYNEN korunur.
+import {
+  createMediaAuthorityPort, createRoutedMediaPort, NO_UNCERTAINTY,
+} from '../maviCore/wiring/maviMediaAuthorityPort';
+import { honestClaim } from '../media/authority/playbackTruth';
+import { isUncertainOutcome } from '../media/authority/queueRecovery';
+
+/**
+ * PAKET B · Kurtarma durumunun SENKRON okuyucusu. Modül dinamik yüklenir
+ * (ana pakete girmesin); yüklenene kadar `null` kalır ve belirsizlik YOK
+ * sayılır — bu güvenli yöndür: iddia yükseltilmez, yalnız düşürülebilir.
+ */
+let _recoveryProbe: typeof import('../media/authority/queueRecoveryRuntime') | null = null;
+
+function loadRecoveryProbe(): void {
+  void import('../media/authority/queueRecoveryRuntime')
+    .then((m) => { _recoveryProbe = m; })
+    .catch(() => { /* fail-soft: belirsizlik okunamaz, iddia yükseltilmez */ });
+}
 import { createTakeoverPolicy } from '../maviCore/wiring/takeoverPolicy';
 import type { PilotHandlerDeps, PilotThemeMode } from '../maviCore/wiring/maviPilotHandlers';
 
@@ -85,7 +110,82 @@ async function readVehicleHealth(): Promise<{ dtcCount: number; criticalCount: n
   return { dtcCount: codes.length, criticalCount, summary };
 }
 
+/**
+ * MÜZİK HUB PAKET A · Mavi medya portu.
+ *
+ * Otorite yalnız KENDİ sahiplendiği kaynaklarda (yerel müzik · internet akışı ·
+ * radyo) devreye girer ve `CommandTruth` üretir; başarısızlıkta port THROW eder
+ * → handler `ok:false` verir, Mavi "yaptım" DEMEZ. Otorite yoksa veya aktif
+ * kaynak harici ise (Spotify Connect / YouTube / başka uygulama) eski hat
+ * DEĞİŞMEDEN kullanılır — geriye uyumluluk pazarlıksız.
+ */
+function buildRoutedMediaPort(): ReturnType<typeof createRoutedMediaPort> {
+  loadRecoveryProbe();
+  /* DİNAMİK YÜKLEME (düşük-uç bütçesi): otorite modülleri ana pakete GİRMEZ;
+     ilk medya komutunda yüklenir. `mediaService`/`localMusicService` de aynı
+     chunk'ı dinamik yükler — statik import buradan eklenirse üçünün de kod
+     bölmesi ETKİSİZLEŞİR (rollup INEFFECTIVE_DYNAMIC_IMPORT uyarısı). */
+  const gateway = (): Promise<typeof import('../media/authority/mediaCommandGateway')> =>
+    import('../media/authority/mediaCommandGateway');
+  const runtime = (): Promise<typeof import('../media/authority/mediaAuthorityRuntime')> =>
+    import('../media/authority/mediaAuthorityRuntime');
+
+  const authority = createMediaAuthorityPort({
+    cancelAssistantDuck,
+    play:     async () => (await gateway()).play(),
+    pause:    async () => (await gateway()).pause(),
+    stop:     async () => (await gateway()).stop(),
+    next:     async () => (await gateway()).next(),
+    previous: async () => (await gateway()).previous(),
+    seek:     async (sec: number) => (await gateway()).seek(sec),
+    // İddia kuralı TEK YERDE kalır: burada kopyalanırsa iki kural zamanla
+    // ayrışır ve biri "çalıyor" derken diğeri demez. `playbackTruth` SAF ve
+    // bağımlılıksızdır → statik import ağır zincir ÇEKMEZ.
+    claimOf: honestClaim,
+  });
+
+  // PARİTE (MAVI3-4c): eski hat `cancelAssistantDuck(); next()` yapar — aynı sıra +
+  // dürüstlük ön-koşulu. Kuyruk da oturum da yoksa next() ÇAĞRILMAZ.
+  const legacyNext = createMediaNextPort({
+    cancelAssistantDuck,
+    hasQueue,
+    hasSession: () => getMediaState().hasSession,
+    next: mediaNext,
+  });
+
+  return createRoutedMediaPort({
+    // Fail-soft: okuma/yükleme hatası → false → ESKİ hat (komut düşürülmez).
+    isAuthorityRoute: async () => {
+      try {
+        const rt = await runtime();
+        return rt.isAuthorityAvailable()
+          && rt.isAuthorityOwnedPackage(getMediaState().activePackage);
+      } catch { return false; }
+    },
+    authority,
+    legacyPlay: () => play(),
+    legacyPause: () => { if (getMediaState().playing) togglePlayPause(); },
+    legacyNext,
+    /* PAKET B: kuyruk kurtarması ERTELENDİ/REDDEDİLDİ ise UI ile native gerçek
+       arasında BİLİNEN bir sapma vardır → Mavi kesin iddia kurmaz. Modül dinamik
+       yüklenir; yükleme/okuma hatası "belirsizlik yok" sayılır (fail-soft) ve
+       iddia YALNIZ düşürülebilir, asla yükseltilemez. */
+    readRecoveryUncertainty: () => {
+      const last = _recoveryProbe?.getLastRecovery() ?? null;
+      if (!last) return NO_UNCERTAINTY;
+      if (!isUncertainOutcome(last.outcome)) return NO_UNCERTAINTY;
+      return {
+        uncertain: true,
+        note: last.outcome === 'deferred'
+          ? 'kuyruk hizalaması bekliyor'
+          : 'kuyruk hizalaması yapılamadı',
+      };
+    },
+  });
+}
+
 function buildPilotDeps(): PilotHandlerDeps {
+  const media = buildRoutedMediaPort();
   return {
     setTheme: applyTheme,
     // getThemeMode: CoreTheme→PilotThemeMode güvenli eşlenemediğinden verilmez (tema rollback yok).
@@ -95,16 +195,11 @@ function buildPilotDeps(): PilotHandlerDeps {
       e.open();
       return true;
     },
-    mediaPlay: () => play(),
-    mediaPause: () => { if (getMediaState().playing) togglePlayPause(); },
-    // PARİTE (MAVI3-4c): eski hat `cancelAssistantDuck(); next()` yapar — aynı sıra + dürüstlük
-    // ön-koşulu. Kuyruk da oturum da yoksa next() ÇAĞRILMAZ ve handler ok:false üretir.
-    mediaNext: createMediaNextPort({
-      cancelAssistantDuck,
-      hasQueue,
-      hasSession: () => getMediaState().hasSession,
-      next: mediaNext,
-    }),
+    // MÜZİK HUB PAKET A: üçü de TEK kapıdan geçer (bkz. buildRoutedMediaPort).
+    // Dönen dürüst iddia (`PLAYING` / `REQUEST_SENT`) sesli cevaba taşınır.
+    mediaPlay: () => media.play(),
+    mediaPause: () => media.pause(),
+    mediaNext: () => media.next(),
     setVolume: (percent: number) => setVolume(percent),
     getVolume: () => {
       try { return useStore.getState().settings.volume; } catch { return undefined; }
@@ -137,6 +232,11 @@ let _handle: MaviWiringHandle | null = null;
  */
 export function startMaviVoiceWiring(): () => void {
   if (_handle) return stopMaviVoiceWiring; // idempotent → guard/listener iki kez bağlanmaz
+  /* MAVI-M2: canlı araç bağlamı kaynağını kaydet. Bu kayıt TAKEOVER bayrağından
+   * BAĞIMSIZDIR — SHADOW modda da (varsayılan) eski komut hattı gerçek bağlamla
+   * çalışmalıdır. Kayıt yoksa `currentMaviVehicleContext()` dürüstçe `unknown`
+   * döner (fail-closed); asla "park halinde" varsayılmaz. */
+  try { setMaviVehicleSnapshotSource(captureMaviVehicleSnapshot); } catch { /* fail-soft */ }
   // Bayrak KAPALIYSA (varsayılan) mod SHADOW'dur → hakem pasif, eski hat hiç susturulmaz.
   const takeover = readTakeoverFlag();
   _handle = createMaviWiring({
@@ -164,6 +264,8 @@ export function startMaviVoiceWiring(): () => void {
 /** Mavi Voice wiring'i durdur (idempotent). */
 export function stopMaviVoiceWiring(): void {
   if (!_handle) return;
+  // MAVI-M2: bağlam kaynağını sök → sonraki komutlar `unknown` (fail-closed) alır.
+  try { setMaviVehicleSnapshotSource(null); } catch { /* fail-soft */ }
   try { setMaviVoiceTimingsSource(null); } catch { /* fail-soft */ }
   try { _handle.dispose(); } catch { /* fail-soft */ }
   _handle = null;

@@ -179,6 +179,12 @@ export async function searchMedia(
  * önceki ve seek bu kuyruk üzerinden web'de de çalışır. */
 let _queue: UnifiedTrack[] = [];
 let _qIndex = -1;
+/**
+ * MÜZİK HUB PAKET A · UI kuyruk revizyonu. Kuyruk her YAZILDIĞINDA artar
+ * (indeks ilerlemesi revizyonu değiştirmez). Native timeline revizyonuyla
+ * karşılaştırılarak sapma tespit edilir — bkz. `queueReconciliation`.
+ */
+let _qRevision = 0;
 
 function _isPlayable(t: UnifiedTrack): boolean {
   return !!t.spotifyUri || typeof t.localIndex === 'number' || !!t.streamUrl;
@@ -216,6 +222,7 @@ export function playMedia(t: UnifiedTrack, queue?: UnifiedTrack[]): void {
   const list = (queue ?? [t]).filter(_isPlayable);
   _queue  = list.length ? list : [t];
   _qIndex = Math.max(0, _queue.findIndex((x) => x.id === t.id));
+  _qRevision += 1;   // kuyruk YAZILDI → revizyon ilerler (uzlaştırma kanıtı)
   _ytFailedIds.clear(); // yeni kullanıcı seçimi → eski gömme-hatası geçmişini sıfırla
   _playTrack(t);
   _persistLast(0);
@@ -372,6 +379,14 @@ export function previous(): void {
 /** Çalan parçada konuma atlar — aktif backend'e göre yönlendirir. */
 export function seek(positionSec: number): void {
   const pkg = getMediaState().activePackage;
+  /* MÜZİK HUB PAKET A: uygulama-içi ses otoritede çalıyorsa seek TEK kapıdan
+   * geçer. Otorite yoksa (web / servis başlamadı) eski yollar devrededir. */
+  if (isNative && (pkg === LOCAL_PKG || pkg === STREAM_PKG)) {
+    void import('./authority/mediaCommandGateway')
+      .then((gw) => gw.seek(positionSec))
+      .catch(() => { /* fail-soft: eski yol aşağıda */ });
+    return;
+  }
   if (pkg === STREAM_PKG)    { streamSeek(positionSec); return; }
   if (pkg === YOUTUBE_PKG)   { youtubeSeek(positionSec); return; }
   if (pkg === LOCAL_PKG)     { localSeek(positionSec * 1000); return; }
@@ -382,6 +397,49 @@ export function seek(positionSec: number): void {
 /** UI: sonraki/önceki kontrollerini etkinleştirmek için kuyrukta >1 parça var mı. */
 export function hasQueue(): boolean {
   return _queue.length > 1;
+}
+
+/**
+ * MÜZİK HUB PAKET B · UI indeksini native gerçeğe HİZALA (kurtarma eylemi).
+ *
+ * YALNIZ indeks düzeltilir: kuyruk içeriği korunur, ÇALAN parça DEĞİŞTİRİLMEZ
+ * ve hiçbir backend'e komut gönderilmez. Geçersiz indeks yok sayılır.
+ */
+export function alignUiQueueIndex(nativeIndex: number): void {
+  if (!Number.isFinite(nativeIndex)) return;
+  const idx = Math.trunc(nativeIndex);
+  if (idx < 0 || idx >= _queue.length) return;
+  if (idx === _qIndex) return;
+  _qIndex = idx;
+  // Revizyon ARTMAZ: kuyruk yazılmadı, yalnız işaretçi hizalandı.
+}
+
+/**
+ * MÜZİK HUB PAKET B · UI kuyruğunu temizle (kurtarma eylemi).
+ * Çağıran, native oynatmanın GERÇEKTEN durduğunu doğrulamış olmalıdır.
+ */
+export function clearUiQueue(): void {
+  if (_queue.length === 0 && _qIndex === -1) return;
+  _queue = [];
+  _qIndex = -1;
+  _qRevision += 1;
+}
+
+/**
+ * MÜZİK HUB PAKET A · UI kuyruğunun SALT-OKUNUR görünümü (uzlaştırma girdisi).
+ * Parça başlığı/sanatçı/URL TAŞIMAZ — yalnız kimlik, indeks, uzunluk, revizyon.
+ * Hiçbir şeyi başlatmaz, kuyruğu değiştirmez.
+ */
+export function getUiQueueView(): {
+  revision: number; length: number; currentIndex: number; currentItemId: string | null;
+} {
+  const cur = _qIndex >= 0 ? _queue[_qIndex] : undefined;
+  return {
+    revision: _qRevision,
+    length: _queue.length,
+    currentIndex: _qIndex,
+    currentItemId: cur ? cur.id : null,
+  };
 }
 
 // Stream/YouTube parçası doğal bitince kuyruğu otomatik ilerlet.
@@ -421,6 +479,7 @@ async function _recoverYouTube(failedId: string): Promise<void> {
     if (alt) {
       _queue  = [alt];
       _qIndex = 0;
+      _qRevision += 1;   // kuyruk YENİDEN YAZILDI (YouTube kurtarma)
       _playTrack(alt);
       _persistLast(0);
     }

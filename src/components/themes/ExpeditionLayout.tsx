@@ -3,7 +3,7 @@ import {
   Navigation, Music2, Mic, Wind, Settings, Car, Bell,
   Plus, Minus, SkipBack, SkipForward, Play, Pause, MoreVertical,
   ChevronRight, Maximize2, CornerUpRight,
-  BatteryCharging, Fuel, Gauge,
+   Fuel,
   Phone, Cloud, AlertTriangle, Camera, Route, ShieldAlert, Shield, Tv2, Zap, LayoutGrid,
   FlaskConical,
 } from 'lucide-react';
@@ -13,21 +13,25 @@ import { useStore } from '../../store/useStore';
 import { useDayNightAttr } from '../../hooks/useDayNightAttr';
 import { useMediaState, togglePlayPause, startMediaHub, stopMediaHub } from '../../platform/mediaService';
 import { next, previous, seek, resumeLastMedia, previewLastMedia } from '../../platform/media/carosMediaLayer';
-import { ensureYouTubeReady } from '../../platform/youtubeService';
+import { preloadYouTubeIfAffordable } from '../../platform/youtubeService';
 import { getPerformanceMode } from '../../platform/performanceMode';
 import { isLowEndDevice } from '../../platform/headUnitCompat';
-import { useOBDState } from '../../platform/obdService';
-import { useGPSLocation, resolveSpeedKmh } from '../../platform/gpsService';
+import { useDisplaySpeed } from '../../hooks/useDisplaySpeed';
+import { useBatteryVoltage } from '../../hooks/useBatteryVoltage';
 import { useLivingThemeState } from '../../hooks/useLivingThemeState';
 import { useUnifiedVehicleStore } from '../../platform/vehicleDataLayer/UnifiedVehicleStore';
 import { VehicleTellTales } from '../vehicle/VehicleTellTales';
 import { useEngineReadout } from '../../hooks/useEngineReadout';
+import { useOBDState } from '../../platform/obdService';
+import { isObdReadingLive } from '../../platform/vehicleStatusModel';
 import { useClock, DAYS_TR, MONTHS_TR } from '../../hooks/useClock';
 import { useNotificationState } from '../../platform/notificationService';
 import { openDrawer } from '../../platform/drawerBus';
 import { StatusControls } from '../common/StatusControls';
 import { openMusicDrawer } from '../../platform/mediaUi';
 import { MiniMapWidget } from '../map/MiniMapWidget';
+import { TripMeterRow } from '../trip/TripMeterRow';
+import { useNavSummary } from '../../hooks/useNavSummary';
 import { type AppItem } from '../../data/apps';
 import type { SmartSnapshot } from '../../platform/smartEngine';
 import { MagicContextCard } from '../common/MagicContextCard';
@@ -203,9 +207,7 @@ const SpeedPlate = memo(function SpeedPlate() {
   const p = usePal();
   const use24Hour = useStore(s => s.settings.use24Hour);
   const { time, date } = useClock(use24Hour, false);
-  const obd = useOBDState();
-  const gps = useGPSLocation();
-  const speed = Math.round(resolveSpeedKmh(gps, obd.speed ?? 0));
+  const speed = useDisplaySpeed() ?? 0;
   // 270° yay (r=100, çevre 628 → görünür 471); dolum = hız/200
   const offset = useMemo(() => 471 - Math.min(speed / 200, 1) * 471, [speed]);
   return (
@@ -238,10 +240,20 @@ const SpeedPlate = memo(function SpeedPlate() {
 /* ─── RANGE / FUEL PLATE ─────────────────────────────────────────── */
 const RangePlate = memo(function RangePlate() {
   const p = usePal();
+  const obd = useOBDState();
   const eng = useEngineReadout();
-  const odometer = useUnifiedVehicleStore(s => s.odometer);
-  const lvl = eng.fuel;
-  const range = lvl != null ? Math.round((lvl / 100) * 750) : null;
+  /* SAHA 2026-08-06: bu plaka OBD bağlı DEĞİLKEN "675 km MENZİL" gösteriyordu ve
+     araç 1,5 km ilerlerken değer hiç değişmedi (donuk uydurma).
+     İKİ KUSUR VARDI ve ikisi de Tesla/Horizon'da ÇOKTAN düzeltilmişti — bu plaka
+     atlanmıştı (aktif tema burasıydı):
+       (a) canlılık kapısı yoktu → bayat OBD okuması sonsuza dek canlı sanıldı,
+       (b) sabit 750 km katsayısı → menzil UYDURULUYORDU.
+     Menzil artık araç profilinin tank+tüketim hesabından gelir; yoksa dürüstçe '—'. */
+  const live = isObdReadingLive(obd);
+  const lvl = live && obd.fuelLevel != null && obd.fuelLevel >= 0 ? obd.fuelLevel : eng.fuel;
+  const range = live && obd.estimatedRangeKm != null && obd.estimatedRangeKm >= 0
+    ? Math.round(obd.estimatedRangeKm)
+    : null;
   const seg = lvl != null ? Math.round(lvl / 10) : 0;
   return (
     <Plate style={{ padding: '12px 20px', display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 9 }}>
@@ -259,12 +271,14 @@ const RangePlate = memo(function RangePlate() {
         </div>
         <span style={{ fontSize: 11, fontWeight: 700, color: p.ink2 }}>F</span>
       </div>
-      {/* Kilometre (odometre) — GPS, OBD'siz çalışır; aynı panelde ayrı etiketli okuma */}
-      <div className="flex items-center" style={{ gap: 12, marginTop: 2, paddingTop: 9, borderTop: `1px solid ${p.edge}` }}>
-        <Gauge className="w-[27px] h-[27px]" style={{ color: p.ink2 }} />
-        <span style={{ fontWeight: 800, fontSize: 30, color: p.ink, fontVariantNumeric: 'tabular-nums' }}>{Math.round(odometer)} <small style={{ fontSize: 16, color: p.ink2, fontWeight: 600 }}>km</small></span>
-        <span style={{ marginLeft: 'auto' }}><Label>Kilometre</Label></span>
-      </div>
+      {/* Yol Sayacı — RESETLENEBİLİR kullanıcı sayacı (kümülatif odometre farkı).
+          Eskiden burada ham kümülatif odometre ("Kilometre") vardı; sıfırlanamadığı
+          için pratikte hep 0 okunuyordu. */}
+      <TripMeterRow
+        palette={{ ink: p.ink, ink2: p.ink2, ink3: p.ink3, accent: p.accent, tile: p.plateSunk, edge: p.edge }}
+        valueSize={30} unitSize={16} labelSize={12} iconSize={27} gap={12}
+        showTopBorder
+      />
     </Plate>
   );
 });
@@ -272,6 +286,7 @@ const RangePlate = memo(function RangePlate() {
 /* ─── MAP PLATE (canlı harita + expedition overlay) ──────────────── */
 const MapPlate = memo(function MapPlate({ onOpenMap, fullMapOpen }: { onOpenMap: () => void; fullMapOpen?: boolean }) {
   const p = usePal();
+  const navSummary = useNavSummary();
   const chip: React.CSSProperties = { background: p.night ? 'rgba(16,12,7,0.82)' : 'rgba(250,244,232,0.9)', border: `1px solid ${p.edge}`, borderRadius: 13 };
   // minHeight 200: grid çökse bile harita konteyneri asla 0px olamaz —
   // MiniMapWidget 0 boyutta init'i bekletir (MiniMapWidget.tsx tryInit)
@@ -284,15 +299,20 @@ const MapPlate = memo(function MapPlate({ onOpenMap, fullMapOpen }: { onOpenMap:
         <div style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, pointerEvents: 'none', borderRadius: 20, boxShadow: p.night ? 'inset 0 0 90px rgba(0,0,0,.65), inset 0 2px 0 rgba(176,134,76,.30)' : 'inset 0 0 60px rgba(0,0,0,.4), inset 0 2px 0 rgba(255,255,255,.6)' }} />
       </div>
       <div className="absolute flex items-start justify-between" style={{ top: 14, left: 14, right: 14, pointerEvents: 'none' }}>
-        <div style={{ ...chip, padding: '9px 13px', pointerEvents: 'auto' }}>
-          <div className="flex items-center" style={{ gap: 12 }}>
-            <div className="flex items-center justify-center" style={{ width: 36, height: 36, borderRadius: 11, background: p.accent, boxShadow: `0 6px 16px ${p.accentGlow}` }}><CornerUpRight className="w-5 h-5" style={{ color: '#fff' }} /></div>
-            <div>
-              <div style={{ fontSize: 21, fontWeight: 800, color: p.inkCritical, lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>2.4 <span style={{ fontSize: 12, fontWeight: 600, color: p.ink2 }}>km</span></div>
-              <div style={{ fontSize: 12, fontWeight: 500, color: p.ink2, marginTop: 2 }}>Sahil Yolu Cd.</div>
+        {/* Rota özeti — GERÇEK navigasyon durumundan. Sabit sahte yol adı + mesafe
+            YAZILIYDI; hiçbir kaynağa bağlı değildi (saha 2026-08-02). Rota yoksa
+            chip HİÇ gösterilmez — sahte hedef/mesafe ÜRETİLMEZ. */}
+        {navSummary ? (
+          <div style={{ ...chip, padding: '9px 13px', pointerEvents: 'auto' }}>
+            <div className="flex items-center" style={{ gap: 12 }}>
+              <div className="flex items-center justify-center" style={{ width: 36, height: 36, borderRadius: 11, background: p.accent, boxShadow: `0 6px 16px ${p.accentGlow}` }}><CornerUpRight className="w-5 h-5" style={{ color: '#fff' }} /></div>
+              <div>
+                <div style={{ fontSize: 21, fontWeight: 800, color: p.inkCritical, lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>{navSummary.mesafe} <span style={{ fontSize: 12, fontWeight: 600, color: p.ink2 }}>km</span></div>
+                <div style={{ fontSize: 12, fontWeight: 500, color: p.ink2, marginTop: 2 }}>{navSummary.hedef}</div>
+              </div>
             </div>
           </div>
-        </div>
+        ) : <div />}
         <div className="flex items-center" style={{ gap: 8, pointerEvents: 'auto' }}>
           <div className="flex items-center" style={{ gap: 6, padding: '6px 10px', borderRadius: 999, ...chip }}>
             <span style={{ width: 6, height: 6, borderRadius: '50%', background: p.accent, animation: 'exPulse 2s infinite' }} />
@@ -304,16 +324,14 @@ const MapPlate = memo(function MapPlate({ onOpenMap, fullMapOpen }: { onOpenMap:
       <div className="absolute flex flex-col" style={{ right: 14, top: '50%', transform: 'translateY(-50%)', gap: 8 }} onClick={e => e.stopPropagation()}>
         {[Plus, Minus].map((Ic, i) => <button key={i} className="ex-btn flex items-center justify-center" style={{ width: 34, height: 34, ...chip, cursor: 'pointer' }}><Ic className="w-4 h-4" style={{ color: p.ink2 }} /></button>)}
       </div>
-      <div className="absolute flex items-center" style={{ bottom: 14, left: 14, pointerEvents: 'none' }}>
-        <div className="flex items-center" style={{ gap: 14, padding: '8px 15px', ...chip, pointerEvents: 'auto' }}>
-          <span style={{ fontSize: 13, fontWeight: 700, color: p.ink }}>23 dk</span>
-          <span style={{ fontSize: 12, color: p.ink3 }}>· 19:56</span>
-          <span style={{ width: 1, height: 14, background: p.hairline }} />
-          <span style={{ fontSize: 12, fontWeight: 600, color: p.ink2 }}>18 km</span>
-          <span style={{ width: 1, height: 14, background: p.hairline }} />
-          <div className="flex items-center" style={{ gap: 6 }}><BatteryCharging className="w-4 h-4" style={{ color: p.accent }} /><span style={{ fontSize: 12, fontWeight: 600, color: p.ink2 }}>EV kullanımı</span></div>
-        </div>
-      </div>
+      {/* Kütük #382/#431 — SAHTE ETA ŞERİDİ KALDIRILDI (saha 2026-08-05).
+       * Burada "23 dk · 19:56 · 18 km · EV kullanımı" SABİT değerleri vardı ve
+       * rota iptal edilir edilmez geri geliyordu (`shot_18`). Hiçbiri ölçüme
+       * dayanmıyordu; üstelik araç ICE iken "EV kullanımı" yazıyordu.
+       * Kütüğün kabul ölçütü: "ya gerçek kaynağa bağlanmalı ya da rota yokken
+       * HİÇ gösterilmemeli — kapatma yolu sayıları değiştirmek DEĞİLDİR".
+       * Rota yokken gösterilecek bir ETA YOKTUR → şerit kaldırıldı.
+       * Aktif rotanın gerçek şeridi mini haritanın kendi HUD'ında zaten var. */}
     </Plate>
   );
 });
@@ -328,10 +346,10 @@ const MusicPlate = memo(function MusicPlate() {
     startMediaHub();
     previewLastMedia();
     if (getPerformanceMode() === 'lite') {
-      const id = window.setTimeout(() => { void ensureYouTubeReady().catch(() => {}); }, 4000);
+      const id = window.setTimeout(() => { preloadYouTubeIfAffordable(); }, 4000);
       return () => { window.clearTimeout(id); stopMediaHub(); };
     }
-    void ensureYouTubeReady().catch(() => {});
+    preloadYouTubeIfAffordable();
     return () => stopMediaHub();
   }, []);
   const total = track.durationSec || 0;
@@ -406,11 +424,10 @@ const MusicPlate = memo(function MusicPlate() {
 /* ─── VEHICLE PLATE (CarOS Rover + canlı metrikler) ──────────────── */
 const VehiclePlate = memo(function VehiclePlate({ onOpenSettings }: { onOpenSettings: () => void }) {
   const p = usePal();
-  const obd = useOBDState();
-  const gps = useGPSLocation();
-  const volt = useUnifiedVehicleStore(s => s.canBatteryVolt);
+  const battery = useBatteryVoltage();   // kütük #427: CAN → OBD otoritesi
+  const volt = battery.volt;
   const eng = useEngineReadout();
-  const speed = Math.round(resolveSpeedKmh(gps, obd.speed ?? 0));
+  const speed = useDisplaySpeed() ?? 0;
   const motor = eng.engineTemp != null ? Math.round(eng.engineTemp) : null;
   const rpm = eng.rpm;
   return (
@@ -430,18 +447,19 @@ const VehiclePlate = memo(function VehiclePlate({ onOpenSettings }: { onOpenSett
       <div className="flex" style={{ borderTop: `1px solid ${p.hairline}`, position: 'relative', zIndex: 2 }} onClick={e => e.stopPropagation()}>
         <Metric k="Motor" v={motor != null ? `${motor}` : '—'} unit="°C" />
         <Metric k="Devir" v={rpm != null ? `${Math.round(rpm)}` : '—'} unit="" border />
-        <Metric k="Akü"  v={volt != null ? volt.toFixed(1) : '—'} unit="V" border />
+        <Metric k="Akü"  v={volt != null ? volt.toFixed(1) : '—'} unit="V" border warn={battery.isWarning} />
         <Metric k="Hız"  v={`${speed}`} unit=" km/h" border />
       </div>
     </Plate>
   );
 });
-function Metric({ k, v, unit, border }: { k: string; v: string; unit: string; border?: boolean }) {
+function Metric({ k, v, unit, border, warn }: { k: string; v: string; unit: string; border?: boolean; warn?: boolean }) {
   const p = usePal();
   return (
     <div style={{ flex: 1, padding: border ? '12px 4px 16px 16px' : '12px 4px 16px', borderLeft: border ? `1px solid ${p.hairline}` : undefined }}>
       <div style={{ fontSize: 13, fontWeight: 600, letterSpacing: '0.05em', color: p.ink2, textTransform: 'uppercase' }}>{k}</div>
-      <div style={{ fontWeight: 700, fontSize: 27, marginTop: 2, color: p.ink, fontVariantNumeric: 'tabular-nums' }}>{v}<small style={{ fontSize: 15, color: p.ink2, fontWeight: 600 }}>{unit}</small></div>
+      {/* Kütük #427: WARN seviyesinde değer uyarı renginde gösterilir. */}
+      <div style={{ fontWeight: 700, fontSize: 27, marginTop: 2, color: warn ? 'var(--oem-warn)' : p.ink, fontVariantNumeric: 'tabular-nums' }}>{v}<small style={{ fontSize: 15, color: p.ink2, fontWeight: 600 }}>{unit}</small></div>
     </div>
   );
 }
@@ -659,7 +677,7 @@ const ExpeditionDock = memo(function ExpeditionDock({ onOpenMap, onOpenApps, onO
   const p = usePal();
   const n = useNotificationState();
   /* CAROS LAB — AppGrid kartı ve DockBar kısayoluyla AYNI fail-closed kapı
-     (DEBUG_ENABLED && canDebug). Kapı kapalıyken buton hiç render EDİLMEZ;
+     (DEVELOPER_FEATURES_ENABLED). Kapı kapalıyken buton hiç render EDİLMEZ;
      `openCarosLab` ayrıca kendi içinde tekrar kontrol eder (çift savunma).
      Sağ grubun EN SONUNDA: sürücü akışındaki kısayolların sırası değişmez. */
   const carosLabAllowed = useCarosLabAllowed();

@@ -15,11 +15,12 @@ import { useStore } from '../../store/useStore';
 import { useDayNightAttr } from '../../hooks/useDayNightAttr';
 import { useMediaState, togglePlayPause, startMediaHub, stopMediaHub } from '../../platform/mediaService';
 import { next, previous, resumeLastMedia, previewLastMedia } from '../../platform/media/carosMediaLayer';
-import { ensureYouTubeReady } from '../../platform/youtubeService';
+import { preloadYouTubeIfAffordable } from '../../platform/youtubeService';
 import { getPerformanceMode } from '../../platform/performanceMode';
 import { isLowEndDevice } from '../../platform/headUnitCompat';
 import { useOBDState } from '../../platform/obdService';
-import { useGPSLocation, resolveSpeedKmh } from '../../platform/gpsService';
+import { useDisplaySpeed } from '../../hooks/useDisplaySpeed';
+import { useBatteryVoltage } from '../../hooks/useBatteryVoltage';
 import { useLivingThemeState } from '../../hooks/useLivingThemeState';
 import { useUnifiedVehicleStore } from '../../platform/vehicleDataLayer/UnifiedVehicleStore';
 import { useClock } from '../../hooks/useClock';
@@ -29,6 +30,8 @@ import { useNotificationState } from '../../platform/notificationService';
 import { openDrawer } from '../../platform/drawerBus';
 import { openMusicDrawer } from '../../platform/mediaUi';
 import { MiniMapWidget } from '../map/MiniMapWidget';
+import { TripMeterRow } from '../trip/TripMeterRow';
+import { useNavSummary } from '../../hooks/useNavSummary';
 import { type AppItem } from '../../data/apps';
 import type { SmartSnapshot } from '../../platform/smartEngine';
 import { MagicContextCard } from '../common/MagicContextCard';
@@ -210,9 +213,7 @@ const ClockCard = memo(function ClockCard() {
 /* ─── SPEED GAUGE (4WD) ──────────────────────────────────────────── */
 const SpeedGauge = memo(function SpeedGauge() {
   const p = usePal();
-  const obd = useOBDState();
-  const gps = useGPSLocation();
-  const speed = Math.round(resolveSpeedKmh(gps, obd.speed ?? 0));
+  const speed = useDisplaySpeed() ?? 0;
   const R = 52, cx = 64, cy = 64, START = 135, SPAN = 270;
   const arc = useMemo(() => {
     const rad = (d: number) => (d * Math.PI) / 180;
@@ -247,14 +248,16 @@ const SpeedGauge = memo(function SpeedGauge() {
   );
 });
 
-/* ─── FUEL / MENZİL + KİLOMETRE CARD ─────────────────────────────────
-   İki ayrı etiketli okuma tek panelde: Menzil (yakıt → OBD) + Kilometre
-   (odometre, GPS'ten beslenir, OBD'siz de çalışır). Ayrı tam kart dar/kısa
-   kolonu taşırıyordu → tek panel + ince ayraç (sığma garantili). */
+/* ─── FUEL / MENZİL + YOL SAYACI CARD ────────────────────────────────
+   İki ayrı etiketli okuma tek panelde: Menzil (yakıt → OBD) + Yol Sayacı
+   (RESETLENEBİLİR kullanıcı sayacı; kümülatif odometre farkından türer, GPS
+   ile OBD'siz de çalışır). Ayrı tam kart dar/kısa kolonu taşırıyordu → tek
+   panel + ince ayraç (sığma garantili).
+   NOT: Buradaki alt satır eskiden ham kümülatif odometreyi ("KİLOMETRE")
+   gösteriyordu; sıfırlanamadığı için pratikte hep 0 okunuyordu. */
 const FuelCard = memo(function FuelCard() {
   const p = usePal();
   const obd = useOBDState();
-  const odometer = useUnifiedVehicleStore(s => s.odometer);
   // CANLI KAPISI (saha 2026-07-17): OBD bağlı değilken "345 km menzil + yarı dolu yakıt"
   // gösteriliyordu. Sebep: canSnapshotService son bilinen yakıtı 12 SAATE kadar geri yükleyip
   // patch'e source='real' damgası vuruyor → `fuelLevel >= 0` kontrolü bunu ELEYEMİYOR.
@@ -282,12 +285,12 @@ const FuelCard = memo(function FuelCard() {
           <div key={i} style={{ flex: 1, height: 6, borderRadius: 2, background: i < seg ? p.accent : p.tile }} />
         ))}
       </div>
-      <div className="flex items-center gap-2" style={{ marginTop: 8, paddingTop: 8, borderTop: `1px solid ${p.tile}` }}>
-        <Gauge className="w-5 h-5" style={{ color: p.accent2 }} />
-        <span style={{ fontSize: 24, fontWeight: 800, color: p.ink, fontVariantNumeric: 'tabular-nums' }}>{Math.round(odometer)}</span>
-        <span style={{ fontSize: 13, fontWeight: 600, color: p.ink2 }}>km</span>
-        <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.12em', color: p.ink3, marginLeft: 'auto' }}>KİLOMETRE</span>
-      </div>
+      <TripMeterRow
+        palette={{ ink: p.ink, ink2: p.ink2, ink3: p.ink3, accent: p.accent, tile: p.tile, edge: p.tile }}
+        valueSize={24} unitSize={13} labelSize={11} iconSize={20} gap={8}
+        showTopBorder
+        style={{ marginTop: 8 }}
+      />
     </div>
   );
 });
@@ -295,6 +298,7 @@ const FuelCard = memo(function FuelCard() {
 /* ─── MAP CARD ───────────────────────────────────────────────────── */
 const MapCard = memo(function MapCard({ onOpenMap, fullMapOpen }: { onOpenMap: () => void; fullMapOpen?: boolean }) {
   const p = usePal();
+  const navSummary = useNavSummary();
   return (
     <div onClick={onOpenMap} className="relative overflow-hidden cursor-pointer flex-1 min-h-0 min-w-0" style={{ borderRadius: 18, border: p.cardBorder, boxShadow: p.cardShadow }}>
       <div className="absolute inset-0">
@@ -303,17 +307,21 @@ const MapCard = memo(function MapCard({ onOpenMap, fullMapOpen }: { onOpenMap: (
           : <MiniMapWidget onFullScreenClick={onOpenMap} />}
       </div>
       <div className="absolute top-3 left-3 right-3 flex items-start justify-between pointer-events-none">
-        <div className="pointer-events-auto" style={{ background: p.glass, border: p.glassBorder, borderRadius: 14, padding: '9px 13px', boxShadow: p.cardShadow }}>
-          <div className="flex items-center gap-3">
-            <div className="flex items-center justify-center rounded-xl" style={{ width: 36, height: 36, background: p.accent, boxShadow: `0 6px 16px ${p.accentGlow}` }}>
-              <CornerUpRight className="w-5 h-5" style={{ color: '#fff' }} />
-            </div>
-            <div>
-              <div style={{ fontSize: 21, fontWeight: 800, color: p.ink, lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>2.4 <span style={{ fontSize: 12, fontWeight: 600, color: p.ink2 }}>km</span></div>
-              <div style={{ fontSize: 11.5, fontWeight: 500, color: p.ink2, marginTop: 2 }}>Sahil Yolu Cd.</div>
+        {/* Rota özeti — GERÇEK navigasyon durumundan (sabit sahte yol adı + mesafe
+            kaldırıldı, saha 2026-08-02). Rota yoksa chip HİÇ gösterilmez. */}
+        {navSummary ? (
+          <div className="pointer-events-auto" style={{ background: p.glass, border: p.glassBorder, borderRadius: 14, padding: '9px 13px', boxShadow: p.cardShadow }}>
+            <div className="flex items-center gap-3">
+              <div className="flex items-center justify-center rounded-xl" style={{ width: 36, height: 36, background: p.accent, boxShadow: `0 6px 16px ${p.accentGlow}` }}>
+                <CornerUpRight className="w-5 h-5" style={{ color: '#fff' }} />
+              </div>
+              <div>
+                <div style={{ fontSize: 21, fontWeight: 800, color: p.ink, lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>{navSummary.mesafe} <span style={{ fontSize: 12, fontWeight: 600, color: p.ink2 }}>km</span></div>
+                <div style={{ fontSize: 11.5, fontWeight: 500, color: p.ink2, marginTop: 2 }}>{navSummary.hedef}</div>
+              </div>
             </div>
           </div>
-        </div>
+        ) : <div />}
         <div className="flex items-center gap-2 pointer-events-auto">
           <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-full" style={{ background: p.glass, border: p.glassBorder }}>
             <span className="rounded-full" style={{ width: 6, height: 6, background: p.good, animation: 'exPulse 2s infinite' }} />
@@ -331,19 +339,14 @@ const MapCard = memo(function MapCard({ onOpenMap, fullMapOpen }: { onOpenMap: (
           </button>
         ))}
       </div>
-      <div className="absolute bottom-3 left-3 right-3 flex items-center pointer-events-none">
-        <div className="flex items-center gap-3.5 pointer-events-auto" style={{ background: p.glass, border: p.glassBorder, borderRadius: 14, padding: '8px 15px' }}>
-          <span style={{ fontSize: 12.5, fontWeight: 700, color: p.ink }}>23 dk</span>
-          <span style={{ fontSize: 11.5, color: p.ink3 }}>· 19:56</span>
-          <div style={{ width: 1, height: 14, background: p.night ? 'rgba(255,255,255,0.12)' : 'rgba(120,92,52,0.25)' }} />
-          <span style={{ fontSize: 12, fontWeight: 600, color: p.ink2 }}>18 km</span>
-          <div style={{ width: 1, height: 14, background: p.night ? 'rgba(255,255,255,0.12)' : 'rgba(120,92,52,0.25)' }} />
-          <div className="flex items-center gap-1.5">
-            <BatteryCharging className="w-4 h-4" style={{ color: p.good }} />
-            <span style={{ fontSize: 11.5, fontWeight: 600, color: p.ink2 }}>EV kullanımı</span>
-          </div>
-        </div>
-      </div>
+      {/* Kütük #382/#431 — SAHTE ETA ŞERİDİ KALDIRILDI (saha 2026-08-05).
+       * Burada "23 dk · 19:56 · 18 km · EV kullanımı" SABİT değerleri vardı ve
+       * rota iptal edilir edilmez geri geliyordu (`shot_18`). Hiçbiri ölçüme
+       * dayanmıyordu; üstelik araç ICE iken "EV kullanımı" yazıyordu.
+       * Kütüğün kabul ölçütü: "ya gerçek kaynağa bağlanmalı ya da rota yokken
+       * HİÇ gösterilmemeli — kapatma yolu sayıları değiştirmek DEĞİLDİR".
+       * Rota yokken gösterilecek bir ETA YOKTUR → şerit kaldırıldı.
+       * Aktif rotanın gerçek şeridi mini haritanın kendi HUD'ında zaten var. */}
     </div>
   );
 });
@@ -356,10 +359,10 @@ const MusicCard = memo(function MusicCard() {
     startMediaHub();
     previewLastMedia();
     if (getPerformanceMode() === 'lite') {
-      const id = window.setTimeout(() => { void ensureYouTubeReady().catch(() => {}); }, 4000);
+      const id = window.setTimeout(() => { preloadYouTubeIfAffordable(); }, 4000);
       return () => { window.clearTimeout(id); stopMediaHub(); };
     }
-    void ensureYouTubeReady().catch(() => {});
+    preloadYouTubeIfAffordable();
     return () => stopMediaHub();
   }, []);
   const handlePlay = () => {
@@ -450,9 +453,9 @@ const RuggedSUV = memo(function RuggedSUV() {
 const VehicleCard = memo(function VehicleCard({ onOpenSettings }: { onOpenSettings: () => void }) {
   const p = usePal();
   const obd = useOBDState();
-  const gps = useGPSLocation();
-  const volt = useUnifiedVehicleStore(s => s.canBatteryVolt);
-  const speed = Math.round(resolveSpeedKmh(gps, obd.speed ?? 0));
+  const battery = useBatteryVoltage();   // kütük #427: CAN → OBD otoritesi
+  const volt = battery.volt;
+  const speed = useDisplaySpeed() ?? 0;
   const motor = obd.engineTemp != null ? `${Math.round(obd.engineTemp)}°C` : '—';
   const aku = volt != null ? `${volt.toFixed(1)}V` : '—';
   return (
@@ -466,18 +469,19 @@ const VehicleCard = memo(function VehicleCard({ onOpenSettings }: { onOpenSettin
       <div className="flex-1 min-h-0 flex items-center justify-center my-1"><RuggedSUV /></div>
       <div className="flex items-stretch gap-2" onClick={e => e.stopPropagation()}>
         <Stat icon={<Thermometer className="w-5 h-5" style={{ color: p.accent2 }} />} value={motor} label="Motor" />
-        <Stat icon={<BatteryCharging className="w-5 h-5" style={{ color: p.good }} />} value={aku} label="Akü" />
+        <Stat icon={<BatteryCharging className="w-5 h-5" style={{ color: battery.isWarning ? 'var(--oem-warn)' : p.good }} />} value={aku} label="Akü" warn={battery.isWarning} />
         <Stat icon={<Gauge className="w-5 h-5" style={{ color: p.ink2 }} />} value={`${speed}`} label="Hız" />
       </div>
     </div>
   );
 });
-function Stat({ icon, value, label }: { icon: React.ReactNode; value: string; label: string }) {
+function Stat({ icon, value, label, warn }: { icon: React.ReactNode; value: string; label: string; warn?: boolean }) {
   const p = usePal();
   return (
-    <div className="flex-1 flex flex-col items-center gap-1 py-2.5 rounded-xl" style={{ background: p.tile }}>
+    <div className="flex-1 flex flex-col items-center gap-1 py-2.5 rounded-xl" style={{ background: warn ? 'var(--oem-warn-soft)' : p.tile }}>
       {icon}
-      <div style={{ fontSize: 17, fontWeight: 800, color: p.ink, fontVariantNumeric: 'tabular-nums', lineHeight: 1 }}>{value}</div>
+      {/* Kütük #427: uyarı durumu SÜRÜCÜYE görünür olmalı — toast kaçabilir, kart kalıcıdır. */}
+      <div style={{ fontSize: 17, fontWeight: 800, color: warn ? 'var(--oem-warn)' : p.ink, fontVariantNumeric: 'tabular-nums', lineHeight: 1 }}>{value}</div>
       <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: '0.04em', color: p.ink2 }}>{label}</div>
     </div>
   );
@@ -605,7 +609,7 @@ const ExpeditionDock = memo(function ExpeditionDock({ onOpenMap, onOpenApps, onO
 }) {
   const p = usePal();
   /* CAROS LAB — AppGrid kartı ve DockBar kısayoluyla AYNI fail-closed kapı
-     (DEBUG_ENABLED && canDebug); kapı kapalıyken hiç render edilmez. */
+     (DEVELOPER_FEATURES_ENABLED); kapı kapalıyken hiç render edilmez. */
   const carosLabAllowed = useCarosLabAllowed();
   // Expedition mantığı: iki BAĞIMSIZ sürekli-kaydırma bölgesi, ortada her zaman
   // görünür saat (kaydırma kabı DIŞINDA overlay). Sol/sağ grup serbest kaydırılır →

@@ -89,6 +89,17 @@ const LRU_PROTECTED = new Set<string>([
   'car-vehicle-knowledge-base', // Araç bilgi tabanı (öğrenilen PID/DID istatistikleri, bounded LRU)
   'car-vehicle-learning-evidence', // Araç öğrenme kanıtları (marka bazlı evidence, bounded LRU)
   'car-deep-scan-history',    // Deep Scan araç geçmişi (mode kararı için, kendi 16-araç LRU tavanı var)
+  /* car-can-snapshot — SAHA 2026-08-05 · kütük #400.
+   * ÖLÇÜLDÜ: OBD BAĞLI ve veri akarken (motor 93→94 °C, devir 1888→2163, yakıt %60)
+   * `localStorage['car-can-snapshot']` **63,4 saat** eskiydi ve 4 sn'lik gözlemde
+   * hiç değişmedi. KÖK: bu anahtar kritik listede DEĞİLDİ; `_commitToStorage`
+   * native dalında `localStorage.setItem` YALNIZ `_isCritical(key)` için çalışır
+   * (yukarıdaki double-lock bloğu). Yani cihazda snapshot sadece Filesystem'e
+   * yazılıyor, senkron okuma yolu (`hydrateCanSnapshotSync` → `safeGetRaw`) ise
+   * localStorage'a bakıyordu → açılışta HER ZAMAN bayat veri okunuyordu.
+   * Snapshot'ın tüm amacı çökme/yeniden başlatma sonrası TAZE son değeri
+   * verebilmek olduğundan, bu anahtar kritik katmanda olmalıdır. */
+  'car-can-snapshot',
 ]);
 
 /**
@@ -132,6 +143,12 @@ const _SAFETY_DEBOUNCE_KEYS = new Set<string>([
   'car-maintenance-store',         // bakım güncelleme
   'car-safety-brain-v1',           // Safety Brain — ardışık fault flush
   'car-launcher-vehicle-state',    // odometer — kritik anlarda immediate flush, normal akışta 1s buffer
+  /* car-can-snapshot (#400): kritik katmana alındı — ama OBD akışı saniyede
+   * birden çok paket üretir. Debounce'suz kritik yol her pakette diske yazardı
+   * (eMMC aşınması, CLAUDE.md §3). 1 s tamponu: veri kaybı riski yok (bir sonraki
+   * pakette yine yazılır) ve `stopOBD`/`pagehide` yolunda `flushCanSnapshotNow`
+   * tamponu zaten bypass ederek anında mühürler. */
+  'car-can-snapshot',
 ]);
 
 /* ── CacheStorage temizleyici (best-effort) ──────────────────── */
@@ -687,9 +704,28 @@ export function safeRemoveRaw(key: string): void {
   if (NATIVE) {
     _fsCache.delete(key);
     void Filesystem.deleteFile({ path: _fp(key), directory: FS_DIR }).catch(() => {});
-  } else {
-    try { localStorage.removeItem(key); } catch { /* ignore */ }
   }
+
+  /* localStorage HER İKİ MODDA temizlenir — eskiden bu satır `else` dalındaydı
+     ve NATIVE modda HİÇ çalışmıyordu (saha 2026-08-02).
+     KÖK: `safeSetRawImmediate` native modda localStorage'a **katman-2 yedeği**
+     yazar (bkz. aynı dosyada "Katman 2: localStorage senkron backup"), ve
+     `safeGetRaw` native okumada **Stage 4**'te localStorage'a düşer
+     ("Seamless migration"). Silme localStorage'a dokunmayınca:
+       sil → _fsCache boş + Filesystem dosyası yok → AMA localStorage kopyası kalır
+       → uygulama yeniden başlayınca `safeGetRaw` Stage 4'ten ESKİ VERİYİ döndürür
+       → "silinmiş" kayıt DİRİLİR.
+     Cihazda gözlenen sonuç: kullanıcı navigasyonu iptal ettiği hâlde
+     `nav_crash_state` mührü hayatta kalıyor, sonraki açılışta
+     `restoreNavigationAsync` **kullanıcı istemeden** sessizce rotayı geri
+     yüklüyordu (kod yorumu: "Tüm süreç sessizdir — kullanıcıyı korkutmaz") ve
+     bayat step'ten üretilen rota saçma manevra veriyordu ("U dönüşü yapın").
+     Etki yalnız navigasyon değil: `commandCrypto` cihaz ÖZEL ANAHTARI,
+     panic snapshot, nonce defteri ve zustand `removeItem` adaptörü de aynı
+     yoldan diriliyordu.
+     NOT: `safeLruEvict` bu gerçeği zaten biliyordu ve localStorage'ı native'de
+     de siliyordu (#18) — `safeRemoveRaw` atlanmıştı. */
+  try { localStorage.removeItem(key); } catch { /* ignore */ }
 }
 
 /**

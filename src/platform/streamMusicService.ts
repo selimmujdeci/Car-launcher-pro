@@ -94,7 +94,19 @@ export function streamSetVolume(percent: number): void {
  * @param url    Doğrudan ses akışı / radyo URL'si
  * @param artist Alt başlık (varsayılan "Canlı Yayın")
  */
-export async function playStream(name: string, url: string, artist = 'Canlı Yayın'): Promise<void> {
+export async function playStream(
+  name: string,
+  url: string,
+  artist = 'Canlı Yayın',
+  kind: 'STREAM' | 'INTERNET_RADIO' = 'STREAM',
+): Promise<void> {
+  /* ── MÜZİK HUB PAKET A ──────────────────────────────────────────────────
+   * HTML5 Audio elementi ayrı bir playback alanıydı: audio focus istemiyor,
+   * kulaklık çıkınca susmuyor, bildirim/direksiyon tuşlarıyla kontrol
+   * edilemiyordu. Native'de akış artık tek otoriteye (ExoPlayer) verilir.
+   * Web'de otorite YOKTUR → HTML5 yolu aynen korunur (geriye uyumluluk). */
+  if (await _playViaAuthority(name, url, artist, kind)) return;
+
   const a = _ensureAudio();
 
   // Çakışma önleme: harici MediaSession çalıyorsa duraklat
@@ -165,4 +177,35 @@ export function streamStop(): void {
 
 export function isStreamActive(): boolean {
   return _isStreamSession();
+}
+
+/**
+ * Akışı native otoriteye devreder.
+ * @returns otorite işi üstlendiyse true (HTML5 yolu ÇALIŞTIRILMAZ).
+ */
+async function _playViaAuthority(
+  name: string,
+  url: string,
+  artist: string,
+  kind: 'STREAM' | 'INTERNET_RADIO',
+): Promise<boolean> {
+  try {
+    const { isNative } = await import('./bridge');
+    if (!isNative) return false;   // web: otorite yok, HTML5 devrede
+
+    const [{ playSource }, { noteQueue }] = await Promise.all([
+      import('./media/authority/mediaCommandGateway'),
+      import('./media/authority/mediaAuthorityRuntime'),
+    ]);
+
+    const items = [{ id: `stream-${url}`, uri: url, title: name, artist }];
+    noteQueue(kind, items);
+    const truth = await playSource({ source: kind, items, startIndex: 0, autoPlay: true });
+
+    if (truth.outcome === 'VERIFIED' || truth.outcome === 'ACCEPTED_UNVERIFIED') return true;
+    // Otorite yoksa HTML5'e düşülür; başka hata varsa ikinci ses kaynağı AÇILMAZ.
+    return truth.failureCode !== 'authority_unavailable';
+  } catch {
+    return false;
+  }
 }

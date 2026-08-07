@@ -3,10 +3,10 @@ import { memo, useEffect, useState, useMemo, useRef, lazy, Suspense, createConte
 const VoiceAssistant = lazy(() => import('../modals/VoiceAssistant').then(m => ({ default: m.VoiceAssistant })));
 import {
   Navigation, Maximize2, SkipBack, SkipForward, Play, Pause,
-  Phone, Clock3, Mic, Bell, Wind, Settings, LayoutGrid,
+  Phone, Mic, Bell, Wind, Settings, LayoutGrid,
   Map as MapIcon, Music2, Lock, Plug, Fan, ChevronRight,
   CornerUpRight, Snowflake, BatteryCharging, Plus, Check, X,
-  AlertTriangle, Camera, Route, ShieldAlert, Shield, Tv2, Zap, Wrench, Gauge,
+  AlertTriangle, Camera, Route, ShieldAlert, Shield, Tv2, Zap, Wrench,
   FlaskConical,
 } from 'lucide-react';
 import { useCarosLabAllowed } from '../../hooks/useCarosLabAllowed';
@@ -18,11 +18,10 @@ import { useLivingThemeState } from '../../hooks/useLivingThemeState';
 import { useDeviceStatus } from '../../platform/deviceApi';
 import { StatusControls } from '../common/StatusControls';
 import { useOBDState } from '../../platform/obdService';
-import { useUnifiedVehicleStore } from '../../platform/vehicleDataLayer/UnifiedVehicleStore';
-import { useGPSLocation, resolveSpeedKmh } from '../../platform/gpsService';
+import { useDisplaySpeed } from '../../hooks/useDisplaySpeed';
 import { useMediaState, togglePlayPause, startMediaHub, stopMediaHub } from '../../platform/mediaService';
 import { next, previous, resumeLastMedia, previewLastMedia, seek } from '../../platform/media/carosMediaLayer';
-import { ensureYouTubeReady } from '../../platform/youtubeService';
+import { preloadYouTubeIfAffordable } from '../../platform/youtubeService';
 import { getPerformanceMode } from '../../platform/performanceMode';
 import { useNotificationState } from '../../platform/notificationService';
 import { openDrawer } from '../../platform/drawerBus';
@@ -30,6 +29,8 @@ import { openMusicDrawer } from '../../platform/mediaUi';
 import type { DrawerType } from '../layout/DockBar';
 import { useLayout } from '../../context/LayoutContext';
 import { MiniMapWidget } from '../map/MiniMapWidget';
+import { TripMeterRow } from '../trip/TripMeterRow';
+import { useNavSummary } from '../../hooks/useNavSummary';
 import type { AppItem } from '../../data/apps';
 import type { SmartSnapshot } from '../../platform/smartEngine';
 import { MagicContextCard } from '../common/MagicContextCard';
@@ -189,9 +190,8 @@ const ClockCard = memo(function ClockCard() {
 const GaugeCard = memo(function GaugeCard() {
   const p = usePal();
   const obd = useOBDState();
-  const gps = useGPSLocation();
   const { playing, track } = useMediaState();
-  const speedKmh = Math.round(resolveSpeedKmh(gps, obd.speed ?? 0));
+  const speedKmh = useDisplaySpeed() ?? 0;
   // Canlı kapısı + gerçek menzil (sabit 750 km katsayısı UYDURMAYDI) — bkz. isObdReadingLive.
   const range = isObdReadingLive(obd) && obd.estimatedRangeKm != null && obd.estimatedRangeKm >= 0
     ? Math.round(obd.estimatedRangeKm)
@@ -283,6 +283,7 @@ const SettingsCard = memo(function SettingsCard({ onOpenSettings }: { onOpenSett
 /* ─── NAV CARD (büyük harita + dönüş kartı) ─────────────────── */
 const NavCard = memo(function NavCard({ onOpenMap, fullMapOpen }: { onOpenMap: () => void; fullMapOpen?: boolean }) {
   const p = usePal();
+  const navSummary = useNavSummary();
   return (
     <div onClick={onOpenMap} className="relative overflow-hidden cursor-pointer flex-1 min-h-0"
       style={{ borderRadius: 24, border: p.border, boxShadow: p.shadow }}>
@@ -297,41 +298,36 @@ const NavCard = memo(function NavCard({ onOpenMap, fullMapOpen }: { onOpenMap: (
 
       {/* Üst başlık + büyüt */}
       <div className="absolute top-3 left-3 right-3 flex items-start justify-between pointer-events-none">
-        <div className="px-3 py-2 rounded-2xl pointer-events-auto" style={{ ...cardStyle(p), padding: '10px 14px', borderRadius: 18 }}>
-          <div className="flex items-center gap-3">
-            <div className="flex items-center justify-center rounded-xl" style={{ width: 38, height: 38, background: p.accent, boxShadow: `0 6px 16px ${p.accentGlow}` }}>
-              <CornerUpRight className="w-5 h-5" style={{ color: '#fff' }} />
-            </div>
-            <div>
-              <div style={{ fontSize: 22, fontWeight: 800, color: p.inkCritical, lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>
-                2.4 <span style={{ fontSize: 13, fontWeight: 600, color: p.ink2 }}>km</span>
+        {/* Rota özeti — GERÇEK navigasyon durumundan (sabit sahte yol adı + mesafe
+            kaldırıldı, saha 2026-08-02). Rota yoksa chip HİÇ gösterilmez. */}
+        {navSummary ? (
+          <div className="px-3 py-2 rounded-2xl pointer-events-auto" style={{ ...cardStyle(p), padding: '10px 14px', borderRadius: 18 }}>
+            <div className="flex items-center gap-3">
+              <div className="flex items-center justify-center rounded-xl" style={{ width: 38, height: 38, background: p.accent, boxShadow: `0 6px 16px ${p.accentGlow}` }}>
+                <CornerUpRight className="w-5 h-5" style={{ color: '#fff' }} />
               </div>
-              <div style={{ fontSize: 12, fontWeight: 500, color: p.ink2, marginTop: 2 }}>Sahil Yolu Cd.</div>
+              <div>
+                <div style={{ fontSize: 22, fontWeight: 800, color: p.inkCritical, lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>
+                  {navSummary.mesafe} <span style={{ fontSize: 13, fontWeight: 600, color: p.ink2 }}>km</span>
+                </div>
+                <div style={{ fontSize: 12, fontWeight: 500, color: p.ink2, marginTop: 2 }}>{navSummary.hedef}</div>
+              </div>
             </div>
           </div>
-        </div>
+        ) : <div />}
         <div className="flex items-center justify-center rounded-xl pointer-events-auto" style={{ width: 34, height: 34, background: p.dockBg, border: p.dockBorder, backdropFilter: 'blur(8px)' }}>
           <Maximize2 className="w-4 h-4" style={{ color: p.ink2 }} />
         </div>
       </div>
 
-      {/* Alt ETA şeridi */}
-      <div className="absolute bottom-3 left-3 right-3 flex items-center gap-2 pointer-events-none">
-        <div className="flex items-center gap-4 px-4 py-2.5 rounded-2xl pointer-events-auto" style={{ ...cardStyle(p), padding: '10px 16px', borderRadius: 16 }}>
-          <div className="flex items-center gap-2">
-            <Clock3 className="w-4 h-4" style={{ color: p.accent }} />
-            <span style={{ fontSize: 13, fontWeight: 700, color: p.ink }}>23 dk</span>
-            <span style={{ fontSize: 12, color: p.ink3 }}>· 19:56</span>
-          </div>
-          <div style={{ width: 1, height: 16, background: p.border.includes('255') ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.1)' }} />
-          <span style={{ fontSize: 13, fontWeight: 600, color: p.ink2 }}>18 km</span>
-          <div style={{ width: 1, height: 16, background: p.border.includes('255') ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.1)' }} />
-          <div className="flex items-center gap-1.5">
-            <BatteryCharging className="w-4 h-4" style={{ color: p.good }} />
-            <span style={{ fontSize: 12, fontWeight: 600, color: p.ink2 }}>EV kullanımı</span>
-          </div>
-        </div>
-      </div>
+      {/* Kütük #382/#431 — SAHTE ETA ŞERİDİ KALDIRILDI (saha 2026-08-05).
+       * Burada "23 dk · 19:56 · 18 km · EV kullanımı" SABİT değerleri vardı ve
+       * rota iptal edilir edilmez geri geliyordu (`shot_18`). Hiçbiri ölçüme
+       * dayanmıyordu; üstelik araç ICE iken "EV kullanımı" yazıyordu.
+       * Kütüğün kabul ölçütü: "ya gerçek kaynağa bağlanmalı ya da rota yokken
+       * HİÇ gösterilmemeli — kapatma yolu sayıları değiştirmek DEĞİLDİR".
+       * Rota yokken gösterilecek bir ETA YOKTUR → şerit kaldırıldı.
+       * Aktif rotanın gerçek şeridi mini haritanın kendi HUD'ında zaten var. */}
     </div>
   );
 });
@@ -349,10 +345,10 @@ const MusicCard = memo(function MusicCard() {
     // Lite (low-end) modda iframe ısıtması boot'u bloklamasın → idle'a ertele.
     // Diğer modlarda hemen ısıt (ilk çalmada user-gesture korunur).
     if (getPerformanceMode() === 'lite') {
-      const id = window.setTimeout(() => { void ensureYouTubeReady().catch(() => {}); }, 4000);
+      const id = window.setTimeout(() => { preloadYouTubeIfAffordable(); }, 4000);
       return () => { window.clearTimeout(id); stopMediaHub(); };
     }
-    void ensureYouTubeReady().catch(() => {});
+    preloadYouTubeIfAffordable();
     return () => stopMediaHub();
   }, []);
 
@@ -519,9 +515,6 @@ const VehicleCard = memo(function VehicleCard({ onOpenSettings, onLaunch }: { on
   const range = live && obd.estimatedRangeKm != null && obd.estimatedRangeKm >= 0
     ? Math.round(obd.estimatedRangeKm)
     : null;
-  // Odometre — GPS'ten beslenir (OBD'siz de çalışır), TEK kaynak useVehicleStore.odometer.
-  const odometer = useUnifiedVehicleStore(s => s.odometer);
-
   const toggles = [
     { Icon: Lock, label: 'KİLİT', fn: onOpenSettings },
     { Icon: Fan, label: 'HAVALANDIR', fn: () => openDrawer('climate') },
@@ -551,9 +544,19 @@ const VehicleCard = memo(function VehicleCard({ onOpenSettings, onLaunch }: { on
               düpedüz uydurma. Gerçek TPMS okuması bağlanana dek dürüstçe '—'. */}
           <Stat p={p} icon={<Snowflake className="w-4 h-4" style={{ color: p.accent }} />} value="—" label="Lastik" />
           <Stat p={p} icon={<Navigation className="w-4 h-4" style={{ color: p.ink2 }} />} value={range != null ? `${range} km` : '—'} label="Menzil" />
-          <Stat p={p} icon={<Gauge className="w-4 h-4" style={{ color: p.ink2 }} />} value={`${Math.round(odometer)} km`} label="Kilometre" />
         </div>
       </div>
+
+      {/* Yol Sayacı — RESETLENEBİLİR kullanıcı sayacı. Eskiden dar kolonda ham
+          kümülatif odometre ("Kilometre") vardı; sıfırlanamadığı için hep 0
+          okunuyordu. Sıfırla butonu 88px'lik kolona sığmaz → tam genişlikte
+          kendi satırında (yeni panel AÇILMAZ, aynı kartın içinde). */}
+      <TripMeterRow
+        palette={{ ink: p.ink, ink2: p.ink2, ink3: p.ink3, accent: p.accent, tile: p.tile, edge: p.tile }}
+        valueSize={18} unitSize={12} labelSize={10} iconSize={16} gap={8}
+        showTopBorder
+        style={{ marginTop: 4 }}
+      />
 
       <div className="flex items-center justify-between pt-3" style={{ borderTop: p.border, gap: 6 }} onClick={e => e.stopPropagation()}>
         {toggles.map(({ Icon, label, fn }) => (
@@ -608,7 +611,7 @@ const ProDock = memo(function ProDock({ onOpenMap, onVoice, onOpenApps, onOpenSe
   const p = usePal();
   const n = useNotificationState();
   /* CAROS LAB — AppGrid kartı ve DockBar kısayoluyla AYNI fail-closed kapı
-     (DEBUG_ENABLED && canDebug); kapı kapalıyken hiç render edilmez. */
+     (DEVELOPER_FEATURES_ENABLED); kapı kapalıyken hiç render edilmez. */
   const carosLabAllowed = useCarosLabAllowed();
   const [pickerOpen, setPickerOpen] = useState(false);
   const [editMode, setEditMode] = useState(false);

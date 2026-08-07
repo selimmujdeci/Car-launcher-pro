@@ -14,6 +14,7 @@
  */
 import { updateMediaState, getMediaState } from './mediaService';
 import { isLowEndDevice } from './headUnitCompat';
+import { getDeviceTier } from './deviceCapabilities';
 
 export const YOUTUBE_PKG = 'com.cockpitos.pro.youtube';
 
@@ -152,6 +153,30 @@ function _loadApi(): Promise<void> {
     tag.src = 'https://www.youtube.com/iframe_api';
     document.head.appendChild(tag);
   });
+}
+
+/**
+ * preloadYouTubeIfAffordable — ÖN YÜKLEME kapısı (saha kanıtı, kütük #139/#140).
+ *
+ * KÖK NEDEN: Ana ekrandaki medya kartı, hiç YouTube çalmıyorken bile mount'ta
+ * `ensureYouTubeReady()` çağırıyordu. Sonuç, K24 LOW-tier head unit'te CDP ile
+ * ÖLÇÜLDÜ: `www-widgetapi.js` 250 ms'lik interval'lar sürekli çalışıyor,
+ * `ytembeds/base.js` + `player_embed_es6` JS zamanının **%4.3'ünü** yiyor ve
+ * kalıcı bir cross-origin iframe composited katman olarak GPU'da duruyor —
+ * kullanıcı medyaya hiç dokunmasa bile.
+ *
+ * KARAR: ön yükleme yalnız BÜTÇESİ OLAN cihazda yapılır. LOW tier'da atlanır;
+ * player, kullanıcı gerçekten YouTube seçtiğinde `ensureYouTubeReady()` ile
+ * (MediaScreen yolundan) lazım olduğu anda kurulur → **işlev kaybı YOK**,
+ * yalnız boşuna ön yükleme kalkar.
+ *
+ * Bu fonksiyon ASLA hata fırlatmaz.
+ */
+export function preloadYouTubeIfAffordable(): void {
+  try {
+    if (getDeviceTier() === 'low') return;   // düşük-uç: ön yükleme YOK
+    void ensureYouTubeReady().catch(() => { /* fail-soft */ });
+  } catch { /* fail-soft */ }
 }
 
 /** Player'ı önceden hazırlar (ilk çalmada user-gesture kaybolmasın diye). */

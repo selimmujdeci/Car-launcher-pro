@@ -9,11 +9,11 @@ import {
   startAutoBrightness, stopAutoBrightness, updateAutoBrightnessLocation,
 } from '../platform/autoBrightnessService';
 import { startTripLog, stopTripLog } from '../platform/tripLogService';
+import { startTripMeter, stopTripMeter } from '../platform/trip/tripMeterService';
 import {
   startNotificationService, stopNotificationService,
 } from '../platform/notificationService';
 import { startWeatherService, stopWeatherService, setWeatherFallback, feedGPSLocation } from '../platform/weatherService';
-import { startSpeedLimitService, stopSpeedLimitService } from '../platform/speedLimitService';
 import {
   setBrightness,
   startHeadlightAutoBrightness, stopHeadlightAutoBrightness,
@@ -354,15 +354,15 @@ export function useLayoutServices({
     initializeAddressBook().catch((e: unknown) => {
       logError('useLayoutServices:initializeAddressBook', e);
     });
-    startSpeedLimitService();
     startTripLog();
+    startTripMeter();
     startNotificationService();
     startWeatherService();
     setBrightness(useStore.getState().settings.brightness);
     startHeadlightAutoBrightness(() => useStore.getState().settings.brightness);
     return () => {
-      stopSpeedLimitService();
       stopTripLog();
+      stopTripMeter();
       stopNotificationService();
       stopWeatherService();
       stopHeadlightAutoBrightness();

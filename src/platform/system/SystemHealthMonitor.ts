@@ -21,8 +21,11 @@
  */
 
 import { useUnifiedVehicleStore }   from '../vehicleDataLayer/UnifiedVehicleStore';
-import { onGPSLocation, getGPSState } from '../gpsService';
-import { getOBDStatusSnapshot }     from '../obdService';
+import { onGPSLocation, onGPSFixArrival, getGPSState } from '../gpsService';
+import { reconcileGpsHealth } from '../gps/gpsHealthReconcile';
+import {
+  getOBDStatusSnapshot, getObdSessionHealth, getObdFreshWindowMs, onOBDData,
+}                                   from '../obdService';
 import { showToast, dismissToast }  from '../errorBus';
 import { logError }                 from '../crashLogger';
 import { useCognitiveStore }        from '../../store/useCognitiveStore';
@@ -80,6 +83,8 @@ const SOAK_TEST_INTERVAL_MS       = 60 * 60 * 1_000;
 /** UI Thread Watchdog — 8s eşiği: düşük segment cihazlarda harita yükü sırasında false-alarm engeli */
 const UI_FREEZE_THRESHOLD_MS      = 8_000;
 const UI_FREEZE_CHECK_INTERVAL_MS = 8_100; // eşikten biraz fazla → false-alarm engeli
+/** GPS fix'inin "taze" sayıldığı pencere — heartbeat eşiğiyle aynı aileden. */
+const GPS_FIX_FRESH_WINDOW_MS     = 10_000;
 
 // ── Tipler ────────────────────────────────────────────────────────────────────
 
@@ -132,11 +137,41 @@ interface WatchEntry extends Required<Pick<ServiceConfig, 'maxRestarts'>> {
   alertTitle:    string;
   alertMsg:      string;
   restartFn?:    () => Promise<void>;
-  lastBeat:      number;  // performance.now()
+  lastBeat:      number;  // performance.now() — MONOTONIC (epoch DEĞİL)
   alertId:       string | null;
   alertedAt:     number;  // performance.now()
   restartCount:  number;
   lastRestartAt: number;  // performance.now()
+  /** T3: alarm açılıp sonra kapanan (recovered) kesinti sayısı — olay kaybolmasın. */
+  recoveredCount:  number;
+  /** T3: son recovery anı (performance.now(), monotonic). 0 = hiç. */
+  lastRecoveredAt: number;
+}
+
+/**
+ * T3 — canonical OBD tazelik kararı (SAF · test edilebilir).
+ *
+ * ZAMAN TABANI SÖZLEŞMESİ: bu fonksiyon YALNIZ epoch ms ile çalışır
+ * (`nowEpochMs` ↔ `lastSeenEpochMs`). Monotonic `performance.now()` değerleri
+ * BURAYA GEÇİRİLMEZ — iki saat tabanının orijinleri farklıdır ve karıştırılırsa
+ * saha snapshot'ında görülen türden hayalet yaşlar (ve yalancı alarmlar) doğar.
+ *
+ * Fail-closed: ölçülmemiş (lastSeen<=0), negatif veya sonsuz yaş → "canlı değil"
+ * döner, yani alarmı BASTIRMAZ.
+ */
+export function obdFreshnessSaysAlive(input: {
+  dataFresh: boolean;
+  connectionState: string;
+  lastSeenEpochMs: number;
+  nowEpochMs: number;
+  freshWindowMs: number;
+}): boolean {
+  if (!input.dataFresh) return false;
+  if (input.connectionState !== 'connected') return false;
+  if (!(input.lastSeenEpochMs > 0)) return false;          // ölçülmedi → kanıt yok
+  const ageMs = input.nowEpochMs - input.lastSeenEpochMs;  // epoch ↔ epoch
+  if (!Number.isFinite(ageMs) || ageMs < 0) return false;
+  return ageMs <= input.freshWindowMs;
 }
 
 // ── SystemHealthMonitor ────────────────────────────────────────────────────────
@@ -184,6 +219,8 @@ class SystemHealthMonitor {
       alertedAt:     0,
       restartCount:  0,
       lastRestartAt: 0,
+      recoveredCount:  0,
+      lastRecoveredAt: 0,
     });
     // Servis kaydedilince "henüz hiç beat almadı" listesine ekle
     this._neverBeaten.add(config.name);
@@ -203,10 +240,41 @@ class SystemHealthMonitor {
       dismissToast(entry.alertId);
       entry.alertId     = null;
       entry.restartCount = 0; // recovery → restart sayacı sıfırla
+      // T3: GERÇEK kesinti olayı kaybolmasın — alarm açıldıysa kapanışı da kayda geçer.
+      // (Aksi hâlde "alarm vardı, sonra sessizce kayboldu" boşluğu kalıyordu.)
+      entry.recoveredCount++;
+      entry.lastRecoveredAt = entry.lastBeat;
       if (import.meta.env.DEV) {
         console.info(`[HealthMonitor] ${name} recovered`);
       }
     }
+  }
+
+  /**
+   * T3: heartbeat gözlem künyesi (salt-okunur, PII yok).
+   * LAB/tanı katmanı "alarm gerçek miydi, kapandı mı" sorusunu buradan yanıtlar.
+   */
+  getHeartbeatEvidence(): ReadonlyArray<{
+    name: string; ageMs: number; thresholdMs: number; clockDomain: 'monotonic';
+    alerting: boolean; recoveredCount: number; neverBeaten: boolean;
+  }> {
+    const now = performance.now();
+    const out: Array<{
+      name: string; ageMs: number; thresholdMs: number; clockDomain: 'monotonic';
+      alerting: boolean; recoveredCount: number; neverBeaten: boolean;
+    }> = [];
+    for (const e of this._registry.values()) {
+      out.push({
+        name:           e.name,
+        ageMs:          Math.max(0, Math.round(now - e.lastBeat)),
+        thresholdMs:    e.deadlineMs,
+        clockDomain:    'monotonic',
+        alerting:       e.alertId !== null,
+        recoveredCount: e.recoveredCount,
+        neverBeaten:    this._neverBeaten.has(e.name),
+      });
+    }
+    return out;
   }
 
   /**
@@ -418,12 +486,71 @@ class SystemHealthMonitor {
       }
     });
 
-    // GPS servisinin onGPSLocation kanalı — store'un bir adım önündeki ham sinyal
+    // DİKKAT: `onGPSLocation` "ham sinyal" DEĞİLDİR — o da unsub1 ile AYNI
+    // `useUnifiedVehicleStore.location` alanını okur (bkz. gpsService:onGPSLocation).
+    // Yani bu iki abonelik tek ve aynı DEĞİŞİM kaynağını iki kez dinliyordu;
+    // bağımsız bir GPS canlılık kanıtı yoktu. Yedeklilik için bırakıldı.
     const unsub2 = onGPSLocation((loc) => {
       if (loc) this.beat('GPS');
     });
 
-    this._unsubs.push(unsub1, unsub2);
+    // T4 — VARIŞ tabanlı GPS heartbeat'i (DEĞİŞİM tabanlı değil).
+    //
+    // ESKİ KUSUR (saha kayıtları 2026-08-02, 20:36–21:39): araç PARK hâlindeyken
+    // "No heartbeat for 20s / 25s / 85s" alarmları basıldı — aynı satırlarda
+    // `conn=connected polling=true`. GPS hattı sağlıklıydı; alarm yalandı.
+    // KÖK: `UnifiedVehicleStore.updateGPSState` shallow-equal guard taşır —
+    // lat/lng/speed aynıysa `location` REFERANSI değişmez (park hâlinde gereksiz
+    // render/CPU'yu önleyen DOĞRU bir optimizasyon). FusedLocation park hâlinde
+    // birebir aynı fix'i tekrar verir → referans sabit → beat yok → sahte alarm.
+    // Bu, OBD tarafında T3'te düzeltilen kusurun GPS'te atlanmış ikizidir.
+    //
+    // Fix VARIŞI artık doğrudan heartbeat üretir; koordinat değişmese bile hat canlıdır.
+    // GERÇEK kesinti hâlâ yakalanır: fix hiç gelmezse varış da gelmez → alarm doğru çalar.
+    const unsub4 = onGPSFixArrival(() => { this.beat('GPS'); });
+
+    // T3 — VARIŞ tabanlı OBD heartbeat'i (DEĞİŞİM tabanlı değil).
+    //
+    // ESKİ KUSUR (saha snapshot 2026-08-01): VehicleDataLayer heartbeat'i YALNIZ
+    // `speed`/`fuel`/`location` DEĞİŞİMİNDEN üretiliyordu. Araç park hâlindeyken
+    // speed sabit 0, fuel sabit %41 → store hiç değişmiyor → 20 sn sonra
+    // "No heartbeat for 20s" alarmı basılıyordu. Oysa AYNI snapshot'ta
+    // `lastPacketAgeMs≈875`, `dataFresh:true`, `pollingActive:true` idi — yani
+    // OBD paketleri ~1Hz akıyordu. Alarm gerçek bir kesintiyi değil, DEĞİŞMEYEN
+    // ama TAZE olan veriyi raporluyordu.
+    //
+    // Paket VARIŞI artık doğrudan heartbeat üretir; değer değişmese bile sistem canlıdır.
+    const unsub3 = onOBDData(() => { this.beat('VehicleDataLayer'); });
+
+    this._unsubs.push(unsub1, unsub2, unsub3, unsub4);
+  }
+
+  /**
+   * T3 — canonical tazelik otoritesi: VehicleDataLayer gerçekten sessiz mi?
+   *
+   * Heartbeat kaydı (`entry.lastBeat`, monotonic `performance.now()`) yalnız bir
+   * GÖZLEM KANALIDIR; veri akışının OTORİTESİ `obdService` oturum sağlığıdır.
+   * Kanal bir tik kaçırırsa alarm basmadan önce otoriteye danışılır.
+   *
+   * ZAMAN TABANI UYARISI: burada YALNIZ epoch (`Date.now()` ↔ `lastSeenMs`)
+   * karşılaştırılır. Monotonic `performance.now()` ile epoch damgası ASLA
+   * çıkarılmaz — ikisi farklı orijinlere sahiptir ve karışımları saha
+   * snapshot'ında görülen türden hayalet yaşlar üretir.
+   */
+  private _obdFreshnessSaysAlive(): boolean {
+    try {
+      const health = getObdSessionHealth();
+      const status = getOBDStatusSnapshot();
+      return obdFreshnessSaysAlive({
+        dataFresh:       health.dataFresh,
+        connectionState: status.connectionState,
+        lastSeenEpochMs: typeof status.lastSeenMs === 'number' ? status.lastSeenMs : 0,
+        nowEpochMs:      Date.now(),
+        freshWindowMs:   getObdFreshWindowMs(),
+      });
+    } catch {
+      return false;   // fail-closed: otorite okunamazsa alarmı BASTIRMA
+    }
   }
 
   // ── Watchdog Tick ─────────────────────────────────────────────────────────────
@@ -474,6 +601,12 @@ class SystemHealthMonitor {
           entry.lastBeat = now;
           continue;
         }
+        // T3: canonical OBD tazelik otoritesi — paketler akıyorsa sessizlik SAHTEDİR.
+        // (Park hâlinde speed/fuel değişmez ama veri akar; eski kod bunu kesinti sanıyordu.)
+        if (this._obdFreshnessSaysAlive()) {
+          entry.lastBeat = now;
+          continue;
+        }
       }
 
       // Aktif uyarı ve cooldown süresi dolmadıysa → sessiz kal
@@ -494,9 +627,42 @@ class SystemHealthMonitor {
       });
       entry.alertedAt = now;
 
+      // T3: alarm KANITI — hangi kaynak, hangi saat tabanı, hangi yaş/eşik, hangi
+      // bağlantı durumu. Zaman tabanı AÇIKÇA yazılır ki epoch/monotonic karışıklığı
+      // bir daha sessizce teşhis saptırmasın.
+      let connNote = 'conn=unknown';
+      try {
+        if (entry.name === 'GPS') {
+          /* ⚠️ ESKİ KUSUR (gerçek sürüş 2026-08-03): GPS alarmının kanıt satırı
+             OBD'den dolduruluyordu → kayda `No heartbeat for 20s ... conn=connected
+             dataFresh=true` düşüyor, ama o `dataFresh` **OBD'nin**di. Aynı satırda
+             iki FARKLI alt sistemin verisi yan yana durunca ürün kendi kendisiyle
+             çelişiyor göründü. GPS alarmı GPS kanıtıyla anlatılır. */
+          const g   = getGPSState();
+          const fixTs = g.location?.timestamp ?? null;
+          const fixAgeMs = typeof fixTs === 'number' && fixTs > 0 ? Date.now() - fixTs : null;
+          const v = reconcileGpsHealth({
+            connected:           g.isTracking === true ? true : (g.unavailable === true ? false : null),
+            fixAgeMs,
+            heartbeatAgeMs:      Math.round(elapsed),
+            heartbeatDeadlineMs: entry.deadlineMs,
+            fixFreshWindowMs:    GPS_FIX_FRESH_WINDOW_MS,
+            backgrounded:        typeof document !== 'undefined' ? document.hidden : null,
+          });
+          connNote = `cls=${v.cls} fixAge=${fixAgeMs ?? 'UNKNOWN'}ms tracking=${g.isTracking} — ${v.reason}`;
+        } else {
+          const st = getOBDStatusSnapshot();
+          const sh = getObdSessionHealth();
+          connNote = `conn=${st.connectionState} dataFresh=${sh.dataFresh} polling=${sh.pollingActive}`;
+        }
+      } catch { /* fail-soft: kanıt zenginleştirme alarmı engellemez */ }
       logError(
         `HealthMonitor:${entry.name}`,
-        new Error(`No heartbeat for ${(elapsed / 1000).toFixed(0)}s`),
+        new Error(
+          `No heartbeat for ${(elapsed / 1000).toFixed(0)}s ` +
+          `[src=${entry.name} clock=monotonic(performance.now) ` +
+          `age=${Math.round(elapsed)}ms threshold=${entry.deadlineMs}ms ${connNote}]`,
+        ),
       );
 
       // Restart dene — UI thread asla bloke edilmez (requestIdleCallback)

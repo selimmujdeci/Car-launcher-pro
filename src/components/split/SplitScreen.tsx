@@ -28,6 +28,7 @@ import { openMusicDrawer } from '../../platform/mediaUi';
 import { runtimeManager } from '../../core/runtime/AdaptiveRuntimeManager';
 import { RuntimeMode } from '../../core/runtime/runtimeTypes';
 import '../../styles/oem-cockpit.css';
+import { useDisplaySpeed } from '../../hooks/useDisplaySpeed';
 
 /* SAFE_MODE subscription */
 function subscribeRuntime(cb: () => void) { return runtimeManager.subscribe(cb); }
@@ -182,7 +183,7 @@ export const SplitScreen = memo(function SplitScreen({ onClose }: SplitScreenPro
   const { playing, track } = useMediaState();
   const obd = useOBDState();
   const fuelPct  = useUnifiedVehicleStore((s) => s.fuel);
-  const rawSpeed = useUnifiedVehicleStore((s) => s.speed);
+  const rawSpeed = useDisplaySpeed();        // kütük #417: tek gösterim otoritesi
   const engineT  = obd.engineTemp >= 0 ? obd.engineTemp : null;
   const speedKmh = rawSpeed ?? 0;
   const route = useRouteState();

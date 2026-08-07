@@ -19,7 +19,7 @@ export type DrawerType =
   | 'super-admin'
   // CAROS LAB — geliştirici merkezi (FAZ A). Sesle açılamaz (screenRegistry'de YOK);
   // dock kısayolu ve AppGrid kartı AYNI fail-closed kapının arkasındadır
-  // (DEBUG_ENABLED && canDebug) → satış build'inde ikisi de render EDİLMEZ.
+  // (DEVELOPER_FEATURES_ENABLED) → satış build'inde ikisi de render EDİLMEZ.
   | 'caros-lab';
 
 interface Props {
@@ -303,7 +303,7 @@ export const DockBar = memo(function DockBar({
         )}
 
         {/* CAROS LAB — geliştirici merkezi. AppGrid kartıyla AYNI fail-closed kapı
-            (DEBUG_ENABLED && canDebug); satış build'inde bayrak derleme-zamanında
+            (DEVELOPER_FEATURES_ENABLED); satış build'inde bayrak derleme-zamanında
             false olduğu için bu blok hiç render edilmez. Dock'un EN SONUNDA:
             sürücü akışındaki kısayolların sırası değişmez. */}
         {carosLabAllowed && (

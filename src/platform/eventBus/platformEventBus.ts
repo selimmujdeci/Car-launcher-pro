@@ -36,7 +36,9 @@ export type PlatformEventPriority = 'safety' | 'critical' | 'high' | 'normal' | 
 export type PlatformEventDomain =
   | 'platform' | 'vehicle' | 'capability' | 'deep_scan' | 'health' | 'navigation'
   | 'eagle_eye' | 'ai' | 'assistant' | 'remote' | 'fleet' | 'vision' | 'media'
-  | 'security' | 'oem' | 'plugin';
+  | 'security' | 'oem' | 'plugin'
+  /** PHONE-HUB P1-PREP: Companion (telefon köprüsü) alanı. */
+  | 'companion';
 
 export type PlatformEventSource =
   | 'native' | 'vehicle_hal' | 'capability_registry' | 'deep_scan' | 'vehicle_brain'
@@ -155,6 +157,7 @@ const PRIORITY_ORDER: readonly PlatformEventPriority[] = ['safety', 'critical', 
 const VALID_DOMAINS: ReadonlySet<string> = new Set<PlatformEventDomain>([
   'platform', 'vehicle', 'capability', 'deep_scan', 'health', 'navigation', 'eagle_eye',
   'ai', 'assistant', 'remote', 'fleet', 'vision', 'media', 'security', 'oem', 'plugin',
+  'companion',
 ]);
 const VALID_SOURCES: ReadonlySet<string> = new Set<PlatformEventSource>([
   'native', 'vehicle_hal', 'capability_registry', 'deep_scan', 'vehicle_brain', 'navigation',
@@ -228,6 +231,15 @@ export const DEFAULT_EVENT_CATALOG: readonly EventCatalogEntry[] = Object.freeze
   // Fleet
   { name: 'fleet.vehicle.status_changed', domain: 'fleet', priority: 'normal' },
   { name: 'fleet.alert.created', domain: 'fleet', priority: 'high' },
+  // Companion (PHONE-HUB P1-PREP) — yükler yalnız sayım/enum/karma taşır, PII YOK.
+  // Kalp atışı ve mesaj olayları TRANSIENT: yüksek frekanslıdır, geçmişe yazılmaz.
+  { name: 'companion.session.created', domain: 'companion', priority: 'normal' },
+  { name: 'companion.connection.connected', domain: 'companion', priority: 'high', retained: true },
+  { name: 'companion.connection.disconnected', domain: 'companion', priority: 'high', retained: true },
+  { name: 'companion.capabilities.updated', domain: 'companion', priority: 'normal', retained: true },
+  { name: 'companion.heartbeat.received', domain: 'companion', priority: 'low', transient: true },
+  { name: 'companion.error.raised', domain: 'companion', priority: 'high' },
+  { name: 'companion.message.received', domain: 'companion', priority: 'normal', transient: true },
 ]);
 
 /* ══════════════════════════════════════════════════════════════════════════

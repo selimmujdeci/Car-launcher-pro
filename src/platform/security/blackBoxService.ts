@@ -41,8 +41,9 @@ import {
   safeRemoveRaw,
   listKeysWithPrefix,
 }                                  from '../../utils/safeStorage';
-import { onOBDData }               from '../obdService';
+import { onOBDData, getOBDDataSnapshot, getObdSessionHealth, getObdFreshWindowMs } from '../obdService';
 import { runtimeManager }          from '../../core/runtime/AdaptiveRuntimeManager';
+import type { WorkerLifecycleStatus } from '../../core/runtime/AdaptiveRuntimeManager';
 import { getThermalLevel }         from '../thermalWatchdog';
 import { onMemoryPressure }        from '../memoryWatchdog';
 import { getLastIntent }           from '../commandExecutor';
@@ -76,7 +77,12 @@ export interface BlackBoxSample {
     gear: number | null;   // sayısal vites pozisyonu, bilinmiyorsa null
     fuel: number | null;
   };
-  workers:  Record<string, 'active' | 'dead'>;
+  /**
+   * T2: worker yaşam-döngüsü durumu. Geriye dönük uyumlu — değerler hâlâ string,
+   * 'active' ve 'dead' aynı anlamı taşır; 'not_started'/'stopped' ise ESKİDEN
+   * yanlışlıkla 'dead' raporlanan durumları ayırır.
+   */
+  workers:  Record<string, WorkerLifecycleStatus>;
   env: {
     therm: number;           // ThermalLevel 0–3
     mem:   'OK' | 'MOD' | 'CRIT';
@@ -103,6 +109,52 @@ let _replayTimer:    ReturnType<typeof setInterval> | null = null;
 
 /* ── Replay: 1Hz örnekleyici ─────────────────────────────────── */
 
+/**
+ * T1: canonical OBD motor devri — kaza sonrası adli değer.
+ *
+ * ESKİ KUSUR (saha snapshot 2026-08-01): burada `useUnifiedVehicleStore.rpm`
+ * okunuyordu. O alana YALNIZ CAN extras yolu yazar (`CanExtrasPatch.rpm`);
+ * OBD hattı `updateVehicleState` üzerinden rpm GÖNDERMEZ (bkz. vehicleDataLayer/
+ * index.ts — "rpm: SAB kanalından gelir, index.ts'e STATE_UPDATE ile gelmez").
+ * Sonuç: RAW CAN'i olmayan araçlarda — yani hedef aftermarket filosunun tamamında —
+ * BlackBox motor devrini SONSUZA DEK `null` kaydediyordu (ham trafikte 410C1990 =
+ * 1636 rpm akarken bile).
+ *
+ * Otorite artık `obdService` anlık görüntüsüdür (UI store DEĞİL) ve üç kapıdan geçer:
+ *   1. Oturum tazeliği — `dataFresh` false ise BAYAT değer gerçekmiş gibi yazılmaz.
+ *   2. Paket yaşı      — aktif poll kadansından türeyen pencereyi aşarsa null.
+ *   3. Geçerlilik      — `-1` sentineli "desteklenmiyor/EV" demektir; 0 DEĞİLDİR.
+ * Hiçbir kapı sıfır üretmez; bilinmeyen DAİMA `null` kalır.
+ */
+function _canonicalObdRpm(): number | null {
+  try {
+    const health = getObdSessionHealth();
+    if (!health.dataFresh) return null;              // bayat oturum → eski değeri diriltme
+
+    const snap = getOBDDataSnapshot();
+    if (snap.connectionState !== 'connected') return null;
+
+    // Paket yaşı kapısı — freshWindow aktif poll kadansından türer (POWER_SAVE'de geniş).
+    const lastRx = typeof snap.lastSeenMs === 'number' ? snap.lastSeenMs : 0;
+    if (lastRx > 0) {
+      const age = Date.now() - lastRx;
+      if (age > getObdFreshWindowMs()) return null;
+    }
+
+    const rpm = snap.rpm;
+    // -1 = araç bu PID'i vermiyor / EV. Geçersiz veya negatif → BİLİNMİYOR (0 değil).
+    if (typeof rpm !== 'number' || !Number.isFinite(rpm) || rpm < 0) return null;
+    return rpm;
+  } catch {
+    return null;   // fail-closed: örnekleme asla uydurmaz
+  }
+}
+
+/** @internal T1 kilit testleri için — üretim kodu çağırmaz. */
+export function __testCanonicalObdRpm(): number | null {
+  return _canonicalObdRpm();
+}
+
 function _takeReplaySample(): void {
   try {
     const vs = useVehicleStore.getState();
@@ -110,15 +162,16 @@ function _takeReplaySample(): void {
     // PRIVACY: lat/lng/location.address asla eklenmez
     const signals: BlackBoxSample['signals'] = {
       spd:  typeof vs.speed === 'number' ? vs.speed : null,
-      rpm:  typeof vs.rpm   === 'number' ? vs.rpm   : null,
+      rpm:  _canonicalObdRpm(),
+      // gear: CAN-only sinyal. RAW CAN yoksa BİLİNMİYOR kalır — OBD'den türetilmez.
       gear: vs.canGearPos ?? null,
       fuel: typeof vs.fuel  === 'number' ? vs.fuel  : null,
     };
 
-    const workersMap = runtimeManager.getWorkers();
-    const workers: Record<string, 'active' | 'dead'> = {};
-    for (const [key, entry] of workersMap) {
-      workers[key] = entry.worker !== null ? 'active' : 'dead';
+    // T2: atomik, donmuş snapshot — canlı Map üzerinde gezerken anahtar kaybolmaz.
+    const workers: Record<string, WorkerLifecycleStatus> = {};
+    for (const row of runtimeManager.getWorkerSnapshot()) {
+      workers[row.key] = row.status;
     }
 
     _replayPush({

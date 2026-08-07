@@ -14,10 +14,12 @@ import { useStore } from '../../store/useStore';
 import { useDayNightAttr } from '../../hooks/useDayNightAttr';
 import { useMediaState, togglePlayPause, startMediaHub, stopMediaHub } from '../../platform/mediaService';
 import { next, previous, seek, resumeLastMedia, previewLastMedia } from '../../platform/media/carosMediaLayer';
-import { ensureYouTubeReady } from '../../platform/youtubeService';
+import { preloadYouTubeIfAffordable } from '../../platform/youtubeService';
 import { getPerformanceMode } from '../../platform/performanceMode';
 import { useOBDState } from '../../platform/obdService';
-import { useGPSLocation, resolveSpeedKmh } from '../../platform/gpsService';
+import { useGPSLocation } from '../../platform/gpsService';
+import { useDisplaySpeed } from '../../hooks/useDisplaySpeed';
+import { useBatteryVoltage } from '../../hooks/useBatteryVoltage';
 import { useLivingThemeState } from '../../hooks/useLivingThemeState';
 import { useUnifiedVehicleStore } from '../../platform/vehicleDataLayer/UnifiedVehicleStore';
 import { VehicleTellTales } from '../vehicle/VehicleTellTales';
@@ -28,6 +30,7 @@ import { openDrawer } from '../../platform/drawerBus';
 import { openMusicDrawer } from '../../platform/mediaUi';
 import { StatusControls } from '../common/StatusControls';
 import { MiniMapWidget } from '../map/MiniMapWidget';
+import { TripMeterRow } from '../trip/TripMeterRow';
 import { useNavigation } from '../../platform/navigationService';
 import { useRouteState } from '../../platform/routingService';
 import { useMapStore } from '../../platform/map/_mapState';
@@ -253,9 +256,7 @@ const HzDriveModeCard = memo(function HzDriveModeCard() {
 /* ─── SOL: HIZ ───────────────────────────────────────────────────── */
 const HzSpeedCard = memo(function HzSpeedCard() {
   const p = usePalH();
-  const obd = useOBDState();
-  const gps = useGPSLocation();
-  const speed = Math.round(resolveSpeedKmh(gps, obd.speed ?? 0));
+  const speed = useDisplaySpeed() ?? 0;
   const pct = Math.min(speed / 200, 1) * 100;
   return (
     <Panel style={{ padding: '14px 15px', display: 'flex', flexDirection: 'column', justifyContent: 'center', minHeight: 0 }}>
@@ -276,7 +277,6 @@ const HzRangeCard = memo(function HzRangeCard() {
   const p = usePalH();
   const obd = useOBDState();
   const eng = useEngineReadout();
-  const odometer = useUnifiedVehicleStore(s => s.odometer);
   // Canlı kapısı: kurtarılmış CAN snapshot'ı (12 saate kadar bayat) source='real' damgalı
   // geldiği için `fuelLevel >= 0` tek başına YETMEZ. CAN-bus yedeği (eng.fuel) KORUNUR —
   // o ayrı ve MEŞRU bir canlı kaynaktır (K24/Hiworld), yalnız bayat OBD değeri elenir.
@@ -296,14 +296,15 @@ const HzRangeCard = memo(function HzRangeCard() {
         </div>
         <span style={{ fontSize: 9, fontWeight: 700, color: p.ink3 }}>F</span>
       </div>
-      {/* Kilometre (odometre) — GPS, OBD'siz çalışır; aynı panelde ayrı etiketli okuma */}
-      <div className="flex items-center justify-between" style={{ marginTop: 9, paddingTop: 8, borderTop: `1px solid ${p.panelLo}` }}>
-        <div className="flex items-center" style={{ gap: 6 }}>
-          <Gauge className="w-4 h-4" style={{ color: p.ink3 }} />
-          <span style={{ fontWeight: 700, fontSize: 20, color: p.ink, fontVariantNumeric: 'tabular-nums' }}>{Math.round(odometer)} <small style={{ fontSize: 12, color: p.ink3, fontWeight: 500 }}>km</small></span>
-        </div>
-        <HzLabel>Kilometre</HzLabel>
-      </div>
+      {/* Yol Sayacı — RESETLENEBİLİR kullanıcı sayacı (kümülatif odometre farkı).
+          Eskiden burada ham kümülatif odometre ("Kilometre") vardı; sıfırlanamadığı
+          için pratikte hep 0 okunuyordu. */}
+      <TripMeterRow
+        palette={{ ink: p.ink, ink2: p.ink3, ink3: p.ink3, accent: p.accent, tile: p.panelLo, edge: p.panelLo }}
+        valueSize={20} unitSize={12} labelSize={10} iconSize={16} gap={6}
+        showTopBorder
+        style={{ marginTop: 9 }}
+      />
     </Panel>
   );
 });
@@ -450,10 +451,10 @@ const HzMediaCard = memo(function HzMediaCard() {
     startMediaHub();
     previewLastMedia();
     if (getPerformanceMode() === 'lite') {
-      const id = window.setTimeout(() => { void ensureYouTubeReady().catch(() => {}); }, 4000);
+      const id = window.setTimeout(() => { preloadYouTubeIfAffordable(); }, 4000);
       return () => { window.clearTimeout(id); stopMediaHub(); };
     }
-    void ensureYouTubeReady().catch(() => {});
+    preloadYouTubeIfAffordable();
     return () => stopMediaHub();
   }, []);
   const total = track.durationSec || 0;
@@ -569,7 +570,8 @@ function HzBar({ Icon, label, value, unit, fill, danger }: {
 const HzVehicleStatus = memo(function HzVehicleStatus({ onOpenSettings }: { onOpenSettings: () => void }) {
   const p = usePalH();
   const eng = useEngineReadout();
-  const volt = useUnifiedVehicleStore(s => s.canBatteryVolt);
+  const battery = useBatteryVoltage();   // kütük #427: CAN → OBD otoritesi
+  const volt = battery.volt;
   const motor = eng.engineTemp != null ? Math.round(eng.engineTemp) : null;
   const rpm = eng.rpm;
   const fuel = eng.fuel != null ? Math.round(eng.fuel) : null;
@@ -589,7 +591,7 @@ const HzVehicleStatus = memo(function HzVehicleStatus({ onOpenSettings }: { onOp
       </div>
       <div className="flex flex-col flex-shrink-0" style={{ gap: 7 }} onClick={e => e.stopPropagation()}>
         <HzBar Icon={Thermometer} label="Motor" value={motor != null ? `${motor}` : '—'} unit="°C" fill={motor != null ? (motor / 120) * 100 : 0} danger={motor != null && motor >= 105} />
-        <HzBar Icon={Battery} label="Akü" value={volt != null ? volt.toFixed(1) : '—'} unit="V" fill={volt != null ? ((volt - 11) / 4) * 100 : 0} />
+        <HzBar Icon={Battery} label="Akü" value={volt != null ? volt.toFixed(1) : '—'} unit="V" fill={volt != null ? ((volt - 11) / 4) * 100 : 0} danger={battery.isWarning} />
         <HzBar Icon={Droplet} label="Yakıt" value={fuel != null ? `${fuel}` : '—'} unit="%" fill={fuel ?? 0} danger={fuel != null && fuel <= 12} />
         <HzBar Icon={Gauge} label="Devir" value={rpm != null ? `${rpm}` : '—'} unit="" fill={rpm != null ? (rpm / 6000) * 100 : 0} />
       </div>
@@ -749,7 +751,7 @@ const HzDock = memo(function HzDock({ onOpenMap, onOpenApps, onOpenSettings, onV
   const p = usePalH();
   const n = useNotificationState();
   /* CAROS LAB — AppGrid kartı ve DockBar kısayoluyla AYNI fail-closed kapı
-     (DEBUG_ENABLED && canDebug); kapı kapalıyken hiç render edilmez. */
+     (DEVELOPER_FEATURES_ENABLED); kapı kapalıyken hiç render edilmez. */
   const carosLabAllowed = useCarosLabAllowed();
   return (
     <div style={{ position: 'relative', flex: '0 0 auto', height: HZ_DOCK_H }}>

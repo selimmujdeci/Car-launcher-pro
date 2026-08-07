@@ -46,6 +46,7 @@ import {
   publishRuntimeStarted,
   publishRuntimeStopped,
 } from './platformCoreEventBusWiring';
+import { startProviderReadiness } from '../ai/gateway/aiProviderReadinessService';
 import { startPlatformCoreAiRuntimeWiring } from './platformCoreAiRuntimeWiring';
 import { startMaintenanceBrain }   from '../diagnostic/maintenanceBrain';
 import { startFuelAdvisor }        from '../diagnostic/fuelAdvisorService';
@@ -72,6 +73,11 @@ import { initPushService }         from '../pushService';
 import { startBatteryProtection }  from '../power/BatteryProtectionService';
 import { startVehicleIntelligenceService } from '../vehicleIntelligenceService';
 import { startAutomaticVehicleFingerprint } from '../vehicleFingerprintBuilder';
+import { startVehicleClassRuntime } from '../vehicle/vehicleClassRuntime';
+import { stopVehicleIdentityCoordinator } from '../telemetry/vehicleIdentityRuntime';
+import { startLocationEngine } from '../location/locationEngineRuntime';
+import { startNavigationSessionRuntime } from '../navigation/navigationSessionRuntime';
+import { startTripUpload } from '../trip/tripUploadRuntime';
 import { startAutoLearningEngine } from '../autoLearningEngine';
 import { startVehicleKnowledgeBase } from '../vehicleKnowledgeBase';
 import { startVehicleLearningEvidenceBridge } from '../vehicleLearningEvidenceBridge';
@@ -87,6 +93,7 @@ import {
   stopCompanionEngine,
 }                                  from '../companion/companionEngine';
 import { restoreNavigationAsync }  from '../navigationService';
+import { wireGrammarContext }      from '../voice/contextGrammarWiring';
 import { startCognitiveEngine, stopCognitiveEngine } from './CognitivePriorityEngine';
 import { useCognitiveStore }       from '../../store/useCognitiveStore';
 
@@ -694,6 +701,16 @@ class SystemBoot {
   private async _wave2(): Promise<void> {
     _log('Starting Wave 2 (Data Backbone)...');
 
+    // MAVI-STT-CONTEXT-GRAMMAR: offline Vosk gramerinin bağlam sağlayıcılarını bağla.
+    // YALNIZ salt-okunur senkron getter KAYDEDER — servis başlatmaz, timer açmaz,
+    // durum kopyalamaz. Ağır import (nav/media/obd) BİLEREK burada durur: `voiceService`
+    // grafiğine girerse obd/store zinciri sıcak tarafa sızar ve voice testleri yüklenemez
+    // (ölçüldü — bkz. contextGrammarProviders.ts). Bağlanmazsa gramer tam sözlükte kalır
+    // (fail-soft), bu yüzden kayıt boot'u bloklamaz. Yalnız fonksiyon referansı tutulduğu
+    // için LIFO shutdown'da geri alınacak bir kaynak YOKTUR.
+    _log('  › Grammar context providers');
+    wireGrammarContext();
+
     // VehicleDataLayer: OBD / GPS / CAN worker (SAB zero-copy)
     _log('  › VehicleDataLayer');
     this._regNamed('VehicleDataLayer', startVehicleDataLayer({
@@ -817,6 +834,37 @@ class SystemBoot {
     // fingerprint üret. Fail-soft + kimlik-imza guard (hot-path'e girmez); cleanup _reg'le.
     _log('  › AutomaticVehicleFingerprint');
     this._reg(startAutomaticVehicleFingerprint());
+
+    // VehicleClassRuntime (VEHICLE_AWARE_SPEED_LIMIT P0): aracın YASAL sınıfını
+    // (M1/N1 · otomobil/kamyonet/panelvan) çözer — uygulanabilir hız sınırı
+    // bundan türer. Ağ çağrısı YALNIZ araç kimliği değişince ve backend proxy
+    // yapılandırılmışsa yapılır; navigasyon tick'ine GİRMEZ. Fail-soft.
+    _log('  › VehicleClassRuntime');
+    this._reg(startVehicleClassRuntime());
+
+    // Konum Motoru (P1): mevcut gpsService'i GÖZLEMLER (değiştirmez/yeniden
+    // başlatmaz) ve çok kaynaklı hakem kararını üretir. Fix akışı gpsService'in
+    // kendi hızında devam eder; buradaki timer YALNIZ kaynak seçimi içindir.
+    _log('  › LocationEngine');
+    this._reg(startLocationEngine());
+
+    // Navigasyon Oturum Runtime (SESSION CONTINUITY P0): rota ilerlemesinin
+    // GÖRÜNÜMDEN BAĞIMSIZ tek tick sahibi. Eskiden bu tick FullMapView'ın kendi
+    // GPS aboneliğindeydi → tam ekran kapanınca mesafe/ETA/adım/ses/reroute/varış
+    // topluca DONUYORDU. Yeni motor/eşik YOK, yalnız sahiplik taşındı; timer YOK
+    // (kadans GPS fix'inin kendi kadansı). LocationEngine'den SONRA kaydedilir →
+    // LIFO shutdown'da ondan ÖNCE kapanır. Fail-soft + zero-leak (cleanup _reg'le).
+    _log('  › NavigationSessionRuntime');
+    this._reg(startNavigationSessionRuntime());
+
+    // Trip yukleme kablolamasi (P1): tripLogService'i GOZLER (degistirmez) ve
+    // YALNIZ kapanan trip icin tek kanonik ozet yukler. Canli olcum GONDERILMEZ.
+    this._reg(startTripUpload());
+
+    // Fleet Vehicle Identity koordinatörü (P1): üretici YUKARIDAKİ abonelik olduğu
+    // için burada BAŞLATILACAK bir şey yok — yalnız kapatma kaydı gerekir, çünkü
+    // koordinatör backoff'lu retry timer'ı tutabilir (zero-leak).
+    this._reg(() => stopVehicleIdentityCoordinator());
 
     // AutoLearningEngine (PR-27): discovery gözlemlerini fingerprint'e bağlayıp öğren
     // (PID/DID seenCount/confidence) + staged VIN merge. Additive + fail-soft; cleanup _reg'le.
@@ -951,6 +999,31 @@ class SystemBoot {
       this._reg(startPlatformCoreAiRuntimeWiring());
     } catch (e) {
       logError('SystemBoot:aiRuntimeWiring', e);
+    }
+
+    /* AI SAĞLAYICI HAZIRLIĞI — "anahtar var" ile "hazır" AYRI ölçülür.
+       Boot'ta BİR KEZ; poll YOK. Erişilebilirlik sondası BİLİNÇLİ olarak
+       VERİLMEZ: boot sırasında dış ağa çıkmak açılışı yavaşlatır ve kota
+       harcar. Sonda yokken durum `CONFIGURED`de kalır — yani "anahtar var,
+       erişim DOĞRULANMADI". Sahte `READY` ASLA üretilmez. */
+    _log('  › AI provider readiness (config-only ölçüm)');
+    try {
+      /* ⚠️ `openRouterKeyService` DİNAMİK import edilir. Statik import
+         SystemBoot'un modül grafiğine kimlik-bilgisi zincirini
+         (`apiCredentialManager` → `credentialRegistry` → `aiVoiceService`)
+         SOKUYOR ve `aiVoiceService`i kısmi mock'layan mevcut testleri
+         kırıyordu (ÖLÇÜLDÜ: SystemBoot değişikliği geri alınınca geçiyorlar).
+         Sonda zaten yalnız ölçüm anında çalışır — zinciri o ana ertelemek
+         hem doğru hem de boot grafiğini hafifletir. */
+      this._reg(startProviderReadiness(
+        async () => {
+          const m = await import('../ai/gateway/openRouterKeyService');
+          return { configured: (await m.getOpenRouterKeyInfo()).configured };
+        },
+        null,
+      ));
+    } catch (e) {
+      logError('SystemBoot:aiProviderReadiness', e);
     }
 
     // Vosk STT modelini boot sonrası arka planda ısıt — eskiden ilk mikrofon

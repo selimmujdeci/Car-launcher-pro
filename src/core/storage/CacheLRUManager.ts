@@ -14,6 +14,7 @@
 
 import maplibregl from 'maplibre-gl';
 import { useDebugStore } from '../../platform/debug/debugStore';
+import { DEVELOPER_FEATURES_ENABLED } from '../../platform/debug/developerFeatures';
 
 /* ── Sabitler ─────────────────────────────────────────────────────────────── */
 
@@ -26,9 +27,8 @@ const FLUSH_MS      = 30_000;               // manifest IndexedDB flush aralığ
 const STATS_MS      = 5_000;               // debug store güncelleme aralığı
 const PROTOCOL      = 'caros-tile';
 
-const _DEBUG_ACTIVE =
-  typeof import.meta !== 'undefined' &&
-  (import.meta.env?.DEV === true || import.meta.env?.VITE_ENABLE_DEBUG_PANEL === 'true');
+// Karar TEK OTORİTEDEN gelir (yeniden hesaplanmaz) — bkz. platform/debug/developerFeatures.ts.
+const _DEBUG_ACTIVE = DEVELOPER_FEATURES_ENABLED;
 
 /* ── Manifest entry ───────────────────────────────────────────────────────── */
 

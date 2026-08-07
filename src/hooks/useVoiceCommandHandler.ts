@@ -1,6 +1,13 @@
 import { useEffect, useRef } from 'react';
 import { toIntent, routeIntent } from '../platform/intentEngine';
-import { registerCommandHandler, registerAIResultHandler, cancelAssistantDuck } from '../platform/voiceService';
+import { registerCommandHandler, registerAIResultHandler, cancelAssistantDuck, isResultAckCommand } from '../platform/voiceService';
+// MAVI-M3: sahte ACK yerine YÜRÜTME SONUCUNDAN türeyen tek geri bildirim zarfı.
+import { buildIntentExecutionFeedback } from '../platform/intentExecutionResult';
+// MAVI-M5: geç dönen yürütme sonucu yeni turu bozamaz.
+import { continueIfTurnCurrent, getActiveMaviTurn } from '../platform/assistant/maviTurn';
+// MAVI-M6: normal kullanıcı cevabının TEK otoritesi (ttsService'e delege eder).
+import { speakMaviAnswer } from '../platform/assistant/maviSpeech';
+import type { VehicleContext } from '../platform/aiVoiceService';
 import { reportVoiceDiag } from '../platform/voiceDiagService';
 import { play, getMediaState, setMediaPreferredPackage } from '../platform/mediaService';
 // next/previous/togglePlayPause: UI'nın kullandığı KUYRUK-FARKINDA + in-app yönlendiren
@@ -16,11 +23,42 @@ import type { MusicFavorite, AppSettings } from '../store/useStore';
 import { useStore } from '../store/useStore';
 import { useCarTheme, baseOf, toDay, toNight, isDay, type CoreTheme } from '../store/useCarTheme';
 import { getVoiceSetting } from '../platform/settingsVoice';
+import { unknownMaviVehicleContext, currentMaviVehicleContext } from '../platform/assistant/maviVehicleContext';
+// MAVI-M4: tek eylem otoritesi + açık onay akışı.
+import { executeIntent, type CommandContext } from '../platform/commandExecutor';
+import { isVehicleEffectiveIntent, getVehicleActionDef } from '../platform/action/maviActionAuthority';
+import { setPendingAction, setConfirmedActionExecutor } from '../platform/action/pendingActionConfirmation';
+import type { IntentExecutionResult } from '../platform/intentExecutionResult';
 import { isCommandOwnedByMavi, resolveOwnershipKey } from '../platform/maviCore/wiring/maviOwnership';
 import { recordLegacyExecution, adjustRegistration } from '../platform/maviCore/wiring/maviEvidence';
 
 // activeMediaSourceKey değerleri içinde geçerli MusicOptionKey olabilenler
 const _MUSIC_KEY_SET = new Set<string>(['spotify', 'youtube'] satisfies MusicOptionKey[]);
+
+/* ── MAVI-M4 · sesli hattın araç etkili YÜRÜTÜCÜ PORTLARI ───────────────────
+ * KÖK NEDEN (M4 envanteri): bu hat donanım portlarını HİÇ taşımıyordu —
+ * `routeIntent` `ctx.hwHonkHorn?.()` gibi OPSİYONEL çağrılar yapıyor, port
+ * hiç sağlanmadığı için çağrı SESSİZCE düşüyordu. Yani "korna çal" komutu
+ * yıllardır hiçbir şey yapmadan geçiyordu ve kimse fark etmiyordu.
+ *
+ * Tek otoritede bu artık MÜMKÜN DEĞİL: port yoksa kapı DÜRÜST `unsupported`
+ * döner. Burada portlar `bridge` üzerinden (VehicleCommandQueue → L2 ACK)
+ * bağlanır; yeni bir native yetenek eklenmez, var olan kuyruk kullanılır.
+ * Nesne her çağrıda AYNI ŞEKİLDE (aynı anahtar sırası) üretilir → V8 hidden
+ * class kararlı kalır (CLAUDE.md · Shape Stability). */
+function _vehiclePorts(): Pick<
+  CommandContext,
+  'hwLockDoors' | 'hwUnlockDoors' | 'hwHonkHorn' | 'hwFlashLights' | 'hwAlarmOn' | 'hwAlarmOff'
+> {
+  return {
+    hwLockDoors:   () => bridge.hwLockDoors(),
+    hwUnlockDoors: () => bridge.hwUnlockDoors(),
+    hwHonkHorn:    () => bridge.hwHonkHorn(),
+    hwFlashLights: () => bridge.hwFlashLights(),
+    hwAlarmOn:     () => bridge.hwAlarmOn(),
+    hwAlarmOff:    () => bridge.hwAlarmOff(),
+  };
+}
 
 /* ── Sesli tema kontrolü ───────────────────────────────────────────────
  * Sesli komutlar GÖRÜNÜR temayı (useCarTheme) değiştirir — eskiden yalnızca
@@ -185,11 +223,19 @@ async function _isInstalled(pkg: string): Promise<boolean> {
   return _installedPkgCache.has(pkg);
 }
 
-async function _speakAndToast(msg: string): Promise<void> {
+/**
+ * MAVI-M6: `CarLauncher.speak` DOĞRUDAN BYPASS'I KALDIRILDI.
+ *
+ * Eskiden bu fonksiyon `ttsService`i tamamen atlayarak native'e konuşuyordu →
+ * dedupe · ducking · cancel · `__SAFETY_LOCK__` korumalarının HİÇBİRİ uygulanmıyor,
+ * ayrıca dispatch'in söylediği "X aranıyor" ile ÜST ÜSTE biniyordu (M1 bulgu #4).
+ * Artık TEK otoriteden geçer: müzik sonucu turun NİHAİ cevabıdır (`answer`), parser
+ * metni ise 'progress' katmanında kaldığı için slot boştur → tek ses duyulur.
+ * Toast (görsel) DEĞİŞMEDİ.
+ */
+function _speakAndToast(msg: string): void {
   showToast({ type: 'info', title: 'Müzik', message: msg, duration: 4000 });
-  if (isNative) {
-    try { await CarLauncher.speak({ text: msg }); } catch { /* ignore */ }
-  }
+  speakMaviAnswer(msg);
 }
 
 import { resolveAndNavigate } from '../platform/addressNavigationEngine';
@@ -224,8 +270,15 @@ export function useVoiceCommandHandler({
     return registerAIResultHandler((aiResult, vehicleCtx) => {
       const { settings: s, handleLaunch: launch, setDrawer: open, openWeather: showWeather } = voiceCtxRef.current;
       void reportVoiceDiag('voice_command_execute', { command: aiResult.intent });
-      executeAIResult(aiResult, {
-        vehicleCtx: vehicleCtx ?? { speedKmh: 0, drivingMode: 'idle', isDriving: false },
+      /* Tur KOMUT GİRİŞİNDE yakalanır — geç cevap kapısı için (yerel yolla aynı). */
+      const _aiTurn = getActiveMaviTurn();
+      return executeAIResult(aiResult, {
+        // MAVI-M2: sabit `{ speedKmh: 0, isDriving: false }` PARK VARSAYIMI KALDIRILDI.
+        // O varsayım "veri yok"u "araç duruyor" sayıyordu → riskli eylem kapıları
+        // fail-open çalışıyordu (M1 bulgu #1). Bağlam voiceService'te komut başına
+        // çözülür; buraya ulaşmadığı istisnai durumda DÜRÜST bilinmeyen bağlam
+        // kullanılır (`motionState:'unknown'` → kapılar fail-closed kalır).
+        vehicleCtx: vehicleCtx ?? unknownMaviVehicleContext(),
         defaultNav:   s.defaultNav as 'maps' | 'waze' | 'yandex',
         defaultMusic: s.defaultMusic,
         launch,
@@ -248,15 +301,78 @@ export function useVoiceCommandHandler({
           const gps = getGPSState().location;
           dispatchNearbyPoiNavigation(cat, gps ? { lat: gps.latitude, lng: gps.longitude } : undefined);
         },
+        /* İLK çağrıda onay YOKTUR — beynin komutu anlaması ONAY DEĞİLDİR.
+         * Onaylı yürütme yalnız `setConfirmedActionExecutor` yolundan geçer
+         * (yerel parser yoluyla birebir aynı sözleşme). */
+        actionConfirmed: false,
+      }).then((outcome) => {
+        /* SAHA BULGUSU (2026-07-31): burası eskiden BOŞTU — sonuç atılıyordu.
+         * `OPEN_PHONE` onay gerektirdiği için kapı `needs_confirmation` dönüyor,
+         * kimse bunu görmediği için ne soru soruluyor ne bekleyen eylem kuruluyordu
+         * → "annemi ara" hiç aramıyordu. Yerel yolun deseni buraya taşındı. */
+        if (!outcome) return;
+        const { intent, result } = outcome;
+
+        if (result.status === 'needs_confirmation' && isVehicleEffectiveIntent(intent.type)) {
+          const def = getVehicleActionDef(intent.type);
+          const t = getActiveMaviTurn();
+          if (def && t) setPendingAction({ intent, actionId: def.actionId, turnId: t.id, atMs: Date.now() });
+        }
+
+        if (!continueIfTurnCurrent(_aiTurn, 'feedback')) return;
+        const fb = buildIntentExecutionFeedback(result);
+        if (fb && fb.message.trim()) {
+          speakMaviAnswer(fb.message, { isDriving: vehicleCtx?.isDriving === true });
+        }
+      }).catch(() => {
+        if (!continueIfTurnCurrent(_aiTurn, 'feedback')) return;
+        speakMaviAnswer('İşlemin sonucunu doğrulayamadım.');
       });
     });
+  }, []);
+
+  /* MAVI-M4: ONAYLI eylem yürütücüsü. `voiceService` "evet" duyduğunda bunu çağırır;
+   * eylem TEK OTORİTEDEN (`executeIntent`) ve `actionConfirmed:true` ile geçer —
+   * kapı sırası (hareket · AiSafetyGate · capability) yine uygulanır. Cevap M6 tek
+   * zarfından çıkar. Kayıt/sökme bu effect'in yaşam döngüsüne bağlıdır (zero-leak). */
+  useEffect(() => {
+    setConfirmedActionExecutor((intent) => {
+      const { settings: s, handleLaunch: launch, setDrawer: open } = voiceCtxRef.current;
+      const turn = getActiveMaviTurn();
+      /* Bağlam ONAY ANINDA yeniden çözülür (kayıt anında DEĞİL): kullanıcı
+       * "evet" derken araç hareket ediyor olabilir. Çözüm başarısızsa DÜRÜST
+       * bilinmeyen bağlam → hareket kapıları fail-closed kalır. */
+      let confirmedCtx: VehicleContext;
+      try { confirmedCtx = currentMaviVehicleContext(); }
+      catch { confirmedCtx = unknownMaviVehicleContext(); }
+      void executeIntent(intent, {
+        vehicleCtx: confirmedCtx,
+        defaultNav:   s.defaultNav as 'maps' | 'waze' | 'yandex',
+        defaultMusic: s.defaultMusic,
+        launch,
+        openDrawer: (t) => open(t as DrawerType),
+        ..._vehiclePorts(),
+        /* Onaylı yürütme kendi turunda başlar (kullanıcı "evet" dedi) → o turun
+         * token'ı taşınır; onay sonrası araya yeni komut girerse geç metin susar. */
+        turn,
+        actionConfirmed: true,
+      }).then((result) => {
+        if (!continueIfTurnCurrent(turn, 'feedback')) return;
+        const fb = buildIntentExecutionFeedback(result);
+        if (fb && fb.message.trim()) speakMaviAnswer(fb.message);
+      }).catch(() => {
+        if (!continueIfTurnCurrent(turn, 'feedback')) return;
+        speakMaviAnswer('İşlemin sonucunu doğrulayamadım.');
+      });
+    });
+    return () => { setConfirmedActionExecutor(null); };
   }, []);
 
   useEffect(() => {
     // PR-DIAG-2 · ÜRETİCİ #5 (guard sayacı): kayıt/sökme MEVCUT useEffect yaşam döngüsüne bağlıdır
     // — yeni abonelik/timer YOK. Sızıntı olursa sayaç 1'i aşar ve rapor bunu gösterir.
     try { adjustRegistration('guard', 1); } catch { /* fail-soft */ }
-    const _unregister = registerCommandHandler((cmd: ParsedCommand) => {
+    const _unregister = registerCommandHandler((cmd: ParsedCommand, vehicleCtx?: VehicleContext) => {
       // ── MAVİ TAKEOVER GUARD (Faz-3 · MAVI3-4c) ──────────────────────────
       // Aynı istekte iki hattın birden çalışmasını engelleyen TEK karar noktası. Cevap senkron ve
       // SIRA-BAĞIMSIZDIR: bu handler'ın Mavi köprüsünden önce mi sonra mı çağrıldığı sonucu
@@ -265,6 +381,11 @@ export function useVoiceCommandHandler({
       // yalnız `media.next` içerdiğinden guard pratikte SADECE o komutta etkilidir; diğer tüm
       // komutlar bu satırdan etkilenmeden akar.
       if (isCommandOwnedByMavi(cmd)) return;
+
+      /* MAVI-M5: bu handler `dispatch()` içinden SENKRON çağrılır → yakalanan token
+       * bu komutun TA KENDİSİNİN turudur. Aşağıdaki async `routeIntent` sonucu geç
+       * dönerse bu token ile güncellik sorulur (yeni komut geldiyse SESSİZCE düşer). */
+      const _turn = getActiveMaviTurn();
 
       // PR-DIAG-2 · ÜRETİCİ #4: guard'ın GEÇİRDİĞİ komut = eski hattın gerçek yürütmesi.
       // Anahtar, Mavi'nin kullandığı AYNI saf builder'dan gelir → iki taraf aynı correlationId'yi
@@ -323,12 +444,29 @@ export function useVoiceCommandHandler({
         return;
       }
 
-      // Serbest adres navigasyonu — intentEngine'e geçmeden burada çözülür
+      // Serbest adres navigasyonu — intentEngine'e geçmeden burada çözülür.
+      //
+      // ⚠️ BU BLOK MAVİ SAHİPLİĞİNDE ZATEN ULAŞILAMAZ: yukarıdaki tek karar noktası
+      // (`isCommandOwnedByMavi` → erken return) bu satırlardan ÖNCE çalışır. Yani
+      // aynı komut için iki hat birden resolveAndNavigate ÇAĞIRAMAZ. Mavi bu komutu
+      // sahiplenmediğinde (bugünkü durum — `navigation.open` takeover-eligible DEĞİL)
+      // eski hat çalışmaya devam eder; bu bilinçli fail-open davranıştır.
       if (
         cmd.type === 'navigate_address' ||
         cmd.type === 'navigate_place'
       ) {
-        const dest = cmd.extra?.destination ?? cmd.raw;
+        // FAIL-CLOSED (yeni): hedef boşsa navigasyon BAŞLATILMAZ.
+        // KÖK: `cmd.extra.destination` yoksa `cmd.raw`a düşülüyordu; ikisi de boş/boşluk
+        // olduğunda `resolveAndNavigate('')` çağrılıyordu. O fonksiyonun kendi boş-hedef
+        // koruması YOKTUR (addressNavigationEngine.ts) — boş sorguyla 'searching' durumu
+        // yayınlanıp anlamsız arama başlıyordu. Hedefi olmayan komut, hedefi olmayan
+        // navigasyondur: sessizce düşmek yerine hiç başlatılmaz.
+        const rawDest = cmd.extra?.destination ?? cmd.raw;
+        const dest = typeof rawDest === 'string' ? rawDest.trim() : '';
+        if (!dest) {
+          void reportVoiceDiag('voice_command_execute', { command: cmd.type, errorCode: 'empty_destination' });
+          return;
+        }
         const gps  = getGPSState().location;
         resolveAndNavigate(
           dest,
@@ -346,7 +484,32 @@ export function useVoiceCommandHandler({
         defaultNav: s.defaultNav, defaultMusic: effectiveMusic,
         recentAppId: sm.quickActions.find((a) => a.id.startsWith('last-'))?.appId,
       });
-      routeIntent(intent, {
+      /* ── MAVI-M4 · TEK EYLEM OTORİTESİ YÖNLENDİRMESİ ─────────────────────
+       * ARAÇ ETKİLİ intentler (donanım · DTC · sensör · telefon araması) ARTIK
+       * `routeIntent`e HİÇ GİTMEZ — doğrudan tek otoriteye (`executeIntent` →
+       * `dispatchIntent`) verilir. Orada kapı sırası: hareket politikası (M2) →
+       * AiSafetyGate → açık onay → capability, hepsi port/native/OBD çağrısından
+       * ÖNCE. `routeIntent` yalnız düşük riskli UI/medya/navigasyon intentlerinde
+       * kalır (araç etkili portları RouterContext'te ARTIK YOK).
+       * Her iki yol da AYNI `IntentExecutionResult` sözleşmesini döndürür → M6
+       * tek cevap zarfı ve M5 tur kapısı değişmeden çalışır. */
+      const _run: Promise<IntentExecutionResult> = isVehicleEffectiveIntent(intent.type)
+        ? executeIntent(intent, {
+            vehicleCtx: vehicleCtx ?? unknownMaviVehicleContext(),
+            defaultNav:   s.defaultNav as 'maps' | 'waze' | 'yandex',
+            defaultMusic: s.defaultMusic,
+            launch,
+            openDrawer: (t) => open(t as DrawerType),
+            ..._vehiclePorts(),
+            /* MAVI-M6-LATE-SPEECH-GATE: bu komutun TA KENDİSİNİN turu (yukarıda
+             * senkron yakalandı). `dispatchIntent` içindeki await sonrası
+             * konuşmalar bununla korunur. */
+            turn: _turn,
+            // İLK çağrıda onay YOKTUR — parser eşleşmesi ONAY DEĞİLDİR. Onaylı
+            // yürütme yalnız `setConfirmedActionExecutor` yolundan geçer.
+            actionConfirmed: false,
+          })
+        : routeIntent(intent, {
         launch,
         openDrawer:  (t) => open(t as DrawerType),
         setTheme:    applyVoiceTheme,
@@ -482,6 +645,29 @@ export function useVoiceCommandHandler({
           addMusicFavorite(fav);
           showToast({ type: 'success', title: 'Favorilere eklendi', message: `${media.track.title} — ${media.track.artist}`, duration: 3000 });
         },
+      });
+
+      void _run.then((result) => {
+        /* MAVI-M4: onay isteniyorsa eylemi BEKLET (yürütme YAPILMADI). Bir sonraki
+         * turda kullanıcı "evet" derse `voiceService` kayıtlı yürütücüyü çağırır;
+         * "hayır"da slot temizlenir ve HİÇBİR yan etki oluşmaz. */
+        if (result.status === 'needs_confirmation' && isVehicleEffectiveIntent(intent.type)) {
+          const def = getVehicleActionDef(intent.type);
+          const t = getActiveMaviTurn();
+          if (def && t) setPendingAction({ intent, actionId: def.actionId, turnId: t.id, atMs: Date.now() });
+        }
+        /* MAVI-M5 · KAPI F + M6 DÜZELTMESİ: bu sonuç turun KENDİ geç cevabıdır ve
+         * `completeMaviTurn`ten SONRA çözülür. `continueIfTurnActive` kullanılırsa
+         * M3'ün dürüst ACK'i ("… bağlantısı henüz hazır değil") ÜRETİMDE HİÇ
+         * DUYULMAZDI. Susturulması gereken DEVRALINMA'dır → `continueIfTurnCurrent`. */
+        if (!continueIfTurnCurrent(_turn, 'feedback')) return;
+        // TEK zarf · TEK ses (otorite tur başına tek `answer` geçirir).
+        const fb = buildIntentExecutionFeedback(result);
+        if (fb && fb.message.trim()) speakMaviAnswer(fb.message, { isDriving: vehicleCtx?.isDriving === true });
+      }).catch(() => {
+        // Yürütme zinciri throw etti → BAŞARI İDDİA EDİLMEZ, dürüstçe bilinmiyor denir.
+        if (!continueIfTurnCurrent(_turn, 'feedback')) return;
+        if (isResultAckCommand(cmd.type)) speakMaviAnswer('İşlemin sonucunu doğrulayamadım.');
       });
 
     });
