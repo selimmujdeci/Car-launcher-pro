@@ -135,7 +135,9 @@ describe('rota sahipliği görünümden bağımsızdır', () => {
     expect(M.fetchCalls).toHaveLength(1);
 
     const DEST2 = { ...DEST, id: 'dst-2', latitude: 38.42, longitude: 27.14 };
-    s.startNavigation(DEST2, false);
+    // Kütük #429: hedefi KULLANICI değiştiriyor — kaynak bildirilir. Kaynaksız
+    // (SYSTEM) çağrı aktif oturumda BLOCK edilir; bu testin senaryosu o değil.
+    s.startNavigation(DEST2, false, 'USER_SEARCH');
     s.activateNavigation();
     expect(M.fetchCalls).toHaveLength(2);
     expect(M.fetchCalls[1].dLat).toBe(38.42);

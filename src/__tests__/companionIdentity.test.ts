@@ -26,6 +26,7 @@ import {
   DEFAULT_ASSISTANT_NAME,
   DEFAULT_WAKE_PHRASE,
 } from '../platform/companion/companionIdentity';
+import { driverToneInstruction } from '../platform/companion/companionContext';
 import { useStore } from '../store/useStore';
 import { safeFlushAll } from '../utils/safeStorage';
 
@@ -324,5 +325,50 @@ describe('Settings UI kaynak-sözleşmesi (CompanionPanel)', () => {
 
   it('panel başlığı "Yol Arkadaşım" görünür', () => {
     expect(settingsSrc).toContain('Yol Arkadaşım');
+  });
+});
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * Driver DNA — kimliğe enjekte edilen CANLI sürüş stili (GÖREV 3)
+ *
+ * KİLİT: driverStyle bir AYAR DEĞİLDİR. Persist'ten okunmaz, settings'e yazılmaz;
+ * yalnız çağıranın canlı yolculuk sayaçlarından türettiği değer enjekte edilir.
+ * ════════════════════════════════════════════════════════════════════════ */
+
+describe('resolveCompanionIdentity — Driver DNA enjeksiyonu', () => {
+  it('stil verilmezse alan HİÇ kurulmaz (bilinmiyor ≠ "sakin")', () => {
+    const id = resolveCompanionIdentity({});
+    expect(id.driverStyle).toBeUndefined();
+    expect(Object.prototype.hasOwnProperty.call(id, 'driverStyle')).toBe(false);
+  });
+
+  it('stil verilirse kimliğe taşınır ve üslup talimatına çevrilir', () => {
+    expect(resolveCompanionIdentity({}, undefined, 'aggressive').driverStyle).toBe('aggressive');
+    expect(resolveCompanionIdentity({}, undefined, 'calm').driverStyle).toBe('calm');
+    // Talimat üretimi tek kaynaktan (companionContext) gelir.
+    expect(driverToneInstruction(resolveCompanionIdentity({}, undefined, 'aggressive').driverStyle))
+      .toContain('kısa ve net');
+    expect(driverToneInstruction(resolveCompanionIdentity({}, undefined, 'calm').driverStyle))
+      .toBeNull();
+  });
+
+  it('stil AYARLARDAN okunmaz — settings alanı stili DEĞİŞTİREMEZ', () => {
+    const id = resolveCompanionIdentity(
+      { companionPersonality: 'sessiz', driverStyle: 'aggressive' } as never,
+    );
+    expect(id.driverStyle).toBeUndefined();
+    expect(id.personality).toBe('sessiz'); // diğer ayarlar etkilenmedi
+  });
+});
+
+/* Gerçek veri kaynağı sözleşmesi: tripLogService sert manevrayı YÖNE göre ayırmalı
+   (Driver DNA'nın hardBrake/rapidAccel girdisi buradan gelir — uydurma sayaç YOK). */
+describe('tripLogService — Driver DNA sayaç kaynağı (kaynak sözleşmesi)', () => {
+  it('sert manevra fren/gaz olarak ayrıştırılır ve toplam sayaç korunur', () => {
+    const src = readFileSync(
+      join(process.cwd(), 'src', 'platform', 'tripLogService.ts'), 'utf-8');
+    expect(src).toContain('harshBrakeEvents');
+    expect(src).toContain('harshAccelEvents');
+    expect(src).toContain('_active.harshEvents += 1'); // TOPLAM sayaç KALDIRILMADI
   });
 });

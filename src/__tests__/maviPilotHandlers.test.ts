@@ -129,12 +129,80 @@ describe('createPilotHandlers — resmi servis çağrıları', () => {
 });
 
 describe('createShadowHandlers — gölge (gerçek servis çağrısı YOK)', () => {
-  it('tüm pilot eylemler ok döner, hiçbir servis portu yok', async () => {
+  /* KİLİT GÜNCELLENDİ (#123): gölgede `ok:true` kuralı phone.* İÇİN GEÇERSİZ.
+     Diğer eylemlerde gölge no-op zararsızdır (gerçek işi ESKİ HAT yapar), ama
+     telefonda eski hat da yoktur → `ok:true` "arama yapıldı" demek olurdu.
+     Kilit kaldırılmadı, doğru davranışa daraltıldı. */
+  it('phone.* DIŞINDAKİ pilot eylemler ok döner, hiçbir servis portu yok', async () => {
     const shadow = createShadowHandlers();
     for (const id of Object.keys(shadow)) {
+      if (id.startsWith('phone.')) continue;
       const r = await shadow[id]({}, noopSignal);
       expect(r.ok).toBe(true);
     }
     expect((await shadow['vehicle.health.read']({}, noopSignal)).value).toMatchObject({ dtcCount: 0 });
+  });
+});
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * PHONE HUB handler'ları (#123) — SAHTE BAŞARI YASAK
+ *
+ * Repoda telefona komut iletecek RFCOMM komut kanalı YOKTUR (`PhoneHubLink`
+ * yalnız oturum/eşleştirme yönetir). Bu yüzden handler'lar dürüstçe reddeder;
+ * hiçbir koşulda "arama yapıldı" anlamına gelen ok:true DÖNMEZ.
+ * ════════════════════════════════════════════════════════════════════════ */
+
+describe('phone.* handler\'ları — fail-soft dürüst reddetme', () => {
+  const PHONE_IDS = ['phone.media.play', 'phone.call.start', 'phone.sms.draft'] as const;
+
+  it('port BAĞLI DEĞİLKEN phone.call.start → ok:false PHONE_NOT_CONNECTED', async () => {
+    const { deps } = makeDeps();                       // isPhoneLinkReady VERİLMEDİ
+    const h = createPilotHandlers(deps);
+    const r = await h['phone.call.start']({ contactName: 'Ayşe' }, noopSignal);
+
+    expect(r.ok).toBe(false);
+    expect(r.error).toBe('PHONE_NOT_CONNECTED');
+    expect(r.value).toBeUndefined();                   // sahte sonuç taşınmaz
+  });
+
+  it('port YOKSA / patlarsa üç eylem de fail-closed reddeder (throw ETMEZ)', async () => {
+    const boom = createPilotHandlers(makeDeps({
+      isPhoneLinkReady: () => { throw new Error('link boom'); },
+    }).deps);
+    for (const id of PHONE_IDS) {
+      const r = await boom[id]({}, noopSignal);
+      expect(r.ok, `${id} sahte başarı DÖNMEMELİ`).toBe(false);
+      expect(r.error).toBe('PHONE_NOT_CONNECTED');
+    }
+  });
+
+  /* KİLİT: "oturum bağlı" bilgisi TEK BAŞINA aramayı yaptırmaz — komut kanalı
+     hâlâ yok. ok:true dönmek yapılmamış aramayı yapılmış göstermek olurdu. */
+  it('oturum BAĞLI görünse bile komut kanalı yoksa yine ok:false (gerekçe ayrışır)', async () => {
+    const h = createPilotHandlers(makeDeps({ isPhoneLinkReady: () => true }).deps);
+    const r = await h['phone.call.start']({ contactName: 'Ayşe' }, noopSignal);
+
+    expect(r.ok).toBe(false);
+    expect(r.error).toContain('PHONE_TRANSPORT_MISSING');
+    expect(r.error).toContain('phone.call.start');     // hangi eylem olduğu izlenebilir
+  });
+
+  it('phone.* handler\'ları HİÇBİR araç/medya/nav portuna DOKUNMAZ', async () => {
+    const { deps, spies } = makeDeps({ isPhoneLinkReady: () => true });
+    const h = createPilotHandlers(deps);
+    for (const id of PHONE_IDS) await h[id]({}, noopSignal);
+
+    for (const [name, spy] of Object.entries(spies)) {
+      expect(spy, `phone.* '${name}' portunu ÇAĞIRMAMALI`).not.toHaveBeenCalled();
+    }
+  });
+
+  it('GÖLGE modda da ok:true DÖNMEZ (telefonda eski hat da yok)', async () => {
+    const shadow = createShadowHandlers();
+    for (const id of PHONE_IDS) {
+      const r = await shadow[id]({}, noopSignal);
+      expect(r.ok, `${id} gölgede bile sahte başarı DÖNMEMELİ`).toBe(false);
+      expect(r.error).toBe('PHONE_NOT_CONNECTED');
+    }
   });
 });

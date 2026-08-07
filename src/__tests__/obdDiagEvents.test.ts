@@ -77,6 +77,7 @@ vi.mock('../platform/canSnapshotService', () => ({
 vi.mock('../platform/safety/SafetyBrain', () => ({
   isFeatureEnabled: vi.fn(() => false), // gate-fail sonrası auto-reconnect kapalı
   recordFault:      vi.fn(),
+  recordFeatureRecovered: vi.fn(),
 }));
 
 vi.mock('../platform/obdStorage', () => ({

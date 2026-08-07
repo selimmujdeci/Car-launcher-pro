@@ -57,7 +57,7 @@ vi.mock('../platform/canSnapshotService', () => ({
   hydrateCanSnapshotSync: vi.fn(() => ({})), hydrateCanSnapshotAsync: vi.fn(() => Promise.resolve({})),
   scheduleCanSnapshot: vi.fn(), flushCanSnapshotNow: vi.fn(), stopCanSnapshot: vi.fn(),
 }));
-vi.mock('../platform/safety/SafetyBrain', () => ({ isFeatureEnabled: vi.fn(() => true), recordFault: vi.fn() }));
+vi.mock('../platform/safety/SafetyBrain', () => ({ isFeatureEnabled: vi.fn(() => true), recordFault: vi.fn(), recordFeatureRecovered: vi.fn() }));
 vi.mock('../platform/safety/vinContext', () => ({ getHandshakeVin: vi.fn(() => M.vin) }));
 
 vi.mock('../platform/obdStorage', () => ({

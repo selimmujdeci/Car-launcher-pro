@@ -21,6 +21,13 @@ import { resolve, join } from 'node:path';
    yanlışlıkla düşürüyordu (izole hep geçiyordu). `?raw` içeriği build-time'da
    sabitler → runtime fs yarışına/mock'a/kısmi okumaya PROVABLY bağışık. */
 import commandExecutorSrc from '../platform/commandExecutor.ts?raw';
+import expeditionLayoutSrc from '../components/themes/ExpeditionLayout.tsx?raw';
+import mapLayerManagerSrc from '../platform/map/MapLayerManager.ts?raw';
+import mapInteractionManagerSrc from '../platform/map/MapInteractionManager.ts?raw';
+import mapStateSrc from '../platform/map/_mapState.ts?raw';
+import proLayoutSrc from '../components/themes/ProLayout.tsx?raw';
+import teslaLayoutSrc from '../components/themes/TeslaLayout.tsx?raw';
+import volumeGestureLayerSrc from '../components/common/VolumeGestureLayer.tsx?raw';
 import companionChatProviderSrc from '../platform/companion/companionChatProvider.ts?raw';
 import vehicleResolverSrc from '../platform/vehicleDataLayer/VehicleSignalResolver.ts?raw';
 import visionCoreSrc from '../platform/vision/visionCore.ts?raw';
@@ -42,6 +49,28 @@ import orientationGateSrc from '../platform/sensors/orientationSensorGate.ts?raw
 import remoteLogServiceSrc from '../platform/remoteLogService.ts?raw';
 import diagnosticTriageSrc from '../platform/diagnosticTriage.ts?raw';
 import dtcServiceSrc from '../platform/dtcService.ts?raw';
+import gpsServiceSrc from '../platform/gpsService.ts?raw';
+import unifiedVehicleStoreSrc from '../platform/vehicleDataLayer/UnifiedVehicleStore.ts?raw';
+import odometerGuardSrc from '../platform/vehicleDataLayer/OdometerGuard.ts?raw';
+import navigationHudSrc from '../components/map/NavigationHUD.tsx?raw';
+import mapSearchBarSrc from '../components/map/MapSearchBar.tsx?raw';
+import newHomeLayoutSrc from '../components/layout/NewHomeLayout.tsx?raw';
+import addressNavEngineSrc from '../platform/addressNavigationEngine.ts?raw';
+import geocodingServiceSrc from '../platform/geocodingService.ts?raw';
+import geocodingProvidersSrc from '../platform/geocodingProviders.ts?raw';
+import mapServiceSrc from '../platform/mapService.ts?raw';
+import mapHudControlsSrc from '../components/map/MapHudControls.tsx?raw';
+import speedLimitServiceSrc from '../platform/speedLimitService.ts?raw';
+import speedLimitCardSrc from '../components/map/SpeedLimitCard.tsx?raw';
+import effectiveLimitAuthoritySrc from '../platform/navigation/core/vehicleAwareSpeedLimitAuthority.ts?raw';
+import turkeyPolicySrc from '../platform/navigation/policy/turkeySpeedPolicy.ts?raw';
+import navigationServiceSrc from '../platform/navigationService.ts?raw';
+import fullMapViewSrc from '../components/map/FullMapView.tsx?raw';
+import useLayoutServicesSrc from '../hooks/useLayoutServices.ts?raw';
+import useDenseHudSrc from '../hooks/useDenseHud.ts?raw';
+import modeControllerSrc from '../platform/modeController.ts?raw';
+import visionOverlaySrc from '../components/map/VisionOverlay.tsx?raw';
+import sensitiveKeyStoreSrc from '../platform/sensitiveKeyStore.ts?raw';
 import { AdaptiveRuntimeManager } from '../core/runtime/AdaptiveRuntimeManager';
 import { RuntimeMode } from '../core/runtime/runtimeTypes';
 import { forceMode } from './sim/runtimeSimulator';
@@ -707,10 +736,59 @@ describe('Grounding hatası beyin devre kesicisini tetiklemez kilidi', () => {
    Regresyon: rota sürekli sıfırlanıp "Yola çıkın"a dönüyordu.
    ─────────────────────────────────────────────────────────────── */
 describe('Reroute sahte-tetik önlemi kilidi', () => {
-  it('YAPISAL: sapma eşiği GPS hata payına duyarlı + ≥3 ardışık tick', () => {
+  /* KİLİT GÜNCELLENDİ (NAV-CORE-P0, 2026-08-03) — KALDIRILMADI.
+   *
+   * Eski kilit iki somut ifadeyi arıyordu:
+   *   `REROUTE_THRESHOLD_M + Math.min(accuracy…)` ve `_deviationCounter >= 3`.
+   * Korunan DAVRANIŞ şuydu: (a) sapma eşiği GPS hata payına duyarlı olmalı,
+   * (b) tek gürültü örneği reroute tetiklememeli.
+   *
+   * O davranış KORUNUYOR ama artık `routingService` içindeki iki satırda değil,
+   * saf `offRouteModel` durum makinesinde yaşıyor ve DAHA GÜÇLÜ:
+   *   • hata payı `mapMatchModel` koridoruna girdi (tek koridor, iki katman),
+   *   • sabit "3 tick" yerine hız+doğruluk uyarlanabilir kanıt penceresi,
+   *   • ek olarak SÜRE tabanı (yüksek frekanslı kaynak sayıyı şişiremez).
+   * Kilit bu yeni sözleşmeyi bağlar. */
+  it('YAPISAL: sapma kararı çok-kanıtlı durum makinesinden gelir', () => {
     const src = read('src/platform/routingService.ts');
-    expect(src).toMatch(/REROUTE_THRESHOLD_M\s*\+\s*Math\.min\(accuracy/);
-    expect(src).toMatch(/_deviationCounter\s*>=\s*3/);
+    // Ham GPS artık doğrudan sapma kararı vermez — önce eşleştirilir.
+    expect(src, 'map matching zinciri kaldırılmış').toMatch(/matchToRoute\(/);
+    expect(src, 'sapma durum makinesi kaldırılmış').toMatch(/stepOffRoute\(/);
+    // Reroute YALNIZ doğrulanmış sapmada tetiklenir.
+    expect(src).toMatch(/_offRoute\.state\s*!==\s*'CONFIRMED_OFF_ROUTE'/);
+    /* Zayıf sinyalde rota kurulmaz (fail-closed).
+     * KİLİT GÜNCELLENDİ (saha 2026-08-05 · #402) — ZAYIFLATILMADI: eşik artık
+     * `offRouteModel.ACTIONABLE_ACCURACY_M` sabitinden gelir. Sebep: sahada
+     * karar katmanı kötü fix'i sapma kanıtı sayıyor, rota katmanı aynı fix'i
+     * reddediyordu → "onaylandı ama hiçbir şey olmadı". İki katman artık aynı
+     * sabiti paylaşır; sayı elle yeniden yazılırsa sessizce ayrışırlar. */
+    expect(src).toMatch(/accuracyM\s*==\s*null\s*\|\|\s*accuracyM\s*>\s*ACTIONABLE_ACCURACY_M/);
+    expect(read('src/platform/navigation/core/offRouteModel.ts'))
+      .toMatch(/ACTIONABLE_ACCURACY_M\s*=\s*50/);
+  });
+
+  it('YAPISAL: tek örnek ASLA sapma doğrulamaz (sayı VE süre birlikte)', () => {
+    const m = read('src/platform/navigation/core/offRouteModel.ts');
+    expect(m, 'asgari kanıt sayısı 2\'nin altına düşmüş').toMatch(/MIN_EVIDENCE\s*=\s*2/);
+    // Sayı tek başına yetmez; kanıtın SÜRMESİ de gerekir.
+    expect(m).toMatch(/count\s*>=\s*required\s*&&\s*elapsed\s*>=\s*requiredMs/);
+    // Kanıt penceresi sabit değil, hız/doğruluktan türetilir.
+    expect(m).toMatch(/export function requiredEvidenceFor\(/);
+    expect(m).toMatch(/export function requiredEvidenceMsFor\(/);
+  });
+
+  it('YAPISAL: tünel/GPS kaybı sapma SAYILMAZ', () => {
+    const m = read('src/platform/navigation/core/offRouteModel.ts');
+    // STALE/UNKNOWN eşleşmede karar verilmez ve kanıt sayacı sıfırlanır.
+    expect(m).toMatch(/ev\.matchState\s*===\s*'STALE'\s*\|\|\s*ev\.matchState\s*===\s*'UNKNOWN'/);
+    expect(m).toMatch(/HELD_NO_DECISION/);
+  });
+
+  it('YAPISAL: bayat rota yanıtı güncel rotayı EZEMEZ', () => {
+    const src = read('src/platform/routingService.ts');
+    // Her store yazısı önce isteğin hâlâ güncel olduğunu doğrular.
+    expect(src).toMatch(/isCurrentRequest\(reqId\)/);
+    expect(src).toMatch(/recordStaleRejected\(reqId\)/);
   });
 });
 
@@ -1065,7 +1143,12 @@ describe('Satış-APK güvenlik bayrakları kilidi — capacitor.config.ts', () 
 describe('Hareket tespiti hız-bağımsız kilidi — Doppler 0 saplanması', () => {
   it('YAPISAL: gpsService ham hızı pickRawSpeed ile seçer (?? fallback yasak)', () => {
     const src = read('src/platform/gpsService.ts');
-    expect(src, 'pickRawSpeed kaldırılmış — Doppler=0 saplanması geri gelir').toMatch(/pickRawSpeed\(gpsSpeed,\s*deltaSpeed\)/);
+    /* GÜNCELLENDİ (cihaz 2026-08-03): Doppler artık ham geçmez, önce YER
+       DEĞİŞTİRME ile çapraz doğrulanır (park hâlinde 58 km/h hayaleti).
+       Kilidin AMACI aynı: seçim `pickRawSpeed` ile yapılır, `??` fallback YASAK. */
+    expect(src, 'pickRawSpeed kaldırılmış — Doppler=0 saplanması geri gelir')
+      .toMatch(/pickRawSpeed\(_gpsSpeedChecked,\s*deltaSpeed\)/);
+    expect(src, 'Doppler çapraz doğrulaması kaldırılmış').toContain('reconcileDopplerWithDisplacement');
     expect(src, 'eski `gpsSpeed ?? computeSpeedDelta` deseni geri gelmiş (0 finite → fallback ölü)').not.toMatch(/gpsSpeed\s*\?\?\s*computeSpeedDelta/);
   });
 
@@ -1439,6 +1522,51 @@ describe('OBD Core v2 — obdStatus reason disiplini kilidi (reconnect fırtına
       expect(src, `${name}.performHandshake hâlâ USER önceliğiyle tek atomik görev gönderiyor`)
         .not.toMatch(/submit\(\s*ElmCommandQueue\.Priority\.USER\s*,\s*null\s*,\s*p::performHandshakeRaw\s*\)/);
     }
+  });
+
+  it('YAPISAL: handshake kanıtı AYNI OTURUMDA poll listesine uygulanır (saha 2026-07-31)', () => {
+    // Kök neden (gerçek araç, protokol 7): çekirdek PID kümesi YALNIZ `connectOBD({pids})`
+    // ile bağlanma anında gidiyordu; araç desteklediği PID'leri handshake'te (bağlantıdan
+    // SONRA) bildirdiği için kanıt geldiğinde liste bir daha uygulanamıyordu. Ölçüldü:
+    // bitmap `4100983B0011` → PID 0x11 DESTEKLENMİYOR, buna rağmen `0111` her poll turunda
+    // soruluyor ve her turda `NO DATA` + `ECU_NO_RESPONSE` üretiyordu.
+    // Bu kilit düşerse "araç desteklemiyorum dedi, biz sormaya devam ediyoruz" geri gelir.
+    expect(obdServiceSrc, 'handshake sonrası setObdCorePids çağrısı kaldırılmış — rafine liste oturum içinde uygulanmıyor')
+      .toMatch(/CarLauncher\.setObdCorePids/);
+    expect(obdServiceSrc, 'rafine liste handshake kanıtından (readBlocks/supportedPids) türetilmiyor')
+      .toMatch(/readBlocks\.size\s*>\s*0[\s\S]{0,400}?refinePidList\([\s\S]{0,400}?setObdCorePids/);
+    // Fail-soft: boş liste GÖNDERİLMEMELİ — native'de boş küme "filtre yok" demektir,
+    // "hiç sorma" değil; yanlışlıkla tüm filtreyi kaldırmak yerine hiç dokunmamak doğrudur.
+    expect(obdServiceSrc, 'boş rafine liste koruması kaldırılmış — filtre yanlışlıkla tümden kalkabilir')
+      .toMatch(/refined\.length\s*>\s*0/);
+
+    // Native: kümeyi oturum içinde değiştirebilen setter HER İKİ transport'ta olmalı.
+    // (PR-OBD-BLE-1 dersi: yalnız Classic'e uygulanan ayar BLE dongle'lı araçta hiç geçerli olmaz.)
+    const plugin = read('android/app/src/main/java/com/cockpitos/pro/CarLauncherPlugin.java');
+    const obdMgr = read('android/app/src/main/java/com/cockpitos/pro/obd/OBDManager.java');
+    const bleMgr = read('android/app/src/main/java/com/cockpitos/pro/obd/BleObdManager.java');
+    expect(obdMgr, 'OBDManager.setCorePidSet kaldırılmış').toMatch(/public\s+void\s+setCorePidSet\s*\(/);
+    expect(bleMgr, 'BleObdManager.setCorePidSet kaldırılmış — BLE yolunda filtre oturum içinde güncellenmez')
+      .toMatch(/public\s+void\s+setCorePidSet\s*\(/);
+    expect(plugin, 'setObdCorePids köprüsü BLE yöneticisine uygulanmıyor — BLE dongle\'da desteklenmeyen PID sorulmaya devam eder')
+      .toMatch(/setObdCorePids\(PluginCall[\s\S]{0,400}?bleObdManager\s*!=\s*null\)\s*bleObdManager\.setCorePidSet/);
+  });
+
+  it('YAPISAL: VIN yoklaması BÜTÇELİ — çok-ECU denemesi hattı boğmaz (saha 2026-07-31)', () => {
+    // Kök neden: VIN artık sabit 7E0/7E8 yerine KEŞFEDİLEN ECU'lardan okunuyor (29-bit
+    // araçlarda VIN hiç okunamıyordu). Ama izleyici HER OBD veri olayında tetikler ve VIN
+    // okunamayınca `_sessionDone` işaretlenmez → yoklama anında yeniden başlar. Sınır
+    // olmadan bu, her denemede `discoverEcus()` (ATH1+0100 broadcast+ATH0) + MAX_ECUS kez
+    // `22F190` demek olur → çekirdek poll'u sürekli bekletir ("bayat veri" ARTAR).
+    const src = read('src/platform/obd/autoDidDiscovery.ts');
+    expect(src, 'VIN_PROBE_MAX_ATTEMPTS kaldırılmış — başarısız VIN yoklaması sınırsız tekrar eder')
+      .toMatch(/VIN_PROBE_MAX_ATTEMPTS/);
+    expect(src, 'VIN_PROBE_COOLDOWN_MS kaldırılmış — denemeler arası zorunlu sessizlik yok')
+      .toMatch(/VIN_PROBE_COOLDOWN_MS/);
+    expect(src, 'bütçe kapısı fonksiyon girişinde yok — ağır yoklama yine her veri olayında koşabilir')
+      .toMatch(/_vinProbeAttempts\s*>=\s*VIN_PROBE_MAX_ATTEMPTS\)\s*return;[\s\S]{0,200}?_vinProbeBlockedUntil\)\s*return;/);
+    expect(src, 'VIN başarısızlığında sayaç/soğuma güncellenmiyor — kapı hiç kapanmaz')
+      .toMatch(/_vinProbeAttempts\s*\+=\s*1;[\s\S]{0,200}?_vinProbeBlockedUntil\s*=\s*Date\.now\(\)\s*\+\s*VIN_PROBE_COOLDOWN_MS/);
   });
 
   it('YAPISAL: obdStatus reason\'ı STATE\'e göre ayrışır — çift reconnect motoru yok (OBD-OS-F0-5)', () => {
@@ -2229,5 +2357,2230 @@ describe('Anahtar sayfasından dönünce pano otomatik algılama kilidi', () => 
       }
     }
     expect(hatali, `pano algılaması bozuk: ${hatali.join(' | ')}`).toEqual([]);
+  });
+
+  /* ── SES: uygulama AÇILIŞI cihaz sesini DEĞİŞTİREMEZ ──────────────────────
+   * SAHA BULGUSU (2026-07-31, cihazda yeniden üretildi 15 → 2): açılış effect'i
+   * kayıtlı ses düzeyini `setVolume` ile uyguluyordu; o fonksiyon uygulama-içi
+   * oynatıcıların YANINDA cihazın STREAM_MUSIC seviyesini de yazıyor. Sonuç:
+   * telefon/araç sesi CarOS her açıldığında uygulamanın kendi ayarına düşüyordu.
+   * Uygulamanın açılması bir ses komutu DEĞİLDİR.
+   * Bu kilidi ZAYIFLATMA/SİLME (CLAUDE.md Regresyon Kasası). */
+  it('🔒 VolumeGestureLayer açılışta CİHAZ sesini yazmaz (yalnız uygulama-içi)', () => {
+    const src = volumeGestureLayerSrc;
+    // Yorumları ele — kilit KODU inceler, açıklama metnini değil.
+    const code = src
+      .replace(/\/\*[\s\S]*?\*\//g, ' ')
+      .replace(/(^|[^:])\/\/.*$/gm, '$1');
+
+    // Mount effect'i bul: `useEffect(() => { ... }, [])`
+    const mountEffects = code.match(/useEffect\(\s*\(\)\s*=>\s*\{[\s\S]*?\}\s*,\s*\[\s*\]\s*\)/g) ?? [];
+    expect(mountEffects.length, 'açılış effekti bulunamadı — kilit körleşti').toBeGreaterThan(0);
+
+    for (const eff of mountEffects) {
+      expect(
+        /(^|[^a-zA-Z])setVolume\s*\(/.test(eff),
+        'açılış effekti sistem sesini yazıyor (setVolume) — cihaz sesi düşer',
+      ).toBe(false);
+    }
+    // Doğru katman KULLANILIYOR olmalı (kilit "hiç ses ayarlanmasın" demiyor).
+    expect(code).toContain('setInAppVolume');
+  });
+
+  it('🔒 native: yıkımda kısılmış müzik sesi GERİ YÜKLENİR', () => {
+    const plugin = readFileSync(
+      join(process.cwd(), 'android/app/src/main/java/com/cockpitos/pro/CarLauncherPlugin.java'),
+      'utf8');
+    const at = plugin.indexOf('protected void handleOnDestroy()');
+    expect(at, 'handleOnDestroy bulunamadı').toBeGreaterThan(-1);
+    const body = plugin.slice(at, at + 2500);
+    /* Kısılmışken süreç ölürse cihaz KALICI kısık kalırdı. */
+    expect(body).toContain('restoreMusicAfterListening()');
+  });
+});
+
+/* ───────────────────────────────────────────────────────────────
+   Ana ekran harita kartı — SAHTE navigasyon verisi (saha 2026-08-02)
+   Üç temanın harita kartında `2.4 km / Sahil Yolu Cd.` SABİT yazılıydı;
+   hiçbir kaynağa bağlı değildi. Gerçek rota "71.1 km / Mersin-Antalya
+   Yolu" derken kart bunu gösteriyordu (canlı sürüşte CDP ile ölçüldü).
+   ─────────────────────────────────────────────────────────────── */
+describe('Ana ekran harita kartı sahte rota GÖSTERMEZ', () => {
+  const LAYOUTS: readonly (readonly [string, string])[] = [
+    ['ExpeditionLayout', expeditionLayoutSrc],
+    ['ProLayout',        proLayoutSrc],
+    ['TeslaLayout',      teslaLayoutSrc],
+  ];
+
+  it.each(LAYOUTS)('🔒 %s: gömülü sahte yol adı/mesafe YOK', (_ad, src) => {
+    expect(src, 'sabit yol adı geri geldi').not.toContain('Sahil Yolu Cd.');
+    // Sabit "2.4 km" mesafe metni — JSX'te birebir dizi olarak geçmemeli.
+    expect(/>\s*2\.4\s*</.test(src), 'sabit 2.4 km mesafesi geri geldi').toBe(false);
+  });
+
+  it.each(LAYOUTS)('🔒 %s: rota özeti GERÇEK navigasyon otoritesinden okunur', (_ad, src) => {
+    expect(src).toContain("from '../../hooks/useNavSummary'");
+    expect(src).toContain('useNavSummary()');
+    // Kanıt yoksa chip HİÇ çizilmez — sahte hedef üretilmez.
+    expect(src).toContain('navSummary ?');
+  });
+});
+
+/* ───────────────────────────────────────────────────────────────
+   Güvenlik Beyni mandalının ÇIKIŞ YOLU olmalı (saha 2026-08-06).
+   Cihazda `disabledFeatures: ["obdDataGateAutoReconnect", ...]` +
+   `OBD_DATA_GATE_TIMEOUT × 19` bulundu; OBD bütün gün bağlanamadı.
+   Kayıt VIN'siz `__NO_VIN__` kovasına gidiyor → "VIN okumak için gereken
+   özellik, VIN olmadığı için kalıcı kapalı" kilidi. Sayaçlar hiç azalmıyor,
+   başarıya bakan bir iyileşme yolu YOKTU.
+   ─────────────────────────────────────────────────────────────── */
+describe('Güvenlik Beyni: kanıtlanmış başarı arızayı iyileştirir', () => {
+  /* Davranış testi `safetyBrain.test.ts` içindedir (depo/VIN kurulumu orada).
+     Burada YALNIZ kanıt anının doğru yerde olduğu kilitlenir. */
+  it('🔒 iyileşme kanıtı GERÇEK ECU frame\'idir (soket bağlantısı DEĞİL)', () => {
+    const obd = read('src/platform/obdService.ts');
+    const at = obd.indexOf('_dataGatePassed = true;');
+    expect(at, 'veri kapısı geçişi bulunamadı').toBeGreaterThan(-1);
+    /* Çağrı, veri kapısının açıldığı blokta olmalı — bağlantı kurulduğu yerde değil.
+       2026-08-07: pencere SABİT 900 karakterdi ve çağrıya fail-soft gerekçesi
+       yazılınca kilit yanlışlıkla düştü (davranış değişmemişti, yalnız yorum
+       uzamıştı). Kilit KALDIRILMADI: sınır, bloğun GERÇEK sonuna (`_merge(`)
+       bağlandı — artık yoruma değil yapıya bakıyor. */
+    const gateBlock = obd.slice(at, obd.indexOf('_merge({', at));
+    expect(gateBlock, 'blok sınırı bulunamadı').not.toHaveLength(0);
+    expect(gateBlock).toContain("recordFeatureRecovered('obdDataGateAutoReconnect')");
+  });
+});
+
+/* ───────────────────────────────────────────────────────────────
+   Bayat OBD okuması CANLI GİBİ gösterilemez (saha 2026-08-06,
+   Adana-Şanlıurfa Otoyolu, gerçek sürüş).
+   Ekranda "675 km MENZİL" DONUK duruyordu: araç 1 dakikada 1,5 km
+   ilerlerken değer hiç değişmedi. OBD o sırada bağlı DEĞİLDİ
+   (V-LINK STATE_DISCONNECTED, car-can-snapshot 85 saat bayat).
+   KÖK: `useOBDField` ham değeri döndürür — tazelik kapısı YOK. Temalar
+   kapıyı kendileri kuruyordu; `eng.*` yedeğine düşünce kapı BAYPAS
+   oluyordu, Expedition'da ise hiç yoktu. Kapı kaynağa taşındı.
+   ─────────────────────────────────────────────────────────────── */
+describe('Motor okuması bayat OBD verisini canlı göstermez', () => {
+  it('🔒 useEngineReadout canlılık kapısını KAYNAKTA uygular', () => {
+    const src = read('src/hooks/useEngineReadout.ts');
+    expect(src).toContain("from '../platform/vehicleStatusModel'");
+    expect(src).toContain('isObdReadingLive({');
+    // Üç okuma da kapıya bağlı olmalı — biri unutulursa tema yine bayat gösterir
+    expect(src).toContain('obdLive && obdRpm');
+    expect(src).toContain('obdLive && obdTemp');
+    expect(src).toContain('obdLive && obdFuel');
+    // CAN/CarInfo yolu AYRI ve meşru canlı kaynaktır — elenmemeli
+    expect(src).toContain('canRpm != null');
+    expect(src).toContain('storeFuel != null');
+  });
+
+  it('🔒 Expedition menzili UYDURMAZ — sabit 750 km katsayısı YASAK', () => {
+    // Tesla/Horizon'da çoktan kaldırılmış olan katsayı bu plakada kalmıştı.
+    expect(/\*\s*750\b/.test(expeditionLayoutSrc), 'sabit 750 km katsayısı geri geldi').toBe(false);
+    expect(expeditionLayoutSrc).toContain('isObdReadingLive(obd)');
+    expect(expeditionLayoutSrc).toContain('obd.estimatedRangeKm');
+    // Kanıt yoksa dürüst '—'
+    expect(expeditionLayoutSrc).toContain("{range ?? '—'}");
+  });
+
+  it('🔒 HUD şeridi ANLIK yakıtı "varışta" diye ETİKETLEMEZ', () => {
+    // Değer `UnifiedVehicleStore.fuel` (anlık); varış tahmini hiç hesaplanmıyor.
+    expect(navigationHudSrc).not.toContain('Varışta yakıt');
+    expect(navigationHudSrc).toContain("{fuelPct != null ? `%${Math.round(fuelPct)}` : '—'}");
+  });
+});
+
+/* ───────────────────────────────────────────────────────────────
+   Harita katman işlemleri (saha 2026-08-02, gerçek cihaz)
+   Düşük-GPU'da shadow/glow/flow katmanları BİLEREK oluşturulmaz.
+   MapLibre olmayan katmanda THROW ETMEZ, `error` olayı yayınlar →
+   `try/catch` hiçbir şey yakalamıyordu ve cihazdaki son 50 harita
+   hatasının 50'si bu gürültüydü (gerçek arıza altında kaybolurdu).
+   ─────────────────────────────────────────────────────────────── */
+describe('Harita katman işlemleri varlık kontrollüdür', () => {
+  it('🔒 moveLayer ASLA korumasız çağrılmaz (safeMoveLayer kullanılır)', () => {
+    expect(mapLayerManagerSrc).toContain("from './_safeLayerOps'");
+    // Ham `map.moveLayer(` çağrısı kalmamalı — hepsi sarmalayıcıdan geçmeli.
+    expect(/\bmap\.moveLayer\s*\(/.test(mapLayerManagerSrc)).toBe(false);
+  });
+
+  it('🔒 rota katmanlarına korumasız setPaintProperty YAPILMAZ', () => {
+    // Bu iki dosyada ham setPaintProperty yalnız `getLayer` koruması ile
+    // birlikte kalabilir; ROUTE_GLOW_SEL en sık hata kaynağıydı (12 kez).
+    for (const src of [mapLayerManagerSrc, mapInteractionManagerSrc]) {
+      expect(/map\.setPaintProperty\(\s*ROUTE_GLOW_SEL/.test(src)).toBe(false);
+      expect(/map\.setPaintProperty\(\s*ROUTE_SHADOW/.test(src)).toBe(false);
+    }
+    expect(mapInteractionManagerSrc).toContain("from './_safeLayerOps'");
+  });
+
+  it('🔒 text-field katmanı stilde `glyphs` YOKKEN eklenmez', () => {
+    // Raster stilde glyphs bildirilmez → rozet eklenirse doğrulama reddeder
+    // ve ardından "layer does not exist" zinciri başlar.
+    expect(mapLayerManagerSrc).toContain('getStyle().glyphs');
+  });
+});
+
+/* ───────────────────────────────────────────────────────────────
+   Gece harita paleti — TEK KAYNAK (saha 2026-08-02)
+   Üç yerde elle kopyalanmıştı ve SÜRÜKLENMİŞTİ: _mapState .42/.62
+   kalırken diğer ikisi .52/.50 olmuştu → hangi stil yüklendiğine
+   göre gece haritası farklı görünüyordu.
+   ─────────────────────────────────────────────────────────────── */
+describe('Gece harita paleti tek kaynaktan gelir', () => {
+  it('🔒 _mapState raster paint DEĞERLERİNİ KOPYALAMAZ, sabitleri IMPORT eder', () => {
+    expect(mapStateSrc).toContain("from '../mapStyleBuilders'");
+    expect(mapStateSrc).toContain('RASTER_PAINT_NIGHT');
+    expect(mapStateSrc).toContain('RASTER_PAINT_DAY');
+    // Elle yazılmış raster paint anahtarı KALMAMALI (kopya = sürüklenme).
+    expect(/'raster-brightness-max'\s*:/.test(mapStateSrc)).toBe(false);
+    expect(/'raster-saturation'\s*:/.test(mapStateSrc)).toBe(false);
+  });
+
+  it('🔒 gece paleti gerçekten KOYU (sahada ölçülen eşik)', async () => {
+    const { RASTER_PAINT_NIGHT, RASTER_PAINT_DAY } =
+      await import('../platform/mapStyleBuilders');
+    /* Cihazda ölçüldü: brightness-max 0.50 gece haritayı GÜNDÜZ parlaklığında
+       bırakıyordu (ekran pikseli 180/255). Sürücünün gözüne vuran en parlak
+       blok harita olmamalı. 0.25 üstü bir daha KABUL EDİLMEZ. */
+    expect(RASTER_PAINT_NIGHT['raster-brightness-max']).toBeLessThanOrEqual(0.25);
+    // Gündüz KOYULAŞTIRILMAZ — gece kilidi gündüzü ezmesin.
+    expect(RASTER_PAINT_DAY['raster-brightness-max']).toBe(1);
+  });
+});
+
+/* ───────────────────────────────────────────────────────────────
+   GPS heartbeat VARIŞ tabanlıdır (saha 2026-08-02)
+   Cihaz kayıtları 20:36–21:39: araç PARK hâlindeyken
+   "No heartbeat for 20s/25s/85s" alarmları basıldı; aynı satırlarda
+   conn=connected polling=true → GPS SAĞLIKLIYDI, alarm YALANDI.
+   KÖK: heartbeat `useUnifiedVehicleStore.location` REFERANS değişiminden
+   türetiliyordu; store'un shallow-equal guard'ı aynı fix'te referansı
+   DEĞİŞTİRMEZ (doğru bir CPU/termal optimizasyonu) → beat hiç üretilmez.
+   OBD tarafında 2026-08-01'de düzeltilen kusurun GPS ikizi.
+   ─────────────────────────────────────────────────────────────── */
+describe('GPS heartbeat DEĞİŞİM değil VARIŞ dinler', () => {
+  it('🔒 store shallow-equal guard DURUYOR — bu kilidin GEREKÇESİ', () => {
+    /* Guard kaldırılırsa bu kilit anlamını yitirir; ama kaldırmak park hâlinde
+       tüm subscriber'ları 2 Hz tetikler (termal regresyon). İkisi birlikte durmalı. */
+    expect(unifiedVehicleStoreSrc).toContain('sameLoc');
+    expect(unifiedVehicleStoreSrc).toContain('prev.latitude === next.latitude');
+  });
+
+  it('🔒 gpsService VARIŞ kanalı yayınlar ve JumpGuard\'dan ÖNCE tetikler', () => {
+    expect(gpsServiceSrc).toContain('export function onGPSFixArrival');
+    const emitIdx = gpsServiceSrc.indexOf('_emitFixArrival();');
+    const jumpIdx = gpsServiceSrc.indexOf('JumpGuard: atlama reddedildi');
+    expect(emitIdx).toBeGreaterThan(0);
+    expect(jumpIdx).toBeGreaterThan(0);
+    // "fix geldi" ile "fix kabul edildi" ayrı sorulardır: eleme beat'i susturamaz.
+    expect(emitIdx).toBeLessThan(jumpIdx);
+  });
+
+  it('🔒 SystemHealthMonitor GPS beat\'ini VARIŞ kanalından alır (ve sızdırmaz)', () => {
+    expect(healthMonitorSrc).toContain('onGPSFixArrival');
+    expect(healthMonitorSrc).toMatch(/onGPSFixArrival\(\(\)\s*=>\s*\{\s*this\.beat\('GPS'\);/);
+    // Zero-Leak: abonelik cleanup listesine girmeli
+    expect(healthMonitorSrc).toContain('unsub1, unsub2, unsub3, unsub4');
+  });
+
+  it('🔒 VARIŞ kanalı aboneyi çağırır, cleanup gerçekten çıkarır', async () => {
+    const { onGPSFixArrival } = await import('../platform/gpsService');
+    let hits = 0;
+    const off = onGPSFixArrival(() => { hits++; });
+    // Kanalın kendisi test edilebilir olmalı; abone eklenip çıkarılabilmeli.
+    expect(typeof off).toBe('function');
+    off();
+    off(); // idempotent — ikinci çağrı patlamamalı
+    expect(hits).toBe(0); // fix üretilmedi → beat de yok (uydurma beat YASAK)
+  });
+});
+
+/* ───────────────────────────────────────────────────────────────
+   OdometerGuard hız KANITI tutarlılığı (2026-08-02)
+   Guard'a füzyon hızı (_lastKnownSpeed) verilirken odometre
+   `_gps.speed` (Doppler) kullanıyordu. Bağlı ama bayat/0 raporlayan
+   bir OBD (0.85 > GPS 0.70) füzyon hızını 0'a çakar → guard'ın
+   toleransı 50 m tabanına düşer → uzun Δt'de GERÇEK hareket
+   "teleport" diye reddedilebilir (Yol Sayacı eksik sayar).
+   ─────────────────────────────────────────────────────────────── */
+describe('OdometerGuard en iyi hız kanıtını alır', () => {
+  it('🔒 worker guard\'a füzyon ile GPS Doppler\'in BÜYÜĞÜNÜ geçer', () => {
+    expect(vehicleComputeWorkerSrc).toContain('_guardSpeedKmh');
+    expect(vehicleComputeWorkerSrc).toMatch(
+      /_odoGuard\.check\(loc\.lat,\s*loc\.lng,\s*_guardSpeedKmh/,
+    );
+    // Tek otoriteye geri dönüş = regresyon
+    expect(vehicleComputeWorkerSrc).not.toMatch(
+      /_odoGuard\.check\(loc\.lat,\s*loc\.lng,\s*_lastKnownSpeed/,
+    );
+  });
+
+  it('🔒 red kaydı `implied` hızı yazar — teleport mu kanıtsızlık mı ayırt edilebilsin', () => {
+    expect(odometerGuardSrc).toContain('implied');
+    expect(odometerGuardSrc).toContain('speedEvidence');
+  });
+
+  it('🔒 hız kanıtı arttıkça tolerans genişler; kanıt 0 iken 50 m tabanı korunur', async () => {
+    const { OdometerGuard } = await import('../platform/vehicleDataLayer/OdometerGuard');
+    const warmup = (g: InstanceType<typeof OdometerGuard>) => {
+      // Startup penceresini (10 fix) sabit noktada kapat
+      for (let i = 0; i < 11; i++) g.check(40, 30, 0, 500);
+    };
+    // ~0.09 km kuzeye kayma (≈ 0.00081°), Δt 5 s → gerçek 65 km/h'lik hareket
+    const LAT2 = 40 + 0.00081;
+
+    const gNoEvidence = new OdometerGuard();
+    warmup(gNoEvidence);
+    // Hız kanıtı YOK → yalnız 50 m taban → gerçek hareket reddedilir (kusurun kendisi)
+    expect(gNoEvidence.check(LAT2, 30, 0, 5_000, 8)).toBe('invalid');
+
+    const gWithEvidence = new OdometerGuard();
+    warmup(gWithEvidence);
+    // GPS Doppler 65 km/h kanıtı VARSA aynı hareket kabul edilir
+    expect(gWithEvidence.check(LAT2, 30, 65, 5_000, 8)).toBe('ok');
+
+    // Fizik sınırı korunur: kanıt olsa da 0.5 s'de 90 m teleport REDDEDİLİR
+    const gTeleport = new OdometerGuard();
+    warmup(gTeleport);
+    expect(gTeleport.check(40 + 0.00081, 30, 65, 500, 8)).toBe('invalid');
+  });
+});
+
+/* ───────────────────────────────────────────────────────────────
+   Navigasyon HUD'u dar ekranda küçülür (saha 2026-08-03)
+   Kullanıcı ekran görüntüsü: telefon yatayında TurnPanel + şerit
+   kartı + 3 sütunlu alt bar haritanın yarısını kapatıyordu. Ölçüler
+   head unit için sabit px yazılmıştı; telefonun ~400 px CSS
+   yüksekliğine sığmıyordu.
+   ─────────────────────────────────────────────────────────────── */
+describe('Navigasyon HUD dar ekranda yoğunlaşır', () => {
+  it('🔒 yoğunluk kapısı YÜKSEKLİĞE bakar (genişliğe DEĞİL)', () => {
+    /* Genişlik ölçütü HU'yu da yakalardı: 800×480 HU geniştir ama
+       yüksekliği vardır ve tam HUD'a yer verir. Telefon yatayında
+       daralan boyut YÜKSEKLİKTİR. */
+    /* Eşik TEK KAYNAKTADIR (hooks/useDenseHud.ts) — birden fazla bileşen
+       kullanıyor; kopyalanırsa biri güncellenip diğeri unutulur ve yerleşim
+       yeniden çakışır (cihazda 2026-08-03 ölçülen kusur). */
+    expect(useDenseHudSrc).toContain('HUD_DENSE_MAX_H');
+    expect(useDenseHudSrc).toMatch(/height\s*>\s*0\s*&&\s*height\s*<\s*HUD_DENSE_MAX_H/);
+    expect(useDenseHudSrc).not.toMatch(/width\s*<\s*HUD_DENSE_MAX_H/);
+    expect(navigationHudSrc).toContain("from '../../hooks/useDenseHud'");
+    expect(mapHudControlsSrc).toContain("from '../../hooks/useDenseHud'");
+    // Eşiğin ikinci bir kopyası OLMAMALI
+    expect(navigationHudSrc).not.toContain('const HUD_DENSE_MAX_H');
+    expect(mapHudControlsSrc).not.toContain('const HUD_DENSE_MAX_H');
+  });
+
+  it('🔒 dar ekranda şerit kartı ve "Sonra …" satırı GİZLENİR', () => {
+    // İkisi birlikte ~138 px yiyordu; yön bilgisi üstteki ok döşemesinde duruyor.
+    expect(navigationHudSrc).toContain('{!dense && <LaneGuidance step={step} />}');
+    expect(navigationHudSrc).toContain('{!dense && continuation && nextStep && (');
+  });
+
+  it('🔒 `dense` GÜVENLİK modlarıyla KARIŞTIRILMAZ', () => {
+    /* `compact` = CRITICAL/LIMP_HOME (bilişsel yük azaltma, güvenlik kararı),
+       `dense` = yalnız yerleşim. Birleştirilirse dar ekran sessizce güvenlik
+       modu sanılır ve alanlar gizlenir. Üçü de AYRI prop olarak taşınmalı. */
+    expect(navigationHudSrc).toMatch(/compact\s*=\s*false,\s*limp\s*=\s*false,\s*\n\s*dense\s*=\s*false,/);
+    expect(navigationHudSrc).toContain('dense={denseHud}');
+    expect(navigationHudSrc).not.toContain('compact={denseHud}');
+  });
+
+  it('🔒 head unit ölçüleri DEĞİŞMEDİ (eşiğin üstünde eski değerler)', () => {
+    // Dar-ekran değerleri eklenirken HU değerleri korunmalı — yoksa 7"/10"
+    // ünitelerde HUD sebepsiz küçülür (okunabilirlik regresyonu).
+    expect(navigationHudSrc).toContain('width: dense ? 208 : 288');
+    expect(navigationHudSrc).toContain("padding: dense ? '9px 11px' : '14px 18px'");
+    expect(navigationHudSrc).toContain('width: dense ? 32 : 46');
+    expect(navigationHudSrc).toContain("fontSize: dense ? 23 : 'clamp(28px, 4.2vw, 42px)'");
+  });
+});
+
+/* ───────────────────────────────────────────────────────────────
+   Araç ekranın altından TAŞMAZ (saha 2026-08-03)
+   Kullanıcı: "araba gidince görünmüyor, geride kalıyor".
+   KÖK: sürüş kamerası aracın `lookAheadM` metre ÖNÜNÜ merkeze alır;
+   `topPadFrac` ORAN (yükseklikle ölçeklenir) ama `lookAheadM` METRE
+   (piksel karşılığı yükseklikten BAĞIMSIZ) → ekran kısaldıkça araç
+   alt kenardan taşar, hız arttıkça büsbütün kaybolur.
+   ─────────────────────────────────────────────────────────────── */
+describe('Sürüş kamerası aracı ekranda tutar', () => {
+  it('🔒 telefon yüksekliğinde taşan aracı geri getirir', async () => {
+    const { clampTopPadForVehicle } = await import('../platform/cameraEngine');
+    // H=400, topPad=0.795*400≈318 → merkez (400+318)/2=359; araç 94 px altında ≈ 453 → TAŞMA
+    const next = clampTopPadForVehicle(453, 400, 318, 72);
+    expect(next).not.toBeNull();
+    // Taşma = 453 - (400-72) = 125 → topPad 318 - 250 = 68
+    expect(next).toBe(68);
+    // Yeni merkez (400+68)/2=234 → araç 234+94=328 ≤ 328 sınırında: ekranda
+    expect((400 + (next as number)) / 2 + 94).toBeLessThanOrEqual(400 - 72);
+  });
+
+  it('🔒 head unit yolu DOKUNULMAZ — taşma yoksa null (ikinci jumpTo YOK)', () => {
+    // Bu kilit performans kilididir: her karede ikinci bir jumpTo kabul edilemez.
+    return import('../platform/cameraEngine').then(({ clampTopPadForVehicle }) => {
+      expect(clampTopPadForVehicle(571, 800, 560, 72)).toBeNull(); // 571 ≤ 728
+      expect(clampTopPadForVehicle(300, 600, 400, 72)).toBeNull(); // 300 ≤ 528
+    });
+  });
+
+  it('🔒 ölçülemeyen/eksik girdide kamerayı BOZMAZ (null döner)', async () => {
+    const { clampTopPadForVehicle } = await import('../platform/cameraEngine');
+    expect(clampTopPadForVehicle(NaN, 400, 318, 72)).toBeNull();
+    expect(clampTopPadForVehicle(453, 0, 318, 72)).toBeNull();
+    expect(clampTopPadForVehicle(453, 400, 0, 72)).toBeNull();
+    expect(clampTopPadForVehicle(Infinity, 400, 318, 72)).toBeNull();
+  });
+
+  it('🔒 düzeltme topPad\'i NEGATİFE düşürmez', async () => {
+    const { clampTopPadForVehicle } = await import('../platform/cameraEngine');
+    const next = clampTopPadForVehicle(399, 400, 10, 72); // devasa taşma
+    expect(next).toBe(0);
+  });
+
+  it('🔒 kamera GERÇEK ekran konumunu ölçer (tahmin etmez)', () => {
+    // `map.project` kullanılmazsa pitch/bearing hesaba katılmaz ve düzeltme yanlış olur.
+    expect(mapInteractionManagerSrc).toContain('map.project([lng, lat]).y');
+    expect(mapInteractionManagerSrc).toContain('clampTopPadForVehicle');
+  });
+});
+
+/* ───────────────────────────────────────────────────────────────
+   Adres arama: Türkçe harfler + cihaz-içi veri (saha 2026-08-03)
+   (1) "ş ç gibi harfler yazınca hemen kayboluyor" — KONTROLLÜ input
+       Android IME kompozisyonunu React render'ı ile iptal ediyordu.
+   (2) "Mersin Hemşirenin Park Piknik Yeri'ni bulamıyor" — motor ONLINE
+       iken YALNIZ Nominatim'e bakıyor, cihazdaki POI DB/geçmiş/önbelleğe
+       yalnız internet YOKKEN bakıyordu.
+   ─────────────────────────────────────────────────────────────── */
+describe('Adres arama girişi IME-güvenli', () => {
+  it('🔒 arama girişleri KONTROLSÜZ (React DOM değerini geri yazmaz)', () => {
+    // `value={...}` geri gelirse Türkçe harfler yine kaybolur.
+    // JSX ÖZNİTELİĞİ arıyoruz (satır başında girintili) — yorum içindeki
+    // `value={query}` anlatımı bu kilidi yanlışlıkla düşürmesin.
+    const jsxControlledValue = /^\s+value=\{query\}\s*$/m;
+    expect(mapSearchBarSrc).toContain('defaultValue=""');
+    expect(mapSearchBarSrc).not.toMatch(jsxControlledValue);
+    expect(newHomeLayoutSrc).toContain('defaultValue=""');
+    expect(newHomeLayoutSrc).not.toMatch(jsxControlledValue);
+  });
+
+  it('🔒 temizleme DOM değerini de siler (kontrolsüz girişte state yetmez)', () => {
+    expect(mapSearchBarSrc).toContain("inputRef.current.value = ''");
+    expect(newHomeLayoutSrc).toContain("inputRef.current.value = ''");
+  });
+
+  it('🔒 arama debounce\'u GPS değişiminde sıfırlanmaz', () => {
+    /* Efekt `[query, gpsLat, gpsLon]` dinlerse GPS 2-5 Hz değiştiği için
+       350 ms'lik timer sürekli silinir → araç hareket hâlindeyken arama
+       İSTEĞİ HİÇ ateşlenmez. Konum ref'ten okunur. */
+    expect(mapSearchBarSrc).toContain('}, [query]);');
+    expect(mapSearchBarSrc).toContain('gpsRef.current.lat');
+    expect(mapSearchBarSrc).not.toContain('}, [query, gpsLat, gpsLon]);');
+  });
+});
+
+describe('Adres motoru cihaz-içi veriyi ONLINE iken de kullanır', () => {
+  it('🔒 online 0 sonuçta yerel arama DENENİR, doğrudan hata basılmaz', () => {
+    expect(addressNavEngineSrc).toContain('_localSearch');
+    expect(addressNavEngineSrc).toMatch(/if \(!results\.length\) \{[\s\S]{0,400}_localSearch\(destination\)/);
+  });
+
+  it('🔒 yerel arama ÇEVRİMDIŞI dalla AYNI kaynakları ve eşiği kullanır', () => {
+    // Paralel/ikinci bir arama otoritesi kurmak yasak — aynı üç kaynak.
+    expect(addressNavEngineSrc).toMatch(/_localSearch[\s\S]{0,900}searchOffline\(destination, 3\)/);
+    expect(addressNavEngineSrc).toMatch(/_localSearch[\s\S]{0,900}searchOfflinePlaces\(destination, 5\)/);
+    expect(addressNavEngineSrc).toMatch(/_localSearch[\s\S]{0,1400}h\.score < 0\.55/);
+  });
+
+  it('🔒 sorguda GEÇEN şehir yeniden önerilmez (uydurma öneri yok)', async () => {
+    const mod = await import('../platform/addressNavigationEngine');
+    // Modül içi yardımcı; dışa açık değilse davranışı kaynak üzerinden kilitle.
+    expect(mod).toBeTruthy();
+    expect(addressNavEngineSrc).toContain('_citySuggestions');
+    expect(addressNavEngineSrc).toMatch(/filter\(\(c\) => !q\.includes\(_norm\(c\)\)\)/);
+    // Eski körlemesine üçleme geri gelmemeli
+    expect(addressNavEngineSrc).not.toContain('`${destination}, Mersin`');
+  });
+});
+
+/* ───────────────────────────────────────────────────────────────
+   Adres anlama turu (saha 2026-08-03)
+   Kullanıcı: "Mavi'ye adres tarif edemeyeceksek asistan gereksiz".
+   Ölçülen iki kusur:
+   (1) `stripDative` apostrofu OPSİYONEL yapıyordu → ek TAŞIMAYAN
+       şehir adlarının son harfleri kesiliyordu (Adana→"Ada").
+   (2) Nominatim 0 sonuç dönünce hiç varyant denenmiyordu.
+   ─────────────────────────────────────────────────────────────── */
+describe('Adres ayrıştırıcı yer adlarını BOZMAZ', () => {
+  it('🔒 ek taşımayan şehir adları OLDUĞU GİBİ kalır', async () => {
+    const { tryParseNavAddress } = await import('../platform/addressParser');
+    /* Ölçülen eski davranış: Ankara→"Ankar" · Adana→"Ada" · Bursa→"Burs"
+       Malatya→"Malat" · Antalya→"Antal". Türkiye'nin en çok söylenen şehir
+       adlarının çoğu a/e ile bittiği için bu istisna değil KURALDI. */
+    for (const city of ['Ankara', 'Adana', 'Bursa', 'Malatya', 'Antalya', 'Konya', 'Sakarya']) {
+      const r = tryParseNavAddress(`${city} git`);
+      expect(r, city).not.toBeNull();
+      expect(r!.destination, city).toBe(city);
+    }
+  });
+
+  it('🔒 apostroflu GERÇEK ek hâlâ soyulur', async () => {
+    const { tryParseNavAddress } = await import('../platform/addressParser');
+    expect(tryParseNavAddress("Mersin'e git")!.destination).toBe('Mersin');
+    expect(tryParseNavAddress("Ankara'ya götür")!.destination).toBe('Ankara');
+    expect(tryParseNavAddress("Hadi beni Mersin'e götür")!.destination).toBe('Mersin');
+  });
+
+  it('🔒 çok sözcüklü POI adı ayrıştırmada KISALTILMAZ', async () => {
+    const { tryParseNavAddress } = await import('../platform/addressParser');
+    // Bilgi ayrıştırıcıda yok edilmez; gevşetme geocoder'ın DENEMESİDİR.
+    const r = tryParseNavAddress('Mersin Hemşirenin Park Piknik Yeri git');
+    expect(r).not.toBeNull();
+    expect(r!.destination).toBe('Mersin Hemşirenin Park Piknik Yeri');
+  });
+});
+
+describe('Geocoder sorguyu bozmadan gevşetir', () => {
+  it('🔒 ayırt edici baş korunur, sondan/şehirden gevşetilir', async () => {
+    const { relaxQueryVariants } = await import('../platform/geocodingService');
+    const v = relaxQueryVariants('Mersin Hemşirenin Park Piknik Yeri');
+    expect(v.length).toBeGreaterThan(0);
+    /* ToS + GECİKME bütçesi: her varyant ~1 sn hız sınırı + 2 sn fast-fail
+       demektir. Sesli akışta kullanıcı bunu bekler → 2'yi AŞMAZ. */
+    expect(v.length).toBeLessThanOrEqual(2);
+    expect(v[0]).toBe('Hemşirenin Park Piknik Yeri'); // baştaki şehir düşer
+    // Hiçbir varyant ayırt edici kelimeyi HARF SEVİYESİNDE kesmemeli
+    for (const x of v) expect(x).not.toMatch(/Hemşireni\b|Mersi\b/);
+  });
+
+  it('🔒 kısa sorgu gevşetilmez (ayırt edicilik kaybı = yanlış yere gitme)', async () => {
+    const { relaxQueryVariants } = await import('../platform/geocodingService');
+    expect(relaxQueryVariants('Adana')).toEqual([]);
+    expect(relaxQueryVariants('Mersin')).toEqual([]);
+    expect(relaxQueryVariants('')).toEqual([]);
+    // 4 harften kısa varyant üretilmez
+    for (const x of relaxQueryVariants('a b c d')) expect(x.length).toBeGreaterThanOrEqual(4);
+  });
+
+  it('🔒 GEVŞETİLMİŞ tek sonuç OTOMATİK rotaya çevrilmez', () => {
+    /* "Adana" yerine "Ada"ya sessizce götürmek bulamamaktan kötüdür:
+       gevşetilmiş sonuç kullanıcının söylediği sorguyla bulunmuş DEĞİLDİR. */
+    expect(addressNavEngineSrc).toContain('results.length === 1 && !results[0].relaxed');
+    expect(addressNavEngineSrc).toMatch(/if \(results\.length === 1\) \{[\s\S]{0,120}phase: 'selecting'/);
+  });
+});
+
+/* ───────────────────────────────────────────────────────────────
+   Numaralı sokak: YANLIŞ sokağa götürmek yasak (saha 2026-08-03)
+   CANLI ÖLÇÜM: "0455. Sokak, Bağlar Mah., Tarsus" için Nominatim
+   (serbest metin VE yapılandırılmış sorgu) şunları döndürdü:
+     0411 · 0452 · 0423 · 0436 · 0478 · 3232 · 1713 · 4072 · 1102 · 0655
+   İSTENEN NUMARA HİÇBİR DENEMEDE DÖNMEDİ. Numarayı bulanık eşleştirip
+   aynı bölgedeki rastgele sokakları veriyor. Bu, "bulunamadı"dan daha
+   tehlikelidir: kullanıcı 0455 ister, ürün onu 0411'e götürür.
+   ─────────────────────────────────────────────────────────────── */
+describe('Numaralı sokak sonuçları doğrulanır', () => {
+  it('🔒 istenen numarayı taşımayan sonuç ELENİR', async () => {
+    const { filterNumberedStreetMismatch } = await import('../platform/geocodingService');
+    const q = 'Tarsus Bağlar Mahallesi 0455 Sokak';
+    const results = [
+      { fullName: '0411. Sokak, Bağlar Mahallesi, Tarsus, Mersin, Türkiye' },
+      { fullName: '0452. Sokak, Bağlar Mahallesi, Tarsus, Mersin, Türkiye' },
+      { fullName: '3232. Sokak, Şahin Mahallesi, Tarsus, Mersin, Türkiye' },
+    ];
+    expect(filterNumberedStreetMismatch(q, results)).toEqual([]);
+  });
+
+  it('🔒 DOĞRU numara geçer; baştaki sıfır farkı eşleşmeyi bozmaz', async () => {
+    const { filterNumberedStreetMismatch } = await import('../platform/geocodingService');
+    const hit = { fullName: '0455. Sokak, Bağlar Mahallesi, Tarsus, Mersin, Türkiye' };
+    expect(filterNumberedStreetMismatch('… 0455 Sokak', [hit])).toEqual([hit]);
+    expect(filterNumberedStreetMismatch('… 455. Sokak', [hit])).toEqual([hit]);
+  });
+
+  it('🔒 numarasız SORGU hiçbir sonucu elemez', async () => {
+    const { filterNumberedStreetMismatch } = await import('../platform/geocodingService');
+    const poi = [{ fullName: 'Bağlar Mahallesi, Tarsus, Mersin, Türkiye' }];
+    expect(filterNumberedStreetMismatch('Bağlar Mahallesi Tarsus', poi)).toEqual(poi);
+  });
+
+  it('🔒 numaralı sorguda KAÇIŞ DELİĞİ YOK — üç saha turunun tamamı elenir', async () => {
+    const { filterNumberedStreetMismatch } = await import('../platform/geocodingService');
+    /* CİHAZ KAYITLARI (2026-08-03) — "0455 sokak" sorgusuna Nominatim'in
+       döndürdükleri. Her turda daha gevşek bir kural denendi, her turda
+       arkasından yeni bir alakasız yer geldi:
+         tur 1 (filtre yok)          → İzmir "Sokak"            701 km
+         tur 2 (numarasız→geç)       → Denizli "Sokak"
+         tur 3 (sokak değilse geç)   → Özbekistan "Sukok"      3031 km
+       Numaralı sokak sorgusu KESİN sorudur: numara yoksa cevap değildir. */
+    const bogus = [
+      { fullName: 'Sokak, Turgut Reis Mahallesi, İzmir, Konak, İzmir, Ege Bölgesi, 35280, Türkiye' },
+      { fullName: 'Sokak, Yenişehir Mahallesi, Merkezefendi, Denizli, Ege Bölgesi, 20040, Türkiye' },
+      { fullName: 'Sukok, Parkent district, Taşkent ili, Özbekistan' },
+      { fullName: 'Bağlar Mahallesi, Tarsus, Mersin, Türkiye' },
+      { fullName: 'Şamil Başayev Caddesi, Tarsus, Mersin, Türkiye' },
+      { fullName: '0411. Sokak, Bağlar Mahallesi, Tarsus, Mersin, Türkiye' },
+    ];
+    expect(filterNumberedStreetMismatch('0455 sokak', bogus)).toEqual([]);
+  });
+
+  it('🔒 Türkçe adres kısaltmaları açılır ("mh" tek başına aramayı öldürüyordu)', async () => {
+    const { expandTurkishAddressAbbrev, relaxQueryVariants } = await import('../platform/geocodingService');
+    expect(expandTurkishAddressAbbrev('Tarsus Bağlar mh 0455 sokak'))
+      .toBe('Tarsus Bağlar Mahallesi 0455 sokak');
+    expect(expandTurkishAddressAbbrev('Atatürk cd 12 sk')).toBe('Atatürk Caddesi 12 Sokak');
+    // Açılım İLK varyant olmalı — ölçülen en yüksek kazanç orada
+    expect(relaxQueryVariants('Tarsus Bağlar mh 0455 sokak')[0])
+      .toBe('Tarsus Bağlar Mahallesi 0455 sokak');
+  });
+});
+
+/* ───────────────────────────────────────────────────────────────
+   Sokak düzeyinde adres çözümleme (saha 2026-08-03)
+   Kullanıcı: "herhangi bir sokak/mahalle ne varsa kendi sokağına
+   gidebilmeli". Nominatim numaralı Türk sokaklarını EŞLEŞTİREMİYOR
+   (ölçüldü); Overpass aynı OSM verisini TAM eşleşmeyle veriyor:
+     "Tarsus Bağlar Mahallesi 0469 Sokak" → 0469. Sokak @ 36.918415, 34.863715
+   ─────────────────────────────────────────────────────────────── */
+describe('Sokak adıyla OSM çözümleme', () => {
+  it('🔒 numaralı sokak: baştaki sıfır ve nokta farkı TOLERE edilir', async () => {
+    const { extractStreetQuery } = await import('../platform/streetSearchService');
+    // OSM "0469. Sokak" yazar, kullanıcı "0469 sokak" veya "469 sokak" der.
+    for (const q of ['Bağlar Mahallesi 0469 Sokak', 'Bağlar mh 469 sk', '0469. sokak']) {
+      const r = extractStreetQuery(q);
+      expect(r, q).not.toBeNull();
+      expect(r!.kind, q).toBe('numbered');
+      expect(r!.nameRegex, q).toBe('^0*469\\.? ?Sokak.*$');
+    }
+  });
+
+  it('🔒 adlı cadde/bulvar da çözümlenir', async () => {
+    const { extractStreetQuery } = await import('../platform/streetSearchService');
+    expect(extractStreetQuery('Şamil Başayev Caddesi')!.nameRegex).toBe('^Şamil Başayev ?Cadde.*$');
+    expect(extractStreetQuery('Mavi Bulvar')!.kind).toBe('named');
+  });
+
+  it('🔒 sokak OLMAYAN sorguyu KAÇIRMAZ (POI aramasını gasp etmez)', async () => {
+    const { extractStreetQuery } = await import('../platform/streetSearchService');
+    expect(extractStreetQuery('Mersin Hemşirenin Park Piknik Yeri')).toBeNull();
+    expect(extractStreetQuery('en yakın benzinlik')).toBeNull();
+    expect(extractStreetQuery('')).toBeNull();
+  });
+
+  it('🔒 KONUMSUZ sorgu YAPILMAZ (yarıçapsız tarama Overpass\'i boğar)', async () => {
+    const { searchStreetByName } = await import('../platform/streetSearchService');
+    expect(await searchStreetByName('0469 Sokak')).toEqual([]);
+    expect(await searchStreetByName('0469 Sokak', NaN, NaN)).toEqual([]);
+  });
+
+  it('🔒 geocode zinciri SON ŞANS olarak sokak aramasını çağırır', () => {
+    // Nominatim + gevşetme tükendikten SONRA gelmeli; öncesinde değil.
+    const src = geocodingServiceSrc;
+    expect(src).toContain('searchStreetByName');
+    const relaxIdx  = src.indexOf('for (const variant of relaxQueryVariants(query))');
+    const streetIdx = src.indexOf('await searchStreetByName(query');
+    expect(relaxIdx).toBeGreaterThan(0);
+    expect(streetIdx).toBeGreaterThan(relaxIdx);
+  });
+});
+
+/* ───────────────────────────────────────────────────────────────
+   Adres sağlayıcı katmanı — BYOK (saha 2026-08-03)
+   Kullanıcı: "Google'ın yaptığını yapamıyorsak uygulama çöp olur,
+   OEM seviyesinde çöz." Ölçüm sorunun VERİ olduğunu gösterdi:
+   "0455. Sokak" yolu OSM'de ÇİZİLİ ama İSİMSİZ (350 m çevrede 41
+   adsız yol; addr:street yalnız 2 nesnede). Ücretsiz OSM türevleri
+   (Nominatim/Photon/Pelias) bunu bilemez → lisanslı sağlayıcı fişi.
+   ─────────────────────────────────────────────────────────────── */
+describe('Adres sağlayıcı katmanı (BYOK)', () => {
+  it('🔒 GÖMÜLÜ/varsayılan anahtar YOK — ürün kutudan ücretsiz OSM ile gelir', () => {
+    /* CLAUDE.md ticari kuralı: merkezi anahtar konmaz (fatura + ToS riski).
+       Ayrıca sağlayıcıların çoğu sonucun kendi harita altlığı dışında
+       gösterilmesini kısıtlar → varsayılan sağlayıcı SEÇİLEMEZ. */
+    expect(geocodingProvidersSrc).not.toMatch(/AIza[A-Za-z0-9_-]{10,}/);
+    expect(geocodingProvidersSrc).not.toMatch(/(apiKey|key)\s*[:=]\s*['"][A-Za-z0-9_-]{16,}['"]/);
+    expect(geocodingProvidersSrc).toContain('VARSAYILAN SAĞLAYICI YOKTUR');
+  });
+
+  it('🔒 anahtar YOKKEN premium yol hiç çağrılmaz (davranış birebir eski)', async () => {
+    const mod = await import('../platform/geocodingProviders');
+    // Depoda anahtar yok → boş dizi; çağıran ücretsiz zincire devam eder.
+    await expect(mod.premiumGeocode('Adana')).resolves.toEqual([]);
+    await expect(mod.premiumGeocode('')).resolves.toEqual([]);
+  });
+
+  it('🔒 durum özeti anahtar DEĞERİNİ taşımaz (yalnız VAR/YOK)', async () => {
+    const mod = await import('../platform/geocodingProviders');
+    const st = await mod.getGeocodeProviderStatus();
+    expect(Object.keys(st).sort()).toEqual(['hasKey', 'provider']);
+    expect(typeof st.hasKey).toBe('boolean');
+  });
+
+  it('🔒 premium sağlayıcı ücretsiz zincirden ÖNCE denenir', () => {
+    const src = geocodingServiceSrc;
+    const premiumIdx = src.indexOf('await premiumGeocode(query');
+    const nomIdx     = src.indexOf('await _nominatimOnce(query');
+    expect(premiumIdx).toBeGreaterThan(0);
+    expect(premiumIdx).toBeLessThan(nomIdx);
+  });
+
+  it('🔒 üç sağlayıcı da Keystore KURTARMA kapsamında', () => {
+    // Reinstall sonrası kullanıcı anahtarını yeniden girmek zorunda kalmasın.
+    for (const k of ['geocodeGoogleApiKey', 'geocodeHereApiKey', 'geocodeYandexApiKey']) {
+      expect(sensitiveKeyStoreSrc).toContain(k);
+    }
+    expect(sensitiveKeyStoreSrc).toMatch(/RECOVERY_KEYS[^\n]*geocodeGoogleApiKey/);
+  });
+});
+
+/* ───────────────────────────────────────────────────────────────
+   İki arama yüzeyi AYRIŞMAZ (cihazda gözlendi 2026-08-03)
+   Harita arama çubuğuna "0455 sokak" yazınca Nominatim **İzmir'de
+   701 km uzaktaki "Sokak"** kaydını öneriyordu; dokunulsa oraya rota
+   kurulurdu. Aynı koruma `geocodeAddress` zincirinde vardı ama
+   `searchPlaces` ayrı zincir olduğu için korumasızdı.
+   ─────────────────────────────────────────────────────────────── */
+describe('Harita araması da numaralı sokağı doğrular', () => {
+  it('🔒 `searchPlaces` numara uyuşmazlığı filtresini UYGULAR', () => {
+    expect(mapServiceSrc).toContain('filterNumberedStreetMismatch');
+    // Nominatim sonucu DOĞRUDAN listeye eklenemez — önce elenmeli.
+    expect(mapServiceSrc).not.toMatch(/combined\.push\(\.\.\.onlineRaw\)/);
+    expect(mapServiceSrc).toContain('combined.push(...onlineHits)');
+  });
+
+  it('🔒 `searchPlaces` sonuç yoksa Overpass sokak aramasına düşer', () => {
+    expect(mapServiceSrc).toContain('searchStreetByName');
+    expect(mapServiceSrc).toMatch(/if \(combined\.length === 0\)[\s\S]{0,120}searchStreetByName\(query, userLat, userLng\)/);
+  });
+
+  it('🔒 iki yüzey AYNI doğrulama fonksiyonunu paylaşır (kopya YOK)', () => {
+    // Kopyalanırsa biri güncellenip diğeri unutulur — bu hata tam olarak öyle doğdu.
+    expect(mapServiceSrc).toContain("from './geocodingService'");
+    expect(geocodingServiceSrc).toContain('export function filterNumberedStreetMismatch');
+  });
+});
+
+/* ───────────────────────────────────────────────────────────────
+   Hız rakamı gündüz temasında GÖRÜNÜR (cihazda gözlendi 2026-08-03)
+   Aktif navigasyonda hız paneli yalnız "KM/H" gösteriyordu; DOM'da
+   değer ("Hız 0 KM/H") VARDI ama rakam beyaz-üstüne-beyaz kalmıştı.
+   KÖK: normal durum rengi SATIR-İÇİ `#ffffff` idi. Satır-içi renk tema
+   CSS'iyle EZİLEMEZ — bu yüzden `className="text-white"` kullanan başlık
+   ("Sola dönün") gündüz temasında siyaha dönüşürken rakam kayboldu.
+   ─────────────────────────────────────────────────────────────── */
+describe('Navigasyon HUD gündüz temasında okunur', () => {
+  it('🔒 hız rakamı TEMA MÜREKKEBİ kullanır (sabit beyaz DEĞİL)', () => {
+    expect(navigationHudSrc).toContain("const digitColor = (overSpeed || isIntv) ? '#f87171'");
+    expect(navigationHudSrc).toMatch(/isCaution \? '#fbbf24'\s*\n\s*: 'var\(--oem-ink/);
+    // Sabit beyaza dönüş = regresyon
+    expect(navigationHudSrc).not.toMatch(/isCaution \? '#fbbf24'\s*\n\s*: '#ffffff'/);
+  });
+
+  it('🔒 satır-içi #ffffff YALNIZ siyah zeminli acil ekranda kalır', () => {
+    /* Satır-içi renk tema katmanınca ezilemez → tema-duyarlı yüzeylerde
+       KULLANILMAZ. LimpHomeHUD kendi zeminini `#000000` yapar, orada meşru. */
+    const inlineWhites = [...navigationHudSrc.matchAll(/color:\s*'#ffffff'/g)];
+    expect(inlineWhites.length).toBeLessThanOrEqual(2);
+    expect(navigationHudSrc).toContain("background:     '#000000'");
+  });
+});
+
+/* ───────────────────────────────────────────────────────────────
+   AR kamera görünürlüğü (cihazda ölçüldü 2026-08-03)
+   Kullanıcı AR'a bastığında kamera GERÇEKTEN açılıyordu
+   (video: srcObject var · track 'live' · 1280×720 · readyState 4)
+   ama ekran değişmiyordu: `confidence < 0.5` kapısı modu STANDARD'a
+   çeviriyor, video katmanı opacity 0 kalıyordu.
+   Kapı YAPISAL olarak aşılamıyordu: güven = 0.60·şerit + 0.25·kare
+   + 0.15·tabela → şerit çizgisi görülmeyen yolda tavan ~0.40.
+   Türkiye'de mahalle sokaklarının çoğunda şerit çizgisi YOKTUR.
+   ─────────────────────────────────────────────────────────────── */
+describe('AR kamerası kullanıcı isteyince açılır', () => {
+  it('🔒 AÇIK tercih (hybrid) güven kapısına TAKILMAZ', async () => {
+    const mod = await import('../platform/modeController');
+    // Saf çözümleyici dışa açık değilse kaynak üzerinden kilitle
+    expect(modeControllerSrc).toMatch(
+      /if \(pref === 'hybrid'\) return visionReady \? 'HYBRID_AR_NAVIGATION' : 'STANDARD_NAVIGATION';/,
+    );
+    // Güven kapısı 'hybrid' dalından SONRA gelmeli — önce gelirse tercihi ezer
+    const hybridIdx = modeControllerSrc.indexOf("if (pref === 'hybrid')");
+    const confIdx   = modeControllerSrc.indexOf('if (confidence < 0.5)');
+    expect(hybridIdx).toBeGreaterThan(0);
+    expect(confIdx).toBeGreaterThan(hybridIdx);
+    expect(mod).toBeTruthy();
+  });
+
+  it('🔒 OTOMATİK mod muhafazakâr kalır (güven kapısı DURUYOR)', () => {
+    // Kullanıcı istemeden güvenilmez AR'a geçilmemeli.
+    expect(modeControllerSrc).toContain('if (confidence < 0.5) return \'STANDARD_NAVIGATION\';');
+    expect(modeControllerSrc).toContain("pref === 'auto' && visionState === 'active'");
+  });
+
+  it('🔒 AR düğmesi İKİ durumludur — tıklama "auto"ya sapmaz', () => {
+    /* Eski hâli: kapalıyken basınca `userPref === 'standard' ? 'auto' : 'hybrid'`
+       → 'auto' güven kapılı olduğundan kullanıcı basıyor, hiçbir şey olmuyordu. */
+    expect(visionOverlaySrc).not.toMatch(/userPref === 'standard' \? 'auto' : 'hybrid'/);
+    expect(visionOverlaySrc).toContain("setUserVisionPreference('hybrid')");
+  });
+
+  it('🔒 AR ÇİZİMİ hâlâ güvene bağlı (kamera ≠ çizim doğruluğu)', () => {
+    // Kamera açılması, güvenilmez şerit/rota çiziminin gösterilmesi demek DEĞİLDİR.
+    expect(visionOverlaySrc).toContain('opacity: canvasOpacity');
+    expect(visionOverlaySrc).toContain('opacity: isHybrid ? 1 : 0');
+  });
+});
+
+/* ───────────────────────────────────────────────────────────────
+   Titreşim filtresi kamerayı DONDURMAZ (cihazda ölçüldü 2026-08-03)
+   Kullanıcı: "rota çizdim, böyle dengesiz duruyor."
+   ÖLÇÜM: canvas 902×405 · araç ekran y=857 → alt kenardan 452 px
+   AŞAĞIDA · padTop=0 (sürüş padding'i hiç uygulanmamış) · drivingMode
+   true. KÖK: `setDrivingView` düşük hızda (<5 km/h) ve GPS oynaması
+   <0.8 m iken ERKEN DÖNÜYOR → araç dururken sürüş kamerası HİÇ
+   uygulanmıyor, kamera nerede kaldıysa orada donuyordu.
+   ─────────────────────────────────────────────────────────────── */
+describe('Durakta kamera donmaz — araç çerçevede tutulur', () => {
+  it('🔒 çerçeveleme ölçütü: ekran İÇİ + alt kenardan pay', async () => {
+    const { isVehicleFramed } = await import('../platform/cameraEngine');
+    // Cihazda ölçülen bozuk durum: 902×405 ekranda araç y=857
+    expect(isVehicleFramed(451, 857, 902, 405, 72)).toBe(false);
+    // Sağlıklı durum (aynı cihazda düzeltme sonrası hedeflenen yerleşim)
+    expect(isVehicleFramed(451, 333, 902, 405, 72)).toBe(true);
+    // Tam sınır: h - minBottom = 333 → dahil, 334 → hariç
+    expect(isVehicleFramed(451, 334, 902, 405, 72)).toBe(false);
+    // Yatay taşma da çerçevesizdir
+    expect(isVehicleFramed(-5, 200, 902, 405, 72)).toBe(false);
+    expect(isVehicleFramed(950, 200, 902, 405, 72)).toBe(false);
+  });
+
+  it('🔒 ölçülemeyen girdi ÇERÇEVESİZ sayılır (fail-open → kamera uygulanır)', async () => {
+    const { isVehicleFramed } = await import('../platform/cameraEngine');
+    expect(isVehicleFramed(NaN, 200, 902, 405)).toBe(false);
+    expect(isVehicleFramed(451, Infinity, 902, 405)).toBe(false);
+    expect(isVehicleFramed(451, 200, 0, 405)).toBe(false);
+  });
+
+  it('🔒 titreşim filtresi YALNIZ çerçeve doğruyken atlar', () => {
+    /* `return` koşulsuz kalırsa yanlış duran kamera bir daha DÜZELMEZ —
+       cihazda gözlenen kusur tam olarak buydu. */
+    /* GÜNCELLENDİ: "doğru kamera" artık çerçeve VE yön demektir — araç ekranda
+       doğru yerdeyken harita rotanın 140.6° tersine bakabiliyordu (cihaz ölçümü). */
+    /* KİLİT BİÇİMİ GÜNCELLENDİ (NAVIGATION_CAMERA_SHADOW): erken dönüş tek
+       satırdan bloğa alındı çünkü çıkmadan ÖNCE gölge gözlemi bildiriliyor.
+       DAVRANIŞ AYNI: çerçeve VE yön doğruyken hiç iş yapmadan `return`. */
+    expect(mapInteractionManagerSrc).toMatch(/if \(framed && oriented\) \{[\s\S]{0,400}?return;/);
+    expect(mapInteractionManagerSrc).toContain('isVehicleFramed(p.x, p.y, cv.clientWidth, cv.clientHeight)');
+    // Eski koşulsuz erken dönüş geri gelmemeli
+    expect(mapInteractionManagerSrc).not.toMatch(
+      /JITTER_THRESHOLD_M\)\s*return;/,
+    );
+  });
+});
+
+/* ───────────────────────────────────────────────────────────────
+   Durakta kamera DÖNMEZ (regresyon, aynı gün cihazda ölçüldü)
+   #340'ın ilk hâli pozitif geri besleme üretti: "çerçeve bozuksa
+   uygula" kuralı, durakta gürültülü GPS heading'ini kovalayan
+   kameranın kendi kendini tetiklemesine yol açtı.
+   ÖLÇÜM (araç 0 m hareket ederken, 7 sn):
+     kamera merkezi sıçramaları: 1.3 · 1.5 · 63.7 · 24.5 · 8.2 · 19.3 m
+     bearing: -60° → -96° → -124° → -142° → -173° → 162° → 138°  (~200°)
+   Kullanıcı: "harita durduğum yerde durmadan hareket ediyor."
+   ─────────────────────────────────────────────────────────────── */
+describe('Durakta düzeltme YALNIZ yeniden ortalamadır', () => {
+  it('🔒 durakta zoom/pitch dondurulur, bearing ROTADAN alınır', () => {
+    /* GÜNCELLENDİ (aynı gün, cihaz geri bildirimi): önce bearing de
+       `map.getBearing()` ile donduruluyordu. Dönme durdu AMA donan değer eski
+       bir yön olduğundan rota ekranda ARKAYA görünüyordu — kullanıcı:
+       "geri geri mi gideceğim". Durakta doğru yön kaynağı rotanın ileri
+       yönüdür; dondurma yalnız ROTA YOKKEN yedek olarak kalır. */
+    const src = mapInteractionManagerSrc;
+    expect(src).toContain('_standstillFix');
+    expect(src).toMatch(/_standstillFix[\s\S]{0,40}Number\.isFinite\(routeBearing/);
+    expect(src).toContain('map.getBearing())');          // rota yoksa yedek
+    expect(src).toContain('const _zoomEff = _standstillFix ? map.getZoom()    : _zoom;');
+    expect(src).toContain('const _pitchEff = _standstillFix ? map.getPitch()  : _pitch;');
+  });
+
+  it('🔒 durakta look-ahead SIFIRLANIR (amaç çerçeveleme, ileri bakmak değil)', () => {
+    /* GÜNCELLENDİ (ısınma düzeltmesi 2026-08-03): sürüş dalında ileri bakış artık
+       öğrenilen tavanla sınırlanıyor (`_lookCapM`) — kare-başı düzeltme döngüsü
+       cihazı ısıtıyordu. Kilidin AMACI aynı: DURAKTA look-ahead SIFIRDIR. */
+    expect(mapInteractionManagerSrc)
+      .toContain('const _lookEff = _standstillFix ? 0 : Math.min(_lookAhead, _lookCapM);');
+    // Merkez hesabı dondurulmuş bearing'i kullanmalı — yoksa dönme geri gelir
+    expect(mapInteractionManagerSrc).toContain('const _bearRad   = (_bearing * Math.PI) / 180;');
+  });
+
+  it('🔒 HER İKİ jumpTo da aynı dondurulmuş değerleri kullanır', () => {
+    /* Klips ikinci bir jumpTo atar; o hâlâ `smooth.bearing` kullanırsa
+       düzeltme birinci çağrıda donar, ikincide yeniden döner. */
+    const src = mapInteractionManagerSrc;
+    const jumps = [...src.matchAll(/map\.jumpTo\(\{[\s\S]{0,220}?\}\);/g)].map((m) => m[0]);
+    expect(jumps.length).toBeGreaterThanOrEqual(2);
+    for (const j of jumps) {
+      if (!j.includes('padding')) continue;
+      expect(j).toContain('bearing: _bearing');
+      expect(j).not.toContain('bearing: smooth.bearing');
+    }
+  });
+});
+
+/* ───────────────────────────────────────────────────────────────
+   "Durakta" kararı KONUMA değil HIZA bağlıdır (cihazda 2026-08-03)
+   İlk düzeltme konum farkına (<0.8 m) bakıyordu. Sahada GPS doğruluğu
+   ±3–6 m ölçüldü (ekran rozeti "GPS ±6m") → duran araçta bile ardışık
+   fix'ler 0.8 m'yi aşıyor, "durakta" dalı hiç çalışmıyor, kamera
+   gürültülü heading'i kovalayıp DÖNÜYORDU.
+   ─────────────────────────────────────────────────────────────── */
+describe('Durakta dondurma HIZ ile karar verilir', () => {
+  it('🔒 `_standstillFix` yalnız hıza bakar — konum farkına DEĞİL', () => {
+    const src = mapInteractionManagerSrc;
+    expect(src).toContain('const _standstillFix = effectiveSpeed < CAMERA_CFG.JITTER_SPEED_KMH;');
+    // Konum farkı içinde atanırsa GPS gürültüsü kararı ele geçirir (eski kusur)
+    expect(src).not.toMatch(/_standstillFix\s*=\s*true;/);
+  });
+
+  it('🔒 konum farkı YALNIZ "hiç iş yapma" kısayolu içindir', () => {
+    /* Konum oynamadıysa ve çerçeve doğruysa hiç çalışma (CPU tasarrufu);
+       ama oynasa bile bearing dondurulmuş kalmalı. */
+    /* KİLİT BİÇİMİ GÜNCELLENDİ (bkz. yukarıdaki gerekçe) — davranış aynı. */
+    expect(mapInteractionManagerSrc).toMatch(/if \(framed && oriented\) \{/);
+    expect(mapInteractionManagerSrc).toContain('çerçeve VE yön doğru → hiç iş yapma');
+    /* GÜNCELLENDİ: eşik `JITTER_THRESHOLD_M` (0.8 m) idi; GPS gürültüsü
+       (±3–6 m) bunun çok üstünde olduğundan duran araçta kamera her fix'te
+       yeniden ortalanıp harita kayıyordu. Gürültü bandının üstündeki
+       `STANDSTILL_RECENTER_MIN_M` kullanılır. */
+    expect(mapInteractionManagerSrc).toContain('CAMERA_CFG.STANDSTILL_RECENTER_MIN_M');
+  });
+});
+
+/* ───────────────────────────────────────────────────────────────
+   HUD katmanları BİRBİRİNİ ÖRTMEZ (cihazda ölçüldü 2026-08-03)
+   Kullanıcı: "layoutlar birbirini kapatmasın, dağınık olmasın."
+   904×406 ekranda ölçülen gerçek çakışmalar:
+     hız paneli (814,81,76×66) ↔ zoom kolonu (836,92,54×166) → 54×55 px
+     GPS rozeti (15,15,68×20) + km çipi (15,49,76×22)
+       ↔ dönüş kartı (36,9,208×55)                          → 47×20 px
+   ─────────────────────────────────────────────────────────────── */
+describe('Dar ekranda HUD katmanları çakışmaz', () => {
+  it('🔒 zoom kolonu dar ekranda hız panelinin ALTINA çapalanır', () => {
+    /* Alttan çapa kısa ekranda yukarı taşıp hız panelinin üstüne biniyordu.
+       Hız paneli: top = sat+80, yükseklik 66 → 12 px boşlukla 158. */
+    expect(mapHudControlsSrc).toContain("? { top: 'calc(var(--sat, 0px) + 158px)' }");
+    // Head unit yolu DEĞİŞMEMELİ — yüksek ekranda eski alttan çapa korunur
+    expect(mapHudControlsSrc).toContain(": { bottom: 'calc(var(--lp-dock-h,68px) + 96px)' }");
+  });
+
+  it('🔒 dönüş kartı dar ekranda GPS rozeti/km çipini ÖRTMEZ', () => {
+    // Çipin sağ kenarı 91 px → kart 96'dan başlar
+    expect(navigationHudSrc).toContain("left: dense ? 'max(96px, var(--sal, 0px))'");
+    // Head unit değeri korunur
+    expect(navigationHudSrc).toContain(": 'max(16px, var(--sal, 0px))'");
+  });
+
+  it('🔒 yerleşim aritmetiği tutarlı: kart genişliği sığar', async () => {
+    /* Dar ekran kart genişliği 208 px, sol kenar 96 → sağ kenar 304.
+       Ortadaki yol tabelası 382'de başlıyor → çakışma yok. */
+    expect(navigationHudSrc).toContain('width: dense ? 208 : 288');
+    expect(96 + 208).toBeLessThan(382);
+  });
+});
+
+/* ───────────────────────────────────────────────────────────────
+   Hız: durakta 0 · limit levhası GERÇEK veriden (saha 2026-08-03)
+   Cihazda park hâlinde hız paneli 116 km/h gösterdi ve kırmızı
+   "MAX 73 → YAVAŞLA" alarmını tetikledi; gerçek hız 0'dı.
+   ─────────────────────────────────────────────────────────────── */
+describe('Durakta hız 0 gösterir', () => {
+  it('🔒 belirsizlik yarıçapı içindeki oynama HAREKET değildir', async () => {
+    const { computeSpeedDelta, noiseFloorM } = await import('../platform/gps/speedCore');
+    const prev = { lat: 36.9175, lng: 34.8621, ts: 1_000 };
+    // ±6 m doğrulukta 6 m'lik GPS salınımı → taban 12 m → 0 (eski kod: 43 km/h)
+    const jitter = { lat: 36.91755, lng: 34.8621, ts: 1_500 }; // ~5.6 m kuzey
+    expect(computeSpeedDelta(jitter.lat, jitter.lng, jitter.ts, prev, 6)).toBe(0);
+    // Doğruluk bilinmiyorsa bile taban vardır
+    expect(computeSpeedDelta(jitter.lat, jitter.lng, jitter.ts, prev, undefined)).toBe(0);
+    expect(noiseFloorM(6)).toBe(12);
+    expect(noiseFloorM(0)).toBe(2.5);
+    /* GÜNCELLENDİ (cihaz 2026-08-03): tavan 12 → 40. Aynı gün park hâlindeki
+       telefonda `accuracy` 14.9 m ölçüldü; taban ölçüm belirsizliğinin ALTINDA
+       kalınca kapı anlamsızlaşıyor ve 24 m'lik saf gürültü "hareket" sayılıp
+       61.6 km/h hayaletini onaylıyordu. Kilidin AMACI aynı: taban SONSUZA
+       GİTMEZ, sınırlıdır — sınır artık gerçekçi kötü doğruluğun üstünde. */
+    expect(noiseFloorM(50)).toBe(40);        // üst sınır — taban sonsuza gitmez
+    expect(noiseFloorM(undefined)).toBe(10); // doğruluk bilinmiyor → varsayılan 5 m
+  });
+
+  it('🔒 GERÇEK hareket bastırılmaz', async () => {
+    const { computeSpeedDelta } = await import('../platform/gps/speedCore');
+    const prev = { lat: 36.9175, lng: 34.8621, ts: 1_000 };
+    // 1 sn'de ~28 m → 100 km/h; doğruluk 5 m (taban 10) → geçmeli
+    const moved = { lat: 36.9175 + 28 / 111_320, lng: 34.8621, ts: 2_000 };
+    const v = computeSpeedDelta(moved.lat, moved.lng, moved.ts, prev, 5);
+    expect(v).toBeGreaterThan(20);      // m/s
+    expect(v! * 3.6).toBeGreaterThan(90);
+  });
+
+  it('🔒 duraktan ani sıçrama TEK örnekle yayınlanmaz', () => {
+    /* Anti-jitter kapısı `_lastKnownSpeed > 0` şartına bağlıydı → araç
+       dururken devre dışıydı; 0→116 hiçbir kapıya takılmıyordu. */
+    expect(vehicleComputeWorkerSrc).toContain('_speedJumpCandidate');
+    expect(vehicleComputeWorkerSrc).toMatch(/_lastKnownSpeed === 0 && raw > ANTI_JITTER_KMH/);
+  });
+});
+
+describe('Hız limiti levhası uydurmaz', () => {
+  it('🔒 RASTGELE limit üreten sahte servis KALDIRILDI', () => {
+    // Her 30 sn `[30,50,70,82,90,110,120]` arasından rastgele seçiyordu.
+    expect(speedLimitServiceSrc).not.toContain('Math.random()');
+    // Yalnız TANIM aranır — kaldırıldığını anlatan yorum kilidi düşürmesin
+    expect(speedLimitServiceSrc).not.toContain('export function startSpeedLimitService');
+    expect(useLayoutServicesSrc).not.toContain('startSpeedLimitService');
+  });
+
+  it('🔒 çıkarım yol SINIFINDAN; bilinmeyen sınıf → null', async () => {
+    const { inferLimitFromHighwayClass } = await import('../platform/speedLimitService');
+    expect(inferLimitFromHighwayClass('motorway')).toBe(120);
+    expect(inferLimitFromHighwayClass('residential')).toBe(50);
+    expect(inferLimitFromHighwayClass('living_street')).toBe(20);
+    // Uydurma yok: tanınmayan/eksik sınıf değer ÜRETMEZ
+    expect(inferLimitFromHighwayClass('bilinmeyen')).toBeNull();
+    expect(inferLimitFromHighwayClass(undefined)).toBeNull();
+  });
+
+  /* KİLİT GÜNCELLEMESİ (VEHICLE_AWARE_SPEED_LIMIT_P0): levha çizimi
+     `NavigationHUD` içinden PAYLAŞILAN `SpeedLimitCard`a taşındı (mini harita
+     ile tam ekranın farklı değer göstermesi kusuru kapatıldı). Kilit
+     kaldırılmadı — yeni doğru yere taşındı. */
+  it('🔒 levha KAYNAĞINI ayırt eder — kesin olmayan sayı levha gibi sunulmaz', () => {
+    expect(speedLimitServiceSrc).toContain("source: 'osm'");
+    expect(speedLimitServiceSrc).toContain("source: 'inferred'");
+    // Arayüz: kesin olmayan hüküm kesikli çerçeve + açık kaynak etiketi
+    expect(speedLimitCardSrc).toContain("definitive ? 'solid' : 'dashed'");
+    expect(speedLimitCardSrc).toContain('limit.sourceLabel');
+  });
+
+  /* SAHA 2026-08-06 (Adana-Erdemli Otoyolu, 93 km/h): Overpass 22 × CONNECTION_RESET
+     + 504 + **429** döndürdü, levha otoyolda HİÇ çizilemedi. Kök: İKİ OTORİTE —
+     gösterim geçerliliği sınıfa duyarlı (otoyol 1500 m) ama yeniden sorgulama
+     sabit 200 m'ydi → aynı geçerli pencerede 7 gereksiz sorgu → hız sınırı. */
+  it('🔒 yeniden sorgulama mesafesi = levhanın GEÇERLİLİK yarıçapı (tek otorite)', async () => {
+    const { _requeryDistM } = await import('../platform/speedLimitService');
+    const { speedLimitMaxDistanceM } = await import('../platform/navigation/core/speedLimitTruthModel');
+
+    // Otoyol/şehirlerarası: sorgu kapısı gösterim geçerliliğiyle AYNI olmalı
+    for (const hw of ['motorway', 'trunk', 'primary', 'secondary']) {
+      expect(_requeryDistM(hw), `${hw} için iki otorite ayrışmamalı`)
+        .toBe(speedLimitMaxDistanceM(hw));
+    }
+    expect(_requeryDistM('motorway')).toBe(1500);
+
+    // Şehir içi ve BİLİNMEYEN sınıf 200 m tabanında KALIR → regresyon yok
+    expect(_requeryDistM('residential')).toBe(200);
+    expect(_requeryDistM(null)).toBe(200);
+
+    // Sorgu kapısı sabit 200'e geri dönmemeli (kaynak kilidi)
+    expect(speedLimitServiceSrc).toContain('_requeryDistM(lastHighwayRef.current)');
+  });
+
+  it('🔒 hız aşılınca levha KIRMIZI olur, dar ekranda hızın SOLUNA geçer', () => {
+    expect(speedLimitCardSrc).toContain("overSpeed ? '#dc2626' : '#ffffff'");
+    expect(navigationHudSrc).toContain("dense ? 'flex-row-reverse' : 'flex-col'");
+  });
+
+  it('🔒 uygulanabilir sınır YOL ile ARAÇ SINIFININ küçüğüdür (tablo levhayı yükseltemez)', () => {
+    expect(effectiveLimitAuthoritySrc).toContain('Math.min(roadLimitKmh, capKmh)');
+    // Araç sınıfı bilinmiyorken otomobil tavanı VARSAYILMAZ.
+    expect(turkeyPolicySrc).toContain('otomobil tavanı VARSAYILMAZ');
+  });
+});
+
+/* ───────────────────────────────────────────────────────────────
+   Rota kırpma ile işaretçi oturtma AYNI eşiği kullanır
+   (cihazda ölçüldü 2026-08-03: araç rotadan 56 m uzakta çizilirken
+   rota çizgisi 56 m ötedeki snapped noktadan kesiliyordu → aracın
+   önünde boşluk. Ürün aynı anda "rotadayım" ve "rotada değilim"
+   diyordu.)
+   ─────────────────────────────────────────────────────────────── */
+describe('Rota kırpma ile görsel oturtma çelişmez', () => {
+  it('🔒 kırpma eşiği = görsel oturtma eşiği (ayrı sabit YOK)', () => {
+    const src = navigationServiceSrc;
+    // Eski geniş tolerans geri gelirse aracın önünde boşluk yeniden doğar
+    expect(src).not.toContain('TRIM_OFF_ROUTE_MAX_M');
+    // Her iki kapı da AYNI sabiti kullanmalı
+    const uses = [...src.matchAll(/_lastOffRouteM > SNAP_VISUAL_THRESHOLD_M/g)];
+    expect(uses.length).toBe(2);
+  });
+
+  it('🔒 eşik makul aralıkta (GPS gürültüsünü tolere eder, yalan söylemez)', () => {
+    const m = navigationServiceSrc.match(/const SNAP_VISUAL_THRESHOLD_M = (\d+);/);
+    expect(m).not.toBeNull();
+    const v = Number(m![1]);
+    expect(v).toBeGreaterThanOrEqual(10);   // altı: normal GPS gürültüsünde kırpma ölür
+    expect(v).toBeLessThanOrEqual(30);      // üstü: rotada olmadığı hâlde "rotadayım" der
+  });
+});
+
+/* Durakta gösterge GERÇEKTEN 0 — Doppler gürültü bandı (cihazda 2026-08-03:
+   belirsizlik tabanı eklendikten SONRA bile gösterge 1 km/h'de takılıydı). */
+describe('Durakta gösterge 0 — Doppler gürültüsü de bastırılır', () => {
+  it('🔒 deadzone Doppler durağan gürültü bandının ÜSTÜNDE', async () => {
+    const { GPS_SPEED_DEADZONE_KMH, applySpeedFilters } = await import('../platform/gps/speedCore');
+    expect(GPS_SPEED_DEADZONE_KMH).toBeGreaterThanOrEqual(2);
+    expect(GPS_SPEED_DEADZONE_KMH).toBeLessThan(5);   // yürüme hızını gizlemez
+    // Durağan Doppler gürültüsü (0.3 m/s ≈ 1.08 km/h) → 0
+    expect(applySpeedFilters(0.3, 0)).toBe(0);
+    // Gerçek sürünme (2 m/s ≈ 7.2 km/h) → korunur
+    expect((applySpeedFilters(2, 0) as number) * 3.6).toBeCloseTo(7.2, 1);
+  });
+});
+
+/* ───────────────────────────────────────────────────────────────
+   Durakta harita ROTANIN İLERİ YÖNÜNE bakar (saha 2026-08-03)
+   Dönmeyi durdurmak için bearing dondurulmuştu; ama donan değer eski
+   bir yön olduğundan rota ekranda ARKAYA doğru görünüyordu.
+   Kullanıcı: "geri geri mi gideceğim".
+   ─────────────────────────────────────────────────────────────── */
+describe('Durakta kamera yönü rotadan gelir', () => {
+  it('🔒 durakta bearing GPS heading DEĞİL rota yönüdür', () => {
+    const src = mapInteractionManagerSrc;
+    expect(src).toContain('routeBearing');
+    expect(src).toMatch(/_standstillFix\s*\n?\s*\?\s*\(Number\.isFinite\(routeBearing/);
+    // Rota yoksa mevcut bearing korunur (dondurma davranışı yedek olarak durur)
+    expect(src).toContain('map.getBearing())');
+  });
+
+  it('🔒 rota yönü araçtan SONRAKİ manevraya bakar, çok yakınsa kullanılmaz', () => {
+    const src = fullMapViewSrc;
+    expect(src).toContain('_routeBearing');
+    expect(src).toContain('bearingBetween(displayLat, displayLng, _sLat, _sLon)');
+    // 8 m altında yön anlamsızdır (gürültü) → hesaplanmaz
+    expect(src).toMatch(/distM\(displayLat, displayLng, _sLat, _sLon\) > 8/);
+  });
+
+  it('🔒 durakta yeniden ortalama eşiği GPS gürültü bandının üstünde', async () => {
+    const { CAMERA_CFG } = await import('../platform/cameraEngine');
+    expect(CAMERA_CFG.STANDSTILL_RECENTER_MIN_M).toBeGreaterThanOrEqual(5);
+    expect(CAMERA_CFG.STANDSTILL_RECENTER_MIN_M).toBeLessThanOrEqual(12);
+    expect(mapInteractionManagerSrc).toContain('CAMERA_CFG.STANDSTILL_RECENTER_MIN_M');
+  });
+});
+
+/* Odometre: belirsizlik altındaki oynama MESAFE değildir (Yol Sayacı park
+   hâlinde 103,6 → 103,8 tırmanıyordu — cihazda ölçüldü). */
+describe('Yol sayacı durakta artmaz', () => {
+  it('🔒 Haversine birikimi belirsizlik tabanının ALTINDA reddedilir', () => {
+    expect(vehicleComputeWorkerSrc).toContain('_odoFloorM');
+    expect(vehicleComputeWorkerSrc).toContain('if (deltaKm * 1000 <= _odoFloorM) return;');
+    /* Taban accuracy'den türetilir — sabit değil.
+       GÜNCELLENDİ (cihaz 2026-08-03/2): kullanıcı park hâlinde sayacın
+       95 → 106,7 km çıktığını bildirdi. Taban artık TEK fix'ten değil, İKİ
+       fix'in KÖTÜ doğruluğundan üretiliyor (`_odoAccM`) ve tavanı 40 m —
+       ölçülen `accuracy` 14.9 m iken 12 m'lik tavan kapıyı anlamsız
+       kılıyordu. Kilidin AMACI aynı: taban SABİT DEĞİL, accuracy'den gelir. */
+    expect(vehicleComputeWorkerSrc).toMatch(/loc\.accuracy\) \? loc\.accuracy : 5,/);
+    expect(vehicleComputeWorkerSrc).toMatch(/_odoFloorM = Math\.min\(40, Math\.max\(2\.5, _odoAccM \* 2\)\)/);
+  });
+});
+
+
+/* ───────────────────────────────────────────────────────────────
+   "Doğru kamera" = çerçeve VE yön (cihazda ölçüldü 2026-08-03)
+   Rota yönü düzeltmesi eklendikten SONRA bile harita rotanın
+   140.6° tersine bakıyordu: harita 8.5° · rota 149.1°. Sebep,
+   durakta kameranın "zaten doğru" sayılıp erken dönmesiydi —
+   kontrolde YÖN yoktu, yalnız çerçeve vardı.
+   ─────────────────────────────────────────────────────────────── */
+describe('Durakta kamera yönü de kontrol edilir', () => {
+  it('🔒 erken dönüş çerçeve VE yön doğruyken yapılır', () => {
+    const src = mapInteractionManagerSrc;
+    expect(src).toContain('const oriented =');
+    expect(src).toMatch(/if \(framed && oriented\) \{[\s\S]{0,400}?return;/);
+    // Yalnız çerçeveye bakan eski hâl geri gelmemeli
+    expect(src).not.toMatch(/if \(framed\) return;/);
+    /* YENİ: erken dönüş yolu gölgeye de BİLDİRİLİR — atlanan güncelleme
+       LAB'da görünür (aksi hâlde "legacy hiç atlamıyor" yanılgısı doğardı). */
+    expect(src).toContain('_reportShadow(map, false,');
+  });
+
+  it('🔒 yön toleransı makul (salınım yok, ters bakış yakalanır)', () => {
+    const m = mapInteractionManagerSrc.match(/STANDSTILL_BEARING_TOLERANCE_DEG = (\d+)/);
+    expect(m).not.toBeNull();
+    const v = Number(m![1]);
+    expect(v).toBeGreaterThanOrEqual(5);   // altı: GPS/render gürültüsünde salınır
+    expect(v).toBeLessThanOrEqual(45);     // üstü: 140° ters bakışı kaçırır
+  });
+
+  it('🔒 yön sapması kamera güncellemesini TETİKLER', () => {
+    /* Durakta hiçbir girdi değişmediği için `setDrivingView` hiç çağrılmıyordu;
+       yön sapması `_camChanged`e eklenmezse düzeltme asla uygulanmaz. */
+    expect(fullMapViewSrc).toContain('_routeBearOff');
+    expect(fullMapViewSrc).toContain('_routeBearOff > 15');
+  });
+});
+
+
+/* ───────────────────────────────────────────────────────────────
+   Doppler hayaleti YER DEĞİŞTİRME ile çürütülür (cihaz 2026-08-03)
+   Park hâlindeki araçta gösterge 58 km/h yazdı; aynı anda araç
+   işaretçisi ve rota ekrandan KAYBOLDU — sahte hız 5 km/h eşiğini
+   aşınca kamera sürüş yoluna geçip look-ahead'i büyütüyor.
+   Konum-delta tabanı bunu yakalamaz: değer Doppler'den geliyordu.
+   ─────────────────────────────────────────────────────────────── */
+describe('Doppler hayalet hızı çürütülür', () => {
+  it('🔒 hiç kıpırdamayan araçta yüksek Doppler SIFIRLANIR', async () => {
+    const { reconcileDopplerWithDisplacement, noiseFloorM } =
+      await import('../platform/gps/speedCore');
+    const floor = noiseFloorM(3);                 // 6 m
+    // 58 km/h = 16.1 m/s; 1.5 sn'de 24 m iddia ediyor ama yer değiştirme 0
+    expect(reconcileDopplerWithDisplacement(16.1, 0, 1.5, floor)).toBe(0);
+  });
+
+  it('🔒 kanıt yetersizken Doppler değerine DOKUNULMAZ (kısa Δt)', async () => {
+    const { reconcileDopplerWithDisplacement, noiseFloorM } =
+      await import('../platform/gps/speedCore');
+    const floor = noiseFloorM(3);                 // 6 m
+    // Aynı hız, 0.5 sn: iddia 8 m — tabanın 3 katı (18 m) DEĞİL → karışma
+    expect(reconcileDopplerWithDisplacement(16.1, 0, 0.5, floor)).toBe(16.1);
+  });
+
+  it('🔒 GERÇEK hareket bastırılmaz', async () => {
+    const { reconcileDopplerWithDisplacement, noiseFloorM } =
+      await import('../platform/gps/speedCore');
+    const floor = noiseFloorM(3);
+    // 30 km/h = 8.3 m/s, 2 sn'de 16.6 m GERÇEKTEN yer değiştirdi → dokunma
+    expect(reconcileDopplerWithDisplacement(8.3, 16.6, 2, floor)).toBe(8.3);
+    // Ölçülemeyen girdi → dokunma (kör kalıp hız öldürme)
+    expect(reconcileDopplerWithDisplacement(8.3, NaN, 2, floor)).toBe(8.3);
+    expect(reconcileDopplerWithDisplacement(8.3, 0, 0, floor)).toBe(8.3);
+  });
+
+  it('🔒 çapraz doğrulama gpsService hattına BAĞLI', () => {
+    expect(gpsServiceSrc).toContain('reconcileDopplerWithDisplacement');
+    expect(gpsServiceSrc).toContain('pickRawSpeed(_gpsSpeedChecked, deltaSpeed)');
+  });
+});
+
+/* ───────────────────────────────────────────────────────────────
+   NAV-CORE-P0 (2026-08-03) — navigasyon çekirdeği kilitleri.
+
+   Bu turda kapatılan kusurlar defalarca geri gelebilecek türden:
+   birim hatası, kuş uçuşu mesafe, kanıtsız şerit rehberi ve ölü
+   localhost katmanı. Hepsi burada kilitlenir.
+   ─────────────────────────────────────────────────────────────── */
+describe('NAV-CORE-P0 kilitleri', () => {
+  it('🔒 BİRİM: store.speed km/h — navigasyon zincirinde 3.6 ile ÇARPILMAZ', () => {
+    const nav = read('src/platform/navigationService.ts');
+    /* Kök: UnifiedVehicleStore.speed ZATEN km/h. Üç yerde 3.6 ile çarpılıyordu →
+       ETA sistematik kısa, varış kapısı 10 km/h yerine 2.8 km/h, koridor
+       önbelleği 3.6 kat fazla veri çekiyordu. */
+    expect(nav, 'store hızı yine 3.6 ile çarpılıyor (birim hatası geri geldi)')
+      .not.toMatch(/\(_raw(Arr)?Spd \?\? 0\) \* 3\.6/);
+    expect(nav).not.toMatch(/\(_cspd \?\? 0\) \* 3\.6/);
+    // Adım hızı (m/s → km/h) DOĞRU bir dönüşümdür, korunmalı.
+    expect(nav).toContain('(step.distance / step.duration) * 3.6');
+  });
+
+  it('🔒 MANEVRA MESAFESİ yol-boyu hesaplanır (kuş uçuşu geri gelmesin)', () => {
+    const rs = read('src/platform/routingService.ts');
+    expect(rs, 'yol-boyu manevra mesafesi kaldırılmış')
+      .toContain('alongRouteDistanceToManeuver');
+    expect(rs, 'mesafe kaynağı etiketi kaldırılmış')
+      .toMatch(/distanceToNextTurnSource/);
+    // Kuş uçuşu YALNIZ yedek yoldur ve öyle etiketlenir.
+    expect(rs).toContain("distSource = 'STRAIGHT_LINE'");
+  });
+
+  it('🔒 ŞERİT REHBERİ yalnız GERÇEK lanes verisinden çizilir', () => {
+    const hud = read('src/components/map/NavigationHUD.tsx');
+    // Manevra tipinden ok türetme geri gelmemeli.
+    expect(hud, 'şerit oku yine manevra tipinden türetiliyor (kanıtsız bilgi)')
+      .not.toMatch(/const goesLeft\s*=\s*mod\.includes\('left'\)/);
+    // Kanıt yoksa panel HİÇ çıkmaz.
+    expect(hud).toMatch(/if \(!lanes \|\| lanes\.length === 0\) return null;/);
+  });
+
+  it('🔒 DÖNEL KAVŞAK çıkışı yalnız KANITLIYSA söylenir', () => {
+    const rs = read('src/platform/routingService.ts');
+    expect(rs, 'maneuver.exit ayrıştırması kaldırılmış').toMatch(/maneuver\.exit/);
+    // Sayı yoksa genel ifadeye düşülür — uydurulmaz.
+    expect(rs).toContain("'Dönel kavşakta devam edin'");
+  });
+
+  it('🔒 ÖLÜ localhost katmanı her rotada denenmez', () => {
+    const off = read('src/platform/offlineRoutingService.ts');
+    expect(off, 'yerel daemon tek-yoklama kapısı kaldırılmış')
+      .toContain('shouldProbeLocalDaemon');
+    expect(off, '3 sn timeout geri gelmiş')
+      .not.toMatch(/LOCAL_DAEMON_TIMEOUT_MS\s*=\s*3_000/);
+    expect(off).toContain('LOCAL_PROBE_TIMEOUT_MS');
+  });
+
+  /* KİLİT TAŞINDI (NAVIGATION_DELIVERY_CORE_P0): sesli yönlendirme
+     `NavigationHUD`ten `voiceGuidanceRuntime`e alındı — görünüm kapanınca
+     anonslar susuyordu. Kilit KALDIRILMADI, yeni sahibine taşındı. */
+  it('🔒 SES: rota değişince kademeler sıfırlanır (yeni rota sessiz kalmaz)', () => {
+    const rt = read('src/platform/navigation/voiceGuidanceRuntime.ts');
+    // Tekrar koruması rota kimliğini (oturum:revizyon) izler ve kuyruğu temizler.
+    expect(rt).toMatch(/routeKey/);
+    expect(rt).toContain('_spoken = new Map()');
+    // Mesafe bilinmiyorken konuşulmaz — karar saf modelde.
+    const vm = read('src/platform/navigation/core/voiceGuidanceModel.ts');
+    expect(vm).toMatch(/distanceSource === 'UNKNOWN'\) return null;/);
+  });
+
+  it('🔒 SES: sahiplik görünümde DEĞİL (kapanınca susmaz)', () => {
+    const hud = read('src/components/map/NavigationHUD.tsx');
+    expect(hud).not.toContain('_spokenRef');
+    expect(hud).not.toContain('metre sonra');
+    const rt = read('src/platform/navigation/navigationSessionRuntime.ts');
+    expect(rt).toContain('noteVoiceGuidanceTick');
+  });
+
+  it('🔒 MAP MATCH: koridor dışı UNKNOWN sayılmaz (reroute ölmesin)', () => {
+    const mm = read('src/platform/navigation/core/mapMatchModel.ts');
+    /* Regresyon riski: CPU koruma filtresi tüm adayları eleyince "aday yok"
+       durumu UNKNOWN'a düşerse, sapma makinesi "karar verme" der ve EN
+       BELİRGİN sapmada reroute HİÇ tetiklenmez. */
+    expect(mm).toContain('nearestIdx');
+    expect(mm).toMatch(/state: 'OFF_NETWORK'/);
+  });
+
+  it('🔒 SAF KATMAN: çekirdek modeller I/O ve saat OKUMAZ', () => {
+    for (const f of [
+      'src/platform/navigation/core/mapMatchModel.ts',
+      'src/platform/navigation/core/offRouteModel.ts',
+      'src/platform/navigation/core/routeValidationModel.ts',
+      'src/platform/navigation/core/maneuverIndexModel.ts',
+      'src/platform/navigation/core/geo.ts',
+    ]) {
+      const src = read(f);
+      /* ÇAĞRI kalıbı aranır (parantezli) — dosya başlıklarındaki
+         "`Date.now` YOK" gibi SÖZLERİ yakalamamak için. */
+      expect(src, `${f} Date.now() okuyor — saflık ihlali`).not.toContain('Date.now(');
+      expect(src, `${f} performance.now() okuyor — saflık ihlali`).not.toContain('performance.now(');
+      expect(src, `${f} timer kuruyor`).not.toContain('setInterval(');
+      expect(src, `${f} timer kuruyor`).not.toContain('setTimeout(');
+      expect(src, `${f} React import ediyor`).not.toMatch(/from 'react'/);
+      expect(src, `${f} ağa çıkıyor`).not.toContain('fetch(');
+    }
+  });
+});
+
+/* ───────────────────────────────────────────────────────────────
+   NAV-CORE-P0 · SAHA ÖLÇÜM KÖPRÜSÜ (dev-only)
+   Gerçek araç doğrulaması için eklendi. Ürüne SIZMAMALI.
+   ─────────────────────────────────────────────────────────────── */
+describe('NAV-CORE-P0 saha ölçüm köprüsü kilitleri', () => {
+  const bridge = read('src/platform/devtools/navFieldBridge.ts');
+
+  it('🔒 SALT OKUNUR: hiçbir navigasyon komutu çağırmaz', () => {
+    for (const forbidden of [
+      'fetchRoute', 'startNavigation', 'stopNavigation', 'activateNavigation',
+      'clearRoute', 'setRerouteContext', 'selectAltRoute', 'writeActiveRoute',
+      'updateRouteProgress', 'speakNavigation',
+    ]) {
+      expect(bridge, `köprü ${forbidden} çağırıyor — ürün davranışına dokunuyor`)
+        .not.toContain(forbidden);
+    }
+  });
+
+  it('🔒 TIMER / POLLING / ağ YOK — örnekleme HOST tarafında yapılır', () => {
+    expect(bridge).not.toContain('setInterval(');
+    expect(bridge).not.toContain('setTimeout(');
+    expect(bridge).not.toContain('fetch(');
+    expect(bridge).not.toContain('.subscribe(');
+  });
+
+  it('🔒 DEV KAPISI: bayrak kapalıyken NO-OP ve çağrı noktası da korumalı', () => {
+    expect(bridge).toContain('DEVELOPER_FEATURES_ENABLED');
+    expect(bridge).toMatch(/if \(!DEVELOPER_FEATURES_ENABLED\) return;/);
+    const app = read('src/App.tsx');
+    // Dinamik import bayrağın ARKASINDA olmalı → satış build'inde ölü kod.
+    expect(app).toMatch(/if \(!DEVELOPER_FEATURES_ENABLED\) return;\s*\n\s*void import\('\.\/platform\/devtools\/navFieldBridge'\)/);
+  });
+
+  it('🔒 KÖPRÜ ÜRÜNÜ DÜŞÜREMEZ (fail-soft)', () => {
+    expect(bridge).toMatch(/catch \{ \/\* fail-soft/);
+  });
+
+  it('🔒 LAB EKRANI koordinat sözleşmesini KORUR (köprü ondan AYRI)', () => {
+    /* Köprü ölçüm için ham koordinat taşır (saha doğruluğu ölçülemez aksi
+       hâlde) — ama bu ASLA LAB okuma katmanına sızmamalı. */
+    const labSrc = read('src/platform/devtools/navigationCoreSources.ts');
+    expect(labSrc).not.toContain('navFieldBridge');
+    /* Koordinat DEĞERİ taşımak yasak; VARLIK kontrolü (`!== null`) serbesttir —
+       `hasSnappedPosition` tam olarak budur ve koordinatı SIZDIRMAZ. */
+    expect(labSrc, 'LAB anlık görüntüsü koordinat DEĞERİ taşıyor')
+      .not.toMatch(/:\s*(fix|veh|loc)\.(snappedLat|snappedLon|rawLat|rawLon|latitude|longitude)/);
+    expect(labSrc, 'LAB anlık görüntüsünde koordinat alanı tanımlı')
+      .not.toMatch(/readonly\s+(lat|lon|latitude|longitude|snappedLat|snappedLon)\s*:/);
+    const labScreen = read('src/components/devtools/screens/NavigationCoreScreen.tsx');
+    expect(labScreen).not.toContain('__CAROS_NAV_FIELD__');
+  });
+});
+
+/* ── NAVIGASYON OTURUM SÜREKLİLİĞİ (2026-08-03) ──────────────────────────────
+ * SAHA ARIZASI: tam ekran haritayı kapatmak navigasyonu fiilen BİTİRİYORDU.
+ * Rota ilerlemesini süren GPS aboneliği `FullMapView`'ın İÇİNDEYDİ → unmount
+ * ile mesafe/ETA/adım/ses/reroute/varış topluca donuyordu; rota isteği dedup'ı
+ * da bileşen ref'i olduğu için yeniden açılışta AKTİF oturum için yeni istek
+ * atılıp durum ACTIVE→ROUTING'e düşüyordu. Mini haritanın ise navigasyondan
+ * hiç haberi yoktu. Bu kilitler sahipliğin görünüme geri kaçmasını engeller. */
+describe('Tam ekranı kapatmak navigasyonu SONLANDIRMAZ', () => {
+  const miniMapSrc = read('src/components/map/MiniMapWidget.tsx');
+  const drawerSrc  = read('src/components/layout/DrawerPanel.tsx');
+
+  it('🔒 tam ekran kapatma yolu oturum sonlandırmaya BAĞLANAMAZ', () => {
+    // Kapatma yolu: MapHudControls X → onClose → DrawerPanel → setFullMapOpen(false).
+    expect(fullMapViewSrc).toContain('onClose={onClose}');
+    expect(drawerSrc).toContain('onClose={onCloseMap}');
+    expect(mainLayoutSrc).toContain('onCloseMap={() => setFullMapOpen(false)}');
+    // Bu iki dosya oturumu bitiren HİÇBİR fonksiyonu çağırmaz.
+    for (const src of [drawerSrc, mainLayoutSrc]) {
+      expect(src).not.toContain('endNavigation(');
+      expect(src).not.toContain('stopNavigation(');
+      expect(src).not.toContain('clearRoute(');
+    }
+  });
+
+  it('🔒 FullMapView unmount rota/oturum TEMİZLEMEZ', () => {
+    /* Kapanış temizliği yalnız GÖRÜNÜM kaynaklarını (harita, timer, abonelik)
+       bırakabilir. Bir cleanup fonksiyonunun içinde oturum sonlandırma çağrısı
+       görünürse tam ekran kapatmak yine navigasyonu öldürür. */
+    for (const m of fullMapViewSrc.matchAll(/return \(\) => \{([\s\S]*?)\n {4}\};/g)) {
+      const body = m[1];
+      expect(body).not.toContain('endNavigation');
+      expect(body).not.toContain('stopNavigation');
+      expect(body).not.toContain('clearRoute(');
+      expect(body).not.toContain('clearRouteGeometry');
+    }
+  });
+
+  it('🔒 ilerleme motoru GÖRÜNÜMDE değil, boot servisindedir', () => {
+    const boot = read('src/platform/system/SystemBoot.ts');
+    expect(boot).toContain('this._reg(startNavigationSessionRuntime());');
+    // Görünümler motoru başlatmaz/durdurmaz.
+    for (const src of [fullMapViewSrc, miniMapSrc]) {
+      expect(src).not.toContain('startNavigationSessionRuntime');
+      expect(src).not.toContain('stopNavigationSessionRuntime');
+    }
+    // FullMapView'ın GPS aboneliği artık ilerleme HESAPLAMAZ (yalnız çizer).
+    const gpsBlock = fullMapViewSrc.slice(
+      fullMapViewSrc.indexOf('const unsub = onGPSLocation('),
+      fullMapViewSrc.indexOf('// 3) Düşük frekanslı render commit'),
+    );
+    expect(gpsBlock.length).toBeGreaterThan(100);
+    expect(gpsBlock).not.toContain('updateRouteProgress(');
+    expect(gpsBlock).not.toContain('updateNavigationProgress(');
+  });
+
+  it('🔒 mini harita AYRI rota otoritesi kurmaz (tek authority)', () => {
+    for (const forbidden of [
+      'fetchRoute', 'writeActiveRoute', 'updateRouteProgress',
+      'updateNavigationProgress', 'setNavStatus', 'activateNavigation',
+    ]) {
+      expect(miniMapSrc, `mini harita ${forbidden} çağırıyor — ikinci otorite`)
+        .not.toContain(forbidden);
+    }
+    // Aktif rotayı TEK otoriteden okur.
+    expect(miniMapSrc).toContain('useRouteState()');
+    expect(miniMapSrc).toContain('useNavigation()');
+  });
+
+  it('🔒 rota isteği dedup\'ı bileşen ref\'ine GERİ DÖNEMEZ', () => {
+    expect(fullMapViewSrc).not.toContain('lastFetchedRef');
+    expect(fullMapViewSrc).toContain('claimRouteRequest(destination.id)');
+    // Sahiplik oturum otoritesinde yaşar.
+    expect(navigationServiceSrc).toContain('export function claimRouteRequest');
+    expect(navigationServiceSrc).toContain('export function endNavigation');
+  });
+});
+
+/* ── UYDURMA ETA BARI AKTİF ROTAYI ÇELİŞMEZ (saha 2026-08-03) ───────────────
+ * CİHAZDA ÖLÇÜLDÜ (4L45OFZDX84X55GE): gerçek rota 2,7 km iken tema kartının
+ * alt şeridi "18 km · 23 dk · 19:56" gösteriyor ve mini haritanın GERÇEK verili
+ * navigasyon şeridini örtüyordu — aynı kartta iki çelişkili ETA. `useNavSummary`
+ * 2026-08-02'de üst chip'i gerçek kaynağa bağlamıştı; ALT BAR gözden kaçmıştı. */
+describe('Uydurma ETA barı aktif rotayla çelişemez', () => {
+  const LAYOUTS = ['ProLayout', 'TeslaLayout', 'ExpeditionLayout'];
+
+  /* KİLİT GÜNCELLENDİ (saha 2026-08-05 · #431) — KALDIRILMADI.
+   * Eski kilit "sabit şerit `!navSummary` kapısının arkasında olmalı" diyordu:
+   * yani rota YOKKEN uydurma değerleri göstermeye izin veriyordu. Sahada tam da
+   * bu delik gözlendi — rota iptal edilir edilmez şerit geri geldi (`shot_18`).
+   * Doğru davranış artık daha güçlü: şerit HİÇBİR durumda render edilmez.
+   * Kilit o yüzden zayıflatılmadı, yeni (daha katı) gerçeğe taşındı. */
+  it('🔒 sabit "23 dk / 18 km" şeridi HİÇBİR durumda RENDER EDİLMEZ', () => {
+    for (const name of LAYOUTS) {
+      const src = read(`src/components/themes/${name}.tsx`);
+      // JSX metin düğümünü ara (`>23 dk<`) — açıklama yorumları yakalanmasın.
+      expect(src.indexOf('>23 dk<'), `${name}: uydurma ETA şeridi geri gelmiş`).toBe(-1);
+      expect(src.indexOf('>18 km<'), `${name}: uydurma mesafe şeridi geri gelmiş`).toBe(-1);
+      // Kapı deseni de kalmamalı: "rota yokken göster" mantığı bu şerit için ölüdür.
+      const jsx = src.replace(/\/\*[\s\S]*?\*\//g, '');
+      expect(jsx.includes('19:56'), `${name}: uydurma varış saati geri gelmiş`).toBe(false);
+    }
+  });
+
+  it('🔒 rota özeti TEK kaynaktan gelir — sabit hedef/mesafe geri gelmesin', () => {
+    const hook = read('src/hooks/useNavSummary.ts');
+    expect(hook).toContain('useNavigation');
+    expect(hook).toContain('if (!isNavigating || !destination) return null;');
+    for (const name of LAYOUTS) {
+      const src = read(`src/components/themes/${name}.tsx`);
+      expect(src).toContain('useNavSummary()');
+      // Eskiden buradaydı: sabit "Sahil Yolu Cd." / "2.4 km"
+      expect(src).not.toContain('Sahil Yolu');
+    }
+  });
+});
+
+/* ── NAVİGASYONDAYKEN ANA EKRANA DÖNÜŞ YOLU KAPANAMAZ (saha 2026-08-04) ──────
+ * CİHAZDA ÖLÇÜLDÜ: navigasyon aktifken tam ekranı kapatan HİÇBİR düğme yoktu
+ * (`KAPAT` `!isNavigating` ile gizli). Geriye donanım geri tuşu ve kırmızı
+ * SONLANDIR kalıyordu. Uygulama bir LAUNCHER; hedef head unit'lerde (K24/T507)
+ * donanım geri tuşu çoğu zaman YOK → kullanıcı ana ekrana dönmek için
+ * navigasyonu BİTİRMEK zorunda kalıyordu; yani bu görevin kapattığı arızanın ta
+ * kendisi UI tarafında hâlâ açıktı. */
+describe('Navigasyon aktifken ana ekrana dönüş yolu vardır', () => {
+  const hud = read('src/components/map/MapHudControls.tsx');
+
+  it('🔒 navigasyondayken görünümü kapatan AYRI bir düğme render edilir', () => {
+    expect(hud).toContain('{isNavigating && (');
+    // Düğme yalnız görünümü kapatır — sonlandırma fonksiyonlarına DOKUNMAZ.
+    const blk = hud.slice(hud.indexOf('{isNavigating && ('), hud.indexOf("{!isNavigating && ("));
+    expect(blk).toContain('onClick={onClose}');
+    for (const forbidden of ['endNavigation', 'stopNavigation', 'clearRoute', 'onCancel']) {
+      expect(blk, `ana ekran düğmesi ${forbidden} çağırıyor — oturumu bitirir`).not.toContain(forbidden);
+    }
+  });
+
+  it('🔒 dönüş düğmesi SONLANDIR ile karıştırılamaz (renk + etiket ayrı)', () => {
+    const blk = hud.slice(hud.indexOf('{isNavigating && ('), hud.indexOf("{!isNavigating && ("));
+    expect(blk).toContain('ANA EKRAN');
+    // Kırmızı (tehlike) paleti sonlandırmaya ayrılmıştır — dönüş düğmesi nötr olmalı.
+    expect(blk).not.toContain('239,68,68');
+    expect(blk).not.toMatch(/text-red-|#f87171/);
+  });
+});
+
+/* ── OBD 0xFF SENTİNEL'İ SÜRÜCÜYE HIZ OLARAK GÖSTERİLEMEZ (saha 2026-08-05 · #399) ──
+ * CİHAZDA ÖLÇÜLDÜ: araç gerçekte ~94 km/h giderken ekranda "Hız 255 km/h".
+ * 255 = 0xFF, SAE J1979'da "veri yok" için ECU'nun döndürdüğü tam-ölçek bayt.
+ * Fiziksel sınır [0,300] tek başına yetmiyordu — sentinel sınırın İÇİNDE kalıyordu.
+ * Sürücüye yanlış hız göstermek doğrudan bir GÜVENLİK kusurudur. */
+describe('OBD sentinel eleme (#399)', () => {
+  it('🔒 speed = 255 (0xFF) alanı kabul EDİLMEZ', async () => {
+    const { sanitizeNativeOBDPacket } = await import('../platform/obdSanitizer');
+    const { patch } = sanitizeNativeOBDPacket({ speed: 255 }, null);
+    expect(patch?.speed).toBeUndefined();
+  });
+
+  it('🔒 sentinel yalnız KENDİ alanını düşürür — paketi düşürmez (fail-soft)', async () => {
+    const { sanitizeNativeOBDPacket } = await import('../platform/obdSanitizer');
+    const { patch } = sanitizeNativeOBDPacket({ speed: 255, rpm: 2100, engineTemp: 92 }, null);
+    expect(patch).not.toBeNull();
+    expect(patch?.speed).toBeUndefined();
+    expect(patch?.rpm).toBe(2100);          // aynı turdaki sağlam alanlar korunur
+    expect(patch?.engineTemp).toBe(92);
+  });
+
+  it('🔒 254 ve 256 sentinel DEĞİLDİR — 254 geçer, 256 sınır dışı', async () => {
+    const { sanitizeNativeOBDPacket } = await import('../platform/obdSanitizer');
+    expect(sanitizeNativeOBDPacket({ speed: 254 }, null).patch?.speed).toBe(254);
+    expect(sanitizeNativeOBDPacket({ speed: 301 }, null).patch).toBeNull(); // fiziksel kapı
+  });
+
+  it('🔒 intakeTemp = 215 (0xFF) elenir; 214 gerçek okuma sayılır', async () => {
+    const { sanitizeNativeOBDPacket } = await import('../platform/obdSanitizer');
+    expect(sanitizeNativeOBDPacket({ intakeTemp: 215 }, null).patch).toBeNull();
+    expect(sanitizeNativeOBDPacket({ intakeTemp: 214 }, null).patch?.intakeTemp).toBe(214);
+  });
+
+  it('🔒 yanlış-pozitif YASAK: dolu depo (%100) ve 255 kPa boost ELENMEZ', async () => {
+    const { sanitizeNativeOBDPacket } = await import('../platform/obdSanitizer');
+    // 0xFF bu iki alanda GERÇEK bir okumayla çakışır — elemek veri kaybı olurdu.
+    expect(sanitizeNativeOBDPacket({ fuelLevel: 100 }, null).patch?.fuelLevel).toBe(100);
+    expect(sanitizeNativeOBDPacket({ boostPressure: 255 }, null).patch?.boostPressure).toBe(255);
+  });
+});
+
+/* ── EKRANDA TEK HIZ OTORİTESİ (saha 2026-08-05 · #417) ─────────────────────
+ * CİHAZDA ÖLÇÜLDÜ: tek ekran görüntüsünde eş zamanlı ÜÇ farklı hız —
+ * araç kartı 99 · harita rozeti 103 · UnifiedVehicleStore 104, hepsi etiketsiz.
+ * KÖK: iki ayrı füzyon motoru (`UnifiedVehicleStore` + `speedFusion`) ve bir de
+ * HAM GPS (`location.speed * 3.6`) aynı anda ekrana basıyordu.
+ * KARAR: gösterim otoritesi `useDisplaySpeed` (UnifiedVehicleStore) — tek kaynak.
+ * Motorlar silinmedi, yalnız EKRANA BASMA yetkileri alındı. */
+describe('Hız gösterimi tek otoriteden gelir (#417)', () => {
+  const SPEED_DISPLAYS = [
+    'src/components/map/MiniMapWidget.tsx',
+    'src/components/map/FullMapView.tsx',
+    'src/components/map/NavigationHUD.tsx',
+    'src/components/split/SplitScreen.tsx',
+    'src/components/layout/NewHomeLayout.tsx',
+  ];
+
+  it('🔒 hız gösteren her bileşen useDisplaySpeed kullanır', () => {
+    for (const f of SPEED_DISPLAYS) {
+      expect(read(f), `${f} tek hız otoritesini kullanmıyor`).toContain('useDisplaySpeed');
+    }
+  });
+
+  it('🔒 hız gösteren bileşenler İKİNCİ füzyon motorunu (speedFusion) okumaz', () => {
+    for (const f of SPEED_DISPLAYS) {
+      expect(read(f), `${f} ikinci hız motorunu okuyor`).not.toContain('useFusedSpeed');
+    }
+  });
+
+  it('🔒 harita rozeti HAM GPS hızından türetilmez', () => {
+    const overlay = read('src/components/map/MapOverlay.tsx');
+    // Eskiden: speedKmh ?? (location?.speed != null ? location.speed * 3.6 : 0)
+    expect(overlay).not.toMatch(/location(\?)?\.speed\s*\*\s*3\.6/);
+    const full = read('src/components/map/FullMapView.tsx');
+    expect(full).not.toMatch(/speedKmh=\{location(\?)?\.speed/);
+  });
+
+  it('🔒 hız bilinmiyorken SAHTE 0 değil "—" gösterilir', async () => {
+    const { formatDisplaySpeed, SPEED_UNKNOWN_TEXT } = await import('../hooks/useDisplaySpeed');
+    expect(formatDisplaySpeed(null)).toBe(SPEED_UNKNOWN_TEXT);
+    expect(formatDisplaySpeed(undefined)).toBe(SPEED_UNKNOWN_TEXT);
+    expect(formatDisplaySpeed(NaN)).toBe(SPEED_UNKNOWN_TEXT);
+    expect(formatDisplaySpeed(0)).toBe('0');        // duran araç ≠ verisi olmayan araç
+    expect(formatDisplaySpeed(93.6)).toBe('94');
+  });
+});
+
+/* ── AKÜ: KARAR ÜRETİLİYORSA DEĞER DE GÖSTERİLİR (saha 2026-08-05 · #427) ────
+ * CİHAZDA ÖLÇÜLDÜ: konsolda `[Battery] NORMAL → WARN @ N V` (voltaj ölçüldü,
+ * karar üretildi, güç tavanı kısıldı) — ama ekranda `Akü —`.
+ * KÖK: karar yolu OBD `batteryVoltage` (ATRV/PID 0x42) okuyordu, gösterim ise
+ * YALNIZ `canBatteryVolt` (CAN). CAN'ı olmayan araçta gösterim kalıcı `—`. */
+describe('Akü voltajı tek otoriteden okunur (#427)', () => {
+  const BATTERY_DISPLAYS = [
+    'src/components/themes/TeslaLayout.tsx',
+    'src/components/themes/ExpeditionLayout.tsx',
+    'src/components/themes/HorizonLayout.tsx',
+  ];
+
+  it('🔒 akü gösteren layout CAN-ONLY okuma yapmaz, otorite hook\'unu kullanır', () => {
+    for (const f of BATTERY_DISPLAYS) {
+      const src = read(f);
+      expect(src, `${f} akü otoritesini kullanmıyor`).toContain('useBatteryVoltage');
+      expect(src, `${f} hâlâ CAN-only okuyor`).not.toContain('s.canBatteryVolt');
+    }
+  });
+
+  it('🔒 WARN seviyesi ekranda görünür (kalıcı uyarı — toast kaçabilir)', () => {
+    for (const f of BATTERY_DISPLAYS) {
+      expect(read(f), `${f} akü uyarısını göstermiyor`).toMatch(/battery\.isWarning/);
+    }
+  });
+
+  it('🔒 voltaj biçimlendirmesi sahte 0 üretmez', async () => {
+    const { formatVoltage } = await import('../hooks/useBatteryVoltage');
+    expect(formatVoltage(null)).toBe('—');
+    expect(formatVoltage(12.42)).toBe('12.4');
+  });
+});
+
+/* ── BAKIM: VERİ YOKKEN "GÜNCEL" DENEMEZ (saha 2026-08-05 · #420) ───────────
+ * CİHAZDA ÖLÇÜLDÜ: "SON DEĞİŞİMDEKİ SAYAÇ" alanı BOŞ iken ekran yeşil
+ * "Tüm bakımlar güncel" diyordu. Kök: `lastOilChangeKm ?? 0` varsayımı +
+ * tarihi girilmemiş kalemlerin listeden tamamen gizlenmesi. */
+describe('Bakım durumu kanıtsız "sağlıklı" iddia etmez (#420)', () => {
+  const EMPTY = {} as never;
+
+  it('🔒 hiç veri yokken yağ değişimi "ok" DEĞİL "unknown"', async () => {
+    const { computeReminders } = await import('../platform/vehicleReminderService');
+    const oil = computeReminders(EMPTY, 50_000).find((r) => r.id === 'oil_change');
+    expect(oil?.urgency).toBe('unknown');
+  });
+
+  it('🔒 girilmemiş tarih kalemleri GİZLENMEZ, unknown olarak listelenir', async () => {
+    const { computeReminders } = await import('../platform/vehicleReminderService');
+    const items = computeReminders(EMPTY, 0);
+    for (const id of ['inspection', 'insurance', 'kasko']) {
+      expect(items.find((r) => r.id === id)?.urgency, `${id} gizlenmiş`).toBe('unknown');
+    }
+  });
+
+  it('🔒 hepsi bilinmiyorken "hepsi güncel" İDDİA EDİLEMEZ', async () => {
+    const { computeReminders, canClaimAllHealthy, getMaintenanceSummary } =
+      await import('../platform/vehicleReminderService');
+    expect(canClaimAllHealthy(computeReminders(EMPTY, 0))).toBe(false);
+    expect(getMaintenanceSummary(EMPTY, 0)).toContain('bilinmiyor');
+    expect(getMaintenanceSummary(EMPTY, 0)).not.toContain('sorun yok');
+  });
+
+  it('🔒 gerçek veri varsa ve sorun yoksa "güncel" denebilir', async () => {
+    const { computeReminders, canClaimAllHealthy } = await import('../platform/vehicleReminderService');
+    const far = new Date(Date.now() + 200 * 86400000).toISOString().slice(0, 10);
+    const m = { lastOilChangeKm: 40_000, nextOilChangeKm: 10_000,
+                inspectionDate: far, insuranceExpiry: far, kaskoExpiry: far } as never;
+    expect(canClaimAllHealthy(computeReminders(m, 41_000))).toBe(true);
+  });
+});
+
+/* ── SAHTE ETA ŞERİDİ GERİ GELEMEZ (saha 2026-08-05 · #382 → #431) ──────────
+ * CİHAZDA ÖLÇÜLDÜ: Tarsus rotası iptal edilir edilmez ana ekran alt şeridi
+ * yine "23 dk · 19:56 · 18 km · EV kullanımı" gösterdi (`shot_18`) — rota
+ * YOKKEN kanıtsız sabitler; üstelik araç ICE iken "EV kullanımı".
+ * Kütüğün kabul ölçütü: gerçek kaynağa bağla ya da HİÇ gösterme. */
+describe('Tema kartlarında kanıtsız ETA şeridi yoktur (#382/#431)', () => {
+  const THEMES = [
+    'src/components/themes/ProLayout.tsx',
+    'src/components/themes/TeslaLayout.tsx',
+    'src/components/themes/ExpeditionLayout.tsx',
+    'src/components/themes/HorizonLayout.tsx',
+  ];
+
+  it('🔒 sabit "23 dk / 19:56 / 18 km" değerleri hiçbir temada RENDER EDİLMEZ', () => {
+    for (const f of THEMES) {
+      const src = read(f);
+      // Yorumda anılabilir (neden kaldırıldığı yazılı); JSX metni olarak GEÇEMEZ.
+      const jsx = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+      expect(jsx, `${f} sahte ETA metni içeriyor`).not.toContain('23 dk');
+      expect(jsx, `${f} sahte varış saati içeriyor`).not.toContain('19:56');
+      expect(jsx, `${f} sahte mesafe içeriyor`).not.toContain('18 km');
+    }
+  });
+
+  it('🔒 araç tipi kanıtı olmadan "EV kullanımı" iddiası edilmez', () => {
+    for (const f of THEMES) {
+      const jsx = read(f).replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+      expect(jsx, `${f} koşulsuz "EV kullanımı" gösteriyor`).not.toContain('EV kullanımı');
+    }
+  });
+});
+
+/* ── ONAYLI SAPMA AKSİYONSUZ KALAMAZ (saha 2026-08-05 · #402) ───────────────
+ * CİHAZDA ÖLÇÜLDÜ: `CONFIRMED_OFF_ROUTE` 70/399 örnek (%17,5), `SUSPECTED` %22 —
+ * buna karşılık `isRerouting` %0,0 ve `req.committed` 1'de kaldı. Sistem kararı
+ * üretti, kütüğe yazdı, HİÇBİR aksiyon almadı ve nedenini de kaydetmedi.
+ * KÖK: karar katmanı kötü doğruluklu fix'i sapma kanıtı sayıyordu; rota kurma
+ * katmanı ise aynı fix'i (haklı olarak) `accuracy > 50 m` diye reddediyordu. */
+describe('Off-route kararı ile reroute aynı eşiği paylaşır (#402)', () => {
+  const EV = {
+    matchState: 'OFF_NETWORK' as const,
+    lateralM: 400, headingDeltaDeg: 120, progressM: -200,
+    speedKmh: 94, tsMs: 0,
+  };
+
+  async function run(accuracyM: number | null, samples = 6) {
+    const { initialOffRoute, stepOffRoute } = await import('../platform/navigation/core/offRouteModel');
+    let m = initialOffRoute();
+    for (let i = 0; i < samples; i++) {
+      m = stepOffRoute(m, { ...EV, accuracyM, tsMs: i * 1000 }, 40);
+    }
+    return m;
+  }
+
+  it('🔒 doğruluk aksiyon eşiğinin DIŞINDAYSA sapma DOĞRULANMAZ', async () => {
+    const m = await run(120);   // sahada p95 7 578 m ölçüldü
+    expect(m.state).not.toBe('CONFIRMED_OFF_ROUTE');
+    expect(m.reasons).toContain('ACCURACY_INSUFFICIENT');
+  });
+
+  it('🔒 doğruluk BİLİNMİYORSA da sapma doğrulanmaz (null ≠ iyi)', async () => {
+    const m = await run(null);
+    expect(m.state).not.toBe('CONFIRMED_OFF_ROUTE');
+  });
+
+  it('🔒 doğruluk iyiyken sapma HÂLÂ doğrulanır (kapı sağırlaştırılmadı)', async () => {
+    const m = await run(8);
+    expect(m.state).toBe('CONFIRMED_OFF_ROUTE');
+  });
+
+  it('🔒 karar eşiği ile rota kurma eşiği AYNI sabitten gelir', async () => {
+    const { ACTIONABLE_ACCURACY_M } = await import('../platform/navigation/core/offRouteModel');
+    expect(ACTIONABLE_ACCURACY_M).toBe(50);
+    const routing = read('src/platform/routingService.ts');
+    // Sabit yeniden yazılırsa iki katman sessizce ayrışır — kilit bunu yasaklar.
+    expect(routing).toContain('accuracyM > ACTIONABLE_ACCURACY_M');
+    expect(routing).not.toMatch(/accuracyM\s*>\s*50\b/);
+  });
+
+  it('🔒 reroute engellenirse SESSİZ kalmaz — nedeniyle deftere yazılır', async () => {
+    const ledger = await import('../platform/navigation/core/routeRequestLedger');
+    ledger.resetRouteRequestLedger();
+    expect(ledger.getRerouteBlockStats().blockedCount).toBe(0);
+    ledger.recordRerouteBlocked('WEAK_ACCURACY', 1000);
+    ledger.recordRerouteBlocked('THROTTLED', 2000);
+    const s = ledger.getRerouteBlockStats();
+    expect(s.blockedCount).toBe(2);
+    expect(s.byReason.WEAK_ACCURACY).toBe(1);
+    expect(s.last?.reason).toBe('THROTTLED');
+    ledger.resetRouteRequestLedger();
+    expect(ledger.getRerouteBlockStats().blockedCount).toBe(0);  // oturum başına
+  });
+
+  it('🔒 routingService sessiz `return` ile sapmayı yutmaz', () => {
+    const src = read('src/platform/routingService.ts');
+    for (const reason of ['WEAK_ACCURACY', 'THROTTLED', 'NO_CONTEXT', 'STRAIGHT_LINE', 'DR_POSITION']) {
+      expect(src, `${reason} kaydı yok`).toContain(`recordRerouteBlocked('${reason}'`);
+    }
+  });
+});
+
+/* ── GPS ALIM SAĞLIĞI SAYILIR (saha 2026-08-05 · #401 · #406 · #423) ────────
+ * CİHAZDA ÖLÇÜLDÜ: fix p50 19,5 s BAYAT (94 km/h'de ~509 m körlük), fix>10 s
+ * %61,2, doğruluk p95 7 578 m, JumpGuard 30+ kez reddetti — ve bunların HİÇBİRİ
+ * sayılmıyordu (yalnız console.warn). Ölçülemeyen kusur düzeltilemez. */
+describe('GPS alım sağlığı ölçülür ve tazelik iddia edilmez (#401)', () => {
+  it('🔒 varış / kabul / red ayrı ayrı sayılır', async () => {
+    const h = await import('../platform/gps/gpsIntakeHealth');
+    h.resetGpsIntakeHealth();
+    h.noteArrival(1000); h.noteAccepted(1000, 5);
+    h.noteArrival(2000); h.noteRejected('JUMP_GUARD', 3800);
+    h.noteArrival(3000); h.noteAccepted(3000, 7);
+    const s = h.getGpsIntakeSnapshot();
+    expect(s.arrivals).toBe(3);
+    expect(s.accepted).toBe(2);
+    expect(s.rejected.JUMP_GUARD).toBe(1);
+    expect(s.acceptRatio).toBeCloseTo(2 / 3);
+    expect(s.worstAccuracyM).toBe(3800);   // reddedilen çöp fix de kanıttır
+    h.resetGpsIntakeHealth();
+  });
+
+  it('🔒 hiç veri yokken oran/istatistik SAHTE değer üretmez', async () => {
+    const h = await import('../platform/gps/gpsIntakeHealth');
+    h.resetGpsIntakeHealth();
+    const s = h.getGpsIntakeSnapshot();
+    expect(s.acceptRatio).toBeNull();      // sahte %100 YASAK
+    expect(s.gapMsP50).toBeNull();
+    expect(s.accuracyP50).toBeNull();
+  });
+
+  it('🔒 tazelik sınıfı: bilinmeyen konum "taze" SAYILMAZ', async () => {
+    const { classifyFreshness } = await import('../platform/gps/gpsIntakeHealth');
+    expect(classifyFreshness(null, 10_000)).toBe('UNKNOWN');
+    expect(classifyFreshness(9_000, 10_000)).toBe('FRESH');   // 1 s
+    expect(classifyFreshness(4_000, 10_000)).toBe('STALE');   // 6 s
+    // Sahada ölçülen medyan: 19,5 s → DEAD
+    expect(classifyFreshness(0, 19_500)).toBe('DEAD');
+    // Saat geriye sıçrarsa iddia edilmez (batarya kopması / NTP)
+    expect(classifyFreshness(20_000, 10_000)).toBe('UNKNOWN');
+  });
+
+  it('🔒 gpsService red/kabul yollarını sağlık katmanına BİLDİRİR', () => {
+    const src = read('src/platform/gpsService.ts');
+    expect(src).toContain("noteRejected('JUMP_GUARD'");
+    expect(src).toContain("noteRejected('INVALID_COORDS'");
+    expect(src).toContain("noteRejected('THROTTLED'");
+    expect(src).toContain('noteAccepted(now, loc.accuracy)');
+    // Varış heartbeat'i eleme kapılarından ÖNCE olmalı (fix geldi ≠ kabul edildi).
+    expect(src.indexOf('noteArrival(now)')).toBeLessThan(src.indexOf("noteRejected('THROTTLED'"));
+  });
+});
+
+/* ── HEDEF KULLANICI OLMADAN DEĞİŞEMEZ (saha 2026-08-05 · #429) ─────────────
+ * SAHADA YAŞANAN: hedef "Tarsus, Mersin" (289 km) iken, hiçbir kullanıcı eylemi
+ * olmadan rota kartı "Konya, İç Anadolu Bölgesi"ne — aracın ARKASINDAKİ şehre —
+ * döndü. OSRM doğal olarak geri çevirmeye çalıştı: otoyolda "U dönüşü yapın".
+ * Kullanıcının "dönemeç olmayan yerde sola dönün diyor" şikâyetinin köküydü.
+ * Değişimi kimin yaptığını gösteren kayıt YOKTU. */
+describe('Aktif hedefin sahipliği (#429)', () => {
+  const A = { id: 'a', name: 'Tarsus', latitude: 36.917, longitude: 34.895 };
+  const B = { id: 'b', name: 'Konya',  latitude: 37.874, longitude: 32.492 };
+
+  it('🔒 oturum sürerken SAHİPSİZ hedef değişimi ENGELLENİR', async () => {
+    const { judgeDestinationChange } = await import('../platform/navigation/core/destinationOwnershipModel');
+    const v = judgeDestinationChange({ current: A, sessionActive: true, next: B, source: 'SYSTEM', tsMs: 1 });
+    expect(v.decision).toBe('BLOCK');
+    expect(v.reason).toBe('UNOWNED_CHANGE_DURING_SESSION');
+  });
+
+  it('🔒 kullanıcı her zaman hedefini değiştirebilir (kapı sürücüyü kilitlemez)', async () => {
+    const { judgeDestinationChange } = await import('../platform/navigation/core/destinationOwnershipModel');
+    for (const source of ['USER_SEARCH', 'USER_MAP', 'USER_VOICE', 'USER_QUICK'] as const) {
+      expect(judgeDestinationChange({ current: A, sessionActive: true, next: B, source, tsMs: 1 }).decision)
+        .toBe('ALLOW');
+    }
+  });
+
+  it('🔒 ilk hedef ve oturum yokken değişim serbest — mevcut akışlar kırılmaz', async () => {
+    const { judgeDestinationChange } = await import('../platform/navigation/core/destinationOwnershipModel');
+    expect(judgeDestinationChange({ current: null, sessionActive: false, next: A, source: 'SYSTEM', tsMs: 1 }).decision).toBe('ALLOW');
+    expect(judgeDestinationChange({ current: A, sessionActive: false, next: B, source: 'SESSION_RESTORE', tsMs: 1 }).decision).toBe('ALLOW');
+  });
+
+  it('🔒 aynı hedefin tazelenmesi "değişim" sayılmaz (geocoder gürültüsü)', async () => {
+    const { judgeDestinationChange } = await import('../platform/navigation/core/destinationOwnershipModel');
+    const nudged = { ...A, id: 'a2', latitude: A.latitude + 0.0005 };  // ~55 m
+    const v = judgeDestinationChange({ current: A, sessionActive: true, next: nudged, source: 'SYSTEM', tsMs: 1 });
+    expect(v.decision).toBe('ALLOW');
+    expect(v.reason).toBe('SAME_DESTINATION');
+  });
+
+  it('🔒 her hedef değişimi DEFTERE yazılır (bir daha kanıtsız kalmasın)', async () => {
+    const m = await import('../platform/navigation/core/destinationOwnershipModel');
+    m.resetDestinationChangeLog();
+    m.recordDestinationChange(
+      m.judgeDestinationChange({ current: A, sessionActive: true, next: B, source: 'SYSTEM', tsMs: 5 }).change,
+    );
+    const log = m.getDestinationChangeLog();
+    expect(log.blockedCount).toBe(1);
+    expect(log.lastChange?.fromName).toBe('Tarsus');
+    expect(log.lastChange?.toName).toBe('Konya');
+    expect(log.lastChange?.source).toBe('SYSTEM');
+    m.resetDestinationChangeLog();
+  });
+
+  it('🔒 startNavigation çağıranları kaynaklarını BİLDİRİR', () => {
+    const callers: Array<[string, string]> = [
+      ['src/components/map/MapSearchBar.tsx',        'USER_SEARCH'],
+      ['src/components/map/FullMapView.tsx',         'USER_MAP'],
+      ['src/components/map/NavigationHUD.tsx',       'USER_QUICK'],
+      ['src/platform/addressNavigationEngine.ts',    'USER_VOICE'],
+      ['src/platform/homeWorkNavigation.ts',         'USER_QUICK'],
+      ['src/platform/navigationService.ts',          'SESSION_RESTORE'],
+    ];
+    for (const [file, source] of callers) {
+      expect(read(file), `${file} hedef kaynağını bildirmiyor`).toContain(`'${source}'`);
+    }
+  });
+
+  it('🔒 varsayılan kaynak SYSTEM olmalı — kimliğini bildirmeyen "kullanıcı" sayılmaz', () => {
+    const src = read('src/platform/navigationService.ts');
+    expect(src).toContain("source: DestinationSource = 'SYSTEM'");
+  });
+});
+
+/* ── ÖNİZLEME REHBERLİK DEĞİLDİR (saha 2026-08-05 · #416/#418) ──────────────
+ * CİHAZDA ÖLÇÜLDÜ: `status = PREVIEW` iken `isNavigating = true`; aynı anda
+ * `match.state = null` (eşleme ölü), `route.nextManeuverM = 0`, panelde hâlâ
+ * "NAVİGASYONU BAŞLAT" düğmesi. Sürücü "navigasyon açık" sanıyordu.
+ * #428 aynı gün ACTIVE oturumda metriklerin dramatik biçimde iyi olduğunu
+ * ölçerek bu ayrımın ürün etkisini kanıtladı. */
+describe('Oturum açık olmak ≠ rehberlik sürüyor (#416/#418)', () => {
+  it('🔒 rehberlik durumları YALNIZ ACTIVE ve REROUTING', () => {
+    const src = read('src/platform/navigationService.ts');
+    const blk = src.slice(src.indexOf('const GUIDANCE_STATUSES'), src.indexOf('const GUIDANCE_STATUSES') + 260);
+    expect(blk).toContain('NavStatus.ACTIVE');
+    expect(blk).toContain('NavStatus.REROUTING');
+    expect(blk).not.toContain('NavStatus.PREVIEW');
+    expect(blk).not.toContain('NavStatus.ROUTING');
+    expect(blk).not.toContain('NavStatus.ARRIVED');
+  });
+
+  it('🔒 hedef seçimi (PREVIEW) rehberliği AÇMAZ', () => {
+    const src = read('src/platform/navigationService.ts');
+    const impl = src.indexOf('setDestination: (destination, isOffline = false) => set({');
+    expect(impl, 'setDestination uygulaması bulunamadı (kilit bayatladı mı?)').toBeGreaterThan(0);
+    const blk = src.slice(impl, impl + 400);
+    expect(blk).toContain('status: NavStatus.PREVIEW');
+    expect(blk).toContain('isGuidanceActive: false');
+  });
+
+  it('🔒 saha köprüsü iki durumu AYRI yayınlar (ölçüm bir daha karışmasın)', () => {
+    const bridge = read('src/platform/devtools/navFieldBridge.ts');
+    expect(bridge).toContain('isGuidanceActive: nav.isGuidanceActive');
+    expect(bridge).toContain('isNavigating: nav.isNavigating');
+  });
+});
+
+/* ── MESAFE VE ETA: TEK OTORİTE, KAYNAK ETİKETLİ (saha 2026-08-05 · #403/#404) ──
+ * ÖLÇÜLDÜ: kalan mesafenin %38'i KUŞ UÇUŞU idi ama gerçek kalan mesafeyle aynı
+ * kesinlikte gösteriliyordu; mesafe 69 kez ARTTI. ETA'da ekran 3 sa 18 dk derken
+ * motor 4 sa 42 dk diyordu — HUD ikinci bir ETA türetiyordu. */
+describe('Mesafe/ETA tek otorite ve kaynak etiketli (#403/#404)', () => {
+  it('🔒 mesafe kaynağı state ile birlikte taşınır', () => {
+    const src = read('src/platform/navigationService.ts');
+    expect(src).toContain("distanceSource?: 'ALONG_ROUTE' | 'STRAIGHT_LINE'");
+    expect(src).toContain('updateDistance(distance, distanceSource)');
+  });
+
+  it('🔒 kuş uçuşu mesafe ETA girdisine VERİLMEZ', () => {
+    const src = read('src/platform/navigationService.ts');
+    expect(src).toMatch(/remainingDistanceM:[\s\S]{0,220}distanceSource === 'ALONG_ROUTE'/);
+  });
+
+  it('🔒 HUD ikinci bir ETA türetmez — motorun değerini kullanır', () => {
+    const hud = read('src/components/map/NavigationHUD.tsx');
+    // Eski formül: route.totalDurationSeconds * (effectiveDist / totalDistanceMeters)
+    expect(hud).not.toMatch(/totalDurationSeconds\s*\*\s*Math\.min/);
+    expect(hud).toMatch(/const displayEta =[\s\S]{0,120}etaSeconds/);
+  });
+
+  it('🔒 kuş uçuşu mesafe ekranda "~" ile işaretlenir', async () => {
+    const hook = read('src/hooks/useNavSummary.ts');
+    expect(hook).toContain("distanceSource !== 'ALONG_ROUTE'");
+    expect(hook).toContain("yaklasik ? '~' : ''");
+  });
+});
+
+/* ── YÖN BİLGİSİ VARKEN "BİLİNMİYOR" DENMEZ (saha 2026-08-05 · #405/#408) ───
+ * ÖLÇÜLDÜ: `headingDeg` örneklerin %100'ünde doluydu; buna rağmen %13,8'inde
+ * `HEADING_UNKNOWN`. Kök: hız `null` iken 0 varsayılıyor ("duruyor") ve düşük
+ * hızda yön gürültü sayıldığı için eldeki gerçek yön atılıyordu. */
+describe('Yön güveni ve hız boşluğu (#405/#408)', () => {
+  const geom: [number, number][] = [[32.0, 37.0], [32.01, 37.0], [32.02, 37.0]];
+
+  async function match(speedKmh: number | null) {
+    const { matchToRoute } = await import('../platform/navigation/core/mapMatchModel');
+    return matchToRoute(
+      { lat: 37.0, lon: 32.005, accuracyM: 6, headingDeg: 90, speedKmh, tsMs: 1000 },
+      geom, null, null, 1000,
+    );
+  }
+
+  it('🔒 hız BİLİNMİYORKEN eldeki yön atılmaz', async () => {
+    const fix = await match(null);
+    expect(fix.reasons).not.toContain('HEADING_UNKNOWN');
+  });
+
+  it('🔒 hız biliniyor ve araç duruyorsa yön hâlâ gürültü sayılır', async () => {
+    const fix = await match(1);
+    expect(fix.reasons).toContain('HEADING_UNKNOWN');
+  });
+
+  it('🔒 sürüş hızında yön güvenilirdir', async () => {
+    const fix = await match(94);
+    expect(fix.reasons).not.toContain('HEADING_UNKNOWN');
+  });
+
+  it('🔒 eşleme örneğine SAHTE 0 hız yazılmaz', () => {
+    const src = read('src/platform/routingService.ts');
+    expect(src).toContain('speedKmh: speedKmhOrNull');
+    expect(src).not.toMatch(/const speedKmh = speed \?\? 0;\s*$/m);
+  });
+});
+
+/* ── DOĞRULAMA VE DOĞRULUK GÖRÜNÜR (saha 2026-08-05 · #407/#413) ────────────
+ * #407: rota doğrulaması 399/399 örnekte DEGRADED çıktı ama HANGİ kritere
+ * takıldığı hiçbir yerde görünmüyordu → düzeltilemeyen kusur.
+ * #413: ekran "~129 m" derken motor 2 068 m okuyordu — iki konum otoritesi. */
+describe('Doğrulama sebebi ve doğruluk kaynağı görünür (#407/#413)', () => {
+  it('🔒 köprü hangi kontrollerin WARN/FAIL verdiğini yayınlar', () => {
+    const bridge = read('src/platform/devtools/navFieldBridge.ts');
+    expect(bridge).toContain('validationWarnIds');
+    expect(bridge).toContain('validationFailIds');
+  });
+
+  it('🔒 ekranda gösterilen doğruluk, kararları besleyen konumdan gelir', () => {
+    const src = read('src/components/map/FullMapView.tsx');
+    expect(src).toContain('engineAccuracyM');
+    expect(src).not.toMatch(/±\{Math\.round\(location\.accuracy\)\}m/);
+  });
+});
+
+/* ── CİHAZ TÜRÜ ≠ PERFORMANS SINIFI (saha 2026-08-05 · #411) ────────────────
+ * ÖLÇÜLDÜ: cihaz bir TELEFONDU (Redmi 23090RA98I) ama `cl_isHeadUnit = "1"`
+ * yazılmıştı → head unit için tasarlanmış px/metre yerleşimi telefonda
+ * uygulanınca #412'deki üst üste binen/kırpılan ekranlar çıktı.
+ * KÖK: düşük RAM/tier bir cihaz otomatik "head unit" damgası alıyordu. */
+describe('Performans sınıfı cihaz türü damgası basmaz (#411)', () => {
+  it('🔒 düşük sınıf tespiti `cl_isHeadUnit` YAZMAZ', () => {
+    const core = read('src/platform/nativeCoreService.ts');
+    expect(core).not.toMatch(/setItem\('cl_isHeadUnit'/);
+    expect(core).toContain("setItem('cl_compatLowTier'");
+  });
+
+  it('🔒 compat katmanı da tür değil SINIF yazar; eski anahtarı temizler', () => {
+    const hu = read('src/platform/headUnitCompat.ts');
+    expect(hu).toContain("setItem('cl_compatLowTier'");
+    expect(hu).not.toMatch(/setItem\('cl_isHeadUnit'/);
+    expect(hu).toContain("removeItem('cl_isHeadUnit')");
+  });
+
+  it('🔒 profil alanı ayrıştırıldı — isLowTier kanonik', () => {
+    const hu = read('src/platform/headUnitCompat.ts');
+    expect(hu).toContain('isLowTier:');
+    expect(hu).toContain('return getCompatProfile().isLowTier;');
+  });
+});
+
+/* ── İKLİM/AYARLAR EKRANI TEMA-KÖR OLAMAZ (saha 2026-08-05 · #412-d/#425) ───
+ * ÖLÇÜLDÜ: iklim ekranında A/C · AUTO · SYNC etiketleri ve sıcaklık değerleri
+ * BEYAZ ÜZERİNE BEYAZ; ayarlar ekranında mavi/mor/yeşil OEM paleti dışı renkler. */
+describe('Ekranlar OEM token katmanını kullanır (#412-d/#425)', () => {
+  it('🔒 iklim ekranında sabit beyaz metin/renk kalmadı', () => {
+    const src = read('src/components/climate/ClimateScreen.tsx');
+    const code = src.replace(/\/\*[\s\S]*?\*\//g, '');   // açıklama yorumları hariç
+    expect(code).not.toMatch(/rgba\(255,\s*255,\s*255/);
+    expect(code).not.toMatch(/\btext-white\b/);
+  });
+
+  it('🔒 ayarlar ekranında palet-dışı sabit renk kalmadı', () => {
+    const src = read('src/components/settings/SettingsPage.tsx');
+    // Fallback biçimi `var(--oem-x, #hex)` serbesttir; ÇIPLAK hex yasaktır.
+    const bare = src.match(/(?<!,\s)(?<!,)'#(3b82f6|8b5cf6|a855f7|22c55e|10b981|06b6d4)'/gi);
+    expect(bare, `çıplak palet-dışı renk: ${bare?.join(', ')}`).toBeNull();
+    expect(src).not.toMatch(/text-blue-\d00/);
+  });
+});
+
+/* ── AI SESSİZCE ÖLMEZ: 402 ≠ 401 ≠ 429 (saha 2026-08-05 · #421) ────────────
+ * ÖLÇÜLDÜ: 15 dakikada `402 openrouter.ai` × 11 (kredi bitti) ve
+ * `429 generativelanguage` × 22 (kota). 402, `auth` ile aynı kovaya düşüyordu;
+ * kullanıcı "anahtar geçersiz" mi "kredi bitti" mi ayırt edemiyordu. */
+describe('AI hata sınıfları ayırt edicidir (#421)', () => {
+  it('🔒 402 için ayrı hata sınıfı vardır', () => {
+    const types = read('src/platform/ai/gateway/types.ts');
+    expect(types).toContain("| 'insufficient_credit'");
+  });
+
+  it('🔒 OpenRouter 402\'yi auth ile aynı kovaya koymaz', () => {
+    const prov = read('src/platform/ai/gateway/providers/openRouterProvider.ts');
+    const blk = prov.slice(prov.indexOf('if (status === 402)'), prov.indexOf('if (status === 402)') + 420);
+    expect(blk).toContain("kind: 'insufficient_credit'");
+    expect(blk).not.toContain("kind: 'auth'");
+    expect(blk).toMatch(/kredi/i);   // kullanıcıya ayırt edici mesaj
+  });
+
+  it('🔒 offline sebebi de ayrıştırılır (kredi ≠ yetki ≠ kota)', async () => {
+    const m = await import('../platform/ai/aiOfflineReason');
+    expect(m.offlineReasonFromErrorKind('insufficient_credit')).toBe('PROVIDER_NO_CREDIT');
+    expect(m.offlineReasonFromErrorKind('auth')).toBe('PROVIDER_AUTH_FAILED');
+    expect(m.offlineReasonFromErrorKind('rate_limited')).toBe('PROVIDER_RATE_LIMITED');
+  });
+});
+
+/* ── KALICI ŞEMA HATASI TEKRAR DENENMEZ (saha 2026-08-05 · #422) ────────────
+ * ÖLÇÜLDÜ: `Could not find the table 'public.raw_community_events'` × 5 + 404.
+ * Tablo sunucuda yok (migration uygulanmamış); bunu geçici hata sayıp her
+ * periyotta yeniden denemek ağı ve konsolu boşuna kirletiyordu (#424 ile bağlı). */
+describe('CRM senkronu kalıcı şema hatasında durur (#422)', () => {
+  it('🔒 şema eksikliği geçici hatadan AYRILIR ve senkron durdurulur', () => {
+    const src = read('src/platform/communityService.ts');
+    expect(src).toContain('PGRST205');
+    expect(src).toContain('_schemaMissing = true');
+    expect(src).toContain('if (_schemaMissing) return;');
+  });
+
+  it('🔒 kuyruk KORUNUR — veri kaybı yok', () => {
+    const src = read('src/platform/communityService.ts');
+    const start = src.indexOf('if (_isSchemaMissing(error))');
+    const blk = src.slice(start, src.indexOf('return;', start));  // yalnız şema dalı
+    expect(blk).not.toContain('removeEvents');
+    expect(blk).not.toContain('clear');
+  });
+
+  it('🔒 durum gözlemlenebilir', () => {
+    expect(read('src/platform/communityService.ts')).toContain('export function isCommunitySyncBlockedBySchema');
+  });
+});
+
+/* ── CAN SNAPSHOT NATIVE'DE ÖLÜ KALAMAZ (saha 2026-08-05 · #400) ────────────
+ * ÖLÇÜLDÜ: OBD bağlı ve veri akarken `localStorage['car-can-snapshot']` 63,4 saat
+ * eskiydi ve 4 sn'lik gözlemde hiç değişmedi. KÖK: anahtar kritik listede değildi;
+ * `_commitToStorage` native dalında `localStorage.setItem` YALNIZ kritik anahtarlar
+ * için çalışır → senkron hidrasyon yolu (`safeGetRaw`) her açılışta bayat okuyordu. */
+describe('CAN snapshot kritik katmanda yazılır (#400)', () => {
+  it('🔒 anahtar kritik listede — native localStorage backup\'ı alır', () => {
+    const src = read('src/utils/safeStorage.ts');
+    const lru = src.slice(src.indexOf('const LRU_PROTECTED'), src.indexOf('const LRU_PROTECTED') + 2600);
+    expect(lru).toContain("'car-can-snapshot'");
+  });
+
+  it('🔒 yazım 1 s tamponlu — OBD akışı eMMC\'yi dövmez', () => {
+    const src = read('src/utils/safeStorage.ts');
+    const deb = src.slice(src.indexOf('const _SAFETY_DEBOUNCE_KEYS'), src.indexOf('const _SAFETY_DEBOUNCE_KEYS') + 900);
+    expect(deb).toContain("'car-can-snapshot'");
+  });
+
+  it('🔒 native dalda kritik anahtar localStorage yedeği ALIR', () => {
+    const src = read('src/utils/safeStorage.ts');
+    // `_commitToStorage` içindeki native dal (LRU eviction'daki NATIVE bloğu değil).
+    const commit = src.indexOf('async function _commitToStorage');
+    const blk = src.slice(commit, commit + 1600);
+    expect(blk).toContain('_isCritical(key)');
+    expect(blk).toContain('localStorage.setItem(key, value)');
+  });
+});
+
+/* ── SİSTEM SAHİPLİ UART AÇILAMAZ (saha 2026-08-06 · K24) ───────────────────
+ * CİHAZDA ÖLÇÜLDÜ (K2401 / Allwinner ceres-b3): uygulama CAN portu ararken
+ * `/dev/ttyS0..ttyS4` listesini tarayıp `/dev/ttyS1`'i açıyordu. O port bu
+ * ünitede OEM Bluetooth HCI hattıdır (`service gocsdk_8800 … /dev/ttyS1 1500000`).
+ * İki süreç aynı UART'tan okuyunca HCI çerçeveleri bölünüyor, OEM daemon'ı
+ * `Cur BT Init Failed` verip kendini öldürüyor ve yeniden başlarken
+ * `svc bluetooth disable` çağırıyor → head unit'in Bluetooth'u TAMAMEN ölüyor,
+ * hiçbir OBD adaptörü bulunamıyor. Ölçüm:
+ *   uygulama KAPALI → ttyS1: gocsdk_8800
+ *   uygulama AÇIK   → ttyS1: gocsdk_8800 + m.cockpitos.pro   (çakışma) */
+describe('Seri port taraması sistem sahipli portu açmaz (K24 BT)', () => {
+  const serial = read('android/app/src/main/java/com/cockpitos/pro/can/SerialPortHandler.java');
+
+  it('🔒 port açma döngüsünde sahiplik kapısı vardır', () => {
+    expect(serial).toContain('isPortOwnedBySystem(port)');
+    // Kapı, açma denemesinden ÖNCE gelmeli.
+    expect(serial.indexOf('isPortOwnedBySystem(port)'))
+      .toBeLessThan(serial.indexOf('tryOpen(port, baudRate)'));
+  });
+
+  it('🔒 üç bağımsız kanıt korunur (biri okunamazsa diğerleri korur)', () => {
+    expect(serial, 'kernel konsolu kanıtı yok').toContain('console=');
+    expect(serial, 'init.rc kanıtı yok').toContain('initRcClaimsPort');
+    expect(serial, 'sahada ölçülmüş platform haritası yok').toContain('KNOWN_OWNED_PORTS');
+  });
+
+  it('🔒 K24 platformunda ttyS1 (OEM BT) dokunulmaz olarak işaretli', () => {
+    const blk = serial.slice(serial.indexOf('KNOWN_OWNED_PORTS'), serial.indexOf('KNOWN_OWNED_PORTS') + 400);
+    expect(blk).toContain('sun50iw10p1');
+    expect(blk).toContain('ceres-b3');
+    expect(blk).toContain('/dev/ttyS1');
+  });
+
+  it('🔒 Hiworld tarayıcısı da aynı kapıdan geçer (iki tarama yolu var)', () => {
+    const hi = read('android/app/src/main/java/com/cockpitos/pro/can/HiworldAdapter.java');
+    const hits = hi.match(/isPortOwnedBySystem\(p\)/g) ?? [];
+    expect(hits.length, 'her iki port tarama döngüsü korunmalı').toBeGreaterThanOrEqual(2);
+  });
+
+  it('🔒 fail-soft: kanıt okunamazsa tarama engellenmez', () => {
+    // Bilinmeyen platformda / okunamayan dosyada koruma DEVREYE GİRMEZ ki
+    // mevcut head unit'lerde CAN keşfi kırılmasın: varsayılan `false` ve
+    // her kanıt kendi try/catch'inde — biri patlarsa diğerleri sürer.
+    const blk = serial.slice(
+      serial.indexOf('static boolean isPortOwnedBySystem'),
+      serial.indexOf('private static boolean initRcClaimsPort'),
+    );
+    expect(blk).toContain('boolean owned = false;');
+    expect((blk.match(/catch \(Throwable ignored\)/g) ?? []).length).toBeGreaterThanOrEqual(2);
+  });
+});
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * OBD veri yolu yan deftere BAĞLANAMAZ (fail-soft)
+ *
+ * 2026-08-07: #454'ün düzeltmesi `_onRealData` içine `recordFeatureRecovered()`
+ * (SafetyBrain defter tutma) çağrısı koydu — ama KORUMASIZ. Çağrı fırlarsa
+ * hemen ardındaki `connectionState: 'connected'` geçişi HİÇ yapılmıyor ve OBD,
+ * gerçek ECU verisi akarken sonsuza dek "initializing" görünüyordu.
+ * Beş OBD test dosyası bunu anında yakaladı (23 düşen test); üretimdeki
+ * karşılığı localStorage kota/bozulma hatasıdır. Bağlantı GERÇEKLİĞİ hiçbir
+ * zaman bir yan defterin başarısına bağlanamaz. */
+describe('OBD ilk ECU frame yolunda defter tutma fail-soft', () => {
+  const gateBlock = obdServiceSrc.slice(
+    obdServiceSrc.indexOf('if (!_dataGatePassed) {'),
+    obdServiceSrc.indexOf('_startStaleWatchdog();'),
+  );
+
+  it('🔒 gate bloğu gerçekten bulundu (kilit boşa koşmasın)', () => {
+    expect(gateBlock.length).toBeGreaterThan(200);
+    expect(gateBlock).toContain("connectionState: 'connected'");
+  });
+
+  it('🔒 recordFeatureRecovered çağrısı try/catch ile sarılıdır', () => {
+    expect(gateBlock).toMatch(/try\s*\{\s*recordFeatureRecovered\(/);
+  });
+
+  it('🔒 connected geçişi defter çağrısından SONRA ve onun dışındadır', () => {
+    // Ölçüm çağrının KENDİSİNE sabitlenir: aynı blokta başka `connected`
+    // geçişleri de var, ilk eşleşmeye bakmak kilidi yanlış yerden ölçerdi.
+    const call    = gateBlock.indexOf('try { recordFeatureRecovered(');
+    const catchAt = gateBlock.indexOf('catch', call);
+    const merge   = gateBlock.indexOf("connectionState: 'connected'", catchAt);
+    expect(call, 'korumalı çağrı bulunamadı').toBeGreaterThan(-1);
+    expect(catchAt).toBeGreaterThan(call);
+    expect(merge, 'catch sonrası connected geçişi yok').toBeGreaterThan(catchAt);
   });
 });

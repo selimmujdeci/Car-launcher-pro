@@ -30,6 +30,13 @@ describe('GlobalDiagnosticButton — global "Tanı Gönder" kilidi', () => {
     // rıza sonrası triggerSelfTestSnapshotEx → runSelfTest (aktif tarama).
     expect(btnSrc).toContain('DiagnosticReportModal');
     expect(btnSrc).toContain('triggerSelfTestSnapshotEx');
-    expect(btnSrc).toMatch(/onClick=\{\(\) => setOpen\(true\)\}/);
+    /* GÜNCELLENDİ (gerçek sürüş P0, 2026-08-03): tetik artık DOĞRUDAN
+       `setOpen(true)` DEĞİL, sürücü dikkat kapısından geçen `requestOpen`.
+       Kilidin AMACI aynı — buton ortak modalı açar, doğrudan göndermez —
+       ama açılış artık 86 km/h'te tam ekran modal basmaz. Doğrudan
+       `setOpen(true)`a dönüş kapıyı atlatır, o yüzden ayrıca yasaklanır. */
+    expect(btnSrc).toMatch(/onClick=\{requestOpen\}/);
+    expect(btnSrc).not.toMatch(/onClick=\{\(\) => setOpen\(true\)\}/);
+    expect(btnSrc).toContain('canShowDistractingSurface');
   });
 });

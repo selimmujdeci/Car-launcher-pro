@@ -34,10 +34,37 @@ describe('aiGatewayFlag — varsayılan KAPALI, tek şalter', () => {
     expect(on.isAiGatewayEnabled()).toBe(true);
   });
 
-  it('uzak bayrak açarsa açılır', async () => {
+  /**
+   * KİLİT GÜNCELLENDİ (DORMANT ACTIVATION P0 · 2026-08-01) — davranış BİLİNÇLİ
+   * değişti, kilit KALKMADI.
+   *
+   * ESKİ kural: uzak bayrak TEK BAŞINA kapıyı açardı. O bayrak
+   * `public.feature_flags` tablosunda yaşar; tablonun **şirket kapsamı YOKTUR**
+   * ve `anon` için `USING(true)` okunur → oradan açmak AI zincirini **dünyadaki
+   * her cihazda** aynı anda açardı ("yanlışlıkla global açılma").
+   *
+   * YENİ kural: uzak bayrak bir ANA ŞALTERdir; kapsam izniyle BİRLİKTE açar.
+   * Korunması gereken asıl davranış aynı: bayrak KAPALIYKEN kapı ASLA açılmaz.
+   */
+  it('uzak bayrak TEK BAŞINA açmaz — kapsam izni de gerekir', async () => {
     vi.doMock('../platform/remoteConfigService', () => ({ getFlag: () => true }));
     const m = await import('../platform/ai/gateway/aiGatewayFlag');
+    // Ana şalter açık ama bu cihaza/şirkete izin beslenmedi → KAPALI.
+    expect(m.isAiGatewayEnabled()).toBe(false);
+  });
+
+  it('uzak bayrak + kapsam izni birlikte AÇAR', async () => {
+    vi.doMock('../platform/remoteConfigService', () => ({ getFlag: () => true }));
+    const m = await import('../platform/ai/gateway/aiGatewayFlag');
+    m.applyScopedGatewayAccess(true);
     expect(m.isAiGatewayEnabled()).toBe(true);
+  });
+
+  it('kapsam izni VAR ama ana şalter KAPALI ise açılmaz (çift kapı)', async () => {
+    vi.doMock('../platform/remoteConfigService', () => ({ getFlag: () => false }));
+    const m = await import('../platform/ai/gateway/aiGatewayFlag');
+    m.applyScopedGatewayAccess(true);
+    expect(m.isAiGatewayEnabled()).toBe(false);
   });
 
   it('getFlag throw ederse KAPALI kalır (fail-closed)', async () => {

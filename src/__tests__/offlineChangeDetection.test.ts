@@ -50,6 +50,14 @@ function fp(over: Partial<VehicleFingerprint> = {}): VehicleFingerprint {
   };
 }
 
+/**
+ * KANITLI tam tarama kaydı (baseline olmaya uygun).
+ *
+ * ⚠️ Completion Truth: `hasCompletedFullScan: true` TEK BAŞINA yetmez — yanında
+ * tutarlı metadata (`lastFinalVerdict: 'full'` + boş `lastIncompleteReasons` +
+ * `lastScanTerminal: true`) ŞARTTIR. Metadata'sız kayıt `legacy_unverified_full`
+ * sayılır ve baseline OLAMAZ (bkz. deepScanCompletionTruth.test.ts).
+ */
 function record(over: Partial<DeepScanRecord> = {}): DeepScanRecord {
   return {
     schemaVersion: 1,
@@ -57,6 +65,11 @@ function record(over: Partial<DeepScanRecord> = {}): DeepScanRecord {
     lastScanId: 'scan-1',
     lastMode: 'full',
     lastStatus: 'completed',
+    lastScanTerminal: true,
+    lastFinalVerdict: 'full',
+    lastIncompleteReasons: [],
+    lastCoverage: null,
+    partialScanCount: 0,
     firstScanAt: 100,
     lastScanStartedAt: 100,
     lastScanCompletedAt: 200,

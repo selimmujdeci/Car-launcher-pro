@@ -74,7 +74,7 @@ vi.mock('../platform/canSnapshotService', () => ({
   scheduleCanSnapshot: vi.fn(), flushCanSnapshotNow: vi.fn(), stopCanSnapshot: vi.fn(),
 }));
 vi.mock('../platform/safety/SafetyBrain', () => ({
-  isFeatureEnabled: vi.fn(() => true), recordFault: vi.fn(),
+  isFeatureEnabled: vi.fn(() => true), recordFault: vi.fn(), recordFeatureRecovered: vi.fn(),
 }));
 vi.mock('../platform/obdStorage', () => ({
   loadObdAddress: vi.fn(() => null), saveObdAddress: vi.fn(), clearObdAddress: vi.fn(),

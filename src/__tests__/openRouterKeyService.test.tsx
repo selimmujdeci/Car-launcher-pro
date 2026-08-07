@@ -262,6 +262,10 @@ describe('gateway şalteri — fail-closed kapı', () => {
 /* ══════════════ 7-8) UI sözleşmesi ══════════════ */
 
 describe('Birleşik ayar paneli — UI gizlilik sözleşmesi', () => {
+  /* ⚠️ SÜRE: bu bloktaki İLK dinamik import React bileşen ağacının kapanışını
+     derler (sonraki importlar önbellekten gelir). Düşük-uç/yüklü makinede bu tek
+     seferlik derleme 5 sn varsayılanını aşabiliyor → testin GİZLİLİK İDDİASI değil
+     yalnız SÜRESİ genişletildi. Kilit aynen korunur. */
   it('panel ilk kare: durum okunurken yükleniyor gösterir, anahtar SIZDIRMAZ', async () => {
     await saveOpenRouterKey(REAL_KEY);
     const { renderToStaticMarkup } = await import('react-dom/server');
@@ -275,7 +279,7 @@ describe('Birleşik ayar paneli — UI gizlilik sözleşmesi', () => {
     expect(html).toContain('Yapay Zekâ Anahtarları');
     expect(html).toContain('kota ve ücretlendirmesine tabidir');
     expect(html).toContain('Anahtar durumu okunuyor');   // toplu okuma beklenirken
-  });
+  }, 30_000);
 
   it('satır: kayıtlı anahtar input\'a GERİ KONMAZ — yalnız maske, alan boş', async () => {
     const { renderToStaticMarkup } = await import('react-dom/server');

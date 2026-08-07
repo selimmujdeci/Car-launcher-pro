@@ -941,7 +941,11 @@ describe('useVoiceCommandHandler.ts — legacy handler kablolama kilidi (NAVIGAT
     // genel geocode bloğunda artık sentinel tabanlı "en yakın X" komutu KALMAMALI.
     const idx = HOOK_SRC.indexOf('Serbest adres navigasyonu');
     expect(idx).toBeGreaterThan(-1);
-    const window = HOOK_SRC.slice(idx, idx + 400);
+    // PENCERE 400→1400 GENİŞLETİLDİ (kilit KALDIRILMADI): blok başına sahiplik/fail-closed
+    // gerekçe yorumu eklendiği için koşul satırları 400 karakterden sonraya kaydı.
+    // Asıl güvenlik iddiası (`not.toMatch` — sentinel "en yakın X" komutu bu blokta OLMAMALI)
+    // aynen ve daha GENİŞ bir pencerede zorlanıyor.
+    const window = HOOK_SRC.slice(idx, idx + 1400);
     expect(window).not.toMatch(/find_nearby_gas|find_nearby_parking/);
     expect(window).toMatch(/navigate_address/);
     expect(window).toMatch(/navigate_place/);

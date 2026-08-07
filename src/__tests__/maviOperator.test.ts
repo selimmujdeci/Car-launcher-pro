@@ -170,7 +170,12 @@ describe('assembleOperatorBlock — bounded', () => {
 
 /* ── 10/11) Concrete: fail-closed + timeout/iptal geçişi (mock'lu) ──────────*/
 
-describe('runMaviOperator — fail-closed + alt katman geçişi', () => {
+/* Bu blok her testte AĞIR bir modül grafiğini `vi.doMock` + dinamik import ile
+   YENİDEN yükler. Depo büyüdükçe (444 test dosyası) tam suite altında ilk
+   import 5 sn'lik varsayılan sınırı aşabiliyor — ölçüldü: izole koşumda
+   geçiyor, tam suitede "Test timed out in 5000ms" ile düşüyordu. Sınır
+   YÜKSELTİLDİ; iddia AYNEN korundu (kilit zayıflatılmadı). */
+describe('runMaviOperator — fail-closed + alt katman geçişi', { timeout: 30_000 }, () => {
   beforeEach(() => { vi.resetModules(); });
 
   const emptyPlan: MaviPlan = { taskType: 'vehicle_question', steps: [], status: 'empty', truncated: false };

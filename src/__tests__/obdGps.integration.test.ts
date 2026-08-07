@@ -65,6 +65,7 @@ vi.mock('../platform/safety/SafetyBrain', () => ({
   NO_VIN_KEY: '__NO_VIN__',
   isFeatureEnabled: vi.fn(() => true),
   recordFault: vi.fn(),
+  recordFeatureRecovered: vi.fn(),
   getCurrentVinKey: vi.fn(() => '__NO_VIN__'),
 }));
 

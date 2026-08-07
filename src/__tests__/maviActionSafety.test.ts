@@ -105,3 +105,68 @@ describe('evaluateActionIdSafety — defter entegrasyonu', () => {
     expect(d.reason).toBe('unknown_action');
   });
 });
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * PHONE HUB eylem kontratları (GÖREV 1)
+ * ════════════════════════════════════════════════════════════════════════ */
+
+describe('PHONE_* eylemleri — defter kaydı ve risk kilitleri', () => {
+  const reg = createPilotActionRegistry();
+
+  it('üç phone.* eylemi ids() listesinde ve has() ile bulunur', () => {
+    const ids = reg.ids();
+    expect(ids).toContain('phone.media.play');
+    expect(ids).toContain('phone.call.start');
+    expect(ids).toContain('phone.sms.draft');
+    expect(reg.has('phone.call.start')).toBe(true);
+  });
+
+  /* KİLİT: arama kurulduğu an karşı tarafta çalar — geri alınamaz.
+     risk düşürülürse onay kapısı açılır ve Mavi habersiz arama başlatabilir. */
+  it('phone.call.start: risk=high + reversible=false (onay kapısı ZORUNLU)', () => {
+    const call = reg.get('phone.call.start')!;
+    expect(call.risk).toBe('high');
+    expect(call.reversible).toBe(false);
+    expect(evaluateActionIdSafety(reg, gate, 'phone.call.start').outcome).toBe('confirm');
+    // Kullanıcı onayladıysa geçer (UX riski, araç yasağı DEĞİL).
+    expect(evaluateActionIdSafety(reg, gate, 'phone.call.start', { confirmed: true }).outcome).toBe('allow');
+  });
+
+  it('phone.sms.draft: medium risk → onay ister; message zorunlu', () => {
+    const sms = reg.get('phone.sms.draft')!;
+    expect(sms.risk).toBe('medium');
+    expect(sms.reversible).toBe(true);
+    expect(sms.resultContract).toBe('value');
+    expect(sms.validate({ message: 'yoldayım' }).ok).toBe(true);
+    expect(sms.validate({}).ok).toBe(false);          // bozuk payload → fail-closed
+    expect(sms.validate({ message: '   ' }).ok).toBe(false);
+    expect(evaluateActionIdSafety(reg, gate, 'phone.sms.draft').outcome).toBe('confirm');
+  });
+
+  it('phone.media.play: low risk → doğrudan ALLOW, parametresiz', () => {
+    const play = reg.get('phone.media.play')!;
+    expect(play.risk).toBe('low');
+    expect(play.validate(undefined).ok).toBe(true);
+    expect(evaluateActionIdSafety(reg, gate, 'phone.media.play').outcome).toBe('allow');
+  });
+
+  it('phone.call.start: contactName zorunlu — bozuk payload ok:false', () => {
+    const call = reg.get('phone.call.start')!;
+    expect(call.validate({ contactName: 'Ayşe' }).ok).toBe(true);
+    expect(call.validate({ contactName: '' }).ok).toBe(false);
+    expect(call.validate(null).ok).toBe(false);
+    expect(call.validate({ baska: 1 }).ok).toBe(false);
+  });
+
+  /* KİLİT: telefon eylemleri ARAÇ ECU'suna dokunmaz → vehicleScope taşımamalı.
+     ecu_write/coding gibi yasak kapsam verilseydi register() Error atardı. */
+  it('phone.* eylemleri araç kapsamsız (vehicleScope YOK) ve dondurulmuş', () => {
+    for (const id of ['phone.media.play', 'phone.call.start', 'phone.sms.draft']) {
+      const d = reg.get(id)!;
+      expect(d.vehicleScope).toBeUndefined();
+      expect(Object.isFrozen(d)).toBe(true);
+      expect(d.timeoutMs).toBeGreaterThan(0);
+      expect(d.timeoutMs).toBeLessThanOrEqual(12_000);
+    }
+  });
+});

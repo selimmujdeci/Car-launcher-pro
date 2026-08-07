@@ -84,7 +84,15 @@ import {
   warmupGemini,
   _withAltHint,
   _resetCompanionChatForTest,
+  triggerProactiveDiagnosticAlert,
+  getProactiveAlertDiagnostics,
+  PROACTIVE_ALERT_DEBOUNCE_MS,
+  PROACTIVE_ALERT_MAX_CHARS,
 } from '../platform/companion/companionChatProvider';
+import {
+  getProactiveSuppressionHistory, getLastAiOfflineRecord, _resetAiOfflineReasonForTest,
+} from '../platform/ai/aiOfflineReason';
+import type { DiagnosticVerdict } from '../platform/diagnosticTriage';
 import { GEMINI_MODEL_CHAIN } from '../platform/ai/gateway/models';
 import { isAiNetHealthy, _resetAiHealthForTest } from '../platform/aiHealth';
 import { fromSemanticResult } from '../platform/intentEngine';
@@ -1280,5 +1288,127 @@ describe('400 API_KEY_INVALID — dürüst anahtar cevabı (SAHA 2026-07-05)', (
     const r2 = await tryCompanionBrain('xqwzt blgrh vmpld', GEMINI_CHAIN);
     expect(r2!.kind).toBe('chat');
     if (r2!.kind === 'chat') expect(r2.response).toBe('Anahtar tamam.');
+  });
+});
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * PROAKTİF KRİTİK ARIZA UYARISI (GÖREV 4)
+ *
+ * Mavi yalnız sorulduğunda değil, hayati bir arıza belirdiğinde de konuşur.
+ * Bu yol AĞA ÇIKMAZ: metin deterministik şablondan/verdict başlığından kurulur.
+ * ════════════════════════════════════════════════════════════════════════ */
+
+/** Verdict kurucusu — buildDiagnosticVerdict çıktısıyla YAPISAL uyumlu. */
+function verdict(opts: {
+  critical?: boolean; code?: string; problem?: string; active?: boolean;
+} = {}): DiagnosticVerdict {
+  const active = opts.active ?? true;
+  const hyp = {
+    problem: opts.problem ?? 'Motor soğutma devresi aşırı ısındı',
+    severity: (opts.critical === false ? 'warning' : 'critical') as 'critical' | 'warning',
+    code: opts.code ?? 'ROOT_OVERHEAT',
+    confidence: 90,
+    evidence: [], analysis: '', recommendedFix: '', sources: [],
+  };
+  return {
+    headline: 'test',
+    topRootCauses: active ? [hyp] : [],
+    inconclusive: [],
+    errorFreshness: { activeNowCount: 0, previousBootCount: 0, staleRatio: 0, topActive: [] },
+    hasActiveRootCause: active,
+  };
+}
+
+/** Nötr güvenlik bağlamı — geri manevra/koruma modu YOK. */
+const SAFE_CTX = {} as const;
+
+describe('triggerProactiveDiagnosticAlert — proaktif kritik uyarı', () => {
+  beforeEach(() => {
+    _resetCompanionChatForTest();
+    _resetAiOfflineReasonForTest();
+  });
+
+  it('critical arızada onSpeak TETİKLENİR ve 180 karakteri AŞMAZ', () => {
+    const spoke = vi.fn();
+    const r = triggerProactiveDiagnosticAlert(verdict(), {
+      onSpeak: spoke, isDriving: true, safety: SAFE_CTX, now: () => 0,
+    });
+
+    expect(r.outcome).toBe('spoken');
+    expect(spoke).toHaveBeenCalledTimes(1);
+    const said = spoke.mock.calls[0][0] as string;
+    expect(said.length).toBeGreaterThan(0);
+    expect(said.length).toBeLessThanOrEqual(PROACTIVE_ALERT_MAX_CHARS);
+    expect(r.alertKey).toBe('ROOT_OVERHEAT');
+    expect(getProactiveAlertDiagnostics().spokenCount).toBe(1);
+  });
+
+  it('NORMAL durumda (kritik kök-neden yok) TETİKLENMEZ', () => {
+    const spoke = vi.fn();
+
+    const noRoot = triggerProactiveDiagnosticAlert(verdict({ active: false }), {
+      onSpeak: spoke, safety: SAFE_CTX, now: () => 0,
+    });
+    expect(noRoot.outcome).toBe('suppressed');
+    expect(noRoot.reason).toBe('not_critical');
+
+    // warning seviyesi de proaktif uyarıya DEĞMEZ (yalnız critical konuşur).
+    const warn = triggerProactiveDiagnosticAlert(verdict({ critical: false }), {
+      onSpeak: spoke, safety: SAFE_CTX, now: () => 0,
+    });
+    expect(warn.outcome).toBe('suppressed');
+    expect(spoke).not.toHaveBeenCalled();
+  });
+
+  it('aynı arıza 5 dk içinde İKİNCİ kez konuşulmaz (debounce)', () => {
+    const spoke = vi.fn();
+    let t = 0;
+    const opts = { onSpeak: spoke, safety: SAFE_CTX, now: () => t };
+
+    expect(triggerProactiveDiagnosticAlert(verdict(), opts).outcome).toBe('spoken');
+
+    t = PROACTIVE_ALERT_DEBOUNCE_MS - 1;
+    const blocked = triggerProactiveDiagnosticAlert(verdict(), opts);
+    expect(blocked.outcome).toBe('suppressed');
+    expect(blocked.reason).toBe('debounce');
+    expect(spoke).toHaveBeenCalledTimes(1);
+
+    // Pencere dolunca yeniden konuşulabilir.
+    t = PROACTIVE_ALERT_DEBOUNCE_MS;
+    expect(triggerProactiveDiagnosticAlert(verdict(), opts).outcome).toBe('spoken');
+    expect(spoke).toHaveBeenCalledTimes(2);
+
+    // FARKLI arıza debounce'a takılmaz (anahtar bazlı).
+    const other = triggerProactiveDiagnosticAlert(verdict({ code: 'ROOT_OIL' }), opts);
+    expect(other.outcome).toBe('spoken');
+  });
+
+  it('geri manevrada SUSAR ve susturma kaydı tutulur (sessizce yutulmaz)', () => {
+    const spoke = vi.fn();
+    const r = triggerProactiveDiagnosticAlert(verdict(), {
+      onSpeak: spoke, safety: { reverseActive: true }, now: () => 0,
+    });
+
+    expect(r.outcome).toBe('suppressed');
+    expect(r.reason).toBe('reverse_attention');
+    expect(spoke).not.toHaveBeenCalled();
+
+    const hist = getProactiveSuppressionHistory();
+    expect(hist.length).toBeGreaterThan(0);
+    expect(hist[hist.length - 1].reason).toBe('PROACTIVE_SAFETY_SUPPRESSED');
+    expect(hist[hist.length - 1].detail).toBe('reverse_attention');
+    // Susturma OFFLINE halkasını KİRLETMEZ (ayrı halka).
+    expect(getLastAiOfflineRecord()).toBeNull();
+  });
+
+  it('bozuk verdict / onSpeak yok → fail-closed, throw ETMEZ, ağa ÇIKMAZ', () => {
+    const fetchSpy = vi.fn();
+    vi.stubGlobal('fetch', fetchSpy);
+
+    expect(triggerProactiveDiagnosticAlert(null, { onSpeak: vi.fn(), now: () => 0 }).reason)
+      .toBe('invalid_verdict');
+    expect(triggerProactiveDiagnosticAlert(verdict(), { onSpeak: undefined as never }).reason)
+      .toBe('no_speech_sink');
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 });

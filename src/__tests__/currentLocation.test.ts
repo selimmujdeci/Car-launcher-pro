@@ -326,6 +326,10 @@ describe('reverseGeocode — bounded + fail-soft', () => {
     vi.restoreAllMocks();
   });
 
+  /* ⚠️ SÜRE: bu dosyadaki İLK `await import(...)` ~360 modüllük kapanışı derler
+     (sonraki importlar önbellekten gelir ve hızlıdır). Düşük-uç/yüklü makinede
+     bu tek seferlik derleme 5 sn varsayılanını aşabiliyor → testin İDDİASI
+     değil yalnız SÜRESİ genişletildi. Mantık kilidi aynen korunur. */
   it('başarılı yanıt → kısa adres', async () => {
     globalThis.fetch = vi.fn(async () => ({
       ok: true,
@@ -333,7 +337,7 @@ describe('reverseGeocode — bounded + fail-soft', () => {
     })) as unknown as typeof fetch;
     const { reverseGeocode } = await import('../platform/geocodingService');
     expect(await reverseGeocode(39.92, 32.85, 3_000)).toBe('Kızılay Mahallesi, Çankaya');
-  });
+  }, 30_000);
 
   it('HTTP hatası → null (throw YOK)', async () => {
     globalThis.fetch = vi.fn(async () => ({ ok: false, json: async () => ({}) })) as unknown as typeof fetch;

@@ -65,10 +65,12 @@ afterEach(() => {
  * ════════════════════════════════════════════════════════════════════════ */
 
 describe('KİLİT 1 — developer gate korunuyor', () => {
-  it('kapı hâlâ iki koşulu birden ister ve fail-closed kalır', () => {
-    expect(isCarosLabAllowed({ debugEnabled: true,  canDebug: true  })).toBe(true);
-    expect(isCarosLabAllowed({ debugEnabled: false, canDebug: true  })).toBe(false);
-    expect(isCarosLabAllowed({ debugEnabled: true,  canDebug: false })).toBe(false);
+  /* 2026-07-26: kapı artık ROL DEĞİL, TEK derleme bayrağıdır. Fail-closed
+     davranış korunur ve burada da doğrulanır. */
+  it('kapı TEK derleme koşuluna bakar ve fail-closed kalır', () => {
+    expect(isCarosLabAllowed({ developerFeaturesEnabled: true  })).toBe(true);
+    expect(isCarosLabAllowed({ developerFeaturesEnabled: false })).toBe(false);
+    expect(isCarosLabAllowed(null)).toBe(false);
     expect(shouldRenderCarosLab('caros-lab', false)).toBe(false);
   });
 });

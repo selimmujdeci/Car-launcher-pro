@@ -15,6 +15,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 // react-dom/client bu repo'nun setup.ts navigator mock'u yüzünden import edilemez
 // (bkz. safetyContext.test.tsx) → sesli anons wiring'i yapısal kilitle doğrulanır.
 import navigationHudSrc from '../components/map/NavigationHUD.tsx?raw';
+import navSessionRuntimeSrc from '../platform/navigation/navigationSessionRuntime.ts?raw';
 
 /* ── Mock'lar — NavigationHUD'un tüm platform bağımlılıkları ─────────────── */
 
@@ -100,6 +101,13 @@ vi.mock('../platform/gpsService', () => ({
 vi.mock('../platform/speedLimitService', () => ({
   useSpeedLimitByLocation: () => null,
 }));
+
+/* Hız limiti artık PAYLAŞILAN otoriteden gelir (VEHICLE_AWARE_SPEED_LIMIT_P0).
+   Bu test manevra panelini ölçer; limit zinciri kapalı tutulur. */
+vi.mock('../platform/navigation/useEffectiveSpeedLimit', async () => {
+  const mod = await import('../platform/navigation/core/vehicleAwareSpeedLimitAuthority');
+  return { useEffectiveSpeedLimit: () => mod.EMPTY_EFFECTIVE_SPEED_LIMIT };
+});
 
 vi.mock('../platform/safetyService', () => ({
   startSafetyObserver: vi.fn(),
@@ -192,10 +200,17 @@ describe('KİLİT: TBT talimatı yaklaşan manevrayı okur (off-by-one yasağı)
     expect(html).not.toContain('Sağa dönün');
   });
 
-  it('KİLİT (yapısal): sesli anons yaklaşan adımın (upcomingStep) talimatını okur', () => {
-    // Kademeli anons effect'i talimat metnini YAKLAŞAN adımdan almalı.
-    expect(navigationHudSrc).toContain('upcomingStep.instruction');
+  /* KİLİT TAŞINDI (NAVIGATION_DELIVERY_CORE_P0): sesli anons artık görünümde
+     değil `navigationSessionRuntime` içinde üretiliyor (tam ekran kapanınca
+     ses susuyordu). Off-by-one yasağı KALDIRILMADI — yeni sahibinde denetlenir. */
+  it('KİLİT (yapısal): sesli anons YAKLAŞAN adımın talimatını okur', () => {
+    const rt = navSessionRuntimeSrc;
+    // Anons metni steps[currentStepIndex + 1] — YAKLAŞAN manevra.
+    expect(rt).toContain('rs.steps[rs.currentStepIndex + 1]');
+    expect(rt).toContain('instruction: nextStep.instruction');
     // Geçilmiş adımın talimatı anons kaynağı OLMAMALI (off-by-one'ın kendisi).
+    expect(rt).not.toContain('steps[rs.currentStepIndex].instruction');
+    // Görünüm hâlâ YAKLAŞAN adımı ÇİZER (panel tarafı değişmedi).
     expect(navigationHudSrc).not.toContain('currentStep.instruction');
   });
 

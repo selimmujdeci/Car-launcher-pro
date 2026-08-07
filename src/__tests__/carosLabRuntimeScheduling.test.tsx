@@ -117,8 +117,9 @@ afterEach(() => { vi.restoreAllMocks(); });
 
 describe('KİLİT 1 — developer gate korunuyor', () => {
   it('kapı fail-closed', () => {
-    expect(isCarosLabAllowed({ debugEnabled: true, canDebug: true })).toBe(true);
-    expect(isCarosLabAllowed({ debugEnabled: true, canDebug: false })).toBe(false);
+    /* 2026-07-26: kapı ROL DEĞİL, TEK derleme bayrağıdır — fail-closed korunur. */
+    expect(isCarosLabAllowed({ developerFeaturesEnabled: true })).toBe(true);
+    expect(isCarosLabAllowed({ developerFeaturesEnabled: false })).toBe(false);
     expect(shouldRenderCarosLab('caros-lab', false)).toBe(false);
   });
 });

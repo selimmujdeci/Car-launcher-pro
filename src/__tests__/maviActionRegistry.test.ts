@@ -103,13 +103,16 @@ describe('payload doğrulayıcılar', () => {
 });
 
 describe('PİLOT eylem seti', () => {
-  it('11 pilot eylem beklenen id/metadata ile kayıtlı', () => {
+  // KİLİT GÜNCELLENDİ (11→14): Phone Hub eylemleri deftere eklendi (phone.media.play ·
+  // phone.call.start · phone.sms.draft). Kilit KALDIRILMADI — yeni doğru sete taşındı.
+  it('14 pilot eylem beklenen id/metadata ile kayıtlı', () => {
     const reg = createPilotActionRegistry();
-    expect(reg.size).toBe(11);
+    expect(reg.size).toBe(14);
     expect(reg.ids()).toEqual([
       'location.current.read',
       'media.next', 'media.pause', 'media.play', 'media.volume.set',
       'navigation.cancel', 'navigation.open',
+      'phone.call.start', 'phone.media.play', 'phone.sms.draft',
       'ui.brightness.set', 'ui.page.open', 'ui.theme.set',
       'vehicle.health.read',
     ]);

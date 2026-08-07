@@ -166,10 +166,16 @@ describe('MAVI3-4b — hibrit handler seçimi (TAKEOVER global DEĞİL)', () => 
     const handlers = buildHybridHandlers(makePilotDeps(makeSpies()), abusive);
     expect(handlers['ecu.write']).toBeUndefined();
     expect(handlers['coding.apply']).toBeUndefined();
+    // KİLİT GÜNCELLENDİ (#123): phone.* eylemleri sete katıldı. Bunlar ARAÇ eylemi
+    // DEĞİLDİR (ECU'ya dokunmaz) → fail-closed genişleme kuralını ihlal etmezler;
+    // handler'ları zaten sahte başarı dönmez (PHONE_NOT_CONNECTED). Kilit kaldırılmadı,
+    // yeni doğru sete taşındı — ecu.write/coding.apply hâlâ sete GİREMEZ (üstteki iki satır).
     expect(Object.keys(handlers).sort()).toEqual([
       'location.current.read',
       'media.next', 'media.pause', 'media.play', 'media.volume.set',
-      'navigation.cancel', 'navigation.open', 'ui.page.open', 'ui.theme.set', 'vehicle.health.read',
+      'navigation.cancel', 'navigation.open',
+      'phone.call.start', 'phone.media.play', 'phone.sms.draft',
+      'ui.page.open', 'ui.theme.set', 'vehicle.health.read',
     ]);
   });
 

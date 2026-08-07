@@ -76,17 +76,23 @@ afterEach(() => {
  * 1–3 · Geliştirici erişim kapısı (fail-closed)
  * ════════════════════════════════════════════════════════════════════════ */
 
-describe('KİLİT 1 — gate kapalıyken CAROS LAB navigasyonda GÖRÜNMEZ', () => {
-  it('canDebug izni yoksa (driver rolü) AppGrid CAROS LAB kartını basmaz', () => {
-    useRoleStore.getState().setRole('driver');   // canDebug YOK
+/* ÜRÜN KURALI DEĞİŞTİ (2026-07-26): kapı ROL tabanlıydı (`DEBUG_ENABLED && canDebug`),
+   artık YALNIZ derleme bayrağıdır (`DEVELOPER_FEATURES_ENABLED`). Gerekçe: CAROS PRO
+   hâlâ aile içi saha testi aşamasında; test APK'sını kuran her cihaz varsayılan
+   `driver` rolüyle açılıyordu ve geliştirici yüzeyleri görünmüyordu.
+   KİLİT GEVŞETİLMEDİ, YENİ KURALA GÖRE GÜNCELLENDİ: fail-closed davranış (bozuk
+   girdi · null · bayrak kapalı) aynen korunur ve AYRICA doğrulanır. */
+describe('KİLİT 1 — kapı ROL DEĞİL, derleme bayrağıdır', () => {
+  it('driver rolünde bile (test build\'i) AppGrid CAROS LAB kartını BASAR', () => {
+    useRoleStore.getState().setRole('driver');   // canDebug YOK — artık önemsiz
     const html = renderToStaticMarkup(
       <AppGrid apps={[]} favorites={[]} onToggleFavorite={() => {}} onLaunch={() => {}} />,
     );
-    expect(html).not.toContain('caros-lab-entry');
-    expect(html).not.toContain('CAROS LAB');
+    expect(html).toContain('caros-lab-entry');
+    expect(html).toContain('CAROS LAB');
   });
 
-  it('canDebug izni varsa (technician) kart görünür', () => {
+  it('teknisyen rolünde de görünür — rol SONUCU DEĞİŞTİRMEZ', () => {
     useRoleStore.getState().setRole('technician');
     const html = renderToStaticMarkup(
       <AppGrid apps={[]} favorites={[]} onToggleFavorite={() => {}} onLaunch={() => {}} />,
@@ -95,17 +101,17 @@ describe('KİLİT 1 — gate kapalıyken CAROS LAB navigasyonda GÖRÜNMEZ', () 
     expect(html).toContain('CAROS LAB');
   });
 
-  it('kapı saf kuralı: iki koşul da true olmalı, aksi hâlde FAIL-CLOSED', () => {
-    expect(isCarosLabAllowed({ debugEnabled: true,  canDebug: true  })).toBe(true);
-    expect(isCarosLabAllowed({ debugEnabled: false, canDebug: true  })).toBe(false);
-    expect(isCarosLabAllowed({ debugEnabled: true,  canDebug: false })).toBe(false);
+  it('kapı saf kuralı: TEK koşul (derleme bayrağı), aksi hâlde FAIL-CLOSED', () => {
+    expect(isCarosLabAllowed({ developerFeaturesEnabled: true  })).toBe(true);
+    expect(isCarosLabAllowed({ developerFeaturesEnabled: false })).toBe(false);
     expect(isCarosLabAllowed(null)).toBe(false);
     expect(isCarosLabAllowed(undefined)).toBe(false);
     // Bozuk/eksik girdi de reddedilir (truthy kaçağı yok)
-    expect(isCarosLabAllowed({ debugEnabled: 1, canDebug: 'yes' } as unknown as never)).toBe(false);
-    expect(carosLabGateReason({ debugEnabled: false, canDebug: true })).toBe('build-flag-off');
-    expect(carosLabGateReason({ debugEnabled: true, canDebug: false })).toBe('no-permission');
-    expect(carosLabGateReason({ debugEnabled: true, canDebug: true })).toBe('ok');
+    expect(isCarosLabAllowed({ developerFeaturesEnabled: 1 } as unknown as never)).toBe(false);
+    expect(isCarosLabAllowed({} as unknown as never)).toBe(false);
+    expect(carosLabGateReason({ developerFeaturesEnabled: false })).toBe('build-flag-off');
+    expect(carosLabGateReason({ developerFeaturesEnabled: true })).toBe('ok');
+    expect(carosLabGateReason(null)).toBe('build-flag-off');
   });
 });
 
@@ -116,18 +122,18 @@ describe('KİLİT 2 — doğrudan route erişimi gate kapalıyken REDDEDİLİR',
     expect(shouldRenderCarosLab('settings', true)).toBe(false);
   });
 
-  it('openCarosLab: izin yokken false döner ve openDrawer HİÇ çağrılmaz', () => {
+  it('openCarosLab: kapı kapalıyken false döner ve openDrawer HİÇ çağrılmaz', () => {
     const open = vi.fn();
-    const ok = openCarosLab({ canDebug: () => false, open });
+    const ok = openCarosLab({ allowed: () => false, open });
     expect(ok).toBe(false);
     expect(open).not.toHaveBeenCalled();
   });
 });
 
 describe('KİLİT 3 — gate açıkken shell açılır', () => {
-  it('openCarosLab izin varken caros-lab çekmecesini açar', () => {
+  it('openCarosLab kapı açıkken caros-lab çekmecesini açar', () => {
     const open = vi.fn();
-    const ok = openCarosLab({ canDebug: () => true, open });
+    const ok = openCarosLab({ allowed: () => true, open });
     expect(ok).toBe(true);
     expect(open).toHaveBeenCalledWith('caros-lab');
   });
@@ -212,7 +218,11 @@ describe('KİLİT 6 — PLACEHOLDER kart yeni ağır servis BAŞLATMAZ', () => {
   });
 
   it('bilgi ekranı render edilince hiçbir yakalama/keşif başlamaz', () => {
-    const tool = getCarosLabTool('kwp-monitor')!;
+    /* Fixture 'kwp-monitor' iken bu araç Faz A4'te AVAILABLE oldu; kilit ZAYIFLATILMADI,
+       hâlâ PLACEHOLDER olan bir araca (uds-explorer, aynı kategori) taşındı. Kilidin
+       amacı sabit: PLACEHOLDER kart yeni ağır servis/yakalama BAŞLATMAZ. */
+    const tool = getCarosLabTool('uds-explorer')!;
+    expect(tool.status, 'fixture artık PLACEHOLDER değil — kilit boşa çalışır').toBe('PLACEHOLDER');
     const html = renderToStaticMarkup(<ToolInfoScreen tool={tool} />);
     expect(html).toContain('tool-info-screen');
     /* Arayüz Türkçeleştirildi (2026-07-25): görünen metin 'EKRAN YOK'. Ham enum

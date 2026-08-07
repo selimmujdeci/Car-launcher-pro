@@ -233,12 +233,16 @@ vi.mock('../platform/ai/gateway/aiGatewayFlag', () => ({
 describe('planner şalteri — varsayılan KAPALI', () => {
   beforeEach(() => { F.enabled = false; });
 
+  /* ⚠️ SÜRE: bu bloktaki İLK `await import(...)` ~360 modüllük kapanışı derler
+     (sonraki importlar önbellekten gelir). Düşük-uç/yüklü makinede bu tek
+     seferlik derleme 5 sn varsayılanını aşabiliyor → testin İDDİASI değil
+     yalnız SÜRESİ genişletildi. Fail-closed kilidi aynen korunur. */
   it('şalter KAPALIYKEN plan BOŞ (fail-closed)', async () => {
     const { planForTask } = await import('../platform/ai/planner/concrete/maviPlannerRuntime');
     const p = planForTask('vehicle_question');
     expect(p.steps).toHaveLength(0);
     expect(p.status).toBe('empty');
-  });
+  }, 30_000);
 
   it('şalter AÇIKKEN gerçek katalogdan plan üretilir', async () => {
     F.enabled = true;

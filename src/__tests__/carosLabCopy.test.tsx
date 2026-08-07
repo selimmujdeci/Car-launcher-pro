@@ -174,10 +174,21 @@ describe('KİLİT 7 — saha kopyasında bulunan kusurlar geri gelmez', () => {
     expect(r.text).not.toContain('sürüm        : bilinmiyor');
   });
 
+  /**
+   * KİLİT GÜNCELLENDİ (T10 · 2026-08-01) — davranış BİLİNÇLİ değişti, kilit kalkmadı.
+   *
+   * Eskiden bu bölümün kaynağı `debugStore.errorLog` idi ve onu besleyen
+   * `dbgPushError`in hiç çağıranı yoktu → metin "kanal ÖLÜ" diye uyarıyordu.
+   * Artık kaynak canonical `crashLogger` kütüğüdür (`trail:error` ile AYNI
+   * otorite), yani kanal ölü DEĞİL. Korunması gereken asıl davranış aynı kalır:
+   * BOŞ kütük "hata yok" olarak OKUNMAMALIDIR.
+   */
   it('D4: hata kütüğü boşken "hata yok" izlenimi VERMEZ', () => {
     const r = buildCarosLabCopy(input({ errorLog: [] }));
-    expect(r.text).toContain('kanal ÖLÜ');
     expect(r.text).toContain('ANLAMINA GELMEZ');
+    // Kanal artık canonical otoriteye bağlı — "ölü kanal" iddiası ARTIK YANLIŞ olur.
+    expect(r.text).not.toContain('kanal ÖLÜ');
+    expect(r.text).toMatch(/crashLogger|trail:error/);
   });
 
   it('D5: yakalama AÇIK/KAPALI durumu başlıkta BEYAN edilir', () => {

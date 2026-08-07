@@ -45,7 +45,7 @@ import {
   useMapSourceStore,
 } from '../platform/mapSourceManager';
 import { getOnlineTileStyle } from '../platform/map/_mapState';
-import { RASTER_PAINT_DAY, RASTER_PAINT_NIGHT } from '../platform/mapStyleBuilders';
+import { RASTER_PAINT_DAY, RASTER_PAINT_NIGHT, MAP_BG_NIGHT } from '../platform/mapStyleBuilders';
 
 /* ── Yardımcılar ── */
 
@@ -77,7 +77,7 @@ describe('getMapStyle — gündüz/gece raster paleti', () => {
     const style = getMapStyle();
     expect(getMapNight()).toBe(true);
     expect(tilesPaint(style)).toEqual({ ...RASTER_PAINT_NIGHT });
-    expect(backgroundColor(style)).toBe('#131822');
+    expect(backgroundColor(style)).toBe(MAP_BG_NIGHT);
   });
 });
 
@@ -123,7 +123,7 @@ describe('getOnlineTileStyle — son çare fallback', () => {
   it('night=true → GECE paleti', () => {
     const style = getOnlineTileStyle(true);
     expect(tilesPaint(style)).toEqual({ ...RASTER_PAINT_NIGHT });
-    expect(backgroundColor(style)).toBe('#131822');
+    expect(backgroundColor(style)).toBe(MAP_BG_NIGHT);
   });
 
   it("layer id 'tiles-layer' — applyMapDayNight canlı geçişi fallback haritada da çalışır", () => {

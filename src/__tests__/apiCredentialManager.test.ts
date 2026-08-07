@@ -80,7 +80,14 @@ import { statusFromHttp, verifyGeminiKey, verifyGroqKey, verifyTavilyKey } from 
 import type { ApiCredentialId } from '../platform/ai/credentials/credentialTypes';
 
 const KEY = 'abcdefghijklmnop0123456789XYZ7F3A';
-const ALL: ApiCredentialId[] = ['openrouter', 'gemini', 'groq', 'haiku', 'tavily'];
+/* Yapay zekâ sağlayıcıları. */
+const AI_IDS: ApiCredentialId[] = ['openrouter', 'gemini', 'groq', 'haiku', 'tavily'];
+/* Adres/geocoding sağlayıcıları (2026-08-03, kütük #336) — YAPAY ZEKÂ DEĞİL.
+   Aynı deftere alındılar çünkü defter sözleşme gereği sağlayıcı-BAĞIMSIZ:
+   kayıt · maskeleme · Keystore kurtarma · ayarlar paneli sıfır kopya kodla
+   yeniden kullanıldı. Liste burada AÇIKÇA durur ki sessizce büyümesin. */
+const GEO_IDS: ApiCredentialId[] = ['geocode-google', 'geocode-here', 'geocode-yandex'];
+const ALL: ApiCredentialId[] = [...AI_IDS, ...GEO_IDS];
 
 beforeEach(() => {
   S.store.clear();
@@ -255,6 +262,11 @@ describe('doğrulama — en düşük maliyet, header-only, fail-closed', () => {
     expect(getCredentialDescriptor('tavily')!.verifyCostsQuota).toBe(true);
     for (const id of ['openrouter', 'gemini', 'groq'] as ApiCredentialId[]) {
       expect(getCredentialDescriptor(id)!.verifyCostsQuota).toBe(false);
+    }
+    /* Geocoding sağlayıcılarının BEDELSİZ metadata uç noktası YOKTUR →
+       doğrulama gerçek bir istek harcar. Dürüstçe işaretli olmalı. */
+    for (const id of GEO_IDS) {
+      expect(getCredentialDescriptor(id)!.verifyCostsQuota, id).toBe(true);
     }
   });
 
@@ -482,8 +494,29 @@ describe('güvenlik — kaynak seviyesi kilitler', () => {
   });
 
   it('doğrulayıcılar anahtarı URL\'ye interpolate ETMİYOR (yapısal)', () => {
-    const src = readFileSync('src/platform/ai/credentials/credentialVerifiers.ts', 'utf8');
-    // url alanları SABİT string olmalı — şablon interpolasyonu yalnız header'da.
+    const full = readFileSync('src/platform/ai/credentials/credentialVerifiers.ts', 'utf8');
+    /* Kilit iki kapsama AYRILIR (2026-08-03, kütük #336). Kural aslında
+       "anahtar URL'ye yazılmaz" değil, **"header alternatifi VARKEN anahtar
+       URL'ye yazılmaz"**dır. Yapay zekâ sağlayıcılarının HEPSİ header kimlik
+       doğrulaması destekler → onlarda kural MUTLAKtır. Geocoding
+       sağlayıcılarının API'si ise YALNIZ query-string kabul eder (Google
+       `key=`, HERE `apiKey=`, Yandex `apikey=`); header seçeneği YOKTUR.
+       İstisna bu yüzden GEREKÇELİ ve SAYILIDIR — sessizce büyüyemez. */
+    const marker = '/* ── Adres/geocoding sağlayıcıları (BYOK)';
+    const cut    = full.indexOf(marker);
+    expect(cut, 'geocoding bölüm işaretçisi kayboldu — kilit kapsamı belirsizleşti').toBeGreaterThan(0);
+    const geoPart = full.slice(cut);
+
+    // (2) Geocoding istisnası TAM OLARAK üç fonksiyonla sınırlı.
+    const geoFns = [...geoPart.matchAll(/export (?:async )?function (\w+)/g)].map((m) => m[1]).sort();
+    expect(geoFns, 'geocoding istisnası büyümüş — her yeni sağlayıcı gerekçe ister')
+      .toEqual(['verifyGeocodeGoogleKey', 'verifyGeocodeHereKey', 'verifyGeocodeYandexKey']);
+    // Anahtar URL'ye YALNIZ kodlanarak girer; ham interpolasyon YASAK.
+    expect(geoPart).not.toMatch(/\$\{apiKey\}/);
+    expect([...geoPart.matchAll(/\$\{encodeURIComponent\(apiKey\)\}/g)]).toHaveLength(3);
+
+    // (1) YZ tarafı — MUTLAK: url alanları SABİT string, interpolasyon yalnız header'da.
+    const src  = full.slice(0, cut);
     const urls = [...src.matchAll(/url:\s*(['"`])([^'"`]*)\1/g)].map((m) => m[2]);
     expect(urls.length).toBeGreaterThanOrEqual(3);
     for (const u of urls) {

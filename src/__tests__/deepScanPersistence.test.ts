@@ -23,7 +23,14 @@ import {
   type DeepScanStoreIO,
   type DeepScanPersistInput,
 } from '../platform/deepScan/deepScanPersistence';
-import { deepScanRuntimeService, type DeepScanSnapshot } from '../platform/deepScan';
+import {
+  buildDeepScanCoverageLedger,
+  deepScanRuntimeService,
+  evaluateDeepScanCompletion,
+  ALL_DEEP_SCAN_PHASES,
+  type DeepScanCompletionOutcome,
+  type DeepScanSnapshot,
+} from '../platform/deepScan';
 // Kaynak-metin kilidi: transform-time sabit → paralel flake bağışık (bkz. ?raw deseni).
 import persistenceSource from '../platform/deepScan/deepScanPersistence.ts?raw';
 
@@ -96,8 +103,25 @@ function completedSnap(over: Partial<DeepScanSnapshot> = {}): DeepScanSnapshot {
   });
 }
 
+/**
+ * GERÇEK bir `full` kapsam kanıtı (tüm zorunlu fazlar `completed` + persistence
+ * finalize). `completeScan()` bu kanıt OLMADAN `hasCompletedFullScan` YÜKSELTMEZ.
+ */
+function fullCompletion(scanId: string | null): DeepScanCompletionOutcome {
+  return evaluateDeepScanCompletion(buildDeepScanCoverageLedger({
+    scanId,
+    entries: ALL_DEEP_SCAN_PHASES.map((phase) => ({ phase, status: 'completed' as const })),
+    persistenceFinalized: true,
+  }));
+}
+
+/**
+ * Test girdisi. Tamamlanmış snapshot'lara VARSAYILAN olarak gerçek `full` kanıtı
+ * eklenir (bu testlerin niyeti "tam tarandı" senaryosudur). Kanıtsız/kısmi
+ * senaryolar `extra.completion` ile AÇIKÇA verilir.
+ */
 const input = (s: DeepScanSnapshot, extra: Partial<DeepScanPersistInput> = {}): DeepScanPersistInput =>
-  ({ snapshot: s, ...extra });
+  ({ snapshot: s, ...(s.status === 'completed' ? { completion: fullCompletion(s.scanId) } : {}), ...extra });
 
 beforeEach(() => { _now = 1000; });
 afterEach(() => { vi.useRealTimers(); });

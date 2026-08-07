@@ -457,7 +457,12 @@ describe('OpenRouter Provider — anahtar kapısı ve istek biçimi', () => {
 describe('OpenRouter Provider — HTTP sınıflandırma ve redaksiyon', () => {
   const cases: Array<[number, string, boolean]> = [
     [401, 'auth',            false],
-    [402, 'auth',            false],
+    /* GÜNCELLENDİ (saha 2026-08-05 · #421) — ZAYIFLATILMADI: 402 artık `auth`
+     * değil `insufficient_credit`. Sahada 15 dakikada 11 kez 402 alındı ve
+     * kullanıcı "anahtar geçersiz" ile "kredi bitti"yi ayırt edemiyordu; ikisi
+     * FARKLI eylem gerektirir (anahtar yenile ≠ bakiye yükle). retryable=false
+     * değişmedi: ikisinde de tekrar denemek anlamsızdır. */
+    [402, 'insufficient_credit', false],
     [403, 'auth',            false],
     [429, 'rate_limited',    true],
     [400, 'invalid_request', false],
