@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Phone Hub Companion — telefon tarafı (GÖREV 3 + GÖREV 11).
+
+    ── İZİN FELSEFESİ ────────────────────────────────────────────────────────
+    İSTENMEYEN izinler bilinçli olarak burada YOKTUR ve bu bir eksiklik değil,
+    tasarım kararıdır:
+      · BLUETOOTH_SCAN yok  → bu faz yalnız EŞLEŞTİRİLMİŞ cihaz listesini
+        kullanır; tarama yapmadığımız için istemek yanlış olurdu (ve konum
+        izni zincirini tetiklerdi).
+      · ACCESS_FINE_LOCATION yok → tarama olmadığı için gerekmez.
+      · READ_CONTACTS / SMS / CALL_PHONE / NotificationListener yok → bu fazda
+        hiçbir kişisel veri yüzeyine dokunulmaz.
+      · BLUETOOTH_ADVERTISE yok → companion reklam yayınlamaz, o sunucunun işi.
+
+    ── SÜRÜM AYRIMI ──────────────────────────────────────────────────────────
+    BLUETOOTH / BLUETOOTH_ADMIN yalnız API ≤ 30 içindir (maxSdkVersion="30");
+    API 31+ bunların yerine runtime BLUETOOTH_CONNECT kullanır.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-feature android:name="android.hardware.bluetooth" android:required="true" />
+
+    <!-- Android 11 ve öncesi -->
+    <uses-permission android:name="android.permission.BLUETOOTH"
+        android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN"
+        android:maxSdkVersion="30" />
+
+    <!-- Android 12+ : YALNIZ bağlanma. Tarama izni bilinçli olarak İSTENMEZ. -->
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+
+    <!-- Ekran kapalıyken bağlantının yaşaması için ön plan servisi -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
+    <!-- Android 13+ bildirim gösterimi kullanıcı iznine bağlıdır -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <application
+        android:allowBackup="false"
+        android:label="@string/app_name"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.PhoneHubCompanion">
+
+        <activity
+            android:name=".CompanionActivity"
+            android:exported="true"
+            android:label="@string/app_name"
+            android:launchMode="singleTask">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!--
+            Bağlantı servisi. `connectedDevice` tipi Android 14+ için ZORUNLU;
+            yanlış tip beyanı çalışma zamanında istisna fırlatır.
+            `stopWithTask=true`: kullanıcı uygulamayı kapatınca bağlantı da
+            biter — arkada sessizce yaşayan bir bağlantı istemiyoruz.
+        -->
+        <service
+            android:name=".CompanionLinkService"
+            android:exported="false"
+            android:foregroundServiceType="connectedDevice"
+            android:stopWithTask="true" />
+    </application>
+</manifest>

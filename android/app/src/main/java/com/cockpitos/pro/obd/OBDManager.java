@@ -933,6 +933,26 @@ public final class OBDManager {
      * daha uzun liste zaten rotasyonda anlamsız gecikme üretir (32 PID × 1 tur ≈ tam tur
      * süresi dakikalar) — TS tarafı da kendi tavanını uygular.
      */
+    /**
+     * ÇEKİRDEK (FAST/SLOW) PID kümesini OTURUM İÇİNDE günceller.
+     *
+     * ── NEDEN GEREKLİ (saha 2026-07-31) ──────────────────────────────────────
+     * Küme yalnız `connect(...)` anında geliyordu. Ama araç hangi PID'i
+     * desteklediğini HANDSHAKE'te söyler ve handshake bağlantıdan SONRA çalışır
+     * → ilk oturumda TS elinde kanıt yokken taban listeyi gönderiyor, kanıt
+     * gelince de listeyi bir daha uygulayamıyordu.
+     *
+     * Ölçülen sonuç (protokol 7, bitmap `4100983B0011` → PID 0x11 DESTEKLENMİYOR):
+     * `0111` her poll turunda soruluyor ve her turda `NO DATA` dönüyordu —
+     * boşa giden komut + her turda bir `ECU_NO_RESPONSE` kanıt satırı.
+     *
+     * `null`/boş küme "filtre yok" demektir (bkz. {@link #shouldQuery}) — bu
+     * durumda ESKİ davranış aynen korunur (fail-soft, regresyonsuz).
+     */
+    public void setCorePidSet(Set<String> pids) {
+        this.obdPidSet = (pids == null || pids.isEmpty()) ? null : new java.util.HashSet<>(pids);
+    }
+
     public void setExtendedPids(java.util.List<String> pids) {
         if (pids == null || pids.isEmpty()) {
             this.extendedPids = java.util.Collections.emptyList();

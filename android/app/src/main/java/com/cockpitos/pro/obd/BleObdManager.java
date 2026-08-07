@@ -405,6 +405,22 @@ public final class BleObdManager {
         this.fastPollMs = Math.max(100, ms);
     }
 
+    /**
+     * ÇEKİRDEK (FAST/SLOW) PID kümesini OTURUM İÇİNDE günceller — bkz.
+     * {@link OBDManager#setCorePidSet} (AYNI sözleşme, tek fark transport).
+     *
+     * BLE yolunun da bu setter'a ihtiyacı var: `obdPidSet` burada da yalnız
+     * `connect(...)` anında doluyordu, oysa handshake kanıtı bağlantıdan SONRA
+     * gelir. Classic'e ekleyip BLE'yi atlamak, PR-OBD-BLE-1'de yaşanan hatanın
+     * (burst yalnız Classic'e uygulanıyordu → BLE dongle'lı araçta hiç açılmıyordu)
+     * birebir tekrarı olurdu.
+     *
+     * `null`/boş küme = FİLTRE YOK (eski davranış) — "hiç PID sorma" DEĞİL.
+     */
+    public void setCorePidSet(Set<String> pids) {
+        this.obdPidSet = (pids == null || pids.isEmpty()) ? null : new java.util.HashSet<>(pids);
+    }
+
     /** Patch 8: bkz. OBDManager.setExtendedPids — aynı sözleşme (boş=devre dışı, tavan 32). */
     public void setExtendedPids(java.util.List<String> pids) {
         if (pids == null || pids.isEmpty()) {

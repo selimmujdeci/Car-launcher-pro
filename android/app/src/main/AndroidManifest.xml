@@ -103,7 +103,15 @@
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
                 <!-- API 24+ şifreli cihazlar — Direct Boot -->
                 <action android:name="android.intent.action.LOCKED_BOOT_COMPLETED" />
-                <!-- HTC / Xiaomi ve bazı OEM'ler -->
+                <!-- HTC / Xiaomi ve bazı OEM head unit ROM'ları.
+                     ⚠️ Bu action AOSP'de PROTECTED BROADCAST DEĞİLDİR → üçüncü taraf
+                     uygulama sahte yollayabilir. BootReceiver.isAcceptedBootAction()
+                     bunu yalnız gerçek açılış penceresinde (QUICKBOOT_MAX_UPTIME_MS)
+                     kabul eder; pencere dışında REDDEDİLİR. Receiver'a permission
+                     KONULMAZ: o gönderenin izne sahip olmasını şart koşar ve QUICKBOOT'u
+                     yollayan OEM bileşeni sistem uid'i olmayabilir → meşru açılış sessizce
+                     kaybolurdu. Bu filtreden action'ı kaldırmak, yalnız hızlı-açılış
+                     yayını üreten head unit'lerde otomatik başlatmayı BOZAR. -->
                 <action android:name="android.intent.action.QUICKBOOT_POWERON" />
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
@@ -131,6 +139,30 @@
             android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
             <intent-filter>
                 <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
+
+        <!-- ── MÜZİK HUB PAKET A: Tek Automotive Playback Authority ─────
+             CarosPlaybackService = uygulamanın TEK sesli oynatma otoritesi
+             (Media3 ExoPlayer + MediaSession). Bildirim kontrolleri, kilit
+             ekranı, Bluetooth AVRCP, direksiyon/kulaklık medya tuşları ve
+             UI/Mavi komutları AYNI otoriteye gider.
+
+             exported="true" ZORUNLUDUR: MediaSessionService'e sistem medya
+             kontrolleri (bildirim paneli, kilit ekranı, AVRCP router) bind
+             eder; false olsaydı donanım medya tuşları uygulamaya HİÇ ulaşmazdı.
+             Güvenlik kapısı kodda: CarosPlaybackService.onConnect() yalnızca
+             (a) kendi paketimize ve (b) Android'in "trusted" saydığı sistem
+             controller'larına bağlantı verir; yabancı paketler REDDEDİLİR.
+             Servis harici Intent extra'sı OKUMAZ (intent spoofing yüzeyi yok).
+        ──────────────────────────────────────────────────────────────── -->
+        <service
+            android:name=".media.CarosPlaybackService"
+            android:exported="true"
+            android:foregroundServiceType="mediaPlayback"
+            android:stopWithTask="false">
+            <intent-filter>
+                <action android:name="androidx.media3.session.MediaSessionService" />
             </intent-filter>
         </service>
 
@@ -216,6 +248,14 @@
     <!-- Kişiler — Android rehber senkronizasyonu -->
     <uses-permission android:name="android.permission.READ_CONTACTS" />
 
+    <!-- Arama başlatma — "annemi ara" sesli komutu.
+         NEDEN GEREKLİ: bu izin OLMADAN yalnız ACTION_DIAL kullanılabilir ve o da
+         çeviriciyi numarayla AÇAR, aramayı BAŞLATMAZ. Sürüş sırasında kullanıcının
+         ekrana uzanıp arama tuşuna basması gerekiyordu — sesli komutun amacı buydu.
+         İzin yoksa davranış ACTION_DIAL'a düşer ve asistan bunu DÜRÜSTÇE söyler
+         (sahte "aranıyor" onayı YOK — bkz. CarLauncherPlugin.callNumber). -->
+    <uses-permission android:name="android.permission.CALL_PHONE" />
+
     <!-- Depolama — dashcam kayıtları + cihaz-içi API anahtarı yedeği -->
     <!-- API 29 ve altı (requestLegacyExternalStorage ile API 29 dahil legacy davranış) -->
     <uses-permission
@@ -246,6 +286,9 @@
     <!-- Ön plan servisi — arka planda GPS/dashcam -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+    <!-- MÜZİK HUB PAKET A — Android 14 (API 34+) foregroundServiceType="mediaPlayback"
+         bu izin olmadan SecurityException fırlatır; müzik arka planda susardı. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
 
     <!-- Pil optimizasyonu muafiyeti — MIUI/HyperOS arka plan öldürmesini önler -->
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />

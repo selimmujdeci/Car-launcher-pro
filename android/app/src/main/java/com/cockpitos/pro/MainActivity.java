@@ -118,6 +118,9 @@ public class MainActivity extends BridgeActivity {
         // Crash durumunda uygulamayı yeniden başlat — launcher asla kapalı kalmamalı
         installCrashRecovery();
         registerPlugin(CarLauncherPlugin.class);
+        // PHONE-HUB P1-A: bağlantı yaşam döngüsü AYRI plugin'de tutulur —
+        // soket/iş parçacığı/anahtar sahipliği CarLauncherPlugin'e karışmasın.
+        registerPlugin(com.cockpitos.pro.phonehub.link.PhoneHubLinkPlugin.class);
         super.onCreate(savedInstanceState);
 
         // ── Ekran ayarları ──

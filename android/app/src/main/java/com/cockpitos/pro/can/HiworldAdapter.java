@@ -187,6 +187,8 @@ public final class HiworldAdapter {
             outer:
             for (String p : availPorts) {
                 if (!_running) break;
+                // Sistem sahipli port (OEM BT / konsol / GNSS) — bkz. #449
+                if (SerialPortHandler.isPortOwnedBySystem(p)) continue;
                 for (int baud : BAUDS) {
                     String err = serialOpenPortWithError(binder, p, baud, _pfdResult);
                     if (_pfdResult[0] != null) {
@@ -380,6 +382,9 @@ public final class HiworldAdapter {
     private PortBaud findPort() {
         for (String p : PORTS) {
             if (!_running) return null;
+            // SAHA 2026-08-05 (K24): sistem sahipli portu AÇMA. Bu ünitede ttyS1
+            // OEM Bluetooth HCI hattıdır; ikinci okuyucu BT'yi tamamen öldürüyordu.
+            if (SerialPortHandler.isPortOwnedBySystem(p)) continue;
             grantAccess(p);
             // Her iki baud hızını dene: 115200 (K24/K6 MediaTek) önce, 38400 standart sonra
             for (int baud : BAUDS) {

@@ -107,7 +107,9 @@ import com.cockpitos.pro.can.VehicleCanData;
 import com.cockpitos.pro.can.K24CanBridge;
 import com.cockpitos.pro.can.McuEventSniffer;
 import com.cockpitos.pro.core.VehicleNativeBridge;
+import com.cockpitos.pro.voice.VoiceMicDiagnostics;
 import com.cockpitos.pro.media.MediaManager;
+import com.cockpitos.pro.media.CarosPlaybackBridge;
 
 import java.io.BufferedReader;
 import java.io.ByteArrayOutputStream;
@@ -178,7 +180,8 @@ import android.security.keystore.KeyProperties;
     name = "CarLauncher",
     permissions = {
         @Permission(strings = { android.Manifest.permission.READ_CONTACTS }, alias = "contacts"),
-        @Permission(strings = { android.Manifest.permission.RECORD_AUDIO }, alias = "microphone")
+        @Permission(strings = { android.Manifest.permission.RECORD_AUDIO }, alias = "microphone"),
+        @Permission(strings = { android.Manifest.permission.CALL_PHONE }, alias = "phoneCall")
     }
 )
 public class CarLauncherPlugin extends Plugin {
@@ -348,6 +351,121 @@ public class CarLauncherPlugin extends Plugin {
      * finishAffinity() yerine moveTaskToBack kullanılır — launcher kapanmasın,
      * HOME tuşuyla veya son uygulamalardan tekrar açılabilsin.
      */
+    // ── Thermal (DEBT-013) ──────────────────────────────────────────────────
+
+    /**
+     * readThermal — cihazın sysfs termal bölgelerinden GERÇEK sıcaklık okur.
+     *
+     * SAHA GERÇEĞİ (K24 SMART SERIES, 2026-07-27, kütük #139):
+     * Android termal HAL bu sınıf cihazlarda ÖLÜ (`dumpsys thermalservice` →
+     * `HAL Ready: false`, `Thermal Status: -2147483648`), bu yüzden `PowerManager`
+     * üzerinden sıcaklık ALINAMAZ. Ancak `/sys/class/thermal/thermal_zone*` OKUNABİLİR
+     * (zone0=cpu, 1=gpu, 2=ddr). Bu metot olmadan `thermalWatchdog` üretimde HİÇ veri
+     * almıyordu → cihaz 93 °C'ye çıkarken hiçbir kısıtlama devreye girmiyordu.
+     *
+     * SÖZLEŞME:
+     *  - Okunamayan alan JSON'a KONMAZ → JS tarafı `null` görür ve `UNAVAILABLE` sayar.
+     *    Sahte sıcaklık ÜRETİLMEZ (zero-trust).
+     *  - Değer milli-Celsius ise (>1000) Celsius'a çevrilir; makul aralık dışı (< -40
+     *    veya > 150) değer REDDEDİLİR.
+     *  - Yalnız OKUR: hiçbir sistem ayarı değiştirmez, throttling uygulamaz.
+     *  - Zone tipleri de döndürülür ki JS hangi zone'un ne olduğunu VARSAYMASIN.
+     */
+    @PluginMethod
+    public void readThermal(PluginCall call) {
+        JSObject ret = new JSObject();
+        JSArray zones = new JSArray();
+        int found = 0;
+
+        for (int i = 0; i < 12; i++) {
+            String base = "/sys/class/thermal/thermal_zone" + i;
+            String type = _readSysfs(base + "/type");
+            String raw  = _readSysfs(base + "/temp");
+            if (type == null && raw == null) continue;
+
+            JSObject z = new JSObject();
+            z.put("index", i);
+            if (type != null) z.put("type", type);
+
+            Double c = _parseTempC(raw);
+            if (c != null) { z.put("tempC", c.doubleValue()); found++; }
+            // c == null → alan hiç konmaz: "okunamadı" ile "0 derece" AYRI şeylerdir.
+            zones.put(z);
+        }
+
+        ret.put("zones", zones);
+        ret.put("readableCount", found);
+        ret.put("available", found > 0);
+        call.resolve(ret);
+    }
+
+    /** Tek satırlık sysfs okuması; erişilemezse null (istisna yutulur, log YOK). */
+    private static String _readSysfs(String path) {
+        java.io.BufferedReader r = null;
+        try {
+            java.io.File f = new java.io.File(path);
+            if (!f.exists() || !f.canRead()) return null;
+            r = new java.io.BufferedReader(new java.io.FileReader(f), 64);
+            String line = r.readLine();
+            return (line == null) ? null : line.trim();
+        } catch (Throwable t) {
+            return null;
+        } finally {
+            if (r != null) { try { r.close(); } catch (Throwable ignored) { } }
+        }
+    }
+
+    /**
+     * Ham sysfs değerini Celsius'a çevirir.
+     * Çekirdekler bu dosyayı ya milli-Celsius (85653) ya da Celsius (85) yazar.
+     * Makul olmayan değer REDDEDİLİR (null) — uydurma sıcaklık üretmektense veri yok.
+     */
+    private static Double _parseTempC(String raw) {
+        if (raw == null || raw.isEmpty()) return null;
+        try {
+            double v = Double.parseDouble(raw);
+            if (Math.abs(v) > 1000.0) v = v / 1000.0;   // milli-Celsius → Celsius
+            if (v < -40.0 || v > 150.0) return null;    // sensör bozuk/uyumsuz birim
+            return Double.valueOf(v);
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    /**
+     * Ekran yönü kilidini çalışma zamanında değiştirir.
+     *
+     * NEDEN GEREKLİ: manifest `android:screenOrientation="sensorLandscape"` ile
+     * TÜM uygulamayı yataya kilitler — araç ekranları yataydır ve ana CAROS
+     * arayüzü öyle KALMALIDIR. Ama tam ekran navigasyonun dikey çalışabilmesi
+     * istendi (telefonda kullanım). Manifesti gevşetmek ana arayüzü de dikeye
+     * açardı; bu yüzden kilit YALNIZ tam ekran navigasyon süresince ve YALNIZ
+     * bu çağrıyla gevşetilir, çıkışta geri alınır.
+     *
+     * mode: "sensor" → dört yön serbest (LANDSCAPE/REVERSE + PORTRAIT/REVERSE)
+     *       "landscape" (veya bilinmeyen) → sensorLandscape (varsayılan)
+     */
+    @PluginMethod
+    public void setNavigationOrientation(PluginCall call) {
+        final String mode = call.getString("mode", "landscape");
+        final android.app.Activity act = getActivity();
+        if (act == null) { call.reject("no_activity"); return; }
+        new Handler(Looper.getMainLooper()).post(() -> {
+            try {
+                if ("sensor".equals(mode)) {
+                    act.setRequestedOrientation(
+                        android.content.pm.ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR);
+                } else {
+                    act.setRequestedOrientation(
+                        android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE);
+                }
+            } catch (Exception ignored) { /* fail-soft: yön kilidi navigasyonu bozmaz */ }
+        });
+        JSObject ret = new JSObject();
+        ret.put("mode", mode);
+        call.resolve(ret);
+    }
+
     @PluginMethod
     public void exitApp(PluginCall call) {
         call.resolve();
@@ -584,6 +702,57 @@ public class CarLauncherPlugin extends Plugin {
             call.resolve(result);
         } catch (Exception e) {
             call.reject("MEDIA_INFO_FAILED", e.getMessage());
+        }
+    }
+
+    // ── MÜZİK HUB PAKET A: Native Playback Authority köprüsü ─────────────────
+    //
+    // JS tarafında TEK kapı MediaCommandGateway'dir; o da yalnız bu üç metodu
+    // kullanır. Eski sendMediaAction/localTrack yolları KORUNUR (geriye uyumluluk)
+    // ama artık uygulama-içi oynatma otoritesi CarosPlaybackService'tir.
+
+    /**
+     * Otoriteye typed komut gönderir. YANIT "kabul edildi" demektir —
+     * "çalıyor" DEMEZ. Gerçek durum için mediaAuthoritySnapshot okunmalı
+     * (renderingVerified alanı) veya mediaAuthorityEvent dinlenmeli.
+     */
+    @PluginMethod
+    public void mediaAuthorityCommand(PluginCall call) {
+        try {
+            String commandId = call.getString("commandId", "");
+            String command   = call.getString("command", "");
+            JSObject payload = call.getObject("payload");
+            CarosPlaybackBridge.CommandResult r =
+                CarosPlaybackBridge.getInstance(getContext()).execute(commandId, command, payload);
+            JSObject out = new JSObject();
+            out.put("accepted",    r.accepted);
+            out.put("failureCode", r.failureCode);
+            call.resolve(out);
+        } catch (Exception e) {
+            call.reject("MEDIA_AUTHORITY_FAILED", e.getMessage());
+        }
+    }
+
+    /** Otoritenin bounded, salt-okunur anlık görüntüsü. */
+    @PluginMethod
+    public void mediaAuthoritySnapshot(PluginCall call) {
+        try {
+            call.resolve(CarosPlaybackBridge.getInstance(getContext()).snapshot());
+        } catch (Exception e) {
+            call.reject("MEDIA_AUTHORITY_SNAPSHOT_FAILED", e.getMessage());
+        }
+    }
+
+    /** Servisi başlatır/bağlar ve event akışını açar (idempotent). */
+    @PluginMethod
+    public void mediaAuthorityConnect(PluginCall call) {
+        try {
+            CarosPlaybackBridge bridge = CarosPlaybackBridge.getInstance(getContext());
+            bridge.setEventSink(this::notifyListeners);
+            bridge.connect();
+            call.resolve();
+        } catch (Exception e) {
+            call.reject("MEDIA_AUTHORITY_CONNECT_FAILED", e.getMessage());
         }
     }
 
@@ -1391,6 +1560,29 @@ public class CarLauncherPlugin extends Plugin {
     }
 
     /**
+     * ÇEKİRDEK PID kümesini OTURUM İÇİNDE günceller (saha 2026-07-31).
+     *
+     * Küme `connectOBD` ile bir kez gönderiliyordu; ama araç desteklediği PID'leri
+     * HANDSHAKE'te bildirir ve handshake bağlantıdan SONRA çalışır → kanıt geldiğinde
+     * listeyi uygulamanın YOLU YOKTU. Ölçüldü: bitmap "PID 0x11 yok" derken `0111`
+     * her poll turunda soruluyor ve `NO DATA` dönüyordu.
+     *
+     * Boş/eksik liste = FİLTRE YOK (eski davranış) — asla "hiç PID sorma" demek değildir.
+     *
+     * HER İKİ TRANSPORT'A uygulanır (Classic/TCP + BLE): yalnız OBDManager'a uygulamak
+     * PR-OBD-BLE-1'deki burst hatasının tekrarı olurdu (BLE dongle'lı araçta filtre hiç
+     * geçerli olmaz, desteklenmeyen PID sorulmaya devam ederdi). Aktif olmayan yöneticide
+     * de set edilir — sonraki bağlantıda geçerli olur.
+     */
+    @PluginMethod
+    public void setObdCorePids(PluginCall call) {
+        java.util.Set<String> pidSet = parsePidSet(call.getArray("pids"));
+        if (obdManager    != null) obdManager.setCorePidSet(pidSet);
+        if (bleObdManager != null) bleObdManager.setCorePidSet(pidSet);
+        call.resolve();
+    }
+
+    /**
      * Patch 8: EXTENDED grup PID listesi — TS talep-güdümlü (extendedPidService). Boş/eksik
      * liste = devre dışı (poll turu ek komut çalıştırmaz, sıfır maliyet). Her iki transport'a
      * da uygulanır; aktif olmayan yöneticide sonraki bağlantıda geçerli olur.
@@ -1472,10 +1664,246 @@ public class CarLauncherPlugin extends Plugin {
      * BİLMEDİĞİ bir JS kavramıdır; "kurtarma sürerken oturum kapatıldı mı" sorusu ancak
      * JS bildirirse cevaplanabilir (sahadaki en kritik hipotez).
      */
+    /**
+     * MAVI-STT-LAB-1: mikrofon + STT zincirinin SALT-OKUNUR tanı gözlemi.
+     *
+     * Hiçbir şey BAŞLATMAZ: mikrofon açılmaz/kapanmaz, AudioRecord oluşturulmaz,
+     * efekt (AEC/NS/AGC) aç-kapa YAPILMAZ, eşik DEĞİŞTİRİLMEZ, dinleme/wake motoru
+     * başlatılmaz-durdurulmaz, izin İSTENMEZ. Yalnız {@link VoiceMicDiagnostics}
+     * biriktiricisinin anlık kopyası okunur.
+     *
+     * GİZLİLİK: transcript · n-best · wake sözcüğü · grammar kelimeleri · ham ses
+     * örneği · kişi adı · konum · VIN · cihaz kimliği TAŞINMAZ. Yalnız sabit enum,
+     * sayım, normalize RMS skalerleri ve bounded gerekçe KODU.
+     */
+    @PluginMethod
+    public void getVoiceMicDiagnostics(PluginCall call) {
+        JSObject ret = new JSObject();
+        try {
+            VoiceMicDiagnostics.Snapshot s = VoiceMicDiagnostics.INSTANCE.snapshot(
+                System.currentTimeMillis(), SystemClock.elapsedRealtime());
+
+            ret.put("present", s.present);
+            ret.put("schemaVersion", s.schemaVersion);
+            ret.put("capturedAt", s.capturedAt);
+            ret.put("path", s.path);
+            ret.put("sessionActive", s.sessionActive);
+            ret.put("sessionStartedAt", s.sessionStartedAt);
+
+            JSObject src = new JSObject();
+            src.put("selectedSource", s.selectedSource);
+            src.put("selectedSourceName", s.selectedSourceName);
+            src.put("sampleRate", s.sampleRate);
+            src.put("channelCount", s.channelCount);
+            src.put("bufferBytes", s.bufferBytes);
+            src.put("frameSamples", s.frameSamples);
+            JSArray attempts = new JSArray();
+            for (VoiceMicDiagnostics.Attempt a : s.attempts) {
+                JSObject o = new JSObject();
+                o.put("source", a.source);
+                o.put("sourceName", a.sourceName);
+                o.put("outcome", a.outcome);
+                attempts.put(o);
+            }
+            src.put("attempts", attempts);
+            ret.put("source", src);
+
+            JSObject fx = new JSObject();
+            fx.put("probed", s.effectsProbed);
+            fx.put("aecAvailable", s.aecAvailable); fx.put("aecCreated", s.aecCreated); fx.put("aecEnabled", s.aecEnabled);
+            fx.put("nsAvailable",  s.nsAvailable);  fx.put("nsCreated",  s.nsCreated);  fx.put("nsEnabled",  s.nsEnabled);
+            fx.put("agcAvailable", s.agcAvailable); fx.put("agcCreated", s.agcCreated); fx.put("agcEnabled", s.agcEnabled);
+            JSArray errs = new JSArray();
+            for (String e : s.effectErrors) errs.put(e);
+            fx.put("errors", errs);
+            ret.put("effects", fx);
+
+            JSObject vad = new JSObject();
+            vad.put("present", s.vadPresent);
+            vad.put("lastRms", s.lastRms);
+            vad.put("noiseFloor", s.noiseFloor);
+            vad.put("effectiveThreshold", s.effectiveThreshold);
+            vad.put("staticMinThreshold", s.staticMinThreshold);
+            vad.put("floorFactor", s.floorFactor);
+            vad.put("speechDetected", s.speechDetected);
+            vad.put("lastAudioAtMs", s.lastAudioAtMs);
+            vad.put("monotonicNowMs", s.monotonicNowMs);
+            vad.put("sampleCount", s.rmsSampleCount);
+            JSArray rms = new JSArray();
+            for (double v : s.rmsSamples) rms.put(v);
+            vad.put("samples", rms);
+            ret.put("vad", vad);
+
+            JSObject stt = new JSObject();
+            stt.put("wakeEngineActive", s.wakeEngineActive);
+            stt.put("activeRecognizerActive", s.activeRecognizerActive);
+            stt.put("grammarType", s.grammarType);
+            stt.put("grammarWordCount", s.grammarWordCount);
+            if (s.lastResultCategory != null) stt.put("lastResultCategory", s.lastResultCategory);
+            stt.put("lastResultAt", s.lastResultAt);
+            ret.put("stt", stt);
+        } catch (Throwable t) {
+            // Fail-soft: tanı hattı ASLA çağıranı düşürmez — "kanıt yok" DÜRÜSTÇE bildirilir.
+            ret = new JSObject();
+            ret.put("present", false);
+        }
+        call.resolve(ret);
+    }
+
     @PluginMethod
     public void notifyObdDataGateTeardown(PluginCall call) {
         KwpRecoveryEvidence.INSTANCE.noteDataGateTeardown();
         call.resolve();
+    }
+
+    /**
+     * PHONE-HUB P0.5 — SALT-OKUNUR donanım gözlemi.
+     *
+     * Hiçbir şey BAŞLATMAZ: Bluetooth keşfi/taraması, eşleştirme, soket/GATT bağlantısı,
+     * adapter aç/kapat, SCO, ses yolu değişimi, medya tuşu, çağrı, izin isteği, vendor
+     * bind/broadcast ve OBD müdahalesi YOKTUR. Yalnız getter okur.
+     * PII TAŞIMAZ: cihaz adı/MAC/kişi adı GÖNDERİLMEZ — yalnız sayım ve enum.
+     */
+    @PluginMethod
+    public void getPhoneHubHardwareProbe(PluginCall call) {
+        JSObject ret = new JSObject();
+        try {
+            com.cockpitos.pro.phonehub.PhoneHubHardwareSnapshot s =
+                com.cockpitos.pro.phonehub.PhoneHubHardwareProbe.capture(
+                    getContext(), System.currentTimeMillis());
+
+            ret.put("present", true);
+            ret.put("schemaVersion", s.schemaVersion);
+            ret.put("capturedAt", s.capturedAt);
+            ret.put("platformApiLevel", s.platformApiLevel);
+
+            JSObject bt = new JSObject();
+            bt.put("adapterAvailable", s.adapterAvailable);
+            bt.put("adapterEnabled", s.adapterEnabled);
+            bt.put("adapterNamePresent", s.adapterNamePresent);
+            bt.put("permConnect", s.permConnect);
+            bt.put("permScan", s.permScan);
+            bt.put("permLegacy", s.permLegacy);
+            bt.put("discoveryActive", s.discoveryActive);
+            bt.put("bondedDeviceCount", s.bondedDeviceCount);
+            bt.put("phoneLikeCount", s.phoneLikeCount);
+            bt.put("audioLikeCount", s.audioLikeCount);
+            bt.put("obdLikeCandidateCount", s.obdLikeCandidateCount);
+            bt.put("unknownClassCount", s.unknownClassCount);
+            bt.put("evidence", s.bluetoothEvidence);
+            ret.put("bluetooth", bt);
+
+            JSObject pr = new JSObject();
+            pr.put("a2dpConnectionState", s.a2dpConnectionState);
+            pr.put("headsetConnectionState", s.headsetConnectionState);
+            pr.put("gattConnectionState", s.gattConnectionState);
+            pr.put("a2dpControlAuthority", s.a2dpControlAuthority);
+            pr.put("hfpControlAuthority", s.hfpControlAuthority);
+            pr.put("evidence", s.profilesEvidence);
+            ret.put("profiles", pr);
+
+            JSObject vd = new JSObject();
+            vd.put("knownVendorPackageDetected", s.knownVendorPackageDetected);
+            vd.put("knownVendorBroadcastObserved", s.knownVendorBroadcastObserved);
+            vd.put("vendorFamily", s.vendorFamily);
+            vd.put("lastEvidenceAgeMs", s.vendorLastEvidenceAgeMs);
+            vd.put("evidence", s.vendorEvidence);
+            ret.put("vendor", vd);
+
+            JSObject au = new JSObject();
+            au.put("audioMode", s.audioMode);
+            au.put("musicActive", s.musicActive);
+            au.put("communicationDeviceType", s.communicationDeviceType);
+            au.put("routeAuthority", s.routeAuthority);
+            au.put("evidence", s.audioEvidence);
+            ret.put("audio", au);
+
+            JSArray errs = new JSArray();
+            for (String e : s.errors) errs.put(e);
+            ret.put("errors", errs);
+        } catch (Throwable t) {
+            // FAIL-SOFT: probe patlarsa bile JS tarafı çökmez; present=false ile
+            // "okunamadı" bildirilir (SAHTE varsayılan üretilmez).
+            ret.put("present", false);
+            ret.put("schemaVersion",
+                com.cockpitos.pro.phonehub.PhoneHubHardwareSnapshot.SCHEMA_VERSION);
+        }
+        call.resolve(ret);
+    }
+
+    /**
+     * PHONE-HUB P0.8 — SALT-OKUNUR saha doğrulama gözlemi (P0.5'e EK, onu EZMEZ).
+     *
+     * {@code getPhoneHubHardwareProbe} AYNEN korunur; bu AYRI bir metottur → eski
+     * APK'da bulunmadığında JS tarafı {@code present:false} görür (fail-soft).
+     *
+     * Hiçbir şey BAŞLATMAZ: eşleştirme, keşif/tarama, bağlantı, SCO, ses yolu/modu
+     * değişimi, medya/transport komutu, çağrı, SMS, izin isteği, vendor bind/broadcast
+     * ve OBD müdahalesi YOKTUR.
+     *
+     * PII TAŞIMAZ: paket adı, MAC, telefon numarası, kişi adı, parça/sanatçı/albüm
+     * adı, ham build fingerprint GÖNDERİLMEZ — yalnız sınıf, sayım ve özet.
+     */
+    @PluginMethod
+    public void getPhoneHubFieldProbe(PluginCall call) {
+        JSObject ret = new JSObject();
+        try {
+            com.cockpitos.pro.phonehub.PhoneHubFieldSnapshot s =
+                com.cockpitos.pro.phonehub.PhoneHubFieldProbe.capture(
+                    getContext(), System.currentTimeMillis());
+
+            ret.put("present", true);
+            ret.put("schemaVersion", s.schemaVersion);
+            ret.put("capturedAt", s.capturedAt);
+
+            JSObject id = new JSObject();
+            id.put("manufacturer", s.manufacturer);
+            id.put("model", s.model);
+            id.put("device", s.device);
+            id.put("product", s.product);
+            id.put("androidRelease", s.androidRelease);
+            id.put("sdkInt", s.sdkInt);
+            id.put("fingerprintSummary", s.fingerprintSummary);
+            id.put("fingerprintHash", s.fingerprintHash);
+            id.put("automotiveFeature", s.automotiveFeature);
+            id.put("carServicePresent", s.carServicePresent);
+            id.put("telephonyFeature", s.telephonyFeature);
+            id.put("headUnitMarkerCount", s.headUnitMarkerCount);
+            id.put("phoneOemMarkerCount", s.phoneOemMarkerCount);
+            id.put("vendorFamily", s.vendorFamily);
+            id.put("deviceRoleTechnical", s.deviceRoleTechnical);
+            id.put("deviceRoleConfidence", s.deviceRoleConfidence);
+            ret.put("identity", id);
+
+            JSObject cl = new JSObject();
+            cl.put("dialerClass", s.dialerClass);
+            cl.put("telecomManagerAvailable", s.telecomManagerAvailable);
+            cl.put("callVendorMarkerCount", s.callVendorMarkerCount);
+            ret.put("call", cl);
+
+            JSObject md = new JSObject();
+            md.put("mediaSessionAccess", s.mediaSessionAccess);
+            md.put("activeSessionCount", s.activeSessionCount);
+            md.put("ownerLocalCount", s.ownerLocalCount);
+            md.put("ownerSystemCount", s.ownerSystemCount);
+            md.put("ownerVendorCount", s.ownerVendorCount);
+            md.put("ownerOtherCount", s.ownerOtherCount);
+            md.put("playbackStatePresent", s.playbackStatePresent);
+            md.put("metadataPresent", s.metadataPresent);
+            md.put("artworkPresent", s.artworkPresent);
+            md.put("transportControlsPresent", s.transportControlsPresent);
+            ret.put("media", md);
+
+            JSArray errs = new JSArray();
+            for (String e : s.errors) errs.put(e);
+            ret.put("errors", errs);
+        } catch (Throwable t) {
+            // FAIL-SOFT: SAHTE varsayılan üretilmez, "okunamadı" bildirilir.
+            ret.put("present", false);
+            ret.put("schemaVersion",
+                com.cockpitos.pro.phonehub.PhoneHubFieldSnapshot.SCHEMA_VERSION);
+        }
+        call.resolve(ret);
     }
 
     @PluginMethod
@@ -2584,35 +3012,45 @@ public class CarLauncherPlugin extends Plugin {
         // Daha önce sinyal üretmiş kaynağı en öne al (ölü kaynağı yeniden prob etme).
         final int[] sources = orderWithPreferred(base, voskPreferredSource);
         AudioRecord firstInited = null; // sinyal bulunamazsa fallback (mevcut davranış)
+        int firstInitedSource = -1;     // MAVI-STT-LAB-1: yalnız kayıt (seçim mantığı DEĞİŞMEZ)
+        // MAVI-STT-LAB-1: ses formatı GÖZLEM kaydı — parametreler DEĞİŞTİRİLMEZ.
+        VoiceMicDiagnostics.INSTANCE.noteAudioFormat(VOSK_SAMPLE_RATE, 1, bufBytes * 2, bufBytes / 2);
         for (int src : sources) {
             AudioRecord ar = null;
             try {
                 ar = new AudioRecord(src, VOSK_SAMPLE_RATE, AudioFormat.CHANNEL_IN_MONO,
                         AudioFormat.ENCODING_PCM_16BIT, bufBytes * 2);
                 if (ar.getState() != AudioRecord.STATE_INITIALIZED) {
+                    VoiceMicDiagnostics.INSTANCE.noteSourceAttempt(src, VoiceMicDiagnostics.ATTEMPT_INIT_FAILED);
                     try { ar.release(); } catch (Exception ignored) {}
                     continue;
                 }
                 ar.startRecording();
                 if (micSourceHasSignal(ar, bufBytes)) {
+                    VoiceMicDiagnostics.INSTANCE.noteSourceAttempt(src, VoiceMicDiagnostics.ATTEMPT_SIGNAL);
+                    VoiceMicDiagnostics.INSTANCE.noteSourceSelected(src);
                     voskPreferredSource = src; // sonraki oturumlar bunu ÖNCE dener
                     android.util.Log.i("VoskMic", "AudioSource seçildi (sinyal var): " + src);
                     return ar; // kayda başlamış + sinyal doğrulanmış
                 }
+                VoiceMicDiagnostics.INSTANCE.noteSourceAttempt(src, VoiceMicDiagnostics.ATTEMPT_NO_SIGNAL);
                 // Sinyal yok: ilk init olanı yedekte tut, sonrakini dene.
                 if (firstInited == null) {
                     firstInited = ar; // yedek — release ETME
+                    firstInitedSource = src;
                 } else {
                     try { ar.stop(); } catch (Exception ignored) {}
                     try { ar.release(); } catch (Exception ignored) {}
                 }
             } catch (Throwable t) {
+                VoiceMicDiagnostics.INSTANCE.noteSourceAttempt(src, VoiceMicDiagnostics.ATTEMPT_EXCEPTION);
                 if (ar != null && ar != firstInited) {
                     try { ar.release(); } catch (Exception ignored) {}
                 }
             }
         }
         if (firstInited != null) {
+            VoiceMicDiagnostics.INSTANCE.noteSourceSelected(firstInitedSource);
             android.util.Log.w("VoskMic", "Hiçbir kaynak sinyal üretmedi — fallback ilk init kaynağı");
             return firstInited; // zaten startRecording çağrıldı
         }
@@ -2624,6 +3062,30 @@ public class CarLauncherPlugin extends Plugin {
      * dijital kaynak genelde tam sıfır okur; canlı ADC sessizken bile gürültü tabanı verir.
      * Kullanıcı prob sırasında konuşursa zaten anında sinyal görülür.
      */
+    /**
+     * MAVI-STT-LAB-1: grammar JSON'undaki KELİME ADEDİ. Kelimelerin KENDİSİ hiçbir
+     * zaman dışarı verilmez. Ayrıştırılamazsa -1 (0 UYDURULMAZ).
+     */
+    private static int _grammarWordCount(String grammarJson) {
+        if (grammarJson == null || grammarJson.isEmpty()) return -1;
+        try { return new org.json.JSONArray(grammarJson).length(); }
+        catch (Throwable t) { return -1; }
+    }
+
+    /** MAVI-STT-LAB-1: STT-LATENCY terminalStatus → LAB sonuç kategorisi (sabit eşleme). */
+    private static String _resultCategory(String terminalStatus) {
+        if ("success".equals(terminalStatus))   return VoiceMicDiagnostics.RESULT_SUCCESS;
+        if ("no_speech".equals(terminalStatus)) return VoiceMicDiagnostics.RESULT_NO_MATCH;
+        if ("timeout".equals(terminalStatus))   return VoiceMicDiagnostics.RESULT_TIMEOUT;
+        return VoiceMicDiagnostics.RESULT_ERROR; // model_error · audio_error · decode_error · cancelled
+    }
+
+    /** MAVI-STT-LAB-1: efektin GERÇEK enabled durumu; okunamazsa false (uydurma yok). */
+    private static boolean _effectEnabled(android.media.audiofx.AudioEffect fx) {
+        if (fx == null) return false;
+        try { return fx.getEnabled(); } catch (Throwable t) { return false; }
+    }
+
     private boolean micSourceHasSignal(AudioRecord ar, int bufBytes) {
         short[] probe = new short[bufBytes / 2];
         long deadline = System.currentTimeMillis() + MIC_PROBE_MS;
@@ -2645,6 +3107,10 @@ public class CarLauncherPlugin extends Plugin {
         if (savedSpeechCall == null) return;
         stopVosk(); // önceki oturumu temizle (varsa eski thread'i durdur)
         voskCapturing = true;
+        // MAVI-STT-LAB-1 (yalnız gözlem): aktif dinleme oturumu ölçüm penceresi açılır.
+        VoiceMicDiagnostics.INSTANCE.noteSessionStart(
+            VoiceMicDiagnostics.PATH_ACTIVE, System.currentTimeMillis());
+        VoiceMicDiagnostics.INSTANCE.noteActiveRecognizerActive(true);
         // Wake word pasif döngüsü duckWhileListening:false geçer — müzik kısılmaz.
         if (voskDuckEnabled) duckMusicForListening(); // mikrofon dinlerken müziği kıs
         final long startedAt = System.currentTimeMillis();
@@ -2693,9 +3159,25 @@ public class CarLauncherPlugin extends Plugin {
                 // Prob'tan SONRA bağlanır: NS gürültü tabanını bastırıp canlı kaynağı
                 // "ölü" gösterebilirdi; seçim raw sinyalle yapılır, efektler burada açılır.
                 int sid = recorder.getAudioSessionId();
-                try { if (AutomaticGainControl.isAvailable())  { agc = AutomaticGainControl.create(sid);  if (agc != null) agc.setEnabled(true); } } catch (Exception ignored) {}
-                try { if (NoiseSuppressor.isAvailable())       { ns  = NoiseSuppressor.create(sid);        if (ns  != null) ns.setEnabled(true);  } } catch (Exception ignored) {}
-                try { if (AcousticEchoCanceler.isAvailable())  { aec = AcousticEchoCanceler.create(sid);   if (aec != null) aec.setEnabled(true); } } catch (Exception ignored) {}
+                /* MAVI-STT-LAB-1: aç-kapa DAVRANIŞI AYNI — yalnız available/created/enabled
+                   ayrı ayrı kaydedilir. İstisna hâlâ YUTULUR; dışarı yalnız bounded KOD
+                   çıkar (ham exception metni/mesajı ASLA taşınmaz). */
+                boolean agcAvail = false, nsAvail = false, aecAvail = false;
+                try {
+                    agcAvail = AutomaticGainControl.isAvailable();
+                    if (agcAvail) { agc = AutomaticGainControl.create(sid); if (agc != null) agc.setEnabled(true); }
+                } catch (Exception e) { VoiceMicDiagnostics.INSTANCE.noteEffectError("AGC_SETUP_FAILED"); }
+                try {
+                    nsAvail = NoiseSuppressor.isAvailable();
+                    if (nsAvail) { ns = NoiseSuppressor.create(sid); if (ns != null) ns.setEnabled(true); }
+                } catch (Exception e) { VoiceMicDiagnostics.INSTANCE.noteEffectError("NS_SETUP_FAILED"); }
+                try {
+                    aecAvail = AcousticEchoCanceler.isAvailable();
+                    if (aecAvail) { aec = AcousticEchoCanceler.create(sid); if (aec != null) aec.setEnabled(true); }
+                } catch (Exception e) { VoiceMicDiagnostics.INSTANCE.noteEffectError("AEC_SETUP_FAILED"); }
+                VoiceMicDiagnostics.INSTANCE.noteEffect("AGC", agcAvail, agc != null, _effectEnabled(agc));
+                VoiceMicDiagnostics.INSTANCE.noteEffect("NS",  nsAvail,  ns  != null, _effectEnabled(ns));
+                VoiceMicDiagnostics.INSTANCE.noteEffect("AEC", aecAvail, aec != null, _effectEnabled(aec));
 
                 // OFFLINE KOMUT GRAMMAR'ı (Yol A): varsa Vosk'u komut sözlüğüne kısıtla
                 // (offline doğruluk fırlar). Grammar kurulamazsa full-vocab'a düş (fail-soft).
@@ -2703,11 +3185,17 @@ public class CarLauncherPlugin extends Plugin {
                 if (activeGrammar != null) {
                     try {
                         recognizer = new Recognizer(voskModel, (float) VOSK_SAMPLE_RATE, activeGrammar);
+                        // MAVI-STT-LAB-1: grammar SINIFI + KELİME ADEDİ (kelimeler DEĞİL).
+                        VoiceMicDiagnostics.INSTANCE.noteGrammar(
+                            VoiceMicDiagnostics.GRAMMAR_STATIC_COMMAND, _grammarWordCount(activeGrammar));
                     } catch (Throwable grammarErr) {
                         recognizer = new Recognizer(voskModel, (float) VOSK_SAMPLE_RATE);
+                        // Grammar kurulamadı → GERÇEK durum full-vocab'dır; "static_command" YAZILMAZ.
+                        VoiceMicDiagnostics.INSTANCE.noteGrammar(VoiceMicDiagnostics.GRAMMAR_FREE, -1);
                     }
                 } else {
                     recognizer = new Recognizer(voskModel, (float) VOSK_SAMPLE_RATE);
+                    VoiceMicDiagnostics.INSTANCE.noteGrammar(VoiceMicDiagnostics.GRAMMAR_FREE, -1);
                 }
                 // n-best: >1 istenirse Vosk alternatifleri JSON'da {"alternatives":[...]} döndürür.
                 // NOT: grammar modunda setMaxAlternatives Vosk'ta çelişebilir → yalnız full-vocab'da.
@@ -2726,6 +3214,8 @@ public class CarLauncherPlugin extends Plugin {
                 // RMS-VAD durumu (pencere ~250ms): taban öğrenimi → konuşma → sessizlik
                 double vadFloorSum = 0; int vadFloorWin = 0; double vadFloor = 0;
                 boolean vadSpeechSeen = false; long vadSilenceStart = 0;
+                // MAVI-STT-LAB-1: kullanılan VAD sabitleri (DEĞİŞTİRİLMEZ, yalnız kaydedilir).
+                VoiceMicDiagnostics.INSTANCE.noteVadConfig(VOSK_VAD_MIN_THRESH, VOSK_VAD_FLOOR_FACTOR);
                 telPhase = "capture";
                 while (voskCapturing && !Thread.currentThread().isInterrupted()) {
                     int n = recorder.read(buf, 0, buf.length);
@@ -2795,9 +3285,18 @@ public class CarLauncherPlugin extends Plugin {
                     double vadRms = Math.sqrt(sumSq / n) / 32768.0;
                     if (vadFloorWin < 4) {
                         vadFloorSum += vadRms; vadFloorWin++;
-                        if (vadFloorWin == 4) vadFloor = vadFloorSum / 4.0;
+                        if (vadFloorWin == 4) {
+                            vadFloor = vadFloorSum / 4.0;
+                            // MAVI-STT-LAB-1: taban GERÇEKTEN öğrenildi → şimdi kaydedilir.
+                            VoiceMicDiagnostics.INSTANCE.noteNoiseFloor(vadFloor);
+                        }
+                        // Taban öğrenilirken KULLANILAN eşik yok → -1 (0 UYDURULMAZ).
+                        VoiceMicDiagnostics.INSTANCE.noteRmsFrame(
+                            vadRms, -1, false, SystemClock.elapsedRealtime());
                     } else {
                         double thresh = Math.max(vadFloor * VOSK_VAD_FLOOR_FACTOR, VOSK_VAD_MIN_THRESH);
+                        VoiceMicDiagnostics.INSTANCE.noteRmsFrame(
+                            vadRms, thresh, vadRms >= thresh, SystemClock.elapsedRealtime());
                         if (vadRms >= thresh) {
                             if (tel != null) {
                                 long now = SystemClock.elapsedRealtime();
@@ -2860,6 +3359,15 @@ public class CarLauncherPlugin extends Plugin {
                 if (voskCapturing) rejectVosk("Vosk başlatılamadı: " + th.getMessage());
             } finally {
                 voskCapturing = false;
+                /* MAVI-STT-LAB-1: sonuç KATEGORİSİ (transcript/n-best METNİ DEĞİL).
+                   Kaynak zaten var olan `tel.terminalStatus` — yeni karar üretilmez.
+                   tel yoksa hiçbir şey yazılmaz (sahte "success" UYDURULMAZ). */
+                if (tel != null && tel.terminalStatus != null) {
+                    VoiceMicDiagnostics.INSTANCE.noteResult(
+                        _resultCategory(tel.terminalStatus), System.currentTimeMillis());
+                }
+                VoiceMicDiagnostics.INSTANCE.noteActiveRecognizerActive(false);
+                VoiceMicDiagnostics.INSTANCE.noteSessionEnd();
                 restoreMusicAfterListening(); // dinleme bitti → müziği geri aç (her yol: sonuç/sessizlik/hata/timeout/iptal)
                 if (recorder != null) { try { recorder.stop(); } catch (Exception ignored) {} try { recorder.release(); } catch (Exception ignored) {} }
                 if (agc != null) { try { agc.release(); } catch (Exception ignored) {} }
@@ -3069,6 +3577,7 @@ public class CarLauncherPlugin extends Plugin {
             () -> {
                 stopWakeWordThread();        // olası eski thread → tek instance garantisi
                 wakeWordActive = true;
+                VoiceMicDiagnostics.INSTANCE.noteWakeEngineActive(true); // yalnız gözlem
                 runVoskGrammar();
                 call.resolve();
             },
@@ -3083,6 +3592,7 @@ public class CarLauncherPlugin extends Plugin {
 
     private void stopWakeWordThread() {
         wakeWordActive = false;
+        VoiceMicDiagnostics.INSTANCE.noteWakeEngineActive(false); // yalnız gözlem
         Thread t = wakeWordThread;
         wakeWordThread = null;
         if (t != null && t != Thread.currentThread()) {
@@ -3127,6 +3637,9 @@ public class CarLauncherPlugin extends Plugin {
                 AudioRecord recorder   = null;
                 Recognizer  recognizer = null;
                 boolean triggered = false;
+                // MAVI-STT-LAB-1 (yalnız gözlem): wake yakalama penceresi ölçümü başlar.
+                VoiceMicDiagnostics.INSTANCE.noteSessionStart(
+                    VoiceMicDiagnostics.PATH_WAKE, System.currentTimeMillis());
                 try {
                     int minBuf = AudioRecord.getMinBufferSize(VOSK_SAMPLE_RATE,
                             AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT);
@@ -3149,9 +3662,13 @@ public class CarLauncherPlugin extends Plugin {
                     try {
                         // Grammar modu: yalnız wake sözleri + [unk]
                         recognizer = new Recognizer(voskModel, (float) VOSK_SAMPLE_RATE, wakeGrammarJson);
+                        // MAVI-STT-LAB-1: yalnız SINIF + ADET; wake sözcüğünün KENDİSİ taşınmaz.
+                        VoiceMicDiagnostics.INSTANCE.noteGrammar(
+                            VoiceMicDiagnostics.GRAMMAR_WAKE_WORD, _grammarWordCount(wakeGrammarJson));
                     } catch (Throwable grammarErr) {
                         // Fail-soft: grammar desteklenmiyorsa tam sözlük (eşleşme yine contains)
                         recognizer = new Recognizer(voskModel, (float) VOSK_SAMPLE_RATE);
+                        VoiceMicDiagnostics.INSTANCE.noteGrammar(VoiceMicDiagnostics.GRAMMAR_FREE, -1);
                     }
                     // recorder ZATEN kayıtta (openBestMicRecorder startRecording çağırdı).
 
@@ -3167,6 +3684,9 @@ public class CarLauncherPlugin extends Plugin {
                     // Eşik DÜŞÜK tutuldu (fail-safe: kaçırmaktansa biraz fazla decode).
                     final double VAD_RMS_ON  = 0.012; // gain sonrası normalize RMS konuşma eşiği
                     final int    VAD_HANGOVER = 12;   // ~1.2sn (100ms/frame)
+                    /* MAVI-STT-LAB-1: wake yolunun eşiği SABİTTİR; taban çarpanı UYGULANMAZ
+                       (-1 = "bu yolda yok"), aktif dinleme yoluyla karıştırılmasın. */
+                    VoiceMicDiagnostics.INSTANCE.noteVadConfig(VAD_RMS_ON, -1);
                     final short[] preRoll = new short[frameSamples]; // allocation-free pre-roll
                     int  preRollLen   = 0;
                     boolean preRollValid = false;
@@ -3195,6 +3715,12 @@ public class CarLauncherPlugin extends Plugin {
                         }
                         double rms = Math.sqrt(sumSq / n) / 32768.0;
 
+                        /* MAVI-STT-LAB-1: wake yolunda ÖĞRENİLEN taban YOKTUR — eşik SABİTTİR
+                           (VAD_RMS_ON). noiseFloor bu yolda hiç yazılmaz → LAB "ÖĞRENİLMEDİ"
+                           gösterir; sahte taban UYDURULMAZ. */
+                        VoiceMicDiagnostics.INSTANCE.noteRmsFrame(
+                            rms, VAD_RMS_ON, rms >= VAD_RMS_ON, SystemClock.elapsedRealtime());
+
                         // VAD kapısı: konuşma varsa hangover'ı yenile.
                         if (rms >= VAD_RMS_ON) hangover = VAD_HANGOVER;
                         if (hangover <= 0) {
@@ -3218,6 +3744,9 @@ public class CarLauncherPlugin extends Plugin {
                             : extractVoskText(recognizer.getPartialResult());
                         if (matchesWakePhrase(heard)) {
                             triggered = true;
+                            // MAVI-STT-LAB-1: yalnız KATEGORİ — duyulan metin ('heard') TAŞINMAZ.
+                            VoiceMicDiagnostics.INSTANCE.noteResult(
+                                VoiceMicDiagnostics.RESULT_SUCCESS, System.currentTimeMillis());
                             JSObject ev = new JSObject();
                             ev.put("transcript", heard);
                             notifyListeners("wakeWord", ev);
@@ -3226,8 +3755,11 @@ public class CarLauncherPlugin extends Plugin {
                     }
                 } catch (Throwable th) {
                     // Donanım/izin hatası: sıkı döngüye girmeden bekle, yeniden dene
+                    VoiceMicDiagnostics.INSTANCE.noteResult(
+                        VoiceMicDiagnostics.RESULT_ERROR, System.currentTimeMillis());
                     try { Thread.sleep(3000); } catch (InterruptedException e) { return; }
                 } finally {
+                    VoiceMicDiagnostics.INSTANCE.noteSessionEnd();
                     if (recorder != null) {
                         try { recorder.stop(); } catch (Exception ignored) {}
                         try { recorder.release(); } catch (Exception ignored) {}
@@ -4196,12 +4728,43 @@ public class CarLauncherPlugin extends Plugin {
             call.reject("INVALID_NUMBER", "Telefon numarası boş");
             return;
         }
+        final Uri tel = Uri.parse("tel:" + Uri.encode(number));
+
+        /* ── NEDEN İKİ MOD VAR ────────────────────────────────────────────────
+         * ACTION_DIAL çeviriciyi numarayla AÇAR ama aramayı BAŞLATMAZ; aramayı
+         * yalnız ACTION_CALL başlatır ve o da CALL_PHONE izni ister. Eskiden
+         * KOŞULSUZ ACTION_DIAL kullanılıyordu → sesli komut "aranıyor" diyor ama
+         * hiçbir arama olmuyordu (saha bulgusu). Artık hangi modun çalıştığı
+         * JS'e DÖNDÜRÜLÜR; üst katman sahte onay üretemez. */
+        boolean canPlaceCall = ContextCompat.checkSelfPermission(getContext(),
+                android.Manifest.permission.CALL_PHONE) == PackageManager.PERMISSION_GRANTED;
+
         try {
-            Intent intent = new Intent(Intent.ACTION_DIAL,
-                Uri.parse("tel:" + Uri.encode(number)));
+            if (canPlaceCall) {
+                Intent intent = new Intent(Intent.ACTION_CALL, tel);
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                getContext().startActivity(intent);
+                JSObject res = new JSObject();
+                res.put("mode",   "CALL");
+                res.put("placed", true);
+                call.resolve(res);
+                return;
+            }
+
+            /* İzin yok: bir dahaki sefere gerçekten arayabilmek için İSTE, ama bu
+             * turu sessiz no-op bırakma — çeviriciyi aç ve durumu DÜRÜSTÇE bildir. */
+            try {
+                ActivityCompat.requestPermissions(getActivity(),
+                    new String[]{ android.Manifest.permission.CALL_PHONE }, 9003);
+            } catch (Exception ignored) {}
+
+            Intent intent = new Intent(Intent.ACTION_DIAL, tel);
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
             getContext().startActivity(intent);
-            call.resolve();
+            JSObject res = new JSObject();
+            res.put("mode",   "DIAL");
+            res.put("placed", false);
+            call.resolve(res);
         } catch (Exception e) {
             call.reject("DIAL_FAILED", e.getMessage());
         }
@@ -4870,72 +5433,81 @@ public class CarLauncherPlugin extends Plugin {
     // ── T-8: Hardware Bridge — MCU Komutları ──────────────────────────────────
 
     /**
-     * MCU'ya komut gönderir. SerialPortHandler açıksa gerçek donanıma,
-     * kapalıysa log mesajı bırakır (graceful degradation).
+     * MCU'ya komut gönderir ve BAŞARISIZLIK NEDENİNİ döner.
+     *
+     * ⚠️ GÜVENLİK SÖZLEŞMESİ: bu metot "gönderilemedi"yi SESSİZCE yutmaz. Dönüş
+     * değeri JS'e taşınır ve orada fail-closed yorumlanır — çünkü gönderilemeyen
+     * bir kapı kilidi komutu kullanıcıya "kilitlendi" diye BİLDİRİLEMEZ.
+     *
+     * @return null = paket CAN transportuna GERÇEKTEN yazıldı;
+     *         aksi halde makine-okur neden kodu.
      */
-    private boolean sendMcuCommand(byte[] packet, String label) {
+    private String sendMcuCommand(byte[] packet, String label) {
         if (packet == null) {
             android.util.Log.e("CarLauncherPlugin", label + ": geçersiz paket (whitelist reddi)");
-            return false;
+            return "whitelist_rejected";
         }
         boolean ok = canBusManager.sendCommand(packet);
-        if (ok) android.util.Log.i("CarLauncherPlugin", label + ": MCU'ya gönderildi");
-        else    android.util.Log.w("CarLauncherPlugin", label + ": MCU bağlı değil");
-        return ok;
+        if (ok) {
+            android.util.Log.i("CarLauncherPlugin", label + ": MCU'ya gönderildi");
+            return null;
+        }
+        // canBusManager.sendCommand: transport null VEYA write() false — ikisi de
+        // "araca ulaşmadı" demektir. Native tarafta ikisini ayıracak salt-okunur
+        // API YOK → uydurma ayrım üretmek yerine tek dürüst neden verilir.
+        android.util.Log.w("CarLauncherPlugin", label + ": MCU'ya YAZILAMADI (transport yok veya write başarısız)");
+        return "mcu_send_failed";
+    }
+
+    /**
+     * Donanım komut sonucunu TEK sözleşmeyle döner: `{ sent: boolean, reason?: String }`.
+     *
+     * `call.reject` YERİNE yapılandırılmış `resolve` seçildi: neden kodu makine-okur
+     * biçimde JS'e taşınsın ve mevcut kuyruk/timeout akışı (exception semantiği)
+     * değişmesin diye. Fail-closed yorumlama JS köprüsündedir.
+     */
+    private void resolveMcuCommand(PluginCall call, byte[] packet, String label) {
+        String reason = sendMcuCommand(packet, label);
+        JSObject res = new JSObject();
+        res.put("sent", reason == null);
+        if (reason != null) res.put("reason", reason);
+        call.resolve(res);
     }
 
     @PluginMethod
     public void lockDoors(PluginCall call) {
-        boolean ok = sendMcuCommand(
+        resolveMcuCommand(call,
             com.cockpitos.pro.can.McuCommandFactory.lockDoors(), "lockDoors");
-        JSObject res = new JSObject();
-        res.put("sent", ok);
-        call.resolve(res);
     }
 
     @PluginMethod
     public void unlockDoors(PluginCall call) {
-        boolean ok = sendMcuCommand(
+        resolveMcuCommand(call,
             com.cockpitos.pro.can.McuCommandFactory.unlockDoors(), "unlockDoors");
-        JSObject res = new JSObject();
-        res.put("sent", ok);
-        call.resolve(res);
     }
 
     @PluginMethod
     public void honkHorn(PluginCall call) {
-        boolean ok = sendMcuCommand(
+        resolveMcuCommand(call,
             com.cockpitos.pro.can.McuCommandFactory.honkHorn(), "honkHorn");
-        JSObject res = new JSObject();
-        res.put("sent", ok);
-        call.resolve(res);
     }
 
     @PluginMethod
     public void flashLights(PluginCall call) {
-        boolean ok = sendMcuCommand(
+        resolveMcuCommand(call,
             com.cockpitos.pro.can.McuCommandFactory.flashLights(), "flashLights");
-        JSObject res = new JSObject();
-        res.put("sent", ok);
-        call.resolve(res);
     }
 
     @PluginMethod
     public void triggerAlarm(PluginCall call) {
-        boolean ok = sendMcuCommand(
+        resolveMcuCommand(call,
             com.cockpitos.pro.can.McuCommandFactory.alarmOn(), "triggerAlarm");
-        JSObject res = new JSObject();
-        res.put("sent", ok);
-        call.resolve(res);
     }
 
     @PluginMethod
     public void stopAlarm(PluginCall call) {
-        boolean ok = sendMcuCommand(
+        resolveMcuCommand(call,
             com.cockpitos.pro.can.McuCommandFactory.alarmOff(), "stopAlarm");
-        JSObject res = new JSObject();
-        res.put("sent", ok);
-        call.resolve(res);
     }
 
     // ── H-4 Native Command Queue API ─────────────────────────────────────
@@ -6091,6 +6663,11 @@ public class CarLauncherPlugin extends Plugin {
     @Override
     protected void handleOnDestroy() {
         stopWakeWordThread(); // grammar wake thread — mikrofon sızıntısı olmasın
+        /* SES SIZINTISI KAPANIŞI (saha 2026-07-31): dinleme sırasında STREAM_MUSIC
+         * max'ın %12'sine kısılıyor ve eski seviye YALNIZ bellekte tutuluyor. Süreç
+         * bu noktada ölürse cihaz KALICI olarak kısık kalıyordu (kullanıcı elle
+         * açmak zorunda). Yıkımdan önce geri yükle — kısılmamışsa no-op. */
+        restoreMusicAfterListening();
         stopNativeStreamInternal();
         if (btStateReceiver != null) {
             try { getContext().unregisterReceiver(btStateReceiver); } catch (Exception ignored) {}
@@ -6107,6 +6684,13 @@ public class CarLauncherPlugin extends Plugin {
         if (mediaManager != null) {
             mediaManager.detachMediaSessionsListener();
         }
+
+        // MÜZİK HUB PAKET A: controller aboneliğini bırak (Zero-Leak).
+        // Servis kendi yaşam döngüsünü sürdürür — çalan müzik burada KESİLMEZ.
+        try {
+            CarosPlaybackBridge.getInstance(getContext()).setEventSink(null);
+            CarosPlaybackBridge.getInstance(getContext()).release();
+        } catch (Exception ignored) { }
 
         closeCameraInternal();
         stopPassengerServerInternal();
