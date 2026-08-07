@@ -64,7 +64,5 @@
     ],
     "defaultMode": "bypassPermissions"
   },
-  "remote": {
-    "defaultEnvironmentId": "env_01XeksbESyvKZjfPZou5o97f"
-  }
+  "remote": {}
 }

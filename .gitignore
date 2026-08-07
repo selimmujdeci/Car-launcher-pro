@@ -128,3 +128,10 @@ tools/can-re/
 # Yerel Claude Code hook'ları — makineye özgü yardımcılar, ürünün/build'in parçası değil
 # (ayarları taşıyan .claude/settings.json zaten yukarıda ignore'lu).
 /.claude/hooks/
+
+# Kök dizinde biriken YEREL kazı artefaktları — kaynak değil, commit edilmez:
+#  - `undefined/`: `adb pull` hedef yolu boş değişkenle çağrılınca oluşan klasör
+#    (içinde sürüş sırasında alınmış ekran görüntüsü kalıntıları var).
+#  - `test-parser.ts`: elle koşulan komut-ayrıştırıcı deneme betiği (vitest kapsamı dışı).
+/undefined/
+/test-parser.ts

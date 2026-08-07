@@ -65,6 +65,47 @@ Bu politika öncelik sırasını değiştirir; **stabilite invaryantlarını EZM
 (fail-soft · zero-leak · atomik patch · performans bütçesi · saha doğrulama kütüğü ·
 lisans ve Supabase kuralları). Tam metin: `docs/CAROS_LAB_DEVELOPER_PLATFORM_STRATEGY.md`.
 
+## 👁️ ZORUNLU GÖZLEMLENEBİLİRLİK KURALI (BAĞLAYICI — "TAMAMLANDI" TANIMI)
+
+> **"Gözlemlenemeyen özellik tamamlanmış değildir."**
+
+CAROS LAB, CAROS PRO ekosisteminin **merkezi tanılama ve doğrulama laboratuvarıdır**.
+Araç içi sistemler, Arabam Cebimde, filo yönetimi, bulut servisleri ve gelecekte
+geliştirilecek tüm modüller — uygun olduğu ölçüde — CAROS LAB üzerinden gözlemlenebilir
+olmalıdır.
+
+Her **önemli** özellik, **aynı geliştirme fazı içinde** CAROS LAB entegrasyonuyla
+birlikte tamamlanır. Aşağıdaki yedi şartın tamamı sağlanmadan bir özellik
+**"tamamlandı" SAYILMAZ** (test yeşil + tsc temiz olması yetmez):
+
+1. Özelliğin kendisi uygulanmış olmalı.
+2. CAROS LAB içinde **salt-okunur** gözlem ekranı bulunmalı.
+3. Sağlık durumu, çalışma durumu ve önemli tanılama bilgileri **gerçek veri
+   kaynaklarından** gösterilmeli (sabit/örnek veri YASAK).
+4. LAB ekranı **aktif komut GÖNDERMEMELİ** — öncelik gözlem ve doğrulamadır.
+5. **Kanıtsız bilgi ÜRETİLMEMELİ**; bilinmeyen alanlar `UNKNOWN` / `UNAVAILABLE`
+   olarak gösterilmeli (sahte 0, sahte tarih, sahte "sağlıklı" YASAK).
+6. Gizlilik gerektiren veriler (API anahtarı, kullanıcı verisi, ham komut/transkript,
+   VIN, konum, hassas içerik) **LAB'a TAŞINMAMALI** — yalnız VAR/YOK ve ADET.
+7. Her yeni modül için **unit testler** ve `docs/DEVICE_VALIDATION_LEDGER.md` içine
+   **🔴 cihaz doğrulama maddeleri** eklenmeli.
+
+**Uygulama deseni (mevcut A3–A8 turlarıyla birebir aynı):**
+`<x>Sources.ts` (tek okuma katmanı, senkron, her getter try/catch) →
+`<x>Model.ts` (saf; I/O · timer · `Date.now` · global durum · React importu YOK) →
+`<X>Screen.tsx` (OEM token · açılışta tek okuma + elle YENİLE · timer/abonelik YOK ·
+`mountedRef` + cleanup) → `carosLabCatalog` (PLACEHOLDER→AVAILABLE) →
+`carosLabScreenMap` (lazy) → kilit testleri → kütük + vizyon güncellemesi.
+Gözlemlenebilirlik sınıflandırması `sessionInspectorModel` sözleşmesini KULLANIR
+(`OBSERVED · DERIVED · UNAVAILABLE · STALE`) — paralel sistem KURULMAZ.
+
+**"Önemli özellik" ölçütü:** kendi durumu, sağlığı veya zamanlaması olan her yeni
+alt sistem. Saf yardımcı fonksiyon, tek dosyalık kozmetik düzeltme ve yalnız
+görsel değişiklik bu kuralın dışındadır.
+
+**Gözlem yüzeyi HENÜZ yoksa:** özellik "tamamlandı" diye sunulmaz; eksik LAB ekranı
+**açık borç** olarak vizyon belgesine ve kütüğe yazılır.
+
 ## CAROS PRO Vizyon Kaynağı
 
 CAROS PRO ürün vizyonunun, capability roadmap'inin ve özellik gerçeklik

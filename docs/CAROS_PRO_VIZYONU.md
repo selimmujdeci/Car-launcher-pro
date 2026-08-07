@@ -4,7 +4,13 @@
 > **Belge türü:** Ürün vizyonu + capability roadmap
 > **Kaynak gerçekliği:** Kod, test, UI ve saha kanıtı ayrı değerlendirilir
 > **Güncelleme kuralı:** İlgili her PR sonrasında güncellenir
-> **Son güncelleme:** 2026-07-18 · Branch: `feat/w5-obd-pr1-native-handshake`
+> **Son güncelleme:** 2026-08-03 · Branch: `feat/fleet-offline-final-local-completion`
+> **Son iş:** NAV-MINIMAP-CONT-P0 — navigasyon oturum sürekliliği · **cihazda statik
+> doğrulandı** (§6.3, kütük 🟢 #377/#379 · 🔴 #378/#380/#381/#382,
+> `docs/NAVIGATION_MINI_MAP_SESSION_CONTINUITY_P0_REPORT.md`)
+> **Önceki iş:** NAV-CORE-P0 — navigasyon çekirdeği güvenilirliği (§6.3, kütük #364–#372,
+> `docs/NAVIGATION_CORE_RELIABILITY_P0_REPORT.md`)
+> **Önceki güncelleme:** 2026-07-18 · Branch: `feat/w5-obd-pr1-native-handshake`
 > **Son işlenen PR'lar:** PR-OBD-PAIR-CONTINUITY (ilk-eşleştirme oto-bağlantı kök düzeltmesi) ·
 > `7754500` (W5-3c-3 change detection) · `931b41c` (hız çelişki kapısı) ·
 > `7d95ed8`+`0eb98e2` (araç değişimi kurtarması) · `69d1972` (Bağlantıyı Sıfırla)
@@ -149,8 +155,10 @@ Ayrı alan: **ÜRÜN HAZIR: EVET / HAYIR**
 > Altı koşulun altıncısı en sık atlanan ve en pahalı olandır. Kütükte 🟢 olmayan hiçbir
 > özellik ÜRÜN HAZIR = EVET alamaz.
 
-**Bugünkü toplam (57 denetlenen özellik):** YOK 14 · İSKELET 22 · ENTEGRE 14 ·
+**Bugünkü toplam (59 denetlenen özellik):** YOK 14 · İSKELET 24 · ENTEGRE 14 ·
 DOĞRULANDI 6 · SAHADA DOĞRULANDI 1 · **ÜRÜN HAZIR: 1**
+(+2 İSKELET: **Karar Otoritesi — MAVI Reasoning Engine** ve
+**Karar Üretim Bağlantısı — Reasoning Production Wiring**, 2026-08-01)
 (Detay: `docs-local/caros-feature-audit.html`)
 
 ---
@@ -179,6 +187,821 @@ DOĞRULANDI 6 · SAHADA DOĞRULANDI 1 · **ÜRÜN HAZIR: 1**
 | Rapor `8edd61a6` (2026-07-15) | **KWP/protokol 5 aracında handshake TAM çalıştı** | `outcome: ok` · `vinPresent: true` · `vinClass/bitmapClass: ok` · 15 PID · 6.2 sn · quality %100 · OBD 8.2 sn'de bağlandı · DTC okundu (0 kod) · self-test 13 pass/1 warn/**0 fail** · boşta render ~3 fps | **Extended `samples: []`** (P1-1) · **hız PID'i 0 dönüyor** (→ #77 fix) · Event Bus'ta **0 tüketici** (aşağıya bkz.) |
 
 ### 6.3 Kod tamam + test yeşil, saha borcu açık (kütük 🔴)
+
+- **NAV-MINIMAP-CONT-P0 · Navigasyon Oturum Sürekliliği (2026-08-03 → 04):**
+  tam suite **10 447 test / 468 dosya TAMAMEN YEŞİL**, `tsc -b` temiz,
+  `npm run build` ve `npm run apk:safe` başarılı, dokunulan dosyalarda **yeni lint
+  hatası yok** (kalan 2 uyarı değişiklikten ÖNCE de vardı). **10 kalıcı regresyon
+  kilidi** + 25 yeni birim testi.
+  Durum: **DOĞRULANDI** (cihazda statik; gerçek sürüş YOK — ÜRÜN HAZIR: HAYIR).
+  Verdict: **`LOCAL_COMPLETE_DEVICE_STATIC_VALIDATED_DRIVE_PENDING`**.
+  Kütük: 🟢 **#377** (tam ekran kapalıyken ilerleme sürüyor) · 🟢 **#379**
+  (20 döngüde tek oturum) · 🔴 **#378** (kırpma/ETA azalması) · 🔴 **#380/#381/#382**
+  (cihazda bulunan iki kusur + açık borç).
+  Tam rapor: `docs/NAVIGATION_MINI_MAP_SESSION_CONTINUITY_P0_REPORT.md`.
+
+  Kök neden: **aktif navigasyon oturumunun fiilî sahibi `FullMapView` bileşeniydi.**
+  Rota ilerlemesini süren GPS aboneliği bileşenin İÇİNDEYDİ ve o iki fonksiyonun
+  (`updateRouteProgress` · `updateNavigationProgress`) kod tabanında başka çağıranı
+  yoktu → tam ekran kapanınca **mesafe · ETA · adım sayacı · kademeli sesli anons ·
+  sapma/reroute · varış tespiti TOPLUCA donuyordu.** Yani "tam ekranı kapat" fiilen
+  "navigasyonu dondur" demekti; ürün de bu yüzden kapatmayı iptalle eş tutuyordu.
+
+  - **Motor sahipliği görünümden alındı:** yeni `navigationSessionRuntime`
+    (SystemBoot Wave 3) uygulama ömrü boyunca yaşayan TEK abonelikten tick üretir.
+    **Yeni rota motoru · yeni eşik · yeni durum YOK** — yalnız sahiplik taşındı;
+    reroute/map-matching/doğrulama/varış eşiklerine DOKUNULMADI. Timer yok
+    (kadans GPS fix kadansı), idempotent (çift tick = çift sesli anons olurdu).
+  - **Görünüm geçişi artık oturum sıfırlamıyor:** rota isteği dedup'ı bileşen
+    ref'iydi (`lastFetchedRef`); unmount'ta ölünce tam ekran her yeniden açılışta
+    AKTİF oturum için **yeni `fetchRoute`** atıyor ve durumu **ACTIVE→ROUTING**'e
+    düşürüyordu. Sahiplik oturum otoritesine taşındı (`claimRouteRequest` +
+    `getNavSessionId`).
+  - **Mini harita aktif oturumun İKİNCİ GÖRÜNÜMÜ oldu:** rota çizgisi · ilerleme
+    kırpma · kalan mesafe · ETA · sıradaki manevra · çevrimdışı rozeti · açık
+    "Navigasyonu sonlandır". Kendi rota state'ini KURMAZ. **Dürüstlük:** manevra
+    metni yoksa satır hiç render edilmez; manevra mesafesi yalnız
+    `distanceToNextTurnSource !== UNKNOWN` iken gösterilir; şerit ve dönel kavşak
+    çıkışı mini haritada HİÇ üretilmez (yapısal kilit).
+  - **Kapatmak ≠ sonlandırmak:** oturumu bitiren tek giriş noktası `endNavigation()`
+    kuruldu (öncesinde `stopNavigation()+clearRoute()` ikilisi üç ayrı yerde elle
+    tekrarlanıyordu). Tam ekran X'i ve donanım geri tuşu bu yola BAĞLI DEĞİL.
+  - **Gözlemlenebilirlik:** CAROS LAB → Araç → *Navigation Core* → **kart 9
+    "Oturum Sürekliliği"** (motor ÇALIŞIYOR/ÇALIŞMIYOR · oturum kimliği · istek
+    sahipliği VAR/YOK · işlenen fix + son tick yaşı · atlananlar · hata sayacı ·
+    uptime). Koordinat ve hedef kimliği TAŞINMAZ.
+  - **Açık borç (kaydedildi):** GPS kaybındaki ölü-hesaplama (DR) dalı hâlâ
+    `FullMapView` içinde — tam ekran kapalıyken tünele girilirse ilerleme fix
+    dönene kadar durur. Taşımak NAV-CORE-P0 alanına (DR eşikleri) girerdi.
+  - **CİHAZ ÖLÇÜMÜ (2026-08-04, `4L45OFZDX84X55GE`, Android 13, duran araç):**
+    tam ekran **donanım geri tuşuyla** kapatıldı → 44 sn boyunca durum `ACTIVE`
+    ve **kalan mesafe 10 örneğin 8'inde FARKLI** (motor canlı hesaplıyor);
+    **hiçbir harita mount DEĞİLKEN** LAB kart 9'da **işlenen fix 261 → 296
+    (+35 fix / 30 sn)**, `Motor hatası=YOK`. 20 mini↔tam ekran döngüsünde
+    **40 örneğin tamamı `ACTIVE`**, `reqId` **yalnız 1** (sıfır yeni rota
+    isteği), oturum kimliği `#3` sabit. Eski kodda `reqId` ~21'e çıkardı.
+    Yeni kodun cihazda olduğu **iki bağımsız kanıtla** gösterildi (hash'li
+    chunk'lar cihaz origin'inden indirildi + eski `lastFetchedRef` izi YOK).
+  - **CİHAZDA BULUNAN KUSUR K1 — uydurma ETA barı gerçek rotayla çelişiyordu:**
+    `ProLayout`/`TeslaLayout`/`ExpeditionLayout` mini haritanın üstüne **sabit**
+    `23 dk · 19:56 · 18 km` şeridi çiziyordu; gerçek rota **2,7 km** iken ekranda
+    "18 km · 23 dk" yazıyor ve GERÇEK verili şeridi de örtüyordu. `useNavSummary`
+    başlığındaki 2026-08-02 düzeltmesi ÜST CHIP'i gerçek kaynağa bağlamıştı; **alt
+    bar gözden kaçmış.** Aktif rota varken gizlendi. Rota YOKKEN dekoratif sahte
+    değerler duruyor → **açık borç, kütük #382.**
+  - **CİHAZDA BULUNAN KUSUR K2 — navigasyondayken ana ekrana dönüş yolu YOKTU:**
+    `MapHudControls` kapatma düğmesini `{!isNavigating && …}` ile gizliyordu;
+    geriye donanım geri tuşu ve **kırmızı SONLANDIR** kalıyordu. Uygulama bir
+    LAUNCHER ve hedef head unit'lerde (K24/T507) donanım geri tuşu çoğu zaman
+    YOK → kullanıcı ana ekrana dönmek için navigasyonu **BİTİRMEK** zorundaydı;
+    yani bu görevin kapattığı arıza UI tarafında hâlâ açıktı. Ayrı nötr renkli
+    **"ANA EKRAN"** düğmesi eklendi ve cihazda doğrulandı.
+  - **Sürüş bekleyen:** kırpmanın geride kalanı silmesi · kalan mesafe ve ETA'nın
+    AZALMASI · reroute · kademeli sesli anons · varış · düşük-uç GPU (Mali-400/K24)
+    FPS ve termal maliyeti. Ölçüm cihazı telefondu, head unit DEĞİL.
+
+- **FIELD-GAP-CLOSURE-2026-08-05 · Konya→Tarsus saha eksiklerinin ilk kapatma turu:**
+  tam suite **10 831 test / 477 dosya YEŞİL** (iki ardışık tam koşu; bir koşuda
+  `labTruthAuthorities` paralel yarıştan düştü, izole ve ikinci tam koşuda geçti —
+  ürün koduyla ilgisi yok), `tsc -b` temiz, değişen dosyalarda yeni lint hatası yok.
+  Kütük **#432–#448** (17 madde). Durum: **ENTEGRE** — saha kanıtı YOK,
+  **ÜRÜN HAZIR: HAYIR**. Kaynak eksik listesi: `docs/NAV_FIELD_GAPS_2026-08-05.md`.
+
+  **Kapatılanlar (kod kanıtı, cihazda doğrulanmadı):**
+  - **Yanlış veri gösterimi:** OBD `0xFF` sentineli artık hız olarak basılmıyor (#399);
+    ekranda **tek hız otoritesi** var (#417 — sahada aynı anda üç farklı hız vardı);
+    akü voltajı CAN→OBD otoritesine bağlandı ve WARN kartta görünür (#427);
+    bakım ekranı veri yokken "güncel" demiyor (#420); rota iptalinde geri gelen
+    sahte ETA şeridi tamamen kaldırıldı (#382/#431).
+  - **Navigasyon çekirdeği:** GPS alım sağlığı (varış/kabul/red + tazelik sınıfı)
+    ölçülebilir oldu (#401/#406/#423); "rotadan çıktın" kararı ile reroute artık
+    AYNI doğruluk eşiğini paylaşıyor ve engellenen her reroute nedeniyle deftere
+    yazılıyor (#402); hedef değişimi **sahiplik kapısına** bağlandı (#429 — kullanıcı
+    iradesi olmadan hedef değişemez); `isGuidanceActive` ile "oturum açık" ≠ "rehberlik
+    sürüyor" ayrıldı (#416/#418); ETA tek otoriteye indi ve kuş uçuşu mesafe hem
+    işaretleniyor hem ETA girdisinden çıkarıldı (#403/#404); hız `null` iken sahte 0
+    yazıp yönü çöpe atma kusuru giderildi (#405/#408).
+  - **Altyapı:** cihaz TÜRÜ ile performans SINIFI ayrıldı (#411 — telefon artık head
+    unit damgası almıyor); iklim ve ayarlar ekranları OEM token katmanına taşındı
+    (#412-d/#425); AI `402` (kredi bitti) artık `401` ile aynı kovada değil (#421);
+    kalıcı Supabase şema hatası tekrar denenmiyor (#422); **CAN snapshot'ın native'de
+    neden 63 saattir yazılmadığının KÖKÜ bulundu** — anahtar kritik listede olmadığı
+    için `localStorage` yedeği hiç alınmıyordu (#400).
+
+  **AÇIKÇA YAPILMADI (bu turda kapsam dışı, kütükte açık):**
+  - **Ekran görüntüsü gerektiren yerleşim kusurları:** #412-a/b/c (ana ekranda hız
+    metni ikonlara biniyor · GPS uyarısı widget'ları kapatıyor · yol sayacı kırpık),
+    #419 (müzik kontrolleri alt barın altında), #426 (tam ekran nav buton çakışması),
+    #430 (dikey modda boş harita). Cihaz olmadan yapılacak CSS değişikliği **kör
+    patch** olur; ölçüm turuna bırakıldı.
+  - **#410 çevrimdışı rota motoru** (yerel OSRM) — ayrı ve büyük bir iş.
+  - **#409 şerit + canlı trafik** — kod boşluğu değil **veri boşluğu**; BYOK sağlayıcı
+    kararı gerektiriyor.
+  - **#424 ağ dayanıklılığı (15 dk'da 131 kopma)** — #422 gürültüsünün bir kısmını
+    kesse de asıl ölçüm yapılmadı.
+  - **#414 doğrulama modunun kayıt ürettiği** doğrulanmadı.
+  - **#421'in kullanıcıya görünen yüzeyi** (asistanda ayırt edici mesaj) bağlanmadı.
+  - **#401'in KÖK NEDENİ** (fix neden 19,5 s bayat) hâlâ bilinmiyor — bu tur onu
+    yalnız **ölçülebilir** yaptı.
+
+  **Sıradaki adım:** aynı cihazda ikinci bir Konya→Tarsus ölçümü; `getGpsIntakeSnapshot`,
+  `getRerouteBlockStats`, `getDestinationChangeLog` ve `validationWarnIds` çıktılarıyla
+  #432–#448'in kabul ölçütleri tek tek sınanmalı.
+
+- **NAVIGATION-CAMERA-SHADOW · Kamera Politikası Gölge Doğrulaması (2026-08-05):**
+  tam suite **10769 test / 477 dosya**, **iki ardışık koşumda da TEMİZ**;
+  `tsc -b --force` temiz; yeni/değişen dosyalarda eslint **0 sorun**.
+  Kütük **#398**. Durum: **ENTEGRE** (saha kanıtı YOK — ÜRÜN HAZIR: HAYIR).
+  Karar: **`NAVIGATION_CAMERA_SHADOW_COMPLETE_LOCAL`** ·
+  `realVehicleValidationVerdict = PENDING_REAL_VEHICLE`.
+  Tam rapor: `docs/NAVIGATION_CAMERA_SHADOW_REPORT.md`.
+
+  #396'da kurulan `CAM-2026.08.05` politikası kamerayı sürmediği için o tur
+  PARTIAL kalmıştı; devralma kararı **ölçüme** bağlıydı. Bu tur o ölçümün
+  altyapısını kurar: legacy `cameraEngine` çıktısı ile politika önerisi **aynı
+  navigasyon oturumunda yan yana** üretilir ve farkları LAB'da görünür.
+
+  - **ÜRÜN DAVRANIŞI DEĞİŞMEDİ** ve bu testle kilitlendi: `cameraEngine`'in 10
+    saha-ayarlı sabiti, kamera akışı ve `map.project()` çağrı sayısı (3 — hepsi
+    bu turdan önce vardı) sabitlendi. Gölge katmanı `cameraEngine`'i **import
+    etmez**, **Map API çağırmaz**, **koordinat kabul etmez** (tip düzeyinde).
+  - **`anchorY` türetilmedi, ÖLÇÜLDÜ:** legacy çerçeve denetimi için zaten
+    `map.project(...).y` hesaplıyordu; gölge o değeri yeniden kullanır → gölge
+    için ek harita işi YOK.
+  - **#396'nın açık borcu kapandı:** `suppressedCameraUpdates` artık sabit 0
+    değil, gerçek sayaç. `accepted + suppressed === evaluation` ve
+    `legacyApply + legacySkip === evaluation` değişmezleriyle kilitli — hiçbir
+    kamera çağrısı sayaçtan kaçamaz.
+  - **Sahte 0 yazılmadı:** politika bu turda zoom/pitch önermediği için o
+    deltalar dürüstçe `null`. LAB alan denetimine bu **yapısal istisna** açıkça
+    listelendi ve gerekçesinin ekranda yazdığı ayrıca kilitlendi — eğri
+    devralınınca istisna kalkmalıdır.
+  - **En anlamlı sinyal sayı değil KARAR:** legacy kamerayı sürdü mü, politika
+    izin verir miydi? Ayrışma, eğri devralınırsa ürünün farklı davranacağı yeri
+    işaret eder.
+  - **Taşınan kilitler:** üç durakta-kamera kilidi erken dönüşün tek-satır
+    biçimini şart koşuyordu; erken dönüş bloğa alındı (çıkmadan önce gölge
+    bildiriliyor) — davranış birebir aynı, kilitler yeni biçime taşındı ve
+    "erken dönüş de raporlanmalı" kilidi EKLENDİ.
+  - **Flaky disiplini:** önceki turda görülen `selfTestEngine` timeout'u bu tur
+    iki koşumda da geçti; `cameraShadow*`/`cameraPolicy*`/`navMarkerMotion*` ile
+    **import bağı olmadığı** doğrulandı → sahiplenilmedi ama gizlenmedi.
+  - **Açık borçlar:** `viewport` her zaman `FULL` raporlanıyor (mini/tam ayrımı
+    `setDrivingView` imzasını değiştirmeyi gerektirirdi) · politika hâlâ
+    zoom/pitch önermiyor · sayaçlar oturumlar arası kalıcı değil ·
+    **gerçek araçta hiçbir ölçüm yapılmadı**.
+
+- **NAVIGATION-MOTION-CAMERA-P0 · Mini Harita Hareketi & Takip Kamerası (2026-08-05):**
+  tam suite **10732 test / 476 dosya TAMAMEN YEŞİL**, `tsc -b --force` temiz,
+  eslint'te bu paketin dosyalarında **0 hata / 0 uyarı**. Kütük **#394–#397**.
+  Durum: **ENTEGRE** (saha kanıtı YOK — ÜRÜN HAZIR: HAYIR).
+  Karar: **`NAVIGATION_MOTION_CAMERA_P0_PARTIAL`** ·
+  `realVehicleValidationVerdict = PENDING_REAL_VEHICLE`.
+  Tam rapor: `docs/NAVIGATION_MOTION_CAMERA_P0_REPORT.md`.
+
+  - **MİNİ HARİTADA ARAÇ ZIPLIYORDU:** marker DOĞRUDAN GPS geri çağrısında
+    çiziliyordu (2 Hz tavan) — tam ekran ise kendi RAF'ında ara değer üretiyordu.
+    Aynı üründe iki farklı akıcılık. Paylaşılan `navMarkerMotionRuntime` kuruldu;
+    bileşenler artık kendi interpolasyon motorunu KURMAZ, yalnız "şimdi nereye
+    çizilmeli" diye SORAR. Dürüstlük sınırları: duran araçta **yapay mesafe
+    üretilmez**, fiziksel olarak imkânsız GPS sıçraması **animasyonla
+    meşrulaştırılmaz**, bayat konumda işaret **donar**.
+  - **🔴 TESTİN BULDUĞU ÜRETİM KUSURU — kuzeyde işaret 180° ters dönüyordu:**
+    `utils/interpolation.lerpAngle` `((b-a+180)%360)-180` kullanıyordu; JS'te `%`
+    **kalan** operatörüdür, modulo değil → `lerpAngle(350,10,0.5)` **180°**
+    döndürüyordu (doğrusu 0°). Araç KUZEYE giderken marker ara değerleme
+    sırasında tam ters dönüyordu; ters geçiş doğru çalıştığı için kusur bugüne
+    kadar fark edilmemişti. Düzeltildi ve kilitlendi.
+  - **MİNİ HARİTA KAMERASI EKSİK ARGÜMANLA ÇAĞRILIYORDU:** `setDrivingView`
+    tam ekranda 10, mini haritada 6 argümanla çağrılıyordu → kavşak yaklaşımı,
+    dönüş öngörüsü ve durakta rota-yönü düzeltmesi mini haritada HİÇ
+    çalışmıyordu. Parite sağlandı (yol-boyu manevra mesafesi + rotanın ileri
+    yönü, tam ekranla AYNI otoriteden).
+  - **Versiyonlu kamera politikası** (`CAM-2026.08.05`): 10 durum · histerezisli
+    hız bantları (CRUISE giriş 90 / çıkış 82 → sınırda salınım yok) · yol-boyu
+    manevra bantları · yön-duyarlı çapa · güncelleme fırtınası kapısı.
+  - **Dikey tam ekran navigasyon:** ana arayüz YATAY kalır (manifest
+    değişmedi); kilit yalnız tam ekran navigasyon süresince native
+    `setNavigationOrientation` ile gevşer, çıkışta geri alınır (ref-count'lu,
+    fail-soft).
+  - **Gözlemlenebilirlik:** CAROS LAB → Navigation Core → **kart 13 "İşaret
+    Hareketi · Takip Kamerası"** (22 alan; koordinat maskelidir).
+  - **Açık borçlar (bu yüzden PARTIAL):** kamera politikası ÜRETİLİYOR ve
+    gözleniyor ama **fiilî zoom/pitch hâlâ sahada ayarlı `cameraEngine`
+    eğrilerinden geliyor** — eğrileri aynı turda devralmak ölçümsüz regresyon
+    riskiydi · `anchorY` henüz kameraya uygulanmıyor · `suppressedCameraUpdates`
+    ürün sayacı bağlı değil · **APK üretilmedi, yön değişimi hiç çalıştırılmadı**
+    · döner kavşak/iki yakın manevra için özel kadraj yok.
+
+- **NAVIGATION-DELIVERY-CORE-P0 · Teslim Çekirdeği: Ses · Ölü Hesaplama · ETA (2026-08-04):**
+  tam suite **10684 test / 475 dosya TAMAMEN YEŞİL**, `tsc -b --force` temiz,
+  eslint'te bu paketin dosyalarında **0 hata / 0 uyarı**. Kütük **#391–#393**.
+  Durum: **ENTEGRE** (saha kanıtı YOK — ÜRÜN HAZIR: HAYIR).
+  Karar: `NAVIGATION_DELIVERY_CORE_P0_COMPLETE_LOCAL` ·
+  `realVehicleValidationVerdict = PENDING_REAL_VEHICLE`.
+  Kaynak analiz: `docs/NAVIGATION_P0_CORE_OEM_GAP_ANALYSIS.md` (G1·G2·G3).
+  Tam rapor: `docs/NAVIGATION_DELIVERY_CORE_P0_REPORT.md`.
+
+  OEM denetiminin en ağır üç bulgusu kapatıldı. Üçü de aynı sınıftandı:
+  **navigasyonun TESLİM katmanı bir React bileşenine bağlıydı.**
+
+  - **SESLİ YÖNLENDİRME ÖLÜYDÜ:** kademeli anons `NavigationHUD`'un
+    `useEffect`'indeydi ve o bileşen yalnız `FullMapView` içinde mount ediliyor
+    → sürücü mini haritaya döndüğü an **hazırlık · yaklaşma · dönüş anonslarının
+    hepsi susuyordu**. Üstelik `navigationSessionRuntime` başlığı bu arızanın
+    çözüldüğünü YAZIYORDU (belge–kod çelişkisi). Kademe maskesi bileşen ref'i
+    olduğu için görünüm açılıp kapanınca aynı manevra **ikinci kez**
+    seslendiriliyordu. Sahiplik `voiceGuidanceRuntime`e taşındı; kanonik kimlik
+    `oturum:rotaRevizyonu:adım`. **Eşikler ve metinler BİREBİR korundu** —
+    yeni anons algoritması YAZILMADI.
+  - **TÜNELDE İLERLEME ÖLÜYDÜ:** ölü hesaplama beslemesi `FullMapView`'ın RAF
+    döngüsündeydi → mini haritadayken tünelde **mesafe · ETA · adım sayacı**
+    donuyordu. Runtime'a taşındı: **tek** 1 Hz zamanlayıcı, aynı eşikler
+    (`GPS_STALE_MS=5000` · `DR_MAX_DT_SEC=60` · `allowReroute:false`).
+    Çift ilerleme yapısal olarak imkânsız — `updateRouteProgress` **mutlak**
+    eşleştirme yapar, birikimli değildir. Güven bitince ilerleme DURUR;
+    hız kaynağı yoksa projeksiyon YAPILMAZ (sahte ilerleme yasak).
+  - **ETA ROTANIN SÜRE MODELİNİ KULLANMIYORDU:** `annotations=duration` OSRM'den
+    **zaten isteniyordu** ama yanıt hiç ayrıştırılmıyordu — o veri için harcanan
+    bant genişliği çöpe gidiyordu. ETA `kalanMesafe / anlıkHız` ile türetildiği
+    için şehir→otoyol rotasında varış saati sürekli kayıyordu. Artık gövde
+    rotanın kendi süresidir; anlık hız yalnız **kırpılı** (0.8–1.5) bir düzeltme
+    çarpanı üretir ve modeli EZEMEZ. Araç durunca ETA şişmez (düzeltme yalnız
+    ≥8 km/sa'te uygulanır). Süre dizisi doğrulaması **fail-closed**; süre +
+    geometri + revizyon **atomik** devralınır → bayat rota süresi kullanılamaz;
+    düz hat `ROUTE_MODEL` durumunu yapısal olarak üretemez.
+  - **Gözlemlenebilirlik:** CAROS LAB → Navigation Core → **kart 12 "Teslim
+    Çekirdeği"** (22 alan, salt-okunur; runtime BAŞLATILAMAZ/DEĞİŞTİRİLEMEZ).
+  - **Taşınan kilitler (kaldırılmadı):** hız-adaptif eşik · rota değişince
+    kademe sıfırlama · off-by-one anons · ilk-talimat damgası monotonikliği ·
+    "motor timer kurmaz" → **"yalnız DR için TEK timer"** (bu kilit bilinçli
+    değişti: GPS kesilince geri çağrı gelmez, DR zamanlayıcısız çalışamaz).
+  - **Açık borçlar:** HUD'da LIMP_HOME bildirimi için tek `speakNavigation`
+    kaldı (bilişsel durum, kapsam dışı, kilitli) · ETA hesaplanamadığında
+    ekranda bir önceki değer kalır (LAB'da durum görünür) · **hiçbir senaryo
+    gerçek araçta ölçülmedi.**
+
+- **VEHICLE-AWARE-SPEED-LIMIT-P0 · Araç Farkında Hız Sınırı (2026-08-04):**
+  tam suite **10621 test / 474 dosya TAMAMEN YEŞİL**, `tsc -b --force` temiz
+  (app + website), eslint'te bu paketin dosyalarında **0 hata / 0 uyarı**.
+  Kütük **#388–#390**. Durum: **ENTEGRE** (saha kanıtı YOK — ÜRÜN HAZIR: HAYIR).
+  Karar: `VEHICLE_AWARE_SPEED_LIMIT_P0_COMPLETE_LOCAL` ·
+  `realDeviceValidationVerdict = PENDING_REAL_DEVICE`.
+  Tam rapor: `docs/VEHICLE_AWARE_SPEED_LIMIT_P0_REPORT.md`.
+
+  Hız limiti zincirinin doğruluk tarafı bugüne kadar **yalnız yoldaydı**. Oysa
+  Türkiye'de aynı yolun sınırı araca göre değişir: levhası 130 olan bir otoyolda
+  otomobil (M1) 130, **panelvan (N1) 110, kamyonet (N1) 95** ile sınırlıdır.
+  Ruhsatında kamyonet yazan bir Fiat Doblo sürücüsüne 130 göstermek onu 35 km/sa'lik
+  bir yasal ihlale doğru yönlendirir. Bu tur **8 Kapı**'nın 1–3. kapılarını
+  (doğru mu · önemli mi · kullanıcı bilmeli mi) hız limiti sinyali için kapatır.
+
+  - **Kanonik yasal sınıf modeli** (`legalVehicleClass`): M1/M1G/M2/M3/N1/N1G/N2/N3
+    + ruhsat gövde cinsi + kaynak sırası + altı durum (`VERIFIED · PROBABLE ·
+    AMBIGUOUS · UNAVAILABLE · CONFLICTED · STALE`). **Marka/model adından sessiz
+    sınıf ÜRETİLMEZ** — Doblo hem M1 hem N1 satılır. **OBD'den okunan VIN tek
+    başına ruhsat kanıtı SAYILMAZ** (otoriter kaynaklar: ruhsat · kullanıcı ·
+    resmî VIN sorgusu).
+  - **Versiyonlu Türkiye politika tablosu** (`TR-2022.07.01`): sayılar UI'a
+    gömülmez; her satır ülke · sürüm · yürürlük · otorite · kaynak künyesi taşır.
+    Değerler **iki bağımsız kaynakla** doğrulandı (KGM resmî sayfası + KTY md.100),
+    panelvanın kamyonetten ayrılması (RG 21/3/2012) ve otoyol 130/140 kararı
+    (İçişleri, 1/7/2022) künyelendi. **Kaynak çelişkisi kaydedildi:** yönetmeliğin
+    2010 metninde panelvan satırı yok; daha güncel ve otoriter olan KGM esas alındı.
+  - **Tek otorite `computeEffectiveSpeedLimit`:** `min(yol sınırı, araç tavanı)`.
+    Araç sınıfı tablosu levhayı **ASLA YÜKSELTMEZ** (kaba kuvvet taramasıyla
+    kilitli: 9 levha × 5 kategori × 5 gövde). Sınıf bilinmiyorsa **otomobil
+    VARSAYILMAZ** → kart `ROAD_ONLY` + açık **"YOL SINIRI"** etiketiyle çıkar.
+    N1 gövdesi belirsizse **en düşük aday** (95) uygulanır; yol sınıfı
+    çözülemiyorsa tavan hiç uygulanmaz.
+  - **DENETİMDE BULUNAN KUSUR — tam ekran levhası sessizce ÖLÜYDÜ:**
+    `NavigationHUD` levhayı `useSpeedLimitByLocation()`'ın **dönüş değerinden**
+    alıyordu; o değer hook'un yerel state'idir ve modül düzeyi sahiplik kilidi
+    yüzünden **yalnız sorgu SAHİBİ örnekte** dolar. Mini harita önce mount
+    olduğunda tam ekran hook'u kalıcı `null` dönüyor ve **HUD levhası hiç
+    çıkmıyordu**; ters sırada ise HUD, dürüstlük modelinden GEÇMEMİŞ ham değeri
+    (bayat/çelişkili/çıkarım) gösterebiliyordu. Yani ürün fiilen **iki ayrı hız
+    limiti motoru** çalıştırıyordu. Tek `useEffectiveSpeedLimit()` hook'u ve tek
+    `SpeedLimitCard` bileşeninde birleştirildi.
+  - **Kullanıcı doğrulaması sürüşü BÖLMEZ:** soru modal değil, haritanın altında
+    ince bir şerittir ve yalnız **araç dururken** (≤3 km/sa, hız bilinmiyorsa
+    HİÇ) çıkar. "Bilmiyorum" bir sınıf beyanı değildir — sınıf `UNKNOWN` kalır.
+    Kullanıcı ↔ internet çelişkisi **sessizce ezilmez**: kullanıcı uygulanır,
+    durum `CONFLICTED` ilan edilir. Kalıcı düzeltme: Ayarlar → Ruhsat Sınıfı.
+  - **Gözlemlenebilirlik:** CAROS LAB → Navigation Core → **kart 11 "Araç Sınıfı ·
+    Uygulanabilir Hız Sınırı"** (28 alan, salt-okunur; sınıf/politika/limit
+    buradan DEĞİŞTİRİLEMEZ). Tam VIN taşınmaz — yalnız maskeli gösterim.
+  - **Gizlilik:** tam VIN loga/LAB'a/exporta çıkmaz; backend'e bile yalnız ilk
+    **9 hane** (seri numarası yok) gider ve proxy 17 haneyi **reddeder**.
+    Sağlayıcı anahtarı bundle'a gömülmez; backend yoksa araştırma yapılmaz.
+  - **Açık borçlar (rapor §16):** sağlayıcı yapılandırılmadı → çalışma-zamanı
+    araştırması bugün fiilen **kapalı**, sınıfın tek gerçek kaynağı kullanıcı
+    beyanı · tam ekrandaki `≈` çıkarım levhası bilinçli olarak kaldırıldı
+    (`maxspeed`siz yollarda kart görünürlüğü düşecek; doğru çözüm araç sınıfına
+    duyarlı çıkarım katmanıdır) · KGM/YİD otoyol ayrımı için veri kaynağı yok ·
+    ruhsat OCR kapsam dışı · **araç tavanı aşımında uyarı üretilmiyor** ·
+    `speedLimitService`'in yüksek hızda uç nokta rotasyonu kusuru (#385) sürüyor.
+
+- **NAV-CORE-P0 · Navigasyon Çekirdeği Güvenilirliği (2026-08-03):**
+  tam suite **10389 test / 466 dosya TAMAMEN YEŞİL**, `tsc --noEmit` temiz,
+  `npm run build` başarılı, eslint'te bu paketin dosyalarında **0 hata / 0 uyarı**.
+  Kütük **#364–#372**.
+  Durum: **ENTEGRE** (saha kanıtı YOK — ÜRÜN HAZIR: HAYIR).
+  Tam rapor: `docs/NAVIGATION_CORE_RELIABILITY_P0_REPORT.md`.
+  Karar: `NAVIGATION_CORE_RELIABILITY_P0_COMPLETE_LOCAL` ·
+  `realVehicleValidationVerdict = FIX_PENDING_REAL_VEHICLE_RETEST`.
+
+  İki saha şikâyetinin ("yeniden rota çok geç", "saçma yollardan götürüyor")
+  kökü tek bir yapısal eksikti: **ham GPS noktası doğrudan rota kararı olarak
+  kabul ediliyordu.** Karar zincirine üç **saf** katman kondu ve rota
+  isteklerine yaşam döngüsü verildi.
+
+  - **Map matching (rota-göreli):** üç bağımsız kanıt — dik mesafe · **yön
+    uyumu** (bölünmüş bulvarda karşı şeridi eleyen tek sinyal) · ilerleme
+    sürekliliği. Durumlar `MATCHED · MATCH_UNCERTAIN · OFF_NETWORK · STALE ·
+    UNKNOWN`; `MATCHED` dışında güven 0.40 ile tavanlı. Ham GPS kaybolmaz.
+  - **Sapma durum makinesi:** sabit "3 tick" yerine hız+doğruluk uyarlanabilir
+    kanıt penceresi (2–5 örnek **ve** 0.8–2.5 sn; kaba sapmada kısalır).
+    Tek örnek asla doğrulamaz; **tünel/GPS kaybı sapma sayılmaz.**
+  - **Rota doğrulama kapısı:** sağlayıcının ilk rotası artık **koşulsuz kabul
+    edilmiyor** — 12 denetim, `REJECTED` rota uygulanmıyor, alternatifler
+    arasından **en az kusurlu** seçiliyor. Yol sınıfı kanıtı olmadığı için o
+    denetim dürüstçe `UNKNOWN` kalıyor.
+  - **İstek yaşam döngüsü:** kimlik · SUPERSEDED · **bayat yanıt reddi**
+    (eski yanıt güncel rotayı EZEMEZ) · tekrar bastırma sayacı · 5 halkalı
+    gecikme ölçümü (sapma → istek → yanıt → uygulandı → ilk talimat).
+  - **Yol-boyu manevra mesafesi:** kullanıcının birebir bildirdiği kusur
+    ("daha 50 metre var, sağa dön diyor") kapatıldı. `cumulativeDistances`
+    zaten vardı; eksik olan manevra noktasının geometri indeksiydi.
+  - **İki dürüstlük ihlali kapatıldı:** (a) kanıtsız şerit rehberi — oklar
+    manevra tipinden TÜRETİLİYORDU; artık gerçek `intersections[].lanes`
+    yoksa panel **hiç çıkmıyor**; (b) dönel kavşak çıkış numarası artık
+    `maneuver.exit`ten geliyor, yoksa **uydurulmuyor**.
+  - **Ölü katman kapatıldı:** her rotada 3 sn'ye kadar bekleyen
+    `localhost:5000` isteği oturumda tek ve 700 ms sınırlı yoklamaya indi.
+  - **Denetimde OLMAYAN bir kusur bulundu:** `UnifiedVehicleStore.speed` zaten
+    km/h iken `navigationService` **üç yerde 3.6 ile çarpıyordu** → varış
+    kapısı 10 km/h yerine 2.8 km/h'ye düşüyor ve **varış tetiklenmiyordu**;
+    ETA sistematik olarak kısa çıkıyordu.
+  - **Gözlemlenebilirlik borcu kapatıldı:** denetimin "47 LAB girdisinde
+    navigasyon ekranı YOK" bulgusu giderildi — **CAROS LAB → Araç →
+    Navigation Core** (8 kart, salt-okunur, 28 kilit).
+    **Gizlilik kararı:** görev "raw GPS / matched position" göstermeyi
+    istiyordu; **koordinat GÖSTERİLMEDİ** (CLAUDE.md gözlemlenebilirlik
+    kuralı 6 + `LocationEngineScreen` emsali) — yalnız VAR/YOK, yaş ve
+    rotaya dik mesafe.
+  - **Açık borçlar (rapor §15):** tam yol-ağı eşleştirme ve çevrimdışı gerçek
+    rota `routing-graph.bin` artefaktına bağlı (cihazda YOK) · trafik verisi
+    yok · hayalet GPS hızı filtresi (#362) hâlâ uygulanmadı · `ROAD_CLASS_MIX`
+    denetimi kanıtsız olduğu için UNKNOWN.
+  - **Bu turda kendi eklediğim iki kusur testlerle yakalanıp kapatıldı:**
+    (1) map matching koridor dışını `UNKNOWN` sayıyordu → reroute tamamen
+    ölürdü; (2) `recordFailure` kendi güncellik kapısını bozuyordu → düz-hat
+    yolunda rota tamamen kayboluyordu.
+
+- **PRE-ROAD-GATE · Yol Öncesi Güvenlik Kapısı (2026-08-02):**
+  tam suite **10043 test / 459 dosya TAMAMEN YEŞİL**, `tsc -b` temiz, eslint 0 sorun.
+  Kütük **#312 · #313 · #314 · #315**.
+  Durum: **ENTEGRE** (saha kanıtı YOK — ÜRÜN HAZIR: HAYIR).
+  Tam rapor: `docs/AUTONOMOUS_FIELD_VALIDATION_PRE_ROAD_SAFETY_GATE_REPORT.md`.
+  Karar: `PRE_ROAD_GATE_PARTIAL`.
+
+  Uzun yol öncesi iki iş yapıldı: (a) yanlışlıkla `git checkout --` ile geri
+  alınan üç dosyanın **kanıtlı kurtarma denetimi**, (b) saha testinin kendi
+  kayıtlarını denetleyen **ikinci, salt-okunur otorite**.
+
+  - **Kurtarma KANITLANDI, ama artık risk kayda geçti:** katalog **44/44 araç ×
+    6 alan birebir**, screenMap **35/35 case aynı ekrana** (iki `focus` prop'u
+    dahil), MainLayout'ta **sahipsiz string 0**. Kanıt testi
+    `_auditCatalogRecovery.test.ts`. **Kapatılamayan boşluk:** yöntem derlenmiş
+    bir yapıya dayandığı için 2026-08-01 23:55 sonrası düzenleme penceresine
+    KÖRDÜR → kütük #314, kapanışı kullanıcı teyidine bağlı.
+  - **Denetim gerçek bir kusur buldu (#315):** `<FieldTestBadge />` mount'u
+    kurtarma sırasında düşmüştü; `tsc` temiz, **tüm suite yeşildi** ve hiçbir
+    test yakalamadı — sürüş göstergesi ürüne bağlı olmadığı hâlde "tamam"
+    görünüyordu. Geri kondu ve **mount kilidi** yazıldı. DERS: *"tüm testler
+    yeşil" bir mount'un varlığını KANITLAMAZ.*
+  - **Öz-denetleyici (`longRoadSelfValidator`) — ölçen ile denetleyen AYRI:**
+    8 denetim ham olay defterinden yeniden hesap yapar (olay varlığı · zaman
+    tutarlılığı · sayaç yeniden üretimi · null→hüküm · kopya olay · düşen
+    kaydın etkisi · checkpoint↔halka çelişkisi · restart sıçraması).
+    **PASS/FAIL kararına DOKUNMAZ:** `affectsAcceptanceVerdict:false` tipte
+    sabittir, doğrulayıcı kabul matrisini **import dahi etmez**, JSON raporda
+    `verdicts` bloğunun DIŞINDA durur ve bozuk öz-denetimle matrisin
+    değişmediği testle kanıtlanmıştır.
+  - **Düşen kayıt MISMATCH SAYILMAZ:** bütçe budaması farkı zaten açıklar;
+    aksi hâlde bütçe davranışı sahte "veri bozuk" alarmına dönüşürdü →
+    `INSUFFICIENT_RAW_EVIDENCE`. Bu kural yazılırken gerçek bir boşluk bulundu
+    ve düzeltildi (defterin TAMAMI budandığında ilk uygulama yine MISMATCH diyordu).
+  - **Başlangıç kapısı gerçek otoriteye bağlandı:** GPS **izni** artık
+    `gpsService.getGPSState()`ten okunuyor (izin İSTENMEZ, yalnız okunur) →
+    `BLOCKED_POLICY`; storage artık bütçe payını da bildiriyor ve işletim
+    sistemi boş alanını **"yeterli" VARSAYMIYOR**. Eksik kapı testi
+    ENGELLEMEZ — tek meşru engel kanıtın SAKLANAMAMASIDIR (kalıcılık/tampon).
+  - **Önceki turun "kırık kilit" tespiti ÇÜRÜTÜLDÜ:** `regression.guards ›
+    _hasAnyField` kırık DEĞİL, **kararsız** — soğuk Vite önbelleğinde 5 sn'lik
+    dinamik import zaman aşımı; ısındığında izole 3/3 ve tam suite yeşil.
+    Kütük #312 🔴→🟡 taşındı ve yanlış teşhis kayda geçirildi.
+  - **Gerçek araç:** `realVehicleReadinessVerdict=NOT_RUN`; öz-denetleyici
+    gerçek veriyle hiç koşmadı (#313) — `CHECKPOINT_RING` ve
+    `RESTART_COUNTER_JUMP` gerçek kesinti/process-death olmadan doğrulanamaz.
+
+- **LONGROAD-P0 · Otomatik Uzun Yol Saha Doğrulama (2026-08-02):**
+  tam suite **9973 test / 455 dosya yeşil** (1 düşen kilit bu paketten BAĞIMSIZ —
+  kütük **#312**), `tsc -b` temiz, yeni dosyalarda eslint 0 sorun.
+  Kütük **#308 · #309 · #310 · #311** 🔴.
+  Durum: **ENTEGRE** (saha kanıtı YOK — ÜRÜN HAZIR: HAYIR).
+  Tam rapor: `docs/AUTONOMOUS_LONG_ROAD_FIELD_VALIDATION_P0_REPORT.md`.
+  Karar: `AUTONOMOUS_FIELD_VALIDATION_P0_PARTIAL`.
+
+  Kullanıcının tek bir kez **BAŞLAT** demesiyle uzun yol boyunca kendi kendine
+  koşan pasif gözlemci: 30 senaryoyu kenar tabanlı algılar, 7 sinyal için defter
+  tutar (ilk görülme · kapsama · en uzun boşluk · min/ort/max · geçersiz/bayat),
+  kritik olaylarda bounded BlackBox penceresi (öncesi 60 sn / sonrası 120 sn)
+  dondurur, cooldown+dedupe'lu snapshot alır, uygulama ölse bile **aynı
+  `sessionId` ile** devam eder ve tek düğmeyle Türkçe + JSON saha raporu üretir.
+  CAROS LAB → Geliştirici → **Uzun Yol Saha Doğrulama** (`long-road-field-validation`,
+  yeni AVAILABLE) — böylece #151 Zorunlu Gözlemlenebilirlik Kuralı aynı fazda
+  karşılandı.
+
+  - **Ürün davranışına DOKUNULMADI (`productBehaviorVerdict=UNCHANGED`):** yalnız
+    mevcut senkron getter'lar okundu; yeni okuma katmanı, ikinci session engine
+    veya global store KURULMADI. Yasak-çağrı kilidi 9 dosyada testle sabitlendi
+    (`connectOBD`/`sendCommand`/`startPolling`/`startNavigation`/`play()`/`alert`
+    … hiçbiri yok). Async native PULL'lar (`refreshExtendedPollEvidence`,
+    `refreshKwpRecoveryEvidence`) ve tembel singleton üreten
+    `getLiveDiscoveryCoordinator` **bilinçle dışlandı**.
+  - **Sürücü güvenliği (`driverDistractionVerdict=SAFE_PASSIVE`):** sürüş
+    sırasında popup/ses/odak/ekran değişimi YOK; gösterge oturum aktif değilken
+    `null` render eder; özet YALNIZ araç dururken açılabilir ve **hız
+    bilinmiyorsa fail-closed kapalı** kalır.
+  - **Eşikler gizlenmedi:** her kabul maddesi `thresholdSource` taşır ve eşikler
+    `PRODUCT_CONTRACT` (ürünün kendi hükmü) ile `SPEC` (bu tur için açıkça
+    sabitlenen) olarak AYRILIR; 5 SPEC eşiği raporda ayrı tabloda **açık borç**
+    olarak listelenir — gizlice "ürün standardı" gibi sunulmaz.
+  - **Gizlilik iddia değil ÖLÇÜM (`privacyVerdict=PASS`):** üretilen rapor
+    `auditPrivacy()` ile gerçekten taranıyor (TAM VIN · koordinat · JWT · Bearer ·
+    e-posta · anahtar deseni). Bulgu varsa yalnız DESEN ADI bildirilir, eşleşen
+    değer rapora GİRMEZ.
+  - **Bu tur üç gerçek kusur testlerle bulundu ve onarıldı:** (1) oturum başlatma
+    bayat gövde döndürüyordu → çağıran "snapshot alınmadı" görüyordu; (2) restore
+    kayıp penceresi ölçülmemişti → `LR_MAX_CHECKPOINT_LOSS_MS` (30 sn) olarak
+    açıkça tanımlanıp kilitlendi; (3) **kritik olaylar checkpoint aralığını
+    bekliyordu** → tekrarlanamaz saha kanıtı kaybolabilirdi, artık anında yazılıyor.
+  - **Dürüst boşluklar:** AI kanıt akışı · müzik · navigasyon gözlem kanalları P0'da
+    BAĞLANMADI ve `NOT_OBSERVED` döner; sürücü zinciri gerçek kaynak olmadığı için
+    `BLOCKED_HARDWARE`; filo eşleştirmesi olmayan cihazda bulut maddeleri
+    `BLOCKED_BACKEND` (FAIL DEĞİL). APK SHA-256, git revizyonu ve başlangıç bölgesi
+    bu katmandan okunamadığı için `UNAVAILABLE` bırakıldı — uydurulmadı.
+  - **Gerçek araç:** `realVehicleValidationVerdict=BLOCKED_REAL_VEHICLE`. Sistem
+    `obdAdapter !== 'real'` veya geçerli hız örneği yoksa bu kararı KENDİSİ verir
+    ve raporun sonuna "bu rapor SAHA DOĞRULAMASI SAYILMAZ" uyarısını basar.
+
+- **MAVI-STT-CONTEXT-GRAMMAR Bağlama göre daraltılan komut grameri (2026-07-28):**
+  tam suite **8514 yeşil (412 dosya) İKİ TEMİZ KOŞU**, `tsc -b` temiz, eslint 0 hata,
+  `compileDebugJavaWithJavac` başarılı. Kütük **#160** 🔴.
+  Durum: **ENTEGRE** (saha kanıtı YOK — ÜRÜN HAZIR: HAYIR).
+  Offline Vosk aktif komut sözlüğü artık bağlama göre daraltılıyor: bekleyen onay
+  varken yalnız 7 girdilik confirmation grameri, navigasyon/medya/araç bağlamında o
+  sınıf + çapraz-bağlam kaçış seti, kanıt yoksa tam sözlük (919 girdi).
+  **Çevrimiçi tam dikte yolu değişmedi.**
+  - **Gramer karar üretmez:** yalnız tanıma adaylarını daraltır. Intent, eylem ve
+    onay kabul/ret otoritesi M4 + `voiceService`te kaldı; parser, Action Registry,
+    TTS, VAD, AudioSource ve bulut ASR akışına dokunulmadı.
+  - **Bu tur üç gerçek kusur ölçümle bulundu ve onarıldı:** (1) "gramer uygulanmaz"
+    ile "tür süzgeci yok" tek `null` sentinel'ine bindiği için **bağlamsız her
+    offline dinleme gramersiz kalıyordu** — özellik mevcut Yol A kazancını
+    artırmak yerine siliyordu; (2) okuma katmanı ağır servisleri doğrudan import
+    edince obd/store zinciri `voiceService` grafiğine girdi ve **9 test dosyası
+    yüklenemez** oldu (depoda `diagnosticTrailCore` başlığında yazılı olan aynı
+    kaza) → bağımlılıksız sağlayıcı çekirdeği + SystemBoot Wave 2 ayrımı; (3)
+    `vehicle_status`/`vehicle_maintenance`/`vehicle_health_check`/`vehicle_clear_dtc`
+    "PATTERNS'te yok" varsayılmıştı, ölçüm bunu yanlışladı → araç sınıfına eklendi.
+  - **Kilitlerim 6 uydurma beklentiyi yakaladı:** `aracı kilitle` bir keyword değil
+    (`arabayı kilitle`/`kilitle`), `sonraki şarkı`/`korna çal` beklentileri hiç
+    ölçülmemişti. Beklentiler parser'dan **ölçülerek** düzeltildi, parser'a
+    dokunulmadı.
+  - **Onarılmayan, bilerek kilitlenen kusurlar (kapsam dışı — "parser değiştirilmez"):**
+    `NEGATE_RE`'de `vazgeç` yazılı ama ASCII `\b` yüzünden **çalışmıyor**;
+    `"sonraki şarkı"` → `open_music`; `"korna çal"` → `play_music_query`; anlamsız
+    cümle → `show_weather`. Dördü karakterizasyon testiyle donduruldu.
+  - **Gizlilik yapısal:** tanı yüzeyinde sözcük yok — sınıf, adet, sabit gerekçe
+    kodu, doyan sayaçlar; değişim tespiti FNV-1a parmak iziyle (metin saklanmaz).
+  - **Açık sınır:** `akaryakıt bul` (`find_nearby_gas`) ile `navigasyonu iptal et` /
+    `rotayı durdur` offline yüzeyi YOKTUR — gramere konmadı, yeni komut icat edilmedi.
+  - **Eksik ana parça:** gürültülü ortamda daralmanın tanıma başarısını gerçekten
+    artırdığı **ölçülmedi** (STT-LAB-2 defteriyle karşılaştırılmalı).
+  - **Sonraki atomik görev:** `NEGATE_RE` sözcük-sınırı kusurunun ayrı ve atomik
+    onarımı (kabul/ret kuralı değiştiği için ayrı tur olmalı).
+
+- **MAVI-STT-LAB-3 Koşul bazlı toplu özet (2026-07-28):** tam suite
+  **8481 yeşil (411 dosya) İKİ TEMİZ KOŞU**, `tsc -b --force` temiz, eslint 0 hata,
+  `compileDebugJavaWithJavac` başarılı. Kütük **#159** 🔴.
+  Durum: **ENTEGRE** (saha kanıtı YOK — ÜRÜN HAZIR: HAYIR).
+  Ölçüm Defteri'ne **KOŞUL ÖZETLERİ** bölümü: aynı koşulun tamamlanmış kayıtları
+  ikinci seviyede toplulaştırılır (8 koşul, sabit sıra, açılır ayrıntı) + iki koşul
+  arasında matematiksel fark. #158'in saha planı koşul başına ≥3 tekrar istiyordu;
+  tek tek kayıt karşılaştırmak sürüş sonrası pratik değildi.
+  - **İki seviye asla karışmaz:** kayıt-içi p50 (21 örnek) ile kayıtlar-arası medyan
+    (N ölçüm) ayrı havuzlardır. Ham örnek ne açılır ne saklanır.
+  - **Merkez değer MEDYAN, ortalama değil:** tek bozuk ölçüm ortalamayı kaydırır,
+    medyanı kaydırmaz (aykırı değerle kilitlendi). Yüzdelik yine tek kaynaktan
+    (`percentileNearestRank`) — LAB-1/LAB-2 ile aynı gerçek.
+  - **`source_lost` ayrı sayılır ve hiçbir şeyi bozmaz:** 4 kayıtlı özetin 11 metriği
+    de 3 kayıtlı temiz özetle birebir eşit (kilit testi). `cancelled` iki kat süzülür.
+  - **Salt-okunurluk yapısal:** özet bileşeni ham kayıt tipini GÖRMEZ ve mutasyon
+    geri çağrısı ALMAZ → o katmanda silme/başlatma/ayar değiştirme imkânsızdır.
+  - **Bounded:** ikinci kalıcı depo kurulmadı, modül seviyesi mutable durum yok
+    (üst düzey `let`/`var` taraması boş), koşul sayısı enum ile 8.
+  - **Bu turda kendi kilitlerim iki hata yakaladı:** otoyol hız medyanını min ile
+    karıştırmışım ve "modül cache yok" kalıbı fonksiyon-içi yerel `let`'i yakalıyordu.
+    İkisi de test tarafında düzeltildi — üretim davranışı değişmedi.
+  - **Açık sınır:** özet yalnız defterdeki 30 kayıttan hesaplanır; daha eski ölçümler
+    düşmüştür ve geri getirilemez.
+
+- **MAVI-STT-LAB-2 Kabin gürültü ölçüm defteri (2026-07-28):** tam suite
+  **8451 yeşil (410 dosya) İKİ TEMİZ KOŞU**, `tsc -b --force` temiz, eslint 0 hata,
+  `compileDebugJavaWithJavac` başarılı. Kütük **#158** 🔴.
+  Durum: **ENTEGRE** (saha kanıtı YOK — ÜRÜN HAZIR: HAYIR).
+  STT-LAB-1 ekranına **7 · ÖLÇÜM DEFTERİ** bölümü: kullanıcı koşul etiketi ve süre
+  (5/10/20/30 sn) seçer, **ÖLÇÜMÜ BAŞLAT** der, ≥500 ms aralıkla mevcut gözlem
+  örneklenir ve süre sonunda **tek özet kayıt** oluşur. Böylece "50 km/s'te taban ne,
+  110'da ne, fan açıkken ne değişiyor" sorusu ilk kez **karşılaştırılabilir** hale
+  geldi — ekrana bakarak not almak sürüşte mümkün değildi.
+  - **Yeni diagnostics üreticisi KURULMADI:** koşucu STT-LAB-1 hattını tüketir.
+    Yüzdelik hesabı da tek kaynaktan gelir (`percentileNearestRank` dışa açıldı) —
+    iki ekranın aynı veriye farklı p95 demesi tanı hattını çürütürdü.
+  - **Sahiplik yapısal:** koşucuda modül seviyesi durum YOKTUR; sahibi onu yaratan
+    bileşendir → unmount'ta ölür. "Arka planda ölçüm devam eder" hatası **imkânsız**.
+  - **Açık sözleşme — iptal:** iptal edilen ölçüm `cancelled` üretilir ve kullanıcıya
+    gösterilir ama **deftere yazılmaz** (kısa ölçüm 10 sn'liklerle kıyaslanamaz).
+    `source_lost` ise yazılır — tam süre koştu, "kanıt yoktu" gerçek bir bulgudur.
+  - **Karar üretilmez:** karşılaştırma yalnız A · B · (B−A). "Daha iyi", "şunu kullan",
+    "gürültü hızdan arttı" gibi hüküm/öneri/nedensellik YOKTUR; 12 yasak dize hem
+    modelde hem markup'ta taranır.
+  - **Yerel saklama kararı:** mevcut `safeStorage` + `caros.lab.*` deseni
+    (`phoneHubFieldStore` ile birebir) kullanıldı — yeni genel amaçlı persistence
+    katmanı ve **yeni bulut servisi kurulmadı**, depo katmanında ağ çağrısı yok.
+  - **Bu turda kendi kilidim bir kusur yakaladı:** kaba yasak-dize taraması kendi
+    dürüstlük cümlemi ("Sahte/örnek kayıt ÜRETİLMEZ") sahte veri sanmıştı → kilit
+    kontrol YÜZEYİ taramasına çevrildi (buton etiketleri), olumsuzlama korundu.
+  - **Açık sınır:** ölçüm sırasında ekrandan çıkınca CPU/ısınma artışı olmadığı
+    **cihazda ölçülmedi** — testler yapısaldır. Kütük #158 (j) maddesi.
+
+- **MAVI-STT-LAB-1 Mikrofon + STT gözlem ekranı (2026-07-28):** tam suite
+  **8409 yeşil (409 dosya)**, `tsc -b` temiz, eslint 0 hata,
+  `compileDebugJavaWithJavac` başarılı. Kütük **#157** 🔴.
+  Durum: **ENTEGRE** (saha kanıtı YOK — ÜRÜN HAZIR: HAYIR).
+  CAROS LAB → AI → **Mavi STT / Mikrofon** (`stt-mic`, yeni AVAILABLE):
+  seçilen/denenen Android AudioSource, örnekleme-kanal-buffer, AEC/NS/AGC için
+  **ayrı ayrı** mevcut/oluşturuldu/etkin, anlık RMS + öğrenilmiş gürültü tabanı +
+  **KULLANILAN gerçek VAD eşiği**, bounded RMS özeti (min/p50/ort/p95/max),
+  aynı turda örneklenen hız/hareket durumu, grammar SINIFI ve son tanıma sonucu
+  KATEGORİSİ. Böylece "araç içinde duymuyor" şikâyeti ilk kez **sayısal olarak**
+  soruşturulabilir hale geldi.
+  - **STT davranışı DEĞİŞMEDİ:** yeni motor kurulmadı, VAD eşikleri
+    (`1100 / 0.010f / 1.9f / 0.012`) ve AudioSource aday sırası test ile
+    **donduruldu**; native taraf `VoskLatencyTelemetry` ile aynı "yalnız ölçüm"
+    disiplinini izler. `VoiceMicDiagnostics` **saf Java**'dır (tek bağımlılık
+    `java.util`) — Android/ses API'si import etmediği için mikrofona dokunması
+    teknik olarak imkânsızdır ve bu yapısal kanıt testle kilitlendi.
+  - **Bu turda görünür kılınan iki kod gerçeği** (kusur değil, artık ölçülebilir):
+    wake yolunda gürültü tabanı **hiç öğrenilmez** (sabit eşik) ve wake yolunda
+    **AEC/NS/AGC hiç kurulmaz** — ikisi de KAYNAK YOK / `false` olarak dürüstçe
+    gösterilir, sahte 0 taban veya sahte "efekt etkin" üretilmez.
+  - **Nedensellik ÜRETİLMEZ:** hız ile gürültü aynı okuma turunda ve aynı damgayla
+    örneklenir; aradaki fark "örnekleme sapması" olarak açıkça gösterilir.
+    "Hız gürültüyü artırdı" gibi hüküm YOKTUR — ilişki ancak saha kütüğündeki
+    tekrarlı ölçümle kurulur.
+  - **Açık sınır:** klima/fan seviyesi için repoda **hiçbir sağlayıcı yoktur** →
+    KAYNAK YOK gösterilir ve saha ölçümünde fan durumu **elle** not edilecektir.
+    Yeni sağlayıcı kurmak bu salt-okunur turun kapsamı dışında bırakıldı.
+  - **Dürüst sınır (MAVI-M4-LAB ile aynı):** jsdom'da `createRoot` çalışmadığı için
+    "oto-yenileme timer'ı kuruldu/temizlendi" RUNTIME'da ölçülmedi; testler
+    yapısaldır. Runtime kanıtı kütük #157'nin (m) maddesidir.
+
+- **MAVI-M4 Tek Eylem Otoritesi (2026-07-28):** tam suite **8225 yeşil (403 dosya)**
+  iki temiz koşu, `tsc -b` temiz, eslint 0 hata. Kütük **#151** 🔴. Durum: **ENTEGRE**
+  (saha kanıtı YOK — ÜRÜN HAZIR: HAYIR).
+  İki yürütücü (`intentEngine.routeIntent` · `commandExecutor.dispatchIntent`) teke
+  indirildi: araç etkili 13 eylem tek deftere (`action/maviActionAuthority`) alındı ve
+  tek kapıdan geçiyor — **hareket (M2) → AiSafetyGate → açık onay → capability**, hepsi
+  port/native/OBD çağrısından ÖNCE. `RouterContext`ten araç etkili portların tamamı
+  kaldırıldı → o katman yapısal olarak donanım/OBD çağıramaz (guard testi).
+  - Bu turda bulunan **üç gerçek üretim kusuru** (hepsi kapatıldı):
+    1. **Onay akışı ÖLÜ UÇTU** — `needs_confirmation` saklanıyor ama "evet"i tüketen
+       kod üretimde HİÇ YOKTU → telefon araması ve DTC silme **yürütülmesi imkânsızdı**.
+    2. **Korna/far/alarm sesli hatta HİÇ BAĞLI DEĞİLDİ** — `routeIntent` opsiyonel
+       portu çağırıyor, port hiç sağlanmadığı için komut **sessizce düşüyordu**.
+    3. **`CHECK_VEHICLE_HEALTH` sahte "temiz" diyordu** — OBD okuması başarısızken
+       (`isStale`) bile `succeeded` + "sistemler temiz, sorun yok".
+  - Ayrıca `call_contact` sonuç-ACK listesine alındı (onay beklenirken "Arama
+    başlatılıyor" denmesi = M3 sahte ACK sınıfı).
+  - M3 kilitleri (`maviFakeAck`) **zayıflatılmadan** yeni otoriteye taşındı; 15
+    maddelik M4 kilidi + uçtan uca onay akışı testi eklendi. Yanlışlama yapıldı:
+    onay kapısı devre dışı → 9 test, onay çözüm bloğu devre dışı → 4 test kırılıyor.
+  - ✅ Gözlemlenebilirlik borcu **KAPANDI** (MAVI-M4-LAB, kütük #152) — aşağıya bakınız.
+
+- **MAVI-M4-LAB Eylem Otoritesi gözlem ekranı (2026-07-28):** tam suite
+  **8265 yeşil (404 dosya)**, `tsc -b` temiz, eslint 0 hata. Kütük **#152** 🔴.
+  Durum: **ENTEGRE** (saha kanıtı YOK — ÜRÜN HAZIR: HAYIR).
+  CAROS LAB → AI → **Eylem Otoritesi** (`action-registry` PLACEHOLDER→AVAILABLE):
+  13 eylemlik defter, son kapı kararları (en yeni→en eski, sabit 40'lık dairesel
+  halka) ve kapı sayaçları. Böylece #151 Zorunlu Gözlemlenebilirlik Kuralını
+  karşılar hale geldi.
+  - Otorite katmanına **bounded + PII'siz** tanı API'si eklendi; kayıt fail-soft'tur
+    ve **kararı değiştirmez** (kilit testi kapı sonuçlarını birebir doğrular).
+  - Bu turda bulunan gerçek kusur: `peekPendingAction` gözlem için **kullanılamazdı**
+    — süresi dolmuş isteği **siler** (salt-okunur ekran üretim durumunu değiştiremez)
+    ve `intent.payload` **kişi adı + ham kullanıcı komutu** taşır. Ayrı, mutasyonsuz
+    ve yalnız VAR/YOK döndüren bir yüzey (`getPendingActionDiagnostics`) yazıldı.
+  - Gizlilik yapısal olarak kilitlendi: bekleyen onay slotuna bilerek kişi adı ve ham
+    komut konur, ardından hem snapshot JSON'ı hem render markup'ı taranır.
+    Yanlışlama yapıldı: modele kişi adı sızdırıldı → 2 test kırıldı.
+  - **Dürüst sınır:** repoda `@testing-library/react` yok ve jsdom'da `createRoot`
+    çalışmıyor → `renderToStaticMarkup` **effect koşturmaz**. Bu yüzden "otomatik
+    yenileme timer'ı kuruldu/temizlendi" RUNTIME'da ölçülmedi; testler yapısaldır
+    (varsayılan durum · effect gövdesi · cleanup). Runtime kanıtı kütük #152'de
+    🔴 madde olarak bekliyor.
+
+- **MAVI-M4-LAB-2 Eylem zinciri korelasyonu (2026-07-28):** tam suite
+  **8302 yeşil (405 dosya)** iki temiz koşu, `tsc -b` temiz, eslint 0 hata.
+  Kütük **#153** 🔴. Durum: **ENTEGRE** (saha kanıtı YOK — ÜRÜN HAZIR: HAYIR).
+  Kanıt Görüntüleyici'ye `mavi-chain` kanalı ve tur bazlı gruplu görünüm eklendi:
+  `komut alındı → actionId → kapı kararı → yürütücü sonucu → M6 TTS sonucu`
+  tek grupta, `turnId` ile korele.
+  - **Yeni depo kurulmadı:** #152'nin karar halkası `action/maviActionTrace`e
+    taşındı ve üç üreticinin (kapı · yürütücü · konuşma) ORTAK halkası oldu.
+  - **Eksik aşama tahmin edilmez:** gözlenmemiş her aşama "gözlemlenmedi" der;
+    kapı geçti ama yürütücü sonucu yoksa hüküm `INCOMPLETE`'tir — "başarılı" DEĞİL.
+  - Proaktif güvenlik uyarısı ayrı tür (`proactive_speech`, `turnId:null`) ve
+    hiçbir kullanıcı turuna karışmaz (çift savunma + yanlışlama ile doğrulandı).
+  - **Bu turda bulunan gerçek kusur (üretim DEĞİŞTİRİLMEDİ):**
+    `maviSpeech.speakMaviAnswer` içindeki stale dalı **ULAŞILAMAZ KODDUR** —
+    `getActiveMaviTurn()` daima `_activeId` döndürdüğü için `isMaviTurnCurrent`
+    her zaman `true`; dolayısıyla `_suppressedStale` sayacı ASLA artmaz.
+    Davranış bugün DOĞRUDUR çünkü gerçek stale koruması ÇAĞRI YERİNDEDİR
+    (`useVoiceCommandHandler` turu komut anında yakalar → `continueIfTurnCurrent`).
+    Kilit testi bu çağrı-yeri sözleşmesini korur ki "maviSpeech zaten koruyor"
+    sanılıp o kapı kaldırılmasın. ✅ Borç **KAPANDI** (MAVI-M6-DEAD-STALE-BRANCH,
+    kütük #154) — aşağıya bakınız.
+  - **MAVI-M6-DEAD-STALE-BRANCH (2026-07-28):** tam suite **8323 yeşil (406 dosya)**
+    iki temiz koşu, `tsc -b` temiz, eslint 0 hata. Kütük **#154** 🔴.
+    Ulaşılamaz stale dalı, `_suppressedStale` sayacı ve `suppressedStale` tanı alanı
+    **gerçekten kaldırıldı** (yorumla gizlenmedi). Kod diff'i **saf silmedir** —
+    davranış değişmedi, çünkü dal hiç çalışmıyordu (dört tur durumunda da ölçüldü).
+    Gerçek stale otoritesi çağrı yerlerinde bırakıldı ve `maviStaleAuthority.test.ts`
+    ile kilitlendi; yanlışlama: kapı kaldırıldı → test kırıldı, dal geri eklendi →
+    test kırıldı.
+    - ✅ Açık boşluk **KAPANDI** (MAVI-M6-LATE-SPEECH-GATE, kütük #155).
+
+- **MAVI-M6-LATE-SPEECH-GATE (2026-07-28):** tam suite **8345 yeşil (407 dosya)**
+  iki temiz koşu, `tsc -b` temiz, eslint 0 hata. Kütük **#155** 🔴.
+  Durum: **ENTEGRE** (saha kanıtı YOK — ÜRÜN HAZIR: HAYIR).
+  `commandExecutor` ve `voiceInfoService`in **await sonrası** konuşmaları, komut
+  girişinde yakalanmış tur token'ı ile korundu. Token opsiyoneldir → turn kavramı
+  olmayan çağıranlar (uzak komut hattı) geriye uyumlu kalır.
+  - **Asıl kök neden defter mutasyonuydu:** geç cevap yalnız konuşmuyor, `_syncTurn`
+    ile YENİ turun `answered/progressed` bayraklarını da sıfırlayıp ikinci sesin
+    yolunu açıyordu. Kapı bu yüzden **defter mutasyonundan ÖNCE** duruyor; sırayı
+    bozan bir değişiklik kilit testiyle kırılır.
+  - `_speak`/`_speakProgress` token'ı **zorunlu** parametre aldığı için tsc 44 çağrı
+    yerinin tamamını kapsadı — "unutulmuş korumasız konuşma" yapısal olarak imkânsız.
+  - **Bilinçli davranış değişikliği:** eskimiş turun await sonrası cevabı artık susar.
+    Await ÖNCESİ progress meşrudur (tur güncelken söylendi) ve susturulmaz.
+  - `staleLateSpeechSuppressed` sayacı eklendi — #154'te kaldırılan ölü sayacın
+    aksine gerçekten ölçülebilir, doyan, PII'siz.
+  - **Kapsam dışı bırakılanlar:** `notificationService`, proaktif güvenlik hattı
+    (`speakSafetyAlert`), navigasyon talimatları ve `speakAlert` hata kanalı — bunlar
+    kullanıcı turuna bağlı DEĞİLDİR ve bilinçli olarak bu sözleşmeye alınmadı.
+  - ✅ Gözlemlenebilirlik borcu **KAPANDI** (MAVI-M6-LAB-SPEECH-COUNTERS, kütük #156).
+
+- **MAVI-M6-LAB-SPEECH-COUNTERS (2026-07-28):** tam suite **8365 yeşil (408 dosya)**
+  iki temiz koşu, `tsc -b` temiz, eslint 0 hata. Kütük **#156** 🔴.
+  Durum: **ENTEGRE** (saha kanıtı YOK — ÜRÜN HAZIR: HAYIR).
+  Mavi Konsolu'na **F bölümü** eklendi: M6 konuşma defteri + M5 tur kapısı sayaçları.
+  `getMaviSpeechDiagnostics()`/`getMaviTurnDiagnostics()` üretiliyor ama hiçbir ekran
+  okumuyordu — #155'in `staleLateSpeechSuppressed` sayacı, geç konuşma kapısının
+  sahada çalıştığını gösteren TEK kanıt olduğu için bu borç saha doğrulamasını
+  imkânsız kılıyordu.
+  - Dürüstlük: kaynak yoksa sahte `0` basılmaz (alan hiç üretilmez → KAYNAK YOK);
+    sayaç doyduysa "artık gerçek adet değildir" açıkça bildirilir; defter/aktif tur
+    ayrışması iki GÖZLENEN alandan türetilir.
+  - Gizlilik tip düzeyinde: konuşma sözleşmesinin tüm değerleri `number`/`boolean`
+    — metin alanı YOK; tek dize `activeState` enum'u.
+  - Mevcut konsol kilitleri yeni doğru davranışa GÜNCELLENDİ (bölüm 5→6, fırlatma
+    kilidi iki yeni kaynağı kapsıyor) — hiçbiri zayıflatılmadı.
+  - Yanlışlama: sayaç kaynakta 0'a sabitlendi → canlı ölçüm testi kırıldı.
+
+  - **Test altyapısı borcu:** üç test (`maviPlanner` · `currentLocation` ·
+    `openRouterKeyService`) dosyalarının İLK dinamik import'unda ~360 modüllük
+    kapanışı derliyor ve yüklü makinede vitest'in 5 sn varsayılanını aşıyordu.
+    Yalnız o üç testin SÜRESİ genişletildi (30 sn) — hiçbir iddia zayıflatılmadı.
+    Kök çözüm: ağır kapanışları test kurulumuna taşımak (ayrı görev).
+
+- **VehicleCompute worker dayanıklılığı (2026-07-26, VCOMP-01/02):** tam suite
+  **7880 yeşil (387 dosya)**, `tsc -b` temiz, lint 0 hata, guard 159/159. Kütük **#136** 🔴.
+  Worker dispatcher artık exception'da ölmüyor (fail-safe) ve bilinmeyen sinyal
+  kaynağı sessizce yutulmuyor (fail-loud). Switch/delegasyon/tip/mesaj arabirimi
+  DEĞİŞMEDİ — 11 kilit testi bunu zorluyor; hız/odo/geofence suitleri 193/193 yeşil.
+  - ⚠️ Denetimin "DataCloneError" tetikleyici örneği ve "dairesel referans" test planı
+    fiziksel olarak geçersizdi (o hata gönderen tarafta fırlar) — düzeltilerek raporlandı.
+  - ✅ Açık borç **KAPANDI** (VCOMP-03, kütük #137): bilinmeyen kaynak artık VAL
+    tamponuna YAZILAMIYOR — fail-closed kapı state yazımından önce `return` ediyor.
+    Kök beklenenden ciddiydi: `FUSED` **tip-geçerli** bir `SignalSource` ama tampon
+    anahtarı değil → bugün bile sızabiliyordu. Durum: **ENTEGRE**.
+
+- **CAROS LAB Deterministik Mavi Senaryo Koşucusu (2026-07-26, Görev 4):** tam suite
+  **7869 yeşil (386 dosya)**, `tsc -b` temiz, lint 0 hata, guard 159/159. Kütük **#135**.
+  14 senaryo GERÇEK üretim fonksiyonlarını enjekte bağımlılıklarla koşturuyor;
+  EventBus/TTS/telefon/navigasyon/OBD/ağ/storage'a DOKUNMUYOR, üretim tekillerini
+  değiştirmiyor, timer açmıyor, saat enjekte (deterministik).
+  - Bu turda bulunan gerçek kusur: proaktif kapı güveni yok sayıyordu →
+    `PROACTIVE_MIN_CONFIDENCE = 70` (verdictEngine'in mevcut eşiğinden türetildi).
+  - ⚠️⚠️ **Koşucunun PASS vermesi SAHA KANITI DEĞİLDİR.** Hiçbir 🔴 maddeyi 🟢 yapmaz;
+    UI'da kaldırılamaz "SİMÜLASYON" etiketi kilit testiyle zorlanıyor. Durum: **ENTEGRE**.
+
+- **Açıklanabilir karar zinciri (2026-07-26, Görev 3):** tam suite **7849 yeşil
+  (385 dosya)**, `tsc -b` temiz, lint 0 hata, guard 159/159. Kütük **#134** 🔴.
+  Dikey zincir kanıtlandı: gerçek karar kaynağı → mevcut evidence halkası →
+  mevcut diagnostic trail → CAROS LAB Mavi Konsolu "E".
+  - Yeni DecisionEnvelope/paralel telemetri **kurulmadı**; `TakeoverDecisionRecord`
+    (yalnız sahiplik semantiği) **dokunulmadı** — kilit testiyle korunuyor.
+  - **İki confidence ölçeği birleştirilmedi:** `percent_0_100` ve `unit_0_1` ayrı;
+    değer ölçeğiyle birlikte taşınır. Kaynaksız alan yazılmaz, LAB'da UNAVAILABLE.
+  - ⚠️ Kaynaksız kalanlar: `fallbackReason` ve `source` için `llm`/`parser`/`fallback`
+    (bugün yalnız `rule` doğuyor). Durum: **ENTEGRE**.
+
+- **Kısa süreli konuşma bağlamı (2026-07-26, Görev 2):** tam suite **7829 yeşil
+  (384 dosya)**, `tsc -b` temiz, lint 0 hata, guard 159/159. Kütük **#133** 🔴.
+  Dikey akış GERÇEKTEN çalışıyor: araç yorumu → bounded konu yazımı →
+  takip sorusu → gerçek prompt funnel'ı (`buildCompanionSystemPrompt`) → ipucu.
+  - Konu YALNIZ allowlist kimliği (4 konu, hepsinin gerçek yorumlayıcı üreticisi var);
+    ham DTC/kullanıcı metni yapısal olarak giremez.
+  - **TTL uydurulmadı:** repoda zaman-tabanlı konuşma TTL'i yok → ölçü TUR tabanlı ve
+    mevcut `MAX_HISTORY_TURNS`'ten türetildi (4 kullanıcı turu). Bitiş PASİF, timer YOK.
+  - **Belirsizlik fail-closed:** aktif konu bilinse bile "bunu hatırlat" eylem üretmez;
+    netleştirme sorulur. İpucu zorlayıcı değil. Durum: **ENTEGRE**.
+
+- **Navigasyon karar otoritesi denetimi (2026-07-26, Görev 1):** tam suite **7809 yeşil
+  (383 dosya)**, `tsc -b` temiz, lint 0 hata, guard 159/159.
+  - Denetimin "paralel yürütme riski" iddiası **çürütüldü**: köprü eşlemesi ve sahiplik
+    guard'ı ZATEN yerinde; bugün çifte `resolveAndNavigate` çağrısı YOK (kütük #132).
+  - Bulunan gerçek kusur — **boş hedefle navigasyon** — fail-closed kapatıldı.
+  - ⚠️ **Açık mimari borç (#132b):** `navigation.open` eylem kimliği `open_maps` ile
+    paylaşıldığı için serbest adres navigasyonu takeover'a alınamıyor; alınsaydı
+    "haritayı aç" harici uygulama yerine uygulama-içi ekranı açardı. Durum: **ENTEGRE**
+    (tek yürütme garantili), ancak **otorite Mavi DEĞİL**.
+
+- **MAVİ üretim-bağlama turu (2026-07-26, ikinci tur — 4 atomik görev):** tam suite
+  **7799 yeşil (382 dosya)**, `tsc -b` temiz, lint 0 hata (25 uyarı = değişmemiş taban).
+  Birinci turun **üç açık borcu kapatıldı**, biri kısmen. Hepsi **kütükte 🔴** (#128–#131):
+  - **Proaktif uyarı üretim döngüsüne bağlandı** (kütük #128, borç #124 KAPANDI):
+    `companionProactiveWiring` + `aiCoreRuntime.onRunResult` gözlemcisi. ⚠️ Bağlantı
+    `SystemOrchestrator` poll'una DEĞİL, ZATEN çalışan aiCore edge döngüsüne yapıldı →
+    **yeni timer/poll/abonelik sıfır**. Çifte seslendirme koruması (`engine_overheat`
+    hattını SystemOrchestrator zaten sesliyor) kilitle korunuyor. Durum: **ENTEGRE**.
+  - **`engine_running` kontak kanıtı adaptörü** (kütük #129, borç #127 KISMEN kapandı):
+    RPM > 400 **VE** şarj voltajı ≥ 13.2 V iki-sinyal şartı. Eşikler bilinçli olarak saf
+    çözümleyicinin DIŞINDA (`ignitionEvidenceAdapter`) — `deepScanIgnitionSource`'un
+    "ham sayıya eşik uygulamaz" invaryantı korundu. ⚠️ **Kalan borç:** sağlayıcı üretimde
+    OBD okuyucusuna bağlanmadı; native ACC yayını (Java+bridge+JS) bu tura alınmadı;
+    eşikler gerçek araçta ölçülmedi. Durum: **İSKELET**.
+  - **PHONE_* fail-soft handler kaydı** (kütük #130, borç #123 KAPANDI): üç handler
+    `PHONE_NOT_CONNECTED` / `PHONE_TRANSPORT_MISSING` ile DÜRÜSTÇE reddediyor; gölge modda
+    bile `ok:true` dönmüyor (sahte "arama yapıldı" yasağı). Native komut kanalı geldiğinde
+    yalnız üç gövde değişecek. Durum: **ENTEGRE**.
+  - **Tanısal olay izi diske kalıcılaştırıldı** (kütük #131, borç #125 KAPANDI):
+    `safeStorage` + 30 sn debounce + 50 olay tavanı + alan-alan doğrulama; hot-path'te
+    yazma YOK, kapanışta `immediate` flush. Restart sonrası önceki oturum izi korunuyor.
+    ⚠️ Sahada ölçülmeli: 1 saatlik sürüşte bu anahtara düşen gerçek yazma adedi.
+    Durum: **ENTEGRE**.
+
+- **MAVİ Vehicle Intelligence turu (2026-07-26 — 5 atomik görev):** tam suite
+  **7772 yeşil (380 dosya)**, `tsc -b` temiz, lint 0 hata (25 uyarı = değişmemiş taban).
+  Beşi de **kütükte 🔴** (#123–#127). Üçündeki açık borç ikinci turda (#128–#131) kapatıldı:
+  - **PHONE_\* eylem kontratları** (kütük #123): `phone.media.play` · `phone.call.start`
+    (high, geri alınamaz → onay zorunlu) · `phone.sms.draft` deftere donduruldu.
+    ⚠️ **Açık borç:** `executionEngine` phone.\* handler'ı YOK → eylemler bugün bir şey YAPMAZ.
+    Durum: **İSKELET**.
+  - **Proaktif kritik arıza sesli uyarısı** (kütük #124): kritik kök-nedende Mavi
+    kendiliğinden konuşur; geri manevrada susar, 5 dk debounce, ≤180 karakter, AĞA ÇIKMAZ.
+    CAROS LAB Mavi Konsolu'na "E · Proaktif Kritik Arıza Uyarısı" bölümü eklendi
+    (gözlemlenebilirlik şartı KARŞILANDI). ⚠️ **Açık borç:** verdict üretim döngüsünden
+    ÇAĞRILMIYOR → cihazda henüz hiç tetiklenmez. Durum: **İSKELET**.
+  - **Araç hafızası — geçmiş arıza eğilimi** (kütük #125): `interpretDiagnosticTrend`
+    + gerçek kaynak `ai.mechanic.report` olay halkası; ham DTC kodu prompt'a GİRMEZ.
+    ⚠️ **Açık borç:** halka RAM'de — yeniden başlatmada geçmiş sıfırlanır (kalıcı DTC
+    geçmişi yok). Durum: **ENTEGRE**.
+  - **Driver DNA sürüş stili** (kütük #126): `tripLogService` sert manevrayı fren/gaz
+    olarak ayırır; histerezisli sınıflandırma → ≤150 karakter üslup talimatı prompt'a girer.
+    Durum: **ENTEGRE**.
+  - **Deep Scan `prepare()` kontak kapısı** (kütük #127): enjekte edilen çözümleyiciyle
+    fail-closed hazırlık fazı; `null` (bilinmiyor) ile `false` aktif faz açısından AYNI
+    karar, ama `getConfirmedValue()` ÜÇ DURUMLU bırakıldı (bilinmeyeni "kapalı" diye
+    kaydetmek kanıt uydurmaktır). ⚠️ **Açık borç:** depoda kontak yayan AUTHORITATIVE
+    kaynak hâlâ YOK → `ignitionResolver` üretimde bağlanmadı. Durum: **İSKELET**.
+
 
 - **OBD Diagnostic OS FAZ 0–4:** 25/26 görev kod olarak tamam (+1 gereksiz→kapatıldı),
   tam suite **4074 yeşil (235 dosya)**, tsc + lint + Java derlemesi temiz. **Commit YOK.**
@@ -243,7 +1066,8 @@ DOĞRULANDI 6 · SAHADA DOĞRULANDI 1 · **ÜRÜN HAZIR: 1**
   **6999 yeşil (361 dosya)**, +58 kilit. **Cihazda doğrulanmadı** (kütük #94).
   **Erişilebilirlik + tema turu (2026-07-25)** eklendi: (a) CAROS LAB kısayolu artık
   **dört tema dock'unun tamamında** (Pro · Expedition · Tesla · Horizon) — AppGrid kartı
-  ve `DockBar` ile AYNI fail-closed kapının (`DEBUG_ENABLED && canDebug`) arkasında,
+  ve `DockBar` ile AYNI fail-closed kapının arkasında (o tarihte `DEBUG_ENABLED &&
+  canDebug`; kapı 2026-07-26'da `DEVELOPER_FEATURES_ENABLED`'a dönüştü — aşağıya bak),
   her dock'un EN SONUNDA (sürücü akışındaki kısayolların sırası değişmez). Yeni
   entitlement/route/registry YOK — tek giriş noktası `openCarosLab()`. (b) **SAHA
   BULGUSU:** CAROS LAB aydınlık temada SİYAH kalıyordu — shell ve 8 araç ekranının
@@ -272,6 +1096,294 @@ DOĞRULANDI 6 · SAHADA DOĞRULANDI 1 · **ÜRÜN HAZIR: 1**
   yalnız OBD bölümüne uygulandığı için KANITLAR'daki bearer token'ı ham sızdıran kusur
   **testle yakalandı** ve düzeltildi. Tam suite **7064 yeşil (365 dosya)**, +14 kilit.
   **Cihazda doğrulanmadı** (kütük #105).
+  **KWP İzleyici gerçek ekran (Faz A4, 2026-07-26)** eklendi: `kwp-monitor` PLACEHOLDER
+  durumundan **AVAILABLE**'a geçti. Native KWP kurtarma merdiveninin (ATPC) sayaçları
+  şimdiye kadar LAB'da HİÇ görünmüyor, yalnız Kanıt Görüntüleyici'deki `recovery.*`
+  satırlarından dolaylı okunabiliyordu. Yeni ekran 4 bölümlüdür (Protokol/Uygulanabilirlik ·
+  Oturum Sağlığı · Kurtarma Merdiveni · Keep-Alive) ve TAMAMEN SALT-OKUNURDUR: kurtarma
+  NATIVE'dedir, ekran onu ne tetikler ne durdurur. Native/OBD/recovery/polling koduna
+  DOKUNULMADI; yeni servis, abonelik, timer veya global store kurulmadı. Gözlemlenebilirlik
+  ilkelleri Session Inspector modelinden yeniden kullanıldı — paralel sınıflandırma yok.
+  **Dürüstlük kararları:** ATWM/ATSW/ATST JS'e açılmamıştır (yalnız native
+  `ElmInitSequencer`) → dört alan da KAYNAK YOK; native sabitleri ekrana kopyalamak
+  ölçülmemişi ölçülmüş göstermek olurdu. `lastRecoveryAt=0` "hiç kurtarma yok" demektir,
+  epoch 0 tarihi DEĞİL; `lastRecoveryToFirstPidMs=-1` "ölçülmedi" demektir, -1 ms değil;
+  kanıt yoksa sayaçlar 0 UYDURULMAZ ve hüküm FAIL-CLOSED kalır (BİLİNMİYOR ≠ sağlıklı).
+  Periyodik yenileme YOKTUR (repo deseni: tek atış senkron okuma + elle YENİLE).
+  36 yeni kilit (model · sentinel · fail-closed hüküm · katalog · render · zero-leak ·
+  sabit-renk yasağı). **Cihazda doğrulanmadı** (kütük #112). Durum: **ENTEGRE**.
+  **Araç Parmak İzi gerçek ekran (Faz A5, 2026-07-26)** eklendi: `vehicle-fingerprint`
+  PLACEHOLDER'dan **AVAILABLE**'a geçti. Araç kimliği ve keşif kanıtları şimdiye kadar
+  dört ayrı modülde dağınıktı; artık tek geliştirici ekranında toplanıyor (Araç Kimliği ·
+  ECU Keşfi · Desteklenen Veriler · Kanıt Sağlığı). **ARACA SORGU GÖNDERMEZ:**
+  `discoveryFingerprint.getVehicleFingerprint()` bilerek KULLANILMADI — o fonksiyon
+  gerçek bir UDS isteği (DID F190) gönderiyor; keşif deposu anahtarı bunun yerine ZATEN
+  KAYITLI VIN'den saf `hashVin()` ile YEREL olarak türetiliyor, araç trafiği sıfır.
+  Native/OBD/keşif koduna DOKUNULMADI; yeni servis, abonelik, timer veya store kurulmadı.
+  Gözlemlenebilirlik ilkelleri Session Inspector modelinden yeniden kullanıldı.
+  **Gizlilik:** ham VIN, plaka ve adaptör MAC kaynak katmanından DIŞARI ÇIKMIYOR — model
+  sözleşmesinde `vin`/`metadata` alanı YOK; yalnız geri çevrilemez `hash` ve `vinHash`
+  gösteriliyor. **Dürüstlük:** hash yoksa üretilmiyor, damga yoksa "şimdi" yazılmıyor,
+  `null` (kaynak yok) ile `[]` (çalıştı, boş) ayrı sınıflandırılıyor; `getAutoDiscoveredDids()`
+  bu ayrımı VEREMEDİĞİ için boş dizide hüküm KURULMUYOR. Kanıt sağlığı fail-closed:
+  kimlik kaydı yoksa hiçbir koşulda HAZIR denmiyor. Listeler bounded, kesilen kuyruk
+  toplam sayıyla beyan ediliyor. 42 yeni kilit (katalog · screen-map · tam/kısmi/boş
+  kaynak · VIN sızıntısı yasağı · bounded liste · sentinel ve damga dürüstlüğü ·
+  timer/komut/native import yasağı · zero-leak · sabit-renk yasağı).
+  **Cihazda doğrulanmadı** (kütük #113). Durum: **ENTEGRE**.
+  **Adaptör Tanılama gerçek ekran (Faz A6, 2026-07-26)** eklendi: `adapter-diagnostics`
+  PLACEHOLDER'dan **AVAILABLE**'a geçti. ELM327/Bluetooth taşıma sağlığı, OBD oturum
+  bayrakları ve bağlantı yaşam döngüsü sayaçları tek salt-okunur ekranda toplandı
+  (Transport · OBD Oturumu · Yaşam Döngüsü · Kaynak Sınırları). **AT/OBD KOMUTU
+  GÖNDERMEZ** (adaptör kimlik sorgusu ATI/ATZ dahil), reconnect/reset/recovery
+  tetiklemez; native/OBD koduna DOKUNULMADI. Yedi mevcut senkron getter okunur, hepsi
+  try/catch içinde.
+  **Asıl kazanım — İKİ SAĞLIK MOTORUNUN ÇELİŞKİSİ GÖRÜNÜR OLDU:** `obdService` ADAPTİF
+  tazelik penceresi, `ObdHealthMonitor` ise MUTLAK 4 sn donma eşiği kullanır; bu ikisi
+  şimdiye kadar tek gerçekmiş gibi algılanıyordu. Artık ayrı alanlarda gösteriliyor ve
+  zıt olmadıklarında ekran açıkça "ÇELİŞKİ" diyor — hangisinin haklı olduğu ekranda
+  KARARA BAĞLANMIYOR.
+  **Dürüstlük:** `-1` sentinel'i sayı gibi basılmıyor (`lastPacketAgeMs=-1` → "hiç paket
+  yok"; `connectionQuality=-1` → "hiç bağlanılmadı"; ikisi de "0" DEĞİL), `0` sayaç ile
+  KAYNAK YOK ayrılıyor, damga yoksa "şimdi" yazılmıyor. **Fail-closed:** `connected=true`
+  tek başına SAĞLIKLI üretmiyor — hüküm ancak oturum kaynağı okunup `sessionReady`
+  dediğinde HEALTHY oluyor (bu kural, yazarken testin yakaladığı GERÇEK bir model
+  hatasından sonra eklendi). **Gizlilik:** adaptör adı/adresi/seri numarası kaynak
+  katmanından çıkmıyor; yalnız "kayıtlı (gösterilmez)" varlık beyanı var.
+  **Kaynak sınırları dürüstçe beyan edildi:** RSSI · native buffer doluluğu ·
+  klon/orijinal hükmü · gelişmiş BLE tanısı (MTU/GATT) · firmware/seri no için JS
+  getter'ı YOK → beşi de KAYNAK YOK. 48 yeni kilit.
+  **Cihazda doğrulanmadı** (kütük #114). Durum: **ENTEGRE**.
+
+  **Giriş odağı — Kuyruk İzleyici / Sorgu Zamanlayıcı (UX-F1, 2026-07-26):** iki katalog
+  girdisi **ORTAK** `RuntimeSchedulingScreen` ekranını paylaşmaya devam eder, fakat giriş
+  yapılan araç kimliğine göre **başlangıç odağı** farklıdır: `queue-monitor` → *1 · Komut
+  Yürütme*, `poll-scheduler` → *2 · Canlı Sorgulama* (`live-polling`) ilk sırada ve
+  BİRİNCİL ODAK rozetiyle. Bağlam ekran eşlemesinden **dar tipli prop** olarak geçer
+  (`SchedFocusContext`); sıralamayı **SAF** `orderChannelsForFocus()` yapar.
+  **YENİ ekran / route / state sistemi YOK**, katalog aracı silinmedi/birleştirilmedi.
+  **Sınır:** hiçbir kanal gizlenmez — 6 kanalın tamamı iki girişte de görünür, kalan 5
+  kanalın göreli sırası AYNEN korunur ve bağlam verilmezse ESKİ varsayılan sıra geçerlidir
+  (geriye uyumlu). Sıra **yalnız gösterimdir**: ham değer, sınıflandırma, kanal aktivitesi
+  ve runtime hükmü girişten bağımsızdır. İmperative scroll · DOM erişimi · timer · listener
+  · abonelik YOK. 22 yeni kilit. **Cihazda doğrulanmadı** (kütük #115). Durum: **ENTEGRE**.
+
+  **Mavi Konsolu gerçek ekran (Faz A7, 2026-07-26)** eklendi: `mavi-console`
+  PLACEHOLDER'dan **AVAILABLE**'a geçti. Mavi sesli asistanın RAM durumu tek salt-okunur
+  ekranda toplandı (Yaşam Döngüsü · Son Teşhis Aşamaları · AI Sağlığı · Sağlayıcı Soğuma).
+  **DİNLEME/TTS BAŞLATMAZ**, AI sağlayıcısına istek atmaz, komut dispatch etmez,
+  retry/reset tetiklemez; native/Java koduna DOKUNULMADI. Dört mevcut senkron getter
+  okunur, her biri AYRI try/catch içinde — dördü birden fırlatırken bile ekran ayakta
+  kalır (davranışsal kilitle ölçüldü).
+  **Asıl kazanım — GİZLİLİK YAPISAL HÂLE GETİRİLDİ:** transcript metni, `lastCommand`,
+  konuşma geçmişi, öneri metinleri ve ses hatası MESAJI kaynak katmanından ÇIKMAZ; ham
+  snapshot tipinde bu alanlar **YOKTUR**, yalnız VAR/YOK bayrağı ve ADET taşınır. Yani
+  sızıntı "dikkat edilerek" değil, **tip olarak** engellenir. Kopyalama butonu yoktur.
+  **Dürüstlük:** halka BOŞ (`[]`) ile OKUNAMADI (`null`) ayrıdır; damgasız kayda "şimdi"
+  yazılmaz; sağlayıcı soğumaları (Gemini · Groq · Haiku) AYRI kalır, tek toplama
+  indirgenmez (2026-07-04 "çapraz kirlenme" saha dersi korunur); `throttled` ve repoda
+  tanımsız her durum HAZIR ilan EDİLMEZ — tahmin yasak.
+  **Beyan edilen sınır:** `getAiHealthSnapshot()` tam saf değildir (vadesi dolmuş devre
+  kesici penceresini kapatan yarı-açık geçiş) — gizlenmedi, ekranda ve kütükte yazılı.
+  51 yeni kilit. **Cihazda doğrulanmadı** (kütük #116). Durum: **ENTEGRE**.
+
+  **Geliştirici erişim kapısı: ROL → BUILD (2026-07-26).** Kapı `DEBUG_ENABLED &&
+  canDebug` idi; test APK'sını kuran her cihaz varsayılan `driver` rolüyle açıldığı ve
+  `canDebug` yalnız technician/admin/super_admin'de bulunduğu için **geliştirici
+  yüzeyleri görünmüyordu** — rolü elle yükseltmek ya da localStorage taşımak
+  gerekiyordu. Ürün gerçeği bunu gereksiz kılıyor: CAROS PRO hâlâ **geliştirme + aile
+  içi saha testi** aşamasında, Play Store/genel dağıtım YOK.
+  Artık TEK derleme-zamanı otoritesi var: `platform/debug/developerFeatures.ts →
+  DEVELOPER_FEATURES_ENABLED`. Aynı karar önce ÜÇ dosyada yeniden hesaplanıyordu;
+  üçü de artık bu sabiti import ediyor (`DEBUG_ENABLED` geriye uyumlu takma ad).
+  **Menü kapısı ve doğrudan route/render kapısı AYNI kararı kullanır.**
+  **Kapı silinmedi, dönüştürüldü:** fail-closed davranış korunur; `canDebug` izni rol
+  modelinden SİLİNMEDİ (satış sonrası mühendis modu için) ve normal yetkiler
+  değişmedi. **Ölçüldü (build çıktısında, cihazda DEĞİL):** bayrak kapalı gerçek
+  `vite build` → `developerFeaturesEnabled:!1`, kapı KAPALI.
+  **Dürüstçe beyan edilen sınır:** kapı kapalıyken bile LAB/DebugPanel chunk'ları
+  APK'da bulunur (koşulsuz lazy import) — gerileme değil, ama "kod pakette yok"
+  denemez; sertleştirme ayrı tur. Satış öncesi kapatma adımları:
+  `docs/RELEASE_CHECKLIST.md`. 24 yeni kilit. **Cihazda doğrulanmadı** (kütük #117).
+
+  **Çözücü Kayıtları gerçek ekran (Faz A8, 2026-07-26)** eklendi: `decoder-registry`
+  PLACEHOLDER'dan **AVAILABLE**'a geçti. Repoda KAYITLI çözücü tanımları tek salt-okunur,
+  aranabilir envanterde toplandı: **82 standart PID · 30 üretici DID · 4 profil · 4 marka**.
+  **ARAÇ TARAMA EKRANI DEĞİLDİR** — OBD/AT komutu göndermez, ECU sorgulamaz, PID/DID
+  keşfi başlatmaz, bağlantı/polling/reconnect tetiklemez, native çağrı ve ağ isteği
+  yapmaz, timer kurmaz; native/Java koduna DOKUNULMADI.
+  **Asıl kazanım — SESSİZ DERLEME DAVRANIŞI GÖRÜNÜR OLDU:** profil derleyicisi haritayı
+  YALNIZ kimlikle anahtarlar → aynı profilde aynı kimlik iki kez tanımlıysa **SON yazan
+  kazanır** (ECU farkı bunu ÖNLEMEZ) ve ECU referansı çözülemeyen DID **sessizce atlanır**.
+  Ekran ikisini de ÜZERİNE YAZILDI / DERLEMEDE DÜŞTÜ olarak gösterir. Farklı
+  profillerdeki aynı kimlik **çakışma sayılmaz** (repo aynı anda tek profil yükler,
+  profiller birleşmez) — ayrı sayaçta bilgi amaçlı durur.
+  **Dürüstlük:** üretici DID'lerinde çözücü sınıfı ve formül özeti VERİDEN üretilir
+  (decode.fn + katsayı) → kesindir; standart PID'lerde çözücü bir JS kapanışıdır,
+  makine-okunur spec YOKTUR → sınıf ÖZEL, formül "—" (uydurulmaz). "Rol" alanı kayıt
+  defterindeki yeri anlatır, **aracın desteğini DEĞİL**.
+  **Gizlilik:** çözücü fonksiyon referansı katmandan çıkmaz, gövdesi hiçbir yöntemle
+  okunmaz (`toString`/`eval`/`new Function` kod tabanında yok — kilitli); VIN, parmak izi
+  ve çalışma-zamanı ECU cevabı modele girmez. Registry'ye **canlı referans verilmez**
+  (primitif kopya) → model registry'yi değiştiremez.
+  Yazarken iki gerçek hata kendi testlerimiz tarafından yakalandı ve düzeltildi: (1) bozuk
+  kayıt modelde çökme üretiyordu, (2) Türkçe arama sessizce başarısızdı
+  (`'DEVRİ'.toLowerCase()` → `i` + birleşen nokta). 56 yeni kilit.
+  **Cihazda doğrulanmadı** (kütük #118). Durum: **ENTEGRE**.
+
+  ### 👁️ Zorunlu Gözlemlenebilirlik Kuralı — AÇIK BORÇ KAYDI (2026-07-26)
+
+  Kural yürürlüğe girdi: **"Gözlemlenemeyen özellik tamamlanmış değildir."** Her önemli
+  özellik aynı fazda CAROS LAB salt-okunur gözlem ekranıyla birlikte biter (tam metin:
+  `CLAUDE.md` → "ZORUNLU GÖZLEMLENEBİLİRLİK KURALI"). Kural **geriye dönük** uygulandığında
+  bugün şu boşluklar vardır — bunlar "tamamlandı" diye SUNULMAZ:
+
+  | Alt sistem | Durum | Eksik gözlem yüzeyi |
+  |---|---|---|
+  | Geliştirici erişim kapısı (`DEVELOPER_FEATURES_ENABLED`) | Uygulandı, LAB ekranı YOK | Bayrağın etkin değeri, hangi yüzeylerin açık olduğu, satış build'i fail-closed durumu |
+  | AI kimlik bilgisi akışı (QR Key Beam + pano otomatik algılama) | Uygulandı, LAB ekranı YOK | Sağlayıcı başına anahtar VAR/YOK (**anahtarın kendisi ASLA**), son beam sonucu, pano algılama durumu |
+  | Adaptif poll kadansı / tazelik kapısı | Uygulandı, kısmen kör | Çalışma Zamanı ekranında `pollCadence` KAYNAK YOK — hesaplanan profil hiçbir yerde saklanmıyor |
+  | Kurtarma merdiveni (`recovery-monitor`) | Motor var, ekran PLACEHOLDER | Kurtarma durumu yalnız Çalışma Zamanı kanalında özet olarak görünüyor |
+  | Derin Tarama (`deep-scan`) · UDS Explorer · Eylem Kayıtları · Araç Çağırma · Bellek/Bilgi Gezgini · Benchmark | Ekran PLACEHOLDER | Kendi gözlem ekranları yok |
+  | **Adres sağlayıcı katmanı (`geocodingProviders` · BYOK)** | **Motor var + `getGeocodeProviderStatus()` export'u var, LAB ekranı YOK** | Hangi kaynağın cevapladığı (premium sağlayıcı / Nominatim / Overpass sokak / cihaz-içi POI-geçmiş) sahada GÖRÜNMÜYOR; sağlayıcı anahtarı VAR/YOK durumu ve son çözümleme sonucu hiçbir LAB ekranında yok. Sonuç: "adres bulunamadı" şikâyetinde hangi katmanın düştüğü ancak kaynak okunarak tahmin edilebiliyor (2026-08-03, kütük #336). **Gizlilik sınırı:** LAB'a yalnız VAR/YOK + sağlayıcı adı + sonuç sayısı taşınabilir — anahtar değeri, sorgu metni ve koordinat ASLA. |
+  | **Servis kalp atışı izleyicisi (`SystemHealthMonitor`)** | **Motor var + `getHeartbeatEvidence()` export'u var, LAB ekranı YOK** | Servis başına **beat yaşı · eşik · saat tabanı · alarm/recovered sayısı** hiçbir LAB ekranında gösterilmiyor; `LongRoadFieldValidationScreen` yalnız türetilmiş "GPS kaybı olayı / en uzun kayıp" sayaçlarını gösteriyor. Sonuç: sahte alarm ile gerçek kesinti **ancak `cl_crash_log` ham kaydı elle okunarak** ayrılabildi (2026-08-02, kütük #327). Borç bu turda KAPATILMADI — GPS beat kaynağı DEĞİŞİM'den VARIŞ'a taşındı ama gözlem yüzeyi hâlâ yok. |
+
+  Katalog kapsamı bugün: **18 AVAILABLE · 8 PLACEHOLDER · 2 DISABLED** (28 araç).
+  Bu tablo bir yol haritasıdır; kapatılan her satır ilgili PR'da işaretlenir.
+
+  ### 📱 PHONE-HUB P0.5 — Donanım Keşfi ve Üretici Sondası (2026-07-26)
+
+  Phone Hub mimarisi **dondurulmadan önce** head unit'in gerçekte ne bildiğini ölçen
+  **salt-okunur** teşhis altyapısı eklendi (`phone-hub-probe`, İletişim kategorisi).
+  Native sonda + tek `@PluginMethod` + TS köprüsü + LAB kaynak/model/ekran aynı atomik
+  turda tamamlandı (zorunlu gözlemlenebilirlik kuralı).
+  **Bu faz yetenek EKLEMEZ, hiçbir kullanıcı davranışı ÜRETMEZ:** keşif/tarama,
+  eşleştirme, soket/GATT, adapter aç-kapat, SCO, ses yolu değişimi, medya tuşu, çağrı,
+  izin isteği, vendor bind/broadcast ve OBD müdahalesi YOKTUR — **19 yasak çağrı dizesi
+  statik güvenlik testiyle kilitlendi**.
+  **Asıl kazanım — YETENEK VARSAYIMI KIRILDI:** bağlantı DURUMU ile kontrol OTORİTESİ
+  artık ayrı alanlar. Depoda A2DP Sink/HFP yığınını yöneten kod YOKTUR, bu yüzden otorite
+  **asla ANDROID_APP olamaz** ve "destekleniyor" iddiası yalnız *cihazdan gözlenmiş kanıt +
+  uygulama otoritesi* birlikteyken açılır — **bugün her ikisi için de HAYIR**.
+  **Dürüstlük:** BT kapalıyken profil "DISCONNECTED" diye uydurulmaz (UNAVAILABLE);
+  `-1` sentinel'leri 0 gibi basılmaz; damga yoksa "şimdi" yazılmaz ve durum AVAILABLE
+  olmaz; GATT için güvenilir salt-okunur API YOK → UNAVAILABLE; vendor **yayın** gözlemi
+  için depoda sayaç/damga altyapısı YOK → "gözlendi" DENMEZ (yeni izleyici eklemek bu
+  salt-okunur fazın kapsamı dışıdır).
+  **Gizlilik yapısal:** MAC · cihaz adı · telefon modeli · kişi adı · numara · medya
+  başlığı · token taşıyan alan YOKTUR; adapter adı için bile yalnız "var mı".
+  **Beyan edilen kapsam sınırı:** depoda Robolectric/Mockito YOKTUR → Android'e dokunan
+  okuma yolları düz JUnit'te koşulamaz; saf sınıflandırma (16 native test) ve statik
+  güvenlik test edilmiştir, gerçek okuma davranışı **yalnız cihazda** doğrulanabilir.
+  49 yeni TS kilidi + 16 native kilit. **Cihazda doğrulanmadı** (kütük #119).
+  Durum: **ENTEGRE**.
+
+  ### 📱 PHONE-HUB P0.7 — saha turu ÖN KOŞULDA DÜŞTÜ (2026-07-26)
+
+  Gerçek head unit kanıtı toplanmak istendi; `adb devices` tek cihaz gösterdi ve o cihaz
+  **Xiaomi/Redmi telefonuydu** (`zircon`, Android 13/SDK 33, MediaTek `mt6886`).
+  Ölçüm **başlamadan durduruldu** — telefonda alınan veri head unit otoritesi üretemez.
+  **Kanıt:** 112 sistem özelliği içinde otomotiv/car eşleşmesi **sıfır**; 400 paket
+  içinde vendor CAN/MCU/car-setting paketi **yok**; `com.android.car` **tam eşleşme
+  FALSE** ve `/system/framework` içinde CarService kütüphanesi yok.
+  **Kayda geçen ders:** ilk geniş desen taraması `android.car` için "VAR" dedi — eşleşen
+  paketler yalnızca `com.android.carrierconfig` ve akrabalarıydı. Bu **substring
+  yanlış-pozitifi** raporu kirletmeden yanlışlandı ve P0.8'de **tam eşleşme zorunluluğu**
+  olarak koda + teste kilitlendi.
+  **Sonuç:** P0.6'nın **8 blocker'ının 8'i açık**; dört otorite **UNKNOWN**; coexistence
+  **gözlenmedi**. `docs/phoneHubFieldValidation.json` dosyasına HEAD_UNIT kaydı
+  **bilinçli olarak EKLENMEDİ** (kanıtsız kayıt yazmak fail-closed kuralının ihlali olurdu).
+  Durum: **YOK** (ölçüm yapılamadı).
+
+  ### 📱 PHONE-HUB P0.8 — CAROS LAB Saha Doğrulama Aracı (2026-07-26)
+
+  P0.7'nin düşmesi bir araç eksikliğini de gösterdi: saha ölçümü **ad-hoc adb
+  komutlarına** bağlıydı. Bu tur, araç geldiğinde ölçümü **tekrarlanabilir ve güvenli**
+  biçimde yürütecek aracı kurdu (`phone-hub-field-validation`, İletişim kategorisi).
+  **P0.5 ekranı SİLİNMEDİ** — LAB'da artık iki ayrı araç var: *Hardware Probe* (anlık
+  donanım gözlemi) ve *Saha Doğrulama* (senaryolu kanıt defteri).
+  **Bu tur gerçek head unit sonucu ÜRETMEZ** — yalnız aracı hazırlar; hazırlık durumu
+  araçsız doğal olarak **NOT_READY**'dir ve **P1-A BAŞLATILMAZ**.
+
+  **Ne eklendi:** native saf snapshot + salt-okunur sonda · AYRI `@PluginMethod`
+  (P0.5 sözleşmesi ve şema sürümü aynen korundu → geriye uyumlu) · TS köprüsü ·
+  saf model (5 senaryolu durum makinesi, 4 otorite karar motoru, coexistence hükmü,
+  7 koşullu readiness, PII süzgeci, şema göçü) · tek okuma katmanı (P0.5'in donanım
+  okuyucusunu **yeniden kullanır**, paralel sistem kurmaz) · yerel kalıcılık · ekran.
+
+  **Asıl kazanım — ROL KAPISI:** `android.hardware.type.automotive` **yokluğu tek
+  başına head unit olmadığını KANITLAMAZ** (aftermarket üniteler sıradan Android tablet
+  yapısında olabilir). Bu yüzden **birleşik kanıt modeli** kullanılır: sinyaller toplanır,
+  hiçbiri veto etmez. ≥2 bağımsız teknik sinyal → doğrulandı (yüksek güven); 1 sinyal +
+  kullanıcı onayı → doğrulandı (yalnız **orta** güven); **0 teknik sinyal + onay →
+  yükseltme YOK** — kullanıcı onayı teknik kanıtın yerine geçmez, yalnız bir kanıt
+  kaydıdır. Cihaz **telefon** teşhis edilirse saha aşamaları kilitlenir, ölçüm BLOCKED
+  yazılır ve dört otorite UNKNOWN kalır.
+
+  **Authority dürüstlüğü:** tek zayıf paket eşleşmesi otorite kanıtı **sayılmaz**;
+  profil/servis **varlığı** otorite kanıtı **değildir** (telefon bağlıyken CONNECTED
+  gözlemi şart); çelişkili kanıt → **HYBRID**; kanıt yok → **UNKNOWN**.
+  **Açık borç dürüstçe beyan edildi:** A2DP/HFP profil proxy'si bind sızıntısı riski
+  nedeniyle **bilinçli olarak açılmadı** (P0.5 BLOCKER-8 hâlâ açık) ve MediaSession
+  listesi etkin bir NotificationListener istediği için bu fazda **izin istenmez** →
+  çoğu cihazda erişim DENIED kalacak; ikisi de sabit hata kodu + blocker olarak görünür,
+  sessizce atlanmaz.
+  **Gizlilik yapısal:** paket adı, ham fingerprint, parça/sanatçı/albüm adı, MAC, numara
+  taşıyan alan yoktur (dialer ve oturum sahibi yalnız **sınıfa** çevrilir); diske yazımda
+  ve dışa aktarımda **ikinci** bir PII süzgeci uygulanır. Kayıt **yalnız yereldir** —
+  uzak sunucuya gönderim yoktur.
+  79 yeni TS kilidi + 22 yeni native kilit (P0.5'in 16 testi bozulmadı).
+  **Cihazda doğrulanmadı** (kütük #120). Durum: **ENTEGRE** · **ÜRÜN HAZIR: HAYIR**.
+
+  ### 📱 PHONE-HUB P1-PREP — Companion Foundation (2026-07-26)
+
+  Dört otorite hâlâ UNKNOWN olduğu için bir taşımaya bağlanan kod yazmak, saha
+  kanıtı ters çıkarsa **atılması gereken** mimari üretirdi. Bu tur o riski
+  tersine çevirdi: bağlantıdan **tamamen bağımsız** Companion iskeleti kuruldu
+  (`src/platform/companion/`, 16 modül).
+
+  **Kurulan katmanlar:** Companion Domain · Connection State Machine (10 durum,
+  açık geçiş tablosu) · `PhoneHubSession` + Session Manager · Capability Registry ·
+  mesaj zarfı (sağlama toplamı, REQUEST/RESPONSE/EVENT/ACK) · protokol ve yetenek
+  anlaşması · yerel eşleştirme güven modeli · `ConnectionTransport` sözleşmesi ·
+  scriptlenebilir Mock Transport (7 senaryo) · Event Bus köprüsü (7 olay) ·
+  Action Registry sözleşmesi (9 yer tutucu eylem) · telemetri · yerel kalıcılık ·
+  durum dökümü. LAB'daki Saha Doğrulama ekranına **küçük salt-gözlem bölümü**
+  eklendi (READY/NOT READY · SESSION · TRANSPORT).
+
+  **En önemli kısıt — GERÇEK BAĞLANTI YOKTUR:** 9 taşıma türü BEYAN edildi,
+  **yalnız MOCK uygulandı.** BLE · RFCOMM · USB · Wi-Fi Direct · TCP · vendor
+  servisi · MCU köprüsü için tek satır bağlantı kodu yok; uygulanmamış taşıma her
+  çağrıda `TRANSPORT_NOT_IMPLEMENTED` ile dürüstçe reddeder. `assessFoundation`
+  READY dese bile **`realConnectionReady` daima false**. Native üretim kodu
+  **eklenmedi** ve bu yokluk bir native testle KİLİTLENDİ — gerçek taşıma ancak
+  saha kanıtından sonra (P1-A) yazılır.
+
+  **Fail-closed omurga:** geçersiz durum geçişi reddedilir ve durum korunur
+  (sessiz sıçrama yok) · gönderim yalnız CONNECTED/DEGRADED · protokol kesişimi
+  boşsa bağlantı düşer, downgrade yok · yetenek kesişiminin boş olması hata
+  değildir · bilinmeyen yetenek taşınır ama asla `granted` sayılmaz · yerel
+  destek listesi bilinçli boş → bugün hiçbir yetenek "anlaşıldı" olamaz · bozuk
+  zarf oturumu kapatmaz (sayaç artar) · nesil kapısı bayat çağrıyı reddeder ·
+  **diskten dönen oturum "bağlı" olarak geri yüklenmez.**
+
+  **Timer yok, sahiplik tek yerde:** taşımalar pull (`poll()`) modelidir; zaman ve
+  kimlik üreteci enjekte edilir. Saf katmanlarda `Date.now`/`setInterval`/
+  `localStorage` geçmez (testle kilitli). Gerekçe depoda gerçekten yaşanmış
+  sahipsiz-timer arızasıdır.
+
+  **"Secure" sınırı dürüstçe beyan edildi:** zarfta `encryption` alanı var ama
+  şifreleme **uygulanmamıştır**; `AES_GCM`/`GZIP` gelirse reddedilir. Sağlama
+  toplamı FNV-1a'dır — bütünlük sezme aracıdır, kriptografik imza değildir.
+
+  **Testte yakalanan gerçek sızıntı düzeltildi:** yetenek `digest`'i karşı tarafın
+  bilinmeyen jeton adlarını açık yazıyor ve bu özet döküme/olaya taşınıyordu →
+  bilinmeyen kısım adet + geri çevrilemez karmaya indirgendi (değişim tespiti
+  korundu, ad sızmıyor).
+
+  122 yeni TS kilidi + 3 yeni native kilit. **Cihazda doğrulanmadı** (kütük #121).
+  Durum: **ENTEGRE** · **ÜRÜN HAZIR: HAYIR** · **P1-A BAŞLATILMADI**
+  (kütük #120'nin saha ölçütleri sağlanmadan taşıma seçimi yapılamaz).
 
 > **Uyarı — en yüksek riskli açık test:** Tam tarama sonrası ana ekrana dönüldüğünde
 > hız/RPM/coolant **hâlâ akıyor mu?** Çoklu-ECU probu `ATH1` + UDS extended session açar;
@@ -585,6 +1697,7 @@ değildir** — vizyon rezervuarıdır. Bir madde ancak P0–P3'e taşındığı
 | DataGate Lifecycle | ENTEGRE | HAYIR | F0-3 kapsamı; mekanizma tetiklenmedi |
 | Multi-ECU Discovery | ENTEGRE | HAYIR | `multiEcuScan` → `DTCPanel` + `verdictEngine` (production); saha kanıtı yok |
 | Deep Vehicle Scan | İSKELET | HAYIR | §8.1 — handler yok → fazlar `skipped` |
+| **Keşif Sonucu Dürüstlüğü (yeni/zaten kayıtlı kırılımı)** (yeni) | ENTEGRE | HAYIR | Saha şikâyeti "25 PID bulundu ama eklenmedi" **kusur değildi** — hepsi katalogda vardı (`status:'known'`), panel bunu söylemiyordu. Kırılım eklendi ve YALNIZ o taramanın PID'lerinden hesaplanır (`known+fresh+unclassified === bulunan` invaryantı testli); gözlemi olmayan PID **tahmin edilmez**. PID gözlemine aktif protokol işlenir; ECU adresi/ham yanıt bu katmanda gerçekten yok → boş kalır, uydurulmaz. 🔴 #241 |
 | ECU Topology | YOK | HAYIR | Discovery çıktısına bağımlı |
 | ECU Router | YOK | HAYIR | Vizyon rezervuarı |
 | Standard DTC Mode 03/07/0A | ENTEGRE | HAYIR | `dtcService` + completeness; DTC'li araç borcu |
@@ -593,6 +1706,8 @@ değildir** — vizyon rezervuarıdır. Bir madde ancak P0–P3'e taşındığı
 | UDS 0x19 | ENTEGRE | HAYIR | FAZ 3; üretici kodlu araç yok |
 | UDS 0x22 | ENTEGRE | HAYIR | FAZ 3; saha borcu |
 | KWP2000 | ENTEGRE | HAYIR | Trafic **kullanıcıda değil** → uzaktan rapor yolu. **2026-07-15 PR-OBD-KWP-1:** KWP acquisition yolu kapandı — boş-tx/6-hane KWP adresleme + **Servis 21** (ReadDataByLocalIdentifier) + profil `protocols` kapısı (CAN profili KWP hattında sorgulanmaz → COMM_ERROR fırtınası bitti) + `renaultTraficKwpProfile` (kanıt-dürüst: yalnız ISO kimlik DID'leri, LID'ler Servis 21 keşif taramasıyla sahada kanıtlanacak) + extended NO_DATA demotion (39/39 NO_DATA israfı biter, UI "VERMİYOR" gerçek nedeni gösterir) + `signalHub` tek otoriter okuma. 🔴 #79 |
+| **Capability-Güdümlü Poll Listesi (oturum içi)** (yeni) | ENTEGRE | HAYIR | **Saha ölçümü 2026-07-31 (protokol 7):** bitmap `4100983B0011` → PID `0x11` DESTEKLENMİYOR, ama `0111` HER poll turunda soruluyor ve istisnasız `NO DATA` dönüyordu (boşa komut + tur başına bir `ECU_NO_RESPONSE`). Kök: `refinePidList` doğruydu ama çekirdek küme native'e YALNIZ `connectOBD` anında gidiyordu; araç desteğini handshake'te (bağlantıdan SONRA) bildirdiği için kanıt hiçbir zaman uygulanamıyordu ("bir sonraki reconnect'te kullanır"). Oturum-içi setter (`setCorePidSet`) + `setObdCorePids` köprüsü; **Classic ve BLE'ye birlikte** uygulanır (PR-OBD-BLE-1 dersi). Fail-soft: eski APK'da metot yok → atlanır, boş liste gönderilmez. 🔴 #240 |
+| **VIN Adresi Keşfe Bağlı (29-bit)** (yeni) | ENTEGRE | HAYIR | **Saha ölçümü 2026-07-31:** protokol 7 / ECU `18DAF110` olan araçta `autoDidDiscovery` VIN'i sabit `7E0/7E8` ile istiyordu → her seferinde `NO DATA` → **29-bit araçlarda otomatik DID keşfi hiç başlamıyordu.** Artık önce ECU topolojisi keşfedilir, VIN o adreslerden okunur; `7E0/7E8` yalnız son çare. Yan etki kapatıldı: VIN yoklaması **3 deneme + 2 dk soğuma** ile bütçelendi (sınırsız tekrar çekirdek poll'u boğar, bayatlığı artırırdı). 🔴 #239 |
 | ISO-TP | — | — | **Bilinçli yazılmadı** (ELM327 donanımda yapıyor) — gerekçe roadmap'te |
 | Manufacturer-specific diagnostics | ENTEGRE | HAYIR | F3-1; üretici kodlu araç borcu |
 | Renault/Dacia DF codes | ENTEGRE | HAYIR | Trafic borcu |
@@ -602,16 +1717,29 @@ değildir** — vizyon rezervuarıdır. Bir madde ancak P0–P3'e taşındığı
 | Write Safety Gate | DOĞRULANDI | HAYIR | 7 kapılı karar modeli + testler; **native yazma bilinçli YAZILMADI** (F4-5) |
 | Bounded diagnostic evidence | ENTEGRE | HAYIR | errorLedger + bounded payload; saha kanıtı yok |
 | **İlk-Eşleştirme Sürekliliği** (yeni) | ENTEGRE | HAYIR | **Kök neden:** native'de `ACTION_PAIRING_REQUEST` alıcısı vardı ama `ACTION_BOND_STATE_CHANGED` alıcısı YOKTU; ilk eşleştirmede Android bonding ASENKRON tamamlanır (insan PIN'i OS dialog'una girer) ama tek timeout-sınırlı deneme (eski 15s + JS 8-15s `Promise.race`) bu pencereyi aşıp düşüyordu, bonding sonradan bitse bile yeniden tetik yoktu → kullanıcı 2. kez "Bağlan" demek zorundaydı. `PairingGate.waitStrategyFor` saf haritası + `OBDManager.waitForBondViaReceiver` (receiver-latch, `BOND_WAIT_TIMEOUT_MS=90s`, zero-leak) + JS `PAIRING_GRACE_TIMEOUT_MS` (yalnız kullanıcı-başlatmış+Classic+bonded-değil). `CONNECT_WITHOUT_PAIRING` bilinçli olarak dokunulmadı (insecure-only adaptörlerde regresyon riski). Test: JUnit 10/10 + `regression.guards.test.ts` 2 yeni kilit + tam suite 4378/4378 + tsc temiz. 🔴 #82 |
+| **Yakıt Seviyesi Kalibrasyonu (PID 0x2F şamandıra eğrisi)** (yeni) | ENTEGRE | HAYIR | **Saha ölçümü 2026-08-04 (sürüş hâlinde, CDP ile ham ELM327 trafiği):** kullanıcı “depo full, uygulama yarım gösteriyor” dedi. `012F` → **`412F99`** → 0x99 = 153 → SAE J1979 (A×100/255) = **%60**; ekran 6/10 segmentte, yani gösterim ham veriyle **tutarlı**. Uygulamanın matematiği DOĞRU — kusur aracın şamandıra eğrisinin 0–255 aralığını kullanmamasında. **Asıl bulgu:** ölçek mekanizması (`_fuelCalibScale` + `loadObdFuelCalib`) 2026-07-16 Doblo vakasından beri koddaydı ama **`saveObdFuelCalib`'in üründe hiçbir çağıranı yoktu** → ölçek kalıcı olarak 1, kalibrasyon fiilen **ölü özellikti** (cihazda `obd:fuelCalib:*` anahtarının yokluğuyla doğrulandı). Yazma ucu bağlandı: ham 2F ölçekten ayrı tutulur (`_rawFuelPct`), `calibrateFuelLevel(actualPct)` kullanıcı beyanından katsayı türetir (kanıtsız/bayat/aralık dışı istek **reddedilir** — sahte “kalibre edildi” yok), Ayarlar → Araç panelinde ham↔gösterim↔katsayı salt-okunur gösterilir ve LAB Canlı Veri'deki 2F satırı artık **ham** değeri gösterir (kalibre araçta ölçeklenmiş sayıyı “PID 2F” diye sunmuyordu). 11 kilit testi (çift-ölçekleme yasağı dahil) + tsc temiz. 🔴 #383 |
 
 ### 8.5 Sürücü ve Yolculuk
 
 | Özellik | Durum | Ürün hazır | Kanıt / eksik ana parça |
 |---|---|---|---|
-| Driver DNA | YOK | HAYIR | `smartDrivingEngine` sinyalleri temel olabilir |
+| **Resetlenebilir Yol Sayacı** | **ENTEGRE** | HAYIR | **RESETTABLE_TRIP_METER P0 (2026-08-02, kütük #323 — `COMPLETE_LOCAL`, saha borcu 🔴):** ana ekranda menzil kartının altındaki ölü `0 km KİLOMETRE` alanı gerçek, sıfırlanabilir kullanıcı sayacına dönüştürüldü. **YENİ MESAFE MOTORU YOK** — tek otorite `useUnifiedVehicleStore.odometer`, sayaç yalnız `odometer − baseline` FARKI (paralel haversine/Euler yazılmadı; `tripLogService` ve `longRoadModel.OdometryLedger` trip/oturum sınırında sıfırlandıkları için taban olamazdı). **Fail-closed reset kapısı:** yalnız hız KESİN `0` iken; hareket hâlinde veya hız bilinmiyorken (`SPEED_UNKNOWN`) reddedilir ve storage'a hiçbir şey yazılmaz — sürüşte popup/modal AÇILMAZ, onay kartın içinde satır içi fazdır ve araç hareket ederse kendiliğinden kapanır. **Reset kapsamı dar:** yalnız `distanceKm`/`startedAt`/`resetCount`; trip geçmişi · odometre store'u · long road oturumu · Fleet kayıtları ASLA silinmez (spy testleriyle kanıtlı). **Restart tuzağı yapısal kapalı:** restore sonrası ilk odometre okuması yalnız tohumlar, mesafeyi artırmaz → duplicate replay iki katına çıkmaz. Negatif delta hiç eklenmez (GPS sıçraması → fail-soft yeniden tohumlama + `confidence: MEDIUM`); `null`/`NaN` odometre kaydı değiştirmez (sahte 0 yok); bozuk kalıcı kayıt fail-closed reddedilir; `state !== READY` iken `— km`. **Dört temada da GERÇEKTEN mount edildi** (Expedition · Horizon · Tesla · Pro) — mount kanıtı ham kaynak testiyle kilitli; eski "Kilometre" etiketi hiçbir temada kalmadı. **Saha testi ile otorite ayrımı korundu:** iki taraf birbirine yazmaz (import grafiği testte kilitli), saha testi sayacı otomatik sıfırlamaz; LAB'da yalnız salt-okunur karşılaştırma ve **fark bir hata hükmü DEĞİLDİR**. **Gözlem:** CAROS LAB → Vehicle → Trip Engine → `User Trip Meter (resettable)` (12 alan, sıfırlama butonu YOK). Host kanıtı: `tripMeter.test.ts` 34/34, tam suite 10126/10127 (düşen tek test `regression.guards` K24 `_hasAnyField` timeout'u — **stash ile ölçüldü, ÖNCEDEN VARDI**), `tsc -b` temiz, lint 0. **AÇIK BORÇ:** gerçek araçta hareket-halinde-reddetme, process-kill sonrası süreklilik ve "reset trip geçmişini silmiyor" ölçütleri gözlenmedi → `SAHADA DOĞRULANDI` DEĞİL. Rapor: `docs/RESETTABLE_TRIP_METER_P0_REPORT.md` |
+| Driver DNA | YOK | HAYIR | `smartDrivingEngine` sinyalleri temel olabilir. **ÖN KOŞUL ARTIK KURULDU:** sürücü kimliği ve trip atama temeli için bkz. *Sürücü Kimliği ve Atama* satırı — Driver DNA'ya geçmeden önce o temelin **sahada doğrulanması** şart (yanlış kişiye yanlış profil çıkarma riski) |
+| **Sürücü Varlığı (Presence)** | **İSKELET** | HAYIR | **Driver Presence P1 (2026-07-30, kütük #233–#235 — `COMPLETE_LOCAL` · gerçek cihaz `BLOCKED_REAL_DEVICE`):** P0'ın bilinçli sınırını aşmak için **fiziksel varlık gözlemi** katmanı kuruldu — *assignment bir PLANDIR, presence bir GÖZLEMDİR*. P0'da bir yöneticinin ataması sürücünün direksiyonda olduğunu kanıtlamadığı için `VERY_HIGH` verilemiyordu; presence bu boşluğu doldurur ve NFC kanıtı atamayla uyuştuğunda `VERY_HIGH`'ı ilk kez mümkün kılar. **NFC/Bluetooth İMPLEMENTASYONU YAPILMADI** (kapsam gereği): sözleşme, tek otoriteli resolver ve DB katmanı hazır ama gözlem ÜRETEN hiçbir yol yok — bu yüzden attribution bugün **P0'daki gibi bit bit aynı** çalışır (PG P1 ile kanıtlı). **En kritik güvenlik kararı `HEAD_UNIT`'in kimlik doğrulayan kaynak SAYILMAMASI:** head unit `anon` rolünde çalışır ve kullanıcı oturumu yoktur; P0'da serbest sürücü seçimi bilinçli kapatılmıştı ve presence katmanı o kararı **arkadan dolanmamalıdır** — ekrandan gelen "ben Ahmet'im" beyanı taşınır ve LAB'da görünür ama sürücü kanıtı sayılmaz (tavan `LOW`). `PHONE` de doğrulanmış değil. **İstemci kendi güvenini yükseltemez:** bildirilen güven kaynağın tavanını aşamaz (head unit `VERY_HIGH` iddia etse `LOW`'a düşer). Resolver yedi karar üretir; **çelişki fail-closed**: NFC kartı Ahmet okutmuş ama araca Mehmet atanmışsa hangisinin doğru olduğu BİLİNEMEZ (kart ödünç verilmiş de olabilir) → `CONFLICTED`, sürücü yazılmaz. Atamasız fiziksel kanıt `PRESENCE_ONLY` olur ve plan desteği olmadığı için güven `HIGH` ile SINIRLANIR. **Süresiz presence YOK** (varsayılan 8 sa TTL, DB'de en fazla 24 sa CHECK) — sabah kart okutan sürücü akşamki yolculuğa bağlanmaz. Manuel sonuç presence tarafından da EZİLMEZ; 10× replay revizyonu şişirmez. Kanıt: **19/19 presence PG kontrolü** + **P0'ın 54/54 kontrolü 049 sonrası yeniden koşuldu ve geçti** (`PRESERVED`) + **45 kilit**, iki tsc temiz, build geçti, 049 idempotent. **AÇIK BORÇ:** NFC okuyucu ve BT eşleşme doğrulaması yok · presence yazma RPC'si yok (gerçek kaynak gelince `anon` erişimi çok dikkatli tasarlanmalı) · Fleet UI'da presence rozeti yok (yalnız LAB) · gerçek cihaz doğrulaması YOK. Rapor: `docs/DRIVER_PRESENCE_P1_REPORT.md`. |
+| **Karar Kuyruğu Zamanlayıcısı (Reasoning Queue Scheduler)** | **İSKELET** | HAYIR | **MAVI Reasoning Scheduler P1 (2026-08-01, kütük #280 · #285–#287 — `COMPLETE_LOCAL` · üretim `NOT_VALIDATED` · gerçek araç `BLOCKED_REAL_VEHICLE`):** 058'in "karar üretimi artık otomatiktir" iddiası kuyruk yolu için **doğru değildi** — `run_mavi_reasoning_queue()` vardı ama onu çağıran hiçbir şey yoktu, dolayısıyla hot-path olayları (bağlantı · konum) ve düşmüş/yeniden denenecek işler **sonsuza kadar bekliyordu** (açık borç #280). 059 bu boşluğu kapattı ve **yerelde kanıtladı:** sessizlikten dönen bir araç olayı aynı işlem içinde `state=PENDING`/`started_at=NULL` ölçüldü, ardından zamanlanmış koşum onu **elle hiçbir dispatch olmadan** işledi (`processed=1`); `cron.job_run_details` art arda beş başarılı dakikalık koşum gösterdi. **ZAMANLAYICI KARAR ÜRETMEZ:** yalnız `run_mavi_reasoning_queue()` + `expire_mavi_reasoning()` **çağırır**; gövdesinde `mavi_reason(`, `ai_evidence`, `_reasoning_confidence` veya `SUPPORTED` görülürse migration DÜŞER (ikinci otorite yasağı hem migration doğrulamasında hem testlerde kilitli). **ÜÇ FAIL-CLOSED KURALI:** (1) **örtüşen koşum YOKTUR** — sabit anahtarlı advisory lock; önceki tik sürerken gelen tik iş yapmaz ve `SKIPPED_LOCKED` olarak **dürüstçe kaydedilir** (iki eşzamanlı oturumla gerçekten kanıtlandı); (2) **ölçülmeyen sayaç `0` DEĞİL `NULL`dır** — dört CHECK kısıtı sahte "0 iş işlendi" yazılmasını reddeder; (3) **koşum satırı önce `FAILED` açılır** — oturum ortada ölürse yarım iş sessizce kaybolmaz. **SAĞLIK ÜÇ DEĞERLİDİR:** zamanlanmamış→`false` (gerçek arıza) · hiç koşmamış→**`null`** · art arda hata→`false` · **aralık bilinmiyor→`null`** (tanınmayan cron ifadesinde gecikme ölçülemez, bu yüzden "sağlıklı" DENMEZ) · >3 aralık gecikme→`false`. Sıra bir kilittir: hata kapısı aralık kapısından ÖNCE gelir, yoksa düşen bir koşum belirsizliğe gömülürdü. CAROS LAB'a **Queue Scheduler** bölümü, Fleet Dashboard'a **Kuyruk Koşucusu** bölümü eklendi; ikisi de **karar yokken bile** gösterilir — koşucu yoksa "0 bekleyen iş" ile "işleri işleyecek kimse yok" ekranda aynı görünürdü. Sağlık RPC'si şirket/kişisel veri TAŞIMAZ ve oturumsuz BOŞ döner. Kanıt: **34/34 yeni PG kontrolü** + iki oturumlu örtüşme testi + 059 üç kez idempotent + **058 47/47 (üç ayrı koşumda, canlı cron ile yarış yok)** + **057 56/56** + **36 yeni TS + 10 yeni website kilidi**, kök 9725/9725 (449 dosya), website 965/965, iki tsc temiz, build geçti. **AÇIK BORÇ:** üretim Supabase'inde pg_cron açılmadı (deploy yasağı) · gerçek araç olayı zamanlanmış koşumla hiç karara bağlanmadı · `expire_ai_evidence()` hâlâ zamanlayıcısız · **`buildVehicleVerdict` taşıma çatalı AÇIK** (#286: kanıt/karar omurgası sunucuda, cihazda kanıt üreten ürün kodu yok, ama tanı verdisi çevrimdışı çalışmak zorunda) · website ESLint `src/**` ignore ediyor (#287). Rapor: `docs/MAVI_REASONING_SCHEDULER_P1_REPORT.md`. |
+| **Karar Üretim Bağlantısı (Reasoning Production Wiring)** | **İSKELET** | HAYIR | **MAVI Reasoning Production Wiring P1 (2026-08-01, kütük #279–#284 — `COMPLETE_LOCAL` · gerçek araç `BLOCKED_REAL_VEHICLE`):** 057'nin karar motoru GERÇEK ÜRÜN AKIŞINA bağlandı. **HEDEF YEREL OLARAK KANITLANDI:** yalnız kanıt yazıp yolculuk kapatan, içinde HİÇBİR `mavi_reason` çağrısı olmayan bir koşum iki olay üretti (`TRIP_COMPLETED` → TRIP resolver, `EVIDENCE_ADDED` → VEHICLE resolver), ikisi de `COMPLETED` oldu ve biri `UNSUPPORTED` (güven `MEDIUM`) karar yazdı; ikincisi kanıtsız olduğu için dürüstçe `INSUFFICIENT_EVIDENCE` kaldı — *"veri yok, o hâlde sorun yok"* DENMEDİ. **12 GERÇEK OLAY BAĞLI:** yolculuk tamamlandı · DNA güncellendi · içgörü oluştu · araç kimliği/bağlantısı değişti · konum durumu değişti · sürücü doğrulaması/varlığı değişti · filo sağlığı güncellendi · kanıt eklendi/süresi doldu/geri çekildi. **BEŞ FAIL-CLOSED KURALI:** (1) **VARSAYILAN RESOLVER YOKTUR** — eşlenmemiş niyet `NULL` döner ve kuyruğa GİREMEZ; 057'nin 12 niyetinin tamamının eşlendiği migration doğrulamasında ÇAĞRILARAK sınanır, bilinmeyen niyet "en yakın" resolver'a düşmez; tanınmayan olay tipi de CHECK ile reddedilir; (2) **BOUNDED DEDUPE** — anahtar şirket+niyet+özne (olay tipi bilinçli olarak DÂHİL DEĞİL: aynı soru iki farklı olaydan gelirse tek kez sorulur); 20 tekrar tek iş açtı, `suppressed_count` 21 oldu ve bastırma sessizce yutulmadı; (3) **RESOLVER KARAR ÜRETMEZ** — yalnız öznesini doğrulayıp `mavi_reason`a yönlendirir; gövdesinde kanıt okuması, güven/çelişki çağrısı veya karar sabiti görülürse migration DÜŞER; özne yoksa karar UYDURULMAZ (`SKIPPED` + bounded gerekçe); (4) **HATA YALITIMI** — reasoning düşse bile trip yükleme, Evidence Engine, Fleet Insight ve DNA çalışmaya DEVAM EDER ama hata sessizce yutulmaz (`FAILED`·`RETRY_PENDING`·`REJECTED`·`SKIPPED`·`DEDUPED` + ≤5 üstel yeniden deneme); (5) **EŞZAMANLILIK** — `PENDING→RUNNING` geçişi atomik, ikinci işleyici `ALREADY_RUNNING` alır, koşucu `SKIP LOCKED` ve idempotent. **HOT-PATH KORUNDU:** bağlantı ve konum olayları yalnız GERÇEK durum geçişinde (10 dk sessizlik sonrası) üretilir ve karar üretimi telemetri yoluna SOKULMAZ (kuyruğa alınır, koşucu işler) — CLAUDE.md performans bütçesi ihlal edilmedi. CAROS LAB'a **Live Event Queue** (bekleyen·çalışan·tamamlanan·düşen·yeniden denenecek·reddedilen·atlanan·bastırılan + ortalama kuyruk/karar süresi + kuyruk sağlığı) ve Fleet Dashboard'a **4 kuyruk kartı** eklendi; kuyruk bölümü KARAR YOKKEN BİLE gösterilir ("hiç karar yok" ile "olaylar geliyor ama karara bağlanamıyor" farklı arızalardır) ve **hiç olay olmaması başarı sayılmaz**. **PARALEL KARAR OTORİTESİ TARAMASI (madde 11):** Reasoning Engine'i bypass eden **8 gerçek karar noktası** bulundu (`buildVehicleVerdict` · `buildDiagnosticVerdict` · `buildAiCoreVerdict` · `combineConfidence` — ağırlıklı KENDİ güven formülü, 057'nin en-zayıf-halka ilkesiyle doğrudan çelişiyor · `maintenanceBrain` · `fuelAdvisorService` · `smartCardEngine` · `predictionEngine`) ve **6 güvenlik/yetki kapısı** bilinçli istisna olarak gerekçelendirildi; **hiçbiri değiştirilmedi**, yalnız görünür kılındı. Kanıt: **47/47 yeni PG kontrolü** + **053–058 zinciri artan sırada temiz** + **40 TS + 12 website kilidi**, kök 9689/9689 (448 dosya), website 955/955, iki tsc temiz, build geçti, lint temiz, 058 idempotent. **AÇIK BORÇ:** üretim akışı gerçek araç verisiyle HİÇ çalışmadı · kuyruk koşucusu için zamanlayıcı YOK (hot-path olayları ve düşmüş işler bekler) · kanıt üretmeyen 6 olay karar tetikliyor ama çoğunlukla `INSUFFICIENT_EVIDENCE` çıkıyor (kapsam borcu) · 8 paralel karar otoritesi hâlâ yerinde. Rapor: `docs/MAVI_REASONING_PRODUCTION_WIRING_P1_REPORT.md`. |
+| **Karar Otoritesi (MAVI Reasoning Engine)** | **İSKELET** | HAYIR | **MAVI Reasoning Engine P1 (2026-08-01, kütük #272–#278 — `COMPLETE_LOCAL` · gerçek araç `BLOCKED_REAL_VEHICLE`):** CAROS PRO'nun **TEK KARAR OTORİTESİ**. Bundan sonra hiçbir modül kendi kararını üretmeyecek; **LLM karar VERMEZ**, yalnız burada ZATEN VERİLMİŞ kararı doğal dile çevirir. Bu iddia yedi kapıyla kilitlendi ve **determinizm çağrılarak sınandı**: aynı defter + aynı istek → `toEqual` ile bit bit aynı karar, kanıt sırası sonucu değiştirmiyor. **ALTI SÖZLEŞME KURALI:** (1) **karar kanıtsız üretilemez** — *"veri yok, o hâlde sorun yok"* bir karar DEĞİLDİR; kanıtsız istek `INSUFFICIENT_EVIDENCE` olur ve DB CHECK'i kanıtsız `SUPPORTED`/`UNSUPPORTED` satırını reddeder (kanıt bağı metin listesi değil **gerçek FK**'dir); (2) **güven istemciden alınamaz** ve **formül KOPYALANMAZ** — 055'in `_evidence_weakest`/`_evidence_confidence` fonksiyonları ÇAĞRILIR (kopyalanırsa migration DÜŞER), TS tarafında da `aiEvidence`ten ithal edilir; tek kanıtlı karar `MEDIUM`u aşamaz, eksik kapsam güveni AŞAĞI çeker, hiçbir adım güveni yükseltemez ve sonuçlandırıcı olmayan karar daima `UNKNOWN` taşır (*"kararsızım ama eminim"* olamaz); (3) **çelişkili kanıtta karar ÜRETİLMEZ** — iki kaynağın çeliştiği yerde birini seçmek uydurmaktır; `VALUE_DIVERGENCE` (%10 sabit eşik, çağıran gevşetemez) ve `REVISION_DIVERGENCE` ayrı ayrı tanımlı, ölçümü olmayan kanıt çelişemez; (4) **süresi dolmuş kanıt karara katılmaz ama zincirden SİLİNMEZ**, süresi dolan kararın kendisi de silinmez ve kanıt bağı korunur (süre dolumu idempotent); (5) **replay yeni karar AÇMAZ** — kimlik = özne + niyet + **kanıt imzası** (zaman içermez); kanıt kümesi değişirse bu ARTIK BAŞKA bir karardır çünkü dayanağı başkadır; bastırılan tekrar sessizce yutulmaz, sayılır; (6) **UNKNOWN gerçek bir karardır** — niyet birden fazla adaya işaret ediyorsa motor KURA ÇEKMEZ. **Durum makinesi GERÇEKTEN yürür:** `NEW → ANALYZING → terminal`; `NEW → SUPPORTED` kestirmesi YOK, sonuçlanmış karar sessizce değiştirilemez, `REJECTED`/`EXPIRED` mutlak terminal. **Karar zinciri UYDURULMAZ:** `DECISION → EVIDENCE → FLEET_INSIGHT · DRIVER_DNA → TRIP → VEHICLE`; içgörü ucu `ai_evidence_chain`ten, DNA ucu `driver_dna`dan çözülür, çözülemeyen uç YAZILMAZ, okunamayan kanıt düğümü `resolved:false` ile GÖRÜNÜR kalır. **Tek veri kapısı:** motor yalnız `ai_evidence` okur (TS import kilidiyle sabit); `vehicles`/`vehicle_trips`/`driver_dna` yalnız tenant doğrulaması ve zincir ucu içindir, karar **başka bir karar otoritesine devredemez** (`_dna_status`·`_fleet_insight_confidence`·`_resolve_driver_*` çağrılamaz). **Karar İSTEMCİYE kapalı:** `mavi_reason` yalnız `service_role`, tablolar `authenticated` için salt-okunur, `anon` hiç göremez. CAROS LAB'a **MAVI Reasoning Engine** ekranı ve Fleet Dashboard'a **5 karar kartı** (Son Kararlar · Karar Güveni · Kanıt Durumu · Çakışmalar · Bilinmeyenler) eklendi ve kartlar `/dashboard/fleet/lab` sayfasına **gerçekten bağlandı** (bağlılık testle kilitli — 055/056'nın bağlanmamış kart borcu tekrarlanmadı). **Doğrulama sırasında GERÇEK bir kusur bulundu ve düzeltildi:** geçersiz durum geçişi sayacı trigger içinde artırılıp `RAISE` ediliyordu — exception artışı da geri alıyordu, yani *"sessizce yutulmaz"* iddiası fiilen çalışmıyordu; sayım, geçişi alt-işlemde yakalayan `mavi_reasoning_transition` sarmalayıcısına taşındı. Kanıt: **56/56 yeni PG kontrolü** + **053–056 zinciri 057 sonrası yeniden koştu** + **86 TS + 28 website kilidi**, website 942/942, iki tsc temiz, kök build geçti, lint temiz, 057 idempotent (üç kez uygulandı). **AÇIK BORÇ:** motor gerçek araç verisiyle HİÇ çalışmadı · karar üretimini tetikleyen üretim yolu YOK (şu an üretimde hiç karar üretilmiyor) · mevcut AI yüzeyleri (AI Mechanic · Driver Coach · Fleet Advisor · Predictive Maintenance · Trip/Diagnostic/Repair/Service Advisor · AI Negotiator · Vehicle Health Advisor) henüz bu motora TAŞINMADI — kural yalnız YENİ özellikler için bağlayıcı. Rapor: `docs/MAVI_REASONING_ENGINE_P1_REPORT.md`. |
+| **Kanıt Üretim Bağlantısı (Evidence Production Wiring)** | **İSKELET** | HAYIR | **AI Evidence Production Wiring P1 (2026-08-01, kütük #267–#271 — `COMPLETE_LOCAL` · gerçek araç `BLOCKED_REAL_VEHICLE`):** 055 omurgası ÜÇ gerçek üretim kaynağına bağlandı: **Trip Metrics P2 · Driver DNA P1 · Fleet Intelligence P1**. Deep Scan · BlackBox · DTC · bakım tahmini · LLM **KAPSAM DIŞI** ve `EVIDENCE_ADAPTERS` bunu testle kilitler. **Kaynak modüller doğrudan kanıt YAZMAZ:** tek yol `_evidence_adapter_record` kapısıdır ve **kaynak sahipliği** orada uygulanır — bir adaptör başkasının kanıtını yazamaz (`FOREIGN_SOURCE`). **Trip:** yalnız KAPANMIŞ yolculuk; `UNAVAILABLE` alan kanıt üretmez; `ESTIMATED` ölçülmüş gibi İŞARETLENMEZ; 10× replay tek kanıt; **trip revizyonunda eski kanıt DEĞİŞMEZ** — `subject_revision` eklendi (055 modeli kırılmadan GENİŞLETİLDİ) ve eski kayıt `SUPERSEDED` olarak ilişkilendirilir. **DNA:** yalnız öğrenme eşiği aşılınca; viraj/akü kanıtı ASLA üretilmez (kaynak yok); tek genel sürücü puanı YOK; **`RETRACTED` DNA aktif güvenilir kanıt gibi kullanılmaz** (kanıtlar `SUPERSEDED`e düşer, silinmez); DNA metrik FORMÜLLERİ SQL'e KOPYALANMADI (tek otorite `driverDnaEngine.ts`). **Fleet Intelligence:** mevcut `fleet_insight_evidence` satırları TEK gerçek kaynaktır (paralel motor YOK); kanıt <3 iken ACTIVE zincir kurulmaz; replay duplicate zincir üretmez; `SINGLE_VEHICLE_ONLY` etiketi korunur; `BATTERY_TREND`/`MAINTENANCE_TREND` kanıt üretmez. **Hata yalıtımı:** adaptör hatası ana işlemi (trip yükleme/DNA/insight) BOZMAZ ama SESSİZCE YUTULMAZ — bounded durum (`REPORTED·DEDUPED·REJECTED·DEGRADED·RETRY_PENDING`) + **sınırlı** retry (≤5 deneme, üstel bekleme; tükenince `DEGRADED` kalır). CAROS LAB'a **Source Adapters** bölümü (adaptör durumları · son olay/sonuç · sayaçlar · öksüz zincir · kaynak kapsamı) ve Fleet UI'ya salt-okunur **kanıt listesi** eklendi ("Bu yolculuğun/profilin/içgörünün kanıtları"). Kanıt: **40/40 yeni PG kontrolü** + **048–055 zincirinin tamamı 056 sonrası yeniden koştu** + **27 TS + 6 website kilidi**, kök 9563/9563, website 914/914, iki tsc temiz, lint temiz, build geçti, 056 idempotent; Music Hub 157/157, AccountCleanup 174/174. **AÇIK BORÇ:** zincir gerçek araç verisiyle HİÇ beslenmedi (`WIRED` ≠ saha doğrulaması) · retry zamanlayıcısı yok · kanıt kartları sayfalara bağlanmadı · kapsam dışı kaynaklar bağlanmadı · kalıcı secret-scan harness'ı yok (bu turda ad-hoc koşuldu, bulgu yok). Rapor: `docs/AI_EVIDENCE_PRODUCTION_WIRING_P1_REPORT.md`. |
+| **AI Kanıt Omurgası (AI Evidence Engine)** | **İSKELET** | HAYIR | **AI Evidence Engine P1 (2026-08-01, kütük #262–#266 — `COMPLETE_LOCAL` · gerçek araç `BLOCKED_REAL_VEHICLE`):** CAROS PRO'daki BÜTÜN AI sistemlerinin ortak omurgası. Bugün sistem yalnız veri topluyor; yarın Mavi'nin söylediği HER cümle buradaki bir kanıta geri izlenebilecek — `AI_ANSWER` bilinçli olarak zincirin tüketici listesindedir, yani kanıt bağı olmayan bir AI çıktısı sistemin AÇIKLAYAMAYACAĞI bir iddiadır. **BU PAKET AI CEVABI ÜRETMEZ** (5 kilitle): LLM/model/tahmin/öneri YOK ve **kanıt bir CÜMLE DEĞİLDİR** — `title`/`message`/`explanation` kolonu DB'de eklenirse migration DÜŞER. **BEŞ SÖZLEŞME KURALI:** (1) **kaynaksız kanıt ACTIVE olamaz** (`SOURCE_UNKNOWN` hem CHECK hem TS kapısıyla reddedilir; öznesiz ve ölçümsüz kayıt da öyle — reddedilenler SİLİNMEZ, gerekçesiyle saklanır); (2) **güven kanıttan bağımsız YAZILAMAZ** — `EvidenceInput`ta `confidence` alanı YOKTUR ve sunucu istemcinin yazdığını YOK SAYIP yeniden türetir: kaynak · ölçüm kalitesi · örnek sayısının en zayıf halkası, **tek gözlem MEDIUM'u aşamaz**; (3) **kanıt DEĞİŞMEZDİR** — özne/kaynak/kategori/metrik/doğuş anı güncellenemez ve **bir modül BAŞKASININ kanıtını değiştiremez**; (4) **süresi dolan kanıt SİLİNMEZ** (`EXPIRED`) — geçmiş bir iddianın dayanağı yok edilirse o iddia açıklanamaz hâle gelir; (5) **UNKNOWN gerçek bir cevaptır** — kapsam oranı kanıt yoksa `null`dır (0 DEĞİL: "sıfır ölçtük" ile "hiç bakmadık" farklı şeylerdir). **Birleştirme:** kimlik zamanı İÇERMEZ → aynı kanıt ikinci kez açılmaz, `refreshCount` artar ve **ilk kanıt zamanı korunur**. **Zincir:** `get_evidence_chain()` ile tek tıkla bir çıktının dayandığı kanıtlar, ters yönde bir kanıtın beslediği çıktılar okunur; **var olmayan kanıta bağ kurulamaz**. **Kapsam:** beklenen kategoriler sabittir ve gerçeğe göre AŞAĞI ÇEKİLMEZ; eksikler tek tek listelenir. CAROS LAB'a **AI Evidence Engine** ekranı (sayaçlar · kaynak dağılımı · zincir · kapsam · bütünlük bayrağı) ve Fleet Dashboard'a **4 kanıt kartı** eklendi (Kapsam · Kalite · Süresi Dolmuş · Kanıtı Olmayan). Kanıt: **38/38 yeni PG kontrolü** + **048 (54/54) · 049 (20/20) · 050 (27/27) · 051 (22/22) · 052 (30/30) · 053 (25/25) · 054 (31/31) 055 sonrası yeniden koştu** + **46 TS + 14 website kilidi**, kök 9536/9536, website 908/908, tsc temiz, lint temiz, build geçti, 055 idempotent. **AÇIK BORÇ:** omurga gerçek veriyle hiç dolmadı · kanıt ÜRETEN entegrasyon YOK (DNA/FI/trip/deep scan bağlanmadı) · süre dolumunu çağıran zamanlayıcı yok · kanıt kartları sayfaya yerleştirilmedi · head unit↔sunucu köprüsü yok. Rapor: `docs/AI_EVIDENCE_ENGINE_P1_REPORT.md`. |
+| **Filo Zekâsı (Fleet Intelligence)** | **İSKELET** | HAYIR | **Fleet Intelligence Engine P1 (2026-08-01, kütük #257–#261 — `COMPLETE_LOCAL` · gerçek araç `BLOCKED_REAL_VEHICLE`):** Klasik filo takibi "ne oldu" gösterir; bu katman *"ne DEĞİŞİYOR, hangi KANITLA, ne kadar EMİN olabiliriz"* sorusunu cevaplar. **BU PAKET AI ÜRETMEZ** (5 kilitle): LLM/model/tahmin/öneri YOK ve **insight bir CÜMLE DEĞİL KANIT KÜMESİDİR** — `title`/`message`/`recommendation` alanı hem TS modelinde hem DB'de YASAK (migration doğrulaması bu kolonlar eklenirse DÜŞER). Bir içgörünün hangi araçlardan, sürücülerden, yolculuklardan ve metriklerden oluştuğu `fleet_insight_evidence`'ta satır satır izlenebilir. **KANITSIZ İÇGÖRÜ OLUŞMAZ:** kanıt <3 iken `ACTIVE` olamaz ve DB trigger'ı bunu son savunma olarak reddeder. **TEK ARAÇTAN `HIGH` ÇIKMAZ** (pazarlıksız): tek araç kanıtı `MEDIUM` tavanına takılır ve `SINGLE_VEHICLE_ONLY` damgası taşır; ikinci araç kanıtı gelince damga kalkar. **Ölçülmemiş kanıt kabul edilmez** (`value=null`+`UNKNOWN`) — `0` gibi davranmaz; **aynı kanıt iki kez birikmez** (replay) ve **aynı konu ikinci içgörü açmaz** (dedupe). **Trend** iki pencerede de ≥5 örnek ve ≥2 araç ister (iki noktadan trend çıkarmak gürültüyü bilgi sanmaktır); %10 altı `FLAT`. **Filo sapması ARAÇ BAZINDA DEĞİL** filo düzeyindedir ve her kanıt kaç araçtan geldiğini taşır; sapma bir SUÇLAMA değildir (mevsim/güzergâh da değişmiş olabilir) → yorum ÜRETİLMEZ. **Filo sağlığında TEK PUAN YOK:** 6 boyut ayrı durur, ölçülemeyen boyut `UNKNOWN` + endeks `null` kalır ve DB CHECK'i "bilinmiyor ama 0.4" çelişkisini reddeder; `overall_score` kolonu eklenirse migration DÜŞER. **Kapsam** bir başarı değil BİLGİ ölçüsüdür: düşük kapsam "filo kötü" değil **"bilmiyoruz"** demektir (araç yoksa `null`, 0 değil). **Kanıt kaynağı olmayan 2 tip BEYAN EDİLDİ:** `BATTERY_TREND` (voltaj trip'te yok) ve `MAINTENANCE_TREND` (servis kaydı yok) — sıcaklıktan "bakım gerekiyor" çıkarmak tahmindir, üretilmez. CAROS LAB'a **Fleet Intelligence** ekranı (insight/kanıt/trend/bilinmeyen sayaçları · sağlık boyutları · sapma kanıtı · kapsam · öğrenme yaşı · her içgörünün kanıt satırları) ve Fleet Dashboard'a **6 kart** eklendi (kanıt yoksa boş pano değil GEREKÇE). Kanıt: **31/31 yeni PG kontrolü** + **048 (54/54) · 049 (20/20) · 050 (27/27) · 051 (22/22) · 052 (30/30) · 053 (25/25) 054 sonrası yeniden koştu** + **41 TS + 14 website kilidi**, kök 9490/9490, website 894/894, tsc temiz, lint temiz, build geçti, 054 idempotent. **AÇIK BORÇ:** gerçek yolculuklardan üretilmiş TEK içgörü yok · içgörü üreten periyodik iş YOK (tablolar elle doluyor) · akü/bakım için kaynak yok · dashboard kartları sayfaya yerleştirilmedi · head unit↔sunucu köprüsü yok. Rapor: `docs/FLEET_INTELLIGENCE_ENGINE_P1_REPORT.md`. |
+| **Sürücü DNA (Driver DNA)** | **İSKELET** | HAYIR | **Driver DNA P1 (2026-08-01, kütük #252–#256 — `COMPLETE_LOCAL` · gerçek araç `BLOCKED_REAL_VEHICLE`):** *Bu bir puanlama sistemi DEĞİLDİR* — tek bir "sürücü puanı" bilinçli olarak üretilmez; amaç zaman içinde KANITLA oluşan sürüş karakteridir. **BU PAKET AI ÜRETMEZ** (bağlayıcı, 4 kilitle): model/tahmin/öneri/doğal dil yok, `fetch`/LLM importu yasak, `score`/`rating` alanı yok, sürücü ETİKETLENMEZ — üretilen şey AI'nin GELECEKTE güvenle kullanacağı kanıt altyapısıdır. **14 bileşen** (yumuşaklık · agresiflik · yakıt disiplini · mekanik duyarlılık · gece · şehir içi · şehirler arası · rölanti · fren · hızlanma · viraj · motor · akü · tutarlılık), her biri `MEASURED`/`DERIVED`/`UNKNOWN` provenance + örnek sayısı + kanıt mesafesi taşır; `UNKNOWN` metrik DAİMA `null` değer taşır (sahte 0 YASAK). **EN ÖNEMLİ DÜRÜSTLÜK KARARI:** istenen bileşenlerden ikisi bugün ÖLÇÜLEMEZ (`CORNERING_STYLE` için yanal ivme, `BATTERY_CARE` için voltaj trip modelinde YOK) → hızdan viraj türetmek mümkündü ama UYDURMA olurdu; kalıcı `UNKNOWN` + `NO_EVIDENCE_SOURCE` olarak BEYAN edildi ve testle kilitlendi. **Güven motoru:** 5 yolculuk + 50 km eşiğinin altında DNA OLUŞMAZ (metrik listesi BOŞ döner); "çok veri ≠ çok kanıt" — 200 yolculuk hiçbir sinyal ölçülmemişse güven `UNKNOWN`, metriklerin yarısı bilinmiyorsa `LOW`. **Öğrenme:** 1 / 10 / 100 / 1000 eşikleriyle `NASCENT→DEVELOPING→ESTABLISHED→MATURE` (hem TS hem PG'de kilitli). **Sapma:** taban ve son pencere karşılaştırılır; iki pencerede de ≥5 örnek yoksa KARAR YOK, %25+ değişimde `DRIFTING` + kanıt (hangi metrik, hangi değerden hangi değere, kaç örnekle). Sapma bir SUÇLAMA değildir — yorum üretilmez. **Araç etkisi TAHMİNDİR** ve `estimated: true` tip seviyesinde sabittir; kanıt yoksa endeks `null` ("etkisi yok" DEĞİL, "bilinmiyor"). **PG (053):** sürücü×şirket başına tek DNA · her sinyalin KENDİ sayacı (ölçülmemiş alan `0` sayılmaz) · `dna_trip_single_owner` ile replay kilidi · sürücü değişiminde katkı GERİ ALINIR ve `integrity_state='RETRACTED'` ile GİZLENMEZ · cross-tenant ve devir sızıntısı kapalı · **metrik formülü SQL'e KOPYALANMADI** (iki otorite yasağı, migration doğrulaması bunu zorlar). CAROS LAB'a **Driver DNA** ekranı (learning level · confidence · DNA yaşı · metrik/bilinmeyen sayısı · drift + kanıt · araç etkisi TAHMİN rozetiyle) ve Fleet UI'ya **DNA kartı** eklendi (eşik altında BOŞ KART değil GEREKÇE). Kanıt: **25/25 yeni PG kontrolü** + **048 (54/54) · 049 (20/20) · 050 (27/27) · 051 (22/22) · 052 (30/30) 053 sonrası yeniden koştu** + **41 TS + 14 website kilidi**, kök 9449/9449, website 880/880, tsc temiz, lint temiz, build geçti. **AÇIK BORÇ:** DNA gerçek araç yolculuklarıyla HİÇ dolmadı · viraj/akü için kanıt kaynağı yok · sürücü değişiminde sapma pencereleri tam geri alınamıyor · DNA kartı sayfaya yerleştirilmedi · head unit↔sunucu okuma köprüsü yok. Rapor: `docs/DRIVER_DNA_P1_REPORT.md`. |
+| **Sürücü Kimlik Doğrulama (Driver Authentication)** | **İSKELET** | HAYIR | **Driver Authentication P1 (2026-07-31, kütük #247–#251 — `COMPLETE_LOCAL` · gerçek cihaz `BLOCKED_REAL_DEVICE`):** *Presence bir GÖZLEMDİR, Authentication bir KANITTIR.* Bir NFC kartın okunması **kartı** kanıtlar, **kişiyi** değil (kart ödünç verilebilir/kopyalanabilir/çalınabilir) — 049'daki "kart = kişi" varsayımı bir kimlik doğrulaması DEĞİLDİ. **⚠️ POLİTİKA DEĞİŞTİ (bilinçli):** presence artık **TEK BAŞINA `VERY_HIGH` ÜRETEMEZ** (tavan `HIGH`); en yüksek güven yalnız **kimlik doğrulaması + fiziksel varlık + AYNI sürücü** birlikteyken mümkündür. 049'un P6 kilidi KALDIRILMADI, yeni doğru davranışa TAŞINDI ve yanına P6b eklendi ("kimlik doğrulanmadan VERY_HIGH VERİLMEZ"); pozitif senaryo 052 T5'te kilitli. **RESOLVER'LAR DEĞİŞMEDİ:** `_resolve_driver_presence` ve `_resolve_trip_driver` tek satır bile düzenlenmedi — presence otoritesi hâlâ `PRESENCE_CONFIRMED` + kendi güvenini üretir; tavan YALNIZ kompozisyon katmanında (`_trip_attribution_trigger`) uygulanır. **Kanonik model:** `driverId · vehicleId · authenticationSource · authenticationLevel · verifiedAt · expiresAt · sessionId`. Kaynak tavanları: NFC/PIN → `VERIFIED`, BLUETOOTH/PHONE → `PARTIAL` (cihaz yakınlığı kişiyi kanıtlamaz); **`HEAD_UNIT` bilinçli olarak YOK** (anon rolde kimlik iddiası kanıt olamaz). **İstemci seviyesini yükseltemez** — tavan hem TS'te hem SUNUCUDA uygulanır (`_authentication_write_guard` seviyeyi DÜŞÜRÜR). **`sessionId` ZORUNLUDUR** ve replay kilidinin dayanağıdır: `vda_session_unique` ile bir oturum şirket içinde tek kez kullanılabilir; 24 saatten eski mesaj ve gelecek tarihli kayıt (saat oynatma) REDDEDİLİR. **Trust katmanı** beş karar üretir (`VERIFIED_PRESENCE` · `PRESENCE_ONLY` · `AUTHENTICATION_ONLY` · `TRUST_CONFLICT` · `NO_TRUST`); kimlik ile varlık farklı kişiyi gösterirse **fail-closed** (sürücü YAZILMAZ) ve doğrulama **zayıf bir gözlemi GÜÇLENDİRMEZ**, yalnız `VERY_HIGH` kapısını açar. Kanıtsız durumda **P0 atama modeli AYNEN** çalışır. CAROS LAB'a **Driver Authentication** ekranı eklendi (authority state · source · level · expires · session age · ret sayaçları); PIN/kart numarası/token ve TAM oturum kimliği taşınmaz (`ses:xxxxxxxx`). Kanıt: **30/30 yeni PG kontrolü** + **048 (54/54) · 049 (20/20) · 050 (27/27) · 051 (22/22) 052 sonrası yeniden koştu** + **42 yeni TS kilidi**, kök 9408/9408, website 866/866, tsc temiz, lint temiz, build geçti, 052 idempotent. **AÇIK BORÇ:** gerçek kaynak (NFC/PIN/BT/telefon) YOK · doğrulama YAZAN yüzey YOK (bugün `VERY_HIGH` kapısı KAPALI) · `VERY_HIGH` gerçek araçta hiç üretilmedi · replay kilitleri gerçek trafikte sınanmadı · geçmiş `VERY_HIGH` kayıtları geriye dönük hesaplanmadı (bilinçli). Rapor: `docs/DRIVER_AUTHENTICATION_P1_REPORT.md`. |
+| **Sürücü Varlığı Geçmişi (Presence History)** | **İSKELET** | HAYIR | **Driver Presence History P1 (2026-07-30, kütük #236–#238 — `COMPLETE_LOCAL` · gerçek cihaz `BLOCKED_REAL_DEVICE`):** P1 "şu an kim araçta?" sorusunu cevaplıyordu ve yalnız TEK gözlem tutuyordu; bu tur *"varlık ZAMAN İÇİNDE nasıl değişti?"* sorusunu cevaplayan **segment defterini** ekler (kim geldi · ne kadar kaldı · yerine kim geçti · kaç kez el değiştirdi). **MEVCUT RESOLVER DEĞİŞTİRİLMEDİ** — `resolveDriverPresence` ve `_resolve_driver_presence` bu turda tek satır bile düzenlenmedi; geçmiş bir **KARAR katmanı değil DEFTERDİR** ve attribution'ı ne besler ne değiştirir (migration doğrulaması trigger gövdesinde `presence_history` geçmesini bile YASAKLAR). **Dedupe segment kimliğiyle kurulur** (`araç · sürücü · kaynak`): aynı kartın 10 kez okutulması 10 satır değil, süresi uzayan TEK satırdır (`refresh_count` artar) — DB'de ayrıca `vdph_observation_unique` kısıtıyla fail-closed kilitlenir. **Süresi dolan segment düzgün kapanır:** kapanış anı gözlemin TTL'idir, okuma anı DEĞİL; `SUPERSEDED` · `TTL_EXPIRED` · `CLEARED` gerekçesi zorunludur ve **yarım kapanış CHECK ile yasaktır** (kapandı ama süresi yok / süresi var ama gerekçesi yok kabul edilmez). **Açık segmentte süre `NULL`'dır — sahte `0` YASAK**; kapanış anı bilinmiyorsa uydurulmaz. Bir araçta aynı anda **tek açık segment** olabilir (kısmi unique index). Çevrimdışı replay için geç gelen eski gözlem, daha yeni segmenti bozmadan **kapalı** kaydedilir. **Fleet UI'da "Son görülen sürücü" alanı eklendi** — ama bu bir GÖZLEMDİR, trip attribution kararı değildir ve **doğrulanmamış kaynak isim GÖSTERMEZ**: `list_vehicle_presence_history` HEAD_UNIT/PHONE kayıtlarında `driver_id`/`driver_name` alanlarını sunucuda NULL'lar (049'da kapatılan kapı UI'dan arkadan dolanılamaz), istemci ikinci kapı olarak aynı düşürmeyi tekrarlar. CAROS LAB'a ayrı **Presence History** ekranı eklendi (current · previous · duration · switch count); kişisel veri taşımaz (`drv:xxxxxxxx` / `veh:xxxxxxxx`), gözlem üretmez. Kanıt: **27/27 yeni PG kontrolü** + **049'un 19/19'u ve P0'ın 54/54'ü 050 sonrası yeniden koşuldu ve geçti** + **77 yeni kilit** (53 head unit + 24 website), kök 9310/9310, website 866/866, iki tsc temiz, lint temiz, build geçti, 050 idempotent. **AÇIK BORÇ:** gözlem üreten kaynak hâlâ YOK (NFC/BT) → defter gerçek veriyle hiç dolmadı · TTL kapanışı TEMBEL (timer yok; okuma yüzeyi gerçeği söyler ama satır gecikmeli kapanır) · head unit tarafında araç kimliği bağlanmadı (`vehicleId=null`) · gerçek cihaz doğrulaması YOK. Rapor: `docs/DRIVER_PRESENCE_HISTORY_P1_REPORT.md`.<br><br>**Driver Presence Durability P2 (2026-07-31, kütük #242–#246 — `COMPLETE_LOCAL` · gerçek cihaz `BLOCKED_REAL_DEVICE`):** defter **kanıt** hâline getirildi; resolver yine tek satır değişmedi ve defter attribution'a HÂLÂ bağlı değil (PG `G3` kilidi: kapanmış geçmiş kaydının olduğu aralıkta resolver hâlâ `NO_PRESENCE` döner — defter fallback ÜRETMEZ). **Kapanış idempotensi:** P1'de kapatma UPDATE'lerinde `expired_at IS NULL` koşulu YOKTU → bakım fonksiyonu segmenti `TTL_EXPIRED` ile kapattıktan sonra trigger AYNI segmenti `SUPERSEDED` ile yeniden kapatıp kapanış anını ve süresini sessizce değiştirebilirdi (kapanmış satırı değişen bir defter kanıt olmaktan çıkar). Artık tüm kapatmalar idempotent, yarışta **ilk kapanış kazanır** ve `trg_presence_history_closure_immutable` kapanmış satırın değişmesini DB seviyesinde reddeder; TS'te de `closeEntry` kapanmışı aynen döndürür ve `isOpenSegment` artık `closeReason`'a da bakar. **Eşzamanlılık:** araç başına `pg_advisory_xact_lock` + açık segment `FOR UPDATE` (eskiden kilitsiz okunuyordu → aynı araca eşzamanlı iki gözlemde ikincisi kısmi unique index'e takılıp gözlemin TAMAMINI geri aldırıyordu); bakım fonksiyonu `FOR UPDATE SKIP LOCKED` ile tıkanmaz. Ölçüldü: 12 segment · 3 paralel çağrı → `12+0+0`; 5 satır kilitliyken çağrı **7 döndü ve beklemedi**, kilit kalkınca **5**. **Araç bağı:** `company_id` istemcinin İDDİASIYDI → A şirketi B'nin aracına gözlem yazabilir ve gözlem yanlış tenant'ta görünürdü; `_presence_binding_guard` beş kapıyı fail-closed kapatır (araç yok · şirketsiz araç · şirket uyuşmazlığı · sürücü yok · cross-tenant sürücü). TS tarafında segmentin `vehicleId`'si artık YALNIZ doğrulanmış bağdan yazılır; bağ yokken gözlem REDDEDİLİR. **Kalıcılık:** defter `safeStorage`'a sürümlü şemayla yazılır, tembel hidratlanır (timer YOK); yeniden başlatmada açık segment · `detectedAt` · `refreshCount` KORUNUR, tekrar oynatılan gözlem `replayCount` artırır ama defteri DEĞİŞTİRMEZ. Bozuk/eski kayıt ONARILMAZ — gerekçesiyle reddedilir. CAROS LAB'a **Durability** bölümü eklendi (persistenceState · lastRestore · expiryMode=`LAZY_ON_ACCESS` · expiredSegmentCount · vehicleBindingState · lastFailure) — timer olmadığı dürüstçe yazılır, sahte 'worker çalışıyor' YOK. Kanıt: **22/22 yeni PG kontrolü + 4/4 eşzamanlılık** + **049'un 19/19'u ve 050'nin 27/27'si 051 sonrası yeniden koştu** + **39 yeni TS kilidi**, kök 9366/9366, website 866/866, tsc temiz, lint temiz, build geçti, 051 idempotent. **AÇIK BORÇ:** gerçek NFC/BT gözlemi hâlâ YOK · TTL kapanışını çağıran zamanlayıcı YOK · araç bağı üretimde hiç kurulmadı · kalıcılık gerçek head unit'te sınanmadı. Rapor: `docs/DRIVER_PRESENCE_DURABILITY_P2_REPORT.md`. |
+| **Sürücü Kimliği ve Atama** | **ENTEGRE** | HAYIR | **Fleet Driver Identity & Assignment P0 (2026-07-30, kütük #226–#232 — `COMPLETE_LOCAL` · gerçek araç `BLOCKED_REAL_VEHICLE` · head unit `BLOCKED_REAL_DEVICE`):** "Bu aracı, bu zaman aralığında, bu yolculukta **kim** kullanıyordu?" sorusu artık cevaplanabilir — cevap kanıtlanamıyorsa **`UNKNOWN`**. **Preflight'ta bulunan gerçek:** mevcut "sürücü" kavramı `vehicles.driver_name` adlı **serbest bir TEXT kolonuydu** — kimliğe bağı, zaman aralığı, denetimi, tenant güvenliği ve trip bağı YOKTU; Fleet UI onu `driver_name ?? '—'` diye gösteriyordu. O kolon **değiştirilmedi** (geriye uyum) ama sürücü otoritesi artık `fleet_drivers` + `vehicle_driver_assignments` + trip attribution zinciridir. **Yedi kavram AYRI tutuldu** (Auth User · Company Member · Vehicle Owner · Observer · Driver Profile · Driver Assignment · Trip Attribution) ve tek bir `user_id` alanına indirgenmedi: *bir kişinin Fleet hesabı olması onu sürücü YAPMAZ · aracın sahibi olmak her trip'in sürücüsü olmak DEĞİLDİR · araca erişebilmek onu sürmek DEĞİLDİR.* **`linked_user_id` NULLABLE** — şoförlerin çoğunun uygulamada hesabı yoktur; hesap zorunlu kılınsaydı gerçek sürücü kaydı hiç oluşturulamazdı. Atama **anlık alan değil ZAMAN ARALIĞIDIR** (yarı-açık `[starts_at, ends_at)`; bitişik aralık çakışma değil, vardiya devri). Çakışma iki katmanda kapalı: kısmi UNIQUE index + `pg_advisory_xact_lock` (`btree_gist` **bilinçli kullanılmadı** — uzantı izni yoksa migration tümden düşerdi). **Attribution kuralı:** tam kapsayan tek atama → `ATTRIBUTED`/`HIGH`; kısmi kapsama → kesin sürücü **YAZILMAZ**; çoklu → `CONFLICTED`; yok → `UNKNOWN`. **Owner/admin/son-kullanıcı fallback YASAK** — `_resolve_trip_driver` gövdesinde `auth.uid()`, `owner_id` ve `profiles` HİÇ geçmez (yapısal kilit). **`VERY_HIGH` verilmiyor:** bir yöneticinin ataması sürücünün direksiyonda olduğunu KANITLAMAZ (otomatik `HIGH`, manuel `MEDIUM`); `VERY_HIGH` ancak fiziksel kimlik kanıtı (NFC/doğrulanmış seçim) gelince mümkün. **Head unit'te sürücü seçimi BİLİNÇLİ olarak açılmadı** — `anon` rolünde güvenli kimlik doğrulama yok; serbest seçim *"kim olduğunu iddia eden herkes o kişi sayılır"* demek olur ve attribution'ı kanıt olmaktan çıkarırdı. Yalnız salt-okunur minimum özet (`get_active_driver_assignment`); sürücü listesi api_key ile ÇEKİLEMEZ, ehliyet/telefon ALINAMAZ. Snapshot **süresiz cache tutmaz** (12 sa → `STALE`; bayat snapshot sürücü kanıtı DEĞİLDİR). **Trip Metrics P2 korunmak için `upload_vehicle_trip` DEĞİŞTİRİLMEDİ** — attribution `BEFORE INSERT OR UPDATE` trigger'ıyla çözüldü: yükleme yolundan bağımsız, **trip zamanını** kullanır (replay zamanını değil), `DUPLICATE`'te tetiklenmez. Manuel düzeltme `trip_key`/metrik/trip revizyonunu **BOZMAZ**, önceki sonuç `trip_driver_attribution_revisions`'ta korunur, replay ile **ezilmez**. Araç devri mevcut transfer RPC'sine dokunulmadan **trigger** ile kapatıldı (açık atamalar `COMPLETED`, cross-tenant sürücü sızıntısı yok). Gizlilik: tam ehliyet **hiç UI'a gelmez** (`•••1234`), telefon yalnız admin'e, **CAROS LAB'da sürücü adı bile yok** (yalnız `drv:a1b2c3d4`). Kanıt: **54 gerçek-PostgreSQL** kontrolü (RPC'ler ÇAĞRILARAK) + **70 kilit**, iki tsc temiz, `npm run build` geçti, 048 idempotent. **Bu turda kendi fail-closed denetimim bir yanlış alarm verdi:** `pg_get_functiondef` YORUMLARI da döndürür — "employee_code ALAMAZ" açıklaması sızıntı sanılıp migration düştü; denetim önce yorumları temizleyecek sonra **davranışa** bakacak şekilde güçlendirildi (P2'deki `speedVio·lat·ions` tuzağının aynısı: *metin araması niyet kanıtı değildir*). **AÇIK BORÇ:** gerçek araç/head unit doğrulaması YOK · head unit sürücü seçimi ve fiziksel kimlik (NFC/BLE/telefon) bağlı değil · araç detayında "ata/bitir" UI düğmeleri sonraki tur · bireysel araçlar (owner_id) kapsam dışı · `driver_name` göçü yapılmadı · 040–048 hiçbir ortama uygulanmadı. Rapor: `docs/FLEET_DRIVER_IDENTITY_ASSIGNMENT_P0_REPORT.md`. |
 | Driver-vs-Vehicle Analysis | YOK | HAYIR | Vizyon rezervuarı |
 | AI Driving Coach | YOK | HAYIR | Driving Style'a bağımlı |
 | Driving Style Analysis | İSKELET | HAYIR | Mod tespiti tüketiliyor; **stil skorlaması yok** |
-| Journey Intelligence | İSKELET | HAYIR | `tripLogService` kayıt tutar; özet katmanı yok |
+| Journey Intelligence | **ENTEGRE** | HAYIR | **Trip Metrics P2 (2026-07-30, kütük #219–#225 — `COMPLETE_LOCAL` · gerçek araç `BLOCKED_REAL_VEHICLE`):** P1'in beş metrik borcu kapandı. **Yakıt artık gerçekten ÖLÇÜLEBİLİYOR** — OBD seviye farkı yedi kapıdan geçerse `MEASURED` (başlangıç/bitiş okuması · ikmal belirtisi yok · OBD sürekliliği · negatif olmayan · fiziksel makullük · mesafe); **yüzde ölçümü litreden AYRI taşınır** (litre daima `DERIVED` — depo kapasitesi kullanıcı girdisi, üretici verisi değil). Kapılar geçilemezse sabit `8,5 L/100 km` kullanılır ama **daima `ESTIMATED`** ve `fuel_reject_reason` ile **gerekçesi yazılır**. Maliyet trip **başında** alınan **fiyat snapshot'ına** bağlı: trip kapandıktan sonra fiyat değişse geçmiş maliyet DEĞİŞMEZ. Sert fren/hızlanma **artık kalıcı** (2 s debounce — tek manevra 3–5 kez sayılmıyor; kaynak geçişi ve veri boşluğu olay ÜRETMEZ). Süre **hareket/rölanti/BİLİNMEYEN** olarak ayrıştı — *bilinmeyen süre rölanti SAYILMAZ*, invaryant üç yerde korunuyor (birikim · test · DB CHECK). Tepe RPM/sıcaklık yalnız **taze** OBD'den (`-1` sentinel'i `0` değil `null`; trip başında sıfırlanır). **Hız ihlali BİLİNÇLİ olarak üretilmiyor** — gerçek limit kaynağı araştırıldı, yok (§11). Confidence **kanıta dayalı** ve **kanıtı da taşınıyor** (`confidence_limited_by`). **PAUSED/RESUMED analiz sonucu UYGULANMADI:** kısa veri kaybı/arka plan/OBD reconnect trip'i duraklatmamalı; "kaç kez durup devam etti" bir durum geçişi değil `stopCount` ölçümüdür. **Devralınan kodda beş zincir kusuru bulundu ve düzeltildi — hepsi 9 154 test yeşilken vardı:** `public._trip_source()` migration 047'de 25 kez çağrılıyordu ama **hiçbir yerde tanımlı değildi** (her yükleme `42883` ile ölecekti); 047'nin kendi imza deseni `pg_get_function_identity_arguments`'ın parametre isimlerini de döndürdüğünü gözden kaçırdığı için **migration hiç uygulanamıyordu**; `tripUploadRuntime` sabit `DERIVED`/`fuelMeasured:false` göndererek üretilen provenance'ı **eziyordu**; `p_provenance`/`p_price`/`p_coverage` hiç gönderilmiyordu; kanonik modelde `unknownTimeMin` **yoktu**. Ayrıca Fleet UI sunucunun kabul ettiği `VERY_HIGH` güvenini **"Bilinmiyor"a düşürüyordu**. **Kalıcı ders:** *yeşil test çalışan bir zincir demek değildir* — bulguların tamamı ancak gerçek PostgreSQL çalıştırılınca ve zincir uçtan uca kilitlenince görüldü; bu yüzden parçaları değil **parçalar arasındaki bağı** ölçen ayrı bir `*Wiring` kilit dosyası eklendi. Kanıt: **33 gerçek-PostgreSQL** doğrulaması (046 satır uyumluluğu · null preservation · replay · kısıtlar · tenant isolation · anon deny), kök **9 192/9 192**, website **792/792**, `npm run build` geçti, 047 idempotent. **AÇIK BORÇ:** gerçek araçta hiç yolculuk tamamlanmadı · kullanıcı yakıt fiyatı ayar yüzeyi yok (maliyet bu yüzden hâlâ `ESTIMATED`) · gerçek hız limiti kaynağı yok · tam olay tablosu yok · geçmiş 100 trip göç etmedi · 040–047 hiçbir ortama uygulanmadı. Rapor: `docs/FLEET_TRIP_METRICS_P2_REPORT.md`. **Özet katmanı hâlâ yok** (trip başına metrik var, yolculuk *anlatısı* yok). |
 | Trip Replay | YOK | HAYIR | Black Box'a bağımlı |
 | Smart Route Analysis | YOK | HAYIR | routing + health ayrı sistemler |
 | Weather Impact Analysis | YOK | HAYIR | `weatherService` ham veri; etki modeli yok |
@@ -619,7 +1747,10 @@ değildir** — vizyon rezervuarıdır. Bir madde ancak P0–P3'e taşındığı
 | AI DJ | YOK | HAYIR | Vizyon rezervuarı |
 | AI Radio | YOK | HAYIR | Vizyon rezervuarı |
 | Doğal konuşma | ENTEGRE | HAYIR | `semanticAiService` + parser; saha kanıtı yok. **2026-07-24:** "muhabbet edilebilirlik" 3 KÖKÜ düzeltildi — (a) emniyet pencereleri (takip 20sn/idle 15sn) uzun cevabı `ttsCancel()` ile ortadan kesiyordu → `isTtsSpeaking()` ile tavanlı uzatma **🔴 #95**, (b) kendi süre bütçemizin timeout'u "ağ öldü" sayılıp 2 komutta 90sn offline yapıyordu → kesicide ayrı/yüksek eşik **🔴 #95**, (c) **canlı cihazda yakalandı:** Anthropic CORS `TypeError`'ı ağ ölümü sayılıp ~2 dakikada bir 90sn offline üretiyordu (aynı turda 4 sağlayıcı HTTP yanıtı verirken!) → tur-kapsamlı `sawHttpResponse` kanıtı **🔴 #97**. Üçü de cihaz doğrulaması bekliyor |
-| Medya yönlendirme | ENTEGRE | HAYIR | `youtubeService`/`musicCommandParser`; tam sesli kontrol kısmi |
+| Medya yönlendirme | ENTEGRE | HAYIR | `youtubeService`/`musicCommandParser`; tam sesli kontrol kısmi. **2026-07-29 (Müzik Hub Paket A):** Mavi'nin `media.play/pause/next` komutları artık tek kapıdan (`MediaCommandGateway`) geçer ve **typed `CommandTruth`** döner; ses kanıtı üretilemeyen kaynakta (Spotify Connect · YouTube · harici oturum) asistan **"çalıyor" DEMEZ**, "başlatma isteği gönderildi" der; başarısızlıkta port throw eder → `ok:false`. **🔴 #170 cihaz doğrulaması bekliyor** |
+| **Tek playback otoritesi (Native Audio Core)** | ENTEGRE | HAYIR | **2026-07-29 · Müzik Hub Paket A.** Öncesi: 5 ayrı ses alanı (harici MediaController · ham MediaPlayer · HTMLAudioElement · YouTube IFrame · Spotify Connect), **audio focus YOK · becoming-noisy YOK · MediaSession YOK · foreground servis YOK · process-death kurtarması YOK**, kaynak devri best-effort (çift ses riski), "komut kabul edildi" = "çalıyor". Sonrası: `CarosPlaybackService` (Media3 + ExoPlayer) + `CarosAudioFocusManager` + 10 modüllük JS çekirdeği (playback truth · yetenek sözleşmesi · işlemsel devir · nested duck · tek ses formülü · kurtarma · komut kapısı). Legacy hatlar silinmedi, otoriteye YÖNLENDİRİLDİ. **Test yazımında iki gerçek kusur ölçüldü ve düzeltildi:** `playSource` kilitlenmesi (her çalma komutu sonsuza asılırdı) ve rollback'in hata kodunu silmesi. 62 JS + 17 Robolectric kilidi. **🔴 #169 — HİÇBİRİ CİHAZDA ÖLÇÜLMEDİ** |
+| **Kuyruk kurtarma + cihaz doğrulama altyapısı** | ENTEGRE | HAYIR | **2026-07-29 · Müzik Hub Paket B.** Paket A sapmayı yalnız TESPİT ediyordu; artık **bounded kurtarma** var: native timeline otoritedir, UI projeksiyondur, kurtarma **çalan medyayı değiştirmez** (oynatıcıya komut YOK). Dört güvenlik şartı kilitli: kullanıcı komutu önceliği · devir sürerken başlamama · dış otoritede fail-closed · deneme+cooldown+devre kesici. Bayat karar (generation/revision değişimi) ATILIR. Ayrıca **41 senaryoluk makine-okur cihaz doğrulama sözleşmesi** (A–H) + bounded olay izi (JS + native, monotonic saat, allowlist'li kod alanı). **Kanıtsız PASS otomatik BLOCKED'a düşer.** Paket A'da ölçülen 3 kusur düzeltildi: gecikmeli odak ölü yolu (telefon görüşmesi sonrası müzik hiç başlamıyordu), bayat focus callback'i, uzlaştırma yanlış pozitifi (native = UI'nin 120'lik penceresi). **🔴 #173 — cihazda ölçülmedi** |
+| **Medya gözlem yüzeyi (CAROS LAB)** | ENTEGRE | HAYIR | **2026-07-29.** LAB → Çalışma Zamanı → **Medya Otoritesi**: 7 kart (otorite/kaynak · oynatma gerçeği · ses odağı-yol · ses-ducking · kuyruk · komut kanıtı · kurtarma), salt-okunur, timer yok. "Ses üretiliyor (kanıtlı)" ile "yalnız istek" AYRI hüküm; kanıt yoksa **UNAVAILABLE** (sahte 0/sahte "sağlıklı" yok). Kuyruk sapması (`UI_AHEAD · NATIVE_AHEAD · INDEX_DRIFT · …`) tipli gösterilir — **bu paket sapmayı düzeltmez, görünür kılar**. Başlık/sanatçı/URI/kapak LAB'a girmez. **🔴 #170** |
 | Telefon ve mesaj entegrasyonu | DOĞRULANDI | HAYIR | PhoneScreen + contacts; head unit saha kanıtı yok |
 | Güvenli hands-free kullanım | İSKELET | HAYIR | modeController var; **HFDM kısıt profili yok** |
 
@@ -656,14 +1787,17 @@ değildir** — vizyon rezervuarıdır. Bir madde ancak P0–P3'e taşındığı
 
 ### 8.8 Güç ve Uyku Yönetimi
 
-> **Bu grup bütünüyle YOK.** Akü boşaltma riski taşıdığı için her madde
-> **güç bütçesi sözleşmesi** olmadan uygulanamaz.
+> **DÜZELTME (2026-07-27, DEBT-005):** Bu grup için önceki "bütünüyle YOK" beyanı
+> **yanlıştı**. Temel katman olan **Battery Protection UYGULANMIŞ ve boot'a bağlıdır**;
+> grubun geri kalanı hâlâ YOK. Bu, üç modlu güç/gözetim mimarisinin tamamlandığı
+> anlamına **GELMEZ** — uyku/gözetim modlarının hiçbiri yazılmadı. Kalan maddeler
+> akü boşaltma riski taşıdığı için **güç bütçesi sözleşmesi** olmadan uygulanamaz.
 
 | Özellik | Durum | Ürün hazır | Kanıt / eksik ana parça |
 |---|---|---|---|
-| Battery Protection | YOK | HAYIR | Voltaj PID okunuyor; koruma politikası yok |
-| Smart Surveillance | YOK | HAYIR | Guardian Mode'a bağımlı |
-| Continuous Surveillance | YOK | HAYIR | Güç bütçesi olmadan **yasak** |
+| Battery Protection | ENTEGRE | HAYIR | `power/BatteryProtectionService.ts` (4 seviye + histerezis + 10 sn hareketli ortalama → `runtimeManager.setPowerCeiling`), `SystemBoot.ts:810` koşulsuz kayıtlı. **Eksik:** tek veri kaynağı `onOBDData.batteryVoltage`; OBD yoksa seviye geçişi hiç tetiklenmez. Gerçek araçta seviye geçişi ölçülmedi |
+| Smart Surveillance | YOK | HAYIR | Guardian Mode'a bağımlı. **Kodda karşılığı yok** — Battery Protection'ın varlığı bunu kapsamaz |
+| Continuous Surveillance | YOK | HAYIR | Güç bütçesi olmadan **yasak**. **Kodda karşılığı yok** |
 | Service Session | YOK | HAYIR | Vizyon rezervuarı |
 | OBD/ECU Sleep Profile (araç bazlı) | YOK | HAYIR | Uyku olay kaydı gerekir (öğrenme öncesi kanıt) |
 | Öğrenilmiş Wake Policy | YOK | HAYIR | Sleep Profile'a bağımlı; reconnect ≠ wake stratejisi |
@@ -678,18 +1812,18 @@ değildir** — vizyon rezervuarıdır. Bir madde ancak P0–P3'e taşındığı
 |---|---|---|---|
 | Vehicle Link Fabric | ENTEGRE | HAYIR | Araç-içi zincir çalışır (🟡 HAL→Bus 0,37 publish/sn); **bulut ucu yok**. ⚠️ **Omurga yayın yapıyor ama KİMSE DİNLEMİYOR** (rapor `8edd61a6`): `publishedCount 127 · deliveredCount 0 · activeListenerCount 0 · droppedCount 0`. **Sayaç yanlış DEĞİL — kanıtlandı:** `deliveredCount` yalnız bir listener çağrılınca artar (`platformEventBus.ts:478,564`), `_subById.size = 0` → matematiksel olarak 0. `historyCount 22` + `retainedEventCount 3` listener'dan BAĞIMSIZ yollarda arttığı için (retain dispatch'ten önce `:422`, history sonra `:457`) publish hattının uçtan uca sağlam olduğunu kanıtlıyor. Yani bus arızalı değil, **tüketici migrasyonu hiç yapılmadı**. Dürüst okuma: *taşıyıcı hazır, yük yok*. **PR-E1 (`a34d3b8`) ile tüketicisiz transient yayın maliyeti kaldırıldı** (talep kapısı) — omurga artık "uykuda ve bedava". |
 | **Event Bus Talep Kapısı** (PR-E1) | ENTEGRE | HAYIR | `vehicleHalEventBridge` transient `vehicle.signal.changed` yayınını **aktif abone yoksa atlar** (`hasSubscribers()` — bus'ta zaten tanımlıydı, hiç çağrılmıyordu). Retained yaşam-döngüsü event'leri kapıya TABİ DEĞİL (geç gelen tüketici `replayLast` ile doğru başlangıç durumunu alır). **R-1 kapatıldı:** dedupe imzası yalnız gerçek publish sonrası güncellenir — yoksa atlanan event imzayı kirletir, abone sonradan gelince ilk gerçek event sonsuza dek yutulurdu. Fail-safe: bus kapı sağlamıyorsa/patlarsa → YAYINLA (event kaybetme). Bounded telemetri: `skippedCount` (drop DEĞİL — bus'a hiç girmedi). 8 kilit; suite 4115 yeşil. 🔴 **cihaz kanıtı bekliyor** (hedef: `publishedCount 127→≤5`, `halBridge 124→≤3`, `retainedEventCount 3` değişmez, göstergeler birebir aynı). |
-| Arabam Cebimde | ENTEGRE | HAYIR | PWA kumanda + E2E şifreli uzaktan komut; **twin/memory paylaşımı yok** |
+| Arabam Cebimde | ENTEGRE | HAYIR | PWA kumanda + E2E şifreli uzaktan komut; **twin/memory paylaşımı yok**. **YENİ (kütük #168):** araç kartı artık üç ayrı gerçeği KARIŞTIRMIYOR — araç çevrimdışı · kullanıcı çevrimdışı · komut teslim edilmedi. DB `vehicle_commands.status` **değiştirilmeden** ürün evrelerine eşlendi (QUEUED·SENT·ACKNOWLEDGED·EXECUTED·VERIFIED·FAILED·EXPIRED); araç ulaşılamazken `pending` komut **QUEUED**tur, "gönderildi" DEĞİL. Tanınmayan durum fail-closed `null`; okunamayan alan "Okunamadı" — **sahte 0 yazılmaz**. ⚠️ Bilinen RLS sınırı: `vehicle_commands` SELECT `user_id=auth.uid()` → yalnız kullanıcının KENDİ komutları sayılır (UI bunu açıkça yazar). 🔴 saha kanıtı bekliyor. |
 | CAROS Cloud | İSKELET | HAYIR | Supabase + RPC var; **senkron sözleşmesi yok** |
 | Digital Garage | YOK | HAYIR | **Tek araç varsayımı** sökülmeli (geniş dokunuş) |
 | Family Sharing | YOK | HAYIR | Garage + Cloud Sync'e bağımlı |
-| Fleet Mode | İSKELET | HAYIR | admin/FleetCenter (web); cihaz-içi filo modu yok |
+| Fleet Mode | **ENTEGRE** | HAYIR | **Web/PWA ucu uçtan uca kuruldu (kütük #167):** 6 Company API rotası (kimlik yalnız auth session'dan · sunucu tarafı `assertCapability` · typed hata kodları) · rol/capability matrisi (individual·observer·member·admin × 14 yetki, bilinmeyen rol **fail-closed**) · 6 filo ekranı + 12 durum · araç ata/çıkar (sahiplik DEĞİŞMEZ) · "Araç erişim rolleri" kartı matristen **türetilir**. **Cihaz-içi filo modu hâlâ YOK.** 🔴 **staging/saha kanıtı bekliyor** — cross-tenant reddi, observer salt-okunurluğu ve son-admin koruması gerçek oturumla ölçülmedi. · **🟢 TELEFON DOĞRULAMASI YAPILDI (2026-07-30, kütük #190):** Xiaomi 23090RA98I / Android 13 gerçek cihazda P1–P15 koşuldu → **14 PASS · 1 FAIL**. Ayakta yerel Supabase (migration **033–039 uygulandı**, `vehicles.revision` trigger'ı canlı). Koşum **dört ürün kusuru ölçtü ve düzeltti** (kütük ❌ F1–F4): (1) çevrimdışı kuyruk her sayfa açılışında siliniyor + ekran "Tüm işlemleriniz sunucuya iletildi" diyordu (**yalan tamamlanma**), (2) reconnect'te **hiç otomatik senkron yoktu** (banner sözünü tutmuyordu; 40 sn/0 istek), (3) boşluk tespiti otoritesi **hiçbir gerçek kopma sinyaline bağlı değildi** — 60 sn tam kesintide durum `LIVE`, ekran "Canlı — veriler güncel", sunucu 6 revizyon ileride, (4) çıkış yerel kuyruğu/snapshot'ı silmiyordu. **AÇIK:** sahiplik devri UI'dan **hiç başlatılamıyor** — `list_company_vehicles` (036) `revision` döndürmüyor, devir kapısı (039) onu zorunlu tutuyor (kütük #189) · `website` production build'i `ACCOUNT_CLEANUP_RUNTIME_BROWSER_ONLY` ile **düşüyor** (paralel iş; kütük ❌ F5). Durum **SAHADA DOĞRULANDI'ya YÜKSELTİLMEDİ**: head unit hiç denenmedi, production hiç kullanılmadı, tek build üzerinde 15/15 geçiş yok (kütük #188). · **🟢 İKİNCİ TUR (2026-07-30, kütük #192/#194):** **SAHİPLİK DEVRİ ARTIK ÇALIŞIYOR** — gerçek cihazda uçtan uca tamamlandı (A başlattı → B kabul etti → sunucuda `owner_id=B`, `company_id NULL`, revizyon +1, transfer `COMPLETED`, **eski sahibin pairing kaydı 0**, bekleyen komut iptal; A'da araç yok, düzenleme denemesi **409**). Kapatılan iki backend kusuru: **migration 040** — `list_company_vehicles()` `revision` döndürmüyordu (devir hiç başlamıyordu) · **migration 041** — `list_vehicle_transfers()` her çağrıda `42702 column reference "id" is ambiguous` atıyordu, yani devrin **OKUMA ucu 039'dan beri hiç çalışmamıştı** (hedef gelen devri göremiyordu). Ayrıca iki dürüstlük kusuru daha düzeltildi: kuyruk "okunamadı" durumu "bekleyen yok" gibi sunuluyordu ve `refresh()` `loading`'de mahsur kalabiliyordu. **Nihai artefakt `6B37DB3B…` üzerinde 11/15 tam kanıtla PASS · 0 FAIL · 4 senaryo (P4·P5·P13·P15) `BLOCKED_EVIDENCE`** (ölçüm akışı borcu, kütük #193). Durum **SAHADA DOĞRULANDI'ya YÜKSELTİLMEDİ**: `phoneValidated=false` (15/15 şart), head unit hiç denenmedi, production hiç kullanılmadı, migration 033–041 production'da YOK. · **🟢🟢 ÜÇÜNCÜ TUR (2026-07-30, kütük #195): TELEFON DOĞRULAMASI TAMAMLANDI — **15/15 senaryo TEK ARTEFAKT üzerinde tam kanıtla PASS · 0 FAIL · 0 BLOCKED** (`phoneValidated=true`, artefakt `6B37DB3B…` = `website/src` 199 dosya + migration 040/041). Kalan dördü sürücüye zorunlu ön kapı eklenerek ölçüldü: P4 revizyon 41→44 + `SUSPECTED_GAP → RESYNCING → LIVE`; P5 16 sn snapshot gecikmesinde 11/11 örnekte "güncel" DEMEDİ; P13 8 geçiş → 8 reconnect/8 resync, runtime yeniden kurulmadı, rAF 17 ms, crash/ANR yok; P15 gerçek çakışma dürüst gösterildi ("zorla devral" YOK, ham SQL yok). **DURUM: SAHADA DOĞRULANDI (TELEFON)** — ancak **ÜRÜN HAZIR: HAYIR**: head unit'te H1–H8 `BLOCKED_HEAD_UNIT` (Fleet ekranları head unit APK'sında hiç yok), migration 033–041 production'da **YOK** (`NOT_VALIDATED`), ve `website` production build'i `ACCOUNT_CLEANUP_RUNTIME_BROWSER_ONLY` ile **düşüyor** (paralel iş; kütük ❌ F5) → PWA yayınlanamaz. Ayrıca `RECONCILING` durumu yapı gereği gözlenemez (kütük 🟡 #196). · **🔵 ARAÇ BAĞLANTI/TELEMETRİ P0 (2026-07-30, kütük #197–#202 — `FLEET_VEHICLE_CONNECTIVITY_P0_PARTIAL`):** Zincirin **veri dürüstlüğü** onarıldı. Ölçülen 14 kusurun en ağırları: `rpm` ve `engineTempC` telemetri payload'ına **HİÇ konmuyordu** (Fleet'te kalıcı `0`); bilinmeyen hız `speed: 0` gönderiliyor, RPC de `coalesce(NULLIF(payload->>'speed',''),0)` ile bunu **DB'de kalıcılaştırıyordu**; `tel?.fuel ?? 0` yüzünden yakıtı bilinmeyen araç **kırmızı boş çubuk + "⚠ Yakıt ikmali gerekiyor"** sahte kritik alarmı veriyordu; bekçi araç çevrimdışına düşünce **`speed:0, rpm:0` yazıyordu** (90 km/h'te kopan bağlantı "0 km/h" oluyordu); `/api/pwa/pair` **hiçbir migration'da tanımlı olmayan** `pair_vehicle(text)` RPC'sini çağırıyor, **kimlik doğrulamasız** çalışıyor ve **HAM `api_key` döndürüyordu** (`vehicles.pairing_code` kolonu hiç oluşturulmamıştı); PWA ekranı **QR eşleştirmesini destekleniyormuş gibi** gösteriyordu. Yapılanlar: saf `telemetryContract` (bilinmeyen alan **konmaz**, ölçülen `0` korunur, NaN/Infinity/aralık dışı reddedilir, bayat OBD/GPS **eklenmez**) · üç ölü eşleştirme yolu **410** ile kapatıldı ve tek otorite `pair_vehicle_to_user`'da sabitlendi · **migration 042** (tazelik/kaynak kolonları · `received_at`/`observed_at` ayrımı → **istemci saati otorite değil** · `vehicle_identity` + `record_vehicle_identity` ile `IDENTITY_CONFLICT` ve **sınırlı** güven 0.50→0.95, çakışmada eski VIN **korunur** · anon REVOKE · fail-closed DO bloğu) · sinyal başına tazelik (`LIVE·STALE·OFFLINE·NEVER_SEEN·UNKNOWN`; mevcut `Connectivity` enum'ı **değiştirilmedi**) · Fleet UI dürüstlüğü ("Veri yok" · "eski veri" · "Son bilinen konum") · **CAROS LAB → Vehicle → Fleet Connectivity** salt-okunur ekranı (redaction: `api_key` değeri, ham kod, TAM VIN, TAM UUID **yok**). Kanıt: kök **8 885/8 885**, website **685/685**, iki tsc temiz, **26 gerçek-PostgreSQL** sözleşme doğrulaması, 042 **idempotent**. **AÇIK BORÇ:** `reportVehicleIdentity()` yazıldı ve test edildi ama **VIN/parmak izi üreten kaynaklara çağrı noktası bağlanmadı** → kimlik hâlâ sunucuya gitmiyor. `website` build kapısı **hâlâ kapalı** (paralel AccountCleanup `useSessionUser` → SSR muhafızı; bu paket o dosyaya dokunmadı) → ana karar bu yüzden `COMPLETE_LOCAL` değil **`PARTIAL`**. Tam rapor: `docs/FLEET_VEHICLE_CONNECTIVITY_P0_REPORT_20260730.md`. · **🔵 ARAÇ KİMLİĞİ P1 (2026-07-30, kütük #203–#208 — `COMPLETE_LOCAL`):** P0'ın en büyük açık borcu kapandı — kimlik boru hattı artık **canlı gerçek kaynaklara bağlı**. Zincir koddan izlendi: native `performHandshake()` → Mode 09 PID 02 ham VIN → `buildHandshakeResult` → `vehicleProfileRegistry.findBestMatch` → `persistHandshakeVin` → `decodeWmi`/`decodeVinYear` → `useVidStore` ayna → `AutomaticVehicleFingerprint` (SystemBoot:830, CANLI) → **kimlik koordinatörü** → tek ağ ucu. Bu turda **dört gerçek kusur** bulundu: (1) kimlik yayını HİÇ çağrılmıyordu; (2) **`22P02`** — istemci `fingerprint_version`'ı `'fp1'` metin gönderiyor, 042'deki RPC `int` bekliyordu → kimlik çağrısının TAMAMI düşüyordu; (3) **`42P01`** — kendi 042'mdeki okuma RPC'si var olmayan `company_members` tablosuna bakıyordu (üyelik `profiles.company_id`'de) → oturumlu her kullanıcı için fonksiyon düşüyor, Fleet UI'da kimlik HİÇ görünemezdi; (4) koordinatörün async yayın yolunda üst düzey muhafız yoktu → yakalanmayan promise reddi + `_inFlight` sonsuza dek `true` (yayın kalıcı susar). (2) ve (3) **kendi P0 çalışmamın kusurları** ve ikisi de "test yeşil + tsc temiz" olmasına rağmen vardı; yalnız **gerçek PostgreSQL'de gerçek `auth.uid()` oturumuyla** çalıştırınca ortaya çıktı. **Kalıcı ders:** *fonksiyonun tanımını okumak onu çalıştırmak değildir* — 042/043 doğrulamam gövde METNİNİ inceliyordu ve oturumsuz çağrıyı sınıyordu, o dal `auth.uid() IS NULL`'da erken dönüp hatalı satıra hiç ulaşmıyordu. Yapılanlar: saf kanonik `VehicleIdentityObservation` (13 alan; VIN türevi marka/yıl VIN yoksa taşınmaz, doğrulanmamış taşımada protokol "aktif" sayılmaz, nesil yalnız marka+yıl varsa türer) · **tek yayın otoritesi** koordinatör (kanıt kapısı → dedupe → bütçeli backoff retry → tek ağ ucu; yapısal kilitle doğrudan çağrı YASAK) · **migration 043** (`identity_revision` + `vehicle_generation` + `protocol_change_count`, `fingerprint_version` → text, `UNCHANGED` hükmü güven şişmesini kapatır, `PROTOCOL_CHANGED` çakışma DEĞİL) · **migration 044** (kapsam `profiles.company_id`) · **CAROS LAB → Vehicle → Fleet Identity** salt-okunur ekranı · Fleet UI araç detayında "Araç Kimliği" (okunamadı ≠ bilinmiyor; savunma katmanlı maskeleme: maskesiz VIN UI'dan GEÇEMEZ). Kanıt: kök **8 964/8 964**, website **727/727**, iki tsc temiz, **36 gerçek-PostgreSQL** doğrulaması (devir · observer · owner · cross-tenant · anon deny · service role dahil), 043/044 idempotent. **Ölçüm dürüstlüğü:** ilk koşumda devir testleri FAIL verdi — ürün değil TEST kusuruydu (`set_config('role','authenticated')` = `SET LOCAL ROLE` → fixture UPDATE'i RLS yüzünden 0 satır etkiledi ve sessizce geçti); `RESET ROLE` + `GET DIAGNOSTICS ROW_COUNT` ile onarıldı. **AÇIK BORÇ:** gerçek araç doğrulaması YOK (#203–#208 🔴) · `supportedPidBitmap` parmak izi hesabına dahil değil (imza eşleşmesi fiilen yalnız protokol+ECU; eklemek tüm hash'leri değiştirir → ayrı PR) · 040–044 hiçbir ortama uygulanmadı. Tam rapor: `docs/FLEET_VEHICLE_IDENTITY_P1_REPORT.md`. · **🔵 KONUM MOTORU P1 (2026-07-30, kütük #209–#213 — `COMPLETE_LOCAL` · gerçek cihaz `BLOCKED_REAL_DEVICE`):** tek GPS kaynağı çok kaynaklı hakeme dönüştürüldü (EXTERNAL_GPS → HEAD_UNIT_GPS → PHONE_HUB_GPS → LAST_KNOWN). `gpsService` **DEĞİŞTİRİLMEDİ**, yalnız gözlemleniyor — mevcut harita/hız/radar/geofence tüketicileri aynı. Güven üç bağımsız kanıttan (hassasiyet · tazelik · **süreklilik**) türer ve **en zayıf kanıt tavanı belirler**: *tek fix `MEDIUM`'dur*, mükemmel hassasiyette bile — çünkü tek fix çok yollu yansımayı, soğuk-başlangıç kaba fix'ini ve tünel çıkışı sıçramasını ayırt EDEMEZ. Titreşim üç kapıyla engellendi (yükseltme serbest · düşürme 6 s gecikmeli · 4 s tutunma): 20 s'de 40 kez zıplayan kaynakta kapılar olmasa ~40 geçiş olurdu, gerçekleşen **≤6**. **İki ciddi kusur bulundu:** (1) `push_vehicle_event` koordinat aralığını DOĞRULAMIYORDU — gerçek PG testi `lat=999` gönderdi ve **yazıldı**; migration 045 kapattı (+ Null Island `(0,0)`; yalnız CHECK eklemek payload'ı düşürüp kuyruğu poison'a atardı, RPC de kapıya bağlandı). (2) **🔴🔴 kök `tsc --noEmit` HİÇBİR ŞEYİ denetlemiyordu** (çözüm dosyası, `"files": []`) — kasıtlı tip hatası bile sessiz geçti. Bu boş denetim yüzünden P0 ve P1 `CarosLabToolId` union'ına eklenmeyen araç kimlikleriyle **kök build'i KIRIK bırakmıştı**; üç id eklendi, `npm run build` gerçekten geçti. **Kalıcı kural:** kökte tip kanıtı `npm run build`/`tsc -b`'dir. Kanıt: 57 kilit + **13 gerçek-PG** doğrulaması. Rapor: `docs/FLEET_LOCATION_ENGINE_P1_REPORT.md`. · **🔵 TRIP MOTORU P1 (2026-07-30, kütük #214–#218 — `COMPLETE_LOCAL` · gerçek araç `BLOCKED_REAL_VEHICLE`):** mevcut `tripLogService` Fleet'e taşındı — **yeni trip sistemi yazılmadı**, o modülün tek satırı değişmedi (kilit #13 yapısal olarak zorluyor). **En önemli gerçek: yakıt ve maliyet ÖLÇÜLMÜYOR, TAHMİN.** Head unit yakıtı `mesafe/100 × 8,5 L` sabitiyle, maliyeti sabit birim fiyatla hesaplıyor; `fuelAtStart` araçtan okunuyor ama `TripRecord`'da **hiç kullanılmıyor**. Bu paket o gerçeği düzeltmedi ama **gizlemiyor**: her metrik `MEASURED·DERIVED·ESTIMATED·UNAVAILABLE` etiketi taşıyor, DB'de `fuel_source`/`cost_source` kolonlarında saklanıyor, Fleet UI'da **"(tahmini)"** ekiyle görünüyor. `tripLogService`'te HİÇ üretilmeyen metrikler (idle/moving time · stop count · max rpm · max temp · speed violations) **UYDURULMADI** → `NULL`. Kanonik model (`TripSummary`/`TripMetrics`/`TripEvent`/`TripStatistics`) + yaşam döngüsü otoritesi (RUNNING→PAUSED→RESUMED→COMPLETED→UPLOADED→ARCHIVED; geçersiz geçiş YOK SAYILIR) + **§5 anlık yükleme YOK** (canlı 5 s bildirimleri elenir, yalnız kapanan trip tek özet olarak mevcut at-least-once kuyruğundan gider) + **§6 deterministik `trip_key` dedupe** (rastgele `tripId` dedupe için KULLANILAMAZ; aynı/düşük revizyon `DUPLICATE`, yüksek revizyon `UPDATED`; 10 replay → **tek satır**) + migration 046 (`vehicle_trips`, 14 metrik **NULLABLE**, koordinat kolonu **YOK**, RLS + anon kilidi) + LAB Trip Engine + Fleet UI Yolculuklar. Kanıt: 87 kilit + **25 gerçek-PG** doğrulaması (owner · observer · cross-tenant · anon deny · devir · offline replay), kök **9 086/9 086**, website **770/770**, `npm run build` geçti. **AÇIK BORÇ:** gerçek araçta hiç yolculuk tamamlanmadı · `PAUSED`/`RESUMED` ve stop count gerçek üretimi yok · gerçek yakıt ölçümü yok · `harshBrake`/`harshAccel` kalıcı değil (Driver DNA verisi trip kapanışında kayboluyor) · geçmiş 100 trip göç etmedi. Rapor: `docs/FLEET_TRIP_ENGINE_P1_REPORT.md`. |
 | Fleet Intelligence | İSKELET | HAYIR | `fleetKb` servis kapısı; **anonim toplama boru hattı yok** |
 | Privacy Center | İSKELET | HAYIR | Sanitize motoru 🟡 kanıtlı; **kullanıcı paneli yok** (P3-2) |
-| Cloud Sync | İSKELET | HAYIR | Tek yönlü rapor teslimi 🟢; **senkron/şema/RLS yok** (P2-6) |
+| Cloud Sync | İSKELET | HAYIR | Tek yönlü rapor teslimi 🟢; **senkron/şema/RLS yok** (P2-6). **KISMİ İLERLEME (#167):** filo/sahiplik alanı için typed **offline domain kuyruğu** (11 işlem türü · bounded · TTL · üstel backoff · dedupe · dependsOn · poison-item), **sync orchestrator** (domain sırası + entity serileştirme, 9 durum), **13 kodlu conflict engine** (ownership/company'de otomatik local-wins YOK, server-wins/fail-closed) ve **ownership snapshot** (bayat snapshot kritik yazmayı ENGELLER) kuruldu. Bu yalnız **filo alanını** kapsar — genel cihaz↔bulut senkron sözleşmesi hâlâ YOK. 🔴 |
 | OTA Intelligence | ENTEGRE | HAYIR | `otaUpdateService` state machine; **telemetri yok**, saha kanıtı yok |
 | Vehicle Marketplace | YOK | HAYIR | Life Story + doğrulama otoritesi ister — **ürün kararı gerekir** |
 | Digital Health Certificate | YOK | HAYIR | Passport + doğrulanmış geçmişe bağımlı |
-| Çoklu araç/kullanıcı yetkilendirmesi | İSKELET | HAYIR | RBAC (driver/admin/super_admin) var; **çoklu araç modeli yok** |
+| Çoklu araç/kullanıcı yetkilendirmesi | **ENTEGRE** | HAYIR | Filo rol modeli (individual·observer·member·admin) hem API hem UI'da uygulandı; **UI görünürlüğü güvenlik sayılmıyor** — her rota sunucuda ayrıca doğruluyor. Bir kullanıcı aynı anda yalnız bir şirkete üye olabilir; cross-tenant erişim fail-closed reddedilir. Çoklu **araç** modeli tarafında bireysel 3-araç limiti + şirket ataması var. 🔴 staging kanıtı bekliyor (#167). |
 | Adaptive Runtime | DOĞRULANDI | HAYIR | Tier motoru + histerezis kilitleri; **düşük-uçta (K24) tier kabulü ölçülmedi** |
 | Knowledge Base | ENTEGRE | HAYIR | KB **statik/yerel** — "öğrenen filo KB" iddiası doğrulanmadı |
 
@@ -744,9 +1878,108 @@ Bu belge statik kalmaz. CAROS PRO ile ilgili **her PR veya önemli değişiklikt
 
 ---
 
+## 10.9 Filo · Araç Sahipliği · Çevrimdışı Senkronizasyon (2026-07-29)
+
+> Durum kaynağı: `docs/DEVICE_VALIDATION_LEDGER.md` #176 · #177 · #178 (üçü de 🔴).
+
+### Filo / Şirket Üyeliği
+
+- **Durum:** **ENTEGRE** (sunucu otoritesi kurulu, sahada doğrulanmadı)
+- **Production kanıtı:** `useFleet` → `/api/company*` rotaları → `resolveActor()`
+  (kimlik YALNIZ `auth.getUser()`'dan; istemci gövdesinden actor id OKUNMAZ) →
+  `callRpc()` → migration 035/036 RPC'leri (`create_company` · `add_company_member` ·
+  `list_company_members` · `list_company_vehicles`). Son-admin koruması ve
+  cross-tenant reddi **RPC içinde**, UI'da değil.
+- **Test kanıtı:** 398 website testi yeşil; rol/yetki matrisi, son-admin ve
+  conflict sınıflandırması davranış testleriyle kilitli.
+- **Eksik ana parça:** Migration 035/036 **production'a uygulanmadı**; davet
+  (invite) akışı yerine doğrudan `add_company_member` var — e-posta ile davet YOK.
+- **Ürün hazır:** **HAYIR** (production migration + saha doğrulaması yok).
+
+### Araç Sahipliği ve Eşleştirme
+
+- **Durum:** **ENTEGRE**
+- **Production kanıtı:** `pair_vehicle` EXECUTE yetkisi 035'te `anon`/`authenticated`'tan
+  GERİ ALINDI; eşleştirme sunucu tarafı doğrulamadan geçer. Çevrimdışı eşleştirme
+  **sahiplik ÜRETMEZ** — yalnız `PENDING_SERVER_VERIFICATION` claim'i üretir ve kod
+  AES-256-GCM ile şifreli saklanır (`offlinePairing.ts`).
+- **Eksik ana parça:** Sahiplik **devri** (transfer) akışı YOK; cihaz değişimi
+  senaryosu kodlanmadı. Linking code brute-force için sunucu tarafı rate limit
+  doğrulanmadı.
+- **Ürün hazır:** **HAYIR**.
+
+### Çevrimdışı Mutation Kuyruğu ve Senkronizasyon
+
+- **Durum:** **ENTEGRE** (tek otorite · fail-closed · bounded)
+- **Production kanıtı:** `enqueueOfflineMutation()` **tek kapıdır**;
+  `offlineClassification.ts` güvenlik/sahiplik işlemlerini çevrimdışı REDDEDER
+  (§Ledger #176). `DomainQueue` hesap kapsamına bağlıdır, bilinmeyen şema
+  sürümünü yorumlamaz; `SyncOrchestrator` tek-döngü kilidi + kuşak kapısı ile
+  bayat yanıtın yeni hesabın kuyruğunu bozmasını engeller (§Ledger #177).
+- **Cleanup entegrasyonu (PWA-P1-007):** queue, ownership snapshot ve pending
+  pairing production `AccountCleanupCoordinator` composition'ında ayrı,
+  deterministic participant'lardır. Her biri generation/lockdown kapısından
+  sonra persistent + süreç-içi authority'yi temizler ve gerçek `verifyEmpty`
+  olmadan fazı tamamlamaz (§Ledger #183).
+- **Server session revoke (PWA-P1-008, TESTED_LOCAL):** prepare edilen immutable
+  A access tokenını hedefleyen izole server `scope:local` revoke, ortak
+  auth-mutation kilidi, account-hash/generation kapısı,
+  timeout/network recovery ve ayrı `VERIFY_EMPTY` participant’ı production
+  composition’a bağlandı (§Ledger #184/#186). Gap closure ile immutable session
+  fingerprint hedefi, revoke-öncesi Account A/B kimlik karşılaştırması,
+  singleton+fresh-client+cookie bağımsız final verify, recovery final reverify
+  ve canonical auth-writer guard eklendi. Late `getUser/onAuthStateChange`
+  sonuçları cleanup sırasında reddedilir; doğrulanmış cleanup sonrası yeni
+  generation Account B olayı kabul edilir. Gerçek provider/browser ölçümü ve
+  LAB auth gözlemi yoktur; access-token JWT expiry’ye kadar geçerli
+  kalabildiğinden “anında tüm server authority iptal” iddiası kurulmaz.
+  Topbar/Sidebar tek canonical coordinator transaction'ına bağlıdır; blocking
+  cleanup fallback sign-out/navigation üretmez ve eski `/api/auth/logout`
+  doğrudan bypass'ı session mutate etmeden reddeder. Final two-gap closure ile
+  browser singleton sign-out kaldırıldı; local auth cookie purge yalnız A'nın
+  doğrulanmış chunk-hash snapshot'ına uygulanır. Auth observer doğrudan offline
+  storage silmez; A→B geçişini canonical coordinator'a yönlendirir.
+- **UI/API yüzeyi:** `/dashboard/fleet` (özet) · `/members` · `/vehicles` ·
+  `/pending` (çevrimdışı merkezi) · `/conflicts` · `/lab` (salt-okunur gözlem).
+- **Eksik ana parça:** Kuyruk `localStorage` üzerindedir (IndexedDB değil) —
+  büyük filo ve çok sekmeli kullanımda sekmeler arası kilit YOKTUR.
+  Realtime gap-detection uygulanmadı.
+- **Ürün hazır:** **HAYIR** (logout wiring host-testli; server revoke için
+  gerçek staging/çoklu-sekme/process-death/account-switch saha kanıtı yok).
+
+### Güvenlik (R4 — anon GRANT)
+
+- **Durum:** **DOĞRULANDI (yerel)** — production'da **YOK**.
+- **Kanıt:** Migration 037 geçici PostgreSQL'de koştu; `anon` → `profiles`/`companies`
+  erişimi gerçekten **`permission denied`** oldu, `authenticated` 8/8 korundu,
+  ikinci koşu idempotent, RLS kapalıyken fail-closed durdu (§Ledger #178).
+- **🔴 Açık risk:** Head unit `commandListener.ts` **anon key ile `vehicles` ve
+  `vehicle_commands` tablolarına doğrudan erişiyor**. Bu tablolarda anon GRANT'i
+  geri alınırsa araç komut almayı bırakır. FAZ 2'nin ön koşulu bu erişimin
+  SECURITY DEFINER RPC'ye taşınmasıdır.
+- **Sonraki atomik PR:** head unit `vehicle_commands` okuma yolunun RPC'ye göçü.
+
+---
+
 ## 11. Kapsam Dışı (bu belgenin yapmadıkları)
 
 - Bu belge **kod değiştirmez**; capability durumu kodun aynasıdır, tersi değil.
 - Bu belge **vizyonu uygulanmış özellik gibi sunmaz** — §8'deki YOK'lar taahhüt değildir.
 - Bu belge **gelecekteki tüm fikirleri kısa vadeli taahhüde çevirmez**; öncelik yalnız
   P0–P3'tedir.
+### PWA session cleanup final P1 host kanıtı — 2026-07-30
+
+PWA-P1-008 `TESTED_LOCAL`: cookie compare/delete auth-js canonical storage lock
+altına alındı; logout hedefi ilk await öncesinde immutable fingerprint ile
+sabitlendi; concurrent account-transition metadata'sı scope doğruluyor. Website
+730/730 ve TypeScript geçti. Durum `DOĞRULANDI` veya `ÜRÜN HAZIR` değildir:
+staging, gerçek çoklu sekme ve process-death kanıtı yoktur; production security
+gate `BLOCKED` kalır.
+### PWA-P1-008 security architecture closure — 2026-07-30
+
+PWA auth cleanup host seviyesi `TESTED_LOCAL`: production Supabase client'ları
+explicit ortak auth lock'a katılıyor, account-scoped ledger v2 fingerprint
+zorunluluğu taşıyor ve cookie partial mutation typed/fail-closed yönetiliyor.
+Gerçek staging, browser, çoklu sekme ve process-death kanıtı bulunmadığından
+durum `DOĞRULANDI`/`SAHADA DOĞRULANDI` değildir; ürün hazır değil ve production
+security gate `BLOCKED` kalır.

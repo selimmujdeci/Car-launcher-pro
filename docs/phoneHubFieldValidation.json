@@ -1,0 +1,198 @@
+{
+  "schemaVersion": 1,
+  "capturedAt": 1785066180912,
+  "validationPhase": "PHONE-HUB P0.6",
+  "_readme": [
+    "GERÇEK CİHAZ KANIT DOSYASI — elle yazılmadı, adb + CDP-over-adb ile ölçüldü.",
+    "PII YOKTUR: MAC, telefon numarası, kişi adı, cihaz adı, mesaj/bildirim içeriği,",
+    "kullanıcının çalışan uygulama listesi ve medya başlıkları BİLİNÇLİ OLARAK yazılmadı.",
+    "KRİTİK: doğrulama cihazı bir TELEFONDUR, CAROS head unit DEĞİLDİR. Bu yüzden",
+    "probe mekaniği DOĞRULANDI ama head unit otoriteleri DOĞRULANAMADI."
+  ],
+
+  "device": {
+    "manufacturer": "Xiaomi",
+    "model": "23090RA98I",
+    "codename": "zircon",
+    "androidVersion": "13",
+    "sdk": 33,
+    "buildType": "user",
+    "chipsetVendorHint": "MediaTek",
+    "isHeadUnit": false,
+    "hasAutomotiveFeature": false,
+    "deviceRoleForPhoneHub": "PHONE_SIDE_NOT_HEAD_UNIT",
+    "note": "android.hardware.type.automotive özelliği YOK; vendor CAN/MCU paketi YOK. Phone Hub'ın hedef donanımı DEĞİLDİR."
+  },
+
+  "probe": {
+    "status": "OBSERVED",
+    "snapshotVersion": 1,
+    "nativeMethodReachable": true,
+    "invocationCount": 6,
+    "allInvocationsReturnedPresent": true,
+    "crashObserved": false,
+    "stateLeakObserved": false,
+    "outputStableAcrossRuns": true,
+    "timestampsMonotonic": true,
+    "timestampSpreadMs": 244,
+    "declaredErrorCodes": ["GATT_STATE_UNAVAILABLE", "VENDOR_BROADCAST_EVIDENCE_UNAVAILABLE"],
+    "piiInPayload": false,
+    "piiInDeviceLogs": false,
+    "sideEffectsObserved": {
+      "bluetoothToggled": false,
+      "discoveryStarted": false,
+      "bondingStarted": false,
+      "obdSessionDisturbed": false,
+      "evidence": "adapter 'time since enabled' 25s 32d sürekli; discoveryActive INACTIVE; logcat'te BT yazma çağrısı yok"
+    },
+    "screenLevelNavigationDriven": false,
+    "screenLevelNote": "Ekrandan çıkıp tekrar girme (Görev 1.5) UI ile SÜRÜLMEDİ; ekranın çağırdığı native yol 6 kez doğrulandı."
+  },
+
+  "authorities": {
+    "bluetooth": "UNKNOWN",
+    "audio": "UNKNOWN",
+    "calls": "UNKNOWN",
+    "media": "UNKNOWN",
+    "_reason": "Otoriteler HEAD UNIT için sorulmuştur; ölçüm bir telefonda yapıldı. Telefonda gözlenen AOSP yığını head unit davranışını KANITLAMAZ."
+  },
+
+  "observedOnValidationDeviceOnly": {
+    "_warning": "Bu blok YALNIZ doğrulama telefonuna aittir. Head unit kararı için KULLANILAMAZ.",
+    "bluetoothAdapterAvailable": true,
+    "bluetoothAdapterEnabled": true,
+    "permissionConnect": "GRANTED",
+    "permissionScan": "GRANTED",
+    "permissionLegacy": "NOT_APPLICABLE",
+    "discoveryActive": "INACTIVE",
+    "bondedDeviceCount": 2,
+    "bondedClassCounts": { "phoneLike": 0, "audioLike": 1, "obdLikeCandidate": 1, "unknown": 0 },
+    "a2dpConnectionState": "DISCONNECTED",
+    "headsetConnectionState": "DISCONNECTED",
+    "gattConnectionState": "UNAVAILABLE",
+    "frameworkProfileServicesPresent": ["GattService", "A2dpService", "AvrcpTargetService", "HeadsetService", "BatteryService", "CsipSetCoordinatorService"],
+    "vendorAutomotivePackageDetected": false,
+    "vendorFamily": "UNKNOWN",
+    "defaultDialerRoleHolder": "com.android.contacts",
+    "mediaSessionCount": 4,
+    "mediaSessionsAreAutomotive": false,
+    "mediaSessionOwnersRecorded": false,
+    "audioMode": 0,
+    "musicActive": false,
+    "communicationDeviceType": "OTHER"
+  },
+
+  "obdCoexistence": {
+    "status": "UNKNOWN",
+    "notes": [
+      "Doğrulama cihazında OBD adaptörü BAĞLI DEĞİL ve araç yok → eşzamanlılık gözlemlenemedi.",
+      "Kod incelemesi (DERIVED): OBD Classic Bluetooth RFCOMM kullanır (obd/OBDBluetoothManager, BtSerialTransport).",
+      "Kod incelemesi (DERIVED): OBD eşleştirme akışı BluetoothAdapter.startDiscovery() ÇAĞIRIR (OBDBluetoothManager:268, CarLauncherPlugin:984) — bu GLOBAL adapter durumudur, telefon profillerini etkileyebilir.",
+      "Kod incelemesi (DERIVED): tekil global adapter sahipliği YOKTUR; discovery'yi hem OBD tarama hem sistem başlatabilir.",
+      "Probe hiçbir OBD davranışını değiştirmedi (kanıt: obd/ ve can/ dizinlerinde 0 değişiklik, OBD getter'ları yalnız okundu).",
+      "GERÇEK eşzamanlılık ancak head unit'te OBD bağlıyken telefon bağlanarak ölçülebilir."
+    ]
+  },
+
+  "evidence": [
+    {
+      "id": "EV-01",
+      "observation": "Native probe metodu WebView'den çağrılabiliyor ve dolu snapshot dönüyor (present=true, schemaVersion=1)",
+      "evidenceSource": "CDP-over-adb → Capacitor.Plugins.CarLauncher.getPhoneHubHardwareProbe()",
+      "classification": "OBSERVED",
+      "confidence": "HIGH",
+      "architecturalConsequence": "P0.5 köprü zinciri (JS → Capacitor → CarLauncherPlugin → PhoneHubHardwareProbe) uçtan uca ÇALIŞIYOR; Faz 1 bu köprüyü kullanabilir."
+    },
+    {
+      "id": "EV-02",
+      "observation": "6 ardışık çağrıda çıktı zaman damgası dışında BİREBİR aynı; çökme ve durum sızıntısı yok",
+      "evidenceSource": "CDP 5x döngü + ilk tekil çağrı",
+      "classification": "OBSERVED",
+      "confidence": "HIGH",
+      "architecturalConsequence": "Probe idempotent; periyodik olmayan tekrar çağrı güvenli."
+    },
+    {
+      "id": "EV-03",
+      "observation": "Snapshot yükünde ve cihaz loglarında MAC/telefon/isim deseni SIFIR",
+      "evidenceSource": "regex taraması (payload) + logcat 800 satır taraması",
+      "classification": "OBSERVED",
+      "confidence": "HIGH",
+      "architecturalConsequence": "Gizlilik sözleşmesi sahada tutuyor; kanıt dosyası paylaşılabilir."
+    },
+    {
+      "id": "EV-04",
+      "observation": "Probe sonrası Bluetooth 25+ saattir kesintisiz açık, discovery INACTIVE, bond değişmedi",
+      "evidenceSource": "dumpsys bluetooth_manager 'time since enabled' + settings global bluetooth_on",
+      "classification": "OBSERVED",
+      "confidence": "HIGH",
+      "architecturalConsequence": "Salt-okunurluk iddiası SAHADA doğrulandı — probe adapter durumunu değiştirmiyor."
+    },
+    {
+      "id": "EV-05",
+      "observation": "Doğrulama cihazı bir telefon: automotive özelliği YOK, vendor CAN/MCU paketi YOK, MediaTek/Xiaomi yığını",
+      "evidenceSource": "pm list features · pm list packages · getprop",
+      "classification": "OBSERVED",
+      "confidence": "HIGH",
+      "architecturalConsequence": "ENGEL: head unit otoriteleri bu cihazda ÖLÇÜLEMEZ. Faz 1 mimari kararı bu veriyle VERİLEMEZ."
+    },
+    {
+      "id": "EV-06",
+      "observation": "Telefonda A2DP/HEADSET profil servisleri framework'te mevcut ama bağlantı DISCONNECTED",
+      "evidenceSource": "dumpsys bluetooth_manager + probe profiles bloğu",
+      "classification": "OBSERVED",
+      "confidence": "MEDIUM",
+      "architecturalConsequence": "Profil servisinin VAR olması ses otoritesinin uygulamada olduğunu KANITLAMAZ; ayrıca telefon rolü head unit rolünün TERSİDİR."
+    },
+    {
+      "id": "EV-07",
+      "observation": "GATT için adapter seviyesinde güvenilir salt-okunur durum API'si yok; probe UNAVAILABLE + hata kodu döndürüyor",
+      "evidenceSource": "probe errors[] = GATT_STATE_UNAVAILABLE",
+      "classification": "UNAVAILABLE",
+      "confidence": "HIGH",
+      "architecturalConsequence": "BLE tabanlı kontrol düzlemi düşünülürse ayrı kanıt turu gerekir."
+    },
+    {
+      "id": "EV-08",
+      "observation": "Vendor yayın gözlemi için depoda sayaç/damga altyapısı yok; probe dürüstçe 'kanıt yok' diyor",
+      "evidenceSource": "probe errors[] = VENDOR_BROADCAST_EVIDENCE_UNAVAILABLE",
+      "classification": "UNAVAILABLE",
+      "confidence": "HIGH",
+      "architecturalConsequence": "Vendor otoritesi ancak head unit'te + yayın sayacı eklendikten sonra kanıtlanabilir."
+    },
+    {
+      "id": "EV-09",
+      "observation": "OBD eşleştirme akışı global BluetoothAdapter.startDiscovery() çağırıyor; tekil adapter sahipliği yok",
+      "evidenceSource": "kod incelemesi: OBDBluetoothManager:268, CarLauncherPlugin:984, BtSerialTransport:109",
+      "classification": "DERIVED",
+      "confidence": "MEDIUM",
+      "architecturalConsequence": "ÇAKIŞMA RİSKİ: Faz 1'de telefon bağlantısı ile OBD taraması aynı adapter'ı yarıştırabilir; sahada ölçülmeli."
+    },
+    {
+      "id": "EV-10",
+      "observation": "Doğrulama cihazında 4 MediaSession var, hiçbiri otomotiv kaynaklı değil (kullanıcının kendi uygulamaları — kimlikleri KAYDEDİLMEDİ)",
+      "evidenceSource": "dumpsys media_session (yalnız sayım alındı)",
+      "classification": "OBSERVED",
+      "confidence": "MEDIUM",
+      "architecturalConsequence": "Head unit'te vendor BT müzik uygulamasının MediaSession yayımlayıp yayımlamadığı AYRI ölçülmeli."
+    }
+  ],
+
+  "blockers": [
+    "BLOCKER-1: Doğrulama gerçek CAROS head unit'inde YAPILMADI — bağlı cihaz bir Xiaomi telefonudur.",
+    "BLOCKER-2: Head unit'te telefon BAĞLIYKEN A2DP/HFP durumu ve otoritesi ölçülmedi.",
+    "BLOCKER-3: Vendor/MCU paket ve yayın kanıtı head unit'te ölçülmedi (telefonda vendor paketi yok).",
+    "BLOCKER-4: OBD + telefon eşzamanlılığı gerçek araçta ölçülmedi (araç/OBD adaptörü yok).",
+    "BLOCKER-5: Vendor BT müzik uygulamasının MediaSession yayımı ölçülmedi.",
+    "BLOCKER-6: Head unit'te varsayılan dialer / TelecomManager otoritesi ölçülmedi.",
+    "BLOCKER-7: CAROS LAB ekranı UI'dan açılıp kapatılarak (çık/gir) doğrulanmadı; yalnız native yol sürüldü.",
+    "BLOCKER-8: A2DP/HEADSET profile PROXY erişilebilirliği test edilmedi (getProfileProxy P0.5 kapsamında değil)."
+  ],
+
+  "recommendedArchitecture": {
+    "controlPlane": "UNKNOWN",
+    "mediaPlane": "UNKNOWN",
+    "callPlane": "UNKNOWN",
+    "_decision": "KANIT YETERSİZ → Phone Hub Faz 1 bağlantı geliştirmesi BAŞLATILMAZ (fail-closed).",
+    "_nextTask": "PHONE-HUB P0.7 — Missing Hardware Evidence"
+  }
+}

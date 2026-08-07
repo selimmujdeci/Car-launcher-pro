@@ -1,6 +1,6 @@
 # CockpitOS Pro
 
-![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)
+[![License: Proprietary](https://img.shields.io/badge/License-Proprietary-red.svg)](LICENSE-PROPRIETARY.md)
 ![Build Status](https://img.shields.io/badge/build-passing-brightgreen.svg)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.x-blue.svg)
 ![Android](https://img.shields.io/badge/Platform-Android_Automotive-orange.svg)
@@ -281,4 +281,11 @@ Contributions from automotive engineers, embedded developers, and performance en
 
 ---
 
-Distributed under the MIT License.
+## License
+
+This repository is **proprietary, closed-source commercial software**. It is **not**
+distributed under an open-source license.
+
+All use, copying, modification, distribution, and commercial rights are governed
+solely by [LICENSE-PROPRIETARY.md](LICENSE-PROPRIETARY.md). Access to this
+repository grants no ownership or license rights.
