@@ -1273,7 +1273,30 @@ function _onRealData(patch: Partial<OBDData>): void {
         markObdAddressVerified(_lastKnownAddress);
       }
     }
-    return; // gate geçilmemişse diğer PID'ler ısınma dönemi boyunca görmezden gelinir
+    /* ── ADAPTÖR SEVİYESİ KANIT KAYBOLMAZ (saha 2026-08-06 · kütük #459) ────
+     *
+     * SAHADA ÖLÇÜLDÜ: V-LINK adaptörü bağlandı ve `ATRV` ile 11,99 V bildirdi —
+     * `[Battery] NORMAL → WARN @ 11.99 V` konsolda üretildi. Buna karşılık
+     * ekrandaki akü alanı 32 dakika boyunca `—` kaldı ve sürücü hiçbir uyarı
+     * görmedi. KÖK BURASIYDI: ECU susunca kapı hiç açılmıyor ve bu `return`
+     * ATRV paketini BÜTÜNÜYLE atıyordu → ölçülmüş voltaj `_current`e hiç
+     * yazılmıyor → `useBatteryVoltage`in OBD yedeği boş kalıyordu.
+     *
+     * Adaptörün KENDİ ölçtüğü değerler ECU'ya bağlı değildir; ECU'nun susması
+     * onları geçersiz kılmaz. Bu yüzden yalnız adaptör seviyesi kanıt merge
+     * edilir. Kapının anlamı KORUNUR:
+     *   • `dataFresh` AÇILMAZ    → ECU verisi hâlâ yok
+     *   • `connectionState` DEĞİŞMEZ → sahte "bağlandı" pozitifi üretilmez
+     *   • ECU PID'leri ısınma boyunca yine görmezden gelinir
+     * `transportConnected: true` zaten "paket geliyor mu (ATRV dahil)" demektir
+     * (bkz. obdTypes) — bu sayede arayüz "adaptör bağlı · ECU yanıt vermiyor"
+     * ile "bağlanamadı"yı AYIRT EDEBİLİR hâle gelir. */
+    _merge({
+      batteryVoltage:     patch.batteryVoltage ?? _current.batteryVoltage,
+      transportConnected: true,
+      lastRxAt:           _rxNow,
+    });
+    return; // gate geçilmemişse ECU PID'leri ısınma dönemi boyunca görmezden gelinir
   }
 
   // ── ValidationGuard (EV profili) ────────────────────────────────────────────
