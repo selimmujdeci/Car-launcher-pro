@@ -47,6 +47,7 @@ import type { MaviPlan, StepResult } from '../executionEngine';
 import { MaviFeedbackChannel } from './maviFeedback';
 import { buildActionFeedback, buildPlanFeedback, buildStageFeedback } from './maviFeedback';
 import { getTakeoverArbiter, type TakeoverArbiter, type TakeoverOwnershipKey } from './takeoverArbiter';
+import { isMediaCommandFeedback } from './maviPilotHandlers';
 import {
   recordLifecycleEvent, recordTakeoverDecision, recordBargeIn,
   setCurrentCorrelation, sessionCorrelationId, commandCorrelationId,
@@ -600,6 +601,14 @@ function extractSuccessText(actionId: string, value: unknown): string | undefine
   if (actionId === 'vehicle.health.read' && value && typeof value === 'object') {
     const summary = (value as { summary?: unknown }).summary;
     if (typeof summary === 'string' && summary.trim().length > 0) return summary.trim();
+  }
+  /* MÜZİK HUB PAKET A · DÜRÜSTLÜK: medya komutu "kabul edildi" ile "ses çıkıyor"
+     AYNI ŞEY DEĞİLDİR. Ses kanıtı üretilemeyen kaynaklarda (Spotify Connect,
+     YouTube IFrame, harici oturum) asistan "çalıyor" DEMEZ; portun ürettiği
+     dürüst ifade doğrudan sesli cevaba taşınır. Kanıt varsa (PLAYING) generic
+     "Tamam" yeterlidir — fazladan iddia kurulmaz. */
+  if (actionId.startsWith('media.') && isMediaCommandFeedback(value)) {
+    return value.claim === 'REQUEST_SENT' ? value.message : undefined;
   }
   return undefined;
 }

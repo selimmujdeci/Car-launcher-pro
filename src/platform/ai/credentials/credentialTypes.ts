@@ -13,7 +13,12 @@
 import type { SensitiveKey } from '../../sensitiveKeyStore';
 
 /** Kayıtlı sağlayıcı kimlikleri. Yeni sağlayıcı = buraya bir değer + kayıt. */
-export type ApiCredentialId = 'openrouter' | 'gemini' | 'groq' | 'haiku' | 'tavily';
+export type ApiCredentialId =
+  | 'openrouter' | 'gemini' | 'groq' | 'haiku' | 'tavily'
+  /* Adres/geocoding sağlayıcıları — YAPAY ZEKÂ DEĞİL. Bu defter sözleşme
+     gereği sağlayıcı-BAĞIMSIZ olduğu için kayıt/maskeleme/Keystore kurtarma
+     ve ayarlar paneli sıfır kopya kodla yeniden kullanılır. */
+  | 'geocode-google' | 'geocode-here' | 'geocode-yandex';
 
 /**
  * Bir kimlik bilgisinin doğrulama durumu — kullanıcıya gösterilebilir.

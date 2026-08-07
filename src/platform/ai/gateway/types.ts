@@ -106,6 +106,14 @@ export type AiErrorKind =
   | 'circuit_open'        // AI devre kesicisi açık — ağa ÇIKILMAZ
   | 'invalid_request'     // sözleşme ihlali (boş mesaj, geçersiz rol/parametre)
   | 'auth'                // 401/403 — anahtar geçersiz/yetkisiz
+  /**
+   * 402 — anahtar GEÇERLİ ama hesapta kredi yok (kütük #421).
+   * SAHADA ÖLÇÜLDÜ: 15 dakikada `402 openrouter.ai` × 11. Bu durum `auth` ile
+   * aynı kovaya düşüyordu; kullanıcı "anahtar geçersiz" mi "kredi bitti" mi
+   * ayırt edemiyordu. Üçü AYRI eylem gerektirir:
+   *   auth → anahtarı yenile · insufficient_credit → bakiye yükle · rate_limited → bekle.
+   */
+  | 'insufficient_credit'
   | 'rate_limited'        // 429 — kota/hız sınırı
   | 'server'              // 5xx — sağlayıcı tarafı
   | 'network'             // bağlantı hatası

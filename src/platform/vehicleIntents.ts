@@ -112,7 +112,8 @@ export const VEHICLE_CLEAR_DTC_PATTERN: CommandPattern = {
   feedback: 'Arıza kayıtları siliniyor',
   label: 'Arıza Kodlarını Sil', example: 'hataları sil',
   keywords: [
-    'hataları sil', 'arıza ışığını söndür', 'kodları temizle',
+    'hataları sil', 'arıza kodlarını sil', 'hata kodlarını sil', 'hata kodlarını temizle',
+    'dtc sil', 'dtcleri sil', 'arıza ışığını söndür', 'kodları temizle',
     'motor ışığını söndür', 'arıza kayıtlarını sil', 'hataları temizle',
   ],
   tokens: ['hata', 'sil', 'ariza', 'kod', 'temizle', 'sondur'],

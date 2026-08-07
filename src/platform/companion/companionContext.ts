@@ -429,6 +429,321 @@ export function interpretDtcStatus(activeCount: number, pendingCount?: number): 
     : `Araçta henüz kesinleşmemiş ${pending} bekleyen arıza kodu var.`;
 }
 
+/* ── Geçmiş arıza EĞİLİMİ (Vehicle Memory) ───────────────────── */
+
+/**
+ * Geçerli OBD-II / UDS arıza kodu biçimi: harf ailesi + 4 hane.
+ * P0xxx-P3xxx / B / C / U. Bu desene UYMAYAN her şey (boş, "OK", serbest metin,
+ * VIN parçası) GEÇERSİZ sayılır → yorum üretilmez (uydurma YASAK).
+ */
+const DTC_CODE_RE = /^[PBCU][0-3][0-9A-F]{3}$/;
+
+/**
+ * Kod AİLESİ → sürücünün anlayacağı Türkçe sistem adı.
+ * ⚠️ GİZLİLİK/SADELİK: ham kod ("P0301") cümleye ASLA girmez — yalnız ilk harfin
+ * temsil ettiği sistem ailesi kullanılır. Kodun kendisi sorulursa DTC ekranına
+ * yönlendirilir (interpretDtcStatus ile aynı ilke).
+ */
+const DTC_FAMILY_TR: Readonly<Record<string, string>> = {
+  P: 'motor/aktarma',
+  B: 'gövde elektroniği',
+  C: 'şasi/fren',
+  U: 'haberleşme ağı',
+};
+
+/** Tekrar sayısı üst sınırı — bozuk/şişmiş sayaç cümleyi saçmalaştırmasın. */
+const MAX_PLAUSIBLE_DTC_HISTORY = 99;
+
+/** Prompt bütçesi: eğilim cümlesi bu uzunluğu AŞAMAZ (LLM token tavanı). */
+export const DIAGNOSTIC_TREND_MAX_CHARS = 120;
+
+/**
+ * "Araç hafızası" — GEÇMİŞTE tekrarlayan arıza eğilimi tek cümleye indirilir.
+ * Mavi'nin sohbet prompt'una bu cümle girer; ham kod ve sayı yığını GİRMEZ.
+ *
+ * SAF + FAIL-SOFT (throw ETMEZ):
+ *  - historyCount ≤ 0 / NaN / negatif → null (geçmiş yok = SUS, uydurma yok)
+ *  - lastDtcCode geçersiz biçimde → null (kanıtsız bilgi ÜRETİLMEZ)
+ *  - Her iki alan geçerliyse → ≤120 karakter doğal Türkçe cümle.
+ *
+ * @param historyCount Geçmişte aynı/benzer arızanın kaç kez kaydedildiği.
+ * @param lastDtcCode  En son kaydedilen arıza kodu — yalnız AİLESİ kullanılır.
+ */
+export function interpretDiagnosticTrend(
+  historyCount: number,
+  lastDtcCode: string | null,
+): string | null {
+  if (!isFiniteNonNegative(historyCount) || historyCount <= 0) return null;
+  if (typeof lastDtcCode !== 'string') return null;
+
+  const code = lastDtcCode.trim().toUpperCase();
+  if (!DTC_CODE_RE.test(code)) return null;
+  const family = DTC_FAMILY_TR[code.charAt(0)];
+  if (!family) return null;
+
+  const n = Math.min(Math.round(historyCount), MAX_PLAUSIBLE_DTC_HISTORY);
+  const text = `Araçta daha önce ${n} kez benzer ${family} arıza kaydı görüldü.`;
+  // Yapısal olarak zaten <120 (en uzun aile + 2 haneli sayı ≈ 70 karakter);
+  // slice savunma amaçlıdır — bütçe sözleşmesi kod düzeyinde garanti edilir.
+  return text.length <= DIAGNOSTIC_TREND_MAX_CHARS
+    ? text
+    : text.slice(0, DIAGNOSTIC_TREND_MAX_CHARS);
+}
+
+/* ── Sürüş stili (Driver DNA) ────────────────────────────────── */
+
+/** Sürüş stili sınıfı — Mavi'nin ÜSLUP kararının girdisi (güvenlik kararı DEĞİL). */
+export type DriverStyle = 'calm' | 'moderate' | 'aggressive';
+
+/**
+ * HİSTEREZİS eşikleri (CLAUDE.md §2 — mod titremesini önle): tek bir sert fren
+ * sürücüyü "agresif" YAPMAZ. Eşikler toplam sert-manevra adedine uygulanır;
+ * 'moderate' bandı 'calm' ile 'aggressive' arasında tampon görevi görür — sayaç
+ * eşiğin etrafında salınırken üslup her turda değişmez.
+ */
+export const DRIVER_MODERATE_EVENTS   = 3;
+export const DRIVER_AGGRESSIVE_EVENTS = 6;
+
+/** Bir yolculukta bu kadar sert manevra imkânsızdır → sayaç bozuk, sınıflandırma yapılmaz. */
+const MAX_PLAUSIBLE_HARSH_EVENTS = 500;
+
+/** ISO 15008 — sürüş anında okunacak/duyulacak üslup talimatı tavanı. */
+export const DRIVER_PROFILE_MAX_CHARS = 150;
+
+/**
+ * Sert fren + ani hızlanma sayaçlarından sürüş stilini SAF olarak sınıflandırır.
+ * İmkânsız/eksik sayaç (NaN, negatif, tavan üstü) → null (SUS; "sakin" VARSAYILMAZ —
+ * kanıtsız olumlu hüküm de bir uydurmadır).
+ */
+export function classifyDriverStyle(
+  hardBrakeCount: number,
+  rapidAccelCount: number,
+): DriverStyle | null {
+  if (!isFiniteNonNegative(hardBrakeCount) || !isFiniteNonNegative(rapidAccelCount)) return null;
+  const total = Math.round(hardBrakeCount) + Math.round(rapidAccelCount);
+  if (total > MAX_PLAUSIBLE_HARSH_EVENTS) return null;
+  if (total >= DRIVER_AGGRESSIVE_EVENTS) return 'aggressive';
+  if (total >= DRIVER_MODERATE_EVENTS)   return 'moderate';
+  return 'calm';
+}
+
+/**
+ * Sürüş stilinden Mavi'ye ÜSLUP TALİMATI üretir (system prompt satırı).
+ * Metin ISO 15008 gereği {@link DRIVER_PROFILE_MAX_CHARS} ile sınırlıdır.
+ *
+ * 'calm' ve `null` (bilinmiyor) → null: özel talimat GEREKMEZ, varsayılan kişilik
+ * geçerlidir (boşta sıfır token maliyeti ilkesi).
+ */
+export function driverToneInstruction(style: DriverStyle | null | undefined): string | null {
+  if (style !== 'aggressive' && style !== 'moderate') return null;
+  const text = style === 'aggressive'
+    ? 'Sürücü şu an sert ve hareketli sürüyor; yanıtları kısa ve net tut, dikkatini dağıtacak ayrıntıya girme.'
+    : 'Sürücü temkinli sürüş modunda; yanıtları kısa ve net tut.';
+  return text.length <= DRIVER_PROFILE_MAX_CHARS
+    ? text
+    : text.slice(0, DRIVER_PROFILE_MAX_CHARS);
+}
+
+/**
+ * Ham sert-manevra sayaçlarından doğrudan üslup talimatı (sınıflandırma + metin).
+ * Sayaçlar imkânsız/eksikse veya sürüş sakinse → null (SUS).
+ */
+export function interpretDriverProfile(
+  hardBrakeCount: number,
+  rapidAccelCount: number,
+): string | null {
+  return driverToneInstruction(classifyDriverStyle(hardBrakeCount, rapidAccelCount));
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * KISA SÜRELİ KONUŞMA BAĞLAMI (Active Topic) — SAF katman
+ *
+ * Bu bölüm YALNIZ saf kural/biçimlendirmedir; DURUM burada TUTULMAZ (modül
+ * saflığı kilidi: companionContext hiçbir şey import etmez, mutable modül
+ * durumu barındırmaz). Durum sahibi `companionChatProvider`tır — RAM sohbet
+ * geçmişini (`_history`) zaten o tutar, tek reset kapısı da ondadır.
+ *
+ * GİZLİLİK: konu YALNIZ allowlist kimliği olarak taşınır. Ham DTC kodu, ham
+ * sensör değeri, kullanıcı cümlesi veya serbest metin konu kimliği OLAMAZ —
+ * birlik tipi bunu YAPISAL olarak imkânsız kılar.
+ * ════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * İzinli konu kimlikleri. Her biri BU DOSYADAKİ gerçek bir yorumlayıcının
+ * çıktı üretmesiyle doğar — uydurma konu YOKTUR:
+ *   engine_temperature ← interpretEngineTempConcern
+ *   diagnostic_trend   ← interpretDiagnosticTrend
+ *   fuel_level         ← interpretFuel
+ *   battery_charge     ← interpretBatteryCharge
+ *
+ * ⚠️ `tire_pressure` / `door_ajar` BİLİNÇLİ olarak YOK: yorumlayıcıları var ama
+ * canlı bağlam üretimine (buildInterpretedVehicleContext) bağlı DEĞİLLER →
+ * gerçek üreticisi olmayan konu kimliği tanımlanmaz.
+ */
+export type CompanionTopicId =
+  | 'engine_temperature' | 'diagnostic_trend' | 'fuel_level' | 'battery_charge';
+
+/**
+ * ÖNCELİK SIRASI (deterministik — ilk eşleşen kazanır). Güvenlik önce:
+ * ısınan motor, arıza eğiliminden; o da enerji durumundan önemlidir.
+ */
+export const COMPANION_TOPIC_PRIORITY: readonly CompanionTopicId[] = Object.freeze([
+  'engine_temperature', 'diagnostic_trend', 'fuel_level', 'battery_charge',
+]);
+
+const TOPIC_ID_SET: ReadonlySet<string> = new Set(COMPANION_TOPIC_PRIORITY);
+
+/**
+ * Konunun kaç KULLANICI TURU sonra unutulacağı.
+ *
+ * ⚠️ SÜRE UYDURULMADI: repoda konuşma için tanımlı bir zaman-tabanlı TTL YOKTUR.
+ * Var olan tek sınır `companionChatProvider.MAX_HISTORY_TURNS = 8` ("4 kullanıcı
+ * + 4 model") — yani modelin GÖREBİLDİĞİ geçmiş 4 kullanıcı turudur. Konu bundan
+ * uzun yaşarsa modelin göremediği bir şeye atıf yapmış oluruz. Bu yüzden ölçü
+ * MİLİSANİYE değil TUR'dur ve mevcut sabitten TÜRETİLMİŞTİR (bir kilit testi
+ * bu türetmeyi korur). Tur sayacı pasif okunur — timer/poll YOKTUR.
+ */
+export const TOPIC_MAX_TURN_AGE = 4;
+
+/** Konunun tazelik sınıfı — `sessionInspectorModel` diliyle uyumlu, paralel sistem YOK. */
+export type TopicFreshness = 'fresh' | 'aging' | 'expired';
+
+/** Hangi yorumlayıcıların BU turda çıktı ürettiği (çağıran doldurur). */
+export interface TopicSignalFlags {
+  readonly engineTemperature?: boolean;
+  readonly diagnosticTrend?:   boolean;
+  readonly fuelLevel?:         boolean;
+  readonly batteryCharge?:     boolean;
+}
+
+/**
+ * Bu turda üretilen yorumlardan aktif konuyu seçer (SAF · öncelikli · deterministik).
+ * Hiçbir yorum üretilmediyse null → konu YAZILMAZ (eski konu korunur, uydurma yok).
+ */
+export function selectActiveTopic(flags: TopicSignalFlags | null | undefined): CompanionTopicId | null {
+  if (!flags || typeof flags !== 'object') return null;
+  if (flags.engineTemperature === true) return 'engine_temperature';
+  if (flags.diagnosticTrend === true)   return 'diagnostic_trend';
+  if (flags.fuelLevel === true)         return 'fuel_level';
+  if (flags.batteryCharge === true)     return 'battery_charge';
+  return null;
+}
+
+/** Değerin izinli bir konu kimliği olup olmadığı (serbest metin REDDEDİLİR). */
+export function isCompanionTopicId(v: unknown): v is CompanionTopicId {
+  return typeof v === 'string' && TOPIC_ID_SET.has(v);
+}
+
+/**
+ * Tur farkından tazelik sınıfı (SAF · pasif — zamanlayıcı YOK).
+ * Geçersiz/negatif tur farkı `expired` sayılır (fail-closed: bayat konu okunmaz).
+ */
+export function topicFreshness(turnsAgo: number): TopicFreshness {
+  if (!Number.isFinite(turnsAgo) || turnsAgo < 0) return 'expired';
+  if (turnsAgo > TOPIC_MAX_TURN_AGE) return 'expired';
+  return turnsAgo <= 1 ? 'fresh' : 'aging';
+}
+
+/** Konunun sürücüye anlatılabilir Türkçe adı (ham veri DEĞİL — sabit etiket). */
+const TOPIC_LABEL_TR: Readonly<Record<CompanionTopicId, string>> = {
+  engine_temperature: 'motor sıcaklığı',
+  diagnostic_trend:   'geçmiş arıza kaydı',
+  fuel_level:         'yakıt durumu',
+  battery_charge:     'batarya/şarj durumu',
+};
+
+/** Konu kimliğinin Türkçe etiketi; geçersiz kimlik → null. */
+export function topicLabelTr(topic: unknown): string | null {
+  return isCompanionTopicId(topic) ? TOPIC_LABEL_TR[topic] : null;
+}
+
+/** Prompt'a giren bounded ipucu satırı tavanı. */
+export const TOPIC_HINT_MAX_CHARS = 200;
+
+/**
+ * Prompt'a eklenecek BOUNDED konu ipucu. Zorlayıcı DEĞİLDİR: modele "kesin bunu
+ * varsay" DEMEZ — yalnız önceki konuyu, tazeliğini ve kaynağını bildirir ve
+ * belirsizlikte SORU SORMASI gerektiğini söyler (fail-closed dil).
+ *
+ * Geçersiz kimlik veya `expired` tazelik → null (ipucu EKLENMEZ).
+ */
+export function buildTopicHintLine(
+  topic: unknown,
+  freshness: TopicFreshness,
+): string | null {
+  const label = topicLabelTr(topic);
+  if (!label || freshness === 'expired') return null;
+  const age = freshness === 'fresh' ? 'az önce' : 'birkaç tur önce';
+  const line =
+    `ÖNCEKİ KONU (ipucu, kesin bilgi değil): ${age} ${label} konuşuldu. ` +
+    'Kullanıcı "bunu/şunu" gibi belirsiz bir söz kullanırsa bunu VARSAYMA — kısa bir soruyla netleştir.';
+  return line.length <= TOPIC_HINT_MAX_CHARS ? line : line.slice(0, TOPIC_HINT_MAX_CHARS);
+}
+
+/* ── Belirsiz zamir → NETLEŞTİRME (fail-closed) ─────────────── */
+
+/**
+ * Türkçe metni ASCII'ye indirger.
+ * ⚠️ GEREKÇE: JS regex'te `\b` ve `\w` YALNIZ ASCII bilir — `şunu` içindeki `ş`
+ * kelime karakteri sayılmadığından `\bşunu\b` SAHADA EŞLEŞMEZ (aynı tuzak
+ * `companionIdentity.ts` yorumlarında da kayıtlı). Bu yüzden desenler ASCII
+ * üzerinde çalıştırılır. SAF: bu modül hiçbir şey import etmez.
+ */
+function foldTr(s: string): string {
+  return s.toLowerCase()
+    .replace(/ı/g, 'i').replace(/ö/g, 'o').replace(/ü/g, 'u')
+    .replace(/ç/g, 'c').replace(/ş/g, 's').replace(/ğ/g, 'g')
+    .replace(/â/g, 'a').replace(/î/g, 'i').replace(/û/g, 'u');
+}
+
+/** Türkçe işaret zamirleri (ASCII'ye indirgenmiş, ekli biçimleriyle).
+ *  Çıplak "bu/şu/o" DAHİL DEĞİL — günlük konuşmada çok sık geçer, yanlış-pozitif üretir. */
+const DEMONSTRATIVE_RE = /\b(bunu|bunlari|sunu|sunlari|onu|onlari)\b/;
+
+/** Kalıcı etki doğuran fiiller — belirsiz nesneyle birleşince eylem ÜRETİLMEZ. */
+const ACTION_VERB_RE =
+  /\b(hatirlat|kaydet|not al|ayarla|kur|gonder|paylas|sil|ekle|planla)/;
+
+export interface DemonstrativeResolution {
+  /** Belirsiz zamir + eylem fiili birlikte görüldü mü. */
+  readonly ambiguous: boolean;
+  /** true → çağıran HİÇBİR eylem yürütmemeli (fail-closed). */
+  readonly needsClarification: boolean;
+  /** Sürücüye sorulacak kısa Türkçe soru; belirsizlik yoksa null. */
+  readonly clarificationText: string | null;
+}
+
+const NOT_AMBIGUOUS: DemonstrativeResolution = Object.freeze({
+  ambiguous: false, needsClarification: false, clarificationText: null,
+});
+
+/**
+ * "Bunu sonra hatırlat" tipi ifadelerde belirsizliği tespit eder.
+ *
+ * ⚠️ AKTİF KONU BULUNMASI EYLEM YETKİSİ VERMEZ: konu bilinse bile sonuç DAİMA
+ * `needsClarification: true`'dur. Konu yalnız SORUYU zenginleştirir
+ * ("motor sıcaklığını mı kastediyorsun?") — otomatik çözüm ÜRETMEZ.
+ * Bu, görevin "belirsiz zamir hiçbir zaman otomatik eylem üretmesin" kuralının
+ * yapısal karşılığıdır.
+ */
+export function resolveDemonstrativeReference(
+  text: unknown,
+  topic?: unknown,
+): DemonstrativeResolution {
+  if (typeof text !== 'string' || text.trim().length === 0) return NOT_AMBIGUOUS;
+  const folded = foldTr(text);
+  if (!DEMONSTRATIVE_RE.test(folded) || !ACTION_VERB_RE.test(folded)) return NOT_AMBIGUOUS;
+
+  const label = topicLabelTr(topic);
+  return Object.freeze({
+    ambiguous: true,
+    needsClarification: true,
+    clarificationText: label
+      ? `Neyi kastettiğinden emin olamadım — ${label} ile mi ilgili?`
+      : 'Neyi kastettiğini tam anlayamadım; biraz açar mısın?',
+  });
+}
+
 /* ── Bakım hatırlatması ──────────────────────────────────────── */
 
 /**

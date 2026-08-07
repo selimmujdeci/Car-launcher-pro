@@ -14,6 +14,8 @@
  * Bkz: docs/COMPANION_AI_ARCHITECTURE.md §7 (ayar modeli), §2.5 (bulut sızması).
  */
 
+import type { DriverStyle } from './companionContext';
+
 /* ── Sabitler ───────────────────────────────────────────────── */
 
 export const COMPANION_TEXT_MAX_LEN = 24;
@@ -363,6 +365,12 @@ export interface CompanionIdentity {
   wakePhrase:      string;
   /** Söyleyerek öğretilen wake örnekleri (Vosk çıktısı, normalize). */
   wakeEnrollment:  string[];
+  /**
+   * Driver DNA — CANLI sürüş stili. Bir AYAR DEĞİLDİR (persist edilmez): çağıran
+   * katman yolculuk sayaçlarından `classifyDriverStyle` ile türetip enjekte eder.
+   * `undefined` = stil BİLİNMİYOR (sınıflandırma yapılamadı) — "sakin" VARSAYILMAZ.
+   */
+  driverStyle?:    DriverStyle;
 }
 
 /** Ayarlardan okunan ham değerler (persist'ten bozuk gelebilir). */
@@ -401,6 +409,12 @@ function asWakeMode(raw: unknown): CompanionWakeMode {
 export function resolveCompanionIdentity(
   settings: CompanionSettingsInput,
   fallbackUserName?: string,
+  /**
+   * Driver DNA — canlı sürüş stili (opsiyonel). AYAR DEĞİLDİR, persist'ten
+   * OKUNMAZ: çağıran yolculuk sayaçlarından türetip verir. Verilmezse alan
+   * `undefined` kalır (stil bilinmiyor) — sahte "sakin" ÜRETİLMEZ.
+   */
+  driverStyle?: DriverStyle,
 ): CompanionIdentity {
   return {
     enabled:         settings.companionEnabled === true,
@@ -412,5 +426,6 @@ export function resolveCompanionIdentity(
     wakeMode:        asWakeMode(settings.companionWakeMode),
     wakePhrase:      sanitizeWakePhrase(settings.companionWakePhrase),
     wakeEnrollment:  sanitizeWakeEnrollment(settings.companionWakeEnrollment),
+    ...(driverStyle !== undefined ? { driverStyle } : {}),
   };
 }

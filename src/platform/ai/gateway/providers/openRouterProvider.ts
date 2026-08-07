@@ -95,7 +95,12 @@ function classifyStatus(status: number): { kind: AiErrorKind; retryable: boolean
     return { kind: 'rate_limited', retryable: true, message: 'AI kota/hız sınırına takıldı.' };
   }
   if (status === 402) {
-    return { kind: 'auth', retryable: false, message: 'AI hesabında yeterli kredi yok.' };
+    // Kütük #421: 402 ≠ 401/403. Anahtar GEÇERLİ, bakiye YOK — kullanıcı için
+    // tamamen farklı bir eylem demektir (anahtar yenileme değil, kredi yükleme).
+    return {
+      kind: 'insufficient_credit', retryable: false,
+      message: 'AI hesabınızda kredi kalmadı — sağlayıcı hesabınıza bakiye yükleyin.',
+    };
   }
   if (status >= 500) {
     return { kind: 'server', retryable: true, message: 'AI sağlayıcısı geçici olarak yanıt veremiyor.' };

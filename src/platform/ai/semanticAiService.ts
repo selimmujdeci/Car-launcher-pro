@@ -114,7 +114,11 @@ function buildContextPrompt(ctx?: VehicleContext): string {
   const pidBlock = `\n\n${buildPidRegistryIntegrityPromptBlock()}`;
   if (!ctx) return BASE_SYSTEM_PROMPT + pidBlock;
 
-  const lines = [`\n\n[ARAÇ BAĞLAMI]`, `Hız: ${ctx.speedKmh} km/h`];
+  // MAVI-M2: hız `null` ise "0 km/h" UYDURULMAZ — dürüstçe bilinmiyor yazılır.
+  const lines = [
+    `\n\n[ARAÇ BAĞLAMI]`,
+    typeof ctx.speedKmh === 'number' ? `Hız: ${ctx.speedKmh} km/h` : `Hız: bilinmiyor`,
+  ];
 
   if (ctx.isDriving) {
     lines.push(

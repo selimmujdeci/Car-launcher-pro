@@ -19,11 +19,12 @@
  *    confidence: 0.0–1.0"
  */
 import type { ParsedCommand, CommandType } from './commandParser';
-import type { CommandResult } from './bridge';
 import { resolveAppByName } from './appRegistry';
 import { resolveScreen } from './screenRegistry';
 import { isHomeWorkDestination, dispatchHomeWorkNavigation } from './homeWorkNavigation';
 import type { NearbyPoiCategory } from './nearbyPoiNavigation';
+// MAVI-M3: yürütme sonucu sözleşmesi (saf veri — TTS/UI/store yan etkisi YOK).
+import { intentResult, type IntentExecutionResult } from './intentExecutionResult';
 
 /* ── Intent types ────────────────────────────────────────── */
 
@@ -158,15 +159,15 @@ export interface RouterContext {
    *  YERİNE geçmez (o serbest metin/adres için kalır); yalnız sentinel tabanlı
    *  "en yakın kategori" komutları için kullanılır. */
   dispatchNearbyPoi?: (category: NearbyPoiCategory) => void;
-  // T-12: Donanım komutları — L2 ACK Promise döner (bridge → VehicleCommandQueue)
-  hwLockDoors?:   () => Promise<CommandResult>;
-  hwUnlockDoors?: () => Promise<CommandResult>;
-  hwHonkHorn?:    () => void;
-  hwFlashLights?: () => void;
-  hwAlarmOn?:     () => void;
-  hwAlarmOff?:    () => void;
   /** Araç durumu: hız, yakıt, sıcaklık — TTS ile okur */
   speakVehicleStatus?: () => void;
+  /* ── MAVI-M4: ARAÇ ETKİLİ PORTLAR BURADAN KALDIRILDI ──────────────────────
+   * `hwLockDoors` · `hwUnlockDoors` · `hwHonkHorn` · `hwFlashLights` ·
+   * `hwAlarmOn/Off` · `readVehicleHealth` · `vehicleMotionState` artık
+   * `RouterContext`te YOKTUR. Böylece `routeIntent` araç etkili bir portu
+   * ÇAĞIRAMAZ — bu yapısal bir kilittir (guard testi), yorum değil.
+   * Tek eylem otoritesi: `commandExecutor.dispatchIntent`
+   * (kapı: `action/maviActionAuthority.evaluateVehicleAction`). */
 }
 
 /* ── CommandType → IntentType map ────────────────────────── */
@@ -235,6 +236,18 @@ const CMD_TO_INTENT: Record<CommandType, IntentType> = {
   query_sensor:    'QUERY_SENSOR',
 };
 
+/**
+ * CommandType → IntentType (SALT OKUMA — `CMD_TO_INTENT`in tek dışa açık kapısı).
+ *
+ * P1 sequence onay politikası, bir komutun onay gerektirip gerektirmediğini
+ * `maviActionAuthority` defterinden okumak için bu eşlemeye ihtiyaç duyar.
+ * Map'in KOPYASINI çıkarmak yerine tek kaynak burada açılır — davranış
+ * değişmez, yeni veri eklenmez. Bilinmeyen tür `'UNKNOWN'`a düşer.
+ */
+export function commandTypeToIntentType(type: CommandType): IntentType {
+  return CMD_TO_INTENT[type] ?? 'UNKNOWN';
+}
+
 /* ── toIntent ────────────────────────────────────────────── */
 
 /**
@@ -292,6 +305,18 @@ export function toIntent(cmd: ParsedCommand, ctx: IntentContext): AppIntent {
       break;
     case 'open_phone':
       payload.targetApp = 'phone';
+      break;
+    case 'call_contact':
+      /* MAVI-M4: kişi adı VARSA taşınır — yoksa yalnız telefon UYGULAMASI açılır.
+       * Adın çözümü ve ARAMA tek otoritededir (`dispatchIntent`) ve açık onay
+       * ister; burada isim yalnız TAŞINIR, arama BAŞLATILMAZ.
+       * (Yerel parser bugün ad ÇIKARMIYOR → alan boş gelir ve davranış eskisiyle
+       * birebir aynı kalır; alanı dolduran tek yol semantik/beyin hattıdır.
+       * Bu satır iki hattın payload sözleşmesini eşitler.) */
+      payload.targetApp = 'phone';
+      if (typeof cmd.extra?.['contactName'] === 'string') {
+        payload.contactName = cmd.extra['contactName'];
+      }
       break;
     case 'open_recent':
       payload.targetApp = ctx.recentAppId;
@@ -359,8 +384,13 @@ export function toIntent(cmd: ParsedCommand, ctx: IntentContext): AppIntent {
 /**
  * Single entry point for all intent dispatch.
  * Works identically whether the AppIntent came from toIntent() or fromAIResponse().
+ *
+ * MAVI-M3: artık `IntentExecutionResult` DÖNER. Sözleşme kapsamındaki (davranışsal/
+ * yıkıcı) intent'ler gerçek yürütme sonucunu bildirir; diğer HER intent için
+ * `not_handled` döner → çağıran eski davranışı BİREBİR sürdürür (geriye uyumluluk).
+ * "Intent seçildi ≠ eylem başladı ≠ eylem başarıyla tamamlandı."
  */
-export async function routeIntent(intent: AppIntent, ctx: RouterContext): Promise<void> {
+export async function routeIntent(intent: AppIntent, ctx: RouterContext): Promise<IntentExecutionResult> {
   switch (intent.type) {
     case 'OPEN_MUSIC': {
       // Müzik açma: uygulamayı ön plana almadan arka planda çalmayı başlat,
@@ -517,31 +547,31 @@ export async function routeIntent(intent: AppIntent, ctx: RouterContext): Promis
     case 'TOGGLE_SLEEP_MODE':
       // Handled in MainLayout registerCommandHandler
       break;
+    /* ── MAVI-M4 · ARAÇ ETKİLİ İNTENTLER TEK OTORİTEYE DEVREDİLDİ ──────────
+     * Bu intentlerin YÜRÜTÜCÜSÜ ARTIK BURASI DEĞİL:
+     *   commandExecutor.dispatchIntent  (kapı: action/maviActionAuthority)
+     *
+     * routeIntent yalnız DÜŞÜK RİSKLİ UI/medya/navigasyon intentlerinde kalır;
+     * araç etkili portlar RouterContext'ten KALDIRILDI → bu katman bir donanım
+     * veya OBD portunu ÇAĞIRAMAZ (yapısal kilit, guard testi ile sabit).
+     *
+     * "not_handled" döner: çağıran (useVoiceCommandHandler) bu intentleri zaten
+     * TEK OTORİTEYE yönlendirir; buradan İKİNCİ bir yürütme veya ACK ÇIKMAZ.
+     * (M3 sözleşmesi korunur: sahte ACK yok, sonuç yalnız otoriteden.) */
     case 'CHECK_VEHICLE_HEALTH':
     case 'CLEAR_DTC_CODES':
     case 'QUERY_SENSOR':
-      // Async DTC/sensör işlemleri — commandExecutor.dispatchIntent'te ele alınır.
-      break;
-    // T-12: Donanım komutları — L2 ACK beklenir; fire-and-forget değil
     case 'HARDWARE_LOCK':
-      await ctx.hwLockDoors?.();
-      break;
     case 'HARDWARE_UNLOCK':
-      // Güvenlik: hız kontrolü → sürüş sırasında kapı açma engeli (commandExecutor'da)
-      await ctx.hwUnlockDoors?.();
-      break;
     case 'HARDWARE_HORN':
-      ctx.hwHonkHorn?.();
-      break;
     case 'HARDWARE_FLASH':
-      ctx.hwFlashLights?.();
-      break;
     case 'HARDWARE_ALARM_ON':
-      ctx.hwAlarmOn?.();
-      break;
     case 'HARDWARE_ALARM_OFF':
-      ctx.hwAlarmOff?.();
-      break;
+    case 'HARDWARE_REAR_CAMERA':
+    case 'HARDWARE_LIGHTS_OFF':
+    case 'HARDWARE_SCREEN_OFF':
+      return intentResult(intent.type, 'not_handled', 'delegated_to_action_authority');
+
     case 'VEHICLE_STATUS':
       ctx.speakVehicleStatus?.();
       break;
@@ -549,6 +579,8 @@ export async function routeIntent(intent: AppIntent, ctx: RouterContext): Promis
       // Safe fallback — take no action; voice UI already shows the error state
       break;
   }
+  // M3 sözleşmesi DIŞINDAKİ tüm intent'ler: eski davranış aynen sürer.
+  return intentResult(intent.type, 'not_handled', 'legacy_path');
 }
 
 /* ── fromAIResponse — Gemini-ready bridge ────────────────── */

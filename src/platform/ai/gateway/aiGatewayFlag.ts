@@ -45,10 +45,62 @@ function readRemoteFlag(): boolean {
 /**
  * Mavi AI Gateway hattı açık mı? Varsayılan `false` (mevcut davranış).
  * İlk çağrıda okunur ve önbelleğe alınır.
+ *
+ * ── P0 KAPSAM DÜZELTMESİ (2026-08-01) ──────────────────────────────────
+ * Eskiden TEK koşul global `mavi_ai_gateway` bayrağıydı. O bayrak
+ * `public.feature_flags` tablosunda yaşar; tablonun **şirket kapsamı YOKTUR**
+ * ve `anon` için `USING(true)` okunur → oradan açmak AI zincirini **dünyadaki
+ * her cihazda** aynı anda açardı ("yanlışlıkla global açılma" riski).
+ *
+ * Artık global bayrak bir **ANA ŞALTER**tir; tek başına kimseyi AÇMAZ:
+ *
+ *     ETKİN = ana şalter AND (şirket izni VEYA araç izni)
+ *
+ * Kapsam izni sunucudan (`get_ai_gateway_access`) okunur ve
+ * `aiGatewayAccessRuntime` tarafından buraya BESLENİR. Beslenmediyse
+ * (okunmadı/okunamadı) kapı **KAPALIDIR** — fail-closed.
+ *
+ * Yerel geliştirici kaldıracı korunur ve ana şalteri ezer; satış build'inde
+ * bu kaldıraç için UI YOKTUR ve LAB kaynağı `LOCAL_OVERRIDE` olarak AÇIKÇA
+ * gösterir (gizli açılış yok).
  */
 export function isAiGatewayEnabled(): boolean {
-  if (_cached === null) _cached = readRemoteFlag() || readLocalOverride();
+  if (_cached === null) {
+    // Yerel kaldıraç: geliştirici cihazında sunucuya bağlanmadan denemeye izin.
+    if (readLocalOverride()) {
+      _cached = true;
+    } else {
+      // Ana şalter VE kapsam izni — ikisi birden gerekir.
+      _cached = readRemoteFlag() && _scopedAccessGranted;
+    }
+  }
   return _cached;
+}
+
+/* ── Kapsam izni beslemesi (sunucudan) ───────────────────────────────────
+ *
+ * `aiGatewayAccessRuntime` sunucu okumasını yapar ve sonucu buraya yazar.
+ * Bu modül AĞA ÇIKMAZ (saf kalır, test edilebilir olur).
+ */
+let _scopedAccessGranted = false;
+
+/**
+ * Sunucudan okunan kapsam iznini uygular.
+ *
+ * ⚠️ Önbellek BİLİNÇLİ olarak sıfırlanır: izin bir oturum ortasında verilirse
+ * bir sonraki okuma bunu görmelidir. Ama izin KALDIRILDIĞINDA da aynı şekilde
+ * anında kapanır — bu, "disable sonrası erişim kapanır" şartının karşılığıdır.
+ */
+export function applyScopedGatewayAccess(granted: boolean): void {
+  if (_scopedAccessGranted === granted) return;
+  _scopedAccessGranted = granted;
+  _cached = null;                       // yeniden türetilsin
+  _orchestratorCached = null;           // alt tercihler de yeniden değerlendirilsin
+}
+
+/** @internal testler için — kapsam izni okuması. */
+export function _getScopedGatewayAccess(): boolean {
+  return _scopedAccessGranted;
 }
 
 /* ── Alt tercih: Model Orchestrator ───────────────────────────────────────── */
@@ -537,6 +589,9 @@ export function setAiGatewayEnabled(enabled: boolean): void {
 /** @internal — testler arası izolasyon (üretim yolunda çağrılmaz). */
 export function _resetAiGatewayFlagForTest(): void {
   _cached = null;
+  // P0: kapsam izni de sıfırlanır — aksi hâlde bir testin verdiği izin
+  // sonraki teste SIZAR ve "varsayılan kapalı" kilidi yalancı geçerdi.
+  _scopedAccessGranted = false;
   _orchestratorCached = null;
   _contextCached = null;
   _memoryCached = null;

@@ -24,6 +24,9 @@ import {
   verifyHaikuKey,
   verifyOpenRouterKey,
   verifyTavilyKey,
+  verifyGeocodeGoogleKey,
+  verifyGeocodeHereKey,
+  verifyGeocodeYandexKey,
 } from './credentialVerifiers';
 import { getEnvGeminiKey, getEnvGroqKey, getEnvHaikuKey } from '../../aiVoiceService';
 
@@ -106,6 +109,52 @@ export const API_CREDENTIALS: readonly ApiCredentialDescriptor[] = [
     clipboardPattern: /^sk-ant-[A-Za-z0-9_-]{20,}$/,
     keyBeamKind:      'haiku',
     getEnvKey:        getEnvHaikuKey,
+  },
+  /* ── Adres/geocoding sağlayıcıları (BYOK) ────────────────────────────────
+   * Bunlar YAPAY ZEKÂ anahtarı DEĞİLDİR. Neden buradalar: saha ölçümü
+   * (2026-08-03) ücretsiz OSM zincirinin Türkiye'de numaralı sokakları
+   * çözemediğini gösterdi — "Tarsus Bağlar Mah. 0455. Sokak" yolu OSM'de
+   * ÇİZİLİ ama İSİMSİZ (350 m çevrede 41 adsız yol). Bu bir kod açığı değil
+   * VERİ açığıdır; OEM'ler bunu lisanslı adres verisiyle kapatır.
+   *
+   * ⚖️ Hiçbiri "önerilen" DEĞİLDİR ve varsayılan YOKTUR: ürün kutudan
+   * ücretsiz OSM ile gelir. Sağlayıcıların çoğu geocoding sonucunun kendi
+   * harita altlıkları dışında gösterilmesini kısıtlar → hangi veriyi
+   * lisanslayacağı ve şartlarına uyacağı ÜRETİCİNİN/müşterinin kararıdır.
+   * Uygulamaya gömülü anahtar KONULMAZ (CLAUDE.md ticari kuralı). */
+  {
+    id:               'geocode-google',
+    storeKey:         'geocodeGoogleApiKey',
+    label:            'Google Geocoding (adres)',
+    roleHint:         'Sokak/mahalle adreslerini çözer. Türkiye numaralı sokak kapsaması en geniş olan kaynak.',
+    docsUrl:          'https://console.cloud.google.com/google/maps-apis/credentials',
+    minLength:        20,
+    verifyCostsQuota: true,           // metadata uç noktası yok → 1 geocoding isteği
+    verify:           verifyGeocodeGoogleKey,
+    advanced:         true,
+    placeholder:      'AIza...',
+  },
+  {
+    id:               'geocode-here',
+    storeKey:         'geocodeHereApiKey',
+    label:            'HERE Geocoding (adres)',
+    roleHint:         'Sokak/mahalle adreslerini çözer. Otomotiv OEM tarafında yaygın lisans.',
+    docsUrl:          'https://platform.here.com/',
+    minLength:        20,
+    verifyCostsQuota: true,
+    verify:           verifyGeocodeHereKey,
+    advanced:         true,
+  },
+  {
+    id:               'geocode-yandex',
+    storeKey:         'geocodeYandexApiKey',
+    label:            'Yandex Geocoder (adres)',
+    roleHint:         'Sokak/mahalle adreslerini çözer. Türkiye kapsaması güçlü.',
+    docsUrl:          'https://developer.tech.yandex.ru/services/',
+    minLength:        20,
+    verifyCostsQuota: true,
+    verify:           verifyGeocodeYandexKey,
+    advanced:         true,
   },
 ];
 

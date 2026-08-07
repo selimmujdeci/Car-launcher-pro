@@ -62,6 +62,33 @@ export function stripSignalPrefix(id: string): string {
 }
 
 /**
+ * T7 — "odometer" ADI YALNIZ GERÇEK ARAÇ KİLOMETRESİ İÇİNDİR.
+ *
+ * SAHA KUSURU (snapshot 2026-08-01): kanıt satırı
+ *   `signal.odometer · derived → odometer=0.5085521637815167km`
+ * diyordu. Bu değer aracın toplam kilometresi DEĞİLDİR: `vehicle.odometer`
+ * HAL sinyali `UnifiedVehicleStore.odometer`den beslenir, o da VehicleCompute
+ * worker'ının GPS/DR tick'lerinden İNTEGRE ETTİĞİ uygulama-içi mesafe sayacıdır
+ * (ECU'dan okunmaz). Yarım kilometrelik bir değeri "odometer" diye raporlamak
+ * bakım aralığı, Vehicle Passport ve Mavi için doğrudan YANLIŞ girdidir.
+ *
+ * Kural: kaynağı doğrulanmış bir araç kaynağı (obd/can/mcu) DEĞİLSE ad
+ * `trip_distance`e taşınır. Gerçek ECU odometresi geldiğinde `odometer` adı
+ * korunur — böylece iki kavram bir daha karışmaz.
+ *
+ * Geriye dönük uyum: eski `signal.odometer` anahtarını arayan tüketiciler artık
+ * `signal.trip_distance` görür. Yanlış etiket SÜRDÜRÜLMEZ (görev şartı) — bu
+ * kasıtlı ve tek yönlü bir düzeltmedir.
+ */
+export function canonicalSignalKey(rawKey: string, source: SignalEnvelope['source']): string {
+  if (rawKey !== 'odometer') return rawKey;
+  // Yalnız doğrulanmış ARAÇ kaynakları gerçek odometre sayılır.
+  // ('derived' = GPS/DR entegrasyonu, 'gps', 'mock' → hepsi yol mesafesidir.)
+  const fromVehicle = source === 'obd' || source === 'can';
+  return fromVehicle ? 'odometer' : 'trip_distance';
+}
+
+/**
  * Bir HAL sinyalini SignalEnvelope'a çevirir. "0 ≠ no-data" korunur: desteklenmeyen →
  * unsupported (value null), sayı değilse → no_data (value null), stale bayrağı → stale,
  * aksi → valid. Güven HAL'den gelir (unsupported/no_data → 0). SAF.
@@ -152,8 +179,11 @@ export function halSnapshotToContextInput(
       if (typeof sig.id !== 'string' || !sig.id) continue;
       // Boolean/dizi sinyaller (ignition/reverse/tpms) bağlam sinyali DEĞİL — sayısal olanlar.
       if (typeof sig.value !== 'number') continue;
-      const key = stripSignalPrefix(sig.id);
-      if (key) signals[key] = halSignalToEnvelope(sig, now);
+      const rawKey = stripSignalPrefix(sig.id);
+      if (!rawKey) continue;
+      const env = halSignalToEnvelope(sig, now);
+      // T7: türetilmiş yol mesafesi "odometer" adıyla yayılmaz (bkz. canonicalSignalKey).
+      signals[canonicalSignalKey(rawKey, env.source)] = env;
     }
   }
   return {

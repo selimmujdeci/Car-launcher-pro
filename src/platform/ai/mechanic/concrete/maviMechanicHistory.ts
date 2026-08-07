@@ -113,6 +113,49 @@ function readLearnedFacts(): string[] {
 
 /* ── Genel API ─────────────────────────────────────────────────────────────*/
 
+/** Companion prompt'una beslenecek eğilim girdisi — YALNIZ adet + kod. */
+export interface DiagnosticTrendInput {
+  /** En son arıza koduyla AYNI kodun bus geçmişindeki toplam görülme adedi. */
+  readonly historyCount: number;
+  /** En son kaydedilen arıza kodu; okunamadı/boş → null (uydurulmaz). */
+  readonly lastDtcCode:  string | null;
+}
+
+const EMPTY_TREND: DiagnosticTrendInput = Object.freeze({ historyCount: 0, lastDtcCode: null });
+
+/**
+ * Companion sohbet bağlamı için GEÇMİŞ ARIZA EĞİLİMİ girdisi — SENKRON, SALT OKUNUR.
+ *
+ * ⚠️ NEDEN AYRI KAPI (ve `isMaviMechanicHistoryEnabled` şalterine BAĞLI DEĞİL):
+ * `buildMechanicInsightBlock` aiMechanic ajanının TEŞHİS BLOĞUNU kurar ve o şalter
+ * teşhis çıktısının biçimini yönetir. Buradaki yüzey ise yalnız bir ADET + bir KOD
+ * döndürür; kod dışarı ÇIKMAZ (`interpretDiagnosticTrend` yalnız ilk harfini kullanır).
+ * Yeni depo/abonelik/timer AÇILMAZ — mevcut bus halkası okunur, `subscribe`/`publish` YOK.
+ *
+ * Fail-soft: bus yok / halka boş / hata → `historyCount:0, lastDtcCode:null` (SUS).
+ * ASLA throw etmez.
+ */
+export function readDiagnosticTrendInput(): DiagnosticTrendInput {
+  try {
+    const events = readHistoryEvents();
+    if (!events || events.length === 0) return EMPTY_TREND;
+
+    // Halka en eski→en yeni sıralıdır → son KOD TAŞIYAN olay "en son arıza"dır.
+    let lastCode = '';
+    for (let i = events.length - 1; i >= 0; i--) {
+      const c = events[i]?.code;
+      if (typeof c === 'string' && c.length > 0) { lastCode = c; break; }
+    }
+    if (!lastCode) return EMPTY_TREND;
+
+    let count = 0;
+    for (const ev of events) if (ev && ev.code === lastCode) count++;
+    return Object.freeze({ historyCount: count, lastDtcCode: lastCode });
+  } catch {
+    return EMPTY_TREND;
+  }
+}
+
 /**
  * Faz 1 teşhisini DEĞİŞTİRMEDEN geçmiş/eğilim/tazelik bloğunu üretir.
  * `diagnosis` yoksa (teşhis üretilememişse) yorum da üretilmez.

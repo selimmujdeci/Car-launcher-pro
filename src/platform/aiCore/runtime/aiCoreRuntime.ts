@@ -82,6 +82,16 @@ export interface AiCoreRuntimeDeps {
   /** Test enjeksiyonu — varsayılan global setTimeout/clearTimeout. */
   readonly setTimeoutFn?: (fn: () => void, ms: number) => unknown;
   readonly clearTimeoutFn?: (handle: unknown) => void;
+  /**
+   * Çalışma sonucu GÖZLEMCİSİ (opsiyonel · fail-soft). Her başarılı edge çalışmasının
+   * SONUNDA — yayın yapıldıktan SONRA — bir kez çağrılır.
+   *
+   * ⚠️ SINIRLAR: bu bir GÖZLEMCİDİR, ikinci karar otoritesi DEĞİL. Runtime sonucu
+   * DEĞİŞTİREMEZ (dönüş değeri yoktur), YENİ POLL/TIMER AÇMAZ (mevcut edge tetiğine
+   * biner) ve hatası izole edilir — gözlemci patlarsa runtime etkilenmez.
+   * Verilmezse davranış birebir eskisidir (Faz-2/2.5).
+   */
+  readonly onRunResult?: (result: AiOrchestratorRunResult) => void;
 }
 
 /** AI Core sonucunu taşıyan READ-ONLY platform event adı (domain 'ai'). */
@@ -124,6 +134,7 @@ export class AiCoreRuntime {
   private readonly _debounce: number;
   private readonly _setTimeout: (fn: () => void, ms: number) => unknown;
   private readonly _clearTimeout: (handle: unknown) => void;
+  private readonly _onRunResult: ((result: AiOrchestratorRunResult) => void) | null;
 
   private readonly _subIds: string[] = [];
   private _timer: unknown = null;
@@ -147,6 +158,7 @@ export class AiCoreRuntime {
     this._debounce = deps.debounceMs && deps.debounceMs >= 0 ? deps.debounceMs : DEFAULT_DEBOUNCE_MS;
     this._setTimeout = deps.setTimeoutFn ?? ((fn, ms) => setTimeout(fn, ms));
     this._clearTimeout = deps.clearTimeoutFn ?? ((h) => clearTimeout(h as ReturnType<typeof setTimeout>));
+    this._onRunResult = typeof deps.onRunResult === 'function' ? deps.onRunResult : null;
   }
 
   /** Edge olaylarına abone olur. İDEMPOTENT; dispose sonrası no-op (terminal). */
@@ -212,6 +224,12 @@ export class AiCoreRuntime {
       if (this._disposed) return;                     // await sırasında dispose geldi → yayınlama
       this._lastResult = result;
       this._publishResult(result, ctx.fingerprintHash);
+      // Gözlemci EN SON çalışır (yayın garanti edilmiş olur) ve HATASI İZOLE edilir:
+      // bir gözlemci patlarsa runtime sayaçları/abonelikleri etkilenmez.
+      if (this._onRunResult) {
+        try { this._onRunResult(result); }
+        catch (e) { console.error('[AiCoreRuntime] onRunResult gözlemci hatası — izole', e); }
+      }
     } catch (e) {
       this._errorCount++;
       console.error('[AiCoreRuntime] çalışma hatası — izole, sistem etkilenmedi', e);

@@ -251,9 +251,18 @@ function analyze(input: AiAgentAnalysisInput): AiAgentReport {
   const top = possibleCauses.slice().sort((a, b) => b.confidence - a.confidence)[0];
   const headline = urgencyRank(urgency) >= urgencyRank('urgent') && overheat && overheat.cause === top
     ? `${top.description} — hemen dikkat (%${top.confidence})`
-    : top
+    : top && top.confidence > 0
       ? `${top.description} (%${top.confidence})`
-      : verdict.headline;
+      // T11 — FAIL-CLOSED DİL: güven 0 iken KESİN sonuç cümlesi kurulmaz.
+      //
+      // ESKİ KUSUR (saha snapshot 2026-08-01): rapor "Kayda değer kök-neden
+      // bulunamadı." diyordu — `confidence:0` ve `hasEvidence:VAR` iken. Aynı
+      // kanıt kümesinde timeout, reconnect ve bağlantı olayları VARDI. Yani
+      // sistem "sorun yok" diye KESİN konuşuyordu, oysa elindeki tek dürüst
+      // ifade "kök neden KANITLANAMADI" idi. Bu ikisi farklı şeylerdir:
+      //   · kritik mekanik arıza kanıtı yok  ≠  hiçbir sorun yok
+      //   · kök neden kanıtlanamadı          ≠  kök neden yok
+      : _inconclusiveHeadline(evidenceList, verdict.headline);
 
   return Object.freeze({
     agentId: AI_MECHANIC_ID, generatedAt: now, headline, urgency, confidence,
@@ -265,6 +274,31 @@ function analyze(input: AiAgentAnalysisInput): AiAgentReport {
     inconclusive: Object.freeze(verdict.inconclusive.map(_incNote)),
     explanation: null,   // LLM narrasyonu Orchestrator'da opsiyonel
   });
+}
+
+/**
+ * T11: güven 0 + aktif neden yok durumunda DÜRÜST başlık.
+ *
+ * Elimizdeki kanıtı özetler ama hiçbir kesin hüküm kurmaz. Bağlantı/taşıma
+ * olayları mekanik arıza gibi KONUŞULMAZ; yokluk kanıtı, kanıt yokluğuyla
+ * KARIŞTIRILMAZ (fail-closed).
+ */
+export function _inconclusiveHeadline(
+  evidenceList: readonly AiEvidenceItem[],
+  verdictHeadline: string,
+): string {
+  if (evidenceList.length === 0) {
+    // Gerçekten hiç kanıt yok → verdict ne diyorsa o (bu dal "sorun yok" iddia etmez).
+    return verdictHeadline;
+  }
+  // Bağlantı/taşıma olayları var mı — varsa AYRI cümlede, arıza olarak değil.
+  const hasTransportEvent = evidenceList.some((e) =>
+    e.key.startsWith('transport.') || e.key.startsWith('recovery.'));
+  const base =
+    'Kök neden kanıtlanamadı — kritik mekanik arıza kanıtı yok, ancak bu "sorun yok" demek değildir';
+  return hasTransportEvent
+    ? `${base}; bağlantı/kurtarma olayları gözlendi (${evidenceList.length} kanıt).`
+    : `${base} (${evidenceList.length} kanıt).`;
 }
 
 function _incNote(n: { subsystem: string; reason: string; missingEvidence: readonly string[] }): AiInconclusive {

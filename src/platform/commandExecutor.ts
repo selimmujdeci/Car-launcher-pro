@@ -16,7 +16,19 @@ import { fromAIResponse, type AppIntent } from './intentEngine';
 import type { AIVoiceResult, VehicleContext } from './aiVoiceService';
 import { play, pause, next, previous, setMediaPreferredPackage } from './mediaService';
 import { setVolume }                    from './systemSettingsService';
-import { speakFeedback, speakAlert } from './ttsService';
+// MAVI-M6: normal kullanıcı cevabının TEK otoritesi. `speakAlert` ayrı hata
+// kanalıdır (uyarı tonu) ve bu görevde DEĞİŞTİRİLMEDİ.
+import { speakAlert } from './ttsService';
+import { speakMaviAnswer } from './assistant/maviSpeech';
+import type { MaviTurnToken } from './assistant/maviTurn';
+// MAVI-M4: araç etkili eylemlerin TEK kapısı (defter + AiSafetyGate + onay + capability).
+import {
+  evaluateVehicleAction, isVehicleEffectiveIntent, getVehicleActionDef,
+  type VehicleActionDef,
+} from './action/maviActionAuthority';
+// MAVI-M4-LAB-2: zincir gözlemi (saf depo — konuşmaz, UI açmaz, sonucu değiştirmez).
+import { recordMaviActionStage } from './action/maviActionTrace';
+import { intentResult, type IntentExecutionResult } from './intentExecutionResult';
 import { showToast }                    from './errorBus';
 import type { NavOptionKey, MusicOptionKey } from '../data/apps';
 import { readDTCCodes, clearDTCCodes, onDTCState, type DTCState } from './dtcService';
@@ -67,14 +79,43 @@ export interface CommandContext {
   /** NAVIGATION-P1-1: "en yakın X" merkezi dispatch — intentEngine.RouterContext
    *  ile AYNI sözleşme (dispatchNearbyPoiNavigation wrapper'ı). */
   dispatchNearbyPoi?: (category: NearbyPoiCategory) => void;
+  /* ── MAVI-M4 · ARAÇ ETKİLİ YÜRÜTÜCÜ PORTLARI ────────────────────────────
+   * Adlar `maviActionAuthority.VehicleActionCapability` ile BİREBİR aynıdır:
+   * kapı `defs[intent].capability` ile burada arar, yürütücü aynı adla çağırır.
+   * Hepsi OPSİYONELDİR — port yoksa kapı DÜRÜST `unsupported` döner, yürütücü
+   * hiç çalışmaz ("yapıldı" DENMEZ). `void` dönen (ACK'siz) port SUCCEEDED
+   * ÜRETMEZ → `unknown` (M3 sahte-ACK yasağı).
+   * `hwRearCamera`/`hwLightsOff`/`hwScreenOff` native karşılığı olmadığı için
+   * BİLİNÇLİ olarak burada TANIMLI DEĞİLDİR (bkz. maviActionAuthority notu). */
   /** Araç kapı kilidi — CAN bus sinyali; L2 ACK onaylandığında resolve eder */
   hwLockDoors?:   () => Promise<CommandResult>;
   /** Araç kapı kilidi açma — güvenlik: sürüş sırasında engellenir; L2 ACK ile resolve */
   hwUnlockDoors?: () => Promise<CommandResult>;
+  hwHonkHorn?:    () => Promise<CommandResult> | void;
+  hwFlashLights?: () => Promise<CommandResult> | void;
+  hwAlarmOn?:     () => Promise<CommandResult> | void;
+  hwAlarmOff?:    () => Promise<CommandResult> | void;
   /** Kontak açık mı? (OBD PID 0x01) — remoteCommandService occupancy kontrolünde kullanılır */
   ignitionOn?: boolean;
   /** True ise komut Supabase kanalından geldi; false/undefined = lokal ses komutu */
   isRemote?: boolean;
+  /**
+   * MAVI-M4: kullanıcı bu eylemi AÇIKÇA onayladı mı. YALNIZ bekleyen onay
+   * çözümünden (`consumePendingAction`) gelir; parser eşleşmesi ONAY DEĞİLDİR.
+   */
+  actionConfirmed?: boolean;
+  /**
+   * MAVI-M6-LATE-SPEECH-GATE — **komut girişinde yakalanmış** tur token'ı.
+   *
+   * `dispatchIntent` içindeki `await` sonrası konuşmalar (müzik arama sonucu ·
+   * araç durumu · bakım özeti) bu token ile korunur: kullanıcı bu arada yeni
+   * komut verdiyse geç metin KONUŞMAZ ve yeni turun cevap slotunu TÜKETMEZ.
+   *
+   * OPSİYONELDİR — verilmezse davranış BİREBİR eskisi gibidir. Turn kavramı
+   * olmayan çağıranlar (uzak komut hattı · `remoteCommandService`) geriye
+   * uyumlu kalır ve bu görevde DEĞİŞTİRİLMEMİŞTİR.
+   */
+  turn?: MaviTurnToken | null;
 }
 
 /* ── Internal helpers ─────────────────────────────────────── */
@@ -87,11 +128,23 @@ function _isOccupied(ctx: CommandContext): boolean {
   return ctx.vehicleCtx.isDriving || (ctx.ignitionOn ?? false);
 }
 
-/** TTS ile geri bildirim. isDriving=true → ≤ 8 kelimeye kısalt. */
-function _speak(text: string, isDriving: boolean): void {
-  if (!isDriving) { speakFeedback(text); return; }
-  const words = text.trim().split(/\s+/);
-  speakFeedback(words.length > 8 ? words.slice(0, 8).join(' ') : text);
+/**
+ * MAVI-M6: bu katman ARTIK KENDİ BAŞINA KONUŞMAZ — cevabı TEK otoriteye
+ * (`speakMaviAnswer`) teslim eder. Otorite tur başına en fazla BİR `answer`
+ * geçirir, ISO 15008 kısaltmasını TEK YERDE yapar ve devralınmış turu susturur.
+ * `_speak` yalnız ince bir adaptördür; `speakFeedback` doğrudan ÇAĞRILMAZ.
+ */
+function _speak(text: string, isDriving: boolean, turn: MaviTurnToken | null): void {
+  speakMaviAnswer(text, { isDriving, turn });
+}
+
+/**
+ * Ara bilgi ("taranıyor", "bakıyorum") — NİHAİ CEVAP DEĞİLDİR. Tur başına en fazla
+ * bir kez geçer ve cevap verildikten sonra hiç konuşmaz. Bu ayrım sayesinde çok
+ * fazlı akışlar (tarama → sonuç) dürüstlüğünü korur, gevezelik etmez.
+ */
+function _speakProgress(text: string, isDriving: boolean, turn: MaviTurnToken | null): void {
+  speakMaviAnswer(text, { isDriving, tier: 'progress', turn });
 }
 
 /** Hata durumunda TTS + toast. */
@@ -113,13 +166,16 @@ async function _playMusicInAppOrFallback(
   isDriving: boolean,
   fallback: () => void,
 ): Promise<void> {
+  /* Token AWAIT'LERDEN ÖNCE okunur — bu fonksiyon `void`lenerek çağrılır
+   * (fire-and-forget) ve dinamik import + arama saniyeler sürebilir. */
+  const _turn = ctx.turn ?? null;
   try {
     // Lazy import: carosMediaLayer mediaService'i import ettiğinden statik döngüyü kır.
     const { playByQuery } = await import('./media/carosMediaLayer');
     const track = await playByQuery(query);
     if (track) {
       ctx.openDrawer?.('music');         // uygulama-içi çalma ekranını öne getir
-      _speak(`${track.title} çalınıyor`, isDriving);
+      _speak(`${track.title} çalınıyor`, isDriving, _turn);
       return;
     }
   } catch { /* gömülü oynatıcı hatası → harici uygulamaya düş */ }
@@ -163,13 +219,92 @@ function _buildDTCSpeech(state: DTCState, isDriving: boolean): string {
   return `${count} bilgi kodu bulundu. Müsait zamanda servise uğrayabilirsin.`;
 }
 
+/* ── MAVI-M4 · araç etkili port yürütücüsü (TEK ACK sözleşmesi) ──────────── */
+
+/**
+ * Bir donanım portunu çalıştırır ve M3 sahte-ACK yasağını TEK YERDE uygular.
+ * Buraya YALNIZ kapı geçildikten sonra gelinir → port varlığı GARANTİDİR.
+ *
+ * Sözleşme (M3 kilidi — zayıflatılamaz):
+ *   · `status === 'completed'`           → `succeeded` (BAŞARI YALNIZ BURADA iddia edilir)
+ *   · `rejected` / `failed` / `timeout`  → `failed` (donanım reddi)
+ *   · ACK'siz (void/undefined) dönüş     → `unknown` — ASLA `succeeded`
+ *   · throw / reject                     → `failed`
+ * "Fire-and-forget çağırdım" başarı DEĞİLDİR; kullanıcıya ancak
+ * "sonucunu doğrulayamadım" denir.
+ */
+async function _runVehiclePort(
+  type: AppIntent['type'],
+  port: () => Promise<CommandResult> | void,
+  successText?: string,
+): Promise<IntentExecutionResult> {
+  let res: CommandResult | void;
+  try {
+    res = await port();
+  } catch {
+    return intentResult(type, 'failed', 'port_exception');
+  }
+  const r = res as CommandResult | undefined;
+  const status = r?.status;
+  if (status === 'completed') {
+    /* Başarı metni YALNIZ burada üretilir. `simulated` gerçek donanım ACK'iyle
+       karışmasın diye AYRI gerekçeyle raporlanır (kullanıcı metni değişmez —
+       demo modunda uygulama çalışmaya devam eder). */
+    return intentResult(type, 'succeeded', r?.simulated ? 'ack_simulated' : 'ack', successText);
+  }
+  if (status === undefined)   return intentResult(type, 'unknown', 'no_ack');
+  /* GÖNDERİLEMEDİ → başarı metni YOK. Kullanıcıya dürüst ve SPESİFİK cevap:
+     "Bunu yapamadım." komutun araca hiç ulaşmadığını söylemiyordu. Neden kodu
+     (whitelist_rejected · mcu_send_failed · malformed_native_result · not_sent)
+     telemetriye taşınır, kullanıcıya GÖSTERİLMEZ. */
+  const reason = r?.error ? `${status}:${r.error}` : (status ?? 'failed');
+  return intentResult(type, 'failed', reason, 'Komut araca gönderilemedi.');
+}
+
 /* ── Core dispatcher ──────────────────────────────────────── */
 
-async function dispatchIntent(intent: AppIntent, ctx: CommandContext): Promise<void> {
+async function dispatchIntent(intent: AppIntent, ctx: CommandContext): Promise<IntentExecutionResult> {
   const { isDriving } = ctx.vehicleCtx;
+  /* MAVI-M6-LATE-SPEECH-GATE: yakalanmış tur token'ı BİR KEZ, await'lerden ÖNCE
+   * okunur ve tüm `_speak`/`_speakProgress` çağrılarına taşınır. `null` ise
+   * (turn kavramı olmayan çağıran) kapı devre dışıdır → geriye uyumlu. */
+  const _turn = ctx.turn ?? null;
 
   // Kara kutu: her dispatch anında son intent'i kaydet
   _lastIntent = intent.type;
+
+  /* ── MAVI-M4 · TEK EYLEM OTORİTESİ KAPISI ────────────────────────────────
+   * ARAÇ ETKİLİ her intent buradan geçer ve kapı **port/native/OBD çağrısından
+   * ÖNCE** çalışır: hareket politikası (M2) → AiSafetyGate kapsamı → açık onay →
+   * capability. Kapı reddederse yürütücü HİÇ çağrılmaz ve M3 sonucu döner.
+   * Defterde olmayan (araç etkili olmayan) intentler `not_handled` alır ve
+   * aşağıdaki normal akışlarına devam eder. */
+  let _gateDef: VehicleActionDef | null = null;
+  if (isVehicleEffectiveIntent(intent.type)) {
+    // `OPEN_PHONE` yalnız KİŞİ ADIYLA arama başlatır; adsız çağrı telefon
+    // UYGULAMASINI açar (geri alınamaz dış etki yok) → onaydan muaf.
+    const _phoneAppOnly =
+      intent.type === 'OPEN_PHONE' && !(intent.payload.contactName ?? '').trim();
+    const gate = evaluateVehicleAction({
+      intent: intent.type,
+      vehicleCtx: ctx.vehicleCtx,
+      // Portlar TEK yerden geçirilir; eksik bırakılan bir port kapıda
+      // `unsupported` üretir (sessiz no-op DEĞİL).
+      ports: {
+        hwLockDoors:   ctx.hwLockDoors,
+        hwUnlockDoors: ctx.hwUnlockDoors,
+        hwHonkHorn:    ctx.hwHonkHorn,
+        hwFlashLights: ctx.hwFlashLights,
+        hwAlarmOn:     ctx.hwAlarmOn,
+        hwAlarmOff:    ctx.hwAlarmOff,
+      },
+      confirmed: ctx.actionConfirmed === true,
+      confirmationExempt: _phoneAppOnly,
+    });
+    if (!gate.allow) return gate.result;
+    _gateDef = gate.def;
+  }
+  void _gateDef;   // kapı geçildi — yürütücü aşağıda
 
   try {
     switch (intent.type) {
@@ -192,21 +327,21 @@ async function dispatchIntent(intent: AppIntent, ctx: CommandContext): Promise<v
           break;
         }
         ctx.launch(ctx.defaultNav);
-        _speak('Navigasyon başlatılıyor', isDriving);
+        _speak('Navigasyon başlatılıyor', isDriving, _turn);
         break;
       }
       case 'NAVIGATE_ADDRESS': {
         const dest = intent.payload.destination;
         if (dest && ctx.navigateToPlace) ctx.navigateToPlace(dest);
         else ctx.launch(ctx.defaultNav);
-        _speak(dest ? `${dest} adresine gidiyoruz` : 'Navigasyon başlatılıyor', isDriving);
+        _speak(dest ? `${dest} adresine gidiyoruz` : 'Navigasyon başlatılıyor', isDriving, _turn);
         break;
       }
       case 'NAVIGATE_PLACE': {
         const place = intent.payload.destination;
         if (place && ctx.navigateToPlace) ctx.navigateToPlace(place);
         else ctx.launch(ctx.defaultNav);
-        _speak(place ? `${place} aranıyor` : 'Yer aranıyor', isDriving);
+        _speak(place ? `${place} aranıyor` : 'Yer aranıyor', isDriving, _turn);
         break;
       }
       case 'SEARCH_POI': {
@@ -217,7 +352,7 @@ async function dispatchIntent(intent: AppIntent, ctx: CommandContext): Promise<v
         const query = poiQuery ? `yakın ${poiQuery}` : 'yakın yer';
         if (ctx.navigateToPlace) ctx.navigateToPlace(query);
         else ctx.launch(ctx.defaultNav);
-        _speak(poiQuery ? `Yakın ${poiQuery} aranıyor` : 'Yakın yerler aranıyor', isDriving);
+        _speak(poiQuery ? `Yakın ${poiQuery} aranıyor` : 'Yakın yerler aranıyor', isDriving, _turn);
         break;
       }
       case 'FIND_NEARBY_GAS': {
@@ -241,7 +376,7 @@ async function dispatchIntent(intent: AppIntent, ctx: CommandContext): Promise<v
         // aynı case, addressNavigationEngine.ts).
         if (ctx.navigateToPlace) ctx.navigateToPlace('__nearby_hospital__');
         else ctx.launch(ctx.defaultNav);
-        _speak('Yakın hastane aranıyor', isDriving);
+        _speak('Yakın hastane aranıyor', isDriving, _turn);
         break;
       }
 
@@ -255,7 +390,7 @@ async function dispatchIntent(intent: AppIntent, ctx: CommandContext): Promise<v
         if (pkg) setMediaPreferredPackage(pkg);
         play();                       // arka planda çal (sendMediaAction + warmup)
         ctx.openDrawer?.('music');    // çalma ekranını öne getir
-        _speak('Müzik açılıyor', isDriving);
+        _speak('Müzik açılıyor', isDriving, _turn);
         break;
       }
       case 'PLAY_MUSIC_SEARCH': {
@@ -264,12 +399,12 @@ async function dispatchIntent(intent: AppIntent, ctx: CommandContext): Promise<v
           // ÖNCE gömülü oynatıcı; çalınabilir sonuç yoksa harici uygulamaya düş.
           void _playMusicInAppOrFallback(query, ctx, isDriving, () => {
             bridge.launchMusicSearch(ctx.defaultMusic, query);
-            _speak(`${query} aranıyor`, isDriving);
+            _speak(`${query} aranıyor`, isDriving, _turn);
           });
         } else {
           play();
           ctx.openDrawer?.('music');
-          _speak('Müzik açılıyor', isDriving);
+          _speak('Müzik açılıyor', isDriving, _turn);
         }
         break;
       }
@@ -284,51 +419,51 @@ async function dispatchIntent(intent: AppIntent, ctx: CommandContext): Promise<v
           // sürücü bunu yanlış şarkı çalmadan ÖNCE duyup düzeltebilir.
           void _playMusicInAppOrFallback(query, ctx, isDriving, () => {
             bridge.launchMusicQuery(pkg, searchUri, ctx.defaultMusic);
-            _speak(`${query} aranıyor`, isDriving);
+            _speak(`${query} aranıyor`, isDriving, _turn);
           });
         } else if (searchUri) {
           // Query metni yok, yalnız deep-link URI var → gömülüde arayamayız.
           bridge.launchMusicQuery(pkg, searchUri, ctx.defaultMusic);
-          _speak('Müzik aranıyor', isDriving);
+          _speak('Müzik aranıyor', isDriving, _turn);
         } else {
           // Sadece kaynak söylendi → arka planda çal + ekranı göster
           if (pkg) setMediaPreferredPackage(pkg);
           play();
           ctx.openDrawer?.('music');
-          _speak('Müzik açılıyor', isDriving);
+          _speak('Müzik açılıyor', isDriving, _turn);
         }
         break;
       }
       case 'ADD_MUSIC_FAVORITE': {
-        _speak('Bu özellik şu an desteklenmiyor', isDriving);
+        _speak('Bu özellik şu an desteklenmiyor', isDriving, _turn);
         break;
       }
       case 'SET_MUSIC': {
         const appId = intent.payload.targetApp;
         if (appId) ctx.launch(appId);
-        _speak('Müzik uygulaması açılıyor', isDriving);
+        _speak('Müzik uygulaması açılıyor', isDriving, _turn);
         break;
       }
 
       /* ── Medya kontrolü ─────────────────────────────────── */
       case 'PLAY_MEDIA': {
         play();
-        _speak('Devam ediyor', isDriving);
+        _speak('Devam ediyor', isDriving, _turn);
         break;
       }
       case 'PAUSE_MEDIA': {
         pause();
-        _speak('Duraklatıldı', isDriving);
+        _speak('Duraklatıldı', isDriving, _turn);
         break;
       }
       case 'MEDIA_NEXT': {
         next();
-        _speak('Sonraki parça', isDriving);
+        _speak('Sonraki parça', isDriving, _turn);
         break;
       }
       case 'MEDIA_PREV': {
         previous();
-        _speak('Önceki parça', isDriving);
+        _speak('Önceki parça', isDriving, _turn);
         break;
       }
 
@@ -336,13 +471,13 @@ async function dispatchIntent(intent: AppIntent, ctx: CommandContext): Promise<v
       case 'VOLUME_UP': {
         _currentVolume = Math.min(100, _currentVolume + 10);
         setVolume(_currentVolume);
-        _speak('Ses artırıldı', isDriving);
+        _speak('Ses artırıldı', isDriving, _turn);
         break;
       }
       case 'VOLUME_DOWN': {
         _currentVolume = Math.max(0, _currentVolume - 10);
         setVolume(_currentVolume);
-        _speak('Ses azaltıldı', isDriving);
+        _speak('Ses azaltıldı', isDriving, _turn);
         break;
       }
 
@@ -352,27 +487,50 @@ async function dispatchIntent(intent: AppIntent, ctx: CommandContext): Promise<v
         // telefon uygulamasını aç. Bulunamazsa SAHTE ONAY YOK — dürüstçe söyle.
         const contactName = (intent.payload.contactName ?? '').trim();
         if (contactName) {
-          // 'frequent': aynı ada birden çok eşleşmede en sık aranan öne gelir.
+          /* MAVI-M4: buraya YALNIZ kapı geçildikten sonra gelinir — yani kullanıcı
+           * aramayı AÇIKÇA onaylamıştır. Kişi/numara çözülmesi ONAY DEĞİLDİR ve
+           * onaydan önce `bridge.callNumber` ÇAĞRILMAZ (kapı yukarıda). */
           const contact = searchContacts(contactName, 'frequent')[0];
           const phone = contact?.phones.find((p) => p.label === 'mobile') ?? contact?.phones[0];
-          if (contact && phone) {
-            bridge.callNumber(phone.number);
-            recordCall(contact.id);
-            _speak(`${contact.name} aranıyor`, isDriving);
-          } else {
-            _speak(`${contactName} rehberde bulunamadı`, isDriving);
+          if (!contact || !phone) {
+            // Numara yok → arama BAŞLAMAZ; sahte onay YOK.
+            return intentResult(intent.type, 'failed', 'contact_not_found', `${contactName} rehberde bulunamadı`);
           }
-          break;
+          /* SAHTE ONAY YASAĞI: eskiden burada koşulsuz `succeeded` + "aranıyor"
+           * dönülüyordu. Oysa köprü yalnız ÇEVİRİCİYİ açıyordu (ACTION_DIAL) →
+           * kullanıcı "aranıyor" duyuyor ama hiçbir arama olmuyordu (saha bulgusu).
+           * Başarı iddiası artık YALNIZ `placed === true` kanıtından gelir. */
+          const outcome = await bridge.callNumber(phone.number);
+          recordCall(contact.id);
+
+          /* Köprü sonuç DÖNDÜRMEDİYSE (eski/kısmi implementasyon) başarı
+           * VARSAYILMAZ — sözleşmenin `unknown` durumu tam bunun içindir. */
+          if (outcome === null || outcome === undefined) {
+            return intentResult(intent.type, 'unknown', 'call_outcome_unverified',
+              `${contact.name} için arama sonucu doğrulanamadı`);
+          }
+          if (outcome.placed) {
+            return intentResult(intent.type, 'succeeded', 'call_started',
+              `${contact.name} aranıyor`);
+          }
+          if (outcome.mode === 'VENDOR') {
+            /* Üretici BT uygulamasına devredildi — başladığını BİLEMEYİZ. */
+            return intentResult(intent.type, 'started', 'call_handed_to_vendor',
+              `${contact.name} telefon uygulamasına aktarıldı`);
+          }
+          /* Çevirici açıldı ama arama BAŞLAMADI — dürüstçe söyle. */
+          return intentResult(intent.type, 'started', 'dialer_opened_not_placed',
+            `${contact.name} numarası çeviricide — arama tuşuna basman gerekiyor`);
         }
+        // Kişi adı yok → yalnız telefon UYGULAMASI açılır (arama başlamaz).
         ctx.launch(intent.payload.targetApp ?? 'phone');
-        _speak('Telefon açılıyor', isDriving);
-        break;
+        return intentResult(intent.type, 'succeeded', 'phone_app_opened', 'Telefon açılıyor');
       }
       case 'OPEN_LAST_APP': {
         const appId = intent.payload.targetApp ?? ctx.recentAppId;
         if (appId) {
           ctx.launch(appId);
-          _speak('Son uygulama açılıyor', isDriving);
+          _speak('Son uygulama açılıyor', isDriving, _turn);
         }
         break;
       }
@@ -383,9 +541,9 @@ async function dispatchIntent(intent: AppIntent, ctx: CommandContext): Promise<v
         const app  = name ? resolveAppByName(name) : null;
         if (app) {
           ctx.launch(app.id);
-          _speak(`${app.name} açılıyor`, isDriving);
+          _speak(`${app.name} açılıyor`, isDriving, _turn);
         } else {
-          _speak(name ? `${name} uygulamasını bulamadım` : 'Hangi uygulamayı açayım?', isDriving);
+          _speak(name ? `${name} uygulamasını bulamadım` : 'Hangi uygulamayı açayım?', isDriving, _turn);
         }
         break;
       }
@@ -398,9 +556,9 @@ async function dispatchIntent(intent: AppIntent, ctx: CommandContext): Promise<v
         if (screen) {
           if (closing) (screen.close ?? (() => {}))();
           else screen.open();
-          _speak(`${screen.label} ${closing ? 'kapatılıyor' : 'açılıyor'}`, isDriving);
+          _speak(`${screen.label} ${closing ? 'kapatılıyor' : 'açılıyor'}`, isDriving, _turn);
         } else {
-          _speak(scr ? `${scr} ekranını bulamadım` : 'Hangi ekranı açayım?', isDriving);
+          _speak(scr ? `${scr} ekranını bulamadım` : 'Hangi ekranı açayım?', isDriving, _turn);
         }
         break;
       }
@@ -408,29 +566,29 @@ async function dispatchIntent(intent: AppIntent, ctx: CommandContext): Promise<v
       /* ── Sistem / UI ────────────────────────────────────── */
       case 'OPEN_SETTINGS': {
         ctx.openDrawer?.('settings');
-        _speak('Ayarlar açılıyor', isDriving);
+        _speak('Ayarlar açılıyor', isDriving, _turn);
         break;
       }
       case 'OPEN_FAVORITES': {
         ctx.openDrawer?.('apps');
-        _speak('Favoriler açılıyor', isDriving);
+        _speak('Favoriler açılıyor', isDriving, _turn);
         break;
       }
       case 'ENABLE_NIGHT_MODE': {
         ctx.setTheme?.((intent.payload.mode as 'night' | 'day' | 'oled' | 'dark') ?? 'night');
-        _speak('Gece modu aktif', isDriving);
+        _speak('Gece modu aktif', isDriving, _turn);
         break;
       }
       case 'SET_THEME': {
         ctx.setTheme?.((intent.payload.mode as 'night' | 'day' | 'oled' | 'dark') ?? 'night');
-        _speak('Tema değiştirildi', isDriving);
+        _speak('Tema değiştirildi', isDriving, _turn);
         break;
       }
       case 'CYCLE_THEME': {
         // "temayı değiştir"/"başka tema" — beyin bunu üretir; routeIntent ile aynı.
         // Eskiden case YOKTU → "Tema değişti" denip "Komut Hatası" basıyordu.
         ctx.cycleTheme?.();
-        _speak('Tema değiştirildi', isDriving);
+        _speak('Tema değiştirildi', isDriving, _turn);
         break;
       }
       case 'SET_SETTING': {
@@ -440,22 +598,22 @@ async function dispatchIntent(intent: AppIntent, ctx: CommandContext): Promise<v
           intent.payload.settingValue,
           intent.payload.settingKind,
         );
-        _speak('Ayar uygulandı', isDriving);
+        _speak('Ayar uygulandı', isDriving, _turn);
         break;
       }
       case 'ENABLE_DRIVING_MODE': {
         ctx.openDrawer?.('none');
-        _speak('Sürüş modu aktif', isDriving);
+        _speak('Sürüş modu aktif', isDriving, _turn);
         break;
       }
       case 'TOGGLE_SLEEP_MODE': {
         // MainLayout registerCommandHandler tarafından yakalanır
-        _speak('Uyku modu değiştirildi', isDriving);
+        _speak('Uyku modu değiştirildi', isDriving, _turn);
         break;
       }
       case 'SHOW_WEATHER': {
         ctx.openWeather?.();
-        _speak(getWeatherNarrative(), isDriving);
+        _speak(getWeatherNarrative(), isDriving, _turn);
         break;
       }
 
@@ -479,48 +637,54 @@ async function dispatchIntent(intent: AppIntent, ctx: CommandContext): Promise<v
         }
 
         if (parts.length === 0) {
-          _speak('Araç verisi alınamıyor. OBD bağlantısını kontrol edin.', isDriving);
+          _speak('Araç verisi alınamıyor. OBD bağlantısını kontrol edin.', isDriving, _turn);
           break;
         }
 
         const maintenance = await getMaintenanceSummaryText();
         parts.push(maintenance);
-        speakFeedback(parts.join('. ') + '.');
+        _speak(parts.join('. ') + '.', isDriving, _turn);   // MAVI-M6: tek otorite üzerinden
         break;
       }
 
       /* ── Araç Teşhis (AI Doctor) ────────────────────────── */
       case 'CHECK_VEHICLE_HEALTH': {
-        _speak('Araç sistemleri taranıyor', isDriving);
+        _speakProgress('Araç sistemleri taranıyor', isDriving, _turn);   // ara bilgi — nihai cevap DTC özeti
         await readDTCCodes();
         const healthSnap = _getDTCSnapshot();
-        _speak(_buildDTCSpeech(healthSnap, isDriving), isDriving);
-        break;
+        /* MAVI-M4 · SAHTE "TEMİZ" YASAĞI: `isStale` = son okuma BAŞARISIZ
+         * (OBD bağlı değil / adaptör yanıt vermiyor). Eskiden bu durumda da
+         * `succeeded` + "Araç sistemleri temiz, sorun yok" dönüyordu — yani
+         * OKUMA YAPILAMADIĞI HALDE aracın sağlıklı olduğu iddia ediliyordu.
+         * Bu, M3'ün kapattığı sahte-ACK sınıfının ta kendisidir. */
+        if (healthSnap.isStale) {
+          return intentResult(intent.type, 'failed', 'scan_unavailable', healthSnap.error ?? undefined);
+        }
+        return intentResult(intent.type, 'succeeded', 'health_read', _buildDTCSpeech(healthSnap, isDriving));
       }
       case 'CLEAR_DTC_CODES': {
         const clearSnap = _getDTCSnapshot();
         if (clearSnap.codes.length === 0) {
-          _speak('Temizlenecek arıza kodu yok', isDriving);
-          break;
+          return intentResult(intent.type, 'succeeded', 'nothing_to_clear', 'Temizlenecek arıza kodu yok');
         }
         // OBD-OS-F0-6: sesli komut da WriteGate'ten GEÇER — seyir halinde ECU'ya yazılmaz.
         // Sesli istek açık kullanıcı talebidir (confirmed), ama hız/tazelik kapıları geçerli.
         // SAHTE ONAY YASAK: silinmediyse "silindi" DENMEZ — kapının sebebi söylenir.
-        _speak('Arıza kayıtları siliniyor', isDriving);
+        _speakProgress('Arıza kayıtları siliniyor', isDriving, _turn);   // ara bilgi — nihai cevap WriteGate sonucu
+        // Onay MAVI-M4 kapısında alındı (`ctx.actionConfirmed`); WriteGate fiziksel
+        // önkoşulları (bağlantı · tazelik · hız) AYRICA denetler — bypass YOK.
         const clearResult = await clearDTCCodes({ confirmed: true });
         if (!clearResult.allowed) {
-          _speak(clearResult.userMessage, isDriving);
-          break;
+          return intentResult(intent.type, 'denied', 'write_gate_denied', clearResult.userMessage);
         }
-        _speak('Arıza kayıtları silindi', isDriving);
-        break;
+        return intentResult(intent.type, 'succeeded', 'dtc_cleared', 'Arıza kayıtları silindi');
       }
 
       /* ── Araç Bakım ─────────────────────────────────────── */
       case 'CHECK_MAINTENANCE': {
-        _speak('Araç bakım durumu kontrol ediliyor', isDriving);
+        _speakProgress('Araç bakım durumu kontrol ediliyor', isDriving, _turn);   // ara bilgi
         const summary = await getMaintenanceSummaryText();
-        _speak(summary, isDriving);
+        _speak(summary, isDriving, _turn);
         break;
       }
       /* ── Araç Sensör Sorgusu (V1 — QUERY_SENSOR, beyin yolu) ─────
@@ -531,21 +695,19 @@ async function dispatchIntent(intent: AppIntent, ctx: CommandContext): Promise<v
          onay söylenir (yerel bypass'la AYNI desen, bkz. voiceService). */
       case 'QUERY_SENSOR': {
         const sensorQuery = intent.payload.sensorQuery ?? '';
-        if (!sensorQuery) { _speak('Hangi sensörü soruyorsun?', isDriving); break; }
-        _speak('Bakıyorum', isDriving);
+        if (!sensorQuery) return intentResult(intent.type, 'unknown', 'no_sensor_name', 'Hangi sensörü soruyorsun?');
+        _speakProgress('Bakıyorum', isDriving, _turn);   // ara bilgi — nihai cevap sensör değeri
         const answer = await querySensor(sensorQuery);
-        if (!answer) { _speak('Bu sensörü tanımıyorum', isDriving); break; }
+        if (!answer) return intentResult(intent.type, 'unknown', 'sensor_unknown', 'Bu sensörü tanımıyorum');
         // VIN gibi uzun metin DID'leri TTS'te OKUNMAZ (ISO 15008) — ekrana yönlendir.
         if (typeof answer.value === 'string' && answer.value.length > 20) {
-          _speak(`${answer.name} ekranda gösteriliyor`, isDriving);
           showToast({ type: 'info', title: answer.name, message: answer.value, duration: 8000 });
-          break;
+          return intentResult(intent.type, 'succeeded', 'sensor_read_screen', `${answer.name} ekranda gösteriliyor`);
         }
-        _speak(answer.text, isDriving);
-        break;
+        return intentResult(intent.type, 'succeeded', 'sensor_read', answer.text);
       }
       case 'OPEN_APPOINTMENT_LINK': {
-        _speak('Muayene randevu sayfası açılıyor', isDriving);
+        _speak('Muayene randevu sayfası açılıyor', isDriving, _turn);
         openInApp('https://www.tuvturk.com.tr/randevu-al.aspx');
         break;
       }
@@ -555,55 +717,51 @@ async function dispatchIntent(intent: AppIntent, ctx: CommandContext): Promise<v
         // Manuel müdahale önceliği: araçta kullanıcı varken uzaktan kilit komutu engellenir.
         // Sürücü güvenliği — birisi içerideyken kapı kilitlenmesi panik yaratabilir.
         if (ctx.isRemote && _isOccupied(ctx)) {
-          _speak('Araçta kullanıcı var, uzaktan kilit engellendi', isDriving);
-          throw new Error('SafetyReject: remote LOCK blocked — vehicle occupied');
+          return intentResult(intent.type, 'denied', 'remote_vehicle_occupied', 'Araçta kullanıcı var, uzaktan kilit engellendi');
         }
-        if (!ctx.hwLockDoors) {
-          _error('Kapı kilidi donanımı bağlı değil');
-          break;
-        }
-        // L2 ACK beklenir — TTS/toast yalnızca donanım onayından sonra tetiklenir
-        const lockResult = await ctx.hwLockDoors();
-        if (lockResult.status === 'completed') {
-          _speak('Kapılar kilitlendi', isDriving);
+        // MAVI-M4: capability kapısı yukarıda geçildi → port GARANTİ var.
+        // L2 ACK beklenir — başarı YALNIZ donanım onayıyla iddia edilir.
+        const lockResult = await _runVehiclePort(intent.type, ctx.hwLockDoors!, 'Kapılar kilitlendi');
+        if (lockResult.status === 'succeeded') {
           showToast({ type: 'success', title: 'Kapılar Kilitlendi', message: 'Tüm kapılar başarıyla kilitlendi', duration: 3000 });
-        } else {
-          _error('Kapı kilidi başarısız: ' + (lockResult.error ?? lockResult.status));
         }
-        break;
+        return lockResult;
       }
       case 'HARDWARE_UNLOCK': {
-        // Önce sürüş güvenliği (hız > 0 → kesin engel)
-        if (isDriving) {
-          _speak('Sürüşte kapı açma engellendi', isDriving);
-          throw new Error('Safety reject: HARDWARE_UNLOCK while driving');
-        }
+        /* MAVI-M2/M4: "doğrulanmış duruyor" kapısı ARTIK TEK OTORİTEDE
+         * (`maviActionAuthority.evaluateVehicleAction` → `requires_stopped`).
+         * Buraya yalnız o kapı geçildiğinde gelinir; `motionState` taşımayan
+         * eski çağıranlar için de sözleşme orada birebir korunur. */
         // Uzaktan komut + kontak açık (araçta kullanıcı var) → engel
         if (ctx.isRemote && _isOccupied(ctx)) {
-          _speak('Araçta kullanıcı var, uzaktan açma engellendi', isDriving);
-          throw new Error('SafetyReject: remote UNLOCK blocked — vehicle occupied');
+          return intentResult(intent.type, 'denied', 'remote_vehicle_occupied', 'Araçta kullanıcı var, uzaktan açma engellendi');
         }
-        if (!ctx.hwUnlockDoors) {
-          _error('Kapı kilidi donanımı bağlı değil');
-          break;
-        }
-        // L2 ACK beklenir — TTS/toast yalnızca donanım onayından sonra tetiklenir
-        const unlockResult = await ctx.hwUnlockDoors();
-        if (unlockResult.status === 'completed') {
-          _speak('Kapılar açıldı', isDriving);
+        // MAVI-M4: capability kapısı yukarıda geçildi → port GARANTİ var.
+        const unlockResult = await _runVehiclePort(intent.type, ctx.hwUnlockDoors!, 'Kapılar açıldı');
+        if (unlockResult.status === 'succeeded') {
           showToast({ type: 'success', title: 'Kapılar Açıldı', message: 'Tüm kapılar başarıyla açıldı', duration: 3000 });
-        } else {
-          _error('Kapı açma başarısız: ' + (unlockResult.error ?? unlockResult.status));
         }
-        break;
+        return unlockResult;
       }
+
+      /* Kalan donanım sınıfı — AYNI tek ACK sözleşmesi. Kapı port yokluğunda
+       * zaten `unsupported` döndüğü için buraya port GARANTİLİ gelinir; bu
+       * yüzden eskiden `default → "Anlayamadım"`a düşen sessiz boşluk KAPANDI. */
+      case 'HARDWARE_HORN':
+        return _runVehiclePort(intent.type, ctx.hwHonkHorn!, 'Korna çalındı');
+      case 'HARDWARE_FLASH':
+        return _runVehiclePort(intent.type, ctx.hwFlashLights!, 'Farlar yakıldı');
+      case 'HARDWARE_ALARM_ON':
+        return _runVehiclePort(intent.type, ctx.hwAlarmOn!, 'Alarm açıldı');
+      case 'HARDWARE_ALARM_OFF':
+        return _runVehiclePort(intent.type, ctx.hwAlarmOff!, 'Alarm kapatıldı');
 
       /* ── Uzun-dönem kişisel hafıza ──────────────────────── */
       case 'REMEMBER': {
         // Kullanıcının açıkça istediği kalıcı fact'i sakla. Boş/geçersizse
         // SAHTE ONAY YOK — dürüstçe "neyi hatırlayayım" der.
         const fact = addFact(intent.payload.memoryText ?? '');
-        _speak(fact ? 'Tamam, aklımda tutuyorum' : 'Neyi hatırlamamı istersin?', isDriving);
+        _speak(fact ? 'Tamam, aklımda tutuyorum' : 'Neyi hatırlamamı istersin?', isDriving, _turn);
         break;
       }
       case 'FORGET': {
@@ -612,7 +770,7 @@ async function dispatchIntent(intent: AppIntent, ctx: CommandContext): Promise<v
           removed === 'all' ? 'Hepsini unuttum'
           : removed          ? 'Tamam, unuttum'
           :                    'Öyle bir şey hatırlamıyorum zaten',
-          isDriving,
+          isDriving, _turn,
         );
         break;
       }
@@ -628,12 +786,21 @@ async function dispatchIntent(intent: AppIntent, ctx: CommandContext): Promise<v
       case 'UNKNOWN':
       default: {
         _error('Anlayamadım');
-        break;
+        return intentResult(intent.type, 'not_handled', 'unknown_intent');
       }
     }
   } catch {
+    // MAVI-M4: exception BAŞARIYA ÇEVRİLMEZ. Araç etkili eylemde dürüst `failed`
+    // sonucu döner (M6 onu tek zarfla söyler); diğerlerinde eski hata sesi korunur.
+    if (isVehicleEffectiveIntent(intent.type)) {
+      return intentResult(intent.type, 'failed', 'exception');
+    }
     _error('Uygulama açılamadı');
+    return intentResult(intent.type, 'failed', 'exception');
   }
+  /* Araç etkili OLMAYAN intentler (UI · medya · tema · navigasyon) kendi
+   * seslendirmelerini yapar ve M3 sözleşmesi dışındadır → `not_handled`. */
+  return intentResult(intent.type, 'not_handled', 'legacy_path');
 }
 
 /* ── Public API ───────────────────────────────────────────── */
@@ -646,8 +813,27 @@ async function dispatchIntent(intent: AppIntent, ctx: CommandContext): Promise<v
 export async function executeIntent(
   intent: AppIntent,
   ctx:    CommandContext,
-): Promise<void> {
-  await dispatchIntent(intent, ctx);
+): Promise<IntentExecutionResult> {
+  const result = await dispatchIntent(intent, ctx);
+  /* MAVI-M4-LAB-2: yürütücünün GERÇEK sonucu, kapı kararıyla AYNI turId altında
+   * gözlem halkasına yazılır. Tek nokta — `dispatchIntent`in onlarca `return`ü
+   * dolaşılmaz. Yalnız araç etkili intentler kaydedilir (defter dışı UI/medya
+   * komutları zinciri kirletmez).
+   *
+   * GİZLİLİK: `result.detail` KAYDEDİLMEZ — içinde gerçek kullanıcı metni vardır
+   * (`"${contact.name} aranıyor"` → KİŞİ ADI, araç sağlığı özeti, sensör değeri).
+   * Yalnız `status` + makine-okur `reason` alınır. Kayıt fail-soft'tur ve
+   * dönüşü DEĞİŞTİRMEZ. */
+  if (isVehicleEffectiveIntent(intent.type)) {
+    recordMaviActionStage({
+      stage:    'result',
+      intent:   intent.type,
+      actionId: getVehicleActionDef(intent.type)?.actionId ?? null,
+      status:   result.status,
+      reason:   result.reason ?? '',
+    });
+  }
+  return result;
 }
 
 /**
@@ -670,30 +856,46 @@ export async function executeSequence(
  * - AIVoiceResult.feedback alanı 8-kelime kuralına göre seslendirilir.
  * - Payload AppIntent'e dönüştürülür → dispatchIntent() çağrılır.
  * - confidence < 0.45 ise komut görmezden gelinir, "Anlayamadım" denir.
+ * - **Sonuç ve çözülen intent ÇAĞIRANA DÖNER** — onay gerektiren eylemlerde
+ *   (`needs_confirmation`) çağıran bekleyen eylemi kurabilsin diye.
  */
+export interface AIExecutionOutcome {
+  /** Çözülen intent — bekleyen onay eylemini kurmak için gerekir. */
+  readonly intent: AppIntent;
+  readonly result: IntentExecutionResult;
+}
+
 export async function executeAIResult(
   result: AIVoiceResult,
   ctx:    CommandContext,
-): Promise<void> {
-  const { isDriving } = ctx.vehicleCtx;
-
+): Promise<AIExecutionOutcome | null> {
   if (result.confidence < 0.45) {
     _error('Anlayamadım');
-    return;
+    return null;
   }
 
-  // AI'dan gelen feedback'i TTS ile seslendir
-  if (result.feedback && result.intent !== 'UNKNOWN') {
-    _speak(result.feedback, isDriving);
-  }
+  /* MAVI-M6: JENERİK ÖN-YANKI KALDIRILDI. Eskiden burada `result.feedback`
+   * ("Yapılıyor") seslendirilir, hemen ardından `dispatchIntent` case metnini
+   * ("Ankara adresine gidiyoruz"), en sonda da `voiceService` beynin feedback'ini
+   * söylerdi → tek komutta 2-3 ses. Artık cevabı SONUÇ üreten katman verir; bu
+   * katman yalnız yürütür. Hiçbir case konuşmazsa `voiceService` beynin
+   * feedback'ini TEK otorite üzerinden söyler (kapsama boşluğu yok). */
 
   const intent = fromAIResponse(result, result.payload['sourceText'] as string ?? '');
   if (!intent) {
     _error('Anlayamadım');
-    return;
+    return null;
   }
 
-  await dispatchIntent(intent, ctx);
+  /* SONUÇ ARTIK YUKARI TAŞINIR (saha 2026-07-31). Eskiden `await dispatchIntent(...)`
+   * çağrılıp sonuç ATILIYORDU. Bunun bedeli sadece "sessizlik" değildi: `OPEN_PHONE`
+   * gibi ONAY GEREKTİREN eylemler `needs_confirmation` döndürüyor, çağıran bunu
+   * göremediği için ne onay sorusunu soruyor ne de bekleyen eylemi kuruyordu →
+   * kullanıcı "annemi ara" diyor, beynin iyimser metni "aranıyor" deniyor ama
+   * ARAMA HİÇ BAŞLAMIYORDU. Yerel parser yolu bu sonucu zaten tüketiyordu;
+   * AI yolu artık AYNI sözleşmeyi kullanır (ikinci otorite YOK). */
+  const execResult = await dispatchIntent(intent, ctx);
+  return { intent, result: execResult };
 }
 
 /**

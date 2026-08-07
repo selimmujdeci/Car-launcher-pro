@@ -25,8 +25,16 @@
  */
 
 import { useStore } from '../../store/useStore';
-import { resolveCompanionIdentity, type CompanionIdentity } from './companionIdentity';
-import { interpretFuel, interpretBatteryCharge, interpretEngineTempConcern, interpretTripDuration, interpretRangeVsRoute, interpretDtcStatus } from './companionContext';
+import { resolveCompanionIdentity, type CompanionIdentity, type CompanionSettingsInput } from './companionIdentity';
+import {
+  interpretFuel, interpretBatteryCharge, interpretEngineTempConcern, interpretTripDuration,
+  interpretRangeVsRoute, interpretDtcStatus, interpretDiagnosticTrend,
+  classifyDriverStyle, driverToneInstruction, type DriverStyle,
+  selectActiveTopic, topicFreshness, buildTopicHintLine, resolveDemonstrativeReference,
+  type CompanionTopicId, type TopicFreshness, type TopicSignalFlags,
+  type DemonstrativeResolution,
+} from './companionContext';
+import { readDiagnosticTrendInput } from '../ai/mechanic/concrete/maviMechanicHistory';
 import { tryOfflineConversation } from '../offlineConversationEngine';
 import { onOBDData } from '../obdService';
 import { onDTCState } from '../dtcService';
@@ -107,8 +115,12 @@ function answerCharLimit(isDriving: boolean): number {
  * kırpar (yarıda kesilen cümle robotik algı yaratır). Tavan bağlama duyarlıdır.
  */
 function trimForSpeech(raw: string, isDriving: boolean): string {
+  return _trimToLimit(raw, answerCharLimit(isDriving));
+}
+
+/** Tek satıra indir + verilen tavanı aşarsa CÜMLE SINIRINDA kırp. Tavan çağırandan. */
+function _trimToLimit(raw: string, limit: number): string {
   const flat = raw.replace(/\s+/g, ' ').trim();
-  const limit = answerCharLimit(isDriving);
   if (flat.length <= limit) return flat;
   const head = flat.slice(0, limit - 3);
   const lastSentenceEnd = Math.max(
@@ -123,9 +135,16 @@ import { getWeatherNarrative, refreshWeather, onWeatherState, weatherQueryNamesC
 import type { SemanticResult } from '../ai/semanticAiService';
 import { isAiGatewayEnabled } from '../ai/gateway/aiGatewayFlag';
 import {
-  buildSafetyContext, evaluatePreGate, verifyResponse,
+  buildSafetyContext, evaluatePreGate, verifyResponse, SAFETY_TEMPLATES,
   type SafetyContext,
 } from '../assistant/assistantSafetyKernel';
+import {
+  recordProactiveDecision, sanitizeReasonSummary,
+  type ProactiveReasonCode,
+} from '../ai/aiOfflineReason';
+// Bağımlılıksız YAZMA çekirdeği (ağır obd/store zinciri modül grafiğine GİRMEZ —
+// diagnosticTrailCore bilinçli olarak import'suzdur).
+import { pushTrail } from '../diagnosticTrailCore';
 
 /* ── Tipler ─────────────────────────────────────────────────── */
 
@@ -341,6 +360,109 @@ export function _resetCompanionChatForTest(): void {
   _groundingCooldownUntil = 0;
   _geminiKeyInvalidAtMs = 0;
   _geminiModelIdx = 0;   // model zinciri testler arası SIZMASIN
+  _lastProactiveKey = '';        // proaktif debounce testler arası SIZMASIN
+  _lastProactiveAtMs = 0;
+  _proactiveSpoken = 0;
+  _proactiveSuppressed = 0;
+  _lastDecisionReason = null;
+  _lastDecisionConfidence = null;
+  _lastDecisionSummary = null;
+  _topicTurn = 0;              // kısa süreli bağlam testler arası SIZMASIN
+  _activeTopic = null;
+  _activeTopicTurn = 0;
+  _hintTopic = null;
+  _hintFreshness = 'expired';
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * KISA SÜRELİ KONUŞMA BAĞLAMI — durum sahibi (YALNIZ RAM)
+ *
+ * Bu modül sohbet durumunun (`_history`) zaten sahibi; aktif konu da buraya
+ * konur → İKİNCİ bir konuşma-durumu deposu KURULMAZ.
+ *
+ * SINIRLAR (görev sözleşmesi):
+ *  · YALNIZ RAM — `safeStorage`/localStorage'a YAZILMAZ, tek oturumluk.
+ *  · Timer/poll/abonelik YOK — bitiş PASİF (okuma anında tur farkı bakılır).
+ *  · Konu kimliği ALLOWLIST birliğinden; serbest metin/ham veri TAŞIMAZ.
+ *  · Sayaç TUR tabanlıdır (repo'da zaman-tabanlı konuşma TTL'i YOK; ölçü
+ *    MAX_HISTORY_TURNS'ten türetildi — bkz. companionContext.TOPIC_MAX_TURN_AGE).
+ * ════════════════════════════════════════════════════════════════════════ */
+
+/** Kaçıncı bağlam turundayız (her giden istekte 1 artar). Yalnız RAM. */
+let _topicTurn = 0;
+/** Aktif konu ve hangi turda yazıldığı. */
+let _activeTopic: CompanionTopicId | null = null;
+let _activeTopicTurn = 0;
+/**
+ * Bu turun prompt'una girecek ÖNCEKİ konu — tur başında (yeni yorumlar
+ * yazılmadan ÖNCE) fotoğraflanır. Böylece "takip sorusu" semantiği doğru olur:
+ * prompt, bu turda üretilen konuyu değil BİR ÖNCEKİNİ ipucu olarak görür.
+ */
+let _hintTopic: CompanionTopicId | null = null;
+let _hintFreshness: TopicFreshness = 'expired';
+
+/**
+ * Yeni bir bağlam turu açar: önceki konuyu (varsa ve TAZE ise) bu turun ipucu
+ * olarak fotoğraflar. PASİF bitiş: süresi geçmiş konu burada bırakılır.
+ */
+function _beginTopicTurn(): void {
+  _topicTurn++;
+  const turnsAgo = _activeTopic !== null ? _topicTurn - _activeTopicTurn : Infinity;
+  const fresh = topicFreshness(turnsAgo);
+  if (_activeTopic === null || fresh === 'expired') {
+    _hintTopic = null;
+    _hintFreshness = 'expired';
+    if (fresh === 'expired') _activeTopic = null;   // bayat konu RAM'den de düşer
+    return;
+  }
+  _hintTopic = _activeTopic;
+  _hintFreshness = fresh;
+}
+
+/** Bu turda üretilen yorumlardan aktif konuyu yazar (konu yoksa eskisi KORUNUR). */
+function _writeActiveTopic(flags: TopicSignalFlags): void {
+  const next = selectActiveTopic(flags);
+  if (next === null) return;                        // yorum yok → uydurma konu YOK
+  _activeTopic = next;
+  _activeTopicTurn = _topicTurn;
+}
+
+/**
+ * Aktif konu anlık görüntüsü — CAROS LAB / test gözlemi. PII YOK: yalnız
+ * allowlist kimliği, tazelik sınıfı ve tur farkı.
+ */
+/**
+ * @internal — testler için GERÇEK prompt funnel'ı. Kopya/paralel bir prompt
+ * kurucusu DEĞİLDİR: üretimdeki sıranın (önce `buildInterpretedVehicleContext`,
+ * sonra `buildCompanionSystemPrompt`) birebir aynısını çalıştırır. Bu sayede
+ * "yazan → okuyan" dikey akışı gerçek zincir üzerinde doğrulanır.
+ */
+export function _buildPromptForTest(isDriving = false): string {
+  const settings = useStore.getState().settings;
+  const ctx = buildInterpretedVehicleContext();       // ← yazan (tur açar + konu yazar)
+  return buildCompanionSystemPrompt(                  // ← okuyan (ipucu satırı)
+    resolveIdentityWithDriverStyle(settings), isDriving, ctx,
+  );
+}
+
+export function getActiveTopicSnapshot(): {
+  topic: CompanionTopicId | null; freshness: TopicFreshness; turnsAgo: number | null;
+} {
+  const turnsAgo = _activeTopic !== null ? _topicTurn - _activeTopicTurn : null;
+  return {
+    topic: _activeTopic,
+    freshness: turnsAgo === null ? 'expired' : topicFreshness(turnsAgo),
+    turnsAgo,
+  };
+}
+
+/**
+ * Belirsiz zamirli eylem isteğini değerlendirir — çağıran bu sonuç
+ * `needsClarification` ise HİÇBİR eylem yürütmemelidir (fail-closed).
+ * Aktif konu yalnız SORUYU zenginleştirir; otomatik çözüm ÜRETMEZ.
+ */
+export function evaluateDemonstrativeRequest(text: string): DemonstrativeResolution {
+  return resolveDemonstrativeReference(text, _activeTopic);
 }
 
 /* ── Yorumlanmış araç bağlamı (HAM VERİ DEĞİL) ──────────────── */
@@ -369,6 +491,13 @@ function vehicleCapabilityNote(vt?: string): string {
  * ile aynı (senkron son-değer yakalama).
  */
 function buildInterpretedVehicleContext(): string {
+  // TUR BAŞI: önceki konuyu bu turun ipucu olarak fotoğrafla (yeni yorumlar
+  // yazılmadan ÖNCE) → prompt "takip sorusu" bağlamını doğru görür.
+  _beginTopicTurn();
+  const topicFlags: {
+    engineTemperature: boolean; diagnosticTrend: boolean;
+    fuelLevel: boolean; batteryCharge: boolean;
+  } = { engineTemperature: false, diagnosticTrend: false, fuelLevel: false, batteryCharge: false };
   const parts: string[] = [];
   let vehicleType: string | undefined;
   let capturedRangeKm: number | undefined; // rota köprüsü (adım 4) için son menzil
@@ -385,9 +514,9 @@ function buildInterpretedVehicleContext(): string {
       // EV menzili d.range'den gelir (estimatedRangeKm yakıt-tabanlı, EV'de -1).
       const charging = d.chargingState === 'charging' || d.chargingState === 'fast_charging';
       const battery = interpretBatteryCharge(d.batteryLevel, d.range >= 0 ? d.range : undefined, charging);
-      if (fuel) parts.push(fuel);
-      if (battery) parts.push(battery);
-      if (temp) parts.push(temp);
+      if (fuel) { parts.push(fuel); topicFlags.fuelLevel = true; }
+      if (battery) { parts.push(battery); topicFlags.batteryCharge = true; }
+      if (temp) { parts.push(temp); topicFlags.engineTemperature = true; }
     });
     unsub();
   } catch { /* OBD bağlı değil — bağlamsız sohbet */ }
@@ -425,6 +554,16 @@ function buildInterpretedVehicleContext(): string {
       if (dtc) parts.push(dtc);
     }
   } catch { /* DTC servisi yok — arıza bağlamı atlanır */ }
+  // (5b) ARAÇ HAFIZASI — geçmişte tekrarlayan arıza EĞİLİMİ. Kaynak: aiCore'un
+  //      ZATEN yayınladığı `ai.mechanic.report` olay halkası (yeni depo/abonelik/
+  //      timer YOK, senkron okuma). Ham kod prompt'a GİRMEZ: interpretDiagnosticTrend
+  //      yalnız kodun AİLESİNİ (P/B/C/U) Türkçe sistem adına çevirir. Geçmiş yoksa
+  //      satır üretilmez (boşta sıfır token maliyeti).
+  try {
+    const trendInput = readDiagnosticTrendInput();
+    const trend = interpretDiagnosticTrend(trendInput.historyCount, trendInput.lastDtcCode);
+    if (trend) { parts.push(trend); topicFlags.diagnosticTrend = true; }
+  } catch { /* olay halkası okunamadı — araç hafızası atlanır */ }
   // (6) Bakım uyarısı: BİLİNÇLİ OLARAK EKLENMEDİ (plan V2 kapsam kararı).
   //     vehicleMaintenanceService.getMaintenanceAssessment() zincirinin ucu
   //     sensitiveKeyStore (async şifreli depolama) — senkron anlık-değer yolu
@@ -436,8 +575,399 @@ function buildInterpretedVehicleContext(): string {
   //     çalışan bir katman (ör. companionEngine/proaktif motor) besleyebilir.
   // (3) Araç-tipi yetenek notu — olmayan özellik (EV'de RPM/yakıt) için Gemini'yi
   //     yapısal olarak susturur. EV'de canlı yorum boş olsa bile not eklenir.
+  // TUR SONU: bu turda üretilen yorumlardan aktif konuyu yaz (yorum yoksa
+  // eski konu KORUNUR — sahte konu üretilmez).
+  _writeActiveTopic(topicFlags);
   const note = vehicleCapabilityNote(vehicleType);
   return note ? [note, ...parts].join(' ') : parts.join(' ');
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * PROAKTİF KRİTİK ARIZA UYARISI — Mavi kendiliğinden konuşur
+ *
+ * Mavi yalnız SORULDUĞUNDA değil, araçta hayati bir arıza belirdiğinde de
+ * konuşur. Bu yol AĞA ÇIKMAZ: metin `assistantSafetyKernel`in DETERMİNİSTİK
+ * şablonundan ya da verdict'in kendi başlığından kurulur → çevrimdışıyken de
+ * çalışır, sağlayıcı kotasına dokunmaz.
+ *
+ * PAZARLIKSIZ SINIRLAR:
+ *  · UI manipülasyonu YOK — tek çıkış `onSpeak`.
+ *  · Aynı arıza için {@link PROACTIVE_ALERT_DEBOUNCE_MS} içinde İKİNCİ uyarı YOK.
+ *  · Metin HER durumda {@link PROACTIVE_ALERT_MAX_CHARS} ile sınırlı (spec sürüş
+ *    hâli için 180 diyor; proaktif kesinti park hâlinde de kısa olmalı → tavan
+ *    KOŞULSUZ uygulanır, spec'ten daha sıkı).
+ *  · Geri manevra / bilişsel koruma anında SUSAR (fail-closed: güvenlik kapısı
+ *    okunamazsa da susar).
+ *  · Susturma sebebi SESSİZ KALMAZ — `recordProactiveSuppression` ile kaydedilir.
+ * ════════════════════════════════════════════════════════════════════════ */
+
+/** Aynı arıza için iki proaktif uyarı arası asgari süre (monotonik saat). */
+export const PROACTIVE_ALERT_DEBOUNCE_MS = 5 * 60_000;
+/** ISO 15008 dikkat bütçesi — proaktif kesinti bu uzunluğu AŞAMAZ. */
+export const PROACTIVE_ALERT_MAX_CHARS = 180;
+
+/**
+ * Proaktif konuşma için asgari kök-neden güveni (ölçek: `percent_0_100`).
+ *
+ * ⚠️ UYDURULMADI: repodaki MEVCUT eşikten türetildi — `aiCore/verdictEngine`
+ * `urgencyFromHypothesis` kritik severity'yi ancak `confidence >= 70` iken
+ * `critical` aciliyetine yükseltir (40-69 → `urgent`, altı → `soon`). Yani
+ * "%25 güvenli kritik hipotez" repo politikasınca ZATEN kritik sayılmaz;
+ * proaktif ses de bu politikaya uyar (sahte güvenle sürücüyü irkiltmemek).
+ *
+ * ⚠️ GÜVEN BİLİNMİYORSA (alan yok/sayı değil) bu kapı UYGULANMAZ: severity
+ * 'critical' zaten güçlü bir sinyaldir ve güveni ölçemediğimiz için sürücüyü
+ * uyarmamak güvenlik açısından daha kötü olurdu. Bilinmeyen ≠ düşük.
+ */
+export const PROACTIVE_MIN_CONFIDENCE = 70;
+
+/**
+ * Proaktif uyarının ihtiyaç duyduğu MİNİMUM verdict şekli — YAPISAL tip.
+ * `diagnosticTriage.DiagnosticVerdict` ve `aiCore/verdictEngine.AiCoreVerdict`
+ * İKİSİ DE bunu karşılar (ikincisinde `errorFreshness` yoktur) → tek fonksiyon
+ * her iki üreticiyi de besleyebilir. Parametre GENİŞLETİLDİ, daraltılmadı:
+ * eski `DiagnosticVerdict` çağrıları aynen çalışır (geriye dönük uyumlu).
+ */
+export interface ProactiveVerdictLike {
+  readonly hasActiveRootCause: boolean;
+  readonly topRootCauses: readonly {
+    readonly problem: string;
+    readonly severity: string;
+    readonly code: string;
+  }[];
+}
+
+export interface ProactiveAlertResult {
+  readonly outcome:  'spoken' | 'suppressed';
+  /** Makine-okur gerekçe ('ok' · 'not_critical' · 'debounce' · 'reverse_attention' …). */
+  readonly reason:   ProactiveReasonCode;
+  /** Dedup anahtarı (kök-neden kodu). Karar verilemediyse null. */
+  readonly alertKey: string | null;
+  /** Seslendirilen metin; susturulduysa null. */
+  readonly text:     string | null;
+}
+
+export interface ProactiveAlertOpts {
+  /** TEK çıkış kanalı. Yoksa uyarı üretilmez (fail-closed). */
+  readonly onSpeak:   (text: string) => void;
+  readonly isDriving?: boolean;
+  /** Test enjeksiyonu — verilmezse canlı `buildSafetyContext()`. */
+  readonly safety?:   SafetyContext;
+  /** Test enjeksiyonu — MONOTONİK saat. Verilmezse `_now()` (performance.now). */
+  readonly now?:      () => number;
+}
+
+let _lastProactiveKey  = '';
+let _lastProactiveAtMs = 0;
+let _proactiveSpoken     = 0;
+let _proactiveSuppressed = 0;
+/** Son kararın açıklama künyesi (LAB gözlemi). Kaynağı olmayan alan `undefined` KALIR. */
+let _lastDecisionReason: ProactiveReasonCode | null = null;
+let _lastDecisionConfidence: number | null = null;
+let _lastDecisionSummary: string | null = null;
+
+/**
+ * Kararı MEVCUT iki gözlem yüzeyine taşır — YENİ telemetri modeli KURULMAZ:
+ *  (1) `aiOfflineReason` proaktif karar halkası (bounded künye),
+ *  (2) `diagnosticTrailCore` olay izi (mevcut breadcrumb hattı).
+ *
+ * GİZLİLİK: seslendirilen METİN, ham prompt, model düşüncesi ve kullanıcı cümlesi
+ * TAŞINMAZ. Özet yalnız tanı motorunun STATİK kural başlığından (`problem`) gelir
+ * ve `sanitizeReasonSummary` ile kırpılır.
+ * Fail-soft: kayıt hattı hatası kararı ETKİLEMEZ.
+ */
+function _emitDecisionEvidence(input: {
+  outcome: 'spoken' | 'suppressed';
+  reasonCode: ProactiveReasonCode;
+  alertKey: string | null;
+  summary?: string;
+  confidence?: number;
+}): void {
+  // Güven yalnız GERÇEK kaynağı varsa taşınır. Ölçek: diagnosticTriage
+  // RootCauseHypothesis.confidence → 0-100 (repodaki DİĞER ölçek 0-1'dir ve
+  // buraya KARIŞTIRILMAZ).
+  const hasConf = typeof input.confidence === 'number' && Number.isFinite(input.confidence);
+  const summary = sanitizeReasonSummary(input.summary);
+
+  _lastDecisionReason = input.reasonCode;
+  _lastDecisionConfidence = hasConf ? (input.confidence as number) : null;
+  _lastDecisionSummary = summary ?? null;
+
+  try {
+    recordProactiveDecision({
+      outcome: input.outcome,
+      reasonCode: input.reasonCode,
+      alertKey: input.alertKey ?? undefined,
+      source: 'rule',                      // deterministik tanı motoru — LLM DEĞİL
+      ...(summary !== undefined ? { reasonSummary: summary } : {}),
+      ...(hasConf ? { confidence: input.confidence, confidenceScale: 'percent_0_100' as const } : {}),
+      // fallbackReason: bu yolda KAYNAĞI YOK → yazılmaz.
+    });
+  } catch { /* teşhis akışı kararı bozmaz */ }
+
+  try {
+    const detail = [
+      `reason=${input.reasonCode}`,
+      input.alertKey ? `key=${input.alertKey}` : null,
+      hasConf ? `conf=${input.confidence}%` : null,   // ölçek AÇIKÇA yazılır
+      summary ? `özet=${summary}` : null,
+    ].filter(Boolean).join(' ');
+
+    // T12: KARAR DEĞİŞMEZ — yalnız gözlem üretimi sınırlanır.
+    if (_shouldEmitProactiveTrail(input.outcome, input.reasonCode)) {
+      pushTrail('action', `mavi proaktif: ${input.outcome}`, detail);
+    }
+  } catch { /* iz hattı hatası kararı bozmaz */ }
+}
+
+/* ── T12: proaktif susturma iz-gürültüsü sınırlama ──────────────────────────
+ *
+ * SAHA KUSURU (snapshot 2026-08-01): `mavi proaktif: suppressed — reason=not_critical`
+ * satırı 4 saniyede bir yazılıyordu; 59 kayıtlık iz halkasının ~35'i (%60) TEK bu
+ * satırdı. Gerçek olaylar (boot, OBD kaynak geçişleri, modal, hata) halkadan
+ * TAŞIP KAYBOLUYORDU — yani gözlemlenebilirlik kendi gürültüsüyle körleşiyordu.
+ *
+ * Çözüm: RUTİN susturmalar (aynı reason art arda) pencere içinde TEK satıra
+ * toplanır; sayım kaybolmaz, özet olarak yazılır. Kritik/beklenmedik nedenler ve
+ * `spoken` sonucu HER ZAMAN anında yazılır.
+ */
+
+/** Bu pencere içinde aynı rutin reason tekrar yazılmaz; sonunda özet basılır. */
+const PROACTIVE_TRAIL_WINDOW_MS = 60_000;
+/**
+ * Rutin (beklenen, aksiyon gerektirmeyen) susturma nedenleri. Bunların DIŞINDAKİ
+ * her neden beklenmediktir → anında yazılır (kanıt kaybı YASAK).
+ */
+const ROUTINE_SUPPRESS_REASONS = new Set(['not_critical', 'no_verdict', 'duplicate', 'cooldown']);
+
+let _trailAggReason: string | null = null;
+let _trailAggCount  = 0;
+let _trailAggFirstAt = 0;
+let _trailAggLastAt  = 0;
+
+/** @internal T12 kilit testleri — karar mantığını yan etkisiyle birlikte sorgular. */
+export function _testShouldEmitProactiveTrail(outcome: string, reasonCode: string): boolean {
+  return _shouldEmitProactiveTrail(outcome, reasonCode);
+}
+
+/** @internal T12 kilit testleri — gerçek iz yazımını da tetikler. */
+export function _testEmitProactiveTrail(outcome: string, reasonCode: string): void {
+  if (_shouldEmitProactiveTrail(outcome, reasonCode)) {
+    pushTrail('action', `mavi proaktif: ${outcome}`, `reason=${reasonCode}`);
+  }
+}
+
+/** Test/teardown izolasyonu — aggregation state sonraki oturuma SIZMAZ. */
+export function _resetProactiveTrailAggregation(): void {
+  _trailAggReason = null;
+  _trailAggCount = 0;
+  _trailAggFirstAt = 0;
+  _trailAggLastAt = 0;
+}
+
+function _flushProactiveTrailAggregate(): void {
+  if (_trailAggReason === null || _trailAggCount <= 0) return;
+  const spanS = Math.max(0, Math.round((_trailAggLastAt - _trailAggFirstAt) / 1000));
+  pushTrail(
+    'action',
+    'mavi proaktif: suppressed ×' + _trailAggCount,
+    `reason=${_trailAggReason} pencere=${spanS}s (özet — her karar ayrı yazılmaz)`,
+  );
+  _trailAggReason = null;
+  _trailAggCount = 0;
+}
+
+/**
+ * Bu susturma kararı ANINDA yazılmalı mı? Saf-yan-etkili karar (aggregation state
+ * günceller) — kararın KENDİSİNİ etkilemez, yalnız iz üretimini.
+ */
+function _shouldEmitProactiveTrail(outcome: string, reasonCode: string): boolean {
+  // Konuşulan her şey + rutin OLMAYAN her neden → anında görünür.
+  if (outcome !== 'suppressed' || !ROUTINE_SUPPRESS_REASONS.has(reasonCode)) {
+    _flushProactiveTrailAggregate();   // birikmiş özet kaybolmasın
+    return true;
+  }
+
+  const now = Date.now();
+  // Farklı bir rutin nedene geçildi → önceki özeti bas, yenisini anında göster.
+  if (_trailAggReason !== reasonCode) {
+    _flushProactiveTrailAggregate();
+    _trailAggReason  = reasonCode;
+    _trailAggCount   = 0;
+    _trailAggFirstAt = now;
+    _trailAggLastAt  = now;
+    return true;                       // pencerenin İLK örneği her zaman yazılır
+  }
+
+  _trailAggCount++;
+  _trailAggLastAt = now;
+
+  // Pencere doldu → özeti bas, sayacı sıfırla.
+  if (now - _trailAggFirstAt >= PROACTIVE_TRAIL_WINDOW_MS) {
+    _flushProactiveTrailAggregate();
+    _trailAggReason  = reasonCode;
+    _trailAggFirstAt = now;
+  }
+  return false;                        // pencere içi tekrar → iz halkasını doldurma
+}
+
+/**
+ * Kritik tanı verdikti geldiğinde TEK ATIMLIK proaktif sesli uyarı üretir.
+ * Karar sırası (ilk eşleşen kazanır — hepsi fail-closed):
+ *  1. `onSpeak` yok / verdict bozuk                 → sustur
+ *  2. Kritik kök-neden yok                          → sustur
+ *  3. Güvenlik kapısı okunamadı / geri manevra      → sustur
+ *  4. Aynı arıza 5 dk içinde zaten konuşuldu        → sustur
+ *  5. Aksi hâlde: deterministik metin + tavan → `onSpeak`
+ */
+export function triggerProactiveDiagnosticAlert(
+  verdict: ProactiveVerdictLike | null | undefined,
+  opts: ProactiveAlertOpts,
+): ProactiveAlertResult {
+  /**
+   * Susturma kararını AÇIKLANABİLİR künyeyle kaydeder.
+   * `confidence` yalnız verdict'ten GERÇEKTEN okunabildiğinde taşınır — kaynağı
+   * yoksa alan HİÇ YAZILMAZ (sahte güven yasağı).
+   */
+  const suppress = (
+    reason: ProactiveReasonCode,
+    alertKey: string | null = null,
+    explain?: { summary?: string; confidence?: number },
+  ): ProactiveAlertResult => {
+    _proactiveSuppressed++;
+    _emitDecisionEvidence({
+      outcome: 'suppressed', reasonCode: reason, alertKey,
+      summary: explain?.summary, confidence: explain?.confidence,
+    });
+    return Object.freeze({ outcome: 'suppressed' as const, reason, alertKey, text: null });
+  };
+
+  const speak = opts && typeof opts.onSpeak === 'function' ? opts.onSpeak : null;
+  if (!speak) return suppress('no_speech_sink');
+  if (!verdict || !Array.isArray(verdict.topRootCauses)) return suppress('invalid_verdict');
+
+  // 2 — YALNIZ kritik severity taşıyan AKTİF kök-neden proaktif uyarıya değer.
+  const top = verdict.hasActiveRootCause
+    ? verdict.topRootCauses.find((h) => h && h.severity === 'critical')
+    : undefined;
+  if (!top) return suppress('not_critical');
+  const key = typeof top.code === 'string' && top.code.length > 0 ? top.code : 'unknown_root_cause';
+  /* GERÇEK açıklama kaynağı — UYDURULMAZ:
+     · confidence ← `diagnosticTriage.RootCauseHypothesis.confidence` (ölçek 0-100)
+       Sayı değilse alan HİÇ TAŞINMAZ (varsayılan/sahte değer YOK).
+     · summary    ← `top.problem` = tanı kuralının STATİK başlığı (PII'siz).
+       Seslendirilen metin, ham prompt ve model düşüncesi BURAYA GİRMEZ. */
+  const explain = {
+    summary: typeof top.problem === 'string' ? top.problem : undefined,
+    ...(typeof (top as { confidence?: unknown }).confidence === 'number'
+      && Number.isFinite((top as { confidence: number }).confidence)
+      ? { confidence: (top as { confidence: number }).confidence } : {}),
+  };
+
+  // 2b — GÜVEN KAPISI: kritik AMA güven eşiğin altındaysa konuşma (sahte güven yasağı).
+  //      Güven BİLİNMİYORSA kapı uygulanmaz (bkz. PROACTIVE_MIN_CONFIDENCE gerekçesi).
+  if (typeof explain.confidence === 'number' && explain.confidence < PROACTIVE_MIN_CONFIDENCE) {
+    return suppress('low_confidence', key, explain);
+  }
+
+  // 3 — Güvenlik kapısı. Okunamazsa da SUSAR (kapısız proaktif konuşma YASAK).
+  let pre: ReturnType<typeof evaluatePreGate> | null = null;
+  try { pre = evaluatePreGate(opts.safety ?? buildSafetyContext()); } catch { pre = null; }
+  if (!pre) return suppress('safety_gate_unavailable', key, explain);
+  if (pre.safetyTemplateId === 'reverse_attention') return suppress('reverse_attention', key, explain);
+
+  // 4 — 5 dk debounce (MONOTONİK saat → clock-jump güvenli, CLAUDE.md §4).
+  const nowFn = typeof opts.now === 'function' ? opts.now : _now;
+  let now = 0;
+  try { now = nowFn(); } catch { now = 0; }
+  if (!Number.isFinite(now)) now = 0;
+  // "Daha önce konuşuldu" kanıtı ANAHTARdır, damga DEĞİL: `performance` yoksa
+  // `_now()` 0 döner ve damga-tabanlı kontrol debounce'u sessizce ÖLDÜRÜRDÜ.
+  // O ortamda elapsed=0 kalır → pencere hep kapalı sayılır (fail-safe: daha AZ kesinti).
+  if (_lastProactiveKey === key && now - _lastProactiveAtMs < PROACTIVE_ALERT_DEBOUNCE_MS) {
+    return suppress('debounce', key, explain);
+  }
+
+  // 5 — Metin: güvenlik çekirdeğinin deterministik cevabı varsa O kullanılır
+  //     (aşırı ısınma/yağ basıncı gibi doğrulanmış şablonlar); yoksa kök-neden
+  //     başlığı + "servise kontrol ettir" şablonu. AĞA ÇIKILMAZ.
+  const base = pre.deterministicResponse
+    ? pre.deterministicResponse
+    : `${top.problem}. ${SAFETY_TEMPLATES.service_required.text}`;
+  const text = _trimToLimit(base, PROACTIVE_ALERT_MAX_CHARS);
+  if (!text) return suppress('empty_text', key, explain);
+
+  _lastProactiveKey  = key;
+  _lastProactiveAtMs = now;
+  _proactiveSpoken++;
+  // KONUŞULAN karar da açıklanabilir künyeye + olay izine yazılır (yalnız
+  // susturmalar değil) — "neden konuştu?" sorusu da kanıtla yanıtlanır.
+  _emitDecisionEvidence({ outcome: 'spoken', reasonCode: 'ok', alertKey: key, ...explain });
+  try { speak(text); } catch { /* seslendirme gözlemcisinin hatası akışı bozmaz */ }
+  return Object.freeze({ outcome: 'spoken' as const, reason: 'ok' as const, alertKey: key, text });
+}
+
+/**
+ * Proaktif uyarı motorunun CAROS LAB gözlem yüzeyi — salt okunur, PII YOK
+ * (uyarı METNİ taşınmaz, yalnız adet + dedup anahtarı + kalan debounce).
+ */
+export function getProactiveAlertDiagnostics(): {
+  spokenCount: number; suppressedCount: number;
+  lastAlertKey: string | null; debounceRemainingMs: number;
+  /** Son kararın bounded sebep kodu; karar yoksa null. */
+  lastReasonCode: ProactiveReasonCode | null;
+  /** Son kararın güveni — KAYNAĞI YOKSA null (sahte 0 DEĞİL). */
+  lastConfidence: number | null;
+  /** Yukarıdaki değerin ölçeği; değer yoksa null (sessiz normalize YOK). */
+  lastConfidenceScale: 'percent_0_100' | null;
+  /** Kısa sanitize açıklama; yoksa null. Model düşüncesi DEĞİL. */
+  lastReasonSummary: string | null;
+  /** Kararın üreticisi — bugün üretimde yalnız deterministik kural motoru. */
+  lastDecisionSource: 'rule' | null;
+} {
+  const now = _now();
+  const elapsed = _lastProactiveKey !== '' ? now - _lastProactiveAtMs : Infinity;
+  return {
+    spokenCount:     _proactiveSpoken,
+    suppressedCount: _proactiveSuppressed,
+    lastAlertKey:    _lastProactiveKey || null,
+    debounceRemainingMs: Number.isFinite(elapsed) && elapsed < PROACTIVE_ALERT_DEBOUNCE_MS
+      ? Math.max(0, Math.round(PROACTIVE_ALERT_DEBOUNCE_MS - elapsed))
+      : 0,
+    lastReasonCode:      _lastDecisionReason,
+    lastConfidence:      _lastDecisionConfidence,
+    // Ölçek yalnız DEĞER varsa anlamlıdır; değer yoksa ölçek de null.
+    lastConfidenceScale: _lastDecisionConfidence !== null ? 'percent_0_100' : null,
+    lastReasonSummary:   _lastDecisionSummary,
+    lastDecisionSource:  _lastDecisionReason !== null ? 'rule' : null,
+  };
+}
+
+/* ── Driver DNA: canlı sürüş stili (kimliğe enjekte edilir) ──── */
+
+/**
+ * Aktif yolculuğun sert-manevra sayaçlarından sürüş stilini SENKRON okur.
+ * Kaynak: `tripLogService` `harshBrakeEvents` / `harshAccelEvents` (canlı, RAM).
+ * Aktif yolculuk yoksa / servis okunamazsa → `undefined` (stil BİLİNMİYOR;
+ * "sakin" VARSAYILMAZ — kanıtsız olumlu hüküm de uydurmadır).
+ */
+function readDriverStyle(): DriverStyle | undefined {
+  try {
+    const trip = getTripSnapshot().current;
+    if (!trip) return undefined;
+    return classifyDriverStyle(trip.harshBrakeEvents, trip.harshAccelEvents) ?? undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Kimlik çözümü + Driver DNA enjeksiyonu — sohbet/beyin yollarının TEK kapısı.
+ * Düz `resolveCompanionIdentity(settings)` yerine bu kullanılır ki üslup talimatı
+ * her prompt'ta tutarlı olsun (dağınık kimlik kurulumu YOK).
+ */
+function resolveIdentityWithDriverStyle(settings: CompanionSettingsInput): CompanionIdentity {
+  return resolveCompanionIdentity(settings, undefined, readDriverStyle());
 }
 
 /* ── Gemini sohbet çağrısı ──────────────────────────────────── */
@@ -551,6 +1081,15 @@ function buildCompanionSystemPrompt(id: CompanionIdentity, isDriving: boolean, v
     'Aynı açılış kalıplarını ve cümleleri tekrar etme.',
     'Liste, madde işareti, emoji, markdown kullanma; yalnız düz konuşma metni.',
   ];
+  // Driver DNA — sürüş stiline göre ÜSLUP talimatı. Stil bilinmiyorsa ya da
+  // sakin sürüşteyse satır EKLENMEZ (varsayılan kişilik geçerli, sıfır token).
+  const driverTone = driverToneInstruction(id.driverStyle);
+  if (driverTone) lines.push(driverTone);
+  // KISA SÜRELİ BAĞLAM — bu turun BAŞINDA fotoğraflanan ÖNCEKİ konu (bkz.
+  // _beginTopicTurn). Konu yoksa/bayatsa satır EKLENMEZ. İpucu ZORLAYICI DEĞİL:
+  // modele "kesin bunu varsay" demez, belirsizlikte soru sormasını söyler.
+  const topicHint = buildTopicHintLine(_hintTopic, _hintFreshness);
+  if (topicHint) lines.push(topicHint);
   if (vehicleContext) {
     // Faz 2 — güçlü bağlam enjeksiyonu: yorumlar "durum raporu" değil,
     // sürücünün O ANKİ HÂLİ olarak verilir. Kritik durum (az yakıt, ısınan
@@ -1724,7 +2263,7 @@ async function runCompanionBrain(
   let rateLimitedOnly = false;
 
   if (netUsable) {
-    const id = resolveCompanionIdentity(settings);
+    const id = resolveIdentityWithDriverStyle(settings);
     // ⚠️ AĞ hatası ≠ SAĞLAYICI hatası (SAHA 2026-07-04, "internetim var ama offline
     // sanıyor"): sunucudan HTTP yanıtı gelen HER durum (429 kota, 400/401, bozuk
     // JSON parse) ağın CANLI olduğunun kanıtıdır — devre kesiciye YAZILMAZ. Kesici
@@ -1922,7 +2461,7 @@ async function runCompanionBrain(
   // AI HİÇ denenmediyse (offline) null korunur: eski dürüst zincir
   // (yerel öneriler + offline müzik kapısı) bozulmaz.
   if (aiAttempted) {
-    const reask = REASK_BY_PERSONALITY[resolveCompanionIdentity(settings).personality] ?? REASK_DEFAULT;
+    const reask = REASK_BY_PERSONALITY[resolveIdentityWithDriverStyle(settings).personality] ?? REASK_DEFAULT;
     return { kind: 'chat', response: reask, route: 'companion_offline' };
   }
   return null;
@@ -2103,7 +2642,7 @@ async function runCompanionChat(
 
   if (geminiUsable) {
     try {
-      const reply = await askCompanionGemini(trimmed, opts.apiKey as string, resolveCompanionIdentity(settings), isDriving);
+      const reply = await askCompanionGemini(trimmed, opts.apiKey as string, resolveIdentityWithDriverStyle(settings), isDriving);
       if (reply) {
         recordAiNetSuccess(); // ağ sağlıklı — devre kesici sayacı sıfırla
         pushHistory('user', trimmed);
@@ -2116,7 +2655,7 @@ async function runCompanionChat(
     }
   } else if (groqUsable) {
     try {
-      const reply = await askCompanionGroq(trimmed, opts.apiKey as string, resolveCompanionIdentity(settings), isDriving);
+      const reply = await askCompanionGroq(trimmed, opts.apiKey as string, resolveIdentityWithDriverStyle(settings), isDriving);
       if (reply) {
         recordAiNetSuccess(); // ağ sağlıklı — devre kesici sayacı sıfırla
         pushHistory('user', trimmed);

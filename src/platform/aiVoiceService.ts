@@ -41,12 +41,34 @@ export interface AIVoiceResult {
  *   Uzun metin yanıtları sürücünün dikkatini ekrana çeker.
  */
 export interface VehicleContext {
-  /** Anlık hız (km/h) */
-  speedKmh:    number;
-  /** Sürüş modu tespiti */
+  /**
+   * Anlık hız (km/h). **`null` = BİLİNMİYOR** — "0 km/h" DEĞİL (MAVI-M2).
+   * Kanıtı olmayan hız sıfır yazılmaz; tüketici `null`u ayrı ele almalıdır.
+   */
+  speedKmh:    number | null;
+  /** Sürüş modu — SUNUM etiketi (prompt/telemetri). Güvenlik kararı `motionState` iledir. */
   drivingMode: 'idle' | 'normal' | 'driving';
-  /** true ise yanıt ≤ 8 kelime, saf TTS formatı */
+  /** DOĞRULANMIŞ hareket. `true` ise yanıt ≤ 8 kelime, saf TTS formatı. */
   isDriving:   boolean;
+  /**
+   * MAVI-M2 · ÜÇ DURUMLU hareket hükmü — `unknown` asla `false`a indirgenmez.
+   * Riskli eylem kapıları `isDriving`e DEĞİL buna bakar ("veri yok" ≠ "araç duruyor").
+   * Alan YOKSA (eski çağıranlar: uzak komut yolu) sözleşme değişmez — çağıran
+   * geriye-uyumlu olarak `isDriving`e düşer. Kaynak: `assistant/maviVehicleContext`.
+   */
+  motionState?: 'moving' | 'stopped' | 'unknown';
+  /** Hareket hükmünün kanıt kaynağı (gözlemlenebilirlik). */
+  motionSource?: 'obd_speed' | 'gps_doppler' | 'none';
+  /** Geri vites. `undefined` = BİLİNMİYOR (canlı kaynak yok) — `false` varsayılmaz. */
+  reverseActive?: boolean;
+  /** Kontak. `undefined` = BİLİNMİYOR — açık/kapalı varsayılmaz. */
+  ignitionOn?: boolean;
+  /** Araç telemetrisi tazelik penceresi içinde mi (protokol kadansına göre). */
+  dataFresh?: boolean;
+  /** Son gerçek telemetri paketinin yaşı (ms). `null` = hiç veri gelmedi. */
+  lastPacketAgeMs?: number | null;
+  /** Bağlamın çözüldüğü an (ms) — request boyunca değişmezliğin damgası. */
+  resolvedAtMs?: number;
   /** Aktif DTC arıza kodları — AI teşhis bağlamı için (dtcService kanonik tipi). */
   activeDTCCodes?: DTCCode[];
   /** Bakım durumu — vehicleMaintenanceService'den gelen gerçek tip */
@@ -100,12 +122,17 @@ function buildSystemPrompt(ctx?: VehicleContext): string {
 
   const contextLines: string[] = [];
   contextLines.push(`\n\n[ARAÇ BAĞLAMI]`);
-  contextLines.push(`Anlık hız: ${ctx.speedKmh} km/h`);
+  // MAVI-M2: hız BİLİNMİYORSA satır hiç yazılmaz — "null km/h"/"0 km/h" uydurulmaz.
+  contextLines.push(
+    typeof ctx.speedKmh === 'number' ? `Anlık hız: ${ctx.speedKmh} km/h` : `Anlık hız: bilinmiyor`,
+  );
   contextLines.push(`Sürüş modu: ${ctx.drivingMode}`);
 
   if (ctx.isDriving) {
     contextLines.push(
-      `SÜRÜŞ GÜVENLİĞİ KURALI: Araç hareket halinde (${ctx.speedKmh} km/h).`,
+      typeof ctx.speedKmh === 'number'
+        ? `SÜRÜŞ GÜVENLİĞİ KURALI: Araç hareket halinde (${ctx.speedKmh} km/h).`
+        : `SÜRÜŞ GÜVENLİĞİ KURALI: Araç hareket halinde.`,
       `"feedback" alanı ZORUNLU olarak ≤ 8 kelime, yalnızca sesli okunabilir formatta olmalı.`,
       `Ekranda gösterilecek uzun metin sürücünün dikkatini dağıtır — kesinlikle kısalt.`,
     );

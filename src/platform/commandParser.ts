@@ -18,6 +18,15 @@
 
 import { tryParseNavAddress } from './addressParser';
 import { tryParseMusicCommand } from './musicCommandParser';
+import { classifyHardwareSpeechAct } from './hardwareSpeechActGuard';
+import {
+  matchProtectedWholeInput,
+  PROTECTED_ACTION_TYPES,
+  protectedActionClass,
+  type ProtectedActionSafetyDecision,
+  type ProtectedPhraseEntry,
+  type ProtectedWholeInputMatch,
+} from './protectedCommandGate';
 import { matchVoiceSetting, type VoiceSettingMatch } from './settingsVoice';
 import {
   tryParseVehicleQuery,
@@ -121,6 +130,14 @@ export interface ParseResult {
    * false → ya exact-match ya da hiç eşleşme yok (suggestion listesi doldu).
    */
   needsSemantic: boolean;
+  /**
+   * KORUNAN EYLEM GÜVENLİK KARARI (P0). `needsSemantic` bir ÖNERİ alanıdır ve
+   * çağıranlar onu okumuyordu → yerelde bloklanan metin online beyne gidip
+   * `CLEAR_DTC_CODES` üretebiliyordu. Bu alan AÇIK bir güvenlik sözleşmesidir:
+   * `blocked === true` iken çağıran semantic/beyin yoluna GİRMEMELİDİR.
+   * Korunan eylemle ilgisi olmayan girdilerde alan hiç üretilmez (davranış aynı).
+   */
+  safetyDecision?: ProtectedActionSafetyDecision;
 }
 
 /* ── Pattern definitions ─────────────────────────────────── */
@@ -648,7 +665,7 @@ const PATTERNS: CommandPattern[] = [
     feedback: 'Kapılar kilitleniyor',
     label: 'Kapıları Kilitle', example: 'kapıları kilitle',
     keywords: [
-      'kapıları kilitle', 'kilitle', 'kapıyı kilitle', 'arabayı kilitle', 'lock',
+      'kapıları kilitle', 'kilitle', 'kapıyı kilitle', 'arabayı kilitle', 'aracı kilitle', 'lock',
       'arabayı kapat', 'kapıları kapat', 'kapıları emniyete al', 'araç kilidi',
     ],
     tokens: ['kilitle', 'lock', 'kapi', 'emniyet'],
@@ -658,7 +675,7 @@ const PATTERNS: CommandPattern[] = [
     feedback: 'Kapılar açılıyor',
     label: 'Kapıları Aç', example: 'kapıları aç',
     keywords: [
-      'kapıları aç', 'kilidi aç', 'arabayı aç', 'unlock', 'kapı aç',
+      'kapıları aç', 'kilidi aç', 'kilidini aç', 'kapıların kilidini aç', 'aracın kilidini aç', 'arabayı aç', 'aracı aç', 'unlock', 'kapı aç',
       'kilidi kaldır', 'araç kilidini aç', 'kapıları kilitsizle',
     ],
     // 'ac' (aç) KASITLI KALDIRILDI: genel fiil — "radyo aç", "müziği aç" gibi
@@ -671,7 +688,7 @@ const PATTERNS: CommandPattern[] = [
     feedback: 'Korna çalınıyor',
     label: 'Korna Çal', example: 'korna çal',
     keywords: [
-      'korna çal', 'bip yap', 'korna', 'bip', 'kornaları çal', 'ses çıkar',
+      'korna çal', 'kornaya bas', 'kornaya bastır', 'bip yap', 'korna', 'bip', 'kornaları çal', 'ses çıkar',
       'bip bip yap', 'kornayı çal',
     ],
     tokens: ['korna', 'bip', 'horn'],
@@ -681,7 +698,7 @@ const PATTERNS: CommandPattern[] = [
     feedback: 'Farlar yanıp sönüyor',
     label: 'Farları Yak', example: 'farları yak',
     keywords: [
-      'farları yak', 'far yak', 'ışıkları yak', 'farları flaşla', 'flash', 'selam ver',
+      'farları yak', 'farları aç', 'farları yakıp söndür', 'ışıkları aç', 'far yak', 'ışıkları yak', 'farları flaşla', 'flash', 'selam ver',
       'farları flaş yap', 'kornasız selam', 'yüksek far',
     ],
     tokens: ['far', 'isik', 'yak', 'flash', 'selam'],
@@ -691,7 +708,7 @@ const PATTERNS: CommandPattern[] = [
     feedback: 'Alarm aktifleştiriliyor',
     label: 'Alarmı Aç', example: 'alarmı aç',
     keywords: [
-      'alarmı aç', 'alarmı aktif et', 'alarm aç', 'alarm ver',
+      'alarmı aç', 'alarmı devreye al', 'alarmı aktif et', 'alarm aç', 'alarm ver',
       'arabaya alarm tak', 'güvenlik sistemi aç',
     ],
     tokens: ['alarm', 'aktif', 'guvenlik'],
@@ -701,7 +718,7 @@ const PATTERNS: CommandPattern[] = [
     feedback: 'Alarm durduruluyor',
     label: 'Alarmı Kapat', example: 'alarmı kapat',
     keywords: [
-      'alarmı kapat', 'alarmı durdur', 'alarm kapat', 'alarm iptal',
+      'alarmı kapat', 'alarmı devreden çıkar', 'alarmı durdur', 'alarm kapat', 'alarm iptal',
       'alarmı söndür', 'alarmı devre dışı bırak', 'güvenlik sistemini kapat',
     ],
     // 'kapat' ve 'durdur' KASITLI KALDIRILDI: genel fiiller — "müziği durdur",
@@ -825,9 +842,100 @@ function levenshtein(a: string, b: string): number {
 
 const EXACT_SCORE  = 1.00;
 const TOKEN_SCORE  = 0.82;
-const FUZZY_MIN    = 0.56;   // minimum similarity for fuzzy acceptance (esnetildi: 0.65→0.56)
+const FUZZY_MIN    = 0.72;   // minimum similarity for fuzzy acceptance (esnetildi: 0.65→0.56)
 const FUZZY_SCALE  = 0.88;   // score multiplier for fuzzy matches
 const THRESHOLD    = 0.48;   // minimum score to accept a command (esnetildi: 0.50→0.48)
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * UNKNOWN-FIRST · AÇIK KOMUT ZORUNLULUĞU (donanım ve yıkıcı intent'ler)
+ * ════════════════════════════════════════════════════════════════════════
+ * KÖK (denetim 2026-07-28, ölçüldü): 75 komut-OLMAYAN Türkçe cümlenin **48'i**
+ * gerçek donanım intent'i üretiyordu (%64) — "korna sesi duyuldu" → korna çal,
+ * "kaplumbağa kapıyı izledi" → kapıları kilitle, "camı sildim" → arıza kaydı sil.
+ * Üç mekanizma birlikte çalışıyordu:
+ *   1) `reverseHit` prefix kuralı: "far" ⊂ "farklı şarkı çal" → **1.00 güven**;
+ *   2) donanım kalıplarında TEK KELİMELİK keyword/token ('korna', 'alarm', 'sil');
+ *   3) Tier-2 token ve Tier-3 fuzzy'nin bu kalıplara da uygulanması.
+ *
+ * SÖZLEŞME: aşağıdaki türler için eşleşme YALNIZ **çok kelimeli, tam ifade**
+ * (kelime sınırı korumalı) keyword ile olur. Tek kelime · prefix · token · fuzzy
+ * bu türlerde ASLA intent üretmez → kanıt yoksa sonuç UNKNOWN/NULL'dur.
+ * Bu, "ne olduğunu bilmiyorum" demeyi yanlış eylemden ÜSTÜN tutar.
+ */
+const EXACT_COMMAND_ONLY: ReadonlySet<CommandType> = new Set<CommandType>([
+  'hw_honk_horn', 'hw_lock_doors', 'hw_unlock_doors', 'hw_flash_lights',
+  'hw_alarm_on', 'hw_alarm_off', 'hw_rear_camera', 'hw_lights_off', 'hw_screen_off',
+  'vehicle_clear_dtc', 'open_phone', 'open_camera',
+]);
+
+/**
+ * Ön-kapıda da sınanan türler: yukarıdakiler + karışması kolay iki medya komutu.
+ * `music_next`/`music_prev` buradadır çünkü müzik ÖN-KONTROLÜ ("sonraki şarkı")
+ * onları yutup `open_music` üretiyordu (ölçüldü).
+ */
+const EXPLICIT_COMMAND_TYPES: ReadonlySet<CommandType> = new Set<CommandType>([
+  ...EXACT_COMMAND_ONLY, 'music_next', 'music_prev',
+]);
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * KORUNAN EYLEM KATALOĞU — TEK GERÇEK KAYNAK
+ * ════════════════════════════════════════════════════════════════════════
+ * Üretimdeki `PATTERNS` dizisinden TÜRETİLİR; ikinci bir ifade listesi elle
+ * KOPYALANMAZ. Yalnız ÇOK KELİMELİ keyword'ler girer — tek kelimelik kalıplar
+ * ('kilitle', 'korna', 'flash') mevcut exact-only politikası gereği hiçbir
+ * koşulda korunan intent üretemez.
+ */
+const PROTECTED_CATALOG: readonly ProtectedPhraseEntry[] = (() => {
+  const out: ProtectedPhraseEntry[] = [];
+  for (const p of NORM_PATTERNS) {
+    if (!PROTECTED_ACTION_TYPES.has(p.type)) continue;
+    for (const kw of p.keywords) {
+      if (!kw.includes(' ')) continue;
+      out.push({ actionType: p.type, phrase: kw });
+    }
+  }
+  return out;
+})();
+
+/** Üretim kataloğuna bağlanmış korunan-eylem kapısı (tek karar noktası). */
+export function matchProtectedWholeInputCommand(rawInput: string): ProtectedWholeInputMatch {
+  return matchProtectedWholeInput(rawInput, {
+    catalog:   PROTECTED_CATALOG,
+    normalize: normalizeText,
+  });
+}
+
+/**
+ * Üretimdeki korunan çok-kelimeli ifadelerin tamamı (regresyon testleri için
+ * TEK KAYNAK — test dosyası kendi listesini tutmaz).
+ */
+export function getProtectedCommandCatalog(): readonly ProtectedPhraseEntry[] {
+  return PROTECTED_CATALOG;
+}
+
+/**
+ * Girdi, AÇIK bir komut ifadesini TAM KELİME olarak içeriyor mu?
+ * En UZUN eşleşen kalıp kazanır ("kapıların kilidini aç" → aç, kilitle DEĞİL).
+ * Yan etkisiz; hiçbir şey tahmin etmez.
+ *
+ * ⚠️ KORUNAN EYLEMLER BURADA YOKTUR (P0): containment ile intent üretmek tam da
+ * bağımsız denetimde reddedilen mekanizmaydı. Onların TEK yolu
+ * `matchProtectedWholeInputCommand`tır → iki paralel güvenlik kararı oluşmaz.
+ */
+function matchExplicitCommand(normalized: string): NormalizedPattern | null {
+  const padded = ` ${normalized} `;
+  let best: NormalizedPattern | null = null;
+  let bestLen = 0;
+  for (const p of NORM_PATTERNS) {
+    if (PROTECTED_ACTION_TYPES.has(p.type)) continue;   // korunan eylem: containment YASAK
+    if (!EXPLICIT_COMMAND_TYPES.has(p.type)) continue;
+    for (const kw of p.keywords) {
+      if (!kw.includes(' ')) continue;            // tek kelime AÇIK KOMUT değildir
+      if (kw.length > bestLen && padded.includes(` ${kw} `)) { best = p; bestLen = kw.length; }
+    }
+  }
+  return best;
+}
 
 function scorePattern(
   normalized:   string,
@@ -835,6 +943,26 @@ function scorePattern(
   pattern:      NormalizedPattern,
 ): number {
   let score = 0;
+
+  /* ⚠️ KORUNAN EYLEM · SKORLAMA YOLU KAPALI (P0) ────────────────────────────
+     Skorlayıcı korunan intent'i ASLA üretemez — ne containment, ne token, ne
+     fuzzy. Tek üretim yolu `matchProtectedWholeInputCommand`tır. Bu satır
+     olmadan `paddedExact.includes(...)` ikinci bir (ve denetimde reddedilen)
+     güvenlik kararı üretirdi. */
+  if (PROTECTED_ACTION_TYPES.has(pattern.type)) return 0;
+
+  /* AÇIK KOMUT ZORUNLU türler: yalnız çok kelimeli TAM İFADE eşleşmesi.
+     Kelime sınırı iki yönlüdür → "kapıları kilitleme" (olumsuz) ve
+     "kapıları kilitledim" (geçmiş zaman) eşleşMEZ.
+     (Korunan eylemler yukarıda elendi; burada kalanlar `open_phone`/`open_camera`.) */
+  if (EXACT_COMMAND_ONLY.has(pattern.type)) {
+    const paddedExact = ` ${normalized} `;
+    for (const kw of pattern.keywords) {
+      if (!kw.includes(' ')) continue;
+      if (paddedExact.includes(` ${kw} `)) return EXACT_SCORE;
+    }
+    return 0;   // Tier-2 (token) ve Tier-3 (fuzzy) bu türlerde YOK
+  }
 
   // Tier 1 — exact substring (kelime sınırı korumalı)
   // Kısa kalıplar (≤4: 'dur', 'sus') ve ters yön (girdi ⊂ kalıp) TAM KELİME
@@ -851,9 +979,13 @@ function scorePattern(
     //     — yalnız ÇOK KELİMELİ girdi; tek kelime ('iyi' ⊂ 'hava iyi mi')
     //     EXACT sayılmaz, tek kelimenin yeri kürasyonlu token katmanıdır (Tier-2).
     // Eski hâli düz substring'di: 'durum' ⊂ 'hava DURUMu' → weather gaspı.
-    const reverseHit = kw.length >= 4 &&
-      (kw.startsWith(normalized) ||
-       (normalized.includes(' ') && ` ${kw} `.includes(padded)));
+    /* ⚠️ (a) ARTIK ÇOK KELİMELİ girdi ister. Tek kelimelik girdi bir kalıbın
+       ÖNEKİ diye TAM GÜVEN (1.00) alıyordu: "far" ⊂ "farklı şarkı çal" →
+       music_next 1.00 · "çal" ⊂ "çalışmaya git" → navigate_work 1.00 ·
+       "kapı" ⊂ "kapıları kilitle" → kapı kilidi 1.00. Kesik-kelime toleransı
+       ("haritayı çal[ıştır]") çok kelimeli ifadelerde KORUNUR. */
+    const reverseHit = kw.length >= 4 && normalized.includes(' ') &&
+      (kw.startsWith(normalized) || ` ${kw} `.includes(padded));
     if (forwardHit || reverseHit) {
       score = EXACT_SCORE;
       break;
@@ -931,6 +1063,84 @@ function settingFeedback(m: VoiceSettingMatch): string {
 export function parseCommandFull(input: string): ParseResult {
   const trimmed = input.trim();
   if (!trimmed) return { command: null, suggestions: [], needsSemantic: false };
+
+  /* ── ÖN KAPI: AÇIK DONANIM/YIKICI KOMUT ────────────────────────────────
+   * Müzik ön-kontrolünden ÖNCE gelir. Ölçülen kusur: "korna çal" ve
+   * "kornayı çal" `tryParseMusicCommand` tarafından yutulup
+   * `play_music_query` üretiyordu (sondaki "çal" fiili müzik sanılıyordu) —
+   * yani KORNA komutu hiç çalışmıyordu. Aynı şekilde "sonraki şarkı"
+   * `open_music`e düşüyordu. Bu kapı YALNIZ tam ifade eşleşmesinde açılır;
+   * hiçbir belirsiz girdiyi yakalamaz, dolayısıyla yeni yanlış-pozitif
+   * yüzeyi AÇMAZ. */
+  /* ── KAPI 0: KORUNAN EYLEM · WHOLE-INPUT ALLOWLIST (P0, EN ÖNDE) ──────────
+   * HER ŞEYDEN önce gelir (müzik/ayar/adres ön-kontrolleri dahil): korunan bir
+   * eylem yalnız girdinin TAMAMI canonical komutsa üretilir. Bu sıralama aynı
+   * zamanda `arka kamerayı aç` → `hw_rear_camera` çakışmasını da çözer (genel
+   * kamera yolu artık ondan SONRA çalışır) ve `korna çal`ın müzik ön-kontrolüne
+   * yutulmasını önler. */
+  const protectedMatch = matchProtectedWholeInputCommand(trimmed);
+  if (protectedMatch.matched && protectedMatch.actionType) {
+    const p = NORM_PATTERNS.find((x) => x.type === protectedMatch.actionType);
+    if (p) {
+      return {
+        command: {
+          type:       p.type,
+          raw:        trimmed,
+          confidence: EXACT_SCORE,
+          feedback:   p.feedback,
+          priority:   p.priority,
+        },
+        suggestions:   [],
+        needsSemantic: false,
+        safetyDecision: {
+          protectedActionMentioned: true,
+          blocked:     false,
+          actionType:  p.type,
+          actionClass: protectedActionClass(p.type) ?? 'vehicle',
+        },
+      };
+    }
+  }
+
+  /* Korunan eylem ZİKREDİLDİ ama komut biçiminde DEĞİL → FAİL-CLOSED.
+   * En yakın tahmine düşülmez; `safetyDecision.blocked` ile çağıran (voiceService)
+   * semantic/beyin yolunu da ATLAR — aksi hâlde yerelde bloklanan metin online
+   * sağlayıcıda `CLEAR_DTC_CODES` üretebiliyordu (bağımsız denetim bulgusu #2).
+   * Söz edimi guard'ı burada YALNIZ gerekçe/gözlem üretir — karar otoritesi
+   * yukarıdaki yapısal eşitlik kuralındadır (kara listeye bağımlılık YOK). */
+  if (protectedMatch.blockedReason) {
+    const speechAct = classifyHardwareSpeechAct(trimmed);
+    return {
+      command: null,
+      suggestions: [],
+      needsSemantic: false,
+      safetyDecision: {
+        protectedActionMentioned: true,
+        blocked:      true,
+        reason:       protectedMatch.blockedReason,
+        actionType:   protectedMatch.mentionedActionType,
+        actionClass:  protectedMatch.mentionedActionClass,
+        speechActClass: speechAct.speechClass ?? undefined,
+        speechActCue:   speechAct.blocked ? speechAct.cue : undefined,
+      },
+    };
+  }
+
+  const preNormalized = stripFiller(normalizeText(trimmed));
+  const explicit = preNormalized ? matchExplicitCommand(preNormalized) : null;
+  if (explicit) {
+    return {
+      command: {
+        type:       explicit.type,
+        raw:        trimmed,
+        confidence: EXACT_SCORE,
+        feedback:   explicit.feedback,
+        priority:   explicit.priority,
+      },
+      suggestions:   [],
+      needsSemantic: false,
+    };
+  }
 
   // Ön kontrol: gelişmiş müzik komutları (source + query + action)
   const musicCmd = tryParseMusicCommand(trimmed);
@@ -1127,27 +1337,80 @@ export function commandLabel(type: CommandType): string {
  * sessizce yok sayar; grammar yine kurulur (native try/catch full-vocab fallback). */
 let _commandGrammarCache: string[] | null = null;
 
+/** Onay/ret + sohbet kapatma + sık dolgu (parser bunları da bekler). */
+const GRAMMAR_CONTROL_WORDS: readonly string[] = [
+  'evet', 'tabii', 'olur', 'tamam', 'aynen', 'hayır', 'yok', 'iptal', 'vazgeç',
+  'sus', 'kapat', 'dur', 'yeter', 'lütfen', 'bir', 'biraz', 'şunu', 'şu', 'aç', 'kapa',
+];
+
+/** Sayılar (klima/ses/derece) + birimler. */
+const GRAMMAR_NUMBER_WORDS: readonly string[] = [
+  'sıfır', 'bir', 'iki', 'üç', 'dört', 'beş', 'altı', 'yedi', 'sekiz', 'dokuz', 'on',
+  'on bir', 'on iki', 'on üç', 'on dört', 'on beş', 'on altı', 'on yedi', 'on sekiz', 'on dokuz',
+  'yirmi', 'otuz', 'kırk', 'elli', 'altmış', 'yetmiş', 'seksen', 'doksan', 'yüz',
+  'derece', 'yüzde', 'seviye',
+];
+
+function _grammarAdd(out: Set<string>, s: string): void {
+  const t = s.toLowerCase().trim().replace(/\s+/g, ' ');
+  if (t.length >= 2) out.add(t);
+}
+
 export function buildCommandGrammar(): string[] {
   if (_commandGrammarCache) return _commandGrammarCache;
   const out = new Set<string>();
-  const add = (s: string): void => {
-    const t = s.toLowerCase().trim().replace(/\s+/g, ' ');
-    if (t.length >= 2) out.add(t);
-  };
+  const add = (s: string): void => { _grammarAdd(out, s); };
   for (const p of PATTERNS) {
     for (const k of p.keywords) add(k);
     for (const t of p.tokens) add(t);
   }
-  // Onay/ret + sohbet kapatma + sık dolgu (parser bunları da bekler).
-  for (const w of ['evet', 'tabii', 'olur', 'tamam', 'aynen', 'hayır', 'yok', 'iptal', 'vazgeç',
-                   'sus', 'kapat', 'dur', 'yeter', 'lütfen', 'bir', 'biraz', 'şunu', 'şu', 'aç', 'kapa']) add(w);
-  // Sayılar (klima/ses/derece) + birimler.
-  for (const w of ['sıfır', 'bir', 'iki', 'üç', 'dört', 'beş', 'altı', 'yedi', 'sekiz', 'dokuz', 'on',
-                   'on bir', 'on iki', 'on üç', 'on dört', 'on beş', 'on altı', 'on yedi', 'on sekiz', 'on dokuz',
-                   'yirmi', 'otuz', 'kırk', 'elli', 'altmış', 'yetmiş', 'seksen', 'doksan', 'yüz',
-                   'derece', 'yüzde', 'seviye']) add(w);
+  for (const w of GRAMMAR_CONTROL_WORDS) add(w);
+  for (const w of GRAMMAR_NUMBER_WORDS) add(w);
   const grammar = Array.from(out);
   grammar.push('[unk]'); // ŞART: liste dışı söz → tek [unk] (yanlış zorlama yok)
   _commandGrammarCache = grammar;
+  return grammar;
+}
+
+/* ── MAVI-STT-CONTEXT-GRAMMAR: bağlama göre DARALTILMIŞ sözlük ──────────────
+ * KATKISAL: `buildCommandGrammar` ve parser davranışı BİREBİR AYNI kalır. Buradaki
+ * fonksiyon YALNIZ tanıma adaylarını süzer — intent, eylem veya onay kararı ÜRETMEZ.
+ *
+ * ⚠️ YALNIZ GERÇEK YÜZEY: sözcükler `PATTERNS`ten gelir, yani offline parser'ın
+ * FİİLEN tanıyabildiği ifadelerdir. `CommandType` birleşiminde tanımlı olup
+ * `PATTERNS` girdisi OLMAYAN türler (ör. `vehicle_health_check`, `find_nearby_gas`)
+ * sessizce ATLANIR — grammar'a girselerdi Vosk duyar ama parser eşleştiremezdi
+ * (yeni kullanıcı komutu icat etme yasağı). */
+
+/** İstenen türlerden kaç tanesinin `PATTERNS` karşılığı VAR (gözlem/dürüstlük). */
+export function countGrammarBackedTypes(types: readonly CommandType[]): number {
+  if (!Array.isArray(types)) return 0;
+  const known = new Set(PATTERNS.map((p) => p.type));
+  let n = 0;
+  for (const t of types) if (known.has(t)) n++;
+  return n;
+}
+
+/**
+ * Verilen komut türlerinin sözcükleri + ortak kontrol/sayı sözcükleri + `[unk]`.
+ * `[unk]` HER ZAMAN sonda ve TEK — liste dışı söz tek jetona düşer, yakın bir
+ * komuta ZORLANMAZ. Bilinmeyen tür sessizce atlanır (fail-soft).
+ */
+export function buildCommandGrammarFor(
+  types: readonly CommandType[],
+  opts?: { readonly includeNumbers?: boolean },
+): string[] {
+  const wanted = new Set<CommandType>(Array.isArray(types) ? types : []);
+  const out = new Set<string>();
+  const add = (s: string): void => { _grammarAdd(out, s); };
+  for (const p of PATTERNS) {
+    if (!wanted.has(p.type)) continue;
+    for (const k of p.keywords) add(k);
+    for (const t of p.tokens) add(t);
+  }
+  for (const w of GRAMMAR_CONTROL_WORDS) add(w);
+  if (opts?.includeNumbers !== false) for (const w of GRAMMAR_NUMBER_WORDS) add(w);
+  const grammar = Array.from(out);
+  grammar.push('[unk]');
   return grammar;
 }

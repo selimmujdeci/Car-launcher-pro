@@ -41,6 +41,26 @@ export interface CurrentLocationReadout {
   readonly address?: string | null;
 }
 
+/**
+ * MÜZİK HUB PAKET A · medya komutunun DÜRÜST sonucu (SAF tip — import YOK).
+ *
+ * `PLAYING`      : oynatma GÖZLENDİ → "çalıyor" denebilir.
+ * `REQUEST_SENT` : komut kabul edildi ama ses kanıtı YOK (uzak kaynak / iframe)
+ *                  → "çalıyor" DENEMEZ; dürüst ifade sesli cevaba taşınır.
+ */
+export interface MediaCommandFeedback {
+  readonly claim: 'PLAYING' | 'REQUEST_SENT';
+  readonly message: string;
+}
+
+/** Değer bir medya geri bildirimi mi (feedback katmanı için tip daraltma). */
+export function isMediaCommandFeedback(v: unknown): v is MediaCommandFeedback {
+  if (!v || typeof v !== 'object') return false;
+  const c = (v as { claim?: unknown }).claim;
+  const m = (v as { message?: unknown }).message;
+  return (c === 'PLAYING' || c === 'REQUEST_SENT') && typeof m === 'string' && m.length > 0;
+}
+
 export interface VehicleHealthReadout {
   readonly dtcCount: number;
   readonly criticalCount: number;
@@ -59,12 +79,16 @@ export interface PilotHandlerDeps {
   readonly getThemeMode?: () => PilotThemeMode | undefined;
   /** ui.page.open — screenRegistry ile iç ekran aç; bulunamazsa false. */
   readonly openScreen: (screenId: string) => boolean;
-  /** media.play */
-  readonly mediaPlay: () => void;
+  /**
+   * media.play — MÜZİK HUB PAKET A: port `MediaCommandFeedback` DÖNEBİLİR.
+   * Dönerse iddia sınıfı sesli cevaba taşınır ("çalıyor" ≠ "istek gönderildi").
+   * Başarısızlıkta port THROW eder → handler ok:false üretir (yapılmış gibi cevap yok).
+   */
+  readonly mediaPlay: () => void | Promise<void | MediaCommandFeedback>;
   /** media.pause (çalıyorsa duraklat — wiring guard'lı sürümü sağlar). */
-  readonly mediaPause: () => void;
+  readonly mediaPause: () => void | Promise<void | MediaCommandFeedback>;
   /** media.next */
-  readonly mediaNext: () => void;
+  readonly mediaNext: () => void | Promise<void | MediaCommandFeedback>;
   /** media.volume.set — 0..100 (systemSettingsService.setVolume). */
   readonly setVolume: (percent: number) => void;
   /** media.volume.set rollback için mevcut ses seviyesi (yoksa rollback verilmez). */
@@ -82,6 +106,15 @@ export interface PilotHandlerDeps {
    * Wiring `currentLocationService.readCurrentLocation`'ı bağlar; navigasyon BAŞLATMAZ.
    */
   readonly readCurrentLocation: () => Promise<CurrentLocationReadout> | CurrentLocationReadout;
+  /**
+   * phone.* — Phone Hub oturumunun GERÇEKTEN kurulu olup olmadığını okur.
+   *
+   * ⚠️ OPSİYONEL ve FAIL-CLOSED: port VERİLMEZSE telefon BAĞLI DEĞİL sayılır.
+   * Bugün repoda telefona komut iletecek native uç (RFCOMM komut kanalı) YOKTUR;
+   * bu yüzden port bağlanmadığı sürece phone.* eylemleri dürüstçe reddedilir.
+   * "Bağlı" diye varsaymak, yapılmamış bir aramayı yapılmış göstermek olurdu.
+   */
+  readonly isPhoneLinkReady?: () => boolean;
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
@@ -142,21 +175,27 @@ export function createPilotHandlers(deps: PilotHandlerDeps): Record<string, Acti
     },
 
     /* ── Medya ──────────────────────────────────────────────── */
+    /* MÜZİK HUB PAKET A: port dürüst sonuç dönerse `value` olarak taşınır —
+       feedback katmanı "çalıyor" ile "istek gönderildi"yi AYIRIR. Rollback'ler
+       `void` sarmalanır: geri alma sonucu iddia üretmez. */
     'media.play': async (): Promise<ActionExecResult> => {
-      const err = await guard(() => deps.mediaPlay(), 'oynat');
+      let feedback: unknown;
+      const err = await guard(async () => { feedback = await deps.mediaPlay(); }, 'oynat');
       // reversible: play → pause geri alır.
-      return err ?? ok(undefined, () => deps.mediaPause());
+      return err ?? ok(feedback, () => { void deps.mediaPause(); });
     },
 
     'media.pause': async (): Promise<ActionExecResult> => {
-      const err = await guard(() => deps.mediaPause(), 'duraklat');
-      return err ?? ok(undefined, () => deps.mediaPlay());
+      let feedback: unknown;
+      const err = await guard(async () => { feedback = await deps.mediaPause(); }, 'duraklat');
+      return err ?? ok(feedback, () => { void deps.mediaPlay(); });
     },
 
     'media.next': async (): Promise<ActionExecResult> => {
       // Tek-yön (reversible=false registry'de) → rollback verilmez.
-      const err = await guard(() => deps.mediaNext(), 'sonraki');
-      return err ?? ok();
+      let feedback: unknown;
+      const err = await guard(async () => { feedback = await deps.mediaNext(); }, 'sonraki');
+      return err ?? ok(feedback);
     },
 
     'media.volume.set': async (payload): Promise<ActionExecResult> => {
@@ -222,8 +261,41 @@ export function createPilotHandlers(deps: PilotHandlerDeps): Record<string, Acti
         return fail(`konum okuma: ${e instanceof Error ? e.message : String(e)}`);
       }
     },
+
+    /* ── PHONE HUB (FAIL-SOFT · native uç HENÜZ YOK) ─────────
+       Repoda telefona komut iletecek RFCOMM komut kanalı YOKTUR (`PhoneHubLink`
+       yalnız oturum/eşleştirme yönetir: startServer/confirmPairing/getSnapshot —
+       call/sms/media komutu YOK). Bu yüzden burada SAHTE yürütme yazılmaz:
+       handler dürüstçe `PHONE_NOT_CONNECTED` döner.
+
+       ⚠️ Bu satırlar yürütme motorunun `no_handler` sonucunu DEĞİŞTİRMEZ, ona
+       ANLAM katar: `no_handler` "Mavi bu eylemi tanımıyor" der; `PHONE_NOT_CONNECTED`
+       "eylem tanımlı ama telefon bağlı değil" der — sürücüye söylenecek doğru cümle
+       budur. Native uç geldiğinde YALNIZ bu üç gövde değişir. */
+    'phone.media.play':  phoneNotConnected(deps, 'phone.media.play'),
+    'phone.call.start':  phoneNotConnected(deps, 'phone.call.start'),
+    'phone.sms.draft':   phoneNotConnected(deps, 'phone.sms.draft'),
   };
 }
+
+/** phone.* eylemleri için dürüst fail-soft handler üretir (sahte başarı YASAK). */
+function phoneNotConnected(deps: PilotHandlerDeps, actionId: string): ActionHandler {
+  return (): ActionExecResult => {
+    let ready = false;
+    // Port yoksa VEYA okuma patlarsa → bağlı DEĞİL (fail-closed).
+    try { ready = deps.isPhoneLinkReady?.() === true; } catch { ready = false; }
+    if (!ready) return fail(PHONE_NOT_CONNECTED);
+    /* Telefon bağlı görünüyor AMA komut kanalı hâlâ YOK: "bağlandı" bilgisi tek başına
+       aramayı/SMS'i YAPTIRMAZ. Sahte `ok:true` dönmek, yapılmamış bir aramayı yapılmış
+       göstermek olurdu → yine dürüst reddedilir, gerekçe AYRIŞTIRILIR. */
+    return fail(`${PHONE_TRANSPORT_MISSING} (${actionId})`);
+  };
+}
+
+/** Telefon oturumu kurulmadı — sürücüye "Telefon bağlantısı henüz kurulmadı" denir. */
+export const PHONE_NOT_CONNECTED = 'PHONE_NOT_CONNECTED';
+/** Oturum var ama komut kanalı (RFCOMM call/sms/media) native tarafta HENÜZ YOK. */
+export const PHONE_TRANSPORT_MISSING = 'PHONE_TRANSPORT_MISSING';
 
 /**
  * Shadow (gölge) handler'ları — pilot actionId'lerin HİÇBİR gerçek servisi çağırmayan no-op
@@ -246,5 +318,11 @@ export function createShadowHandlers(): Record<string, ActionHandler> {
     'vehicle.health.read': () => ({ ok: true, value: { dtcCount: 0, criticalCount: 0, summary: 'gölge' } }),
     // Gölgede GERÇEK konum OKUNMAZ (PII'ye dokunulmaz) ve uydurma koordinat üretilmez.
     'location.current.read': () => ({ ok: true, value: { ok: false, text: 'gölge' } }),
+    /* phone.* GÖLGEDE DE `ok:true` DÖNMEZ: diğer eylemlerde gölge no-op'un `ok:true`
+       dönmesi zararsızdır (gerçek işi eski hat yapar), ama telefonda ESKİ HAT DA YOKTUR.
+       `ok:true` demek "arama yapıldı" demek olurdu → gölgede bile dürüst reddedilir. */
+    'phone.media.play': () => ({ ok: false, error: PHONE_NOT_CONNECTED }),
+    'phone.call.start': () => ({ ok: false, error: PHONE_NOT_CONNECTED }),
+    'phone.sms.draft':  () => ({ ok: false, error: PHONE_NOT_CONNECTED }),
   };
 }

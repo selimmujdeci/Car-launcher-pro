@@ -171,3 +171,53 @@ export async function verifyOpenRouterKey(_apiKey: string, options?: CredentialV
     return 'unknown_error';
   }
 }
+
+/* ── Adres/geocoding sağlayıcıları (BYOK) ──────────────────────────────────
+ * Bu üçü YAPAY ZEKÂ anahtarı DEĞİLDİR; adres çözümleme sağlayıcılarıdır
+ * (bkz. geocodingProviders.ts). Aynı deftere alınmalarının sebebi kayıt,
+ * maskeleme, Keystore kurtarma ve ayarlar panelinin ZATEN sağlayıcı-bağımsız
+ * olmasıdır — sıfır kopya kod.
+ *
+ * Doğrulama en ucuz gerçek sorguyla yapılır (metadata uç noktaları yok):
+ * tek, sabit ve minik bir adres araması. Bu bir istek harcar → tanımda
+ * `verifyCostsQuota: true` işaretlidir, kullanıcı bunu görür.
+ *
+ * ⚠️ HTTP durumu tek başına yetmez: Google anahtar geçersizken bile 200 döner
+ * ve gövdede `REQUEST_DENIED` yazar. Bu yüzden Google'da gövde OKUNUR.
+ */
+export async function verifyGeocodeGoogleKey(apiKey: string, options?: CredentialVerifyOptions): Promise<ApiCredentialStatus> {
+  const fetchImpl = options?.fetchImpl ?? (typeof fetch === 'function' ? fetch.bind(globalThis) : undefined);
+  if (typeof fetchImpl !== 'function') return 'unknown_error';
+  const { signal, dispose } = makeSignal(options?.timeoutMs ?? DEFAULT_TIMEOUT_MS);
+  try {
+    const url = `https://maps.googleapis.com/maps/api/geocode/json?address=Ankara&key=${encodeURIComponent(apiKey)}`;
+    const res = await fetchImpl(url, { ...(signal ? { signal } : {}) });
+    if (!res || typeof res.status !== 'number') return 'unknown_error';
+    if (res.status !== 200) return statusFromHttp(res.status);
+    const body = (await res.json()) as { status?: string };
+    if (body.status === 'OK' || body.status === 'ZERO_RESULTS') return 'connected';
+    if (body.status === 'REQUEST_DENIED' || body.status === 'INVALID_REQUEST') return 'invalid_key';
+    if (body.status === 'OVER_QUERY_LIMIT') return 'rate_limited';
+    return 'unknown_error';
+  } catch {
+    return 'offline';
+  } finally {
+    dispose();
+  }
+}
+
+export function verifyGeocodeHereKey(apiKey: string, options?: CredentialVerifyOptions): Promise<ApiCredentialStatus> {
+  return httpProbe({
+    url:     `https://geocode.search.hereapi.com/v1/geocode?q=Ankara&apiKey=${encodeURIComponent(apiKey)}`,
+    method:  'GET',
+    headers: { 'Accept': 'application/json' },
+  }, options);
+}
+
+export function verifyGeocodeYandexKey(apiKey: string, options?: CredentialVerifyOptions): Promise<ApiCredentialStatus> {
+  return httpProbe({
+    url:     `https://geocode-maps.yandex.ru/1.x/?apikey=${encodeURIComponent(apiKey)}&geocode=Ankara&format=json&results=1`,
+    method:  'GET',
+    headers: { 'Accept': 'application/json' },
+  }, options);
+}

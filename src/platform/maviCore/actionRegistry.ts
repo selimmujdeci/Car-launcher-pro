@@ -262,6 +262,39 @@ export const PILOT_ACTIONS: readonly ActionDefinition[] = Object.freeze([
     id: 'vehicle.health.read', title: 'Araç sağlığı oku', risk: 'low', reversible: true,
     timeoutMs: 12_000, resultContract: 'value', vehicleScope: 'read', validate: validateEmpty,
   },
+
+  /* ── PHONE HUB eylemleri ──────────────────────────────────────────────────
+     Mavi telefonu Phone Hub kanalı üzerinden yönetir; SERBEST komut çalıştıramaz
+     (fail-closed) → telefona iletilecek her eylem burada DONDURULMUŞ bir kontratla
+     kayıtlıdır. Hiçbiri araç ECU'suna dokunmaz → `vehicleScope` YOK (ecu_write/
+     coding/actuator gibi yasak kapsam bu eylemlere ASLA verilmez; verilseydi
+     MaviActionRegistry.register kurulum-zamanı Error atardı).
+     Defter yalnız METADATA taşır: onay kararı actionSafety post-gate'inde,
+     gerçek yürütme Phone Hub taşıma katmanındadır. */
+  {
+    /* Telefondaki çalar/duraklat oturumunu başlat. `phone.media.pause` ile etkisi
+       tersine çevrilebilir → reversible. Timeout: RFCOMM tur süresi + companion
+       ack bütçesi (~2s ölçülmedi, 🔴 kütük) → 5s temkinli tavan. */
+    id: 'phone.media.play', title: 'Telefonda medya çal', risk: 'low', reversible: true,
+    timeoutMs: 5_000, resultContract: 'ack', validate: validateEmpty,
+  },
+  {
+    /* YÜKSEK RİSK + GERİ ALINAMAZ: arama kurulduğu an karşı tarafta çalar; "geri al"
+       diye bir şey YOKTUR (reversible=false → executionEngine rollback DENEMEZ).
+       risk:'high' → actionSafety kullanıcı ONAYI ister (confirmation_required);
+       onay gelmeden yürütülmez. Timeout: rehber çözümü + çağrı kurulumu → 10s. */
+    id: 'phone.call.start', title: 'Telefon araması başlat', risk: 'high', reversible: false,
+    timeoutMs: 10_000, resultContract: 'ack',
+    validate: makeRequiredStringValidator('contactName'),
+  },
+  {
+    /* TASLAK oluşturur — GÖNDERMEZ. Taslak silinebildiği için reversible. Orta risk:
+       yanlış kişiye taslak açmak rahatsız edicidir ama geri alınabilir → onay istenir.
+       resultContract 'value': oluşan taslağın kimliği çağırana döner. */
+    id: 'phone.sms.draft', title: 'SMS taslağı oluştur', risk: 'medium', reversible: true,
+    timeoutMs: 5_000, resultContract: 'value',
+    validate: makeRequiredStringValidator('message'),
+  },
 ]);
 
 /** Pilot eylemleri verilen deftere kaydet (yan etki tek çağrıda; idempotent değil — çift çağrı Error). */

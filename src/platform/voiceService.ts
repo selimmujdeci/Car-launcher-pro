@@ -12,14 +12,43 @@ import { useState, useEffect } from 'react';
 import { isNative } from './bridge';
 import { isLowEndDevice } from './headUnitCompat';
 import { CarLauncher } from './nativePlugin';
-import { parseCommandFull, buildCommandGrammar, type ParsedCommand, type ParseSuggestion } from './commandParser';
+import { parseCommandFull, type ParsedCommand, type ParseSuggestion } from './commandParser';
+/* MAVI-STT-CONTEXT-GRAMMAR: offline aktif dinleme sözlüğünün TEK çözüm noktası.
+   Gramer yalnız TANIMA adaylarını daraltır — intent/eylem/onay kararı ÜRETMEZ;
+   onay otoritesi bu dosyadaki M4 bloğu ve `pendingActionConfirmation`tır. */
+import { resolveActiveGrammar } from './voice/contextGrammarApplier';
 import { repairTranscript } from './asrRepair';
 import { tryOfflineConversation } from './offlineConversationEngine';
 import { getConfig } from './performanceMode';
-import { speakFeedback, speakAssistant, registerTtsEndListener, ttsCancel, isTtsSpeaking } from './ttsService';
+// MAVI-M6: `speakFeedback`/`speakAssistant` ARTIK DOĞRUDAN ÇAĞRILMAZ — normal
+// kullanıcı cevabı `speakMaviAnswer` otoritesinden geçer (o da bunlara delege eder).
+import { registerTtsEndListener, ttsCancel, isTtsSpeaking } from './ttsService';
 import { duckMedia, unduckMedia } from './audioService';
 import { resolveApiKey, type AIProvider, type AIVoiceResult, type VehicleContext } from './aiVoiceService';
+// MAVI-M2: komut başına gerçek araç bağlamı (tek resolver — yeni araç-state kaynağı DEĞİL).
+import { currentMaviVehicleContext, unknownMaviVehicleContext } from './assistant/maviVehicleContext';
+// MAVI-M5: kullanıcı turu kimliği — geç dönen sağlayıcı cevabının eylem/konuşma yetkisini keser.
+import {
+  beginMaviTurn, completeMaviTurn, continueIfTurnActive, isMaviTurnCurrent,
+  getActiveMaviTurn, type MaviTurnToken,
+} from './assistant/maviTurn';
+// MAVI-M6: normal kullanıcı cevabının TEK seslendirme otoritesi (tur başına tek `answer`).
+import { speakMaviAnswer } from './assistant/maviSpeech';
+/* MAVI-M4: AÇIK ONAY bekleyen araç etkili eylemin çözümü. Bu modül SAF bir
+ * depodur; `commandExecutor` BURAYA import EDİLMEZ (tek otorite sözleşmesi) —
+ * onaylı yürütme, `useVoiceCommandHandler`ın kaydettiği yürütücü üzerinden
+ * `commandExecutor.executeIntent`e gider. */
+import {
+  peekPendingAction, consumePendingAction, clearPendingAction,
+  getConfirmedActionExecutor,
+} from './action/pendingActionConfirmation';
+// MAVI-M4-LAB-2: zincirin başlangıç aşaması (saf depo — akışı değiştirmez).
+import { recordMaviActionStage } from './action/maviActionTrace';
 import { isAiNetHealthy } from './aiHealth';
+// P1: çoklu onay gerektiren sequence kapısı (saf karar; risk bilgisi M4 defterinden).
+import {
+  classifySequenceConfirmationPolicy, MULTI_CONFIRMATION_REFUSAL_TEXT,
+} from './action/sequenceConfirmationPolicy';
 import { fromSemanticResult } from './intentEngine';
 import { isInformationalCommand, answerInformational } from './voiceInfoService';
 import { weatherQueryNamesCity } from './weatherService';
@@ -61,8 +90,23 @@ export interface VoiceState {
   followUp:     boolean;
 }
 
-export type CommandHandler = (cmd: ParsedCommand) => void;
-export type AIResultHandler = (result: AIVoiceResult, ctx?: VehicleContext) => void;
+/**
+ * MAVI-M3: handler artık komutun ÇÖZÜLMÜŞ araç bağlamını da alır (M2'nin komut başına
+ * tek, dondurulmuş snapshot'ı — İKİNCİ okuma YAPILMAZ). İkinci parametre OPSİYONELDİR;
+ * eski handler'lar (`(cmd) => …`) hiç değişmeden çalışmaya devam eder.
+ */
+export type CommandHandler = (cmd: ParsedCommand, ctx?: VehicleContext) => void;
+/**
+ * Handler `Promise` döndürebilir ve `processTextCommand` onu BEKLER.
+ *
+ * NEDEN (saha 2026-07-31): eskiden dönüş `void` idi ve `forEach` beklemiyordu →
+ * yürütme daha bitmeden beynin iyimser `feedback`'i konuşuluyor, turun tek-cevap
+ * slotunu kapıyordu. Sonuç: `needs_confirmation` gibi GERÇEK cevaplar
+ * `suppressed_duplicate` ile susturuluyordu ("annemi ara" hiç aramıyordu).
+ * M6'nın "dispatchIntent konuştuysa burası sessiz kalır" sözleşmesi ancak
+ * beklenerek uygulanabilir.
+ */
+export type AIResultHandler = (result: AIVoiceResult, ctx?: VehicleContext) => void | Promise<void>;
 
 /* ── Module-level state ──────────────────────────────────── */
 
@@ -673,7 +717,48 @@ function getResetDelays(): Record<string, number> {
   };
 }
 
-function dispatch(cmd: ParsedCommand): void {
+/* ── MAVI-M3 · SONUÇ-TEMELLİ ACK KOMUTLARI ────────────────────────────────
+ * Bu komut tiplerinin parser metni ("Kapılar kilitleniyor", "Arıza kayıtları
+ * siliniyor", "Araç sistemleri taranıyor"…) YÜRÜTMEDEN ÖNCE üretilmiş bir
+ * İDDİADIR ve M1'de kanıtlandığı gibi çoğu zaman GERÇEK DEĞİLDİR (port yok /
+ * routeIntent no-op). Bu tiplerde ses YALNIZ `routeIntent`in döndürdüğü
+ * `IntentExecutionResult`ten üretilir (bkz. useVoiceCommandHandler).
+ *
+ * Liste yalnız DAVRANIŞSAL/YIKICI araç eylemlerini kapsar — salt-okunur ve
+ * düşük riskli komutlar (navigasyon · medya · tema · ayar) DOKUNULMADAN
+ * bugünkü davranışını sürdürür. */
+const RESULT_ACK_COMMAND_TYPES: ReadonlySet<ParsedCommand['type']> = new Set<ParsedCommand['type']>([
+  'hw_lock_doors', 'hw_unlock_doors', 'hw_honk_horn', 'hw_flash_lights',
+  'hw_alarm_on', 'hw_alarm_off', 'hw_rear_camera', 'hw_lights_off', 'hw_screen_off',
+  'vehicle_clear_dtc', 'vehicle_health_check',
+  /* MAVI-M4 EKLENDİ: telefon araması artık AÇIK ONAY ister. Parser'ın
+   * "Arama başlatılıyor" metni onay beklenirken söylenirse — ki M4 öncesi
+   * TAM OLARAK BU OLUYORDU — kullanıcı arama başladı sanır ama başlamamıştır.
+   * Ses yalnız otoritenin sonucundan üretilir. */
+  'call_contact',
+]);
+
+/** @internal — guard testleri ve dispatch dalları için. */
+export function isResultAckCommand(type: ParsedCommand['type']): boolean {
+  return RESULT_ACK_COMMAND_TYPES.has(type);
+}
+
+/* ── MAVI-M6 · GEÇİCİ (PROVISIONAL) PARSER METNİ ──────────────────────────
+ * Bu komutlarda parser'ın metni ("X aranıyor") NİHAİ CEVAP DEĞİLDİR: gerçek
+ * cevap arama/oynatma bittikten sonra üretilir ("… çalınıyor" / "bulunamadı").
+ * Bu yüzden 'progress' katmanına düşer ve tur başına tek olan `answer` slotunu
+ * TÜKETMEZ → dürüst sonuç sesi korunur, üst üste konuşma olmaz. */
+const PROVISIONAL_FEEDBACK_TYPES: ReadonlySet<ParsedCommand['type']> =
+  new Set<ParsedCommand['type']>(['play_music_query', 'play_music_search']);
+
+function _isProvisionalFeedback(type: ParsedCommand['type']): boolean {
+  return PROVISIONAL_FEEDBACK_TYPES.has(type);
+}
+
+/* MAVI-M6-LATE-SPEECH-GATE: `turn` KOMUT GİRİŞİNDE (`processTextCommand`)
+ * yakalanır ve buraya AÇIK PARAMETRE olarak iner. Global aktif tur OKUNMAZ —
+ * öyle bir okuma kendini doğrular ve stale ÖLÇEMEZ (ölü dal dersi). */
+function dispatch(cmd: ParsedCommand, ctx?: VehicleContext, turn?: MaviTurnToken | null): void {
   // MAVI-INSTRUMENTATION-1: seçilen action dispatch edilmeden HEMEN önce.
   _emitVoiceEvent('executing');
   void reportVoiceDiag('voice_intent', { intent: cmd.type });
@@ -692,13 +777,22 @@ function dispatch(cmd: ParsedCommand): void {
   // Bilgi sorguları ("hava durumu nasıl", "hızım kaç") → statik feedback yerine
   // GERÇEK veriyle cevap ver. Aksi halde sadece "gösteriliyor" denir, cevap verilmez.
   if (isInformationalCommand(cmd.type)) {
-    void answerInformational(cmd.type);
-  } else {
-    speakFeedback(cmd.feedback);
+    void answerInformational(cmd.type, turn ?? null);
+  } else if (!isResultAckCommand(cmd.type)) {
+    // MAVI-M3: yıkıcı/davranışsal komutlarda parser'ın hazır metni SESLENDİRİLMEZ —
+    // ACK yürütme sonucundan gelir (bkz. isResultAckCommand).
+    // MAVI-M6: TEK otorite üzerinden. Müzik sorgusunun parser metni ("X aranıyor")
+    // NİHAİ CEVAP DEĞİLDİR — gerçek cevap ("… çalınıyor" / "bulunamadı") aramadan
+    // SONRA gelir → 'progress' katmanı; 'answer' slotu sonuca ayrılır.
+    speakMaviAnswer(cmd.feedback, {
+      isDriving: ctx?.isDriving === true,
+      tier: _isProvisionalFeedback(cmd.type) ? 'progress' : 'answer',
+      turn: turn ?? null,
+    });
   }
   let _execOutcome: VoiceExecutionResult = 'success';
   try {
-    _commandHandlers.forEach((fn) => fn(cmd));
+    _commandHandlers.forEach((fn) => fn(cmd, ctx));
   } catch (e) {
     _execOutcome = 'failed';
     throw e; // orijinal davranış korunur: hata YUTULMAZ, yalnız sonuç önce kaydedilir
@@ -714,21 +808,26 @@ function dispatch(cmd: ParsedCommand): void {
   }, delays[cmd.priority] ?? 2500);
 }
 
-function dispatchDriving(cmd: ParsedCommand): void {
+function dispatchDriving(cmd: ParsedCommand, ctx?: VehicleContext, turn?: MaviTurnToken | null): void {
   // MAVI-INSTRUMENTATION-1: seçilen action dispatch edilmeden HEMEN önce.
   _emitVoiceEvent('executing');
   void reportVoiceDiag('voice_intent', { intent: cmd.type });
   pushTrail('action', `sesli komut (sürüşte): ${cmd.type}`);  // olay izi (PII yok)
   _endConvSession(); // araç komutu → sohbet döngüsü biter (yalnız companion sohbeti sürer)
   if (isInformationalCommand(cmd.type)) {
-    void answerInformational(cmd.type);
-  } else {
-    speakFeedback(cmd.feedback);
+    void answerInformational(cmd.type, turn ?? null);
+  } else if (!isResultAckCommand(cmd.type)) {
+    // MAVI-M3 + M6: sonuç-ACK komutlarında parser metni KONUŞULMAZ; kalanlar TEK otoriteden.
+    speakMaviAnswer(cmd.feedback, {
+      isDriving: true,
+      tier: _isProvisionalFeedback(cmd.type) ? 'progress' : 'answer',
+      turn: turn ?? null,
+    });
   }
   pushHistory(cmd);
   let _execOutcome: VoiceExecutionResult = 'success';
   try {
-    _commandHandlers.forEach((fn) => fn(cmd));
+    _commandHandlers.forEach((fn) => fn(cmd, ctx));
   } catch (e) {
     _execOutcome = 'failed';
     throw e; // orijinal davranış korunur: hata YUTULMAZ, yalnız sonuç önce kaydedilir
@@ -749,27 +848,32 @@ function dispatchDriving(cmd: ParsedCommand): void {
  * onay söylenir, sonra gerçek cevap. VIN gibi uzun metin cevaplar (>20 karakter
  * string değer) TTS'te OKUNMAZ (ISO 15008) — toast ile ekrana yönlendirilir.
  */
-async function _answerSensorQuery(sensorQuery: string): Promise<void> {
+async function _answerSensorQuery(sensorQuery: string, turn?: MaviTurnToken): Promise<void> {
   // MAVI-INSTRUMENTATION-1: seçilen action (sensör okuma) dispatch edilmeden HEMEN önce.
   _emitVoiceEvent('executing');
   _endConvSession(); // araç sorgusu = araç komutu → sohbet döngüsü başlatmaz (dispatch ile aynı)
   push({ status: 'processing', transcript: sensorQuery, error: null, suggestions: [] });
-  speakFeedback('Bakıyorum...');
+  speakMaviAnswer('Bakıyorum...', { tier: 'progress' });   // MAVI-M6: ara bilgi
   try {
     const { querySensor } = await import('./obd/sensorQueryService');
+    // MAVI-M5 · KAPI E: OBD okuması (EXTENDED hedeflerde 12 sn'ye kadar) sürerken
+    // kullanıcı yeni komut vermiş olabilir → eski tur ne konuşur ne UI günceller.
+    if (turn && !continueIfTurnActive(turn, 'action')) return;
     const answer = await querySensor(sensorQuery);
+    // MAVI-M5 · KAPI F: sonuç geldi — hâlâ bu turun cevabı mı?
+    if (turn && !continueIfTurnActive(turn, 'feedback')) return;
     if (!answer) {
-      speakFeedback('Bu sensörü tanımıyorum.');
+      speakMaviAnswer('Bu sensörü tanımıyorum.');
       push({ status: 'error', error: 'Sensör bulunamadı', transcript: sensorQuery, suggestions: [] });
       setTimeout(() => { if (_current.status === 'error') push({ status: 'idle', error: null }); }, 3000);
       _emitVoiceEvent('execution_result', { result: 'no_target' }); // sensör tanınmadı — hedef yok
       return;
     }
     if (typeof answer.value === 'string' && answer.value.length > 20) {
-      speakFeedback(`${answer.name} ekranda gösteriliyor.`);
+      speakMaviAnswer(`${answer.name} ekranda gösteriliyor.`);
       showToast({ type: 'info', title: answer.name, message: answer.value, duration: 8000 });
     } else {
-      speakFeedback(answer.text);
+      speakMaviAnswer(answer.text);
     }
     push({ status: 'success', error: null, transcript: sensorQuery, suggestions: [] });
     const delays = getResetDelays();
@@ -777,12 +881,14 @@ async function _answerSensorQuery(sensorQuery: string): Promise<void> {
     _emitVoiceEvent('execution_result', { result: 'success' });
   } catch {
     // fail-soft: sensör okuma hatası komut akışını kesmez (CLAUDE.md §2)
-    speakFeedback('Sensör verisi alınamadı.');
+    speakMaviAnswer('Sensör verisi alınamadı.');
     push({ status: 'error', error: 'Sensör hatası', transcript: sensorQuery, suggestions: [] });
     setTimeout(() => { if (_current.status === 'error') push({ status: 'idle', error: null }); }, 3000);
     _emitVoiceEvent('execution_result', { result: 'failed' });
   }
   void reportVoiceDiag('voice_success', { intent: 'query_sensor' });
+  // MAVI-M5: fire-and-forget yol turu KENDİSİ tamamlar (nihai zarf burada üretildi).
+  if (turn) completeMaviTurn(turn);
 }
 
 /* ── Komut zincirleme ("müziği aç ve eve git") ─────────────────
@@ -796,13 +902,24 @@ function dispatchChain(cmds: ParsedCommand[], ctx?: VehicleContext): void {
   _emitVoiceEvent('executing');
   // Tek birleşik TTS (üst üste konuşma olmasın), sonra her komutun aksiyonu.
   _endConvSession(); // komut zinciri = araç komutu → takip dinlemesi yok
-  const combined = cmds.map((c) => c.feedback).filter(Boolean).join(', ');
-  if (combined) speakFeedback(combined);
+  // MAVI-M3: sonuç-ACK komutlarının parser metni birleşik TTS'e GİRMEZ — o komutların
+  // sesi yürütme sonucundan gelir (zincirde de sahte "kilitleniyor" duyulmaz).
+  const combined = cmds
+    .filter((c) => !isResultAckCommand(c.type))
+    .map((c) => c.feedback)
+    .filter(Boolean)
+    .join(', ');
+  if (combined) speakMaviAnswer(combined, { isDriving: ctx?.isDriving === true });
+  // MAVI-M5: zincirin HER adımı kendi güncellik kapısından geçer. Döngü senkron
+  // olsa da bir handler yeni tur başlatabilir (barge-in / dahili yönlendirme) →
+  // kalan ESKİ zincir adımları yan etki BAŞLATAMAZ.
+  const _chainTurn = getActiveMaviTurn();
   let _chainOutcome: VoiceExecutionResult = 'success';
   try {
     for (const cmd of cmds) {
+      if (!continueIfTurnActive(_chainTurn, 'action')) break;
       pushHistory(cmd);
-      _commandHandlers.forEach((fn) => fn(cmd));
+      _commandHandlers.forEach((fn) => fn(cmd, ctx));
     }
   } catch (e) {
     _chainOutcome = 'failed';
@@ -823,7 +940,11 @@ function dispatchChain(cmds: ParsedCommand[], ctx?: VehicleContext): void {
 }
 
 /** Girişi zincir olarak işlemeyi dener; işlediyse true. */
-function tryHandleChain(trimmed: string, ctx?: VehicleContext): boolean {
+function tryHandleChain(
+  trimmed: string,
+  ctx?: VehicleContext,
+  turn?: MaviTurnToken | null,
+): boolean {
   if (!CHAIN_SPLIT.test(trimmed)) return false;
   const parts = trimmed.split(CHAIN_SPLIT).map((s) => s.trim()).filter((s) => s.length >= 2);
   if (parts.length < 2) return false;
@@ -833,6 +954,52 @@ function tryHandleChain(trimmed: string, ctx?: VehicleContext): boolean {
     if (c && c.confidence >= AUTO_DISPATCH_MIN) cmds.push(c);
   }
   if (cmds.length < 2) return false;   // ≥2 güvenli komut yoksa zincir değil
+
+  /* ── P1 · ÇOKLU ONAY KAPISI (DISPATCH'TEN HEMEN ÖNCE) ────────────────────
+   * Kusur: tek turda iki onay gerektiren araç eylemi varsa İKİ handler da
+   * başlıyor, her biri `setPendingAction` çağırabiliyor ve TEK global slot
+   * last-writer-wins çalışıyordu; MaviSpeech ise yalnız İLK onay sorusunu
+   * geçiriyordu → kullanıcı "kapıları kilitleyeyim mi?" duyup "evet" dediğinde
+   * KORNA çalabiliyordu (duyulan onay ≠ onaylanan eylem).
+   *
+   * Kapı ZORUNLU OLARAK BURADA: `dispatchChain` çağrılmadan önce. Bir adım
+   * sonrası bile geç olurdu — handler'lar senkron çalışıp bekleyen onayı
+   * yazardı. Fail-closed: hiçbir handler, hiçbir `executeIntent`, hiçbir
+   * bekleyen onay, hiçbir port çağrısı OLUŞMAZ ve girdi `true` ile terminal
+   * biter → tekil parser'a da semantic sağlayıcıya da DÜŞÜLMEZ (reddedilen
+   * sequence başka bir yoldan yeniden üretilemez). */
+  const seqDecision = classifySequenceConfirmationPolicy(cmds);
+  if (!seqDecision.allowed) {
+    _lastCommandTime = Date.now();
+    void reportVoiceDiag('voice_route', { route: 'sequence_confirmation_rejected' });
+    void reportVoiceDiag('voice_error', {
+      errorCode: 'ERR_MULTI_CONFIRMATION_SEQUENCE',
+      transcriptLength: trimmed.length,
+    });
+    /* Gözlem: mevcut bounded aşama halkası kullanılır — yeni telemetri
+     * çerçevesi KURULMAZ. Ham metin GEÇMEZ; yalnız gerekçe + sayılar. */
+    recordMaviActionStage({
+      stage: 'gate', status: 'denied',
+      reason: `${seqDecision.reason}:${seqDecision.count}/${cmds.length}`,
+      turnId: turn?.id,
+    });
+    _emitVoiceEvent('execution_result', { result: 'unsupported' });
+    _endConvSession();
+    // TEK ve dürüst mesaj — eyleme özgü onay sorusu ÜRETİLMEZ.
+    speakMaviAnswer(MULTI_CONFIRMATION_REFUSAL_TEXT, {
+      isDriving: ctx?.isDriving === true,
+      turn: turn ?? null,
+    });
+    push({
+      status:      'error',
+      error:       MULTI_CONFIRMATION_REFUSAL_TEXT,
+      transcript:  trimmed,
+      suggestions: [],
+    });
+    if (turn) completeMaviTurn(turn);
+    return true;
+  }
+
   _lastCommandTime = Date.now();
   dispatchChain(cmds, ctx);
   return true;
@@ -855,7 +1022,7 @@ function _dispatchConversation(response: string, raw: string, armFollowUp: boole
   // hiçbir koşulda 'success'te asılı kalmaz (eski 3.5s timer'ın emniyet rolü).
   if (!_followUpArmed) _armConvIdleOnTtsEnd();
   // Sohbet/serbest cevap: klip → online TTS → native (motorsuz ünitede de sesli)
-  speakAssistant(response);
+  speakMaviAnswer(response, { channel: 'assistant' });   // MAVI-M6: tek otorite
   push({ status: 'success', transcript: raw, error: null, suggestions: [], lastCommand: null });
 }
 
@@ -894,7 +1061,9 @@ const THINKING_PHRASES = [
 
 function _speakThinking(): void {
   const phrase = THINKING_PHRASES[Math.floor(Math.random() * THINKING_PHRASES.length)];
-  speakFeedback(phrase);
+  // MAVI-M6: ara söz — NİHAİ CEVAP DEĞİL; `answer` slotunu tüketmez ve cevap
+  // verildikten sonra hiç konuşmaz (geç filler cevabı kesemez).
+  speakMaviAnswer(phrase, { tier: 'progress' });
 }
 
 /* ── Düşük-güven onay durumu ──────────────────────────────────
@@ -967,7 +1136,12 @@ let _aiKeyHintAt = 0;
 const BRAIN_TIMEOUT_DRIVING_MS = 4_500;
 const BRAIN_TIMEOUT_PARKED_MS  = 8_000;
 const AFFIRM_RE = /^\s*(evet|tabii|tabi|olur|tamam|aynen|onayla|onayliyorum|onaylıyorum|he|hi hi|yap|elbette|kesinlikle|dogru|doğru)\b/i;
-const NEGATE_RE = /^\s*(hayir|hayır|yok|iptal|vazgec|vazgeç|gerek yok|istemiyorum|olmaz|dur|bos ver|boş ver)\b/i;
+/* ⚠️ `(?:\b|$)` — sondaki `\b` ASCII tabanlıdır ve `ç` sözcük karakteri SAYILMAZ:
+ * dizgi sonunda "vazgeç" için sınır OLUŞMUYOR ve tam olarak "vazgeç" demek ret
+ * hattını TETİKLEMİYORDU ("vazgeçtim" tetikliyordu — ölçüldü). `$` alternatifi
+ * bu tek boşluğu kapatır; diğer tüm davranış BİREBİR korunur ("durum" hâlâ
+ * 'dur'a düşmez, "yokuş" hâlâ 'yok'a düşmez). `yapma` görev gereği eklendi. */
+const NEGATE_RE = /^\s*(hayir|hayır|yok|iptal|vazgec|vazgeç|yapma|gerek yok|istemiyorum|olmaz|dur|bos ver|boş ver)(?:\b|$)/i;
 let _pendingCmd: ParsedCommand | null = null;
 let _pendingAt  = 0;
 
@@ -1143,11 +1317,45 @@ export function _bestLocalParse(alts: string[]): ReturnType<typeof parseCommandF
 
 export async function processTextCommand(
   text: string,
-  ctx?: VehicleContext,
+  ctxIn?: VehicleContext,
   alternatives?: string[],
 ): Promise<boolean> {
   const trimmed = text.trim();
   if (!trimmed) return false;
+
+  /* ── MAVI-M2 · GERÇEK ARAÇ BAĞLAMI (komut başına TEK çözüm) ─────────────
+   * M1 bulgu #1: üretimdeki HİÇBİR çağıran bağlam taşımıyordu → `isDriving`
+   * daima false, sürüş güvenliği kodu ÖLÜ. Çözüm çağrı yerlerine değil BURAYA
+   * konur; tek komut otoritesi burasıdır (M1 §2) → yeni bir çağıran eklense bile
+   * yapısal olarak "araç park halinde" varsayımına DÜŞÜLEMEZ.
+   *
+   * · Snapshot bir kez alınır → aynı komut boyunca DEĞİŞMEZ (immutable, frozen).
+   *   Store komut sürerken değişse bile bu turun güvenlik kararı kaymaz.
+   * · Çözüm başarısız olursa DÜRÜST bilinmeyen bağlam (`motionState:'unknown'`)
+   *   kullanılır — "parked" fallback ÜRETİLMEZ.
+   * · `ctxIn` yalnız test/fixture enjeksiyonu içindir; üretim yolları vermez. */
+  /* ── MAVI-M5 · KULLANICI TURU ────────────────────────────────────────────
+   * Boş metin bu satıra ULAŞMAZ (yukarıda return) → boş/partial girdi tur
+   * BAŞLATMAZ. Wake word de burayı çağırmaz (yalnız `startListening`).
+   * Bu çağrı önceki AKTİF turu derhal `superseded` yapar: A'nın uçuştaki
+   * sağlayıcı cevabı artık eylem/konuşma yetkisine SAHİP DEĞİLDİR. */
+  const turn = beginMaviTurn();
+  /* MAVI-M4-LAB-2: zincirin BAŞLANGIÇ aşaması ("komut alındı"). Korelasyon
+   * anahtarı burada doğar; sonraki kapı/sonuç/konuşma aşamaları aynı `turnId`
+   * altında gruplanır. GİZLİLİK: transcript METNİ değil yalnız UZUNLUĞU geçer
+   * (ham komut gözlem katmanına ASLA girmez). Kayıt fail-soft. */
+  recordMaviActionStage({
+    stage: 'turn_started', status: 'accepted',
+    reason: `len:${trimmed.length}`, turnId: turn.id,
+  });
+
+  let ctx: VehicleContext;
+  try {
+    ctx = ctxIn ?? currentMaviVehicleContext();
+  } catch {
+    ctx = unknownMaviVehicleContext();   // fail-closed: bilinmeyen, park DEĞİL
+  }
+
   // n-best alternatifleri (top ilk). Metin girişinde (buton) tek eleman kalır.
   const alts = _dedupeAlts(alternatives, trimmed);
 
@@ -1178,20 +1386,67 @@ export async function processTextCommand(
   const cfg = getConfig();
   const now = Date.now();
 
+  /* ── MAVI-M4 · BEKLEYEN AÇIK ONAY (araç etkili eylem) ────────────────────
+   * `_pendingCmd`ten AYRI ve ONDAN ÖNCE değerlendirilir: `_pendingCmd`
+   * "seni doğru mu anladım?" (belirsiz PARSE) sorusudur; bu ise
+   * "bu geri alınamaz eylemi gerçekten yapayım mı?" (açık RIZA) sorusudur.
+   *
+   * Bu blok OLMADAN onay akışı ölü uçtu: `needs_confirmation` sonucu
+   * `setPendingAction` ile saklanıyor ama "evet" HİÇ tüketilmiyordu →
+   * onay gerektiren eylem (telefon araması · DTC silme) ASLA yürüyemezdi.
+   *
+   * · "evet" → istek TÜKETİLİR (tek kullanım) ve tek otoriteye `confirmed:true`
+   *   ile gider. `consumePendingAction` M5 stale-turn kapısını uygular:
+   *   isteği üreten turdan sonraki İLK tur değilse onay DÜŞER (araya giren
+   *   başka bir komut eski niyeti canlandıramaz) → eylem BAŞLAMAZ.
+   * · "hayır"/iptal → slot temizlenir, HİÇBİR yan etki oluşmaz.
+   * · Başka bir şey → onay düşer, girdi normal komut olarak işlenir. */
+  if (peekPendingAction(now)) {
+    if (AFFIRM_RE.test(trimmed)) {
+      const approved = consumePendingAction(turn.id, now);
+      _lastCommandTime = now;
+      const runConfirmed = getConfirmedActionExecutor();
+      if (approved && runConfirmed) {
+        _emitVoiceEvent('executing');       // yürütme ŞİMDİ başlıyor (onay alındı)
+        runConfirmed(approved.intent);      // cevabı M6 tek zarfı üretir
+      } else {
+        // Stale tur / süresi geçmiş istek / yürütücü kayıtlı değil → FAIL-CLOSED:
+        // eylem BAŞLAMAZ ve "yaptım" DENMEZ (sahte ACK yasağı).
+        _emitVoiceEvent('execution_result', { result: 'cancelled' });
+        speakMaviAnswer('Onayı doğrulayamadım, işlemi başlatmadım.');
+        push({ status: 'idle', error: null });
+      }
+      completeMaviTurn(turn);
+      return true;
+    }
+    if (NEGATE_RE.test(trimmed)) {
+      clearPendingAction();
+      _lastCommandTime = now;
+      _endConvSession();
+      _emitVoiceEvent('execution_result', { result: 'cancelled' });
+      speakMaviAnswer('Tamam, vazgeçtim.');
+      push({ status: 'idle', error: null });
+      completeMaviTurn(turn);
+      return true;
+    }
+    clearPendingAction();   // farklı bir şey söylendi → onay düşer (yan etki YOK)
+  }
+
   // ── Bekleyen onay (belirsiz komut) varsa önce onu yorumla ──
   //   evet → uygula · hayır → iptal · başka bir şey → onayı bırak, normal işle.
   if (_pendingCmd) {
     if ((now - _pendingAt) < PENDING_TTL_MS) {
       if (AFFIRM_RE.test(trimmed)) {
         const cmd = _pendingCmd; _pendingCmd = null; _lastCommandTime = now;
-        if (ctx?.isDriving) { dispatchDriving(cmd); } else { dispatch(cmd); }
+        if (ctx?.isDriving) { dispatchDriving(cmd, ctx, turn); } else { dispatch(cmd, ctx, turn); }
+        completeMaviTurn(turn);
         return true;
       }
       if (NEGATE_RE.test(trimmed)) {
         _pendingCmd = null;
         _endConvSession(); // onay diyaloğu bitti — komut akışı sohbet döngüsü başlatmaz
         _emitVoiceEvent('execution_result', { result: 'cancelled' }); // kullanıcı bekleyen komutu reddetti
-        speakFeedback('Tamam, vazgeçtim.');
+        speakMaviAnswer('Tamam, vazgeçtim.');
         push({ status: 'idle', error: null });
         return true;
       }
@@ -1218,7 +1473,7 @@ export async function processTextCommand(
   }
 
   // ── Komut zincirleme: "müziği aç ve eve git" → her ikisini de çalıştır ──
-  if (tryHandleChain(trimmed, ctx)) return true;
+  if (tryHandleChain(trimmed, ctx, turn)) return true;
 
   /* Siri mantığı (2026-06-11): yerel parser yalnız NET komutlar için hız
    * katmanıdır; tanıyamadığı HER cümlede tek yetkili birleşik beyindir
@@ -1234,6 +1489,43 @@ export async function processTextCommand(
   // n-best: alternatifler içinde en yüksek güvenli komutu seç (STT top'u yanlışsa
   // alt sıradaki doğru komut yakalanır; tek alternatifte davranış birebir aynı).
   const result = _bestLocalParse(alts);
+
+  /* ── 0. KORUNAN EYLEM BLOKU · SEMANTIC RESURRECTION BLOCK (P0) ────────────
+   * Bağımsız denetim bulgusu #2: parser `needsSemantic:false` üretiyordu ama
+   * BU DOSYA o alanı hiç OKUMUYORDU → yerelde bloklanan metin ("yarın arıza
+   * kodlarını sil") online beyne gidiyor ve sağlayıcı `CLEAR_DTC_CODES`
+   * üretebiliyordu. Yerel kapı böylece etkisizdi.
+   *
+   * Artık parser AÇIK bir typed karar taşıyor (`safetyDecision`). Blokluysa tur
+   * BURADA biter: sağlayıcı çağrısı YOK · bekleyen onay YOK · dispatch YOK ·
+   * "yaptım/onaylıyor musun" TTS'i YOK. Yalnız dürüst bir ekran mesajı bırakılır.
+   *
+   * KAPSAM DAR: alan yalnız korunan eylem ZİKREDİLEN girdilerde üretilir →
+   * "bana motor sıcaklığını açıkla" gibi sıradan bilinmeyen konuşmalarda
+   * semantic fallback BİREBİR korunur (kilit testleri bunu doğrular). */
+  const _safety = result.safetyDecision;
+  if (_safety?.blocked) {
+    _lastCommandTime = now;
+    void reportVoiceDiag('voice_route', { route: 'protected_action_blocked' });
+    void reportVoiceDiag('voice_error', {
+      errorCode: `ERR_PROTECTED_${_safety.reason ?? 'blocked'}`.toUpperCase(),
+      transcriptLength: trimmed.length,
+    });
+    _emitVoiceEvent('execution_result', { result: 'unsupported' });
+    _endConvSession();
+    push({
+      status:      'error',
+      error:       'Bunu doğrudan bir komut olarak anlamadım; komutu tek başına söyle.',
+      transcript:  trimmed,
+      suggestions: [],
+    });
+    setTimeout(() => {
+      if (!isMaviTurnCurrent(turn)) return;
+      if (_current.status === 'error') push({ status: 'idle', error: null });
+    }, 3500);
+    completeMaviTurn(turn);
+    return false;
+  }
 
   // ── 1. ANINDA BYPASS (Single Brain istisnası) ────────────────
   // YALNIZ kritik refleks komutları (ses aç/kıs, duraklat/dur, wifi/bluetooth
@@ -1252,7 +1544,8 @@ export async function processTextCommand(
   ) {
     _lastCommandTime = now;
     void reportVoiceDiag('voice_route', { route: 'critical_bypass' });
-    if (ctx?.isDriving) { dispatchDriving(result.command); } else { dispatch(result.command); }
+    if (ctx?.isDriving) { dispatchDriving(result.command, ctx, turn); } else { dispatch(result.command, ctx, turn); }
+    completeMaviTurn(turn);
     return true;
   }
 
@@ -1274,7 +1567,8 @@ export async function processTextCommand(
   ) {
     _lastCommandTime = now;
     void reportVoiceDiag('voice_route', { route: 'weather_local_bypass' });
-    if (ctx?.isDriving) { dispatchDriving(result.command); } else { dispatch(result.command); }
+    if (ctx?.isDriving) { dispatchDriving(result.command, ctx, turn); } else { dispatch(result.command, ctx, turn); }
+    completeMaviTurn(turn);
     return true;
   }
 
@@ -1292,12 +1586,18 @@ export async function processTextCommand(
     _lastCommandTime = now;
     void reportVoiceDiag('voice_route', { route: 'sensor_local_bypass' });
     pushHistory(result.command);
-    void _answerSensorQuery(result.command.extra?.sensorQuery ?? trimmed);
+    // MAVI-M5: fire-and-forget async yol — tur token'ı TAŞINIR; sensör cevabı
+    // ancak tur hâlâ güncelse konuşur ve turu KENDİSİ tamamlar.
+    void _answerSensorQuery(result.command.extra?.sensorQuery ?? trimmed, turn);
     return true;
   }
 
   // ── API anahtarları + ağ sağlığı (devre kesici dahil) ────────
   const { provider, apiKey, hasNet, tavilyKey, searchKey, chain } = await _resolveAiKeys();
+
+  // MAVI-M5 · KAPI A: anahtar okuması (2 şifreli native okuma) sürerken kullanıcı
+  // yeni komut vermiş olabilir → bu tur artık sağlayıcıya gitmez, konuşmaz.
+  if (!continueIfTurnActive(turn, 'provider_result')) return false;
 
   // Online beyin (companionChatProvider) hibrit zinciri destekler: Gemini →
   // Groq → Haiku (yalnız anahtarı girilmiş sağlayıcılar zincire girer).
@@ -1330,7 +1630,7 @@ export async function processTextCommand(
     const hint = ctx?.isDriving
       ? 'Bunun için yapay zeka anahtarı gerekiyor. Varınca ayarlardan ekleyebilirsin.'
       : 'Bunun için bir yapay zeka anahtarı gerekiyor. Ayarlardan Gemini ya da Claude Haiku için bir API anahtarı ekleyebilirsin, sonra haber ve güncel bilgileri sorabilirsin.';
-    speakFeedback(hint);
+    speakMaviAnswer(hint, { isDriving: ctx?.isDriving === true });
     push({ status: 'error', transcript: trimmed, error: hint, suggestions: [] });
     setTimeout(() => { if (_current.status === 'error') push({ status: 'idle', error: null }); }, 4000);
     return true;
@@ -1346,12 +1646,22 @@ export async function processTextCommand(
   let _thinkingTimer: ReturnType<typeof setTimeout> | null = null;
   if (aiUsable) try {
     const { tryCompanionBrain } = await import('./companion/companionChatProvider');
+    // MAVI-M5 · KAPI B: dinamik import sürerken yeni tur başlamış olabilir.
+    if (!continueIfTurnActive(turn, 'provider_result')) return false;
     // TEK spinner: cevap THINKING_FEEDBACK_DELAY_MS'yi aşarsa kısa NÖTR ara söz
     // ("Bir saniye..."). Hızlı cevapta timer iptal; geç ara sözü cevap TTS'i keser.
-    _thinkingTimer = setTimeout(() => { _thinkingTimer = null; _speakThinking(); }, THINKING_FEEDBACK_DELAY_MS);
+    // MAVI-M5 · KAPI H: ara söz TUR TOKEN'I TAŞIR — tur devralındıysa ya da zaten
+    // tamamlandıysa KONUŞMAZ (yeni komuttan sonra "Bir saniye…" duyulmaz).
+    _thinkingTimer = setTimeout(() => {
+      _thinkingTimer = null;
+      if (!continueIfTurnActive(turn, 'feedback')) return;
+      _speakThinking();
+    }, THINKING_FEEDBACK_DELAY_MS);
     const brain = await tryCompanionBrain(trimmed, {
       isDriving: ctx?.isDriving,
-      speedKmh:  ctx?.speedKmh,
+      // MAVI-M2: hız BİLİNMİYORSA (`null`) beyne SIFIR gönderilmez — alan hiç
+      // taşınmaz (sahte "0 km/h" bağlamı = sahte "araç duruyor" iddiası).
+      speedKmh:  ctx?.speedKmh ?? undefined,
       provider,
       apiKey,
       hasNet,
@@ -1368,12 +1678,21 @@ export async function processTextCommand(
     // geç filler, cevap TTS'i başladıktan sonra ateşleyip cevabı KESİYORDU
     // ("Mavi konuşurken araya ses girip kesiliyor"). Burada erken temizlik yarışı kapatır.
     if (_thinkingTimer !== null) { clearTimeout(_thinkingTimer); _thinkingTimer = null; }
+
+    /* ── MAVI-M5 · KAPI C (ASIL KAPI): SAĞLAYICI SONUCU TÜKETİLMEDEN ÖNCE ────
+     * Buraya gelen cevap, kullanıcı yeni bir komut verdiyse ARTIK GEÇERSİZDİR.
+     * Stale bir HATA DEĞİLDİR: sessizce düşürülür — parse/dispatch YOK, TTS YOK,
+     * `_dispatchConversation` YOK ve **fallback zincirine de DÜŞÜLMEZ** (aksi halde
+     * eski tur offline cevapla konuşurdu). `return false` → tur sessizce biter. */
+    if (!continueIfTurnActive(turn, 'provider_result')) return false;
+
     if (brain) {
       _lastCommandTime = now;
       if (brain.kind === 'chat') {
         void reportVoiceDiag('voice_route', { route: brain.route, provider });
         // Sürekli sohbet döngüsü YALNIZ companion sohbet cevabında kurulur.
         _dispatchConversation(brain.response, trimmed, true);
+        completeMaviTurn(turn);
         return true;
       }
       // ACTION — beyin komuta karar verdi (Siri mantığı): intent köprüsü.
@@ -1387,10 +1706,27 @@ export async function processTextCommand(
           confidence: brain.semantic.confidence,
           feedback:   brain.semantic.feedback,
         };
+        /* MAVI-M5 · KAPI D+E: YAN ETKİ BAŞLAMA SINIRI. `_aiHandlers` navigasyon,
+         * telefon araması, medya, ekran açma ve OBD okumasını BAŞLATIR — stale tur
+         * bu sınırı GEÇEMEZ. Kontrol handler döngüsüyle AYNI TİK'te olduğundan
+         * araya yeni tur giremez (JS tek iş parçacığı). */
+        if (!continueIfTurnActive(turn, 'action')) return false;
         _emitVoiceEvent('executing');
         let _aiExecOutcome: VoiceExecutionResult = 'success';
         try {
-          _aiHandlers.forEach((fn) => fn(aiCompat, ctx));
+          /* ÇAĞRI SENKRON, BEKLEME SONRA (saha 2026-07-31).
+           *
+           * `fn(...)` kapının hemen ARDINDAN, `await` görmeden çağrılır — M5
+           * KAPI D+E garantisi korunur (kapı ile yan etki başlangıcı arasına
+           * yeni tur giremez; JS tek iş parçacığı). Handler'ı mikrotask'a
+           * ertelemek (`Promise.resolve().then(...)`) bu garantiyi BOZARDI.
+           *
+           * Sonuç ise BEKLENİR: yürütme bitmeden aşağıdaki iyimser `feedback`
+           * konuşulursa turun tek-cevap slotunu kapar ve gerçek sonuç
+           * (`needs_confirmation` · hata · dürüst ACK) SUSTURULUR. */
+          const _aiPending: Array<Promise<void>> = [];
+          _aiHandlers.forEach((fn) => { _aiPending.push(Promise.resolve(fn(aiCompat, ctx))); });
+          await Promise.all(_aiPending);
         } catch (e) {
           _aiExecOutcome = 'failed';
           throw e;
@@ -1399,11 +1735,19 @@ export async function processTextCommand(
         }
         void reportVoiceDiag('voice_success', { intent: intent.type, provider });
         _endConvSession(); // araç komutu → sohbet döngüsü başlatmaz
-        speakFeedback(brain.semantic.feedback);
+        /* MAVI-M6: TEK otorite. `dispatchIntent` bu turda zaten sonuç-temelli bir
+         * cevap söylediyse burası SESSİZ kalır (tur başına tek `answer`); hiçbir
+         * case konuşmadıysa beynin feedback'i söylenir → kapsama boşluğu yok. */
+        speakMaviAnswer(brain.semantic.feedback, { isDriving: ctx?.isDriving === true });
         if (!ctx?.isDriving) {
           push({ status: 'success', transcript: trimmed, error: null, suggestions: [] });
-          setTimeout(() => { if (_current.status === 'success') push({ status: 'idle' }); }, 2000);
+          // MAVI-M5: gecikmeli durum sıfırlaması YENİ turun UI'sını ezemez.
+          setTimeout(() => {
+            if (!isMaviTurnCurrent(turn)) return;
+            if (_current.status === 'success') push({ status: 'idle' });
+          }, 2000);
         }
+        completeMaviTurn(turn);
         return true;
       }
       // intent köprülenemedi (geçersiz/loş güven) → zincire devam
@@ -1419,14 +1763,24 @@ export async function processTextCommand(
   // (No Dual Response) ve "İnternet yavaş..." mesajı YOK — yerel parser +
   // offline sohbet sırayla denenir (CLAUDE.md §2 fail-soft).
 
+  /* ── MAVI-M5 · KAPI G: FALLBACK ÖNCESİ ──────────────────────────────────
+   * Sağlayıcı hata verdiğinde/timeout olduğunda AYNI tur fallback'e düşebilir
+   * (bu meşru davranış KORUNUR). Ama tur DEVRALINDIYSA fallback ÇALIŞMAZ:
+   * `AbortError` tek başına stale kanıtı değildir — kimlik otoritedir. */
+  if (!continueIfTurnActive(turn, 'provider_result')) return false;
+
   // (a) Yüksek güven yerel komut (≥0.7) → anında uygula. Müzik sorgusu online
   //     ise isim onarımından geçer (içinde hasNet kapısı var; fail-soft).
   if (result.command && result.command.confidence >= AUTO_DISPATCH_MIN) {
     _lastCommandTime = now;
     if (result.command.type === 'play_music_query') {
       await _maybeRepairMusicQuery(result.command);
+      // MAVI-M5 · KAPI E: ASR isim onarımı (ağ gidiş-dönüşü) sürerken yeni tur
+      // başlamış olabilir → eski tur müzik çalmayı BAŞLATAMAZ.
+      if (!continueIfTurnActive(turn, 'action')) return false;
     }
-    if (ctx?.isDriving) { dispatchDriving(result.command); } else { dispatch(result.command); }
+    if (ctx?.isDriving) { dispatchDriving(result.command, ctx, turn); } else { dispatch(result.command, ctx, turn); }
+    completeMaviTurn(turn);
     return true;
   }
 
@@ -1435,32 +1789,36 @@ export async function processTextCommand(
   if (result.command && result.command.confidence >= 0.5) {
     if (ctx?.isDriving) {
       _lastCommandTime = now;
-      dispatchDriving(result.command);
+      dispatchDriving(result.command, ctx, turn);
+      completeMaviTurn(turn);
       return true;
     }
     _pendingCmd = result.command;
     _pendingAt  = now;
     const q = `Bunu mu demek istedin: ${result.command.feedback}? Evet ya da hayır de.`;
     _armFollowUp(); // soru bitince mikrofon açılır — kullanıcı evet/hayır'ı SÖYLEYEBİLİR
-    speakFeedback(q);
+    speakMaviAnswer(q);
     push({ status: 'error', transcript: trimmed, error: q, suggestions: result.suggestions });
+    completeMaviTurn(turn);
     return true;
   }
 
   // (c) Komut değil → offline sohbet motoru (smalltalk vb.). Tek seferlik cevap
   //     (offline sürekli sohbet döngüsü açılmaz; online döngü beyin yolunda kurulur).
-  const convResult = tryOfflineConversation(trimmed, ctx?.isDriving, ctx?.speedKmh);
+  const convResult = tryOfflineConversation(trimmed, ctx?.isDriving, ctx?.speedKmh ?? undefined);
   if (convResult.handled) {
     _lastCommandTime = now;
     void reportVoiceDiag('voice_route', { route: 'offline_chat' });
     _dispatchConversation(convResult.response, trimmed, false);
+    completeMaviTurn(turn);
     return true;
   }
 
   // (d) Düşük güven yerel eşleşme → son çare uygula.
   if (result.command) {
     _lastCommandTime = now;
-    if (ctx?.isDriving) { dispatchDriving(result.command); } else { dispatch(result.command); }
+    if (ctx?.isDriving) { dispatchDriving(result.command, ctx, turn); } else { dispatch(result.command, ctx, turn); }
+    completeMaviTurn(turn);
     return true;
   }
 
@@ -1479,7 +1837,11 @@ export async function processTextCommand(
     transcript:  trimmed,
     suggestions: result.suggestions,
   });
-  setTimeout(() => { if (_current.status === 'error') push({ status: 'idle', error: null }); }, 3500);
+  setTimeout(() => {
+    if (!isMaviTurnCurrent(turn)) return;   // MAVI-M5: yeni turun UI'sını ezme
+    if (_current.status === 'error') push({ status: 'idle', error: null });
+  }, 3500);
+  completeMaviTurn(turn);   // dürüst "anlamadım" da bir TERMİNAL sonuçtur
   return false;
 }
 
@@ -1602,8 +1964,15 @@ export function startListening(opts?: StartListeningOpts): void {
         // OFFLINE KOMUT GRAMMAR'ı (Yol A): internetsizken Vosk'u komut sözlüğüne kısıtla
         // → offline komut doğruluğu OEM-hissine çıkar. ONLINE'da verilmez (bulut tam
         // dikteyi çözer; grammar serbest cümleyi [unk]'a düşürürdü). Native full-vocab fallback'li.
-        grammar: (typeof navigator !== 'undefined' && navigator.onLine)
-          ? undefined : buildCommandGrammar(),
+        //
+        // MAVI-STT-CONTEXT-GRAMMAR: sözlük artık BAĞLAMA göre daraltılır (bekleyen
+        // onay → yalnız evet/hayır…, navigasyon/medya/araç → o sınıf + çapraz-bağlam
+        // kaçış seti, kanıt yoksa TAM sözlük). Çevrimiçi davranış DEĞİŞMEDİ: aynı
+        // kapı `resolveActiveGrammar` içinde `undefined` döndürür. Fail-soft:
+        // bağlam/sözlük kurulamazsa genele düşer, o da olmazsa gramer verilmez.
+        grammar: resolveActiveGrammar(
+          typeof navigator !== 'undefined' && navigator.onLine, Date.now(),
+        ),
         // Araç içi hassasiyet (voiceTuning.ts): kazanç + dinleme penceresi.
         // Native tarafta clamp'lenir; wake word bu opsiyonları geçmediği için etkilenmez.
         // Takip dinlemesi (sohbet modu) KISA pencere kullanır — sessizlikte hızlı idle.

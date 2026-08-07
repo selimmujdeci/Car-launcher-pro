@@ -214,10 +214,31 @@ function _transportEvidence(od: DiagObdDeepLike, now: number, out: AiEvidenceIte
   }
   const rp = _num(h.reconnectPressure);
   if (rp !== null && rp > 0) {
+    // T11 — EŞİK DÜZELTMESİ (saha snapshot 2026-08-01).
+    //
+    // `reconnectPressure`, 120 sn yarı-ömürle SÖNÜMLENEN reconnect sayacıdır
+    // (her kopma +1). Eski kod rp>0 olan HER değere "bağlantı kararsız" diyordu.
+    // Sahada ölçülen 0.5346 = TEK bir reconnect'in 108 sn sönümlenmiş hâli
+    // (0.5^(108/120)=0.537) — yani iki dakika önce bir kez kopup BAŞARIYLA
+    // geri gelmiş, o gündür sorunsuz akan bir bağlantı. Buna "kararsız" demek
+    // Mavi'yi yanlış teşhise sürüklüyordu.
+    //
+    // Eşikler yarı-ömür penceresi cinsinden anlamlıdır:
+    //   ≥ 2.0 → pencere içinde 2+ kopma = GERÇEKTEN kararsız
+    //   ≥ 1.0 → yakın zamanda bir kopma = dikkat, henüz kararsız değil
+    //   <  1.0 → sönümlenmiş tek olay = geçmiş kayıt, arıza iddiası YOK
+    const unstable = rp >= 2;
+    const recent   = rp >= 1;
+    const summary = unstable
+      ? `Reconnect baskısı ${rp.toFixed(2)} — bağlantı kararsız (yarı-ömür penceresinde 2+ kopma)`
+      : recent
+        ? `Reconnect baskısı ${rp.toFixed(2)} — yakın zamanda bir kopma (kararsızlık eşiğinin altında)`
+        : `Reconnect baskısı ${rp.toFixed(2)} — sönümlenmiş tek kopma kaydı (şu an kararsızlık kanıtı YOK)`;
     const ev = makeEvidence({
       key: 'transport.reconnect_pressure', kind: 'diagnostic',
-      summary: `Reconnect baskısı ${rp} — bağlantı kararsız`,
-      confidence: 0.75, observedAt: now, source: 'obd',
+      summary,
+      confidence: unstable ? 0.75 : recent ? 0.5 : 0.3,
+      observedAt: now, source: 'obd',
     });
     if (ev) out.push(ev);
   }
@@ -250,18 +271,48 @@ function _sourceHealthEvidence(sh: DiagSourceHealthLike, now: number, out: AiEvi
   }
 }
 
+/** Maksimum listelenen PID — üstü "+N daha" olarak AÇIKÇA belirtilir (sessiz kırpma YOK). */
+const UNAVAILABLE_PID_PREVIEW_MAX = 6;
+
+/**
+ * T8: PID listesini tek canonical koleksiyona indirger — normalize (büyük harf hex,
+ * boşluksuz) + duplicate ayıklama. Sayı ve liste ARTIK AYNI kaynaktan gelir.
+ */
+export function normalizeUnavailablePids(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const item of raw) {
+    if (typeof item !== 'string') continue;
+    const norm = item.trim().toUpperCase().replace(/^0X/, '');
+    if (norm === '' || seen.has(norm)) continue;   // duplicate iki kez SAYILMAZ
+    seen.add(norm);
+    out.push(norm);
+  }
+  return out;
+}
+
 /** capability outcome — araç tarafından verilmeyen PID'ler (NRC/NO_DATA sonrası bilinen sınır). */
 function _capabilityEvidence(od: DiagObdDeepLike, now: number, out: AiEvidenceItem[]): void {
-  const unavail = od.extended?.unavailable;
-  if (Array.isArray(unavail) && unavail.length > 0) {
-    const sample = unavail.filter((x) => typeof x === 'string').slice(0, 6).join(', ');
-    const ev = makeEvidence({
-      key: 'capability.unavailable_pids', kind: 'capability',
-      summary: `${unavail.length} PID araç tarafından verilmiyor (bilinen sınır, arıza değil): ${sample}`,
-      confidence: 0.7, observedAt: now, source: 'obd',
-    });
-    if (ev) out.push(ev);
-  }
+  // ESKİ KUSUR (saha snapshot 2026-08-01): metin "8 PID … verilmiyor" diyor ama
+  // yalnız 6 PID listeliyordu — sayı `unavail.length`ten, liste `slice(0,6)`tan
+  // geliyordu ve kırpma HİÇ belirtilmiyordu. Geliştirici eksik iki PID'i arıyordu.
+  // Artık ikisi de tek normalize koleksiyondan türer ve kırpma açıkça yazılır.
+  const pids = normalizeUnavailablePids(od.extended?.unavailable);
+  if (pids.length === 0) return;
+
+  const shown  = pids.slice(0, UNAVAILABLE_PID_PREVIEW_MAX);
+  const hidden = pids.length - shown.length;
+  const listTxt = hidden > 0
+    ? `${shown.join(', ')} (+${hidden} daha, ${shown.length}/${pids.length} gösteriliyor)`
+    : shown.join(', ');
+
+  const ev = makeEvidence({
+    key: 'capability.unavailable_pids', kind: 'capability',
+    summary: `${pids.length} PID araç tarafından verilmiyor (bilinen sınır, arıza değil): ${listTxt}`,
+    confidence: 0.7, observedAt: now, source: 'obd',
+  });
+  if (ev) out.push(ev);
 }
 
 /** recovery/disconnect — KWP kurtarma + reconnect geçmişi + connLifecycle sayaçları. */
@@ -291,8 +342,21 @@ function _recoveryEvidence(od: DiagObdDeepLike, now: number, out: AiEvidenceItem
   // connLifecycle: defansif — herhangi pozitif sayaç varsa "yaşam-döngüsü aktivitesi" kanıtı.
   const cl = od.connLifecycle;
   if (cl && typeof cl === 'object') {
+    // KUSUR (2026-07-27 saha dökümünde yakalandı): burada `Object.values(cl)`
+    // körlemesine toplanıyordu — `lastResetAt`/`lastDisconnectAt`/`lastReconnectAt`
+    // EPOCH ZAMAN DAMGALARI da sayaçlara ekleniyor, sonuç ~5.36e12 gibi anlamsız bir
+    // "aktivite" sayısı oluyordu (kanıt metninde maskeleme bunu gizlediği için uzun
+    // süre fark edilmedi). Artık YALNIZ sayaç alanları toplanır.
+    // KURAL: yalnız `...Count` ile biten alanlar SAYAÇtır. `lastResetAt`,
+    // `lastDisconnectAt`, `lastReconnectAt` gibi `...At` alanları EPOCH zaman
+    // damgasıdır ve toplanamaz. (Alan adına bağlı olması, sözleşme değişirse
+    // sessizce yanlış toplamaktan iyidir: bilinmeyen alan toplama GİRMEZ.)
     let activity = 0;
-    for (const v of Object.values(cl)) { const n = _num(v); if (n !== null && n > 0) activity += n; }
+    for (const [k, v] of Object.entries(cl)) {
+      if (!/Count$/.test(k)) continue;
+      const n = _num(v);
+      if (n !== null && n > 0) activity += n;
+    }
     if (activity > 0) {
       const ev = makeEvidence({
         key: 'recovery.lifecycle', kind: 'diagnostic',
