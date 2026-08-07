@@ -34,7 +34,11 @@ export type WorkerInMessage =
    * ham kaynak verisi yerine NormalizedVehicleData gönderir.
    * Fusion, hardcoded kaynak önceliği yerine IVehicleSignal.confidence kullanır.
    */
-  | { type: 'VEHICLE_DATA';    source: SignalSource; signals: NormalizedVehicleData }
+  /* `fixTs`: kaynaktaki ÖLÇÜM anı (ms). YALNIZ GPS doldurur; diğer kaynaklarda
+     0'dır ama alan HER ZAMAN gönderilir — tek Hidden Class korunur (bkz.
+     CLAUDE.md "Template Object Literals"). Odometre Δt otoritesi için gerekli:
+     varış farkı ≠ ölçüm farkı (kütük #458). */
+  | { type: 'VEHICLE_DATA';    source: SignalSource; signals: NormalizedVehicleData; fixTs: number }
   /** @deprecated CAN_DATA/OBD_DATA/GPS_DATA → VEHICLE_DATA ile değiştirildi */
   | { type: 'CAN_DATA';         payload: CanAdapterData }
   | { type: 'OBD_DATA';         payload: ObdAdapterData }
@@ -159,7 +163,38 @@ let _canLastSeen    = 0;
 let _obdLastSeen    = 0;
 const _obdCadence   = createObdCadenceGate(); // OBD tazelik eşiğini gözlenen kadanstan öğrenir
 let _gpsLastSeen    = 0;
-let _prevGpsUpdateAt = 0; // önceki GPS_DATA zamanı — Doppler Δt hesabı için
+let _prevGpsUpdateAt = 0; // önceki GPS paketinin VARIŞ anı (performance.now)
+/**
+ * Önceki fix'in KAYNAKTAKİ ölçüm anı (`GeolocationPosition.timestamp`, ms).
+ * 0 = henüz ölçüm anı bildiren fix görülmedi. Bkz. `_gpsDeltaMs`.
+ */
+let _prevGpsFixTs = 0;
+
+/**
+ * GPS Δt otoritesi: ÖLÇÜM anları farkı — varış anları farkı DEĞİL.
+ *
+ * SAHA 2026-08-06 (32 dk): `Teleport rejected` 8 kez, hepsi accuracy 2 m olan
+ * MÜKEMMEL fix'lerde. Örnek: 94,8 km/h'de 264 m yer değiştirme "implied 800 km/h"
+ * sanıldı, çünkü Δt varıştan 1187 ms ölçülmüştü — oysa 264 m o hızda ~10 saniyedir.
+ * Fix'ler tamponlanıp toplu geldiğinde varış farkı çöker, ölçüm farkı doğru kalır.
+ * Reddedilince `_refLat/_refLng` sıfırlanıp mesafe odometreye HİÇ yazılmıyordu
+ * → ölçülen kayıp 8 ret × 73-299 m ≈ 32 dakikada 1,15 km (kütük #458).
+ *
+ * SAAT SIÇRAMASI KORUMASI: ölçüm anı wall-clock kaynaklıdır (NTP/kullanıcı saati
+ * oynayabilir). Bu yüzden fark yalnız MAKUL bandda kabul edilir; dışına çıkarsa
+ * varış farkına düşülür. Geriye giden saat (fark ≤ 0) da otomatik elenir.
+ * OdometerGuard'ın kendi monotonic tabanı ikinci savunma hattı olarak DURUR.
+ */
+const GPS_FIX_DT_MAX_MS = 60_000;
+function _gpsDeltaMs(fixTs: number, arrivalDtMs: number): number {
+  if (Number.isFinite(fixTs) && fixTs > 0) {
+    const prev = _prevGpsFixTs;   // önce OKU, sonra ilerlet
+    _prevGpsFixTs = fixTs;
+    const fixDt = fixTs - prev;
+    if (prev > 0 && fixDt > 0 && fixDt < GPS_FIX_DT_MAX_MS) return fixDt;
+  }
+  return arrivalDtMs;
+}
 
 // ── GPS kalite arıza takibi (Watchdog Hardening) ──────────────────────────
 // _gpsBadSinceMs : kalite ilk bozulduğu performance.now() (0 = iyi/fix yok)
@@ -1343,6 +1378,7 @@ function _handleInit(msg: Extract<WorkerInMessage, { type: 'INIT' }>): void {
   _odoSet(msg.odoKm);            // TMR — 3 kopyaya yaz
   _lastPersistedOdo = msg.odoKm; // main thread'le senkron; ilk 500 m dolana dek disk yazması yok
   _odoGuard.reset(); // startup guard + jump referansı sıfırla
+  _prevGpsFixTs = 0; // ölçüm-anı zinciri de sıfırlanır (oturumlar arası Δt taşmasın)
   if (msg.sab) {
     _sabF64          = new Float64Array(msg.sab);
     _sabI32          = new Int32Array(msg.sab);
@@ -1357,6 +1393,7 @@ function _handleInitFallback(msg: Extract<WorkerInMessage, { type: 'INIT_FALLBAC
   _odoSet(msg.odoKm);            // TMR — 3 kopyaya yaz
   _lastPersistedOdo = msg.odoKm;
   _odoGuard.reset();
+  _prevGpsFixTs = 0;
   _sabEnabled = false; // açık kısıtlama: SAB yolunu hiç deneme
   _startTimers();
 }
@@ -1412,7 +1449,9 @@ function _handleVehicleData(msg: Extract<WorkerInMessage, { type: 'VEHICLE_DATA'
     _can.coolantTemp  = signals.coolantTemp?.value;
     if (signals.reverse?.value != null) _handleCanReverse(signals.reverse.value);
   } else if (source === 'GPS') {
-    const dtMs = _prevGpsUpdateAt > 0 ? nowPerf - _prevGpsUpdateAt : 0;
+    // Δt ÖLÇÜM anlarından; ölçüm anı yoksa/şüpheliyse varış farkına düşülür (#458).
+    const arrivalDt = _prevGpsUpdateAt > 0 ? nowPerf - _prevGpsUpdateAt : 0;
+    const dtMs      = _gpsDeltaMs(msg.fixTs, arrivalDt);
     _prevGpsUpdateAt = nowPerf;
     _gpsLastSeen     = nowPerf;
     // GPS speed artık m/s RAW → SignalNormalizer km/h'e çevirdi, direkt kullan
@@ -1474,8 +1513,10 @@ function _handleObdData(msg: Extract<WorkerInMessage, { type: 'OBD_DATA' }>): vo
 function _handleGpsData(msg: Extract<WorkerInMessage, { type: 'GPS_DATA' }>): void {
   const d = msg.payload;
   const _nowGps = performance.now();
-  // Δt: önceki GPS güncellemesinden bu yana geçen süre (Doppler × Δt odometer için)
-  const dtMs = _prevGpsUpdateAt > 0 ? _nowGps - _prevGpsUpdateAt : 0;
+  // Δt: ÖLÇÜM anları farkı (Doppler × Δt odometre ve teleport kapısı için) —
+  // ölçüm anı yoksa varış farkına düşülür. Bkz. `_gpsDeltaMs` / kütük #458.
+  const _arrivalDt = _prevGpsUpdateAt > 0 ? _nowGps - _prevGpsUpdateAt : 0;
+  const dtMs = _gpsDeltaMs(d.fixTs ?? 0, _arrivalDt);
   _prevGpsUpdateAt = _nowGps;
   _gpsLastSeen     = _nowGps;
   _gps.speed    = d.speed;

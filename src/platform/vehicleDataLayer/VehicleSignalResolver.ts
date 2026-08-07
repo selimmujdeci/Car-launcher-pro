@@ -152,11 +152,11 @@ export class VehicleSignalResolver {
     this._unsubs.push(
       this.can.onData((d) => {
         const signals = SignalNormalizer.fromCAN(applyProfileGate(d), Date.now());
-        this._send({ type: 'VEHICLE_DATA', source: 'CAN', signals });
+        this._send({ type: 'VEHICLE_DATA', source: 'CAN', signals, fixTs: 0 });
       }),
       this.obd.onData((d) => {
         const signals = SignalNormalizer.fromOBD(d, Date.now());
-        this._send({ type: 'VEHICLE_DATA', source: 'OBD', signals });
+        this._send({ type: 'VEHICLE_DATA', source: 'OBD', signals, fixTs: 0 });
       }),
       this.gps.onData((d) => {
         // GpsAdapterData.speed ham m/s — RawGpsData formatına çevir
@@ -164,7 +164,10 @@ export class VehicleSignalResolver {
           { speedMs: d.speed, heading: d.heading, location: d.location },
           Date.now(),
         );
-        this._send({ type: 'VEHICLE_DATA', source: 'GPS', signals });
+        /* `signals.*.ts` BİLEREK varış anı kalır: güven (confidence) tazelik
+           çürümesi o eksene bağlı ve füzyon davranışı değişmemeli. Ölçüm anı
+           AYRI alanda taşınır ve yalnız odometre Δt'sinde kullanılır. */
+        this._send({ type: 'VEHICLE_DATA', source: 'GPS', signals, fixTs: d.fixTs ?? 0 });
       }),
     );
 
@@ -172,7 +175,7 @@ export class VehicleSignalResolver {
     this._unsubs.push(
       this.hal.onData((d) => {
         const signals = SignalNormalizer.fromHAL(d, Date.now());
-        this._send({ type: 'VEHICLE_DATA', source: 'HAL', signals });
+        this._send({ type: 'VEHICLE_DATA', source: 'HAL', signals, fixTs: 0 });
       }),
     );
     this.hal.start();

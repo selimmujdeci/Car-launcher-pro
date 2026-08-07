@@ -4584,3 +4584,46 @@ describe('OBD ilk ECU frame yolunda defter tutma fail-soft', () => {
     expect(merge, 'catch sonrası connected geçişi yok').toBeGreaterThan(catchAt);
   });
 });
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * Odometre Δt'si ÖLÇÜM anından türetilir (kütük #458)
+ *
+ * SAHA 2026-08-06: `Teleport rejected` × 8, hepsi accuracy 2 m fix'lerde;
+ * 94,8 km/h'de 264 m "implied 800 km/h" sanıldı çünkü Δt paketin VARIŞ
+ * farkından (1187 ms) ölçülüyordu. Kayıp: 32 dakikada ~1,15 km.
+ * Zincir üç halkalı — biri koparsa kusur sessizce geri gelir:
+ *   GpsAdapter (fix zamanını taşı) → Resolver (zarfa koy) → Worker (Δt'yi ondan üret)
+ * Davranış testi: `odometerFixTimeAuthority.test.ts` */
+describe('GPS odometre Δt zinciri ölçüm anına bağlı', () => {
+  it('🔒 GpsAdapter fix zamanını düşürmez', () => {
+    const src = read('src/platform/vehicleDataLayer/GpsAdapter.ts');
+    expect(src, 'fixTs taşınmıyor — zincirin ilk halkası kopuk').toContain('fixTs: loc.timestamp');
+  });
+
+  it('🔒 Resolver fixTs\'i HER kaynakta gönderir (tek Hidden Class)', () => {
+    // Alan yalnız GPS mesajında bulunursa VEHICLE_DATA iki şekle ayrılır ve
+    // sıcak yol megamorphic olur — CLAUDE.md "Template Object Literals".
+    const sends = vehicleResolverSrc.match(/type: 'VEHICLE_DATA'[^}]*\}/g) ?? [];
+    expect(sends.length, 'VEHICLE_DATA gönderimi bulunamadı').toBeGreaterThanOrEqual(4);
+    for (const s of sends) expect(s, `fixTs eksik: ${s}`).toContain('fixTs');
+  });
+
+  it('🔒 Worker Δt\'yi ölçüm anı seçicisinden alır, ham varış farkından DEĞİL', () => {
+    expect(vehicleComputeWorkerSrc).toContain('function _gpsDeltaMs(');
+    // Her iki GPS yolu da (VEHICLE_DATA ve eski GPS_DATA) seçiciden geçmeli.
+    const uses = vehicleComputeWorkerSrc.match(/_gpsDeltaMs\(/g) ?? [];
+    expect(uses.length, 'bir GPS yolu seçiciyi atlıyor').toBeGreaterThanOrEqual(3);
+  });
+
+  it('🔒 saat sıçraması bandı ve geriye-gidiş elemesi korunur', () => {
+    expect(vehicleComputeWorkerSrc).toContain('GPS_FIX_DT_MAX_MS');
+    expect(vehicleComputeWorkerSrc).toMatch(/fixDt > 0 && fixDt < GPS_FIX_DT_MAX_MS/);
+  });
+
+  it('🔒 OdometerGuard\'ın kendi monotonic tabanı ikinci savunma olarak DURUR', () => {
+    // Ölçüm anı wall-clock kaynaklıdır; guard'ın 60 s bandı kaldırılırsa
+    // NTP sıçraması doğrudan odometreye yazar.
+    expect(odometerGuardSrc).toContain('Monotonic Clock Enforcement');
+    expect(odometerGuardSrc).toMatch(/dtMs >= 0 && dtMs < 60_000/);
+  });
+});

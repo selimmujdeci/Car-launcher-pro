@@ -24,6 +24,8 @@ export class GpsAdapter {
 
       const data: GpsAdapterData = {
         location: { lat: loc.latitude, lng: loc.longitude, accuracy: loc.accuracy },
+        // Kaynaktaki ÖLÇÜM anı taşınır (varış anı değil) — kütük #458.
+        fixTs: loc.timestamp,
       };
 
       if (loc.heading != null) data.heading = loc.heading;
