@@ -1983,3 +1983,41 @@ zorunluluğu taşıyor ve cookie partial mutation typed/fail-closed yönetiliyor
 Gerçek staging, browser, çoklu sekme ve process-death kanıtı bulunmadığından
 durum `DOĞRULANDI`/`SAHADA DOĞRULANDI` değildir; ürün hazır değil ve production
 security gate `BLOCKED` kalır.
+### Saha eksiklerinin ikinci kapatma turu — 2026-08-07 (kütük #462–#466)
+
+2026-08-06 Adana–Şanlıurfa sürüşünün açık maddelerinden **beşi** kapatıldı.
+Tümü `TESTED_LOCAL` — 480 dosya / 10 882 test yeşil, `tsc -b` temiz.
+**Hiçbiri `DOĞRULANDI` veya `SAHADA DOĞRULANDI` DEĞİLDİR**: gerçek araç kanıtı
+yoktur, kabul ölçütleri kütükte 🔴 beklemektedir.
+
+- **#462** OBD veri yolu yan deftere bağlıydı — `recordFeatureRecovered()`
+  fırlarsa `connected` geçişi hiç yapılmıyordu (fail-soft onarımı).
+- **#463 (#458)** Odometre Δt'si **ölçüm anına** bağlandı; varış farkı meşru
+  hareketi teleport sanıp 32 dakikada 1,15 km'yi kalıcı siliyordu.
+- **#464 (#456)** Kaza kaydı artık **hareket kanıtı** istiyor; depo en yeni
+  5 kayıtla sınırlı. Sallanan telefon sahte çarpışma üretmiyor.
+- **#465 (#459-a,b)** ECU susarken adaptörün ölçtüğü voltaj artık kaybolmuyor →
+  akü uyarısı sürücüye ulaşabilir; "adaptör bağlı · ECU yanıt vermiyor" ile
+  "bağlanamadı" **ayırt edilebilir** hâle geldi.
+- **#466 (#460)** Wake watchdog bir arıza tespiti DEĞİLmiş: canlılık hiç
+  ölçülmüyor, 5 dakikada bir koşulsuz yeniden kurulum var. Yanıltıcı
+  "self-heal" mesajı kaldırıldı, karar ölçülebilir yapıldı.
+
+**Bilinçli YAPILMAYANLAR (açık borç):**
+
+- **#451 — konum ölü hesabı (tünel modu) hâlâ ÖLÜ ÖZELLİK.** `_startDeadReckoning()`
+  boş; worker yalnız odometre mesafesini ilerletiyor, lat/lon üretmiyor.
+  Doğru çözüm çok-sistemli (gpsService · worker · sinyal zarfı · HUD) ve
+  odometre çift-sayımı riski taşıyor (worker zaten GPS sessizliğinde mesafe
+  ekliyor) → `AI.md`/CLAUDE.md "çok-sistemli refactor yapma" kuralı gereği
+  kendi turuna bırakıldı. **Kapsam net:** DR konumları `isEstimated` bayrağıyla
+  taşınmalı, odometre bu fix'leri ATLAMALI, HUD dürüstçe "GPS yok — konum
+  tahmini" göstermeli. Dönüş rampası (`calculateFusionRamp`) ZATEN hazır.
+- **#455 — `vehicleCtx.speedKmh` sahte `0`.** `VehicleContext.speedKmh` tipi
+  nullable değil; dürüstleştirmek Mavi yığınında çok-sistemli tip değişimi
+  demek. Güvenlik açığı DEĞİL (doğrulandı: `maviActionAuthority` fail-closed).
+- **#457 — `raw_community_events` sunucuda YOK.** İstemci tarafı #447'de
+  kapatıldı; kalan iş **kod değil operasyon**: `supabase/migrations/
+  20260516000000_community_events.sql` sunucuya uygulanmalı (GRANT + RLS +
+  policy üçlüsü dosyada TAM, denetlendi).
+- **#459-c** motor çalışırken 11,99 V ≠ 13,5–14,5 V şarj bandı — ölçülmedi.
