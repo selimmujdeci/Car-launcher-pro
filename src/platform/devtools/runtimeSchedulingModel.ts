@@ -61,6 +61,63 @@ export const SCHED_CHANNEL_ORDER: readonly SchedChannelId[] = [
   'command-exec', 'live-polling', 'handshake', 'kwp', 'discovery-deepscan', 'can-collect',
 ] as const;
 
+/* ══════════════════════════════════════════════════════════════════════════
+ * Giriş odağı (UX-F1) — YENİ EKRAN/ROUTE/STATE DEĞİL
+ *
+ * `queue-monitor` ve `poll-scheduler` AYNI ekranı paylaşmaya devam eder; bu blok
+ * yalnız hangi kanalın BAŞLANGIÇ SIRASINDA önce geleceğini belirler. Kanal
+ * SİLİNMEZ, EKLENMEZ, BİRLEŞTİRİLMEZ; hiçbir aktivite/hüküm kuralı değişmez.
+ * ════════════════════════════════════════════════════════════════════════ */
+
+/** Ortak ekranı AÇAN katalog girişi — dar tip (katalog id'leriyle birebir). */
+export type SchedFocusContext = 'queue-monitor' | 'poll-scheduler';
+
+/**
+ * Giriş → birincil odak kanalı.
+ * NOT: kanal id'si repo gerçeğidir — `live-polling` (görev metnindeki "live-poll" DEĞİL).
+ */
+export const SCHED_FOCUS_CHANNEL: Readonly<Record<SchedFocusContext, SchedChannelId>> = {
+  'queue-monitor':  'command-exec',
+  'poll-scheduler': 'live-polling',
+} as const;
+
+/** Giriş adı (yalnız görünen metin; makine sözleşmesi id'lerdir). */
+export const SCHED_FOCUS_LABEL: Readonly<Record<SchedFocusContext, string>> = {
+  'queue-monitor':  'Kuyruk İzleyici',
+  'poll-scheduler': 'Sorgu Zamanlayıcı',
+} as const;
+
+/** Odak kanal id'si. Bağlam yok / tanınmıyorsa null → varsayılan sıra korunur. SAF. */
+export function resolveFocusChannel(
+  focus: SchedFocusContext | null | undefined,
+): SchedChannelId | null {
+  if (!focus) return null;
+  return Object.prototype.hasOwnProperty.call(SCHED_FOCUS_CHANNEL, focus)
+    ? SCHED_FOCUS_CHANNEL[focus]
+    : null;
+}
+
+/**
+ * SAF sıralama: odak kanalı BAŞA alır, kalan kanalların göreli sırası AYNEN korunur.
+ * Girdi dizisi MUTASYONA UĞRAMAZ. Bağlam yoksa varsayılan sıra döner.
+ * Odak kanal bulunamazsa sıra DEĞİŞMEZ (uydurma kanal eklenmez).
+ */
+export function orderChannelsForFocus(
+  channels: readonly SchedChannel[],
+  focus: SchedFocusContext | null | undefined,
+): SchedChannel[] {
+  if (!Array.isArray(channels)) return [];
+  const list = channels.slice();
+  const target = resolveFocusChannel(focus);
+  if (target === null) return list;
+  const i = list.findIndex((c) => !!c && c.id === target);
+  if (i <= 0) return list;                     // yok ya da zaten ilk sırada
+  const primary = list[i];
+  list.splice(i, 1);
+  list.unshift(primary);
+  return list;
+}
+
 export const SCHED_CHANNEL_TITLE: Readonly<Record<SchedChannelId, string>> = {
   'command-exec':       '1 · Komut Yürütme',
   'live-polling':       '2 · Canlı Sorgulama',

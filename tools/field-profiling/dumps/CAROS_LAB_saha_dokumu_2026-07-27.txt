@@ -1,0 +1,1252 @@
+CAROS LAB — GERÇEK HEAD UNIT SAHA DÖKÜMÜ
+Cihaz: K24 SMART SERIES (K2401) · Android 10 · 2GB · 4 çekirdek · PowerVR GE8300 · LOW tier
+APK: ölçüm build'i (NODE_ENV=development), v1.0.2 / versionCode 4
+Tarih: 2026-07-27 · Yöntem: adb + CDP (Runtime.evaluate), UI dokunulmadan
+Araç: kontak KAPALI · motor KAPALI · OBD adaptörü BAĞLI DEĞİL
+
+############ BÖLÜM 1 — KATALOG (5 kategori) ############
+ROOT OK (52 düğüm)
+
+##########################################################################
+## KATEGORİ: ARAÇ  [OK]
+##########################################################################
+CAROS LAB
+FAZ A · GELİŞTİRİCİ PLATFORMU
+TÜMÜNÜ KOPYALA
+KAPAT
+ARAÇ
+İLETİŞİM
+ÇALIŞMA ZAMANI
+YAPAY ZEKÂ
+GELİŞTİRİCİ
+CANLI VERİ
+HAZIR
+OBD-II / Mode 01
+
+Tüm Mode-01 PID + marka DID canlı akışı; ham hex, yorumlanmış değer, tazelik ve durum.
+
+PID/DID GEZGİNİ
+HAZIR
+Mode 22 / DID
+
+Salt-okunur PID/DID keşif koordinatörü: aday tarama, doğrulanan/şüpheli/reddedilen sayaçları.
+
+DERİN TARAMA
+EKRAN YOK
+UDS
+
+Çok fazlı ECU/firmware derin tarama orkestrasyonu.
+
+Tek ve güvenli bir giriş noktası yok: deepScanOrchestrator (singleton) ve platformCoreDeepScanWiring (ignition-tetikli, fail-closed) iki ayrı akış. Yeni akış üretmemek için bağlanmadı.
+
+ARAÇ PARMAK İZİ
+HAZIR
+
+Kayıtlı araç kimliği (hash, öğrenilmiş protokol, ECU adresleri), desteklenen PID/DID kanıtları ve keşif deposunun salt-okunur özeti.
+
+Araca SORGU GÖNDERMEZ: VIN okuma / DID sorgusu / tarama tetiklenmez, yalnız zaten kalıcı olan kayıtlar okunur. Ham VIN, plaka ve adaptör MAC ekrana HİÇ gelmez — yalnız geri çevrilemez özetler. Kimlik kaydı yoksa fail-closed KAYNAK YOK gösterilir.
+
+HAZIR = ekran gerçekten var ve açılıyor · EKRAN YOK = araç henüz yazılmadı · KAPALI = güvenlik politikası gereği kapalı. Ekran içi "YALNIZ ALTYAPI" / "BAĞLI DEĞİL" alt-durumları o ekranın kendi başlığında gösterilir.
+
+##########################################################################
+## KATEGORİ: İLETİŞİM  [OK]
+##########################################################################
+CAROS LAB
+FAZ A · GELİŞTİRİCİ PLATFORMU
+TÜMÜNÜ KOPYALA
+KAPAT
+ARAÇ
+İLETİŞİM
+ÇALIŞMA ZAMANI
+YAPAY ZEKÂ
+GELİŞTİRİCİ
+HAM OBD TRAFİĞİ
+HAZIR
+ELM327
+
+Native adaptör trafiği: komut / yanıt / gecikme (ms). Yalnız OKUR — komut göndermez.
+
+CAN İZLEYİCİ
+HAZIR
+CAN
+
+Ham CAN frame kütüğü (id + payload), panel açıkken toplanır.
+
+KWP İZLEYİCİ
+HAZIR
+KWP2000
+
+KWP2000/ISO9141 uygulanabilirliği, oturum tazeliği ve native kurtarma merdiveni (ATPC) sayaçlarının salt-okunur izlenmesi.
+
+Keep-alive (ATWM/ATSW/ATST) JS tarafına AÇILMAMIŞTIR — yalnız native ElmInitSequencer içinde yaşar; o alanlar KAYNAK YOK gösterilir. Ekran kurtarma TETİKLEMEZ, yalnız izler.
+
+UDS GEZGİNİ
+EKRAN YOK
+UDS / ISO 14229
+
+UDS servis/alt-fonksiyon gezgini, NRC çözümleme.
+
+Ekran yok. İstek üreten bir gezgin güvenlik incelemesi gerektirir (Faz A2).
+
+OTURUM DENETÇİSİ
+HAZIR
+
+Oturum durumunun 6 katmanlı salt-okunur görünümü: transport · handshake · data gate · KWP · HAL · runtime. Her değer OBSERVED/DERIVED/UNAVAILABLE/STALE işaretli; kaynak çelişkileri ayrı gösterilir.
+
+PHONE HUB HARDWARE PROBE
+HAZIR
+Bluetooth
+
+Head unit'in gerçek Bluetooth/A2DP/HFP, üretici-MCU ve ses yolu yeteneklerinin salt-okunur gözlemi + OBD eşzamanlılık çakışma değerlendirmesi.
+
+Hiçbir şey BAŞLATMAZ: keşif/tarama, eşleştirme, bağlantı, SCO, ses yolu değişimi, medya/çağrı komutu, izin isteği ve OBD müdahalesi YOK. "Bağlı görünmek" yetenek kanıtı DEĞİLDİR — kontrol otoritesi ayrı gösterilir. MAC, cihaz adı ve kişisel veri GÖSTERİLMEZ.
+
+PHONE HUB SAHA DOĞRULAMA
+HAZIR
+Bluetooth / Telecom / MediaSession
+
+Araç geldiğinde Phone Hub donanım gerçeklerini adım adım doğrulayan saha test aracı: cihaz rolü kapısı, beş senaryo (baseline · telefon · telefon medyası · OBD · telefon+OBD), kanıta dayalı otorite kararları, OBD eşzamanlılık hükmü ve PII'siz JSON dışa aktarma.
+
+Hiçbir şey BAŞLATMAZ: eşleştirme, keşif/tarama, BLE scan, RFCOMM, SCO, ses yolu/modu değişimi, medya-transport komutu, çağrı, SMS, izin isteği ve vendor bind YOK. Her ölçümü KULLANICI elle başlatır. UNKNOWN varsayılandır; kanıt yoksa hiçbir alan başarılı gösterilmez. Cihaz TELEFON olarak doğrulanırsa saha aşamaları KİLİTLENİR — telefonda alınan ölçüm head unit sonucu SAYILMAZ. Kullanıcı beyanı yalnız kanıt kaydıdır, teknik kanıtın yerine GEÇMEZ. Kayıt YALNIZ yereldir (uzak sunucuya gönderim yok).
+
+PHONE HUB CANLI BAĞLANTI
+HAZIR
+RFCOMM / AES-GCM
+
+RFCOMM control-plane bağlantısının canlı tanısı: sunucu durumu, el sıkışma aşaması, protokol/yetenek anlaşması, şifreli oturum, kalp atışı, çerçeve ve güvenlik sayaçları, PII'siz olay defteri.
+
+Düğmeler YALNIZ CAROS'un KENDİ Phone Hub sunucusunun yaşam döngüsünü yönetir; araca, ECU'ya veya OBD'ye hiçbir komut GÖNDERİLMEZ. Bluetooth açılmaz/kapatılmaz, tarama ve eşleştirme BAŞLATILMAZ, OBD soketine dokunulmaz. Doğrulama kodu, oturum anahtarı, MAC, cihaz adı ve ham yük bu ekranda GÖSTERİLMEZ. "Bağlandı" yalnız şifreli oturum gerçekten kurulduğunda yazılır. Telefon+OBD eşzamanlılığının gerçek etkisi FIELD_TEST_REQUIRED olarak AÇIK bırakılmıştır — kod izolasyonu bunu kanıtlamaz.
+
+ADAPTÖR TANILAMA
+HAZIR
+ELM327
+
+ELM327/Bluetooth taşıma ve OBD oturum sağlığının salt-okunur görünümü: transport, oturum bayrakları, yaşam döngüsü sayaçları ve iki AYRI sağlık motorunun ayrı ayrı hükmü.
+
+AT/OBD komutu GÖNDERMEZ (adaptör kimlik sorgusu ATI/ATZ dahil), reconnect/reset/recovery tetiklemez. Adaptör adı/adresi/seri numarası GÖSTERİLMEZ. RSSI, native buffer doluluğu, klon/orijinal hükmü ve gelişmiş BLE tanısı için JS kaynağı YOKTUR — KAYNAK YOK gösterilir.
+
+HAZIR = ekran gerçekten var ve açılıyor · EKRAN YOK = araç henüz yazılmadı · KAPALI = güvenlik politikası gereği kapalı. Ekran içi "YALNIZ ALTYAPI" / "BAĞLI DEĞİL" alt-durumları o ekranın kendi başlığında gösterilir.
+
+##########################################################################
+## KATEGORİ: ÇALIŞMA ZAMANI  [OK]
+##########################################################################
+CAROS LAB
+FAZ A · GELİŞTİRİCİ PLATFORMU
+TÜMÜNÜ KOPYALA
+KAPAT
+ARAÇ
+İLETİŞİM
+ÇALIŞMA ZAMANI
+YAPAY ZEKÂ
+GELİŞTİRİCİ
+KUYRUK İZLEYİCİ
+HAZIR
+
+Çalışma Zamanı Zamanlama ortak görünümü: 6 ayrı runtime otoritesi (command execution · live polling · handshake · KWP · discovery/deep scan · CAN collection) salt-okunur listelenir.
+
+Native komut kuyruğunun DERİNLİĞİ JS'e açılmamıştır; o alan UNAVAILABLE olarak gösterilir (boş kuyruk varsayılmaz).
+
+SORGU ZAMANLAYICI
+HAZIR
+
+Çalışma Zamanı Zamanlama ortak görünümü (Kuyruk İzleyici ile aynı ekran): poll zamanlayıcısı, tazelik kapısı ve native poll kanıtı salt-okunur.
+
+Aktif poll kadansı UNAVAILABLE: computeObdPollProfile saf bir fonksiyondur, hesaplanan profil hiçbir yerde saklanmaz.
+
+KURTARMA İZLEYİCİ
+EKRAN YOK
+
+Kurtarma merdiveni durumu ve tetiklenme geçmişi.
+
+Ekran yok.
+
+KANIT GÖRÜNTÜLEYİCİ
+HAZIR
+
+Mevcut kanıt kaynaklarının birleşik salt-okunur görünümü: olay izi + AI Core kanıtları + doğrulama kütüğü.
+
+PERFORMANS
+HAZIR
+
+FPS/bellek örnekleri, runtime modu ve hata sayaçları.
+
+HAZIR = ekran gerçekten var ve açılıyor · EKRAN YOK = araç henüz yazılmadı · KAPALI = güvenlik politikası gereği kapalı. Ekran içi "YALNIZ ALTYAPI" / "BAĞLI DEĞİL" alt-durumları o ekranın kendi başlığında gösterilir.
+
+##########################################################################
+## KATEGORİ: YAPAY ZEKÂ  [OK]
+##########################################################################
+CAROS LAB
+FAZ A · GELİŞTİRİCİ PLATFORMU
+TÜMÜNÜ KOPYALA
+KAPAT
+ARAÇ
+İLETİŞİM
+ÇALIŞMA ZAMANI
+YAPAY ZEKÂ
+GELİŞTİRİCİ
+MAVİ KONSOLU
+HAZIR
+
+Mavi sesli asistanın RAM durumunun salt-okunur konsolu: yaşam döngüsü bayrakları, son teşhis aşamaları (en yeni→en eski), AI devre kesici ve sağlayıcı soğuma pencereleri.
+
+Dinleme/TTS başlatmaz, AI sağlayıcısına istek atmaz, komut çalıştırmaz. GİZLİLİK: transcript metni, son komut metni, konuşma geçmişi ve öneri metinleri GÖSTERİLMEZ — yalnız VAR/YOK ve ADET. Sağlayıcı soğumaları AYRI tutulur, tek toplamda birleştirilmez.
+
+EYLEM KAYITLARI
+EKRAN YOK
+
+Kayıtlı typed action listesi, güvenlik sınıfı ve pilot durumu.
+
+Ekran yok.
+
+ARAÇ ÇAĞRISI
+EKRAN YOK
+
+Araç çağrısı (tool call) izleme: girdi, çıktı, red nedenleri.
+
+Ekran yok.
+
+BELLEK GEZGİNİ
+EKRAN YOK
+
+Vehicle Memory kalıcı gerçekleri ve öğrenilmiş parmak izi kayıtları.
+
+Ekran yok.
+
+BİLGİ TABANI GEZGİNİ
+EKRAN YOK
+
+Teşhis bilgi tabanı (DTC → neden/kontrol eşlemeleri) gezgini.
+
+Ekran yok.
+
+HAZIR = ekran gerçekten var ve açılıyor · EKRAN YOK = araç henüz yazılmadı · KAPALI = güvenlik politikası gereği kapalı. Ekran içi "YALNIZ ALTYAPI" / "BAĞLI DEĞİL" alt-durumları o ekranın kendi başlığında gösterilir.
+
+##########################################################################
+## KATEGORİ: GELİŞTİRİCİ  [OK]
+##########################################################################
+CAROS LAB
+FAZ A · GELİŞTİRİCİ PLATFORMU
+TÜMÜNÜ KOPYALA
+KAPAT
+ARAÇ
+İLETİŞİM
+ÇALIŞMA ZAMANI
+YAPAY ZEKÂ
+GELİŞTİRİCİ
+ÇÖZÜCÜ KAYITLARI
+HAZIR
+
+Repoda kayıtlı standart PID ve üretici DID çözücü tanımlarının salt-okunur envanteri: birim, aralık, bayt, çözücü sınıfı, formül özeti, profil ve derleme sonucu — arama ve filtre ile.
+
+STATİK katalog: ECU sorgusu, PID/DID keşfi, bağlantı, polling veya native çağrı YAPMAZ; araçta neyin desteklendiğini BİLMEZ. Çözücü fonksiyon gövdesi GÖSTERİLMEZ (toString kullanılmaz). Standart PID formülleri JS kapanışı olduğu için makine-okunur özet YOKTUR.
+
+KEŞİF VERİTABANI
+HAZIR
+
+Sahada yakalanan katalog-dışı PID/DID gözlemleri; filtre, arama, JSON dışa aktarma.
+
+HAM KOMUT KONSOLU
+KAPALI
+ELM327 / UDS
+
+Serbest ham komut gönderimi.
+
+GÜVENLİK POLİTİKASI: ham yazma/komut gönderimi kapalı (ECU write · coding · SecurityAccess · actuator · DTC clear kapsam dışı). Kart işlem çalıştırmaz.
+
+KAYIT OYNATMA
+HAZIR
+
+Kara kutu kayıt oynatımı — kaydedilmiş oturumun olay akışı.
+
+KIYASLAMA
+EKRAN YOK
+
+Poll turu, decode ve render bütçesi ölçümü.
+
+Ekran yok.
+
+YÜK TESTİ
+KAPALI
+
+Yüksek yük altında adaptör/kuyruk dayanıklılık testi.
+
+GÜVENLİK POLİTİKASI: ECU/adaptör üzerinde kasıtlı yük üretir; canlı araçta çalıştırılabilir bir yüzey olarak açılmadı.
+
+HAZIR = ekran gerçekten var ve açılıyor · EKRAN YOK = araç henüz yazılmadı · KAPALI = güvenlik politikası gereği kapalı. Ekran içi "YALNIZ ALTYAPI" / "BAĞLI DEĞİL" alt-durumları o ekranın kendi başlığında gösterilir.
+
+############ BÖLÜM 2 — EKRAN İÇERİKLERİ ############
+
+============================================================================
+>>> ÇALIŞMA ZAMANI → PERFORMANS   [tab:YOK kart:OK]
+============================================================================
+CAROS LAB
+FAZ A · GELİŞTİRİCİ PLATFORMU
+/ Çalışma Zamanı / Performans
+TÜMÜNÜ KOPYALA
+KAPAT
+GERİ
+PERFORMANS
+HAZIR
+
+OLAY HIZLARI
+
+CAN
+150.4s ago
+0 Hz
+OBD
+never
+0 Hz
+GPS
+606ms
+4 Hz
+Dinleyici
+0
+CAN düşürülen
+0geçersiz frame
+OBD düşürülen
+0geçersiz frame
+GPS düşürülen
+0geçersiz frame
+
+KARO ÖNBELLEĞİ
+
+Önbellek İsabet Oranı
+100%
+Önbellek Boyutu
+706 KB40 karo
+İsabet / Iska
+4 / 0
+
+KAYNAK DURUMU
+
+CAN
+ÖLÜHAL sourceHealth
+OBD
+ÖLÜHAL sourceHealth
+GPS
+canlıHAL sourceHealth
+Son güncelleme
+607431worker monotonik saati (ms) — duvar saati DEĞİL
+
+Worker yalnız DURUM GEÇİŞİNDE mesaj yollar; hiç geçiş olmadıysa üç alan da BİLİNMİYOR kalır — bu "ölü" DEMEK DEĞİLDİR. Ayrıntılı oturum kırılımı için Oturum Denetçisi ekranını kullanın.
+
+HATA KÜTÜĞÜ
+
+TEMİZLE
+
+Hata yok
+
+============================================================================
+>>> ÇALIŞMA ZAMANI → KUYRUK İZLEYİCİ   [tab:OK kart:OK]
+============================================================================
+CAROS LAB
+FAZ A · GELİŞTİRİCİ PLATFORMU
+/ Çalışma Zamanı / Kuyruk İzleyici
+TÜMÜNÜ KOPYALA
+KAPAT
+GERİ
+KUYRUK İZLEYİCİ
+HAZIR
+ÇALIŞMA ZAMANI ZAMANLAMA
+SALT OKUNUR — araç iletişimini değiştirmez
+YENİLE
+ÖLÇÜLDÜ 11 · TÜRETİLDİ 1 · BAYAT 0 · KAYNAK YOK 19 · RİSKLİ 1
+GİRİŞ: Kuyruk İzleyici · birincil odak: 1 · Komut Yürütme
+
+Tek bir "genel kuyruk / zamanlayıcı" YOKTUR — aşağıdaki her kart AYRI bir çalışma zamanı otoritesidir ve birleştirilmez. YENİLE, native SAYAÇ kanıtını tazeler ve yan etkisiz senkron getter'ları yineler: araca sorgu göndermez, kuyruk boşaltmaz, handshake veya Derin Tarama tetiklemez. Kuyruk derinliği bilinmiyorsa 0 GÖSTERİLMEZ. Bu giriş yalnız SIRALAMAYI değiştirir: hiçbir kanal gizlenmez, hiçbir değer, aktivite kararı veya hüküm giriş'e göre farklılaşmaz.
+
+ÇALIŞMA ZAMANI: KISMİ
+1 kanal çalışıyor, 4 kanalın durumu okunamıyor.
+Eksik gözlem yüzeyi varken tüm runtime "ACTIVE" ilan edilmez.
+Bu bir araç bağlantısı durumu DEĞİL, çalışma zamanı zamanlama durumudur. "Zamanlayıcı var" tek başına ETKİN kanıtı sayılmaz; kuyruk bilinmediği için BOŞTA varsayılmaz.
+1 · KOMUT YÜRÜTME
+BİRİNCİL ODAK
+BİLİNMİYOR
+otorite: NATIVE · OBDManager poll döngüsü + seri kanal
+Native komut hattının çalışıp çalışmadığı okunamıyor (kanıt önbelleği boş).
+komut kuyruğu derinliği
+—
+YOK · zaman damgası yok
+Native OBDManager seri kanalının kuyruk derinliği JS'e AÇILMAMIŞTIR. Boş kuyruk VARSAYILMAZ.
+KAYNAK YOK
+komut önceliği / sıralama politikası
+—
+YOK · zaman damgası yok
+Öncelik native tarafta; JS'e açılmış okuma yüzeyi yok.
+KAYNAK YOK
+native poll/komut kanıtı
+—
+obd/extendedPollEvidence.getExtendedPollEvidence() · zaman damgası yok
+Kanıt önbelleği BOŞ (present=false). Önbellek yalnız "Tanı Gönder" akışındaki ASYNC native pull ile dolar; bu ekran pull YAPMAZ → sayaçlar 0 olarak GÖSTERİLMEZ.
+KAYNAK YOK
+2 · CANLI SORGULAMA
+ÇALIŞMIYOR
+otorite: JS · obdService stale-watchdog + tazelik kapısı
+Stale-watchdog zamanlayıcısı yok — canlı poll oturumu kurulmamış.
+stale-watchdog timer nesnesi
+false
+obdService.getObdSessionHealth() · zaman damgası yok
+YALNIZ zamanlayıcının VARLIĞI. Veri aktığı anlamına GELMEZ.
+ÖLÇÜLDÜ
+veri tazeliği (dataFresh)
+false
+obdService.getObdSessionHealth() · zaman damgası yok
+Kadans-göreli tazelik kapısı.
+ÖLÇÜLDÜ
+son geçerli ECU frame
+—
+obdService.getOBDStatusSnapshot() · zaman damgası yok
+Kaynak bu alan için değer vermedi.
+KAYNAK YOK
+tazelik penceresi (ms)
+17000
+obdService.getObdFreshWindowMs() · zaman damgası yok
+Bu ekrandaki TEK meşru bayatlık eşiği.
+ÖLÇÜLDÜ
+aktif poll kadansı (fast/slow ms)
+—
+YOK · zaman damgası yok
+computeObdPollProfile() SAF bir fonksiyondur; obdService hesapladığı profili SAKLAMAZ ve native'e gönderilen değeri de tutmaz. Yeniden hesaplamak GERÇEK aktif kadansı kanıtlamaz → uydurma değer gösterilmez.
+KAYNAK YOK
+fast/slow grup dağılımı
+—
+YOK · zaman damgası yok
+Grup üyeliği native tarafta; JS'e açılmış okuma yüzeyi yok.
+KAYNAK YOK
+mock poll motoru
+HAYIR
+obdService.getOBDStatusSnapshot() (source alanı) · zaman damgası yok
+KURAL: source === 'mock' → mock zamanlayıcısı çalışıyor, aksi hâlde hayır.
+TÜRETİLDİ
+3 · HANDSHAKE / İLK KURULUM
+BİLİNMİYOR
+otorite: JS · obdService init akışı
+"Şu anda handshake sürüyor mu" için ayrı bir çalışma bayrağı YOK — yalnız SON işin sonucu okunabilir.
+kuyruk
+—
+YOK · zaman damgası yok
+Handshake bir KUYRUK değildir: bağlantı başına TEK ATIMLIK init işidir. Kuyruk kavramı uygulanmaz.
+KAYNAK YOK
+son iş sonucu
+not_run
+obdService.getHandshakeDiagnostics() · zaman damgası yok
+Sınıflandırılmış handshake sonucu.
+ÖLÇÜLDÜ
+son çalıştırma
+—
+obdService.getHandshakeDiagnostics() · zaman damgası yok
+Bu oturumda hiç çalışmadı.
+KAYNAK YOK
+iş süresi (ms)
+—
+obdService.getHandshakeDiagnostics() · zaman damgası yok
+Ölçülmedi.
+KAYNAK YOK
+timeout aşaması
+—
+obdService.getHandshakeDiagnostics() · zaman damgası yok
+Timeout olmadı.
+KAYNAK YOK
+başarısızlık nedeni
+—
+obdService.getHandshakeDiagnostics() · zaman damgası yok
+Başarısızlık kaydı yok.
+KAYNAK YOK
+4 · KWP KEEP-ALİVE / KURTARMA
+BİLİNMİYOR
+otorite: NATIVE · ElmProtocol keep-alive + kurtarma merdiveni
+Kurtarma kanıtı okunamıyor → durum bilinmiyor.
+keep-alive (ATWM) zamanlaması
+—
+YOK · zaman damgası yok
+Keep-alive yalnız native ElmProtocol içinde çalışır; JS'e a
+
+============================================================================
+>>> ÇALIŞMA ZAMANI → KANIT GÖRÜNTÜLEYİCİ   [tab:OK kart:OK]
+============================================================================
+CAROS LAB
+FAZ A · GELİŞTİRİCİ PLATFORMU
+/ Çalışma Zamanı / Kanıt Görüntüleyici
+TÜMÜNÜ KOPYALA
+KAPAT
+GERİ
+KANIT GÖRÜNTÜLEYİCİ
+HAZIR
+yükleniyor…
+
+============================================================================
+>>> İLETİŞİM → OTURUM DENETÇİSİ   [tab:OK kart:OK]
+============================================================================
+CAROS LAB
+FAZ A · GELİŞTİRİCİ PLATFORMU
+/ İletişim / Oturum Denetçisi
+TÜMÜNÜ KOPYALA
+KAPAT
+GERİ
+OTURUM DENETÇİSİ
+HAZIR
+yükleniyor…
+
+============================================================================
+>>> İLETİŞİM → ADAPTÖR TANILAMA   [tab:OK kart:OK]
+============================================================================
+CAROS LAB
+FAZ A · GELİŞTİRİCİ PLATFORMU
+/ İletişim / Adaptör Tanılama
+TÜMÜNÜ KOPYALA
+KAPAT
+GERİ
+ADAPTÖR TANILAMA
+HAZIR
+ELM327
+ADAPTÖR TANILAMA
+SALT OKUNUR — AT/OBD komutu göndermez
+YENİLE
+ÖLÇÜLDÜ 19 · TÜRETİLDİ 2 · KAYNAK YOK 12
+
+Yalnız mevcut senkron getter'lar okunur: AT/OBD komutu, adaptör kimlik sorgusu, reconnect, reset veya recovery TETİKLENMEZ. Adaptör adı/adresi/seri numarası ekrana hiç gelmez. Periyodik yenileme YOKTUR.
+
+ADAPTÖR SAĞLIĞI: BAĞLI DEĞİL
+Transport bağlı değil.
+Native handle yok ya da link ölü (transport ready = false).
+Son kopma nedeni: OBD_NO_DEVICE.
+"Bağlı" olmak TEK BAŞINA sağlıklı DEMEK DEĞİLDİR: oturum hazırlığı, veri tazeliği ve kopma baskısı ayrıca değerlendirilir. Kaynak okunamazsa hüküm BİLİNMİYOR kalır.
+1 · TRANSPORT
+transport türü
+none
+obdService.getTransportStats() · zaman damgası yok
+Son bilinen taşıma katmanı (classic/ble/none).
+ÖLÇÜLDÜ
+bağlı
+false
+obdService.getTransportStats() · zaman damgası yok
+YALNIZ bağlantı durumudur — tek başına "sağlıklı" ANLAMINA GELMEZ.
+ÖLÇÜLDÜ
+reconnect denemesi
+0
+obdService.getTransportStats() · zaman damgası yok
+Bu oturumdaki yeniden bağlanma denemesi sayısı.
+ÖLÇÜLDÜ
+son kopma nedeni
+OBD_NO_DEVICE
+obdService.getTransportStats() · zaman damgası yok
+Son tanı olayının hata kodu.
+ÖLÇÜLDÜ
+adaptör kimliği
+kayıt yok
+obdService.getOBDDataSnapshot() · zaman damgası yok
+GİZLİLİK: adaptör adı/adresi EKRANA BASILMAZ; yalnız kayıtlı olup olmadığı gösterilir. Repo'nun kendi transport tanısı da adres/ad taşımaz.
+TÜRETİLDİ
+son görülme
+—
+obdService.getOBDStatusSnapshot() · zaman damgası yok
+Damga 0 — hiç gerçek veri görülmedi. "şimdi" YAZILMAZ.
+KAYNAK YOK
+son alınan veri
+—
+obdService.getOBDDataSnapshot() · zaman damgası yok
+Damga 0 — hiç yanıt alınmadı. "şimdi" YAZILMAZ.
+KAYNAK YOK
+2 · OBD OTURUMU
+connection state
+error
+obdService.getOBDStatusSnapshot() · zaman damgası yok
+OBD bağlantı durum makinesi.
+ÖLÇÜLDÜ
+transport ready
+false
+obdService.getObdSessionHealth() · zaman damgası yok
+Native handle duruyor ve link canlı.
+ÖLÇÜLDÜ
+session ready
+false
+obdService.getObdSessionHealth() · zaman damgası yok
+Veri kapısı geçildi (ELM init + protokol + ilk gerçek ECU frame'i).
+ÖLÇÜLDÜ
+polling active
+false
+obdService.getObdSessionHealth() · zaman damgası yok
+TS tarafı stale watchdog çalışıyor.
+ÖLÇÜLDÜ
+data fresh (adaptif pencere)
+false
+obdService.getObdSessionHealth() · zaman damgası yok
+ADAPTİF tazelik kapısı. Aşağıdaki MUTLAK donma bayrağıyla AYNI ŞEY DEĞİLDİR.
+ÖLÇÜLDÜ
+tazelik penceresi (ms)
+17000
+obdService.getObdFreshWindowMs() · zaman damgası yok
+Aktif poll kadansından türer — sabit değildir.
+ÖLÇÜLDÜ
+MUTLAK donma (4 sn eşiği)
+false
+obd/ObdHealthMonitor.getObdHealth() · zaman damgası yok
+ObdHealthMonitor'ın AYRI hükmü: son paket 4 sn'den eskiyse gösterge "donuk" sayılır. Adaptif dataFresh ile çelişebilir; birleştirilmez.
+ÖLÇÜLDÜ
+motorlar uyuşuyor mu
+ÇELİŞKİ
+türetim (bu model) · zaman damgası yok
+dataFresh (adaptif) ile isStale (mutlak) mantıksal olarak zıt olmalı. Zıt DEĞİLSE iki motor farklı şey söylüyordur — hangisinin haklı olduğu BURADA KARARA BAĞLANMAZ, çelişki görünür kılınır.
+TÜRETİLDİ
+3 · YAŞAM DÖNGÜSÜ
+reset istendi
+0
+obdService.getObdConnLifecycle() · zaman damgası yok
+Reset talebi sayısı.
+ÖLÇÜLDÜ
+reset tamamlandı
+0
+obdService.getObdConnLifecycle() · zaman damgası yok
+Tamamlanan reset sayısı — istekle FARKI yarım kalan resetleri gösterir.
+ÖLÇÜLDÜ
+disconnect çağrısı
+1
+obdService.getObdConnLifecycle() · zaman damgası yok
+Bağlantı kapatma çağrısı sayısı.
+ÖLÇÜLDÜ
+reconnect isteği
+2
+obdService.getObdConnLifecycle() · zaman damgası yok
+Yeniden bağlanma talebi sayısı.
+ÖLÇÜLDÜ
+son reset nedeni
+—
+obdService.getObdConnLifecycle() · zaman damgası yok
+Kayıtlı reset nedeni yok.
+KAYNAK YOK
+son reset zamanı
+—
+obdService.getObdConnLifecycle() · zaman damgası yok
+Damga 0 — bu olay hiç gerçekleşmedi. "şimdi" YAZILMAZ.
+KAYNAK YOK
+son disconnect zamanı
+2026-07-27T13:26:24.290Z
+obdService.getObdConnLifecycle() · 13dk önce
+Gerçek duvar-saati damgası.
+ÖLÇÜLDÜ
+son reconnect zamanı
+2026-07-27T13:26:24.578Z
+obdService.getObdConnLifecycle() · 13dk önce
+Gerçek duvar-saati damgası.
+ÖLÇÜLDÜ
+son paket yaşı (lifecycle)
+—
+obdService.getObdConnLifecycle() · zaman damgası yok
+Hiç paket alınmadı (-1 sentinel).
+
+============================================================================
+>>> YAPAY ZEKÂ → MAVİ KONSOLU   [tab:OK kart:OK]
+============================================================================
+CAROS LAB
+FAZ A · GELİŞTİRİCİ PLATFORMU
+/ Yapay Zekâ / Mavi Konsolu
+TÜMÜNÜ KOPYALA
+KAPAT
+GERİ
+MAVİ KONSOLU
+HAZIR
+yükleniyor…
+
+============================================================================
+>>> ARAÇ → ARAÇ PARMAK İZİ   [tab:OK kart:OK]
+============================================================================
+CAROS LAB
+FAZ A · GELİŞTİRİCİ PLATFORMU
+/ Araç / Araç Parmak İzi
+TÜMÜNÜ KOPYALA
+KAPAT
+GERİ
+ARAÇ PARMAK İZİ
+HAZIR
+ARAÇ PARMAK İZİ
+SALT OKUNUR — araca sorgu göndermez
+YENİLE
+ÖLÇÜLDÜ 2 · TÜRETİLDİ 1 · KAYNAK YOK 9
+
+Yalnız ZATEN KAYITLI kimlik ve keşif kanıtları okunur; VIN okuma, DID/PID sorgusu, handshake veya tarama TETİKLENMEZ. Ham VIN, plaka ve adaptör MAC'i bu ekrana hiç gelmez — yalnız geri çevrilemez özetler gösterilir. Periyodik yenileme YOKTUR.
+
+KANIT SAĞLIĞI: KAYNAK YOK (0/4 kaynak)
+kimlik: Kayıtlı araç parmak izi yok — handshake henüz kimlik üretmedi.
+ECU adresleri: Kimlik kaydı olmadan ECU listesi okunamaz.
+desteklenen PID: PID keşfi hiç çalışmadı (getSupportedPids() null).
+keşif deposu: VIN özeti üretilemediği için depo anahtarı yok (araca sorgu GÖNDERİLMEZ).
+Kimlik kaydı YOKSA hiçbir koşulda HAZIR denmez: kanıtların hangi araca ait olduğu bilinmeden "hazır" demek yanlış olurdu. Boş liste ile KAYNAK YOK ayrı gösterilir.
+1 · ARAÇ KİMLİĞİ
+parmak izi (hash)
+—
+vehicleFingerprintService.vehicleFingerprintStore.list() · zaman damgası yok
+Kayıtlı araç parmak izi YOK. Hash UYDURULMAZ: kimlik ancak gerçek bir handshake sonrası kaydedilir. Bu ekran araca sorgu göndermez, kayıt oluşturmaz.
+KAYNAK YOK
+kayıtlı araç sayısı
+0
+vehicleFingerprintService.vehicleFingerprintStore.list() · zaman damgası yok
+Kalıcı LRU deposundaki araç kimliği sayısı.
+ÖLÇÜLDÜ
+2 · ECU KEŞFİ
+görülen ECU sayısı
+—
+vehicleFingerprintService.vehicleFingerprintStore.list() · zaman damgası yok
+Kayıtlı parmak izi YOK → ECU listesi de yok. Boş liste ile "kaynak yok" AYRI şeylerdir.
+KAYNAK YOK
+3 · DESTEKLENEN VERİLER
+desteklenen PID sayısı
+—
+obd/extendedPidService.getSupportedPids() · zaman damgası yok
+PID keşfi HİÇ yapılmadı (getSupportedPids() null döndü). Sıfır göstermek "araç hiç PID desteklemiyor" yalanı olurdu.
+KAYNAK YOK
+otomatik keşfedilmiş DID sayısı
+—
+obd/autoDidDiscovery.getAutoDiscoveredDids() · zaman damgası yok
+Boş dizi döndü. Bu API "tarama yapılmadı" ile "tarandı, bulunamadı" arasını AYIRT ETMİYOR — bu yüzden 0 diye HÜKÜM KURULMAZ.
+KAYNAK YOK
+kayıtlı keşif kaydı
+—
+obd/discovery/discoveredDataRepository.loadRecords() · zaman damgası yok
+Depo anahtarı üretilemedi: kayıtlı araç (ve VIN özeti) yok. Bu ekran araca sorgu göndererek VIN OKUMAZ — anahtar ancak mevcut kayıttan türetilir.
+KAYNAK YOK
+4 · KANIT SAĞLIĞI
+kanıt sağlığı
+KAYNAK YOK
+türetim (bu model) · zaman damgası yok
+HAZIR = kimlik + ECU + PID + kayıt kaynaklarının hepsi okundu. Kimlik yoksa ASLA HAZIR denmez (fail-closed).
+TÜRETİLDİ
+okunabilen kaynak
+0 / 4
+türetim (bu model) · zaman damgası yok
+Dört kaynaktan kaçı gerçekten veri verdi.
+ÖLÇÜLDÜ
+eksik: kimlik
+—
+vehicleFingerprintService.vehicleFingerprintStore.list() · zaman damgası yok
+Kayıtlı araç parmak izi yok — handshake henüz kimlik üretmedi.
+KAYNAK YOK
+eksik: ECU adresleri
+—
+vehicleFingerprintService.vehicleFingerprintStore.list() · zaman damgası yok
+Kimlik kaydı olmadan ECU listesi okunamaz.
+KAYNAK YOK
+eksik: desteklenen PID
+—
+obd/extendedPidService.getSupportedPids() · zaman damgası yok
+PID keşfi hiç çalışmadı (getSupportedPids() null).
+KAYNAK YOK
+eksik: keşif deposu
+—
+obd/discovery/discoveredDataRepository.loadRecords() · zaman damgası yok
+VIN özeti üretilemediği için depo anahtarı yok (araca sorgu GÖNDERİLMEZ).
+KAYNAK YOK
+
+Parmak izi hash'i ve VIN özeti GERİ ÇEVRİLEMEZ; ham VIN hiçbir alanda gösterilmez ve loglanmaz. Hash yoksa üretilmez, zaman damgası yoksa "şimdi" yazılmaz. Listeler bounded'dır (toplam sayı ayrıca beyan edilir) — kesilen kuyruk gizlenmez.
+
+============================================================================
+>>> İLETİŞİM → OTURUM DENETÇİSİ   [tab:OK kart:OK]
+============================================================================
+CAROS LAB
+FAZ A · GELİŞTİRİCİ PLATFORMU
+/ İletişim / Oturum Denetçisi
+TÜMÜNÜ KOPYALA
+KAPAT
+GERİ
+OTURUM DENETÇİSİ
+HAZIR
+SALT OKUNUR — bağlantıya, oturuma veya ECU'ya dokunmaz
+YENİLE
+ÖLÇÜLDÜ 38 · TÜRETİLDİ 0 · BAYAT 0 · KAYNAK YOK 21
+
+YENİLE yalnız mevcut senkron snapshot getter'larını yeniden çağırır; native pull, reconnect, reset, kurtarma veya komut gönderimi YOKTUR. Kaynağı olmayan alanlar "KAYNAK YOK" olarak gösterilir — değer uydurulmaz.
+
+OTURUM ÖZETİ: KOPUK
+connectionState=error ve transport hazır değil.
+Bu bir sağlık İDDİASI değil, okunabilen sinyallerin fail-closed özetidir. Güvenli birleşim kuralı uygulanamıyorsa "BİLİNMİYOR" gösterilir.
+1 · TRANSPORT / ADAPTÖR
+connectionState
+error
+obdService.getOBDStatusSnapshot() · zaman damgası yok
+Tek alanda 4 gerçeği taşıyan eski alan; tek başına "sağlıklı" kanıtı DEĞİL.
+ÖLÇÜLDÜ
+transportConnected
+false
+obdService.getOBDDataSnapshot() · zaman damgası yok
+RFCOMM/GATT/TCP linki doğrulanmış canlı mı (ATRV dahil paket geliyor mu).
+ÖLÇÜLDÜ
+transport türü
+none
+obdService.getTransportStats() · zaman damgası yok
+"none" = son bilinen transport yok. Adres/cihaz adı gizlilik gereği okunmaz.
+ÖLÇÜLDÜ
+son native paket (link heartbeat)
+—
+obdService.getOBDDataSnapshot() · zaman damgası yok
+Kaynak bu alan için değer vermedi.
+KAYNAK YOK
+reconnect denemesi
+0
+obdService.getTransportStats() · zaman damgası yok
+Oturum içi sayaç.
+ÖLÇÜLDÜ
+son kopma nedeni
+OBD_NO_DEVICE
+obdService.getTransportStats() · zaman damgası yok
+Sınıflandırılmış hata kodu (ham log değil).
+ÖLÇÜLDÜ
+reset / disconnect / reconnect
+0/0 · 1 · 2
+obdService.getObdConnLifecycle() · zaman damgası yok
+Bounded yaşam-döngüsü sayaçları (istendi/tamamlandı ayrımı korunur).
+ÖLÇÜLDÜ
+son reset nedeni
+—
+obdService.getObdConnLifecycle() · zaman damgası yok
+Bu oturumda reset kaydı yok.
+KAYNAK YOK
+son gerçek veri yaşı (ms)
+—
+obdService.getObdConnLifecycle() · zaman damgası yok
+Hiç gerçek veri paketi alınmadı (-1).
+KAYNAK YOK
+2 · PROTOKOL / HANDSHAKE
+handshake sonucu
+not_run
+obdService.getHandshakeDiagnostics() · zaman damgası yok
+Son denemenin sınıflandırılmış sonucu.
+ÖLÇÜLDÜ
+handshake çalışma zamanı
+—
+obdService.getHandshakeDiagnostics() · zaman damgası yok
+Handshake bu oturumda hiç çalışmadı.
+KAYNAK YOK
+zorlanan protokol (ATSP)
+—
+obdService.getHandshakeDiagnostics() · zaman damgası yok
+Protokol zorlanmadı veya kaydedilmedi.
+KAYNAK YOK
+aktif protokol (ATDPN)
+—
+obdService.getHandshakeDiagnostics() · zaman damgası yok
+ATDPN okunmadı — aktif protokol BİLİNMİYOR (varsayım yapılmaz).
+KAYNAK YOK
+protokol tutarlılığı
+—
+obdService.getHandshakeDiagnostics() · zaman damgası yok
+İki protokol alanından biri yok — karşılaştırma yapılamaz.
+KAYNAK YOK
+VIN yanıtı var mı
+false
+obdService.getHandshakeDiagnostics() · zaman damgası yok
+Yalnız var-olma bayrağı; ham VIN OKUNMAZ.
+ÖLÇÜLDÜ
+0100 bitmap sınıfı
+—
+obdService.getHandshakeDiagnostics() · zaman damgası yok
+Kaynak bu alan için değer vermedi.
+KAYNAK YOK
+desteklenen PID sayısı
+0
+obdService.getHandshakeDiagnostics() · zaman damgası yok
+Handshake sonucu.
+ÖLÇÜLDÜ
+yanıt veren bitmap bloğu
+0
+obdService.getHandshakeDiagnostics() · zaman damgası yok
+Blok sayısı.
+ÖLÇÜLDÜ
+başarısızlık nedeni
+—
+obdService.getHandshakeDiagnostics() · zaman damgası yok
+Başarısızlık kaydı yok.
+KAYNAK YOK
+timeout aşaması
+—
+obdService.getHandshakeDiagnostics() · zaman damgası yok
+Timeout olmadı.
+KAYNAK YOK
+handshake süresi (ms)
+—
+obdService.getHandshakeDiagnostics() · zaman damgası yok
+Süre ölçülmedi.
+KAYNAK YOK
+son BAŞARILI handshake
+—
+obdService.getHandshakeDiagnostics() · zaman damgası yok
+Hiç başarılı handshake olmadı.
+KAYNAK YOK
+reconnect geçmişi (bounded)
+0
+obdService.getHandshakeDiagnostics() · zaman damgası yok
+Kayıt sayısı.
+ÖLÇÜLDÜ
+3 · VERİ KAPISI / SORGULAMA
+DATA GATE geçildi (sessionReady)
+false
+obdService.getObdSessionHealth() · zaman damgası yok
+ELM init + protokol + İLK gerçek ECU frame tamam mı.
+ÖLÇÜLDÜ
+poll watchdog aktif
+false
+obdService.getObdSessionHealth() · zaman damgası yok
+TS-tarafı stale watchdog zamanlayıcısı çalışıyor mu (canlı oturum kanıtı).
+ÖLÇÜLDÜ
+transportReady
+false
+obdService.getObdSessionHealth() · zaman damgası yok
+Native handle sayısı > 0 VE transportConnected.
+ÖLÇÜLDÜ
+dataFresh
+false
+obdService.getObdSessionH
+
+============================================================================
+>>> YAPAY ZEKÂ → MAVİ KONSOLU   [tab:OK kart:OK]
+============================================================================
+CAROS LAB
+FAZ A · GELİŞTİRİCİ PLATFORMU
+/ Yapay Zekâ / Mavi Konsolu
+TÜMÜNÜ KOPYALA
+KAPAT
+GERİ
+MAVİ KONSOLU
+HAZIR
+MAVİ KONSOLU
+SALT OKUNUR — dinleme/TTS/AI isteği başlatmaz
+YENİLE
+ÖLÇÜLDÜ 25 · TÜRETİLDİ 4 · KAYNAK YOK 5
+
+Yalnız mevcut senkron getter'lar okunur: mikrofon açılmaz, TTS konuşturulmaz, AI sağlayıcısına istek gitmez, komut çalıştırılmaz. Periyodik yenileme YOKTUR. GİZLİLİK: transcript metni, son komut metni, konuşma geçmişi ve öneri metinleri bu ekrana HİÇ GELMEZ — yalnız VAR/YOK ve ADET gösterilir; kopyalama butonu yoktur.
+
+MAVİ DURUMU: HAZIR
+Mikrofon kullanılabilir ve ses durumu beklemede: idle.
+Kaynak okunamazsa hüküm BİLİNMİYOR kalır — "hazır" VARSAYILMAZ. Repoda tanımsız bir durum dizesi de tahmin edilmez.
+F · SENARYO KOŞUCUSU
+SİMÜLASYON — cihaz/araç doğrulaması DEĞİLDİR
+SENARYOLARI ÇALIŞTIR
+
+Senaryolar GERÇEK üretim fonksiyonlarını enjekte edilmiş bağımlılıklarla çağırır: gerçek EventBus'a olay yayınlanmaz, TTS konuşmaz, telefon/navigasyon/OBD/ağ/storage çağrılmaz, üretim tekilleri değiştirilmez. Saat enjekte edilir → aynı girdi aynı sonuç. Bu bir cihaz veya araç doğrulaması DEĞİLDİR; kütükteki 🔴 maddeleri 🟢 YAPMAZ.
+
+A · MAVİ YAŞAM DÖNGÜSÜ
+durum (status)
+idle
+voiceService.getVoiceSnapshot() · zaman damgası yok
+voiceService ham durum dizesi.
+ÖLÇÜLDÜ
+durum repoda TANIMLI mı
+EVET
+voiceService.getVoiceSnapshot() (VoiceStatus birliği) · zaman damgası yok
+KURAL: değer repodaki VoiceStatus birliğinde ise EVET. Bilinmeyen durum TAHMİN EDİLMEZ.
+TÜRETİLDİ
+mikrofon kullanılabilir
+true
+voiceService.getVoiceSnapshot() · zaman damgası yok
+micAvailable — izin/donanım kapısı.
+ÖLÇÜLDÜ
+ses seviyesi (0–1)
+0
+voiceService.getVoiceSnapshot() · zaman damgası yok
+Anlık RMS/görselleştirme seviyesi; dinleme dışında 0 olması NORMALDİR.
+ÖLÇÜLDÜ
+takip dinlemesi kurulu
+false
+voiceService.getVoiceSnapshot() · zaman damgası yok
+followUp — TTS bitince mikrofon otomatik yeniden açılacak mı.
+ÖLÇÜLDÜ
+öneri adedi
+0
+voiceService.getVoiceSnapshot() · zaman damgası yok
+YALNIZ ADET — öneri metinleri bu katmana HİÇ GELMEZ.
+ÖLÇÜLDÜ
+geçmiş kaydı adedi
+0
+voiceService.getVoiceSnapshot() · zaman damgası yok
+YALNIZ ADET — konuşma geçmişi içeriği bu katmana HİÇ GELMEZ.
+ÖLÇÜLDÜ
+son komut
+YOK
+voiceService.getVoiceSnapshot() · zaman damgası yok
+GİZLİLİK: komut metni/nesnesi GÖSTERİLMEZ — yalnız varlığı.
+ÖLÇÜLDÜ
+transcript
+YOK
+voiceService.getVoiceSnapshot() · zaman damgası yok
+GİZLİLİK: transcript metni GÖSTERİLMEZ — yalnız varlığı.
+ÖLÇÜLDÜ
+ses hatası
+YOK
+voiceService.getVoiceSnapshot() · zaman damgası yok
+GİZLİLİK: hata MESAJI serbest metindir, taşınmaz — yalnız varlığı.
+ÖLÇÜLDÜ
+B · SON TEŞHİS AŞAMALARI
+tanı kaydı adedi
+0
+voiceDiagService.getRecentVoiceDiag() · zaman damgası yok
+Bounded halka (repo tavanı 40). 0 = halka GERÇEKTEN boş (okuma başarılı).
+ÖLÇÜLDÜ
+en yeni aşama
+—
+voiceDiagService.getRecentVoiceDiag() · zaman damgası yok
+Halka boş — hiç ses tanı olayı kaydedilmedi.
+KAYNAK YOK
+en yeni kaydın damgası
+—
+voiceDiagService.getRecentVoiceDiag() · zaman damgası yok
+Damga yok — "şimdi" UYDURULMAZ.
+KAYNAK YOK
+hata kodu taşıyan kayıt adedi
+0
+voiceDiagService.getRecentVoiceDiag() · zaman damgası yok
+errorCode alanı dolu olan satır sayısı (kod TANIMLAYICI sınıfıdır, serbest metin değildir).
+ÖLÇÜLDÜ
+C · AI SAĞLIK DURUMU (DEVRE KESİCİ)
+sağlıklı (devre kapalı)
+true
+aiHealth.getAiHealthSnapshot() · zaman damgası yok
+healthy = blockedUntil === 0. Bu AI AĞI sağlığıdır, araç bağlantısı DEĞİL.
+ÖLÇÜLDÜ
+art arda gerçek ağ hatası
+0
+aiHealth.getAiHealthSnapshot() · zaman damgası yok
+consecFails — ulaşılamazlık kovası.
+ÖLÇÜLDÜ
+art arda bütçe timeout'u
+0
+aiHealth.getAiHealthSnapshot() · zaman damgası yok
+consecTimeouts — AYRI kova: yavaş ≠ ölü (repo bilinçli ayrımı).
+ÖLÇÜLDÜ
+bloke kalan süre (ms)
+0
+aiHealth.getAiHealthSnapshot() · zaman damgası yok
+blockedForMs — MONOTONİK saatten türeyen bir SÜREdir, duvar saati damgası DEĞİLDİR.
+ÖLÇÜLDÜ
+şu an bloke mi
+HAYIR
+aiHealth.getAiHealthSnapshot() (blockedForMs > 0) · zaman damgası yok
+KURAL: blockedForMs > 0 → EVET.
+TÜRETİLDİ
+D · SAĞLAYICI SOĞUMA (429)
+SAĞLAYICILAR AYRI — TOPLANMAZ
+Gemini soğuma (ms)
+0
+companion/companionChatProvider.getProviderQuotaSnapshot() · zaman damgası yok
+0 = açık/kotasız. Diğer sağlayıcılarla BİRLEŞTİR
+
+============================================================================
+>>> ÇALIŞMA ZAMANI → KANIT GÖRÜNTÜLEYİCİ   [tab:OK kart:OK]
+============================================================================
+CAROS LAB
+FAZ A · GELİŞTİRİCİ PLATFORMU
+/ Çalışma Zamanı / Kanıt Görüntüleyici
+TÜMÜNÜ KOPYALA
+KAPAT
+GERİ
+KANIT GÖRÜNTÜLEYİCİ
+HAZIR
+YENİLE
+TÜMÜ (66)
+OBD (4)
+KWP Kurtarma (1)
+Keşif (0)
+Doğrulama (0)
+Yapay Zekâ / Mavi (1)
+Sistem (60)
+66 / 200 satır · maskeleme AÇIK
+ZAMAN
+KANAL
+TÜR
+HAM YÜK / BAĞLAM
+16:41:12
+Sistem
+trail:action
+BİLGİmavi proaktif: suppressed — reason=not_critical
+diagnosticTrail
+16:41:12
+Yapay Zekâ / Mavi
+ai:report
+UYARISonuç belirsiz: OBD bağlı değildi (source:none / bağlantı hata) — canlı sorgu yapılamadı · güven 0 · kanıt VAR
+aiCore/ai_mechanic
+16:41:12
+OBD
+evidence:diagnostic
+BİLGİBağlantı kalitesi %-1
+transport.quality · obd
+16:41:12
+KWP Kurtarma
+evidence:diagnostic
+BİLGİBağlantı yaşam-döngüsü aktivitesi kaydedildi (reset/disconnect/reconnect toplam [redacted])
+recovery.lifecycle · diagnostics
+16:41:12
+OBD
+evidence:diagnostic
+BİLGİHandshake bu oturumda çalışmadı — VIN/desteklenen-PID keşfi doğrulanamadı
+handshake.not_run · diagnostics
+16:41:11
+OBD
+evidence:signal
+BİLGİspeed=0km/h (valid, güven 60%)
+signal.speed · derived
+16:40:29
+Sistem
+trail:error
+HATA[error] OBD:ManufacturerDidRead — OBD_DID_FAILED
+diagnosticTrail
+16:40:26
+Sistem
+trail:action
+BİLGİmavi proaktif: suppressed — reason=not_critical
+diagnosticTrail
+16:39:56
+Sistem
+trail:action
+BİLGİmavi proaktif: suppressed — reason=not_critical
+diagnosticTrail
+16:39:26
+Sistem
+trail:action
+BİLGİmavi proaktif: suppressed — reason=not_critical
+diagnosticTrail
+16:39:22
+OBD
+evidence:signal
+BİLGİodometer=0.0004209670039932928km (valid, güven 60%)
+signal.odometer · derived
+16:39:22
+Sistem
+trail:action
+BİLGİmavi proaktif: suppressed — reason=not_critical
+diagnosticTrail
+16:38:56
+Sistem
+trail:action
+BİLGİmavi proaktif: suppressed — reason=not_critical
+diagnosticTrail
+16:38:23
+Sistem
+trail:action
+BİLGİmavi proaktif: suppressed — reason=not_critical
+diagnosticTrail
+16:37:32
+Sistem
+trail:action
+BİLGİmavi proaktif: suppressed — reason=not_critical
+diagnosticTrail
+16:36:44
+Sistem
+trail:action
+BİLGİmavi proaktif: suppressed — reason=not_critical
+diagnosticTrail
+16:36:40
+Sistem
+trail:action
+BİLGİmavi proaktif: suppressed — reason=not_critical
+diagnosticTrail
+16:36:08
+Sistem
+trail:action
+BİLGİmavi proaktif: suppressed — reason=not_critical
+diagnosticTrail
+16:35:44
+Sistem
+trail:screen
+BİLGİekran: caros-lab
+diagnosticTrail
+16:35:24
+Sistem
+trail:action
+BİLGİmavi proaktif: suppressed — reason=not_critical
+diagnosticTrail
+16:34:43
+Sistem
+trail:action
+BİLGİmavi proaktif: suppressed — reason=not_critical
+diagnosticTrail
+16:34:32
+Sistem
+trail:action
+BİLGİmavi proaktif: suppressed — reason=not_critical
+diagnosticTrail
+16:34:30
+Sistem
+trail:screen
+BİLGİekran: vehicle-reminder
+diagnosticTrail
+16:34:26
+Sistem
+trail:screen
+BİLGİekran: caros-lab
+diagnosticTrail
+16:33:55
+Sistem
+trail:screen
+BİLGİekran: vehicle-reminder
+diagnosticTrail
+16:33:55
+Sistem
+trail:screen
+BİLGİekran: vehicle-reminder
+diagnosticTrail
+16:33:36
+Sistem
+trail:action
+BİLGİmavi proaktif: suppressed — reason=not_critical
+diagnosticTrail
+16:33:32
+Sistem
+trail:action
+BİLGİmavi proaktif: suppressed — reason=not_critical
+diagnosticTrail
+16:33:12
+Sistem
+trail:action
+BİLGİmavi proaktif: suppressed — reason=not_critical
+diagnosticTrail
+16:33:08
+Sistem
+trail:action
+BİLGİmavi proaktif: suppressed — reason=not_critical
+diagnosticTrail
+16:32:57
+Sistem
+trail:action
+BİLGİmavi proaktif: suppressed — reason=not_critical
+diagnosticTrail
+16:31:33
+Sistem
+trail:action
+BİLGİmavi proaktif: suppressed — reason=not_critical
+diagnosticTrail
+16:30:56
+Sistem
+trail:action
+BİLGİmavi proaktif: suppressed — reason=not_critical
+diagnosticTrail
+16:30:52
+Sistem
+trail:action
+BİLGİmavi proaktif: suppressed — reason=not_critical
+diagnosticTrail
+16:30:38
+Sistem
+trail:action
+BİLGİmavi proaktif: suppressed — reason=not_critical
+diagnosticTrail
+16:30:34
+Sistem
+trail:action
+BİLGİmavi proaktif: suppressed — reason=not_critical
+diagnosticTrail
+16:30:29
+Sistem
+trail:screen
+BİLGİekran: caros-lab
+diagnosticTrail
+16:30:14
+Sistem
+trail:action
+BİLGİmavi proaktif: suppressed — reason=not_critical
+diagnosticTrail
+16:30:10
+Sistem
+trail:action
+BİLGİmavi proaktif: suppressed — reason=not_critical
+diagnosticTrail
+16:29:42
+Sistem
+trail:action
+BİLGİmavi proaktif: suppressed — re

@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { DEVELOPER_FEATURES_ENABLED } from './developerFeatures';
 
 const RING_MAX = 500;
 
@@ -215,9 +216,9 @@ export const _incGps = (ts: number) => {
   useDebugStore.getState().updatePerf({ gpsLastTs: ts });
 };
 
-// 1-second Hz sampling tick — only active when flag is on
-const _DEBUG_ACTIVE =
-  import.meta.env.DEV || import.meta.env.VITE_ENABLE_DEBUG_PANEL === 'true';
+// 1-second Hz sampling tick — only active when flag is on.
+// Karar TEK OTORİTEDEN gelir (yeniden hesaplanmaz) — bkz. developerFeatures.ts.
+const _DEBUG_ACTIVE = DEVELOPER_FEATURES_ENABLED;
 
 if (_DEBUG_ACTIVE) {
   setInterval(() => {

@@ -522,7 +522,18 @@ function _runtimeCard(s: SessionRawSnapshot): InspectorCard {
     f.push(observed({ id: 'debugCollecting', label: 'debug store collecting', source: SRC.debug, note: 'CAN halka tamponu doluyor mu.' }, s.debug.collecting));
     f.push(observed({ id: 'trafficBuffer', label: 'OBD trafik tamponu', source: SRC.debug, note: 'Bounded halka tamponu.' },
       `${s.debug.trafficBufferLen} / ${s.debug.trafficBufferMax}`));
-    f.push(observed({ id: 'listenerCount', label: 'listener sayısı', source: SRC.debug, note: 'dbgUpdateListenerCount ile yazılır (DEBUG_ENABLED gerekir).' }, s.debug.listenerCount));
+    /**
+     * T14: `listenerCount` ile capture ref-count AYNI KAVRAM DEĞİLDİR.
+     *
+     * SAHA (snapshot 2026-08-01): `obdRefs:1, canRefs:1, collecting:true` yanında
+     * `listenerCount:0` görünüyordu — "yakalama açık ama kimse dinlemiyor" gibi
+     * okunan sahte bir alarm. Gerçek: `dbgUpdateListenerCount`in uygulama içinde
+     * HİÇ ÇAĞIRANI YOK, alan hiç yazılmıyor. Yani değer 0 DEĞİL, ÖLÇÜLMEMİŞ.
+     * Sıfır göstermek "ölçüldü ve sıfır çıktı" iddiasıdır — kanıtsızdır.
+     */
+    f.push(unavailable({ id: 'listenerCount', label: 'listener sayısı', source: SRC.debug,
+      note: 'Capture ref-count ile AYNI ŞEY DEĞİL: ref-count yakalama talebini, bu alan olay dinleyicisini sayar.' },
+      'ÖLÇÜLMEDİ — `dbgUpdateListenerCount` çağıranı yok (kanal yazılmıyor). "0 dinleyici" DEĞİL.'));
     f.push(observed({ id: 'obdDropped', label: 'düşen OBD paketi', source: SRC.debug, note: 'dbgIncrementDropped sayacı.' }, s.debug.obdDropped));
 
     // Dürüstlük: bu alanları YAZAN kod yok → OBSERVED gibi sunmak yalan olurdu

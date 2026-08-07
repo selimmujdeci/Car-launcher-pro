@@ -1,5 +1,13 @@
-export const DEBUG_ENABLED =
-  import.meta.env.DEV || import.meta.env.VITE_ENABLE_DEBUG_PANEL === 'true';
+import { DEVELOPER_FEATURES_ENABLED } from './developerFeatures';
+
+export { DEVELOPER_FEATURES_ENABLED } from './developerFeatures';
+
+/**
+ * GERİYE UYUMLU TAKMA AD. Onlarca çağrı noktası `DEBUG_ENABLED` kullanıyor;
+ * karar ARTIK burada hesaplanmaz — tek otorite `developerFeatures.ts`'tir.
+ * Yeni kod `DEVELOPER_FEATURES_ENABLED` kullanmalıdır.
+ */
+export const DEBUG_ENABLED = DEVELOPER_FEATURES_ENABLED;
 
 /**
  * DEBUG_ENABLED guard'lı bilgi logu — çıplak `console.log` yerine kullanılır.

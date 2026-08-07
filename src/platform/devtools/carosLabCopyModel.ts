@@ -220,12 +220,16 @@ function obdSection(entries: CarosLabCopyInput['obdTraffic']): Section {
 }
 
 /**
- * HATA KÜTÜĞÜ — kanal ölüyken "hata olmadı" izlenimi vermez.
+ * HATA KÜTÜĞÜ — T10: artık CANONICAL `crashLogger` kütüğünden beslenir.
  *
- * `debugStore.errorLog`u besleyen `dbgPushError` fonksiyonunun uygulama içinde
- * ÇAĞIRANI YOKTUR (ölü kanal — `debugStore.fallback` ile aynı sınıf). Boş liste
- * bu yüzden "hata yok" DEĞİL, "bu kanal hiç yazılmıyor" demektir. Gerçek hatalar
- * KANITLAR bölümündeki `trail:error` satırlarındadır.
+ * ESKİ DURUM: kaynak `debugStore.errorLog` idi ve onu besleyen `dbgPushError`in
+ * hiç çağıranı yoktu → bölüm YAPISAL olarak boştu, "hata yok" diye okunuyordu.
+ * Bölüm bunu dürüstçe ilan ediyordu ama sorun çözülmüyordu. Artık kaynak
+ * `getErrorLog()`tur — `trail:error` satırlarıyla AYNI otorite (çift sistem yok).
+ *
+ * Boşluk hâlâ "hata yok" DEMEK DEĞİLDİR: kütük oturum başında boş olabilir veya
+ * okuma patlamış olabilir (o durumda `fromRows` "okunamadı" yazar). Bu ayrım
+ * korunur — sessiz "sağlıklı" iddiası ÜRETİLMEZ.
  */
 function errorLogSection(rows: readonly unknown[] | null): Section {
   const title = 'HATA KÜTÜĞÜ';
@@ -234,8 +238,8 @@ function errorLogSection(rows: readonly unknown[] | null): Section {
     return {
       ...base,
       lines: [
-        '(kanal ÖLÜ — `dbgPushError` çağrılmıyor; boşluk "hata yok" ANLAMINA GELMEZ)',
-        '→ gerçek hatalar için KANITLAR bölümündeki `trail:error` satırlarına bakın',
+        '(kayıt yok — kaynak: crashLogger canonical kütüğü, `trail:error` ile AYNI otorite)',
+        '→ boş kütük "hata olmadı" ANLAMINA GELMEZ: oturum yeni olabilir veya kütük temizlenmiş olabilir',
       ],
     };
   }

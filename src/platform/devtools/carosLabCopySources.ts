@@ -22,7 +22,20 @@ import { getOBDDataSnapshot } from '../obdService';
 import { getReplayData } from '../security/blackBoxService';
 import { useHALStatusStore } from '../vehicleDataLayer/halStatusStore';
 import { getDevtoolsCaptureStatus } from './devtoolsCapture';
+import { getErrorLog } from '../crashLogger';
 import type { CarosLabCopyInput } from './carosLabCopyModel';
+
+/** T10: LAB'a taşınan azami hata kaydı (bounded — tavan korunur). */
+const ERROR_LOG_MAX = 60;
+
+/**
+ * T10: hata kurtarılabilir bir sınıfa mı ait — bağlam önekinden türetilir.
+ * Bilinmeyen sınıf `false` döner (fail-closed: "kurtarılabilir" iddiası kanıt ister).
+ */
+function _isRecoverableError(ctx: string): boolean {
+  const head = ctx.split(':')[0];
+  return head === 'OBD' || head === 'GPS' || head === 'HealthMonitor' || head === 'Resolver';
+}
 
 /** `fn` çalışırsa sonucu, patlarsa `null` (→ "okunamadı" beyanı). */
 function safe<T>(fn: () => T): T | null {
@@ -73,7 +86,29 @@ export function readCarosLabCopyInput(ctx: CopyContext): CarosLabCopyInput {
     discovery:  safe(() => discoveryCaptureService.getObservations() as readonly unknown[]),
     obdData:    safe(() => getOBDDataSnapshot() as unknown),
     blackBox:   safe(() => getReplayData() as readonly unknown[]),
-    errorLog:   safe(() => useDebugStore.getState().errorLog as readonly unknown[]),
+    /**
+     * T10 — HATA KÜTÜĞÜ artık CANONICAL otoriteden beslenir.
+     *
+     * ESKİ KUSUR: kaynak `debugStore.errorLog` idi; onu besleyen `dbgPushError`in
+     * uygulama içinde HİÇ ÇAĞIRANI YOK (ölü kanal). Gerçek hatalar `logError()` →
+     * `crashLogger` kütüğüne yazılıyor ve `diagnosticTrail` bunları `trail:error`
+     * olarak ZATEN oradan türetiyordu. Yani iki paralel hata sistemi vardı; biri
+     * yapısal olarak boş, diğeri dolu. Artık TEK otorite `getErrorLog()`tur —
+     * köprü eklenmedi, ölü kanal kaynak olmaktan çıkarıldı (çift yazım imkânsız).
+     *
+     * Yapılandırılmış alanlar korunur; `stack` ve `replayBuffer` LAB'a TAŞINMAZ
+     * (gizlilik + tavan). `recoverable`: kurtarma yolu olan hata sınıfları.
+     */
+    errorLog:   safe(() => getErrorLog().slice(-ERROR_LOG_MAX).map((e) => ({
+      ts:          e.ts,
+      code:        String(e.ctx).split(':')[0] || 'UNKNOWN',
+      component:   String(e.ctx),
+      source:      'crashLogger',
+      severity:    e.severity ?? 'error',
+      message:     String(e.msg).slice(0, 200),
+      recoverable: _isRecoverableError(String(e.ctx)),
+      correlationId: `err-${e.ts}-${String(e.ctx).slice(0, 24)}`,
+    })) as readonly unknown[]),
     /* HAL kaynak sağlığı: `canAlive/obdAlive/gpsAlive` — **null = BİLİNMİYOR**, false = ÖLÜ.
        `updatedAt` worker MONOTONİK saatidir (performance.now()), duvar saati DEĞİL →
        `Date.now()` ile bayatlık hesaplamak YANLIŞ olur; ham geçirilir, yorumlanmaz. */

@@ -1,44 +1,58 @@
 /**
  * carosLabGate.ts — CAROS LAB geliştirici erişim kapısı (FAIL-CLOSED · saf).
  *
- * PARALEL AUTH YOK (görev §C): mevcut iki mekanizma AND'lenir —
- *  1) derleme-zamanı bayrağı `DEBUG_ENABLED` (import.meta.env.DEV veya
- *     VITE_ENABLE_DEBUG_PANEL=true) — satış build'inde kapalıdır,
- *  2) rol sistemi izni `canDebug` (technician / admin / super_admin).
+ * ── DEĞİŞİKLİK (2026-07-26): ROL KAPISI → BUILD KAPISI ──────────────────────
+ * ESKİ kural: `DEBUG_ENABLED && canDebug` (rol sistemi izni ŞARTTI).
+ * Bu, geliştirme/test aşamasında GERÇEK BİR ENGELDİ: test APK'sını kuran her
+ * cihaz varsayılan `driver` rolüyle açılıyor, `canDebug` yalnız
+ * technician/admin/super_admin rollerinde bulunuyordu → CAROS LAB ve Debug Panel
+ * görünmüyordu. Rolü elle yükseltmek veya localStorage taşımak gerekiyordu.
  *
- * Bu, App.tsx'teki mevcut DebugPanel kapısının (DEBUG_ENABLED && canDebug) aynısıdır —
- * yeni bir entitlement sistemi KURULMAZ.
+ * YENİ kural: TEK derleme-zamanı otoritesi `DEVELOPER_FEATURES_ENABLED`.
+ * Ürün gerçeği (aile içi saha testi, Play Store dağıtımı YOK) bunu gerektirir:
+ * test build'ini kuran HER cihazda geliştirici yüzeyleri açıktır — ROLDEN
+ * BAĞIMSIZ. Satış build'inde bayrak derleme-zamanında `false`'a katlanır →
+ * kapı KAPALI ve korumalı dallar ölü kod olarak elenir.
+ *
+ * KAPI SİLİNMEDİ, DÖNÜŞTÜRÜLDÜ: hem menü kapısı hem doğrudan route/render kapısı
+ * AYNI merkezi kararı kullanır (bkz. `shouldRenderCarosLab`).
+ *
+ * NOT: rol sistemindeki `canDebug` izni KALDIRILMADI — satış sonrası "mühendis
+ * modu" için korunuyor. Yalnız geliştirici yüzeyi GÖRÜNÜRLÜĞÜ ondan ayrıldı.
  *
  * FAIL-CLOSED: girdi boolean değilse (undefined/null/bozuk) erişim REDDEDİLİR.
  */
 
-import { DEBUG_ENABLED } from '../debug';
+import { DEVELOPER_FEATURES_ENABLED } from '../debug/developerFeatures';
 
 export interface CarosLabGateInput {
-  /** Derleme-zamanı geliştirici bayrağı. */
-  readonly debugEnabled: boolean;
-  /** Rol sistemi 'canDebug' izni. */
-  readonly canDebug: boolean;
+  /** Derleme-zamanı geliştirici bayrağı — TEK koşul. */
+  readonly developerFeaturesEnabled: boolean;
 }
 
-export type CarosLabGateReason = 'ok' | 'build-flag-off' | 'no-permission';
+export type CarosLabGateReason = 'ok' | 'build-flag-off';
 
-/** Erişime izin var mı? Her iki koşul da GERÇEK boolean true olmalı. */
+/** Erişime izin var mı? Koşul GERÇEK boolean true olmalı (fail-closed). */
 export function isCarosLabAllowed(input: CarosLabGateInput | null | undefined): boolean {
   if (!input) return false;
-  return input.debugEnabled === true && input.canDebug === true;
+  return input.developerFeaturesEnabled === true;
 }
 
-/** Reddin nedeni (teşhis/UI metni). Bayrak kapalıysa o önceliklidir. */
+/** Reddin nedeni (teşhis/UI metni). */
 export function carosLabGateReason(input: CarosLabGateInput | null | undefined): CarosLabGateReason {
-  if (!input || input.debugEnabled !== true) return 'build-flag-off';
-  if (input.canDebug !== true) return 'no-permission';
-  return 'ok';
+  return isCarosLabAllowed(input) ? 'ok' : 'build-flag-off';
 }
 
-/** Derleme bayrağını ortamdan alan kısayol (React tarafı yalnız izni geçirir). */
-export function isCarosLabAllowedFromEnv(canDebug: boolean): boolean {
-  return isCarosLabAllowed({ debugEnabled: DEBUG_ENABLED === true, canDebug: canDebug === true });
+/**
+ * Derleme bayrağını ortamdan alan kısayol.
+ *
+ * ARGÜMAN ALMAZ: rol/izin artık görünürlüğü ETKİLEMEZ. İmza bilinçli olarak
+ * daraltıldı — kullanılmayan bir `canDebug` parametresini sessizce yutmak, çağrı
+ * noktalarında "hâlâ rol kontrol ediliyor" yanılsaması yaratırdı (ve derleyici
+ * eski çağrıları yakalayamazdı).
+ */
+export function isCarosLabAllowedFromEnv(): boolean {
+  return isCarosLabAllowed({ developerFeaturesEnabled: DEVELOPER_FEATURES_ENABLED === true });
 }
 
 /**

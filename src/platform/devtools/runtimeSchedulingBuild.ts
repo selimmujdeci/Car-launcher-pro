@@ -38,9 +38,14 @@ export interface SchedRawSnapshot {
   readonly pollEvidence: {
     present: boolean;
     evidenceComplete: boolean;
-    transport: string;
-    burstEnabled: boolean;
-    configuredPidCount: number;
+    /** T6-B: kanıt önbelleği tazelendi mi — "ölçmedik" ≠ "yok". */
+    cacheState: string;
+    /** T6: 'native_available' | 'native_unavailable_js_only' | 'insufficient'. */
+    evidenceState: string;
+    /** T6: kanıt yoksa null — sahte varsayılan taşınmaz. */
+    transport: string | null;
+    burstEnabled: boolean | null;
+    configuredPidCount: number | null;
     counters: {
       pollCycles: number; burstCycles: number; roundRobinCycles: number;
       attempted: number; success: number; noData: number; busy: number;
@@ -178,10 +183,17 @@ function _commandExecChannel(s: SchedRawSnapshot): SchedChannel {
     : schedUnavailable({ id: 'cmdLastSuccessPid', label: 'son BAŞARILI PID', source: SRC.pollEv, note: '' },
         'Kanıtta başarılı PID yok (hiç değer üretilmedi ya da kanıt tazelenmedi).'));
 
-  f.push(schedObserved({ id: 'cmdBurst', label: 'tanı BURST modu', source: SRC.pollEv,
-    note: 'Açıkken EXTENDED grubu her turda tümüyle okunur (ekstra ECU trafiği).' }, ev!.burstEnabled));
-  f.push(schedObserved({ id: 'cmdConfiguredPids', label: 'yapılandırılmış PID sayısı', source: SRC.pollEv,
-    note: 'Native izlenen liste boyutu.' }, ev!.configuredPidCount));
+  // T6: kanıt yoksa bu iki alan UNAVAILABLE'dır — `false`/`0` göstermek sahte bilgiydi.
+  f.push(ev!.burstEnabled === null
+    ? schedUnavailable({ id: 'cmdBurst', label: 'tanı BURST modu', source: SRC.pollEv, note: '' },
+        'Native kanıt yok — burst durumu BİLİNMİYOR (kapalı olduğu iddia EDİLEMEZ).')
+    : schedObserved({ id: 'cmdBurst', label: 'tanı BURST modu', source: SRC.pollEv,
+        note: 'Açıkken EXTENDED grubu her turda tümüyle okunur (ekstra ECU trafiği).' }, ev!.burstEnabled));
+  f.push(ev!.configuredPidCount === null
+    ? schedUnavailable({ id: 'cmdConfiguredPids', label: 'yapılandırılmış PID sayısı', source: SRC.pollEv, note: '' },
+        'Native kanıt yok — izlenen PID sayısı BİLİNMİYOR ("0 PID" DEĞİL).')
+    : schedObserved({ id: 'cmdConfiguredPids', label: 'yapılandırılmış PID sayısı', source: SRC.pollEv,
+        note: 'Native izlenen liste boyutu.' }, ev!.configuredPidCount));
   f.push(schedObserved({ id: 'cmdDecision', label: 'hat hükmü', source: SRC.pollEv,
     note: 'classifyExtendedPoll — native/JS sayaç tutarlılığından türetilmiş mevcut sınıflandırma.' }, ev!.decisionLabel));
   f.push(schedObserved({ id: 'cmdJsBridge', label: 'JS köprüsü (olay/decode/store)', source: SRC.pollEv,

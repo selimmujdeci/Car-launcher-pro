@@ -18,6 +18,7 @@
 import type { TrailEvent } from '../diagnosticTrailCore';
 import type { AiOrchestratorRunResult } from '../aiCore/aiOrchestrator';
 import type { ValidationSnapshot } from '../validation/validationTypes';
+import type { MaviActionTraceRecord } from '../action/maviActionTrace';
 
 /* ══════════════════════════════════════════════════════════════════════════
  * Tipler
@@ -29,6 +30,8 @@ export type EvidenceChannel =
   | 'discovery'
   | 'validation'
   | 'ai'
+  /** MAVI-M4-LAB-2: Mavi eylem zinciri (komut → kapı → yürütücü → TTS). */
+  | 'mavi-chain'
   | 'system';
 
 export type EvidenceSeverity = 'info' | 'warn' | 'error' | 'critical';
@@ -47,7 +50,7 @@ export interface EvidenceRow {
 }
 
 export const EVIDENCE_CHANNELS: readonly EvidenceChannel[] = [
-  'obd', 'kwp-recovery', 'discovery', 'validation', 'ai', 'system',
+  'obd', 'kwp-recovery', 'discovery', 'validation', 'ai', 'mavi-chain', 'system',
 ] as const;
 
 export const EVIDENCE_CHANNEL_LABEL: Readonly<Record<EvidenceChannel, string>> = {
@@ -56,6 +59,7 @@ export const EVIDENCE_CHANNEL_LABEL: Readonly<Record<EvidenceChannel, string>> =
   'discovery':    'Keşif',
   'validation':   'Doğrulama',
   'ai':           'Yapay Zekâ / Mavi',
+  'mavi-chain':   'Mavi Eylem Zinciri',
   'system':       'Sistem',
 } as const;
 
@@ -142,6 +146,14 @@ function _trailSeverity(ev: TrailEvent): EvidenceSeverity {
   return typeof ev.label === 'string' && ev.label.includes('[critical]') ? 'critical' : 'error';
 }
 
+/** Zincir aşamasının önem derecesi — YALNIZ gözlenen statüden türetilir. */
+function _chainSeverity(status: string): EvidenceSeverity {
+  if (status === 'failed' || status === 'tts_error') return 'error';
+  if (status === 'denied' || status === 'unsupported' || status === 'needs_confirmation') return 'warn';
+  if (status === 'suppressed_stale' || status === 'unknown') return 'warn';
+  return 'info';
+}
+
 function _urgencySeverity(urgency: string): EvidenceSeverity {
   if (urgency === 'critical') return 'critical';
   if (urgency === 'urgent') return 'error';
@@ -157,6 +169,12 @@ export interface EvidenceSourcesInput {
   readonly trail?:      readonly TrailEvent[] | null;
   readonly aiResult?:   AiOrchestratorRunResult | null;
   readonly validation?: ValidationSnapshot | null;
+  /**
+   * MAVI-M4-LAB-2: Mavi eylem zinciri aşama halkası (`action/maviActionTrace`).
+   * AYRI bir zaman çizelgesi DEĞİLDİR — mevcut birleşik çizelgeye 4. kaynak
+   * olarak girer. Kayıtlar zaten PII'sizdir (bkz. maviActionTrace gizlilik notu).
+   */
+  readonly maviChain?:  readonly MaviActionTraceRecord[] | null;
   readonly maxRows?:    number;
 }
 
@@ -245,6 +263,39 @@ export function buildEvidenceRows(input: EvidenceSourcesInput): EvidenceRow[] {
     }
   } catch { /* fail-soft */ }
 
+  /* 4) MAVI-M4-LAB-2 — Mavi eylem zinciri aşamaları.
+     Korelasyon anahtarı `turnId`dir ve `context` alanında taşınır → aynı komutun
+     aşamaları çizelgede tek anahtarla izlenebilir. Proaktif güvenlik uyarısı
+     AYRI bir `kind` ile gelir ve turId TAŞIMAZ (kullanıcı turu gibi görünmez).
+     GİZLİLİK: kayıtlar zaten yalnız enum/kimlik/kod taşır; yine de mevcut
+     maskeleme hattından geçirilir (savunma derinliği). */
+  try {
+    const chain = input.maviChain;
+    if (Array.isArray(chain)) {
+      for (let i = 0; i < chain.length; i++) {
+        const rec = chain[i];
+        if (!rec || typeof rec.atMs !== 'number') continue;
+        const isProactive = rec.stage === 'proactive_speech';
+        rows.push({
+          id:       `mavi-${i}-${rec.atMs}`,
+          ts:       rec.atMs,
+          channel:  'mavi-chain',
+          kind:     `mavi:${rec.stage}`,
+          severity: _chainSeverity(rec.status),
+          // Proaktif hatta tur YOKTUR — "turn:-" yazmak yerine dürüstçe belirtilir.
+          context:  isProactive
+            ? 'maviActionTrace/proaktif (tur dışı)'
+            : `maviActionTrace/turn:${rec.turnId ?? 'ilişkilendirilemedi'}`,
+          payload:  maskAndClamp(
+            [rec.actionId ?? rec.intent ?? '', rec.status, rec.reason]
+              .filter((x) => typeof x === 'string' && x.length > 0)
+              .join(' · '),
+          ),
+        });
+      }
+    }
+  } catch { /* fail-soft */ }
+
   rows.sort((a, b) => b.ts - a.ts);
   return rows.length > max ? rows.slice(0, max) : rows;
 }
@@ -262,7 +313,8 @@ export function filterEvidenceRows(
 /** Kanal başına satır sayısı (rozet/sayaç için). */
 export function countByChannel(rows: readonly EvidenceRow[]): Record<EvidenceChannel, number> {
   const out: Record<EvidenceChannel, number> = {
-    'obd': 0, 'kwp-recovery': 0, 'discovery': 0, 'validation': 0, 'ai': 0, 'system': 0,
+    'obd': 0, 'kwp-recovery': 0, 'discovery': 0, 'validation': 0, 'ai': 0,
+    'mavi-chain': 0, 'system': 0,
   };
   if (!Array.isArray(rows)) return out;
   for (const r of rows as readonly EvidenceRow[]) {

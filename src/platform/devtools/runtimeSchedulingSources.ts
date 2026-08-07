@@ -55,9 +55,13 @@ export function readSchedRawSnapshot(): SchedRawSnapshot {
     pollEvidence: poll ? {
       present:            poll.present === true,
       evidenceComplete:   poll.evidenceComplete === true,
-      transport:          String(poll.transport ?? 'unknown'),
-      burstEnabled:       poll.burstEnabled === true,
-      configuredPidCount: Number(poll.configuredPidCount) || 0,
+      cacheState:         poll.cacheState,
+      evidenceState:      poll.evidenceState,
+      // T6: kanıt yoksa NULL taşınır — `|| 0` sahte sıfır üretiyordu (bkz.
+      // ExtendedPollEvidenceSnapshot.configuredPidCount yorumu).
+      transport:          poll.transport ?? null,
+      burstEnabled:       typeof poll.burstEnabled === 'boolean' ? poll.burstEnabled : null,
+      configuredPidCount: typeof poll.configuredPidCount === 'number' ? poll.configuredPidCount : null,
       counters:           poll.counters ?? null,
       lastAttemptedPid:   poll.lastAttempts?.length ? poll.lastAttempts[poll.lastAttempts.length - 1].pid : null,
       lastSuccessfulPid:  poll.lastSuccessfulPid ?? null,

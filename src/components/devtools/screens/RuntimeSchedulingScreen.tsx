@@ -29,9 +29,11 @@ import {
 } from '../../../platform/devtools/runtimeSchedulingBuild';
 import {
   detectSchedConflicts, deriveRuntimeSummary, summarizeChannels,
-  countBySchedClass, schedFormatAge,
+  countBySchedClass, schedFormatAge, orderChannelsForFocus, resolveFocusChannel,
   SCHED_OBSERVABILITY_LABEL, CHANNEL_ACTIVITY_LABEL, RUNTIME_SUMMARY_LABEL,
+  SCHED_FOCUS_LABEL, SCHED_CHANNEL_TITLE,
   type SchedField, type SchedObservability, type ChannelActivity, type RuntimeSummary,
+  type SchedFocusContext,
 } from '../../../platform/devtools/runtimeSchedulingModel';
 
 const CLASS_STYLE: Record<SchedObservability, string> = {
@@ -87,7 +89,18 @@ const FieldRow = memo(function FieldRow({ field, nowMs }: { field: SchedField; n
   );
 });
 
-export const RuntimeSchedulingScreen = memo(function RuntimeSchedulingScreen() {
+export interface RuntimeSchedulingScreenProps {
+  /**
+   * Ortak ekranı AÇAN katalog girişi (UX-F1). Yalnız BAŞLANGIÇ SIRASINI değiştirir:
+   * kanal gizlemez, veri/hüküm/aktivite kuralına DOKUNMAZ. Verilmezse varsayılan
+   * sıra korunur (geriye uyumluluk).
+   */
+  readonly focus?: SchedFocusContext;
+}
+
+export const RuntimeSchedulingScreen = memo(function RuntimeSchedulingScreen(
+  { focus }: RuntimeSchedulingScreenProps,
+) {
   // Tek seferlik senkron okuma. TIMER YOK, ABONELİK YOK, POLLING YOK.
   const [snap, setSnap] = useState<SchedRawSnapshot>(() => readSchedRawSnapshot());
 
@@ -110,7 +123,13 @@ export const RuntimeSchedulingScreen = memo(function RuntimeSchedulingScreen() {
   // Açılışta bir kez: ilk görüntü de tazelenmiş kanıtla gelsin (tek atış, polling YOK).
   useEffect(() => { refresh(); }, [refresh]);
 
-  const channels  = useMemo(() => buildSchedChannels(snap), [snap]);
+  const allChannels = useMemo(() => buildSchedChannels(snap), [snap]);
+
+  /* SAF sıralama — imperative scroll / DOM erişimi / gecikme YOK. Sayımlar ve hüküm
+     sıradan BAĞIMSIZ olduğu için özet aynı kalır (yalnız gösterim sırası değişir). */
+  const focusChannelId = resolveFocusChannel(focus);
+  const channels  = useMemo(() => orderChannelsForFocus(allChannels, focus), [allChannels, focus]);
+
   const conflicts = useMemo(() => detectSchedConflicts(buildSchedConflictInput(snap)), [snap]);
   const counts    = useMemo(() => summarizeChannels(channels), [channels]);
   const summary   = useMemo(
@@ -120,7 +139,12 @@ export const RuntimeSchedulingScreen = memo(function RuntimeSchedulingScreen() {
   const classCounts = useMemo(() => countBySchedClass(channels), [channels]);
 
   return (
-    <div className="flex h-full flex-col gap-2 overflow-y-auto" data-testid="runtime-scheduling">
+    <div
+      className="flex h-full flex-col gap-2 overflow-y-auto"
+      data-testid="runtime-scheduling"
+      data-focus={focus ?? 'none'}
+      data-focus-channel={focusChannelId ?? 'none'}
+    >
       {/* Salt-okunur beyanı */}
       <div className="shrink-0 rounded border border-[var(--oem-line)] bg-[var(--oem-surface-1)] px-3 py-2">
         <div className="flex flex-wrap items-center gap-2 font-mono text-[10px]">
@@ -140,12 +164,25 @@ export const RuntimeSchedulingScreen = memo(function RuntimeSchedulingScreen() {
             ÖLÇÜLDÜ {classCounts.OBSERVED} · TÜRETİLDİ {classCounts.DERIVED} · BAYAT {classCounts.STALE} ·
             KAYNAK YOK {classCounts.UNAVAILABLE} · RİSKLİ {classCounts.UNSAFE_TO_OBSERVE}
           </span>
+          {focus && focusChannelId && (
+            <span
+              data-testid="sched-focus"
+              data-focus-entry={focus}
+              className="rounded border border-[var(--oem-info)] bg-[var(--oem-info-soft)] px-1.5 py-0.5 text-[var(--oem-info)]"
+            >
+              GİRİŞ: {SCHED_FOCUS_LABEL[focus]} · birincil odak: {SCHED_CHANNEL_TITLE[focusChannelId]}
+            </span>
+          )}
         </div>
         <p className="mt-1 font-mono text-[9px] leading-relaxed text-[var(--oem-ink-3)]">
           Tek bir "genel kuyruk / zamanlayıcı" YOKTUR — aşağıdaki her kart AYRI bir çalışma
           zamanı otoritesidir ve birleştirilmez. YENİLE, native SAYAÇ kanıtını tazeler ve
           yan etkisiz senkron getter'ları yineler: araca sorgu göndermez, kuyruk boşaltmaz,
           handshake veya Derin Tarama tetiklemez. Kuyruk derinliği bilinmiyorsa 0 GÖSTERİLMEZ.
+          {focus && focusChannelId && (
+            <> Bu giriş yalnız SIRALAMAYI değiştirir: hiçbir kanal gizlenmez, hiçbir değer,
+            aktivite kararı veya hüküm giriş'e göre farklılaşmaz.</>
+          )}
         </p>
       </div>
 
@@ -186,9 +223,26 @@ export const RuntimeSchedulingScreen = memo(function RuntimeSchedulingScreen() {
 
       {/* Kanallar */}
       {channels.map((ch) => (
-        <div key={ch.id} data-testid={`sched-channel-${ch.id}`} className="shrink-0 rounded border border-[var(--oem-line)] bg-[var(--oem-surface-1)]">
+        <div
+          key={ch.id}
+          data-testid={`sched-channel-${ch.id}`}
+          data-primary={ch.id === focusChannelId ? 'true' : 'false'}
+          className={`shrink-0 rounded border bg-[var(--oem-surface-1)] ${
+            ch.id === focusChannelId
+              ? 'border-[var(--oem-info)]'
+              : 'border-[var(--oem-line)]'
+          }`}
+        >
           <div className="flex flex-wrap items-center gap-2 border-b border-[var(--oem-line)] px-3 py-1.5">
             <span className="font-mono text-[11px] uppercase tracking-wide text-[var(--oem-info)]">{ch.title}</span>
+            {ch.id === focusChannelId && (
+              <span
+                data-testid={`sched-primary-${ch.id}`}
+                className="rounded border border-[var(--oem-info)] bg-[var(--oem-info-soft)] px-1.5 py-0.5 font-mono text-[9px] text-[var(--oem-info)]"
+              >
+                BİRİNCİL ODAK
+              </span>
+            )}
             <span
               data-testid={`sched-activity-${ch.id}`}
               data-activity={ch.activity}
