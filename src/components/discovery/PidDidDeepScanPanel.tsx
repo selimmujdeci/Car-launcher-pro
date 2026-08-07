@@ -10,10 +10,12 @@
  * ve güvenliği doğrulanmış veriler eklenir."
  */
 
-import { memo, useCallback, useRef, useState } from 'react';
+import { memo, useCallback, useMemo, useRef, useState } from 'react';
 import { Radar, Square, ShieldCheck } from 'lucide-react';
 import { getLiveDiscoveryCoordinator } from '../../platform/obd/discovery/discoveryLive';
 import type { DiscoveryProgress, DiscoverySessionResult } from '../../platform/obd/discovery/discoveryCoordinator';
+import { useDiscoveryObservations } from './useDiscoveryObservations';
+import { computeDeepScanPidBreakdown } from './deepScanBreakdownModel';
 
 const STATUS_POLL_MS = 400;
 
@@ -53,6 +55,16 @@ export const PidDidDeepScanPanel = memo(function PidDidDeepScanPanel() {
     verifiedCount: 0, unknownCount: 0, suspiciousCount: 0, rejectedCount: 0,
   };
 
+  /* PID'lerin "yeni" / "zaten kayıtlı" kırılımı — YALNIZ bu taramanın sonucu üzerinden
+     (gözlem listesi ömür boyu birikir; ham sayımı tarama sayısıyla yan yana yazmak
+     toplamı tutmayan bir cümle üretirdi). Karar yeniden hesaplanmaz, servisin kendi
+     `status`'ü okunur; eşleşmeyen PID tahmin edilmez → `unclassified`. */
+  const observations = useDiscoveryObservations();
+  const pidBreakdown = useMemo(
+    () => computeDeepScanPidBreakdown(result?.standardPids ?? [], observations),
+    [result, observations],
+  );
+
   return (
     <div className="flex flex-col gap-4 rounded-xl border border-[var(--oem-line)] bg-[var(--oem-surface-1)] p-4 text-sm text-[var(--oem-ink)]">
       <div className="flex items-center gap-2 text-base font-semibold">
@@ -75,8 +87,28 @@ export const PidDidDeepScanPanel = memo(function PidDidDeepScanPanel() {
       </div>
 
       {result && (
-        <div className="text-xs text-[var(--oem-ink-2)]">
-          Standart PID bulundu: {result.standardPids.length} · Durma nedeni: {result.stopReason}
+        <div className="flex flex-col gap-1 text-xs text-[var(--oem-ink-2)]">
+          <span>
+            Standart PID bulundu: {result.standardPids.length} · Durma nedeni: {result.stopReason}
+          </span>
+          {/* SAHA BULGUSU (2026-07-31): "25 PID buldum ama EKLEMEDİ" şikâyeti.
+              Kusur değildi — bulunanların hepsi standart katalogda ZATEN VARDI
+              (`status:'known'` → `captured:false`). Ama panel bunu SÖYLEMİYORDU;
+              kullanıcı sessiz bir kayıp sandı. Kırılım artık açıkça yazılır. */}
+          <span>
+            Bunlardan <strong>{pidBreakdown.known}</strong> tanesi katalogda zaten kayıtlı
+            {' '}(yeni eklenmedi) · <strong>{pidBreakdown.fresh}</strong> tanesi yeni.
+            {pidBreakdown.unclassified > 0 && (
+              <> · <strong>{pidBreakdown.unclassified}</strong> tanesi sınıflandırılamadı
+              {' '}(gözlem kaydı yok).</>
+            )}
+          </span>
+          {pidBreakdown.fresh === 0 && pidBreakdown.known > 0 && (
+            <span className="text-[var(--oem-ink-3)]">
+              Hiçbirinin eklenmemesi normaldir: bu araç yalnız standart PID&apos;ler
+              bildirdi, hepsi tanınıyor. Eksik bir şey kaybolmadı.
+            </span>
+          )}
         </div>
       )}
 

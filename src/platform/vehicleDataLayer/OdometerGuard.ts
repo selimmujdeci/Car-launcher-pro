@@ -67,10 +67,13 @@ export class OdometerGuard {
   /**
    * GPS koordinatını odometer hesabına geçmeden önce denetle.
    *
-   * @param lat       Yeni GPS enlem
-   * @param lng       Yeni GPS boylam
-   * @param speedKmh  Anlık füzyon hızı (CAN/OBD/GPS öncelikli, km/h)
-   * @param dtMs      Önceki GPS fix'ten bu yana geçen süre (ms)
+   * @param lat        Yeni GPS enlem
+   * @param lng        Yeni GPS boylam
+   * @param speedKmh   Mevcut EN İYİ hız kanıtı (füzyon ve GPS Doppler'in büyüğü, km/h)
+   * @param dtMs       Önceki GPS fix'ten bu yana geçen süre (ms)
+   * @param accuracyM  Fix'in bildirdiği konum doğruluğu (m) — YALNIZ tanı kaydı için;
+   *                   karar mantığını ETKİLEMEZ. Bir reddin gerçek teleport mu yoksa
+   *                   hız kanıtı eksikliği mi olduğunu sahada ayırt edebilmek için.
    *
    * @returns
    *   'skip'    — Startup penceresi (ilk STARTUP_SKIP fix tamamlanmadı).
@@ -79,7 +82,10 @@ export class OdometerGuard {
    *               Referans sıfırlandı; çağıran _prevOdoActive=false yapmalı.
    *   'ok'      — Geçerli; odometer delta hesaplanabilir.
    */
-  check(lat: number, lng: number, speedKmh: number, dtMs: number): 'skip' | 'invalid' | 'ok' {
+  check(
+    lat: number, lng: number, speedKmh: number, dtMs: number,
+    accuracyM?: number,
+  ): 'skip' | 'invalid' | 'ok' {
     // ── Monotonic Clock Enforcement ────────────────────────────────────────
     // check() çağrıları arası süreyi performance.now() ile ölç (saat atlamasına
     // bağışık). Çağıranın geçtiği dtMs yalnızca makul VE wall-clock kokusu
@@ -110,10 +116,17 @@ export class OdometerGuard {
       const maxAllowedDist = (spd / 3_600) * (safeDtMs / 1_000) * 2.0 + 0.05;
 
       if (dist > maxAllowedDist) {
+        // Reddin GEREKÇESİ kayda geçer: `implied` bu yer değiştirmenin gerektirdiği
+        // hızdır. implied > ~300 km/h → fiziksel olarak imkânsız, gerçek teleport.
+        // implied makul (örn. 40-90 km/h) ama speed=0 ise → hız KANITI yoktu, yani
+        // muhtemelen GERÇEK hareket reddedildi. Bu ayrım olmadan sahada hangi
+        // durumun yaşandığı söylenemezdi (2026-08-02 açık sorusu).
+        const impliedKmh = safeDtMs > 0 ? (dist / (safeDtMs / 3_600_000)) : Infinity;
         console.warn(
           `[ODO:Guard] Teleport rejected: ${dist.toFixed(3)} km` +
           ` > ${maxAllowedDist.toFixed(3)} km allowed` +
-          ` (${speedKmh.toFixed(1)} km/h, Δt ${safeDtMs.toFixed(0)} ms)`,
+          ` (speedEvidence ${speedKmh.toFixed(1)} km/h, implied ${impliedKmh.toFixed(0)} km/h,` +
+          ` Δt ${safeDtMs.toFixed(0)} ms, acc ${accuracyM != null ? accuracyM.toFixed(0) + 'm' : 'UNKNOWN'})`,
         );
         // Referansı sıfırla → sonraki kararlı fix yeni baseline kurar
         this._refLat = null;

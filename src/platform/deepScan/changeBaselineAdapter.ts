@@ -26,6 +26,7 @@ import {
 } from '../vehicleFingerprintService';
 import {
   deepScanPersistenceStore,
+  isVerifiedFullScan,
   type DeepScanPersistenceStore,
   type DeepScanRecord,
 } from './deepScanPersistence';
@@ -51,6 +52,22 @@ export type BaselineResolution =
   | { readonly kind: 'no_baseline' }
   /** Okuma başarısız — fail-closed; faz başarılı sayılmamalı. */
   | { readonly kind: 'unavailable' };
+
+/**
+ * Bir kayıt BASELINE olmaya uygun mu.
+ *
+ * ⚠️ FAIL-CLOSED (completion truth): yalnız KANITLI tam taranmış araç baseline
+ * olabilir. Kısmi/eksik tarama (handler'sız, atlanmış, timeout'a düşmüş faz) kayıt
+ * bırakabilir — ama o kayıt "önceki tam durum" DEĞİLDİR; onu baseline saymak
+ * "değişiklik yok" sonucuna KANIT ÜRETİRDİ. Aynısı Completion Truth ÖNCESİ yazılmış
+ * (metadata'sız) `hasCompletedFullScan:true` kayıtları için de geçerlidir.
+ *
+ * Karar BURADA VERİLMEZ — tek merkezi otorite `isVerifiedFullScan()`
+ * (deepScanPersistence). Burada yalnız tip daraltma yapılır (dağınık kural YOK).
+ */
+function isUsableBaseline(record: DeepScanRecord | null): record is DeepScanRecord {
+  return isVerifiedFullScan(record);
+}
 
 /** İki ECU adres kümesi anlamlı biçimde farklı mı (sıra/tekrar duyarsız). */
 function ecuSetChanged(a: readonly string[], b: readonly string[]): boolean {
@@ -91,7 +108,7 @@ export class ChangeBaselineAdapter {
     try {
       // (1) HASH ile — bulunursa ECU seti tanım gereği aynıdır.
       const direct = this._persistence.load(current.hash);
-      if (direct) return { kind: 'match', record: direct };
+      if (isUsableBaseline(direct)) return { kind: 'match', record: direct };
 
       // (2) VIN eşleşen ÖNCEKİ fingerprint üzerinden. Kendisi listeden ÇIKARILIR
       //     (aksi hâlde matcher kendisiyle eşleşir → tautoloji).
@@ -104,7 +121,8 @@ export class ChangeBaselineAdapter {
       if (best.reason !== 'vin' || !best.hash) return { kind: 'no_baseline' };
 
       const prior = this._persistence.load(best.hash);
-      if (!prior) return { kind: 'no_baseline' };             // o araç hiç taranmamış
+      // Hiç taranmamış VEYA tam taranmamış → baseline OLAMAZ (fail-closed).
+      if (!isUsableBaseline(prior)) return { kind: 'no_baseline' };
 
       const priorFp = others.find((f) => f.hash === best.hash);
       if (!priorFp) return { kind: 'no_baseline' };

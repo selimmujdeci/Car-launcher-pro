@@ -360,6 +360,42 @@ export async function pushVehicleEvent(
   );
 }
 
+/**
+ * SUNUCU YANITI GEREKEN RPC ÇAĞRISI (kimlik bildirimi için).
+ *
+ * `pushVehicleEvent` at-least-once kuyruğa yazar ve KUYRUK ID'si döner —
+ * sunucunun kararını (çakışma / güven puanı) taşımaz. Kimlik bildirimi ise
+ * sunucunun hükmünü okumak zorundadır, bu yüzden doğrudan çağrılır.
+ *
+ * GÜVENLİK:
+ *   · `api_key` YALNIZ istek gövdesine konur; loglanmaz, hataya sızdırılmaz.
+ *   · Yanıt gövdesi ham olarak döner; çağıran tarafta daraltılır.
+ *   · Hata durumunda `null` — çağıran fail-soft davranır.
+ *
+ * NADİR ÇAĞRI: kimlik değişimi seyrektir, hot-path'e GİRMEZ.
+ */
+export async function callVehicleRpc(
+  fn: string,
+  args: Record<string, unknown>,
+): Promise<unknown> {
+  if (!RPC_BASE || !SUPABASE_ANON_KEY) return null;
+  const apiKey = _apiKey ?? (await sensitiveKeyStore.get(SK_API_KEY));
+  if (!apiKey) return null;
+
+  try {
+    const res = await fetch(`${RPC_BASE}/${fn}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', apikey: SUPABASE_ANON_KEY },
+      body: JSON.stringify({ p_api_key: apiKey, ...args }),
+    });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    /* Ağ hatası — gizli anahtar İÇEREBİLECEĞİ için hata nesnesi LOGLANMAZ. */
+    return null;
+  }
+}
+
 /* ══════════════════════════════════════════════════════════════════════════
  * ELM327 Komut Sekansları — OBD2 / UDS araç kontrol placeholder'ları
  *

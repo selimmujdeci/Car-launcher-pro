@@ -198,9 +198,15 @@ export class DiscoveryCoordinator {
     emitDiscoveryEvidence({ type: 'PID_DID_DISCOVERY_START', connectionState: this.deps.getHealthSnapshot().connectionState });
 
     const standardPids = await this.deps.runStandardPidDiscovery({ signal: this._abort.signal });
+    /* Protokol gözleme İŞLENİR (saha 2026-07-31): LAB dökümündeki keşif kayıtlarında
+       `protocol:""` görülüyordu. ECU adresi ve ham yanıt bu katmanda GERÇEKTEN yok
+       (bitmap zinciri tek tek yanıt döndürmez) → onlar boş KALIR, uydurulmaz; ama
+       aktif protokol biliniyor ve geçilmemesi salt eksiklikti. */
+    const pidProtocol = this.deps.getActiveProtocol() ?? '';
     for (const p of standardPids) {
       this.deps.captureObservation?.({
         pidOrDid: p.pid, discoverySource: 'PID', mode: '01', supported: true,
+        protocol: pidProtocol,
       });
     }
 

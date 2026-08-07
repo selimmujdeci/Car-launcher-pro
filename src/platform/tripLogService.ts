@@ -14,7 +14,21 @@ import { useState, useEffect } from 'react';
 import { onOBDData }       from './obdService';
 import { onGPSLocation }   from './gpsService';
 import type { GPSLocation } from './gpsService';
+import type { OBDData }    from './obdTypes';
 import { safeSetRaw, safeGetRaw } from '../utils/safeStorage';
+import { useStore }        from '../store/useStore';
+/* P2 metrikleri: SAF yardımcılar (abonelik/timer/durum SAHİPLENMEZ).
+   Bu modül TEK trip otoritesi olarak KALIR; yalnız hesap mantığı test
+   edilebilir olsun diye dışarı alındı. */
+import {
+  createAccumulator, applySample, sealAccumulator,
+  evaluateFuelMeasurement, fuelPercentToLitres, buildCoverageReport,
+  type TripMetricsAccumulator,
+} from './trip/tripMetricsAccumulator';
+import {
+  capturePriceSnapshot, computeTripCost, deriveEvidenceConfidence,
+  type PriceSnapshot,
+} from './trip/tripCostModel';
 
 /* ── Types ───────────────────────────────────────────────── */
 
@@ -30,7 +44,65 @@ export interface TripRecord {
   fuelCostTL:       number;
   drivingScore:     number;
   harshEvents:      number;
+
+  /* ── P2 METRİKLERİ (hepsi OPSİYONEL — geriye uyum) ────────────────────
+     Eski kayıtlarda bu alanlar YOKTUR; `undefined` okunur ve kanonik
+     katmanda `UNAVAILABLE`'a düşer. **Var olmayan metrik `0` DEĞİLDİR.** */
+
+  /** Sert fren sayısı — artık KALICI (eskiden RAM'de kayboluyordu). */
+  harshBrakeCount?:   number;
+  /** Ani hızlanma sayısı — artık KALICI. */
+  harshAccelCount?:   number;
+
+  /** Hareket / rölanti / bilinmeyen süre (dakika). Bilinmeyen idle SAYILMAZ. */
+  movingMin?:         number;
+  idleMin?:           number;
+  unknownMin?:        number;
+  /** Debounce'lu gerçek duruş sayısı (GPS jitter'ı sayılmaz). */
+  stopCount?:         number;
+
+  /** Tepe değerler — YALNIZ taze+geçerli OBD'den. Yoksa alan YOK. */
+  maxRpm?:            number;
+  maxEngineTempC?:    number;
+
+  /** ÖLÇÜLEN yakıt tüketimi (yüzde puan). Yalnız tüm kapılar geçtiyse. */
+  fuelUsedPercent?:   number;
+  /** Yakıt ölçüm hükmü: `MEASURED` mi `ESTIMATED` mi. */
+  fuelSource?:        'MEASURED' | 'DERIVED' | 'ESTIMATED' | 'UNAVAILABLE';
+  /** Ölçüm reddedildiyse gerekçe (LAB/rapor için). */
+  fuelRejectReason?:  string;
+
+  /** Maliyet kaynağı + fiyat SNAPSHOT'ı (sonradan fiyat değişse maliyet DEĞİŞMEZ). */
+  costSource?:        'MEASURED' | 'DERIVED' | 'ESTIMATED' | 'UNAVAILABLE';
+  fuelUnitPrice?:     number;
+  currency?:          string;
+  priceSource?:       string;
+  priceCapturedAtMs?: number;
+
+  /** Mesafenin gerçek kaynağı: GPS haversine → MEASURED, OBD Euler → DERIVED. */
+  distanceSource?:    'MEASURED' | 'DERIVED' | 'ESTIMATED' | 'UNAVAILABLE';
+
+  /** Kanıta dayalı güven + hangi kanıtın sınırladığı. */
+  confidence?:        'VERY_HIGH' | 'HIGH' | 'MEDIUM' | 'LOW' | 'UNKNOWN';
+  confidenceLimitedBy?: string;
+  /* Kapsama kanıtı — LAB gözlemi ve confidence denetimi için. */
+  speedSampleCount?:  number;
+  obdCoverage?:       number;
+  timeCoverage?:      number;
+  dataGapCount?:      number;
+  sourceSwitchCount?: number;
+
+  /** Metrik şeması sürümü — alan kümesi değişirse artırılır. */
+  metricsVersion?:    number;
 }
+
+/**
+ * METRİK ŞEMA SÜRÜMÜ.
+ *
+ * P2 alan kümesi = 1. Yeni metrik eklenir veya bir alanın anlamı değişirse
+ * ARTIRILMALIDIR; aksi halde eski ve yeni kayıtlar aynı sanılır.
+ */
+export const TRIP_METRICS_VERSION = 1;
 
 interface ActiveTrip {
   startTime:   number;   // Date.now()        — display/storage timestamp only
@@ -43,10 +115,28 @@ interface ActiveTrip {
   lastPerfMs:  number;   // monotonic — for OBD fallback distance calc
   lastSpeed:   number;   // for harsh-event detection
   harshEvents: number;
+  /* Driver DNA (canlı, RAM): sert manevra sayacı YÖNE göre ayrıştırılır.
+     `harshEvents` TOPLAM olarak korunur (drivingScore/TripRecord sözleşmesi
+     DEĞİŞMEZ); aşağıdaki iki alan yalnız aktif yolculukta yaşar ve KALICI
+     TripRecord'a YAZILMAZ — geçmiş kayıt biçimi bozulmasın. */
+  harshBrakeEvents: number;   // hız ani DÜŞTÜ  (sert fren)
+  harshAccelEvents: number;   // hız ani ARTTI  (ani hızlanma)
   // GPS primary distance tracking
   lastGPSLat:  number | null;
   lastGPSLng:  number | null;
   lastGPSTs:   number | null;   // performance.now() of last GPS fix used
+
+  /* ── P2 ─────────────────────────────────────────────────────────────
+     Mesafenin GPS (haversine) ve OBD (Euler) payları AYRI tutulur:
+     kaynak sınıfı ancak böyle dürüstçe belirlenir. */
+  gpsDistanceKm: number;
+  obdDistanceKm: number;
+  /** Saf birikim (süre kovaları, tepe değerler, yakıt, olaylar, kapsama). */
+  metrics: TripMetricsAccumulator;
+  /** Trip BAŞINDA alınan fiyat anlık görüntüsü — sonradan DEĞİŞMEZ. */
+  price: PriceSnapshot;
+  /** Kapanış düzgün mü (idle penceresi doldu) yoksa kesildi mi. */
+  cleanClose: boolean;
 }
 
 export interface TripState {
@@ -176,6 +266,39 @@ function _setState(partial: Partial<TripState>): void {
   _notify();
 }
 
+/* ── P2: araç profili okumaları (fail-soft) ──────────────── */
+
+/**
+ * Aktif araç profilinden DEPO KAPASİTESİ (litre).
+ *
+ * Bu bir **kullanıcı girdisidir**, üretici verisi DEĞİL — bu yüzden litre
+ * dönüşümü daima `DERIVED`'dır, `MEASURED` olamaz. Profil yoksa `null`
+ * ve litre ÜRETİLMEZ.
+ */
+function _readTankCapacityL(): number | null {
+  try {
+    const { settings } = useStore.getState();
+    const p = settings.activeVehicleProfileId
+      ? settings.vehicleProfiles.find((x) => x.id === settings.activeVehicleProfileId)
+      : undefined;
+    const t = p?.fuelTankL;
+    return typeof t === 'number' && Number.isFinite(t) && t > 0 ? t : null;
+  } catch { return null; }
+}
+
+/**
+ * Yakıt birim fiyatı anlık görüntüsü.
+ *
+ * ⚠️ Bugün **kullanıcı ayarı YOK** — araç profilinde veya ayarlarda birim
+ * fiyat alanı bulunamadı (kod taraması). Bu yüzden varsayılan fallback
+ * kullanılır ve maliyet **daima `ESTIMATED`** olur. Kullanıcı fiyat alanı
+ * eklendiğinde burası `USER_DEFINED` döner ve maliyet `DERIVED`'a yükselir
+ * — hesap mantığı DEĞİŞMEZ.
+ */
+function _capturePrice(): PriceSnapshot {
+  return capturePriceSnapshot({ userUnitPrice: null, nowMs: Date.now() });
+}
+
 /* ── Trip lifecycle ──────────────────────────────────────── */
 
 function _startTrip(speedKmh: number, fuelLevel: number): void {
@@ -192,9 +315,18 @@ function _startTrip(speedKmh: number, fuelLevel: number): void {
     lastPerfMs:  perfNow,
     lastSpeed:   speedKmh,
     harshEvents: 0,
+    harshBrakeEvents: 0,
+    harshAccelEvents: 0,
     lastGPSLat:  null,
     lastGPSLng:  null,
     lastGPSTs:   null,
+    gpsDistanceKm: 0,
+    obdDistanceKm: 0,
+    metrics: createAccumulator(),
+    /* Fiyat SNAPSHOT'ı trip BAŞINDA alınır: trip bittikten sonra kullanıcı
+       fiyatı değiştirse geçmiş trip maliyeti sessizce değişmesin (§4). */
+    price: _capturePrice(),
+    cleanClose: false,
   };
 
   // Live clock: 5s — 1s'de pil tüketimi artıyor, 5s yeterli görünürlük sağlar
@@ -219,22 +351,126 @@ function _endTrip(): void {
   }
 
   const avgSpeed     = _active.speedCount > 0 ? Math.round(_active.speedSum / _active.speedCount) : 0;
-  const fuelL        = Math.round((_active.distanceKm / 100) * FUEL_L_PER_100KM * 10) / 10;
-  const fuelCost     = Math.round(fuelL * FUEL_PRICE_TL_PER_L);
   const drivingScore = _calcScore(_active.maxSpeedKmh, _active.harshEvents, avgSpeed);
+  const distanceKm   = Math.round(_active.distanceKm * 10) / 10;
+
+  /* ── P2 METRİK ÜRETİMİ ─────────────────────────────────────────────────
+     Buradaki her adım FAIL-SOFT: metrik üretimi düşse bile trip KAYDEDİLİR
+     (eski davranış korunur), yalnız yeni alanlar eksik kalır. */
+  let p2: Partial<TripRecord> = {};
+  try {
+    const acc = sealAccumulator(_active.metrics, performance.now());
+    const coverage = buildCoverageReport(acc);
+
+    /* Mesafe kaynağı: GPS payı baskınsa ÖLÇÜM, OBD Euler baskınsa TÜRETME.
+       "Çoğunlukla GPS" demek için %70 eşiği; altı dürüstçe DERIVED. */
+    const totalD = _active.gpsDistanceKm + _active.obdDistanceKm;
+    const distanceSource: TripRecord['distanceSource'] =
+      totalD <= 0 ? 'UNAVAILABLE'
+      : _active.gpsDistanceKm / totalD >= 0.7 ? 'MEASURED'
+      : 'DERIVED';
+
+    /* ── YAKIT (§3): yüzde ölçümü → litre DÖNÜŞÜMÜ ── */
+    const verdict = evaluateFuelMeasurement(acc, distanceKm);
+    let fuelL: number | null = null;
+    let fuelSource: TripRecord['fuelSource'] = 'UNAVAILABLE';
+    let fuelRejectReason: string | undefined;
+
+    if (verdict.measured) {
+      const litres = fuelPercentToLitres(verdict.usedPercent, _readTankCapacityL());
+      if (litres !== null) {
+        /* Ölçülen yüzde + KULLANICI GİRDİSİ depo → dönüşüm DERIVED'dır. */
+        fuelL = litres;
+        fuelSource = 'DERIVED';
+      } else {
+        /* Depo kapasitesi yok/güvenilmez → litre ÜRETİLMEZ. Yüzde ölçümü
+           saklanır; litre alanı sabit varsayıma DÜŞER (ESTIMATED). */
+        fuelL = Math.round((distanceKm / 100) * FUEL_L_PER_100KM * 10) / 10;
+        fuelSource = 'ESTIMATED';
+        fuelRejectReason = 'NO_TANK_CAPACITY';
+      }
+      p2 = { ...p2, fuelUsedPercent: verdict.usedPercent };
+    } else {
+      /* Ölçüm kapıları geçilmedi → mevcut 8,5 L/100km SABİTİ kullanılır ama
+         `ESTIMATED` etiketiyle; gerçek ölçüm gibi SUNULMAZ. */
+      fuelL = Math.round((distanceKm / 100) * FUEL_L_PER_100KM * 10) / 10;
+      fuelSource = 'ESTIMATED';
+      fuelRejectReason = verdict.reason;
+    }
+
+    /* ── MALİYET (§4): fiyat SNAPSHOT'ı ile ── */
+    const cost = computeTripCost({
+      fuelUsedL: fuelL,
+      /* Bu noktada `fuelSource` daima DERIVED veya ESTIMATED'dır (yukarıdaki
+         iki dal); tip daralması bunu zaten garantiliyor. */
+      fuelSource,
+      price: _active.price,
+    });
+
+    /* ── CONFIDENCE (§9): kanıta dayalı ── */
+    const conf = deriveEvidenceConfidence({
+      coverage,
+      distanceSource: distanceSource === 'UNAVAILABLE' ? 'UNAVAILABLE' : distanceSource,
+      durationSource: 'MEASURED',   // monotonik saat
+      cleanClose: _active.cleanClose,
+      durationMs: durationMs,
+    });
+
+    p2 = {
+      ...p2,
+      harshBrakeCount: acc.harshBrakeCount,
+      harshAccelCount: acc.harshAccelCount,
+      movingMin:  Math.round(acc.movingMs / 60_000),
+      idleMin:    Math.round(acc.idleMs / 60_000),
+      unknownMin: Math.round(acc.unknownMs / 60_000),
+      stopCount:  acc.stopCount,
+      /* Tepe değerler: ölçülmediyse alan KONMAZ (0 yazılmaz). */
+      ...(acc.maxRpm !== null ? { maxRpm: acc.maxRpm } : {}),
+      ...(acc.maxEngineTempC !== null ? { maxEngineTempC: acc.maxEngineTempC } : {}),
+      fuelSource,
+      ...(fuelRejectReason !== undefined ? { fuelRejectReason } : {}),
+      costSource: cost.source === 'MEASURED' ? 'DERIVED' : cost.source,
+      ...(_active.price.unitPrice !== null ? { fuelUnitPrice: _active.price.unitPrice } : {}),
+      ...(_active.price.currency !== null ? { currency: _active.price.currency } : {}),
+      priceSource: _active.price.source,
+      ...(_active.price.capturedAtMs !== null
+        ? { priceCapturedAtMs: _active.price.capturedAtMs } : {}),
+      distanceSource,
+      confidence: conf.overall,
+      confidenceLimitedBy: conf.limitedBy,
+      speedSampleCount: coverage.speedSampleCount,
+      ...(coverage.obdCoverage !== null ? { obdCoverage: coverage.obdCoverage } : {}),
+      ...(coverage.timeCoverage !== null ? { timeCoverage: coverage.timeCoverage } : {}),
+      dataGapCount: coverage.dataGapCount,
+      sourceSwitchCount: coverage.sourceSwitchCount,
+      metricsVersion: TRIP_METRICS_VERSION,
+    };
+
+    /* Litre ve maliyet ESKİ alanlara da yazılır (geriye uyum) — ama artık
+       yanlarında kaynak etiketi var. */
+    if (fuelL !== null) p2 = { ...p2, fuelConsumptionL: fuelL };
+    if (cost.cost !== null) p2 = { ...p2, fuelCostTL: cost.cost };
+  } catch {
+    /* FAIL-SOFT: P2 metrikleri üretilemezse trip yine kaydedilir. */
+    p2 = {};
+  }
+
+  /* Eski sözleşme: P2 üretilemediyse sabit varsayım kullanılır (DEĞİŞMEDİ). */
+  const legacyFuelL = Math.round((distanceKm / 100) * FUEL_L_PER_100KM * 10) / 10;
 
   const record: TripRecord = {
     id:               generateTripId(),
     startTime:        _active.startTime,
     endTime:          Date.now(),
-    distanceKm:       Math.round(_active.distanceKm * 10) / 10,
+    distanceKm,
     durationMin,
     avgSpeedKmh:      avgSpeed,
     maxSpeedKmh:      Math.round(_active.maxSpeedKmh),
-    fuelConsumptionL: fuelL,
-    fuelCostTL:       fuelCost,
+    fuelConsumptionL: legacyFuelL,
+    fuelCostTL:       Math.round(legacyFuelL * FUEL_PRICE_TL_PER_L),
     drivingScore,
     harshEvents:      _active.harshEvents,
+    ...p2,
   };
 
   _active = null;
@@ -269,7 +505,12 @@ function _onGPS(loc: GPSLocation | null): void {
   } else if (_active && speedKmh < 1) {
     // Durdu — idle timer
     if (!_idleTimer) {
-      _idleTimer = setTimeout(() => { _idleTimer = null; _endTrip(); }, TRIP_END_IDLE_MS);
+      _idleTimer = setTimeout(() => {
+        _idleTimer = null;
+        /* P2: duruş penceresi DOLDU → düzgün kapanış (confidence kanıtı). */
+        if (_active) _active.cleanClose = true;
+        _endTrip();
+      }, TRIP_END_IDLE_MS);
     }
   }
 
@@ -291,8 +532,20 @@ function _onGPS(loc: GPSLocation | null): void {
     // Gürültü ve GPS sıçramalarını filtrele
     if (distM >= GPS_MIN_DIST_M && distM <= GPS_MAX_JUMP_M) {
       _active.distanceKm += distM / 1000;
+      /* P2: GPS payı AYRI sayılır — mesafe kaynağı sınıfı buna bakar. */
+      _active.gpsDistanceKm += distM / 1000;
     }
   }
+
+  /* ── P2: örneği saf birikime ver (fail-soft) ────────────────────────── */
+  try {
+    _active.metrics = applySample(_active.metrics, {
+      perfNowMs: performance.now(),
+      source: 'GPS',
+      speedKmh: speedKmh > 0 ? speedKmh : (loc.speed != null ? 0 : null),
+      fresh: true,   // GPS fix'i buraya geldiyse gpsService kapılarını geçmiştir
+    });
+  } catch { /* metrik birikimi trip akışını ASLA bozmaz */ }
 
   // Sonraki delta için bu fix'i kaydet
   if (hasGoodAccuracy) {
@@ -307,9 +560,13 @@ function _onGPS(loc: GPSLocation | null): void {
     _active.speedSum   += speedKmh;
     _active.speedCount += 1;
 
-    // Sert manevra tespiti (≥15 km/h delta)
-    if (Math.abs(speedKmh - _active.lastSpeed) > 15) {
+    // Sert manevra tespiti (≥15 km/h delta). Driver DNA için YÖN de ayrıştırılır:
+    // delta negatif → sert fren, pozitif → ani hızlanma. Toplam sayaç DEĞİŞMEDİ.
+    const speedDelta = speedKmh - _active.lastSpeed;
+    if (Math.abs(speedDelta) > 15) {
       _active.harshEvents += 1;
+      if (speedDelta < 0) _active.harshBrakeEvents += 1;
+      else                _active.harshAccelEvents += 1;
     }
     _active.lastSpeed = speedKmh;
   }
@@ -320,7 +577,9 @@ function _onGPS(loc: GPSLocation | null): void {
 
 /* ── OBD handler (secondary — yakıt + harsh events + fallback km) ── */
 
-function _onOBD(speedKmh: number, fuelLevel: number): void {
+function _onOBD(data: OBDData): void {
+  const speedKmh  = data.speed;
+  const fuelLevel = data.fuelLevel;
   if (speedKmh < 0 || speedKmh > 300) return;
   if (fuelLevel < -1 || fuelLevel > 100) return;
 
@@ -337,7 +596,12 @@ function _onOBD(speedKmh: number, fuelLevel: number): void {
     if (!_active) _startTrip(speedKmh, fuelLevel);
   } else if (_active && speedKmh === 0) {
     if (!_idleTimer) {
-      _idleTimer = setTimeout(() => { _idleTimer = null; _endTrip(); }, TRIP_END_IDLE_MS);
+      _idleTimer = setTimeout(() => {
+        _idleTimer = null;
+        /* P2: duruş penceresi DOLDU → düzgün kapanış (confidence kanıtı). */
+        if (_active) _active.cleanClose = true;
+        _endTrip();
+      }, TRIP_END_IDLE_MS);
     }
   }
 
@@ -353,10 +617,29 @@ function _onOBD(speedKmh: number, fuelLevel: number): void {
     // Makul delta (< 1 km per OBD tick) — resume/background koruması
     if (deltKm >= 0 && deltKm < 1) {
       trip.distanceKm += deltKm;
+      /* P2: OBD Euler payı AYRI sayılır — bu pay baskınsa mesafe kaynağı
+         MEASURED değil DERIVED'dır (hız×zaman viraj/rampa hatası biriktirir). */
+      trip.obdDistanceKm += deltKm;
     }
     trip.lastPerfMs = perfNow;
     _notify();
   }
+
+  /* ── P2: OBD örneğini saf birikime ver (fail-soft) ──────────────────
+     Tazelik kapısı `data.dataFresh`tir: bayat ECU verisi tepe değer,
+     yakıt okuması veya sert olay ÜRETMEZ. */
+  try {
+    trip.metrics = applySample(trip.metrics, {
+      perfNowMs: performance.now(),
+      source: 'OBD',
+      speedKmh: data.speed,
+      fresh: data.dataFresh !== false,
+      rpm: data.rpm,
+      engineTempC: data.engineTemp,
+      fuelPercent: data.fuelLevel,
+      transportConnected: data.transportConnected,
+    });
+  } catch { /* metrik birikimi trip akışını ASLA bozmaz */ }
 }
 
 /* ── Public API ──────────────────────────────────────────── */
@@ -375,7 +658,7 @@ export function startTripLog(): void {
 
   // OBD secondary — yakıt + fallback km
   _obdUnsub = onOBDData((data) => {
-    try { _onOBD(data.speed, data.fuelLevel); } catch { /* trip log must never crash */ }
+    try { _onOBD(data); } catch { /* trip log must never crash */ }
   });
 }
 

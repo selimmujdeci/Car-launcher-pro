@@ -66,6 +66,19 @@ export const MAX_DISCOVERY_KEYS = 4096;
 /** Enjekte edilebilir bağımlılıklar (test için; prod varsayılanı sistem saati). */
 export interface DeepScanRuntimeDeps {
   now: () => number;
+  /**
+   * KONTAK ÇÖZÜMLEYİCİ (opsiyonel) — `prepare()` bunu çağırıp kontağı KENDİ çeker.
+   *
+   * ⚠️ ENJEKSİYON, IMPORT DEĞİL: bu servis `deepScanModel` DIŞINDA hiçbir modül
+   * import etmez (foundation invaryantı; deepScanRuntimeService.test.ts kilitli).
+   * Gerçek kaynağı (`deepScanIgnitionSource.isConfirmedForActiveScan`) bağlamak
+   * orchestration/wiring katmanının işidir.
+   *
+   * Sözleşme: `true` = kontak KESİN doğrulandı · `false`/`null` = doğrulanmadı
+   * (fail-closed — "bilinmiyor" ile "kapalı" aktif faz açısından AYNI karardır).
+   * Hata fırlatırsa `null` sayılır.
+   */
+  ignitionResolver?: () => boolean | null;
 }
 
 const DEFAULT_DEPS: DeepScanRuntimeDeps = { now: () => Date.now() };
@@ -294,6 +307,44 @@ export class DeepScanRuntimeService {
       this._status = 'waiting_for_ignition';
       this._touch();
       this._emit('ignition_required', reason ?? 'ignition_lost');
+    }
+    return this.getSnapshot();
+  }
+
+  /**
+   * HAZIRLIK FAZI KAPISI — aktif taramaya geçmeden önce kontağı DOĞRULAR.
+   *
+   * `ignitionResolver` enjekte edilmişse kontak ORADAN çekilir (servis kontağı
+   * kendi başına tahmin ETMEZ; çözümleyici yoksa yalnız mevcut beslenmiş değer
+   * geçerlidir). Çözümleyici throw ederse sonuç `null` (fail-closed) sayılır.
+   *
+   * Sonuç `true` DEĞİLSE durum `waiting_for_ignition`'da tutulur, `ignition_required`
+   * yayınlanır ve ARACA TEK BİR PAKET GÖNDERİLMEZ (aktif faz açılmaz, keşif kaydı
+   * kabul edilmez — mevcut fail-closed kapıları zaten bunu zorlar).
+   *
+   * İDEMPOTENT · throw ETMEZ · tarama başlatmaz (yalnız başlamış taramada iş yapar).
+   */
+  prepare(): DeepScanSnapshot {
+    if (!this._isMutable()) return this.getSnapshot();
+
+    const resolver = this._deps.ignitionResolver;
+    if (typeof resolver === 'function') {
+      let resolved: boolean | null;
+      try { resolved = resolver(); } catch { resolved = null; } // kaynak hatası izole
+      // normalizeIgnition: boolean dışı her değer → null (bilinmiyor).
+      this.setIgnitionConfirmed(normalizeIgnition(resolved), 'prepare');
+    }
+
+    if (this._ignition !== true) {
+      // Kontak doğrulanmadı → beklemeye al (uyarı + ignition_required olayı).
+      this._requireIgnition('prepare');
+      return this.getSnapshot();
+    }
+
+    if (this._status === 'waiting_for_ignition') {
+      this._status = 'preparing';
+      this._touch();
+      this._emit('scan_resumed', 'prepare');
     }
     return this.getSnapshot();
   }

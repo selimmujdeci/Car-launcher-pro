@@ -1,4 +1,4 @@
-import { safeGetRaw, safeSetRaw } from '../utils/safeStorage';
+import { safeGetRaw, safeSetRaw, safeRemoveRaw } from '../utils/safeStorage';
 import { useVidStore, type VidObdAdapterInfo } from '../store/useVidStore';
 
 /**
@@ -42,20 +42,88 @@ export function isValidTcpAddress(address: string): boolean {
   return !!host && port >= 1 && port <= 65535;
 }
 
-/** Son bilinen BT MAC adresini localStorage'dan okur. */
+/**
+ * Son bilinen BT MAC adresini okur.
+ *
+ * SAHA KANITI (2026-07-27): adres YALNIZ `localStorage`'da tutuluyordu. localStorage
+ * WebView ORIGIN'ine bağlıdır; uygulama şeması değişince (https://localhost →
+ * http://localhost) veya WebView verisi temizlenince adres SESSİZCE kaybolur.
+ * Diğer tüm ayarlar `safeStorage` (dosya sistemi) üzerinden origin'den BAĞIMSIZ
+ * hayatta kaldığı için ortaya tutarsız bir durum çıkıyordu: kullanıcının profili
+ * duruyor ama "Kayıtlı OBD adresi yok — cihaz seçin" hatası alıyordu.
+ *
+ * ÇÖZÜM: localStorage BİRİNCİL (hızlı, senkron), `safeStorage` YEDEK. Yalnız
+ * okuma tarafında yedeğe düşülür ve bulunan değer localStorage'a geri yazılır
+ * (self-healing). Yeni bir depolama biçimi getirmez — mevcut kayıtlar çalışır.
+ */
 export function loadObdAddress(): string | null {
-  try { return localStorage.getItem(OBD_ADDRESS_KEY); } catch { return null; }
+  try {
+    const local = localStorage.getItem(OBD_ADDRESS_KEY);
+    if (local) return local;
+  } catch { /* localStorage erişilemez — yedeğe düş */ }
+
+  // Yedek: origin'den bağımsız kalıcı katman.
+  try {
+    const backup = safeGetRaw(OBD_ADDRESS_KEY);
+    // FAIL-CLOSED: yedek katman diskten gelir; bozuk/şişmiş kayıt bağlantı yoluna
+    // SOKULMAZ ve birincil katmana geri yazılmaz — adres yok sayılır (tam scan'e düşer).
+    if (backup && isPlausibleObdAddress(backup)) {
+      // Self-healing: birincil katmana geri yaz ki sonraki okumalar hızlı olsun.
+      try { localStorage.setItem(OBD_ADDRESS_KEY, backup); } catch { /* quota */ }
+      return backup;
+    }
+  } catch { /* yedek de yok */ }
+
+  return null;
 }
 
-/** BT MAC adresini localStorage'a yazar. Kota hatalarını sessizce yok sayar. */
+/**
+ * Yedek katmandan gelen adres "makul" mü? BİÇİM DAYATMAZ (BT MAC · ip:port · üretici
+ * kimlikleri hep farklı yazılır) — yalnız bozulmayı eler: boş, aşırı uzun, boşluk veya
+ * kontrol karakteri içeren değer kabul edilmez. Geriye uyumluluk: bugüne kadar yazılmış
+ * her gerçek adres (MAC/ip:port) bu kapıdan geçer.
+ */
+/** Adres uzunluk tavanı — BT MAC (17) ve hostname:port için fazlasıyla yeterli. */
+const MAX_ADDRESS_LEN = 64;
+
+export function isPlausibleObdAddress(value: string): boolean {
+  if (!value || value.length > MAX_ADDRESS_LEN) return false;
+  for (let i = 0; i < value.length; i++) {
+    const c = value.charCodeAt(i);
+    if (c <= 32 || c === 127) return false;   // boşluk/sekme/yeni satır + tüm kontrol karakterleri
+  }
+  return true;
+}
+
+/**
+ * BT MAC adresini yazar — HER İKİ katmana (localStorage + safeStorage).
+ * Kota/erişim hataları sessizce yok sayılır (fail-soft).
+ *
+ * Yedek katman ANINDA yazılır (`immediate`): `obd:lastAddress` kritik anahtar
+ * listesinde olmadığı için varsayılan yol 5 sn debounce + idle kuyruğudur —
+ * araçta kontak kapanması/process kill o pencerede olursa yedek HİÇ oluşmaz ve
+ * bu düzeltmenin tek amacı (origin değişse de adres kalsın) son adres için
+ * çalışmazdı. Frekans düşüktür (bağlantı başına 1 yazma) → eMMC bütçesi korunur.
+ */
 export function saveObdAddress(address: string): void {
   try { localStorage.setItem(OBD_ADDRESS_KEY, address); } catch { /* quota */ }
+  try { safeSetRaw(OBD_ADDRESS_KEY, address, undefined, true); } catch { /* fail-soft */ }
   mirrorObdToVid({ lastAddress: address });
 }
 
-/** Kayıtlı BT MAC adresini siler (adaptör değişimi: stale MAC temizliği → tam scan'e düşer). */
+/**
+ * Kayıtlı BT MAC adresini siler (adaptör değişimi: stale MAC temizliği → tam scan'e düşer).
+ * İKİ katmandan da silinir — yoksa yedek katman silinen adresi geri diriltirdi.
+ *
+ * ⚠️ `safeRemoveRaw` KULLANILIR, boş string YAZILMAZ: native'de `_fsWriteAtomic`
+ * boş içeriği `stat.size === 0` ile REDDEDER (throw) → mezar taşı yazımı sessizce
+ * düşer, `.json` dosyası ve `_fsCache` ESKİ ADRESİ tutmaya devam ederdi; bir
+ * sonraki `loadObdAddress()` silinmiş adresi yedekten diriltip localStorage'a geri
+ * yazardı. `safeRemoveRaw` bekleyen yazımları da iptal eder (yarış yok).
+ */
 export function clearObdAddress(): void {
   try { localStorage.removeItem(OBD_ADDRESS_KEY); } catch { /* ignore */ }
+  try { safeRemoveRaw(OBD_ADDRESS_KEY); } catch { /* ignore */ }
   mirrorObdToVid({ lastAddress: null });
 }
 
@@ -169,25 +237,58 @@ export function clearObdProtocol(): void {
  * Ölçek adaptör MAC'ine göre saklanır (adaptör+araç ikilisi); varsayılan 1.0
  * (kalibrasyonsuz → hiçbir aracı etkilemez). displayFuel = clamp(raw2F × scale). */
 const OBD_FUEL_CALIB_PREFIX = 'obd:fuelCalib:';
+/* ⚠️ VIN ANAHTARI (saha 2026-08-01, Trafic): Kalibrasyon ARACIN şamandıra eğrisidir,
+ * ADAPTÖRÜN değil. Anahtar yalnız MAC iken dongle değişimi kalibrasyonu SESSİZCE
+ * kaybediyordu: eski adaptörde 1.85 duruyor, yeni adaptörde ölçek 1.0'a düşüyor ve
+ * gösterge ham 2F'yi (%24) gerçek seviye (~%47) yerine gösteriyordu. VIN varsa ona
+ * yazılır; adaptör değişse de kalır. MAC anahtarı OKUMADA korunur (geriye dönük). */
+const OBD_FUEL_CALIB_VIN_PREFIX = 'obd:fuelCalib:vin:';
 
-/** Bu adres için yakıt ölçek katsayısı. Yoksa/geçersizse 1.0 (kalibrasyonsuz). */
-export function loadObdFuelCalib(address: string): number {
-  if (!address) return 1;
+function _readCalibKey(key: string): number | null {
   try {
-    const raw = localStorage.getItem(OBD_FUEL_CALIB_PREFIX + address);
-    const n = raw != null ? parseFloat(raw) : NaN;
-    return Number.isFinite(n) && n > 0 ? n : 1;
-  } catch { return 1; }
+    const raw = localStorage.getItem(key);
+    if (raw == null) return null;
+    const n = parseFloat(raw);
+    return Number.isFinite(n) && n > 0 ? n : null;
+  } catch { return null; }
 }
 
-/** Yakıt ölçek katsayısını adrese göre kalıcılaştırır (1.0 → kalibrasyon temizle). */
-export function saveObdFuelCalib(address: string, scale: number): void {
-  if (!address) return;
+function _vinCalibKey(vin: string | null | undefined): string | null {
+  const n = vin?.trim().toUpperCase() ?? '';
+  return /^[A-HJ-NPR-Z0-9]{17}$/.test(n) ? OBD_FUEL_CALIB_VIN_PREFIX + n : null;
+}
+
+/**
+ * Yakıt ölçek katsayısı. ÖNCELİK: VIN → adaptör MAC → 1.0 (kalibrasyonsuz).
+ *
+ * VIN öncelikli çünkü eğri araca aittir; MAC yolu yalnız VIN okunamadığında ve
+ * eski kayıtlar için vardır.
+ */
+export function loadObdFuelCalib(address: string, vin?: string | null): number {
+  const vinKey = _vinCalibKey(vin);
+  if (vinKey) {
+    const byVin = _readCalibKey(vinKey);
+    if (byVin !== null) return byVin;
+  }
+  if (!address) return 1;
+  return _readCalibKey(OBD_FUEL_CALIB_PREFIX + address) ?? 1;
+}
+
+/**
+ * Yakıt ölçek katsayısını kalıcılaştırır (1.0 → kalibrasyon temizle).
+ *
+ * VIN biliniyorsa VIN'e yazılır (adaptör değişimine dayanıklı); bilinmiyorsa
+ * eski MAC davranışı korunur.
+ */
+export function saveObdFuelCalib(address: string, scale: number, vin?: string | null): void {
+  const vinKey = _vinCalibKey(vin);
+  const key = vinKey ?? (address ? OBD_FUEL_CALIB_PREFIX + address : null);
+  if (!key) return;
   try {
     if (Number.isFinite(scale) && scale > 0 && scale !== 1) {
-      localStorage.setItem(OBD_FUEL_CALIB_PREFIX + address, String(scale));
+      localStorage.setItem(key, String(scale));
     } else {
-      localStorage.removeItem(OBD_FUEL_CALIB_PREFIX + address);
+      localStorage.removeItem(key);
     }
   } catch { /* quota */ }
 }

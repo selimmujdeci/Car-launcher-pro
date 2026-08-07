@@ -102,6 +102,9 @@ export class VehicleSignalResolver {
         logError('VehicleCompute:onerror', new Error(err.message ?? 'Worker crash'));
         runtimeManager.reportFailure('VehicleCompute');
         runtimeManager.unregisterWorker('VehicleCompute');
+        // T2: ÇÖKME yolu — düzenli teardown'dan ayrılır. unregisterWorker() 'stopped'
+        // yazar; gerçek arıza burada 'dead'e yükseltilir (BlackBox/LAB bunu ayırt eder).
+        runtimeManager.markWorkerDead('VehicleCompute');
         this._onWorkerMessageBound = null; // crash path'te referansı temizle
         this._worker = null;
         this._onCrash?.();
@@ -112,6 +115,8 @@ export class VehicleSignalResolver {
       // boot/UI ayakta. _send null-safe, registerWorker null kabul eder.
       logError('VehicleCompute:create', e instanceof Error ? e : new Error(String(e)));
       this._worker = null;
+      // T2: WebView worker'ı REDDETTİ — bu bir çökme değil, platform sınırı.
+      runtimeManager.markWorkerUnavailable('VehicleCompute', 'unsupported');
     }
   }
 

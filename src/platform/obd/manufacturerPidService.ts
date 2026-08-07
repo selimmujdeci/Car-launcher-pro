@@ -50,6 +50,50 @@ let _profileProtocols: ProtocolClass[] | null = null;
 const _watchers = new Map<string, Set<Watcher>>();
 const _values = new Map<string, ManufacturerDidValue>();
 const _unsupported = new Set<string>(); // 7F-31/33 → KALICI desteklenmiyor
+
+/* ── ECU HAT-HATASI DEVRE KESİCİ (saha kanıtı 2026-07-27, Dacia Duster) ─────
+ * SAHADA ÖLÇÜLDÜ: Duster'da (ICE) Zoe EV profili yüklüyken her üretici DID
+ * denemesi `CAN ERROR` döndü. `CAN ERROR` bir hat/adresleme hatasıdır ve
+ * capabilityOutcome sözleşmesi gereği ARAÇ HAKKINDA KANIT DEĞİLDİR → kalıcı
+ * `_unsupported`'a yazılamaz (doğru kural). Sonuç: sonsuz tekrar.
+ * Ham trafikte ölçülen bedel: her deneme ATSP7→ATCP18→ATSH→ATCRA→22xx→ATSP6→
+ * ATSH7DF→ATAR = **9-10 AT komutu + ~700 ms**; 5.4 sn'de 6 başarısız deneme
+ * OBD bant genişliğinin ~yarısını yedi → tazelik penceresi 47 sn'ye uzadı,
+ * `OBD_STALE_DATA` kopması ve `OBD:LinkLost` hatası izledi.
+ *
+ * ÇÖZÜM: ECU ADRESİ başına OTURUM KAPSAMLI susturma. Kalıcı bir yetenek
+ * iddiası DEĞİLDİR (zero-trust korunur): profil yeniden yüklenince veya
+ * o ECU'dan tek bir başarılı yanıt gelince sıfırlanır.
+ *
+ * YARI-AÇIK (half-open) ZORUNLULUĞU: susturma sorguyu tamamen keserse ECU
+ * kendini bir daha ASLA açamaz — çünkü "başarılı yanıt" ancak sorgulanırsa
+ * gelebilir. Bu, GEÇİCİ bir kopmayı (adaptör resetti, kontak çevrimi, 18 sn
+ * link kaybı = 6 ardışık COMM_ERROR) KALICI sessizliğe çevirirdi: bağlantı
+ * geri gelse bile marka DID'leri uygulama yeniden başlayana kadar ölü kalırdı.
+ * Bu yüzden susturma SÜRELİDİR: {@link ECU_MUTE_RETRY_MS} sonra TEK bir yoklama
+ * geçer. Yoklama düşerse pencere yeniden kurulur (maliyet ≈ 1 sorgu/dakika/ECU),
+ * yanıt gelirse susturma kalkar. */
+const ECU_COMM_FAIL_LIMIT = 6;
+/** Susturulmuş ECU'ya yeniden yoklama izni verilene kadar geçen süre (monotonik). */
+export const ECU_MUTE_RETRY_MS = 60_000;
+/** ECU tx adresi → ardışık hat-hatası sayısı (LIMIT'te DOYAR — taşma yok). */
+const _ecuFailStreak = new Map<string, number>();
+/** Bu OTURUMDA susturulmuş ECU tx adresi → susturma anı (monotonik ms). */
+const _ecuMuted = new Map<string, number>();
+/** Susturma uyarısı bu oturumda zaten yazılmış ECU'lar (log seli olmasın). */
+const _ecuMuteWarned = new Set<string>();
+
+/** Monotonik saat — sistem saati geri atlarsa yarı-açık penceresi bozulmasın. */
+function _mono(): number {
+  return typeof performance !== 'undefined' && typeof performance.now === 'function'
+    ? performance.now()
+    : Date.now();
+}
+
+/** Devre kesici durumu — LAB/teşhis için salt-okunur. */
+export function getMutedEcus(): readonly string[] {
+  return [..._ecuMuted.keys()];
+}
 let _timer: ReturnType<typeof setInterval> | null = null;
 let _rrIndex = 0;
 let _inFlight = false; // önceki tur bitmeden yenisi başlamaz (yavaş ECU/pending zinciri)
@@ -100,6 +144,9 @@ export function loadProfile(rawProfile: unknown): { ok: true } | { ok: false; er
   _profile = compileVehicleDidProfile(result.profile);
   _profileProtocols = result.profile.protocols ? [...result.profile.protocols] as ProtocolClass[] : null;
   _unsupported.clear();
+  _ecuFailStreak.clear();
+  _ecuMuted.clear();
+  _ecuMuteWarned.clear();
   _values.clear();
   _rrIndex = 0;
   _resetM22(); // PR-OBD-DATA-1: yeni profil = yeni acquisition oturumu
@@ -112,6 +159,9 @@ export function unloadProfile(): void {
   _profile = null;
   _profileProtocols = null;
   _unsupported.clear();
+  _ecuFailStreak.clear();
+  _ecuMuted.clear();
+  _ecuMuteWarned.clear();
   _values.clear();
   _resetM22(); // PR-OBD-DATA-1: profil kaldırıldı → kanıt sıfırlanır
   _syncTimer();
@@ -150,7 +200,12 @@ function _watchedDids(): string[] {
   const out: string[] = [];
   for (const did of _watchers.keys()) {
     if (_unsupported.has(did)) continue;
-    if (!_profile?.has(did)) continue;
+    const def = _profile?.get(did);
+    if (!def) continue;
+    // Devre kesici: susturulmuş ECU SORGULANMAZ — ama süreli. Pencere dolduysa
+    // yarı-açık: tek yoklama geçer (link geri geldiyse kendini iyileştirir).
+    const mutedAt = _ecuMuted.get(def.tx);
+    if (mutedAt !== undefined && _mono() - mutedAt < ECU_MUTE_RETRY_MS) continue;
     out.push(did);
   }
   return out;
@@ -186,6 +241,11 @@ async function _tick(): Promise<void> {
     if (typeof value === 'number' && Number.isNaN(value)) { _recordM22(def, 'DECODE_FAIL', false); return; } // sınır dışı/bozuk
     const entry: ManufacturerDidValue = { value, def, updatedAt: Date.now() };
     _values.set(did, entry);
+    // Bu ECU gerçekten yanıt verdi → devre kesici TAMAMEN sıfırlanır
+    // (sayaç + susturma + uyarı kilidi) → yarı-açık yoklama kalıcı iyileşmeye döner.
+    _ecuFailStreak.delete(def.tx);
+    _ecuMuted.delete(def.tx);
+    _ecuMuteWarned.delete(def.tx);
     _recordM22(def, 'SUPPORTED', true); // PR-OBD-DATA-1: gerçek manufacturer value okundu (provenance)
     _watchers.get(did)?.forEach((cb) => {
       try { cb(entry); } catch (e) { logError('OBD:ManufacturerDidWatcher', e); }
@@ -193,6 +253,24 @@ async function _tick(): Promise<void> {
   } catch (e) {
     // Bağlantı yok / geçici iletişim hatası — fail-soft, dürüst boş kalır (değer güncellenmez).
     _recordM22(def, 'COMM_ERROR', false); // PR-OBD-DATA-1: link/adresleme hatası (KWP uyumsuzluğu işareti)
+    // Devre kesici: aynı ECU adresinde ardışık hat hatası. Kalıcı "desteklenmiyor"
+    // DEMEK DEĞİLDİR — yalnız bu oturumda o adrese sorgu israfını durdurur.
+    const prev = _ecuFailStreak.get(def.tx) ?? 0;
+    // Doyan sayaç: LIMIT'i aşmaz (uzun sürüşte sınırsız büyüme/taşma yok).
+    const streak = prev >= ECU_COMM_FAIL_LIMIT ? ECU_COMM_FAIL_LIMIT : prev + 1;
+    _ecuFailStreak.set(def.tx, streak);
+    if (streak >= ECU_COMM_FAIL_LIMIT) {
+      // Yarı-açık yoklama da düştüyse pencere YENİDEN kurulur (mutedAt tazelenir).
+      _ecuMuted.set(def.tx, _mono());
+      if (!_ecuMuteWarned.has(def.tx)) {
+        _ecuMuteWarned.add(def.tx);   // uyarı ECU başına BİR kez (üretimde warn korunuyor)
+        console.warn(
+          `[OBD] ECU ${def.tx} susturuldu — ${streak} ardışık hat hatası ` +
+          `(CAN ERROR/timeout). Kalıcı yetenek kaydı YAPILMADI; ${ECU_MUTE_RETRY_MS / 1000} sn'de ` +
+          'bir yoklanır, yanıt verince veya profil yeniden yüklenince açılır.',
+        );
+      }
+    }
     logError('OBD:ManufacturerDidRead', e);
   } finally {
     _inFlight = false;
@@ -373,6 +451,9 @@ export const _internals = {
     _watchers.clear();
     _values.clear();
     _unsupported.clear();
+    _ecuFailStreak.clear();
+    _ecuMuted.clear();
+    _ecuMuteWarned.clear();
     _rrIndex = 0;
     _inFlight = false;
     _resetM22();

@@ -379,9 +379,29 @@ export class DeepScanIgnitionSource {
     return this._recompute(false);
   }
 
-  /** Deep Scan adapter API'si — `ignitionConfirmed` beslemesi (orchestration PR'ı kullanır). */
+  /**
+   * Deep Scan adapter API'si — `ignitionConfirmed` beslemesi (orchestration PR'ı kullanır).
+   *
+   * ⚠️ ÜÇ DURUMLU KALIR: `true` (kontak açık) · `false` (kontak KAPALI, doğrulandı) ·
+   * `null` (BİLİNMİYOR). `null`'ı `false`'a çevirmek "kontak kapalı" DİYE BİR KANIT
+   * ÜRETMEK olurdu (kanıtsız bilgi üretme yasağı) ve LAB gözlem yüzeyinde bilinmeyeni
+   * doğrulanmış sanma hatası doğururdu. Aktif tarama KAPISI için fail-closed projeksiyon
+   * gerekiyorsa {@link isConfirmedForActiveScan} kullanılır.
+   */
   getConfirmedValue(): boolean | null {
     return this.getSnapshot().confirmed;
+  }
+
+  /**
+   * AKTİF TARAMA KAPISI — fail-closed projeksiyon: yalnız `true` geçer,
+   * `false` VE `null` (bilinmiyor) eşit derecede ENGELLER.
+   *
+   * `getConfirmedValue()`'nun dürüst üç durumlu değerini KORUYARAK karar
+   * yüzeyini ikili hâle getirir: "kontak kesin açık mı?" sorusunun tek cevabı.
+   * ELM327/UDS sorgusu üreten her yol bu kapıyı kullanmalıdır. throw ETMEZ.
+   */
+  isConfirmedForActiveScan(): boolean {
+    try { return this.getSnapshot().confirmed === true; } catch { return false; }
   }
 
   /**

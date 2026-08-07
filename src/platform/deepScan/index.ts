@@ -16,6 +16,9 @@ export {
 export {
   DeepScanPersistenceStore,
   deepScanPersistenceStore,
+  classifyFullScanTrust,
+  isVerifiedFullScan,
+  type DeepScanFullScanTrust,
   DEEP_SCAN_HISTORY_KEY,
   DEEP_SCAN_SCHEMA_VERSION,
   MAX_DEEP_SCAN_RECORDS,
@@ -73,3 +76,5 @@ export {
   type StartOrchestrationInput,
   type DeepScanOrchestratorDeps,
 } from './deepScanOrchestrator';
+// Completion truth tipleri `deepScanModel` üzerinden `export *` ile zaten dışa açıktır
+// (DeepScanCoverageLedger · DeepScanCompletionOutcome · evaluateDeepScanCompletion …).

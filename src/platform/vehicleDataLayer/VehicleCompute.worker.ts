@@ -172,12 +172,31 @@ let _gpsFailureActive = false;
 // _emitSpeed() confidence-based fusion için bu buffer'ları kullanır.
 // Pre-allocated: her mesajda yeni nesne oluşturmak yerine yerinde güncellenir.
 
-const _valSignals: Record<'HAL' | 'CAN' | 'OBD' | 'GPS', NormalizedVehicleData | null> = {
+/**
+ * VAL tamponunun KABUL ETTİĞİ kaynaklar.
+ *
+ * ⚠️ `SignalSource` sözleşmesi (valTypes.ts) BUNDAN GENİŞTİR: `'HAL' | 'CAN' |
+ * 'OBD' | 'GPS' | 'FUSED'`. `FUSED` bir GİRDİ kaynağı değil, füzyonun ÇIKTISIDIR
+ * → per-source tamponda karşılığı YOKTUR. Yani tip-geçerli bir `VEHICLE_DATA`
+ * mesajı bile bu tampona ait olmayan bir kaynak taşıyabilir (VCOMP-03 kökü).
+ * Liste bu yüzden `SignalSource` ∩ `_valSignals` anahtarları olarak TÜRETİLİR.
+ */
+type ValBufferSource = 'HAL' | 'CAN' | 'OBD' | 'GPS';
+
+const _valSignals: Record<ValBufferSource, NormalizedVehicleData | null> = {
   HAL: null,
   CAN: null,
   OBD: null,
   GPS: null,
 };
+
+/** Tampon anahtarlarından TÜRETİLİR — elle ikinci liste tutulmaz (sapma imkânsız). */
+const VAL_BUFFER_SOURCES: ReadonlySet<string> = new Set(Object.keys(_valSignals));
+
+/** Kaynak bu tampona yazılabilir mi (fail-closed: string olmayan/bilinmeyen → false). */
+function _isValBufferSource(v: unknown): v is ValBufferSource {
+  return typeof v === 'string' && VAL_BUFFER_SOURCES.has(v);
+}
 
 /** Efektif güven: signal.confidence × tazelik faktörü */
 function _effectiveConf(
@@ -193,6 +212,9 @@ function _effectiveConf(
 
 let _lastKnownSpeed     = 0;
 let _obdZeroConsecutive = 0;
+/** Duraktan ani sıçrama adayı — ikinci okuma doğrulayana kadar yayınlanmaz.
+ *  -1 = bekleyen aday yok. (bkz. _emitSpeed içindeki gerekçe) */
+let _speedJumpCandidate = -1;
 // GPS gösterim yumuşatma durumu (yalnız SAB→UI; raw mantığını etkilemez)
 let _dispSpeed          = 0;   // UI'a yazılan yumuşatılmış hız (km/h)
 let _gpsZeroTicks       = 0;   // GPS art arda kaç tiktir 0/düşük raporladı
@@ -253,7 +275,7 @@ function _odoSet(v: number): void {
 }
 
 // Pre-allocated prev GPS noktası; _prevOdoActive ile "null" durumu temsil edilir
-const _prevOdoBuf = { lat: 0, lng: 0 };
+const _prevOdoBuf = { lat: 0, lng: 0, acc: 0 };
 let _prevOdoActive    = false;
 // İlk OBD sync'ten sonra true → jump guard etkinleşir (INIT atlaması için)
 let _odoInitialized   = false;
@@ -706,8 +728,19 @@ function _updateOdometerGps(dtMs: number): void {
 
   // ── OdometerGuard: startup skip + velocity-time jump protection ───────
   // dtMs: GPS_DATA handler'ında hesaplanan fix-arası Δt (ms)
-  // _lastKnownSpeed: CAN→OBD→GPS öncelik füzyonundan gelen anlık hız (km/h)
-  const guardResult = _odoGuard.check(loc.lat, loc.lng, _lastKnownSpeed, dtMs);
+  //
+  // HIZ KANITI TUTARLILIĞI (2026-08-02): guard'a eskiden YALNIZ `_lastKnownSpeed`
+  // (CAN→OBD→GPS füzyonu) veriliyordu, oysa 20 satır aşağıdaki odometre yöntemi
+  // `_gps.speed`e (Doppler) güveniyor. Bu iki otorite ayrışabilir: OBD (0.85)
+  // GPS'ten (0.70) üstün olduğu için bağlı ama BAYAT/0 raporlayan bir ELM327,
+  // araç gerçekten giderken `_lastKnownSpeed = 0` bırakır. Guard'ın toleransı
+  // hıza bağlı olduğundan (hız 0 → yalnız 50 m taban) uzun Δt'de GERÇEK hareket
+  // "teleport" sayılabilir. Guard'a mevcut EN İYİ hız kanıtını ver: iki kaynağın
+  // büyüğü. Sahte km riski yaratmaz — yüksek hız yalnız teleport eşiğini genişletir,
+  // biriktirme kararını aşağıdaki DR_JITTER kapısı ve accuracy kapısı verir.
+  const _gpsSpeedKmh   = _gps.speed ?? 0;
+  const _guardSpeedKmh = _lastKnownSpeed > _gpsSpeedKmh ? _lastKnownSpeed : _gpsSpeedKmh;
+  const guardResult = _odoGuard.check(loc.lat, loc.lng, _guardSpeedKmh, dtMs, loc.accuracy);
 
   if (guardResult === 'skip') {
     // Startup penceresi: GPS fix yoksayılır.
@@ -719,6 +752,7 @@ function _updateOdometerGps(dtMs: number): void {
     }
     _prevOdoBuf.lat = loc.lat;
     _prevOdoBuf.lng = loc.lng;
+    _prevOdoBuf.acc = Number.isFinite(loc.accuracy) ? loc.accuracy : 0;
     _prevOdoActive  = true;
     return;
   }
@@ -736,6 +770,7 @@ function _updateOdometerGps(dtMs: number): void {
   if (!hwBacked && speedKmh < DR_JITTER_KMH) {
     _prevOdoBuf.lat = loc.lat;
     _prevOdoBuf.lng = loc.lng;
+    _prevOdoBuf.acc = Number.isFinite(loc.accuracy) ? loc.accuracy : 0;
     _prevOdoActive  = true;
     return;
   }
@@ -749,6 +784,7 @@ function _updateOdometerGps(dtMs: number): void {
       _postOdoUpdate(false);
       _prevOdoBuf.lat = loc.lat;
       _prevOdoBuf.lng = loc.lng;
+      _prevOdoBuf.acc = Number.isFinite(loc.accuracy) ? loc.accuracy : 0;
       _prevOdoActive  = true;
       return; // Haversine'e gerek yok
     }
@@ -759,19 +795,55 @@ function _updateOdometerGps(dtMs: number): void {
     // Kötü accuracy + speed yok → referans ilerlet, biriktirme
     _prevOdoBuf.lat = loc.lat;
     _prevOdoBuf.lng = loc.lng;
+    _prevOdoBuf.acc = Number.isFinite(loc.accuracy) ? loc.accuracy : 0;
     return;
   }
 
   if (!_prevOdoActive) {
     _prevOdoBuf.lat = loc.lat;
     _prevOdoBuf.lng = loc.lng;
+    _prevOdoBuf.acc = Number.isFinite(loc.accuracy) ? loc.accuracy : 0;
     _prevOdoActive  = true;
     return;
   }
 
   const deltaKm = _haversineKm(_prevOdoBuf.lat, _prevOdoBuf.lng, loc.lat, loc.lng);
+  /* ÖNCEKİ fix'in doğruluğu, çapa GÜNCELLENMEDEN ÖNCE okunur — aşağıdaki
+     çift-fix tabanı bunu kullanır (üzerine yazılırsa kapı tek fix'e düşer). */
+  const _prevAccM = _prevOdoBuf.acc;
   _prevOdoBuf.lat = loc.lat;
   _prevOdoBuf.lng = loc.lng;
+  _prevOdoBuf.acc = Number.isFinite(loc.accuracy) ? loc.accuracy : 0;
+
+  /* ── BELİRSİZLİK TABANI (saha 2026-08-03) ────────────────────────────────
+   * Kullanıcı: "km durduğum yerde durmadan değişiyor." Ölçüldü: araç PARK
+   * hâlindeyken Yol Sayacı 103,6 → 103,7 → 103,8 diye tırmandı (dakikada
+   * ~50 m sahte mesafe). Kaynak bu Haversine yolu: ardışık GPS fix'leri
+   * ±3-6 m salınıyor ve her salınım "kat edilen mesafe" olarak birikiyordu.
+   *
+   * Hız tarafına eklenen ilkenin AYNISI burada da geçerli: ölçüm
+   * belirsizliğinden küçük bir yer değiştirme MESAFE DEĞİLDİR. Taban
+   * `2 × accuracy` (2.5–12 m arası). Gerçek sürüşte 1 Hz'de bile 50 km/h
+   * ≈ 14 m/fix üretir → taban gerçek mesafeyi bastırmaz. */
+  /* ⚠️ İLK HÂLİ YETMEDİ (cihazda ölçüldü 2026-08-03/2): kullanıcı park hâlinde
+   * Yol Sayacı'nın **95 → 106,7 km** çıktığını bildirdi (saatler içinde ~11 km
+   * sahte mesafe). Taban VARDI ama iki kusuru vardı ve ikisi de hız tarafında
+   * aynı gün ölçülüp düzeltilen kusurun kardeşiydi:
+   *   1) TAVAN 12 m idi; aynı telefonda `accuracy` **14.9 m** ölçüldü → taban
+   *      ölçüm belirsizliğinin ALTINDA kalıyor, kapı anlamsızlaşıyordu.
+   *   2) yalnız GÜNCEL fix'in doğruluğuna bakıyordu; oysa yer değiştirme İKİ
+   *      ölçümün farkıdır, belirsizliği de ikisinin birleşimidir. Ölçülen
+   *      çift (±14.9 m → ±8.5 m) arasında **24.4 m**'lik saf gürültü sıçraması
+   *      12 m'lik tabanı rahatça aşıp "kat edilen mesafe" olarak birikiyordu.
+   * Tavan 40 m'ye çıkarıldı ve taban çiftin KÖTÜ doğruluğundan üretiliyor —
+   * `speedCore.noiseFloorM` ile BİREBİR aynı ilke. Gerçek sürüşü bastırmaz:
+   * 1 Hz'de 50 km/h ≈ 14 m/fix ve iyi gökyüzünde accuracy ≈ 2 m → taban 4 m. */
+  const _odoAccM   = Math.max(
+    Number.isFinite(loc.accuracy) ? loc.accuracy : 5,
+    _prevAccM > 0 ? _prevAccM : 0,
+  );
+  const _odoFloorM = Math.min(40, Math.max(2.5, _odoAccM * 2));
+  if (deltaKm * 1000 <= _odoFloorM) return;
 
   if (deltaKm > ODO_JUMP_MAX_KM) {
     console.debug('[ODO] Haversine jump rejected:', deltaKm.toFixed(3), 'km');
@@ -1030,6 +1102,28 @@ function _emitSpeed(): void {
   // Sanity: aralık + anti-jitter + RPM cross-check (saf predikat)
   if (_isSpeedRejected(raw, src)) return;
 
+  /* ── DURAKTAN ANİ SIÇRAMA: tek örnekle kabul etme ────────────────────────
+   * `_isSpeedRejected` içindeki anti-jitter kapısı `_lastKnownSpeed > 0`
+   * şartına bağlıdır — yani araç DURURKEN devre dışıdır. Tam da sahte
+   * sıçramaların olduğu an: cihazda park hâlinde `0 → 116 km/h` ölçüldü ve
+   * hiçbir kapıya takılmadan hız aşımı alarmını tetikledi (2026-08-03).
+   *
+   * Fizik: hiçbir araç bir tick'te (~100 ms) 0'dan 20 km/h üstüne çıkamaz
+   * (≈5.6 g). Ama uygulama araç HAREKET HÂLİNDEYKEN açılırsa ilk gerçek
+   * okuma da böyle görünür — koşulsuz reddedersek hız kalıcı 0'a saplanır.
+   * Bu yüzden reddetmiyoruz, **DOĞRULAMA istiyoruz**: bir sonraki okuma da
+   * aynı komşulukta gelirse kabul edilir. Maliyet ~100 ms gecikme; karşılığı
+   * park hâlinde sahte kırmızı alarm görmemek. */
+  if (_lastKnownSpeed === 0 && raw > ANTI_JITTER_KMH) {
+    if (Math.abs(raw - _speedJumpCandidate) > ANTI_JITTER_KMH) {
+      _speedJumpCandidate = raw;   // aday olarak beklet, henüz yayınlama
+      return;
+    }
+    _speedJumpCandidate = -1;      // ikinci okuma doğruladı → kabul
+  } else {
+    _speedJumpCandidate = -1;
+  }
+
   _lastKnownSpeed    = raw;
   _activeSpeedSource = src; // kaynak farkındalıklı ODO + DR için
 
@@ -1268,9 +1362,26 @@ function _handleInitFallback(msg: Extract<WorkerInMessage, { type: 'INIT_FALLBAC
 }
 
 function _handleVehicleData(msg: Extract<WorkerInMessage, { type: 'VEHICLE_DATA' }>): void {
-  // ── VAL yolu: NormalizedVehicleData → per-source buffer güncelle ────
   const { source, signals } = msg;
-  _valSignals[source as 'HAL' | 'CAN' | 'OBD' | 'GPS'] = signals;
+
+  /* VCOMP-03 — FAIL-CLOSED KAYNAK KAPISI (state yazımından ÖNCE).
+     KÖK: eski sıra "önce yaz, sonra tanı" idi; `_valSignals[source as …]` cast'i
+     doğrulamayı BASTIRIYOR ve bilinmeyen kaynak tampona (hatta yeni bir anahtar
+     olarak) yazılıyordu. VCOMP-02'nin zincir sonundaki uyarısı bunu GÖRÜNÜR
+     yapmıştı ama ENGELLEMİYORDU. Artık doğrulanmayan kaynak:
+       · `_valSignals`'a YAZILMAZ,
+       · hiçbir kaynak-özel handler'ı TETİKLEMEZ (erken return),
+       · sonraki füzyon/odometre hesaplarını dolaylı olarak ETKİLEMEZ.
+     Exception FIRLATILMAZ, tip GENİŞLETİLMEZ, bilinmeyen kaynak başka bir
+     kaynağa EŞLENMEZ — yalnız uyarılır ve düşürülür. */
+  if (!_isValBufferSource(source)) {
+    console.warn('[VehicleCompute] Unknown signal source:', source);
+    return;
+  }
+
+  // ── VAL yolu: NormalizedVehicleData → per-source buffer güncelle ────
+  // (cast KALDIRILDI — `source` yukarıdaki kapıda zaten daraltıldı)
+  _valSignals[source] = signals;
 
   // ── Legacy buffer'ları da güncelle (odometer/geofence/DR uyumluluğu) ──
   const nowPerf = performance.now();
@@ -1333,6 +1444,10 @@ function _handleVehicleData(msg: Extract<WorkerInMessage, { type: 'VEHICLE_DATA'
     if (_gpsLocActive)         { _patchGps.location = _gps.location; hasGpsData = true; }
     if (hasGpsData) _postPatch(_patchGps);
   }
+  /* VCOMP-02'nin zincir-sonu `else` dalı VCOMP-03 ile KALDIRILDI: fail-loud uyarı
+     artık fonksiyon GİRİŞİNDEKİ kapıda (state yazımından ÖNCE) basılıyor ve orada
+     `return` ediliyor → burası ULAŞILAMAZ ölü koddu. Uyarı davranışı KAYBOLMADI,
+     daha erkene ve daha güçlü bir yere (engelleyen kapıya) taşındı. */
 }
 
 function _handleCanData(msg: Extract<WorkerInMessage, { type: 'CAN_DATA' }>): void {
@@ -1447,20 +1562,43 @@ function _handleChaosBitflip(): void {
 
 // ── Ana mesaj işleyicisi (ince dispatcher) ─────────────────────────────────
 
+/**
+ * VCOMP-01 — GLOBAL FAIL-SAFE KAPISI.
+ *
+ * KÖK: dispatcher hiçbir hata koruması taşımıyordu. Bir handler içinde fırlayan
+ * herhangi bir exception (bozuk/eksik sinyal şekli, beklenmeyen null, sayısal
+ * taşma…) worker thread'ini SESSİZCE öldürüyordu; ana thread bunu yalnız veri
+ * akışının durmasından anlıyordu → UI donması/beyaz ekran.
+ *
+ * ⚠️ DENETİM RAPORUNDAKİ ÖRNEK DÜZELTİLDİ: `DataCloneError` bu yolu TETİKLEYEMEZ.
+ * O hata `postMessage` çağrısında GÖNDEREN tarafta fırlar (yapısal kopyalanamayan
+ * değer); mesaj hiç bu satıra ulaşmaz. Gerçek risk, handler GÖVDESİNDE fırlayan
+ * exception'lardır — koruma da tam olarak onu hedefler.
+ *
+ * Yakalama YUTMA DEĞİLDİR: hata `console.error` ile basılır (debug/index.ts
+ * "kritik console.error dokunulmaz" kuralı) → sahada logcat'ten görülebilir.
+ * Bir mesajın düşmesi worker'ı öldürmez; sonraki geçerli mesaj normal işlenir.
+ * Sıcak yolda ek maliyet YOKTUR: try/catch girişi V8'de bedelsizdir, yalnız
+ * gerçek throw anında catch yolu çalışır.
+ */
 self.onmessage = (e: MessageEvent<WorkerInMessage>): void => {
-  const msg = e.data;
+  try {
+    const msg = e.data;
 
-  switch (msg.type) {
-    case 'INIT':            _handleInit(msg);            break;
-    case 'INIT_FALLBACK':   _handleInitFallback(msg);    break;
-    case 'VEHICLE_DATA':    _handleVehicleData(msg);     break;
-    case 'CAN_DATA':        _handleCanData(msg);         break;
-    case 'OBD_DATA':        _handleObdData(msg);         break;
-    case 'GPS_DATA':        _handleGpsData(msg);         break;
-    case 'UPDATE_GEOFENCE': _handleUpdateGeofence(msg);  break;
-    case 'RESTORE_ODO':     _handleRestoreOdo(msg);      break;
-    case 'CHAOS_BITFLIP':   if (import.meta.env.DEV) _handleChaosBitflip(); break;
-    case 'VISIBILITY':      _handleVisibility(msg);      break;
-    case 'STOP':            _handleStop();               break;
+    switch (msg.type) {
+      case 'INIT':            _handleInit(msg);            break;
+      case 'INIT_FALLBACK':   _handleInitFallback(msg);    break;
+      case 'VEHICLE_DATA':    _handleVehicleData(msg);     break;
+      case 'CAN_DATA':        _handleCanData(msg);         break;
+      case 'OBD_DATA':        _handleObdData(msg);         break;
+      case 'GPS_DATA':        _handleGpsData(msg);         break;
+      case 'UPDATE_GEOFENCE': _handleUpdateGeofence(msg);  break;
+      case 'RESTORE_ODO':     _handleRestoreOdo(msg);      break;
+      case 'CHAOS_BITFLIP':   if (import.meta.env.DEV) _handleChaosBitflip(); break;
+      case 'VISIBILITY':      _handleVisibility(msg);      break;
+      case 'STOP':            _handleStop();               break;
+    }
+  } catch (err) {
+    console.error('[VehicleCompute] Unhandled worker exception:', err);
   }
 };

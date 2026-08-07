@@ -34,7 +34,7 @@ import type { IVehicleProfile }   from '../core/val/VehicleProfile';
 import { loadObdAddress, saveObdAddress, clearObdAddress, clearObdTransport, loadObdProfileId, saveObdProfileId, loadObdTransport, saveObdTransport, loadObdTransportVerified, saveObdTransportVerified, loadObdProtocol, saveObdProtocol, loadObdFuelCalib, saveObdFuelCalib, isValidTcpAddress, markObdAddressVerified, loadVerifiedObdAddresses, type ObdTransport } from './obdStorage';
 import { persistHandshakeVin } from './vehicleProfileService';
 import { getHandshakeVin } from './safety/vinContext';
-import { isFeatureEnabled, recordFault } from './safety/SafetyBrain';
+import { isFeatureEnabled, recordFault, recordFeatureRecovered } from './safety/SafetyBrain';
 import { useExpertStore } from '../store/useExpertStore';
 import { sanitizeNativeOBDPacket } from './obdSanitizer';
 import { computeFuelMetrics } from './obdMetrics';
@@ -1239,6 +1239,20 @@ function _onRealData(patch: Partial<OBDData>): void {
     if (_hasEcuData(patch)) {
       _dataGatePassed = true;
       if (_dataGateTimer) { clearTimeout(_dataGateTimer); _dataGateTimer = null; }
+      /* ARIZA İYİLEŞMESİ (SAHA 2026-08-06): veri kapısı AÇILDI — yani
+         `OBD_DATA_GATE_TIMEOUT` arızasının tam tersi kanıtlandı. Cihazda o arıza
+         19 kez birikip `obdDataGateAutoReconnect`i KALICI kapatmıştı; kayıt
+         VIN'siz `__NO_VIN__` kovasına yazıldığı için "VIN okumak için gereken
+         özellik VIN olmadığı için kapalı" kilidi oluşuyordu. Kanıt anı BURASI:
+         soket bağlanmak değil, GERÇEK ECU frame'inin akması.
+
+         FAIL-SOFT (ZORUNLU): bu bir DEFTER TUTMA çağrısıdır; kalıcı depolamaya
+         dokunur (kota/bozulma hatası fırlatabilir). Fırlarsa aşağıdaki
+         `connectionState: 'connected'` geçişi YAPILMAZ ve OBD, veri akarken
+         sonsuza dek "initializing" görünür. Bağlantı gerçekliği bir yan
+         deftere ASLA bağlanamaz → çağrı yutulur, veri yolu akmaya devam eder. */
+      try { recordFeatureRecovered('obdDataGateAutoReconnect'); }
+      catch { /* defter yazılamadı — bağlantı gerçekliği bundan etkilenmez */ }
       _logStateTransition(_current.connectionState, 'connected', 'first_ecu_frame', _rxNow, _staleThresholdMs());
       _merge({
         ...patch, lastSeenMs: _lastRealDataMs, connectionState: 'connected', source: 'real',

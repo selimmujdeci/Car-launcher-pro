@@ -493,6 +493,9 @@ export interface TransportSnapshot {
 export function buildTransportSnapshot(): TransportSnapshot {
   const obd = _safe(() => getTransportStats(), {
     transport: 'none' as const, connected: false, reconnectAttempts: 0,
+    // T4: kapsam alanları fallback'te de taşınır — tüketici "toplam" sanmasın.
+    consecutiveRetryStreak: 0,
+    reconnectAttemptsScope: 'current_backoff_streak' as const,
     lastDisconnectReason: null as string | null,
   });
   const canConnected = _safe(() => useHALStatusStore.getState().halConnected, false);

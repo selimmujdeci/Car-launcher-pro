@@ -19,8 +19,9 @@ import { getOBDStatusSnapshot }   from './obdService';
 import { getErrorLog }            from './crashLogger';
 import { getUiActivitySnapshot }  from './uiActivityRecorder';
 import {
-  type TrailEvent, pushOwn, getOwnTrail, resetOwnTrail,
+  type TrailEvent, type TrailKind, pushOwn, getOwnTrail, resetOwnTrail,
 } from './diagnosticTrailCore';
+import { safeGetRaw, safeSetRaw, safeRemoveRaw, safeFlushKey } from '../utils/safeStorage';
 
 // Yazma yolu (pushTrail) çekirdekten re-export edilir — geriye dönük uyumluluk;
 // AMA üreticiler (voiceService/media) doğrudan `diagnosticTrailCore`'dan import
@@ -63,6 +64,9 @@ let _prevObdSource = 'none';
 export function startDiagnosticTrail(): () => void {
   if (_installed) return () => { /* zaten kurulu */ };
   _installed = true;
+  // Önceki oturumun izini ÖNCE yükle: "boot başladı" satırı yeni oturumu açar,
+  // ondan önceki her şey geçen oturuma aittir (zaman çizgisi karışmaz).
+  loadPreviousDiagnosticTrail();
   pushOwn('boot', 'boot başladı');
 
   try {
@@ -100,11 +104,17 @@ export function startDiagnosticTrail(): () => void {
         pushOwn('obd', `OBD kaynak: ${_prevObdSource} → ${src}`);
         _prevObdSource = src;
       }
+      // Kalıcılaştırma yalnız ANLAMLI geçiş anlarında denenir ve kendi 30 sn
+      // penceresi vardır → hot-path'te (3Hz sinyal akışı) disk yazması OLMAZ.
+      persistDiagnosticTrail();
     });
   } catch { /* fail-soft — abonelik kurulamazsa iz yine manuel/merge çalışır */ }
 
   return () => {
     if (_unsub) { _unsub(); _unsub = null; }
+    // Tamponu SİLMEDEN ÖNCE diske yaz (immediate: kapanışta debounce beklenmez) —
+    // aksi hâlde kapanış anındaki en değerli son olaylar kaybolurdu.
+    persistDiagnosticTrail(true);
     resetOwnTrail();
     _lastModeMono = Number.NEGATIVE_INFINITY;
     _installed = false;
@@ -115,6 +125,104 @@ function safeObdSource(): string {
   try { return getOBDStatusSnapshot().source; } catch { return 'none'; }
 }
 
+/* ══════════════════════════════════════════════════════════════════════════
+ * ÖNCEKİ OTURUM İZİ — kalıcılık (#125)
+ *
+ * KÖK: iz yalnız RAM halkasındaydı; uygulama kapanınca "soruna ne yol açtı"
+ * hikâyesi SİLİNİYORDU. Çöküş/yeniden başlatma sonrası tanı raporu boş kalıyordu —
+ * yani en çok ihtiyaç duyulan anda kanıt yoktu.
+ *
+ * SINIRLAR (CLAUDE.md §3 I/O + gizlilik):
+ *  · eMMC AŞINMASI: yazma `safeSetRaw` debounce'una devredilir (varsayılan pencere);
+ *    ayrıca {@link TRAIL_PERSIST_DEBOUNCE_MS} altında İKİNCİ yazma HİÇ denenmez.
+ *    Yazma yalnız `startDiagnosticTrail` cleanup'ında ve mod/OBD geçişlerinde tetiklenir —
+ *    hot-path'te (3Hz sinyal) YAZMA YOKTUR.
+ *  · BOUNDED: diske en fazla {@link MAX_PERSISTED} olay yazılır (en yeniler).
+ *  · PII YOK: yalnız zaten PII'siz olan `kind`/`label`/`detail` taşınır; kayıt
+ *    okunurken de alan alan doğrulanır (bozuk/şişmiş kayıt REDDEDİLİR).
+ *  · FAIL-SOFT: disk okuma/yazma hatası izi ÇALIŞMAZ HÂLE GETİRMEZ (RAM devam eder).
+ * ════════════════════════════════════════════════════════════════════════ */
+
+const TRAIL_STORAGE_KEY = 'caros-diagnostic-trail-prev';
+/** Diske yazılan azami olay (en yeniler). */
+export const MAX_PERSISTED = 50;
+/** İki disk yazması arası asgari süre (monotonik) — eMMC koruması. */
+export const TRAIL_PERSIST_DEBOUNCE_MS = 30_000;
+/** Tek etiket/detay uzunluk tavanı (şişmiş kayıt diske gitmesin). */
+const MAX_LABEL = 80;
+const MAX_DETAIL = 160;
+
+const VALID_KINDS: ReadonlySet<string> = new Set<TrailKind>([
+  'boot', 'mode', 'screen', 'obd', 'action', 'error', 'modal',
+]);
+
+/** Önceki oturumdan geri yüklenen iz — RAM halkasına KARIŞTIRILMAZ, ayrı tutulur. */
+let _previousSession: TrailEvent[] = [];
+let _lastPersistMono = Number.NEGATIVE_INFINITY;
+
+/** Diske yazılacak/okunacak tek olayı doğrular + kırpar. Geçersiz → null (atılır). */
+function _sanitizeEvent(raw: unknown): TrailEvent | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const e = raw as Record<string, unknown>;
+  const ts = typeof e.ts === 'number' && Number.isFinite(e.ts) && e.ts > 0 ? e.ts : null;
+  const kind = typeof e.kind === 'string' && VALID_KINDS.has(e.kind) ? (e.kind as TrailKind) : null;
+  const label = typeof e.label === 'string' ? e.label.slice(0, MAX_LABEL) : null;
+  if (ts === null || kind === null || label === null) return null;   // sahte damga/tür UYDURULMAZ
+  const detail = typeof e.detail === 'string' ? e.detail.slice(0, MAX_DETAIL) : undefined;
+  return detail !== undefined ? { ts, kind, label, detail } : { ts, kind, label };
+}
+
+/**
+ * Mevcut RAM izini diske yazar (debounce'lu). `immediate=true` yalnız cleanup/
+ * kapanış yolunda kullanılır — pencere beklemeden yazar.
+ * @returns gerçekten yazma denendi mi (teşhis/test için).
+ */
+export function persistDiagnosticTrail(immediate = false): boolean {
+  try {
+    const now = _mono();
+    if (!immediate && now - _lastPersistMono < TRAIL_PERSIST_DEBOUNCE_MS) return false;
+    const events = getOwnTrail()
+      .slice(-MAX_PERSISTED)
+      .map(_sanitizeEvent)
+      .filter((e): e is TrailEvent => e !== null);
+    if (events.length === 0) return false;          // boş iz diske YAZILMAZ
+    _lastPersistMono = now;
+    safeSetRaw(TRAIL_STORAGE_KEY, JSON.stringify(events));
+    if (immediate) safeFlushKey(TRAIL_STORAGE_KEY);  // kapanışta debounce'u bekleme
+    return true;
+  } catch {
+    return false;                                    // disk hatası izi durdurmaz
+  }
+}
+
+/**
+ * Önceki oturumun izini diskten yükler. RAM halkasına KARIŞTIRILMAZ — böylece
+ * "bu oturumda olan" ile "geçen oturumda olan" birbirine geçmez; okuma yolu
+ * (`getDiagnosticTrail`) ikisini damgaya göre harmanlar.
+ * @returns yüklenen olay sayısı (0 = kayıt yok veya bozuk).
+ */
+export function loadPreviousDiagnosticTrail(): number {
+  try {
+    const raw = safeGetRaw(TRAIL_STORAGE_KEY);
+    if (!raw) return 0;
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return 0;
+    _previousSession = parsed
+      .slice(-MAX_PERSISTED)
+      .map(_sanitizeEvent)
+      .filter((e): e is TrailEvent => e !== null);
+    return _previousSession.length;
+  } catch {
+    _previousSession = [];                           // bozuk kayıt → yok say (çökme YOK)
+    return 0;
+  }
+}
+
+/** Önceki oturum izinin kopyası (teşhis/test). */
+export function getPreviousDiagnosticTrail(): TrailEvent[] {
+  return [..._previousSession];
+}
+
 /* ── Okuma: birleşik kronolojik iz (tanı payload'ı) ──────────── */
 
 /**
@@ -122,7 +230,10 @@ function safeObdSource(): string {
  * harmanlar, son MAX_OUT olayı döndürür (kronolojik).
  */
 export function getDiagnosticTrail(): TrailEvent[] {
-  const merged: TrailEvent[] = getOwnTrail();
+  // Önceki oturum + bu oturum tek çizgide. Damgalar Date.now olduğu için sıralama
+  // doğal olarak eskiyi öne alır; MAX_OUT kırpması EN YENİLERİ tutar → geçen oturum
+  // ancak bu oturum kısaysa görünür (istenen davranış: yakın geçmiş öncelikli).
+  const merged: TrailEvent[] = [..._previousSession, ...getOwnTrail()];
 
   // Hatalar (tümü — critical dışı dahil)
   try {
@@ -157,4 +268,7 @@ export function _resetDiagnosticTrailForTest(): void {
   _prevDriving = false;
   _lastModeMono = Number.NEGATIVE_INFINITY;
   _prevObdSource = 'none';
+  _previousSession = [];
+  _lastPersistMono = Number.NEGATIVE_INFINITY;
+  try { safeRemoveRaw(TRAIL_STORAGE_KEY); } catch { /* test izolasyonu fail-soft */ }
 }

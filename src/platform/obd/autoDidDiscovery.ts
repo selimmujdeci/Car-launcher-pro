@@ -57,11 +57,25 @@ export const HEALTHY_STABLE_MS = 30_000;
 /** Cache tazeleme — bu süreden eski tarama yeniden yapılır (yazılım/ECU değişimi olabilir). */
 const RESCAN_AFTER_MS = 90 * 24 * 3_600_000; // ~90 gün
 
+/* ── VIN YOKLAMA BÜTÇESİ (saha 2026-07-31 — çok-ECU düzeltmesinin YAN ETKİSİ) ────
+ * `startAutoDidWatcher` HER OBD veri olayında tetikler (saniyede birkaç kez) ve
+ * VIN okunamazsa `_sessionDone` işaretlenmez → yoklama bir sonraki olayda YENİDEN
+ * başlar. Tek sabit adres denendiği sürece bu ucuzdu; artık her deneme
+ * `discoverEcus()` (ATH1 + 0100 broadcast + ATH0 restore) + en fazla MAX_ECUS kez
+ * `ATSH/ATCRA + 22F190` demek → VIN vermeyen bir araçta çekirdek poll'u (hız/RPM)
+ * sürekli bekletir, yani "bayat veri" şikâyetini AZALTMAK yerine ARTIRIRDI.
+ * Bu yüzden yoklama sayı + soğuma ile sınırlanır; tükenince oturumda vazgeçilir
+ * (bağlantı sıfırlanınca `_resetAutoDidForTest`/yeniden başlatma ile sıfırlanır). */
+const VIN_PROBE_MAX_ATTEMPTS = 3;
+const VIN_PROBE_COOLDOWN_MS = 120_000; // 2 dk — başarısız yoklamalar arası zorunlu sessizlik
+
 let _running = false;
 let _sessionDone = false;
 let _healthySince = 0;
 let _lastResult: AutoDidRecord[] = [];
 let _watcherUnsub: (() => void) | null = null;
+let _vinProbeAttempts = 0;
+let _vinProbeBlockedUntil = 0;
 
 /** FNV-1a — VIN → kısa cache anahtarı (ham VIN ASLA saklanmaz). */
 function hashVin(vin: string): string {
@@ -89,11 +103,24 @@ function saveCache(c: AutoDidCache): void {
   try { safeSetRaw(CACHE_PREFIX + c.vinHash, JSON.stringify(c)); } catch { /* persist fail-soft */ }
 }
 
-/** F190 (VIN) hex → ASCII. Okunamazsa null. Engine ECU 7E0/7E8 varsayımı (11-bit CAN). */
-async function readVin(): Promise<string | null> {
+/**
+ * F190 (VIN) hex → ASCII. Okunamazsa `null`.
+ *
+ * ── ADRES ARTIK SABİT DEĞİL (saha 2026-07-31) ──────────────────────────────
+ * Eskiden `7E0/7E8` SABİT yazılıydı ("11-bit CAN varsayımı"). Gerçek araçta
+ * ölçüldü: protokol **7** (ISO 15765-4, **29-bit**) olan bir araçta ECU kendini
+ * `18DAF110` ile tanıtıyordu ama VIN isteği `ATSH7E0 · ATCRA7E8 · 22F190`
+ * gönderiyordu → **her seferinde `NO DATA`**, `vinPresent:false`. Yani 29-bit
+ * araçlarda VIN HİÇ okunamıyordu.
+ *
+ * Doğru adres zaten `ecuDiscovery` tarafından türetiliyordu
+ * (`txHeader: 18DA<ecu>F1`); bu yol onu kullanmıyordu. Artık adres DIŞARIDAN
+ * verilir ve çağıran keşfedilen ECU'ları sırayla dener.
+ */
+async function readVinFrom(tx: string, rx: string): Promise<string | null> {
   if (!CarLauncher.readObdDid) return null;
   try {
-    const r = await CarLauncher.readObdDid({ tx: '7E0', rx: '7E8', did: 'F190', service: '22' });
+    const r = await CarLauncher.readObdDid({ tx, rx, did: 'F190', service: '22' });
     if (!r.supported || !r.data) return null;
     const clean = r.data.replace(/[^0-9A-Fa-f]/g, '');
     let vin = '';
@@ -104,6 +131,23 @@ async function readVin(): Promise<string | null> {
     vin = vin.trim();
     return vin.length >= 8 ? vin : null; // VIN 17 karakter; ≥8 = makul (klon/kısmi tolere)
   } catch { return null; }
+}
+
+/**
+ * VIN'i ADAY ECU'LARDAN sırayla okur; ilk geçerli cevap kazanır.
+ *
+ * Sıra ÖNEMLİ: keşfedilen ECU'lar (29-bit dâhil) önce denenir; hiçbiri
+ * cevaplamazsa `7E0/7E8` YALNIZ SON ÇARE olarak kalır — 11-bit araçlarda eski
+ * davranış aynen korunur, 29-bit araçlarda ise VIN artık okunabilir.
+ */
+async function readVin(
+  candidates: ReadonlyArray<{ readonly tx: string; readonly rx: string }>,
+): Promise<string | null> {
+  for (const c of candidates) {
+    const vin = await readVinFrom(c.tx, c.rx);
+    if (vin) return vin;
+  }
+  return null;
 }
 
 /** Son taramanın sonucu (tanı ekranı/rapor okur). */
@@ -117,10 +161,31 @@ export function getAutoDiscoveredDids(): AutoDidRecord[] {
  */
 export async function maybeStartAutoDidDiscovery(): Promise<void> {
   if (_running || _sessionDone || !isHealthy()) return;
+  // VIN yoklama bütçesi — bkz. VIN_PROBE_MAX_ATTEMPTS notu (hat boğulmasın).
+  if (_vinProbeAttempts >= VIN_PROBE_MAX_ATTEMPTS) return;
+  if (Date.now() < _vinProbeBlockedUntil) return;
   _running = true;
   try {
-    const vin = await readVin();
-    if (!vin) return; // VIN yoksa keyleyemeyiz → bir sonraki sağlıklı pencerede yeniden dene
+    /* SIRA DEĞİŞTİ (saha 2026-07-31): önce ECU TOPOLOJİSİ, sonra VIN.
+     *
+     * Eskiden VIN sabit `7E0/7E8` ile okunuyor ve BAŞARISIZ olunca fonksiyon
+     * `return` ediyordu → 29-bit araçlarda ECU keşfine HİÇ SIRA GELMİYORDU
+     * (ölçüldü: protokol 7, ECU `18DAF110`, VIN her seferinde `NO DATA`).
+     * Artık adresler önce keşfedilir, VIN o adreslerden okunur. */
+    const topo = await discoverEcus();
+    const ecus = (topo.ecus.length > 0
+      ? topo.ecus.map((e) => ({ tx: e.txHeader, rx: e.rxHeader }))
+      : [{ tx: '7E0', rx: '7E8' }]   // 11-bit son çare — eski davranış korunur
+    ).slice(0, MAX_ECUS);
+
+    const vin = await readVin(ecus);
+    if (!vin) {
+      // VIN yoksa keyleyemeyiz → bir sonraki pencerede tekrar denenir, AMA bütçeyle:
+      // soğuma bitmeden ve deneme hakkı tükendikten sonra hat bir daha meşgul edilmez.
+      _vinProbeAttempts += 1;
+      _vinProbeBlockedUntil = Date.now() + VIN_PROBE_COOLDOWN_MS;
+      return;
+    }
     const vinHash = hashVin(vin);
 
     const cached = loadCache(vinHash);
@@ -129,13 +194,6 @@ export async function maybeStartAutoDidDiscovery(): Promise<void> {
       _sessionDone = true; // bu araç zaten tarandı
       return;
     }
-
-    // Yeni araç → tara. ECU'ları bul (yoksa engine 7E0/7E8 varsay).
-    const topo = await discoverEcus();
-    const ecus = (topo.ecus.length > 0
-      ? topo.ecus.map((e) => ({ tx: e.txHeader, rx: e.rxHeader }))
-      : [{ tx: '7E0', rx: '7E8' }]
-    ).slice(0, MAX_ECUS);
 
     // Sağlık bozulursa aborta çeviren signal.
     const ctrl = new AbortController();
@@ -174,6 +232,11 @@ export async function maybeStartAutoDidDiscovery(): Promise<void> {
  */
 export function startAutoDidWatcher(): () => void {
   if (_watcherUnsub) return _watcherUnsub;
+  // YENİ izleyici = yeni OBD oturumu (servis yeniden başladı / araç değişti) → VIN
+  // yoklama bütçesi tazelenir. Tek oturum içindeki sağlık dalgalanmaları bütçeyi
+  // sıfırlamaz (aksi halde flapping, sınırın amacını ortadan kaldırırdı).
+  _vinProbeAttempts = 0;
+  _vinProbeBlockedUntil = 0;
   const unsub = onOBDData(() => {
     if (_sessionDone) return;
     if (isHealthy()) {
@@ -193,5 +256,7 @@ export function _resetAutoDidForTest(): void {
   _sessionDone = false;
   _healthySince = 0;
   _lastResult = [];
+  _vinProbeAttempts = 0;
+  _vinProbeBlockedUntil = 0;
   if (_watcherUnsub) { _watcherUnsub(); _watcherUnsub = null; }
 }

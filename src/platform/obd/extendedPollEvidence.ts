@@ -40,11 +40,37 @@ export interface ExtendedJsCounters {
   eventsReceived: number; decodeFailures: number; valuesStored: number; valuesCached: number;
 }
 
+/**
+ * T6: kanıt kanalının üç açık durumu — "sahte başarı" ile "sahte arıza" arasındaki
+ * boşluğu kapatır. JS gözlemleri native kanıt YERİNE GEÇMEZ.
+ */
+export type ExtendedPollEvidenceState =
+  /** Native kanıt kanalı yayın yapıyor — sayaçlar gerçek. */
+  | 'native_available'
+  /** Native kanıt YOK ama JS tarafında gözlem var — poll çalışıyor olabilir, KANIT eksik. */
+  | 'native_unavailable_js_only'
+  /** Ne native kanıt ne JS gözlemi — hüküm verilemez. */
+  | 'insufficient';
+
 export interface ExtendedPollEvidenceSnapshot {
   present: boolean;
-  transport: string;
-  burstEnabled: boolean;
-  configuredPidCount: number;
+  /** T6-B: kanıt önbelleği bu oturumda tazelendi mi — "ölçmedik" ≠ "yok". */
+  cacheState: PollEvidenceCacheState;
+  /** T6: kanıt kanalının durumu — karar etiketiyle birlikte okunur. */
+  evidenceState: ExtendedPollEvidenceState;
+  /** Native kanıt yoksa `null` — 'unknown' string'i sahte bilgi üretiyordu. */
+  transport: string | null;
+  /** Native kanıt yoksa `null` (false DEĞİL — "burst kapalı" iddiası kanıtsızdı). */
+  burstEnabled: boolean | null;
+  /**
+   * Native kanıt yoksa `null`.
+   *
+   * ESKİ KUSUR (saha snapshot 2026-08-01): `native?.configuredPidCount ?? 0`
+   * yazıyordu → kanıt kanalı sussa bile LAB "0 PID yapılandırıldı" diyordu.
+   * Bu SAHTE SIFIR: gerçekte kaç PID izlendiği BİLİNMİYORDU. 0 ile bilinmiyor
+   * arasındaki fark teşhiste kritiktir (`NO_PIDS` hükmü buna dayanıyor).
+   */
+  configuredPidCount: number | null;
   configuredPidPreview: string[];
   counters: NativeExtendedPollEvidence['counters'] | null;
   /** Native son BAŞARILI PID — kanıt yoksa null (uydurulmaz). */
@@ -60,18 +86,50 @@ export interface ExtendedPollEvidenceSnapshot {
 
 let _cached: NativeExtendedPollEvidence | null = null;
 
+/**
+ * T6-B — ÖNBELLEK TAZELEME DURUMU (telefonda kanıtlandı 2026-08-01).
+ *
+ * `getExtendedPollEvidence()` SENKRONDUR ve yalnız `_cached`i okur; önbelleği
+ * dolduran tek şey ASYNC `refreshExtendedPollEvidence()`tir. CAROS LAB "TÜMÜNÜ
+ * KOPYALA" yolu (`carosLabCopySources`) sözleşmesi gereği senkrondur ve bu
+ * tazelemeyi ÇAĞIRMAZ.
+ *
+ * ÖLÇÜLEN SONUÇ (Xiaomi 23090RA98I · Android 13 · debug build):
+ *   · Temiz boot → LAB kopyası: `counters:null`, etiket "Kanıt mevcut değil
+ *     (eski APK / kanıt tazelenmedi / poll başlamadı)".
+ *   · AMA aynı cihazda `CarLauncher.getObdExtendedPollEvidence()` doğrudan
+ *     çağrıldığında 43 ms'de TAM yapılandırılmış yanıt döndü — yani native
+ *     kanal SAĞLAM, metot MEVCUT. "Eski APK" teşhisi YANLIŞ yönlendiriyordu.
+ *   · Önbellek yalnız başka bir yüzey (Runtime Scheduling · KWP Monitor ·
+ *     Tanı Gönder) önce açıldığında doluyordu → gözlem sırası bağımlılığı.
+ *
+ * Bu bayrak "hiç tazelenmedi"yi "kanal yok"tan AYIRIR. Tazeleme davranışı
+ * DEĞİŞMEDİ (senkron sözleşme korunur); yalnız hüküm dürüstleşir.
+ */
+export type PollEvidenceCacheState = 'never_refreshed' | 'refreshed' | 'unsupported' | 'error';
+
+let _refreshState: PollEvidenceCacheState = 'never_refreshed';
+
+/** @internal testler için — tazeleme durumu. */
+export function getPollEvidenceCacheState(): PollEvidenceCacheState {
+  return _refreshState;
+}
+
 /** Native kanıtı tazele (async plugin çağrısı) — rapor derlemeden önce await edilir. */
 export async function refreshExtendedPollEvidence(): Promise<void> {
   // Web/test veya eski APK: metot yok → kanıt yok (fail-soft).
   if (!Capacitor.isNativePlatform() || !CarLauncher.getObdExtendedPollEvidence) {
     _cached = null;
+    _refreshState = 'unsupported';   // web/test veya metotsuz APK — GERÇEKTEN yok
     return;
   }
   try {
     const ev = await CarLauncher.getObdExtendedPollEvidence();
     _cached = ev && typeof ev === 'object' ? ev : null;
+    _refreshState = 'refreshed';     // kanal cevap verdi (present false olsa bile)
   } catch {
     _cached = null; // köprü hatası → kanıt yok
+    _refreshState = 'error';
   }
 }
 
@@ -82,8 +140,34 @@ export async function refreshExtendedPollEvidence(): Promise<void> {
 export function classifyExtendedPoll(
   native: NativeExtendedPollEvidence | null,
   js: ExtendedJsCounters,
+  cacheState: PollEvidenceCacheState = 'refreshed',
 ): ExtendedPollDecision {
   if (!native || !native.present) {
+    /* T6-B (TELEFONDA ÖLÇÜLDÜ 2026-08-01): önbellek bu oturumda HİÇ tazelenmediyse
+       elimizde native kanal hakkında HİÇBİR gözlem yoktur. Eski etiket bu durumda
+       da "eski APK / poll başlamadı" diyordu — oysa aynı cihazda köprü 43 ms'de
+       yanıt veriyordu. Kanıtsız suçlama YASAK: "ölçmedik" ile "yok" ayrılır. */
+    if (cacheState === 'never_refreshed') {
+      return {
+        code: 'NO_NATIVE_EVIDENCE',
+        label: 'Kanıt ÖNBELLEĞİ bu oturumda hiç tazelenmedi (LAB kopyası senkrondur) — '
+             + 'APK sürümü veya poll durumu hakkında hüküm VERİLEMEZ. '
+             + 'Ölçmek için Runtime Scheduling ekranını açıp YENİLE yapın.',
+      };
+    }
+    if (cacheState === 'unsupported') {
+      return {
+        code: 'NO_NATIVE_EVIDENCE',
+        label: 'Native kanıt metodu bu platformda/APK\'da YOK (web/test veya eski APK) — JS akışı: '
+             + `${js.eventsReceived} olay / ${js.valuesStored} değer`,
+      };
+    }
+    if (cacheState === 'error') {
+      return {
+        code: 'NO_NATIVE_EVIDENCE',
+        label: 'Native kanıt çağrısı HATA verdi (köprü) — kanal durumu bilinmiyor',
+      };
+    }
     /* SAHA (snapshot 2026-07-25): native kanıt yokken etiket "eski APK / poll başlamadı"
        diyordu — AMA aynı nesnede `js.eventsReceived=102`, `js.valuesStored=102` vardı.
        Yani poll çalışıyordu; eksik olan POLL DEĞİL, KANIT KANALIYDI. Yanlış etiket
@@ -95,9 +179,14 @@ export function classifyExtendedPoll(
         label: `Native kanıt kanalı yayın yapmıyor — POLL ÇALIŞIYOR (JS ${js.eventsReceived} olay / ${js.valuesStored} değer)`,
       };
     }
+    /* T6-B: buraya YALNIZ cacheState==='refreshed' iken düşülür — yani kanal
+       SORULDU ve "kanıt yok" dedi. Eski metin hâlâ "eski APK / kanıt tazelenmedi"
+       diyordu; ikisi de bu dalda ARTIK YANLIŞ (tazeledik, metot da vardı).
+       Geriye kalan tek dürüst açıklama: poll oturumu hiç başlamadı. */
     return {
       code: 'NO_NATIVE_EVIDENCE',
-      label: 'Kanıt mevcut değil (eski APK / kanıt tazelenmedi / poll başlamadı) — JS akışı da BOŞ',
+      label: 'Native kanal SORULDU, kanıt YOK — extended poll oturumu bu bağlantıda hiç başlamadı '
+           + '(araç/OBD oturumu yok ya da izlenen PID listesi boş). JS akışı da BOŞ.',
     };
   }
   const c = native.counters;
@@ -126,14 +215,22 @@ export function classifyExtendedPoll(
 export function getExtendedPollEvidence(): ExtendedPollEvidenceSnapshot {
   const js = getExtendedJsCounters();
   const native = _cached;
-  const decision = classifyExtendedPoll(native, js);
+  const decision = classifyExtendedPoll(native, js, _refreshState);
   const present = !!(native && native.present);
+  // T6: kanıt YOKKEN JS gözlemi native başarı gibi SUNULMAZ — ayrı durum taşır.
+  const hasJsObservation = js.eventsReceived > 0 || js.valuesStored > 0;
+  const evidenceState: ExtendedPollEvidenceState = present
+    ? 'native_available'
+    : hasJsObservation ? 'native_unavailable_js_only' : 'insufficient';
   return {
     present,
-    transport: native?.transport ?? 'unknown',
-    burstEnabled: native?.burstEnabled ?? false,
-    configuredPidCount: native?.configuredPidCount ?? 0,
-    configuredPidPreview: native?.configuredPidPreview ?? [],
+    cacheState: _refreshState,
+    evidenceState,
+    // Kanıt yoksa alanlar NULL — uydurma varsayılan ('unknown'/false/0) YOK.
+    transport: present ? (native?.transport ?? null) : null,
+    burstEnabled: present ? (native?.burstEnabled ?? null) : null,
+    configuredPidCount: present ? (native?.configuredPidCount ?? null) : null,
+    configuredPidPreview: present ? (native?.configuredPidPreview ?? []) : [],
     counters: native?.counters ?? null,
     /* SAHA (2026-07-25): bu iki alan native yanıtta VARDI ama anlık görüntüye taşınmıyordu →
        Poll Scheduler ekranında "son poll zamanı" ve "son başarılı PID" HER ZAMAN "KAYNAK YOK"
@@ -150,6 +247,7 @@ export function getExtendedPollEvidence(): ExtendedPollEvidenceSnapshot {
 
 /** Test yardımcıları — üretim kodu çağırmaz. */
 export const _internals = {
-  reset(): void { _cached = null; },
-  setCached(ev: NativeExtendedPollEvidence | null): void { _cached = ev; },
+  reset(): void { _cached = null; _refreshState = 'never_refreshed'; },
+  setCached(ev: NativeExtendedPollEvidence | null): void { _cached = ev; _refreshState = 'refreshed'; },
+  setCacheState(st: PollEvidenceCacheState): void { _refreshState = st; },
 };

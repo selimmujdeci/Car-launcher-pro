@@ -1,5 +1,6 @@
 import { useOBDField } from '../platform/obdService';
 import { useUnifiedVehicleStore } from '../platform/vehicleDataLayer/UnifiedVehicleStore';
+import { isObdReadingLive } from '../platform/vehicleStatusModel';
 
 /**
  * useEngineReadout — motor göstergesi (RPM / motor ısısı / yakıt) için TEK kaynak.
@@ -32,18 +33,41 @@ export function useEngineReadout(): EngineReadout {
   const canCoolant = useUnifiedVehicleStore(s => s.canCoolantTemp);
   const storeFuel  = useUnifiedVehicleStore(s => s.fuel);
 
+  /* CANLILIK KAPISI (SAHA 2026-08-06, Adana-Şanlıurfa Otoyolu):
+     Ekranda "675 km MENZİL" ve "%92 yakıt" DONUK duruyordu — araç 1 dakikada
+     1,5 km ilerlerken menzil hiç değişmedi. OBD o sırada BAĞLI DEĞİLDİ
+     (V-LINK `STATE_DISCONNECTED`, `car-can-snapshot` 85 saat bayat).
+
+     KÖK: `useOBDField` ham `_current[field]` döndürür — TAZELİK KAPISI YOKTUR.
+     Adaptör 10:27'de bir kez bağlanıp yakıtı okuduktan sonra koptu; değer
+     sonsuza dek canlı sanıldı. Tema bileşenleri `isObdReadingLive` kapısını
+     kendileri kuruyordu, ama `eng.fuel` YEDEĞİNE düştüklerinde kapı BAYPAS
+     oluyordu (Horizon'da birebir bu olur) — Expedition'da ise kapı hiç yoktu.
+
+     DÜZELTME: kapı TEK NOKTAYA, kaynağa konur → tüm temalar devralır.
+     CarInfo/CAN yolu (canRpm/canCoolantTemp/store.fuel) AYRI ve meşru bir
+     canlı kaynaktır; ona DOKUNULMAZ — yalnız bayat OBD okuması elenir. */
+  const obdSource     = useOBDField('source');
+  const obdDataFresh  = useOBDField('dataFresh');
+  const obdLastSeenMs = useOBDField('lastSeenMs');
+  const obdLive = isObdReadingLive({
+    source:     obdSource,
+    dataFresh:  obdDataFresh,
+    lastSeenMs: obdLastSeenMs,
+  });
+
   const rpm =
-    obdRpm != null && obdRpm >= 0 ? obdRpm
+    obdLive && obdRpm != null && obdRpm >= 0 ? obdRpm
     : canRpm != null && canRpm >= 0 ? canRpm
     : null;
 
   const engineTemp =
-    obdTemp != null && obdTemp >= 0 ? obdTemp
+    obdLive && obdTemp != null && obdTemp >= 0 ? obdTemp
     : canCoolant != null && canCoolant > -40 && canCoolant < 200 ? canCoolant
     : null;
 
   const fuel =
-    obdFuel != null && obdFuel >= 0 ? obdFuel
+    obdLive && obdFuel != null && obdFuel >= 0 ? obdFuel
     : storeFuel != null && storeFuel >= 0 ? storeFuel
     : null;
 
