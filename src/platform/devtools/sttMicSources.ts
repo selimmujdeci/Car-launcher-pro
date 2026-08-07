@@ -24,7 +24,7 @@
  */
 
 import { getVoiceMicDiagnostics } from '../voice/voiceMicDiagnosticsProbe';
-import { getWakeWordState } from '../wakeWordService';
+import { getWakeWordState, getWakeWatchdogStats } from '../wakeWordService';
 import { getVoiceSnapshot } from '../voiceService';
 import { buildCommandGrammar } from '../commandParser';
 import { currentMaviVehicleContext } from '../assistant/maviVehicleContext';
@@ -169,6 +169,7 @@ export function readSttMicSnapshot(): SttMicRaw {
 
   /* ── JS ses servisi bayrakları — YALNIZ bayrak ve ADET ──────────────────── */
   const wake  = _safe(() => getWakeWordState());
+  const wdog  = _safe(() => getWakeWatchdogStats());
   const voice = _safe(() => getVoiceSnapshot());
   const grammarWords = _safe(() => buildCommandGrammar());
 
@@ -180,6 +181,9 @@ export function readSttMicSnapshot(): SttMicRaw {
     voiceStatus:     voice ? _str(voice.status, 'UNKNOWN') : 'UNKNOWN',
     micAvailable:    voice ? voice.micAvailable === true : false,
     commandGrammarWordCount: Array.isArray(grammarWords) ? grammarWords.length : -1,
+    wakeRearmCount:          wdog ? wdog.rearmCount : 0,
+    wakeWakesInPrevWindow:   wdog ? wdog.wakesInPrevWindow : 0,
+    wakeRearmIntervalMs:     wdog ? wdog.rearmIntervalMs : 0,
   } : null;
 
   /* MAVI-STT-CONTEXT-GRAMMAR: bağlam grameri gözlemi — SÖZCÜK TAŞIMAZ.

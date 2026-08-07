@@ -195,6 +195,16 @@ export interface SttJsRaw {
   readonly micAvailable: boolean;
   /** Offline komut grammar'ının kelime ADEDİ. -1 = okunamadı. */
   readonly commandGrammarWordCount: number;
+  /* ── Wake watchdog ölçümü (kütük #460) ────────────────────────────────
+     Saha "wake thread 32 dk'da 4 kez ÖLDÜ" diye kaydetmişti; gerçekte
+     canlılık HİÇ ölçülmüyor — periyodik KOŞULSUZ yeniden kurulum var.
+     Bu alanlar hüküm vermez, kararı ölçülebilir kılar. */
+  /** Bu oturumdaki periyodik yeniden kurulum sayısı. */
+  readonly wakeRearmCount: number;
+  /** Bir ÖNCEKİ pencerede kabul edilen wake sayısı — re-arm gerekli miydi? */
+  readonly wakeWakesInPrevWindow: number;
+  /** Yeniden kurulum periyodu (ms). */
+  readonly wakeRearmIntervalMs: number;
 }
 
 export interface SttMicRaw {
@@ -662,6 +672,13 @@ function _engineSection(s: SttMicRaw): SttSection {
       note: 'disabled | idle | listening | detected | error.' }, js.wakeStatus));
     f.push(observed({ id: 'sttWakePhrases', label: 'wake sözcüğü adedi', source: SRC.js,
       note: 'GİZLİLİK: yalnız ADET — asistan adı / özel wake cümlesi GÖSTERİLMEZ.' }, js.wakePhraseCount));
+    f.push(observed({ id: 'sttWakeRearmCount', label: 'wake periyodik yeniden kurulum', source: SRC.js,
+      note: 'CANLILIK ÖLÇÜLMÜYOR: native yalnız tetik anını yayınlar, "ayakta ama duymadı" ile "öldü" '
+          + 'ayırt edilemez. Bu yüzden kurulum koşulsuz ve periyodiktir — arıza sayacı DEĞİLDİR.' },
+      js.wakeRearmCount));
+    f.push(observed({ id: 'sttWakePrevWindow', label: 'önceki pencerede kabul edilen wake', source: SRC.js,
+      note: 'Kurulumlar arasında 0 kalıyorsa periyodik re-arm gereksiz maliyettir; >0 ise gerekli. '
+          + `Pencere ${js.wakeRearmIntervalMs} ms.` }, js.wakeWakesInPrevWindow));
     f.push(observed({ id: 'sttVoiceStatus', label: 'ses asistanı durumu', source: SRC.js,
       note: 'voiceService durum makinesi.' }, js.voiceStatus));
     f.push(observed({ id: 'sttMicAvailable', label: 'mikrofon kullanılabilir (JS)', source: SRC.js,

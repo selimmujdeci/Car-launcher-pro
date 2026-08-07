@@ -217,10 +217,31 @@ function _startWatchdog(): void {
     // SESSİZLİK ŞARTI: son wake tetiğinden bu yana yeterince zaman geçmediyse
     // kullanıcı hâlâ sohbetin içindedir — bip sesiyle bölme.
     if (Date.now() - _lastWakeAcceptedAt < WAKE_WATCHDOG_QUIET_MS) return;
-    // Native wake akışını taze jenerasyonla yeniden kur: thread öldüyse dirilir,
-    // canlıysa temiz takas olur. ÖNCE eski grammar thread'i/listener'ı kapat
-    // (yoksa her tick'te listener yığılır — çift dinleme/leak), SONRA taze başlat.
-    console.warn('[WakeWord] watchdog → wake thread yeniden kuruluyor (self-heal)');
+    /* Native wake akışını taze jenerasyonla yeniden kur. ÖNCE eski grammar
+       thread'i/listener'ı kapat (yoksa her tick'te listener yığılır — çift
+       dinleme/leak), SONRA taze başlat.
+
+       DÜRÜSTLÜK DÜZELTMESİ (2026-08-07 · kütük #460): burası bir ARIZA
+       TESPİTİ DEĞİLDİR. Eski mesaj "self-heal" diyordu ve saha incelemesi
+       bunu "wake thread 32 dakikada 4 kez ÖLDÜ" diye kaydetti — oysa hiçbir
+       canlılık ölçümü yapılmıyor: koşullar sağlandığında thread sağlıklı olsa
+       bile 5 dakikada bir KOŞULSUZ yeniden kuruluyor. 32 dk'da 4 kez, tam
+       olarak tasarlanan davranıştır.
+
+       Canlılık GERÇEKTEN ölçülemiyor: native taraf yalnız 'wakeWord' olayını
+       (tetik anı) yayınlar; "thread ayakta ama henüz duymadı" ile "thread
+       öldü" JS'ten AYIRT EDİLEMEZ. Bu yüzden davranış KANITSIZ değiştirilmedi
+       — bunun yerine ÖLÇÜLEBİLİR yapıldı (bkz. getWakeWatchdogStats): sahada
+       yeniden kurulumlar arasında hiç wake kabul edilmiyorsa periyodik re-arm
+       gereksiz maliyet, ediliyorsa gerekli. Karar o veriyle verilecek. */
+    _rearmCount++;
+    _lastRearmAt        = Date.now();
+    _wakesInPrevWindow  = _wakesSinceRearm;
+    _wakesSinceRearm    = 0;
+    console.warn(
+      `[WakeWord] periyodik re-arm #${_rearmCount} (canlılık ÖLÇÜLMEDİ —` +
+      ` önceki turda kabul edilen wake: ${_wakesInPrevWindow})`,
+    );
     void (async () => {
       await stopGrammarMode();
       if (!_state.enabled || _interactionPaused || !_voskReady) return;
@@ -250,6 +271,16 @@ function _matches(transcript: string): boolean {
 let _lastWakeAcceptedAt = 0;
 const WAKE_REACCEPT_DEBOUNCE_MS = 4_000;
 
+/* ── Watchdog ölçümü (kütük #460) ─────────────────────────────────────────
+ * Saha kaydı "wake thread 32 dk'da 4 kez ÖLDÜ" diyordu; gerçekte hiçbir
+ * canlılık ölçümü yok — 5 dakikada bir KOŞULSUZ yeniden kurulum var.
+ * Bu sayaçlar kararı değiştirmez, yalnız görünür kılar: iki re-arm arasında
+ * hiç wake kabul edilmiyorsa periyodik kurulum gereksiz maliyettir. */
+let _rearmCount        = 0;
+let _lastRearmAt       = 0;
+let _wakesSinceRearm   = 0;
+let _wakesInPrevWindow = 0;
+
 function onWakeWordDetected(): void {
   // PROTECTION/CRITICAL: wake tetiklense bile sohbet/eğlence BAŞLAMAZ.
   // Sessizce yut — pasif döngü sürer, sürücü dikkat yükü altında rahatsız edilmez.
@@ -266,6 +297,7 @@ function onWakeWordDetected(): void {
   const now = Date.now();
   if (now - _lastWakeAcceptedAt < WAKE_REACCEPT_DEBOUNCE_MS) return;
   _lastWakeAcceptedAt = now;
+  _wakesSinceRearm++;   // re-arm penceresinde kabul edilen tetik sayısı (#460)
 
   push({ status: 'detected', lastTrigger: now });
   // MAVI3-1 additive: Mavi telemetri köprüsüne wake sinyali (wake motoru mantığı DEĞİŞMEZ).
@@ -629,6 +661,44 @@ export function resumeWakeWordAfterInteraction(): void {
 
 export function getWakeWordState(): WakeWordState { return _state; }
 
+/** Wake watchdog ölçümü — salt-okunur, hüküm içermez (kütük #460). */
+export interface WakeWatchdogStats {
+  /** Bu oturumda kaç kez periyodik yeniden kurulum yapıldı. */
+  readonly rearmCount: number;
+  /** Son yeniden kurulum anı (Unix ms); 0 = hiç olmadı. */
+  readonly lastRearmAt: number;
+  /** Son yeniden kurulumdan bu yana kabul edilen wake tetiği sayısı. */
+  readonly wakesSinceRearm: number;
+  /** Bir ÖNCEKİ pencerede kabul edilen wake sayısı — re-arm gerekli miydi? */
+  readonly wakesInPrevWindow: number;
+  /** Yeniden kurulum periyodu (ms) — ölçümü yorumlayabilmek için. */
+  readonly rearmIntervalMs: number;
+  /**
+   * Canlılık GERÇEKTEN ölçülüyor mu. Şu an `false`: native yalnız tetik anını
+   * ('wakeWord' olayı) yayınlar; "ayakta ama duymadı" ile "öldü" JS'ten
+   * ayırt edilemez. Kanıtsız iyimserlik üretmemek için açıkça bildirilir.
+   */
+  readonly livenessMeasured: false;
+}
+
+/**
+ * Watchdog'un ÖLÇÜLEBİLİR durumu.
+ *
+ * Neden var: saha "thread öldü" diye kaydetti, oysa kod hiç ölüm tespiti
+ * yapmıyor. Periyodik re-arm'ın gerekli mi gereksiz mi olduğu ancak
+ * "iki kurulum arasında wake kabul edildi mi" verisiyle söylenebilir.
+ */
+export function getWakeWatchdogStats(): WakeWatchdogStats {
+  return {
+    rearmCount:        _rearmCount,
+    lastRearmAt:       _lastRearmAt,
+    wakesSinceRearm:   _wakesSinceRearm,
+    wakesInPrevWindow: _wakesInPrevWindow,
+    rearmIntervalMs:   WAKE_WATCHDOG_INTERVAL_MS,
+    livenessMeasured:  false,
+  };
+}
+
 /* ── Söyleyerek ÖĞRET (enrollment) ─────────────────────────────
  * Kullanıcı wake kelimesini bir kez söyler; cihazın DUYDUĞU örnekler (normalize)
  * döner. Çağıran (ayar UI'ı) bunları companionWakeEnrollment'a ekler → fuzzy
@@ -771,6 +841,7 @@ export function _resetWakeWordForTest(): void {
   _loopGen++;
   _consecErrors = 0;
   _lastWakeAcceptedAt = 0;   // wake re-accept debounce sıfırla (testler arası izolasyon)
+  _rearmCount = _lastRearmAt = _wakesSinceRearm = _wakesInPrevWindow = 0;
   _grammarMode = false;
   _grammarHandle = null;
   // Testler enableWakeWord'ün ANINDA native akışı kurmasını bekler → kapı açık

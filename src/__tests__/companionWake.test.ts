@@ -114,6 +114,7 @@ import {
   notifyVoskModelReady,
   _resetWakeWordForTest,
   _setVoskReadyForTest,
+  getWakeWatchdogStats,
 } from '../platform/wakeWordService';
 import { useStore } from '../store/useStore';
 import { VOICE_TUNING } from '../platform/voiceTuning';
@@ -838,5 +839,40 @@ describe('Wake watchdog (self-heal — "bir süre sonra uyanmıyor" kökü)', ()
 
     await vi.advanceTimersByTimeAsync(WATCHDOG_MS * 2);
     expect(M.grammarStarts.length).toBe(baseline);      // disable sonrası re-arm yok
+  });
+});
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * Wake watchdog DÜRÜSTLÜĞÜ (kütük #460)
+ *
+ * SAHA 2026-08-06: konsolda `[WakeWord] watchdog → wake thread yeniden
+ * kuruluyor (self-heal)` ×4 görüldü ve kütüğe "wake thread 32 dk'da 4 kez
+ * ÖLDÜ" diye geçti. GERÇEK: kodda hiçbir canlılık ölçümü YOK — koşullar
+ * sağlandığında thread sağlıklı olsa bile 5 dakikada bir KOŞULSUZ yeniden
+ * kuruluyor. 32 dakikada 4 kez, tam olarak tasarlanan davranıştır.
+ *
+ * Canlılık JS'ten ölçülemiyor: native yalnız 'wakeWord' (tetik anı) olayını
+ * yayınlar; "ayakta ama henüz duymadı" ile "öldü" ayırt edilemez. Bu yüzden
+ * davranış KANITSIZ değiştirilmedi — ÖLÇÜLEBİLİR yapıldı. */
+describe('#460 · wake watchdog kanıtsız "iyileşme" iddia etmez', () => {
+  it('🔒 canlılığın ÖLÇÜLMEDİĞİ açıkça bildirilir', () => {
+    // Kanıtsız iyimserlik üretmemek için sabit `false` — bir gün native
+    // canlılık sinyali gelirse bu kilit bilinçli olarak güncellenecektir.
+    expect(getWakeWatchdogStats().livenessMeasured).toBe(false);
+  });
+
+  it('🔒 sayaçlar sıfırdan başlar ve periyot bildirilir', () => {
+    const s = getWakeWatchdogStats();
+    expect(s.rearmCount).toBe(0);
+    expect(s.wakesSinceRearm).toBe(0);
+    expect(s.wakesInPrevWindow).toBe(0);
+    expect(s.lastRearmAt).toBe(0);
+    // Periyodun kendisi ölçümle birlikte taşınır — yoksa "4 kez" yorumlanamaz.
+    expect(s.rearmIntervalMs).toBeGreaterThan(0);
+  });
+
+  it('🔒 test sıfırlaması sayaçları da temizler (testler arası sızıntı yok)', () => {
+    _resetWakeWordForTest();
+    expect(getWakeWatchdogStats().rearmCount).toBe(0);
   });
 });

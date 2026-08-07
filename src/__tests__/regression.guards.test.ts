@@ -4627,3 +4627,32 @@ describe('GPS odometre Δt zinciri ölçüm anına bağlı', () => {
     expect(odometerGuardSrc).toMatch(/dtMs >= 0 && dtMs < 60_000/);
   });
 });
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * Wake watchdog "self-heal" DEMEZ (kütük #460)
+ *
+ * Yanıltıcı log, saha incelemesini yanlış teşhise götürdü: konsoldaki
+ * "(self-heal)" ifadesi yüzünden 4 periyodik yeniden kurulum "wake thread
+ * 4 kez ÖLDÜ" diye kütüğe geçti. Kodda ölüm tespiti YOKTUR. Bir mesaj,
+ * yapılmayan bir ölçümü ima edemez. */
+describe('Wake watchdog kanıtsız iyileşme iddia etmez', () => {
+  const src = read('src/platform/wakeWordService.ts');
+
+  it('🔒 log "self-heal" iddiasını taşımaz', () => {
+    expect(src, 'yapılmayan bir teşhisi ima eden ifade geri gelmiş').not.toContain('(self-heal)');
+  });
+
+  it('🔒 ölçüm yüzeyi vardır ve canlılığı ölçmediğini bildirir', () => {
+    expect(src).toContain('export function getWakeWatchdogStats(');
+    expect(src).toContain('livenessMeasured');
+    // Sabit `false`: native canlılık sinyali eklenmeden `true` OLAMAZ.
+    expect(src).toMatch(/livenessMeasured:\s*false/);
+  });
+
+  it('🔒 yeniden kurulum sayacı ve önceki-pencere tanığı korunur', () => {
+    // İkisi birlikte "re-arm gerekli miydi" sorusunu yanıtlar; biri düşerse
+    // ölçüm yorumlanamaz hâle gelir.
+    expect(src).toContain('_rearmCount');
+    expect(src).toContain('_wakesInPrevWindow');
+  });
+});
