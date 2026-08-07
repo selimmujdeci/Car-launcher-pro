@@ -16,6 +16,8 @@ import {
   computeCameraTarget,
   dampCameraToward,
   computeAnticipatedBearing,
+  clampTopPadForVehicle,
+  isVehicleFramed,
 } from '../cameraEngine';
 import { useHazardStore } from '../../store/useHazardStore';
 import {
@@ -28,6 +30,8 @@ import {
   SEL_LAYER,
 } from './_mapState';
 import { _updateFlowSpeed, _applyIntersectionSuppression } from './MapLayerManager';
+import { safeSetPaint } from './_safeLayerOps';
+import { noteLegacyCameraOutcome } from '../navigation/cameraShadowRuntime';
 
 export function setMapCenter(map: MapLibreMap, center: LngLatLike, zoom?: number, animated = true) {
   if (!map) return;
@@ -121,6 +125,64 @@ export function _setupRouteInteractions(map: MapLibreMap): void {
  *  → map.isMoving() kalıcı true → MapLibre idle'da 90fps render (cihaz profili 2026-06-17). */
 let _drivingViewActive = false;
 
+/** Durakta haritanın rota yönünden bu kadar sapması TOLERE edilir (derece).
+ *  Üstünde kamera bir kez uygulanır ve yön düzeltilir; altında hiç iş yapılmaz
+ *  (salınım olmaz). Cihazda ölçülen bozuk durum 140.6° idi. */
+const STANDSTILL_BEARING_TOLERANCE_DEG = 15;
+
+/**
+ * ÖĞRENİLEN İLERİ-BAKIŞ TAVANI (m) — aracı ekranda tutmak için.
+ *
+ * ⚠️ İLK UYGULAMAM ISINMA ÜRETTİ (kullanıcı bildirdi 2026-08-03): çerçeve
+ * düzeltmesini HER KAREDE yineleyen bir döngüyle yapmıştım — araç çerçeve
+ * dışındayken kare başına 3 ek `jumpTo`, yani **kare başına 5 harita yeniden
+ * çizimi**. 6-7 Hz kamera temposunda bu GPU yükünü katlıyor.
+ *
+ * DOĞRUSU: düzeltmeyi her karede TEKRARLAMAK değil, SONUCUNU HATIRLAMAK.
+ * Taşma görülünce tavan yarılanır ve bundan SONRAKİ karelerde merkez zaten
+ * tavanlı hesaplanır → ek `jumpTo` GEREKMEZ. Bol paylı çerçevede tavan
+ * kademeli gevşer (hız/zoom değişince eski kısıt yapışıp kalmasın).
+ * Kararlı durumda maliyet: kare başına 1 `project()` — değişiklikten önceki
+ * hâlle aynı sayıda `jumpTo`.
+ */
+let _lookCapM = Number.POSITIVE_INFINITY;
+
+/** Kamera bağlamı değişince (yeni rota/oturum) tavan sıfırlanır. */
+export function resetLookAheadCap(): void { _lookCapM = Number.POSITIVE_INFINITY; }
+
+/**
+ * Gölge gözlem ucu — ÜRÜN DAVRANIŞINI DEĞİŞTİRMEZ.
+ *
+ * Yalnız legacy'nin ürettiği skalerleri `cameraShadowRuntime`e bildirir.
+ * Harita nesnesi YALNIZ viewport oranı için okunur (yön tespiti); gölge
+ * katmanına harita GEÇMEZ ve koordinat GEÇMEZ. Her hata yutulur.
+ */
+function _reportShadow(
+  map: MapLibreMap,
+  applied: boolean,
+  zoom: number | null,
+  pitch: number | null,
+  bearing: number | null,
+  anchorY: number | null,
+  speedKmh: number,
+  lookAheadM: number | null,
+  standstillFix: boolean,
+): void {
+  try {
+    const cv = map.getCanvas();
+    const w = cv.clientWidth, h = cv.clientHeight;
+    noteLegacyCameraOutcome({
+      applied, zoom, pitch, bearing, anchorY, standstillFix, lookAheadM,
+      speedKmh,
+      orientation: h > w ? 'PORTRAIT' : 'LANDSCAPE',
+      /* Bu fonksiyon hem mini hem tam ekran tarafından çağrılır; ölçü
+         ayrımı yapılamadığı için viewport profili `FULL` raporlanır ve bu
+         sınır raporda açıkça yazılıdır (açık borç). */
+      viewport: 'FULL',
+    });
+  } catch { /* gölge gözlem kamerayı ASLA bozmaz */ }
+}
+
 export function setDrivingView(
   map: MapLibreMap,
   lat: number,
@@ -131,6 +193,9 @@ export function setDrivingView(
   turnApproachM?: number,
   obdSpeedKmh?: number,
   nextTurnBearing?: number,
+  /** Rotanın İLERİ yönü (araçtan bir sonraki rota noktasına). Durakta kamera
+   *  yönü BUNDAN alınır — bkz. `_standstillFix` gerekçesi. */
+  routeBearing?: number,
 ) {
   // ⭐ SAHA KÖK NEDEN (2026-07-04, "harita sabit kalıyor + gitme yönüne dönmüyor"):
   // Buradaki eski `!map.isStyleLoaded()` guard'ı sürüş kamerasını YAPISAL olarak
@@ -148,11 +213,81 @@ export function setDrivingView(
   // ── Dead Reckoning speed fusion ──────────────────────────────────────────
   const effectiveSpeed = speedKmh > 0 ? speedKmh : (obdSpeedKmh ?? 0);
 
-  // ── Movement jitter filter — düşük hızda GPS mikro titremeleri ───────────
-  if (effectiveSpeed < CAMERA_CFG.JITTER_SPEED_KMH) {
+  /* ── Movement jitter filter — düşük hızda GPS mikro titremeleri ───────────
+   *
+   * SAHA KUSURU (cihazda ölçüldü 2026-08-03): filtre YALNIZ "gereksiz
+   * güncellemeyi" değil, **yanlış duran kamerayı DÜZELTMEYİ de** engelliyordu.
+   * Kullanıcı rota çizdi, araç dururken (≈2 km/h, GPS oynaması < 0.8 m)
+   * `setDrivingView` her karede erken dönüyor → sürüş kamerası HİÇ
+   * uygulanmıyor → kamera en son nerede kaldıysa orada donuyordu. Ölçüm:
+   *   canvas 902×405 · araç ekran y = 857 → **alt kenardan 452 px AŞAĞIDA**
+   *   padTop = 0 (sürüş padding'i hiç uygulanmamış) · drivingMode = true
+   * Kullanıcının tarifi: "rota çizdim, böyle dengesiz duruyor" — araç
+   * görünmüyor, rota ekranın kenarında kalıyordu.
+   *
+   * DÜZELTME: titreşim filtresi yalnız kamera ZATEN DOĞRU çerçevelenmişken
+   * uygulanır. Araç güvenli alanın dışındaysa kare atlanmaz, kamera
+   * düzeltilir. (Bu, #330'daki look-ahead klipsinden AYRI bir kusurdur:
+   * orada kamera çalışıyor ama aracı aşağı itiyordu, burada HİÇ çalışmıyor.)
+   *
+   * ⚠️ İLK DENEMEDE REGRESYON ÜRETTİ (cihazda ölçüldü, aynı gün): yalnız
+   * "çerçeve bozuksa uygula" demek YETMEDİ — POZİTİF GERİ BESLEME doğdu.
+   * Araç 0 m hareket ederken kamera merkezi 7 sn'de 63 m'ye varan sıçramalar
+   * yaptı ve bearing -60° → 138° arası **~200° döndü**: çerçeve bozuk →
+   * kamera uygula → kamera durakta gürültülü GPS heading'ini kovalayıp döner
+   * → dönünce çerçeve yine bozulur → tekrar uygula … Kullanıcının tarifi:
+   * *"harita durduğum yerde durmadan hareket ediyor."*
+   *
+   * DOĞRU AYRIM: durakta düzeltmenin SEBEBİ çerçevedir, yön değil. O yüzden
+   * bu durumda YALNIZ yeniden ortalama yapılır; bearing/zoom/pitch MEVCUT
+   * değerlerinde DONDURULUR (aşağıdaki `_standstillFix`). Böylece tek bir
+   * düzeltme yeter, sonraki karelerde çerçeve doğru olduğu için filtre
+   * devreye girer ve kamera tamamen durur. */
+  /* ⚠️ İKİNCİ REGRESYON — ÖLÇÜM YANILTTI (cihazda, aynı gün):
+   * "durakta" kararı KONUM FARKINA bağlıydı (`< 0.8 m`). Ama sahada GPS
+   * doğruluğu **±3–6 m** ölçüldü (ekrandaki rozet: `GPS ±6m`): duran araçta
+   * bile ardışık fix'ler 0.8 m'yi RAHATÇA aşıyor → "durakta" dalı neredeyse
+   * hiç çalışmıyor → kamera normal yola girip gürültülü GPS heading'ini
+   * kovalıyor ve harita **kendi kendine dönüyor**. Doğrulama ölçümüm yanıltıcı
+   * çıkmıştı çünkü o an fix birebir tekrar ediyordu (konum farkı tam 0).
+   *
+   * DOĞRU SİNYAL KONUM DEĞİL HIZDIR: GPS heading'i ancak araç gerçekten
+   * hareket ederken anlamlıdır. Eşiğin altında bearing/zoom/pitch KOŞULSUZ
+   * dondurulur — konum gürültüsü ne yaparsa yapsın kamera DÖNMEZ. */
+  const _standstillFix = effectiveSpeed < CAMERA_CFG.JITTER_SPEED_KMH;
+
+  if (_standstillFix) {
     const dLat  = (lat - M.lastJumpLat) * 111_320;
     const dLng  = (lng - M.lastJumpLng) * 111_320 * Math.cos((lat * Math.PI) / 180);
-    if (Math.sqrt(dLat * dLat + dLng * dLng) < CAMERA_CFG.JITTER_THRESHOLD_M) return;
+    /* Durakta eşik GPS gürültü bandının üstünde olmalı (bkz. sabit yorumu):
+       0.8 m ile duran araçta kamera her fix'te yeniden ortalanıp harita kayıyordu. */
+    if (Math.sqrt(dLat * dLat + dLng * dLng) < CAMERA_CFG.STANDSTILL_RECENTER_MIN_M) {
+      let framed = false;
+      try {
+        const p = map.project([lng, lat]);
+        const cv = map.getCanvas();
+        framed = isVehicleFramed(p.x, p.y, cv.clientWidth, cv.clientHeight);
+      } catch { framed = false; } // ölçemiyorsak kamerayı uygula (fail-open)
+
+      /* ── YÖN de "doğru kamera"nın parçasıdır (cihazda ölçüldü 2026-08-03) ──
+       * Yalnız ÇERÇEVEYE bakmak yetmedi: araç ekranda doğru yerdeydi ama harita
+       * rotanın 140.6° TERSİNE bakıyordu (harita 8.5°, rota 149.1°) → sürücü
+       * "geri geri mi gideceğim" diye sordu. Kamera "zaten doğru" sayılıp her
+       * karede erken dönüldüğü için rota yönü hiç uygulanmıyordu.
+       * Doğru kamera = araç çerçevede VE harita rotaya bakıyor. */
+      const oriented =
+        !Number.isFinite(routeBearing ?? NaN) ||
+        Math.abs(((((routeBearing as number) - map.getBearing()) % 360) + 540) % 360 - 180)
+          <= STANDSTILL_BEARING_TOLERANCE_DEG;
+
+      if (framed && oriented) {
+        /* GÖLGE GÖZLEM (NAVIGATION_CAMERA_SHADOW): kamera bu karede
+           UYGULANMADI. Politikanın aynı anda ne diyeceğini kaydeder; ürün
+           davranışı DEĞİŞMEZ — bu çağrı hiçbir şey uygulamaz ve throw etmez. */
+        _reportShadow(map, false, null, null, null, null, effectiveSpeed, 0, true);
+        return;   // çerçeve VE yön doğru → hiç iş yapma
+      }
+    }
   }
   M.lastJumpLat = lat;
   M.lastJumpLng = lng;
@@ -182,10 +317,30 @@ export function setDrivingView(
   }
   M.lastHazardZoom = _zoom;
 
+  /* DURAKTA DÜZELTME: yalnız yeniden ortalama. Bearing/zoom/pitch mevcut
+     değerlerinde DONDURULUR — durakta GPS heading'i gürültüdür ve onu
+     kovalamak haritayı kendi kendine döndürür (ölçülen regresyon: 7 sn'de
+     ~200° dönme, araç 0 m hareket ederken). Look-ahead da 0'lanır: aracı
+     çerçeveye almak istiyoruz, ileri bakmak değil. */
+  /* DURAKTA YÖN: dondurmak TEK BAŞINA yetmez — donan değer eski/rastgele bir
+     yön olabilir ve harita gideceğin yöne bakmaz. Kullanıcı bunu şöyle tarif
+     etti: *"geri geri mi gideceğim"* — rota ekranda ARKAYA doğru görünüyordu.
+     Doğru kaynak GPS heading'i (durakta gürültü) DEĞİL, ROTANIN İLERİ
+     YÖNÜdür: sabittir (geometriden gelir, titremez) ve sürücünün gerçekten
+     gideceği yönü gösterir. Rota yoksa mevcut bearing korunur. */
+  const _bearing = _standstillFix
+    ? (Number.isFinite(routeBearing ?? NaN) ? (routeBearing as number) : map.getBearing())
+    : smooth.bearing;
+  const _zoomEff = _standstillFix ? map.getZoom()    : _zoom;
+  const _pitchEff = _standstillFix ? map.getPitch()  : _pitch;
+  /* Öğrenilen tavan BAŞTAN uygulanır — düzeltme sonraki karelere maliyet
+     çıkarmaz (bkz. `_lookCapM`). */
+  const _lookEff = _standstillFix ? 0 : Math.min(_lookAhead, _lookCapM);
+
   // Look-ahead centre — kilitli değerler ile hesaplanır
-  const _lookDeg   = _lookAhead / 111_320;
+  const _lookDeg   = _lookEff / 111_320;
   const _cosLat    = Math.max(0.001, Math.cos((lat * Math.PI) / 180));
-  const _bearRad   = (smooth.bearing * Math.PI) / 180;
+  const _bearRad   = (_bearing * Math.PI) / 180;
   const centerLat  = lat + _lookDeg * Math.cos(_bearRad);
   const centerLng  = lng + _lookDeg * Math.sin(_bearRad) / _cosLat;
 
@@ -194,11 +349,85 @@ export function setDrivingView(
   // jumpTo: tek frame — rAF loop 150ms throttle zaten smooth hissettiriyor.
   map.jumpTo({
     center:  [centerLng, centerLat],
-    bearing: smooth.bearing,
-    zoom:    _zoom,
-    pitch:   _pitch,
+    bearing: _bearing,
+    zoom:    _zoomEff,
+    pitch:   _pitchEff,
     padding: { top: topPad, bottom: 0, left: 0, right: 0 },
   });
+
+  // ── Araç ekran-içi garantisi (saha 2026-08-03) ────────────────────────────
+  // Kamera aracın ÖNÜNÜ merkeze alır; `topPadFrac` orandır ama `lookAheadM`
+  // metredir → kısa ekranlarda (telefon yatayı ~400 px) araç ALT KENARDAN
+  // TAŞIYOR ve hız arttıkça büsbütün kayboluyordu. Tam gerekçe ve ölçüm:
+  // `cameraEngine.clampTopPadForVehicle`.
+  //
+  // Ölçüm `map.project` ile YAPILIR (tahmin değil): pitch/bearing/zoom hepsi
+  // hesaba katılmış GERÇEK ekran konumu. Taşma yoksa ikinci jumpTo ÇALIŞMAZ —
+  // head unit yolu bu bloktan maliyetsiz çıkar.
+  try {
+    const _vehY    = map.project([lng, lat]).y;
+    const _fixedPad = clampTopPadForVehicle(_vehY, containerHeight, topPad);
+    let _padEff = topPad;
+    if (_fixedPad !== null) {
+      _padEff = _fixedPad;
+      map.jumpTo({
+        center:  [centerLng, centerLat],
+        bearing: _bearing,
+        zoom:    _zoomEff,
+        pitch:   _pitchEff,
+        padding: { top: _fixedPad, bottom: 0, left: 0, right: 0 },
+      });
+    }
+
+    /* ── ARAÇ EKRANDA KALIR — PAZARLIKSIZ (saha 2026-08-03) ──────────────────
+     * Yukarıdaki padding klipsi TEK BAŞINA yetmiyor: padding 0'a kadar kısılsa
+     * bile ileri bakış yeterince büyükse araç ekranın ALTINDA kalır — klips
+     * DOYUMA ULAŞIP SESSİZCE BAŞARISIZ OLUR. Cihazda ölçüldü: `padding.top = 0`
+     * uygulanmışken araç ekran y ≈ 1217 px, canvas yüksekliği 405 px → araç
+     * ekranın 800 px ALTINDA. Kullanıcı bunu "araba gidince görünmüyor,
+     * geride kalıyor" ve "harita dengesiz duruyor" diye bildirdi.
+     *
+     * O ölçümdeki ileri bakış 121.8 m idi ve kaynağı PARK hâlindeki telefonda
+     * 55–61 km/h'lik SAHTE GPS hızıydı. Hız otoritesi ayrıca düzeltildi, ama
+     * kamera hiçbir hız değerine GÜVENMEK ZORUNDA KALMAMALI: hangi hız gelirse
+     * gelsin araç ekranda kalır. Bu bir görsel tercih değil, sürüş güvenliği
+     * invaryantıdır — sürücü kendi aracını göremezse ekran yanıltıcıdır.
+     *
+     * Yöntem: taşma GÖRÜLDÜĞÜNDE ileri-bakış tavanı (`_lookCapM`) yarılanır ve
+     * bir kez düzeltilir; sonraki karelerde merkez zaten tavanlı hesaplandığı
+     * için EK `jumpTo` gerekmez. Araç çerçevedeyse hiç iş yapılmaz — normal
+     * sürüşte maliyet kare başına tek `project()`. (İlk uygulamam bunu her
+     * karede yineleyen bir döngüyle yapıyordu ve cihazı ısıtıyordu.) */
+    const _cv = map.getCanvas();
+    const _h  = _cv.clientHeight;
+    const _p2 = map.project([lng, lat]);
+    const _framedNow = isVehicleFramed(_p2.x, _p2.y, _cv.clientWidth, _h);
+
+    if (!_framedNow && _lookEff > 0) {
+      // Taşma → tavanı YARILA ve BİR KEZ düzelt. Sonraki kareler tavanlı gelir.
+      _lookCapM = _lookEff * 0.5;
+      const _ld = _lookCapM / 111_320;
+      map.jumpTo({
+        center: [
+          lng + (_ld * Math.sin(_bearRad)) / _cosLat,
+          lat + _ld * Math.cos(_bearRad),
+        ],
+        bearing: _bearing,
+        zoom:    _zoomEff,
+        pitch:   _pitchEff,
+        padding: { top: _padEff, bottom: 0, left: 0, right: 0 },
+      });
+    } else if (_framedNow && Number.isFinite(_lookCapM) && _p2.y < _h * 0.6) {
+      /* Bol pay var → tavanı kademeli gevşet. Hız düşünce veya zoom değişince
+         eski kısıt kalıcı olmasın; gevşeme yavaş olduğu için salınım yapmaz. */
+      _lookCapM = _lookCapM * 1.15 + 3;
+    }
+    /* GÖLGE GÖZLEM — legacy'nin GERÇEKTEN uyguladığı değerler.
+       `_p2.y` ZATEN yukarıda çerçeve denetimi için hesaplandı; gölge katmanı
+       için EK Map API çağrısı YAPILMAZ. Koordinat GEÇİRİLMEZ. */
+    _reportShadow(map, true, _zoomEff, _pitchEff, _bearing,
+      _h > 0 ? _p2.y / _h : null, effectiveSpeed, _lookEff, _standstillFix);
+  } catch { /* project() harita hazır değilken atabilir — kamera olduğu gibi kalır */ }
 
   // Smooth pitch tek kaynak — elevation + perspective aynı değeri kullanır ✓
   const pitch = smooth.pitch;
@@ -218,11 +447,9 @@ export function setDrivingView(
     const zoomSharpness = 1 - Math.max(0, Math.min(1, (_currentZoom - 12) / 6)) * 0.65;
     const shadowBlur    = Math.max(1.5, Math.round(pitchBlur * speedScale * zoomSharpness));
     const glowBlur      = Math.max(2.5, Math.round((8 + (pitch / 72) * 4) * speedScale * zoomSharpness));
-    try {
-      map.setPaintProperty(ROUTE_SHADOW,   'line-offset', shadowOffset);
-      map.setPaintProperty(ROUTE_SHADOW,   'line-blur',   shadowBlur);
-      map.setPaintProperty(ROUTE_GLOW_SEL, 'line-blur',   glowBlur);
-    } catch { /* style reloading */ }
+    safeSetPaint(map, ROUTE_SHADOW,   'line-offset', shadowOffset);
+    safeSetPaint(map, ROUTE_SHADOW,   'line-blur',   shadowBlur);
+    safeSetPaint(map, ROUTE_GLOW_SEL, 'line-blur',   glowBlur);
   }
 
   // ── Perspective correction ─────────────────────────────────────────────────
@@ -231,10 +458,8 @@ export function setDrivingView(
     M.lastPerspectiveScale = perspScale;
     const cW = Math.round(8  * perspScale);  const cW18 = Math.round(32 * perspScale);
     const kW = Math.round(14 * perspScale);  const kW18 = Math.round(38 * perspScale);
-    try {
-      map.setPaintProperty(SEL_LAYER,  'line-width', ['interpolate', ['linear'], ['zoom'], 12, cW, 18, cW18]);
-      map.setPaintProperty(ROUTE_CASE, 'line-width', ['interpolate', ['linear'], ['zoom'], 12, kW, 18, kW18]);
-    } catch { /* style reloading */ }
+    safeSetPaint(map, SEL_LAYER,  'line-width', ['interpolate', ['linear'], ['zoom'], 12, cW, 18, cW18]);
+    safeSetPaint(map, ROUTE_CASE, 'line-width', ['interpolate', ['linear'], ['zoom'], 12, kW, 18, kW18]);
   }
 
   // ── Maneuver emphasis — tier-based route styling ───────────────────────────
@@ -243,21 +468,19 @@ export function setDrivingView(
     : 2;
   if (_mTier !== M.lastManeuverTier && map.getLayer(SEL_LAYER)) {
     M.lastManeuverTier = _mTier;
-    try {
-      if (_mTier === 0) {
-        map.setPaintProperty(SEL_LAYER,      'line-opacity', 1.0);
-        map.setPaintProperty(ROUTE_CASE,     'line-color',   '#ffffff');
-        map.setPaintProperty(ROUTE_GLOW_SEL, 'line-color',   '#4285f4');
-      } else if (_mTier === 1) {
-        // Yaklaşıyor (200–50m): casing amber → sürücü dikkatini çeker
-        map.setPaintProperty(ROUTE_CASE,     'line-color',   '#f59e0b');
-      } else {
-        // Kritik (<50m): amber glow + casing — kontrast road suppression'dan gelir artık
-        map.setPaintProperty(ROUTE_CASE,     'line-color',   '#f59e0b');
-        map.setPaintProperty(ROUTE_GLOW_SEL, 'line-color',   '#f59e0b');
-        map.setPaintProperty(SEL_LAYER,      'line-opacity', 1.0); // Faz 3.2: tam opacity — lane clarity
-      }
-    } catch { /* style reloading */ }
+    if (_mTier === 0) {
+      safeSetPaint(map, SEL_LAYER,      'line-opacity', 1.0);
+      safeSetPaint(map, ROUTE_CASE,     'line-color',   '#ffffff');
+      safeSetPaint(map, ROUTE_GLOW_SEL, 'line-color',   '#4285f4');
+    } else if (_mTier === 1) {
+      // Yaklaşıyor (200–50m): casing amber → sürücü dikkatini çeker
+      safeSetPaint(map, ROUTE_CASE,     'line-color',   '#f59e0b');
+    } else {
+      // Kritik (<50m): amber glow + casing — kontrast road suppression'dan gelir artık
+      safeSetPaint(map, ROUTE_CASE,     'line-color',   '#f59e0b');
+      safeSetPaint(map, ROUTE_GLOW_SEL, 'line-color',   '#f59e0b');
+      safeSetPaint(map, SEL_LAYER,      'line-opacity', 1.0); // Faz 3.2: tam opacity — lane clarity
+    }
   }
 
   // ── Intersection road suppression + tunnel glow (Faz 3.2) ──────────────────
@@ -265,9 +488,7 @@ export function setDrivingView(
     M.lastIntersectionTier = _mTier;
     _applyIntersectionSuppression(map, _mTier);
     const _glowOp = [0.20, 0.27, 0.36][_mTier] ?? 0.20;
-    if (map.getLayer(ROUTE_GLOW_SEL)) {
-      try { map.setPaintProperty(ROUTE_GLOW_SEL, 'line-opacity', _glowOp); } catch { /* ignore */ }
-    }
+    safeSetPaint(map, ROUTE_GLOW_SEL, 'line-opacity', _glowOp);
   }
 
   // ── External Risk Alert (Phase H3) ────────────────────────────────────────
@@ -275,16 +496,14 @@ export function setDrivingView(
   const _isHighRisk = _hazardRisk > 0.5;
   if (_isHighRisk !== M.lastExternalRiskAlert && map.getLayer(ROUTE_CASE)) {
     M.lastExternalRiskAlert = _isHighRisk;
-    try {
-      if (_isHighRisk) {
-        map.setPaintProperty(ROUTE_CASE,     'line-color', '#f59e0b');
-        map.setPaintProperty(ROUTE_GLOW_SEL, 'line-color', '#f59e0b');
-      } else if (_mTier === 0) {
-        // Sadece tier 0'da (kavşak yokken) orijinal renklere dön
-        map.setPaintProperty(ROUTE_CASE,     'line-color', '#ffffff');
-        map.setPaintProperty(ROUTE_GLOW_SEL, 'line-color', '#4285f4');
-      }
-    } catch { /* style reloading */ }
+    if (_isHighRisk) {
+      safeSetPaint(map, ROUTE_CASE,     'line-color', '#f59e0b');
+      safeSetPaint(map, ROUTE_GLOW_SEL, 'line-color', '#f59e0b');
+    } else if (_mTier === 0) {
+      // Sadece tier 0'da (kavşak yokken) orijinal renklere dön
+      safeSetPaint(map, ROUTE_CASE,     'line-color', '#ffffff');
+      safeSetPaint(map, ROUTE_GLOW_SEL, 'line-color', '#4285f4');
+    }
   }
 }
 
@@ -351,11 +570,9 @@ export function exitDrivingView(map: MapLibreMap) {
   resetCameraSmooth({ zoom: 15.5, pitch: 0, lookAheadM: 0, bearing: 0 });
   // Route layer state restore
   if (map.isStyleLoaded()) {
-    try {
-      if (map.getLayer(SEL_LAYER))      map.setPaintProperty(SEL_LAYER,      'line-opacity', 1.0);
-      if (map.getLayer(ROUTE_CASE))     map.setPaintProperty(ROUTE_CASE,     'line-color',   '#ffffff');
-      if (map.getLayer(ROUTE_GLOW_SEL)) map.setPaintProperty(ROUTE_GLOW_SEL, 'line-color',   '#4285f4');
-    } catch { /* ignore */ }
+    safeSetPaint(map, SEL_LAYER,      'line-opacity', 1.0);
+    safeSetPaint(map, ROUTE_CASE,     'line-color',   '#ffffff');
+    safeSetPaint(map, ROUTE_GLOW_SEL, 'line-color',   '#4285f4');
   }
   map.easeTo({
     bearing: 0,

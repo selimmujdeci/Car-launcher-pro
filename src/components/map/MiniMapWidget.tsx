@@ -1,8 +1,8 @@
-import { useEffect, useRef, useState, memo } from 'react';
+import { useCallback, useEffect, useRef, useState, memo } from 'react';
 import type { Map as MapLibreMap } from 'maplibre-gl';
 
 type MapRef = MapLibreMap & { _initialized?: boolean };
-import { Maximize2 } from 'lucide-react';
+import { Maximize2, Navigation2, X, Crosshair } from 'lucide-react';
 import { logInfo } from '../../platform/debug';
 import {
   initializeMap,
@@ -19,13 +19,40 @@ import {
   checkAndHealMapContext,
   subscribeMapInstance,
   applyMapDayNight,
+  setRouteGeometry,
+  trimRouteGeometry,
+  clearRouteGeometry,
 } from '../../platform/mapService';
+import {
+  useNavigation,
+  endNavigation,
+  getRouteProgressPoint,
+  formatDistance,
+  formatEta,
+  NavStatus,
+} from '../../platform/navigationService';
+import { useRouteState, getRouteState } from '../../platform/routingService';
+import { useEffectiveSpeedLimit } from '../../platform/navigation/useEffectiveSpeedLimit';
+import {
+  getRenderedMotion, useMarkerMotionSampleTick,
+} from '../../platform/navigation/navMarkerMotionRuntime';
+import { SpeedLimitCard } from './SpeedLimitCard';
+import {
+  canDriveCamera,
+  notifyUserPanStart,
+  notifyUserPanEnd,
+  beginRecenter,
+  completeRecenter,
+  noteFollowZoom,
+  setCameraNavActive,
+} from '../../platform/navigation/cameraFollowAuthority';
+import { useCameraFollow } from '../../hooks/useCameraFollow';
 import { useGPSLocation, useGPSHeading, useGPSState } from '../../platform/gpsService';
 import { acquireCompassDemand, releaseCompassDemand } from '../../platform/gps/compassDemand';
 
 /** Mini haritanın compass talep kimliği (owner) — tek örnek varsayımı korunur. */
 const MINI_MAP_COMPASS_OWNER = 'map:mini';
-import { useFusedSpeed } from '../../platform/speedFusion';
+import { useDisplaySpeed } from '../../hooks/useDisplaySpeed';
 import { getMapStyle, useMapMode, setMapNight, notifyLowFPS } from '../../platform/mapSourceManager';
 import type { MapMode } from '../../platform/mapSourceManager';
 import { getDeviceTier } from '../../platform/deviceCapabilities';
@@ -91,6 +118,8 @@ export const MiniMapWidget = memo(function MiniMapWidget({
   // SAHA 2026-07-04: yer-değiştirme hızı için zaman çapası — fix kadansından
   // (200ms…2s) bağımsız km/h üretir; Doppler=0 saplanan cihazda sürüş tespiti.
   const lastAppliedTsRef  = useRef(0);
+  /** Son hesaplanan etkin hız — Ortala sürüş görünümünü aynı politikayla kurar. */
+  const lastEffKmhRef     = useRef(0);
 
   const [mapReady, setMapReady] = useState(false);
 
@@ -133,13 +162,196 @@ export const MiniMapWidget = memo(function MiniMapWidget({
   const gpsState = useGPSState();
   const mode = useMapMode();
   const { tileError } = useMapState();
-  const { displaySpeed: fusedSpeedKmh } = useFusedSpeed();
+  /* Kütük #417 — rozet hızı TEK otoriteden okunur. Eskiden ikinci füzyon motoru
+     (`speedFusion`) kullanılıyordu; aynı ekranda `UnifiedVehicleStore` tabanlı
+     gösterimlerle çelişen değerler üretiyordu. Motorun kendisi duruyor
+     (telemetri onu ayrıca init eder) — yalnız EKRANA BASMA yetkisi alındı. */
+  const displaySpeedKmh = useDisplaySpeed();
+
+  /* ── AKTİF NAVİGASYON OTURUMU (SESSION CONTINUITY P0) ─────────────────────
+   * Mini harita artık aktif rotanın İKİNCİ GÖRÜNÜMÜdür. Kendi rota state'ini
+   * KURMAZ, rota İSTEMEZ, ilerleme HESAPLAMAZ: hepsini tek otoriteden okur
+   * (navigationService oturumu + routingService rota store'u). İlerlemeyi
+   * `navigationSessionRuntime` sürer — bu bileşen yalnız çizer.                */
+  const {
+    status: navStatus, isNavigating, destination, distanceMeters, etaSeconds, isOfflineResult,
+  } = useNavigation();
+  const route = useRouteState();
+  // Rota çizgisi aktif oturumda gösterilir; PREVIEW'de de rota görünür olmalı
+  // (kullanıcı ana ekrandayken hedefi seçtiyse rotayı görmeli).
+  const navRouteVisible = isNavigating && route.geometry !== null && route.geometry.length >= 2;
+  // Kırpma yalnız CANLI sürüşte anlamlıdır (motor snapped nokta üretir).
+  const navLive = navStatus === NavStatus.ACTIVE || navStatus === NavStatus.REROUTING;
+  // Effect deps'ini şişirmemek için ref aynası — konum effect'i her fix'te koşar.
+  const navLiveRef      = useRef(false);
+  const routeGeomRef    = useRef<[number, number][] | null>(null);
+  const lastRouteKeyRef = useRef<string | null>(null);
+  const lastTrimSegRef  = useRef(-1);
+  useEffect(() => {
+    navLiveRef.current   = navLive;
+    routeGeomRef.current = route.geometry;
+  }, [navLive, route.geometry]);
+
+  /* ── KAMERA TAKİBİ — KANONİK OTORİTE (tam ekranla AYNI) ───────────────────
+   * Mini harita eskiden pan'ı HİÇ dinlemiyordu: kullanıcı haritayı kaydırınca
+   * bir sonraki GPS fix'i kamerayı sessizce aracın üstüne geri atıyordu.
+   * Artık `FullMapView` ile AYNI otoriteyi kullanır — iki ekran farklı mantık
+   * çalıştırmaz. */
+  const camera = useCameraFollow();
 
   // Sync refs safely outside of render
   useEffect(() => {
     locationRef.current = location;
     headingRef.current = heading;
   }, [location, heading]);
+
+  /* ── HIZ LİMİTİ — ARAÇ FARKINDA TEK OTORİTE ──────────────────────────────
+   * Sayı artık yalnız yoldan değil, YOL + ARACIN YASAL SINIFI birlikte
+   * belirlenir (ör. ruhsatta kamyonet N1 yazan bir araç 110'luk yolda 95'e
+   * çekilir). Hüküm `useEffectiveSpeedLimit` içinde üretilir ve tam ekran HUD
+   * ile BİREBİR AYNIDIR — konum çıpası, sınıflandırma ve araç tavanı orada
+   * tek yerde toplanmıştır (ikinci motor YOK). */
+  const speedLimit = useEffectiveSpeedLimit();
+
+  /* Navigasyon aktifliğini otoriteye bildir (otomatik dönüş gecikmesini seçer). */
+  useEffect(() => {
+    setCameraNavActive(navLive);
+  }, [navLive]);
+
+  /* ── AKICI İŞARET — PAYLAŞILAN MOTION RUNTIME (NAVIGATION_MOTION_CAMERA_P0) ──
+   * Mini harita marker'ı DOĞRUDAN GPS geri çağrısında çiziyordu; GPS tavanı
+   * 2 Hz olduğu için araç saniyede iki kez ZIPLIYORDU (tam ekran ise kendi RAF
+   * döngüsünde ara değer üretiyordu). "Amatör görünüm" şikâyetinin en görünür
+   * kaynağı buydu.
+   *
+   * Artık konum `navMarkerMotionRuntime`tan okunur — matematiği bu bileşen
+   * YAPMAZ, ikinci bir interpolasyon motoru KURULMAZ. Döngü yalnız ÇİZER.
+   *
+   * ⚠️ BOŞTA CPU KORUMASI PAZARLIKSIZ (#61/#64): döngü YALNIZ araç sürerken
+   * çalışır; durunca kendini kapatır. Ayrıca `updateUserMarker` yalnız konum
+   * GERÇEKTEN değiştiyse çağrılır — park hâlinde GL yazımı olmaz. */
+  const motionTick = useMarkerMotionSampleTick();
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !map._initialized) return;
+    if (!wasDrivingRef.current) return;   // duran araç → döngü HİÇ açılmaz
+
+    let rafId = 0;
+    let lastDrawMs = 0;
+    let sentLat = NaN, sentLng = NaN, sentBear = NaN;
+
+    const draw = (now: number) => {
+      rafId = requestAnimationFrame(draw);
+      if (!wasDrivingRef.current) { cancelAnimationFrame(rafId); rafId = 0; return; }
+      // ~16 fps: tek nokta `setData` ucuzdur ama düşük-uç GPU'da her kare pahalıdır.
+      if (now - lastDrawMs < 60) return;
+
+      const m = getRenderedMotion(now);
+      if (m.lat === null || m.lon === null) return;
+      // Bayat konumda hareket UYDURULMAZ — model zaten donduruyor, burada da çizme.
+      if (m.state === 'STALE') return;
+
+      const bear = m.bearingDeg ?? sentBear;
+      const movedM = Number.isNaN(sentLat)
+        ? Infinity
+        : Math.hypot((m.lat - sentLat) * 111_320,
+                     (m.lon - sentLng) * 111_320 * Math.cos(m.lat * Math.PI / 180));
+      const bearD = Number.isNaN(sentBear) || bear == null
+        ? Infinity
+        : Math.abs(((((bear - sentBear) % 360) + 540) % 360) - 180);
+      if (movedM < 0.4 && bearD < 0.6) return;   // gerçek değişim yok → GL yazma
+
+      try { updateUserMarker(m.lat, m.lon, bear ?? 0); } catch { /* stil hazır değil */ }
+      lastDrawMs = now;
+      sentLat = m.lat; sentLng = m.lon; sentBear = bear ?? 0;
+    };
+
+    rafId = requestAnimationFrame(draw);
+    return () => { if (rafId) cancelAnimationFrame(rafId); };
+    // `motionTick` yeni örnek geldiğinde döngüyü tazeler (duruştan sonra yeniden açar).
+  }, [motionTick]);
+
+  /* Aracı ortala — tam ekrandaki `requestFollow` ile BİREBİR aynı sözleşme:
+   * mevcut takip zoom'u kullanılır, sabit rastgele zoom YOK. */
+  const recenterOnVehicle = useCallback(() => {
+    const map = mapRef.current;
+    const loc = locationRef.current;
+    if (!map || !loc) return;
+    beginRecenter('USER_BUTTON');
+    try {
+      const hdg = headingRef.current ?? 0;
+      if (wasDrivingRef.current) {
+        const h = containerRef.current?.offsetHeight ?? 400;
+        // Sürüş görünümü: mevcut kamera politikası (hız/heading) korunur.
+        setDrivingView(map, loc.latitude, loc.longitude, hdg, lastEffKmhRef.current, h);
+      } else {
+        setMapCenter(map, [loc.longitude, loc.latitude], 16.5, true);
+      }
+      noteFollowZoom(map.getZoom());
+      lastAppliedLatRef.current = loc.latitude;
+      lastAppliedLngRef.current = loc.longitude;
+    } catch { /* stil hazır değil — sonraki fix'te kamera zaten takip eder */ }
+    completeRecenter();
+  }, []);
+
+  /* Kullanıcı pan'ı → otoriteye BİLDİR. Kamerayı burada durdurmayız; aşağıdaki
+   * konum effect'i `canDriveCamera()` kapısını okur. */
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady) return;
+    const onStart = () => notifyUserPanStart();
+    const onEnd   = () => notifyUserPanEnd(recenterOnVehicle);
+    map.on('dragstart',   onStart);
+    map.on('zoomstart',   onStart);
+    map.on('rotatestart', onStart);
+    map.on('dragend',     onEnd);
+    map.on('zoomend',     onEnd);
+    map.on('rotateend',   onEnd);
+    return () => {
+      map.off('dragstart',   onStart);
+      map.off('zoomstart',   onStart);
+      map.off('rotatestart', onStart);
+      map.off('dragend',     onEnd);
+      map.off('zoomend',     onEnd);
+      map.off('rotateend',   onEnd);
+    };
+  }, [mapReady, reinitKey, recenterOnVehicle]);
+
+  /* Rota çizgisini uygula / kaldır.
+   * `styleKey` dep'i şart: stil değişimi (gün↔gece, mod) MapLibre'nin tüm
+   * source/layer'larını siler → aynı geometri YENİDEN uygulanmalıdır.
+   * Anahtar hash + styleKey: aynı rota aynı stilde İKİNCİ kez yazılmaz
+   * (Mali-400'de gereksiz setData/layer kurulumu yok).                        */
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady) return;
+
+    const geom = route.geometry;
+    if (navRouteVisible && geom) {
+      const key = `${styleKey}#${geom.length}:` +
+        `${geom[0][0].toFixed(4)},${geom[0][1].toFixed(4)}:` +
+        `${geom[geom.length - 1][0].toFixed(4)},${geom[geom.length - 1][1].toFixed(4)}`;
+      if (lastRouteKeyRef.current === key) return;
+      lastRouteKeyRef.current = key;
+      lastTrimSegRef.current  = -1; // yeni geometri → kırpma çapası sıfırlanır
+      try {
+        // Alternatif rota ÇİZİLMEZ: mini harita alanında okunmaz olur ve
+        // seçilemez (dokunma hedefi yok) — kanıtsız görsel gürültü üretmeyiz.
+        setRouteGeometry(map, geom);
+      } catch { /* stil yeniden yükleniyor olabilir — sonraki dep değişiminde tekrar */ }
+    } else if (lastRouteKeyRef.current !== null) {
+      lastRouteKeyRef.current = null;
+      lastTrimSegRef.current  = -1;
+      try { clearRouteGeometry(map); } catch { /* fail-soft */ }
+    }
+  }, [navRouteVisible, route.geometry, mapReady, styleKey]);
+
+  // Unmount: rota katmanlarını bırak — harita singleton'ı FullMapView'a devredilirken
+  // bizim çizdiğimiz çizgi orada artık geçerli olmayabilir (Zero-Leak + temiz devir).
+  useEffect(() => () => {
+    lastRouteKeyRef.current = null;
+    lastTrimSegRef.current  = -1;
+  }, []);
 
   // Store instance değişimini izle — stale ref ve re-init yönetimi.
   //
@@ -350,6 +562,13 @@ export const MiniMapWidget = memo(function MiniMapWidget({
       ? true
       : _effKmh < 3 ? false
       : wasDrivingRef.current;
+    lastEffKmhRef.current = _effKmh;
+
+    /* ── KAMERA KAPISI (fail-closed) ────────────────────────────────────────
+     * Kullanıcı haritayı incelerken (USER_PANNING / FOLLOW_SUSPENDED) kamerayı
+     * SÜRME. Marker yine güncellenir — araç nerede olduğu görünmeye devam eder,
+     * yalnız görüntü kullanıcının bıraktığı yerden KAÇMAZ. */
+    const _cameraOwned = canDriveCamera();
 
     // Sürüş → heading-up rotasyon var → compass gerekli. Park → kuzey-yukarı → gereksiz.
     _setCompassDemand(isDriving);
@@ -361,7 +580,7 @@ export const MiniMapWidget = memo(function MiniMapWidget({
       try {
         addUserMarker(mapRef.current, latitude, longitude, hdg);
         // Başlangıç zoom: sokak seviyesi (16 = tek tek sokaklar görünür)
-        setMapCenter(mapRef.current, [longitude, latitude], 16, true);
+        if (_cameraOwned) setMapCenter(mapRef.current, [longitude, latitude], 16, true);
         mapRef.current._initialized = true;
         wasDrivingRef.current = isDriving;
         lastAppliedLatRef.current = latitude;
@@ -371,11 +590,43 @@ export const MiniMapWidget = memo(function MiniMapWidget({
         /* stil henüz hazır değil → sonraki fix'te tekrar denenir (fail-soft) */
       }
     } else if (isDriving) {
-      // Sürüş modu: hıza göre zoom + heading rotasyonu + look-ahead offset (her fix uygulanır)
-      // Kamera hızı _effKmh: Doppler 0'a saplansa bile zoom/pitch gerçek harekete uyar.
-      updateUserMarker(latitude, longitude, hdg);
-      const containerH = containerRef.current?.offsetHeight ?? 400;
-      setDrivingView(mapRef.current, latitude, longitude, hdg, _effKmh, containerH);
+      /* ── KAMERA PARİTESİ (NAVIGATION_MOTION_CAMERA_P0) ──────────────────────
+       * Mini harita `setDrivingView`i EKSİK argümanlarla çağırıyordu: manevra
+       * mesafesi, sonraki dönüş yönü ve rota yönü GEÇİLMİYORDU. Sonuç: tam
+       * ekranda kavşak yaklaşımı, dönüş öngörüsü ve durakta rota-yönü düzeltmesi
+       * çalışırken mini haritada HİÇBİRİ çalışmıyordu — iki ekran farklı kamera
+       * davranışı gösteriyordu. Artık AYNI politika, AYNI argümanlar.
+       *
+       * Marker konumu burada değil, paylaşılan motion runtime'ından RAF ile
+       * çizilir (aşağıdaki `motion` effect'i) → 2 Hz zıplama biter. */
+      if (_cameraOwned) {
+        const containerH = containerRef.current?.offsetHeight ?? 400;
+        const _rs = getRouteState();
+        const _turnDist = _rs.steps.length && _rs.distanceToNextTurnSource === 'ALONG_ROUTE'
+          ? _rs.distanceToNextTurnMeters : undefined;
+        /* Rotanın İLERİ yönü — tam ekranla AYNI otorite: bir SONRAKİ manevra
+           adımı (`currentStepIndex + 1`). Paralel bir "ileri yön" otoritesi
+           KURULMAZ; 8 m altındaki mesafede yön gürültülü olur, üretilmez. */
+        let _routeBearing: number | undefined;
+        const _ni = _rs.currentStepIndex + 1;
+        const _st = _rs.steps.length > _ni ? _rs.steps[_ni] : null;
+        if (_st?.coordinate) {
+          const [_sLon, _sLat] = _st.coordinate;
+          const _dLat = (_sLat - latitude) * 111_320;
+          const _dLon = (_sLon - longitude) * 111_320 * Math.cos(latitude * Math.PI / 180);
+          if (Math.hypot(_dLat, _dLon) > 8) {
+            _routeBearing = (Math.atan2(_dLon, _dLat) * 180) / Math.PI;
+            if (_routeBearing < 0) _routeBearing += 360;
+          }
+        }
+        setDrivingView(
+          mapRef.current, latitude, longitude, hdg, _effKmh, containerH,
+          _turnDist, undefined, undefined, _routeBearing,
+        );
+      } else {
+        // Kamera kullanıcıda — marker yine de güncel kalsın (araç nerede görünsün).
+        updateUserMarker(latitude, longitude, hdg);
+      }
       wasDrivingRef.current = true;
       lastAppliedLatRef.current = latitude;
       lastAppliedLngRef.current = longitude;
@@ -386,7 +637,7 @@ export const MiniMapWidget = memo(function MiniMapWidget({
       // önlenir. Konum gerçekten kayda değer kadar (≈25m, 0.00025°) değiştiyse marker+merkez güncellenir.
       const movedDeg = Math.abs(latitude - lastAppliedLatRef.current) +
                        Math.abs(longitude - lastAppliedLngRef.current);
-      if (wasDrivingRef.current) {
+      if (wasDrivingRef.current && _cameraOwned) {
         exitDrivingView(mapRef.current);
         wasDrivingRef.current = false;
       }
@@ -399,15 +650,33 @@ export const MiniMapWidget = memo(function MiniMapWidget({
         const dist = Math.sqrt(
           Math.pow(longitude - center.lng, 2) + Math.pow(latitude - center.lat, 2)
         );
-        if (dist > 0.002) {
+        if (dist > 0.002 && _cameraOwned) {
           setMapCenter(mapRef.current, [longitude, latitude], 16.5, true);
         }
       }
     }
+
+    /* Kat edilen rotayı kırp — GÖRÜNÜM işi, hesap DEĞİL.
+     * İlerleme noktasını `navigationSessionRuntime` üretir; burada yalnız
+     * okunur. Segment index değişmedikçe setData YAPILMAZ (FullMapView ile
+     * aynı dedup deseni) → düşük-uç GPU'da her fix'te GL yazımı olmaz. */
+    if (navLiveRef.current && mapRef.current) {
+      const prog = getRouteProgressPoint();
+      const geom = routeGeomRef.current;
+      if (prog && geom && geom.length >= 2 && prog.segIdx !== lastTrimSegRef.current) {
+        lastTrimSegRef.current = prog.segIdx;
+        try {
+          trimRouteGeometry(mapRef.current, [
+            [prog.lon, prog.lat],
+            ...geom.slice(prog.segIdx + 1),
+          ]);
+        } catch { /* stil yeniden yükleniyor olabilir — sonraki fix'te tekrar */ }
+      }
+    }
   }, [location, heading, mapReady, styleKey]);
 
-  // Hız: PremiumSpeedometer ile aynı kaynak (CAN→OBD→GPS füzyon)
-  const speedKmh = fusedSpeedKmh;
+  // Hız: tek gösterim otoritesi (`useDisplaySpeed`) — null ise rozet `—` gösterir.
+  const speedKmh = displaySpeedKmh;
 
   return (
     <div className="w-full h-full min-h-0 min-w-0 glass-card flex flex-col overflow-hidden relative border-none !shadow-none">
@@ -571,6 +840,125 @@ export const MiniMapWidget = memo(function MiniMapWidget({
             </span>
           </div>
         )}
+
+        {/* ── HIZ LİMİTİ LEVHASI — PAYLAŞILAN KART ────────────────────────────
+         *  Otorite `AVAILABLE`/`ROAD_ONLY`/`AMBIGUOUS`/`CONFLICTED` dışında
+         *  ASLA sayı döndürmez; bayat, çelişkili veya çıkarım değerinin ekrana
+         *  basılması YAPISAL olarak imkânsızdır. Bilinmiyorsa kart tamamen
+         *  GİZLENİR — "—" YAZILMAZ. Kesin olmayan sayı kesikli çerçeveyle ve
+         *  altındaki kaynak etiketiyle AYIRT EDİLİR.
+         *  Konum: sağ üst, kaynak rozetinin ALTINDA; sağ alttaki hız
+         *  göstergesiyle ve tema kartının +/- düğmeleriyle çakışmaz.
+         *  Animasyon YOK — sürüşte dikkat dağıtmaz.                            */}
+        <div className="absolute z-20 pointer-events-none" style={{ top: 34, right: 8 }}>
+          <SpeedLimitCard limit={speedLimit} size="mini" />
+        </div>
+
+        {/* ── ARACI ORTALA — KANONİK KAMERA OTORİTESİNDEN ─────────────────────
+         *  Araç merkezdeyken (FOLLOWING) düğme GİZLİ; kullanıcı haritayı
+         *  kaydırınca çıkar. Tek dokunuş, uzun basma YOK, toast YOK.
+         *  Konum ÜST-ORTA: sol-alt nav şeridi, sağ-alt hız göstergesi, sağ-üst
+         *  kaynak rozeti ve tema kartının +/- düğmeleriyle çakışmaz.
+         *  Dokunma hedefi 44 px — sürüşte parmakla erişilebilir.               */}
+        {camera.recenterAvailable && (
+          <button
+            onClick={recenterOnVehicle}
+            aria-label="Aracı ortala"
+            title="Aracı ortala"
+            className="absolute z-20 flex items-center justify-center rounded-full active:scale-90 transition-all"
+            style={{
+              top: 8, left: '50%', transform: 'translateX(-50%)',
+              width: 44, height: 44,
+              background: 'rgba(10,14,26,0.92)',
+              backdropFilter: 'blur(12px)',
+              border: '1.5px solid rgba(224,162,60,0.55)',
+              boxShadow: '0 4px 18px rgba(0,0,0,0.55)',
+              cursor: 'pointer',
+            }}
+          >
+            <Crosshair className="w-5 h-5" style={{ color: '#E8B86A' }} />
+          </button>
+        )}
+
+        {/* ── AKTİF NAVİGASYON ŞERİDİ (SESSION CONTINUITY P0) ──────────────────
+         *  Tam ekran kapatıldığında oturum yaşamaya devam eder; kullanıcı ana
+         *  ekranda rotayı, kalan mesafeyi, ETA'yı ve sıradaki manevrayı burada
+         *  görür. DÜRÜSTLÜK: yalnız kanıtı olan alan yazılır — manevra metni
+         *  yoksa satır hiç render edilmez, ölçü yoksa "—" gösterilir. Şerit
+         *  bilgisi / dönel kavşak çıkışı burada HİÇ üretilmez.                 */}
+        {isNavigating && (() => {
+          const step = route.steps[route.currentStepIndex];
+          // Manevra metni: talimat → yoksa cadde adı → yoksa satır YOK.
+          const maneuver = step?.instruction?.trim() || step?.streetName?.trim() || null;
+          // Manevraya mesafe: yalnız yöntemi bilinen ölçü gösterilir.
+          const turnM = (route.distanceToNextTurnSource !== 'UNKNOWN' &&
+                         Number.isFinite(route.distanceToNextTurnMeters) &&
+                         route.distanceToNextTurnMeters > 0)
+            ? route.distanceToNextTurnMeters : null;
+          // Kalan mesafe: canlı ilerleme → yoksa rotanın toplam mesafesi (ikisi de
+          // ölçülmüş değerdir; uydurma yok). İkisi de yoksa "—".
+          const remainM = (distanceMeters != null && Number.isFinite(distanceMeters) && distanceMeters > 10)
+            ? distanceMeters
+            : (route.totalDistanceMeters > 0 ? route.totalDistanceMeters : null);
+          const etaTxt = (etaSeconds != null && Number.isFinite(etaSeconds))
+            ? formatEta(etaSeconds) : '—';
+          const phase =
+            navStatus === NavStatus.REROUTING ? 'YENİDEN HESAPLANIYOR' :
+            navStatus === NavStatus.ARRIVED   ? 'VARDINIZ'             :
+            navStatus === NavStatus.ROUTING   ? 'ROTA HESAPLANIYOR'    :
+            navStatus === NavStatus.PREVIEW   ? 'ÖNİZLEME'             : null;
+
+          return (
+            <div className="absolute bottom-2 left-2 z-20 max-w-[68%] pointer-events-auto">
+              <div
+                className="flex flex-col gap-1 px-2.5 py-1.5 rounded-xl bg-black/65 backdrop-blur-xl shadow-lg"
+                style={{ border: '1px solid rgba(224,162,60,0.35)' }}
+              >
+                {/* Başlık satırı — hedef + sonlandır */}
+                <div className="flex items-center gap-1.5">
+                  <Navigation2 className="w-3 h-3 text-[#E0A23C] flex-shrink-0" />
+                  <span className="text-[9px] font-black tracking-widest uppercase text-[#E0A23C] truncate">
+                    {phase ?? (destination?.name ?? 'NAVİGASYON')}
+                  </span>
+                  {isOfflineResult && (
+                    <span className="text-[7px] font-black tracking-wider uppercase px-1 py-px rounded bg-amber-500/15 text-amber-400 flex-shrink-0">
+                      ÇEVRİMDIŞI
+                    </span>
+                  )}
+                  <button
+                    onClick={endNavigation}
+                    className="ml-auto w-5 h-5 rounded-md bg-white/10 border border-white/20 flex items-center justify-center text-white/70 active:scale-90 transition-all flex-shrink-0"
+                    title="Navigasyonu sonlandır"
+                    aria-label="Navigasyonu sonlandır"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </div>
+
+                {/* Sıradaki manevra — kanıt yoksa satır YOK */}
+                {maneuver && (
+                  <div className="flex items-baseline gap-1.5">
+                    {turnM !== null && (
+                      <span className="text-[10px] font-black tabular-nums text-white flex-shrink-0">
+                        {formatDistance(turnM)}
+                      </span>
+                    )}
+                    <span className="text-[9px] font-bold text-white/70 truncate">{maneuver}</span>
+                  </div>
+                )}
+
+                {/* Kalan mesafe · ETA */}
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] font-black tabular-nums text-white">
+                    {remainM !== null ? formatDistance(remainM) : '—'}
+                  </span>
+                  <span className="text-white/20 text-[9px]">•</span>
+                  <span className="text-[10px] font-black tabular-nums text-[#E0A23C]">{etaTxt}</span>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
 
         {tileError && (
           <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-30">

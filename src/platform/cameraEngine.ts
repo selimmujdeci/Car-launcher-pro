@@ -45,6 +45,9 @@ export const CAMERA_CFG = {
   TOP_PAD_MAX:   0.70,  // otoyol
   TOP_PAD_SPEED: 110,   // bu km/h'de maksimuma ulaşır
 
+  /** Aracın ekranın ALT kenarına en az bu kadar px kalmalı (bkz. clampTopPadForVehicle). */
+  VEHICLE_MIN_BOTTOM_PX: 72,
+
   // ── Turn anticipation ──────────────────────────────────────────
   // Dönüşe yaklaşınca kamera dönüş bölgesini hafifçe önden gösterir.
   ANTICIPATION_START_M: 220,  // anticipation'ın başladığı mesafe
@@ -65,6 +68,13 @@ export const CAMERA_CFG = {
   // ── Movement jitter filter ──────────────────────────────────────
   JITTER_SPEED_KMH:   5,    // bu hızın altında filtrele
   JITTER_THRESHOLD_M: 0.8,  // minimum GPS hareketi (metre)
+  /* Durakta yeniden ORTALAMA eşiği (m). 0.8 m tipik GPS gürültüsünün (±3–6 m)
+     ÇOK ALTINDA kaldığı için duran araçta kamera her fix'te yeniden ortalanıyor
+     ve harita kendiliğinden kayıyordu — cihazda ölçüldü (2026-08-03): araç
+     0 m hareket ederken merkez 1–5 m adımlarla sürekli kaydı.
+     Gürültü bandının üstünde bir eşik: durakta harita TAMAMEN durur; gerçek
+     hareket başlayınca (hız ≥ JITTER_SPEED_KMH) bu dal zaten çalışmaz. */
+  STANDSTILL_RECENTER_MIN_M: 6,
 
   // ── Low-speed bearing deadzone (Faz 3.4) ─────────────────────
   // Düşük hızda GPS heading güvenilmez; küçük değişimleri filtrele.
@@ -221,6 +231,69 @@ export function computeCameraTarget(
   );
 
   return { zoom, pitch, lookAheadM, topPadFrac };
+}
+
+/**
+ * Araç ekranın ALTINDAN taşarsa düzeltilmiş `topPad` döndürür; taşma yoksa `null`.
+ *
+ * ── NEDEN GEREKLİ (saha 2026-08-03, kullanıcı: "araba gidince görünmüyor,
+ *    geride kalıyor") ────────────────────────────────────────────────────────
+ * Sürüş kamerası aracın KENDİSİNİ değil, aracın `lookAheadM` metre ÖNÜNDEKİ
+ * noktayı merkeze alır ve `padding.top` ile o merkezi aşağı iter. MapLibre'de
+ * padding'li merkez ekranda `y = (H + topPad) / 2` noktasına düşer; araç bunun
+ * `lookAheadPx` kadar ALTINDA kalır.
+ *
+ * KUSUR: `topPadFrac` bir ORANDIR (H ile ölçeklenir) ama `lookAheadM` METREDİR —
+ * piksel karşılığı H'den BAĞIMSIZDIR. Yani ekran kısaldıkça araç aşağı taşar.
+ * Ölçüm (50 km/h, zoom≈16.4, ~1.45 m/px → lookAhead ≈ 137 m ≈ 94 px):
+ *   • Head unit H=600 → merkez 0.795·600 ≈ 477 px, araç ≈ 571 px → ekranda (dar).
+ *   • Telefon    H=400 → merkez 0.795·400 ≈ 318 px, araç ≈ 412 px → **EKRAN DIŞI**.
+ * Hız arttıkça `lookAheadM` de `topPadFrac` de büyür → semptom hızla kötüleşir;
+ * kullanıcının "araba gidince kayboluyor" tarifi tam olarak budur.
+ *
+ * ÇÖZÜM: look-ahead'i (yani sürücünün ileri görüşünü) KISALTMAK yerine merkezi
+ * yukarı çekeriz. `centerY = (H + topPad)/2` olduğundan topPad'i `2×taşma`
+ * kadar azaltmak merkezi — ve onunla birlikte aracı — `taşma` kadar yukarı taşır.
+ *
+ * @param vehicleScreenY  `map.project([lng, lat]).y` — gerçek, pitch'e uygun ölçüm
+ * @param containerHeight harita konteyner yüksekliği (px)
+ * @param topPad          uygulanan üst padding (px)
+ * @param minBottomPx     araç ile alt kenar arasında korunacak boşluk
+ * @returns yeni topPad (0 ≤ yeni < topPad) veya taşma yoksa `null`
+ */
+/**
+ * Araç ekranda DÜZGÜN çerçevelenmiş mi? (saf · test edilebilir)
+ *
+ * "Ekranda" yetmez: aracın alt kenara `minBottomPx` kadar payı da olmalı,
+ * yoksa alt bilgi çubuğunun altında kalır.
+ */
+export function isVehicleFramed(
+  screenX: number, screenY: number,
+  width: number, height: number,
+  minBottomPx: number = CAMERA_CFG.VEHICLE_MIN_BOTTOM_PX,
+): boolean {
+  if (!Number.isFinite(screenX) || !Number.isFinite(screenY)) return false;
+  if (!(width > 0) || !(height > 0)) return false;
+  return screenX >= 0 && screenX <= width && screenY >= 0 && screenY <= height - minBottomPx;
+}
+
+export function clampTopPadForVehicle(
+  vehicleScreenY: number,
+  containerHeight: number,
+  topPad: number,
+  minBottomPx: number = CAMERA_CFG.VEHICLE_MIN_BOTTOM_PX,
+): number | null {
+  // Ölçülemeyen girdide DOKUNMA — kamera sessizce bozulmaktansa olduğu gibi kalsın.
+  if (!Number.isFinite(vehicleScreenY) || !Number.isFinite(containerHeight) || !Number.isFinite(topPad)) return null;
+  if (containerHeight <= 0 || topPad <= 0) return null;
+
+  const maxY = containerHeight - minBottomPx;
+  if (vehicleScreenY <= maxY) return null;      // zaten ekranda — HU yolu buradan çıkar
+
+  const overflowPx = vehicleScreenY - maxY;
+  const next = Math.max(0, topPad - overflowPx * 2);
+  // Düzeltme fark yaratmıyorsa ikinci bir jumpTo'ya değmez.
+  return next < topPad ? next : null;
 }
 
 /**

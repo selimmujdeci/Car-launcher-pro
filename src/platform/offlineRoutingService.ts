@@ -28,6 +28,13 @@ import { logError }          from './crashLogger';
 import { runtimeManager }    from '../core/runtime/AdaptiveRuntimeManager';
 import { systemBoot }        from './system/SystemBoot';
 import { supportsModuleWorker } from './deviceCapabilities';
+import {
+  recordOfflineGraphOutcome, shouldAttemptOfflineRoute,
+} from './navigation/offlineRoutingStatus';
+import {
+  shouldProbeLocalDaemon, recordLocalDaemonProbe,
+  getProviderReadinessSnapshot, LOCAL_PROBE_TIMEOUT_MS,
+} from './navigation/core/routeProviderReadiness';
 import type { RouteStep }    from './routingService';
 
 /* ── Tipler ──────────────────────────────────────────────────── */
@@ -42,11 +49,20 @@ export interface OfflineRouteResult {
 
 /* ── OSRM maneuver → Türkçe (daemon için yerel kopya) ─────────── */
 
-function _toTR(type: string, mod: string, name: string): string {
+const _EXIT_ORDINAL: Readonly<Record<number, string>> = {
+  1: 'birinci', 2: 'ikinci', 3: 'üçüncü', 4: 'dördüncü',
+  5: 'beşinci', 6: 'altıncı', 7: 'yedinci', 8: 'sekizinci',
+};
+
+function _toTR(type: string, mod: string, name: string, exit?: number | null): string {
   const s = name ? ` (${name})` : '';
   if (type === 'depart')                            return `Yola çıkın${s}`;
   if (type === 'arrive')                            return 'Hedefinize ulaştınız';
-  if (type === 'roundabout' || type === 'rotary')   return 'Dönel kavşakta devam edin';
+  if (type === 'roundabout' || type === 'rotary') {
+    // Çıkış numarası KANITLIYSA söylenir; yoksa UYDURULMAZ.
+    const ord = exit != null && Number.isFinite(exit) ? _EXIT_ORDINAL[exit] : undefined;
+    return ord ? `Dönel kavşakta ${ord} çıkıştan ayrılın${s}` : 'Dönel kavşakta devam edin';
+  }
   if (type === 'end of road')                       return 'Yol sonunda dönün';
   if (mod  === 'uturn')                             return 'U dönüşü yapın';
   if (mod  === 'sharp right')                       return `Sert sağa dönün${s}`;
@@ -73,27 +89,46 @@ function _toTR(type: string, mod: string, name: string): string {
  * Bu fonksiyon, daemon ayakta ise rota döner; değilse null döner.
  */
 const LOCAL_DAEMON_URL        = 'http://localhost:5000/route/v1/driving';
-const LOCAL_DAEMON_TIMEOUT_MS = 3_000; // native daemon genellikle <100ms yanıt verir
-
+/**
+ * ── ÖLÜ KATMAN KAPATILDI (denetim §4.2, cihazda ölçüldü) ────────────────────
+ * Eski değer 3 000 ms idi ve bu istek **her rotada** atılıyordu. Android'de
+ * böyle bir daemon YOK; yani en kritik anda — sapma sonrası reroute'ta —
+ * saf bekleme süresiydi. Artık iki koruma var:
+ *   1. Yoklama oturumda BİR KEZ yapılır (`shouldProbeLocalDaemon`).
+ *      Sonuç olumsuzsa bir daha DENENMEZ (daemon oturum içinde belirmez).
+ *   2. O tek yoklama da `LOCAL_PROBE_TIMEOUT_MS` (700 ms) ile SINIRLIDIR.
+ * Bu bir gizleme değildir: durum CAROS LAB · Navigation Core'da adıyla görünür.
+ */
 export async function tryLocalDaemon(
   fromLon: number, fromLat: number,
   toLon:   number, toLat:   number,
 ): Promise<OfflineRouteResult | null> {
   if (!Capacitor.isNativePlatform()) return null;
+
+  // Hazırlığı bilinmiyorsa TEK sınırlı yoklama; bilinip yoksa hiç deneme.
+  const readiness = getProviderReadinessSnapshot().localState;
+  if (readiness === 'LOCAL_OSRM_UNAVAILABLE') return null;
+  const probing = readiness === 'UNKNOWN' && shouldProbeLocalDaemon();
+  if (readiness === 'UNKNOWN' && !probing) return null;
+
   const ctrl  = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), LOCAL_DAEMON_TIMEOUT_MS);
+  const timer = setTimeout(() => ctrl.abort(), LOCAL_PROBE_TIMEOUT_MS);
   try {
     const url = `${LOCAL_DAEMON_URL}/${fromLon},${fromLat};${toLon},${toLat}?steps=true&geometries=geojson&overview=full`;
     const res = await fetch(url, { signal: ctrl.signal });
     clearTimeout(timer);
+    // Sunucu KONUŞTU → daemon gerçekten var. HTTP kodu ne olursa olsun
+    // hazırlık ölçülmüş sayılır (ölçüm "cevap verdi mi", "bu rotayı buldu mu" değil).
+    if (probing) recordLocalDaemonProbe(true, Date.now());
     if (!res.ok) return null;
 
     interface _DaemonOsrmStep {
       distance: number;
       duration: number;
       name: string;
-      maneuver: { type: string; modifier?: string };
+      maneuver: { type: string; modifier?: string; exit?: number };
       geometry: { coordinates: [number, number][] };
+      intersections?: Array<{ lanes?: Array<{ valid?: boolean; active?: boolean; indications?: string[] }> }>;
     }
     const data = await res.json() as {
       code: string;
@@ -107,15 +142,37 @@ export async function tryLocalDaemon(
     if (data.code !== 'Ok' || !data.routes?.length) return null;
 
     const r = data.routes[0];
-    const steps: RouteStep[] = (r.legs?.[0]?.steps ?? []).map(st => ({
-      instruction:      _toTR(st.maneuver.type, st.maneuver.modifier ?? 'straight', st.name ?? ''),
-      streetName:       st.name ?? '',
-      distance:         st.distance,
-      duration:         st.duration,
-      maneuverType:     st.maneuver.type,
-      maneuverModifier: st.maneuver.modifier ?? 'straight',
-      coordinate:       st.geometry.coordinates[0] as [number, number],
-    }));
+    const steps: RouteStep[] = (r.legs?.[0]?.steps ?? []).map(st => {
+      const exit = typeof st.maneuver.exit === 'number' ? st.maneuver.exit : null;
+      // GERÇEK şerit verisi — yoksa null. Manevra tipinden ok TÜRETİLMEZ.
+      let lanes: RouteStep['lanes'] = null;
+      const ix = st.intersections;
+      if (Array.isArray(ix)) {
+        for (let i = ix.length - 1; i >= 0; i--) {
+          const l = ix[i]?.lanes;
+          if (Array.isArray(l) && l.length > 0) {
+            lanes = l.map(x => ({
+              valid: x.valid === true,
+              active: x.active === true,
+              indications: Array.isArray(x.indications) ? x.indications.slice() : [],
+            }));
+            break;
+          }
+        }
+      }
+      return {
+        instruction:      _toTR(st.maneuver.type, st.maneuver.modifier ?? 'straight', st.name ?? '', exit),
+        streetName:       st.name ?? '',
+        distance:         st.distance,
+        duration:         st.duration,
+        maneuverType:     st.maneuver.type,
+        maneuverModifier: st.maneuver.modifier ?? 'straight',
+        coordinate:       st.geometry.coordinates[0] as [number, number],
+        roundaboutExit:   exit,
+        lanes,
+        geometryPointCount: st.geometry.coordinates.length,
+      };
+    });
 
     return {
       geometry:  r.geometry.coordinates as [number, number][],
@@ -126,6 +183,8 @@ export async function tryLocalDaemon(
     };
   } catch {
     clearTimeout(timer);
+    // Bağlantı reddi / timeout → daemon YOK. Bir daha denenmez.
+    if (probing) recordLocalDaemonProbe(false, Date.now());
     return null;
   }
 }
@@ -185,7 +244,12 @@ function _getOrCreateNavWorker(): Worker | null {
   // çevrilemez, modül worker şart (Chrome 80+). Eski head unit WebView'ında
   // (Duster 64-79 / 8227L 52-74) worker YÜKLENMEZ → null dön, çağıran
   // computeOfflineRoute straightLineRoute fallback'ine düşer. (§HEAD_UNIT_MATRIX)
-  if (!supportsModuleWorker()) return null;
+  if (!supportsModuleWorker()) {
+    /* KALICI durum: WebView yetenek kazanmaz. Kaydedilir ki her rota
+       isteğinde yeniden denenmesin ve LAB nedeni gösterebilsin. */
+    recordOfflineGraphOutcome('WORKER_UNSUPPORTED', Date.now());
+    return null;
+  }
   try {
     const w = new Worker(
       new URL('./navigation/NavigationCompute.worker.ts', import.meta.url),
@@ -227,6 +291,7 @@ function _getOrCreateNavWorker(): Worker | null {
       _pending.delete(msg.requestId!);
 
       if (msg.type === 'ROUTE_RESULT') {
+        recordOfflineGraphOutcome('AVAILABLE', Date.now());
         req.resolve({
           geometry:  msg.geometry  ?? [],
           distanceM: msg.distanceM ?? 0,
@@ -235,7 +300,15 @@ function _getOrCreateNavWorker(): Worker | null {
           source:    'offline-worker',
         });
       } else {
-        req.resolve(null); // ROUTE_ERROR → null (fallback zinciri devam eder)
+        /* ROUTE_ERROR nedeni SINIFLANDIRILIR: "graph yok" KALICI bir
+           yetenek eksikliğidir, "rota bulunamadı" ise geçici bir sorgu
+           sonucudur. İkisini aynı kefeye koymak, olmayan bir yeteneği her
+           istekte yeniden denemek demekti (sessiz israf + görünmez arıza). */
+        const reason = String(msg.reason ?? '');
+        if (/graph/i.test(reason)) {
+          recordOfflineGraphOutcome('GRAPH_MISSING', Date.now());
+        }
+        req.resolve(null); // fallback zinciri devam eder (düz hat — DÜRÜSTÇE etiketli)
       }
     };
 
@@ -278,6 +351,12 @@ export async function computeOfflineRoute(
   toLat:   number,
   toLon:   number,
 ): Promise<OfflineRouteResult | null> {
+  /* KISA DEVRE: grafik kalıcı olarak yoksa/bozuksa worker'ı ayağa kaldırmak
+     saf israftır (WASM + sql.js yükü) ve arızayı GÖRÜNMEZ kılar. Yetenek
+     yoksa dürüstçe `null` döner; çağıran zaten düz-hat katmanına düşer ve
+     kullanıcıya "düz hat navigasyon" DER — "çevrimdışı rota" DEMEZ. */
+  if (!shouldAttemptOfflineRoute()) return null;
+
   const w = _getOrCreateNavWorker();
   if (!w) return null;
 

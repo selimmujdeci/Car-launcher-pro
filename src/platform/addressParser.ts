@@ -239,10 +239,26 @@ function stripPrefix(s: string): string {
  * "Mersin'e" → "Mersin"
  * "Ankara'ya doğru" → "Ankara"
  * "Adana tarafına" → "Adana"
+ *
+ * ⚠️ KESTİRME EK SOYMA YASAK (saha 2026-08-03) ────────────────────────────
+ * Eski regex apostrofu OPSİYONEL yapıyordu:
+ *     /\s*['`]?(e|a|ye|ya|ne|na)\s*$/i
+ * Bu, ek TAŞIMAYAN yer adlarının son harflerini kesiyordu — ölçüldü:
+ *     Ankara → "Ankar" · Adana → "Ada" · Bursa → "Burs"
+ *     Malatya → "Malat" · Antalya → "Antal"
+ * Yani "Adana git" dendiğinde geocoder'a "Ada" gidiyordu. Türkiye'nin en çok
+ * söylenen şehir adlarının çoğu a/e ile bittiği için hata İSTİSNA DEĞİL KURALDI.
+ *
+ * Ek TAŞIYAN ile TAŞIMAYAN'ı sözlük olmadan ayırmanın güvenli tek işareti
+ * Türkçe imlanın kendisidir: **özel isimlerde çekim eki kesme işaretiyle
+ * ayrılır** ("Ankara'ya", "Mersin'e"). Bu yüzden ek YALNIZ apostrof varken
+ * soyulur. Apostrofsuz gerçek ekler (örn. "hastaneye") burada korunur —
+ * bilgi YOK EDİLMEZ; onları `geocodingService` gevşetme merdiveni DENEME
+ * olarak ele alır. Ayırt edemediğimizde kaybetmek yerine saklarız.
  */
 function stripDative(s: string): string {
   return s
-    .replace(/\s*['''‘’'`]?(e|a|ye|ya|ne|na)\s*$/i, '')
+    .replace(/['''‘’`](e|a|ye|ya|ne|na)\s*$/i, '')
     .replace(/\s+(i[çc]in|do[ğg]ru|taraf[iı]na|y[oö]n[uü]ne|kar[şs][iı])\s*$/i, '')
     .trim();
 }

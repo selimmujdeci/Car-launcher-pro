@@ -55,16 +55,29 @@ import {
 } from '../../platform/mapSourceManager';
 import { useVisionStore } from '../../platform/visionStore';
 import {
-  useNavigation, updateNavigationProgress, getSnappedMarkerPosition,
+  CameraFollowState,
+  canDriveCamera,
+  getCameraFollowState,
+  subscribeCameraFollow,
+  setCameraNavActive,
+  notifyUserPanStart,
+  notifyUserPanEnd,
+  beginRecenter,
+  completeRecenter,
+  noteFollowZoom,
+  resetCameraFollow,
+  type RecenterReason,
+} from '../../platform/navigation/cameraFollowAuthority';
+import {
+  useNavigation, getSnappedMarkerPosition,
   getRouteProgressPoint,
-  setNavStatus, NavStatus, activateNavigation, stopNavigation, startNavigation,
-  getNavigationState,
+  setNavStatus, NavStatus, activateNavigation, startNavigation,
+  getNavigationState, claimRouteRequest, releaseRouteRequest, endNavigation,
 } from '../../platform/navigationService';
 import {
   fetchRoute,
   useRouteState,
   getRouteState,
-  updateRouteProgress,
   clearRoute,
   notifyStyleChange,
   selectAltRoute,
@@ -74,6 +87,8 @@ import { useStore } from '../../store/useStore';
 import { showToast } from '../../platform/errorBus';
 import { MapOverlay } from './MapOverlay';
 import { NavigationHUD } from './NavigationHUD';
+import { VehicleClassPrompt } from './VehicleClassPrompt';
+import { acquireFullNavigationOrientation } from '../../platform/navigation/navigationOrientation';
 import { MapHudControls } from './MapHudControls';
 import { MapSearchBar } from './MapSearchBar';
 // VisionOverlay lazy — kamera/AR katmanı yalnızca vision aktifken yüklenir.
@@ -85,6 +100,8 @@ const VisionOverlay = lazy(() =>
 import { useNavMode, setUserVisionPreference } from '../../platform/modeController';
 import { useRadarMapLayer } from '../../hooks/useRadarMapLayer';
 import { useOBDState } from '../../platform/obdService';
+import { useDisplaySpeed } from '../../hooks/useDisplaySpeed';
+import { useUnifiedVehicleStore } from '../../platform/vehicleDataLayer/UnifiedVehicleStore';
 
 interface FullMapViewProps {
   onClose: () => void;
@@ -139,19 +156,21 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
   // Prevents duplicate fetches when location ticks while already routing,
   // and enables GPS-fix-late retry: if location was null at nav start, adding
   // location to the effect deps re-runs the effect once GPS arrives.
-  const lastFetchedRef    = useRef<string | null>(null);
 
   const [isPreview, setIsPreview] = useState(false);
   const [routeStartFlash, setRouteStartFlash] = useState(false);
   const [routeReady, setRouteReady] = useState(false);
   // TEMP DEBUG — rota katmanı haritada gerçekten var mı (teşhis rozeti için, sonra kaldırılacak)
-  const [isFollowing, setIsFollowing] = useState(true);
+  /* Kamera takibi artik KANONIK OTORITEDE (cameraFollowAuthority) yasar; bu ikili
+   * onun AYNASIdir. `isFollowingRef` sicak yolda (rAF/GPS tick) ucuz ref okumasi
+   * olarak KORUNUR — otoriteyi her karede sorgulamak gereksiz maliyet olurdu.
+   * Ayna YALNIZ abonelikten yazilir (asagidaki effect); dogrudan mutasyon YOK. */
+  const [isFollowing, setIsFollowing] = useState(() => canDriveCamera());
   const isFollowingRef  = useRef(true);
   // Kamera/marker dedup çapasını GEÇERSİZ kıl: kullanıcı haritayı gezdirdikten sonra
   // (araç yerinde dursa bile) takip kamerası MUTLAKA geri merkezlemeli; stil yeniden
   // yüklendiğinde marker MUTLAKA yeniden çizilmeli. Dedup bunları yutmasın.
   const redrawDirtyRef  = useRef(true);
-  const autoFollowTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const drivingModeRef  = useRef(false);
   const routeGeometryRef  = useRef<[number, number][] | null>(null);
   // Kat edilen rota kırpma durumu — yalnız segment index / geometri değişince setData
@@ -208,6 +227,16 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
   const gpsLostWarnRef  = useRef(false); // stale closure'dan kaçınmak için
 
   const obdState = useOBDState();
+  // Kütük #417 — ekrana basılan hızın TEK otoritesi (ham GPS/ikinci füzyon motoru DEĞİL).
+  const displaySpeedKmh = useDisplaySpeed();
+  /* Kütük #413 — GÖSTERİLEN doğruluk, KARARLARI BESLEYEN konumdan okunur.
+   * SAHADA ÖLÇÜLEN AYRIŞMA: ekran "GPS Doğruluğu Düşük — ~129 m" derken köprü
+   * aynı dakikada `accuracyM = 2 068 m` okudu. Ekran `onGPSLocation` (gpsService)
+   * akışını, motor (`routingService`/eşleme) ise `UnifiedVehicleStore.location`'ı
+   * kullanıyordu — iki ayrı konum otoritesi. Sürücüye motorun gerçekten güvendiği
+   * değer gösterilir; aksi hâlde "GPS iyi" yazarken kararlar çöp fix'le alınır. */
+  const engineAccuracyM = useUnifiedVehicleStore((s) =>
+    (s.location && Number.isFinite(s.location.accuracy)) ? s.location.accuracy : null);
   // Termal seviye — rAF FPS gate için ref'e yansıtılır (hook re-render'ı nadir: seviye değişiminde)
   const { level: thermalLevel } = useThermalState();
 
@@ -215,6 +244,13 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
   const destinationRef   = useRef<typeof destination>(destination);
   const thermalLevelRef  = useRef(0);
   const mapStyleReadyRef = useRef(false);
+
+  /* ── EKRAN YÖNÜ — YALNIZ TAM EKRAN NAVİGASYON (MOTION_CAMERA_P0) ──────────
+   * Ana CAROS arayüzü YATAY kalır (manifest `sensorLandscape`). Bu görünüm
+   * açıkken kilit dört yöne gevşetilir, kapanınca GERİ ALINIR. Ref-count'ludur:
+   * çift mount'ta kilit erken geri alınmaz. Oturum/rota/ses/ETA etkilenmez —
+   * hepsi görünümden bağımsız runtime'lardadır. */
+  useEffect(() => acquireFullNavigationOrientation(), []);
 
   // ── Ref syncs — re-render tetikleyen state'leri rAF/subscription için ref'e yansıt ──
   // NOT: location/heading BURADA YOK — onGPSLocation aboneliği bunları doğrudan
@@ -367,16 +403,22 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
         }
       }
 
-      // 2b) Rota ilerlemesi — HARİTA STİLİNDEN BAĞIMSIZ (saha fix 2026-06-12).
-      //     Eskiden mapStyleReadyRef kapısının İÇİNDEYDİ: stil bayrağı takılırsa
-      //     adım sayacı/mesafe/ses/kırpma topluca donuyordu (GPS rozeti canlıyken).
-      //     İlerleme hesabı haritaya ihtiyaç duymaz — her geçerli fix'te çalışır.
+      // 2b) Rota KIRPMA — GÖRÜNÜM işi (saha fix 2026-06-12: harita stilinden bağımsız).
+      //
+      //     ⚠️ İLERLEME MOTORU ARTIK BURADA DEĞİL (SESSION CONTINUITY P0).
+      //     `updateRouteProgress` + `updateNavigationProgress` sahipliği
+      //     `navigationSessionRuntime`'a taşındı: motor uygulama ömrü boyunca
+      //     yaşayan tek abonelikten sürülür, bu bileşen unmount olsa da ilerleme
+      //     DURMAZ. Burada yalnız motorun ürettiği ilerleme noktasından rotayı
+      //     kırpmak kalır — bu saf çizim işidir ve görünüm ölünce durması DOĞRUdur.
+      //
+      //     Sıra: runtime aboneliği boot'ta (Wave 3) kurulur, bu abonelik mount'ta
+      //     → store dinleyicileri ekleme sırasıyla çağrılır, yani motor bu bloktan
+      //     ÖNCE koşar ve okuduğumuz ilerleme noktası aynı fix'e aittir. Sıra
+      //     bozulsa bile en kötü ihtimal bir fix'lik (~1 s) görsel gecikmedir.
       if (loc && destinationRef.current) {
         const _navStatusNow = getNavigationState().status;
         if (_navStatusNow === NavStatus.ACTIVE || _navStatusNow === NavStatus.REROUTING) {
-          updateRouteProgress(loc.latitude, loc.longitude);
-          updateNavigationProgress(loc.latitude, loc.longitude, loc.heading ?? 0, routeGeometryRef.current ?? undefined);
-
           // Kat edilen rotayı kırp: snapped noktadan İLERİYE kalan geometri çizilir.
           // Yalnız segment index veya geometri (reroute) değişince setData — Mali-400 dostu.
           const _prog = getRouteProgressPoint();
@@ -536,6 +578,35 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
 
   // wake() referansı — GPS aboneliği ve map event'leri buraya erişir.
   const wakeLoopRef = useRef<(() => void) | null>(null);
+
+  /* ⚠️ KONUM ÖNEMLİ: `requestFollow` bunu kullanan effect'lerden ÖNCE tanımlanır.
+   * Bağımlılık dizileri RENDER sırasında değerlendirilir; tanım aşağıda kalsaydı
+   * `requestFollow`u deps'e eklemek TDZ (ReferenceError) üretirdi ve bu yüzden
+   * eksik-bağımlılık uyarısı "çözülemez" görünürdü. Tanım yukarı alınınca deps
+   * dürüstçe tam yazılabiliyor. */
+  /* Takibi otoriteden iste — kamerayı da uygular. Görünüm ARTIK kendi bayrağını
+   * yazmaz; tek yol burasıdır. */
+  const requestFollow = useCallback((reason: RecenterReason) => {
+    beginRecenter(reason);
+    const loc  = locationRef.current;
+    const bear = headingRef.current ?? 0;
+    const h    = containerRef.current?.offsetHeight ?? 600;
+    const isNav = navStatusRef.current === NavStatus.ACTIVE ||
+                  navStatusRef.current === NavStatus.REROUTING;
+    if (mapRef.current && loc) {
+      if (drivingModeRef.current || isNav) {
+        enterNavigationView(mapRef.current, loc.latitude, loc.longitude, bear, h);
+      } else {
+        setMapCenter(mapRef.current, [loc.longitude, loc.latitude], 15, true);
+      }
+      try { noteFollowZoom(mapRef.current.getZoom()); } catch { /* stil geçişi */ }
+    }
+    lastDrivingPosRef.current = null;
+    redrawDirtyRef.current    = true;
+    wakeLoopRef.current?.();
+    completeRecenter();
+  }, []);
+
 
   useEffect(() => {
     const el = outerDivRef.current;
@@ -713,7 +784,6 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
     let lastCameraUpdate    = 0;
     let lastMarkerUpdate    = 0;
     let lastThermalFrameTs  = 0; // termal FPS gate — son ağır-iş frame zamanı
-    let lastDrProgressMs    = 0; // tünel DR → ilerleme hattı beslemesi (1 Hz)
 
     const tick = (now: number) => {
       // ── Idle kontrolü: boştaysa döngüyü durdur ───────────────────────────
@@ -797,21 +867,15 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
         const isPerfLow = isPerfLowCached;
         const drInterval = isPerfLow ? 500 : 16;
 
-        // ── Tünel sürekliliği (2026-07-05 nav denetimi P1) ─────────────────
-        // İlerleme hattı yalnız GPS aboneliğinden besleniyordu → GPS kesilince
-        // adım sayacı + kademeli sesli anons + mesafe/ETA topluca donuyordu
-        // (marker DR ile ilerlerken). DR konumu 1 Hz ile aynı hatta beslenir.
-        // allowReroute:false — DR projeksiyonu virajda rotadan sapar; sahte
-        // reroute internet yokken gerçek rotayı düz-çizgiyle değiştirirdi.
-        const _navActiveDr = navStatusRef.current === NavStatus.ACTIVE ||
-                             navStatusRef.current === NavStatus.REROUTING;
-        if (_navActiveDr && obdKmh >= 1 && now - lastDrProgressMs > 1_000) {
-          lastDrProgressMs = now;
-          const { lat: pLat, lng: pLng } = projectDeadReckon(lastKnown, obdKmh, now);
-          updateRouteProgress(pLat, pLng, { allowReroute: false });
-          updateNavigationProgress(pLat, pLng, lastKnown.heading, routeGeometryRef.current ?? undefined);
-        }
-
+        /* ── TÜNEL SÜREKLİLİĞİ ARTIK BURADA DEĞİL (NAVIGATION_DELIVERY_CORE_P0)
+         * DR ilerleme beslemesi bu RAF döngüsündeydi; `FullMapView` unmount
+         * olunca (mini haritaya dönüş) tünelde **mesafe · ETA · adım sayacı ·
+         * sesli anons** topluca DONUYORDU. Besleme
+         * `navigationSessionRuntime`in kendi 1 Hz zamanlayıcısına taşındı
+         * (aynı eşikler, aynı `allowReroute:false` sözleşmesi).
+         *
+         * Bu döngü DR'yi yalnız ÇİZMEK için kullanmaya devam eder (marker +
+         * kamera). Çizim ilerleme ÜRETMEZ → çift ilerleme imkânsızdır. */
         // KÖK NEDEN FIX (2026-07-04): kare-başı isStyleLoaded() kapısı kaldırıldı —
         // tile yüklenirken/setData sonrası false döner, DR kamera takibini yutuyordu.
         if (!userInteractingRef.current && mapRef.current && (now - lastCameraUpdate > drInterval)) {
@@ -864,7 +928,14 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
                            navStatusRef.current === NavStatus.REROUTING;
       if (_navActiveWd && now - lastCameraUpdate > 8_000) {
         userInteractingRef.current = false;
-        if (!isFollowingRef.current) { isFollowingRef.current = true; setIsFollowing(true); }
+        /* Takılı bayrak kurtarması — AMA kullanıcı ŞU AN haritayı sürüklüyorsa
+         * (USER_PANNING) kamera ASLA geri alınmaz: görev kuralı "kullanıcı hâlâ
+         * haritayı incelerken camera geri alınmasın". Yalnız FOLLOWING'e takılı
+         * kalmış bir sapma düzeltilir. */
+        if (getCameraFollowState() !== CameraFollowState.USER_PANNING && !canDriveCamera()) {
+          beginRecenter('AUTO_TIMEOUT');
+          completeRecenter();
+        }
         lastCameraUpdate = now - 1_000; // kamera yolu bir sonraki tick'te hemen çalışsın
       }
 
@@ -911,15 +982,20 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
         //
         // DEDUP (2026-07-11): updateUserMarker KOŞULSUZ `source.setData()` çağırır →
         // her çağrı bir MapLibre repaint'idir. Konum/heading/hız GERÇEKTEN değişmediyse
-        // çağırma. Park hâlinde (hız < 1.5 km/h, nav/sürüş yok) fix'in doğruluk yarıçapı
+        // çağırma. Park hâlinde (hız < 1.5 km/h) fix'in doğruluk yarıçapı
         // altındaki kayma GPS gürültüsüdür — marker sabit tutulur.
-        const _navOrDriving =
-          drivingModeRef.current ||
-          navStatusRef.current === NavStatus.ACTIVE ||
-          navStatusRef.current === NavStatus.REROUTING ||
-          navStatusRef.current === NavStatus.PREVIEW ||
-          navStatusRef.current === NavStatus.ROUTING;
-        const _stationary = !_navOrDriving && speedKmh < STANDSTILL_KMH;
+        /* ⚠️ "DURGUN" TANIMI NAVİGASYONLA EZİLİYORDU — ısınmanın ikinci ölçülen
+         * kaynağı (2026-08-03). Koşul `!_navOrDriving && hız < 1.5` idi: yani
+         * navigasyon AÇIKSA araç park hâlinde olsa bile "durgun" SAYILMIYOR,
+         * eşikler 0.3 m / 0.5°'ye düşüyordu. GPS gürültüsü (doğruluk ±1.8 m,
+         * heading fix başına ~3° kayıyor) bu eşikleri HER TİKTE aşıyor →
+         * `updateUserMarker` sürekli çağrılıyor → her `setData` haritayı baştan
+         * çizdiriyor. CİHAZ ÖLÇÜMÜ: park hâlinde `setData:user-location`
+         * **20 sn'de 72 kez** (3.6/sn).
+         * Durgunluk aracın hâlidir, navigasyonun değil: park etmiş araç
+         * navigasyon açıkken de park hâlindedir. Gerçek hareket başlayınca
+         * (hız ≥ 1.5 km/h) eşikler zaten hassas moda döner. */
+        const _stationary = speedKmh < STANDSTILL_KMH;
         const _accM       = locationRef.current?.accuracy ?? 0;
         const _moveThreshM = _stationary
           ? Math.max(STANDSTILL_HOLD_M, Number.isFinite(_accM) ? _accM : 0)
@@ -973,21 +1049,57 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
             // Kamera DEDUP: girdiler (konum/heading/hız/dönüş mesafesi) değişmediyse
             // kamerayı yeniden hesaplama — setDrivingView her çağrıda MapLibre'yi
             // yeniden çizdirir. Değişiklik yoksa görüntü zaten doğrudur.
+            /* Durakta kamera yönü için ROTANIN İLERİ YÖNÜ: araçtan bir sonraki
+               manevra noktasına bakan açı. Durakta GPS heading'i gürültüdür ve
+               dondurulmuş eski değer haritayı ters çevirir ("geri geri mi
+               gideceğim"). Rota geometrisi titremez → sabit VE doğru. */
+            /* ⚠️ SAHA KUSURU — KAMERA TAM TERSE BAKIYORDU (cihazda ölçüldü 2026-08-03):
+               burada `steps[currentStepIndex]` kullanılıyordu. `RouteStep.coordinate`
+               ADIM BAŞLANGICIDIR (routingService.ts:29) — yani sürücünün ÜZERİNDE
+               olduğu adımın girişi, aracın ARKASI. Ölçüm: harita bearing = −30.84°
+               (=329.2°) ve bu değer `bearingToFirstRoutePoint` ile BİREBİR aynıydı;
+               rotanın ileri yönü ise 148.6° idi → **179° ters**. Kullanıcı bunu
+               "geri geri mi gideceğim" diye bildirdi.
+               DOĞRUSU bir SONRAKİ manevradır (`currentStepIndex + 1`) — bu zaten
+               projenin tek otoritesidir: `distanceToNextTurnMeters` ve yukarıdaki
+               `_nextTurnBearing` de aynı indeksi kullanır. Paralel bir "ileri yön"
+               otoritesi KURULMAZ. */
+            let _routeBearing: number | undefined;
+            if (_rs.steps.length > _ni) {
+              const _st = _rs.steps[_ni];
+              if (_st?.coordinate) {
+                const [_sLon, _sLat] = _st.coordinate;
+                if (distM(displayLat, displayLng, _sLat, _sLon) > 8) {
+                  _routeBearing = bearingBetween(displayLat, displayLng, _sLat, _sLon);
+                }
+              }
+            }
+
             const _camMovedM = Number.isNaN(sentCamLat)
               ? Infinity
               : distM(sentCamLat, sentCamLng, displayLat, displayLng);
             const _camBearD  = Number.isNaN(sentCamBear) ? Infinity : bearDelta(sentCamBear, bear);
             const _camSpeedD = Number.isNaN(sentCamSpeed) ? Infinity : Math.abs(speedKmh - sentCamSpeed);
             const _turnKey   = turnDist ?? -1;
+            /* Rota yönü ile harita yönü ayrıştıysa kamera GÜNCELLENMELİ.
+               Yoksa durakta hiçbir girdi değişmediği için `setDrivingView` hiç
+               çağrılmaz ve harita rotanın tersine bakmaya devam eder
+               (cihazda 140.6° sapma ölçüldü). */
+            const _mapBear = mapRef.current.getBearing();
+            const _routeBearOff = _routeBearing != null
+              ? Math.abs(((((_routeBearing - _mapBear) % 360) + 540) % 360) - 180)
+              : 0;
+
             const _camChanged =
               _camMovedM >= CAM_EPS_M ||
               _camBearD  >= CAM_EPS_BEAR ||
               _camSpeedD >= MARKER_EPS_SPEED ||
-              _turnKey !== sentCamTurn;
+              _turnKey !== sentCamTurn ||
+              _routeBearOff > 15;
 
             if (_camChanged) {
               // Kamera snapped pozisyonu takip eder → GPS zıplamalarını sürücüye hissettirmez
-              setDrivingView(mapRef.current, displayLat, displayLng, bear, speedKmh, h, turnDist, obdSpeedRef.current, _nextTurnBearing);
+              setDrivingView(mapRef.current, displayLat, displayLng, bear, speedKmh, h, turnDist, obdSpeedRef.current, _nextTurnBearing, _routeBearing);
               sentCamLat   = displayLat;
               sentCamLng   = displayLng;
               sentCamBear  = bear;
@@ -1159,56 +1271,83 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
         latitude: lat,
         longitude: lng,
         type: 'history',
-      });
+      }, false, 'USER_MAP');   // kütük #429: haritada uzun basış
     };
     map.on('contextmenu', onLongPress);
     return () => { map.off('contextmenu', onLongPress); };
   }, [mapStatus]);
 
-  // Kullanıcı haritayı sürüklediğinde takibi durdur — 10 saniye sonra otomatik yeniden başlat
+  /* Kullanıcı pan'ı → KANONİK OTORİTE.
+   *
+   * Eskiden takip bayrağı ve otomatik dönüş zamanlayıcısı BU BİLEŞENDE yaşıyordu;
+   * mini haritanın bundan haberi yoktu. Artık yalnız BİLDİRİM yapılır:
+   * `notifyUserPanStart` / `notifyUserPanEnd`. Otomatik dönüş gecikmesi
+   * (navigasyonda 3 sn / dışında 10 sn) otoriteye TAŞINDI — sayılar aynı,
+   * sözleşme değişmedi. Kamerayı gerçekten hareket ettiren kod burada kalır. */
   useEffect(() => {
     if (mapStatus !== 'READY' || !mapRef.current) return;
     const map = mapRef.current;
-    const scheduleAutoFollow = () => {
-      if (autoFollowTimerRef.current) clearTimeout(autoFollowTimerRef.current);
-      const isNav = navStatusRef.current === NavStatus.ACTIVE || navStatusRef.current === NavStatus.REROUTING;
-      autoFollowTimerRef.current = setTimeout(() => {
-        if (!mountedRef.current) return;
-        isFollowingRef.current = true;
-        setIsFollowing(true);
-        // Takip yeniden başladığında döngüyü uyandır
-        wakeLoopRef.current?.();
-        const loc  = locationRef.current;
-        const bear = headingRef.current ?? 0;
-        const h    = containerRef.current?.offsetHeight ?? 600;
-        // enterNavigationView kamera-tek işlemdir; isStyleLoaded kapısı tile
-        // yüklenirken auto-follow dönüşünü sessizce yutuyordu (KÖK NEDEN ailesi).
-        if (mapRef.current && loc) {
-          if (drivingModeRef.current || isNav) {
-            enterNavigationView(mapRef.current, loc.latitude, loc.longitude, bear, h);
-          }
-        }
-      }, isNav ? 3_000 : 10_000);
-    };
-    const onDrag = () => {
-      if (isFollowingRef.current) {
-        isFollowingRef.current = false;
-        setIsFollowing(false);
+
+    const applyRecenter = () => {
+      if (!mountedRef.current) return;
+      wakeLoopRef.current?.();                 // takip dönünce döngüyü uyandır
+      const loc  = locationRef.current;
+      const bear = headingRef.current ?? 0;
+      const h    = containerRef.current?.offsetHeight ?? 600;
+      const isNav = navStatusRef.current === NavStatus.ACTIVE ||
+                    navStatusRef.current === NavStatus.REROUTING;
+      // enterNavigationView kamera-tek işlemdir; isStyleLoaded kapısı tile
+      // yüklenirken auto-follow dönüşünü sessizce yutuyordu (KÖK NEDEN ailesi).
+      if (mapRef.current && loc && (drivingModeRef.current || isNav)) {
+        enterNavigationView(mapRef.current, loc.latitude, loc.longitude, bear, h);
       }
-      scheduleAutoFollow();
+      try { noteFollowZoom(mapRef.current?.getZoom() ?? null); } catch { /* stil geçişi */ }
     };
-    map.on('dragstart', onDrag);
+
+    const onPanStart = () => notifyUserPanStart();
+    const onPanEnd   = () => notifyUserPanEnd(applyRecenter);
+
+    map.on('dragstart',   onPanStart);
+    map.on('zoomstart',   onPanStart);
+    map.on('rotatestart', onPanStart);
+    map.on('pitchstart',  onPanStart);
+    map.on('dragend',     onPanEnd);
+    map.on('zoomend',     onPanEnd);
+    map.on('rotateend',   onPanEnd);
+    map.on('pitchend',    onPanEnd);
     return () => {
-      map.off('dragstart', onDrag);
-      if (autoFollowTimerRef.current) clearTimeout(autoFollowTimerRef.current);
+      map.off('dragstart',   onPanStart);
+      map.off('zoomstart',   onPanStart);
+      map.off('rotatestart', onPanStart);
+      map.off('pitchstart',  onPanStart);
+      map.off('dragend',     onPanEnd);
+      map.off('zoomend',     onPanEnd);
+      map.off('rotateend',   onPanEnd);
+      map.off('pitchend',    onPanEnd);
     };
   }, [mapStatus]);
+
+  /* Otorite → yerel ayna. Sıcak yol (rAF/GPS tick) `isFollowingRef`i okur;
+   * her karede modül çağırmak gereksiz maliyet olurdu. */
+  useEffect(() => {
+    const sync = () => {
+      const ok = canDriveCamera();
+      isFollowingRef.current = ok;
+      setIsFollowing(ok);
+    };
+    sync();
+    return subscribeCameraFollow(sync);
+  }, []);
+
+  /* Navigasyon aktifliğini otoriteye bildir — otomatik dönüş gecikmesini seçer. */
+  useEffect(() => {
+    setCameraNavActive(navStatus === NavStatus.ACTIVE || navStatus === NavStatus.REROUTING);
+  }, [navStatus]);
 
   // Sürüş modu açılınca takibi yeniden başlat + haritayı hemen 3D nav görünümüne al
   useEffect(() => {
     if (drivingMode) {
-      isFollowingRef.current   = true;
-      setIsFollowing(true);
+      requestFollow('NAV_START');
       lastDrivingPosRef.current = null; // throttle sıfırla → sonraki GPS tick'inde kesinlikle setDrivingView çalışır
       redrawDirtyRef.current = true;    // dedup çapasını da sıfırla → kamera/marker kesinlikle yeniden çizilsin
       const loc  = locationRef.current;
@@ -1218,7 +1357,7 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
         enterNavigationView(mapRef.current, loc.latitude, loc.longitude, bear, h);
       }
     }
-  }, [drivingMode]);
+  }, [drivingMode, requestFollow]);
 
   // WebGL kontrolü — eski head unit'lerde harita açılamaz
   const webglSupported = isWebGLAvailable();
@@ -1390,9 +1529,10 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
   // Fetch route when navigation starts, destination changes, or GPS fix arrives after nav start.
   // location is in deps so that if GPS was unavailable at nav-start the effect retries
   // automatically on first fix — eliminating the "nav stuck with no route" deadlock.
-  // lastFetchedRef dedups the fetch so normal GPS ticks (location changing every second
-  // while driving) don't re-trigger it; mid-route rerouting is handled exclusively by
-  // routingService._triggerReroute via updateRouteProgress.
+  // claimRouteRequest (oturum otoritesi) dedups the fetch so normal GPS ticks (location
+  // changing every second while driving) don't re-trigger it — and, unlike the old
+  // component ref, it survives fullscreen close/reopen; mid-route rerouting is handled
+  // exclusively by routingService._triggerReroute via updateRouteProgress.
   useEffect(() => {
     if (isNavigating && destination) {
       const loc = locationRef.current;
@@ -1409,8 +1549,11 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
       if (loc.accuracy >= 1000) {
         pushDebug('ROUTE_LOWACC_GPS', { accuracy: loc.accuracy });
       }
-      if (lastFetchedRef.current === destination.id) return;
-      lastFetchedRef.current = destination.id;
+      // Oturum sahipliği (SESSION CONTINUITY P0): aynı oturumda aynı hedef için
+      // İKİNCİ istek atılmaz. Dedup artık bileşen ref'inde DEĞİL — ref unmount'ta
+      // ölüyordu, dolayısıyla tam ekran her yeniden açıldığında AKTİF oturum için
+      // yeni bir fetchRoute atılıyor ve durum ACTIVE→ROUTING'e düşüyordu.
+      if (!claimRouteRequest(destination.id)) return;
       setNavStatus(NavStatus.ROUTING);
       setRouteReady(false);
       logInfo('[ROUTE_REQUEST]', {
@@ -1421,7 +1564,8 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
       fetchRoute(loc.latitude, loc.longitude, destination.latitude, destination.longitude);
       setIsPreview(true);
     } else if (!isNavigating) {
-      lastFetchedRef.current = null;
+      // Oturum yok (IDLE/ERROR) → sahiplik oturum otoritesinde zaten düşmüştür
+      // (stopNavigation). Burada yalnız GÖRÜNÜM artıkları temizlenir.
       lastAppliedRef.current = null; // dedup sıfırla — aynı rota tekrar çizilsin
       setIsPreview(false);
       setRouteReady(false);
@@ -1438,8 +1582,8 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
       const failed = route.error && !route.geometry; // error + no geometry = true failure
       if (failed) {
         setNavStatus(NavStatus.ERROR, 'Rota oluşturulamadı');
-        // H2: dedup'ı sıfırla — sonraki GPS tick'inde (ağ/GPS düzelince) otomatik yeniden dene.
-        lastFetchedRef.current = null;
+        // H2: sahipliği bırak — sonraki GPS tick'inde (ağ/GPS düzelince) otomatik yeniden dene.
+        releaseRouteRequest();
       } else if (!route.loading) {
         setNavStatus(NavStatus.PREVIEW);
       }
@@ -1456,26 +1600,24 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
   // PREVIEW: rota hazır → haritayı takip moduna al (kullanıcı sürüklemiş olsa bile)
   useEffect(() => {
     if (navStatus !== NavStatus.PREVIEW) return;
-    isFollowingRef.current = true;
-    setIsFollowing(true);
+    requestFollow('NAV_START');
     lastDrivingPosRef.current = null; // throttle sıfırla → hemen setDrivingView çalışır
     redrawDirtyRef.current = true;    // dedup çapasını da sıfırla → kamera/marker kesinlikle yeniden çizilsin
-  }, [navStatus]);
+  }, [navStatus, requestFollow]);
 
   // ACTIVE/REROUTING: sürüş modunu garantile + haritayı 3D nav görünümüne al
   // handleNavStart bunu zaten çağırır; bu effect rerouting & edge case'leri kapatır
   useEffect(() => {
     if (navStatus !== NavStatus.ACTIVE && navStatus !== NavStatus.REROUTING) return;
     setDrivingMode(true);
-    isFollowingRef.current = true;
-    setIsFollowing(true);
+    requestFollow('NAV_START');
     const loc  = locationRef.current;
     const bear = headingRef.current ?? 0;
     const h    = containerRef.current?.offsetHeight ?? 600;
     if (mapRef.current && loc) {
       enterNavigationView(mapRef.current, loc.latitude, loc.longitude, bear, h);
     }
-  }, [navStatus]);  
+  }, [navStatus, requestFollow]);  
 
   // D: Detect fetch failure — loading stopped but no geometry (e.g. _waitForStyleReady deadlock released)
   // Guard: navStatus === ROUTING means we are mid-fetch (fetchRoute sets loading:true synchronously,
@@ -1722,17 +1864,20 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
   const handleNavStart  = useCallback(() => {
     activateNavigation();
     setDrivingMode(true);
-    isFollowingRef.current = true;
-    setIsFollowing(true);
+    requestFollow('NAV_START');
     const loc  = locationRef.current;
     const bear = headingRef.current ?? 0;
     const h    = containerRef.current?.offsetHeight ?? 600;
     if (mapRef.current && loc) {
       enterNavigationView(mapRef.current, loc.latitude, loc.longitude, bear, h);
     }
-  }, []);
+  }, [requestFollow]);
+  /* Açık "Navigasyonu sonlandır" eylemi — oturumu GERÇEKTEN bitiren tek yol.
+   * Tam ekranı kapatmak (MapHudControls X / donanım geri) bu yolu ÇAĞIRMAZ;
+   * o yalnız `onClose` ile görünümü kapatır ve oturum yaşamaya devam eder. */
   const handleNavCancel = useCallback(() => {
-    stopNavigation();
+    endNavigation();               // stopNavigation + clearRoute (tek giriş noktası)
+    resetCameraFollow('NAV_END');  // kamera sahipliği temiz kapanır (bekleyen dönüş iptal)
     setIsPreview(false);
     setDrivingMode(false);
     setRouteReady(false);
@@ -1741,7 +1886,6 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
       clearRouteGeometry(mapRef.current);
       exitDrivingView(mapRef.current);
     }
-    clearRoute();
     routeGeometryRef.current = null;
     routeAltRef.current      = [];
     routeAltIdxRef.current   = [];
@@ -1750,20 +1894,11 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
   const handleZoomIn = () => mapRef.current?.zoomIn();
   const handleZoomOut = () => mapRef.current?.zoomOut();
 
+  /* "Ortala" — TEK DOKUNUŞ. Mini harita ile BİREBİR aynı yol (aynı otorite,
+   * aynı zoom politikası): iki ekran farklı mantık kullanmaz. */
   const handleRecenter = useCallback(() => {
-    if (autoFollowTimerRef.current) { clearTimeout(autoFollowTimerRef.current); autoFollowTimerRef.current = null; }
-    isFollowingRef.current = true;
-    setIsFollowing(true);
-    if (mapRef.current && location) {
-      if (drivingMode) {
-        const bear = headingRef.current ?? 0;
-        const h = containerRef.current?.offsetHeight ?? 600;
-        enterNavigationView(mapRef.current, location.latitude, location.longitude, bear, h);
-      } else {
-        setMapCenter(mapRef.current, [location.longitude, location.latitude], 15, true);
-      }
-    }
-  }, [location, drivingMode]);
+    requestFollow('USER_BUTTON');
+  }, [requestFollow]);
 
   const handleToggleDrivingMode = () => {
     const nextMode = !drivingMode;
@@ -1896,9 +2031,9 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
             >
               {isValidGPS ? 'GPS' : 'GPS Zayıf'}
             </span>
-            {isValidGPS && location?.accuracy != null && (
+            {isValidGPS && engineAccuracyM != null && (
               <span className="text-[8px] font-semibold" style={{ color: 'rgba(255,255,255,0.4)' }}>
-                ±{Math.round(location.accuracy)}m
+                ±{Math.round(engineAccuracyM)}m
               </span>
             )}
           </div>
@@ -1969,10 +2104,11 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
 
       {/* Map overlays (pointer-events layer on top of map) */}
       <div className="absolute inset-0 pointer-events-none">
+        {/* Kütük #417: hız ham GPS'ten DEĞİL, tek gösterim otoritesinden gelir. */}
         <MapOverlay
           location={location}
           heading={heading}
-          speedKmh={location?.speed != null ? location.speed * 3.6 : undefined}
+          speedKmh={displaySpeedKmh}
         />
       </div>
 
@@ -2064,6 +2200,12 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
         onSetMapMode={setMapMode}
         showControls={showControls}
       />
+
+      {/* ── Ruhsat sınıfı sorusu — MODAL DEĞİL, yalnız araç DURURKEN ────────
+       *  Uygulanabilir hız sınırı aracın yasal sınıfını bilmeyi gerektirir.
+       *  Kapısı `shouldPromptVehicleClass`tadır: hareket hâlinde, kimlik yokken
+       *  veya cevap zaten varken HİÇ çizilmez. */}
+      <VehicleClassPrompt />
 
     </div>
   );

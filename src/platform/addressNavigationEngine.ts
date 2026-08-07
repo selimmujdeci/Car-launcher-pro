@@ -39,6 +39,88 @@ function _dice(a: string, b: string): number {
   return (2 * ix) / (ta.size + tb.size);
 }
 
+/* ── Yerel (cihaz-içi) arama — ONLINE sonuç yokken de kullanılır ────────────
+ *
+ * SAHA KUSURU (2026-08-03, kullanıcı: "Mersin Hemşirenin Park Piknik Yeri'ni
+ * bulamıyor, birçok yer böyle"): motor ONLINE iken YALNIZ Nominatim serbest
+ * metin aramasına bakıyordu. Nominatim Türkçe POI adlarında sık başarısız olur;
+ * 0 sonuç dönünce motor doğrudan "bulunamadı" diyordu — oysa cihazda ZATEN
+ * indirilmiş POI veritabanı, navigasyon geçmişi ve geocode önbelleği vardı ve
+ * bunlara SADECE internet YOKKEN bakılıyordu. Yani internet varken ürün kendi
+ * verisini görmezden geliyordu (harita arama çubuğu `searchPlaces` ile bunları
+ * kullanıyordu → aynı yer bir ekranda bulunup diğerinde bulunamıyordu).
+ *
+ * Burada YENİ bir arama otoritesi KURULMAZ: çevrimdışı dalın kullandığı ÜÇ
+ * kaynağın aynısı, aynı eşiklerle çağrılır. */
+async function _localSearch(destination: string): Promise<GeoResult[]> {
+  const [offlineHits, poiHits] = await Promise.all([
+    searchOffline(destination, 3).catch(() => []),
+    searchOfflinePlaces(destination, 5).catch(() => []),
+  ]);
+
+  const out: GeoResult[] = [];
+
+  // 1. Navigasyon geçmişi — çevrimdışı dalla AYNI 0.55 güven eşiği
+  for (const h of offlineHits) {
+    if (h.score < 0.55) continue;
+    out.push({
+      id: h.location.id, name: h.location.name,
+      fullName: h.location.address ?? h.location.name,
+      lat: h.location.lat, lng: h.location.lng, type: 'address',
+      source: 'offline',
+    });
+  }
+
+  // 2. İndirilmiş Türkiye POI veritabanı
+  for (const p of poiHits) {
+    out.push({
+      id: p.id, name: p.name, fullName: p.name,
+      lat: p.lat, lng: p.lon, type: 'address', source: 'offline',
+    });
+  }
+
+  // 3. Daha önce online bulunmuş sonuçların önbelleği
+  out.push(..._searchGeoCache(destination));
+
+  // Aynı yer birden çok kaynaktan gelebilir — koordinata göre tekille (~11 m).
+  const seen = new Set<string>();
+  return out.filter((r) => {
+    const k = `${r.lat.toFixed(4)},${r.lng.toFixed(4)}`;
+    if (seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
+}
+
+/* ── Şehir önerileri — UYDURMA yapmadan ─────────────────────────────────────
+ * Eski hâli sorguya körlemesine `, Mersin` `, İstanbul` `, Ankara` ekliyordu.
+ * Sorgu ZATEN "Mersin ..." ile başlıyorsa üretilen öneri "Mersin ..., Mersin"
+ * oluyordu — kullanıcıya sunulan üç seçenekten biri anlamsız, üçü de
+ * doğrulanmamış. Sorguda geçen şehir tekrar EKLENMEZ. */
+const _SUGGEST_CITIES = ['Mersin', 'İstanbul', 'Ankara', 'İzmir'] as const;
+
+function _citySuggestions(destination: string): string[] {
+  const q = _norm(destination);
+  return _SUGGEST_CITIES
+    .filter((c) => !q.includes(_norm(c)))
+    .slice(0, 3)
+    .map((c) => `${destination}, ${c}`);
+}
+
+/** "Bulunamadı" hata kartını basar ve 6 sn sonra idle'a döner. */
+function _failNoResult(gen: number, destination: string, isNearby: boolean): void {
+  _push({
+    phase:        'error',
+    errorMessage: `"${_state.query}" için sonuç bulunamadı`,
+    suggestions:  isNearby ? [] : _citySuggestions(destination),
+  });
+  if (_activeTimerId !== null) { clearTimeout(_activeTimerId); _activeTimerId = null; }
+  _activeTimerId = setTimeout(() => {
+    _activeTimerId = null;
+    if (gen === _searchGeneration) _push({ phase: 'idle' });
+  }, 6_000);
+}
+
 function _saveGeoCache(query: string, results: GeoResult[]): void {
   if (!results.length) return;
   try {
@@ -127,7 +209,7 @@ function _confirmResult(result: GeoResult): void {
     latitude:  result.lat,
     longitude: result.lng,
     type:      'history',
-  });
+  }, false, 'USER_VOICE');   // kütük #429: sesli/adres onayı kullanıcı iradesidir
 
   // Offline arama veritabanına kaydet — gelecek offline sorguları için
   saveSearchQuery(_state.query, {
@@ -283,30 +365,46 @@ export function resolveAndNavigate(
       if (!isNearby && results.length) _saveGeoCache(destination, results);
 
       if (!results.length) {
-        _push({
-          phase:        'error',
-          errorMessage: `"${_state.query}" için sonuç bulunamadı`,
-          suggestions:  isNearby ? [] : [
-            `${destination}, Mersin`,
-            `${destination}, İstanbul`,
-            `${destination}, Ankara`,
-          ],
+        // Online arama boş döndü → PES ETMEDEN ÖNCE cihazdaki veriye bak.
+        // (Nominatim Türkçe POI adlarında sık başarısız olur; POI DB + geçmiş +
+        //  önbellek bu boşluğu doldurur — bkz. _localSearch.)
+        if (isNearby) { _failNoResult(gen, destination, true); onResult?.('empty'); return; }
+        void _localSearch(destination).then((localHits) => {
+          if (gen !== _searchGeneration) return;
+          if (!localHits.length) { _failNoResult(gen, destination, false); onResult?.('empty'); return; }
+          if (localHits.length === 1) {
+            _push({ results: localHits });
+            _confirmResult(localHits[0]);
+            onResult?.('confirmed');
+          } else {
+            _push({ phase: 'selecting', results: localHits });
+            onResult?.('multiple');
+          }
+        }).catch(() => {
+          if (gen !== _searchGeneration) return;
+          _failNoResult(gen, destination, false);
+          onResult?.('empty');
         });
-        // Hata kartı 6 saniye sonra kapanır
-        if (_activeTimerId !== null) { clearTimeout(_activeTimerId); _activeTimerId = null; }
-        _activeTimerId = setTimeout(() => {
-          _activeTimerId = null;
-          if (gen === _searchGeneration) _push({ phase: 'idle' });
-        }, 6_000);
-        onResult?.('empty');
         return;
       }
 
-      if (results.length === 1) {
+      if (results.length === 1 && !results[0].relaxed) {
         // Tek sonuç: direkt rota
         _push({ results });
         _confirmResult(results[0]);
         onResult?.('confirmed');
+        return;
+      }
+
+      /* GEVŞETİLMİŞ sonuç ASLA otomatik rotaya çevrilmez.
+         Sonuç kullanıcının SÖYLEDİĞİ sorguyla değil, kısaltılmış bir
+         varyantıyla bulunmuştur (bkz. geocodingService.relaxQueryVariants) →
+         doğru yer olduğu KANITLANMIŞ değildir. Tek aday olsa bile onay
+         listesi gösterilir: yanlış yere sessizce götürmek, bulamamaktan
+         daha kötüdür. */
+      if (results.length === 1) {
+        _push({ phase: 'selecting', results });
+        onResult?.('multiple');
         return;
       }
 

@@ -1,11 +1,12 @@
 import { memo, useState, useCallback } from 'react';
 import {
   X, ZoomIn, ZoomOut, Crosshair, Map, Layers, Globe, Navigation2, Camera, CameraOff,
-  AlertTriangle, Construction, Car, CircleAlert,
+  AlertTriangle, Construction, Car, CircleAlert, Minimize2,
 } from 'lucide-react';
 import type { MapMode } from '../../platform/mapSourceManager';
 import { addEvent } from '../../platform/communityService';
 import type { CommunityEventType } from '../../store/useCommunityStore';
+import { useDenseHud } from '../../hooks/useDenseHud';
 
 /* ── Manuel rapor seçenekleri ────────────────────────────────────────────── */
 
@@ -71,6 +72,9 @@ export const MapHudControls = memo(function MapHudControls({
   onSetMapMode,
   showControls,
 }: MapHudControlsProps) {
+  /* Dar ekran (telefon yatayı) yerleşimi — eşik TEK KAYNAKTAN gelir. */
+  const dense = useDenseHud();
+
   const [reportOpen, setReportOpen] = useState(false);
 
   const handleReport = useCallback((type: CommunityEventType) => {
@@ -81,9 +85,48 @@ export const MapHudControls = memo(function MapHudControls({
 
   return (
     <>
+      {/* ── NAVİGASYONDAYKEN: ANA EKRANA DÖN (görünüm kapatır, oturumu BİTİRMEZ) ──
+       *
+       * SAHA 2026-08-04 (NAV-MINIMAP-CONT-P0, cihaz 4L45OFZDX84X55GE): navigasyon
+       * aktifken tam ekranı kapatan HİÇBİR düğme yoktu (aşağıdaki KAPAT
+       * `!isNavigating` ile gizleniyor). Geriye iki çıkış kalıyordu: donanım geri
+       * tuşu veya NavInfoBar'daki kırmızı SONLANDIR. Uygulama bir LAUNCHER ve
+       * hedef donanım (K24 / T507 head unit) çoğu zaman donanım geri tuşu
+       * TAŞIMAZ → kullanıcı ana ekrana dönmek için navigasyonu BİTİRMEK zorunda
+       * kalıyordu. Bu, tam olarak bu görevin kapattığı arızanın kendisiydi.
+       *
+       * Bu düğme yalnız GÖRÜNÜMÜ kapatır: `onClose` → `setFullMapOpen(false)`.
+       * Oturum yaşamaya devam eder ve mini haritada sürer. SONLANDIR'dan
+       * bilinçli olarak AYRIŞTIRILDI: farklı konum (sol üst ≠ sağ alt), nötr
+       * renk (kırmızı DEĞİL) ve farklı ikon → sürüşte yanlış dokunma riski
+       * azalır. */}
+      {isNavigating && (
+        <button
+          onClick={onClose}
+          aria-label="Ana ekrana dön — navigasyon sürer"
+          title="Ana ekrana dön (navigasyon sürer)"
+          className="flex items-center gap-2 rounded-2xl active:scale-90 transition-all hover:brightness-110"
+          style={{
+            position: 'fixed',
+            top: 'calc(var(--sat) + 16px)', right: 'calc(var(--sar) + 16px)',
+            zIndex: 9999,
+            padding: '10px 16px',
+            background: 'rgba(15,23,42,0.72)',
+            backdropFilter: 'blur(20px)',
+            border: '1.5px solid rgba(255,255,255,0.22)',
+            color: '#e2e8f0', fontWeight: 800, fontSize: 12,
+            letterSpacing: '0.08em', cursor: 'pointer',
+            boxShadow: '0 8px 28px rgba(0,0,0,0.45)',
+          }}
+        >
+          <Minimize2 className="w-4 h-4 stroke-[2.5px]" style={{ color: '#e2e8f0' }} />
+          <span className="uppercase tracking-widest">ANA EKRAN</span>
+        </button>
+      )}
+
       {/* ── KAPAT — yalnızca navigasyon kapalıyken görünür.
-       *   Active nav: NavInfoBar'daki SONLANDIR rotanın doğru bitirme yolu.
-       *   Bu sayede SpeedPanel ile çakışmaz. */}
+       *   Active nav: yukarıdaki ANA EKRAN görünümü kapatır, NavInfoBar'daki
+       *   SONLANDIR ise oturumu bitirir. Bu sayede SpeedPanel ile çakışmaz. */}
       {!isNavigating && (
         <button
           onClick={onClose}
@@ -107,11 +150,20 @@ export const MapHudControls = memo(function MapHudControls({
         </button>
       )}
 
-      {/* ── GOOGLE MAPS TARZ RE-CENTER: Navigasyonda gizli, nav dışında sürüklenince çıkar ── */}
-      {!isFollowing && !isNavigating && (
+      {/* ── ORTALA (RE-CENTER) — NAVİGASYONDA DA GÖRÜNÜR ─────────────────────
+       *
+       * SAHA 2026-08-04 (MINI_MAP_NIGHT_CAMERA_SPEED_LIMIT_P0): koşul eskiden
+       * `!isFollowing && !isNavigating` idi → **navigasyon sırasında** kullanıcı
+       * haritayı kaydırdıysa araca dönmenin HİÇBİR yolu yoktu; tam da sürücünün
+       * en çok ihtiyaç duyduğu an. `!isNavigating` kapısı KALDIRILDI.
+       *
+       * Görünürlük artık tek kanonik kaynaktan gelir: kamera otoritesi
+       * (`isFollowing` = `canDriveCamera()` aynası). Araç merkezdeyken düğme
+       * GİZLİDİR; kullanıcı pan yapınca çıkar. Tek dokunuş — uzun basma YOK. */}
+      {!isFollowing && (
         <button
           onClick={() => { onRecenter(); showControls(); }}
-          aria-label="Konuma dön"
+          aria-label="Aracı ortala"
           style={{
             position: 'absolute',
             bottom: isNavigating
@@ -138,7 +190,7 @@ export const MapHudControls = memo(function MapHudControls({
           }}
         >
           <Crosshair className="w-4 h-4" style={{ color: '#E8B86A' }} />
-          <span>Konuma Dön</span>
+          <span>Aracı Ortala</span>
         </button>
       )}
 
@@ -213,7 +265,17 @@ export const MapHudControls = memo(function MapHudControls({
       {isNavigating && (
         <div
           className="absolute right-4 z-20 flex flex-col items-center gap-2"
-          style={{ bottom: 'calc(var(--lp-dock-h,68px) + 96px)' }}
+          /* DAR EKRAN ÇAKIŞMASI (cihazda ölçüldü 2026-08-03, 904×406):
+             hız paneli (814,81,76×66) ile bu zoom kolonu (836,92,54×166)
+             **54×55 px** örtüşüyordu — kullanıcı ekran görüntüsünde tam bu
+             yeri daire içine aldı. Alttan çapalı olduğu için kısa ekranda
+             yukarı taşıp hız panelinin ÜSTÜNE biniyor.
+             Dar ekranda ÜSTTEN çapalanır: hız paneli `--sat + 80` konumunda
+             ve 66 px yüksekliğinde → 12 px boşlukla `+158`. Yüksek ekranlarda
+             (head unit) ESKİ alttan çapa AYNEN korunur. */
+          style={dense
+            ? { top: 'calc(var(--sat, 0px) + 158px)' }
+            : { bottom: 'calc(var(--lp-dock-h,68px) + 96px)' }}
         >
           {/* Pusula — bearing'e göre döner */}
           <button

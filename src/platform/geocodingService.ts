@@ -15,6 +15,8 @@
 
 import { searchOffline, searchPOI } from './offlineSearchService';
 import type { POISearchResult }      from './offlineSearchService';
+import { searchStreetByName }        from './streetSearchService';
+import { premiumGeocode }            from './geocodingProviders';
 
 const NOMINATIM          = 'https://nominatim.openstreetmap.org/search';
 const NOMINATIM_REVERSE  = 'https://nominatim.openstreetmap.org/reverse';
@@ -46,6 +48,153 @@ export interface GeoResult {
   type:        string;       // nominatim class/type
   distanceKm?: number;       // yalnızca nearby sonuçlarda
   source?:     'online' | 'offline'; // fallback kaynak etiketi
+  /**
+   * Sonuç, kullanıcının SÖYLEDİĞİ sorguyla değil GEVŞETİLMİŞ bir varyantla
+   * bulunduysa `true` (bkz. relaxQueryVariants). Çağıran bunu ONAY İSTEMEK
+   * için kullanır: gevşetilmiş tek sonuç bile OTOMATİK ROTAYA ÇEVRİLMEZ —
+   * "Adana" yerine "Ada"ya götürmek, bulamamaktan daha kötüdür.
+   */
+  relaxed?:    boolean;
+}
+
+/* ── Sorgu gevşetme merdiveni ────────────────────────────────────────────────
+ *
+ * SAHA (2026-08-03): Nominatim serbest metin araması Türkçe POI adlarında sık
+ * başarısız oluyor ("Mersin Hemşirenin Park Piknik Yeri" → 0 sonuç). Kullanıcı
+ * haklı olarak "adres tarif edemiyorsak asistan gereksiz" dedi.
+ *
+ * TASARIM İLKESİ: sorguyu BOZMA, VARYANT ÜRET. Ayırt edici sözcükler korunur,
+ * yalnız SONDAN genel/ekli sözcükler düşürülür ve baştaki şehir adı (viewbox
+ * zaten oraya yanlı olduğu için) bir denemede çıkarılır. Böylece "Adana"yı
+ * "Ada" yapan türden bilgi kaybı OLMAZ.
+ *
+ * SINIRLI: en fazla `RELAX_MAX_VARIANTS` ek deneme — Nominatim ToS hız sınırı
+ * (~1 istek/sn) yüzünden her deneme gerçek zaman maliyetidir ve YALNIZ ilk
+ * sorgu 0 sonuç döndüğünde koşar (timeout/çevrimdışı yolunu ETKİLEMEZ).
+ */
+/* Her varyant GERÇEK zaman maliyetidir: Nominatim ToS hız sınırı (~1 istek/sn)
+   + 2 sn fast-fail. 2 ek deneme ≈ 4-6 sn'lik en kötü hâl demektir ve sesli
+   akışta kullanıcı "aranıyor" dedikten sonra bunu bekler. Bütçe 2'de TUTULUR;
+   sıralama önemlidir — en yüksek kazançlı varyant (kısaltma açılımı) ÖNCE. */
+const RELAX_MAX_VARIANTS = 2;
+
+/* ── Türkçe adres kısaltmaları ───────────────────────────────────────────────
+ * ÖLÇÜM (2026-08-03, canlı Nominatim):
+ *   "Tarsus Bağlar mh 0455 sokak"        → 0 sonuç
+ *   "Tarsus Bağlar mahallesi 0455 sokak" → 4 sonuç
+ * Yani tek başına "mh" kısaltması aramayı tamamen öldürüyordu. Açılım
+ * BİLGİ KAYBI DEĞİLDİR (kısaltma ile tam biçim aynı şeyi söyler), yine de
+ * kullanıcının yazdığı sorgu V0 olarak KORUNUR; açılım bir VARYANTTIR. */
+const _ABBREV: ReadonlyArray<readonly [RegExp, string]> = [
+  [/\bmah\.?\b/gi,  'Mahallesi'],
+  [/\bmh\.?\b/gi,   'Mahallesi'],
+  [/\bcad\.?\b/gi,  'Caddesi'],
+  [/\bcd\.?\b/gi,   'Caddesi'],
+  [/\bsok\.?\b/gi,  'Sokak'],
+  [/\bsk\.?\b/gi,   'Sokak'],
+  [/\bbulv\.?\b/gi, 'Bulvarı'],
+  [/\bblv\.?\b/gi,  'Bulvarı'],
+  [/\bapt\.?\b/gi,  'Apartmanı'],
+];
+
+/** Türkçe adres kısaltmalarını açar ("Bağlar mh" → "Bağlar Mahallesi"). Saf. */
+export function expandTurkishAddressAbbrev(query: string): string {
+  let out = query;
+  for (const [re, full] of _ABBREV) out = out.replace(re, full);
+  return out.replace(/\s+/g, ' ').trim();
+}
+
+/* ── Numaralı sokak doğrulaması ──────────────────────────────────────────────
+ *
+ * ÖLÇÜM (2026-08-03, canlı Nominatim — serbest metin VE yapılandırılmış sorgu):
+ *   istenen "0455. Sokak, Bağlar Mah., Tarsus" için dönenler:
+ *     0411 · 0452 · 0423 · 0436 · 0478 · 3232 · 1713 · 4072 · 1102 · 0655 …
+ *   **İstenen numara HİÇBİR denemede dönmedi.** Nominatim numarayı bulanık
+ *   eşleştirip aynı mahalledeki RASTGELE sokakları veriyor.
+ *
+ * Bu, "bulunamadı"dan DAHA TEHLİKELİDİR: kullanıcı 0455 istiyor, ürün onu
+ * 0411'e götürüyor ve bunu sessizce yapıyor. CLAUDE.md'nin "kanıtsız bilgi
+ * üretilmez" kuralı gereği bu sonuçlar cevap olarak SUNULAMAZ.
+ *
+ * Kural: sorgu numaralı bir sokak/cadde istiyorsa, dönen sonucun numarası
+ * İSTENEN numarayla eşleşmiyorsa sonuç ELENİR. Hepsi elenirse dürüst
+ * "bulunamadı" döner — yanlış yere rota kurulmaz.
+ */
+const _NUM_STREET_RE = /(\d{2,5})\s*\.?\s*(sokak|sk|cadde|cd)\b/i;
+
+/** "0455" → "455" (baştaki sıfırlar OSM ile kullanıcı arasında değişiyor). */
+function _normStreetNo(n: string): string {
+  return n.replace(/^0+/, '') || '0';
+}
+
+/**
+ * Sorgu numaralı sokak istiyorsa, FARKLI numaralı sonuçları eler.
+ * Sorguda numaralı sokak yoksa liste olduğu gibi döner. Saf fonksiyon.
+ */
+export function filterNumberedStreetMismatch<T extends { fullName: string }>(
+  query: string, results: T[],
+): T[] {
+  const want = _NUM_STREET_RE.exec(query);
+  if (!want) return results;
+  const wantNo = _normStreetNo(want[1]);
+
+  /* KURAL: sorgu belirli bir NUMARALI sokak istiyorsa, sonuç O NUMARAYI
+     taşımak ZORUNDADIR. "Yaklaşık" cevap yoktur.
+     ── Bu kural cihazda ÜÇ turda öğrenildi (2026-08-03) ────────────────────
+     Her turda daha gevşek bir kural denendi ve her turda Nominatim bulanık
+     eşleşmeyle alakasız bir yer döndürdü:
+       1) filtre yokken     → "Sokak, Turgut Reis Mah., İZMİR"      701 km
+       2) "numarasız→geç"   → aynı İzmir + "Sokak, ... DENİZLİ"
+       3) "numarasız ama    → "Sukok, Parkent district, TAŞKENT,
+          sokak değilse geç"    ÖZBEKİSTAN"                        3031 km
+     Kaçış deliği bırakıldığı her seferde arkasından yanlış bir yer geldi.
+     Numaralı sokak sorgusu KESİN bir sorudur; kesin cevabı yoksa cevap
+     YOKTUR. Bulamamak, 3000 km öteye rota kurmaktan iyidir. */
+  return results.filter((r) => {
+    const got = _NUM_STREET_RE.exec(r.fullName);
+    return got !== null && _normStreetNo(got[1]) === wantNo;
+  });
+}
+
+/** Baştaki şehir adı — viewbox zaten bölgeye yanlı olduğundan bir denemede atılır. */
+const _TR_CITY_HEAD = /^(mersin|adana|ankara|istanbul|i̇stanbul|izmir|i̇zmir|bursa|antalya|konya|gaziantep|kayseri|eskişehir|eskisehir|samsun|trabzon|diyarbakır|diyarbakir|hatay|malatya|erzurum|van|denizli|sakarya|kocaeli|manisa|balıkesir|balikesir|aydın|aydin|tekirdağ|tekirdag|muğla|mugla)\s+/i;
+
+/**
+ * Sorgudan, ayırt ediciliği koruyan gevşetilmiş varyantlar üretir (sırayla denenir).
+ * Saf fonksiyon — test edilebilir, ağ/zaman/global durum yok.
+ */
+export function relaxQueryVariants(query: string): string[] {
+  const q = query.trim().replace(/\s+/g, ' ');
+  if (!q) return [];
+
+  const out: string[] = [];
+  const push = (v: string): void => {
+    const t = v.trim();
+    // Çok kısalan varyant ayırt ediciliğini yitirir → yanlış yere götürebilir.
+    if (t.length < 4) return;
+    if (t.toLowerCase() === q.toLowerCase()) return;
+    if (!out.some((e) => e.toLowerCase() === t.toLowerCase())) out.push(t);
+  };
+
+  const tokens = q.split(' ');
+
+  // 0) Kısaltmaları aç — ölçülen en yüksek kazançlı varyant ("mh" → 0 sonuç,
+  //    "Mahallesi" → 4 sonuç). Sorgu değişmediyse push() zaten yok sayar.
+  push(expandTurkishAddressAbbrev(q));
+
+  // 1) Baştaki şehir adını at — "Mersin Hemşirenin Park Piknik Yeri"
+  //    → "Hemşirenin Park Piknik Yeri" (viewbox zaten Mersin'e yanlı).
+  //    En az 2 sözcük kalmalı, yoksa yalnız şehir aranmış demektir.
+  if (_TR_CITY_HEAD.test(q) && tokens.length >= 3) {
+    push(q.replace(_TR_CITY_HEAD, ''));
+  }
+
+  // 2) Sondan sözcük düşür — Türkçe POI adlarının kuyruğu genelde jeneriktir
+  //    ("… Park Piknik Yeri" → "… Park Piknik"). Ayırt edici baş korunur.
+  if (tokens.length >= 3) push(tokens.slice(0, -1).join(' '));
+  if (tokens.length >= 4) push(tokens.slice(0, -2).join(' '));
+
+  return out.slice(0, RELAX_MAX_VARIANTS);
 }
 
 /* ── Helpers ─────────────────────────────────────────────── */
@@ -179,6 +328,56 @@ export async function geocodeAddress(
     return _offlineFallback(query, currentLat, currentLng);
   }
 
+  /* ── Premium sağlayıcı (BYOK) ÖNCE ────────────────────────────────────────
+     Anahtar YOKSA hiç çağrılmaz ve davranış birebir eskisi gibidir. Anahtar
+     varsa OSM'de ADI OLMAYAN sokaklar da çözülür — ölçülen kök sorun buydu
+     (bkz. geocodingProviders.ts başlığındaki saha ölçümü). Fail-soft: sağlayıcı
+     boş/hata dönerse aşağıdaki ücretsiz zincir aynen devam eder. */
+  const premium = await premiumGeocode(query, currentLat, currentLng);
+  if (premium.length) return premium;
+
+  const first = await _nominatimOnce(query, currentLat, currentLng);
+
+  // null = timeout / ağ hatası → çevrimdışı yol (DAVRANIŞ DEĞİŞMEDİ).
+  // Gevşetme YALNIZ "bağlandık ama 0 sonuç" durumunda anlamlıdır; ağ yokken
+  // ek denemeler yalnız zaman kaybettirir.
+  if (first === null) return _offlineFallback(query, currentLat, currentLng);
+
+  // Numaralı sokak doğrulaması — istenen numarayı taşımayan sonuç CEVAP DEĞİLDİR.
+  const firstOk = filterNumberedStreetMismatch(query, first);
+  if (firstOk.length) return firstOk;
+
+  /* 0 sonuç (veya hepsi yanlış sokak) → sorguyu BOZMADAN varyantları dene */
+  for (const variant of relaxQueryVariants(query)) {
+    const r = await _nominatimOnce(variant, currentLat, currentLng);
+    if (r === null) break;              // ağ bozuldu — merdiveni uzatma
+    // Doğrulama İSTENEN sorguya göre yapılır (varyanta göre değil): varyant
+    // numarayı düşürmüş olsa bile kullanıcı hâlâ o sokağı istiyor.
+    const ok = filterNumberedStreetMismatch(query, r);
+    if (ok.length) return ok.map((x) => ({ ...x, relaxed: true }));
+  }
+
+  /* SON ŞANS — sokak/cadde ADIYLA doğrudan OSM'e sor.
+     Nominatim numaralı Türk sokaklarını eşleştiremiyor (ölçüldü); Overpass
+     aynı veriyi TAM eşleşmeyle veriyor. Fail-soft: hata/timeout → boş dizi,
+     navigasyon bu yola bağımlı değildir. Konum yoksa hiç çağrılmaz. */
+  const streets = await searchStreetByName(query, currentLat, currentLng);
+  if (streets.length) return streets;
+
+  // Hâlâ yok: boş dön — çağıran (addressNavigationEngine) cihaz-içi aramayı
+  // dener. Burada çevrimdışı yola sapmak o zinciri ikiye bölerdi.
+  return [];
+}
+
+/**
+ * TEK Nominatim denemesi.
+ * @returns sonuç dizisi (boş olabilir) · `null` = timeout veya ağ hatası
+ */
+async function _nominatimOnce(
+  query:       string,
+  currentLat?: number,
+  currentLng?: number,
+): Promise<GeoResult[] | null> {
   const params = new URLSearchParams({
     q:              query,
     format:         'json',
@@ -228,13 +427,9 @@ export async function geocodeAddress(
   });
 
   try {
-    const winner = await Promise.race([nominatimSafe, automotiveSafe]);
-
-    // Nominatim kazandı ve geçerli dizi döndü → online sonuçlar
-    if (winner !== null) return winner;
-
-    // null → timeout veya network hatası → offline fallback
-    return _offlineFallback(query, currentLat, currentLng);
+    // Nominatim kazandı → dizi (boş olabilir). null → timeout/ağ hatası;
+    // çevrimdışı yola sapma kararı ÇAĞIRANA aittir (tek deneme sorumluluğu).
+    return await Promise.race([nominatimSafe, automotiveSafe]);
   } finally {
     if (automotiveTimer !== null) clearTimeout(automotiveTimer);
     clear();

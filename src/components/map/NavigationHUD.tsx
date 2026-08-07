@@ -22,14 +22,13 @@ import {
 import {
   useNavigation,
   startNavigation,
-  stopNavigation,
+  endNavigation,
   formatDistance,
   formatEta,
   NavStatus,
 } from '../../platform/navigationService';
 import {
   useRouteState,
-  clearRoute,
   selectAltRoute,
   computeFuelEstimate,
 } from '../../platform/routingService';
@@ -42,11 +41,17 @@ import { _haversineMeters } from '../../platform/gps/gpsMath';
 import { speakNavigation } from '../../platform/ttsService';
 import { useUnifiedVehicleStore } from '../../platform/vehicleDataLayer/UnifiedVehicleStore';
 import type { Address } from '../../platform/addressBookService';
-import { useSpeedLimitByLocation } from '../../platform/speedLimitService';
+import { useEffectiveSpeedLimit } from '../../platform/navigation/useEffectiveSpeedLimit';
+import {
+  isEffectiveLimitDisplayable, type EffectiveSpeedLimit,
+} from '../../platform/navigation/core/vehicleAwareSpeedLimitAuthority';
+import { SpeedLimitCard } from './SpeedLimitCard';
 import { useSafetyStore } from '../../store/useSafetyStore';
 import { startSafetyObserver, stopSafetyObserver } from '../../platform/safetyService';
 import { useHazardStore, type HazardType } from '../../store/useHazardStore';
 import { useCognitiveStore } from '../../store/useCognitiveStore';
+import { useDenseHud } from '../../hooks/useDenseHud';
+import { useDisplaySpeed } from '../../hooks/useDisplaySpeed';
 
 /* ── Türkçe talimat ────────────────────────────────────────── */
 
@@ -469,18 +474,41 @@ function LaneArrow({ dir, active }: { dir: 'left' | 'right' | 'straight'; active
   );
 }
 
-/* ── LaneGuidance — derive arrows from current step ────── */
-// 3 arrows (left, straight, right) with the matching direction(s) active.
+/* ── LaneGuidance — YALNIZ GERÇEK şerit verisinden ────────────────────────────
+ *
+ * ── NE DEĞİŞTİ VE NEDEN (denetim §8 madde 1) ────────────────────────────────
+ * Bu bileşen ŞERİT OKLARINI MANEVRA TİPİNDEN TÜRETİYORDU: "sağa dön" → sağ ok
+ * yanar. Bu, sürücüye kavşakta GERÇEK şerit bilgisi varmış izlenimi verir.
+ * OSRM şerit verisini `intersections[].lanes` içinde döner ve ürün bu alanı
+ * HİÇ ayrıştırmıyordu — yani ekrandaki rehber KANITSIZDI.
+ *
+ * Bu, ürünün kendi "kanıtsız bilgi üretme YASAĞI"nın doğrudan ihlaliydi.
+ * Artık: gerçek `lanes` verisi varsa GÖSTERİLİR, yoksa panel HİÇ ÇIKMAZ.
+ * Yanlış şerit bilgisi vermek, hiç vermemekten KÖTÜDÜR.
+ *
+ * Bu tur TAM şerit rehberi geliştirmez — yalnız yanlış bilgi üretimini kapatır.
+ */
+function _laneDir(indications: string[]): 'left' | 'right' | 'straight' {
+  // OSRM sözlüğü: 'left' | 'slight left' | 'sharp left' | 'straight' |
+  // 'right' | 'slight right' | 'sharp right' | 'uturn' | 'none'
+  for (const ind of indications) {
+    if (ind.includes('left'))  return 'left';
+    if (ind.includes('right')) return 'right';
+  }
+  return 'straight';
+}
+
 function LaneGuidance({ step }: { step: RouteStep }) {
-  const mod = step.maneuverModifier ?? '';
-  const t   = step.maneuverType ?? '';
-  if (t === 'arrive') return null;
-  const goesLeft  = mod.includes('left');
-  const goesRight = mod.includes('right');
-  const goesStr   = !goesLeft && !goesRight;
+  const lanes = step.lanes;
+  // KANIT YOK → PANEL YOK. Manevra tipinden ok TÜRETİLMEZ.
+  if (!lanes || lanes.length === 0) return null;
+  if (step.maneuverType === 'arrive') return null;
+
   return (
     <div
       className="oem-glass rounded-[1.5rem]"
+      data-testid="lane-guidance"
+      data-lane-count={lanes.length}
       style={{
         padding: '10px 14px',
         background: 'var(--oem-surface-1, rgba(38,44,60,0.78))',
@@ -492,9 +520,9 @@ function LaneGuidance({ step }: { step: RouteStep }) {
         Şerit Yönlendirme
       </div>
       <div className="flex gap-2 justify-center">
-        <LaneArrow dir="left"     active={goesLeft} />
-        <LaneArrow dir="straight" active={goesStr} />
-        <LaneArrow dir="right"    active={goesRight} />
+        {lanes.map((ln, i) => (
+          <LaneArrow key={i} dir={_laneDir(ln.indications)} active={ln.active && ln.valid} />
+        ))}
       </div>
     </div>
   );
@@ -508,9 +536,11 @@ function LaneGuidance({ step }: { step: RouteStep }) {
 // 19px street name (font-medium), "Sonra X km düz devam" subtitle.
 
 const TurnPanel = memo(function TurnPanel({
-  step, distToTurn, nextStep, hazardActive = false,
+  step, distToTurn, nextStep, hazardActive = false, dense = false,
 }: {
   step: RouteStep; distToTurn: number; nextStep?: RouteStep; hazardActive?: boolean;
+  /** Telefon yatayı: aynı bilgi, küçültülmüş ölçüler (bkz. useDenseHud) */
+  dense?: boolean;
 }) {
   const isArrive = step.maneuverType === 'arrive';
   const turnLabel = isArrive ? '—' : fmtTurn(distToTurn);
@@ -524,19 +554,24 @@ const TurnPanel = memo(function TurnPanel({
 
   return (
     <div
-      className="absolute z-30 pointer-events-none flex flex-col gap-3"
+      className={`absolute z-30 pointer-events-none flex flex-col ${dense ? 'gap-1.5' : 'gap-3'}`}
       style={{
-        left: 'max(16px, var(--sal, 0px))',
-        top: 'calc(var(--sat, 0px) + 14px)',
-        width: 288,
+        /* Dar ekranda dönüş kartı GPS rozeti (15,15,68×20) ve km çipi
+           (15,49,76×22) ile ÇAKIŞIYORDU — cihazda 47×20 px örtüşme ölçüldü,
+           "GPS ±6m" yazısı kartın altında kalıyordu. Kart, çipin sağ kenarını
+           (91 px) geçecek şekilde kaydırıldı; genişlik 208 → sağ kenar 304,
+           ortadaki yol tabelası 382'de başlıyor, çakışma yok. */
+        left: dense ? 'max(96px, var(--sal, 0px))' : 'max(16px, var(--sal, 0px))',
+        top: `calc(var(--sat, 0px) + ${dense ? 8 : 14}px)`,
+        width: dense ? 208 : 288,
         maxWidth: 'calc(100vw - 2 * 16px)',
       }}
     >
       {/* Ana dönüş kartı — OEM glass + amber icon tile */}
       <div
-        className="oem-glass rounded-[1.5rem] overflow-hidden"
+        className={`oem-glass overflow-hidden ${dense ? 'rounded-[1.1rem]' : 'rounded-[1.5rem]'}`}
         style={{
-          padding: '14px 18px',
+          padding: dense ? '9px 11px' : '14px 18px',
           background: 'var(--oem-surface-1, rgba(38,44,60,0.78))',
           border: '1px solid var(--oem-line-strong, rgba(255,240,210,0.18))',
           boxShadow: 'var(--oem-shadow-raised, 0 32px 64px -26px rgba(0,0,0,0.65))',
@@ -544,11 +579,11 @@ const TurnPanel = memo(function TurnPanel({
           WebkitBackdropFilter: 'blur(calc(var(--rt-blur, 1) * 20px)) saturate(120%)',
         }}
       >
-        <div className="flex items-center gap-3 mb-2.5">
+        <div className={`flex items-center ${dense ? 'gap-2 mb-1' : 'gap-3 mb-2.5'}`}>
           {/* Icon tile — amber gradient (hazard → warmer deep) */}
           <div
             style={{
-              width: 46, height: 46, borderRadius: 14,
+              width: dense ? 32 : 46, height: dense ? 32 : 46, borderRadius: dense ? 10 : 14,
               background: isArrive
                 ? 'linear-gradient(135deg, oklch(78% 0.13 158 / 0.32), oklch(48% 0.13 158 / 0.10))'
                 : hazardActive
@@ -566,17 +601,17 @@ const TurnPanel = memo(function TurnPanel({
               transition: 'background 0.8s ease, color 0.8s ease',
             }}
           >
-            <FuturistArrow mod={step.maneuverModifier} type={step.maneuverType} size="sm" />
+            <FuturistArrow mod={step.maneuverModifier} type={step.maneuverType} size={dense ? 'xs' : 'sm'} />
           </div>
           {/* Distance + maneuver label */}
           <div className="min-w-0">
-            <div className="text-[11px] font-black uppercase tracking-[0.20em] leading-none"
+            <div className={`${dense ? 'text-[9px] tracking-[0.14em]' : 'text-[11px] tracking-[0.20em]'} font-black uppercase leading-none`}
               style={{ color: 'var(--oem-ink-2, rgba(240,235,224,0.74))' }}>
               {isArrive ? 'HEDEF' : `${turnLabel} sonra`}
             </div>
-            <h3 className="text-white tabular-nums mt-1"
+            <h3 className={`text-white tabular-nums ${dense ? 'mt-0.5' : 'mt-1'}`}
               style={{
-                fontSize: 21,
+                fontSize: dense ? 15 : 21,
                 fontWeight: 900,
                 lineHeight: 1.05,
                 letterSpacing: '-0.01em',
@@ -590,7 +625,7 @@ const TurnPanel = memo(function TurnPanel({
         {step.streetName && (
           <div className="truncate"
             style={{
-              fontSize: 16,
+              fontSize: dense ? 12 : 16,
               fontWeight: 500,
               color: 'var(--oem-ink, #F0EBE0)',
               letterSpacing: '-0.005em',
@@ -599,8 +634,10 @@ const TurnPanel = memo(function TurnPanel({
           </div>
         )}
 
-        {/* "Sonra X km düz devam" hint */}
-        {continuation && nextStep && (
+        {/* "Sonra X km düz devam" hint — dar ekranda GİZLENİR.
+            İkincil bilgidir; asıl manevra üstte duruyor ve bu satır tek başına
+            ~46 px yiyordu (telefonda ekranın %11'i). */}
+        {!dense && continuation && nextStep && (
           <div className="flex items-center gap-3 mt-3 pt-3"
             style={{ borderTop: '1px solid var(--oem-line, rgba(255,240,210,0.08))' }}>
             <div className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0"
@@ -621,8 +658,9 @@ const TurnPanel = memo(function TurnPanel({
         )}
       </div>
 
-      {/* Şerit yönlendirme — derive from current step direction */}
-      <LaneGuidance step={step} />
+      {/* Şerit yönlendirme — dar ekranda GİZLENİR: yön zaten üstteki ok
+          döşemesinde var, kart tek başına ~92 px yiyordu (telefonda %22). */}
+      {!dense && <LaneGuidance step={step} />}
     </div>
   );
 });
@@ -817,12 +855,17 @@ const RiskOverlay = memo(function RiskOverlay() {
 /* ══════════════════════════════════════════════════════════ */
 
 const SpeedPanel = memo(function SpeedPanel({
-  speedKmh, speedLimitKmh,
+  speedKmh, speedLimit, dense = false,
 }: {
-  speedKmh: number; speedLimitKmh?: number | null;
+  speedKmh: number;
+  /** UYGULANABİLİR hız sınırı hükmü — mini haritayla AYNI otoriteden gelir. */
+  speedLimit: EffectiveSpeedLimit;
+  /** Telefon yatayı: levha hızın SOLUNA alınır (dikey yer açar) */
+  dense?: boolean;
 }) {
-  const hasLimit     = typeof speedLimitKmh === 'number' && speedLimitKmh > 0;
-  const overSpeed    = hasLimit && speedKmh > (speedLimitKmh as number) + 5;
+  const limitKmh     = speedLimit.effectiveLimitKmh;
+  const hasLimit     = isEffectiveLimitDisplayable(speedLimit);
+  const overSpeed    = hasLimit && speedKmh > (limitKmh as number) + 5;
   const roundedSpeed = Math.round(speedKmh);
   const safetyState  = useSafetyStore((s) => s.safetyState);
 
@@ -839,14 +882,25 @@ const SpeedPanel = memo(function SpeedPanel({
         ? 'futurist-glow-amber'
         : '';
 
-  // Hız rakamı rengi: intervention/aşım → kırmızı, caution → amber, normal → beyaz
+  /* Hız rakamı rengi: intervention/aşım → kırmızı, caution → amber, normal → TEMA MÜREKKEBİ.
+     SAHA KUSURU (cihazda gözlendi 2026-08-03): normal renk sabit `#ffffff` idi.
+     Gündüz temasında panel zemini AÇIK olduğu için rakam beyaz-üstüne-beyaz
+     kalıyor ve GÖRÜNMÜYORDU — DOM'da "Hız 0 KM/H" vardı ama ekranda yalnız
+     "KM/H" okunuyordu. Hemen altındaki etiket zaten `--oem-ink-2` kullanıyordu;
+     asıl değer tokensiz kalmıştı. Uyarı renkleri SEMANTİK olduğu için sabit
+     kalır (kırmızı/amber her iki temada da anlamını korur). */
   const digitColor = (overSpeed || isIntv) ? '#f87171'
     : isCaution ? '#fbbf24'
-    : '#ffffff';
+    : 'var(--oem-ink, #F0EBE0)';
 
   return (
     <div
-      className="absolute right-4 z-30 pointer-events-none flex flex-col items-center gap-2.5"
+      className={`absolute right-4 z-30 pointer-events-none flex items-center gap-2.5 ${
+        dense ? 'flex-row-reverse' : 'flex-col'
+      }`}
+      /* DAR EKRAN: levha hızın ALTINA değil SOLUNA alınır. Alta konursa sağ
+         sütun 66→128 px'e çıkıp zoom kolonuyla (top 158) yeniden çakışırdı —
+         cihazda ölçülen çakışmanın aynısı geri gelirdi. */
       style={{ top: 'calc(var(--sat, 0px) + 80px)' }}
     >
       {/* Hız göstergesi — futurist-glass + dinamik glow */}
@@ -874,14 +928,12 @@ const SpeedPanel = memo(function SpeedPanel({
         <SafetyTensionBar />
       </div>
 
-      {/* Hız limiti tabelası — sadece geçerli bir limit varsa göster (boş tabela hiç çizilmesin) */}
-      {hasLimit && (
-        <div className="w-[52px] h-[52px] rounded-full flex items-center justify-center bg-white border-[5px] border-red-600 shadow-[0_8px_32px_rgba(0,0,0,0.6)] border-glow-red">
-          <span className="text-black font-black text-[19px] tracking-[-0.02em]">
-            {speedLimitKmh}
-          </span>
-        </div>
-      )}
+      {/* ── Hız limiti levhası — MİNİ HARİTAYLA AYNI PAYLAŞILAN KART ──────────
+       * Veri yoksa HİÇ çizilmez (boş levha göstermek yanıltır). Kesin olmayan
+       * sayı (yalnız yol sınırı / belirsiz araç sınıfı) kesikli çerçeve ve
+       * altındaki kaynak etiketiyle ayrılır. Hız aşılınca levha kırmızıya
+       * döner ve nabız atar — bu bir güvenlik sinyalidir. */}
+      <SpeedLimitCard limit={speedLimit} size="full" overSpeed={overSpeed} />
     </div>
   );
 });
@@ -893,6 +945,7 @@ const SpeedPanel = memo(function SpeedPanel({
 
 const NavInfoBar = memo(function NavInfoBar({
   etaSeconds, remainingMeters, totalMeters, onStop, isOffline, compact = false, limp = false,
+  dense = false,
 }: {
   etaSeconds: number; remainingMeters: number; totalMeters: number; onStop: () => void;
   isOffline?: boolean;
@@ -900,6 +953,10 @@ const NavInfoBar = memo(function NavInfoBar({
   compact?: boolean;
   /** LIMP_HOME modda: sadece MESAFE + SONLANDIR */
   limp?: boolean;
+  /** Telefon yatayı: aynı sütunlar, küçültülmüş ölçüler (bkz. useDenseHud).
+   *  `compact`ten AYRI tutulur — o bir GÜVENLİK modudur (CRITICAL), bu yalnız
+   *  yerleşimdir; ikisi karıştırılırsa dar ekran sessizce güvenlik modu sanılır. */
+  dense?: boolean;
 }) {
   const arrival    = new Date(Date.now() + etaSeconds * 1_000);
   const arrivalStr = `${arrival.getHours().toString().padStart(2, '0')}:${arrival.getMinutes().toString().padStart(2, '0')}`;
@@ -959,19 +1016,19 @@ const NavInfoBar = memo(function NavInfoBar({
         </div>
       )}
 
-      {/* 3-column ETA strip — Varış | Mesafe | Varışta yakıt + stop button */}
-      <div className="flex items-center gap-4 px-5 py-3">
+      {/* 3-column ETA strip — Varış | Mesafe | Yakıt + stop button */}
+      <div className={`flex items-center ${dense ? 'gap-2.5 px-3 py-1.5' : 'gap-4 px-5 py-3'}`}>
         {/* Column 1: Varış (Arrival time) */}
         {!limp && (
           <>
             <div className="flex flex-col min-w-0">
-              <span className="text-[10px] font-black uppercase tracking-[0.22em] leading-none"
+              <span className={`${dense ? 'text-[8px] tracking-[0.14em]' : 'text-[10px] tracking-[0.22em]'} font-black uppercase leading-none`}
                 style={{ color: 'var(--oem-ink-2, rgba(240,235,224,0.74))' }}>
                 Varış
               </span>
-              <span className="tabular-nums mt-2"
+              <span className={`tabular-nums ${dense ? 'mt-0.5' : 'mt-2'}`}
                 style={{
-                  fontSize: 'clamp(22px, 3.0vw, 31px)',
+                  fontSize: dense ? 18 : 'clamp(22px, 3.0vw, 31px)',
                   fontWeight: 300,
                   lineHeight: 1,
                   letterSpacing: '-0.02em',
@@ -980,19 +1037,19 @@ const NavInfoBar = memo(function NavInfoBar({
                 {arrivalStr}
               </span>
             </div>
-            <div className="h-[38px] w-px" style={{ background: 'var(--oem-line-strong, rgba(255,240,210,0.18))' }} />
+            <div className="w-px" style={{ height: dense ? 24 : 38, background: 'var(--oem-line-strong, rgba(255,240,210,0.18))' }} />
           </>
         )}
 
         {/* Column 2: Mesafe (Distance) */}
         <div className="flex flex-col min-w-0">
-          <span className="text-[10px] font-black uppercase tracking-[0.22em] leading-none"
+          <span className={`${dense ? 'text-[8px] tracking-[0.14em]' : 'text-[10px] tracking-[0.22em]'} font-black uppercase leading-none`}
             style={{ color: 'var(--oem-ink-2, rgba(240,235,224,0.74))' }}>
             Mesafe
           </span>
-          <span className="tabular-nums mt-2"
+          <span className={`tabular-nums ${dense ? 'mt-0.5' : 'mt-2'}`}
             style={{
-              fontSize: 'clamp(28px, 4.2vw, 42px)',
+              fontSize: dense ? 23 : 'clamp(28px, 4.2vw, 42px)',
               fontWeight: 300,
               lineHeight: 1,
               letterSpacing: '-0.02em',
@@ -1000,25 +1057,30 @@ const NavInfoBar = memo(function NavInfoBar({
             }}>
             {distNum}
             {distUnit && (
-              <span style={{ fontSize: 16, color: 'var(--oem-ink-3, rgba(240,235,224,0.52))', marginLeft: 4 }}>
+              <span style={{ fontSize: dense ? 12 : 16, color: 'var(--oem-ink-3, rgba(240,235,224,0.52))', marginLeft: 4 }}>
                 {distUnit}
               </span>
             )}
           </span>
         </div>
 
-        {/* Column 3: Varışta yakıt (Battery/Fuel at arrival) — hidden in compact/limp */}
+        {/* Column 3: Yakıt — ANLIK depo seviyesi (hidden in compact/limp).
+            SAHA 2026-08-06: etiket varış anını iddia ediyordu ama değer
+            `UnifiedVehicleStore.fuel`, yani ŞU ANKİ yakıt. 439 km yol kalmışken
+            ekranda "VARIŞTA YAKIT %92" yazıyordu — varışta yakıt TAHMİNİ HİÇ
+            hesaplanmıyor. Etiket, gösterdiği veriyle hizalandı; varış tahmini
+            ayrı bir iş olarak açık borçtur (tüketim modeli + kalan mesafe). */}
         {!compact && !limp && (
           <>
-            <div className="h-[38px] w-px" style={{ background: 'var(--oem-line-strong, rgba(255,240,210,0.18))' }} />
+            <div className="w-px" style={{ height: dense ? 24 : 38, background: 'var(--oem-line-strong, rgba(255,240,210,0.18))' }} />
             <div className="flex flex-col min-w-0">
-              <span className="text-[10px] font-black uppercase tracking-[0.22em] leading-none"
+              <span className={`${dense ? 'text-[8px] tracking-[0.14em]' : 'text-[10px] tracking-[0.22em]'} font-black uppercase leading-none`}
                 style={{ color: 'var(--oem-ink-2, rgba(240,235,224,0.74))' }}>
-                Varışta yakıt
+                Yakıt
               </span>
-              <span className="tabular-nums mt-2"
+              <span className={`tabular-nums ${dense ? 'mt-0.5' : 'mt-2'}`}
                 style={{
-                  fontSize: 'clamp(22px, 3.0vw, 31px)',
+                  fontSize: dense ? 18 : 'clamp(22px, 3.0vw, 31px)',
                   fontWeight: 300,
                   lineHeight: 1,
                   letterSpacing: '-0.02em',
@@ -1044,7 +1106,7 @@ const NavInfoBar = memo(function NavInfoBar({
         <button
           onClick={onStop}
           aria-label="Navigasyonu sonlandır"
-          className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 active:scale-90 transition-all"
+          className={`${dense ? 'w-8 h-8 rounded-lg' : 'w-10 h-10 rounded-xl'} flex items-center justify-center flex-shrink-0 active:scale-90 transition-all`}
           style={{
             background: 'rgba(239,68,68,0.10)',
             border: '1px solid rgba(239,68,68,0.28)',
@@ -1064,9 +1126,9 @@ const NavInfoBar = memo(function NavInfoBar({
 /* ══════════════════════════════════════════════════════════ */
 
 function ReroutingBanner() {
-  useEffect(() => {
-    speakNavigation('Rota yeniden hesaplanıyor');
-  }, []);
+  /* "Rota yeniden hesaplanıyor" anonsu da görünümden ALINDI — banner yalnız
+     GÖRSELDİR. Sesi `voiceGuidanceRuntime` üretir; böylece mini haritadayken
+     de duyulur ve görünüm açılıp kapandığında tekrarlanmaz. */
   return (
     <div
       className="absolute left-4 z-30 pointer-events-none"
@@ -1481,7 +1543,7 @@ const QuickDestinations = memo(function QuickDestinations({
   }, [gpsLat, gpsLon, fuelLoading]);
 
   const navigate = useCallback((dest: Address) => {
-    startNavigation(dest);
+    startNavigation(dest, false, 'USER_QUICK');   // kütük #429: ev/iş/hızlı hedef
     const entry = { lat: dest.latitude, lng: dest.longitude, name: dest.name, timestamp: Date.now() };
     updateSettings({
       recentDestinations: [
@@ -1726,21 +1788,23 @@ export const NavigationHUD = memo(function NavigationHUD({
   // Hız kaynağı: UnifiedVehicleStore.speed — worker SAB-polling (EMA + zero-hold +
   // anti-jitter) ile beslenir, worker stale olunca GPS location.speed'den devralınır.
   // Ham, filtresiz location.speed * 3.6 KULLANILMAZ (anlık 0 / spike sorunu).
-  const speedKmh = useUnifiedVehicleStore((s) => s.speed) ?? 0;
+  const speedKmh = useDisplaySpeed() ?? 0;   // kütük #417: tek gösterim otoritesi
   const location = useGPSLocation();
-  const dynamicLimit = useSpeedLimitByLocation(
-    location?.latitude  ?? null,
-    location?.longitude ?? null,
-  );
+  /* Hız limiti: mini haritayla AYNI otorite. Eskiden burada
+     `useSpeedLimitByLocation`in DÖNÜŞ değeri kullanılıyordu; o değer yalnız
+     sorgu SAHİBİ örnekte dolduğu için mini harita mount olduğunda tam ekran
+     levhası hiç çıkmıyordu (bkz. useEffectiveSpeedLimit başlık notu). */
+  const dynamicLimit = useEffectiveSpeedLimit();
   const {
     status, destination, distanceMeters, etaSeconds,
     isOfflineResult, isRerouting, errorMessage,
   } = useNavigation();
   const route = useRouteState();
 
+  /* Açık kullanıcı eylemi — oturumu sonlandıran TEK giriş noktası.
+   * (Görünüm kapatmak bu yolu çağırmaz; bkz. FullMapView `onClose`.) */
   const handleStop = useCallback(() => {
-    stopNavigation();
-    clearRoute();
+    endNavigation();
     onCancel();
   }, [onCancel]);
 
@@ -1761,6 +1825,8 @@ export const NavigationHUD = memo(function NavigationHUD({
   const suppFocused = cogMode !== 'IMMERSIVE' && cogMode !== 'AWARE'; // FOCUSED|CRITICAL|LIMP_HOME
   const suppCrit    = cogMode === 'CRITICAL' || cogMode === 'LIMP_HOME';
   const isLimp      = cogMode === 'LIMP_HOME';
+  // Telefon yatayı: HUD ölçüleri küçültülür (head unit'te DEĞİŞMEZ).
+  const denseHud    = useDenseHud();
 
   // LIMP_HOME — tek seferlik otoriter TTS bildirimi
   useEffect(() => {
@@ -1787,48 +1853,41 @@ export const NavigationHUD = memo(function NavigationHUD({
   const upcomingStep = route.steps[route.currentStepIndex + 1] ?? currentStep;
   const followStep   = route.steps[route.currentStepIndex + 2];
 
-  // ── Sesli yönlendirme — kademeli yaklaşım anonsları (saha fix 2026-06-12) ──
-  // ESKİDEN yalnız adım DEĞİŞİNCE konuşuyordu = anons dönüşün üzerinden geçerken
-  // geliyordu; sürücü "sağa dön / sola dön" uyarısını hiç duymuyordu.
-  // Şimdi Google tarzı üç kademe (her adım için en fazla 1'er kez):
-  //   ≤600 m → "550 metre sonra sola dönün"
-  //   ≤250 m → "200 metre sonra sola dönün"
-  //   ≤80 m  → "Şimdi sola dönün"
-  // Kademeler bitmask ile adım başına kilitlenir; adım değişince sıfırlanır.
-  // Mesafe useRouteState'ten her GPS tick'inde gelir (TurnPanel ile aynı kaynak).
-  const _spokenRef = useRef<{ step: number; tiers: number }>({ step: -1, tiers: 0 });
-  useEffect(() => {
-    if (!isActiveNav || isRerouting || !upcomingStep) return;
-    const d = route.distanceToNextTurnMeters;
-    if (!Number.isFinite(d) || d <= 0) return;
-
-    if (_spokenRef.current.step !== route.currentStepIndex) {
-      _spokenRef.current = { step: route.currentStepIndex, tiers: 0 };
-    }
-    const s = _spokenRef.current;
-    // Talimatı cümle ortasına uydur: "Sola dönün" → "sola dönün"
-    const inst = upcomingStep.instruction.charAt(0).toLowerCase() + upcomingStep.instruction.slice(1);
-
-    if (d <= 80 && !(s.tiers & 4)) {
-      s.tiers |= 4 | 2 | 1; // yakın kademede uzaktakiler de kapanır (üst üste konuşmaz)
-      speakNavigation(`Şimdi ${inst}`);
-    } else if (d <= 250 && !(s.tiers & 2)) {
-      s.tiers |= 2 | 1;
-      speakNavigation(`${Math.round(d / 50) * 50} metre sonra ${inst}`);
-    } else if (d <= 600 && !(s.tiers & 1)) {
-      s.tiers |= 1;
-      speakNavigation(`${Math.round(d / 50) * 50} metre sonra ${inst}`);
-    }
-  }, [route.distanceToNextTurnMeters, route.currentStepIndex, isRerouting, isActiveNav, upcomingStep]);
+  /* ── SESLİ YÖNLENDİRME BURADA DEĞİLDİR (NAVIGATION_DELIVERY_CORE_P0) ───────
+   * Kademeli anons mantığı ve "hangi kademe söylendi" durumu bu bileşendeydi.
+   * `NavigationHUD` yalnız `FullMapView` içinde mount edildiği için tam ekran
+   * kapatılınca **hazırlık · yaklaşma · dönüş anonslarının hepsi susuyordu**;
+   * ayrıca durum bir bileşen ref'i olduğundan görünüm yeniden açılınca aynı
+   * manevra **ikinci kez** seslendiriliyordu.
+   *
+   * Sahiplik `voiceGuidanceRuntime`e taşındı ve `navigationSessionRuntime`
+   * tick'inden beslenir (gerçek GPS + ölü hesaplama). Eşikler ve anons
+   * metinleri BİREBİR korundu — bu bileşen artık YALNIZ ÇİZER.
+   *
+   * ⚠️ Buraya bir daha `speakNavigation` EKLENMEYECEK: ekranla ilişkili her
+   * ses üretimi, ekran kapalıyken sessizlik demektir. */
 
   // İlk GPS tick'inde distanceMeters=0 olabilir — toplam mesafeye fallback
   const effectiveDist = (distanceMeters && distanceMeters > 10)
     ? distanceMeters
     : route.totalDistanceMeters;
 
-  const displayEta = route.totalDurationSeconds > 0
-    ? Math.round(route.totalDurationSeconds * Math.min(1, effectiveDist / Math.max(1, route.totalDistanceMeters)))
-    : (etaSeconds ?? 0);
+  /* ── TEK ETA OTORİTESİ (saha 2026-08-05 · kütük #403) ──────────────────────
+   * ÖLÇÜLEN ÇELİŞKİ: aynı anda ekran kartı "289,2 km · 3 sa 18 dk" derken
+   * motor `nav.etaSeconds` **4 sa 42 dk** diyordu — 1 saat 24 dakika fark.
+   * KÖK: burada İKİNCİ bir ETA türetiliyordu —
+   *   `route.totalDurationSeconds × (kalan mesafe / toplam mesafe)`
+   * Bu formül yolun her yerinde aynı ortalama hızı varsayar: şehir içi + otoyol
+   * karışık bir rotada sistematik olarak yanlıştır ve motorun gerçek hız
+   * geçmişi + duruş süresi + rota süre modeliyle hesapladığı ETA'yı EZİYORDU.
+   *
+   * ETA artık YALNIZ motordan gelir. Motor henüz ilk değerini üretmediyse
+   * (konum tick'i gelmeden) rotanın kendi toplam süresi gösterilir — bu bir
+   * ikinci otorite değil, aynı zincirin ilk halkasıdır ve ilk tick'te
+   * motorun değeriyle değişir. */
+  const displayEta = (etaSeconds != null && etaSeconds > 0)
+    ? etaSeconds
+    : route.totalDurationSeconds;
 
   return (
     <>
@@ -1862,6 +1921,7 @@ export const NavigationHUD = memo(function NavigationHUD({
                 distToTurn={route.distanceToNextTurnMeters}
                 nextStep={isLimp ? undefined : followStep}
                 hazardActive={isHazardAttn}
+                dense={denseHud}
               />
               <FadeMount visible={!suppCrit}>
                 <RoadSignsPanel
@@ -1870,7 +1930,7 @@ export const NavigationHUD = memo(function NavigationHUD({
                 />
               </FadeMount>
               {/* LaneGuidance kaldırıldı — ekranı dağıtıyordu, TurnPanel zaten dönüş yönünü gösteriyor */}
-              <SpeedPanel speedKmh={speedKmh} speedLimitKmh={dynamicLimit} />
+              <SpeedPanel speedKmh={speedKmh} speedLimit={dynamicLimit} dense={denseHud} />
             </>
           )}
 
@@ -1886,11 +1946,15 @@ export const NavigationHUD = memo(function NavigationHUD({
                   maneuverType:     'straight',
                   maneuverModifier: 'straight',
                   coordinate:       [destination.longitude, destination.latitude],
+                  roundaboutExit:   null,
+                  lanes:            null,  // yedek panelde GERÇEK şerit verisi YOKTUR
+                  geometryPointCount: 0,
                 }}
                 distToTurn={effectiveDist}
+                dense={denseHud}
               />
               <RoadSignsPanel destName={destination.name} />
-              <SpeedPanel speedKmh={speedKmh} speedLimitKmh={dynamicLimit} />
+              <SpeedPanel speedKmh={speedKmh} speedLimit={dynamicLimit} dense={denseHud} />
             </>
           )}
 
@@ -1944,6 +2008,7 @@ export const NavigationHUD = memo(function NavigationHUD({
             isOffline={isOfflineResult}
             compact={suppCrit}
             limp={isLimp}
+            dense={denseHud}
           />
         </>
       )}
@@ -1972,7 +2037,7 @@ export const NavigationHUD = memo(function NavigationHUD({
       {isShowError && (
         <ErrorOverlay
           message={errorMessage ?? 'Navigasyon başarısız oldu.'}
-          onClose={() => { stopNavigation(); onCancel(); }}
+          onClose={() => { endNavigation(); onCancel(); }}
         />
       )}
 

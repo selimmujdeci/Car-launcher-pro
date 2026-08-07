@@ -1,12 +1,16 @@
 import { create } from 'zustand';
 import { logError } from './crashLogger';
+import { noteArrival, noteAccepted, noteRejected, resetGpsIntakeHealth } from './gps/gpsIntakeHealth';
 import { safeSetRaw } from '../utils/safeStorage';
 import { checkGeofence } from './geofenceService';
 import { runtimeManager } from '../core/runtime/AdaptiveRuntimeManager';
 import { useUnifiedVehicleStore } from './vehicleDataLayer/UnifiedVehicleStore';
 import { applyCompassSmoothing, computeBlendedHeading } from './gps/headingCore';
-import { applySpeedFilters, computeSpeedDelta, computeCourseDelta, pickRawSpeed } from './gps/speedCore';
+import { applySpeedFilters, computeSpeedDelta, computeCourseDelta, pickRawSpeed,
+         noiseFloorM, reconcileDopplerWithDisplacement,
+         DOPPLER_CHECK_MAX_DT_SEC, confirmMotion, MOTION_CONFIRM_KMH } from './gps/speedCore';
 import type { PrevPosition } from './gps/speedCore';
+import { _haversineMeters } from './gps/gpsMath';
 import { isJumpInvalid, calculateFusionRamp, DR_THRESHOLD_MS, DR_MIN_SPEED_MS } from './gps/fusionCore';
 import type { FusedPosition } from './gps/fusionCore';
 import {
@@ -259,6 +263,8 @@ function _blendHeading(gpsBearing: number | null, speedMs: number): number | nul
 }
 
 // ── Speed from position delta ─────────────────────────────
+/** Bir önceki fix'te hız hareket eşiğinin üstünde miydi — `confirmMotion` girdisi. */
+let _prevSpeedAbove = false;
 let _prevForSpeed: PrevPosition | null = null;
 
 function _scheduleGPSReconnect(): void {
@@ -282,6 +288,10 @@ function _scheduleGPSReconnect(): void {
  */
 export async function startGPSTracking(): Promise<void> {
   if (watchId != null) return;
+
+  // Kütük #401: alım sağlığı sayaçları OTURUM başına ölçülür — önceki oturumun
+  // red serisi yeni oturumun sağlığı gibi okunmasın.
+  resetGpsIntakeHealth();
 
   // 5 saniye içinde gerçek fix gelmezse fallback devreye girer
   _startFirstFixFallback();
@@ -412,6 +422,46 @@ function startWebGPSTracking(): void {
   }
 }
 
+/* ── GPS fix VARIŞ kanalı (heartbeat otoritesi) ───────────────────────────────
+ *
+ * SAHA KUSURU (2026-08-02, cihaz kayıtları 20:36–21:39): araç PARK hâlindeyken
+ * "HealthMonitor:GPS — No heartbeat for 20s/25s/85s" alarmları basıldı; aynı
+ * kayıtlarda `conn=connected polling=true` idi, yani GPS hattı SAĞLIKLIYDI.
+ *
+ * KÖK: GPS heartbeat'i `useUnifiedVehicleStore.location` REFERANS DEĞİŞİMİNDEN
+ * türetiliyordu (SystemHealthMonitor._setupPassiveMonitoring). Ama
+ * `UnifiedVehicleStore.updateGPSState` bilinçli bir **shallow-equal guard**
+ * taşır: lat/lng/speed aynıysa referansı DEĞİŞTİRMEZ (park hâlinde tüm
+ * subscriber'ları boşuna tetiklememek için — CPU/termal koruması, DOĞRU bir
+ * optimizasyon). Android FusedLocation park hâlinde aynı fix'i birebir tekrar
+ * verir → referans sabit kalır → hiç beat üretilmez → 20 sn sonra SAHTE alarm.
+ *
+ * Bu, OBD tarafında 2026-08-01'de zaten düzeltilmiş kusurun (DEĞİŞİM tabanlı
+ * heartbeat → VARIŞ tabanlı heartbeat, bkz. SystemHealthMonitor `onOBDData`)
+ * GPS'te atlanmış ikizidir.
+ *
+ * Bu kanal DEĞİŞİMİ değil VARIŞI yayar: hat canlıysa beat gelir, fix aynı olsa
+ * da. Yük yok — payload taşımaz, yalnız "canlı" sinyali.
+ */
+type FixArrivalListener = () => void;
+const _fixArrivalSubs = new Set<FixArrivalListener>();
+
+/**
+ * Her GEÇERLİ GPS fix varışında (değer değişmese de) çağrılır.
+ * Sağlık izleme içindir; konum verisi için `onGPSLocation` kullanılır.
+ * Cleanup fonksiyonu döner (Zero-Leak).
+ */
+export function onGPSFixArrival(fn: FixArrivalListener): () => void {
+  _fixArrivalSubs.add(fn);
+  return () => { _fixArrivalSubs.delete(fn); };
+}
+
+function _emitFixArrival(): void {
+  for (const fn of _fixArrivalSubs) {
+    try { fn(); } catch { /* fail-soft: bir abone patlarsa GPS hattı durmaz */ }
+  }
+}
+
 /**
  * Common handler for position updates from either platform
  */
@@ -428,9 +478,16 @@ interface CoordsLike {
 function handlePosition(coords: CoordsLike, timestamp: number): void {
   const now     = Date.now();
   const perfNow = performance.now();
-  if (perfNow - _lastPositionPerf < _positionThrottleMs()) return;
+  // Kütük #401/#423: hattın SAĞLIĞI artık sayılıyor. "Fix geldi" ile "fix kabul
+  // edildi" ayrı sorulardır; sahada ikisi arasındaki fark 19,5 s bayatlık üretmişti.
+  noteArrival(now);
+  if (perfNow - _lastPositionPerf < _positionThrottleMs()) {
+    noteRejected('THROTTLED', coords.accuracy);
+    return;
+  }
 
   if (!isFinite(coords.latitude) || !isFinite(coords.longitude)) {
+    noteRejected('INVALID_COORDS', null);
     logError('GPS', new Error(`Invalid coords: ${coords.latitude},${coords.longitude}`));
     return;
   }
@@ -439,6 +496,11 @@ function handlePosition(coords: CoordsLike, timestamp: number): void {
   _hasValidFirstFix = true;
   _clearFirstFixTimer();
 
+  // VARIŞ heartbeat'i: hat canlı. JumpGuard/shallow-equal gibi AŞAĞIDAKİ hiçbir
+  // eleme bu sinyali susturmamalı — "fix geldi" ile "fix kabul edildi" ayrı
+  // sorulardır; sağlık izleme birincisini sorar.
+  _emitFixArrival();
+
   _lastPositionPerf  = perfNow;
   _consecutiveErrors = 0;
 
@@ -446,6 +508,9 @@ function handlePosition(coords: CoordsLike, timestamp: number): void {
   const _drActiveNow = isDeadReckoningActive();
   const _prevLoc     = useGPSStore.getState().location;
   if (_prevLoc && isJumpInvalid(_prevLoc, coords)) {
+    // Kütük #423: sahada 30+ kez (accuracy 500–3 800 m) sessizce reddedildi.
+    // Red DOĞRU (çöp fix konumu bozar) ama artık SAYILIR ve LAB'da görünür.
+    noteRejected('JUMP_GUARD', coords.accuracy);
     console.warn(`[GPS] JumpGuard: atlama reddedildi (accuracy:${coords.accuracy.toFixed(0)}m)`);
     return;
   }
@@ -467,10 +532,54 @@ function handlePosition(coords: CoordsLike, timestamp: number): void {
   // computeSpeedDelta (dt<0.5 guard) hem computeCourseDelta (4m eşik) hiç üretemiyordu.
   const _fixTs = timestamp ?? now;
   if (!prevPos || _fixTs - prevPos.ts >= 500) {
-    _prevForSpeed = { lat: coords.latitude, lng: coords.longitude, ts: _fixTs };
+    /* Doğruluk da TAŞINIR: yer değiştirme iki ölçümün farkıdır, belirsizliği de
+       ikisinin birleşimidir (bkz. noiseFloorM). */
+    _prevForSpeed = {
+      lat: coords.latitude, lng: coords.longitude, ts: _fixTs,
+      accuracy: Number.isFinite(coords.accuracy) ? coords.accuracy : undefined,
+    };
   }
-  const deltaSpeed = computeSpeedDelta(coords.latitude, coords.longitude, _fixTs, prevPos);
-  const rawSpeed   = pickRawSpeed(gpsSpeed, deltaSpeed);
+  /* accuracy GEÇİLİR: konum belirsizliğinden küçük yer değiştirme hareket
+     sayılmaz (park hâlinde 116 km/h hayaletinin kökü — bkz. noiseFloorM). */
+  const deltaSpeed = computeSpeedDelta(
+    coords.latitude, coords.longitude, _fixTs, prevPos,
+    Number.isFinite(coords.accuracy) ? coords.accuracy : undefined,
+  );
+  /* Doppler'i YER DEĞİŞTİRME kanıtıyla çapraz doğrula: park hâlinde 58 km/h
+     hayaleti bu yoldan geliyordu (bkz. reconcileDopplerWithDisplacement). */
+  let _gpsSpeedChecked = gpsSpeed;
+  /** Yer değiştirme gürültü tabanını AŞTI mı — confirmMotion'ın kanıt girdisi. */
+  let _dispCorroborated = false;
+  /** Karşılaştırılacak önceki fix VAR mı — confirmMotion'ın kanıt kapısı. */
+  let _speedEvidence = false;
+  if (prevPos) {
+    const _dtSec = (_fixTs - prevPos.ts) / 1000;
+    if (_dtSec > 0 && _dtSec <= DOPPLER_CHECK_MAX_DT_SEC) {
+      const _dispM = _haversineMeters(prevPos.lat, prevPos.lng, coords.latitude, coords.longitude);
+      const _floor = noiseFloorM(
+        Number.isFinite(coords.accuracy) ? coords.accuracy : undefined,
+        prevPos.accuracy,
+      );
+      _speedEvidence    = true;
+      _dispCorroborated = _dispM > _floor;
+      _gpsSpeedChecked = reconcileDopplerWithDisplacement(gpsSpeed, _dispM, _dtSec, _floor);
+    } else if (_dtSec > DOPPLER_CHECK_MAX_DT_SEC) {
+      /* DOĞRULANAMAYAN DOPPLER GÜVENİLMEZ (fail-closed). Eskiden bu dal yoktu ve
+         pencere dışı fix'lerde ham Doppler doğrulanmadan geçiyordu — park hâlinde
+         55/61 km/h hayaletlerinin kaçış yolu buydu. Kanıtsız hız YAYINLANMAZ;
+         `undefined` bırakılır ve pickRawSpeed yedek yola bakar (o da uzun
+         aralıkta `undefined` döner → hız BİLİNMİYOR, sahte 0 değil). */
+      _gpsSpeedChecked = undefined;
+    }
+  }
+  let rawSpeed     = pickRawSpeed(_gpsSpeedChecked, deltaSpeed);
+  /* TEK FIX'LİK, YER DEĞİŞTİRMEYLE DOĞRULANMAMIŞ hareket iddiası REDDEDİLİR
+     (bkz. confirmMotion — cihazda 22.74 km/h hayaleti ölçüldü). */
+  const _rawClaimKmh = (rawSpeed ?? 0) * 3.6;
+  rawSpeed = confirmMotion(rawSpeed, _speedEvidence, _dispCorroborated, _prevSpeedAbove) ?? rawSpeed;
+  /* Süreklilik HAM İDDİADAN izlenir, teyit edilmiş çıktıdan DEĞİL: yoksa ilk
+     reddedilen iddia sonrasını da kilitler ve ikinci fix asla teyit edemez. */
+  _prevSpeedAbove = _rawClaimKmh > MOTION_CONFIRM_KMH;
 
   const dataAge     = Math.abs(now - (timestamp ?? now));
   const filteredSpeed = rawSpeed != null ? applySpeedFilters(rawSpeed, dataAge) : undefined;
@@ -522,6 +631,8 @@ function handlePosition(coords: CoordsLike, timestamp: number): void {
   _saveLastKnown(loc);
 
   const source: GPSState['source'] = isNativePlatform() ? 'native' : 'web';
+
+  noteAccepted(now, loc.accuracy);
 
   useGPSStore.setState({
     location:   loc,

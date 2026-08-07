@@ -17,6 +17,8 @@ import type { StoredLocation } from './offlineSearchService';
 import { searchGlobal } from './poi/offlinePoiService';
 import { NOMINATIM_URL, NOMINATIM_UA } from './map/_mapState';
 import { signalWithTimeout } from '../utils/abortCompat';
+import { filterNumberedStreetMismatch } from './geocodingService';
+import { searchStreetByName } from './streetSearchService';
 
 // ── Public API re-exports (delegation) ───────────────────────────────────────
 export * from './map/MapCore';
@@ -113,8 +115,39 @@ export async function searchPlaces(
   if (combined.length >= maxResults) return _dedup(combined).slice(0, maxResults);
 
   // 3 — Nominatim online geocoder (son çare)
-  const onlineHits = await _nominatimSearch(query, maxResults - combined.length);
+  const onlineRaw = await _nominatimSearch(query, maxResults - combined.length);
+
+  /* ── SAHA DÜZELTMESİ (2026-08-03, cihazda gözlendi) ───────────────────────
+   * Bu çubuğa "0455 sokak" yazıldığında Nominatim **İzmir'de 701 km uzaktaki
+   * "Sokak"** kaydını öneriyordu — kullanıcı dokunsa oraya rota kurulurdu.
+   * Aynı koruma `geocodeAddress` zincirine eklenmişti (kütük #335) ama harita
+   * arama çubuğu AYRI zinciri (`searchPlaces`) kullandığı için korumasızdı:
+   * iki arama yüzeyi ayrışmıştı. Sorgu numaralı bir sokak istiyorsa, farklı
+   * numaralı sonuç CEVAP DEĞİLDİR — elenir. */
+  const onlineHits = filterNumberedStreetMismatch(
+    query,
+    onlineRaw.map((h) => ({ ...h, fullName: h.address ?? h.name })),
+  );
   combined.push(...onlineHits);
+
+  /* 4 — Sokak adıyla doğrudan OSM (Overpass). Nominatim Türkçe numaralı
+   *     sokakları eşleştiremiyor (ölçüldü, kütük #336); Overpass tam eşleşme
+   *     verir. Fail-soft: konum yoksa/hata olursa boş döner. */
+  if (combined.length === 0) {
+    const streets = await searchStreetByName(query, userLat, userLng);
+    for (const s of streets) {
+      combined.push({
+        id:        s.id,
+        name:      s.name,
+        address:   s.fullName,
+        lat:       s.lat,
+        lng:       s.lng,
+        source:    'search',
+        timestamp: Date.now(),
+        useCount:  0,
+      });
+    }
+  }
 
   return _dedup(combined).slice(0, maxResults);
 }

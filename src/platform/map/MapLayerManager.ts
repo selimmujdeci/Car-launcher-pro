@@ -11,11 +11,14 @@
 // ══════════════════════════════════════════════════════════════════════════
 import maplibregl, { Map as MapLibreMap, GeoJSONSource, Marker } from 'maplibre-gl';
 import { setMapNight } from '../mapSourceManager';
+import { safeMoveLayer, safeSetPaint } from './_safeLayerOps';
 import {
   NAV_SUPPRESS_LAYERS,
   NAV_SUPPRESS_TIERS,
   RASTER_PAINT_DAY,
   RASTER_PAINT_NIGHT,
+  MAP_BG_NIGHT,
+  MAP_BG_DAY,
 } from '../mapStyleBuilders';
 import { useHazardStore }    from '../../store/useHazardStore';
 import { useSafetyStore }    from '../../store/useSafetyStore';
@@ -307,9 +310,7 @@ export function addUserMarker(
 
   // Katmanları en üste taşı — raster/vektör geçişlerinde veya OOM sonrası
   // diğer katmanların (rota, POI) üzerinde kalması garantilenir.
-  try { map.moveLayer('user-glow'); }    catch { /* stil geçişi sırasında güvenli */ }
-  try { map.moveLayer('user-ring'); }    catch { /* stil geçişi sırasında güvenli */ }
-  try { map.moveLayer('user-vehicle'); } catch { /* stil geçişi sırasında güvenli */ }
+  for (const id of ['user-glow', 'user-ring', 'user-vehicle']) safeMoveLayer(map, id);
 }
 
 export function updateUserMarker(latitude: number, longitude: number, heading?: number, speedKmh?: number) {
@@ -332,8 +333,38 @@ export function updateUserMarker(latitude: number, longitude: number, heading?: 
   // Park (hız≈0, nav yok): statik glow — pulse yok, GPS tick'i de durduğundan CPU sıfır.
   const moving = (speedKmh ?? 0) > 1.5;
   const now    = performance.now();
-  if ((moving || M.markerNavActive) && now - M.lastRingPulseMs > 150) {
-    M.lastRingPulseMs = now;
+  /* ⚠️ NABIZ DURAKTA DA ÇALIŞIYORDU — ISINMANIN ÖLÇÜLEN KAYNAĞI (2026-08-03).
+   * Koşul `(moving || markerNavActive)` idi: navigasyon AÇIKSA araç DURSA BİLE
+   * nabız dönüyordu. Oysa hemen üstteki yorum tasarım niyetini zaten yazıyor:
+   * "Park (hız≈0): pulse yok, CPU sıfır." OR bağlacı bu niyeti bozuyordu.
+   *
+   * CİHAZ ÖLÇÜMÜ (telefon, navigasyon aktif, araç PARK, 20 sn):
+   *   `user-ring.circle-radius` 50 kez · `user-glow.circle-opacity` 50 kez
+   *   → harita **31.2 çizim/sn** · uygulama CPU **%119** (bir çekirdekten fazla).
+   * Her `setPaintProperty` haritayı baştan çizdirir; duran araçta nabız hiçbir
+   * bilgi taşımaz ama sürekli GPU/CPU yakar.
+   *
+   * DÜZELTME: nabız YALNIZ gerçek harekette. Navigasyonun halka genişletmesi
+   * (`navBoost`) bir ANİMASYON değil, statik bir boyuttur — durakta BİR KEZ
+   * uygulanır ve bir daha yazılmaz (`markerPulseStatic`). */
+  if (!moving) {
+    if (!M.markerPulseStatic) {
+      M.markerPulseStatic = true;
+      const navBoost = M.markerNavActive ? 1.18 : 1.0;
+      try {
+        map.setPaintProperty('user-ring', 'circle-radius', [
+          'interpolate', ['linear'], ['zoom'],
+          10, 11 * navBoost,
+          15, 17 * navBoost,
+          18, 22 * navBoost,
+        ]);
+        map.setPaintProperty('user-glow', 'circle-opacity',
+          (M.markerNight ? 0.42 : 0.22) * navBoost);
+      } catch { /* stil yeniden yükleniyor */ }
+    }
+  } else if (now - M.lastRingPulseMs > 150) {
+    M.lastRingPulseMs   = now;
+    M.markerPulseStatic = false;
     const pulse    = Math.sin(now / 450) * 0.5 + 0.5;        // 0..1, ~2.8s periyot
     const navBoost = M.markerNavActive ? 1.18 : 1.0;          // nav: halka genişler
     const rScale   = navBoost * (1 + pulse * 0.10);
@@ -424,7 +455,7 @@ export function applyMapDayNight(night: boolean, mapArg?: ReturnType<typeof useM
         map.setPaintProperty(rasterLayerId, prop, val);
       }
       if (map.getLayer('background')) {
-        map.setPaintProperty('background', 'background-color', night ? '#131822' : '#e9eef3');
+        map.setPaintProperty('background', 'background-color', night ? MAP_BG_NIGHT : MAP_BG_DAY);
       }
     }
     // NOT: Vektör (offline .pbf) veya uydu/hibrit → burada setStyle ÇAĞIRMA.
@@ -517,8 +548,7 @@ function _applyBreathingGlow(map: MapLibreMap, nowMs: number, hazardRisk: number
   const amplitudeScale = (safetyState === 'INTERVENTION' ? 1.4 : 1.0) * cogAmplitudeFactor;
   const width          = Math.max(10, 22 + breath * 12 * visualRisk * amplitudeScale);
 
-  try { map.setPaintProperty(ROUTE_GLOW_SEL, 'line-width', width); }
-  catch { /* style reloading */ }
+  safeSetPaint(map, ROUTE_GLOW_SEL, 'line-width', width);
 }
 
 /**
@@ -853,7 +883,20 @@ export function _applyRouteGeometry(
       };
     }).filter(f => (f.properties.label as string).length > 0);
     const badgeData = { type: 'FeatureCollection' as const, features: badgeFeatures };
-    if (!map.getSource(ALT_BADGE_SRC) || !map.getLayer(ALT_BADGE_LAYER)) {
+    /* Rozet etiketi `text-field` kullanır → stilde `glyphs` ZORUNLUDUR.
+       RASTER stilde (buildRoadStyle / getOnlineTileStyle) `glyphs` BİLDİRİLMEZ —
+       yalnız vektör stilinde vardır. Glyphs yokken katman eklenirse MapLibre
+       doğrulaması reddeder ("use of text-field requires a style glyphs property")
+       ve ardından gelen `moveLayer` çağrıları "layer does not exist" hatası
+       yayınlar. Saha 2026-08-02: cihazdaki son 50 harita hatasının 14'ü tam
+       olarak bu zincirdi. Glyphs yoksa rozet SESSİZCE atlanır — alternatif rota
+       ÇİZGİLERİ (ALT_FILL) bundan etkilenmez, yalnız süre rozeti görünmez.
+       AÇIK BORÇ: raster stile ticari kullanıma uygun bir `glyphs` kaynağı
+       tanımlanana kadar rozet raster modda çalışmaz. */
+    const _glyphsOk = (() => { try { return !!map.getStyle().glyphs; } catch { return false; } })();
+    if (!_glyphsOk) {
+      /* rozet katmanı atlanır — hata YAYINLANMAZ */
+    } else if (!map.getSource(ALT_BADGE_SRC) || !map.getLayer(ALT_BADGE_LAYER)) {
       try { if (map.getLayer(ALT_BADGE_LAYER)) map.removeLayer(ALT_BADGE_LAYER); } catch { /* ignore */ }
       try { if (map.getSource(ALT_BADGE_SRC)) map.removeSource(ALT_BADGE_SRC); } catch { /* ignore */ }
       map.addSource(ALT_BADGE_SRC, { type: 'geojson', data: badgeData });
@@ -1005,11 +1048,9 @@ export function _applyRouteGeometry(
       // Tüm katmanlar mevcut — sadece maneuver/perspective state sıfırla.
       M.lastPerspectiveScale = 1.0;
       M.lastManeuverTier     = 0;
-      try {
-        map.setPaintProperty(SEL_LAYER,      'line-opacity', 1);
-        map.setPaintProperty(ROUTE_CASE,     'line-color',   '#ffffff');
-        map.setPaintProperty(ROUTE_GLOW_SEL, 'line-color',   '#4285f4');
-      } catch { /* style may be reloading */ }
+      safeSetPaint(map, SEL_LAYER,      'line-opacity', 1);
+      safeSetPaint(map, ROUTE_CASE,     'line-color',   '#ffffff');
+      safeSetPaint(map, ROUTE_GLOW_SEL, 'line-color',   '#4285f4');
     }
 
     // ── Step 4: set data ─────────────────────────────────────────
@@ -1027,17 +1068,15 @@ export function _applyRouteGeometry(
     if (!_isLowEnd) void _refreshRouteTrafficGradient(map, coords as [number, number][]);
 
     // ── Step 5: z-ordering — alt→üst: shadow→glow→case→core→flow→araç ────────
-    try { map.moveLayer(ALT_FILL); }        catch { /* ignore */ }
-    try { map.moveLayer(ALT_BADGE_LAYER); } catch { /* ignore */ }
-    try { map.moveLayer(ROUTE_SHADOW); }    catch { /* ignore */ }
-    try { map.moveLayer(ROUTE_GLOW_SEL); } catch { /* ignore */ }
-    try { map.moveLayer(ROUTE_CASE); }     catch { /* ignore */ }
-    try { map.moveLayer(SEL_LAYER); }      catch { /* ignore */ }
-    try { map.moveLayer(ROUTE_FLOW); }     catch { /* ignore */ }
-    // Araç marker'ı tüm rota katmanlarının üstünde
-    try { map.moveLayer('user-glow'); }    catch { /* ignore */ }
-    try { map.moveLayer('user-ring'); }    catch { /* ignore */ }
-    try { map.moveLayer('user-vehicle'); } catch { /* ignore */ }
+    // `safeMoveLayer`: düşük-GPU'da shadow/glow/flow OLUŞTURULMAZ. MapLibre
+    // olmayan katmanda throw ETMEZ, `error` olayı yayınlar → eski `try/catch`
+    // hiçbir şey yakalamıyor, her kare hata defterini dolduruyordu (saha 2026-08-02).
+    for (const id of [ALT_FILL, ALT_BADGE_LAYER, ROUTE_SHADOW, ROUTE_GLOW_SEL,
+                      ROUTE_CASE, SEL_LAYER, ROUTE_FLOW,
+                      // Araç marker'ı tüm rota katmanlarının üstünde
+                      'user-glow', 'user-ring', 'user-vehicle']) {
+      safeMoveLayer(map, id);
+    }
 
     // ── Step 6: fit bounds (sadece preview modda) ───
     if (!useMapStore.getState().drivingMode) {
@@ -1203,12 +1242,8 @@ export function updateDrivingLayers(
     const blurNow = speedKmh > 20;
     if (blurNow !== M.lastBlurReduced) {
       M.lastBlurReduced = blurNow;
-      if (map.getLayer(ROUTE_SHADOW)) {
-        try { map.setPaintProperty(ROUTE_SHADOW,   'line-blur', blurNow ? 3  : 8);  } catch { /* noop */ }
-      }
-      if (map.getLayer(ROUTE_GLOW_SEL)) {
-        try { map.setPaintProperty(ROUTE_GLOW_SEL, 'line-blur', blurNow ? 5  : 10); } catch { /* noop */ }
-      }
+      safeSetPaint(map, ROUTE_SHADOW,   'line-blur', blurNow ? 3 : 8);
+      safeSetPaint(map, ROUTE_GLOW_SEL, 'line-blur', blurNow ? 5 : 10);
     }
   }
 

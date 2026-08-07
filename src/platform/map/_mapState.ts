@@ -10,9 +10,22 @@
 // MapCore / MapLayerManager / MapInteractionManager hepsi BURADAN import eder.
 // Bu modül onlardan HİÇBİR ŞEY import etmez → döngüsel modül-init riski yok.
 // Davranış değişikliği YOK (Zero-Change in Behavior) — yalnızca konum değişti.
+
+/* ── HARİTA ARKA PLAN TOKEN'LARI (tek kaynak) ──────────────────────────────
+ * Gece/gündüz arka plan rengi ÜÇ ayrı yerde sabit yazılıydı (`_mapState` ×2,
+ * `mapStyleBuilders` ×2, `MapLayerManager` ×1) → biri güncellenip diğeri
+ * unutulduğunda stil kurulumu ile canlı geçiş AYRIŞIYORDU. Token buraya,
+ * yani zaten "paylaşılan sabitler"in evi olan LEAF modüle konur; herkes
+ * buradan import eder (yön korunur, döngü YOK).
+ *
+ * Gece değeri 2026-08-04'te #131822 → #161c28: tile boşluğu neredeyse saf
+ * siyahtı ve mini haritada "delik" gibi duruyordu. */
+export const MAP_BG_NIGHT = '#161c28';
+export const MAP_BG_DAY   = '#e9eef3';
 // ══════════════════════════════════════════════════════════════════════════
 import maplibregl, { Map as MapLibreMap, Marker } from 'maplibre-gl';
 import { create } from 'zustand';
+import { RASTER_PAINT_DAY, RASTER_PAINT_NIGHT } from '../mapStyleBuilders';
 
 // ── Public config tipi ──────────────────────────────────────────────────────
 export interface MapConfig {
@@ -71,6 +84,9 @@ export const M = {
   markerNight:        false,
   markerNavActive:    false,
   lastRingPulseMs:    0,
+  /** Durakta statik halka değerleri UYGULANDI mı — her karede yeniden yazmamak
+   *  için (bkz. updateUserMarker nabız kapısı; ısınma ölçümü 2026-08-03). */
+  markerPulseStatic:  false,
 
   // Rota etkileşim motoru
   routeInteractionCleanup: null as (() => void) | null,
@@ -143,18 +159,14 @@ export const OSM_STYLE: maplibregl.StyleSpecification = {
   },
   layers: [
     // Tile yüklenemeyince siyah kanvas yerine OEM sıcak grafit arka plan görünür
-    { id: 'background', type: 'background', paint: { 'background-color': '#131822' } },
+    { id: 'background', type: 'background', paint: { 'background-color': MAP_BG_NIGHT } },
     // OEM gece tonu: ham OSM raster'ı sıcak-koyu grafite indirger (--map-bg-1 #131822).
+    // KOPYALAMA YOK — tek kaynak `RASTER_PAINT_NIGHT`. Eskiden burada elle
+    // yazılmış bir kopya vardı ve yorumu "birebir aynı" dediği hâlde SÜRÜKLENMİŞTİ
+    // (contrast .42 / brightness .62 kalmış, diğer iki yer .52/.50 olmuştu) →
+    // hangi stilin yüklendiğine göre gece haritası farklı görünüyordu (saha 2026-08-02).
     { id: 'osm-tiles',  type: 'raster',     source: 'osm',
-      paint: {
-        // OKUNUR gece tonu — RASTER_PAINT_NIGHT ile birebir aynı (bkz. mapStyleBuilders).
-        'raster-opacity': 1,
-        'raster-contrast': 0.42,
-        'raster-brightness-min': 0,
-        'raster-brightness-max': 0.62,
-        'raster-saturation': -0.55,
-        'raster-hue-rotate': 15,
-      } },
+      paint: { ...RASTER_PAINT_NIGHT } },
   ],
 };
 
@@ -183,33 +195,14 @@ export const getOnlineTileStyle = (night = false): maplibregl.StyleSpecification
     {
       id: 'background',
       type: 'background' as const,
-      paint: { 'background-color': night ? '#131822' : '#e9eef3' },
+      paint: { 'background-color': night ? MAP_BG_NIGHT : MAP_BG_DAY },
     },
     {
       id: 'tiles-layer',
       type: 'raster' as const,
       source: 'map-tiles',
-      paint: night
-        ? {
-            // OKUNUR gece tonu — RASTER_PAINT_NIGHT ile birebir aynı (lock: mapDayNightStyle.test).
-            // Night UX Polish 2026-06-25: harita gece "en parlak blok" olmasın → ~%20 koyu
-            // (brightness 0.62→0.50) + contrast 0.42→0.52 (OSM koyu etiketleri okunur kalsın).
-            'raster-opacity': 1,
-            'raster-contrast': 0.52,
-            'raster-brightness-min': 0,
-            'raster-brightness-max': 0.50,
-            'raster-saturation': -0.55,
-            'raster-hue-rotate': 15,
-          }
-        : {
-            // Gündüz: ham OSM doğal açık renkleri — RASTER_PAINT_DAY ile birebir aynı
-            'raster-opacity': 1,
-            'raster-contrast': 0.05,
-            'raster-brightness-min': 0,
-            'raster-brightness-max': 1,
-            'raster-saturation': -0.05,
-            'raster-hue-rotate': 0,
-          },
+      // KOPYALAMA YOK — tek kaynak mapStyleBuilders sabitleri (lock: mapDayNightStyle.test).
+      paint: night ? { ...RASTER_PAINT_NIGHT } : { ...RASTER_PAINT_DAY },
     },
   ],
 });

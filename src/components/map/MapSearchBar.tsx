@@ -30,6 +30,18 @@ export const MapSearchBar = memo(function MapSearchBar({
   const [open,    setOpen]    = useState(false);
   // Yarış koşulu koruması: yalnız EN SON isteğin sonucu uygulanır.
   const reqRef = useRef(0);
+  /* IME-güvenli giriş: DOM değeri tek otoritedir (bkz. aşağıdaki input yorumu). */
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  /* GPS'i REF'te tut — efekt bağımlılığında DEĞİL.
+     KUSUR (saha 2026-08-03): efekt `[query, gpsLat, gpsLon]` dinliyordu; GPS
+     saniyede 2-5 kez değiştiğinden cleanup 350 ms'lik debounce timer'ını
+     SÜREKLİ siliyordu → araç hareket hâlindeyken arama isteği hiç ateşlenmiyor,
+     kutu "yükleniyor"da kalıyordu. Konum yalnızca sonuçları yakınlığa göre
+     sıralamak için lazım; onu bağımlılık yapmak aramayı öldürüyordu. */
+  const gpsRef = useRef({ lat: gpsLat, lon: gpsLon });
+  gpsRef.current.lat = gpsLat;
+  gpsRef.current.lon = gpsLon;
 
   useEffect(() => {
     const q = query.trim();
@@ -38,7 +50,7 @@ export const MapSearchBar = memo(function MapSearchBar({
     const myReq = ++reqRef.current;
     const t = setTimeout(async () => {
       try {
-        const r = await searchPlaces(q, gpsLat ?? undefined, gpsLon ?? undefined, 8);
+        const r = await searchPlaces(q, gpsRef.current.lat ?? undefined, gpsRef.current.lon ?? undefined, 8);
         if (myReq !== reqRef.current) return;        // bayat istek — yok say
         setResults(r);
         setOpen(true);
@@ -49,20 +61,22 @@ export const MapSearchBar = memo(function MapSearchBar({
       }
     }, 350);  // debounce — her tuşta ağ çağrısı yok
     return () => clearTimeout(t);
-  }, [query, gpsLat, gpsLon]);
+  }, [query]);
 
   const pick = useCallback((loc: StoredLocation) => {
     startNavigation({
       id: loc.id, name: loc.name,
       latitude: loc.lat, longitude: loc.lng,
       type: 'history',
-    });
+    }, false, 'USER_SEARCH');   // kütük #429: hedefi kullanıcı seçti
+    if (inputRef.current) inputRef.current.value = '';
     setQuery('');
     setResults([]);
     setOpen(false);
   }, []);
 
   const clear = useCallback(() => {
+    if (inputRef.current) inputRef.current.value = '';
     setQuery(''); setResults([]); setOpen(false);
   }, []);
 
@@ -89,8 +103,15 @@ export const MapSearchBar = memo(function MapSearchBar({
         }}
       >
         <Search className="w-4 h-4 flex-shrink-0" style={{ color: 'var(--oem-accent)' }} />
+        {/* KONTROLSÜZ giriş (`defaultValue`) — IME kompozisyonu bölünmesin.
+            Kontrollü olsaydı React her render'da DOM değerini geri yazar ve
+            Android'de uzun-basma ile üretilen `ş ç ğ ı ö ü` harfleri
+            kompozisyon iptal edilerek KAYBOLURDU (saha 2026-08-03). Bu bileşen
+            GPS proplarıyla sık render aldığı için çakışma kaçınılmazdı.
+            Arama state'i onChange'den beslenir; temizleme DOM'a da yazar. */}
         <input
-          value={query}
+          ref={inputRef}
+          defaultValue=""
           onChange={(e) => setQuery(e.target.value)}
           onFocus={() => { if (results.length) setOpen(true); }}
           placeholder="Adres veya yer ara…"

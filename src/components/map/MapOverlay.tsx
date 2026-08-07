@@ -4,11 +4,16 @@ import type { GPSLocation } from '../../platform/gpsService';
 import { useGPSState } from '../../platform/gpsService';
 import { useMapNetworkStatus } from '../../platform/mapSourceManager';
 import { useDrivingMode } from '../../platform/mapService';
+import { formatDisplaySpeed, SPEED_UNKNOWN_TEXT } from '../../hooks/useDisplaySpeed';
 
 interface MapOverlayProps {
   location?: GPSLocation | null;
   heading?: number | null;
-  speedKmh?: number | undefined;
+  /**
+   * Gösterilecek hız — TEK otorite (`useDisplaySpeed`) tarafından verilir.
+   * `null`/`undefined` = veri yok → `—` gösterilir (sahte 0 YASAK, kütük #417).
+   */
+  speedKmh?: number | null | undefined;
   compact?: boolean;
 }
 
@@ -31,7 +36,11 @@ export const MapOverlay = memo(function MapOverlay({
   const { unavailable: gpsUnavailable } = useGPSState();
   const isDriving = useDrivingMode();
   
-  const speed = speedKmh ?? (location?.speed != null ? location.speed * 3.6 : 0);
+  /* Kütük #417: ham GPS fallback'i KALDIRILDI. Ekrana basılan hızın tek kaynağı
+     `useDisplaySpeed` otoritesidir; burada ikinci bir kaynak türetmek, aynı ekranda
+     çelişen hızlar üretiyordu. Değer yoksa `—` yazılır — 0 YAZILMAZ. */
+  const speedText  = formatDisplaySpeed(speedKmh);
+  const speedKnown = speedText !== SPEED_UNKNOWN_TEXT;
   const hasHeading = heading != null && isFinite(heading);
 
   // Source badge — contextual color per serving mode
@@ -92,8 +101,8 @@ export const MapOverlay = memo(function MapOverlay({
         {location && (
           <div className="absolute bottom-2 right-2">
             <div className="flex items-center gap-1.5 bg-black/50 backdrop-blur-xl rounded-xl border border-white/10 shadow-lg px-2.5 py-1.5">
-              <span className={`text-lg font-black font-mono leading-none tabular-nums ${Math.round(speed) === 0 ? 'text-[color:var(--oem-ink-3)]' : 'text-[color:var(--oem-ink)]'}`}>
-                {Math.round(speed)}
+              <span className={`text-lg font-black font-mono leading-none tabular-nums ${!speedKnown || speedText === '0' ? 'text-[color:var(--oem-ink-3)]' : 'text-[color:var(--oem-ink)]'}`}>
+                {speedText}
               </span>
               <span className="text-[8px] font-black text-[#E0A23C] uppercase leading-none">km/h</span>
               {hasHeading && (

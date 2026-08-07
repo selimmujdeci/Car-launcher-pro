@@ -13,6 +13,7 @@
  */
 
 import { useState, useEffect, useRef } from 'react';
+import { speedLimitMaxDistanceM } from './navigation/core/speedLimitTruthModel';
 
 /**
  * GPS konumuna göre gerçek zamanlı hız limiti — Overpass API (maxspeed etiketi).
@@ -154,8 +155,28 @@ const _EP_TIMEOUT_MS = 8_000;
    dakikalar sonra **200 / 1.9 sn** döndü — kesinti GEÇİCİ. Üç deneme bu dalgayı
    yakalamaya yetmiyordu; duran araçta kart doğmadan hak bitiyordu. */
 const _RETRY_BACKOFF_MS = [1_000, 5_000, 15_000, 45_000, 120_000] as const;
-/** Yeni sorgu için gereken en küçük yer değiştirme (m). */
+/** Yeni sorgu için gereken en küçük yer değiştirme (m) — sınıf bilinmezken taban. */
 const _REQUERY_DIST_M = 200;
+
+/* ── Yeniden sorgulama mesafesi = levhanın GEÇERLİLİK yarıçapı ───────────────
+ * SAHA ÖLÇÜMÜ 2026-08-06 (Adana-Erdemli Otoyolu, 93 km/h, 8,8 dk):
+ * Overpass 22 × `ERR_CONNECTION_RESET`, 2 × HTTP 504, 1 × HTTP **429** döndürdü;
+ * hız limiti levhası otoyolda HİÇ çizilemedi.
+ *
+ * KÖK: İKİ AYRI OTORİTE. `speedLimitTruthModel` levhayı yol sınıfına göre
+ * otoyolda **1500 m** geçerli sayarken, bu servis sabit **200 m**'de
+ * `hasLimitRef`i sıfırlayıp Overpass'e YENİDEN soruyordu → aynı geçerli pencerede
+ * 7 gereksiz sorgu. 440 km'lik rotada ~2200 sorgu (gerekli olan ~300) →
+ * genel kullanıma açık Overpass sunucusu bizi hız sınırına takıyor (429) ve
+ * özellik TAM İHTİYAÇ ANINDA ölüyor.
+ *
+ * DÜZELTME: yeni kavram EKLENMEZ — "araç hâlâ aynı yolda mı?" sorusunun tek
+ * cevabı zaten `speedLimitMaxDistanceM(highway)`. Sorgu kapısı da o otoriteye
+ * bağlanır. Sınıf bilinmiyorsa (şehir içi/ilk fix) davranış 200 m'de KALIR →
+ * regresyon yok. */
+export function _requeryDistM(highway: string | null): number {
+  return highway ? speedLimitMaxDistanceM(highway) : _REQUERY_DIST_M;
+}
 
 /** Uçuşta kaç `useSpeedLimitByLocation` örneği sorgu sahibi — YALNIZ biri olur. */
 let _resolverOwned = false;
@@ -184,6 +205,8 @@ export function useSpeedLimitByLocation(lat: number | null, lon: number | null):
   /** Bu konum için kaçıncı deneme — başarıda ve 200 m sonra sıfırlanır. */
   const attemptRef  = useRef(0);
   const hasLimitRef = useRef(false);
+  /** Limitin OKUNDUĞU yolun sınıfı — yeniden sorgulama mesafesi bundan türer. */
+  const lastHighwayRef = useRef<string | null>(null);
   /** Uçuşta istek var mı — üst üste binen sorguları önler (telsiz/ısı). */
   const inFlightRef = useRef(false);
 
@@ -213,9 +236,13 @@ export function useSpeedLimitByLocation(lat: number | null, lon: number | null):
       const dlat  = (lat - q.lat) * 111_320;
       const dlon  = (lon - q.lon) * 111_320 * Math.cos(lat * (Math.PI / 180));
       const moved = Math.sqrt(dlat * dlat + dlon * dlon);
-      if (moved >= _REQUERY_DIST_M) {
+      /* Elimizde limit VARSA kapı, levhanın geçerlilik yarıçapıdır (otoyolda
+         1500 m); limit YOKSA taban 200 m'de kalır ki yeni yolda hızlı öğrenelim. */
+      const gateM = hasLimitRef.current ? _requeryDistM(lastHighwayRef.current) : _REQUERY_DIST_M;
+      if (moved >= gateM) {
         attemptRef.current  = 0;      // yeni yol → yeni deneme hakkı
         hasLimitRef.current = false;  // yeni yolun limiti YENİDEN öğrenilmeli
+        lastHighwayRef.current = null;
       } else if (hasLimitRef.current) {
         return;                        // aynı yol + bilgi var → sorgu gereksiz
       }
@@ -275,6 +302,7 @@ export function useSpeedLimitByLocation(lat: number | null, lon: number | null):
           if (Number.isFinite(n) && n > 0 && n <= 300) {
             hasLimitRef.current = true;
             attemptRef.current  = 0;
+            lastHighwayRef.current = el.tags?.highway ?? null;
             /* ÇELİŞKİ TESPİTİ: aynı 30 m yarıçapında FARKLI maxspeed etiketli
                başka yol var mı? Varsa hangisinin bizim yolumuz olduğunu
                bilemeyiz → truth model bunu CONFLICTED sayıp levhayı GİZLER. */
@@ -301,6 +329,7 @@ export function useSpeedLimitByLocation(lat: number | null, lon: number | null):
           if (inf !== null) {
             hasLimitRef.current = true;
             attemptRef.current  = 0;
+            lastHighwayRef.current = el.tags?.highway ?? null;
             setLimit({ kmh: inf, source: 'inferred' });
             _publish({
               kmh: inf, source: 'inferred', resolvedAtMs: performance.now(),

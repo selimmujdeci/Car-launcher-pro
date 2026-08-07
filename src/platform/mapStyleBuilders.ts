@@ -121,7 +121,7 @@ export function buildVectorStyle(
       // OEM tasarım gece paleti: sıcak grafit (--map-bg-1 #131822)
       { id: 'background',
         type: 'background',
-        paint: { 'background-color': '#131822' } },
+        paint: { 'background-color': MAP_BG_NIGHT } },
 
       // ── Water ─────────────────────────────────────────────
       // --map-water-a #1A2540 / --map-water-b #152035
@@ -387,22 +387,53 @@ export function buildVectorStyle(
   return style;
 }
 
-/** Raster (OSM) day/night paint setleri — applyMapDayNight canlı geçişte de bunu kullanır. */
+/* ═══════════════════════════════════════════════════════════════════════════
+   HARİTA GÜN/GECE TOKEN SİSTEMİ — TEK KAYNAK
+   ═══════════════════════════════════════════════════════════════════════════
+   Gündüz ve gece görünümü AYNI token setinden üretilir; bileşen içinde
+   rastgele renk YOKTUR. `buildRoadStyle` (stil kurulumu) ve `applyMapDayNight`
+   (canlı geçiş) ikisi de buradan okur → tek bir yerde değiştirilir.
+
+   ⚠️ RASTER SINIRI (dürüstlük notu): ürünün varsayılan yolu RASTER OSM
+   tile'ıdır (`buildVectorStyle` yalnız yerel .pbf veya `VITE_VECTOR_TILE_URL`
+   varsa devreye girer; yoksa raster'a düşer). Raster'da **katman başına**
+   (bina / ara yol / ana yol / etiket / POI / su) ayrı renk vermek MÜMKÜN
+   DEĞİLDİR — elde yalnız tüm görüntüye uygulanan parlaklık/kontrast/doygunluk
+   vardır. Bu yüzden "sokak isimleri okunsun ama arka plan koyu kalsın"
+   dengesi burada KONTRAST ile kurulur, katman renkleriyle değil. Gerçek
+   katman-bazlı gece paleti vektör stildedir (`buildVectorStyle`).
+
+   ── SAHA GEÇMİŞİ ──────────────────────────────────────────────────────────
+   • 2026-06-13: "çok koyu, yazı okunmuyor" → koyulaştırma brightness ile
+     yapılır, contrast düşürülerek etiketler EZİLMEZ.
+   • 2026-08-02 (Mersin, gerçek cihaz `adb screencap`): brightness-max .50
+     gündüz parlaklığındaydı; .08 fazla sönük; **.16 seçildi.**
+   • 2026-08-04 (bu tur): kullanıcı mini haritada "gece çok karanlık,
+     okunamıyor" bildirdi. .16 tam ekranda kabul edilebilirken mini haritada
+     (küçük alan, ince yol çizgileri, küçük etiketler) yol ağı seçilemiyordu.
+     Okunabilirlik profili yükseltildi: parlaklık .16 → .25, kontrast .30 → .40
+     (ana/ara yol ayrımı ve etiket kenarları), doygunluk -.70 → -.58 (su/yeşil
+     ipuçları geri gelir, neon olmaz). Gündüze DÖNMEZ: .25, gündüzün 1.0'ının
+     dörtte birinden azdır ve medya kartından parlak değildir.
+   • ÜST SINIR .25 PAZARLIKSIZ: `regression.guards` içindeki saha kilidi
+     (2026-08-02, ölçülen 180/255 piksel) bunu bağlar. Okunabilirlik artışı bu
+     zarfın İÇİNDE yapılır — kilit zayıflatılarak DEĞİL.                      */
+
+/** Profil adı — CAROS LAB `mapContrastProfile` alanı bunu gösterir. */
+export type MapContrastProfile = 'NIGHT_READABLE' | 'DAY_NATURAL';
+
+/** Gece token seti (raster). Tek kaynak — canlı geçiş de bunu kullanır. */
 export const RASTER_PAINT_NIGHT = {
-  // OEM gece tonu — Night UX Polish 2026-06-25: harita gece "ekranın en parlak
-  // bloğu" olmamalı (MBUX/iDrive/PCM ergonomisi). brightness-max 0.62→0.50
-  // (~%20 daha koyu) AMA contrast 0.42→0.52 ile yükseltilir → OSM'nin koyu
-  // etiketleri OKUNUR kalır (saha 2026-06-13 "çok koyu, yazı okunmuyor" geri
-  // gelmesin; 0.30'a İNİLMEZ). Net etki: zemin daha sönük, kontrast korunur.
   'raster-opacity': 1,
-  'raster-contrast': 0.52,
-  'raster-brightness-min': 0,
-  'raster-brightness-max': 0.50,
-  'raster-saturation': -0.55,
+  'raster-contrast': 0.40,
+  'raster-brightness-min': 0.02,   // saf siyah YOK — 0 blokları detayı yutuyordu
+  'raster-brightness-max': 0.25,
+  'raster-saturation': -0.58,
   'raster-hue-rotate': 15,
 } as const;
+
+/** Gündüz token seti — ham OSM'nin doğal renkleri, koyulaştırma YOK. */
 export const RASTER_PAINT_DAY = {
-  // Gündüz: ham OSM'nin doğal açık renkleri — hafif yumuşatma, koyulaştırma YOK.
   'raster-opacity': 1,
   'raster-contrast': 0.05,
   'raster-brightness-min': 0,
@@ -410,6 +441,16 @@ export const RASTER_PAINT_DAY = {
   'raster-saturation': -0.05,
   'raster-hue-rotate': 0,
 } as const;
+
+/** Arka plan token'ları — TEK KAYNAK `map/_mapState.ts` (paylaşılan sabitler evi).
+ *  Burada yalnız yeniden dışa aktarılır ki stil kurucuları tek yerden okusun. */
+export { MAP_BG_NIGHT, MAP_BG_DAY } from './map/_mapState';
+import { MAP_BG_NIGHT, MAP_BG_DAY } from './map/_mapState';
+
+/** Yürürlükteki kontrast profili — LAB gözlemi için. */
+export function getMapContrastProfile(night: boolean): MapContrastProfile {
+  return night ? 'NIGHT_READABLE' : 'DAY_NATURAL';
+}
 
 export function buildRoadStyle(
   activeSourceId: string | null,
@@ -438,7 +479,7 @@ export function buildRoadStyle(
       {
         id: 'background',
         type: 'background',
-        paint: { 'background-color': night ? '#131822' : '#e9eef3' }  // gece grafit / gündüz açık
+        paint: { 'background-color': night ? MAP_BG_NIGHT : MAP_BG_DAY }  // token seti — tek kaynak
       },
       {
         id: 'tiles-layer',

@@ -99,7 +99,7 @@ export function dispatchHomeWorkNavigation(
     return { ok: false, reason: result.reason };
   }
 
-  startNavigation(result.address);
+  startNavigation(result.address, false, 'USER_QUICK');   // kütük #429: ev/iş komutu
   speakNavigation(i18n.t(category === 'home' ? 'navigation.home_starting' : 'navigation.work_starting'));
   return { ok: true };
 }
