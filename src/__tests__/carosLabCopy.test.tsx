@@ -123,9 +123,12 @@ describe('KİLİT 5 — model SAF ve bağlam dürüst', () => {
     expect(r.text).toContain(CAROS_LAB_COPY_SCHEMA);
     expect(r.text).toContain('maskeleme    : AÇIK');
     expect(r.text).toContain('session-inspector');
-    // 11 bölüm: katalog · anlık araç verisi · kaynak sağlığı · oturum · zamanlama ·
-    // kanıt · ham OBD · CAN · keşif · BlackBox · hata kütüğü.
-    expect(r.sectionCount).toBe(11);
+    // 12 bölüm: katalog · anlık araç verisi · kaynak sağlığı · KAZA ALGILAMA ·
+    // oturum · zamanlama · kanıt · ham OBD · CAN · keşif · BlackBox · hata kütüğü.
+    // 2026-08-07: kütük #456 ile "kaza algılama" sayaçları eklendi (yalnız ADET
+    // ve eşik; kaza kaydının içeriği LAB'a TAŞINMAZ). Kilit kaldırılmadı —
+    // bölüm sayısı yeni doğru değere taşındı.
+    expect(r.sectionCount).toBe(12);
     expect(r.text).toContain('ANLIK ARAÇ VERİSİ');
     expect(r.text).toContain('KAYNAK SAĞLIĞI');
     expect(r.text).toContain('BLACKBOX ÖRNEKLERİ');

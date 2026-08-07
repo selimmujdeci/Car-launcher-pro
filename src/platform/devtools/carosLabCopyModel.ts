@@ -94,6 +94,13 @@ export interface CarosLabCopyInput {
   readonly errorLog: readonly unknown[] | null;
   /** Vehicle HAL kaynak sağlığı — `canAlive/obdAlive/gpsAlive`, null = BİLİNMİYOR. */
   readonly sourceHealth: unknown | null;
+  /**
+   * Kaza algılama sağlığı (kütük #456): kaç kayıt yazıldı, kaç darbe hareket
+   * kanıtı olmadığı için reddedildi, depoda kaç kayıt duruyor.
+   * GİZLİLİK: yalnız SAYI ve eşik taşır — kaza kaydının içeriği (konum, hız
+   * izi, G tamponu) LAB'a TAŞINMAZ.
+   */
+  readonly crashDetection: unknown | null;
 }
 
 export interface CarosLabCopyResult {
@@ -254,6 +261,7 @@ export function buildCarosLabCopy(input: CarosLabCopyInput): CarosLabCopyResult 
     fromRows('KATALOG DURUMU', input?.catalog ?? null, (r) => r),
     fromObject('ANLIK ARAÇ VERİSİ', input?.obdData ?? null),
     fromObject('KAYNAK SAĞLIĞI (HAL · null = BİLİNMİYOR)', input?.sourceHealth ?? null),
+    fromObject('KAZA ALGILAMA (yalnız sayaç · null = BİLİNMİYOR)', input?.crashDetection ?? null),
     fromObject('OTURUM DENETÇİSİ (ham snapshot)', input?.session ?? null),
     fromObject('ÇALIŞMA ZAMANI ZAMANLAMA (ham snapshot)', input?.scheduling ?? null),
     fromRows('KANITLAR', input?.evidence ?? null, (r) => r),

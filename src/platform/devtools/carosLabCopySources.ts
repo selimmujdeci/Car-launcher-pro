@@ -19,7 +19,7 @@ import { getValidationSnapshot } from '../validation/validationRecorder';
 import { discoveryCaptureService } from '../obd/discovery';
 import { useDebugStore } from '../debug';
 import { getOBDDataSnapshot } from '../obdService';
-import { getReplayData } from '../security/blackBoxService';
+import { getReplayData, getCrashDetectionHealth } from '../security/blackBoxService';
 import { useHALStatusStore } from '../vehicleDataLayer/halStatusStore';
 import { getDevtoolsCaptureStatus } from './devtoolsCapture';
 import { getErrorLog } from '../crashLogger';
@@ -113,5 +113,6 @@ export function readCarosLabCopyInput(ctx: CopyContext): CarosLabCopyInput {
        `updatedAt` worker MONOTONİK saatidir (performance.now()), duvar saati DEĞİL →
        `Date.now()` ile bayatlık hesaplamak YANLIŞ olur; ham geçirilir, yorumlanmaz. */
     sourceHealth: safe(() => useHALStatusStore.getState().sourceHealth as unknown),
+    crashDetection: safe(() => getCrashDetectionHealth() as unknown),
   };
 }

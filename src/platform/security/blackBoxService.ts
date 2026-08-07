@@ -59,6 +59,29 @@ const G_TO_MS2          = 9.80665;
 const CRASH_COOLDOWN_MS = 10_000;
 const CRASH_KEY_PREFIX  = 'crash-log-';
 
+/* ── Kaza kararı: HAREKET KANITI zorunlu (kütük #456) ──────────────────────
+ *
+ * SAHA 2026-08-06, cihaz depolaması: 15+ `crash-log-*` kaydı (~70 KB/adet),
+ * `peakG` değerleri 6,0-9,99 G. Otomobilde bu gerçek çarpışma demektir; oysa
+ * araç sağlam ve yolculuklar normal tamamlanmıştı → tetikleyici, telefonun
+ * ELLE SALLANMASIYDI. 6G eşiği tek başına aracı elden ayırt edemez.
+ *
+ * Kural: "kanıtsız bilgi üretilmez". Bir kaza kaydı, kaza OLDUĞUNU iddia eden
+ * bir belgedir; hareket kanıtı olmadan üretilmesi uydurma kanıttır. Bu yüzden
+ * darbe, yakın geçmişte ÖLÇÜLMÜŞ araç hareketiyle desteklenmelidir.
+ *
+ * Fail-soft ve dürüstlük: hız BİLİNMİYORSA (sensör yok/bağlantı kopuk) bu
+ * "araç duruyor" DEMEK DEĞİLDİR — ama "kaza oldu" da demek değildir. Kayıt
+ * üretilmez, olay SAYILIR (`getCrashDetectionHealth`) ki sahada körlük değil
+ * ölçülebilir bir büyüklük olarak görünsün. */
+const CRASH_MIN_SPEED_KMH    = 15;      // altında çarpışma kaydı üretilmez
+const CRASH_MOTION_WINDOW_MS = 10_000;  // hareket kanıtının tazelik penceresi
+
+/* Depolama tavanı: kayıtlar ~70 KB. Sahada 15+ kayıt × 70 KB birikmişti ve
+ * hiç budanmıyordu (CLAUDE.md: büyük blob'u localStorage'a yığmak yasak).
+ * En yeni N tutulur — kaza sonrası incelemede anlamlı olan en son olaydır. */
+const MAX_CRASH_RECORDS = 5;
+
 /* ══════════════════════════════════════════════════════════════════
    CRASH REPLAY BUFFER — 1Hz / 60 Entry Ring (Post-Mortem Analysis)
    10Hz G-force buffer'dan ayrı; yalnızca logError anında diske yazılır.
@@ -310,6 +333,11 @@ let _accelUnsub:         (() => void) | null = null;
 let _obdUnsub:           (() => void) | null = null;
 // Monotonic cooldown: performance.now() tabanlı → sistem saati atlamasına karşı bağışık
 let _lastCrashMono       = -Infinity;
+/** Hareket KANITININ son görüldüğü an (monotonic ms). -Infinity = hiç görülmedi. */
+let _lastMotionMono      = -Infinity;
+/** Gözlemlenebilirlik sayaçları — hüküm değil, ölçüm (bkz. getCrashDetectionHealth). */
+let _crashRecorded       = 0;
+let _crashRejectedNoMotion = 0;
 // Safety Lock hysteresis timer — manevra bitiminden 2s sonra kilidi serbest bırakır
 let _safetyUnlockTimer:  ReturnType<typeof setTimeout> | null = null;
 
@@ -332,12 +360,43 @@ function _clearSafetyLock(): void {
 
 /* ── Kaza verisi kilitleme ────────────────────────────────────── */
 
+/**
+ * `crash-log-*` kayıtlarını en yeni `MAX_CRASH_RECORDS` adetle sınırlar.
+ *
+ * Anahtar biçimi `crash-log-<Date.now()>` olduğundan sıralama sözlüksel DEĞİL
+ * SAYISAL yapılır (13 haneli epoch'ta sözlüksel sıra tesadüfen doğru çalışır
+ * ama 2286'da hane değişince sessizce bozulurdu). Ayrıştırılamayan anahtar
+ * EN ESKİ sayılır — bozuk kayıt yeni kaydı dışarı itemez.
+ *
+ * Fail-soft: depolama listelenemezse budama atlanır, kaza kaydı yine yazılmıştır.
+ */
+function _pruneCrashLogs(): void {
+  try {
+    const keys = listCrashLogKeys();
+    if (keys.length <= MAX_CRASH_RECORDS) return;
+    const ts = (k: string): number => {
+      const n = Number(k.slice(CRASH_KEY_PREFIX.length));
+      return Number.isFinite(n) ? n : -1;
+    };
+    keys.sort((a, b) => ts(b) - ts(a));                  // en yeni başa
+    for (const k of keys.slice(MAX_CRASH_RECORDS)) safeRemoveRaw(k);
+  } catch { /* budama yapılamadı — kaza kaydının kendisi etkilenmez */ }
+}
+
 function _lockCrashData(peakG: number): void {
   const mono = performance.now() - _origin;  // monotonic delta — cooldown + crashMono için
   const now  = Date.now();                   // duvar saati — yalnızca crashAt ve dosya adı için
 
   // Monotonic cooldown: Date.now() atlaması çift kaydı tetikleyemez
   if (mono - _lastCrashMono < CRASH_COOLDOWN_MS) return;
+
+  /* HAREKET KANITI KAPISI (kütük #456) — cooldown mandalından SONRA, ama
+     mandalı KİLİTLEMEDEN önce: kanıtsız darbe kaydı üretmez ve gerçek bir
+     çarpışma hemen ardından gelirse cooldown onu yutmaz. */
+  if (mono - _lastMotionMono > CRASH_MOTION_WINDOW_MS) {
+    _crashRejectedNoMotion++;
+    return;
+  }
   _lastCrashMono = mono;
 
   // Kaza anındaki G verisini mevcut slota yaz (snapshot öncesi)
@@ -359,6 +418,8 @@ function _lockCrashData(peakG: number): void {
   // R-2 Atomik Filesystem: native → atomik .tmp→rename; web → localStorage
   const key = `${CRASH_KEY_PREFIX}${now}`;
   void safeSetRawImmediate(key, JSON.stringify(record));
+  _crashRecorded++;
+  _pruneCrashLogs();
 
   dispatchCrashDetected(peakG);
 }
@@ -436,6 +497,14 @@ function _sampleVehicleState(): void {
   slot.gy       = _lastGy;
   slot.gz       = _lastGz;
 
+  /* HAREKET KANITI (kütük #456): kaza kararının ikinci ayağı. ÖLÇÜLMÜŞ hız
+     aranır — `vs.speed ?? 0` gibi sahte bir 0 kanıt sayılmaz, `null` de
+     "duruyor" diye okunmaz; yalnız gerçek bir sayı eşiği geçerse an damgalanır.
+     OBD hızı ayrı bir tanıktır (-1 = PID desteklenmiyor). Zero-allocation. */
+  const _vsSpeed  = typeof vs.speed === 'number' ? vs.speed : -1;
+  const _bestSpd  = _lastOBDSpeed > _vsSpeed ? _lastOBDSpeed : _vsSpeed;
+  if (_bestSpd >= CRASH_MIN_SPEED_KMH) _lastMotionMono = slot.ts;
+
   // Maneuver Detection → Safety Lock (CLAUDE.md §2.3 Hysteresis)
   // peakG: max-abs ekseni — araç sert fren / hızlanma / viraj ivmesini yakalar.
   // Zero-allocation: primitif karşılaştırma, nesne yok.
@@ -463,6 +532,10 @@ export function startBlackBox(): () => void {
   _head          = 0;
   _filled        = 0;
   _lastCrashMono = -Infinity;  // cooldown sıfırla — ilk kaza her zaman geçer
+  /* Hareket kanıtı DEVRALINMAZ: yeni oturum, kanıtı yeniden ölçmelidir.
+     Muhafazakâr yön — kanıt yokken kapı kapalıdır (kütük #456). */
+  _lastMotionMono = -Infinity;
+  _crashRecorded = _crashRejectedNoMotion = 0;
   _lastGx = _lastGy = _lastGz = 0;
   _lastOBDSpeed = _lastOBDRpm = _lastOBDThrottle = -1;
 
@@ -526,6 +599,43 @@ export function readCrashLog(key: string): CrashRecord | null {
  */
 export function deleteCrashLog(key: string): void {
   safeRemoveRaw(key);
+}
+
+/** Kaza algılama sağlığı — salt-okunur ÖLÇÜM (hüküm/iddia değil). */
+export interface CrashDetectionHealth {
+  /** Bu oturumda diske yazılan kaza kaydı sayısı. */
+  readonly recorded: number;
+  /** Eşiği aşan ama hareket kanıtı olmayan darbe sayısı (elde sallama vb.). */
+  readonly rejectedNoMotion: number;
+  /** Hareket kanıtı hiç görülmedi mi — `true` ise her darbe reddedilir. */
+  readonly motionEvidenceSeen: boolean;
+  /** Depoda duran kaza kaydı sayısı; `null` = depo listelenemedi (UNAVAILABLE). */
+  readonly storedRecords: number | null;
+  /** Yürürlükteki eşikler — sahada ölçümü yorumlayabilmek için. */
+  readonly minSpeedKmh: number;
+  readonly motionWindowMs: number;
+  readonly maxStored: number;
+}
+
+/**
+ * Kaza algılamanın ölçülebilir durumu (kütük #456).
+ *
+ * Neden var: "hareket kanıtı yok" diye reddedilen darbeler sessizce yok
+ * olursa, sahada eşiğin fazla mı sıkı yoksa gevşek mi olduğu ASLA bilinemez.
+ * Sayaç, kararın kendisini değiştirmez — yalnız görünür kılar.
+ */
+export function getCrashDetectionHealth(): CrashDetectionHealth {
+  let stored: number | null = null;
+  try { stored = listCrashLogKeys().length; } catch { stored = null; }
+  return {
+    recorded:           _crashRecorded,
+    rejectedNoMotion:   _crashRejectedNoMotion,
+    motionEvidenceSeen: _lastMotionMono > -Infinity,
+    storedRecords:      stored,
+    minSpeedKmh:        CRASH_MIN_SPEED_KMH,
+    motionWindowMs:     CRASH_MOTION_WINDOW_MS,
+    maxStored:          MAX_CRASH_RECORDS,
+  };
 }
 
 /* ── HMR cleanup ─────────────────────────────────────────────── */
