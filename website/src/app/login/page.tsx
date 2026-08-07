@@ -4,6 +4,15 @@ import { useState, FormEvent, Suspense } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { getSupabaseBrowserClient, isSupabaseConfigured } from '@/lib/supabaseBrowser';
+import {
+  beginAuthSessionOperation,
+  canApplyAuthSessionOperation,
+  finishAuthSessionOperation,
+} from '@/security/accountCleanup/authSessionGenerationGuard';
+import {
+  canonicalSignInWithOAuth,
+  canonicalSignInWithPassword,
+} from '@/security/accountCleanup/canonicalAuthMutations';
 
 function LoginForm() {
   const router = useRouter();
@@ -23,16 +32,26 @@ function LoginForm() {
     setError('');
     setGoogleLoading(true);
     const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || window.location.origin;
-    const { error: oauthError } = await supabase.auth.signInWithOAuth({
-      provider: 'google',
-      options: {
-        redirectTo: `${siteUrl}/auth/callback`,
-        queryParams: { access_type: 'offline', prompt: 'consent' },
-      },
-    });
-    if (oauthError) {
-      setError('Google girişi başlatılamadı: ' + oauthError.message);
-      setGoogleLoading(false);
+    const operation = beginAuthSessionOperation();
+    if (!operation) { setGoogleLoading(false); return; }
+    try {
+      const { error: oauthError } = await canonicalSignInWithOAuth(
+        supabase,
+        {
+        provider: 'google',
+        options: {
+          redirectTo: `${siteUrl}/auth/callback`,
+          queryParams: { access_type: 'offline', prompt: 'consent' },
+        },
+        },
+      );
+      if (!canApplyAuthSessionOperation(operation)) return;
+      if (oauthError) {
+        setError('Google girişi başlatılamadı: ' + oauthError.message);
+        setGoogleLoading(false);
+      }
+    } finally {
+      finishAuthSessionOperation(operation);
     }
   };
 
@@ -57,13 +76,25 @@ function LoginForm() {
         setError('Kimlik doğrulama servisi başlatılamadı.');
         return;
       }
-      const { error: authError } = await supabase.auth.signInWithPassword({ email, password });
-      if (authError) {
-        setError('E-posta veya şifre hatalı.');
+      const operation = beginAuthSessionOperation();
+      if (!operation) {
+        setError('Güvenli oturum temizliği sürüyor.');
         return;
       }
-
-      router.push(redirect);
+      try {
+        const { error: authError } = await canonicalSignInWithPassword(
+          supabase,
+          { email, password },
+        );
+        if (!canApplyAuthSessionOperation(operation)) return;
+        if (authError) {
+          setError('E-posta veya şifre hatalı.');
+          return;
+        }
+        router.push(redirect);
+      } finally {
+        finishAuthSessionOperation(operation);
+      }
     } catch {
       setError('Giriş sırasında bir hata oluştu.');
     } finally {

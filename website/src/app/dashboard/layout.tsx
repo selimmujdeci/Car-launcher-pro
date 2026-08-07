@@ -8,6 +8,7 @@ import { useRealtime } from '@/hooks/useRealtime';
 import { usePlan } from '@/hooks/usePlan';
 import { TrialBanner } from '@/components/plan/TrialBanner';
 import { PinDialog } from '@/components/dashboard/PinDialog';
+import { AccountCleanupBootGate } from '@/components/security/AccountCleanupBootGate';
 
 function DashboardInner({ children }: { children: React.ReactNode }) {
   useRealtime();
@@ -52,5 +53,9 @@ function DashboardInner({ children }: { children: React.ReactNode }) {
 }
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
-  return <DashboardInner>{children}</DashboardInner>;
+  return (
+    <AccountCleanupBootGate>
+      <DashboardInner>{children}</DashboardInner>
+    </AccountCleanupBootGate>
+  );
 }

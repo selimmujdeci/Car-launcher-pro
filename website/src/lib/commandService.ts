@@ -12,6 +12,9 @@ import { supabaseBrowser, isSupabaseConfigured } from './supabase';
 import { encryptPayload } from './commandCrypto';
 import { getStoredApiKey } from './pairingService';
 import { TIMING } from './constants';
+import {
+  evaluateAccountScopedCapability,
+} from '@/security/accountCleanup/accountCleanupRuntime';
 
 // ── Kritik komut tipi listesi ─────────────────────────────────────────────────
 const CRITICAL_COMMANDS: CommandType[] = ['unlock', 'alarm_off'];
@@ -59,6 +62,7 @@ export interface SendResult {
   commandId?: string;
   queued?:    boolean;  // true: araç offline, komut sıraya alındı
   error?:     string;
+  code?:      'ACCOUNT_CLEANUP_LOCKDOWN' | 'SECURITY_RUNTIME_UNAVAILABLE';
 }
 
 export interface SendCommandOptions {
@@ -157,6 +161,16 @@ export async function sendCommand(
   payload: CommandPayload = {},
   options: SendCommandOptions = {},
 ): Promise<SendResult> {
+  const access = evaluateAccountScopedCapability('COMMAND_DISPATCH');
+  if (!access.allowed) {
+    return {
+      ok: false,
+      error: 'Güvenli oturum temizliği sırasında komut gönderilemez.',
+      code: access.code === 'RUNTIME_UNAVAILABLE'
+        ? 'SECURITY_RUNTIME_UNAVAILABLE'
+        : 'ACCOUNT_CLEANUP_LOCKDOWN',
+    };
+  }
   // Giriş yapılmamışsa api_key yolunu kullan (standalone PWA modu)
   const session = supabaseBrowser
     ? (await supabaseBrowser.auth.getSession()).data.session
@@ -234,6 +248,9 @@ export function subscribeCommandStatus(
   onEvent:   (ev: StatusEvent) => void,
   timeoutMs  = 15_000,
 ): () => void {
+  if (!evaluateAccountScopedCapability('COMMAND_DISPATCH').allowed) {
+    return () => {};
+  }
   if (!supabaseBrowser) return () => {};
 
   let settled = false;

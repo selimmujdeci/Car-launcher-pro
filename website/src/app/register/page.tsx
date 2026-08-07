@@ -4,6 +4,15 @@ import { useState, FormEvent, Suspense } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { getSupabaseBrowserClient, isSupabaseConfigured } from '@/lib/supabaseBrowser';
+import {
+  beginAuthSessionOperation,
+  canApplyAuthSessionOperation,
+  finishAuthSessionOperation,
+} from '@/security/accountCleanup/authSessionGenerationGuard';
+import {
+  canonicalSignInWithOAuth,
+  canonicalSignUp,
+} from '@/security/accountCleanup/canonicalAuthMutations';
 
 function RegisterForm() {
   const router = useRouter();
@@ -24,16 +33,26 @@ function RegisterForm() {
     setError('');
     setGoogleLoading(true);
     const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || window.location.origin;
-    const { error: oauthError } = await supabase.auth.signInWithOAuth({
-      provider: 'google',
-      options: {
-        redirectTo: `${siteUrl}/auth/callback`,
-        queryParams: { access_type: 'offline', prompt: 'consent' },
-      },
-    });
-    if (oauthError) {
-      setError('Google girişi başlatılamadı: ' + oauthError.message);
-      setGoogleLoading(false);
+    const operation = beginAuthSessionOperation();
+    if (!operation) { setGoogleLoading(false); return; }
+    try {
+      const { error: oauthError } = await canonicalSignInWithOAuth(
+        supabase,
+        {
+        provider: 'google',
+        options: {
+          redirectTo: `${siteUrl}/auth/callback`,
+          queryParams: { access_type: 'offline', prompt: 'consent' },
+        },
+        },
+      );
+      if (!canApplyAuthSessionOperation(operation)) return;
+      if (oauthError) {
+        setError('Google girişi başlatılamadı: ' + oauthError.message);
+        setGoogleLoading(false);
+      }
+    } finally {
+      finishAuthSessionOperation(operation);
     }
   };
 
@@ -58,21 +77,34 @@ function RegisterForm() {
         return;
       }
       const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || window.location.origin;
-      const { error: authError } = await supabase.auth.signUp({
-        email,
-        password,
-        options: {
-          data: { full_name: fullName.trim() },
-          emailRedirectTo: `${siteUrl}/auth/callback`,
-        },
-      });
-      if (authError) {
-        setError(authError.message === 'User already registered'
-          ? 'Bu e-posta zaten kayıtlı. Giriş yapmayı deneyin.'
-          : 'Kayıt sırasında hata oluştu.');
+      const operation = beginAuthSessionOperation();
+      if (!operation) {
+        setError('Güvenli oturum temizliği sürüyor.');
         return;
       }
-      setDone(true);
+      try {
+        const { error: authError } = await canonicalSignUp(
+          supabase,
+          {
+          email,
+          password,
+          options: {
+            data: { full_name: fullName.trim() },
+            emailRedirectTo: `${siteUrl}/auth/callback`,
+          },
+          },
+        );
+        if (!canApplyAuthSessionOperation(operation)) return;
+        if (authError) {
+          setError(authError.message === 'User already registered'
+            ? 'Bu e-posta zaten kayıtlı. Giriş yapmayı deneyin.'
+            : 'Kayıt sırasında hata oluştu.');
+          return;
+        }
+        setDone(true);
+      } finally {
+        finishAuthSessionOperation(operation);
+      }
     } catch {
       setError('Kayıt sırasında bir hata oluştu.');
     } finally {

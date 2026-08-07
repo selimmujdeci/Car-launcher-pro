@@ -1,8 +1,52 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { LiveVehicle } from '@/types/realtime';
 import { supabaseBrowser } from '@/lib/supabase';
+import {
+  measurementLabel,
+  locationLabel,
+  freshnessLabel,
+  dataSourceLabel,
+  ageLabel,
+} from '@/lib/fleet/vehicleTelemetryFreshness';
+import {
+  buildVehicleIdentityView,
+  identityStatusLabel,
+  identityFieldLabel,
+  identityConfidenceLabel,
+  identityConflictLabel,
+  type VehicleIdentityRow,
+} from '@/lib/fleet/vehicleIdentityView';
+import {
+  buildTripsView,
+  tripValueLabel,
+  tripTimeLabel,
+  tripScoreLabel,
+  tripConfidenceLabel,
+  tripUploadStateLabel,
+  tripDurationLabel,
+  tripCountLabel,
+  tripCostLabel,
+  fuelRejectReasonLabel,
+} from '@/lib/fleet/vehicleTripsView';
+import type { TripRow } from '@/lib/fleet/vehicleTripsView';
+import { readSubjectEvidence, type SubjectEvidenceReading } from '@/lib/lab/intelligenceLabSource';
+import { SubjectEvidenceList } from '@/components/dashboard/SubjectEvidenceList';
+import {
+  tripDriverLabel,
+  attributionSourceLabel,
+  attributionConfidenceLabel,
+} from '@/lib/fleet/driverIdentity';
+import {
+  buildLastSeenDriverView,
+  lastSeenDriverLabel,
+  lastSeenDetailLabel,
+  type PresenceHistoryRow,
+} from '@/lib/fleet/driverPresenceHistoryView';
+import {
+  fetchVehicleIdentities, fetchVehicleTrips, fetchVehiclePresenceHistory,
+} from '@/lib/vehicles.service';
 
 interface VehicleModalProps {
   vehicle: LiveVehicle;
@@ -18,6 +62,129 @@ const statusConfig = {
 
 export default function VehicleModal({ vehicle: v, onClose, onRemove }: VehicleModalProps) {
   const s = statusConfig[v.status];
+  /* Gerçek katmanı — bilinmeyen `null`, tazelik/kaynak ayrı. */
+  const t = v.telemetry;
+  const fuel = t?.fuelPercent;
+  const fuelKnown = fuel != null && fuel.value !== null;
+  const fuelPct = fuelKnown ? Math.max(0, Math.min(100, fuel.value as number)) : 0;
+
+  /* ── Araç kimliği (P1) ─────────────────────────────────────────────────
+     `null` = OKUNAMADI (RPC yok/yetki yok/ağ hatası) — "kayıt yok" ile
+     KARIŞTIRILMAZ. Okuma başarısız olursa UI "Okunamadı" der, sahte
+     "Kimlik bilinmiyor" DEMEZ. */
+  const [identityRow, setIdentityRow] = useState<VehicleIdentityRow | null>(null);
+  const [identityReadable, setIdentityReadable] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    void (async () => {
+      const map = await fetchVehicleIdentities();
+      if (!alive) return;                       // unmount sonrası setState YOK
+      if (map === null) { setIdentityReadable(false); return; }
+      setIdentityReadable(true);
+      setIdentityRow(map.get(v.id) ?? null);
+    })();
+    return () => { alive = false; };
+  }, [v.id]);
+
+  /* ── ARAC KANITI (DORMANT ACTIVATION P0) ────────────────────────────
+     `get_subject_evidence` SQL 056'dan beri VARDI ama hicbir yer cagirmiyordu.
+     Burada okuma ucu tamamlanir. `null` = OKUNAMADI, bos dizi = kanit yok —
+     ikisi AYRI gosterilir. Oturum kimligi RPC'nin kendi `auth.uid()`
+     kapisindan gelir; bu bilesen ikinci bir yetki kapisi KURMAZ. */
+  const [evidence, setEvidence] = useState<SubjectEvidenceReading | null>(null);
+
+  /* ── TRIP DETAY + KANIT ─────────────────────────────────────────────
+     Yolculuk satirina tiklaninca acilir. Kanit YALNIZ secilen yolculuk icin
+     okunur (acilista toplu okuma YOK). `tripId` sunucu kimligidir ve ekrana
+     BASILMAZ — yalniz RPC parametresi. */
+  const [openTripKey, setOpenTripKey] = useState<string | null>(null);
+  const [tripEvidence, setTripEvidence] = useState<SubjectEvidenceReading | null>(null);
+  const tripAlive = useRef(true);
+
+  useEffect(() => {
+    tripAlive.current = true;
+    return () => { tripAlive.current = false; };
+  }, []);
+
+  const toggleTrip = useCallback(async (tripKey: string, tripId: string | null) => {
+    const next = openTripKey === tripKey ? null : tripKey;
+    setOpenTripKey(next);
+    setTripEvidence(null);
+    if (next === null || tripId === null) return;
+    const r = await readSubjectEvidence('session', 'TRIP', tripId);
+    if (!tripAlive.current) return;
+    setTripEvidence(r);
+  }, [openTripKey]);
+
+  useEffect(() => {
+    let alive = true;
+    void (async () => {
+      /* userId parametresi yalnizca "oturum var mi" on kapisidir; gercek
+         yetki sunucuda. Modal zaten oturumlu dashboard icinde acilir. */
+      const r = await readSubjectEvidence('session', 'VEHICLE', v.id);
+      if (!alive) return;
+      setEvidence(r);
+    })();
+    return () => { alive = false; };
+  }, [v.id]);
+
+  const identity = buildVehicleIdentityView({
+    now: Date.now(),
+    row: identityRow,
+    readable: identityReadable === true,
+  });
+  const identityConflictText = identity.conflictCount > 0
+    ? identityConflictLabel(identity.conflictReason)
+    : null;
+
+  /* ── Yolculuklar (P1) ──────────────────────────────────────────────────
+     `null` = OKUNAMADI — "yolculuk yok" ile KARIŞTIRILMAZ. */
+  const [tripRows, setTripRows] = useState<TripRow[] | null>(null);
+  const [tripsReadable, setTripsReadable] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    void (async () => {
+      const rows = await fetchVehicleTrips(v.id, 20);
+      if (!alive) return;                       // unmount sonrası setState YOK
+      if (rows === null) { setTripsReadable(false); return; }
+      setTripsReadable(true);
+      setTripRows(rows);
+    })();
+    return () => { alive = false; };
+  }, [v.id]);
+
+  const tripsView = buildTripsView({
+    rows: tripRows,
+    readable: tripsReadable === true,
+  });
+
+  /* ── Son görülen sürücü (P1 · varlık geçmişi) ──────────────────────────
+     Bu bir GÖZLEMDİR, trip attribution KARARI DEĞİLDİR: araçta fiziksel
+     bir varlık işareti okundu demektir. `null` = OKUNAMADI — "gözlem yok"
+     ile KARIŞTIRILMAZ. */
+  const [presenceRows, setPresenceRows] = useState<PresenceHistoryRow[] | null>(null);
+  const [presenceReadable, setPresenceReadable] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    void (async () => {
+      const rows = await fetchVehiclePresenceHistory(v.id, 20);
+      if (!alive) return;                       // unmount sonrası setState YOK
+      if (rows === null) { setPresenceReadable(false); return; }
+      setPresenceReadable(true);
+      setPresenceRows(rows);
+    })();
+    return () => { alive = false; };
+  }, [v.id]);
+
+  const lastSeen = buildLastSeenDriverView({
+    rows: presenceRows,
+    readable: presenceReadable === true,
+  });
+  const lastSeenDetail = lastSeenDetailLabel(lastSeen);
+
   const [removing, setRemoving] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState(false);
   const [removeError, setRemoveError] = useState<string | null>(null);
@@ -96,26 +263,66 @@ export default function VehicleModal({ vehicle: v, onClose, onRemove }: VehicleM
         {/* Scrollable content */}
         <div className="overflow-y-auto flex-1 px-5 py-5 sm:px-6 flex flex-col gap-4">
           {/* Metrics */}
+          {/* Ölçümler — bilinmeyen değer `0` GÖSTERİLMEZ, uyarı rengi ALMAZ. */}
           <div className="grid grid-cols-3 gap-2.5">
             {[
-              { label: 'Hız', value: `${v.speed} km/h`, warn: false },
-              { label: 'RPM', value: v.rpm.toLocaleString(), warn: v.rpm > 3000 },
-              { label: 'Motor °C', value: `${v.engineTemp}°`, warn: v.engineTemp > 100 },
-            ].map(({ label, value, warn }) => (
-              <div key={label} className="p-4 rounded-2xl bg-white/[0.03] border border-white/[0.06] text-center">
-                <p className={`text-base font-bold font-mono ${warn ? 'text-red-400' : 'text-white/85'}`}>{value}</p>
-                <p className="text-[10px] text-white/30 mt-0.5">{label}</p>
-              </div>
-            ))}
+              { label: 'Hız',     m: t?.speedKmh,    unit: 'km/h', warnAbove: undefined as number | undefined },
+              { label: 'RPM',     m: t?.rpm,         unit: 'rpm',  warnAbove: 3000 },
+              { label: 'Motor °C', m: t?.engineTempC, unit: '°C',   warnAbove: 100 },
+            ].map(({ label, m, unit, warnAbove }) => {
+              const known = m != null && m.value !== null;
+              // Uyarı YALNIZ ölçülmüş + CANLI veriye verilir.
+              const warn = known && m!.state === 'LIVE' && warnAbove !== undefined && (m!.value as number) > warnAbove;
+              return (
+                <div key={label} className="p-4 rounded-2xl bg-white/[0.03] border border-white/[0.06] text-center">
+                  <p className={`text-base font-bold font-mono ${
+                    !known ? 'text-white/25' : warn ? 'text-red-400'
+                    : m!.state !== 'LIVE' ? 'text-white/45' : 'text-white/85'
+                  }`}>
+                    {m ? measurementLabel(m, unit) : 'Veri yok'}
+                  </p>
+                  <p className="text-[10px] text-white/30 mt-0.5">{label}</p>
+                </div>
+              );
+            })}
           </div>
+
+          {/* Bağlantı ve tazelik — kaynak ve yaş açıkça yazılır. */}
+          {t && (
+            <div className="p-4 rounded-2xl bg-white/[0.03] border border-white/[0.06] flex flex-col gap-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-white/35">Araç ünitesi</span>
+                <span className="text-xs text-white/70">
+                  {freshnessLabel(t.device)} · {ageLabel(t.deviceAgeMs)}
+                </span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-white/35">Konum</span>
+                <span className="text-xs text-white/70 text-right">
+                  {locationLabel(t)}
+                  <span className="text-white/30"> · {dataSourceLabel(t.locationSource)}</span>
+                </span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-white/35">Motor verisi (OBD)</span>
+                <span className="text-xs text-white/70">{freshnessLabel(t.engine)}</span>
+              </div>
+              {t.accuracyM !== null && (
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-white/35">Konum doğruluğu</span>
+                  <span className="text-xs text-white/70">±{Math.round(t.accuracyM)} m</span>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Details */}
           <div className="grid grid-cols-2 gap-2.5">
             {[
               { label: 'Sürücü', value: v.driver },
-              { label: 'Konum', value: v.location },
-              { label: 'Son Görülme', value: v.lastSeen },
-              { label: 'Kilometre', value: `${v.odometer.toLocaleString()} km` },
+              { label: 'Konum', value: t ? locationLabel(t) : v.location },
+              { label: 'Son Görülme', value: t ? ageLabel(t.deviceAgeMs) : v.lastSeen },
+              { label: 'Kilometre', value: v.odometer > 0 ? `${v.odometer.toLocaleString()} km` : 'Veri yok' },
             ].map(({ label, value }) => (
               <div key={label} className="p-4 rounded-2xl bg-white/[0.03] border border-white/[0.06]">
                 <p className="text-[10px] text-white/25 mb-1">{label}</p>
@@ -124,27 +331,301 @@ export default function VehicleModal({ vehicle: v, onClose, onRemove }: VehicleM
             ))}
           </div>
 
+          {/* Son görülen sürücü (P1 · varlık geçmişi)
+              GÖZLEM ≠ KARAR: "araçta görüldü" demek, yolculuğun ona ait
+              olduğu demek DEĞİLDİR. Doğrulanmamış kaynak (araç ekranı
+              beyanı) burada İSİM olarak GÖSTERİLMEZ. */}
+          <div className="p-4 rounded-2xl bg-white/[0.03] border border-white/[0.06] flex flex-col gap-2">
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-white/35">Son görülen sürücü</span>
+              {!lastSeen.readable ? (
+                /* OKUNAMADI ≠ GÖZLEM YOK — dürüstçe ayrı söylenir. */
+                <span className="text-[11px] text-white/40">Okunamadı</span>
+              ) : lastSeen.isCurrent ? (
+                <span className="text-[11px] font-medium text-emerald-400">Şu an araçta</span>
+              ) : null}
+            </div>
+
+            <p className={`text-sm font-medium ${
+              lastSeen.entry?.driverName != null ? 'text-white/75'
+              : lastSeen.unverifiedOnly ? 'text-amber-300/70'
+              : 'text-white/30'
+            }`}>
+              {lastSeenDriverLabel(lastSeen)}
+            </p>
+
+            {lastSeenDetail !== null && (
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] text-white/25">Gözlem</span>
+                <span className="text-[10px] font-mono text-white/45">{lastSeenDetail}</span>
+              </div>
+            )}
+
+            {/* Doğrulanmamış kaynak SESSİZCE GİZLENMEZ: kayıt olduğu ama
+                kimlik kanıtı olmadığı açıkça yazılır. */}
+            {lastSeen.readable && lastSeen.unverifiedOnly && (
+              <p className="text-[10px] text-amber-300/40">
+                Araçta bir gözlem kaydı var, ancak kaynağı kimlik doğrulamıyor
+                (araç ekranı beyanı kanıt sayılmaz) — sürücü adı gösterilmez.
+              </p>
+            )}
+
+            <p className="text-[10px] text-white/25">
+              Bu bir <strong>gözlemdir</strong>, yolculuk sürücüsü kararı
+              değildir. Yolculuğun sürücüsü aşağıda ayrıca gösterilir.
+            </p>
+          </div>
+
+          {/* Trips (P1) — tahmin "(tahmini)" etiketli, okunamadı ≠ trip yok */}
+          <div className="p-4 rounded-2xl bg-white/[0.03] border border-white/[0.06] flex flex-col gap-2">
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-white/35">Yolculuklar</span>
+              {!tripsView.readable ? (
+                <span className="text-[11px] text-white/40">Okunamadı</span>
+              ) : (
+                <span className="text-[11px] text-white/40">
+                  {tripsView.isEmpty ? 'Kayıt yok' : `${tripsView.trips.length} yolculuk`}
+                </span>
+              )}
+            </div>
+
+            {tripsView.readable && !tripsView.isEmpty && (
+              <div className="flex flex-col gap-2">
+                {tripsView.trips.slice(0, 5).map((t) => (
+                  <div key={t.tripKey} className="rounded-xl bg-white/[0.02] border border-white/[0.05] p-3 flex flex-col gap-1">
+                    {/* Detay acma — gercek kullanici yolu (mount degil, TIKLAMA). */}
+                    <button
+                      type="button"
+                      data-testid={`trip-detail-toggle-${t.tripKey}`}
+                      aria-expanded={openTripKey === t.tripKey}
+                      onClick={() => void toggleTrip(t.tripKey, t.tripId)}
+                      className="self-start text-[10px] rounded border border-sky-400/25 px-2 py-0.5 text-sky-300/80"
+                    >
+                      {openTripKey === t.tripKey ? 'Kaniti gizle' : 'Yolculuk kaniti'}
+                    </button>
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] text-white/60 font-mono">
+                        {tripTimeLabel(t.startedAtMs)}
+                      </span>
+                      <span className="text-[10px] text-emerald-400/70">
+                        {tripUploadStateLabel(t.uploadState)}
+                      </span>
+                    </div>
+                    {/* ── SÜRÜCÜ ─────────────────────────────────────────
+                        Kanıt yoksa "Sürücü bilinmiyor" — araç sahibine,
+                        son giriş yapana veya yöneticiye DÜŞMEZ. */}
+                    <div className="flex items-center justify-between gap-2 border-b border-white/[0.05] pb-1 mb-0.5">
+                      <span className="text-[10px] text-white/25">Sürücü</span>
+                      <span className="flex items-center gap-1.5">
+                        <span className={`text-[11px] ${
+                          t.driver.status === 'ATTRIBUTED' || t.driver.status === 'LOCKED'
+                            ? 'text-white/75'
+                            : t.driver.status === 'CONFLICTED'
+                              ? 'text-amber-300/70'
+                              : 'text-white/30'
+                        }`}>
+                          {tripDriverLabel(t.driver)}
+                        </span>
+                        {/* Elle düzeltme GİZLENMEZ. */}
+                        {t.driver.isManual && (
+                          <span className="text-[9px] px-1.5 py-0.5 rounded border border-white/10 text-white/35">
+                            elle
+                          </span>
+                        )}
+                      </span>
+                    </div>
+                    {t.driver.status !== 'UNKNOWN' && (
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] text-white/25">Sürücü kaynağı</span>
+                        <span className="text-[10px] font-mono text-white/45">
+                          {attributionSourceLabel(t.driver.source)}
+                          {' · '}
+                          {attributionConfidenceLabel(t.driver.confidence)}
+                          {t.driver.revision !== null ? ` · r${t.driver.revision}` : ''}
+                        </span>
+                      </div>
+                    )}
+                    <div className="grid grid-cols-2 gap-x-3 gap-y-0.5">
+                      {[
+                        { label: 'Bitiş',      text: tripTimeLabel(t.endedAtMs) },
+                        { label: 'Mesafe',     text: tripValueLabel(t.distanceKm, 'km') },
+                        { label: 'Süre',       text: tripValueLabel(t.durationMin, 'dk', 0) },
+                        /* P2 — süre ayrışması. "Bilinmeyen" AYRI gösterilir:
+                           rölantiye katılırsa "duruyordu" TAHMİNİ üretilir. */
+                        { label: 'Hareket',    text: tripDurationLabel(t.movingTimeMin) },
+                        { label: 'Rölanti',    text: tripDurationLabel(t.idleTimeMin) },
+                        { label: 'Bilinmeyen', text: tripDurationLabel(t.unknownTimeMin) },
+                        { label: 'Duruş',      text: tripCountLabel(t.stopCount) },
+                        { label: 'Yakıt',      text: tripValueLabel(t.fuelUsedL, 'L') },
+                        /* Maliyet para birimi SNAPSHOT'tan — uydurulmaz. */
+                        { label: 'Maliyet',    text: tripCostLabel(t.estimatedCost, t.currency) },
+                        { label: 'Ort. hız',   text: tripValueLabel(t.avgSpeedKmh, 'km/h', 0) },
+                        { label: 'Maks. hız',  text: tripValueLabel(t.maxSpeedKmh, 'km/h', 0) },
+                        /* P2 — motor tepe değerleri: yalnız taze OBD'den. */
+                        { label: 'Maks. RPM',  text: tripCountLabel(t.maxRpm) },
+                        { label: 'Maks. sıc.', text: tripValueLabel(t.maxEngineTempC, '°C', 0) },
+                        { label: 'Sert fren',  text: tripCountLabel(t.harshBrakeCount) },
+                        { label: 'Sert hız.',  text: tripCountLabel(t.harshAccelCount) },
+                        /* Hız limiti kaynağı yoksa "Veri yok" — 0 DEĞİL. */
+                        { label: 'Hız ihlali', text: tripCountLabel(t.speedViolations) },
+                        { label: 'Skor',       text: tripScoreLabel(t.score) },
+                        { label: 'Güvenilirlik', text: tripConfidenceLabel(t.confidence) },
+                      ].map(({ label, text }) => (
+                        <div key={label} className="flex items-center justify-between">
+                          <span className="text-[10px] text-white/25">{label}</span>
+                          <span className={`text-[10px] font-mono ${
+                            text === 'Veri yok' ? 'text-white/25'
+                            : text.includes('(tahmini)') ? 'text-white/45'
+                            : 'text-white/70'
+                          }`}>
+                            {text}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                    {/* P2 — yakıt ÖLÇÜLEMEDİYSE gerekçesi yazılır. Sessizce
+                        tahmine düşmek, kullanıcının varsayımı ölçüm sanmasına
+                        yol açar. */}
+                    {fuelRejectReasonLabel(t.fuelRejectReason) !== null && (
+                      <p className="text-[10px] text-amber-300/40 mt-0.5">
+                        Yakıt ölçülemedi: {fuelRejectReasonLabel(t.fuelRejectReason)}
+                      </p>
+                    )}
+
+                    {openTripKey === t.tripKey && (
+                      <div className="mt-1" data-testid="trip-evidence-panel">
+                        {t.tripId === null ? (
+                          <p className="text-[10px] text-white/30">
+                            Bu yolculuk sunucuda kimliklenmemis — kanit SORULAMAZ.
+                          </p>
+                        ) : tripEvidence === null ? (
+                          <p className="text-[10px] text-white/30">Kanit okunuyor…</p>
+                        ) : !tripEvidence.readable ? (
+                          <p className="text-[10px] text-amber-300/70">
+                            Kanit OKUNAMADI — bu &quot;kanit yok&quot; demek degildir.
+                          </p>
+                        ) : (
+                          <SubjectEvidenceList rows={tripEvidence.rows} title="Yolculuk kaniti" />
+                        )}
+                      </div>
+                    )}
+                  </div>
+                ))}
+                <p className="text-[10px] text-white/25">
+                  &quot;(tahmini)&quot; işaretli değerler araçtan ölçülmedi; ortalama
+                  tüketim ve birim fiyat varsayımıyla hesaplandı.
+                  <br />
+                  &quot;Veri yok&quot; o metriğin ÖLÇÜLMEDİĞİ anlamına gelir —
+                  sıfır olduğu anlamına DEĞİL.
+                </p>
+              </div>
+            )}
+          </div>
+
+          {/* Vehicle Identity (P1) — kanıt yoksa "Veri yok", onay yoksa "Doğrulanıyor" */}
+          <div className="p-4 rounded-2xl bg-white/[0.03] border border-white/[0.06] flex flex-col gap-2">
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-white/35">Araç Kimliği</span>
+              {identityReadable === false ? (
+                /* OKUNAMADI ≠ KAYIT YOK — kullanıcıya dürüstçe ayrı söylenir. */
+                <span className="text-[11px] text-white/40">Okunamadı</span>
+              ) : (
+                <span className={`text-[11px] font-medium ${
+                  identity.status === 'VERIFIED' ? 'text-emerald-400'
+                  : identity.status === 'CONFLICT' ? 'text-red-400'
+                  : identity.status === 'STALE' ? 'text-amber-400'
+                  : 'text-white/40'
+                }`}>
+                  {identityStatusLabel(identity.status)}
+                </span>
+              )}
+            </div>
+
+            {identityReadable !== false && (
+              <>
+                {[
+                  { label: 'Şasi No (VIN)', value: identity.vinMasked },
+                  { label: 'Marka',         value: identity.make },
+                  { label: 'Model',         value: identity.model },
+                  { label: 'Yıl',           value: identity.modelYear },
+                  { label: 'OBD Protokolü', value: identity.obdProtocol },
+                  { label: 'İmza Sürümü',   value: identity.fingerprintVersion },
+                ].map(({ label, value }) => (
+                  <div key={label} className="flex items-center justify-between">
+                    <span className="text-[11px] text-white/30">{label}</span>
+                    <span className={`text-[11px] font-mono ${value === null ? 'text-white/25' : 'text-white/70'}`}>
+                      {identityFieldLabel(value)}
+                    </span>
+                  </div>
+                ))}
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] text-white/30">Kimlik Güveni</span>
+                  <span className={`text-[11px] font-mono ${
+                    identity.confidence === null ? 'text-white/25' : 'text-white/70'
+                  }`}>
+                    {identityConfidenceLabel(identity.confidence)}
+                  </span>
+                </div>
+
+                {/* Çakışma GİZLENMEZ. */}
+                {identityConflictText !== null && (
+                  <p className="text-[11px] text-red-400/80 mt-1">⚠ {identityConflictText}</p>
+                )}
+              </>
+            )}
+          </div>
+
           {/* Fuel bar */}
           <div className="p-4 rounded-2xl bg-white/[0.03] border border-white/[0.06]">
             <div className="flex items-center justify-between mb-2.5">
               <span className="text-xs text-white/35">Yakıt Seviyesi</span>
-              <span className={`text-sm font-mono font-semibold ${v.fuel < 20 ? 'text-red-400' : v.fuel < 35 ? 'text-amber-400' : 'text-emerald-400'}`}>
-                {v.fuel}%
+              <span className={`text-sm font-mono font-semibold ${
+                !fuelKnown ? 'text-white/25'
+                : fuel!.state !== 'LIVE' ? 'text-white/45'
+                : fuelPct < 20 ? 'text-red-400'
+                : fuelPct < 35 ? 'text-amber-400' : 'text-emerald-400'
+              }`}>
+                {t ? measurementLabel(t.fuelPercent, '%').replace(' %', '%') : 'Veri yok'}
               </span>
             </div>
             <div className="h-2.5 rounded-full bg-white/[0.06] overflow-hidden">
-              <div
-                className={`h-full rounded-full transition-all duration-700 ${v.fuel < 20 ? 'bg-red-400' : v.fuel < 35 ? 'bg-amber-400' : 'bg-emerald-400'}`}
-                style={{ width: `${v.fuel}%` }}
-              />
+              {/* Yakıt bilinmiyorsa dolgu ÇİZİLMEZ — boş kırmızı çubuk
+                  "yakıt bitti" sahte alarmı üretiyordu. */}
+              {fuelKnown && (
+                <div
+                  className={`h-full rounded-full transition-all duration-700 ${
+                    fuel!.state !== 'LIVE' ? 'bg-white/25'
+                    : fuelPct < 20 ? 'bg-red-400'
+                    : fuelPct < 35 ? 'bg-amber-400' : 'bg-emerald-400'
+                  }`}
+                  style={{ width: `${fuelPct}%` }}
+                />
+              )}
             </div>
-            {v.fuel < 20 && (
+            {/* İkmal uyarısı YALNIZ ölçülmüş + CANLI düşük yakıtta verilir. */}
+            {fuelKnown && fuel!.state === 'LIVE' && fuelPct < 20 && (
               <p className="text-[11px] text-red-400/80 mt-2">⚠ Yakıt ikmali gerekiyor</p>
+            )}
+            {!fuelKnown && (
+              <p className="text-[11px] text-white/30 mt-2">Yakıt verisi araçtan okunamadı</p>
             )}
           </div>
 
           {/* Safe bottom padding for mobile */}
           <div className="sm:hidden h-2" />
+        </div>
+
+        {/* ARAC KANITI — kanit zincirinin okunabilir ucu. */}
+        <div className="flex-shrink-0 px-5 sm:px-6 pb-3">
+          {evidence === null ? (
+            <p className="text-xs text-white/30">Kanit okunuyor…</p>
+          ) : !evidence.readable ? (
+            <p className="text-xs text-amber-300/70">
+              Kanit OKUNAMADI — bu &quot;kanit yok&quot; demek degildir.
+            </p>
+          ) : (
+            <SubjectEvidenceList rows={evidence.rows} title="Arac kaniti" />
+          )}
         </div>
 
         {/* Footer — remove button */}

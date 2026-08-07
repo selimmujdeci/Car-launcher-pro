@@ -4,6 +4,14 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { sendAndTrack, sendCommand } from '@/lib/commandService';
 import { verifyCriticalCommand }     from '@/lib/criticalAuth';
 import type { CommandType, CommandPayload } from '@/lib/commandService';
+import {
+  captureCleanupGeneration,
+  isAccountAccessLocked,
+  isCleanupGenerationCurrent,
+} from '@/security/accountCleanup/cleanupLockdown';
+import {
+  registerCommandAuthorityHandle,
+} from '@/security/accountCleanup/vehicleAuthorityRuntime';
 
 export type CmdPhase =
   | 'idle'
@@ -76,22 +84,51 @@ export function useCommandTracker(vehicleId: string | null) {
   const [result, setResult] = useState<CommandResult | null>(null);
   const mounted             = useRef(true);
   const cleanups            = useRef(new Set<() => void>());
+  const phasesRef           = useRef<Partial<Record<CommandType, CmdPhase>>>({});
+  const resultRef           = useRef<CommandResult | null>(null);
 
   useEffect(() => {
     mounted.current = true;
+    const unregister = registerCommandAuthorityHandle({
+      clear: () => {
+        phasesRef.current = {};
+        resultRef.current = null;
+        cleanups.current.forEach((fn) => fn());
+        cleanups.current.clear();
+        if (mounted.current) {
+          setPhases({});
+          setResult(null);
+        }
+      },
+      isEmpty: () =>
+        Object.keys(phasesRef.current).length === 0 &&
+        resultRef.current === null &&
+        cleanups.current.size === 0,
+    });
     return () => {
       mounted.current = false;
       cleanups.current.forEach((fn) => fn());
+      cleanups.current.clear();
+      unregister();
     };
   }, []);
 
   const setPhase = useCallback((type: CommandType, phase: CmdPhase) => {
-    if (mounted.current) setPhases((p) => ({ ...p, [type]: phase }));
+    if (!mounted.current) return;
+    phasesRef.current = { ...phasesRef.current, [type]: phase };
+    setPhases(phasesRef.current);
+  }, []);
+
+  const setCommandResult = useCallback((next: CommandResult | null) => {
+    resultRef.current = next;
+    if (mounted.current) setResult(next);
   }, []);
 
   /* ── Ana dispatch ────────────────────────────────────────────────────────── */
 
   const dispatch = useCallback(async (type: CommandType, payload: CommandPayload = {}) => {
+    if (isAccountAccessLocked()) return;
+    const cleanupGeneration = captureCleanupGeneration();
     if (!vehicleId) return;
     if (BUSY.includes(phases[type] ?? 'idle')) return;
 
@@ -100,18 +137,20 @@ export function useCommandTracker(vehicleId: string | null) {
     if (CRITICAL_CMDS.includes(type)) {
       const hash = await verifyCriticalCommand();
       if (!hash) return;
+      if (!isCleanupGenerationCurrent(cleanupGeneration)) return;
       pinHash = hash;
     }
 
     const startMs = Date.now();
     haptic(40);
     setPhase(type, 'pending');
-    if (mounted.current) setResult(null);
+    setCommandResult(null);
 
     const { unsubscribe, result: sendResult } = await sendAndTrack(
       vehicleId, type, payload,
       (ev) => {
-        if (!mounted.current) return;
+        if (!mounted.current ||
+            !isCleanupGenerationCurrent(cleanupGeneration)) return;
         switch (ev.status) {
           case 'accepted':
             setPhase(type, 'accepted');
@@ -122,11 +161,19 @@ export function useCommandTracker(vehicleId: string | null) {
           case 'completed': {
             const ms = Date.now() - startMs;
             setPhase(type, 'ok');
-            if (mounted.current) setResult({ type, ok: true, label: CMD_LABELS[type], durationMs: ms });
+            setCommandResult({ type, ok: true, label: CMD_LABELS[type], durationMs: ms });
             haptic([50, 30, 50]);
             playSuccessSound();
-            setTimeout(() => { if (mounted.current) setPhase(type, 'idle'); }, 2_500);
-            setTimeout(() => { if (mounted.current) setResult(null); }, 4_500);
+            setTimeout(() => {
+              if (mounted.current && isCleanupGenerationCurrent(cleanupGeneration)) {
+                setPhase(type, 'idle');
+              }
+            }, 2_500);
+            setTimeout(() => {
+              if (mounted.current && isCleanupGenerationCurrent(cleanupGeneration)) {
+                setCommandResult(null);
+              }
+            }, 4_500);
             break;
           }
           case 'failed':
@@ -134,10 +181,18 @@ export function useCommandTracker(vehicleId: string | null) {
           case 'rejected': {
             const ms = Date.now() - startMs;
             setPhase(type, 'err');
-            if (mounted.current) setResult({ type, ok: false, label: CMD_LABELS[type], durationMs: ms });
+            setCommandResult({ type, ok: false, label: CMD_LABELS[type], durationMs: ms });
             haptic([100, 50, 100]);
-            setTimeout(() => { if (mounted.current) setPhase(type, 'idle'); }, 4_000);
-            setTimeout(() => { if (mounted.current) setResult(null); }, 6_000);
+            setTimeout(() => {
+              if (mounted.current && isCleanupGenerationCurrent(cleanupGeneration)) {
+                setPhase(type, 'idle');
+              }
+            }, 4_000);
+            setTimeout(() => {
+              if (mounted.current && isCleanupGenerationCurrent(cleanupGeneration)) {
+                setCommandResult(null);
+              }
+            }, 6_000);
             break;
           }
         }
@@ -145,16 +200,28 @@ export function useCommandTracker(vehicleId: string | null) {
       { requireCriticalAuth: CRITICAL_CMDS.includes(type), pinHash },
     );
 
+    if (!isCleanupGenerationCurrent(cleanupGeneration)) {
+      unsubscribe();
+      return;
+    }
     cleanups.current.add(unsubscribe);
 
     if (!sendResult.ok) {
       // Gönderme hatası
       const ms = Date.now() - startMs;
       setPhase(type, 'err');
-      if (mounted.current) setResult({ type, ok: false, label: CMD_LABELS[type], durationMs: ms });
+      setCommandResult({ type, ok: false, label: CMD_LABELS[type], durationMs: ms });
       haptic([100, 50, 100]);
-      setTimeout(() => { if (mounted.current) setPhase(type, 'idle'); }, 4_000);
-      setTimeout(() => { if (mounted.current) setResult(null); }, 6_000);
+      setTimeout(() => {
+        if (mounted.current && isCleanupGenerationCurrent(cleanupGeneration)) {
+          setPhase(type, 'idle');
+        }
+      }, 4_000);
+      setTimeout(() => {
+        if (mounted.current && isCleanupGenerationCurrent(cleanupGeneration)) {
+          setCommandResult(null);
+        }
+      }, 6_000);
       return;
     }
 
@@ -162,13 +229,21 @@ export function useCommandTracker(vehicleId: string | null) {
     if (sendResult.queued) {
       setPhase(type, 'queued');
       if (mounted.current) {
-        setResult({ type, ok: true, label: CMD_LABELS[type], durationMs: 0, queued: true });
+        setCommandResult({ type, ok: true, label: CMD_LABELS[type], durationMs: 0, queued: true });
       }
       // Queued durumda 30s sonra idle'a dön (TTL 5dk ama UX için kısa tut)
-      setTimeout(() => { if (mounted.current) setPhase(type, 'idle'); }, 30_000);
-      setTimeout(() => { if (mounted.current) setResult(null); }, 30_000);
+      setTimeout(() => {
+        if (mounted.current && isCleanupGenerationCurrent(cleanupGeneration)) {
+          setPhase(type, 'idle');
+        }
+      }, 30_000);
+      setTimeout(() => {
+        if (mounted.current && isCleanupGenerationCurrent(cleanupGeneration)) {
+          setCommandResult(null);
+        }
+      }, 30_000);
     }
-  }, [vehicleId, phases, setPhase]);
+  }, [vehicleId, phases, setPhase, setCommandResult]);
 
   /* ── Retry dispatch — başarısız komutları yeniden gönder ───────────────── */
 
@@ -180,9 +255,9 @@ export function useCommandTracker(vehicleId: string | null) {
 
     // idle'a sıfırla ve yeniden dispatch et
     setPhase(type, 'idle');
-    setResult(null);
+    setCommandResult(null);
     await dispatch(type, payload);
-  }, [vehicleId, phases, setPhase, dispatch]);
+  }, [vehicleId, phases, setPhase, setCommandResult, dispatch]);
 
   return { phases, result, dispatch, retry };
 }

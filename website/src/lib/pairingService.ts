@@ -1,3 +1,7 @@
+import {
+  authorizePairingContinuation,
+} from '@/security/accountCleanup/accountCleanupRuntime';
+
 // ── Storage keys ─────────────────────────────────────────────────────────────
 const STORAGE = {
   VEHICLE_ID:    'caros_pair_vehicle_id',
@@ -12,6 +16,13 @@ export interface PairResult {
   success:    boolean;
   vehicleId?: string;
   message:    string;
+  /**
+   * Sunucuya ULAŞILAMADI (ağ hatası) — bu bir RED DEĞİLDİR.
+   * Çağıran bunu görürse çevrimdışı claim üretir; "başarısız" DEMEZ.
+   */
+  offline?:   boolean;
+  /** Sunucunun typed hata kodu (döndürdüyse) — conflict sınıflandırması için. */
+  code?:      string;
 }
 
 export interface LocalVehicle {
@@ -73,6 +84,14 @@ export function getStoredApiKey(vehicleId: string): string | null {
  * Calls /api/pwa/pair which uses service-role credentials server-side.
  */
 export async function pairVehicle(code: string): Promise<PairResult> {
+  const access = await authorizePairingContinuation();
+  if (!access.allowed) {
+    return {
+      success: false,
+      code: 'ACCOUNT_CLEANUP_IN_PROGRESS',
+      message: 'Güvenli oturum temizliği sırasında eşleştirme kullanılamaz.',
+    };
+  }
   try {
     const res = await fetch('/api/pwa/pair', {
       method:  'POST',
@@ -87,10 +106,18 @@ export async function pairVehicle(code: string): Promise<PairResult> {
       name?:      string;
       plate?:     string;
       error?:     string;
+      code?:      string;
     };
 
     if (!res.ok || !data.success || !data.vehicleId || !data.apiKey) {
-      return { success: false, message: data.error ?? 'Eşleştirme başarısız.' };
+      // 5xx/429 sunucu tarafı geçici arıza → RED değil, tekrar denenebilir.
+      const transient = res.status >= 500 || res.status === 429;
+      return {
+        success: false,
+        message: data.error ?? 'Eşleştirme başarısız.',
+        offline: transient,
+        code:    data.code,
+      };
     }
 
     storeLocalVehicle({
@@ -106,6 +133,11 @@ export async function pairVehicle(code: string): Promise<PairResult> {
       message:   'Araç başarıyla eşleştirildi.',
     };
   } catch {
-    return { success: false, message: 'Sunucuya ulaşılamadı. İnternet bağlantınızı kontrol edin.' };
+    // Ağ hatası: eşleştirme REDDEDİLMEDİ — yalnız ulaşılamadı.
+    return {
+      success: false,
+      offline: true,
+      message: 'Sunucuya ulaşılamadı. İnternet bağlantınızı kontrol edin.',
+    };
   }
 }

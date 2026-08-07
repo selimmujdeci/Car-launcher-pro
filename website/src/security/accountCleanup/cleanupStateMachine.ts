@@ -1,0 +1,75 @@
+import type { CleanupState } from './cleanupTypes';
+
+const TRANSITIONS: Readonly<Record<CleanupState, readonly CleanupState[]>> = {
+  IDLE: ['REQUESTED'],
+  REQUESTED: ['LOCAL_LOCKDOWN', 'FAILED_BLOCKING', 'RECOVERY_REQUIRED'],
+  LOCAL_LOCKDOWN: ['LOCAL_SECRET_PURGE', 'FAILED_BLOCKING', 'RECOVERY_REQUIRED'],
+  LOCAL_SECRET_PURGE: [
+    'LOCAL_PRIVATE_DATA_PURGE',
+    'FAILED_RETRYABLE',
+    'FAILED_BLOCKING',
+    'PARTIAL_CLEANUP',
+    'RECOVERY_REQUIRED',
+  ],
+  LOCAL_PRIVATE_DATA_PURGE: [
+    'QUEUE_AND_SNAPSHOT_PURGE',
+    'FAILED_RETRYABLE',
+    'FAILED_BLOCKING',
+    'PARTIAL_CLEANUP',
+    'RECOVERY_REQUIRED',
+  ],
+  QUEUE_AND_SNAPSHOT_PURGE: [
+    'SERVER_SESSION_REVOKE',
+    'FAILED_RETRYABLE',
+    'FAILED_BLOCKING',
+    'PARTIAL_CLEANUP',
+    'RECOVERY_REQUIRED',
+  ],
+  SERVER_SESSION_REVOKE: [
+    'DEVICE_AND_PUSH_REVOKE',
+    'FAILED_RETRYABLE',
+    'FAILED_BLOCKING',
+    'PARTIAL_CLEANUP',
+    'RECOVERY_REQUIRED',
+  ],
+  DEVICE_AND_PUSH_REVOKE: [
+    'VERIFY_EMPTY',
+    'FAILED_RETRYABLE',
+    'FAILED_BLOCKING',
+    'PARTIAL_CLEANUP',
+    'RECOVERY_REQUIRED',
+  ],
+  VERIFY_EMPTY: [
+    'COMPLETED',
+    'FAILED_BLOCKING',
+    'PARTIAL_CLEANUP',
+    'RECOVERY_REQUIRED',
+  ],
+  COMPLETED: [],
+  FAILED_RETRYABLE: ['RECOVERY_REQUIRED'],
+  FAILED_BLOCKING: ['RECOVERY_REQUIRED'],
+  PARTIAL_CLEANUP: ['RECOVERY_REQUIRED'],
+  RECOVERY_REQUIRED: [
+    'LOCAL_LOCKDOWN',
+    'LOCAL_SECRET_PURGE',
+    'LOCAL_PRIVATE_DATA_PURGE',
+    'QUEUE_AND_SNAPSHOT_PURGE',
+    'SERVER_SESSION_REVOKE',
+    'DEVICE_AND_PUSH_REVOKE',
+    'VERIFY_EMPTY',
+    'FAILED_BLOCKING',
+  ],
+};
+
+export function canTransition(from: CleanupState, to: CleanupState): boolean {
+  return TRANSITIONS[from].includes(to);
+}
+
+export function assertCleanupTransition(
+  from: CleanupState,
+  to: CleanupState,
+): void {
+  if (!canTransition(from, to)) {
+    throw new Error(`INVALID_STATE_TRANSITION:${from}:${to}`);
+  }
+}

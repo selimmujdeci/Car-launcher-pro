@@ -15,27 +15,99 @@ import * as routeEngine from '../lib/routeEngine';
 
 // ── Supabase mock ─────────────────────────────────────────────────────────────
 
-const mockChannel = {
-  on:          vi.fn().mockReturnThis(),
-  subscribe:   vi.fn((cb?: (s: string) => void) => { cb?.('SUBSCRIBED'); return mockChannel; }),
-  unsubscribe: vi.fn(),
-};
+const mocks = vi.hoisted(() => {
+  const channel = {
+    on:          vi.fn(),
+    subscribe:   vi.fn(),
+    unsubscribe: vi.fn(),
+  };
+  const supabase = {
+    auth: {
+      getSession: vi.fn(),
+      getUser:    vi.fn(),
+    },
+    from:          vi.fn(),
+    rpc:           vi.fn(),
+    channel:       vi.fn(),
+    removeChannel: vi.fn(),
+  };
+  return { channel, supabase };
+});
 
-const mockSupabase = {
-  auth: {
-    getUser: vi.fn().mockResolvedValue({ data: { user: { id: 'user-123' } } }),
-  },
-  from: vi.fn(),
-  channel: vi.fn().mockReturnValue(mockChannel),
-  removeChannel: vi.fn(),
-};
+const mockChannel  = mocks.channel;
+const mockSupabase = mocks.supabase;
+const cleanupPolicy = vi.hoisted(() => ({
+  evaluate: vi.fn<() =>
+    | { allowed: true; generation: number }
+    | { allowed: false; code: 'LOCKDOWN_ACTIVE' | 'RUNTIME_UNAVAILABLE' }
+  >(() => ({ allowed: true, generation: 1 })),
+}));
 
 vi.mock('../lib/supabase', () => ({
-  supabaseBrowser:    mockSupabase,
+  supabaseBrowser:      mocks.supabase,
   isSupabaseConfigured: true,
 }));
 
+vi.mock('../security/accountCleanup/accountCleanupRuntime', () => ({
+  evaluateAccountScopedCapability: cleanupPolicy.evaluate,
+}));
+
 // ── Test yardımcıları ─────────────────────────────────────────────────────────
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  cleanupPolicy.evaluate.mockReturnValue({ allowed: true, generation: 1 });
+  mockSupabase.auth.getSession.mockResolvedValue({
+    data: { session: { access_token: 'test-access-token' } },
+  });
+  mockSupabase.auth.getUser.mockResolvedValue({
+    data: { user: { id: 'user-123' } },
+  });
+  mockSupabase.rpc.mockResolvedValue({ data: null, error: null });
+  mockChannel.on.mockReturnValue(mockChannel);
+  mockChannel.subscribe.mockImplementation((cb?: (status: string) => void) => {
+    cb?.('SUBSCRIBED');
+    return mockChannel;
+  });
+  mockSupabase.channel.mockReturnValue(mockChannel);
+});
+
+afterEach(() => {
+  vi.useRealTimers();
+});
+
+describe('account cleanup lockdown', () => {
+  it('Supabase/API-key yolunu başlatmadan komutu reddeder', async () => {
+    cleanupPolicy.evaluate.mockReturnValue({
+      allowed: false,
+      code: 'LOCKDOWN_ACTIVE',
+    });
+
+    const result = await commandService.sendCommand('vehicle-1', 'horn', {});
+
+    expect(result).toMatchObject({
+      ok: false,
+      code: 'ACCOUNT_CLEANUP_LOCKDOWN',
+    });
+    expect(mockSupabase.from).not.toHaveBeenCalled();
+    expect(mockSupabase.auth.getSession).not.toHaveBeenCalled();
+  });
+
+  it('lockdown sırasında command status subscription başlatmaz', () => {
+    cleanupPolicy.evaluate.mockReturnValue({
+      allowed: false,
+      code: 'LOCKDOWN_ACTIVE',
+    });
+
+    const unsubscribe = commandService.subscribeCommandStatus(
+      'command-1',
+      vi.fn(),
+    );
+
+    expect(mockSupabase.channel).not.toHaveBeenCalled();
+    expect(() => unsubscribe()).not.toThrow();
+  });
+});
 
 function makeInsertChain(overrides: Partial<{ data: unknown; error: unknown }> = {}) {
   const chain = {
@@ -49,17 +121,19 @@ function makeInsertChain(overrides: Partial<{ data: unknown; error: unknown }> =
 }
 
 function makeSelectChain(overrides: Partial<{ count: number; data: unknown[]; error: unknown }> = {}) {
+  const result = {
+    data:  overrides.data  ?? [],
+    count: overrides.count ?? 0,
+    error: overrides.error ?? null,
+  };
   return {
     select: vi.fn().mockReturnThis(),
     eq:     vi.fn().mockReturnThis(),
-    gte:    vi.fn().mockReturnThis(),
+    // commandService.isVehicleOnline zinciri `.gte(...)` üzerinde await edilir.
+    gte:    vi.fn().mockResolvedValue(result),
     gt:     vi.fn().mockReturnThis(),
     order:  vi.fn().mockReturnThis(),
-    limit:  vi.fn().mockResolvedValue({
-      data:  overrides.data  ?? [],
-      count: overrides.count ?? 0,
-      error: overrides.error ?? null,
-    }),
+    limit:  vi.fn().mockResolvedValue(result),
   };
 }
 
@@ -68,10 +142,6 @@ function makeSelectChain(overrides: Partial<{ count: number; data: unknown[]; er
 // ═══════════════════════════════════════════════════════════════════════════
 
 describe('(a) Rota Gönderim Başarısı', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
-
   it('Geçerli koordinatlar ile route_send komutu gönderir', async () => {
     const insertChain = makeInsertChain({ data: { id: 'cmd-001' } });
     const locChain    = makeSelectChain({ count: 1 }); // araç online

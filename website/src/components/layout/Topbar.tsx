@@ -6,6 +6,8 @@ import { useVehicleStore } from '@/store/vehicleStore';
 import { useNotificationStore } from '@/store/notificationStore';
 import { PushNotificationWidget } from '@/components/dashboard/PushNotificationWidget';
 import { useRouter } from 'next/navigation';
+import { requestCanonicalLogout } from
+  '@/security/accountCleanup/canonicalLogout';
 
 const pageTitles: Record<string, string> = {
   '/dashboard': 'Dashboard',
@@ -29,8 +31,8 @@ export default function Topbar({ onMenuClick }: TopbarProps) {
   const unreadCount = useNotificationStore((s) => s.unreadCount());
 
   const handleLogout = async () => {
-    await fetch('/api/auth/logout', { method: 'POST' });
-    router.push('/login');
+    const result = await requestCanonicalLogout();
+    if (result.ok) router.push('/login');
   };
 
   return (

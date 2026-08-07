@@ -6,6 +6,14 @@ import { usePathname, useRouter } from 'next/navigation';
 import { useNotificationStore } from '@/store/notificationStore';
 import { supabaseBrowser } from '@/lib/supabase';
 import { isSuperAdminToken } from '@/lib/superAdminClaim';
+import { requestCanonicalLogout } from
+  '@/security/accountCleanup/canonicalLogout';
+import {
+  beginAuthSessionOperation,
+  canApplyAuthSessionOperation,
+  canApplyCurrentAuthEvent,
+  finishAuthSessionOperation,
+} from '@/security/accountCleanup/authSessionGenerationGuard';
 
 /**
  * Süper Admin bölümü (Command Center · Tanı · Süper Admin) — admin SPA ayrı
@@ -42,6 +50,22 @@ const navItems = [
         <path d="M2 11h14v3a1 1 0 01-1 1H3a1 1 0 01-1-1v-3z" stroke="currentColor" strokeWidth="1.4"/>
         <circle cx="5.5" cy="11" r="1.5" stroke="currentColor" strokeWidth="1.4"/>
         <circle cx="12.5" cy="11" r="1.5" stroke="currentColor" strokeWidth="1.4"/>
+      </svg>
+    ),
+  },
+  {
+    // Filo: şirket kurma, üyelik, araç atama + çevrimdışı kuyruk/çakışma merkezi.
+    // Bireysel kullanıcıda da görünür — filo kurma yolu buradan başlar.
+    href: '/dashboard/fleet',
+    label: 'Filo',
+    icon: (
+      <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+        <path d="M1.5 11V8.5L3 6h5l1.5 2.5V11" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+        <path d="M1 11h9v2a.8.8 0 01-.8.8H1.8A.8.8 0 011 13v-2z" stroke="currentColor" strokeWidth="1.3"/>
+        <circle cx="3.2" cy="11" r="1.1" stroke="currentColor" strokeWidth="1.3"/>
+        <circle cx="7.8" cy="11" r="1.1" stroke="currentColor" strokeWidth="1.3"/>
+        <path d="M11 5.5h4.2L17 8v3h-6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+        <circle cx="13.8" cy="11" r="1.1" stroke="currentColor" strokeWidth="1.3"/>
       </svg>
     ),
   },
@@ -105,11 +129,18 @@ export default function Sidebar({ onClose }: SidebarProps) {
     if (!supabaseBrowser) return;
     let mounted = true;
 
-    void supabaseBrowser.auth.getSession().then(({ data }) => {
-      if (mounted) setIsSuperAdmin(isSuperAdminToken(data.session?.access_token));
-    });
+    const hydration = beginAuthSessionOperation();
+    if (hydration) {
+      void supabaseBrowser.auth.getSession().then(({ data }) => {
+        if (mounted && canApplyAuthSessionOperation(hydration)) {
+          setIsSuperAdmin(isSuperAdminToken(data.session?.access_token));
+        }
+      }).finally(() => finishAuthSessionOperation(hydration));
+    }
     const { data: sub } = supabaseBrowser.auth.onAuthStateChange((_event, session) => {
-      if (mounted) setIsSuperAdmin(isSuperAdminToken(session?.access_token));
+      if (mounted && canApplyCurrentAuthEvent()) {
+        setIsSuperAdmin(isSuperAdminToken(session?.access_token));
+      }
     });
 
     return () => {
@@ -119,8 +150,8 @@ export default function Sidebar({ onClose }: SidebarProps) {
   }, []);
 
   const handleLogout = async () => {
-    await fetch('/api/auth/logout', { method: 'POST' });
-    router.push('/login');
+    const result = await requestCanonicalLogout();
+    if (result.ok) router.push('/login');
   };
 
   const isActive = (href: string) =>

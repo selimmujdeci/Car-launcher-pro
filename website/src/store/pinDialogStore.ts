@@ -6,9 +6,11 @@ interface PinDialogState {
   resolve:  (pin: string | null) => void;
   // Diyaloğu aç — PIN girilince/iptal edilince resolve çağrılır
   show: (prompt: string) => Promise<string | null>;
+  clearAuthority: () => void;
+  isAuthorityEmpty: () => boolean;
 }
 
-export const usePinDialogStore = create<PinDialogState>((set) => ({
+export const usePinDialogStore = create<PinDialogState>((set, get) => ({
   visible:  false,
   prompt:   '',
   resolve:  () => {},
@@ -24,4 +26,14 @@ export const usePinDialogStore = create<PinDialogState>((set) => ({
         },
       });
     }),
+
+  clearAuthority: () => {
+    get().resolve(null);
+    set({ visible: false, prompt: '', resolve: () => {} });
+  },
+
+  isAuthorityEmpty: () => {
+    const state = get();
+    return !state.visible && state.prompt === '';
+  },
 }));

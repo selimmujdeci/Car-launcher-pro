@@ -1,10 +1,42 @@
 'use client';
 
 import { useState, useRef, useCallback, useEffect } from 'react';
+import {
+  authorizePairingContinuation,
+} from '@/security/accountCleanup/accountCleanupRuntime';
 import { pairVehicle } from '@/lib/pairingService';
+import {
+  pairingNamespace,
+  createPendingPairing,
+  submitPendingPairings,
+  expirePendingPairings,
+  listPendingPairings,
+  type PairingSubmitOutcome,
+} from '@/lib/offline/pendingPairingService';
+import { statusLabel, type PendingPairing } from '@/lib/offline/offlinePairing';
+import { isFleetErrorCode } from '@/lib/fleet/errors';
 
 const PIN_LEN = 6;
 type Mode = 'pin' | 'qr';
+
+/** Oturum açılmadan da eşleştirilebilir (kod yetkinin kendisidir) → cihaz kapsamı. */
+const NS = pairingNamespace(null);
+
+/** `pairVehicle` sonucunu çevrimdışı servisin taşıyıcı sözleşmesine çevirir. */
+async function submitViaApi(code: string): Promise<PairingSubmitOutcome> {
+  const res = await pairVehicle(code);
+  return {
+    ok:        res.success,
+    offline:   res.offline === true,
+    code:      isFleetErrorCode(res.code) ? res.code : null,
+    vehicleId: res.vehicleId ?? null,
+  };
+}
+
+function isBrowserOffline(): boolean {
+  if (typeof navigator === 'undefined') return false;
+  return navigator.onLine === false;
+}
 
 /* ── BarcodeDetector type shim ──────────────────────────────── */
 declare class BarcodeDetector {
@@ -104,10 +136,13 @@ export default function PairingScreen({ onPaired }: Props) {
   const [digits, setDigits]       = useState<string[]>(Array(PIN_LEN).fill(''));
   const [loading, setLoading]     = useState(false);
   const [error, setError]         = useState('');
+  const [notice, setNotice]       = useState('');
   const [success, setSuccess]     = useState(false);
   const [scanning, setScanning]   = useState(false);
   const [qrFound, setQrFound]     = useState(false);
   const [cameraErr, setCameraErr] = useState('');
+  /** Sunucu doğrulaması bekleyen çevrimdışı talepler — "eşleşti" DEĞİLDİR. */
+  const [claims, setClaims]       = useState<PendingPairing[]>([]);
 
   const inputRefs  = useRef<Array<HTMLInputElement | null>>(Array(PIN_LEN).fill(null));
   const videoRef   = useRef<HTMLVideoElement>(null);
@@ -137,30 +172,131 @@ export default function PairingScreen({ onPaired }: Props) {
     if (mode !== 'qr') stopCamera();
   }, [mode, stopCamera]);
 
+  /* ── Çevrimdışı talepler ────────────────────────────────── */
+
+  /** Bekleyen talepleri diskten tazeler. Kod ekranda GÖSTERİLMEZ. */
+  const refreshClaims = useCallback(async () => {
+    try {
+      await expirePendingPairings(NS, Date.now());
+      const list = await listPendingPairings(NS);
+      if (mountedRef.current) setClaims(list);
+    } catch {
+      /* fail-soft: depo okunamadı — ekran çalışmaya devam eder */
+    }
+  }, []);
+
+  /**
+   * Çevrimdışı eşleştirme talebi kaydeder.
+   * DİKKAT: burada araç EŞLEŞMEZ — yalnız doğrulanmayı bekleyen claim üretilir.
+   */
+  const queueOffline = useCallback(
+    async (pairCode: string) => {
+      if (!(await authorizePairingContinuation()).allowed) {
+        if (mountedRef.current) {
+          setError('Güvenli oturum temizliği sırasında eşleştirme kullanılamaz.');
+        }
+        return;
+      }
+      try {
+        await createPendingPairing({
+          namespace: NS, userId: null, code: pairCode, now: Date.now(),
+        });
+        await refreshClaims();
+        if (mountedRef.current) {
+          setError('');
+          setNotice(
+            'Çevrimdışısınız. Talebiniz cihazınıza kaydedildi ve bağlantı gelince ' +
+            'sunucuda doğrulanacak. Araç HENÜZ eşleşmedi.',
+          );
+        }
+      } catch {
+        if (mountedRef.current) {
+          setError('Talep cihaza kaydedilemedi. Bağlantı gelince tekrar deneyin.');
+        }
+      }
+    },
+    [refreshClaims],
+  );
+
   /* ── Shared pair logic ──────────────────────────────────── */
   const doPair = useCallback(
     async (pairCode: string) => {
       if (!mountedRef.current) return;
       setLoading(true);
       setError('');
+      setNotice('');
+
+      // Çevrimdışıysak sunucuya HİÇ gitmeyiz; sahte "başarısız" da göstermeyiz.
+      if (isBrowserOffline()) {
+        setLoading(false);
+        await queueOffline(pairCode);
+        if (mode === 'qr') setMode('pin');
+        return;
+      }
+
       const res = await pairVehicle(pairCode);
       if (!mountedRef.current) return;
       setLoading(false);
+
       if (res.success) {
         setSuccess(true);
         try { navigator.vibrate?.([50, 30, 50]); } catch { /* non-critical */ }
         setTimeout(() => onPaired(), 2200);
-      } else {
-        setError(res.message);
-        try { navigator.vibrate?.([100, 50, 100]); } catch { /* non-critical */ }
-        if (mode === 'qr') setMode('pin');
+        return;
       }
+
+      // Ağ hatası RED DEĞİLDİR → talebi kaydet, bekleyen olarak göster.
+      if (res.offline) {
+        await queueOffline(pairCode);
+        if (mode === 'qr') setMode('pin');
+        return;
+      }
+
+      setError(res.message);
+      try { navigator.vibrate?.([100, 50, 100]); } catch { /* non-critical */ }
+      if (mode === 'qr') setMode('pin');
     },
-    [onPaired, mode],
+    [onPaired, mode, queueOffline],
   );
+
+  /**
+   * Bekleyenleri sunucuya gönderir — idempotent, TTL'i geçeni GÖNDERMEZ.
+   * Açılışta bir kez, sonra yalnız `online` olayında çalışır (timer YOK).
+   */
+  const flushClaims = useCallback(async () => {
+    if (!(await authorizePairingContinuation()).allowed) return;
+    if (isBrowserOffline()) {
+      await refreshClaims();
+      return;
+    }
+    try {
+      const summary = await submitPendingPairings({
+        namespace: NS, submit: submitViaApi, now: Date.now(),
+      });
+      await refreshClaims();
+      if (summary.verified > 0 && mountedRef.current) {
+        setNotice('');
+        setSuccess(true);
+        setTimeout(() => onPaired(), 1600);
+      }
+    } catch {
+      await refreshClaims();
+    }
+  }, [refreshClaims, onPaired]);
+
+  useEffect(() => {
+    void flushClaims();
+    const handleOnline = () => { void flushClaims(); };
+    window.addEventListener('online', handleOnline);
+    return () => { window.removeEventListener('online', handleOnline); };
+  }, [flushClaims]);
 
   /* ── QR Scanner ─────────────────────────────────────────── */
   const startQR = useCallback(async () => {
+    if (!(await authorizePairingContinuation()).allowed) {
+      setCameraErr('Güvenli oturum temizliği sırasında kamera eşleştirmesi kullanılamaz.');
+      return;
+    }
     setCameraErr('');
     setQrFound(false);
 
@@ -183,7 +319,9 @@ export default function PairingScreen({ onPaired }: Props) {
       setCameraErr('Kamera izni verilmedi veya kullanılamıyor.');
       setMode('pin');
     }
-  }, [stopCamera]);
+    // `stopCamera` burada ÇAĞRILMIYOR (kamera açılıyor, kapanmıyor) — bağımlılık
+    // listesinde durması gereksiz yeniden üretim doğuruyordu.
+  }, []);
 
   // stream hazır + video elementi DOM'da → srcObject ata ve QR döngüsü başlat
   useEffect(() => {
@@ -307,17 +445,35 @@ export default function PairingScreen({ onPaired }: Props) {
         <p className="text-white/40 text-xs mt-1 leading-relaxed">
           {success
             ? 'Başarıyla bağlandı. Yönlendiriliyorsunuz…'
-            : 'Araç ekranındaki QR kodu tarayın veya 6 haneli kodu girin'}
+            : 'Araç ekranında görünen 6 haneli kodu Filo panosuna girin'}
         </p>
       </div>
 
-      {/* Mode tabs — only show before success */}
+      {/**
+       * KANONİK YOL UYARISI — bu ekranın dayandığı `/api/pwa/pair` yolu
+       * fail-closed KAPATILDI (`pair_vehicle` RPC'si hiçbir migration'da yok ve
+       * yanıtta raw `api_key` dönüyordu). Kullanıcıya çalışmayan bir yol
+       * çalışıyormuş gibi gösterilmez; tek geçerli yol açıkça söylenir.
+       */}
+      {!success && (
+        <div
+          className="w-full max-w-[280px] rounded-xl px-3 py-2.5 text-[11px] leading-relaxed"
+          style={{ background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.25)', color: '#fde68a' }}
+        >
+          Bu ekrandan eşleştirme şu an kullanılamıyor. Aracı bağlamak için{' '}
+          <b>Filo panosu → Araç Ekle</b> ekranından, araç ekranında görünen{' '}
+          <b>6 haneli kodu</b> girin.
+        </div>
+      )}
+
+      {/* Mode tabs — QR SEKMESİ KALDIRILDI: desteklenmeyen akış desteklenir gibi
+          gösterilmez (kod tarama `/api/pwa/pair`'e bağlıydı). */}
       {!success && (
         <div
           className="flex w-full max-w-[280px] p-1 rounded-xl"
           style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}
         >
-          {(['qr', 'pin'] as Mode[]).map((m) => (
+          {(['pin'] as Mode[]).map((m) => (
             <button
               key={m}
               onClick={() => setMode(m)}
@@ -356,7 +512,10 @@ export default function PairingScreen({ onPaired }: Props) {
       )}
 
       {/* ── QR Mode ─────────────────────────────────────────── */}
-      {!success && mode === 'qr' && (
+      {/* QR modu KAPATILDI: /api/pwa/pair fail-closed olduğu için kod tarama
+          desteklenen bir akış DEĞİL. Blok silinmedi ki kanonik akışa bağlanınca
+          yeniden açılabilsin. */}
+      {false && mode === 'qr' && (
         <div className="w-full max-w-[280px] flex flex-col items-center gap-3">
           {!scanning && !loading && (
             <button
@@ -471,6 +630,53 @@ export default function PairingScreen({ onPaired }: Props) {
               </span>
             ) : 'Eşleştir'}
           </button>
+        </div>
+      )}
+
+      {/* ── Çevrimdışı bildirimi (dürüst: "eşleşti" DEMEZ) ──────────── */}
+      {!success && notice && (
+        <div
+          className="w-full max-w-[280px] rounded-xl px-3 py-2.5 text-left"
+          style={{ background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.25)' }}
+        >
+          <p className="text-[11px] leading-relaxed text-amber-200/90">{notice}</p>
+        </div>
+      )}
+
+      {/* ── Sunucu doğrulaması bekleyen talepler ─────────────────────── */}
+      {!success && claims.length > 0 && (
+        <div className="w-full max-w-[280px] text-left">
+          <p className="mb-1.5 text-[10px] font-bold uppercase tracking-wide text-white/35">
+            Bekleyen eşleştirme talepleri
+          </p>
+          <div className="flex flex-col gap-1.5">
+            {claims.map((claim) => (
+              <div
+                key={claim.id}
+                className="flex items-center justify-between gap-2 rounded-lg px-2.5 py-2"
+                style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}
+              >
+                <span className="text-[11px] text-white/60">
+                  {new Date(claim.requestedAt).toLocaleString('tr-TR')}
+                </span>
+                <span
+                  className="text-[10px] font-semibold"
+                  style={{
+                    color:
+                      claim.status === 'VERIFIED' ? '#34d399'
+                      : claim.status === 'REJECTED' ? '#f87171'
+                      : claim.status === 'EXPIRED' ? 'rgba(255,255,255,0.35)'
+                      : '#fbbf24',
+                  }}
+                >
+                  {statusLabel(claim.status)}
+                </span>
+              </div>
+            ))}
+          </div>
+          <p className="mt-1.5 text-[10px] leading-relaxed text-white/30">
+            Bu talepler sunucu onaylamadan sahiplik oluşturmaz.
+          </p>
         </div>
       )}
 

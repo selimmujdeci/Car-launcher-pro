@@ -1,4 +1,12 @@
 import type { LiveVehicle } from '@/types/realtime';
+import {
+  measurementLabel,
+  locationLabel,
+  ageLabel,
+  dataSourceLabel,
+  type Measurement,
+  type VehicleFreshness,
+} from '@/lib/fleet/vehicleTelemetryFreshness';
 
 interface VehicleCardProps {
   vehicle: LiveVehicle;
@@ -11,8 +19,31 @@ const statusConfig = {
   alarm: { label: 'Alarm', bg: 'bg-red-500/[0.07]', border: 'border-red-500/25', dot: 'bg-red-400 animate-pulse', text: 'text-red-400' },
 };
 
+/** Ölçüm rengi. Bilinmeyen veri UYARI RENGİ ALMAZ — sahte alarm yasak. */
+function measurementTone(m: Measurement | undefined, warnBelow?: number, alertBelow?: number): string {
+  if (!m || m.value === null) return 'text-white/30';       // veri yok → nötr
+  if (m.state !== 'LIVE') return 'text-white/40';           // eski veri → soluk
+  if (alertBelow !== undefined && m.value < alertBelow) return 'text-red-400';
+  if (warnBelow  !== undefined && m.value < warnBelow)  return 'text-amber-400';
+  return 'text-white/70';
+}
+
 export default function VehicleCard({ vehicle: v, onClick }: VehicleCardProps) {
   const s = statusConfig[v.status];
+  const t: VehicleFreshness | undefined = v.telemetry;
+
+  /* Yakıt çubuğu: değer BİLİNMİYORSA çubuk çizilmez.
+     Önceden bilinmeyen yakıt `0` olduğu için kart KIRMIZI BOŞ çubuk
+     gösteriyordu — yani "yakıt bitti" sahte alarmı üretiyordu. */
+  const fuel = t?.fuelPercent;
+  const fuelKnown = fuel?.value !== null && fuel?.value !== undefined;
+  const fuelPct = fuelKnown ? Math.max(0, Math.min(100, fuel!.value as number)) : 0;
+  const fuelBarTone =
+    !fuelKnown ? 'bg-white/10'
+    : fuel!.state !== 'LIVE' ? 'bg-white/25'
+    : fuelPct < 20 ? 'bg-red-400'
+    : fuelPct < 35 ? 'bg-amber-400'
+    : 'bg-emerald-400';
 
   return (
     <button
@@ -39,33 +70,40 @@ export default function VehicleCard({ vehicle: v, onClick }: VehicleCardProps) {
         </div>
         <div>
           <p className="text-[10px] text-white/25 mb-0.5">Konum</p>
-          <p className="text-xs text-white/60 truncate">{v.location}</p>
+          {/* Bayat konum "şu anki konum" gibi sunulmaz. */}
+          <p className="text-xs text-white/60 truncate" title={t ? dataSourceLabel(t.locationSource) : undefined}>
+            {t ? locationLabel(t) : v.location}
+          </p>
         </div>
         <div>
           <p className="text-[10px] text-white/25 mb-0.5">Hız</p>
-          <p className={`text-xs font-mono font-medium ${v.speed > 0 ? 'text-white/70' : 'text-white/30'}`}>
-            {v.speed} km/h
+          <p className={`text-xs font-mono font-medium ${measurementTone(t?.speedKmh)}`}>
+            {t ? measurementLabel(t.speedKmh, 'km/h') : 'Veri yok'}
           </p>
         </div>
         <div>
           <p className="text-[10px] text-white/25 mb-0.5">Yakıt</p>
-          <p className={`text-xs font-mono font-medium ${v.fuel < 20 ? 'text-red-400' : v.fuel < 35 ? 'text-amber-400' : 'text-white/70'}`}>
-            {v.fuel}%
+          <p className={`text-xs font-mono font-medium ${measurementTone(fuel, 35, 20)}`}>
+            {t ? measurementLabel(t.fuelPercent, '%').replace(' %', '%') : 'Veri yok'}
           </p>
         </div>
       </div>
 
-      {/* Fuel bar */}
+      {/* Fuel bar — bilinmeyen yakıt için dolgu ÇİZİLMEZ */}
       <div className="h-1 rounded-full bg-white/[0.06] overflow-hidden">
-        <div
-          className={`h-full rounded-full transition-all ${v.fuel < 20 ? 'bg-red-400' : v.fuel < 35 ? 'bg-amber-400' : 'bg-emerald-400'}`}
-          style={{ width: `${v.fuel}%` }}
-        />
+        {fuelKnown && (
+          <div
+            className={`h-full rounded-full transition-all ${fuelBarTone}`}
+            style={{ width: `${fuelPct}%` }}
+          />
+        )}
       </div>
 
       {/* Footer */}
       <div className="flex items-center justify-between mt-3">
-        <p className="text-[10px] text-white/25">Son görülme: {v.lastSeen}</p>
+        <p className="text-[10px] text-white/25">
+          Son görülme: {t ? ageLabel(t.deviceAgeMs) : v.lastSeen}
+        </p>
         <span className="text-[10px] text-accent/60 group-hover:text-accent transition-colors">Detay →</span>
       </div>
     </button>
