@@ -308,6 +308,32 @@ DOĞRULANDI 6 · SAHADA DOĞRULANDI 1 · **ÜRÜN HAZIR: 1**
   `getRerouteBlockStats`, `getDestinationChangeLog` ve `validationWarnIds` çıktılarıyla
   #432–#448'in kabul ölçütleri tek tek sınanmalı.
 
+- **BUILD-TOOLCHAIN · `apk:safe` Gradle Aşamasında Düşüyordu (2026-08-08, JDK 21 Köprüsü):**
+  tam suite **11 236/11 236 · 496 dosya**; `tsc -b` temiz; değişen dosyalarda
+  eslint **0 sorun**. 8 yeni kilit. Kütük **#481**.
+  Durum: **DOĞRULANDI** (bu makinede ölçüldü; CI'da koşulmadı).
+
+  **Ölçülen kusur:** APK üretimi istendiğinde zincir
+  `test ✅ → vite build ✅ → compat:verify ✅ → cap sync ✅ → gradle ❌` düştü:
+  *"Cannot find a Java installation matching {languageVersion=21}"*. Capacitor
+  plugin modülleri **JDK 21 toolchain** ister, `JAVA_HOME` ise **JDK 17**'yi
+  gösteriyordu. Android Studio kendi **JBR**'sini (21.0.10) taşır ama gradle
+  onu CLI'dan görmez → `apk:safe` bu makinede **her seferinde** düşerdi.
+  #479'un "APK üretilmedi, yalnız derleme" notunun altındaki gerçek sebep budur.
+
+  **Köprü artık ölçüyor:** `JAVA_HOME` yeterliyse (≥21) **hiç dokunulmaz**;
+  yetersizse bilinen konumlarda JDK 21+ aranır ve **yalnız o çağrının
+  ortamına** konur — kullanıcının kabuk ortamı kalıcı değiştirilmez (kilitli).
+
+  **Fail-soft:** uygun JDK yoksa iş **durdurulmaz**, uyarılır ve gradle kendi
+  auto-detection'ına bırakılır — yanlış pozitif APK üretimini engellememeli.
+  Ayrıştırıcı ölçemediğinde **`null` döner, sahte `0` üretmez**
+  ("ölçülemedi" ≠ "çok eski").
+
+  **Kanıt (iddia değil, ölçüm):** `JAVA_HOME` kasten JDK 17'ye sabitlenip
+  koşuldu → köprü JBR'ye geçti, **BUILD SUCCESSFUL**, exit 0. `clean
+  assembleDebug` ile **taze APK üretildi (77,2 MB)**.
+
 - **DAY-PALETTE-P0 · Gündüz Haritasında Yollar Beyaz Görünüyordu (2026-08-08, Gündüz Palet PR):**
   tam suite **11 228/11 228 · 495 dosya**; `npm run guard` **372/372**;
   `tsc -b` temiz; değişen dosyalarda eslint **0 sorun**. 11 yeni kilit.
