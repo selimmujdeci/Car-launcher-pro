@@ -64,8 +64,21 @@ import { getMapInstance } from '../mapService';
 import {
   getCameraShadowSnapshot, type CameraShadowSnapshot,
 } from '../navigation/cameraShadowRuntime';
+import {
+  getCameraDampingSnapshot, type CameraDampingSnapshot,
+} from '../cameraEngine';
+import {
+  getRouteColorSnapshot, type RouteColorSnapshot,
+} from '../map/MapLayerManager';
 import { useUnifiedVehicleStore } from '../vehicleDataLayer/UnifiedVehicleStore';
-import { getMapNight, getMapMode, useMapSourceStore } from '../mapSourceManager';
+import {
+  getMapNight, getMapMode, useMapSourceStore,
+  isTunnelNightOverrideActive, getRequestedMapNight,
+} from '../mapSourceManager';
+import { getTunnelMode } from '../autoBrightnessService';
+import {
+  isTunnelNightRuntimeRunning, getTunnelNightTransitionCount,
+} from '../map/tunnelNightRuntime';
 import { getMapContrastProfile, type MapContrastProfile } from '../mapStyleBuilders';
 import {
   getRouteRequestSnapshot, type RouteRequestSnapshot,
@@ -173,8 +186,22 @@ export interface NavigationCoreRawSnapshot {
   /* ── Harita görünümü + kamera + hız limiti (MINI_MAP_…_P0) ──────────────
    * Hepsi SALT-OKUNUR. Kamera veya hız limiti buradan DEĞİŞTİRİLEMEZ. */
   readonly miniMapStyle: string;
+  /** ETKİN gün/gece — tünel örtüsü DAHİL (`getMapNight()`). */
   readonly mapTheme: 'night' | 'day';
   readonly mapContrastProfile: MapContrastProfile;
+  /**
+   * TÜNEL GECE ÖRTÜSÜ — salt gözlem.
+   *  · `tunnelMode`      → `autoBrightnessService` kararı (far + güneş fazı)
+   *  · `tunnelOverride`  → örtü haritada FİİLEN uygulanıyor mu
+   *  · `requestedNight`  → kullanıcı/saat isteği (örtü kalkınca dönülecek durum)
+   *  · `tunnelTransitions` → uygulanan GERÇEK geçiş sayısı (tekrarlar sayılmaz;
+   *    bu sayı hızla artıyorsa flicker VARDIR)
+   */
+  readonly tunnelMode: boolean;
+  readonly tunnelOverride: boolean;
+  readonly requestedNight: boolean;
+  readonly tunnelTransitions: number;
+  readonly tunnelBridgeRunning: boolean;
   readonly camera: CameraFollowSnapshot;
   readonly speedLimit: SpeedLimitVerdict;
 
@@ -226,6 +253,19 @@ export interface NavigationCoreRawSnapshot {
   readonly suppressedCameraUpdates: number;
   /** Gölge gözlem — legacy ↔ politika karşılaştırması (SALT-OKUNUR). */
   readonly cameraShadow: CameraShadowSnapshot;
+  /**
+   * Kamera SÖNÜMLEME KADANSI — ölçülen tick aralığı ve ondan türeyen gerçek
+   * zaman sabiti. Sönümleme alfaları 150 ms'lik bir tempoda ayarlandığı için
+   * tempo sapması doğrudan "kamera hissi" sapmasıdır; burası o sapmanın
+   * GÖRÜNÜR olduğu tek yerdir (kaynak: gerçek `dampCameraToward` çağrıları).
+   */
+  readonly cameraDamping: CameraDampingSnapshot;
+  /**
+   * Rota RENK kararı — tek hakem (`map/core/routeColorModel`).
+   * Boya henüz hiç yazılmadıysa `decision`/`input` `null` olur ve LAB
+   * `UNAVAILABLE` gösterir; sahte karar ÜRETİLMEZ.
+   */
+  readonly routeColor: RouteColorSnapshot;
 
   readonly sessionId: number;
   /** Rota isteği sahiplenilmiş mi — hedef KİMLİĞİ taşınmaz, yalnız VAR/YOK. */
@@ -264,6 +304,18 @@ const _EMPTY_SHADOW: CameraShadowSnapshot = {
   legacyCameraApplyCount: 0, legacyCameraSkipCount: 0,
   duplicateEquivalentUpdateCount: 0, lastSuppressionReason: null,
   maxAnchorYDelta: 0, maxZoomDelta: 0, maxPitchDelta: 0, last: null,
+};
+
+/** Okunamazsa: sayı UYDURULMAZ — ölçüm yok demek `null`/0 demektir. */
+const _EMPTY_DAMPING: CameraDampingSnapshot = {
+  calibrationDtMs: 0, lastDtMs: null, tickCount: 0, offCadenceTicks: 0,
+  effectivePitchTauSec: null, calibrationPitchTauSec: 0,
+  cruiseMs: 0, inCruise: false,
+};
+
+/** Okunamazsa: karar UYDURULMAZ — `null` "henüz yazılmadı" demektir. */
+const _EMPTY_ROUTE_COLOR: RouteColorSnapshot = {
+  policyVersion: 'UNAVAILABLE', decision: null, input: null,
 };
 
 const _EMPTY_CAMERA_DECISION: CameraPolicyDecision = {
@@ -308,6 +360,8 @@ const _EMPTY_RUNTIME: NavigationSessionRuntimeSnapshot = {
   uptimeMs: null,
   drState: 'IDLE', drOwner: 'NAV_SESSION_RUNTIME', drTickCount: 0,
   drDistanceMeters: 0, drConfidence: 0, drTimerRunning: false,
+  /* Okunamadı → eksen/mesafe/segment UYDURULMAZ. */
+  drProjectionMode: 'HEADING_FALLBACK', drConsumedRouteM: null, drProjectionSegIdx: null,
 };
 
 /** Tek senkron okuma — çağrıldığı anın anlık görüntüsü. */
@@ -459,6 +513,12 @@ export function readNavigationCoreSnapshot(): NavigationCoreRawSnapshot {
     }, 'UNKNOWN'),
     mapTheme:           _safe(() => (getMapNight() ? 'night' : 'day'), 'night'),
     mapContrastProfile: _safe(() => getMapContrastProfile(getMapNight()), 'NIGHT_READABLE'),
+    /* Okunamazsa örtü YOK sayılır (fail-safe: sahte tünel ilan edilmez). */
+    tunnelMode:          _safe(() => getTunnelMode(), false),
+    tunnelOverride:      _safe(() => isTunnelNightOverrideActive(), false),
+    requestedNight:      _safe(() => getRequestedMapNight(), false),
+    tunnelTransitions:   _safe(() => getTunnelNightTransitionCount(), 0),
+    tunnelBridgeRunning: _safe(() => isTunnelNightRuntimeRunning(), false),
     camera:             _safe(() => getCameraFollowSnapshot(), _EMPTY_CAMERA),
     /* Hız limiti hükmü LAB'da da AYNI saf modelden geçirilir — ekran kendi
        sınıflandırmasını yapmaz (ikinci doğruluk kaynağı olmaz). Konum
@@ -504,5 +564,7 @@ export function readNavigationCoreSnapshot(): NavigationCoreRawSnapshot {
        politikayı gölgede değerlendirir ve bastırma kararını sayar. */
     suppressedCameraUpdates: _shadow.policySuppressedCount,
     cameraShadow: _shadow,
+    cameraDamping: _safe(() => getCameraDampingSnapshot(), _EMPTY_DAMPING),
+    routeColor:    _safe(() => getRouteColorSnapshot(), _EMPTY_ROUTE_COLOR),
   };
 }

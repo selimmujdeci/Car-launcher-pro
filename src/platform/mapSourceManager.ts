@@ -367,8 +367,62 @@ export function isNightHour(hour: number): boolean {
 let _mapNight = (() => {
   try { return isNightHour(new Date().getHours()); } catch { return false; }
 })();
-export function setMapNight(night: boolean): void { _mapNight = night; }
+
+/* ── TÜNEL GECE ÖRTÜSÜ (#451 türevi değil — ayrı ürün davranışı) ────────────
+ *
+ * Tünel bir AYAR değil, GEÇİCİ bir çalışma durumudur. `settings.dayNightMode`e
+ * yazmak YASAK: `useDayNightManager.checkTime()` her 60 sn'de o ayarı saate
+ * göre hedefe GERİ ZORLAR → tunnel:night → 60 sn sonra day → tunnel yine night
+ * = **flicker döngüsü**. Bu yüzden tünel, ayarın ÜSTÜNDE bir örtüdür.
+ *
+ * ÖRTÜ NEDEN TAM BURADA: `setMapNight` gün/gece durumunun TEK yazma hunisidir
+ * (`applyMapDayNight` ve `MiniMapWidget` ikisi de buradan geçer). Örtüyü
+ * çağıranların birine koymak, diğerinin onu sessizce ezmesi demekti. Burada
+ * ise HANGİ çağıran yazarsa yazsın örtü YAPISAL olarak korunur.
+ *
+ * İSTEK ve ETKİN durum ayrı tutulur:
+ *   · `_mapNightRequested` → kullanıcı/saat kaynaklı istek (örtü kalkınca dönülecek yer)
+ *   · `_mapNight`          → ETKİN değer; mevcut TÜM okuyucular (getMapStyle,
+ *     applyMapDayNight, PR-3b `resolveLightBasemap`) bunu okur ve DEĞİŞMEZ. */
+let _mapNightRequested = _mapNight;
+let _tunnelNight = false;
+
+/** Etkin gece = tünel örtüsü VEYA istenen gece. */
+function _recomputeMapNight(): void {
+  _mapNight = _tunnelNight || _mapNightRequested;
+}
+
+export function setMapNight(night: boolean): void {
+  _mapNightRequested = night;
+  _recomputeMapNight();
+}
+
+/** ETKİN gün/gece — tünel örtüsü DAHİL. PR-3b `lightBasemap` bunu okur. */
 export function getMapNight(): boolean { return _mapNight; }
+
+/** Kullanıcı/saat kaynaklı İSTEK — örtü kalkınca dönülecek durum (gözlem + yeniden boyama). */
+export function getRequestedMapNight(): boolean { return _mapNightRequested; }
+
+/** Tünel örtüsü şu an açık mı (gözlem). */
+export function isTunnelNightOverrideActive(): boolean { return _tunnelNight; }
+
+/**
+ * Tünel örtüsünü kur/kaldır.
+ *
+ * İDEMPOTENT: aynı durum tekrar bildirilirse `false` döner ve ETKİN değer
+ * DEĞİŞMEZ → çağıran gereksiz yeniden boyama YAPMAZ (far callback'i tünel
+ * içinde defalarca gelebilir).
+ *
+ * @returns Etkin gün/gece durumu GERÇEKTEN değiştiyse `true`.
+ */
+export function setTunnelNightOverride(active: boolean): boolean {
+  const next = active === true;
+  if (next === _tunnelNight) return false;      // durum aynı → iş YOK
+  const before = _mapNight;
+  _tunnelNight = next;
+  _recomputeMapNight();
+  return _mapNight !== before;                  // gece zaten açıksa boyama gerekmez
+}
 
 export function getMapStyle(): StyleSpecification {
   const { mapMode, tileRender, sources, activeSourceId } = useMapSourceStore.getState();

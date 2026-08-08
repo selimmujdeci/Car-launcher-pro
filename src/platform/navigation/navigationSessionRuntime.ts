@@ -43,12 +43,14 @@ import {
   getNavigationState,
   updateNavigationProgress,
   getNavSessionId,
+  getRouteProgressPoint,
 } from '../navigationService';
 import { markFirstNewInstruction } from './core/routeRequestLedger';
 import { useUnifiedVehicleStore } from '../vehicleDataLayer/UnifiedVehicleStore';
 import {
   projectDeadReckon, resolveDrSpeed, DR_MAX_DT_SEC,
 } from '../../utils/interpolation';
+import { advanceAlongRoute } from './core/routeProjectionModel';
 import {
   noteVoiceGuidanceTick, resetVoiceGuidance,
 } from './voiceGuidanceRuntime';
@@ -110,6 +112,40 @@ let _drDistanceM = 0;
 /** [0..1] — GPS kaybının üzerinden geçen süreyle azalır; 0'da ilerleme durur. */
 let _drConfidence = 0;
 
+/* ── DR PROJEKSİYON EKSENİ (#451, PR-451a) ─────────────────────────────────
+ * Projeksiyon artık son heading doğrultusunda DÜZ değil, ROTA GEOMETRİSİ
+ * BOYUNCA yapılır. Gerekçe ve türetilmiş sayılar: `core/routeProjectionModel`.
+ *
+ * ÇAPA NEDEN BİR KEZ ALINIR: mevcut projeksiyon MUTLAKtır — her tick "son
+ * gerçek fix'ten v×Δt kadar ileri" hesaplar (birikimli DEĞİL, idempotent).
+ * Aynı sözleşme korunur: çapa DR'ye GİRERKEN bir kez alınır ve her tick o
+ * çapadan mutlak mesafeyle ilerletilir. Her tick `getRouteProgressPoint()`
+ * okunsaydı, çapa kendi projeksiyonumuzla birlikte kayar ve mesafe İKİ KEZ
+ * uygulanırdı. */
+export type DrProjectionMode = 'ALONG_ROUTE' | 'HEADING_FALLBACK';
+
+interface _DrAnchor {
+  readonly lat: number;
+  readonly lon: number;
+  readonly segIdx: number;
+}
+/** DR'ye girerken alınan rota çapası — `null` = çapa yok → heading fallback. */
+let _drAnchor: _DrAnchor | null = null;
+/** Son tick'te kullanılan eksen (gözlem). */
+let _drProjectionMode: DrProjectionMode = 'HEADING_FALLBACK';
+/** Rota boyunca GERÇEKTEN tüketilen mesafe (m) — `null` = ölçüm yok. */
+let _drConsumedRouteM: number | null = null;
+/** Ulaşılan segment indeksi — `null` = ölçüm yok. */
+let _drProjectionSegIdx: number | null = null;
+
+/** GPS tazelendiğinde / oturum bittiğinde çapa ve gözlem alanları unutulur. */
+function _clearDrProjection(): void {
+  _drAnchor = null;
+  _drProjectionMode = 'HEADING_FALLBACK';
+  _drConsumedRouteM = null;
+  _drProjectionSegIdx = null;
+}
+
 /** Salt-okunur çalışma görüntüsü — CAROS LAB gözlem yüzeyi için. */
 export interface NavigationSessionRuntimeSnapshot {
   /** Abonelik ayakta mı (uygulama ömrü boyunca tek örnek). */
@@ -140,6 +176,17 @@ export interface NavigationSessionRuntimeSnapshot {
   readonly drDistanceMeters: number;
   /** DR güveni [0..1] — 0 olduğunda ilerleme DURUR. */
   readonly drConfidence: number;
+  /**
+   * DR projeksiyonunun EKSENİ (#451).
+   *  · `ALONG_ROUTE`      → rota geometrisi boyunca ilerletiliyor.
+   *  · `HEADING_FALLBACK` → rota çapası yok/geometri kullanılamaz → eski
+   *    heading doğrultusunda düz projeksiyon (fail-closed, bugünkü davranış).
+   */
+  readonly drProjectionMode: DrProjectionMode;
+  /** Rota boyunca GERÇEKTEN tüketilen mesafe (m) — `null` = ölçüm YOK. */
+  readonly drConsumedRouteM: number | null;
+  /** Projeksiyonun ulaştığı rota segmenti — `null` = ölçüm YOK. */
+  readonly drProjectionSegIdx: number | null;
   /** DR zamanlayıcısı ayakta mı (tek sahiplik kanıtı). */
   readonly drTimerRunning: boolean;
 }
@@ -279,6 +326,7 @@ function _onNavigationInactive(): void {
   _drState = 'IDLE';
   _drDistanceM = 0;
   _drConfidence = 0;
+  _clearDrProjection();
   resetVoiceGuidance('navigasyon aktif değil');
   resetMarkerMotion();
 }
@@ -318,7 +366,13 @@ function _drTick(): void {
 
     const now = _now();
     const ageMs = now - fix.ts;
-    if (ageMs <= GPS_STALE_MS) { _drState = 'GPS_FRESH'; _drConfidence = 1; return; }
+    if (ageMs <= GPS_STALE_MS) {
+      _drState = 'GPS_FRESH'; _drConfidence = 1;
+      /* GPS geri geldi → çapa unutulur; bir sonraki kayıpta TAZE çapa alınır.
+         Bayat çapa, aracın çoktan geçtiği bir noktadan ilerletme demekti. */
+      _clearDrProjection();
+      return;
+    }
 
     const ageSec = ageMs / 1000;
     // Güven GPS kaybıyla doğrusal azalır; DR_MAX_DT_SEC'te 0 olur.
@@ -333,11 +387,50 @@ function _drTick(): void {
     const speedKmh = resolveDrSpeed(vehicleKmh, fix.speedMs);
     if (!(speedKmh >= 1)) { _drState = 'DR_EXPIRED'; return; }
 
-    const { lat, lng } = projectDeadReckon(
-      { lat: fix.lat, lng: fix.lng, heading: fix.heading, ts: fix.ts }, speedKmh, now,
-    );
-
     const geometry = getRouteState().geometry;
+
+    /* ── PROJEKSİYON EKSENİ (#451) ─────────────────────────────────────────
+     * Çapa YALNIZ DR'ye girerken bir kez alınır (bkz. `_drAnchor` gerekçesi).
+     * `getRouteProgressPoint()` son GERÇEK fix'in rota üzerine oturtulmuş
+     * noktasını verir ve araç koridor dışındaysa `null` döner — yani çapa
+     * ancak eşleşme GÜVENİLİRKEN kurulur (fail-closed). */
+    if (_drAnchor === null) {
+      const p = getRouteProgressPoint();
+      if (p) _drAnchor = { lat: p.lat, lon: p.lon, segIdx: p.segIdx };
+    }
+
+    /* Kat edilmesi TAHMİN edilen yol-boyu mesafe — mevcut mutlak sözleşme:
+       "son gerçek fix'ten bu yana v × Δt", 60 sn tavanıyla. */
+    const advanceM = (speedKmh / 3.6) * Math.min(ageSec, DR_MAX_DT_SEC);
+
+    const along = _drAnchor
+      ? advanceAlongRoute(geometry, _drAnchor.segIdx, _drAnchor.lat, _drAnchor.lon, advanceM)
+      : null;
+
+    let lat: number;
+    let lng: number;
+    if (along) {
+      lat = along.lat;
+      lng = along.lon;
+      _drProjectionMode = 'ALONG_ROUTE';
+      _drConsumedRouteM = along.consumedM;
+      _drProjectionSegIdx = along.segIdx;
+      /* `along.exhausted` = rota geometrisi bitti → son noktada DURULDU.
+         Varış İDDİA EDİLMEZ; ilerleme kendiliğinden durur çünkü sonraki
+         tick'ler de aynı son noktayı döndürür. */
+    } else {
+      /* FAIL-CLOSED: rota çapası yok / geometri bozuk-boş → BUGÜNKÜ heading
+         projeksiyonu AYNEN. Rota uydurulmaz. */
+      const hp = projectDeadReckon(
+        { lat: fix.lat, lng: fix.lng, heading: fix.heading, ts: fix.ts }, speedKmh, now,
+      );
+      lat = hp.lat;
+      lng = hp.lng;
+      _drProjectionMode = 'HEADING_FALLBACK';
+      _drConsumedRouteM = null;
+      _drProjectionSegIdx = null;
+    }
+
     /* allowReroute:false — DR projeksiyonu virajda rotadan doğal olarak sapar;
        sahte reroute internet yokken gerçek rotayı düz-çizgiyle değiştirirdi.
        Bu sözleşme eski (görünüm-içi) hâliyle BİREBİR aynıdır. */
@@ -374,6 +467,7 @@ export function stopNavigationSessionRuntime(): void {
   _lastFix = null;
   _drState = 'IDLE';
   _drConfidence = 0;
+  _clearDrProjection();
   resetVoiceGuidance('runtime durduruldu');
   resetMarkerMotion();
   _releaseMotionFeeder?.();
@@ -407,6 +501,10 @@ export function getNavigationSessionRuntimeSnapshot(): NavigationSessionRuntimeS
     drTickCount:        _drTickCount,
     drDistanceMeters:   Math.round(_drDistanceM),
     drConfidence:       Math.max(0, Math.min(1, _drConfidence)),
+    /* Ölçüm yoksa `null` — sahte eksen/mesafe ÜRETİLMEZ. */
+    drProjectionMode:   _drProjectionMode,
+    drConsumedRouteM:   _drConsumedRouteM === null ? null : Math.round(_drConsumedRouteM),
+    drProjectionSegIdx: _drProjectionSegIdx,
     drTimerRunning:     _drTimer !== null,
   };
 }
@@ -424,6 +522,7 @@ export function _resetNavigationSessionRuntimeForTest(): void {
   _drTickCount = 0;
   _drDistanceM = 0;
   _drConfidence = 0;
+  _clearDrProjection();
   _drState = 'IDLE';
   _lastFix = null;
 }

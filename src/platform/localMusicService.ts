@@ -11,6 +11,8 @@ import { CarLauncher } from './nativePlugin';
 import type { LocalMusicTrack } from './nativePlugin';
 import { isNative } from './bridge';
 import { updateMediaState, getMediaState } from './mediaService';
+/* Yalnız TİP (derlemede silinir) — mevcut `mediaService` kenarına ek yük YOK. */
+import type { MediaCommandResult } from './mediaService';
 import { logError } from './crashLogger';
 
 /**
@@ -274,21 +276,42 @@ export function localTogglePlayPause(): void {
   }
 }
 
-export function localNext(): void {
-  if (_state.currentIndex < _state.tracks.length - 1) {
-    void playAtIndex(_state.currentIndex + 1);
+/**
+ * Sonraki parça.
+ *
+ * SONUÇ DÖNDÜRÜR (saha 2026-08-08): eskiden `void` idi ve kuyruk boşken ya da
+ * SON parçadayken SESSİZCE hiçbir şey yapmıyordu — çağıran bunu ayırt edemediği
+ * için sesli asistan yine "sonraki parça" diyordu (sahte onay).
+ * Davranış DEĞİŞMEDİ (başa sarma EKLENMEDİ); yalnız "yapılmadı" artık söylenir.
+ */
+export function localNext(): MediaCommandResult {
+  if (_state.tracks.length === 0) {
+    return { dispatched: false, verified: false, failureCode: 'empty_queue' };
   }
+  if (_state.currentIndex >= _state.tracks.length - 1) {
+    return { dispatched: false, verified: false, failureCode: 'end_of_queue' };
+  }
+  void playAtIndex(_state.currentIndex + 1);
+  return { dispatched: true, verified: true, failureCode: null };
 }
 
-export function localPrev(): void {
+/** Önceki parça — `localNext` ile AYNI sözleşme. */
+export function localPrev(): MediaCommandResult {
   // 3 saniye geçtiyse aynı parçanın başına dön
   if (_state.positionMs > 3000) {
     CarLauncher.seekLocalTrack({ positionMs: 0 }).catch(() => {});
     _set({ positionMs: 0 });
     updateMediaState({ track: { ...getMediaState().track, positionSec: 0 } });
-  } else if (_state.currentIndex > 0) {
-    void playAtIndex(_state.currentIndex - 1);
+    return { dispatched: true, verified: true, failureCode: null };
   }
+  if (_state.tracks.length === 0) {
+    return { dispatched: false, verified: false, failureCode: 'empty_queue' };
+  }
+  if (_state.currentIndex <= 0) {
+    return { dispatched: false, verified: false, failureCode: 'start_of_queue' };
+  }
+  void playAtIndex(_state.currentIndex - 1);
+  return { dispatched: true, verified: true, failureCode: null };
 }
 
 export function localSeek(positionMs: number): void {

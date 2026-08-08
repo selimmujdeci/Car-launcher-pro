@@ -265,7 +265,18 @@ describe('B. Ölü hesaplama (DR) sahipliği', () => {
   });
 
   it('🔒 GPS tazeyken DR çalışmaz (erken döner)', () => {
-    expect(code(runtimeSrc)).toContain("if (ageMs <= GPS_STALE_MS) { _drState = 'GPS_FRESH'");
+    /* SÖZLEŞME AYNI, BİÇİM GÜNCELLENDİ (#451 · PR-451a): tek satırlık erken
+       dönüş, çapayı da temizlemesi gerektiği için bloğa çevrildi. Kilit
+       KALDIRILMADI — kontrol edilen davranış (GPS tazeyken DR'nin erken
+       dönmesi) aynen denetlenir, ek olarak çapanın unutulması da denetlenir.
+       Bayat çapa kalsaydı, sonraki GPS kaybında araç çoktan geçtiği bir
+       noktadan ilerletilirdi. */
+    const c = code(runtimeSrc);
+    expect(c).toContain('if (ageMs <= GPS_STALE_MS) {');
+    expect(c).toMatch(/_drState = 'GPS_FRESH'; _drConfidence = 1;/);
+    expect(c, 'GPS tazelenince DR çapası unutulmuyor').toMatch(
+      /if \(ageMs <= GPS_STALE_MS\) \{[\s\S]{0,200}?_clearDrProjection\(\);[\s\S]{0,40}?return;/,
+    );
   });
 
   it('🔒 DR güveni bitince ilerleme DURUR', () => {

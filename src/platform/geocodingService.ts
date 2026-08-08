@@ -8,7 +8,8 @@
  *
  * Fast-Fail Fallback (geocodeAddress):
  *   navigator.onLine === false  → anında offline fallback (<500ms)
- *   Nominatim > FAST_FAIL_MS    → abort + offline fallback
+ *   Nominatim > FAST_FAIL_MS    → offline fallback DÖNER, istek İPTAL EDİLMEZ;
+ *                                 geç gelen yanıt önbelleğe düşer (bkz. _lateCache)
  *   Nominatim ağ hatası         → offline fallback
  * Fallback: searchOffline() (IndexedDB geçmiş) + searchPOI() (SQLite FTS5)
  */
@@ -315,7 +316,8 @@ interface NominatimItem {
  *
  * Fast-Fail Timeout (2s):
  *   - navigator.onLine === false → anında _offlineFallback() (rate-limiter atlanır)
- *   - Nominatim 2s içinde yanıt vermezse → abort + _offlineFallback()
+ *   - Nominatim 2s içinde yanıt vermezse → _offlineFallback() DÖNER; istek
+ *     iptal EDİLMEZ, geç yanıt önbelleğe yazılır → sonraki arama onu bulur
  *   - Nominatim ağ hatası → _offlineFallback()
  */
 export async function geocodeAddress(
@@ -373,6 +375,45 @@ export async function geocodeAddress(
  * TEK Nominatim denemesi.
  * @returns sonuç dizisi (boş olabilir) · `null` = timeout veya ağ hatası
  */
+/* ── GEÇ GELEN YANIT ÖNBELLEĞİ (saha 2026-08-08, Siverek) ────────────────────
+ *
+ * ÖLÇÜLEN KUSUR: `FAST_FAIL_MS` dolunca istek `ctrl.abort()` ile ÖLDÜRÜLÜYORDU.
+ * Nominatim aynı sorguya doğru cevabı veriyordu (dört varyantta da
+ * `leisure/park → Ofis Parkı, Ofis Mahallesi, Siverek` doğrulandı) — ama mobil
+ * veride 2 saniyeyi aştığı için cevap çöpe gidiyor, ürün `_offlineFallback`'e
+ * düşüyordu. Sürücünün gördüğü buydu: aradığı park yerine yalnız "Siverek" ve
+ * 25 km ötedeki "Kışla" mahallesi. ("Siverek Otogarı"nın BİR KEZ görünmesi de
+ * aynı teşhisi doğrular: o denemede yanıt 2 s'nin altında kalmış.)
+ *
+ * DÜZELTME: fast-fail artık yalnız BEKLEMEYİ bitirir, isteği İPTAL ETMEZ.
+ * Çağıran anında çevrimdışı sonucu alır (yanıt hızı BİREBİR korunur); yanıt
+ * geç de olsa gelince buraya yazılır ve bir sonraki tuş vuruşu/arama onu
+ * ANINDA bulur. 8 saniyelik sert sınır tek gerçek üst sınır olarak KALIR.
+ */
+const LATE_CACHE_TTL_MS  = 5 * 60_000;
+const LATE_CACHE_MAX     = 40;
+const _lateCache = new Map<string, { at: number; results: GeoResult[] }>();
+
+function _lateCacheGet(key: string): GeoResult[] | null {
+  const hit = _lateCache.get(key);
+  if (!hit) return null;
+  if (Date.now() - hit.at > LATE_CACHE_TTL_MS) { _lateCache.delete(key); return null; }
+  return hit.results;
+}
+
+function _lateCachePut(key: string, results: GeoResult[]): void {
+  if (!results.length) return;                    // boş cevabı önbelleğe alma
+  // Sınırlı boyut — en eski kayıt düşer (Map ekleme sırasını korur).
+  if (_lateCache.size >= LATE_CACHE_MAX) {
+    const oldest = _lateCache.keys().next().value;
+    if (oldest !== undefined) _lateCache.delete(oldest);
+  }
+  _lateCache.set(key, { at: Date.now(), results });
+}
+
+/** Test izolasyonu — önbellek testler arasında sızmasın. */
+export function _resetGeocodeLateCacheForTest(): void { _lateCache.clear(); }
+
 async function _nominatimOnce(
   query:       string,
   currentLat?: number,
@@ -392,6 +433,12 @@ async function _nominatimOnce(
     params.set('viewbox', `${currentLng - d},${currentLat - d},${currentLng + d},${currentLat + d}`);
     params.set('bounded', '0');
   }
+
+  /* GEÇ GELEN YANIT: aynı sorgu daha önce (fast-fail'den SONRA) cevaplandıysa
+     ağa hiç çıkmadan anında döner — sürücü ikinci denemede doğru POI'yi görür. */
+  const cacheKey = params.toString();
+  const cached   = _lateCacheGet(cacheKey);
+  if (cached) return cached;
 
   /* Nominatim ToS rate-limiter — bozulmadan korunur */
   await _waitNominatim();
@@ -415,24 +462,33 @@ async function _nominatimOnce(
         source:   'online' as const,
       }));
     })
-    .catch((): null => null); // network error veya AbortError → null
+    .catch((): null => null) // network error veya AbortError → null
+    /* Yanıt GEÇ gelse bile değerlidir: 8s sert sınır burada temizlenir ve
+       sonuç önbelleğe yazılır. Bu `.then` fast-fail'den SONRA da koşar —
+       istek artık iptal edilmediği için. */
+    .then((v): GeoResult[] | null => {
+      clear();
+      if (v && v.length) _lateCachePut(cacheKey, v);
+      return v;
+    });
 
-  /* 2s fast-fail timer — kazanırsa Nominatim abort edilir */
-  let automotiveTimer: ReturnType<typeof setTimeout> | null = null;
-  const automotiveSafe = new Promise<null>((resolve) => {
-    automotiveTimer = setTimeout(() => {
-      ctrl.abort();
-      resolve(null);
-    }, FAST_FAIL_MS);
+  /* 2s fast-fail — YALNIZ BEKLEMEYİ bitirir, isteği İPTAL ETMEZ.
+     Eskiden burada `ctrl.abort()` vardı ve 2 saniyeyi aşan DOĞRU cevabı
+     öldürüyordu (saha 2026-08-08: "Ofis Parkı" Nominatim'de vardı, ürün
+     bulamıyordu). Üst sınır artık tek yerde: `abort(TIMEOUT)` = 8 s. */
+  let fastFailTimer: ReturnType<typeof setTimeout> | null = null;
+  const fastFailSafe = new Promise<null>((resolve) => {
+    fastFailTimer = setTimeout(() => resolve(null), FAST_FAIL_MS);
   });
 
   try {
-    // Nominatim kazandı → dizi (boş olabilir). null → timeout/ağ hatası;
+    // Nominatim kazandı → dizi (boş olabilir). null → fast-fail/ağ hatası;
     // çevrimdışı yola sapma kararı ÇAĞIRANA aittir (tek deneme sorumluluğu).
-    return await Promise.race([nominatimSafe, automotiveSafe]);
+    return await Promise.race([nominatimSafe, fastFailSafe]);
   } finally {
-    if (automotiveTimer !== null) clearTimeout(automotiveTimer);
-    clear();
+    if (fastFailTimer !== null) clearTimeout(fastFailTimer);
+    /* `clear()` BURADA ÇAĞRILMAZ: istek hâlâ uçuyor olabilir ve 8s sert
+       sınırın yaşaması gerekir. Temizlik yukarıdaki `.then` içinde yapılır. */
   }
 }
 
@@ -498,6 +554,101 @@ export async function reverseGeocode(
     return shortName(display);
   } catch {
     return null;                     // ağ · abort · parse — hepsi sessiz null
+  } finally {
+    clear();
+  }
+}
+
+/* ── Nominatim reverse — YAPILANDIRILMIŞ parçalar ────────── */
+
+interface NominatimAddressDetail {
+  road?: string; pedestrian?: string; footway?: string;
+  neighbourhood?: string; suburb?: string; quarter?: string;
+  town?: string; city?: string; city_district?: string;
+  county?: string; province?: string; state?: string;
+}
+
+/** Koordinatın idari parçaları — bulunamayan alan `null` (uydurma YOK). */
+export interface ReverseGeocodeParts {
+  /** Yol / cadde adı (ör. "D330"). */
+  readonly road: string | null;
+  /** İlçe / semt (ör. "Meram"). */
+  readonly district: string | null;
+  /** Şehir / il (ör. "Konya"). */
+  readonly city: string | null;
+}
+
+/**
+ * `reverseGeocode`'un YAPILANDIRILMIŞ kardeşi — şehir/ilçe/yol AYRI alanlar.
+ *
+ * NEDEN AYRI BİR FONKSİYON: mevcut `reverseGeocode` `display_name`i ilk iki
+ * virgül parçasına kısaltır ("Mahalle, İlçe") → **şehir bilgisi kaybolur** ve
+ * dönüş tipi tek `string`tir. Mavi'nin bağlamı şehir/ilçe/yol'u AYRI ister.
+ * Mevcut fonksiyonun sözleşmesi ve kilit testleri BOZULMASIN diye o dosyada
+ * DEĞİŞTİRİLMEDİ; burada aynı uca `addressdetails=1` ile ek bir okuma yapılır.
+ *
+ * İKİNCİ SERVİS DEĞİLDİR: aynı modül, aynı uç, **aynı ToS rate-limiter**
+ * (`_waitNominatim`) ve aynı bounded/fail-soft sözleşme kullanılır:
+ *  - RETRY YOK · THROW ETMEZ · çevrimdışıyken ağa HİÇ çıkılmaz
+ *  - bütçe rate-limit beklemesini DE kapsar
+ *  - LOG YOK (konum PII'dir)
+ */
+export async function reverseGeocodeParts(
+  lat:       number,
+  lng:       number,
+  timeoutMs: number = REVERSE_GEOCODE_TIMEOUT_MS,
+): Promise<ReverseGeocodeParts | null> {
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  if (lat < -90 || lat > 90 || lng < -180 || lng > 180) return null;
+  if (lat === 0 && lng === 0) return null;              // Null Island sentinel
+  if (typeof navigator !== 'undefined' && !navigator.onLine) return null;
+
+  const budget = Number.isFinite(timeoutMs) && timeoutMs > 0
+    ? timeoutMs : REVERSE_GEOCODE_TIMEOUT_MS;
+  const startedAt = Date.now();
+
+  await _waitNominatim();
+
+  const remaining = budget - (Date.now() - startedAt);
+  if (remaining <= 0) return null;
+
+  const params = new URLSearchParams({
+    lat:            String(lat),
+    lon:            String(lng),
+    format:         'json',
+    zoom:           '16',
+    addressdetails: '1',
+  });
+
+  const { ctrl, clear } = abort(remaining);
+  try {
+    const res = await fetch(`${NOMINATIM_REVERSE}?${params}`, {
+      headers: { 'User-Agent': UA, 'Accept-Language': 'tr' },
+      signal:  ctrl.signal,
+    });
+    if (!res.ok) return null;
+    const data = (await res.json()) as { address?: NominatimAddressDetail };
+    const a = data?.address;
+    if (!a || typeof a !== 'object') return null;
+
+    const pick = (...keys: (keyof NominatimAddressDetail)[]): string | null => {
+      for (const k of keys) {
+        const v = a[k];
+        if (typeof v === 'string' && v.trim().length > 0) return v.trim();
+      }
+      return null;
+    };
+
+    const parts: ReverseGeocodeParts = {
+      road:     pick('road', 'pedestrian', 'footway'),
+      district: pick('city_district', 'suburb', 'town', 'quarter', 'neighbourhood', 'county'),
+      city:     pick('city', 'province', 'state'),
+    };
+    /* Hiçbir alan çözülemediyse "boş cevap" değil, CEVAPSIZ sayılır. */
+    if (parts.road === null && parts.district === null && parts.city === null) return null;
+    return parts;
+  } catch {
+    return null;
   } finally {
     clear();
   }

@@ -17,6 +17,10 @@ import { useUnifiedVehicleStore } from './vehicleDataLayer/UnifiedVehicleStore';
 import { speakNavigation } from './ttsService';
 import { computeEta, type EtaVerdict } from './navigation/core/etaModel';
 import { corridorSync } from '../core/navigation/CorridorSyncEngine';
+import { setNavigationGpsPower } from './navigation/navGpsPowerBridge';
+/* Saf matematik yardımcısı — `cameraEngine` sıfır-import bir yaprak modüldür,
+   döngü riski yok. Yön formülünü ikinci kez yazmamak için oradan alınır. */
+import { bearingBetween } from './cameraEngine';
 import { safeSetRawImmediate, safeGetRaw, safeRemoveRaw } from '../utils/safeStorage';
 import {
   judgeDestinationChange, recordDestinationChange,
@@ -353,6 +357,11 @@ export function activateNavigation(): void {
   const { status } = useNavigationStore.getState();
   if (status === NavStatus.PREVIEW || status === NavStatus.ROUTING) {
     useNavigationStore.getState()._setStatus(NavStatus.ACTIVE);
+    /* Konum tazeliği (saha 2026-08-08): native park kısması navigasyondan
+       habersizdi — uzun duruşta 1 Hz GPS kapanıp kalkışta ilk ~60 m kör
+       kalıyordu. Bayrak TAM BURADA gönderilir: GPS geri çağrısına bağlanamaz,
+       çünkü kısma zaten geri çağrıyı susturur (kilitlenme). */
+    setNavigationGpsPower(true);
     _navStartLat            = null;
     _navStartLon            = null;
     _navStartDistToDest     = Infinity;
@@ -390,6 +399,7 @@ export function setNavStatus(status: NavStatus, errorMessage?: string): void {
  * Navigasyonu durdur ve IDLE'a dön.
  */
 export function stopNavigation(): void {
+  setNavigationGpsPower(false);   // oturum bitti → normal pil politikası geri döner
   safeRemoveRaw(NAV_PERSIST_KEY); // Crash recovery mührünü temizle — kullanıcı iptal etti
   _routeClaim = null;             // oturum kapandı — sonraki hedef temiz sahiplenir
   _lastPersistedStepIdx = -1;
@@ -415,6 +425,7 @@ export function stopNavigation(): void {
   _proximityAlertFired    = false;
   _lastSnappedLat         = null;
   _lastSnappedLon         = null;
+  _lastSnappedSegBearing  = null;
   _lastOffRouteM          = Infinity;
   corridorSync.stop();
 }
@@ -560,6 +571,10 @@ let _lastClosestSegIdx   = -1;
 let _lastSnappedLat: number | null = null;
 let _lastSnappedLon: number | null = null;
 let _lastOffRouteM: number         = Infinity; // en yakın segment mesafesi (m)
+/** Aracın oturduğu rota segmentinin yönü (A→B, derece). Kamera bunu okur —
+ *  bkz. `getSnappedRoadBearing()`. Snap ile AYNI hesaptan doğar, ikinci
+ *  otorite değildir. */
+let _lastSnappedSegBearing: number | null = null;
 
 const ARRIVAL_SPEED_GUARD_KMH          = 10;    // varış için maksimum hız eşiği
 const ARRIVAL_MIN_MOVE_M               = 50;    // navigasyon başından bu yana minimum hareket (m)
@@ -873,6 +888,21 @@ export function _resetEtaVerdictForTest(): void {
  *
  * Monotonic clamp: aynı geometride mesafe asla artmaz (GPS jitter koruması).
  */
+/**
+ * Test kancası — snap hesabını doğrudan sürer ve türeyen yol yönünü döndürür.
+ * Kamera yön otoritesinin METİN kilidiyle değil DAVRANIŞLA doğrulanması için
+ * gerekli (ürün yolu store'a bağlı olduğundan birim testte sürülemiyor).
+ * Yalnız testlerden çağrılır; ürün akışında çağıranı YOKTUR.
+ */
+export function _snapForTest(
+  lat: number, lon: number, geometry: [number, number][],
+): { offRouteM: number; roadBearing: number | null } {
+  _lastGeoHash = '';          // her çağrıda taze O(N) tarama — testler bağımsız kalsın
+  _lastRouteDistanceM = Infinity;
+  calculateRouteDistance(lat, lon, geometry, null);
+  return { offRouteM: _lastOffRouteM, roadBearing: _lastSnappedSegBearing };
+}
+
 function calculateRouteDistance(
   lat:     number,
   lon:     number,
@@ -937,6 +967,10 @@ function calculateRouteDistance(
   _lastSnappedLat = pLat;
   _lastSnappedLon = pLon;
   _lastOffRouteM  = minSegDist;
+  /* Yol yönü — kamera otoritesi (saha 2026-08-08, Siverek: ölçülen GPS yön
+     gürültüsü p90 15,9°/s, araç DURURKEN bile 18°/s). Segment yönü geometriden
+     gelir: titremez. Ekstra tarama YOK — A/B uçları zaten yukarıda bulundu. */
+  _lastSnappedSegBearing = bearingBetween(aLat, aLon, bLat, bLon);
 
   // ── Step 3: remaining = |P'→B| + suffix-sum from B ─────────────────
   // O(1) with precomputed cumDist; O(N) fallback when unavailable (should not occur).
@@ -1046,6 +1080,31 @@ export function getSnappedMarkerPosition(): { lat: number; lon: number } | null 
   if (_lastSnappedLat === null || _lastSnappedLon === null) return null;
   if (_lastOffRouteM > SNAP_VISUAL_THRESHOLD_M) return null;
   return { lat: _lastSnappedLat, lon: _lastSnappedLon };
+}
+
+/**
+ * Aracın üzerinde bulunduğu ROTA SEGMENTİNİN yönü (derece, 0–360) — kameranın
+ * yön kaynağı. Rota dışındaysak / oturtma güvenilmezse `null`.
+ *
+ * NEDEN VAR (saha 2026-08-08, Siverek — ölçüldü): kamera ham GPS heading'ini
+ * takip ediyordu. Ölçülen gürültü: |Δyön|/s p90 **15,9°**, p99 38,6°, ve araç
+ * DURURKEN bile p90 12,3° / max 18,0°; ardışık örneklerin %5'i işaret
+ * değiştiriyordu (gerçek dönüş değil, salınım). Kullanıcının tarifi: *"bir
+ * dönüyor bir öyle dönüyor, geriye doğru gidecekmiş hissi veriyor."*
+ * Yol geometrisi ise titremez — Google/OEM navigasyonların kamerayı sabit
+ * tutma yöntemi de budur.
+ *
+ * İKİNCİ OTORİTE DEĞİLDİR: değer, `getSnappedMarkerPosition()` ile AYNI snap
+ * hesabından (`aLat/aLon → bLat/bLon`) doğar ve AYNI güven kapısını kullanır
+ * (ACTIVE/REROUTING + `SNAP_VISUAL_THRESHOLD_M`). İşaretçiyi oraya çizecek
+ * kadar güvenmiyorsak kamerayı da oraya döndürmeyiz.
+ */
+export function getSnappedRoadBearing(): number | null {
+  const status = useNavigationStore.getState().status;
+  if (status !== NavStatus.ACTIVE && status !== NavStatus.REROUTING) return null;
+  if (_lastSnappedSegBearing === null) return null;
+  if (_lastOffRouteM > SNAP_VISUAL_THRESHOLD_M) return null;
+  return _lastSnappedSegBearing;
 }
 
 /* ── KIRPMA EŞİĞİ = GÖRSEL OTURTMA EŞİĞİ (saha 2026-08-03) ───────────────────

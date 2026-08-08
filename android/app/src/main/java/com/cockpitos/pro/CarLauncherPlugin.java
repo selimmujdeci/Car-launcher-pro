@@ -1742,6 +1742,19 @@ public class CarLauncherPlugin extends Plugin {
             if (s.lastResultCategory != null) stt.put("lastResultCategory", s.lastResultCategory);
             stt.put("lastResultAt", s.lastResultAt);
             ret.put("stt", stt);
+
+            /* WAKE KARAR SAYAÇLARI (şema 2) — AYRI blok: eski JS `wake`
+               anahtarını hiç okumaz, yeni JS yoksa `-1`/0 görür. Metin YOK. */
+            JSObject wake = new JSObject();
+            wake.put("yieldCount", s.wakeYieldCount);
+            wake.put("vadSkipFrames", s.wakeVadSkipFrames);
+            wake.put("decodeFrames", s.wakeDecodeFrames);
+            wake.put("noMatchCount", s.wakeNoMatchCount);
+            wake.put("triggerCount", s.wakeTriggerCount);
+            wake.put("lastTriggerLatencyMs", s.wakeLastTriggerLatencyMs);
+            wake.put("partialWordsEnabled", s.wakePartialWordsEnabled);
+            wake.put("lastMatchConfMilli", s.wakeLastMatchConfMilli);
+            ret.put("wake", wake);
         } catch (Throwable t) {
             // Fail-soft: tanı hattı ASLA çağıranı düşürmez — "kanıt yok" DÜRÜSTÇE bildirilir.
             ret = new JSObject();
@@ -3507,6 +3520,42 @@ public class CarLauncherPlugin extends Plugin {
         return "";
     }
 
+    /**
+     * ÖLÇÜM (şema 3): Vosk JSON'undaki kelime güvenlerinin EN DÜŞÜĞÜ (0..1),
+     * bulunamazsa -1.
+     *
+     * NEDEN: wake kararı bugün SAF EŞLEŞMEDİR — güven skoru HİÇ okunmuyor.
+     * Saha (2026-08-08) "hey mercedes" ve "hey market" ile uyanıldığını
+     * gösterdi: grammar sesi en yakın wake sözcüğüne ZORLUYOR ve elimizde
+     * gerçek "hey mavi" ile ayıracak hiçbir sayı yok. Bu yardımcı o sayının
+     * VAR OLUP OLMADIĞINI ölçer — KARARA GİRMEZ.
+     *
+     * `setPartialWords(true)` etkinse partial JSON `partial_result` dizisi
+     * taşır; final JSON ise `result` dizisi. İkisi de yoksa -1 döner
+     * (uydurma güven ÜRETİLMEZ).
+     */
+    private double extractVoskMinConf(String json) {
+        if (json == null || json.isEmpty()) return -1;
+        try {
+            org.json.JSONObject o = new org.json.JSONObject(json);
+            org.json.JSONArray words = o.optJSONArray("partial_result");
+            if (words == null) words = o.optJSONArray("result");
+            if (words == null || words.length() == 0) return -1;
+            double min = Double.MAX_VALUE;
+            boolean seen = false;
+            for (int i = 0; i < words.length(); i++) {
+                org.json.JSONObject w = words.optJSONObject(i);
+                if (w == null || !w.has("conf")) continue;
+                double c = w.optDouble("conf", -1);
+                if (c < 0) continue;
+                seen = true;
+                if (c < min) min = c;
+            }
+            return seen ? min : -1;
+        } catch (Exception ignored) {}
+        return -1;
+    }
+
     /** n-best: Vosk final JSON'ından tüm alternatif metinleri (tekrarsız, sırayla). */
     private java.util.List<String> extractVoskAlternatives(String json) {
         java.util.List<String> out = new java.util.ArrayList<>();
@@ -3631,6 +3680,8 @@ public class CarLauncherPlugin extends Plugin {
             while (wakeWordActive && !Thread.currentThread().isInterrupted()) {
                 // HALF-DUPLEX bekleme: aktif STT/TTS bitene dek mikrofon kapalı.
                 if (wakeMicMustYield()) {
+                    // ÖLÇÜM (şema 2): mikrofon HİÇ AÇILMADI — JS bu sağırlığı göremez.
+                    VoiceMicDiagnostics.INSTANCE.noteWakeYield();
                     try { Thread.sleep(250); } catch (InterruptedException e) { return; }
                     continue;
                 }
@@ -3670,6 +3721,17 @@ public class CarLauncherPlugin extends Plugin {
                         recognizer = new Recognizer(voskModel, (float) VOSK_SAMPLE_RATE);
                         VoiceMicDiagnostics.INSTANCE.noteGrammar(VoiceMicDiagnostics.GRAMMAR_FREE, -1);
                     }
+                    /* ÖLÇÜM (şema 3): partial JSON'a KELİME DETAYI ekle — böylece
+                       güven skorunun VAR OLUP OLMADIĞI ölçülebilir. Bu YALNIZ
+                       çıktı biçimini değiştirir, akustik kararı DEĞİL; wake yine
+                       `matchesWakePhrase` ile verilir (güven KARARA GİRMEZ).
+                       Metot eski Vosk'ta yoksa sessizce atlanır (fail-soft). */
+                    boolean partialWordsOn = false;
+                    try {
+                        recognizer.setPartialWords(true);
+                        partialWordsOn = true;
+                    } catch (Throwable ignored) { /* 0.3.45 öncesi — ölçüm yapılamaz */ }
+                    VoiceMicDiagnostics.INSTANCE.noteWakePartialWords(partialWordsOn);
                     // recorder ZATEN kayıtta (openBestMicRecorder startRecording çağırdı).
 
                     final float gain = wakeWordGain;
@@ -3691,6 +3753,9 @@ public class CarLauncherPlugin extends Plugin {
                     int  preRollLen   = 0;
                     boolean preRollValid = false;
                     int  hangover     = 0;
+                    /* ÖLÇÜM (şema 2): konuşma penceresinin açıldığı monotonik an.
+                       Karar akışında KULLANILMAZ — yalnız gecikme türetilir. */
+                    long speechOnsetMs = 0;
                     while (wakeWordActive && !wakeMicMustYield()
                             && !Thread.currentThread().isInterrupted()) {
                         int n = recorder.read(buf, 0, buf.length);
@@ -3722,8 +3787,21 @@ public class CarLauncherPlugin extends Plugin {
                             rms, VAD_RMS_ON, rms >= VAD_RMS_ON, SystemClock.elapsedRealtime());
 
                         // VAD kapısı: konuşma varsa hangover'ı yenile.
-                        if (rms >= VAD_RMS_ON) hangover = VAD_HANGOVER;
+                        if (rms >= VAD_RMS_ON) {
+                            /* ÖLÇÜM (şema 3): konuşma penceresi GERÇEK sessizlikten
+                               sonra açılıyorsa onset kurulur. Şema 2'de her eşik
+                               aşımında kuruluyordu; ortam gürültüsü hangover'ı
+                               sürekli tazelediği için gecikme "pencere ne kadardır
+                               açık"a dönüşüyordu (sahada 2929 ms — anlamsız). */
+                            if (hangover <= 0) {
+                                speechOnsetMs = SystemClock.elapsedRealtime();
+                                VoiceMicDiagnostics.INSTANCE.noteWakeSpeechOnset(speechOnsetMs);
+                            }
+                            hangover = VAD_HANGOVER;
+                        }
                         if (hangover <= 0) {
+                            // ÖLÇÜM: eşik altı → decode ATLANDI (kaçan wake kaynağı).
+                            VoiceMicDiagnostics.INSTANCE.noteWakeFrame(false);
                             // Sessizlik → Vosk decode ATLANIR (CPU tasarrufu).
                             // Bu frame'i pre-roll olarak sakla (konuşma başlarsa beslenir).
                             System.arraycopy(buf, 0, preRoll, 0, n);
@@ -3732,6 +3810,8 @@ public class CarLauncherPlugin extends Plugin {
                             continue;
                         }
                         hangover--;
+                        // ÖLÇÜM: bu çerçeve GERÇEKTEN decode ediliyor.
+                        VoiceMicDiagnostics.INSTANCE.noteWakeFrame(true);
                         // Konuşma başı: önce pre-roll frame'ini besle (kelime başı kırpılmaz).
                         if (preRollValid) {
                             recognizer.acceptWaveForm(preRoll, preRollLen);
@@ -3739,18 +3819,33 @@ public class CarLauncherPlugin extends Plugin {
                         }
 
                         // REFLEKS: endpoint beklenmez — partial her pencerede kontrol edilir
-                        String heard = recognizer.acceptWaveForm(buf, n)
-                            ? extractVoskText(recognizer.getResult())
-                            : extractVoskText(recognizer.getPartialResult());
+                        String rawJson = recognizer.acceptWaveForm(buf, n)
+                            ? recognizer.getResult()
+                            : recognizer.getPartialResult();
+                        String heard = extractVoskText(rawJson);
                         if (matchesWakePhrase(heard)) {
+                            /* ÖLÇÜM: eşleşmenin güveni. KARARA GİRMEZ — yalnız
+                               "gerçek hey mavi" ile "hey market"i ayıracak bir
+                               sayı VAR MI sorusunu yanıtlar. */
+                            VoiceMicDiagnostics.INSTANCE.noteWakeMatchConf(extractVoskMinConf(rawJson));
                             triggered = true;
                             // MAVI-STT-LAB-1: yalnız KATEGORİ — duyulan metin ('heard') TAŞINMAZ.
                             VoiceMicDiagnostics.INSTANCE.noteResult(
                                 VoiceMicDiagnostics.RESULT_SUCCESS, System.currentTimeMillis());
+                            /* ÖLÇÜM (şema 2): tetik + konuşma başlangıcından bu yana
+                               geçen süre. Metin GEÇMEZ, yalnız süre ve sayaç. */
+                            VoiceMicDiagnostics.INSTANCE.noteWakeTrigger(SystemClock.elapsedRealtime());
                             JSObject ev = new JSObject();
                             ev.put("transcript", heard);
                             notifyListeners("wakeWord", ev);
                             break;
+                        }
+                        /* ÖLÇÜM: metin çözüldü ama EŞLEŞMEDİ. Bu sayı grammar'ın
+                           `[unk]` kapısının gerçekte ne kadar işe yaradığını
+                           gösterir — JS bu kararı HİÇ göremez. Boş partial
+                           sayılmaz (henüz karar değildir). */
+                        if (heard != null && !heard.isEmpty()) {
+                            VoiceMicDiagnostics.INSTANCE.noteWakeNoMatch();
                         }
                     }
                 } catch (Throwable th) {
@@ -4202,6 +4297,18 @@ public class CarLauncherPlugin extends Plugin {
             CarLauncherForegroundService.setDashcamRecording(active);
             svc.updateNotification(active ? "GPS takibi + Dashcam kaydı" : "GPS takibi aktif");
         }
+        call.resolve();
+    }
+
+    /**
+     * Navigasyon oturumu durumunu servise bildirir (park kısması istisnası).
+     * Salt bayrak — konum İZNİ istemez, akış BAŞLATMAZ; yalnız zaten çalışan
+     * 1 Hz akışın navigasyon sürerken kısılmasını engeller.
+     */
+    @PluginMethod
+    public void setNavigationActive(PluginCall call) {
+        boolean active = Boolean.TRUE.equals(call.getBoolean("active", false));
+        CarLauncherForegroundService.setNavigationActive(active);
         call.resolve();
     }
 

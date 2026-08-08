@@ -15,6 +15,7 @@ import {
 import type { NavigationCoreRawSnapshot } from './navigationCoreSources';
 import { OFF_ROUTE_STATE_LABEL } from '../navigation/core/offRouteModel';
 import { ROUTE_VERDICT_LABEL } from '../navigation/core/routeValidationModel';
+import { ROUTE_COLOR_REASON_LABEL } from '../map/core/routeColorModel';
 import {
   PROVIDER_READINESS_LABEL, ROUTE_SOURCE_LABEL,
 } from '../navigation/core/routeProviderReadiness';
@@ -456,8 +457,27 @@ export function buildNavigationCoreCards(s: NavigationCoreRawSnapshot): readonly
     fields: [
       observed({ id: 'vp-style', label: 'Mini harita stili', source: 'mapSourceManager',
         note: 'mod/tile-render. Vektör kaynağı yoksa raster kullanilir.', updatedAt: null }, s.miniMapStyle),
-      observed({ id: 'vp-theme', label: 'Harita teması', source: 'mapSourceManager',
-        note: '', updatedAt: null }, s.mapTheme === 'night' ? 'GECE' : 'GÜNDÜZ'),
+      observed({ id: 'vp-theme', label: 'Harita teması (ETKİN)', source: 'mapSourceManager',
+        note: 'Tünel örtüsü DAHİL — PR-3b `lightBasemap` bu değeri okur.',
+        updatedAt: null }, s.mapTheme === 'night' ? 'GECE' : 'GÜNDÜZ'),
+
+      /* ── TÜNEL GECE ÖRTÜSÜ ───────────────────────────────────────────────
+       * Örtü bir AYAR DEĞİL geçici çalışma durumudur; `settings.dayNightMode`
+       * DEĞİŞMEZ. Bu üç satır "ekran neden gece" sorusunu tek bakışta
+       * yanıtlar: kanıt (far) · uygulanan örtü · örtü kalkınca dönülecek yer. */
+      observed({ id: 'vp-tunnel', label: 'Tünel kanıtı (far)', source: 'autoBrightnessService',
+        note: 'Gündüz + far açık → tünel. GPS kaybı tünel kanıtı SAYILMAZ.',
+        updatedAt: null }, s.tunnelMode ? 'TÜNELDE' : 'yok'),
+      observed({ id: 'vp-tunnel-ovr', label: 'Gece örtüsü uygulandı mı', source: 'mapSourceManager',
+        note: 'Örtü `setMapNight` hunisindedir — hangi çağıran yazarsa yazsın korunur.',
+        updatedAt: null }, s.tunnelOverride ? 'EVET' : 'hayır'),
+      observed({ id: 'vp-req-night', label: 'İstenen gün/gece (örtüsüz)', source: 'mapSourceManager',
+        note: 'Kullanıcı/saat kaynaklı istek — örtü kalkınca buraya DÖNÜLÜR.',
+        updatedAt: null }, s.requestedNight ? 'GECE' : 'GÜNDÜZ'),
+      observed({ id: 'vp-tunnel-tr', label: 'Örtü geçiş sayısı', source: 'tunnelNightRuntime',
+        note: 'YALNIZ gerçek geçişler sayılır; tekrarlı far bildirimi saymaz. Hızla artıyorsa FLICKER vardır.',
+        updatedAt: null },
+        `${s.tunnelTransitions}${s.tunnelBridgeRunning ? '' : ' (köprü KAPALI)'}`),
       observed({ id: 'vp-contrast', label: 'Kontrast profili', source: 'mapStyleBuilders',
         note: 'Gündüz/gece TEK token setinden üretilir.', updatedAt: null }, s.mapContrastProfile),
 
@@ -679,6 +699,26 @@ export function buildNavigationCoreCards(s: NavigationCoreRawSnapshot): readonly
         note: '0 olduğunda ilerleme DURUR — sahte ilerleme yok.', updatedAt: null },
         drt.drConfidence.toFixed(2)),
 
+      /* ── DR PROJEKSİYON EKSENİ (#451) ────────────────────────────────────
+       * Heading doğrultusunda düz projeksiyon virajda koridordan çıkıp
+       * `OFF_NETWORK`e düşürüyordu. Eksenin hangi modda olduğu ancak burada
+       * GÖRÜNÜR. Ölçüm yoksa `UNAVAILABLE` — sahte segment/mesafe üretilmez. */
+      observed({ id: 'dl-dr-axis', label: 'DR projeksiyon ekseni', source: SRC_RT,
+        note: 'ALONG_ROUTE = rota geometrisi boyunca. HEADING_FALLBACK = rota çapası yok → eski düz projeksiyon.',
+        updatedAt: null },
+        drt.drProjectionMode === 'ALONG_ROUTE' ? 'ROTA BOYUNCA' : 'HEADING (yedek)'),
+      drt.drConsumedRouteM != null
+        ? derived({ id: 'dl-dr-along', label: 'Rota boyunca tüketilen', source: SRC_RT,
+            note: 'Rota bitmişse istenenden KÜÇÜK kalır — fazlası yutulmaz.',
+            updatedAt: null }, `${drt.drConsumedRouteM} m`)
+        : unavailable({ id: 'dl-dr-along', label: 'Rota boyunca tüketilen', source: SRC_RT,
+            note: '', updatedAt: null }, 'rota boyunca projeksiyon yok'),
+      drt.drProjectionSegIdx != null
+        ? observed({ id: 'dl-dr-seg', label: 'DR segment indeksi', source: SRC_RT,
+            note: '', updatedAt: null }, String(drt.drProjectionSegIdx))
+        : unavailable({ id: 'dl-dr-seg', label: 'DR segment indeksi', source: SRC_RT,
+            note: '', updatedAt: null }, 'rota boyunca projeksiyon yok'),
+
       observed({ id: 'dl-dur-src', label: 'Rota süre kaynağı', source: SRC_DUR,
         note: 'Düz hat OSRM ETA\'sı gibi sunulamaz.', updatedAt: null },
         DURATION_SOURCE_LABEL[s.routeDurationSource]),
@@ -730,7 +770,15 @@ export function buildNavigationCoreCards(s: NavigationCoreRawSnapshot): readonly
   const SRC_MOTION = 'navMarkerMotionRuntime';
   const SRC_CAM    = 'cameraPolicyModel';
   const SRC_SHADOW = 'cameraShadowRuntime';
+  /* Kadans satırlarının kaynağı politika modeli DEĞİL, sönümleme motorudur —
+     etiket gerçek kaynağı söylemelidir (kanıt dürüstlüğü). */
+  const SRC_DAMP   = 'cameraEngine';
+  /* Rota rengi kamera değil HARİTA katmanı kararıdır — kaynak etiketi gerçek
+     sahibi söyler (kanıt dürüstlüğü). */
+  const SRC_RCOLOR = 'routeColorModel';
+  const rcol = s.routeColor;
   const sh = s.cameraShadow;
+  const dmp = s.cameraDamping;
   cards.push({
     id: 'motion', title: NAV_CORE_CARD_TITLE.motion,
     fields: [
@@ -799,6 +847,56 @@ export function buildNavigationCoreCards(s: NavigationCoreRawSnapshot): readonly
         note: '', updatedAt: null }, cam.recenterAvailable ? 'GÖRÜNÜR' : 'GİZLİ'),
       observed({ id: 'cam-reason', label: 'Kamera gerekçesi', source: SRC_CAM,
         note: '', updatedAt: null }, cp.updateReason),
+
+      /* ── SÖNÜMLEME KADANSI ──────────────────────────────────────────────
+       * Sönümleme alfaları 150 ms'lik tempoda ayarlandı. Tempo saparsa
+       * kamera hissi de sapar (τ = −Δt / ln(1−α)). Bu üç satır o sapmayı
+       * GÖRÜNÜR kılar: ölçülemeyen Δt `UNAVAILABLE`tır, uydurulmaz. */
+      dmp.lastDtMs != null
+        ? observed({ id: 'cam-cadence', label: 'Kamera tick aralığı', source: SRC_DAMP,
+            note: `Kalibrasyon ${dmp.calibrationDtMs} ms. Sapma alfaları uyarlar, hissi DEĞİŞTİRMEZ.`,
+            updatedAt: null }, `${Math.round(dmp.lastDtMs)} ms`)
+        : unavailable({ id: 'cam-cadence', label: 'Kamera tick aralığı', source: SRC_DAMP,
+            note: '', updatedAt: null }, 'kamera henüz sürülmedi'),
+      dmp.effectivePitchTauSec != null
+        ? derived({ id: 'cam-tau', label: 'Pitch zaman sabiti (ölçülen / hedef)', source: SRC_DAMP,
+            note: 'İkisi YAKIN olmalı — uyarlamanın çalıştığının doğrudan kanıtı.',
+            updatedAt: null },
+            `${dmp.effectivePitchTauSec.toFixed(2)} s / ${dmp.calibrationPitchTauSec.toFixed(2)} s`)
+        : unavailable({ id: 'cam-tau', label: 'Pitch zaman sabiti (ölçülen / hedef)', source: SRC_DAMP,
+            note: '', updatedAt: null }, 'kamera henüz sürülmedi'),
+      observed({ id: 'cam-offcadence', label: 'Kalibrasyon dışı tick', source: SRC_DAMP,
+        note: '0,5×–2× bandı dışındaki çağrı sayısı / toplam. Sıfırdan büyükse üründe kalibre olmayan bir kamera temposu VARDIR.',
+        updatedAt: null }, `${dmp.offCadenceTicks} / ${dmp.tickCount}`),
+
+      /* ── ROTA RENGİ — TEK HAKEM (PR-3a) ─────────────────────────────────
+       * Boya henüz hiç yazılmadıysa karar UYDURULMAZ → `UNAVAILABLE`. */
+      rcol.decision
+        ? observed({ id: 'rc-reason', label: 'Rota renk kararı', source: SRC_RCOLOR,
+            note: 'Öncelik: TEHLİKE > MANEVRA > NORMAL. Tek karar noktası, tek dedup anahtarı.',
+            updatedAt: null }, ROUTE_COLOR_REASON_LABEL[rcol.decision.reason])
+        : unavailable({ id: 'rc-reason', label: 'Rota renk kararı', source: SRC_RCOLOR,
+            note: '', updatedAt: null }, 'rota rengi henüz yazılmadı'),
+      rcol.input
+        ? observed({ id: 'rc-input', label: 'Karar girdileri', source: SRC_RCOLOR,
+            note: 'Kademe 0=uzak · 1=yaklaşma · 2=kritik. Zemin AÇIK = gündüz VE road modu (uydu/hibrit AÇIK sayılmaz).',
+            updatedAt: null },
+            `kademe ${rcol.input.maneuverTier} · tehlike ${rcol.input.hazardHigh ? 'VAR' : 'YOK'} · zemin ${rcol.input.lightBasemap ? 'AÇIK' : 'KOYU'}`)
+        : unavailable({ id: 'rc-input', label: 'Karar girdileri', source: SRC_RCOLOR,
+            note: '', updatedAt: null }, 'rota rengi henüz yazılmadı'),
+      rcol.decision
+        ? observed({ id: 'rc-applied', label: 'Uygulanan kılıf / halo / çekirdek', source: SRC_RCOLOR,
+            note: 'Üçü BİRLİKTE yazılır — biri güncellenip diğeri eskide kalamaz.',
+            updatedAt: null },
+            `${rcol.decision.casing} / ${rcol.decision.glow} / ${rcol.decision.coreMode}`)
+        : unavailable({ id: 'rc-applied', label: 'Uygulanan kılıf / halo / çekirdek', source: SRC_RCOLOR,
+            note: '', updatedAt: null }, 'rota rengi henüz yazılmadı'),
+      rcol.decision
+        ? observed({ id: 'rc-key', label: 'Renk dedup anahtarı', source: SRC_RCOLOR,
+            note: 'İki ayrı bayrağın (manevra/risk) yerini alır — K1 kusurunun kapandığı yer.',
+            updatedAt: null }, rcol.decision.routeColorKey)
+        : unavailable({ id: 'rc-key', label: 'Renk dedup anahtarı', source: SRC_RCOLOR,
+            note: '', updatedAt: null }, 'rota rengi henüz yazılmadı'),
 
       /* ── GÖLGE GÖZLEM (NAVIGATION_CAMERA_SHADOW) ────────────────────────
        * Politika kamerayı SÜRMÜYOR; legacy `cameraEngine` ile yan yana

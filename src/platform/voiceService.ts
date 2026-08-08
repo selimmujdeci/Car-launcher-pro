@@ -213,6 +213,17 @@ export function getVoiceSnapshot(): VoiceState {
 export function getLastSttOutcome(): { atMs: number; ok: boolean | null } {
   return { atMs: _lastSttOutcomeAt, ok: _lastSttOk };
 }
+
+/**
+ * Tanı: YÜRÜRLÜKTEKİ oturum/kuşak kimlikleri (salt-okunur).
+ *
+ * Wake karar defteri, kabul ettiği tetiği mevcut `VoiceLifecycleEvent`
+ * zinciriyle ilişkilendirmek için bunu okur — **yeni bir korelasyon kimliği
+ * sistemi kurulmadı**. Yalnız okuma; hiçbir durumu değiştirmez.
+ */
+export function getVoiceSessionIds(): { sessionId: number; generationId: number } {
+  return { sessionId: _voiceSessionId, generationId: _voiceGenerationId };
+}
 const _commandHandlers = new Set<CommandHandler>();
 const _aiHandlers      = new Set<AIResultHandler>();
 let _lastCommandTime = 0;

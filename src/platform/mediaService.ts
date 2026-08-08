@@ -428,27 +428,69 @@ function _isAuthorityPackage(pkg: string): boolean {
   return AUTHORITY_PACKAGES.has(pkg);
 }
 
-/** @returns otorite komutu üstlendiyse true (eski yol çalıştırılmaz). */
-function _routeToAuthority(action: 'play' | 'pause' | 'next' | 'previous'): boolean {
-  if (!isNative || !_isAuthorityPackage(_current.activePackage)) return false;
-  void import('./media/authority/mediaCommandGateway')
-    .then((gw) => {
-      switch (action) {
-        case 'play':     return gw.play();
-        case 'pause':    return gw.pause();
-        case 'next':     return gw.next();
-        case 'previous': return gw.previous();
-        default:         return undefined;
-      }
-    })
-    .catch((e) => logError(`Media:Authority:${action}`, e));
-  return true;
+/**
+ * Medya komutunun GERÇEK sonucu.
+ *
+ * NEDEN VAR (saha 2026-08-08): "müzik değiştir" deyince Mavi "sonraki parça"
+ * diyordu ama parça DEĞİŞMİYORDU. Kök: `mediaCommandGateway` sonucu
+ * (`CommandTruth`) BİLİYORDU, ama `_routeToAuthority` onu `void` ile ATIYOR ve
+ * koşulsuz `true` dönüyordu → `next()` `void` idi → `commandExecutor` sonucu
+ * beklemeden "Sonraki parça" diyordu. Yani sistem gerçeği biliyordu ve
+ * söylemiyordu; bu CLAUDE.md'nin "SAHTE ONAY YASAK" kuralının ihlaliydi.
+ *
+ * `dispatched` ile `verified` BİLEREK ayrıdır: "komut kabul edildi" ile
+ * "parça gerçekten değişti" AYNI ŞEY DEĞİLDİR (Medya Otoritesi ekranının
+ * kendi sözleşmesi de böyle der).
+ */
+export interface MediaCommandResult {
+  /** Komut bir motora GERÇEKTEN gönderildi mi. */
+  readonly dispatched: boolean;
+  /** Etkisi DOĞRULANDI mı — `false` iken başarı İDDİA EDİLEMEZ. */
+  readonly verified: boolean;
+  /** Bounded hata kodu; `null` = hata yok. Ham metin/PII taşımaz. */
+  readonly failureCode: string | null;
+}
+
+const _MEDIA_NO_TARGET: MediaCommandResult =
+  { dispatched: false, verified: false, failureCode: 'no_target' };
+/** Doğrulama SAĞLAYAMAYAN yol (harici MediaSession) — yalan söylenmez. */
+const _MEDIA_SENT_UNVERIFIED: MediaCommandResult =
+  { dispatched: true, verified: false, failureCode: 'unverified_backend' };
+
+/**
+ * @returns Otorite komutu üstlendiyse GERÇEK sonucu; sahibi değilse `null`
+ *          (çağıran eski yola devam eder — yönlendirme DEĞİŞMEDİ).
+ */
+async function _routeToAuthority(
+  action: 'play' | 'pause' | 'next' | 'previous',
+): Promise<MediaCommandResult | null> {
+  if (!isNative || !_isAuthorityPackage(_current.activePackage)) return null;
+  try {
+    const gw = await import('./media/authority/mediaCommandGateway');
+    const truth = await (
+      action === 'play'     ? gw.play()
+      : action === 'pause'  ? gw.pause()
+      : action === 'next'   ? gw.next()
+      :                       gw.previous()
+    );
+    /* YALNIZ 'VERIFIED' başarı sayılır. 'ACCEPTED_UNVERIFIED' backend'in
+       doğrulama sağlayamadığı durumdur ve başarı olarak SUNULAMAZ. */
+    return {
+      dispatched: true,
+      verified: truth.outcome === 'VERIFIED',
+      failureCode: truth.outcome === 'VERIFIED' ? null : (truth.failureCode ?? truth.outcome),
+    };
+  } catch (e) {
+    logError(`Media:Authority:${action}`, e);
+    return { dispatched: true, verified: false, failureCode: 'authority_error' };
+  }
 }
 
 export function togglePlayPause(): void {
   // Otorite sahibi kaynak (yerel müzik / internet akışı) → tek kapı.
   if (isNative && _isAuthorityPackage(_current.activePackage)) {
-    _routeToAuthority(_current.playing ? 'pause' : 'play');
+    /* Davranış BİREBİR aynı (ateşle-unut); sonuç tipi değişti, akış değişmedi. */
+    void _routeToAuthority(_current.playing ? 'pause' : 'play');
     return;
   }
   // Stream (uygulama içi internet akışı) aktifse → streamMusicService (web + native).
@@ -484,24 +526,58 @@ export function cycleRepeat(): void {
   updateMediaState({ repeat: next });
 }
 
-export function next(): void {
-  if (!isNative) return;
-  if (_routeToAuthority('next')) return;
+/**
+ * Sonraki parça.
+ *
+ * YÖNLENDİRME DEĞİŞMEDİ — yalnız SONUÇ artık kaybolmuyor. Çağıranlar sonucu
+ * yok sayabilir (UI düğmeleri öyle yapar); sesli asistan ise `verified`
+ * olmadan başarı İDDİA ETMEZ.
+ */
+export async function next(): Promise<MediaCommandResult> {
+  if (!isNative) return _MEDIA_NO_TARGET;
+  const viaAuthority = await _routeToAuthority('next');
+  if (viaAuthority) return viaAuthority;
   if (_current.activePackage === 'com.cockpitos.pro') {
-    import('./localMusicService').then(({ localNext }) => localNext()).catch(() => {});
-    return;
+    try {
+      const { localNext } = await import('./localMusicService');
+      return localNext();
+    } catch (e) {
+      logError('Media:Next:Local', e);
+      return { dispatched: false, verified: false, failureCode: 'local_unavailable' };
+    }
   }
-  CarLauncher.sendMediaAction({ action: 'next' }).catch((e) => { logError('Media:Next', e); });
+  try {
+    await CarLauncher.sendMediaAction({ action: 'next' });
+    /* Harici MediaSession: gönderildi ama etkisi GÖZLENEMEZ → doğrulanmış
+       sayılmaz (ses yolları bizde değil). */
+    return _MEDIA_SENT_UNVERIFIED;
+  } catch (e) {
+    logError('Media:Next', e);
+    return { dispatched: false, verified: false, failureCode: 'send_failed' };
+  }
 }
 
-export function previous(): void {
-  if (!isNative) return;
-  if (_routeToAuthority('previous')) return;
+/** Önceki parça — `next()` ile AYNI sözleşme. */
+export async function previous(): Promise<MediaCommandResult> {
+  if (!isNative) return _MEDIA_NO_TARGET;
+  const viaAuthority = await _routeToAuthority('previous');
+  if (viaAuthority) return viaAuthority;
   if (_current.activePackage === 'com.cockpitos.pro') {
-    import('./localMusicService').then(({ localPrev }) => localPrev()).catch(() => {});
-    return;
+    try {
+      const { localPrev } = await import('./localMusicService');
+      return localPrev();
+    } catch (e) {
+      logError('Media:Prev:Local', e);
+      return { dispatched: false, verified: false, failureCode: 'local_unavailable' };
+    }
   }
-  CarLauncher.sendMediaAction({ action: 'previous' }).catch((e) => { logError('Media:Prev', e); });
+  try {
+    await CarLauncher.sendMediaAction({ action: 'previous' });
+    return _MEDIA_SENT_UNVERIFIED;
+  } catch (e) {
+    logError('Media:Prev', e);
+    return { dispatched: false, verified: false, failureCode: 'send_failed' };
+  }
 }
 
 /* ── React hook ──────────────────────────────────────────── */

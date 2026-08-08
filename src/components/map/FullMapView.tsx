@@ -69,7 +69,7 @@ import {
   type RecenterReason,
 } from '../../platform/navigation/cameraFollowAuthority';
 import {
-  useNavigation, getSnappedMarkerPosition,
+  useNavigation, getSnappedMarkerPosition, getSnappedRoadBearing,
   getRouteProgressPoint,
   setNavStatus, NavStatus, activateNavigation, startNavigation,
   getNavigationState, claimRouteRequest, releaseRouteRequest, endNavigation,
@@ -971,6 +971,17 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
         const displayLat = _snap?.lat ?? lat;
         const displayLng = _snap?.lon ?? lng;
 
+        /* ── KAMERA YÖNÜ: yol geometrisi > GPS heading (saha 2026-08-08) ─────
+         * Ölçülen GPS yön gürültüsü: |Δyön|/s p90 15,9° · p99 38,6°, araç
+         * DURURKEN bile max 18,0°, örneklerin %5'i işaret değiştiriyor. Kamera
+         * bunu kovaladığı için harita "bir öyle bir böyle" dönüyordu.
+         * Rotaya güvenle oturmuşken yön ROTA SEGMENTİNDEN alınır (titremez);
+         * oturtma güvenilmezse ham heading'e düşülür — yani rota dışındayken
+         * davranış BİREBİR eskisi gibi kalır. İşaretçi zaten aynı kapıdan
+         * geçen `_snap`i kullanıyor: konum ve yön artık tutarlı. */
+        const _roadBear = _snap ? getSnappedRoadBearing() : null;
+        const _camBear  = _roadBear ?? bear;
+
         // Marker: kullanıcı etkileşimi yoksa 100ms'de bir güncelle (10fps yeterli).
         // NOT: isSwitchingStyle state'i burada bilerek kontrol edilmez.
         // updateUserMarker kendi içinde isStyleLoaded() + self-healing yönetir;
@@ -1078,7 +1089,7 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
             const _camMovedM = Number.isNaN(sentCamLat)
               ? Infinity
               : distM(sentCamLat, sentCamLng, displayLat, displayLng);
-            const _camBearD  = Number.isNaN(sentCamBear) ? Infinity : bearDelta(sentCamBear, bear);
+            const _camBearD  = Number.isNaN(sentCamBear) ? Infinity : bearDelta(sentCamBear, _camBear);
             const _camSpeedD = Number.isNaN(sentCamSpeed) ? Infinity : Math.abs(speedKmh - sentCamSpeed);
             const _turnKey   = turnDist ?? -1;
             /* Rota yönü ile harita yönü ayrıştıysa kamera GÜNCELLENMELİ.
@@ -1099,10 +1110,10 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
 
             if (_camChanged) {
               // Kamera snapped pozisyonu takip eder → GPS zıplamalarını sürücüye hissettirmez
-              setDrivingView(mapRef.current, displayLat, displayLng, bear, speedKmh, h, turnDist, obdSpeedRef.current, _nextTurnBearing, _routeBearing);
+              setDrivingView(mapRef.current, displayLat, displayLng, _camBear, speedKmh, h, turnDist, obdSpeedRef.current, _nextTurnBearing, _routeBearing);
               sentCamLat   = displayLat;
               sentCamLng   = displayLng;
-              sentCamBear  = bear;
+              sentCamBear  = _camBear;
               sentCamSpeed = speedKmh;
               sentCamTurn  = _turnKey;
               lastWorkTs   = now;   // gerçek iş

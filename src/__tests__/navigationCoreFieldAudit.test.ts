@@ -157,12 +157,31 @@ function full(over: Partial<NavigationCoreRawSnapshot> = {}): NavigationCoreRawS
         reason: 'çapa farkı 0.021 — bant içi',
       },
     },
+    /* Kamera SÖNÜMLEME KADANSI — alfalar 150 ms'lik tempoda ayarlandı;
+       sapma doğrudan "kamera hissi" sapmasıdır (bkz. cameraEngine). */
+    cameraDamping: {
+      calibrationDtMs: 150, lastDtMs: 152, tickCount: 288, offCadenceTicks: 0,
+      effectivePitchTauSec: 1.30, calibrationPitchTauSec: 1.29,
+      cruiseMs: 1050, inCruise: true,
+    },
+    /* Rota RENK kararı — tek hakem (`map/core/routeColorModel`). */
+    routeColor: {
+      policyVersion: 'RC-2026.08.07',
+      decision: {
+        casing: '#f59e0b', glow: '#f59e0b', coreMode: 'EMPHASIS', coreOpacity: 1,
+        reason: 'HAZARD', routeColorKey: 'HAZARD|dark|RC-2026.08.07',
+        policyVersion: 'RC-2026.08.07',
+      },
+      input: { maneuverTier: 1, hazardHigh: true, lightBasemap: false },
+    },
     runtime: {
       running: true, tickCount: 42, lastTickAgeMs: 900, lastObservedStatus: 'ACTIVE',
       skippedNoFix: 1, skippedInactive: 5, errorCount: 0, lastErrorAgeMs: null,
       uptimeMs: 60_000,
       drState: 'GPS_FRESH', drOwner: 'NAV_SESSION_RUNTIME', drTickCount: 7,
       drDistanceMeters: 42, drConfidence: 1, drTimerRunning: true,
+      /* DR projeksiyon ekseni (#451) — dolu anlik goruntude olculmus degerler. */
+      drProjectionMode: 'ALONG_ROUTE', drConsumedRouteM: 118, drProjectionSegIdx: 14,
     },
     ...over,
   };
@@ -253,6 +272,11 @@ const REGISTRY: Record<string, Reg> = {
   'vp-style':    { source: 'mapSourceManager',      key: 'miniMapStyle',       stamp: 'NONE' },
   'vp-theme':    { source: 'mapSourceManager',      key: 'mapTheme',           stamp: 'NONE' },
   'vp-contrast': { source: 'mapStyleBuilders',      key: 'mapContrastProfile', stamp: 'NONE' },
+  /* TÜNEL GECE ÖRTÜSÜ — kanıt (far) · uygulanan örtü · örtüsüz istek · geçiş sayısı. */
+  'vp-tunnel':     { source: 'autoBrightnessService', key: 'tunnelMode',        stamp: 'NONE' },
+  'vp-tunnel-ovr': { source: 'mapSourceManager',      key: 'tunnelOverride',    stamp: 'NONE' },
+  'vp-req-night':  { source: 'mapSourceManager',      key: 'requestedNight',    stamp: 'NONE' },
+  'vp-tunnel-tr':  { source: 'tunnelNightRuntime',    key: 'tunnelTransitions', stamp: 'NONE' },
   'vp-cam':      { source: 'cameraFollowAuthority', key: 'camera',             stamp: 'NONE' },
   'vp-centered': { source: 'cameraFollowAuthority', key: 'camera',             stamp: 'NONE' },
   'vp-pan':      { source: 'cameraFollowAuthority', key: 'camera',             stamp: 'NONE' },
@@ -348,6 +372,20 @@ const REGISTRY: Record<string, Reg> = {
   'cam-recenter2':  { source: 'cameraFollowAuthority',  key: 'camera',              stamp: 'NONE' },
   'cam-suppressed': { source: 'cameraShadowRuntime',    key: 'cameraShadow',        stamp: 'NONE' },
   'cam-reason':     { source: 'cameraPolicyModel',      key: 'cameraPolicy',        stamp: 'NONE' },
+  /* Kadans satırları POLİTİKA modelinden DEĞİL, sönümleme motorundan gelir —
+     kaynak etiketi gerçek kaynağı söylemelidir. */
+  'cam-cadence':    { source: 'cameraEngine',           key: 'cameraDamping',       stamp: 'NONE' },
+  /* Rota rengi HARİTA katmanı kararıdır — kaynak etiketi gerçek sahibi söyler. */
+  /* DR projeksiyon ekseni (#451) — kaynak navigasyon oturum runtime'ıdır. */
+  'dl-dr-axis':     { source: 'navigationSessionRuntime', key: 'runtime',           stamp: 'NONE' },
+  'dl-dr-along':    { source: 'navigationSessionRuntime', key: 'runtime',           stamp: 'NONE' },
+  'dl-dr-seg':      { source: 'navigationSessionRuntime', key: 'runtime',           stamp: 'NONE' },
+  'rc-reason':      { source: 'routeColorModel',        key: 'routeColor',          stamp: 'NONE' },
+  'rc-input':       { source: 'routeColorModel',        key: 'routeColor',          stamp: 'NONE' },
+  'rc-applied':     { source: 'routeColorModel',        key: 'routeColor',          stamp: 'NONE' },
+  'rc-key':         { source: 'routeColorModel',        key: 'routeColor',          stamp: 'NONE' },
+  'cam-tau':        { source: 'cameraEngine',           key: 'cameraDamping',       stamp: 'NONE' },
+  'cam-offcadence': { source: 'cameraEngine',           key: 'cameraDamping',       stamp: 'NONE' },
   'sh-enabled':      { source: 'cameraShadowRuntime', key: 'cameraShadow', stamp: 'NONE' },
   'sh-diverge':      { source: 'cameraShadowRuntime', key: 'cameraShadow', stamp: 'NONE' },
   'sh-decision':     { source: 'cameraShadowRuntime', key: 'cameraShadow', stamp: 'NONE' },

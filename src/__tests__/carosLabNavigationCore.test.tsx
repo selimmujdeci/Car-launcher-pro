@@ -173,12 +173,31 @@ function snap(over: Partial<NavigationCoreRawSnapshot> = {}): NavigationCoreRawS
         reason: 'çapa farkı 0.021 — bant içi',
       },
     },
+    /* Kamera SÖNÜMLEME KADANSI — alfalar 150 ms'lik tempoda ayarlandı;
+       sapma doğrudan "kamera hissi" sapmasıdır (bkz. cameraEngine). */
+    cameraDamping: {
+      calibrationDtMs: 150, lastDtMs: 152, tickCount: 288, offCadenceTicks: 0,
+      effectivePitchTauSec: 1.30, calibrationPitchTauSec: 1.29,
+      cruiseMs: 1050, inCruise: true,
+    },
+    /* Rota RENK kararı — tek hakem (`map/core/routeColorModel`). */
+    routeColor: {
+      policyVersion: 'RC-2026.08.07',
+      decision: {
+        casing: '#f59e0b', glow: '#f59e0b', coreMode: 'EMPHASIS', coreOpacity: 1,
+        reason: 'HAZARD', routeColorKey: 'HAZARD|dark|RC-2026.08.07',
+        policyVersion: 'RC-2026.08.07',
+      },
+      input: { maneuverTier: 1, hazardHigh: true, lightBasemap: false },
+    },
     runtime: {
       running: true, tickCount: 42, lastTickAgeMs: 900, lastObservedStatus: 'ACTIVE',
       skippedNoFix: 1, skippedInactive: 5, errorCount: 0, lastErrorAgeMs: null,
       uptimeMs: 60_000,
       drState: 'GPS_FRESH', drOwner: 'NAV_SESSION_RUNTIME', drTickCount: 7,
       drDistanceMeters: 42, drConfidence: 1, drTimerRunning: true,
+      /* DR projeksiyon ekseni (#451) — dolu anlik goruntude olculmus degerler. */
+      drProjectionMode: 'ALONG_ROUTE', drConsumedRouteM: 118, drProjectionSegIdx: 14,
     },
     ...over,
   };

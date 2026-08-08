@@ -33,6 +33,22 @@ function fakeStore(state: UnifiedVehicleStateReadable): UnifiedVehicleStoreLike 
 }
 const fakeHal: VehicleHalIngestTarget = { ingest: () => undefined };
 
+/**
+ * Ölçüm-zamanı alanlarını (SAYI olan `last*At` epoch ms) çıkarır — alt-dize taraması yapan
+ * gizlilik kilitleri epoch rakamlarına takılmasın diye. Metin taşıyan alanlar KORUNUR:
+ * temizleyici bir sızıntıyı örtemez, yalnız zamana bağlı yanlış alarmı keser.
+ */
+function scrubMeasurementTimestamps(value: unknown): unknown {
+  if (value === null || typeof value !== 'object') return value;
+  if (Array.isArray(value)) return value.map(scrubMeasurementTimestamps);
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+    if (/^last[A-Za-z]*At$/.test(k) && typeof v === 'number') continue;
+    out[k] = scrubMeasurementTimestamps(v);
+  }
+  return out;
+}
+
 const _open: Array<() => void> = [];
 afterEach(() => {
   while (_open.length) { try { _open.pop()!(); } catch { /* */ } }
@@ -209,7 +225,10 @@ describe('W4E — whitelist ve privacy sınırı', () => {
     const bus = getAppEventBus()!;
     bus.publishName('vehicle.signal.changed', { signalId: 'vehicle.speed', value: 199 },
       { correlationId: 'corr-secret-42' });
-    const json = JSON.stringify(buildPlatformRuntimeSnapshot());
+    // Yukarıdaki kilitle aynı gerekçe: ölçüm-zamanı alanları (epoch ms) rakam dizisi olarak
+    // sinyal değerini "içerebilir" (ör. 1786199282175 içinde "199"). SAYI olan `last*At`
+    // alanları çıkarılır — metin taşıyan bir alan çıkarılmaz, kilit onu yakalamaya devam eder.
+    const json = JSON.stringify(scrubMeasurementTimestamps(buildPlatformRuntimeSnapshot()));
     expect(json).not.toMatch(/signalId|corr-secret|199|vehicle\.speed/);
     // Yalnız SAYIM görünür:
     expect(buildPlatformRuntimeSnapshot().eventBus.publishedCount).toBe(1);

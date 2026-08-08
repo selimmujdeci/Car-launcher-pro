@@ -25,13 +25,14 @@
 
 import { getVoiceMicDiagnostics } from '../voice/voiceMicDiagnosticsProbe';
 import { getWakeWordState, getWakeWatchdogStats } from '../wakeWordService';
+import { getWakeForensics } from '../voice/wakeForensics';
 import { getVoiceSnapshot } from '../voiceService';
 import { buildCommandGrammar } from '../commandParser';
 import { currentMaviVehicleContext } from '../assistant/maviVehicleContext';
 import { getGrammarDiagnostics } from '../voice/contextGrammarApplier';
 import { grammarProvidersWired } from '../voice/contextGrammarProviders';
 import type {
-  SttMicRaw, SttSourceRaw, SttEffectsRaw, SttVadRaw, SttEngineRaw,
+  SttMicRaw, SttSourceRaw, SttEffectsRaw, SttVadRaw, SttEngineRaw, SttWakeNativeRaw,
   SttVehicleRaw, SttJsRaw, SttSourceAttemptRaw, SttGrammarRaw,
 } from './sttMicModel';
 import { MAX_RMS_SAMPLES, MAX_SOURCE_ATTEMPTS } from './sttMicModel';
@@ -73,6 +74,7 @@ export function readSttMicSnapshot(): SttMicRaw {
   let effects: SttEffectsRaw | null = null;
   let vad:     SttVadRaw     | null = null;
   let stt:     SttEngineRaw  | null = null;
+  let wakeNative: SttWakeNativeRaw | null = null;
 
   if (present && native) {
     const s = native.source;
@@ -152,6 +154,22 @@ export function readSttMicSnapshot(): SttMicRaw {
         lastResultAt:           _num(e.lastResultAt, 0),
       };
     }
+
+    /* Wake karar sayaçları — YALNIZ şema 2 APK'sında gelir. Blok yoksa
+       `null` KALIR: "ölçüm yok" ile "sayaç 0" karıştırılmaz. */
+    const w = native.wake;
+    if (w) {
+      wakeNative = {
+        yieldCount:           _num(w.yieldCount, 0),
+        vadSkipFrames:        _num(w.vadSkipFrames, 0),
+        decodeFrames:         _num(w.decodeFrames, 0),
+        noMatchCount:         _num(w.noMatchCount, 0),
+        triggerCount:         _num(w.triggerCount, 0),
+        lastTriggerLatencyMs: _num(w.lastTriggerLatencyMs),
+        partialWordsEnabled:  w.partialWordsEnabled === true,
+        lastMatchConfMilli:   _num(w.lastMatchConfMilli),
+      };
+    }
   }
 
   /* ── Araç bağlamı — AYNI okuma turu, AYNI damga ──────────────────────────
@@ -170,6 +188,9 @@ export function readSttMicSnapshot(): SttMicRaw {
   /* ── JS ses servisi bayrakları — YALNIZ bayrak ve ADET ──────────────────── */
   const wake  = _safe(() => getWakeWordState());
   const wdog  = _safe(() => getWakeWatchdogStats());
+  /* Karar defteri ince kapıdan okunur (`voice/wakeForensics`) — o modülün
+     çalışma zamanı bağımlılığı YALNIZ saf modeldir, graf ağırlaşmaz. */
+  const forensics = _safe(() => getWakeForensics(10));
   const voice = _safe(() => getVoiceSnapshot());
   const grammarWords = _safe(() => buildCommandGrammar());
 
@@ -184,6 +205,25 @@ export function readSttMicSnapshot(): SttMicRaw {
     wakeRearmCount:          wdog ? wdog.rearmCount : 0,
     wakeWakesInPrevWindow:   wdog ? wdog.wakesInPrevWindow : 0,
     wakeRearmIntervalMs:     wdog ? wdog.rearmIntervalMs : 0,
+    /* Kanıtsız iyimserlik yok: sözleşme bunu LİTERAL `false` olarak tipler —
+       canlılık ölçülmediği sürece bu alan `true` OLAMAZ (kütük #460). */
+    wakeLivenessMeasured:    wdog ? wdog.livenessMeasured : false,
+
+    /* Wake karar defteri — okunamazsa SAHTE sayaç üretilmez (boş/0/null). */
+    wakeDecisionCounts:      forensics ? forensics.counts : {},
+    wakeDecisionTotal:       forensics ? forensics.total : 0,
+    wakeDecisionEvicted:     forensics ? forensics.evicted : 0,
+    wakeIntentReached:       forensics ? forensics.intentReached : 0,
+    wakeAcceptedNoIntent:    forensics ? forensics.acceptedNoIntent : 0,
+    wakePendingAcceptAgeMs:  forensics ? forensics.pendingAcceptAgeMs : null,
+    wakeRecentDecisions:     forensics
+      ? forensics.recent.map((r) => ({
+          atMs: r.atMs, reason: r.reason, path: r.path,
+          tokenCount: r.tokenCount, matchedAtIndex: r.matchedAtIndex,
+          bareNameCandidate: r.bareNameCandidate,
+          viaNbestAlternative: r.viaNbestAlternative,
+        }))
+      : [],
   } : null;
 
   /* MAVI-STT-CONTEXT-GRAMMAR: bağlam grameri gözlemi — SÖZCÜK TAŞIMAZ.
@@ -215,6 +255,7 @@ export function readSttMicSnapshot(): SttMicRaw {
     effects,
     vad,
     stt,
+    wakeNative,
     vehicle,
     js,
     grammar,

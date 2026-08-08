@@ -126,6 +126,17 @@ interface ActiveTrip {
   lastGPSLng:  number | null;
   lastGPSTs:   number | null;   // performance.now() of last GPS fix used
 
+  /**
+   * HERHANGİ bir örneğin (GPS veya OBD) geldiği son monotonik an.
+   *
+   * Duruş penceresi (`_idleTimer`) YALNIZ callback gövdesinin içinde kurulur;
+   * araç park edip GPS ve OBD tamamen SUSARSA hiçbir callback gelmez ve
+   * yolculuk saatlerce açık kalırdı (Mavi "3 saattir yoldayız" derken gerçek
+   * 40 dakikaydı). Bu damga, veri sessizliğinin ÖLÇÜLEBİLİR olmasını sağlar;
+   * değerlendirme mevcut `_liveClock` tick'inde yapılır — YENİ timer YOK.
+   */
+  lastSamplePerfMs: number;
+
   /* ── P2 ─────────────────────────────────────────────────────────────
      Mesafenin GPS (haversine) ve OBD (Euler) payları AYRI tutulur:
      kaynak sınıfı ancak böyle dürüstçe belirlenir. */
@@ -153,6 +164,20 @@ const STORAGE_KEY          = 'car-launcher-trip-log';
 const MAX_STORED_TRIPS     = 100;
 const TRIP_START_SPEED_KMH = 5;
 const TRIP_END_IDLE_MS     = 60_000;
+/**
+ * VERİ SESSİZLİĞİ kapanış eşiği — duruş eşiğinden AYRI ve bilinçli olarak ÇOK
+ * DAHA UZUN.
+ *
+ * `TRIP_END_IDLE_MS` "aracın DURDUĞUNU GÖRDÜK" demektir (hız örneği geldi ve
+ * sıfırdı). Bu eşik ise "HİÇBİR ŞEY GÖRMÜYORUZ" demektir — ikisi aynı kanıt
+ * değildir. Sessizliği 60 sn'de kapatmak uzun bir tünelde (GPS yok, OBD yok)
+ * sürüşü ortadan bölerdi: Ovit ~14,3 km ≈ 11 dk. 15 dk o tavanın üstünde,
+ * gerçek bir parkın ise çok altındadır.
+ *
+ * Kapanış `cleanClose: false` ile işaretlenir: duruşu GÖZLEMEDİK, kanıtı
+ * KAYBETTİK — bunu "düzgün kapanış" saymak sahte güven üretirdi.
+ */
+const TRIP_SILENCE_END_MS  = 15 * 60_000;
 const FUEL_L_PER_100KM     = 8.5;
 const FUEL_PRICE_TL_PER_L  = 45;
 
@@ -301,6 +326,32 @@ function _capturePrice(): PriceSnapshot {
 
 /* ── Trip lifecycle ──────────────────────────────────────── */
 
+/**
+ * Canlı tick — 5 sn'de bir. İKİ iş yapar:
+ *   1. Veri sessizliğini DEĞERLENDİRİR (aşağıya bkz.)
+ *   2. Dinleyicilere haber verir (eski davranış, birebir)
+ *
+ * NEDEN BURADA: kapanış zamanlayıcısı yalnız `_onGPS`/`_onOBD` gövdesinde
+ * kuruluyordu. Örnek HİÇ gelmezse o gövdeler çalışmaz → yolculuk kapanmaz.
+ * Tick zaten VAR ve zaten koşuyor; değerlendirmeyi buraya bağlamak YENİ bir
+ * zamanlayıcı doğurmaz (tek sahiplik korunur).
+ *
+ * `_endTrip` kendi içinde `_liveClock`'u temizler → tick kendi kendini durdurur.
+ */
+function _liveTick(): void {
+  const trip = _active;
+  if (trip) {
+    const silentMs = performance.now() - trip.lastSamplePerfMs;
+    if (silentMs >= TRIP_SILENCE_END_MS) {
+      if (_idleTimer) { clearTimeout(_idleTimer); _idleTimer = null; }
+      /* Duruşu GÖRMEDİK, kanıtı kaybettik → `cleanClose` FALSE kalır. */
+      _endTrip();
+      return;   // _endTrip zaten durum yayınlar
+    }
+  }
+  _notify();
+}
+
 function _startTrip(speedKmh: number, fuelLevel: number): void {
   if (_active) return;
   const perfNow = performance.now();
@@ -320,6 +371,7 @@ function _startTrip(speedKmh: number, fuelLevel: number): void {
     lastGPSLat:  null,
     lastGPSLng:  null,
     lastGPSTs:   null,
+    lastSamplePerfMs: perfNow,
     gpsDistanceKm: 0,
     obdDistanceKm: 0,
     metrics: createAccumulator(),
@@ -331,7 +383,7 @@ function _startTrip(speedKmh: number, fuelLevel: number): void {
 
   // Live clock: 5s — 1s'de pil tüketimi artıyor, 5s yeterli görünürlük sağlar
   if (_liveClock) clearInterval(_liveClock);
-  _liveClock = setInterval(_notify, 5_000);
+  _liveClock = setInterval(_liveTick, 5_000);
 
   _setState({ active: true });
 }
@@ -516,6 +568,10 @@ function _onGPS(loc: GPSLocation | null): void {
 
   if (!_active) return;
 
+  /* Sessizlik damgası: örnek GELDİ. Mesafe/tazelik kapılarından ÖNCE yazılır —
+     kalitesiz bir fix de "veri akıyor" kanıtıdır (sessizlik ≠ kötü veri). */
+  _active.lastSamplePerfMs = performance.now();
+
   // ── GPS haversine mesafe ─────────────────────────────────
   const hasGoodAccuracy = loc.accuracy > 0 && loc.accuracy <= GPS_MIN_ACCURACY_M;
 
@@ -607,6 +663,9 @@ function _onOBD(data: OBDData): void {
 
   const trip = _active;
   if (!trip) return;
+
+  /* Sessizlik damgası: OBD örneği GELDİ (bayat ECU verisi de akış kanıtıdır). */
+  trip.lastSamplePerfMs = performance.now();
 
   // GPS güncel değilse OBD speed×time fallback (Euler integration)
   if (!gpsRecent && speedKmh > TRIP_START_SPEED_KMH) {

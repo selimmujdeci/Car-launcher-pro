@@ -223,6 +223,50 @@ export function interpretTripDuration(durationMin: number, distanceKm?: number):
 }
 
 /**
+ * SEYAHAT OTURUMU yorumu — molalı yolculuğun dürüst özeti.
+ *
+ * `interpretTripDuration`'dan FARKI: o TEK bir `tripLogService` yolculuğunu
+ * anlatır ve mola yolculuğu kapattığı için mola sonrası SIFIRDAN sayar. Bu
+ * fonksiyon `tripSessionService`'in birleştirdiği seyahati anlatır:
+ *
+ *     08:20 hareket · 08:50 durdu · 09:10 tekrar hareket
+ *     → "Yola çıkalı 50 dakika oldu. 30 dakika hareket ettik, 20 dakika mola verdik."
+ *
+ * SAF: yalnız sayı → cümle. Ölçüm YAPMAZ, servis OKUMAZ.
+ * Sayı yoksa cümle de YOKTUR (`null`) — Mavi uydurmasın.
+ */
+export function interpretTripSession(s: {
+  elapsedMin: number;
+  movingMin: number;
+  stoppedMin: number;
+  distanceKm: number;
+} | null): string | null {
+  if (!s) return null;
+  if (!isFiniteNonNegative(s.elapsedMin) || s.elapsedMin > MAX_PLAUSIBLE_TRIP_MIN) return null;
+  const elapsed = formatDurationTr(s.elapsedMin);
+  if (elapsed === null) return null;
+  if (s.elapsedMin < 1) return 'Daha yeni yola çıktık.';
+
+  const parts: string[] = [`Yola çıkalı ${elapsed} oldu.`];
+
+  /* Hareket/mola ayrımı ancak MOLA GERÇEKTEN VARSA anlamlıdır; molasız
+     sürüşte "0 dakika mola verdik" demek gürültüdür. */
+  const hasBreak = isFiniteNonNegative(s.stoppedMin) && s.stoppedMin >= 1;
+  const hasMoving = isFiniteNonNegative(s.movingMin) && s.movingMin >= 1;
+  if (hasBreak && hasMoving) {
+    parts.push(
+      `${formatDurationTr(s.movingMin)} hareket ettik, ` +
+      `${formatDurationTr(s.stoppedMin)} mola verdik.`,
+    );
+  }
+
+  if (isFiniteNonNegative(s.distanceKm) && s.distanceKm >= 1) {
+    parts.push(`Bu sürede ${Math.round(s.distanceKm)} kilometre yol yaptık.`);
+  }
+  return parts.join(' ');
+}
+
+/**
  * Mola ihtiyacı kararı + cümlesi (PromptScheduler'ın "mola" tetiği — §5).
  * Yalnız eşik AŞILDIYSA cümle döner; aksi hâlde null (= konuşma, sus).
  *

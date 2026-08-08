@@ -28,6 +28,7 @@ import { useStore } from '../../store/useStore';
 import { resolveCompanionIdentity, type CompanionIdentity, type CompanionSettingsInput } from './companionIdentity';
 import {
   interpretFuel, interpretBatteryCharge, interpretEngineTempConcern, interpretTripDuration,
+  interpretTripSession,
   interpretRangeVsRoute, interpretDtcStatus, interpretDiagnosticTrend,
   classifyDriverStyle, driverToneInstruction, type DriverStyle,
   selectActiveTopic, topicFreshness, buildTopicHintLine, resolveDemonstrativeReference,
@@ -39,6 +40,16 @@ import { tryOfflineConversation } from '../offlineConversationEngine';
 import { onOBDData } from '../obdService';
 import { onDTCState } from '../dtcService';
 import { getTripSnapshot } from '../tripLogService';
+/* ÇALIŞMA ZAMANI BAĞIMLILIĞI OLMAYAN ince kapı: `tripSessionService`i buraya
+   statik import etmek Mavi'nin bağlam grafiğini ölçülebilir biçimde ağırlaştırdı
+   (`regression.guards` dinamik-import kilidi varsayılan timeout'ta düştü).
+   Servis okuyucusunu başlarken KAYDEDER; burada yalnız kapı okunur. */
+import { readTripSessionOrNull } from '../trip/tripSessionAccess';
+/* Aynı desen: çalışma zamanı bağımlılığı OLMAYAN ince kapı. Konum servisini
+   buraya statik import etmek `gpsService`/`geocodingService` kenarlarını Mavi
+   bağlam grafiğine ekler. Servis okuyucusunu başlarken KAYDEDER. */
+import { readLocationContextOrNull } from '../location/locationContextAccess';
+import { formatLocationContextLine } from '../location/locationContextModel';
 import { getNavigationState } from '../navigationService';
 import { buildMemoryPromptSection } from './companionMemory';
 import { signalWithTimeout } from '../../utils/abortCompat';
@@ -520,14 +531,43 @@ function buildInterpretedVehicleContext(): string {
     });
     unsub();
   } catch { /* OBD bağlı değil — bağlamsız sohbet */ }
+  /* (1b) KONUM — "neredeyiz?" sorusunun cevabı bağlamda OLMALI.
+   *
+   * Bu satır olmadan model nerede olduğunu BİLMİYORDU ve "haritayı açıyorum"
+   * diye savuşturuyordu (halüsinasyon değil, bağlam açlığı). Kanıt yetersizse
+   * satır HİÇ eklenmez → Mavi konum uydurmak yerine bilmediğini söyler.
+   *
+   * ⚠️ HAM KOORDİNAT BURAYA GİRMEZ: `formatLocationContextLine` yalnız
+   * şehir/ilçe/yol taşır; `LocationContext` tipinde lat/lon alanı YOKTUR. */
+  try {
+    const locLine = formatLocationContextLine(readLocationContextOrNull());
+    if (locLine) parts.push(locLine);
+  } catch { /* konum katmanı yok — konumsuz bağlam (uydurma YOK) */ }
+
   // (2) Yolculuk süresi (World View): aktif trip varsa "ne zamandır yoldayız".
   //     getTripSnapshot CANLI current verir (onTripState immediate-emit null'dur).
+  /*     OTURUM ÖNCELİKLİ: `tripLogService` tek yolculuğu anlatır ve mola onu
+   *     kapattığı için mola sonrası SIFIRDAN sayardı ("40 dakikadır yoldayız"
+   *     yerine "yeni çıktık"). `tripSessionService` molaları birleştirir ve
+   *     hareket/mola ayrımını taşır. Oturum okunamazsa ESKİ satır aynen
+   *     kullanılır (fail-soft — bağlam sessizce kaybolmaz). */
   try {
-    const trip = getTripSnapshot().current;
-    if (trip) {
-      const t = interpretTripDuration(trip.liveDurationMin, trip.liveDistanceKm);
-      if (t) parts.push(t);
+    let line: string | null = null;
+    const ses = readTripSessionOrNull();
+    if (ses) {
+      line = interpretTripSession({
+        elapsedMin: ses.elapsedMs / 60_000,
+        movingMin:  ses.movingMs / 60_000,
+        stoppedMin: ses.stoppedMs / 60_000,
+        distanceKm: ses.distanceMeters / 1000,
+      });
     }
+
+    if (line === null) {
+      const trip = getTripSnapshot().current;
+      if (trip) line = interpretTripDuration(trip.liveDurationMin, trip.liveDistanceKm);
+    }
+    if (line) parts.push(line);
   } catch { /* trip servisi yok — süresiz bağlam */ }
   // (4) Menzil vs. aktif rota: "yakıtım X'e yeter mi" gerçek veriyle. Yalnız
   //     navigasyon aktifken + geçerli menzil varken (aksi hâlde bağlama girmez).

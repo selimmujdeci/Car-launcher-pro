@@ -140,6 +140,24 @@ export interface SttVadRaw {
   readonly samples: readonly number[];
 }
 
+/**
+ * Native WAKE KARAR sayaçları (şema 2). `null` = eski APK / ölçüm YOK —
+ * sahte `0` ÜRETİLMEZ (şema 1 APK'sında bu blok hiç gelmez).
+ */
+export interface SttWakeNativeRaw {
+  readonly yieldCount: number;
+  readonly vadSkipFrames: number;
+  readonly decodeFrames: number;
+  readonly noMatchCount: number;
+  readonly triggerCount: number;
+  /** -1 = ölçüm yok. */
+  readonly lastTriggerLatencyMs: number;
+  /** Vosk `setPartialWords` kurulabildi mi — güven ölçümünün ön koşulu. */
+  readonly partialWordsEnabled?: boolean;
+  /** Son eşleşmedeki en düşük kelime güveni ×1000. -1 = güven YOK. */
+  readonly lastMatchConfMilli?: number;
+}
+
 export interface SttEngineRaw {
   readonly wakeEngineActive: boolean;
   readonly activeRecognizerActive: boolean;
@@ -205,6 +223,65 @@ export interface SttJsRaw {
   readonly wakeWakesInPrevWindow: number;
   /** Yeniden kurulum periyodu (ms). */
   readonly wakeRearmIntervalMs: number;
+  /**
+   * Canlılık GERÇEKTEN ölçülüyor mu — `getWakeWatchdogStats().livenessMeasured`.
+   * Bugün `false`: native yalnız TETİK ANINI yayınlar, "ayakta ama duymadı" ile
+   * "öldü" JS'ten ayırt edilemez. Periyodik re-arm'ı "self-heal" diye sunmamak
+   * için AÇIKÇA taşınır (kütük #460).
+   */
+  readonly wakeLivenessMeasured?: boolean;
+
+  /* ── WAKE KARAR DEFTERİ ───────────────────────────────────────────────
+     "Hiç duyulmadı" ile "duyuldu ama bastırıldı" ayrımı. Yalnız gerekçe
+     ADETLERİ ve türetilmiş sayılar — transcript TAŞINMAZ. */
+  /** Gerekçe → adet (bounded taksonomi). */
+  readonly wakeDecisionCounts?: Readonly<Record<string, number>>;
+  /** Deftere düşen toplam karar (halkadan taşanlar DAHİL). */
+  readonly wakeDecisionTotal?: number;
+  /** Halkadan FIFO ile düşen kayıt sayısı — kayıp görünür olsun. */
+  readonly wakeDecisionEvicted?: number;
+  /** Kabul edilip GERÇEKTEN komuta dönüşen tetik sayısı. */
+  readonly wakeIntentReached?: number;
+  /** Kabul edildi ama komuta dönüşmedi (zaman aşımına uğrayan bekleyiş DAHİL). */
+  readonly wakeAcceptedNoIntent?: number;
+  /** Bekleyen kabulün yaşı (ms); `null` = bekleyen yok. */
+  readonly wakePendingAcceptAgeMs?: number | null;
+  /** Son kararlar — en yeni önce. Transcript YOK, yalnız gerekçe + yol + sayılar. */
+  readonly wakeRecentDecisions?: readonly SttWakeDecisionRaw[];
+}
+
+/** Tek karar satırı — ham metin ALANI YOKTUR (yapısal gizlilik). */
+export interface SttWakeDecisionRaw {
+  readonly atMs: number;
+  readonly reason: string;
+  /** `GRAMMAR` · `JS_POLLING` · `UNKNOWN` — hangi yolun koştuğu. */
+  readonly path: string;
+  readonly tokenCount: number | null;
+  readonly matchedAtIndex: number | null;
+  readonly bareNameCandidate: boolean | null;
+  readonly viaNbestAlternative: boolean | null;
+}
+
+/** Gerekçe dağılımını tek satıra çevirir — SIFIR olanlar gösterilmez (gürültü). */
+function _countsLine(counts: Readonly<Record<string, number>>): string {
+  const parts: string[] = [];
+  for (const [k, v] of Object.entries(counts ?? {})) {
+    if (typeof v === 'number' && v > 0) parts.push(`${k}=${v}`);
+  }
+  return parts.length > 0 ? parts.join(' · ') : 'karar yok';
+}
+
+/**
+ * Tek karar satırı — ham metin İÇERMEZ.
+ * Biçim: `GEREKÇE@YOL k3 i0 ÇIPLAK ALT`
+ */
+function _decisionLine(d: SttWakeDecisionRaw): string {
+  const bits: string[] = [`${d.reason}@${d.path}`];
+  if (typeof d.tokenCount === 'number') bits.push(`k${d.tokenCount}`);
+  if (typeof d.matchedAtIndex === 'number') bits.push(`i${d.matchedAtIndex}`);
+  if (d.bareNameCandidate === true) bits.push('ÇIPLAK');
+  if (d.viaNbestAlternative === true) bits.push('ALT');
+  return bits.join(' ');
 }
 
 export interface SttMicRaw {
@@ -221,6 +298,8 @@ export interface SttMicRaw {
   readonly effects: SttEffectsRaw | null;
   readonly vad: SttVadRaw | null;
   readonly stt: SttEngineRaw | null;
+  /** Native wake karar sayaçları; `null` = eski APK (şema 1) veya ölçüm yok. */
+  readonly wakeNative?: SttWakeNativeRaw | null;
   readonly vehicle: SttVehicleRaw | null;
   readonly js: SttJsRaw | null;
   readonly grammar: SttGrammarRaw | null;
@@ -293,7 +372,7 @@ export function fmtRms(v: number): string {
  * ════════════════════════════════════════════════════════════════════════ */
 
 export type SttSectionId =
-  | 'status' | 'source' | 'effects' | 'vad' | 'vehicle' | 'engine' | 'restrictions';
+  | 'status' | 'source' | 'effects' | 'vad' | 'vehicle' | 'engine' | 'wake' | 'restrictions';
 
 export interface SttSection {
   readonly id: SttSectionId;
@@ -308,7 +387,8 @@ export const STT_SECTION_TITLE: Readonly<Record<SttSectionId, string>> = {
   vad:          '3 · VAD / Gürültü',
   vehicle:      '4 · Araç Bağlamı',
   engine:       '5 · STT Durumu',
-  restrictions: '6 · Kısıtlamalar',
+  wake:         '6 · Wake Kararı (JS defteri + native sayaçlar)',
+  restrictions: '7 · Kısıtlamalar',
 } as const;
 
 const SRC = {
@@ -679,6 +759,24 @@ function _engineSection(s: SttMicRaw): SttSection {
     f.push(observed({ id: 'sttWakePrevWindow', label: 'önceki pencerede kabul edilen wake', source: SRC.js,
       note: 'Kurulumlar arasında 0 kalıyorsa periyodik re-arm gereksiz maliyettir; >0 ise gerekli. '
           + `Pencere ${js.wakeRearmIntervalMs} ms.` }, js.wakeWakesInPrevWindow));
+    /* Ham anlık görüntü SINIRIDIR: eski/kısmi bir snapshot bu alanları hiç
+       taşımayabilir. Eksik alan "0" değil "ÖLÇÜM YOK"tur → savunmacı okunur. */
+    const _wf = {
+      liveness: js.wakeLivenessMeasured === true,
+      counts:   js.wakeDecisionCounts ?? {},
+      total:    typeof js.wakeDecisionTotal === 'number' ? js.wakeDecisionTotal : -1,
+      evicted:  typeof js.wakeDecisionEvicted === 'number' ? js.wakeDecisionEvicted : -1,
+      intent:   typeof js.wakeIntentReached === 'number' ? js.wakeIntentReached : -1,
+      noIntent: typeof js.wakeAcceptedNoIntent === 'number' ? js.wakeAcceptedNoIntent : -1,
+      pending:  typeof js.wakePendingAcceptAgeMs === 'number' ? js.wakePendingAcceptAgeMs : null,
+      recent:   Array.isArray(js.wakeRecentDecisions) ? js.wakeRecentDecisions : [],
+    };
+
+    f.push(observed({ id: 'sttWakeLiveness', label: 'wake canlılığı ÖLÇÜLÜYOR mu', source: SRC.js,
+      note: 'FALSE ise yukarıdaki yeniden kurulum sayısı bir ARIZA GÖSTERGESİ DEĞİLDİR — '
+          + 'periyodik ve koşulsuzdur. "self-heal" olarak yorumlanmamalıdır.' },
+      _wf.liveness));
+
     f.push(observed({ id: 'sttVoiceStatus', label: 'ses asistanı durumu', source: SRC.js,
       note: 'voiceService durum makinesi.' }, js.voiceStatus));
     f.push(observed({ id: 'sttMicAvailable', label: 'mikrofon kullanılabilir (JS)', source: SRC.js,
@@ -743,6 +841,122 @@ function _engineSection(s: SttMicRaw): SttSection {
 
 /* ── Kısıtlamalar (sabit beyan — statik testle kilitli) ───────────────────── */
 
+/* 6 - Wake Karari (kendi bolumu).
+ *
+ * NEDEN AYRI: "STT Durumu" bolumu 24 alan tavanina (`_bound`) dayandigi icin
+ * buraya eklenen SON satirlar SESSIZCE KIRPILIYORDU - guven satirlari sahada
+ * ekranda hic gorunmedi. Tavani yukseltmek diger bolumleri korumasiz birakirdi;
+ * dogru cozum ayri bolumdur. Icerik AYNEN tasindi, yeni alan EKLENMEDI. */
+function _wakeSection(s: SttMicRaw): SttSection {
+  const f: InspectorField[] = [];
+  const js = s.js;
+  if (js) {
+    const _wf = {
+      liveness: js.wakeLivenessMeasured === true,
+      counts:   js.wakeDecisionCounts ?? {},
+      total:    typeof js.wakeDecisionTotal === 'number' ? js.wakeDecisionTotal : -1,
+      evicted:  typeof js.wakeDecisionEvicted === 'number' ? js.wakeDecisionEvicted : -1,
+      intent:   typeof js.wakeIntentReached === 'number' ? js.wakeIntentReached : -1,
+      noIntent: typeof js.wakeAcceptedNoIntent === 'number' ? js.wakeAcceptedNoIntent : -1,
+      pending:  typeof js.wakePendingAcceptAgeMs === 'number' ? js.wakePendingAcceptAgeMs : null,
+      recent:   Array.isArray(js.wakeRecentDecisions) ? js.wakeRecentDecisions : [],
+    };
+    /* ── WAKE KARAR DEFTERİ ─────────────────────────────────────────────
+     * "Hey Mavi dedim uyanmadı" ile "kendiliğinden uyandı" şikâyetlerinin
+     * ayrıştığı yer. Kabul edilenler zaten sayılıyordu; bu satırlar
+     * REDDEDİLEN ve BASTIRILAN kararları da görünür kılar. */
+    f.push(_wf.total < 0
+      ? unavailable({ id: 'sttWakeDecisionTotal', label: 'wake kararı (toplam)', source: SRC.js, note: '' },
+          'Karar defteri okunamadı.')
+      : observed({ id: 'sttWakeDecisionTotal', label: 'wake kararı (toplam)', source: SRC.js,
+          note: 'Deftere düşen tüm kararlar — halkadan taşanlar DAHİL. 0 ise wake motoru hiç karar üretmemiştir.' },
+          _wf.total));
+    f.push(observed({ id: 'sttWakeDecisionCounts', label: 'gerekçe dağılımı', source: SRC.js,
+      note: 'ACCEPTED · REJECTED_TOKEN · SUPPRESSED_* · NOT_EVALUATED_MODEL_NOT_READY. '
+          + 'SUPPRESSED_* yüksekse motor SAĞIR DEĞİL, tetik BASTIRILIYOR demektir.' },
+      _countsLine(_wf.counts)));
+    f.push(_wf.intent < 0
+      ? unavailable({ id: 'sttWakeIntent', label: 'kabul → komut', source: SRC.js, note: '' },
+          'Korelasyon okunamadı.')
+      : observed({ id: 'sttWakeIntent', label: 'kabul → komut', source: SRC.js,
+          note: 'Kabul edilen tetiğin gerçekten komuta dönüşüp dönüşmediği. İkinci sayı yüksekse '
+              + 'wake çalışıyor ama komut alınamıyordur (ayrı kusur).' },
+          `${_wf.intent} komut / ${_wf.noIntent} komutsuz`));
+    f.push(_wf.pending === null
+      ? observed({ id: 'sttWakePending', label: 'bekleyen kabul', source: SRC.js,
+          note: 'Kabul edilmiş ama henüz komuta dönüşmemiş tetik.' }, 'yok')
+      : observed({ id: 'sttWakePending', label: 'bekleyen kabul', source: SRC.js,
+          note: 'Kabul edilmiş ama henüz komuta dönüşmemiş tetik.' },
+          `${Math.round(_wf.pending / 1000)} sn`));
+    f.push(_wf.evicted < 0
+      ? unavailable({ id: 'sttWakeEvicted', label: 'halkadan düşen karar', source: SRC.js, note: '' },
+          'Okunamadı.')
+      : observed({ id: 'sttWakeEvicted', label: 'halkadan düşen karar', source: SRC.js,
+          note: 'Defter 64 kayıtla sınırlıdır; taşan en eski kayıtlar düşer (kayıp GÖRÜNÜR olsun diye sayılır).' },
+          _wf.evicted));
+    f.push(_wf.recent.length === 0
+      ? unavailable({ id: 'sttWakeRecent', label: 'son kararlar', source: SRC.js, note: '' },
+          'Henüz karar kaydı yok.')
+      : observed({ id: 'sttWakeRecent', label: 'son kararlar (yeni → eski)', source: SRC.js,
+          note: 'GİZLİLİK: duyulan ham metin ve ses TAŞINMAZ — yalnız gerekçe, yol ve türetilmiş sayılar. '
+              + 'k=kelime sayısı · i=eşleşme indeksi (0 = cümle başı) · ÇIPLAK=tek kelimelik ad · ALT=n-best alternatifi.' },
+          _wf.recent.map(_decisionLine).join('  |  ')));
+
+    /* ── NATIVE WAKE SAYAÇLARI (şema 2) ─────────────────────────────────
+     * JS'in GÖREMEDİĞİ üç karar: mikrofon hiç açılmadı · VAD decode'u atladı ·
+     * çözüldü ama eşleşmedi. Eski APK'da (şema 1) blok HİÇ GELMEZ → sahte `0`
+     * yerine dürüstçe KAYNAK YOK gösterilir. */
+    const wn = s.wakeNative ?? null;
+    if (!wn) {
+      f.push(unavailable({ id: 'sttWakeNative', label: 'native wake sayaçları', source: SRC.native,
+        note: 'Bu APK şema 1\'dir; native wake kararları ölçülmüyor. Şema 2 APK\'sı gerekir.' },
+        'Ölçüm yok (eski şema).'));
+    } else {
+      f.push(observed({ id: 'sttWakeNativeYield', label: 'mikrofon hiç açılmadı (yield)', source: SRC.native,
+        note: 'TTS konuşurken / aktif STT varken / bekleyen çağrıda wake mikrofonu AÇILMAZ. '
+            + 'Yüksekse motor sağır değil, KAPI kapalıdır — bu JS\'ten görülemez.' },
+        wn.yieldCount));
+      f.push(observed({ id: 'sttWakeNativeVad', label: 'VAD atladı / decode edildi', source: SRC.native,
+        note: 'Eşik altı çerçeve decode EDİLMEZ. Atlama payı çok yüksekse uzak/alçak sesli '
+            + '"Hey Mavi" burada ölüyor olabilir (eşik bu turda DEĞİŞTİRİLMEDİ).' },
+        `${wn.vadSkipFrames} / ${wn.decodeFrames}`));
+      f.push(observed({ id: 'sttWakeNativeNoMatch', label: 'çözüldü ama eşleşmedi', source: SRC.native,
+        note: 'Grammar bir metin üretti ama wake sözü tutmadı — `[unk]` kapısının gerçekte '
+            + 'ne kadar çalıştığını gösterir. Metin TAŞINMAZ, yalnız adet.' },
+        wn.noMatchCount));
+      f.push(observed({ id: 'sttWakeNativeTrigger', label: 'native tetik', source: SRC.native,
+        note: 'Native\'in JS\'e gönderdiği tetik sayısı. JS defterindeki kabul+bastırma toplamıyla '
+            + 'karşılaştırılır; ikisi ayrışırsa olay kaybı VARDIR.' },
+        wn.triggerCount));
+      f.push(wn.lastTriggerLatencyMs < 0
+        ? unavailable({ id: 'sttWakeNativeLat', label: 'wake tetik gecikmesi', source: SRC.native, note: '' },
+            'Henüz tetik ölçülmedi.')
+        : observed({ id: 'sttWakeNativeLat', label: 'wake tetik gecikmesi', source: SRC.native,
+            note: 'GERÇEK sessizlikten sonraki ilk konuşma çerçevesi → tetik. '
+                + '⚠️ Gürültülü ortamda VAD penceresi hiç kapanmazsa bu sayı ŞİŞER; '
+                + 'yorumlarken "VAD atladı" payına BAKILMALIDIR (atlama ~0 ise sayı güvenilmez).' },
+            `${wn.lastTriggerLatencyMs} ms`));
+
+      /* ── GÜVEN ÖLÇÜMÜ (şema 3) — KARARA GİRMEZ ────────────────────────
+       * Wake kararı bugün SAF EŞLEŞMEDİR: "hey mavi" ile "hey market" aynı
+       * metne çözülüyor ve ayıracak sayı YOK. Bu iki satır o sayının VAR
+       * OLUP OLMADIĞINI ölçer — eşik EKLEMEZ, davranış DEĞİŞTİRMEZ. */
+      f.push(observed({ id: 'sttWakeConfCap', label: 'güven skoru alınabiliyor mu', source: SRC.native,
+        note: 'Vosk `setPartialWords`. HAYIR ise partial üzerinde güven eşiği KURULAMAZ — '
+            + 'yanlış uyanmayı kesmenin tek yolu final sonuca geçmektir (gecikme bedeli).' },
+        wn.partialWordsEnabled === true));
+      f.push(typeof wn.lastMatchConfMilli !== 'number' || wn.lastMatchConfMilli < 0
+        ? unavailable({ id: 'sttWakeConf', label: 'son eşleşmenin güveni', source: SRC.native, note: '' },
+            'Güven yok / henüz eşleşme olmadı.')
+        : observed({ id: 'sttWakeConf', label: 'son eşleşmenin güveni', source: SRC.native,
+            note: 'DENEY: "Hey Mavi" ile "hey market" arka arkaya söylenip bu sayı KARŞILAŞTIRILIR. '
+                + 'Ayrışıyorsa eşik kurulabilir; ayrışmıyorsa güven bu sorunu ÇÖZMEZ.' },
+          `${(wn.lastMatchConfMilli / 1000).toFixed(3)}`));
+    }
+  }
+  return { id: 'wake', title: STT_SECTION_TITLE.wake, fields: _bound(f) };
+}
+
 function _restrictionsSection(): SttSection {
   const mk = (id: string, label: string): InspectorField =>
     observed({ id, label, source: SRC.none, note: 'Kod ve statik testle kilitlenmiştir.' }, 'EVET');
@@ -768,7 +982,8 @@ export function buildSttSections(s: SttMicRaw): SttSection[] {
   if (!s) return [];
   return [
     _statusSection(s), _sourceSection(s), _effectsSection(s),
-    _vadSection(s), _vehicleSection(s), _engineSection(s), _restrictionsSection(),
+    _vadSection(s), _vehicleSection(s), _engineSection(s), _wakeSection(s),
+    _restrictionsSection(),
   ];
 }
 

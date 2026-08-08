@@ -636,6 +636,35 @@ export interface NativeVoiceMicDiagnostics {
     lastResultCategory?: string;
     lastResultAt: number;
   };
+  /**
+   * WAKE KARAR SAYAÇLARI (native şema 2) — JS'in GÖREMEDİĞİ kararlar.
+   *
+   * `wakeWordService` yalnız TETİK ANINI alır; "mikrofon hiç açılmadı",
+   * "VAD decode'u atladı" ve "çözüldü ama eşleşmedi" JS'ten AYIRT EDİLEMEZ.
+   * Bu blok davranışı DEĞİŞTİRMEZ, yalnız görünür kılar.
+   *
+   * ⚠️ OPSİYONEL: şema 1 APK'sında bu anahtar HİÇ GELMEZ → okuyan taraf
+   * "ölçüm yok" demelidir (sahte `0` üretmemeli).
+   * Sayaçlar KÜMÜLATİFtir (oturum başında sıfırlanmaz) ve doyurulur.
+   */
+  wake?: {
+    /** Mikrofon hiç açılmadı (TTS / aktif STT / bekleyen çağrı). */
+    yieldCount: number;
+    /** VAD eşiği altında kalıp decode edilmeyen çerçeve. */
+    vadSkipFrames: number;
+    /** Gerçekten decode edilen çerçeve. */
+    decodeFrames: number;
+    /** Metin çözüldü ama wake sözü eşleşmedi (metin TAŞINMAZ). */
+    noMatchCount: number;
+    /** Eşleşti ve JS'e olay gönderildi. */
+    triggerCount: number;
+    /** Konuşma başlangıcı → tetik (ms). -1 = ölçüm yok. */
+    lastTriggerLatencyMs: number;
+    /** `setPartialWords(true)` kurulabildi mi (Vosk yeteneği) — şema 3. */
+    partialWordsEnabled?: boolean;
+    /** Son EŞLEŞMEDEKİ en düşük kelime güveni ×1000. -1 = güven YOK — şema 3. */
+    lastMatchConfMilli?: number;
+  };
 }
 
 /**
@@ -1086,6 +1115,16 @@ export interface CarLauncherPlugin {
 
   // Dashcam kayıt durumunu foreground servis bildirimine yansıt
   setDashcamActive(options: { active: boolean }): Promise<void>;
+
+  /**
+   * Navigasyon oturumu durumunu foreground servise bildirir.
+   *
+   * NEDEN: servisin park kısması (5 dk hareketsizlik → 1 Hz GPS kapanır)
+   * navigasyondan habersizdi; uzun ışıkta kısılıp kalkışta ilk ~60 m'yi kör
+   * bırakıyordu. Bu bayrak yalnız o kısmayı devre dışı bırakır — konum izni
+   * istemez, yeni akış başlatmaz, ikinci bir konum otoritesi KURMAZ.
+   */
+  setNavigationActive(options: { active: boolean }): Promise<void>;
 
   /**
    * PIN güvenliği — Android Keystore + EncryptedSharedPreferences

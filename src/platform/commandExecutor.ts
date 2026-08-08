@@ -15,6 +15,7 @@ import { bridge, type CommandResult }   from './bridge';
 import { fromAIResponse, type AppIntent } from './intentEngine';
 import type { AIVoiceResult, VehicleContext } from './aiVoiceService';
 import { play, pause, next, previous, setMediaPreferredPackage } from './mediaService';
+import type { MediaCommandResult } from './mediaService';
 import { setVolume }                    from './systemSettingsService';
 // MAVI-M6: normal kullanıcı cevabının TEK otoritesi. `speakAlert` ayrı hata
 // kanalıdır (uyarı tonu) ve bu görevde DEĞİŞTİRİLMEDİ.
@@ -263,6 +264,61 @@ async function _runVehiclePort(
 
 /* ── Core dispatcher ──────────────────────────────────────── */
 
+/**
+ * Kaynaksız "müzik aç" — GÖMÜLÜ katmandan başlat.
+ *
+ * SIRA (kullanıcı kararı 2026-08-08):
+ *   1. Gömülü katmanda kaldığı yer varsa oradan devam (`resumeLastMedia`).
+ *   2. Yoksa gömülü YouTube'da varsayılan müzik araması.
+ *   3. İkisi de olmazsa **harici uygulamaya SESSİZCE GİDİLMEZ** — dürüstçe
+ *      söylenir. (Sürücü kaynağı söylerse o kaynak zaten açılır.)
+ *
+ * SAHTE ONAY YOK: cümle ancak GERÇEKTEN bir şey başlatıldığında "açılıyor" der.
+ */
+async function _openEmbeddedMusic(): Promise<string> {
+  try {
+    // Lazy import: carosMediaLayer mediaService'i import eder → statik döngü kırılır.
+    const layer = await import('./media/carosMediaLayer');
+    if (layer.resumeLastMedia()) return 'Müzik açılıyor';
+    /* Kaldığı yer yok → gömülü YouTube. `playByQuery` sağlayıcılarda arar ve
+       çalınabilir sonuç bulursa GÖMÜLÜ oynatıcıda başlatır. */
+    const track = await layer.playByQuery(EMBEDDED_MUSIC_SEED, 'all');
+    if (track) return `${track.title} çalınıyor`;
+  } catch { /* gömülü katman hatası → sahte onay ÜRETME */ }
+  return 'Gömülü oynatıcıda çalacak bir şey bulamadım. Kaynak söylersen oradan açayım.';
+}
+
+/**
+ * Kaynaksız "müzik aç" için gömülü arama tohumu.
+ * Sabit bir liste/çalma listesi UYDURULMAZ; mevcut arama altyapısı kullanılır.
+ */
+const EMBEDDED_MUSIC_SEED = 'müzik';
+
+/**
+ * Parça atlama cevabı — SAHTE ONAY YASAĞININ tek karar noktası.
+ *
+ * Kural: `verified` DEĞİLSE başarı cümlesi KURULMAZ. Bilinen sebepler ayrı
+ * cümle alır (sürücü ne yapacağını bilsin); bilinmeyen sebep "emin değilim"
+ * der — "yaptım" DEMEZ.
+ */
+function _mediaSkipReply(r: MediaCommandResult, okText: string): string {
+  if (r.verified) return okText;
+  switch (r.failureCode) {
+    case 'empty_queue':
+    case 'no_target':
+      return 'Şu anda çalan bir şey yok.';
+    case 'end_of_queue':
+      return 'Listenin sonundayız, sonraki parça yok.';
+    case 'start_of_queue':
+      return 'Listenin başındayız, önceki parça yok.';
+    case 'unverified_backend':
+      /* Harici oturuma gönderildi ama etkisi GÖZLENEMEZ — "değişti" denemez. */
+      return 'Komutu gönderdim ama değiştiğini doğrulayamıyorum.';
+    default:
+      return 'Parçayı değiştiremedim.';
+  }
+}
+
 async function dispatchIntent(intent: AppIntent, ctx: CommandContext): Promise<IntentExecutionResult> {
   const { isDriving } = ctx.vehicleCtx;
   /* MAVI-M6-LATE-SPEECH-GATE: yakalanmış tur token'ı BİR KEZ, await'lerden ÖNCE
@@ -385,12 +441,26 @@ async function dispatchIntent(intent: AppIntent, ctx: CommandContext): Promise<I
       // uygulama içi çalma ekranını (music drawer) göster. Kullanıcı uygulamadan
       // uzaklaşmaz. Yalnızca belirli bir şarkı/sanatçı araması (query/searchUri)
       // gerektiğinde harici uygulama deep-link ile açılır — arama UI'si şart.
+      /* KAYNAK SÖYLENMEDİYSE GÖMÜLÜ KATMAN (saha 2026-08-08) ────────────────
+       * Eskiden kaynak belirtilmese de doğrudan `play()` çağrılıyordu; bu,
+       * harici bir Android MediaSession'ı (Spotify/YouTube uygulaması) devralıp
+       * sürücüyü uygulamadan koparıyordu. Kullanıcı kararı: kaynak SÖYLENMEDİYSE
+       * önce GÖMÜLÜ oynatıcı; kaynak SÖYLENDİYSE o kaynak.
+       * Bu, mevcut `PLAY_MUSIC_SEARCH`/`PLAY_MUSIC_QUERY` yollarındaki
+       * "önce gömülü, sonra harici" deseniyle AYNI ilkedir — o yollar
+       * DEĞİŞTİRİLMEDİ, yalnız kaynaksız "müzik aç" onlara HİZALANDI. */
       case 'OPEN_MUSIC': {
         const pkg = intent.payload.musicSourcePkg ?? '';
-        if (pkg) setMediaPreferredPackage(pkg);
-        play();                       // arka planda çal (sendMediaAction + warmup)
-        ctx.openDrawer?.('music');    // çalma ekranını öne getir
-        _speak('Müzik açılıyor', isDriving, _turn);
+        if (pkg) {
+          // Kullanıcı kaynağı SÖYLEDİ → mevcut davranış AYNEN korunur.
+          setMediaPreferredPackage(pkg);
+          play();
+          ctx.openDrawer?.('music');
+          _speak('Müzik açılıyor', isDriving, _turn);
+          break;
+        }
+        ctx.openDrawer?.('music');
+        _speak(await _openEmbeddedMusic(), isDriving, _turn);
         break;
       }
       case 'PLAY_MUSIC_SEARCH': {
@@ -456,14 +526,20 @@ async function dispatchIntent(intent: AppIntent, ctx: CommandContext): Promise<I
         _speak('Duraklatıldı', isDriving, _turn);
         break;
       }
+      /* ── Parça atlama — SAHTE ONAY YOK (saha 2026-08-08) ────────────────
+       * Eskiden `next()` çağrılıp SONUÇ BEKLENMEDEN "Sonraki parça" deniyordu.
+       * Kuyruk boşken / otorite reddettiğinde / harici oturum komutu yutunca
+       * hiçbir şey değişmiyor ama asistan değişmiş gibi konuşuyordu.
+       * Artık YALNIZ doğrulanmış sonuçta başarı söylenir; aksi hâlde neden
+       * söylenir. Yönlendirme ve komut akışı DEĞİŞMEDİ. */
       case 'MEDIA_NEXT': {
-        next();
-        _speak('Sonraki parça', isDriving, _turn);
+        const r = await next();
+        _speak(_mediaSkipReply(r, 'Sonraki parça'), isDriving, _turn);
         break;
       }
       case 'MEDIA_PREV': {
-        previous();
-        _speak('Önceki parça', isDriving, _turn);
+        const r = await previous();
+        _speak(_mediaSkipReply(r, 'Önceki parça'), isDriving, _turn);
         break;
       }
 

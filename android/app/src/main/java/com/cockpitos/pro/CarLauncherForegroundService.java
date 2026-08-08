@@ -54,7 +54,23 @@ public class CarLauncherForegroundService extends Service {
 
     // ── GPS sabitleri ──────────────────────────────────────────────────────
     private static final long  GPS_INTERVAL_MS   = 1_000L;   // 1s — anlık km takibi
-    private static final float GPS_MIN_DIST_M    = 2f;       // 2m minimum hareket
+    /**
+     * Konum güncellemesi için minimum yer değiştirme.
+     *
+     * ⚠️ 2f → 0f (SAHADA ÖLÇÜLDÜ 2026-08-08, Siverek): `minDistance = 2 m` yalnız
+     * TESLİMATI filtreler, GPS alıcısını uyutmaz — yani pil kazancı yok denecek
+     * kadar azdır, ama bedeli ağırdır: araç DURUNCA (kırmızı ışık, trafik) hiçbir
+     * fix teslim edilmez. Ölçüm: park hâlinde `fixAgeMs = 25.325` — sinyal ±2 m
+     * doğrulukla gayet iyiyken. Üst katman bunu haklı olarak "bayat" sayıyor ve
+     * zincirleme şu dört kusuru üretiyordu:
+     *   · `FullMapView` 5 s sonra DR'ye düşüyor (duran araç için anlamsız)
+     *   · 30 s sonra "⚠ Konum Kayboldu — GPS Sinyali Yok" uyarısı basıyor
+     *   · `mapMatchModel` → `MATCH_UNCERTAIN` / `HEADING_UNKNOWN` (güven 0,89 → 0,4)
+     *   · kamera yön otoritesini kaybediyor
+     * 0 = "her `GPS_INTERVAL_MS`'te teslim et"; duran araçta da 1 Hz akış sürer.
+     * OEM navigasyonların (Google dâhil) davranışı budur.
+     */
+    private static final float GPS_MIN_DIST_M    = 0f;
     private static final float MOVING_KMH        = 5f;
     private static final long  PARKED_TIMEOUT_MS = 5 * 60_000L;
     private static final long  BREAK_INTERVAL_MS = 120 * 60_000L;
@@ -83,6 +99,31 @@ public class CarLauncherForegroundService extends Service {
     private boolean isHighPriority = false;
 
     public static void setDashcamRecording(boolean active) { sDashcamRecording = active; }
+
+    /**
+     * Aktif navigasyon oturumu var mı — park kısmasının TEK istisnası.
+     *
+     * Park kısması (bkz. {@link #stopGpsHighAccuracy}) navigasyondan HABERSİZDİ:
+     * 5 dakikayı aşan bir duruşta (yoğun trafik, uzun ışık, feribot kuyruğu)
+     * sürüş devam ederken 1 Hz GPS kapanıyordu. Geri dönüş de park referansından
+     * 60 m uzaklaşmaya bağlı olduğu için araç kalktıktan sonra ilk ~60 m
+     * navigasyon KÖR gidiyordu (rota takibi, manevra sayacı, kamera yönü).
+     * Navigasyon kullanıcı başlatımlı ve sınırlı bir etkinliktir; sürerken
+     * konum tazeliği pil tasarrufundan önceliklidir.
+     */
+    private static volatile boolean sNavigationActive = false;
+
+    /**
+     * JS navigasyon oturumu başlayınca/bitince çağrılır. Başlarken 1 Hz akışı
+     * DERHAL geri getirir — kısılmış hâlde başlayan bir rotanın ilk manevrasını
+     * kaçırmamak için (idempotent).
+     */
+    public static void setNavigationActive(boolean active) {
+        sNavigationActive = active;
+        if (!active) return;
+        CarLauncherForegroundService svc = instance;
+        if (svc != null) svc.resumeGpsHighAccuracy();
+    }
 
     public interface LocationCallback {
         void onLocation(double lat, double lng, float speedKmh, float bearing, float accuracy);
@@ -468,7 +509,11 @@ public class CarLauncherForegroundService extends Service {
         // NOT: bu, mevcut break-reminder zaman aşımı ile aynı eşiği (PARKED_TIMEOUT_MS) kullanır —
         // uzun trafik ışığı/dur-kalk gibi 5 dk'yı aşan duraklamalarda (nadir) GPS de durur; hareket
         // NETWORK_PROVIDER ile algılanıp otomatik yeniden açılır (aşağıdaki uzaklaşma kontrolü dahil).
-        if (gpsHighAccuracyActive && (now - lastGpsMotionMs) > PARKED_TIMEOUT_MS) {
+        // NAVİGASYON İSTİSNASI: rota sürerken duruş "park" DEĞİLDİR — uzun ışık ya da
+        // trafik olabilir. Kısmak, kalkışta ilk ~60 m'yi kör bırakıyordu (bkz.
+        // sNavigationActive). Oturum bitince bu dal yeniden normal çalışır.
+        if (gpsHighAccuracyActive && !sNavigationActive
+            && (now - lastGpsMotionMs) > PARKED_TIMEOUT_MS) {
             stopGpsHighAccuracy(loc);
             return;
         }

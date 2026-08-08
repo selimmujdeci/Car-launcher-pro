@@ -39,7 +39,14 @@ public final class VoiceMicDiagnostics {
     public static final VoiceMicDiagnostics INSTANCE = new VoiceMicDiagnostics();
 
     /** Sözleşme sürümü — alan kayması JS tarafında görünür olsun diye. */
-    public static final int SCHEMA_VERSION = 1;
+    /**
+     * 2 (2026-08-08): wake karar sayaçları eklendi (`wakeYieldCount`,
+     * `wakeVadSkipFrames`, `wakeDecodeFrames`, `wakeNoMatchCount`,
+     * `wakeTriggerCount`, `wakeLastTriggerLatencyMs`). YALNIZ EKLEME —
+     * mevcut hiçbir alanın adı/anlamı değişmedi, JS tarafı eksik alanı
+     * `-1`/0 olarak okur (geriye dönük uyum korunur).
+     */
+    public static final int SCHEMA_VERSION = 3;
 
     public static final int RMS_RING_CAP = 64;
     public static final int ATTEMPT_CAP  = 8;
@@ -127,6 +134,41 @@ public final class VoiceMicDiagnostics {
         public int     grammarWordCount;    // -1 = grammar yok (full-vocab)
         public String  lastResultCategory;  // null = hiç sonuç yok
         public long    lastResultAt;        // duvar saati (ms); 0 = yok
+
+        /* ── WAKE KARAR SAYAÇLARI (şema 2) ────────────────────────────────
+         * JS'in GÖREMEDİĞİ kararlar. `wakeWordService` yalnız TETİK ANINI alır;
+         * "mikrofon hiç açılmadı", "VAD decode'u atladı" ve "çözüldü ama
+         * eşleşmedi" JS'ten AYIRT EDİLEMEZ. Bu sayaçlar davranışı DEĞİŞTİRMEZ,
+         * yalnız görünür kılar.
+         *
+         * KÜMÜLATİFtir (oturum başında SIFIRLANMAZ): wake döngüsü saniyede bir
+         * oturum açıp kapatır; oturum-başı sayaç oran hesaplanamaz hâle getirir.
+         * Taşmaya karşı doyurulur (saturating) — sarmalanma YOK. */
+        public int  wakeYieldCount;         // mikrofon hiç açılmadı (TTS/aktif STT/bekleyen çağrı)
+        public int  wakeVadSkipFrames;      // VAD eşiği altında → decode ATLANDI
+        public int  wakeDecodeFrames;       // gerçekten decode edilen çerçeve
+        public int  wakeNoMatchCount;       // metin çözüldü ama wake sözü EŞLEŞMEDİ
+        public int  wakeTriggerCount;       // eşleşti ve JS'e olay gönderildi
+        /**
+         * Konuşma başlangıcı → tetik (ms). -1 = ölçüm yok.
+         *
+         * ⚠️ ŞEMA 3 DÜZELTMESİ: şema 2'de "konuşma başlangıcı" VAD eşiğinin ilk
+         * aşıldığı andı; ortam gürültüsü hangover'ı sürekli tazelediği için
+         * pencere neredeyse hiç kapanmıyor ve bu sayı wake gecikmesi DEĞİL
+         * "pencere ne kadardır açık" oluyordu (sahada 2929 ms ölçüldü — anlamsız).
+         * Artık onset YALNIZ gerçek sessizlikten sonra ilk konuşma çerçevesinde
+         * kurulur (bkz. `noteWakeSpeechOnset`).
+         */
+        public int  wakeLastTriggerLatencyMs;
+
+        /* ── Güven ölçümü (şema 3) — KARARA GİRMEZ ─────────────────────────
+         * Wake kararı bugün SAF EŞLEŞMEDİR. Saha "hey mercedes"/"hey market"
+         * ile uyanıldığını gösterdi. Bu iki alan, gerçek "hey mavi" ile yanlış
+         * tetiği ayıracak bir SAYININ VAR OLUP OLMADIĞINI ölçer. */
+        /** `setPartialWords(true)` kurulabildi mi (Vosk sürüm yeteneği). */
+        public boolean wakePartialWordsEnabled;
+        /** Son EŞLEŞMEDEKİ en düşük kelime güveni ×1000. -1 = güven YOK/ölçülemedi. */
+        public int  wakeLastMatchConfMilli;
     }
 
     /* ── Durum ─────────────────────────────────────────────────────────────── */
@@ -171,6 +213,22 @@ public final class VoiceMicDiagnostics {
     private String  lastResultCategory;
     private long    lastResultAt;
 
+    /* ── Wake karar sayaçları (şema 2) — KÜMÜLATİF, doyurulur ────────────── */
+    private static final int COUNTER_CAP = 1_000_000_000;
+    private int  wakeYieldCount;
+    private int  wakeVadSkipFrames;
+    private int  wakeDecodeFrames;
+    private int  wakeNoMatchCount;
+    private int  wakeTriggerCount;
+    private int  wakeLastTriggerLatencyMs = -1;
+    /** Konuşma başlangıcı (monotonik ms); 0 = konuşma penceresi kapalı. */
+    private long wakeSpeechOnsetMs;
+    private boolean wakePartialWordsEnabled;
+    private int  wakeLastMatchConfMilli = -1;
+
+    /** Doyuran artırma — sarmalanma (negatif sayaç) OLMAZ. */
+    private static int bump(int v) { return v >= COUNTER_CAP ? v : v + 1; }
+
     /** Hiç ölçüm yapılmadıysa `present:false` — SAHTE varsayılan üretilmez. */
     private boolean everMeasured = false;
 
@@ -211,6 +269,87 @@ public final class VoiceMicDiagnostics {
 
     public void noteSessionEnd() {
         synchronized (lock) { sessionActive = false; }
+    }
+
+    /* ══════════════════════════════════════════════════════════════════════
+     * WAKE KARAR SAYAÇLARI (şema 2) — YALNIZ SAYAR, KARAR VERMEZ
+     *
+     * Hiçbiri wake akışını okumaz, değiştirmez veya geciktirmez; her biri tek
+     * bir `int` artırır. Metin, ses ve wake sözcüğü BU METOTLARA GEÇMEZ.
+     * ════════════════════════════════════════════════════════════════════ */
+
+    /** Mikrofon hiç açılmadı (TTS konuşuyor / aktif STT / bekleyen çağrı). */
+    public void noteWakeYield() {
+        synchronized (lock) { everMeasured = true; wakeYieldCount = bump(wakeYieldCount); }
+    }
+
+    /**
+     * VAD kapısı bir çerçeveyi değerlendirdi.
+     * @param decoded `true` = Vosk'a verildi · `false` = eşik altı, decode ATLANDI
+     */
+    public void noteWakeFrame(boolean decoded) {
+        synchronized (lock) {
+            everMeasured = true;
+            if (decoded) wakeDecodeFrames = bump(wakeDecodeFrames);
+            else         wakeVadSkipFrames = bump(wakeVadSkipFrames);
+            /* ŞEMA 3: onset BURADA KURULMAZ — `noteWakeSpeechOnset` kurar.
+               Sessizlik çerçevesi pencereyi KAPATIR (gecikme çapası temizlenir). */
+            if (!decoded) wakeSpeechOnsetMs = 0;
+        }
+    }
+
+    /** Metin çözüldü ama wake sözü EŞLEŞMEDİ (metnin kendisi TAŞINMAZ). */
+    public void noteWakeNoMatch() {
+        synchronized (lock) { everMeasured = true; wakeNoMatchCount = bump(wakeNoMatchCount); }
+    }
+
+    /**
+     * KONUŞMA BAŞLANGICI — yalnız GERÇEK sessizlikten sonraki ilk konuşma
+     * çerçevesinde çağrılır (şema 3).
+     *
+     * Şema 2'de onset VAD eşiğinin her aşılışında kuruluyordu; ortam gürültüsü
+     * hangover'ı sürekli tazelediği için pencere kapanmıyor ve gecikme
+     * "pencere ne kadardır açık" hâline geliyordu (sahada 2929 ms — anlamsız).
+     */
+    public void noteWakeSpeechOnset(long monotonicMs) {
+        synchronized (lock) {
+            everMeasured = true;
+            wakeSpeechOnsetMs = monotonicMs > 0 ? monotonicMs : 0;
+        }
+    }
+
+    /** `setPartialWords(true)` kurulabildi mi — güven ölçümünün ön koşulu. */
+    public void noteWakePartialWords(boolean enabled) {
+        synchronized (lock) { everMeasured = true; wakePartialWordsEnabled = enabled; }
+    }
+
+    /**
+     * Eşleşmenin en düşük kelime güveni (0..1). `< 0` = güven YOK.
+     * YALNIZ ÖLÇÜM — wake kararı bu sayıyı KULLANMAZ.
+     */
+    public void noteWakeMatchConf(double conf) {
+        synchronized (lock) {
+            everMeasured = true;
+            wakeLastMatchConfMilli = conf < 0 ? -1 : (int) Math.round(conf * 1000.0);
+        }
+    }
+
+    /**
+     * Wake eşleşti ve JS'e olay gönderildi.
+     * @param monotonicNowMs Tetik anı (monotonik). Konuşma başlangıcı biliniyorsa
+     *        gecikme türetilir; bilinmiyorsa `-1` KALIR (0 UYDURULMAZ).
+     */
+    public void noteWakeTrigger(long monotonicNowMs) {
+        synchronized (lock) {
+            everMeasured = true;
+            wakeTriggerCount = bump(wakeTriggerCount);
+            long onset = wakeSpeechOnsetMs;
+            if (onset > 0 && monotonicNowMs >= onset) {
+                long d = monotonicNowMs - onset;
+                wakeLastTriggerLatencyMs = d > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) d;
+            }
+            wakeSpeechOnsetMs = 0;   // pencere kapandı; sonraki tetik yeni onset ister
+        }
     }
 
     /** Ses formatı — AudioRecord parametreleri (davranış DEĞİŞMEZ, yalnız kayıt). */
@@ -391,6 +530,17 @@ public final class VoiceMicDiagnostics {
             s.grammarWordCount       = grammarWordCount;
             s.lastResultCategory     = lastResultCategory;
             s.lastResultAt           = lastResultAt;
+
+            /* Wake karar sayaçları (şema 2). Eski JS bu alanları BİLMEZ ve
+               okumaz; yeni JS yoksa `-1`/0 görür → geriye dönük uyum korunur. */
+            s.wakeYieldCount            = wakeYieldCount;
+            s.wakeVadSkipFrames         = wakeVadSkipFrames;
+            s.wakeDecodeFrames          = wakeDecodeFrames;
+            s.wakeNoMatchCount          = wakeNoMatchCount;
+            s.wakeTriggerCount          = wakeTriggerCount;
+            s.wakeLastTriggerLatencyMs  = wakeLastTriggerLatencyMs;
+            s.wakePartialWordsEnabled   = wakePartialWordsEnabled;
+            s.wakeLastMatchConfMilli    = wakeLastMatchConfMilli;
         }
         return s;
     }

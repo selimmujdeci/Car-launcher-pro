@@ -10,6 +10,11 @@ import {
 } from '../platform/autoBrightnessService';
 import { startTripLog, stopTripLog } from '../platform/tripLogService';
 import { startTripMeter, stopTripMeter } from '../platform/trip/tripMeterService';
+import { startTripSession, stopTripSession } from '../platform/trip/tripSessionService';
+import { startLocationContext, stopLocationContext } from '../platform/location/locationContextService';
+import {
+  startTunnelNightRuntime, stopTunnelNightRuntime,
+} from '../platform/map/tunnelNightRuntime';
 import {
   startNotificationService, stopNotificationService,
 } from '../platform/notificationService';
@@ -356,11 +361,23 @@ export function useLayoutServices({
     });
     startTripLog();
     startTripMeter();
+    /* Oturum katmanı tripLog'un YAYININA abone olur → tripLog'dan SONRA
+       başlar, ondan ÖNCE durur (abonelik sahipsiz kalmasın). */
+    startTripSession();
+    /* Konum bağlamı: abonelik/timer KURMAZ — yalnız okuyucuyu kaydeder ve
+       ağır modülleri ısıtır (Mavi'nin ilk turu boş bağlam görmesin). */
+    startLocationContext();
+    /* Tünel → harita gece örtüsü köprüsü. Yeni dedektör/timer YOK: mevcut
+       `autoBrightnessService` tünel kararına TEK dinleyici bağlar. */
+    startTunnelNightRuntime();
     startNotificationService();
     startWeatherService();
     setBrightness(useStore.getState().settings.brightness);
     startHeadlightAutoBrightness(() => useStore.getState().settings.brightness);
     return () => {
+      stopTunnelNightRuntime();
+      stopLocationContext();
+      stopTripSession();
       stopTripLog();
       stopTripMeter();
       stopNotificationService();

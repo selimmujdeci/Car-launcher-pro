@@ -21,6 +21,10 @@ import { RefreshCw, Route, AlertTriangle, ShieldCheck, CloudUpload } from 'lucid
 import { readTripUploadSnapshot } from '../../../platform/trip/tripUploadRuntime';
 import { getTripSnapshot } from '../../../platform/tripLogService';
 import { getTripMeterSnapshot, type TripMeterSnapshot } from '../../../platform/trip/tripMeterService';
+import {
+  getTripSessionSnapshot, isTripSessionRunning,
+  type TripSessionProjection,
+} from '../../../platform/trip/tripSessionService';
 import { formatTripMeterKm } from '../../../platform/trip/tripMeterModel';
 import { getLongRoadGlance } from '../../../platform/fieldValidation/longRoadRecorder';
 import type { TripUploadSnapshot, UploadState } from '../../../platform/trip/tripUploadCoordinator';
@@ -96,6 +100,14 @@ interface Snap {
   /** Saha testi oturumunun KENDİ mesafesi — ayrı otorite, karşılaştırma için. */
   readonly fieldSessionDistanceKm: number | null;
   readonly fieldSessionActive: boolean;
+  /**
+   * SEYAHAT OTURUMU — molalarla birleştirilmiş yolculuk (salt gözlem).
+   * Kendi ölçümü YOKTUR: süre kovaları `tripMetricsAccumulator`dan, mesafe
+   * `tripLogService`ten gelir; bu katman yalnız segmentleri ve aralarındaki
+   * MOLA boşluğunu toplar.
+   */
+  readonly session: TripSessionProjection | null;
+  readonly sessionRunning: boolean;
   readonly readAtMs: number;
 }
 
@@ -125,6 +137,16 @@ function num(v: number | null): string {
   return v === null ? UNAVAILABLE : String(v);
 }
 
+/** Süre (ms) → okunur dakika/saat. Ölçülemeyen süre UYDURULMAZ. */
+function mins(ms: number | null): string {
+  if (ms === null || !Number.isFinite(ms) || ms < 0) return UNAVAILABLE;
+  const total = Math.floor(ms / 60_000);
+  if (total < 1) return '< 1 dk';
+  const h = Math.floor(total / 60);
+  const m = total % 60;
+  return h > 0 ? `${h} sa ${m} dk` : `${m} dk`;
+}
+
 /** Okuma fail-soft: motor düşse bile ekran çökmez. */
 function readSnap(): Snap {
   let upload: TripUploadSnapshot | null = null;
@@ -136,9 +158,17 @@ function readSnap(): Snap {
   let meter: TripMeterSnapshot | null = null;
   let fieldSessionDistanceKm: number | null = null;
   let fieldSessionActive = false;
+  let session: TripSessionProjection | null = null;
+  let sessionRunning = false;
 
   try { upload = readTripUploadSnapshot(); } catch { upload = null; }
   try { meter = getTripMeterSnapshot(); } catch { meter = null; }
+  try {
+    const s = getTripSessionSnapshot();
+    /* Oturum HİÇ başlamadıysa sahte sıfırlar gösterilmez → UNAVAILABLE. */
+    session = s.sessionId === null ? null : s;
+    sessionRunning = isTripSessionRunning();
+  } catch { session = null; sessionRunning = false; }
   try {
     /* Saha testi AYRI bir mesafe otoritesidir; buradan yalnız OKUNUR —
        yol sayacına yazmaz, yol sayacı da ona yazmaz. */
@@ -166,6 +196,7 @@ function readSnap(): Snap {
   return {
     upload, stats, activeState, liveDistanceKm, liveDurationMin, lastTrip,
     meter, fieldSessionDistanceKm, fieldSessionActive,
+    session, sessionRunning,
     readAtMs: Date.now(),
   };
 }
@@ -237,6 +268,49 @@ function TripEngineScreenBase() {
               : `${snap.liveDurationMin} dk`}
           </Row>
         </div>
+      </Section>
+
+      {/* 1a · Seyahat oturumu — molalarla birleştirilmiş yolculuk (salt gözlem) */}
+      <Section title="Trip Session · molalı seyahat (türev — kendi ölçümü YOK)">
+        {snap?.session == null ? (
+          <Chip tone={NONE}>
+            {snap?.sessionRunning ? 'Henüz hareket edilmedi' : UNAVAILABLE}
+          </Chip>
+        ) : (
+          <div className="flex flex-col">
+            <Row label="Durum">
+              <Chip tone={snap.session.state === 'MOVING' ? OK
+                : snap.session.state === 'STOPPED' ? WARN : NONE}>
+                {snap.session.state}
+              </Chip>
+            </Row>
+            <Row label="Yola çıkıldı">{ago(snap.session.startWallMs, now)}</Row>
+            <Row label="elapsedTime">{mins(snap.session.elapsedMs)}</Row>
+            <Row label="movingTime">{mins(snap.session.movingMs)}</Row>
+            <Row label="stoppedTime (mola + rölanti)">{mins(snap.session.stoppedMs)}</Row>
+            {/* Ölçülemeyen süre MOLA SAYILMAZ — ayrı ve dürüst. */}
+            <Row label="unknownTime (ölçülemedi)">{mins(snap.session.unknownMs)}</Row>
+            <Row label="distanceMeters (KAT EDİLEN)">
+              {`${(snap.session.distanceMeters / 1000).toFixed(2)} km`}
+            </Row>
+            <Row label="Birleşen yolculuk (segment)">{num(snap.session.segmentCount)}</Row>
+            <Row label="Mola sayısı">{num(snap.session.stopPeriods.length)}</Row>
+            <Row label="Süren mola">
+              {snap.session.currentBreakMs > 0 ? mins(snap.session.currentBreakMs) : '—'}
+            </Row>
+            <Row label="Mola oturumu bitirdi mi">
+              <Chip tone={snap.session.breakExceededSession ? WARN : OK}>
+                {snap.session.breakExceededSession ? 'EVET (sonraki hareket YENİ oturum)' : 'hayır'}
+              </Chip>
+            </Row>
+          </div>
+        )}
+        <p className="mt-2 text-[10px] leading-relaxed text-[var(--oem-ink-3)]">
+          Bu bölüm KAT EDİLEN mesafeyi gösterir — navigasyondaki <code>KALAN</code> rota
+          mesafesiyle karıştırılmamalıdır. Süre kovaları <code>tripMetricsAccumulator</code>,
+          mesafe <code>tripLogService</code> otoritesindendir; ölü hesaplama (DR) projeksiyonu
+          ve odometre bu toplama GİRMEZ.
+        </p>
       </Section>
 
       {/* 1b · P2 — son kapanan trip'in metrikleri, METRİK BAŞINA kaynak */}

@@ -115,17 +115,21 @@ export const M = {
   lastMoodMs:         0,
   lastMoodSafetyState: '',
 
-  // External risk alert / camera lockdown
-  lastExternalRiskAlert: false,
+  /* Kamera kilitlenmesi (hazard lockdown). NOT: eski `lastExternalRiskAlert`
+     alanı KALDIRILDI — rota renginin ikinci sahibiydi ve tehlike sinyalinin
+     sessizce silinmesine yol açıyordu (K1). Renk kararı artık tek hakemdedir:
+     `map/core/routeColorModel` + `MapLayerManager.syncRouteColor`. */
   lastHazardZoom:     0,
 
   // Navigation focus mode
   focusModeActive:    false,
   lastIntersectionTier: 0,   // -1 = force re-apply
 
-  // Perspective + maneuver emphasis
+  /* Perspektif. NOT: eski `lastManeuverTier` alanı KALDIRILDI — o da rota
+     renginin ikinci sahibiydi (bkz. yukarıdaki not). Manevra kademesi artık
+     `setDrivingView` içinde yerel olarak hesaplanır ve renk hakemine GİRDİ
+     olarak geçer; kavşak bastırması kendi `lastIntersectionTier`ını kullanır. */
   lastPerspectiveScale: 1.0,
-  lastManeuverTier:   0,
 
   // Dynamic shadow elevation + blur
   lastShadowPitch:    -1.0,

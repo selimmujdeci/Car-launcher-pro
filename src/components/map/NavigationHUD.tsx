@@ -50,7 +50,7 @@ import { useSafetyStore } from '../../store/useSafetyStore';
 import { startSafetyObserver, stopSafetyObserver } from '../../platform/safetyService';
 import { useHazardStore, type HazardType } from '../../store/useHazardStore';
 import { useCognitiveStore } from '../../store/useCognitiveStore';
-import { useDenseHud } from '../../hooks/useDenseHud';
+import { useDenseHud, useHudLayout } from '../../hooks/useDenseHud';
 import { useDisplaySpeed } from '../../hooks/useDisplaySpeed';
 
 /* ── Türkçe talimat ────────────────────────────────────────── */
@@ -671,10 +671,26 @@ const TurnPanel = memo(function TurnPanel({
 /* ══════════════════════════════════════════════════════════ */
 
 const RoadSignsPanel = memo(function RoadSignsPanel({
-  streetName, destName,
-}: { streetName?: string; destName?: string; }) {
+  streetName, destName, budgetPx,
+}: {
+  streetName?: string;
+  destName?: string;
+  /**
+   * Orta şeride kalan genişlik (px) — `useHudLayout` hesaplar.
+   *
+   * `null` = şerit tabelanın KENDİ `minWidth`ini (140) karşılayamıyor →
+   * tabela ÇİZİLMEZ. Sıkıştırmak bir seçenek değildir: `minWidth` kazanır ve
+   * kutu manevra kartının üstüne taşar — dikeyde ölçülen kusur tam olarak
+   * budur (360 px viewport'ta 220 px örtüşme).
+   */
+  budgetPx?: number | null;
+}) {
   const label = streetName || destName;
   if (!label) return null;
+  /* Yer yoksa yarısını çizmek yerine HİÇ çizme. Bu bilgi (üzerinde olunan
+     sokak) manevra kartındaki `streetName`den AYRIDIR — o, dönülecek
+     sokaktır. Dikeyde bu bilginin alt bilgi çubuğuna taşınması açık borçtur. */
+  if (budgetPx === null) return null;
 
   return (
     <div
@@ -686,6 +702,10 @@ const RoadSignsPanel = memo(function RoadSignsPanel({
         style={{
           background: 'linear-gradient(155deg,#1e3a8a,#1e40af)',
           minWidth: 140,
+          /* Bütçe, kutunun doğal genişliğinden (≈220 px) büyük olduğu sürece
+             GÖRÜNÜR ETKİSİ YOKTUR — head unit ve telefon yatayında bu böyledir
+             (sırasıyla 416 ve 296 px), yani mevcut yerleşim aynen korunur. */
+          maxWidth: budgetPx ?? undefined,
           padding: '8px 20px 6px',
           boxShadow: '0 6px 24px rgba(0,0,0,0.55), 0 0 0 2px rgba(255,255,255,0.18), inset 0 1px 0 rgba(255,255,255,0.15)',
         }}
@@ -1827,6 +1847,10 @@ export const NavigationHUD = memo(function NavigationHUD({
   const isLimp      = cogMode === 'LIMP_HOME';
   // Telefon yatayı: HUD ölçüleri küçültülür (head unit'te DEĞİŞMEZ).
   const denseHud    = useDenseHud();
+  /* Üst bant şerit bütçesi + genişlik ekseni — AYNI hook, ikinci dinleyici YOK.
+     `short` bilerek kullanılmaz: yükseklik ekseninin tek tüketicisi yukarıdaki
+     `denseHud` kalır (kilit: "yoğunluk kapısı YÜKSEKLİĞE bakar"). */
+  const { narrow: narrowHud, signBudgetPx } = useHudLayout();
 
   // LIMP_HOME — tek seferlik otoriter TTS bildirimi
   useEffect(() => {
@@ -1927,6 +1951,7 @@ export const NavigationHUD = memo(function NavigationHUD({
                 <RoadSignsPanel
                   streetName={currentStep.streetName}
                   destName={destination?.name}
+                  budgetPx={signBudgetPx}
                 />
               </FadeMount>
               {/* LaneGuidance kaldırıldı — ekranı dağıtıyordu, TurnPanel zaten dönüş yönünü gösteriyor */}
@@ -1953,7 +1978,7 @@ export const NavigationHUD = memo(function NavigationHUD({
                 distToTurn={effectiveDist}
                 dense={denseHud}
               />
-              <RoadSignsPanel destName={destination.name} />
+              <RoadSignsPanel destName={destination.name} budgetPx={signBudgetPx} />
               <SpeedPanel speedKmh={speedKmh} speedLimit={dynamicLimit} dense={denseHud} />
             </>
           )}
@@ -2008,7 +2033,20 @@ export const NavigationHUD = memo(function NavigationHUD({
             isOffline={isOfflineResult}
             compact={suppCrit}
             limp={isLimp}
-            dense={denseHud}
+            /* ── ALT BAR İKİ EKSENE de duyarlıdır (üstteki panellerden FARKLI) ──
+             * `TurnPanel`/`SpeedPanel` yalnız `denseHud` alır: onların yoğun
+             * varyantı yüksekliği GENİŞLİĞE takas eder, dikeyde ters yönde
+             * yanlış olurdu. Alt bar ise 3 sütunlu YATAY bir şerittir — talebi
+             * genişliktir ve dar ekranda taşar:
+             *   360 px viewport → kullanılabilir 328 px (`calc(100% - 32px)`),
+             *   tam ölçülerde içerik talebi ≈ 339 px → `flex-1` çöker, sütunlar
+             *   kırpılır. `clamp()` korumuyor çünkü 3vw/4.2vw bu genişlikte
+             *   TABANA oturur (22/28 px).
+             * Bu yüzden burada `narrow` de kabul edilir ve zaten SAHADA
+             * AYARLANMIŞ yoğun ölçüler kullanılır — yeni bir ölçek İCAT
+             * EDİLMEZ. `narrow` bir YERLEŞİM ölçütüdür; `compact`/`limp`
+             * güvenlik modlarıyla karıştırılmaz (ayrı proplar korunur). */
+            dense={denseHud || narrowHud}
           />
         </>
       )}

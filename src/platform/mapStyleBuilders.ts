@@ -62,14 +62,132 @@ export const NAV_SUPPRESS_LAYERS = NAV_SUPPRESS_TIERS[0];
  *
  * If no vector source is available, calls onFallback() (→ buildRoadStyle).
  */
+/**
+ * Vektör taban paleti — TEK katman listesi, iki renk kümesi.
+ *
+ * NEDEN BÖYLE (saha 2026-08-08, Siverek): gündüz vektör paleti hiç yazılmamıştı
+ * ve `buildVectorStyle` gündüzde `onFallback()` ile RASTER OSM'e düşüyordu.
+ * Raster karolar önceden pişmiş resimlerdir: binalar bej, yollar sarı/turuncu,
+ * otoyol pembe — yeniden renklendirilemez. Sürücünün tarifi: *"Google'da yollar
+ * gri, her yer beyaz, çok güzel duruyor; biz OEM seviyesinde hiç değiliz."*
+ *
+ * Katman listesini ÇOĞALTMIYORUZ: aynı ID'ler, aynı filtreler, aynı genişlikler
+ * — yalnız renk yuvaları değişir. Bu kritik, çünkü `NAV_SUPPRESS_TIERS`
+ * (navigasyon odak modu) katman ID'lerine isimle bağlıdır; ikinci bir liste
+ * doğsaydı gündüz odak modu sessizce ölürdü.
+ */
+/**
+ * Vektör gündüz zemini — sürücünün istediği "her yer beyaz" tabanı.
+ *
+ * Raster gündüz zemininden (`MAP_BG_DAY` = #e9eef3, mavimsi gri) BİLEREK
+ * AYRIDIR: raster karoların kendi zemin rengi vardır ve arka planın onunla
+ * uyumlu olması gerekir; vektörde zemini biz çizeriz, o yüzden beyaza çok
+ * daha yakın durabiliriz. Tam #ffffff değil — yol grileri ve bina konturları
+ * saf beyazda "yüzer" ve güneşte parlama yapar.
+ */
+export const MAP_BG_DAY_VECTOR = '#fafbfc';
+
+interface VectorPalette {
+  readonly bg: string;
+  readonly water: string;
+  readonly park: string;
+  readonly residential: string;
+  readonly buildingFill: string;
+  readonly buildingOutline: string;
+  readonly bldg3d: readonly [string, string, string];
+  readonly bldg3dOpacity: number;
+  readonly motorwayCasing: string;
+  readonly primaryCasing: string;
+  readonly minorCasing: string;
+  readonly motorway: string;
+  readonly primary: string;
+  readonly secondary: string;
+  readonly minor: string;
+  readonly labelText: string;
+  readonly labelHalo: string;
+  readonly townText: string;
+  readonly townHalo: string;
+  readonly cityText: string;
+  readonly cityHalo: string;
+  /** POI noktalarının dolgu şeffaflığı — açık zeminde soluk kalmamalı. */
+  readonly poiStrong: number;
+  readonly poiWeak: number;
+}
+
+/** Mevcut OEM gece paleti — değerler BİREBİR korunmuştur (davranış değişmedi). */
+const NIGHT_PALETTE: VectorPalette = {
+  bg:              MAP_BG_NIGHT,
+  water:           '#16213a',
+  park:            '#1c2b22',
+  residential:     '#171b25',
+  buildingFill:    '#1d2230',
+  buildingOutline: '#2c3346',
+  bldg3d:          ['#1d2230', '#2c3346', '#313850'],
+  bldg3dOpacity:   0.78,
+  motorwayCasing:  '#2a2418',
+  primaryCasing:   '#16161d',
+  minorCasing:     '#101015',
+  motorway:        '#6b6048',
+  primary:         '#44444f',
+  secondary:       '#383840',
+  minor:           '#2a2a33',
+  labelText:       '#e8e0d0',
+  labelHalo:       '#0a0e16',
+  townText:        '#e2eaf5',
+  townHalo:        '#060c14',
+  cityText:        '#ffffff',
+  cityHalo:        '#060c14',
+  poiStrong:       0.6,
+  poiWeak:         0.45,
+};
+
+/**
+ * OEM gündüz paleti — beyaz zemin, GRİ yol hiyerarşisi.
+ *
+ * Tasarım kararı: zemin ve binalar neredeyse beyaz kalır, ANLAM yalnız yolda
+ * taşınır. Yol grileri koyudan açığa sıralanır (otoyol → tali), böylece
+ * hiyerarşi renkle değil TONLA okunur — güneş altında en dayanıklı yöntem.
+ * Aktif rota bu sakin zeminin üstünde tek doygun öğedir; rota rengi zaten
+ * `lightBasemap` sözleşmesiyle açık zemine göre kontrast alır
+ * (`routeColorModel.ts`), yani bu palet o sözleşmeyi BOZMAZ, ilk kez
+ * gerçekten ULAŞILABİLİR kılar.
+ */
+const DAY_PALETTE: VectorPalette = {
+  bg:              MAP_BG_DAY_VECTOR,
+  water:           '#c5dcf0',
+  park:            '#dfeddb',
+  residential:     '#f3f4f6',
+  buildingFill:    '#edeff2',
+  buildingOutline: '#dee2e8',
+  bldg3d:          ['#eaecef', '#e1e4e9', '#d7dbe1'],
+  bldg3dOpacity:   0.92,
+  // Kasalar gövdeden bir ton koyu → yol kenarı beyaz zeminde kaybolmaz.
+  motorwayCasing:  '#7b8494',
+  primaryCasing:   '#8f98a6',
+  minorCasing:     '#b9c0ca',
+  motorway:        '#9aa2ae',
+  primary:         '#aeb6c2',
+  secondary:       '#c0c7d1',
+  minor:           '#d3d8df',
+  labelText:       '#2a2f38',
+  labelHalo:       '#ffffff',
+  townText:        '#39404e',
+  townHalo:        '#ffffff',
+  cityText:        '#1b2130',
+  cityHalo:        '#ffffff',
+  poiStrong:       0.85,
+  poiWeak:         0.7,
+};
+
 export function buildVectorStyle(
   sources: Map<string, MapSource>,
   onFallback: () => StyleSpecification,
   night = true,
 ): StyleSpecification {
-  // Gündüz: koyu otomotiv vektör paleti güneşte okunmaz/ayna olur. Tam gündüz vektör
-  // paleti gelene kadar gündüzde açık raster'a düş (onFallback gece/gündüz farkındadır).
-  if (!night) return onFallback();
+  /* Gündüzde artık raster'a DÜŞÜLMEZ — gündüz paleti yukarıda tanımlı.
+     (Eski davranış: `if (!night) return onFallback();` → sürücü gündüz hep
+     ham OSM raster'ı görüyordu.) */
+  const P = night ? NIGHT_PALETTE : DAY_PALETTE;
 
   const hasLocalPbf = sources.get('local')?.isAvailable === true;
   const customUrl   = (import.meta.env['VITE_VECTOR_TILE_URL'] ?? '') as string;
@@ -121,7 +239,7 @@ export function buildVectorStyle(
       // OEM tasarım gece paleti: sıcak grafit (--map-bg-1 #131822)
       { id: 'background',
         type: 'background',
-        paint: { 'background-color': MAP_BG_NIGHT } },
+        paint: { 'background-color': P.bg } },
 
       // ── Water ─────────────────────────────────────────────
       // --map-water-a #1A2540 / --map-water-b #152035
@@ -129,12 +247,12 @@ export function buildVectorStyle(
         type: 'fill',
         source: 'omv',
         'source-layer': 'water',
-        paint: { 'fill-color': '#16213a' } },
+        paint: { 'fill-color': P.water } },
       { id: 'waterway',
         type: 'line',
         source: 'omv',
         'source-layer': 'waterway',
-        paint: { 'line-color': '#16213a', 'line-width': 1.5 } },
+        paint: { 'line-color': P.water, 'line-width': 1.5 } },
 
       // ── Landuse ───────────────────────────────────────────
       // --map-park-a #1F2E26
@@ -143,14 +261,14 @@ export function buildVectorStyle(
         source: 'omv',
         'source-layer': 'landuse',
         filter: ['in', ['get', 'class'], ['literal', ['park', 'grass', 'meadow', 'pitch', 'playground', 'golf']]],
-        paint: { 'fill-color': '#1c2b22' } },
+        paint: { 'fill-color': P.park } },
       // hafif yükseltilmiş yerleşim zemini — --map-residential #2A2A33'e yakın koyu
       { id: 'landuse-residential',
         type: 'fill',
         source: 'omv',
         'source-layer': 'landuse',
         filter: ['in', ['get', 'class'], ['literal', ['residential', 'suburb', 'neighbourhood']]],
-        paint: { 'fill-color': '#171b25' } },
+        paint: { 'fill-color': P.residential } },
 
       // ── Buildings ─────────────────────────────────────────
       // --map-bldg-1b #1D2230 fill, --map-bldg-1a #2C3346 outline
@@ -159,7 +277,7 @@ export function buildVectorStyle(
         source: 'omv',
         'source-layer': 'building',
         minzoom: 13,
-        paint: { 'fill-color': '#1d2230', 'fill-outline-color': '#2c3346' } },
+        paint: { 'fill-color': P.buildingFill, 'fill-outline-color': P.buildingOutline } },
 
       // ── 3D Buildings — fill-extrusion z15+, OEM grafit ──
       // Yükseklik-bazlı renk: alçak binalar koyu, kuleler hafif aydınlık.
@@ -173,11 +291,11 @@ export function buildVectorStyle(
           'fill-extrusion-color': [
             'interpolate', ['linear'],
             ['coalesce', ['get', 'render_height'], ['get', 'height'], 5],
-            0,  '#1d2230',
-            20, '#2c3346',
-            60, '#313850',
+            0,  P.bldg3d[0],
+            20, P.bldg3d[1],
+            60, P.bldg3d[2],
           ],
-          'fill-extrusion-opacity':           0.78,
+          'fill-extrusion-opacity':           P.bldg3dOpacity,
           'fill-extrusion-height': ['coalesce', ['get', 'render_height'], ['get', 'height'], 10],
           'fill-extrusion-base':   ['coalesce', ['get', 'render_min_height'], ['get', 'min_height'], 0],
           'fill-extrusion-vertical-gradient': true,
@@ -195,7 +313,7 @@ export function buildVectorStyle(
         filter: ['in', ['get', 'class'], ['literal', ['motorway', 'trunk']]],
         layout: { 'line-cap': 'round', 'line-join': 'round' },
         paint: {
-          'line-color': '#2a2418',
+          'line-color': P.motorwayCasing,
           'line-width': ['interpolate', ['linear'], ['zoom'], 8, 4, 14, 12],
         } },
       { id: 'road-primary-casing',
@@ -205,7 +323,7 @@ export function buildVectorStyle(
         filter: ['in', ['get', 'class'], ['literal', ['primary', 'secondary']]],
         layout: { 'line-cap': 'round', 'line-join': 'round' },
         paint: {
-          'line-color': '#16161d',
+          'line-color': P.primaryCasing,
           'line-width': ['interpolate', ['linear'], ['zoom'], 8, 2.5, 14, 9],
         } },
       { id: 'road-minor-casing',
@@ -216,7 +334,7 @@ export function buildVectorStyle(
         minzoom: 12,
         layout: { 'line-cap': 'round', 'line-join': 'round' },
         paint: {
-          'line-color': '#101015',
+          'line-color': P.minorCasing,
           'line-width': ['interpolate', ['linear'], ['zoom'], 12, 2, 14, 6],
         } },
 
@@ -229,7 +347,7 @@ export function buildVectorStyle(
         filter: ['in', ['get', 'class'], ['literal', ['motorway', 'trunk']]],
         layout: { 'line-cap': 'round', 'line-join': 'round' },
         paint: {
-          'line-color': '#6b6048',
+          'line-color': P.motorway,
           'line-width': ['interpolate', ['linear'], ['zoom'], 8, 2.5, 14, 9],
         } },
       // OEM grafit hiyerarşisi: arterler koyu arduvaz (--map-art-a #44444F),
@@ -242,7 +360,7 @@ export function buildVectorStyle(
         filter: ['==', ['get', 'class'], 'primary'],
         layout: { 'line-cap': 'round', 'line-join': 'round' },
         paint: {
-          'line-color': '#44444f',
+          'line-color': P.primary,
           'line-width': ['interpolate', ['linear'], ['zoom'], 8, 1.0, 12, 3, 14, 6.5, 18, 13],
         } },
       { id: 'road-secondary',
@@ -252,7 +370,7 @@ export function buildVectorStyle(
         filter: ['in', ['get', 'class'], ['literal', ['secondary', 'tertiary']]],
         layout: { 'line-cap': 'round', 'line-join': 'round' },
         paint: {
-          'line-color': '#383840',
+          'line-color': P.secondary,
           'line-width': ['interpolate', ['linear'], ['zoom'], 10, 0.8, 12, 2, 14, 4, 18, 9],
         } },
       { id: 'road-minor',
@@ -263,7 +381,7 @@ export function buildVectorStyle(
         minzoom: 12,
         layout: { 'line-cap': 'round', 'line-join': 'round' },
         paint: {
-          'line-color': '#2a2a33',
+          'line-color': P.minor,
           'line-width': ['interpolate', ['linear'], ['zoom'], 12, 0.4, 14, 2, 18, 6],
         } },
 
@@ -278,7 +396,7 @@ export function buildVectorStyle(
         paint: {
           'circle-color':        '#f59e0b',
           'circle-radius':       6,
-          'circle-opacity':      0.55,
+          'circle-opacity':      P.poiStrong,
           'circle-stroke-color': '#fbbf24',
           'circle-stroke-width': 1,
         } } as LayerSpecification,
@@ -291,7 +409,7 @@ export function buildVectorStyle(
         paint: {
           'circle-color':        '#3b82f6',
           'circle-radius':       5,
-          'circle-opacity':      0.45,
+          'circle-opacity':      P.poiWeak,
           'circle-stroke-color': '#60a5fa',
           'circle-stroke-width': 1,
         } } as LayerSpecification,
@@ -304,7 +422,7 @@ export function buildVectorStyle(
         paint: {
           'circle-color':        '#ef4444',
           'circle-radius':       6,
-          'circle-opacity':      0.6,
+          'circle-opacity':      P.poiStrong,
           'circle-stroke-color': '#f87171',
           'circle-stroke-width': 1,
         } } as LayerSpecification,
@@ -317,7 +435,7 @@ export function buildVectorStyle(
         paint: {
           'circle-color':        '#8b5cf6',
           'circle-radius':       5,
-          'circle-opacity':      0.45,
+          'circle-opacity':      P.poiWeak,
           'circle-stroke-color': '#a78bfa',
           'circle-stroke-width': 1,
         } } as LayerSpecification,
@@ -339,8 +457,8 @@ export function buildVectorStyle(
             'text-letter-spacing': 0.06,
           },
           paint: {
-            'text-color': '#e8e0d0',      // OEM --map-label sıcak fildişi
-            'text-halo-color': '#0a0e16',
+            'text-color': P.labelText,      // OEM --map-label sıcak fildişi
+            'text-halo-color': P.labelHalo,
             'text-halo-width': 2.2,        // kalın halo → gün ışığı kontrast
             'text-halo-blur': 0.5,
           } },
@@ -357,7 +475,7 @@ export function buildVectorStyle(
             'text-letter-spacing': 0.04,
           },
           paint: {
-            'text-color': '#e2eaf5',
+            'text-color': P.townText,
             'text-halo-color': '#060c14',
             'text-halo-width': 2.5,
             'text-halo-blur': 0.5,
@@ -375,7 +493,7 @@ export function buildVectorStyle(
             'text-letter-spacing': 0.06,
           },
           paint: {
-            'text-color': '#ffffff',
+            'text-color': P.cityText,
             'text-halo-color': '#060c14',
             'text-halo-width': 3.0,
             'text-halo-blur': 0.5,

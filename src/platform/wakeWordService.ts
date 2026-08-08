@@ -27,7 +27,15 @@
 
 import { useState, useEffect } from 'react';
 import { isNative } from './bridge';
-import { startListening, isVoicePaused, getVoiceSnapshot, notifyWakeDetected } from './voiceService';
+import {
+  startListening, isVoicePaused, getVoiceSnapshot, notifyWakeDetected,
+  getVoiceSessionIds, subscribeVoiceState,
+} from './voiceService';
+/* Wake KARAR DEFTERİ — yalnız kayıt. Karar akışı DEĞİŞMEZ: her mevcut
+   `return` aynı koşulla aynı yerde kalır, yanına bir kayıt satırı eklenir.
+   Transcript BU KAPIDAN GEÇMEZ; yalnız türetilmiş sayılar taşınır. */
+import { recordWake, markWakeIntentReached } from './voice/wakeForensics';
+import { deriveTokenShape, type TokenShape, type WakePath } from './voice/core/wakeDecisionModel';
 import { isTtsSpeaking } from './ttsService';
 import {
   matchesWakeTranscript,
@@ -250,6 +258,25 @@ function _startWatchdog(): void {
   }, WAKE_WATCHDOG_INTERVAL_MS);
 }
 
+/* ── Karar defteri yardımcıları (ÖLÇÜM — karar VERMEZ) ─────────────────────
+ * `_shapeOf` duyulan metnin yalnız SAYISAL şeklini çıkarır: kelime sayısı,
+ * eşleşme indeksi, çıplak-ad adaylığı. Metnin KENDİSİ hiçbir yere yazılmaz.
+ * Tokenize, ürünün kendi normalize edicisiyle yapılır (paralel normalize YOK). */
+function _shapeOf(transcript: string): TokenShape | null {
+  try {
+    const tokens = normalizeWakeText(transcript).split(' ').filter(Boolean);
+    const lists = _state.wakeWords.map((w) => w.split(' ').filter(Boolean));
+    return deriveTokenShape(tokens, lists);
+  } catch {
+    return null;   // şekil çıkarılamadıysa ölçüm YOK — uydurma sayı üretilmez
+  }
+}
+
+/** Hangi çalışma yolu koşuyor (gözlem). */
+function _currentPath(): WakePath {
+  return _grammarMode ? 'GRAMMAR' : (_nativeLoopActive ? 'JS_POLLING' : 'UNKNOWN');
+}
+
 function _matches(transcript: string): boolean {
   // ÖZEL/sözlük-dışı mod: serbest tanıma çıktısını yazılan hedefe + öğretilen
   // örneklere FONETİK yakınlıkla eşle (grammar sözlük-dışı kelimeyi düşürdüğü için
@@ -281,27 +308,71 @@ let _lastRearmAt       = 0;
 let _wakesSinceRearm   = 0;
 let _wakesInPrevWindow = 0;
 
-function onWakeWordDetected(): void {
+function onWakeWordDetected(
+  shape?: TokenShape | null,
+  viaNbestAlternative?: boolean | null,
+): void {
+  /* ⚠️ ÖLÇÜM NOTU: aşağıdaki KOŞULLARIN ve `return` SIRASININ hiçbiri
+     değiştirilmedi. Her kapıya yalnız bir kayıt satırı eklendi — bu dört kapı
+     eskiden SESSİZCE yutuyordu ve "hiç duyulmadı" ile "duyuldu ama bastırıldı"
+     ayırt edilemiyordu. */
+  const _path = _currentPath();
+  const _tel = {
+    ...(shape
+      ? { tokenCount: shape.tokenCount, matchedAtIndex: shape.matchedAtIndex,
+          bareNameCandidate: shape.bareNameCandidate }
+      : {}),
+    ...(typeof viaNbestAlternative === 'boolean' ? { viaNbestAlternative } : {}),
+  };
+
   // PROTECTION/CRITICAL: wake tetiklense bile sohbet/eğlence BAŞLAMAZ.
   // Sessizce yut — pasif döngü sürer, sürücü dikkat yükü altında rahatsız edilmez.
-  if (isVoicePaused()) return;
+  if (isVoicePaused()) {
+    recordWake({ reason: 'SUPPRESSED_PAUSED', path: _path, ..._tel });
+    return;
+  }
 
   // Asistan zaten aktif mi? (dinliyor/işliyor/cevap veriyor VEYA takip döngüsü açık)
   // → wake yeni oturum AÇMAZ. Aksi halde cevap TTS'i mikrofona echo yapıp wake'i
   // yeniden tetikliyor, sohbetin ortasında "Seni dinliyorum" + jenerik selam basıyordu.
   const vs = getVoiceSnapshot();
-  if (vs.status !== 'idle' || vs.followUp) return;
+  if (vs.status !== 'idle' || vs.followUp) {
+    /* İki ayrı gerekçe: "asistan meşgul" ile "takip döngüsü açık" farklı
+       kusurlara işaret eder (echo vs. diyalog akışı). Koşul TEK kalır. */
+    recordWake({
+      reason: vs.status !== 'idle' ? 'SUPPRESSED_VOICE_ACTIVE' : 'SUPPRESSED_FOLLOWUP',
+      path: _path, ..._tel,
+    });
+    return;
+  }
 
   // Selamlama/echo debounce: kabul edilen tetikten sonra kısa süre (selam TTS'i
   // + mikrofon açılma rampası) yeni tetik yutulur — çift selam olmaz.
   const now = Date.now();
-  if (now - _lastWakeAcceptedAt < WAKE_REACCEPT_DEBOUNCE_MS) return;
+  if (now - _lastWakeAcceptedAt < WAKE_REACCEPT_DEBOUNCE_MS) {
+    recordWake({ reason: 'SUPPRESSED_DEBOUNCE', path: _path, atMs: now, ..._tel });
+    return;
+  }
   _lastWakeAcceptedAt = now;
   _wakesSinceRearm++;   // re-arm penceresinde kabul edilen tetik sayısı (#460)
 
   push({ status: 'detected', lastTrigger: now });
   // MAVI3-1 additive: Mavi telemetri köprüsüne wake sinyali (wake motoru mantığı DEĞİŞMEZ).
   notifyWakeDetected();
+
+  /* KABUL kaydı `notifyWakeDetected()`ten SONRA yazılır: oturum kuşağı orada
+     artar, dolayısıyla kimlikler bu tetiğin TA KENDİSİNİ gösterir. Böylece
+     "kabul edildi ama komuta dönüşmedi" (ACCEPTED_NO_INTENT) mevcut yaşam
+     döngüsü zinciriyle ilişkilendirilebilir — yeni kimlik sistemi kurulmadı. */
+  {
+    let ids: { sessionId: number; generationId: number } | null = null;
+    try { ids = getVoiceSessionIds(); } catch { ids = null; }
+    recordWake({
+      reason: 'ACCEPTED', path: _path, atMs: now,
+      sessionId: ids?.sessionId ?? null, generationId: ids?.generationId ?? null,
+      ..._tel,
+    });
+  }
 
   if (_state.companion) {
     // Kısa selamlama + DETERMİNİSTİK dinleme açılışı. Mikrofon greeting sonunda
@@ -459,10 +530,26 @@ async function nativeLoop(gen: number): Promise<void> {
       // özel wake'i güvenilmez yapıyordu. (Companion/legacy kelime-sınırlı/substring
       // eşleşme kullandığından alternatif taraması yanlış tetiklemeyi patlatmaz.)
       const candidates = [result.transcript, ...(result.alternatives ?? [])];
-      const hit = candidates.some((c) => typeof c === 'string' && _matches(c));
+      const hitIdx = candidates.findIndex((c) => typeof c === 'string' && _matches(c));
+      const hit = hitIdx >= 0;
       console.warn('[WakeWord] duyuldu:', JSON.stringify(result.transcript),
         'alts:', JSON.stringify(result.alternatives ?? []), '→ eşleşme:', hit);
-      if (hit) onWakeWordDetected();
+      /* Bu yolda NATIVE SÜZGEÇ YOKTUR: eşleşme 5 adaylı n-best üzerinde JS'te
+         yapılır. `viaNbestAlternative`, tetiğin en-iyi tahminden mi yoksa daha
+         düşük güvenli bir ALTERNATİFTEN mi geldiğini ayırır — false wake
+         analizinin ana ayrımı budur. */
+      const shape = _shapeOf(hit ? (candidates[hitIdx] as string) : result.transcript);
+      if (hit) {
+        /* Kabul kaydı `onWakeWordDetected` içinde YAZILIR (tek yer) —
+           alternatif bilgisi oraya taşınır, ayrı kayıt ÜRETİLMEZ. */
+        onWakeWordDetected(shape, hitIdx > 0);
+      } else {
+        recordWake({ reason: 'REJECTED_TOKEN', path: 'JS_POLLING',
+          tokenCount: shape?.tokenCount ?? null,
+          matchedAtIndex: shape?.matchedAtIndex ?? null,
+          bareNameCandidate: shape?.bareNameCandidate ?? null,
+          viaNbestAlternative: false });
+      }
     }
     // Yeniden döngü — kısa nefes (CPU'ya alan), sağır boşluk minimum
     setTimeout(() => { void nativeLoop(gen); }, 300);
@@ -509,8 +596,17 @@ async function startGrammarMode(gen: number): Promise<boolean> {
       if (transcript) _pushHeard(transcript);
       // Native grammar zaten süzdü; yine de kelime-sınırlı çift kontrol
       // (defense-in-depth): "[unk]" parçalı transcript'te yanlış pozitif kalmaz.
-      if (transcript && !_matches(transcript)) return;
-      onWakeWordDetected();
+      const shape = transcript ? _shapeOf(transcript) : null;
+      if (transcript && !_matches(transcript)) {
+        /* Native `contains` geçirdi ama JS kelime-sınırı REDDETTİ. Bu satır
+           iki süzgecin ayrıştığı yeri görünür kılar (false wake analizi). */
+        recordWake({ reason: 'REJECTED_TOKEN', path: 'GRAMMAR',
+          tokenCount: shape?.tokenCount ?? null,
+          matchedAtIndex: shape?.matchedAtIndex ?? null,
+          bareNameCandidate: shape?.bareNameCandidate ?? null });
+        return;
+      }
+      onWakeWordDetected(shape);
     });
 
     try {
@@ -588,6 +684,10 @@ export function enableWakeWord(words?: string | string[], opts?: EnableWakeWordO
       // Model henüz hazır değil → başlatmayı readiness sinyaline ertele
       // (erken start "model yok" ile hard-fail ediyordu = uyanmama kökü).
       // Backstop: sinyal gelmezse VOSK_READY_BACKSTOP_MS sonra yine de başla.
+      /* ÖLÇÜM: bu pencerede wake motoru HİÇ KURULMAZ → sürücü "Hey Mavi" dese
+         bile değerlendirilecek bir şey yoktur. Soğuk açılışta uyanmama
+         şikâyetinin ölçülebilir tek yeri burasıdır. Kapı DEĞİŞMEDİ. */
+      recordWake({ reason: 'NOT_EVALUATED_MODEL_NOT_READY', path: 'UNKNOWN' });
       _pendingNativeGen = gen;
       if (!_voskReadyBackstop) {
         _voskReadyBackstop = setTimeout(() => {
@@ -826,8 +926,21 @@ export function startWakeWordService(): () => void {
     _applyWakeFromSettings(state.settings);
   });
 
+  /* FAZ 3 — KORELASYON: kabul edilen tetik GERÇEKTEN komuta dönüştü mü?
+     Mevcut `VoiceLifecycleEvent` zinciri kullanılır; YENİ kimlik/korelasyon
+     sistemi kurulmadı ve yeni timer eklenmedi. Yalnız terminal faz dinlenir —
+     her faz değil (olay fırtınası yok). Bekleyiş zaman aşımına uğrarsa defter
+     onu OKUMA ANINDA `ACCEPTED_NO_INTENT` sayar. */
+  let unsubVoice: (() => void) | null = null;
+  try {
+    unsubVoice = subscribeVoiceState((e) => {
+      if (e.phase === 'execution_result') markWakeIntentReached(e.sessionId);
+    });
+  } catch { /* fail-soft — korelasyon kurulamazsa wake akışı etkilenmez */ }
+
   _wakeServiceUnsub = () => {
     unsub();
+    if (unsubVoice) { try { unsubVoice(); } catch { /* ignore */ } unsubVoice = null; }
     _wakeServiceUnsub = null;
     disableWakeWord();
   };

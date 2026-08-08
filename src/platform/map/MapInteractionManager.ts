@@ -27,9 +27,13 @@ import {
   ROUTE_SHADOW,
   ROUTE_GLOW_SEL,
   ROUTE_CASE,
+  ROUTE_FLOW,
   SEL_LAYER,
 } from './_mapState';
-import { _updateFlowSpeed, _applyIntersectionSuppression } from './MapLayerManager';
+import {
+  _updateFlowSpeed, _applyIntersectionSuppression, resolveRouteWidths, syncRouteColor,
+} from './MapLayerManager';
+import { routeWidthExpression } from './core/routeWidthModel';
 import { safeSetPaint } from './_safeLayerOps';
 import { noteLegacyCameraOutcome } from '../navigation/cameraShadowRuntime';
 
@@ -149,6 +153,40 @@ let _lookCapM = Number.POSITIVE_INFINITY;
 
 /** Kamera bağlamı değişince (yeni rota/oturum) tavan sıfırlanır. */
 export function resetLookAheadCap(): void { _lookCapM = Number.POSITIVE_INFINITY; }
+
+/**
+ * KAMERA KADANSI ÖLÇÜMÜ — sönümlemenin tempoya bağımlılığını kesen çapa.
+ *
+ * `cameraEngine`in üstel sönümlemesi çağrı BAŞINA çalışır; alfaları sahada
+ * 150 ms'lik tempoda ayarlandı. Ama `setDrivingView` üründe üç farklı tempoda
+ * çağrılıyor (tam ekran 150 ms · mini harita GPS fix hızı ≈ 500 ms · ölü
+ * hesaplama yolu 16 ms) → aynı alfa 3,3× tembel ve 9,4× hırçın kameralar
+ * üretiyordu (ölçüm ve tam gerekçe: `cameraEngine.CAMERA_CFG.CALIBRATION_DT_MS`).
+ *
+ * Saati BURASI okur, motor DEĞİL: `cameraEngine` saf ve deterministik kalır
+ * (testlerde Δt enjekte edilir). `performance.now()` monotoniktir → sistem
+ * saati geri alınsa bile Δt negatife düşmez.
+ *
+ * `null` = ölçüm yok (ilk kare / oturum sıfırlaması) → motor kalibrasyon
+ * aralığını varsayar, yani bugünkü davranış AYNEN sürer (fail-soft).
+ */
+let _lastDampTs: number | null = null;
+
+/** Kamera oturumu sıfırlandı → kadans ölçümü de sıfırlanır (yapay Δt yok). */
+function _resetCameraCadence(): void { _lastDampTs = null; }
+
+/** Bu çağrı ile bir öncekinin arasındaki süre (ms); ilk çağrıda `undefined`. */
+function _nextCameraDt(): number | undefined {
+  let dt: number | undefined;
+  try {
+    const now = performance.now();
+    if (_lastDampTs !== null && now > _lastDampTs) dt = now - _lastDampTs;
+    _lastDampTs = now;
+  } catch {
+    /* saat okunamıyorsa Δt ölçülmez → motor kalibrasyon aralığını kullanır */
+  }
+  return dt;
+}
 
 /**
  * Gölge gözlem ucu — ÜRÜN DAVRANIŞINI DEĞİŞTİRMEZ.
@@ -297,7 +335,12 @@ export function setDrivingView(
 
   // Turn anticipation + inertia + momentum model (Faz 3.4)
   const anticipatedBearing = computeAnticipatedBearing(heading, turnApproachM, nextTurnBearing);
-  const smooth             = dampCameraToward(target, anticipatedBearing, effectiveSpeed);
+  /* Δt tam BURADA okunur, fonksiyonun tepesinde DEĞİL: yukarıdaki durakta
+     erken-dönüş yolu sönümleme yapmaz; orada saati tüketmek bir sonraki
+     gerçek tick'in Δt'sini SIFIRLAR ve kamerayı yapay biçimde hızlandırırdı. */
+  const smooth             = dampCameraToward(
+    target, anticipatedBearing, effectiveSpeed, _nextCameraDt(),
+  );
 
   // Route energy: hız + acceleration delta ile senkron pulse (Faz 3.4)
   _updateFlowSpeed(effectiveSpeed, smooth.deltaSpeed);
@@ -453,57 +496,57 @@ export function setDrivingView(
   }
 
   // ── Perspective correction ─────────────────────────────────────────────────
+  /* ⚠️ ESKİ HÂL BEŞ KATMANIN İKİSİNİ EZİYORDU (ölçülen kusur — bkz.
+   * `core/routeWidthModel` başlığı). Buradaki sayılar (8/32 · 14/38) kurulum
+   * sayılarından (4/10 · 6/14) TAMAMEN BAĞIMSIZDI ve `perspScale` kapısı
+   * durağan pitch'te bile ilk karede açıldığı için rota, navigasyon başlar
+   * başlamaz 3,2× kalınlaşıyordu. Dahası gölge · halo · akış kalınlıkları
+   * kurulumda kalıyordu → z18'de sıralama CASE 46 > CORE 39 > GLOW 24 >
+   * SHADOW 22 olup neon halo ile derinlik gölgesi TAMAMEN kayboluyordu
+   * (iki `line-blur` katmanı GPU yakıp ekrana hiçbir şey çizmiyordu).
+   *
+   * Artık BEŞİ de aynı politikadan, aynı çekirdekten türer; perspektif yalnız
+   * bir ÇARPANDIR. Kalınlıkların mutlak seviyesi bilerek KORUNDU (referans
+   * head unit'te çekirdek ve kılıf birebir aynı) — bu tur seviyeyi değil
+   * TUTARLILIĞI ve viewport duyarlılığını düzeltir. */
   const perspScale = 1 + (pitch / 72) * 0.4;
   if (Math.abs(perspScale - M.lastPerspectiveScale) >= 0.06 && map.getLayer(SEL_LAYER)) {
     M.lastPerspectiveScale = perspScale;
-    const cW = Math.round(8  * perspScale);  const cW18 = Math.round(32 * perspScale);
-    const kW = Math.round(14 * perspScale);  const kW18 = Math.round(38 * perspScale);
-    safeSetPaint(map, SEL_LAYER,  'line-width', ['interpolate', ['linear'], ['zoom'], 12, cW, 18, cW18]);
-    safeSetPaint(map, ROUTE_CASE, 'line-width', ['interpolate', ['linear'], ['zoom'], 12, kW, 18, kW18]);
+    const rw = resolveRouteWidths(map, perspScale);
+    safeSetPaint(map, ROUTE_SHADOW,   'line-width', routeWidthExpression(rw.shadow));
+    safeSetPaint(map, ROUTE_GLOW_SEL, 'line-width', routeWidthExpression(rw.glow));
+    safeSetPaint(map, ROUTE_CASE,     'line-width', routeWidthExpression(rw.casing));
+    safeSetPaint(map, SEL_LAYER,      'line-width', routeWidthExpression(rw.core));
+    safeSetPaint(map, ROUTE_FLOW,     'line-width', routeWidthExpression(rw.flow));
   }
 
-  // ── Maneuver emphasis — tier-based route styling ───────────────────────────
+  // ── Maneuver tier — yalnız KADEME hesabı (renk kararı burada DEĞİL) ────────
   const _mTier = !turnApproachM || turnApproachM >= 200 ? 0
     : turnApproachM >= 50 ? 1
     : 2;
-  if (_mTier !== M.lastManeuverTier && map.getLayer(SEL_LAYER)) {
-    M.lastManeuverTier = _mTier;
-    if (_mTier === 0) {
-      safeSetPaint(map, SEL_LAYER,      'line-opacity', 1.0);
-      safeSetPaint(map, ROUTE_CASE,     'line-color',   '#ffffff');
-      safeSetPaint(map, ROUTE_GLOW_SEL, 'line-color',   '#4285f4');
-    } else if (_mTier === 1) {
-      // Yaklaşıyor (200–50m): casing amber → sürücü dikkatini çeker
-      safeSetPaint(map, ROUTE_CASE,     'line-color',   '#f59e0b');
-    } else {
-      // Kritik (<50m): amber glow + casing — kontrast road suppression'dan gelir artık
-      safeSetPaint(map, ROUTE_CASE,     'line-color',   '#f59e0b');
-      safeSetPaint(map, ROUTE_GLOW_SEL, 'line-color',   '#f59e0b');
-      safeSetPaint(map, SEL_LAYER,      'line-opacity', 1.0); // Faz 3.2: tam opacity — lane clarity
-    }
-  }
+
+  /* ── ROTA RENGİ — TEK KARAR NOKTASI (PR-3a) ────────────────────────────────
+   * ⚠️ ESKİ HÂLDE BURADA İKİ AYRI BLOK VARDI ve ikisi de aynı iki özelliği
+   * (`ROUTE_CASE`/`ROUTE_GLOW_SEL` `line-color`) KENDİ önbelleğine bakarak
+   * yazıyordu — manevra bloğu `M.lastManeuverTier`, risk bloğu
+   * `M.lastExternalRiskAlert`. Hakem yoktu ve manevra bloğu ÖNCE koşuyordu:
+   *     risk 0,6 → amber · kademe 0→1 → amber · kademe 1→0 → BEYAZ
+   *     risk hâlâ 0,6 ama bayrak değişmediği için risk bloğu HİÇ çalışmaz
+   * → tehlike aktifken uyarı rengi KALICI olarak kayboluyordu (K1).
+   *
+   * Artık renk bir DURUM DEĞİŞİMİNDEN değil ANLIK DURUMDAN türer; öncelik
+   * `core/routeColorModel` içinde açıkça tehlike > manevra > normal'dir ve
+   * dedup tek anahtarladır. Boyayı yazan tek yer `MapLayerManager`tir. */
+  syncRouteColor(map, _mTier, useHazardStore.getState().globalRiskScore > 0.5);
 
   // ── Intersection road suppression + tunnel glow (Faz 3.2) ──────────────────
+  /* Bu blok RENK değil OPAKLIK yazar (`line-opacity`) — renk hakemiyle
+     çakışmaz ve bilerek ayrı bırakıldı. */
   if (M.focusModeActive && _mTier !== M.lastIntersectionTier) {
     M.lastIntersectionTier = _mTier;
     _applyIntersectionSuppression(map, _mTier);
     const _glowOp = [0.20, 0.27, 0.36][_mTier] ?? 0.20;
     safeSetPaint(map, ROUTE_GLOW_SEL, 'line-opacity', _glowOp);
-  }
-
-  // ── External Risk Alert (Phase H3) ────────────────────────────────────────
-  const _hazardRisk = useHazardStore.getState().globalRiskScore;
-  const _isHighRisk = _hazardRisk > 0.5;
-  if (_isHighRisk !== M.lastExternalRiskAlert && map.getLayer(ROUTE_CASE)) {
-    M.lastExternalRiskAlert = _isHighRisk;
-    if (_isHighRisk) {
-      safeSetPaint(map, ROUTE_CASE,     'line-color', '#f59e0b');
-      safeSetPaint(map, ROUTE_GLOW_SEL, 'line-color', '#f59e0b');
-    } else if (_mTier === 0) {
-      // Sadece tier 0'da (kavşak yokken) orijinal renklere dön
-      safeSetPaint(map, ROUTE_CASE,     'line-color', '#ffffff');
-      safeSetPaint(map, ROUTE_GLOW_SEL, 'line-color', '#4285f4');
-    }
   }
 }
 
@@ -530,6 +573,9 @@ export function enterNavigationView(
 
   // Smooth camera state'i giriş noktasıyla eşitle — ilk tick'te jump olmasın
   resetCameraSmooth({ zoom: TARGET_ZOOM, pitch: TARGET_PITCH, lookAheadM: 30, bearing });
+  /* Giriş animasyonu boyunca geçen süre bir "tick aralığı" DEĞİLDİR; ölçümü
+     sıfırla ki ilk takip karesi 1 sn'lik sahte bir Δt ile hesaplanmasın. */
+  _resetCameraCadence();
 
   const lookAheadDeg = 30 / 111_320;
   const headRad      = (bearing * Math.PI) / 180;
@@ -560,19 +606,20 @@ export function exitDrivingView(map: MapLibreMap) {
   if (!_drivingViewActive) return;
   _drivingViewActive = false;
   M.lastPerspectiveScale  = 1.0;
-  M.lastManeuverTier      = 0;
   M.lastShadowPitch       = -1.0;
   M.lastShadowZoom        = -1.0;
   M.lastMoodScore         = -1.0;
-  M.lastExternalRiskAlert = false;
   M.lastHazardZoom        = 0;
   // Camera smooth state'i sıfırla — sonraki navigasyonda jump olmasın
   resetCameraSmooth({ zoom: 15.5, pitch: 0, lookAheadM: 0, bearing: 0 });
-  // Route layer state restore
+  /* Sürüş bittiğinde kadans ölçümü de biter: bir sonraki oturumun ilk karesi
+     "iki oturum arası geçen süre" kadar Δt görmemelidir. */
+  _resetCameraCadence();
+  /* Route layer state restore — burada da renk ELLE yazılmaz. Sürüş bitti:
+     kademe 0, tehlike ANLIK durumdan okunur. Tehlike hâlâ yüksekse rota amber
+     KALIR; eskiden burada koşulsuz beyaza dönülüyordu (K1'in üçüncü yolu). */
   if (map.isStyleLoaded()) {
-    safeSetPaint(map, SEL_LAYER,      'line-opacity', 1.0);
-    safeSetPaint(map, ROUTE_CASE,     'line-color',   '#ffffff');
-    safeSetPaint(map, ROUTE_GLOW_SEL, 'line-color',   '#4285f4');
+    syncRouteColor(map, 0, useHazardStore.getState().globalRiskScore > 0.5, true);
   }
   map.easeTo({
     bearing: 0,

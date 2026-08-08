@@ -13,6 +13,15 @@ import maplibregl, { Map as MapLibreMap, GeoJSONSource, Marker } from 'maplibre-
 import { setMapNight } from '../mapSourceManager';
 import { safeMoveLayer, safeSetPaint } from './_safeLayerOps';
 import {
+  computeRouteWidths, routeWidthExpression, breathingGlowWidth,
+  type RouteWidths,
+} from './core/routeWidthModel';
+import {
+  resolveRouteColor, ROUTE_COLOR_POLICY_VERSION,
+  type RouteColorDecision,
+} from './core/routeColorModel';
+import { getMapNight, getMapMode } from '../mapSourceManager';
+import {
   NAV_SUPPRESS_LAYERS,
   NAV_SUPPRESS_TIERS,
   RASTER_PAINT_DAY,
@@ -518,6 +527,151 @@ function _buildPulseGradient(p: number, riskScore = 0, isAttention = false): map
   ] as maplibregl.ExpressionSpecification;
 }
 
+/* ── Rota kalınlığı: ölçüm + son uygulanan politika ────────────────────────
+ *
+ * Ölçüm harita CANVAS'ından alınır (pencereden DEĞİL): mini harita ile tam
+ * ekran ayrı yüzeylerdir ve rota ikisinde aynı görsel ağırlığa ancak böyle
+ * sahip olur. Yeni dinleyici/timer KURULMAZ — ölçüm yalnız kalınlığın zaten
+ * yazıldığı anlarda (rota kurulumu · perspektif düzeltmesi) yapılır.
+ *
+ * Son sonuç modül düzeyinde saklanır çünkü nefes alan glow 12,5 Hz'te koşar;
+ * orada her tick'te canvas ölçmek gereksiz düzen okuması (reflow riski)
+ * olurdu. Saklanan değer bir KARAR değil, son ÖLÇÜMÜN sonucudur. */
+let _routeWidths: RouteWidths | null = null;
+
+/** Harita canvas'ının kısa kenarı (CSS px); ölçülemezse 0 → referans varsayılır. */
+export function measureCanvasMinPx(map: MapLibreMap): number {
+  try {
+    const cv = map.getCanvas();
+    const w = cv.clientWidth, h = cv.clientHeight;
+    if (!(w > 0) || !(h > 0)) return 0;
+    return Math.min(w, h);
+  } catch {
+    return 0;   // ölçemiyorsak SAHTE değer üretme — politika referansa düşer
+  }
+}
+
+/** Politikayı ölç + hesapla + hatırla. Saf hesap `core/routeWidthModel`dedir. */
+export function resolveRouteWidths(map: MapLibreMap, perspectiveScale = 1): RouteWidths {
+  const w = computeRouteWidths({
+    canvasMinPx: measureCanvasMinPx(map),
+    perspectiveScale,
+  });
+  _routeWidths = w;
+  return w;
+}
+
+/** Son uygulanan kalınlıklar — `null` = rota henüz çizilmedi (CAROS LAB okur). */
+export function getRouteWidthsSnapshot(): RouteWidths | null { return _routeWidths; }
+
+/** @internal — testler arası izolasyon. */
+export function _resetRouteWidthsForTest(): void { _routeWidths = null; }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   ROTA RENGİ — TEK YAZICI (PR-3a)
+   ══════════════════════════════════════════════════════════════════════════
+   `ROUTE_CASE.line-color` ve `ROUTE_GLOW_SEL.line-color` YALNIZ buradan
+   yazılır. Eski hâlde iki ayrı blok (manevra vurgusu · dış risk uyarısı) aynı
+   iki özelliği kendi önbelleğine bakarak yazıyor ve hakem olmadığı için
+   manevra bloğu tehlike rengini siliyordu (K1 — tam dizi
+   `core/routeColorModel` başlığında). İkinci bir yazıcı doğarsa kusur da
+   geri döner; kilit testi bunu yapısal olarak denetler. */
+
+/** Son uygulanan karar — `null` = rota rengi henüz hiç yazılmadı. */
+let _routeColor: RouteColorDecision | null = null;
+/** Ölçülen son girdiler (LAB gözlemi; karar DEĞİL, girdinin kaydı). */
+let _routeColorInput: { maneuverTier: number; hazardHigh: boolean; lightBasemap: boolean } | null = null;
+
+/**
+ * Rotanın çizildiği zemin AÇIK mı — kılıf kutbunun TEK türetme yeri.
+ *
+ * ── NEDEN "GÜNDÜZ MÜ" DEĞİL ────────────────────────────────────────────────
+ * `MapMode` (`road | hybrid | satellite`) ile `getMapNight()` birbirinden
+ * BAĞIMSIZDIR. "Gündüz + uydu" gerçek bir kombinasyondur ve uydu görüntüsü
+ * orta-koyu bir yüzeydir; orada koyu kılıf rotayı zeminde YOK EDERDİ. Doğru
+ * ölçüt zaman değil ZEMİN PARLAKLIĞIdır:
+ *
+ *     gündüz + road      → AÇIK   (koyu kılıf)
+ *     gündüz + hybrid    → koyu   (beyaz kılıf — bugünkü davranış)
+ *     gündüz + satellite → koyu   (beyaz kılıf — bugünkü davranış)
+ *     gece   + herhangi  → koyu   (beyaz kılıf — bugünkü davranış)
+ *
+ * FAIL-SOFT KUTUP: okunamazsa AÇIK SAYILMAZ. Yanlış tarafa düşmenin bedeli
+ * simetrik değildir — koyu zeminde koyu kılıf rotayı yok eder, açık zeminde
+ * beyaz kılıf yalnız siliktir. Varsayılan bugünkü davranıştır.
+ */
+export function resolveLightBasemap(): boolean {
+  try {
+    return !getMapNight() && getMapMode() === 'road';
+  } catch {
+    return false;
+  }
+}
+
+/** Kararı haritaya uygula — boya yazan TEK yer. */
+function _applyRouteColorDecision(map: MapLibreMap, d: RouteColorDecision): void {
+  safeSetPaint(map, ROUTE_CASE,     'line-color',   d.casing);
+  safeSetPaint(map, ROUTE_GLOW_SEL, 'line-color',   d.glow);
+  safeSetPaint(map, SEL_LAYER,      'line-opacity', d.coreOpacity);
+}
+
+/**
+ * Rota rengini anlık DURUMDAN türet ve gerekiyorsa uygula.
+ *
+ * Dedup tek anahtarladır (`routeColorKey`): anahtar aynıysa hiçbir boya
+ * yazılmaz, farklıysa TÜM renkler BİRLİKTE uygulanır → bir katmanın
+ * güncellenip diğerinin eskide kalması imkânsızdır.
+ *
+ * Gece/gündüz burada okunur; çağıranlar tema bilmez (ikinci tema otoritesi
+ * kurulmaz). PR-3a'da tema kararı DEĞİŞTİRMEZ — yalnız anahtara girer.
+ *
+ * @param force  yeniden çizim sonrası boya sıfırlandığında dedup'ı atlar
+ */
+export function syncRouteColor(
+  map: MapLibreMap, maneuverTier: number, hazardHigh: boolean, force = false,
+): RouteColorDecision {
+  const lightBasemap = resolveLightBasemap();
+  const d = resolveRouteColor({ maneuverTier, hazardHigh, lightBasemap });
+  _routeColorInput = { maneuverTier, hazardHigh, lightBasemap };
+
+  if (!force && _routeColor !== null && _routeColor.routeColorKey === d.routeColorKey) return d;
+  _routeColor = d;
+  /* `getLayer` denetimi `safeSetPaint` içinde; katman yoksa sessizce geçer ve
+     karar hatırlanır → katman doğduğunda kurulum yolu aynı kararı kullanır. */
+  _applyRouteColorDecision(map, d);
+  return d;
+}
+
+export interface RouteColorSnapshot {
+  readonly policyVersion: string;
+  /** `null` = rota rengi henüz hiç yazılmadı → LAB `UNAVAILABLE` gösterir. */
+  readonly decision: RouteColorDecision | null;
+  readonly input: { maneuverTier: number; hazardHigh: boolean; lightBasemap: boolean } | null;
+}
+
+/** Senkron okuma — CAROS LAB için. Sahte ölçüm ÜRETİLMEZ. */
+export function getRouteColorSnapshot(): RouteColorSnapshot {
+  return {
+    policyVersion: ROUTE_COLOR_POLICY_VERSION,
+    decision: _routeColor,
+    input: _routeColorInput,
+  };
+}
+
+/**
+ * Renk kararını unut — rota silindiğinde çağrılır.
+ *
+ * Şart: bayat bir anahtar kalırsa bir sonraki rota için `syncRouteColor`
+ * dedup'ta eşleşir ve boyayı HİÇ yazmaz → yeni rota eski renkte kalırdı.
+ */
+export function resetRouteColorState(): void {
+  _routeColor = null;
+  _routeColorInput = null;
+}
+
+/** @internal — testler arası izolasyon. */
+export function _resetRouteColorForTest(): void { resetRouteColorState(); }
+
 /**
  * Glow nefes animasyonu — H5: psikologik tempo (derin nefes modeli).
  */
@@ -546,7 +700,20 @@ function _applyBreathingGlow(map: MapLibreMap, nowMs: number, hazardRisk: number
 
   const breath         = Math.sin((nowMs / period) * Math.PI * 2); // −1 → +1
   const amplitudeScale = (safetyState === 'INTERVENTION' ? 1.4 : 1.0) * cogAmplitudeFactor;
-  const width          = Math.max(10, 22 + breath * 12 * visualRisk * amplitudeScale);
+
+  /* ── NEFES ARTIK POLİTİKANIN ÜSTÜNE BİNER, ONU SİLMEZ ────────────────────
+   * Eski hâl `max(10, 22 + nefes*12*risk)` sabit bir skalerdi ve glow'un zoom
+   * ara değerini TAMAMEN değiştiriyordu. İki sonucu vardı:
+   *   (a) glow zoom'dan koptu — uzaklaşınca rotadan bağımsız kalınlıkta kaldı,
+   *   (b) sürüşte kılıf (≈46 px) bu değerin ~2× üstünde olduğu için glow
+   *       kılıfın ALTINDA kalıp GÖRÜNMEZ oldu → risk arttıkça nefes alan
+   *       güvenlik sinyali sürücüye HİÇ ULAŞMIYORDU.
+   * Artık taban politikadan gelir (kılıfın dışında olduğu garanti) ve nefes
+   * yalnız oransal genlik ekler. Politika henüz hesaplanmadıysa (rota yok)
+   * dokunulmaz — uydurma taban üretilmez. */
+  const w = _routeWidths;
+  if (!w) return;
+  const width = breathingGlowWidth(w.glow.z18, breath, visualRisk * amplitudeScale);
 
   safeSetPaint(map, ROUTE_GLOW_SEL, 'line-width', width);
 }
@@ -945,6 +1112,33 @@ export function _applyRouteGeometry(
          && !!map.getLayer(SEL_LAYER)
          && !!map.getLayer(ROUTE_FLOW));
 
+    /* ── ROTA KALINLIĞI — TEK OTORİTE ────────────────────────────────────────
+     * Beş katmanın kalınlığı tek çekirdekten türer (`core/routeWidthModel`).
+     * Eskiden burada beş bağımsız sabit çifti vardı ve sürüş başlayınca
+     * perspektif düzeltmesi ikisini bambaşka sayılarla eziyordu → katman sırası
+     * tersine dönüp neon halo ile derinlik gölgesi kayboluyordu.
+     * Perspektif burada 1,0'dır: kurulum anı düz kameradır, sürüş görünümü
+     * açılınca `setDrivingView` aynı politikayı perspektifle yeniden uygular. */
+    const _rw = resolveRouteWidths(map, 1);
+
+    /* ── ROTA RENGİ — YENİDEN ÇİZİMDE DE ANLIK DURUMDAN ────────────────────
+     * K1'in İKİNCİ yolu buradaydı: eski kod kurulumda case'i KOŞULSUZ beyaza,
+     * glow'u koşulsuz maviye çiziyor, `lastManeuverTier`ı sıfırlıyor ama
+     * `lastExternalRiskAlert`i SIFIRLAMIYORDU. Risk yüksekken yeni rota
+     * çizilirse amber siliniyor ve bayrak `true` kaldığı için bir daha
+     * uygulanmıyordu. Artık kurulum da AYNI hakemden geçer.
+     *
+     * Kademe burada bilinmez (rota yeni çizildi, manevra mesafesi yok) → 0
+     * varsayılır; `setDrivingView` bir sonraki tick'te kademeyi getirir ve
+     * anahtar değişirse renk kendiliğinden düzelir. Tehlike ise BURADA da
+     * okunur — kaybolan sinyal buydu. */
+    const _hazardHighNow = useHazardStore.getState().globalRiskScore > 0.5;
+    const _rc = resolveRouteColor({
+      maneuverTier: 0,
+      hazardHigh: _hazardHighNow,
+      lightBasemap: resolveLightBasemap(),
+    });
+
     if (!_selSrcOk || !_selLayersOk) {
       // Temizle — ters sırayla (üstten alta) kaldır
       for (const id of [ROUTE_FLOW, SEL_LAYER, ROUTE_CASE, ROUTE_GLOW_SEL, ROUTE_SHADOW]) {
@@ -968,7 +1162,7 @@ export function _applyRouteGeometry(
           layout: { 'line-join': 'round', 'line-cap': 'round' },
           paint: {
             'line-color':  '#000000',
-            'line-width':  ['interpolate', ['linear'], ['zoom'], 12, 8, 18, 22],
+            'line-width':  routeWidthExpression(_rw.shadow),
             'line-opacity': 0.20,
             'line-blur':    8,
             'line-offset':  3,
@@ -982,8 +1176,8 @@ export function _applyRouteGeometry(
           source: SEL_SRC,
           layout: { 'line-join': 'round', 'line-cap': 'round' },
           paint: {
-            'line-color':  '#4285f4',
-            'line-width':  ['interpolate', ['linear'], ['zoom'], 12, 10, 18, 24],
+            'line-color':  _rc.glow,
+            'line-width':  routeWidthExpression(_rw.glow),
             'line-opacity': 0.20,
             'line-blur':    10,
           },
@@ -997,16 +1191,16 @@ export function _applyRouteGeometry(
         source: SEL_SRC,
         layout: { 'line-join': 'round', 'line-cap': 'round' },
         paint: {
-          'line-color':  '#ffffff',
-          'line-width':  ['interpolate', ['linear'], ['zoom'], 12, 6, 18, 14],
+          'line-color':  _rc.casing,
+          'line-width':  routeWidthExpression(_rw.casing),
           'line-opacity': 0.95,
         },
       });
       /* Dinamik paint sözlüğü: düşük-uçta düz renk, aksi hâlde gradient eklenir.
          MapLibre'nin KENDİ line-paint tipiyle bağlanır — `any` değil. */
       const _coreFillPaint: NonNullable<maplibregl.LineLayerSpecification['paint']> = {
-        'line-width':  ['interpolate', ['linear'], ['zoom'], 12, 4, 18, 10],
-        'line-opacity': 1,
+        'line-width':  routeWidthExpression(_rw.core),
+        'line-opacity': _rc.coreOpacity,
       };
       if (_isLowEnd) {
         _coreFillPaint['line-color'] = '#1A73E8'; // Solid Google blue — head unit safe
@@ -1034,7 +1228,7 @@ export function _applyRouteGeometry(
           source: SEL_SRC,
           layout: { 'line-join': 'round', 'line-cap': 'round' },
           paint: {
-            'line-width':    ['interpolate', ['linear'], ['zoom'], 12, 4, 18, 14],
+            'line-width':    routeWidthExpression(_rw.flow),
             'line-opacity':  0.85,
             'line-gradient': _buildPulseGradient(0.5),
           },
@@ -1047,11 +1241,23 @@ export function _applyRouteGeometry(
     } else {
       // Tüm katmanlar mevcut — sadece maneuver/perspective state sıfırla.
       M.lastPerspectiveScale = 1.0;
-      M.lastManeuverTier     = 0;
-      safeSetPaint(map, SEL_LAYER,      'line-opacity', 1);
-      safeSetPaint(map, ROUTE_CASE,     'line-color',   '#ffffff');
-      safeSetPaint(map, ROUTE_GLOW_SEL, 'line-color',   '#4285f4');
+      M.lastIntersectionTier = 0;
+      /* Katmanlar duruyor ama YÜZEY değişmiş olabilir (mini harita ↔ tam ekran,
+         ekran döndü). Perspektif de burada 1,0'a sıfırlandığı için kalınlıklar
+         politikayla yeniden hizalanır; yoksa yeni rota eski yüzeyin ölçeğiyle
+         çizilir ve iki görünüm arasında ağırlık farkı kalır. */
+      safeSetPaint(map, ROUTE_SHADOW,   'line-width', routeWidthExpression(_rw.shadow));
+      safeSetPaint(map, ROUTE_GLOW_SEL, 'line-width', routeWidthExpression(_rw.glow));
+      safeSetPaint(map, ROUTE_CASE,     'line-width', routeWidthExpression(_rw.casing));
+      safeSetPaint(map, SEL_LAYER,      'line-width', routeWidthExpression(_rw.core));
+      safeSetPaint(map, ROUTE_FLOW,     'line-width', routeWidthExpression(_rw.flow));
     }
+
+    /* Her İKİ dal da aynı hakemden geçer ve karar KAYDEDİLİR (`force`): yeni
+       katmanlar `_rc` ile kuruldu, mevcut katmanlara aynı karar yazılır. Kayıt
+       şart — yoksa bir sonraki `syncRouteColor` dedup'ta eski anahtarı görüp
+       boyayı hiç yazmaz ve yeniden çizilen rota yanlış renkte kalır. */
+    syncRouteColor(map, 0, _hazardHighNow, true);
 
     // ── Step 4: set data ─────────────────────────────────────────
     const routeFeature = {
@@ -1151,10 +1357,12 @@ export function clearRouteGeometry(map: MapLibreMap): void {
   M.pendingRouteGeometry = null;
   // Light trail rAF loop durdur — cancelAnimationFrame garantili
   _stopLightTrail();
-  // Perspektif / manevra / intersection durumunu sıfırla
+  // Perspektif / intersection durumunu sıfırla
   M.lastPerspectiveScale  = 1.0;
-  M.lastManeuverTier      = 0;
   M.lastIntersectionTier  = 0;
+  /* Rota gitti → renk kararı da unutulur; sonraki rota anlık duruma göre
+     BAŞTAN karar alır (bayat anahtar yüzünden boya atlanmaz). */
+  resetRouteColorState();
   if (!map || M.isStyleChanging) return;
   try {
     if (map.getLayer(DEBUG_LAYER))     map.removeLayer(DEBUG_LAYER);

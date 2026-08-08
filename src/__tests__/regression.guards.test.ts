@@ -3412,9 +3412,21 @@ describe('Rota kırpma ile görsel oturtma çelişmez', () => {
     const src = navigationServiceSrc;
     // Eski geniş tolerans geri gelirse aracın önünde boşluk yeniden doğar
     expect(src).not.toContain('TRIM_OFF_ROUTE_MAX_M');
-    // Her iki kapı da AYNI sabiti kullanmalı
+
+    /* KİLİDİN NİYETİ: rota-dışılık kapılarının HEPSİ tek sabiti kullanır.
+       2026-08-08'de üçüncü tüketici eklendi — `getSnappedRoadBearing()`
+       (kamera yön otoritesi). Sayı 2 → 3 oldu; kural DEĞİŞMEDİ, kapsamı
+       genişledi: işaretçiyi oraya çizecek kadar güvenmiyorsak kamerayı da
+       oraya döndürmeyiz. */
     const uses = [...src.matchAll(/_lastOffRouteM > SNAP_VISUAL_THRESHOLD_M/g)];
-    expect(uses.length).toBe(2);
+    expect(uses.length).toBe(3);
+
+    /* ASIL KİLİT (sayıdan güçlü): rota-dışılık HİÇBİR yerde başka bir eşikle
+       kıyaslanmaz. Yeni bir kapı gelirse bu sabiti kullanmak ZORUNDA. */
+    const otherThresholds = [...src.matchAll(/_lastOffRouteM\s*[<>]=?\s*(\w+)/g)]
+      .map((m) => m[1])
+      .filter((name) => name !== 'SNAP_VISUAL_THRESHOLD_M');
+    expect(otherThresholds, 'rota-dışılık için ikinci bir eşik doğmuş').toEqual([]);
   });
 
   it('🔒 eşik makul aralıkta (GPS gürültüsünü tolere eder, yalan söylemez)', () => {
@@ -4654,5 +4666,43 @@ describe('Wake watchdog kanıtsız iyileşme iddia etmez', () => {
     // ölçüm yorumlanamaz hâle gelir.
     expect(src).toContain('_rearmCount');
     expect(src).toContain('_wakesInPrevWindow');
+  });
+});
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * GPS TAZELİĞİ — duran araçta fix akmaya DEVAM EDER (saha 2026-08-08, Siverek)
+ *
+ * ÖLÇÜLEN KUSUR: `GPS_MIN_DIST_M = 2 m` teslimi filtreliyordu; araç durunca
+ * hiçbir fix gelmiyor, `fixAgeMs` 25.325 ms'e çıkıyordu — sinyal ±2 m ile
+ * SAĞLAMKEN. Zinciri: DR'ye erken düşme → "Konum Kayboldu" uyarısı →
+ * `MATCH_UNCERTAIN` / `HEADING_UNKNOWN` (güven 0,89 → 0,4) → kamera yön
+ * otoritesini kaybediyor. Ayrıca 5 dk'lık park kısması navigasyondan habersizdi.
+ * ═══════════════════════════════════════════════════════════════════════════ */
+describe('🔒 GPS tazeliği — park kısması navigasyonu kör bırakmaz', () => {
+  const svc = read('android/app/src/main/java/com/cockpitos/pro/CarLauncherForegroundService.java');
+
+  it('🔒 minDistance 0 — duran araçta da fix teslim edilir', () => {
+    expect(
+      svc,
+      'GPS_MIN_DIST_M > 0 geri gelmiş: duran araçta fix akmaz, "Konum Kayboldu" sahte uyarısı döner',
+    ).toMatch(/GPS_MIN_DIST_M\s*=\s*0f\s*;/);
+  });
+
+  it('🔒 park kısması aktif navigasyonda ÇALIŞMAZ', () => {
+    expect(svc).toContain('sNavigationActive');
+    // Kısma dalı bayrağı OKUMALI — yoksa uzun ışıkta GPS yine kapanır.
+    expect(svc).toMatch(/gpsHighAccuracyActive\s*&&\s*!sNavigationActive/);
+  });
+
+  it('🔒 navigasyon başlarken 1 Hz akış DERHAL geri gelir', () => {
+    // setNavigationActive(true) kısılmış hâlden çıkışı beklemez; yoksa rota
+    // kısık başlar ve ilk manevra kaçar.
+    expect(svc).toMatch(/setNavigationActive[\s\S]{0,400}resumeGpsHighAccuracy\(\)/);
+  });
+
+  it('🔒 köprü navigasyon oturumunun İKİ ucuna da bağlıdır', () => {
+    const nav = read('src/platform/navigationService.ts');
+    expect(nav).toContain('setNavigationGpsPower(true)');
+    expect(nav).toContain('setNavigationGpsPower(false)');
   });
 });

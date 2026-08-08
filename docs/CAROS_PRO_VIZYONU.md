@@ -308,6 +308,482 @@ DOĞRULANDI 6 · SAHADA DOĞRULANDI 1 · **ÜRÜN HAZIR: 1**
   `getRerouteBlockStats`, `getDestinationChangeLog` ve `validationWarnIds` çıktılarıyla
   #432–#448'in kabul ölçütleri tek tek sınanmalı.
 
+- **WAKE-FORENSIC-P0 · Native Wake Sayaçları (2026-08-08, Faz 4 — yalnız ölçüm):**
+  tam suite **11 217/11 217 · 494 dosya**; `npm run guard` **372/372**;
+  `tsc -b` temiz; değişen dosyalarda eslint **0 sorun**. 10 yeni test (wake
+  forensic kilidi 38 → 48). Kütük **#479**.
+  Durum: **ENTEGRE** (saha kanıtı YOK — **ÜRÜN HAZIR: HAYIR**).
+
+  ⚠️ **DAVRANIŞ DEĞİŞMEDİ.** #476'nın açık borcuydu: JS defteri yalnız tetik
+  anını görebiliyordu; **"mikrofon hiç açılmadı" · "VAD decode'u atladı" ·
+  "metin çözüldü ama eşleşmedi"** kararları Java'da olduğu için JS'ten ayırt
+  edilemiyordu — yani *"Mavi neden uyanmadı"* sorusunun üç büyük cevabı
+  ölçüsüzdü.
+
+  **Eklenen (şema 1 → 2, yalnız ekleme):** `wakeYieldCount` ·
+  `wakeVadSkipFrames` / `wakeDecodeFrames` · `wakeNoMatchCount` ·
+  `wakeTriggerCount` · `wakeLastTriggerLatencyMs` (konuşma başlangıcı → tetik;
+  final-sonuç kapısı tartışması için **taban değer**).
+
+  **Sayaç tasarımı:** oturum başında **sıfırlanmaz** (wake döngüsü saniyede
+  oturum açıp kapatır → oturum-başı sayaç oran hesaplanamaz kılar) ve `bump()`
+  ile doyurulur (sarmalanma/negatif yok). İkisi de kilitli.
+
+  **Dokunulmazlık (kilitli):** her ölçüm noktası tek satırlık sayaç çağrısıdır;
+  hiçbir koşul/`return`/`break` eklenmedi · `VAD_RMS_ON = 0.012` ve
+  `VAD_HANGOVER = 12` değişmedi · gecikme değişkeni hiçbir koşula sokulmaz,
+  yalnız ölçüme gider. **Olay fırtınası yok:** çerçeve başına JS olayı
+  gönderilmez, `notifyListeners("wakeWord")` döngüde tam 1 kez.
+
+  **Gizlilik yapısal:** `noteWake*` imzalarında **String parametre yoktur** —
+  metin sızıntısı imkânsız; native JSON'a yalnız 6 sayı eklenir.
+
+  **Geriye dönük uyum:** sayaçlar ayrı `wake` bloğunda; şema 1 APK'sında blok
+  hiç gelmez → LAB **"Ölçüm yok (eski şema)"** gösterir, **sahte `0`
+  üretilmez** (kilitli). Gecikme ölçülmediyse `-1` → "Henüz tetik ölçülmedi".
+
+  **Derleme kanıtı:** `:app:compileDebugJavaWithJavac` → **BUILD SUCCESSFUL**.
+  **APK üretilmedi, cihaza kurulmadı** — bu turun saha maddeleri bu yüzden
+  tümüyle 🔴.
+
+- **MEDIA-TRUTH-P0 · Kaynaksız "Müzik Aç" Gömülü Katmana Hizalandı (2026-08-08, PR-2):**
+  `npm run guard` **372/372**; `tsc -b` temiz. 6 yeni kilit (medya kilitleri
+  toplam 22). Kütük **#478**. Durum: **ENTEGRE** (saha kanıtı YOK —
+  **ÜRÜN HAZIR: HAYIR**).
+
+  **Kullanıcı kararı:** "müzik aç" dendiğinde harici uygulamaya gidilmeyecek;
+  önce gömülü YouTube'dan açılacak, kaynak söylenirse o kaynaktan.
+
+  **Ölçülen davranış:** `OPEN_MUSIC` dalı kaynak belirtilmese bile koşulsuz
+  `play()` çağırıyordu → harici bir Android MediaSession devralınıyor ve sürücü
+  uygulamadan koparılıyordu. Üstelik *"Müzik açılıyor"* cevabı **koşulsuzdu** —
+  hiçbir şey başlamasa da söyleniyordu (#477 ile aynı sahte onay sınıfı).
+
+  **Düzeltme:** kaynak **söylendiyse** eski davranış birebir korundu. Kaynak
+  **söylenmediyse**: (1) gömülüde kaldığı yer varsa oradan devam, (2) yoksa
+  gömülü aramayla başlat, (3) ikisi de olmazsa **harici uygulamaya sessizce
+  gidilmez** — dürüstçe *"Gömülü oynatıcıda çalacak bir şey bulamadım. Kaynak
+  söylersen oradan açayım."* denir.
+
+  **Bu ilke yeni değildir:** `PLAY_MUSIC_SEARCH`/`PLAY_MUSIC_QUERY` zaten "önce
+  gömülü, sonra harici" çalışıyordu; bu tur yalnız **kaynaksız yolu onlara
+  hizaladı** — o iki yol değiştirilmedi (kilitli). İçerik uydurulmadı: sabit
+  videoId/playlistId gömülmedi.
+
+- **MEDIA-TRUTH-P0 · Sahte "Sonraki Parça" Onayı Kesildi (2026-08-08, PR-1):**
+  `npm run guard` **372/372**; `tsc -b` temiz. 16 yeni kilit. Kütük **#477**.
+  Durum: **ENTEGRE** (saha kanıtı YOK — **ÜRÜN HAZIR: HAYIR**).
+
+  **Saha (2026-08-08, Xiaomi 23090RA98I, gerçek cihaz):** kullanıcı "müzik
+  değiştir" dedi, Mavi **"sonraki parça"** dedi, **parça değişmedi**.
+
+  **Kök — sistem gerçeği BİLİYORDU ve ATIYORDU:** `mediaCommandGateway.next()`
+  `CommandTruth{outcome, verificationLevel, failureCode}` döndürüyor;
+  `mediaService._routeToAuthority` bunu `void import(...).then(...)` ile atıp
+  **koşulsuz `true`** dönüyordu → `mediaService.next()` `void` idi →
+  `commandExecutor` sonucu **beklemeden** konuşuyordu. CLAUDE.md'nin "sahte onay
+  yasak" kuralının doğrudan ihlali.
+
+  **Cihaz kanıtı (aynı oturum):** LAB → `OYNATMA GERÇEĞİ: BOŞTA` · `Ses kanıtı:
+  HAYIR`; `dumpsys audio` → tüm player'lar `state:idle`; `dumpsys media_session`
+  → `com.cockpitos.pro active=true`. Android bizi aktif medya oturumu sayıyordu
+  ama **atlanacak parça yoktu** — buna rağmen onay veriliyordu.
+
+  **Düzeltme (yalnız dürüstlük — yönlendirme ve politika değişmedi):**
+  `MediaCommandResult {dispatched, verified, failureCode}`; `dispatched` ile
+  `verified` **bilinçli ayrı** ("komut kabul edildi" ≠ "parça değişti").
+  **Yalnız `outcome === 'VERIFIED'`** başarı sayılır; `ACCEPTED_UNVERIFIED`
+  başarı olarak sunulmaz. `localNext`/`localPrev` boş kuyrukta sessizce hiçbir
+  şey yapmıyordu → artık `empty_queue` · `end_of_queue` · `start_of_queue`
+  döner (**başa sarma eklenmedi** — çalma sırası politikası kapsam dışı).
+  Cevap tek karar noktasından üretilir: doğrulanmadıysa başarı cümlesi
+  kurulmaz, **bilinmeyen sebep bile "yaptım" demez**.
+
+  **Açık kalan (ayrı iş):** asıl yönlendirme kusuru — çalan sesin sahibi ile
+  komutun gittiği otoritenin ayrışması.
+
+- **TEST-KİLİDİ · Gizlilik Kilidi Zamana Bağlı Yanlış Alarmı Onarıldı (2026-08-08):**
+  `platformRuntimeDiagnostics.test.ts` içindeki "event payload teşhise girmez"
+  kilidi ham snapshot üzerinde alt-dize taraması yapıyordu; `lastEventAt`
+  epoch'u (`1786199282175`) aranan `199` desenini **içerdiği için** belirli
+  zaman pencerelerinde düşüyordu. Kardeş kilit bu tuzağı zaten biliyor ve
+  temizleyici kullanıyordu — bu kilit o korumayı almamıştı. **Kilit
+  zayıflatılmadı:** yalnız SAYI olan `last*At` alanları çıkarılır; metin taşıyan
+  hiçbir alan çıkarılmaz, sızıntı yakalama gücü aynen durur.
+
+- **WAKE-FORENSIC-P0 · Wake Karar Defteri (2026-08-08, Faz 1-3+5):**
+  tam suite **11 149/11 149 · 490 dosya** (varsayılan timeout); `npm run guard`
+  **368/368**; `tsc -b` temiz; değişen dosyalarda eslint **0 sorun**. 38 yeni
+  test. Kütük **#476**.
+  Durum: **ENTEGRE** (saha kanıtı YOK — **ÜRÜN HAZIR: HAYIR**).
+
+  ⚠️ **BU BİR DÜZELTME DEĞİLDİR.** Wake davranışı bilinçli olarak
+  değiştirilmedi; yalnız nedenleri ölçülebilir kılındı. **"Test geçti" ile
+  "wake sorunu çözüldü" aynı şey değildir** ve false wake / missed wake
+  oranları gerçek araç ölçümü yapılmadan yorumlanmayacaktır.
+
+  **Kapatılan boşluk:** `onWakeWordDetected` içindeki dört kapı sessizce
+  `return` ediyordu → "hiç duyulmadı" ile "duyuldu ama bastırıldı" ayırt
+  edilemiyordu. Kabul edilenler sayılıyordu (#460), reddedilen ve
+  bastırılanlar hiç sayılmıyordu.
+
+  **Kod otorite, rapor değil — bir hipotez ÇÜRÜTÜLDÜ:** önceki analiz
+  "wake→greeting devrinde timer/onEnd yarışı ilk komutu kaçırıyor" demişti;
+  `startListening` **idempotenttir** (`voiceService.ts:1884`), ikinci açılış
+  no-op olur. `ACCEPTED_NO_INTENT` ölçülmeye devam eder ama artık bu
+  mekanizmaya atfedilmez.
+
+  **Taksonomi disiplini:** yalnız ürün kodunda gerçek karar noktası olan 8
+  gerekçe tanımlandı. `SUPPRESSED_INTERACTION` **eklenmedi** (etkileşim
+  duraklatması motoru tamamen durdurur → bastırılacak olay JS'e ulaşmaz;
+  durum, karar değil). VAD · TTS half-duplex · native no-match **eklenmedi**
+  (yalnız Java'da olur, JS göremez — uydurma olurdu).
+
+  **Karar akışı değişmedi:** her `if (koşul) return;` aynı koşulla aynı yerde;
+  `setInterval` sayısı 1'de kaldı; politika sabitleri ve eşleşme kuralı
+  denetlenerek korundu. Korelasyon mevcut `VoiceLifecycleEvent` zincirinden —
+  yeni kimlik sistemi ve yeni timer yok (zaman aşımı okuma anında türetilir).
+
+  **Açık borç:** `wakeWordService.ts:461` ham metin + n-best logluyor; kapsam
+  dışı bırakıldı — **hâlâ açık**. Java tarafı (VAD reddi · TTS sağırlığı ·
+  native no-match) bu turda ölçülmüyordu; **Faz 4'te (#479) kapatıldı** —
+  sayaçlar eklendi, ancak o APK henüz cihaza kurulmadı.
+
+- **TUNNEL-NIGHT-P0 · Tünelde Harita Gece Görünümüne Geçiyor (2026-08-08, Tünel PR):**
+  tam suite **11 111/11 111 · 489 dosya** (varsayılan timeout); `npm run guard`
+  **368/368**; `tsc -b` temiz; değişen dosyalarda eslint **0 sorun**. 26 yeni
+  test. Kütük **#475**. Durum: **ENTEGRE** (saha kanıtı YOK — **ÜRÜN HAZIR: HAYIR**).
+
+  **Kapatılan kusur:** `autoBrightnessService` tünel giriş/çıkışını zaten doğru
+  algılıyordu ama `_tunnelMode` modül içinde kalıyor, harita okuyamıyordu →
+  tünelde gündüz haritası. **Yeni dedektör yazılmadı**, mevcut karar dışa
+  açıldı; yayın mevcut far callback'inde olduğu için **yeni timer yok**.
+
+  **Asıl mimari karar — örtü `setMapNight` hunisinin İÇİNDE.** İki gerekçe:
+  (a) `settings.dayNightMode`e yazmak `checkTime()` tarafından 60 sn'de geri
+  alınır → flicker döngüsü; (b) `setMapNight`'ın **iki** yazıcısı var
+  (`applyMapDayNight` **ve** `MiniMapWidget` doğrudan) — örtüyü çağıranlardan
+  birine koymak diğerinin onu sessizce ezmesi demekti. Hunide ise hangi çağıran
+  yazarsa yazsın örtü **yapısal olarak** korunur.
+
+  **İstek/etkin ayrımı:** `_mapNightRequested` (örtü kalkınca dönülecek yer) ·
+  `_mapNight` (etkin = tünel ‖ istek). Mevcut tüm okuyucular değişmedi; PR-3b
+  `resolveLightBasemap()` zaten `getMapNight()` okuduğu için
+  **`lightBasemap = !effectiveNight && mode === 'road'` semantiği korunur** ve
+  gece rota paleti kendiliğinden, **değiştirilmeden** uygulanır. Rota
+  paletine yeni renk eklenmedi (kilitli).
+
+  **İdempotens:** aynı durum tekrar bildirilirse boyama yok; gerçek gecede
+  tünele girmek de etkin değeri değiştirmediği için boyama tetiklemez.
+
+  **Gözlemlenebilirlik disiplini çalıştı:** mevcut LAB alan denetimi kilidi,
+  eklediğim dört alanın kayıt defterine yazılmadığını yakaladı ve tam suite
+  düştü; düzeltildi.
+
+  **Bilinen sınır (saha ölçmeli):** tünel kanıtı **OBD far sinyaline bağlıdır**
+  — OBD bağlı değilken tünel modu hiç tetiklenmez (fail-safe: sahte gece yok).
+  OSM `tunnel` etiketi ayrı PR olarak açık kaldı.
+
+- **MAVI-LOC-P0 · "Neredeyiz?" Gerçek Konumdan Cevaplanıyor (2026-08-08, Mavi Konum PR):**
+  tam suite **11 085/11 085 · 488 dosya** (varsayılan timeout); `npm run guard`
+  **368/368**; `tsc -b` temiz; değişen dosyalarda eslint **0 sorun**. 35 yeni
+  test. Kütük **#474**. Durum: **ENTEGRE** (saha kanıtı YOK — **ÜRÜN HAZIR: HAYIR**).
+
+  **Kapatılan kusur:** "Mavi, neredeyiz?" → "Haritayı açıyorum." Bu bir
+  halüsinasyon değil **bağlam açlığıydı**: zincir (niyet → eylem → handler →
+  `readCurrentLocation` → reverse geocode) baştan sona mevcut ve doğruydu, ama
+  iki kapı kapalıydı (maviCore gölge modda; tool loop varsayılan kapalı) ve
+  Mavi'nin sistem promptunda **konum satırı hiç yoktu** — yakıt, DTC, menzil ve
+  yolculuk vardı, konum yoktu.
+
+  **Kapılara dokunulmadı.** Tool loop/orchestrator **global açılmadı** (kilitli),
+  gölge modu değiştirilmedi, zincir yeniden yazılmadı. Konum mevcut kaynaklardan
+  türetilip **bağlama** eklendi.
+
+  **Karar tablosu fail-closed:** taze fix → GPS/high (doğruluk bilinmiyorsa
+  yükseltilmez) · eskimiş + DR → DEAD_RECKONING/`estimated:true` · **çok eski +
+  DR yok → UNAVAILABLE** (bayat koordinat "kesin konum" sunulmaz) · **adres
+  çözülemediyse → UNAVAILABLE** (koordinatı doğal dile taşımaktansa bilmediğini
+  söyler). DR güveni 0 ise tahmin dayanaksızdır ve kullanılmaz.
+
+  **Gizlilik yapısal:** `LocationContext` tipinde lat/lon **alanı yoktur**;
+  cümle yalnız şehir/ilçe/yol taşır. Kilit hem koordinat desenini hem
+  "enlem/boylam" kelimelerini arar.
+
+  **Tek ekleme — `reverseGeocodeParts()`:** mevcut `reverseGeocode` adresi ilk
+  iki parçaya kısalttığı için **şehir kayboluyordu**. Aynı modüle, aynı uca,
+  **aynı ToS rate-limiter'ına** bağlı ek fonksiyon yazıldı; mevcut fonksiyon ve
+  kilitleri hiç değiştirilmedi. İkinci servis değildir.
+
+  **Senkron/asenkron ayrımı:** bağlam kurucusu senkron, geocode ağ çağrısı →
+  fix · sınıf · DR · kaynak · güven **her okumada taze**, yalnız yer adı
+  önbellekten (TTL 90 sn / 400 m, talep-tetikli). Mavi nerede olduğunu bilmese
+  bile **bildiğini/bilmediğini daima doğru bilir**. Yeni zamanlayıcı yok.
+
+  **Trip PR dersi uygulandı:** bağımlılık ters çevrildi
+  (`locationContextAccess`, çalışma zamanı bağımlılığı sıfır). Graf ölçüldü:
+  **357 → 359** (yalnız iki yaprak); ağır servis graf dışında.
+
+  **Bu turun YAPMADIĞI (onaylı kapsam):** tünel gece modu ve DR mimarisi dahil
+  edilmedi; TripSession değiştirilmedi. **Sonraki PR: tünel gece modu.**
+
+- **TRIP-P0 · Yolculuk Kapanışı Onarıldı + Seyahat Oturumu (2026-08-08, Trip PR):**
+  tam suite **11 050/11 050 · 487 dosya** (varsayılan timeout — `--testTimeout`
+  gerekmedi); `npm run guard` **368/368**; `tsc -b` temiz; değişen dosyalarda
+  eslint **0 sorun**. 28 yeni test. Kütük **#473**.
+  Durum: **ENTEGRE** (saha kanıtı YOK — **ÜRÜN HAZIR: HAYIR**).
+
+  **Kapatılan kusur:** Mavi "3 saattir yoldayız" derken gerçek 40 dakikaydı ve
+  km de yanlıştı. Tek kök ikisini birden açıklıyor: yolculuğu kapatan duruş
+  penceresi YALNIZ `_onGPS`/`_onOBD` gövdesinde kuruluyordu; `_liveClock`
+  bitiş DEĞERLENDİRMİYORDU. Araç park edip veri tamamen susunca kapanış hiç
+  kurulmuyor, yolculuk açık kalıyor ve sonraki sürüşte aynı oturum devam
+  ediyordu — monotonik süre park süresini, mesafe de önceki sürüşü sayıyordu.
+
+  **Sessizlik ≠ duruş (bilinçli ayrım):** 60 sn "aracın DURDUĞUNU GÖRDÜK"
+  demektir; sessizlik "HİÇBİR ŞEY GÖRMÜYORUZ" demektir. Sessizliği 60 sn'de
+  kapatmak uzun tünelde sürüşü ortadan bölerdi (Ovit ≈ 11 dk) → ayrı ve uzun
+  eşik (**15 dk**), kapanış `cleanClose: false` (kanıtı kaybettik, duruşu
+  görmedik). Mevcut 60 sn'lik duruş yolu birebir korundu.
+
+  **Seyahat oturumu — ne ölçüyor, ne ölçmüyor:** saf model ardışık yolculukları
+  ve aralarındaki boşluğu tek seyahate toplar. **Hiçbir şey ÖLÇMEZ:** süre
+  kovaları `tripMetricsAccumulator`, mesafe `tripLogService` otoritesinden
+  gelir. **Sahipsiz olan tek büyüklük segmentler arası MOLA'dır** — modelin
+  gerçekten türettiği tek şey odur. Mesafe kümülatif beslenir ve segment
+  değişiminde mühürlenir → çifte sayım **yapısal olarak imkânsız**.
+
+  **Yeni timer YOK:** süren mola ve geçen süre okuma anında türetilir; oturum
+  `onTripState`'e tek abonelik kurar. Odometre, PR-451a `consumedM` projeksiyonu
+  ve KALAN rota mesafesi bu toplama **girmez** (dördü de kilitli).
+
+  **Ölçümle bulunan mimari düzeltme:** `companionChatProvider` senkron olduğu
+  için oturum önce statik import edilmişti; bu Mavi bağlam grafiğini
+  ağırlaştırıyordu. Bağımlılık ters çevrildi (`tripSessionAccess` — çalışma
+  zamanı bağımlılığı sıfır). Graf ölçüldü: servis ve saf model
+  `vehicleDataLayer` grafından çıktı.
+
+  **Bu turun YAPMADIĞI (onaylı kapsam):** Mavi konum cevabı ve tünel gece modu
+  bu PR'a **dahil edilmedi** — ayrı turlara bırakıldı.
+
+- **OEM-NAV-P0 · Ölü Hesap Projeksiyon Ekseni Rotaya Bağlandı (2026-08-08, PR-451a):**
+  yeni model + runtime bağlantısı **26/26 test**; `tsc -b` temiz; değişen
+  dosyalarda eslint **0 sorun**; `npm run guard` **368/368**. Kütük **#472**.
+  Durum: **ENTEGRE** (saha kanıtı YOK — **ÜRÜN HAZIR: HAYIR**).
+
+  ⚠️ **Tam suite bu turda TEMİZ DEĞİL: 11 016/11 019 geçti, 3 düştü.** Düşen
+  üçü de `routeColorPolicy.test.ts` içindedir ve **PR-451a ile ilgisizdir**
+  (aşağıda "Çelişki Kaydı"na yazıldı).
+
+  **Teşhis düzeltmesi (kütük #451 kısmen eskimişti):** "konum ölü hesabı YOK"
+  hükmü `gpsService._startDeadReckoning()` (gerçekten boş) ve
+  `VehicleCompute.worker._applyDeadReckoning()` (yalnız odometre) okunarak
+  verilmişti. Ancak `navigationSessionRuntime._drTick` **konum ÜRETİYOR ve
+  `updateRouteProgress`e besliyor**. Ölü olan özellik değil, projeksiyonun
+  **EKSENİYDİ**: `projectDeadReckon` son heading doğrultusunda düz çizgi atıyor,
+  rota geometrisini hiç kullanmıyordu.
+
+  **Türetilen bedel (⚠️ saha ölçümü DEĞİL):** yanal sapma ≈ s²/(2R), koridor
+  `55–95 m` → 90 km/h'de R=400 m'de **~8 sn**, R=1000 m'de ~13 sn, R=3000 m'de
+  ~23 sn'de koridor aşılıyor. Yani DR, 60 sn'lik `DR_MAX_DT_SEC` tavanına
+  **ulaşamadan** `OFF_NETWORK`e düşüyordu. #451'de kayıtlı saha gözlemi
+  (`lateralM` max 1496 m · `STRAIGHT_LINE` 92 örnek · kalan mesafe 45 kez arttı)
+  bu mekanizmayla tutarlıdır; **düz tünelde 60 sn dayandığı için özellik bazen
+  "çalışıyor" görünüyordu** — teşhisi geciktiren şey buydu.
+
+  **Düzeltme:** saf model `navigation/core/routeProjectionModel.ts` →
+  `advanceAlongRoute()` çapadan polyline **boyunca** ilerletir; viraj geometride
+  zaten taşındığı için yanal sapma **yapısal olarak doğmaz**. Kilit: R≈400 m
+  sentetik yayda 60 sn boyunca sapma **< 1 m**, aynı yayda heading projeksiyonu
+  **< 15 sn**'de koridoru aşıyor — kusur ve düzeltme AYNI testte kanıtlanır.
+
+  **Asıl incelik — çapa bir kez alınır:** mevcut projeksiyon MUTLAKtır (her tick
+  "son gerçek fix'ten v×Δt", birikimli değil). Çapa DR'ye girerken bir kez
+  alınır; her tick `getRouteProgressPoint()` okunsaydı çapa kendi
+  projeksiyonumuzla kayar ve **mesafe iki kez uygulanırdı**. GPS tazelenince
+  çapa unutulur — bayat çapa, aracın çoktan geçtiği noktadan ilerletmekti.
+
+  **Fail-closed:** geometri yok/bozuk · çapa yok · segment aralık dışı → eski
+  heading projeksiyonu AYNEN. `advanceM <= 0`/`NaN` → yerinde kalır (geriye
+  ilerleme YOK). Rota bitince son noktada durur, `exhausted: true`; **varış
+  iddia edilmez**.
+
+  **Bu turun YAPMADIĞI (bilinçli, sonraki PR'lara):** (a) HUD dürüstlüğü —
+  `isDeadReckoningActive()` hâlâ `gpsService`e bakar ve **daima false**'tur,
+  sürücüye "GPS yok — konum tahmini" uyarısı HÂLÂ GÖSTERİLMİYOR; (b) worker'daki
+  ikinci (odometre) DR sahibi duruyor; (c) GPS dönüşünde fusion/reconciliation
+  yok → tünel çıkışında konum sıçraması BEKLENİR.
+
+- **OEM-NAV-P0 · Gündüz Rota Kılıfı + Zemin Kutbu Sözleşmesi (2026-08-08, PR-3b):**
+  tam suite **10993 test / 485 dosya** — `--testTimeout=30000` ile TEMİZ;
+  varsayılan 5 sn timeout'ta `regression.guards` içindeki `_hasAnyField`
+  dinamik-import testi yüklü makinede düşüyor (aşağıya bkz.). `tsc -b` temiz;
+  değişen dosyalarda eslint **0 sorun**. Kütük **#471**.
+  Durum: **ENTEGRE** (saha kanıtı YOK — **ÜRÜN HAZIR: HAYIR**).
+
+  **Kapatılan kusur (K2):** gün/gece geçişi yalnız raster paint + arka planda
+  yapılıyordu; rota katmanlarının gündüz varyantı YOKTU. Ham OSM zemininde beyaz
+  kılıf **1,00–2,32:1** ile yok hükmündeydi (eşik 3,0). Açık zeminde kılıf
+  ürünün kendi `--oem-ink` mürekkebine (`#0A0C10`) çekildi → **8,45–19,57**.
+
+  **Tek token, zincirleme kazanç:** kılıf koyulaşınca çekirdeğin zeminle
+  savaşması gerekmiyor; yalnız kılıftan ayrışması yetiyor. Emerald ucu
+  2,54→7,72 · amber 2,15→9,11 · trafik renkleri 3,4–8,6. Bu yüzden gradient,
+  halo mavisi, amber ve trafik paleti **değiştirilmedi**.
+
+  **Ölçülerek reddedilen:** çekirdeği koyulaştırmak (`#1A56C4`) koyu kılıfla iç
+  kenarı 2,96'ya düşürüyor → rota tek koyu bloğa dönüşür. Kilit testiyle kayıtlı.
+
+  **Asıl risk — sözleşme daraltması:** PR-3a'nın `dayMode` girdisi fazla genişti.
+  `MapMode` ile `getMapNight()` bağımsızdır; **gündüz + uydu** gerçek bir
+  kombinasyondur ve orada koyu kılıf rotayı yok ederdi. Girdi `lightBasemap`e
+  daraltıldı, türetme tek yerde: `!night && mode === 'road'`. Fail-soft kutup
+  asimetriktir — okunamazsa AÇIK sayılmaz.
+
+  **Bu turun YAPMADIĞI:** K3 (amber'in manevra/tehlike ikili anlamı) · K4
+  (low-end/high-end çekirdek ayrımı) · K5 (trafik gradient yaşam döngüsü) ·
+  halo genişliğinin açık zeminde "mavi pus" üretip üretmediği (ÖLÇÜLMEDİ).
+
+  **Bilinçli davranış sonucu (saha ölçütü):** açık zeminde *yaklaşma kademesi*
+  amber taşımaz; kritik manevra ve tehlike sinyali halo üzerinden korunur.
+
+- **OEM-NAV-P0 · Rota Rengi Tek Hakeme Bağlandı (2026-08-07, PR-3a):**
+  tam suite **10979 test / 485 dosya TEMİZ**; `tsc -b` temiz; regresyon kasası
+  **368/368**; değişen dosyalarda eslint **0 sorun**. Kütük **#470**.
+  Durum: **ENTEGRE** (saha kanıtı YOK — **ÜRÜN HAZIR: HAYIR**).
+
+  **Kapatılan kusur (K1):** rota kılıfı ve halosunun rengini iki ayrı blok, iki
+  ayrı bayrakla yazıyordu ve manevra bloğu önce koştuğu için tehlike rengini
+  siliyordu: *risk 0,6 → amber · kademe 0→1 → amber · kademe 1→0 → **beyaz***,
+  risk hâlâ yüksek ama bayrak değişmediği için bir daha uygulanmıyordu. Aynı
+  kusurun iki yolu daha vardı: yeniden çizim ve sürüşten çıkış.
+
+  **Yöntem:** renk artık durum DEĞİŞİMİNDEN değil ANLIK DURUMDAN türer. Saf
+  hakem `map/core/routeColorModel.ts`, öncelik **TEHLİKE > MANEVRA > NORMAL**.
+  Dedup tek anahtarla (`routeColorKey`) yapılır ve kılıf+halo+çekirdek birlikte
+  yazılır → katmanların ayrışması yapısal olarak imkânsız. Eski iki bayrak
+  `_mapState`ten kaldırıldı ki ikinci sahiplik geri dönemesin.
+
+  **Renk DEĞİŞTİRİLMEDİ.** `#ffffff` · `#4285f4` · `#f59e0b` aynen; kademe 1'de
+  halonun normal kalması da birebir korundu. `dayMode` sözleşmeye kondu fakat
+  davranışı etkilemiyor — PR-3b için açık genişleme noktası.
+
+  **Ölçüm bırakıldı, uygulanmadı:** saf kontrast yardımcısı eklendi ve K2'nin
+  sayıları testlere gömüldü (gündüz beyaz kılıf ≈ **1,05:1**, amber ≈ **2,05:1**;
+  WCAG 1.4.11 eşiği 3:1). Bu, PR-3b'nin kabul ölçütüdür; **palet kararı
+  verilmedi**.
+
+  **Bu turun YAPMADIĞI:** gündüz/gece palet tasarımı (PR-3b) · `#f59e0b`'nin
+  manevra ile tehlike arasında paylaşılması (K3) · düşük-uç/yüksek-uç çekirdek
+  ayrımı (K4) · trafik gradient'inin dekoratif gradient'i kalıcı ezmesi (K5).
+
+- **OEM-NAV-P0 · Rota Kalınlığı Tek Otoriteye Bağlandı (2026-08-07, PR-3):**
+  tam suite **10952 test / 484 dosya TEMİZ**; `tsc -b` temiz; regresyon kasası
+  **368/368**; değişen dosyalarda eslint **0 sorun**. Kütük **#469**.
+  Durum: **ENTEGRE** (saha kanıtı YOK — **ÜRÜN HAZIR: HAYIR**).
+
+  **Kapatılan kusur:** rotanın beş katmanının kalınlığını dört bağımsız yer
+  yazıyordu ve hiçbiri diğerini bilmiyordu (kurulum · perspektif düzeltmesi ·
+  nefes alan glow · hiç güncellenmeyen shadow/flow). z18'de ölçülen sonuç
+  **CASE 46 > CORE 39 > GLOW 24 > SHADOW 22**: katman sırası gereği neon halo
+  ve derinlik gölgesi tamamen kayboluyordu — iki `line-blur` katmanı GPU yakıp
+  ekrana hiçbir şey çizmiyor, risk arttıkça nefes alan **güvenlik sinyali
+  sürüş sırasında sürücüye hiç ulaşmıyordu**. Ayrıca navigasyon başlar başlamaz
+  rota **3,2× kalınlaşıyor** (10 → 32 px) ve kalınlık ekran ölçüsünü hiç hesaba
+  katmadığı için `vmin` ekseninde **2,22× görsel ağırlık farkı** oluşuyordu.
+
+  **Yöntem:** tek saf politika (`map/core/routeWidthModel.ts`). ÇEKİRDEK tek
+  geometrik kaynaktır; kılıf · gölge · halo · akış ondan **oranla** türer →
+  sıra tersine dönmesi yapısal olarak imkânsız. Ölçek `vmin` tabanlı (taban
+  0,72 / tavan 1,15), referans **head unit 1024×600 → 1,000** olduğu için
+  birincil donanımda çekirdek ve kılıf **birebir korundu**. Ölçüm harita
+  CANVAS'ından alınır — mini harita ile tam ekran ancak böyle aynı görsel
+  ağırlığa sahip olur. Yeni dinleyici/timer YOK; ölçüm yalnız kalınlığın zaten
+  yazıldığı anlarda yapılır. `vmin` yayılımı **2,22× → 1,39×**.
+
+  **Öz-düzeltme kaydı:** nefes tabanını önce 0,60 seçmiştim; nefesin dip
+  noktasında halo yine kılıfın altına düşüyordu. Taban TÜRETİLDİ
+  (`casing/glow = 0,838` → 0,88, %5 pay) ve kilit testi bunu yakaladı.
+
+  **Bu turun YAPMADIĞI (iddia edilmiyor):** kalınlığın MUTLAK seviyesi
+  tartışılmadı — "önizlemedeki 10 px mi, sürüşteki 32 px mi doğru?" sorusu
+  cihazda ölçülmesi gereken ayrı bir karardır ve **açık borçtur**; alternatif
+  rota katmanı (`car-route-alt-fill`) bilerek kapsam dışı (o bir dokunma
+  hedefidir); rota RENGİ/kontrastı ve gece-gündüz paleti bu turda ele
+  alınmadı; glow'un genişlemesinin orta seviye GPU'daki FPS etkisi ÖLÇÜLMEDİ.
+
+- **OEM-NAV-P0 · HUD Üst Bant Şerit Bütçesi — Dikey Navigasyon (2026-08-07, PR-2):**
+  tam suite **10931 test / 483 dosya TEMİZ**; `tsc -b` temiz; regresyon kasası
+  **368/368**; değişen dosyalarda eslint **0 sorun**. Kütük **#468**.
+  Durum: **ENTEGRE** (saha kanıtı YOK — **ÜRÜN HAZIR: HAYIR**).
+
+  **Kapatılan kusur:** yoğunluk kapısı tek eksenliydi (`useDenseHud`, yükseklik
+  < 520). Yatay için doğru; ama tam ekran navigasyon dikey de açılıyor ve dikeyde
+  yükseklik 740–930 px olduğu için kapı hiç kapanmıyordu → 360–430 px genişliğe
+  TAM yerleşim çiziliyordu. 360 px'te ölçülen: manevra kartı **16..304**, yol
+  tabelası **70..290**, ikisi de `top: --sat+14` → **220 px örtüşme**. Alt bardaki
+  3 sütunlu şerit de taşıyordu (`clamp()` bu genişlikte tabana oturduğu için
+  korumuyor: talep ≈339 px, mevcut 328 px).
+
+  **Yöntem — ŞERİT MODELİ, ikinci yerleşim kopyası değil:** üst bant üç şerittir
+  (sol manevra kartı · orta yol tabelası · sağ hız paneli). Orta şerit
+  merkez-çapalı olduğundan bütçesini yan şeritlerin sınırlarından hesaplar. Karar
+  tek ve SAF (`computeHudLayout`), hook yalnız ölçümle besler → testin
+  doğruladığı kod ile ürünün koştuğu kod AYNIDIR. **Yeni dinleyici/timer YOK**
+  (üründe zaten iki ekran gözlemcisi var; üçüncüsü kurulmadı).
+
+  **Eşikler türetilmiştir, serbest sabit değil:** tabela asgarisi = panelin KENDİ
+  bildirdiği `minWidth: 140`; dar-ekran eşiği = `sol şerit + tabela asgarisi + sağ
+  şerit` = **572**. Bütçe yetmezse tabela sıkıştırılmaz, çizilmez — sıkıştırılırsa
+  `minWidth` kazanıp komşu şeride taşar, kusurun kendisi budur.
+
+  **Yatay korunuyor:** bütçe kutunun doğal genişliğinden (≈220 px) büyük — head
+  unit **416**, telefon yatayı **296** → görünür etki yok. `dense` aynen yükseklik
+  ölçütü kaldı; `TurnPanel`/`SpeedPanel` yalnız onu alır (yoğun varyantları
+  yüksekliği GENİŞLİĞE takas eder, dikeyde ters yönde yanlış olurdu).
+
+  **Bu turun YAPMADIĞI (iddia edilmiyor):** dikeyde yol tabelası GİZLENİR — o
+  bilginin (üzerinde olunan sokak) alt bilgi çubuğuna taşınması **açık borçtur**;
+  manevra kartı dikeyde hâlâ 288 px sabit lane kullanır, tam genişlik banner'a
+  dönüşmez; `MapHudControls` zoom kolonu ve `HazardBanner` (`--sat+72`) genişlik
+  eksenine bağlanmadı; `--lp-dock-h` (ana ekran dock'u) tam ekran haritada ölü
+  boşluk olarak kullanılmaya devam ediyor; Android sistem çubuğunun dikeyde
+  `env(safe-area-inset-bottom)` bildirip bildirmediği ÖLÇÜLMEDİ.
+
+- **OEM-NAV-P0 · Kamera Sönümlemesi Kadanstan Ayrıldı (2026-08-07, PR-1):**
+  tam suite **10913 test / 482 dosya TEMİZ**; `tsc -b` temiz; regresyon kasası
+  **368/368**; değişen dosyalarda eslint **0 sorun**. Kütük **#467**.
+  Durum: **ENTEGRE** (saha kanıtı YOK — **ÜRÜN HAZIR: HAYIR**).
+
+  **Kapatılan kusur:** `dampCameraToward`ın alfaları çağrı BAŞINA uygulanıyordu ve
+  150 ms'lik tempoda ayarlanmıştı; oysa `setDrivingView` üründe **150 ms · ~500 ms ·
+  16 ms** olmak üzere üç tempoda çağrılıyor. Ölçüm (τ = −Δt/ln(1−α), `DAMP_PITCH`):
+  **1,29 s / 4,29 s / 0,14 s** → mini haritanın kamerası tam ekrandan **3,3× tembel**,
+  ölü hesaplama yolununki **9,4× hırçındı**. `MiniMapWidget`in "AYNI politika, AYNI
+  argümanlar" iddiası argümanlar için doğru, **TEMPO için yanlıştı** — ve bu fark
+  hiçbir yüzeyde görünmüyordu. Aynı bağımlılık cruise eşiğinde (tick sayısı) ve
+  momentum delta'sında da vardı.
+
+  **Yöntem:** alfa Δt'ye uyarlanır (`1 − (1−α)^(Δt/150)`), **kalibrasyon noktasında
+  değer AYNEN korunur** → sahada tek tek ayarlanmış tam ekran davranışı BİREBİR
+  değişmedi (bağımsız oracle testiyle kilitli). Cruise ölçütü SÜREYE çevrildi
+  (1050 ms = 7 × 150). Saati `MapInteractionManager` okur, motor SAF kalır.
+
+  **Gözlem yüzeyi:** CAROS LAB → *Navigasyon Çekirdeği* → `cam-cadence` · `cam-tau` ·
+  `cam-offcadence`. Ölçüm yoksa `UNAVAILABLE`; sahte Δt/τ üretilmez. `cam-offcadence`,
+  üründe hangi kamera tempolarının gerçekten koştuğunun **ilk doğrudan ölçümüdür**.
+
+  **Bu turun YAPMADIĞI (iddia edilmiyor):** kamera kadansı ARTIRILMADI — dünya hâlâ
+  6,7 Hz'te `jumpTo` ile adımlıyor. Akıcılık artışı ayrı bir PR'ın konusudur ve bu
+  düzeltme onun ÖN KOŞULUDUR: kadans-bağımlı sönümleme dururken tempoyu yükseltmek
+  saha-ayarlı kamera hissini sessizce bozardı.
+
+  **Aynı turda ölçülüp KAPATILMAYAN açık borçlar (bkz. kütük):** ölü hesaplama
+  yolunda 16 ms'lik kamera kapısı (`FullMapView.drInterval`) · tam ekranın hâlâ
+  `interpolateNavPoint` kullanması (tek işaret-hareket otoritesi sözleşmesi henüz
+  yapısal DEĞİL) · dikey navigasyon için yerleşim modu yokluğu (`useDenseHud` yalnız
+  YÜKSEKLİĞE bakar) · mini haritada viewport-oransız rota kalınlığı.
+
 - **NAVIGATION-CAMERA-SHADOW · Kamera Politikası Gölge Doğrulaması (2026-08-05):**
   tam suite **10769 test / 477 dosya**, **iki ardışık koşumda da TEMİZ**;
   `tsc -b --force` temiz; yeni/değişen dosyalarda eslint **0 sorun**.
@@ -1747,7 +2223,7 @@ değildir** — vizyon rezervuarıdır. Bir madde ancak P0–P3'e taşındığı
 | AI DJ | YOK | HAYIR | Vizyon rezervuarı |
 | AI Radio | YOK | HAYIR | Vizyon rezervuarı |
 | Doğal konuşma | ENTEGRE | HAYIR | `semanticAiService` + parser; saha kanıtı yok. **2026-07-24:** "muhabbet edilebilirlik" 3 KÖKÜ düzeltildi — (a) emniyet pencereleri (takip 20sn/idle 15sn) uzun cevabı `ttsCancel()` ile ortadan kesiyordu → `isTtsSpeaking()` ile tavanlı uzatma **🔴 #95**, (b) kendi süre bütçemizin timeout'u "ağ öldü" sayılıp 2 komutta 90sn offline yapıyordu → kesicide ayrı/yüksek eşik **🔴 #95**, (c) **canlı cihazda yakalandı:** Anthropic CORS `TypeError`'ı ağ ölümü sayılıp ~2 dakikada bir 90sn offline üretiyordu (aynı turda 4 sağlayıcı HTTP yanıtı verirken!) → tur-kapsamlı `sawHttpResponse` kanıtı **🔴 #97**. Üçü de cihaz doğrulaması bekliyor |
-| Medya yönlendirme | ENTEGRE | HAYIR | `youtubeService`/`musicCommandParser`; tam sesli kontrol kısmi. **2026-07-29 (Müzik Hub Paket A):** Mavi'nin `media.play/pause/next` komutları artık tek kapıdan (`MediaCommandGateway`) geçer ve **typed `CommandTruth`** döner; ses kanıtı üretilemeyen kaynakta (Spotify Connect · YouTube · harici oturum) asistan **"çalıyor" DEMEZ**, "başlatma isteği gönderildi" der; başarısızlıkta port throw eder → `ok:false`. **🔴 #170 cihaz doğrulaması bekliyor** |
+| Medya yönlendirme | ENTEGRE | HAYIR | `youtubeService`/`musicCommandParser`; tam sesli kontrol kısmi. **2026-07-29 (Müzik Hub Paket A):** Mavi'nin `media.play/pause/next` komutları artık tek kapıdan (`MediaCommandGateway`) geçer ve **typed `CommandTruth`** döner; ses kanıtı üretilemeyen kaynakta (Spotify Connect · YouTube · harici oturum) asistan **"çalıyor" DEMEZ**, "başlatma isteği gönderildi" der; başarısızlıkta port throw eder → `ok:false`. **🔴 #170 cihaz doğrulaması bekliyor**. **2026-08-08 (#477/#478):** kapı gerçeği üretiyordu ama `mediaService` onu **atıyordu** — "sonraki parça" cihazda sahte onay verirken parça değişmiyordu; sonuç artık `MediaCommandResult{dispatched, verified, failureCode}` ile taşınır ve **yalnız `VERIFIED`** başarı sayılır. Kaynaksız "müzik aç" harici uygulamayı devralmayı bıraktı, gömülü katmana hizalandı; bulunamazsa **dürüst red** verilir. **🔴 #477/#478 cihazda ölçülmedi** |
 | **Tek playback otoritesi (Native Audio Core)** | ENTEGRE | HAYIR | **2026-07-29 · Müzik Hub Paket A.** Öncesi: 5 ayrı ses alanı (harici MediaController · ham MediaPlayer · HTMLAudioElement · YouTube IFrame · Spotify Connect), **audio focus YOK · becoming-noisy YOK · MediaSession YOK · foreground servis YOK · process-death kurtarması YOK**, kaynak devri best-effort (çift ses riski), "komut kabul edildi" = "çalıyor". Sonrası: `CarosPlaybackService` (Media3 + ExoPlayer) + `CarosAudioFocusManager` + 10 modüllük JS çekirdeği (playback truth · yetenek sözleşmesi · işlemsel devir · nested duck · tek ses formülü · kurtarma · komut kapısı). Legacy hatlar silinmedi, otoriteye YÖNLENDİRİLDİ. **Test yazımında iki gerçek kusur ölçüldü ve düzeltildi:** `playSource` kilitlenmesi (her çalma komutu sonsuza asılırdı) ve rollback'in hata kodunu silmesi. 62 JS + 17 Robolectric kilidi. **🔴 #169 — HİÇBİRİ CİHAZDA ÖLÇÜLMEDİ** |
 | **Kuyruk kurtarma + cihaz doğrulama altyapısı** | ENTEGRE | HAYIR | **2026-07-29 · Müzik Hub Paket B.** Paket A sapmayı yalnız TESPİT ediyordu; artık **bounded kurtarma** var: native timeline otoritedir, UI projeksiyondur, kurtarma **çalan medyayı değiştirmez** (oynatıcıya komut YOK). Dört güvenlik şartı kilitli: kullanıcı komutu önceliği · devir sürerken başlamama · dış otoritede fail-closed · deneme+cooldown+devre kesici. Bayat karar (generation/revision değişimi) ATILIR. Ayrıca **41 senaryoluk makine-okur cihaz doğrulama sözleşmesi** (A–H) + bounded olay izi (JS + native, monotonic saat, allowlist'li kod alanı). **Kanıtsız PASS otomatik BLOCKED'a düşer.** Paket A'da ölçülen 3 kusur düzeltildi: gecikmeli odak ölü yolu (telefon görüşmesi sonrası müzik hiç başlamıyordu), bayat focus callback'i, uzlaştırma yanlış pozitifi (native = UI'nin 120'lik penceresi). **🔴 #173 — cihazda ölçülmedi** |
 | **Medya gözlem yüzeyi (CAROS LAB)** | ENTEGRE | HAYIR | **2026-07-29.** LAB → Çalışma Zamanı → **Medya Otoritesi**: 7 kart (otorite/kaynak · oynatma gerçeği · ses odağı-yol · ses-ducking · kuyruk · komut kanıtı · kurtarma), salt-okunur, timer yok. "Ses üretiliyor (kanıtlı)" ile "yalnız istek" AYRI hüküm; kanıt yoksa **UNAVAILABLE** (sahte 0/sahte "sağlıklı" yok). Kuyruk sapması (`UI_AHEAD · NATIVE_AHEAD · INDEX_DRIFT · …`) tipli gösterilir — **bu paket sapmayı düzeltmez, görünür kılar**. Başlık/sanatçı/URI/kapak LAB'a girmez. **🔴 #170** |
@@ -1844,6 +2320,7 @@ değildir** — vizyon rezervuarıdır. Bir madde ancak P0–P3'e taşındığı
 | Ç-7 | **İki paralel hız sistemi** var ve *akıllı olan* ana yolda değil. | `speedFusion.ts` plausibility + histerezis + kalibrasyon içerir ama yalnız MiniMap/telemetry'de; ana gösterge yolu (worker → resolver → HAL store) bunlardan **hiçbirine** sahip değildi. | **Kısmen kapatıldı** (`931b41c` çelişki kapısını ana yola koydu). **Açık borç:** iki sistemin varlığı mimari bir kokudur — uzun vadede tek otoriter hız kaynağı olmalı (Digital Twin provenance ile birlikte, P2-5). |
 | Ç-9 | "Bağlantıyı Sıfırla" saha'da **görünür lifecycle üretmiyordu** → kayıtlı cihaz "bağlı gibi" kalıyor, UI/native aynı gerçeği gösterip göstermediği belirsizdi. | `OBDConnectModal.tsx`: reset + reconnect TEK senkron tick'te; `resetObdConnection` void (async native disconnect fire-and-forget). Native disconnect zinciri aslında tamdı → boşluk UX/gözlemlenebilirlikte. | **Düzeltildi** (PR-OBD-CONN-1): reset artık Promise (native disconnect'i bekler) + buton "Sıfırlanıyor…"/disabled + bounded lifecycle telemetrisi (`obdDeep.connLifecycle`). **Açık borç:** stale-veri "connected" rozetini gizleme (freshness-gated badge) ayrı PR. **🔴 Trafic'te doğrulanmadı.** |
 | Ç-8 | Kod yorumu "**Vite prod'da `worker.format:'iife'` → `type:'module'`'ü classic'e ZORLAR**" diyordu; bu YANLIŞTI. | Duster saha raporu `44a81bd1` (WebView 74): `VehicleCompute:create — Failed to construct 'Worker': Module scripts are not supported on DedicatedWorker` (tekrarlı) + `%45 ana thread donması` verdict'i. Prod bundle incelemesi: worker DOSYASI IIFE ama call-site `{type:"module"}` **kalıyordu** → Vite `type`'ı call-site'ta değiştirMEZ. | **Düzeltildi** (PR-RUNTIME-WORKER-1): iki literal-type call-site (`import.meta.env.DEV` ölü-kod eleme ile prod'da 'classic' bırakır). Prod bundle artık `{type:"classic"}`. **Ders:** worker DOSYA formatı ≠ constructor `type` seçeneği — ikisi ayrı ayrı doğrulanmalı; "Vite halleder" varsayımı bundle denetimiyle sınanmadan yazılmamalı. **🔴 Duster/8227L cihazda worker round-trip doğrulaması bekliyor.** |
+| Ç-10 | Kütük **#471 (PR-3b)** "tam suite **10 993 test / 485 dosya** — `--testTimeout=30000` ile **TEMİZ**" diyor; PR-451a turunda ölçülen: **11 016/11 019 · 3 DÜŞTÜ**, üçü de `routeColorPolicy.test.ts` içinde. | Tek başına koşumda da deterministik düşüyor (`npx vitest run src/__tests__/routeColorPolicy.test.ts`): "TEHLİKE yüksekken kademe 1→0 … amber KORUNUR" ve "YENİDEN ÇİZİM … tehlike rengi KAYBOLMAZ" → beklenen `#f59e0b`, gelen **`#0A0C10`**; "BAYAT ANAHTAR TUZAĞI…" → beklenen `#ffffff`, gelen **`#0A0C10`**. **Kök:** bu üç ENTEGRASYON testi PR-3a döneminde, kılıf her zaman `#ffffff` iken yazıldı ve `syncRouteColor` üzerinden **gerçek** `resolveLightBasemap()`i çağırıyor; test ortamında `getMapNight()=false` + `getMapMode()='road'` → `lightBasemap=true` → PR-3b'nin açık-zemin mürekkebi `#0A0C10` yazılıyor. Testler PR-3b'de **güncellenmedi**. | **Ölçüm kazandı — #471'in "TEMİZ" iddiası DÜŞTÜ.** Bu bir ÜRÜN kusuru değil, **bayat kilit testi** kusuruydu: `#0A0C10` PR-3b'nin bilinçli ve kütüğe yazılmış kararıdır (açık zeminde kılıf koyu mürekkep, tehlike sinyali **halo** üzerinden taşınır). PR-451a bu dosyaya dokunmadı (kapsam dışı, atomiklik). **✅ ÇÖZÜLDÜ (2026-08-08, Ç-10 test bakım turu):** ürün kodu DEĞİŞMEDİ; yalnız `routeColorPolicy.test.ts` güncellendi. Kök sebep testin ENTEGRASYON bloğunun zemin kutbunu **hiç sürmemesi** ve ortam varsayılanına (gündüz+road → AÇIK) sessizce bağlanmasıydı — PR-3a'da kılıf her zaman `#ffffff` olduğu için bu bağımlılık görünmüyordu. Üç kilit `withPole()` ile kutbu AÇIKÇA sürüyor ve artık **iki kutupta birden** koşuyor (3 test → 6): açık zeminde kılıf `#0A0C10`, koyu zeminde `#ffffff`/amber; her ikisinde de halo tehlikede amber KALIR. Kilit **zayıflatılmadı, GÜÇLENDİ** — açık zeminde kılıf tehlike/normal ayrımı taşımadığı için "boya gerçekten yazıldı mı" sorusunu halo yanıtlar ve bu ayrıca kilitlendi. Sonuç: tam suite **11 022/11 022** (varsayılan timeout, `--testTimeout=30000` gerekmedi) · guard **368/368** · `tsc -b` temiz · eslint 0. #471'in "tam suite temiz" iddiası artık ölçümle karşılanıyor. |
 
 ---
 
@@ -2005,14 +2482,20 @@ yoktur, kabul ölçütleri kütükte 🔴 beklemektedir.
 
 **Bilinçli YAPILMAYANLAR (açık borç):**
 
-- **#451 — konum ölü hesabı (tünel modu) hâlâ ÖLÜ ÖZELLİK.** `_startDeadReckoning()`
-  boş; worker yalnız odometre mesafesini ilerletiyor, lat/lon üretmiyor.
-  Doğru çözüm çok-sistemli (gpsService · worker · sinyal zarfı · HUD) ve
-  odometre çift-sayımı riski taşıyor (worker zaten GPS sessizliğinde mesafe
-  ekliyor) → `AI.md`/CLAUDE.md "çok-sistemli refactor yapma" kuralı gereği
-  kendi turuna bırakıldı. **Kapsam net:** DR konumları `isEstimated` bayrağıyla
-  taşınmalı, odometre bu fix'leri ATLAMALI, HUD dürüstçe "GPS yok — konum
-  tahmini" göstermeli. Dönüş rampası (`calculateFusionRamp`) ZATEN hazır.
+- **#451 — KISMEN KAPANDI (PR-451a, kütük #472); teşhisi de düzeltildi.**
+  Buradaki eski ifade ("konum ölü hesabı YOK") **yanlıştı**: `gpsService` ve
+  worker doğru okunmuştu ama `navigationSessionRuntime._drTick` konum ÜRETİYOR
+  ve `updateRouteProgress`e besliyor. Ölü olan özellik değil, projeksiyonun
+  **EKSENİYDİ** — düz heading atışı virajda 60 sn tavanına ulaşamadan koridoru
+  aşıyordu (türetme: s²/(2R), R=400 m'de ~8 sn). PR-451a ekseni rota
+  geometrisine bağladı; sapma R≈400 m yayda 60 sn boyunca < 1 m (kilitli).
+  **HÂLÂ AÇIK olanlar:** (a) `isDeadReckoningActive()` hâlâ `gpsService`e bakar
+  ve **daima false** → HUD'da "GPS yok — konum tahmini" uyarısı **hâlâ yok**;
+  (b) worker'daki ikinci (odometre) DR sahibi duruyor — odometre çift-sayımı
+  riski bu yüzden sürüyor; (c) GPS dönüşünde fusion/reconciliation yok → tünel
+  çıkışında konum sıçraması BEKLENİR. Dönüş rampası (`calculateFusionRamp`)
+  ZATEN hazır ama BAĞLI DEĞİL. DR konumlarının `isEstimated` bayrağıyla
+  taşınması da açık — bu üçü çok-sistemli olduğu için ayrı turlara bırakıldı.
 - **#455 — `vehicleCtx.speedKmh` sahte `0`.** `VehicleContext.speedKmh` tipi
   nullable değil; dürüstleştirmek Mavi yığınında çok-sistemli tip değişimi
   demek. Güvenlik açığı DEĞİL (doğrulandı: `maviActionAuthority` fail-closed).
