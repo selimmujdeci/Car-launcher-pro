@@ -969,7 +969,18 @@ describe('K24 CAN-flood perf düzeltmesi — connectivityService IDB cache kilid
    Kilit: _hasAnyField allocation-free VE doğru semantiği (gerçekten boşsa false)
    uygular; bir daha sessizce eski dead-code deseni geri gelmemeli.
    ─────────────────────────────────────────────────────────────── */
-describe('K24 CAN-flood perf düzeltmesi — hot-path allocation kilidi', () => {
+/*
+ * ⚠️ TAVAN YÜKSELTİLDİ (2026-08-08) — KİLİT ZAYIFLATILMADI.
+ * Bu blok `await import('../platform/vehicleDataLayer')` yapar; `vehicleDataLayer`
+ * grafiği 360+ modüldür. Tam takım koşumunda (497 dosya, paralel worker'lar)
+ * yalnız modül çözümlemesi 5 sn'lik VARSAYILAN tavanı aşıp
+ * "Test timed out in 5000ms" veriyordu — iddia değil, YÜKLEME yavaşlığı.
+ * Kilit tek başına ve küçük takımlarda hep geçiyordu; takım büyüdükçe düştü.
+ * Aynı kırılganlık `labTruthAuthorities.test.ts` T1 bloğunda daha önce
+ * ölçülmüş ve BİREBİR aynı çözümle (blok düzeyinde tavan) kapatılmıştı.
+ * Test ettiği DAVRANIŞ ve beklentiler değişmedi.
+ */
+describe('K24 CAN-flood perf düzeltmesi — hot-path allocation kilidi', { timeout: 30_000 }, () => {
   it('DAVRANIŞ: _hasAnyField boş objede false döner — eski "d !== raw ||" kısa devresi HER ZAMAN true dönen dead-code bug\'ıydı', async () => {
     const { _hasAnyField } = await import('../platform/vehicleDataLayer');
     // Bug: applyProfileGate Safe Mode'da tüm alanlar undefined olsa bile

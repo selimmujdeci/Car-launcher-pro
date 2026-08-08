@@ -16,7 +16,7 @@ import { logError } from '../crashLogger';
 import { handleSatelliteTileError, setActiveMapSource, getMapStyle, getMapNight } from '../mapSourceManager';
 import { cacheLRUManager } from '../../core/storage/CacheLRUManager';
 import { M, useMapStore, getOnlineTileStyle, type MapConfig } from './_mapState';
-import { _applyRouteGeometry } from './MapLayerManager';
+import { _applyRouteGeometry, ensureRoadShieldImages } from './MapLayerManager';
 import { _setupRouteInteractions, _cleanupRouteInteractions } from './MapInteractionManager';
 import { hasWeakGpu } from '../../utils/detectWeakGpu';
 import { getDeviceTier } from '../deviceCapabilities';
@@ -237,6 +237,10 @@ async function _initCore(
     map.on('style.load', () => {
       useMapStore.setState({ isReady: true });
       logInfo('[MAP_READY]');
+      // Yol numarası kalkanı imajı stille birlikte GİTMEZ — her stil yüklemesinde
+      // (gündüz/gece geçişi dahil) yeniden kaydedilmeli, yoksa `road-shield`
+      // katmanı sessizce boş kalır. force=true: bayat GPU imajını tazele.
+      try { ensureRoadShieldImages(map, true); } catch { /* fail-soft: kalkan yoksa harita yaşar */ }
       _setupRouteInteractions(map); // C7.2 — ilk yüklemede etkileşimleri kur
       if (M.cachedRoute && M.cachedRoute.coords?.length > 2) {
         _applyRouteGeometry(map, M.cachedRoute.coords, M.cachedRoute.alts, M.cachedRoute.altIdx);

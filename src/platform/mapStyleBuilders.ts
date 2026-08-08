@@ -1,5 +1,6 @@
-import type { StyleSpecification, LayerSpecification } from 'maplibre-gl';
+import type { StyleSpecification, LayerSpecification, FilterSpecification } from 'maplibre-gl';
 import type { MapSource } from './mapSourceTypes';
+import { SHIELD_IMG_DAY, SHIELD_IMG_NIGHT } from './map/_mapState';
 
 /**
  * Navigation Focus Mode — 3-tier tiered road suppression manifest (Faz 3.2).
@@ -106,6 +107,19 @@ interface VectorPalette {
   readonly buildingOutline: string;
   readonly bldg3d: readonly [string, string, string];
   readonly bldg3dOpacity: number;
+  /**
+   * Bina tabanı kararma şiddeti (`fill-extrusion-ambient-occlusion-intensity`).
+   * Gündüz BEYAZ binalarda hacmi TEK gösteren şey budur — beyaz zeminde beyaz
+   * bloklar aksi hâlde düz kâğıt gibi durur. Gecede tersi: zemin zaten koyu,
+   * fazla kararma binayı zeminde eritir.
+   */
+  readonly bldg3dAO: number;
+  /** Yol numarası kalkanı zemini (E-5 · D-100) — çalışma zamanı imajıyla eşleşir. */
+  readonly shieldImage: string;
+  /** Tünel gövdesinin görünürlüğü — yüzeyin ALTINDA olduğu okunmalı. */
+  readonly tunnelOpacity: number;
+  /** Köprü kasası — güverte kenarı, altındaki yolu kesmeli. */
+  readonly bridgeCasing: string;
   readonly motorwayCasing: string;
   readonly primaryCasing: string;
   readonly minorCasing: string;
@@ -134,6 +148,10 @@ const NIGHT_PALETTE: VectorPalette = {
   buildingOutline: '#2c3346',
   bldg3d:          ['#1d2230', '#2c3346', '#313850'],
   bldg3dOpacity:   0.78,
+  bldg3dAO:        0.30,
+  shieldImage:     SHIELD_IMG_NIGHT,
+  tunnelOpacity:   0.42,
+  bridgeCasing:    '#0b0e14',
   motorwayCasing:  '#2a2418',
   primaryCasing:   '#16161d',
   minorCasing:     '#101015',
@@ -180,6 +198,12 @@ const DAY_PALETTE: VectorPalette = {
   buildingOutline: '#c3cbd5',
   bldg3d:          ['#ffffff', '#f4f7fa', '#e7ecf1'],
   bldg3dOpacity:   0.95,
+  // Gündüz AO gecenin ÜSTÜNDE: beyaz bina + beyaza yakın zemin ancak taban
+  // kararmasıyla hacim kazanır (bina/zemin dolgu farkı yalnız 1.07).
+  bldg3dAO:        0.48,
+  shieldImage:     SHIELD_IMG_DAY,
+  tunnelOpacity:   0.34,
+  bridgeCasing:    '#39424f',
   // Kasalar gövdeden bir ton koyu → yol kenarı zeminde kaybolmaz.
   motorwayCasing:  '#515b6a',
   primaryCasing:   '#6e7887',
@@ -197,6 +221,44 @@ const DAY_PALETTE: VectorPalette = {
   poiStrong:       0.9,
   poiWeak:         0.75,
 };
+
+/**
+ * Yüzey yolları için brunnel kapısı.
+ *
+ * OpenMapTiles `transportation` katmanında `brunnel` alanı bir yolun köprü mü,
+ * tünel mi yoksa yüzey mi olduğunu söyler. Bu kapı OLMADAN üç durum da AYNI
+ * çizilir → katlı kavşak düz bir gri yumak olur, sürücü hangi kolun üstten
+ * geçtiğini okuyamaz.
+ *
+ * Alan YOKSA (`null`) `in` false döner → `!` true → yol yüzey sayılır. Yani
+ * brunnel taşımayan karo setlerinde davranış BUGÜNKÜYLE BİREBİR aynıdır —
+ * bu değişiklik veri yoksa hiçbir şeyi bozmaz.
+ */
+function surfaceOnly(classFilter: FilterSpecification): FilterSpecification {
+  return ['all',
+    classFilter,
+    ['!', ['in', ['get', 'brunnel'], ['literal', ['bridge', 'tunnel']]]],
+  ] as FilterSpecification;
+}
+
+/** Yalnız köprü ya da yalnız tünel — sınıf ayrımı genişlikte yapılır. */
+function brunnelOnly(kind: 'bridge' | 'tunnel'): FilterSpecification {
+  return ['==', ['get', 'brunnel'], kind] as FilterSpecification;
+}
+
+/**
+ * Köprü/tünel katmanları TEK katmanda tüm yol sınıflarını taşır (katman sayısı
+ * head unit'te bütçe kalemidir). Genişlik sınıfa göre `match` ile seçilir.
+ */
+function brunnelWidth(scale: number): FilterSpecification {
+  const byClass = (z8: number, z14: number, z18: number) =>
+    ['interpolate', ['linear'], ['zoom'], 8, z8 * scale, 14, z14 * scale, 18, z18 * scale];
+  return ['case',
+    ['in', ['get', 'class'], ['literal', ['motorway', 'trunk']]], byClass(4, 12, 20),
+    ['in', ['get', 'class'], ['literal', ['primary', 'secondary']]], byClass(2.5, 9, 15),
+    byClass(1.2, 5, 9),
+  ] as unknown as FilterSpecification;
+}
 
 export function buildVectorStyle(
   sources: Map<string, MapSource>,
@@ -318,10 +380,38 @@ export function buildVectorStyle(
           'fill-extrusion-height': ['coalesce', ['get', 'render_height'], ['get', 'height'], 10],
           'fill-extrusion-base':   ['coalesce', ['get', 'render_min_height'], ['get', 'min_height'], 0],
           'fill-extrusion-vertical-gradient': true,
-          'fill-extrusion-ambient-occlusion-intensity': 0.35,
+          'fill-extrusion-ambient-occlusion-intensity': P.bldg3dAO,
           'fill-extrusion-ambient-occlusion-radius':    10,
         },
       } as LayerSpecification,
+
+      // ── Tüneller — yüzey yollarının ALTINDA ───────────────
+      // Sıra kasıtlı: tünel önce çizilir, üstüne yüzey yolları biner. Böylece
+      // tünelin dağın/şehrin altından geçtiği okunur. Kesikli kasa + soluk gövde
+      // "burada yol var ama görünmüyor" demenin OEM standardı yoludur.
+      { id: 'road-tunnel-casing',
+        type: 'line',
+        source: 'omv',
+        'source-layer': 'transportation',
+        filter: brunnelOnly('tunnel'),
+        layout: { 'line-cap': 'butt', 'line-join': 'round' },
+        paint: {
+          'line-color': P.minorCasing,
+          'line-width': brunnelWidth(1.15) as unknown as number,
+          'line-dasharray': [2.4, 1.6],
+          'line-opacity': P.tunnelOpacity,
+        } } as LayerSpecification,
+      { id: 'road-tunnel',
+        type: 'line',
+        source: 'omv',
+        'source-layer': 'transportation',
+        filter: brunnelOnly('tunnel'),
+        layout: { 'line-cap': 'butt', 'line-join': 'round' },
+        paint: {
+          'line-color': P.bg,
+          'line-width': brunnelWidth(0.82) as unknown as number,
+          'line-opacity': P.tunnelOpacity + 0.24,
+        } } as LayerSpecification,
 
       // ── Roads: casings (outlines) ─────────────────────────
       // OEM: otoyol kasası sıcak-koyu (sadece aktif rota altın renkte parlar)
@@ -329,7 +419,7 @@ export function buildVectorStyle(
         type: 'line',
         source: 'omv',
         'source-layer': 'transportation',
-        filter: ['in', ['get', 'class'], ['literal', ['motorway', 'trunk']]],
+        filter: surfaceOnly(['in', ['get', 'class'], ['literal', ['motorway', 'trunk']]]),
         layout: { 'line-cap': 'round', 'line-join': 'round' },
         paint: {
           'line-color': P.motorwayCasing,
@@ -339,7 +429,7 @@ export function buildVectorStyle(
         type: 'line',
         source: 'omv',
         'source-layer': 'transportation',
-        filter: ['in', ['get', 'class'], ['literal', ['primary', 'secondary']]],
+        filter: surfaceOnly(['in', ['get', 'class'], ['literal', ['primary', 'secondary']]]),
         layout: { 'line-cap': 'round', 'line-join': 'round' },
         paint: {
           'line-color': P.primaryCasing,
@@ -349,7 +439,7 @@ export function buildVectorStyle(
         type: 'line',
         source: 'omv',
         'source-layer': 'transportation',
-        filter: ['in', ['get', 'class'], ['literal', ['tertiary', 'minor', 'service']]],
+        filter: surfaceOnly(['in', ['get', 'class'], ['literal', ['tertiary', 'minor', 'service']]]),
         minzoom: 12,
         layout: { 'line-cap': 'round', 'line-join': 'round' },
         paint: {
@@ -363,7 +453,7 @@ export function buildVectorStyle(
         type: 'line',
         source: 'omv',
         'source-layer': 'transportation',
-        filter: ['in', ['get', 'class'], ['literal', ['motorway', 'trunk']]],
+        filter: surfaceOnly(['in', ['get', 'class'], ['literal', ['motorway', 'trunk']]]),
         layout: { 'line-cap': 'round', 'line-join': 'round' },
         paint: {
           'line-color': P.motorway,
@@ -376,7 +466,7 @@ export function buildVectorStyle(
         type: 'line',
         source: 'omv',
         'source-layer': 'transportation',
-        filter: ['==', ['get', 'class'], 'primary'],
+        filter: surfaceOnly(['==', ['get', 'class'], 'primary']),
         layout: { 'line-cap': 'round', 'line-join': 'round' },
         paint: {
           'line-color': P.primary,
@@ -386,7 +476,7 @@ export function buildVectorStyle(
         type: 'line',
         source: 'omv',
         'source-layer': 'transportation',
-        filter: ['in', ['get', 'class'], ['literal', ['secondary', 'tertiary']]],
+        filter: surfaceOnly(['in', ['get', 'class'], ['literal', ['secondary', 'tertiary']]]),
         layout: { 'line-cap': 'round', 'line-join': 'round' },
         paint: {
           'line-color': P.secondary,
@@ -396,13 +486,43 @@ export function buildVectorStyle(
         type: 'line',
         source: 'omv',
         'source-layer': 'transportation',
-        filter: ['in', ['get', 'class'], ['literal', ['minor', 'service', 'track']]],
+        filter: surfaceOnly(['in', ['get', 'class'], ['literal', ['minor', 'service', 'track']]]),
         minzoom: 12,
         layout: { 'line-cap': 'round', 'line-join': 'round' },
         paint: {
           'line-color': P.minor,
           'line-width': ['interpolate', ['linear'], ['zoom'], 12, 0.4, 14, 2, 18, 6],
         } },
+
+      // ── Köprüler — yüzey yollarının ÜSTÜNDE ───────────────
+      // Sıra kasıtlı: köprü EN SON çizilir, altındaki yolu keser. Kasa gövdeden
+      // belirgin daha geniştir → güverte kenarı gölge gibi okunur ve katlı
+      // kavşakta hangi kolun üstten geçtiği bir bakışta anlaşılır.
+      { id: 'road-bridge-casing',
+        type: 'line',
+        source: 'omv',
+        'source-layer': 'transportation',
+        filter: brunnelOnly('bridge'),
+        layout: { 'line-cap': 'butt', 'line-join': 'round' },
+        paint: {
+          'line-color': P.bridgeCasing,
+          'line-width': brunnelWidth(1.42) as unknown as number,
+        } } as LayerSpecification,
+      { id: 'road-bridge',
+        type: 'line',
+        source: 'omv',
+        'source-layer': 'transportation',
+        filter: brunnelOnly('bridge'),
+        layout: { 'line-cap': 'butt', 'line-join': 'round' },
+        paint: {
+          // Gövde rengi sınıfı izler → köprüde de yol hiyerarşisi korunur.
+          'line-color': ['case',
+            ['in', ['get', 'class'], ['literal', ['motorway', 'trunk']]], P.motorway,
+            ['in', ['get', 'class'], ['literal', ['primary', 'secondary']]], P.primary,
+            P.minor,
+          ] as unknown as string,
+          'line-width': brunnelWidth(1.0) as unknown as number,
+        } } as LayerSpecification,
 
       // ── Situational POIs — automotive kritik noktalar ─────
       // OMT schema: poi source-layer, class değerleri
@@ -481,6 +601,43 @@ export function buildVectorStyle(
             'text-halo-width': 2.2,        // kalın halo → gün ışığı kontrast
             'text-halo-blur': 0.5,
           } },
+        /* ── Yol numarası kalkanı (E-5 · D-100 · O-4) ──────────────────────
+           Sürücü tabelayı haritayla EŞLEŞTİRİR: yol adı yeterli değildir,
+           numara birincil referanstır. `ref` alanı OMT `transportation_name`
+           katmanında zaten geliyordu, yalnız hiç kullanılmıyordu.
+
+           `icon-text-fit: 'both'` sayesinde tek bir arkaplan imajı metne göre
+           esner → "E-5" ve "D-100" aynı imajla doğru genişlikte çıkar; her
+           numara için ayrı görsel üretilmez. İmaj çalışma zamanında canvas'ta
+           üretilir (stilde sprite YOK) — id palet üzerinden paylaşılır. */
+        { id: 'road-shield',
+          type: 'symbol',
+          source: 'omv',
+          'source-layer': 'transportation_name',
+          minzoom: 9,
+          filter: ['all',
+            ['has', 'ref'],
+            ['in', ['get', 'class'], ['literal', ['motorway', 'trunk', 'primary']]],
+          ] as FilterSpecification,
+          layout: {
+            'text-field': ['get', 'ref'],
+            'text-font': ['Noto Sans Bold'],
+            'text-size': ['interpolate', ['linear'], ['zoom'], 9, 10, 14, 13],
+            'text-letter-spacing': 0.04,
+            'icon-image': P.shieldImage,
+            'icon-text-fit': 'both',
+            'icon-text-fit-padding': [2, 5, 2, 5],
+            'symbol-placement': 'line',
+            'symbol-spacing': 260,
+            'text-padding': 3,
+            'icon-allow-overlap': false,
+            'text-allow-overlap': false,
+          },
+          paint: {
+            'text-color': '#ffffff',
+            'text-halo-color': 'rgba(0,0,0,0.35)',
+            'text-halo-width': 0.8,
+          } } as LayerSpecification,
         { id: 'place-town',
           type: 'symbol',
           source: 'omv',

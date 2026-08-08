@@ -238,6 +238,18 @@ export const DEBUG_LAYER     = 'car-route-debug-line';
 export const SEL_SRC         = 'selected-route-source';
 export const BADGE_IMAGE_ID  = 'alt-badge-bg'; // C7.3 — premium glassmorphic badge arkaplanı
 
+/**
+ * Yol numarası kalkanı (E-5 · D-100 · O-4) arkaplan imajları.
+ *
+ * Stilde `sprite` TANIMLI DEĞİLDİR — bu yüzden kalkan `icon-image` ile statik
+ * bir sprite'tan gelemez; çalışma zamanında canvas'ta üretilip `addImage` ile
+ * kaydedilir (mevcut Rover/badge deseniyle aynı). Katman `mapStyleBuilders`
+ * içinde, imaj `MapLayerManager` içinde tanımlıdır → id'ler burada PAYLAŞILIR
+ * ki ikisi sessizce ayrışmasın (kilit: mapRoadTopologyLayers.test).
+ */
+export const SHIELD_IMG_DAY   = 'road-shield-day';
+export const SHIELD_IMG_NIGHT = 'road-shield-night';
+
 // ── Paylaşılan sabitler — pulse / mood ───────────────────────────────────────
 export const PULSE_TRANSPARENT = 'rgba(255,255,255,0)';
 export const MOOD_THROTTLE_MS  = 200;

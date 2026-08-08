@@ -51,6 +51,8 @@ import {
   DEBUG_LAYER,
   SEL_SRC,
   BADGE_IMAGE_ID,
+  SHIELD_IMG_DAY,
+  SHIELD_IMG_NIGHT,
   PULSE_TRANSPARENT,
   MOOD_THROTTLE_MS,
   MOOD_HYSTERESIS,
@@ -751,6 +753,64 @@ function _ensureBadgeImage(map: MapLibreMap): void {
     height: H,
     data:   new Uint8Array(imgData.data.buffer),
   });
+}
+
+/**
+ * Yol numarası kalkanı (E-5 · D-100) arkaplan imajlarını üretir ve kaydeder.
+ *
+ * NEDEN ÇALIŞMA ZAMANINDA: stilde `sprite` tanımlı DEĞİLDİR, bu yüzden kalkan
+ * statik bir sprite'tan gelemez. Canvas'ta üretmek ayrıca üç şey kazandırır:
+ * ek asset yok (lisans yüzeyi büyümez) · offline'da da çalışır · gündüz/gece
+ * ayrı üretilir.
+ *
+ * `stretchX/stretchY/content` ZORUNLUDUR: `icon-text-fit: 'both'` bunlar
+ * olmadan TÜM imajı esnetir ve yuvarlatılmış köşeler yamulur. Stretch bölgesi
+ * köşe yarıçapının içinde kalır → "E-5" ve "D-100" aynı imajla düzgün çıkar.
+ *
+ * force=true (stil reload / WebGL restore): GPU belleğindeki bayat imajı tazele.
+ */
+export function ensureRoadShieldImages(map: MapLibreMap, force?: boolean): void {
+  const PR = 2;                                   // HiDPI: 2× çiz, pixelRatio 2 bildir
+  const W = 40 * PR, H = 24 * PR, R = 5 * PR;
+
+  for (const [id, night] of [[SHIELD_IMG_DAY, false], [SHIELD_IMG_NIGHT, true]] as const) {
+    if (!force && map.hasImage(id)) continue;
+    if (map.hasImage(id)) { try { map.removeImage(id); } catch { /* ignore */ } }
+
+    const canvas = document.createElement('canvas');
+    canvas.width = W; canvas.height = H;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) continue;
+
+    // Avrupa/otoyol kalkanı: yeşil zemin + beyaz çerçeve (TR tabelasıyla aynı dil)
+    ctx.beginPath();
+    ctx.moveTo(R, 0);
+    ctx.lineTo(W - R, 0); ctx.arcTo(W, 0, W, R, R);
+    ctx.lineTo(W, H - R); ctx.arcTo(W, H, W - R, H, R);
+    ctx.lineTo(R, H);     ctx.arcTo(0, H, 0, H - R, R);
+    ctx.lineTo(0, R);     ctx.arcTo(0, 0, R, 0, R);
+    ctx.closePath();
+
+    ctx.fillStyle = night ? '#14602c' : '#1a7f37';
+    ctx.fill();
+    ctx.strokeStyle = night ? 'rgba(232,224,208,0.80)' : '#ffffff';
+    ctx.lineWidth = 1.6 * PR;
+    ctx.stroke();
+
+    const imgData = ctx.getImageData(0, 0, W, H);
+    map.addImage(
+      id,
+      { width: W, height: H, data: new Uint8Array(imgData.data.buffer) },
+      {
+        pixelRatio: PR,
+        // Esneme yalnız köşe yarıçaplarının ARASINDA olur.
+        stretchX: [[R + 2 * PR, W - R - 2 * PR]],
+        stretchY: [[R + 1 * PR, H - R - 1 * PR]],
+        // Metnin oturacağı iç alan (çerçeve payı bırakılır).
+        content: [3 * PR, 2 * PR, W - 3 * PR, H - 2 * PR],
+      },
+    );
+  }
 }
 
 function _startLightTrail(): void {

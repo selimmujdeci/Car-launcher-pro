@@ -32,6 +32,8 @@ describe('T1 — BlackBox RPM canonical telemetri zinciri', { timeout: 30_000 },
     rpm: 1636,
     lastSeenMs: 0,
     freshWindowMs: 12_000,
+    /** Otorite çöküşünü SİMÜLE eder — mock'u yeniden kurmadan (aşağıdaki nota bak). */
+    snapshotThrows: false,
   };
 
   beforeEach(() => {
@@ -41,14 +43,18 @@ describe('T1 — BlackBox RPM canonical telemetri zinciri', { timeout: 30_000 },
     obdState.rpm = 1636;
     obdState.lastSeenMs = Date.now();
     obdState.freshWindowMs = 12_000;
+    obdState.snapshotThrows = false;
 
     vi.doMock('../platform/obdService', () => ({
       onOBDData: () => () => undefined,
-      getOBDDataSnapshot: () => ({
-        rpm: obdState.rpm,
-        connectionState: obdState.connectionState,
-        lastSeenMs: obdState.lastSeenMs,
-      }),
+      getOBDDataSnapshot: () => {
+        if (obdState.snapshotThrows) throw new Error('bridge down');
+        return {
+          rpm: obdState.rpm,
+          connectionState: obdState.connectionState,
+          lastSeenMs: obdState.lastSeenMs,
+        };
+      },
       getObdSessionHealth: () => ({ dataFresh: obdState.dataFresh }),
       getObdFreshWindowMs: () => obdState.freshWindowMs,
     }));
@@ -89,15 +95,21 @@ describe('T1 — BlackBox RPM canonical telemetri zinciri', { timeout: 30_000 },
   });
 
   it('otorite patlarsa fail-closed null döner (uydurma yok)', async () => {
-    vi.resetModules();
-    vi.doMock('../platform/obdService', () => ({
-      onOBDData: () => () => undefined,
-      getOBDDataSnapshot: () => { throw new Error('bridge down'); },
-      getObdSessionHealth: () => ({ dataFresh: true }),
-      getObdFreshWindowMs: () => 12_000,
-    }));
-    const mod = await import('../platform/security/blackBoxService');
-    expect(mod.__testCanonicalObdRpm()).toBeNull();
+    /*
+     * ⚠️ KİLİT AYNI, DESENİ SAĞLAMLAŞTIRILDI (2026-08-08).
+     * Bu test tek başına `vi.resetModules()` + ikinci bir `vi.doMock()` +
+     * dinamik `import()` yapıyordu — dosyadaki diğer 40 testten FARKLI bir
+     * yol. `beforeEach` zaten aynı modül için bir mock kurduğu için ikinci
+     * kurulum modül önbelleğiyle yarışıyordu: tam takım koşumunda (paralel
+     * worker'lar altında) bazen ESKİ mock çözülüyor ve throw hiç olmadan
+     * rpm=1636 dönüyordu → kilit "1636 beklenirken null" diye DÜŞÜYORDU.
+     * Kırılgan olan ürün kodu değil, testin modül-yeniden-yükleme dansıydı.
+     *
+     * İddia değişmedi: otorite patladığında değer UYDURULMAZ, null döner.
+     * Artık çöküş `beforeEach`'teki TEK mock üzerinden bayrakla simüle edilir.
+     */
+    obdState.snapshotThrows = true;
+    expect(await sampleRpm()).toBeNull();
   });
 
   it('hız zinciri RPM zincirinden BAĞIMSIZ bozulmaz', async () => {

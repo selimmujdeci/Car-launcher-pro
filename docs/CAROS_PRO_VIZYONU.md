@@ -308,6 +308,48 @@ DOĞRULANDI 6 · SAHADA DOĞRULANDI 1 · **ÜRÜN HAZIR: 1**
   `getRerouteBlockStats`, `getDestinationChangeLog` ve `validationWarnIds` çıktılarıyla
   #432–#448'in kabul ölçütleri tek tek sınanmalı.
 
+- **ROAD-TOPOLOGY-P0 · Katlı Kavşak Okunur Oldu + Yol Numarası Kalkanı (2026-08-08, Topoloji PR):**
+  tam suite **11 252/11 252 · 497 dosya**; `npm run guard` **372/372**;
+  `tsc -b` temiz; değişen dosyalarda eslint **0 sorun**. 16 yeni kilit.
+  Kütük **#483** (+ **#484** takım kırılganlığı).
+  Durum: **ENTEGRE** (saha kanıtı YOK — **ÜRÜN HAZIR: HAYIR**).
+
+  **İki kusur, ikisi de VERİ EKSİKLİĞİ DEĞİLDİ — okunmayan alanlardı:**
+  `brunnel` (köprü/tünel) ve `ref` (yol numarası) karolarda zaten geliyordu,
+  stil ikisini de hiç okumuyordu. Sonuç: katlı kavşak düz gri yumaktı ve
+  sürücü "E-5" tabelasını haritayla eşleştiremiyordu.
+
+  **Topoloji sırayla anlatılır:** tünel katmanları kasaların **önüne**
+  (yüzeyin altında kalır, kesikli kasa + soluk gövde), köprü katmanları
+  gövdelerin **sonrasına** (altındaki yolu keser, kasası %42 geniş → güverte
+  kenarı gölge gibi okunur). Yedi yüzey yol katmanına `brunnel` kapısı eklendi.
+
+  **Veri yoksa davranış birebir aynı:** `brunnel` taşımayan karo setlerinde yol
+  yüzey sayılır — bu değişiklik veri yoksa hiçbir şeyi bozmaz.
+
+  **Kalkan için sprite yoktu.** Stilde `sprite` tanımlı değil, bu yüzden kalkan
+  **çalışma zamanında canvas'ta** üretilir (mevcut Rover/badge deseni): ek asset
+  yok, offline çalışır, gündüz/gece ayrı. `icon-text-fit` + stretch bölgeleri ile
+  **tek imaj metne göre esner** → "E-5" ve "D-100" için ayrı görsel gerekmez.
+  İmaj `style.load`'da yeniden kaydedilir (stille gitmez), çağrı fail-soft.
+
+  **Bina hacmi:** gündüz bina/zemin dolgu farkı yalnız 1.07 olduğu için beyaz
+  bloklar düz kâğıt gibi duruyordu; ambient occlusion palete bağlandı
+  (gündüz 0.48 · gece 0.30).
+
+  **Performans bütçesi:** sınıf başına ayrı katman +20 katman demekti; genişlik
+  tek katmanda `match` ile çözüldü → **toplam +5 katman**. Gece ve gündüz aynı
+  katman listesini üretir (`NAV_SUPPRESS_TIERS` isimle bağlı — ikinci liste
+  doğsaydı odak modu sessizce ölürdü).
+
+  **Yan bulgu (#484):** yeni testler takımı 497 dosyaya çıkarınca **iki ayrı
+  kilit ardışık koşumlarda farklı farklı düştü**. Değişiklikler stash'lenip
+  temiz ağaçta koşuldu → **11 236/11 236 geçti**, yani düşüşler ürün kodundan
+  değil takım büyümesinden geliyordu: `Test timed out in 5000ms`, 360+ modüllük
+  grafiklerin dinamik `import()` süresi. Biri blok tavanıyla, biri kırılgan
+  mock-yeniden-kurulum deseni kaldırılarak düzeltildi; ikincisi
+  **falsifikasyonla doğrulandı** (bayrak kapatılınca kilit düştü).
+
 - **DAY-PALETTE-P0 · Palet Onaylanan Tasarıma Hizalandı (2026-08-08, Palet Hizalama PR):**
   tam suite **11 236/11 236 · 496 dosya**; `tsc -b` temiz; değişen dosyalarda
   eslint **0 sorun**. Kütük **#482**.
