@@ -236,10 +236,17 @@ describe('YAPISAL kilitler — ikinci kalınlık otoritesi doğmaz', () => {
     }
     const widthWrites = (layerSrc + interSrc).match(/'line-width'/g) ?? [];
     const safeWrites  = (layerSrc + interSrc).match(/safeSetPaint\([^)]*'line-width'/g) ?? [];
-    // Kurulum sırasındaki paint sözlükleri safeSetPaint'ten geçmez (katman
-    // henüz yok); geri kalan her yazım geçmelidir.
+    /* Kurulum sırasındaki paint sözlükleri safeSetPaint'ten geçmez (katman
+       henüz yok); geri kalan her yazım geçmelidir.
+
+       PAY 6 → 7 (2026-08-08): yola boyanmış ok kenarı (`PAINTED_ARROW_EDGE`)
+       `addLayer` paint sözlüğünde sabit bir `line-width` taşır. Bu bir KURULUM
+       değeridir, çalışma zamanı yazımı değildir — ok kalınlığı rota kalınlık
+       otoritesine BAĞLI DEĞİLDİR ve onu etkilemez. Kilidin ölçtüğü şey
+       (çalışma zamanı kalınlık yazımlarının korumalı olması) DEĞİŞMEDİ;
+       yalnız meşru kurulum sözlüğü sayısı bir arttı. */
     expect(safeWrites.length, 'kalınlık yazımlarının bir kısmı korumasız')
-      .toBeGreaterThanOrEqual(widthWrites.length - 6);
+      .toBeGreaterThanOrEqual(widthWrites.length - 7);
   });
 
   it('🔒 ölçüm CANVAS\'tan alınır, pencereden DEĞİL', () => {

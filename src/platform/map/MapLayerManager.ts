@@ -12,6 +12,10 @@
 import maplibregl, { Map as MapLibreMap, GeoJSONSource, Marker } from 'maplibre-gl';
 import { setMapNight } from '../mapSourceManager';
 import { safeMoveLayer, safeSetPaint } from './_safeLayerOps';
+import type { PaintedArrowVerdict } from './core/paintedArrowModel';
+import {
+  _recordPaintedArrowVerdict, _recordPaintedArrowLayer,
+} from './core/paintedArrowAccess';
 import {
   computeRouteWidths, routeWidthExpression, breathingGlowWidth,
   type RouteWidths,
@@ -53,6 +57,9 @@ import {
   BADGE_IMAGE_ID,
   SHIELD_IMG_DAY,
   SHIELD_IMG_NIGHT,
+  PAINTED_ARROW_SRC,
+  PAINTED_ARROW_FILL,
+  PAINTED_ARROW_EDGE,
   PULSE_TRANSPARENT,
   MOOD_THROTTLE_MS,
   MOOD_HYSTERESIS,
@@ -452,6 +459,9 @@ export function applyMapDayNight(night: boolean, mapArg?: ReturnType<typeof useM
   setMarkerTheme(night);
   const map = mapArg ?? useMapStore.getState().mapInstance;
   if (!map) return;
+  // Boyanmış ok raster yolunda katmanını korur → rengi canlı tazelenmeli.
+  // (Vektör yolunda tam restyle olur; `style.load` zaten sıfırlayıp yeniden kurar.)
+  setPaintedArrowTheme(map, night);
   try {
     // 'tiles-layer' = buildRoadStyle/getOnlineTileStyle standardı; 'osm-tiles'/'osm-layer'
     // eski sabit stillerin id'leri — id eşleşmezse geçiş sessizce no-op oluyordu (gündüz
@@ -753,6 +763,112 @@ function _ensureBadgeImage(map: MapLibreMap): void {
     height: H,
     data:   new Uint8Array(imgData.data.buffer),
   });
+}
+
+/* ── Yola boyanmış manevra oku ────────────────────────────────────────────── */
+
+const _EMPTY_FC = { type: 'FeatureCollection' as const, features: [] as unknown[] };
+
+/** Son uygulanan hüküm — aynı durum tekrar yazılmasın (GPS fix'i 1 Hz gelir). */
+let _lastArrowKey = '';
+
+/* Gözlem durumu bu modülde TUTULMAZ — yaprak `paintedArrowAccess` modülünde
+   yaşar ki CAROS LAB onu okumak için maplibre-gl grafiğini import etmesin. */
+
+/**
+ * Boyanmış oku uygular. Görünmüyorsa kaynak BOŞ FeatureCollection'a çekilir —
+ * katman silinmez, çünkü silip yeniden eklemek stil sırasını bozar ve her
+ * manevrada katman yaratmak head unit'te GPU'yu gereksiz meşgul eder.
+ *
+ * Dedup: hüküm anahtarı değişmediyse `setData` HİÇ çağrılmaz. Ok geometrisi
+ * yalnız manevra çapası değişince değişir; mesafe yalnız görünürlüğü etkiler.
+ */
+export function setPaintedArrow(
+  map: MapLibreMap | null,
+  verdict: PaintedArrowVerdict,
+  anchorIndex: number,
+  night: boolean,
+): void {
+  if (!map || !map.isStyleLoaded()) return;
+
+  const key = verdict.visible
+    ? `v|${anchorIndex}|${verdict.turn}`
+    : `h|${verdict.reason}`;
+  if (key === _lastArrowKey && map.getSource(PAINTED_ARROW_SRC)) return;
+  _lastArrowKey = key;
+
+  _recordPaintedArrowVerdict(verdict.visible, verdict.reason);
+
+  const data = verdict.visible
+    ? {
+        type: 'FeatureCollection' as const,
+        features: [{
+          type: 'Feature' as const,
+          properties: {},
+          // readonly → mutable kopya: MapLibre/GeoJSON tipleri değiştirilebilir
+          // dizi ister; modelin çıktısı bilerek readonly'dir (saflık sözleşmesi).
+          geometry: {
+            type: 'Polygon' as const,
+            coordinates: [verdict.ring.map((p) => [p[0], p[1]])],
+          },
+        }],
+      }
+    : _EMPTY_FC;
+
+  try {
+    const src = map.getSource(PAINTED_ARROW_SRC) as maplibregl.GeoJSONSource | undefined;
+    if (src) {
+      src.setData(data as unknown as GeoJSON.FeatureCollection);
+      _recordPaintedArrowLayer(!!map.getLayer(PAINTED_ARROW_FILL));
+      return;
+    }
+
+    map.addSource(PAINTED_ARROW_SRC, {
+      type: 'geojson',
+      data: data as unknown as GeoJSON.FeatureCollection,
+    });
+
+    /* Rota çizgisinin ÜSTÜNE konur: ok rotanın üzerine boyanır, altına değil.
+       Kullanıcı işaretçisi (USER_LAYERS) daha da üstte kalır — araç okun
+       altında kaybolmamalı. */
+    map.addLayer({
+      id: PAINTED_ARROW_FILL,
+      type: 'fill',
+      source: PAINTED_ARROW_SRC,
+      paint: {
+        'fill-color': night ? '#5b96f7' : '#4285f4',
+        'fill-opacity': night ? 0.80 : 0.86,
+      },
+    });
+    map.addLayer({
+      id: PAINTED_ARROW_EDGE,
+      type: 'line',
+      source: PAINTED_ARROW_SRC,
+      layout: { 'line-join': 'round', 'line-cap': 'round' },
+      paint: {
+        'line-color': '#ffffff',
+        'line-width': 1.8,
+        'line-opacity': 0.9,
+      },
+    });
+    _recordPaintedArrowLayer(true);
+  } catch {
+    /* fail-soft: ok çizilemezse navigasyon aynen sürer — ok bir SÜS değil ama
+       KRİTİK de değildir; manevra bilgisi HUD'da zaten vardır. */
+  }
+}
+
+/** Tema değişiminde okun rengini tazeler (katman yeniden kurulmaz). */
+export function setPaintedArrowTheme(map: MapLibreMap | null, night: boolean): void {
+  if (!map || !map.isStyleLoaded() || !map.getLayer(PAINTED_ARROW_FILL)) return;
+  safeSetPaint(map, PAINTED_ARROW_FILL, 'fill-color', night ? '#5b96f7' : '#4285f4');
+  safeSetPaint(map, PAINTED_ARROW_FILL, 'fill-opacity', night ? 0.80 : 0.86);
+}
+
+/** Stil yeniden yüklendiğinde katman/kaynak gider → dedup anahtarı sıfırlanmalı. */
+export function _resetPaintedArrowCache(): void {
+  _lastArrowKey = '';
+  _recordPaintedArrowLayer(false);
 }
 
 /**

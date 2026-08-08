@@ -250,6 +250,17 @@ export const BADGE_IMAGE_ID  = 'alt-badge-bg'; // C7.3 — premium glassmorphic 
 export const SHIELD_IMG_DAY   = 'road-shield-day';
 export const SHIELD_IMG_NIGHT = 'road-shield-night';
 
+/**
+ * Yola boyanmış manevra oku — kaynak ve katman kimlikleri.
+ *
+ * `fill` (zemin düzlemi) olarak çizilir, `symbol` olarak DEĞİL: poligon coğrafi
+ * uzaydadır, dolayısıyla kamera eğildiğinde perspektif onu asfalta kendiliğinden
+ * yatırır. Sembol olsaydı ok havada durur ve eğimle kayardı.
+ */
+export const PAINTED_ARROW_SRC  = 'painted-arrow-src';
+export const PAINTED_ARROW_FILL = 'painted-arrow-fill';
+export const PAINTED_ARROW_EDGE = 'painted-arrow-edge';
+
 // ── Paylaşılan sabitler — pulse / mood ───────────────────────────────────────
 export const PULSE_TRANSPARENT = 'rgba(255,255,255,0)';
 export const MOOD_THROTTLE_MS  = 200;

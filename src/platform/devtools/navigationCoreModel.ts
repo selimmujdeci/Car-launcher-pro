@@ -367,6 +367,30 @@ export function buildNavigationCoreCards(s: NavigationCoreRawSnapshot): readonly
   cards.push({
     id: 'maneuver', title: NAV_CORE_CARD_TITLE.maneuver,
     fields: [
+      /* ── Yola boyanmış manevra oku ────────────────────────────────────────
+         Ok bir İDDİADIR; çizilmediğinde SEBEBİ görünür olmalı. "Çizemedim"
+         (çapa çözülmedi · geometri kısa) ile "çizmeye gerek yoktu" (düz devam ·
+         henüz uzak) sahada TAMAMEN farklı iki teşhistir ve bu ayrım ancak
+         gerekçe okunabildiğinde yapılabilir. Konum/sokak adı TAŞINMAZ. */
+      observed({ id: 'pa-state', label: 'Boyanmış ok', source: 'paintedArrowAccess',
+        note: 'Zemin düzlemine (fill) çizilir — sembol DEĞİL, bu yüzden eğimle asfalta yatar.',
+        updatedAt: null }, s.paintedArrow.visible ? 'ÇİZİLİYOR' : 'ÇİZİLMİYOR'),
+      observed({ id: 'pa-reason', label: 'Ok gerekçesi', source: 'paintedArrowAccess',
+        note: 'SHOWN dışındaki her değer okun NEDEN çizilmediğidir.',
+        updatedAt: null }, s.paintedArrow.reason),
+      observed({ id: 'pa-shown', label: 'Görünür oluş sayısı', source: 'paintedArrowAccess',
+        note: 'Hızla artıyorsa ok yanıp sönüyordur (eşik histerezisi gerekir).',
+        updatedAt: null }, String(s.paintedArrow.shownCount)),
+      observed({ id: 'pa-applied', label: 'Hüküm değişim sayısı', source: 'paintedArrowAccess',
+        note: 'GPS 1 Hz akar; bu sayı fix sayısına yaklaşıyorsa dedup ÇALIŞMIYOR demektir.',
+        updatedAt: null }, String(s.paintedArrow.appliedCount)),
+      observed({ id: 'pa-layer', label: 'Ok katmanı kurulu', source: 'paintedArrowAccess',
+        note: 'Stil yeniden yüklenince false düşer; ilk fix\'te yeniden kurulmalı.',
+        updatedAt: null }, s.paintedArrow.layerPresent ? 'EVET' : 'HAYIR'),
+      observed({ id: 'pa-policy', label: 'Ok politika sürümü', source: 'paintedArrowModel',
+        note: 'Eşikler (140 m göster · 15 m gizle) değişince yükselir.',
+        updatedAt: null }, s.paintedArrow.policyVersion),
+
       observed({ id: 'mv-source', label: 'Mesafe yöntemi', source: 'routingService',
         note: 'KUŞ UÇUŞU virajlı yaklaşımda GERÇEK yol mesafesinden kısa çıkar → erken anons.',
         updatedAt: OBS }, MANEUVER_SOURCE_LABEL[s.nextManeuverDistanceSource]),

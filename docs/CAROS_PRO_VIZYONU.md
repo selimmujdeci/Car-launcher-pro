@@ -308,6 +308,44 @@ DOĞRULANDI 6 · SAHADA DOĞRULANDI 1 · **ÜRÜN HAZIR: 1**
   `getRerouteBlockStats`, `getDestinationChangeLog` ve `validationWarnIds` çıktılarıyla
   #432–#448'in kabul ölçütleri tek tek sınanmalı.
 
+- **PAINTED-ARROW-P0 · Dönüş Artık Haritada Değil, Yolun Üstünde (2026-08-08, Boyanmış Ok PR):**
+  tam suite **11 279/11 279 · 498 dosya**; `npm run guard` **372/372**;
+  `tsc -b` temiz; eslint **0 hata** (2 uyarı mevcut koda ait, eklenen blokla
+  ilgisiz). 27 yeni kilit. Kütük **#485**.
+  Durum: **ENTEGRE** (saha kanıtı YOK — **ÜRÜN HAZIR: HAYIR**).
+
+  **Mimari karar — sembol değil ZEMİN.** Poligon coğrafi uzayda üretilir ve
+  `fill` olarak çizilir; kamera eğildiğinde perspektif onu asfalta
+  **kendiliğinden** yatırır. `symbol` ile yapılsaydı ok havada durur, pitch
+  değişince kayardı — ek 3B dönüşüm ya da ekran-uzayı hizalaması **gerekmedi**.
+
+  **Saf model:** rota geometrisi üzerinde manevra çapasından geriye 32 m,
+  ileriye 22 m **yol boyunca** yürünür (kuş uçuşu değil); gövde 5 m şeride
+  çevrilir, ok başı çıkış kolunun **içinden** alınır → ok kavşağın ötesine
+  taşmaz.
+
+  **Ok bir İDDİADIR — dayanağı yoksa çizilmez.** Hüküm boolean değil
+  **gerekçelidir**; 8 sebep sayılabilir. "Çizemedim" (çapa çözülmedi · geometri
+  kısa) ile "çizmeye gerek yoktu" (düz devam · henüz uzak) sahada tamamen farklı
+  iki teşhistir. Çapa çözülemezse `-1` geçer, **0 uydurulmaz** — yoksa ok
+  rotanın başına çizilirdi.
+
+  **Adım seçimi HUD ile aynı kural:** yaklaşan dönüş `steps[currentStepIndex+1]`.
+  İki yorum ayrışsaydı ekranda yazan dönüş ile yola boyanan dönüş **farklı
+  kavşağı** gösterirdi.
+
+  **Performans:** yeni timer/abonelik **0** — hesap mevcut GPS fix'i içinde.
+  Hüküm değişmediyse `setData` hiç çağrılmaz; görünmezken katman silinmez,
+  kaynak boşaltılır.
+
+  **Gözlemlenebilirlik:** LAB → Navigation Core 7. kartta 6 alan. Durum ağır
+  modülde değil **yaprak erişim katmanında** tutulur → LAB `maplibre-gl`
+  grafiğini import etmez. Gözlem yüzeyinde koordinat/sokak adı **yoktur**.
+
+  **Açık kalan:** dönel kavşak (`roundabout`) ayrı bir tur işidir; şu an
+  `NOT_A_TURN` ile geçilir. Ok yanıp sönerse eşik histerezisi gerekecek —
+  LAB'daki "görünür oluş sayısı" bunu ölçmek için var.
+
 - **ROAD-TOPOLOGY-P0 · Katlı Kavşak Okunur Oldu + Yol Numarası Kalkanı (2026-08-08, Topoloji PR):**
   tam suite **11 252/11 252 · 497 dosya**; `npm run guard` **372/372**;
   `tsc -b` temiz; değişen dosyalarda eslint **0 sorun**. 16 yeni kilit.

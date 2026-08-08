@@ -92,9 +92,22 @@ import type { OffRouteState, OffRouteReason } from '../navigation/core/offRouteM
 import type { RouteVerdict, RouteCheck } from '../navigation/core/routeValidationModel';
 import type { AnchorMethod } from '../navigation/core/maneuverIndexModel';
 import type { ManeuverDistanceSource } from '../routingService';
+import {
+  readPaintedArrowDiagnostics, type PaintedArrowDiagnostics,
+} from '../map/core/paintedArrowAccess';
+import { PAINTED_ARROW_POLICY_VERSION } from '../map/core/paintedArrowModel';
+
+/** Okuma patlarsa sahte "görünüyor" ÜRETİLMEZ — hüküm NOT_EVALUATED kalır. */
+const PAINTED_ARROW_FALLBACK: PaintedArrowDiagnostics = {
+  visible: false, reason: 'NOT_EVALUATED', shownCount: 0, appliedCount: 0,
+  layerPresent: false, policyVersion: PAINTED_ARROW_POLICY_VERSION,
+};
 
 export interface NavigationCoreRawSnapshot {
   readonly readAt: number;
+
+  /** Yola boyanmış manevra oku — hüküm + gerekçe + sayaçlar (konum TAŞIMAZ). */
+  readonly paintedArrow: PaintedArrowDiagnostics;
 
   /* ── Navigasyon durumu ─────────────────────────────────────────────────── */
   readonly navStatus: string;
@@ -367,6 +380,7 @@ const _EMPTY_RUNTIME: NavigationSessionRuntimeSnapshot = {
 /** Tek senkron okuma — çağrıldığı anın anlık görüntüsü. */
 export function readNavigationCoreSnapshot(): NavigationCoreRawSnapshot {
   const readAt = Date.now();
+  const paintedArrow = _safe(() => readPaintedArrowDiagnostics(), PAINTED_ARROW_FALLBACK);
   const nowPerf = _safe(() => performance.now(), 0);
 
   const route = _safe(() => getRouteState(), null);
@@ -431,6 +445,7 @@ export function readNavigationCoreSnapshot(): NavigationCoreRawSnapshot {
   }), _EMPTY_CAMERA_DECISION);
 
   return {
+    paintedArrow,
     readAt,
 
     navStatus:    nav?.status ?? 'UNKNOWN',

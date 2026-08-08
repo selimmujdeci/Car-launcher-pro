@@ -28,6 +28,10 @@ const NOW = 1_700_000_000_000;
 function snap(over: Partial<NavigationCoreRawSnapshot> = {}): NavigationCoreRawSnapshot {
   return {
     readAt: NOW,
+    paintedArrow: {
+      visible: false, reason: 'TOO_FAR', shownCount: 0, appliedCount: 2,
+      layerPresent: true, policyVersion: 'PA-2026.08.08',
+    },
     navStatus: 'ACTIVE', isNavigating: true, isRerouting: false,
     hasDestination: true, remainingDistanceM: 4200, etaSeconds: 380,
 

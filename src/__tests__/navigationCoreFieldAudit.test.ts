@@ -25,6 +25,10 @@ const GPS_AGE = 400;
 function full(over: Partial<NavigationCoreRawSnapshot> = {}): NavigationCoreRawSnapshot {
   return {
     readAt: NOW,
+    paintedArrow: {
+      visible: true, reason: 'SHOWN', shownCount: 3, appliedCount: 11,
+      layerPresent: true, policyVersion: 'PA-2026.08.08',
+    },
     navStatus: 'ACTIVE', isNavigating: true, isRerouting: false,
     hasDestination: true, remainingDistanceM: 4200, etaSeconds: 380,
     provider: {
@@ -245,7 +249,13 @@ const REGISTRY: Record<string, Reg> = {
   'rq-lat-instr':  { source: 'routeRequestLedger', key: 'requests.latency.detectToFirstInstructionMs', stamp: 'NONE' },
   /* 6 · Doğrulama */
   'rv-verdict': { source: 'routeValidationModel', key: 'validationVerdict', stamp: 'NONE' },
-  /* 7 · Manevra */
+  /* 7 · Manevra — yola boyanmış ok dahil */
+  'pa-state':   { source: 'paintedArrowAccess', key: 'paintedArrow.visible',       stamp: 'NONE' },
+  'pa-reason':  { source: 'paintedArrowAccess', key: 'paintedArrow.reason',        stamp: 'NONE' },
+  'pa-shown':   { source: 'paintedArrowAccess', key: 'paintedArrow.shownCount',    stamp: 'NONE' },
+  'pa-applied': { source: 'paintedArrowAccess', key: 'paintedArrow.appliedCount',  stamp: 'NONE' },
+  'pa-layer':   { source: 'paintedArrowAccess', key: 'paintedArrow.layerPresent',  stamp: 'NONE' },
+  'pa-policy':  { source: 'paintedArrowModel',  key: 'paintedArrow.policyVersion', stamp: 'NONE' },
   'mv-source': { source: 'routingService',      key: 'nextManeuverDistanceSource', stamp: 'GPS'  },
   'mv-dist':   { source: 'routingService',      key: 'nextManeuverDistanceM',      stamp: 'GPS'  },
   'mv-step':   { source: 'useRouteStore',       key: 'currentStepIndex',           stamp: 'GPS'  },

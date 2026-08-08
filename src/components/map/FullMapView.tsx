@@ -29,6 +29,7 @@ import {
   setRouteGeometry,
   clearRouteGeometry,
   trimRouteGeometry,
+  setPaintedArrow,
   setTurnFocus,
   clearTurnFocus,
   setMapStyleChanging,
@@ -52,7 +53,9 @@ import {
   notifyLowFPS,
   useMapNetworkStatus,
   getMapStyle,
+  getMapNight,
 } from '../../platform/mapSourceManager';
+import { buildPaintedArrow } from '../../platform/map/core/paintedArrowModel';
 import { useVisionStore } from '../../platform/visionStore';
 import {
   CameraFollowState,
@@ -433,6 +436,33 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
             ];
             trimRouteGeometry(mapRef.current, _remaining);
           }
+
+          /* 2c) YOLA BOYANMIŞ MANEVRA OKU — aynı fix, ek abonelik/timer YOK.
+             Karar saf modeldedir; burada yalnız girdi toplanır ve sonuç
+             haritaya yazılır. `setPaintedArrow` kendi dedup'ını yapar:
+             hüküm değişmediyse `setData` HİÇ çağrılmaz (GPS 1 Hz akar).
+
+             Adım seçimi HUD ile AYNI kuralı izler (NavigationHUD:1877):
+             OSRM'de `steps[i].maneuver` adımın BAŞINDAKİ manevradır, yani
+             yaklaşan dönüş `steps[currentStepIndex + 1]`'dir; `steps[i]` az
+             önce GEÇİLMİŞ manevradır. İkisi ayrışırsa ok yanlış kavşağı
+             boyar — bu yüzden tek kural, tek yorum. */
+          const _rsArrow  = getRouteState();
+          const _nextIdx  = _rsArrow.currentStepIndex + 1;
+          const _nextStep = _rsArrow.steps[_nextIdx];
+          const _anchor   = _rsArrow.maneuverAnchors.find((a) => a.stepIndex === _nextIdx);
+          const _anchorIdx = _anchor?.geometryIndex ?? -1;
+
+          const _arrow = buildPaintedArrow({
+            navActive:             true,
+            routeGeometry:         _rsArrow.geometry,
+            maneuverGeometryIndex: _anchorIdx,
+            distanceToManeuverM:   Number.isFinite(_rsArrow.distanceToNextTurnMeters)
+              ? _rsArrow.distanceToNextTurnMeters : null,
+            maneuverType:          _nextStep?.maneuverType ?? '',
+            maneuverModifier:      _nextStep?.maneuverModifier ?? '',
+          });
+          setPaintedArrow(mapRef.current, _arrow, _anchorIdx, getMapNight());
         }
       }
 
