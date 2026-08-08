@@ -77,15 +77,22 @@ export const NAV_SUPPRESS_LAYERS = NAV_SUPPRESS_TIERS[0];
  * doğsaydı gündüz odak modu sessizce ölürdü.
  */
 /**
- * Vektör gündüz zemini — sürücünün istediği "her yer beyaz" tabanı.
+ * Vektör gündüz zemini — nötr açık gri.
  *
- * Raster gündüz zemininden (`MAP_BG_DAY` = #e9eef3, mavimsi gri) BİLEREK
- * AYRIDIR: raster karoların kendi zemin rengi vardır ve arka planın onunla
- * uyumlu olması gerekir; vektörde zemini biz çizeriz, o yüzden beyaza çok
- * daha yakın durabiliriz. Tam #ffffff değil — yol grileri ve bina konturları
- * saf beyazda "yüzer" ve güneşte parlama yapar.
+ * ⚠️ **Beyaz DEĞİL, bilinçli olarak.** İlk deneme (#fafbfc) zemini beyaza
+ * çekiyordu; ölçüldüğünde tali yolun zemine kontrastı **1.38**'e düşüyordu →
+ * sürücünün gördüğü "yollar beyaz, hiçbir şey seçilmiyor" tam olarak buydu.
+ * Zemin griye çekilince aynı yol **1.63**'e, otoyol 2.49 → **3.22**'ye çıkar.
+ *
+ * Rol dağılımı (kilitli: `mapDayPaletteContrast.test.ts`):
+ * **binalar en açık (beyaz) · zemin ortada · yollar en koyu.** Böylece "evler
+ * beyaz, yollar gri" okunur ve anlam TON'la taşınır — renk körlüğünden ve
+ * güneş parlamasından bağımsız.
+ *
+ * Raster gündüz zemininden (`MAP_BG_DAY` = #e9eef3) ayrı kalır: raster
+ * karoların kendi zemin rengi vardır, vektörde zemini biz çizeriz.
  */
-export const MAP_BG_DAY_VECTOR = '#fafbfc';
+export const MAP_BG_DAY_VECTOR = '#e9edf1';
 
 interface VectorPalette {
   readonly bg: string;
@@ -142,41 +149,48 @@ const NIGHT_PALETTE: VectorPalette = {
 };
 
 /**
- * OEM gündüz paleti — beyaz zemin, GRİ yol hiyerarşisi.
+ * OEM gündüz paleti — GRİ yol hiyerarşisi, BEYAZ binalar, nötr gri zemin.
  *
- * Tasarım kararı: zemin ve binalar neredeyse beyaz kalır, ANLAM yalnız yolda
- * taşınır. Yol grileri koyudan açığa sıralanır (otoyol → tali), böylece
- * hiyerarşi renkle değil TONLA okunur — güneş altında en dayanıklı yöntem.
- * Aktif rota bu sakin zeminin üstünde tek doygun öğedir; rota rengi zaten
+ * Üç katmanlı ton sözleşmesi (hepsi kilitli):
+ *   1. **Binalar en açık** — saf beyaz dolgu + net kontur → "evler beyaz, net".
+ *   2. **Zemin ortada** — nötr açık gri; ne binayla ne yolla karışır.
+ *   3. **Yollar en koyu** — otoyol → tali monoton açılan gri; hiyerarşi renkle
+ *      değil TONLA okunur (güneş altında ve renk körlüğünde dayanıklı).
+ *
+ * Kasalar kendi gövdesinden bir ton koyudur → yolun kenarı zeminde kaybolmaz;
+ * ince tali yolu görünür kılan asıl öğe gövde değil, kasadır.
+ *
+ * Aktif rota bu sakin zeminin üstünde tek doygun öğedir; rota rengi
  * `lightBasemap` sözleşmesiyle açık zemine göre kontrast alır
- * (`routeColorModel.ts`), yani bu palet o sözleşmeyi BOZMAZ, ilk kez
- * gerçekten ULAŞILABİLİR kılar.
+ * (`routeColorModel.ts`) — bu palet o sözleşmeyi BOZMAZ, mod'a bakar renge
+ * değil.
  */
 const DAY_PALETTE: VectorPalette = {
   bg:              MAP_BG_DAY_VECTOR,
-  water:           '#c5dcf0',
-  park:            '#dfeddb',
-  residential:     '#f3f4f6',
-  buildingFill:    '#edeff2',
-  buildingOutline: '#dee2e8',
-  bldg3d:          ['#eaecef', '#e1e4e9', '#d7dbe1'],
-  bldg3dOpacity:   0.92,
-  // Kasalar gövdeden bir ton koyu → yol kenarı beyaz zeminde kaybolmaz.
-  motorwayCasing:  '#7b8494',
-  primaryCasing:   '#8f98a6',
-  minorCasing:     '#b9c0ca',
-  motorway:        '#9aa2ae',
-  primary:         '#aeb6c2',
-  secondary:       '#c0c7d1',
-  minor:           '#d3d8df',
-  labelText:       '#2a2f38',
+  water:           '#bcd6ee',
+  park:            '#d4e6cd',
+  // Yerleşim dokusu zeminden bir tık koyu → üstündeki beyaz binalar öne çıkar.
+  residential:     '#e4e9ef',
+  buildingFill:    '#ffffff',
+  buildingOutline: '#ccd3dc',
+  bldg3d:          ['#ffffff', '#f4f7fa', '#e7ecf1'],
+  bldg3dOpacity:   0.95,
+  // Kasalar gövdeden bir ton koyu → yol kenarı zeminde kaybolmaz.
+  motorwayCasing:  '#5c6675',
+  primaryCasing:   '#6e7887',
+  minorCasing:     '#98a2b0',
+  motorway:        '#798493',
+  primary:         '#8b95a4',
+  secondary:       '#9ea7b5',
+  minor:           '#b3bcc8',
+  labelText:       '#22272f',
   labelHalo:       '#ffffff',
-  townText:        '#39404e',
+  townText:        '#333a45',
   townHalo:        '#ffffff',
-  cityText:        '#1b2130',
+  cityText:        '#151a23',
   cityHalo:        '#ffffff',
-  poiStrong:       0.85,
-  poiWeak:         0.7,
+  poiStrong:       0.9,
+  poiWeak:         0.75,
 };
 
 export function buildVectorStyle(
@@ -476,7 +490,7 @@ export function buildVectorStyle(
           },
           paint: {
             'text-color': P.townText,
-            'text-halo-color': '#060c14',
+            'text-halo-color': P.townHalo,
             'text-halo-width': 2.5,
             'text-halo-blur': 0.5,
           } },
@@ -494,7 +508,7 @@ export function buildVectorStyle(
           },
           paint: {
             'text-color': P.cityText,
-            'text-halo-color': '#060c14',
+            'text-halo-color': P.cityHalo,
             'text-halo-width': 3.0,
             'text-halo-blur': 0.5,
           } },

@@ -308,6 +308,42 @@ DOĞRULANDI 6 · SAHADA DOĞRULANDI 1 · **ÜRÜN HAZIR: 1**
   `getRerouteBlockStats`, `getDestinationChangeLog` ve `validationWarnIds` çıktılarıyla
   #432–#448'in kabul ölçütleri tek tek sınanmalı.
 
+- **DAY-PALETTE-P0 · Gündüz Haritasında Yollar Beyaz Görünüyordu (2026-08-08, Gündüz Palet PR):**
+  tam suite **11 228/11 228 · 495 dosya**; `npm run guard` **372/372**;
+  `tsc -b` temiz; değişen dosyalarda eslint **0 sorun**. 11 yeni kilit.
+  Kütük **#480**. Durum: **ENTEGRE** (saha kanıtı YOK — **ÜRÜN HAZIR: HAYIR**).
+
+  **Saha (kullanıcı gözlemi):** *"şu an yollar beyaz, güzel görüntü olmuyor;
+  Google'daki gibi yollar gri, evler beyaz ve net olsun."*
+
+  **Şikâyet bir sayıya indirgendi.** Gündüz paletinin ilk sürümü zemini beyaza
+  (`#fafbfc`) çekiyordu; WCAG bağıl parlaklıkla ölçüldüğünde **tali yolun zemine
+  kontrastı 1.38** (otoyol 2.49) çıkıyordu — yani yol ile boşluk pratikte ayırt
+  edilemiyordu. Kusur "yanlış renk seçimi" değil, **rol dağılımının
+  ölçülmemesiydi**.
+
+  **Üç katmanlı ton sözleşmesi:** binalar **en açık** (saf beyaz + net kontur)
+  · zemin **ortada** (nötr gri, beyaz DEĞİL) · yollar **en koyu**, otoyoldan
+  taliye **monoton** açılan gri; kasalar gövdeden bir ton koyu — ince tali yolu
+  görünür kılan gövde değil **kasadır**. Yeni ölçüm: tali **1.63** · ikincil
+  2.06 · birincil 2.57 · otoyol **3.22**. Hiyerarşi renkle değil **tonla**
+  taşınır → renk körlüğünde ve güneş parlamasında dayanıklı.
+
+  **Yarım kalan iş kapatıldı:** `place-town` ve `place-city` halo'ları palette
+  `townHalo`/`cityHalo` **tanımlı olmasına rağmen** gece sabitini (`#060c14`)
+  doğrudan yazıyordu → gündüz beyaz zeminde koyu lacivert gölge. Palet
+  kurulmuştu ama katmanlar ona **bağlanmamıştı**.
+
+  **Gece değişmedi (kilitli):** gece paletinde aynı iki halo değeri birebir
+  `#060c14` olduğu için bağlama gece davranışını değiştirmez — kilit bunu ayrıca
+  doğrular. **Rota sözleşmesi bozulmadı:** `resolveLightBasemap()` renge değil
+  **mod'a** bakar; rota paleti değiştirilmedi.
+
+  **Kalıcı kazanç:** renk tercihi tartışmaya açıktır, ama artık **ölçülebilir
+  ayrım pazarlık konusu değildir** — `mapDayPaletteContrast.test.ts` rol
+  sıralamasını ve en düşük kontrast oranlarını kilitler; palet bir daha sessizce
+  beyazlaşamaz.
+
 - **WAKE-FORENSIC-P0 · Native Wake Sayaçları (2026-08-08, Faz 4 — yalnız ölçüm):**
   tam suite **11 217/11 217 · 494 dosya**; `npm run guard` **372/372**;
   `tsc -b` temiz; değişen dosyalarda eslint **0 sorun**. 10 yeni test (wake
