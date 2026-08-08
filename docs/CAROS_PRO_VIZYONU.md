@@ -308,6 +308,34 @@ DOĞRULANDI 6 · SAHADA DOĞRULANDI 1 · **ÜRÜN HAZIR: 1**
   `getRerouteBlockStats`, `getDestinationChangeLog` ve `validationWarnIds` çıktılarıyla
   #432–#448'in kabul ölçütleri tek tek sınanmalı.
 
+- **DAY-PALETTE-P0 · Palet Onaylanan Tasarıma Hizalandı (2026-08-08, Palet Hizalama PR):**
+  tam suite **11 236/11 236 · 496 dosya**; `tsc -b` temiz; değişen dosyalarda
+  eslint **0 sorun**. Kütük **#482**.
+  Durum: **ENTEGRE** (saha kanıtı YOK — **ÜRÜN HAZIR: HAYIR**).
+
+  **#480'in teşhisinde bir incelik atlanmıştı.** İlk kusur zeminin beyaz olması
+  değil, **yolların da açık olmasıydı** (`#d3d8df`). #480 yolları koyulaştırdı
+  ama zemini de griye çekti; oysa yollar koyulaştıktan sonra zemini beyaza geri
+  çekmek ayrımı **bozmaz, artırır**.
+
+  **Ölçüm** (zemin `#e9edf1` → `#f5f7f9`): otoyol **3.22 → 4.06** · ana cadde
+  2.57 → 2.82 · ikincil 2.06 → 2.26 · tali sokak 1.63 → **1.71** · bina
+  konturu/zemin 1.28 → **1.52**. Otoyol gövdesi ve kasası da koyulaştı →
+  **yol sınıf hiyerarşisi açıldı** (referans değerlendirmesinde en zayıf ölçüt
+  buydu: otoyol ile tali sokak ayırt edilemiyordu).
+
+  **Bedeli ölçüldü ve telafi edildi:** zemin beyaza yaklaşınca bina/zemin farkı
+  1.18 → 1.07'ye düşer; bina sınırını artık dolgu değil **kontur** taşır.
+
+  **Kilit düzeltildi, gevşetilmedi:** *"zemin beyazdan en az 1.1 uzakta olsun"*
+  kilidi **yanlış bir vekil ölçüydü** ve doğru paleti engelleyecekti. Ölçtüğü şey
+  düzeltildi (saf beyaz yasağı + kontur/zemin ≥ 1.4); yol eşikleri **yukarı**
+  taşındı. Eşikler yalnız yukarı gider. Gece paleti hiç değişmedi.
+
+  **Süreç notu:** bu palet önce interaktif bir HMI referansında görülüp
+  onaylandı, sonra koda taşındı — renk kararı tartışmadan değil **ölçümden**
+  çıktı.
+
 - **BUILD-TOOLCHAIN · `apk:safe` Gradle Aşamasında Düşüyordu (2026-08-08, JDK 21 Köprüsü):**
   tam suite **11 236/11 236 · 496 dosya**; `tsc -b` temiz; değişen dosyalarda
   eslint **0 sorun**. 8 yeni kilit. Kütük **#481**.

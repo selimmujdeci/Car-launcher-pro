@@ -82,16 +82,28 @@ const ROAD_CASING: Record<keyof typeof ROAD_BODY, string> = {
   minor:     'road-minor-casing',
 };
 
-/** En düşük kabul edilen gövde/zemin kontrastı — sahada ölçülen 1.38 fiyaskosunun üstünde. */
+/**
+ * En düşük kabul edilen gövde/zemin kontrastı — sahada ölçülen 1.38 fiyaskosunun
+ * çok üstünde. Eşikler palet her güçlendiğinde YUKARI taşınır, asla aşağı.
+ * Bugünkü ölçüm: otoyol 4.06 · ana cadde 2.82 · ikincil 2.26 · tali 1.71.
+ */
 const MIN_ROAD_BG_CONTRAST: Record<keyof typeof ROAD_BODY, number> = {
-  motorway: 3.0, primary: 2.4, secondary: 1.95, minor: 1.55,
+  motorway: 3.9, primary: 2.7, secondary: 2.2, minor: 1.68,
 };
 
 describe('gündüz vektör paleti — ton sözleşmesi', () => {
-  it('zemin BEYAZ DEĞİLDİR (yol ve bina ondan ayrışabilsin diye)', () => {
-    // Saf beyaz zeminde yol grileri "yüzer": kullanıcı yolu değil boşluğu görür.
+  it('zemin SAF BEYAZ değildir ve bina sınırı konturla korunur', () => {
+    /*
+     * ⚠️ BU KİLİT DÜZELTİLDİ. Önceki hali "zemin beyazdan en az 1.1 uzakta olsun"
+     * diyordu — yanlış bir VEKİL ölçüydü. Asıl kural yol/zemin ayrımıdır ve
+     * yollar koyulaştıktan sonra zemini beyaza yaklaştırmak o ayrımı BOZMAZ,
+     * artırır (tali sokak 1.63 → 1.71). Eski eşik korunsaydı doğru paleti
+     * engelleyecekti. Kilit gevşetilmedi, ölçtüğü şey DÜZELTİLDİ: zemin saf
+     * beyaz olamaz, ve zemin beyaza yaklaştıkça kaybolan bina/zemin farkını
+     * KONTUR taşımak zorundadır.
+     */
     expect(luminance(bg())).toBeLessThan(luminance('#ffffff'));
-    expect(contrast(bg(), '#ffffff')).toBeGreaterThan(1.1);
+    expect(contrast(bldgLine(), bg())).toBeGreaterThanOrEqual(1.4);
   });
 
   it('binalar haritanın EN AÇIK öğesidir — "evler beyaz"', () => {

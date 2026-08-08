@@ -79,10 +79,13 @@ export const NAV_SUPPRESS_LAYERS = NAV_SUPPRESS_TIERS[0];
 /**
  * Vektör gündüz zemini — nötr açık gri.
  *
- * ⚠️ **Beyaz DEĞİL, bilinçli olarak.** İlk deneme (#fafbfc) zemini beyaza
- * çekiyordu; ölçüldüğünde tali yolun zemine kontrastı **1.38**'e düşüyordu →
- * sürücünün gördüğü "yollar beyaz, hiçbir şey seçilmiyor" tam olarak buydu.
- * Zemin griye çekilince aynı yol **1.63**'e, otoyol 2.49 → **3.22**'ye çıkar.
+ * ⚠️ **İlk teşhiste bir incelik atlanmıştı.** İlk deneme (#fafbfc) zemini beyaza
+ * çekiyordu ve tali yolun zemine kontrastı **1.38**'di → "yollar beyaz, hiçbir
+ * şey seçilmiyor" şikâyeti buydu. Ama asıl kusur zeminin beyazlığı DEĞİL,
+ * **yolların da açık olmasıydı** (`#d3d8df`). Yollar koyulaştıktan sonra zemini
+ * beyaza geri çekmek kontrastı bozmaz, **artırır**: aynı tali yol #e9edf1
+ * zeminde 1.63 iken #f5f7f9 zeminde **1.71**, otoyol 3.22 → **4.06**.
+ * Bu yüzden zemin bilinçli olarak beyaza yakın ama saf beyaz değil.
  *
  * Rol dağılımı (kilitli: `mapDayPaletteContrast.test.ts`):
  * **binalar en açık (beyaz) · zemin ortada · yollar en koyu.** Böylece "evler
@@ -92,7 +95,7 @@ export const NAV_SUPPRESS_LAYERS = NAV_SUPPRESS_TIERS[0];
  * Raster gündüz zemininden (`MAP_BG_DAY` = #e9eef3) ayrı kalır: raster
  * karoların kendi zemin rengi vardır, vektörde zemini biz çizeriz.
  */
-export const MAP_BG_DAY_VECTOR = '#e9edf1';
+export const MAP_BG_DAY_VECTOR = '#f5f7f9';
 
 interface VectorPalette {
   readonly bg: string;
@@ -170,19 +173,21 @@ const DAY_PALETTE: VectorPalette = {
   water:           '#bcd6ee',
   park:            '#d4e6cd',
   // Yerleşim dokusu zeminden bir tık koyu → üstündeki beyaz binalar öne çıkar.
-  residential:     '#e4e9ef',
+  residential:     '#eef1f5',
   buildingFill:    '#ffffff',
-  buildingOutline: '#ccd3dc',
+  // Zemin beyaza yaklaştıkça bina/zemin farkı kapanır (1.07) — bina sınırını
+  // artık DOLGU değil KONTUR taşır, bu yüzden kontur koyulaştırıldı (1.52).
+  buildingOutline: '#c3cbd5',
   bldg3d:          ['#ffffff', '#f4f7fa', '#e7ecf1'],
   bldg3dOpacity:   0.95,
   // Kasalar gövdeden bir ton koyu → yol kenarı zeminde kaybolmaz.
-  motorwayCasing:  '#5c6675',
+  motorwayCasing:  '#515b6a',
   primaryCasing:   '#6e7887',
-  minorCasing:     '#98a2b0',
-  motorway:        '#798493',
+  minorCasing:     '#9aa3b0',
+  motorway:        '#6e7a8a',
   primary:         '#8b95a4',
   secondary:       '#9ea7b5',
-  minor:           '#b3bcc8',
+  minor:           '#b8c0cb',
   labelText:       '#22272f',
   labelHalo:       '#ffffff',
   townText:        '#333a45',
