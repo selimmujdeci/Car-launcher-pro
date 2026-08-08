@@ -308,6 +308,44 @@ DOĞRULANDI 6 · SAHADA DOĞRULANDI 1 · **ÜRÜN HAZIR: 1**
   `getRerouteBlockStats`, `getDestinationChangeLog` ve `validationWarnIds` çıktılarıyla
   #432–#448'in kabul ölçütleri tek tek sınanmalı.
 
+- **TILE-SOURCE-P0 · Palet ve Topoloji ÜRÜNDE ÖLÜ KODMUŞ — Kaynak Bağlandı (2026-08-08):**
+  tam suite **11 286/11 286 · 498 dosya**; `tsc -b` temiz. 7 yeni kilit.
+  Kütük **#486** (engel) → **#487** (çözüm).
+  Durum: **ENTEGRE** (saha kanıtı YOK — **ÜRÜN HAZIR: HAYIR**).
+
+  **Sahada yakalandı:** taze APK kurulduktan sonra harita hâlâ **ham OSM
+  raster**'dı (sarı yollar, bej binalar). #482 (gündüz paleti) ve #483
+  (köprü/tünel + kalkan) **hiç devreye girmemişti**.
+
+  **Kök:** `buildVectorStyle`, yerel `.pbf` **ve** `VITE_VECTOR_TILE_URL` yoksa
+  raster'a düşer. Üçü de yoktu → vektör yolu hiç çalışmıyordu.
+
+  ⚠️ **Bu aynı zamanda bir TEST kusuruydu:** palet ve topoloji kilitleri stile
+  `isAvailable: true` vererek **varsayımı** ölçüyordu, ürünün gerçek yolunu
+  değil. Kilitler doğruydu ama yeşil olmaları özelliğin çalıştığını
+  kanıtlamıyordu — projede daha önce ölçülmüş *"mekanizma kodda var ≠
+  çalışıyor"* sınıfının aynısı (#383).
+
+  **Sağlayıcı doğrulanarak seçildi:** OpenFreeMap — anahtarsız · limitsiz ·
+  **ticari kullanım serbest** · MIT + OSM(ODbL) · **değiştirilmemiş
+  OpenMapTiles** şeması (stil JSON'ı çekilip katman listesi okundu).
+
+  **Sürüm damgası tuzağı önlendi:** ham şablon veri sürümü taşır; sabitlenirse
+  sağlayıcı veriyi tazelediği gün harita sessizce kırılır. TileJSON ucu verilir.
+
+  **Hibrit zincir — yerel `.pbf` > çevrimiçi vektör > raster.** Ağ yokken
+  vektör denenirse harita **boş kalır**; iki kapı eklendi (çevrimdışı tespiti +
+  karo hatası eşiği). İkincisi şart: yoksa fallback tekrar vektör döndürüp
+  **sonsuz döngü** yapardı. Yerel `.pbf` ağdan bağımsızdır.
+
+  **Eski bir kilit gerçeği söyledi:** *"gündüzde vektör asla dönmez"* kilidi
+  düştü — o kural gündüz paleti yokken doğruydu ve #482'den beri **yanlış
+  sebeple** yeşil kalmıştı. Kaldırılmadı, **güncellendi**; asıl kural
+  (*gündüzde gece paleti kullanılamaz*) motordan bağımsız hâle getirildi.
+
+  ⚠️ **Geçici adım:** çevrimiçi bağımlılık offline-first vizyonuna aykırıdır.
+  Kalıcı çözüm yerel `.pbf` paketi — ayrı tur.
+
 - **PAINTED-ARROW-P0 · Dönüş Artık Haritada Değil, Yolun Üstünde (2026-08-08, Boyanmış Ok PR):**
   tam suite **11 279/11 279 · 498 dosya**; `npm run guard` **372/372**;
   `tsc -b` temiz; eslint **0 hata** (2 uyarı mevcut koda ait, eklenen blokla

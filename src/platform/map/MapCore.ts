@@ -14,6 +14,7 @@ import type { StyleSpecification } from 'maplibre-gl';
 import { logInfo } from '../debug';
 import { logError } from '../crashLogger';
 import { handleSatelliteTileError, setActiveMapSource, getMapStyle, getMapNight } from '../mapSourceManager';
+import { blockOnlineVector } from '../mapStyleBuilders';
 import { cacheLRUManager } from '../../core/storage/CacheLRUManager';
 import { M, useMapStore, getOnlineTileStyle, type MapConfig } from './_mapState';
 import {
@@ -266,6 +267,12 @@ async function _initCore(
         }
         if (tileFailCount >= 20 && !useMapStore.getState().tileError) {
           useMapStore.setState({ tileError: true });
+          /* Karo akışı kesildi. Kaynak ÇEVRİMİÇİ VEKTÖR ise onu bu oturumda
+             kapat: aksi hâlde aşağıdaki `getMapStyle()` yine vektör döndürür,
+             karolar yine gelmez ve fallback SONSUZ DÖNGÜYE girer. Yerel .pbf
+             kapatılmaz — o ağdan bağımsızdır ve hatası başka sebeptendir. */
+          blockOnlineVector();
+          logInfo('[MAP_TILE_FALLBACK] çevrimiçi vektör kapatıldı → raster');
           setTimeout(() => {
             if (setActiveMapSource('online')) {
               // Tek kaynaklı resolver — gün/gece paletini korur (sabit gece OSM_STYLE değil)

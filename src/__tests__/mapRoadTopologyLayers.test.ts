@@ -13,7 +13,9 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { buildVectorStyle } from '../platform/mapStyleBuilders';
+import {
+  buildVectorStyle, blockOnlineVector, unblockOnlineVector, isOnlineVectorBlocked,
+} from '../platform/mapStyleBuilders';
 import { SHIELD_IMG_DAY, SHIELD_IMG_NIGHT } from '../platform/map/_mapState';
 import type { MapSource } from '../platform/mapSourceTypes';
 import type { LayerSpecification, StyleSpecification } from 'maplibre-gl';
@@ -171,6 +173,143 @@ describe('bina hacmi — gündüz beyaz bloklar düz kâğıt gibi durmamalı', 
       expect(ao(s)).toBeGreaterThan(0.15);
       expect(ao(s)).toBeLessThanOrEqual(0.6);
     }
+  });
+});
+
+describe('vektör karo kaynağı — sürüm damgası tuzağı', () => {
+  /*
+   * SAHA (#486): `VITE_VECTOR_TILE_URL` tanımsız ve yerel .pbf yokken ürün her
+   * açılışta ham OSM raster'a düşüyordu; palet ve topoloji ÜRÜNDE ölü koddu.
+   * Kaynak bağlanırken ikinci bir tuzak var: sağlayıcılar karo yoluna VERİ
+   * SÜRÜMÜ damgası koyar (ör. /planet/20260802_080001_pt/{z}/{x}/{y}.pbf).
+   * Damgalı şablon sabitlenirse, sağlayıcı veriyi tazelediği gün harita
+   * SESSİZCE kırılır. Bu yüzden şablonsuz URL TileJSON ucu sayılmalı ve
+   * MapLibre'ye `url` olarak verilmelidir.
+   */
+  function styleWithSource(url: string): StyleSpecification {
+    // Yerel .pbf YOK → özel URL dalı çalışır.
+    const sources = new Map<string, MapSource>([
+      ['local', { ...LOCAL_PBF, isAvailable: false }],
+    ]);
+    const prev = import.meta.env['VITE_VECTOR_TILE_URL'];
+    import.meta.env['VITE_VECTOR_TILE_URL'] = url;
+    try {
+      return buildVectorStyle(sources, () => {
+        throw new Error('raster fallback — özel URL dalı çalışmadı');
+      }, false);
+    } finally {
+      import.meta.env['VITE_VECTOR_TILE_URL'] = prev;
+    }
+  }
+
+  it('şablonsuz URL TileJSON ucu sayılır — `url` olarak verilir', () => {
+    const src = styleWithSource('https://tiles.openfreemap.org/planet')
+      .sources['omv'] as unknown as { url?: string; tiles?: string[] };
+    expect(src.url).toBe('https://tiles.openfreemap.org/planet');
+    expect(src.tiles).toBeUndefined();
+  });
+
+  it('{z}/{x}/{y} içeren URL karo şablonu sayılır — `tiles` olarak verilir', () => {
+    const tpl = 'https://example.org/t/{z}/{x}/{y}.pbf';
+    const src = styleWithSource(tpl)
+      .sources['omv'] as unknown as { url?: string; tiles?: string[] };
+    expect(src.tiles).toEqual([tpl]);
+    expect(src.url).toBeUndefined();
+  });
+
+  it('hiç kaynak yoksa raster fallback ÇAĞRILIR (sessiz boş harita YOK)', () => {
+    const sources = new Map<string, MapSource>([
+      ['local', { ...LOCAL_PBF, isAvailable: false }],
+    ]);
+    const prev = import.meta.env['VITE_VECTOR_TILE_URL'];
+    import.meta.env['VITE_VECTOR_TILE_URL'] = '';
+    let called = false;
+    try {
+      buildVectorStyle(sources, () => { called = true; return DAY; }, false);
+    } finally {
+      import.meta.env['VITE_VECTOR_TILE_URL'] = prev;
+    }
+    expect(called).toBe(true);
+  });
+
+  it('HİBRİT: çevrimdışında online vektör DENENMEZ, raster\'a düşülür', () => {
+    /*
+     * `VITE_VECTOR_TILE_URL` tanımlıyken ağ yoksa vektör karolar indirilemez ve
+     * harita BOŞ kalır — kendiliğinden raster'a düşmez. Raster yolu
+     * `caros-tile://` önbelleğiyle çevrimdışında da bir şey gösterebilir.
+     */
+    const sources = new Map<string, MapSource>([
+      ['local', { ...LOCAL_PBF, isAvailable: false }],
+    ]);
+    const prevEnv = import.meta.env['VITE_VECTOR_TILE_URL'];
+    const nav = globalThis.navigator as { onLine?: boolean } | undefined;
+    const prevOnline = nav?.onLine;
+    import.meta.env['VITE_VECTOR_TILE_URL'] = 'https://tiles.example.org/planet';
+    let fellBack = false;
+    try {
+      if (nav) Object.defineProperty(nav, 'onLine', { value: false, configurable: true });
+      buildVectorStyle(sources, () => { fellBack = true; return DAY; }, false);
+    } finally {
+      import.meta.env['VITE_VECTOR_TILE_URL'] = prevEnv;
+      if (nav) Object.defineProperty(nav, 'onLine', { value: prevOnline, configurable: true });
+    }
+    expect(fellBack).toBe(true);
+  });
+
+  it('HİBRİT: karo hatası kapısı kapanınca online vektör bir daha denenmez', () => {
+    /*
+     * Bu kapı olmadan: raster'a düşen fallback yeniden `getMapStyle()` çağırır,
+     * o yine vektör döner, karolar yine gelmez → SONSUZ DÖNGÜ.
+     * "Bağlı ama internet yok" durumunu `navigator.onLine` yakalayamaz;
+     * gerçek kanıt karo hatasıdır.
+     */
+    const sources = new Map<string, MapSource>([
+      ['local', { ...LOCAL_PBF, isAvailable: false }],
+    ]);
+    const prevEnv = import.meta.env['VITE_VECTOR_TILE_URL'];
+    import.meta.env['VITE_VECTOR_TILE_URL'] = 'https://tiles.example.org/planet';
+    try {
+      unblockOnlineVector();
+      expect(isOnlineVectorBlocked()).toBe(false);
+      // Kapı açıkken vektör seçilir.
+      const okStyle = buildVectorStyle(sources, () => DAY, false);
+      expect((okStyle.sources['omv'] as unknown as { url?: string }).url).toBeTruthy();
+
+      blockOnlineVector();
+      expect(isOnlineVectorBlocked()).toBe(true);
+      let fellBack = false;
+      buildVectorStyle(sources, () => { fellBack = true; return DAY; }, false);
+      expect(fellBack).toBe(true);
+    } finally {
+      unblockOnlineVector();
+      import.meta.env['VITE_VECTOR_TILE_URL'] = prevEnv;
+    }
+  });
+
+  it('YEREL .pbf ağdan BAĞIMSIZDIR — çevrimdışında da vektör kalır', () => {
+    // Offline-first sözleşmesi: yerel karo varken ağ durumu hiç sorulmaz.
+    const nav = globalThis.navigator as { onLine?: boolean } | undefined;
+    const prevOnline = nav?.onLine;
+    try {
+      if (nav) Object.defineProperty(nav, 'onLine', { value: false, configurable: true });
+      blockOnlineVector();                       // online kapısı kapalı olsa BİLE
+      const style = buildVectorStyle(
+        new Map([['local', LOCAL_PBF]]),
+        () => { throw new Error('yerel .pbf varken raster\'a DÜŞÜLMEMELİ'); },
+        false,
+      );
+      const src = style.sources['omv'] as unknown as { tiles?: string[] };
+      expect(src.tiles?.[0]).toContain('smart-tile://');
+    } finally {
+      unblockOnlineVector();
+      if (nav) Object.defineProperty(nav, 'onLine', { value: prevOnline, configurable: true });
+    }
+  });
+
+  it('ODbL atıfı her hâlde taşınır', () => {
+    const src = DAY.sources['omv'] as unknown as { attribution?: string };
+    expect(src.attribution).toContain('OpenStreetMap');
+    expect(src.attribution).toContain('OpenMapTiles');
   });
 });
 

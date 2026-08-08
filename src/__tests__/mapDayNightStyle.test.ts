@@ -45,7 +45,9 @@ import {
   useMapSourceStore,
 } from '../platform/mapSourceManager';
 import { getOnlineTileStyle } from '../platform/map/_mapState';
-import { RASTER_PAINT_DAY, RASTER_PAINT_NIGHT, MAP_BG_NIGHT } from '../platform/mapStyleBuilders';
+import {
+  RASTER_PAINT_DAY, RASTER_PAINT_NIGHT, MAP_BG_NIGHT, MAP_BG_DAY_VECTOR,
+} from '../platform/mapStyleBuilders';
 
 /* ── Yardımcılar ── */
 
@@ -97,17 +99,47 @@ describe('isNightHour — otomatik gün/gece saat bandı (07–19)', () => {
   });
 });
 
-/* ── 4. vector + gündüz → raster fallback ────────────────────── */
+/* ── 4. vector + gündüz ──────────────────────────────────────── */
 
-describe('getMapStyle — vector modda gündüz fallback', () => {
-  it("tileRender='vector' + gündüz → koyu vektör DEĞİL, gündüz raster döner", () => {
+describe('getMapStyle — vector modda gündüz', () => {
+  /*
+   * ⚠️ KİLİT GÜNCELLENDİ (2026-08-08), KALDIRILMADI.
+   *
+   * ESKİ HÂLİ: "gündüzde vektör ASLA dönmez, raster fallback döner".
+   * O kural, gündüz vektör paleti HENÜZ YOKKEN doğruydu: `buildVectorStyle`
+   * tek (koyu) palet üretiyordu ve gündüz kullanılırsa harita gece gibi
+   * görünürdü — bu yüzden gündüzde bilerek raster'a düşülüyordu.
+   *
+   * #482 ile gündüz paleti yazıldı ve `buildVectorStyle` içindeki gündüz→raster
+   * kapısı kaldırıldı. Kilit bir süre YANLIŞ SEBEPLE yeşil kaldı: vektör karo
+   * kaynağı hiç tanımlı olmadığı için (#486) stil zaten raster'a düşüyordu.
+   * Kaynak bağlanınca gerçek davranış ortaya çıktı.
+   *
+   * KORUNAN ASIL KURAL DEĞİŞMEDİ: **gündüzde ekran gece paletiyle çizilemez.**
+   * Ölçüt artık "vektör mü raster mı" değil — hangi motorla çizildiğinden
+   * bağımsız olarak GÜNDÜZ PALETİ kullanılmış olmalı.
+   */
+  it('tileRender=vector + gündüz → gece paleti ASLA kullanılmaz', () => {
     useMapSourceStore.setState({ mapMode: 'road', tileRender: 'vector' });
     setMapNight(false);
     const style = getMapStyle();
-    // Gündüzde vektör (Automotive Dark) asla dönmez — raster fallback
+
+    // Ad ne çizildiğini söylemeli — gündüzde "Night" adı dönemez.
+    expect(style.name).not.toContain('Night');
     expect(style.name).not.toBe('Vector (Automotive Dark)');
-    expect(tilesPaint(style)).toEqual({ ...RASTER_PAINT_DAY });
-    expect(backgroundColor(style)).toBe('#e9eef3');
+
+    const bg = backgroundColor(style);
+    // Gece zeminleri (vektör #161c28 · raster #131822) gündüzde YASAK.
+    expect(bg).not.toBe(MAP_BG_NIGHT);
+    expect(bg).not.toBe('#131822');
+
+    // Hangi motor kullanılırsa kullanılsın zemin GÜNDÜZ tonunda olmalı:
+    // vektör yolunda MAP_BG_DAY_VECTOR, raster yolunda MAP_BG_DAY.
+    expect([MAP_BG_DAY_VECTOR, '#e9eef3']).toContain(bg);
+
+    // Raster yoluna düşüldüyse gündüz raster paint'i uygulanmalı.
+    const paint = tilesPaint(style);
+    if (paint) expect(paint).toEqual({ ...RASTER_PAINT_DAY });
   });
 });
 

@@ -260,6 +260,41 @@ function brunnelWidth(scale: number): FilterSpecification {
   ] as unknown as FilterSpecification;
 }
 
+/* ── Hibrit kaynak kapısı ───────────────────────────────────────────────────
+ *
+ * Öncelik: **yerel .pbf > çevrimiçi vektör > raster.**
+ *
+ * NEDEN GEREKLİ: `VITE_VECTOR_TILE_URL` tanımlıyken ağ yoksa vektör karolar
+ * indirilemez ve harita BOŞ kalır — raster'a kendiliğinden düşmez. Raster yolu
+ * ise `caros-tile://` önbelleği sayesinde çevrimdışında da bir şeyler gösterir.
+ * Bu yüzden çevrimiçi vektör yalnız KULLANILABİLİR olduğunda seçilir.
+ *
+ * İki kapı vardır:
+ *   1. `navigator.onLine === false` → açılışta hiç denenmez.
+ *   2. Karo hataları eşiği aşıldıysa (`blockOnlineVector()`) → oturum boyunca
+ *      denenmez. Bu ikincisi ŞART: aksi hâlde raster'a düşen fallback yeniden
+ *      `getMapStyle()` çağırır, o yine vektör döner ve **sonsuz döngü** olur.
+ *      "Bağlı ama internet yok" durumunu `navigator.onLine` yakalayamaz;
+ *      gerçek kanıt karo hatasıdır.
+ */
+let _onlineVectorBlocked = false;
+
+/** Karo hatası eşiği aşıldı — bu oturumda çevrimiçi vektör bir daha denenmez. */
+export function blockOnlineVector(): void { _onlineVectorBlocked = true; }
+
+/** Ağ geri geldi / kullanıcı kaynağı değiştirdi — kapıyı yeniden aç. */
+export function unblockOnlineVector(): void { _onlineVectorBlocked = false; }
+
+export function isOnlineVectorBlocked(): boolean { return _onlineVectorBlocked; }
+
+function onlineVectorUsable(): boolean {
+  if (_onlineVectorBlocked) return false;
+  // `navigator.onLine` yalnız KESİN çevrimdışıyı bildirir; true olması
+  // internet garantisi DEĞİLDİR — o yüzden tek dayanak değil, ilk kapıdır.
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) return false;
+  return true;
+}
+
 export function buildVectorStyle(
   sources: Map<string, MapSource>,
   onFallback: () => StyleSpecification,
@@ -274,11 +309,24 @@ export function buildVectorStyle(
   const customUrl   = (import.meta.env['VITE_VECTOR_TILE_URL'] ?? '') as string;
 
   // Determine tile URL — must serve .pbf
-  let vectorTiles: string[];
+  /* Kaynak iki biçimde gelebilir:
+       · KARO ŞABLONU — `{z}/{x}/{y}` içerir, doğrudan `tiles` olarak verilir.
+       · TileJSON UCU — şablon içermez; MapLibre'ye `url` olarak verilir ve
+         gerçek karo adresini O çözer.
+
+     TileJSON desteği ZORUNLU: sağlayıcılar karo yoluna veri sürümü damgası
+     koyar (ör. OpenFreeMap `/planet/20260802_080001_pt/{z}/{x}/{y}.pbf`).
+     Damgalı şablonu sabitlemek, sağlayıcı veriyi tazelediği gün haritayı
+     sessizce kırardı — TileJSON her açılışta güncel adresi verir. */
+  let vectorTiles: string[] | null = null;
+  let vectorTileJson: string | null = null;
+
   if (hasLocalPbf) {
+    // Yerel .pbf ağdan BAĞIMSIZDIR → çevrimdışında da vektör kalitesi korunur.
     vectorTiles = ['smart-tile://{z}/{x}/{y}'];
-  } else if (customUrl) {
-    vectorTiles = [customUrl];
+  } else if (customUrl && onlineVectorUsable()) {
+    if (customUrl.includes('{z}')) vectorTiles = [customUrl];
+    else vectorTileJson = customUrl;
   } else {
     // No vector source → fall back to raster (smart-tile handles online OSM)
     return onFallback();
@@ -291,15 +339,21 @@ export function buildVectorStyle(
 
   const style: StyleSpecification = {
     version: 8,
-    name: 'Vector (Automotive Dark)',
+    /* Ad TEMAYA göre verilir. Eskiden sabit "Vector (Automotive Dark)" idi;
+       gündüz paleti yazıldıktan sonra (#482) gündüzde de bu ad dönüyordu ve
+       teşhis çıktısı "koyu vektör" diye okunuyordu. Ad, ne çizildiğini
+       söylemeli. */
+    name: night ? 'Vector (Automotive Night)' : 'Vector (Automotive Day)',
     ...(includeLabels ? { glyphs: glyphsUrl } : {}),
     sources: {
       omv: {
         type: 'vector',
-        tiles: vectorTiles,
+        ...(vectorTileJson ? { url: vectorTileJson } : { tiles: vectorTiles! }),
         minzoom: 0,
         maxzoom: 14,
-        attribution: '© OpenMapTiles © OpenStreetMap contributors',
+        // ODbL gereği atıf ZORUNLU. TileJSON kendi atfını taşısa da kaynak
+        // yerel .pbf olduğunda o metin gelmez — taban atıf her hâlde durur.
+        attribution: '© OpenMapTiles © OpenStreetMap katkıcıları',
       },
       // ── Terrain DEM — rgb-terrarium encoding (Mapzen/AWS) ──────────────────
       // 3D yüzey render'ı için: fill-extrusion + hill-shade
