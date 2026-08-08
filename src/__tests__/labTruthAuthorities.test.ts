@@ -26,13 +26,25 @@ import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
  * kendisi ZAYIFLATILMADI, yalnız yükleme yavaşlığına tolerans tanındı.
  */
 describe('T1 — BlackBox RPM canonical telemetri zinciri', { timeout: 30_000 }, () => {
+  /*
+   * ⚠️ PAKET YAŞI MUTLAK ZAMAN DEĞİL, **YAŞ** OLARAK TUTULUR (2026-08-08).
+   * Önceden `lastSeenMs = Date.now()` `beforeEach`'te bir kez kuruluyordu; ama
+   * bu blok her testte `vi.resetModules()` + dinamik `import()` yapar ve 360+
+   * modüllük grafik ağır paralel yük altında (ör. `apk:safe` içinde) **12 sn'lik
+   * tazelik penceresinden UZUN** sürebiliyor. O durumda paket, hiçbir şey
+   * bayatlamadığı hâlde okuma anında "bayat" sayılıyor ve kilit
+   * "1636 beklenirken null" diye DÜŞÜYORDU — ürün kodunda kusur yok, testin
+   * zaman kurgusu kırılgandı. Yaş, snapshot OKUNDUĞU ANDA mutlak zamana
+   * çevrilir; böylece yükleme ne kadar sürerse sürsün senaryo korunur.
+   */
   const obdState = {
     dataFresh: true,
     connectionState: 'connected' as string,
     rpm: 1636,
-    lastSeenMs: 0,
+    /** Paketin okuma anındaki YAŞI (ms). 0 = az önce geldi. */
+    packetAgeMs: 0,
     freshWindowMs: 12_000,
-    /** Otorite çöküşünü SİMÜLE eder — mock'u yeniden kurmadan (aşağıdaki nota bak). */
+    /** Otorite çöküşünü SİMÜLE eder — mock'u yeniden kurmadan. */
     snapshotThrows: false,
   };
 
@@ -41,7 +53,7 @@ describe('T1 — BlackBox RPM canonical telemetri zinciri', { timeout: 30_000 },
     obdState.dataFresh = true;
     obdState.connectionState = 'connected';
     obdState.rpm = 1636;
-    obdState.lastSeenMs = Date.now();
+    obdState.packetAgeMs = 0;
     obdState.freshWindowMs = 12_000;
     obdState.snapshotThrows = false;
 
@@ -52,7 +64,8 @@ describe('T1 — BlackBox RPM canonical telemetri zinciri', { timeout: 30_000 },
         return {
           rpm: obdState.rpm,
           connectionState: obdState.connectionState,
-          lastSeenMs: obdState.lastSeenMs,
+          // Okuma ANINDA hesaplanır — modül yükleme süresi senaryoyu bozmaz.
+          lastSeenMs: Date.now() - obdState.packetAgeMs,
         };
       },
       getObdSessionHealth: () => ({ dataFresh: obdState.dataFresh }),
@@ -85,7 +98,7 @@ describe('T1 — BlackBox RPM canonical telemetri zinciri', { timeout: 30_000 },
   });
 
   it('paket yaşı tazelik penceresini aşarsa RPM null olur', async () => {
-    obdState.lastSeenMs = Date.now() - 30_000;   // pencere 12s
+    obdState.packetAgeMs = 30_000;               // pencere 12s
     expect(await sampleRpm()).toBeNull();
   });
 
