@@ -109,8 +109,8 @@ export type TripCostGap =
 export const TRIP_COST_GAP_LABEL: Readonly<Record<TripCostGap, string>> = {
   PLAN_KIMLIGI_BEYAN_EDILMEDI: 'plan kimliği beyan edilmedi',
   PARA_BIRIMI_BEYAN_EDILMEDI:  'para birimi beyan edilmedi',
-  BASLANGIC_BEYAN_EDILMEDI:    'başlangıç beyan edilmedi (rotada yok)',
-  HEDEF_BEYAN_EDILMEDI:        'hedef beyan edilmedi (rotada yok)',
+  BASLANGIC_BEYAN_EDILMEDI:    'başlangıç bilinmiyor (yalnız gösterim — hesabı etkilemez)',
+  HEDEF_BEYAN_EDILMEDI:        'hedef bilinmiyor (yalnız gösterim — hesabı etkilemez)',
   GECE_SAYISI_BEYAN_EDILMEDI:  'gece sayısı beyan edilmedi (rotada yok)',
   YOLCU_BEYAN_EDILMEDI:        'yolcu sayısı beyan edilmedi (rotada yok)',
   ARAC_PROFILI_BEYAN_EDILMEDI: 'araç profili beyan edilmedi',
@@ -189,6 +189,17 @@ function isValidRoute(route: RouteCostSnapshot | null | undefined): route is Rou
 const UNDECLARED_TRAVELLERS: TravellerComposition = { adults: 0, children: 0 };
 const UNDECLARED_VEHICLE: VehicleCostProfile = { propulsion: 'unknown' };
 
+/**
+ * Beyan edilmemiş başlangıç/hedef için AÇIK işaret.
+ *
+ * B2 boş metni haklı olarak reddeder ("uydurma YASAK") ve bu kural KORUNUR:
+ * aşağıdaki değer bir YER ADI DEĞİLDİR, bilgisizliğin kendisini söyleyen bir
+ * ETİKETTİR. Doğruluk otoritesi bu metin değil `gaps` listesidir — tüketici
+ * "başlangıç biliniyor mu" sorusunu metni ayrıştırarak DEĞİL, `gaps` okuyarak
+ * yanıtlar.
+ */
+export const UNKNOWN_PLACE_LABEL = 'BİLİNMİYOR';
+
 /* ── Ana giriş ───────────────────────────────────────────────────────────── */
 
 /**
@@ -213,8 +224,16 @@ export function buildTripCostOutcome(
   if (!routeOk)                     { blockedBy.push('ROTA_YOK'); gaps.push('ROTA_YOK'); }
   if (!isNonEmpty(d.planId))        { blockedBy.push('PLAN_KIMLIGI_BEYAN_EDILMEDI'); gaps.push('PLAN_KIMLIGI_BEYAN_EDILMEDI'); }
   if (!isNonEmpty(d.currency))      { blockedBy.push('PARA_BIRIMI_BEYAN_EDILMEDI'); gaps.push('PARA_BIRIMI_BEYAN_EDILMEDI'); }
-  if (!isNonEmpty(d.origin))        { blockedBy.push('BASLANGIC_BEYAN_EDILMEDI'); gaps.push('BASLANGIC_BEYAN_EDILMEDI'); }
-  if (!isNonEmpty(d.destination))   { blockedBy.push('HEDEF_BEYAN_EDILMEDI'); gaps.push('HEDEF_BEYAN_EDILMEDI'); }
+  /* BAŞLANGIÇ/HEDEF ADI HESABI ENGELLEMEZ — ölçüldü (2026-08-09): bu iki alan
+     maliyet hesabına HİÇ GİRMEZ. Bambaşka bir `origin` ile üretilen rapor
+     bayt-AYNI çıkıyor ve `origin` raporda hiç geçmiyor; hiçbir provider
+     `plan.origin`/`plan.destination`/`leg.origin`/`leg.destination` OKUMUYOR
+     (fiyat eşleşmesi `stays[].key` · `segments[].key` üzerinden yapılır).
+     Bunlar GÖSTERİM alanıdır. Gösterim alanı yüzünden hesabı engellemek
+     YANLIŞ KİLİTTİ: mesafe elimizdeyken yakıt kalemi doğmuyordu. Artık plan
+     KURULUR, eksiklik yalnız `gaps`te İŞARETLENİR. */
+  if (!isNonEmpty(d.origin))        gaps.push('BASLANGIC_BEYAN_EDILMEDI');
+  if (!isNonEmpty(d.destination))   gaps.push('HEDEF_BEYAN_EDILMEDI');
 
   const nightsDeclared = Number.isFinite(d.nights) && (d.nights as number) >= 0;
   if (!nightsDeclared)              gaps.push('GECE_SAYISI_BEYAN_EDILMEDI');
@@ -227,7 +246,9 @@ export function buildTripCostOutcome(
   const totalDistanceKm      = routeOk ? metersToKm(route.distanceM) : null;
   const totalDurationSeconds = routeOk ? route.durationS : null;
 
-  /* 3 · Fail-closed: zorunlu beyan eksikse plan YOK. */
+  /* 3 · Fail-closed: HESABI ETKİLEYEN zorunlu girdi eksikse plan YOK.
+        (Rota/plan kimliği/para birimi hesabın kendisini belirler; başlangıç ve
+        hedef ADI belirlemez — bkz. yukarıdaki ölçüm notu.) */
   if (blockedBy.length > 0) {
     return {
       planBuilt: false, blockedBy, gaps,
@@ -241,8 +262,8 @@ export function buildTripCostOutcome(
   const metadata: TripPlanMetadata = {
     id:             d.planId as string,
     currency:       d.currency as string,
-    origin:         d.origin as string,
-    destination:    d.destination as string,
+    origin:         isNonEmpty(d.origin) ? d.origin : UNKNOWN_PLACE_LABEL,
+    destination:    isNonEmpty(d.destination) ? d.destination : UNKNOWN_PLACE_LABEL,
     nights:         nightsDeclared ? (d.nights as number) : 0,
     travellers:     d.travellers ?? UNDECLARED_TRAVELLERS,
     vehicleProfile: d.vehicleProfile ?? UNDECLARED_VEHICLE,

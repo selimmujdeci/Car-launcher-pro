@@ -152,12 +152,15 @@ function TripCostScreenBase() {
 
           {/* ── Beyan — rotada OLMAYAN alanlar ── */}
           <Section title="Beyan (rota modelinde olmayan alanlar)">
-            <Row label="Hedef beyan edildi">
+            {/* Başlangıç/hedef ADI ölçüldü: maliyet hesabına HİÇ girmiyor
+                (yalnız gösterim). Bu yüzden eksikliği planı ENGELLEMEZ —
+                yalnız işaretlenir. Gece/yolcu ise kategori kapısını belirler. */}
+            <Row label="Hedef beyan edildi (yalnız gösterim)">
               <Chip tone={row.destinationDeclared ? OK : WARN}>
                 {row.destinationDeclared ? 'EVET' : 'HAYIR'}
               </Chip>
             </Row>
-            <Row label="Başlangıç beyan edildi">
+            <Row label="Başlangıç beyan edildi (yalnız gösterim)">
               <Chip tone={row.originDeclared ? OK : WARN}>
                 {row.originDeclared ? 'EVET' : 'HAYIR'}
               </Chip>

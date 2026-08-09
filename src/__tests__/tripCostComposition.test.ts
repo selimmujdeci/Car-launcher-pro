@@ -84,17 +84,35 @@ describe('fiyat kaynağı olmadan da plan üretilir', () => {
  * ════════════════════════════════════════════════════════════════════════ */
 
 describe('fail-closed beyan kapısı', () => {
-  it('🔒 başlangıç beyan edilmezse plan KURULMAZ (uydurulmaz)', () => {
+  /* 2026-08-09 ÖLÇÜM SONRASI DÜZELTİLDİ. Eski hâl "origin yoksa plan kurulmaz"
+     diyordu; ölçüldü ki başlangıç/hedef ADI maliyet hesabına HİÇ GİRMİYOR
+     (bkz. "gösterim alanı hesabı etkilemez" bloğu). Gösterim alanı yüzünden
+     hesabı engellemek YANLIŞ KİLİTTİ — mesafe elimizdeyken yakıt kalemi
+     doğmuyordu. Kilit kaldırılmadı, DOĞRU davranışa güncellendi. */
+  it('🔒 başlangıç bilinmese de plan KURULUR, yalnız İŞARETLENİR', () => {
     const out = buildTripCostOutcome(ROUTE, { ...MINIMAL, origin: undefined });
-    expect(out.planBuilt).toBe(false);
-    expect(out.blockedBy).toContain('BASLANGIC_BEYAN_EDILMEDI');
-    expect(out.report, 'plan yokken rapor üretilmiş').toBeNull();
+    expect(out.planBuilt, 'gösterim alanı yüzünden hesap engellenmiş').toBe(true);
+    expect(out.blockedBy).not.toContain('BASLANGIC_BEYAN_EDILMEDI');
+    expect(out.gaps, 'eksiklik sessizce yutulmuş').toContain('BASLANGIC_BEYAN_EDILMEDI');
+    expect(out.report, 'plan kurulduğu hâlde rapor üretilmemiş').not.toBeNull();
+    /* Yer adı UYDURULMAZ — bilgisizliğin kendisi yazılır. */
+    expect(out.plan!.origin).toBe('BİLİNMİYOR');
   });
 
-  it('🔒 hedef beyan edilmezse plan KURULMAZ', () => {
+  it('🔒 hedef bilinmese de plan KURULUR (aynı gerekçe)', () => {
     const out = buildTripCostOutcome(ROUTE, { ...MINIMAL, destination: undefined });
-    expect(out.planBuilt).toBe(false);
-    expect(out.blockedBy).toContain('HEDEF_BEYAN_EDILMEDI');
+    expect(out.planBuilt).toBe(true);
+    expect(out.gaps).toContain('HEDEF_BEYAN_EDILMEDI');
+    expect(out.plan!.destination).toBe('BİLİNMİYOR');
+  });
+
+  it('🔒 hesabı ETKİLEYEN girdi eksikse plan yine KURULMAZ', () => {
+    const noCurrency = buildTripCostOutcome(ROUTE, { ...MINIMAL, currency: undefined });
+    expect(noCurrency.planBuilt).toBe(false);
+    expect(noCurrency.blockedBy).toContain('PARA_BIRIMI_BEYAN_EDILMEDI');
+    const noId = buildTripCostOutcome(ROUTE, { ...MINIMAL, planId: undefined });
+    expect(noId.planBuilt).toBe(false);
+    expect(noId.blockedBy).toContain('PLAN_KIMLIGI_BEYAN_EDILMEDI');
   });
 
   it('🔒 rota yokken plan KURULMAZ ama sebep okunur', () => {
@@ -168,6 +186,50 @@ describe('kategori AÇILMADI ≠ değer BİLİNMİYOR', () => {
 /* ══════════════════════════════════════════════════════════════════════════
  * 4 · Sözleşme bütünlüğü
  * ════════════════════════════════════════════════════════════════════════ */
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * 3b · ÖLÇÜM KİLİDİ — başlangıç/hedef ADI hesabı ETKİLEMEZ
+ *
+ * Bu, "yanlış kilit" hatasının tekrar doğmasını engelleyen ölçümdür: biri
+ * ileride origin/destination'ı bir fiyat anahtarı yapmaya kalkarsa bu test
+ * düşer ve karar bilinçli olarak yeniden verilir.
+ * ════════════════════════════════════════════════════════════════════════ */
+
+describe('başlangıç/hedef ADI maliyeti ETKİLEMEZ (ölçüm kilidi)', () => {
+  const PRICED = {
+    fuel: { enabled: true, consumptionL100Km: 6, pricePerLiter: 50 },
+    toll: {
+      enabled: true,
+      segments: [{ id: 's1', key: 'K-T', hasToll: true }],
+      priceEntries: [{ segmentKey: 'K-T', value: 120, currency: 'TRY', source: 'user' as const, confidence: 0.9 }],
+    },
+    lodging: {
+      enabled: true,
+      stays: [{ id: 'st1', key: 'mersin', nights: 2, kind: 'hotel' as const }],
+      priceEntries: [{
+        stayKey: 'mersin', perNightValue: 2800, currency: 'TRY',
+        source: 'user' as const, confidence: 0.8, pricingUnit: 'per_stay' as const,
+      }],
+    },
+  };
+
+  it('🔒 bambaşka başlangıç/hedef ile rapor BAYT-AYNI kalır', () => {
+    const a = buildTripCostOutcome(ROUTE_TOLL, { ...MINIMAL, nights: 2 }, PRICED);
+    const b = buildTripCostOutcome(
+      ROUTE_TOLL, { ...MINIMAL, nights: 2, origin: 'ZZZ_BASKA', destination: 'YYY_BASKA' }, PRICED,
+    );
+    expect(a.report!.knownItems.length, 'fiyatlı kalem hiç doğmamış — ölçüm anlamsız')
+      .toBeGreaterThanOrEqual(3);
+    expect(JSON.stringify(a.report), 'başlangıç/hedef adı maliyeti değiştiriyor')
+      .toBe(JSON.stringify(b.report));
+  });
+
+  it('🔒 başlangıç/hedef adı RAPORA sızmaz', () => {
+    const a = buildTripCostOutcome(ROUTE_TOLL, { ...MINIMAL, nights: 2 }, PRICED);
+    expect(JSON.stringify(a.report)).not.toContain('Konya');
+    expect(JSON.stringify(a.report)).not.toContain('Tarsus');
+  });
+});
 
 describe('sözleşme bütünlüğü', () => {
   it('🔒 her gap ve her kategori sebebinin ETİKETİ vardır (sessiz boşluk yok)', () => {
