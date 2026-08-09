@@ -22,6 +22,8 @@
  * Kanonik sınıflar
  * ════════════════════════════════════════════════════════════════════════ */
 
+import { maskVinStrict } from '../privacy/vinMask';
+
 /** AB tip onayı / Türkiye ruhsat yasal sınıfı. */
 export type LegalVehicleCategory =
   | 'M1' | 'M1G'      // otomobil (G = arazi)
@@ -173,16 +175,17 @@ export function isValidVin(vin: string | null | undefined): boolean {
 }
 
 /**
- * LAB/log/export için maskeli VIN: `VF1…78`.
+ * LAB/log/export için maskeli VIN: `VF1**************`.
  *
  * GİZLİLİK: tam VIN bir aracı TEKİL olarak tanımlar; ekrana da loga da çıkmaz.
- * Maskede yalnız WMI (üretici) ve son iki hane kalır — kimliklendirme değeri
- * pratikte yoktur, tanı için "hangi araç" ayrımı yeterlidir.
+ * Yalnız WMI (üretici) kalır. Eski biçim son iki haneyi de açıyordu; son haneler
+ * ISO 3779 **seri numarasının** parçasıdır, yani ayırt edicidir → kaldırıldı.
+ * Tek otorite: `platform/privacy/vinMask`. Girdi kapısı burada DAHA SIKI kalır:
+ * geçersiz VIN maskelenmez, `null` döner (uydurma maske üretilmez).
  */
 export function maskVin(vin: string | null | undefined): string | null {
   if (!isValidVin(vin)) return null;
-  const v = (vin as string).trim().toUpperCase();
-  return `${v.slice(0, 3)}…${v.slice(15)}`;
+  return maskVinStrict(vin);
 }
 
 /**

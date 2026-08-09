@@ -162,10 +162,14 @@ describe('A. Araç sınıfı çözümleme', () => {
     expect(isValidVin(vin)).toBe(true);
     expect(isValidVin('ZFA2630000612345')).toBe(false);     // 16 hane
     expect(isValidVin('ZFA26300006I2345')).toBe(false);     // yasak harf I
+    /* 2026-08-09: yalnız WMI açık (eski biçim son 2 haneyi de açıyordu).
+       Tek otorite platform/privacy/vinMask — regresyon KİLİT 22. */
     const masked = maskVin(vin)!;
-    expect(masked).toBe('ZFA…56');
+    expect(masked).toBe('ZFA**************');
     expect(masked).not.toContain(vin);
-    expect(masked.length).toBeLessThan(vin.length);
+    /* Uzunluk korunur ama BİLGİ korunmaz: 3 hane dışında hiçbir hane açık değil. */
+    expect(masked.slice(3)).toBe('*'.repeat(vin.length - 3));
+    expect(maskVin('ZFA26300006123457')).toBe(masked); // komşu VIN → aynı maske
   });
 
   it('araştırma öneki 9 HANEDİR — seri numarası taşımaz', () => {
@@ -193,7 +197,7 @@ describe('A. Araç sınıfı çözümleme', () => {
   });
 
   it('LAB anahtarı maskelidir', () => {
-    expect(maskVehicleClassKey('vin9:ZFA263000')).toBe('vin9:ZFA…00');
+    expect(maskVehicleClassKey('vin9:ZFA263000')).toBe('vin9:ZFA******');
     expect(maskVehicleClassKey(null)).toBeNull();
   });
 });

@@ -22,6 +22,8 @@
  * SAF: I/O YOK · timer YOK · `Date.now()` YOK · global durum YOK.
  */
 
+import { maskVinForDisplay } from '../privacy/vinMask';
+
 /* ── VIN ───────────────────────────────────────────────────────────────── */
 
 /** ISO 3779: I·O·Q kullanılmaz (1/0 ile karışır). */
@@ -44,10 +46,15 @@ export function normalizeVin(raw: unknown): string | null {
   return vin;
 }
 
-/** Log/gözlem için maskeli VIN — TAM VIN ASLA yazılmaz. */
+/**
+ * Log/gözlem için maskeli VIN — TAM VIN ASLA yazılmaz.
+ *
+ * Tek otorite `platform/privacy/vinMask`'tir. Eski uygulama son 6 haneyi (ISO
+ * 3779 **seri numarası**) açık bırakıyordu ve aracı tekilleştiriyordu; artık
+ * yalnız WMI açık kalır.
+ */
 export function maskVin(vin: string | null): string {
-  if (!vin) return 'UNKNOWN';
-  return vin.length <= 6 ? '••••••' : `•••${vin.slice(-6)}`;
+  return maskVinForDisplay(vin);
 }
 
 export function normalizeVinSource(raw: unknown): VinSource {

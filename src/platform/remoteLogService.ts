@@ -37,6 +37,7 @@ import { healthMonitor }     from './system/SystemHealthMonitor';
 import { getOBDStatusSnapshot } from './obdService';
 import { useOtaStore, getCurrentVersionCode } from './otaUpdateService';
 import { safeGetRaw, safeSetRaw, safeRemoveRaw } from '../utils/safeStorage';
+import { maskVinStrict }     from './privacy/vinMask';
 import { getCapabilities, getDeviceTier } from './deviceCapabilities';
 import { getUiActivitySnapshot } from './uiActivityRecorder';
 import { getDiagnosticTrail } from './diagnosticTrail';
@@ -453,11 +454,10 @@ function _attachTriage(payload: Record<string, unknown>): void {
 
 /** VIN'i maskeler: yalnız WMI (ilk 3 — marka/bölge, kişi-tanımlayıcı değil)
  *  açık kalır; benzersiz seri (VDS/VIS) '*' ile gizlenir. Çıktı '*' içerdiği
- *  için 17-karakter VIN regex'ine takılmaz → maske kendisi de korunur. */
+ *  için 17-karakter VIN regex'ine takılmaz → maske kendisi de korunur.
+ *  Uygulama `platform/privacy/vinMask`'te tektir. */
 function _maskVin(vin: string): string {
-  const v = vin.trim().toUpperCase();
-  if (v.length < 6) return '*'.repeat(v.length); // kısa/geçersiz → tamamen gizle
-  return v.slice(0, 3) + '*'.repeat(v.length - 3);
+  return maskVinStrict(vin) ?? '';
 }
 
 /** VID şemasında henüz bulunmayan (ileride eklenebilecek) opsiyonel alanı

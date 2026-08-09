@@ -830,8 +830,14 @@ describe('oturum kapsamlı sayaç deltası', () => {
  * ════════════════════════════════════════════════════════════════════════ */
 
 describe('gizlilik', () => {
-  it('VIN yalnız son 6 hane olarak taşınır', () => {
-    expect(maskVehicleRef('VF1RFA00567891234')).toBe('…891234');
+  /* 2026-08-09: kural SIKILAŞTI. Eski hâli "yalnız son 6 hane" taşıyordu; o
+     haneler ISO 3779 SERİ NUMARASIDIR ve aracı tekilleştirir — üstelik bu değer
+     `longRoadStore.saveSession` ile kalıcı diske yazılıyor. Artık yalnız WMI
+     açık (tek otorite: platform/privacy/vinMask). Bkz. regresyon KİLİT 22. */
+  it('VIN yalnız WMI olarak taşınır — seri numarası SIZMAZ', () => {
+    expect(maskVehicleRef('VF1RFA00567891234')).toBe('VF1**************');
+    /* Aynı fabrikadan iki araç AYNI maskeye düşmeli (maske anahtar olmamalı). */
+    expect(maskVehicleRef('VF1RFA00567891235')).toBe(maskVehicleRef('VF1RFA00567891234'));
     expect(maskVehicleRef(null)).toBeNull();
     expect(maskVehicleRef('kisa')).toBeNull();
   });
@@ -840,7 +846,8 @@ describe('gizlilik', () => {
     const s = createSession('A', 0);
     const dirty = { ...s, env: { ...s.env, vehicleRef: 'VF1RFA00567891234' } };
     const clean = sanitizeForExport(dirty);
-    expect(clean.env.vehicleRef).toBe('…891234');
+    expect(clean.env.vehicleRef).toBe('VF1**************');
+    expect(clean.env.vehicleRef).not.toContain('891234');
   });
 
   it('gizlilik denetimi gerçek sızıntı desenlerini YAKALAR', () => {

@@ -16,6 +16,7 @@
  */
 
 import type { ValidationSnapshot, ValidationSummary } from './validationTypes';
+import { maskVinStrict } from '../privacy/vinMask';
 
 /** Rapor şema kimliği — tüketiciler sürüm ayrımı yapabilsin. */
 export const VALIDATION_REPORT_SCHEMA = 'caros.validation.v1';
@@ -67,12 +68,13 @@ export function maskSensitiveText(input: string, maxLen: number = MAX_STRING): s
   return s;
 }
 
-/** VIN'i maskeler: yalnız WMI açık, benzersiz seri gizli — SAF. */
+/**
+ * VIN'i maskeler: yalnız WMI açık, benzersiz seri gizli — SAF.
+ * Uygulama `platform/privacy/vinMask`'te tektir (o modül de hiçbir servisi
+ * import etmez, bu dosyanın "saf ve bağımsız" güvencesi korunur).
+ */
 export function maskVin(vin: string | null | undefined): string | null {
-  const v = (vin ?? '').trim().toUpperCase();
-  if (!v) return null;
-  if (v.length < 6) return '*'.repeat(v.length);
-  return v.slice(0, 3) + '*'.repeat(v.length - 3);
+  return maskVinStrict(vin);
 }
 
 /* ── Derin temizleyici ─────────────────────────────────────────────────────── */

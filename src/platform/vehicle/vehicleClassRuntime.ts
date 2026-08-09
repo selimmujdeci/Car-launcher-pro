@@ -21,6 +21,7 @@
 import { useEffect, useState } from 'react';
 import { useVidStore, type VidStore } from '../../store/useVidStore';
 import { safeGetRaw, safeSetRaw } from '../../utils/safeStorage';
+import { maskVinStrict } from '../privacy/vinMask';
 import {
   resolveVehicleClass, claimFromUserChoice, vinResearchPrefix, maskVin,
   EMPTY_VEHICLE_CLASS_PROFILE,
@@ -63,14 +64,17 @@ export function vehicleClassKey(id: VehicleIdentityInput): string | null {
 /**
  * Depo anahtarının LAB'da gösterilebilir MASKELİ hâli.
  *
- * `vin9:VF1BM0A0H` → `vin9:VF1…0H` · `mmy:FIAT|DOBLO|2016` → `mmy:FIAT|DOBLO|2016`
+ * `vin9:VF1BM0A0H` → `vin9:VF1******` · `mmy:FIAT|DOBLO|2016` değişmez
  * (marka/model/yıl zaten LAB'da ayrıca gösteriliyor, gizli veri değil).
+ *
+ * VIN dalı tek otoriteye (`platform/privacy/vinMask`) bağlıdır: eski biçim son
+ * iki haneyi de açıyordu; hane sayısı maskeye göre değişmesin diye VIN türevi
+ * her değer aynı kuraldan geçer.
  */
 export function maskVehicleClassKey(key: string | null): string | null {
   if (!key) return null;
   if (key.startsWith('vin9:')) {
-    const v = key.slice(5);
-    return v.length >= 5 ? `vin9:${v.slice(0, 3)}…${v.slice(-2)}` : 'vin9:…';
+    return `vin9:${maskVinStrict(key.slice(5)) ?? '…'}`;
   }
   return key;
 }

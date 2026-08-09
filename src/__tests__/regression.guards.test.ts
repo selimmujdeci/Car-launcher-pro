@@ -4961,3 +4961,106 @@ describe('S1 · extended destek filtresi reconnect\'te fail-closed', () => {
       .not.toMatch(/_supported\s*!==\s*null\s*&&\s*!_supported\.has\(pid\)/);
   });
 });
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * KİLİT 22 · VIN MASKELEME TEK OTORİTE (gizlilik kapısı — 2026-08-09)
+ *
+ * BOZULMA: repoda BEŞ ayrı maskVin vardı ve ÜÇ farklı derinlikte maskeliyordu.
+ * İkisi (`vehicleIdentityReport` "•••345678" · `longRoadModel` "…345678") son
+ * 6 haneyi — ISO 3779 SERİ NUMARASINI — açık bırakıyordu; aynı fabrikadan iki
+ * araç yalnız orada ayrışır, yani maske aracı TEKİLLEŞTİRİYORDU. Üstelik
+ * `longRoadModel`'inki `longRoadStore.saveSession` üzerinden KALICI DİSKE
+ * yazılıyordu. Kapı üç ayrı yerde ayrı olduğu için biri gevşediğinde hiçbir
+ * test bunu görmüyordu.
+ *
+ * KURAL: tek otorite `platform/privacy/vinMask`; yalnız WMI (ilk 3) açık kalır.
+ * ════════════════════════════════════════════════════════════════════════ */
+describe('🔒 KİLİT 22 · VIN maskeleme tek otorite', () => {
+  const VIN_A = 'VF1KZ0C0X12345678';
+  const VIN_B = 'VF1KZ0C0X12345679'; // aynı fabrika, seri +1
+
+  it('🔒 tüm maskeler AYNI çıktıyı verir — derinlik ayrışamaz', async () => {
+    const [identity, exp, legal, longRoad] = await Promise.all([
+      import('../platform/telemetry/vehicleIdentityReport'),
+      import('../platform/validation/validationExport'),
+      import('../platform/vehicle/legalVehicleClass'),
+      import('../platform/fieldValidation/longRoadModel'),
+    ]);
+    const outs = [
+      identity.maskVin(VIN_A),
+      exp.maskVin(VIN_A),
+      legal.maskVin(VIN_A),
+      longRoad.maskVehicleRef(VIN_A),
+    ];
+    expect(new Set(outs).size, `maskeler ayrıştı: ${JSON.stringify(outs)}`).toBe(1);
+    expect(outs[0]).toBe('VF1**************');
+  });
+
+  it('🔒 maske aracı TEKİLLEŞTİRMEZ — komşu iki VIN aynı maskeye düşer', async () => {
+    const { maskVinStrict } = await import('../platform/privacy/vinMask');
+    expect(
+      maskVinStrict(VIN_A),
+      'seri numarası maskede sızıyor — maske benzersiz anahtar hâline geldi',
+    ).toBe(maskVinStrict(VIN_B));
+  });
+
+  it('🔒 WMI dışında hiçbir hane açık kalmaz + idempotent', async () => {
+    const { maskVinStrict } = await import('../platform/privacy/vinMask');
+    const m = maskVinStrict(VIN_A) as string;
+    expect(m.slice(3)).toBe('*'.repeat(14));
+    expect(m).not.toContain('…');           // eski legalVehicleClass biçimi
+    expect(m).not.toContain('•');           // eski vehicleIdentityReport biçimi
+    expect(maskVinStrict(m)).toBe(m);       // ikinci kapıdan geçerken bozulmaz
+    expect(maskVinStrict(null)).toBeNull(); // uydurma değer YOK
+  });
+
+  it('🔒 hiçbir modül kendi VIN maskesini yeniden ICAT ETMEZ', () => {
+    const root = resolve(__dirname, '..');
+    const offenders: string[] = [];
+    const walk = (dir: string): void => {
+      for (const e of readdirSync(dir, { withFileTypes: true })) {
+        const p = join(dir, e.name);
+        if (e.isDirectory()) {
+          if (e.name === '__tests__' || e.name === 'node_modules') continue;
+          walk(p);
+          continue;
+        }
+        if (!/\.tsx?$/.test(e.name)) continue;
+        if (p.split('\\').join('/').endsWith('platform/privacy/vinMask.ts')) continue;
+        const lines = readFileSync(p, 'utf8').split('\n')
+          .filter((l) => {
+            const t = l.trimStart();
+            return !t.startsWith('//') && !t.startsWith('*') && !t.startsWith('/*');
+          });
+        /* Yerel maske kurma imzası: bir değerin dilimlenip yıldız/nokta ile
+           birleştirilmesi. Delege eden sarmalayıcılar `maskVinStrict` çağırdığı
+           için bu desene GİRMEZ. */
+        const MASK_SHAPES = [
+          /\.slice\(\s*0\s*,\s*3\s*\)\s*\+\s*['"`][*•.…]/,
+          /['"`][•.…]{1,3}\$\{\s*\w+\.slice\(\s*-\s*\d/,
+          /\$\{\s*\w+\.slice\(0,\s*3\)\s*\}\s*[…•]/,
+        ];
+        /* Kapsayan fonksiyon VIN'e DOKUNUYORSA suçlu sayılır. MAC/anahtar/telefon
+           maskeleri aynı şekle sahiptir ama VIN kapısı değildir — onları
+           suçlamak kilidi gürültüye boğar ve gerçek ihlali gizler. */
+        let fnTouchesVin = false;
+        for (const line of lines) {
+          if (/^\s*(export\s+)?(async\s+)?function\s|^\s*(export\s+)?const\s+\w+\s*=\s*(async\s*)?\(/.test(line)) {
+            fnTouchesVin = /vin/i.test(line);
+          } else if (/vin/i.test(line)) {
+            fnTouchesVin = true;
+          }
+          if (fnTouchesVin && MASK_SHAPES.some((re) => re.test(line))) {
+            offenders.push(p.replace(root, 'src'));
+            break;
+          }
+        }
+      }
+    };
+    walk(root);
+    expect(
+      offenders,
+      `VIN maskesi tek otorite DIŞINDA yeniden kurulmuş: ${offenders.join(', ')}`,
+    ).toEqual([]);
+  });
+});

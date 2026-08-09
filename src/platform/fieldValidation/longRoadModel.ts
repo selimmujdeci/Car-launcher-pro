@@ -26,6 +26,7 @@
  */
 
 import type { Observability } from '../devtools/sessionInspectorModel';
+import { maskVinStrict } from '../privacy/vinMask';
 
 /* ══════════════════════════════════════════════════════════════════════════
  * 0 · Sabitler / bütçeler (görev §17 — sonsuz birikim YASAK)
@@ -1342,10 +1343,16 @@ export function applyStoragePressure(
  * 13 · Gizlilik süzgeci + şema göçü (görev §12 · §13)
  * ════════════════════════════════════════════════════════════════════════ */
 
-/** VIN → yalnız son 6 hane. TAM VIN hiçbir katmana GİRMEZ. */
+/**
+ * VIN → yalnız WMI açık. TAM VIN hiçbir katmana GİRMEZ.
+ *
+ * Eski uygulama **son 6 haneyi** açıyordu; o haneler ISO 3779 seri numarasıdır
+ * ve aracı tekilleştirir — üstelik bu değer `longRoadStore` üzerinden **kalıcı
+ * diske** yazılıyordu. Tek otorite: `platform/privacy/vinMask`.
+ */
 export function maskVehicleRef(vin: unknown): string | null {
   if (typeof vin !== 'string' || vin.length < 6) return null;
-  return `…${vin.slice(-6)}`;
+  return maskVinStrict(vin);
 }
 
 /**

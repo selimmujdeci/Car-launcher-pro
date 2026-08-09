@@ -111,7 +111,11 @@ describe('kimlik · gövde üretimi', () => {
 describe('kimlik · sızıntı yasağı', () => {
   it('14. 🔒 gözlem çıktısı TAM VIN İÇERMEZ (maskeli)', () => {
     const r = buildIdentityReport({ vin: VIN, fingerprintHash: FP });
-    expect(r.maskedVin).toBe('•••386752');
+    /* 2026-08-09: eski maske son 6 haneyi (SERİ NUMARASI) açıyordu → aracı
+       tekilleştiriyordu. Artık yalnız WMI; tek otorite platform/privacy/vinMask
+       (regresyon KİLİT 22). */
+    expect(r.maskedVin).toBe('WVW**************');
+    expect(r.maskedVin).not.toContain('386752');
     expect(r.maskedVin).not.toContain('WVWZZZ');
     expect(JSON.stringify({ maskedVin: r.maskedVin, presentKeys: r.presentKeys, rejected: r.rejected }))
       .not.toContain(VIN);
