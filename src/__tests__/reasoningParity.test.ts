@@ -448,6 +448,185 @@ describe('E · sınır değerler', () => {
   });
 });
 
+/* ══════════════════════════════════════════════════════════════════════════
+   BÖLÜM F — ALTIN DOSYA (ADR-286 §5.3 aşama 2 · ÇALIŞTIRMALI çapraz koşum)
+   ══════════════════════════════════════════════════════════════════════════
+
+   `docs/fixtures/reasoning_parity_golden.json` **gerçek PostgreSQL'de** üretildi:
+   migration'lardan çıkarılan saf fonksiyonlar postgres:16 konteynerine yüklendi
+   ve girdi matrisi orada koşuldu. Yani bu bölüm SQL'in metnini değil,
+   **davranışını** karşılaştırır.
+
+   Dosya ELLE DÜZENLENMEZ; yalnız SQL koşumu üretir. Docker'sız makinede de
+   çalışır — kayıt alınmıştır, yeniden koşum gerekmez.                        */
+
+const GOLDEN: {
+  sourceCeiling: Record<string, string>;
+  evidenceConfidence: Record<string, string>;
+  categoriesForIntent: Record<string, string[]>;
+  intentForCategory: Record<string, string>;
+  stateForDecision: Record<string, string>;
+  canTransition: Record<string, boolean>;
+  weakest: Record<string, string>;
+  reasoningConfidence: Record<string, string>;
+} = JSON.parse(readFileSync(
+  join(process.cwd(), 'docs', 'fixtures', 'reasoning_parity_golden.json'), 'utf8'));
+
+describe('F · altın dosya — gerçek Postgres çıktısı ile birebir', () => {
+  it('altın dosya dolu ve tüm bölümleri taşıyor', () => {
+    expect(Object.keys(GOLDEN.reasoningConfidence).length).toBeGreaterThan(1000);
+    expect(Object.keys(GOLDEN.evidenceConfidence).length).toBeGreaterThan(200);
+    expect(Object.keys(GOLDEN.canTransition).length).toBe(64);
+  });
+
+  it('kaynak tavanı — SQL çıktısı ↔ TS', () => {
+    for (const [s, exp] of Object.entries(GOLDEN.sourceCeiling)) {
+      expect(sourceConfidenceCeiling(s as EvidenceSource), s).toBe(exp);
+    }
+  });
+
+  it('en zayıf güven — 25 kombinasyon SQL ↔ TS', () => {
+    for (const [key, exp] of Object.entries(GOLDEN.weakest)) {
+      const [a, b] = key.split('|') as [EvidenceConfidence, EvidenceConfidence];
+      expect(weakestEvidenceConfidence(a, b), key).toBe(exp);
+    }
+  });
+
+  it('kanıt güveni — 216 kaynak×kalite×örnek kombinasyonu SQL ↔ TS', () => {
+    for (const [key, exp] of Object.entries(GOLDEN.evidenceConfidence)) {
+      const [s, p, n] = key.split('|');
+      expect(deriveEvidenceConfidence({
+        source: s as EvidenceSource,
+        provenance: p as EvidenceProvenance,
+        sampleCount: Number(n),
+      }), key).toBe(exp);
+    }
+  });
+
+  it('niyet↔kategori eşlemeleri SQL ↔ TS (BİLİNEN değerler)', () => {
+    for (const [i, cats] of Object.entries(GOLDEN.categoriesForIntent)) {
+      expect([...categoriesForIntent(i as ReasoningIntent)], i).toEqual(cats);
+    }
+    /* Bilinmeyen kategori ayrı ele alınır — aşağıdaki SAPMA #5 testine bak. */
+    for (const [c, i] of Object.entries(GOLDEN.intentForCategory)) {
+      if (c === 'NOPE') continue;
+      expect(intentForCategory(c as EvidenceCategory), c).toBe(i);
+    }
+  });
+
+  it('karar→durum ve 8×8 geçiş matrisi SQL ↔ TS', () => {
+    for (const [d, s] of Object.entries(GOLDEN.stateForDecision)) {
+      expect(stateForDecision(d as ReasoningDecision), d).toBe(s);
+    }
+    for (const [key, exp] of Object.entries(GOLDEN.canTransition)) {
+      const [from, to] = key.split('>') as [ReasoningState, ReasoningState];
+      expect(canTransitionReasoning(from, to), key).toBe(exp);
+    }
+  });
+
+  it('KARAR GÜVENİ — 1470 vaka SQL ↔ TS (paritenin can damarı)', () => {
+    /*
+     * SQL: `_reasoning_confidence(decision, weakest_evidence, count, coverage)`
+     * TS : `resolveConfidence(decision, evidenceResolution)`
+     * İmzalar farklı; eşdeğerlik için TS tarafında `count` adet aktif kanıt
+     * kurulur ve EN ZAYIFI verilen `weakest` olacak şekilde ayarlanır.
+     * `count = 0` durumunda kanıt kurulamaz — SQL de o vakada `UNKNOWN` döner;
+     * ikisi de "kanıtsız güven olmaz" der.
+     */
+    let checked = 0;
+    for (const [key, exp] of Object.entries(GOLDEN.reasoningConfidence)) {
+      const [decision, weakest, countRaw, covRaw] = key.split('|');
+      const count = Number(countRaw);
+      const coverage = covRaw === 'null' ? null : Number(covRaw);
+
+      const active: AiEvidence[] = [];
+      for (let k = 0; k < count; k++) {
+        active.push(mkEvidence({
+          id: `g${k}`,
+          // En zayıf halka tam olarak `weakest` olsun; gerisi tavanda.
+          confidence: (k === 0 ? weakest : 'VERY_HIGH') as EvidenceConfidence,
+        }));
+      }
+      const got = resolveConfidence(decision as ReasoningDecision, {
+        matched: active, active, expired: [], excluded: [],
+        unknownConfidenceCount: active.filter((e) => e.confidence === 'UNKNOWN').length,
+        coverageRatio: coverage, missingCategories: [],
+      });
+      expect(got, `${key} (SQL: ${exp})`).toBe(exp);
+      checked++;
+    }
+    expect(checked).toBeGreaterThan(1000);
+  });
+});
+
+/* ══════════════════════════════════════════════════════════════════════════
+   BÖLÜM G — ⚠️ ÖLÇÜLEN SAPMA #5 · TS switch'lerinde ÇALIŞMA ZAMANI
+             FAIL-CLOSED YOK  (kütük #497)
+   ══════════════════════════════════════════════════════════════════════════
+
+   Altın dosya koşumunda ORTAYA ÇIKTI — statik metin denetiminde görünmüyordu.
+   Matrise bilinmeyen bir kategori (`'NOPE'`) konunca:
+
+       SQL  _reasoning_intent_for_category('NOPE') → 'UNKNOWN'   (ELSE dalı)
+       TS   intentForCategory('NOPE')              →  undefined  (default YOK)
+
+   Aynı kusur ÜÇ fonksiyonda birden: `intentForCategory` · `categoriesForIntent`
+   · `stateForDecision`. Hiçbirinde `default` dalı yok; TypeScript'in
+   exhaustiveness denetimine güveniliyor. Bu DERLEME zamanı bir garantidir ve
+   union dışı bir değer çalışma zamanında geldiğinde HİÇBİR ŞEY yapmaz.
+
+   ── NEDEN ÖNEMLİ ────────────────────────────────────────────────────────
+   ADR-286 §4.4 madde 1 şunu şart koşuyordu: *"bilinmeyen category/intent/
+   severity değeri gelirse motor UNKNOWN'a düşer"*. TS tarafı bunu bugün
+   SAĞLAMIYOR. Karar otoritesi cihaza indiğinde girdi artık yalnız kendi
+   yazdığımız kod değil — sunucudan senkronlanan kanıt, eski şemayla yazılmış
+   yerel kayıt, JSON'dan okunan alan. Union dışı değer GERÇEK bir olasılıktır.
+   `undefined` niyet, `resolveIntent` içinde aday listesine `undefined` sokar;
+   `undefined` kategori dizisi `categoriesForIntent(...).length` üzerinde
+   patlar. Yani sonuç "muhafazakâr karar" değil, **çökme veya sessiz bozulma**.
+
+   ── DURUM: DÜZELTİLMEDİ (bilinçli) ──────────────────────────────────────
+   Görev talimatı: *"Sapma çıkarsa DÜZELTME — önce raporla, hangisi doğru
+   davranış tartışılacak."* Bu bölüm MEVCUT davranışı dondurur. Düzeltme
+   kararı verilince bu testler yeni davranışa GÜNCELLENİR, silinmez.        */
+
+describe('G · ⚠️ SAPMA #5 — bilinmeyen girdide TS fail-closed DEĞİL (#497)', () => {
+  const UNKNOWN_INPUT = 'NOPE__UNION_DISI' as never;
+
+  it('⚠️ intentForCategory: SQL "UNKNOWN" döner, TS undefined döner', () => {
+    expect(GOLDEN.intentForCategory['NOPE'], 'SQL fail-closed').toBe('UNKNOWN');
+    // MEVCUT (şüpheli) davranış donduruldu:
+    expect(intentForCategory(UNKNOWN_INPUT)).toBeUndefined();
+  });
+
+  it('⚠️ categoriesForIntent: SQL boş dizi döner, TS undefined döner', () => {
+    // SQL: `ELSE ARRAY[]::text[]` — boş dizi "hepsi" DEĞİL, "hiçbiri"dir.
+    expect(categoriesForIntent(UNKNOWN_INPUT)).toBeUndefined();
+  });
+
+  it('⚠️ stateForDecision: SQL "UNKNOWN" döner, TS undefined döner', () => {
+    expect(stateForDecision(UNKNOWN_INPUT)).toBeUndefined();
+  });
+
+  it('BİLİNEN değerlerde üç fonksiyon da doğru — kusur YALNIZ union dışında', () => {
+    // Sapmanın kapsamını sınırlar: bilinen girdilerde parite tam.
+    expect(intentForCategory('FUEL')).toBe('FUEL');
+    expect(stateForDecision('SUPPORTED')).toBe('SUPPORTED');
+    expect(categoriesForIntent('FUEL')).toEqual(['FUEL']);
+  });
+
+  it('kaynak kanıtı: üç switch\'in hiçbirinde default dalı YOK', () => {
+    const src = readFileSync(
+      join(process.cwd(), 'src', 'platform', 'reasoning', 'maviReasoning.ts'), 'utf8');
+    for (const fn of ['intentForCategory', 'categoriesForIntent', 'stateForDecision']) {
+      const start = src.indexOf(`export function ${fn}(`);
+      const body = src.slice(start, src.indexOf('\n}', start));
+      expect(body, `${fn} default dalı kazanmış — SAPMA #5 düzeltildiyse bu testi GÜNCELLE`)
+        .not.toContain('default:');
+    }
+  });
+});
+
 /* ── Fikstür yardımcıları ──────────────────────────────────────────────── */
 
 function mkEvidence(over: Partial<AiEvidence> & { id: string }): AiEvidence {
