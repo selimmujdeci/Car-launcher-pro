@@ -1,12 +1,22 @@
 /**
- * Guardian Decision Engine — saf karar motoru — GUARDIAN-AI-G13.
+ * Guardian Alert Ranker — saf UYARI SIRALAYICI — GUARDIAN-AI-G13.
+ *
+ * ── BU BİR KARAR OTORİTESİ DEĞİLDİR (2026-08-09 yeniden konumlandırma) ──────
+ * Eski adı `guardianDecisionEngine` idi ve bu ad yanlıştı: ölü kod envanteri
+ * onu "11. karar otoritesi" diye listeledi, çünkü adı öyle diyordu. Oysa bu
+ * modül **araç hakkında hüküm VERMEZ**. ADR-286'nın tekleştirmek istediği şey
+ * *hüküm üretenlerdir* (bir sinyale bakıp "akü zayıf" diyenler); bu modül
+ * hükmü BAŞKASININ ürettiği uyarıları alır ve yalnız şunu söyler:
+ *   · hangisi sesli okunacak · hangisi ekranda görünecek · tavan kaç tane.
+ * Yani sorusu "araçta ne var?" değil, "kullanıcıya aynı anda kaç şey
+ * söylenebilir?"dir. Adı ve rolü bu yüzden düzeltildi (vizyon Ç-12).
  *
  * `guardianEngine.runGuardian` (G1) çıktısını (`GuardianOutput`) alıp, DI ile
- * gelen önceliğe göre hangi risk olaylarının kullanıcıya SUNULACAĞINA karar
- * verir (`speakEvents` = sesli, `displayEvents` = ekranda). SAF, deterministik,
+ * gelen önceliğe göre risk olaylarını SIRALAR ve sunum listelerine dağıtır
+ * (`speakEvents` = sesli, `displayEvents` = ekranda). SAF, deterministik,
  * immutable, fail-closed. Yalnız `./models` (guardian tipleri) içe aktarılır.
  *
- * Bu motor KARAR-SUNUMU yapar, RİSK ANALİZİ DEĞİL:
+ * Bu modül SUNUM SIRALAMASI yapar, RİSK ANALİZİ DEĞİL:
  *   - Event ÜRETMEZ / severity HESAPLAMAZ / dedup-skorlama YENİDEN YAPMAZ.
  *   - `GuardianRiskEvent`leri DEĞİŞTİRMEZ (aynı referanslar, kopyalanmadan taşınır).
  *   - `guardianOutput.highestSeverity` ve `overallRiskScore` AYNEN korunur
@@ -18,20 +28,20 @@
  * olmayan tip nötr 0); yine eşitlikte `id` ARTAN (deterministik stabil kırıcı).
  *
  * ── SPAM KORUMASI (bu görevde ZAMAN-TABANLI throttle YOK) ───────────────────
- * Aynı `id` bir Decision içinde YALNIZ BİR KEZ bulunur (savunmacı dedup —
+ * Aynı `id` bir sıralama planı içinde YALNIZ BİR KEZ bulunur (savunmacı dedup —
  * GuardianEngine zaten tekilleştirir, bu bir güvenlik ağıdır). Opsiyonel
  * `maxSpeakEvents`/`maxDisplayEvents` sayı sınırları (DI) sıralama SONRASI en
  * yüksek öncelikli N olayı tutar.
  *
  * ── FAIL-CLOSED ──────────────────────────────────────────────────────────────
- * Boş `guardianOutput.riskEvents` → boş decision (listeler boş, highestPriority
+ * Boş `guardianOutput.riskEvents` → boş plan (listeler boş, highestPriority
  * null; korunan alanlar aynen geçer).
  */
 import type { GuardianRiskEvent, GuardianOutput, GuardianSeverity, GuardianRiskType } from './models';
 
 /* ── Sözleşme ─────────────────────────────────────────────────────────────── */
 
-export interface GuardianDecisionPolicyInput {
+export interface GuardianAlertRankPolicyInput {
   /** Her severity'nin sayısal önceliği (yüksek = daha önemli) — 5 severity de
    *  tanımlı olmalı. Kod içine gömülü DEĞİL, tamamen DI. */
   severityRank:        Record<GuardianSeverity, number>;
@@ -50,12 +60,12 @@ export interface GuardianDecisionPolicyInput {
   maxDisplayEvents?:   number;
 }
 
-export interface GuardianDecisionInput {
+export interface GuardianAlertRankInput {
   guardianOutput:  GuardianOutput;
-  policy:          GuardianDecisionPolicyInput;
+  policy:          GuardianAlertRankPolicyInput;
 }
 
-export interface GuardianDecision {
+export interface GuardianAlertPlan {
   /** Sesli sunulacak olaylar (öncelik sırasında). */
   speakEvents:       readonly GuardianRiskEvent[];
   /** Ekranda gösterilecek olaylar (öncelik sırasında). */
@@ -70,7 +80,7 @@ export interface GuardianDecision {
 
 /* ── Merkezi isimli sabitler ──────────────────────────────────────────────── */
 
-export const GUARDIAN_DECISION_ID = 'guardian-decision';
+export const GUARDIAN_ALERT_RANKER_ID = 'guardian-alert-ranker';
 
 /** Geçerli severity token kümesi — models.ts'ten runtime DEĞER import ETMEDEN
  *  bağımsız yerel kopya (guardian kurallarındaki izolasyon deseniyle tutarlı). */
@@ -93,55 +103,55 @@ function isSeverityToken(v: unknown): v is GuardianSeverity {
 }
 
 /* ── Doğrulama — SÖZLEŞME/programlama hatası → THROW ─────────────────────────
- * (boş riskEvents gerçek-dünya durumudur, throw DEĞİL — fail-closed boş decision.) */
-function validateInput(input: GuardianDecisionInput): void {
+ * (boş riskEvents gerçek-dünya durumudur, throw DEĞİL — fail-closed boş plan.) */
+function validateInput(input: GuardianAlertRankInput): void {
   if (!isObject(input)) {
-    throw new RangeError('evaluateGuardianDecision: input bir nesne olmalı.');
+    throw new RangeError('rankGuardianAlerts: input bir nesne olmalı.');
   }
   const { guardianOutput, policy } = input;
 
   if (!isObject(guardianOutput)) {
-    throw new RangeError('evaluateGuardianDecision: guardianOutput zorunludur.');
+    throw new RangeError('rankGuardianAlerts: guardianOutput zorunludur.');
   }
   if (!Array.isArray(guardianOutput.riskEvents)) {
-    throw new RangeError('evaluateGuardianDecision: guardianOutput.riskEvents bir dizi olmalı.');
+    throw new RangeError('rankGuardianAlerts: guardianOutput.riskEvents bir dizi olmalı.');
   }
   if (guardianOutput.highestSeverity !== null && !isSeverityToken(guardianOutput.highestSeverity)) {
-    throw new RangeError(`evaluateGuardianDecision: geçersiz guardianOutput.highestSeverity (${String(guardianOutput.highestSeverity)}).`);
+    throw new RangeError(`rankGuardianAlerts: geçersiz guardianOutput.highestSeverity (${String(guardianOutput.highestSeverity)}).`);
   }
   if (!isFiniteNumber(guardianOutput.overallRiskScore)) {
-    throw new RangeError(`evaluateGuardianDecision: geçersiz guardianOutput.overallRiskScore (${guardianOutput.overallRiskScore}) — finite olmalı.`);
+    throw new RangeError(`rankGuardianAlerts: geçersiz guardianOutput.overallRiskScore (${guardianOutput.overallRiskScore}) — finite olmalı.`);
   }
 
   if (!isObject(policy)) {
-    throw new RangeError('evaluateGuardianDecision: policy zorunludur.');
+    throw new RangeError('rankGuardianAlerts: policy zorunludur.');
   }
   if (!isObject(policy.severityRank)) {
-    throw new RangeError('evaluateGuardianDecision: policy.severityRank zorunludur.');
+    throw new RangeError('rankGuardianAlerts: policy.severityRank zorunludur.');
   }
   // Beş severity de tanımlı ve finite olmalı (aksi halde sıralama belirsiz).
   for (const token of VALID_SEVERITY_TOKENS) {
     if (!isFiniteNumber(policy.severityRank[token])) {
-      throw new RangeError(`evaluateGuardianDecision: policy.severityRank['${token}'] tanımlı ve finite olmalı.`);
+      throw new RangeError(`rankGuardianAlerts: policy.severityRank['${token}'] tanımlı ve finite olmalı.`);
     }
   }
   if (!isObject(policy.eventTypePriority)) {
-    throw new RangeError('evaluateGuardianDecision: policy.eventTypePriority zorunludur (kısmi olabilir).');
+    throw new RangeError('rankGuardianAlerts: policy.eventTypePriority zorunludur (kısmi olabilir).');
   }
   for (const [key, value] of Object.entries(policy.eventTypePriority)) {
     if (value !== undefined && !isFiniteNumber(value)) {
-      throw new RangeError(`evaluateGuardianDecision: policy.eventTypePriority.${key} geçersiz (${value}) — finite olmalı.`);
+      throw new RangeError(`rankGuardianAlerts: policy.eventTypePriority.${key} geçersiz (${value}) — finite olmalı.`);
     }
   }
   if (!isSeverityToken(policy.speakMinSeverity)) {
-    throw new RangeError(`evaluateGuardianDecision: geçersiz policy.speakMinSeverity (${String(policy.speakMinSeverity)}).`);
+    throw new RangeError(`rankGuardianAlerts: geçersiz policy.speakMinSeverity (${String(policy.speakMinSeverity)}).`);
   }
   if (!isSeverityToken(policy.displayMinSeverity)) {
-    throw new RangeError(`evaluateGuardianDecision: geçersiz policy.displayMinSeverity (${String(policy.displayMinSeverity)}).`);
+    throw new RangeError(`rankGuardianAlerts: geçersiz policy.displayMinSeverity (${String(policy.displayMinSeverity)}).`);
   }
   for (const [key, value] of [['maxSpeakEvents', policy.maxSpeakEvents], ['maxDisplayEvents', policy.maxDisplayEvents]] as const) {
     if (value !== undefined && (!Number.isInteger(value) || value < 0)) {
-      throw new RangeError(`evaluateGuardianDecision: geçersiz policy.${key} (${value}) — verildiyse negatif-olmayan tam sayı olmalı.`);
+      throw new RangeError(`rankGuardianAlerts: geçersiz policy.${key} (${value}) — verildiyse negatif-olmayan tam sayı olmalı.`);
     }
   }
 }
@@ -153,7 +163,7 @@ function validateInput(input: GuardianDecisionInput): void {
  * değiştirilmeden (aynı referansla) yeni dizilere taşınır. Aynı girdi her zaman
  * AYNI çıktıyı verir — `Date.now`/`Math.random`/global durum YOK.
  */
-export function evaluateGuardianDecision(input: GuardianDecisionInput): GuardianDecision {
+export function rankGuardianAlerts(input: GuardianAlertRankInput): GuardianAlertPlan {
   validateInput(input);
 
   const { guardianOutput, policy } = input;

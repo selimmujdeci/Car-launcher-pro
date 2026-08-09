@@ -16,6 +16,8 @@
 > · `SPEED_CAMERA_WARNING` kuralı kalır ama **veri gelmez** — boş yuva deseni.
 > · §3.1'deki **"11 karar otoritesi" sayımı YANLIŞTI**: `guardianDecisionEngine`
 >   karar otoritesi değil, **uyarı sıralayıcısıdır** (vizyon Ç-12). Doğru sayı **10**.
+>   **Yeniden adlandırma UYGULANDI (2026-08-09):** modül artık
+>   `guardianAlertRanker` · `rankGuardianAlerts` · `GuardianAlertPlan`.
 > · Trip Cost için "vizyonda karşılığı yok" ifadesi de YANLIŞTI: §8.6'da
 >   *"Maliyet tahmini"* satırı var, durumu **YOK** sanılıyordu → **İSKELET**'e
 >   çekildi (vizyon Ç-11).
@@ -165,7 +167,7 @@ geçmeli:
 | `diagnostic/maintenanceBrain` | — | 2 | bakım |
 | `safety/SafetyRuleEngine` | 341 | 1 | güvenlik kuralı |
 | `validation/validationVerdict` | 278 | 1 | doğrulama |
-| ~~`guardian/guardianDecisionEngine`~~ **SAYIM DIŞI** | 200 | **0** | ⚠️ karar otoritesi DEĞİL — **uyarı sıralayıcı** (hüküm üretmez, severity hesaplamaz). Bkz. vizyon Ç-12 |
+| ~~`guardian/guardianAlertRanker`~~ **SAYIM DIŞI** | 200 | **0** | ⚠️ karar otoritesi DEĞİL — **uyarı sıralayıcı** (hüküm üretmez, severity hesaplamaz). Bkz. vizyon Ç-12 |
 
 **Hayatta kalmalı: `maviReasoningEngine`.** Gerekçe: ADR-286'nın ilan ettiği tek karar
 omurgası odur ve göç sırası zaten yazılı (`maintenanceBrain` · `fuelAdvisorService` ·
@@ -176,7 +178,7 @@ kilidi var). Diğerleri iki sınıfa ayrılır:
   kalmamalı.
 - **`aiCore/verdictEngine` (86 satır) `maviReasoningEngine` (751) ile aynı işi yapıyor** →
   ikisinden biri gitmeli, kalması gereken `maviReasoningEngine`.
-- **`guardianDecisionEngine` bu listeye HİÇ girmemeliydi** — hüküm üretmez, yalnız üretilmiş uyarıları sıralar. Adı yanıltıcı; Guardian tamamlama sırası geldiğinde `guardianAlertRanker` olarak yeniden adlandırılacak (plan §5).
+- **`guardianAlertRanker` (eski adı `guardianDecisionEngine`) bu listeye HİÇ girmemeliydi** — hüküm üretmez, yalnız üretilmiş uyarıları sıralar. Adı yanıltıcı; **2026-08-09'da `guardianAlertRanker` olarak yeniden adlandırıldı** (plan §5 uygulandı).
 
 ### 3.2 Tile indirme — **iki paralel uygulama**
 

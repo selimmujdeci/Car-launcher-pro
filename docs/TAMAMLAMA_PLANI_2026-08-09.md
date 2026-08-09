@@ -258,7 +258,7 @@ Aynı desen ileride `ROAD_HAZARD` (yol tehlike veri tabanı) ve
 
 ---
 
-## 5. `guardianDecisionEngine` yeniden konumlandırması
+## 5. `guardianDecisionEngine` → `guardianAlertRanker` (UYGULANDI 2026-08-09)
 
 **Karar:** Bu modül bir **karar otoritesi değildir**; risk olaylarını önceliğe
 göre sıralayan ve hangisinin sesli/ekranda sunulacağını seçen bir **uyarı
@@ -269,19 +269,23 @@ yapar, RİSK ANALİZİ DEĞİL — event ÜRETMEZ, severity HESAPLAMAZ."*
 ADR-286'nın tekleştirmek istediği şey *hüküm üretenler*dir, sıralayıcılar değil.
 Bu düzeltme envanter ve vizyon belgelerine **bugün** işlendi.
 
-**Kodda yapılacak yeniden adlandırma (bu turda UYGULANMADI — kod yazılmadı):**
+**Yeniden adlandırma UYGULANDI (2026-08-09, tek atomik PR — davranış değişmedi):**
 
-| Bugün | Olması gereken |
+| Eski | Yeni |
 |---|---|
 | `guardianDecisionEngine.ts` | `guardianAlertRanker.ts` |
 | `evaluateGuardianDecision()` | `rankGuardianAlerts()` |
 | `GuardianDecision` | `GuardianAlertPlan` |
 | `GUARDIAN_DECISION_ID` | `GUARDIAN_ALERT_RANKER_ID` |
 
-Bu, saf bir yeniden adlandırmadır (davranış değişmez, tüketicisi zaten yok) ve
-Guardian sırası geldiğinde **ilk adım** olarak yapılır — çünkü yanlış adlandırma
-bir sonraki okuyucuyu tekrar "burada ikinci bir karar otoritesi var" sanısına
-düşürür.
+Saf yeniden adlandırma: davranış değişmedi, ürün tüketicisi zaten yoktu.
+`GUARDIAN_DECISION_ID` sabitinin değeri de (`'guardian-decision'` →
+`'guardian-alert-ranker'`) güncellendi — sabitin hiçbir okuyucusu olmadığı
+ölçülerek doğrulandı. Modül başlığına rolün **ne OLMADIĞI** yazıldı, çünkü bu
+yanılgıyı üreten şey adın kendisiydi.
+
+Doğrulama: `tsc --noEmit` temiz · `guardianAlertRanker.test.ts` 26/26 ·
+guard 393/393.
 
 ---
 

@@ -20,12 +20,12 @@ export { SEVERITY_ORDER, SEVERITY_WEIGHT } from './models';
 export { runGuardian } from './guardianEngine';
 
 export {
-  evaluateGuardianDecision,
-  GUARDIAN_DECISION_ID,
-  type GuardianDecisionInput,
-  type GuardianDecisionPolicyInput,
-  type GuardianDecision,
-} from './guardianDecisionEngine';
+  rankGuardianAlerts,
+  GUARDIAN_ALERT_RANKER_ID,
+  type GuardianAlertRankInput,
+  type GuardianAlertRankPolicyInput,
+  type GuardianAlertPlan,
+} from './guardianAlertRanker';
 
 export {
   buildGuardianRuleResults,

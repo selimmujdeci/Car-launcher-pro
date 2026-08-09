@@ -261,7 +261,7 @@ Kod tabanı tarandı. **Hiçbiri değiştirilmedi** — yalnız görünür kıl�
 |---|---|---|
 | 9 | `src/platform/safety/SafetyRuleEngine.ts` | **Güvenlik-kritik hot-path** (ms mertebesi, sürüş anı). Sunucu kararına bağlamak araç sürerken ağ beklemek olurdu. CLAUDE.md: güvenlik-kritik katmanlar her tier'da garanti açık. |
 | 10 | `src/platform/safety/SafetyBrain.ts` | Yerel dayanıklılık (aynı fault 3× → özellik devre dışı). Cihaz-yerel fail-soft davranışı; karar değil **korunma**. |
-| 11 | `src/platform/navigation/guardian/*` (`guardianDecisionEngine`, `curveRiskRule`, `vehicleHealthRule`, `weatherRiskRule`) | Sürüş anı risk sunumu — hot-path + güvenlik. |
+| 11 | `src/platform/navigation/guardian/*` (`guardianAlertRanker`, `curveRiskRule`, `vehicleHealthRule`, `weatherRiskRule`) | Sürüş anı risk sunumu — hot-path + güvenlik. |
 | 12 | `src/platform/aiCore/safetyGate.ts` | **Yetki** kararı ("bu eylem yapılabilir mi"), araç hakkında **hüküm** değil. |
 | 13 | `src/platform/assistant/assistantSafetyKernel.ts` | Pre-gate / yanıt doğrulama — güvenlik kapısı, hüküm değil. |
 | 14 | `src/platform/expert/TrustEngine.ts` | Yazma kilidi politikası (`WRITE_LOCK_THRESHOLD`) — yetki kararı. |
