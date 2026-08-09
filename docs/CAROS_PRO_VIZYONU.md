@@ -2078,6 +2078,46 @@ DOĞRULANDI 6 · SAHADA DOĞRULANDI 1 · **ÜRÜN HAZIR: 1**
 
 ## 7. Yapılacaklar (faz ve öncelik)
 
+### 7.0 SIRA KURALI (BAĞLAYICI — 2026-08-09)
+
+> **Bir seferde BİR yarım iş tamamlanır ve gerçek araçta kanıtlanmadan sıradakine
+> geçilmez.**
+
+Bu kural bir tercih değil, **bu projenin ölçülmüş dersidir**: kütükteki 384
+kırmızı satırın büyük bölümü paralel başlatmaktan doğdu. Her biri tek başına
+doğru yazılmıştı; hiçbiri sonuna kadar götürülmedi. Bir işi %90 bitirip
+sıradakine geçmek, %0 yapmaktan **daha pahalıdır** — çünkü yarım iş bakım
+maliyeti üretir, okuyucuyu yanıltır ve "var" sanıldığı için yeniden yazılmaz.
+
+**Uygulama:**
+- Yeni bir parça, önündeki parça kütükte 🟢 olmadan **başlatılmaz**.
+- Bir parçanın önkoşulu (veri kaynağı · lisans · araç · başka bir düzeltme)
+  sırası geldiğinde hâlâ yoksa, o parça **başlatılmaz** ve sıradakine
+  **atlanmaz** — önkoşul işi sıraya alınır.
+- "Test yeşil + tsc temiz" bir parçayı bitirmez; kabul ölçütü kütüktedir.
+
+**Yürürlükteki sıra (2026-08-09):**
+
+```
+#491 (ağsız hüküm)  →  GPS / G1  →  Trip Cost  →  Guardian AI
+```
+
+| Sıra | Neden burada |
+|---|---|
+| **#491** | ADR-286 karar omurgasının çevrimdışı çalıştığı cihazda henüz gösterilmedi. Kanıtlanmamış omurganın üstüne yeni karar katmanı eklenmez. |
+| **GPS (G1)** | Guardian'ın konum tabanlı kurallarının yarısı GPS düzelmeden **matematiksel olarak** bitirilemez (p50 19,5 s bayat fix = 94 km/h'de ~509 m körlük). Bkz. şartlı kilit **#508**. |
+| **Trip Cost** | **Filo müşterisine satılacak ilk somut şey.** Araç gerektirmez, çıktısı bir rakamdır, müşteri kendi muhasebesiyle doğrulayabilir. |
+| **Guardian AI** | En pahalı kanıt onunki: gerçek araç + gerçek yol + gerçek hava + tekrarlanabilir senaryo. |
+
+Parça bazlı eksikler, önkoşullar, iş tahminleri ve satış kanalı eşlemesi:
+**`docs/TAMAMLAMA_PLANI_2026-08-09.md`**.
+
+**Silme kararları iptal (2026-08-09):** Guardian AI ve Trip Cost **tamamlanacak**.
+`SPEED_CAMERA_WARNING` kuralı kalır ama **veri gelmez** — boş yuva olarak
+tasarlanır (veriyi üretici/filo müşterisi kendi lisansıyla takar; PID Pack
+deseni). Yuva boşken kural **hiç çalışmaz**, sessizce "risk yok" demez.
+
+
 ### P0 — Yanlış güven / güvenlik
 
 | # | İş | Neden P0 | Kabul kriteri |
@@ -2450,7 +2490,7 @@ değildir** — vizyon rezervuarıdır. Bir madde ancak P0–P3'e taşındığı
 | AI Repair Verification | YOK | HAYIR | Repair Memory'ye bağımlı |
 | Servis öncesi kontrol listesi | YOK | HAYIR | Vizyon rezervuarı |
 | Gereksiz parça değişimi uyarısı | YOK | HAYIR | **Ürünün en güçlü vaatlerinden** — Root Cause + KB üstüne kurulur |
-| Maliyet tahmini | YOK | HAYIR | Vizyon rezervuarı |
+| Maliyet tahmini (Trip Cost) | İSKELET | HAYIR | **12 dosya / 2 111 satır saf çekirdek + testler** (yakıt·HGS·otopark·konaklama + `confidenceLedger`: `unknown` toplama girmez, `upperBound` uydurulmaz). **Hiçbir fiyat girdisinin kaynağı yok**; rota→plan wiring bağlanmadı. Bkz. Ç-11 · tamamlama planı P1–P5 |
 | Doğrulanmış bakım/tamir geçmişi | YOK | HAYIR | Passport + Memory + bulut gerekir |
 
 ### 8.7 Güvenlik ve Hayat Koruma
@@ -2464,6 +2504,7 @@ değildir** — vizyon rezervuarıdır. Bir madde ancak P0–P3'e taşındığı
 | Kaza sonrası rehberlik | YOK | HAYIR | Vizyon rezervuarı |
 | Silent Emergency | YOK | HAYIR | Vizyon rezervuarı |
 | Vehicle Guardian Mode | YOK | HAYIR | Park algısı var; **güç bütçesi sözleşmesi şart** (akü riski) |
+| **Guardian AI** (sürüş sırasında risk uyarısı — *Vehicle Guardian Mode DEĞİL*) | İSKELET | HAYIR | **32 dosya / 3 966 satır** saf çekirdek: 8 kural · 9 adaptör · 7 sağlayıcı sözleşmesi (yalnız **3'ü** gerçek: GPS hızı · OBD · OBD sağlığı) · uyarı sıralayıcı. **Wiring katmanı YOK** (barrel'ın kendi ifadesi), tick sahibi kararı verilmedi. Konum tabanlı kurallar **şartlı kilit #508** altında (G1 çözülmeden bağlanmaz); yorgunluk **#509** altında. `SPEED_CAMERA_WARNING` **boş yuva** olarak kalır — veri üretici/filo müşterisinden, lisansı beyanlı |
 | Güvenlik-kritik hot-path | ENTEGRE | HAYIR | SafetyBrain + SafetyOverlay; **VoiceSafetyAnnouncer + CAN canlı bağlantı yok** |
 | Kullanıcı izni ve açık rıza | ENTEGRE | HAYIR | DiagnosticReportModal rızası 🟢; genel rıza akışı (KVKK/GDPR) yok |
 | Yanlış alarm azaltma | İSKELET | HAYIR | Debounce/histerezis var; ölçülen yanlış-alarm oranı yok |
@@ -2519,6 +2560,8 @@ değildir** — vizyon rezervuarıdır. Bir madde ancak P0–P3'e taşındığı
 
 | # | Çelişki | Kanıt | Karar |
 |---|---|---|---|
+| Ç-11 | §8.6 **"Maliyet tahmini | YOK"** diyor; oysa `platform/trip/cost/` altında **12 dosya / 2 111 satır** saf çekirdek + testleri duruyor (TRIP-COST-A1…B2: dört sağlayıcı · `confidenceLedger` · boru hattı · rota adaptörü). | Ölü kod envanteri (2026-08-09) ölçümü; `src/platform/trip/cost/` dosya/satır sayımı. | **Vizyon iyimser değil, KÖR.** Durum **YOK → İSKELET**'e çekildi: kod var, ürün yolunda değil, hiçbir fiyat girdisinin kaynağı yok. **ÜRÜN HAZIR: HAYIR** değişmedi. Ders: "YOK" satırı bazen "kod yok" değil "kimse bakmadı" demektir — envanter olmadan capability defteri kendini yanıltır. |
+| Ç-12 | Ölü kod envanteri (2026-08-09) `guardianDecisionEngine`'i **"11. karar otoritesi"** diye listeledi; modülün kendi başlığı ise *"Bu motor KARAR-SUNUMU yapar, RİSK ANALİZİ DEĞİL — event ÜRETMEZ, severity HESAPLAMAZ"* diyor. | `guardianDecisionEngine.ts:1-28`; motor `GuardianRiskEvent`leri değiştirmeden taşır, `highestSeverity`/`overallRiskScore` değerlerini aynen korur. | **Envanter yanlıştı → düzeltildi.** Modül bir karar otoritesi DEĞİL, **uyarı sıralayıcısıdır**; ADR-286'nın tekleştirmek istediği şey *hüküm üretenler*dir, sıralayıcılar değil. Karar otoritesi sayısı 11 değil **10**. Kodda yeniden adlandırma planlandı (`guardianAlertRanker` / `rankGuardianAlerts` / `GuardianAlertPlan`) ve Guardian sırası geldiğinde **ilk adım** olarak yapılacak — yanlış ad, bir sonraki okuyucuyu aynı yanılgıya düşürür. |
 | Ç-1 | `docs/OBD_DIAGNOSTIC_OS_ROADMAP.md` kendini **"TEK GERÇEK KAYNAKTIR"** ilan ediyor; bu belge de ana kaynak olarak konumlanıyor. | İki dosyanın başlıkları. | **Çözüldü:** roadmap **OBD alt-roadmap'idir** (görev kırılımı); vizyon/durum özeti bu belgededir. Roadmap'in kendi ifadesi OBD kapsamıyla sınırlı okunur. |
 | Ç-2 | Roadmap "FAZ 0 → 3 madde 🟢 (F0-1, F0-2, F0-4)" diyor; **kütükte F0-1 (#66) hâlâ 🔴/🟡 satırında, F0-4 (#70) 🟡 KISMİ**. | `DEVICE_VALIDATION_LEDGER.md` §🟢 tablosu: yalnız **#67 (F0-2)** tam 🟢; #66/69/71 satırı açıkça "**KISMİ 🟡**". | **Kütük kazanır.** Bu belgede F0-1 = 🟡 (regresyon yok, DTC'li araç kanıtı yok), F0-4 = 🟡. Roadmap'in "3 🟢" özeti **iyimser**. |
 | Ç-3 | `docs-local/caros-feature-audit.html`, Deep Scan için "`start()/run()/runNextPhase()` production'da **hiçbir yerden çağrılmıyor**" diyordu. | `SystemBoot.ts:667` → `triggerDeepScanOfflinePass()` → `orchestrator.runOfflinePass()` **çağrılıyor**; ancak handler bağlı değil → tüm fazlar `skipped`. | **Kısmen yanlış → HTML düzeltildi.** Sonuç seviyesi (İSKELET) değişmez: gerçek tarama yok. Doğru ifade §8.1'dedir. |

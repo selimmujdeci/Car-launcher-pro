@@ -8,6 +8,18 @@
 
 **Bu belge SİLME YAPMAZ.** Yalnız envanterdir.
 
+> **KARAR GÜNCELLEMESİ — 2026-08-09 (bu belgeden SONRA):**
+> · **SİL kovası uygulandı** (16 dosya / 3 797 satır) — `versionProperties` hariç,
+>   bkz. §1 uyarısı.
+> · **BEKLET kovasındaki Guardian AI ve Trip Cost için silme kararı İPTAL:
+>   ikisi de TAMAMLANACAK.** Parça bazlı plan: `docs/TAMAMLAMA_PLANI_2026-08-09.md`.
+> · `SPEED_CAMERA_WARNING` kuralı kalır ama **veri gelmez** — boş yuva deseni.
+> · §3.1'deki **"11 karar otoritesi" sayımı YANLIŞTI**: `guardianDecisionEngine`
+>   karar otoritesi değil, **uyarı sıralayıcısıdır** (vizyon Ç-12). Doğru sayı **10**.
+> · Trip Cost için "vizyonda karşılığı yok" ifadesi de YANLIŞTI: §8.6'da
+>   *"Maliyet tahmini"* satırı var, durumu **YOK** sanılıyordu → **İSKELET**'e
+>   çekildi (vizyon Ç-11).
+
 ---
 
 ## 0. Başlık rakamı
@@ -139,7 +151,7 @@ geçmeli:
 
 ## 3. AYRI LİSTE — aynı işi yapan iki (veya daha fazla) kod
 
-### 3.1 Karar otoriteleri — **10 ayrı "hüküm veren" motor**
+### 3.1 Karar otoriteleri — **10 ayrı "hüküm veren" motor** *(düzeltildi: 11 değil)*
 
 | Motor | Satır | Ürün tüketicisi | Alan |
 |---|---:|---:|---|
@@ -153,7 +165,7 @@ geçmeli:
 | `diagnostic/maintenanceBrain` | — | 2 | bakım |
 | `safety/SafetyRuleEngine` | 341 | 1 | güvenlik kuralı |
 | `validation/validationVerdict` | 278 | 1 | doğrulama |
-| `guardian/guardianDecisionEngine` | 200 | **0** | navigasyon riski |
+| ~~`guardian/guardianDecisionEngine`~~ **SAYIM DIŞI** | 200 | **0** | ⚠️ karar otoritesi DEĞİL — **uyarı sıralayıcı** (hüküm üretmez, severity hesaplamaz). Bkz. vizyon Ç-12 |
 
 **Hayatta kalmalı: `maviReasoningEngine`.** Gerekçe: ADR-286'nın ilan ettiği tek karar
 omurgası odur ve göç sırası zaten yazılı (`maintenanceBrain` · `fuelAdvisorService` ·
@@ -164,7 +176,7 @@ kilidi var). Diğerleri iki sınıfa ayrılır:
   kalmamalı.
 - **`aiCore/verdictEngine` (86 satır) `maviReasoningEngine` (751) ile aynı işi yapıyor** →
   ikisinden biri gitmeli, kalması gereken `maviReasoningEngine`.
-- **`guardianDecisionEngine` sıfır tüketicili** → BEKLET kovasıyla birlikte.
+- **`guardianDecisionEngine` bu listeye HİÇ girmemeliydi** — hüküm üretmez, yalnız üretilmiş uyarıları sıralar. Adı yanıltıcı; Guardian tamamlama sırası geldiğinde `guardianAlertRanker` olarak yeniden adlandırılacak (plan §5).
 
 ### 3.2 Tile indirme — **iki paralel uygulama**
 
