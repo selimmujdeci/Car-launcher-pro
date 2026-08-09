@@ -1355,6 +1355,67 @@ export function maskVehicleRef(vin: unknown): string | null {
   return maskVinStrict(vin);
 }
 
+/* ── Eski maske artığı (#507 devamı) ──────────────────────────────────────── */
+
+/**
+ * 2026-08-09 ÖNCESİ maskenin imzası: `…891234` / `•••891234` — yani üç nokta
+ * veya madde işaretinden sonra gelen VIN alfabesinde 5+ hane.
+ *
+ * O maske WMI'yi SİLİP seri numarasını BIRAKIYORDU. Bu yüzden diskteki değerden
+ * doğru maske **yeniden ÜRETİLEMEZ** (üretici hanesi kaydın içinde artık yok) —
+ * tek dürüst işlem değeri düşürmektir, "yeniden maskeledim" demek yalan olurdu.
+ */
+const LEGACY_VIN_MASK_RE = /[…•]{1,3}[A-HJ-NPR-Z0-9]{5,}/g;
+
+/** Düşürülen değerin yerine yazılan işaret — sessiz silme YOK. */
+export const LEGACY_MASK_MARKER = '[ESKI_MASKE_TEMIZLENDI]';
+
+/** Metinde eski maske artığı var mı — SAF. */
+export function hasLegacyVinMask(value: unknown): boolean {
+  if (typeof value !== 'string') return false;
+  LEGACY_VIN_MASK_RE.lastIndex = 0;
+  return LEGACY_VIN_MASK_RE.test(value);
+}
+
+/**
+ * Oturum gövdesindeki eski maske artıklarını temizler — SAF, throw ETMEZ.
+ *
+ * Yalnız `env.vehicleRef` değil, gövdedeki HER metin taranır: aynı değer
+ * serbest metin alanına (olay/preflight `detail`) da düşmüş olabilir.
+ * `purged` = temizlenen ALAN sayısı; 0 ise nesne kimliği DEĞİŞMEZ (gereksiz
+ * disk yazımı doğmasın).
+ */
+export function purgeLegacyVinMasks(
+  s: LongRoadSession,
+): { readonly session: LongRoadSession; readonly purged: number } {
+  let purged = 0;
+
+  const walk = (v: unknown, depth: number): unknown => {
+    if (depth > 8) return v;
+    if (typeof v === 'string') {
+      if (!hasLegacyVinMask(v)) return v;
+      purged += 1;
+      LEGACY_VIN_MASK_RE.lastIndex = 0;
+      return v.replace(LEGACY_VIN_MASK_RE, LEGACY_MASK_MARKER);
+    }
+    if (Array.isArray(v)) return v.map((x) => walk(x, depth + 1));
+    if (v && typeof v === 'object') {
+      const out: Record<string, unknown> = {};
+      for (const [k, val] of Object.entries(v as Record<string, unknown>)) {
+        out[k] = walk(val, depth + 1);
+      }
+      return out;
+    }
+    return v;
+  };
+
+  const next = walk(s, 0);
+  /* Şekil korunur — yürüyücü YALNIZ metin değiştirir, alan eklemez/silmez. */
+  return purged === 0
+    ? { session: s, purged: 0 }
+    : { session: next as unknown as LongRoadSession, purged };
+}
+
 /**
  * Dışa aktarımın İKİNCİ gizlilik kapısı. Model tipleri zaten PII taşımaz, ama
  * diske/rapora giden gövdeye GÜVENİLMEZ: metinler kırpılır, tanınan hassas

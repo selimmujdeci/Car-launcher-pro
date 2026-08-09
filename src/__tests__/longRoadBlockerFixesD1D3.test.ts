@@ -891,3 +891,67 @@ describe('gerçek araç hükmü', () => {
     expect(true).toBe(true);
   });
 });
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * #507 devamı · ESKİ VIN MASKESİ ARTIĞI — DİSKTEKİ KAYIT TEMİZLİĞİ
+ *
+ * Kod 2026-08-09'da düzeldi (tek otorite `platform/privacy/vinMask`), ama o
+ * tarihten ÖNCE yazılmış oturum kayıtlarında `vehicleRef` hâlâ "…891234"
+ * biçiminde — yani ISO 3779 SERİ NUMARASI açıkta. Bu testler temizliğin
+ * OKUMA YOLUNDA çalıştığını ve DİSKİ gerçekten düzelttiğini kilitler.
+ * ════════════════════════════════════════════════════════════════════════ */
+describe('#507 · eski maske artığı temizliği', () => {
+  const LEGACY_BODY = (ref: string): string => JSON.stringify({
+    schemaVersion: 1,
+    sessionId: 'LR-ESKI-1',
+    startedAt: Date.now(),
+    env: { vehicleRef: ref, startRegion: null },
+    events: [{
+      id: 'E1', type: 'NOTE', severity: 'INFO', detectedAt: Date.now(),
+      detail: `araç ${ref} ile yola çıkıldı`,
+    }],
+  });
+
+  it('🔒 eski maskeli kayıt okunduğunda alan DÜŞER, kayıt SİLİNMEZ', async () => {
+    const { loadSession } = await import('../platform/fieldValidation/longRoadStore');
+    localStorage.setItem('caros.lab.longRoadSession.v1', LEGACY_BODY('…891234'));
+
+    const out = loadSession();
+    expect(out.kind, 'kanıt kaydı bir etiket yüzünden imha edilmiş').toBe('OK');
+    if (out.kind !== 'OK') return;
+    expect(out.session.sessionId).toBe('LR-ESKI-1');           // kanıt duruyor
+    expect(JSON.stringify(out.session)).not.toContain('891234'); // seri gitti
+  });
+
+  it('🔒 temizlik DİSKE yazılır — sızıntı dosyada kalmaz', async () => {
+    const { loadSession } = await import('../platform/fieldValidation/longRoadStore');
+    localStorage.setItem('caros.lab.longRoadSession.v1', LEGACY_BODY('…891234'));
+
+    loadSession();
+    const onDisk = localStorage.getItem('caros.lab.longRoadSession.v1') ?? '';
+    expect(onDisk, 'temizlik yalnız bellekte kalmış — dosyada seri numarası duruyor')
+      .not.toContain('891234');
+  });
+
+  it('🔒 temizlik SESSİZ DEĞİL — kayıt ve alan sayısı LAB için sayılır', async () => {
+    const { loadSession } = await import('../platform/fieldValidation/longRoadStore');
+    /* İki ayrı alanda artık var: env.vehicleRef + olay detayı. */
+    localStorage.setItem('caros.lab.longRoadSession.v1', LEGACY_BODY('…891234'));
+
+    loadSession();
+    const st = readStoreWriteStats();
+    expect(st.legacyMaskRecords).toBe(1);
+    expect(st.legacyMaskFields, 'serbest metindeki artık atlanmış').toBeGreaterThanOrEqual(2);
+  });
+
+  it('🔒 temiz kayıtta GEREKSİZ yazma doğmaz (eMMC bütçesi)', async () => {
+    const { loadSession } = await import('../platform/fieldValidation/longRoadStore');
+    localStorage.setItem('caros.lab.longRoadSession.v1', LEGACY_BODY('VF1**************'));
+
+    _resetStoreWriteStatsForTest();
+    loadSession();
+    const st = readStoreWriteStats();
+    expect(st.legacyMaskRecords).toBe(0);
+    expect(st.sessionWrites, 'temiz kayıt boşuna diske geri yazılmış').toBe(0);
+  });
+});

@@ -21,7 +21,7 @@
 import { safeGetRaw, safeSetRaw, safeRemoveRaw } from '../../utils/safeStorage';
 import {
   LR_BLACKBOX_KEY, LR_MAX_BLACKBOX_EVENTS, LR_MAX_SESSION_BYTES, LR_MAX_TOTAL_BYTES,
-  LR_SESSION_KEY, migrateSession, sanitizeForExport,
+  LR_SESSION_KEY, migrateSession, purgeLegacyVinMasks, sanitizeForExport,
   type LongRoadSession, type StoragePressure,
 } from './longRoadModel';
 import type { BlackBoxWindow } from './longRoadBlackBox';
@@ -86,7 +86,31 @@ export function loadSession(): LoadOutcome {
   }
 
   const migrated = migrateSession(parsed);
-  return migrated ? { kind: 'OK', session: migrated } : { kind: 'CORRUPT' };
+  if (!migrated) return { kind: 'CORRUPT' };
+
+  /* #507 devamı — ESKİ MASKE ARTIĞI TEMİZLİĞİ.
+     2026-08-09 öncesi yazılmış kayıtlarda `vehicleRef` "…891234" biçimindeydi;
+     o değer ISO 3779 SERİ NUMARASINI açıkta taşır. Kod düzeldi ama DİSKTEKİ
+     kayıt düzelmez — bu yüzden temizlik AÇILIŞTA, okuma yolunda yapılır.
+
+     NEDEN KAYIT SİLİNMİYOR, ALAN DÜŞÜRÜLÜYOR: eski maske WMI'yi silip seriyi
+     bıraktığı için doğru maske yeniden ÜRETİLEMEZ; geriye iki seçenek kalır —
+     alanı düşürmek ya da tüm oturumu silmek. Uzun yol oturumu zor kazanılmış
+     SAHA KANITIDIR (kütük #308/#309: gözlemci gerçek araçta hiç koşmadı) ve
+     `vehicleRef` yalnızca bir etikettir, hiçbir kararın girdisi değildir.
+     Kanıtı bir etiket yüzünden imha etmek orantısız olurdu.
+
+     Temizlik BELLEKTE KALMAZ: kayıt hemen diske geri yazılır, yoksa sızıntı
+     dosyada durmaya devam eder. Yazma başarısız olsa bile çağırana temiz gövde
+     döner (fail-soft) — sayaç yazımın denendiğini değil, ALANIN temizlendiğini
+     sayar. */
+  const { session, purged } = purgeLegacyVinMasks(migrated);
+  if (purged > 0) {
+    _writeStats.legacyMaskRecords += 1;
+    _writeStats.legacyMaskFields += purged;
+    try { saveSession(session); } catch { /* fail-soft: gövde yine de temiz döner */ }
+  }
+  return { kind: 'OK', session };
 }
 
 export function deleteSession(): boolean {
@@ -153,6 +177,10 @@ export interface StoreWriteStats {
   readonly sessionBytes: number;
   readonly blackBoxWrites: number;
   readonly blackBoxBytes: number;
+  /** #507 devamı: eski VIN maskesi taşıdığı için temizlenen KAYIT sayısı. */
+  readonly legacyMaskRecords: number;
+  /** Aynı temizlikte düşürülen ALAN sayısı (bir kayıtta birden çok olabilir). */
+  readonly legacyMaskFields: number;
 }
 
 /**
@@ -160,7 +188,10 @@ export interface StoreWriteStats {
  * geçmez ve onu okumaz — gözlemcinin kendi bütçesini ÖLÇÜLEBİLİR kılar
  * (eMMC hacmi artık tahmin değil, sayım).
  */
-const _writeStats = { sessionWrites: 0, sessionBytes: 0, blackBoxWrites: 0, blackBoxBytes: 0 };
+const _writeStats = {
+  sessionWrites: 0, sessionBytes: 0, blackBoxWrites: 0, blackBoxBytes: 0,
+  legacyMaskRecords: 0, legacyMaskFields: 0,
+};
 
 export function readStoreWriteStats(): StoreWriteStats {
   return {
@@ -168,6 +199,8 @@ export function readStoreWriteStats(): StoreWriteStats {
     sessionBytes: _writeStats.sessionBytes,
     blackBoxWrites: _writeStats.blackBoxWrites,
     blackBoxBytes: _writeStats.blackBoxBytes,
+    legacyMaskRecords: _writeStats.legacyMaskRecords,
+    legacyMaskFields: _writeStats.legacyMaskFields,
   };
 }
 
@@ -176,6 +209,8 @@ export function _resetStoreWriteStatsForTest(): void {
   _writeStats.sessionBytes = 0;
   _writeStats.blackBoxWrites = 0;
   _writeStats.blackBoxBytes = 0;
+  _writeStats.legacyMaskRecords = 0;
+  _writeStats.legacyMaskFields = 0;
 }
 
 /**

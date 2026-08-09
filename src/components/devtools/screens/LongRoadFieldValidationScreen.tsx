@@ -431,6 +431,15 @@ function LongRoadFieldValidationScreenBase() {
                 <Row label="Toplam bayt">
                   {snap.writeStats.sessionBytes + snap.writeStats.blackBoxBytes}
                 </Row>
+                {/* #507 devamı — eski VIN maskesi artığı temizliği. Sessiz
+                    olmamalı: temizlik yapıldıysa KAÇ kayıt/alan olduğu sayılır.
+                    Hiç temizlik gerekmediyse bu da bir bulgudur ("0 · gerek
+                    yok") — satırın kendisi gizlenmez. */}
+                <Row label="Eski VIN maskesi temizliği (#507)">
+                  {snap.writeStats.legacyMaskRecords === 0
+                    ? '0 kayıt · gerek olmadı'
+                    : `${snap.writeStats.legacyMaskRecords} kayıt · ${snap.writeStats.legacyMaskFields} alan temizlendi`}
+                </Row>
               </>
             )}
             <Row label="BlackBox okuma hükmü">
