@@ -91,6 +91,16 @@ export function intentForCategory(c: EvidenceCategory): ReasoningIntent {
     case 'BLACKBOX':     return 'DIAGNOSTIC';
     case 'FLEET':        return 'FLEET';
     case 'UNKNOWN':      return 'UNKNOWN';
+    /* ── ÇALIŞMA ZAMANI FAIL-CLOSED (kütük #497) ────────────────────────
+       TypeScript'in exhaustiveness denetimi DERLEME zamanı bir garantidir;
+       union dışı bir değer çalışma zamanında geldiğinde hiçbir şey yapmaz ve
+       bu fonksiyon `undefined` dönerdi. Karar otoritesi cihaza indiğinde girdi
+       artık yalnız kendi yazdığımız kod değildir: senkronlanan kanıt, eski
+       şemayla yazılmış yerel kayıt, JSON'dan okunan alan. `undefined` niyet
+       `resolveIntent` aday listesine sızar ve sonuç "muhafazakâr karar" değil
+       ÇÖKME olur.
+       Dönüş SQL `_reasoning_intent_for_category` ELSE dalıyla BİREBİR aynıdır. */
+    default:             return 'UNKNOWN';
   }
 }
 
@@ -120,6 +130,11 @@ export function categoriesForIntent(i: ReasoningIntent): readonly EvidenceCatego
     /* Niyet bilinmiyorsa beklenen kategori de yoktur — boş liste bir
        "hepsi" kısayolu DEĞİLDİR. */
     case 'UNKNOWN':        return Object.freeze([]);
+    /* Çalışma zamanı fail-closed (#497): union dışı niyet `undefined` DEĞİL,
+       boş liste döndürür. SQL `_reasoning_categories` ELSE dalı da
+       `ARRAY[]::text[]` verir — birebir aynı. `undefined` dönseydi çağıran
+       `.length` üzerinde patlardı. */
+    default:               return Object.freeze([]);
   }
 }
 
@@ -251,6 +266,10 @@ export function stateForDecision(d: ReasoningDecision): ReasoningState {
     case 'INSUFFICIENT_EVIDENCE': return 'UNKNOWN';
     case 'EXPIRED_EVIDENCE':      return 'UNKNOWN';
     case 'UNKNOWN':               return 'UNKNOWN';
+    /* Çalışma zamanı fail-closed (#497) — SQL `_reasoning_state_for_decision`
+       ELSE dalıyla birebir aynı. Tanınmayan karar "bilmiyorum"dur; sonuçlandırıcı
+       bir duruma YÜKSELTİLMEZ. */
+    default:                      return 'UNKNOWN';
   }
 }
 

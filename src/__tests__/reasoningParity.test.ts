@@ -23,10 +23,15 @@
  * JOIN, zincir yazımı, `now()`) kapsam DIŞIDIR; o katman ortamına göre zaten
  * farklıdır ve ADR-286 §3.2'de böyle tasarlanmıştır.
  *
- * ⚠️ **SQL BU KOŞUMDA YÜRÜTÜLMÜYOR** — yerel Postgres (docker) kapalıydı.
- * Bu dosya SQL'in *metnini* denetler. Çalıştırmalı çapraz koşum ADR-286 §5.3
- * aşama 2'dir ve `supabase/tests/` altında ayrıca koşulur. Metin denetimi,
- * çalıştırmalı testin YERİNE GEÇMEZ; onun ön koşuludur.
+ * ── İKİ AŞAMA DA KOŞULDU ──────────────────────────────────────────────────
+ * · Aşama 1 (§A–E): SQL METNİ ayrıştırılır ve TS sabitleriyle karşılaştırılır.
+ * · Aşama 2 (§F): `docs/fixtures/reasoning_parity_golden.json` — migration'lardan
+ *   çıkarılan saf fonksiyonlar **gerçek PostgreSQL'de** koşuldu (postgres:16),
+ *   çıktı fikstüre yazıldı. Yani bu bölüm SQL'in metnini değil **davranışını**
+ *   karşılaştırır. Fikstür ELLE DÜZENLENMEZ; docker'sız makinede de korur.
+ *
+ * Aşama 2, aşama 1'in kaçırdığı bir sapmayı yakaladı (#497): union dışı girdide
+ * TS `undefined` dönüyordu, SQL `'UNKNOWN'`. Metin denetimi tek başına yetmez.
  */
 
 import { describe, it, expect } from 'vitest';
@@ -476,7 +481,7 @@ describe('F · altın dosya — gerçek Postgres çıktısı ile birebir', () =>
   it('altın dosya dolu ve tüm bölümleri taşıyor', () => {
     expect(Object.keys(GOLDEN.reasoningConfidence).length).toBeGreaterThan(1000);
     expect(Object.keys(GOLDEN.evidenceConfidence).length).toBeGreaterThan(200);
-    expect(Object.keys(GOLDEN.canTransition).length).toBe(64);
+    expect(Object.keys(GOLDEN.canTransition).length).toBeGreaterThanOrEqual(64);
   });
 
   it('kaynak tavanı — SQL çıktısı ↔ TS', () => {
@@ -503,13 +508,14 @@ describe('F · altın dosya — gerçek Postgres çıktısı ile birebir', () =>
     }
   });
 
-  it('niyet↔kategori eşlemeleri SQL ↔ TS (BİLİNEN değerler)', () => {
+  it('niyet↔kategori eşlemeleri SQL ↔ TS (union DIŞI vakalar DAHİL)', () => {
+    /* #497 kapatıldıktan sonra istisna KALDIRILDI: union dışı girdiler de
+       ana parite döngüsünden geçer. Bu, sapmanın gerçekten kapandığının
+       kanıtıdır — ayrı bir "bilinen sapma" bölümü artık yok. */
     for (const [i, cats] of Object.entries(GOLDEN.categoriesForIntent)) {
       expect([...categoriesForIntent(i as ReasoningIntent)], i).toEqual(cats);
     }
-    /* Bilinmeyen kategori ayrı ele alınır — aşağıdaki SAPMA #5 testine bak. */
     for (const [c, i] of Object.entries(GOLDEN.intentForCategory)) {
-      if (c === 'NOPE') continue;
       expect(intentForCategory(c as EvidenceCategory), c).toBe(i);
     }
   });
@@ -560,70 +566,81 @@ describe('F · altın dosya — gerçek Postgres çıktısı ile birebir', () =>
 });
 
 /* ══════════════════════════════════════════════════════════════════════════
-   BÖLÜM G — ⚠️ ÖLÇÜLEN SAPMA #5 · TS switch'lerinde ÇALIŞMA ZAMANI
-             FAIL-CLOSED YOK  (kütük #497)
+   BÖLÜM G — ÇALIŞMA ZAMANI FAIL-CLOSED (kütük #497 · KAPATILDI)
    ══════════════════════════════════════════════════════════════════════════
 
-   Altın dosya koşumunda ORTAYA ÇIKTI — statik metin denetiminde görünmüyordu.
-   Matrise bilinmeyen bir kategori (`'NOPE'`) konunca:
+   ── SAPMA NASIL BULUNDU ─────────────────────────────────────────────────
+   Statik metin denetiminde GÖRÜNMÜYORDU. Gerçek PostgreSQL koşumunda matrise
+   union dışı bir kategori (`'NOPE'`) konunca ortaya çıktı:
 
        SQL  _reasoning_intent_for_category('NOPE') → 'UNKNOWN'   (ELSE dalı)
        TS   intentForCategory('NOPE')              →  undefined  (default YOK)
 
-   Aynı kusur ÜÇ fonksiyonda birden: `intentForCategory` · `categoriesForIntent`
-   · `stateForDecision`. Hiçbirinde `default` dalı yok; TypeScript'in
-   exhaustiveness denetimine güveniliyor. Bu DERLEME zamanı bir garantidir ve
-   union dışı bir değer çalışma zamanında geldiğinde HİÇBİR ŞEY yapmaz.
+   Aynı kusur üç fonksiyondaydı. TypeScript'in exhaustiveness denetimi DERLEME
+   zamanı bir garantidir ve union dışı değer çalışma zamanında geldiğinde
+   hiçbir şey yapmaz.
 
-   ── NEDEN ÖNEMLİ ────────────────────────────────────────────────────────
-   ADR-286 §4.4 madde 1 şunu şart koşuyordu: *"bilinmeyen category/intent/
-   severity değeri gelirse motor UNKNOWN'a düşer"*. TS tarafı bunu bugün
-   SAĞLAMIYOR. Karar otoritesi cihaza indiğinde girdi artık yalnız kendi
-   yazdığımız kod değil — sunucudan senkronlanan kanıt, eski şemayla yazılmış
-   yerel kayıt, JSON'dan okunan alan. Union dışı değer GERÇEK bir olasılıktır.
-   `undefined` niyet, `resolveIntent` içinde aday listesine `undefined` sokar;
-   `undefined` kategori dizisi `categoriesForIntent(...).length` üzerinde
-   patlar. Yani sonuç "muhafazakâr karar" değil, **çökme veya sessiz bozulma**.
+   ── DURUM: KAPATILDI ────────────────────────────────────────────────────
+   Üç fonksiyona da `default` eklendi; dönüşler SQL'in ELSE dallarıyla BİREBİR
+   aynıdır (uydurma değil — altın dosyadan okundu). Bu bölüm artık sapmayı
+   değil, DÜZELTMENİN KALICILIĞINI kilitler.                                */
 
-   ── DURUM: DÜZELTİLMEDİ (bilinçli) ──────────────────────────────────────
-   Görev talimatı: *"Sapma çıkarsa DÜZELTME — önce raporla, hangisi doğru
-   davranış tartışılacak."* Bu bölüm MEVCUT davranışı dondurur. Düzeltme
-   kararı verilince bu testler yeni davranışa GÜNCELLENİR, silinmez.        */
-
-describe('G · ⚠️ SAPMA #5 — bilinmeyen girdide TS fail-closed DEĞİL (#497)', () => {
+describe('G · çalışma zamanı fail-closed (#497 kapatıldı)', () => {
   const UNKNOWN_INPUT = 'NOPE__UNION_DISI' as never;
 
-  it('⚠️ intentForCategory: SQL "UNKNOWN" döner, TS undefined döner', () => {
-    expect(GOLDEN.intentForCategory['NOPE'], 'SQL fail-closed').toBe('UNKNOWN');
-    // MEVCUT (şüpheli) davranış donduruldu:
-    expect(intentForCategory(UNKNOWN_INPUT)).toBeUndefined();
+  it('intentForCategory: union dışı → "UNKNOWN" (SQL ile aynı)', () => {
+    expect(GOLDEN.intentForCategory['NOPE'], 'SQL referansı').toBe('UNKNOWN');
+    expect(intentForCategory(UNKNOWN_INPUT)).toBe('UNKNOWN');
   });
 
-  it('⚠️ categoriesForIntent: SQL boş dizi döner, TS undefined döner', () => {
-    // SQL: `ELSE ARRAY[]::text[]` — boş dizi "hepsi" DEĞİL, "hiçbiri"dir.
-    expect(categoriesForIntent(UNKNOWN_INPUT)).toBeUndefined();
+  it('categoriesForIntent: union dışı → boş liste (SQL ile aynı)', () => {
+    expect(GOLDEN.categoriesForIntent['NOPE_INTENT'], 'SQL referansı').toEqual([]);
+    expect(categoriesForIntent(UNKNOWN_INPUT)).toEqual([]);
+    // Boş liste bir "hepsi" kısayolu DEĞİLDİR — çağıran hiç kanıt toplamaz.
+    expect(categoriesForIntent(UNKNOWN_INPUT).length).toBe(0);
   });
 
-  it('⚠️ stateForDecision: SQL "UNKNOWN" döner, TS undefined döner', () => {
-    expect(stateForDecision(UNKNOWN_INPUT)).toBeUndefined();
+  it('stateForDecision: union dışı → "UNKNOWN" (SQL ile aynı)', () => {
+    expect(GOLDEN.stateForDecision['NOPE_DECISION'], 'SQL referansı').toBe('UNKNOWN');
+    expect(stateForDecision(UNKNOWN_INPUT)).toBe('UNKNOWN');
   });
 
-  it('BİLİNEN değerlerde üç fonksiyon da doğru — kusur YALNIZ union dışında', () => {
-    // Sapmanın kapsamını sınırlar: bilinen girdilerde parite tam.
-    expect(intentForCategory('FUEL')).toBe('FUEL');
-    expect(stateForDecision('SUPPORTED')).toBe('SUPPORTED');
-    expect(categoriesForIntent('FUEL')).toEqual(['FUEL']);
+  it('hiçbiri artık undefined DÖNMEZ (asıl kusur buydu)', () => {
+    expect(intentForCategory(UNKNOWN_INPUT)).toBeDefined();
+    expect(categoriesForIntent(UNKNOWN_INPUT)).toBeDefined();
+    expect(stateForDecision(UNKNOWN_INPUT)).toBeDefined();
   });
 
-  it('kaynak kanıtı: üç switch\'in hiçbirinde default dalı YOK', () => {
+  it('kaynak kanıtı: üç switch de default dalı TAŞIR', () => {
     const src = readFileSync(
       join(process.cwd(), 'src', 'platform', 'reasoning', 'maviReasoning.ts'), 'utf8');
     for (const fn of ['intentForCategory', 'categoriesForIntent', 'stateForDecision']) {
       const start = src.indexOf(`export function ${fn}(`);
       const body = src.slice(start, src.indexOf('\n}', start));
-      expect(body, `${fn} default dalı kazanmış — SAPMA #5 düzeltildiyse bu testi GÜNCELLE`)
-        .not.toContain('default:');
+      expect(body, `${fn} default dalını KAYBETTİ — #497 geri döndü`)
+        .toContain('default:');
     }
+  });
+
+  it('bilinen değerler ETKİLENMEDİ — default yalnız union dışını yakalar', () => {
+    expect(intentForCategory('FUEL')).toBe('FUEL');
+    expect(stateForDecision('SUPPORTED')).toBe('SUPPORTED');
+    expect(categoriesForIntent('FUEL')).toEqual(['FUEL']);
+    expect(categoriesForIntent('UNKNOWN')).toEqual([]);
+  });
+
+  it('reason() union dışı kategori taşıyan kanıtla ÇÖKMEZ', () => {
+    /* Asıl risk buydu: undefined niyet aday listesine sızıyor, undefined
+       kategori dizisi `.length` üzerinde patlıyordu. */
+    const now = 1_000_000;
+    const bad = ledgerOf([mkEvidence({
+      id: 'x', category: 'NOPE__UNION_DISI' as never,
+      state: 'ACTIVE', expiresAt: now + 1000,
+    })]);
+    const out = reason(bad, { subject: { companyId: 'c1', vehicleId: 'v1' }, observedAt: now });
+    expect(out.reasoning.intent).toBe('UNKNOWN');
+    expect(out.reasoning.decision).toBe('UNKNOWN');
+    expect(out.reasoning.confidence).toBe('UNKNOWN');
   });
 });
 

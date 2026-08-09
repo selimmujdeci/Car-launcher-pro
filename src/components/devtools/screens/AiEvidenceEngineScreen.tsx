@@ -31,6 +31,9 @@ import {
 } from 'lucide-react';
 import { readAiEvidence } from '../../../platform/fleet/aiEvidenceEngine';
 import {
+  readUnknownInputStats, UNKNOWN_INPUT_FIELDS, type UnknownInputStats,
+} from '../../../platform/reasoning/core/evidenceInputGuard';
+import {
   computeEvidenceCoverage,
 } from '../../../platform/fleet/aiEvidenceEngine';
 import {
@@ -103,15 +106,28 @@ function confidenceTone(c: EvidenceConfidence): string {
 type Snap = {
   readonly data: ReturnType<typeof readAiEvidence> | null;
   readonly readAtMs: number;
+  /** Tanınmayan girdi sayaçları (#497 madde 2) — aynı okumada alınır. */
+  readonly guard: UnknownInputStats;
+};
+
+const EMPTY_GUARD: UnknownInputStats = {
+  totalRejected: 0,
+  byField: { category: 0, source: 0, severity: 0, provenance: 0, state: 0 },
+  bySource: {},
+  lastRejectedAtMs: null,
 };
 
 /** Okuma fail-soft: omurga düşse bile ekran çökmez. */
 function readSnap(): Snap {
   const now = Date.now();
+  /* Sayaç okuması kanıt omurgasından BAĞIMSIZ fail-soft: omurga düşse bile
+     "kaç girdi anlaşılamadı" bilgisi kaybolmamalı — asıl arıza o olabilir. */
+  let guard: UnknownInputStats = EMPTY_GUARD;
+  try { guard = readUnknownInputStats(); } catch { /* sayaç yoksa boş kalır */ }
   try {
-    return { data: readAiEvidence(now), readAtMs: now };
+    return { data: readAiEvidence(now), readAtMs: now, guard };
   } catch {
-    return { data: null, readAtMs: now };
+    return { data: null, readAtMs: now, guard };
   }
 }
 
@@ -132,6 +148,7 @@ function AiEvidenceEngineScreenBase() {
   }, [refresh]);
 
   const d = snap?.data ?? null;
+  const guard = snap?.guard ?? EMPTY_GUARD;
   const now = snap?.readAtMs ?? 0;
   const entries = d?.ledger.entries ?? [];
 
@@ -159,6 +176,42 @@ function AiEvidenceEngineScreenBase() {
           <RefreshCw size={12} /> YENİLE
         </button>
       </div>
+
+      {/* 0 · TANINMAYAN GİRDİ — kütük #497 madde 2
+          "Bilgimiz yok" ile "kanıt geldi ama ANLAYAMADIK" ayrı şeylerdir;
+          ikincisi bir ARIZA sinyalidir (şema sürüklenmesi · bozuk veri).
+          Sessiz düşüş bu ayrımı yok ederdi. Reddedilen DEĞER taşınmaz —
+          yalnız hangi alan, kaç adet, hangi kaynaktan. */}
+      <Section title="Rejected Input (unknown enum)">
+        <div className="flex flex-col">
+          <Row label="totalRejected">
+            <Chip tone={guard.totalRejected > 0 ? WARN : OK}>
+              {guard.totalRejected}
+            </Chip>
+          </Row>
+          {guard.totalRejected === 0 ? (
+            <Row label="status">
+              <span className="text-[var(--oem-ink-2)]">
+                tanınmayan girdi yok
+              </span>
+            </Row>
+          ) : (
+            <>
+              {UNKNOWN_INPUT_FIELDS.filter((f) => guard.byField[f] > 0).map((f) => (
+                <Row key={f} label={`field:${f}`}>{guard.byField[f]}</Row>
+              ))}
+              {Object.keys(guard.bySource).sort().map((s) => (
+                <Row key={s} label={`from:${s}`}>{guard.bySource[s]}</Row>
+              ))}
+              <Row label="lastRejected">
+                {guard.lastRejectedAtMs === null
+                  ? UNAVAILABLE
+                  : durationText(Math.max(0, now - guard.lastRejectedAtMs))}
+              </Row>
+            </>
+          )}
+        </div>
+      </Section>
 
       {/* 1 · SAYAÇLAR VE BÜTÜNLÜK */}
       <Section title="Evidence & Integrity">

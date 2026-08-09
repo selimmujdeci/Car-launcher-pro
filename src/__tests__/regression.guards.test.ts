@@ -4749,6 +4749,36 @@ describe('ADR-286 · karar çekirdeği parite kasası', () => {
     }
   });
 
+  it('🔒 #497 çalışma zamanı fail-closed KAPALI kalır', () => {
+    /* Beş fonksiyonda `default` dalı vardır ve dönüşleri SQL'in ELSE dallarıyla
+       BİREBİR aynıdır. Biri kaldırılırsa union dışı girdi `undefined` döner ve
+       hüküm motoru çöker — sapma sessizce geri gelirdi. */
+    const rs = read('src/platform/reasoning/maviReasoning.ts');
+    const ev = read('src/platform/fleet/aiEvidence.ts');
+    for (const [src, fn] of [
+      [rs, 'intentForCategory'], [rs, 'categoriesForIntent'], [rs, 'stateForDecision'],
+      [ev, 'sourceConfidenceCeiling'], [ev, 'provenanceConfidenceCeiling'],
+    ] as const) {
+      const i = src.indexOf(`export function ${fn}(`);
+      const body = src.slice(i, src.indexOf('\n}', i));
+      expect(body, `${fn} default dalını kaybetti — #497 geri döndü`).toContain('default:');
+    }
+    // Altın dosyada union dışı vakalar bulunmalı; yoksa kilit boşa döner.
+    const golden = read('docs/fixtures/reasoning_parity_golden.json');
+    for (const probe of ['NOPE_INTENT', 'NOPE_DECISION', 'NOPE_SOURCE']) {
+      expect(golden, `altın dosyada union dışı vaka yok: ${probe}`).toContain(probe);
+    }
+  });
+
+  it('🔒 altın dosya GERÇEK Postgres çıktısıdır (elle yazılmaz)', () => {
+    expect(parity).toContain('reasoning_parity_golden.json');
+    const golden = JSON.parse(read('docs/fixtures/reasoning_parity_golden.json')) as
+      Record<string, Record<string, unknown>>;
+    let total = 0;
+    for (const k of Object.keys(golden)) total += Object.keys(golden[k]!).length;
+    expect(total, 'altın dosya boşaltılmış').toBeGreaterThan(1500);
+  });
+
   it('🔒 eşleme tabloları ve karar SIRASI karşılaştırılır', () => {
     // Sıra sapması en tehlikelisidir: çelişki kapısı güvenin arkasına
     // düşerse çelişkili kanıt SUPPORTED üretir.
@@ -4826,7 +4856,14 @@ describe('ADR-286 · göç karakterizasyon kasası', () => {
 
   it('🔒 şüpheli davranışlar DÜZELTİLMEDEN işaretlendi', () => {
     // Karakterizasyonun kuralı: yanlışı da kilitle, notunu düş.
-    expect(charac).toContain('⚠️ ŞÜPHELİ');
+    /* #498 kararı: termik eğri LİNEER kalır (üstele geçmek bir ÖLÇÜM kararıdır,
+       tahmin değil) ve yorum gerçeğe hizalandı. İşaret kalkarsa bunun bir yer
+       tutucu olduğu unutulur ve "doğrulanmış eğri" sanılır. */
+    expect(charac).toContain('YER TUTUCU');
+    const brain = read('src/platform/diagnostic/maintenanceBrain.ts');
+    expect(brain, 'yorum yeniden "üstel" demeye başlamış — belge/davranış ayrışması')
+      .not.toMatch(/üstü üstel artış/);
+    expect(brain).toContain('LİNEER');
   });
 
   it('🔒 üç modül karar omurgasına HENÜZ bağlı değil (göç sırası korunur)', () => {

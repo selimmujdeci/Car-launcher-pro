@@ -115,6 +115,11 @@ export function sourceConfidenceCeiling(s: EvidenceSource): EvidenceConfidence {
     /* Sezgisel/eşik tabanlı izleme — kanıt olabilir ama en güçlüsü olamaz. */
     case 'HEALTH_MONITOR':    return 'MEDIUM';
     case 'SOURCE_UNKNOWN':    return 'UNKNOWN';
+    /* Calisma zamani fail-closed (#497): union disi kaynak `undefined` DEGIL,
+       'UNKNOWN' dondurur — SQL `_evidence_source_ceiling` ELSE daliyla birebir.
+       `undefined` donseydi `weakestEvidenceConfidence` indexOf(-1) uzerinden
+       SESSIZCE en yuksek guveni secerdi: bilinmeyen kaynak en guvenilir sayilirdi. */
+    default:                  return 'UNKNOWN';
   }
 }
 
@@ -125,6 +130,8 @@ export function provenanceConfidenceCeiling(p: EvidenceProvenance): EvidenceConf
     case 'DERIVED':   return 'HIGH';
     case 'ESTIMATED': return 'MEDIUM';
     case 'UNKNOWN':   return 'UNKNOWN';
+    /* Calisma zamani fail-closed (#497) — SQL ELSE dali ile birebir. */
+    default:          return 'UNKNOWN';
   }
 }
 

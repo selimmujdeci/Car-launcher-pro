@@ -122,13 +122,14 @@ describe('2 · calcWearRate — anlık stres (0..1)', () => {
     expect(calcWearRate(700, 60, 0)).toBe(0);
   });
 
-  it('⚠️ ŞÜPHELİ · termik artış LİNEER, oysa yorum "üstel" diyor (#498)', () => {
+  it('⚠️ YER TUTUCU · termik artış LİNEER — eğri doğrulanmadı (#498)', () => {
     /*
-     * Kaynak yorumu: "Termik stres(25%): normalTemp+10°C altı = 0; üstü ÜSTEL artış".
-     * Kod ise lineer: clamp((temp - hotThreshold) / 30, 0, 1).
-     * Aşağıdaki eşit aralıklar EŞİT artış üretiyor → lineer olduğunun kanıtı.
-     * DÜZELTİLMEDİ: bu dosya davranışı dondurur. Yorum mu kod mu yanlış,
-     * ayrı bir karardır (kütük #498).
+     * Kod her zaman lineerdi: clamp((temp - hotThreshold) / 30, 0, 1).
+     * Kaynak yorumu eskiden "üstel artış" diyordu; belge ile davranış
+     * AYRIŞMIŞTI. Bu test lineerliği ölçtü, yorum gerçeğe hizalandı (#498) ve
+     * DAVRANIŞ BİLİNÇLİ OLARAK DEĞİŞTİRİLMEDİ: üstele geçmek bir tahmin değil
+     * ÖLÇÜM kararıdır — gerçek termik aşınma verisi toplanana kadar lineer kalır.
+     * Aşağıdaki eşit aralıklar EŞİT artış üretir; lineerliğin kanıtı budur.
      */
     const t = (temp: number) => calcWearRate(700, temp, 0) / 0.25;   // termik payı
     const d1 = t(110) - t(100);
