@@ -186,6 +186,33 @@ public final class ElmProtocol {
     }
 
     /**
+     * H-A DENEYİ (kütük #516) — {@code ATST<hex>} yanıt bekleme süresini ayarlar.
+     *
+     * ── NEDEN BEYAZ LİSTE, NEDEN GENEL "ham komut" DEĞİL ────────────────────
+     * Projede ham komut konsolu bilinçli olarak DISABLED'dır (ticari/güvenlik).
+     * Bu metot o kararı DELMEZ: yalnız {@code ATST} üretir ve parametreyi 2 haneli
+     * hex'e zorlar. Çağıran keyfi AT dizesi GÖNDEREMEZ — komutun kendisi burada
+     * kurulur, dışarıdan gelen tek şey iki hane sayıdır.
+     *
+     * ELM327: ATST değeri × 4 ms = yanıt bekleme süresi. Varsayılan 0x32 ≈ 200 ms.
+     * {@code ATAT1} adaptif zamanlaması bu değeri TAVAN olarak kullanır — yani ST
+     * kısaysa adaptif mod da uzun bekleyemez.
+     *
+     * @param stHex iki haneli hex (ör. "FF" ≈ 1020 ms, "32" ≈ 200 ms varsayılan).
+     * @return ham ELM yanıtı; geçersiz parametre veya hata → null.
+     */
+    public String setResponseTimeout(String stHex) {
+        if (stHex == null) return null;
+        String v = stHex.trim().toUpperCase(java.util.Locale.ROOT);
+        if (!v.matches("[0-9A-F]{2}")) return null;   // yalnız 2 hane hex — keyfi komut YOK
+        try {
+            return channel.send("ATST" + v, 700);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /**
      * PR-OBD-DIAG-3: {@link #readPidRaw} ile AYNI tek ELM komutunu çalıştırır, ama ham
      * SINIFLANDIRMAYI ({@link ElmResponseParser.Kind}: OK/NO_DATA/NEG_7F/TIMEOUT/…) korur.
      *

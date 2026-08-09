@@ -329,6 +329,22 @@ export interface ExtendedGateState {
   burst: boolean;
 }
 
+/**
+ * H-A deneyi (kütük #518-HA) için İZLENEN PID listesi — bounded, salt-okunur kopya.
+ *
+ * `getExtendedGateState()` yalnız SAYI verir; deney hangi PID'leri ölçeceğini bilmek
+ * zorunda ve **varsayılan liste UYDURAMAZ**. Elenen (demote) PID'ler de dahildir —
+ * deneyin asıl merak ettiği tam olarak onlardır.
+ */
+export function getWatchedExtendedPids(): string[] {
+  const out: string[] = [];
+  for (const pid of _watchers.keys()) {
+    out.push(pid);
+    if (out.length >= ELM_WATCH_CAP) break;
+  }
+  return out;
+}
+
 export function getExtendedGateState(): ExtendedGateState {
   const gatedPids: string[] = [];
   let gatedCount = 0;

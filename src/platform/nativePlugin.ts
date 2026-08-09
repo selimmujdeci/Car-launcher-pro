@@ -965,6 +965,20 @@ export interface CarLauncherPlugin {
   // Opsiyonel: eski plugin sürümlerinde bulunmayabilir (fail-soft: kanıt yok → NO_NATIVE_EVIDENCE).
   getObdExtendedPollEvidence?(): Promise<NativeExtendedPollEvidence>;
 
+  /* ── H-A DENEYİ (kütük #518-HA) — ATST yanıt süresi ölçümü ────────────────
+     Ürün yolunu DEĞİŞTİRMEZ: poll durmaz, eleme öğrenmesi beslenmez, ayar
+     bitişte geri alınır. Native yalnız HAM örnek taşır; analiz TS'te (saf). */
+  startPidTimingExperiment?(o: { pids: string[]; rounds: number; stHex: string }):
+    Promise<{ started: boolean; reason?: string }>;
+  abortPidTimingExperiment?(): Promise<void>;
+  getPidTimingExperiment?(): Promise<{
+    status: string; running?: boolean; failReason?: string | null;
+    phases: { phase: string; stApplied: string; stCommandOk: boolean;
+              startedAt: number; finishedAt: number }[];
+    samples: { phase: string; pid: string; outcome: string;
+               elapsedMs: number; respLen: number }[];
+  }>;
+
   // PHONE-HUB P0.5: SALT-OKUNUR donanım gözlemi (Bluetooth adapter/profil/izin,
   // vendor paket varlığı, audio route). Hiçbir şey BAŞLATMAZ: keşif/tarama/eşleştirme/
   // bağlantı/SCO/route değişimi/çağrı/izin isteği YOK. PII TAŞIMAZ (ad/MAC gönderilmez).

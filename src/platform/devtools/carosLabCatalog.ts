@@ -69,7 +69,7 @@ export type CarosLabToolId =
   | 'mavi-console' | 'mavi-reasoning-engine' | 'ai-mechanic' | 'action-registry'
   | 'stt-mic' | 'tool-calling' | 'memory-explorer' | 'knowledge-explorer'
   // Developer
-  | 'decoder-registry' | 'discovery-database' | 'raw-command-console' | 'replay-log'
+  | 'decoder-registry' | 'discovery-database' | 'raw-command-console' | 'replay-log' | 'pid-timing-experiment'
   | 'benchmark' | 'stress-test' | 'long-road-field-validation';
 
 export interface CarosLabTool {
@@ -366,6 +366,12 @@ export const CAROS_LAB_TOOLS: readonly CarosLabTool[] = Object.freeze([
     desc: 'Kara kutu kayıt oynatımı — kaydedilmiş oturumun olay akışı.',
     status: 'AVAILABLE', layer: null,
     note: null,
+  },
+  {
+    id: 'pid-timing-experiment', category: 'developer', name: 'H-A Deneyi (ATST)',
+    desc: 'ELM327 yanıt bekleme süresinin (ATST) NO_DATA kaybına sebep olup olmadığını ölçen İKİ AŞAMALI deney: A) mevcut ayar (CAN tarafinda ATST hiç gönderilmiyor → ELM varsayılanı ~200 ms) · B) ATST FF (~1020 ms). Aynı bağlantı, aynı PID listesi, aynı tur sayısı. PID BAŞINA: NO_DATA oranı · başarılı yanıt p50/p95/max · NO_DATA süresi · aşama toplam süresi. 0x23 (yakıt rayı basıncı) AYRI raporlanır — Car Scanner okuyor, biz okumuyoruz.',
+    status: 'AVAILABLE', layer: 'ELM327 / CAN',
+    note: '⚠️ SALT-OKUNUR DEĞİL — LAB kuralının BİLİNÇLİ İSTİSNASI: bu ekran araca SORGU GÖNDERİR ve ATST ayarını GEÇİCİ değiştirir. SINIRLAR: yalnız KULLANICI başlatırsa koşar (açılışta hiçbir şey gönderilmez) · yalnız Mode-01 OKUMA (yazma/DTC silme/adaptasyon YOK) · ATST bitişte native finally ile GERİ ALINIR · ürünün eleme öğrenmesi (ExtendedNoDataTracker) BESLENMEZ (deney ölçtüğü şeyi bozmaz) · poll döngüsü DURDURULMAZ (çekişme iki aşamada da aynı → karşılaştırma geçerli) · iptal edilebilir · PID ve tur sayısı TAVANLI. Varsayılan PID listesi UYDURULMAZ — ürünün izlediği listeden gelir. Analiz native tarafinda DEĞİL, saf TS modelinde (18 birim testi). Gerçek araç doğrulaması YAPILMADI (kütük #518-HA).',
   },
   {
     id: 'benchmark', category: 'developer', name: 'Kıyaslama',

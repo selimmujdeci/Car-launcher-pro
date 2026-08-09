@@ -1919,6 +1919,52 @@ public class CarLauncherPlugin extends Plugin {
         call.resolve(ret);
     }
 
+    /* ── H-A DENEYİ (kütük #516) — ATST yanıt süresi ölçümü ────────────────
+     * ÜRÜN YOLUNU DEĞİŞTİRMEZ: poll durmaz, eleme öğrenmesi beslenmez, ayar
+     * bitişte geri alınır. Ham örnekler taşınır; analiz TS'te (saf, testli). */
+
+    @PluginMethod
+    public void startPidTimingExperiment(PluginCall call) {
+        try {
+            JSArray arr = call.getArray("pids");
+            java.util.List<String> pids = new java.util.ArrayList<>();
+            if (arr != null) {
+                for (int i = 0; i < arr.length(); i++) {
+                    Object v = arr.opt(i);
+                    if (v != null) pids.add(String.valueOf(v));
+                }
+            }
+            int rounds = call.getInt("rounds", 20);
+            String st  = call.getString("stHex", "FF");
+            boolean started = obd().startPidTimingExperiment(pids, rounds, st);
+            JSObject ret = new JSObject();
+            ret.put("started", started);
+            if (!started) ret.put("reason", "OBD bağlı değil veya deney zaten koşuyor");
+            call.resolve(ret);
+        } catch (Exception e) {
+            call.reject("PID_TIMING_EXPERIMENT_START_FAILED", e);
+        }
+    }
+
+    @PluginMethod
+    public void abortPidTimingExperiment(PluginCall call) {
+        try {
+            obd().abortPidTimingExperiment();
+            call.resolve();
+        } catch (Exception e) {
+            call.reject("PID_TIMING_EXPERIMENT_ABORT_FAILED", e);
+        }
+    }
+
+    @PluginMethod
+    public void getPidTimingExperiment(PluginCall call) {
+        try {
+            call.resolve(JSObject.fromJSONObject(obd().getPidTimingExperimentJson()));
+        } catch (Exception e) {
+            call.reject("PID_TIMING_EXPERIMENT_READ_FAILED", e);
+        }
+    }
+
     @PluginMethod
     public void getObdExtendedPollEvidence(PluginCall call) {
         ExtendedPollEvidence.Snapshot s = ExtendedPollEvidence.INSTANCE.snapshot();

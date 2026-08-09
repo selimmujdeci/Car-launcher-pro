@@ -1192,6 +1192,84 @@ public final class OBDManager {
     /** Aktif ELM bağlantısı var mı (plugin'in transport seçimi için). */
     public boolean isConnected() { return obdRunning; }
 
+    /* ══════════════════════════════════════════════════════════════════════
+     * H-A DENEYİ (kütük #516) — ATST yanıt süresi ölçümü.
+     *
+     * ÜRÜN YOLUNU DEĞİŞTİRMEZ: poll döngüsü durdurulmaz, eleme öğrenmesi
+     * (ExtendedNoDataTracker) beslenmez, ExtendedPollEvidence sayaçlarına
+     * dokunulmaz. Deney kendi defterini tutar ve bitişte ATST'yi geri alır.
+     * ══════════════════════════════════════════════════════════════════════ */
+
+    private volatile PidTimingExperiment timingExperiment = null;
+
+    /**
+     * Deneyi ARKA PLAN thread'inde başlatır (çağıran bloklanmaz — deney dakikalar sürebilir).
+     * @return false = bağlantı yok ya da zaten koşuyor.
+     */
+    public boolean startPidTimingExperiment(java.util.List<String> pids, int rounds, String stHexB) {
+        final ElmProtocol p = elm;
+        if (!obdRunning || p == null) return false;
+        PidTimingExperiment cur = timingExperiment;
+        if (cur != null && cur.isRunning()) return false;
+        final PidTimingExperiment exp = new PidTimingExperiment(cmdQueue, p);
+        timingExperiment = exp;
+        Thread t = new Thread(() -> exp.run(pids, rounds, stHexB), "pid-timing-exp");
+        t.setDaemon(true);
+        t.start();
+        return true;
+    }
+
+    /** Koşan deneyi iptal eder (mevcut komut kesilmez). */
+    public void abortPidTimingExperiment() {
+        PidTimingExperiment exp = timingExperiment;
+        if (exp != null) exp.abort();
+    }
+
+    /** Deney durumu + HAM örnekler. Analiz (yüzdelik/hüküm) TS tarafındadır. */
+    public org.json.JSONObject getPidTimingExperimentJson() {
+        org.json.JSONObject out = new org.json.JSONObject();
+        try {
+            PidTimingExperiment exp = timingExperiment;
+            if (exp == null) {
+                out.put("status", "idle");
+                out.put("samples", new org.json.JSONArray());
+                out.put("phases", new org.json.JSONArray());
+                return out;
+            }
+            out.put("status", exp.status());
+            out.put("running", exp.isRunning());
+            if (exp.failReason() != null) out.put("failReason", exp.failReason());
+
+            org.json.JSONArray ph = new org.json.JSONArray();
+            for (PidTimingExperiment.PhaseMeta m : exp.phasesSnapshot()) {
+                org.json.JSONObject o = new org.json.JSONObject();
+                o.put("phase", m.phase);
+                o.put("stApplied", m.stApplied);
+                o.put("stCommandOk", m.stCommandOk);
+                o.put("startedAt", m.startedAt);
+                o.put("finishedAt", m.finishedAt);
+                ph.put(o);
+            }
+            out.put("phases", ph);
+
+            org.json.JSONArray arr = new org.json.JSONArray();
+            for (PidTimingExperiment.Sample s : exp.samplesSnapshot()) {
+                org.json.JSONObject o = new org.json.JSONObject();
+                o.put("phase", s.phase);
+                o.put("pid", s.pid);
+                o.put("outcome", s.outcome);
+                o.put("elapsedMs", s.elapsedMs);
+                o.put("respLen", s.respLen);
+                arr.put(o);
+            }
+            out.put("samples", arr);
+        } catch (Exception e) {
+            try { out.put("status", "failed"); out.put("failReason", String.valueOf(e.getMessage())); }
+            catch (Exception ignored) { }
+        }
+        return out;
+    }
+
     /**
      * Kayıtlı arıza kodlarını okur (Mode 03). USER önceliğiyle kuyruğa girer — en kötü
      * ihtimalle ÇALIŞMAKTA olan TEK bir poll komutunun (~1.5s) bitmesini bekler (eskiden
