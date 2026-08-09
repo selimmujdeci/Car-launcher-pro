@@ -25,6 +25,9 @@ import { CarLauncher } from '../nativePlugin';
 import type { PluginListenerHandle } from '@capacitor/core';
 import { STANDARD_PID_MAP, decodeStandardPid } from './StandardPidRegistry';
 import type { StandardPidDef } from './StandardPidRegistry';
+import {
+  recordExtendedTimelineSample, resetExtendedTimeline,
+} from './extendedPollTimeline';
 import { logError } from '../crashLogger';
 
 /** İzlenebilir PID sayısı TS tavanı — rotasyon gecikmesi makul kalsın (16 PID ≈ 16 tur). */
@@ -180,6 +183,7 @@ function _onExtendedData(event: { pid: string; data: string }): void {
     };
     _values.set(pid, entry);
     _jsValuesStored++; // PR-OBD-DIAG-3: değer saklandı → obdDeep.extended.samples adayı
+    _sampleTimeline(entry.updatedAt);   // #512: eleme ↔ tazelik zaman ekseni
     _watchers.get(pid)?.forEach((cb) => {
       try { cb(entry); } catch (e) { logError('OBD:ExtPidWatcher', e); }
     });
@@ -188,12 +192,35 @@ function _onExtendedData(event: { pid: string; data: string }): void {
   }
 }
 
+/* ── Zaman ekseni örneklemesi (kütük #512 · saha hipotezi 2) ────────────────
+ * Eleme ↔ tazelik ilişkisini ölçmek için ZATEN olan iki olaya iliştirilir:
+ * değer geldiğinde ve bir PID elendiğinde. YENİ TIMER KURULMAZ — kanal
+ * sustuğunda örnekleme de durur, ki bu bulgunun kendisidir (boşluk uydurulmaz). */
+function _sampleTimeline(nowMs: number): void {
+  try {
+    const ages: number[] = [];
+    for (const v of _values.values()) {
+      const age = nowMs - v.updatedAt;
+      if (Number.isFinite(age) && age >= 0) ages.push(age);
+    }
+    recordExtendedTimelineSample({
+      atMs:      nowMs,
+      watched:   _watchers.size,
+      demoted:   _unavailable.size,
+      valued:    _values.size,
+      ageMsList: ages,
+    });
+  } catch { /* fail-soft: gözlem ürünü ASLA düşürmez */ }
+}
+
 /** PR-OBD-KWP-1: native demote bildirimi — PID turdan düşürüldü (ardışık NO_DATA/7F). */
 function _onExtendedPidStatus(event: { pid: string; status: string }): void {
   try {
     const pid = (event.pid ?? '').toUpperCase();
     if (!pid) return;
     _unavailable.set(pid, event.status || 'no_data');
+    /* Eleme ANI throttle'dan MUAF kaydedilir — geçişin tam noktası en değerli örnek. */
+    _sampleTimeline(Date.now());
     // Değer önbelleği bilinçli KORUNUR: daha önce gerçek değer geldiyse UI onu
     // "bayat + artık akmıyor" olarak gösterebilir (silmek kanıt kaybı olur).
   } catch (e) {
@@ -394,6 +421,7 @@ export function notifyObdConnected(): void {
   // PR-OBD-KWP-1: yeni bağlantı = native NO_DATA öğrenmesi de sıfırlandı (ExtendedNoDataTracker
   // reset) → TS aynası da sıfırlanır (farklı araç 'no_data' damgasını miras almasın).
   _unavailable.clear();
+  resetExtendedTimeline();   // #512: zaman ekseni de yeni oturuma ait olmalı
   if (_watchers.size === 0) return;
   // Yeni bağlantı = muhtemelen aynı araç ama garanti değil; keşif sonucu YENİDEN
   // doğrulanır (farklı araca takılan adaptör senaryosu).
@@ -449,6 +477,7 @@ export const _internals = {
     _supported = null;
     _discoveryQueue = [];
     _unavailable.clear();
+    resetExtendedTimeline();
     _listenerHandle = null;
     _listenerStarting = false;
     _burst = false;

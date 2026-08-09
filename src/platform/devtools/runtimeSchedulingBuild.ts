@@ -84,6 +84,28 @@ export interface SchedRawSnapshot {
     burst: boolean;
   } | null;
 
+  /** #512 · saha hipotezi 2: eleme ↔ tazelik zaman ekseni (bounded kuyruk). */
+  readonly timeline: {
+    /* YAPISAL tip — bu dosya servis/model import ETMEZ (dosya sözleşmesi). */
+    summary: {
+      verdict: string;
+      sampleCount: number;
+      demoteLevels: number;
+      opposingSteps: number;
+      agreeingSteps: number;
+      firstAvgAgeMs: number | null;
+      lastAvgAgeMs: number | null;
+      firstDemoted: number | null;
+      lastDemoted: number | null;
+      reachedZeroPollable: boolean;
+    };
+    tail: readonly {
+      atMs: number; watched: number; demoted: number;
+      pollable: number; valued: number;
+      avgAgeMs: number | null; maxAgeMs: number | null;
+    }[];
+  } | null;
+
   readonly sessionHealth: {
     pollingActive: boolean; dataFresh: boolean; transportReady: boolean; sessionReady: boolean;
   } | null;
@@ -127,6 +149,7 @@ const SRC = {
   deep:     'deepScan/deepScanRuntimeService.getSnapshot()',
   debug:    'platform/debug/debugStore',
   capture:  'devtools/devtoolsCapture.getDevtoolsCaptureStatus()',
+  timeline: 'obd/extendedPollTimeline.readExtendedTimeline()',
   none:     'YOK',
   unsafe:   'obd/discovery/discoveryLive.getLiveDiscoveryCoordinator()',
 } as const;
@@ -140,6 +163,86 @@ const SRC = {
  * sessizliğin SEBEBİ okunabilir olmalıdır: "destek kanıtı yok → N PID beklemede".
  * Kaynak okunamazsa UNAVAILABLE — "kapı açık" ya da "0 PID" VARSAYILMAZ.
  */
+/**
+ * #512 · SAHA HİPOTEZİ 2 — "tazelenme, elemenin SONUCU olabilir".
+ *
+ * Round-robin tur başına 1 PID okur ve elenen PID'i atlar → bir PID'in güncellenme
+ * aralığı ≈ (izlenen − elenen) × tur süresi. Liste kısaldıkça hayatta kalanlar
+ * TAZELEŞİR; uçta liste sıfırlanırsa hiçbir şey güncellenmez. Bu blok iki eğriyi
+ * AYNI ZAMAN EKSENİNDE gösterir ki iddia gözle değil ÖLÇÜMLE sınansın.
+ */
+function _pushTimelineFields(f: SchedField[], s: SchedRawSnapshot): void {
+  const t = s.timeline;
+  if (!t) {
+    f.push(schedUnavailable(
+      { id: 'tlVerdict', label: 'eleme ↔ tazelik ilişkisi', source: SRC.timeline, note: '' },
+      'Zaman ekseni okunamadı — ilişki hakkında hüküm VERİLMEZ.',
+    ));
+    return;
+  }
+
+  const sum = t.summary;
+  f.push(schedObserved(
+    { id: 'tlVerdict', label: 'eleme ↔ tazelik ilişkisi', source: SRC.timeline,
+      note: 'Ardışık örneklerde ELEME değişen adımlar sayılır; korelasyon katsayısı '
+          + 'ÜRETİLMEZ (örnekler düzensiz aralıklı — sahte hassasiyet olurdu).' },
+    `${sum.verdict} · destekleyen ${sum.opposingSteps} / karşı ${sum.agreeingSteps} adım`,
+  ));
+
+  f.push(schedObserved(
+    { id: 'tlSamples', label: 'örnek / eleme seviyesi', source: SRC.timeline,
+      note: 'Örnekleme YENİ TIMER kurmaz — var olan değer/eleme olaylarına iliştirilir. '
+          + 'Kanal susunca örnekleme de durur; bu bir boşluk DEĞİL, bulgunun kendisidir.' },
+    `${sum.sampleCount} örnek · ${sum.demoteLevels} farklı eleme seviyesi`,
+  ));
+
+  f.push(sum.firstAvgAgeMs === null || sum.lastAvgAgeMs === null
+    ? schedUnavailable(
+        { id: 'tlAge', label: 'ortalama yaş (ilk → son)', source: SRC.timeline, note: '' },
+        'Değerli PID yok — yaş ölçülemedi (sahte 0 üretilmez).')
+    : schedObserved(
+        { id: 'tlAge', label: 'ortalama yaş (ilk → son)', source: SRC.timeline,
+          note: 'Aynı pencerede eleme kaç → kaça çıktı, altındaki satırda.' },
+        `${Math.round(sum.firstAvgAgeMs)} ms → ${Math.round(sum.lastAvgAgeMs)} ms`));
+
+  f.push(sum.firstDemoted === null || sum.lastDemoted === null
+    ? schedUnavailable(
+        { id: 'tlDemote', label: 'elenen PID (ilk → son)', source: SRC.timeline, note: '' },
+        'Örnek yok.')
+    : schedObserved(
+        { id: 'tlDemote', label: 'elenen PID (ilk → son)', source: SRC.timeline,
+          note: 'Yaş DÜŞERKEN bu sayı ARTIYORSA hipotez doğrulanır.' },
+        `${sum.firstDemoted} → ${sum.lastDemoted}`));
+
+  f.push(schedObserved(
+    { id: 'tlZero', label: 'rotasyon sıfıra düştü mü', source: SRC.timeline,
+      note: 'Sıfır = izlenenlerin TAMAMI elenmiş → hiçbir extended PID güncellenmiyor '
+          + '(tur sayacı yine de artmaya devam eder).' },
+    sum.reachedZeroPollable ? 'EVET — kanal tamamen sustu' : 'hayır',
+  ));
+
+  /* Son 12 örnek — üç seri AYNI satırda, zaman farkı ile (mutlak damga değil). */
+  const tail = t.tail;
+  if (tail.length === 0) {
+    f.push(schedUnavailable(
+      { id: 'tlTail', label: 'son örnekler', source: SRC.timeline, note: '' },
+      'Hiç örnek kaydedilmedi — extended kanal bu oturumda hiç veri/eleme üretmedi.',
+    ));
+    return;
+  }
+  const t0 = tail[0].atMs;
+  const rows = tail.map((x) => {
+    const age = x.avgAgeMs === null ? '—' : `${Math.round(x.avgAgeMs)}ms`;
+    return `+${Math.round((x.atMs - t0) / 1000)}s izl${x.watched}/ele${x.demoted}/rot${x.pollable} yaş${age}`;
+  });
+  f.push(schedObserved(
+    { id: 'tlTail', label: 'son örnekler (izlenen/elenen/rotasyon · ortalama yaş)',
+      source: SRC.timeline,
+      note: 'Zaman ilk örneğe GÖRELİ (mutlak damga taşınmaz). Bounded: son 12 örnek.' },
+    rows.join('  |  '),
+  ));
+}
+
 function _pushGateFields(f: SchedField[], s: SchedRawSnapshot): void {
   const g = s.extGate;
   if (!g) {
@@ -209,6 +312,10 @@ function _commandExecChannel(s: SchedRawSnapshot): SchedChannel {
      `present=false` erken dönüşünden ÖNCE eklenir: kanıt önbelleği boşken bile "neden hiçbir
      şey sorulmuyor" cevaplanabilmelidir — #503 fail-closed'ın gözlem borcu tam olarak budur. */
   _pushGateFields(f, s);
+  /* #512 — ELEME ↔ TAZELİK. Kapı gibi bu da JS modül durumundan okunur, o yüzden
+     `present=false` erken dönüşünden ÖNCE eklenir: native kanıt boşken de "eleme
+     arttıkça tazelik arttı mı" sorusu cevaplanabilmelidir. */
+  _pushTimelineFields(f, s);
 
   if (!present) {
     f.push(schedUnavailable(

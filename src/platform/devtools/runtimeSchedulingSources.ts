@@ -17,6 +17,9 @@ import { getOBDStatusSnapshot, getObdSessionHealth, getHandshakeDiagnostics, get
 import { getObdHealth } from '../obd/ObdHealthMonitor';
 import { getExtendedPollEvidence } from '../obd/extendedPollEvidence';
 import { getExtendedGateState } from '../obd/extendedPidService';
+import {
+  readExtendedTimeline, summarizeExtendedTimeline,
+} from '../obd/extendedPollTimeline';
 import { getKwpRecoveryEvidence } from '../obd/kwpRecoveryEvidence';
 import { deepScanRuntimeService } from '../deepScan/deepScanRuntimeService';
 import { getDevtoolsCaptureStatus } from './devtoolsCapture';
@@ -51,6 +54,12 @@ export function readSchedRawSnapshot(): SchedRawSnapshot {
   const deep   = _safe(() => deepScanRuntimeService.getSnapshot());
   const cap    = _safe(() => getDevtoolsCaptureStatus());
   const dbg    = _safe(() => useDebugStore.getState());
+  /* #512 · saha hipotezi 2: eleme ↔ tazelik AYNI ZAMAN EKSENİNDE. Kaydedici zaten
+     var olan olaylara iliştirilmiştir — burada hiçbir şey TETİKLENMEZ, yalnız okunur. */
+  const tl     = _safe(() => {
+    const samples = readExtendedTimeline();
+    return { summary: summarizeExtendedTimeline(samples), tail: samples.slice(-12) };
+  });
 
   return {
     readAt,
@@ -89,6 +98,15 @@ export function readSchedRawSnapshot(): SchedRawSnapshot {
       discoveryPending: Number(gate.discoveryPending) || 0,
       nativeListCount:  Number(gate.nativeListCount) || 0,
       burst:            gate.burst === true,
+    } : null,
+
+    timeline: tl ? {
+      summary: tl.summary,
+      tail: tl.tail.map((x) => ({
+        atMs: x.atMs, watched: x.watched, demoted: x.demoted,
+        pollable: x.pollable, valued: x.valued,
+        avgAgeMs: x.avgAgeMs, maxAgeMs: x.maxAgeMs,
+      })),
     } : null,
 
     sessionHealth: sess ? {
