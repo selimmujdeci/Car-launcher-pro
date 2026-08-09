@@ -10,7 +10,7 @@
  */
 
 import { describe, it, expect, beforeEach } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 
 import {
@@ -451,11 +451,34 @@ describe('DriverAuthentication · E. Regresyon ve saflık', () => {
 
   it('E4. 🔒 ÜRETİMDE doğrulama ÜRETEN yol YOK (NFC/PIN/BT/telefon yazılmadı)', () => {
     /* Bu, katmanın güvenlik tasarımının parçasıdır: kaynak bağlanana kadar
-       hiçbir doğrulama üretilmez → VERY_HIGH kapısı KAPALI kalır. */
-    const wiring = readFileSync(
-      join(process.cwd(), 'src/platform/fleet/presenceVehicleBinding.ts'), 'utf8');
-    expect(wiring).toContain('bindAuthenticationVehicle');
-    expect(wiring).not.toContain('driverAuthenticationStore.record');
+       hiçbir doğrulama üretilmez → VERY_HIGH kapısı KAPALI kalır.
+
+       2026-08-09: kilit ARTIK TEK BİR DOSYAYA BAKMIYOR. Eskiden ölü bağlama
+       dosyası `presenceVehicleBinding.ts` okunup "record çağırmıyor" deniyordu;
+       o dosya ölü kod envanterinde silinince kilit ENOENT ile düştü — oysa
+       güvence GÜÇLENMİŞTİ. Asıl invaryant "şu dosya şunu yapmıyor" değil,
+       **hiçbir ürün dosyasının doğrulama ÜRETMEMESİ**. Kilit artık onu tarar,
+       böylece yarın başka bir dosya bu yolu açarsa da yakalar. */
+    const roots = ['src/platform', 'src/components', 'src/store', 'src/hooks'];
+    const offenders: string[] = [];
+    const walk = (dir: string): void => {
+      let entries: ReturnType<typeof readdirSync>;
+      try { entries = readdirSync(join(process.cwd(), dir), { withFileTypes: true }); }
+      catch { return; }
+      for (const e of entries) {
+        const rel = `${dir}/${e.name}`;
+        if (e.isDirectory()) { walk(rel); continue; }
+        if (!/\.tsx?$/.test(e.name)) continue;
+        const code = readFileSync(join(process.cwd(), rel), 'utf8')
+          .replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/\/\/[^\n]*/g, ' ');
+        if (/driverAuthenticationStore\.record/.test(code)) offenders.push(rel);
+      }
+    };
+    for (const r of roots) walk(r);
+    expect(
+      offenders,
+      `ÜRETİMDE doğrulama üreten yol açılmış: ${offenders.join(', ')}`,
+    ).toEqual([]);
   });
 
   it('E5. 🔒 etiketler tüm enum değerlerini KAPSAR (sessiz boşluk yok)', () => {

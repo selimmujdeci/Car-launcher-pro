@@ -30,7 +30,16 @@ borç, bir kısmı çöp.
 
 ### 🗑️ SİL — vizyonda karşılığı yok, taşımaya değmez
 
-**17 dosya · 3 849 satır**
+> **UYGULANDI 2026-08-09 — 16 dosya / 3 797 satır silindi.** Bir dosya listeden
+> ÇIKTI: `versionProperties` (52 satır) **ölü değilmiş** — `vite.config.ts` onu
+> derleme anında `import` edip `VITE_APP_VERSION`'ı enjekte ediyor. Envanterin
+> erişilebilirlik kökleri (`main.tsx` · `App.tsx` · `serviceWorker.ts` ·
+> `admin/main.tsx`) **derleme yapılandırmasını içermiyordu**; bu, yöntemin bilinen
+> kör noktasıdır ve buraya kayda geçirilmiştir.
+> Silme sonrası: `tsc --noEmit` temiz · 504 dosya / 11 466 test yeşil ·
+> guard 393/393 · `npm run build` başarılı. `three` + `@types/three` kaldırıldı.
+
+**17 dosya · 3 849 satır** (uygulanan: 16 · 3 797)
 
 | Ne | Satır | Nerede | Çağıran | Yazıldı | Sonra dokunuldu mu | Vizyon |
 |---|---:|---|---|---|---|---|
@@ -51,7 +60,7 @@ borç, bir kısmı çöp.
 | `RuntimeHealthGrid` (admin) | 133 | `admin/components/superadmin/` | **hiç** | 2026-05-17 | 2026-06-12 | ✗ yok |
 | `appNavigationService` — MAVİ DRIVE-1 composition root | 111 | `platform/` | **hiç** | 2026-07-20 | **hiç** | ✗ (aşağıda BEKLET'teki `maviCore` ile aynı ölü daldan) |
 | `presenceVehicleBinding` | 65 | `platform/fleet/` | **hiç** | 2026-08-07 | **hiç** | ✗ |
-| `versionProperties` | 52 | `utils/` | yalnız test | 2026-06-10 | **hiç** | ✗ yok |
+| ~~`versionProperties`~~ **SİLİNMEDİ** | 52 | `utils/` | **`vite.config.ts` (derleme kökü)** | 2026-06-10 | **hiç** | ⚠️ ölü değil — envanter kör noktası |
 | `EmptyState` (admin) | 24 | `admin/components/shared/` | **hiç** | 2026-04-21 | **hiç** | ✗ yok |
 | `voiceTypes` — saf re-export shim | 8 | `platform/` | **hiç** | 2026-05-17 | **hiç** | ✗ (tipler `aiVoiceService`'te) |
 
@@ -204,7 +213,7 @@ açıklaması var ve iki liste birbirinden habersiz.
 
 ## 4. "Bugün silinse hiçbir şey bozulmaz" tahmini
 
-**≈ 3 800 satır** (17 dosya).
+**≈ 3 800 satır** (17 dosya). → **GERÇEKLEŞEN: 3 797 satır / 16 dosya** (2026-08-09).
 
 Hesap: üründen hiç ulaşılamayan 4 187 satırdan, ileride bağlanacak alt sistemlerin
 barrel'ları (`guardian/index` 137 · `trip/cost/index` 102 · `aiCore/index` 58 ·
