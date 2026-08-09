@@ -66,10 +66,11 @@ Aynı desen ileride `ROAD_HAZARD` (yol tehlike veri tabanı) ve
 | # | Parça | Önkoşul var mı | Tahmini iş | Kanıt için gereken | Satış kanalı |
 |---|---|---|---:|---|---|
 | P1 | ~~**Rota → TripPlan wiring**~~ ✅ **BİTTİ** (#510 🔴 cihaz gözlemi bekliyor) | yok — emekle biter | 2–3 gün | araç gerekmez | Filo · aftermarket |
-| P2 | **Yakıt fiyatı** | **veri kaynağı + lisans** | 3–4 gün | fiyat sağlayıcı sözleşmesi | **Filo** (birincil) |
-| P3 | **HGS tarifesi** | **veri (tarife tablosu)** | 2–3 gün | KGM/HGS tarife kaynağı | **Filo** (TR'ye özgü) |
-| P4 | **Otopark** | **veri + lisans** | 3–4 gün | OSM + fiyat kaynağı | Aftermarket · filo |
-| P5 | **Konaklama** | **veri + lisans (BYOK)** | 3–4 gün | otel API anahtarı | Filo (uzun yol) |
+| P2 | **Yakıt fiyatı** | gömülü **aylık tablo** (kendi derlememiz) | 3–4 gün | tablo doldurma ayrı veri işi | **Filo** (birincil) |
+| P3 | **HGS tarifesi** | gömülü **tarife** (km bazlı yaklaşık yeterli) | 2–3 gün | gerçek geçişle karşılaştırma | **Filo** (TR'ye özgü) |
+| P4 | **Otopark** | **hesaba GİRMEZ** — yalnız kullanıcı beyanı | 1 gün | beyanın hatırlandığı gösterilir | Aftermarket · filo |
+| P5 | **Konaklama** | **il taban tablosu + TÜİK endeksi** | 3–4 gün | endeks doğru uygulanıyor + kullanıcıya görünmüyor | Filo (uzun yol) |
+| P5b | **Kamp · plaj · feribot · müze** | **hesaba GİRMEZ** — yalnız kullanıcı beyanı | paket şemasına dahil | rota yakınlığı kalem ÜRETMEZ | Aftermarket · filo |
 | P6 | **Hız kamerası yuvası** | yok (veri MÜŞTERİDEN) | 3–4 gün | yuva manifesti + LAB | **OEM · filo** |
 | P7 | **Hava** | **veri + lisans (BYOK)** | 3–4 gün | hava API + gerçek yol | Aftermarket · filo |
 | P8 | **Viraj geometrisi** | **G1 (GPS)** | 5–7 gün | **gerçek araç + viraj** | Aftermarket · OEM |
@@ -79,10 +80,89 @@ Aynı desen ileride `ROAD_HAZARD` (yol tehlike veri tabanı) ve
 
 > Tahminler **gün cinsinden geliştirici işidir**, saha doğrulama süresi hariç.
 > "Önkoşul" sütunundaki kalın yazı, o parçanın **emekle bitmeyeceğini** söyler.
+>
+> **2026-08-09 güncellemesi:** Trip Cost fiyat kaynağı modeli **karara bağlandı**
+> (§3.0). Önceki sürümde P2–P5 "BYOK / ticari API / lisans kararı bekliyor"
+> diyordu; artık **hiçbiri dış API'ye bağlı değil** — gömülü tablo + resmî
+> endeks + kullanıcı beyanı. Bu, dış lisans/ToS riskini de sıfırlar.
 
 ---
 
 ## 3. Trip Cost parçaları
+
+### 3.0 · FİYAT KAYNAĞI MODELİ — KARARA BAĞLANDI (2026-08-09)
+
+> **TEMEL İLKE — pazarlıksız: ürün HİÇ kullanıcı girdisi olmadan da çalışır.**
+>
+> *"Fiyatları sen gir"* demek, özelliği kullanıcıya tamamlatmaktır. Çoğu kişi
+> girmez; gömülü satışta (head unit'e önyüklü gelen üründe) özellik **ölü doğar**
+> ve müşteri onu hiç görmemiş gibi olur. Bu yüzden kullanıcı girdisi bir
+> **ZORUNLULUK değil, İYİLEŞTİRMEDİR**. Kutudan çıktığı hâliyle her kalem ya
+> dolu gelir ya hiç doğmaz — kullanıcıya soru sorularak boşluk kapatılmaz.
+
+**Varsayılan kaynaklar (kullanıcı hiçbir şey yapmazsa çalışan hâl):**
+
+| Kalem | Varsayılan kaynak | İlk sürüm hassasiyeti |
+|---|---|---|
+| **Yakıt** | Gömülü **aylık tablo** | İl bazında sapma tahminde önemsiz — tek tablo yeterli |
+| **HGS** | Gömülü **tarife** | **km bazlı yaklaşık YETERLİ**; tam gişe-çifti eşleşmesi sonraki tur |
+| **Otel** | Elle derlenmiş **il taban tablosu** + **TÜİK konaklama fiyat endeksiyle içeride güncelleme** | İl bazında taban gece fiyatı |
+| **Otopark · kamp · plaj · feribot · müze** | **YOK — hesaba HİÇ GİRMEZ** | Sistem sormaz, tahmin etmez, uydurmaz |
+
+**Neden elle derlenmiş kendi tablomuz:** araştırma sonucu Türkiye'de **il bazında
+açık/resmî TL otel fiyatı verisi YOKTUR.** TÜİK yalnız fiyat **ENDEKSİ** (yüzde
+değişim) yayınlar; Bakanlık verisi **doluluk**tur, fiyat değil; TÜROB/STR ADR'si
+lisanslıdır ve yalnız İstanbul/Antalya/Ankara/Anadolu kovalarındadır. Tek dürüst
+yol: **kendi taban tablomuzu bir kereye mahsus elle derlemek** (kaynağı ve tarihi
+beyanlı) ve **ücretsiz + resmî + beyan edilebilir** olan TÜİK endeksiyle içeride
+güncellemek. Aynı yöntem otopark için de geçerlidir.
+
+**VERİ TOPLAMA YASAĞI (pazarlıksız):** rezervasyon/fiyat sitelerinden **otomatik
+veri çekilmez** (ToS + lisans + kırılganlık). İzin verilen **üç** yol:
+1. **Resmî kaynak** (TÜİK endeksi, KGM/HGS tarifesi),
+2. **Elle derlenmiş kendi tablomuz** (kaynağı + tarihi beyanlı),
+3. **Kullanıcı beyanı**.
+
+**SUNUM KURALI (pazarlıksız):** kullanıcıya **YALNIZ güncellenmiş TL rakamı**
+gösterilir — *"Mersin 1 gece ~2.800 TL, tahmini"*. **Endeks, yüzde ve hesap arka
+planda kalır ve kullanıcıya ASLA görünmez.** Kullanıcı "TÜİK endeksi %14 arttı"
+cümlesini görmez; gördüğü şey güncellenmiş rakamdır. Ara adımların görünmesi
+güveni artırmaz, kalabalık yapar. *(Bu bir GİZLEME değil sadeleştirmedir: hesabın
+kendisi LAB'da geliştiriciye açık kalır.)*
+
+**DÜRÜSTLÜK ETİKETİ:** tablo kaynaklı her kalem **"tahmin"** olarak işaretlenir,
+**"ölçüm" DENMEZ.** Mevcut `CostItemSource` ayrımına bağlanır — bugün `live`
+(gerçek zamanlı) · `cached` · `osm` · `user` · `calculated` · `unknown` değerleri
+var; tablo tahmini bunların hiçbirine dürüstçe oturmuyor (`live` değil; `cached`
+de değil — hiç canlı OLMADI ki önbelleğe düşsün). Bu yüzden **yeni bir
+`'estimate'` kaynak değeri** eklenecek ve LAB'da gözlemlenebilirlik sözleşmesine
+`DERIVED` olarak eşlenecek (`OBSERVED` **değil**).
+
+**KULLANICI GİRDİSİ = İYİLEŞTİRME:** isteyen **düzeltir** (yakıt, otel) veya
+**ekler** (kamp, plaj, feribot, müze). Girilen değer **HATIRLANIR** ve
+`source: 'user'` ile tablo tahmininden **DAHA YÜKSEK güven** alır. Girmeyende
+hiçbir şey bozulmaz — varsayılan yoluna devam eder.
+
+**KRİTİK KURAL — sistem kalemi KENDİLİĞİNDEN EKLEMEZ:** rota plajın yanından
+geçiyor diye plaj ücreti eklenmez; müzenin yanından geçmek müze bileti doğurmaz.
+**Ya kullanıcı söyler, ya kalem hiç doğmaz.** Bu, B3'te kurulan "kategori hiç
+açılmaz" kapısının aynısıdır ve niyet okuma (rota yakınlığından ihtiyaç türetme)
+kesinlikle YASAKTIR.
+
+**KALEMLER VERİ OLACAK, KOD DEĞİL:** yeni bir kalem eklemek (kamp · feribot ·
+müze) **kod değişikliği gerektirmemelidir** — `ADR_PID_PACK` / RulePack deseni:
+kalem tanımı bir **pakette veri** olarak yaşar, kaynağı ve lisansı beyanlıdır,
+checksum'ı doğrulanır, beyansız paket **reddedilir**. Bugünkü `category: string`
+alanı zaten serbest metin olduğu için model bu yöne açık; eksik olan **paket
+şeması + doğrulayıcı + sürüm/tazelik defteri**.
+
+**GÜNCELLEME SIKLIĞI ve ÇEVRİMDIŞI:** benzin **canlı** (ağ varsa tazelenir);
+HGS · otel · otopark tabloları **paket hâlinde cihazda** durur ve **ayda bir**
+tazelenir. **İnternetsiz çalışır** — paket cihazda olduğu için ağ yokluğu kalemi
+ÖLDÜRMEZ; yalnız tazelik damgası eskir (`stale` işaretlenir, uydurma YAPILMAZ).
+
+---
+
 
 ### P1 · Rota → TripPlan wiring — **UYGULANDI 2026-08-09** (kütük #510 🔴)
 - **Ne eksik:** `tripCostRouteAdapter` (B2) dönüşümü yazmış ve dönüşümün
@@ -111,61 +191,73 @@ Aynı desen ileride `ROAD_HAZARD` (yol tehlike veri tabanı) ve
   **"beyan edilmedi"** gösteriyor.
 
 ### P2 · Yakıt fiyatı
-- **Ne eksik:** `computeFuelCost` formülü hazır (`mesafe × tüketim / 100 ×
-  litre fiyatı`), ama **litre fiyatının kaynağı yok**. Ayrıca "OBD gerçek
-  tüketim > araç profili > sınıf varsayılanı" önceliği bilinçli olarak
-  yazılmamış — wiring'in işi.
-- **Önce başka şey gerekiyor:** **Veri kaynağı + lisans kararı.** Türkiye'de
-  akaryakıt fiyatı dağıtıcı bazlıdır ve günlük değişir. Üç seçenek: (a) ticari
-  fiyat API'si (BYOK — her müşteri kendi anahtarı, CLAUDE.md gömülü anahtar
-  yasağı), (b) müşterinin kendi tabelası (filoda gerçekçi — anlaşmalı istasyon
-  fiyatı zaten sabittir), (c) kullanıcı elle girer (`stale` işaretlenir).
-- **Tahmini iş:** 3–4 gün (fiyat kaynağı portu + TTL/`stale` politikası +
-  tüketim önceliği + LAB).
-- **Kanıt:** Fiyat sağlayıcı sözleşmesi/anahtarı. Araç gerekmez, ama OBD gerçek
-  tüketim bacağı için **gerçek araçta** bir yolculuk gerekir.
-- **Satış kanalı:** **Filo — birincil.** Filo maliyet muhasebesinin temel
-  kalemidir. Aftermarket'te "ilginç"tir, filoda **satın alma gerekçesidir**.
+- **Ne eksik:** `computeFuelCost` formülü hazır; eksik olan **gömülü aylık fiyat
+  tablosu** + tazelik/`stale` politikası + "OBD gerçek tüketim > araç profili >
+  sınıf varsayılanı" önceliği (bilinçli olarak wiring'e bırakılmıştı).
+- **Emekle mi biter:** **Kısmen.** Tablo şeması ve paket mekaniği emekle biter;
+  tablonun **doldurulması** ayrı bir veri işidir (bir kereye mahsus + aylık
+  tazeleme). Ağ varsa canlı tazeleme opsiyoneldir, **şart DEĞİLDİR**.
+- **Tahmini iş:** 3–4 gün (paket şeması + `estimate` kaynak değeri + tüketim
+  önceliği + LAB tazelik göstergesi). Tablo doldurma hariç.
+- **Kanıt:** Araç gerekmez (tablo yolu için). **OBD gerçek tüketim** bacağı için
+  gerçek araçta bir yolculuk gerekir. Lisans: tablo kendi derlememiz → temiz.
+- **Satış kanalı:** **Filo — birincil.** Filo maliyet muhasebesinin temel kalemi;
+  aftermarket'te "ilginç", filoda **satın alma gerekçesi**.
 
 ### P3 · HGS tarifesi
-- **Ne eksik:** `computeTollCost` üç durumu (ücretli segment yok / hepsinin
-  fiyatı var / en az biri fiyatsız) doğru ayırıyor; eksik olan **segment→ücret
-  tablosu**. `routingService.detectToll` bugün yalnız boolean sezgiseldir.
-- **Önce başka şey gerekiyor:** **Veri.** KGM/HGS tarifeleri kamuya açıktır ama
-  makine-okunur bir kaynağı yoktur; gişe-çifti bazlı bir tablonun kurulması ve
-  yılda birkaç kez güncellenmesi gerekir. Lisans açısından temiz (resmî tarife),
-  ama **kaynağı ve tarihi beyan edilmeli** (PID Pack `sourceRef` deseni).
-- **Tahmini iş:** 2–3 gün (tarife tablosu şeması + segment eşleme + sürüm/tarih
-  beyanı + LAB). Tablonun kendisinin doldurulması ayrı, veri işidir.
+- **Ne eksik:** `computeTollCost` üç durumu doğru ayırıyor; eksik olan **gömülü
+  tarife paketi**. `routingService.detectToll` bugün yalnız boolean sezgiseldir
+  ve B3 bu yüzden `ROTA_UCRETLI_AMA_SEGMENT_YOK` diyor.
+- **İlk sürüm kararı:** **km bazlı yaklaşık YETERLİ.** Tam gişe-çifti eşleşmesi
+  **sonraki tur**. Yaklaşık değer `estimate` olarak işaretlenir; "kesin tutar"
+  iddiası EDİLMEZ.
+- **Emekle mi biter:** Şema + km-bazlı hesap emekle biter; **tarife tablosu**
+  resmî kaynaktan derlenir (kamuya açık ama makine-okunur değil).
+- **Tahmini iş:** 2–3 gün (paket şeması + km bazlı hesap + sürüm/tarih beyanı +
+  LAB). Tablo doldurma hariç.
 - **Kanıt:** Bilinen bir güzergâhta (ör. Konya→Tarsus) hesaplanan tutarın gerçek
-  HGS kesintisiyle karşılaştırılması. Araç gerekmez, **gerçek geçiş** gerekir.
+  HGS kesintisiyle karşılaştırılması — **gerçek geçiş** gerekir, araç değil.
 - **Satış kanalı:** **Filo — Türkiye'ye özgü güçlü argüman.** Yabancı hiçbir
   navigasyon ürünü HGS'yi kalem bazında vermiyor.
 
 ### P4 · Otopark
-- **Ne eksik:** `computeParkingCost` iki fiyat tipini (`flat` / `per_hour`)
-  hesaplıyor; eksik olan **durak listesi ve ücretleri**.
-- **Önce başka şey gerekiyor:** **Veri + lisans.** OSM/Overpass otopark
-  *konumlarını* verir (ODbL — atıf zorunlu, ticari kullanım serbest), **fiyat
-  vermez**. Fiyat için ya şehir/işletme anlaşması ya kullanıcı girdisi gerekir.
-- **Tahmini iş:** 3–4 gün.
-- **Kanıt:** OSM atıfının doğru gösterildiği + en az bir şehirde fiyat
-  kaynağıyla karşılaştırma.
-- **Satış kanalı:** Aftermarket (şehir içi) · filo (araç park maliyeti).
+- **KARAR: varsayılan olarak hesaba HİÇ GİRMEZ.** Sistem otopark ücreti sormaz,
+  tahmin etmez, uydurmaz. Rota şehir merkezinden geçiyor diye otopark kalemi
+  **DOĞMAZ**.
+- **Ne eksik:** Yalnız **kullanıcı beyanı** yolu — isteyen ekler, eklemeyende
+  kalem hiç doğmaz (B3'teki `OTOPARK_KAYDI_YOK` kapısı bu davranışı zaten verir).
+  İleride il taban tablosu + TÜİK endeksi yöntemi otele **birebir aynı şekilde**
+  uygulanabilir; bu tur kapsamı DEĞİL.
+- **Tahmini iş:** 1 gün (yalnız kullanıcı beyanı yolu; tablo yapılmıyor).
+- **Kanıt:** Kullanıcı beyanının HATIRLANDIĞI ve `source:'user'` ile tablo
+  tahmininden daha yüksek güven aldığı gösterilir.
+- **Satış kanalı:** Aftermarket · filo (şehir içi). Düşük öncelik.
 
 ### P5 · Konaklama
-- **Ne eksik:** `computeLodgingCost` yalnız `per_stay` fiyatlamayı destekliyor,
-  desteklenmeyen birim `unknown`'a düşüyor (doğru davranış). Eksik olan **otel
-  fiyat kaynağı**.
-- **Önce başka şey gerekiyor:** **Lisans + BYOK.** Otel fiyat API'leri ücretli
-  ve ToS'ları katıdır; gömülü merkezi anahtar **yasak**. Gerçekçi ilk sürüm:
-  kullanıcı/filo yöneticisi anlaşmalı otel fiyatını girer.
-- **Tahmini iş:** 3–4 gün.
-- **Kanıt:** BYOK anahtarıyla en az bir gerçek sorgu, veya elle girilen tarifeyle
-  uçtan uca rapor.
-- **Satış kanalı:** Filo (uzun yol/lojistik). Aftermarket'te düşük değer.
+- **Ne eksik:** **İl taban tablosu** (elle derlenmiş, kaynağı beyanlı) + **TÜİK
+  konaklama fiyat endeksiyle içeride güncelleme** + sunum kuralı.
+- **Neden bu yol:** il bazında açık/resmî TL otel fiyatı verisi **YOK** (§3.0).
+  TÜİK yalnız endeks verir → tabanı biz koyarız, endeks onu taşır.
+- **Emekle mi biter:** Mekanik emekle biter; **taban tablonun derlenmesi** bir
+  kereye mahsus veri işidir. Endeks ücretsiz ve resmîdir.
+- **Tahmini iş:** 3–4 gün (taban tablo şeması + endeks uygulama + `estimate`
+  etiketi + sunum kuralı + LAB). Tablo doldurma hariç.
+- **Kanıt:** Endeksin doğru uygulandığı (taban × endeks = gösterilen TL) **ve
+  kullanıcıya endeks/yüzde/hesabın HİÇ görünmediği** doğrulanır. Lisans: TÜİK
+  resmî + kendi tablomuz → temiz; rezervasyon sitesi kazıma **YOK**.
+- **Satış kanalı:** Filo (uzun yol/lojistik) · aftermarket (tatil rotası).
 
----
+### P5b · Kamp · plaj · feribot · müze — YALNIZ kullanıcı beyanı
+- **KARAR: hesaba HİÇ GİRMEZ.** Sistem bunları sormaz, tahmin etmez, uydurmaz ve
+  **rota yakınlığından TÜRETMEZ**. Kullanıcı eklerse kalem doğar, eklemezse yok.
+- **Ne eksik:** Bunların kalem olarak eklenebilmesi — yani **kalem tanımının veri
+  olması** (paket şeması). Kod değişikliği gerektirmeden yeni kalem tipi
+  eklenebilmeli.
+- **Tahmini iş:** paket şeması işine dahil (§3.0), ayrı maliyet yok.
+- **Kanıt:** Kullanıcı eklemediğinde kalemin HİÇ doğmadığı; rota yakınlığının
+  kalem üretmediği (niyet okuma yasağı) test edilir.
+- **Satış kanalı:** Aftermarket (tatil) · filo (personel taşıma feribotu).
+
 
 ## 4. Guardian AI parçaları
 

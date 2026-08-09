@@ -2112,6 +2112,30 @@ maliyeti üretir, okuyucuyu yanıltır ve "var" sanıldığı için yeniden yaz�
 Parça bazlı eksikler, önkoşullar, iş tahminleri ve satış kanalı eşlemesi:
 **`docs/TAMAMLAMA_PLANI_2026-08-09.md`**.
 
+**Fiyat kaynağı ilkesi (2026-08-09, bağlayıcı — Trip Cost ve benzeri her özellik için):**
+
+> **Ürün hiç kullanıcı girdisi olmadan da çalışır.** *"Fiyatları sen gir"* demek,
+> özelliği kullanıcıya tamamlatmaktır; çoğu kişi girmez ve **gömülü satışta özellik
+> ölü doğar**. Kullanıcı girdisi **ZORUNLULUK değil, İYİLEŞTİRMEDİR**.
+
+- **Varsayılan dolu gelir ya da kalem hiç doğmaz** — kullanıcıya soru sorularak
+  boşluk kapatılmaz.
+- **Sistem kalemi kendiliğinden EKLEMEZ:** rota plajın/müzenin yanından geçiyor
+  diye ücret kalemi doğmaz. Ya kullanıcı söyler, ya kalem yoktur. Rota
+  yakınlığından ihtiyaç türetmek (niyet okuma) **yasaktır**.
+- **Veri toplama yasağı:** rezervasyon/fiyat sitelerinden **otomatik veri
+  çekilmez**. İzin verilen üç yol: **resmî kaynak** (TÜİK · KGM) · **elle
+  derlenmiş kendi tablomuz** (kaynağı + tarihi beyanlı) · **kullanıcı beyanı**.
+- **Sunum:** kullanıcıya **yalnız güncellenmiş TL** gösterilir (*"Mersin 1 gece
+  ~2.800 TL, tahmini"*). **Endeks, yüzde ve hesap kullanıcıya ASLA görünmez**
+  (LAB'da geliştiriciye açık kalır — gizleme değil sadeleştirme).
+- **Etiket:** tablo kaynaklı kalem **"tahmin"**dir, **"ölçüm" değildir**
+  (`CostItemSource`'a `'estimate'` eklenecek; LAB'da `DERIVED`, `OBSERVED` değil).
+- **Kalemler VERİ olacak, KOD değil:** yeni kalem eklemek kod değişikliği
+  gerektirmez (PID Pack / RulePack deseni — kaynağı ve lisansı beyanlı paket).
+- **Çevrimdışı:** benzin canlı; HGS/otel/otopark tabloları **paket hâlinde
+  cihazda**, ayda bir tazelenir. Ağ yoksa kalem ölmez, yalnız `stale` olur.
+
 **Silme kararları iptal (2026-08-09):** Guardian AI ve Trip Cost **tamamlanacak**.
 `SPEED_CAMERA_WARNING` kuralı kalır ama **veri gelmez** — boş yuva olarak
 tasarlanır (veriyi üretici/filo müşterisi kendi lisansıyla takar; PID Pack
@@ -2490,7 +2514,7 @@ değildir** — vizyon rezervuarıdır. Bir madde ancak P0–P3'e taşındığı
 | AI Repair Verification | YOK | HAYIR | Repair Memory'ye bağımlı |
 | Servis öncesi kontrol listesi | YOK | HAYIR | Vizyon rezervuarı |
 | Gereksiz parça değişimi uyarısı | YOK | HAYIR | **Ürünün en güçlü vaatlerinden** — Root Cause + KB üstüne kurulur |
-| Maliyet tahmini (Trip Cost) | İSKELET | HAYIR | **12 dosya / 2 111 satır saf çekirdek + testler** (yakıt·HGS·otopark·konaklama + `confidenceLedger`: `unknown` toplama girmez, `upperBound` uydurulmaz). **Hiçbir fiyat girdisinin kaynağı yok** (P2–P5). **Rota→plan wiring BAĞLANDI** (2026-08-09, kütük #510 🔴): canlı rotadan mesafe/süre okunuyor, beyan kapısı fail-closed (eksik alan varsayılanla DOLDURULMUYOR), kategori kapıları "hiç açılmadı" ile "değer bilinmiyor"u AYIRIYOR, LAB → Trip Cost ekranı salt-okunur. Fiyat kaynağı olmadan da plan üretiliyor; tutar `null` kalıyor, sıfır yazılmıyor. Bkz. Ç-11 · plan P1 |
+| Maliyet tahmini (Trip Cost) | İSKELET | HAYIR | **12 dosya / 2 111 satır saf çekirdek + testler** (yakıt·HGS·otopark·konaklama + `confidenceLedger`: `unknown` toplama girmez, `upperBound` uydurulmaz). **Hiçbir fiyat girdisinin kaynağı yok** (P2–P5). **Rota→plan wiring BAĞLANDI** (2026-08-09, kütük #510 🔴): canlı rotadan mesafe/süre okunuyor, beyan kapısı fail-closed (eksik alan varsayılanla DOLDURULMUYOR), kategori kapıları "hiç açılmadı" ile "değer bilinmiyor"u AYIRIYOR, LAB → Trip Cost ekranı salt-okunur. Fiyat kaynağı olmadan da plan üretiliyor; tutar `null` kalıyor, sıfır yazılmıyor. **FİYAT KAYNAĞI MODELİ KARARA BAĞLANDI (2026-08-09):** ürün **hiç kullanıcı girdisi olmadan çalışır** — yakıt gömülü aylık tablo, HGS gömülü tarife (ilk sürümde km bazlı yaklaşık), otel elle derlenmiş il taban tablosu + **TÜİK konaklama fiyat endeksiyle içeride güncelleme**; otopark · kamp · plaj · feribot · müze **hesaba HİÇ GİRMEZ** (sistem sormaz/tahmin etmez/uydurmaz). Kullanıcı girdisi **zorunluluk değil iyileştirmedir** ve `source:'user'` ile tablo tahmininden yüksek güven alır. Rezervasyon/fiyat sitelerinden **otomatik veri çekilmez**. Bkz. Ç-11 · plan §3.0 |
 | Doğrulanmış bakım/tamir geçmişi | YOK | HAYIR | Passport + Memory + bulut gerekir |
 
 ### 8.7 Güvenlik ve Hayat Koruma
