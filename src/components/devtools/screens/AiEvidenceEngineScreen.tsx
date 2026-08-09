@@ -34,6 +34,9 @@ import {
   readUnknownInputStats, UNKNOWN_INPUT_FIELDS, type UnknownInputStats,
 } from '../../../platform/reasoning/core/evidenceInputGuard';
 import {
+  readBatteryEvidenceStats, type BatteryEvidenceStats,
+} from '../../../platform/reasoning/batteryEvidenceSource';
+import {
   computeEvidenceCoverage,
 } from '../../../platform/fleet/aiEvidenceEngine';
 import {
@@ -108,6 +111,8 @@ type Snap = {
   readonly readAtMs: number;
   /** Tanınmayan girdi sayaçları (#497 madde 2) — aynı okumada alınır. */
   readonly guard: UnknownInputStats;
+  /** Cihazda üretilen kanıt sayaçları (#490). */
+  readonly local: BatteryEvidenceStats | null;
 };
 
 const EMPTY_GUARD: UnknownInputStats = {
@@ -124,10 +129,14 @@ function readSnap(): Snap {
      "kaç girdi anlaşılamadı" bilgisi kaybolmamalı — asıl arıza o olabilir. */
   let guard: UnknownInputStats = EMPTY_GUARD;
   try { guard = readUnknownInputStats(); } catch { /* sayaç yoksa boş kalır */ }
+  /* Yerel üretim sayaçları sunucu köprüsünden BAĞIMSIZ okunur: ağ yokken de
+     "cihaz kanıt üretiyor mu" sorusu cevaplanabilmeli. */
+  let local: BatteryEvidenceStats | null = null;
+  try { local = readBatteryEvidenceStats(); } catch { /* üretim yoksa null */ }
   try {
-    return { data: readAiEvidence(now), readAtMs: now, guard };
+    return { data: readAiEvidence(now), readAtMs: now, guard, local };
   } catch {
-    return { data: null, readAtMs: now, guard };
+    return { data: null, readAtMs: now, guard, local };
   }
 }
 
@@ -149,6 +158,7 @@ function AiEvidenceEngineScreenBase() {
 
   const d = snap?.data ?? null;
   const guard = snap?.guard ?? EMPTY_GUARD;
+  const local = snap?.local ?? null;
   const now = snap?.readAtMs ?? 0;
   const entries = d?.ledger.entries ?? [];
 
@@ -176,6 +186,46 @@ function AiEvidenceEngineScreenBase() {
           <RefreshCw size={12} /> YENİLE
         </button>
       </div>
+
+      {/* 0a · CİHAZDA ÜRETİLEN KANIT — kütük #490
+          Ağ YOK varsayımıyla çalışır. "Kaç kanıt üretildi, hangi sinyalden,
+          hangi güvenle, ne zaman" burada okunur. DEĞER gösterilmez (voltajın
+          kendisi kanıtın içindedir, LAB'a taşınmaz). */}
+      <Section title="Local Evidence — device (no network)">
+        <div className="flex flex-col">
+          <Row label="signal">battery_voltage (OBD · ATRV)</Row>
+          <Row label="produced">
+            <Chip tone={local === null ? NONE : local.produced > 0 ? OK : NONE}>
+              {local?.produced ?? UNAVAILABLE}
+            </Chip>
+          </Row>
+          <Row label="samplesSeen">{local?.samplesSeen ?? UNAVAILABLE}</Row>
+          <Row label="ledgerSize">{local?.ledgerSize ?? UNAVAILABLE}</Row>
+          <Row label="rejectedByGuard">
+            <Chip tone={(local?.rejectedByGuard ?? 0) > 0 ? WARN : NONE}>
+              {local?.rejectedByGuard ?? UNAVAILABLE}
+            </Chip>
+          </Row>
+          <Row label="lastProduced">
+            {local?.lastProducedAtMs == null
+              ? UNAVAILABLE
+              : durationText(Math.max(0, now - local.lastProducedAtMs))}
+          </Row>
+          {local !== null && Object.keys(local.bySeverity).sort().map((k) => (
+            <Row key={`sev-${k}`} label={`severity:${k}`}>{local.bySeverity[k]}</Row>
+          ))}
+          {local !== null && Object.keys(local.bySkipReason).sort().map((k) => (
+            <Row key={`skip-${k}`} label={`skipped:${k}`}>{local.bySkipReason[k]}</Row>
+          ))}
+          <Row label="policy">{local?.policyVersion ?? UNAVAILABLE}</Row>
+          {/* KAPSAM SINIRI — ürün kuralı, gizlenmez. */}
+          <Row label="scope">
+            <span className="text-[var(--oem-warn)]">
+              yalnız AKÜ · araç sağlığı DEĞİL
+            </span>
+          </Row>
+        </div>
+      </Section>
 
       {/* 0 · TANINMAYAN GİRDİ — kütük #497 madde 2
           "Bilgimiz yok" ile "kanıt geldi ama ANLAYAMADIK" ayrı şeylerdir;

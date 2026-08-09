@@ -49,6 +49,7 @@ import {
 import { startProviderReadiness } from '../ai/gateway/aiProviderReadinessService';
 import { startPlatformCoreAiRuntimeWiring } from './platformCoreAiRuntimeWiring';
 import { startMaintenanceBrain }   from '../diagnostic/maintenanceBrain';
+import { startBatteryEvidenceSource } from '../reasoning/batteryEvidenceSource';
 import { startFuelAdvisor }        from '../diagnostic/fuelAdvisorService';
 import { startBlackBox }           from '../security/blackBoxService';
 import {
@@ -815,6 +816,11 @@ class SystemBoot {
 
     _log('  › MaintenanceBrain');
     this._regNamed('MaintenanceBrain', startMaintenanceBrain());
+
+    /* Cihazda kanıt üretimi (#490 · ADR-286 Adım 3/1). Kendi timer'ı YOKTUR —
+       OBD olayına biner. HÜKÜM ÜRETMEZ; motoru bağlamak ikinci parçadır. */
+    _log('  › BatteryEvidenceSource');
+    this._regNamed('BatteryEvidenceSource', startBatteryEvidenceSource());
 
     _log('  › FuelAdvisor');
     this._regNamed('FuelAdvisor', startFuelAdvisor());
