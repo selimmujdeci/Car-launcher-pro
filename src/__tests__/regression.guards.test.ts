@@ -4717,3 +4717,62 @@ describe('🔒 GPS tazeliği — park kısması navigasyonu kör bırakmaz', () 
     expect(nav).toContain('setNavigationGpsPower(false)');
   });
 });
+
+/* ─────────────────────────────────────────────────────────────────
+   ADR-286 — TS ↔ SQL KARAR ÇEKİRDEĞİ PARİTESİ (kütük #488)
+
+   Karar kuralı bugün İKİ KERE yazılıdır: cihazda `maviReasoningEngine.ts`,
+   sunucuda `mavi_reason()`. ADR-286 karar otoritesini cihaza verdi ve
+   "kural iki kere yazılmaz" kuralını koydu. Kopyalar teke inene kadar
+   ayrışma ÖLÇÜLMEK zorundadır — ayrışırsa cihaz ile filo aynı araç için
+   FARKLI hüküm verir ve bu sessizdir.
+
+   Bu kasa maddesi parite testinin SESSİZCE BOŞALTILMASINI engeller:
+   dosya silinemez, sapma adayları çıkarılamaz, SQL kaynağı kaybolamaz.
+   ───────────────────────────────────────────────────────────────── */
+describe('ADR-286 · karar çekirdeği parite kasası', () => {
+  const parity = read('src/__tests__/reasoningParity.test.ts');
+
+  it('🔒 parite testi VARDIR ve SQL kaynağını gerçekten okur', () => {
+    expect(parity.length).toBeGreaterThan(2000);
+    // Beklenen çıktıyı elle yazmak SQL'in üçüncü kopyasını üretmek olurdu;
+    // test migration METNİNİ okumalıdır.
+    expect(parity).toContain('20260801000055_ai_evidence_engine_p1.sql');
+    expect(parity).toContain('20260801000057_mavi_reasoning_engine_p1.sql');
+    expect(parity).toContain('readFileSync');
+  });
+
+  it('🔒 ADR-286 §3.3\'teki DÖRT sapma adayı da ölçülür', () => {
+    for (const probe of ['#1 güven tavanı', '#2 REJECTED gerekçesi',
+      '#3 kapsam NULL sırası', '#4 niyet türetme']) {
+      expect(parity, `sapma adayı düşürülmüş: ${probe}`).toContain(probe);
+    }
+  });
+
+  it('🔒 eşleme tabloları ve karar SIRASI karşılaştırılır', () => {
+    // Sıra sapması en tehlikelisidir: çelişki kapısı güvenin arkasına
+    // düşerse çelişkili kanıt SUPPORTED üretir.
+    expect(parity).toContain('_reasoning_categories');
+    expect(parity).toContain('_reasoning_intent_for_category');
+    expect(parity).toContain('_reasoning_state_for_decision');
+    expect(parity).toContain('_reasoning_can_transition');
+    expect(parity).toContain('CONFLICTING_EVIDENCE');
+  });
+
+  it('🔒 tam eşik vakaları matriste durur (0.5 · 0.8 · 1 · 5)', () => {
+    // Sapmalar tam eşikte doğar: `<` operatörü `<=`ye kayarsa ancak burada
+    // yakalanır.
+    expect(parity).toMatch(/0\.5/);
+    expect(parity).toMatch(/0\.8/);
+    expect(parity).toContain('sampleConfidenceCeiling(5)');
+    expect(parity).toContain('expires_at > now()');
+  });
+
+  it('🔒 SQL karar motoru migration\'ı yerinde durur', () => {
+    // Parite testi SQL metnini okur; dosya taşınırsa test ANLAMSIZLAŞIR,
+    // bu yüzden varlığı ayrıca kilitlenir.
+    const sql = read('supabase/migrations/20260801000057_mavi_reasoning_engine_p1.sql');
+    expect(sql).toContain('FUNCTION public.mavi_reason(');
+    expect(sql).toContain('FUNCTION public._reasoning_confidence(');
+  });
+});
