@@ -4776,3 +4776,65 @@ describe('ADR-286 · karar çekirdeği parite kasası', () => {
     expect(sql).toContain('FUNCTION public._reasoning_confidence(');
   });
 });
+
+/* ─────────────────────────────────────────────────────────────────
+   ADR-286 Faz 0 · Adım 2 — GÖÇ KARAKTERİZASYONU (kütük #496)
+
+   `fuelAdvisorService` · `maintenanceBrain` · `smartCardEngine` göç
+   sırasının 6·7·8. adımlarıdır ve ölçümde SIFIR teste sahiptiler.
+   Testsiz göç = sessiz davranış değişikliği. Karakterizasyon dosyası
+   bugünkü davranışı dondurur; bu kasa maddesi onun boşaltılmasını
+   engeller.
+   ───────────────────────────────────────────────────────────────── */
+describe('ADR-286 · göç karakterizasyon kasası', () => {
+  const charac = read('src/__tests__/migrationCharacterization.test.ts');
+
+  it('🔒 karakterizasyon dosyası VARDIR ve üç modülü de kapsar', () => {
+    expect(charac.length).toBeGreaterThan(3000);
+    for (const m of ['maintenanceBrain', 'fuelAdvisorService', 'smartCardEngine']) {
+      expect(charac, `kapsam dışı: ${m}`).toContain(m);
+    }
+  });
+
+  it('🔒 saf fonksiyonların SAYISAL beklentileri donduruldu', () => {
+    // Sözleşme kontrolü tek başına yetmez; sayısal davranış da kilitli olmalı.
+    expect(charac).toContain('calcLifetimeWear');
+    expect(charac).toContain('calcWearRate');
+    expect(charac).toMatch(/toBeCloseTo\(0\.75/);   // ağırlık toplamı kanıtı
+  });
+
+  it('🔒 dört girdi sınıfı da temsil edilir', () => {
+    for (const k of ['normal girdi', 'sınır değerler', 'eksik', 'çelişkili girdi']) {
+      expect(charac, `girdi sınıfı eksik: ${k}`).toContain(k);
+    }
+  });
+
+  it('🔒 dinamik import KULLANILMAZ (#484 dersi)', () => {
+    /* 490+ dosyalık takımda dinamik import + modül sıfırlama deseni rastgele
+       zaman aşımına uğruyordu; karakterizasyon kırılgan olmamalı.
+       Denetim YALNIZ kod satırlarında yapılır — bir desenin YORUMDA anılması
+       onu kullanmak değildir (bu kilit ilk yazımında tam bu yüzden düşmüştü). */
+    const codeOnly = charac.split('\n')
+      .filter((l) => {
+        const t = l.trimStart();
+        return !t.startsWith('//') && !t.startsWith('*') && !t.startsWith('/*');
+      })
+      .join('\n');
+    expect(codeOnly).not.toMatch(/await\s+import\(/);
+    expect(codeOnly).not.toMatch(/vi\.resetModules/);
+  });
+
+  it('🔒 şüpheli davranışlar DÜZELTİLMEDEN işaretlendi', () => {
+    // Karakterizasyonun kuralı: yanlışı da kilitle, notunu düş.
+    expect(charac).toContain('⚠️ ŞÜPHELİ');
+  });
+
+  it('🔒 üç modül karar omurgasına HENÜZ bağlı değil (göç sırası korunur)', () => {
+    for (const p of ['src/platform/diagnostic/maintenanceBrain.ts',
+      'src/platform/diagnostic/fuelAdvisorService.ts',
+      'src/platform/ai/smartCardEngine.ts']) {
+      expect(read(p), `${p} erken bağlanmış — göç sırası bozuldu`)
+        .not.toContain('maviReasoningEngine');
+    }
+  });
+});
