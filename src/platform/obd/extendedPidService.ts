@@ -267,6 +267,63 @@ export function getSupportedPids(): Set<string> | null {
   return _supported ? new Set(_supported) : null;
 }
 
+/* ── #506: SESSİZLİĞİN SEBEBİ (S1 fail-closed'ın gözlem yüzeyi) ───────────── */
+
+/**
+ * Extended sorgu KAPISININ durumu — "neden hiçbir şey sorulmuyor" sorusunun cevabı.
+ *
+ * NEDEN VAR: #503 ile gürültüyü (NO-DATA fırtınası) SESSİZLİKLE takas ettik. Kapı
+ * kapalıyken sistem doğru davranır ama DIŞARIDAN "poll ölü" ile ayırt edilemez —
+ * `configuredPidCount: 0/1` hem "kimse izlemiyor" hem "16 PID kanıt bekliyor"
+ * anlamına gelebilirdi. Bu getter ikisini AYIRIR.
+ *
+ * Saf sayım; yan etkisi YOK (native'e hiçbir şey göndermez, durum değiştirmez).
+ */
+export interface ExtendedGateState {
+  /** Destek kanıtı var mı — `false` iken KAPI KAPALIDIR (fail-closed). */
+  supportedKnown: boolean;
+  /** Kanıtlı destekli PID sayısı (kanıt yoksa 0 — "yok" değil "bilinmiyor" demektir). */
+  supportedCount: number;
+  /** Kaç PID için izleyici var (core/tanımsız dahil ham izleyici sayısı). */
+  watchedCount: number;
+  /**
+   * Sorgulanabilir OLDUĞU HÂLDE gitmeyen PID sayısı = "beklemede".
+   *  · kanıt yokken: tüm çözülebilir non-core izlenenler (kapı kapalı),
+   *  · kanıt varken: bitmap'in desteklemediği izlenenler (kalıcı olarak elendi).
+   */
+  gatedCount: number;
+  /** Beklemede olan PID'ler (bounded ≤16) — hangi sinyalin sustuğu görünsün. */
+  gatedPids: string[];
+  /** Bekleyen bitmask keşif sorgusu sayısı (kapıyı açacak olan iş). */
+  discoveryPending: number;
+  /** Şu an native'e gitmekte olan liste boyutu (keşif + izlenen). */
+  nativeListCount: number;
+  /** Tanı BURST modu açık mı (cap'i etkiler). */
+  burst: boolean;
+}
+
+export function getExtendedGateState(): ExtendedGateState {
+  const gatedPids: string[] = [];
+  let gatedCount = 0;
+  for (const pid of _watchers.keys()) {
+    const def = STANDARD_PID_MAP.get(pid);
+    if (!def || def.core) continue;                      // zaten sorgulanabilir aday değil
+    if (_supported !== null && _supported.has(pid)) continue; // gidiyor
+    gatedCount++;                                        // GERÇEK sayı (kırpılmaz)
+    if (gatedPids.length < ELM_WATCH_CAP) gatedPids.push(pid); // liste bounded
+  }
+  return {
+    supportedKnown: _supported !== null,
+    supportedCount: _supported ? _supported.size : 0,
+    watchedCount: _watchers.size,
+    gatedCount,
+    gatedPids,
+    discoveryPending: _discoveryQueue.length,
+    nativeListCount: _buildNativeList().length,
+    burst: _burst,
+  };
+}
+
 /* ── PR-OBD-KWP-1: per-PID gerçek durum (tek veri gerçeği için) ───────────── */
 
 export type ExtendedPidStatus =

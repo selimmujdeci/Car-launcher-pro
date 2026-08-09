@@ -63,6 +63,27 @@ export interface SchedRawSnapshot {
     js: { eventsReceived: number; decodeFailures: number; valuesStored: number; valuesCached: number };
   } | null;
 
+  /**
+   * #506 — JS-tarafı EXTENDED SORGU KAPISI (`extendedPidService.getExtendedGateState()`).
+   *
+   * #503 ile gürültü (NO-DATA fırtınası) SESSİZLİKLE takas edildi: destek kanıtı yokken
+   * hiçbir izlenen PID native'e gitmez. Bu doğru davranıştır ama DIŞARIDAN "poll ölü" ile
+   * ayırt edilemezdi — `configuredPidCount: 0` hem "kimse izlemiyor" hem "16 PID kanıt
+   * bekliyor" demek olabiliyordu. Bu alan sessizliğin SEBEBİNİ taşır.
+   *
+   * Native kanıttan BAĞIMSIZDIR (JS modül durumu) → kanıt önbelleği boşken de okunur.
+   */
+  readonly extGate: {
+    supportedKnown: boolean;
+    supportedCount: number;
+    watchedCount: number;
+    gatedCount: number;
+    gatedPids: string[];
+    discoveryPending: number;
+    nativeListCount: number;
+    burst: boolean;
+  } | null;
+
   readonly sessionHealth: {
     pollingActive: boolean; dataFresh: boolean; transportReady: boolean; sessionReady: boolean;
   } | null;
@@ -96,6 +117,7 @@ export interface SchedRawSnapshot {
 
 const SRC = {
   pollEv:   'obd/extendedPollEvidence.getExtendedPollEvidence()',
+  extGate:  'obd/extendedPidService.getExtendedGateState()',
   session:  'obdService.getObdSessionHealth()',
   status:   'obdService.getOBDStatusSnapshot()',
   health:   'obd/ObdHealthMonitor.getObdHealth()',
@@ -113,6 +135,61 @@ const SRC = {
  * 1 · Command Execution — NATIVE otorite
  * ════════════════════════════════════════════════════════════════════════ */
 
+/**
+ * #506 — extended sorgu kapısının alanları. #503 (fail-closed) sessizliği ürettiği için
+ * sessizliğin SEBEBİ okunabilir olmalıdır: "destek kanıtı yok → N PID beklemede".
+ * Kaynak okunamazsa UNAVAILABLE — "kapı açık" ya da "0 PID" VARSAYILMAZ.
+ */
+function _pushGateFields(f: SchedField[], s: SchedRawSnapshot): void {
+  const g = s.extGate;
+  if (!g) {
+    f.push(schedUnavailable(
+      { id: 'cmdGate', label: 'extended sorgu kapısı', source: SRC.extGate, note: '' },
+      'Kapı durumu okunamadı — sessizliğin sebebi BİLİNMİYOR ("kapı açık" VARSAYILMAZ).',
+    ));
+    return;
+  }
+
+  // Ana satır: tek bakışta "neden sessiz".
+  const reason = !g.supportedKnown
+    ? (g.gatedCount > 0
+        ? `DESTEK KANITI YOK → ${g.gatedCount} PID BEKLEMEDE`
+        : 'DESTEK KANITI YOK · izlenen PID de yok')
+    : (g.gatedCount > 0
+        ? `kanıt VAR · ${g.gatedCount} PID araç desteklemediği için elendi`
+        : 'kanıt VAR · elenen PID yok');
+  f.push(schedObserved(
+    { id: 'cmdGate', label: 'extended sorgu kapısı', source: SRC.extGate,
+      note: '#503 fail-closed: destek kanıtı YOKKEN izlenen PID native\'e GİTMEZ. '
+          + '"Beklemede" = sorgulanabilir ama kanıt beklediği için gönderilmeyen PID.' },
+    reason,
+  ));
+
+  f.push(schedObserved(
+    { id: 'cmdGateWatchers', label: 'izleyici / beklemede / native listede', source: SRC.extGate,
+      note: 'İzleyici sayısı JS tarafındadır; native liste keşif kuyruğunu da içerir.' },
+    `${g.watchedCount} / ${g.gatedCount} / ${g.nativeListCount}`,
+  ));
+
+  f.push(g.gatedPids.length > 0
+    ? schedObserved({ id: 'cmdGatePids', label: 'bekleyen PID\'ler', source: SRC.extGate,
+        note: 'Bounded liste (≤16) — hangi sinyalin sustuğu görünsün.' }, g.gatedPids.join(' '))
+    : schedObserved({ id: 'cmdGatePids', label: 'bekleyen PID\'ler', source: SRC.extGate,
+        note: 'Bekleyen yok.' }, '—'));
+
+  f.push(schedObserved(
+    { id: 'cmdGateDiscovery', label: 'kapıyı açacak keşif sorgusu', source: SRC.extGate,
+      note: 'Bekleyen bitmask sorgusu (00/20/40…). 0 + kanıt yok = kapı KENDİLİĞİNDEN açılmaz.' },
+    g.discoveryPending,
+  ));
+
+  f.push(g.supportedKnown
+    ? schedObserved({ id: 'cmdGateSupported', label: 'kanıtlı destekli PID', source: SRC.extGate,
+        note: 'Handshake tohumu + extended bitmask keşfinin BİRLEŞİMİ.' }, g.supportedCount)
+    : schedUnavailable({ id: 'cmdGateSupported', label: 'kanıtlı destekli PID', source: SRC.extGate, note: '' },
+        'Destek kanıtı YOK — desteklenen PID sayısı BİLİNMİYOR ("0 destekli" DEĞİL).'));
+}
+
 function _commandExecChannel(s: SchedRawSnapshot): SchedChannel {
   const f: SchedField[] = [];
   const ev = s.pollEvidence;
@@ -127,6 +204,11 @@ function _commandExecChannel(s: SchedRawSnapshot): SchedChannel {
     { id: 'cmdPriority', label: 'komut önceliği / sıralama politikası', source: SRC.none, note: '' },
     'Öncelik native tarafta; JS\'e açılmış okuma yüzeyi yok.',
   ));
+
+  /* #506 — SESSİZLİĞİN SEBEBİ. Native kanıttan BAĞIMSIZ okunur (JS modül durumu), bu yüzden
+     `present=false` erken dönüşünden ÖNCE eklenir: kanıt önbelleği boşken bile "neden hiçbir
+     şey sorulmuyor" cevaplanabilmelidir — #503 fail-closed'ın gözlem borcu tam olarak budur. */
+  _pushGateFields(f, s);
 
   if (!present) {
     f.push(schedUnavailable(

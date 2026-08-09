@@ -3,7 +3,9 @@
 **Tarih:** 2026-08-09
 **Kapsam:** `obdDeep.extended.samples: []` — keşif çalışıyor (`discovered: true`,
 `supportedCount: 15`) ama değer akmıyor.
-**İlgili:** `docs/ADR_PID_PACK.md` §8.2/4 · kütük #518 · devir belgesi §4
+**İlgili:** `docs/ADR_PID_PACK.md` §8.2/4 (ADR iç tablosu, satır #518) · devir belgesi §4
+**Kütük karşılığı:** `docs/DEVICE_VALIDATION_LEDGER.md` **#503 (S1)** · **#504 (S3)** ·
+**#505 (S2)** — 2026-08-09 sertleştirme paketiyle açıldı.
 **Not:** Bu belge **teşhistir**. Kod yazılmadı, commit atılmadı.
 
 ---
@@ -237,12 +239,19 @@ edilmez"* — **geçerliliğini koruyor**, ama gerekçesi değişti:
 Bu daha iyi bir haber ve daha ucuz bir borç — ama kapatılana kadar kataloğu genişletmek
 yine aynı riski taşır (R6: dolu katalog + boş kanıt defteri).
 
-**Kütük #518 bu teşhisle güncellendi.** Kabul ölçütü artık *"samples dolar"* değil:
+**DÜZELTME (2026-08-09):** bu belgenin ilk sürümü "kütük #518" diyordu — **öyle bir kütük
+satırı hiç açılmamıştı** (kütükteki en yüksek numara o gün #502'ydi); #518 `ADR_PID_PACK.md`
+karar tablosunun iç numarasıdır. Gerçek kütük karşılıkları sertleştirme paketiyle açıldı:
+**#503 (S1 fail-closed)** · **#504 (S3 sınırlı retry)** · **#505 (S2 tazelik uyarısı)**
+— buna **#506 (kapının gözlem yüzeyi)** eklendi.
+
+Kabul ölçütü artık *"samples dolar"* değil:
 
 > Gerçek araçta **önce Runtime Scheduling → YENİLE**, sonra
 > `extendedPollEvidence.decision` okunur ve **H1/H2/H3/H4'ten biri** kayda geçer.
-> `H4_HEALTHY` çıkarsa P1-1 zaten kapalıdır ve #518 **kapanır**; diğer üç hüküm ayrı
-> kütük satırı doğurur.
+> `H4_HEALTHY` çıkarsa P1-1 zaten kapalıdır; diğer üç hüküm ayrı kütük satırı doğurur.
+> Aynı ekranda **extended sorgu kapısı** satırı okunur (#506): sessizlik "poll ölü" mü
+> yoksa "destek kanıtı yok → N PID beklemede" mi — ikisi artık ayrılabilir.
 
 ---
 

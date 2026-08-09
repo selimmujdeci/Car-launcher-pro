@@ -690,3 +690,67 @@ describe('KİLİT 20 — saha doğrulaması olmadan "çalışıyor" iddiası YOK
     expect(html).toMatch(/data-summary="(ACTIVE|PARTIAL|IDLE|BLOCKED|UNKNOWN)"/);
   });
 });
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * KİLİT 21 (#506) — #503'ün ürettiği SESSİZLİĞİN SEBEBİ okunabilir olmalı
+ *
+ * #503 gürültüyü (NO-DATA fırtınası) sessizlikle takas etti: destek kanıtı yokken
+ * hiçbir izlenen PID native'e gitmez. Doğru davranış, ama dışarıdan "poll ölü" ile
+ * ayırt edilemezse Tarsus'ta teşhis EDİLEMEZ. Kapı alanları bu yüzden native kanıt
+ * önbelleği BOŞKEN DE görünmelidir (JS modül durumundan okunur).
+ * ════════════════════════════════════════════════════════════════════════ */
+
+const GATE_OPEN = {
+  supportedKnown: true, supportedCount: 15, watchedCount: 6, gatedCount: 0,
+  gatedPids: [] as string[], discoveryPending: 0, nativeListCount: 6, burst: false,
+};
+const GATE_CLOSED = {
+  supportedKnown: false, supportedCount: 0, watchedCount: 16, gatedCount: 16,
+  gatedPids: ['04', '10', '33'], discoveryPending: 1, nativeListCount: 1, burst: false,
+};
+
+describe('KİLİT 21 — sessizliğin sebebi görünür (#503 gözlem borcu)', () => {
+  it('kanıt yokken "DESTEK KANITI YOK → N PID BEKLEMEDE" yazar', () => {
+    const ch = buildSchedChannels(snapshot({ extGate: GATE_CLOSED }));
+    const gate = findField(ch, 'cmdGate')!;
+    expect(gate.klass).toBe('OBSERVED');
+    expect(String(gate.value)).toContain('DESTEK KANITI YOK');
+    expect(String(gate.value)).toContain('16 PID BEKLEMEDE');
+  });
+
+  it('bekleyen PID\'ler ve kapıyı açacak keşif sorgusu ayrı okunur', () => {
+    const ch = buildSchedChannels(snapshot({ extGate: GATE_CLOSED }));
+    expect(String(findField(ch, 'cmdGatePids')!.value)).toContain('04');
+    expect(findField(ch, 'cmdGateDiscovery')!.value).toBe('1');
+    expect(String(findField(ch, 'cmdGateWatchers')!.value)).toBe('16 / 16 / 1');
+  });
+
+  it('kanıt yokken "0 destekli PID" İDDİA EDİLMEZ (UNAVAILABLE)', () => {
+    const ch = buildSchedChannels(snapshot({ extGate: GATE_CLOSED }));
+    const f = findField(ch, 'cmdGateSupported')!;
+    expect(f.klass).toBe('UNAVAILABLE');
+    expect(f.value).not.toBe('0');   // sahte "0 destekli" YASAK
+  });
+
+  it('NATIVE KANIT ÖNBELLEĞİ BOŞKEN DE kapı görünür (asıl saha senaryosu)', () => {
+    const ch = buildSchedChannels(snapshot({ pollEvidence: null, extGate: GATE_CLOSED }));
+    const gate = findField(ch, 'cmdGate');
+    expect(gate, 'kapı alanı present=false erken dönüşünde kayboluyor — sessizlik teşhis edilemez')
+      .not.toBeNull();
+    expect(String(gate!.value)).toContain('BEKLEMEDE');
+  });
+
+  it('kanıt varken kapı AÇIK okunur (sahte alarm üretmez)', () => {
+    const ch = buildSchedChannels(snapshot({ extGate: GATE_OPEN }));
+    const gate = findField(ch, 'cmdGate')!;
+    expect(String(gate.value)).toContain('kanıt VAR');
+    expect(findField(ch, 'cmdGateSupported')!.value).toBe('15');
+  });
+
+  it('kapı durumu OKUNAMAZSA "açık" VARSAYILMAZ', () => {
+    const ch = buildSchedChannels(snapshot({ extGate: null }));
+    const f = findField(ch, 'cmdGate')!;
+    expect(f.klass).toBe('UNAVAILABLE');
+    expect(f.note).toContain('BİLİNMİYOR');
+  });
+});

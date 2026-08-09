@@ -16,6 +16,7 @@
 import { getOBDStatusSnapshot, getObdSessionHealth, getHandshakeDiagnostics, getObdFreshWindowMs } from '../obdService';
 import { getObdHealth } from '../obd/ObdHealthMonitor';
 import { getExtendedPollEvidence } from '../obd/extendedPollEvidence';
+import { getExtendedGateState } from '../obd/extendedPidService';
 import { getKwpRecoveryEvidence } from '../obd/kwpRecoveryEvidence';
 import { deepScanRuntimeService } from '../deepScan/deepScanRuntimeService';
 import { getDevtoolsCaptureStatus } from './devtoolsCapture';
@@ -44,6 +45,8 @@ export function readSchedRawSnapshot(): SchedRawSnapshot {
   const fresh  = _safe(() => getObdFreshWindowMs());
   const health = _safe(() => getObdHealth());
   const poll   = _safe(() => getExtendedPollEvidence());
+  // #506: JS-tarafı sorgu KAPISI — saf sayım, yan etkisi yok (native'e hiçbir şey gitmez).
+  const gate   = _safe(() => getExtendedGateState());
   const kwp    = _safe(() => getKwpRecoveryEvidence());
   const deep   = _safe(() => deepScanRuntimeService.getSnapshot());
   const cap    = _safe(() => getDevtoolsCaptureStatus());
@@ -75,6 +78,17 @@ export function readSchedRawSnapshot(): SchedRawSnapshot {
         valuesStored:   Number(poll.js?.valuesStored) || 0,
         valuesCached:   Number(poll.js?.valuesCached) || 0,
       },
+    } : null,
+
+    extGate: gate ? {
+      supportedKnown:   gate.supportedKnown === true,
+      supportedCount:   Number(gate.supportedCount) || 0,
+      watchedCount:     Number(gate.watchedCount) || 0,
+      gatedCount:       Number(gate.gatedCount) || 0,
+      gatedPids:        Array.isArray(gate.gatedPids) ? gate.gatedPids.slice(0, 16).map(String) : [],
+      discoveryPending: Number(gate.discoveryPending) || 0,
+      nativeListCount:  Number(gate.nativeListCount) || 0,
+      burst:            gate.burst === true,
     } : null,
 
     sessionHealth: sess ? {
