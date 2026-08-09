@@ -64,6 +64,20 @@ export interface CarosLabCopyInput {
      * ayırt edilemezse okuyucu yanlış sonuca varır. Bu yüzden durum BEYAN edilir.
      */
     readonly captureRefs: { obd: number; can: number } | null;
+    /**
+     * S2 (#505) — EXTENDED POLL KANIT ÖNBELLEĞİNİN TAZELİĞİ.
+     *
+     * `getExtendedPollEvidence()` SENKRONDUR ve yalnız önbelleği okur; onu dolduran tek
+     * şey ASYNC `refreshExtendedPollEvidence()`tir — ve bu kopya yolu sözleşmesi gereği
+     * senkron olduğu için onu ÇAĞIRMAZ. Telefonda ölçüldü (2026-08-01): temiz boot →
+     * `counters:null` → "eski APK / poll başlamadı" etiketi, oysa aynı cihazda native
+     * çağrı 43 ms'de tam yanıt veriyordu. Yani rapor SAĞLAM bir boruyu ÖLÜ gösterebilir.
+     *
+     * Hüküm katmanı bunu zaten dürüst veriyor (`classifyExtendedPoll` → "ölçmedik"),
+     * ama raporu OKUYAN kişi bunu bölümün derinliğinde kaçırıyordu. Bu alan uyarıyı
+     * raporun BAŞINA taşır. `null` = tazelik durumu okunamadı (varsayım YAPILMAZ).
+     */
+    readonly pollEvidenceCacheState?: string | null;
   };
   /**
    * Katalog durum tablosu — `null` ise okunamadı.
@@ -112,6 +126,12 @@ export interface CarosLabCopyResult {
   /** Satır/karakter tavanı nedeniyle kırpıldı mı. */
   readonly truncated: boolean;
   readonly chars: number;
+  /**
+   * S2 (#505): extended poll kanıtı bu oturumda hiç tazelenmemiş → rapor P1-1 hakkında
+   * HÜKÜM VEREMEZ. Çağıran bunu kullanıcıya EKRANDA da göstermelidir (rapor gövdesindeki
+   * uyarıyı okumadan kopyayı paylaşan geliştirici yanlış teşhise sürükleniyordu).
+   */
+  readonly pollEvidenceStale: boolean;
 }
 
 /* ── Yardımcılar ──────────────────────────────────────────────────────────── */
@@ -285,6 +305,20 @@ export function buildCarosLabCopy(input: CarosLabCopyInput): CarosLabCopyResult 
     : `yakalama     : OBD trafiği ${refs.obd > 0 ? 'AÇIK' : 'KAPALI'} (ref ${refs.obd}) · ` +
       `CAN ${refs.can > 0 ? 'AÇIK' : 'KAPALI'} (ref ${refs.can})`;
 
+  /* S2 (#505): kanıt önbelleği bu oturumda hiç tazelenmediyse rapor extended poll (P1-1)
+     hakkında hüküm VEREMEZ. Bilinmeyen/okunamayan durum "taze" SAYILMAZ ama "bayat" da
+     İDDİA EDİLMEZ — yalnız açıkça `never_refreshed` ise uyarı basılır. */
+  const cacheState = meta?.pollEvidenceCacheState ?? null;
+  const pollEvidenceStale = cacheState === 'never_refreshed';
+  const evidenceLines = pollEvidenceStale
+    ? [
+      '⚠ UYARI: EXTENDED POLL KANIT ÖNBELLEĞİ BU OTURUMDA HİÇ TAZELENMEDİ.',
+      '  Bu kopya senkrondur ve native kanıtı ÇEKMEZ → aşağıdaki extended poll hükmü',
+      '  "ölçmedik" demektir, "poll ölü" DEMEZ. Ölçmek için: CAROS LAB → Runtime',
+      '  Scheduling ekranını açın, YENİLE yapın, sonra bu kopyayı YENİDEN alın.',
+    ]
+    : [`kanıt tazeliği: extended poll önbelleği = ${clampTo(String(cacheState ?? 'BİLİNMİYOR'), 40)}`];
+
   const head = [
     `# CAROS LAB — TAM KOPYA (${CAROS_LAB_COPY_SCHEMA})`,
     `zaman        : ${meta?.generatedAtWallMs ?? 0}`,
@@ -298,6 +332,7 @@ export function buildCarosLabCopy(input: CarosLabCopyInput): CarosLabCopyResult 
       `${MAX_COPY_OBJECT_CHARS} kr/snapshot · toplam ${MAX_COPY_CHARS} kr`,
     'NOT: SALT-OKUNUR kopya. Kaynağı okunamayan bölüm "okunamadı" yazar — boş kabul edilmez.',
     'NOT: "yakalama KAPALI" iken boş trafik bölümü "trafik yoktu" ANLAMINA GELMEZ.',
+    ...evidenceLines,
     '',
   ];
 
@@ -316,5 +351,8 @@ export function buildCarosLabCopy(input: CarosLabCopyInput): CarosLabCopyResult 
     text = `${text.slice(0, MAX_COPY_CHARS)}\n\n(TOPLAM KARAKTER TAVANI AŞILDI — metin burada kesildi)`;
   }
 
-  return { text, sectionCount: sections.length, droppedCount: dropped, truncated, chars: text.length };
+  return {
+    text, sectionCount: sections.length, droppedCount: dropped, truncated,
+    chars: text.length, pollEvidenceStale,
+  };
 }

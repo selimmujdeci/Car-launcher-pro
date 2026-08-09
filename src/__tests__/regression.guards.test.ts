@@ -71,6 +71,13 @@ import useDenseHudSrc from '../hooks/useDenseHud.ts?raw';
 import modeControllerSrc from '../platform/modeController.ts?raw';
 import visionOverlaySrc from '../components/map/VisionOverlay.tsx?raw';
 import sensitiveKeyStoreSrc from '../platform/sensitiveKeyStore.ts?raw';
+/* S1 (#503) kilidi DAVRANIŞ testidir — kaynak-metin kilidi tek başına yetmez.
+   `extendedPidService` bağımlılıkları hafiftir (Capacitor + nativePlugin + saf registry)
+   ve `isNativePlatform()` test ortamında false olduğu için native'e hiçbir şey gitmez;
+   bu yüzden bu dosyanın "mock kullanma" karakteri BOZULMADAN import edilebilir. */
+import {
+  _internals as extPidInternals, watchPid, seedSupportedPids, notifyObdConnected,
+} from '../platform/obd/extendedPidService';
 import { AdaptiveRuntimeManager } from '../core/runtime/AdaptiveRuntimeManager';
 import { RuntimeMode } from '../core/runtime/runtimeTypes';
 import { forceMode } from './sim/runtimeSimulator';
@@ -4873,5 +4880,84 @@ describe('ADR-286 · göç karakterizasyon kasası', () => {
       expect(read(p), `${p} erken bağlanmış — göç sırası bozuldu`)
         .not.toContain('maviReasoningEngine');
     }
+  });
+});
+
+/* ─────────────────────────────────────────────────────────────────
+   S1 (#503) — YENİDEN BAĞLANMADA DESTEK FİLTRESİ FAIL-CLOSED
+
+   Ölçülen kusur (`docs/P1-1_KOK_NEDEN_TESHISI.md` §2/S1): `notifyObdConnected()`
+   her reconnect'te `_supported = null` yapıyor AMA izleyicileri bırakmıyor
+   (`_clearExtraPidWatches` yalnız `stopOBD`'de koşar). Eski filtre
+   `_supported !== null && !_supported.has(pid)` yazdığı için kanıt yokken kapı
+   SESSİZCE AÇILIYOR ve 16 (burst'te ≤48) PID filtresiz native'e gidiyordu —
+   tam olarak `seedSupportedPids`in önlemek için yazıldığı NO-DATA fırtınası.
+
+   Bu kilit davranışı dondurur: KANIT YOKSA SORGU YOK. Filtre gevşetilirse
+   (ör. `_supported !== null &&` deseni geri gelirse) test kırmızı yanar.
+   ───────────────────────────────────────────────────────────────── */
+describe('S1 · extended destek filtresi reconnect\'te fail-closed', () => {
+  beforeEach(() => { extPidInternals.reset(); });
+  afterEach(()  => { extPidInternals.reset(); });
+
+  it('🔒 destek kanıtı YOKKEN izlenen PID native listeye GİRMEZ (yalnız keşif gider)', () => {
+    watchPid('04', () => {});
+    watchPid('33', () => {});
+    const list = extPidInternals.buildNativeList();
+    expect(list, 'kanıtsız sorgu native\'e gidiyor — NO-DATA fırtınası kapısı açık')
+      .toEqual(extPidInternals.getDiscoveryQueue());
+    expect(list).not.toContain('04');
+    expect(list).not.toContain('33');
+  });
+
+  it('🔒 kanıt gelince AYNI izleyiciler akmaya başlar (fail-closed geri dönüşlüdür)', () => {
+    watchPid('04', () => {});
+    watchPid('33', () => {});
+    seedSupportedPids([0x04, 0x33]);
+    const list = extPidInternals.buildNativeList();
+    expect(list).toContain('04');
+    expect(list).toContain('33');
+  });
+
+  it('🔒 RECONNECT: izleyiciler yaşar ama kanıt geçersizleşince sorgu DURUR', () => {
+    const seen: string[] = [];
+    watchPid('04', () => { seen.push('04'); });
+    watchPid('33', () => { seen.push('33'); });
+    seedSupportedPids([0x04, 0x33]);
+    expect(extPidInternals.buildNativeList()).toContain('04');
+
+    // Yeniden bağlanma: `_supported = null` + keşif kuyruğu yeniden kurulur.
+    notifyObdConnected();
+
+    const after = extPidInternals.buildNativeList();
+    expect(after, 'reconnect\'te filtre sessizce kapandı — 16 PID filtresiz gidiyor')
+      .toEqual(extPidInternals.getDiscoveryQueue());
+    expect(after).not.toContain('04');
+    expect(after).not.toContain('33');
+
+    // İzleyiciler BIRAKILMAZ (sahipleri onları yeniden kurmaz) — kanıt gelince akar.
+    seedSupportedPids([0x04, 0x33]);
+    expect(extPidInternals.buildNativeList()).toContain('04');
+    extPidInternals.onExtendedData({ pid: '04', data: '80' });
+    expect(seen, 'reconnect izleyiciyi öldürmüş — panel açıkken sinyal sessizce ölür')
+      .toContain('04');
+  });
+
+  it('🔒 kaynak deseni: kanıtsız dalda erken çıkış korunur', () => {
+    /* Denetim YALNIZ kod satırlarında yapılır — eski gevşek filtrenin YORUMDA
+       anılması (neden kaldırıldığını anlatmak için) onu kullanmak değildir (#484 dersi). */
+    const codeOnly = read('src/platform/obd/extendedPidService.ts').split('\n')
+      .filter((l) => {
+        const t = l.trimStart();
+        return !t.startsWith('//') && !t.startsWith('*') && !t.startsWith('/*');
+      })
+      .join('\n');
+    expect(codeOnly, 'fail-closed kapısı kaldırılmış — kanıtsız sorgu yeniden mümkün')
+      .toMatch(/if\s*\(_supported\s*!==\s*null\)\s*\{/);
+    /* Yalnız `_buildNativeList` gövdesindeki filtre denetlenir (`pid` değişkeni oraya
+       özgüdür); `getPidStatus`'taki `_supported !== null && !_supported.has(key)` MEŞRUDUR
+       — o bir DURUM sınıflandırmasıdır, sorgu kapısı değil. */
+    expect(codeOnly, 'eski gevşek filtre geri gelmiş')
+      .not.toMatch(/_supported\s*!==\s*null\s*&&\s*!_supported\.has\(pid\)/);
   });
 });

@@ -22,6 +22,7 @@ import { getOBDDataSnapshot } from '../obdService';
 import { getReplayData, getCrashDetectionHealth } from '../security/blackBoxService';
 import { useHALStatusStore } from '../vehicleDataLayer/halStatusStore';
 import { getDevtoolsCaptureStatus } from './devtoolsCapture';
+import { getPollEvidenceCacheState } from '../obd/extendedPollEvidence';
 import { getErrorLog } from '../crashLogger';
 import type { CarosLabCopyInput } from './carosLabCopyModel';
 
@@ -69,6 +70,10 @@ export function readCarosLabCopyInput(ctx: CopyContext): CarosLabCopyInput {
         const s = getDevtoolsCaptureStatus();
         return { obd: s.obdRefs, can: s.canRefs };
       }),
+      /* S2 (#505): kanıt önbelleğinin TAZELİK durumu — saf bayrak okuması, native pull YOK
+         (bu yol senkron kalmalıdır; `refreshExtendedPollEvidence()` BİLEREK çağrılmaz).
+         Model bunu raporun başına uyarı olarak basar: "ölçmedik" ≠ "poll ölü". */
+      pollEvidenceCacheState: safe(() => getPollEvidenceCacheState()),
     },
     /* `ad` alan adı BİLEREK seçildi: `name` gizlilik deny-list'inde olduğu için
        her derinlikte düşürülüyordu → saha çıktısında araç adları HİÇ görünmedi. */

@@ -6,7 +6,8 @@
  *  - Talep-güdümlü sözleşme: izleyici yokken native liste BOŞ (sıfır maliyet);
  *    ilk izleyici keşfi başlatır; son izleyici ayrılınca liste boşalır.
  *  - Keşif zinciri: 00 yanıtında 20 destekliyse kuyruk 20'ye ilerler.
- *  - Destek filtresi: keşif tamamlandıysa desteklenmeyen izlenen PID native'e gitmez.
+ *  - Destek filtresi FAIL-CLOSED (S1 · #503): destek kanıtı YOKSA hiçbir izlenen PID
+ *    native'e gitmez; kanıt varsa yalnız desteklenenler gider.
  *  - Core PID'ler EXTENDED listeye asla girmez.
  *  - Değer akışı: ham hex → decode → watcher; bozuk veri watcher'a ulaşmaz.
  */
@@ -73,10 +74,22 @@ describe('Patch 8C — parseSupportedBitmask', () => {
 });
 
 describe('Patch 8C — talep-güdümlü sözleşme (Mali-400 kuralı)', () => {
-  it('ilk izleyici keşif kuyruğunu (00) + izlenen PID\'i native\'e iter', () => {
+  /* S1 (#503) — KİLİT BİLİNÇLİ GÜNCELLENDİ (kaldırılmadı).
+     ESKİ beklenti: `['00', '5C']` — yani destek kanıtı YOKKEN izlenen PID de native'e
+     gidiyordu. Bu davranış reconnect'te NO-DATA fırtınasının kapısıydı: `notifyObdConnected`
+     `_supported`ı null'a çekiyor ama izleyicileri bırakmıyor → 16 PID filtresiz gidiyordu.
+     YENİ (doğru) davranış: kanıt yoksa YALNIZ keşif kuyruğu gider; bitmask/tohum gelince
+     aynı izleyiciler tek turda akmaya başlar (bkz. aşağıdaki "keşif sonrası" kilitleri). */
+  it('ilk izleyici YALNIZ keşif kuyruğunu (00) iter — kanıt yokken izlenen PID GİTMEZ', () => {
     watchPid('5C', () => {});
     expect(M.pushedLists.length).toBe(1);
-    expect(M.pushedLists[0]).toEqual(['00', '5C']);
+    expect(M.pushedLists[0]).toEqual(['00']);
+  });
+
+  it('kanıt gelince aynı izleyici native listeye GİRER (fail-closed geri dönüşlü)', () => {
+    watchPid('5C', () => {});
+    seedSupportedPids([0x5c]);
+    expect(M.pushedLists[M.pushedLists.length - 1]).toContain('5C');
   });
 
   it('son izleyici ayrılınca native liste boşalır (keşif kuyruğu hariç)', () => {

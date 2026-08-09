@@ -448,6 +448,83 @@ function _clearExtraPidWatches(): void {
   _extraPidUnsubs = [];
 }
 
+/* ── S3 (#504): arka plan izleyicisi için SINIRLI yeniden deneme ──────────────
+ * ESKİ KUSUR: `_watchAllSupportedPids` YALNIZ `performHandshake().then` içinde ve yalnız
+ * `readBlocks.size > 0` iken koşuyordu. Handshake düşerse (ELM yanıt vermedi / bitmap
+ * bloğu okunamadı) arka plan izleyicisi HİÇ kurulmuyor ve bir daha DENENMİYORDU →
+ * extended kanal o oturum boyunca ölü kalıyor, rapor `samples: []` gösteriyordu.
+ *
+ * SINIR (Mali-400 sözleşmesi): sonsuz deneme hattı meşgul eder. Oturum başına EN FAZLA
+ * `_EXT_WATCH_RETRY_DELAYS_MS.length` ek deneme; her deneme önce ELİMİZDEKİ kanıta bakar
+ * (bedava), yalnız kanıt yoksa TEK bir hafif handshake tekrarı ister. Deneme bütçesi yeni
+ * bağlantıda sıfırlanır, `stopOBD`'de timer temizlenir (zero-leak). */
+const _EXT_WATCH_RETRY_DELAYS_MS = [20_000, 60_000] as const;
+let _extWatchRetryTimer: ReturnType<typeof setTimeout> | null = null;
+let _extWatchRetries = 0;
+
+function _clearExtendedWatchRetry(): void {
+  if (_extWatchRetryTimer !== null) { clearTimeout(_extWatchRetryTimer); _extWatchRetryTimer = null; }
+}
+
+/** Yeni bağlantı = yeni deneme bütçesi (bekleyen timer iptal). */
+function _resetExtendedWatchRetry(): void {
+  _clearExtendedWatchRetry();
+  _extWatchRetries = 0;
+}
+
+/**
+ * İzleyici kurulumunu bir sonraki pencereye planla. Kurulu ise veya bütçe bittiyse NO-OP
+ * (sessizce vazgeçilir — sahte "denemeye devam ediyoruz" izlenimi üretilmez).
+ */
+function _scheduleExtendedWatchRetry(myGen: number): void {
+  if (_extraPidUnsubs.length > 0) return;                        // zaten kurulu
+  if (_extWatchRetries >= _EXT_WATCH_RETRY_DELAYS_MS.length) return; // bütçe bitti
+  if (_extWatchRetryTimer !== null) return;                      // zaten planlı
+  const delay = _EXT_WATCH_RETRY_DELAYS_MS[_extWatchRetries];
+  _extWatchRetries++;
+  _extWatchRetryTimer = setTimeout(() => {
+    _extWatchRetryTimer = null;
+    if (!_running || _nativeGeneration !== myGen) return;        // bağlantı değişti → iptal
+    _tryEnsureExtendedWatch(myGen);
+  }, delay);
+}
+
+/**
+ * Tek deneme: (1) zaten kurulu mu · (2) elimizde handshake kanıtı var mı (bedava) ·
+ * (3) yoksa TEK hafif handshake tekrarı. Bu yol YALNIZ extended izleyicisini kurar —
+ * profil/VIN/tanı yan işleri TEKRARLANMAZ (onların otoritesi ilk handshake'tir).
+ */
+function _tryEnsureExtendedWatch(myGen: number): void {
+  if (_extraPidUnsubs.length > 0) return;
+
+  // (2) Önceki handshake kanıtı duruyorsa ek trafik GEREKMEZ.
+  if (_handshakeSupportedPids.size > 0) {
+    seedExtendedSupported(_handshakeSupportedPids);
+    _watchAllSupportedPids(_handshakeSupportedPids);
+    return;
+  }
+
+  // (3) Kanıt yok → hafif handshake tekrarı (metot yoksa yol kapalıdır, ısrar edilmez).
+  if (!CarLauncher.performHandshake) return;
+  void CarLauncher.performHandshake()
+    .then((raw) => {
+      if (!_running || _nativeGeneration !== myGen) return;
+      const result = buildHandshakeResult(raw);
+      if (result.readBlocks.size === 0 || result.supportedPids.size === 0) {
+        _scheduleExtendedWatchRetry(myGen);   // kanıt hâlâ yok → bütçe varsa bir daha
+        return;
+      }
+      _handshakeSupportedPids = result.supportedPids;
+      _handshakeReadBlocks    = result.readBlocks;
+      seedExtendedSupported(result.supportedPids);
+      _watchAllSupportedPids(result.supportedPids);
+    })
+    .catch(() => {
+      if (!_running || _nativeGeneration !== myGen) return;
+      _scheduleExtendedWatchRetry(myGen);     // fail-soft: bütçe varsa bir daha
+    });
+}
+
 /** Handshake'te KANITLI destekli, core-olmayan PID'leri sürekli izlemeye al (cap'e kadar). */
 function _watchAllSupportedPids(supported: ReadonlySet<number>): void {
   _clearExtraPidWatches();
@@ -2136,6 +2213,8 @@ async function _startNative(opts?: { trustBypass?: boolean }): Promise<void> {
   obdHealthMonitor.noteConnected();
   // Patch 8: extended PID izleyicisi varsa keşif + native liste tazelenir (yoksa no-op).
   notifyExtendedPids();
+  // S3 (#504): yeni bağlantı = arka plan izleyicisi için yeni (sınırlı) deneme bütçesi.
+  _resetExtendedWatchRetry();
   _startDataValidationGate(myGen);
 
   // 7. PIN Resilience — bonding doğrulaması ARKA PLANDA (veri akışını BLOKLAMAZ).
@@ -2204,6 +2283,10 @@ async function _startNative(opts?: { trustBypass?: boolean }): Promise<void> {
           // "Tüm PID'leri oku": keşfedilen core-olmayan destekli PID'leri SÜREKLİ izle
           // (panel kapalıyken de akar; asistan/loglama okur). Extended POLL_SLOW → RPM'i yavaşlatmaz.
           _watchAllSupportedPids(result.supportedPids);
+        } else {
+          // S3 (#504): bitmap bloğu okunamadı → tek tetikleyici burada ÖLÜYORDU.
+          // Sınırlı yeniden deneme yolu (bütçe: 2 deneme, 20 s + 60 s).
+          _scheduleExtendedWatchRetry(myGen);
         }
 
         // Timeout türü ayrımı (item 5): NO DATA / TIMEOUT / UNSUPPORTED sessizce
@@ -2245,6 +2328,9 @@ async function _startNative(opts?: { trustBypass?: boolean }): Promise<void> {
         });
         // Eski native plugin veya ELM327 yanıt vermedi — mevcut profil korunur
         console.warn('[OBD:Handshake] El sıkışması başarısız, varsayılan profil:', _activeProfile.name, err);
+        // S3 (#504): handshake düştü → arka plan extended izleyicisi HİÇ kurulmamış olurdu.
+        // Sınırlı yeniden deneme yolu açılır (sonsuz değil — hattı meşgul etmez).
+        if (!_stale()) _scheduleExtendedWatchRetry(myGen);
         if (!_stale()) {
           emitObdDiag('handshake', 'OBD_HANDSHAKE_FAIL', {
             ..._diagCommon(),
@@ -2491,6 +2577,7 @@ export function stopOBD(): void {
   _stopStaleWatchdog();
   _clearDataGate();
   _clearExtraPidWatches();            // "tüm PID" sürekli izleyicilerini bırak (zero-leak)
+  _clearExtendedWatchRetry();         // S3 (#504): bekleyen izleyici-kurulum timer'ı (zero-leak)
   _clearNativeReconnectAuthority();  // F0-5: guard timer + otorite bayrağı (zero-leak)
   // Fix 3: ısınma promise'ini çöz ve bayrağı sıfırla (Zero-Leak)
   if (_warmupResolve) { _warmupResolve(); _warmupResolve = null; }
@@ -2803,6 +2890,21 @@ export function setOBDTestOverride(data: Partial<OBDData> | null): void {
   _dataListeners.forEach((fn) => fn(snap));
   _storeListeners.forEach((fn) => fn());
 }
+
+/**
+ * Test yardımcıları — ÜRETİM KODU ÇAĞIRMAZ.
+ *
+ * Neden var: `obdService → extendedPidService` bağlaması (handshake kanıtından native
+ * izleme listesine giden yol) bugüne dek HİÇBİR testle kapsanmıyordu — `samples: []`
+ * teşhisinin en yüksek değerli tek testi buydu (`docs/P1-1_KOK_NEDEN_TESHISI.md` §4).
+ * Bağlamayı test edebilmek için özel yolun dışa açılması gerekir; davranış değişmez.
+ */
+export const _obdInternals = {
+  watchAllSupportedPids: (supported: ReadonlySet<number>): void => { _watchAllSupportedPids(supported); },
+  clearExtraPidWatches: (): void => { _clearExtraPidWatches(); },
+  extraPidWatchCount: (): number => _extraPidUnsubs.length,
+  corePollPids: (): ReadonlySet<number> => _CORE_POLL_PIDS,
+};
 
 /* ── HMR cleanup — dev modda Hot Reload'da OBD timer/listener sızıntısını önle ── */
 if (import.meta.hot) {

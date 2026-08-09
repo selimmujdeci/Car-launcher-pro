@@ -148,6 +148,11 @@ export const CarosLabShell = memo(function CarosLabShell({ onClose }: { onClose:
       const extra = [
         built.droppedCount > 0 ? `${built.droppedCount} kayıt maskelenemedi (düşürüldü)` : null,
         built.truncated ? 'tavan nedeniyle kırpıldı' : null,
+        /* S2 (#505): rapor gövdesindeki uyarıyı kaçırmamak için EKRANDA da söylenir —
+           tazelenmemiş kanıtla alınan kopya extended poll hakkında hüküm VEREMEZ. */
+        built.pollEvidenceStale
+          ? '⚠ poll kanıtı TAZELENMEDİ — Runtime Scheduling → YENİLE yapıp tekrar kopyalayın'
+          : null,
       ].filter(Boolean).join(' · ');
       setCopyMsg(describeClipboardRoute(route, built.chars) + (extra ? ` · ${extra}` : ''));
       if (route === 'failed') setCopyText(built.text);

@@ -228,3 +228,41 @@ describe('KİLİT 6 — kaynak okuyucu yeni motor başlatmaz', () => {
     expect(src).toMatch(/function safe</);
   });
 });
+
+/* ─────────────────────────────────────────────────────────────────
+   KİLİT 8 (S2 · #505) — "BU RAPOR TAZELENMEDİ" UYARISI
+
+   Telefonda ölçüldü (2026-08-01): bu kopya yolu SENKRONDUR ve native kanıtı
+   ÇEKMEZ (`refreshExtendedPollEvidence` bilinçli çağrılmaz), bu yüzden temiz
+   boot'ta alınan rapor SAĞLAM bir extended poll borusunu ÖLÜ gösterebiliyordu.
+   Hüküm katmanı zaten dürüst ("ölçmedik"), ama raporu OKUYAN kişi bunu bölümün
+   derinliğinde kaçırıyordu → yanlış teşhis. Uyarı artık raporun BAŞINDA ve
+   çağırana bayrak olarak döner (ekranda da gösterilir).
+   ───────────────────────────────────────────────────────────────── */
+describe('KİLİT 8 — tazelenmemiş kanıtla alınan rapor UYARI taşır', () => {
+  it('never_refreshed → metnin başında uyarı + pollEvidenceStale bayrağı', () => {
+    const r = buildCarosLabCopy(input({
+      meta: { ...META, pollEvidenceCacheState: 'never_refreshed' },
+    }));
+    expect(r.pollEvidenceStale).toBe(true);
+    expect(r.text).toContain('TAZELENMEDİ');
+    expect(r.text).toContain('Runtime');
+    // Uyarı GÖVDEDE değil BAŞLIKTA olmalı — ilk bölümden önce görünsün.
+    expect(r.text.indexOf('TAZELENMEDİ')).toBeLessThan(r.text.indexOf('## KATALOG DURUMU'));
+  });
+
+  it('refreshed → uyarı YOK, tazelik durumu dürüstçe yazılır', () => {
+    const r = buildCarosLabCopy(input({
+      meta: { ...META, pollEvidenceCacheState: 'refreshed' },
+    }));
+    expect(r.pollEvidenceStale).toBe(false);
+    expect(r.text).not.toContain('TAZELENMEDİ');
+    expect(r.text).toContain('extended poll önbelleği = refreshed');
+  });
+
+  it('tazelik durumu OKUNAMADIYSA "bayat" İDDİA EDİLMEZ (uydurma yok)', () => {
+    const r = buildCarosLabCopy(input({ meta: { ...META, pollEvidenceCacheState: null } }));
+    expect(r.pollEvidenceStale).toBe(false);
+    expect(r.text).toContain('BİLİNMİYOR');
+  });
+});

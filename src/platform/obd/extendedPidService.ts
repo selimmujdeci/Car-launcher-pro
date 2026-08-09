@@ -103,15 +103,36 @@ export function parseSupportedBitmask(basePid: string, dataHex: string): Set<str
 
 /* ── Native senkronizasyon ────────────────────────────────────────────────── */
 
-/** Native'e gidecek güncel liste: keşif kuyruğu + (destek filtresi uygulanmış) izlenenler. */
+/**
+ * Native'e gidecek güncel liste: keşif kuyruğu + (destek filtresi uygulanmış) izlenenler.
+ *
+ * S1 FAIL-CLOSED (#503): `_supported === null` iken izlenen PID'ler native'e **GİTMEZ**.
+ *
+ * ESKİ KUSUR: filtre `_supported !== null && …` yazıyordu → destek kanıtı YOKKEN kapı
+ * SESSİZCE AÇILIYORDU. `notifyObdConnected()` her yeniden bağlanmada `_supported`ı null'a
+ * çekiyor ama izleyicileri (obdService `_extraPidUnsubs` · SensorPanel · Canlı Test)
+ * BIRAKMIYOR — `_clearExtraPidWatches()` yalnız `stopOBD`'de koşar. Sonuç: reconnect'te
+ * 16 (burst'te ≤48) PID'in TAMAMI filtresiz native'e gidiyordu; ELM327'de her desteksiz
+ * sorgu ~200 ms NO-DATA bekletir → tam olarak `seedSupportedPids`in önlemek için yazıldığı
+ * NO-DATA fırtınası (bkz. o fonksiyonun docstring'i).
+ *
+ * NEDEN "izleyicileri de bırak" DEĞİL: izleyicilerin sahibi bu modül değildir; unsubscribe
+ * fonksiyonlarını çağıranlar tutar ve reconnect'te yeniden kurmazlar → panel açıkken sinyal
+ * SESSİZCE ölürdü. Kanıt yokken sorgu göndermemek hem fail-closed hem geri dönüşlüdür:
+ * keşif (`_discoveryQueue`) ya da handshake tohumu (`seedSupportedPids`) `_supported`ı
+ * doldurur doldurmaz `_pushToNative()` yeniden çağrılır ve izlenenler tek turda akmaya başlar.
+ */
 function _buildNativeList(): string[] {
   const watched: string[] = [];
-  for (const pid of _watchers.keys()) {
-    if (!STANDARD_PID_MAP.has(pid)) continue;              // tanımsız PID sorgulanmaz
-    if (STANDARD_PID_MAP.get(pid)!.core) continue;         // core zaten ana yoldan akıyor
-    if (_supported !== null && !_supported.has(pid)) continue; // araç desteklemiyor
-    watched.push(pid);
-    if (watched.length >= (_burst ? ELM_WATCH_CAP_BURST : ELM_WATCH_CAP)) break;
+  // Kanıt yoksa sorgu yok — keşif kuyruğu (bitmask) tek başına gider ve kapıyı o açar.
+  if (_supported !== null) {
+    for (const pid of _watchers.keys()) {
+      if (!STANDARD_PID_MAP.has(pid)) continue;            // tanımsız PID sorgulanmaz
+      if (STANDARD_PID_MAP.get(pid)!.core) continue;       // core zaten ana yoldan akıyor
+      if (!_supported.has(pid)) continue;                  // araç desteklemiyor
+      watched.push(pid);
+      if (watched.length >= (_burst ? ELM_WATCH_CAP_BURST : ELM_WATCH_CAP)) break;
+    }
   }
   return [..._discoveryQueue, ...watched];
 }
@@ -319,6 +340,12 @@ export function notifyObdConnected(): void {
   if (_watchers.size === 0) return;
   // Yeni bağlantı = muhtemelen aynı araç ama garanti değil; keşif sonucu YENİDEN
   // doğrulanır (farklı araca takılan adaptör senaryosu).
+  //
+  // S1 (#503): `_supported = null` artık "filtre kapandı" DEĞİL, "kanıt geçersizleşti"
+  // demektir — `_buildNativeList` fail-closed olduğu için bu satır izlenen PID'leri
+  // native listeden ÇIKARIR (aşağıdaki _pushToNative yalnız keşif kuyruğunu gönderir).
+  // İzleyiciler bilinçli olarak YAŞATILIR: sahipleri onları yeniden kurmaz; keşif/tohum
+  // `_supported`ı doldurunca aynı izleyiciler tek turda yeniden akmaya başlar.
   _supported = null;
   _discoveryQueue = [DISCOVERY_PIDS[0]];
   _ensureListener();
