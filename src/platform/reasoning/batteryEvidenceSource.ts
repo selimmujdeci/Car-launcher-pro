@@ -33,7 +33,7 @@ import {
   type VoltageSample, type BatterySkipReason,
 } from './core/batteryEvidenceModel';
 import {
-  EVIDENCE_VERSION, type AiEvidence,
+  EVIDENCE_VERSION, deriveEvidenceConfidence, type AiEvidence,
 } from '../fleet/aiEvidence';
 
 /* ── Sabitler ──────────────────────────────────────────────────────────── */
@@ -59,6 +59,26 @@ const _evidence: AiEvidence[] = [];
 let _lastProducedAtMs = 0;
 let _unsub: (() => void) | null = null;
 let _seq = 0;
+
+/**
+ * Kanıt YAZILDIKTAN sonra tetiklenen dinleyiciler.
+ *
+ * ⚠️ Hüküm üretimi neden buraya bağlanır: OBD akışı hot-path'tir (saniyede
+ * birkaç paket), kanıt üretimi ise `PRODUCE_INTERVAL_MS` kapısıyla seyrektir.
+ * Hükmü OBD olayına bağlamak onu hot-path'e sokardı (#283 kesişim kuralı:
+ * hüküm üretimi sürüş hot-path'inde KOŞMAZ). Kanıda bağlamak, hükmün tam
+ * olarak kanıt kadar sık üretilmesini garanti eder.
+ */
+const _listeners: Array<() => void> = [];
+
+/** Kanıt üretildiğinde haber ver. Dönen fonksiyon aboneliği bırakır. */
+export function onBatteryEvidenceProduced(fn: () => void): () => void {
+  _listeners.push(fn);
+  return () => {
+    const i = _listeners.indexOf(fn);
+    if (i >= 0) _listeners.splice(i, 1);
+  };
+}
 
 const _stats = {
   samplesSeen: 0,
@@ -149,9 +169,15 @@ export function ingestVoltageSample(
     source: 'TELEMETRY',          // canlı telemetri — BLACKBOX demek yanlış olurdu
     category: 'BATTERY',
     severity: decision.severity,
-    /* Güven DIŞARIDAN yazılmaz; omurga onu kaynak+kalite+örnek sayısından
-       TÜRETİR. Buradaki değer yalnız yer tutucudur ve yazma kapısında ezilir. */
-    confidence: 'UNKNOWN',
+    /* ── GÜVEN TÜRETİLİR, YAZILMAZ ─────────────────────────────────────────
+       Sunucuda bunu `_ai_evidence_write_guard` trigger'ı yapar; CİHAZDA öyle
+       bir kapı YOKTUR. Bu yüzden omurganın TEK güven fonksiyonu burada
+       çağrılır — formül yeniden yazılmaz, ikinci otorite doğmaz.
+       Yer tutucu `UNKNOWN` bırakmak, tüm kanıtların güvenini bilinmez yapar
+       ve motor haklı olarak `EVIDENCE_UNKNOWN_CONFIDENCE` hükmü verirdi. */
+    confidence: deriveEvidenceConfidence({
+      source: 'TELEMETRY', provenance: 'MEASURED', sampleCount: decision.sampleCount,
+    }),
     provenance: 'MEASURED',       // adaptör gerçekten ölçüyor, türetme yok
     metric: decision.metric,
     value: decision.value,
@@ -176,6 +202,19 @@ export function ingestVoltageSample(
     return;
   }
 
+  /* ── AYNI METRİĞİN ESKİ KAYDI YERİNE GEÇİLİR (SUPERSEDED) ───────────────
+     Bunu yapmazsak aynı metrik için birden çok AKTİF kanıt birikir ve motor
+     bunu haklı olarak ÇELİŞKİ sayar (`REVISION_DIVERGENCE`: aynı kaynağın iki
+     revizyonu birden aktif) → sağlıklı araçta bile `CONFLICTED_EVIDENCE`
+     çıkardı. Kanıt SİLİNMEZ, `SUPERSEDED` olur: karar sonradan "neye
+     dayanıyordun" sorusuna cevap verebilmelidir. */
+  for (let i = 0; i < _evidence.length; i++) {
+    const e = _evidence[i]!;
+    if (e.state === 'ACTIVE' && e.metric === candidate.metric && e.source === candidate.source) {
+      _evidence[i] = { ...e, state: 'SUPERSEDED' };
+    }
+  }
+
   _evidence.push(candidate);
   if (_evidence.length > EVIDENCE_RING) {
     _evidence.splice(0, _evidence.length - EVIDENCE_RING);
@@ -184,6 +223,12 @@ export function ingestVoltageSample(
   _stats.lastProducedAtMs = nowMs;
   bump(_stats.bySeverity, decision.severity);
   _lastProducedAtMs = nowMs;
+
+  /* Dinleyici hatası kanıt üretimini DÜŞÜREMEZ: kanıt zaten yazıldı, hüküm
+     üretilemezse hüküm yok demektir — kanıt kaybolmaz. */
+  for (const fn of _listeners.slice()) {
+    try { fn(); } catch { /* fail-soft */ }
+  }
 }
 
 /**
@@ -216,6 +261,7 @@ export function stopBatteryEvidenceSource(): void {
 
 /** Yalnız testler için — durum ve sayaçları sıfırlar. */
 export function _resetBatteryEvidenceForTest(): void {
+  _listeners.length = 0;
   _samples.length = 0;
   _evidence.length = 0;
   _lastProducedAtMs = 0;

@@ -253,10 +253,15 @@ describe('üretim yolu', () => {
     expect(e.expiresAt).toBeGreaterThan(e.createdAt);   // süresiz kanıt YOK
   });
 
-  it('güven DIŞARIDAN yazılmaz — yer tutucu UNKNOWN', () => {
+  it('güven YAZILMAZ, omurganın TEK fonksiyonundan TÜRETİLİR', () => {
+    /* Sunucuda bunu trigger yapar; cihazda öyle bir kapı yok. Yer tutucu
+       UNKNOWN bırakmak tüm kanıtları güvensiz yapar ve motor
+       EVIDENCE_UNKNOWN_CONFIDENCE hükmü verirdi. */
     for (let i = 0; i < 5; i++) ingestVoltageSample(14.0, 900, T + i * 5_000);
     const e = readLocalBatteryEvidence()[0]!;
-    expect(e.confidence).toBe('UNKNOWN');
+    expect(e.confidence).not.toBe('UNKNOWN');
+    // TELEMETRY tavanı HIGH; örnek sayısı tavanı da uygulanır.
+    expect(['LOW', 'MEDIUM', 'HIGH']).toContain(e.confidence);
   });
 
   it('atlanan üretimin GEREKÇESİ sayılır (sessiz yutma yok)', () => {

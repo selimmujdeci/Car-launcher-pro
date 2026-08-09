@@ -37,6 +37,10 @@ import {
   readBatteryEvidenceStats, type BatteryEvidenceStats,
 } from '../../../platform/reasoning/batteryEvidenceSource';
 import {
+  readBatteryVerdict, readBatteryVerdictStats,
+  type BatteryVerdictStats, type BatteryVerdictView,
+} from '../../../platform/reasoning/batteryVerdictService';
+import {
   computeEvidenceCoverage,
 } from '../../../platform/fleet/aiEvidenceEngine';
 import {
@@ -113,6 +117,9 @@ type Snap = {
   readonly guard: UnknownInputStats;
   /** Cihazda üretilen kanıt sayaçları (#490). */
   readonly local: BatteryEvidenceStats | null;
+  /** Cihazda üretilen HÜKÜM (#490 · Adım 3/2). */
+  readonly verdict: BatteryVerdictView | null;
+  readonly verdictStats: BatteryVerdictStats | null;
 };
 
 const EMPTY_GUARD: UnknownInputStats = {
@@ -133,10 +140,14 @@ function readSnap(): Snap {
      "cihaz kanıt üretiyor mu" sorusu cevaplanabilmeli. */
   let local: BatteryEvidenceStats | null = null;
   try { local = readBatteryEvidenceStats(); } catch { /* üretim yoksa null */ }
+  let verdict: BatteryVerdictView | null = null;
+  let verdictStats: BatteryVerdictStats | null = null;
+  try { verdict = readBatteryVerdict(now); } catch { /* hüküm yoksa null */ }
+  try { verdictStats = readBatteryVerdictStats(); } catch { /* ignore */ }
   try {
-    return { data: readAiEvidence(now), readAtMs: now, guard, local };
+    return { data: readAiEvidence(now), readAtMs: now, guard, local, verdict, verdictStats };
   } catch {
-    return { data: null, readAtMs: now, guard, local };
+    return { data: null, readAtMs: now, guard, local, verdict, verdictStats };
   }
 }
 
@@ -159,6 +170,8 @@ function AiEvidenceEngineScreenBase() {
   const d = snap?.data ?? null;
   const guard = snap?.guard ?? EMPTY_GUARD;
   const local = snap?.local ?? null;
+  const verdict = snap?.verdict ?? null;
+  const vstats = snap?.verdictStats ?? null;
   const now = snap?.readAtMs ?? 0;
   const entries = d?.ledger.entries ?? [];
 
@@ -186,6 +199,54 @@ function AiEvidenceEngineScreenBase() {
           <RefreshCw size={12} /> YENİLE
         </button>
       </div>
+
+      {/* 0b · CİHAZDA ÜRETİLEN HÜKÜM — kütük #490 · ADR-286 Adım 3/2
+          Motor ilk kez ÜRETİMDE koşuyor. Kapsam etiketi gizlenmez:
+          bu bir AKÜ hükmüdür, araç sağlığı değildir. Voltaj DEĞERİ taşınmaz. */}
+      <Section title="Local Verdict — battery (engine live)">
+        <div className="flex flex-col">
+          <Row label="decision">
+            {verdict === null ? (
+              <Chip tone={NONE}>hüküm yok</Chip>
+            ) : (
+              <Chip tone={verdict.decision === 'SUPPORTED' ? OK
+                : verdict.decision === 'UNSUPPORTED' ? WARN : NONE}>
+                {verdict.decision}
+              </Chip>
+            )}
+          </Row>
+          <Row label="confidence">
+            {verdict === null ? UNAVAILABLE : (
+              <Chip tone={confidenceTone(verdict.confidence as EvidenceConfidence)}>
+                {verdict.confidence}
+              </Chip>
+            )}
+          </Row>
+          <Row label="reason">{verdict?.confidenceReason ?? UNAVAILABLE}</Row>
+          <Row label="fromEvidence">{verdict?.evidenceCount ?? UNAVAILABLE}</Row>
+          <Row label="producedAgo">
+            {verdict === null ? UNAVAILABLE
+              : durationText(Math.max(0, now - verdict.producedAtMs))}
+          </Row>
+          <Row label="verdictsTotal">{vstats?.produced ?? UNAVAILABLE}</Row>
+          <Row label="expiredDrops">
+            {/* "Son bilinen iyi hüküm" taşınmaz; TTL dolunca düşer. */}
+            {vstats?.expiredDrops ?? UNAVAILABLE}
+          </Row>
+          <Row label="ttl">
+            {vstats === null ? UNAVAILABLE : durationText(vstats.ttlMs)}
+          </Row>
+          {vstats !== null && Object.keys(vstats.byDecision).sort().map((k) => (
+            <Row key={`dec-${k}`} label={`decision:${k}`}>{vstats.byDecision[k]}</Row>
+          ))}
+          <Row label="policy">{vstats?.policyVersion ?? UNAVAILABLE}</Row>
+          <Row label="scope">
+            <span className="text-[var(--oem-warn)]">
+              AKÜ sağlığı · araç sağlığı DEĞİL
+            </span>
+          </Row>
+        </div>
+      </Section>
 
       {/* 0a · CİHAZDA ÜRETİLEN KANIT — kütük #490
           Ağ YOK varsayımıyla çalışır. "Kaç kanıt üretildi, hangi sinyalden,

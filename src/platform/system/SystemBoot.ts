@@ -50,6 +50,7 @@ import { startProviderReadiness } from '../ai/gateway/aiProviderReadinessService
 import { startPlatformCoreAiRuntimeWiring } from './platformCoreAiRuntimeWiring';
 import { startMaintenanceBrain }   from '../diagnostic/maintenanceBrain';
 import { startBatteryEvidenceSource } from '../reasoning/batteryEvidenceSource';
+import { startBatteryVerdictService } from '../reasoning/batteryVerdictService';
 import { startFuelAdvisor }        from '../diagnostic/fuelAdvisorService';
 import { startBlackBox }           from '../security/blackBoxService';
 import {
@@ -821,6 +822,12 @@ class SystemBoot {
        OBD olayına biner. HÜKÜM ÜRETMEZ; motoru bağlamak ikinci parçadır. */
     _log('  › BatteryEvidenceSource');
     this._regNamed('BatteryEvidenceSource', startBatteryEvidenceSource());
+
+    /* Motorun İLK üretim bağlantısı (#490 · ADR-286 Adım 3/2). Kanıt üretimi
+       olayına biner — OBD hot-path'ine DEĞİL (#283 kesişim kuralı). Sıra
+       önemli: kanıt kaynağı ÖNCE kurulmalı ki abonelik yakalansın. */
+    _log('  › BatteryVerdictService');
+    this._regNamed('BatteryVerdictService', startBatteryVerdictService());
 
     _log('  › FuelAdvisor');
     this._regNamed('FuelAdvisor', startFuelAdvisor());
