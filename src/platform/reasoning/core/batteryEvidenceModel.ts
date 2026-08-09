@@ -19,11 +19,17 @@
  * ══════════════════════════════════════════════════════════════════════════
  * Marş anında voltaj 9–10 V'a düşer ve bu **normaldir** — marş motoru yüzlerce
  * amper çeker. O anki okumadan kanıt üretmek "akü bitik" demek olurdu; oysa
- * sağlıklı akü de marşta düşer. İki kapı birden:
- *   · Mutlak taban: `CRANK_VOLTAGE_FLOOR` altındaki örnek marş şüphelisidir.
- *     Kontak açıkken ölü akü bile bu kadar düşmez; bu bölge marşa aittir.
- *   · Geçiş penceresi: motor 0 → çalışır geçişinden sonra `CRANK_WINDOW_MS`
- *     boyunca hiç kanıt üretilmez (marş + alternatörün toparlanması).
+ * sağlıklı akü de marşta düşer.
+ *
+ * ⚠️ **BU KAPI #501 İLE DARALTILDI.** Eskiden `CRANK_VOLTAGE_FLOOR` altına inen
+ * HER okuma marş sayılıyordu; bu, ölmek üzere olan aküyü de görünmez yapan bir
+ * FAIL-OPEN'dı. Artık:
+ *   · **Önce ölü akü kapısı** koşar (aşağıya bak) — motor kapalıyken SÜREGELEN
+ *     düşüklük marş değildir, `CRITICAL`tir.
+ *   · **Sonra marş kapısı**: yalnız rpm `0 → pozitif` geçişinin ardındaki
+ *     `CRANK_WINDOW_MS` penceresi atlanır.
+ *   · Geçiş henüz olmamışsa (marşın İÇİNDE, rpm hâlâ 0) okuma yine atlanır —
+ *     ama düşüklük sürerse ölü akü kapısı 30 sn içinde devreye girer.
  *
  * ══════════════════════════════════════════════════════════════════════════
  * ── ŞART 2 · ASIL HÜKÜM MOTOR ÇALIŞIRKEN ──────────────────────────────────
@@ -64,6 +70,26 @@ export const CRANK_VOLTAGE_FLOOR = 11.0;
 /** Motor 0 → çalışır geçişinden sonra bu süre boyunca kanıt üretilmez. */
 export const CRANK_WINDOW_MS = 3_000;
 
+/* ── ÖLÜ AKÜ KAPISI (kütük #501) ───────────────────────────────────────────
+ *
+ * ⚠️ ÖNCEKİ TASARIMDA GİZLİ BİR FAIL-OPEN VARDI: `CRANK_VOLTAGE_FLOOR` altına
+ * inen HER okuma "marş" sayılıp atlanıyordu. Ama **ölmek üzere olan bir akü**,
+ * kontak açık ve head unit yükü altında da 11 V altına iner — ve o okuma da
+ * atlanırdı. Sistem "veri yok" derdi; gerçek ise "akü bitmek üzere"ydi.
+ * **En kritik vaka sessizce görünmez oluyordu.**
+ *
+ * AYIRT EDİCİ: marş **kısadır** (saniyeler) ve rpm `0 → pozitif` geçişiyle
+ * gelir. Ölmek üzere olan akü ise **motor KAPALIYKEN uzun süre** düşük kalır.
+ * Yani süre TEK BAŞINA yeterli değildir; süre + motor durumu ikilisi gerekir.
+ *
+ * SÜRE EŞİĞİ NEDEN 30 sn: en zorlu marş bile 10–15 sn'yi geçmez (geçerse marş
+ * motoru zarar görür). 30 sn marş için fiziksel olarak imkânsızdır. ATRV ~5
+ * sn'de bir geldiğinden 30 sn ≈ 6 örnek → tek gürültülü okumayla tetiklenmez.
+ */
+export const DEAD_BATTERY_SUSTAIN_MS = 30_000;
+/** Süregelen düşüklük için gereken en az okuma sayısı. */
+export const DEAD_BATTERY_MIN_SAMPLES = 4;
+
 /* ── Tutarlılık (ŞART 3) ───────────────────────────────────────────────── */
 
 export const CONSISTENCY_WINDOW_MS = 20_000;
@@ -88,7 +114,7 @@ export type EvidenceSeverityLite = 'INFO' | 'WARNING' | 'CRITICAL';
 export type BatterySkipReason =
   | 'NO_SAMPLES'            // hiç okuma yok
   | 'ENGINE_STATE_UNKNOWN'  // motor çalışıyor mu bilinmiyor → hangi eşik geçerli belirsiz
-  | 'CRANKING'              // marş bölgesi / marş penceresi
+  | 'CRANKING'              // GERÇEK marş: rpm geçişiyle gelen kısa pencere
   | 'OUT_OF_RANGE'          // fiziksel olarak anlamsız voltaj
   | 'INSUFFICIENT_SAMPLES'  // pencerede yeterli okuma yok
   | 'INCONSISTENT';         // okumalar aynı bantta değil
@@ -145,20 +171,51 @@ export function decideBatteryEvidence(
   const ordered = [...win].sort((a, b) => a.atMs - b.atMs);
   const latest = ordered[ordered.length - 1]!;
 
-  /* ── ŞART 1 · marş kapıları ─────────────────────────────────────────────
-     (a) Mutlak taban: pencerede marş bölgesine inen bir okuma varsa TÜM
-         pencere şüphelidir — marş anı ile onu izleyen toparlanma aynı
-         pencerededir ve ortalaması yanıltır. */
-  if (ordered.some((s) => isSane(s.voltage) && s.voltage < CRANK_VOLTAGE_FLOOR)) {
-    return { produce: false, reason: 'CRANKING' };
+  /* ── ÖLÜ AKÜ KAPISI (#501) — MARŞ KONTROLÜNDEN ÖNCE ─────────────────────
+     Sıra pazarlıksızdır: önce "bu gerçekten ölü akü mü" diye sorulur. Marş
+     kapısı önce koşsaydı, ölmek üzere olan akünün düşük okumaları yine
+     "marş" sanılıp atlanırdı — kapatmaya çalıştığımız fail-open aynen
+     kalırdı.
+
+     Koşul: motor KAPALI (`rpm === 0`) + `CRANK_VOLTAGE_FLOOR` altı okumalar
+     `DEAD_BATTERY_SUSTAIN_MS` boyunca SÜRÜYOR. Marş bu koşulu sağlayamaz:
+     marşta rpm kısa sürede pozitife döner ve süre 30 sn'ye ulaşmaz. */
+  const deadWin = samples.filter(
+    (s) => nowMs - s.atMs >= 0 && nowMs - s.atMs <= DEAD_BATTERY_SUSTAIN_MS);
+  const sustainedLow = deadWin.filter(
+    (s) => isSane(s.voltage) && s.voltage < CRANK_VOLTAGE_FLOOR && s.rpm === 0);
+  if (sustainedLow.length >= DEAD_BATTERY_MIN_SAMPLES) {
+    const first = Math.min(...sustainedLow.map((s) => s.atMs));
+    const last = Math.max(...sustainedLow.map((s) => s.atMs));
+    /* Yalnız SAYI yetmez: 6 örnek 2 saniyeye sıkışmışsa o marştır. Okumaların
+       gerçekten ZAMANA YAYILMIŞ olması şarttır. */
+    if (last - first >= DEAD_BATTERY_SUSTAIN_MS * 0.8) {
+      /* ŞART 2'nin (motor kapalıyken yalnız INFO) BİLİNÇLİ İSTİSNASI.
+         O kuralın gerekçesi "kontak açık ölçüm head unit yükü altındadır,
+         sağlıklı akü 12.1–12.3 okuyabilir" idi. 11 V ALTI o aralıkta
+         DEĞİLDİR: sağlıklı bir akü yük altında bile oraya inmez. */
+      return {
+        produce: true, severity: 'CRITICAL', metric: 'battery_voltage_rest',
+        value: latest.voltage, sampleCount: sustainedLow.length,
+        engineRunning: false,
+      };
+    }
   }
-  /* (b) Geçiş penceresi: motor 0 → çalışır geçişi olduysa, geçişten sonra
-         CRANK_WINDOW_MS boyunca kanıt üretilmez. */
+
+  /* ── ŞART 1 · marş kapısı — YALNIZ rpm GEÇİŞİYLE GELEN KISA PENCERE ──────
+     Artık "düşük voltaj gördüm, demek marş" DENMEZ. Marş, motorun 0 → çalışır
+     geçişidir; kapı yalnız o geçişin ardındaki kısa pencereye uygulanır. */
   for (let i = 1; i < ordered.length; i++) {
     const prev = ordered[i - 1]!, cur = ordered[i]!;
     if (prev.rpm === 0 && cur.rpm > 0 && (nowMs - cur.atMs) < CRANK_WINDOW_MS) {
       return { produce: false, reason: 'CRANKING' };
     }
+  }
+  /* Geçiş henüz olmamış olabilir (marşın İÇİNDEYİZ: rpm hâlâ 0, voltaj çökük).
+     Bu okuma da atlanır — ama ölü akü kapısı YUKARIDA çalıştığı için, düşüklük
+     sürerse 30 sn içinde CRITICAL üretilir ve vaka görünmez kalmaz. */
+  if (ordered.some((s) => isSane(s.voltage) && s.voltage < CRANK_VOLTAGE_FLOOR)) {
+    return { produce: false, reason: 'CRANKING' };
   }
 
   if (!isSane(latest.voltage)) return { produce: false, reason: 'OUT_OF_RANGE' };

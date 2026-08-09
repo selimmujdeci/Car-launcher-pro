@@ -200,6 +200,20 @@ function AiEvidenceEngineScreenBase() {
         </button>
       </div>
 
+      {/* 0 · DERLEME KİMLİĞİ — sahada "hangi kodu ölçüyorum" sorusu
+          Eski bir APK'da ölçüm yapıp sonucu sınavın cevabı sanmak gerçek bir
+          tuzaktı. Tek satır, gizli veri yok. */}
+      <Section title="Build">
+        <div className="flex flex-col">
+          <Row label="commit">
+            {(import.meta.env['VITE_BUILD_COMMIT'] as string | undefined) ?? UNAVAILABLE}
+          </Row>
+          <Row label="builtAt">
+            {(import.meta.env['VITE_BUILD_TIME'] as string | undefined) ?? UNAVAILABLE}
+          </Row>
+        </div>
+      </Section>
+
       {/* 0b · CİHAZDA ÜRETİLEN HÜKÜM — kütük #490 · ADR-286 Adım 3/2
           Motor ilk kez ÜRETİMDE koşuyor. Kapsam etiketi gizlenmez:
           bu bir AKÜ hükmüdür, araç sağlığı değildir. Voltaj DEĞERİ taşınmaz. */}

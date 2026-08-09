@@ -20,6 +20,8 @@ import {
   _resetBatteryEvidenceForTest,
 } from '../platform/reasoning/batteryEvidenceSource';
 import { _resetUnknownInputStatsForTest } from '../platform/reasoning/core/evidenceInputGuard';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 const T = 1_000_000;
 
@@ -292,5 +294,86 @@ describe('üretim yolu', () => {
     expect(dump).not.toMatch(/vin|plate|plaka|lat|lon|driverName/i);
     // Yalnız metrik adı ve sayısal voltaj taşınır.
     expect(dump).toContain('battery_voltage');
+  });
+});
+
+/* ══════════════════════════════════════════════════════════════════════════
+   #501 · GİZLİ FAIL-OPEN KAPATILDI — ölü akü artık "marş" sanılmıyor
+   ══════════════════════════════════════════════════════════════════════════
+
+   Eski tasarımda `CRANK_VOLTAGE_FLOOR` altına inen HER okuma marş sayılıp
+   atlanıyordu. Ölmek üzere olan bir akü de kontak açıkken (head unit yükü
+   altında) 11 V altına iner → o okuma da atlanır → sistem "veri yok" der,
+   gerçek ise "akü bitmek üzere"dir. EN KRİTİK VAKA görünmez oluyordu.
+
+   AYIRT EDİCİ: marş KISADIR ve rpm 0→pozitif geçişiyle gelir; ölü akı ise
+   motor KAPALIYKEN uzun süre düşük kalır. İki senaryo da burada kilitli. */
+
+describe('#501 · ölü akü ile marş ayırt ediliyor', () => {
+  /** Motor kapalı, süregelen düşük voltaj — ölmek üzere olan akü. */
+  function deadBattery(nowMs = T): VoltageSample[] {
+    const out: VoltageSample[] = [];
+    // 35 sn boyunca, 5 sn aralıkla, rpm 0, voltaj 10.4
+    for (let age = 35_000; age >= 0; age -= 5_000) {
+      out.push({ voltage: 10.4, rpm: 0, atMs: nowMs - age });
+    }
+    return out;
+  }
+
+  it('ÖLÜ AKÜ: motor kapalı + süregelen düşük → CRITICAL (artık atlanmıyor)', () => {
+    const d = decideBatteryEvidence(deadBattery(), T);
+    expect(d.produce, 'ölü akü hâlâ atlanıyor — fail-open geri geldi').toBe(true);
+    expect(d.produce === true && d.severity).toBe('CRITICAL');
+    expect(d.produce === true && d.metric).toBe('battery_voltage_rest');
+    expect(d.produce === true && d.engineRunning).toBe(false);
+  });
+
+  it('MARŞ: rpm geçişiyle gelen kısa düşük → hâlâ ATLANIYOR (regresyon)', () => {
+    /* Gerçek marş: birkaç saniye düşük, sonra rpm pozitif. Ölü akü kapısı
+       bunu YAKALAMAMALI — süre 30 sn'ye ulaşmaz. */
+    const s: VoltageSample[] = [
+      { voltage: 12.4, rpm: 0,   atMs: T - 8_000 },
+      { voltage: 9.6,  rpm: 0,   atMs: T - 6_000 },   // marş anı
+      { voltage: 13.8, rpm: 850, atMs: T - 2_000 },   // motor kalktı
+    ];
+    const d = decideBatteryEvidence(s, T);
+    expect(d.produce).toBe(false);
+    expect(d.produce === false && d.reason).toBe('CRANKING');
+  });
+
+  it('KISA düşüklük (30 sn altı) CRITICAL üretmez — marş olabilir', () => {
+    const out: VoltageSample[] = [];
+    for (let age = 15_000; age >= 0; age -= 5_000) {
+      out.push({ voltage: 10.4, rpm: 0, atMs: T - age });
+    }
+    const d = decideBatteryEvidence(out, T);
+    expect(d.produce).toBe(false);
+  });
+
+  it('ZAMANA YAYILMAMIŞ okumalar CRITICAL üretmez (6 örnek 2 sn içinde)', () => {
+    // Yalnız SAYI yetmez; sıkışık örnekler marş olabilir.
+    const out: VoltageSample[] = [];
+    for (let i = 0; i < 6; i++) out.push({ voltage: 10.4, rpm: 0, atMs: T - i * 300 });
+    const d = decideBatteryEvidence(out, T);
+    expect(d.produce).toBe(false);
+  });
+
+  it('motor ÇALIŞIRKEN düşük okuma ölü akü kapısını TETİKLEMEZ', () => {
+    // Kapı yalnız rpm === 0 örneklerini sayar; çalışır rejim ayrı yoldan gider.
+    const out: VoltageSample[] = [];
+    for (let age = 35_000; age >= 0; age -= 5_000) {
+      out.push({ voltage: 10.4, rpm: 900, atMs: T - age });
+    }
+    const d = decideBatteryEvidence(out, T);
+    expect(d.produce === true && d.severity).not.toBe('CRITICAL');
+  });
+
+  it('ölü akü kapısı ŞART 2 istisnasıdır ve gerekçesi koda yazılı', () => {
+    /* ŞART 2 "motor kapalıyken yalnız INFO" der; bu kapı bilinçli istisnadır:
+       11 V altı, "head unit yükü altında sağlıklı akü" aralığında DEĞİLDİR. */
+    const src = readFileSync(join(process.cwd(), 'src', 'platform', 'reasoning',
+      'core', 'batteryEvidenceModel.ts'), 'utf8');
+    expect(src).toContain('BİLİNÇLİ İSTİSNASI');
+    expect(src).toContain('DEAD_BATTERY_SUSTAIN_MS');
   });
 });
