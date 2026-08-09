@@ -83,19 +83,34 @@ function validateDistanceDuration(distanceM: number, durationS: number, label: s
   }
 }
 
-/** metre → km. YUVARLAMA YOK — tam hassasiyet korunur (ör. 1234 → 1.234). */
-function metersToKm(distanceM: number): number {
+/**
+ * metre → km. YUVARLAMA YOK — tam hassasiyet korunur (ör. 1234 → 1.234).
+ * DIŞA VERİLİR: bu dönüşümün İKİNCİ bir uygulaması olmamalı (iki uygulama =
+ * iki gerçek). Wiring katmanı da bunu kullanır.
+ */
+export function metersToKm(distanceM: number): number {
   return distanceM / 1000;
 }
 
 /* ── API 1 — TEK leg (ActiveRoute) ──────────────────────────────────────── */
 
 /**
- * `ActiveRoute` (aktif/uygulanmış tek rota) → tek-leg `TripPlan`.
- * `leg.origin`/`leg.destination` = `metadata.origin`/`metadata.destination`
- * (ActiveRoute'ta origin/destination YOK — metadata'dan gelir).
+ * Bu adapter'ın rotadan GERÇEKTEN okuduğu alanlar.
+ *
+ * Tam `ActiveRoute` istemek gereksiz geniştir: fonksiyon `geometry` ve
+ * `etaEpochMs`e HİÇ bakmaz. Geniş tip istemek, elinde yalnız mesafe/süre olan
+ * bir çağıranı **sahte geometri/ETA uydurmaya** zorlar — bu projede tam olarak
+ * yasak olan şey. Tip bu yüzden okunan alanlara daraltıldı; her `ActiveRoute`
+ * yine sorunsuz geçer (genişletme, kırıcı değişiklik DEĞİL).
  */
-export function buildTripPlanFromActiveRoute(route: ActiveRoute, metadata: TripPlanMetadata): TripPlan {
+export type RouteDistanceDuration = Pick<ActiveRoute, 'distanceM' | 'durationS'>;
+
+/**
+ * Aktif/uygulanmış tek rota → tek-leg `TripPlan`.
+ * `leg.origin`/`leg.destination` = `metadata.origin`/`metadata.destination`
+ * (rota modelinde origin/destination YOK — metadata'dan gelir).
+ */
+export function buildTripPlanFromActiveRoute(route: RouteDistanceDuration, metadata: TripPlanMetadata): TripPlan {
   validateMetadata(metadata);
   if (!route) {
     throw new RangeError('buildTripPlanFromActiveRoute: route zorunludur.');

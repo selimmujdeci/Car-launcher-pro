@@ -65,7 +65,7 @@ Aynı desen ileride `ROAD_HAZARD` (yol tehlike veri tabanı) ve
 
 | # | Parça | Önkoşul var mı | Tahmini iş | Kanıt için gereken | Satış kanalı |
 |---|---|---|---:|---|---|
-| P1 | **Rota → TripPlan wiring** | yok — emekle biter | 2–3 gün | araç gerekmez | Filo · aftermarket |
+| P1 | ~~**Rota → TripPlan wiring**~~ ✅ **BİTTİ** (#510 🔴 cihaz gözlemi bekliyor) | yok — emekle biter | 2–3 gün | araç gerekmez | Filo · aftermarket |
 | P2 | **Yakıt fiyatı** | **veri kaynağı + lisans** | 3–4 gün | fiyat sağlayıcı sözleşmesi | **Filo** (birincil) |
 | P3 | **HGS tarifesi** | **veri (tarife tablosu)** | 2–3 gün | KGM/HGS tarife kaynağı | **Filo** (TR'ye özgü) |
 | P4 | **Otopark** | **veri + lisans** | 3–4 gün | OSM + fiyat kaynağı | Aftermarket · filo |
@@ -84,7 +84,7 @@ Aynı desen ileride `ROAD_HAZARD` (yol tehlike veri tabanı) ve
 
 ## 3. Trip Cost parçaları
 
-### P1 · Rota → TripPlan wiring
+### P1 · Rota → TripPlan wiring — **UYGULANDI 2026-08-09** (kütük #510 🔴)
 - **Ne eksik:** `tripCostRouteAdapter` (B2) dönüşümü yazmış ve dönüşümün
   **kayıplı/tek yönlü** olduğunu belgelemiş; ama ürün ucunda bu adaptörü
   çağıran yok. `TripPlanMetadata` (origin/destination/gece sayısı/yolcu/araç
@@ -100,6 +100,15 @@ Aynı desen ileride `ROAD_HAZARD` (yol tehlike veri tabanı) ve
 - **Satış kanalı:** Filo · aftermarket. Diğer on parçanın hepsi buna bağlanır;
   bu bitmeden hiçbir fiyat kaynağının değeri görünmez.
 - **Not:** Bu parça sıradaki **ilk iş**tir (#491 ve G1'den sonra).
+- **SONUÇ (2026-08-09):** `tripCostComposition` (SAF) yazıldı; beyan kapısı
+  fail-closed, kategori kapıları iki farklı "yok"u ayırıyor, LAB ekranı
+  (Trip Cost) bağlandı. Fiyat kaynağı olmadan plan üretiliyor: mesafe/süre
+  okunuyor, yakıt kalemi doğuyor, tutar `null` kalıyor. 29 kilit testi ·
+  tsc temiz · 506 dosya / 11 495 test · guard 393/393. Cihaz gözlemi: **#510**.
+- **Ek bulgu:** hiçbir cost provider `plan.nights` · `plan.travellers` ·
+  `plan.vehicleProfile` OKUMUYOR (ölçüldü) — bu alanlar bugün yalnız tanımlayıcı.
+  Beyan edilmediklerinde bir maliyet üretemezler; yine de LAB "0 gece" değil
+  **"beyan edilmedi"** gösteriyor.
 
 ### P2 · Yakıt fiyatı
 - **Ne eksik:** `computeFuelCost` formülü hazır (`mesafe × tüketim / 100 ×

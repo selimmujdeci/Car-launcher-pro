@@ -2490,7 +2490,7 @@ değildir** — vizyon rezervuarıdır. Bir madde ancak P0–P3'e taşındığı
 | AI Repair Verification | YOK | HAYIR | Repair Memory'ye bağımlı |
 | Servis öncesi kontrol listesi | YOK | HAYIR | Vizyon rezervuarı |
 | Gereksiz parça değişimi uyarısı | YOK | HAYIR | **Ürünün en güçlü vaatlerinden** — Root Cause + KB üstüne kurulur |
-| Maliyet tahmini (Trip Cost) | İSKELET | HAYIR | **12 dosya / 2 111 satır saf çekirdek + testler** (yakıt·HGS·otopark·konaklama + `confidenceLedger`: `unknown` toplama girmez, `upperBound` uydurulmaz). **Hiçbir fiyat girdisinin kaynağı yok**; rota→plan wiring bağlanmadı. Bkz. Ç-11 · tamamlama planı P1–P5 |
+| Maliyet tahmini (Trip Cost) | İSKELET | HAYIR | **12 dosya / 2 111 satır saf çekirdek + testler** (yakıt·HGS·otopark·konaklama + `confidenceLedger`: `unknown` toplama girmez, `upperBound` uydurulmaz). **Hiçbir fiyat girdisinin kaynağı yok** (P2–P5). **Rota→plan wiring BAĞLANDI** (2026-08-09, kütük #510 🔴): canlı rotadan mesafe/süre okunuyor, beyan kapısı fail-closed (eksik alan varsayılanla DOLDURULMUYOR), kategori kapıları "hiç açılmadı" ile "değer bilinmiyor"u AYIRIYOR, LAB → Trip Cost ekranı salt-okunur. Fiyat kaynağı olmadan da plan üretiliyor; tutar `null` kalıyor, sıfır yazılmıyor. Bkz. Ç-11 · plan P1 |
 | Doğrulanmış bakım/tamir geçmişi | YOK | HAYIR | Passport + Memory + bulut gerekir |
 
 ### 8.7 Güvenlik ve Hayat Koruma

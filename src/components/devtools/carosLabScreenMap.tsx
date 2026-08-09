@@ -22,6 +22,8 @@ const CanMonitorScreen = lazyWithRetry(() =>
   import('./screens/CanMonitorScreen').then((m) => ({ default: m.CanMonitorScreen })));
 const SessionInspectorScreen = lazyWithRetry(() =>
   import('./screens/SessionInspectorScreen').then((m) => ({ default: m.SessionInspectorScreen })));
+const TripCostScreen = lazyWithRetry(() =>
+  import('./screens/TripCostScreen').then((m) => ({ default: m.TripCostScreen })));
 const FleetConnectivityScreen = lazyWithRetry(() =>
   import('./screens/FleetConnectivityScreen'));
 const FleetIdentityScreen = lazyWithRetry(() =>
@@ -104,6 +106,7 @@ export function renderAvailableTool(id: CarosLabToolId): ReactElement | null {
     case 'location-engine':    return <LocationEngineScreen />;
     case 'navigation-core':    return <NavigationCoreScreen />;
     case 'trip-engine':        return <TripEngineScreen />;
+    case 'trip-cost':          return <TripCostScreen />;
     case 'kwp-monitor':        return <KwpMonitorScreen />;
     case 'vehicle-fingerprint': return <VehicleFingerprintScreen />;
     case 'adapter-diagnostics': return <AdapterDiagnosticsScreen />;

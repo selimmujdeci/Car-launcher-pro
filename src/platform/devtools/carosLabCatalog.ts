@@ -54,7 +54,7 @@ export const CAROS_LAB_STATUS_LABEL: Readonly<Record<CarosLabToolStatus, string>
 
 export type CarosLabToolId =
   // Vehicle
-  | 'live-data' | 'pid-did-explorer' | 'fleet-connectivity' | 'trip-engine'
+  | 'live-data' | 'pid-did-explorer' | 'fleet-connectivity' | 'trip-engine' | 'trip-cost'
   | 'location-engine' | 'navigation-core' | 'fleet-identity' | 'fleet-driver-identity' | 'fleet-presence-history'
   | 'fleet-driver-authentication' | 'fleet-driver-dna' | 'fleet-intelligence' | 'ai-evidence-engine'
   | 'deep-scan' | 'vehicle-fingerprint'
@@ -116,6 +116,12 @@ export const CAROS_LAB_TOOLS: readonly CarosLabTool[] = Object.freeze([
     desc: 'Yolculuk motorunun salt-okunur gozlemi: aktif trip durumu ve canli mesafe/sure - yukleme kuyrugu (kuyrukta/yuklendi/tekrar/retry/basarisiz) - revizyon defteri (istemci vs sunucu revizyonu, deneme sayisi) - yerel istatistik. Tahmin edilmis metrikler "(tahmini)" etiketiyle gosterilir.',
     status: 'AVAILABLE', layer: null,
     note: 'Hicbir sey BASLATMAZ: trip baslatma/durdurma, trip silme, yukleme tetikleme/zorlama, kuyruk bosaltma, retry zorlama ve ag cagrisi YOK. Rota/koordinat GOSTERILMEZ (trip modeli zaten tasimaz). DURUSTLUK: head unit yakiti 8,5 L/100km sabiti ve maliyeti sabit birim fiyatla TAHMIN eder - bunlar olcum DEGILDIR ve "(tahmini)" olarak etiketlenir. Bilinmeyen metrik "Veri yok"; sahte 0 uretilmez. Dedupe (tekrar) bir HATA degildir - ayni yolculuk iki kez sayilmasin diye sunucu ikinci gonderimi reddeder.',
+  },
+  {
+    id: 'trip-cost', category: 'vehicle', name: 'Trip Cost',
+    desc: 'Rota → plan → maliyet raporu zincirinin salt-okunur gözlemi: aktif rotanın mesafe/süresi (fiyattan bağımsız okunur) · rota modelinde OLMAYAN alanların (başlangıç · hedef · gece sayısı · yolcu · araç profili) beyan edilip edilmediği · plan üretildi mi, üretilmediyse hangi beyanın engellediği · dört kategori kapısının (yakıt · ücretli geçiş · konaklama · otopark) neden açıldığı/açılmadığı · rapordaki dürüst alt sınır, toplama giren ve BİLİNMEYEN kalemler.',
+    status: 'AVAILABLE', layer: null,
+    note: 'Hiçbir şey BAŞLATMAZ: rota isteme, hedef seçme/değiştirme, plan kaydetme, fiyat sorgulama, kullanıcı beyanı yazma ve ağ çağrısı YOK. HEDEF ADI, BAŞLANGIÇ ADI, ADRES VE ROTA GEOMETRİSİ TAŞINMAZ (Navigation Core ile aynı karar) — hedef yalnız VAR/YOK. FİYAT KAYNAKLARI HENÜZ BAĞLI DEĞİL (TRIP-COST P2–P5): kaynağı olmayan kalem 0 YAZMAZ, "BİLİNMİYOR" der ve toplama girmez; üst sınır UYDURULMAZ. İKİ FARKLI "YOK" AYRI GÖSTERİLİR: kategori HİÇ AÇILMADI (plan girdisi beyan edilmedi — varsayılan atanmaz, "1 yolcu" varsayımı da uydurmadır) ile kategori AÇIK ama değer BİLİNMİYOR aynı şey DEĞİLDİR. Rota ücretli geçiş içerip tarife verisi yoksa bu ayrıca işaretlenir — sessiz "ücretli geçiş yok" YALANI üretilmez. Gerçek araç doğrulaması YAPILMADI (kütük #510).',
   },
   {
     id: 'location-engine', category: 'vehicle', name: 'Location Engine',
