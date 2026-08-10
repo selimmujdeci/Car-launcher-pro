@@ -119,6 +119,11 @@ export interface CarosLabCopyInput {
    * önbellekten alabilir.
    */
   readonly pidTimingExperiment: unknown | null;
+  /**
+   * #526 — native sayaç snapshot'larının YAŞI. Kopyadaki `lastPollAt` 5 dk bayat
+   * görünüp "poll durdu" sanıldı; önbellek eskiydi. Yaş olmadan bu ayrım yapılamaz.
+   */
+  readonly nativeSnapshotAge: unknown | null;
   /** Vehicle HAL kaynak sağlığı — `canAlive/obdAlive/gpsAlive`, null = BİLİNMİYOR. */
   readonly sourceHealth: unknown | null;
   /**
@@ -294,6 +299,9 @@ export function buildCarosLabCopy(input: CarosLabCopyInput): CarosLabCopyResult 
     fromRows('KATALOG DURUMU', input?.catalog ?? null, (r) => r),
     fromObject('ANLIK ARAÇ VERİSİ', input?.obdData ?? null),
     fromObject('KAYNAK SAĞLIĞI (HAL · null = BİLİNMİYOR)', input?.sourceHealth ?? null),
+    /* #526 — yaş bölümü sayaçlardan ÖNCE gelir: okuyucu sayıya bakmadan önce
+       hangi ANDAN geldiğini görsün. */
+    fromObject('NATIVE SAYAÇ SNAPSHOT YAŞI (#526)', input?.nativeSnapshotAge ?? null),
     fromObject('KAZA ALGILAMA (yalnız sayaç · null = BİLİNMİYOR)', input?.crashDetection ?? null),
     fromObject('OTURUM DENETÇİSİ (ham snapshot)', input?.session ?? null),
     fromObject('ÇALIŞMA ZAMANI ZAMANLAMA (ham snapshot)', input?.scheduling ?? null),

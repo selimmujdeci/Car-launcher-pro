@@ -25,6 +25,8 @@ import { getDevtoolsCaptureStatus } from './devtoolsCapture';
 import { getPollEvidenceCacheState } from '../obd/extendedPollEvidence';
 import { getErrorLog } from '../crashLogger';
 import { getLastPidTimingRaw } from '../obd/pidTimingExperiment';
+import { getPollEvidenceRefreshedAt } from '../obd/extendedPollEvidence';
+import { getExtendedEliminationRefreshedAt } from '../obd/extendedElimination';
 import { buildPidTimingReport } from '../obd/pidTimingExperimentModel';
 import type { CarosLabCopyInput } from './carosLabCopyModel';
 
@@ -121,6 +123,21 @@ export function readCarosLabCopyInput(ctx: CopyContext): CarosLabCopyInput {
        `Date.now()` ile bayatlık hesaplamak YANLIŞ olur; ham geçirilir, yorumlanmaz. */
     sourceHealth: safe(() => useHALStatusStore.getState().sourceHealth as unknown),
     crashDetection: safe(() => getCrashDetectionHealth() as unknown),
+    /* #526 — NATIVE SAYAÇ SNAPSHOT'LARININ YAŞI. Kopyadaki `lastPollAt` 5 dk 17 sn
+       bayat görünüp "extended poll durdu" sanıldı; poll durmamıştı, ÖNBELLEK eskiydi
+       (kopya yolu senkrondur, async tazelemeyi ÇAĞIRAMAZ). Yaş olmadan okuyucu bunu
+       ayırt edemez → artık raporun kendisi söylüyor. */
+    nativeSnapshotAge: safe(() => {
+      const now = Date.now();
+      const age = (at: number | null) => (at === null ? null : Math.max(0, now - at));
+      return {
+        aciklama: 'Bu değerler native ÖNBELLEKTEN okunur; önbelleği yalnız ilgili LAB '
+                + 'ekranı açıldığında yapılan async çağrı doldurur. Yaş büyükse sayılar '
+                + 'ESKİ bir andan gelir — "poll durdu" ANLAMINA GELMEZ.',
+        pollKanitiYasMs: age(getPollEvidenceRefreshedAt()),
+        elemeYasMs:      age(getExtendedEliminationRefreshedAt()),
+      } as unknown;
+    }),
     /* #523 — H-A DENEYİ. Ham örnekler TAŞINMAZ (yüzlerce satır, kopya tavanını
        yer); yalnız HÜKÜM + KANIT + BULGULAR + aşama/PID ÖZETİ gider. Rapor saf
        modelden üretilir → kopyadaki sayı ile ekrandaki sayı AYNI kaynaktan gelir,

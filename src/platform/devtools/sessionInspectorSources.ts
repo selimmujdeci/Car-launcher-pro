@@ -15,6 +15,7 @@
 import {
   getOBDStatusSnapshot, getOBDDataSnapshot, getObdSessionHealth,
   getObdConnLifecycle, getTransportStats, getHandshakeDiagnostics, getObdFreshWindowMs,
+  getObdFirstDataTiming,
 } from '../obdService';
 import { getObdHealth } from '../obd/ObdHealthMonitor';
 import { getKwpRecoveryEvidence } from '../obd/kwpRecoveryEvidence';
@@ -83,6 +84,10 @@ export function readSessionRawSnapshot(): SessionRawSnapshot {
       dataFresh:      sess.dataFresh === true,
       ready:          sess.ready === true,
     } : null,
+
+    /* #526 — İLK VERİYE KADAR SÜRE. Saha şikâyeti "ilk 2 dakika veri yok"
+       bugüne dek ÖLÇÜLEMİYORDU; artık iddia kanıtlanabilir/çürütülebilir. */
+    firstDataTiming: _safe(() => getObdFirstDataTiming()) ?? null,
 
     connLifecycle: life ? {
       resetRequestedCount:     Number(life.resetRequestedCount) || 0,

@@ -123,7 +123,8 @@ describe('KİLİT 5 — model SAF ve bağlam dürüst', () => {
     expect(r.text).toContain(CAROS_LAB_COPY_SCHEMA);
     expect(r.text).toContain('maskeleme    : AÇIK');
     expect(r.text).toContain('session-inspector');
-    // 13 bölüm: katalog · anlık araç verisi · kaynak sağlığı · KAZA ALGILAMA ·
+    // 14 bölüm: katalog · anlık araç verisi · kaynak sağlığı · SNAPSHOT YAŞI ·
+    //   KAZA ALGILAMA ·
     // oturum · zamanlama · kanıt · ham OBD · CAN · keşif · BlackBox ·
     // H-A DENEYİ · hata kütüğü.
     // 2026-08-07: kütük #456 ile "kaza algılama" sayaçları eklendi (yalnız ADET
@@ -132,7 +133,9 @@ describe('KİLİT 5 — model SAF ve bağlam dürüst', () => {
     // 2026-08-10: kütük #523 ile H-A deneyi bölümü eklendi. Sahada deney gerçek
     // araçta koştu ama kopyada YOKTU → ölçüm okunamadan gitti. Kilit yine
     // kaldırılmadı, yeni doğru değere taşındı.
-    expect(r.sectionCount).toBe(13);
+    // 2026-08-10 (#526): NATIVE SAYAÇ SNAPSHOT YAŞI bölümü eklendi — sahada
+    // 5 dakikalık bir önbellek canlı sanılıp "poll durdu" hükmü verilmişti.
+    expect(r.sectionCount).toBe(14);
     expect(r.text).toContain('ANLIK ARAÇ VERİSİ');
     expect(r.text).toContain('KAYNAK SAĞLIĞI');
     expect(r.text).toContain('BLACKBOX ÖRNEKLERİ');

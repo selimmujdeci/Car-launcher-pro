@@ -212,6 +212,21 @@ let _lastSpeedRxMs = 0;
  * gelir → aynı damgada tutulursa donmayı maskeler (saha 2026-07-16 Doblo kökü).
  */
 let _lastRxAt = 0;
+
+/* ── #526 · İLK VERİYE KADAR GEÇEN SÜRE (saha "ilk 2 dakika veri yok" şikâyeti) ──
+ * SAHA (2026-08-10 trail'i): kullanıcı eylemi → +30,1 sn bağlantı ZAMAN AŞIMI (15 s) →
+ * +30,2 sn `real → none` (veri kesildi) → +36,8 sn handshake → +37,0 sn `none → real`.
+ * Yani ilk veriye kadar 37 saniye kayboldu ve bunun 15 saniyesi DÜŞEN bir bağlantı
+ * denemesiydi. Ama bu süre HİÇBİR YERDE ölçülmüyordu: kullanıcı "2 dakika" diyor,
+ * kod "bilmiyorum" diyordu. Artık ölçülüyor — iddia kanıtlanabilir/çürütülebilir.
+ *
+ * Damgalar duvar saatidir çünkü kullanıcıya "kaç saniye bekledim" diye sunulur;
+ * SÜRE hesabı monotonik değil, iki damganın farkıdır ve saat sıçramasında
+ * negatif çıkarsa `null` verilir (uydurma yapılmaz). */
+let _connectAttemptStartedAtMs = 0;
+let _firstRealDataAtMs = 0;
+/** Bu oturumda kaç bağlantı denemesi düştü (ilk veriden ÖNCE). */
+let _failedAttemptsBeforeData = 0;
 /** Gerçek link kopması sayacı (teşhis kütüğü). */
 let _linkFailureCount = 0;
 /** Veri bayatlama sayacı — link canlıyken ECU'nun sustuğu kez (teşhis kütüğü). */
@@ -1315,6 +1330,9 @@ function _onRealData(patch: Partial<OBDData>): void {
   if (!_dataGatePassed) {
     if (_hasEcuData(patch)) {
       _dataGatePassed = true;
+      /* #526: İLK GERÇEK VERİ ANI. Yalnız bir kez yazılır — sonraki kesinti/geri
+         gelmeler bu damgayı BOZMAZ (ölçülen şey "bağlantıdan ilk veriye" süresidir). */
+      if (_firstRealDataAtMs === 0) _firstRealDataAtMs = Date.now();
       if (_dataGateTimer) { clearTimeout(_dataGateTimer); _dataGateTimer = null; }
       /* ARIZA İYİLEŞMESİ (SAHA 2026-08-06): veri kapısı AÇILDI — yani
          `OBD_DATA_GATE_TIMEOUT` arızasının tam tersi kanıtlandı. Cihazda o arıza
@@ -1473,6 +1491,49 @@ let _appStateUnsub: (() => void) | null = null;
  * bu ayrım olmadan foreground'da neyin bozuk olduğu (link mi, oturum mu, poll mu, veri mi)
  * bilinemez ve tek çare kör reconnect olurdu.
  */
+/**
+ * #526 — İLK VERİYE KADAR GEÇEN SÜRE (saha "ilk 2 dakika veri yok" şikâyeti).
+ *
+ * Bu süre bugüne dek HİÇBİR YERDE ölçülmüyordu; kullanıcı "2 dakika" diyordu,
+ * kod cevap veremiyordu. Sahada (2026-08-10) ölçülen zincir: kullanıcı eylemi →
+ * +30,1 sn bağlantı zaman aşımı (15 s) → `real → none` → +37,0 sn `none → real`.
+ * Yani 37 saniyenin 15'i DÜŞEN bir denemeydi.
+ *
+ * `null` = ölçülemedi (henüz olmadı / saat geriye sıçradı) — sahte 0 ÜRETİLMEZ.
+ */
+export function getObdFirstDataTiming(): {
+  /** İlk bağlantı denemesinin başladığı an (ms). `null` = hiç denenmedi. */
+  connectStartedAt: number | null;
+  /** İlk GERÇEK ECU verisinin geldiği an (ms). `null` = henüz veri yok. */
+  firstDataAt: number | null;
+  /** İkisi arasındaki süre (ms). `null` = biri yok ya da negatif (saat sıçraması). */
+  firstDataAfterConnectMs: number | null;
+  /** İlk veriye ulaşmadan DÜŞEN bağlantı denemesi sayısı. */
+  failedAttemptsBeforeData: number;
+  /** Veri henüz gelmediyse: şu ana kadar geçen bekleme (ms). */
+  waitingForFirstDataMs: number | null;
+} {
+  const started = _connectAttemptStartedAtMs > 0 ? _connectAttemptStartedAtMs : null;
+  const first   = _firstRealDataAtMs > 0 ? _firstRealDataAtMs : null;
+  let elapsed: number | null = null;
+  if (started !== null && first !== null) {
+    const d = first - started;
+    elapsed = d >= 0 ? d : null;   // saat geriye sıçradıysa ÖLÇÜLEMEDİ
+  }
+  let waiting: number | null = null;
+  if (started !== null && first === null) {
+    const d = Date.now() - started;
+    waiting = d >= 0 ? d : null;
+  }
+  return {
+    connectStartedAt: started,
+    firstDataAt: first,
+    firstDataAfterConnectMs: elapsed,
+    failedAttemptsBeforeData: _failedAttemptsBeforeData,
+    waitingForFirstDataMs: waiting,
+  };
+}
+
 export function getObdSessionHealth(): {
   /** Native handle'lar duruyor ve link canlı (paket geliyor) mu. */
   transportReady: boolean;
@@ -2099,6 +2160,9 @@ async function _startNative(opts?: { trustBypass?: boolean }): Promise<void> {
     }
 
     console.warn(`[OBD] ${_primaryTp} başarısız → ${_fallbackTp} deneniyor (${_fallbackTimeoutMs / 1000}s)`, ePrimary);
+    /* #526: ilk deneme anını damgala (sonraki retry'lar başlangıcı KAYDIRMAZ —
+       kullanıcı için süre ilk denemeden itibaren akar). */
+    if (_connectAttemptStartedAtMs === 0) _connectAttemptStartedAtMs = Date.now();
     _merge({ connectionState: 'connecting', deviceName: cand.name });
     try { await CarLauncher.disconnectOBD(); } catch { /* yoksay */ }
     if (_stale()) { void _removeNativeHandles(); return; }
@@ -2533,6 +2597,9 @@ export function startOBD(address?: string, pin?: string, transport?: ObdTranspor
           // Kanıt = `obd:verifiedAddresses` defteri (yalnız veri AKINCA yazılır; bağlanmak
           // yetmez) → "yanlış adaptöre otomatik bağlanma" garantisi buradan gelir.
           logError('OBD:StartNative', e);
+          /* #526: ilk veriye ULAŞMADAN düşen deneme — "ilk 2 dakika veri yok"
+             şikâyetinin kaç denemeden geldiğini ölçer. */
+          if (_firstRealDataAtMs === 0) _failedAttemptsBeforeData++;
           await _removeNativeHandles();
           if (_isAddressProven()) {
             _scheduleReconnect();

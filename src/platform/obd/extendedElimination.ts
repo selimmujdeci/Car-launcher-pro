@@ -54,9 +54,20 @@ export interface ExtendedEliminationSnapshot {
 let _cached: ExtendedEliminationSnapshot | null = null;
 /** 'never' = hiç denenmedi · 'unsupported' = eski APK/web · 'ok' · 'error'. */
 let _state: 'never' | 'unsupported' | 'ok' | 'error' = 'never';
+/**
+ * #526 — önbelleğin tazelendiği an. Bu modül `extendedPollEvidence` desenini
+ * miras aldı ve AYNI tuzağı da miras almıştı: durum ('ok') taşınıyor ama YAŞ
+ * taşınmıyordu → 5 dakikalık snapshot canlı sanılıyordu (saha 2026-08-10).
+ */
+let _refreshedAtMs = 0;
 
 export function getExtendedEliminationState(): typeof _state {
   return _state;
+}
+
+/** #526 — tazelenme anı (ms); `null` = hiç tazelenmedi. Yaş çağıranda hesaplanır. */
+export function getExtendedEliminationRefreshedAt(): number | null {
+  return _refreshedAtMs > 0 ? _refreshedAtMs : null;
 }
 
 /**
@@ -110,6 +121,7 @@ export async function refreshExtendedElimination(): Promise<void> {
       reasonPaused:   typeof r.reasonPaused === 'string' ? r.reasonPaused : '',
     };
     _state = 'ok';
+    _refreshedAtMs = Date.now();   // #526: snapshot yaşı raporlanabilsin
   } catch (e) {
     logError('OBD:ExtElimRead', e);
     _cached = null;

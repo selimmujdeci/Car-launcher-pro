@@ -110,9 +110,32 @@ export type PollEvidenceCacheState = 'never_refreshed' | 'refreshed' | 'unsuppor
 
 let _refreshState: PollEvidenceCacheState = 'never_refreshed';
 
+/**
+ * #526 — ÖNBELLEĞİN TAZELENDİĞİ AN (duvar saati ms). `0` = hiç tazelenmedi.
+ *
+ * SAHA (2026-08-10): kopyada `lastPollAt` **5 dk 17 sn** bayat görünüyordu ve
+ * "extended poll durdu" sanıldı. Poll DURMAMIŞTI — bu blok native önbellekten
+ * okunur ve önbelleği yalnız `refreshExtendedPollEvidence()` doldurur; o da
+ * yalnız Runtime Scheduling ekranı açıldığında çağrılır. Kopya alınırken açık
+ * ekran başkasıydı, yani snapshot son ziyaretten kalmaydı.
+ *
+ * `cacheState: 'refreshed'` bu tuzağı GİZLİYORDU: yalnız "bir kez tazelendi"
+ * demek, "ŞU AN taze" demek DEĞİLDİR. Yaş damgası olmadan okuyucu 5 dakikalık
+ * bir snapshot'ı canlı sanıyor. Bundan sonra yaş RAPORLANIR.
+ */
+let _refreshedAtMs = 0;
+
 /** @internal testler için — tazeleme durumu. */
 export function getPollEvidenceCacheState(): PollEvidenceCacheState {
   return _refreshState;
+}
+
+/**
+ * #526 — önbelleğin tazelendiği an (ms). `null` = hiç tazelenmedi.
+ * Çağıran bunu okuma anıyla karşılaştırıp snapshot YAŞINI yazmalıdır.
+ */
+export function getPollEvidenceRefreshedAt(): number | null {
+  return _refreshedAtMs > 0 ? _refreshedAtMs : null;
 }
 
 /** Native kanıtı tazele (async plugin çağrısı) — rapor derlemeden önce await edilir. */
@@ -127,6 +150,7 @@ export async function refreshExtendedPollEvidence(): Promise<void> {
     const ev = await CarLauncher.getObdExtendedPollEvidence();
     _cached = ev && typeof ev === 'object' ? ev : null;
     _refreshState = 'refreshed';     // kanal cevap verdi (present false olsa bile)
+    _refreshedAtMs = Date.now();     // #526: yaş raporlanabilsin
   } catch {
     _cached = null; // köprü hatası → kanıt yok
     _refreshState = 'error';

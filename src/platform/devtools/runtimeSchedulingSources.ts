@@ -15,9 +15,10 @@
 
 import { getOBDStatusSnapshot, getObdSessionHealth, getHandshakeDiagnostics, getObdFreshWindowMs } from '../obdService';
 import { getObdHealth } from '../obd/ObdHealthMonitor';
-import { getExtendedPollEvidence } from '../obd/extendedPollEvidence';
+import { getExtendedPollEvidence, getPollEvidenceRefreshedAt } from '../obd/extendedPollEvidence';
 import { getExtendedGateState } from '../obd/extendedPidService';
-import { getExtendedElimination, getExtendedEliminationState } from '../obd/extendedElimination';
+import { getExtendedElimination, getExtendedEliminationState,
+         getExtendedEliminationRefreshedAt } from '../obd/extendedElimination';
 import {
   readExtendedTimeline, summarizeExtendedTimeline,
 } from '../obd/extendedPollTimeline';
@@ -93,6 +94,10 @@ export function readSchedRawSnapshot(): SchedRawSnapshot {
     /* #524 — ELEME DURUMU. `null` = OKUNMADI ("eleme yok" DEĞİL); durum ayrı
        alanda taşınır ki eski APK ile gerçek sıfır karışmasın. */
     elimState: getExtendedEliminationState(),
+    /* #526 — SNAPSHOT YAŞI. Durum ('ok') tek başına yanıltıcıdır: 5 dakikalık
+       bir önbellek de 'ok' der. Yaş olmadan okuyucu bayat veriyi canlı sanar. */
+    elimRefreshedAt: _safe(() => getExtendedEliminationRefreshedAt()) ?? null,
+    pollEvidenceRefreshedAt: _safe(() => getPollEvidenceRefreshedAt()) ?? null,
     elim: _safe(() => getExtendedElimination()) ?? null,
 
     extGate: gate ? {

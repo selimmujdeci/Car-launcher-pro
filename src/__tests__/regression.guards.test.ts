@@ -5259,3 +5259,58 @@ describe('🔒 KİLİT 25 · TS eleme kaydı gerçek veriyle çelişemez (#525)'
     expect(t, 'isPermanent sorgusu yok').toMatch(/boolean isPermanent\(String pid\)/);
   });
 });
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * 🔒 KİLİT 26 · SNAPSHOT YAŞI ve İLK VERİ SÜRESİ (#526)
+ *
+ * SAHA (2026-08-10): kopyada `lastPollAt` 5 dk 17 sn bayat görünüyordu ve
+ * "extended poll durdu" sanıldı. Poll DURMAMIŞTI — o blok native ÖNBELLEKTEN
+ * okunur ve önbelleği yalnız ilgili LAB ekranı açıldığında dolar. `cacheState`
+ * "refreshed" diyordu ama bu "bir kez tazelendi" demek; "ŞU AN taze" DEĞİL.
+ *
+ * Ayrıca kullanıcı "ilk 2 dakika veri yok" diyordu ve bu süre hiçbir yerde
+ * ÖLÇÜLMÜYORDU. Trail'den çıkarılan gerçek zincir: +30,1 sn bağlantı zaman
+ * aşımı (15 s) → `real → none` → +37,0 sn `none → real`.
+ * ════════════════════════════════════════════════════════════════════════ */
+describe('🔒 KİLİT 26 · bayat snapshot gizlenemez (#526)', () => {
+  const src = (p: string) => readFileSync(resolve(__dirname, '..', p), 'utf8');
+
+  it('🔒 native sayaç önbellekleri TAZELENME ANINI damgalar', () => {
+    const poll = src('platform/obd/extendedPollEvidence.ts');
+    expect(poll, 'poll kaniti onbellegi yas damgasi tutmuyor')
+      .toMatch(/export function getPollEvidenceRefreshedAt/);
+    expect(poll).toMatch(/_refreshedAtMs = Date\.now\(\)/);
+    const elim = src('platform/obd/extendedElimination.ts');
+    expect(elim, 'eleme onbellegi yas damgasi tutmuyor')
+      .toMatch(/export function getExtendedEliminationRefreshedAt/);
+  });
+
+  it('🔒 snapshot YAŞI LAB ekranında ve KOPYADA görünür', () => {
+    const build = src('platform/devtools/runtimeSchedulingBuild.ts');
+    expect(build, 'ekranda snapshot yasi gosterilmiyor').toMatch(/snapshot yaşı/);
+    expect(build, 'yas yanlis okunmaya karsi uyarmiyor')
+      .toMatch(/poll durdu.*DEMEK DEĞİLDİR|"poll durdu" DEMEK DEĞİLDİR/);
+    const copySrc = src('platform/devtools/carosLabCopySources.ts');
+    expect(copySrc, 'kopyada snapshot yasi yok').toMatch(/nativeSnapshotAge/);
+    const copyModel = src('platform/devtools/carosLabCopyModel.ts');
+    expect(copyModel, 'kopya bolumu eklenmemis').toMatch(/NATIVE SAYAÇ SNAPSHOT YAŞI/);
+  });
+
+  it('🔒 İLK VERİYE kadar geçen süre ÖLÇÜLÜR (saha "2 dakika" iddiası)', () => {
+    const obd = src('platform/obdService.ts');
+    expect(obd, 'ilk veri suresi olculmuyor')
+      .toMatch(/export function getObdFirstDataTiming/);
+    expect(obd, 'dusen deneme sayaci yok').toMatch(/_failedAttemptsBeforeData/);
+    /* Sahte 0 yasağı: ölçülemeyen süre null olmalı, 0 değil. */
+    expect(obd, 'saat sicramasinda sahte sure uretiliyor olabilir')
+      .toMatch(/d >= 0 \? d : null/);
+  });
+
+  it('🔒 ilk veri süresi Oturum Denetçisi\'nde GÖRÜNÜR', () => {
+    const sources = src('platform/devtools/sessionInspectorSources.ts');
+    expect(sources).toMatch(/firstDataTiming/);
+    const build = src('platform/devtools/sessionInspectorBuild.ts');
+    expect(build, 'alan uretilmiyor').toMatch(/_pushFirstDataTiming/);
+    expect(build, 'hala veri yok durumu gosterilmiyor').toMatch(/HÂLÂ VERİ YOK/);
+  });
+});

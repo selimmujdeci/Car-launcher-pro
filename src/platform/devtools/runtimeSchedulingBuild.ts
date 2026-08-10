@@ -78,6 +78,9 @@ export interface SchedRawSnapshot {
    * ('unsupported' = eski APK · 'error' = okuma düştü · 'never' = hiç denenmedi).
    */
   readonly elimState: 'never' | 'unsupported' | 'ok' | 'error';
+  /** #526 — snapshot tazelenme anı (ms). `null` = hiç tazelenmedi. */
+  readonly elimRefreshedAt: number | null;
+  readonly pollEvidenceRefreshedAt: number | null;
   readonly elim: {
     cycle: number; watchedCount: number;
     permanentCount: number; pausedCount: number; everOkCount: number;
@@ -266,6 +269,21 @@ function _pushTimelineFields(f: SchedField[], s: SchedRawSnapshot): void {
  * "hangi PID neden sorulmuyor" sorusunun cevabı HİÇBİR YERDE yoktu.
  */
 function _pushElimFields(f: SchedField[], s: SchedRawSnapshot): void {
+  /* #526 — SNAPSHOT YAŞI EN ÜSTTE. Sahada `lastPollAt` 5 dk 17 sn bayat görünüp
+     "poll durdu" sanıldı; poll durmamıştı, ÖNBELLEK eskiydi. `cacheState:'ok'`
+     bunu gizliyordu — "bir kez tazelendi" ile "şu an taze" AYNI ŞEY DEĞİL.
+     Yaş artık okuyucunun gözünün önünde; tahmin gerektirmez. */
+  const ageOf = (at: number | null): string =>
+    at === null ? 'hiç tazelenmedi'
+      : `${Math.round(Math.max(0, s.readAt - at) / 1000)} sn önce okundu`;
+  f.push(schedDerived(
+    { id: 'elimSnapshotAge', label: 'native sayaç snapshot yaşı', source: 'türetim (bu model)',
+      note: 'Bu bölümdeki native sayaçlar ÖNBELLEKTEN gelir; önbelleği yalnız bu ekran '
+          + 'açıldığında yapılan async çağrı doldurur. Yaş büyükse sayılar ESKİ bir andan '
+          + 'gelir — "poll durdu" DEMEK DEĞİLDİR.' },
+    `eleme: ${ageOf(s.elimRefreshedAt)} · poll kanıtı: ${ageOf(s.pollEvidenceRefreshedAt)}`,
+  ));
+
   const e = s.elim;
   if (!e) {
     const why = s.elimState === 'unsupported'

@@ -41,6 +41,18 @@ export interface SessionRawSnapshot {
     dataFresh: boolean; ready: boolean;
   } | null;
 
+  /**
+   * #526 — İLK VERİYE KADAR GEÇEN SÜRE. Saha şikâyeti: "ilk 2 dakika veri yok".
+   * `null` alanlar ÖLÇÜLEMEDİ demektir (sahte 0 yok).
+   */
+  readonly firstDataTiming: {
+    connectStartedAt: number | null;
+    firstDataAt: number | null;
+    firstDataAfterConnectMs: number | null;
+    failedAttemptsBeforeData: number;
+    waitingForFirstDataMs: number | null;
+  } | null;
+
   readonly connLifecycle: {
     resetRequestedCount: number; resetCompletedCount: number;
     disconnectCalledCount: number; reconnectRequestedCount: number;
@@ -505,6 +517,7 @@ function _halCard(s: SessionRawSnapshot): InspectorCard {
   }
 
   /* #517: iki otorite aynı soruya farklı cevap veriyorsa AÇIKÇA yaz. */
+  _pushFirstDataTiming(f, s);
   _pushSourceAuthorityDivergence(f, s);
 
   return boundCard({ id: 'hal', title: INSPECTOR_CARD_TITLE.hal, fields: f });
@@ -621,6 +634,47 @@ export function buildHealthInput(s: SessionRawSnapshot, mismatchCount: number): 
  * için KALIR ama "kaynak canlı mı"nın cevabı DEĞİLDİR. Ayrışma varsa gizlenmez:
  * aşağıdaki alan onu AÇIKÇA yazar.
  */
+/**
+ * #526 — İLK VERİYE KADAR SÜRE. Saha şikâyeti *"ilk 2 dakika veri yok"* idi ve
+ * bu süre hiçbir yerde ÖLÇÜLMÜYORDU. Ölçülen zincir (2026-08-10): kullanıcı
+ * eylemi → +30,1 sn bağlantı ZAMAN AŞIMI (15 s) → `real → none` → +37,0 sn
+ * `none → real`. Yani 37 saniyenin 15'i DÜŞEN bir denemeydi.
+ */
+function _pushFirstDataTiming(f: InspectorField[], s: SessionRawSnapshot): void {
+  const t = s.firstDataTiming;
+  if (!t) {
+    f.push(unavailable(
+      { id: 'firstDataTiming', label: 'ilk veriye kadar süre', source: SRC.status, note: '' },
+      'Ölçüm okunamadı.',
+    ));
+    return;
+  }
+  const note = 'Bağlantı denemesinin BAŞLADIĞI andan İLK GERÇEK ECU verisine kadar. '
+             + 'Düşen denemeler bu sürenin İÇİNDEDİR — "kaç saniye bekledim" sorusunun cevabı.';
+  if (t.firstDataAfterConnectMs !== null) {
+    f.push(observed(
+      { id: 'firstDataTiming', label: 'ilk veriye kadar süre', source: SRC.status, note },
+      `${(t.firstDataAfterConnectMs / 1000).toFixed(1)} sn`
+      + (t.failedAttemptsBeforeData > 0
+          ? ` · ${t.failedAttemptsBeforeData} deneme DÜŞTÜ`
+          : ' · düşen deneme yok'),
+    ));
+    return;
+  }
+  if (t.waitingForFirstDataMs !== null) {
+    f.push(observed(
+      { id: 'firstDataTiming', label: 'ilk veriye kadar süre', source: SRC.status, note },
+      `HÂLÂ VERİ YOK — ${(t.waitingForFirstDataMs / 1000).toFixed(1)} sn bekleniyor`
+      + ` · ${t.failedAttemptsBeforeData} deneme düştü`,
+    ));
+    return;
+  }
+  f.push(unavailable(
+    { id: 'firstDataTiming', label: 'ilk veriye kadar süre', source: SRC.status, note },
+    'Henüz bağlantı denemesi yapılmadı.',
+  ));
+}
+
 function _pushSourceAuthorityDivergence(f: InspectorField[], s: SessionRawSnapshot): void {
   const h = s.hal;
   const list = Array.isArray(s.connectivity) ? s.connectivity : [];
