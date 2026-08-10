@@ -24,6 +24,7 @@ import {
 } from '../../../platform/obd/pidTimingExperiment';
 import {
   buildPidTimingReport, EXPERIMENT_VERDICT_LABEL, PID_VERDICT_LABEL,
+  ATST_EVIDENCE_METHOD_LABEL, ELM_DEFAULT_ST_MS,
   type PidTimingReport,
 } from '../../../platform/obd/pidTimingExperimentModel';
 import { getWatchedExtendedPids } from '../../../platform/obd/extendedPidService';
@@ -119,7 +120,15 @@ function PidTimingExperimentScreenBase() {
   }, [refresh]);
 
   return (
-    <div className="flex flex-col gap-3 p-3">
+    /* #523 — KAYDIRMA ZORUNLU: LAB kabuğunun bir yolu içeriği `overflow-hidden`
+       konteynerde sunar (CarosLabShell). Kendi kaydırmasını yönetmeyen ekranda
+       aşama/PID tabloları head unit yüksekliğinde TAŞIP ERİŞİLEMEZ oluyordu —
+       sahada "aşağı kaydırılacak içerik yok" olarak gözlendi: ölçüm yapılmıştı,
+       okunamıyordu. Desen diğer LAB ekranlarıyla aynı (`h-full overflow-y-auto`). */
+    <div
+      className="flex h-full flex-col gap-3 overflow-y-auto p-3"
+      data-testid="pid-timing-experiment"
+    >
       <div className="flex items-center justify-between gap-2">
         <div>
           <h2 className="text-[13px] font-semibold text-[var(--oem-ink-1)]">
@@ -181,10 +190,20 @@ function PidTimingExperimentScreenBase() {
                 {EXPERIMENT_VERDICT_LABEL[report.verdict]}
               </Chip>
               <Chip tone={NONE}>durum: {report.status}</Chip>
-              <Chip tone={report.atstEvidenceRatio !== null && report.atstEvidenceRatio >= 2 ? OK : BAD}>
-                ATST kanıtı: {report.atstEvidenceRatio === null
-                  ? UNAVAILABLE
-                  : `${report.atstEvidenceRatio.toFixed(2)}× (gereken ≥2×)`}
+              {/* #523 — kanıt İKİ YOLLU: oran yoksa mutlak. "ölçülemedi" ile
+                  "uygulanmadı" AYRI renkte: biri bilgisizlik, diğeri olumsuz hüküm. */}
+              <Chip tone={report.atstApplied === true ? OK : report.atstApplied === false ? BAD : WARN}>
+                ATST uygulandı: {report.atstApplied === null
+                  ? 'ÖLÇÜLEMEDİ'
+                  : (report.atstApplied ? 'EVET' : 'HAYIR')}
+              </Chip>
+              <Chip tone={NONE}>
+                kanıt yolu: {ATST_EVIDENCE_METHOD_LABEL[report.atstEvidenceMethod]}
+              </Chip>
+              <Chip tone={NONE}>
+                {report.atstEvidenceMethod === 'RATIO'
+                  ? `oran: ${report.atstEvidenceRatio === null ? UNAVAILABLE : `${report.atstEvidenceRatio.toFixed(2)}× (gereken ≥2×)`}`
+                  : `B NO_DATA p50: ${ms(report.atstEvidenceAbsMs)} (varsayılan tavan ~${ELM_DEFAULT_ST_MS}ms)`}
               </Chip>
               <Chip tone={report.stRestored === 'true' ? OK : WARN}>
                 ATST geri alındı: {report.stRestored}
@@ -203,6 +222,22 @@ function PidTimingExperimentScreenBase() {
               <p className="mt-1 text-[11px] text-[var(--oem-danger)]">hata: {report.failReason}</p>
             )}
           </Section>
+
+          {/* #523 — HÜKÜMDEN BAĞIMSIZ BULGULAR. "A'da hiç NO_DATA yok" tek başına bir
+              saha bulgusudur (önceki oturumlarda %43-80) ve hüküm geçersiz olsa bile
+              raporlanmalıdır. Sahada bu bilgi hüküm satırının içinde kaybolmuştu. */}
+          {report.notableFindings.length > 0 && (
+            <Section title="Bulgular (hükümden bağımsız)">
+              <ul className="flex flex-col gap-1.5">
+                {report.notableFindings.map((f, i) => (
+                  <li key={i} className="flex items-start gap-1.5 text-[11px] text-[var(--oem-warn)]">
+                    <AlertTriangle size={12} className="mt-0.5 shrink-0" />
+                    <span>{f}</span>
+                  </li>
+                ))}
+              </ul>
+            </Section>
+          )}
 
           <Section title="Aşama toplamları">
             <div className="overflow-x-auto">
@@ -225,9 +260,11 @@ function PidTimingExperimentScreenBase() {
                       <td className="py-1 pr-2">{t.phase}</td>
                       <td className="pr-2">{t.stApplied}</td>
                       <td className="pr-2">{t.stCommandOk === null ? UNAVAILABLE : (t.stCommandOk ? 'evet' : 'HAYIR')}</td>
+                      {/* #523 — HAM SAYI + ORAN birlikte: yalnız oran, "%0 NO_DATA"
+                          ile "hiç deneme yok" ayrımını okuyucuya bırakır. */}
                       <td className="pr-2">{t.attempts}</td>
-                      <td className="pr-2">{pct(t.noDataRate)}</td>
-                      <td className="pr-2">{pct(t.successRate)}</td>
+                      <td className="pr-2">{t.noData} ({pct(t.noDataRate)})</td>
+                      <td className="pr-2">{t.success} ({pct(t.successRate)})</td>
                       <td className="pr-2">{t.other}</td>
                       <td className="pr-2">{ms(t.successMs.p50)}/{ms(t.successMs.p95)}/{ms(t.successMs.max)}</td>
                       <td className="pr-2">{ms(t.noDataMs.p50)}/{ms(t.noDataMs.p95)}/{ms(t.noDataMs.max)}</td>
@@ -280,8 +317,13 @@ function PidTimingExperimentScreenBase() {
                   </thead>
                   <tbody className="text-[var(--oem-ink-1)]">
                     {report.perPid.map((p) => (
-                      <tr key={p.pid} className="border-t border-[var(--oem-line)]">
-                        <td className="py-1 pr-2">{p.pid}</td>
+                      <tr
+                        key={p.pid}
+                        className={`border-t border-[var(--oem-line)] ${
+                          p.pid === '23' ? 'bg-[var(--oem-warn-soft)] text-[var(--oem-warn)]' : ''}`}
+                      >
+                        {/* 0x23 deneyin somut hedefi — tabloda da işaretli kalır. */}
+                        <td className="py-1 pr-2">{p.pid}{p.pid === '23' ? ' ◄ hedef' : ''}</td>
                         <td className="pr-2">{pct(p.a?.noDataRate ?? null)}</td>
                         <td className="pr-2">{pct(p.b?.noDataRate ?? null)}</td>
                         <td className="pr-2">{pct(p.a2?.noDataRate ?? null)}</td>

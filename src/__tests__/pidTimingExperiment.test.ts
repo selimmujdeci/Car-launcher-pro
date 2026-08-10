@@ -420,3 +420,129 @@ describe('B7 — dürüstlük', () => {
       .toBe('UNKNOWN');
   });
 });
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * #523 — SAHA: "ATST UYGULANMADI" YANLIŞ HÜKMÜ
+ *
+ * Gerçek araç (2026-08-10): deney tamamlandı, ama hüküm "ATST UYGULANMADI —
+ * deney GEÇERSİZ" çıktı. AYNI raporda NO_DATA p50 A=ölçülemedi → B=1088 ms
+ * yazıyordu. Kök: oran kapısı A'da NO_DATA OLDUĞUNU varsayıyordu; A hiç
+ * NO_DATA üretmeyince payda yok → oran null → kapı "uygulanmadı" dedi.
+ * Oysa 1088 ms, ELM varsayılan tavanının (~200 ms) 5 katıdır ve varsayılan
+ * ayarla FİZİKSEL OLARAK açıklanamaz.
+ * ════════════════════════════════════════════════════════════════════════ */
+describe('#523 · ATST kanıtı — oran YOKSA mutlak yol', () => {
+  /** Saha kurgusu: A'da hiç NO_DATA yok; B'de NO_DATA p50 = 1088 ms. */
+  const saha = () => raw([
+    ...mk('A',  '23', 20, 20),                 // 20/20 OK → NO_DATA YOK
+    ...mk('B',  '23', 20, 12, 60, 1088),       // 8 NO_DATA @ 1088 ms
+    ...mk('A2', '23', 20, 20),
+  ]);
+
+  it('🔒 A\'da NO_DATA yokken MUTLAK değer ayarın uygulandığını gösterir', () => {
+    const r = buildPidTimingReport(saha());
+    expect(r.atstEvidenceRatio, 'payda yokken oran uydurulmus').toBeNull();
+    expect(r.atstEvidenceMethod).toBe('ABSOLUTE');
+    expect(r.atstApplied, '1088 ms varsayilan tavanin 5 kati — uygulanmis SAYILMALI')
+      .toBe(true);
+    expect(r.atstEvidenceAbsMs).toBe(1088);
+  });
+
+  it('🔒 bu kurguda hüküm ATST_UYGULANMADI DEĞİLDİR (saha yanlış hükmü)', () => {
+    const r = buildPidTimingReport(saha());
+    expect(r.verdict, 'oran olculemedi diye deney yine gecersiz sayilmis')
+      .not.toBe('ATST_UYGULANMADI');
+    expect(r.verdictNote, 'kanit yolunun MUTLAK oldugu hukum notunda yazmiyor')
+      .toContain('ORAN ÖLÇÜLEMEDİ');
+  });
+
+  it('🔒 mutlak eşiğin ALTI hâlâ "uygulanmadı"dır (kapı gevşetilmedi)', () => {
+    const r = buildPidTimingReport(raw([
+      ...mk('A',  '23', 20, 20),
+      ...mk('B',  '23', 20, 12, 60, 250),      // 250 ms < 400 ms eşiği
+      ...mk('A2', '23', 20, 20),
+    ]));
+    expect(r.atstEvidenceMethod).toBe('ABSOLUTE');
+    expect(r.atstApplied).toBe(false);
+    expect(r.verdict).toBe('ATST_UYGULANMADI');
+  });
+
+  it('🔒 hiç NO_DATA yoksa "ÖLÇÜLEMEDİ" — "uygulanmadı" DEĞİL', () => {
+    const r = buildPidTimingReport(raw([
+      ...mk('A',  '23', 20, 20),
+      ...mk('B',  '23', 20, 20),               // B de tertemiz
+      ...mk('A2', '23', 20, 20),
+    ]));
+    expect(r.atstEvidenceMethod).toBe('NONE');
+    expect(r.atstApplied, 'kanitsiz OLUMSUZ hukum de uydurmadir').toBeNull();
+    expect(r.verdict).toBe('ATST_OLCULEMEDI');
+    expect(r.verdictNote).toContain('KANITLANAMAZ');
+  });
+
+  it('🔒 A\'da NO_DATA olmaması AYRI bir bulgu olarak raporlanır', () => {
+    const r = buildPidTimingReport(saha());
+    expect(r.notableFindings.length, 'bulgu hukum satirinda kayboldu')
+      .toBeGreaterThan(0);
+    expect(r.notableFindings.join(' '), 'onceki oturumlarin orani referans verilmemis')
+      .toMatch(/%43-80/);
+  });
+
+  it('🔒 oran ölçülebiliyorsa MUTLAK yola düşülmez (tercih sırası korunur)', () => {
+    const r = buildPidTimingReport(raw(trio('23', [20, 8], [20, 19], [20, 7])));
+    expect(r.atstEvidenceMethod).toBe('RATIO');
+    expect(r.atstEvidenceRatio).not.toBeNull();
+  });
+
+  it('🔒 her hükmün etiketi var (ATST_OLCULEMEDI dahil)', () => {
+    expect(EXPERIMENT_VERDICT_LABEL.ATST_OLCULEMEDI).toBeTruthy();
+    expect(EXPERIMENT_VERDICT_LABEL.ATST_OLCULEMEDI).not.toContain('UYGULANMADI');
+  });
+});
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * #523 — GÖRÜNÜRLÜK: ölçüm yapıldı, OKUNAMADI
+ * Sahada aşama tablosu ekranda yoktu (kaydırma yok) ve sonuç kopyaya girmiyordu.
+ * ════════════════════════════════════════════════════════════════════════ */
+describe('#523 · deney sonucu görülebilir olmalı', () => {
+  const src = (p: string) => readFileSync(join(__dirname, '..', p), 'utf8');
+
+  it('🔒 ekran KENDİ kaydırmasını yönetir (LAB kabuğu overflow-hidden olabilir)', () => {
+    const s = src('components/devtools/screens/PidTimingExperimentScreen.tsx');
+    expect(s, 'kaydirma yok — tablolar head unit yuksekliginde erisilemez kaliyor')
+      .toMatch(/overflow-y-auto/);
+    expect(s).toMatch(/h-full/);
+  });
+
+  it('🔒 aşama tablosu ham SAYI ve ORAN birlikte gösterir', () => {
+    const s = src('components/devtools/screens/PidTimingExperimentScreen.tsx');
+    expect(s).toMatch(/\{t\.noData\}\s*\(\{pct\(t\.noDataRate\)\}\)/);
+    expect(s).toMatch(/\{t\.success\}\s*\(\{pct\(t\.successRate\)\}\)/);
+  });
+
+  it('🔒 0x23 PID tablosunda işaretli', () => {
+    const s = src('components/devtools/screens/PidTimingExperimentScreen.tsx');
+    expect(s, '0x23 satiri tabloda ayirt edilemiyor').toMatch(/hedef/);
+  });
+
+  it('🔒 deney sonucu KOPYA çıktısına girer', () => {
+    const model = src('platform/devtools/carosLabCopyModel.ts');
+    expect(model, 'kopya modelinde deney bolumu yok').toMatch(/H-A DENEYİ/);
+    expect(model, 'input alani tanimlanmamis').toMatch(/pidTimingExperiment/);
+    const sources = src('platform/devtools/carosLabCopySources.ts');
+    expect(sources, 'kaynak katmani deneyi beslemiyor').toMatch(/getLastPidTimingRaw/);
+  });
+
+  it('🔒 kopya senkron okuma ucu var (async köprü kopya yolunda çağrılamaz)', () => {
+    const bridge = src('platform/obd/pidTimingExperiment.ts');
+    expect(bridge).toMatch(/export function getLastPidTimingRaw/);
+    expect(bridge, 'okuma onbellege alinmiyor — kopya hep bos kalir')
+      .toMatch(/_lastRaw = parsed/);
+  });
+
+  it('🔒 köprü stRestored ve pencere damgalarını TAŞIR (native gönderiyordu)', () => {
+    const bridge = src('platform/obd/pidTimingExperiment.ts');
+    expect(bridge, 'stRestored koprude dusuyor — ekranda hep UNKNOWN gorunur')
+      .toMatch(/stRestored:\s*typeof r\.stRestored/);
+    expect(bridge).toMatch(/experimentStartMs:\s*typeof r\.experimentStartMs/);
+  });
+});

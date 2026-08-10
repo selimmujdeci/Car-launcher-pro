@@ -20,6 +20,32 @@ export const DEFAULT_ST_HEX_B = 'FF';
 
 interface StartResult { readonly started: boolean; readonly reason?: string }
 
+/* ── Senkron okuma ucu (#523) ──────────────────────────────────────────────
+ * SORUN (saha 2026-08-10): deney koştu, ekranda hüküm göründü, ama "TÜMÜNÜ
+ * KOPYALA" çıktısında deney bölümü YOKTU → saha oturumu okunamadan gitti.
+ * KÖK: kopya yolu (`carosLabCopySources`) sözleşmesi gereği SENKRONDUR;
+ * `readPidTimingExperiment()` ise native köprü üzerinden ASYNC'tir ve kopya
+ * onu çağıramaz.
+ * ÇÖZÜM: async okuma her yapıldığında sonucu modül-yerel önbelleğe yazarız;
+ * kopya bu önbelleği senkron okur. Önbellek BOŞSA kopya "okunmadı" der —
+ * boş rapor "deney yok" diye SUNULMAZ (sahte 0 yasağı). */
+let _lastRaw: PidTimingRaw | null = null;
+let _lastReadAtMs = 0;
+
+/**
+ * Kopya/rapor yolu için SENKRON son okuma. `null` = bu oturumda deney ekranı
+ * hiç okunmadı (deneyin yokluğu DEĞİL — okuma yapılmadı).
+ */
+export function getLastPidTimingRaw(): { raw: PidTimingRaw; readAtMs: number } | null {
+  return _lastRaw === null ? null : { raw: _lastRaw, readAtMs: _lastReadAtMs };
+}
+
+/** Yalnız testler için — önbelleği sıfırlar. */
+export function _resetPidTimingCacheForTest(): void {
+  _lastRaw = null;
+  _lastReadAtMs = 0;
+}
+
 function nativeReady(): boolean {
   try {
     return Capacitor.isNativePlatform();
@@ -72,13 +98,25 @@ export async function readPidTimingExperiment(): Promise<PidTimingRaw | null> {
   try {
     const r = await fn.call(CarLauncher);
     if (!r || typeof r !== 'object') return null;
-    return {
+    const parsed: PidTimingRaw = {
       status:     typeof r.status === 'string' ? r.status : 'idle',
       running:    r.running === true,
       failReason: typeof r.failReason === 'string' ? r.failReason : null,
+      /* #523 — BU ÜÇ ALAN KÖPRÜDE DÜŞÜYORDU: native `stRestored` (B7 · ATST geri
+         alındı mı) ve deney penceresi damgalarını (B5) gönderiyor, ama köprü onları
+         taşımadığı için model hep `UNKNOWN`/null görüyordu. Ekranda "ATST geri
+         alındı: UNKNOWN" bu yüzden çıkıyordu — native tarafı sağlamdı. */
+      stRestored: typeof r.stRestored === 'string' ? r.stRestored : undefined,
+      experimentStartMs: typeof r.experimentStartMs === 'number' ? r.experimentStartMs : undefined,
+      experimentEndMs:   typeof r.experimentEndMs === 'number' ? r.experimentEndMs : undefined,
       phases:     Array.isArray(r.phases) ? r.phases : [],
       samples:    Array.isArray(r.samples) ? r.samples : [],
     };
+    /* #523 — kopya yolu SENKRONDUR ve bu async çağrıyı yapamaz; son okuma
+       burada önbelleğe alınır ki "TÜMÜNÜ KOPYALA" deney sonucunu taşıyabilsin. */
+    _lastRaw = parsed;
+    _lastReadAtMs = Date.now();
+    return parsed;
   } catch (e) {
     logError('OBD:PidTimingRead', e);
     return null;

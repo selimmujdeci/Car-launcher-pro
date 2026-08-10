@@ -144,10 +144,29 @@ export type ExperimentVerdict =
    * B1 — ATST'nin GERÇEKTEN uygulandığı gösterilemedi → hüküm VERİLMEZ.
    * Klon adaptör bilinmeyen komuta da "OK" der; "OK" ayarın uygulandığını KANITLAMAZ.
    * Bağımsız kanıt: B aşamasında NO_DATA süresi (p50) A'ya göre en az İKİ KATINA
-   * çıkmalıdır — çünkü uzayan bekleme, cevapsız sorguda DOĞRUDAN süreye yansır.
+   * çıkmalı — ya da oran ölçülemiyorsa MUTLAK olarak varsayılan tavanın belirgin
+   * üstünde olmalıdır. İkisi de sağlanmıyorsa ayar geçmemiştir.
    */
   | 'ATST_UYGULANMADI'
+  /**
+   * #523 — ayarın uygulanıp uygulanmadığı ÖLÇÜLEMEDİ ("uygulanmadı" DEĞİL).
+   * B aşamasında hiç NO_DATA yoksa ne oran ne mutlak kanıt üretilebilir; adaptörün
+   * bekleme tavanı gözlenemez. Kanıtsız "uygulanmadı" demek uydurmaktır — ayrı sınıf.
+   */
+  | 'ATST_OLCULEMEDI'
   | 'BELIRSIZ';
+
+/**
+ * #523 — ATST kanıtının HANGİ YOLDAN elde edildiği. Rapor okuyucusu "oran mı mutlak
+ * mı" ayrımını görmeden sayıyı yorumlayamaz.
+ */
+export type AtstEvidenceMethod =
+  /** A ve B'de NO_DATA var → B/A oranı hesaplandı (tercih edilen yol). */
+  | 'RATIO'
+  /** A'da NO_DATA yok → B'nin MUTLAK p50'si varsayılan tavanla kıyaslandı. */
+  | 'ABSOLUTE'
+  /** B'de de NO_DATA yok → hiçbir yolla ölçülemedi. */
+  | 'NONE';
 
 export interface PidTimingReport {
   readonly status:      string;
@@ -156,6 +175,18 @@ export interface PidTimingReport {
   readonly stRestored:  string;
   /** B1 — ATST'nin uygulandığına dair BAĞIMSIZ kanıt (süre oranı). Ölçülemezse null. */
   readonly atstEvidenceRatio: number | null;
+  /** #523 — kanıt hangi yoldan geldi: oran · mutlak · hiç. */
+  readonly atstEvidenceMethod: AtstEvidenceMethod;
+  /** #523 — ayar uygulandı mı. `null` = ÖLÇÜLEMEDİ ("hayır" DEĞİL). */
+  readonly atstApplied: boolean | null;
+  /** #523 — mutlak yolda kıyaslanan değer: B aşaması NO_DATA p50 (ms). */
+  readonly atstEvidenceAbsMs: number | null;
+  /**
+   * #523 — hükümden BAĞIMSIZ, kendi başına raporlanması gereken gözlemler.
+   * Örn. "A aşamasında hiç NO_DATA yok" — önceki oturumlarda %43-80 iken bu
+   * başlı başına bir bulgudur ve hüküm satırında kaybolmamalıdır.
+   */
+  readonly notableFindings: readonly string[];
   /** B5 — deney penceresi; sonraki saha okumaları bu trafiği ayırabilsin. */
   readonly windowStartMs: number | null;
   readonly windowEndMs:   number | null;
@@ -183,6 +214,26 @@ export const VERDICT_MIN_DROP = 0.20;
  * yani uzayan ST doğrudan süreye yansır. Yansımıyorsa ayar geçmemiştir.
  */
 export const ATST_APPLIED_MIN_RATIO = 2.0;
+
+/**
+ * ELM327 ATST VARSAYILANI: `0x32 × 4 ms ≈ 200 ms`.
+ *
+ * ── NEDEN MUTLAK YOL GEREKLİ (saha 2026-08-10, kütük #523) ─────────────────
+ * Oran kapısı (`ATST_APPLIED_MIN_RATIO`) **A aşamasında en az bir NO_DATA olduğunu**
+ * varsayıyordu. Sahada A aşaması **HİÇ NO_DATA üretmedi** → payda yok → oran `null`
+ * → kapı "ATST UYGULANMADI, deney GEÇERSİZ" dedi. Oysa aynı raporda B aşamasının
+ * NO_DATA p50'si **1088 ms** idi: varsayılan tavanın ~5 katı. Adaptörün varsayılan
+ * ayarla 1088 ms beklemesi FİZİKSEL OLARAK MÜMKÜN DEĞİLDİR — bu tek başına ayarın
+ * uygulandığını gösterir. Oran ölçülemediğinde MUTLAK değere düşülür.
+ */
+export const ELM_DEFAULT_ST_MS = 200;
+
+/**
+ * Oran ölçülemediğinde mutlak kanıt eşiği: varsayılan tavanın bu katı. Oran
+ * kapısıyla simetrik tutulur (2×) → `200 × 2 = 400 ms`. Bunun üstündeki bir
+ * NO_DATA beklemesi varsayılan ayarla açıklanamaz.
+ */
+export const ATST_APPLIED_MIN_ABS_RATIO = 2.0;
 
 /* ── Yardımcılar ──────────────────────────────────────────────────────────── */
 
@@ -338,8 +389,55 @@ export function buildPidTimingReport(raw: PidTimingRaw | null | undefined): PidT
   const ndB = tB.noDataMs.p50;
   const atstEvidenceRatio = (ndA !== null && ndA > 0 && ndB !== null) ? ndB / ndA : null;
 
+  /* #523 — KANIT İKİ YOLLU. Oran tercih edilir (A ile B aynı koşulda kıyaslanır),
+     ama A hiç NO_DATA üretmediyse payda yoktur ve oran ASLA hesaplanamaz. O durumda
+     MUTLAK değere düşülür: varsayılan tavan ~200 ms iken B'nin 1088 ms beklemesi
+     varsayılan ayarla açıklanamaz. Hiçbiri yoksa "uygulanmadı" DENMEZ — ölçülemedi. */
+  const atstAbsThresholdMs = ELM_DEFAULT_ST_MS * ATST_APPLIED_MIN_ABS_RATIO;
+  let atstEvidenceMethod: AtstEvidenceMethod;
+  let atstApplied: boolean | null;
+  if (atstEvidenceRatio !== null) {
+    atstEvidenceMethod = 'RATIO';
+    atstApplied = atstEvidenceRatio >= ATST_APPLIED_MIN_RATIO;
+  } else if (ndB !== null && ndB >= 0) {
+    atstEvidenceMethod = 'ABSOLUTE';
+    atstApplied = ndB >= atstAbsThresholdMs;
+  } else {
+    atstEvidenceMethod = 'NONE';
+    atstApplied = null;
+  }
+  const atstEvidenceAbsMs = ndB;
+
+  /* #523 — HÜKÜMDEN BAĞIMSIZ BULGULAR. Bunlar hüküm satırında kaybolmamalıdır:
+     "A'da hiç NO_DATA yok" tek başına bir saha bulgusudur (önceki oturumlarda
+     %43-80 ölçülmüştü) ve hükmün geçerliliğinden bağımsız olarak raporlanır. */
+  const notableFindings: string[] = [];
+  if (tA.attempts > 0 && tA.noData === 0) {
+    notableFindings.push(
+      `A aşamasında (mevcut ayar) ${tA.attempts} denemede HİÇ NO_DATA yok — `
+      + 'önceki saha oturumlarında bu oran %43-80 arasındaydı. Kayıp bu koşumda '
+      + 'GÖRÜLMEDİ: ya hat bu oturumda sağlıklı, ya da kaybı üreten koşul (soğuk '
+      + 'ECU · farklı PID listesi · başka istemci) bu koşumda yoktu. Oran tabanlı '
+      + 'ATST kanıtı da bu yüzden hesaplanamadı (payda yok).',
+    );
+  }
+  if (tB.attempts > 0 && tB.noData === 0) {
+    notableFindings.push(
+      `B aşamasında (ATST uzatılmış) ${tB.attempts} denemede HİÇ NO_DATA yok — `
+      + 'adaptörün bekleme tavanı gözlenemedi, ayarın uygulandığı ÖLÇÜLEMEZ.',
+    );
+  }
+  if (tA2.attempts > 0 && tA2.noData === 0 && tA.noData === 0) {
+    notableFindings.push(
+      'Üç aşamanın hiçbirinde NO_DATA yok — bu koşum "kayıp" olgusunu HİÇ '
+      + 'yakalamadı; deney kaybın olduğu bir oturumda TEKRARLANMALI.',
+    );
+  }
+
   let verdict: ExperimentVerdict = 'BELIRSIZ';
   let note = '';
+  /** #523 — kanıt yolu açıklaması; hüküm dalları `note`u ezdiği için AYRI tutulur. */
+  let notePrefix = '';
   if (samples.length === 0) {
     verdict = 'OLCUM_YOK';
     note = 'Hiç örnek yok — deney koşmadı ya da sonuç okunamadı.';
@@ -364,22 +462,54 @@ export function buildPidTimingReport(raw: PidTimingRaw | null | undefined): PidT
     const pc = (x: number) => `%${(x * 100).toFixed(0)}`;
     const seq = `${pc(rA)} → ${pc(rB)} → ${pc(rA2)}`;
     /* B1 KAPISI — ATST'nin uygulandığı BAĞIMSIZ olarak gösterilemediyse hüküm YOK.
-       Klon adaptör bilinmeyen komuta da "OK" der; `stCommandOk` tek başına yetmez. */
-    const applied = atstEvidenceRatio !== null && atstEvidenceRatio >= ATST_APPLIED_MIN_RATIO;
-    if (!applied) {
+       Klon adaptör bilinmeyen komuta da "OK" der; `stCommandOk` tek başına yetmez.
+       #523 — kapı ARTIK İKİ YOLLU: oran yoksa mutlak değere düşer, ikisi de yoksa
+       "uygulanmadı" DEĞİL "ölçülemedi" der (kanıtsız olumsuz iddia da uydurmadır). */
+    const stOkTxt = tB.stCommandOk === null ? 'bilinmiyor' : String(tB.stCommandOk);
+    const common = {
+      status, failReason, stRestored, atstEvidenceRatio, atstEvidenceMethod,
+      atstApplied, atstEvidenceAbsMs, notableFindings,
+      windowStartMs, windowEndMs, totals, perPid,
+      target23: perPid.find((x) => x.pid === '23') ?? null,
+    };
+
+    if (atstApplied === null) {
       return {
-        status, failReason, stRestored, atstEvidenceRatio,
-        windowStartMs, windowEndMs, totals, perPid,
-        target23: perPid.find((x) => x.pid === '23') ?? null,
+        ...common,
+        verdict: 'ATST_OLCULEMEDI',
+        verdictNote:
+          'Ne A ne B aşamasında NO_DATA var — adaptörün bekleme tavanı hiçbir yolla '
+          + 'gözlenemedi. ATST\'nin uygulandığı da uygulanmadığı da KANITLANAMAZ '
+          + `(stCommandOk=${stOkTxt}; "OK" kanıt DEĞİLDİR). Hüküm VERİLMEZ — bu bir `
+          + 'başarısızlık değil, ÖLÇÜM YOKLUĞUDUR. Deney, kaybın gözlendiği bir '
+          + 'oturumda tekrarlanmalı.',
+      };
+    }
+
+    if (atstApplied === false) {
+      const how = atstEvidenceMethod === 'RATIO'
+        ? `oran ${atstEvidenceRatio!.toFixed(2)}×, gereken ≥${ATST_APPLIED_MIN_RATIO}×`
+        : `MUTLAK ${ndB} ms, gereken ≥${atstAbsThresholdMs} ms `
+          + `(ELM varsayılan tavanı ~${ELM_DEFAULT_ST_MS} ms × ${ATST_APPLIED_MIN_ABS_RATIO})`;
+      return {
+        ...common,
         verdict: 'ATST_UYGULANMADI',
         verdictNote:
           `NO_DATA süresi (p50) A=${ndA ?? 'ölçülemedi'} ms → B=${ndB ?? 'ölçülemedi'} ms `
-          + `(oran ${atstEvidenceRatio === null ? 'ölçülemedi' : atstEvidenceRatio.toFixed(2)}×, `
-          + `gereken ≥${ATST_APPLIED_MIN_RATIO}×). Uzayan bekleme cevapsız sorguya YANSIMADI → `
-          + `ayar GEÇMEMİŞ. ATST komutu "OK" dönmüş olabilir (stCommandOk=`
-          + `${tB.stCommandOk === null ? 'bilinmiyor' : String(tB.stCommandOk)}) ama klon adaptör `
+          + `(${how}). Uzayan bekleme cevapsız sorguya YANSIMADI → ayar GEÇMEMİŞ. `
+          + `ATST komutu "OK" dönmüş olabilir (stCommandOk=${stOkTxt}) ama klon adaptör `
           + 'bilinmeyen komuta da OK der — "OK" KANIT DEĞİLDİR. Deney GEÇERSİZ.',
       };
+    }
+
+    /* Ayar uygulandı — hangi yoldan kanıtlandığı hüküm notunun BAŞINA yazılır (mutlak
+       yol oran kadar güçlü değildir: A ile B aynı koşulda kıyaslanmamıştır). Aşağıdaki
+       dallar `note`u yeniden ATADIĞI için prefix ayrı tutulur ve sonda birleştirilir. */
+    if (atstEvidenceMethod === 'ABSOLUTE') {
+      notePrefix = `[ORAN ÖLÇÜLEMEDİ — A'da hiç NO_DATA yok. MUTLAK değere göre ayar `
+                 + `UYGULANDI: B NO_DATA p50 = ${ndB} ms, ELM varsayılan tavanı `
+                 + `~${ELM_DEFAULT_ST_MS} ms'in ${(ndB! / ELM_DEFAULT_ST_MS).toFixed(1)} katı — `
+                 + 'varsayılan ayarla açıklanamaz.] ';
     }
 
     /* B2 — SINIF KAYMASINA KÖRLÜK: NO_DATA düşüşü, OK ARTIŞIYLA karşılanmalı.
@@ -420,13 +550,17 @@ export function buildPidTimingReport(raw: PidTimingRaw | null | undefined): PidT
     failReason,
     stRestored,
     atstEvidenceRatio,
+    atstEvidenceMethod,
+    atstApplied,
+    atstEvidenceAbsMs,
+    notableFindings,
     windowStartMs,
     windowEndMs,
     totals,
     perPid,
     target23: perPid.find((p) => p.pid === '23') ?? null,
     verdict,
-    verdictNote: note,
+    verdictNote: notePrefix + note,
   };
 }
 
@@ -437,7 +571,15 @@ export const EXPERIMENT_VERDICT_LABEL: Readonly<Record<ExperimentVerdict, string
   ATST_KOK_DEGIL: 'ATST KÖK DEĞİL — uzatma fark etmedi, kök başka yerde',
   ZAMAN_ETKISI:   'ZAMAN ETKİSİ — düzelme hattın oturmasından; ATST katkısı BELİRSİZ',
   ATST_UYGULANMADI: 'ATST UYGULANMADI — ayar geçmemiş, deney GEÇERSİZ (hüküm verilmez)',
+  ATST_OLCULEMEDI: 'ATST ÖLÇÜLEMEDİ — hiç NO_DATA yok, ayar kanıtlanamaz (uygulanmadı DEĞİL)',
   BELIRSIZ:       'BELİRSİZ — tekrar gerekiyor',
+};
+
+/** #523 — kanıt yolunun insan-okur etiketi. */
+export const ATST_EVIDENCE_METHOD_LABEL: Readonly<Record<AtstEvidenceMethod, string>> = {
+  RATIO:    'oran (B/A NO_DATA p50)',
+  ABSOLUTE: 'MUTLAK (A\'da NO_DATA yok — B p50 ile varsayılan tavan kıyaslandı)',
+  NONE:     'ölçülemedi (hiç NO_DATA yok)',
 };
 
 export const PID_VERDICT_LABEL: Readonly<Record<PidVerdict, string>> = {

@@ -24,6 +24,8 @@ import { useHALStatusStore } from '../vehicleDataLayer/halStatusStore';
 import { getDevtoolsCaptureStatus } from './devtoolsCapture';
 import { getPollEvidenceCacheState } from '../obd/extendedPollEvidence';
 import { getErrorLog } from '../crashLogger';
+import { getLastPidTimingRaw } from '../obd/pidTimingExperiment';
+import { buildPidTimingReport } from '../obd/pidTimingExperimentModel';
 import type { CarosLabCopyInput } from './carosLabCopyModel';
 
 /** T10: LAB'a taşınan azami hata kaydı (bounded — tavan korunur). */
@@ -119,5 +121,40 @@ export function readCarosLabCopyInput(ctx: CopyContext): CarosLabCopyInput {
        `Date.now()` ile bayatlık hesaplamak YANLIŞ olur; ham geçirilir, yorumlanmaz. */
     sourceHealth: safe(() => useHALStatusStore.getState().sourceHealth as unknown),
     crashDetection: safe(() => getCrashDetectionHealth() as unknown),
+    /* #523 — H-A DENEYİ. Ham örnekler TAŞINMAZ (yüzlerce satır, kopya tavanını
+       yer); yalnız HÜKÜM + KANIT + BULGULAR + aşama/PID ÖZETİ gider. Rapor saf
+       modelden üretilir → kopyadaki sayı ile ekrandaki sayı AYNI kaynaktan gelir,
+       ikinci bir hesap doğmaz. Ekran hiç okunmadıysa `null` (uydurma YOK). */
+    pidTimingExperiment: safe(() => {
+      const cached = getLastPidTimingRaw();
+      if (cached === null) return null;
+      const rep = buildPidTimingReport(cached.raw);
+      return {
+        okunmaZamani:   cached.readAtMs,
+        durum:          rep.status,
+        hukum:          rep.verdict,
+        hukumNotu:      rep.verdictNote,
+        atstUygulandi:  rep.atstApplied,        // null = ÖLÇÜLEMEDİ
+        kanitYolu:      rep.atstEvidenceMethod,
+        kanitOrani:     rep.atstEvidenceRatio,
+        kanitMutlakMs:  rep.atstEvidenceAbsMs,
+        atstGeriAlindi: rep.stRestored,
+        bulgular:       rep.notableFindings,
+        asamalar:       rep.totals.map((t) => ({
+          asama: t.phase, atst: t.stApplied, atstOk: t.stCommandOk,
+          deneme: t.attempts, noData: t.noData, basari: t.success, diger: t.other,
+          noDataOrani: t.noDataRate, basariOrani: t.successRate,
+          basariMs: t.successMs, noDataMs: t.noDataMs, digerMs: t.otherMs,
+          kuyrukMs: t.queueWaitMs, okumaTavaniMs: t.readDeadlineMs,
+          asamaSuresiMs: t.wallMs, baglantidanMs: t.sinceConnectMs,
+        })),
+        pidler: rep.perPid.map((p) => ({
+          pid: p.pid, hedef23: p.pid === '23', hukum: p.verdict,
+          aNoData: p.a?.noDataRate ?? null, bNoData: p.b?.noDataRate ?? null,
+          a2NoData: p.a2?.noDataRate ?? null,
+          aOkP95: p.a?.successMs.p95 ?? null, bOkP95: p.b?.successMs.p95 ?? null,
+        })),
+      } as unknown;
+    }),
   };
 }

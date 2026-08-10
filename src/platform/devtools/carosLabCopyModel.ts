@@ -106,6 +106,19 @@ export interface CarosLabCopyInput {
   readonly blackBox: readonly unknown[] | null;
   /** Debug hata kütüğü (halka tampon). */
   readonly errorLog: readonly unknown[] | null;
+  /**
+   * #523 — H-A DENEYİ (ATST) SONUCU.
+   *
+   * SAHA GEREKÇESİ (2026-08-10): deney gerçek araçta koştu, ekranda hüküm göründü,
+   * ama "TÜMÜNÜ KOPYALA" çıktısında deney bölümü YOKTU — kategori `developer` ve
+   * açık araç `pid-timing-experiment` olmasına rağmen. Ölçüm yapıldı, dışarı
+   * çıkarılamadı; saha oturumu okunamadan gitti.
+   *
+   * `null` = bu oturumda deney ekranı hiç okunmadı. Bu "deney yok" DEMEK DEĞİLDİR
+   * ve öyle sunulmaz — kopya yolu senkrondur, veriyi ancak ekran bir kez okuduysa
+   * önbellekten alabilir.
+   */
+  readonly pidTimingExperiment: unknown | null;
   /** Vehicle HAL kaynak sağlığı — `canAlive/obdAlive/gpsAlive`, null = BİLİNMİYOR. */
   readonly sourceHealth: unknown | null;
   /**
@@ -289,6 +302,14 @@ export function buildCarosLabCopy(input: CarosLabCopyInput): CarosLabCopyResult 
     fromRows('CAN KÜTÜĞÜ', input?.canRaw ?? null, (r) => r),
     fromRows('KEŞİF GÖZLEMLERİ', input?.discovery ?? null, (r) => r),
     fromRows('BLACKBOX ÖRNEKLERİ (1 Hz)', input?.blackBox ?? null, (r) => r),
+    /* #523 — deney sonucu kopyaya GİRER. Sahada bu bölüm yoktu ve gerçek araçta
+       koşmuş bir ölçüm dışarı çıkarılamadı. `null` ise "ekran okunmadı" yazılır —
+       "deney yok" DİYE OKUNMAMALIDIR. */
+    input?.pidTimingExperiment
+      ? fromObject('H-A DENEYİ · ATST YANIT SÜRESİ (#518)', input.pidTimingExperiment)
+      : unreadable('H-A DENEYİ · ATST YANIT SÜRESİ (#518)',
+          'bu oturumda deney ekranı hiç okunmadı — kopya yolu senkrondur, veri ancak '
+          + 'ekran bir kez açıldıysa önbellekte olur. "deney koşmadı" ANLAMINA GELMEZ'),
     /* SAHA (2026-07-25): cihaz çıktısında bu bölüm boştu, oysa KANITLAR'da 40+
        `OBD:Reconnect — CONNECT_FAILED` vardı. Sebep: `dbgPushError`in ÇAĞIRANI YOK —
        kanal yapısal olarak boş. "(kayıt yok)" burada "hata olmadı" diye OKUNUR;
