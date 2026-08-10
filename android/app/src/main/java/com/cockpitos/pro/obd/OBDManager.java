@@ -1247,6 +1247,9 @@ public final class OBDManager {
             out.put("status", exp.status());
             out.put("running", exp.isRunning());
             if (exp.failReason() != null) out.put("failReason", exp.failReason());
+            out.put("stRestored", exp.stRestored());                     // B7
+            out.put("experimentStartMs", ExtendedPollEvidence.INSTANCE.experimentStartMs());  // B5
+            out.put("experimentEndMs",   ExtendedPollEvidence.INSTANCE.experimentEndMs());
 
             org.json.JSONArray ph = new org.json.JSONArray();
             for (PidTimingExperiment.PhaseMeta m : exp.phasesSnapshot()) {
@@ -1257,6 +1260,7 @@ public final class OBDManager {
                 o.put("startedAt", m.startedAt);
                 o.put("finishedAt", m.finishedAt);
                 o.put("sinceConnectMs", m.sinceConnectMs);
+                o.put("readDeadlineMs", m.readDeadlineMs);   // B2
                 ph.put(o);
             }
             out.put("phases", ph);
@@ -1268,6 +1272,7 @@ public final class OBDManager {
                 o.put("pid", s.pid);
                 o.put("outcome", s.outcome);
                 o.put("elapsedMs", s.elapsedMs);
+                o.put("queueWaitMs", s.queueWaitMs);        // B4
                 o.put("respLen", s.respLen);
                 arr.put(o);
             }

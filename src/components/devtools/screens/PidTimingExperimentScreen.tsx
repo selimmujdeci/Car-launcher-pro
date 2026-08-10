@@ -66,6 +66,7 @@ function pct(v: number | null): string {
 function verdictTone(v: string): string {
   if (v === 'ATST_KOKTU') return OK;
   if (v === 'ATST_KOK_DEGIL' || v === 'ZAMAN_ETKISI') return WARN;
+  if (v === 'ATST_UYGULANMADI') return BAD;
   if (v === 'BELIRSIZ') return BAD;
   return NONE;
 }
@@ -180,7 +181,21 @@ function PidTimingExperimentScreenBase() {
                 {EXPERIMENT_VERDICT_LABEL[report.verdict]}
               </Chip>
               <Chip tone={NONE}>durum: {report.status}</Chip>
+              <Chip tone={report.atstEvidenceRatio !== null && report.atstEvidenceRatio >= 2 ? OK : BAD}>
+                ATST kanıtı: {report.atstEvidenceRatio === null
+                  ? UNAVAILABLE
+                  : `${report.atstEvidenceRatio.toFixed(2)}× (gereken ≥2×)`}
+              </Chip>
+              <Chip tone={report.stRestored === 'true' ? OK : WARN}>
+                ATST geri alındı: {report.stRestored}
+              </Chip>
             </div>
+            <p className="mt-2 text-[11px] text-[var(--oem-ink-3)]">
+              Kanıt oranı = B aşamasında NO_DATA süresi (p50) ÷ A aşamasındaki. Cevapsız
+              sorguda adaptör tavana kadar bekler; uzayan ST doğrudan süreye yansır.
+              <b> ATST komutunun &quot;OK&quot; dönmesi ayarın uygulandığını KANITLAMAZ</b> —
+              klon adaptör bilinmeyen komuta da OK der.
+            </p>
             {report.verdictNote && (
               <p className="mt-2 text-[11px] text-[var(--oem-ink-2)]">{report.verdictNote}</p>
             )}
@@ -195,7 +210,9 @@ function PidTimingExperimentScreenBase() {
                 <thead className="text-[var(--oem-ink-3)]">
                   <tr>
                     <th className="py-1 pr-2">aşama</th><th className="pr-2">ATST</th>
+                    <th className="pr-2">ATST OK</th>
                     <th className="pr-2">deneme</th><th className="pr-2">NO_DATA</th>
+                    <th className="pr-2">BAŞARI</th><th className="pr-2">diğer</th>
                     <th className="pr-2">OK p50/p95/max</th>
                     <th className="pr-2">NO_DATA p50/p95/max</th>
                     <th className="pr-2">süre</th>
@@ -207,8 +224,11 @@ function PidTimingExperimentScreenBase() {
                     <tr key={t.phase} className="border-t border-[var(--oem-line)]">
                       <td className="py-1 pr-2">{t.phase}</td>
                       <td className="pr-2">{t.stApplied}</td>
+                      <td className="pr-2">{t.stCommandOk === null ? UNAVAILABLE : (t.stCommandOk ? 'evet' : 'HAYIR')}</td>
                       <td className="pr-2">{t.attempts}</td>
                       <td className="pr-2">{pct(t.noDataRate)}</td>
+                      <td className="pr-2">{pct(t.successRate)}</td>
+                      <td className="pr-2">{t.other}</td>
                       <td className="pr-2">{ms(t.successMs.p50)}/{ms(t.successMs.p95)}/{ms(t.successMs.max)}</td>
                       <td className="pr-2">{ms(t.noDataMs.p50)}/{ms(t.noDataMs.p95)}/{ms(t.noDataMs.max)}</td>
                       <td className="pr-2">{t.wallMs === null ? UNAVAILABLE : `${Math.round(t.wallMs / 1000)}s`}</td>
@@ -239,7 +259,11 @@ function PidTimingExperimentScreenBase() {
             )}
           </Section>
 
-          <Section title="PID başına (rotasyon tasarımının girdisi)">
+          <Section title="PID başına — YÖN GÖSTERİR, HÜKÜM DEĞİLDİR (rotasyon tasarımının girdisi)">
+            <p className="mb-2 text-[11px] text-[var(--oem-ink-3)]">
+              PID başına örnek sayısı küçüktür; istatistiksel hüküm YALNIZ toplamda verilir.
+              Buradaki satırlar eğilim okumak içindir.
+            </p>
             {report.perPid.length === 0 ? (
               <p className="text-[12px] text-[var(--oem-ink-3)]">{UNAVAILABLE} — örnek yok.</p>
             ) : (

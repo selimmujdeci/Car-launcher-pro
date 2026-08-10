@@ -29,7 +29,10 @@ export interface PidTimingSample {
   readonly phase:     string;
   readonly pid:       string;
   readonly outcome:   string;   // OK · NO_DATA · NEG_7F · BUSY · ERROR · TIMEOUT_PARTIAL · OTHER
+  /** SAF komut süresi — kuyruk beklemesi HARİÇ (B4). */
   readonly elapsedMs: number;
+  /** Komutun kuyrukta beklediği süre (B4). -1/eksik = ölçülemedi. */
+  readonly queueWaitMs?: number;
   readonly respLen:   number;
 }
 
@@ -41,6 +44,8 @@ export interface PidTimingPhaseMeta {
   readonly finishedAt:  number;
   /** Baglantidan kac ms sonra basladi — hukmun PARCASI. -1/eksik = bilinmiyor. */
   readonly sinceConnectMs?: number;
+  /** Bu aşamada kullanılan okuma deadline'ı (B2). */
+  readonly readDeadlineMs?: number;
 }
 
 export interface PidTimingRaw {
@@ -49,6 +54,11 @@ export interface PidTimingRaw {
   readonly failReason?: string | null;
   readonly phases:     readonly PidTimingPhaseMeta[];
   readonly samples:    readonly PidTimingSample[];
+  /** ATST geri alma sonucu (B7): 'true' | 'false' | 'UNKNOWN'. Sessiz yutma YOK. */
+  readonly stRestored?: string;
+  /** Deney penceresi (B5) — sonraki saha okumaları bu trafiği ayırabilsin. */
+  readonly experimentStartMs?: number;
+  readonly experimentEndMs?:   number;
 }
 
 /* ── Çıktı ────────────────────────────────────────────────────────────────── */
@@ -70,6 +80,7 @@ export interface PidPhaseStats {
   readonly other:        number;
   /** Örnek yoksa `null`. */
   readonly noDataRate:   number | null;
+  readonly successRate:  number | null;
   readonly successMs:    DurationStats;
   readonly noDataMs:     DurationStats;
 }
@@ -96,12 +107,24 @@ export type PidVerdict =
 export interface PhaseTotals {
   readonly phase:      ExperimentPhase;
   readonly stApplied:  string;
+  /** ATST komutu 'OK' döndü mü. Klon adaptör bilinmeyen komuta da OK der → TEK BAŞINA KANIT DEĞİL. */
+  readonly stCommandOk: boolean | null;
   readonly attempts:   number;
   readonly success:    number;
   readonly noData:     number;
+  /** B2 — OK ve NO_DATA DIŞINDA kalanlar (7F/BUSY/ERROR/TIMEOUT). Sınıf kayması burada görünür. */
+  readonly other:      number;
   readonly noDataRate: number | null;
+  /** B2 — NO_DATA düşüşü OK ARTIŞIYLA karşılanmalı; başka sınıfa kaymayla değil. */
+  readonly successRate: number | null;
   readonly successMs:  DurationStats;
   readonly noDataMs:   DurationStats;
+  /** B2 — 'other' sınıfının süre dağılımı. */
+  readonly otherMs:    DurationStats;
+  /** B4 — kuyrukta bekleme dağılımı (rotasyon tasarımının girdisi). */
+  readonly queueWaitMs: DurationStats;
+  /** B2 — bu aşamada kullanılan okuma deadline'ı. */
+  readonly readDeadlineMs: number | null;
   /** Aşamanın toplam süresi (ms) — meta yoksa `null`. */
   readonly wallMs:     number | null;
   /** Bağlantıdan kaç ms sonra başladı — zaman ekseni. Bilinmiyorsa `null`. */
@@ -117,11 +140,25 @@ export type ExperimentVerdict =
   | 'ATST_KOK_DEGIL'
   /** A kötü · B iyi · A' DE İYİ → düzelme ZAMANDAN; ATST'nin katkısı BELİRSİZ. */
   | 'ZAMAN_ETKISI'
+  /**
+   * B1 — ATST'nin GERÇEKTEN uygulandığı gösterilemedi → hüküm VERİLMEZ.
+   * Klon adaptör bilinmeyen komuta da "OK" der; "OK" ayarın uygulandığını KANITLAMAZ.
+   * Bağımsız kanıt: B aşamasında NO_DATA süresi (p50) A'ya göre en az İKİ KATINA
+   * çıkmalıdır — çünkü uzayan bekleme, cevapsız sorguda DOĞRUDAN süreye yansır.
+   */
+  | 'ATST_UYGULANMADI'
   | 'BELIRSIZ';
 
 export interface PidTimingReport {
   readonly status:      string;
   readonly failReason:  string | null;
+  /** B7 — ATST geri alma sonucu: 'true' | 'false' | 'UNKNOWN'. */
+  readonly stRestored:  string;
+  /** B1 — ATST'nin uygulandığına dair BAĞIMSIZ kanıt (süre oranı). Ölçülemezse null. */
+  readonly atstEvidenceRatio: number | null;
+  /** B5 — deney penceresi; sonraki saha okumaları bu trafiği ayırabilsin. */
+  readonly windowStartMs: number | null;
+  readonly windowEndMs:   number | null;
   readonly totals:      readonly PhaseTotals[];
   readonly perPid:      readonly PidComparison[];
   /** 0x23 ayrı raporlanır — deneyin en somut hedefi (Car Scanner okuyor, biz okumuyoruz). */
@@ -134,10 +171,18 @@ export interface PidTimingReport {
 
 /** Bir PID'in "kurtuldu" sayılması için NO_DATA oranındaki en az mutlak düşüş. */
 export const RESCUE_MIN_DROP = 0.30;
-/** Deney hükmü için en az örnek (aşama başına). */
+/** Deney hükmü için en az örnek (aşama başına) — PID listesi bilinmiyorsa taban. */
 export const MIN_SAMPLES_PER_PHASE = 20;
+/** B7 — aşama başına gereken TAM tur sayısı (kısmi aşamayla hüküm verilmez). */
+export const MIN_ROUNDS_PER_PHASE = 20;
 /** Genel hüküm "ATST kök" için toplam NO_DATA oranındaki en az düşüş. */
 export const VERDICT_MIN_DROP = 0.20;
+/**
+ * B1 — ATST'nin uygulandığının BAĞIMSIZ kanıtı: B aşamasında NO_DATA süresi (p50)
+ * A'ya göre en az bu KAT kadar artmalı. Cevapsız sorguda adaptör tavana kadar bekler,
+ * yani uzayan ST doğrudan süreye yansır. Yansımıyorsa ayar geçmemiştir.
+ */
+export const ATST_APPLIED_MIN_RATIO = 2.0;
 
 /* ── Yardımcılar ──────────────────────────────────────────────────────────── */
 
@@ -180,21 +225,37 @@ function pidPhaseStats(
     success:  success.length,
     noData:   noData.length,
     other,
-    noDataRate: mine.length > 0 ? noData.length / mine.length : null,
+    noDataRate:  mine.length > 0 ? noData.length / mine.length : null,
+    successRate: mine.length > 0 ? success.length / mine.length : null,
     successMs: statsOf(success.map((s) => s.elapsedMs)),
     noDataMs:  statsOf(noData.map((s) => s.elapsedMs)),
   };
 }
 
-function pidVerdict(a: PidPhaseStats | null, b: PidPhaseStats | null): PidVerdict {
+/**
+ * B6 — PID hükmü artık A' (kontrol) aşamasını da alır: bir PID'in "süre ile
+ * kurtulduğu" ancak ATST GERİ ALININCA kaybın GERİ DÖNMESİYLE söylenebilir.
+ * Geri dönmüyorsa iyileşme zamandan gelmiştir; o PID için hüküm 'DEGISMEDI'dir.
+ *
+ * ⚠️ PID başına satırlar YÖN GÖSTERİR, HÜKÜM DEĞİLDİR: PID başına örnek sayısı
+ * (tur sayısı) küçüktür; istatistiksel hüküm YALNIZ toplamda verilir.
+ */
+function pidVerdict(
+  a: PidPhaseStats | null, b: PidPhaseStats | null, a2: PidPhaseStats | null,
+): PidVerdict {
   if (!a || !b || a.attempts === 0 || b.attempts === 0) return 'ELCILMEDI';
   const ra = a.noDataRate;
   const rb = b.noDataRate;
   if (ra === null || rb === null) return 'ELCILMEDI';
   if (ra === 0) return 'ZATEN_SAGLAM';
   const drop = ra - rb;
-  if (drop >= RESCUE_MIN_DROP) return 'SURE_ILE_KURTULDU';
   if (rb - ra >= RESCUE_MIN_DROP) return 'KOTULESTI';
+  if (drop >= RESCUE_MIN_DROP) {
+    /* Kurtuluş iddiası A' ile SINANIR — kontrol yoksa iddia edilmez. */
+    const r2 = a2?.noDataRate ?? null;
+    if (r2 === null) return 'DEGISMEDI';
+    return (r2 - rb >= RESCUE_MIN_DROP) ? 'SURE_ILE_KURTULDU' : 'DEGISMEDI';
+  }
   return 'DEGISMEDI';
 }
 
@@ -205,6 +266,11 @@ export function buildPidTimingReport(raw: PidTimingRaw | null | undefined): PidT
   const phasesMeta = raw?.phases ?? [];
   const status = raw?.status ?? 'idle';
   const failReason = raw?.failReason ?? null;
+  const stRestored = typeof raw?.stRestored === 'string' ? raw.stRestored : 'UNKNOWN';
+  const windowStartMs = typeof raw?.experimentStartMs === 'number' && raw.experimentStartMs > 0
+    ? raw.experimentStartMs : null;
+  const windowEndMs = typeof raw?.experimentEndMs === 'number' && raw.experimentEndMs > 0
+    ? raw.experimentEndMs : null;
 
   const pids = Array.from(new Set(samples.map((s) => s.pid))).sort();
 
@@ -215,15 +281,23 @@ export function buildPidTimingReport(raw: PidTimingRaw | null | undefined): PidT
     const meta = phasesMeta.find((m) => m.phase === ph) ?? null;
     const wall = meta && meta.finishedAt > 0 && meta.startedAt > 0
       ? meta.finishedAt - meta.startedAt : null;
+    const other = mine.filter((s) => s.outcome !== 'OK' && s.outcome !== 'NO_DATA');
     return {
       phase: ph,
       stApplied: meta?.stApplied ?? 'UNKNOWN',
+      stCommandOk: meta ? meta.stCommandOk === true : null,
       attempts: mine.length,
       success: success.length,
       noData: noData.length,
-      noDataRate: mine.length > 0 ? noData.length / mine.length : null,
+      other: other.length,
+      noDataRate:  mine.length > 0 ? noData.length / mine.length : null,
+      successRate: mine.length > 0 ? success.length / mine.length : null,
       successMs: statsOf(success.map((s) => s.elapsedMs)),
       noDataMs:  statsOf(noData.map((s) => s.elapsedMs)),
+      otherMs:   statsOf(other.map((s) => s.elapsedMs)),
+      queueWaitMs: statsOf(mine.map((s) => (typeof s.queueWaitMs === 'number' ? s.queueWaitMs : -1))),
+      readDeadlineMs: (meta && typeof meta.readDeadlineMs === 'number' && meta.readDeadlineMs > 0)
+        ? meta.readDeadlineMs : null,
       wallMs: wall,
       sinceConnectMs: (meta && typeof meta.sinceConnectMs === 'number' && meta.sinceConnectMs >= 0)
         ? meta.sinceConnectMs : null,
@@ -242,27 +316,44 @@ export function buildPidTimingReport(raw: PidTimingRaw | null | undefined): PidT
       b:  b.attempts  > 0 ? b  : null,
       a2: a2.attempts > 0 ? a2 : null,
       noDataRateDelta: delta,
-      verdict: pidVerdict(a.attempts > 0 ? a : null, b.attempts > 0 ? b : null),
+      verdict: pidVerdict(a.attempts > 0 ? a : null, b.attempts > 0 ? b : null,
+                          a2.attempts > 0 ? a2 : null),
     };
   });
 
   const tA  = totals[0];
   const tB  = totals[1];
   const tA2 = totals[2];
+
+  /* B7 — TAM TUR eşiği: kısmi aşamayla hüküm verilmez. Beklenen deneme sayısı
+     PID sayısı × MIN_ROUNDS'tur; yarıda kesilmiş bir aşama "yeterli örnek" SAYILMAZ. */
+  const pidCount = pids.length;
+  const requiredPerPhase = pidCount > 0
+    ? pidCount * MIN_ROUNDS_PER_PHASE
+    : MIN_SAMPLES_PER_PHASE;
+
+  /* B1 — ATST uygulandı mı? BAĞIMSIZ kanıt: cevapsız sorguda adaptör tavana kadar
+     bekler → uzayan ST doğrudan NO_DATA süresine yansır. "OK" yanıtı KANIT DEĞİL. */
+  const ndA = tA.noDataMs.p50;
+  const ndB = tB.noDataMs.p50;
+  const atstEvidenceRatio = (ndA !== null && ndA > 0 && ndB !== null) ? ndB / ndA : null;
+
   let verdict: ExperimentVerdict = 'BELIRSIZ';
   let note = '';
   if (samples.length === 0) {
     verdict = 'OLCUM_YOK';
     note = 'Hiç örnek yok — deney koşmadı ya da sonuç okunamadı.';
-  } else if (tA.attempts < MIN_SAMPLES_PER_PHASE || tB.attempts < MIN_SAMPLES_PER_PHASE) {
+  } else if (tA.attempts < requiredPerPhase || tB.attempts < requiredPerPhase) {
     verdict = 'EKSIK_ASAMA';
-    note = `Aşama başına en az ${MIN_SAMPLES_PER_PHASE} örnek gerekir (A=${tA.attempts}, B=${tB.attempts}).`;
-  } else if (tA2.attempts < MIN_SAMPLES_PER_PHASE) {
+    note = `Aşama başına TAM tur gerekir (${pidCount} PID × ${MIN_ROUNDS_PER_PHASE} tur = `
+         + `${requiredPerPhase} deneme). Gelen: A=${tA.attempts}, B=${tB.attempts}. `
+         + 'Kısmi aşamayla hüküm VERİLMEZ.';
+  } else if (tA2.attempts < requiredPerPhase) {
     /* UCUNCU ASAMA SART: A -> B sirasi ZAMANIN etkisini ATST'ninkinden AYIRAMAZ.
        Hat kendiliginden oturduysa B zaten iyi cikar — ATST hicbir sey yapmasa bile. */
     verdict = 'EKSIK_ASAMA';
-    note = `Kontrol aşaması (A') eksik (${tA2.attempts} örnek) — ATST etkisi ZAMAN etkisinden `
-         + 'AYRILAMAZ, hüküm VERİLMEZ.';
+    note = `Kontrol aşaması (A') eksik (${tA2.attempts}/${requiredPerPhase} deneme) — ATST etkisi `
+         + 'ZAMAN etkisinden AYRILAMAZ, hüküm VERİLMEZ.';
   } else if (tA.noDataRate === null || tB.noDataRate === null || tA2.noDataRate === null) {
     verdict = 'BELIRSIZ';
     note = 'Oran hesaplanamadı.';
@@ -272,10 +363,41 @@ export function buildPidTimingReport(raw: PidTimingRaw | null | undefined): PidT
     const rA2 = tA2.noDataRate;
     const pc = (x: number) => `%${(x * 100).toFixed(0)}`;
     const seq = `${pc(rA)} → ${pc(rB)} → ${pc(rA2)}`;
-    const improvedAB = rA - rB >= VERDICT_MIN_DROP;
+    /* B1 KAPISI — ATST'nin uygulandığı BAĞIMSIZ olarak gösterilemediyse hüküm YOK.
+       Klon adaptör bilinmeyen komuta da "OK" der; `stCommandOk` tek başına yetmez. */
+    const applied = atstEvidenceRatio !== null && atstEvidenceRatio >= ATST_APPLIED_MIN_RATIO;
+    if (!applied) {
+      return {
+        status, failReason, stRestored, atstEvidenceRatio,
+        windowStartMs, windowEndMs, totals, perPid,
+        target23: perPid.find((x) => x.pid === '23') ?? null,
+        verdict: 'ATST_UYGULANMADI',
+        verdictNote:
+          `NO_DATA süresi (p50) A=${ndA ?? 'ölçülemedi'} ms → B=${ndB ?? 'ölçülemedi'} ms `
+          + `(oran ${atstEvidenceRatio === null ? 'ölçülemedi' : atstEvidenceRatio.toFixed(2)}×, `
+          + `gereken ≥${ATST_APPLIED_MIN_RATIO}×). Uzayan bekleme cevapsız sorguya YANSIMADI → `
+          + `ayar GEÇMEMİŞ. ATST komutu "OK" dönmüş olabilir (stCommandOk=`
+          + `${tB.stCommandOk === null ? 'bilinmiyor' : String(tB.stCommandOk)}) ama klon adaptör `
+          + 'bilinmeyen komuta da OK der — "OK" KANIT DEĞİLDİR. Deney GEÇERSİZ.',
+      };
+    }
+
+    /* B2 — SINIF KAYMASINA KÖRLÜK: NO_DATA düşüşü, OK ARTIŞIYLA karşılanmalı.
+       Kayıp 7F/BUSY/ERROR/TIMEOUT'a kaydıysa "iyileşme" YOKTUR, sınıf değişmiştir. */
+    const sA = tA.successRate ?? 0;
+    const sB = tB.successRate ?? 0;
+    const successRose = sB - sA >= VERDICT_MIN_DROP;
+    const improvedAB = (rA - rB >= VERDICT_MIN_DROP) && successRose;
+    const classShift = (rA - rB >= VERDICT_MIN_DROP) && !successRose;
     const revertedA2 = rA2 - rB >= VERDICT_MIN_DROP;
 
-    if (improvedAB && revertedA2) {
+    if (classShift) {
+      verdict = 'BELIRSIZ';
+      note = `NO_DATA ${seq} düştü AMA başarı oranı artmadı `
+           + `(%${(sA * 100).toFixed(0)} → %${(sB * 100).toFixed(0)}; 'diğer' sınıf `
+           + `${tA.other} → ${tB.other}). Kayıp iyileşmedi, SINIF DEĞİŞTİRDİ — `
+           + '7F/BUSY/ERROR/TIMEOUT tarafına kaymış olabilir. İyileşme İDDİA EDİLMEZ.';
+    } else if (improvedAB && revertedA2) {
       verdict = 'ATST_KOKTU';
       note = `NO_DATA ${seq} — ATST uzatılınca düştü, GERİ ALININCA yeniden yükseldi. `
            + 'Düzelme zamandan değil, bekleme süresinden geldi: KÖK BUDUR.';
@@ -296,6 +418,10 @@ export function buildPidTimingReport(raw: PidTimingRaw | null | undefined): PidT
   return {
     status,
     failReason,
+    stRestored,
+    atstEvidenceRatio,
+    windowStartMs,
+    windowEndMs,
     totals,
     perPid,
     target23: perPid.find((p) => p.pid === '23') ?? null,
@@ -310,6 +436,7 @@ export const EXPERIMENT_VERDICT_LABEL: Readonly<Record<ExperimentVerdict, string
   ATST_KOKTU:     'ATST KÖKTÜ — bekleme süresi uzayınca kayıp belirgin azaldı',
   ATST_KOK_DEGIL: 'ATST KÖK DEĞİL — uzatma fark etmedi, kök başka yerde',
   ZAMAN_ETKISI:   'ZAMAN ETKİSİ — düzelme hattın oturmasından; ATST katkısı BELİRSİZ',
+  ATST_UYGULANMADI: 'ATST UYGULANMADI — ayar geçmemiş, deney GEÇERSİZ (hüküm verilmez)',
   BELIRSIZ:       'BELİRSİZ — tekrar gerekiyor',
 };
 

@@ -33,6 +33,28 @@ public final class ExtendedPollEvidence {
     /** Süreç-genişliği tekil — iki manager da aynı örneğe yazar (aynı anda yalnız biri aktif). */
     public static final ExtendedPollEvidence INSTANCE = new ExtendedPollEvidence();
 
+    /* ── B5 (#518) · DENEY PENCERESİ DAMGASI ───────────────────────────────
+     * H-A deneyi USER önceliğiyle AYNI hatta komut gönderir. Damga olmazsa
+     * sonraki saha okumaları deney trafiğiyle KİRLENMİŞ olur ve kimse ayıramaz.
+     * Snapshot yapıcısı pozisyoneldir → ayrı tutulur, ayrıca yayınlanır.
+     * 0 = deney hiç koşmadı. */
+    private volatile long experimentStartMs = 0L;
+    private volatile long experimentEndMs   = 0L;
+
+    /** Deney başladı — pencere açılır (bitiş sıfırlanır). */
+    public void markExperimentStart(long nowMs) {
+        experimentStartMs = nowMs;
+        experimentEndMs   = 0L;
+    }
+
+    /** Deney bitti/iptal edildi — pencere kapanır. */
+    public void markExperimentEnd(long nowMs) {
+        experimentEndMs = nowMs;
+    }
+
+    public long experimentStartMs() { return experimentStartMs; }
+    public long experimentEndMs()   { return experimentEndMs; }
+
     /**
      * Bir extended PID denemesinin sonucu — {@link ElmResponseParser.Kind}'den türetilir
      * (+ native-özel {@code CANCELLED}: kopma/kapanışta okunmadan atlanan PID).

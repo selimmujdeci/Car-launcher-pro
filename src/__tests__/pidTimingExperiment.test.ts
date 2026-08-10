@@ -10,18 +10,27 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { CAROS_LAB_TOOLS } from '../platform/devtools/carosLabCatalog';
 import {
-  buildPidTimingReport, RESCUE_MIN_DROP, MIN_SAMPLES_PER_PHASE, VERDICT_MIN_DROP,
+  buildPidTimingReport, RESCUE_MIN_DROP, MIN_SAMPLES_PER_PHASE, MIN_ROUNDS_PER_PHASE,
+  VERDICT_MIN_DROP, ATST_APPLIED_MIN_RATIO,
   EXPERIMENT_VERDICT_LABEL, PID_VERDICT_LABEL,
   type PidTimingSample, type PidTimingRaw,
 } from '../platform/obd/pidTimingExperimentModel';
 
 /** n örnek üretir: `okCount` tanesi OK (süre `okMs`), kalanı NO_DATA (süre `ndMs`). */
+/**
+ * n örnek üretir. NO_DATA süresi AŞAMAYA göre varsayılan alır: B'de ~1010 ms
+ * (ATST FF uygulanmış), A/A'de ~210 ms (ELM varsayılanı). Bu, B1'in bağımsız
+ * kanıt kapısını gerçekçi kılar — sabit süre kullanılsaydı her kurgu
+ * `ATST_UYGULANMADI`ya düşerdi (ve nitekim ilk yazımda düşüyordu).
+ */
 function mk(phase: 'A' | 'B' | 'A2', pid: string, n: number, okCount: number,
-            okMs = 60, ndMs = 210): PidTimingSample[] {
+            okMs = 60, ndMs?: number): PidTimingSample[] {
+  const nd = ndMs ?? (phase === 'B' ? 1010 : 210);
   return Array.from({ length: n }, (_, i) => ({
     phase, pid,
     outcome: i < okCount ? 'OK' : 'NO_DATA',
-    elapsedMs: i < okCount ? okMs : ndMs,
+    elapsedMs: i < okCount ? okMs : nd,
+    queueWaitMs: 5,
     respLen: i < okCount ? 12 : 8,
   }));
 }
@@ -30,11 +39,14 @@ function raw(samples: PidTimingSample[], stB = 'FF'): PidTimingRaw {
   return {
     status: 'done',
     phases: [
-      { phase: 'A',  stApplied: 'default', stCommandOk: true, startedAt: 1000,  finishedAt: 21000, sinceConnectMs: 5000 },
-      { phase: 'B',  stApplied: stB,       stCommandOk: true, startedAt: 22000, finishedAt: 70000, sinceConnectMs: 26000 },
-      { phase: 'A2', stApplied: '32',      stCommandOk: true, startedAt: 71000, finishedAt: 91000, sinceConnectMs: 75000 },
+      { phase: 'A',  stApplied: 'UNKNOWN', stCommandOk: true, startedAt: 1000,  finishedAt: 21000, sinceConnectMs: 5000,  readDeadlineMs: 1500 },
+      { phase: 'B',  stApplied: stB,        stCommandOk: true, startedAt: 22000, finishedAt: 70000, sinceConnectMs: 26000, readDeadlineMs: 1620 },
+      { phase: 'A2', stApplied: '32',       stCommandOk: true, startedAt: 71000, finishedAt: 91000, sinceConnectMs: 75000, readDeadlineMs: 1500 },
     ],
     samples,
+    stRestored: 'true',
+    experimentStartMs: 1000,
+    experimentEndMs: 91000,
   };
 }
 
@@ -163,10 +175,27 @@ describe('deney hükmü — her iki yön de kilitli', () => {
     expect(r.verdictNote).toMatch(/[Kk]ök BAŞKA yerde/);
   });
 
-  it('🔒 az örnekte hüküm VERİLMEZ', () => {
+  it('🔒 KISMİ aşamayla hüküm VERİLMEZ — tam tur şartı (B7)', () => {
+    /* 1 PID × 20 tur = 20 deneme gerekir; 5 gelmiş. */
     const r = buildPidTimingReport(raw(trio('23', [5, 2], [5, 5], [5, 2])));
-    expect(MIN_SAMPLES_PER_PHASE).toBe(20);
+    expect(MIN_ROUNDS_PER_PHASE).toBe(20);
     expect(r.verdict).toBe('EKSIK_ASAMA');
+    expect(r.verdictNote, 'kısmi aşama gerekçesi yazılmamış').toMatch(/TAM tur|Kısmi aşamayla/);
+  });
+
+  it('🔒 iki PID varsa eşik İKİYE katlanır (yarım tur yeterli SAYILMAZ)', () => {
+    /* 2 PID × 20 tur = 40 deneme gerekir; her PID'den 20 → toplam 40 → yeterli.
+       Ama tek PID'den 20 gelirse (toplam 20) YETERSİZ olmalı. */
+    const yeterli = buildPidTimingReport(raw([
+      ...trio('23', [20, 8], [20, 19], [20, 7]),
+      ...trio('2C', [20, 10], [20, 18], [20, 9]),
+    ]));
+    expect(yeterli.verdict).not.toBe('EKSIK_ASAMA');
+    const yarim = buildPidTimingReport(raw([
+      ...trio('23', [20, 8], [20, 19], [20, 7]),
+      ...trio('2C', [10, 5], [10, 9], [10, 4]),
+    ]));
+    expect(yarim.verdict, 'yarım tur yeterli sayılmış').toBe('EKSIK_ASAMA');
   });
 
   it('🔒 kötüleşme BELIRSIZ sayılır — "iyileşti" diye sunulmaz', () => {
@@ -289,5 +318,105 @@ describe('LAB · H-A deneyi ekranı', () => {
     const body = fn.slice(0, fn.indexOf('\n    }'));
     expect(body, 'parametre hex ile sınırlanmamış').toMatch(/matches\("\[0-9A-F\]\{2\}"\)/);
     expect(body, 'komut dışarıdan geliyor — arka kapı').toMatch(/"ATST" \+ v/);
+  });
+});
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * DENETİM DÜZELTMELERİ (#518 · B1/B2/B6/B7) — deneyi GEÇERSİZ kılan boşluklar
+ * ════════════════════════════════════════════════════════════════════════ */
+
+describe('B1 — ATST uygulandığı BAĞIMSIZ gösterilmeli', () => {
+  it('🔒 NO_DATA süresi iki katına çıkmadıysa ATST_UYGULANMADI (hüküm YOK)', () => {
+    /* Klasik tuzak: oran düşmüş görünüyor AMA ayar hiç geçmemiş. */
+    const s = [
+      ...mk('A',  '23', 20, 8,  60, 210),
+      ...mk('B',  '23', 20, 19, 60, 215),   // süre AYNI → ayar geçmemiş
+      ...mk('A2', '23', 20, 7,  60, 210),
+    ];
+    const r = buildPidTimingReport(raw(s));
+    expect(r.verdict).toBe('ATST_UYGULANMADI');
+    expect(r.verdictNote, 'OK yanıtının kanıt olmadığı yazılmamış').toMatch(/KANIT DEĞİLDİR/);
+    expect(ATST_APPLIED_MIN_RATIO).toBe(2.0);
+  });
+
+  it('🔒 stCommandOk TRUE olsa bile süre kanıtı yoksa hüküm VERİLMEZ', () => {
+    const s = [
+      ...mk('A',  '23', 20, 8,  60, 200),
+      ...mk('B',  '23', 20, 19, 60, 240),
+      ...mk('A2', '23', 20, 7,  60, 200),
+    ];
+    const r = buildPidTimingReport(raw(s));   // fixture stCommandOk: true
+    expect(r.totals[1].stCommandOk).toBe(true);
+    expect(r.verdict, 'klon "OK" dedi diye hüküm verilmiş').toBe('ATST_UYGULANMADI');
+  });
+
+  it('🔒 kanıt oranı rapora taşınır', () => {
+    const r = buildPidTimingReport(raw(trio('23', [20, 8], [20, 19], [20, 7])));
+    expect(r.atstEvidenceRatio).not.toBeNull();
+    expect(r.atstEvidenceRatio!).toBeGreaterThanOrEqual(2.0);
+  });
+});
+
+describe('B2 — sınıf kaymasına körlük kapalı', () => {
+  it('🔒 NO_DATA düştü ama OK ARTMADIYSA iyileşme İDDİA EDİLMEZ', () => {
+    /* NO_DATA 60% → 10%, ama kayıp 7F/BUSY'ye kaymış: OK aynı kalmış. */
+    const mkShift = (phase: 'A' | 'B' | 'A2', ok: number, nd: number, other: number) => [
+      ...Array.from({ length: ok }, () => ({ phase, pid: '23', outcome: 'OK',
+        elapsedMs: 60, queueWaitMs: 5, respLen: 12 })),
+      ...Array.from({ length: nd }, () => ({ phase, pid: '23', outcome: 'NO_DATA',
+        elapsedMs: phase === 'B' ? 1010 : 210, queueWaitMs: 5, respLen: 8 })),
+      ...Array.from({ length: other }, () => ({ phase, pid: '23', outcome: 'NEG_7F',
+        elapsedMs: 90, queueWaitMs: 5, respLen: 6 })),
+    ];
+    const r = buildPidTimingReport(raw([
+      ...mkShift('A',  8, 12, 0),
+      ...mkShift('B',  8,  2, 10),   // NO_DATA düştü, OK AYNI, 'diğer' fırladı
+      ...mkShift('A2', 8, 12, 0),
+    ] as never));
+    expect(r.verdict).toBe('BELIRSIZ');
+    expect(r.verdictNote, 'sınıf kayması söylenmiyor').toMatch(/SINIF DEĞİŞTİRDİ/);
+    expect(r.totals[1].other).toBe(10);
+  });
+
+  it('🔒 other / successRate / otherMs / queueWaitMs raporda var', () => {
+    const r = buildPidTimingReport(raw(trio('23', [20, 8], [20, 19], [20, 7])));
+    const b = r.totals[1];
+    expect(b.other).toBe(0);
+    expect(b.successRate).toBeCloseTo(0.95, 6);
+    expect(b.otherMs.count).toBe(0);
+    expect(b.queueWaitMs.p50).toBe(5);
+    expect(b.readDeadlineMs, 'deadline ATST degerine gore olceklenmemis').toBe(1620);
+  });
+});
+
+describe('B6 — PID hükmü kontrol aşamasını alır', () => {
+  it('🔒 kurtulus ancak A2 asamasinda GERI DONDUYSE gecerli', () => {
+    const geriDondu = buildPidTimingReport(raw(trio('23', [20, 4], [20, 19], [20, 5])));
+    expect(geriDondu.target23!.verdict).toBe('SURE_ILE_KURTULDU');
+    const donmedi = buildPidTimingReport(raw(trio('23', [20, 4], [20, 19], [20, 19])));
+    expect(donmedi.target23!.verdict, 'geri dönmeden kurtuluş iddia edilmiş').toBe('DEGISMEDI');
+  });
+});
+
+describe('B7 — dürüstlük', () => {
+  it('🔒 ATST geri alma sonucu rapora taşınır (sessiz yutma yok)', () => {
+    const r = buildPidTimingReport(raw(trio('23', [20, 8], [20, 19], [20, 7])));
+    expect(r.stRestored).toBe('true');
+    const bilinmiyor = buildPidTimingReport({
+      status: 'done', phases: [], samples: [],
+    });
+    expect(bilinmiyor.stRestored, 'bilinmeyen durum UNKNOWN yazılmamış').toBe('UNKNOWN');
+  });
+
+  it('🔒 deney penceresi damgası taşınır (B5 — saha okuması kirlenmesin)', () => {
+    const r = buildPidTimingReport(raw(trio('23', [20, 8], [20, 19], [20, 7])));
+    expect(r.windowStartMs).toBe(1000);
+    expect(r.windowEndMs).toBe(91000);
+  });
+
+  it('🔒 A aşamasının stApplied değeri UNKNOWN (sahte kesinlik yok — B3)', () => {
+    const r = buildPidTimingReport(raw(trio('23', [20, 8], [20, 19], [20, 7])));
+    expect(r.totals[0].stApplied, 'adaptorun gercek ST degeri biliniyormus gibi yazilmis')
+      .toBe('UNKNOWN');
   });
 });

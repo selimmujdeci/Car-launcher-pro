@@ -224,8 +224,21 @@ public final class ElmProtocol {
      * hiç ek OBD komutu göndermez.
      */
     public ElmResponseParser.Result readPidClassified(String pid) {
+        return readPidClassified(pid, 1500);
+    }
+
+    /**
+     * B2 (#518 denetimi) — AÇIK deadline'lı okuma.
+     *
+     * KÖK: sabit 1500 ms, `ATST FF` (~1020 ms) altında yalnız ~480 ms marj bırakır;
+     * ECU tam da uzatmanın kazandırdığı pencerede cevap verirse BİZ kesiyoruz ve
+     * deney "uzatma işe yaramadı" diye YANLIŞ ölçüyor. Çağıran deadline'ı ATST'ye
+     * göre ölçekler: {@code max(1500, stMs + 600)}.
+     */
+    public ElmResponseParser.Result readPidClassified(String pid, int timeoutMs) {
         String p = pid.toUpperCase(java.util.Locale.ROOT);
-        return sendAndClassify("01" + p, 1500, "41", p);
+        int t = Math.max(500, timeoutMs);
+        return sendAndClassify("01" + p, t, "41", p);
     }
 
     // ── W5-OBD-PR1: El sıkışması (VIN + desteklenen-PID bitmap keşfi) ──────────
