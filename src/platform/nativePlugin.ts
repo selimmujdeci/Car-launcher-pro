@@ -971,12 +971,28 @@ export interface CarLauncherPlugin {
   startPidTimingExperiment?(o: { pids: string[]; rounds: number; stHex: string }):
     Promise<{ started: boolean; reason?: string }>;
   abortPidTimingExperiment?(): Promise<void>;
+  /* #523 — ARAYÜZ NATIVE İLE HİZALANDI. Native bu alanları ZATEN gönderiyordu
+     (`OBDManager.getPidTimingExperimentJson`: stRestored/B7 · deney penceresi/B5 ·
+     sinceConnectMs · readDeadlineMs/B2 · queueWaitMs/B4) ama arayüzde tanımlı
+     olmadıkları için köprü onları OKUYAMIYORDU → ekranda "ATST geri alındı:
+     UNKNOWN" görünüyordu. Native sağlamdı; eksik olan bu sözleşmeydi. */
   getPidTimingExperiment?(): Promise<{
     status: string; running?: boolean; failReason?: string | null;
+    /** B7 — ATST geri alma sonucu: 'true' | 'false' | 'UNKNOWN'. */
+    stRestored?: string;
+    /** B5 — deney penceresi; sonraki saha okumaları bu trafiği ayırabilsin. */
+    experimentStartMs?: number;
+    experimentEndMs?: number;
     phases: { phase: string; stApplied: string; stCommandOk: boolean;
-              startedAt: number; finishedAt: number }[];
+              startedAt: number; finishedAt: number;
+              /** Aşama bağlantıdan kaç ms sonra başladı. -1 = bilinmiyor. */
+              sinceConnectMs?: number;
+              /** B2 — okuma deadline'ı (ATST'ye göre ölçeklenir). */
+              readDeadlineMs?: number }[];
     samples: { phase: string; pid: string; outcome: string;
-               elapsedMs: number; respLen: number }[];
+               elapsedMs: number; respLen: number;
+               /** B4 — kuyrukta bekleme; saf komut süresinden AYRI taşınır. */
+               queueWaitMs?: number }[];
   }>;
 
   // PHONE-HUB P0.5: SALT-OKUNUR donanım gözlemi (Bluetooth adapter/profil/izin,
