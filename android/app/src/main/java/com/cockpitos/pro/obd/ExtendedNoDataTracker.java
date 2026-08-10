@@ -230,6 +230,15 @@ final class ExtendedNoDataTracker {
 
     /* ── Görünürlük (LAB) — "neden sorulmuyor" sorusu cevapsız kalmasın ────── */
 
+    /**
+     * #525 — bu PID KALICI mı elendi yoksa GEÇİCİ mi duraklatıldı?
+     * Çağıran TS'e doğru sebebi bildirmek zorundadır: TS tarafı "no_data"yı
+     * KALICI "araç vermiyor" olarak kaydediyordu ve geçici duraklatma da aynı
+     * kanaldan gidince PID sıraya geri girse bile TS onu elenmiş sayıyordu
+     * (saha 2026-08-10: native 0 elenmiş derken timeline 3 diyordu).
+     */
+    boolean isPermanent(String pid) { return permanent.contains(pid); }
+
     /** Oturum-içi KALICI elenmiş PID sayısı (hiç OK dönmemiş olanlar). */
     int permanentCount() { return permanent.size(); }
     /** Şu an GEÇİCİ duraklatılmış PID sayısı. */

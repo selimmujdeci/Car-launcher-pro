@@ -5208,3 +5208,54 @@ describe('🔒 KİLİT 24 · PID eleme çağlayanı (#524)', () => {
     expect(mod, 'sahte 0 üretiliyor olabilir').toMatch(/Eleme yok" ANLAMINA GELMEZ|ANLAMINA GELMEZ/);
   });
 });
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * 🔒 KİLİT 25 · TS TARAFI İKİNCİ ELEME OTORİTESİ (#525)
+ *
+ * SAHA (2026-08-10, #524 sonrası ilk koşum): native eleme motoru DÜZELDİ
+ * (`permanentCount: 0`, `everOkCount: 11/11`) ama AYNI snapshot'ta TS timeline
+ * `demoted: 3` diyordu ve kanıt motoru "3 PID araç tarafından verilmiyor:
+ * 33, 10, 1C" cümlesini kuruyordu. Üstelik `lastSuccessfulPid` de "33"tü —
+ * yani 0x33 hem SON BAŞARILI okuma hem "verilmiyor" listesindeydi.
+ *
+ * İki kök: (a) `_unavailable` bir kez yazılınca yalnız reset'te temizleniyordu,
+ * PID yeniden veri verse bile kayıt kalıcıydı; (b) native'in GEÇİCİ duraklatması
+ * TS'e "no_data" diye gidiyor ve KALICI kaydediliyordu.
+ * ════════════════════════════════════════════════════════════════════════ */
+describe('🔒 KİLİT 25 · TS eleme kaydı gerçek veriyle çelişemez (#525)', () => {
+  const src = (p: string) => readFileSync(resolve(__dirname, '..', p), 'utf8');
+  const java = (p: string) =>
+    readFileSync(resolve(__dirname, '../../android/app/src/main/java/com/cockpitos/pro', p), 'utf8');
+
+  it('🔒 gerçek değer gelince "verilmiyor" kaydı SİLİNİR', () => {
+    const s = src('platform/obd/extendedPidService.ts');
+    expect(s, 'deger gelince _unavailable temizlenmiyor — 0x33 celiskisi geri doner')
+      .toMatch(/_unavailable\.delete\(pid\)/);
+  });
+
+  it('🔒 "artık akmıyor" bilgisi KORUNUR — no_data sırası gevşetilmemiş', () => {
+    const s = src('platform/obd/extendedPidService.ts');
+    /* Düzeltme sıra DEĞİŞTİRMEK değildi: kayıt bir kez yazılınca hiç
+       silinmiyordu. Sırayı gevşetmek "değer var ama artık akmıyor" durumunu
+       kaybettirir — o yüzden bu kontrol yerinde kalmalı. */
+    expect(s, 'no_data siralamasi gevsetilmis — "artik akmiyor" bilgisi kaybolur')
+      .toMatch(/if \(v && !_unavailable\.has\(key\)\)/);
+    expect(s, 'sira degistirme girisiminin gerekcesi kaybolmus')
+      .toMatch(/ARTIK\s*\n?\s*\*?\s*AKMIYOR/);
+  });
+
+  it('🔒 GEÇİCİ duraklatma kalıcı "verilmiyor" listesine YAZILMAZ', () => {
+    const s = src('platform/obd/extendedPidService.ts');
+    expect(s, 'paused durumu ayirt edilmiyor').toMatch(/status === 'paused'/);
+  });
+
+  it('🔒 native KALICI ile GEÇİCİ elemeyi AYRI sebeple bildirir', () => {
+    for (const f of ['obd/OBDManager.java', 'obd/BleObdManager.java']) {
+      const s = java(f);
+      expect(s, `${f}: eleme sebebi ayirt edilmiyor`)
+        .toMatch(/isPermanent\(extPid\) \? "no_data" : "paused"/);
+    }
+    const t = java('obd/ExtendedNoDataTracker.java');
+    expect(t, 'isPermanent sorgusu yok').toMatch(/boolean isPermanent\(String pid\)/);
+  });
+});

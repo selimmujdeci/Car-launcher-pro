@@ -471,7 +471,12 @@ public final class BleObdManager {
         if (emit) listener.onExtendedPid(extPid, r.dataHex);
         // PR-OBD-KWP-1: NO_DATA/7F öğrenmesi — eşik aşıldıysa TEK KEZ TS'e bildir (gerçek neden).
         if (extNoData.recordOutcome(extPid, r, pollCycle)) {
-            listener.onExtendedPidUnavailable(extPid, "no_data");
+            /* #525: KALICI eleme ile GEÇİCİ duraklatma AYRI sebeple bildirilir.
+               Eskiden ikisi de "no_data" gidiyordu ve TS geçici duraklatmayı da
+               KALICI "araç vermiyor" diye kaydediyordu → PID sıraya geri girse
+               bile TS onu elenmiş saymaya devam ediyordu (ikinci otorite). */
+            listener.onExtendedPidUnavailable(extPid,
+                extNoData.isPermanent(extPid) ? "no_data" : "paused");
         }
     }
 

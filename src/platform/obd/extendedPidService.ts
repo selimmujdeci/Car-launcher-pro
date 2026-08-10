@@ -183,6 +183,22 @@ function _onExtendedData(event: { pid: string; data: string }): void {
     };
     _values.set(pid, entry);
     _jsValuesStored++; // PR-OBD-DIAG-3: değer saklandı → obdDeep.extended.samples adayı
+
+    /* ── #525 · GERÇEK DEĞER, "VERİLMİYOR" KAYDINI GEÇERSİZ KILAR ────────────
+     * SAHA (2026-08-10): aynı snapshot'ta `lastSuccessfulPid: "33"` ile
+     * `unavailable_pids: "33, 10, 1C"` YAN YANA duruyordu. Kök: `_unavailable`
+     * bir kez yazıldıktan sonra YALNIZ reset/liste değişiminde temizleniyordu;
+     * PID yeniden veri vermeye başlasa bile kayıt KALICI kalıyordu.
+     *
+     * #524 native tarafta "bir kez OK dönen PID kalıcı elenemez" sözleşmesini
+     * kurdu; bu satır TS tarafını AYNI sözleşmeye bağlar — aksi hâlde native
+     * PID'i sıraya geri alırken TS onu hâlâ "araç vermiyor" diye raporluyordu
+     * (ikinci otorite: native 0 elenmiş derken timeline 3 diyordu).
+     *
+     * Silme KANIT KAYBI DEĞİLDİR: elenme olayı `extendedPollTimeline`e zaten
+     * kalıcı yazıldı; burada temizlenen yalnız GÜNCEL durum iddiasıdır. */
+    _unavailable.delete(pid);
+
     _sampleTimeline(entry.updatedAt);   // #512: eleme ↔ tazelik zaman ekseni
     _watchers.get(pid)?.forEach((cb) => {
       try { cb(entry); } catch (e) { logError('OBD:ExtPidWatcher', e); }
@@ -218,7 +234,25 @@ function _onExtendedPidStatus(event: { pid: string; status: string }): void {
   try {
     const pid = (event.pid ?? '').toUpperCase();
     if (!pid) return;
-    _unavailable.set(pid, event.status || 'no_data');
+    const status = event.status || 'no_data';
+
+    /* ── #525 · GEÇİCİ DURAKLATMA "ARAÇ VERMİYOR" DEĞİLDİR ──────────────────
+     * #524 native tarafta iki ayrı sonuç üretiyor:
+     *   · "no_data" → hiç OK dönmemiş PID, oturum-içi KALICI eleme
+     *   · "paused"  → OK dönmüş ama şimdi susan PID, GEÇİCİ duraklatma; süre
+     *                 dolunca sıraya GERİ girer
+     * Eskiden ikisi de aynı kanaldan "no_data" geliyordu ve TS geçici olanı da
+     * kalıcı "araç vermiyor" diye kaydediyordu. Sonuç (saha 2026-08-10): native
+     * `permanentCount: 0` derken TS timeline `demoted: 3` diyordu ve kanıt
+     * motoru "3 PID araç tarafından verilmiyor" cümlesini kuruyordu.
+     * Geçici duraklatma `_unavailable`a YAZILMAZ — durumu native taşır
+     * (`elim.pausedRemainingCycles`, LAB'da kalan turuyla görünür). */
+    if (status === 'paused') {
+      _sampleTimeline(Date.now());   // geçiş anı yine kaydedilir (kanıt kaybı yok)
+      return;
+    }
+
+    _unavailable.set(pid, status);
     /* Eleme ANI throttle'dan MUAF kaydedilir — geçişin tam noktası en değerli örnek. */
     _sampleTimeline(Date.now());
     // Değer önbelleği bilinçli KORUNUR: daha önce gerçek değer geldiyse UI onu
@@ -381,6 +415,12 @@ export type ExtendedPidStatus =
 export function getPidStatus(pid: string, staleMs = 15_000): ExtendedPidStatus {
   const key = pid.toUpperCase();
   const v = _values.get(key);
+  /* #525 — SIRA BİLİNÇLİ OLARAK KORUNDU: bir PID hem "verilmiyor" kaydında hem
+     önbellekte değerliyse, `no_data` doğru cevaptır ("değer var ama ARTIK
+     AKMIYOR"). Sahadaki 0x33 çelişkisinin kökü bu sıra DEĞİLDİ — kayıt bir kez
+     yazılınca HİÇ silinmiyordu. Düzeltme `_onExtendedData` içinde: gerçek değer
+     geldiği anda kayıt düşer, dolayısıyla akan bir PID buraya `no_data` olarak
+     GELEMEZ. Bu satırı gevşetmek "artık akmıyor" bilgisini kaybettirirdi. */
   if (v && !_unavailable.has(key)) {
     return Date.now() - v.updatedAt <= staleMs ? 'live' : 'stale';
   }
