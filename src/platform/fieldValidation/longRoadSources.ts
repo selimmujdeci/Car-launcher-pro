@@ -130,7 +130,8 @@ export function readLongRoadSample(
     obdDataFresh:          odata ? odata.dataFresh : null,
     obdConnectionState:    status ? status.connectionState : null,
     obdSource:             status ? status.source : null,
-    obdLastPacketAgeMs:    hlth ? _numOrNull(hlth.lastPacketAgeMs) : null,
+    /* #517: LINK paketi yaşı (ATRV DAHİL) — ECU verisi yaşı DEĞİL. */
+    obdLastPacketAgeMs:    hlth ? _numOrNull(hlth.lastLinkPacketAgeMs) : null,
     handshakeOutcome:      hs ? hs.outcome : null,
     protocolActive:        hs ? hs.protocolActive : null,
     protocolTried:         hs ? hs.protocolTried : null,

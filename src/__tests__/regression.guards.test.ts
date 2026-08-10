@@ -5064,3 +5064,61 @@ describe('🔒 KİLİT 22 · VIN maskeleme tek otorite', () => {
     ).toEqual([]);
   });
 });
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * KİLİT 23 · İKİ OTORİTE — AYNI ADA İKİ ANLAM YASAK (#517)
+ *
+ * BOZULMA: `connLifecycle.lastPacketAgeMs` ve `ObdHealthMonitor.lastPacketAgeMs`
+ * AYNI ada sahipti ama BAŞKA ŞEY ölçüyordu: biri ECU verisi yaşı (ATRV HARİÇ),
+ * diğeri kabul edilen HERHANGİ paketin yaşı (ATRV DAHİL). Sahada 44 892 ms vs
+ * 2 088 ms görüldü ve "çelişki" sanıldı — çelişki DEĞİLDİ, link canlı ECU susmuştu.
+ * İki sayı da DOĞRUYDU; yanlış olan ADLARIYDI. Teşhis o sayılara bakarak yapılıyor:
+ * 45 sn mi 2 sn mi olduğu "kanal öldü mü" hükmünü DOĞRUDAN değiştirir.
+ *
+ * KURAL: aynı anlık görüntüde iki alan aynı adı taşıyıp farklı şey ölçemez.
+ * ════════════════════════════════════════════════════════════════════════ */
+describe('🔒 KİLİT 23 · iki otorite / aynı ada iki anlam (#517)', () => {
+  const src = (p: string) => readFileSync(resolve(__dirname, '..', p), 'utf8');
+
+  it('🔒 ECU verisi yaşı ile LİNK paketi yaşı AYRI adlarda', () => {
+    const obd = src('platform/obdService.ts');
+    expect(obd, 'connLifecycle hâlâ belirsiz `lastPacketAgeMs` adını kullanıyor')
+      .toMatch(/lastEcuDataAgeMs:\s+_lastRealDataMs/);
+
+    const build = src('platform/devtools/sessionInspectorBuild.ts');
+    expect(build).toMatch(/lastEcuDataAgeMs/);
+    expect(build).toMatch(/lastLinkPacketAgeMs/);
+    /* Aynı dosyada iki alan AYNI adı taşıyamaz. */
+    expect(build, 'oturum denetçisinde belirsiz `lastPacketAgeMs` geri gelmiş')
+      .not.toMatch(/\blastPacketAgeMs\b/);
+  });
+
+  it('🔒 adaptör tanılamada da ayrım korunur (ikinci ekran)', () => {
+    const model = src('platform/devtools/adapterDiagnosticsModel.ts');
+    expect(model).toMatch(/lastEcuDataAgeMs/);
+    expect(model).toMatch(/lastLinkPacketAgeMs/);
+    expect(model, 'adaptör tanılamada belirsiz ad geri gelmiş')
+      .not.toMatch(/readonly\s+lastPacketAgeMs/);
+  });
+
+  it('🔒 ATRV ayrımının GEREKÇESİ koda yazılı (bir daha silinmesin)', () => {
+    const obd = src('platform/obdService.ts');
+    expect(obd, 'ATRV hariç tutma gerekçesi kaybolmuş').toMatch(/ATRV[\s\S]{0,400}MASKELE/i);
+  });
+
+  it('🔒 kaynak canlılığında iki otorite AYRIŞMASI sessiz geçilmez', () => {
+    const build = src('platform/devtools/sessionInspectorBuild.ts');
+    expect(build, 'ayrışma dedektörü kaldırılmış')
+      .toMatch(/_pushSourceAuthorityDivergence/);
+    expect(build, 'ayrışma alanı gösterilmiyor').toMatch(/İKİ OTORİTE AYRIŞIYOR/);
+    /* Gözlem yüzeyinde otoritenin KİM olduğu yazılı olmalı. */
+    expect(build, 'otorite kuralı yazılmamış').toMatch(/OTORİTE sistem görüşüdür/);
+  });
+
+  it('🔒 monotonik saatin duvar saati SANILMASI engellenmiş', () => {
+    const build = src('platform/devtools/sessionInspectorBuild.ts');
+    expect(build).toMatch(/MONOTONİK/);
+    expect(build, 'monotonik damgadan bayatlık hesaplanıyor olabilir')
+      .toMatch(/bayatlık HESAPLANMAZ/);
+  });
+});

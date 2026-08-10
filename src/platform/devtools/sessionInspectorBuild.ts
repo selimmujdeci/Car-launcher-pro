@@ -46,7 +46,9 @@ export interface SessionRawSnapshot {
     disconnectCalledCount: number; reconnectRequestedCount: number;
     lastResetReason: string | null;
     lastResetAt: number; lastDisconnectAt: number; lastReconnectAt: number;
-    connectionState: string; lastPacketAgeMs: number;
+    connectionState: string;
+    /** ECU verisi yaşı — ATRV HARİÇ (#517 ad ayrımı). */
+    lastEcuDataAgeMs: number;
   } | null;
 
   readonly transportStats: {
@@ -63,7 +65,10 @@ export interface SessionRawSnapshot {
   } | null;
 
   readonly health: {
-    connectionQuality: number; lastPacketAgeMs: number; isStale: boolean; reconnectPressure: number;
+    connectionQuality: number;
+    /** HERHANGİ kabul edilen paketin yaşı — ATRV DAHİL, link canlılığı (#517). */
+    lastLinkPacketAgeMs: number;
+    isStale: boolean; reconnectPressure: number;
   } | null;
 
   /** Repoda TANIMLI tazelik penceresi (ms). null = okunamadı. */
@@ -186,14 +191,14 @@ function _transportCard(s: SessionRawSnapshot): InspectorCard {
           { id: 'lastResetReason', label: 'son reset nedeni', source: SRC.lifecycle, note: '' },
           'Bu oturumda reset kaydı yok.',
         ));
-    f.push(l.lastPacketAgeMs >= 0
+    f.push(l.lastEcuDataAgeMs >= 0
       ? observed(
-          { id: 'lastPacketAgeMs', label: 'son gerçek veri yaşı (ms)', source: SRC.lifecycle,
+          { id: 'lastEcuDataAgeMs', label: 'son ECU verisi yaşı (ms) — ATRV HARİÇ', source: SRC.lifecycle,
             note: 'Yalnız GERÇEK veri; ATRV heartbeat sayılmaz.' },
-          l.lastPacketAgeMs,
+          l.lastEcuDataAgeMs,
         )
       : unavailable(
-          { id: 'lastPacketAgeMs', label: 'son gerçek veri yaşı (ms)', source: SRC.lifecycle, note: '' },
+          { id: 'lastEcuDataAgeMs', label: 'son ECU verisi yaşı (ms) — ATRV HARİÇ', source: SRC.lifecycle, note: '' },
           'Hiç gerçek veri paketi alınmadı (-1).',
         ));
   } else {
@@ -499,6 +504,9 @@ function _halCard(s: SessionRawSnapshot): InspectorCard {
       'Bağlantı yöneticisi anlık görüntüsü okunamadı.'));
   }
 
+  /* #517: iki otorite aynı soruya farklı cevap veriyorsa AÇIKÇA yaz. */
+  _pushSourceAuthorityDivergence(f, s);
+
   return boundCard({ id: 'hal', title: INSPECTOR_CARD_TITLE.hal, fields: f });
 }
 
@@ -594,3 +602,58 @@ export function buildHealthInput(s: SessionRawSnapshot, mismatchCount: number): 
     mismatchCount:   typeof mismatchCount === 'number' && mismatchCount > 0 ? mismatchCount : 0,
   };
 }
+
+/**
+ * #517 — İKİ OTORİTE AYRIŞMA DEDEKTÖRÜ.
+ *
+ * "Kaynak canlı mı?" sorusuna İKİ yer cevap veriyor ve eşikleri FARKLI:
+ *   · `hal.*Alive`  → **worker-yerel** görüş. Worker'ın kendi watchdog'u
+ *     (GPS için 5 sn), saat `performance.now()` (MONOTONİK). Füzyon girdisidir.
+ *   · `connectivity[*].connected` → **sistem** görüşü. VehicleConnectivityManager,
+ *     kendi eşiği (GPS için 10 sn), saat `Date.now()` (DUVAR).
+ *
+ * İkisi ayrışabilir ve bu ayrışma bugüne kadar SESSİZDİ: LAB iki cevabı yan yana
+ * koyuyor, hangisinin doğru olduğunu söylemiyordu (saha 2026-08-09: `gpsAlive:false`
+ * iken `connectivity[GPS].connected:true`, sinyal 104 ms önce gelmiş).
+ *
+ * OTORİTE KURALI: gözlem yüzeyinde **sistem görüşü (connectivity) otoritedir** —
+ * ürünün gerçek akışından beslenir ve duvar saatiyle ölçülür. `hal.*Alive` füzyon
+ * için KALIR ama "kaynak canlı mı"nın cevabı DEĞİLDİR. Ayrışma varsa gizlenmez:
+ * aşağıdaki alan onu AÇIKÇA yazar.
+ */
+function _pushSourceAuthorityDivergence(f: InspectorField[], s: SessionRawSnapshot): void {
+  const h = s.hal;
+  const list = Array.isArray(s.connectivity) ? s.connectivity : [];
+  if (!h || list.length === 0) return;
+
+  const pairs: readonly [string, boolean | null][] = [
+    ['CAN', h.canAlive],
+    ['OBD', h.obdAlive],
+    ['GPS', h.gpsAlive],
+  ];
+
+  const diverged: string[] = [];
+  for (const [src, halVal] of pairs) {
+    if (halVal === null) continue;                       // BİLİNMİYOR → kıyaslanmaz
+    const c = list.find((x) => x.source === src);
+    if (!c) continue;
+    if (c.connected !== halVal) {
+      diverged.push(`${src}: worker=${halVal ? 'canlı' : 'ölü'} · sistem=${c.connected ? 'canlı' : 'ölü'}`);
+    }
+  }
+
+  f.push(diverged.length === 0
+    ? observed(
+        { id: 'srcAuthority', label: 'kaynak canlılığı — iki otorite uyumu', source: SRC.hal,
+          note: '#517: worker-yerel (hal.*Alive, monotonik saat) ile sistem görüşü '
+              + '(connectivity, duvar saati) karşılaştırıldı. Gözlemde OTORİTE sistem görüşüdür; '
+              + 'hal.*Alive füzyon girdisidir, "kaynak canlı mı" sorusunun cevabı DEĞİLDİR.' },
+        'uyumlu')
+    : derived(
+        { id: 'srcAuthority', label: 'kaynak canlılığı — İKİ OTORİTE AYRIŞIYOR', source: SRC.hal,
+          note: '#517: eşikler ve saatler FARKLI (worker GPS 5 sn / monotonik · sistem GPS 10 sn / '
+              + 'duvar). Gözlemde OTORİTE sistem görüşüdür. Ayrışma bir ARIZA olmayabilir '
+              + '(worker o kaynağı beslenmiyor olabilir) ama SESSİZ GEÇİLMEZ.' },
+        diverged.join(' | ')));
+}
+

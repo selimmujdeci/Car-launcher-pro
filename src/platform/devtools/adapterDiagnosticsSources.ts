@@ -102,13 +102,15 @@ export function readAdapterDiagnosticsSnapshot(): AdRawSnapshot {
       lastDisconnectAt:        Number(life.lastDisconnectAt) > 0 ? Number(life.lastDisconnectAt) : null,
       lastReconnectAt:         Number(life.lastReconnectAt) > 0 ? Number(life.lastReconnectAt) : null,
       // -1 sentinel AYNEN korunur — model "hiç paket yok" ile "0 ms" ayrımını yapar.
-      lastPacketAgeMs:         typeof life.lastPacketAgeMs === 'number' ? life.lastPacketAgeMs : -1,
+      /* #517: ECU verisi yaşı (ATRV HARİÇ) — link paketiyle KARIŞTIRILMAZ. */
+      lastEcuDataAgeMs:        typeof life.lastEcuDataAgeMs === 'number' ? life.lastEcuDataAgeMs : -1,
     } : null,
 
     health: health ? {
       // -1 sentinel AYNEN korunur — "hiç bağlanmadı" ile "kalite 0" AYRI şeydir.
       connectionQuality: typeof health.connectionQuality === 'number' ? health.connectionQuality : -1,
-      lastPacketAgeMs:   typeof health.lastPacketAgeMs === 'number' ? health.lastPacketAgeMs : -1,
+      /* #517: LINK paketi (ATRV DAHİL) — ECU verisi yaşıyla KARIŞTIRILMAZ. */
+      lastLinkPacketAgeMs: typeof health.lastPacketAgeMs === 'number' ? health.lastPacketAgeMs : -1,
       isStale:           health.isStale === true,
       reconnectPressure: Number(health.reconnectPressure) || 0,
       /** Hiç veri görmemiş alanlar haritada YOKTUR → sayısı da dürüst bir sinyaldir. */

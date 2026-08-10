@@ -119,15 +119,24 @@ export interface AdLifecycleRaw {
   readonly lastResetAt:             number | null;
   readonly lastDisconnectAt:        number | null;
   readonly lastReconnectAt:         number | null;
-  /** `-1` = hiç paket yok (sentinel korunur). */
-  readonly lastPacketAgeMs:         number;
+  /**
+   * #517 AD AYRIMI — **ECU verisi** yaşı (ms). ATRV (adaptör voltajı) HARİÇTİR:
+   * ATRV, ECU ölse bile ~5 sn'de bir gelir ve donmayı maskelerdi. `-1` = hiç ECU
+   * verisi yok (sentinel korunur, "0 ms" DEĞİL).
+   */
+  readonly lastEcuDataAgeMs:        number;
 }
 
 export interface AdHealthRaw {
   /** `-1` = bağlantı hiç kurulmadı (sentinel korunur). */
   readonly connectionQuality:     number;
-  /** `-1` = hiç paket yok (sentinel korunur). */
-  readonly lastPacketAgeMs:       number;
+  /**
+   * #517 AD AYRIMI — kabul edilen **HERHANGİ** paketin yaşı (ms), **ATRV DAHİL**:
+   * bu bir LİNK CANLILIĞI ölçüsüdür, ECU verisi yaşı DEĞİL. İkisi 20 kat
+   * ayrışabilir ve bu bir ÇELİŞKİ DEĞİLDİR (link canlı, ECU susmuş).
+   * `-1` = hiç paket yok (sentinel korunur).
+   */
+  readonly lastLinkPacketAgeMs:   number;
   /** MUTLAK 4 sn donma bayrağı — `dataFresh` ile AYNI ŞEY DEĞİLDİR. */
   readonly isStale:               boolean;
   readonly reconnectPressure:     number;
@@ -348,18 +357,22 @@ function _lifecycleSection(s: AdRawSnapshot): AdSection {
   }
 
   // -1 sentinel: "hiç paket yok" — 0 ms DEĞİL.
-  f.push(l.lastPacketAgeMs >= 0
-    ? observed({ id: 'adPacketAgeLife', label: 'son paket yaşı (lifecycle)', source: SRC.life,
-        note: 'obdService motorunun ölçümü (ms).' }, l.lastPacketAgeMs)
-    : unavailable({ id: 'adPacketAgeLife', label: 'son paket yaşı (lifecycle)', source: SRC.life, note: '' },
-        'Hiç paket alınmadı (-1 sentinel). "0 ms" olarak GÖSTERİLMEZ.'));
+  f.push(l.lastEcuDataAgeMs >= 0
+    ? observed({ id: 'adEcuDataAge', label: 'son ECU verisi yaşı — ATRV HARİÇ', source: SRC.life,
+        note: '#517: obdService `_lastRealDataMs` ölçümü. ATRV (adaptör voltajı) bu damgayı '
+            + 'TAZELEMEZ — ECU donmasını maskelememesi için bilinçli olarak dışarıda.' },
+        l.lastEcuDataAgeMs)
+    : unavailable({ id: 'adEcuDataAge', label: 'son ECU verisi yaşı — ATRV HARİÇ', source: SRC.life, note: '' },
+        'Hiç ECU verisi alınmadı (-1 sentinel). "0 ms" olarak GÖSTERİLMEZ.'));
 
   if (s.health) {
-    f.push(s.health.lastPacketAgeMs >= 0
-      ? observed({ id: 'adPacketAgeHealth', label: 'son paket yaşı (sağlık motoru)', source: SRC.health,
-          note: 'AYRI motorun ölçümü — lifecycle değeriyle birebir aynı olmak zorunda değildir.' },
-          s.health.lastPacketAgeMs)
-      : unavailable({ id: 'adPacketAgeHealth', label: 'son paket yaşı (sağlık motoru)', source: SRC.health, note: '' },
+    f.push(s.health.lastLinkPacketAgeMs >= 0
+      ? observed({ id: 'adLinkPacketAge', label: 'son LİNK paketi yaşı — ATRV DAHİL', source: SRC.health,
+          note: '#517: ObdHealthMonitor ölçümü — kabul edilen HERHANGİ paket (ATRV dahil). '
+              + 'Yukarıdaki ECU yaşından ÇOK KÜÇÜK olması ÇELİŞKİ DEĞİLDİR: link canlı, ECU susmuş '
+              + 'demektir. İki sayı AYNI ŞEYİ ÖLÇMEZ.' },
+          s.health.lastLinkPacketAgeMs)
+      : unavailable({ id: 'adLinkPacketAge', label: 'son LİNK paketi yaşı — ATRV DAHİL', source: SRC.health, note: '' },
           'Hiç paket yok (-1 sentinel).'));
 
     f.push(s.health.connectionQuality >= 0

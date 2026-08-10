@@ -133,8 +133,9 @@ function sampleOnce(): void {
        Geçerli örnek yoksa hiçbir şey kaydedilmez → metrik `null` kalır. */
     const connected = CONNECTED_STATES.has(life.connectionState);
     const yeniPaketVar = _pktSeen > _pktSeenAtLastSample;
-    if (connected && yeniPaketVar && life.lastPacketAgeMs >= 0) {
-      recordDataAge(life.lastPacketAgeMs);
+    /* #517: ECU verisi yaşı (ATRV HARİÇ) — doğrulama "veri yaşı"ndan ECU'yu kasteder. */
+    if (connected && yeniPaketVar && life.lastEcuDataAgeMs >= 0) {
+      recordDataAge(life.lastEcuDataAgeMs);
     }
     _pktSeenAtLastSample = _pktSeen;
 

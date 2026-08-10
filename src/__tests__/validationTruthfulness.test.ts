@@ -98,7 +98,7 @@ describe('B — gecikme ortalaması yalnız geçerli örneklerden', () => {
   it('YAPISAL: kopuk/reconnecting dönemleri ve paketsiz turlar örneklenmez', () => {
     expect(collectorSrc).toMatch(/const connected = CONNECTED_STATES\.has\(life\.connectionState\)/);
     expect(collectorSrc).toMatch(/const yeniPaketVar = _pktSeen > _pktSeenAtLastSample/);
-    expect(collectorSrc).toMatch(/if \(connected && yeniPaketVar && life\.lastPacketAgeMs >= 0\)/);
+    expect(collectorSrc).toMatch(/if \(connected && yeniPaketVar && life\.lastEcuDataAgeMs >= 0\)/);
   });
 });
 

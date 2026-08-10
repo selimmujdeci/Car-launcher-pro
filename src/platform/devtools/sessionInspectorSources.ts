@@ -94,7 +94,7 @@ export function readSessionRawSnapshot(): SessionRawSnapshot {
       lastDisconnectAt:        Number(life.lastDisconnectAt) || 0,
       lastReconnectAt:         Number(life.lastReconnectAt) || 0,
       connectionState:         String(life.connectionState),
-      lastPacketAgeMs:         typeof life.lastPacketAgeMs === 'number' ? life.lastPacketAgeMs : -1,
+      lastEcuDataAgeMs:        typeof life.lastEcuDataAgeMs === 'number' ? life.lastEcuDataAgeMs : -1,
     } : null,
 
     transportStats: trans ? {
@@ -124,7 +124,7 @@ export function readSessionRawSnapshot(): SessionRawSnapshot {
 
     health: health ? {
       connectionQuality: Number(health.connectionQuality),
-      lastPacketAgeMs:   Number(health.lastPacketAgeMs),
+      lastLinkPacketAgeMs: Number(health.lastPacketAgeMs),
       isStale:           health.isStale === true,
       reconnectPressure: Number(health.reconnectPressure) || 0,
     } : null,

@@ -46,10 +46,10 @@ function full(over: Partial<AdRawSnapshot> = {}): AdRawSnapshot {
     lifecycle: {
       resetRequestedCount: 0, resetCompletedCount: 0, disconnectCalledCount: 0,
       reconnectRequestedCount: 0, lastResetReason: null,
-      lastResetAt: null, lastDisconnectAt: null, lastReconnectAt: null, lastPacketAgeMs: 500,
+      lastResetAt: null, lastDisconnectAt: null, lastReconnectAt: null, lastEcuDataAgeMs: 500,
     },
     health: {
-      connectionQuality: 92, lastPacketAgeMs: 500, isStale: false,
+      connectionQuality: 92, lastLinkPacketAgeMs: 500, isStale: false,
       reconnectPressure: 0, reliabilityFieldCount: 6,
     },
     ...over,
@@ -127,7 +127,7 @@ describe('KİLİT 2 — bölüm yapısı deterministik ve bounded', () => {
       transport: { transport: 'ble', connected: true, reconnectAttempts: 9, lastDisconnectReason: 'X' },
       session: { transportReady: true, sessionReady: true, pollingActive: false, dataFresh: true, ready: false },
       lifecycle: { ...full().lifecycle!, resetRequestedCount: 5, resetCompletedCount: 1 },
-      health: { connectionQuality: 10, lastPacketAgeMs: 100, isStale: false, reconnectPressure: 3.5, reliabilityFieldCount: 2 },
+      health: { connectionQuality: 10, lastLinkPacketAgeMs: 100, isStale: false, reconnectPressure: 3.5, reliabilityFieldCount: 2 },
     }));
     expect(r.reasons.length).toBeLessThanOrEqual(MAX_AD_REASONS);
   });
@@ -175,12 +175,12 @@ describe('KİLİT 3 — MAC / ad / seri numarası SIZMAZ', () => {
  * ════════════════════════════════════════════════════════════════════════ */
 
 describe('KİLİT 4 — sentinel ve sıfır dürüstlüğü', () => {
-  it('lastPacketAgeMs=-1 → KAYNAK YOK ("0 ms" basılmaz)', () => {
+  it('yaş=-1 → KAYNAK YOK ("0 ms" basılmaz)', () => {
     const sections = buildAdSections(full({
-      lifecycle: { ...full().lifecycle!, lastPacketAgeMs: -1 },
-      health: { ...full().health!, lastPacketAgeMs: -1 },
+      lifecycle: { ...full().lifecycle!, lastEcuDataAgeMs: -1 },
+      health: { ...full().health!, lastLinkPacketAgeMs: -1 },
     }));
-    for (const id of ['adPacketAgeLife', 'adPacketAgeHealth']) {
+    for (const id of ['adEcuDataAge', 'adLinkPacketAge']) {
       const f = findField(sections, id)!;
       expect(f.klass).toBe('UNAVAILABLE');
       expect(f.value).not.toContain('-1');
@@ -197,10 +197,10 @@ describe('KİLİT 4 — sentinel ve sıfır dürüstlüğü', () => {
     expect(f.value).not.toBe('0');
   });
 
-  it('lastPacketAgeMs=0 GERÇEK bir ölçümdür → gösterilir', () => {
+  it('yaş=0 GERÇEK bir ölçümdür → gösterilir', () => {
     const f = findField(buildAdSections(full({
-      lifecycle: { ...full().lifecycle!, lastPacketAgeMs: 0 },
-    })), 'adPacketAgeLife')!;
+      lifecycle: { ...full().lifecycle!, lastEcuDataAgeMs: 0 },
+    })), 'adEcuDataAge')!;
     expect(f.klass).toBe('OBSERVED');
     expect(f.value).toBe('0');
   });
@@ -282,13 +282,20 @@ describe('KİLİT 6 — adaptif dataFresh ile mutlak isStale karıştırılmaz',
     expect(findField(buildAdSections(full()), 'adEngineAgreement')!.value).toBe('uyumlu');
   });
 
-  it('iki paket yaşı ölçümü AYRI alanlarda kalır', () => {
+  it('iki paket yaşı ölçümü AYRI alanlarda VE AYRI ADLARDA kalır (#517)', () => {
     const sections = buildAdSections(full({
-      lifecycle: { ...full().lifecycle!, lastPacketAgeMs: 500 },
-      health: { ...full().health!, lastPacketAgeMs: 4200 },
+      lifecycle: { ...full().lifecycle!, lastEcuDataAgeMs: 500 },
+      health: { ...full().health!, lastLinkPacketAgeMs: 4200 },
     }));
-    expect(findField(sections, 'adPacketAgeLife')!.value).toBe('500');
-    expect(findField(sections, 'adPacketAgeHealth')!.value).toBe('4200');
+    const ecu  = findField(sections, 'adEcuDataAge')!;
+    const link = findField(sections, 'adLinkPacketAge')!;
+    expect(ecu.value).toBe('500');
+    expect(link.value).toBe('4200');
+    /* #517: ADLAR neyi ölçtüklerini SÖYLEMELİ — "son paket yaşı" ikisi için de
+       doğruydu ve tam bu yüzden sahada çelişki sanıldı. */
+    expect(ecu.label, 'ECU yaşı ATRV hariç olduğunu söylemiyor').toMatch(/ECU.*ATRV HARİÇ/);
+    expect(link.label, 'link yaşı ATRV dahil olduğunu söylemiyor').toMatch(/LİNK.*ATRV DAHİL/);
+    expect(link.note, 'ayrışmanın çelişki OLMADIĞI yazılmamış').toMatch(/ÇELİŞKİ DEĞİLDİR/);
   });
 });
 

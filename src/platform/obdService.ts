@@ -2652,7 +2652,18 @@ export function getObdConnLifecycle(): {
   disconnectCalledCount: number; reconnectRequestedCount: number;
   lastResetReason: string | null;
   lastResetAt: number; lastDisconnectAt: number; lastReconnectAt: number;
-  connectionState: OBDData['connectionState']; lastPacketAgeMs: number;
+  connectionState: OBDData['connectionState'];
+  /**
+   * #517 AD AYRIMI (2026-08-10) — eski adı `lastPacketAgeMs` idi ve
+   * `ObdHealthMonitor.lastPacketAgeMs` ile AYNI ada sahipti, oysa BAŞKA ŞEY ölçüyorlar:
+   *   · BU alan  → `_lastRealDataMs` = **ECU verisi** yaşı. ATRV (adaptör voltajı)
+   *     HARİÇTİR — ATRV, ECU ölse bile ~5 sn'de bir gelir ve donmayı MASKELERDİ.
+   *   · health   → kabul edilen **HERHANGİ** paketin yaşı, ATRV DAHİL (link canlılığı).
+   * Sahada 44 892 ms vs 2 088 ms görüldü ve "çelişki" sanıldı; çelişki DEĞİLDİ —
+   * link canlı, ECU 45 sn susmuştu. İki sayı da DOĞRUYDU, adları yanlıştı.
+   * -1 = hiç ECU verisi görülmedi (0 DEĞİL).
+   */
+  lastEcuDataAgeMs: number;
 } {
   return {
     resetRequestedCount:     _connLifecycle.resetRequested,
@@ -2664,7 +2675,7 @@ export function getObdConnLifecycle(): {
     lastDisconnectAt:        _connLifecycle.lastDisconnectAt,
     lastReconnectAt:         _connLifecycle.lastReconnectAt,
     connectionState:         _current.connectionState,
-    lastPacketAgeMs:         _lastRealDataMs > 0 ? Math.max(0, Date.now() - _lastRealDataMs) : -1,
+    lastEcuDataAgeMs:        _lastRealDataMs > 0 ? Math.max(0, Date.now() - _lastRealDataMs) : -1,
   };
 }
 
