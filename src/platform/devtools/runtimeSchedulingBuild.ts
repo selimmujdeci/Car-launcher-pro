@@ -73,6 +73,23 @@ export interface SchedRawSnapshot {
    *
    * Native kanıttan BAĞIMSIZDIR (JS modül durumu) → kanıt önbelleği boşken de okunur.
    */
+  /**
+   * #524 — ELEME DURUMU. `null` = OKUNMADI; `elimState` ayrımı taşır
+   * ('unsupported' = eski APK · 'error' = okuma düştü · 'never' = hiç denenmedi).
+   */
+  readonly elimState: 'never' | 'unsupported' | 'ok' | 'error';
+  readonly elim: {
+    cycle: number; watchedCount: number;
+    permanentCount: number; pausedCount: number; everOkCount: number;
+    bulkResetCount: number; lastBulkCycle: number;
+    stabilizing: boolean; stabilizeCycles: number; suppressedDuringStabilize: number;
+    demoteThreshold: number;
+    permanentPids: readonly string[];
+    pausedRemainingCycles: Readonly<Record<string, number>>;
+    pauseLadder: readonly number[];
+    reasonNeverOk: string; reasonPaused: string;
+  } | null;
+
   readonly extGate: {
     supportedKnown: boolean;
     supportedCount: number;
@@ -140,6 +157,7 @@ export interface SchedRawSnapshot {
 const SRC = {
   pollEv:   'obd/extendedPollEvidence.getExtendedPollEvidence()',
   extGate:  'obd/extendedPidService.getExtendedGateState()',
+  elim:     'obd/extendedElimination.getExtendedElimination()',
   session:  'obdService.getObdSessionHealth()',
   status:   'obdService.getOBDStatusSnapshot()',
   health:   'obd/ObdHealthMonitor.getObdHealth()',
@@ -243,6 +261,77 @@ function _pushTimelineFields(f: SchedField[], s: SchedRawSnapshot): void {
   ));
 }
 
+/**
+ * #524 — ELEME GÖRÜNÜRLÜĞÜ. Sahada izlenen PID sayısı 6'ya düşüyordu ve
+ * "hangi PID neden sorulmuyor" sorusunun cevabı HİÇBİR YERDE yoktu.
+ */
+function _pushElimFields(f: SchedField[], s: SchedRawSnapshot): void {
+  const e = s.elim;
+  if (!e) {
+    const why = s.elimState === 'unsupported'
+      ? 'Bu APK sürümünde eleme okuma ucu YOK — eleme OLMADIĞI anlamına GELMEZ.'
+      : s.elimState === 'error'
+        ? 'Okuma DÜŞTÜ — eleme durumu bilinmiyor.'
+        : 'Henüz okunmadı.';
+    f.push(schedUnavailable(
+      { id: 'elimState', label: 'PID eleme durumu', source: SRC.elim, note: '' }, why));
+    return;
+  }
+
+  /* Ana satır: tek bakışta "kaç PID sustuu ve NEDEN". */
+  const head = e.permanentCount === 0 && e.pausedCount === 0
+    ? 'eleme YOK — tüm izlenen PID sırada'
+    : `${e.permanentCount} kalıcı · ${e.pausedCount} geçici duraklatılmış`;
+  f.push(schedObserved(
+    { id: 'elimSummary', label: 'elenen PID (kalıcı / duraklatılmış)', source: SRC.elim,
+      note: `KALICI = ${e.reasonNeverOk}; DURAKLATILMIŞ = ${e.reasonPaused}. `
+          + 'Bir kez OK dönen PID KALICI elenemez — artan aralıkla yeniden denenir.' },
+    head,
+  ));
+
+  f.push(schedObserved(
+    { id: 'elimEverOk', label: 'veri vermiş PID / izlenen', source: SRC.elim,
+      note: 'Bir kez OK dönen PID kalıcı eleme dışıdır (araç verdiğini kanıtladı).' },
+    `${e.everOkCount} / ${e.watchedCount}`,
+  ));
+
+  if (e.permanentPids.length > 0) {
+    f.push(schedObserved(
+      { id: 'elimPermPids', label: 'kalıcı elenen PID listesi', source: SRC.elim,
+        note: 'Hiç OK dönmemiş PID listesi. Oturum-içi: yeni bağlantı sıfırlar.' },
+      e.permanentPids.join(' · '),
+    ));
+  }
+  const pausedEntries = Object.entries(e.pausedRemainingCycles);
+  if (pausedEntries.length > 0) {
+    f.push(schedObserved(
+      { id: 'elimPausedPids', label: 'duraklatılmış PID → kalan tur', source: SRC.elim,
+        note: `Merdiven (tur): ${e.pauseLadder.join(' → ')}. Süre dolunca sıraya GERİ girer.` },
+      pausedEntries.map(([pid, left]) => `${pid}:${left}`).join(' · '),
+    ));
+  }
+
+  /* Stabilizasyon: bağlantı sonrası sessizlik ELEME KANITI DEĞİLDİR. */
+  f.push(schedObserved(
+    { id: 'elimStabilize', label: 'stabilizasyon penceresi', source: SRC.elim,
+      note: `Bağlantıdan sonraki ilk ${e.stabilizeCycles} turda NO_DATA eleme kanıtı SAYILMAZ `
+          + '(hat henüz oturmamıştır).' },
+    e.stabilizing
+      ? `AÇIK (tur ${e.cycle}) · şu ana dek ${e.suppressedDuringStabilize} NO_DATA kanıt sayılmadı`
+      : `kapalı · pencerede ${e.suppressedDuringStabilize} NO_DATA kanıt sayılmamıştı`,
+  ));
+
+  /* Toplu eleme = HAT OLAYI. Sessizce yutulmaz. */
+  f.push(schedObserved(
+    { id: 'elimBulk', label: 'toplu eleme (hat olayı)', source: SRC.elim,
+      note: 'Kısa pencerede çok sayıda PID birden susarsa bu, araçların ayrı ayrı '
+          + '"desteklemiyorum" demesi DEĞİL, hattın düşmesidir → eleme sıfırlanır.' },
+    e.bulkResetCount === 0
+      ? 'olay YOK'
+      : `${e.bulkResetCount} kez · sonuncusu tur ${e.lastBulkCycle}`,
+  ));
+}
+
 function _pushGateFields(f: SchedField[], s: SchedRawSnapshot): void {
   const g = s.extGate;
   if (!g) {
@@ -312,6 +401,7 @@ function _commandExecChannel(s: SchedRawSnapshot): SchedChannel {
      `present=false` erken dönüşünden ÖNCE eklenir: kanıt önbelleği boşken bile "neden hiçbir
      şey sorulmuyor" cevaplanabilmelidir — #503 fail-closed'ın gözlem borcu tam olarak budur. */
   _pushGateFields(f, s);
+  _pushElimFields(f, s);
   /* #512 — ELEME ↔ TAZELİK. Kapı gibi bu da JS modül durumundan okunur, o yüzden
      `present=false` erken dönüşünden ÖNCE eklenir: native kanıt boşken de "eleme
      arttıkça tazelik arttı mı" sorusu cevaplanabilmelidir. */

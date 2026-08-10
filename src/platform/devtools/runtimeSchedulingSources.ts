@@ -17,6 +17,7 @@ import { getOBDStatusSnapshot, getObdSessionHealth, getHandshakeDiagnostics, get
 import { getObdHealth } from '../obd/ObdHealthMonitor';
 import { getExtendedPollEvidence } from '../obd/extendedPollEvidence';
 import { getExtendedGateState } from '../obd/extendedPidService';
+import { getExtendedElimination, getExtendedEliminationState } from '../obd/extendedElimination';
 import {
   readExtendedTimeline, summarizeExtendedTimeline,
 } from '../obd/extendedPollTimeline';
@@ -88,6 +89,11 @@ export function readSchedRawSnapshot(): SchedRawSnapshot {
         valuesCached:   Number(poll.js?.valuesCached) || 0,
       },
     } : null,
+
+    /* #524 — ELEME DURUMU. `null` = OKUNMADI ("eleme yok" DEĞİL); durum ayrı
+       alanda taşınır ki eski APK ile gerçek sıfır karışmasın. */
+    elimState: getExtendedEliminationState(),
+    elim: _safe(() => getExtendedElimination()) ?? null,
 
     extGate: gate ? {
       supportedKnown:   gate.supportedKnown === true,

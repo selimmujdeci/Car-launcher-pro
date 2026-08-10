@@ -271,6 +271,15 @@ public final class OBDManager {
     /** ATRV (12V akü voltajı) kaç FAST turda bir sorgulanır. */
     private static final int VOLTAGE_EVERY_N_CYCLES = 10;
 
+    /**
+     * #524 — ÇOK YAVAŞ değişen çekirdek sinyaller (yakıt seviyesi 0x2F) bu kadar turda
+     * bir okunur. Neden ayrı kademe: ATST CAN'de 400 ms'e çıktı → cevapsız sorgunun
+     * tur maliyeti iki katına çıktı. Yakıt seviyesi dakikalar mertebesinde değişir;
+     * onu sıcaklık/gaz kelebeğiyle aynı sıklıkta sormak bütçeyi boşa harcar.
+     * Depo doluluğu için 20 tur (~60 sn) fazlasıyla yeterlidir.
+     */
+    private static final int VERY_SLOW_EVERY_N_CYCLES = 20;
+
     /** pollLoop() içindeki tur sayacı — yalnız o thread'den erişilir (volatile gerekmez). */
     private long pollCycle = 0;
     /** ATRV'nin son okunan değeri — aradaki turlarda bu değer JS'e tekrar gönderilir. */
@@ -790,7 +799,9 @@ public final class OBDManager {
         KwpRecoveryEvidence.INSTANCE.reset(); // PR-KWP-EVID: yeni bağlantı = yeni kurtarma oturumu
         LiveStreamStopEvidence.INSTANCE.reset(); // yeni oturum = yeni durma muhasebesi
         // PR-OBD-KWP-1: yeni oturum = NO_DATA öğrenmesi sıfırlanır (farklı araç olabilir).
-        extNoData.reset();
+        // #524: reset ayrıca STABİLİZASYON penceresini bu turdan başlatır — bağlantının
+        // hemen ardından gelen NO_DATA'lar eleme kanıtı SAYILMAZ (hat henüz oturmadı).
+        extNoData.reset(pollCycle);
         while (obdRunning && isTransportAlive()) {
             try {
                 // Durma kaydının taşıma künyesi (adapter/durum/kuyruk derinliği) — tur başında
@@ -826,11 +837,21 @@ public final class OBDManager {
                 int engineTemp = -1, fuelLevel = -1, throttle = -1, intakeTemp = -1, boostPressure = -1;
                 if (pollCycle % SLOW_GROUP_EVERY_N_CYCLES == 0) {
                     engineTemp    = shouldQuery(pidSet, "05") ? queuedPidRead(ElmCommandQueue.Priority.POLL_SLOW, this::readPID_temp)       : -1;
-                    fuelLevel     = shouldQuery(pidSet, "2F") ? queuedPidRead(ElmCommandQueue.Priority.POLL_SLOW, this::readPID_fuel)        : -1;
                     // obdPidConfig.ts ICE/DIESEL setinde iletiliyordu ama eskiden HİÇ sorgulanmıyordu.
                     throttle      = shouldQuery(pidSet, "11") ? queuedPidRead(ElmCommandQueue.Priority.POLL_SLOW, this::readPID_throttle)    : -1;
                     intakeTemp    = shouldQuery(pidSet, "0F") ? queuedPidRead(ElmCommandQueue.Priority.POLL_SLOW, this::readPID_intakeTemp)  : -1;
                     boostPressure = shouldQuery(pidSet, "0B") ? queuedPidRead(ElmCommandQueue.Priority.POLL_SLOW, this::readPID_map)         : -1;
+                }
+
+                /* #524 · ÜÇÜNCÜ KADEME — ÇOK YAVAŞ DEĞİŞENLER.
+                 * ATST CAN'de 200→400 ms'e çıktığı için cevapsız her sorgu turu daha
+                 * fazla şişirir. Yakıt seviyesi (0x2F) fiziksel olarak dakikalar
+                 * mertebesinde değişir; onu sıcaklık/gaz kelebeğiyle AYNI kademede
+                 * okumak bütçeyi boşa harcıyordu. Kendi kademesine alındı.
+                 * Çekirdek tazeliği (0x0D hız · 0x0C devir) DEĞİŞMEDİ — onlar HER
+                 * turda okunmaya devam eder; kabul ölçütü bunu şart koşar. */
+                if (pollCycle % VERY_SLOW_EVERY_N_CYCLES == 0) {
+                    fuelLevel = shouldQuery(pidSet, "2F") ? queuedPidRead(ElmCommandQueue.Priority.POLL_SLOW, this::readPID_fuel) : -1;
                 }
 
                 // Patch 6: ATRV (12V akü voltajı) — VOLTAGE_EVERY_N_CYCLES turda bir. Aradaki
@@ -857,7 +878,7 @@ public final class OBDManager {
                                     extPid, ExtendedPollEvidence.Outcome.CANCELLED, 0, 0, false);
                                 break;
                             }
-                            if (extNoData.shouldSkip(extPid)) continue;
+                            if (extNoData.shouldSkip(extPid, pollCycle)) continue;
                             recordAndEmitExtended(extPid);
                         }
                     } else {
@@ -867,7 +888,7 @@ public final class OBDManager {
                         for (int i = 0; i < n; i++) {
                             final String extPid = ext.get(extendedIdx % n);
                             extendedIdx++;
-                            if (extNoData.shouldSkip(extPid)) continue;
+                            if (extNoData.shouldSkip(extPid, pollCycle)) continue;
                             recordAndEmitExtended(extPid);
                             break;
                         }
@@ -995,7 +1016,7 @@ public final class OBDManager {
         ExtendedPollEvidence.INSTANCE.recordAttempt(extPid, outcome, dt, respLen, emit);
         if (emit) listener.onExtendedPid(extPid, r.dataHex);
         // PR-OBD-KWP-1: NO_DATA/7F öğrenmesi — eşik aşıldıysa TEK KEZ TS'e bildir (gerçek neden).
-        if (extNoData.recordOutcome(extPid, r)) {
+        if (extNoData.recordOutcome(extPid, r, pollCycle)) {
             listener.onExtendedPidUnavailable(extPid, "no_data");
         }
     }
@@ -1193,6 +1214,43 @@ public final class OBDManager {
 
     /** Aktif ELM bağlantısı var mı (plugin'in transport seçimi için). */
     public boolean isConnected() { return obdRunning; }
+
+    /**
+     * #524 — ELEME DURUMU (LAB görünürlüğü). Sahada izlenen PID sayısı 6'ya
+     * düşüyordu ve "neden sorulmuyor" sorusunun cevabı HİÇBİR YERDE yoktu:
+     * {@code demotedCount()} yazılmıştı ama tek bir çağıranı bile YOKTU.
+     * Salt-okunur, yan etkisiz; PID adları teşhis için gereklidir (PII değil).
+     */
+    public org.json.JSONObject getExtendedElimJson() {
+        org.json.JSONObject out = new org.json.JSONObject();
+        try {
+            out.put("cycle", pollCycle);
+            out.put("watchedCount", extendedPids.size());
+            out.put("permanentCount", extNoData.permanentCount());
+            out.put("pausedCount", extNoData.pausedCount());
+            out.put("everOkCount", extNoData.everOkCount());
+            out.put("bulkResetCount", extNoData.bulkResetCount());
+            out.put("lastBulkCycle", extNoData.lastBulkCycle());
+            out.put("stabilizing", extNoData.stabilizing(pollCycle));
+            out.put("stabilizeCycles", ExtendedNoDataTracker.STABILIZE_CYCLES);
+            out.put("suppressedDuringStabilize", extNoData.suppressedDuringStabilize());
+            out.put("demoteThreshold", ExtendedNoDataTracker.DEMOTE_THRESHOLD);
+            out.put("reasonNeverOk", ExtendedNoDataTracker.REASON_NEVER_OK);
+            out.put("reasonPaused", ExtendedNoDataTracker.REASON_PAUSED);
+            org.json.JSONArray perm = new org.json.JSONArray();
+            for (String pid : extNoData.permanentPids()) perm.put(pid);
+            out.put("permanentPids", perm);
+            org.json.JSONObject paused = new org.json.JSONObject();
+            for (java.util.Map.Entry<String, Long> e : extNoData.pausedRemaining(pollCycle).entrySet()) {
+                paused.put(e.getKey(), e.getValue());
+            }
+            out.put("pausedRemainingCycles", paused);
+            org.json.JSONArray ladder = new org.json.JSONArray();
+            for (int v : ExtendedNoDataTracker.PAUSE_LADDER) ladder.put(v);
+            out.put("pauseLadder", ladder);
+        } catch (Exception ignored) { /* teşhis JSON'u ürünü düşürmez */ }
+        return out;
+    }
 
     /* ══════════════════════════════════════════════════════════════════════
      * H-A DENEYİ (kütük #516) — ATST yanıt süresi ölçümü.

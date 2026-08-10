@@ -34,6 +34,17 @@ public final class ElmInitSequencer {
     private static final String TAG = "OBD";
 
     /**
+     * #524 — CAN protokollerinde uygulanan ATST değeri (hex). `0x64 × 4 ms ≈ 400 ms`.
+     *
+     * ELM327 varsayılanı 0x32 (~200 ms) idi ve CAN'de HİÇ değiştirilmiyordu; sahada
+     * NO_DATA süresi 151-259 ms ölçüldü, yani adaptör tavana dayanıp pes ediyordu.
+     * ATAT1 açık olduğu için bu değer yalnız TAVANDIR — cevap veren PID'i yavaşlatmaz.
+     * Gerekçe ve neden FF olmadığı: {@code applyProtocolProfile} yorumuna bakınız.
+     * TEK YER: değer değişecekse yalnız burası değişir.
+     */
+    static final String CAN_ST_HEX = "64";
+
+    /**
      * Yapılandırılmış "UNABLE TO CONNECT" hatası — obdService.ts native reject CODE'una
      * bakarak (mesaj string parse'ı YAPMADAN) PROTOCOL_CYCLE'ı yalnız bu sınıfta ilerletir.
      */
@@ -153,7 +164,44 @@ public final class ElmInitSequencer {
         if (p == null || p.isEmpty()) return;
         char c = Character.toUpperCase(p.charAt(0));
         boolean slowSerial = (c == '3' || c == '4' || c == '5');
-        if (!slowSerial) return;   // CAN / J1850 / bilinmeyen → dokunma
+
+        /* ── #524 · CAN'DE DE ATST AYARLANIR (eskiden HİÇ ayarlanmıyordu) ──────
+         * KÖK NEDEN (kütük #512/#516): bu metot CAN'de erken dönüyordu, yani
+         * ELM327 varsayılan yanıt penceresiyle (ATST 0x32 ≈ 200 ms) çalışıyorduk.
+         * Sahada NO_DATA'da geçen süre 151-259 ms ölçüldü — yani **pes eden biz
+         * değil ADAPTÖRDÜ**: tavana dayanıp NO DATA yazıyordu. Ardından 3 ardışık
+         * NO_DATA eleme eşiğini tetikliyor ve PID kalıcı susturuluyordu.
+         *
+         * NEDEN ZARARSIZ: ATAT1 (adaptif zamanlama) init'te AÇIKTIR ve ST onun
+         * TAVANIDIR. Tavanı yükseltmek cevap VEREN bir PID'in süresini UZATMAZ —
+         * adaptör yanıt gelir gelmez döner. Yalnız YAVAŞ cevaba fırsat tanır.
+         * Maliyet sadece gerçekten cevapsız kalan sorguda ödenir.
+         *
+         * NEDEN 0x64 (≈400 ms) VE FF (≈1020 ms) DEĞİL:
+         *  · Ölçülen adaptör tavanı ~200 ms idi; 0x64 buna İKİ KAT alan açar.
+         *  · Maliyet cevapsız sorguda ödenir ve poll turu extended grupta turda
+         *    EN FAZLA BİR PID okur → tur şişmesi en kötü +0.4 sn. FF ile bu
+         *    +1.0 sn olurdu ve çekirdek tazeliğini (devir/hız) riske atardı —
+         *    kabul ölçütü "çekirdek tazeliği BOZULMAYACAK" der.
+         *  · Yavaş seri protokoller (KWP/ISO9141) FF'te KALIR: orada hat fiziksel
+         *    olarak 10.4 kbit/s'tir ve ölçülmüş bir gerekçesi vardır (F0-4).
+         *
+         * ⚠️ BU DEĞER ÖLÇÜLMEDİ, SEÇİLDİ: ECU'nun gerçek cevap gecikmesi bilinmiyor
+         * (H-A deneyi kaybın görülmediği bir oturuma denk geldi). 0x64 mühendislik
+         * seçimidir; kütük #524'ün kabul ölçütü onu sahada sınar. Yetmezse artırma
+         * yolu açıktır — sabit TEK yerdedir. */
+        if (!slowSerial) {
+            boolean can = (c == '6' || c == '7' || c == '8' || c == '9'
+                        || c == 'A' || c == 'B' || c == 'C');
+            if (can) {
+                safeSend("ATST" + CAN_ST_HEX, 500);
+                try {
+                    android.util.Log.i(TAG, "[ElmInit] CAN protokolü (" + p + ") → ATST "
+                        + CAN_ST_HEX + " (~" + (Integer.parseInt(CAN_ST_HEX, 16) * 4) + " ms) uygulandı");
+                } catch (Throwable ignored) { /* JVM unit test: android.util.Log mock yok */ }
+            }
+            return;   // J1850 / bilinmeyen → dokunma
+        }
 
         // ATST FF → yanıt bekleme 0xFF × 4 ms ≈ 1020 ms (varsayılan ~200 ms yetmiyor).
         safeSend("ATSTFF", 500);

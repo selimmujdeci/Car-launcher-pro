@@ -133,6 +133,8 @@ public final class BleObdManager {
     private volatile int fastPollMs = POLL_INTERVAL_MS;
     private static final int SLOW_GROUP_EVERY_N_CYCLES = 5;
     private static final int VOLTAGE_EVERY_N_CYCLES = 10;
+    /** #524 — çok yavaş değişen çekirdek sinyal (yakıt 0x2F); bkz. OBDManager aynı sabit. */
+    private static final int VERY_SLOW_EVERY_N_CYCLES = 20;
     private long pollCycle = 0;
     private volatile double lastVoltage = -1.0;
 
@@ -301,7 +303,8 @@ public final class BleObdManager {
         ExtendedPollEvidence.INSTANCE.reset("ble");
         KwpRecoveryEvidence.INSTANCE.reset(); // PR-KWP-EVID: yeni bağlantı = yeni kurtarma oturumu
         // PR-OBD-KWP-1: yeni oturum = NO_DATA öğrenmesi sıfırlanır (farklı araç olabilir).
-        extNoData.reset();
+        // #524: reset STABİLİZASYON penceresini de bu turdan başlatır.
+        extNoData.reset(pollCycle);
         while (obdRunning && gatt != null) {
             try {
                 Set<String> pidSet = obdPidSet;
@@ -317,10 +320,14 @@ public final class BleObdManager {
                 int engineTemp = -1, fuelLevel = -1, throttle = -1, intakeTemp = -1, boostPressure = -1;
                 if (pollCycle % SLOW_GROUP_EVERY_N_CYCLES == 0) {
                     engineTemp    = shouldQuery(pidSet, "05") ? queuedPidRead(ElmCommandQueue.Priority.POLL_SLOW, p::readPID_temp)       : -1;
-                    fuelLevel     = shouldQuery(pidSet, "2F") ? queuedPidRead(ElmCommandQueue.Priority.POLL_SLOW, p::readPID_fuel)        : -1;
                     throttle      = shouldQuery(pidSet, "11") ? queuedPidRead(ElmCommandQueue.Priority.POLL_SLOW, p::readPID_throttle)    : -1;
                     intakeTemp    = shouldQuery(pidSet, "0F") ? queuedPidRead(ElmCommandQueue.Priority.POLL_SLOW, p::readPID_intakeTemp)  : -1;
                     boostPressure = shouldQuery(pidSet, "0B") ? queuedPidRead(ElmCommandQueue.Priority.POLL_SLOW, p::readPID_map)         : -1;
+                }
+                /* #524 · ÜÇÜNCÜ KADEME — bkz. OBDManager.pollLoop() aynı gerekçe:
+                   yakıt seviyesi dakikalar mertebesinde değişir, kendi kademesinde. */
+                if (pollCycle % VERY_SLOW_EVERY_N_CYCLES == 0) {
+                    fuelLevel = shouldQuery(pidSet, "2F") ? queuedPidRead(ElmCommandQueue.Priority.POLL_SLOW, p::readPID_fuel) : -1;
                 }
                 if (pollCycle % VOLTAGE_EVERY_N_CYCLES == 0) {
                     lastVoltage = queuedVoltageRead(p);
@@ -342,7 +349,7 @@ public final class BleObdManager {
                                     extPid, ExtendedPollEvidence.Outcome.CANCELLED, 0, 0, false);
                                 break;
                             }
-                            if (extNoData.shouldSkip(extPid)) continue;
+                            if (extNoData.shouldSkip(extPid, pollCycle)) continue;
                             recordAndEmitExtended(p, extPid);
                         }
                     } else {
@@ -351,7 +358,7 @@ public final class BleObdManager {
                         for (int i = 0; i < n; i++) {
                             final String extPid = ext.get(extendedIdx % n);
                             extendedIdx++;
-                            if (extNoData.shouldSkip(extPid)) continue;
+                            if (extNoData.shouldSkip(extPid, pollCycle)) continue;
                             recordAndEmitExtended(p, extPid);
                             break;
                         }
@@ -463,7 +470,7 @@ public final class BleObdManager {
         ExtendedPollEvidence.INSTANCE.recordAttempt(extPid, outcome, dt, respLen, emit);
         if (emit) listener.onExtendedPid(extPid, r.dataHex);
         // PR-OBD-KWP-1: NO_DATA/7F öğrenmesi — eşik aşıldıysa TEK KEZ TS'e bildir (gerçek neden).
-        if (extNoData.recordOutcome(extPid, r)) {
+        if (extNoData.recordOutcome(extPid, r, pollCycle)) {
             listener.onExtendedPidUnavailable(extPid, "no_data");
         }
     }

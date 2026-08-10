@@ -965,6 +965,23 @@ export interface CarLauncherPlugin {
   // Opsiyonel: eski plugin sürümlerinde bulunmayabilir (fail-soft: kanıt yok → NO_NATIVE_EVIDENCE).
   getObdExtendedPollEvidence?(): Promise<NativeExtendedPollEvidence>;
 
+  /**
+   * #524 — extended PID ELEME durumu (salt-okunur teşhis; araca komut GÖNDERMEZ).
+   * Sahada izlenen PID sayısı 6'ya düşüyordu ve "neden sorulmuyor" cevapsızdı.
+   * Opsiyonel: eski APK'da yok → fail-soft (`unsupported`).
+   */
+  getObdExtendedElimination?(): Promise<{
+    cycle: number; watchedCount: number;
+    permanentCount: number; pausedCount: number; everOkCount: number;
+    bulkResetCount: number; lastBulkCycle: number;
+    stabilizing: boolean; stabilizeCycles: number; suppressedDuringStabilize: number;
+    demoteThreshold: number;
+    permanentPids: string[];
+    pausedRemainingCycles: Record<string, number>;
+    pauseLadder: number[];
+    reasonNeverOk: string; reasonPaused: string;
+  }>;
+
   /* ── H-A DENEYİ (kütük #518-HA) — ATST yanıt süresi ölçümü ────────────────
      Ürün yolunu DEĞİŞTİRMEZ: poll durmaz, eleme öğrenmesi beslenmez, ayar
      bitişte geri alınır. Native yalnız HAM örnek taşır; analiz TS'te (saf). */

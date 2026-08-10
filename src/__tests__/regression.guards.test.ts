@@ -5122,3 +5122,89 @@ describe('🔒 KİLİT 23 · iki otorite / aynı ada iki anlam (#517)', () => {
       .toMatch(/bayatlık HESAPLANMAZ/);
   });
 });
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * 🔒 KİLİT 24 · ELEME ÇAĞLAYANI (#524)
+ *
+ * SAHA (2026-08-10): izlenen PID sayısı 10-12'ye çıkıp 6'da sabitleniyordu;
+ * hayatta kalanlar yalnız çekirdek PID'lerdi (devir, hız). Üç kök birlikte
+ * çalışıyordu — biri tek başına düzeltilirse regresyon üretir:
+ *   (1) CAN'de ATST hiç ayarlanmıyordu (ELM varsayılanı ~200 ms)
+ *   (2) 3 ardışık NO_DATA → KALICI eleme, bir daha hiç sorulmuyor
+ *   (3) ATST uzayınca tur şişer → çekirdek tazeliği risk altına girer
+ * ════════════════════════════════════════════════════════════════════════ */
+describe('🔒 KİLİT 24 · PID eleme çağlayanı (#524)', () => {
+  const src = (p: string) => readFileSync(resolve(__dirname, '..', p), 'utf8');
+  const java = (p: string) =>
+    readFileSync(resolve(__dirname, '../../android/app/src/main/java/com/cockpitos/pro', p), 'utf8');
+
+  it('🔒 ATST CAN protokollerinde de AYARLANIR (eskiden erken dönüyordu)', () => {
+    const s = java('obd/ElmInitSequencer.java');
+    expect(s, 'CAN_ST_HEX sabiti yok — ATST değeri tek yerde durmuyor')
+      .toMatch(/CAN_ST_HEX\s*=\s*"[0-9A-F]{2}"/);
+    expect(s, 'CAN dalı ATST göndermiyor').toMatch(/safeSend\("ATST"\s*\+\s*CAN_ST_HEX/);
+    /* Yavaş seri protokoller FF'te KALIR — ölçülmüş gerekçesi var (F0-4). */
+    expect(s, 'KWP/ISO9141 ATST FF kaldırılmış').toMatch(/ATSTFF/);
+  });
+
+  it('🔒 ATST değerinin gerekçesi ve ÖLÇÜLMEDİĞİ kodda yazılı', () => {
+    const s = java('obd/ElmInitSequencer.java');
+    expect(s, 'ATAT1 tavan gerekçesi silinmiş').toMatch(/TAVANIDIR/);
+    expect(s, 'değerin seçilmiş (ölçülmemiş) olduğu gizlenmiş')
+      .toMatch(/ÖLÇÜLMEDİ, SEÇİLDİ/);
+  });
+
+  it('🔒 bir kez OK dönen PID KALICI ELENMEZ — yalnız duraklatılır', () => {
+    const s = java('obd/ExtendedNoDataTracker.java');
+    expect(s, 'everOk kaydı yok — kanıtlanmış PID yine kalıcı elenebilir')
+      .toMatch(/everOk/);
+    expect(s, 'artan aralıklı duraklatma merdiveni yok').toMatch(/PAUSE_LADDER/);
+    /* Kalıcı eleme yalnız hiç OK dönmemişler için olmalı. */
+    expect(s, 'kalıcı eleme everOk kontrolüne bağlı değil')
+      .toMatch(/if \(everOk\.contains\(pid\)\)/);
+  });
+
+  it('🔒 stabilizasyon penceresi var — bağlantı sonrası sessizlik kanıt DEĞİL', () => {
+    const s = java('obd/ExtendedNoDataTracker.java');
+    expect(s).toMatch(/STABILIZE_CYCLES/);
+    expect(s, 'stabilizasyon penceresinde eleme kararı veriliyor olabilir')
+      .toMatch(/suppressedDuringStabilize/);
+  });
+
+  it('🔒 toplu eleme HAT OLAYI sayılır — eleme sıfırlanır ve SAYILIR', () => {
+    const s = java('obd/ExtendedNoDataTracker.java');
+    expect(s).toMatch(/BULK_MIN_DEMOTES/);
+    expect(s, 'hat olayı sayacı yok — sessizce yutuluyor').toMatch(/bulkResetCount/);
+  });
+
+  it('🔒 ÇEKİRDEK TAZELİĞİ KORUNUR — hız ve devir HER turda okunur', () => {
+    for (const f of ['obd/OBDManager.java', 'obd/BleObdManager.java']) {
+      const s = java(f);
+      /* 0x0D (hız) ve 0x0C (devir) FAST grupta, hiçbir `pollCycle %` kademesinin
+         İÇİNDE olmamalı. Kabul ölçütü: "çekirdek tazeliği bozulmayacak". */
+      const fastLine = s.split('\n').find((l) => l.includes('"0D"') && l.includes('POLL_FAST'));
+      expect(fastLine, `${f}: hız FAST grupta okunmuyor`).toBeTruthy();
+      const rpmLine = s.split('\n').find((l) => l.includes('"0C"') && l.includes('POLL_FAST'));
+      expect(rpmLine, `${f}: devir FAST grupta okunmuyor`).toBeTruthy();
+      /* Yakıt kendi (çok yavaş) kademesinde olmalı — sıcaklıkla aynı sıklıkta DEĞİL. */
+      expect(s, `${f}: yakıt için ayrı kademe yok`).toMatch(/VERY_SLOW_EVERY_N_CYCLES/);
+    }
+  });
+
+  it('🔒 eleme durumu LAB\'da GÖRÜNÜR (demotedCount tek çağıransız kalmasın)', () => {
+    const sources = src('platform/devtools/runtimeSchedulingSources.ts');
+    expect(sources, 'eleme durumu snapshot\'a alınmıyor').toMatch(/getExtendedElimination/);
+    const build = src('platform/devtools/runtimeSchedulingBuild.ts');
+    expect(build, 'eleme alanları üretilmiyor').toMatch(/_pushElimFields/);
+    expect(build, 'hat olayı gösterilmiyor').toMatch(/toplu eleme \(hat olayı\)/);
+    expect(build, 'stabilizasyon penceresi gösterilmiyor').toMatch(/stabilizasyon penceresi/);
+    const screen = src('components/devtools/screens/RuntimeSchedulingScreen.tsx');
+    expect(screen, 'ekran eleme durumunu tazelemiyor').toMatch(/refreshExtendedElimination/);
+  });
+
+  it('🔒 okunmamış eleme durumu "eleme yok" DİYE SUNULMAZ', () => {
+    const mod = src('platform/obd/extendedElimination.ts');
+    expect(mod, 'null anlamı belgelenmemiş').toMatch(/OKUNMADI/);
+    expect(mod, 'sahte 0 üretiliyor olabilir').toMatch(/Eleme yok" ANLAMINA GELMEZ|ANLAMINA GELMEZ/);
+  });
+});

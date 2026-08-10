@@ -23,6 +23,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { RefreshCw, ShieldCheck, AlertTriangle } from 'lucide-react';
 import { readSchedRawSnapshot } from '../../../platform/devtools/runtimeSchedulingSources';
 import { refreshExtendedPollEvidence } from '../../../platform/obd/extendedPollEvidence';
+import { refreshExtendedElimination } from '../../../platform/obd/extendedElimination';
 import {
   buildSchedChannels, buildSchedConflictInput, buildRuntimeSummaryInput,
   type SchedRawSnapshot,
@@ -115,9 +116,12 @@ export const RuntimeSchedulingScreen = memo(function RuntimeSchedulingScreen(
   /* Native sayaç önbelleğini tazele, SONRA senkron oku. Sıra önemli: tazeleme
      beklenmezse ekran yine boş önbelleği okur (körlüğün ta kendisi). */
   const refresh = useCallback(() => {
-    void refreshExtendedPollEvidence()
-      .catch(() => { /* fail-soft: kanıt yok → UNAVAILABLE */ })
-      .finally(() => { if (mountedRef.current) setSnap(readSchedRawSnapshot()); });
+    /* #524: eleme durumu da AYNI turda tazelenir — ikisi ayrı anda okunursa
+       "kaç PID elendi" ile "kaç PID izleniyor" farklı anlardan gelir. */
+    void Promise.all([
+      refreshExtendedPollEvidence().catch(() => { /* fail-soft */ }),
+      refreshExtendedElimination().catch(() => { /* fail-soft */ }),
+    ]).finally(() => { if (mountedRef.current) setSnap(readSchedRawSnapshot()); });
   }, []);
 
   // Açılışta bir kez: ilk görüntü de tazelenmiş kanıtla gelsin (tek atış, polling YOK).

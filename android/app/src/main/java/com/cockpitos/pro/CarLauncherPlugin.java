@@ -1965,6 +1965,19 @@ public class CarLauncherPlugin extends Plugin {
         }
     }
 
+    /**
+     * #524 — extended PID ELEME durumu (kalıcı elenen · duraklatılan · hat olayı).
+     * Salt-okunur teşhis; araca hiçbir komut göndermez.
+     */
+    @PluginMethod
+    public void getObdExtendedElimination(PluginCall call) {
+        try {
+            call.resolve(JSObject.fromJSONObject(obd().getExtendedElimJson()));
+        } catch (Exception e) {
+            call.reject("OBD_EXT_ELIM_READ_FAILED", e);
+        }
+    }
+
     @PluginMethod
     public void getObdExtendedPollEvidence(PluginCall call) {
         ExtendedPollEvidence.Snapshot s = ExtendedPollEvidence.INSTANCE.snapshot();

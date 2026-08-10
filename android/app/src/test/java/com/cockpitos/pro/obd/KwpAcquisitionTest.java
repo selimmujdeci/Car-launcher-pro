@@ -155,7 +155,12 @@ public class KwpAcquisitionTest {
         assertFalse("KWP'de 1003 gönderilmez", ch.sent.contains("1003"));
     }
 
-    // ── ExtendedNoDataTracker — demote disiplini ─────────────────────────────
+    // ── ExtendedNoDataTracker — demote disiplini (#524 ile tur-bilincli) ────
+
+    /* #524: imza `(pid, result, cycle)` oldu — duraklatma merdiveni TUR cinsindendir.
+       Bu testler KALDIRILMADI, yeni sözleşmeye taşındı: stabilizasyon penceresini
+       geçmiş bir tur numarasıyla çağrılırlar (aksi hâlde NO_DATA kanıt sayılmaz). */
+    private static long c0() { return ExtendedNoDataTracker.STABILIZE_CYCLES + 100; }
 
     private static ElmResponseParser.Result result(ElmResponseParser.Kind kind) {
         return new ElmResponseParser.Result(kind, kind == ElmResponseParser.Kind.OK ? "8C" : null, "raw");
@@ -164,47 +169,55 @@ public class KwpAcquisitionTest {
     @Test
     public void tracker_ucArdisikNoData_demoteEderVeTekKezBildirir() {
         ExtendedNoDataTracker t = new ExtendedNoDataTracker();
-        assertFalse(t.recordOutcome("5C", result(ElmResponseParser.Kind.NO_DATA)));
-        assertFalse(t.recordOutcome("5C", result(ElmResponseParser.Kind.NO_DATA)));
+        t.reset(0);
+        long c = c0();
+        assertFalse(t.recordOutcome("5C", result(ElmResponseParser.Kind.NO_DATA), c));
+        assertFalse(t.recordOutcome("5C", result(ElmResponseParser.Kind.NO_DATA), c + 1));
         assertTrue("3. NO_DATA'da İLK KEZ demote bildirilmeli",
-            t.recordOutcome("5C", result(ElmResponseParser.Kind.NO_DATA)));
-        assertTrue(t.shouldSkip("5C"));
+            t.recordOutcome("5C", result(ElmResponseParser.Kind.NO_DATA), c + 2));
+        assertTrue(t.shouldSkip("5C", c + 3));
         // Sonraki kayıtlar tekrar bildirmez (olay fırtınası yasak).
-        assertFalse(t.recordOutcome("5C", result(ElmResponseParser.Kind.NO_DATA)));
+        assertFalse(t.recordOutcome("5C", result(ElmResponseParser.Kind.NO_DATA), c + 4));
     }
 
     @Test
     public void tracker_okArayaGirerseSayacSifirlanir() {
         ExtendedNoDataTracker t = new ExtendedNoDataTracker();
-        t.recordOutcome("5C", result(ElmResponseParser.Kind.NO_DATA));
-        t.recordOutcome("5C", result(ElmResponseParser.Kind.NO_DATA));
-        t.recordOutcome("5C", result(ElmResponseParser.Kind.OK));   // canlı veri → temiz sayfa
-        assertFalse(t.recordOutcome("5C", result(ElmResponseParser.Kind.NO_DATA)));
-        assertFalse(t.recordOutcome("5C", result(ElmResponseParser.Kind.NO_DATA)));
-        assertFalse("OK sonrası sayaç sıfırdan başlamalı", t.shouldSkip("5C"));
+        t.reset(0);
+        long c = c0();
+        t.recordOutcome("5C", result(ElmResponseParser.Kind.NO_DATA), c);
+        t.recordOutcome("5C", result(ElmResponseParser.Kind.NO_DATA), c + 1);
+        t.recordOutcome("5C", result(ElmResponseParser.Kind.OK), c + 2);   // canlı veri → temiz sayfa
+        assertFalse(t.recordOutcome("5C", result(ElmResponseParser.Kind.NO_DATA), c + 3));
+        assertFalse(t.recordOutcome("5C", result(ElmResponseParser.Kind.NO_DATA), c + 4));
+        assertFalse("OK sonrası sayac sıfırdan başlamalı", t.shouldSkip("5C", c + 5));
     }
 
     @Test
     public void tracker_timeoutVeErrorNotr_demoteEtmez() {
         // TIMEOUT/ERROR bağlantı sorunudur — "araç desteklemiyor" kanıtı DEĞİLDİR.
         ExtendedNoDataTracker t = new ExtendedNoDataTracker();
+        t.reset(0);
+        long c = c0();
         for (int i = 0; i < 10; i++) {
-            assertFalse(t.recordOutcome("5C", result(ElmResponseParser.Kind.TIMEOUT_PARTIAL)));
-            assertFalse(t.recordOutcome("5C", result(ElmResponseParser.Kind.ERROR)));
+            assertFalse(t.recordOutcome("5C", result(ElmResponseParser.Kind.TIMEOUT_PARTIAL), c + i));
+            assertFalse(t.recordOutcome("5C", result(ElmResponseParser.Kind.ERROR), c + i));
         }
-        assertFalse(t.shouldSkip("5C"));
+        assertFalse(t.shouldSkip("5C", c + 20));
     }
 
     @Test
     public void tracker_listeIcerigiDegisince_ogrenmeSifirlanir() {
         ExtendedNoDataTracker t = new ExtendedNoDataTracker();
+        t.reset(0);
+        long c = c0();
         java.util.List<String> list1 = java.util.Arrays.asList("5C", "5E");
         t.onListChanged(list1);
-        for (int i = 0; i < 3; i++) t.recordOutcome("5C", result(ElmResponseParser.Kind.NO_DATA));
-        assertTrue(t.shouldSkip("5C"));
+        for (int i = 0; i < 3; i++) t.recordOutcome("5C", result(ElmResponseParser.Kind.NO_DATA), c + i);
+        assertTrue(t.shouldSkip("5C", c + 5));
         t.onListChanged(list1);                                      // AYNI liste → öğrenme KORUNUR
-        assertTrue(t.shouldSkip("5C"));
+        assertTrue(t.shouldSkip("5C", c + 6));
         t.onListChanged(java.util.Arrays.asList("5C", "5E", "0A")); // yeni içerik → yeni şans
-        assertFalse(t.shouldSkip("5C"));
+        assertFalse(t.shouldSkip("5C", c + 7));
     }
 }
