@@ -23,7 +23,7 @@
 
 /* ── Ham girdi (native'den) ───────────────────────────────────────────────── */
 
-export type ExperimentPhase = 'A' | 'B';
+export type ExperimentPhase = 'A' | 'B' | 'A2';
 
 export interface PidTimingSample {
   readonly phase:     string;
@@ -34,11 +34,13 @@ export interface PidTimingSample {
 }
 
 export interface PidTimingPhaseMeta {
-  readonly phase:       string;
-  readonly stApplied:   string;   // 'default' | 'FF' …
+  readonly phase:       string;   // 'A' | 'B' | 'A2'
+  readonly stApplied:   string;   // 'default' | 'FF' | '32'
   readonly stCommandOk: boolean;
   readonly startedAt:   number;
   readonly finishedAt:  number;
+  /** Baglantidan kac ms sonra basladi — hukmun PARCASI. -1/eksik = bilinmiyor. */
+  readonly sinceConnectMs?: number;
 }
 
 export interface PidTimingRaw {
@@ -76,6 +78,8 @@ export interface PidComparison {
   readonly pid:            string;
   readonly a:              PidPhaseStats | null;
   readonly b:              PidPhaseStats | null;
+  /** Kontrol aşaması (ATST geri alınmış) — üç aşamalı tasarımın ayırt edici ayağı. */
+  readonly a2:             PidPhaseStats | null;
   /** B − A (negatif = iyileşme). İki aşama da yoksa `null`. */
   readonly noDataRateDelta: number | null;
   /** Bu PID bekleme süresi uzayınca kurtuldu mu? */
@@ -100,13 +104,19 @@ export interface PhaseTotals {
   readonly noDataMs:   DurationStats;
   /** Aşamanın toplam süresi (ms) — meta yoksa `null`. */
   readonly wallMs:     number | null;
+  /** Bağlantıdan kaç ms sonra başladı — zaman ekseni. Bilinmiyorsa `null`. */
+  readonly sinceConnectMs: number | null;
 }
 
 export type ExperimentVerdict =
   | 'OLCUM_YOK'
   | 'EKSIK_ASAMA'
-  | 'ATST_KOKTU'        // H-A doğrulandı: süre uzayınca kayıp belirgin azaldı
-  | 'ATST_KOK_DEGIL'    // uzatma fark etmedi → başka kök
+  /** A kötü · B iyi · A' YİNE KÖTÜ → düzelme ATST'den geldi, geri alınınca kayboldu. */
+  | 'ATST_KOKTU'
+  /** Üç aşama benzer → uzatma fark etmedi, kök başka yerde. */
+  | 'ATST_KOK_DEGIL'
+  /** A kötü · B iyi · A' DE İYİ → düzelme ZAMANDAN; ATST'nin katkısı BELİRSİZ. */
+  | 'ZAMAN_ETKISI'
   | 'BELIRSIZ';
 
 export interface PidTimingReport {
@@ -152,7 +162,7 @@ function statsOf(values: readonly number[]): DurationStats {
 }
 
 function isPhase(v: string): v is ExperimentPhase {
-  return v === 'A' || v === 'B';
+  return v === 'A' || v === 'B' || v === 'A2';
 }
 
 /* ── PID × aşama istatistiği ──────────────────────────────────────────────── */
@@ -198,7 +208,7 @@ export function buildPidTimingReport(raw: PidTimingRaw | null | undefined): PidT
 
   const pids = Array.from(new Set(samples.map((s) => s.pid))).sort();
 
-  const totals: PhaseTotals[] = (['A', 'B'] as ExperimentPhase[]).map((ph) => {
+  const totals: PhaseTotals[] = (['A', 'B', 'A2'] as ExperimentPhase[]).map((ph) => {
     const mine = samples.filter((s) => s.phase === ph);
     const success = mine.filter((s) => s.outcome === 'OK');
     const noData  = mine.filter((s) => s.outcome === 'NO_DATA');
@@ -215,25 +225,30 @@ export function buildPidTimingReport(raw: PidTimingRaw | null | undefined): PidT
       successMs: statsOf(success.map((s) => s.elapsedMs)),
       noDataMs:  statsOf(noData.map((s) => s.elapsedMs)),
       wallMs: wall,
+      sinceConnectMs: (meta && typeof meta.sinceConnectMs === 'number' && meta.sinceConnectMs >= 0)
+        ? meta.sinceConnectMs : null,
     };
   });
 
   const perPid: PidComparison[] = pids.map((pid) => {
-    const a = pidPhaseStats(pid, 'A', samples);
-    const b = pidPhaseStats(pid, 'B', samples);
+    const a  = pidPhaseStats(pid, 'A',  samples);
+    const b  = pidPhaseStats(pid, 'B',  samples);
+    const a2 = pidPhaseStats(pid, 'A2', samples);
     const delta = (a.noDataRate !== null && b.noDataRate !== null)
       ? b.noDataRate - a.noDataRate : null;
     return {
       pid,
-      a: a.attempts > 0 ? a : null,
-      b: b.attempts > 0 ? b : null,
+      a:  a.attempts  > 0 ? a  : null,
+      b:  b.attempts  > 0 ? b  : null,
+      a2: a2.attempts > 0 ? a2 : null,
       noDataRateDelta: delta,
       verdict: pidVerdict(a.attempts > 0 ? a : null, b.attempts > 0 ? b : null),
     };
   });
 
-  const tA = totals[0];
-  const tB = totals[1];
+  const tA  = totals[0];
+  const tB  = totals[1];
+  const tA2 = totals[2];
   let verdict: ExperimentVerdict = 'BELIRSIZ';
   let note = '';
   if (samples.length === 0) {
@@ -242,22 +257,39 @@ export function buildPidTimingReport(raw: PidTimingRaw | null | undefined): PidT
   } else if (tA.attempts < MIN_SAMPLES_PER_PHASE || tB.attempts < MIN_SAMPLES_PER_PHASE) {
     verdict = 'EKSIK_ASAMA';
     note = `Aşama başına en az ${MIN_SAMPLES_PER_PHASE} örnek gerekir (A=${tA.attempts}, B=${tB.attempts}).`;
-  } else if (tA.noDataRate === null || tB.noDataRate === null) {
+  } else if (tA2.attempts < MIN_SAMPLES_PER_PHASE) {
+    /* UCUNCU ASAMA SART: A -> B sirasi ZAMANIN etkisini ATST'ninkinden AYIRAMAZ.
+       Hat kendiliginden oturduysa B zaten iyi cikar — ATST hicbir sey yapmasa bile. */
+    verdict = 'EKSIK_ASAMA';
+    note = `Kontrol aşaması (A') eksik (${tA2.attempts} örnek) — ATST etkisi ZAMAN etkisinden `
+         + 'AYRILAMAZ, hüküm VERİLMEZ.';
+  } else if (tA.noDataRate === null || tB.noDataRate === null || tA2.noDataRate === null) {
     verdict = 'BELIRSIZ';
     note = 'Oran hesaplanamadı.';
   } else {
-    const drop = tA.noDataRate - tB.noDataRate;
-    if (drop >= VERDICT_MIN_DROP) {
+    const rA = tA.noDataRate;
+    const rB = tB.noDataRate;
+    const rA2 = tA2.noDataRate;
+    const pc = (x: number) => `%${(x * 100).toFixed(0)}`;
+    const seq = `${pc(rA)} → ${pc(rB)} → ${pc(rA2)}`;
+    const improvedAB = rA - rB >= VERDICT_MIN_DROP;
+    const revertedA2 = rA2 - rB >= VERDICT_MIN_DROP;
+
+    if (improvedAB && revertedA2) {
       verdict = 'ATST_KOKTU';
-      note = `NO_DATA oranı %${(tA.noDataRate * 100).toFixed(0)} → %${(tB.noDataRate * 100).toFixed(0)} `
-           + `(${(drop * 100).toFixed(0)} puan düştü) — bekleme süresi kökün kendisiydi.`;
-    } else if (Math.abs(drop) < VERDICT_MIN_DROP) {
+      note = `NO_DATA ${seq} — ATST uzatılınca düştü, GERİ ALININCA yeniden yükseldi. `
+           + 'Düzelme zamandan değil, bekleme süresinden geldi: KÖK BUDUR.';
+    } else if (improvedAB && !revertedA2) {
+      verdict = 'ZAMAN_ETKISI';
+      note = `NO_DATA ${seq} — B aşamasında düzeldi ama ATST GERİ ALINDIĞINDA da düzelmiş kaldı. `
+           + 'İyileşme hattın kendiliğinden oturmasından geliyor; ATST katkısı BELİRSİZ.';
+    } else if (Math.abs(rA - rB) < VERDICT_MIN_DROP && Math.abs(rA - rA2) < VERDICT_MIN_DROP) {
       verdict = 'ATST_KOK_DEGIL';
-      note = `NO_DATA oranı anlamlı değişmedi (%${(tA.noDataRate * 100).toFixed(0)} → `
-           + `%${(tB.noDataRate * 100).toFixed(0)}) — kök BAŞKA yerde; eşik tartışması yeniden açılır.`;
+      note = `NO_DATA ${seq} — üç aşama benzer, uzatma fark etmedi. Kök BAŞKA yerde; `
+           + 'eşik tartışması yeniden açılır.';
     } else {
       verdict = 'BELIRSIZ';
-      note = 'Oran KÖTÜLEŞTİ — gürültü ya da başka bir etken; deney tekrarlanmalı.';
+      note = `NO_DATA ${seq} — desen tutarsız (gürültü ya da başka etken); deney tekrarlanmalı.`;
     }
   }
 
@@ -277,6 +309,7 @@ export const EXPERIMENT_VERDICT_LABEL: Readonly<Record<ExperimentVerdict, string
   EKSIK_ASAMA:    'EKSİK AŞAMA — hüküm verilmez',
   ATST_KOKTU:     'ATST KÖKTÜ — bekleme süresi uzayınca kayıp belirgin azaldı',
   ATST_KOK_DEGIL: 'ATST KÖK DEĞİL — uzatma fark etmedi, kök başka yerde',
+  ZAMAN_ETKISI:   'ZAMAN ETKİSİ — düzelme hattın oturmasından; ATST katkısı BELİRSİZ',
   BELIRSIZ:       'BELİRSİZ — tekrar gerekiyor',
 };
 

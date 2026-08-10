@@ -16,7 +16,7 @@ import {
 } from '../platform/obd/pidTimingExperimentModel';
 
 /** n örnek üretir: `okCount` tanesi OK (süre `okMs`), kalanı NO_DATA (süre `ndMs`). */
-function mk(phase: 'A' | 'B', pid: string, n: number, okCount: number,
+function mk(phase: 'A' | 'B' | 'A2', pid: string, n: number, okCount: number,
             okMs = 60, ndMs = 210): PidTimingSample[] {
   return Array.from({ length: n }, (_, i) => ({
     phase, pid,
@@ -30,11 +30,21 @@ function raw(samples: PidTimingSample[], stB = 'FF'): PidTimingRaw {
   return {
     status: 'done',
     phases: [
-      { phase: 'A', stApplied: 'default', stCommandOk: true, startedAt: 1000, finishedAt: 21000 },
-      { phase: 'B', stApplied: stB, stCommandOk: true, startedAt: 22000, finishedAt: 70000 },
+      { phase: 'A',  stApplied: 'default', stCommandOk: true, startedAt: 1000,  finishedAt: 21000, sinceConnectMs: 5000 },
+      { phase: 'B',  stApplied: stB,       stCommandOk: true, startedAt: 22000, finishedAt: 70000, sinceConnectMs: 26000 },
+      { phase: 'A2', stApplied: '32',      stCommandOk: true, startedAt: 71000, finishedAt: 91000, sinceConnectMs: 75000 },
     ],
     samples,
   };
+}
+
+/** Uc asamali tam kurgu: her asama icin (n, okCount). */
+function trio(pid: string, a: [number, number], b: [number, number], a2: [number, number]) {
+  return [
+    ...mk('A',  pid, a[0],  a[1]),
+    ...mk('B',  pid, b[0],  b[1]),
+    ...mk('A2', pid, a2[0], a2[1]),
+  ];
 }
 
 describe('temel istatistik', () => {
@@ -72,12 +82,11 @@ describe('temel istatistik', () => {
 describe('0x23 ayrı raporlanır (deneyin somut hedefi)', () => {
   it('🔒 target23 dolu gelir ve kendi hükmünü taşır', () => {
     const r = buildPidTimingReport(raw([
-      ...mk('A', '23', 20, 4),
-      ...mk('B', '23', 20, 19),
-      ...mk('A', '0C', 20, 20),
-      ...mk('B', '0C', 20, 20),
+      ...trio('23', [20, 4], [20, 19], [20, 5]),
+      ...trio('0C', [20, 20], [20, 20], [20, 20]),
     ]));
     expect(r.target23).not.toBeNull();
+    expect(r.target23!.a2, 'kontrol aşaması taşınmıyor').not.toBeNull();
     expect(r.target23!.pid).toBe('23');
     expect(r.target23!.verdict).toBe('SURE_ILE_KURTULDU');
   });
@@ -116,34 +125,54 @@ describe('PID başına hüküm', () => {
 });
 
 describe('deney hükmü — her iki yön de kilitli', () => {
-  it('🔒 kayıp belirgin düşerse ATST_KOKTU (H-A doğrulanır)', () => {
+  it('🔒 A kötü · B iyi · A\' YİNE KÖTÜ → ATST_KOKTU (H-A kanıtlanır)', () => {
     const r = buildPidTimingReport(raw([
-      ...mk('A', '23', 20, 8), ...mk('A', '2C', 20, 10),
-      ...mk('B', '23', 20, 19), ...mk('B', '2C', 20, 18),
+      ...trio('23', [20, 8], [20, 19], [20, 7]),
+      ...trio('2C', [20, 10], [20, 18], [20, 9]),
     ]));
     expect(r.verdict).toBe('ATST_KOKTU');
-    expect(r.verdictNote).toMatch(/NO_DATA oranı/);
+    expect(r.verdictNote, 'geri alınca yükseldiği yazılmamış').toMatch(/GERİ ALININCA/);
   });
 
-  it('🔒 kayıp değişmezse ATST_KOK_DEGIL (hipotez ÇÜRÜR)', () => {
+  it('🔒 A kötü · B iyi · A\' DE İYİ → ZAMAN_ETKISI (ATST katkısı belirsiz)', () => {
+    /* Kullanıcının saha gözlemi: hat kendiliğinden oturuyor. Bu kurguda B'nin
+       iyiliği ATST'den DEĞİL zamandan gelir — üçüncü aşama olmasa ATST_KOKTU
+       denecekti ve YANLIŞ olacaktı. */
     const r = buildPidTimingReport(raw([
-      ...mk('A', '23', 20, 10), ...mk('A', '2C', 20, 10),
-      ...mk('B', '23', 20, 11), ...mk('B', '2C', 20, 9),
+      ...trio('23', [20, 8], [20, 19], [20, 19]),
+      ...trio('2C', [20, 10], [20, 18], [20, 18]),
+    ]));
+    expect(r.verdict).toBe('ZAMAN_ETKISI');
+    expect(r.verdictNote).toMatch(/hattın kendiliğinden oturmasından/);
+  });
+
+  it('🔒 kontrol aşaması EKSİKSE hüküm VERİLMEZ — zaman/ATST ayrılamaz', () => {
+    const r = buildPidTimingReport(raw([
+      ...mk('A', '23', 20, 8), ...mk('B', '23', 20, 19),
+    ]));
+    expect(r.verdict).toBe('EKSIK_ASAMA');
+    expect(r.verdictNote).toMatch(/AYRILAMAZ/);
+  });
+
+  it('🔒 üç aşama benzerse ATST_KOK_DEGIL (hipotez ÇÜRÜR)', () => {
+    const r = buildPidTimingReport(raw([
+      ...trio('23', [20, 10], [20, 11], [20, 10]),
+      ...trio('2C', [20, 10], [20, 9],  [20, 11]),
     ]));
     expect(r.verdict, 'araç yalnız beklediğimizi söylüyor').toBe('ATST_KOK_DEGIL');
-    expect(r.verdictNote).toMatch(/kök BAŞKA yerde/);
+    expect(r.verdictNote).toMatch(/[Kk]ök BAŞKA yerde/);
   });
 
   it('🔒 az örnekte hüküm VERİLMEZ', () => {
-    const r = buildPidTimingReport(raw([...mk('A', '23', 5, 2), ...mk('B', '23', 5, 5)]));
+    const r = buildPidTimingReport(raw(trio('23', [5, 2], [5, 5], [5, 2])));
     expect(MIN_SAMPLES_PER_PHASE).toBe(20);
     expect(r.verdict).toBe('EKSIK_ASAMA');
   });
 
   it('🔒 kötüleşme BELIRSIZ sayılır — "iyileşti" diye sunulmaz', () => {
     const r = buildPidTimingReport(raw([
-      ...mk('A', '23', 20, 18), ...mk('A', '2C', 20, 18),
-      ...mk('B', '23', 20, 4),  ...mk('B', '2C', 20, 4),
+      ...trio('23', [20, 18], [20, 4], [20, 18]),
+      ...trio('2C', [20, 18], [20, 4], [20, 18]),
     ]));
     expect(r.verdict).toBe('BELIRSIZ');
   });
@@ -163,6 +192,20 @@ describe('sözleşme bütünlüğü', () => {
     expect(noMeta.totals[0].stApplied).toBe('UNKNOWN');
   });
 
+  it('🔒 her aşamanın bağlantıya göre başlangıcı taşınır (zaman ekseni)', () => {
+    const r = buildPidTimingReport(raw(trio('23', [20, 10], [20, 10], [20, 10])));
+    expect(r.totals[0].sinceConnectMs).toBe(5000);
+    expect(r.totals[1].sinceConnectMs).toBe(26000);
+    expect(r.totals[2].sinceConnectMs).toBe(75000);
+    /* Damga yoksa NULL — sahte 0 YOK. */
+    const noStamp = buildPidTimingReport({
+      status: 'done',
+      phases: [{ phase: 'A', stApplied: 'default', stCommandOk: true, startedAt: 1, finishedAt: 2 }],
+      samples: mk('A', '23', 20, 10),
+    });
+    expect(noStamp.totals[0].sinceConnectMs).toBeNull();
+  });
+
   it('🔒 her hükmün etiketi var (sessiz boşluk yok)', () => {
     for (const [k, v] of Object.entries(EXPERIMENT_VERDICT_LABEL)) {
       expect(v.length, `${k} etiketsiz`).toBeGreaterThan(0);
@@ -173,7 +216,7 @@ describe('sözleşme bütünlüğü', () => {
   });
 
   it('🔒 SAF — aynı girdi aynı rapor, girdi mutasyona uğramaz', () => {
-    const input = raw([...mk('A', '23', 20, 8), ...mk('B', '23', 20, 19)]);
+    const input = raw(trio('23', [20, 8], [20, 19], [20, 7]));
     const copy = JSON.stringify(input);
     const a = buildPidTimingReport(input);
     const b = buildPidTimingReport(input);

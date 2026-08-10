@@ -402,6 +402,7 @@ public final class OBDManager {
                 initELM327();
 
                 obdRunning = true;
+                connectedAtMs = System.currentTimeMillis();   // #518 zaman ekseni
                 cb.onConnected(detectedProtocol);
 
                 pollLoop();
@@ -727,6 +728,7 @@ public final class OBDManager {
                 initELM327();
 
                 obdRunning = true;
+                connectedAtMs = System.currentTimeMillis();   // #518 zaman ekseni
                 cb.onConnected(detectedProtocol);
 
                 pollLoop();
@@ -1202,6 +1204,11 @@ public final class OBDManager {
 
     private volatile PidTimingExperiment timingExperiment = null;
 
+    /** #518 · Bağlantının kurulduğu an — deney aşamalarının "bağlantıdan kaç sn sonra"
+     *  başladığını yazabilmek için. Zaman ekseni hükmün PARÇASIDIR: hattın kendiliğinden
+     *  oturması ile ATST'nin etkisi ancak böyle ayrılabilir. 0 = bilinmiyor. */
+    private volatile long connectedAtMs = 0L;
+
     /**
      * Deneyi ARKA PLAN thread'inde başlatır (çağıran bloklanmaz — deney dakikalar sürebilir).
      * @return false = bağlantı yok ya da zaten koşuyor.
@@ -1213,7 +1220,8 @@ public final class OBDManager {
         if (cur != null && cur.isRunning()) return false;
         final PidTimingExperiment exp = new PidTimingExperiment(cmdQueue, p);
         timingExperiment = exp;
-        Thread t = new Thread(() -> exp.run(pids, rounds, stHexB), "pid-timing-exp");
+        final long connAt = connectedAtMs;
+        Thread t = new Thread(() -> exp.run(pids, rounds, stHexB, connAt), "pid-timing-exp");
         t.setDaemon(true);
         t.start();
         return true;
@@ -1248,6 +1256,7 @@ public final class OBDManager {
                 o.put("stCommandOk", m.stCommandOk);
                 o.put("startedAt", m.startedAt);
                 o.put("finishedAt", m.finishedAt);
+                o.put("sinceConnectMs", m.sinceConnectMs);
                 ph.put(o);
             }
             out.put("phases", ph);

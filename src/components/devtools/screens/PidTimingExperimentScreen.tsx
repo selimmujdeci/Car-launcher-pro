@@ -65,7 +65,7 @@ function pct(v: number | null): string {
 
 function verdictTone(v: string): string {
   if (v === 'ATST_KOKTU') return OK;
-  if (v === 'ATST_KOK_DEGIL') return WARN;
+  if (v === 'ATST_KOK_DEGIL' || v === 'ZAMAN_ETKISI') return WARN;
   if (v === 'BELIRSIZ') return BAD;
   return NONE;
 }
@@ -125,7 +125,7 @@ function PidTimingExperimentScreenBase() {
             H-A Deneyi — ATST yanıt süresi
           </h2>
           <p className="text-[11px] text-[var(--oem-ink-3)]">
-            A: mevcut ayar · B: ATST {DEFAULT_ST_HEX_B} — aynı bağlantı, {DEFAULT_ROUNDS} tur.
+            A: mevcut · B: ATST {DEFAULT_ST_HEX_B} · A&apos;: geri alındı — aynı bağlantı, {DEFAULT_ROUNDS} tur/aşama.
           </p>
         </div>
         <div className="flex items-center gap-1.5">
@@ -153,7 +153,10 @@ function PidTimingExperimentScreenBase() {
       <p className="flex items-start gap-1.5 rounded border border-[var(--oem-warn)] bg-[var(--oem-warn-soft)] p-2 text-[11px] text-[var(--oem-warn)]">
         <AlertTriangle size={12} className="mt-0.5 shrink-0" />
         <span>
-          <b>Bu ekran araca SORGU GÖNDERİR</b> — LAB&apos;ın salt-okunur kuralının bilinçli
+          <b>ÜÇ AŞAMA (A → B → A&apos;):</b> A→B sırası tek başına ZAMANIN etkisini
+          ATST&apos;ninkinden ayıramaz — hat kendiliğinden oturursa B zaten iyi çıkar.
+          Üçüncü aşamada ayar geri alınır: A&apos; yine kötüyse kök ATST&apos;dir,
+          A&apos; de iyiyse düzelme zamandandır. <b>Bu ekran araca SORGU GÖNDERİR</b> — LAB&apos;ın salt-okunur kuralının bilinçli
           istisnası. Yalnız Mode-01 okuma; yazma/silme/adaptasyon YOK. ATST bitişte
           geri alınır, ürünün eleme öğrenmesi beslenmez. Açılışta hiçbir şey gönderilmez.
         </span>
@@ -195,7 +198,8 @@ function PidTimingExperimentScreenBase() {
                     <th className="pr-2">deneme</th><th className="pr-2">NO_DATA</th>
                     <th className="pr-2">OK p50/p95/max</th>
                     <th className="pr-2">NO_DATA p50/p95/max</th>
-                    <th>süre</th>
+                    <th className="pr-2">süre</th>
+                    <th>bağlantıdan</th>
                   </tr>
                 </thead>
                 <tbody className="text-[var(--oem-ink-1)]">
@@ -207,7 +211,8 @@ function PidTimingExperimentScreenBase() {
                       <td className="pr-2">{pct(t.noDataRate)}</td>
                       <td className="pr-2">{ms(t.successMs.p50)}/{ms(t.successMs.p95)}/{ms(t.successMs.max)}</td>
                       <td className="pr-2">{ms(t.noDataMs.p50)}/{ms(t.noDataMs.p95)}/{ms(t.noDataMs.max)}</td>
-                      <td>{t.wallMs === null ? UNAVAILABLE : `${Math.round(t.wallMs / 1000)}s`}</td>
+                      <td className="pr-2">{t.wallMs === null ? UNAVAILABLE : `${Math.round(t.wallMs / 1000)}s`}</td>
+                      <td>{t.sinceConnectMs === null ? UNAVAILABLE : `+${Math.round(t.sinceConnectMs / 1000)}s`}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -227,6 +232,7 @@ function PidTimingExperimentScreenBase() {
                 </Chip>
                 <span>A: {pct(report.target23.a?.noDataRate ?? null)} NO_DATA</span>
                 <span>→ B: {pct(report.target23.b?.noDataRate ?? null)}</span>
+                <span>→ A&apos;: {pct(report.target23.a2?.noDataRate ?? null)}</span>
                 <span>· OK p95 A {ms(report.target23.a?.successMs.p95 ?? null)}</span>
                 <span>B {ms(report.target23.b?.successMs.p95 ?? null)}</span>
               </div>
@@ -243,6 +249,7 @@ function PidTimingExperimentScreenBase() {
                     <tr>
                       <th className="py-1 pr-2">PID</th>
                       <th className="pr-2">A NO_DATA</th><th className="pr-2">B NO_DATA</th>
+                      <th className="pr-2">A&apos; NO_DATA</th>
                       <th className="pr-2">A OK p95</th><th className="pr-2">B OK p95</th>
                       <th>hüküm</th>
                     </tr>
@@ -253,6 +260,7 @@ function PidTimingExperimentScreenBase() {
                         <td className="py-1 pr-2">{p.pid}</td>
                         <td className="pr-2">{pct(p.a?.noDataRate ?? null)}</td>
                         <td className="pr-2">{pct(p.b?.noDataRate ?? null)}</td>
+                        <td className="pr-2">{pct(p.a2?.noDataRate ?? null)}</td>
                         <td className="pr-2">{ms(p.a?.successMs.p95 ?? null)}</td>
                         <td className="pr-2">{ms(p.b?.successMs.p95 ?? null)}</td>
                         <td>{PID_VERDICT_LABEL[p.verdict]}</td>

@@ -12,11 +12,23 @@ package com.cockpitos.pro.obd;
  * **CAN'de hiç göndermiyor** → ELM327 varsayılanı (0x32 × 4 ms ≈ 200 ms) yürürlükte.
  * ELM327'de adaptif zamanlamanın ({@code ATAT1}) TAVANI ATST'dir.
  *
- * ── DENEY ───────────────────────────────────────────────────────────────────
- * AYNI bağlantıda, arka arkaya iki aşama; aralarında BAŞKA HİÇBİR ŞEY değişmez:
- *   A) mevcut ayar (CAN'de ATST'ye DOKUNULMAZ — üretimdeki hâl)
- *   B) {@code ATST<hex>} uzatılmış
- * Her aşamada aynı PID listesi × N tur, PID başına süre ve sonuç kaydedilir.
+ * ── DENEY: ÜÇ AŞAMA (A → B → A') ────────────────────────────────────────────
+ * AYNI bağlantıda, arka arkaya; aralarında BAŞKA HİÇBİR ŞEY değişmez:
+ *   A ) mevcut ayar (CAN'de ATST'ye DOKUNULMAZ — üretimdeki hâl)
+ *   B ) {@code ATST<hex>} uzatılmış
+ *   A') ATST eski hâline döner — AYNI ölçüm TEKRARLANIR
+ *
+ * ── NEDEN ÜÇÜNCÜ AŞAMA (kritik) ─────────────────────────────────────────────
+ * Saha gözlemi: bağlantıdan sonra veriler bir süre bayat, sonra KENDİLİĞİNDEN
+ * oturuyor. B, A'dan SONRA koştuğu için hat kendiliğinden oturmuş olacak ve B
+ * daha iyi çıkacaktır — **ATST hiçbir şey yapmasa bile**. İki aşamalı tasarım
+ * ZAMANIN etkisi ile ATST'nin etkisini AYIRAMAZ. Üçüncü aşama bu karışıklığı
+ * çözer:
+ *   · A' YİNE KÖTÜ  → düzelme ATST'den geldi, geri alınınca kayboldu → KÖK BUDUR.
+ *   · A' de İYİ     → düzelme ZAMANDAN geldi; ATST'nin katkısı BELİRSİZDİR.
+ *
+ * Her aşamada aynı PID listesi × N tur; PID başına süre/sonuç ve aşamanın
+ * **bağlantıdan kaç ms sonra** başladığı kaydedilir (zaman ekseni hükmün parçası).
  * Bitişte ayar **her hâlükârda** geri alınır (finally) — ürün etkilenmez.
  *
  * ── ÜRÜN DAVRANIŞINI DEĞİŞTİRMEZ (pazarlıksız) ──────────────────────────────
@@ -55,11 +67,13 @@ final class PidTimingExperiment {
 
     /** Bir aşamanın kaba özeti (ayrıntı TS'te hesaplanır). */
     static final class PhaseMeta {
-        String  phase;
-        String  stApplied;       // "default" (A) | "FF" (B)
-        boolean stCommandOk;     // B: ATST 'OK' döndü mü (klon '?' dönebilir)
+        String  phase;           // "A" | "B" | "A2"
+        String  stApplied;       // "default" (A/A') | "FF" (B)
+        boolean stCommandOk;     // ATST 'OK' döndü mü (klon '?' dönebilir)
         long    startedAt;
         long    finishedAt;
+        /** Bağlantı kurulduktan kaç ms SONRA bu aşama başladı. -1 = bilinmiyor. */
+        long    sinceConnectMs;
     }
 
     private final ElmCommandQueue queue;
@@ -90,7 +104,7 @@ final class PidTimingExperiment {
      * @param rounds   aşama başına tur sayısı — bounded.
      * @param stHexB   B aşamasında uygulanacak ATST değeri (hex, ör. "FF").
      */
-    void run(java.util.List<String> pids, int rounds, String stHexB) {
+    void run(java.util.List<String> pids, int rounds, String stHexB, long connectedAtMs) {
         if (running) { return; }
         running = true;
         status = "running";
@@ -109,11 +123,19 @@ final class PidTimingExperiment {
             }
 
             // ── A) mevcut ayar — ATST'ye DOKUNULMAZ (üretimdeki gerçek hâl) ──
-            runPhase("A", list, n, null, true);
+            runPhase("A", list, n, null, true, connectedAtMs);
+            if (!running) return;
 
             // ── B) ATST uzatılmış ──
-            boolean ok = applyStTimeout(stHexB);
-            runPhase("B", list, n, stHexB, ok);
+            boolean okB = applyStTimeout(stHexB);
+            runPhase("B", list, n, stHexB, okB, connectedAtMs);
+            if (!running) return;
+
+            // ── A') ATST GERİ ALINIR ve AYNI ölçüm tekrarlanır ────────────────
+            // Kontrol aşaması: B'deki iyileşme ATST'den mi yoksa hattın
+            // kendiliğinden oturmasından mı geldi? A' bunu ayırır.
+            boolean okA2 = applyStTimeout(DEFAULT_ST_HEX);
+            runPhase("A2", list, n, DEFAULT_ST_HEX, okA2, connectedAtMs);
 
             status = "done";
         } catch (Throwable t) {
@@ -132,12 +154,15 @@ final class PidTimingExperiment {
     /* ── Aşama ──────────────────────────────────────────────────────────── */
 
     private void runPhase(String phase, java.util.List<String> pids, int rounds,
-                          String stHex, boolean stOk) {
+                          String stHex, boolean stOk, long connectedAtMs) {
         PhaseMeta meta = new PhaseMeta();
         meta.phase = phase;
         meta.stApplied = (stHex == null || stHex.isEmpty()) ? "default" : stHex.toUpperCase();
         meta.stCommandOk = stOk;
         meta.startedAt = System.currentTimeMillis();
+        /* Zaman ekseni: hattın kendiliğinden oturması bu sayıyla okunur. Bağlantı
+           damgası yoksa -1 (sahte 0 YAZILMAZ). */
+        meta.sinceConnectMs = connectedAtMs > 0 ? (meta.startedAt - connectedAtMs) : -1L;
         phases.add(meta);
 
         for (int r = 0; r < rounds; r++) {
