@@ -2192,6 +2192,192 @@ değildir** — vizyon rezervuarıdır. Bir madde ancak P0–P3'e taşındığı
 
 ---
 
+---
+
+## 7.9 NAVİGASYON VİZYONU — 7 KATMAN (2026-08-11)
+
+> **Bu bölüm bir ENVANTER ve YÖN belgesidir.** Yeni kütük numarası açmaz; mevcut
+> ölçülmüş açıklara (kütük #401–#407 · `docs/NAV_FIELD_GAPS_2026-08-05.md` G1–G19)
+> referans verir. Durum yükseltmesi YAPMAZ — saha kanıtı kütükten okunur.
+
+Navigasyon, CarOS Pro'nun **8 Kapı** sözleşmesinin en sert sınandığı yerdir: konum
+bir gösterge değil, bir **karar girdisidir**. Aşağıdaki yedi katman, "harita çizen
+uygulama" ile "aracın ikinci beyni" arasındaki farkı tanımlar.
+
+### Katman 1 — Konum bir KANITTIR
+
+Konum; yaş (`fixAgeMs`), doğruluk (`accuracyM`) ve kaynak (GPS · ölü hesap · füzyon)
+taşıyan **tek otoritedir**. Bayatlık **dürüstçe gösterilir**; taze fix yokken akıcı
+animasyonla süreklilik **taklit edilmez**.
+
+*Ölçülmüş açık:* **G1 / kütük #401** — fix p50 **19,5 s** bayat (94 km/h'de ~509 m
+körlük) · **G11 / #406** — doğruluk p95 **7 578 m**, yanal sapma 1 480 m. Kabul
+ölçütü **#508**'de kilitli: `p50 < 3 s` **VE** `p95 < 10 s` **VE** iz/gerçek yol
+oranı **> 0,9**.
+
+### Katman 2 — FÜZYON: GPS tek başına yetmez
+
+Tekerlek hızı, motor devri ve vites; GPS ile birleşerek tünelde ve şehir
+kanyonunda konumu **sürdürür**. Ölü hesap bir yedek değil, **sürekliliğin
+kendisidir**.
+
+*Ölçülmüş açık:* **Ç-7 — iki paralel hız sistemi**: `speedFusion` (plausibility +
+histerezis + kalibrasyon) yalnız MiniMap/telemetri yolunda; ana gösterge yolu
+(worker → resolver → HAL store) bunlara sahip değil. Kısmen kapatıldı; **tek
+otoriter hız kaynağı** hedefi açık. Ayrıca **G8 / #405** — `headingDeg` her örnekte
+mevcutken eşleme motoru `HEADING_UNKNOWN` diyor: taşınan veri kullanılmıyor.
+
+### Katman 3 — TEK ROTA OTORİTESİ
+
+Tek ETA, tek kalan mesafe, **tek hesaplama noktası**. Aynı gerçeğin iki cevabı
+olamaz.
+
+*Ölçülmüş açık:* **G4 / #403** — ekran kartı "3 sa 18 dk" derken motor "4 sa 42 dk"
+diyordu (1,5 saat fark). Ekran tarafındaki ikinci türetme **kaldırıldı**
+(`NavigationHUD`), ETA artık yalnız motordan gelir. **Kalan:** **G3** ETA
+salınımı (43 kez >60 s sıçrama, en büyüğü 1 sa 49 dk) ve **G5+G9 / #404** kalan
+mesafenin %38'i kuş uçuşu + mesafe 69 kez arttı.
+
+### Katman 4 — GERÇEK ÇEVRİMDIŞI ROTA MOTORU
+
+Rota hesabı **cihazda** yapılır. OEM satışında head unit'e veri paketi gelmez ve
+ağ garanti değildir; çevrimdışı rota bir konfor özelliği değil, **satış koşuludur**.
+
+*Ölçülmüş açık:* **G15** — çevrimdışı rota motoru YOK; ağ kesilince rehberlik
+tamamen düşüyor. Ön-ADR: `docs/ADR_OFFLINE_ROUTING.md` (motor seçimi · veri paketi
+boyutu/lisansı · gömülü dağıtım).
+
+### Katman 5 — ARAÇ-FARKINDA ROTALAMA
+
+Rota, aracın **o anki durumunu** bilir: DPF rejenerasyonu sürerken uzun dur-kalk
+güzergâhı önerilmez · akü düşükken uzun rölanti planlanmaz · menzil **gerçek
+tüketimden** hesaplanır (katalog değerinden değil) · filo aracında yükseklik ve
+ağırlık kısıtı rotayı belirler.
+
+Bu katman, navigasyonun OBD/CAN katmanıyla kesiştiği yerdir ve CarOS Pro'yu
+"harita uygulaması" olmaktan çıkaran şeydir.
+
+### Katman 6 — EKRANDA DÜRÜSTLÜK
+
+Konum bayatsa **harita bunu söyler**. Marker akıcı animasyonla ilerletilip taze
+veri varmış gibi gösterilmez. Rehberlik düşmüşse "rehberlik yok" yazılır; düz-hat
+tahmini gerçek rota gibi sunulmaz.
+
+*Ölçülmüş açık:* **G10 / #407** — rota doğrulaması 399/399 örnekte `DEGRADED` ve
+bu kullanıcıya HİÇ gösterilmiyor · **G19** — iki uyarı aynı anda farklı doğruluk
+değeri gösterdi · **G16/G17/G18** — hız göstergesi ikonlara biniyor, GPS kartı
+widget'ları kapatıyor, yol sayacı kırpılıyor.
+
+### Katman 7 — SÜRÜCÜ KATMANI
+
+Radar/EDS uyarısı · ortalama hız kesiti (section control) · hız limiti · şerit
+rehberliği · kavşak yakınlaştırma görünümü · **gerçekçi ETA**.
+
+*Ölçülmüş açık:* **G6** — 32 adımın 0'ında şerit verisi (sağlayıcı vermiyor;
+istemci hazır) · **G7** — canlı trafik yok → ETA yapısal olarak gerçekçi olamaz ·
+**T2 / #390** — tam ekran hız limiti levhası sessizce ölüydü · **#455** — kavşak
+görünümü tetikleyicisi.
+
+---
+
+### SESLİ-ÖNCELİKLİ ARAYÜZ İLKESİ (bağlayıcı)
+
+Sürüşte **bakış bütçesi ~1,5 saniyedir** — 100 km/h'de **~40 metre kör yol**. Bu
+bütçe aşılıyorsa tasarım yanlıştır, kullanıcı dikkatsiz değildir.
+
+Her bilgi **dört kovadan birine** girer; ikisine birden giremez:
+
+| Kova | Ölçüt | Örnek |
+|---|---|---|
+| **SESLİ** | zamana duyarlı **VE** eylem gerektirir **VE** kısa | "200 metre sonra sağa" · "radar 500 m" |
+| **EKRAN — TEK BAKIŞTA** | sürekli durum · **≤3 bilgi birimi** · 1 saniyede okunur | kalan mesafe · sonraki manevra oku · hız |
+| **EKRAN — DURUNCA** | detay; araç hareketliyken **ertelenir** | rota alternatifleri · şerit şeması · POI listesi |
+| **SESSİZ KAYIT** | karar üretmez, sonradan okunur | ham iz · tanı defteri · LAB alanları |
+
+**Kural:** hız arttıkça **ekranda az, seste çok**. Bir bilgi sesli kovaya girmiyorsa
+sürüş sırasında ekranda yer kaplamayı hak etmiyordur.
+
+---
+
+### FİKİR HAVUZU — 5 GRUP (onaylı, sıralı)
+
+Gruplar **sıralıdır**: önceki grup kütükte 🟢 olmadan sonraki başlatılmaz (§7.0).
+
+**GRUP 1 — TEMEL** (her şeyin önkoşulu)
+1. **G1 konum düzeltmesi** — kabul ölçütü #508
+2. **Tek rota otoritesi** — tek ETA · tek kalan mesafe
+3. **Çevrimdışı rota motoru** — cihazda hesap
+
+**GRUP 2 — SÜRÜCÜ KATMANI** (G1'e bağlı — konum kanıtı olmadan hiçbiri kurulamaz)
+4. Radar / EDS uyarısı
+5. Hız limiti
+6. Şerit rehberliği
+7. Kavşak yakınlaştırma görünümü
+8. Gerçekçi ETA
+
+**GRUP 3 — ARAÇ-FARKINDA** (5 kategoriye bağlı: yakıt · sıcaklık · akü · DPF · yük)
+9. Gerçek menzil (ölçülen tüketimden)
+10. Yakıt/şarj zamanlaması
+11. Tırmanışta sıcaklık uyarısı
+12. Bozuk yol uyarısı
+
+**GRUP 4 — ÖĞRENEN**
+13. Öğrenilmiş rota (sürücünün fiilen kullandığı yol)
+14. Mola planı
+15. Zamanla düzelen ETA (kişisel sürüş profili)
+
+**GRUP 5 — FİLO**
+16. Kamyon rotası (yükseklik · ağırlık · tonaj kısıtı)
+17. Güzergâh uyumu (planlanan ↔ gerçekleşen)
+18. Teslimat sırası optimizasyonu
+19. Filo menzil/şarj planı
+20. Sürücü-araç eşleşmesine göre rota tercihi
+
+---
+
+### ÜRÜN SÖZÜ
+
+> **"CAROS PRO kullanan biri radara yakalanmamalı."**
+
+Bu söz **G1'e bağlıdır** ve ondan önce verilemez: radar uyarısı mesafe tabanlıdır
+("500 metre sonra"), mesafe konumdan türer, konum p50 19,5 saniye bayatken 94 km/h'de
+**~509 metre** hata taşır — yani uyarı radarın üstünde ya da geçtikten sonra çalar.
+**G1 kapanmadan bu söz verilmez**; şartlı kilit **#508** tam olarak bunu korur.
+
+Sözün ikinci yarısı **veri**dir: `SPEED_CAMERA_WARNING` kuralı kodda vardır ama
+**boş yuvadır** — veri üretici/filo müşterisinden lisansı beyanlı gelir (PID Pack
+deseni). Yuva boşken kural **hiç çalışmaz**, sessizce "risk yok" DEMEZ.
+
+---
+
+### MİMARİ SINIR — KARAR MOTORDA, LLM'DE DEĞİL
+
+Radar/uyarı **kararı ve zamanlaması** deterministik motorda kalır; LLM'de değil.
+Bu, **#283 safety hot-path** sınıfının gereğidir: uyarının doğru anda çalması bir
+güvenlik davranışıdır, bir metin üretimi değildir.
+
+- **Mavi ağızdır, beyin değildir.** LLM yalnız **ağ varken** ve yalnız
+  **zenginleştirme** amacıyla devreye girer (ifade · bağlam · açıklama).
+- Ağ yokken uyarı **aynen** çalışır; LLM'in yokluğu bir güvenlik kaybı ÜRETMEZ.
+- LLM hiçbir uyarıyı **bastıramaz**, **geciktiremez** ve **eşiğini değiştiremez**.
+
+---
+
+### BU BÖLÜMÜN DURUMU
+
+Yedi katmanın hiçbiri **SAHADA DOĞRULANDI** değildir. Katman 3'ün bir parçası
+(G4 ikinci ETA otoritesi) kapatıldı, kalanı açık. Katman 1'in kabul ölçütü
+kilitli (#508) ve **ölçüm bekliyor**. Katman 4 için henüz kod yoktur — yalnız
+ön-ADR vardır.
+
+**Sıra (ölçülerek doğrulandı, 2026-08-11):** Katman 1 (G1) → Katman 3 → Katman 4.
+Gerekçe: `routeProjectionModel` ve `mapMatchModel` zincirinde ölçülen bağımlılık —
+bayat/çöp fix → eşleştirme koridorundan (55–95 m) çıkış → `mapMatchState:
+OFF_NETWORK` → `distanceToNextTurnSource: STRAIGHT_LINE` → kalan mesafe ve ETA
+hataları. Saha oranları bu zinciri destekliyor: `OFF_NETWORK` **%38** ve
+`STRAIGHT_LINE` **%38** (aynı 399 örnek). Yani **G3/G5/G9 kökü G1+G11'e bağlıdır**
+ve konum otoritesi kapanmadan rota otoritesi kalıcı olarak düzelmez.
+
 ## 8. Capability Defteri
 
 > Durumlar §5 modeline göredir. **YOK** = kod yok; vizyon rezervuarı.
