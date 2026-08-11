@@ -938,7 +938,7 @@ export function getLocationEvidence(): LocationEvidence {
   const fixAgeMs = _lastFixPerfMs > 0
     ? Math.max(0, Math.round(performance.now() - _lastFixPerfMs))
     : null;
-  const drActive = _dr?.active === true;
+  const drActive = isDeadReckoningActive();   // #528: gerçek sahipten
   return {
     lat: loc ? loc.latitude : null,
     lng: loc ? loc.longitude : null,
@@ -962,10 +962,31 @@ function _stopDeadReckoning(): void {
 }
 
 function _startDeadReckoning(): void {
-  // DR Centralization (Packet 4 Hardening): yerel konum projeksiyonu devre dışı.
-  // Tüm sistem VehicleCompute.worker.ts'den gelen füzyonlanmış konumu tüketir.
-  // startDeadReckoningGuard() GPS sessizliğini izlemeye devam eder; ancak
-  // bu fonksiyon hiçbir zaman setInterval başlatmaz → isDeadReckoningActive() = false.
+  /* Bu fonksiyon BİLİNÇLİ OLARAK BOŞTUR: yerel konum projeksiyonu burada
+     yapılmaz. DR'ın gerçek sahibi `navigation/navigationSessionRuntime`tir
+     (`drOwner: 'NAV_SESSION_RUNTIME'`) — rota geometrisi boyunca ilerletir,
+     araç hızını (`resolveDrSpeed`) önceliklendirir ve güven düşünce durur.
+
+     ⚠️ DÜZELTME (#528, 2026-08-11): buradaki eski yorum *"tüm sistem
+     VehicleCompute.worker'dan gelen füzyonlanmış konumu tüketir"* diyordu —
+     bu İDDİA ÖLÇÜMLE ÇÜRÜTÜLDÜ: worker'ın giden mesajları arasında konum
+     YOKTUR (yalnız `GPS_FAILURE` kalite uyarısı). Yanlış yorum, DR'ın nerede
+     olduğunu arayan herkesi yanlış dosyaya gönderiyordu. */
+}
+
+/* ── DR CANLILIK SİNYALİ (#528) ────────────────────────────────────────────
+ * `isDeadReckoningActive()` bu modülün kendi (ölü) DR'ına bakıyordu ve HER
+ * ZAMAN `false` dönüyordu; oysa DR fiilen çalışıyordu. Gerçek sahip durumunu
+ * buraya PUSH eder — ters import (gpsService → navigationSessionRuntime)
+ * döngü yaratacağı için yön bilinçlidir. */
+let _drActiveExternal = false;
+
+/**
+ * DR sahibinin canlılık bildirimi. Yalnız `navigationSessionRuntime` çağırır.
+ * @param active `true` = DR şu an ilerlemeyi sürüyor (`DR_ACTIVE`).
+ */
+export function noteDeadReckoningState(active: boolean): void {
+  _drActiveExternal = active === true;
 }
 
 /**
@@ -1040,7 +1061,10 @@ export function startDeadReckoningGuard(): () => void {
  * NavigationHUD bu flag ile "Tünel modu" göstergesi açabilir.
  */
 export function isDeadReckoningActive(): boolean {
-  return _dr?.active === true;
+  /* #528: GERÇEK sahip `navigationSessionRuntime`tir; bu modülün kendi `_dr`
+     durumu ölüdür (yukarıdaki `_startDeadReckoning` boştur). İkisi de sorulur
+     ki gelecekte yerel yol canlanırsa sinyal yine doğru kalsın. */
+  return _drActiveExternal || _dr?.active === true;
 }
 
 /* ── HMR cleanup — dev modda Hot Reload'da watchId sızıntısını önle ─ */

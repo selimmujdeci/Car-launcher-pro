@@ -261,7 +261,10 @@ describe('B. Ölü hesaplama (DR) sahipliği', () => {
 
   it('🔒 hız kaynağı yoksa SAHTE İLERLEME yapılmaz', () => {
     const rt = code(runtimeSrc);
-    expect(rt).toContain('if (!(speedKmh >= 1)) { _drState = \'DR_EXPIRED\'; return; }');
+    /* #528: durum atamaları `_setDrState()` üzerinden yapılır (DR canlılık sinyali
+       merkeze bildirilsin diye). DAVRANIŞ DEĞİŞMEDİ — kilit kaldırılmadı, yeni
+       biçime taşındı: hız kanıtı kapısı hâlâ aynı yerde ve aynı eşikte. */
+    expect(rt).toContain('if (!(speedKmh >= 1)) { _setDrState(\'DR_EXPIRED\'); return; }');
   });
 
   it('🔒 GPS tazeyken DR çalışmaz (erken döner)', () => {
@@ -273,14 +276,14 @@ describe('B. Ölü hesaplama (DR) sahipliği', () => {
        noktadan ilerletilirdi. */
     const c = code(runtimeSrc);
     expect(c).toContain('if (ageMs <= GPS_STALE_MS) {');
-    expect(c).toMatch(/_drState = 'GPS_FRESH'; _drConfidence = 1;/);
+    expect(c).toMatch(/_setDrState\('GPS_FRESH'\); _drConfidence = 1;/);
     expect(c, 'GPS tazelenince DR çapası unutulmuyor').toMatch(
       /if \(ageMs <= GPS_STALE_MS\) \{[\s\S]{0,200}?_clearDrProjection\(\);[\s\S]{0,40}?return;/,
     );
   });
 
   it('🔒 DR güveni bitince ilerleme DURUR', () => {
-    expect(code(runtimeSrc)).toContain("if (_drConfidence <= 0) { _drState = 'DR_EXPIRED'; return; }");
+    expect(code(runtimeSrc)).toContain("if (_drConfidence <= 0) { _setDrState('DR_EXPIRED'); return; }");
   });
 
   it('🔒 navigasyon bitince DR ve ses TEMİZLENİR', () => {

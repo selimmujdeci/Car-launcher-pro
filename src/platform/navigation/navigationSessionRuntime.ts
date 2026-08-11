@@ -36,7 +36,7 @@
  * Görünüm artık yalnız ÇİZER. Timer sahipliği TEK yerdedir: bu modül.
  */
 
-import { onGPSLocation } from '../gpsService';
+import { onGPSLocation, noteDeadReckoningState } from '../gpsService';
 import { getRouteState, updateRouteProgress } from '../routingService';
 import {
   NavStatus,
@@ -106,6 +106,30 @@ let _drTimer: ReturnType<typeof setInterval> | null = null;
 let _releaseMotionFeeder: (() => void) | null = null;
 let _lastFix: _LastFix | null = null;
 let _drState: DrRuntimeState = 'IDLE';
+
+/**
+ * G1 · #528 — DR CANLILIK SİNYALİNİ MERKEZE BİLDİR.
+ *
+ * ÖLÇÜLDÜ (2026-08-11): `gpsService._startDeadReckoning()` **boş bir
+ * fonksiyondur** ("DR Centralization · Packet 4 Hardening" yorumuyla devre dışı
+ * bırakılmış) ve `startDeadReckoningGuard()` ürün yolunda **hiç çağrılmıyor** →
+ * `isDeadReckoningActive()` HER ZAMAN `false` dönüyordu. Oysa DR fiilen ÇALIŞIYOR
+ * ve otoritesi **bu dosyadır** (`drOwner: 'NAV_SESSION_RUNTIME'`).
+ *
+ * Yorumun iddiası — *"tüm sistem VehicleCompute.worker'dan gelen füzyonlanmış
+ * konumu tüketir"* — **ölçümle çürütüldü**: worker'ın giden mesajları arasında
+ * konum/pozisyon YOKTUR (yalnız `GPS_FAILURE` kalite uyarısı).
+ *
+ * Bağımlılık yönü BİLİNÇLİ: bu dosya `gpsService`'i zaten import eder; tersi
+ * (gpsService → bu dosya) **döngü** olurdu. Bu yüzden durum PUSH edilir.
+ */
+function _setDrState(next: DrRuntimeState): void {
+  if (next === _drState) return;           // gürültü yok: yalnız GEÇİŞ bildirilir
+  _drState = next;
+  try {
+    noteDeadReckoningState(next === 'DR_ACTIVE');
+  } catch { /* fail-soft: sinyal bildirimi navigasyonu ASLA düşürmez */ }
+}
 let _drTickCount = 0;
 /** DR ile kat edildiği TAHMİN edilen mesafe (m) — yalnız gözlem içindir. */
 let _drDistanceM = 0;
@@ -241,7 +265,7 @@ export function startNavigationSessionRuntime(): () => void {
         ts: _now(),
         speedMs: Number.isFinite(loc.speed ?? NaN) ? (loc.speed as number) : null,
       };
-      _drState = 'GPS_FRESH';
+      _setDrState('GPS_FRESH');
       _drConfidence = 1;
 
       /* İşaret hareketi TEK runtime'dan beslenir — görünümler kendi ara değer
@@ -323,7 +347,7 @@ function _feedVoiceGuidance(status: string): void {
 function _onNavigationInactive(): void {
   if (_drTimer !== null) { clearInterval(_drTimer); _drTimer = null; }
   _lastFix = null;
-  _drState = 'IDLE';
+  _setDrState('IDLE');
   _drDistanceM = 0;
   _drConfidence = 0;
   _clearDrProjection();
@@ -362,12 +386,12 @@ function _drTick(): void {
       return;
     }
     const fix = _lastFix;
-    if (!fix) { _drState = 'IDLE'; return; }
+    if (!fix) { _setDrState('IDLE'); return; }
 
     const now = _now();
     const ageMs = now - fix.ts;
     if (ageMs <= GPS_STALE_MS) {
-      _drState = 'GPS_FRESH'; _drConfidence = 1;
+      _setDrState('GPS_FRESH'); _drConfidence = 1;
       /* GPS geri geldi → çapa unutulur; bir sonraki kayıpta TAZE çapa alınır.
          Bayat çapa, aracın çoktan geçtiği bir noktadan ilerletme demekti. */
       _clearDrProjection();
@@ -377,7 +401,7 @@ function _drTick(): void {
     const ageSec = ageMs / 1000;
     // Güven GPS kaybıyla doğrusal azalır; DR_MAX_DT_SEC'te 0 olur.
     _drConfidence = Math.max(0, 1 - ageSec / DR_MAX_DT_SEC);
-    if (_drConfidence <= 0) { _drState = 'DR_EXPIRED'; return; }
+    if (_drConfidence <= 0) { _setDrState('DR_EXPIRED'); return; }
 
     /* Hız: ARACIN kendi doğrulanmış hızı > son geçerli GPS hızı.
        `UnifiedVehicleStore.speed` zaten `obdService.getObdSpeedFresh()` tazelik
@@ -385,7 +409,7 @@ function _drTick(): void {
        İkisi de yoksa projeksiyon YAPILMAZ (sahte ilerleme yasak). */
     const vehicleKmh = useUnifiedVehicleStore.getState().speed ?? 0;
     const speedKmh = resolveDrSpeed(vehicleKmh, fix.speedMs);
-    if (!(speedKmh >= 1)) { _drState = 'DR_EXPIRED'; return; }
+    if (!(speedKmh >= 1)) { _setDrState('DR_EXPIRED'); return; }
 
     const geometry = getRouteState().geometry;
 
@@ -450,7 +474,7 @@ function _drTick(): void {
     });
 
     _drDistanceM = (speedKmh / 3.6) * Math.min(ageSec, DR_MAX_DT_SEC);
-    _drState = 'DR_ACTIVE';
+    _setDrState('DR_ACTIVE');
     _drTickCount++;
     _feedVoiceGuidance(nav.status);
   } catch (e) {
@@ -465,7 +489,7 @@ export function stopNavigationSessionRuntime(): void {
   // kurulmamış olsa bile timer kalmış olabilir.
   if (_drTimer !== null) { clearInterval(_drTimer); _drTimer = null; }
   _lastFix = null;
-  _drState = 'IDLE';
+  _setDrState('IDLE');
   _drConfidence = 0;
   _clearDrProjection();
   resetVoiceGuidance('runtime durduruldu');
@@ -523,7 +547,7 @@ export function _resetNavigationSessionRuntimeForTest(): void {
   _drDistanceM = 0;
   _drConfidence = 0;
   _clearDrProjection();
-  _drState = 'IDLE';
+  _setDrState('IDLE');
   _lastFix = null;
 }
 

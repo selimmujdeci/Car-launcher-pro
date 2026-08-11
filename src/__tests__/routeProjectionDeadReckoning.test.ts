@@ -267,7 +267,7 @@ describe('🔒 YAPISAL — çağıran sözleşmesi bozulmadı', () => {
   });
 
   it('hız kanıtı kapısı KORUNDU (< 1 km/h → ilerleme yok)', () => {
-    expect(runtimeSrc).toMatch(/if \(!\(speedKmh >= 1\)\) \{ _drState = 'DR_EXPIRED'; return; \}/);
+    expect(runtimeSrc).toMatch(/if \(!\(speedKmh >= 1\)\) \{ _setDrState\('DR_EXPIRED'\); return; \}/);
   });
 
   it('60 sn tavanı KORUNDU', () => {
