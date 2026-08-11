@@ -4,7 +4,7 @@ import type { Map as MapLibreMap } from 'maplibre-gl';
 type MapRef = MapLibreMap & { _fullMapInitialized?: boolean };
 import { X, Map, Globe, ArrowLeft } from 'lucide-react';
 import {
-  interpolateNavPoint, projectDeadReckon, resolveDrSpeed, drIsEstimated, type NavPoint
+  interpolateNavPoint, projectDeadReckon, resolveDrSpeed, type NavPoint
 } from '../../utils/interpolation';
 import { bearingBetween } from '../../platform/cameraEngine';
 import { logInfo } from '../../platform/debug';
@@ -40,7 +40,7 @@ import {
   registerAltRouteSelectCallback,
 } from '../../platform/mapService';
 import { useHazardStore } from '../../store/useHazardStore';
-import { useGPSSource, onGPSLocation, type GPSLocation } from '../../platform/gpsService';
+import { useGPSSource, onGPSLocation, type GPSLocation, LOCATION_STALE_MS } from '../../platform/gpsService';
 import { acquireCompassDemand } from '../../platform/gps/compassDemand';
 import { enterMapLiteInteraction, exitMapLiteInteraction } from '../../platform/map/mapLiteMode';
 import { pauseWakeWordForInteraction, resumeWakeWordAfterInteraction } from '../../platform/wakeWordService';
@@ -142,6 +142,14 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
   const navPointsRef       = useRef<NavPoint[]>([]);
   // NAV-1: araç marker'ı "tahmini" (DR >5s) modda mı — yalnız DEĞİŞİMDE paint güncellenir.
   const drEstimatedRef     = useRef(false);
+  /* G1 (#529) — EKRANDA DÜRÜSTLÜK (vizyon §7.9 Katman 6).
+   * Konum bayatken kullanıcı bunu GÖRMELİ; marker'ın soluklaşması tek başına
+   * "kaç saniyedir kör olduğumu" söylemez. Değer SANİYE çözünürlüğünde ve
+   * YALNIZ değiştiğinde state'e yazılır (rAF her karede set etseydi render
+   * fırtınası olurdu). `null` = bayat değil → gösterge HİÇ çizilmez, yani
+   * EKRAN-TEK BAKIŞTA kovasının ~3 bilgi birimi bütçesi normalde AŞILMAZ. */
+  const [staleFixSec, setStaleFixSec] = useState<number | null>(null);
+  const staleFixSecRef     = useRef<number | null>(null);
   // SAHA 2026-07-04: Doppler=0 saplanan cihazda yer-değiştirme tabanlı wake çapası
   const wakeAnchorRef      = useRef<{ lat: number; lng: number; ts: number } | null>(null);
   const interpolatedStateRef = useRef<NavPoint | null>(null);
@@ -860,18 +868,33 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
       // Staleness: son fix 5sn'den eskiyse (örn. tünelde sinyal kesildi, locationRef
       // son iyi fix'te DONDU) GPS bayat sayılır → DR devreye girer. Yaş, fix kaydı ile
       // aynı time origin'den (performance.now ≡ rAF `now`) hesaplanır → clock-jump güvenli.
-      const GPS_STALE_MS = 5000;
-      const fixFresh = lastFixTsRef.current !== null && (now - lastFixTsRef.current) <= GPS_STALE_MS;
+      /* G1 (#529): eşik TEK OTORİTEDEN. Aynı "5 saniye" bu dosyada yerel sabit,
+         `interpolation.DR_CONFIDENT_SEC`te, `navigationSessionRuntime`te ve
+         `gpsService`te AYRI AYRI yazılıydı — dört kopya, tek gerçek. Biri
+         değişirse diğerleri sessizce ayrışırdı. */
+      const fixFresh = lastFixTsRef.current !== null && (now - lastFixTsRef.current) <= LOCATION_STALE_MS;
       const gpsOk = !!(fixFresh && locationRef.current && Number.isFinite(locationRef.current.accuracy) && locationRef.current.accuracy < 1000);
 
       // NAV-1: DR "tahmini" görsel işareti — GPS kayıp + son fix >5s ise marker soluklaşır
       // (dürüst sinyal: GPS teyitli değil). GPS dönünce netleşir. Yalnız DEĞİŞİMDE paint yaz.
       {
         const _buf = navPointsRef.current;
-        const _wantEst = !gpsOk && _buf.length > 0 && drIsEstimated(_buf[_buf.length - 1].ts, now);
+        /* #529: "tahmini" kararı da aynı otoriteden — `drIsEstimated` kendi
+           eşiğini (DR_CONFIDENT_SEC) taşıyordu ve bu ikinci bir otoriteydi. */
+        const _wantEst = !gpsOk && _buf.length > 0
+          && (now - _buf[_buf.length - 1].ts) > LOCATION_STALE_MS;
         if (_wantEst !== drEstimatedRef.current) {
           drEstimatedRef.current = _wantEst;
           setUserMarkerEstimated(_wantEst);
+        }
+        /* #529: bayatlık SÜRESİ ekrana taşınır — saniye değişiminde tek set. */
+        const _ageSec = (!gpsOk && lastFixTsRef.current !== null)
+          ? Math.floor((now - lastFixTsRef.current) / 1000)
+          : null;
+        const _shown = _ageSec !== null && _ageSec * 1000 > LOCATION_STALE_MS ? _ageSec : null;
+        if (_shown !== staleFixSecRef.current) {
+          staleFixSecRef.current = _shown;
+          setStaleFixSec(_shown);
         }
       }
 
@@ -2003,6 +2026,20 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
 
   return (
     <div ref={outerDivRef} className="fixed inset-0 glass-card border-none !shadow-none z-50">
+      {/* ═══ #529 · KONUM BAYAT ROZETİ (vizyon §7.9 Katman 6: ekranda dürüstlük) ═══
+          Konum bayatken harita BUNU SÖYLER; akıcı animasyonla taze veri varmış
+          gibi gösterilmez. Yalnız bayatken çizilir → normal sürüşte ekran bütçesi
+          etkilenmez. Tek bilgi birimi, 1 saniyede okunur. */}
+      {staleFixSec !== null && (
+        <div
+          className="absolute top-3 left-1/2 -translate-x-1/2 z-[70] pointer-events-none
+                     rounded-full border border-[var(--oem-warn)] bg-[var(--oem-warn-soft)]
+                     px-3 py-1 text-[13px] font-semibold text-[var(--oem-warn)]"
+          data-testid="stale-fix-badge"
+        >
+          KONUM {staleFixSec} sn
+        </div>
+      )}
       {mapStatus !== 'READY' && (
         <div className="absolute inset-0 z-[60] flex items-center justify-center pointer-events-none">
           <div className="w-16 h-16 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center animate-spin-slow">

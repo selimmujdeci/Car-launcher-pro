@@ -5361,3 +5361,53 @@ describe('🔒 KİLİT 27 · konum kanıt otoritesi (#527)', () => {
     expect(s).toMatch(/export const LOCATION_STALE_MS/);
   });
 });
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * 🔒 KİLİT 28 · G1 açık borçları — harita eşiği + DR canlılık sinyali (#528/#529)
+ *
+ * ÖLÇÜLDÜ (2026-08-11): aynı "5 saniye" bayatlık eşiği DÖRT yerde ayrı yazılıydı
+ * (gpsService · interpolation.DR_CONFIDENT_SEC · navigationSessionRuntime ·
+ * FullMapView yerel sabiti). Ayrıca `isDeadReckoningActive()` HER ZAMAN false
+ * dönüyordu: `_startDeadReckoning()` boş, `startDeadReckoningGuard()` ürün
+ * yolunda hiç çağrılmıyor — oysa DR fiilen navigationSessionRuntime'da çalışıyor.
+ * ════════════════════════════════════════════════════════════════════════ */
+describe('🔒 KİLİT 28 · harita eşiği + DR sinyali (#528/#529)', () => {
+  const src = (p: string) => readFileSync(resolve(__dirname, '..', p), 'utf8');
+
+  it('🔒 harita KENDİ bayatlık eşiğini taşımaz — otoriteden okur', () => {
+    const s = src('components/map/FullMapView.tsx');
+    expect(s, 'yerel GPS_STALE_MS sabiti geri gelmis')
+      .not.toMatch(/const GPS_STALE_MS\s*=\s*5000/);
+    expect(s, 'otorite esigi kullanilmiyor').toMatch(/LOCATION_STALE_MS/);
+    expect(s, 'drIsEstimated kendi esigiyle geri gelmis')
+      .not.toMatch(/drIsEstimated\(/);
+  });
+
+  it('🔒 konum bayatken EKRANDA görünür (ekranda dürüstlük)', () => {
+    const s = src('components/map/FullMapView.tsx');
+    expect(s, 'bayatlik rozeti yok — marker sessizce animasyonla ilerliyor')
+      .toMatch(/data-testid="stale-fix-badge"/);
+    /* Yalnız bayatken çizilmeli: normal sürüşte ekran bütçesi (EKRAN-TEK
+       BAKIŞTA, ~3 bilgi birimi) etkilenmemeli. */
+    expect(s).toMatch(/staleFixSec !== null && \(/);
+  });
+
+  it('🔒 DR canlılık sinyali GERÇEK sahibe bağlı', () => {
+    const gps = src('platform/gpsService.ts');
+    expect(gps, 'disaridan bildirim ucu yok').toMatch(/export function noteDeadReckoningState/);
+    expect(gps, 'isDeadReckoningActive hala yalniz olu yerel duruma bakiyor')
+      .toMatch(/_drActiveExternal \|\| _dr\?\.active === true/);
+    const nav = src('platform/navigation/navigationSessionRuntime.ts');
+    expect(nav, 'gercek sahip durumunu bildirmiyor').toMatch(/noteDeadReckoningState\(/);
+    expect(nav, 'durum gecisi tek noktadan yonetilmiyor').toMatch(/function _setDrState/);
+  });
+
+  it('🔒 yanlış "worker füzyonlanmış konum verir" iddiası koda geri dönmez', () => {
+    const gps = src('platform/gpsService.ts');
+    /* Ölçüldü: worker'ın giden mesajlarında konum YOK (yalnız GPS_FAILURE).
+       Bu iddia DR'ı arayan herkesi yanlış dosyaya gönderiyordu. */
+    expect(gps, 'curutulmus iddia geri gelmis')
+      .not.toMatch(/Tüm sistem VehicleCompute\.worker\.ts'den gelen füzyonlanmış konumu tüketir/);
+    expect(gps, 'duzeltme gerekcesi kaybolmus').toMatch(/ÖLÇÜMLE ÇÜRÜTÜLDÜ/);
+  });
+});
