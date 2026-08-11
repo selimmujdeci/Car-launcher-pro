@@ -31,17 +31,18 @@ import {
  * Tipler
  * ════════════════════════════════════════════════════════════════════════ */
 
-export type AdSectionId = 'transport' | 'session' | 'lifecycle' | 'limits';
+export type AdSectionId = 'transport' | 'session' | 'lifecycle' | 'linkLoss' | 'limits';
 
 export const AD_SECTION_ORDER: readonly AdSectionId[] = [
-  'transport', 'session', 'lifecycle', 'limits',
+  'transport', 'session', 'lifecycle', 'linkLoss', 'limits',
 ] as const;
 
 export const AD_SECTION_TITLE: Readonly<Record<AdSectionId, string>> = {
   transport: '1 · Transport',
   session:   '2 · OBD Oturumu',
   lifecycle: '3 · Yaşam Döngüsü',
-  limits:    '4 · Kaynak Sınırları',
+  linkLoss:  '4 · Kopma Kanıtı (#536)',
+  limits:    '5 · Kaynak Sınırları',
 } as const;
 
 export interface AdSection {
@@ -143,6 +144,30 @@ export interface AdHealthRaw {
   readonly reliabilityFieldCount: number | null;
 }
 
+/**
+ * #536 — KOPMA KANIT DEFTERİ ÖZETİ (GÖREV A).
+ *
+ * Bu blok yeni bir sağlık motoru DEĞİLDİR: `obd/linkLossLedger` saf modelinin
+ * çıktısını taşır. Ekran kendi sınıflandırmasını YAPMAZ (ikinci otorite olmaz).
+ * `null` = defter okunamadı — "kopma olmadı" DEMEK DEĞİLDİR.
+ */
+export interface AdLinkLossRaw {
+  readonly total:                number;
+  /** Kanıtla kurulan baskın aday. `null` = kanıt yetersiz (iddia YOK). */
+  readonly dominant:             string | null;
+  readonly unknownCount:         number;
+  readonly pendingRecoveryCount: number;
+  readonly medianRecoveryMs:     number | null;
+  readonly maxRecoveryMs:        number | null;
+  /** En çok eksik olan kanıt — bir sonraki turun ölçüm işi. `null` = boşluk yok. */
+  readonly nextMeasurement:      string | null;
+  /** Aday → adet (yalnız adedi >0 olanlar taşınır). */
+  readonly candidates:           readonly { readonly key: string; readonly count: number }[];
+  /** En YENİ kaydın insan-okur notu. `null` = hiç kayıt yok. */
+  readonly lastNote:             string | null;
+  readonly lastAtMs:             number | null;
+}
+
 export interface AdRawSnapshot {
   readonly readAt:        number;
   readonly transport:     AdTransportRaw | null;
@@ -152,6 +177,7 @@ export interface AdRawSnapshot {
   readonly freshWindowMs: number | null;
   readonly lifecycle:     AdLifecycleRaw | null;
   readonly health:        AdHealthRaw | null;
+  readonly linkLoss:      AdLinkLossRaw | null;
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
@@ -166,6 +192,7 @@ const SRC = {
   fresh:  'obdService.getObdFreshWindowMs()',
   life:   'obdService.getObdConnLifecycle()',
   health: 'obd/ObdHealthMonitor.getObdHealth()',
+  loss:   'obdService.getLinkLossLedger()',
   none:   'YOK',
 } as const;
 
@@ -397,6 +424,104 @@ function _lifecycleSection(s: AdRawSnapshot): AdSection {
 }
 
 /**
+ * #536 · KOPMA KANITI — GÖREV A'nın gözlem yüzeyi.
+ *
+ * NE YAPAR: kopmanın hangi imzayla geldiğini (aday) ve neyi ÖLÇEMEDİĞİMİZİ
+ * gösterir. NE YAPMAZ: kök neden İLAN ETMEZ. Baskın aday yoksa "belirsiz"
+ * yazar — sahada dört adayın (adaptör · soket · ELM init · ECU uykusu) imzası
+ * bazı durumlarda BİREBİR aynıdır ve orada hüküm vermek uydurma olur.
+ */
+function _linkLossSection(s: AdRawSnapshot): AdSection {
+  const f: InspectorField[] = [];
+  const l = s.linkLoss;
+
+  if (!l) {
+    f.push(unavailable(
+      { id: 'adLossLedger', label: 'kopma defteri', source: SRC.loss, note: '' },
+      'Defter okunamadı. "kopma olmadı" DEMEK DEĞİLDİR — 0 ile "bilinmiyor" AYRI şeydir.',
+    ));
+    return _bound({ id: 'linkLoss', title: AD_SECTION_TITLE.linkLoss, fields: f });
+  }
+
+  f.push(observed(
+    { id: 'adLossTotal', label: 'kayıtlı kopma olayı', source: SRC.loss,
+      note: 'Bounded defter (son 24). ECU susması da kayıtlıdır ama KOPMA SAYILMAZ.' },
+    l.total,
+  ));
+
+  f.push(l.dominant !== null
+    ? derived(
+        { id: 'adLossDominant', label: 'baskın aday', source: SRC.loss,
+          note: 'Yalnız pay ≥ %50 VE ikinciden AÇIK FARK varken bildirilir. ' +
+                'Bu bir HÜKÜM değil, imza sınıfıdır.' },
+        l.dominant,
+      )
+    : unavailable(
+        { id: 'adLossDominant', label: 'baskın aday', source: SRC.loss, note: '' },
+        l.total === 0
+          ? 'Bu oturumda kayıtlı kopma yok — aday üretilmez.'
+          : 'Kanıt baskın bir aday göstermiyor. "muhtemelen X" YAZILMAZ.',
+      ));
+
+  for (const c of l.candidates) {
+    f.push(observed(
+      { id: `adLossCand_${c.key}`, label: `aday · ${c.key}`, source: SRC.loss,
+        note: 'Kurtarma kanıtıyla keskinleşmiş aday sayısı.' },
+      c.count,
+    ));
+  }
+
+  f.push(observed(
+    { id: 'adLossUnknown', label: 'kanıt yetersiz kayıt', source: SRC.loss,
+      note: 'Aday kurulamayan kopma sayısı. Bu sayı YÜKSEKSE eksik olan ÖLÇÜMDÜR, ' +
+            'düzeltme değil (kör düzeltme yasak).' },
+    l.unknownCount,
+  ));
+
+  f.push(observed(
+    { id: 'adLossPending', label: 'kurtarması bekleyen', source: SRC.loss,
+      note: 'Kopmadan sonra HENÜZ başarılı handshake görülmemiş kayıt. ' +
+            '"kurtuldu" iddiası kanıt olmadan üretilmez.' },
+    l.pendingRecoveryCount,
+  ));
+
+  for (const [id, label, v] of [
+    ['adLossRecMedian', 'kurtarma süresi (ortanca, ms)', l.medianRecoveryMs],
+    ['adLossRecMax',    'kurtarma süresi (en uzun, ms)', l.maxRecoveryMs],
+  ] as const) {
+    f.push(v !== null
+      ? observed({ id, label, source: SRC.loss,
+          note: 'Kopmadan başarılı handshake\'e geçen süre. Hızlı + denemesiz kurtarma ' +
+                'SOKET düşüşü, yavaş/denemeli kurtarma ADAPTÖR erişilemezliği imzasıdır.' }, v)
+      : unavailable({ id, label, source: SRC.loss, note: '' },
+          'Hiç kurtarma ölçülmedi — "0 ms" olarak GÖSTERİLMEZ.'));
+  }
+
+  f.push(l.nextMeasurement !== null
+    ? derived(
+        { id: 'adLossNextMeasure', label: 'önce ölçülmesi gereken', source: SRC.loss,
+          note: 'Kararı en çok engelleyen eksik kanıt. GÖREV A\'nın iş listesi budur.' },
+        l.nextMeasurement,
+      )
+    : unavailable(
+        { id: 'adLossNextMeasure', label: 'önce ölçülmesi gereken', source: SRC.loss, note: '' },
+        l.total === 0 ? 'Kayıt yok — eksik kanıt listesi de yok.' : 'Kanıt boşluğu kalmadı.',
+      ));
+
+  f.push(l.lastNote !== null
+    ? observed(
+        { id: 'adLossLast', label: 'son kayıt', source: SRC.loss,
+          updatedAt: l.lastAtMs ?? undefined,
+          note: 'Defterin en yeni satırı (insan-okur). PII taşımaz.' },
+        l.lastNote,
+      )
+    : unavailable({ id: 'adLossLast', label: 'son kayıt', source: SRC.loss, note: '' },
+        'Defter boş.'));
+
+  return _bound({ id: 'linkLoss', title: AD_SECTION_TITLE.linkLoss, fields: f });
+}
+
+/**
  * Kaynak sınırları — TAMAMEN UNAVAILABLE ve bu BİLİNÇLİDİR.
  * Bu alanlar için repoda HİÇBİR getter yoktur; değer üretmek uydurma olurdu.
  */
@@ -437,6 +562,7 @@ export function buildAdSections(s: AdRawSnapshot): AdSection[] {
     _transportSection(s),
     _sessionSection(s),
     _lifecycleSection(s),
+    _linkLossSection(s),
     _limitsSection(),
   ];
 }

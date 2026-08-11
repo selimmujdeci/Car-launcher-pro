@@ -61,6 +61,56 @@ export const ETA_MIN_FACTOR = 0.8;
 export const ETA_MAX_FACTOR = 1.5;
 /** Bu hızın altında düzeltme UYGULANMAZ (durma ETA'yı şişirmesin). */
 export const ETA_MIN_CORRECTION_KMH = 8;
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * G3 DÜZELTMESİ · HIZ KAPISI RAMPASI (kütük #538 · kök kanıtı #530)
+ *
+ * ── ÖLÇÜLDÜ (2026-08-11, gerçek araç · `etaJumpLedger`) ───────────────────
+ *   byTrigger: SPEED_GATE_CHANGED 4 · ROUTE_REVISION 1 · BASE_DURATION_ONLY 1
+ *              DISTANCE_SOURCE_CHANGED 0   ← hiç tetiklenmedi
+ *   dominant : SPEED_GATE_CHANGED (4/6 = %67)
+ *
+ * Dört geçişin HEPSİ `factor 1 ↔ 1.5` idi ve aritmetik beklentiyle 0-8 s
+ * içinde uyuştu (167→246 · 224→150 · 143→207 · 183→122). Yani dur-kalk
+ * trafiğinde araç 8 km/h eşiğini her geçtiğinde düzeltme çarpanı **ANİ**
+ * olarak 1 ↔ 1.5 atlıyor ve ETA %50 zıplıyordu. **Mesafe kaynağı SUÇSUZ**
+ * (`distanceSource: ALONG_ROUTE` sabit) — önceki "mesafe daha şüpheli"
+ * tahmini ÖLÇÜMLE ÇÜRÜTÜLDÜ.
+ *
+ * ── DÜZELTME ─────────────────────────────────────────────────────────────
+ * Kapı artık AÇIK/KAPALI bir anahtar değil, bir RAMPADIR: çarpan eşikte 1'den
+ * başlar ve bant boyunca kademeli olarak tam değerine yürür. Eşiğin TAM
+ * üstünde etkisi 0 olduğu için fonksiyon eşikte SÜREKLİDİR → sıçrama
+ * matematiksel olarak imkânsız hâle gelir (histerezis gibi "daha seyrek
+ * sıçrama" değil, sıçramanın KENDİSİNİN kaldırılması).
+ *
+ * ⚠️ SAF ÇÖZÜM BİLİNÇLİ: zamana bağlı rampalama (saniye başına en fazla X)
+ * bu modüle durum ve saat sokardı; `computeEta` saflığı ETA'nın test
+ * edilebilirliğinin temelidir. Rampa yalnız HIZA bağlıdır → saf kalır.
+ *
+ * Bant genişliği eşiğin kendisi kadar (8 → 16 km/h): dur-kalk trafiğinin
+ * gerçek salınım aralığı burasıdır; 16 km/h üstünde düzeltme tam uygulanır
+ * ve ESKİ DAVRANIŞ BİREBİR KORUNUR (otoyol/şehir içi seyir etkilenmez).
+ * ════════════════════════════════════════════════════════════════════════ */
+export const ETA_GATE_RAMP_KMH = 8;
+
+/**
+ * Hız kapısının ETKİ AĞIRLIĞI (0-1) — düzeltme çarpanının ne kadarı uygulanır.
+ *
+ *   `<= 8 km/h`      → 0   (düzeltme yok; durma ETA'yı şişirmez)
+ *   `8 → 16 km/h`    → 0→1 (kademeli)
+ *   `>= 16 km/h`     → 1   (tam düzeltme — eski davranış)
+ *
+ * SAF: girdiden başka hiçbir şeye bakmaz. `etaJumpLedger` de bu fonksiyonu
+ * kullanır → rampanın şekli TEK OTORİTEDEDİR (ikinci bir eşik doğmaz).
+ */
+export function etaSpeedGateWeight(rollingAvgKmh: number): number {
+  if (!Number.isFinite(rollingAvgKmh)) return 0;
+  const over = rollingAvgKmh - ETA_MIN_CORRECTION_KMH;
+  if (over <= 0) return 0;
+  if (over >= ETA_GATE_RAMP_KMH) return 1;
+  return over / ETA_GATE_RAMP_KMH;
+}
 /** Yedek hesapta sıfıra bölmeyi engelleyen taban (mevcut davranışla aynı). */
 export const ETA_FALLBACK_FLOOR_KMH = 5;
 
@@ -90,8 +140,16 @@ export interface EtaVerdict {
   readonly etaSeconds: number | null;
   readonly state: EtaState;
   readonly source: RouteDurationSource;
-  /** Uygulanan düzeltme çarpanı (1 = düzeltme yok). */
+  /** UYGULANAN düzeltme çarpanı (1 = düzeltme yok) — rampa DAHİL. */
   readonly correctionFactor: number;
+  /**
+   * #538 — rampa UYGULANMADAN ÖNCEKİ ham çarpan (LAB/defter için).
+   * `undefined` = düzeltme hiç hesaplanmadı (sayı üretilmeyen durumlar).
+   * Ham ile uygulanan arasındaki fark, rampanın o an ne kadar yumuşattığıdır.
+   */
+  readonly correctionFactorRaw?: number;
+  /** #538 — hız kapısının etki ağırlığı (0-1). `undefined` = hesaplanmadı. */
+  readonly speedGateWeight?: number;
   /** Düzeltmesiz ham model süresi (sn) — LAB için. */
   readonly baseSeconds: number | null;
   readonly reason: string;
@@ -143,13 +201,22 @@ export function computeEta(input: EtaInput): EtaVerdict {
        Yavaş gidiliyorsa (>1) ETA uzar, hızlı gidiliyorsa (<1) kısalır — ama
        her iki yönde de KIRPILIR ve modeli ezmez. */
     let factor = 1;
+    let rawFactor = 1;
+    /* #538: kapı bir ANAHTAR değil RAMPADIR — eşikte etki 0, bant boyunca 0→1. */
+    const gateWeight = etaSpeedGateWeight(rollingAvgKmh);
     let why = 'düzeltme yok';
     if (rollingAvgKmh >= ETA_MIN_CORRECTION_KMH && base > 0
         && remainingDistanceM !== null && remainingDistanceM > 0) {
       const modelKmh = (remainingDistanceM / 1000) / (base / 3600);
       if (Number.isFinite(modelKmh) && modelKmh > 0) {
-        factor = _clamp(modelKmh / rollingAvgKmh, ETA_MIN_FACTOR, ETA_MAX_FACTOR);
-        why = `gözlenen ${rollingAvgKmh.toFixed(0)} km/sa · model ${modelKmh.toFixed(0)} km/sa`;
+        rawFactor = _clamp(modelKmh / rollingAvgKmh, ETA_MIN_FACTOR, ETA_MAX_FACTOR);
+        /* Ağırlıklı uygulama: eşiğin TAM üstünde `gateWeight = 0` → factor = 1,
+           yani eşik altındaki dalla SÜREKLİ. Sahada ölçülen 1↔1.5 ANİ atlaması
+           (ETA'da %50 zıplama) böylece yapısal olarak imkânsızlaşır. */
+        factor = 1 + (rawFactor - 1) * gateWeight;
+        why = `gözlenen ${rollingAvgKmh.toFixed(0)} km/sa · model ${modelKmh.toFixed(0)} km/sa`
+            + ` · kapı rampası %${Math.round(gateWeight * 100)}`
+            + (gateWeight < 1 ? ` (ham ${rawFactor.toFixed(2)} → ${factor.toFixed(2)})` : '');
       }
     } else if (rollingAvgKmh < ETA_MIN_CORRECTION_KMH) {
       why = 'araç yavaş/duruyor — düzeltme uygulanmadı (ETA şişmez)';
@@ -160,6 +227,8 @@ export function computeEta(input: EtaInput): EtaVerdict {
       state: 'ROUTE_MODEL',
       source: durationSource,
       correctionFactor: factor,
+      correctionFactorRaw: rawFactor,
+      speedGateWeight: gateWeight,
       baseSeconds: Math.round(base),
       reason: why,
     };

@@ -2371,12 +2371,29 @@ bulundu (#530 — `SPEED_GATE_CHANGED` %67, düzeltme çarpanının 1↔1.5 ani 
 `fixAgeMs` için **dağılım defteri** gerekiyor (#508 onsuz kapanmaz) ve saha koşumunda
 **bağlantı kararsızlığı** ölçüldü (8 timeout · quality %57).
 
+### DEVİRDEN SONRAKİ TUR — GÖREV A/B/C (2026-08-11, aynı gün)
+
+Devir belgesinin §5'indeki üç iş **kod tarafında** yapıldı. Hiçbiri sahada
+doğrulanmadı → üçü de kütükte **🔴** (#536 · #537 · #538).
+
+| Görev | Ne yapıldı | Ne YAPILMADI (dürüst sınır) |
+|-------|-----------|------------------------------|
+| **A** · bağlantı kararsızlığı | `obd/linkLossLedger` (saf): kopma anındaki imza (voltaj bandı · link/ECU yaş sırası · timeout aşaması) + **kurtarma imzası** (süre · düşen deneme) defterlenir. Ayırt edilemeyen durumda aday **UNKNOWN** kalır ve **eksik kanıt** sayılır (`nextMeasurement` = bir sonraki turun işi). LAB → Adaptör Tanılama → *4 · Kopma Kanıtı* + kopya bölümü. | **KÖK NEDEN HÂLÂ BİLİNMİYOR.** Hiçbir reconnect/eşik davranışı DEĞİŞTİRİLMEDİ (kör düzeltme yasağı). Defter hüküm motoruna girdi DEĞİLDİR (KİLİT 31 bunu sabitler). Native soket hata kodu JS'e hâlâ açık değil. |
+| **B** · `fixAgeMs` dağılımı | `navigation/core/fixAgeLedger` (saf): bounded halka (240) + p50/p95 + **≥30 örnek olmadan hüküm YOK**. Örnek **tüketici okumasında** alınır → yeni timer YOK (Zero-Leak). Ayrıca kopyadaki `fixAgeMs`in **map-match** yaşı olduğu, #508'in sayısının **G1 otoritesinden** (`konumFixYasMs`) geldiği ayrıştırıldı. | #508 **kapanmadı**: dağılım henüz gerçek araçta toplanmadı. Üçüncü ölçüt (**iz/gerçek yol > 0,9**) bu defterde **ÖLÇÜLMEZ** ve `trackRatioMeasured: false` ile beyan edilir — ayrı bir iş. Örnekleme zaman ekseninde düzgün DEĞİLDİR (beyan edilir). |
+| **C** · G3 düzeltmesi | Hız kapısı **anahtar değil rampa** (8 → 16 km/h, `etaSpeedGateWeight`): eşikte etki 0 → fonksiyon **sürekli** → sahada ölçülen `factor 1↔1.5` ani geçişi ve ondan doğan **%50 ETA zıplaması** yapısal olarak imkânsız. Rampa **saf** (zaman/durum yok). 16 km/h üstünde eski davranış **birebir** korunur. `etaJumpLedger` bant-farkındalığı kazandı. | Doğrulama **aynı defterle** yapılacak: `SPEED_GATE_CHANGED` sayısı sahada **düşmeli**. Düşmezse ya rampa bandı yanlış ya kök tek başına bu değil. G3'ün diğer tetikleyicileri (`ROUTE_REVISION`, `BASE_DURATION_ONLY`) DOKUNULMADI. |
+
+**Bir sonraki atomik PR:** saha koşumu → kopyada üç bölümü oku (`KOPMA KANIT
+DEFTERİ` · `KONUM FIX YAŞI DAĞILIMI` · `ETA SIÇRAMA DEFTERİ`) → #536'nın
+`nextMeasurement` alanının söylediği kanıtı enstrümanla; #537 `count ≥ 30` ise
+#508 hükmünü oku; #538 için `SPEED_GATE_CHANGED` sayısını tabanla (4/6) karşılaştır.
+
 ### BU BÖLÜMÜN DURUMU
 
 Yedi katmanın hiçbiri **SAHADA DOĞRULANDI** değildir. Katman 3'ün bir parçası
-(G4 ikinci ETA otoritesi) kapatıldı, kalanı açık. Katman 1'in kabul ölçütü
-kilitli (#508) ve **ölçüm bekliyor**. Katman 4 için henüz kod yoktur — yalnız
-ön-ADR vardır.
+(G4 ikinci ETA otoritesi) kapatıldı; G3'ün **kökü kapatıldı ama araçta
+doğrulanmadı** (#538). Katman 1'in kabul ölçütü kilitli (#508); ölçüm **aracı**
+artık var (#537) ama **ölçümün kendisi** hâlâ bekliyor. Katman 4 için henüz kod
+yoktur — yalnız ön-ADR vardır.
 
 **Sıra (ölçülerek doğrulandı, 2026-08-11):** Katman 1 (G1) → Katman 3 → Katman 4.
 Gerekçe: `routeProjectionModel` ve `mapMatchModel` zincirinde ölçülen bağımlılık —

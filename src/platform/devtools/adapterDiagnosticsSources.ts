@@ -23,9 +23,12 @@
 
 import {
   getTransportStats, getObdConnLifecycle, getOBDStatusSnapshot,
-  getOBDDataSnapshot, getObdSessionHealth, getObdFreshWindowMs,
+  getOBDDataSnapshot, getObdSessionHealth, getObdFreshWindowMs, getLinkLossLedger,
 } from '../obdService';
 import { getObdHealth } from '../obd/ObdHealthMonitor';
+import {
+  LINK_LOSS_CANDIDATE_LABEL, LINK_LOSS_GAP_LABEL, type LinkLossCandidate,
+} from '../obd/linkLossLedger';
 import type { AdRawSnapshot } from './adapterDiagnosticsModel';
 
 function _safe<T>(fn: () => T): T | null {
@@ -55,6 +58,8 @@ export function readAdapterDiagnosticsSnapshot(): AdRawSnapshot {
   const sess   = _safe(() => getObdSessionHealth());
   const fresh  = _safe(() => getObdFreshWindowMs());
   const health = _safe(() => getObdHealth());
+  /* #536: kopma kanıt defteri — SALT-OKUNUR ve senkron; reconnect TETİKLEMEZ. */
+  const loss   = _safe(() => getLinkLossLedger());
 
   return {
     readAt,
@@ -117,6 +122,25 @@ export function readAdapterDiagnosticsSnapshot(): AdRawSnapshot {
       reliabilityFieldCount: health.sensorReliability
         ? Object.keys(health.sensorReliability).length
         : null,
+    } : null,
+
+    /* #536 — kopma kanıtı. Etiketler saf modelin KENDİ sözlüğünden gelir;
+       bu katman ikinci bir adlandırma/sınıflandırma otoritesi KURMAZ. */
+    linkLoss: loss ? {
+      total:                loss.summary.total,
+      dominant:             loss.summary.dominant !== null
+        ? LINK_LOSS_CANDIDATE_LABEL[loss.summary.dominant] : null,
+      unknownCount:         loss.summary.unknownCount,
+      pendingRecoveryCount: loss.summary.pendingRecoveryCount,
+      medianRecoveryMs:     loss.summary.medianRecoveryMs,
+      maxRecoveryMs:        loss.summary.maxRecoveryMs,
+      nextMeasurement:      loss.summary.nextMeasurement !== null
+        ? LINK_LOSS_GAP_LABEL[loss.summary.nextMeasurement] : null,
+      candidates: (Object.keys(loss.summary.byCandidate) as LinkLossCandidate[])
+        .filter((k) => loss.summary.byCandidate[k] > 0)
+        .map((k) => ({ key: k, count: loss.summary.byCandidate[k] })),
+      lastNote: loss.records.length > 0 ? loss.records[loss.records.length - 1].note : null,
+      lastAtMs: loss.records.length > 0 ? loss.records[loss.records.length - 1].atMs : null,
     } : null,
   };
 }

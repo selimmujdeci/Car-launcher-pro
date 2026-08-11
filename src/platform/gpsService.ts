@@ -20,6 +20,10 @@ import {
   LAST_KNOWN_KEY,
   GPS_FIRST_FIX_MS,
 } from './gps/gpsUtils';
+import {
+  appendFixAge, summarizeFixAge,
+  type FixAgeSample, type FixAgeSummary,
+} from './navigation/core/fixAgeLedger';
 import { getThermalLevel } from './thermalWatchdog';
 import { subscribeOrientationAbsolute, subscribeOrientation } from './sensors';
 import { hasCompassDemand, subscribeCompassDemand } from './gps/compassDemand';
@@ -927,6 +931,43 @@ export interface LocationEvidence {
  */
 export const LOCATION_STALE_MS = 5_000;
 
+/* ══════════════════════════════════════════════════════════════════════════
+ * #537 · FIX YAŞI DAĞILIM DEFTERİ (GÖREV B — #508'İN KAPANIŞ ŞARTI)
+ *
+ * SAHA (2026-08-11): kopyada `fixAgeMs: 5237` — TEK ANLIK örnek. #508 ölçütü
+ * `p50 < 3 s ∧ p95 < 10 s` ister; tek örnekten p50 çıkmaz, dolayısıyla iki
+ * saha koşumu da kapanış üretemedi. Halka + saf yüzdelik hesabı bu boşluğu
+ * kapatır. Hesap `navigation/core/fixAgeLedger`te SAF olarak yapılır — bu
+ * modül yalnız örnek toplar ve okuma ucu verir.
+ * ════════════════════════════════════════════════════════════════════════ */
+
+let _fixAgeRing: readonly FixAgeSample[] = [];
+
+/**
+ * #537 — fix yaşı dağılımı okuma ucu (salt-okunur, senkron).
+ *
+ * ⚠️ Bu fonksiyon ÖRNEK ALMAZ (defteri kirletmez): örnek yalnız gerçek tüketici
+ * okumasında (`getLocationEvidence()`) alınır. LAB/kopya bu ucu çağırdığında
+ * dağılım DEĞİŞMEZ — gözlem, ölçtüğü şeyi bozmamalıdır.
+ *
+ * Eşik TEK OTORİTEDEN (`LOCATION_STALE_MS`) geçirilir; saf model kendi eşiğini
+ * taşımaz (kasa KİLİT 28 ilkesi).
+ */
+export function getFixAgeLedger(): {
+  readonly samples: readonly FixAgeSample[];
+  readonly summary: FixAgeSummary;
+} {
+  return {
+    samples: _fixAgeRing.slice(),
+    summary: summarizeFixAge(_fixAgeRing, LOCATION_STALE_MS),
+  };
+}
+
+/** Test/oturum sıfırlama — ürün kodu ÇAĞIRMAZ. */
+export function _resetFixAgeLedgerForTest(): void {
+  _fixAgeRing = [];
+}
+
 /**
  * G1 — TEK konum kanıt otoritesi. Senkron, yan etkisiz.
  *
@@ -935,9 +976,21 @@ export const LOCATION_STALE_MS = 5_000;
 export function getLocationEvidence(): LocationEvidence {
   const st = useGPSStore.getState();
   const loc = st.location;
+  const nowPerf = performance.now();
   const fixAgeMs = _lastFixPerfMs > 0
     ? Math.max(0, Math.round(performance.now() - _lastFixPerfMs))
     : null;
+  /* #537 GÖREV B: ÖLÇÜMÜ BURADA AL — #508 bir DAĞILIM ister ve sahada tek anlık
+     örnek geldi (`fixAgeMs: 5237`), dağılım YOKTU. Örnek noktası bilinçli olarak
+     tüketici okumasıdır: yeni timer KURULMAZ (Zero-Leak) ve ölçülen sayı, tam
+     olarak tüketicinin GÖRDÜĞÜ sayıdır. Örnekleme modeli özet içinde
+     (`samplingModel: 'CONSUMER_READ'`) ve okuma aralığı yüzdelikleriyle
+     DÜRÜSTÇE beyan edilir — düzgün zaman örneklemesi İDDİA EDİLMEZ. */
+  if (fixAgeMs !== null) {
+    try {
+      _fixAgeRing = appendFixAge(_fixAgeRing, { ageMs: fixAgeMs, atPerfMs: nowPerf });
+    } catch { /* defter arızası konum kanıtını DÜŞÜRMEZ (fail-soft gözlemci) */ }
+  }
   const drActive = isDeadReckoningActive();   // #528: gerçek sahipten
   return {
     lat: loc ? loc.latitude : null,

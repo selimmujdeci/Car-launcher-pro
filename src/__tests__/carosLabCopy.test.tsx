@@ -138,7 +138,11 @@ describe('KİLİT 5 — model SAF ve bağlam dürüst', () => {
     // 2026-08-11 (#535): NAVİGASYON ÇEKİRDEĞİ + ETA SIÇRAMA DEFTERİ eklendi —
     // saha koşumu yapıldı ama fixAgeMs (#508) ve ETA defteri (#530) kopyada
     // YOKTU; ölçüm alınamadı. Kilit kaldırılmadı, yeni doğru değere taşındı.
-    expect(r.sectionCount).toBe(16);
+    // 2026-08-11 (#536/#537): KOPMA KANIT DEFTERİ + KONUM FIX YAŞI DAĞILIMI
+    // eklendi. GÖREV A'nın kökü ölçülmeden bulunamaz (dört aday aynı `timeout`
+    // sayısını üretiyor); #508 ise tek anlık örnekle KAPANAMAZ, dağılım gerekir.
+    // Kilit yine kaldırılmadı — bölüm sayısı yeni doğru değere taşındı.
+    expect(r.sectionCount).toBe(18);
     expect(r.text).toContain('ANLIK ARAÇ VERİSİ');
     expect(r.text).toContain('KAYNAK SAĞLIĞI');
     expect(r.text).toContain('BLACKBOX ÖRNEKLERİ');

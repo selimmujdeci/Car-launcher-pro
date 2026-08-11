@@ -65,6 +65,10 @@ import {
 // OBD-OS-F0-4: connect/data-gate/stale pencereleri artık PROTOKOL SINIFINA göre
 // (CAN/bilinmeyen → obdRetryPolicy sabitleriyle BİREBİR aynı; KWP/ISO9141 → geniş).
 import { getProtocolProfile, type ProtocolTimeoutProfile } from './obd/protocolProfile';
+import {
+  classifyLinkLoss, appendLinkLoss, noteRecovery, summarizeLinkLosses,
+  type LinkLossRecord, type LinkLossSummary, type LinkLossTrigger,
+} from './obd/linkLossLedger';
 import { setActiveObdProtocol } from './obd/activeProtocol';
 
 /**
@@ -393,10 +397,83 @@ let _lastProtocolActive:     string | null = null;
 const RECONNECT_HISTORY_MAX = 8;
 
 /** PR-1a: reconnect nedenini kaydeder + bounded geçmişe ekler (non-PII). */
-function _recordReconnect(reason: ReconnectReason): void {
+function _recordReconnect(reason: ReconnectReason, timeoutStage: HandshakeTimeoutStage | null = null): void {
   _lastReconnectReason = reason;
   _reconnectHistory.push({ ts: Date.now(), reason });
   if (_reconnectHistory.length > RECONNECT_HISTORY_MAX) _reconnectHistory.shift();
+  /* #536 GÖREV A: aynı `reason` DÖRT ayrı kök nedenden doğabiliyor (adaptör ·
+     soket · ELM init · ECU uykusu). Kopma anındaki kanıt burada defterlenir —
+     sahada 8 timeout ölçüldü ama hangisinden olduğu AYIRT EDİLEMİYORDU. */
+  _noteLinkLoss(_TRIGGER_BY_RECONNECT_REASON[reason], timeoutStage);
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * #536 · KOPMA KANIT DEFTERİ (GÖREV A — ÖNCE ÖLÇÜM, KÖR DÜZELTME YASAK)
+ *
+ * SAHA (2026-08-11): 8 timeout · `OBD:LinkLost` 47 s boyunca HİÇBİR paket ·
+ * `connectionQuality` 100→57 · `reconnectPressure` 0.0019→1.71. Kullanıcının
+ * "veri kesiliyor, geri geliyor" beyanı ilk kez sayılarla kayıtlı — AMA KÖK
+ * NEDEN BİLİNMİYOR. Bu blok kopma ANINDAKİ imzayı (voltaj bandı · link/ECU yaş
+ * sırası · timeout aşaması) ve KURTARMA imzasını (süre · düşen deneme) kaydeder.
+ * Hiçbir eşik uygulamaz, reconnect tetiklemez, veri yolunu değiştirmez.
+ * ════════════════════════════════════════════════════════════════════════ */
+
+const _TRIGGER_BY_RECONNECT_REASON: Readonly<Record<ReconnectReason, LinkLossTrigger>> = {
+  timeout:            'CONNECT_TIMEOUT',
+  unable_to_connect:  'CONNECT_UNABLE',
+  connect_fail:       'CONNECT_FAIL',
+  data_gate_loss:     'DATA_GATE_LOSS',
+  user:               'USER',
+} as const;
+
+let _linkLosses: readonly LinkLossRecord[] = [];
+
+/**
+ * Kopma kanıtını defterler — FAIL-SOFT gözlemci: burada oluşan hiçbir hata veri
+ * yolunu ya da reconnect zincirini etkilemez (try/catch zorunlu).
+ */
+function _noteLinkLoss(trigger: LinkLossTrigger, timeoutStage: HandshakeTimeoutStage | null): void {
+  try {
+    const now = Date.now();
+    const v = _current.batteryVoltage;
+    const rec = classifyLinkLoss({
+      atMs: now,
+      trigger,
+      timeoutStage,
+      /* Damga 0 → "hiç yok" (yaş 0 DEĞİL); saat sıçramasında negatifi kırpma. */
+      linkPacketAgeMs: _lastRxAt > 0 ? Math.max(0, now - _lastRxAt) : null,
+      ecuDataAgeMs:    _lastRealDataMs > 0 ? Math.max(0, now - _lastRealDataMs) : null,
+      /* ATRV okunmadıysa `null` — sahte 0 V YASAK (0 V "ölçülmedi" demek olurdu). */
+      adapterVoltageV: typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : null,
+      everHadEcuData:  _lastRealDataMs > 0,
+      transport:       _lastKnownTransport,
+      protocolActive:  _lastProtocolActive,
+    });
+    _linkLosses = appendLinkLoss(_linkLosses, rec);
+  } catch { /* gözlemci arızası veri akışını DÜŞÜRMEZ */ }
+}
+
+/** Başarılı handshake → bekleyen kopma kaydına kurtarma imzasını işler. */
+function _noteLinkRecovered(): void {
+  try {
+    _linkLosses = noteRecovery(_linkLosses, {
+      recoveredAtMs: Date.now(),
+      /* Bu turda düşen deneme sayısı (#531'de tur sıfırlaması eklendi) — 0 =
+         ilk denemede toparladı → "soket düştü" imzası. */
+      failedAttempts: _failedAttemptsBeforeData,
+    });
+  } catch { /* gözlemci arızası bağlantıyı DÜŞÜRMEZ */ }
+}
+
+/**
+ * #536 — kopma kanıt defteri okuma ucu (salt-okunur, senkron).
+ * LAB ve saha kopyası buradan okur; koordinat/adres/PII taşımaz.
+ */
+export function getLinkLossLedger(): {
+  readonly records: readonly LinkLossRecord[];
+  readonly summary: LinkLossSummary;
+} {
+  return { records: _linkLosses.slice(), summary: summarizeLinkLosses(_linkLosses) };
 }
 
 /** PR-1a: carry-over alanları doldurarak _handshakeDiag üretir (DRY, tek gerçek kaynak). */
@@ -1034,6 +1111,9 @@ function _startStaleWatchdog(): void {
     // ── 1. LINK ÖLÜ Mİ? (gerçek kopma) ──────────────────────────────────────
     if (now - _lastRxAt > staleMs) {
       _linkFailureCount++;
+      /* #536: gerçek kopma — kanıt (voltaj bandı + link/ECU yaş sırası) burada
+         alınmalı, çünkü `_removeNativeHandles()` sonrası damgalar sıfırlanır. */
+      _noteLinkLoss('LINK_DEAD_WATCHDOG', null);
       logError('OBD:LinkLost', new Error(`${Math.round(staleMs / 1000)}s boyunca HİÇBİR paket alınamadı (ATRV dahil)`));
       _logStateTransition('connected', 'reconnecting', 'link_dead', now, staleMs);
       emitObdDiag('stale_data', 'OBD_STALE_DATA', {
@@ -1058,6 +1138,9 @@ function _startStaleWatchdog(): void {
       _firstRealDataAtMs = 0;
       _failedAttemptsBeforeData = 0;
       _dataStaleCount++;
+      /* #536: bu bir KOPMA DEĞİLDİR (link canlı, ATRV akıyor) — defter bunu
+         `ECU_SILENT` olarak ayrı tutar, aksi halde adaptör haksızca suçlanır. */
+      _noteLinkLoss('ECU_SILENT_WATCHDOG', null);
       _logStateTransition('data_fresh', 'data_stale', 'ecu_silent', now, staleMs);
       // Son değerler BİLİNÇLİ olarak korunur (silinmez) — UI onları 'stale' gösterir.
       _merge({ dataFresh: false });
@@ -2193,7 +2276,12 @@ async function _startNative(opts?: { trustBypass?: boolean }): Promise<void> {
           msg:       'WiFi (TCP) bağlantısı başarısız',
         });
         // PR-1a: handshake yaşam-döngüsü kanıtı (TCP yolu).
-        _recordReconnect(timedOut ? 'timeout' : (_isUnableToConnectError(ePrimary) ? 'unable_to_connect' : 'connect_fail'));
+        /* #536: aşama kanıtı defterle AYNI çağrıda geçer — aksi halde defter
+           `timeoutStage`ı `_handshakeDiag` yazılmadan önce okuyup null görürdü. */
+        _recordReconnect(
+          timedOut ? 'timeout' : (_isUnableToConnectError(ePrimary) ? 'unable_to_connect' : 'connect_fail'),
+          timedOut ? 'connect' : null,
+        );
         _handshakeDiag = _mkHandshakeDiag({
           outcome: 'fail', ranAt: Date.now(),
           timeoutStage: timedOut ? 'connect' : null,
@@ -2261,7 +2349,7 @@ async function _startNative(opts?: { trustBypass?: boolean }): Promise<void> {
           timedOut ? 'timeout'
           : (_isUnableToConnectError(ePrimary) || _isUnableToConnectError(eFallback)) ? 'unable_to_connect'
           : 'connect_fail';
-        _recordReconnect(_reconReason);
+        _recordReconnect(_reconReason, timedOut ? 'connect' : null);   // #536: aşama kanıtı
         _handshakeDiag = _mkHandshakeDiag({
           outcome: 'fail', ranAt: Date.now(),
           timeoutStage: timedOut ? 'connect' : null,
@@ -2408,6 +2496,10 @@ async function _startNative(opts?: { trustBypass?: boolean }): Promise<void> {
         const b00Class  = classifyHandshakeResponse(raw.raw0100, '41', '00');
         // PR-5a/PR-1a: aşama kanıtını sakla (non-PII) — tanı snapshot'ı okuyacak.
         _lastHandshakeSuccessAt = Date.now();   // son başarılı handshake damgası
+        /* #536: kurtarma imzası (süre + düşen deneme) bekleyen kopma kaydına
+           işlenir — "besleme mi çöktü, soket mi düştü" ayrımı YALNIZ buradan
+           çıkar (kopma anında iki imza BİREBİR aynıdır). */
+        _noteLinkRecovered();
         // Flaky-araç toleransı yeniden dolar: bağlantı KURULDU → önceki ardışık timeout'lar
         // "araç değişmiş olabilir" kanıtı sayılmaz. Böylece gerçekten flaky bir araç
         // (arada bağlanan) bypass sınırına ASLA ulaşmaz; yalnız hiç bağlanamayan (= dongle

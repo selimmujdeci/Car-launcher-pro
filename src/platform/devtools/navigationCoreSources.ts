@@ -15,6 +15,10 @@
  */
 
 import { getRouteState, getNavigationCoreSnapshot } from '../routingService';
+/* G1 TEK KONUM KANIT OTORİTESİ (#527) + fix yaşı dağılımı (#537).
+   GİZLİLİK: bu katmandan YALNIZ yaş/bayatlık/kaynak geçer — KOORDİNAT GEÇMEZ. */
+import { getLocationEvidence, getFixAgeLedger } from '../gpsService';
+import type { FixAgeSummary } from '../navigation/core/fixAgeLedger';
 import {
   getNavigationState, getNavSessionId, getRouteRequestClaim, getEtaVerdict,
 } from '../navigationService';
@@ -128,7 +132,27 @@ export interface NavigationCoreRawSnapshot {
 
   /* ── Konum / eşleştirme (KOORDİNAT YOK) ────────────────────────────────── */
   readonly hasRawFix: boolean;
+  /**
+   * EŞLEŞTİRİLMİŞ fix'in yaşı (ms) — kaynak `routingService` map-match fix'i.
+   *
+   * ⚠️ #508'İN DAYANDIĞI SAYI BU DEĞİLDİR. Bu yaş, navigasyon çekirdeğinin son
+   * işlediği fix'i ölçer (nav aktif değilken hiç tazelenmez). G1 kabul ölçütü
+   * KONUM SAĞLAYICISININ fix yaşını ister → `locationFixAgeMs` alanı. İkisi
+   * FARKLI olguları ölçer ve ayrışmaları bir ÇELİŞKİ DEĞİLDİR.
+   */
   readonly fixAgeMs: number | null;
+  /**
+   * #508'in dayandığı sayı — G1 TEK OTORİTESİNDEN (`getLocationEvidence()`),
+   * MONOTONİK saatten. Bu katman kendi hesabını YAPMAZ (kasa KİLİT 27).
+   */
+  readonly locationFixAgeMs: number | null;
+  readonly locationStale: boolean;
+  readonly locationSource: 'GPS' | 'DEAD_RECKONING' | 'NONE';
+  /**
+   * #537 — fix yaşı DAĞILIMI (p50/p95 + hüküm). Tek anlık örnek #508'i
+   * kapatamaz; dağılım kapatır. Örnekleme modeli özet içinde beyan edilir.
+   */
+  readonly fixAgeDistribution: FixAgeSummary | null;
   /**
    * GPS gözleminin DUVAR SAATİ karşılığı (`readAt - fixAgeMs`).
    *
@@ -466,6 +490,12 @@ export function readNavigationCoreSnapshot(): NavigationCoreRawSnapshot {
 
     hasRawFix:  fix !== null,
     fixAgeMs,
+    /* #508: G1 otoritesinden — koordinat TAŞINMAZ, yalnız yaş/bayatlık/kaynak. */
+    locationFixAgeMs: _safe(() => getLocationEvidence().fixAgeMs, null),
+    locationStale:    _safe(() => getLocationEvidence().stale, false),
+    locationSource:   _safe(() => getLocationEvidence().source, 'NONE'),
+    /* #537: dağılım okuma ucu ÖRNEK ALMAZ → LAB'ı açmak ölçümü kirletmez. */
+    fixAgeDistribution: _safe(() => getFixAgeLedger().summary, null),
     gpsObservedAtWall: fixAgeMs != null ? readAt - fixAgeMs : null,
     mapMatchState:      fix?.state ?? null,
     mapMatchConfidence: fix ? fix.confidence : null,

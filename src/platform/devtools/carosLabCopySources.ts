@@ -18,7 +18,7 @@ import { getLastAiMechanicResult } from '../system/platformCoreAiRuntimeWiring';
 import { getValidationSnapshot } from '../validation/validationRecorder';
 import { discoveryCaptureService } from '../obd/discovery';
 import { useDebugStore } from '../debug';
-import { getOBDDataSnapshot } from '../obdService';
+import { getOBDDataSnapshot, getLinkLossLedger } from '../obdService';
 import { getReplayData, getCrashDetectionHealth } from '../security/blackBoxService';
 import { useHALStatusStore } from '../vehicleDataLayer/halStatusStore';
 import { getDevtoolsCaptureStatus } from './devtoolsCapture';
@@ -28,6 +28,7 @@ import { getLastPidTimingRaw } from '../obd/pidTimingExperiment';
 import { getPollEvidenceRefreshedAt } from '../obd/extendedPollEvidence';
 import { getExtendedEliminationRefreshedAt } from '../obd/extendedElimination';
 import { getEtaJumpLedger } from '../navigationService';
+import { getFixAgeLedger } from '../gpsService';
 import { readNavigationCoreSnapshot } from './navigationCoreSources';
 import { buildPidTimingReport } from '../obd/pidTimingExperimentModel';
 import type { CarosLabCopyInput } from './carosLabCopyModel';
@@ -148,8 +149,14 @@ export function readCarosLabCopyInput(ctx: CopyContext): CarosLabCopyInput {
     navigationCore: safe(() => {
       const n = readNavigationCoreSnapshot();
       return {
-        /* #508'in dayandığı sayı — TEK otoriteden (gpsService.getLocationEvidence). */
+        /* ⚠️ #537 DÜZELTMESİ: bu alan EŞLEŞTİRİLMİŞ (map-match) fix'in yaşıdır ve
+           nav aktif değilken tazelenmez. Sahada (2026-08-11) `fixAgeMs: 5237`
+           #508 kanıtı sanıldı — oysa #508 KONUM SAĞLAYICISININ yaşını ister.
+           Doğru sayı artık `konumFixYasMs` alanındadır (G1 tek otoritesinden). */
         fixAgeMs:          n.fixAgeMs,
+        konumFixYasMs:     n.locationFixAgeMs,
+        konumBayat:        n.locationStale,
+        konumKaynagi:      n.locationSource,
         hasRawFix:         n.hasRawFix,
         gpsObservedAtWall: n.gpsObservedAtWall,
         navStatus:         n.navStatus,
@@ -158,6 +165,30 @@ export function readCarosLabCopyInput(ctx: CopyContext): CarosLabCopyInput {
         distanceSource:    n.nextManeuverDistanceSource,
         mapMatchState:     n.mapMatchState,
       } as unknown;
+    }),
+    /* ── #537 · FIX YAŞI DAĞILIMI (GÖREV B — #508'İN KAPANIŞ ŞARTI) ─────────
+       SAHA (2026-08-11): kopyada tek anlık `fixAgeMs: 5237` vardı; #508 ise
+       `p50<3s ∧ p95<10s` DAĞILIMI ister → ölçüm kapanış üretemedi. Dağılım
+       artık kopyada: p50/p95/min/max + örnek sayısı + hüküm + ÖRNEKLEME MODELİ.
+       Okuma ucu örnek ALMAZ → kopya almak dağılımı kirletmez. */
+    fixAgeDistribution: safe(() => {
+      const l = getFixAgeLedger();
+      return {
+        aciklama: 'Örnekler tüketici okumasında alınır (yeni timer YOK) → zaman ekseninde '
+                + 'DÜZGÜN dağılım İDDİA EDİLMEZ; yanlılık okuma aralığı yüzdelikleriyle '
+                + 'görünür. #508\'in üçüncü ölçütü (iz/gerçek yol) bu defterde ÖLÇÜLMEZ.',
+        ozet: l.summary,
+      } as unknown;
+    }),
+    /* ── #536 · KOPMA KANIT DEFTERİ (GÖREV A) ───────────────────────────────
+       SAHA (2026-08-11): 8 timeout · LinkLost 47 s · quality %57 ölçüldü ama
+       KÖK NEDEN ayırt edilemedi (dört aday aynı `timeout` sayısını üretiyor).
+       Defter kopma anındaki imzayı + kurtarma imzasını taşır. `records`
+       bounded (24) ve PII taşımaz; `summary.nextMeasurement` bir sonraki turun
+       ölçüm işini söyler. KİLİT 30 dersi: ölçüm AYNI PR'da kopyaya girer. */
+    linkLosses: safe(() => {
+      const l = getLinkLossLedger();
+      return { summary: l.summary, records: l.records } as unknown;
     }),
     /* #530 — ETA sıçrama defteri: hangi anahtarın sıçramaya eşlik ettiği.
        `records` bounded (40) ve PII taşımaz; `summary` baskın tetikleyiciyi verir. */

@@ -35,8 +35,21 @@
  * doğurmaz. Yalnız gözlemdir (§7.9 "sessiz kayıt" kovası).
  */
 
+import { ETA_MIN_CORRECTION_KMH, etaSpeedGateWeight } from './etaModel';
+
 /** Sıçrama sayılmak için gereken en küçük mutlak değişim (s) — saha ölçütüyle aynı. */
 export const ETA_JUMP_MIN_S = 60;
+
+/**
+ * #538 — kapı ARTIK BİR BANT: rampa ağırlığı bu kadar oynadıysa "kapı değişti".
+ *
+ * NEDEN GEREKLİ: rampa öncesi kapı ikili bir anahtardı ve `>= 8` geçişini
+ * yakalamak yetiyordu. Rampadan sonra çarpan bant İÇİNDE de (ör. 9 → 15 km/h)
+ * belirgin oynar; yalnız eşik geçişine bakan bir defter bu yeni mekanizmaya
+ * KÖR olurdu ve "SPEED_GATE_CHANGED düştü" sonucu YANILTICI çıkardı.
+ * Doğrulama ölçümünün geçerliliği bu bant farkındalığına bağlıdır.
+ */
+export const ETA_GATE_WEIGHT_MIN_DELTA = 0.2;
 
 /** Defterin tavanı — sınırsız kayıt cihazda bellek sorunudur. */
 export const ETA_JUMP_RING = 40;
@@ -109,8 +122,14 @@ export function detectEtaJump(prev: EtaSample, next: EtaSample): EtaJumpRecord |
      anahtarlar onun gölgesinde kalır — en güçlü açıklama önce gelir. */
   const distanceSwitched =
     (prev.remainingDistanceM === null) !== (next.remainingDistanceM === null);
-  const speedGateSwitched =
-    (prev.rollingAvgKmh >= 8) !== (next.rollingAvgKmh >= 8);
+  /* Eşik geçişi VE bant içi belirgin ağırlık değişimi — ikisi de kapı olayıdır.
+     Eşik sabiti `etaModel`den gelir: aynı 8 km/h iki dosyada yazılı DEĞİLDİR. */
+  const gateCrossed =
+    (prev.rollingAvgKmh >= ETA_MIN_CORRECTION_KMH) !== (next.rollingAvgKmh >= ETA_MIN_CORRECTION_KMH);
+  const gateWeightMoved =
+    Math.abs(etaSpeedGateWeight(next.rollingAvgKmh) - etaSpeedGateWeight(prev.rollingAvgKmh))
+      >= ETA_GATE_WEIGHT_MIN_DELTA;
+  const speedGateSwitched = gateCrossed || gateWeightMoved;
 
   let trigger: EtaJumpTrigger;
   if (prev.routeRevision !== next.routeRevision)      trigger = 'ROUTE_REVISION_CHANGED';

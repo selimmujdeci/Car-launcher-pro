@@ -130,6 +130,19 @@ export interface CarosLabCopyInput {
    */
   readonly navigationCore: unknown | null;
   readonly etaJumps: unknown | null;
+  /**
+   * #537 — FIX YAŞI DAĞILIMI (GÖREV B). Sahada tek anlık örnek (`fixAgeMs: 5237`)
+   * geldi; #508 ölçütü `p50<3s ∧ p95<10s` DAĞILIMI ister → kapanış üretilemedi.
+   * `null` = defter okunamadı ("ölçüm yok" DEĞİL).
+   */
+  readonly fixAgeDistribution: unknown | null;
+  /**
+   * #536 — KOPMA KANIT DEFTERİ (GÖREV A). Sahada 8 timeout ölçüldü ama dört kök
+   * neden adayının (adaptör · soket · ELM init · ECU uykusu) hepsi AYNI sayıyı
+   * üretiyordu. Bu bölüm kopma anındaki imzayı, kurtarma imzasını ve **eksik
+   * kanıt listesini** taşır. `null` = defter okunamadı ("kopma yok" DEĞİL).
+   */
+  readonly linkLosses: unknown | null;
   /** Vehicle HAL kaynak sağlığı — `canAlive/obdAlive/gpsAlive`, null = BİLİNMİYOR. */
   readonly sourceHealth: unknown | null;
   /**
@@ -310,7 +323,13 @@ export function buildCarosLabCopy(input: CarosLabCopyInput): CarosLabCopyResult 
     fromObject('NATIVE SAYAÇ SNAPSHOT YAŞI (#526)', input?.nativeSnapshotAge ?? null),
     /* #535: navigasyon ölçümü — #508 (fixAgeMs) ve #530 (ETA sıçramaları). */
     fromObject('NAVİGASYON ÇEKİRDEĞİ (#508 · fixAgeMs)', input?.navigationCore ?? null),
+    /* #537: dağılım AYRI bölümdür — tek anlık örnekle karıştırılmasın. #508
+       hükmü burada okunur; nav çekirdeği bölümündeki tek örnek KANIT DEĞİLDİR. */
+    fromObject('KONUM FIX YAŞI DAĞILIMI (#537 · #508 hükmü)', input?.fixAgeDistribution ?? null),
     fromObject('ETA SIÇRAMA DEFTERİ (#530)', input?.etaJumps ?? null),
+    /* #536: kopma kanıtı — sayaçlardan (kalite/baskı) SONRA değil ÖNCE okunmalı
+       ki okuyucu "8 timeout" görmeden önce imzaların ne söylediğini görsün. */
+    fromObject('KOPMA KANIT DEFTERİ (#536 · GÖREV A)', input?.linkLosses ?? null),
     fromObject('KAZA ALGILAMA (yalnız sayaç · null = BİLİNMİYOR)', input?.crashDetection ?? null),
     fromObject('OTURUM DENETÇİSİ (ham snapshot)', input?.session ?? null),
     fromObject('ÇALIŞMA ZAMANI ZAMANLAMA (ham snapshot)', input?.scheduling ?? null),

@@ -5506,3 +5506,186 @@ describe('🔒 KİLİT 30 · navigasyon ölçümü kopyaya girer (#535)', () => 
     expect(m, 'ilk veri damgasi hala yalniz data gate icinde yaziliyor').toBeTruthy();
   });
 });
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * 🔒 KİLİT 31 · GÖREV A — KOPMA KÖKÜ ÖLÇÜLMEDEN DÜZELTİLMEZ (#536)
+ *
+ * SAHA (2026-08-11): 8 timeout · LinkLost 47 s · quality %57 · baskı 1.71.
+ * Dört kök neden adayı (adaptör · RFCOMM soketi · ELM init · ECU uykusu) AYNI
+ * `timeout` sayısını üretiyor → mevcut `reconnectHistory` kökü AYIRT EDEMEZ.
+ * Devir §5: "Kör düzeltme YASAK — önce ölçüm." Bu kilitler ölçüm yolunun
+ * varlığını VE defterin karar üretmediğini sabitler.
+ * ════════════════════════════════════════════════════════════════════════ */
+describe('🔒 KİLİT 31 · kopma kanıt defteri (#536)', () => {
+  const src = (p: string) => readFileSync(resolve(__dirname, '..', p), 'utf8');
+
+  it('🔒 defter SAF: I/O · timer · Date.now · React YOK', () => {
+    const s = src('platform/obd/linkLossLedger.ts');
+    expect(s, 'saf model saat okuyor').not.toMatch(/Date\.now\(\)/);
+    expect(s, 'saf model timer kuruyor').not.toMatch(/setInterval|setTimeout/);
+    expect(s, 'saf model servis import ediyor').not.toMatch(/^import .*from '\.\.\//m);
+  });
+
+  it('🔒 kopma anındaki ÜÇ kanıt da toplanır (voltaj · link yaşı · ECU yaşı)', () => {
+    const s = src('platform/obdService.ts');
+    expect(s, 'kopma kanit toplayicisi yok').toMatch(/function _noteLinkLoss/);
+    expect(s, 'link paketi yasi kanit olarak gecmiyor').toMatch(/linkPacketAgeMs: _lastRxAt > 0/);
+    expect(s, 'ECU veri yasi kanit olarak gecmiyor').toMatch(/ecuDataAgeMs:\s+_lastRealDataMs > 0/);
+    /* ATRV okunmadıysa `null` — sahte 0 V "ölçülmedi" demek olurdu. */
+    expect(s, 'sahte 0 V uretiliyor olabilir').toMatch(/Number\.isFinite\(v\) && v > 0 \? v : null/);
+  });
+
+  it('🔒 gerçek kopma · ECU susması · kurtarma AYRI AYRI kaydedilir', () => {
+    const s = src('platform/obdService.ts');
+    expect(s, 'watchdog link olumu defterlenmiyor').toMatch(/_noteLinkLoss\('LINK_DEAD_WATCHDOG'/);
+    /* ECU susması bir KOPMA DEĞİLDİR; aynı kovaya atılırsa adaptör haksız suçlanır. */
+    expect(s, 'ECU susmasi ayri kaydedilmiyor').toMatch(/_noteLinkLoss\('ECU_SILENT_WATCHDOG'/);
+    expect(s, 'kurtarma imzasi islenmiyor').toMatch(/function _noteLinkRecovered/);
+    const m = s.match(/_lastHandshakeSuccessAt = Date\.now\(\);[\s\S]{0,400}?_noteLinkRecovered\(\)/);
+    expect(m, 'kurtarma basarili handshake anina bagli degil').toBeTruthy();
+  });
+
+  it('🔒 timeout AŞAMASI defterle aynı çağrıda geçer', () => {
+    const s = src('platform/obdService.ts');
+    /* Aşama `_handshakeDiag` yazılmadan önce okunursa defter her zaman null görür
+       ve `TIMEOUT_STAGE` boşluğu SAHTE olarak birikir. */
+    expect(s, 'asama kanidi recordReconnect\'e gecmiyor')
+      .toMatch(/function _recordReconnect\(reason: ReconnectReason, timeoutStage/);
+    expect(s).toMatch(/timedOut \? 'connect' : null,?\s*\)?;?\s*(\/\/.*)?$/m);
+  });
+
+  it('🔒 defter KARAR ÜRETMEZ (hüküm motoruna girdi olmaz)', () => {
+    /* Aktif sözleşme: "defterler karar üretmez". Adaptör hükmü (`deriveAdVerdict`)
+       kopma defterini OKUMAMALI — aksi halde gözlem sessizce karara dönüşür. */
+    const model = src('platform/devtools/adapterDiagnosticsModel.ts');
+    const verdict = model.slice(model.indexOf('export function deriveAdVerdict'));
+    expect(verdict, 'kopma defteri hukum uretiyor').not.toMatch(/linkLoss/);
+    /* Ve ürün yolunda reconnect/eşik tetikleyen bir kullanımı olmamalı. */
+    const svc = src('platform/obdService.ts');
+    expect(svc, 'defter reconnect tetikliyor')
+      .not.toMatch(/summarizeLinkLosses\([\s\S]{0,200}?_scheduleReconnect/);
+  });
+
+  it('🔒 ölçüm AYNI turda kopyaya ve LAB ekranına çıkar (#535 dersi)', () => {
+    const sources = src('platform/devtools/carosLabCopySources.ts');
+    expect(sources, 'kopma defteri kopyaya beslenmiyor').toMatch(/getLinkLossLedger/);
+    const model = src('platform/devtools/carosLabCopyModel.ts');
+    expect(model, 'kopya bolumu yok').toMatch(/KOPMA KANIT DEFTERİ/);
+    const adSrc = src('platform/devtools/adapterDiagnosticsSources.ts');
+    expect(adSrc, 'LAB ekrani defteri okumuyor').toMatch(/getLinkLossLedger/);
+    const adModel = src('platform/devtools/adapterDiagnosticsModel.ts');
+    expect(adModel, 'LAB bolumu yok').toMatch(/Kopma Kanıtı/);
+    /* Eksik kanıt listesi GÖRÜNÜR olmalı: GÖREV A'nın iş listesi budur. */
+    expect(adModel, 'eksik kanit gosterilmiyor').toMatch(/önce ölçülmesi gereken/);
+  });
+});
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * 🔒 KİLİT 32 · GÖREV B — #508 TEK ÖRNEKLE KAPANMAZ (#537)
+ *
+ * SAHA (2026-08-11): kopyada `fixAgeMs: 5237` — TEK anlık örnek. #508 ölçütü
+ * `p50<3s ∧ p95<10s` DAĞILIMI ister. Eski taban p50 19,5 s; 5,2 s daha iyi
+ * GÖRÜNÜYOR ama tek örnekten p50 çıkmaz. Ayrıca kopyadaki o sayı map-match
+ * fix'inin yaşıydı — G1 otoritesinin (#527) sayısı DEĞİL.
+ * ════════════════════════════════════════════════════════════════════════ */
+describe('🔒 KİLİT 32 · fix yaşı dağılım defteri (#537)', () => {
+  const src = (p: string) => readFileSync(resolve(__dirname, '..', p), 'utf8');
+
+  /** Yorumları düşürür — saflık kilidi KODU sınar, açıklama metnini değil. */
+  const codeOnly = (s: string) => s
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .replace(/(^|[^:])\/\/.*$/gm, '$1 ');
+
+  it('🔒 dağılım hesabı SAF modelde (I/O · timer · saat YOK)', () => {
+    const s = codeOnly(src('platform/navigation/core/fixAgeLedger.ts'));
+    expect(s, 'saf model saat okuyor').not.toMatch(/Date\.now\(\)|performance\.now\(\)/);
+    expect(s, 'saf model timer kuruyor').not.toMatch(/setInterval|setTimeout/);
+    expect(s, 'p50 hesabi yok').toMatch(/export function summarizeFixAge/);
+  });
+
+  it('🔒 örnek TEK OTORİTENİN okuma noktasında alınır — YENİ TIMER YOK', () => {
+    const s = src('platform/gpsService.ts');
+    const fn = s.slice(s.indexOf('export function getLocationEvidence'));
+    expect(fn, 'olcum tuketici okumasinda alinmiyor').toMatch(/appendFixAge\(_fixAgeRing/);
+    /* Zero-Leak: defter için yeni bir interval/timeout KURULMADI. */
+    const before = (s.match(/setInterval\(/g) ?? []).length;
+    expect(before, 'defter icin yeni timer eklenmis olabilir').toBeLessThanOrEqual(1);
+  });
+
+  it('🔒 okuma ucu ÖRNEK ALMAZ (gözlem ölçtüğünü bozmaz)', () => {
+    const s = src('platform/gpsService.ts');
+    const fn = s.slice(s.indexOf('export function getFixAgeLedger'), s.indexOf('_resetFixAgeLedgerForTest'));
+    expect(fn, 'okuma ucu defteri kirletiyor').not.toMatch(/appendFixAge/);
+  });
+
+  it('🔒 eşik ÇAĞIRANDAN gelir — saf model ikinci eşik otoritesi kurmaz', () => {
+    const led = src('platform/navigation/core/fixAgeLedger.ts');
+    expect(led, 'saf modelde gomulu bayatlik esigi var').not.toMatch(/LOCATION_STALE_MS\s*=/);
+    expect(led).toMatch(/staleThresholdMs: number/);
+    const gps = src('platform/gpsService.ts');
+    expect(gps, 'esik otoriteden gecirilmiyor').toMatch(/summarizeFixAge\(_fixAgeRing, LOCATION_STALE_MS\)/);
+  });
+
+  it('🔒 AZ örnekte hüküm VERİLMEZ ve üçüncü ölçüt ÖLÇÜLMEDİ diye beyan edilir', () => {
+    const s = src('platform/navigation/core/fixAgeLedger.ts');
+    expect(s, 'yetersiz ornek hukmu yok').toMatch(/INSUFFICIENT_SAMPLES/);
+    expect(s, 'en az ornek esigi isimli sabit degil').toMatch(/export const FIX_AGE_MIN_SAMPLES/);
+    /* #508'in üçüncü ölçütü (iz/gerçek yol) bu defterde ölçülmez — gizlenmez. */
+    expect(s, 'olculmeyen olcut gizleniyor').toMatch(/trackRatioMeasured: false/);
+  });
+
+  it('🔒 #508\'in sayısı G1 OTORİTESİNDEN gelir ve kopyada AYRI bölümdedir', () => {
+    const nav = src('platform/devtools/navigationCoreSources.ts');
+    expect(nav, '#508 sayisi otoriteden okunmuyor')
+      .toMatch(/locationFixAgeMs: _safe\(\(\) => getLocationEvidence\(\)\.fixAgeMs/);
+    /* Map-match fix yaşı ile karıştırılmaması AÇIKÇA yazılı olmalı. */
+    expect(nav, 'iki ayri yas olgusu ayirt edilmiyor').toMatch(/#508'İN DAYANDIĞI SAYI BU DEĞİLDİR/);
+    const sources = src('platform/devtools/carosLabCopySources.ts');
+    expect(sources, 'dagilim kopyaya beslenmiyor').toMatch(/getFixAgeLedger/);
+    expect(sources, 'otorite sayisi kopyada yok').toMatch(/konumFixYasMs:\s*n\.locationFixAgeMs/);
+    const model = src('platform/devtools/carosLabCopyModel.ts');
+    expect(model, 'dagilim bolumu yok').toMatch(/KONUM FIX YAŞI DAĞILIMI/);
+  });
+});
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * 🔒 KİLİT 33 · GÖREV C — G3 SIÇRAMASININ KÖKÜ KAPATILDI (#538)
+ *
+ * ÖLÇÜLDÜ (2026-08-11, gerçek araç): `SPEED_GATE_CHANGED` 4/6 = %67 baskın;
+ * dört geçişin HEPSİ `factor 1 ↔ 1.5` ve aritmetik beklentiyle 0-8 s içinde
+ * uyumlu. Mesafe kaynağı SUÇSUZ (`DISTANCE_SOURCE_CHANGED` = 0). Düzeltme:
+ * kapı anahtar değil RAMPA → eşikte sürekli → %50 zıplama imkânsız.
+ * ════════════════════════════════════════════════════════════════════════ */
+describe('🔒 KİLİT 33 · ETA hız kapısı rampası (#538)', () => {
+  const src = (p: string) => readFileSync(resolve(__dirname, '..', p), 'utf8');
+
+  it('🔒 rampa VAR, isimli sabitle ve SAF (zamana bağlı durum yok)', () => {
+    const s = src('platform/navigation/core/etaModel.ts');
+    expect(s, 'rampa fonksiyonu yok').toMatch(/export function etaSpeedGateWeight/);
+    expect(s, 'bant genisligi isimli sabit degil').toMatch(/export const ETA_GATE_RAMP_KMH/);
+    expect(s, 'etaModel saat okuyor (saflik bozuldu)').not.toMatch(/Date\.now\(\)|performance\.now\(\)/);
+    /* Çarpan ağırlıkla uygulanmalı — aksi halde eşikte yine ANİ atlar. */
+    expect(s, 'agirlikli uygulama yok').toMatch(/factor = 1 \+ \(rawFactor - 1\) \* gateWeight/);
+  });
+
+  it('🔒 ham çarpan GÖZLEMLENEBİLİR kalır (kanıt kaybı yok)', () => {
+    const s = src('platform/navigation/core/etaModel.ts');
+    expect(s).toMatch(/correctionFactorRaw/);
+    expect(s).toMatch(/speedGateWeight/);
+  });
+
+  it('🔒 8 km/h eşiği TEK yerde yazılı (defter etaModel\'den okur)', () => {
+    const led = src('platform/navigation/core/etaJumpLedger.ts');
+    expect(led, 'defterde gomulu 8 esigi geri gelmis')
+      .not.toMatch(/rollingAvgKmh >= 8\)/);
+    expect(led, 'esik otoriteden alinmiyor').toMatch(/ETA_MIN_CORRECTION_KMH/);
+  });
+
+  it('🔒 defter BANT İÇİ harekete kör DEĞİL (doğrulamanın geçerlilik şartı)', () => {
+    /* Rampadan sonra çarpan bant içinde de oynar. Yalnız eşik geçişine bakan bir
+       dedektör "SPEED_GATE_CHANGED düştü" diye YANILTICI bir başarı raporlardı. */
+    const led = src('platform/navigation/core/etaJumpLedger.ts');
+    expect(led, 'bant farkindaligi yok').toMatch(/etaSpeedGateWeight\(next\.rollingAvgKmh\)/);
+    expect(led, 'esik isimli sabit degil').toMatch(/export const ETA_GATE_WEIGHT_MIN_DELTA/);
+  });
+});
