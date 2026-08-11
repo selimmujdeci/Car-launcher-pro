@@ -27,6 +27,8 @@ import { getErrorLog } from '../crashLogger';
 import { getLastPidTimingRaw } from '../obd/pidTimingExperiment';
 import { getPollEvidenceRefreshedAt } from '../obd/extendedPollEvidence';
 import { getExtendedEliminationRefreshedAt } from '../obd/extendedElimination';
+import { getEtaJumpLedger } from '../navigationService';
+import { readNavigationCoreSnapshot } from './navigationCoreSources';
 import { buildPidTimingReport } from '../obd/pidTimingExperimentModel';
 import type { CarosLabCopyInput } from './carosLabCopyModel';
 
@@ -137,6 +139,31 @@ export function readCarosLabCopyInput(ctx: CopyContext): CarosLabCopyInput {
         pollKanitiYasMs: age(getPollEvidenceRefreshedAt()),
         elemeYasMs:      age(getExtendedEliminationRefreshedAt()),
       } as unknown;
+    }),
+    /* ── #535 · NAVİGASYON ÖLÇÜMÜ KOPYAYA GİRER ─────────────────────────────
+       SAHA (2026-08-11): saha koşumu yapıldı ama kopyada NE `fixAgeMs` (#508)
+       NE ETA sıçrama defteri (#530) vardı → ölçüm alınamadı, yolculuk boşa gitti.
+       #523'te H-A deneyi için düzelttiğim kusurun BİREBİR AYNISI: ölçüm yazıldı,
+       dışarı çıkarılmadı. İki kaynak da senkron okunur (kopya sözleşmesi). */
+    navigationCore: safe(() => {
+      const n = readNavigationCoreSnapshot();
+      return {
+        /* #508'in dayandığı sayı — TEK otoriteden (gpsService.getLocationEvidence). */
+        fixAgeMs:          n.fixAgeMs,
+        hasRawFix:         n.hasRawFix,
+        gpsObservedAtWall: n.gpsObservedAtWall,
+        navStatus:         n.navStatus,
+        etaSeconds:        n.etaSeconds,
+        routeRevision:     n.routeRevision,
+        distanceSource:    n.nextManeuverDistanceSource,
+        mapMatchState:     n.mapMatchState,
+      } as unknown;
+    }),
+    /* #530 — ETA sıçrama defteri: hangi anahtarın sıçramaya eşlik ettiği.
+       `records` bounded (40) ve PII taşımaz; `summary` baskın tetikleyiciyi verir. */
+    etaJumps: safe(() => {
+      const l = getEtaJumpLedger();
+      return { summary: l.summary, records: l.records } as unknown;
     }),
     /* #523 — H-A DENEYİ. Ham örnekler TAŞINMAZ (yüzlerce satır, kopya tavanını
        yer); yalnız HÜKÜM + KANIT + BULGULAR + aşama/PID ÖZETİ gider. Rapor saf

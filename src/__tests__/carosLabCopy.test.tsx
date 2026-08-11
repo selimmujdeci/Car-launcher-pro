@@ -135,7 +135,10 @@ describe('KİLİT 5 — model SAF ve bağlam dürüst', () => {
     // kaldırılmadı, yeni doğru değere taşındı.
     // 2026-08-10 (#526): NATIVE SAYAÇ SNAPSHOT YAŞI bölümü eklendi — sahada
     // 5 dakikalık bir önbellek canlı sanılıp "poll durdu" hükmü verilmişti.
-    expect(r.sectionCount).toBe(14);
+    // 2026-08-11 (#535): NAVİGASYON ÇEKİRDEĞİ + ETA SIÇRAMA DEFTERİ eklendi —
+    // saha koşumu yapıldı ama fixAgeMs (#508) ve ETA defteri (#530) kopyada
+    // YOKTU; ölçüm alınamadı. Kilit kaldırılmadı, yeni doğru değere taşındı.
+    expect(r.sectionCount).toBe(16);
     expect(r.text).toContain('ANLIK ARAÇ VERİSİ');
     expect(r.text).toContain('KAYNAK SAĞLIĞI');
     expect(r.text).toContain('BLACKBOX ÖRNEKLERİ');
@@ -143,6 +146,9 @@ describe('KİLİT 5 — model SAF ve bağlam dürüst', () => {
     /* #523 — deney bölümü kopyada HER ZAMAN görünür: veri yoksa bile "okunmadı"
        gerekçesiyle. Bölümün hiç olmaması, sahada olanın ta kendisiydi. */
     expect(r.text).toContain('H-A DENEYİ');
+    /* #535 — navigasyon ölçümü kopyada HER ZAMAN görünür (veri yoksa 'okunamadı'). */
+    expect(r.text).toContain('NAVİGASYON ÇEKİRDEĞİ');
+    expect(r.text).toContain('ETA SIÇRAMA DEFTERİ');
   });
 
   it('aynı girdi → aynı çıktı (saat/rastgelelik okumaz)', () => {

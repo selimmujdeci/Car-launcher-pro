@@ -1333,6 +1333,13 @@ function _onRealData(patch: Partial<OBDData>): void {
   if (patch.speed !== undefined) _lastSpeedRxMs = _rxNow;
   if (_hasEcuData(patch)) {
     _lastRealDataMs = _rxNow;
+    /* #535: İLK GERÇEK VERİ damgası data gate'ten BAĞIMSIZ set edilir.
+       SAHA (2026-08-11): `firstDataAt: null` geldi — OBD BAĞLI ve veri AKARKEN.
+       Kök: damga yalnız `_dataGatePassed` İLK KEZ açılırken yazılıyordu; #531'de
+       eklediğim tur sıfırlaması damgayı temizleyince gate zaten açık olduğu için
+       bir daha ASLA yazılmadı → ölçüm sessizce öldü. Artık her ECU verisinde
+       (damga boşsa) yazılır; tur sıfırlaması sonrası ilk veri onu yeniden doldurur. */
+    if (_firstRealDataAtMs === 0) _firstRealDataAtMs = Date.now();
     // KURTARMA BAŞARISI — TEK OTORİTER SİNYAL: ECU yeniden konuşuyor. Sıfırlama BURADA
     // olmalı, watchdog'da DEĞİL: aşağıdaki _merge zaten dataFresh=true yapıyor → watchdog'un
     // "stale→fresh" dalı hiç çalışmaz → sayaçlar asla sıfırlanmazdı ve bir sonraki sessizlik

@@ -124,6 +124,12 @@ export interface CarosLabCopyInput {
    * görünüp "poll durdu" sanıldı; önbellek eskiydi. Yaş olmadan bu ayrım yapılamaz.
    */
   readonly nativeSnapshotAge: unknown | null;
+  /**
+   * #535 — NAVİGASYON ÖLÇÜMÜ. `fixAgeMs` (#508 kabul ölçütünün dayandığı sayı)
+   * ve ETA sıçrama defteri (#530) kopyada YOKTU → saha koşumu ölçüm üretemedi.
+   */
+  readonly navigationCore: unknown | null;
+  readonly etaJumps: unknown | null;
   /** Vehicle HAL kaynak sağlığı — `canAlive/obdAlive/gpsAlive`, null = BİLİNMİYOR. */
   readonly sourceHealth: unknown | null;
   /**
@@ -302,6 +308,9 @@ export function buildCarosLabCopy(input: CarosLabCopyInput): CarosLabCopyResult 
     /* #526 — yaş bölümü sayaçlardan ÖNCE gelir: okuyucu sayıya bakmadan önce
        hangi ANDAN geldiğini görsün. */
     fromObject('NATIVE SAYAÇ SNAPSHOT YAŞI (#526)', input?.nativeSnapshotAge ?? null),
+    /* #535: navigasyon ölçümü — #508 (fixAgeMs) ve #530 (ETA sıçramaları). */
+    fromObject('NAVİGASYON ÇEKİRDEĞİ (#508 · fixAgeMs)', input?.navigationCore ?? null),
+    fromObject('ETA SIÇRAMA DEFTERİ (#530)', input?.etaJumps ?? null),
     fromObject('KAZA ALGILAMA (yalnız sayaç · null = BİLİNMİYOR)', input?.crashDetection ?? null),
     fromObject('OTURUM DENETÇİSİ (ham snapshot)', input?.session ?? null),
     fromObject('ÇALIŞMA ZAMANI ZAMANLAMA (ham snapshot)', input?.scheduling ?? null),

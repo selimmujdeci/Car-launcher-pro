@@ -5475,3 +5475,34 @@ describe('🔒 KİLİT 29 · saha kopyası kusurları (#531/#532/#533)', () => {
     expect(maskCommonSecrets(num)).toContain('02535071063730359');
   });
 });
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * 🔒 KİLİT 30 · ÖLÇÜM YAZILDI AMA DIŞARI ÇIKARILAMADI (#535)
+ *
+ * SAHA (2026-08-11): gerçek araçta koşum yapıldı, ama kopyada NE `fixAgeMs`
+ * (#508'in dayandığı sayı) NE ETA sıçrama defteri (#530) vardı → yolculuk
+ * ölçüm üretemedi. #523'te H-A deneyi için düzeltilen kusurun BİREBİR AYNISI.
+ * Ayrıca `firstDataAt: null` geldi — OBD bağlı ve veri akarken: #531'in tur
+ * sıfırlaması damgayı temizledi, yeniden set yolu YOKTU.
+ * ════════════════════════════════════════════════════════════════════════ */
+describe('🔒 KİLİT 30 · navigasyon ölçümü kopyaya girer (#535)', () => {
+  const src = (p: string) => readFileSync(resolve(__dirname, '..', p), 'utf8');
+
+  it('🔒 fixAgeMs (#508) ve ETA defteri (#530) KOPYA çıktısında yer alır', () => {
+    const sources = src('platform/devtools/carosLabCopySources.ts');
+    expect(sources, 'nav olcumu kopyaya beslenmiyor').toMatch(/readNavigationCoreSnapshot/);
+    expect(sources, 'ETA defteri kopyaya beslenmiyor').toMatch(/getEtaJumpLedger/);
+    expect(sources).toMatch(/fixAgeMs:\s*n\.fixAgeMs/);
+    const model = src('platform/devtools/carosLabCopyModel.ts');
+    expect(model, 'nav bolumu yok').toMatch(/NAVİGASYON ÇEKİRDEĞİ/);
+    expect(model, 'ETA defteri bolumu yok').toMatch(/ETA SIÇRAMA DEFTERİ/);
+  });
+
+  it('🔒 ilk veri damgası data gate\'ten BAĞIMSIZ yazılır', () => {
+    const s = src('platform/obdService.ts');
+    /* Damga yalnız `_dataGatePassed` ilk açılışında yazılıyordu; tur sıfırlaması
+       sonrası gate zaten açık olduğu için bir daha ASLA yazılmıyordu. */
+    const m = s.match(/_lastRealDataMs = _rxNow;[\s\S]{0,700}?_firstRealDataAtMs === 0/);
+    expect(m, 'ilk veri damgasi hala yalniz data gate icinde yaziliyor').toBeTruthy();
+  });
+});
