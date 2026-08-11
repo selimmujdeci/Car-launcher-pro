@@ -46,6 +46,8 @@ const LocationEngineScreen = lazyWithRetry(() =>
   import('./screens/LocationEngineScreen'));
 const NavigationCoreScreen = lazyWithRetry(() =>
   import('./screens/NavigationCoreScreen'));
+const AddressSearchEvidenceScreen = lazyWithRetry(() =>
+  import('./screens/AddressSearchEvidenceScreen'));
 const TripEngineScreen = lazyWithRetry(() =>
   import('./screens/TripEngineScreen'));
 const KwpMonitorScreen = lazyWithRetry(() =>
@@ -109,6 +111,7 @@ export function renderAvailableTool(id: CarosLabToolId): ReactElement | null {
     case 'ai-evidence-engine': return <AiEvidenceEngineScreen />;
     case 'location-engine':    return <LocationEngineScreen />;
     case 'navigation-core':    return <NavigationCoreScreen />;
+    case 'address-search-evidence': return <AddressSearchEvidenceScreen />;
     case 'trip-engine':        return <TripEngineScreen />;
     case 'trip-cost':          return <TripCostScreen />;
     case 'pid-timing-experiment': return <PidTimingExperimentScreen />;

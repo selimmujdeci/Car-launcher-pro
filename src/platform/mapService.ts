@@ -18,7 +18,9 @@ import { searchGlobal } from './poi/offlinePoiService';
 import { NOMINATIM_URL, NOMINATIM_UA } from './map/_mapState';
 import { signalWithTimeout } from '../utils/abortCompat';
 import { filterNumberedStreetMismatch } from './geocodingService';
-import { searchStreetByName } from './streetSearchService';
+import { searchStreetByName, extractStreetQuery } from './streetSearchService';
+import { describeQueryShape, type AddressSearchStage } from './geo/addressSearchLedger';
+import { recordAddressSearch } from './geo/addressSearchLedgerStore';
 
 // ── Public API re-exports (delegation) ───────────────────────────────────────
 export * from './map/MapCore';
@@ -100,19 +102,54 @@ export async function searchPlaces(
 ): Promise<StoredLocation[]> {
   if (!query.trim()) return [];
 
+  /* ── Kanıt defteri (teşhis turu 2026-08-11) ────────────────────────────────
+   * Bu yüzey (harita arama çubuğu) `geocodeAddress` zincirinden AYRI çalışır ve
+   * ölçümde 30 sorgunun 8'inde diğer yüzeyden FARKLI sonuç verdi. Ayrışmanın
+   * sahada görünmesi için hangi yüzeyin ne bulduğu KAYDEDİLİR.
+   * Sorgu METNİ deftere GİRMEZ — yalnız biçimi (gizlilik şartı #6). */
+  const _t0    = Date.now();
+  const _shape = describeQueryShape(query);
+  let   _stage: AddressSearchStage = 'NONE';
+  let   _rejected: number | null   = null;
+  const _finish = (results: StoredLocation[]): StoredLocation[] => {
+    recordAddressSearch({
+      surface:             'MAP_SEARCH_BAR',
+      shape:               _shape,
+      /* Bu yüzey ayrıştırıcıdan GEÇMEZ — kullanıcı ne yazdıysa o aranır. */
+      queryRewritten:      false,
+      queryLostRoadType:   false,
+      stage:               _stage,
+      resultCount:         results.length,
+      rejectedCount:       _rejected,
+      providerMs:          Date.now() - _t0,
+      /* Bu yüzey fast-fail kullanmaz (tek 5 s'lik istek) → "beklemeyi bıraktık mı"
+         sorusu burada ANLAMSIZ; sahte `false` yerine ölçülmedi (`null`). */
+      fastFailHit:         null,
+      hadLocation:         userLat != null && userLng != null,
+      online:              typeof navigator === 'undefined' ? null : navigator.onLine,
+      fallbackQueryUsable: (userLat != null && userLng != null)
+        ? extractStreetQuery(query) !== null : null,
+      /* Liste kullanıcıya sunulur; SEÇİM kanıtı sonra gelir (noteAddressSearchChoice). */
+      outcome:             results.length === 0 ? 'EMPTY' : 'AWAITING_CHOICE',
+    }, 'mapService.searchPlaces');
+    return results;
+  };
+
   const combined: StoredLocation[] = [];
 
   // 1 — IndexedDB geçmiş/favoriler
   const offlineHits = await searchOffline(query, maxResults);
   for (const hit of offlineHits) combined.push(hit.location);
+  if (combined.length) _stage = 'LOCAL_HISTORY';
 
-  if (combined.length >= maxResults) return _dedup(combined).slice(0, maxResults);
+  if (combined.length >= maxResults) return _finish(_dedup(combined).slice(0, maxResults));
 
   // 2 — SQLite FTS5 global POI DB
   const poiHits = await searchGlobal(query, userLat, userLng, maxResults - combined.length);
+  if (poiHits.length && _stage === 'NONE') _stage = 'LOCAL_POI';
   combined.push(...poiHits);
 
-  if (combined.length >= maxResults) return _dedup(combined).slice(0, maxResults);
+  if (combined.length >= maxResults) return _finish(_dedup(combined).slice(0, maxResults));
 
   // 3 — Nominatim online geocoder (son çare)
   const onlineRaw = await _nominatimSearch(query, maxResults - combined.length);
@@ -128,6 +165,8 @@ export async function searchPlaces(
     query,
     onlineRaw.map((h) => ({ ...h, fullName: h.address ?? h.name })),
   );
+  _rejected = onlineRaw.length - onlineHits.length;
+  if (onlineHits.length && _stage === 'NONE') _stage = 'NOMINATIM';
   combined.push(...onlineHits);
 
   /* 4 — Sokak adıyla doğrudan OSM (Overpass). Nominatim Türkçe numaralı
@@ -135,6 +174,7 @@ export async function searchPlaces(
    *     verir. Fail-soft: konum yoksa/hata olursa boş döner. */
   if (combined.length === 0) {
     const streets = await searchStreetByName(query, userLat, userLng);
+    if (streets.length) _stage = 'OVERPASS_STREET';
     for (const s of streets) {
       combined.push({
         id:        s.id,
@@ -149,5 +189,5 @@ export async function searchPlaces(
     }
   }
 
-  return _dedup(combined).slice(0, maxResults);
+  return _finish(_dedup(combined).slice(0, maxResults));
 }

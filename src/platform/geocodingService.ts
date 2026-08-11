@@ -16,8 +16,9 @@
 
 import { searchOffline, searchPOI } from './offlineSearchService';
 import type { POISearchResult }      from './offlineSearchService';
-import { searchStreetByName }        from './streetSearchService';
+import { searchStreetByName, extractStreetQuery } from './streetSearchService';
 import { premiumGeocode }            from './geocodingProviders';
+import type { AddressSearchStage }   from './geo/addressSearchLedger';
 
 const NOMINATIM          = 'https://nominatim.openstreetmap.org/search';
 const NOMINATIM_REVERSE  = 'https://nominatim.openstreetmap.org/reverse';
@@ -198,6 +199,60 @@ export function relaxQueryVariants(query: string): string[] {
   return out.slice(0, RELAX_MAX_VARIANTS);
 }
 
+/* ── ARAMA İZİ (kanıt defteri için) ──────────────────────────────────────────
+ *
+ * NEDEN BÖYLE: teşhis turu (2026-08-11) ürünün hiçbir arama denemesini
+ * KAYDETMEDİĞİNİ ölçtü. Kaydı deftere YAZMAK `geocodeAddress`'in işi DEĞİL —
+ * o bir kütüphanedir ve İKİ yüzeyden çağrılır (Mavi/adres kartı + harita arama
+ * çubuğu); burada yazsaydı aynı deneme iki kez sayılırdı. Bu yüzden buradaki
+ * görev yalnız "hangi katman cevapladı, ne kadar sürdü, kaç sonuç elendi"
+ * bilgisini ÇAĞIRANA taşımaktır; deftere tek kayıt çağıran yazar.
+ *
+ * Taşıyıcı olarak WeakMap seçildi: dönüş tipi (`GeoResult[]`) DEĞİŞMEZ →
+ * mevcut çağıranların hiçbiri bozulmaz, ve her çağrı taze bir dizi döndürdüğü
+ * için eşzamanlı aramalar birbirinin izini EZMEZ (modül-düzeyi "son çağrı"
+ * değişkeni bu yarışı sessizce kaybederdi). Anahtar diziler GC'lenir → sızıntı yok.
+ */
+export interface GeocodeTrace {
+  /** Cevabı üreten katman. */
+  readonly stage: AddressSearchStage;
+  /** Doğrulama filtresinin eledİĞİ sonuç sayısı. `null` = filtre hiç çalışmadı. */
+  readonly rejectedCount: number | null;
+  /**
+   * **ZİNCİRİN** toplam süresi (ms) — rate-limit beklemesi, gevşetme varyantları
+   * ve Overpass son şansı DAHİL.
+   *
+   * ⚠️ Bu sayı `FAST_FAIL_MS` ile KARŞILAŞTIRILMAZ: zincir üç deneme yaptığı için
+   * doğal olarak 2 saniyeyi aşar ve bu "ağ yavaş" DEMEK DEĞİLDİR (ölçüm
+   * 2026-08-11: 8,6 s süren bir zincirde tek Nominatim yanıtı 606 ms'ydi).
+   * "Beklemeyi bıraktık mı" sorusunun cevabı `fastFailHit` alanındadır.
+   */
+  readonly providerMs: number;
+  /**
+   * En az bir Nominatim denemesi 2 s fast-fail'i aşıp BEKLENMEDEN bırakıldı mı
+   * (ya da ağ hatası verdi mi). Ölçülebilen tek gerçek "yavaşlık" sinyali budur.
+   */
+  readonly fastFailHit: boolean;
+  readonly hadLocation: boolean;
+  readonly online: boolean;
+  /** Overpass son şansı için kullanılabilir sokak sorgusu üretilebildi mi. */
+  readonly fallbackQueryUsable: boolean | null;
+}
+
+const _traces = new WeakMap<object, GeocodeTrace>();
+
+/** `geocodeAddress` dönüşünün izini okur. İz yoksa `null` (uydurma YOK). */
+export function readGeocodeTrace(results: object): GeocodeTrace | null {
+  try {
+    return _traces.get(results) ?? null;
+  } catch { return null; }
+}
+
+function _trace(results: GeoResult[], t: GeocodeTrace): GeoResult[] {
+  try { _traces.set(results, t); } catch { /* iz kaydı ürünü düşürmez */ }
+  return results;
+}
+
 /* ── Helpers ─────────────────────────────────────────────── */
 
 function abort(ms: number): { ctrl: AbortController; clear: () => void } {
@@ -325,9 +380,42 @@ export async function geocodeAddress(
   currentLat?: number,
   currentLng?: number,
 ): Promise<GeoResult[]> {
+  /* Kanıt izi — çağıran deftere TEK kayıt yazsın diye ölçülür (bkz. GeocodeTrace).
+     Ölçüm hiçbir kararı değiştirmez: aşağıdaki akış BİREBİR eskisi gibidir. */
+  const t0          = Date.now();
+  const hadLocation = currentLat != null && currentLng != null;
+  const online      = typeof navigator === 'undefined' ? true : navigator.onLine;
+  /* Son şans (Overpass) için kullanılabilir bir sokak sorgusu ÜRETİLEBİLİR Mİ.
+     Ölçüm 2026-08-11: adlı sokaklarda üretilen regex şehir/mahalle önekini de
+     içerdiği için OSM adıyla asla eşleşmiyor — o yüzden "üretildi" ile
+     "kullanılabilir" AYNI ŞEY DEĞİL ve burada yalnız üretilebilirlik taşınır. */
+  const fallbackQueryUsable = hadLocation ? extractStreetQuery(query) !== null : null;
+  /** Doğrulama filtresinin bu çağrı boyunca eledİĞİ toplam sonuç. */
+  let rejected = 0;
+  /** Doğrulama filtresi HİÇ çalıştı mı — çalışmadıysa `rejectedCount` null kalır. */
+  let filterRan = false;
+  /** En az bir deneme fast-fail'e takıldı mı (ya da ağ hatası verdi mi). */
+  let fastFailHit = false;
+
+  const _offlineStage = (results: GeoResult[]): AddressSearchStage =>
+    results.length === 0 ? 'NONE'
+      : results[0].type === 'offline/history' ? 'LOCAL_HISTORY' : 'LOCAL_POI';
+
+  const done = (results: GeoResult[], stage: AddressSearchStage): GeoResult[] =>
+    _trace(results, {
+      stage,
+      rejectedCount: filterRan ? rejected : null,
+      providerMs:    Date.now() - t0,
+      fastFailHit,
+      hadLocation,
+      online,
+      fallbackQueryUsable,
+    });
+
   /* Hızlı yol: ağ bağlantısı yok → rate-limiter atlanır, anında offline */
   if (typeof navigator !== 'undefined' && !navigator.onLine) {
-    return _offlineFallback(query, currentLat, currentLng);
+    const off = await _offlineFallback(query, currentLat, currentLng);
+    return done(off, _offlineStage(off));
   }
 
   /* ── Premium sağlayıcı (BYOK) ÖNCE ────────────────────────────────────────
@@ -336,27 +424,38 @@ export async function geocodeAddress(
      (bkz. geocodingProviders.ts başlığındaki saha ölçümü). Fail-soft: sağlayıcı
      boş/hata dönerse aşağıdaki ücretsiz zincir aynen devam eder. */
   const premium = await premiumGeocode(query, currentLat, currentLng);
-  if (premium.length) return premium;
+  if (premium.length) return done(premium, 'PREMIUM');
 
   const first = await _nominatimOnce(query, currentLat, currentLng);
 
   // null = timeout / ağ hatası → çevrimdışı yol (DAVRANIŞ DEĞİŞMEDİ).
   // Gevşetme YALNIZ "bağlandık ama 0 sonuç" durumunda anlamlıdır; ağ yokken
   // ek denemeler yalnız zaman kaybettirir.
-  if (first === null) return _offlineFallback(query, currentLat, currentLng);
+  if (first === null) {
+    /* Bekleme bırakıldı ya da ağ düştü — ikisi de bu dalda buluşur (çağıran
+       ayırt edemez, bu yüzden tek bayrak). */
+    fastFailHit = true;
+    const off = await _offlineFallback(query, currentLat, currentLng);
+    return done(off, _offlineStage(off));
+  }
 
   // Numaralı sokak doğrulaması — istenen numarayı taşımayan sonuç CEVAP DEĞİLDİR.
   const firstOk = filterNumberedStreetMismatch(query, first);
-  if (firstOk.length) return firstOk;
+  filterRan = true;
+  rejected += first.length - firstOk.length;
+  if (firstOk.length) return done(firstOk, 'NOMINATIM');
 
   /* 0 sonuç (veya hepsi yanlış sokak) → sorguyu BOZMADAN varyantları dene */
   for (const variant of relaxQueryVariants(query)) {
     const r = await _nominatimOnce(variant, currentLat, currentLng);
-    if (r === null) break;              // ağ bozuldu — merdiveni uzatma
+    if (r === null) { fastFailHit = true; break; }  // ağ bozuldu — merdiveni uzatma
     // Doğrulama İSTENEN sorguya göre yapılır (varyanta göre değil): varyant
     // numarayı düşürmüş olsa bile kullanıcı hâlâ o sokağı istiyor.
     const ok = filterNumberedStreetMismatch(query, r);
-    if (ok.length) return ok.map((x) => ({ ...x, relaxed: true }));
+    rejected += r.length - ok.length;
+    if (ok.length) {
+      return done(ok.map((x) => ({ ...x, relaxed: true })), 'NOMINATIM_RELAXED');
+    }
   }
 
   /* SON ŞANS — sokak/cadde ADIYLA doğrudan OSM'e sor.
@@ -364,11 +463,11 @@ export async function geocodeAddress(
      aynı veriyi TAM eşleşmeyle veriyor. Fail-soft: hata/timeout → boş dizi,
      navigasyon bu yola bağımlı değildir. Konum yoksa hiç çağrılmaz. */
   const streets = await searchStreetByName(query, currentLat, currentLng);
-  if (streets.length) return streets;
+  if (streets.length) return done(streets, 'OVERPASS_STREET');
 
   // Hâlâ yok: boş dön — çağıran (addressNavigationEngine) cihaz-içi aramayı
   // dener. Burada çevrimdışı yola sapmak o zinciri ikiye bölerdi.
-  return [];
+  return done([], 'NONE');
 }
 
 /**

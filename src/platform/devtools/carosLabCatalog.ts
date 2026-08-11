@@ -55,7 +55,8 @@ export const CAROS_LAB_STATUS_LABEL: Readonly<Record<CarosLabToolStatus, string>
 export type CarosLabToolId =
   // Vehicle
   | 'live-data' | 'pid-did-explorer' | 'fleet-connectivity' | 'trip-engine' | 'trip-cost'
-  | 'location-engine' | 'navigation-core' | 'fleet-identity' | 'fleet-driver-identity' | 'fleet-presence-history'
+  | 'location-engine' | 'navigation-core' | 'address-search-evidence'
+  | 'fleet-identity' | 'fleet-driver-identity' | 'fleet-presence-history'
   | 'fleet-driver-authentication' | 'fleet-driver-dna' | 'fleet-intelligence' | 'ai-evidence-engine'
   | 'deep-scan' | 'vehicle-fingerprint'
   // Communication
@@ -134,6 +135,12 @@ export const CAROS_LAB_TOOLS: readonly CarosLabTool[] = Object.freeze([
     desc: 'Navigasyon çekirdeğinin salt-okunur gözlemi: navigasyon durumu · rota sağlayıcı ve hazırlığı (yerel OSRM tek yoklama) · map matching durumu/güveni/dik mesafesi ve koridoru · sapma durum makinesi (kanıt/gereken, uyarlanabilir pencere) · yeniden rota istek yaşam döngüsü (aktif kimlik, iptal edilen, reddedilen bayat yanıt, bastırılan tekrar) ve gecikme ayrıştırması (sapma→istek→yanıt→uygulandı→ilk talimat) · rota doğrulama kapısı denetim tablosu · manevra mesafesi yöntemi (yol-boyu vs kuş uçuşu) ve çapa çözünürlüğü · şerit/dönel kavşak dürüstlük sayaçları.',
     status: 'AVAILABLE', layer: 'GNSS / OSRM',
     note: 'Hiçbir şey BAŞLATMAZ: navigasyon başlatma/durdurma, hedef seçme, rota isteği, reroute zorlama, sağlayıcı değiştirme, alternatif seçme ve ağ çağrısı YOK. ENLEM/BOYLAM GÖSTERİLMEZ — konum kişisel veridir (Location Engine ile aynı karar); ham fix yalnız VAR/YOK + yaş, oturtulmuş konum yalnız VAR/YOK + rotaya dik mesafe olarak görünür. Hedef adı, adres ve rota geometrisi TAŞINMAZ. KAPSAM SINIRI: map matching rota-görelidir, tam yol-ağı eşleştirmesi DEĞİLDİR (routing-graph.bin cihazda yok) — "koridor dışı" aracın hangi yolda olduğunu SÖYLEMEZ. Trafik verisi yoktur. Bilinmeyen alan UNAVAILABLE; sahte 0 / sahte "sağlıklı" üretilmez. Gerçek araç doğrulaması YAPILMADI (FIX_PENDING_REAL_VEHICLE_RETEST).',
+  },
+  {
+    id: 'address-search-evidence', category: 'vehicle', name: 'Adres Arama Kanıtı',
+    desc: 'Adres arama denemelerinin salt-okunur kanıt defteri: cevabı ÜRETEN katman (premium BYOK · Nominatim · gevşetilmiş varyant · Overpass sokak · cihaz-içi geçmiş/POI · geocode önbelleği) · deneme sonucu (doğrudan rota · kullanıcı seçti · seçim bekliyor · seçmeden kapattı · yargılanmadı · 0 sonuç · servis hatası) · başarısızlık sebep sınıfı ve kanıt sağlamlığı (confidence) · sorgu BİÇİMİ bayrakları (numaralı yol · ekli tip · kısaltma · kapı no · İ harfi) · iki arama yüzeyinin ayrışması · sağlayıcı gecikmesi ve fast-fail aşımı · eksik kanıt sayacı ve "önce bunu ölç" sırası.',
+    status: 'AVAILABLE', layer: 'Nominatim / Overpass',
+    note: 'Hiçbir şey BAŞLATMAZ: arama tetikleme, sağlayıcı seçme/değiştirme, sorgu değiştirme, rota kurma ve ağ çağrısı YOK (yalnız BYOK anahtar VAR/YOK okunur). ARANAN ADRES METNİ, SOKAK ADI VE KOORDİNAT GÖSTERİLMEZ — adres ev adresidir, kişisel veridir; defter metni hiç SAKLAMAZ, yalnız PII taşımayan biçim bayraklarını tutar. Defter RAM\'de yaşar, diske YAZILMAZ → oturum bitince kanıt gider. "Sonuç döndü" ile "aradığı yer bulundu" AYRI sayılır: kullanıcı seçmediyse deneme çözülmüş SAYILMAZ. Karara bağlanmış deneme yoksa oran ÜRETİLMEZ (sahte %0 yok); kanıt yetersizse sınıf UNKNOWN kalır. KAPSAM SINIRI: "veri OSM\'de var mı" sorusu üründe SORULMAZ (yer gerçeği sorgusu yok) → 0 sonuç, veri boşluğu ile geocoder körlüğünü AYIRT ETMEZ; bu GROUND_TRUTH kanıt boşluğu olarak sayılır. Sorgunun ayrıştırıcıda bozulup bozulmadığı da HENÜZ ölçülmüyor (QUERY_INTEGRITY borcu). Gerçek araç doğrulaması YAPILMADI.',
   },
   {
     id: 'fleet-identity', category: 'vehicle', name: 'Fleet Identity',

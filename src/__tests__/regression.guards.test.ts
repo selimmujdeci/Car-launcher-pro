@@ -5689,3 +5689,107 @@ describe('🔒 KİLİT 33 · ETA hız kapısı rampası (#538)', () => {
     expect(led, 'esik isimli sabit degil').toMatch(/export const ETA_GATE_WEIGHT_MIN_DELTA/);
   });
 });
+
+/* ════════════════════════════════════════════════════════════════════════
+ * 🔒 KİLİT 24 · ADRES ARAMA KANIT DEFTERİ (teşhis turu 2026-08-11)
+ *
+ * Kullanıcı sahada "adreslerin ~%40'ı bulunamıyor" dedi; ölçüm denendiğinde
+ * ürünün hiçbir arama denemesini KAYDETMEDİĞİ ortaya çıktı — şikâyetin sebebi
+ * ölçülemiyordu. Defter o boşluğu kapatır. Aşağıdaki kilitler defterin
+ * DÜRÜSTLÜK ve GİZLİLİK sözleşmesini korur; bunlar zayıflatılamaz.
+ * ════════════════════════════════════════════════════════════════════════ */
+describe('🔒 KİLİT 24 · adres arama kanıt defteri', () => {
+  const src = (p: string) => readFileSync(resolve(__dirname, '..', p), 'utf8');
+
+  it('🔒 defter API\'si SORGU METNİ kabul etmez (adres = PII)', () => {
+    /* Store yalnız `AddressQueryShape` alır. Ham metin parametresi eklenirse
+       ev adresi LAB'a ve kayıtlara sızabilir — kural 6 ihlali. */
+    const store = src('platform/geo/addressSearchLedgerStore.ts');
+    expect(store, 'store ham sorgu metni almaya başlamış')
+      .not.toMatch(/\b(query|rawQuery|destination|address)\s*:\s*string/);
+    expect(store).toMatch(/AddressQueryShape|AddressSearchInput/);
+  });
+
+  it('🔒 sorgu biçimi metnin parçasını TAŞIMAZ (yalnız bayrak/sayı)', () => {
+    const led = src('platform/geo/addressSearchLedger.ts');
+    /* `AddressQueryShape` alanları boolean/number/enum olmalı; serbest metin
+       alanı (ör. `text: string`) eklenmesi gizlilik sözleşmesini bozar. */
+    const shapeBlock = led.slice(
+      led.indexOf('export interface AddressQueryShape'),
+      led.indexOf('const _ABBREV_RE'),
+    );
+    expect(shapeBlock.length).toBeGreaterThan(100);
+    expect(shapeBlock, 'biçim tanımına serbest metin alanı eklenmiş')
+      .not.toMatch(/readonly\s+\w+\s*:\s*string\s*;/);
+  });
+
+  it('🔒 defter DİSKE yazmaz (oturum sonunda kanıt gider — gizlilik lehine)', () => {
+    const store = src('platform/geo/addressSearchLedgerStore.ts');
+    expect(store).not.toMatch(/localStorage|safeSetRaw|indexedDB|sessionStorage/);
+  });
+
+  it('🔒 karara bağlanmış deneme yokken oran ÜRETİLMEZ (sahte %0 yasak)', () => {
+    const led = src('platform/geo/addressSearchLedger.ts');
+    expect(led, 'failureRate koşulsuz sayıya döndürülmüş')
+      .toMatch(/failureRate:\s*decided > 0\s*\?/);
+  });
+
+  it('🔒 UNKNOWN ve NONE baskın sebep yarışına GİRMEZ', () => {
+    /* UNKNOWN kanıt yokluğu, NONE başarıdır; ikisi de "kök neden" olamaz. */
+    const led = src('platform/geo/addressSearchLedger.ts');
+    expect(led).toMatch(/filter\(\(k\) => k !== 'NONE' && k !== 'UNKNOWN'\)/);
+  });
+
+  it('🔒 yargılanmamış (SUPERSEDED) deneme başarısızlık SAYILMAZ', () => {
+    /* Debounce'lu arama çubuğu tek niyet için 6-8 deneme üretir; bunlar
+       başarısızlık sayılsaydı oran UYDURMA çıkardı. */
+    const led = src('platform/geo/addressSearchLedger.ts');
+    expect(led).toMatch(/else if \(r\.outcome === 'SUPERSEDED'\) supersededCount/);
+  });
+
+  it('🔒 kayıt yolu ürünü DÜŞÜREMEZ (her giriş try/catch)', () => {
+    const store = src('platform/geo/addressSearchLedgerStore.ts');
+    for (const fn of ['recordAddressSearch', 'noteAddressSearchChoice']) {
+      const body = store.slice(store.indexOf(`export function ${fn}`));
+      expect(body.slice(0, 600), `${fn} fail-soft değil`).toMatch(/try \{/);
+    }
+  });
+
+  it('🔒 geocodeAddress izini MODÜL DEĞİŞKENİNDE tutmaz (eşzamanlı arama yarışı)', () => {
+    /* "Son çağrı" değişkeni iki yüzey aynı anda ararken izi EZER. WeakMap
+       anahtarı dönüş dizisi olduğu için yarış YOKTUR. */
+    const geo = src('platform/geocodingService.ts');
+    expect(geo).toMatch(/new WeakMap<object, GeocodeTrace>/);
+    expect(geo, 'iz modül düzeyinde tek değişkene alınmış')
+      .not.toMatch(/let _lastTrace/);
+  });
+
+  it('🔒 iki arama yüzeyi de deftere yazar (ayrışma görünür kalsın)', () => {
+    /* Ölçüm 2026-08-11: 30 sorgunun 8'inde harita çubuğu ile adres zinciri
+       FARKLI sonuç verdi. Tek yüzey kaydedilirse bu ayrışma körleşir. */
+    expect(src('platform/mapService.ts')).toMatch(/recordAddressSearch\(/);
+    expect(src('platform/addressNavigationEngine.ts')).toMatch(/recordAddressSearch\(/);
+  });
+
+  it('🔒 kullanıcı SEÇİMİ kaydedilir — "sonuç döndü" çözüldü SAYILMAZ', () => {
+    expect(src('platform/addressNavigationEngine.ts')).toMatch(/noteAddressSearchChoice\(true\)/);
+    expect(src('components/map/MapSearchBar.tsx')).toMatch(/noteAddressSearchChoice\(true\)/);
+  });
+
+  it('🔒 LAB ekranı SALT OKUNUR — arama tetiklemez', () => {
+    const screen = src('components/devtools/screens/AddressSearchEvidenceScreen.tsx');
+    for (const forbidden of ['geocodeAddress', 'searchPlaces', 'resolveAndNavigate', 'startNavigation']) {
+      expect(screen, `LAB ekranı ${forbidden} çağırıyor — gözlem yüzeyi komut göndermez`)
+        .not.toContain(forbidden);
+    }
+    /* Zamanlayıcı/abonelik yok: açılışta tek okuma + elle YENİLE. */
+    expect(screen).not.toMatch(/setInterval|setTimeout/);
+    expect(screen).toMatch(/mountedRef/);
+  });
+
+  it('🔒 LAB kataloğunda kayıtlı ve ekran haritasına bağlı', () => {
+    expect(src('platform/devtools/carosLabCatalog.ts')).toMatch(/id: 'address-search-evidence'/);
+    expect(src('components/devtools/carosLabScreenMap.tsx'))
+      .toMatch(/case 'address-search-evidence':/);
+  });
+});

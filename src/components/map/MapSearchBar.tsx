@@ -15,6 +15,7 @@ import { searchPlaces } from '../../platform/mapService';
 import type { StoredLocation } from '../../platform/offlineSearchService';
 import { startNavigation, formatDistance } from '../../platform/navigationService';
 import { _haversineMeters } from '../../platform/gps/gpsMath';
+import { noteAddressSearchChoice } from '../../platform/geo/addressSearchLedgerStore';
 
 export const MapSearchBar = memo(function MapSearchBar({
   gpsLat, gpsLon, hidden = false,
@@ -64,6 +65,9 @@ export const MapSearchBar = memo(function MapSearchBar({
   }, [query]);
 
   const pick = useCallback((loc: StoredLocation) => {
+    /* Kanıt defteri: sunulan liste KULLANILDI. Bu, "sonuç döndü" ile "aradığı
+       yer bulundu" arasındaki farkı ölçen tek sinyaldir (teşhis turu 2026-08-11). */
+    noteAddressSearchChoice(true);
     startNavigation({
       id: loc.id, name: loc.name,
       latitude: loc.lat, longitude: loc.lng,
@@ -76,9 +80,13 @@ export const MapSearchBar = memo(function MapSearchBar({
   }, []);
 
   const clear = useCallback(() => {
+    /* Sonuç SUNULMUŞKEN temizlemek "sunulanlar aradığım yer değildi" demektir —
+       kanıt defterinde `ABANDONED` olarak sayılır. Liste boşken (0 sonuç) kayıt
+       zaten `EMPTY`dir; oraya sahte bir seçim kanıtı yazılmaz. */
+    if (results.length > 0) noteAddressSearchChoice(false);
     if (inputRef.current) inputRef.current.value = '';
     setQuery(''); setResults([]); setOpen(false);
-  }, []);
+  }, [results.length]);
 
   if (hidden) return null;
 

@@ -1929,10 +1929,13 @@ DOĞRULANDI 6 · SAHADA DOĞRULANDI 1 · **ÜRÜN HAZIR: 1**
   | Adaptif poll kadansı / tazelik kapısı | Uygulandı, kısmen kör | Çalışma Zamanı ekranında `pollCadence` KAYNAK YOK — hesaplanan profil hiçbir yerde saklanmıyor |
   | Kurtarma merdiveni (`recovery-monitor`) | Motor var, ekran PLACEHOLDER | Kurtarma durumu yalnız Çalışma Zamanı kanalında özet olarak görünüyor |
   | Derin Tarama (`deep-scan`) · UDS Explorer · Eylem Kayıtları · Araç Çağırma · Bellek/Bilgi Gezgini · Benchmark | Ekran PLACEHOLDER | Kendi gözlem ekranları yok |
-  | **Adres sağlayıcı katmanı (`geocodingProviders` · BYOK)** | **Motor var + `getGeocodeProviderStatus()` export'u var, LAB ekranı YOK** | Hangi kaynağın cevapladığı (premium sağlayıcı / Nominatim / Overpass sokak / cihaz-içi POI-geçmiş) sahada GÖRÜNMÜYOR; sağlayıcı anahtarı VAR/YOK durumu ve son çözümleme sonucu hiçbir LAB ekranında yok. Sonuç: "adres bulunamadı" şikâyetinde hangi katmanın düştüğü ancak kaynak okunarak tahmin edilebiliyor (2026-08-03, kütük #336). **Gizlilik sınırı:** LAB'a yalnız VAR/YOK + sağlayıcı adı + sonuç sayısı taşınabilir — anahtar değeri, sorgu metni ve koordinat ASLA. |
+  | **Adres sağlayıcı katmanı (`geocodingProviders` · BYOK)** | ✅ **KAPATILDI (2026-08-11, kütük #543)** — LAB ekranı **Adres Arama Kanıtı** (`address-search-evidence`) açıldı | Borç kapandı: cevabı ÜRETEN katman (premium/Nominatim/gevşetilmiş/Overpass/cihaz-içi/önbellek), kullanıcının SEÇİP SEÇMEDİĞİ, başarısızlık sebep sınıfı + `confidence`, iki yüzeyin ayrışması ve eksik kanıt sayacı artık sahada GÖRÜNÜYOR. **Gizlilik sınırı korundu:** sorgu metni hiç saklanmıyor (yalnız `AddressQueryShape` bayrakları), anahtar değeri ve koordinat taşınmıyor. **Kalan borç (ölçüldü, düzeltilmedi):** ürün "veri OSM'de var mı" sorusunu SORMUYOR → `GROUND_TRUTH` kanıt boşluğu; sorgunun ayrıştırıcıda bozulup bozulmadığı ölçülmüyor → `QUERY_INTEGRITY` boşluğu. |
   | **Servis kalp atışı izleyicisi (`SystemHealthMonitor`)** | **Motor var + `getHeartbeatEvidence()` export'u var, LAB ekranı YOK** | Servis başına **beat yaşı · eşik · saat tabanı · alarm/recovered sayısı** hiçbir LAB ekranında gösterilmiyor; `LongRoadFieldValidationScreen` yalnız türetilmiş "GPS kaybı olayı / en uzun kayıp" sayaçlarını gösteriyor. Sonuç: sahte alarm ile gerçek kesinti **ancak `cl_crash_log` ham kaydı elle okunarak** ayrılabildi (2026-08-02, kütük #327). Borç bu turda KAPATILMADI — GPS beat kaynağı DEĞİŞİM'den VARIŞ'a taşındı ama gözlem yüzeyi hâlâ yok. |
 
-  Katalog kapsamı bugün: **18 AVAILABLE · 8 PLACEHOLDER · 2 DISABLED** (28 araç).
+  Katalog kapsamı bugün: **41 AVAILABLE · 7 PLACEHOLDER · 2 DISABLED** (50 araç)
+  — sayılar `carosLabCatalog.ts`ten SAYILDI (2026-08-11). Buradaki eski
+  "18 · 8 · 2 (28)" ifadesi koddan sapmıştı: elle artırılan bir sayı sessizce
+  yanlışlaşır, o yüzden bir daha artırma — SAY.
   Bu tablo bir yol haritasıdır; kapatılan her satır ilgili PR'da işaretlenir.
 
   ### 📱 PHONE-HUB P0.5 — Donanım Keşfi ve Üretici Sondası (2026-07-26)

@@ -10,11 +10,18 @@
  */
 
 import { useState, useEffect } from 'react';
-import { geocodeAddress, searchNearby, type GeoResult } from './geocodingService';
+import { geocodeAddress, searchNearby, readGeocodeTrace, type GeoResult } from './geocodingService';
 import { startNavigation } from './navigationService';
 import { logError } from './crashLogger';
 import { searchOffline, saveSearchQuery } from './offlineSearchService';
 import { searchOfflinePlaces } from './offlineDataService';
+import {
+  describeQueryShape,
+  type AddressSearchOutcome,
+  type AddressSearchStage,
+  type AddressSearchSurface,
+} from './geo/addressSearchLedger';
+import { recordAddressSearch, noteAddressSearchChoice } from './geo/addressSearchLedgerStore';
 
 /* ── Geocoding önbellek (offline fallback) ───────────────── */
 
@@ -105,6 +112,51 @@ function _citySuggestions(destination: string): string[] {
     .filter((c) => !q.includes(_norm(c)))
     .slice(0, 3)
     .map((c) => `${destination}, ${c}`);
+}
+
+/* ── Kanıt defteri kaydı ────────────────────────────────────────────────────
+ *
+ * TEŞHİS TURU (2026-08-11): bu zincirin hiçbir denemesi kayıt altına
+ * ALINMIYORDU; `saveSearchQuery` yalnız BAŞARILI ve SEÇİLMİŞ sonucu yazıyordu.
+ * Yani "aradım bulamadı" şikâyeti üründe hiçbir iz bırakmıyordu.
+ *
+ * Kayıt yüzey başına TEKTİR: aşağıdaki `_record` her terminal noktada bir kez
+ * çağrılır. `geocodeAddress` kendi kaydını YAZMAZ (iki yüzeyden çağrıldığı için
+ * çifte sayım olurdu) — yalnız izini `readGeocodeTrace` ile buraya taşır.
+ *
+ * GİZLİLİK: sorgu METNİ deftere GİRMEZ, yalnız biçimi (`describeQueryShape`).
+ */
+function _record(
+  destination: string,
+  outcome:     AddressSearchOutcome,
+  surface:     AddressSearchSurface,
+  results:     readonly GeoResult[] | null,
+  stageHint:   AddressSearchStage | null,
+  hadLocation: boolean,
+): void {
+  const trace = results !== null ? readGeocodeTrace(results) : null;
+  recordAddressSearch({
+    surface,
+    shape:   describeQueryShape(destination),
+    /* Sorgu buraya AYRIŞTIRICIDAN GEÇMİŞ gelir (commandParser →
+       tryParseNavAddress) ama ham metni GÖRMÜYORUZ → bozulup bozulmadığını
+       İDDİA EDEMEYİZ. `null` = ölçülmedi; defter bunu QUERY_INTEGRITY kanıt
+       boşluğu olarak sayar ve LAB'da "önce bunu ölç" listesine düşürür.
+       (Ölçüm 2026-08-11: ayrıştırıcının bazı biçimlerde "Sokak" sözcüğünü
+       "Mahallesi" ile değiştirdiği SAF testte kanıtlandı — o yüzden bu boşluk
+       kapatılması gereken gerçek bir borçtur, kozmetik değil.) */
+    queryRewritten:      null,
+    queryLostRoadType:   null,
+    stage:               trace?.stage ?? stageHint ?? 'NONE',
+    resultCount:         results?.length ?? 0,
+    rejectedCount:       trace?.rejectedCount ?? null,
+    providerMs:          trace?.providerMs ?? null,
+    fastFailHit:         trace?.fastFailHit ?? null,
+    hadLocation:         trace?.hadLocation ?? hadLocation,
+    online:              trace?.online ?? (typeof navigator === 'undefined' ? null : navigator.onLine),
+    fallbackQueryUsable: trace?.fallbackQueryUsable ?? null,
+    outcome,
+  }, 'addressNavigationEngine.resolveAndNavigate');
 }
 
 /** "Bulunamadı" hata kartını basar ve 6 sn sonra idle'a döner. */
@@ -273,6 +325,8 @@ export function resolveAndNavigate(
   });
 
   const isNearby = destination === '__nearby_gas__' || destination === '__nearby_parking__' || destination === '__nearby_hospital__';
+  const surface: AddressSearchSurface = isNearby ? 'NEARBY_SHORTCUT' : 'VOICE_ADDRESS';
+  const hadLoc  = location != null;
 
   // ── Offline-first lookup: internet yoksa önbellek + IndexedDB ────
   if (!isNearby && !navigator.onLine) {
@@ -291,6 +345,7 @@ export function resolveAndNavigate(
           fullName: best.address ?? best.name,
           lat: best.lat, lng: best.lng, type: 'address',
         };
+        _record(destination, 'RESOLVED_AUTO', surface, null, 'LOCAL_HISTORY', hadLoc);
         _push({ results: [result] });
         _confirmResult(result);
         return;
@@ -306,6 +361,8 @@ export function resolveAndNavigate(
           lng:      p.lon,
           type:     'address' as const,
         }));
+        _record(destination, results.length === 1 ? 'RESOLVED_AUTO' : 'AWAITING_CHOICE',
+                surface, null, 'LOCAL_POI', hadLoc);
         if (results.length === 1) {
           _push({ results });
           _confirmResult(results[0]);
@@ -317,6 +374,8 @@ export function resolveAndNavigate(
 
       // 3. Geocoding cache — daha önce online'da arama yapılan yerler
       if (cacheHits.length > 0) {
+        _record(destination, cacheHits.length === 1 ? 'RESOLVED_AUTO' : 'AWAITING_CHOICE',
+                surface, null, 'GEO_CACHE', hadLoc);
         if (cacheHits.length === 1) {
           _push({ results: cacheHits });
           _confirmResult(cacheHits[0]);
@@ -327,6 +386,7 @@ export function resolveAndNavigate(
       }
 
       // Hiçbir önbellekte yok
+      _record(destination, 'EMPTY', surface, null, 'NONE', hadLoc);
       _push({
         phase:        'error',
         errorMessage: 'İnternet yok — önbellekte bulunamadı',
@@ -339,6 +399,7 @@ export function resolveAndNavigate(
       }, 5_000);
     }).catch(() => {
       if (gen !== _searchGeneration) return;
+      _record(destination, 'PROVIDER_ERROR', surface, null, 'NONE', hadLoc);
       _push({ phase: 'error', errorMessage: 'Çevrimdışı arama hatası', suggestions: [] });
     });
     return;
@@ -365,12 +426,23 @@ export function resolveAndNavigate(
       if (!isNearby && results.length) _saveGeoCache(destination, results);
 
       if (!results.length) {
-        // Online arama boş döndü → PES ETMEDEN ÖNCE cihazdaki veriye bak.
-        // (Nominatim Türkçe POI adlarında sık başarısız olur; POI DB + geçmiş +
-        //  önbellek bu boşluğu doldurur — bkz. _localSearch.)
-        if (isNearby) { _failNoResult(gen, destination, true); onResult?.('empty'); return; }
+        // Online arama boş döndü → PES ETMEDEN ÖNCE cihazdaki veriye bak
+        // (Nominatim Türkçe POI adlarında sık başarısız olur — bkz. _localSearch).
+        if (isNearby) {
+          _record(destination, 'EMPTY', surface, results, 'NONE', hadLoc);
+          _failNoResult(gen, destination, true); onResult?.('empty'); return;
+        }
         void _localSearch(destination).then((localHits) => {
           if (gen !== _searchGeneration) return;
+          /* Çevrimiçi zincir boş döndü; cihaz-içi arama SON söz. Kayıt burada
+             yazılır ki "online 0 ama cihazda vardı" ayrımı sahada görünsün.
+             İz (`trace`) çevrimiçi zincirin ölçümünü taşımaya devam eder. */
+          const stage: AddressSearchStage = localHits.length === 0
+            ? 'NONE'
+            : (localHits[0].type === 'address' ? 'LOCAL_HISTORY' : 'LOCAL_POI');
+          const outcome: AddressSearchOutcome = localHits.length === 0
+            ? 'EMPTY' : localHits.length === 1 ? 'RESOLVED_AUTO' : 'AWAITING_CHOICE';
+          _record(destination, outcome, surface, localHits.length ? null : results, stage, hadLoc);
           if (!localHits.length) { _failNoResult(gen, destination, false); onResult?.('empty'); return; }
           if (localHits.length === 1) {
             _push({ results: localHits });
@@ -382,6 +454,7 @@ export function resolveAndNavigate(
           }
         }).catch(() => {
           if (gen !== _searchGeneration) return;
+          _record(destination, 'PROVIDER_ERROR', surface, results, 'NONE', hadLoc);
           _failNoResult(gen, destination, false);
           onResult?.('empty');
         });
@@ -390,6 +463,7 @@ export function resolveAndNavigate(
 
       if (results.length === 1 && !results[0].relaxed) {
         // Tek sonuç: direkt rota
+        _record(destination, 'RESOLVED_AUTO', surface, results, null, hadLoc);
         _push({ results });
         _confirmResult(results[0]);
         onResult?.('confirmed');
@@ -403,18 +477,21 @@ export function resolveAndNavigate(
          listesi gösterilir: yanlış yere sessizce götürmek, bulamamaktan
          daha kötüdür. */
       if (results.length === 1) {
+        _record(destination, 'AWAITING_CHOICE', surface, results, null, hadLoc);
         _push({ phase: 'selecting', results });
         onResult?.('multiple');
         return;
       }
 
       // Çok sonuç: kullanıcı seçimi
+      _record(destination, 'AWAITING_CHOICE', surface, results, null, hadLoc);
       _push({ phase: 'selecting', results });
       onResult?.('multiple');
     })
     .catch((e: unknown) => {
       if (gen !== _searchGeneration) return;
       logError('AddressNavEngine:resolve', e);
+      _record(destination, 'PROVIDER_ERROR', surface, null, 'NONE', hadLoc);
       _push({
         phase:        'error',
         errorMessage: 'Bağlantı hatası — ağ bağlantısını kontrol edin',
@@ -435,6 +512,9 @@ export function resolveAndNavigate(
 export function selectAddressResult(index: number): void {
   const result = _state.results[index];
   if (!result) return;
+  /* Kanıt defteri: sunulan liste KULLANILDI — "sonuç döndü" ile "aradığı yer
+     bulundu" arasındaki farkı ölçen tek sinyal budur. */
+  noteAddressSearchChoice(true);
   _confirmResult(result);
 }
 
@@ -442,6 +522,10 @@ export function selectAddressResult(index: number): void {
  * Navigasyon kartını kapat.
  */
 export function dismissAddressNav(): void {
+  /* Seçim listesi AÇIKKEN kapatmak "sunulanlar aradığım yer değildi" demektir.
+     Diğer aşamalarda (hata kartı / onaylanmış rota) seçim kanıtı YOKTUR ve
+     deftere sahte bir "beğenmedi" yazılmaz. */
+  if (_state.phase === 'selecting') noteAddressSearchChoice(false);
   _searchGeneration++; // uçuştaki arama iptal
   if (_activeTimerId !== null) { clearTimeout(_activeTimerId); _activeTimerId = null; }
   _push({ ...INITIAL });
