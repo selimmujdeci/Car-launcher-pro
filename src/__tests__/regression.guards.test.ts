@@ -5411,3 +5411,67 @@ describe('🔒 KİLİT 28 · harita eşiği + DR sinyali (#528/#529)', () => {
     expect(gps, 'duzeltme gerekcesi kaybolmus').toMatch(/ÖLÇÜMLE ÇÜRÜTÜLDÜ/);
   });
 });
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * 🔒 KİLİT 29 · saha kopyasının açtığı üç kusur (#531/#532/#533)
+ *
+ * SAHA (2026-08-11, #526-#529 sonrası ilk koşum):
+ *  · firstDataAfterConnectMs = 7 072 352 ms (1 sa 58 dk) — ama 1 sa 53 dk'sı
+ *    ARAÇ KAPALIYKEN geçmiş; son denemeden ilk veriye yalnız 6,4 sn.
+ *    failedAttemptsBeforeData=1 dedi, trail'de 6 timeout vardı.
+ *  · bulkResetCount=2 (native eleme sıfırlandı) ama timeline.demoted=1 kaldı.
+ *  · "reconnectPressure": 0.[VIN redacted] — ondalık sayı VIN sanıldı.
+ * ════════════════════════════════════════════════════════════════════════ */
+describe('🔒 KİLİT 29 · saha kopyası kusurları (#531/#532/#533)', () => {
+  const src = (p: string) => readFileSync(resolve(__dirname, '..', p), 'utf8');
+  const java = (p: string) =>
+    readFileSync(resolve(__dirname, '../../android/app/src/main/java/com/cockpitos/pro', p), 'utf8');
+
+  it('🔒 #531 ilk-veri süresi İKİ pencereden ölçülür', () => {
+    const s = src('platform/obdService.ts');
+    expect(s, 'son denemeden olcum yok — arac kapali gecen saatler sureye giriyor')
+      .toMatch(/firstDataAfterLastAttemptMs/);
+    expect(s).toMatch(/_lastAttemptStartedAtMs = Date\.now\(\)/);
+  });
+
+  it('🔒 #531 veri kesilince YENİ TUR başlar (damga sıfırlanır)', () => {
+    const s = src('platform/obdService.ts');
+    /* Tur sıfırlanmazsa "ilk veriye kadar süre" bir sonraki günü de kapsar. */
+    expect(s).toMatch(/_connectAttemptStartedAtMs = 0;\s*\n\s*_firstRealDataAtMs = 0;/);
+  });
+
+  it('🔒 #531 RECONNECT yolundaki düşen denemeler de sayılır', () => {
+    const s = src('platform/obdService.ts');
+    const m = s.match(/logError\('OBD:Reconnect', e\);[\s\S]{0,300}?_failedAttemptsBeforeData\+\+/);
+    expect(m, 'reconnect timeout sayaca yansimiyor — 6 timeout "1" gorunuyordu').toBeTruthy();
+  });
+
+  it('🔒 #532 hat olayı TS\'e bildirilir ve TS kaydı da sıfırlanır', () => {
+    const t = java('obd/ExtendedNoDataTracker.java');
+    expect(t, 'hat olayi bildirim bayragi yok').toMatch(/consumeBulkResetPending/);
+    for (const f of ['obd/OBDManager.java', 'obd/BleObdManager.java']) {
+      expect(java(f), `${f}: hat olayi TS'e bildirilmiyor`).toMatch(/"bulk_reset"/);
+    }
+    const ts = src('platform/obd/extendedPidService.ts');
+    expect(ts, 'TS bulk_reset\'i islemiyor — ikinci otorite geri doner')
+      .toMatch(/status === 'bulk_reset'/);
+    expect(ts).toMatch(/_unavailable\.clear\(\)/);
+  });
+
+  it('🔒 #533 tamamı RAKAM olan dizi VIN sanılmaz (kanıt kaybı yok)', () => {
+    const needle = '(?!' + String.fromCharCode(92) + 'd{17}';
+    const mask = src('platform/devtools/obdTrafficMask.ts');
+    expect(mask, 'ondalik sayi hala VIN sanilabilir').toContain(needle);
+    const exp = src('platform/validation/validationExport.ts');
+    expect(exp, 'ikinci VIN maskesi hala acik').toContain(needle);
+  });
+
+  it('🔒 #533 maske ZAYIFLAMADI — harf içeren VIN yine maskelenir', async () => {
+    const { maskCommonSecrets } = await import('../platform/devtools/obdTrafficMask');
+    /* Gerçek VIN (harf içerir) → maskelenmeli. */
+    expect(maskCommonSecrets('WF0AXXTTRA5R12345')).not.toContain('WF0AXXTTRA5R12345');
+    /* Ondalık sayının 17 haneli rakam dizisi → maskelenMEmeli (kanıt korunur). */
+    const num = '0.02535071063730359';
+    expect(maskCommonSecrets(num)).toContain('02535071063730359');
+  });
+});

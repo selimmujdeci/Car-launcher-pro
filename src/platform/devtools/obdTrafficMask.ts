@@ -29,8 +29,18 @@ const RE_IBAN   = /\b[A-Z]{2}\d{2}[A-Z0-9]{11,30}\b/g;
 const RE_CARD   = /\b\d{4}[ -]\d{4}[ -]\d{4}[ -]\d{2,7}\b/g;
 /** Uluslararası telefon (+ öneki) — ham hex'te '+' hiç geçmez. */
 const RE_PHONE  = /\+\d[\d\s().-]{7,}\d/g;
-/** 17 haneli ASCII VIN (I/O/Q yok). */
-const RE_VIN    = /\b[A-HJ-NPR-Z0-9]{17}\b/g;
+/**
+ * 17 haneli ASCII VIN (I/O/Q yok).
+ *
+ * ⚠️ #533 — TAMAMI RAKAM OLAN DİZİ VIN DEĞİLDİR. Sahada (2026-08-11) kopyada
+ * `"reconnectPressure": 0.[VIN redacted]` çıktı: sönümlü sayacın ondalık kısmı
+ * 17 haneli bir rakam dizisiydi, VIN sanılıp maskelendi → **kanıt kaybı** (sayı
+ * okunamaz hâle geldi). Gerçek VIN'de model yılı · fabrika kodu · kontrol hanesi
+ * nedeniyle en az bir HARF bulunur; 17 hanesinin tamamı rakam olan VIN pratikte
+ * yoktur. Bu negatif lookahead maskeyi ZAYIFLATMAZ — harf içeren her 17'li dizi
+ * yine maskelenir (fail-closed korunur), yalnız sayıyı VIN sanması engellenir.
+ */
+const RE_VIN    = /\b(?!\d{17}\b)[A-HJ-NPR-Z0-9]{17}\b/g;
 
 export const REDACTED_VIN = '[VIN redacted]';
 export const REDACTED = '[redacted]';

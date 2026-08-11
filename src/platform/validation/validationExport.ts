@@ -46,8 +46,10 @@ function normalizeKey(k: string): string {
 
 const MASKS: ReadonlyArray<readonly [RegExp, string]> = [
   [/\b(api[_-]?key|token|secret|password)\s*[=:]\s*\S+/gi, '$1=***'],
-  // 17 karakterlik VIN — yalnız WMI (ilk 3) açık kalır.
-  [/\b([A-HJ-NPR-Z0-9]{3})[A-HJ-NPR-Z0-9]{14}\b/g, '$1**************'],
+  /* 17 karakterlik VIN — yalnız WMI (ilk 3) açık kalır.
+     #533: tamamı RAKAM olan dizi VIN DEĞİLDİR (aynı gerekçe: obdTrafficMask) —
+     ondalık sayılar maskelenip kanıt kaybına yol açıyordu. */
+  [/\b(?!\d{17}\b)([A-HJ-NPR-Z0-9]{3})[A-HJ-NPR-Z0-9]{14}\b/g, '$1**************'],
   // MAC — ortadaki oktetler gizlenir.
   [/\b([0-9A-F]{2}):[0-9A-F]{2}:[0-9A-F]{2}:[0-9A-F]{2}:[0-9A-F]{2}:([0-9A-F]{2})\b/gi, '$1:**:**:**:**:$2'],
   // Koordinat çifti.

@@ -98,6 +98,8 @@ final class ExtendedNoDataTracker {
         new java.util.concurrent.ConcurrentLinkedQueue<>();
     /** Kaç kez toplu eleme (hat olayı) tespit edilip eleme sıfırlandı. */
     private volatile int bulkResetCount = 0;
+    /** #532 — TS'e bildirilmeyi bekleyen hat olayı var mı (tek-atımlık bayrak). */
+    private volatile boolean bulkResetPending = false;
     /** Son hat olayının tur numarası — -1 = hiç olmadı. */
     private volatile long lastBulkCycle = -1;
     /** Stabilizasyon penceresinde yutulan (kanıt sayılmayan) NO_DATA adedi. */
@@ -190,6 +192,12 @@ final class ExtendedNoDataTracker {
         if (recentDemotes.size() < BULK_MIN_DEMOTES) return;
         bulkResetCount++;
         lastBulkCycle = cycle;
+        /* #532: TS'e bildirilmek üzere işaretle. SAHA (2026-08-11): hat olayı
+           2 kez tetiklendi ve native eleme SIFIRLANDI, ama TS tarafındaki
+           `_unavailable` kaydı kalıcı kaldı → `timeline.demoted: 1` ile
+           `elim.permanentCount: 0` AYNI snapshot'ta çelişti. Sıfırlama tek
+           taraflı kalırsa ikinci otorite yeniden doğar. */
+        bulkResetPending = true;
         permanent.clear();
         pausedUntil.clear();
         streaks.clear();
@@ -247,6 +255,16 @@ final class ExtendedNoDataTracker {
     int everOkCount()    { return everOk.size(); }
     /** Kaç kez toplu eleme (hat olayı) tespit edilip eleme sıfırlandı. */
     int bulkResetCount() { return bulkResetCount; }
+
+    /**
+     * #532 — hat olayı bildirimi bekliyorsa `true` döner ve bayrağı TÜKETİR.
+     * Çağıran TS'e bildirmekle yükümlüdür; iki kez bildirilmez.
+     */
+    boolean consumeBulkResetPending() {
+        if (!bulkResetPending) return false;
+        bulkResetPending = false;
+        return true;
+    }
     /** Son hat olayının tur numarası; -1 = hiç olmadı. */
     long lastBulkCycle() { return lastBulkCycle; }
     /** Stabilizasyon penceresinde kanıt sayılmayan NO_DATA adedi. */

@@ -478,6 +478,13 @@ public final class BleObdManager {
             listener.onExtendedPidUnavailable(extPid,
                 extNoData.isPermanent(extPid) ? "no_data" : "paused");
         }
+        /* #532: HAT OLAYI olduysa TS'e bildir — native eleme sıfırlandı, TS'in
+           kalıcı "verilmiyor" kaydı da düşmelidir. Sahada (2026-08-11) hat olayı
+           2 kez tetiklendi ama TS kaydı kaldı → `timeline.demoted: 1` ile
+           `elim.permanentCount: 0` aynı snapshot'ta çelişti. */
+        if (extNoData.consumeBulkResetPending()) {
+            listener.onExtendedPidUnavailable("*", "bulk_reset");
+        }
     }
 
     /** EXTENDED PID okumasını POLL_SLOW öncelikli kuyruğa gönderir — outcome sınıflandırmalı (Patch 8 / DIAG-3). */

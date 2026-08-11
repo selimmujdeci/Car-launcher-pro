@@ -252,6 +252,20 @@ function _onExtendedPidStatus(event: { pid: string; status: string }): void {
       return;
     }
 
+    /* ── #532 · HAT OLAYI → TS KAYDI DA SIFIRLANIR ──────────────────────────
+     * SAHA (2026-08-11): native `bulkResetCount: 2` (hat olayı iki kez tetiklendi
+     * ve native eleme SIFIRLANDI) ama TS'in `_unavailable` kaydı KALDI →
+     * `timeline.demoted: 1` ile `elim.permanentCount: 0` AYNI snapshot'ta
+     * çelişti ve kanıt motoru "1 PID araç tarafından verilmiyor: 20" dedi.
+     * #525 "değer gelince sil" kuralını koymuştu; ama hiç değer VERMEYEN bir
+     * PID'de o kural çalışmaz — sıfırlama tek taraflı kalıyordu.
+     * `pid === '*'` bu olayın kapsamının TEK PID değil TÜM LİSTE olduğunu söyler. */
+    if (status === 'bulk_reset') {
+      _unavailable.clear();
+      _sampleTimeline(Date.now());
+      return;
+    }
+
     _unavailable.set(pid, status);
     /* Eleme ANI throttle'dan MUAF kaydedilir — geçişin tam noktası en değerli örnek. */
     _sampleTimeline(Date.now());

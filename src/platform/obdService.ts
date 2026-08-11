@@ -227,6 +227,20 @@ let _connectAttemptStartedAtMs = 0;
 let _firstRealDataAtMs = 0;
 /** Bu oturumda kaç bağlantı denemesi düştü (ilk veriden ÖNCE). */
 let _failedAttemptsBeforeData = 0;
+/**
+ * #531 — SON bağlantı denemesinin anı.
+ *
+ * SAHA (2026-08-11) #526'nın ölçüm penceresinin YANLIŞ olduğunu gösterdi:
+ * `firstDataAfterConnectMs` **7 072 352 ms (1 sa 58 dk)** yazdı, ama zaman
+ * çizelgesi bunun 1 sa 53 dakikasının **araç kapalıyken** geçtiğini gösteriyor
+ * (6 timeout → `real → none` → 1 sa 53 dk hiç trail yok → yeniden bağlantı).
+ * SON denemeden ilk veriye geçen süre yalnız **6,4 saniyeydi**.
+ *
+ * Tek sayı iki farklı soruyu cevaplayamaz. Artık İKİSİ de ölçülür:
+ *  · `firstDataAfterConnectMs`      — tur başından (kullanıcı ne kadar bekledi)
+ *  · `firstDataAfterLastAttemptMs`  — SON denemeden (bağlantının kendi hızı)
+ */
+let _lastAttemptStartedAtMs = 0;
 /** Gerçek link kopması sayacı (teşhis kütüğü). */
 let _linkFailureCount = 0;
 /** Veri bayatlama sayacı — link canlıyken ECU'nun sustuğu kez (teşhis kütüğü). */
@@ -1037,6 +1051,12 @@ function _startStaleWatchdog(): void {
     // ── 2. VERİ BAYAT MI? (link canlı, ECU susmuş) — TEARDOWN YOK ───────────
     const dataStale = now - _lastValidFrameAt() > staleMs;
     if (dataStale && _current.dataFresh) {
+      /* #531: veri AKIYORDU ve kesildi → bundan sonraki bağlantı çabası YENİ
+         TURDUR. Tur damgası sıfırlanmazsa "ilk veriye kadar süre" araç kapalı
+         geçen saatleri de içine alır (sahada 1 sa 58 dk okundu, gerçeği 6,4 sn). */
+      _connectAttemptStartedAtMs = 0;
+      _firstRealDataAtMs = 0;
+      _failedAttemptsBeforeData = 0;
       _dataStaleCount++;
       _logStateTransition('data_fresh', 'data_stale', 'ecu_silent', now, staleMs);
       // Son değerler BİLİNÇLİ olarak korunur (silinmez) — UI onları 'stale' gösterir.
@@ -1502,12 +1522,16 @@ let _appStateUnsub: (() => void) | null = null;
  * `null` = ölçülemedi (henüz olmadı / saat geriye sıçradı) — sahte 0 ÜRETİLMEZ.
  */
 export function getObdFirstDataTiming(): {
-  /** İlk bağlantı denemesinin başladığı an (ms). `null` = hiç denenmedi. */
+  /** TURUN başladığı an (ms). `null` = hiç denenmedi. Retry'lar turun İÇİNDEDİR. */
   connectStartedAt: number | null;
+  /** #531 — SON denemenin başladığı an (ms). Her denemede tazelenir. */
+  lastAttemptStartedAt: number | null;
   /** İlk GERÇEK ECU verisinin geldiği an (ms). `null` = henüz veri yok. */
   firstDataAt: number | null;
-  /** İkisi arasındaki süre (ms). `null` = biri yok ya da negatif (saat sıçraması). */
+  /** TUR başından ilk veriye (ms) — "kullanıcı ne kadar bekledi". */
   firstDataAfterConnectMs: number | null;
+  /** #531 — SON denemeden ilk veriye (ms) — "bağlantının kendi hızı". */
+  firstDataAfterLastAttemptMs: number | null;
   /** İlk veriye ulaşmadan DÜŞEN bağlantı denemesi sayısı. */
   failedAttemptsBeforeData: number;
   /** Veri henüz gelmediyse: şu ana kadar geçen bekleme (ms). */
@@ -1525,10 +1549,21 @@ export function getObdFirstDataTiming(): {
     const d = Date.now() - started;
     waiting = d >= 0 ? d : null;
   }
+  /* #531 — İKİNCİ ÖLÇÜM: SON denemeden ilk veriye. Tur ölçümü "kullanıcı ne
+     kadar bekledi"yi, bu ölçüm "bağlantının kendi hızı"nı verir. Sahada ikisi
+     7 072 352 ms ve 6 356 ms çıktı — tek sayı bu iki soruyu cevaplayamaz. */
+  const lastAttempt = _lastAttemptStartedAtMs > 0 ? _lastAttemptStartedAtMs : null;
+  let sinceLast: number | null = null;
+  if (lastAttempt !== null && first !== null) {
+    const d = first - lastAttempt;
+    sinceLast = d >= 0 ? d : null;
+  }
   return {
     connectStartedAt: started,
+    lastAttemptStartedAt: lastAttempt,
     firstDataAt: first,
     firstDataAfterConnectMs: elapsed,
+    firstDataAfterLastAttemptMs: sinceLast,
     failedAttemptsBeforeData: _failedAttemptsBeforeData,
     waitingForFirstDataMs: waiting,
   };
@@ -1781,6 +1816,9 @@ function _scheduleReconnect(): void {
       _reconnectAttempts = 0;
     }).catch(async (e: unknown) => {
       logError('OBD:Reconnect', e);
+      /* #531: RECONNECT yolundaki düşen denemeler de sayılır. Sahada 6 timeout
+         vardı ama sayaç `1` diyordu — yalnız `StartNative` yolu sayılıyordu. */
+      if (_firstRealDataAtMs === 0) _failedAttemptsBeforeData++;
       await _removeNativeHandles(); // await so handles are gone before next attempt
       _scheduleReconnect();
     });
@@ -2162,7 +2200,11 @@ async function _startNative(opts?: { trustBypass?: boolean }): Promise<void> {
     console.warn(`[OBD] ${_primaryTp} başarısız → ${_fallbackTp} deneniyor (${_fallbackTimeoutMs / 1000}s)`, ePrimary);
     /* #526: ilk deneme anını damgala (sonraki retry'lar başlangıcı KAYDIRMAZ —
        kullanıcı için süre ilk denemeden itibaren akar). */
+    /* Tur damgası: yalnız TURUN BAŞINDA alınır (retry'lar turun İÇİNDEDİR).
+       Tur, veri geldikten sonra veri kesilirse yeniden başlar — bkz. `_onRealData`. */
     if (_connectAttemptStartedAtMs === 0) _connectAttemptStartedAtMs = Date.now();
+    /* #531: SON deneme damgası HER denemede tazelenir. */
+    _lastAttemptStartedAtMs = Date.now();
     _merge({ connectionState: 'connecting', deviceName: cand.name });
     try { await CarLauncher.disconnectOBD(); } catch { /* yoksay */ }
     if (_stale()) { void _removeNativeHandles(); return; }
@@ -2599,7 +2641,7 @@ export function startOBD(address?: string, pin?: string, transport?: ObdTranspor
           logError('OBD:StartNative', e);
           /* #526: ilk veriye ULAŞMADAN düşen deneme — "ilk 2 dakika veri yok"
              şikâyetinin kaç denemeden geldiğini ölçer. */
-          if (_firstRealDataAtMs === 0) _failedAttemptsBeforeData++;
+          if (_firstRealDataAtMs === 0) _failedAttemptsBeforeData++;   // #526
           await _removeNativeHandles();
           if (_isAddressProven()) {
             _scheduleReconnect();
