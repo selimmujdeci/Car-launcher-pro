@@ -2363,6 +2363,14 @@ güvenlik davranışıdır, bir metin üretimi değildir.
 
 ---
 
+### DEVİR NOKTASI (2026-08-11)
+
+Bu bölümün kod tarafındaki ilerlemesi ve sıradaki üç iş **`docs/HANDOFF_2026-08-11_NAV_OBD.md`**
+belgesinde devredildi: G1 tek konum otoritesi kuruldu (#527), G3'ün kökü **ölçülerek**
+bulundu (#530 — `SPEED_GATE_CHANGED` %67, düzeltme çarpanının 1↔1.5 ani geçişi),
+`fixAgeMs` için **dağılım defteri** gerekiyor (#508 onsuz kapanmaz) ve saha koşumunda
+**bağlantı kararsızlığı** ölçüldü (8 timeout · quality %57).
+
 ### BU BÖLÜMÜN DURUMU
 
 Yedi katmanın hiçbiri **SAHADA DOĞRULANDI** değildir. Katman 3'ün bir parçası
