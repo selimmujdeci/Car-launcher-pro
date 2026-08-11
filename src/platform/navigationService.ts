@@ -16,6 +16,10 @@ import {
 import { useUnifiedVehicleStore } from './vehicleDataLayer/UnifiedVehicleStore';
 import { speakNavigation } from './ttsService';
 import { computeEta, type EtaVerdict } from './navigation/core/etaModel';
+import {
+  detectEtaJump, appendJump, summarizeJumps,
+  type EtaSample, type EtaJumpRecord, type EtaJumpSummary,
+} from './navigation/core/etaJumpLedger';
 import { corridorSync } from '../core/navigation/CorridorSyncEngine';
 import { setNavigationGpsPower } from './navigation/navGpsPowerBridge';
 /* Saf matematik yardımcısı — `cameraEngine` sıfır-import bir yaprak modüldür,
@@ -841,6 +845,32 @@ export function updateNavigationProgress(
       stopBufferS: trafficBufferS,
     });
 
+    /* ── G3 (#530) · ETA SIÇRAMA DEFTERİ ────────────────────────────────────
+     * Sahada 43 kez >60 s sıçrama ölçüldü ama SEBEBİ kayıtlı değildi. Defter
+     * sıçrama anında hangi anahtarın değiştiğini yazar (mesafe kaynağı · hız
+     * kapısı · reroute · ETA durumu). KARAR ÜRETMEZ, yalnız gözlem — bir
+     * sonraki saha koşumunda "etaModel mi mesafe mi" TAHMİNLE değil KAYITLA
+     * cevaplanır. */
+    {
+      const _sample: EtaSample = {
+        atMs: now,
+        etaSeconds: _lastEtaVerdict.etaSeconds,
+        baseDurationS: _lastEtaVerdict.baseSeconds,
+        factor: _lastEtaVerdict.correctionFactor,
+        remainingDistanceM:
+          distanceSource === 'ALONG_ROUTE' && Number.isFinite(distance) && distance > 0
+            ? distance : null,
+        rollingAvgKmh,
+        routeRevision: rs.routeRevision,
+        etaState: _lastEtaVerdict.state,
+      };
+      if (_prevEtaSample !== null) {
+        const jump = detectEtaJump(_prevEtaSample, _sample);
+        if (jump) _etaJumps = appendJump(_etaJumps, jump);
+      }
+      _prevEtaSample = _sample;
+    }
+
     const newEtaS = _lastEtaVerdict.etaSeconds;
     // Sayı üretilemediyse ESKİ ETA KORUNMAZ da, uydurulmaz da: store'a
     // dokunulmaz (mevcut değer bir sonraki geçerli hesaba kadar kalır) ve
@@ -858,6 +888,10 @@ let _lastEtaVerdict: EtaVerdict = {
   etaSeconds: null, state: 'UNKNOWN', source: 'NONE',
   correctionFactor: 1, baseSeconds: null, reason: 'henüz hesaplanmadı',
 };
+
+/** G3 (#530) — ETA sıçrama defteri (bounded; PII YOK: yalnız süre ve anahtar). */
+let _etaJumps: EtaJumpRecord[] = [];
+let _prevEtaSample: EtaSample | null = null;
 
 /** Son ETA hükmü — sayı DEĞİL, GEREKÇE taşır. Yan etkisi yoktur. */
 export function getEtaVerdict(): EtaVerdict { return _lastEtaVerdict; }
@@ -1326,4 +1360,15 @@ export function useNavigation() {
     isOfflineResult,
     errorMessage,
   };
+}
+
+/**
+ * G3 (#530) — ETA sıçrama defteri okuma ucu (salt-okunur, senkron).
+ * LAB ve saha köprüsü buradan okur; koordinat/PII taşımaz.
+ */
+export function getEtaJumpLedger(): {
+  readonly records: readonly EtaJumpRecord[];
+  readonly summary: EtaJumpSummary;
+} {
+  return { records: _etaJumps.slice(), summary: summarizeJumps(_etaJumps) };
 }
