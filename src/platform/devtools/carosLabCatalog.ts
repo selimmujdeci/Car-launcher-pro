@@ -64,7 +64,7 @@ export type CarosLabToolId =
   | 'adapter-diagnostics'
   // Runtime
   | 'queue-monitor' | 'poll-scheduler' | 'recovery-monitor' | 'evidence-viewer'
-  | 'performance' | 'capability-gates' | 'media-authority'
+  | 'performance' | 'capability-gates' | 'media-authority' | 'guardian-runtime'
   // AI
   | 'mavi-console' | 'mavi-reasoning-engine' | 'ai-mechanic' | 'action-registry'
   | 'stt-mic' | 'tool-calling' | 'memory-explorer' | 'knowledge-explorer'
@@ -286,6 +286,12 @@ export const CAROS_LAB_TOOLS: readonly CarosLabTool[] = Object.freeze([
     desc: 'Tek native playback authority (CarosPlaybackService · ExoPlayer · MediaSession · AudioFocus) salt-okunur gözlemi: oynatma gerçeği, ses odağı, ses yolu, ducking, kuyruk, komut kanıtı ve kurtarma kararı.',
     status: 'AVAILABLE', layer: 'Media3',
     note: 'Oynatma komutu GÖNDERMEZ (çal/duraklat/geç/seek yok), kaynak değiştirmez, ses/duck değiştirmez, kurtarma tetiklemez, servis başlatmaz. Parça başlığı, sanatçı, URI ve kapak bu ekrana TAŞINMAZ — yalnız "metadata var mı" bilgisi ile sayılar okunur. "Komut kabul edildi" ile "ses çıkıyor" AYRI gösterilir: ses kanıtı (render + odak + seviye) yoksa sonuç YALNIZ İSTEK olarak yazılır. YouTube, Spotify Connect ve harici MediaSession için duyulabilirlik doğrulaması TEKNİK OLARAK YAPILAMAZ.',
+  },
+  {
+    id: 'guardian-runtime', category: 'runtime', name: 'Guardian Runtime',
+    desc: 'Guardian AI motorunun TICK SAHİPLİĞİ ve BÜTÇESİNİN salt-okunur gözlemi: kadans sahibi (§L.0 tik-wheel) · taban/etkin periyot ve mod çarpanı · OBD anketiyle birlikte uçtan uca EN KÖTÜ tespit gecikmesi · bağlı/bağlı olmayan sağlayıcı envanteri (gerekçesiyle) · koşum ve hata sayaçları (hata SINIFI + boru hattı aşaması) · fiilen çalışan kural sayısı, risk olayı sayısı, en yüksek severity ve toplam risk skoru · koşum süresi dağılımı (son/p50/p95/en kötü) ile bütçe (8 ms) ve #494 tavanı (16 ms) aşım sayaçları.',
+    status: 'AVAILABLE', layer: null,
+    note: 'Hiçbir şey BAŞLATMAZ/DURDURMAZ: Guardian tick\'i tetiklemez, kadansı değiştirmez, kural/eşik/severity değiştirmez, OBD sorgusu veya GPS düzeltmesi istemez, ağ çağrısı yapmaz — açılışta tek okuma + elle YENİLE. KOORDİNAT TAŞINMAZ (Guardian GPS\'ten yalnız hız okur); risk olayları yalnız kimlik/tip/severity/güven/mesafe olarak görünür, serbest metin (başlık/mesaj) taşınmaz. DÜRÜSTLÜK: bu tur Guardian\'a KALP ATIŞI verir, SES vermez — çıktı sürücüye SUNULMAZ; aşırı ısınma/akü uyarısının ürün otoritesi hâlâ VehicleCompute.worker → SystemOrchestrator\'dır, ikinci eylem otoritesi doğmadı. 8 kuraldan bugün fiilen KOŞAN yalnız vehicle-health\'tir; GPS hızı okunur ama hiçbir kurala girmez (map dilimleri yok). Konum tabanlı kurallar şartlı kilit #508, yorgunluk #509 altında. Bütçe aşımı SAYILIR, katman KAPATILMAZ (güvenlik katmanı sessizce ölmez). Ölçülmemiş alan UNAVAILABLE; sahte 0 üretilmez. Gerçek araç doğrulaması YAPILMADI (kütük #539–#542).',
   },
   /* ── AI ──────────────────────────────────────────────────────────────── */
   {

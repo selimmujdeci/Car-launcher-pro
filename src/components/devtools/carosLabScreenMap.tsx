@@ -82,6 +82,8 @@ const EvidenceViewerScreen = lazyWithRetry(() =>
   import('./screens/EvidenceViewerScreen').then((m) => ({ default: m.EvidenceViewerScreen })));
 const MediaAuthorityScreen = lazyWithRetry(() =>
   import('./screens/MediaAuthorityScreen').then((m) => ({ default: m.MediaAuthorityScreen })));
+const GuardianRuntimeScreen = lazyWithRetry(() =>
+  import('./screens/GuardianRuntimeScreen').then((m) => ({ default: m.GuardianRuntimeScreen })));
 const PerformanceView = lazyWithRetry(() =>
   import('../debug/PerformanceView').then((m) => ({ default: m.PerformanceView })));
 const BlackBoxReplayView = lazyWithRetry(() =>
@@ -127,6 +129,7 @@ export function renderAvailableTool(id: CarosLabToolId): ReactElement | null {
     case 'stt-mic':            return <SttMicScreen />;
     case 'evidence-viewer':    return <EvidenceViewerScreen />;
     case 'media-authority':    return <MediaAuthorityScreen />;
+    case 'guardian-runtime':   return <GuardianRuntimeScreen />;
     case 'performance':        return <PerformanceView />;
     case 'replay-log':         return <BlackBoxReplayView />;
     case 'decoder-registry':   return <DecoderRegistryScreen />;

@@ -74,6 +74,7 @@ import {
 import { initPushService }         from '../pushService';
 import { startBatteryProtection }  from '../power/BatteryProtectionService';
 import { startVehicleIntelligenceService } from '../vehicleIntelligenceService';
+import { startGuardianRuntime } from '../navigation/guardian/runtime/guardianRuntime';
 import { startAutomaticVehicleFingerprint } from '../vehicleFingerprintBuilder';
 import { startVehicleClassRuntime } from '../vehicle/vehicleClassRuntime';
 import { stopVehicleIdentityCoordinator } from '../telemetry/vehicleIdentityRuntime';
@@ -842,6 +843,16 @@ class SystemBoot {
     // VehicleIntelligenceService: SPE sensör plausibility + güven skoru
     _log('  › VehicleIntelligenceService');
     this._reg(startVehicleIntelligenceService());
+
+    /* GuardianRuntime (GUARDIAN-AI-G16): Guardian çekirdeğinin TICK SAHİBİ.
+       Kendi timer'ı YOKTUR — §L.0 tik-wheel'ine `scheduleTask` ile biner
+       (taban 1000 ms · NORMAL · deferIdle KAPALI; gerekçe guardianTickPolicy.ts).
+       Bu tur Guardian'a KALP ATIŞI verir, SES vermez: çıktı yalnız CAROS LAB'da
+       gözlenir, sürücüye sunulmaz → aşırı ısınma/akü uyarısının ürün otoritesi
+       (VehicleCompute.worker → SystemOrchestrator) DEĞİŞMEDİ, ikinci eylem
+       otoritesi doğmaz. Fail-soft + zero-leak (cleanup _reg'le). */
+    _log('  › GuardianRuntime');
+    this._regNamed('GuardianRuntime', startGuardianRuntime());
 
     // AutomaticVehicleFingerprint (PR-26): araç bağlanınca VID+Discovery'den otomatik
     // fingerprint üret. Fail-soft + kimlik-imza guard (hot-path'e girmez); cleanup _reg'le.

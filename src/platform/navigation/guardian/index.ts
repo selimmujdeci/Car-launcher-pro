@@ -1,11 +1,15 @@
 /**
  * Guardian AI Core — Faz A saf çekirdek — genel barrel — GUARDIAN-AI-G1/G2.
  *
- * Yalnız SAF modülleri dışa verir (models/guardianEngine/rules). Analiz
- * kuralları (ör. `evaluateCurveRisk`) `guardianEngine.runGuardian`e OTOMATİK
- * BAĞLI DEĞİL — bağlama (rule registry) wiring katmanının işidir (bu
- * sürümde YOK). Wiring katmanının kendisi (GPS/OBD/harita/Mavi/UI) bu
- * sürümde YOK — bu dosyadan da dışa verilmez.
+ * Yalnız SAF modülleri dışa verir (models/guardianEngine/rules/politika).
+ *
+ * ⚠️ WIRING BU BARREL'DAN GEÇMEZ. G16'dan itibaren gerçek tick sahibi VARDIR
+ * (`runtime/guardianRuntime.ts` → `runtimeManager.scheduleTask`), ama o dosya
+ * `obdServiceHealthPort` üzerinden `obdService`i import eder (import-time yan
+ * etki). Barrel'dan dışa verilseydi bu yan etki HER tüketiciye bulaşırdı —
+ * bu yüzden wiring'i çağıran (SystemBoot) onu DOĞRUDAN alır.
+ * Saf tick POLİTİKASI (`runtime/guardianTickPolicy`) yan etkisizdir ve
+ * buradan dışa verilir.
  */
 export type {
   GuardianSeverity,
@@ -18,6 +22,21 @@ export type {
 export { SEVERITY_ORDER, SEVERITY_WEIGHT } from './models';
 
 export { runGuardian } from './guardianEngine';
+
+export {
+  GUARDIAN_TASK_ID,
+  GUARDIAN_TICK_POLICY_VERSION,
+  GUARDIAN_BASE_PERIOD_MS,
+  GUARDIAN_TASK_CRITICALITY,
+  GUARDIAN_DEFER_IDLE,
+  GUARDIAN_TICK_BUDGET_MS,
+  GUARDIAN_TICK_HARD_LIMIT_MS,
+  GUARDIAN_DURATION_SAMPLE_SIZE,
+  guardianEffectivePeriodMs,
+  guardianWorstCaseDetectionLatencyMs,
+  guardianKeepsUpWithObd,
+  isGuardianTickOverBudget,
+} from './runtime/guardianTickPolicy';
 
 export {
   rankGuardianAlerts,

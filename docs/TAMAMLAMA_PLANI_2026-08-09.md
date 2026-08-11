@@ -261,12 +261,20 @@ tazelenir. **İnternetsiz çalışır** — paket cihazda olduğu için ağ yokl
 
 ## 4. Guardian AI parçaları
 
-> **Ortak önkoşul:** Guardian'ın **tick sahibi yok**. Motoru kimin, kaç Hz'de,
-> hangi DeviceTier bütçesiyle süreceği kararı hiçbir parçaya ait değildir ve
-> **hepsinden önce** verilmelidir. Kütük #494 taslağı zaten "hüküm üretimi
-> `guardian/*` içinden sürüş yolunda koşmamalı · `low` tier'da tek koşum
-> < 16 ms" diyor — Guardian ısınma/kasma geçmişi olan bir üründe hot-path'e
-> giremez. Bu karar ~1 gün, ama sıraya **P8'den önce** girer.
+> **Ortak önkoşul — ✅ KARŞILANDI (2026-08-11, kütük #539–#542).** Guardian'ın
+> tick sahibi artık VAR: `runtimeManager.scheduleTask` (§L.0 tek tik-wheel) ·
+> taban **1000 ms** · kritiklik **NORMAL** · `deferIdle` KAPALI. Kadans kararı
+> ölçülmüş bir sözleşmeye dayanır: *Guardian aynı modda OBD anket periyodunu
+> ASLA aşmaz* (5 modun tamamı testle kilitli) — düşük tier'da OBD 5 s'de
+> tazelenirken Guardian'ı 1 s'de koşturmak aynı örneği 5 kez hesaplardı.
+> Tier bütçesi **TEK**: 8 ms/koşum (#494 tavanının yarısı); host ölçümü p95
+> **11,5 µs** (gerçek yol) / **49,0 µs** (8 kural birden) → tavana ~1 391× /
+> ~327× güvenlik payı. **Cihazda ölçüm HÂLÂ YOK** (#539 (c) ölçütü) —
+> bu yüzden P7/P8 planlanabilir ama "bütçe kanıtlandı" DENEMEZ.
+>
+> Kalan sınır: bu wiring Guardian'a **kalp atışı verdi, ses vermedi**. Çıktının
+> sürücüye sunumu (HMI/ses) ve `guardianAlertRanker`'ın ürüne bağlanması AYRI
+> bir parçadır ve aşağıdaki P7–P9'dan bağımsızdır.
 
 ### P7 · Hava
 - **Ne eksik:** `weatherSource` **yalnız interface** — "GERÇEK IO YOK" diye
