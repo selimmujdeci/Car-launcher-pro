@@ -20,7 +20,7 @@ import { getMode22Evidence, type Mode22Evidence } from './obd/manufacturerPidSer
 import { getDTCStateSnapshot } from './dtcService';
 import { getAiHealthSnapshot } from './aiHealth';
 import { getProviderQuotaSnapshot } from './companion/companionChatProvider';
-import { getGPSState, isDeadReckoningActive } from './gpsService';
+import { getGPSState, isDeadReckoningActive, getLocationEvidence } from './gpsService';
 import { getVoiceSnapshot, getLastSttOutcome, getSessionPeakVolume } from './voiceService';
 import { getWakeWordState, isVoskModelReady } from './wakeWordService';
 import { getRecentVoiceDiag, type VoiceDiagRingEntry } from './voiceDiagService';
@@ -257,13 +257,15 @@ export async function buildGpsDeepSnapshot(): Promise<GpsDeepSnapshot> {
     }
   } catch { /* API yoksa/erişilemezse 'unknown' kalır (fail-soft) */ }
 
-  const now = Date.now();
   const loc = state.location;
   const acc = loc?.accuracy;
 
   return {
     permission,
-    fixAgeMs:  loc ? Math.max(0, now - loc.timestamp) : -1,
+    /* G1 (#527): fix yaşı TEK OTORİTEDEN. Eskiden burada duvar saatiyle
+       (`now - loc.timestamp`) yeniden hesaplanıyordu — saat sıçramasına açık
+       ve `navigationCoreSources`in monotonik hesabıyla ÇELİŞİYORDU. */
+    fixAgeMs:  _safe(() => getLocationEvidence().fixAgeMs, null) ?? -1,
     accuracyM: loc && Number.isFinite(acc) ? Math.round(acc as number) : -1,
     source:    state.source ?? 'none',
     drActive:  _safe(() => isDeadReckoningActive(), false),

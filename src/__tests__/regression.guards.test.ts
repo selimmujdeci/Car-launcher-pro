@@ -5314,3 +5314,50 @@ describe('🔒 KİLİT 26 · bayat snapshot gizlenemez (#526)', () => {
     expect(build, 'hala veri yok durumu gosterilmiyor').toMatch(/HÂLÂ VERİ YOK/);
   });
 });
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * 🔒 KİLİT 27 · G1 — TEK KONUM KANIT OTORİTESİ (#527)
+ *
+ * ÖLÇÜLDÜ (2026-08-11): konum KAYNAĞI tekti (`gpsService`) ama fix YAŞI üç ayrı
+ * yerde ve İKİ FARKLI SAATLE hesaplanıyordu:
+ *   navFieldBridge        → Date.now() - location.timestamp      (DUVAR)
+ *   navigationCoreSources → performance.now() - fix.tsMs         (MONOTONİK)
+ *   diagnosticSections    → now - loc.timestamp                  (DUVAR)
+ * #508 kabul ölçütü (p50<3s ∧ p95<10s) tam da bu sayıya dayanır; sayının tek
+ * kaynaklı ve saat-sıçramasına bağışık olması ölçümün GEÇERLİLİK ŞARTIDIR.
+ * ════════════════════════════════════════════════════════════════════════ */
+describe('🔒 KİLİT 27 · konum kanıt otoritesi (#527)', () => {
+  const src = (p: string) => readFileSync(resolve(__dirname, '..', p), 'utf8');
+
+  it('🔒 tek otorite VAR ve yaş MONOTONİK saatten hesaplanır', () => {
+    const s = src('platform/gpsService.ts');
+    expect(s, 'getLocationEvidence otoritesi yok').toMatch(/export function getLocationEvidence/);
+    expect(s, 'yas monotonik saatten hesaplanmiyor')
+      .toMatch(/performance\.now\(\) - _lastFixPerfMs/);
+    /* Duvar saati damgası AYRI alanda taşınır ama YAŞ ondan türetilmez. */
+    expect(s).toMatch(/observedAtWallMs/);
+  });
+
+  it('🔒 tüketiciler fix yaşını YENİDEN HESAPLAMAZ', () => {
+    const nav = src('platform/devtools/navFieldBridge.ts');
+    expect(nav, 'navFieldBridge hala duvar saatiyle yas hesapliyor')
+      .not.toMatch(/Date\.now\(\) - veh\.location\.timestamp/);
+    expect(nav).toMatch(/getLocationEvidence\(\)\.fixAgeMs/);
+    const diag = src('platform/diagnosticSections.ts');
+    expect(diag, 'diagnosticSections hala kendi hesabini yapiyor')
+      .not.toMatch(/Math\.max\(0, now - loc\.timestamp\)/);
+    expect(diag).toMatch(/getLocationEvidence\(\)\.fixAgeMs/);
+  });
+
+  it('🔒 fix YOKKEN "bayat" DENMEZ — yokluk ile bayatlık AYRI', () => {
+    const s = src('platform/gpsService.ts');
+    /* fixAgeMs null iken stale=false olmalı: fix hiç gelmediyse "bayat" değil
+       "yok"tur; ikisini birleştirmek kullanıcıya yanlış sebep gösterir. */
+    expect(s).toMatch(/stale:\s*fixAgeMs !== null && fixAgeMs > LOCATION_STALE_MS/);
+  });
+
+  it('🔒 bayatlık eşiği isimli sabit (koda gömülü sihirli sayı yok)', () => {
+    const s = src('platform/gpsService.ts');
+    expect(s).toMatch(/export const LOCATION_STALE_MS/);
+  });
+});

@@ -608,6 +608,12 @@ function handlePosition(coords: CoordsLike, timestamp: number): void {
     }
   }
 
+  /* G1 (#527): fix damgası TEK yerde alınır — yaş MONOTONİK saatten hesaplanır
+     (`getLocationEvidence`), duvar saati yalnız gösterim/kayıt için taşınır.
+     Saat sıçraması yaşı bozamaz. */
+  _lastFixPerfMs = performance.now();
+  _lastFixWallMs = timestamp ?? now;
+
   const loc: GPSLocation = {
     latitude:  _fusedLat,
     longitude: _fusedLng,
@@ -859,6 +865,93 @@ interface DeadReckoningState {
 let _dr: DeadReckoningState | null    = null;
 let _drTimer: ReturnType<typeof setInterval> | null = null;
 let _lastGPSPerf = 0; // performance.now() — clock-jump immune
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * G1 · TEK KONUM KANIT OTORİTESİ (kütük #527 · kabul ölçütü #508)
+ *
+ * ── NEDEN (ölçüldü, 2026-08-11) ───────────────────────────────────────────
+ * Konum KAYNAĞI zaten tekti (`gpsService`), ama **fix YAŞI üç ayrı yerde ve
+ * İKİ FARKLI SAATLE** hesaplanıyordu:
+ *   · `navFieldBridge.ts`        → `Date.now() - location.timestamp`   (DUVAR)
+ *   · `navigationCoreSources.ts` → `performance.now() - fix.tsMs`      (MONOTONİK)
+ *   · `diagnosticSections.ts`    → `now - loc.timestamp`               (DUVAR)
+ * Aynı olgunun üç cevabı = #517 ailesi. Üstelik duvar saati NTP/RTC sıçramasında
+ * negatif ya da devasa yaş üretir; monotonik üretmez.
+ *
+ * ── KURAL ─────────────────────────────────────────────────────────────────
+ * Fix YAŞI **yalnız burada** ve **yalnız monotonik saatle** hesaplanır. Tüketici
+ * kendi çıkarmasını YAPMAZ; `getLocationEvidence()` çağırır.
+ *
+ * Duvar-saati karşılığı (`observedAtWallMs`) AYRI alanda taşınır — gösterim ve
+ * kayıt için gerekir, ama YAŞ ondan TÜRETİLMEZ.
+ * ════════════════════════════════════════════════════════════════════════ */
+
+/** Fix'in geldiği an — MONOTONİK. `0` = bu oturumda hiç fix gelmedi. */
+let _lastFixPerfMs = 0;
+/** Aynı fix'in duvar-saati karşılığı (gösterim/kayıt için). */
+let _lastFixWallMs = 0;
+
+/**
+ * G1 — konumun **kanıt** hâli: yaş · doğruluk · kaynak birlikte taşınır.
+ * Konum bir gösterge değil, karar girdisidir (vizyon §7.9 Katman 1).
+ */
+export interface LocationEvidence {
+  readonly lat: number | null;
+  readonly lng: number | null;
+  /** Metre. `null` = bilinmiyor (sahte 999 ÜRETİLMEZ burada). */
+  readonly accuracyM: number | null;
+  /**
+   * Fix'in yaşı (ms) — MONOTONİK saatten. `null` = hiç fix gelmedi.
+   * Saat sıçramasından ETKİLENMEZ; tüketici bunu yeniden hesaplamaz.
+   */
+  readonly fixAgeMs: number | null;
+  /** Fix'in duvar-saati anı (gösterim/kayıt). `null` = fix yok. */
+  readonly observedAtWallMs: number | null;
+  /** Konumu şu an KİM üretiyor. */
+  readonly source: 'GPS' | 'DEAD_RECKONING' | 'NONE';
+  /**
+   * Fix bayat mı — `LOCATION_STALE_MS` eşiğine göre. Bayatken ekran bunu
+   * GİZLEMEZ (vizyon §7.9 Katman 6: ekranda dürüstlük).
+   */
+  readonly stale: boolean;
+  readonly headingDeg: number | null;
+  readonly speedMs: number | null;
+}
+
+/**
+ * Konumun "bayat" sayıldığı eşik (ms).
+ *
+ * #508 kabul ölçütü `p50 < 3 s` ister; 3 saniye **hedef**tir, eşik ondan biraz
+ * geniş tutulur ki normal 1 Hz akışta bayatlık bayrağı titremesin. 5 s, 94 km/h'de
+ * ~130 m yol demektir — bunun ötesi kullanıcıya DÜRÜSTÇE söylenmelidir.
+ */
+export const LOCATION_STALE_MS = 5_000;
+
+/**
+ * G1 — TEK konum kanıt otoritesi. Senkron, yan etkisiz.
+ *
+ * ⚠️ Bu fonksiyonun DIŞINDA fix yaşı hesaplamak YASAKTIR (kasa kilidi vardır).
+ */
+export function getLocationEvidence(): LocationEvidence {
+  const st = useGPSStore.getState();
+  const loc = st.location;
+  const fixAgeMs = _lastFixPerfMs > 0
+    ? Math.max(0, Math.round(performance.now() - _lastFixPerfMs))
+    : null;
+  const drActive = _dr?.active === true;
+  return {
+    lat: loc ? loc.latitude : null,
+    lng: loc ? loc.longitude : null,
+    accuracyM: loc && Number.isFinite(loc.accuracy) ? loc.accuracy : null,
+    fixAgeMs,
+    observedAtWallMs: _lastFixWallMs > 0 ? _lastFixWallMs : null,
+    source: drActive ? 'DEAD_RECKONING' : (loc ? 'GPS' : 'NONE'),
+    /* Fix hiç yoksa "bayat" DEĞİL "yok"tur — ikisi ayrı durumdur. */
+    stale: fixAgeMs !== null && fixAgeMs > LOCATION_STALE_MS,
+    headingDeg: loc && Number.isFinite(loc.heading ?? NaN) ? (loc.heading ?? null) : null,
+    speedMs: loc && Number.isFinite(loc.speed ?? NaN) ? (loc.speed ?? null) : null,
+  };
+}
 let _drLocUnsub: (() => void) | null = null;
 // Tüm DR guard cleanup (silenceChecker + _drLocUnsub) — HMR ve çoklu çağrı koruması
 let _drGuardCleanup: (() => void) | null = null;

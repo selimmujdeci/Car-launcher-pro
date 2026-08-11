@@ -28,6 +28,7 @@
  * temizlenmelidir.
  */
 
+import { getLocationEvidence } from '../gpsService';
 import { DEVELOPER_FEATURES_ENABLED } from '../debug/developerFeatures';
 import { getRouteState, getNavigationCoreSnapshot } from '../routingService';
 import { getNavigationState } from '../navigationService';
@@ -125,7 +126,10 @@ function _sample(): NavFieldSample {
       lat: veh.location?.latitude ?? null,
       lon: veh.location?.longitude ?? null,
       accuracyM: veh.location?.accuracy ?? null,
-      fixAgeMs: veh.location?.timestamp != null ? Date.now() - veh.location.timestamp : null,
+      /* G1 (#527): TEK OTORİTE — duvar saatiyle yeniden hesaplama KALDIRILDI.
+         Saha ölçümünün (#508) dayandığı sayı buradan geldiği için, yaşın
+         monotonik ve tek kaynaklı olması ölçümün geçerliliğinin şartıdır. */
+      fixAgeMs: getLocationEvidence().fixAgeMs,
     },
     match: {
       state: fix?.state ?? null,
