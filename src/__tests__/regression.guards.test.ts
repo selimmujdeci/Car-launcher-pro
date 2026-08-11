@@ -2976,9 +2976,21 @@ describe('Sokak adıyla OSM çözümleme', () => {
     }
   });
 
-  it('🔒 adlı cadde/bulvar da çözümlenir', async () => {
+  it('🔒 adlı cadde/bulvar da çözümlenir (gövde BOŞLUĞA DUYARSIZ)', async () => {
+    /* KİLİT GÜNCELLENDİ (2026-08-11, kütük #546) — kaldırılmadı.
+       Eskiden gövde LİTERAL yazılıyordu: `^Şamil Başayev ?Cadde.*$`. Ölçüm
+       kullanıcının `Kuvayimilliye` yazdığını, OSM'de adın `Kuvayi Milliye`
+       olduğunu gösterdi → literal eşleşme boşluk yüzünden DÜŞÜYORDU. Gövde
+       artık her karakter arasında opsiyonel boşluk taşır; harf ATILMAZ,
+       sıra KORUNUR — yalnız boşluk esnetilir. */
     const { extractStreetQuery } = await import('../platform/streetSearchService');
-    expect(extractStreetQuery('Şamil Başayev Caddesi')!.nameRegex).toBe('^Şamil Başayev ?Cadde.*$');
+    const r = extractStreetQuery('Şamil Başayev Caddesi')!;
+    expect(r.kind).toBe('named');
+    /* Gövde harfleri sırayla ve opsiyonel boşlukla; tip sonda. */
+    expect(r.nameRegex).toContain('Ş ?a ?m ?i ?l');
+    expect(r.nameRegex).toMatch(/\) \?Cadde\.\*\$$/);
+    /* Birleşik yazılmış hâli de AYNI deseni karşılar (asıl kazanım). */
+    expect(new RegExp(r.nameRegex.replace(/^\^|\$$/g, ''), 'i').test('ŞamilBaşayev Caddesi')).toBe(true);
     expect(extractStreetQuery('Mavi Bulvar')!.kind).toBe('named');
   });
 
@@ -5791,5 +5803,74 @@ describe('🔒 KİLİT 24 · adres arama kanıt defteri', () => {
     expect(src('platform/devtools/carosLabCatalog.ts')).toMatch(/id: 'address-search-evidence'/);
     expect(src('components/devtools/carosLabScreenMap.tsx'))
       .toMatch(/case 'address-search-evidence':/);
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════
+ * 🔒 KİLİT 25 · SOKAK GÖVDESİ SONDAN YAKALANIR (#546 · #544'ün düzeltmesi)
+ *
+ * ÖLÇÜLDÜ (2026-08-11): gövde sorgunun BAŞINDAN yakalanıyordu → il/mahalle adı
+ * Overpass regexine giriyor ve OSM adıyla ASLA eşleşmiyordu. #336'da "son şans"
+ * diye kurulan katman adlı yollarda YAPISAL OLARAK ÖLÜYDÜ. Yan yana ölçüm:
+ * ürün regexi YOK / öneksiz kontrol VAR (3/3). Bu kilitler o kusurun geri
+ * dönüşünü engeller.
+ * ════════════════════════════════════════════════════════════════════════ */
+describe('🔒 KİLİT 25 · sokak gövdesi sondan yakalanır', () => {
+  it('🔒 il ve mahalle adı regexe SIZMAZ', async () => {
+    const { extractStreetQuery } = await import('../platform/streetSearchService');
+    const r = extractStreetQuery('Mersin Yenişehir Mahallesi Kuvayimilliye Caddesi')!;
+    expect(r, 'sorgu çözümlenemedi').not.toBeNull();
+    /* Ölçülen kusurun imzası: idari önek regexin içinde. */
+    expect(r.nameRegex, 'il adı regexe sızdı').not.toMatch(/M ?e ?r ?s ?i ?n/);
+    expect(r.nameRegex, 'mahalle sözcüğü regexe sızdı').not.toMatch(/M ?a ?h ?a ?l ?l ?e/);
+    expect(r.candidates).toEqual(['kuvayimilliye']);
+  });
+
+  it('🔒 `cd` kısaltması CADDE\'ye eşlenir (Sokak DEĞİL)', async () => {
+    const { extractStreetQuery } = await import('../platform/streetSearchService');
+    for (const q of ['Mersin Yenişehir mah. Kuvayimilliye cd.', 'Nalçacı cd']) {
+      const r = extractStreetQuery(q)!;
+      expect(r, q).not.toBeNull();
+      expect(r.nameRegex, `${q} → yol tipi yanlış`).toMatch(/\) \?Cadde/);
+      expect(r.nameRegex, `${q} → Sokak sanıldı`).not.toMatch(/\) \?Sokak/);
+    }
+  });
+
+  it('🔒 gövde adayları UZUNDAN KISAYA ve en fazla 3 sözcük', async () => {
+    const { extractStreetQuery, STREET_NAME_MAX_TOKENS } =
+      await import('../platform/streetSearchService');
+    const r = extractStreetQuery('Mersin Pozcu Gazi Mustafa Kemal Bulvarı')!;
+    expect(r.candidates).toEqual(['gazimustafakemal', 'mustafakemal', 'kemal']);
+    expect(r.candidates.length).toBeLessThanOrEqual(STREET_NAME_MAX_TOKENS);
+    /* Uzun olan ÖNCE gelmeli — ayırt edicilik sıralaması buna dayanır. */
+    expect(r.candidates[0].length).toBeGreaterThan(r.candidates[r.candidates.length - 1].length);
+  });
+
+  it('🔒 NUMARALI yol davranışı BOZULMADI (uydurma yasağı)', async () => {
+    const { extractStreetQuery } = await import('../platform/streetSearchService');
+    /* 0469 OSM'de VAR, 0455 YOK — desen ikisini de AYNI biçimde üretmeli;
+       "bulunamadı" cevabı korunur, yakın numaraya kaydırılmaz. */
+    expect(extractStreetQuery('Tarsus Bağlar Mahallesi 0469 Sokak')!.nameRegex)
+      .toBe(String.raw`^0*469\.? ?Sokak.*$`);
+    expect(extractStreetQuery('Tarsus Bağlar Mahallesi 0455 Sokak')!.nameRegex)
+      .toBe(String.raw`^0*455\.? ?Sokak.*$`);
+    /* Numaralı yolda aday listesi BOŞ olmalı — gevşetme oraya bulaşmasın. */
+    expect(extractStreetQuery('Bağlar mh 469 sk')!.candidates).toEqual([]);
+  });
+
+  it('🔒 kısa/ayırt edici olmayan gövde REDDEDİLİR', async () => {
+    const { extractStreetQuery } = await import('../platform/streetSearchService');
+    /* 3 harften kısa gövde yanlış sokağa götürebilir → aday olmaz. */
+    expect(extractStreetQuery('Ak Sokak')).toBeNull();
+    expect(extractStreetQuery('Caddesi')).toBeNull();
+  });
+
+  it('🔒 kısa adayla eşleşen sonuç `relaxed` işaretlenir (onay istenir)', () => {
+    /* "Gazi Mustafa Kemal Bulvarı" ararken "Namık Kemal Bulvarı" da 1 sözcüklük
+       adayı karşılar. İkisini AYNI güvenle sunmak yanlış yere götürmek olur;
+       kısa eşleşme mevcut #334/#335 onay mekanizmasına düşer. */
+    const src = readFileSync(resolve(__dirname, '..', 'platform/streetSearchService.ts'), 'utf8');
+    expect(src, 'ayırt edicilik sıralaması yok').toContain('_candidateRank');
+    expect(src, 'kısa eşleşme relaxed işaretlenmiyor').toMatch(/rank > 0 \? \{ relaxed: true \}/);
   });
 });

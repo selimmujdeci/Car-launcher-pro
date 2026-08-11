@@ -47,6 +47,17 @@ export interface StreetQuery {
   /** İnsan-okur etiket — sonuç adı olarak kullanılır */
   label:     string;
   kind:      'numbered' | 'named';
+  /**
+   * Adlı sorguda denenen gövde adayları — UZUNDAN KISAYA (en ayırt edici önce).
+   * Boşluklar ATILMIŞ hâlde tutulur (karşılaştırma boşluğa duyarsız yapılır).
+   *
+   * NEDEN LİSTE: "Ankara Kızılay Atatürk Bulvarı"nda hangi sözcüklerin idari
+   * önek, hangilerinin sokak adı olduğunu sözlüksüz BİLEMEYİZ. Tek bir tahmin
+   * yapmak yerine 1–3 sözcüklük son ekleri aday olarak deneriz; hangisi
+   * eşleşirse sonucun AYIRT EDİCİLİĞİ ona göre işaretlenir (bkz. `relaxed`).
+   * Numaralı sorgularda boştur.
+   */
+  candidates: readonly string[];
 }
 
 /** POSIX regex için kaçış — kullanıcı metni doğrudan regex'e GİRMEZ. */
@@ -55,14 +66,52 @@ function _esc(s: string): string {
 }
 
 const _NUMBERED_RE = /(\d{2,5})\s*\.?\s*(sokak|sokağı|sok|sk|cadde|caddesi|cad|cd|bulvar|bulvarı|blv)\b/i;
-const _NAMED_RE    = /([\p{L}\p{M}][\p{L}\p{M}\s.'-]{2,60}?)\s+(sokak|sokağı|sok|sk|cadde|caddesi|cad|cd|bulvar|bulvarı|blv)\b/iu;
+
+/** Yol tipi sözcüğü — TEK token olarak sınanır (sondan yakalama için). */
+const _ROAD_TYPE_TOKEN = /^(sokak|sokağı|sokagi|sok|sk|cadde|caddesi|cad|cd|bulvar|bulvarı|bulvari|bulv|blv)\.?$/i;
+
+/**
+ * İdari/adres yapısı sözcükleri — sokak ADININ PARÇASI DEĞİLDİR.
+ * Bunlardan SONRASI sokak adıdır; öncesi (il/ilçe/mahalle) atılır.
+ */
+const _ADMIN_TOKEN = /^(mahalle|mahallesi|mahallesine|mah|mh|semt|semti|ilçe|ilçesi|ilce|ilcesi|köy|köyü|koy|koyu|mevki|mevkii|no|numara)\.?$/i;
+
+/**
+ * Sokak adı gövdesi için üst sınır — daha uzunu idari önek taşımaya başlar.
+ * Dışa açık: kilit testi eşiği ELLE yazmasın, otoriteden okusun.
+ */
+export const STREET_NAME_MAX_TOKENS = 3;
 
 /** Türkçe yol tipi sözcüğünü OSM'in kullandığı kanonik biçime eşler. */
 function _osmType(word: string): 'Sokak' | 'Cadde' | 'Bulvar' {
-  const w = word.toLowerCase();
-  if (w.startsWith('cad')) return 'Cadde';
-  if (w.startsWith('bul') || w === 'blv') return 'Bulvar';
+  const w = word.toLowerCase().replace(/\.$/, '');
+  /* `cd` kısaltması `cad`la BAŞLAMAZ; eski kod bu yüzden onu Sokak sanıyordu
+     (ölçüldü 2026-08-11: "… Kuvayimilliye cd." → `^… ?Sokak.*$`). */
+  if (w === 'cd' || w.startsWith('cad')) return 'Cadde';
+  if (w === 'blv' || w.startsWith('bul')) return 'Bulvar';
   return 'Sokak';
+}
+
+/**
+ * Gövdeyi BOŞLUĞA DUYARSIZ bir POSIX desenine çevirir.
+ *
+ * NEDEN (ölçüldü 2026-08-11): kullanıcı `Kuvayimilliye` yazıyor, OSM'de ad
+ * `Kuvayi Milliye Caddesi`. İkisi AYNI yeri kasteder ama düz literal eşleşme
+ * boşluk yüzünden düşer — ölçülen 6 ürün başarısızlığının 4'ü tam olarak buydu.
+ * Bu yüzden her karakter arasına `?` ile OPSİYONEL boşluk konur ve
+ * karşılaştırma "boşluklar atılınca aynı mı" sorusuna indirgenir.
+ *
+ * BİLGİ KAYBI YOK: harf atılmaz, sıra korunur, gövde kısaltılmaz. Yalnız
+ * boşluk esnetilir — Türkçe imlada birleşik/ayrı yazım gerçekten değişkendir.
+ */
+function _spaceLoose(body: string): string {
+  const bare = body.replace(/\s+/g, '');
+  return [...bare].map(_esc).join(' ?');
+}
+
+/** Boşluk ve büyük/küçük harf farkını atarak karşılaştırma anahtarı üretir. */
+function _bodyKey(s: string): string {
+  return s.replace(/\s+/g, '').toLocaleLowerCase('tr');
 }
 
 /**
@@ -70,9 +119,23 @@ function _osmType(word: string): 'Sokak' | 'Cadde' | 'Bulvar' {
  *
  * Numaralı: "Bağlar Mahallesi 0455 Sokak" → `^0*455\.? ?Sokak.*`
  *   (baştaki sıfırlar ve nokta OSM ile kullanıcı arasında değişir;
- *    `0455. Sokak` ↔ `455 sokak` ikisi de aynı yeri kasteder)
- * Adlı: "Şamil Başayev Caddesi" → `^Şamil Başayev Cadde.*`
- *   (ek/çekim farkı için sonu serbest bırakılır)
+ *    `0455. Sokak` ↔ `455 sokak` ikisi de aynı yeri kasteder) — DEĞİŞMEDİ.
+ *
+ * ── ADLI YOL: GÖVDE SONDAN YAKALANIR (düzeltme 2026-08-11) ─────────────────
+ * ÖNCEKİ KUSUR (ölçüldü, kütük #544): gövde sorgunun BAŞINDAN yakalanıyordu →
+ * il ve mahalle adı da Overpass regexine giriyordu:
+ *     "Mersin Yenişehir Mahallesi Kuvayimilliye Caddesi"
+ *       → `^Mersin Yenişehir Mahallesi Kuvayimilliye ?Cadde.*$`
+ * OSM'de ad yalnız "Kuvayi Milliye Caddesi" olduğu için bu desen ASLA
+ * eşleşmiyordu; yani #336'da "son şans" diye kurulan katman adlı yollarda
+ * YAPISAL OLARAK ÖLÜYDÜ (3/3 yan yana ölçümle kanıtlandı: ürün regexi YOK,
+ * öneksiz kontrol VAR).
+ *
+ * ŞİMDİ: yol tipi sözcüğü SONDAN bulunur, öncesindeki idari sözcüklerden
+ * (mahalle/ilçe/köy…) SONRASI alınır ve 1–3 sözcüklük son ekler ADAY olarak
+ * denenir. Hangi adayın eşleştiği sonucun ayırt ediciliğini belirler:
+ * daha kısa bir adayla eşleşen sonuç `relaxed` işaretlenir (bkz.
+ * `searchStreetByName`) → onay istenir, sessizce rotaya çevrilmez.
  */
 export function extractStreetQuery(query: string): StreetQuery | null {
   const q = query.trim().replace(/\s+/g, ' ');
@@ -83,26 +146,68 @@ export function extractStreetQuery(query: string): StreetQuery | null {
     const bare = num[1].replace(/^0+/, '') || '0';
     const type = _osmType(num[2]);
     return {
-      nameRegex: `^0*${bare}\\.? ?${type}.*$`,
-      label:     `${num[1]}. ${type}`,
-      kind:      'numbered',
+      nameRegex:  `^0*${bare}\\.? ?${type}.*$`,
+      label:      `${num[1]}. ${type}`,
+      kind:       'numbered',
+      candidates: [],
     };
   }
 
-  const named = _NAMED_RE.exec(q);
-  if (named) {
-    const base = named[1].trim();
-    // Tek harfli/çok kısa gövde ayırt edici değildir → yanlış sokağa götürebilir.
-    if (base.length < 3) return null;
-    const type = _osmType(named[2]);
-    return {
-      nameRegex: `^${_esc(base)} ?${type}.*$`,
-      label:     `${base} ${type}`,
-      kind:      'named',
-    };
+  /* ── Adlı yol: yol tipini SONDAN bul ─────────────────────────────────── */
+  const tokens = q.split(' ');
+  let typeAt = -1;
+  for (let i = tokens.length - 1; i >= 0; i--) {
+    if (_ROAD_TYPE_TOKEN.test(tokens[i])) { typeAt = i; break; }
   }
+  if (typeAt <= 0) return null;              // yol tipi yok ya da gövde yok
 
-  return null;
+  const type = _osmType(tokens[typeAt]);
+
+  /* İdari sözcükten SONRASI sokak adıdır (en SONDAKİ idari sözcük esas alınır:
+     "Mersin Yenişehir Mahallesi Kuvayimilliye" → "Kuvayimilliye"). */
+  let start = 0;
+  for (let i = typeAt - 1; i >= 0; i--) {
+    if (_ADMIN_TOKEN.test(tokens[i])) { start = i + 1; break; }
+  }
+  const nameTokens = tokens.slice(start, typeAt);
+  if (nameTokens.length === 0) return null;
+
+  /* Aday son ekler — UZUNDAN KISAYA. Üst sınır aşılırsa idari önek sızmaya
+     başlar (ölçülen kusurun kaynağı buydu). */
+  const maxLen = Math.min(STREET_NAME_MAX_TOKENS, nameTokens.length);
+  const candidates: string[] = [];
+  for (let len = maxLen; len >= 1; len--) {
+    const cand = nameTokens.slice(nameTokens.length - len).join(' ');
+    /* Tek harfli/çok kısa gövde ayırt edici DEĞİLDİR → yanlış sokağa götürebilir. */
+    if (_bodyKey(cand).length < 3) continue;
+    candidates.push(cand);
+  }
+  if (candidates.length === 0) return null;
+
+  /* Tek sorguda hepsini dene: `^(uzun|orta|kısa) ?Tip.*$`. Ayırt ediciliği
+     sonuçtan SONRA ölçeriz — Overpass alternatifleri sıralamaz. */
+  const alt = candidates.map(_spaceLoose).join('|');
+  return {
+    nameRegex:  `^(${alt}) ?${type}.*$`,
+    label:      `${candidates[0]} ${type}`,
+    kind:       'named',
+    candidates: candidates.map(_bodyKey),
+  };
+}
+
+/**
+ * Dönen adın KAÇINCI adayla eşleştiğini verir: 0 = en uzun (en ayırt edici),
+ * büyüdükçe daha zayıf. Eşleşme bulunamazsa aday sayısı döner (en zayıf).
+ * Numaralı sorgularda aday yoktur → daima 0 (tam eşleşme zaten filtrelenmiştir).
+ * Saf fonksiyon.
+ */
+function _candidateRank(sq: StreetQuery, osmName: string): number {
+  if (sq.candidates.length === 0) return 0;
+  const key = _bodyKey(osmName);
+  for (let i = 0; i < sq.candidates.length; i++) {
+    if (key.startsWith(sq.candidates[i])) return i;
+  }
+  return sq.candidates.length;
 }
 
 /* ── Overpass sorgusu ───────────────────────────────────────────────────── */
@@ -156,6 +261,13 @@ export async function searchStreetByName(
       // Aynı sokak birden çok way parçası olabilir — ada göre tekille.
       if (seen.has(name)) continue;
       seen.add(name);
+      /* AYIRT EDİCİLİK: sonuç EN UZUN adayla mı eşleşti, yoksa daha kısa bir
+         son ekle mi? "Gazi Mustafa Kemal Bulvarı" ararken "Namık Kemal
+         Bulvarı" da 1 sözcüklük adayı karşılar — ikisini AYNI güvenle
+         sunmak yanlış yere götürmek olur. Kısa adayla eşleşen sonuç
+         `relaxed` işaretlenir; motor onu otomatik rotaya ÇEVİRMEZ, onay
+         listesine koyar (mevcut #334/#335 mekanizması, yeni kapı değil). */
+      const rank = _candidateRank(sq, name);
       out.push({
         id:       `osm-way-${el.id ?? name}`,
         name,
@@ -164,10 +276,14 @@ export async function searchStreetByName(
         lng:      c.lon,
         type:     'highway/street',
         source:   'online',
+        ...(rank > 0 ? { relaxed: true } : {}),
       });
       if (out.length >= MAX_HITS) break;
     }
-    return out;
+    /* En ayırt edici (en uzun adayla eşleşen) sonuç önce. */
+    return out.sort(
+      (a, b) => _candidateRank(sq, a.name) - _candidateRank(sq, b.name),
+    );
   } catch {
     return []; // ağ/abort/parse — navigasyon bu yola BAĞIMLI DEĞİLDİR
   } finally {
