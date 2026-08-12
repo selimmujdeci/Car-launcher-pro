@@ -31,6 +31,13 @@
   --oem-surface-2:     #303749;
   --oem-surface-3:     #3D4458;
 
+  /* ── Compat opaklaştırma yüzeyi ──
+     compat-mode / eski WebView'da backdrop-filter kapatılır ve yarı saydam
+     cam kartlar OPAK bir renge sabitlenir (base.css). O renk SABİT KOYU
+     olduğu için AÇIK temada mürekkep tokenlarıyla çakışıyordu (koyu zemin +
+     koyu metin → okunmaz). Artık temayla birlikte flip eder. */
+  --oem-compat-solid:  rgb(8, 13, 28);
+
   /* ── Mürekkep (metin) ── */
   --oem-ink:           #F0EBE0;
   --oem-ink-2:         rgba(240,235,224,0.74);
@@ -122,6 +129,9 @@ html.light-ui {
   --oem-surface-1:     #FFFFFF;
   --oem-surface-2:     #F1F3F7;
   --oem-surface-3:     #E7EAF0;
+
+  /* Compat opaklaştırma — açık temada AÇIK yüzey (koyu mürekkep okunur kalsın) */
+  --oem-compat-solid:  #F1F3F7;
 
   /* ── Mürekkep — #14171C beyaz üstünde ~15:1 (AAA) ── */
   --oem-ink:           #14171C;

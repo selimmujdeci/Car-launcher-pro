@@ -351,6 +351,10 @@ html[data-day-night="day"].sunlight-mode {
   --oem-surface-1: #FFFFFF !important;
   --oem-surface-2: #EEF1F6 !important;
   --oem-surface-3: #E3E7EE !important;
+  /* Compat opaklaştırma — güneş altında da AÇIK yüzey (base.css cam kartları
+     opaklaştırırken sabit koyu renge düşmesin; koyu zemin + koyu mürekkep
+     çakışması güneşte tamamen okunmaz olur) */
+  --oem-compat-solid: #EEF1F6 !important;
   --oem-ink:   #0A0C10 !important;
   --oem-ink-2: #14181F !important;   /* soluk griler → tam kontrast */
   --oem-ink-3: #2A2F38 !important;

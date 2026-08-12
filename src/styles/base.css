@@ -426,8 +426,13 @@ html[data-compat-mode="true"] .backdrop-blur-sm,
 html[data-compat-mode="true"] .backdrop-blur {
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
-  /* Yarı saydam arka planı opaklaştır */
-  background-color: rgb(8, 13, 28) !important;
+  /* Yarı saydam arka planı opaklaştır.
+     SABİT koyu renk DEĞİL: bu kural tema-agnostik olduğu için açık temada
+     (light-ui / sunlight-mode) koyu zemin basıyor, ama metinler --oem-ink
+     ile KOYU kalıyordu → kart okunmaz oluyordu (sahada: Mavi adres seçim
+     listesi, Δluminans 1/255). Token temayla flip eder; koyu temada değer
+     aynı rgb(8,13,28) → koyu tema davranışı DEĞİŞMEZ. */
+  background-color: var(--oem-compat-solid, rgb(8, 13, 28)) !important;
 }
 
 /* Glass/blur olan ve CSS sınıfıyla tanımlanmış kart elementleri */

@@ -21,6 +21,7 @@ import { resolve, join } from 'node:path';
    yanlışlıkla düşürüyordu (izole hep geçiyordu). `?raw` içeriği build-time'da
    sabitler → runtime fs yarışına/mock'a/kısmi okumaya PROVABLY bağışık. */
 import commandExecutorSrc from '../platform/commandExecutor.ts?raw';
+import addressNavCardSrc from '../components/common/AddressNavCard.tsx?raw';
 import expeditionLayoutSrc from '../components/themes/ExpeditionLayout.tsx?raw';
 import mapLayerManagerSrc from '../platform/map/MapLayerManager.ts?raw';
 import mapInteractionManagerSrc from '../platform/map/MapInteractionManager.ts?raw';
@@ -6084,5 +6085,86 @@ describe('🔒 KİLİT 27 · hız gösterimi yuvarlanır ve sahte 0 üretmez', (
       .toMatch(/const speed = rawSpeed \?\? 0;[\s\S]{0,200}Math\.min\(speed \/ 200, 1\)/);
     expect(src('components/themes/TeslaLayout.tsx'))
       .toMatch(/const speed = rawSpeed \?\? 0;/);
+  });
+});
+
+/* ══════════════════════════════════════════════════════════════════════════
+   🔒 COMPAT OPAKLAŞTIRMA — açık temada koyu zemin + koyu mürekkep ÇAKIŞMASI
+   ─────────────────────────────────────────────────────────────────────────
+   SAHA (2026-08-12, cihazda CDP ile ölçüldü): Mavi'ye adres söylenince açılan
+   seçim listesi (AddressNavCard) okunmaz haldeydi. Kart `backdrop-blur-md`
+   kullanıyor; base.css compat kuralı blur'u kapatıp arka planı SABİT KOYU
+   rgb(8,13,28)'e sabitliyordu. Ama metinler --oem-ink ile geliyor ve AÇIK
+   temada (light-ui / sunlight-mode) KOYU → koyu zemin + koyu metin.
+   Ölçüm: zemin luminans 13, mürekkep 12 → Δ = 1/255 (görünmez).
+   Blur sınıfı kaldırılınca Δ = 229 → suçlu KESİN olarak bu kuraldı.
+   Kilit: opaklaştırma rengi TEMA TOKEN'ına bağlı KALMALI, sabit renge dönmemeli.
+   ══════════════════════════════════════════════════════════════════════════ */
+describe('🔒 Compat opaklaştırma teması takip eder', () => {
+  /* CSS `?raw` Vitest'te boş döner (Vite CSS'i ayrı pipeline'da işler) →
+     kaynak-metin kilitleri için dosyadaki kanonik `read()` helper'ı. */
+  const baseCssSrc = read('src/styles/base.css');
+  const designSystemCssSrc = read('src/styles/design-system.css');
+  const dayModeCssSrc = read('src/styles/day-mode.css');
+
+  it('🔒 backdrop-blur opaklaştırması SABİT renk değil, token kullanır', () => {
+    /* Kuralın gövdesini yakala: `.backdrop-blur { ... }` bloğu. */
+    const rule = baseCssSrc.match(
+      /html\[data-compat-mode="true"\] \.backdrop-blur \{([\s\S]*?)\}/,
+    );
+    expect(rule, 'compat backdrop-blur kuralı bulunamadı').not.toBeNull();
+    const body = rule![1];
+
+    expect(body, 'opaklaştırma tema tokenına bağlı değil')
+      .toMatch(/background-color:\s*var\(--oem-compat-solid/);
+    /* Sabit renge GERİ DÖNME yasağı — fallback dışında ham renk kalmamalı. */
+    expect(
+      /background-color:\s*rgb\(/.test(body),
+      'opaklaştırma yine SABİT renge sabitlenmiş (tema takip etmiyor)',
+    ).toBe(false);
+  });
+
+  it('🔒 token her palette tanımlı — koyu KOYU, açık AÇIK kalır', () => {
+    /* Koyu fallback: davranış DEĞİŞMEDİ (regresyon yok). */
+    expect(designSystemCssSrc, ':root koyu compat yüzeyi yok')
+      .toMatch(/--oem-compat-solid:\s*rgb\(8,\s*13,\s*28\)/);
+
+    /* light-ui bloğu AÇIK bir yüzey vermeli. */
+    const lightBlock = designSystemCssSrc.match(/html\.light-ui \{([\s\S]*?)\n\}/);
+    expect(lightBlock, 'light-ui bloğu bulunamadı').not.toBeNull();
+    expect(lightBlock![1], 'light-ui compat yüzeyi tanımsız')
+      .toMatch(/--oem-compat-solid:\s*#F1F3F7/i);
+
+    /* sunlight-mode (güneş altı) da AÇIK olmalı — en kritik okunabilirlik anı. */
+    expect(dayModeCssSrc, 'sunlight-mode compat yüzeyi tanımsız')
+      .toMatch(/--oem-compat-solid:\s*#EEF1F6\s*!important/i);
+  });
+
+  it('🔒 açık palet yüzeyi mürekkeple çakışmaz (luminans kapısı)', () => {
+    /* Kaynak-metin kilidi yetmez: değerlerin gerçekten KONTRAST ürettiğini
+       doğrula. Sahada düşen tam buydu (Δ=1). Eşik: ≥ 120/255. */
+    const lum = (hex: string): number => {
+      const h = hex.replace('#', '');
+      const r = parseInt(h.slice(0, 2), 16);
+      const g = parseInt(h.slice(2, 4), 16);
+      const b = parseInt(h.slice(4, 6), 16);
+      return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    };
+
+    /* light-ui: yüzey #F1F3F7 · mürekkep #14171C */
+    expect(Math.abs(lum('#F1F3F7') - lum('#14171C'))).toBeGreaterThan(120);
+    /* sunlight-mode: yüzey #EEF1F6 · mürekkep #0A0C10 */
+    expect(Math.abs(lum('#EEF1F6') - lum('#0A0C10'))).toBeGreaterThan(120);
+    /* koyu tema: yüzey rgb(8,13,28) ≈ #080D1C · mürekkep #F0EBE0 */
+    expect(Math.abs(lum('#080D1C') - lum('#F0EBE0'))).toBeGreaterThan(120);
+  });
+
+  it('🔒 AddressNavCard yüzeyini token ile alır (sabit koyu zemine dönmez)', () => {
+    /* Kartın kendi yüzeyi tema tokenı olmalı; hardcoded koyu hex dönerse
+       compat kuralı düzelse bile kart yine açık temada koyu kalır. */
+    expect(addressNavCardSrc, 'kart yüzeyi tema tokenı değil')
+      .toMatch(/bg-\[var\(--oem-surface-2\)\]/);
+    expect(addressNavCardSrc, 'kart metni tema tokenı değil')
+      .toMatch(/text-\[color:var\(--oem-ink\)\]/);
   });
 });

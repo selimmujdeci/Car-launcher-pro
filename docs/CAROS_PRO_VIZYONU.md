@@ -2412,6 +2412,22 @@ Tarsus'tayken "İstanbul …" arıyorsa oraya gideceği için arıyordur.
 **SAHADA DOĞRULANDI DEĞİL** — gerçek araçta ölçülecek altı kabul ölçütü kütük
 #547'dedir. **ÜRÜN HAZIR: HAYIR.**
 
+#### Okunabilirlik kusuru — seçim listesi açık temada okunmuyordu (kütük #550)
+
+Belirsizlik çözümü doğru adayları üretse bile kullanıcı **onları göremiyordu**:
+sonuç kartı gündüz/güneş temasında koyu zemin üzerinde koyu mürekkeple
+çiziliyordu. Kök kartın kendisinde DEĞİLDİ — kart yüzeyini doğru tema tokenından
+alıyor ve sekiz tema kombinasyonunun hepsinde sağlamdı (cihazda tek tek ölçüldü,
+Δlum ≥ 180). Suçlu `base.css`'in compat kuralıydı: `backdrop-filter` kapatılırken
+yarı saydam yüzeyler **tema-agnostik SABİT koyu** bir renge sabitleniyor, metinler
+ise `--oem-ink` ile açık temada koyu kalıyordu. Cihazda ölçülen fark: **Δ 1/255**
+(blur sınıfı kaldırılınca Δ 229 → suçlu kesinleşti). Opaklaştırma rengi artık
+`--oem-compat-solid` tokenı üzerinden temayla flip eder; **koyu tema değeri
+birebir aynı bırakıldı** (regresyon yok). Ders: *bir kartın kendi tokenları doğru
+olması onun okunabilir olduğunu KANITLAMAZ* — global bir `!important` kuralı
+yüzeyi ezerken mürekkebi ezmeyebilir. **Durum: ENTEGRE**, cihazda üretim APK'sıyla
+görsel doğrulama BEKLİYOR (kütük #550). **ÜRÜN HAZIR: HAYIR.**
+
 ### BU BÖLÜMÜN DURUMU
 
 Yedi katmanın hiçbiri **SAHADA DOĞRULANDI** değildir. Katman 3'ün bir parçası
