@@ -2390,6 +2390,28 @@ DEFTERİ` · `KONUM FIX YAŞI DAĞILIMI` · `ETA SIÇRAMA DEFTERİ`) → #536'n�
 `nextMeasurement` alanının söylediği kanıtı enstrümanla; #537 `count ≥ 30` ise
 #508 hükmünü oku; #538 için `SPEED_GATE_CHANGED` sayısını tabanla (4/6) karşılaştır.
 
+### ADRES ARAMA — BELİRSİZLİK ÇÖZÜMÜ (2026-08-12, kütük #547)
+
+Teşhis turunun (§3.5) "gevşetilmiş adayda mesafe kapısı yok" bulgusu ölçümle
+**doğrulandı ve genişledi**: kusur gevşetilmiş adaylara özgü değildi — **mesafe
+zincirin HİÇBİR yerinde karar değişkeni değildi.** Canlı ölçüm (Tarsus,
+2026-08-12): `"Cumhuriyet Mahallesi"` → sunulan ilk aday Adana 43 km, 3,5 km'deki
+Tarsus adayı ÜÇÜNCÜ · `"Bağlar Mahallesi"` (harita çubuğu zinciri) → ilk aday
+Siverek 405 km · `"İstanbul Bağlar Mahallesi"` → ilk aday Tarsus'ta bir okul
+(0 km), yani **yakınlık açıkça istenen şehri eziyordu.**
+
+**Kural (kullanıcı sözleşmesi):** *şehir belirtilmemişse EN YAKIN öncelikli;
+şehir açıkça belirtilmişse O ŞEHİR kesin ve mesafeye göre REDDEDİLMEZ* — biri
+Tarsus'tayken "İstanbul …" arıyorsa oraya gideceği için arıyordur.
+
+| Ne yapıldı | Ne YAPILMADI (dürüst sınır) |
+|-----------|------------------------------|
+| `platform/geo/locationBiasGate.ts` (SAF): üç mod — `CITY_SCOPED` (mesafe kapısı KAPALI, yalnız yanlış il KANITI olan aday elenir) · `PROXIMITY` (mesafeye göre sırala; 100 km üstü `farFromUser` → otomatik rota yok; gevşetilmiş **ve** 150 km üstü aday elenir) · `UNMEASURED` (konum yoksa hiçbir şey yapılmaz, sahte mesafe üretilmez). İl kanıtı sonucun **son 4 virgül parçasından** okunur. Kapı **her katmanda** ve **her iki yüzeyde** çalışır; elemesi deftere (`biasDroppedCount`) ve LAB → Adres Arama Kanıtı ekranına taşınır. | **Hiçbir sağlayıcı/sorgu mantığı değişmedi**: `extractStreetQuery`, gevşetme merdiveni ve numara doğrulaması DOKUNULMADAN kaldı — kapı onların ÜSTÜNE eklendi. **Kanıtsız eleme yok:** il bilgisi taşımayan aday elenmez, `cityUnverified` ile onaya düşer. Sözlük **81 il** ile sınırlıdır: ilçe/mahalle adı şehir bildirimi SAYILMAZ (ör. "Tarsus" → en-yakın modu). Teşhis §3.2 (yazım/boşluk toleransı), §3.6 (yüzey ayrışmasının kalan yapısal farkları: BYOK + kısaltma + gevşetme yalnız A zincirinde), §3.8 (kapı numarası) bu turda **kapatılmadı**. |
+
+**Durum: ENTEGRE** (26 birim testi + 12 kilit + 5/5 canlı sağlayıcı ölçümü).
+**SAHADA DOĞRULANDI DEĞİL** — gerçek araçta ölçülecek altı kabul ölçütü kütük
+#547'dedir. **ÜRÜN HAZIR: HAYIR.**
+
 ### BU BÖLÜMÜN DURUMU
 
 Yedi katmanın hiçbiri **SAHADA DOĞRULANDI** değildir. Katman 3'ün bir parçası

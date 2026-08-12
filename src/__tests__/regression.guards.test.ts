@@ -2804,7 +2804,9 @@ describe('Adres arama girişi IME-güvenli', () => {
 describe('Adres motoru cihaz-içi veriyi ONLINE iken de kullanır', () => {
   it('🔒 online 0 sonuçta yerel arama DENENİR, doğrudan hata basılmaz', () => {
     expect(addressNavEngineSrc).toContain('_localSearch');
-    expect(addressNavEngineSrc).toMatch(/if \(!results\.length\) \{[\s\S]{0,400}_localSearch\(destination\)/);
+    /* Konum parametresi 2026-08-12'de eklendi (konum/şehir kapısı) — çağrının
+       KENDİSİ kilitli kalır, imzası genişleyebilir. */
+    expect(addressNavEngineSrc).toMatch(/if \(!results\.length\) \{[\s\S]{0,400}_localSearch\(destination[,)]/);
   });
 
   it('🔒 yerel arama ÇEVRİMDIŞI dalla AYNI kaynakları ve eşiği kullanır', () => {
@@ -2886,8 +2888,13 @@ describe('Geocoder sorguyu bozmadan gevşetir', () => {
 
   it('🔒 GEVŞETİLMİŞ tek sonuç OTOMATİK rotaya çevrilmez', () => {
     /* "Adana" yerine "Ada"ya sessizce götürmek bulamamaktan kötüdür:
-       gevşetilmiş sonuç kullanıcının söylediği sorguyla bulunmuş DEĞİLDİR. */
-    expect(addressNavEngineSrc).toContain('results.length === 1 && !results[0].relaxed');
+       gevşetilmiş sonuç kullanıcının söylediği sorguyla bulunmuş DEĞİLDİR.
+       KİLİT GÜÇLENDİRİLDİ (2026-08-12): aynı gerekçe konum/şehir kapısının iki
+       işareti için de geçerlidir — çok uzak (`farFromUser`) ve şehri
+       doğrulanamayan (`cityUnverified`) tek aday da onaya düşer. */
+    expect(addressNavEngineSrc).toMatch(/!only\.relaxed[\s\S]{0,80}!only\.farFromUser/);
+    expect(addressNavEngineSrc).toContain('!only.cityUnverified');
+    expect(addressNavEngineSrc).toContain('results.length === 1 && autoSafe');
     expect(addressNavEngineSrc).toMatch(/if \(results\.length === 1\) \{[\s\S]{0,120}phase: 'selecting'/);
   });
 });
@@ -3079,7 +3086,12 @@ describe('Harita araması da numaralı sokağı doğrular', () => {
     expect(mapServiceSrc).toContain('filterNumberedStreetMismatch');
     // Nominatim sonucu DOĞRUDAN listeye eklenemez — önce elenmeli.
     expect(mapServiceSrc).not.toMatch(/combined\.push\(\.\.\.onlineRaw\)/);
-    expect(mapServiceSrc).toContain('combined.push(...onlineHits)');
+    expect(mapServiceSrc).not.toMatch(/combined\.push\(\.\.\.onlineHits\)/);
+    /* 2026-08-12: numara filtresinden sonra KONUM/ŞEHİR kapısı da geçilir →
+       listeye giren dizi `onlineGated`tır. Sıra ÖNEMLİ: önce "doğru sokak mı",
+       sonra "doğru şehirde / ulaşılabilir mi". */
+    expect(mapServiceSrc).toMatch(/filterNumberedStreetMismatch\([\s\S]{0,300}_gate\(onlineHits/);
+    expect(mapServiceSrc).toContain('combined.push(...onlineGated)');
   });
 
   it('🔒 `searchPlaces` sonuç yoksa Overpass sokak aramasına düşer', () => {
@@ -5872,5 +5884,128 @@ describe('🔒 KİLİT 25 · sokak gövdesi sondan yakalanır', () => {
     const src = readFileSync(resolve(__dirname, '..', 'platform/streetSearchService.ts'), 'utf8');
     expect(src, 'ayırt edicilik sıralaması yok').toContain('_candidateRank');
     expect(src, 'kısa eşleşme relaxed işaretlenmiyor').toMatch(/rank > 0 \? \{ relaxed: true \}/);
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════
+ * 🔒 KİLİT 26 · KONUM/ŞEHİR KAPISI (belirsizlik çözümü · 2026-08-12)
+ *
+ * CANLI ÖLÇÜM (Tarsus 36.9175/34.8621, ürünün gerçek istek kurulumu):
+ *   · "Cumhuriyet Mahallesi"        → sunulan ilk aday Adana (43 km);
+ *                                     3 km'deki Tarsus adayı ÜÇÜNCÜ sıradaydı.
+ *   · "Bağlar Mahallesi" (viewbox'sız yüzey) → ilk aday Siverek 405 km.
+ *   · "İstanbul Bağlar Mahallesi"   → ilk aday Tarsus'ta bir OKUL (0 km);
+ *                                     istenen İstanbul adayı ikinci sıradaydı.
+ * Kök tek: mesafe hiçbir yerde karar değişkeni DEĞİLDİ.
+ *
+ * KURAL: şehir belirtilmemişse EN YAKIN öncelikli · şehir belirtilmişse O
+ * ŞEHİR kesin (mesafeye göre REDDEDİLMEZ). Bu kilitler o sözleşmeyi korur.
+ * ════════════════════════════════════════════════════════════════════════ */
+describe('🔒 KİLİT 26 · konum/şehir kapısı', () => {
+  const src = (p: string) => readFileSync(resolve(__dirname, '..', p), 'utf8');
+
+  it('🔒 kapı SAFTIR — I/O · timer · Date.now · global durum YOK', () => {
+    const gate = src('platform/geo/locationBiasGate.ts');
+    /* Saflık sözleşmesi: cihazsız test edilebilirlik ve hot-path güvenliği
+       buna dayanır (kapı her arama sonucunda çalışır). */
+    expect(gate, 'ağ çağrısı').not.toMatch(/\bfetch\s*\(/);
+    expect(gate, 'zaman okuma').not.toMatch(/Date\.now\s*\(/);
+    expect(gate, 'timer').not.toMatch(/set(Timeout|Interval)\s*\(/);
+    expect(gate, 'kalıcı depolama').not.toMatch(/localStorage|indexedDB/);
+    expect(gate, 'React sızıntısı').not.toMatch(/from 'react'/);
+  });
+
+  it('🔒 şehir belirtilmişse mesafe kapısı KAPALIDIR', async () => {
+    const { applyLocationBias } = await import('../platform/geo/locationBiasGate');
+    /* Biri Tarsus'tayken "İstanbul …" arıyorsa oraya GİDECEĞİ için arıyordur —
+       693 km diye reddetmek ürünü kırar. Bu kilit gevşetilemez. */
+    const r = applyLocationBias('İstanbul Bağlar Mahallesi', [{
+      lat: 41.0228866, lng: 28.8248289,
+      fullName: 'Bağlar Mahallesi, Bağcılar, İstanbul, Marmara Bölgesi, 34212, Türkiye',
+    }], { lat: 36.9175, lng: 34.8621 });
+    expect(r.mode).toBe('CITY_SCOPED');
+    expect(r.kept).toHaveLength(1);
+    expect(r.kept[0].farFromUser, 'uzak diye onaya düşürüldü').toBe(false);
+    expect(r.droppedFar).toBe(0);
+  });
+
+  it('🔒 şehir belirtilmişse YANLIŞ şehirdeki aday sunulmaz', async () => {
+    const { applyLocationBias } = await import('../platform/geo/locationBiasGate');
+    /* Ölçülen kusur: 0 km'deki Tarsus okulu "İstanbul …" sorgusunun BİRİNCİ
+       adayıydı. Yakınlık, açıkça istenen şehri EZEMEZ. */
+    const r = applyLocationBias('İstanbul Bağlar Mahallesi', [{
+      lat: 36.9207682, lng: 34.8628651,
+      fullName: 'Tarsus Borsa İstanbul Mesleki ve Teknik Anadolu Lisesi, 15, Şamil Basayev Caddesi, Bağlar Mahallesi, Tarsus, Mersin, Akdeniz Bölgesi, 33400, Türkiye',
+    }], { lat: 36.9175, lng: 34.8621 });
+    expect(r.kept).toHaveLength(0);
+    expect(r.droppedWrongCity).toBe(1);
+  });
+
+  it('🔒 şehirsiz sorguda EN YAKIN aday BAŞA gelir', async () => {
+    const { applyLocationBias } = await import('../platform/geo/locationBiasGate');
+    const r = applyLocationBias('Cumhuriyet Mahallesi', [
+      { lat: 36.9838183, lng: 35.3426633, fullName: 'Cumhuriyet Mahallesi, Yüreğir, Adana, Akdeniz Bölgesi, 01280, Türkiye' },
+      { lat: 36.9150002, lng: 34.9010268, fullName: 'Cumhuriyet Mahallesi, Tarsus, Mersin, Akdeniz Bölgesi, Türkiye' },
+    ], { lat: 36.9175, lng: 34.8621 });
+    expect(r.mode).toBe('PROXIMITY');
+    expect(r.kept[0].item.fullName, 'en yakın başa gelmedi').toContain('Tarsus');
+    expect(r.kept, 'meşru komşu il adayı elendi').toHaveLength(2);
+  });
+
+  it('🔒 KANITSIZ eleme YASAK — il bilgisi taşımayan aday korunur', async () => {
+    const { applyLocationBias } = await import('../platform/geo/locationBiasGate');
+    /* Overpass yalın sokak adı döner ("0469. Sokak"); hangi ilde olduğu
+       BİLİNMEZ. "Bilmiyoruz" ≠ "yanlış" — eleme KANIT ister. */
+    const r = applyLocationBias('Mersin Tarsus 0469 Sokak',
+      [{ lat: 36.9184146, lng: 34.8637155, fullName: '0469. Sokak' }],
+      { lat: 36.9175, lng: 34.8621 });
+    expect(r.kept).toHaveLength(1);
+    expect(r.kept[0].cityEvidence).toBe('UNKNOWN');
+    expect(r.droppedWrongCity).toBe(0);
+  });
+
+  it('🔒 il adı YER ADININ parçasıysa şehir bildirimi sayılmaz', async () => {
+    const { detectCitiesInQuery } = await import('../platform/geo/locationBiasGate');
+    /* "Ankara Caddesi" Adana'da bir caddedir; burada en-yakın kuralı geçerli
+       kalmalı, yoksa Adana'daki cadde Ankara'da aranırdı. */
+    expect(detectCitiesInQuery('Ankara Caddesi')).toEqual([]);
+    expect(detectCitiesInQuery('Ankara Kızılay Atatürk Bulvarı')).toEqual(['ankara']);
+  });
+
+  it('🔒 kapı HER katmanda çalışır (bir katman kaçamaz)', () => {
+    const geo = src('platform/geocodingService.ts');
+    /* Katmanların kendi kuralı olması bu projenin tekrar eden kökü —
+       premium · Nominatim · gevşetilmiş · Overpass · çevrimdışı, hepsi. */
+    expect(geo).toMatch(/gate\(await premiumGeocode/);
+    expect(geo).toContain('gate(firstOk)');
+    expect(geo).toMatch(/gate\(ok\.map/);
+    expect(geo).toMatch(/gate\(await searchStreetByName/);
+    expect(geo).toMatch(/gate\(await _offlineFallback/);
+  });
+
+  it('🔒 kapı bir katmanı boşaltırsa MERDİVEN DURMAZ', () => {
+    const geo = src('platform/geocodingService.ts');
+    /* Yanlış şehirdeki bir Nominatim cevabı, gevşetme ve Overpass son şansını
+       iptal ettiremez — aksi hâlde kapı zinciri KISALTMIŞ olurdu. */
+    expect(geo).toMatch(/const firstGated = gate\(firstOk\);\s*\n\s*if \(firstGated\.length\)/);
+    expect(geo).not.toMatch(/if \(firstOk\.length\) return done\(firstOk/);
+  });
+
+  it('🔒 iki arama yüzeyi AYNI kapıyı kullanır (kopya otorite YOK)', () => {
+    expect(src('platform/geocodingService.ts')).toContain("from './geo/locationBiasGate'");
+    expect(src('platform/mapService.ts')).toContain("from './geo/locationBiasGate'");
+    expect(src('platform/addressNavigationEngine.ts')).toContain("from './geo/locationBiasGate'");
+  });
+
+  it('🔒 kapının elemesi DEFTERE ve LAB ekranına taşınır (gözlemlenebilirlik)', () => {
+    /* Kullanıcıdan aday GİZLEYEN bir karar sahada görünmek ZORUNDADIR. */
+    expect(src('platform/geo/addressSearchLedger.ts')).toContain('biasDroppedCount');
+    expect(src('platform/geocodingService.ts')).toContain('biasDroppedCount');
+    expect(src('platform/addressNavigationEngine.ts')).toContain('biasDroppedCount');
+    expect(src('platform/mapService.ts')).toContain('biasDroppedCount');
+    const model = src('platform/devtools/addressSearchModel.ts');
+    expect(model).toContain('Konum/şehir kapısında elenen');
+    /* Kapı hiç çalışmadıysa "0 elendi" değil ÖLÇÜLMEDİ gösterilir. */
+    expect(model).toMatch(/biasDroppedTotal === null \? NA/);
   });
 });

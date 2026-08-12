@@ -22,6 +22,7 @@ import {
   type AddressSearchSurface,
 } from './geo/addressSearchLedger';
 import { recordAddressSearch, noteAddressSearchChoice } from './geo/addressSearchLedgerStore';
+import { applyLocationBias } from './geo/locationBiasGate';
 
 /* ── Geocoding önbellek (offline fallback) ───────────────── */
 
@@ -59,7 +60,10 @@ function _dice(a: string, b: string): number {
  *
  * Burada YENİ bir arama otoritesi KURULMAZ: çevrimdışı dalın kullandığı ÜÇ
  * kaynağın aynısı, aynı eşiklerle çağrılır. */
-async function _localSearch(destination: string): Promise<GeoResult[]> {
+async function _localSearch(
+  destination: string,
+  location?: { lat: number; lng: number },
+): Promise<GeoResult[]> {
   const [offlineHits, poiHits] = await Promise.all([
     searchOffline(destination, 3).catch(() => []),
     searchOfflinePlaces(destination, 5).catch(() => []),
@@ -91,12 +95,41 @@ async function _localSearch(destination: string): Promise<GeoResult[]> {
 
   // Aynı yer birden çok kaynaktan gelebilir — koordinata göre tekille (~11 m).
   const seen = new Set<string>();
-  return out.filter((r) => {
+  const unique = out.filter((r) => {
     const k = `${r.lat.toFixed(4)},${r.lng.toFixed(4)}`;
     if (seen.has(k)) return false;
     seen.add(k);
     return true;
   });
+
+  return _bias(destination, unique, location);
+}
+
+/* ── Konum/şehir kapısı — cihaz-içi listeler için ───────────────────────────
+ *
+ * Cihaz-içi sonuçlar sürücüye çevrimiçi sonuçlarla AYNI kartta sunulur →
+ * aynı kural uygulanmalıdır: şehir belirtilmişse o şehir kesin, belirtilmemişse
+ * en yakın önce. Yeni otorite KURULMAZ — `geocodeAddress`in kullandığı SAF
+ * fonksiyonun aynısı çağrılır (iki yolun ayrışması bu projenin tekrar eden
+ * saha kusuruydu; kütük #332/#544).
+ *
+ * `cityUnverified` burada KONMAZ: cihaz-içi kayıtların çoğu (POI adı, geçmiş
+ * girdisi) il bilgisi taşımaz ve hepsini onaya düşürmek çevrimdışı yolu
+ * kullanılamaz hâle getirirdi. Yanlış İL kanıtı olan aday yine ELENİR. */
+function _bias(
+  query: string,
+  results: GeoResult[],
+  location?: { lat: number; lng: number },
+): GeoResult[] {
+  return applyLocationBias(query, results, location ?? null).kept.map((c) => (
+    c.distanceKm === null && !c.farFromUser
+      ? c.item
+      : {
+          ...c.item,
+          ...(c.distanceKm !== null ? { distanceKm: c.distanceKm } : {}),
+          ...(c.farFromUser ? { farFromUser: true } : {}),
+        }
+  ));
 }
 
 /* ── Şehir önerileri — UYDURMA yapmadan ─────────────────────────────────────
@@ -155,6 +188,7 @@ function _record(
     hadLocation:         trace?.hadLocation ?? hadLocation,
     online:              trace?.online ?? (typeof navigator === 'undefined' ? null : navigator.onLine),
     fallbackQueryUsable: trace?.fallbackQueryUsable ?? null,
+    biasDroppedCount:    trace?.biasDroppedCount ?? null,
     outcome,
   }, 'addressNavigationEngine.resolveAndNavigate');
 }
@@ -337,50 +371,66 @@ export function resolveAndNavigate(
     ]).then(([offlineHits, cacheHits, poiHits]) => {
       if (gen !== _searchGeneration) return;
 
+      /* Çevrimdışı dal da AYNI konum/şehir kapısından geçer — yoksa aynı sorgu
+         internet varken başka, yokken başka yere götürürdü. */
       // 1. IndexedDB geçmiş — daha önce navigasyon başlatılan yerler
       if (offlineHits.length > 0 && offlineHits[0].score >= 0.55) {
         const best = offlineHits[0].location;
-        const result: GeoResult = {
+        const hist = _bias(destination, [{
           id: best.id, name: best.name,
           fullName: best.address ?? best.name,
           lat: best.lat, lng: best.lng, type: 'address',
-        };
-        _record(destination, 'RESOLVED_AUTO', surface, null, 'LOCAL_HISTORY', hadLoc);
-        _push({ results: [result] });
-        _confirmResult(result);
-        return;
+        }], location);
+        /* Kapı geçmiş kaydını elediyse (yanlış il) bu katman cevap VERMEMİŞ
+           sayılır ve sıradaki kaynağa bakılır. */
+        if (hist.length === 1 && !hist[0].farFromUser) {
+          _record(destination, 'RESOLVED_AUTO', surface, null, 'LOCAL_HISTORY', hadLoc);
+          _push({ results: hist });
+          _confirmResult(hist[0]);
+          return;
+        }
+        if (hist.length === 1) {
+          _record(destination, 'AWAITING_CHOICE', surface, null, 'LOCAL_HISTORY', hadLoc);
+          _push({ phase: 'selecting', results: hist });
+          return;
+        }
       }
 
       // 2. Türkiye POI veritabanı — offlineDataService'ten indirilen mahalle/POI
       if (poiHits.length > 0) {
-        const results: GeoResult[] = poiHits.map(p => ({
+        const results = _bias(destination, poiHits.map(p => ({
           id:       p.id,
           name:     p.name,
           fullName: p.name,
           lat:      p.lat,
           lng:      p.lon,
           type:     'address' as const,
-        }));
-        _record(destination, results.length === 1 ? 'RESOLVED_AUTO' : 'AWAITING_CHOICE',
-                surface, null, 'LOCAL_POI', hadLoc);
-        if (results.length === 1) {
-          _push({ results });
-          _confirmResult(results[0]);
-        } else {
-          _push({ phase: 'selecting', results });
+        })), location);
+        if (results.length > 0) {
+          const auto = results.length === 1 && !results[0].farFromUser;
+          _record(destination, auto ? 'RESOLVED_AUTO' : 'AWAITING_CHOICE',
+                  surface, null, 'LOCAL_POI', hadLoc);
+          if (auto) {
+            _push({ results });
+            _confirmResult(results[0]);
+          } else {
+            _push({ phase: 'selecting', results });
+          }
+          return;
         }
-        return;
       }
 
       // 3. Geocoding cache — daha önce online'da arama yapılan yerler
-      if (cacheHits.length > 0) {
-        _record(destination, cacheHits.length === 1 ? 'RESOLVED_AUTO' : 'AWAITING_CHOICE',
+      const cacheGated = _bias(destination, cacheHits, location);
+      if (cacheGated.length > 0) {
+        const auto = cacheGated.length === 1 && !cacheGated[0].farFromUser;
+        _record(destination, auto ? 'RESOLVED_AUTO' : 'AWAITING_CHOICE',
                 surface, null, 'GEO_CACHE', hadLoc);
-        if (cacheHits.length === 1) {
-          _push({ results: cacheHits });
-          _confirmResult(cacheHits[0]);
+        if (auto) {
+          _push({ results: cacheGated });
+          _confirmResult(cacheGated[0]);
         } else {
-          _push({ phase: 'selecting', results: cacheHits });
+          _push({ phase: 'selecting', results: cacheGated });
         }
         return;
       }
@@ -432,7 +482,7 @@ export function resolveAndNavigate(
           _record(destination, 'EMPTY', surface, results, 'NONE', hadLoc);
           _failNoResult(gen, destination, true); onResult?.('empty'); return;
         }
-        void _localSearch(destination).then((localHits) => {
+        void _localSearch(destination, location).then((localHits) => {
           if (gen !== _searchGeneration) return;
           /* Çevrimiçi zincir boş döndü; cihaz-içi arama SON söz. Kayıt burada
              yazılır ki "online 0 ama cihazda vardı" ayrımı sahada görünsün.
@@ -440,11 +490,12 @@ export function resolveAndNavigate(
           const stage: AddressSearchStage = localHits.length === 0
             ? 'NONE'
             : (localHits[0].type === 'address' ? 'LOCAL_HISTORY' : 'LOCAL_POI');
+          const localAuto = localHits.length === 1 && !localHits[0].farFromUser;
           const outcome: AddressSearchOutcome = localHits.length === 0
-            ? 'EMPTY' : localHits.length === 1 ? 'RESOLVED_AUTO' : 'AWAITING_CHOICE';
+            ? 'EMPTY' : localAuto ? 'RESOLVED_AUTO' : 'AWAITING_CHOICE';
           _record(destination, outcome, surface, localHits.length ? null : results, stage, hadLoc);
           if (!localHits.length) { _failNoResult(gen, destination, false); onResult?.('empty'); return; }
-          if (localHits.length === 1) {
+          if (localAuto) {
             _push({ results: localHits });
             _confirmResult(localHits[0]);
             onResult?.('confirmed');
@@ -461,7 +512,11 @@ export function resolveAndNavigate(
         return;
       }
 
-      if (results.length === 1 && !results[0].relaxed) {
+      /* Otomatik rota YALNIZ kanıtı TAM tek sonuç içindir. Üç işaretten biri
+         bile varsa onay istenir (aşağıdaki dala düşer). */
+      const only = results[0];
+      const autoSafe = !only.relaxed && !only.farFromUser && !only.cityUnverified;
+      if (results.length === 1 && autoSafe) {
         // Tek sonuç: direkt rota
         _record(destination, 'RESOLVED_AUTO', surface, results, null, hadLoc);
         _push({ results });
@@ -470,12 +525,16 @@ export function resolveAndNavigate(
         return;
       }
 
-      /* GEVŞETİLMİŞ sonuç ASLA otomatik rotaya çevrilmez.
-         Sonuç kullanıcının SÖYLEDİĞİ sorguyla değil, kısaltılmış bir
-         varyantıyla bulunmuştur (bkz. geocodingService.relaxQueryVariants) →
-         doğru yer olduğu KANITLANMIŞ değildir. Tek aday olsa bile onay
-         listesi gösterilir: yanlış yere sessizce götürmek, bulamamaktan
-         daha kötüdür. */
+      /* KANITI EKSİK tek sonuç ASLA otomatik rotaya çevrilmez:
+          · `relaxed`        — kullanıcının SÖYLEDİĞİ sorguyla değil,
+                               kısaltılmış bir varyantıyla bulundu
+                               (bkz. geocodingService.relaxQueryVariants).
+          · `farFromUser`    — şehir belirtilmemişken kullanıcıdan çok uzakta;
+                               "en yakın" kuralı bunu kesin cevap SAYMAZ.
+          · `cityUnverified` — şehir açıkça istendi ama sonucun adı hangi ilde
+                               olduğunu söylemiyor → doğrulanamadı.
+         Tek aday olsa bile onay listesi gösterilir: yanlış yere sessizce
+         götürmek, bulamamaktan daha kötüdür. */
       if (results.length === 1) {
         _record(destination, 'AWAITING_CHOICE', surface, results, null, hadLoc);
         _push({ phase: 'selecting', results });

@@ -246,7 +246,12 @@ Baskın sebep **tek ve kesin**: §3.1. Öncelik sırası:
    kesme YASAK (#334 dersi); yalnız boşluk normalizasyonu.
 3. **`_NUM_STREET_RE` kapsamını `streetSearchService` kardeşiyle BİRLEŞTİR**
    (`Caddesi`/`Sokağı`/`Bulvarı`) — iki ayrışmış regex tek otoriteye insin.
-4. **Gevşetilmiş adaya mesafe kapısı** — 379/696 km listeye girmesin.
+4. ~~**Gevşetilmiş adaya mesafe kapısı** — 379/696 km listeye girmesin.~~
+   ✅ **KAPATILDI (2026-08-12, kütük #547)** — ölçüm kusurun daha geniş olduğunu
+   gösterdi: mesafe zincirin HİÇBİR yerinde karar değişkeni değildi (şehirsiz
+   sorguda en yakın aday listenin üçüncüsü; şehir belirtilmiş sorguda yakınlık
+   istenen şehri eziyordu). `geo/locationBiasGate` ile çözüldü: şehir yoksa
+   EN YAKIN öncelikli, şehir varsa O ŞEHİR kesin. Cihazda doğrulanmadı.
 5. **Ayrıştırıcı düzeltmesi** (§3.7): `PLACE_SUFFIX_RE` çapası + `İ` indeks kayması.
    `İ` kusuru **üç ayrı yerde** — tek otoriteye indirilmeli.
 6. **İki yüzeyi tek zincire indir** (§3.6) — `searchPlaces` ile `geocodeAddress`

@@ -21,6 +21,7 @@ import { filterNumberedStreetMismatch } from './geocodingService';
 import { searchStreetByName, extractStreetQuery } from './streetSearchService';
 import { describeQueryShape, type AddressSearchStage } from './geo/addressSearchLedger';
 import { recordAddressSearch } from './geo/addressSearchLedgerStore';
+import { applyLocationBias } from './geo/locationBiasGate';
 
 // ── Public API re-exports (delegation) ───────────────────────────────────────
 export * from './map/MapCore';
@@ -111,6 +112,29 @@ export async function searchPlaces(
   const _shape = describeQueryShape(query);
   let   _stage: AddressSearchStage = 'NONE';
   let   _rejected: number | null   = null;
+  let   _biasDropped: number | null = null;
+
+  /* ── KONUM/ŞEHİR KAPISI (2026-08-12) ───────────────────────────────────────
+   * ÖLÇÜLDÜ: bu yüzey `countrycodes`/viewbox bias KULLANMADIĞI için "Bağlar
+   * Mahallesi" sorgusuna ilk aday olarak **Siverek/Şanlıurfa 405 km** dönüyordu;
+   * en yakın aday listenin SONUNDAYDI. Adres zinciriyle AYNI saf kapı burada da
+   * çağrılır — iki yüzeyin ayrışması bu projenin tekrar eden saha kusurudur. */
+  const _origin = (userLat != null && userLng != null) ? { lat: userLat, lng: userLng } : null;
+  const _gate = (hits: StoredLocation[]): StoredLocation[] => {
+    if (hits.length === 0) return hits;
+    const r = applyLocationBias(
+      query,
+      hits.map((h) => ({ ...h, fullName: h.address ?? h.name })),
+      _origin,
+    );
+    _biasDropped = (_biasDropped ?? 0) + r.droppedFar + r.droppedWrongCity;
+    /* `fullName` yalnız kapının okuması için eklenmişti — dışarı SIZMAZ. */
+    return r.kept.map((c) => {
+      const { fullName: _drop, ...rest } = c.item;
+      void _drop;
+      return rest;
+    });
+  };
   const _finish = (results: StoredLocation[]): StoredLocation[] => {
     recordAddressSearch({
       surface:             'MAP_SEARCH_BAR',
@@ -120,7 +144,10 @@ export async function searchPlaces(
       queryLostRoadType:   false,
       stage:               _stage,
       resultCount:         results.length,
-      rejectedCount:       _rejected,
+      /* Kapı da bir DOĞRULAMA filtresidir → toplam elemeye girer; ayrıştırılmış
+         hâli `biasDroppedCount`tadır (bkz. geocodingService.done). */
+      rejectedCount:       (_rejected === null && _biasDropped === null)
+        ? null : (_rejected ?? 0) + (_biasDropped ?? 0),
       providerMs:          Date.now() - _t0,
       /* Bu yüzey fast-fail kullanmaz (tek 5 s'lik istek) → "beklemeyi bıraktık mı"
          sorusu burada ANLAMSIZ; sahte `false` yerine ölçülmedi (`null`). */
@@ -129,6 +156,7 @@ export async function searchPlaces(
       online:              typeof navigator === 'undefined' ? null : navigator.onLine,
       fallbackQueryUsable: (userLat != null && userLng != null)
         ? extractStreetQuery(query) !== null : null,
+      biasDroppedCount:    _biasDropped,
       /* Liste kullanıcıya sunulur; SEÇİM kanıtı sonra gelir (noteAddressSearchChoice). */
       outcome:             results.length === 0 ? 'EMPTY' : 'AWAITING_CHOICE',
     }, 'mapService.searchPlaces');
@@ -166,27 +194,29 @@ export async function searchPlaces(
     onlineRaw.map((h) => ({ ...h, fullName: h.address ?? h.name })),
   );
   _rejected = onlineRaw.length - onlineHits.length;
-  if (onlineHits.length && _stage === 'NONE') _stage = 'NOMINATIM';
-  combined.push(...onlineHits);
+  /* Numara doğrulamasından SONRA konum/şehir kapısı: önce "doğru sokak mı",
+     sonra "doğru şehirde / ulaşılabilir mi". */
+  const onlineGated = _gate(onlineHits.map(({ fullName: _f, ...rest }) => { void _f; return rest; }));
+  if (onlineGated.length && _stage === 'NONE') _stage = 'NOMINATIM';
+  combined.push(...onlineGated);
 
   /* 4 — Sokak adıyla doğrudan OSM (Overpass). Nominatim Türkçe numaralı
    *     sokakları eşleştiremiyor (ölçüldü, kütük #336); Overpass tam eşleşme
    *     verir. Fail-soft: konum yoksa/hata olursa boş döner. */
   if (combined.length === 0) {
     const streets = await searchStreetByName(query, userLat, userLng);
-    if (streets.length) _stage = 'OVERPASS_STREET';
-    for (const s of streets) {
-      combined.push({
-        id:        s.id,
-        name:      s.name,
-        address:   s.fullName,
-        lat:       s.lat,
-        lng:       s.lng,
-        source:    'search',
-        timestamp: Date.now(),
-        useCount:  0,
-      });
-    }
+    const gatedStreets = _gate(streets.map((s) => ({
+      id:        s.id,
+      name:      s.name,
+      address:   s.fullName,
+      lat:       s.lat,
+      lng:       s.lng,
+      source:    'search' as const,
+      timestamp: Date.now(),
+      useCount:  0,
+    })));
+    if (gatedStreets.length) _stage = 'OVERPASS_STREET';
+    combined.push(...gatedStreets);
   }
 
   return _finish(_dedup(combined).slice(0, maxResults));

@@ -172,6 +172,14 @@ export function buildAddressSearchView(snap: AddressSearchRawSnapshot): AddressS
       'OBSERVED', src, 'liste sunuldu, kullanıcı henüz dokunmadı — orana GİRMEZ'),
     field('superseded', 'Yargılanmayan', String(s.supersededCount),
       'OBSERVED', src, 'kullanıcı yazmaya devam etti (debounce) — orana GİRMEZ'),
+    /* Konum/şehir kapısı KULLANICIDAN aday GİZLER → etkisi görünür olmalı.
+       Hiç çalışmadıysa "0 elendi" değil, ÖLÇÜLMEDİ gösterilir. */
+    field('bias', 'Konum/şehir kapısında elenen',
+      s.biasDroppedTotal === null ? NA : String(s.biasDroppedTotal),
+      s.biasDroppedTotal === null ? 'UNAVAILABLE' : 'OBSERVED', src,
+      s.biasDroppedTotal === null
+        ? 'kapı hiç çalışmadı (aday yoktu) — sahte 0 gösterilmez'
+        : 'yanlış il KANITI olan + gevşetilmiş & çok uzak adaylar'),
     field('confidence', 'Ortalama kanıt sağlamlığı',
       s.meanConfidence === null ? NA : String(s.meanConfidence),
       s.meanConfidence === null ? 'UNAVAILABLE' : 'DERIVED', src,

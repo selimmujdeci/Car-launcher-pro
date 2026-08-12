@@ -42,6 +42,7 @@ function sample(over: Partial<AddressSearchSample> = {}): AddressSearchSample {
     hadLocation: true,
     online: true,
     fallbackQueryUsable: true,
+    biasDroppedCount: null,
     outcome: 'RESOLVED_AUTO',
     ...over,
   };
@@ -272,7 +273,7 @@ describe('defter halkası ve store', () => {
       shape: describeQueryShape('Mersin Yenişehir'),
       queryRewritten: false, queryLostRoadType: false,
       stage: 'NOMINATIM' as const, resultCount: 3, rejectedCount: 0,
-      providerMs: 300, fastFailHit: false, hadLocation: true, online: true, fallbackQueryUsable: null,
+      providerMs: 300, fastFailHit: false, hadLocation: true, online: true, fallbackQueryUsable: null, biasDroppedCount: null,
       outcome: 'AWAITING_CHOICE' as const,
     };
     recordAddressSearch(input, 'mapService.searchPlaces');

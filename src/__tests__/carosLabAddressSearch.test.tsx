@@ -42,6 +42,7 @@ function failing(over: Partial<AddressSearchSample> = {}): AddressSearchRecord {
     hadLocation: true,
     online: true,
     fallbackQueryUsable: false,
+    biasDroppedCount: null,
     outcome: 'EMPTY',
     ...over,
   }, SRC);
@@ -90,7 +91,7 @@ describe('CAROS LAB · Adres Arama Kanıtı — model', () => {
       shape: describeQueryShape('Mersin Forum'),
       queryRewritten: false, queryLostRoadType: false,
       stage: 'NOMINATIM', resultCount: 4, rejectedCount: 0,
-      providerMs: 615, fastFailHit: false, hadLocation: true, online: true, fallbackQueryUsable: null,
+      providerMs: 615, fastFailHit: false, hadLocation: true, online: true, fallbackQueryUsable: null, biasDroppedCount: null,
       outcome: 'AWAITING_CHOICE',
     }, 'mapService.searchPlaces');
     const v = buildAddressSearchView(snap([pending]));

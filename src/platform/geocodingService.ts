@@ -19,6 +19,7 @@ import type { POISearchResult }      from './offlineSearchService';
 import { searchStreetByName, extractStreetQuery } from './streetSearchService';
 import { premiumGeocode }            from './geocodingProviders';
 import type { AddressSearchStage }   from './geo/addressSearchLedger';
+import { applyLocationBias, type LocationBiasMode } from './geo/locationBiasGate';
 
 const NOMINATIM          = 'https://nominatim.openstreetmap.org/search';
 const NOMINATIM_REVERSE  = 'https://nominatim.openstreetmap.org/reverse';
@@ -48,7 +49,12 @@ export interface GeoResult {
   lat:         number;
   lng:         number;
   type:        string;       // nominatim class/type
-  distanceKm?: number;       // yalnızca nearby sonuçlarda
+  /**
+   * Kullanıcının konumuna ÖLÇÜLEN mesafe (km). Konum yoksa alan HİÇ konmaz —
+   * sahte 0 YASAK. (Eskiden yalnız `searchNearby` doldururdu; artık konum
+   * bilindiğinde adres sonuçları da taşır — bkz. `geo/locationBiasGate`.)
+   */
+  distanceKm?: number;
   source?:     'online' | 'offline'; // fallback kaynak etiketi
   /**
    * Sonuç, kullanıcının SÖYLEDİĞİ sorguyla değil GEVŞETİLMİŞ bir varyantla
@@ -57,6 +63,17 @@ export interface GeoResult {
    * "Adana" yerine "Ada"ya götürmek, bulamamaktan daha kötüdür.
    */
   relaxed?:    boolean;
+  /**
+   * Sorguda ŞEHİR belirtilmemişken sonuç kullanıcıdan `FAR_FROM_USER_KM`'den
+   * uzakta. ELENMEZ (uzağa gidiyor olabilir) ama OTOMATİK ROTAYA ÇEVRİLMEZ.
+   */
+  farFromUser?: boolean;
+  /**
+   * Sorguda şehir AÇIKÇA belirtildi ama sonucun adı hangi ilde olduğunu
+   * SÖYLEMİYOR (ör. Overpass yalın "0469. Sokak" döner) → doğru şehirde olduğu
+   * KANITLANAMADI. Elenmez, onaya düşer: "bilmiyoruz" ≠ "yanlış".
+   */
+  cityUnverified?: boolean;
 }
 
 /* ── Sorgu gevşetme merdiveni ────────────────────────────────────────────────
@@ -237,6 +254,14 @@ export interface GeocodeTrace {
   readonly online: boolean;
   /** Overpass son şansı için kullanılabilir sokak sorgusu üretilebildi mi. */
   readonly fallbackQueryUsable: boolean | null;
+  /**
+   * Konum/şehir kapısının (`geo/locationBiasGate`) eledİĞİ aday sayısı.
+   * `null` = kapı hiç çalışmadı (aday yoktu). `rejectedCount` içinde de
+   * sayılır — bu alan o toplamın AYRIŞTIRILMIŞ hâlidir.
+   */
+  readonly biasDroppedCount: number | null;
+  /** Kapının çalıştığı mod. `null` = aday yoktu. */
+  readonly biasMode: LocationBiasMode | null;
 }
 
 const _traces = new WeakMap<object, GeocodeTrace>();
@@ -401,20 +426,59 @@ export async function geocodeAddress(
     results.length === 0 ? 'NONE'
       : results[0].type === 'offline/history' ? 'LOCAL_HISTORY' : 'LOCAL_POI';
 
+  /** Konum/şehir kapısının bu çağrı boyunca eledİĞİ toplam aday. */
+  let biasDropped = 0;
+  /** Kapının EN SON çalıştığı mod — hiç aday görmediyse `null` kalır. */
+  let biasMode: LocationBiasMode | null = null;
+
+  /**
+   * KONUM/ŞEHİR KAPISI — her katmanın adayları buradan geçer.
+   *
+   * Katman katman uygulanır (tek çıkışta DEĞİL) çünkü kapı bir katmanı
+   * boşaltırsa merdiven DEVAM ETMELİDİR: yanlış şehirdeki bir Nominatim
+   * cevabı, gevşetme varyantlarını ve Overpass son şansını iptal ettirmez.
+   * Kapı SAFTIR, sorguyu DEĞİŞTİRMEZ (bkz. geo/locationBiasGate).
+   */
+  const gate = (results: GeoResult[]): GeoResult[] => {
+    if (results.length === 0) return results;
+    const bias = applyLocationBias(
+      query,
+      results,
+      hadLocation ? { lat: currentLat as number, lng: currentLng as number } : null,
+    );
+    biasDropped += bias.droppedFar + bias.droppedWrongCity;
+    biasMode = bias.mode;
+    return bias.kept.map((c) => {
+      const unverified = bias.mode === 'CITY_SCOPED' && c.cityEvidence === 'UNKNOWN';
+      if (c.distanceKm === null && !c.farFromUser && !unverified) return c.item;
+      return {
+        ...c.item,
+        ...(c.distanceKm !== null ? { distanceKm: c.distanceKm } : {}),
+        ...(c.farFromUser ? { farFromUser: true } : {}),
+        ...(unverified ? { cityUnverified: true } : {}),
+      };
+    });
+  };
+
   const done = (results: GeoResult[], stage: AddressSearchStage): GeoResult[] =>
     _trace(results, {
       stage,
-      rejectedCount: filterRan ? rejected : null,
+      /* Kapı bir DOĞRULAMA filtresidir → elemesi bu toplama GİRER (defter
+         "sonuç geldi ama elendi"yi bununla ayırt eder); ayrıştırılmış hâli
+         `biasDroppedCount`tadır. */
+      rejectedCount: filterRan || biasDropped > 0 ? rejected + biasDropped : null,
       providerMs:    Date.now() - t0,
       fastFailHit,
       hadLocation,
       online,
       fallbackQueryUsable,
+      biasDroppedCount: biasMode === null ? null : biasDropped,
+      biasMode,
     });
 
   /* Hızlı yol: ağ bağlantısı yok → rate-limiter atlanır, anında offline */
   if (typeof navigator !== 'undefined' && !navigator.onLine) {
-    const off = await _offlineFallback(query, currentLat, currentLng);
+    const off = gate(await _offlineFallback(query, currentLat, currentLng));
     return done(off, _offlineStage(off));
   }
 
@@ -423,7 +487,9 @@ export async function geocodeAddress(
      varsa OSM'de ADI OLMAYAN sokaklar da çözülür — ölçülen kök sorun buydu
      (bkz. geocodingProviders.ts başlığındaki saha ölçümü). Fail-soft: sağlayıcı
      boş/hata dönerse aşağıdaki ücretsiz zincir aynen devam eder. */
-  const premium = await premiumGeocode(query, currentLat, currentLng);
+  /* Kapı premium sonucu BOŞALTIRSA (hepsi yanlış şehirde) ücretsiz zincir
+     devam eder — "sağlayıcı konuştu" ile "doğru cevabı verdi" aynı şey değil. */
+  const premium = gate(await premiumGeocode(query, currentLat, currentLng));
   if (premium.length) return done(premium, 'PREMIUM');
 
   const first = await _nominatimOnce(query, currentLat, currentLng);
@@ -435,7 +501,7 @@ export async function geocodeAddress(
     /* Bekleme bırakıldı ya da ağ düştü — ikisi de bu dalda buluşur (çağıran
        ayırt edemez, bu yüzden tek bayrak). */
     fastFailHit = true;
-    const off = await _offlineFallback(query, currentLat, currentLng);
+    const off = gate(await _offlineFallback(query, currentLat, currentLng));
     return done(off, _offlineStage(off));
   }
 
@@ -443,7 +509,10 @@ export async function geocodeAddress(
   const firstOk = filterNumberedStreetMismatch(query, first);
   filterRan = true;
   rejected += first.length - firstOk.length;
-  if (firstOk.length) return done(firstOk, 'NOMINATIM');
+  /* Konum/şehir kapısı numara doğrulamasından SONRA çalışır: önce "doğru
+     sokak mı", sonra "doğru şehirde / ulaşılabilir mi". */
+  const firstGated = gate(firstOk);
+  if (firstGated.length) return done(firstGated, 'NOMINATIM');
 
   /* 0 sonuç (veya hepsi yanlış sokak) → sorguyu BOZMADAN varyantları dene */
   for (const variant of relaxQueryVariants(query)) {
@@ -453,16 +522,17 @@ export async function geocodeAddress(
     // numarayı düşürmüş olsa bile kullanıcı hâlâ o sokağı istiyor.
     const ok = filterNumberedStreetMismatch(query, r);
     rejected += r.length - ok.length;
-    if (ok.length) {
-      return done(ok.map((x) => ({ ...x, relaxed: true })), 'NOMINATIM_RELAXED');
-    }
+    /* `relaxed` işareti kapıdan ÖNCE konur: mesafe kapısı "gevşetilmiş VE çok
+       uzak" adayı elemek için bu işarete bakar (teşhis §3.5 — 379/696 km). */
+    const okGated = gate(ok.map((x) => ({ ...x, relaxed: true })));
+    if (okGated.length) return done(okGated, 'NOMINATIM_RELAXED');
   }
 
   /* SON ŞANS — sokak/cadde ADIYLA doğrudan OSM'e sor.
      Nominatim numaralı Türk sokaklarını eşleştiremiyor (ölçüldü); Overpass
      aynı veriyi TAM eşleşmeyle veriyor. Fail-soft: hata/timeout → boş dizi,
      navigasyon bu yola bağımlı değildir. Konum yoksa hiç çağrılmaz. */
-  const streets = await searchStreetByName(query, currentLat, currentLng);
+  const streets = gate(await searchStreetByName(query, currentLat, currentLng));
   if (streets.length) return done(streets, 'OVERPASS_STREET');
 
   // Hâlâ yok: boş dön — çağıran (addressNavigationEngine) cihaz-içi aramayı

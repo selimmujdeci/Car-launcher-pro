@@ -327,6 +327,16 @@ export interface AddressSearchSample {
   readonly online: boolean | null;
   /** Son şans (Overpass) için kullanılabilir bir sorgu üretilebildi mi. */
   readonly fallbackQueryUsable: boolean | null;
+  /**
+   * Konum/şehir kapısının (`geo/locationBiasGate`) eledİĞİ aday sayısı —
+   * yanlış ilde olduğu KANITLI olanlar + gevşetilmiş & çok uzak olanlar.
+   * `null` = kapı hiç çalışmadı (aday yoktu ya da çağıran bildirmedi).
+   *
+   * `rejectedCount` içinde de sayılır; bu alan o toplamın AYRIŞTIRILMIŞ
+   * hâlidir ("numara doğrulaması mı eledi, konum kapısı mı" sorusu sahada
+   * ayırt edilebilsin diye).
+   */
+  readonly biasDroppedCount: number | null;
   readonly outcome: AddressSearchOutcome;
 }
 
@@ -355,6 +365,8 @@ export interface AddressSearchRecord {
   readonly rejectedCount: number | null;
   readonly providerMs: number | null;
   readonly fastFailHit: boolean | null;
+  /** Konum/şehir kapısının eledİĞİ aday sayısı. `null` = kapı çalışmadı. */
+  readonly biasDroppedCount: number | null;
 }
 
 /** Kullanıcı seçimi kanıtı — liste sunulduktan SONRA bilinir. */
@@ -423,7 +435,15 @@ export function classifyAddressSearch(
       why = 'sağlayıcı yanıtı beklenmeden bırakıldı — doğru cevap gelse bile kullanılmadı';
     } else if (sample.rejectedCount !== null && sample.rejectedCount > 0) {
       cls = 'PROVIDER_FUZZY_REJECTED';
-      why = `${sample.rejectedCount} sonuç geldi, doğrulama hepsini eledi`;
+      /* HANGİ doğrulamanın elediği ayırt edilir: numara eşleşmesi mi, yoksa
+         konum/şehir kapısı mı. İkisi FARKLI sonraki adım gerektirir — biri
+         sağlayıcı bulanıklığı, öteki "aranan yer başka ilde/çok uzakta". */
+      const bias = sample.biasDroppedCount ?? 0;
+      why = bias > 0 && bias >= sample.rejectedCount
+        ? `${bias} aday konum/şehir kapısında elendi (yanlış il ya da gevşetilmiş + çok uzak)`
+        : bias > 0
+          ? `${sample.rejectedCount} sonuç elendi (${bias}'i konum/şehir kapısında)`
+          : `${sample.rejectedCount} sonuç geldi, doğrulama hepsini eledi`;
     } else if (sample.hadLocation === false) {
       cls = 'LOCATION_MISSING';
       why = 'konum yok — Overpass son şansı hiç denenmedi';
@@ -486,6 +506,7 @@ export function classifyAddressSearch(
     rejectedCount: sample.rejectedCount,
     providerMs: sample.providerMs,
     fastFailHit: sample.fastFailHit,
+    biasDroppedCount: sample.biasDroppedCount,
   };
 }
 
@@ -599,6 +620,11 @@ export interface AddressSearchSummary {
   readonly dominantFailure: AddressSearchFailureClass | null;
   readonly medianProviderMs: number | null;
   readonly slowCount: number;
+  /**
+   * Konum/şehir kapısının TOPLAM elediği aday. `null` = hiçbir kayıtta kapı
+   * çalışmadı → "0 elendi" İDDİA EDİLMEZ (sahte 0 yasağı).
+   */
+  readonly biasDroppedTotal: number | null;
   readonly evidenceGapCounts: Readonly<Record<AddressSearchEvidenceGap, number>>;
   /** En çok eksik olan kanıt → "önce bunu ölç". Kayıt/boşluk yoksa `null`. */
   readonly nextMeasurement: AddressSearchEvidenceGap | null;
@@ -650,8 +676,10 @@ export function summarizeAddressSearches(
   let awaitingChoiceCount = 0;
   let supersededCount = 0;
   let slowCount = 0;
+  let biasDroppedTotal: number | null = null;
 
   for (const r of ledger) {
+    if (r.biasDroppedCount !== null) biasDroppedTotal = (biasDroppedTotal ?? 0) + r.biasDroppedCount;
     byStage[r.stage] += 1;
     byFailureClass[r.refinedFailureClass] += 1;
     bySurface[r.surface] += 1;
@@ -698,6 +726,7 @@ export function summarizeAddressSearches(
     dominantFailure,
     medianProviderMs: _median(latencies),
     slowCount,
+    biasDroppedTotal,
     evidenceGapCounts,
     nextMeasurement: gapRank.length > 0 && gapRank[0][1] > 0 ? gapRank[0][0] : null,
     meanConfidence: confidences.length > 0
