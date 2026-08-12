@@ -61,12 +61,18 @@ describe('Zero-trust · donanım hız çelişki kapısı', () => {
       workerSrc.indexOf('const valHAL = _valSignals.HAL?.speed;'),
       workerSrc.indexOf('// ── Legacy yol'),
     );
-    for (const src of ['cHAL', 'cCAN', 'cOBD']) {
-      const line = new RegExp(`const ${src} = _hwSpeedContradicted\\(`);
-      expect(val).toMatch(line);
+    /* 2026-08-12: karar `confidence × tazelik` YARIŞI olmaktan çıkıp ÖNCELİK
+       sırasına döndü (bkz. speedSourcePolicy). Kilidin NİYETİ değişmedi ve
+       aynen korunur: çelişki kapısı üç DONANIM kaynağına uygulanır, GPS'e
+       uygulanmaz. Değişen yalnız ifadenin adı (`cXXX` → `okXXX`). */
+    for (const src of ['okHAL', 'okCAN', 'okOBD']) {
+      const line = new RegExp(`const ${src} = [\\s\\S]{0,140}!_hwSpeedContradicted\\(`);
+      expect(val, `${src}: çelişki kapısı kaldırılmış`).toMatch(line);
     }
     // GPS referans kaynaktır — kendi kendini çelişkiye düşüremez
-    expect(val).not.toMatch(/const cGPS = _hwSpeedContradicted/);
+    expect(val).not.toMatch(/const okGPS = [\s\S]{0,140}_hwSpeedContradicted/);
+    // Eski YARIŞ geri gelmemeli — kaynak seçimi skor karşılaştırmasıyla YAPILMAZ
+    expect(val, 'confidence yarışı geri döndü').not.toMatch(/_effectiveConf\(/);
   });
 
   it('legacy yol: çelişen donanım kaynağı ATLANIR → GPS’e düşülür', () => {

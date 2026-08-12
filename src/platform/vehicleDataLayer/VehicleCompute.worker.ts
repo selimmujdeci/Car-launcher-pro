@@ -22,6 +22,7 @@ import type { NormalizedVehicleData, SignalSource } from './valTypes';
 import { OdometerGuard } from './OdometerGuard';
 import { createSourceHealthGate } from './sourceHealthGate';
 import { createObdCadenceGate } from './obdCadenceGate';
+import { isSpeedSourceUsable, pickSpeedSource } from './speedSourcePolicy';
 
 // ── Mesaj protokolü ──────────────────────────────────────────────────────
 
@@ -233,14 +234,20 @@ function _isValBufferSource(v: unknown): v is ValBufferSource {
   return typeof v === 'string' && VAL_BUFFER_SOURCES.has(v);
 }
 
-/** Efektif güven: signal.confidence × tazelik faktörü */
-function _effectiveConf(
+/**
+ * VAL sinyali KULLANILABİLİR mi — saf politikaya (`speedSourcePolicy`) köprü.
+ *
+ * Eskiden burada `_effectiveConf` (confidence × tazelik) vardı ve kaynaklar bu
+ * skorla YARIŞTIRILIYORDU. Hız için o yarış saha kusuru üretti (bkz.
+ * `_resolveSpeedSource`): OBD kadansı GPS'ten yavaş olduğu için OBD paketleri
+ * ARASINDA skoru düşüyor ve araç OBD'ye bağlıyken bile hız GPS'e geçiyordu.
+ * Karar artık ÖNCELİK sırasıyla verilir; bu fonksiyon yalnız UYGUNLUK söyler.
+ */
+function _valUsable(
   sig: { confidence: number; ts: number } | undefined,
   timeoutMs: number,
-): number {
-  if (!sig) return 0;
-  const age = Date.now() - sig.ts;
-  return sig.confidence * Math.max(0, 1 - age / timeoutMs);
+): boolean {
+  return isSpeedSourceUsable(sig != null, sig?.confidence ?? 0, sig ? Date.now() - sig.ts : 0, timeoutMs);
 }
 
 // ── Hız durumu ────────────────────────────────────────────────────────────
@@ -1055,26 +1062,54 @@ function _resolveSpeedSource(): void {
   const valGPS = _valSignals.GPS?.speed;
 
   if (valHAL || valCAN || valOBD || valGPS) {
-    // Efektif güven = temel güven × tazelik — en yüksek skora sahip kaynak kazanır
-    const cHAL = _hwSpeedContradicted(valHAL?.value, valGPS?.value)
-      ? 0 : _effectiveConf(valHAL, SRC_TIMEOUT_HAL_MS);
-    const cCAN = _hwSpeedContradicted(valCAN?.value, valGPS?.value)
-      ? 0 : _effectiveConf(valCAN, SRC_TIMEOUT_CAN_MS);
-    const cOBD = _hwSpeedContradicted(valOBD?.value, valGPS?.value)
-      ? 0 : _effectiveConf(valOBD, _obdTimeoutMs());
-    const cGPS = _gpsGhostSpeed(valGPS?.value)
-      ? 0 : _effectiveConf(valGPS, SRC_TIMEOUT_GPS_MS);
+    /* ── ÖNCELİK, YARIŞ DEĞİL (saha 2026-08-12) ──────────────────────────────
+     * ÖLÇÜLEN KUSUR: kullanıcı "OBD bağlıyken bile hız GPS'ten geliyor" dedi ve
+     * haklıydı. Eski kod kaynakları `confidence × tazelik` skoruyla YARIŞTIRIYORDU:
+     *     cOBD = 0,85 × (1 − yaş/OBD_eşiği)     cGPS = 0,70 × (1 − yaş/5 s)
+     * OBD kadansı sahada ölçülmüştü: **~4,3 s** (bkz. obdCadenceGate başlığı), GPS ise
+     * **1 Hz**. Yani OBD skoru her paketten hemen sonra 0,85'ten başlayıp bir sonraki
+     * pakete kadar 0,42'ye kadar düşüyor; GPS ise 0,63–0,70 bandında SABİT kalıyordu.
+     * Sonuç: iki OBD paketi ARASINDAKİ sürenin çoğunda GPS kazanıyordu — üstelik
+     * kaynak saniyeler içinde OBD↔GPS arasında gidip geliyordu (hız/ETA/sürüş modu
+     * titremesi; aynı titreme #2026-07-25 snapshot'ında odometreye sahte mesafe
+     * yazdırmıştı).
+     *
+     * KURAL (kullanıcı kararı): **OBD bağlı ve TAZE ise OBD; değilse GPS.**
+     * Hiyerarşi HAL > CAN > OBD > GPS — bu zaten legacy yolun (aşağıda) davranışıydı;
+     * iki yol arasındaki ayrışma da böylece kapanır.
+     *
+     * GÜVENLİK KAPILARI AYNEN DURUYOR (öncelik onları EZMEZ):
+     *   · `_hwSpeedContradicted` — donanım "0" derken GPS hareket + motor dönüyorsa
+     *     donanım kaynağı ELENİR (Trafic/KWP `010D`=0 vakası) → GPS'e düşülür.
+     *   · `_gpsGhostSpeed` — araç gerçekten dururken GPS gürültüsü kazanamaz.
+     *   · Tazelik — bayat kaynak öncelik sırasına GİREMEZ (`_valUsable`); OBD eşiği
+     *     gözlenen kadanstan öğrenilir (5–20 s), sabit değildir.
+     *
+     * BİLİNEN ÖDÜNÇ (dürüstlük): taze sayılan bir OBD okuması kadans gereği GPS
+     * okumasından ESKİ olabilir. Aracın kendi tekerlek hızını, kaynak titremesine
+     * ve GPS Doppler gürültüsüne tercih etmek bilinçli bir karardır. */
+    const okHAL = _valUsable(valHAL, SRC_TIMEOUT_HAL_MS)
+      && !_hwSpeedContradicted(valHAL!.value, valGPS?.value);
+    const okCAN = _valUsable(valCAN, SRC_TIMEOUT_CAN_MS)
+      && !_hwSpeedContradicted(valCAN!.value, valGPS?.value);
+    const okOBD = _valUsable(valOBD, _obdTimeoutMs())
+      && !_hwSpeedContradicted(valOBD!.value, valGPS?.value);
+    const okGPS = _valUsable(valGPS, SRC_TIMEOUT_GPS_MS)
+      && !_gpsGhostSpeed(valGPS!.value);
 
-    if (cHAL >= cCAN && cHAL >= cOBD && cHAL >= cGPS && cHAL > 0) {
+    /* Sıralama SAF politikadadır (`speedSourcePolicy.pickSpeedSource`) — burada
+       ikinci bir öncelik tablosu TUTULMAZ; kilit testleri o modülü sınar. */
+    const pick = pickSpeedSource(okHAL, okCAN, okOBD, okGPS);
+    if (pick === 'HAL') {
       _resolvedSpeed = valHAL!.value; _resolvedSrc = 'HAL';
-    } else if (cCAN >= cOBD && cCAN >= cGPS && cCAN > 0) {
+    } else if (pick === 'CAN') {
       _resolvedSpeed = valCAN!.value; _resolvedSrc = 'CAN';
-    } else if (cOBD >= cGPS && cOBD > 0) {
+    } else if (pick === 'OBD') {
       _resolvedSpeed = valOBD!.value; _resolvedSrc = 'OBD';
-    } else if (cGPS > 0) {
+    } else if (pick === 'GPS') {
       _resolvedSpeed = valGPS!.value; _resolvedSrc = 'GPS';
     }
-    // _resolvedSpeed == null → tüm kaynaklar stale (efektif güven 0) → null emit yoluna düş
+    // _resolvedSpeed == null → hiçbir kaynak uygun değil (hepsi bayat/elenmiş) → null emit
 
     // HAL hız=0 iken GPS > 5 km/h → AAOS sensör anormalliği uyarısı (yalnız gözlem;
     // gerçek çelişki eşiği aşılırsa güven zaten yukarıda 0'a düşürüldü → kaynak GPS olur).

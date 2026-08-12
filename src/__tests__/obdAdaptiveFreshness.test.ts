@@ -117,8 +117,10 @@ describe('VehicleCompute.worker — adaptif eşik ve hayalet kapısı bağlantı
       expect(call, `sabit eşikli OBD tazelik kontrolü kaldı: ${call}`)
         .toMatch(/_obdTimeoutMs\(\)/);
     }
-    // VAL füzyonundaki güven hesabı da adaptif eşiği kullanmalı
-    expect(workerSrc).toMatch(/_effectiveConf\(valOBD,\s*_obdTimeoutMs\(\)\)/);
+    /* VAL yolundaki uygunluk kararı da adaptif eşiği kullanmalı. 2026-08-12'de
+       `_effectiveConf` (yarış skoru) yerini `_valUsable`a (uygunluk) bıraktı —
+       kilidin niyeti aynı: OBD tazeliği SABİT bir sayıya bağlanamaz. */
+    expect(workerSrc).toMatch(/_valUsable\(valOBD,\s*_obdTimeoutMs\(\)\)/);
     // Sağlık kapısı (SOURCE_HEALTH → HAL) da aynı eşiği görmeli
     expect(workerSrc).toMatch(/_healthGate\.decide\(now,\s*_obdLastSeen,\s*_obdTimeoutMs\(\)/);
   });
@@ -140,8 +142,11 @@ describe('VehicleCompute.worker — adaptif eşik ve hayalet kapısı bağlantı
   });
 
   it('KİLİT: GPS hayalet hızı füzyonu KAZANAMAZ (duran araçta sahte km yok)', () => {
+    /* 2026-08-12: kaynak seçimi YARIŞ → ÖNCELİK oldu; kapı artık uygunluk
+       ifadesinin parçası (`okGPS = _valUsable(...) && !_gpsGhostSpeed(...)`).
+       KİLİDİN NİYETİ AYNI: park hâlindeki GPS gürültüsü kaynak olarak seçilemez. */
     expect(workerSrc, 'GPS hayalet kapısı kaldırıldı — park hâlinde GPS gürültüsü geri döner')
-      .toMatch(/_gpsGhostSpeed\(valGPS\?\.value\)\s*\n?\s*\?\s*0\s*:\s*_effectiveConf\(valGPS/);
+      .toMatch(/const okGPS = _valUsable\(valGPS,[\s\S]{0,80}!_gpsGhostSpeed\(valGPS!\.value\)/);
   });
 
   it('KİLİT: hayalet kapısı ile `_hwSpeedContradicted` ÇAKIŞMAZ (Trafic vakası korunur)', () => {

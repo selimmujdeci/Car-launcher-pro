@@ -2299,7 +2299,7 @@ describe('CAROS LAB kopyalama sızıntı kilidi', () => {
     expect(vehicleComputeWorkerSrc, 'adaptif kadans kapısı kaldırılmış')
       .toMatch(/createObdCadenceGate/);
     expect(vehicleComputeWorkerSrc, 'GPS hayalet kapısı kaldırılmış — sahte km geri döner')
-      .toMatch(/_gpsGhostSpeed\(valGPS\?\.value\)/);
+      .toMatch(/!_gpsGhostSpeed\(valGPS!\.value\)/);
   });
 });
 
