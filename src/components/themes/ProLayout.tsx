@@ -18,7 +18,7 @@ import { useLivingThemeState } from '../../hooks/useLivingThemeState';
 import { useDeviceStatus } from '../../platform/deviceApi';
 import { StatusControls } from '../common/StatusControls';
 import { useOBDState } from '../../platform/obdService';
-import { useDisplaySpeed } from '../../hooks/useDisplaySpeed';
+import { useDisplaySpeed, formatDisplaySpeed } from '../../hooks/useDisplaySpeed';
 import { useMediaState, togglePlayPause, startMediaHub, stopMediaHub } from '../../platform/mediaService';
 import { next, previous, resumeLastMedia, previewLastMedia, seek } from '../../platform/media/carosMediaLayer';
 import { preloadYouTubeIfAffordable } from '../../platform/youtubeService';
@@ -191,7 +191,10 @@ const GaugeCard = memo(function GaugeCard() {
   const p = usePal();
   const obd = useOBDState();
   const { playing, track } = useMediaState();
-  const speedKmh = useDisplaySpeed() ?? 0;
+  /* Gösterim TEK biçimleyiciden geçer — ham GPS hızı ondalıklıdır ve
+     yuvarlanmadan basılınca göstergeyi taşırır (saha 2026-08-12). */
+  const rawSpeed = useDisplaySpeed();
+  const speedKmh = rawSpeed ?? 0;   // yalnız yay/oran hesabı için
   // Canlı kapısı + gerçek menzil (sabit 750 km katsayısı UYDURMAYDI) — bkz. isObdReadingLive.
   const range = isObdReadingLive(obd) && obd.estimatedRangeKm != null && obd.estimatedRangeKm >= 0
     ? Math.round(obd.estimatedRangeKm)
@@ -221,7 +224,7 @@ const GaugeCard = memo(function GaugeCard() {
           )}
         </svg>
         <div className="absolute inset-0 flex flex-col items-center justify-center">
-          <span style={{ fontSize: 40, fontWeight: 800, color: p.inkCritical, lineHeight: 1, fontVariantNumeric: 'tabular-nums', letterSpacing: '-1px' }}>{speedKmh}</span>
+          <span style={{ fontSize: 40, fontWeight: 800, color: p.inkCritical, lineHeight: 1, fontVariantNumeric: 'tabular-nums', letterSpacing: '-1px' }}>{formatDisplaySpeed(rawSpeed)}</span>
           <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.22em', color: p.ink3, marginTop: 2 }}>KM/S</span>
         </div>
       </div>

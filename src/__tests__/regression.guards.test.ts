@@ -6009,3 +6009,80 @@ describe('🔒 KİLİT 26 · konum/şehir kapısı', () => {
     expect(model).toMatch(/biasDroppedTotal === null \? NA/);
   });
 });
+
+/* ════════════════════════════════════════════════════════════════════════
+ * 🔒 KİLİT 27 · HIZ GÖSTERİMİ YUVARLANIR (saha 2026-08-12, kullanıcı ekran görüntüsü)
+ *
+ * GÖZLENDİ: yolda giderken hız göstergesinde 6+ haneli bir sayı belirdi ve
+ * plakayı taşırıp ekranın dışına çıktı; "bazen düzeliyor, çoğu zaman böyle
+ * kalıyor" denildi.
+ *
+ * KÖK: dört tema `useDisplaySpeed()` dönüşünü YUVARLAMADAN basıyordu. Hız
+ * kaynağı GPS olduğunda değer `loc.speed * 3.6` ile üretilir → ONDALIKLIDIR
+ * ("67.154…"); OBD (`010D`) tam sayı döndürür. Bu yüzden kusur yalnız GPS
+ * kaynağı kazandığında görünüyor, OBD kazanınca kendiliğinden "düzeliyordu".
+ * Harita/HUD yüzeyleri zaten yuvarlıyordu (`formatDisplaySpeed`) — ayrışan
+ * yalnız tema katmanıydı.
+ *
+ * İKİNCİ KUSUR (aynı satırlar): `?? 0` "bilinmiyor"u SAHTE 0'a çeviriyordu —
+ * `useDisplaySpeed`in kendi sözleşmesi bunu YASAKLAR ("duran araç ile verisi
+ * olmayan araç aynı şey değildir"). Biçimleyici `null` → "—" verir.
+ * ════════════════════════════════════════════════════════════════════════ */
+describe('🔒 KİLİT 27 · hız gösterimi yuvarlanır ve sahte 0 üretmez', () => {
+  const src = (p: string) => readFileSync(resolve(__dirname, '..', p), 'utf8');
+  const THEMES = [
+    'components/themes/ExpeditionLayout.tsx',
+    'components/themes/HorizonLayout.tsx',
+    'components/themes/ProLayout.tsx',
+    'components/themes/TeslaLayout.tsx',
+  ];
+
+  it('🔒 hiçbir tema HAM hız değerini ekrana basmaz', () => {
+    for (const t of THEMES) {
+      const s = src(t);
+      /* Ölçülen kusurun imzası: JSX içinde çıplak `{speed}` / `{speedKmh}`
+         ya da şablon içinde `${speed}`. Hepsi biçimleyiciden geçmelidir. */
+      expect(s, `${t}: ham {speed} basılıyor`).not.toMatch(/>\{speed\}</);
+      expect(s, `${t}: ham {speedKmh} basılıyor`).not.toMatch(/>\{speedKmh\}</);
+      expect(s, `${t}: şablonda ham hız`).not.toMatch(/\{`\$\{speed(Kmh)?\}`\}/);
+    }
+  });
+
+  it('🔒 dört tema da TEK biçimleyiciyi kullanır (kopya yuvarlama YOK)', () => {
+    for (const t of THEMES) {
+      const s = src(t);
+      expect(s, `${t}: formatDisplaySpeed import edilmemiş`)
+        .toMatch(/import \{[^}]*formatDisplaySpeed[^}]*\} from '\.\.\/\.\.\/hooks\/useDisplaySpeed'/);
+      expect(s, `${t}: formatDisplaySpeed çağrılmıyor`).toContain('formatDisplaySpeed(rawSpeed)');
+    }
+  });
+
+  it('🔒 biçimleyici ondalığı yuvarlar (GPS kaynağının imzası)', async () => {
+    const { formatDisplaySpeed } = await import('../hooks/useDisplaySpeed');
+    /* GPS: 18.6540 m/s × 3.6 = 67.1544 km/h — sahada taşan tam bu biçimdi. */
+    expect(formatDisplaySpeed(18.654 * 3.6)).toBe('67');
+    expect(formatDisplaySpeed(67.1544)).toBe('67');
+    expect(formatDisplaySpeed(0.4)).toBe('0');
+    /* Gösterim ASLA 3 haneden uzun olamaz: kaynak kapısı 300 km/h'te kapanır. */
+    expect(formatDisplaySpeed(299.6).length).toBeLessThanOrEqual(3);
+  });
+
+  it('🔒 hız BİLİNMİYORken sahte 0 DEĞİL "—" gösterilir', async () => {
+    const { formatDisplaySpeed, SPEED_UNKNOWN_TEXT } = await import('../hooks/useDisplaySpeed');
+    expect(formatDisplaySpeed(null)).toBe(SPEED_UNKNOWN_TEXT);
+    expect(formatDisplaySpeed(undefined)).toBe(SPEED_UNKNOWN_TEXT);
+    expect(formatDisplaySpeed(Number.NaN)).toBe(SPEED_UNKNOWN_TEXT);
+    /* `?? 0` yalnız YAY/ORAN matematiğinde kalabilir; gösterimde KALMAMALI. */
+    for (const t of THEMES) {
+      expect(src(t), `${t}: gösterimde sahte 0`).not.toMatch(/>\{useDisplaySpeed\(\) \?\? 0\}</);
+    }
+  });
+
+  it('🔒 yay matematiği ham sayıyı kullanmaya DEVAM eder (görsel bozulmadı)', () => {
+    /* Yuvarlama YALNIZ gösterimdir: gösterge yayı hâlâ sürekli hareket eder. */
+    expect(src('components/themes/ExpeditionLayout.tsx'))
+      .toMatch(/const speed = rawSpeed \?\? 0;[\s\S]{0,200}Math\.min\(speed \/ 200, 1\)/);
+    expect(src('components/themes/TeslaLayout.tsx'))
+      .toMatch(/const speed = rawSpeed \?\? 0;/);
+  });
+});

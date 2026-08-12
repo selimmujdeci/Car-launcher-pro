@@ -18,7 +18,7 @@ import { preloadYouTubeIfAffordable } from '../../platform/youtubeService';
 import { getPerformanceMode } from '../../platform/performanceMode';
 import { useOBDState } from '../../platform/obdService';
 import { useGPSLocation } from '../../platform/gpsService';
-import { useDisplaySpeed } from '../../hooks/useDisplaySpeed';
+import { useDisplaySpeed, formatDisplaySpeed } from '../../hooks/useDisplaySpeed';
 import { useBatteryVoltage } from '../../hooks/useBatteryVoltage';
 import { useLivingThemeState } from '../../hooks/useLivingThemeState';
 import { useUnifiedVehicleStore } from '../../platform/vehicleDataLayer/UnifiedVehicleStore';
@@ -256,13 +256,16 @@ const HzDriveModeCard = memo(function HzDriveModeCard() {
 /* ─── SOL: HIZ ───────────────────────────────────────────────────── */
 const HzSpeedCard = memo(function HzSpeedCard() {
   const p = usePalH();
-  const speed = useDisplaySpeed() ?? 0;
+  /* Gösterim TEK biçimleyiciden geçer — ham GPS hızı ondalıklıdır ve
+     yuvarlanmadan basılınca göstergeyi taşırır (saha 2026-08-12). */
+  const rawSpeed = useDisplaySpeed();
+  const speed = rawSpeed ?? 0;   // yalnız oran hesabı için
   const pct = Math.min(speed / 200, 1) * 100;
   return (
     <Panel style={{ padding: '14px 15px', display: 'flex', flexDirection: 'column', justifyContent: 'center', minHeight: 0 }}>
       <HzLabel>Hız</HzLabel>
       <div className="flex items-baseline" style={{ gap: 8, marginTop: 6 }}>
-        <div style={{ fontWeight: 700, fontSize: 60, lineHeight: 0.85, color: p.inkCritical, fontVariantNumeric: 'tabular-nums', letterSpacing: '-0.03em' }}>{speed}</div>
+        <div style={{ fontWeight: 700, fontSize: 60, lineHeight: 0.85, color: p.inkCritical, fontVariantNumeric: 'tabular-nums', letterSpacing: '-0.03em' }}>{formatDisplaySpeed(rawSpeed)}</div>
         <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.18em', color: p.ink3 }}>KM/H</div>
       </div>
       <div style={{ height: 5, borderRadius: 999, background: p.panelLo, marginTop: 14, overflow: 'hidden' }}>

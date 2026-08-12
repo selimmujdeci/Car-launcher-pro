@@ -19,7 +19,7 @@ import { preloadYouTubeIfAffordable } from '../../platform/youtubeService';
 import { getPerformanceMode } from '../../platform/performanceMode';
 import { isLowEndDevice } from '../../platform/headUnitCompat';
 import { useOBDState } from '../../platform/obdService';
-import { useDisplaySpeed } from '../../hooks/useDisplaySpeed';
+import { useDisplaySpeed, formatDisplaySpeed } from '../../hooks/useDisplaySpeed';
 import { useBatteryVoltage } from '../../hooks/useBatteryVoltage';
 import { useLivingThemeState } from '../../hooks/useLivingThemeState';
 import { useUnifiedVehicleStore } from '../../platform/vehicleDataLayer/UnifiedVehicleStore';
@@ -213,7 +213,10 @@ const ClockCard = memo(function ClockCard() {
 /* ─── SPEED GAUGE (4WD) ──────────────────────────────────────────── */
 const SpeedGauge = memo(function SpeedGauge() {
   const p = usePal();
-  const speed = useDisplaySpeed() ?? 0;
+  /* Gösterim TEK biçimleyiciden geçer — ham GPS hızı ondalıklıdır ve
+     yuvarlanmadan basılınca göstergeyi taşırır (saha 2026-08-12). */
+  const rawSpeed = useDisplaySpeed();
+  const speed = rawSpeed ?? 0;   // yalnız yay/oran hesabı için
   const R = 52, cx = 64, cy = 64, START = 135, SPAN = 270;
   const arc = useMemo(() => {
     const rad = (d: number) => (d * Math.PI) / 180;
@@ -231,7 +234,7 @@ const SpeedGauge = memo(function SpeedGauge() {
           {arc.fill && <path d={arc.fill} fill="none" strokeWidth="9" strokeLinecap="round" style={{ stroke: p.accent, filter: `drop-shadow(0 0 6px ${p.accentGlow})` }} />}
         </svg>
         <div className="absolute inset-0 flex flex-col items-center justify-center">
-          <span style={{ fontSize: 52, fontWeight: 800, color: p.inkCritical, lineHeight: 1, fontVariantNumeric: 'tabular-nums', letterSpacing: '-1px' }}>{speed}</span>
+          <span style={{ fontSize: 52, fontWeight: 800, color: p.inkCritical, lineHeight: 1, fontVariantNumeric: 'tabular-nums', letterSpacing: '-1px' }}>{formatDisplaySpeed(rawSpeed)}</span>
           <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.22em', color: p.ink3, marginTop: 3 }}>KM/H</span>
         </div>
       </div>
@@ -455,7 +458,7 @@ const VehicleCard = memo(function VehicleCard({ onOpenSettings }: { onOpenSettin
   const obd = useOBDState();
   const battery = useBatteryVoltage();   // kütük #427: CAN → OBD otoritesi
   const volt = battery.volt;
-  const speed = useDisplaySpeed() ?? 0;
+  const rawSpeed = useDisplaySpeed();
   const motor = obd.engineTemp != null ? `${Math.round(obd.engineTemp)}°C` : '—';
   const aku = volt != null ? `${volt.toFixed(1)}V` : '—';
   return (
@@ -470,7 +473,7 @@ const VehicleCard = memo(function VehicleCard({ onOpenSettings }: { onOpenSettin
       <div className="flex items-stretch gap-2" onClick={e => e.stopPropagation()}>
         <Stat icon={<Thermometer className="w-5 h-5" style={{ color: p.accent2 }} />} value={motor} label="Motor" />
         <Stat icon={<BatteryCharging className="w-5 h-5" style={{ color: battery.isWarning ? 'var(--oem-warn)' : p.good }} />} value={aku} label="Akü" warn={battery.isWarning} />
-        <Stat icon={<Gauge className="w-5 h-5" style={{ color: p.ink2 }} />} value={`${speed}`} label="Hız" />
+        <Stat icon={<Gauge className="w-5 h-5" style={{ color: p.ink2 }} />} value={formatDisplaySpeed(rawSpeed)} label="Hız" />
       </div>
     </div>
   );

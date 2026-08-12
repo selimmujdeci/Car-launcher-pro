@@ -16,7 +16,7 @@ import { next, previous, seek, resumeLastMedia, previewLastMedia } from '../../p
 import { preloadYouTubeIfAffordable } from '../../platform/youtubeService';
 import { getPerformanceMode } from '../../platform/performanceMode';
 import { isLowEndDevice } from '../../platform/headUnitCompat';
-import { useDisplaySpeed } from '../../hooks/useDisplaySpeed';
+import { useDisplaySpeed, formatDisplaySpeed } from '../../hooks/useDisplaySpeed';
 import { useBatteryVoltage } from '../../hooks/useBatteryVoltage';
 import { useLivingThemeState } from '../../hooks/useLivingThemeState';
 import { useUnifiedVehicleStore } from '../../platform/vehicleDataLayer/UnifiedVehicleStore';
@@ -207,7 +207,15 @@ const SpeedPlate = memo(function SpeedPlate() {
   const p = usePal();
   const use24Hour = useStore(s => s.settings.use24Hour);
   const { time, date } = useClock(use24Hour, false);
-  const speed = useDisplaySpeed() ?? 0;
+  /* SAHA 2026-08-12: ham değer YUVARLANMADAN basılıyordu. GPS kaynaklı hız
+     `loc.speed * 3.6` ile üretilir → ONDALIKLIDIR ("67.154"); 88 px'lik rakamla
+     6+ karakter plakayı taşırıp ekranın dışına çıkıyordu. OBD (`010D`) tam sayı
+     döndürdüğü için kusur yalnız GPS kaynağı kazandığında görünüyordu — sürücünün
+     "bazen düzeliyor" dediği şey buydu. Gösterim TEK biçimleyiciden geçer
+     (`formatDisplaySpeed`: yuvarlar + `null` → "—"); YAY matematiği ham sayıyı
+     kullanmaya devam eder. */
+  const rawSpeed = useDisplaySpeed();
+  const speed = rawSpeed ?? 0;   // yalnız yay/oran hesabı için
   // 270° yay (r=100, çevre 628 → görünür 471); dolum = hız/200
   const offset = useMemo(() => 471 - Math.min(speed / 200, 1) * 471, [speed]);
   return (
@@ -223,7 +231,7 @@ const SpeedPlate = memo(function SpeedPlate() {
             <circle cx="116" cy="116" r="100" fill="none" strokeWidth="16" strokeLinecap="round" strokeDasharray="471 628" strokeDashoffset={offset} style={{ stroke: p.accent, filter: `drop-shadow(0 0 6px ${p.accentGlow})`, transition: 'stroke-dashoffset .5s ease' }} />
           </svg>
           <div style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2 }}>
-            <div style={{ fontWeight: 800, fontSize: 88, lineHeight: 0.8, color: p.inkCritical, fontVariantNumeric: 'tabular-nums', letterSpacing: '-0.02em' }}>{speed}</div>
+            <div style={{ fontWeight: 800, fontSize: 88, lineHeight: 0.8, color: p.inkCritical, fontVariantNumeric: 'tabular-nums', letterSpacing: '-0.02em' }}>{formatDisplaySpeed(rawSpeed)}</div>
             <div style={{ fontSize: 15, fontWeight: 700, letterSpacing: '0.12em', color: p.ink2 }}>KM/H</div>
           </div>
         </div>
@@ -427,7 +435,7 @@ const VehiclePlate = memo(function VehiclePlate({ onOpenSettings }: { onOpenSett
   const battery = useBatteryVoltage();   // kütük #427: CAN → OBD otoritesi
   const volt = battery.volt;
   const eng = useEngineReadout();
-  const speed = useDisplaySpeed() ?? 0;
+  const rawSpeed = useDisplaySpeed();
   const motor = eng.engineTemp != null ? Math.round(eng.engineTemp) : null;
   const rpm = eng.rpm;
   return (
@@ -448,7 +456,7 @@ const VehiclePlate = memo(function VehiclePlate({ onOpenSettings }: { onOpenSett
         <Metric k="Motor" v={motor != null ? `${motor}` : '—'} unit="°C" />
         <Metric k="Devir" v={rpm != null ? `${Math.round(rpm)}` : '—'} unit="" border />
         <Metric k="Akü"  v={volt != null ? volt.toFixed(1) : '—'} unit="V" border warn={battery.isWarning} />
-        <Metric k="Hız"  v={`${speed}`} unit=" km/h" border />
+        <Metric k="Hız"  v={formatDisplaySpeed(rawSpeed)} unit=" km/h" border />
       </div>
     </Plate>
   );
