@@ -1134,7 +1134,7 @@ function GpsDeepSection({ gps }: { gps: GpsDeepLike }) {
 // ── SESLİ / STT render ───────────────────────────────────────────────────────
 // Ham transkript YOK — yalnız durum/zaman/başarı bayrağı (PII değil).
 interface VoiceDiagLike {
-  voskReady?: boolean
+  voskReady?: boolean | null
   wakeWordEnabled?: boolean
   status?: string
   lastSttAgeMs?: number
@@ -1146,11 +1146,11 @@ function VoiceDiagSection({ voice }: { voice: VoiceDiagLike }) {
   const hasLast = voice.lastSttAgeMs != null && voice.lastSttAgeMs >= 0
   return (
     <div style={{ padding: '10px 12px', borderTop: '1px solid #1a1a1a' }}>
-      <p className="sa-label" style={{ marginBottom: 6, color: voice.voskReady ? '#16a34a' : '#d97706' }}>
+      <p className="sa-label" style={{ marginBottom: 6, color: voice.voskReady === true ? '#16a34a' : voice.voskReady === false ? '#d97706' : '#6b7280' }}>
         SESLİ / STT — VOSK · WAKE WORD · SON SONUÇ
       </p>
       <div className="sa-mono" style={{ fontSize: 10, color: '#6b7280', display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-        <span style={{ color: voice.voskReady ? '#16a34a' : '#d97706' }}>vosk: {voice.voskReady ? 'hazır' : 'yükleniyor'}</span>
+        <span style={{ color: voice.voskReady === true ? '#16a34a' : voice.voskReady === false ? '#d97706' : '#6b7280' }}>vosk: {voice.voskReady === true ? 'hazır' : voice.voskReady === false ? 'yükleniyor' : 'OKUNAMADI'}</span>
         <span style={{ color: voice.wakeWordEnabled ? '#16a34a' : '#6b7280' }}>wake word: {voice.wakeWordEnabled ? 'açık' : 'kapalı'}</span>
         <span>durum: {voice.status ?? '?'}</span>
         <span style={{ color: okColor }}>
