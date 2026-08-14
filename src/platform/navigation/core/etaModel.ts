@@ -77,20 +77,42 @@ export const ETA_MIN_CORRECTION_KMH = 8;
  * (`distanceSource: ALONG_ROUTE` sabit) — önceki "mesafe daha şüpheli"
  * tahmini ÖLÇÜMLE ÇÜRÜTÜLDÜ.
  *
- * ── DÜZELTME ─────────────────────────────────────────────────────────────
+ * ── DÜZELTME (1. AŞAMA · #538) ───────────────────────────────────────────
  * Kapı artık AÇIK/KAPALI bir anahtar değil, bir RAMPADIR: çarpan eşikte 1'den
  * başlar ve bant boyunca kademeli olarak tam değerine yürür. Eşiğin TAM
- * üstünde etkisi 0 olduğu için fonksiyon eşikte SÜREKLİDİR → sıçrama
- * matematiksel olarak imkânsız hâle gelir (histerezis gibi "daha seyrek
- * sıçrama" değil, sıçramanın KENDİSİNİN kaldırılması).
- *
- * ⚠️ SAF ÇÖZÜM BİLİNÇLİ: zamana bağlı rampalama (saniye başına en fazla X)
- * bu modüle durum ve saat sokardı; `computeEta` saflığı ETA'nın test
- * edilebilirliğinin temelidir. Rampa yalnız HIZA bağlıdır → saf kalır.
+ * üstünde etkisi 0 olduğu için fonksiyon HIZ EKSENİNDE SÜREKLİDİR.
  *
  * Bant genişliği eşiğin kendisi kadar (8 → 16 km/h): dur-kalk trafiğinin
  * gerçek salınım aralığı burasıdır; 16 km/h üstünde düzeltme tam uygulanır
  * ve ESKİ DAVRANIŞ BİREBİR KORUNUR (otoyol/şehir içi seyir etkilenmez).
+ *
+ * ── ÇÜRÜTÜLDÜ (2026-08-12 · saha kopyası · kütük #551) ────────────────────
+ * Buradaki eski iddia — "sıçrama matematiksel olarak imkânsız hâle gelir" —
+ * SAHADA YANLIŞLANDI. Aynı `etaJumpLedger` yeni koşumda:
+ *   byTrigger: SPEED_GATE_CHANGED 7/11 · dominant HÂLÂ kapı
+ *   en büyükler: -174 s · -161 s · +142 s   (dördü tam `factor 1 ↔ 1.5`)
+ *
+ * KÖK: süreklilik HIZ ekseninde kurulmuştu, oysa kullanıcı ZAMAN eksenini
+ * görür. `rollingAvgKmh` ETA kadansında örneklenir (sürüşte 5 s) ve gerçek
+ * bir yavaşlamada — sahada ölçüldü: 55→42→23→10→0 km/sa ≈ 15 s — ağırlıklı
+ * ortalama 8 km/sa'lik bandın TAMAMINI tek örnekleme adımında geçer.
+ * `gateWeight` 1→0 tek karede düşer, çarpan 1.5→1 atlar. Hız ekseninde
+ * sürekli olan fonksiyon, zamanda örneklenince yine basamak üretir.
+ * Bunu hız ekseni kilidi (`etaSpeedGateRamp.test.ts`) göremezdi: o test
+ * hızı 0,5 km/sa adımlarla tarıyor, sahanın adımı ise 5 s'de ~15 km/sa.
+ *
+ * ── DÜZELTME (2. AŞAMA · #551) ────────────────────────────────────────────
+ * Hız rampasının ÜSTÜNE bir ZAMAN ORANI SINIRI konur: düzeltme çarpanının
+ * ETA'da yaratabileceği kayma saniyede `ETA_MAX_CORRECTION_DRIFT_S_PER_S`
+ * ile sınırlanır. İki rampa farklı işler görür ve İKİSİ DE gereklidir:
+ *   • hız rampası → eşiğin iki yanında süreklilik (dar bantta bile doğru yön)
+ *   • zaman sınırı → kullanıcının GÖRDÜĞÜ basamağın kaldırılması
+ *
+ * ⚠️ SAFLIK KORUNDU: `computeEta` saat OKUMAZ ve durum TUTMAZ — önceki
+ * çarpan ve geçen süre GİRDİ olarak gelir (`previousCorrectionFactor`,
+ * `sinceLastEtaMs`). Durum çağıranda (`navigationService`) yaşar; karar
+ * burada saf kalır. Girdiler verilmezse sınır UYGULANMAZ → eski çağıranlar
+ * ve mevcut kilitler birebir aynı sonucu alır.
  * ════════════════════════════════════════════════════════════════════════ */
 export const ETA_GATE_RAMP_KMH = 8;
 
@@ -111,6 +133,66 @@ export function etaSpeedGateWeight(rollingAvgKmh: number): number {
   if (over >= ETA_GATE_RAMP_KMH) return 1;
   return over / ETA_GATE_RAMP_KMH;
 }
+/* ══════════════════════════════════════════════════════════════════════════
+ * #551 · ZAMAN ORANI SINIRI — kullanıcının GÖRDÜĞÜ basamağın kaldırılması
+ * ════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * Düzeltme çarpanının ETA'da yaratabileceği **saniye başına** kayma tavanı.
+ *
+ * Sayı uydurulmadı, sıçrama ölçütünden türetildi:
+ *   • Defterin sıçrama eşiği 60 s (`ETA_JUMP_MIN_S` · `etaJumpLedger`).
+ *   • Sürüşte ETA kadansı 5 s (`ETA_HYSTERESIS_MS` · `navigationService`).
+ *   • 8 s/s × 5 s = **40 s** → eşiğin %33 altında kalır.
+ *
+ * Bu, ETA'nın TAMAMINA konan bir sınır DEĞİLDİR: taban süre (OSRM modeli) ve
+ * trafik tamponu serbestçe hareket eder — yalnız HIZ DÜZELTMESİNİN payı
+ * yumuşatılır. Mesafe azaldıkça ETA'nın doğal düşüşü etkilenmez.
+ */
+export const ETA_MAX_CORRECTION_DRIFT_S_PER_S = 8;
+
+/**
+ * Oran sınırında kullanılacak `dt` tavanı (ms).
+ *
+ * Bir örnekleme karesi atlanırsa (GPS gecikmesi, ekran arkaplana düştü) `dt`
+ * büyür ve sınır orantılı gevşerdi → tek adımda yine 60 s üstü basamak
+ * doğabilirdi. `dt` kırpılınca en kötü hâl 8 × 6 = **48 s** ile sınırlı kalır;
+ * bedeli yalnız yakalamanın biraz gecikmesidir (yanlış sayı değil, geç sayı).
+ */
+export const ETA_DRIFT_DT_CAP_MS = 6_000;
+
+/**
+ * Çarpanı ZAMANDA sınırla — saf.
+ *
+ * Saat okumaz, durum tutmaz: "önceki çarpan" ve "geçen süre" girdidir.
+ *
+ * @param previousFactor Bir önceki UYGULANAN çarpan. `null` = geçmiş yok
+ *                       (oturum başı / ETA durumu değişti) → hedef aynen alınır.
+ * @param targetFactor   Hız rampasının ürettiği hedef çarpan.
+ * @param baseSeconds    Düzeltmesiz taban süre (sn) — kaymayı saniyeye çevirir.
+ * @param dtMs           Önceki örnekten bu yana geçen süre (ms).
+ */
+export function rampCorrectionFactorInTime(
+  previousFactor: number | null | undefined,
+  targetFactor: number,
+  baseSeconds: number,
+  dtMs: number | undefined,
+): number {
+  /* Geçmiş yok / süre bilinmiyor / taban anlamsız → sınır UYGULANMAZ.
+     (Eski çağıranlar bu dalla düşer: davranış birebir korunur.) */
+  if (previousFactor === null || previousFactor === undefined) return targetFactor;
+  if (!Number.isFinite(previousFactor)) return targetFactor;
+  if (dtMs === undefined || !Number.isFinite(dtMs) || dtMs <= 0) return targetFactor;
+  if (!Number.isFinite(baseSeconds) || baseSeconds <= 0) return targetFactor;
+
+  const dt = dtMs > ETA_DRIFT_DT_CAP_MS ? ETA_DRIFT_DT_CAP_MS : dtMs;
+  /* İzin verilen çarpan adımı: saniye tavanını taban süreye böl.
+     Taban küçükse (varışa yakın) sınır kendiliğinden gevşer — orada zaten
+     mutlak sıçrama küçüktür ve ETA'nın çevik olması DOĞRUDUR. */
+  const maxDelta = (ETA_MAX_CORRECTION_DRIFT_S_PER_S * (dt / 1000)) / baseSeconds;
+  return _clamp(targetFactor, previousFactor - maxDelta, previousFactor + maxDelta);
+}
+
 /** Yedek hesapta sıfıra bölmeyi engelleyen taban (mevcut davranışla aynı). */
 export const ETA_FALLBACK_FLOOR_KMH = 5;
 
@@ -133,6 +215,14 @@ export interface EtaInput {
   readonly roadSpeedKmh?: number;
   /** Durma tamponu (sn) — mevcut trafik davranışı korunur. */
   readonly stopBufferS: number;
+  /**
+   * #551 — bir önceki UYGULANAN düzeltme çarpanı (zaman oranı sınırı için).
+   * `null`/verilmezse sınır uygulanmaz (yakalama serbest). ETA durumu
+   * `ROUTE_MODEL` dışına çıkıp geri döndüğünde çağıran bunu `null` yapmalıdır.
+   */
+  readonly previousCorrectionFactor?: number | null;
+  /** #551 — önceki ETA örneğinden bu yana geçen süre (ms). */
+  readonly sinceLastEtaMs?: number;
 }
 
 export interface EtaVerdict {
@@ -150,6 +240,12 @@ export interface EtaVerdict {
   readonly correctionFactorRaw?: number;
   /** #538 — hız kapısının etki ağırlığı (0-1). `undefined` = hesaplanmadı. */
   readonly speedGateWeight?: number;
+  /**
+   * #551 — hız rampası sonrası, ZAMAN sınırı öncesi çarpan (LAB/defter için).
+   * `correctionFactor` ile arasındaki fark, zaman sınırının o an ne kadar
+   * frenlediğidir. `undefined` = düzeltme hiç hesaplanmadı.
+   */
+  readonly correctionFactorGated?: number;
   /** Düzeltmesiz ham model süresi (sn) — LAB için. */
   readonly baseSeconds: number | null;
   readonly reason: string;
@@ -172,7 +268,7 @@ export function computeEta(input: EtaInput): EtaVerdict {
   const {
     navActive, remainingRouteDurationS, durationIntegrity, durationSource,
     routeRevision, durationRevision, remainingDistanceM, rollingAvgKmh,
-    roadSpeedKmh, stopBufferS,
+    roadSpeedKmh, stopBufferS, previousCorrectionFactor, sinceLastEtaMs,
   } = input;
 
   if (!navActive) return _NO_ETA('UNKNOWN', durationSource, 'navigasyon aktif değil');
@@ -222,6 +318,17 @@ export function computeEta(input: EtaInput): EtaVerdict {
       why = 'araç yavaş/duruyor — düzeltme uygulanmadı (ETA şişmez)';
     }
 
+    /* #551: hız rampasının ÜSTÜNE zaman oranı sınırı. Hız ekseninde sürekli
+       olan çarpan, 5 s'lik örnekleme adımında yine basamak üretiyordu (saha:
+       7/11 sıçrama, -174 s). Sınır kullanıcının gördüğü basamağı kaldırır. */
+    const gatedFactor = factor;
+    factor = rampCorrectionFactorInTime(
+      previousCorrectionFactor, gatedFactor, base, sinceLastEtaMs,
+    );
+    if (factor !== gatedFactor) {
+      why += ` · zaman sınırı ${gatedFactor.toFixed(2)} → ${factor.toFixed(2)}`;
+    }
+
     return {
       etaSeconds: Math.max(0, Math.round(base * factor) + buffer),
       state: 'ROUTE_MODEL',
@@ -229,6 +336,7 @@ export function computeEta(input: EtaInput): EtaVerdict {
       correctionFactor: factor,
       correctionFactorRaw: rawFactor,
       speedGateWeight: gateWeight,
+      correctionFactorGated: gatedFactor,
       baseSeconds: Math.round(base),
       reason: why,
     };

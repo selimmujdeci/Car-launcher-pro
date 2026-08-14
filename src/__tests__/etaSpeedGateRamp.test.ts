@@ -8,10 +8,16 @@
  * Dört geçişin HEPSİ `factor 1 ↔ 1.5`:
  *   ETA 167→246 · 224→150 · 143→207 · 183→122  (aritmetik beklentiyle 0-8 s uyum)
  *
- * Bu testler düzeltmenin ÖLÇÜLEN mekanizmayı kaldırdığını kilitler: kapı artık
- * anahtar değil rampadır → eşikte süreklidir → %50'lik ETA zıplaması yapısal
- * olarak imkânsızdır. Ayrıca bantın DIŞINDA eski davranışın BİREBİR korunduğunu
+ * Bu testler kapının artık anahtar değil rampa olduğunu kilitler: HIZ ekseninde
+ * eşikte süreklidir. Ayrıca bantın DIŞINDA eski davranışın BİREBİR korunduğunu
  * ve defterin yeni mekanizmaya kör kalmadığını sabitler.
+ *
+ * ⚠️ KAPSAM UYARISI (2026-08-12 · kütük #551): buradaki kilitler HIZ eksenini
+ * tarar (0,5 km/sa adımlarla). Sahanın adımı ise 5 s'de ~15 km/sa olduğu için
+ * bu dosya ZAMAN ekseninde doğan basamağı GÖREMEZ — nitekim görmedi: #538'den
+ * sonraki koşumda `SPEED_GATE_CHANGED` 7/11 ile hâlâ baskındı (-174 s).
+ * Zaman ekseni kilidi ayrı dosyadadır: `etaTimeRateLimit.test.ts`.
+ * Bu dosyadaki "yapısal olarak imkânsız" iddiası ORADA daraltıldı.
  */
 
 import { describe, it, expect } from 'vitest';
