@@ -175,6 +175,38 @@ let _lastDampTs: number | null = null;
 /** Kamera oturumu sıfırlandı → kadans ölçümü de sıfırlanır (yapay Δt yok). */
 function _resetCameraCadence(): void { _lastDampTs = null; }
 
+/* ── Akıcı takip kamerası (2026-08-13) ────────────────────────────────────── */
+
+/** Sabit hızlı geçiş. Tick'ler zincirlendiği için her adımda ivmelenip yavaşlayan
+ *  bir eğri (MapLibre varsayılanı) "nabız gibi atan" bir his üretirdi. */
+const _LINEAR_EASING = (t: number): number => t;
+
+/** `easeTo` süresi için güvenli alt/üst sınır (ms). Süre ölçülen tick'e eşitlenir;
+ *  tavan, uygulama arka plandan dönünce oluşan devasa Δt'nin kamerayı saniyelerce
+ *  süzülterek "geriden gelmesine" engel olur. */
+const CAMERA_EASE_MIN_MS = 60;
+const CAMERA_EASE_MAX_MS = 320;
+
+/** Son ölçülen tick'ten türeyen animasyon süresi. */
+let _lastEaseDtMs: number | null = null;
+function _cameraEaseDurationMs(): number {
+  const dt = _lastEaseDtMs;
+  if (dt === null || !Number.isFinite(dt)) return CAMERA_EASE_MIN_MS;
+  return Math.max(CAMERA_EASE_MIN_MS, Math.min(CAMERA_EASE_MAX_MS, dt));
+}
+
+/** Düşük-uç GPU (Mali-400 sınıfı head unit) — ara kare çizmek burada yüktür.
+ *  Kaynak `perf-low` sınıfıdır; `MapLayerManager` de AYNI kapıyı kullanır
+ *  (ikinci bir cihaz-sınıfı otoritesi doğmaz). */
+function _isLowEndCamera(): boolean {
+  try {
+    return typeof document !== 'undefined'
+      && document.documentElement.classList.contains('perf-low');
+  } catch {
+    return true; // okunamıyorsa UCUZ tarafta kal
+  }
+}
+
 /** Bu çağrı ile bir öncekinin arasındaki süre (ms); ilk çağrıda `undefined`. */
 function _nextCameraDt(): number | undefined {
   let dt: number | undefined;
@@ -338,8 +370,12 @@ export function setDrivingView(
   /* Δt tam BURADA okunur, fonksiyonun tepesinde DEĞİL: yukarıdaki durakta
      erken-dönüş yolu sönümleme yapmaz; orada saati tüketmek bir sonraki
      gerçek tick'in Δt'sini SIFIRLAR ve kamerayı yapay biçimde hızlandırırdı. */
+  /* Aynı Δt hem sönümlemeyi hem `easeTo` süresini besler: animasyon TAM bir
+     tick sürer → bir sonraki başlarken önceki bitmiş olur (üst üste binme yok). */
+  const _tickDtMs          = _nextCameraDt();
+  _lastEaseDtMs            = _tickDtMs ?? null;
   const smooth             = dampCameraToward(
-    target, anticipatedBearing, effectiveSpeed, _nextCameraDt(),
+    target, anticipatedBearing, effectiveSpeed, _tickDtMs,
   );
 
   // Route energy: hız + acceleration delta ile senkron pulse (Faz 3.4)
@@ -389,14 +425,47 @@ export function setDrivingView(
 
   const topPad = Math.round(containerHeight * target.topPadFrac);
 
-  // jumpTo: tek frame — rAF loop 150ms throttle zaten smooth hissettiriyor.
-  map.jumpTo({
-    center:  [centerLng, centerLat],
+  /* ── KAMERA UYGULAMA: SIÇRAMA mı, AKIŞ mı (saha 2026-08-13) ────────────────
+   * Eski yorum *"rAF loop 150ms throttle zaten smooth hissettiriyor"* diyordu;
+   * ölçüldüğünde bu DOĞRU DEĞİLDİ: `jumpTo` bir animasyon üretmez, kamerayı o
+   * kareye ANINDA taşır. Kamera 150 ms'de bir uygulandığı için harita fiilen
+   * **6,7 fps**te güncelleniyordu — kullanıcının tarifi: *"harita akıcı değil,
+   * takıla takıla gidiyor."* Araç işaretçisi 60 ms'de (~16 fps) güncellendiği
+   * için işaretçi akarken zemin basamak basamak kayıyor, ayrışma daha da
+   * göze batıyordu.
+   *
+   * Düzeltme: kareler arasını MapLibre'ın kendisi doldursun — süresi ÖLÇÜLEN
+   * tick aralığına EŞİT, LİNEER bir `easeTo`. Süre tick'e eşit olduğu için
+   * her animasyon bir sonraki başlamadan tam biter; üst üste binen animasyon
+   * (bu dosyanın §126 notundaki 800 ms `easeTo` kusuru) OLUŞMAZ.
+   *
+   * ── BÜTÇE KAPILARI (yeni maliyet gelişigüzel açılmaz) ─────────────────────
+   *  · `perf-low` (Mali-400 sınıfı head unit) → ESKİ DAVRANIŞ (`jumpTo`).
+   *    Ara kareleri çizmek o GPU'da kazanç değil yüktür.
+   *  · DURAKTA → `jumpTo`. §126'da ölçülen gerçek zarar buydu: boşta süren
+   *    animasyon `map.isMoving()`i kalıcı `true` yapıp MapLibre'ı idle'da
+   *    90 fps render'a sokuyordu. Araç durmuşken interpolasyonun kazancı da
+   *    yoktur (zaten hareket yok).
+   * Yani ek maliyet YALNIZ araç gerçekten hareket ederken ve GPU'su olan
+   * cihazda doğar — tam da akıcılığın görüldüğü yerde. */
+  const _smoothPan = !_standstillFix && !_isLowEndCamera();
+  const _cameraOpts = {
+    center:  [centerLng, centerLat] as [number, number],
     bearing: _bearing,
     zoom:    _zoomEff,
     pitch:   _pitchEff,
     padding: { top: topPad, bottom: 0, left: 0, right: 0 },
-  });
+  };
+  if (_smoothPan) {
+    map.easeTo({
+      ..._cameraOpts,
+      duration: _cameraEaseDurationMs(),
+      easing:   _LINEAR_EASING,   // sabit hız — her tick'te ivmelenip durmaz
+      essential: true,            // "reduce motion" bunu KAPATAMAZ (takip kamerası)
+    });
+  } else {
+    map.jumpTo(_cameraOpts);
+  }
 
   // ── Araç ekran-içi garantisi (saha 2026-08-03) ────────────────────────────
   // Kamera aracın ÖNÜNÜ merkeze alır; `topPadFrac` orandır ama `lookAheadM`

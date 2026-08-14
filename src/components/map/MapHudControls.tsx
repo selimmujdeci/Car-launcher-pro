@@ -56,7 +56,9 @@ export interface MapHudControlsProps {
 export const MapHudControls = memo(function MapHudControls({
   isNavigating,
   isPreview,
-  isFollowing,
+  /* `isFollowing` prop olarak KORUNDU (çağıran kanonik kamera otoritesinden
+     besliyor) ama bu bileşende artık tüketilmiyor: onu okuyan tek yer orta
+     "Aracı Ortala" banner'ıydı ve o kaldırıldı (2026-08-13). */
   ctrlVisible,
   drivingMode,
   cameraOn,
@@ -150,49 +152,21 @@ export const MapHudControls = memo(function MapHudControls({
         </button>
       )}
 
-      {/* ── ORTALA (RE-CENTER) — NAVİGASYONDA DA GÖRÜNÜR ─────────────────────
+      {/* ── ORTALA (RE-CENTER) DÜĞMESİ KALDIRILDI (2026-08-13) ────────────────
        *
-       * SAHA 2026-08-04 (MINI_MAP_NIGHT_CAMERA_SPEED_LIMIT_P0): koşul eskiden
-       * `!isFollowing && !isNavigating` idi → **navigasyon sırasında** kullanıcı
-       * haritayı kaydırdıysa araca dönmenin HİÇBİR yolu yoktu; tam da sürücünün
-       * en çok ihtiyaç duyduğu an. `!isNavigating` kapısı KALDIRILDI.
+       * Düğme haritanın ORTASINDA duruyordu ve navigasyon sırasında tam olarak
+       * yolun üstünü kapatıyordu — sürücünün görmesi gereken tek yeri.
        *
-       * Görünürlük artık tek kanonik kaynaktan gelir: kamera otoritesi
-       * (`isFollowing` = `canDriveCamera()` aynası). Araç merkezdeyken düğme
-       * GİZLİDİR; kullanıcı pan yapınca çıkar. Tek dokunuş — uzun basma YOK. */}
-      {!isFollowing && (
-        <button
-          onClick={() => { onRecenter(); showControls(); }}
-          aria-label="Aracı ortala"
-          style={{
-            position: 'absolute',
-            bottom: isNavigating
-              ? 'calc(var(--lp-dock-h,68px) + 92px)'
-              : 'calc(var(--lp-dock-h,68px) + 80px)',
-            left: '50%',
-            transform: 'translateX(-50%)',
-            zIndex: 30,
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-            padding: '10px 20px',
-            background: 'rgba(10,14,26,0.92)',
-            backdropFilter: 'blur(16px)',
-            border: '1.5px solid rgba(224,162,60,0.55)',
-            borderRadius: '999px',
-            color: '#E8B86A',
-            fontWeight: 700,
-            fontSize: 13,
-            letterSpacing: '0.04em',
-            cursor: 'pointer',
-            boxShadow: '0 4px 24px rgba(224,162,60,0.35), 0 2px 8px rgba(0,0,0,0.6)',
-            animation: 'fadeSlideUp 0.25s cubic-bezier(0.34,1.56,0.64,1) forwards',
-          }}
-        >
-          <Crosshair className="w-4 h-4" style={{ color: '#E8B86A' }} />
-          <span>Aracı Ortala</span>
-        </button>
-      )}
+       * KALDIRMAK KULLANICIYI KİLİTLEMEZ — önce bu doğrulandı: takibe dönüş
+       * OTOMATİKTİR ve düğmeden bağımsız çalışır. `FullMapView` pan bitişinde
+       * `notifyUserPanEnd(applyRecenter)` çağırır; `cameraFollowAuthority`
+       * navigasyonda **3 sn** (`AUTO_FOLLOW_DELAY_NAV_MS`), navigasyon dışında
+       * **10 sn** sonra kamerayı araca geri döndürür. Yani 2026-08-04'te
+       * düzeltilen kusur ("navigasyonda araca dönmenin hiçbir yolu yok") GERİ
+       * GELMEZ: o turda eklenen şey erişimin KENDİSİ değil, elle kısayoldu.
+       *
+       * `onRecenter` prop'u KORUNDU — kanonik ortalama yolu hâlâ ayakta ve
+       * başka bir yüzey (ör. sağ kontrol rayı) onu bağlayabilir. */}
 
       {/* ── SAĞ: Nav dışı kontroller — sürüş modunda gizle ── */}
       <div

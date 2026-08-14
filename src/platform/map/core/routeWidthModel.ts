@@ -59,7 +59,7 @@
  */
 
 /** Politika sürümü — herhangi bir sayı değişince yükselir, LAB'da görünür. */
-export const ROUTE_WIDTH_POLICY_VERSION = 'RW-2026.08.07' as const;
+export const ROUTE_WIDTH_POLICY_VERSION = 'RW-2026.08.13' as const;
 
 /**
  * Referans viewport'un kısa kenarı (CSS px).
@@ -95,15 +95,44 @@ export const ROUTE_PERSPECTIVE_MAX = 1.5;
 /**
  * ÇEKİRDEK genişliği (referans viewport · perspektif 1,0).
  *
- * Bugünkü sürüş değerleridir (`MapInteractionManager` perspektif düzeltmesi:
- * `8 * perspScale` / `32 * perspScale`) — bilerek KORUNDU. Bu tur kalınlığın
- * MUTLAK seviyesini yeniden tartışmaz; yalnız tek kaynağa bağlar, katmanları
- * orantılar ve viewport'a duyarlı kılar. Mutlak seviye ("önizlemedeki
- * 10 px mi, sürüşteki 32 px mi doğru?") ayrı ve CİHAZDA ölçülmesi gereken bir
- * karardır — açık borç olarak kayıtlıdır.
+ * ── 2026-08-13: AÇIK BORÇ KAPANDI — MUTLAK SEVİYE İNCELTİLDİ ───────────────
+ * Bu dosya kurulduğunda (RW-2026.08.07) kalınlığın MUTLAK seviyesi bilerek
+ * TARTIŞILMAMIŞTI: o tur yalnız dört ayrı otoriteyi teke indirdi ve
+ * *"önizlemedeki 10 px mi, sürüşteki 32 px mi doğru?"* sorusunu **açık borç**
+ * olarak bıraktı. Sahibi bu turda kararı verdi: **çizgi çok kalın, inceltilecek.**
+ *
+ * Ölçü (neden 32 → 22): kullanıcının kullandığı telefonda harita yüzeyi
+ * ~415 px kısa kenardır → ölçek tabana oturur (0,72) ve sürüş perspektifiyle
+ * (~1,22) çekirdek fiilen **~28 px**, yani kısa kenarın **%6,8'i** olur.
+ * 22'de aynı yüzeyde **~19 px / %4,7**'ye iner — referans OEM navigasyonların
+ * bandına (~%2–3) yaklaşır ama altına inmez.
+ *
+ * ── NEDEN DAHA FAZLA İNCELMEDİ (taban gerekçesi) ──────────────────────────
+ * Kılıf çekirdekten `RATIO.casing` (1,19) kadar geniştir; okunur bir dış hat
+ * için aradaki farkın EN DAR ekranda bile ~3 px kalması gerekir:
+ *     (çekirdek × 0,72) × 0,19 ≥ 3  →  çekirdek ≥ ~22
+ * Bunun altında kılıf/çekirdek ayrımı dar ekranda kaybolur ve çizgi tek renkli
+ * bir tele döner (bu dosyanın `ROUTE_WIDTH_SCALE_MIN` gerekçesiyle aynı kaygı).
+ * Yani 22 keyfî değil, **ayrımın korunduğu en ince değerdir**.
+ *
+ * ── z12 NEDEN İNCELMEDİ (kilit yakaladı, ölçüldü) ─────────────────────────
+ * İlk denememde z12/z18 oranını koruyup z12'yi de 8 → 5,5 yapmıştım. Katman
+ * sırası kilidi bunu ANINDA düşürdü: 360 px ekranda (ölçek 0,72) çekirdek
+ * z12 = 4 px'e iner ve yarım-piksel yuvarlamada kılıf ile gölge ÇAKIŞIR
+ * (ikisi de 5 px) → gölge kaybolur.
+ *
+ * Sebep, oranların en DAR aralığıdır: gölge − kılıf = çekirdek × 0,09.
+ * Bunun 0,5 px'lik yuvarlama adımını aşması için en dar ekranda
+ *     çekirdek_z12 × 0,72 × 0,09 ≥ 0,5  →  çekirdek_z12 ≥ ~7,7
+ * gerekir. Yani **8 keyfî değil, z12 ucunun matematiksel tabanıdır** ve
+ * dokunulmadı. Zaten şikâyet uzak zoom'da değil, SÜRÜŞ görünümündeydi (z18).
+ * Sonuç: eğri 8 → 22 olur; uzakta bugünkü gibi, yakında belirgin daha ince.
+ *
+ * 🔴 Bu bir GÖRSEL tercih kararıdır; cihazda (özellikle K24 head unit'te ve
+ * gündüz güneşinde) doğrulanması gerekir — kütükte 🔴 madde olarak duruyor.
  */
 const CORE_Z12 = 8;
-const CORE_Z18 = 32;
+const CORE_Z18 = 22;
 
 /**
  * Katman çarpanları — hepsi ÇEKİRDEĞE göre.

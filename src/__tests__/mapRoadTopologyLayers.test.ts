@@ -15,6 +15,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   buildVectorStyle, blockOnlineVector, unblockOnlineVector, isOnlineVectorBlocked,
+  DAY_PALETTE, NIGHT_PALETTE,
 } from '../platform/mapStyleBuilders';
 import { SHIELD_IMG_DAY, SHIELD_IMG_NIGHT } from '../platform/map/_mapState';
 import type { MapSource } from '../platform/mapSourceTypes';
@@ -159,19 +160,37 @@ describe('yol numarası kalkanı', () => {
 });
 
 describe('bina hacmi — gündüz beyaz bloklar düz kâğıt gibi durmamalı', () => {
-  const ao = (s: StyleSpecification): number =>
-    (layer(s, 'building-3d') as unknown as { paint: Record<string, number> })
-      .paint['fill-extrusion-ambient-occlusion-intensity']!;
-
-  it('gündüz taban kararması gecenin ÜSTÜNDEDİR', () => {
-    // Gündüz bina/zemin dolgu farkı yalnız 1.07 — hacmi taşıyan tek şey AO.
-    expect(ao(DAY)).toBeGreaterThan(ao(NIGHT));
+  /* ⚠️ KİLİT TAŞINDI, KALDIRILMADI (#552 · 2026-08-12).
+   *
+   * Bu iki kilit AO şiddetini STİLDEN okuyordu ve YEŞİLDİ — ama ürün o sırada
+   * ZATEN kırıktı: `fill-extrusion-ambient-occlusion-*` Mapbox özelliğidir,
+   * MapLibre 4 tanımaz ve `layers[6]`'yı reddediyordu (saha hata kütüğü).
+   * Yani testler "stilde şu değer yazıyor" diyordu, ekranda ise hiçbir zaman
+   * uygulanmamıştı — kilidin kendisi sahte güven üretiyordu.
+   *
+   * Tasarım kararı (gündüz kararması gecenin üstünde) GEÇERLİ ve korunuyor;
+   * artık doğru kaynaktan — palet tokeninden — kilitleniyor. Uygulanmadığı
+   * gerçeği ise ayrı ve AÇIK bir kilitle sabitlendi ki borç sessizleşmesin. */
+  it('tasarım kararı KORUNUR: gündüz taban kararması gecenin ÜSTÜNDE', () => {
+    expect(DAY_PALETTE.bldg3dAO).toBeGreaterThan(NIGHT_PALETTE.bldg3dAO);
   });
 
-  it('AO her iki temada da makul aralıkta kalır', () => {
+  it('AO tokeni her iki temada da makul aralıkta kalır', () => {
+    for (const p of [DAY_PALETTE, NIGHT_PALETTE]) {
+      expect(p.bldg3dAO).toBeGreaterThan(0.15);
+      expect(p.bldg3dAO).toBeLessThanOrEqual(0.6);
+    }
+  });
+
+  it('🔴 AÇIK BORÇ: AO token STİLE UYGULANMIYOR (MapLibre 4 desteklemiyor)', () => {
+    /* Bu kilit AO desteklenip geri bağlandığında BİLİNÇLİ olarak düşecek ve
+       o an güncellenecek — borcun kapandığının işareti budur. */
     for (const s of [DAY, NIGHT]) {
-      expect(ao(s)).toBeGreaterThan(0.15);
-      expect(ao(s)).toBeLessThanOrEqual(0.6);
+      const paint = (layer(s, 'building-3d') as unknown as
+        { paint: Record<string, unknown> }).paint;
+      expect(paint['fill-extrusion-ambient-occlusion-intensity']).toBeUndefined();
+      // Hacim hissini taşıyan TEK desteklenen araç:
+      expect(paint['fill-extrusion-vertical-gradient']).toBe(true);
     }
   });
 });
@@ -324,5 +343,98 @@ describe('performans bütçesi', () => {
 
   it('gece ve gündüz AYNI katman listesini üretir — ikinci liste doğmaz', () => {
     expect(DAY.layers.map((l) => l.id)).toEqual(NIGHT.layers.map((l) => l.id));
+  });
+});
+
+/* ── STİL GEÇERLİLİĞİ (#552 · 2026-08-12) ────────────────────────────────────
+ * SAHA ARIZASI: gerçek cihaz hata kütüğünde stil kurulurken BEŞ ayrı hata:
+ *   layers[6].paint.fill-extrusion-ambient-occlusion-intensity: unknown property
+ *   layers[6].paint.fill-extrusion-ambient-occlusion-radius:    unknown property
+ *   layers[7|8|16|17].paint.line-width: Only one zoom-based "step" or
+ *     "interpolate" subexpression may be used in an expression
+ *   layers[23].layout.icon-image: 'undefined' value invalid. Use null instead.
+ *
+ * Üçü de SESSİZDİ: katmanlar düşüyor ama uygulama çalışmaya devam ediyordu.
+ * Tünel/köprü gövdeleri 1 px hatta iniyor, yol numarası kalkanları HİÇ
+ * çizilmiyor, gündüz binalar düz kalıyordu.
+ *
+ * Bu blok stili MapLibre'nin KENDİ doğrulayıcısına verir. Yapısal regex
+ * kilitleri yerine gerçek doğrulama kullanılır ki gelecekte DESTEKLENMEYEN
+ * BAŞKA bir özellik eklendiğinde de aynı kilit düşsün. */
+describe('#552 · stil MapLibre doğrulayıcısından TEMİZ geçer', () => {
+  const validate = async () => {
+    const { validateStyleMin } = await import('@maplibre/maplibre-gl-style-spec');
+    return validateStyleMin;
+  };
+
+  for (const [ad, style] of [['gündüz', DAY], ['gece', NIGHT]] as const) {
+    it(`🔒 ${ad} stilinde SIFIR doğrulama hatası`, async () => {
+      const validateStyleMin = await validate();
+      const errors = validateStyleMin(style as unknown as StyleSpecification);
+      const msgs = errors.map((e) => `${e.message}`);
+      expect(msgs, `stil hataları:\n${msgs.join('\n')}`).toEqual([]);
+    });
+  }
+
+  it('🔒 KONTROL: doğrulayıcı üç saha hatasını GERÇEKTEN yakalıyor', async () => {
+    /* "Sıfır hata" ancak doğrulayıcının hata bulabildiği kanıtlanırsa anlamlı.
+       Aşağıdaki üç kalıp sahada ölçülen üç hatanın ta kendisidir ve
+       doğrulayıcı bunlara SAHADAKİ MESAJIN AYNISINI döndürür. */
+    const validateStyleMin = await validate();
+    const base = {
+      version: 8 as const, name: 't',
+      sources: { omv: { type: 'vector' as const, tiles: ['http://x/{z}/{x}/{y}.pbf'] } },
+    };
+    const cases: ReadonlyArray<readonly [string, unknown]> = [
+      ['Only one zoom-based', { ...base, layers: [{
+        id: 'l', type: 'line', source: 'omv', 'source-layer': 't',
+        paint: { 'line-width': ['case', ['==', ['get', 'class'], 'motorway'],
+          ['interpolate', ['linear'], ['zoom'], 8, 4, 14, 12],
+          ['interpolate', ['linear'], ['zoom'], 8, 1, 14, 5]] } }] }],
+      ['unknown property', { ...base, layers: [{
+        id: 'l', type: 'fill-extrusion', source: 'omv', 'source-layer': 'b',
+        paint: { 'fill-extrusion-ambient-occlusion-intensity': 0.4 } }] }],
+      ["'undefined' value invalid", { ...base, layers: [{
+        id: 'l', type: 'symbol', source: 'omv', 'source-layer': 'x',
+        layout: { 'icon-image': undefined } }] }],
+    ];
+    for (const [needle, style] of cases) {
+      const msgs = validateStyleMin(style as unknown as StyleSpecification)
+        .map((e) => e.message).join(' | ');
+      expect(msgs, `doğrulayıcı bu kusuru artık yakalamıyor: ${needle}`).toContain(needle);
+    }
+  });
+
+  it('🔒 tünel/köprü line-width TEK zoom ifadesi kullanır (interpolate EN DIŞTA)', () => {
+    /* Kök buydu: `case` dışta + her dalda ayrı `interpolate` = 3 zoom ifadesi.
+       Doğrulayıcı bunu yakalar, ama kök kalıbı ayrıca sabitliyoruz ki düzeltme
+       "hatayı sustur" diye başka yönden geri gelmesin. */
+    for (const id of ['road-tunnel-casing', 'road-tunnel', 'road-bridge-casing', 'road-bridge']) {
+      const layer = DAY.layers[idx(DAY, id)] as LayerSpecification & {
+        paint?: { 'line-width'?: unknown };
+      };
+      const w = layer.paint?.['line-width'];
+      expect(Array.isArray(w), `${id}: line-width ifade değil`).toBe(true);
+      expect((w as unknown[])[0], `${id}: en dış ifade interpolate olmalı`).toBe('interpolate');
+      expect(JSON.stringify(w).match(/"interpolate"/g)?.length, `${id}: birden fazla interpolate`).toBe(1);
+    }
+  });
+
+  it('🔒 kalkan icon-image TANIMLI (döngüsel import undefined bırakmaz)', () => {
+    /* `mapStyleBuilders → _mapState → mapStyleBuilders` döngüsü paleti
+       `shieldImage: undefined` ile donduruyordu. Bu kilit döngü geri gelirse
+       düşer — üstelik doğrulayıcıdan ÖNCE ve daha okunur bir mesajla. */
+    for (const [style, expected] of [[DAY, SHIELD_IMG_DAY], [NIGHT, SHIELD_IMG_NIGHT]] as const) {
+      const layer = style.layers[idx(style, 'road-shield')] as LayerSpecification & {
+        layout?: { 'icon-image'?: unknown };
+      };
+      expect(layer.layout?.['icon-image']).toBe(expected);
+    }
+  });
+
+  it('🔒 desteklenmeyen fill-extrusion AO özellikleri stile GERİ GELMEZ', () => {
+    const json = JSON.stringify({ day: DAY, night: NIGHT });
+    expect(json, 'MapLibre 4 ambient-occlusion tanımaz — stil reddedilir')
+      .not.toContain('fill-extrusion-ambient-occlusion');
   });
 });

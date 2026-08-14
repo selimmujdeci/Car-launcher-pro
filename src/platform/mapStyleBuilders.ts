@@ -1,6 +1,9 @@
 import type { StyleSpecification, LayerSpecification, FilterSpecification } from 'maplibre-gl';
 import type { MapSource } from './mapSourceTypes';
-import { SHIELD_IMG_DAY, SHIELD_IMG_NIGHT } from './map/_mapState';
+/* #552 — kimlikler `_mapState`'ten DEĞİL, döngüsüz `_mapIds`'ten alınır.
+ * `_mapState` bu dosyadan `RASTER_PAINT_*` aldığı için eski import bir döngü
+ * kuruyordu ve paletler `shieldImage: undefined` ile donuyordu. */
+import { SHIELD_IMG_DAY, SHIELD_IMG_NIGHT } from './map/_mapIds';
 
 /**
  * Navigation Focus Mode — 3-tier tiered road suppression manifest (Faz 3.2).
@@ -108,10 +111,13 @@ interface VectorPalette {
   readonly bldg3d: readonly [string, string, string];
   readonly bldg3dOpacity: number;
   /**
-   * Bina tabanı kararma şiddeti (`fill-extrusion-ambient-occlusion-intensity`).
-   * Gündüz BEYAZ binalarda hacmi TEK gösteren şey budur — beyaz zeminde beyaz
-   * bloklar aksi hâlde düz kâğıt gibi durur. Gecede tersi: zemin zaten koyu,
-   * fazla kararma binayı zeminde eritir.
+   * Bina tabanı kararma şiddeti (ambient occlusion).
+   *
+   * ⚠️ ŞU AN UYGULANMIYOR (kütük #552): `fill-extrusion-ambient-occlusion-*`
+   * Mapbox GL özelliğidir; MapLibre GL 4 tanımaz ve stili reddeder. Değer
+   * KORUNUYOR çünkü tasarım kararı geçerli — MapLibre desteklediğinde tek
+   * satırla geri bağlanacak. Bu alanı değiştirmek BUGÜN hiçbir şeyi
+   * değiştirmez; gündüz binaların düzlüğü bu yüzdendir (açık borç).
    */
   readonly bldg3dAO: number;
   /** Yol numarası kalkanı zemini (E-5 · D-100) — çalışma zamanı imajıyla eşleşir. */
@@ -139,7 +145,7 @@ interface VectorPalette {
 }
 
 /** Mevcut OEM gece paleti — değerler BİREBİR korunmuştur (davranış değişmedi). */
-const NIGHT_PALETTE: VectorPalette = {
+export const NIGHT_PALETTE: VectorPalette = {
   bg:              MAP_BG_NIGHT,
   water:           '#16213a',
   park:            '#1c2b22',
@@ -186,7 +192,7 @@ const NIGHT_PALETTE: VectorPalette = {
  * (`routeColorModel.ts`) — bu palet o sözleşmeyi BOZMAZ, mod'a bakar renge
  * değil.
  */
-const DAY_PALETTE: VectorPalette = {
+export const DAY_PALETTE: VectorPalette = {
   bg:              MAP_BG_DAY_VECTOR,
   water:           '#bcd6ee',
   park:            '#d4e6cd',
@@ -251,12 +257,24 @@ function brunnelOnly(kind: 'bridge' | 'tunnel'): FilterSpecification {
  * head unit'te bütçe kalemidir). Genişlik sınıfa göre `match` ile seçilir.
  */
 function brunnelWidth(scale: number): FilterSpecification {
-  const byClass = (z8: number, z14: number, z18: number) =>
-    ['interpolate', ['linear'], ['zoom'], 8, z8 * scale, 14, z14 * scale, 18, z18 * scale];
-  return ['case',
-    ['in', ['get', 'class'], ['literal', ['motorway', 'trunk']]], byClass(4, 12, 20),
-    ['in', ['get', 'class'], ['literal', ['primary', 'secondary']]], byClass(2.5, 9, 15),
-    byClass(1.2, 5, 9),
+  /* ⚠️ SIRALAMA PAZARLIKSIZ (kütük #552 · 2026-08-12): zoom `interpolate` EN
+     DIŞTA, sınıf `case` stop DEĞERLERİNİN içinde olmalı.
+     Eskiden tersiydi (`case` dışta, her dalda ayrı `interpolate`) ve MapLibre
+     stili sahada REDDEDİYORDU:
+       `layers[7|8|16|17].paint.line-width: Only one zoom-based "step" or
+        "interpolate" subexpression may be used in an expression.`
+     Sonuç: tünel ve köprü katmanlarının dördü de düşüyor, gövdeler varsayılan
+     1 px hat olarak çiziliyordu. Bir ifadede yalnız BİR zoom-bağımlı alt-ifade
+     bulunabilir — dallanma stop'ların İÇİNE girer. */
+  const atZoom = (mw: number, pri: number, other: number) => ['case',
+    ['in', ['get', 'class'], ['literal', ['motorway', 'trunk']]], mw * scale,
+    ['in', ['get', 'class'], ['literal', ['primary', 'secondary']]], pri * scale,
+    other * scale,
+  ];
+  return ['interpolate', ['linear'], ['zoom'],
+    8,  atZoom(4, 2.5, 1.2),
+    14, atZoom(12, 9, 5),
+    18, atZoom(20, 15, 9),
   ] as unknown as FilterSpecification;
 }
 
@@ -433,9 +451,17 @@ export function buildVectorStyle(
           'fill-extrusion-opacity':           P.bldg3dOpacity,
           'fill-extrusion-height': ['coalesce', ['get', 'render_height'], ['get', 'height'], 10],
           'fill-extrusion-base':   ['coalesce', ['get', 'render_min_height'], ['get', 'min_height'], 0],
+          /* Hacim hissini veren TEK desteklenen araç bu (taban→tepe koyu→açık).
+             `fill-extrusion-ambient-occlusion-*` BİLEREK YOK: bu özellikler
+             Mapbox GL'e aittir, MapLibre GL 4 tanımıyor ve stili sahada
+             REDDEDİYORDU (kütük #552):
+               `layers[6].paint.fill-extrusion-ambient-occlusion-intensity:
+                unknown property`
+             Yani AO zaten HİÇ uygulanmıyordu — kaldırmak görsel bir kayıp
+             değil, yalnız sessiz hatanın kesilmesidir. `P.bldg3dAO` tokeni
+             KORUNDU: MapLibre AO'yu desteklediğinde tek satırla geri bağlanır
+             (açık borç — kütük #552). */
           'fill-extrusion-vertical-gradient': true,
-          'fill-extrusion-ambient-occlusion-intensity': P.bldg3dAO,
-          'fill-extrusion-ambient-occlusion-radius':    10,
         },
       } as LayerSpecification,
 

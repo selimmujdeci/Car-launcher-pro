@@ -227,7 +227,15 @@ describe('B2. 🔒 Tek kamera otoritesi — iki görünüm aynı mantık', () =>
   it('🔒 Ortala düğmesi navigasyonda GİZLENEMEZ', () => {
     // Eski hata: `!isFollowing && !isNavigating` → navigasyonda düğme yoktu.
     expect(code(hudControlsSrc)).not.toContain('!isFollowing && !isNavigating');
-    expect(code(hudControlsSrc)).toContain('{!isFollowing && (');
+
+    /* 2026-08-13: tam ekran haritadaki ORTA banner KALDIRILDI (yolun üstünü
+       kapatıyordu). Kilit KALKMADI — korunan şey düğmenin KENDİSİ değil,
+       "navigasyonda takibe dönüşün bir yolu VAR" garantisiydi. O garanti artık
+       OTOMATİKTİR ve burada doğrulanır: pan bitişi otomatik ortalamayı bağlar
+       ve navigasyon gecikmesi tanımlıdır. */
+    expect(code(fullMapSrc)).toContain('notifyUserPanEnd(applyRecenter)');
+    expect(code(cameraSrc)).toMatch(/AUTO_FOLLOW_DELAY_NAV_MS\s*=\s*3_?000/);
+    expect(code(cameraSrc)).toContain('_navActive ? AUTO_FOLLOW_DELAY_NAV_MS');
   });
 
   it('🔒 Ortala TEK DOKUNUŞ — uzun basma yok, toast yok', () => {
@@ -237,9 +245,12 @@ describe('B2. 🔒 Tek kamera otoritesi — iki görünüm aynı mantık', () =>
     }
   });
 
-  it('🔒 erişilebilir ad var', () => {
+  it('🔒 erişilebilir ad var (düğmenin YAŞADIĞI yüzeylerde)', () => {
+    // Mini haritada düğme DURUYOR — orada harita küçük, yolun üstünü kapatmaz.
     expect(miniMapSrc).toContain('aria-label="Aracı ortala"');
-    expect(hudControlsSrc).toContain('aria-label="Aracı ortala"');
+    /* Tam ekranda orta banner kaldırıldı; ortalama yolu SİLİNMEDİ: sağ kontrol
+       rayındaki ikon `onRecenter`i çağırmaya devam eder (prop korunmuştur). */
+    expect(code(hudControlsSrc)).toContain('onRecenter(); showControls();');
   });
 
   it('🔒 otorite haritaya DOKUNMAZ (MapLibre örneği girmez)', () => {

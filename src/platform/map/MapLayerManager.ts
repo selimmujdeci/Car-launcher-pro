@@ -789,7 +789,18 @@ export function setPaintedArrow(
   anchorIndex: number,
   night: boolean,
 ): void {
-  if (!map || !map.isStyleLoaded()) return;
+  /* ── STİL KAPISI DARALTILDI (saha 2026-08-13) ──────────────────────────────
+   * Buradaki kapı da `trimRouteGeometry`dekiyle AYNI kusur sınıfındaydı ve
+   * fonksiyon İKİ İŞ yapıyor: (a) VAR OLAN source'a `setData` — yüklü stil
+   * GEREKTİRMEZ; (b) source/katman YARATMA — gerektirir. Tepedeki tek kapı
+   * ikisini birden öldürüyordu: sürüşte `isStyleLoaded()` kalıcı olarak false
+   * olduğu için (aynı karedeki `updateUserMarker` setData'sı + sürekli tile
+   * yüklemesi) ok bir kez kurulsa bile bir daha GÜNCELLENEMİYORDU.
+   *
+   * Kapı artık YALNIZ yaratma dalında (aşağıda). Dedup zaten güvenli: anahtar
+   * kontrolü `&& map.getSource(...)` de sorduğu için, yaratma stil yüzünden
+   * atlandıysa sonraki tick TEKRAR dener (bayat anahtar kilitlemez). */
+  if (!map) return;
 
   const key = verdict.visible
     ? `v|${anchorIndex}|${verdict.turn}`
@@ -822,6 +833,11 @@ export function setPaintedArrow(
       _recordPaintedArrowLayer(!!map.getLayer(PAINTED_ARROW_FILL));
       return;
     }
+
+    /* YARATMA dalı — burada yüklü stil GERÇEKTEN gerekir (`addSource`/`addLayer`
+       stil sözlüğüne yazar). Hazır değilse sessizce çıkılır; dedup anahtarı
+       source yokluğunu gördüğü için sonraki tick yeniden dener. */
+    if (!map.isStyleLoaded()) return;
 
     map.addSource(PAINTED_ARROW_SRC, {
       type: 'geojson',
@@ -1518,7 +1534,25 @@ export function trimRouteGeometry(map: MapLibreMap, remaining: [number, number][
   if (!map || remaining.length < 2) return;
   if (M.isStyleChanging) return; // stil geçişi sürerken source'a dokunma
   try {
-    if (!map.isStyleLoaded() || !map.getSource(SEL_SRC)) return;
+    /* ── STİL KAPISI KALDIRILDI (saha 2026-08-13) ────────────────────────────
+     * Kullanıcı: *"konum ileri gittikçe rota silinmiyor."*
+     *
+     * Kök, bu projede DAHA ÖNCE kamerada bulunup düzeltilmiş kusurun İKİNCİ
+     * kopyasıydı (bkz. regresyon kasası: "SÜRÜŞ KAMERASI STİL-KAPISI YASAĞI").
+     * `isStyleLoaded()` sürüş sırasında İKİ NORMAL durumda `false` döner:
+     *   1. Aynı karede başka bir `setData` stili kirletir — ve `updateUserMarker`
+     *      tam olarak bunu **~16 fps** ile yapıyor (araç işaretçisi).
+     *   2. Sürüşte sürekli yeni tile yüklenir → `sourceCache.loaded()` false.
+     * Kırpma GPS tick'inde (~1 Hz) çağrıldığı için stilin "temiz" olduğu ana
+     * denk gelmesi neredeyse imkânsızdı → fonksiyon SESSİZCE erken dönüyor,
+     * kat edilen rota hiç silinmiyordu.
+     *
+     * Doğru desen zaten üründe kanıtlı: `updateUserMarker` VAR OLAN bir
+     * source'a `setData`i **kapısız** çağırır ve saniyede 16 kez sorunsuz
+     * çalışır. Var olan bir GeoJSON source'a veri yazmak yüklü stil GEREKTİRMEZ;
+     * gereken tek şey source'un var olmasıdır — o da aşağıda kontrol edilir,
+     * `try/catch` de yerinde duruyor. Kaldırılan yalnız SAHTE kapıdır. */
+    if (!map.getSource(SEL_SRC)) return;
     (map.getSource(SEL_SRC) as GeoJSONSource).setData({
       type: 'Feature',
       properties: {},

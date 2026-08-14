@@ -239,16 +239,17 @@ export const SEL_SRC         = 'selected-route-source';
 export const BADGE_IMAGE_ID  = 'alt-badge-bg'; // C7.3 — premium glassmorphic badge arkaplanı
 
 /**
- * Yol numarası kalkanı (E-5 · D-100 · O-4) arkaplan imajları.
+ * Yol numarası kalkanı imaj kimlikleri — TANIM `_mapIds.ts`'e TAŞINDI (#552).
  *
- * Stilde `sprite` TANIMLI DEĞİLDİR — bu yüzden kalkan `icon-image` ile statik
- * bir sprite'tan gelemez; çalışma zamanında canvas'ta üretilip `addImage` ile
- * kaydedilir (mevcut Rover/badge deseniyle aynı). Katman `mapStyleBuilders`
- * içinde, imaj `MapLayerManager` içinde tanımlıdır → id'ler burada PAYLAŞILIR
- * ki ikisi sessizce ayrışmasın (kilit: mapRoadTopologyLayers.test).
+ * Sebep: bu dosya `mapStyleBuilders`'tan `RASTER_PAINT_*` alıyor, o da buradan
+ * kalkan id'lerini alıyordu → döngüsel bağımlılık. Yükleme `_mapState` ile
+ * başladığında `mapStyleBuilders`'ın paletleri `shieldImage: undefined` ile
+ * donuyor ve `road-shield` katmanı sahada reddediliyordu.
+ *
+ * Buradaki re-export YALNIZ geriye dönük uyum içindir (mevcut tüketiciler
+ * kırılmasın). Yeni kod doğrudan `_mapIds`'ten almalıdır.
  */
-export const SHIELD_IMG_DAY   = 'road-shield-day';
-export const SHIELD_IMG_NIGHT = 'road-shield-night';
+export { SHIELD_IMG_DAY, SHIELD_IMG_NIGHT } from './_mapIds';
 
 /**
  * Yola boyanmış manevra oku — kaynak ve katman kimlikleri.

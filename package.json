@@ -62,6 +62,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.39.4",
+    "@maplibre/maplibre-gl-style-spec": "^20.4.0",
     "@playwright/test": "^1.61.1",
     "@types/node": "^24.13.3",
     "@types/qrcode": "^1.5.6",

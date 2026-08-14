@@ -83,19 +83,31 @@ describe('Katman sırası — halo ve gölge ARTIK kaybolmuyor', () => {
 });
 
 describe('Viewport ölçeği — aynı rota, aynı görsel ağırlık', () => {
-  it('REFERANS head unit: ölçek tam 1,0 → çekirdek ve kılıf DEĞİŞMEZ', () => {
+  it('REFERANS head unit: ölçek tam 1,0 → çekirdek ve kılıf SABİT', () => {
     const w = computeRouteWidths({ canvasMinPx: ROUTE_WIDTH_REF_VMIN, perspectiveScale: 1 });
     expect(w.scale).toBe(1);
-    // Bugünkü sürüş değerleri (`8 * p` / `32 * p` ve `14 * p` / `38 * p`).
+    /* 2026-08-13: mutlak seviye BİLİNÇLİ olarak inceltildi (32 → 22, sahibinin
+       kararı; açık borç kapandı). Kilit KALDIRILMADI — yeni değere GÜNCELLENDİ;
+       görevi aynı: kalınlık bir daha SESSİZCE kaymasın. */
+    /* z12 (uzak zoom) DEĞİŞMEDİ: şikâyet sürüş görünümüne (z18) aitti ve z12
+       ucu katman ayrımının matematiksel tabanıdır (bkz. `CORE_Z12`). */
     expect(w.core.z12, 'head unit çekirdek z12 kaymış').toBe(8);
-    expect(w.core.z18, 'head unit çekirdek z18 kaymış').toBe(32);
-    expect(w.casing.z18, 'head unit kılıf z18 kaymış').toBe(38);
+    expect(w.core.z18, 'head unit çekirdek z18 kaymış').toBe(22);
+    expect(w.casing.z18, 'head unit kılıf z18 kaymış').toBe(26);
   });
 
-  it('DAR EKRAN incelir ama tabana oturur (aşırı ince değil)', () => {
+  it('DAR EKRAN incelir ama KILIF/ÇEKİRDEK AYRIMI korunur', () => {
     const small = computeRouteWidths({ canvasMinPx: 360 });
     expect(small.scale).toBe(ROUTE_WIDTH_SCALE_MIN);
-    expect(small.core.z18, 'dar ekranda rota tel gibi incelmiş').toBeGreaterThan(20);
+
+    /* Eski kilit mutlak bir sayıydı (`core.z18 > 20`) ve seviye inceltilince
+       anlamını yitirdi. Yerine kilidin ASIL KORUDUĞU ŞEY yazıldı: dış hattın
+       görünür kalması. Kılıf çekirdekten ~3 px geniş kalmazsa çizgi tek renkli
+       bir tele döner — inceltmenin gerçek tabanı budur (bkz. `CORE_Z18`). */
+    const rim = small.casing.z18 - small.core.z18;
+    expect(rim, 'dar ekranda kılıf çekirdeğe yapışmış — dış hat kayboldu')
+      .toBeGreaterThanOrEqual(3);
+    expect(small.core.z18, 'dar ekranda rota tel gibi incelmiş').toBeGreaterThan(12);
   });
 
   it('BÜYÜK EKRAN kalınlaşır ama tavana oturur (aşırı kalın değil)', () => {
@@ -132,9 +144,9 @@ describe('Viewport ölçeği — aynı rota, aynı görsel ağırlık', () => {
 
   it('BOZUK PERSPEKTİF kalınlığı patlatmaz', () => {
     const insane = computeRouteWidths({ canvasMinPx: 600, perspectiveScale: 99 });
-    expect(insane.core.z18).toBeLessThanOrEqual(32 * 1.5);
+    expect(insane.core.z18).toBeLessThanOrEqual(22 * 1.5);
     const nan = computeRouteWidths({ canvasMinPx: 600, perspectiveScale: Number.NaN });
-    expect(nan.core.z18).toBe(32);
+    expect(nan.core.z18).toBe(22);
   });
 
   it('ölçek monotondur — büyük yüzey asla daha ince rota vermez', () => {
@@ -161,9 +173,26 @@ describe('Nefes alan glow — güvenlik sinyali GÖRÜNÜR kalır', () => {
   });
 
   it('KUSUR KANITI: eski skaler değer kılıfın ALTINDA kalıyordu', () => {
+    /* Bu TARİHSEL bir kanıt testidir: o günkü kusuru gösterir. Bu yüzden
+       karşılaştırma BUGÜNKÜ kılıfa değil, kusurun yaşandığı GÜNKÜ kılıfa
+       yapılır (38 px @ z18, `MapInteractionManager`ın `38 * perspScale`
+       düzeltmesi). Bugünkü değere bağlansaydı, kalınlık politikası her
+       değiştiğinde tarih yeniden yazılmış olurdu — 2026-08-13'te çekirdek
+       32 → 22 inceltilince tam olarak bu oldu ve test düştü. */
+    /* O günkü SÜRÜŞ kılıfı: `38 * perspScale` (bu bloğun perspektifi 1,22).
+       Perspektifsiz 38 alınırsa karşılaştırma yanlış olur — eski glow'un en
+       geniş hâli (38,8) düz kameradaki kılıftan zaten genişti; kusur SÜRÜŞ
+       görünümünde ortaya çıkıyordu. */
+    const OLD_CASING_Z18 = 38 * 1.22;
     const oldMax = Math.max(10, 22 + 1 * 12 * 1 * 1.4);   // en geniş eski hâl
     expect(oldMax, 'eski glow zaten görünürmüş — kilit anlamsız')
-      .toBeLessThan(w.casing.z18);
+      .toBeLessThan(OLD_CASING_Z18);
+  });
+
+  it('🔒 BUGÜNKÜ halo, BUGÜNKÜ kılıfın dışında kalır (seviye değişse de)', () => {
+    /* Yukarıdaki tarihsel testin yerini tutmaz: asıl yaşayan invaryant budur
+       ve kalınlık seviyesinden BAĞIMSIZ olarak doğrulanır. */
+    expect(breathingGlowWidth(w.glow.z18, -1, 1.4)).toBeGreaterThan(w.casing.z18);
   });
 
   it('genlik risksizken nefes YOK (sabit taban)', () => {
