@@ -13,19 +13,27 @@
  * (CAROS LAB deseni). `mountedRef` ile async sonuç sökülmüş bileşene YAZILMAZ.
  *
  * ── GİZLİLİK ────────────────────────────────────────────────────────────────
- * Doğrulama kodu · oturum anahtarı · nonce · MAC · cihaz adı · telefon numarası ·
- * ham yük bu ekrana HİÇ GELMEZ. Doğrulama kodu YALNIZ kullanıcı ekranındadır;
- * LAB burada yalnız "onay bekleniyor mu" bilgisini görür.
+ * Oturum anahtarı · nonce · MAC · cihaz adı · telefon numarası · ham yük bu
+ * ekrana HİÇ GELMEZ.
+ *
+ * Doğrulama kodu bir İSTİSNADIR ve sınırı dardır: kod ANLIK GÖRÜNTÜYE,
+ * MODELE, OLAY DEFTERİNE ve JSON DIŞA AKTARIMINA GİRMEZ. Yalnız kullanıcı
+ * "Kodu Göster"e bastığında native'den O AN okunur, yalnız bileşen state'inde
+ * yaşar ve onay/ret sonrası ile ekran sökülürken SİLİNİR. Kod ekranda
+ * gösterilmeden onay vermek, karşı tarafın kimliğini doğrulamadan güven
+ * kurmak olurdu (MITM) — bu yüzden onay yüzeyi kodu göstermek zorundadır.
  */
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   RefreshCw, Play, Square, Unplug, Trash2, RotateCcw, Download, ShieldAlert,
+  KeyRound, Check, X,
 } from 'lucide-react';
 import { readPhoneHubLinkSnapshot } from '../../../platform/devtools/phoneHubLinkSources';
 import {
   refreshPhoneHubLink, startPhoneHubServer, stopPhoneHubServer,
   disconnectPhoneHubSession, forgetTrustedPhone, resetPhoneHubCounters,
+  confirmPhoneHubPairing, getPhoneHubPairingCode,
 } from '../../../platform/phoneHub/phoneHubLink';
 import {
   buildPhoneHubLinkView, buildPhoneHubLinkExport,
@@ -105,6 +113,9 @@ export function PhoneHubLinkScreen() {
     () => buildPhoneHubLinkView(readPhoneHubLinkSnapshot()));
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  /* Doğrulama kodu YALNIZ burada yaşar: modele, anlık görüntüye ve dışa
+     aktarıma girmez; onay/ret ve sökülme anında silinir. */
+  const [pairingCode, setPairingCode] = useState<string | null>(null);
 
   const reload = useCallback(async () => {
     setBusy(true);
@@ -121,7 +132,10 @@ export function PhoneHubLinkScreen() {
   useEffect(() => {
     mountedRef.current = true;
     void reload();
-    return () => { mountedRef.current = false; };
+    return () => {
+      mountedRef.current = false;
+      setPairingCode(null);   // kod ekranla birlikte ölür
+    };
   }, [reload]);
 
   /** Eylem → sonuç → TAZELE. Sonucu uydurmadan, native'e yeniden sorarak. */
@@ -147,6 +161,39 @@ export function PhoneHubLinkScreen() {
     }
   }, []);
 
+  /**
+   * Doğrulama kodunu O AN native'den okur (önbellek YOK).
+   *
+   * `null` dönerse onay penceresi kapanmıştır (kod kısa ömürlüdür) — o hâlde
+   * eski bir kod ekranda BIRAKILMAZ, tanı tazelenir.
+   */
+  const revealPairingCode = useCallback(async () => {
+    setBusy(true);
+    try {
+      const code = await getPhoneHubPairingCode();
+      if (!mountedRef.current) return;
+      setPairingCode(code);
+      if (code === null) {
+        setNotice('KOD YOK — onay penceresi kapanmış veya süresi dolmuş olabilir.');
+        await refreshPhoneHubLink();
+        if (mountedRef.current) setView(buildPhoneHubLinkView(readPhoneHubLinkSnapshot()));
+      }
+    } finally {
+      if (mountedRef.current) setBusy(false);
+    }
+  }, []);
+
+  /** Onay/ret — sonuç UYDURULMAZ, native'e yeniden sorulur. */
+  const decidePairing = useCallback(async (accepted: boolean) => {
+    setPairingCode(null);   // karar verildi: kod artık ekranda durmaz
+    await runAction(
+      () => confirmPhoneHubPairing(accepted),
+      accepted
+        ? 'Eşleştirme ONAYLANDI — oturum kurulumu native tarafta sürüyor'
+        : 'Eşleştirme REDDEDİLDİ — güven kaydı oluşturulmadı',
+    );
+  }, [runAction]);
+
   const exportJson = useCallback(async () => {
     const text = buildPhoneHubLinkExport(view, Date.now());
     const route = await copyTextFailSoft(text);
@@ -170,6 +217,51 @@ export function PhoneHubLinkScreen() {
       >
         {view.headline}
       </div>
+
+      {/* ── Eşleştirme onayı (YALNIZ onay beklenirken) ─────────────── */}
+      {view.awaitingUserConfirmation && (
+        <div
+          data-testid="phl-pairing-gate"
+          className="rounded border border-[var(--oem-warn)] bg-[var(--oem-warn-soft)] px-3 py-2"
+        >
+          <div className="mb-1.5 flex items-center gap-1.5 font-mono text-[10px] text-[var(--oem-warn)]">
+            <KeyRound size={12} />
+            EŞLEŞTİRME ONAYI BEKLİYOR — bu adım olmadan oturum KURULMAZ
+          </div>
+          <div className="mb-2 text-[10px] leading-relaxed text-[var(--oem-ink-2)]">
+            Telefondaki kod ile buradaki kod AYNI değilse ONAYLAMAYIN: kod
+            karşılaştırması, araya giren bir cihazın (MITM) güven kurmasını
+            engelleyen tek kapıdır. Kod hiçbir kayda, dışa aktarıma veya
+            anlık görüntüye yazılmaz.
+          </div>
+          <div className="mb-2 flex items-center gap-2">
+            <span
+              data-testid="phl-pairing-code"
+              className="rounded border border-[var(--oem-line-strong)] bg-[var(--oem-surface-2)] px-2.5 py-1 font-mono text-[14px] tracking-[0.3em] text-[var(--oem-ink)]"
+            >
+              {pairingCode ?? '••••••'}
+            </span>
+            <ActionButton
+              testId="phl-reveal-code" label="Kodu Göster" icon={KeyRound} disabled={busy}
+              onClick={() => void revealPairingCode()} />
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <ActionButton
+              testId="phl-pairing-accept" label="Onayla" icon={Check}
+              disabled={busy || pairingCode === null}
+              onClick={() => void decidePairing(true)} />
+            <ActionButton
+              testId="phl-pairing-reject" label="Reddet" icon={X} disabled={busy} danger
+              onClick={() => void decidePairing(false)} />
+          </div>
+          {pairingCode === null && (
+            <div className="mt-1.5 font-mono text-[9px] text-[var(--oem-ink-3)]">
+              ONAY, kod görülmeden verilemez — &quot;Kodu Göster&quot; zorunludur.
+              RET her zaman mümkündür (güvenli taraf).
+            </div>
+          )}
+        </div>
+      )}
 
       {/* ── Eylemler ───────────────────────────────────────────────── */}
       <div className="flex flex-wrap gap-2">
