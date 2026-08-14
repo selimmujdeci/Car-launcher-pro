@@ -61,7 +61,11 @@ describe('selfTestEngine — Tanı Robotu', () => {
     // bilinçli olarak HER ZAMAN açık — bu yüzden isimle kontrol edilir.
     expect(withScreens.results.some((p) => p.name === 'ekran-defteri')).toBe(true);
     expect(without.results.some((p) => p.name === 'ekran-defteri')).toBe(false);
-  });
+    /* Süre bütçesi: bu test `runSelfTest`i İKİ KEZ, ekran taramasıyla koşar ve
+       tarama maliyeti CAROS LAB kataloğu büyüdükçe artar (5 s varsayılanın
+       %83'üne dayanmıştı → yüklü makinede kasada RASTGELE düşüyordu). İDDİA
+       DEĞİŞMEDİ, yalnız zaman tavanı gerçeğe göre yükseltildi. */
+  }, 20_000);
 
   it('zamansız-modal probu her zaman dahildir (kapıdan bağımsız)', async () => {
     const r = await runSelfTest({ includeRenderScan: false, includeScreens: false });
