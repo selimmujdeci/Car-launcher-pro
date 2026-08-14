@@ -62,7 +62,7 @@ export interface SemanticResult {
 const VALID_INTENTS = new Set<string>([
   'SEARCH_POI',
   'OPEN_NAVIGATION', 'NAVIGATE_ADDRESS', 'NAVIGATE_PLACE',
-  'FIND_NEARBY_GAS', 'FIND_NEARBY_PARKING',
+  'FIND_NEARBY_GAS', 'FIND_NEARBY_PARKING', 'FIND_NEARBY_REST_AREA',
   'OPEN_MUSIC', 'PLAY_MUSIC_SEARCH', 'PAUSE_MEDIA',
   'MEDIA_NEXT', 'MEDIA_PREV', 'VOLUME_UP', 'VOLUME_DOWN',
   'OPEN_PHONE', 'OPEN_APP', 'OPEN_SCREEN', 'OPEN_SETTINGS', 'OPEN_FAVORITES',
@@ -93,7 +93,7 @@ GÖREV: Günlük konuşma dilindeki belirsiz ve doğal sorguları anlamlı niyet
 
 JSON FORMATI:
 {
-  "intent": "SEARCH_POI | NAVIGATE_ADDRESS | OPEN_NAVIGATION | FIND_NEARBY_GAS | FIND_NEARBY_PARKING | OPEN_MUSIC | OPEN_PHONE | OPEN_SETTINGS | SHOW_WEATHER | CHECK_VEHICLE_HEALTH | CHECK_MAINTENANCE | UNKNOWN",
+  "intent": "SEARCH_POI | NAVIGATE_ADDRESS | OPEN_NAVIGATION | FIND_NEARBY_GAS | FIND_NEARBY_PARKING | FIND_NEARBY_REST_AREA | OPEN_MUSIC | OPEN_PHONE | OPEN_SETTINGS | SHOW_WEATHER | CHECK_VEHICLE_HEALTH | CHECK_MAINTENANCE | UNKNOWN",
   "category": "RESTAURANT | CAFE | FAST_FOOD | BAKERY | GAS_STATION | PARKING | CAR_WASH | MECHANIC | HOSPITAL | PHARMACY | CLINIC | HOTEL | MOTEL | SHOPPING | SUPERMARKET | ATM | BANK | GENERAL",
   "query": "normalize edilmiş arama terimi (Türkçe, küçük harf)",
   "destination": "navigasyon hedefi (opsiyonel)",
@@ -103,7 +103,9 @@ JSON FORMATI:
 
 ÖRNEKLER:
 - "kanka buralarda iyi bir kebapçı var mı?" → {"intent":"SEARCH_POI","category":"RESTAURANT","query":"kebap","feedback":"Yakın kebapçılar aranıyor","confidence":0.96}
-- "biraz yoruldum" → {"intent":"SEARCH_POI","category":"PARKING","query":"dinlenme alanı","feedback":"Yakın mola noktaları aranıyor","confidence":0.78}
+- "biraz yoruldum" → {"intent":"FIND_NEARBY_REST_AREA","feedback":"Yakın dinlenme tesisi aranıyor","confidence":0.78}
+- "mola vereyim" → {"intent":"FIND_NEARBY_REST_AREA","feedback":"Yakın dinlenme tesisi aranıyor","confidence":0.85}
+- "park yeri lazım" → {"intent":"FIND_NEARBY_PARKING","feedback":"Yakın otopark aranıyor","confidence":0.9}
 - "acıktım" → {"intent":"SEARCH_POI","category":"RESTAURANT","query":"restoran","feedback":"Yakın restoranlar aranıyor","confidence":0.85}
 - "yakında benzin var mı" → {"intent":"FIND_NEARBY_GAS","query":"benzin istasyonu","feedback":"Yakın benzin istasyonları","confidence":0.97}
 - "eve git" → {"intent":"OPEN_NAVIGATION","destination":"home","feedback":"Eve gidiyoruz","confidence":0.99}

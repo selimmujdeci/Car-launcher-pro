@@ -36,6 +36,9 @@ export type IntentType =
   | 'FIND_NEARBY_GAS'
   | 'FIND_NEARBY_PARKING'
   | 'FIND_NEARBY_HOSPITAL'
+  /** "biraz yoruldum / mola vereyim" — otoyol dinlenme tesisi.
+   *  Eskiden FIND_NEARBY_PARKING'e düşüyordu ve ŞEHİR OTOPARKI öneriyordu. */
+  | 'FIND_NEARBY_REST_AREA'
   | 'OPEN_MUSIC'
   | 'PLAY_MUSIC_SEARCH'
   | 'PLAY_MUSIC_QUERY'
@@ -471,6 +474,12 @@ export async function routeIntent(intent: AppIntent, ctx: RouterContext): Promis
       ctx.navigateToPlace?.('__nearby_hospital__');
       break;
     }
+    case 'FIND_NEARBY_REST_AREA': {
+      /* Merkezi hat kullanılır (fuel/parking ile AYNI desen): dedupe + GPS
+         kapısı + TTS oradan gelir, burada TEKRARLANMAZ (çift konuşma olmaz). */
+      ctx.dispatchNearbyPoi?.('restArea');
+      break;
+    }
     case 'OPEN_SETTINGS':
       ctx.openDrawer('settings');
       break;
@@ -589,7 +598,7 @@ export async function routeIntent(intent: AppIntent, ctx: RouterContext): Promis
 const VALID_INTENTS = new Set<IntentType>([
   'SEARCH_POI',
   'OPEN_NAVIGATION', 'NAVIGATE_ADDRESS', 'NAVIGATE_PLACE',
-  'FIND_NEARBY_GAS', 'FIND_NEARBY_PARKING', 'FIND_NEARBY_HOSPITAL',
+  'FIND_NEARBY_GAS', 'FIND_NEARBY_PARKING', 'FIND_NEARBY_HOSPITAL', 'FIND_NEARBY_REST_AREA',
   'OPEN_MUSIC', 'PLAY_MUSIC_SEARCH', 'PLAY_MUSIC_QUERY', 'ADD_MUSIC_FAVORITE', 'OPEN_PHONE', 'OPEN_APP', 'OPEN_SCREEN', 'OPEN_SETTINGS',
   'PLAY_MEDIA', 'PAUSE_MEDIA', 'MEDIA_NEXT', 'MEDIA_PREV', 'MEDIA_VIDEO_MODE',
   'VOLUME_UP', 'VOLUME_DOWN', 'OPEN_FAVORITES',

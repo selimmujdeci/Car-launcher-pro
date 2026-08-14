@@ -347,9 +347,10 @@ export function resolveAndNavigate(
 
   _push({
     phase:        'searching',
-    query:        destination === '__nearby_gas__'      ? 'En yakın benzinlik'
-                : destination === '__nearby_parking__'  ? 'En yakın otopark'
-                : destination === '__nearby_hospital__' ? 'En yakın hastane'
+    query:        destination === '__nearby_gas__'       ? 'En yakın benzinlik'
+                : destination === '__nearby_parking__'   ? 'En yakın otopark'
+                : destination === '__nearby_hospital__'  ? 'En yakın hastane'
+                : destination === '__nearby_rest_area__' ? 'En yakın dinlenme tesisi'
                 : destination,
     results:      [],
     selected:     null,
@@ -358,7 +359,8 @@ export function resolveAndNavigate(
     shouldOpenMap: false,
   });
 
-  const isNearby = destination === '__nearby_gas__' || destination === '__nearby_parking__' || destination === '__nearby_hospital__';
+  const isNearby = destination === '__nearby_gas__' || destination === '__nearby_parking__'
+    || destination === '__nearby_hospital__' || destination === '__nearby_rest_area__';
   const surface: AddressSearchSurface = isNearby ? 'NEARBY_SHORTCUT' : 'VOICE_ADDRESS';
   const hadLoc  = location != null;
 
@@ -460,6 +462,7 @@ export function resolveAndNavigate(
         ? searchNearby(
             destination === '__nearby_gas__' ? 'fuel'
               : destination === '__nearby_parking__' ? 'parking'
+              : destination === '__nearby_rest_area__' ? 'rest_area'
               : 'hospital',
             location.lat,
             location.lng,

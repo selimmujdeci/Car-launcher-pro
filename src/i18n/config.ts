@@ -68,7 +68,10 @@ const resources = {
         "nearby_gas_error": "Benzinlik araması şu anda tamamlanamadı. Lütfen tekrar dene.",
         "nearby_parking_starting": "En yakın otopark için rota başlatılıyor.",
         "nearby_parking_none": "Yakınında uygun bir otopark bulunamadı.",
-        "nearby_parking_error": "Otopark araması şu anda tamamlanamadı. Lütfen tekrar dene."
+        "nearby_parking_error": "Otopark araması şu anda tamamlanamadı. Lütfen tekrar dene.",
+        "nearby_rest_area_starting": "En yakın dinlenme tesisi için rota başlatılıyor.",
+        "nearby_rest_area_none": "Yakınında bilinen bir dinlenme tesisi bulunamadı.",
+        "nearby_rest_area_error": "Dinlenme tesisi araması şu anda tamamlanamadı. Lütfen tekrar dene."
       }
     }
   },
@@ -137,7 +140,10 @@ const resources = {
         "nearby_gas_error": "The gas station search could not be completed right now. Please try again.",
         "nearby_parking_starting": "Starting navigation to the nearest parking.",
         "nearby_parking_none": "No suitable parking was found nearby.",
-        "nearby_parking_error": "The parking search could not be completed right now. Please try again."
+        "nearby_parking_error": "The parking search could not be completed right now. Please try again.",
+        "nearby_rest_area_starting": "Starting navigation to the nearest rest area.",
+        "nearby_rest_area_none": "No known rest area was found nearby.",
+        "nearby_rest_area_error": "The rest area search could not be completed right now. Please try again."
       }
     }
   }

@@ -275,9 +275,15 @@ describe('geocodingService.searchNearby — hospital amenity + doğrulama', () =
 /* ── C. dispatchNearbyPoiNavigation — GPS fail-closed + dedupe + TTS ─────── */
 
 describe('nearbyPoiNavigation.dispatchNearbyPoiNavigation', () => {
-  it('kategori kataloğu fuel + hospital + parking içerir (NAVIGATION-P1-2), sentinel tek yerde tanımlı', () => {
+  it('kategori kataloğu fuel + hospital + parking + restArea içerir, sentinel tek yerde tanımlı', () => {
+    /* GÜNCELLENDİ (2026-08-13): `restArea` BİLİNÇLİ olarak eklendi — "biraz
+       yoruldum/mola" isteği eskiden `parking`e düşüp otoyolda ŞEHİR OTOPARKI
+       öneriyordu (ölçüm: aynı 25 km'de 206 otopark ↔ 18 dinlenme tesisi, ve
+       tesisler `amenity` OLMADIĞI için listeye hiç girmiyordu). Kilit
+       KALDIRILMADI, yeni doğru kümeye güncellendi; görevi aynı: katalog
+       sessizce büyümesin/küçülmesin. */
     const categories = Object.keys(NEARBY_POI_CATALOG).sort();
-    expect(categories).toEqual(['fuel', 'hospital', 'parking']);
+    expect(categories).toEqual(['fuel', 'hospital', 'parking', 'restArea']);
     expect(NEARBY_POI_CATALOG.fuel.sentinel).toBe('__nearby_gas__');
     expect(NEARBY_POI_CATALOG.hospital.sentinel).toBe('__nearby_hospital__');
     expect(NEARBY_POI_CATALOG.hospital.amenity).toBe('hospital');
@@ -285,6 +291,10 @@ describe('nearbyPoiNavigation.dispatchNearbyPoiNavigation', () => {
     expect(NEARBY_POI_CATALOG.parking.sentinel).toBe('__nearby_parking__');
     expect(NEARBY_POI_CATALOG.parking.amenity).toBe('parking');
     expect(NEARBY_POI_CATALOG.parking.radiusM).toBe(5000);
+    expect(NEARBY_POI_CATALOG.restArea.sentinel).toBe('__nearby_rest_area__');
+    expect(NEARBY_POI_CATALOG.restArea.amenity).toBe('rest_area');
+    // Yarıçap bilinçli olarak DAHA GENİŞ: 5 km'de ölçülen sonuç sıfırdı.
+    expect(NEARBY_POI_CATALOG.restArea.radiusM).toBe(20000);
   });
 
   it('GPS YOK (undefined) → arama YAPILMAZ, navigasyon BAŞLAMAZ, fail-closed TTS söylenir', () => {

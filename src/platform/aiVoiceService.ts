@@ -79,7 +79,7 @@ export interface VehicleContext {
 
 const INTENT_LIST = [
   'OPEN_NAVIGATION', 'NAVIGATE_ADDRESS', 'NAVIGATE_PLACE',
-  'FIND_NEARBY_GAS', 'FIND_NEARBY_PARKING',
+  'FIND_NEARBY_GAS', 'FIND_NEARBY_PARKING', 'FIND_NEARBY_REST_AREA',
   'OPEN_MUSIC', 'PLAY_MUSIC_SEARCH', 'PAUSE_MEDIA',
   'MEDIA_NEXT', 'MEDIA_PREV', 'VOLUME_UP', 'VOLUME_DOWN',
   'OPEN_PHONE', 'OPEN_SETTINGS', 'OPEN_FAVORITES',
@@ -109,7 +109,8 @@ JSON formatı:
 Örnekler:
 - "eve git" → {"intent":"OPEN_NAVIGATION","payload":{"destination":"home","targetApp":"maps"},"confidence":0.97,"feedback":"Eve gidiyoruz"}
 - "müziği aç" → {"intent":"OPEN_MUSIC","payload":{"targetApp":"spotify"},"confidence":0.95,"feedback":"Müzik başlatılıyor"}
-- "biraz yoruldum mola versem" → {"intent":"FIND_NEARBY_PARKING","payload":{},"confidence":0.82,"feedback":"Yakın dinlenme alanı aranıyor"}`;
+- "biraz yoruldum mola versem" → {"intent":"FIND_NEARBY_REST_AREA","payload":{},"confidence":0.82,"feedback":"Yakın dinlenme tesisi aranıyor"}
+- "araba park edecek yer bul" → {"intent":"FIND_NEARBY_PARKING","payload":{},"confidence":0.9,"feedback":"Yakın otopark aranıyor"}`;
 
 /**
  * Anlık araç bağlamını + DTC teşhis verisini system prompt'a enjekte eder.
@@ -181,7 +182,7 @@ function buildSystemPrompt(ctx?: VehicleContext): string {
 
 const VALID_INTENTS = new Set<string>([
   'OPEN_NAVIGATION', 'NAVIGATE_ADDRESS', 'NAVIGATE_PLACE',
-  'FIND_NEARBY_GAS', 'FIND_NEARBY_PARKING',
+  'FIND_NEARBY_GAS', 'FIND_NEARBY_PARKING', 'FIND_NEARBY_REST_AREA',
   'OPEN_MUSIC', 'PLAY_MUSIC_SEARCH', 'PAUSE_MEDIA',
   'MEDIA_NEXT', 'MEDIA_PREV', 'VOLUME_UP', 'VOLUME_DOWN',
   'OPEN_PHONE', 'OPEN_SETTINGS', 'OPEN_FAVORITES',

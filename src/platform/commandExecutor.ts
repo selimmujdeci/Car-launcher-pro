@@ -426,6 +426,14 @@ async function dispatchIntent(intent: AppIntent, ctx: CommandContext): Promise<I
         else ctx.launch(ctx.defaultNav);
         break;
       }
+      case 'FIND_NEARBY_REST_AREA': {
+        // "biraz yoruldum / mola vereyim" — merkezi dispatch (fuel/parking ile
+        // AYNI hat). TTS burada TEKRARLANMAZ; dispatchNearbyPoiNavigation kendi
+        // successKey'ini söyler (çift konuşma önlenir).
+        if (ctx.dispatchNearbyPoi) ctx.dispatchNearbyPoi('restArea');
+        else ctx.launch(ctx.defaultNav);
+        break;
+      }
       case 'FIND_NEARBY_HOSPITAL': {
         // Sentinel kullanılır — resolveAndNavigate '__nearby_hospital__'i
         // Overpass amenity=hospital aramasına eşler (bkz. intentEngine.ts

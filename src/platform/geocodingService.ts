@@ -848,13 +848,55 @@ interface OverpassElement {
  *   - yuvarlanmış lat/lng ile tekilleştirilir (Overpass node+way aynı tesisi
  *     iki kez döndürebilir)
  */
+/**
+ * Kategori → Overpass ETİKET SÜZGECİ ve yarıçap.
+ *
+ * ── NEDEN TABLO (ölçülen kusur, 2026-08-13) ────────────────────────────────
+ * Eskiden sorgu `[amenity=${type}]` olarak SABİT kuruluyordu. Bu, kategori
+ * kümesini sessizce `amenity=*` ile etiketlenmiş şeylerle SINIRLIYORDU.
+ * **Dinlenme tesisi OSM'de `amenity` DEĞİLDİR** — `highway=services` (otoyol
+ * dinlenme tesisi) ve `highway=rest_area` (dinlenme alanı) olarak etiketlenir.
+ * Yani "dinlenme tesisi" sorgusu yapısal olarak ULAŞILAMAZDI; sesli komut
+ * sessizce "en yakın otoparka" düşüyordu ve otoyolda bu YANLIŞ cevaptır.
+ *
+ * Ölçüm (O-4 Anadolu Otoyolu, Bolu, 25 km):
+ *   `amenity=parking` **206** · `highway=services` **13** · `highway=rest_area` **5**
+ * Yani ürünün gördüğü 206 kayıt köy/şehir otoparkıdır; gerçek 18 dinlenme
+ * tesisi listeye HİÇ girmiyordu.
+ *
+ * ── YARIÇAP NEDEN KATEGORİYE BAĞLI (ölçüldü) ───────────────────────────────
+ * Yarıçap da sabit 5 km idi. Aynı noktada dinlenme tesisi sayısı:
+ *   5 km → **0** · 10 km → 2 · 15 km → 6 · 25 km → 18   (en yakını 7,5 km)
+ * Yani etiket düzeltilse bile 5 km'de sonuç GELMEZDİ. Dinlenme tesisleri
+ * doğaları gereği seyrektir (otoyolda ~30-50 km arayla). 20 km, sonucu garanti
+ * ederken sürücüyü gereksiz uzağa göndermez — liste zaten mesafeye göre sıralı
+ * döner, sürücü en yakınını alır. Benzinlik/otopark/hastane yarıçapı
+ * **DEĞİŞMEDİ** (5 km) — davranışları birebir korunur.
+ */
+const NEARBY_FILTERS: Record<
+  'fuel' | 'parking' | 'hospital' | 'rest_area',
+  { readonly tags: readonly string[]; readonly radiusM: number }
+> = {
+  fuel:      { tags: ['amenity=fuel'],     radiusM: 5000 },
+  parking:   { tags: ['amenity=parking'],  radiusM: 5000 },
+  hospital:  { tags: ['amenity=hospital'], radiusM: 5000 },
+  /* İKİ etiket birden: `services` yakıt+yemek+tuvalet içeren tam tesis,
+     `rest_area` yalnız park+tuvalet. Yorgun sürücü için ikisi de geçerli
+     cevaptır; ayrımı ürün TAHMİN ETMEZ, ikisini de listeler. */
+  rest_area: { tags: ['highway=services', 'highway=rest_area'], radiusM: 20000 },
+};
+
 export async function searchNearby(
-  type:   'fuel' | 'parking' | 'hospital',
+  type:   'fuel' | 'parking' | 'hospital' | 'rest_area',
   lat:    number,
   lng:    number,
 ): Promise<GeoResult[]> {
-  const amenity = type === 'fuel' ? 'fuel' : type === 'parking' ? 'parking' : 'hospital';
-  const query   = `[out:json][timeout:10];(node[amenity=${amenity}](around:5000,${lat},${lng});way[amenity=${amenity}](around:5000,${lat},${lng}););out center 5;`;
+  const filter = NEARBY_FILTERS[type] ?? NEARBY_FILTERS.parking;
+  const r      = filter.radiusM;
+  const clauses = filter.tags
+    .map((t) => `node[${t}](around:${r},${lat},${lng});way[${t}](around:${r},${lat},${lng});`)
+    .join('');
+  const query   = `[out:json][timeout:10];(${clauses});out center 5;`;
 
   const { ctrl, clear } = abort(TIMEOUT);
   let data: { elements: OverpassElement[] };
@@ -892,7 +934,7 @@ export async function searchNearby(
       fullName:   name,
       lat:        elLat,
       lng:        elLng,
-      type:       amenity,
+      type,
       distanceKm: Math.round(haversineKm(lat, lng, elLat, elLng) * 10) / 10,
     });
   }
