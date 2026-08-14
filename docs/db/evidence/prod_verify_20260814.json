@@ -1,0 +1,92 @@
+[
+  {
+    "kontrol": "063-1 vehicle_commands.result kolonu",
+    "deger": "jsonb",
+    "sonuc": "PASS"
+  },
+  {
+    "kontrol": "063-2 CHECK 14 tip",
+    "deger": "14",
+    "sonuc": "PASS"
+  },
+  {
+    "kontrol": "064-1 tablolar",
+    "deger": "vehicle_fuel_logs + vehicle_service_records",
+    "sonuc": "PASS"
+  },
+  {
+    "kontrol": "064-2 RLS açık",
+    "deger": "vehicle_fuel_logs=true vehicle_service_records=true",
+    "sonuc": "PASS"
+  },
+  {
+    "kontrol": "064-3 anon ayrıcalığı (0 olmalı)",
+    "deger": "false/false/false",
+    "sonuc": "PASS"
+  },
+  {
+    "kontrol": "064-4 authenticated 4/4",
+    "deger": "4",
+    "sonuc": "PASS"
+  },
+  {
+    "kontrol": "064-5 politikalar",
+    "deger": "vfl_access, vsr_access",
+    "sonuc": "PASS"
+  },
+  {
+    "kontrol": "065-P6 vehicle_users",
+    "deger": "vehicle_users",
+    "sonuc": "PASS"
+  },
+  {
+    "kontrol": "065-P7 erişim fonksiyonu 4 yol",
+    "deger": "abcd",
+    "sonuc": "PASS"
+  },
+  {
+    "kontrol": "D1 defter kaydı",
+    "deger": "36",
+    "sonuc": "PASS"
+  },
+  {
+    "kontrol": "D2 defter yedeği (eski 12 kayıt)",
+    "deger": "12",
+    "sonuc": "PASS"
+  },
+  {
+    "kontrol": "S1 sentry politikaları korundu",
+    "deger": "4",
+    "sonuc": "PASS"
+  },
+  {
+    "kontrol": "S2 fleet tabloları kuruldu",
+    "deger": "53",
+    "sonuc": "PASS"
+  },
+  {
+    "kontrol": "V1 vehicle_events satır (78671 olmalı)",
+    "deger": "78671",
+    "sonuc": "PASS"
+  },
+  {
+    "kontrol": "V2 vehicles satır (576 olmalı)",
+    "deger": "576",
+    "sonuc": "PASS"
+  },
+  {
+    "kontrol": "V3 profiles (035 backfill: 2)",
+    "deger": "2",
+    "sonuc": "PASS"
+  },
+  {
+    "kontrol": "V4 vehicle_telemetry (42 olmalı)",
+    "deger": "42",
+    "sonuc": "PASS"
+  },
+  {
+    "kontrol": "V5 vehicle_pairings (1 olmalı)",
+    "deger": "1",
+    "sonuc": "PASS"
+  }
+]

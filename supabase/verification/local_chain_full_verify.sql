@@ -28,17 +28,31 @@ BEGIN
   INSERT INTO auth.users (id, email) VALUES
     (v_owner,'owner@test.local'), (v_other,'other@test.local')
     ON CONFLICT (id) DO NOTHING;
-  -- NOT: kök zincirin `companies` tablosunda `slug` NOT NULL UNIQUE'tir
-  -- (20260421000000_initial_schema). Prod'un `companies` tablosunda bu kolon
-  -- YOKTUR (website/001_init) — bilinçli, kayıtlı ayrışma (kütük #582).
-  INSERT INTO public.companies (id, name, slug) VALUES
-    (v_co_a,'A Filo','a-filo'), (v_co_b,'B Filo','b-filo') ON CONFLICT (id) DO NOTHING;
+  -- ŞEMAYA UYARLANIR: eski kök zincirin `companies` tablosunda `slug` NOT NULL
+  -- UNIQUE'ti; prod baseline'ında (website/001_init kökenli) bu kolon YOKTUR.
+  -- Betik iki şemada da koşabilsin diye kolon varlığına göre dallanır.
+  IF EXISTS (SELECT 1 FROM information_schema.columns
+              WHERE table_schema='public' AND table_name='companies' AND column_name='slug') THEN
+    INSERT INTO public.companies (id, name, slug) VALUES
+      (v_co_a,'A Filo','a-filo'), (v_co_b,'B Filo','b-filo') ON CONFLICT (id) DO NOTHING;
+  ELSE
+    INSERT INTO public.companies (id, name) VALUES
+      (v_co_a,'A Filo'), (v_co_b,'B Filo') ON CONFLICT (id) DO NOTHING;
+  END IF;
   INSERT INTO public.profiles (id, company_id) VALUES
     (v_owner, v_co_a), (v_other, v_co_b) ON CONFLICT (id) DO NOTHING;
   -- Araç: KİŞİSEL (company_id NULL) → şirket yolu kapalı, yalnız sahip erişir
-  INSERT INTO public.vehicles (id, plate, brand, model, year, fuel_type, owner_id, company_id)
-    VALUES (v_veh, '34TEST01', 'Test', 'Model', 2020, 'diesel', v_owner, NULL)
-    ON CONFLICT (id) DO NOTHING;
+  -- `name` prod baseline'ında NOT NULL'dır (website/001_init kökenli).
+  IF EXISTS (SELECT 1 FROM information_schema.columns
+              WHERE table_schema='public' AND table_name='vehicles' AND column_name='name') THEN
+    INSERT INTO public.vehicles (id, name, plate, brand, model, year, fuel_type, owner_id, company_id)
+      VALUES (v_veh, 'Test Aracı', '34TEST01', 'Test', 'Model', 2020, 'diesel', v_owner, NULL)
+      ON CONFLICT (id) DO NOTHING;
+  ELSE
+    INSERT INTO public.vehicles (id, plate, brand, model, year, fuel_type, owner_id, company_id)
+      VALUES (v_veh, '34TEST01', 'Test', 'Model', 2020, 'diesel', v_owner, NULL)
+      ON CONFLICT (id) DO NOTHING;
+  END IF;
   INSERT INTO public.vehicle_users (user_id, vehicle_id, role)
     VALUES (v_owner, v_veh, 'owner') ON CONFLICT DO NOTHING;
 END $fx$;
@@ -114,7 +128,32 @@ DECLARE
   v_ok int := 0; v_t text; v_id uuid; v_result jsonb;
   v_owner uuid := '11111111-1111-1111-1111-111111111111';
   v_veh   uuid := '55555555-5555-5555-5555-555555555555';
+  v_co_a  uuid := '33333333-3333-3333-3333-333333333333';
+  v_cols  text := 'vehicle_id, type';
+  v_vals  text := '';
+  v_ins   text;
 BEGIN
+  -- ŞEMAYA UYARLANIR: `vehicle_commands`'ın NOT NULL kolonları ortamdan
+  -- ortama değişir (prod: company_id + ttl; eski kök zincir: user_id).
+  -- INSERT bu yüzden katalogdan KURULUR — sabit kolon listesi yanlış
+  -- ortamda testi ürün kusuru gibi düşürürdü.
+  v_vals := quote_literal(v_veh) || '::uuid, %L';
+  IF EXISTS (SELECT 1 FROM information_schema.columns
+              WHERE table_schema='public' AND table_name='vehicle_commands'
+                AND column_name='company_id' AND is_nullable='NO') THEN
+    v_cols := v_cols || ', company_id'; v_vals := v_vals || ', ' || quote_literal(v_co_a) || '::uuid';
+  END IF;
+  IF EXISTS (SELECT 1 FROM information_schema.columns
+              WHERE table_schema='public' AND table_name='vehicle_commands'
+                AND column_name='user_id' AND is_nullable='NO') THEN
+    v_cols := v_cols || ', user_id'; v_vals := v_vals || ', ' || quote_literal(v_owner) || '::uuid';
+  END IF;
+  IF EXISTS (SELECT 1 FROM information_schema.columns
+              WHERE table_schema='public' AND table_name='vehicle_commands'
+                AND column_name='ttl' AND is_nullable='NO') THEN
+    v_cols := v_cols || ', ttl'; v_vals := v_vals || ', now() + interval ''1 hour''';
+  END IF;
+  v_ins := 'INSERT INTO public.vehicle_commands (' || v_cols || ') VALUES (' || v_vals || ')';
   IF NOT EXISTS (SELECT 1 FROM information_schema.columns
     WHERE table_schema='public' AND table_name='vehicle_commands' AND column_name='result')
   THEN RAISE EXCEPTION '063-1 DÜŞTÜ: result kolonu yok'; END IF;
@@ -127,18 +166,18 @@ BEGIN
   v_ok := v_ok+1; RAISE NOTICE '063-2 PASS: result NULLABLE, varsayılan yok';
 
   FOREACH v_t IN ARRAY ARRAY['layout_change','read_dtc','clear_dtc','read_voltage','set_speed_alert'] LOOP
-    INSERT INTO public.vehicle_commands (vehicle_id, user_id, type) VALUES (v_veh, v_owner, v_t);
+    EXECUTE format(v_ins, v_t);
   END LOOP;
   v_ok := v_ok+1; RAISE NOTICE '063-3 PASS: beş yeni tip kabul edildi';
 
   FOREACH v_t IN ARRAY ARRAY['lock','unlock','horn','alarm_on','alarm_off',
                              'lights_on','route_send','navigation_start','theme_change'] LOOP
-    INSERT INTO public.vehicle_commands (vehicle_id, user_id, type) VALUES (v_veh, v_owner, v_t);
+    EXECUTE format(v_ins, v_t);
   END LOOP;
   v_ok := v_ok+1; RAISE NOTICE '063-4 PASS: eski dokuz tip korundu';
 
   BEGIN
-    INSERT INTO public.vehicle_commands (vehicle_id, user_id, type) VALUES (v_veh, v_owner, 'ecu_flash');
+    EXECUTE format(v_ins, 'ecu_flash');
     RAISE EXCEPTION '063-5 DÜŞTÜ: bilinmeyen tip KABUL EDİLDİ';
   EXCEPTION WHEN check_violation THEN
     RAISE NOTICE '063-5 PASS: bilinmeyen tip reddedildi (23514)';
@@ -156,9 +195,18 @@ BEGIN
   THEN RAISE EXCEPTION '063-7 DÜŞTÜ: result yazılıp okunamadı'; END IF;
   v_ok := v_ok+1; RAISE NOTICE '063-7 PASS: result jsonb yazıldı/okundu';
 
-  -- 063-8 (EK): /api/pwa/dtc-result rotasının BİREBİR sorgusu
-  PERFORM id, status, result, error_reason, created_at
-     FROM public.vehicle_commands WHERE id = v_id;
+  -- 063-8 (EK): /api/pwa/dtc-result rotasının sorgusu. Hata metni kolonunun
+  -- ADI ortama göre değişir (prod: error_message · eski kök zincir: error_reason);
+  -- rota kodu prod şemasını hedefler, test kurgusu bunu katalogdan seçer.
+  IF EXISTS (SELECT 1 FROM information_schema.columns
+              WHERE table_schema='public' AND table_name='vehicle_commands'
+                AND column_name='error_message') THEN
+    PERFORM id, status, result, error_message, created_at
+       FROM public.vehicle_commands WHERE id = v_id;
+  ELSE
+    PERFORM id, status, result, error_reason, created_at
+       FROM public.vehicle_commands WHERE id = v_id;
+  END IF;
   v_ok := v_ok+1; RAISE NOTICE '063-8 PASS: dtc-result rota sorgusu çalıştı (eskiden 42703)';
 
   RAISE NOTICE '=== 063 DOĞRULAMA: %/8 PASS ===', v_ok;

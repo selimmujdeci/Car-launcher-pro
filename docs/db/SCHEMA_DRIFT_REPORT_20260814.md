@@ -1,13 +1,22 @@
 # Şema Sapma Raporu — `supabase/migrations` ↔ Prod (`Carospro`)
 
 **Tarih:** 2026-08-14
-**Kapsam:** migration zincirinin sıfırdan uygulanabilirliği + prod şemasıyla karşılaştırma
-**Prod erişimi:** **YALNIZ OKUMA.** Supabase Management API `/v1/projects/{ref}/database/query`
-`read_only: true` ile çağrıldı — sunucu bağlantıyı `supabase_read_only_user` rolüne
-düşürür, yani yazma **yapısal olarak imkânsızdı**. Ek olarak yerel araç
-(`scratchpad/prod-read.ps1`) SQL'i `SELECT`/`WITH` ile başlamıyorsa veya yazma anahtar
-kelimesi içeriyorsa çalıştırmayı reddeden bir kapı taşır. **Prod'a hiçbir yazma yapılmadı.
-fleetval stack'ine dokunulmadı.**
+**Kapsam:** migration zincirinin sıfırdan uygulanabilirliği · prod şemasıyla karşılaştırma ·
+**baseline squash ile prod migration geçmişinin onarımı ve zincirin production'a uygulanması**
+
+**İki fazlı çalışma:**
+
+- **Faz 1 (analiz) — YALNIZ OKUMA.** Supabase Management API
+  `/v1/projects/{ref}/database/query`, `read_only: true` ile çağrıldı — sunucu bağlantıyı
+  `supabase_read_only_user` rolüne düşürür, yani yazma **yapısal olarak imkânsızdı**.
+  Yerel okuma aracı (`tools/prod-read-sql.ps1`) ayrıca SQL'i `SELECT`/`WITH` ile
+  başlamıyorsa reddeden bir kapı taşır.
+- **Faz 2 (uygulama) — YAZMA (kullanıcı yetkisiyle).** Kullanıcı açık yetki verdi
+  ("yetkin var, onay beklemeden ilerle"). Yazma yalnız `tools/prod-apply-sql.ps1`
+  üzerinden, `-Confirm PRODUCTION-YAZ` kapısıyla ve **prod'un birebir kopyasında gerçek
+  `supabase db push` provası GEÇTİKTEN SONRA** yapıldı. Ayrıntı: §5.
+
+**fleetval stack'ine hiç dokunulmadı.**
 
 ---
 
@@ -146,7 +155,43 @@ yüzeylerdir. Sahibi website zinciridir; kök zincire kopyalanmaları ayrı bir 
 
 ---
 
-## 5. Prod'a uygulama — HÂLÂ MÜMKÜN DEĞİL (ayrı iş)
+## 5. Prod'a uygulama — ✅ TAMAMLANDI (aynı gün, kütük #583)
+
+> Bu bölümün ilk hâli "prod'a uygulama HÂLÂ MÜMKÜN DEĞİL" diyordu. Üç engel de
+> kapatıldı ve **zincir production'a uygulandı**. Aşağıda önce nasıl çözüldüğü,
+> sonra orijinal engel listesi (tarihsel kayıt olarak) yer alıyor.
+
+### 5.1 Çözüm: baseline squash + iki dizinin birleştirilmesi
+
+1. **Prod kataloğu salt-okunur okundu** ve `00000000000000_prod_baseline.sql`
+   **otomatik üretildi** (`tools/db/gen_baseline.py`). Elle yazılmadı.
+2. **Baseline'ın prod'a eşitliği ÖLÇÜLDÜ:** temiz bir Supabase stack'ine uygulanıp
+   prod ile karşılaştırıldı → **969/969 anahtar aynı, fark sıfır**.
+3. **İki dizin birleştirildi:** 37 kök + 12 website migration'ı
+   `supabase/migrations_archive/`'e taşındı. Sürüm çakışması (`20260424000009`)
+   ve deftersiz `initial_schema` **squash ile yapısal olarak ortadan kalktı**.
+4. **`vehicle_users` engeli** iki yeni migration ile çözüldü
+   (`20260813000000` tabloyu kurar · `20260814000065` erişim fonksiyonuna prod'un
+   gerçek sahiplik yollarını ekler).
+5. **Prod'un birebir kopyasında gerçek `supabase db push` provası** → 35 migration
+   hatasız, doğrulama 25/25, ikinci push idempotent.
+6. **Prod'un gerçek verisiyle uyumluluk ön kontrolü** → silinecek/bozulacak satır **0**.
+7. **Prod'a uygulandı:** defter yedeklendi → baseline'a hizalandı → 35 migration
+   tek tek uygulandı. Sonrasında **prod ↔ klon 2315/2315 anahtar aynı** ve prod
+   denetimi **18/18 PASS**, **veri kaybı yok**.
+
+### 5.2 ⚠️ Okuma katmanında bulunan kusur (ölçüm dürüstlüğü)
+
+İlk baseline **bozuk üretilmişti**: Windows PowerShell 5.1, Management API yanıtını
+Latin-1 olarak çözüp Türkçe tanımlayıcıları **çift kodluyordu** (`ç` = `c3a7` yerine
+`c383c2a7`). Kusur katalog karşılaştırmasında **görünmüyordu**, çünkü hem prod
+okuması hem klon aynı bozuk kaynaktan geliyordu — "969/969 eşleşti" sonucu
+**kendi kendini doğrulayan bir yanılsamaydı**. Okuma `pwsh 7`'ye taşındı, dosya
+yazımı BOM'suz UTF-8'e çevrildi ve doğrulama **bayt düzeyine** indirildi.
+
+### 5.3 Orijinal engel listesi (tarihsel)
+
+
 
 Bu tur zinciri **yeni bir ortamda sıfırdan kurulabilir** hâle getirdi. Prod'a `supabase db push`
 ise **hâlâ mümkün değildir** ve sebebi bu turun konusu değildir:

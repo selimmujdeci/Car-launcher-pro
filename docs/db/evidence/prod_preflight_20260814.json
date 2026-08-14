@@ -1,0 +1,68 @@
+﻿[
+    {
+        "kontrol":  "D. vehicles owner+company DOLU",
+        "deger":  "-",
+        "adet":  "0",
+        "sonuc":  "UYUMLU (039 kÄ±sÄ±tÄ± kurulur)"
+    },
+    {
+        "kontrol":  "E. 045 SÄ°LÄ°NECEK konum satÄ±rÄ±",
+        "deger":  "-",
+        "adet":  "0",
+        "sonuc":  "veri kaybÄ± YOK"
+    },
+    {
+        "kontrol":  "F. 045 NULL yapÄ±lacak telemetri",
+        "deger":  "-",
+        "adet":  "0",
+        "sonuc":  "veri kaybÄ± YOK"
+    },
+    {
+        "kontrol":  "G. satÄ±r sayÄ±larÄ±",
+        "deger":  "companies",
+        "adet":  "0",
+        "sonuc":  ""
+    },
+    {
+        "kontrol":  "G. satÄ±r sayÄ±larÄ±",
+        "deger":  "profiles",
+        "adet":  "0",
+        "sonuc":  ""
+    },
+    {
+        "kontrol":  "G. satÄ±r sayÄ±larÄ±",
+        "deger":  "vehicle_commands",
+        "adet":  "0",
+        "sonuc":  ""
+    },
+    {
+        "kontrol":  "G. satÄ±r sayÄ±larÄ±",
+        "deger":  "vehicle_events",
+        "adet":  "78671",
+        "sonuc":  ""
+    },
+    {
+        "kontrol":  "G. satÄ±r sayÄ±larÄ±",
+        "deger":  "vehicle_locations",
+        "adet":  "0",
+        "sonuc":  ""
+    },
+    {
+        "kontrol":  "G. satÄ±r sayÄ±larÄ±",
+        "deger":  "vehicle_pairings",
+        "adet":  "1",
+        "sonuc":  ""
+    },
+    {
+        "kontrol":  "G. satÄ±r sayÄ±larÄ±",
+        "deger":  "vehicle_telemetry",
+        "adet":  "42",
+        "sonuc":  ""
+    },
+    {
+        "kontrol":  "G. satÄ±r sayÄ±larÄ±",
+        "deger":  "vehicles",
+        "adet":  "576",
+        "sonuc":  ""
+    }
+]
