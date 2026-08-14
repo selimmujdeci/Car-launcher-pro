@@ -9,6 +9,7 @@
 import { DomainQueue } from './domainQueue';
 import { BrowserQueueStorage } from './storage';
 import { SyncOrchestrator, type SyncTransport, type TransportResult } from './syncOrchestrator';
+import { CompositeSyncTransport, RecordsSyncTransport } from './recordsSyncTransport';
 import type { QueueItem, OperationType, EnqueueInput } from './types';
 import {
   type OfflineClass,
@@ -48,6 +49,11 @@ const ENDPOINTS: Readonly<Record<OperationType, { path: (item: QueueItem) => str
   // Konum ve araç olayları head unit tarafından gönderilir; PWA kuyruğu taşımaz.
   LOCATION_EVENT:         null,
   VEHICLE_EVENT:          null,
+  // Bakım kayıtları HTTP rotasına GİTMEZ — doğrudan Supabase'e yazılırlar
+  // (`RecordsSyncTransport`). Burada `null` olmaları "uç yok" demektir,
+  // "gönderilemez" demek DEĞİLDİR; yönlendirme `CompositeSyncTransport`tadır.
+  FUEL_LOG_ADD:           null,
+  SERVICE_RECORD_ADD:     null,
 };
 
 /** HTTP taşıyıcı — idempotency key başlıkla gider. */
@@ -128,7 +134,11 @@ export function getQueue(userId: string): DomainQueue {
 export function getOrchestrator(userId: string): SyncOrchestrator {
   const queue = getQueue(userId);
   if (!_orchestrator) {
-    _orchestrator = new SyncOrchestrator(queue, new HttpSyncTransport(), new ApiProfileReadiness());
+    _orchestrator = new SyncOrchestrator(
+      queue,
+      new CompositeSyncTransport(new HttpSyncTransport(), new RecordsSyncTransport()),
+      new ApiProfileReadiness(),
+    );
   }
   return _orchestrator;
 }

@@ -26,6 +26,12 @@ export const OPERATION_TYPES = [
   'VEHICLE_TRANSFER_CANCEL',
   'LOCATION_EVENT',
   'VEHICLE_EVENT',
+  // Araç bakım kayıtları (yakıt · servis). Sahiplik/yetki ÜRETMEZLER; araç
+  // eşleşmesi zaten kurulmuş olmalıdır (RLS `vehicle_users` bağını arar).
+  // Sunucu tarafında `client_ref` benzersizdir → aynı kayıt iki kez
+  // gönderilirse ikincisi çakışır ve YOK SAYILIR (at-most-once etki).
+  'FUEL_LOG_ADD',
+  'SERVICE_RECORD_ADD',
 ] as const;
 export type OperationType = (typeof OPERATION_TYPES)[number];
 
@@ -54,6 +60,10 @@ export const DOMAIN_ORDER: Readonly<Record<OperationType, number>> = {
   VEHICLE_TRANSFER_CANCEL: 6,
   LOCATION_EVENT:         7,
   VEHICLE_EVENT:          8,
+  // Kayıtlar araç eşleşmesinden (5) SONRA gider — eşleşme yoksa RLS reddeder.
+  // Telemetri ile aynı kuşakta; aralarında bağımlılık yoktur.
+  FUEL_LOG_ADD:           7,
+  SERVICE_RECORD_ADD:     7,
 };
 
 /* ── Senkron durumları ─────────────────────────────────────────────────── */

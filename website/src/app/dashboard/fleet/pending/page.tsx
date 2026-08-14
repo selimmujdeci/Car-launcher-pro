@@ -31,6 +31,8 @@ const OPERATION_LABEL: Record<OperationType, string> = {
   OWNERSHIP_CLAIM:        'Sahiplik talebi',
   LOCATION_EVENT:         'Konum kaydı',
   VEHICLE_EVENT:          'Araç olayı',
+  FUEL_LOG_ADD:           'Yakıt kaydı',
+  SERVICE_RECORD_ADD:     'Servis kaydı',
 };
 
 const STATUS_TEXT: Record<SyncStatus, string> = {

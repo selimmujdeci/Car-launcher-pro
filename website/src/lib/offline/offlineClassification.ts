@@ -58,6 +58,13 @@ const CLASSIFICATION: Readonly<Record<OperationType, OfflineClass>> = {
   COMPANY_CREATE:         'OFFLINE_DEFERRED',
   COMPANY_UPDATE:         'OFFLINE_DEFERRED',
   MEMBER_ADD:             'OFFLINE_DEFERRED',
+  //   · Bakım kayıtları güvenlik yetkisi ÜRETMEZ (kullanıcının kendi
+  //     defterine yazdığı satırdır) ama `OFFLINE_ALLOWED` de değildir:
+  //     RLS araç eşleşmesini sunucuda doğrular ve eşleşme kopmuşsa yazma
+  //     reddedilir. Bu yüzden kullanıcıya "hesabınıza kaydedildi" DENMEZ —
+  //     "sıraya alındı, sunucu onaylayınca hesabınıza geçecek" denir.
+  FUEL_LOG_ADD:           'OFFLINE_DEFERRED',
+  SERVICE_RECORD_ADD:     'OFFLINE_DEFERRED',
 
   // A — telemetri; sahiplik/yetki üretmez, sırası sonda gelir
   LOCATION_EVENT:         'OFFLINE_ALLOWED',

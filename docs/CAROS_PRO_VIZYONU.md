@@ -188,6 +188,134 @@ DOĞRULANDI 6 · SAHADA DOĞRULANDI 1 · **ÜRÜN HAZIR: 1**
 
 ### 6.3 Kod tamam + test yeşil, saha borcu açık (kütük 🔴)
 
+- **ENVANTER/BAĞLANTI DENETİMİ ve İLK DÖRT DÜZELTME (2026-08-13):** tam suite
+  **11 951 test / 526 dosya YEŞİL**, `tsc` temiz, **19 yeni kilit**.
+  Durum: **ENTEGRE** (host kanıtı tam; cihaz kanıtı YOK — ÜRÜN HAZIR: HAYIR).
+  Kütük: 🔴 **#558** (panik yakalayıcı) · 🔴 **#559** (tazelik otoritesi) ·
+  🔴 **#560** (yakıt varsayımı) · 🔴 **#561** (AI Gateway izni).
+  Denetim raporu: `docs/ENVANTER_BAGLANTI_DENETIMI_2026-08-12.md`.
+
+  **Neden denetim:** Guardian'ın motorsuz olması, DR sinyalinin ölü olması ve
+  akünün çok otoriteli olması artık tesadüf sayılmıyordu. Tüm CAROS LAB kataloğu
+  (50 araç) beş mercekle tarandı: (1) kablo döşenmiş uca bağlanmamış, (2) ikinci
+  otorite, (3) AVAILABLE ama içi boş, (4) belge-kod ayrışması, (5) sessiz varsayılan.
+
+  **Kapatılan dört kusur:** panik yakalayıcı hiç kurulmuyordu (global JS hatası
+  post-mortem üretmiyordu) · aynı tazelik sorusu üç dosyada elle kopyalanmış
+  sayılarla cevaplanıyordu · yakıt varsayımı iki dosyada iki farklı sayıydı ve
+  ikisi de kullanıcıya görünüyordu · AI Gateway kapsam izni sunucudan hiç
+  okunmuyordu (kapı kalıcı fail-closed).
+
+  **DENETİMİN KENDİ HATASI (kayda geçer):** ilk turda kullanılan "sıfır çağıran"
+  ölçümü **sarmalayıcı üzerinden çağrılan** sembolleri yetim sanıyordu. Düzeltme
+  turunda **altı bulgu geri çekildi** (E-07 · E-08 · E-13 · E-14 · E-18 · E-23) ve
+  **ikisi daraltıldı** (E-15 · E-28). Kalıcı ders: statik "çağıran yok" sinyali tek
+  başına kanıt DEĞİLDİR; sarmalayıcı zinciri takip edilmeden bulgu ilan edilemez.
+  Aynı ders `feedback_audit-falsification-discipline` kaydında zaten vardı.
+
+- **DENETİMİN KALAN SIRASI KAPATILDI (2026-08-13, ikinci tur):** tam suite
+  **11 981 test / 531 dosya YEŞİL**, `tsc` temiz, **30 yeni kilit** (her blokta
+  en az bir **KONTROL testi**). Durum: **ENTEGRE** (cihaz kanıtı YOK —
+  ÜRÜN HAZIR: HAYIR). Kütük: 🔴 **#562** (medya kurtarma başarısı) ·
+  🔴 **#563** (Phone Hub eşleştirme onayı) · 🔴 **#564** (kaza günlüğü okuma) ·
+  🔴 **#565** (uzun yol tek otorite) · 🔴 **#566** (sahte-sıfır sınıfı) ·
+  🔴 **#567** (TRIP AI durum kapısı). Rapor: `ENVANTER_BAGLANTI_DENETIMI…md` §0.2.
+
+  **En pahalı üç kusur:** (1) medya kurtarma deneme sayacı hiç sıfırlanmıyordu →
+  üç açılış sonrası process-death kurtarması **kalıcı** ölüyordu; (2) Phone Hub
+  eşleştirme onayı hiçbir yüzeye bağlı değildi → RFCOMM oturumu **hiç
+  kurulamıyordu** (#122'nin kod tarafındaki ucu); (3) kaza günlükleri yazılıyor
+  ama **hiçbir yerden okunamıyordu** → kaza sonrası adli kanıt zinciri ölüydü.
+
+  **Sahte-sıfır sınıfı (5 dosya) kapatıldı:** LAB sözleşmesi (`observed(null) →
+  UNAVAILABLE`) sağlamdı; kusur **sözleşmeyi atlayan kaynak katmanlarındaydı**
+  (`Number(x) || 0`). Bedeli teşhistir: "hiç olmadı" ile "ölçülemedi" aynı
+  ekranda ayırt edilemiyordu — teşhis aracının kendisi hata avında yanlış yöne
+  sürüklüyordu.
+
+  **DENETİMİN İKİNCİ DERSİ:** bu turda **dört bulgu daha** geri çekildi/yeniden
+  sınıflandırıldı (E-17 · E-16 · E-15 · E-25) çünkü ilgili dosyalar boşluğu
+  **kendi başlıklarında BEYAN EDİYORDU** ("head unit'te bilinçli olarak boştur;
+  üretim sunucuda") ve LAB ekranları bunu dürüstçe `UNAVAILABLE` gösteriyordu.
+  Kalıcı ders: **beyan edilmiş borç ile sessiz boşluk aynı şey değildir** —
+  dosyanın kendi başlığını okumak ölçümün parçasıdır. E-31/E-32 ise ters yönde
+  düzeltildi: "kapı yok" sanılan şey aslında **kapının iki yerde kopyalanmış**
+  olmasıydı (K1 → K2).
+
+  **"Güvenli şekilde yapılabilir mi?" — üçüncü tur (aynı gün):** §0.2'de
+  "yapılmadı" diye bırakılan üç madde yeniden ölçüldü ve ikiye ayrıldı.
+  **E-02/E-03 yapılabilirmiş ve YAPILDI:** koridor ve öneri motorları tamamen
+  saf çıktı (ağ yok · async yok · store yazma yok), POI kaynağı cihazın kendi
+  yerel deposu → LAB'a **elle tetiklenen** hesap olarak bağlandı
+  (`tripAiSources` + `tripAiModel`). Kilitlenen sınırlar: rota YAZILMAZ · ağa
+  ÇIKILMAZ · timer KURULMAZ · açılışta KOŞMAZ · yer adı/adres/koordinat çıktıya
+  SIZMAZ. **E-04 ve E-29 ise yapılmamalıymış:** `tripApplyComposition`
+  adapter'ları `writeActiveRoute` (rota yazar) + `fetchRouteLeg` (ağa çıkar)
+  kullanıyor → ürün kararı; keşif eylemleri ise `vehicle.*` önekiyle
+  `takeoverPolicy.FORBIDDEN_PREFIXES` duvarına çarpıyor — politika modülünün
+  kendi beyanı: *"hiçbir config onları TAKEOVER'a alamaz"*. Yani sesli keşif
+  komutu bir wiring satırı değil, **güvenlik beyaz listesini delme** kararıdır.
+  Tam kasa **11 997 test yeşil** · kütük 🔴 **#567** güncellendi.
+
+  **Ders:** "yapmadım" ile "yapılmamalı" farklı şeylerdir ve ikisi de
+  ÖLÇÜLEREK ayrılır. Kapı kurmak bir **son çaredir**, ölçmemenin mazereti
+  değil: üç maddeden biri güvenle yapılabilirmiş.
+
+  **Açık borçlar (yazıldı, kapatılmadı):** Fleet/AI sunucu okuma köprüsü
+  (E-15/16/17 — dört LAB modülü dürüstçe boş) · `getPanicHandlerStatus()` LAB
+  yüzeyi · `sessionInspectorSources` kalan sayaçları (aynı sahte-sıfır sınıfı) ·
+  keşif eylemleri takeover politikası · TRIP AI ürün tetikleyicisi.
+
+  **AÇIK BORÇ:** `getPanicHandlerStatus()` için LAB gözlem yüzeyi YOK · tazelik
+  birleştirmesi yalnız *aynı sayıyı* taşıyan kanıtlı kopyaları kapsar (farklı
+  değerli eşiklerin gerekçeleri yazılmadı) · ayakta kalan bulgular (E-15 defter
+  yazımı · E-16 · E-17 · E-20 · E-25 · E-26 · E-28 defter/kuyruk · E-29 · E-31 ·
+  E-32 · E-33 · sahte-sıfır sınıfı E-10/E-11/E-19/E-21/E-22) HENÜZ KAPATILMADI.
+
+- **CAROS LAB · "TÜMÜNÜ YENİLE" tek tuşu + otomatik tur (2026-08-12):** tam suite
+  **11 929 test / 525 dosya YEŞİL**, `tsc -b` temiz, eslint temiz, **31 yeni kilit**
+  (`src/__tests__/carosLabRefreshAll.test.tsx`).
+  Durum: **ENTEGRE** (host kanıtı tam; cihaz kanıtı YOK — ÜRÜN HAZIR: HAYIR).
+  Kütük: 🔴 **#556** (tek tuş · 9 bölüm) · 🔴 **#557** (otomatik tur · arka planda durur).
+
+  **Neden:** LAB deseni "açılışta tek okuma + elle YENİLE"dir. Doğru ama sahada
+  pahalıydı — bir tur kanıt toplamak için 9 ekranı tek tek açıp her birinde
+  YENİLE'ye basmak gerekiyordu. Daha kötüsü **gözlem sırası bağımlılığı**: iki
+  native kanıt önbelleği (#523 poll sayacı, #524 eleme) YALNIZ ilgili ekran
+  açıldığında doluyordu → "TÜMÜNÜ KOPYALA" sık sık BAYAT kanıtla alınıyordu.
+  #505 bu durumu bir uyarı satırıyla **söylüyordu ama çözmüyordu**.
+
+  - **Tek tuş, sıralı tur:** `native-poll-evidence` → `native-elimination` →
+    `kwp-recovery` → `poll-scheduler` → `location-engine` → `fix-age-ledger` →
+    `navigation-core` → `eta-jump-ledger` → `address-search`. Sıra native-öncedir:
+    ters sırada türetilmiş anlık görüntüler bir önceki turun önbelleğini okurdu.
+    Native çağrılar **aynı anda basılmaz** (K24 / Mali-400 gerçeği).
+  - **Dürüstlük sözleşmesi:** her bölüm kendi durumunu taşır — `TAZELENDİ` ·
+    `KAYNAK YOK` · `OKUNAMADI` · `ZAMAN AŞIMI`. **"kaynak yok" ile "okunamadı"
+    asla aynı kovaya atılmaz**; başarısız bölüm ekranda **adıyla** görünür
+    (sessiz atlama YOK). Asılı bir native çağrı turu kilitlemez (6 sn üst sınır →
+    o bölüm `ZAMAN AŞIMI`, tur devam eder). "Son BAŞARI" damgası yalnız gerçekten
+    tazelenince ilerler — başarısız turda eski damga korunur.
+  - **Otomatik tur, bütçeye abone:** aralık `getDeviceTier()`ten gelir —
+    low **90 sn** · mid **60 sn** · high **45 sn**. Sıcak yola (3 Hz hız/RPM)
+    GİRMEZ; maliyet **yalnız LAB açıkken** oluşur. Periyodik turun **sahibi**
+    `CarosLabRefreshBar`'dır: LAB kapanınca unmount → `clearInterval`; uygulama
+    arka plana atılınca `visibilitychange` → tur DURUR, öne gelince bir tur
+    koşup devam eder. Yeniden giriş koruması koşucudadır (oto + elle tetik
+    üst üste binmez).
+  - **SALT-OKUNUR (pazarlıksız):** bağlantı KURMAZ, YENİDEN BAĞLANMAZ, araca
+    komut/PID/AT sorgusu GÖNDERMEZ, poll · handshake · Derin Tarama BAŞLATMAZ;
+    native uçlar salt SAYAÇ okumasıdır. **"TAZE bağlantı kur" ve H-A deneyi gibi
+    araca dokunan ekranlar KAPSAM DIŞIDIR** — bilinçli kullanıcı eylemi olarak
+    kalır (yapısal kilit: kataloğa `reconnect`/`connect`/`write` içeren bölüm
+    giremez). Gizlilik: koordinat · adres metni · hedef adı · VIN turdan GEÇMEZ.
+  - **Bilinçli ödünç (beyan):** açık olan araç ekranı bu turda **yeniden
+    render EDİLMEZ** — remount, geliştiricinin ekran içi durumunu (yazdığı
+    sorgu, açtığı kart) her turda silerdi. Tazelik yüzeyi turun kendi ayrıntı
+    panelidir: her bölümün başlık ölçüsü (izlenen PID, p50/p95 fix yaşı, sıçrama
+    adedi…) orada zaten görünür. Açık ekranın kendi YENİLE tuşu artık **taze
+    önbelleği** okur.
+
 - **NAV-MINIMAP-CONT-P0 · Navigasyon Oturum Sürekliliği (2026-08-03 → 04):**
   tam suite **10 447 test / 468 dosya TAMAMEN YEŞİL**, `tsc -b` temiz,
   `npm run build` ve `npm run apk:safe` başarılı, dokunulan dosyalarda **yeni lint
@@ -2143,6 +2271,55 @@ Parça bazlı eksikler, önkoşullar, iş tahminleri ve satış kanalı eşlemes
 `SPEED_CAMERA_WARNING` kuralı kalır ama **veri gelmez** — boş yuva olarak
 tasarlanır (veriyi üretici/filo müşterisi kendi lisansıyla takar; PID Pack
 deseni). Yuva boşken kural **hiç çalışmaz**, sessizce "risk yok" demez.
+*(⚠️ Bu hüküm **2026-08-13'te ezildi** — aşağıdaki "🟡 BOŞ YUVA KARARI DEĞİŞTİ"
+bölümüne bakın: yuva EGM paketiyle dolduruldu. Tarihsel kayıt olarak bırakıldı.)*
+
+**🔎 BOŞ YUVA KARARI ÖLÇÜMLE DOĞRULANDI (2026-08-13 — `docs/ADR_RADAR_DATA_SOURCE.md`):**
+Ücretsiz tek aday olan **OSM gerçek Overpass sorgularıyla ölçüldü**: TR sınırı içi
+**730** `highway=speed_camera` + **30** `enforcement` ilişkisi. Kapsam şehre göre
+uçurum: İstanbul **182**, Mersin ili **4**, **Adana ili 0**, ve saha rotamızın
+kalbi **Mersin merkez→Tarsus koridorunda 0**. Etiket kalitesi karar üretmeye
+yetmiyor: yön **%32**, hız limiti **%48**, kamera tipi **%0,2**; medyan kayıt
+tazeliği **~2,7 yıl**, verinin %26'sı tek gönüllüde. **Karar: OSM taban katmandır,
+birincil kaynak DEĞİLDİR** — yuva ikinci kaynak (ticari lisans / müşteri paketi)
+gelmeden **doldurulmaz**; kısmi veriyle uyarı vermek P0 "yanlış güven" hatasıdır.
+ADR ayrıca **ODbL karıştırma tuzağını** sabitler: OSM ile ticari kaynak **tek
+veritabanında birleştirilmez** (share-alike ticari veriye bulaşır), katmanlar ayrı
+tutulup çalışma zamanında birleştirilir.
+
+**💰 BÜTÇE KARARI (2026-08-13 — ADR §6-C):** Ürünün henüz geliri yok; **radar
+verisine bugün para harcanmayacak**. Teklif metinleri hazır bekliyor
+(`docs/RADAR_VERI_TEKLIF_TALEBI_TASLAKLARI.md`), **ilk ticari head unit siparişi
+veya ilk ödemeli filo müşterisinde** gönderilecek. Bugünkü hükümler: yuva **boş
+kalır** · veri kaynağı belirsizken **radar kodu yazılmaz** (şema kaynağa bağlı →
+ölü kod) · *"radara yakalanmaz"* vaadi **satış/pazarlama malzemesinde
+KULLANILMAZ**. Sıfır maliyetli yollar (EGM izin talebi · Lufop anahtarı · OSM)
+açık ama **birlikte bile kapsam eşiğini geçmez** → özellik yapılabilir, **söz
+verilemez**.
+
+**🟡 BOŞ YUVA KARARI DEĞİŞTİ — YUVA DOLDURULDU (2026-08-13, kütük #568/#569):**
+Sahibinin iki kararı (ADR §6-D) yukarıdaki "yuva boş kalır" hükmünü **ezdi**:
+**(K2)** EGM'nin kamuya açık EDS verisi izin beklenmeden kullanılacak; **(K5)**
+paket geliştirici tarafında üretilip cihaza gömülecek. Zincir kuruldu ve
+`speedCameraWarningRule` **ilk kez üründe koşuyor** — Guardian'ın `map` yuvası
+**kısmen** (yalnız `speedCamera` dilimi) doldu. Kararın **iptal etmediği** iki
+şey aynen duruyor:
+1. **Söz hâlâ verilemez.** *"Radara yakalanmaz"* pazarlama vaadi YASAK (K7).
+   Kapsam ölçüldü ve eksik: Mersin ili 0, Mersin–Tarsus koridoru üç kaynakta da
+   0, mobil radar hiçbir statik kaynakta YOK. **Uyarı çıkmaması "denetim yok"
+   anlamına gelmez** ve ürün böyle bir izlenim vermez.
+2. **G1 kapısı hâlâ kapalı.** #508 artık bir uyarı notu değil, **koda yazılmış
+   bir kapıdır**: uyarı fix YAŞINA değil `doğruluk + hız × fix yaşı ≤ 150 m`
+   **konum belirsizliğine** tabidir. Sahadaki p50 19,5 s bayat fix otoyol
+   hızında bu kapıyı kapatır → özellik şehir içinde çalışır, otoyolda **sessiz
+   kalır** ve bu sessizlik CAROS LAB'da sayı olarak GÖRÜNÜR. G1 düzeldikçe
+   özellik kendiliğinden açılır; hiçbir eşik gevşetilmez.
+
+Ürün dili de karara uyduruldu: kayıtların **%93'ünde tür bilinmediği** için
+sürücüye **"radar" DENMEZ, "denetim noktası" denir** (K3) ve pakette hız limiti
+HİÇ olmadığı için uyarı **hız eşiği İDDİA ETMEZ** (K4). Kuralda `'unknown'`
+(varlık bilinmiyor → sessiz) ile `'unspecified'` (varlık gözlendi, tür
+belirtilmemiş → uyarır, tür iddia etmez) **ayrı** davranır.
 
 
 ### P0 — Yanlış güven / güvenlik
@@ -2347,9 +2524,25 @@ Bu söz **G1'e bağlıdır** ve ondan önce verilemez: radar uyarısı mesafe ta
 **~509 metre** hata taşır — yani uyarı radarın üstünde ya da geçtikten sonra çalar.
 **G1 kapanmadan bu söz verilmez**; şartlı kilit **#508** tam olarak bunu korur.
 
-Sözün ikinci yarısı **veri**dir: `SPEED_CAMERA_WARNING` kuralı kodda vardır ama
-**boş yuvadır** — veri üretici/filo müşterisinden lisansı beyanlı gelir (PID Pack
-deseni). Yuva boşken kural **hiç çalışmaz**, sessizce "risk yok" DEMEZ.
+Sözün ikinci yarısı **veri**dir. Bu yarı **ölçüldü** (2026-08-13,
+`docs/ADR_RADAR_DATA_SOURCE.md`): ücretsiz tek aday OSM'de TR genelinde **730**
+sabit kamera var ama **Mersin–Tarsus koridorunda 0**, **Adana ilinde 0**;
+noktaların yalnız **%32'sinde yön** bilgisi var. Sahibinin kararıyla (K2) veri
+kaynağı **EGM kamuya açık EDS haritası** oldu ve paket üretildi (**1 503 nokta**),
+zincir üründe koşuyor (kütük #568/#569) — ama kapsam boşluğu **kapanmadı**:
+Mersin ili EGM'de de **0**, Mersin–Tarsus koridoru **üç kaynakta da 0**, mobil
+radar **hiçbir statik kaynakta yok**.
+
+Bu yüzden **söz hâlâ verilmez** ve iki yarısı da yerinde durur:
+
+| Yarı | Durum | Ne değişti |
+|---|---|---|
+| **G1 / konum** | 🔴 KAPALI | #508 artık bir not değil, **koda yazılmış kapı**: `doğruluk + hız × fix yaşı ≤ 150 m`. p50 19,5 s bayat fix otoyol hızında bu kapıyı kapatır; düşüşler LAB'da SAYILIR. |
+| **Veri / kapsam** | 🟡 KISMÎ | Yuva doldu ama kapsam eksik. Ürün **"uyarı çıkmadı = denetim yok"** izlenimini vermez; LAB dört ayrı sessizlik nedenini ayırt eder. |
+
+*"Radara yakalanmaz"* vaadi satış ve pazarlama malzemesinde **KULLANILMAZ** (K7).
+Ürünün verdiği tek söz şudur: **bildiği denetim noktalarını, konumundan emin
+olduğu anda, tür ve hız iddiası taşımadan bildirir.**
 
 ---
 
@@ -2780,7 +2973,7 @@ ve konum otoritesi kapanmadan rota otoritesi kalıcı olarak düzelmez.
 | Kaza sonrası rehberlik | YOK | HAYIR | Vizyon rezervuarı |
 | Silent Emergency | YOK | HAYIR | Vizyon rezervuarı |
 | Vehicle Guardian Mode | YOK | HAYIR | Park algısı var; **güç bütçesi sözleşmesi şart** (akü riski) |
-| **Guardian AI** (sürüş sırasında risk uyarısı — *Vehicle Guardian Mode DEĞİL*) | ENTEGRE | HAYIR | **TICK SAHİBİ BAĞLANDI (2026-08-11, #539–#542).** `runGuardian` artık üründe FİİLEN çağrılıyor: sahip `runtimeManager.scheduleTask` (§L.0 tek tik-wheel) · taban **1000 ms** · kritiklik **NORMAL** · `deferIdle` KAPALI · kendi timer'ı YOK · görünüme bağlı DEĞİL. Kadans sözleşmesi: *Guardian aynı modda OBD anket periyodunu ASLA aşmaz* (5 modun tamamı testle kilitli). Bütçe **TEK**: 8 ms/koşum (#494 tavanının yarısı); **host ölçümü** p95 **11,5 µs** (gerçek yol) / **49,0 µs** (8 kural birden) — tavanı aşmak için cihaz ~1 391× / ~327× daha yavaş olmalı. **AMA: bu tur Guardian'a kalp atışı verir, SES vermez** — çıktı sürücüye SUNULMAZ, aşırı ısınma/akü otoritesi hâlâ `VehicleCompute.worker` → `SystemOrchestrator`; ikinci eylem otoritesi doğmadı. 8 kuraldan fiilen koşan **yalnız 1'i** (`vehicle-health`); GPS hızı okunur ama map dilimleri üretilmediği için hiçbir kurala girmez. `map`/`weather`/`driver` yuvaları BAĞLI DEĞİL. Konum tabanlı kurallar **şartlı kilit #508**, yorgunluk **#509** altında. `SPEED_CAMERA_WARNING` **boş yuva** olarak kalır — veri üretici/filo müşterisinden, lisansı beyanlı. **Gözlem yüzeyi VAR:** CAROS LAB → Çalışma Zamanı → **Guardian Runtime** (6 kart · sahiplik/kadans/sağlayıcı/sağlık/çıktı/bütçe). **Cihazda HİÇ ölçülmedi → ÜRÜN HAZIR HAYIR** |
+| **Guardian AI** (sürüş sırasında risk uyarısı — *Vehicle Guardian Mode DEĞİL*) | ENTEGRE | HAYIR | **TICK SAHİBİ BAĞLANDI (2026-08-11, #539–#542).** `runGuardian` artık üründe FİİLEN çağrılıyor: sahip `runtimeManager.scheduleTask` (§L.0 tek tik-wheel) · taban **1000 ms** · kritiklik **NORMAL** · `deferIdle` KAPALI · kendi timer'ı YOK · görünüme bağlı DEĞİL. Kadans sözleşmesi: *Guardian aynı modda OBD anket periyodunu ASLA aşmaz* (5 modun tamamı testle kilitli). Bütçe **TEK**: 8 ms/koşum (#494 tavanının yarısı); **host ölçümü** p95 **11,5 µs** (gerçek yol) / **49,0 µs** (8 kural birden) — tavanı aşmak için cihaz ~1 391× / ~327× daha yavaş olmalı. **AMA: bu tur Guardian'a kalp atışı verir, SES vermez** — çıktı sürücüye SUNULMAZ, aşırı ısınma/akü otoritesi hâlâ `VehicleCompute.worker` → `SystemOrchestrator`; ikinci eylem otoritesi doğmadı. **MAP YUVASI KISMEN DOLDU (2026-08-13, #568/#569):** `SPEED_CAMERA_WARNING` artık **boş yuva DEĞİL** — sahibinin kararıyla (ADR §6-D: K2 EGM verisi kullanılacak · K5 paket cihaza gömülecek) gömülü EGM EDS paketi (**1 503 nokta**) → `enforcementPointsPackage` (saf) → `enforcementPointsSource` → `enforcementMapSource` (`MapSource`in İLK gerçek implementasyonu) zinciri kuruldu. Fiilen koşabilen kural **2**: `vehicle-health` + `speed-camera`. `map` yuvası **YALNIZ `speedCamera` dilimi** için bağlıdır (viraj/limit/eğim/tehlike üreticisi hâlâ YOK); `weather`/`driver` BAĞLI DEĞİL. **#508 ARTIK KODA YAZILI BİR KAPI:** uyarı fix YAŞINA değil `doğruluk + hız × fix yaşı ≤ 150 m` **konum belirsizliğine** tabidir → sahadaki p50 19,5 s bayat fix otoyol hızında kapıyı kapatır, özellik şehir içinde çalışır otoyolda **sessiz kalır**, düşüşler LAB'da SAYILIR. Ürün dili K3/K4'e uyar: "radar" DEĞİL **"denetim noktası"**, hız eşiği **İDDİA EDİLMEZ**; kuralda `'unknown'` (varlık bilinmiyor → sessiz) ile `'unspecified'` (varlık gözlendi, tür belirtilmemiş → uyarır) **ayrı** davranır. Kapsam boşluğu KAPANMADI (Mersin 0 · Mersin–Tarsus üç kaynakta da 0 · mobil radar hiçbir statik kaynakta yok) → *"radara yakalanmaz"* vaadi **YASAK** (K7). Yorgunluk **#509** altında. **Gözlem yüzeyi VAR:** CAROS LAB → Çalışma Zamanı → **Guardian Runtime** (6 kart) + CAROS LAB → Araç → **Denetim Noktası Verisi** (5 kart · kapı sayaçları "uyarı neden çıkmıyor"u sayıyla cevaplar). **Cihazda HİÇ ölçülmedi → ÜRÜN HAZIR HAYIR** |
 | Güvenlik-kritik hot-path | ENTEGRE | HAYIR | SafetyBrain + SafetyOverlay; **VoiceSafetyAnnouncer + CAN canlı bağlantı yok** |
 | Kullanıcı izni ve açık rıza | ENTEGRE | HAYIR | DiagnosticReportModal rızası 🟢; genel rıza akışı (KVKK/GDPR) yok |
 | Yanlış alarm azaltma | İSKELET | HAYIR | Debounce/histerezis var; ölçülen yanlış-alarm oranı yok |
@@ -2813,7 +3006,7 @@ ve konum otoritesi kapanmadan rota otoritesi kalıcı olarak düzelmez.
 |---|---|---|---|
 | Vehicle Link Fabric | ENTEGRE | HAYIR | Araç-içi zincir çalışır (🟡 HAL→Bus 0,37 publish/sn); **bulut ucu yok**. ⚠️ **Omurga yayın yapıyor ama KİMSE DİNLEMİYOR** (rapor `8edd61a6`): `publishedCount 127 · deliveredCount 0 · activeListenerCount 0 · droppedCount 0`. **Sayaç yanlış DEĞİL — kanıtlandı:** `deliveredCount` yalnız bir listener çağrılınca artar (`platformEventBus.ts:478,564`), `_subById.size = 0` → matematiksel olarak 0. `historyCount 22` + `retainedEventCount 3` listener'dan BAĞIMSIZ yollarda arttığı için (retain dispatch'ten önce `:422`, history sonra `:457`) publish hattının uçtan uca sağlam olduğunu kanıtlıyor. Yani bus arızalı değil, **tüketici migrasyonu hiç yapılmadı**. Dürüst okuma: *taşıyıcı hazır, yük yok*. **PR-E1 (`a34d3b8`) ile tüketicisiz transient yayın maliyeti kaldırıldı** (talep kapısı) — omurga artık "uykuda ve bedava". |
 | **Event Bus Talep Kapısı** (PR-E1) | ENTEGRE | HAYIR | `vehicleHalEventBridge` transient `vehicle.signal.changed` yayınını **aktif abone yoksa atlar** (`hasSubscribers()` — bus'ta zaten tanımlıydı, hiç çağrılmıyordu). Retained yaşam-döngüsü event'leri kapıya TABİ DEĞİL (geç gelen tüketici `replayLast` ile doğru başlangıç durumunu alır). **R-1 kapatıldı:** dedupe imzası yalnız gerçek publish sonrası güncellenir — yoksa atlanan event imzayı kirletir, abone sonradan gelince ilk gerçek event sonsuza dek yutulurdu. Fail-safe: bus kapı sağlamıyorsa/patlarsa → YAYINLA (event kaybetme). Bounded telemetri: `skippedCount` (drop DEĞİL — bus'a hiç girmedi). 8 kilit; suite 4115 yeşil. 🔴 **cihaz kanıtı bekliyor** (hedef: `publishedCount 127→≤5`, `halBridge 124→≤3`, `retainedEventCount 3` değişmez, göstergeler birebir aynı). |
-| Arabam Cebimde | ENTEGRE | HAYIR | PWA kumanda + E2E şifreli uzaktan komut; **twin/memory paylaşımı yok**. **YENİ (kütük #168):** araç kartı artık üç ayrı gerçeği KARIŞTIRMIYOR — araç çevrimdışı · kullanıcı çevrimdışı · komut teslim edilmedi. DB `vehicle_commands.status` **değiştirilmeden** ürün evrelerine eşlendi (QUEUED·SENT·ACKNOWLEDGED·EXECUTED·VERIFIED·FAILED·EXPIRED); araç ulaşılamazken `pending` komut **QUEUED**tur, "gönderildi" DEĞİL. Tanınmayan durum fail-closed `null`; okunamayan alan "Okunamadı" — **sahte 0 yazılmaz**. ⚠️ Bilinen RLS sınırı: `vehicle_commands` SELECT `user_id=auth.uid()` → yalnız kullanıcının KENDİ komutları sayılır (UI bunu açıkça yazar). 🔴 saha kanıtı bekliyor. |
+| Arabam Cebimde | ENTEGRE | HAYIR | PWA kumanda + E2E şifreli uzaktan komut; **twin/memory paylaşımı yok**. **YENİ (kütük #168):** araç kartı artık üç ayrı gerçeği KARIŞTIRMIYOR — araç çevrimdışı · kullanıcı çevrimdışı · komut teslim edilmedi. DB `vehicle_commands.status` **değiştirilmeden** ürün evrelerine eşlendi (QUEUED·SENT·ACKNOWLEDGED·EXECUTED·VERIFIED·FAILED·EXPIRED); araç ulaşılamazken `pending` komut **QUEUED**tur, "gönderildi" DEĞİL. Tanınmayan durum fail-closed `null`; okunamayan alan "Okunamadı" — **sahte 0 yazılmaz**. ⚠️ Bilinen RLS sınırı: `vehicle_commands` SELECT `user_id=auth.uid()` → yalnız kullanıcının KENDİ komutları sayılır (UI bunu açıkça yazar). 🔴 saha kanıtı bekliyor. · **🔵 ÜÇ ÖLÜ UÇ KAPATILDI (2026-08-14, kütük #573–#575 — `COMPLETE_LOCAL`):** kullanıcı sorusu (*"özelliklerin altı dolu mu"*) üzerine yapılan kod denetimi, ürün ekranında ÇALIŞIYOR görünen üç özelliğin **hiç çalışmadığını** ölçtü. **(1) Teşhis sekmesi üç katmanda ölüydü:** `vehicle_commands_type_check` 2026-04-24'ten beri dokuz tipte donmuştu → PWA'nın gönderdiği `read_dtc`/`clear_dtc`/`read_voltage`/`set_speed_alert`/`layout_change` **INSERT'te `23514` ile reddediliyordu** (komut hiç oluşmuyordu); `result` kolonu **hiç yaratılmamıştı** (`/api/pwa/dtc-result` `42703` alırdı); araç tarafında tip tanımlı değildi (`default: rejected`). Migration **063** + yeni `remoteDiagnosticCommands` yürütücüsü + `{outcome, result?, reason?}` sözleşmesiyle üçü de kapatıldı. **(2) Hız uyarısı** ayarı araca hiç ulaşmıyordu ama telefon koşulsuz "Kaydedildi ✓" diyordu; `speedAlertRuntime` (histerezis + cooldown, zero-trust eşik, `safeStorage` kalıcılığı, tek bildirim otoritesi) ile bağlandı. **(3) Kumanda telemetri şeridi** ham sayı basıyordu — araç OFFLINE iken ekranda *HIZ 22 yeşil · YAKIT 0 · MOTOR 0* görünüyordu; `telemetry` tazelik katmanı (`Measurement`) zaten üretiliyordu ama **hiç okunmuyordu**, artık okunuyor (bilinmeyen → em-dash, bayat → etiketli, sağlık rengi hak edilmeden verilmiyor). **Aynı turda ölçülen DÖRT dürüstlük kusuru daha kapatıldı:** araç bağlı değilken "Arıza Kodu Yok" denmesi · kısmi taramanın (`completeness.failed`) API'de düşürülmesi · demo modda `Math.random()` ile **rastgele voltaj** ve gerçek modda `?? 12.4` ile **sahte voltaj** basılması · `clearDtc`'nin 2 sn sonra listeyi körlemesine boşaltıp **yalancı temizleme** göstermesi. **EN AĞIR BULGU AYRI BİR GÜVENLİK KUSURUDUR:** `commandListener.updateCurrentSpeed()` ürün yolunda **sıfır çağırana** sahipti → `currentSpeedKmh` daima 0 → uzaktan lock/unlock'un *"sürüş sırasında reddet (>5 km/h)"* kapısı **hiç tetiklenemiyordu**; araç 100 km/h giderken telefondan verilen "Aç" komutu geçerdi. Kapı aynı hız aboneliğinden beslendi. Kanıt: **33 yeni kilit**, website **1002/1002**, iki tsc temiz, yanlışlama koşuldu. **İKİNCİ TUR (aynı gün, kütük #576/#577):** üç açık borçtan ikisi kapatıldı. **CAROS LAB → İletişim → Uzak Komut Zinciri** ekranı kuruldu (salt-okunur): "komut çalışmadı"nın **dört sebebi** artık ayrı hükümdür — dinleyici yok · E2E şifre kapısı · sürüş güvenliği kapısı · tanımsız tip; `HEALTHY` yalnız **gerçekten tamamlanan komut varsa** verilir ("hata yok" sağlık kanıtı sayılmaz) ve ekranda **hız kapısı körlüğü uyarısı** vardır (#574'ün izi ölçülebilir). **Kayıtlar sekmesi sunucuya bağlandı** (migration 064: `vehicle_fuel_logs` + `vehicle_service_records`, RLS + anon REVOKE + `client_ref` çift-gönderim koruması; **gerçek PostgreSQL'de 8/8 PASS — cross-tenant sızıntı reddi dâhil**); veri artık **araç kapsamlıdır** (iki araçta kayıtlar karışmıyordu → karışmıyor), eski yerel kayıtlar göç ediyor ve ekran verinin **NEREDE yaşadığını** her zaman söylüyor (`Hesabınıza kayıtlı` · `Yalnız bu cihazda` · `Sunucu okunamadı`). Aynı turda servis hükmündeki **sahte "İyi"** kusuru da kapatıldı (`odometer ?? 0` → kilometre bilinmiyorsa `unknown`). **Migration 063 de gerçek PostgreSQL'de doğrulandı (7/7 + idempotent + fail-closed)** ve kusur ölçümle kanıtlandı (`23514` ve `42703`). **ÜÇÜNCÜ TUR (kütük #578):** **Kayıtlar çevrimdışı kuyruğa bağlandı.** Ağ yokken yazma düşüyor ve kayıt yalnız yerelde kalıyordu; kuyruk altyapısı hazırdı ama kayıtlar ona **hiç bağlı değildi**. Aynı turda **ikinci bir ölü uç ölçüldü ve kapatıldı:** kuyruğu boşaltan tek yer `useFleet`ti ve o hook yalnız `/dashboard/fleet/*` sayfalarında mount ediliyor → PWA'da kuyruk **hiç sürülmezdi**; yeni `useRecordsSync` (timer yok · `online` aboneliği · `QUEUE_SYNC` kapısı) ve bekleyen şeridi ile yazma ile boşaltma AYNI turda bağlandı. Kayıtlar `OFFLINE_DEFERRED`dir: ekran **"sıraya alındı, henüz hesabınıza işlenmedi"** der, rozet yeşil DEĞİLDİR. **Kalıcı hata (RLS reddi · FK) kuyruğa ALINMAZ** — bağlantıyla düzelmeyecek bir işi "gidecek" diye göstermek yalandır; `23505` ise **başarıdır** (kayıt zaten sunucuda). Kuyruktaki kayıt listeden kaybolmaz ve sunucudaki kopyasıyla **çift gösterilmez** (`clientRef` eşleşmesi); anahtarsız eski göç kaydı `LOCAL` etiketlenir, "sırada" iddia edilmez. Kayıtlar için **yeni API rotası açılmadı** (ikinci yetki otoritesi kurmamak için) — yazma yolu ürünle aynıdır, yalnız zamanı ertelenir. Kanıt: **21 yeni kilit**, website **1038/1038**, tsc temiz, **yanlışlama iki kez koşuldu** (kalıcı-hata kapısı ve bekleyen-birleştirme ayrı ayrı bozuldu → ilgili kilitler anında düştü). **Aynı turda kayıt SİLME arayüzü de kuruldu (kütük #579):** 064 DELETE ayrıcalığını zaten veriyordu, yalnız arayüz yoktu → yanlış kayıt geri alınamıyordu. Silme kaydın yaşadığı **her yerde** yapılır; en kritik kısım kuyruk iptalidir — "sırada" bir kayıt yalnız yerelden silinseydi **kuyruk onu bağlantı gelince yine gönderirdi** ve silinen kayıt hesapta belirirdi. Silme **kuyruğa alınmaz**: çevrimdışı "silindi" demek satır sunucuda dururken gitmiş gibi göstermektir. İki aşamalı onay (araç içi yanlış dokunma gerçektir). **Aynı turda bakım zekâsı ölçülemeyen kilometreye karşı sağlamlaştırıldı (kütük #580):** aracın anlık kilometresi okunamıyorken hüküm **her zaman "Bilinmiyor"** kalıyordu. Artık kayıtlardan türetilen en yüksek kilometre bir **alt sınır**dır ve kural **asimetriktir** — alt sınır bile aralığı aşmışsa **"geçmiş"** denebilir (hüküm kesindir), ama alt sınırın düşük olması gerçek kilometrenin düşük olduğunu kanıtlamadığı için **"iyi" ASLA denmez**. Bu, "8 kapı"nın *doğru mu → önemli mi → hangi aksiyon* zincirinin kanıt seviyesine saygı gösteren hâlidir: veri yetmiyorsa hüküm YOK, ama yeten yönde hüküm VAR. Yakıt formu araçtan okunan kilometreyi **öneri** olarak doldurur (kaynağı yazar, kullanıcının yazdığını ezmez, ölçüm yoksa boş bırakır). Ayrıca gönderilemeyen kayıtlar artık **tek tek** yönetiliyor (gerekçe · deneme sayısı · yeniden dene · vazgeç); gerekçe uydurulmaz, bilinmeyen kod gizlenmez. Kanıt: 18 yeni kilit, **1062/1062**, yanlışlama koşuldu. **KALAN AÇIK BORÇ:** migration 063/064 **hiçbir ortama uygulanmadı** → uygulanana kadar Teşhis, Hız Uyarısı ve sunucu-kayıtları ÜRÜNDE hâlâ ölüdür · **araç içindeki sürücüye hız uyarısı YOK** — yol seçildi (**Guardian zincirinden geçirilecek**: VehicleCompute.worker → SystemOrchestrator → Guardian; ikinci eylem otoritesi kurulmayacak), henüz yapılmadı · kayıt **düzenleme (UPDATE) UI'ı yok** (silme var) · servis "Yapıldı" akışında kilometre ölçülemiyorsa elle istenmiyor. 🔴 saha kanıtı bekliyor. |
 | CAROS Cloud | İSKELET | HAYIR | Supabase + RPC var; **senkron sözleşmesi yok** |
 | Digital Garage | YOK | HAYIR | **Tek araç varsayımı** sökülmeli (geniş dokunuş) |
 | Family Sharing | YOK | HAYIR | Garage + Cloud Sync'e bağımlı |
@@ -3031,3 +3224,75 @@ yoktur, kabul ölçütleri kütükte 🔴 beklemektedir.
   20260516000000_community_events.sql` sunucuya uygulanmalı (GRANT + RLS +
   policy üçlüsü dosyada TAM, denetlendi).
 - **#459-c** motor çalışırken 11,99 V ≠ 13,5–14,5 V şarj bandı — ölçülmedi.
+
+---
+
+### SAHA KOPYASI TURU — 5 KUSUR SIRAYLA KAPATILDI (2026-08-12, kütük #551–#555)
+
+Kaynak: gerçek araçta alınan CAROS LAB tam kopyası (29 dk oturum, OBD bağlı
+`protocol 7`, navigasyon ACTIVE). Kopyadaki ham kanıt kodla çapraz doğrulandı;
+**beş kusurun beşi de kopyadan ÖLÇÜLDÜ, tahminle bulunmadı.**
+
+| # | Kusur | Kök | Durum |
+|---|-------|-----|-------|
+| 551 | ETA hız kapısı sıçraması (7/11, -174 s) | Süreklilik HIZ ekseninde kurulmuştu; kullanıcı ZAMAN eksenini görür | ENTEGRE 🔴 |
+| 552 | Harita stilinde 5 doğrulama hatası | 3 ayrı kök: `case` içinde 3 zoom ifadesi · MapLibre'de olmayan AO · döngüsel import | ENTEGRE 🔴 |
+| 553 | Araç durunca GPS "ölü" ilan ediliyor | Sağlık, konum REFERANS DEĞİŞİMİNDEN türetiliyordu | ENTEGRE 🔴 |
+| 554 | Kopma defterinin kurtarma ucu hiç kapanmıyor | Kurtarma yalnız handshake'e bağlıydı; ECU sustuğunda handshake koşmaz | ENTEGRE 🔴 |
+| 555 | Blackbox "1 Hz" değil, mükerrer örnekler | `requestIdleCallback` istekleri birikiyordu | ENTEGRE 🔴 |
+
+**Bu turun asıl dersi — yeşil test ürünü kanıtlamaz, ÖLÇTÜĞÜ ŞEYİ kanıtlar:**
+
+- **#538 sahada yanlışlandı.** `etaModel.ts` "sıçrama matematiksel olarak
+  imkânsız hâle gelir" diyordu ve kilidi YEŞİLDİ. Kilit hız eksenini 0,5 km/sa
+  adımlarla tarıyordu; sahanın adımı ise 5 s'de ~15 km/sa. Doğru olan cümle
+  "hız ekseninde süreklidir" idi — "sıçrama imkânsızdır" değil. Kilit dosyasına
+  kapsam uyarısı yazıldı, iddia daraltıldı.
+- **Harita AO kilitleri YEŞİLKEN özellik HİÇ çalışmıyordu.** İki test stildeki
+  AO şiddetini okuyup doğruluyordu; oysa MapLibre o özelliği tanımadığı için
+  katmanı reddediyordu. Test "stilde şu yazıyor" diyordu, ekranda karşılığı
+  yoktu. Kilitler kaldırılmadı — tasarım kararı palet tokenine taşındı,
+  uygulanmadığı gerçeği AYRI ve açık bir kilitle sabitlendi.
+- **#327'nin dersi bir katmana taşınmamıştı.** "Sağlık 'değer değişti mi'den
+  DEĞİL 'paket geldi mi'den türetilir" kuralı heartbeat'te uygulanmış ama
+  `VehicleConnectivityManager`'da uygulanmamıştı → araç her durduğunda GPS ölü.
+- **#536 manşet metriğini yapısal olarak hiç üretemiyordu.** Defter açıldı,
+  yazma ucu bağlandı, ama kurtarma ucu yalnız handshake yoluna bağlıydı ve
+  ECU suskunluğunda o yol hiç koşmaz. "Defter var" ≠ "defter ölçüyor".
+
+**Yöntem notu (tekrarlanabilir):** MapLibre'nin kendi `validateStyleMin`'i
+(ISC, zaten kurulu transitive bağımlılık) teste bağlandı ve doğrulayıcının
+sahadaki üç hatayı GERÇEKTEN yakaladığı **kontrol testiyle** kanıtlandı. Aynı
+disiplin ETA'da da uygulandı: sınır olmadan aynı hız dizisinin gerçekten
+sıçradığını gösteren kontrol testi var — kilit boşluğa atılmadı.
+
+**Host kanıtı:** 523 test dosyası · 11 893 test yeşil · `tsc -b` temiz.
+**Saha kanıtı: YOK.** Beşi de kütükte 🔴; hiçbiri "çalışıyor" diye sunulamaz.
+
+**Bir sonraki atomik PR:** saha koşumu → yeni kopyada beş bölümü oku
+(`ETA SIÇRAMA DEFTERİ` · `HATA KÜTÜĞÜ` · `OTURUM DENETÇİSİ→connectivity` ·
+`KOPMA KANIT DEFTERİ` · `BLACKBOX ÖRNEKLERİ`) ve her biri için kütükteki
+kabul ölçütünü tek tek işaretle. Özellikle #551(b) `maxAbsDeltaS < 60 s` ve
+#553(f) karşı kontrol (gerçek sinyal kaybı hâlâ görülüyor mu) atlanmamalı —
+ikisi de düzeltmenin kapıyı körletip körletmediğini ölçer.
+
+**Bu turda BİLİNÇLİ YAPILMAYANLAR (açık borç):**
+
+- **AO geri bağlanmadı** — MapLibre GL 4 desteklemiyor. `bldg3dAO` tokeni ve
+  tasarım kararı korundu; gündüz binaların düz görünmesi bu borcun bedelidir.
+  MapLibre AO'yu desteklediğinde tek satırla geri bağlanır (kilit o an bilinçli
+  düşecek şekilde yazıldı).
+- **`fixAgeMs` ile `konumFixYasMs` ayrımı KUSUR DEĞİLDİR** — ilk okumada
+  "otorite çelişkisi" sanıldı, kod incelemesinde #537'de BİLİNÇLİ ayrıldıkları
+  görüldü (map-match yaşı ≠ konum sağlayıcı yaşı). Teşhis düzeltildi, kod
+  değiştirilmedi.
+- **#537 dağılım defteri hâlâ hüküm veremiyor** — kopyada 3 örnek ve üçü de
+  `readGap 0` ile TEK okumadan gelmiş (`spanMs: 0`). Hüküm doğru olarak
+  `INSUFFICIENT_SAMPLES` diyor ama örnekleyicinin aynı okumayı çoğaltması ayrı
+  bir kusurdur; bu turda KAPSAM DIŞI bırakıldı, açık borç.
+- **Sürüşte kullanıcı dokunmadan açılan 6 modal** (`⚠ZAMANSIZ`, z100000/z9990)
+  incelenmedi — biri YouTube açılışıyla 20 s uyumlu, muhtemelen masum; kalanlar
+  kimliklendirilmedi. Güvenlik ilgisi olduğu için ayrı tura bırakıldı.
+- **Mavi proaktif katmanı 29 dk boyunca hiç konuşmadı** (~260 değerlendirme,
+  hepsi `not_critical`). Kusur mu tasarım mı belirlenmedi — ölçüldü, kayda
+  geçti, karar sonraki tura.

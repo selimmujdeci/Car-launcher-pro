@@ -76,6 +76,13 @@ export function entityKeyOf(item: QueueItem): string {
     VEHICLE_TRANSFER_CANCEL: `vehicle:${item.vehicleId ?? item.dedupKey}`,
     LOCATION_EVENT:         `vehicle:${item.vehicleId ?? item.dedupKey}`,
     VEHICLE_EVENT:          `vehicle:${item.vehicleId ?? item.dedupKey}`,
+    /* Her kayıt AYRI bir satır ekler; aynı satırı iki işlem değiştirmez →
+       araç kapsamında serileştirmeye gerek YOKTUR. Araç kapsamı verilseydi
+       10 bekleyen kayıt 10 tur sürerdi; kayıt kapsamıyla tek turda giderler.
+       Çift gönderim koruması burada değil, sunucudaki `client_ref` benzersiz
+       indeksindedir. */
+    FUEL_LOG_ADD:           `record:${item.dedupKey}`,
+    SERVICE_RECORD_ADD:     `record:${item.dedupKey}`,
   };
   return scope[item.operationType];
 }
