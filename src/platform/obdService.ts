@@ -450,12 +450,19 @@ function _noteLinkLoss(trigger: LinkLossTrigger, timeoutStage: HandshakeTimeoutS
       protocolActive:  _lastProtocolActive,
     });
     _linkLosses = appendLinkLoss(_linkLosses, rec);
+    /* #554: ECU sustuysa kurtarma ucu handshake'ten DEĞİL, verinin yeniden
+       akmasından kapanır (link ölmediği için handshake hiç koşmaz). */
+    if (trigger === 'ECU_SILENT_WATCHDOG') _ecuSilencePending = true;
   } catch { /* gözlemci arızası veri akışını DÜŞÜRMEZ */ }
 }
 
 /** Başarılı handshake → bekleyen kopma kaydına kurtarma imzasını işler. */
 function _noteLinkRecovered(): void {
   try {
+    /* #554: hangi yol önce gelirse bayrak DÜŞER. Aksi hâlde handshake bir kez,
+       veri akışı bir kez daha kurtarma işler ve ikincisi BİR ÖNCEKİ bekleyen
+       kayda yanlış imza yazardı (`noteRecovery` dolu kaydı atlayıp geriye gider). */
+    _ecuSilencePending = false;
     _linkLosses = noteRecovery(_linkLosses, {
       recoveredAtMs: Date.now(),
       /* Bu turda düşen deneme sayısı (#531'de tur sıfırlaması eklendi) — 0 =
@@ -463,6 +470,36 @@ function _noteLinkRecovered(): void {
       failedAttempts: _failedAttemptsBeforeData,
     });
   } catch { /* gözlemci arızası bağlantıyı DÜŞÜRMEZ */ }
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * #554 · ECU SUSKUNLUĞUNDAN ÇIKIŞ DA BİR KURTARMADIR
+ *
+ * ── SAHA ARIZASI (2026-08-12, gerçek araç · CAROS LAB kopyası) ─────────────
+ *   KOPMA KANIT DEFTERİ: 3 kayıt · hepsi `ECU_SILENT_WATCHDOG`
+ *   `recoveryMs: null` ×3 · `pendingRecoveryCount: 3` · `medianRecoveryMs: null`
+ * Oysa ham trafik kurtarmayı AÇIKÇA gösteriyordu: NO DATA seli (…587→…626),
+ * ardından `ATWS`/`ATZ` yeniden kurulumu ve `0100 → 4100983B0011` (…628).
+ *
+ * KÖK: kurtarma imzası YALNIZ başarılı handshake yoluna bağlıydı
+ * (`_noteLinkRecovered`, tek çağıran). `ECU_SILENT` kopmasında ise TAŞIMA
+ * KATMANI ÖLMEZ — link canlıdır (ATRV akar), yalnız ECU susar. Bu yüzden
+ * handshake yeniden koşmaz ve defterin kurtarma ucu ASLA kapanmazdı.
+ * Sonuç: #536'nın manşet metriği (`medianRecoveryMs`) yapısal olarak hiç
+ * doğamıyordu — defter "bekliyor" derken arıza çoktan geçmişti.
+ *
+ * DÜZELTME: ECU verisi yeniden aktığında kurtarma işlenir. Bekleyen kopma
+ * YOKSA hiçbir şey yapılmaz — bayrak sayesinde sıcak yolda maliyet tek bir
+ * boolean okumasıdır (defter TARANMAZ). Kütük #462: sıcak yolda defter çağrısı
+ * try/catch'siz olamaz — `_noteLinkRecovered` kendi içinde korumalıdır.
+ * ════════════════════════════════════════════════════════════════════════ */
+let _ecuSilencePending = false;
+
+/** ECU yeniden konuştu → bekleyen suskunluk kaydının kurtarma ucunu kapat. */
+function _noteEcuDataResumed(): void {
+  if (!_ecuSilencePending) return;   // O(1) — sıcak yolun ödediği tek bedel
+  _ecuSilencePending = false;
+  _noteLinkRecovered();
 }
 
 /**
@@ -1416,6 +1453,9 @@ function _onRealData(patch: Partial<OBDData>): void {
   if (patch.speed !== undefined) _lastSpeedRxMs = _rxNow;
   if (_hasEcuData(patch)) {
     _lastRealDataMs = _rxNow;
+    /* #554: ECU yeniden konuştu → bekleyen suskunluk kaydının kurtarma ucu
+       burada kapanır. Bekleyen yoksa maliyet tek boolean okumasıdır. */
+    _noteEcuDataResumed();
     /* #535: İLK GERÇEK VERİ damgası data gate'ten BAĞIMSIZ set edilir.
        SAHA (2026-08-11): `firstDataAt: null` geldi — OBD BAĞLI ve veri AKARKEN.
        Kök: damga yalnız `_dataGatePassed` İLK KEZ açılırken yazılıyordu; #531'de

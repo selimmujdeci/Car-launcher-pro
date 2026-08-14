@@ -25,6 +25,7 @@ import { setNavigationGpsPower } from './navigation/navGpsPowerBridge';
 /* Saf matematik yardımcısı — `cameraEngine` sıfır-import bir yaprak modüldür,
    döngü riski yok. Yön formülünü ikinci kez yazmamak için oradan alınır. */
 import { bearingBetween } from './cameraEngine';
+import { roadBearingAheadDeg } from './navigation/core/geo';
 import { safeSetRawImmediate, safeGetRaw, safeRemoveRaw } from '../utils/safeStorage';
 import {
   judgeDestinationChange, recordDestinationChange,
@@ -415,6 +416,7 @@ export function stopNavigation(): void {
   // Per-session izleme state'ini sıfırla — sonraki navigasyon temiz başlar
   _speedHistory.length    = 0;
   _stopStartMs            = null;
+  _prevAppliedEtaFactor   = null;   // #551 — yeni oturum çarpanı serbest yakalar
   _lastEtaUpdateMs        = -ETA_HYSTERESIS_MS;
   _lastStoredEtaS         = 0;
   _lastRouteDistanceM     = Infinity;
@@ -546,6 +548,11 @@ export async function restoreNavigationAsync(): Promise<boolean> {
 let _lastEtaUpdateMs    = 0;
 let _lastStoredEtaS     = 0;
 const ETA_HYSTERESIS_MS = 5_000;
+
+/* #551 — bir önceki UYGULANAN ETA düzeltme çarpanı (zaman oranı sınırı için).
+ * Durum BURADA yaşar; `computeEta` saf kalır (saat/durum okumaz).
+ * `null` = geçmiş yok → sınır uygulanmaz, çarpan hedefi serbestçe yakalar. */
+let _prevAppliedEtaFactor: number | null = null;
 
 // 30-second rolling speed window (sampled at ETA_HYSTERESIS_MS cadence)
 interface _SpeedSample { speedKmh: number; ts: number; }
@@ -800,6 +807,9 @@ export function updateNavigationProgress(
   // Trafik durağı: 2s (trafik buffer birikimi hızlı yansıtılır, ETA güncel kalır).
   const _etaHysteresisMs = _stopStartMs !== null ? ETA_TRAFFIC_HYSTERESIS_MS : ETA_HYSTERESIS_MS;
   if (now - _lastEtaUpdateMs >= _etaHysteresisMs) {
+    /* #551 — zaman oranı sınırının `dt`si. `_lastEtaUpdateMs` hemen altında
+       EZİLDİĞİ için fark ÖNCE alınır. */
+    const _sinceLastEtaMs = now - _lastEtaUpdateMs;
     _lastEtaUpdateMs = now;
 
     // Populate 30-second rolling speed window (evict stale samples)
@@ -843,7 +853,17 @@ export function updateNavigationProgress(
       rollingAvgKmh,
       roadSpeedKmh,
       stopBufferS: trafficBufferS,
+      /* #551 — hız rampasının üstüne zaman oranı sınırı. */
+      previousCorrectionFactor: _prevAppliedEtaFactor,
+      sinceLastEtaMs:           _sinceLastEtaMs,
     });
+
+    /* Sınır YALNIZ `ROUTE_MODEL` sürekliliği içindir. Yedek/STALE/UNKNOWN'a
+       düşülüp geri dönüldüğünde çarpan geçmişi ANLAMSIZDIR — sıfırlanır ki
+       yeni durum eski çarpandan yavaşça yürümek zorunda kalmasın. */
+    _prevAppliedEtaFactor = _lastEtaVerdict.state === 'ROUTE_MODEL'
+      ? _lastEtaVerdict.correctionFactor
+      : null;
 
     /* ── G3 (#530) · ETA SIÇRAMA DEFTERİ ────────────────────────────────────
      * Sahada 43 kez >60 s sıçrama ölçüldü ama SEBEBİ kayıtlı değildi. Defter
@@ -1003,8 +1023,24 @@ function calculateRouteDistance(
   _lastOffRouteM  = minSegDist;
   /* Yol yönü — kamera otoritesi (saha 2026-08-08, Siverek: ölçülen GPS yön
      gürültüsü p90 15,9°/s, araç DURURKEN bile 18°/s). Segment yönü geometriden
-     gelir: titremez. Ekstra tarama YOK — A/B uçları zaten yukarıda bulundu. */
-  _lastSnappedSegBearing = bearingBetween(aLat, aLon, bLat, bLon);
+     gelir: titremez. Ekstra tarama YOK — A/B uçları zaten yukarıda bulundu.
+
+     ⚠️ 2026-08-13 (aynı yol, Siverek — yeniden ölçüldü): TEK segmentin yönü
+     yetmedi. GPS gürültüsü kesilmişti ama gürültü YER DEĞİŞTİRMİŞTİ: rota
+     geometrisinin kendi düğümleri kavşaklarda sıklaşıyor (segmentlerin %23'ü
+     <5 m) ve araç ilerledikçe en-yakın-segment indeksi bu kısa parçalar
+     arasında atlıyor. Ölçülen en büyük TEK darbe: şehir içi **91,5°**,
+     şehir dışı **118,7°**. Yön artık rota boyunca 40 m İLERİYE bakılarak
+     alınır → aynı ölçümde max darbe **~25°**e iner, düz yolda medyan fark
+     ~0,1° (gecikme EKLEMEZ). Ayrıntı ve pencere seçimi: `core/geo.ts`.
+
+     Hesap AYNI snap çıktısından doğar (`closestSegIdx` + `t`): yeni bir
+     en-yakın-segment ARAMASI YOKTUR, yalnız bulunmuş noktadan İLERİ yürünür.
+     Pencere hesaplanamazsa (rota sonu / dejenere geometri) davranış eskisine,
+     yani tek segment yönüne DÜŞER — sessiz `null` bırakılmaz. */
+  _lastSnappedSegBearing =
+    roadBearingAheadDeg(geometry, closestSegIdx, t, CAMERA_ROAD_BEARING_LOOKAHEAD_M)
+    ?? bearingBetween(aLat, aLon, bLat, bLon);
 
   // ── Step 3: remaining = |P'→B| + suffix-sum from B ─────────────────
   // O(1) with precomputed cumDist; O(N) fallback when unavailable (should not occur).
@@ -1107,6 +1143,17 @@ function calculateHeading(
  *  Reroute eşiği (REROUTE_THRESHOLD_M=55m) ile kasıtlı ayrıldı:
  *  20m içinde kullanıcı "yoldan çıktım" görmez; 55m'de reroute tetiklenir. */
 const SNAP_VISUAL_THRESHOLD_M = 20;
+
+/**
+ * Kamera yön penceresi (m) — yön, oturtulmuş noktadan rota boyunca bu kadar
+ * İLERİDEKİ noktaya bakılarak alınır. Ölçülerek seçildi (Siverek, iki rota):
+ * tek segment → max darbe 91,5°/118,7° · 40 m → ~25° · 75 m → ~14°/20°.
+ * 75 m daha stabil ama dönüşü kamerada çok erken başlatır ve `cameraEngine`
+ * içindeki dönüş-öngörü katmanının (`ANTICIPATION_MAX_DEG`) yanında İKİNCİ bir
+ * öngörü otoritesi kurardı — bu yüzden 40 m'de durduruldu. Tam gerekçe ve
+ * ölçüm tablosu: `navigation/core/geo.ts → roadBearingAheadDeg`.
+ */
+const CAMERA_ROAD_BEARING_LOOKAHEAD_M = 40;
 
 export function getSnappedMarkerPosition(): { lat: number; lon: number } | null {
   const status = useNavigationStore.getState().status;

@@ -37,6 +37,16 @@ import deviceCapabilitiesSrc from '../platform/deviceCapabilities.ts?raw';
 import pushServiceSrc from '../platform/pushService.ts?raw';
 import fcmServiceSrc from '../platform/fcmService.ts?raw';
 import obdServiceSrc from '../platform/obdService.ts?raw';
+import blackBoxServiceSrc from '../platform/security/blackBoxService.ts?raw';
+import systemBootSrc from '../platform/system/SystemBoot.ts?raw';
+import obdHealthMonitorSrc from '../platform/obd/ObdHealthMonitor.ts?raw';
+import diagnosticEvidenceSrc from '../platform/aiCore/runtime/diagnosticEvidence.ts?raw';
+import navSessionRuntimeSrc from '../platform/navigation/navigationSessionRuntime.ts?raw';
+import freshnessPolicySrc from '../platform/freshnessPolicy.ts?raw';
+import vehicleAssumptionsSrc from '../platform/vehicleAssumptions.ts?raw';
+import tripLogServiceSrc from '../platform/tripLogService.ts?raw';
+import routingServiceSrc from '../platform/routingService.ts?raw';
+import roleStoreSrc from '../platform/roleSystem/RoleStore.ts?raw';
 import mainLayoutSrc from '../components/layout/MainLayout.tsx?raw';
 import mediaScreenSrc from '../components/media/MediaScreen.tsx?raw';
 import voiceAssistantSrc from '../components/modals/VoiceAssistant.tsx?raw';
@@ -66,6 +76,7 @@ import speedLimitCardSrc from '../components/map/SpeedLimitCard.tsx?raw';
 import effectiveLimitAuthoritySrc from '../platform/navigation/core/vehicleAwareSpeedLimitAuthority.ts?raw';
 import turkeyPolicySrc from '../platform/navigation/policy/turkeySpeedPolicy.ts?raw';
 import navigationServiceSrc from '../platform/navigationService.ts?raw';
+import etaModelSrc from '../platform/navigation/core/etaModel.ts?raw';
 import fullMapViewSrc from '../components/map/FullMapView.tsx?raw';
 import useLayoutServicesSrc from '../hooks/useLayoutServices.ts?raw';
 import useDenseHudSrc from '../hooks/useDenseHud.ts?raw';
@@ -1234,22 +1245,27 @@ describe('Horizon harita kartı sahte veri yasağı kilidi', () => {
    + try/catch guard'ını taşır.
    ─────────────────────────────────────────────────────────────── */
 describe('Sürüş kamerası stil-kapısı yasağı kilidi (harita sabit/dönmüyor)', () => {
-  it('DAVRANIŞ: setDrivingView isStyleLoaded()=false iken bile jumpTo uygular', async () => {
+  it('DAVRANIŞ: setDrivingView isStyleLoaded()=false iken bile KAMERA uygular', async () => {
     const { setDrivingView } = await import('../platform/map/MapInteractionManager');
     const { resetCameraSmooth } = await import('../platform/cameraEngine');
     resetCameraSmooth(); // deterministik başlangıç (bearing=0)
-    const jumps: Array<{ bearing: number }> = [];
+    /* 2026-08-13: kamera artık İKİ yoldan uygulanabiliyor — hareket hâlinde ve
+       düşük-uç DEĞİLKEN akıcılık için `easeTo`, aksi hâlde `jumpTo`. Kilidin
+       AMACI değişmedi: kamera stil kapısına BAĞLANAMAZ. Bu yüzden hangi
+       primitif kullanıldığına değil, KAMERANIN UYGULANDIĞINA bakılır. */
+    const applied: Array<{ bearing: number }> = [];
     const mockMap = {
       isStyleLoaded: () => false,          // tile yükleniyor / setData sonrası kirli stil
-      jumpTo: (o: { bearing: number }) => { jumps.push(o); },
+      jumpTo: (o: { bearing: number }) => { applied.push(o); },
+      easeTo: (o: { bearing: number }) => { applied.push(o); },
       getZoom: () => 16,
       getLayer: () => undefined,
       setPaintProperty: () => {},
     } as unknown as import('maplibre-gl').Map;
     // 40 km/h, heading 45° (KD) — jitter filtresine takılmayacak gerçek sürüş girdisi
     setDrivingView(mockMap, 36.9146, 34.8973, 45, 40, 600);
-    expect(jumps.length, 'stil-kapısı geri gelmiş: kamera tile yüklenirken ölür').toBe(1);
-    expect(jumps[0].bearing, 'bearing 45° hedefe akmalı, kuzeye çivili kalmamalı').toBeGreaterThan(0);
+    expect(applied.length, 'stil-kapısı geri gelmiş: kamera tile yüklenirken ölür').toBe(1);
+    expect(applied[0].bearing, 'bearing 45° hedefe akmalı, kuzeye çivili kalmamalı').toBeGreaterThan(0);
   });
 
   it('DAVRANIŞ: enterNavigationView stil yüklenmemişken easeTo yutmaz', async () => {
@@ -1261,6 +1277,87 @@ describe('Sürüş kamerası stil-kapısı yasağı kilidi (harita sabit/dönmü
     } as unknown as import('maplibre-gl').Map;
     enterNavigationView(mockMap, 36.9146, 34.8973, 45, 600);
     expect(eased, '"Başlat" anı tile yüklenirken giriş animasyonu sessizce yutulur').toBe(1);
+  });
+
+  it('DAVRANIŞ: trimRouteGeometry stil KİRLİYKEN bile kat edilen rotayı siler', async () => {
+    /* AYNI KUSUR SINIFININ İKİNCİ KOPYASI (saha 2026-08-13) — kullanıcı:
+       *"konum ileri gittikçe rota silinmiyor."*
+       `trimRouteGeometry`de `!map.isStyleLoaded() → return` kapısı vardı.
+       Sürüşte `isStyleLoaded()` iki NORMAL nedenle false olur (aynı karedeki
+       başka bir setData — `updateUserMarker` bunu ~16 fps yapıyor — ve sürekli
+       tile yüklemesi). Kırpma ~1 Hz GPS tick'inde çağrıldığı için temiz ana
+       denk gelmiyor, fonksiyon SESSİZCE dönüyor, rota hiç kırpılmıyordu. */
+    const { trimRouteGeometry } = await import('../platform/map/MapLayerManager');
+    let written: unknown = null;
+    const mockMap = {
+      isStyleLoaded: () => false,                    // KİRLİ stil — normal sürüş hâli
+      getSource: () => ({ setData: (d: unknown) => { written = d; } }),
+    } as unknown as import('maplibre-gl').Map;
+
+    trimRouteGeometry(mockMap, [[34.6, 36.8], [34.7, 36.9]]);
+    expect(written, 'stil kapısı geri gelmiş: kat edilen rota sürüşte hiç silinmez')
+      .not.toBeNull();
+  });
+
+  it('DAVRANIŞ: trimRouteGeometry source YOKKEN yazmaz ve ÇÖKMEZ', () => {
+    /* KONTROL testi: yukarıdaki kilidin kendini kandırmadığını kanıtlar —
+       kaldırılan yalnız SAHTE kapıydı, gerçek koruma (source var mı + try/catch)
+       yerinde durmalı. */
+    return import('../platform/map/MapLayerManager').then(({ trimRouteGeometry }) => {
+      const noSrc = {
+        isStyleLoaded: () => true,
+        getSource: () => undefined,
+      } as unknown as import('maplibre-gl').Map;
+      expect(() => trimRouteGeometry(noSrc, [[34.6, 36.8], [34.7, 36.9]])).not.toThrow();
+
+      const throwing = {
+        isStyleLoaded: () => true,
+        getSource: () => ({ setData: () => { throw new Error('style reloading'); } }),
+      } as unknown as import('maplibre-gl').Map;
+      expect(() => trimRouteGeometry(throwing, [[34.6, 36.8], [34.7, 36.9]])).not.toThrow();
+    });
+  });
+
+  it('DAVRANIŞ: setPaintedArrow stil KİRLİYKEN var olan oku GÜNCELLER', async () => {
+    /* Aynı kusur sınıfının ÜÇÜNCÜ kopyası: fonksiyon iki iş yapıyor —
+       var olan source'a setData (stil GEREKTİRMEZ) ve source/katman yaratma
+       (gerektirir). Tek tepe kapısı ikisini birden öldürüyordu → ok bir kez
+       kurulsa bile sürüşte bir daha güncellenmiyordu. */
+    const { setPaintedArrow } = await import('../platform/map/MapLayerManager');
+    let written = 0;
+    const mockMap = {
+      isStyleLoaded: () => false,                    // KİRLİ stil — normal sürüş
+      getSource: () => ({ setData: () => { written++; } }),
+      getLayer: () => ({}),
+    } as unknown as import('maplibre-gl').Map;
+
+    setPaintedArrow(mockMap, {
+      visible: true, turn: 'right', reason: 'OK',
+      ring: [[34.6, 36.8], [34.61, 36.81], [34.62, 36.8]],
+    } as never, 7, false);
+    expect(written, 'stil kapısı geri gelmiş: manevra oku sürüşte hiç güncellenmez')
+      .toBeGreaterThan(0);
+  });
+
+  it('DAVRANIŞ: setPaintedArrow stil hazır DEĞİLKEN katman YARATMAYA kalkmaz', async () => {
+    /* KONTROL testi: daraltılan kapı yaratma dalında DURMALI — yoksa
+       `addSource` yüklenmemiş stile yazıp hata üretir. */
+    const { setPaintedArrow, _resetPaintedArrowCache } = await import('../platform/map/MapLayerManager');
+    _resetPaintedArrowCache();
+    let added = 0;
+    const mockMap = {
+      isStyleLoaded: () => false,
+      getSource: () => undefined,                    // source YOK → yaratma dalı
+      getLayer: () => undefined,
+      addSource: () => { added++; },
+      addLayer:  () => { added++; },
+    } as unknown as import('maplibre-gl').Map;
+
+    expect(() => setPaintedArrow(mockMap, {
+      visible: true, turn: 'right', reason: 'OK',
+      ring: [[34.6, 36.8], [34.61, 36.81], [34.62, 36.8]],
+    } as never, 7, false)).not.toThrow();
+    expect(added, 'stil hazır değilken katman yaratılmış').toBe(0);
   });
 
   it('YAPISAL: MiniMapWidget güncelleme yolu çıplak isStyleLoaded kapısıyla kilitli DEĞİL', () => {
@@ -3259,17 +3356,43 @@ describe('Durakta düzeltme YALNIZ yeniden ortalamadır', () => {
     expect(mapInteractionManagerSrc).toContain('const _bearRad   = (_bearing * Math.PI) / 180;');
   });
 
-  it('🔒 HER İKİ jumpTo da aynı dondurulmuş değerleri kullanır', () => {
-    /* Klips ikinci bir jumpTo atar; o hâlâ `smooth.bearing` kullanırsa
-       düzeltme birinci çağrıda donar, ikincide yeniden döner. */
+  it('🔒 HER kamera uygulaması aynı dondurulmuş değerleri kullanır', () => {
+    /* Klips ikinci bir kamera çağrısı atar; o hâlâ `smooth.bearing` kullanırsa
+       düzeltme birinci çağrıda donar, ikincide yeniden döner.
+
+       2026-08-13: birincil çağrı artık paylaşılan `_cameraOpts` nesnesinden
+       beslenir (akıcılık için `easeTo`/`jumpTo` dallanması eklendi). Kilit
+       KALKMADI — kapsamı genişledi: dondurulmuş değerleri TEK kaynakta
+       doğrula, sonra hiçbir kamera çağrısının `smooth.bearing` kullanmadığını
+       doğrula. */
     const src = mapInteractionManagerSrc;
+
+    // 1) Paylaşılan seçenek nesnesi dondurulmuş bearing'i taşır.
+    expect(src).toMatch(/_cameraOpts\s*=\s*\{[\s\S]{0,260}bearing:\s*_bearing/);
+    // 2) Her iki dal da AYNI nesneden beslenir (ayrışma imkânsız).
+    expect(src).toContain('map.easeTo({');
+    expect(src).toContain('..._cameraOpts,');
+    expect(src).toContain('map.jumpTo(_cameraOpts);');
+
+    // 3) Klips düzeltmesi hâlâ dondurulmuş bearing ile.
     const jumps = [...src.matchAll(/map\.jumpTo\(\{[\s\S]{0,220}?\}\);/g)].map((m) => m[0]);
-    expect(jumps.length).toBeGreaterThanOrEqual(2);
+    expect(jumps.length).toBeGreaterThanOrEqual(1);
     for (const j of jumps) {
       if (!j.includes('padding')) continue;
       expect(j).toContain('bearing: _bearing');
       expect(j).not.toContain('bearing: smooth.bearing');
     }
+
+    // 4) HİÇBİR kamera çağrısı ham smooth.bearing kullanmaz.
+    expect(src).not.toMatch(/map\.(jumpTo|easeTo)\(\{[\s\S]{0,260}bearing:\s*smooth\.bearing/);
+  });
+
+  it('🔒 akıcı kamera BÜTÇELİ: durakta ve düşük-uçta animasyon YOK', () => {
+    /* Boşta süren `easeTo` `map.isMoving()`i kalıcı true yapıp MapLibre'ı
+       idle'da 90 fps render'a sokuyordu (§126 ölçümü). İki kapı da şart. */
+    const src = mapInteractionManagerSrc;
+    expect(src).toContain('const _smoothPan = !_standstillFix && !_isLowEndCamera();');
+    expect(src).toMatch(/perf-low/);
   });
 });
 
@@ -6166,5 +6289,253 @@ describe('🔒 Compat opaklaştırma teması takip eder', () => {
       .toMatch(/bg-\[var\(--oem-surface-2\)\]/);
     expect(addressNavCardSrc, 'kart metni tema tokenı değil')
       .toMatch(/text-\[color:var\(--oem-ink\)\]/);
+  });
+});
+
+/* ── ETA ZAMAN ORANI SINIRI (#551 · 2026-08-12) ──────────────────────────────
+ * SAHA ARIZASI: #538 hız rampasından SONRA bile `etaJumpLedger` sıçramaların
+ * 7/11'ini hız kapısına yazdı (-174 s · -161 s · +142 s; dördü tam 1↔1.5).
+ * KÖK: süreklilik HIZ ekseninde kurulmuştu; `rollingAvgKmh` ise ETA kadansında
+ * (5 s) örnekleniyor ve gerçek yavaşlamada 8 km/sa'lik bandın tamamını tek
+ * adımda geçiyor → çarpan yine basamak atlıyordu.
+ * Bu kilitler ZİNCİRİN KOPMAMASINI sabitler (davranış kilidi ayrı dosyada:
+ * `etaTimeRateLimit.test.ts`). */
+describe('#551 · ETA zaman oranı sınırı — zincir kilidi', () => {
+  const nav = () => navigationServiceSrc;
+  const model = () => etaModelSrc;
+
+  it('🔒 çağıran önceki çarpanı ve geçen süreyi computeEta\'ya GEÇİRİR', () => {
+    const s = nav();
+    expect(s, 'previousCorrectionFactor bağlantısı koptu — sınır sessizce ölür')
+      .toMatch(/previousCorrectionFactor:\s*_prevAppliedEtaFactor/);
+    expect(s, 'sinceLastEtaMs bağlantısı koptu — sınır sessizce ölür')
+      .toMatch(/sinceLastEtaMs:\s*_sinceLastEtaMs/);
+  });
+
+  it('🔒 dt farkı `_lastEtaUpdateMs` EZİLMEDEN ÖNCE alınır', () => {
+    /* Sıra bozulursa dt her zaman 0 olur → sınır hiç uygulanmaz ve
+       hiçbir test bunu göremez (sessiz ölüm). */
+    const s = nav();
+    const dtIdx = s.indexOf('const _sinceLastEtaMs = now - _lastEtaUpdateMs');
+    const setIdx = s.indexOf('_lastEtaUpdateMs = now;', dtIdx < 0 ? 0 : dtIdx);
+    expect(dtIdx, '_sinceLastEtaMs hesabı kaybolmuş').toBeGreaterThan(0);
+    expect(setIdx, '_lastEtaUpdateMs ataması dt hesabından ÖNCE gelmiş').toBeGreaterThan(dtIdx);
+  });
+
+  it('🔒 ROUTE_MODEL dışına düşünce çarpan geçmişi SIFIRLANIR', () => {
+    /* Sıfırlanmazsa yedek/STALE dönüşünde yeni çarpan eski değerden yavaşça
+       yürümek zorunda kalır → ETA gerçeği geç yakalar. */
+    expect(nav(), 'çarpan geçmişi ROUTE_MODEL kapısını kaybetmiş')
+      .toMatch(/_prevAppliedEtaFactor\s*=\s*_lastEtaVerdict\.state === 'ROUTE_MODEL'/);
+  });
+
+  it('🔒 oturum sıfırlamasında çarpan geçmişi de temizlenir', () => {
+    expect(nav(), 'yeni navigasyon oturumu eski çarpanı devralıyor')
+      .toMatch(/_prevAppliedEtaFactor\s*=\s*null;/);
+  });
+
+  it('🔒 model SAF kalır — sınır saat/durum okumaz', () => {
+    const s = model();
+    expect(s, 'etaModel içine Date.now/performance.now sızmış (saflık sözleşmesi)')
+      .not.toMatch(/Date\.now\(\)|performance\.now\(\)/);
+    expect(s, 'dt tavanı kaldırılmış — kare atlanınca sınır gevşer')
+      .toMatch(/ETA_DRIFT_DT_CAP_MS/);
+  });
+});
+
+/* ── ECU SUSKUNLUĞUNDAN ÇIKIŞ = KURTARMA (#554 · 2026-08-12) ─────────────────
+ * SAHA ARIZASI: kopma defterinde 3 `ECU_SILENT_WATCHDOG` kaydının ÜÇÜNDE de
+ * `recoveryMs: null` (`pendingRecoveryCount: 3`, `medianRecoveryMs: null`) —
+ * oysa ham trafik kurtarmayı gösteriyordu (NO DATA seli → ATWS/ATZ → 0100 OK).
+ * KÖK: kurtarma imzası YALNIZ başarılı handshake'e bağlıydı; ECU sustuğunda
+ * taşıma katmanı ölmediği için handshake hiç koşmaz → uç asla kapanmazdı ve
+ * #536'nın manşet metriği yapısal olarak hiç doğamıyordu. */
+describe('#554 · ECU verisi dönünce kurtarma ucu kapanır — zincir kilidi', () => {
+  it('🔒 ECU verisi akınca kurtarma işlenir (handshake BEKLENMEZ)', () => {
+    expect(obdServiceSrc, 'kurtarma ucu veri akışına bağlı değil — defter yine "bekliyor"da donar')
+      .toMatch(/_lastRealDataMs = _rxNow;[\s\S]{0,300}?_noteEcuDataResumed\(\)/);
+  });
+
+  it('🔒 ECU_SILENT kopması bekleyen olarak İŞARETLENİR', () => {
+    expect(obdServiceSrc, 'ECU_SILENT bayrağı kalkmıyor — kurtarma hiç işlenmez')
+      .toMatch(/trigger === 'ECU_SILENT_WATCHDOG'\s*\)\s*_ecuSilencePending = true/);
+  });
+
+  it('🔒 ÇİFT İŞLEME KORUMASI: kurtarma yolu bayrağı düşürür', () => {
+    /* Aksi hâlde handshake bir kez, veri akışı bir kez daha kurtarma işler ve
+       ikincisi BİR ÖNCEKİ bekleyen kayda YANLIŞ imza yazardı. */
+    expect(obdServiceSrc, 'çift işleme koruması kaldırılmış')
+      .toMatch(/_ecuSilencePending = false;[\s\S]{0,200}?noteRecovery\(/);
+  });
+
+  it('🔒 sıcak yol bedeli tek boolean — defter TARANMAZ', () => {
+    expect(obdServiceSrc, 'erken çıkış kaldırılmış — her ECU paketinde defter taranır')
+      .toMatch(/function _noteEcuDataResumed\(\): void \{\s*\n\s*if \(!_ecuSilencePending\) return;/);
+  });
+});
+
+/* ── BLACKBOX ÖRNEKLEYİCİ BİRİKMESİ (#555 · 2026-08-12) ──────────────────────
+ * SAHA ARIZASI: "1 Hz" halkasında 60 örneğin en az beş çifti BİREBİR AYNI `ts`
+ * ile yazılmış, aralıklar 0,24-2,4 s arasında savrulmuştu.
+ * KÖK: saniyede bir `requestIdleCallback` KUYRUĞA atılıyor, bekleyen olup
+ * olmadığına bakılmıyordu; cihaz meşgulken istekler birikip idle anında arka
+ * arkaya boşalıyordu. Bedeli adli: mükerrer örnek 60'lık halkayı erken doldurur
+ * → "son 60 saniye" beyanı sessizce kısalır. */
+describe('#555 · blackbox örnekleyicisi birikmez', () => {
+  it('🔒 bekleyen istek varken yenisi kuyruğa GİRMEZ', () => {
+    expect(blackBoxServiceSrc, 'birikme kapısı kaldırılmış — mükerrer örnekler geri gelir')
+      .toMatch(/function _scheduleReplaySample\(\): void \{[\s\S]{0,200}?if \(_replayPending\) return;/);
+  });
+
+  it('🔒 bayrak örneklemeden ÖNCE düşer (kalıcı kilitlenme yok)', () => {
+    expect(blackBoxServiceSrc, 'bayrak sıfırlaması örneklemeden sonraya alınmış')
+      .toMatch(/_replayPending = false;\s*\n\s*_takeReplaySample\(\);/);
+  });
+
+  it('🔒 taban aralık kapısı aynı ms\'de iki kaydı engeller', () => {
+    expect(blackBoxServiceSrc, 'taban aralık kapısı kaldırılmış')
+      .toMatch(/gap >= 0 && gap < REPLAY_MIN_GAP_MS\) return;/);
+  });
+
+  it('🔒 saat GERİYE sıçrarsa kapı uygulanmaz (kanıt kaybı YASAK)', () => {
+    /* `gap >= 0` koşulu tam olarak bunun içindir: negatif fark saat
+       sıçramasıdır ve örneklemeyi susturmamalıdır. */
+    expect(blackBoxServiceSrc).toMatch(/gap >= 0/);
+  });
+
+  it('🔒 durdurulunca bekleyen bayrak SIFIRLANIR', () => {
+    const hits = blackBoxServiceSrc.match(/_replayPending = false;/g) ?? [];
+    // 1 × scheduler + 2 × stop yolu
+    expect(hits.length, 'stop yollarında bayrak sıfırlaması eksik').toBeGreaterThanOrEqual(3);
+  });
+});
+
+/* ── PANİK YAKALAYICI BAĞLI KALIR (E-34 · 2026-08-12) ────────────────────────
+ * DENETİM BULGUSU: `initPanicHandler()` yazılmış, docstring'i "SystemBoot stop()
+ * içinde çağrılır" DİYOR, ama SystemBoot'ta `panic` geçen tek satır YOKTU.
+ * Sonuç: `window.onerror` ve `unhandledrejection` hiç yakalanmıyor, olay halka
+ * tamponu hiç dolmuyordu → sahada çöken APK'dan geriye tanı verisi kalmıyordu.
+ * Bedeli: post-mortem imkânsız. Bu kilit bağlantının sessizce kopmasını engeller. */
+describe('E-34 · panik yakalayıcı SystemBoot\'a bağlı kalır', () => {
+  it('🔒 SystemBoot initPanicHandler\'ı IMPORT eder', () => {
+    expect(systemBootSrc, 'panic handler importu düşmüş — hook\'lar hiç kurulmaz')
+      .toMatch(/import \{ initPanicHandler \}\s+from '\.\/SystemPanicHandler'/);
+  });
+
+  it('🔒 Wave 1\'de ÇAĞRILIR ve cleanup kaydedilir', () => {
+    expect(systemBootSrc, 'initPanicHandler çağrısı düşmüş — E-34 geri geldi')
+      .toMatch(/this\._reg\(initPanicHandler\(\)\)/);
+  });
+
+  it('🔒 çağrı Wave 1\'in EN BAŞINDA kalır (boot hataları da yakalansın)', () => {
+    const w1 = systemBootSrc.indexOf('_wave1(): Promise<void>');
+    const panic = systemBootSrc.indexOf('initPanicHandler()', w1);
+    const bus = systemBootSrc.indexOf('startPlatformCoreEventBusWiring()', w1);
+    expect(panic, 'panic handler Wave 1 içinde bulunamadı').toBeGreaterThan(w1);
+    expect(panic, 'panic handler event bus\'tan SONRAYA kaymış — arada oluşan hata kaçar')
+      .toBeLessThan(bus);
+  });
+
+  it('🔒 fail-soft: panic kurulumu boot\'u DÜŞÜRMEZ', () => {
+    expect(systemBootSrc, 'try/catch kaldırılmış — panic handler hatası tüm boot\'u düşürür')
+      .toMatch(/this\._reg\(initPanicHandler\(\)\);[\s\S]{0,120}?catch \(e\) \{[\s\S]{0,120}?SystemBoot:panicHandler/);
+  });
+});
+
+/* ── TAZELİK OTORİTESİ TEKTİR (E-01/E-09/E-36 · 2026-08-12) ──────────────────
+ * DENETİM BULGUSU: "bu veri hâlâ geçerli mi" sorusu ürün genelinde 40+ bağımsız
+ * sabitle cevaplanıyordu. Üç dosya AYNI 4000 ms'i elle kopyalamıştı ve ikisinin
+ * YORUMU "ObdHealthMonitor ile hizalı" diyerek hizalamayı İDDİA ediyordu —
+ * ama yorum bir sözleşme değildir: biri değişince diğeri sessizce ayrışır ve
+ * aynı veri için bir ekran "TAZE", diğeri "BAYAT" der.
+ * Bu kilitler hizalamanın KODLA kurulu kalmasını zorlar. */
+describe('E-36 · tazelik eşikleri tek otoriteden okunur', () => {
+  it('🔒 OBD donma eşiği üç tüketicide de politikadan gelir', () => {
+    expect(obdHealthMonitorSrc, 'ObdHealthMonitor eşiği yeniden elle yazılmış')
+      .toMatch(/const STALE_ABS_MS = OBD_FROZEN_ABS_MS;/);
+    expect(diagnosticTriageSrc, 'diagnosticTriage eşiği yeniden elle yazılmış')
+      .toMatch(/const OBD_STALE_AGE_MS\s+= OBD_FROZEN_ABS_MS;/);
+    expect(diagnosticEvidenceSrc, 'diagnosticEvidence eşiği yeniden elle yazılmış')
+      .toMatch(/const STALE_PACKET_MS = OBD_FROZEN_ABS_MS;/);
+  });
+
+  it('🔒 GPS bayatlık eşiği iki tüketicide de politikadan gelir', () => {
+    expect(gpsServiceSrc, 'gpsService eşiği yeniden elle yazılmış')
+      .toMatch(/export const LOCATION_STALE_MS = GPS_FIX_STALE_MS;/);
+    expect(navSessionRuntimeSrc, 'navigationSessionRuntime eşiği yeniden elle yazılmış')
+      .toMatch(/const GPS_STALE_MS = GPS_FIX_STALE_MS;/);
+  });
+
+  it('🔒 politika SAF kalır (import yok — döngü/yan etki riski)', () => {
+    expect(freshnessPolicySrc, 'freshnessPolicy bir şey import etmeye başlamış')
+      .not.toMatch(/^\s*import\s/m);
+  });
+
+  it('🔒 değerler davranışı DEĞİŞTİRMEDEN korunur (4s / 5s)', () => {
+    expect(freshnessPolicySrc).toMatch(/OBD_FROZEN_ABS_MS = 4_000;/);
+    expect(freshnessPolicySrc).toMatch(/GPS_FIX_STALE_MS = 5_000;/);
+  });
+});
+
+/* ── YAKIT VARSAYIMI TEKTİR (E-05 · 2026-08-12) ──────────────────────────────
+ * DENETİM BULGUSU: "araç 100 km'de kaç litre yakar" sorusu iki dosyada bağımsız
+ * sabitlenmişti — `routingService` 7.5, `tripLogService` 8.5. İkisi de KULLANICIYA
+ * GÖRÜNÜYORDU: aynı 300 km için rota HUD'ı "22,5 L", yolculuk özeti "25,5 L"
+ * diyordu (%13 sapma). Beyan edilmiş değer 8.5'tir (tripCanonicalModel + LAB
+ * katalog notu); 7.5 hiçbir yerde beyan edilmemişti. */
+describe('E-05 · yakıt varsayımı tek otoriteden gelir', () => {
+  it('🔒 rota tahmini politikadan okur (yerel 7.5 geri gelmez)', () => {
+    expect(routingServiceSrc, 'computeFuelEstimate yerel sabite dönmüş')
+      .toMatch(/DEFAULT_FUEL_L_PER_100KM \* 10\) \/ 10;/);
+    expect(routingServiceSrc, 'beyan edilmemiş 7.5 heuristiği geri gelmiş')
+      .not.toMatch(/L_PER_100KM = 7\.5/);
+  });
+
+  it('🔒 yolculuk kaydı politikadan okur', () => {
+    expect(tripLogServiceSrc, 'tripLogService yerel sabite dönmüş')
+      .toMatch(/const FUEL_L_PER_100KM\s+= DEFAULT_FUEL_L_PER_100KM;/);
+  });
+
+  it('🔒 beyan edilen değer korunur (8.5)', () => {
+    expect(vehicleAssumptionsSrc).toMatch(/DEFAULT_FUEL_L_PER_100KM = 8\.5;/);
+  });
+
+  it('🔒 varsayım modülü SAF kalır', () => {
+    expect(vehicleAssumptionsSrc, 'vehicleAssumptions import etmeye başlamış')
+      .not.toMatch(/^\s*import\s/m);
+  });
+});
+
+/* ── AI GATEWAY İZNİ SUNUCUDAN OKUNUR (E-24 · 2026-08-12) ────────────────────
+ * DENETİM BULGUSU: `refreshGatewayAccess` ürün yolunda HİÇ çağrılmıyordu (test
+ * bile 0). Modülün docstring'i "boot'ta bir kez + elle tazeleme" diyordu ama
+ * çağıran yoktu → `_snapshot` hep null → UNREAD_ACCESS → kapı KALICI kapalı;
+ * tek açılış yolu yerel geliştirici kaldıracıydı.
+ * DOĞRU YER BOOT DEĞİL: `get_ai_gateway_access()` `auth.uid()` ister ve
+ * oturumsuz BOŞ döner (migration 061, fail-closed) → çağrı oturum kurulduğunda
+ * anlamlıdır. */
+describe('E-24 · gateway izni oturum kurulunca okunur', () => {
+  it('🔒 RoleStore refreshGatewayAccess\'i IMPORT eder', () => {
+    expect(roleStoreSrc, 'gateway izni okuma ucu tekrar koptu')
+      .toMatch(/import \{ refreshGatewayAccess \} from '\.\.\/ai\/gateway\/aiGatewayAccessRuntime'/);
+  });
+
+  it('🔒 oturum DOĞRULANDIKTAN sonra çağrılır', () => {
+    const getUser = roleStoreSrc.indexOf('client.auth.getUser()');
+    const call    = roleStoreSrc.indexOf('refreshGatewayAccess(', getUser);
+    expect(call, 'çağrı oturum doğrulamasından önceye kaymış — uid yokken boş döner')
+      .toBeGreaterThan(getUser);
+  });
+
+  it('🔒 fail-soft: okuma hatası oturum akışını DÜŞÜRMEZ', () => {
+    expect(roleStoreSrc, 'catch kaldırılmış — ağ hatası admin girişini kırar')
+      .toMatch(/refreshGatewayAccess\([\s\S]{0,320}?\)\.catch\(/);
+  });
+
+  it('🔒 rol beklenmez (izin şirket kapsamlıdır, super_admin şartı YOK)', () => {
+    const call  = roleStoreSrc.indexOf('refreshGatewayAccess(');
+    const claim = roleStoreSrc.indexOf('hasRoleClaim', call);
+    expect(call, 'çağrı rol kapısının arkasına alınmış — şirket izni okunamaz olur')
+      .toBeLessThan(claim);
   });
 });

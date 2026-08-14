@@ -180,6 +180,14 @@ export function __testCanonicalObdRpm(): number | null {
 
 function _takeReplaySample(): void {
   try {
+    /* #555: taban aralık kapısı — aynı milisaniyede iki kayıt YAZILAMAZ.
+       Saat geriye sıçrarsa (`gap < 0`) kapı UYGULANMAZ: sıçrama yüzünden
+       kanıt kaybetmek, mükerrer kayıttan daha kötüdür. */
+    const nowMs = Date.now();
+    const gap = nowMs - _lastReplaySampleMs;
+    if (_lastReplaySampleMs > 0 && gap >= 0 && gap < REPLAY_MIN_GAP_MS) return;
+    _lastReplaySampleMs = nowMs;
+
     const vs = useVehicleStore.getState();
 
     // PRIVACY: lat/lng/location.address asla eklenmez
@@ -209,11 +217,54 @@ function _takeReplaySample(): void {
   }
 }
 
+/* ══════════════════════════════════════════════════════════════════════════
+ * #555 · ÖRNEKLEYİCİ BİRİKMESİ — "1 Hz" iddiası sahada tutmuyordu
+ *
+ * ── SAHA KANITI (2026-08-12, gerçek araç · CAROS LAB kopyası) ──────────────
+ * 60 örneğin en az beş ÇİFTİ BİREBİR AYNI `ts` ile yazılmış (…127774 ×2,
+ * …141586 ×2, …145593 ×2, …158630/631, …170544 ×2) ve aralıklar 0,24 s ile
+ * 2,4 s arasında savruluyor.
+ *
+ * KÖK: saniyede bir `requestIdleCallback(…, {timeout: 1500})` KUYRUĞA atılıyor
+ * ama bekleyen istek olup olmadığına bakılmıyordu. Cihaz meşgulken istekler
+ * birikiyor, idle anı gelince arka arkaya boşalıyor ve aynı milisaniyede iki
+ * örnek yazılıyordu.
+ *
+ * NEDEN ÖNEMLİ: bu halka kaza sonrası ADLİ kayıttır. Mükerrer örnekler 60
+ * elemanlı halkayı erken doldurur → "son 60 saniye" beyanı sessizce yalan olur
+ * (gerçekte daha kısa bir pencere kalır). Yani kusur kozmetik değil, KANITIN
+ * KAPSAMINI daraltıyordu.
+ *
+ * DÜZELTME iki katmanlı: (1) bekleyen istek varken yenisi kuyruğa GİRMEZ —
+ * birikmenin kökü; (2) yazım anında taban aralık kapısı — aynı milisaniyede
+ * iki kayıt yapısal olarak imkânsız. Yeni timer KURULMAZ.
+ * ════════════════════════════════════════════════════════════════════════ */
+
+/** Kuyrukta bekleyen örnekleme var mı — birikmeyi önleyen tek bayrak. */
+let _replayPending = false;
+/** Son yazılan örneğin duvar-saati damgası. */
+let _lastReplaySampleMs = 0;
+/**
+ * İki örnek arasındaki taban aralık (ms). 1 Hz hedefinin altında bilinçli
+ * seçildi: idle gecikmesi normal salınımı biraz kaydırabilir, o meşrudur —
+ * kapı yalnız AYNI ANDA iki yazımı keser, düzenli örneklemeyi seyreltmez.
+ */
+const REPLAY_MIN_GAP_MS = 750;
+
 function _scheduleReplaySample(): void {
+  /* Bekleyen istek varken ikincisini kuyruğa ATMA — birikme burada kesilir. */
+  if (_replayPending) return;
+  _replayPending = true;
+  const run = (): void => {
+    /* Bayrak örneklemeden ÖNCE düşer: `_takeReplaySample` beklenmedik bir
+       şekilde düşse bile örnekleyici kalıcı olarak kilitlenmez. */
+    _replayPending = false;
+    _takeReplaySample();
+  };
   if (typeof requestIdleCallback !== 'undefined') {
-    requestIdleCallback(_takeReplaySample, { timeout: 1500 });
+    requestIdleCallback(run, { timeout: 1500 });
   } else {
-    setTimeout(_takeReplaySample, 0);
+    setTimeout(run, 0);
   }
 }
 
@@ -560,6 +611,9 @@ export function startBlackBox(): () => void {
   return () => {
     if (_sampleTimer  !== null) { clearInterval(_sampleTimer);  _sampleTimer  = null; }
     if (_replayTimer  !== null) { clearInterval(_replayTimer);  _replayTimer  = null; }
+    /* #555: durdurulunca bekleyen bayrak da düşer — yeniden başlatıldığında
+       ilk örnek "kuyrukta bekleyen var" sanılıp atlanmasın. */
+    _replayPending = false;
     _accelUnsub?.();      _accelUnsub     = null;
     _obdUnsub?.();        _obdUnsub       = null;
     _replayMemUnsub?.();  _replayMemUnsub = null;
@@ -644,6 +698,9 @@ if (import.meta.hot) {
   import.meta.hot.dispose(() => {
     if (_sampleTimer  !== null) { clearInterval(_sampleTimer);  _sampleTimer  = null; }
     if (_replayTimer  !== null) { clearInterval(_replayTimer);  _replayTimer  = null; }
+    /* #555: durdurulunca bekleyen bayrak da düşer — yeniden başlatıldığında
+       ilk örnek "kuyrukta bekleyen var" sanılıp atlanmasın. */
+    _replayPending = false;
     _accelUnsub?.();      _accelUnsub     = null;
     _obdUnsub?.();        _obdUnsub       = null;
     _replayMemUnsub?.();  _replayMemUnsub = null;
