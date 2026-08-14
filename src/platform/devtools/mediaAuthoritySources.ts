@@ -210,7 +210,8 @@ export function readMediaAuthoritySnapshot(): MediaAuthorityRawSnapshot {
       counters: {
         commandsTotal: 0, verified: 0, acceptedUnverified: 0, failed: 0,
         timedOut: 0, superseded: 0, rejected: 0, duplicateBackendDetected: 0,
-        recoveryCount: 0, handoverTotal: 0, handoverFailed: 0,
+        recoveryCount: 0, recoverySucceeded: 0,
+        handoverTotal: 0, handoverFailed: 0,
       },
       sourceSwitchLatencyMs: null,
       playStartLatencyMs: null,

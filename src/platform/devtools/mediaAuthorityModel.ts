@@ -236,6 +236,13 @@ export function buildMediaAuthorityCards(
       'Kayıt sınırlıdır (en fazla 60 öğe) — büyük blob diske yazılmaz.', t),
     field('rec-count', 'Kurtarma sayısı (native)', av ? numText(s.recoveryCountNative) : NA,
       klassFor(av, s.recoveryCountNative), 'CarosPlaybackService.recoveryCount', '', t),
+    field('rec-js', 'Kurtarma denemesi / tamamlanan (JS)',
+      `${s.evidence.counters.recoveryCount} / ${s.evidence.counters.recoverySucceeded}`,
+      s.evidence.status === 'UNAVAILABLE' ? 'UNAVAILABLE' : 'OBSERVED',
+      'mediaAuthorityEvidence.recoveryCount / recoverySucceeded',
+      'DENEME artıp TAMAMLANAN artmıyorsa kurtarma her açılışta yarıda kalıyordur: '
+      + 'kalıcı kayıttaki deneme sayacı sıfırlanmaz ve 3 denemeden sonra kurtarma '
+      + 'KALICI olarak kapanır (attempts_exhausted).', t),
   ];
 
   /* ── PAKET B · Kuyruk kurtarma ─────────────────────────────────────────── */

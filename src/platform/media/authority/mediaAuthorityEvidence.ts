@@ -47,6 +47,8 @@ interface Counters {
   rejected: number;
   duplicateBackendDetected: number;
   recoveryCount: number;
+  /** Kurtarma DENEMESİ değil, TAMAMLANMIŞ kurtarma sayısı (deneme sayacı sıfırlandı). */
+  recoverySucceeded: number;
   handoverTotal: number;
   handoverFailed: number;
 }
@@ -62,6 +64,7 @@ const _counters: Counters = {
   rejected: 0,
   duplicateBackendDetected: 0,
   recoveryCount: 0,
+  recoverySucceeded: 0,
   handoverTotal: 0,
   handoverFailed: 0,
 };
@@ -128,6 +131,17 @@ export function recordDuplicateBackend(): void {
 
 export function recordRecovery(): void {
   _counters.recoveryCount += 1;
+}
+
+/**
+ * Kurtarma TAMAMLANDI — deneme sayacı kalıcı kayıtta sıfırlandı.
+ *
+ * `recoveryCount` (deneme) ile bu sayaç arasındaki fark doğrudan teşhistir:
+ * denemeler artıp bu sayaç artmıyorsa kurtarma her açılışta yarıda kalıyordur
+ * ve `MAX_RECOVERY_ATTEMPTS` sonrası kurtarma KALICI olarak kapanır.
+ */
+export function recordRecoverySucceeded(): void {
+  _counters.recoverySucceeded += 1;
 }
 
 export type EvidenceStatus = 'OBSERVED' | 'DERIVED' | 'UNAVAILABLE' | 'STALE';

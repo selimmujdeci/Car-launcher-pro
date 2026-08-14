@@ -22,10 +22,10 @@ import * as native from './nativeAuthorityBridge';
 import type { SourceClass } from './sourceCapabilities';
 import type { PlayItem } from './sourceCoordinator';
 import {
-  clearPersistedState, decideRecovery, markRecoveryAttempt, persistPlaybackState,
-  readPersistedRaw,
+  clearPersistedState, decideRecovery, markRecoveryAttempt, markRecoverySucceeded,
+  persistPlaybackState, readPersistedRaw,
 } from './mediaRecovery';
-import { recordRecovery } from './mediaAuthorityEvidence';
+import { recordRecovery, recordRecoverySucceeded } from './mediaAuthorityEvidence';
 import { recordMediaEvent } from './mediaAuthorityEvents';
 import { configureQueueRecovery, runQueueRecovery } from './queueRecoveryRuntime';
 
@@ -192,13 +192,26 @@ async function runRecovery(): Promise<void> {
 
   const { playSource } = await import('./mediaCommandGateway');
   noteQueue(decision.state.source, decision.state.items, decision.state.currentIndex);
-  await playSource({
+  const truth = await playSource({
     source: decision.state.source,
     items: decision.state.items,
     startIndex: decision.state.currentIndex,
     positionMs: decision.state.positionMs,
     autoPlay: false,   // ASLA otomatik çalma
   });
+
+  /* Kurtarma TAMAMLANDI → deneme sayacı sıfırlanır.
+     Sayacın amacı "kurtarma denemesi süreci öldürüyor mu" korumasıdır; komut
+     hata/zaman aşımı ÜRETMEDEN döndüyse döngü kırılmıştır. Sıfırlama YAPILMAZSA
+     her açılış sayacı bir artırır ve üçüncü açılıştan sonra `attempts_exhausted`
+     ile kurtarma KALICI olarak kapanır — çalışan bir sistemde bile.
+
+     ⚠️ `autoPlay:false` olduğu için "ses çıktı" İDDİA EDİLMEZ: burada ölçülen
+     tek şey kuyruğun geri yüklenebildiğidir (istek ≠ ses — `honestClaim` ayrımı). */
+  if (truth.outcome === 'VERIFIED' || truth.outcome === 'ACCEPTED_UNVERIFIED') {
+    markRecoverySucceeded(decision.state);
+    recordRecoverySucceeded();
+  }
 }
 
 /** Otoriteyi başlatır — idempotent. */
