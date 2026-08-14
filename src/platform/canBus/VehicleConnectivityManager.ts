@@ -19,7 +19,9 @@
 
 import { useHALStatusStore }       from '../vehicleDataLayer/halStatusStore';
 import { onOBDData }               from '../obdService';
-import { onGPSLocation }           from '../gpsService';
+/* #553 — `getLocationEvidence` konumun KANONİK otoritesidir (#508 ile aynı
+ * kaynak). Aynı modülden import edildiği için yeni bir bağımlılık yönü açılmaz. */
+import { onGPSLocation, getLocationEvidence } from '../gpsService';
 import { isGateSafeMode, getSafeModeReason } from './ProfileSignalGate';
 
 // ── Tipler ───────────────────────────────────────────────────────────────────
@@ -322,6 +324,42 @@ function _update(source: ConnectivitySource, patch: Partial<SourceHealth>): void
   _notify();
 }
 
+/**
+ * #553 — GPS canlılığı KONUM KANITINDAN okunur, koordinat DEĞİŞİMİNDEN değil.
+ *
+ * ── SAHA ARIZASI (2026-08-12, gerçek araç · CAROS LAB kopyası) ──────────────
+ * Aynı snapshot'ta iki zıt cümle vardı:
+ *   `GPS connected:false · confidence:0 · errorReason:"Sinyal kesildi"`
+ *   `konumFixYasMs: 427 · konumBayat:false · konumKaynagi:"GPS"`
+ * Yani konum sağlayıcı 427 ms önce fix vermişken bağlantı katmanı GPS'i ÖLÜ
+ * ilan etmişti. `lastSignalAt` (…164420) aracın DURDUĞU ana (…163598) düşüyor.
+ *
+ * KÖK: bu kaynağın beslemesi `onGPSLocation`'dır ve o abonelik konum
+ * nesnesinin REFERANS DEĞİŞİMİNİ dinler (`state.location !== prevLoc`).
+ * Araç durunca koordinat değişmez → callback susar → 10 s sonra "Sinyal
+ * kesildi". Pratikte: **araç her durduğunda GPS ölü sayılıyordu** (kırmızı
+ * ışık, park). Bunun bedeli kozmetik değil — kaynak seçimi ve füzyon güven
+ * skorları bu bayrağa bakar.
+ *
+ * Bu, kütük #327'de heartbeat için öğrenilen dersin aynısıdır:
+ * **sağlık "değer değişti mi"den DEĞİL, "paket geldi mi"den türetilir.**
+ * O ders heartbeat'te uygulanmış, bu katmana taşınmamıştı.
+ *
+ * DÜZELTME: bayatlık kararından ÖNCE konumun kanonik otoritesine (#508 ile
+ * aynı kaynak: `getLocationEvidence().fixAgeMs`) sorulur. Fix tazeyse sinyal
+ * gelmiş sayılır. Yeni timer KURULMAZ — mevcut 3 s'lik tarama kullanılır.
+ * Kanıt okunamazsa (`null`) eski davranış aynen sürer (fail-soft).
+ */
+function _gpsFixAgeMs(): number | null {
+  try {
+    const age = getLocationEvidence().fixAgeMs;
+    return typeof age === 'number' && Number.isFinite(age) ? age : null;
+  } catch {
+    /* Kanıt okunamadı → "taze" DE denmez, "bayat" DA: karar eski yola düşer. */
+    return null;
+  }
+}
+
 function _checkStaleness(): void {
   const now = Date.now();
   let changed = false;
@@ -329,6 +367,21 @@ function _checkStaleness(): void {
     const h = _state[source];
     if (!h.connected) continue;
     const threshold = STALE_THRESHOLD[source];
+
+    /* GPS: önce konum otoritesine sor. Fix tazeyse sinyal AKIYOR demektir —
+       araç duruyor diye ölü ilan etme. `lastSignalAt` de tazelenir ki bir
+       sonraki taramada aynı yanlış karara geri dönülmesin. */
+    if (source === 'GPS') {
+      const fixAge = _gpsFixAgeMs();
+      if (fixAge !== null && fixAge <= threshold) {
+        if (h.lastSignalAt !== now) {
+          _state[source] = { ...h, lastSignalAt: now };
+          changed = true;
+        }
+        continue;
+      }
+    }
+
     if (h.lastSignalAt > 0 && now - h.lastSignalAt > threshold) {
       _state[source] = { ...h, connected: false, confidence: 0, errorReason: 'Sinyal kesildi' };
       changed = true;

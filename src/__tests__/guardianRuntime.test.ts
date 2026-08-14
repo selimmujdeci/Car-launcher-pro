@@ -276,11 +276,15 @@ describe('Snapshot dürüstlüğü', () => {
     const byId = Object.fromEntries(s.sources.map((x) => [x.id, x]));
     expect(byId.gps.wired).toBe(true);
     expect(byId.obd.wired).toBe(true);
-    expect(byId.map.wired).toBe(false);
+    // `map` artık BAĞLI — ama YALNIZ `speedCamera` dilimi (gömülü denetim noktası
+    // paketi). Kilit kaldırılmadı, YENİ doğru davranışa güncellendi; gerekçe
+    // metninin kısmiliği AÇIKÇA yazması da kilitlenir (sahte "map tamam" YASAK).
+    expect(byId.map.wired).toBe(true);
+    expect(byId.map.reason).toContain('speedCamera');
     expect(byId.weather.wired).toBe(false);
     expect(byId.driver.wired).toBe(false);
     for (const src of s.sources) expect(src.reason.length).toBeGreaterThan(10);
-    expect(s.wiredSourceCount).toBe(2);
+    expect(s.wiredSourceCount).toBe(3);
   });
 
   it('koşum süresi ÖLÇÜLÜR ve bütçe sayaçları ilerler', () => {

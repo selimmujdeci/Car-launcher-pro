@@ -10,7 +10,9 @@
 import type { SpeedCameraRiskInput, SpeedCameraRiskPolicyInput, SpeedCameraType } from '../rules';
 
 const CAMERA_TYPES: ReadonlySet<string> = new Set([
-  'fixed_speed', 'average_speed', 'mobile_speed', 'traffic_light', 'combined', 'unknown',
+  'fixed_speed', 'average_speed', 'mobile_speed', 'traffic_light', 'combined',
+  // 'unspecified': varlık gözlendi, tür belirtilmemiş — 'unknown'dan AYRI (kural dosyası).
+  'unspecified', 'unknown',
 ]);
 
 function isObject<T>(v: T): v is T & Record<string, unknown> {

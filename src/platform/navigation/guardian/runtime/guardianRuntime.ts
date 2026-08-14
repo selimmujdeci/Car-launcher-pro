@@ -18,14 +18,18 @@
  * ── BAĞLI SAĞLAYICILAR (dürüst envanter) ────────────────────────────────────
  *   ✅ `gps`  — `UnifiedVehicleStore` üstünden ARAÇ HIZI (koordinat OKUNMAZ).
  *   ✅ `obd`  — `getOBDDataSnapshot()` üstünden soğutucu + akü gerilimi.
- *   ⛔ `map`  — üretici YOK (viraj/hız limiti/yokuş/tehlike/kamera dilimleri).
- *               Ayrıca konum tabanlı kurallar **şartlı kilit #508** altında.
+ *   ◐ `map`  — YALNIZ `speedCamera` dilimi (`enforcementMapSource`, gömülü EGM
+ *               paketi). Viraj/hız limiti/yokuş/tehlike dilimlerinin üreticisi
+ *               HÂLÂ YOK. Denetim noktası uyarısı konum belirsizliği kapısına
+ *               tabidir — **şartlı kilit #508** sahada bu kapıyı çoğunlukla
+ *               KAPALI tutar ve düşüşler LAB'da SAYILIR.
  *   ⛔ `weather` — veri + lisans işi (P7), bugün yalnız interface.
  *   ⛔ `driver`  — **#509** altında.
  *
- * Sonuç: bugün fiilen KOŞAN tek kural `vehicle-health`tir. GPS hızı okunur ama
- * yalnız map dilimlerine enjekte edildiği için **hiçbir kurala girmez**. Bu
- * gerçek LAB'da AÇIKÇA gösterilir — "8 kural çalışıyor" izlenimi verilmez.
+ * Sonuç: bugün fiilen KOŞABİLEN kurallar `vehicle-health` ve — kapılar geçilirse
+ * — `speed-camera`dır. GPS hızı okunur ama diğer map dilimleri olmadığı için
+ * **hiçbir kurala girmez**. Bu gerçek LAB'da AÇIKÇA gösterilir; "8 kural
+ * çalışıyor" izlenimi verilmez.
  *
  * ── ZERO-LEAK / FAIL-SOFT / ZERO-ALLOC ──────────────────────────────────────
  *  · Tek timer sahibi `runtimeManager` wheel'idir; burada `setInterval` YOK.
@@ -50,6 +54,10 @@ import {
 } from '../providers/concrete/gpsServiceSource';
 import { createObdServiceSource } from '../providers/concrete/obdServiceSource';
 import { createObdServiceHealthPort } from '../providers/concrete/obdServiceHealthPort';
+import {
+  createEnforcementMapSource, createUnifiedStoreEnforcementLocationPort,
+} from '../providers/concrete/enforcementMapSource';
+import { ensureEnforcementPointsLoaded } from '../../enforcement/enforcementPointsSource';
 import { GUARDIAN_VEHICLE_HEALTH_POLICY } from './guardianVehicleHealthPolicy';
 import {
   GUARDIAN_TASK_ID, GUARDIAN_BASE_PERIOD_MS, GUARDIAN_TASK_CRITICALITY,
@@ -252,8 +260,8 @@ const _SOURCE_WIRING: readonly GuardianSourceWiring[] = Object.freeze([
     reason: 'getOBDDataSnapshot(): soğutucu + akü gerilimi. Bugün kurala giren TEK kaynak.',
   }),
   Object.freeze({
-    id: 'map' as const, wired: false,
-    reason: 'Üretici YOK (yarıçap/limit/eğim/tehlike/kamera). Konum tabanlı kurallar şartlı kilit #508 altında.',
+    id: 'map' as const, wired: true,
+    reason: 'YALNIZ speedCamera dilimi bağlı (gömülü EGM denetim noktası paketi). Viraj/limit/eğim/tehlike dilimlerinin üreticisi YOK. Uyarı konum belirsizliği kapısına tabidir — #508 sahada bu kapıyı çoğunlukla kapalı tutar.',
   }),
   Object.freeze({
     id: 'weather' as const, wired: false,
@@ -351,6 +359,21 @@ export function startGuardianRuntime(): () => void {
     });
   } catch {
     /* fail-soft: OBD yuvası bağlanmadı — Guardian GPS ile devam eder. */
+  }
+
+  try {
+    sources.map = createEnforcementMapSource({
+      port:  createUnifiedStoreEnforcementLocationPort(),
+      /* Fix zaman damgası duvar saatidir (`GpsAdapter` #458) → yaş hesabı da
+         duvar saatiyle yapılır. Monotonik saat KARIŞTIRILMAZ. */
+      clock: { nowMs: _nowWall },
+    });
+    /* Paket yüklemesi ATEŞLE-UNUT: tik gövdesi ağa çıkmaz, ilk tik'ler paket
+       hazır olana kadar PACKAGE_NOT_READY sayar (sessiz "denetim yok" DEĞİL).
+       Yükleme düşerse durum FAILED kalır; yeniden deneme döngüsü YOK. */
+    void ensureEnforcementPointsLoaded();
+  } catch {
+    /* fail-soft: map yuvası bağlanmadı — Guardian diğer kaynaklarla devam eder. */
   }
 
   _sources = sources;

@@ -165,11 +165,13 @@ export const GuardianRuntimeScreen = memo(function GuardianRuntimeScreen() {
       ))}
 
       <p className="shrink-0 pb-2 font-mono text-[9px] leading-relaxed text-[var(--oem-ink-3)]">
-        KAPSAM SINIRI (dürüstlük): Guardian'ın 8 kuralından bugün fiilen KOŞAN
-        yalnız <b>vehicle-health</b>'tir. GPS hızı okunur ama hiçbir kurala girmez
-        (map dilimleri üretilmiyor). Hava · viraj · yokuş · yol tehlikesi · hız
-        kamerası · yorgunluk kuralları veri kaynağı beklemektedir; konum tabanlı
-        olanlar şartlı kilit <b>#508</b>, yorgunluk <b>#509</b> altındadır. Bu
+        KAPSAM SINIRI (dürüstlük): Guardian'ın 8 kuralından bugün fiilen KOŞABİLEN
+        yalnız <b>vehicle-health</b> ve — kapıları geçerse — <b>speed-camera</b>'dır.
+        GPS hızı okunur ama diğer map dilimleri üretilmediği için hiçbir kurala
+        girmez. Hava · viraj · yokuş · yol tehlikesi · yorgunluk kuralları veri
+        kaynağı beklemektedir. Denetim noktası uyarısı konum belirsizliği kapısına
+        tabidir (şartlı kilit <b>#508</b>) — düşüşler "Denetim Noktası Verisi"
+        ekranında sayılır; yorgunluk <b>#509</b> altındadır. Bu
         ekrandaki süre ölçümleri ÇALIŞTIĞI CİHAZA aittir — geliştirme makinesinde
         alınan sayı head unit sonucu SAYILMAZ. Saha kütüğü tek otoritedir.
       </p>

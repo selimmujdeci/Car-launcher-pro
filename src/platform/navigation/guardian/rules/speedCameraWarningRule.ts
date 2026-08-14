@@ -20,11 +20,23 @@
  *   - `policy.severityByCameraType[cameraType] === 'NONE'` → olay YOK.
  *   - `camera.confidence` < etkin minimum güven → olay YOK.
  *
+ * ── `'unknown'` İLE `'unspecified'` AYNI ŞEY DEĞİLDİR (bilinçli ayrım) ───────
+ * İkisini karıştırmak bu kuralın en pahalı hatası olurdu:
+ *   · `'unknown'`     → **noktanın VAR OLDUĞU bile bilinmiyor.** Uyarı vermek
+ *                       kamera UYDURMAK olur → olay YOK (değişmedi, kilitli).
+ *   · `'unspecified'` → **noktanın varlığı GÖZLENDİ** (yetkili kaynak yayınladı),
+ *                       yalnız TÜRÜ kaynakta belirtilmemiş. Burada uyarı vermemek
+ *                       gerçek bir denetim noktasını SESSİZCE yutmak olurdu.
+ * Bu ayrım ürün gerçeğinden doğdu: EGM kamuya açık EDS paketinin **%93'ünde tip
+ * alanı yok**. Tipi bilinmeyen kayıtları elemek özelliğin %93'ünü öldürürdü;
+ * onlara tip İDDİA ETMEK ise yalan olurdu. Üçüncü yol: varlığı bildir, türü
+ * bildirme. `'unspecified'` mesajı bu yüzden tür ve hız eşiği İDDİA ETMEZ.
+ *
  * ── EKSİK-EŞLEME → THROW (roadHazard/weather ile AYNI) ──────────────────────
  * BİLİNEN bir `cameraType` (fixed_speed/average_speed/mobile_speed/traffic_light/
- * combined) için `severityByCameraType`de giriş YOKSA → **THROW** (kritik bir
- * denetim noktası politika eksikliğinden SESSİZCE kaybolmasın). `'unknown'`/
- * `undefined` için eşleme ARANMAZ (zaten event-yok dalı).
+ * combined/unspecified) için `severityByCameraType`de giriş YOKSA → **THROW**
+ * (kritik bir denetim noktası politika eksikliğinden SESSİZCE kaybolmasın).
+ * `'unknown'`/`undefined` için eşleme ARANMAZ (zaten event-yok dalı).
  */
 import type { GuardianRiskEvent, GuardianRuleResult, GuardianSeverity } from '../models';
 
@@ -36,6 +48,9 @@ export type SpeedCameraType =
   | 'mobile_speed'
   | 'traffic_light'
   | 'combined'
+  /** Varlık GÖZLENDİ, tür kaynakta BELİRTİLMEMİŞ — uyarı verilir, tür iddia edilmez. */
+  | 'unspecified'
+  /** Noktanın var olduğu bile bilinmiyor — olay ÜRETİLMEZ. */
   | 'unknown';
 
 /** `GuardianSeverity` veya `'NONE'` (risk yok — event üretilmez). */
@@ -61,6 +76,7 @@ export interface SpeedCameraSeverityByCameraType {
   mobile_speed?:   SpeedCameraSeverityOrNone;
   traffic_light?:  SpeedCameraSeverityOrNone;
   combined?:       SpeedCameraSeverityOrNone;
+  unspecified?:    SpeedCameraSeverityOrNone; // BİLİNEN token — eşleme ZORUNLU
   unknown?:        SpeedCameraSeverityOrNone; // ARANMAZ — yalnız tip tamlığı için
 }
 
@@ -87,11 +103,19 @@ const DEFAULT_CAMERA_MIN_CONFIDENCE = 0.3;
 /** `camera.source` verilmezse kullanılan varsayılan kaynak etiketi. */
 const DEFAULT_CAMERA_SOURCE = 'speed-camera-rule';
 
-/** Sabit başlık — kamera tipinden bağımsız. */
-const TITLE_TEXT = 'Hız denetim noktası';
-
 /** Güvenlik odaklı, ihtiyatlı öneri metni — ceza-kaçırma dili YOK. */
 const RECOMMENDED_ACTION_TEXT = 'Hız limitlerine uygun şekilde ilerlemen önerilir.';
+
+/** Tip-bazlı başlıklar. `'unspecified'` başlığı "hız" DEMEZ — türü bilinmeyen bir
+ *  noktaya "hız denetimi" demek tür iddiasıdır (karar K3). */
+const CAMERA_TITLES: Readonly<Record<Exclude<SpeedCameraType, 'unknown'>, string>> = {
+  fixed_speed:   'Hız denetim noktası',
+  average_speed: 'Hız denetim noktası',
+  mobile_speed:  'Hız denetim noktası',
+  traffic_light: 'Hız denetim noktası',
+  combined:      'Hız denetim noktası',
+  unspecified:   'Denetim noktası',
+};
 
 /** Tip-bazlı İHTİYATLI mesaj metinleri — severity DEĞİL, yalnız açıklama. Hepsi
  *  "bildiriliyor/bulunuyor" dilinde (radar/ceza/polis çağrışımı YOK). `'unknown'`
@@ -102,6 +126,8 @@ const CAMERA_MESSAGES: Readonly<Record<Exclude<SpeedCameraType, 'unknown'>, stri
   mobile_speed:  'İleride mobil hız denetimi bildiriliyor.',
   traffic_light: 'İleride trafik ışığı denetim noktası bulunuyor.',
   combined:      'İleride hız ve trafik denetim noktası bulunuyor.',
+  // Tür İDDİA EDİLMEZ, hız eşiği İDDİA EDİLMEZ (K3/K4).
+  unspecified:   'İleride bir denetim noktası bildiriliyor. Türü belirtilmemiş.',
 };
 
 /** Geçerli severity token kümesi — `severityByCameraType` değerlerini doğrulamak
@@ -215,7 +241,7 @@ export function evaluateSpeedCameraRisk(input: SpeedCameraRiskInput): GuardianRu
     // İleride bir denetim noktası — DI ile gelen GERÇEK mesafe (roadHazard deseni;
     // kuralda uydurulmaz, aynen geçirilir).
     distanceMeters:    camera.distanceMeters,
-    title:             TITLE_TEXT,
+    title:             CAMERA_TITLES[cameraType],
     message:           CAMERA_MESSAGES[cameraType],
     recommendedAction: RECOMMENDED_ACTION_TEXT,
     confidence:        cameraConfidence, // event conf <= camera conf (burada eşit — üst sınır)
