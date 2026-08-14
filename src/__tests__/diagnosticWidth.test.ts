@@ -152,7 +152,8 @@ describe('GPS DERİN bölümü — fail-soft yapı + mahremiyet kilidi', () => {
 describe('SESLİ / STT bölümü — fail-soft yapı + mahremiyet kilidi', () => {
   it('kaynak yokken bile iyi-biçimli voice snapshot döner (çökmez)', () => {
     const voice = buildVoiceSnapshot();
-    expect(typeof voice.voskReady).toBe('boolean');
+    /* #557: null = OKUNAMADI da geçerli bir değerdir (sahte 'hazır' yasak). */
+    expect(voice.voskReady === null || typeof voice.voskReady === 'boolean').toBe(true);
     expect(typeof voice.wakeWordEnabled).toBe('boolean');
     expect(typeof voice.status).toBe('string');
     expect(typeof voice.lastSttAgeMs).toBe('number');
