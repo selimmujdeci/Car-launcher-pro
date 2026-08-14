@@ -31,6 +31,12 @@ import {
 } from '../obd/linkLossLedger';
 import type { AdRawSnapshot } from './adapterDiagnosticsModel';
 
+/** Sayı okuma — sahte 0 ÜRETMEZ (E-21). Alan yoksa `null`. */
+function _num(v: unknown): number | null {
+  const n = typeof v === 'number' ? v : Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
 function _safe<T>(fn: () => T): T | null {
   try {
     const v = fn();
@@ -67,7 +73,7 @@ export function readAdapterDiagnosticsSnapshot(): AdRawSnapshot {
     transport: trans ? {
       transport:            String(trans.transport),
       connected:            trans.connected === true,
-      reconnectAttempts:    Number(trans.reconnectAttempts) || 0,
+      reconnectAttempts:    _num(trans.reconnectAttempts),
       lastDisconnectReason: trans.lastDisconnectReason ?? null,
     } : null,
 
@@ -97,11 +103,15 @@ export function readAdapterDiagnosticsSnapshot(): AdRawSnapshot {
 
     freshWindowMs: typeof fresh === 'number' && Number.isFinite(fresh) && fresh > 0 ? fresh : null,
 
+    /* DİSİPLİN TUTARLILIĞI (envanter denetimi E-21): bu dosya `-1` sentinel'ini
+       iki kritik alan için bilinçle koruyordu ama ALTI sayacı `|| 0` ile sahte
+       sıfıra düşürüyordu — üstelik model o sıfırlar üzerinden gerekçe cümlesi
+       kuruyordu ("0 reconnect denemesi oldu"). Artık okunamayan sayaç `null`. */
     lifecycle: life ? {
-      resetRequestedCount:     Number(life.resetRequestedCount) || 0,
-      resetCompletedCount:     Number(life.resetCompletedCount) || 0,
-      disconnectCalledCount:   Number(life.disconnectCalledCount) || 0,
-      reconnectRequestedCount: Number(life.reconnectRequestedCount) || 0,
+      resetRequestedCount:     _num(life.resetRequestedCount),
+      resetCompletedCount:     _num(life.resetCompletedCount),
+      disconnectCalledCount:   _num(life.disconnectCalledCount),
+      reconnectRequestedCount: _num(life.reconnectRequestedCount),
       lastResetReason:         life.lastResetReason ?? null,
       lastResetAt:             Number(life.lastResetAt) > 0 ? Number(life.lastResetAt) : null,
       lastDisconnectAt:        Number(life.lastDisconnectAt) > 0 ? Number(life.lastDisconnectAt) : null,
@@ -117,7 +127,7 @@ export function readAdapterDiagnosticsSnapshot(): AdRawSnapshot {
       /* #517: LINK paketi (ATRV DAHİL) — ECU verisi yaşıyla KARIŞTIRILMAZ. */
       lastLinkPacketAgeMs: typeof health.lastPacketAgeMs === 'number' ? health.lastPacketAgeMs : -1,
       isStale:           health.isStale === true,
-      reconnectPressure: Number(health.reconnectPressure) || 0,
+      reconnectPressure: _num(health.reconnectPressure),
       /** Hiç veri görmemiş alanlar haritada YOKTUR → sayısı da dürüst bir sinyaldir. */
       reliabilityFieldCount: health.sensorReliability
         ? Object.keys(health.sensorReliability).length

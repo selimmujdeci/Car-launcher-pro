@@ -86,11 +86,15 @@ export interface SessionRawSnapshot {
   /** Repoda TANIMLI tazelik penceresi (ms). null = okunamadı. */
   readonly freshWindowMs: number | null;
 
+  /** Sayaçlar `null` olabilir: native alan yoksa sahte 0 ÜRETİLMEZ (E-19). */
   readonly kwp: {
-    status: string; coreNoDataStreak: number; maxCoreNoDataStreak: number;
-    recoveryCount: number; suppressedCount: number; atpcSendFailures: number;
-    lastRecoveryAt: number; lastRecoveryToFirstPidMs: number; killedByDataGate: number;
-    protocolAtRecovery: string | null; threshold: number; maxPerSession: number;
+    status: string;
+    coreNoDataStreak: number | null; maxCoreNoDataStreak: number | null;
+    recoveryCount: number | null; suppressedCount: number | null;
+    atpcSendFailures: number | null; lastRecoveryAt: number | null;
+    lastRecoveryToFirstPidMs: number | null; killedByDataGate: number | null;
+    protocolAtRecovery: string | null; threshold: number | null;
+    maxPerSession: number | null;
   } | null;
 
   readonly hal: {
@@ -119,6 +123,14 @@ export interface SessionRawSnapshot {
 }
 
 /* ── Kaynak etiketleri (gerçek dosya/fonksiyon) ───────────────────────────── */
+
+/**
+ * `null` → "KAYNAK YOK". Birleşik metinlerde sahte 0 yazmamak için (E-19):
+ * "0 / 3" ile "ölçülemedi / ölçülemedi" ekranda AYRI görünmelidir.
+ */
+function _nz(v: number | null): string {
+  return v === null ? 'KAYNAK YOK' : String(v);
+}
 
 const SRC = {
   status:    'obdService.getOBDStatusSnapshot()',
@@ -437,24 +449,25 @@ function _kwpCard(s: SessionRawSnapshot): InspectorCard {
   const cached = 'Önbellekten okundu; kanıtın TAZELENME zamanı kaynakta KAYITLI DEĞİL → bayatlığı hesaplanamaz.';
 
   f.push(observed({ id: 'kwpStatus', label: 'kurtarma durumu', source: SRC.kwp, note: cached }, k.status));
-  f.push(observed({ id: 'kwpStreak', label: 'ardışık çekirdek NO_DATA (anlık/azami)', source: SRC.kwp, note: `Eşik: ${k.threshold}.` },
-    `${k.coreNoDataStreak} / ${k.maxCoreNoDataStreak}`));
+  f.push(observed({ id: 'kwpStreak', label: 'ardışık çekirdek NO_DATA (anlık/azami)', source: SRC.kwp, note: `Eşik: ${_nz(k.threshold)}.` },
+    `${_nz(k.coreNoDataStreak)} / ${_nz(k.maxCoreNoDataStreak)}`));
   f.push(observed({ id: 'kwpRecoveryCount', label: 'ATPC gönderimi / tavan', source: SRC.kwp, note: cached },
-    `${k.recoveryCount} / ${k.maxPerSession}`));
+    `${_nz(k.recoveryCount)} / ${_nz(k.maxPerSession)}`));
   f.push(derived(
     { id: 'kwpAtLimit', label: 'kurtarma tavanına ulaşıldı mı', source: `${SRC.kwp} (recoveryCount vs maxPerSession)`,
       note: 'KURAL: maxPerSession > 0 VE recoveryCount >= maxPerSession → EVET.' },
-    k.maxPerSession > 0 ? (k.recoveryCount >= k.maxPerSession ? 'EVET' : 'HAYIR') : null,
+    k.maxPerSession !== null && k.recoveryCount !== null && k.maxPerSession > 0
+      ? (k.recoveryCount >= k.maxPerSession ? 'EVET' : 'HAYIR') : null,
   ));
   f.push(observed({ id: 'kwpSuppressed', label: 'tavan dolduğu için gönderilmedi', source: SRC.kwp, note: cached }, k.suppressedCount));
   f.push(observed({ id: 'kwpSendFail', label: 'ATPC kanal hatası', source: SRC.kwp, note: cached }, k.atpcSendFailures));
   f.push(observed({ id: 'kwpKilledByGate', label: 'Data Gate kurtarmayı yıktı', source: SRC.kwp, note: 'Kurtarma IN_PROGRESS iken oturum kaç kez kapatıldı.' }, k.killedByDataGate));
-  f.push(k.lastRecoveryAt > 0
+  f.push(k.lastRecoveryAt !== null && k.lastRecoveryAt > 0
     ? observed({ id: 'kwpLastRecoveryAt', label: 'son kurtarma tetiği', source: SRC.kwp,
         note: 'Gerçek damga; kurtarma için TANIMLI bayatlık eşiği YOK → STALE hesaplanmaz.', updatedAt: k.lastRecoveryAt },
         new Date(k.lastRecoveryAt).toISOString())
     : unavailable({ id: 'kwpLastRecoveryAt', label: 'son kurtarma tetiği', source: SRC.kwp, note: '' }, 'Hiç kurtarma tetiklenmedi.'));
-  f.push(k.lastRecoveryToFirstPidMs >= 0
+  f.push(k.lastRecoveryToFirstPidMs !== null && k.lastRecoveryToFirstPidMs >= 0
     ? observed({ id: 'kwpRecoveryLatency', label: 'ATPC→ilk geçerli PID (ms)', source: SRC.kwp, note: 'Son BAŞARILI kurtarmada ölçüldü.' }, k.lastRecoveryToFirstPidMs)
     : unavailable({ id: 'kwpRecoveryLatency', label: 'ATPC→ilk geçerli PID (ms)', source: SRC.kwp, note: '' }, 'Ölçülmedi (-1).'));
   f.push(k.protocolAtRecovery
@@ -611,7 +624,8 @@ export function buildHealthInput(s: SessionRawSnapshot, mismatchCount: number): 
     nowMs:           typeof s?.readAt === 'number' ? s.readAt : 0,
     dataSource:      s?.obdStatus?.source ?? null,
     kwpStatus:       k ? k.status : null,
-    kwpAtLimit:      k ? (k.maxPerSession > 0 ? k.recoveryCount >= k.maxPerSession : null) : null,
+    kwpAtLimit:      k && k.maxPerSession !== null && k.recoveryCount !== null
+      && k.maxPerSession > 0 ? k.recoveryCount >= k.maxPerSession : null,
     mismatchCount:   typeof mismatchCount === 'number' && mismatchCount > 0 ? mismatchCount : 0,
   };
 }

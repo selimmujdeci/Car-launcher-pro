@@ -17,6 +17,8 @@
  *  - Fail-soft gözlemci: skor üretimi veri akışını asla etkilemez.
  */
 
+import { OBD_FROZEN_ABS_MS } from '../freshnessPolicy';
+
 /** Sanitizer'ın izlediği alanlar — NativeOBDData alan adlarıyla birebir. */
 export const HEALTH_FIELDS = [
   'speed', 'rpm', 'engineTemp', 'fuelLevel',
@@ -56,8 +58,11 @@ const STALE_MAX_FACTOR = 10;
 /**
  * Mutlak donma eşiği (ms) — son paket bundan eskiyse `isStale=true`. Sürücü için
  * göstergenin ~4s güncellenmemesi "donmuş" demektir; poll config'inden bağımsız.
+ *
+ * E-01/E-36: değer artık ELLE KOPYALANMAZ — `freshnessPolicy` tek otoritedir.
+ * Aynı soruyu soran `diagnosticTriage` ve `diagnosticEvidence` de oradan okur.
  */
-const STALE_ABS_MS = 4_000;
+const STALE_ABS_MS = OBD_FROZEN_ABS_MS;
 
 function _decay(value: number, elapsedMs: number, halfLifeMs: number): number {
   if (elapsedMs <= 0 || value === 0) return value;

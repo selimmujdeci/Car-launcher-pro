@@ -60,7 +60,11 @@ export interface SchedRawSnapshot {
     /** Gerçek duvar-saati damgası (native). 0/null = yok. */
     lastPollAt: number | null;
     decisionLabel: string;
-    js: { eventsReceived: number; decodeFailures: number; valuesStored: number; valuesCached: number };
+    /** Her sayaç `null` olabilir: kaynak yoksa sahte 0 taşınmaz (E-22). */
+    js: {
+      eventsReceived: number | null; decodeFailures: number | null;
+      valuesStored: number | null; valuesCached: number | null;
+    };
   } | null;
 
   /**
@@ -139,9 +143,13 @@ export interface SchedRawSnapshot {
     timeoutStage: string | null; failReason: string | null; lastSuccessAt: number | null;
   } | null;
 
+  /** Sayaçlar `null` olabilir: native alan yoksa sahte 0 ÜRETİLMEZ (E-19). */
   readonly kwp: {
-    status: string; recoveryCount: number; maxPerSession: number; suppressedCount: number;
-    atpcSendFailures: number; lastRecoveryAt: number; coreNoDataStreak: number; threshold: number;
+    status: string;
+    recoveryCount: number | null; maxPerSession: number | null;
+    suppressedCount: number | null; atpcSendFailures: number | null;
+    lastRecoveryAt: number | null; coreNoDataStreak: number | null;
+    threshold: number | null;
   } | null;
 
   readonly deepScan: {
@@ -156,6 +164,14 @@ export interface SchedRawSnapshot {
 }
 
 /* ── Kaynak etiketleri ────────────────────────────────────────────────────── */
+
+/**
+ * `null` → "KAYNAK YOK". Birleşik metinlerde sahte 0 yazmamak için (E-19):
+ * "0 / 3" ile "ölçülemedi / ölçülemedi" ekranda AYRI görünmelidir.
+ */
+function _nz(v: number | null): string {
+  return v === null ? 'KAYNAK YOK' : String(v);
+}
 
 const SRC = {
   pollEv:   'obd/extendedPollEvidence.getExtendedPollEvidence()',
@@ -493,9 +509,16 @@ function _commandExecChannel(s: SchedRawSnapshot): SchedChannel {
         note: 'Native izlenen liste boyutu.' }, ev!.configuredPidCount));
   f.push(schedObserved({ id: 'cmdDecision', label: 'hat hükmü', source: SRC.pollEv,
     note: 'classifyExtendedPoll — native/JS sayaç tutarlılığından türetilmiş mevcut sınıflandırma.' }, ev!.decisionLabel));
-  f.push(schedObserved({ id: 'cmdJsBridge', label: 'JS köprüsü (olay/decode/store)', source: SRC.pollEv,
-    note: 'eventsReceived / decodeFailures / valuesStored.' },
-    `${ev!.js.eventsReceived} / ${ev!.js.decodeFailures} / ${ev!.js.valuesStored}`));
+  /* Üç sayacın HEPSİ okunamadıysa alan UNAVAILABLE olur — "0 / 0 / 0" yazmak
+     "köprü çalıştı ama hiç olay gelmedi" demek olurdu (E-22). */
+  const jsBridgeUnread = ev!.js.eventsReceived === null
+    && ev!.js.decodeFailures === null && ev!.js.valuesStored === null;
+  f.push(jsBridgeUnread
+    ? schedUnavailable({ id: 'cmdJsBridge', label: 'JS köprüsü (olay/decode/store)', source: SRC.pollEv, note: '' },
+        'Native kanıt yok — JS köprüsü sayaçları BİLİNMİYOR ("0 olay" DEĞİL).')
+    : schedObserved({ id: 'cmdJsBridge', label: 'JS köprüsü (olay/decode/store)', source: SRC.pollEv,
+        note: 'eventsReceived / decodeFailures / valuesStored.' },
+        `${_nz(ev!.js.eventsReceived)} / ${_nz(ev!.js.decodeFailures)} / ${_nz(ev!.js.valuesStored)}`));
 
   f.push(schedDerived(
     { id: 'cmdEvidenceFreshness', label: 'kanıt bütünlüğü', source: `${SRC.pollEv} (present && coherent)`,
@@ -655,17 +678,18 @@ function _kwpChannel(s: SchedRawSnapshot): SchedChannel {
     });
   }
 
-  const atLimit = k.maxPerSession > 0 && k.recoveryCount >= k.maxPerSession;
+  const atLimit = k.maxPerSession !== null && k.recoveryCount !== null
+    && k.maxPerSession > 0 && k.recoveryCount >= k.maxPerSession;
 
   f.push(schedObserved({ id: 'kwpStatus', label: 'kurtarma durumu', source: SRC.kwp,
     note: 'Önbellekten; tazelenme zamanı kaynakta KAYITLI DEĞİL.' }, k.status));
   f.push(schedObserved({ id: 'kwpCount', label: 'ATPC gönderimi / tavan', source: SRC.kwp, note: 'Oturum tavanı native sabiti.' },
-    `${k.recoveryCount} / ${k.maxPerSession}`));
+    `${_nz(k.recoveryCount)} / ${_nz(k.maxPerSession)}`));
   f.push(schedObserved({ id: 'kwpSuppressed', label: 'tavan nedeniyle gönderilmedi', source: SRC.kwp, note: 'Bastırılan kurtarma sayısı.' }, k.suppressedCount));
   f.push(schedObserved({ id: 'kwpStreak', label: 'ardışık NO_DATA / eşik', source: SRC.kwp, note: 'Eşiğe doğru sayan sayaç.' },
-    `${k.coreNoDataStreak} / ${k.threshold}`));
+    `${_nz(k.coreNoDataStreak)} / ${_nz(k.threshold)}`));
   f.push(schedObserved({ id: 'kwpSendFail', label: 'ATPC kanal hatası', source: SRC.kwp, note: 'Denendi ama gitmedi.' }, k.atpcSendFailures));
-  f.push(k.lastRecoveryAt > 0
+  f.push(k.lastRecoveryAt !== null && k.lastRecoveryAt > 0
     ? schedObserved({ id: 'kwpLastAt', label: 'son kurtarma tetiği', source: SRC.kwp,
         note: 'Gerçek damga; kurtarma için TANIMLI eşik YOK → STALE hesaplanmaz.', updatedAt: k.lastRecoveryAt },
         new Date(k.lastRecoveryAt).toISOString())
@@ -673,7 +697,7 @@ function _kwpChannel(s: SchedRawSnapshot): SchedChannel {
   f.push(schedDerived(
     { id: 'kwpAtLimit', label: 'oturum tavanına ulaşıldı mı', source: `${SRC.kwp} (recoveryCount vs maxPerSession)`,
       note: 'KURAL: maxPerSession > 0 VE recoveryCount >= maxPerSession → EVET.' },
-    k.maxPerSession > 0 ? (atLimit ? 'EVET' : 'HAYIR') : null,
+    k.maxPerSession !== null && k.maxPerSession > 0 ? (atLimit ? 'EVET' : 'HAYIR') : null,
   ));
 
   let activity: ChannelActivity = 'UNKNOWN';
@@ -838,7 +862,8 @@ export function buildSchedConflictInput(s: SchedRawSnapshot): SchedConflictInput
     healthIsStale:      s?.health ? s.health.isStale : null,
     burstEnabled:       s?.pollEvidence && s.pollEvidence.present ? s.pollEvidence.burstEnabled : null,
     liveDataScreenOpen: s?.capture ? s.capture.obdRefs > 0 : null,
-    kwpAtLimit:         k ? (k.maxPerSession > 0 ? k.recoveryCount >= k.maxPerSession : null) : null,
+    kwpAtLimit:         k && k.maxPerSession !== null && k.recoveryCount !== null
+      && k.maxPerSession > 0 ? k.recoveryCount >= k.maxPerSession : null,
     kwpStatus:          k ? k.status : null,
   };
 }

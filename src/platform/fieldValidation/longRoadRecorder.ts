@@ -28,7 +28,8 @@ import {
   applyStoragePressure, chooseCriticalEvictionVictim, classifySnapshotDrop,
   collectRecordIds, createSession, decideSnapshot, emptyIdentityScan, findScenario,
   formatRecordId, isBlackBoxTrigger, isRecordingState, isSnapshotAllowed, markScenario,
-  nextSessionState, odometerDistanceKm, pushEvent, resumeSession, scanRecordIdentity,
+  nextSessionState, odometerDistanceKm, preflightBlocksSession, pushEvent,
+  resumeSession, scanRecordIdentity,
   type FieldEvent, type IdentityScan, type LongRoadSession, type RestoreReason,
   type SignalId, type SnapshotIndexRow, type SnapshotTrigger,
 } from './longRoadModel';
@@ -370,11 +371,10 @@ export function startLongRoadSession(): LongRoadSession {
   let s = createSession(id, now);
   s = { ...s, env: readSessionEnv(), preflight: readPreflight() };
 
-  const persistenceFailed = s.preflight.some(
-    (p) => (p.id === 'SESSION_PERSISTENCE' || p.id === 'BLACKBOX_BUFFER') && p.verdict === 'FAIL',
-  );
-
-  if (persistenceFailed) {
+  /* Kapı TEK OTORİTEDEN sorulur (`preflightBlocksSession`). Buradaki kural
+     eskiden elle kopyalanmıştı; iki kopya, kritik kapı listesi değiştiğinde
+     sessizce ayrışırdı (envanter denetimi E-31 — ikinci otorite). */
+  if (preflightBlocksSession(s.preflight)) {
     s = pushEvent({ ...s, state: nextSessionState(s.state, 'FAIL') }, {
       id: _nextId('EV', s.sessionVersion),
       type: 'PREFLIGHT',

@@ -28,6 +28,12 @@ import type { SessionRawSnapshot } from './sessionInspectorBuild';
 /** Halka tamponunun bilinen üst sınırı (debugStore ringPush sabiti). */
 const TRAFFIC_BUFFER_MAX = 500;
 
+/** Sayı okuma — sahte 0 ÜRETMEZ (E-19). Alan yoksa `null`. */
+function _numOrNull(v: unknown): number | null {
+  const n = typeof v === 'number' ? v : Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
 function _safe<T>(fn: () => T): T | null {
   try {
     const v = fn();
@@ -136,19 +142,21 @@ export function readSessionRawSnapshot(): SessionRawSnapshot {
 
     freshWindowMs: typeof fresh === 'number' && Number.isFinite(fresh) ? fresh : null,
 
+    /* SAHTE SIFIR YASAĞI (E-19 ile aynı kusur, ikinci okuma noktası): native
+       alan yoksa sayaç `null` taşınır — "0 kez oldu" ile "ölçülemedi" ayrı. */
     kwp: kwp ? {
       status:                   String(kwp.status),
-      coreNoDataStreak:         Number(kwp.coreNoDataStreak) || 0,
-      maxCoreNoDataStreak:      Number(kwp.maxCoreNoDataStreak) || 0,
-      recoveryCount:            Number(kwp.recoveryCount) || 0,
-      suppressedCount:          Number(kwp.suppressedCount) || 0,
-      atpcSendFailures:         Number(kwp.atpcSendFailures) || 0,
-      lastRecoveryAt:           Number(kwp.lastRecoveryAt) || 0,
-      lastRecoveryToFirstPidMs: typeof kwp.lastRecoveryToFirstPidMs === 'number' ? kwp.lastRecoveryToFirstPidMs : -1,
-      killedByDataGate:         Number(kwp.killedByDataGate) || 0,
+      coreNoDataStreak:         _numOrNull(kwp.coreNoDataStreak),
+      maxCoreNoDataStreak:      _numOrNull(kwp.maxCoreNoDataStreak),
+      recoveryCount:            _numOrNull(kwp.recoveryCount),
+      suppressedCount:          _numOrNull(kwp.suppressedCount),
+      atpcSendFailures:         _numOrNull(kwp.atpcSendFailures),
+      lastRecoveryAt:           _numOrNull(kwp.lastRecoveryAt),
+      lastRecoveryToFirstPidMs: _numOrNull(kwp.lastRecoveryToFirstPidMs),
+      killedByDataGate:         _numOrNull(kwp.killedByDataGate),
       protocolAtRecovery:       kwp.protocolAtRecovery ?? null,
-      threshold:                Number(kwp.threshold) || 0,
-      maxPerSession:            Number(kwp.maxPerSession) || 0,
+      threshold:                _numOrNull(kwp.threshold),
+      maxPerSession:            _numOrNull(kwp.maxPerSession),
     } : null,
 
     hal: hal ? {

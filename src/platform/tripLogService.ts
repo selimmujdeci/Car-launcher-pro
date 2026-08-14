@@ -12,6 +12,7 @@
 
 import { useState, useEffect } from 'react';
 import { onOBDData }       from './obdService';
+import { DEFAULT_FUEL_L_PER_100KM } from './vehicleAssumptions';
 import { onGPSLocation }   from './gpsService';
 import type { GPSLocation } from './gpsService';
 import type { OBDData }    from './obdTypes';
@@ -178,7 +179,7 @@ const TRIP_END_IDLE_MS     = 60_000;
  * KAYBETTİK — bunu "düzgün kapanış" saymak sahte güven üretirdi.
  */
 const TRIP_SILENCE_END_MS  = 15 * 60_000;
-const FUEL_L_PER_100KM     = 8.5;
+const FUEL_L_PER_100KM     = DEFAULT_FUEL_L_PER_100KM;  // E-05: tek otorite
 const FUEL_PRICE_TL_PER_L  = 45;
 
 // GPS mesafe filtreleri

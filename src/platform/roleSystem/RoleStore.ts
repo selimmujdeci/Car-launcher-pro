@@ -8,6 +8,7 @@ import {
   SUPER_ADMIN_EMAIL_ALLOWLIST,
 } from './types';
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from '../supabaseClient';
+import { refreshGatewayAccess } from '../ai/gateway/aiGatewayAccessRuntime';
 
 // ── Admin Supabase Client (ayrı instance, persistSession: true) ───────────────
 
@@ -109,6 +110,22 @@ export const useRoleStore = create<RoleStore>()(
           const appMeta     = (user.app_metadata ?? {}) as Record<string, unknown>;
           const claimedRole = appMeta['role'] as string | undefined;
           const email       = user.email ?? '';
+
+          /* E-24 · AI GATEWAY KAPSAM İZNİ — OTURUM KURULDUĞUNDA OKUNUR.
+             `get_ai_gateway_access()` `auth.uid()` ister ve oturumsuz BOŞ döner
+             (fail-closed); bu yüzden boot'ta çağırmak anlamsızdı. Denetimde
+             `refreshGatewayAccess` ürün yolunda HİÇ çağrılmıyordu → kapı kalıcı
+             kapalıydı ve tek açılış yolu yerel geliştirici kaldıracıydı.
+             ROL BEKLENMEZ: izin şirket/araç kapsamlıdır, süper-admin olmak şart
+             değildir — RPC kendi kapısını (profiles.company_id) zaten uygular.
+             FAIL-SOFT: okuma düşerse oturum akışı ETKİLENMEZ (izin verilmez). */
+          void refreshGatewayAccess(
+            async (fn) => {
+              const r = await client.rpc(fn);
+              return { data: r.data as unknown, error: r.error as unknown };
+            },
+            Date.now(),
+          ).catch(() => { /* fail-closed: okunamadı = izin YOK */ });
 
           const hasRoleClaim   = claimedRole === SUPER_ADMIN_ROLE_CLAIM;
           const isEmailAllowed = SUPER_ADMIN_EMAIL_ALLOWLIST.includes(email);

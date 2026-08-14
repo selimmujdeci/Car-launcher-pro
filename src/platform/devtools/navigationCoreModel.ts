@@ -155,6 +155,8 @@ export function deriveNavCoreVerdict(s: NavigationCoreRawSnapshot): NavCoreVerdi
 
 const _ms = (v: number | null): string => (v == null ? '—' : `${Math.round(v)} ms`);
 const _m  = (v: number | null): string => (v == null ? '—' : `${Math.round(v)} m`);
+/** Sayı metni — `null` sahte 0 olarak YAZILMAZ (E-11). */
+const _n  = (v: number | null): string => (v == null ? '—' : String(v));
 
 export function buildNavigationCoreCards(s: NavigationCoreRawSnapshot): readonly NavCoreCard[] {
   const cards: NavCoreCard[] = [];
@@ -266,7 +268,8 @@ export function buildNavigationCoreCards(s: NavigationCoreRawSnapshot): readonly
           note: '', updatedAt: OBS }, 'durakta yön gürültüdür — kullanılmadı'));
     matchFields.push(observed({ id: 'mm-seg', label: 'Eşleşen segment', source: 'mapMatchModel',
       note: '', updatedAt: OBS }, s.mapMatchSegIdx != null && s.mapMatchSegIdx >= 0
-        ? `#${s.mapMatchSegIdx} / ${Math.max(0, s.geometryPoints - 1)}` : 'yok'));
+        ? `#${s.mapMatchSegIdx} / ${s.geometryPoints == null ? '—' : Math.max(0, s.geometryPoints - 1)}`
+        : 'yok'));
     matchFields.push(observed({ id: 'mm-reasons', label: 'Gerekçe kodları', source: 'mapMatchModel',
       note: 'Sınırlı kod kümesi — serbest metin üretilmez.', updatedAt: OBS },
       s.matchReasons.length ? s.matchReasons.join(' · ') : 'yok'));
@@ -281,7 +284,7 @@ export function buildNavigationCoreCards(s: NavigationCoreRawSnapshot): readonly
         note: '', updatedAt: OBS }, OFF_ROUTE_STATE_LABEL[s.offRouteState]),
       observed({ id: 'or-evidence', label: 'Kanıt / gereken', source: 'offRouteModel',
         note: 'TEK örnek asla doğrulamaz. Gereken sayı hız ve doğruluktan TÜRETİLİR.',
-        updatedAt: OBS }, `${s.offRouteEvidence} / ${s.offRouteRequired}`),
+        updatedAt: OBS }, `${_n(s.offRouteEvidence)} / ${_n(s.offRouteRequired)}`),
       observed({ id: 'or-window', label: 'Gereken kanıt süresi', source: 'offRouteModel',
         note: 'Sabit keyfî gecikme değil — hıza göre uyarlanır.', updatedAt: OBS },
         _ms(s.offRouteRequiredMs)),
@@ -400,7 +403,8 @@ export function buildNavigationCoreCards(s: NavigationCoreRawSnapshot): readonly
         : unavailable({ id: 'mv-dist', label: 'Sonraki manevraya', source: 'routingService',
             note: '', updatedAt: OBS }, 'konum bilinmiyor — mesafe uydurulmaz'),
       observed({ id: 'mv-step', label: 'Aktif adım', source: 'useRouteStore',
-        note: '', updatedAt: OBS }, `${s.currentStepIndex} / ${Math.max(0, s.stepCount - 1)}`),
+        note: '', updatedAt: OBS },
+        `${_n(s.currentStepIndex)} / ${Math.max(0, s.stepCount - 1)}`),
       observed({ id: 'mv-anchor', label: 'Çözülen / çözülemeyen çapa', source: 'maneuverIndexModel',
         note: 'Çözülemeyen çapa = o manevra için yol-boyu mesafe YOK.', updatedAt: null },
         `${s.anchorResolvedCount} / ${s.anchorUnresolvedCount}`),
@@ -412,7 +416,8 @@ export function buildNavigationCoreCards(s: NavigationCoreRawSnapshot): readonly
         + ` · ${ANCHOR_METHOD_LABEL.NEAREST} ${s.anchorMethodCounts.NEAREST}`
         + ` · ${ANCHOR_METHOD_LABEL.UNRESOLVED} ${s.anchorMethodCounts.UNRESOLVED}`),
       observed({ id: 'mv-geom', label: 'Rota geometrisi', source: 'useRouteStore',
-        note: '', updatedAt: null }, `${s.geometryPoints} nokta · ${_m(s.totalRouteDistanceM)}`),
+        note: '', updatedAt: null },
+        `${_n(s.geometryPoints)} nokta · ${_m(s.totalRouteDistanceM)}`),
     ],
   });
 
@@ -762,7 +767,7 @@ export function buildNavigationCoreCards(s: NavigationCoreRawSnapshot): readonly
             note: '', updatedAt: null }, 'süre modeli kullanılamıyor'),
       observed({ id: 'dl-rev', label: 'Rota / süre revizyonu', source: 'useRouteStore',
         note: 'Farklıysa ETA BAYAT sayılır ve sayı üretilmez.', updatedAt: null },
-        `${s.routeRevision} / ${s.durationRevision}`),
+        `${_n(s.routeRevision)} / ${_n(s.durationRevision)}`),
 
       observed({ id: 'dl-eta-state', label: 'ETA durumu', source: SRC_ETA,
         note: 'ROTA SÜRE MODELİ = sağlayıcının kendi süresi kullanıldı.', updatedAt: null },

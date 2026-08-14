@@ -37,6 +37,7 @@
  */
 
 import { onGPSLocation, noteDeadReckoningState } from '../gpsService';
+import { GPS_FIX_STALE_MS } from '../freshnessPolicy';
 import { getRouteState, updateRouteProgress } from '../routingService';
 import {
   NavStatus,
@@ -78,8 +79,10 @@ let _startedAtMs: number | null = null;
 
 /** DR beslemesi kadansı — eski `FullMapView` davranışıyla aynı (1 Hz). */
 const DR_FEED_INTERVAL_MS = 1_000;
-/** Son fix bu süreden eskiyse GPS bayat sayılır (eski davranışla aynı). */
-const GPS_STALE_MS = 5_000;
+/** Son fix bu süreden eskiyse GPS bayat sayılır (eski davranışla aynı).
+ *  E-09/E-36: sayı `gpsService.LOCATION_STALE_MS` ile AYNIYDI ama bağımsız
+ *  yazılmıştı; artık ikisi de `freshnessPolicy`den okur. */
+const GPS_STALE_MS = GPS_FIX_STALE_MS;
 
 export type DrRuntimeState =
   /** GPS taze — DR gerekmiyor. */

@@ -172,13 +172,14 @@ export interface NavigationCoreRawSnapshot {
   readonly alongRemainingM: number | null;
   readonly hasSnappedPosition: boolean;
   readonly matchReasons: readonly MapMatchReason[];
-  readonly corridorM: number;
+  /** null = nav oturumu yok → koridor BİLİNMİYOR (0 m DEĞİL). */
+  readonly corridorM: number | null;
 
   /* ── Sapma ─────────────────────────────────────────────────────────────── */
   readonly offRouteState: OffRouteState;
-  readonly offRouteEvidence: number;
-  readonly offRouteRequired: number;
-  readonly offRouteRequiredMs: number;
+  readonly offRouteEvidence: number | null;
+  readonly offRouteRequired: number | null;
+  readonly offRouteRequiredMs: number | null;
   readonly offRouteConfirmedAtMs: number | null;
   /**
    * Sapmanın doğrulanmasından bu yana geçen süre (ms).
@@ -192,12 +193,12 @@ export interface NavigationCoreRawSnapshot {
   readonly offRouteReasons: readonly OffRouteReason[];
 
   /* ── Rota ilerlemesi ───────────────────────────────────────────────────── */
-  readonly geometryPoints: number;
+  readonly geometryPoints: number | null;
   readonly stepCount: number;
-  readonly currentStepIndex: number;
+  readonly currentStepIndex: number | null;
   readonly nextManeuverDistanceM: number | null;
   readonly nextManeuverDistanceSource: ManeuverDistanceSource;
-  readonly totalRouteDistanceM: number;
+  readonly totalRouteDistanceM: number | null;
   readonly anchorResolvedCount: number;
   readonly anchorUnresolvedCount: number;
   readonly anchorMethodCounts: Readonly<Record<AnchorMethod, number>>;
@@ -265,8 +266,8 @@ export interface NavigationCoreRawSnapshot {
   readonly durationIntegrityState: RouteDurationIntegrity;
   readonly totalRouteDurationSeconds: number | null;
   readonly remainingRouteDurationSeconds: number | null;
-  readonly routeRevision: number;
-  readonly durationRevision: number;
+  readonly routeRevision: number | null;
+  readonly durationRevision: number | null;
   /** ETA hükmü — sayı değil GEREKÇE taşır. */
   readonly eta: EtaVerdict;
 
@@ -456,17 +457,24 @@ export function readNavigationCoreSnapshot(): NavigationCoreRawSnapshot {
   const _motionNow = _safe(() => getMarkerMotionSnapshot(nowPerf), _EMPTY_MOTION);
   const _camFollow = _safe(() => getCameraFollowSnapshot(), _EMPTY_CAMERA);
   const _shadow = _safe(() => getCameraShadowSnapshot(), _EMPTY_SHADOW);
-  const _cameraDecision = _safe(() => decideCameraPolicy({
-    speedKmh: useUnifiedVehicleStore.getState().speed ?? 0,
-    prevBand: null,
-    nextManeuverM: route?.distanceToNextTurnMeters ?? null,
-    maneuverDistanceSource: route?.distanceToNextTurnSource ?? 'UNKNOWN',
-    secondManeuverM: null,
-    followState: (_camFollow.cameraMode as never) ?? 'UNKNOWN',
-    motionState: _motionNow.state,
-    orientation: _orientation,
-    viewport: 'FULL',
-  }), _EMPTY_CAMERA_DECISION);
+  /* SAHTE SIFIR YASAĞI (envanter denetimi E-10): hız bilinmiyorken `?? 0`
+     yazmak kamera kararını "DURUYOR" bandına sokuyordu → LAB, ürünün gerçek
+     kararından AYRIŞMIŞ bir hüküm gösteriyordu (üstelik "ürünle aynı saf
+     modelden geçer" iddiasıyla). Hız yoksa LAB da KARAR ÜRETMEZ. */
+  const _speedForCamera = _safe(() => useUnifiedVehicleStore.getState().speed ?? null, null);
+  const _cameraDecision = _speedForCamera === null
+    ? { ..._EMPTY_CAMERA_DECISION, updateReason: 'hız bilinmiyor — karar üretilmedi' }
+    : _safe(() => decideCameraPolicy({
+      speedKmh: _speedForCamera,
+      prevBand: null,
+      nextManeuverM: route?.distanceToNextTurnMeters ?? null,
+      maneuverDistanceSource: route?.distanceToNextTurnSource ?? 'UNKNOWN',
+      secondManeuverM: null,
+      followState: (_camFollow.cameraMode as never) ?? 'UNKNOWN',
+      motionState: _motionNow.state,
+      orientation: _orientation,
+      viewport: 'FULL',
+    }), _EMPTY_CAMERA_DECISION);
 
   return {
     paintedArrow,
@@ -505,25 +513,27 @@ export function readNavigationCoreSnapshot(): NavigationCoreRawSnapshot {
     alongRemainingM:    fix?.alongRemainingM ?? null,
     hasSnappedPosition: !!(fix && fix.snappedLat !== null && fix.snappedLon !== null),
     matchReasons:       fix?.reasons ?? [],
-    corridorM:          core?.corridorM ?? 0,
+    /* SAHTE SIFIR YASAĞI (E-11): nav oturumu yokken 0 yazmak "koridor 0 m"
+       demekti — okuyan araç HER ZAMAN koridor dışında sanırdı. */
+    corridorM:          core?.corridorM ?? null,
 
     offRouteState:         core?.offRoute.state ?? 'UNKNOWN',
-    offRouteEvidence:      core?.offRoute.evidenceCount ?? 0,
-    offRouteRequired:      core?.offRoute.requiredEvidence ?? 0,
-    offRouteRequiredMs:    core?.offRoute.requiredEvidenceMs ?? 0,
+    offRouteEvidence:      core?.offRoute.evidenceCount ?? null,
+    offRouteRequired:      core?.offRoute.requiredEvidence ?? null,
+    offRouteRequiredMs:    core?.offRoute.requiredEvidenceMs ?? null,
     offRouteConfirmedAtMs: core?.offRoute.confirmedAtMs ?? null,
     offRouteConfirmedAgeMs: core?.offRoute.confirmedAtMs != null
       ? Math.max(0, Math.round(nowPerf - core.offRoute.confirmedAtMs))
       : null,
     offRouteReasons:       core?.offRoute.reasons ?? [],
 
-    geometryPoints:   route?.geometry?.length ?? 0,
+    geometryPoints:   route?.geometry?.length ?? null,
     stepCount:        steps.length,
-    currentStepIndex: route?.currentStepIndex ?? 0,
+    currentStepIndex: route?.currentStepIndex ?? null,
     nextManeuverDistanceM: (route && Number.isFinite(route.distanceToNextTurnMeters))
       ? route.distanceToNextTurnMeters : null,
     nextManeuverDistanceSource: route?.distanceToNextTurnSource ?? 'UNKNOWN',
-    totalRouteDistanceM: route?.totalDistanceMeters ?? 0,
+    totalRouteDistanceM: route?.totalDistanceMeters ?? null,
     anchorResolvedCount:   anchors.filter(a => a.geometryIndex >= 0).length,
     anchorUnresolvedCount: anchors.filter(a => a.geometryIndex < 0).length,
     anchorMethodCounts,
@@ -593,8 +603,10 @@ export function readNavigationCoreSnapshot(): NavigationCoreRawSnapshot {
       && Number.isFinite(route.totalDurationSeconds) && route.totalDurationSeconds > 0)
       ? route.totalDurationSeconds : null,
     remainingRouteDurationSeconds: route?.remainingRouteDurationSeconds ?? null,
-    routeRevision:    route?.routeRevision ?? 0,
-    durationRevision: route?.durationRevision ?? -1,
+    /* Aynı dosyada İKİ farklı "bilinmiyor" dili vardı (0 ve -1) — ikisi de
+       `null`a toplandı (E-11). */
+    routeRevision:    route?.routeRevision ?? null,
+    durationRevision: route?.durationRevision ?? null,
     eta: _safe(() => getEtaVerdict(), _EMPTY_ETA),
 
     markerMotion: _safe(() => getMarkerMotionSnapshot(nowPerf), _EMPTY_MOTION),

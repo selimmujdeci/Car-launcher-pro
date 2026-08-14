@@ -3,11 +3,28 @@
  *
  * `appSafeActions.ts` deseniyle BİREBİR: SAF eylem tanımları (bu dosya) + DI edilebilir
  * `DiscoveryActionPort` + handler fabrikası. Registry/executionEngine'e KAYIT (wiring)
- * BİLEREK YAPILMADI — maviCore/wiring/ ve SystemBoot AKTİF (kirli olmasa da) orkestrasyon
- * yüzeyleri olduğundan, bu PR'ın "yalnız yeni dosya" kapsamını korumak için `registerDiscoveryActions`
- * dışa aktarılır (idempotent DEĞİL — appActionRegistry deseniyle aynı: çift çağrı Error);
- * gerçek wiring (registry.register + executionEngine handlers map'ine ekleme) SONRAKİ PR'a
- * bırakılmıştır (rapora yazılı).
+ * BİLEREK YAPILMADI — `registerDiscoveryActions` dışa aktarılır (idempotent DEĞİL —
+ * appActionRegistry deseniyle aynı: çift çağrı Error).
+ *
+ * ── WIRING NEDEN YOK — ARTIK ÖLÇÜLDÜ (2026-08-13, denetim E-29) ────────────
+ * "Sonraki PR" gelmedi; ama gecikme unutkanlık DEĞİL, **anayasal bir sınırdır**:
+ *
+ *  1. `takeoverPolicy.FORBIDDEN_PREFIXES` içinde **`vehicle.`** vardır ve bu
+ *     dosyanın BEŞ eyleminin tamamı `vehicle.discovery.*` ile başlar. Politika
+ *     modülünün kendi başlığı bunu açıkça yazar: *"TÜM araç eylemleri
+ *     (`vehicle.*`) eligible DEĞİLDİR → **hiçbir config onları TAKEOVER'a
+ *     alamaz**"*. Yani bu eylemleri sesli hatta GERÇEK çalıştırmak, config
+ *     değişikliğiyle DEĞİL, ancak **güvenlik beyaz listesini delerek** mümkün
+ *     olur (`TAKEOVER_ELIGIBLE` bugün yalnız `media.next` içerir).
+ *  2. Canlı hat (`platformCoreMaviVoiceWiring` → `createMaviWiring`) zaten
+ *     varsayılan **SHADOW** modundadır; kayıt yapılsa bile gerçek handler
+ *     çağrılmaz.
+ *  3. Keşif ARACA AKTİF SORGU gönderir (PID/DID tarama) — sesle tetiklenmesi
+ *     bir güvenlik kararıdır, kod bağlama işi değil.
+ *
+ * **Sonuç:** borç kapatılmadı ve kapatılmaması DOĞRUDUR. Eksik olan wiring
+ * satırı değil; `TAKEOVER_ELIGIBLE` beyaz listesini genişletme kararıdır.
+ * Kütükte açık borç olarak durur (bilinçli, gerekçeli).
  *
  * GÜVENLİK: hepsi `vehicleScope:'read'` taşır → AiSafetyGate'ten geçer (Faz-1 read-only
  * invaryantı ile hizalı); gate reddederse hiçbir OBD komutu gitmez (evaluateActionSafety

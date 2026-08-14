@@ -22,6 +22,7 @@
 import type { AiEvidenceItem } from '../types';
 import type { TriageSections } from '../../diagnosticTriage';
 import { makeEvidence } from '../evidenceStore';
+import { OBD_FROZEN_ABS_MS } from '../../freshnessPolicy';
 
 /* ── Decoupled girdi şekilleri (ObdDeepSnapshot / sourceHealth *Like) ── */
 
@@ -83,7 +84,9 @@ export interface DiagnosticEvidenceInput {
 
 const MAX_DTC_EVIDENCE = 10;
 const MAX_MEMORY_EVIDENCE = 8;
-const STALE_PACKET_MS = 4_000;   // ObdHealthMonitor STALE eşiğiyle hizalı
+/* E-01/E-36: "ObdHealthMonitor ile hizalı" bir YORUMDU, sözleşme değildi —
+   artık aynı otoriteden okunur (elle kopyalanan sayı sessizce ayrışamaz). */
+const STALE_PACKET_MS = OBD_FROZEN_ABS_MS;
 
 /* ── Saf yardımcılar ────────────────────────────────────────────── */
 

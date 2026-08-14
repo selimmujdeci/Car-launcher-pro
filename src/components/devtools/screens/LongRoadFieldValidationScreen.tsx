@@ -30,8 +30,8 @@ import {
 } from '../../../platform/fieldValidation/longRoadModel';
 import {
   checkpointLongRoad, clearLongRoadSession, getLongRoadBlackBox, getLongRoadBlackBoxLoad,
-  getLongRoadBodies, getLongRoadSession, initLongRoadRecorder, startLongRoadSession,
-  stopLongRoadSession,
+  getLongRoadBodies, getLongRoadCriticalCount, getLongRoadSession, initLongRoadRecorder,
+  isLongRoadActive, startLongRoadSession, stopLongRoadSession,
 } from '../../../platform/fieldValidation/longRoadRecorder';
 import { readStoreWriteStats } from '../../../platform/fieldValidation/longRoadStore';
 import { allWindows, blackBoxMetas } from '../../../platform/fieldValidation/longRoadBlackBox';
@@ -253,6 +253,11 @@ function LongRoadFieldValidationScreenBase() {
   const lastCritical = s
     ? [...s.events].reverse().find((e) => e.severity === 'CRITICAL') ?? null
     : null;
+  /* Kayıt gerçekten sürüyor mu ve kaç kritik sorun birikti — defterin kendi
+     otoritesinden okunur (ekran kendi sayımını YAPMAZ; envanter denetimi E-32:
+     bu iki uç yazılmış ama hiçbir yüzeye bağlanmamıştı). */
+  const recording = (() => { try { return isLongRoadActive(); } catch { return false; } })();
+  const criticalCount = (() => { try { return getLongRoadCriticalCount(); } catch { return 0; } })();
 
   return (
     <div className="flex flex-col gap-3 p-3">
@@ -500,6 +505,12 @@ function LongRoadFieldValidationScreenBase() {
           </Section>
 
           <Section title="Son kritik olay">
+            <div
+              data-testid="lr-critical-summary"
+              className="mb-2 font-mono text-[11px] text-[var(--oem-ink-2)]"
+            >
+              kayıt {recording ? 'SÜRÜYOR' : 'DURDU'} · kritik olay {criticalCount}
+            </div>
             {lastCritical === null ? (
               <p className="text-[12px] text-[var(--oem-ink-3)]">Kritik olay kaydedilmedi.</p>
             ) : (

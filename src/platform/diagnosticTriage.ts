@@ -28,6 +28,7 @@
  */
 
 import { lookupRootCause } from './rootCauseKb';
+import { OBD_FROZEN_ABS_MS } from './freshnessPolicy';
 
 export type TriageSeverity = 'critical' | 'warning' | 'info';
 
@@ -198,8 +199,9 @@ const UI_UNTIMELY_WARN           = 3;
 // "takılır". 500ms = gözle görülür kilitlenme; kullanıcı "donma" olarak algılar.
 const MAIN_THREAD_STALL_MS       = 500;
 // OBD "donuk veri" fallback eşiği (ms) — payload'da isStale yoksa (eski APK) ham
-// paket yaşından türetilir. ObdHealthMonitor.STALE_ABS_MS ile hizalı.
-const OBD_STALE_AGE_MS           = 4_000;
+// paket yaşından türetilir. E-01/E-36: hizalama artık YORUMLA değil KODLA kurulur;
+// ObdHealthMonitor da aynı `freshnessPolicy` sabitinden okur.
+const OBD_STALE_AGE_MS           = OBD_FROZEN_ABS_MS;
 const STORAGE_QUEUE_WARN         = 20;
 const STORAGE_QUEUE_OFFLINE_WARN = 5;
 

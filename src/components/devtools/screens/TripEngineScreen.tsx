@@ -33,6 +33,13 @@ import {
   metricLabel, metricSourceLabel, tripConfidenceLabel,
   type TripStatistics, type TripSummary, type Metric,
 } from '../../../platform/trip/tripCanonicalModel';
+import {
+  readTripAiInputs, TRIP_AI_CORRIDOR_M, TRIP_AI_MAX_CANDIDATES,
+} from '../../../platform/devtools/tripAiSources';
+import {
+  buildTripAiSummary, EMPTY_TRIP_AI_SUMMARY,
+  TRIP_AI_LEVEL_LABEL, TRIP_AI_STATE_LABEL, type TripAiSummary,
+} from '../../../platform/devtools/tripAiModel';
 
 /* ── OEM tokenlar ──────────────────────────────────────────────────────── */
 
@@ -205,10 +212,29 @@ function TripEngineScreenBase() {
   const [snap, setSnap] = useState<Snap | null>(null);
   const mountedRef = useRef(true);
 
+  /* TRIP AI — açılışta KOŞMAZ. Ekran açmak bir hesabı tetiklememelidir
+     (düşük-uç bütçesi); yalnız düğmeyle çalışır. */
+  const [tripAi, setTripAi] = useState<TripAiSummary>(EMPTY_TRIP_AI_SUMMARY);
+  const [tripAiBusy, setTripAiBusy] = useState(false);
+
   const refresh = useCallback(() => {
     const s = readSnap();
     if (!mountedRef.current) return;   // unmount sonrası setState YOK
     setSnap(s);
+  }, []);
+
+  /** Koridor + öneri zinciri: rota YAZMAZ, ağa ÇIKMAZ, timer KURMAZ. */
+  const runTripAi = useCallback(async () => {
+    setTripAiBusy(true);
+    try {
+      const inputs = await readTripAiInputs();
+      if (!mountedRef.current) return;
+      setTripAi(buildTripAiSummary(inputs, TRIP_AI_CORRIDOR_M, TRIP_AI_MAX_CANDIDATES));
+    } catch {
+      if (mountedRef.current) setTripAi(EMPTY_TRIP_AI_SUMMARY);   // sahte sonuç YOK
+    } finally {
+      if (mountedRef.current) setTripAiBusy(false);
+    }
   }, []);
 
   useEffect(() => {
@@ -561,6 +587,82 @@ function TripEngineScreenBase() {
             <Row label="Yükleme bekleyen">{st.pendingUploadCount}</Row>
           </div>
         )}
+      </Section>
+
+      {/* 5 · TRIP AI motorları — GERÇEK hesap (rota yazmaz, ağa çıkmaz) */}
+      <Section title="TRIP AI · Koridor + Öneri (elle hesap · salt-okunur)">
+        <div className="mb-2 flex items-center gap-2">
+          <button
+            type="button"
+            data-testid="trip-ai-run"
+            onClick={() => { void runTripAi(); }}
+            disabled={tripAiBusy}
+            className="flex items-center gap-1.5 rounded border border-[var(--oem-line-strong)] bg-[var(--oem-surface-2)] px-2.5 py-1 font-mono text-[10px] text-[var(--oem-ink-2)] disabled:opacity-40"
+          >
+            <Route size={11} />
+            {tripAiBusy ? 'HESAPLANIYOR…' : 'ADAYLARI HESAPLA'}
+          </button>
+          <Chip tone={
+            tripAi.state === 'OK' ? OK
+              : tripAi.state === 'POI_STORE_UNREADABLE' ? WARN
+                : NONE
+          }>
+            {TRIP_AI_STATE_LABEL[tripAi.state]}
+          </Chip>
+        </div>
+
+        <div className="flex flex-col">
+          <Row label="Rota geometrisi">
+            {tripAi.pathPointCount === null
+              ? UNAVAILABLE : `${tripAi.pathPointCount} nokta`}
+          </Row>
+          <Row label="Beslenen kayıtlı yer">
+            {tripAi.poiCount === null ? UNAVAILABLE : String(tripAi.poiCount)}
+          </Row>
+          <Row label="Koridor yarı-genişliği">
+            {tripAi.corridorM === 0 ? UNAVAILABLE : `${tripAi.corridorM / 1000} km`}
+          </Row>
+          <Row label="Koridor adayı / öneri">
+            {tripAi.candidateCount === null ? UNAVAILABLE
+              : `${tripAi.candidateCount} / ${tripAi.recommendationCount ?? 0}`}
+          </Row>
+        </div>
+
+        {tripAi.rows.length > 0 && (
+          <div className="mt-2 divide-y divide-[var(--oem-line)] border-t border-[var(--oem-line)]">
+            {tripAi.rows.map((r) => (
+              <div
+                key={r.rank}
+                data-testid={`trip-ai-row-${r.rank}`}
+                className="py-1 font-mono text-[10px] text-[var(--oem-ink-2)]"
+              >
+                <span className="text-[var(--oem-ink)]">#{r.rank}</span>
+                {' · '}{r.category}
+                {' · '}{TRIP_AI_LEVEL_LABEL[r.level]}
+                {' · skor '}{r.score.toFixed(2)}
+                {' · rotaya '}{Math.round(r.distanceToRouteM)} m
+                {' · sapma ~'}{Math.round(r.estimatedDetourM)} m
+                {' · yol %'}{Math.round(r.routeProgress * 100)}
+                {r.reasonCodes.length > 0 && (
+                  <span className="text-[var(--oem-ink-3)]">
+                    {' — '}{r.reasonCodes.join(' · ')}
+                  </span>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+
+        <p className="mt-1 text-[10px] leading-relaxed text-[var(--oem-ink-3)]">
+          <strong>Bu hesap rotayı DEĞİŞTİRMEZ ve ağa ÇIKMAZ:</strong> koridor ve
+          öneri motorları saf fonksiyondur, kayıtlı yerler cihazın kendi yerel
+          deposundan okunur. Yalnız düğmeye basınca koşar (timer yok).
+          <strong> Yer adı · adresi · koordinatı bu ekrana TAŞINMAZ</strong> —
+          kullanıcı verisidir; yalnız adet · mesafe · skor · kategori gösterilir.
+          <em> Açık borç:</em> önizleme/uygulama katmanı
+          (<code>tripApplyComposition</code>) hâlâ bağlı DEĞİLDİR — o katman rota
+          YAZAR ve ağ ister; açılması bir ürün kararıdır.
+        </p>
       </Section>
 
       <p className="text-[10px] text-[var(--oem-ink-3)]">

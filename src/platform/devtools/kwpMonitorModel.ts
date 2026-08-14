@@ -88,19 +88,26 @@ export const KWP_RECOVERY_STATUS_LABEL: Readonly<Record<string, string>> = {
  * Ham anlık görüntü sözleşmesi (kaynak okuyucu bunu üretir)
  * ════════════════════════════════════════════════════════════════════════ */
 
+/**
+ * KWP kurtarma kanıtı — **her sayaç `null` olabilir.**
+ *
+ * `null` = native bu alanı VERMEDİ (eski APK / alan yok) → UNAVAILABLE.
+ * `0`    = gerçekten ölçüldü ve sıfır. Bu ikisi ASLA aynı değere düşürülmez
+ * (envanter denetimi E-19; gözlemlenebilirlik kuralı madde 5).
+ */
 export interface KwpRecoveryRaw {
   readonly status:                   string;
-  readonly coreNoDataStreak:         number;
-  readonly maxCoreNoDataStreak:      number;
-  readonly recoveryCount:            number;
-  readonly suppressedCount:          number;
-  readonly atpcSendFailures:         number;
-  readonly lastRecoveryAt:           number;
-  readonly lastRecoveryToFirstPidMs: number;
-  readonly killedByDataGate:         number;
+  readonly coreNoDataStreak:         number | null;
+  readonly maxCoreNoDataStreak:      number | null;
+  readonly recoveryCount:            number | null;
+  readonly suppressedCount:          number | null;
+  readonly atpcSendFailures:         number | null;
+  readonly lastRecoveryAt:           number | null;
+  readonly lastRecoveryToFirstPidMs: number | null;
+  readonly killedByDataGate:         number | null;
   readonly protocolAtRecovery:       string | null;
-  readonly threshold:                number;
-  readonly maxPerSession:            number;
+  readonly threshold:                number | null;
+  readonly maxPerSession:            number | null;
 }
 
 export interface KwpRawSnapshot {
@@ -257,7 +264,7 @@ function _recoverySection(s: KwpRawSnapshot): KwpSection {
   f.push(observed(
     { id: 'threshold', label: 'kurtarma eşiği', source: SRC.kwp,
       note: 'Native sabiti — kaç ardışık NO_DATA sonrası ATPC gönderilir.' },
-    k.threshold > 0 ? k.threshold : null,
+    k.threshold !== null && k.threshold > 0 ? k.threshold : null,
   ));
 
   f.push(observed(
@@ -269,7 +276,7 @@ function _recoverySection(s: KwpRawSnapshot): KwpSection {
   f.push(observed(
     { id: 'maxPerSession', label: 'oturum başına tavan', source: SRC.kwp,
       note: 'Native sabiti — tavan dolunca ATPC gönderilmez.' },
-    k.maxPerSession > 0 ? k.maxPerSession : null,
+    k.maxPerSession !== null && k.maxPerSession > 0 ? k.maxPerSession : null,
   ));
 
   f.push(observed(
@@ -291,7 +298,7 @@ function _recoverySection(s: KwpRawSnapshot): KwpSection {
   ));
 
   // 0 = "hiç kurtarma olmadı"; epoch 0 tarihine ÇEVRİLMEZ.
-  f.push(k.lastRecoveryAt > 0
+  f.push(k.lastRecoveryAt !== null && k.lastRecoveryAt > 0
     ? observed(
         { id: 'lastRecoveryAt', label: 'son kurtarma zamanı', source: SRC.kwp, updatedAt: k.lastRecoveryAt,
           note: 'Son ATPC gönderim anı.' },
@@ -303,7 +310,7 @@ function _recoverySection(s: KwpRawSnapshot): KwpSection {
       ));
 
   // -1 = ölçülmedi; -1 ms olarak GÖSTERİLMEZ.
-  f.push(k.lastRecoveryToFirstPidMs >= 0
+  f.push(k.lastRecoveryToFirstPidMs !== null && k.lastRecoveryToFirstPidMs >= 0
     ? observed(
         { id: 'lastRecoveryToFirstPidMs', label: 'ATPC → ilk geçerli PID (ms)', source: SRC.kwp,
           note: 'Kurtarmanın GERÇEKTEN işe yarayıp yaramadığının tek ölçüsü.' },
@@ -416,11 +423,11 @@ export function deriveKwpActivity(s: KwpRawSnapshot): KwpActivityResult {
 
   if (k.status === 'FAILED')                 reasons.push('Son kurtarma BAŞARISIZ: ATPC sonrası veri dönmedi.');
   if (k.status === 'RECOVERED')              reasons.push('Oturum en az bir kez ÖLÜP dirildi (kurtarma çalıştı).');
-  if (k.recoveryCount > 0)                   reasons.push(`Bu oturumda ${k.recoveryCount} kez kurtarma tetiklendi.`);
-  if (k.suppressedCount > 0)                 reasons.push(`${k.suppressedCount} kurtarma tavan dolduğu için BASTIRILDI.`);
-  if (k.atpcSendFailures > 0)                reasons.push(`${k.atpcSendFailures} ATPC gönderimi kanala yazılamadı.`);
-  if (k.killedByDataGate > 0)                reasons.push(`Data Gate, kurtarma sürerken oturumu ${k.killedByDataGate} kez yıktı.`);
-  if (k.coreNoDataStreak > 0)                reasons.push(`Şu an ${k.coreNoDataStreak} ardışık çekirdek NO_DATA var.`);
+  if ((k.recoveryCount ?? 0) > 0)                   reasons.push(`Bu oturumda ${k.recoveryCount} kez kurtarma tetiklendi.`);
+  if ((k.suppressedCount ?? 0) > 0)                 reasons.push(`${k.suppressedCount} kurtarma tavan dolduğu için BASTIRILDI.`);
+  if ((k.atpcSendFailures ?? 0) > 0)                reasons.push(`${k.atpcSendFailures} ATPC gönderimi kanala yazılamadı.`);
+  if ((k.killedByDataGate ?? 0) > 0)                reasons.push(`Data Gate, kurtarma sürerken oturumu ${k.killedByDataGate} kez yıktı.`);
+  if ((k.coreNoDataStreak ?? 0) > 0)                reasons.push(`Şu an ${k.coreNoDataStreak} ardışık çekirdek NO_DATA var.`);
   if (s.dataFresh === false)                 reasons.push('Veri BAYAT — tazelik kapısı kapalı.');
 
   if (reasons.length > 0) return { status: 'DEGRADED', reasons };

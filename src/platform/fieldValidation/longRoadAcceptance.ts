@@ -25,7 +25,7 @@
 
 import {
   counterDelta, elapsedMs, findScenario, findSignal, isPass, isBlocked,
-  odometerInvariantHolds, signalCoverageRatio,
+  odometerInvariantHolds, scenarioVerdict, signalCoverageRatio,
   type FinalVerdict, type LongRoadSession, type Verdict,
 } from './longRoadModel';
 
@@ -144,7 +144,9 @@ export function buildAcceptanceMatrix(s: LongRoadSession, nowMs: number): readon
   const link = findScenario(s, 'FIRST_VEHICLE_LINK');
   add({
     id: 'OBD_LINK', section: 'OBD', title: 'Araç bağlantısı kuruldu',
-    verdict: link.hits > 0 ? 'PASS' : 'NOT_OBSERVED',
+    /* Tek otorite: `scenarioVerdict` (hits>0 → PASS, aksi NOT_OBSERVED).
+       Kural eskiden burada elle kopyalıydı (envanter denetimi E-32). */
+    verdict: scenarioVerdict(link),
     requirement: 'Oturum içinde en az bir kez taşıma bağlantısı GÖZLENMELİ.',
     thresholdSource: 'obdService.getOBDDataSnapshot().transportConnected (ÜRÜN)',
     evidence: [`bağlantı gözlemi=${link.hits}`],
@@ -264,7 +266,7 @@ export function buildAcceptanceMatrix(s: LongRoadSession, nowMs: number): readon
   const tunnel = findScenario(s, 'TUNNEL_GNSS_LOSS');
   add({
     id: 'GPS_TUNNEL', section: 'GPS', title: 'Tünel benzeri GNSS kaybı',
-    verdict: tunnel.hits > 0 ? 'PASS' : 'NOT_OBSERVED',
+    verdict: scenarioVerdict(tunnel),
     requirement: 'Konum yokken araç hareket etmeye devam ederse olay işaretlenmeli.',
     thresholdSource: 'locationConfidence LocationState (ÜRÜN) + hız otoritesi',
     evidence: [`tünel şüphesi=${tunnel.hits}`],
@@ -336,7 +338,7 @@ export function buildAcceptanceMatrix(s: LongRoadSession, nowMs: number): readon
   const realtime = findScenario(s, 'REALTIME_DROP_RECOVER');
   add({
     id: 'FLEET_REALTIME', section: 'FLEET', title: 'Realtime kopma / toparlanma',
-    verdict: !backendSeen ? 'BLOCKED_BACKEND' : realtime.hits > 0 ? 'PASS' : 'NOT_OBSERVED',
+    verdict: !backendSeen ? 'BLOCKED_BACKEND' : scenarioVerdict(realtime),
     requirement: 'Realtime kanalın kopup toparlanması gözlenmeli.',
     thresholdSource: 'Fleet realtime otoritesi (ÜRÜN) — head unit tarafında gözlem yüzeyi sınırlı.',
     evidence: [`realtime olayı=${realtime.hits}`],

@@ -84,7 +84,8 @@ export const AD_VERDICT_LABEL: Readonly<Record<AdVerdict, string>> = {
 export interface AdTransportRaw {
   readonly transport:            string;
   readonly connected:            boolean;
-  readonly reconnectAttempts:    number;
+  /** null = kaynak vermedi (E-21) — "0 deneme" DEĞİL. */
+  readonly reconnectAttempts:    number | null;
   readonly lastDisconnectReason: string | null;
 }
 
@@ -112,10 +113,10 @@ export interface AdSessionRaw {
 }
 
 export interface AdLifecycleRaw {
-  readonly resetRequestedCount:     number;
-  readonly resetCompletedCount:     number;
-  readonly disconnectCalledCount:   number;
-  readonly reconnectRequestedCount: number;
+  readonly resetRequestedCount:     number | null;
+  readonly resetCompletedCount:     number | null;
+  readonly disconnectCalledCount:   number | null;
+  readonly reconnectRequestedCount: number | null;
   readonly lastResetReason:         string | null;
   readonly lastResetAt:             number | null;
   readonly lastDisconnectAt:        number | null;
@@ -140,7 +141,7 @@ export interface AdHealthRaw {
   readonly lastLinkPacketAgeMs:   number;
   /** MUTLAK 4 sn donma bayrağı — `dataFresh` ile AYNI ŞEY DEĞİLDİR. */
   readonly isStale:               boolean;
-  readonly reconnectPressure:     number;
+  readonly reconnectPressure:     number | null;
   readonly reliabilityFieldCount: number | null;
 }
 
@@ -645,11 +646,17 @@ export function deriveAdVerdict(s: AdRawSnapshot): AdVerdictResult {
   }
 
   if (!sess.pollingActive) push('Poll watchdog çalışmıyor (polling active = false).');
-  if (t && t.reconnectAttempts > 0) push(`Bu oturumda ${t.reconnectAttempts} reconnect denemesi oldu.`);
-  if (s.health && s.health.reconnectPressure > 0) {
+  /* Sayaç OKUNAMADIYSA cümle KURULMAZ: "0 deneme oldu" da bir iddiadır ve
+     kaynak yokken yanlış güven verir (E-21). */
+  if (t && t.reconnectAttempts !== null && t.reconnectAttempts > 0) {
+    push(`Bu oturumda ${t.reconnectAttempts} reconnect denemesi oldu.`);
+  }
+  if (s.health && s.health.reconnectPressure !== null && s.health.reconnectPressure > 0) {
     push(`Reconnect baskısı ${s.health.reconnectPressure.toFixed(2)} (sönümlü kopma sayacı).`);
   }
-  if (s.lifecycle && s.lifecycle.resetRequestedCount > s.lifecycle.resetCompletedCount) {
+  if (s.lifecycle && s.lifecycle.resetRequestedCount !== null
+    && s.lifecycle.resetCompletedCount !== null
+    && s.lifecycle.resetRequestedCount > s.lifecycle.resetCompletedCount) {
     push('Yarım kalan reset var (istenen > tamamlanan).');
   }
   if (s.health && s.health.connectionQuality >= 0 && s.health.connectionQuality < 60) {

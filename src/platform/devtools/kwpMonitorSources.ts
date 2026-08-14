@@ -30,6 +30,18 @@ function _safe<T>(fn: () => T): T | null {
 }
 
 /**
+ * Sayı okuma — **sahte 0 ÜRETMEZ**.
+ *
+ * `Number(undefined) || 0` deseni "alan yok"u "ölçüm 0" yapar ve modelin
+ * `null → UNAVAILABLE` kapısını TETİKLENEMEZ hâle getirir. Burada yalnız
+ * gerçekten sonlu bir sayı geçer; aksi hâlde `null`.
+ */
+function _num(v: unknown): number | null {
+  const n = typeof v === 'number' ? v : Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+/**
  * Tüm kaynakların TEK seferlik senkron okuması. Bounded: yalnız sabit sayıda skaler
  * alan kopyalanır (ham telemetri/geçmiş dizileri taşınmaz).
  */
@@ -63,19 +75,25 @@ export function readKwpRawSnapshot(): KwpRawSnapshot {
     freshWindowMs: typeof fresh === 'number' && Number.isFinite(fresh) && fresh > 0 ? fresh : null,
     pollingActive: sess ? sess.pollingActive === true : null,
 
+    /* SAHTE SIFIR YASAĞI (envanter denetimi E-19): native alan YOKSA
+       `Number(undefined) || 0` bu sayaçları 0 yapıyor, model de `observed(0)`
+       basıyordu → LAB'da "ATPC gönderim sayısı: 0 · ÖLÇÜLDÜ". Oysa doğru cevap
+       "KAYNAK YOK"tur: "hiç kurtarma olmadı" ile "kurtarma ölçülemedi" aynı
+       ekranda ayırt edilemiyordu ve teşhis aracı hata avında yanlış yöne
+       sürüklüyordu. Artık okunamayan alan `null` taşınır → UNAVAILABLE. */
     recovery: kwp ? {
       status:                   String(kwp.status),
-      coreNoDataStreak:         Number(kwp.coreNoDataStreak) || 0,
-      maxCoreNoDataStreak:      Number(kwp.maxCoreNoDataStreak) || 0,
-      recoveryCount:            Number(kwp.recoveryCount) || 0,
-      suppressedCount:          Number(kwp.suppressedCount) || 0,
-      atpcSendFailures:         Number(kwp.atpcSendFailures) || 0,
-      lastRecoveryAt:           Number(kwp.lastRecoveryAt) || 0,
-      lastRecoveryToFirstPidMs: typeof kwp.lastRecoveryToFirstPidMs === 'number' ? kwp.lastRecoveryToFirstPidMs : -1,
-      killedByDataGate:         Number(kwp.killedByDataGate) || 0,
+      coreNoDataStreak:         _num(kwp.coreNoDataStreak),
+      maxCoreNoDataStreak:      _num(kwp.maxCoreNoDataStreak),
+      recoveryCount:            _num(kwp.recoveryCount),
+      suppressedCount:          _num(kwp.suppressedCount),
+      atpcSendFailures:         _num(kwp.atpcSendFailures),
+      lastRecoveryAt:           _num(kwp.lastRecoveryAt),
+      lastRecoveryToFirstPidMs: _num(kwp.lastRecoveryToFirstPidMs),
+      killedByDataGate:         _num(kwp.killedByDataGate),
       protocolAtRecovery:       kwp.protocolAtRecovery ?? null,
-      threshold:                Number(kwp.threshold) || 0,
-      maxPerSession:            Number(kwp.maxPerSession) || 0,
+      threshold:                _num(kwp.threshold),
+      maxPerSession:            _num(kwp.maxPerSession),
     } : null,
   };
 }

@@ -13,6 +13,7 @@
  */
 import { create } from 'zustand';
 import { isNative } from './bridge';
+import { DEFAULT_FUEL_L_PER_100KM } from './vehicleAssumptions';
 import {
   parseRouteDurations, remainingRouteDurationS,
   type RouteDurationSource, type RouteDurationIntegrity,
@@ -1596,10 +1597,12 @@ export function clearAltRoutes(): void {
 }
 
 /**
- * Tahmini yakıt tüketimi (Litre).
- * Heuristik: 7.5L/100km — araç profil verisi yoksa genel binek otomobil ortalaması.
+ * Tahmini yakıt tüketimi (Litre) — ÖLÇÜM DEĞİL, TAHMİN.
+ *
+ * E-05: burada 7.5, `tripLogService`'te 8.5 yazıyordu → aynı mesafe için rota
+ * HUD'ı ile yolculuk özeti FARKLI litre gösteriyordu. Varsayım artık tek
+ * otoriteden (`vehicleAssumptions`) gelir; beyan edilmiş değer 8.5'tir.
  */
 export function computeFuelEstimate(distanceM: number): number {
-  const L_PER_100KM = 7.5;
-  return Math.round((distanceM / 1_000 / 100) * L_PER_100KM * 10) / 10;
+  return Math.round((distanceM / 1_000 / 100) * DEFAULT_FUEL_L_PER_100KM * 10) / 10;
 }

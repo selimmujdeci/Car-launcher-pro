@@ -31,6 +31,14 @@ import type { SchedRawSnapshot } from './runtimeSchedulingBuild';
 /** debugStore halka tamponunun bilinen üst sınırı. */
 const CAN_BUFFER_MAX = 500;
 
+/**
+ * Sayı okuma — **sahte 0 ÜRETMEZ** (bkz. E-19/E-22). Alan yoksa `null`.
+ */
+function _num(v: unknown): number | null {
+  const n = typeof v === 'number' ? v : Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
 function _safe<T>(fn: () => T): T | null {
   try {
     const v = fn();
@@ -83,11 +91,15 @@ export function readSchedRawSnapshot(): SchedRawSnapshot {
       lastElapsedMs:      poll.lastAttempts?.length ? poll.lastAttempts[poll.lastAttempts.length - 1].elapsedMs : null,
       lastPollAt:         typeof poll.lastPollAt === 'number' && poll.lastPollAt > 0 ? poll.lastPollAt : null,
       decisionLabel:      String(poll.decision?.label ?? ''),
+      /* T6 düzeltmesi BURAYA DA uygulandı (envanter denetimi E-22): yukarıdaki
+         alanlar `null` taşırken bu blok `|| 0` ile sahte sıfır üretiyordu →
+         modelin "null → UNAVAILABLE" kapısı tetiklenemez hâle geliyordu
+         (yarım düzeltme). Artık okunamayan sayaç `null`dır. */
       js: {
-        eventsReceived: Number(poll.js?.eventsReceived) || 0,
-        decodeFailures: Number(poll.js?.decodeFailures) || 0,
-        valuesStored:   Number(poll.js?.valuesStored) || 0,
-        valuesCached:   Number(poll.js?.valuesCached) || 0,
+        eventsReceived: _num(poll.js?.eventsReceived),
+        decodeFailures: _num(poll.js?.decodeFailures),
+        valuesStored:   _num(poll.js?.valuesStored),
+        valuesCached:   _num(poll.js?.valuesCached),
       },
     } : null,
 
@@ -151,13 +163,13 @@ export function readSchedRawSnapshot(): SchedRawSnapshot {
 
     kwp: kwp ? {
       status:           String(kwp.status),
-      recoveryCount:    Number(kwp.recoveryCount) || 0,
-      maxPerSession:    Number(kwp.maxPerSession) || 0,
-      suppressedCount:  Number(kwp.suppressedCount) || 0,
-      atpcSendFailures: Number(kwp.atpcSendFailures) || 0,
-      lastRecoveryAt:   Number(kwp.lastRecoveryAt) || 0,
-      coreNoDataStreak: Number(kwp.coreNoDataStreak) || 0,
-      threshold:        Number(kwp.threshold) || 0,
+      recoveryCount:    _num(kwp.recoveryCount),
+      maxPerSession:    _num(kwp.maxPerSession),
+      suppressedCount:  _num(kwp.suppressedCount),
+      atpcSendFailures: _num(kwp.atpcSendFailures),
+      lastRecoveryAt:   _num(kwp.lastRecoveryAt),
+      coreNoDataStreak: _num(kwp.coreNoDataStreak),
+      threshold:        _num(kwp.threshold),
     } : null,
 
     deepScan: deep ? {

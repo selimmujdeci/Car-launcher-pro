@@ -3,6 +3,7 @@ import { logError } from './crashLogger';
 import { noteArrival, noteAccepted, noteRejected, resetGpsIntakeHealth } from './gps/gpsIntakeHealth';
 import { safeSetRaw } from '../utils/safeStorage';
 import { checkGeofence } from './geofenceService';
+import { GPS_FIX_STALE_MS } from './freshnessPolicy';
 import { runtimeManager } from '../core/runtime/AdaptiveRuntimeManager';
 import { useUnifiedVehicleStore } from './vehicleDataLayer/UnifiedVehicleStore';
 import { applyCompassSmoothing, computeBlendedHeading } from './gps/headingCore';
@@ -929,7 +930,7 @@ export interface LocationEvidence {
  * geniş tutulur ki normal 1 Hz akışta bayatlık bayrağı titremesin. 5 s, 94 km/h'de
  * ~130 m yol demektir — bunun ötesi kullanıcıya DÜRÜSTÇE söylenmelidir.
  */
-export const LOCATION_STALE_MS = 5_000;
+export const LOCATION_STALE_MS = GPS_FIX_STALE_MS;
 
 /* ══════════════════════════════════════════════════════════════════════════
  * #537 · FIX YAŞI DAĞILIM DEFTERİ (GÖREV B — #508'İN KAPANIŞ ŞARTI)
