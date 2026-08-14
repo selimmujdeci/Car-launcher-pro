@@ -276,7 +276,8 @@ export async function buildGpsDeepSnapshot(): Promise<GpsDeepSnapshot> {
 /* ── SESLİ / STT ─────────────────────────────────────────────── */
 
 export interface VoiceDiagSnapshot {
-  voskReady: boolean;
+  /** Vosk modeli hazır mı.  = OKUNAMADI ("hazır" DEĞİL) — #557. */
+  voskReady: boolean | null;
   wakeWordEnabled: boolean;
   /** Anlık asistan durumu (idle/listening/processing/success/error/throttled). */
   status: string;
@@ -312,7 +313,11 @@ export interface VoiceDiagSnapshot {
 }
 
 export function buildVoiceSnapshot(): VoiceDiagSnapshot {
-  const voskReady       = _safe(() => isVoskModelReady(), true);
+  /* #557: fallback ESKİDEN `true` idi — okuma düşerse model "hazır" görünüyordu.
+     Bu, teşhisi ters yöne çeviren SAHTE bir olumlu kanıttır (kanıtsız bilgi
+     üretilmez; bilinmeyen `null` gösterilir). Saha teşhisinde "vosk hazır"
+     yazısına bakıp model tarafını elemek, kökü tamamen kaçırmak demekti. */
+  const voskReady       = _safe(() => isVoskModelReady(), null as boolean | null);
   const wakeState       = _safe(() => getWakeWordState(), null as ReturnType<typeof getWakeWordState> | null);
   const status          = _safe(() => getVoiceSnapshot().status as string, 'idle');
   const outcome         = _safe(() => getLastSttOutcome(), { atMs: -1, ok: null as boolean | null });

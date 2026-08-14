@@ -18,7 +18,6 @@ import { useOBDSource } from '../../platform/obdService';
 import { useGPSLocation } from '../../platform/gpsService';
 import { ErrorToast } from '../common/ErrorToast';
 import { VolumeOverlay } from '../common/VolumeOverlay';
-import { GestureVolumeZone } from '../common/GestureVolumeZone';
 import {
   getPerformanceMode, onPerformanceModeChange, type PerformanceMode,
 } from '../../platform/performanceMode';
@@ -416,11 +415,18 @@ export default function MainLayout() {
         </div>
       )}
 
-      {settings.gestureVolumeSide !== 'off' && (
-        <div style={theaterHide}>
-          <GestureVolumeZone side={settings.gestureVolumeSide} volume={settings.volume} onVolumeChange={(v) => updateSettings({ volume: v })} />
-        </div>
-      )}
+      {/* #556 — SES JESTİ KATMANI BURADAN KALDIRILDI (mükerrer otorite).
+        *
+        * `GestureVolumeZone` ile `VolumeGestureLayer` (App.tsx) AYNI ANDA mount
+        * oluyordu ve ikisi de varsayılan olarak SOL kenarı dinliyordu
+        * (`gestureVolumeSide: 'left'`). `VolumeGestureLayer` window'a
+        * `capture: true` ile bağlandığı için buradaki `stopPropagation()` onu
+        * DURDURAMIYORDU → sol 60 px'te her dikey kaydırma İKİ KEZ işleniyor,
+        * efektif hassasiyet ~2,3 katına çıkıyordu (0,28 + 0,36 %/px).
+        * Saha şikâyeti: "uygulama devamlı telefonun sesini tam kısıyor".
+        *
+        * Ses jestinin TEK otoritesi artık `VolumeGestureLayer`'dır; kullanıcının
+        * `gestureVolumeSide` ayarına (sol/sağ/kapalı) orada saygı duyulur. */}
 
 
       {settings.sleepMode && (

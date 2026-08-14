@@ -22,6 +22,7 @@ import {
   carosLabNavReduce, CAROS_LAB_INITIAL_NAV,
 } from '../../platform/devtools/carosLabNavigation';
 import { CarosLabToolHost } from './CarosLabToolHost';
+import { CarosLabRefreshBar } from './CarosLabRefreshBar';
 import { useObdTrafficCapture, useCanCollect } from '../../hooks/useDevtoolsCapture';
 import { buildCarosLabCopy } from '../../platform/devtools/carosLabCopyModel';
 import { readCarosLabCopyInput } from '../../platform/devtools/carosLabCopySources';
@@ -151,7 +152,7 @@ export const CarosLabShell = memo(function CarosLabShell({ onClose }: { onClose:
         /* S2 (#505): rapor gövdesindeki uyarıyı kaçırmamak için EKRANDA da söylenir —
            tazelenmemiş kanıtla alınan kopya extended poll hakkında hüküm VEREMEZ. */
         built.pollEvidenceStale
-          ? '⚠ poll kanıtı TAZELENMEDİ — Runtime Scheduling → YENİLE yapıp tekrar kopyalayın'
+          ? '⚠ poll kanıtı TAZELENMEDİ — yukarıdaki TÜMÜNÜ YENİLE ile tazeleyip tekrar kopyalayın'
           : null,
       ].filter(Boolean).join(' · ');
       setCopyMsg(describeClipboardRoute(route, built.chars) + (extra ? ` · ${extra}` : ''));
@@ -197,6 +198,11 @@ export const CarosLabShell = memo(function CarosLabShell({ onClose }: { onClose:
           <X size={11} /> KAPAT
         </button>
       </div>
+
+      {/* TÜMÜNÜ YENİLE — tek tuş + otomatik tur. Katalogda da, araç ekranı
+          açıkken de görünür: kanıt tazeliği hangi ekranda olduğuna BAĞLI DEĞİLDİR.
+          Periyodik turun sahibi bu bileşendir → LAB kapanınca durur (zero-leak). */}
+      <CarosLabRefreshBar />
 
       {copyMsg && (
         <div
