@@ -86,6 +86,10 @@ const MediaAuthorityScreen = lazyWithRetry(() =>
   import('./screens/MediaAuthorityScreen').then((m) => ({ default: m.MediaAuthorityScreen })));
 const GuardianRuntimeScreen = lazyWithRetry(() =>
   import('./screens/GuardianRuntimeScreen').then((m) => ({ default: m.GuardianRuntimeScreen })));
+const EnforcementPointsScreen = lazyWithRetry(() =>
+  import('./screens/EnforcementPointsScreen').then((m) => ({ default: m.EnforcementPointsScreen })));
+const RemoteCommandScreen = lazyWithRetry(() =>
+  import('./screens/RemoteCommandScreen').then((m) => ({ default: m.RemoteCommandScreen })));
 const PerformanceView = lazyWithRetry(() =>
   import('../debug/PerformanceView').then((m) => ({ default: m.PerformanceView })));
 const BlackBoxReplayView = lazyWithRetry(() =>
@@ -133,6 +137,8 @@ export function renderAvailableTool(id: CarosLabToolId): ReactElement | null {
     case 'evidence-viewer':    return <EvidenceViewerScreen />;
     case 'media-authority':    return <MediaAuthorityScreen />;
     case 'guardian-runtime':   return <GuardianRuntimeScreen />;
+    case 'enforcement-points': return <EnforcementPointsScreen />;
+    case 'remote-command': return <RemoteCommandScreen />;
     case 'performance':        return <PerformanceView />;
     case 'replay-log':         return <BlackBoxReplayView />;
     case 'decoder-registry':   return <DecoderRegistryScreen />;

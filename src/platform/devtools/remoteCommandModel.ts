@@ -1,0 +1,233 @@
+/**
+ * remoteCommandModel.ts — CAROS LAB · Uzak Komut Zinciri SAF modeli.
+ *
+ * SAF: I/O yok · timer yok · `Date.now()` yok (zaman DIŞARIDAN gelir) · global
+ * durum yok · React importu yok. Girdi mutasyona uğratılmaz; her çağrı yeni
+ * nesne döndürür → kilitlenebilir.
+ *
+ * Gözlemlenebilirlik sınıflandırması `sessionInspectorModel` sözleşmesini
+ * KULLANIR (`OBSERVED · DERIVED · UNAVAILABLE · STALE`) — paralel sistem kurulmaz.
+ */
+
+import {
+  observed, derived, unavailable,
+  type InspectorField,
+} from './sessionInspectorModel';
+import type { RemoteCommandRawSnapshot } from './remoteCommandSources';
+
+/* ── Zincir hükmü ─────────────────────────────────────────────────────────── */
+
+/**
+ * Zincirin tek cümlelik hükmü. Amaç "komut çalışmadı"nın SEBEBİNİ ayırt etmek:
+ *  · `NOT_LISTENING`  — dinleyici hiç bağlı değil: komut araca ULAŞAMAZ.
+ *  · `NEVER_RECEIVED` — dinleyici bağlı ama hiç komut gelmemiş (sessizlik).
+ *  · `CRYPTO_BLOCKED` — komutlar geliyor ama E2E kapısında düşüyor.
+ *  · `TYPE_UNKNOWN`   — komutlar geliyor ama tipi araçta tanımsız (#573 izi).
+ *  · `SAFETY_BLOCKED` — sürüş güvenliği kapısı baskın.
+ *  · `HEALTHY`        — komutlar geliyor ve çoğunlukla tamamlanıyor.
+ *  · `UNKNOWN`        — kaynak okunamadı, hüküm verilemez (fail-closed).
+ */
+export type RemoteCommandVerdict =
+  | 'NOT_LISTENING' | 'NEVER_RECEIVED' | 'CRYPTO_BLOCKED'
+  | 'TYPE_UNKNOWN'  | 'SAFETY_BLOCKED' | 'HEALTHY' | 'UNKNOWN';
+
+export const REMOTE_COMMAND_VERDICT_LABEL: Readonly<Record<RemoteCommandVerdict, string>> = {
+  NOT_LISTENING:  'DİNLEYİCİ BAĞLI DEĞİL',
+  NEVER_RECEIVED: 'HİÇ KOMUT GELMEDİ',
+  CRYPTO_BLOCKED: 'ŞİFRE KAPISINDA DÜŞÜYOR',
+  TYPE_UNKNOWN:   'KOMUT TİPİ TANIMSIZ',
+  SAFETY_BLOCKED: 'GÜVENLİK KAPISI REDDEDİYOR',
+  HEALTHY:        'KOMUTLAR İŞLENİYOR',
+  UNKNOWN:        'OKUNAMADI',
+} as const;
+
+/**
+ * Hüküm — SAF ve sıralı. En ağır engel önce gelir: dinleyici yoksa diğer
+ * sayaçlar zaten anlamsızdır. `HEALTHY` yalnız gerçekten tamamlanan komut
+ * VARSA verilir; "hata yok" tek başına sağlık kanıtı DEĞİLDİR.
+ */
+export function judgeRemoteCommandChain(s: RemoteCommandRawSnapshot): RemoteCommandVerdict {
+  if (s.listenerActive === null || s.command === null) return 'UNKNOWN';
+  if (!s.listenerActive) return 'NOT_LISTENING';
+
+  const c = s.command;
+  if (c.received === 0) return 'NEVER_RECEIVED';
+
+  // Baskınlık: bir engel işlenen komutların yarısından fazlasını yiyorsa hükümdür.
+  const half = c.received / 2;
+  if (c.cryptoFailed  > half) return 'CRYPTO_BLOCKED';
+  if (c.unknownType   > half) return 'TYPE_UNKNOWN';
+  if (c.movingBlocked > half) return 'SAFETY_BLOCKED';
+
+  return c.completed > 0 ? 'HEALTHY' : 'UNKNOWN';
+}
+
+/* ── Kartlar ──────────────────────────────────────────────────────────────── */
+
+export interface RemoteCommandCard {
+  readonly id:     string;
+  readonly title:  string;
+  readonly fields: readonly InspectorField[];
+}
+
+export interface RemoteCommandView {
+  readonly readAt:  number;
+  readonly verdict: RemoteCommandVerdict;
+  readonly cards:   readonly RemoteCommandCard[];
+}
+
+const SRC_LISTENER = 'commandListener';
+const SRC_SPEED    = 'speedAlertRuntime';
+
+/** ms → insan okunur yaş. Saf; `null` girdi `null` çıktı verir (uydurma yok). */
+export function ageText(fromMs: number | null, nowMs: number): string | null {
+  if (fromMs === null || !Number.isFinite(fromMs)) return null;
+  const d = nowMs - fromMs;
+  if (d < 0) return 'şimdi';
+  if (d < 60_000) return `${Math.round(d / 1000)} sn önce`;
+  if (d < 3_600_000) return `${Math.round(d / 60_000)} dk önce`;
+  return `${Math.round(d / 3_600_000)} sa önce`;
+}
+
+/**
+ * Görünümü kurar. `nowMs` DIŞARIDAN gelir — model zamanı kendisi okumaz.
+ * Okunamayan her alan `UNAVAILABLE`dır; **sahte 0 yazılmaz**.
+ */
+export function buildRemoteCommandView(
+  s: RemoteCommandRawSnapshot,
+  nowMs: number,
+): RemoteCommandView {
+  const c  = s.command;
+  const sa = s.speedAlert;
+  const cfg = s.speedAlertConfig;
+
+  const chain: RemoteCommandCard = {
+    id: 'chain', title: '1 · Dinleyici / Teslim',
+    fields: [
+      observed({
+        id: 'listener', label: 'Komut dinleyicisi', source: SRC_LISTENER,
+        note: 'Realtime aboneliği canlı mı. Bağlı değilse telefondan gönderilen komut araca ULAŞMAZ (kuyrukta bekler).',
+      }, s.listenerActive === null ? null : (s.listenerActive ? 'BAĞLI' : 'BAĞLI DEĞİL')),
+      observed({
+        id: 'received', label: 'Alınan komut', source: SRC_LISTENER,
+        note: 'Realtime kanalından gelen komut sayısı. 0 ise ya hiç komut gönderilmedi ya da abonelik kurulmadı.',
+      }, c ? c.received : null),
+      observed({
+        id: 'completed', label: 'Tamamlanan', source: SRC_LISTENER,
+        note: 'Araçta gerçekten yürütülen komutlar.',
+      }, c ? c.completed : null),
+      observed({
+        id: 'rejected', label: 'Reddedilen', source: SRC_LISTENER,
+        note: 'Güvenlik/politika gereği reddedilenler (retry YOK).',
+      }, c ? c.rejected : null),
+      observed({
+        id: 'failed', label: 'Başarısız', source: SRC_LISTENER,
+        note: 'Yeniden denemeler tükendikten sonra kalıcı düşenler.',
+      }, c ? c.failed : null),
+      observed({
+        id: 'retries', label: 'Yeniden deneme', source: SRC_LISTENER,
+        note: 'Toplam retry sayısı (exponential backoff).',
+      }, c ? c.retries : null),
+      observed({
+        id: 'ttl', label: 'TTL aşımı', source: SRC_LISTENER,
+        note: '5 dk pencereyi geçtiği için hiç yürütülmeyen komutlar — araç uzun süre çevrimdışıysa artar.',
+      }, c ? c.ttlExpired : null),
+    ],
+  };
+
+  const gates: RemoteCommandCard = {
+    id: 'gates', title: '2 · Kapılar (neden reddedildi)',
+    fields: [
+      observed({
+        id: 'crypto', label: 'E2E şifre kapısı', source: SRC_LISTENER,
+        note: 'Fiziksel (MCU/CAN) ve yıkıcı komutlar şifresiz KABUL EDİLMEZ. Buradaki artış anahtar eşleşmesi bozuk demektir.',
+      }, c ? c.cryptoFailed : null),
+      observed({
+        id: 'moving', label: 'Sürüş güvenliği kapısı', source: SRC_LISTENER,
+        note: 'Araç 5 km/h üstündeyken kilit/kilit-açma reddi. Bu sayaç ancak hız otoritesi BESLENİYORSA artabilir.',
+      }, c ? c.movingBlocked : null),
+      observed({
+        id: 'unknownType', label: 'Tanımsız komut tipi', source: SRC_LISTENER,
+        note: 'Araç bu tipi bilmiyor. Artıyorsa telefon ile araç sürümleri ayrışmıştır (veya DB tip listesi eksiktir).',
+      }, c ? c.unknownType : null),
+      observed({
+        id: 'lastType', label: 'Son komut tipi', source: SRC_LISTENER,
+        note: 'Yalnız TİP tutulur — komut kimliği, payload ve hedef adres defterlere GİRMEZ.',
+      }, c ? c.lastType : null),
+      observed({
+        id: 'lastOutcome', label: 'Son sonuç', source: SRC_LISTENER,
+        note: 'Son işlenen komutun sonucu.',
+      }, c ? c.lastOutcome : null),
+      derived({
+        id: 'lastAt', label: 'Son işlem', source: SRC_LISTENER,
+        note: 'Son komut işleme anının yaşı (okuma anına göre türetildi).',
+      }, c ? ageText(c.lastAt, nowMs) : null),
+    ],
+  };
+
+  const speed: RemoteCommandCard = {
+    id: 'speed', title: '3 · Hız Otoritesi / Hız Uyarısı',
+    fields: [
+      observed({
+        id: 'running', label: 'Hız aboneliği', source: SRC_SPEED,
+        note: 'Kapalıysa hem hız uyarısı hem SÜRÜŞ GÜVENLİĞİ KAPISI beslenmiyordur (kapı kör kalır).',
+      }, sa ? (sa.running ? 'ÇALIŞIYOR' : 'DURDU') : null),
+      observed({
+        id: 'samples', label: 'İşlenen hız örneği', source: SRC_SPEED,
+        note: 'OBD veri akışından gelen örnek sayısı — kararın taban ölçüsü.',
+      }, sa ? sa.samples : null),
+      observed({
+        id: 'gateFed', label: 'Kapıya verilen ölçüm', source: SRC_SPEED,
+        note: 'Sürüş güvenliği kapısına kaç kez GERÇEK hız verildi. 0 ise kapı hâlâ kördür.',
+      }, sa ? sa.gateFed : null),
+      observed({
+        id: 'unknownSpeed', label: 'Hız ölçülemedi', source: SRC_SPEED,
+        note: 'Hızın bilinmediği örnekler — bu anlarda hüküm ÜRETİLMEZ ve kapıya 0 YAZILMAZ.',
+      }, sa ? sa.unknownSpeed : null),
+      observed({
+        id: 'alertConfig', label: 'Araçtaki uyarı ayarı', source: SRC_SPEED,
+        note: 'Telefondan gelen ayarın araçtaki geçerli hali. "Kurulmadı" ise komut hiç ulaşmamıştır.',
+      }, cfg ? `${cfg.enabled ? 'AÇIK' : 'KAPALI'} · ${cfg.thresholdKmh} km/h` : null),
+      observed({
+        id: 'fired', label: 'Üretilen uyarı', source: SRC_SPEED,
+        note: 'Eşik aşımında üretilen bildirim sayısı.',
+      }, sa ? sa.fired : null),
+      observed({
+        id: 'suppressed', label: 'Cooldown ile bastırılan', source: SRC_SPEED,
+        note: `Aşım sürerken ${Math.round(s.cooldownMs / 60_000)} dk penceresi dolmadığı için gönderilmeyenler (bildirim yağmuru koruması).`,
+      }, sa ? sa.suppressedCooldown : null),
+      observed({
+        id: 'pushBound', label: 'Bildirim kanalı', source: SRC_SPEED,
+        note: 'Bağlı değilse uyarı ÜRETİLSE BİLE telefona gitmez.',
+      }, sa ? (sa.pushChannelBound ? 'BAĞLI' : 'BAĞLI DEĞİL') : null),
+      observed({
+        id: 'lastReason', label: 'Son karar gerekçesi', source: SRC_SPEED,
+        note: 'disabled · speed_unknown · below · still_over · fired',
+      }, sa ? sa.lastReason : null),
+      derived({
+        id: 'policy', label: 'Politika', source: SRC_SPEED,
+        note: 'Eşik aralığı ve histerezis bandı — sayaçlar bunlar bilinmeden yorumlanamaz.',
+      }, `${s.thresholdMinKmh}–${s.thresholdMaxKmh} km/h · histerezis ${s.hysteresisKmh} km/h`),
+    ],
+  };
+
+  // Kaynak tamamen okunamadıysa kartlar yine üretilir ama alanlar UNAVAILABLE olur
+  // (ekran boş kalmaz, "okunamadı" AÇIKÇA görünür).
+  if (c === null && sa === null) {
+    return {
+      readAt: s.readAt,
+      verdict: 'UNKNOWN',
+      cards: [
+        { id: 'chain', title: chain.title, fields: [
+          unavailable({ id: 'src', label: 'Kaynak', source: SRC_LISTENER, note: 'Kanıt defteri okunamadı.' }),
+        ] },
+      ],
+    };
+  }
+
+  return {
+    readAt:  s.readAt,
+    verdict: judgeRemoteCommandChain(s),
+    cards:   [chain, gates, speed],
+  };
+}

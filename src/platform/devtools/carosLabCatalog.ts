@@ -55,7 +55,8 @@ export const CAROS_LAB_STATUS_LABEL: Readonly<Record<CarosLabToolStatus, string>
 export type CarosLabToolId =
   // Vehicle
   | 'live-data' | 'pid-did-explorer' | 'fleet-connectivity' | 'trip-engine' | 'trip-cost'
-  | 'location-engine' | 'navigation-core' | 'address-search-evidence'
+  | 'location-engine' | 'navigation-core' | 'address-search-evidence' | 'enforcement-points'
+  | 'remote-command'
   | 'fleet-identity' | 'fleet-driver-identity' | 'fleet-presence-history'
   | 'fleet-driver-authentication' | 'fleet-driver-dna' | 'fleet-intelligence' | 'ai-evidence-engine'
   | 'deep-scan' | 'vehicle-fingerprint'
@@ -143,6 +144,12 @@ export const CAROS_LAB_TOOLS: readonly CarosLabTool[] = Object.freeze([
     note: 'Hiçbir şey BAŞLATMAZ: arama tetikleme, sağlayıcı seçme/değiştirme, sorgu değiştirme, rota kurma ve ağ çağrısı YOK (yalnız BYOK anahtar VAR/YOK okunur). ARANAN ADRES METNİ, SOKAK ADI VE KOORDİNAT GÖSTERİLMEZ — adres ev adresidir, kişisel veridir; defter metni hiç SAKLAMAZ, yalnız PII taşımayan biçim bayraklarını tutar. Defter RAM\'de yaşar, diske YAZILMAZ → oturum bitince kanıt gider. "Sonuç döndü" ile "aradığı yer bulundu" AYRI sayılır: kullanıcı seçmediyse deneme çözülmüş SAYILMAZ. Karara bağlanmış deneme yoksa oran ÜRETİLMEZ (sahte %0 yok); kanıt yetersizse sınıf UNKNOWN kalır. KAPSAM SINIRI: "veri OSM\'de var mı" sorusu üründe SORULMAZ (yer gerçeği sorgusu yok) → 0 sonuç, veri boşluğu ile geocoder körlüğünü AYIRT ETMEZ; bu GROUND_TRUTH kanıt boşluğu olarak sayılır. Sorgunun ayrıştırıcıda bozulup bozulmadığı da HENÜZ ölçülmüyor (QUERY_INTEGRITY borcu). Gerçek araç doğrulaması YAPILMADI.',
   },
   {
+    id: 'enforcement-points', category: 'vehicle', name: 'Denetim Noktası Verisi',
+    desc: 'Gömülü denetim noktası paketinin ve onu tüketen Guardian map dilimi üreticisinin salt-okunur gözlemi: paket kimliği · şema sürümü · ÜRETİM anı (fetchedAt) · sayılan nokta ve sorguya giren alt küme · ayrıştırmada elenen bozuk kayıt · tür dağılımı (bilinmeyen oranı dâhil) · uyarı politikası eşikleri (yarıçap · konum belirsizliği tavanı · ileri koni açısı · yön için en düşük hız · fix yaşı tavanı · minimum güven · severity) · KAPI SAYAÇLARI (paket hazır değil · konum yok · fix ölü · hız yok · konum belirsiz · yön güvenilmez · yarıçapta nokta yok) · son ölçülen konum belirsizliği ve son üretilen dilimin mesafesi.',
+    status: 'AVAILABLE', layer: 'EGM EDS paketi',
+    note: 'Hiçbir şey BAŞLATMAZ: paket indirme/yenileme, Guardian tick tetikleme, eşik/severity değiştirme, konum düzeltmesi isteme ve ağ çağrısı YOK — açılışta tek okuma + elle YENİLE. Cihaz kaynağa (EGM) DOĞRUDAN BAĞLANMAZ; okunan şey uygulamaya gömülü pakettir (karar K5). KOORDİNAT VE NOKTA ETİKETİ TAŞINMAZ — aracın konumu, noktaların enlem/boylamı ve kaynağın serbest metin açıklaması bu ekrana GELMEZ; yalnız sayılar, durumlar ve skaler mesafe görünür. DÜRÜSTLÜK: "uyarı çıkmıyor" ile "yolda denetim yok" AYRI gösterilir — bu ekranın tek işi ikisini ayırt etmektir. Boş/bozuk paket UNAVAILABLE\'dır, sıfır nokta "denetim yok" SAYILMAZ. Tür kayıtların %93\'ünde bilinmiyor → ürün dili "denetim noktası"dır, "radar" DEĞİLDİR (K3); hız limiti kaynakta HİÇ yoktur → uyarı hız eşiği İDDİA ETMEZ (K4). Mesafe KUŞ UÇUŞUDUR, rota boyunca değil. KAPSAM SINIRI: kaynak kapsamı ölçüldü ve eksiktir (Mersin ili 0 kayıt; Mersin–Tarsus koridoru üç kaynakta da 0); mobil radar hiçbir statik kaynakta YOKTUR ve kapsam dışıdır. Konum belirsizliği kapısı şartlı kilit #508\'in doğrudan izidir — sahada fix yaşı p50 19,5 s iken bu kapı otoyol hızında çoğunlukla KAPALI kalır ve düşüşler burada SAYILIR. Paket tazeleme politikası HENÜZ KARARLAŞTIRILMAMIŞTIR (ADR §6-D.3) — paket bugün statiktir. Gerçek araç doğrulaması YAPILMADI.',
+  },
+  {
     id: 'fleet-identity', category: 'vehicle', name: 'Fleet Identity',
     desc: 'Araç kimlik boru hattının salt-okunur gözlemi: kimlik durumu (UNKNOWN·PENDING·VERIFIED·CONFLICT·STALE) · maskeli VIN + marka/model/yıl/nesil · aktif OBD protokolü · parmak izi ön eki ve şema sürümü · yayıncı durumu, retry/dedupe/çakışma sayaçları · sunucu hükmü, güveni ve revizyonu.',
     status: 'AVAILABLE', layer: null,
@@ -220,6 +227,12 @@ export const CAROS_LAB_TOOLS: readonly CarosLabTool[] = Object.freeze([
     desc: 'UDS servis/alt-fonksiyon gezgini, NRC çözümleme.',
     status: 'PLACEHOLDER', layer: 'UDS / ISO 14229',
     note: 'Ekran yok. İstek üreten bir gezgin güvenlik incelemesi gerektirir (Faz A2).',
+  },
+  {
+    id: 'remote-command', category: 'communication', name: 'Uzak Komut Zinciri',
+    desc: '"Arabam Cebimde" telefonundan gelen komutların araç tarafındaki salt-okunur kanıt defteri: dinleyici bağlı mı · alınan/tamamlanan/reddedilen/başarısız komut sayıları · yeniden deneme ve TTL aşımı · KAPI SAYAÇLARI (E2E şifre kapısı · sürüş güvenliği kapısı · tanımsız komut tipi) · son komutun TİPİ ve sonucu · hız otoritesi (abonelik durumu, işlenen örnek, güvenlik kapısına verilen ölçüm, hız ölçülemeyen anlar) · araçtaki geçerli hız uyarısı ayarı, üretilen ve cooldown ile bastırılan uyarılar, bildirim kanalının bağlı olup olmadığı.',
+    status: 'AVAILABLE', layer: 'Supabase Realtime',
+    note: 'Hiçbir şey BAŞLATMAZ: komut GÖNDERMEZ, dinleyiciyi yeniden BAĞLAMAZ, hız uyarısı ayarını DEĞİŞTİRMEZ, bildirim TETİKLEMEZ, ağ çağrısı YAPMAZ — açılışta tek okuma + elle YENİLE. GİZLİLİK: komut payload verisi, nonce, api_key, E2E anahtar malzemesi, komut ve araç kimliği (UUID), koordinat ve hedef adres bu ekrana TAŞINMAZ; yalnız sayılar, komut TİPİ, durumlar ve zaman yaşları görünür. DÜRÜSTLÜK: "komut çalışmadı" tek sebep değildir — dinleyici yok · şifre kapısı · güvenlik kapısı · tanımsız tip AYRI hükümlerdir. "Tamamlandı" sayacı aracın komutu YÜRÜTTÜĞÜNÜ gösterir, fiziksel eylemin (kapı gerçekten kilitlendi mi) olduğunu KANITLAMAZ. Sayaçlar oturumludur, diske yazılmaz. Telefon tarafındaki kuyruk burada GÖRÜNMEZ. Gerçek araç doğrulaması YAPILMADI.',
   },
   {
     id: 'session-inspector', category: 'communication', name: 'Oturum Denetçisi',
