@@ -52,10 +52,13 @@ function voltagePct(v: number): number {
 const BatteryGauge = memo(function BatteryGauge({
   voltage,
   loading,
+  errorMsg,
   onRefresh,
 }: {
   voltage: number | undefined;
   loading: boolean;
+  /** Aracın bildirdiği GERÇEK ölçüm gerekçesi — yoksa genel mesaj gösterilir. */
+  errorMsg?: string;
   onRefresh: () => void;
 }) {
   const v     = voltage ?? 0;
@@ -144,11 +147,13 @@ const BatteryGauge = memo(function BatteryGauge({
           )}
         </>
       ) : (
-        <div className="flex items-center justify-center gap-2 py-4 text-sm" style={{ color: 'rgba(255,255,255,0.2)' }}>
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+        <div className="flex items-center justify-center gap-2 py-4 text-sm text-center"
+          style={{ color: errorMsg ? 'rgba(248,113,113,0.75)' : 'rgba(255,255,255,0.2)' }}>
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className="flex-shrink-0">
             <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="1.3" strokeDasharray="4 2"/>
           </svg>
-          OBD bağlantısı için araç motorunu çalıştırın
+          {/* Ölçüm yoksa SAYI UYDURULMAZ; araç gerekçe bildirdiyse o gösterilir. */}
+          {errorMsg || 'OBD bağlantısı için araç motorunu çalıştırın'}
         </div>
       )}
     </div>
@@ -188,11 +193,32 @@ const DtcCard = memo(function DtcCard({ dtc }: { dtc: DtcCode }) {
 
 type DtcPhase = 'idle' | 'sending' | 'waiting' | 'done' | 'error' | 'clearing';
 
+/**
+ * Komut sonucunu araçtan okur. Modül seviyesinde — hem DTC hem voltaj akışı
+ * AYNI okuma yolunu kullanır (paralel gerçek kaynağı kurulmaz).
+ */
+async function fetchDiagResult(commandId: string, vid: string): Promise<DtcResult> {
+  const apiKey = getStoredApiKey(vid);
+  const headers: Record<string, string> = {};
+  if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
+
+  const res = await fetch(
+    `/api/pwa/dtc-result?commandId=${encodeURIComponent(commandId)}&vehicleId=${encodeURIComponent(vid)}`,
+    { headers },
+  );
+  if (!res.ok) throw new Error('Sonuç alınamadı');
+  return (await res.json()) as DtcResult;
+}
+
 function useDtcReader(vehicleId: string | null) {
   const [phase,   setPhase]   = useState<DtcPhase>('idle');
   const [dtcs,    setDtcs]    = useState<DtcCode[]>([]);
   const [readAt,  setReadAt]  = useState<string>('');
   const [errMsg,  setErrMsg]  = useState('');
+  /** true → tarama KISMİ; boş liste "arıza yok" diye sunulamaz (fail-closed). */
+  const [partial, setPartial] = useState(false);
+  /** true → sonuç gerçek araçtan değil, demo verisinden geldi. */
+  const [demo,    setDemo]    = useState(false);
   const mounted               = useRef(true);
   const unsubRef              = useRef<(() => void) | null>(null);
 
@@ -204,17 +230,14 @@ function useDtcReader(vehicleId: string | null) {
     };
   }, []);
 
-  const fetchResult = useCallback(async (commandId: string, vid: string) => {
-    const apiKey = getStoredApiKey(vid);
-    const headers: Record<string, string> = {};
-    if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
+  const fetchResult = useCallback(fetchDiagResult, []);
 
-    const res = await fetch(
-      `/api/pwa/dtc-result?commandId=${encodeURIComponent(commandId)}&vehicleId=${encodeURIComponent(vid)}`,
-      { headers },
-    );
-    if (!res.ok) throw new Error('Sonuç alınamadı');
-    return (await res.json()) as DtcResult;
+  /** Sonucu tek yerde uygular — üç ekranın gerçeği ayrışmasın. */
+  const applyResult = useCallback((data: DtcResult) => {
+    setDtcs(data.dtcs);
+    setReadAt(data.readAt);
+    setPartial(data.partial === true);
+    setDemo(data.demo === true);
   }, []);
 
   const readDtc = useCallback(async () => {
@@ -237,8 +260,7 @@ function useDtcReader(vehicleId: string | null) {
       try {
         const data = await fetchResult(result.commandId, vehicleId);
         if (!mounted.current) return;
-        setDtcs(data.dtcs);
-        setReadAt(data.readAt);
+        applyResult(data);
         setPhase('done');
       } catch {
         if (mounted.current) { setPhase('error'); setErrMsg('Demo sonuç alınamadı.'); }
@@ -255,18 +277,26 @@ function useDtcReader(vehicleId: string | null) {
         try {
           const data = await fetchResult(result.commandId!, vehicleId);
           if (!mounted.current) return;
-          setDtcs(data.dtcs);
-          setReadAt(data.readAt);
+          applyResult(data);
           setPhase('done');
         } catch {
           if (mounted.current) { setPhase('error'); setErrMsg('Araç verileri alınamadı.'); }
         }
       } else if (['failed', 'expired', 'rejected'].includes(ev.status)) {
-        if (mounted.current) { setPhase('error'); setErrMsg('Araç DTC okumasını tamamlayamadı.'); }
+        if (!mounted.current) return;
+        // Aracın bildirdiği GERÇEK gerekçeyi göster — genel metin son çaredir.
+        try {
+          const data = await fetchResult(result.commandId!, vehicleId);
+          if (!mounted.current) return;
+          setErrMsg(data.errorReason || 'Araç DTC okumasını tamamlayamadı.');
+        } catch {
+          if (mounted.current) setErrMsg('Araç DTC okumasını tamamlayamadı.');
+        }
+        if (mounted.current) setPhase('error');
       }
     });
     unsubRef.current = unsub;
-  }, [vehicleId, phase, fetchResult]);
+  }, [vehicleId, phase, fetchResult, applyResult]);
 
   const clearDtc = useCallback(async () => {
     if (!vehicleId || phase === 'clearing') return;
@@ -282,23 +312,59 @@ function useDtcReader(vehicleId: string | null) {
       return;
     }
 
-    // After clearing wait a moment then reset
-    setTimeout(() => {
+    // Demo modunda araç yoktur — silme DOĞRULANAMAZ, o yüzden sonuç okunur.
+    if (result.commandId?.startsWith('demo-cmd-')) {
+      try {
+        const data = await fetchDiagResult(result.commandId, vehicleId);
+        if (!mounted.current) return;
+        applyResult(data);
+      } catch { /* demo sonucu okunamadı — liste KORUNUR */ }
+      if (mounted.current) setPhase('done');
+      return;
+    }
+
+    /* ÖNCEDEN: komut gönderildikten 2 sn sonra liste körlemesine boşaltılıyor ve
+       "temizlendi" izlenimi veriliyordu — araç komutu REDDETSE bile (write-gate:
+       araç hareket halinde) kullanıcı kodların silindiğini sanıyordu. Artık
+       aracın terminal durumu BEKLENİR ve silme sonrası DOĞRULAMA okuması
+       (`result.dtcs`) uygulanır: kalan kod varsa dürüstçe listede kalır. */
+    unsubRef.current?.();
+    const unsub = subscribeCommandStatus(result.commandId!, async (ev) => {
       if (!mounted.current) return;
-      setDtcs([]);
-      setReadAt(new Date().toISOString());
-      setPhase('idle');
-    }, 2_000);
-  }, [vehicleId, phase]);
+      if (ev.status === 'completed') {
+        try {
+          const data = await fetchDiagResult(result.commandId!, vehicleId);
+          if (!mounted.current) return;
+          applyResult(data);
+        } catch {
+          // Sonuç okunamadı → liste TEMİZLENMEZ (yalancı temizleme yok).
+          if (mounted.current) setErrMsg('Silme sonucu okunamadı — listeyi yeniden tarayın.');
+        }
+        if (mounted.current) setPhase('done');
+      } else if (['failed', 'expired', 'rejected'].includes(ev.status)) {
+        try {
+          const data = await fetchDiagResult(result.commandId!, vehicleId);
+          if (mounted.current) setErrMsg(data.errorReason || 'Araç arıza kodlarını silemedi.');
+        } catch {
+          if (mounted.current) setErrMsg('Araç arıza kodlarını silemedi.');
+        }
+        // Kodlar SİLİNMEDİ → liste olduğu gibi kalır.
+        if (mounted.current) setPhase('done');
+      }
+    });
+    unsubRef.current = unsub;
+  }, [vehicleId, phase, applyResult]);
 
   const reset = useCallback(() => {
     setPhase('idle');
     setDtcs([]);
     setReadAt('');
     setErrMsg('');
+    setPartial(false);
+    setDemo(false);
   }, []);
 
-  return { phase, dtcs, readAt, errMsg, readDtc, clearDtc, reset };
+  return { phase, dtcs, readAt, errMsg, partial, demo, readDtc, clearDtc, reset };
 }
 
 // ── Main component ─────────────────────────────────────────────────────────────
@@ -306,35 +372,55 @@ function useDtcReader(vehicleId: string | null) {
 export default function DiagnosticsPanel({ vehicle }: Props) {
   const [voltage,         setVoltage]         = useState<number | undefined>(vehicle?.batteryVoltage);
   const [voltageLoading,  setVoltageLoading]  = useState(false);
+  const [voltageErr,      setVoltageErr]      = useState('');
 
-  const { phase, dtcs, readAt, errMsg, readDtc, clearDtc, reset } = useDtcReader(vehicle?.id ?? null);
+  const { phase, dtcs, readAt, errMsg, partial, demo, readDtc, clearDtc, reset } =
+    useDtcReader(vehicle?.id ?? null);
 
   const handleReadVoltage = useCallback(async () => {
     if (!vehicle?.id || voltageLoading) return;
+    const vid = vehicle.id;
     setVoltageLoading(true);
+    setVoltageErr('');
 
-    const result = await sendCommand(vehicle.id, 'read_voltage', {});
-    if (!result.ok) { setVoltageLoading(false); return; }
-
-    // Demo: simulate a returned value after short delay
-    if (result.commandId?.startsWith('demo-cmd-')) {
-      setTimeout(() => {
-        setVoltage(11.8 + Math.random() * 1.6); // 11.8–13.4V
-        setVoltageLoading(false);
-      }, 1_200);
+    const result = await sendCommand(vid, 'read_voltage', {});
+    if (!result.ok) {
+      setVoltageLoading(false);
+      setVoltageErr(result.error ?? 'Voltaj komutu gönderilemedi.');
       return;
     }
 
-    // Real: subscribe and wait for result via vehicle telemetry update
-    // The car pushes updated batteryVoltage into the telemetry stream;
-    // we just poll once after command completes.
+    /* ÖNCEDEN İKİ UYDURMA VARDI:
+       (1) demo modunda `11.8 + Math.random()*1.6` ile RASTGELE voltaj basılıyordu;
+       (2) gerçek modda komut tamamlanınca `vehicle.batteryVoltage ?? 12.4` ile
+           ölçüm yoksa SAHTE 12,4 V gösteriliyordu — ve komutun kendi sonucu
+           hiç okunmuyordu. Artık tek gerçek kaynak aracın yazdığı `result.voltage`;
+       ölçüm yoksa sayı BASILMAZ, gerekçe gösterilir. */
+    const readVoltageResult = async () => {
+      try {
+        const data = await fetchDiagResult(result.commandId!, vid);
+        if (typeof data.voltage === 'number' && Number.isFinite(data.voltage)) {
+          setVoltage(data.voltage);
+        } else {
+          setVoltageErr(data.errorReason || 'Akü voltajı ölçülemedi.');
+        }
+      } catch {
+        setVoltageErr('Voltaj sonucu okunamadı.');
+      }
+      setVoltageLoading(false);
+    };
+
+    if (result.commandId?.startsWith('demo-cmd-')) {
+      await readVoltageResult();
+      return;
+    }
+
     const unsub = subscribeCommandStatus(result.commandId!, (ev) => {
       if (ev.status === 'completed') {
-        setVoltage(vehicle.batteryVoltage ?? 12.4);
-        setVoltageLoading(false);
+        void readVoltageResult();
         unsub();
       } else if (['failed', 'expired', 'rejected'].includes(ev.status)) {
-        setVoltageLoading(false);
+        void readVoltageResult(); // gerekçe `error_reason`'dan okunur
         unsub();
       }
     });
@@ -360,6 +446,7 @@ export default function DiagnosticsPanel({ vehicle }: Props) {
       <BatteryGauge
         voltage={voltage}
         loading={voltageLoading}
+        errorMsg={voltageErr}
         onRefresh={() => void handleReadVoltage()}
       />
 
@@ -523,7 +610,64 @@ export default function DiagnosticsPanel({ vehicle }: Props) {
               </p>
             )}
 
+            {/* Temizleme/okuma gerekçesi — `done` fazında da görünmeli, yoksa
+                reddedilen silme sessizce başarılı sanılır. */}
+            {errMsg && (
+              <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl"
+                style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)' }}>
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none" className="flex-shrink-0">
+                  <circle cx="7" cy="7" r="5.5" stroke="#ef4444" strokeWidth="1.3"/>
+                  <path d="M5.2 5.2l3.6 3.6M8.8 5.2l-3.6 3.6" stroke="#ef4444" strokeWidth="1.3" strokeLinecap="round"/>
+                </svg>
+                <p className="text-[10px] font-semibold text-red-300/85">{errMsg}</p>
+              </div>
+            )}
+
+            {/* Demo verisi rozeti — gerçek araç okuması DEĞİL. */}
+            {demo && (
+              <div className="flex items-center gap-2 px-3 py-2 rounded-xl"
+                style={{ background: 'rgba(167,139,250,0.08)', border: '1px solid rgba(167,139,250,0.28)' }}>
+                <span className="text-[9px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded"
+                  style={{ background: 'rgba(167,139,250,0.18)', color: '#c4b5fd' }}>DEMO</span>
+                <p className="text-[10px]" style={{ color: 'rgba(196,181,253,0.75)' }}>
+                  Bu sonuç örnek veridir — hiçbir araçtan okunmadı.
+                </p>
+              </div>
+            )}
+
+            {/* Kısmi tarama — boş liste "temiz" DEĞİLDİR. */}
+            {partial && (
+              <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl"
+                style={{ background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.3)' }}>
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none" className="flex-shrink-0">
+                  <path d="M7 1L13 12H1L7 1Z" stroke="#f59e0b" strokeWidth="1.3" strokeLinejoin="round"/>
+                  <path d="M7 5.5v3M7 10v.5" stroke="#f59e0b" strokeWidth="1.3" strokeLinecap="round"/>
+                </svg>
+                <p className="text-[10px] font-semibold" style={{ color: '#fbbf24' }}>
+                  Tarama tamamlanamadı — en az bir sistem okunamadı. Bu liste eksik olabilir.
+                </p>
+              </div>
+            )}
+
             {dtcs.length === 0 ? (
+              partial ? (
+                /* Kısmi taramada "Arıza Kodu Yok" YAZILAMAZ — okunamayan sistem,
+                   arızası olmayan sistemle aynı şey değildir (fail-closed). */
+                <div className="flex flex-col items-center gap-2 py-6 rounded-2xl"
+                  style={{ background: 'rgba(245,158,11,0.05)', border: '1px solid rgba(245,158,11,0.18)' }}>
+                  <div className="w-10 h-10 rounded-xl flex items-center justify-center"
+                    style={{ background: 'rgba(245,158,11,0.12)', border: '1px solid rgba(245,158,11,0.22)' }}>
+                    <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+                      <circle cx="9" cy="9" r="7" stroke="#f59e0b" strokeWidth="1.6" strokeDasharray="4 3"/>
+                    </svg>
+                  </div>
+                  <p className="text-sm font-bold" style={{ color: '#fbbf24' }}>Sonuç Belirsiz</p>
+                  <p className="text-[10px] text-center px-4" style={{ color: 'rgba(251,191,36,0.5)' }}>
+                    Okunabilen sistemlerde kod bulunamadı, ancak tarama eksik kaldı.
+                    Kontak açıkken tekrar deneyin.
+                  </p>
+                </div>
+              ) : (
               <div className="flex flex-col items-center gap-2 py-6 rounded-2xl"
                 style={{ background: 'rgba(52,211,153,0.06)', border: '1px solid rgba(52,211,153,0.18)' }}>
                 <div className="w-10 h-10 rounded-xl flex items-center justify-center"
@@ -535,6 +679,7 @@ export default function DiagnosticsPanel({ vehicle }: Props) {
                 <p className="text-sm font-bold text-emerald-300">Arıza Kodu Yok</p>
                 <p className="text-[10px] text-emerald-400/40">Sistemler normal çalışıyor</p>
               </div>
+              )
             ) : (
               <>
                 {/* Summary bar */}

@@ -8,6 +8,8 @@ export interface DtcCode {
   severity: 'critical' | 'warning' | 'info';
   system:   string;
   desc:     string;
+  /** Hangi OBD modundan geldi (araç tarafı doldurur; eski kayıtlarda yok). */
+  status?:  'stored' | 'pending' | 'permanent';
 }
 
 export interface DtcResult {
@@ -15,6 +17,17 @@ export interface DtcResult {
   voltage?:  number;
   readAt:    string;
   status:    'completed' | 'pending' | 'failed';
+  /**
+   * true → araçta en az bir tarama modu okunamadı. BOŞ LİSTE "arıza yok"
+   * ANLAMINA GELMEZ; UI bunu "temiz" diye sunamaz (fail-closed).
+   */
+  partial?:  boolean;
+  /** false → araç Mode 0A'yı hiç desteklemiyor ("kalıcı kod yok" ile aynı şey değil). */
+  permanentSupported?: boolean;
+  /** Komut başarısızsa aracın bildirdiği GERÇEK gerekçe (uydurulmaz). */
+  errorReason?: string;
+  /** true → gerçek araç okuması DEĞİL, demo verisi. UI bunu görünür işaretler. */
+  demo?:     boolean;
 }
 
 // Demo DTC codes for offline/demo mode
@@ -44,6 +57,9 @@ export async function GET(req: NextRequest) {
       voltage: 12.4,
       readAt:  new Date().toISOString(),
       status:  'completed',
+      // Bu veri hiçbir araçtan OKUNMADI. İşaretlenmezse ürün ekranında gerçek
+      // teşhis gibi görünür (P0420/P0171/P0562 uydurma kodlardır).
+      demo:    true,
     };
     return NextResponse.json(result);
   }
@@ -66,7 +82,7 @@ export async function GET(req: NextRequest) {
 
   const { data: cmd, error: cmdErr } = await supabaseAdmin
     .from('vehicle_commands')
-    .select('id, status, result, created_at')
+    .select('id, status, result, error_reason, created_at')
     .eq('id', commandId)
     .eq('vehicle_id', vehicleId)
     .maybeSingle();
@@ -75,17 +91,35 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Komut bulunamadı.' }, { status: 404 });
   }
 
-  const row = cmd as { id: string; status: string; result?: Record<string, unknown>; created_at: string };
+  const row = cmd as {
+    id: string; status: string;
+    result?: Record<string, unknown> | null;
+    error_reason?: string | null;
+    created_at: string;
+  };
 
   if (row.status !== 'completed') {
-    return NextResponse.json({ status: row.status, dtcs: [], readAt: row.created_at });
+    // Araç reddetti/başaramadıysa GERÇEK gerekçe taşınır — boş liste sessizce
+    // "arıza yok" diye okunamasın diye `partial: true` ile fail-closed işaretlenir.
+    const terminal = ['failed', 'rejected', 'expired'].includes(row.status);
+    return NextResponse.json({
+      status:      row.status,
+      dtcs:        [],
+      readAt:      row.created_at,
+      partial:     terminal,
+      errorReason: row.error_reason ?? undefined,
+    });
   }
 
   const result: DtcResult = {
     dtcs:    (row.result?.dtcs as DtcCode[]) ?? [],
     voltage: row.result?.voltage as number | undefined,
-    readAt:  row.created_at,
+    readAt:  (row.result?.readAt as string | undefined) ?? row.created_at,
     status:  'completed',
+    // Araç tarafının dürüstlük bayrakları — düşürülürse "kısmi tarama" bilgisi
+    // kaybolur ve boş liste "temiz" gibi görünür.
+    partial:            row.result?.partial === true,
+    permanentSupported: row.result?.permanentSupported as boolean | undefined,
   };
 
   return NextResponse.json(result);

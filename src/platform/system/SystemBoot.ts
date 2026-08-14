@@ -46,6 +46,7 @@ import {
   publishRuntimeStarted,
   publishRuntimeStopped,
 } from './platformCoreEventBusWiring';
+import { initPanicHandler }       from './SystemPanicHandler';
 import { startProviderReadiness } from '../ai/gateway/aiProviderReadinessService';
 import { startPlatformCoreAiRuntimeWiring } from './platformCoreAiRuntimeWiring';
 import { startMaintenanceBrain }   from '../diagnostic/maintenanceBrain';
@@ -75,6 +76,8 @@ import { initPushService }         from '../pushService';
 import { startBatteryProtection }  from '../power/BatteryProtectionService';
 import { startVehicleIntelligenceService } from '../vehicleIntelligenceService';
 import { startGuardianRuntime } from '../navigation/guardian/runtime/guardianRuntime';
+import { startSpeedAlertRuntime, setSpeedAlertPushChannel } from '../speedAlertRuntime';
+import { updateCurrentSpeed, notifyVehicleEvent } from '../commandListener';
 import { startAutomaticVehicleFingerprint } from '../vehicleFingerprintBuilder';
 import { startVehicleClassRuntime } from '../vehicle/vehicleClassRuntime';
 import { stopVehicleIdentityCoordinator } from '../telemetry/vehicleIdentityRuntime';
@@ -624,6 +627,20 @@ class SystemBoot {
   private async _wave1(): Promise<void> {
     _log('Starting Wave 1 (Core)...');
 
+    // Panik yakalayıcı — HER ŞEYDEN ÖNCE. Boot'un geri kalanında (ve tüm oturum
+    // boyunca) yakalanmayan `window.onerror` / `unhandledrejection` hataları
+    // ancak bu hook kuruluysa post-mortem snapshot'a dönüşür. Denetim E-34:
+    // fonksiyon yazılmıştı ama ürün yolunda ÇAĞIRANI YOKTU → sahada çöken
+    // cihazdan geriye tanı verisi kalmıyordu. `_reg` (İSİMSİZ) ile kaydedilir:
+    // restart adayı DEĞİL (yeniden kurulum hook zincirini bozardı) ve LIFO
+    // shutdown'da EN SON dispose olur → kapanış hataları da yakalanır.
+    _log('  › initPanicHandler()');
+    try {
+      this._reg(initPanicHandler());
+    } catch (e) {
+      logError('SystemBoot:panicHandler', e);   // fail-soft: boot panic yüzünden DURMAZ
+    }
+
     // Platform Event Bus (PR-W3) — EN ÖNCE kurulur: publisher/bridge/Kernel'den ÖNCE var olmalı.
     // _reg (İSİMSİZ) ile kaydedilir → restartService adayı DEĞİL (restart = sessiz abonelik ölümü).
     // İlk kaydedilen olduğu için LIFO shutdown'da EN SON dispose olur → bridge/publisher'lar
@@ -853,6 +870,16 @@ class SystemBoot {
        otoritesi doğmaz. Fail-soft + zero-leak (cleanup _reg'le). */
     _log('  › GuardianRuntime');
     this._regNamed('GuardianRuntime', startGuardianRuntime());
+
+    /* SpeedAlertRuntime (2026-08-14): "Arabam Cebimde" hız uyarısının araç ucu.
+       Kendi timer'ı YOKTUR — mevcut `onOBDData` akışına biner. İki tüketici,
+       TEK okuma: (1) uzaktan lock/unlock'un sürüş kapısını besler
+       (`updateCurrentSpeed` bugüne dek HİÇ çağrılmıyordu → kapı kördü),
+       (2) kullanıcının belirlediği eşik aşılınca telefona bildirim gönderir.
+       Fail-soft + zero-leak (cleanup _reg'le). */
+    _log('  › SpeedAlertRuntime');
+    setSpeedAlertPushChannel(notifyVehicleEvent);
+    this._reg(startSpeedAlertRuntime({ onSpeed: updateCurrentSpeed }));
 
     // AutomaticVehicleFingerprint (PR-26): araç bağlanınca VID+Discovery'den otomatik
     // fingerprint üret. Fail-soft + kimlik-imza guard (hot-path'e girmez); cleanup _reg'le.

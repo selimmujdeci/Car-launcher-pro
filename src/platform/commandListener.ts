@@ -18,6 +18,8 @@ import {
 import { sensitiveKeyStore }                       from './sensitiveKeyStore';
 import { connectivityService }                     from './connectivityService';
 import { executeMcuCommand, checkCrossChannelNonceReplay } from './nativeCommandBridge';
+import { executeReadDtc, executeReadVoltage, executeClearDtc } from './remoteDiagnosticCommands';
+import { applySpeedAlertConfig, getSpeedAlertConfig } from './speedAlertRuntime';
 import { logInfo }                                 from './debug';
 import { useLayoutStore }                          from '../store/useLayoutStore';
 
@@ -46,7 +48,13 @@ const PUSH_EDGE_FN_URL  = (import.meta.env.VITE_SUPABASE_URL as string | undefin
 
 export type CommandType =
   | 'lock' | 'unlock' | 'horn' | 'alarm_on' | 'alarm_off'
-  | 'lights_on' | 'route_send' | 'navigation_start' | 'theme_change' | 'layout_change';
+  | 'lights_on' | 'route_send' | 'navigation_start' | 'theme_change' | 'layout_change'
+  // Teşhis komutları (2026-08-14): PWA bunları ÖNCEDEN gönderiyordu ama araç
+  // tarafında tip hiç tanımlı değildi → `default: rejected`. Ölü uç kapatıldı.
+  | 'read_dtc' | 'clear_dtc' | 'read_voltage'
+  // Hız uyarısı eşiği (2026-08-14): aynı ölü uç — telefon "Kaydedildi ✓" diyordu
+  // ama ayar araca hiç ulaşmıyordu.
+  | 'set_speed_alert';
 
 interface VehicleCommand {
   id:              string;
@@ -70,6 +78,13 @@ const SPEED_THRESHOLD_KMH = 5;
 // Fiziksel (MCU/CAN) komutlar — yalnız E2E ile gelmelidir (CommandService.java MCU_COMMANDS ile birebir).
 const MCU_COMMANDS: CommandType[] = ['lock', 'unlock', 'horn', 'alarm_on', 'alarm_off', 'lights_on'];
 
+/**
+ * E2E şifreleme ZORUNLU olan komutlar. MCU listesi native tarafla birebir eşleşmek
+ * zorunda olduğu için genişletilmez; yıkıcı teşhis yazması (`clear_dtc`) buraya
+ * eklenir — ECU'dan kod silmek fiziksel komut kadar geri döndürülemezdir.
+ */
+const E2E_REQUIRED_COMMANDS: CommandType[] = [...MCU_COMMANDS, 'clear_dtc'];
+
 let currentSpeedKmh = 0;
 export function updateCurrentSpeed(speedKmh: number): void {
   currentSpeedKmh = speedKmh;
@@ -81,18 +96,89 @@ function isDangerousWhileMoving(type: CommandType): boolean {
 
 // ── Executor ─────────────────────────────────────────────────────────────────
 
-async function executeCommand(
-  cmd: VehicleCommand,
-): Promise<'completed' | 'rejected' | 'failed' | 'crypto_failed'> {
+/* ── Kanıt defteri (CAROS LAB gözlemi) ───────────────────────────────────────
+ *
+ * ZORUNLU GÖZLEMLENEBİLİRLİK (CLAUDE.md): "gözlemlenemeyen özellik tamamlanmış
+ * değildir." Uzak komut zinciri bugüne dek HİÇ gözlenemiyordu — bir komut
+ * çalışmadığında "araç almadı mı · reddetti mi · şifre çözülemedi mi · tip
+ * bilinmiyor mu" AYIRT EDİLEMİYORDU.
+ *
+ * GİZLİLİK (kural 6): payload · nonce · api_key · komut kimliği · araç kimliği ·
+ * koordinat BURAYA GİRMEZ. Yalnız SAYILAR, komut TİPİ ve zaman damgaları tutulur.
+ * Sayaçlar doyar (saturating) — sınırsız büyüme yok.
+ */
+
+export interface CommandEvidence {
+  /** Realtime kanalından alınan komut sayısı. */
+  received:        number;
+  completed:       number;
+  rejected:        number;
+  failed:          number;
+  /** E2E şifre çözme/eksik şifreleme nedeniyle REDDEDİLENLER (güvenlik kapısı). */
+  cryptoFailed:    number;
+  /** Bilinmeyen komut tipi — DB tipi ile ürün tipi ayrışmasının doğrudan izi. */
+  unknownType:     number;
+  /** Sürüş güvenliği kapısı (>5 km/h lock/unlock) kaç kez devreye girdi. */
+  movingBlocked:   number;
+  /** TTL aşımıyla düşen komutlar. */
+  ttlExpired:      number;
+  /** Retry sayısı (toplam yeniden deneme). */
+  retries:         number;
+  /** Son işlenen komutun TİPİ (kimliği DEĞİL) ve sonucu. */
+  lastType:        string | null;
+  lastOutcome:     string | null;
+  /** Son işlem anı (epoch ms) — `null` = hiç komut işlenmedi. */
+  lastAt:          number | null;
+}
+
+const MAX_COUNT = 9_999_999;
+const _evidence: CommandEvidence = {
+  received: 0, completed: 0, rejected: 0, failed: 0, cryptoFailed: 0,
+  unknownType: 0, movingBlocked: 0, ttlExpired: 0, retries: 0,
+  lastType: null, lastOutcome: null, lastAt: null,
+};
+
+function bump(k: keyof CommandEvidence): void {
+  const v = _evidence[k];
+  if (typeof v === 'number' && v < MAX_COUNT) (_evidence[k] as number) = v + 1;
+}
+
+/** Salt-okunur kopya — LAB bu nesneyi MUTASYONA UĞRATAMAZ. */
+export function getCommandEvidence(): CommandEvidence {
+  return { ..._evidence };
+}
+
+/** Yalnız test içindir. */
+export function _resetCommandEvidenceForTest(): void {
+  Object.assign(_evidence, {
+    received: 0, completed: 0, rejected: 0, failed: 0, cryptoFailed: 0,
+    unknownType: 0, movingBlocked: 0, ttlExpired: 0, retries: 0,
+    lastType: null, lastOutcome: null, lastAt: null,
+  });
+}
+
+/**
+ * Yürütme sonucu. `result` yalnız ÖLÇÜM YAPAN komutlarda doludur (teşhis) ve
+ * `vehicle_commands.result` kolonuna yazılır — telefon onu okur. `reason`,
+ * genel gerekçe metnini komuta özel gerçek nedenle DEĞİŞTİRİR (fail-closed:
+ * yoksa eski davranış birebir korunur).
+ */
+type ExecResult = {
+  outcome: 'completed' | 'rejected' | 'failed' | 'crypto_failed';
+  result?: Record<string, unknown>;
+  reason?: string;
+};
+
+async function executeCommand(cmd: VehicleCommand): Promise<ExecResult> {
   let payload = cmd.payload;
 
   // ── C1 fix: Kritik (MCU/CAN) komut E2E olmadan ASLA icra edilmez ────────────
   // Plaintext fiziksel komut = kategorik red. Yalnız başarılı E2E decrypt icra kapısıdır
   // (decrypt aşağıda; başarısızsa crypto_failed). Çift-dinleyici (C3) nonce-replay ile
   // doğal korunur: ilk decrypt nonce'u tüketir, ikinci dinleyici 'Replay Attack' alır.
-  if (MCU_COMMANDS.includes(cmd.type) && !isE2EPayload(payload)) {
+  if (E2E_REQUIRED_COMMANDS.includes(cmd.type) && !isE2EPayload(payload)) {
     console.error(`[CmdListener] Kritik komut E2E olmadan reddedildi: ${cmd.type}`);
-    return 'crypto_failed';
+    return { outcome: 'crypto_failed' };
   }
 
   // ── E2E (ECDH) deşifreleme — yeni yol, önce kontrol edilir ──────────────────
@@ -101,7 +187,7 @@ async function executeCommand(
     if (!privKey) {
       // Anahtar henüz yüklenmemiş — bu kritik bir başlangıç sorunudur
       console.error('[CmdListener] E2E private key yüklenmemiş; komut reddedildi.');
-      return 'crypto_failed';
+      return { outcome: 'crypto_failed' };
     }
     try {
       payload = await decryptE2EPayload(payload, privKey, {
@@ -111,7 +197,7 @@ async function executeCommand(
       // Zero-Plaintext: hata mesajını logla, komutu ASLA icra etme
       const reason = err instanceof Error ? err.message : 'Decryption Error';
       console.error(`[CmdListener] E2E deşifreleme başarısız: ${reason}`);
-      return 'crypto_failed';
+      return { outcome: 'crypto_failed' };
     }
 
   // ── Legacy PBKDF2 deşifreleme — geriye dönük uyumluluk ──────────────────────
@@ -125,17 +211,18 @@ async function executeCommand(
         );
       } else {
         console.warn('[CmdListener] Şifreli payload alındı fakat api_key bulunamadı.');
-        return 'rejected';
+        return { outcome: 'rejected' };
       }
     } catch (err) {
       console.error('[CmdListener] PBKDF2 deşifreleme başarısız:', err);
-      return 'failed';
+      return { outcome: 'failed' };
     }
   }
 
   if (isDangerousWhileMoving(cmd.type)) {
+    bump('movingBlocked');
     console.warn(`[CmdListener] ${cmd.type} sürüş sırasında reddedildi (${currentSpeedKmh} km/h)`);
-    return 'rejected';
+    return { outcome: 'rejected' };
   }
 
   try {
@@ -147,7 +234,36 @@ async function executeCommand(
       case 'alarm_off':
       case 'lights_on':
         // H-4: nativeCommandBridge → CarLauncherPlugin → McuCommandFactory → CAN bus
-        return await executeMcuCommand(cmd.type);
+        return { outcome: await executeMcuCommand(cmd.type) };
+
+      // ── Teşhis okumaları — sonuç `vehicle_commands.result`'a yazılır ────────
+      // Araç bağlı değilse "arıza yok"/"0 V" DENMEZ; yürütücü fail-closed davranır.
+      case 'read_dtc':
+        return await executeReadDtc();
+
+      case 'read_voltage':
+        return await executeReadVoltage();
+
+      case 'clear_dtc':
+        // Yıkıcı: write-gate (hız · rpm · bağlantı) kararı burada EZİLMEZ.
+        return await executeClearDtc();
+
+      case 'set_speed_alert': {
+        // Zero-trust: eşik UZAKTAN gelir. Doğrulama düşerse ayar DEĞİŞMEZ ve
+        // komut `failed` olur — sessizce "kaydedildi" denmez (eski yalanın kökü).
+        const ok = applySpeedAlertConfig(payload.speed_alert ?? payload);
+        if (!ok) {
+          return { outcome: 'failed', reason: 'Geçersiz hız uyarısı ayarı (eşik 30–250 km/h olmalı)' };
+        }
+        const cfg = getSpeedAlertConfig();
+        return {
+          outcome: 'completed',
+          result: {
+            speedAlert: cfg,
+            appliedAt:  new Date().toISOString(),
+          },
+        };
+      }
 
       case 'route_send':
       case 'navigation_start': {
@@ -161,13 +277,13 @@ async function executeCommand(
         if (!Number.isFinite(lat) || lat < -90 || lat > 90 ||
             !Number.isFinite(lng) || lng < -180 || lng > 180) {
           console.error('[CmdListener] Geçersiz koordinat:', lat, lng);
-          return 'failed';
+          return { outcome: 'failed' };
         }
         const intentUri = buildNavIntent(lat, lng, route.address_name ?? '',
           (route.provider_intent ?? 'google_maps') as 'google_maps' | 'yandex' | 'waze' | 'apple_maps');
         // Android'de intent URI'yi window.open ile aç
         window.open(intentUri, '_blank');
-        return 'completed';
+        return { outcome: 'completed' };
       }
 
       case 'theme_change': {
@@ -180,23 +296,24 @@ async function executeCommand(
           });
         }
         localStorage.setItem('theme', theme);
-        return 'completed';
+        return { outcome: 'completed' };
       }
 
       case 'layout_change': {
         // Tema Stüdyo ekran düzeni niyeti — zero-trust normalize + store'a uygula.
         // ProLayout store'u okuyup solveLayout ile yeniden render eder (fail-soft: bozuksa varsayılan).
         useLayoutStore.getState().applyIntent(payload.layout);
-        return 'completed';
+        return { outcome: 'completed' };
       }
 
       default:
+        bump('unknownType');
         console.warn('[CmdListener] Bilinmeyen komut tipi:', cmd.type);
-        return 'rejected';
+        return { outcome: 'rejected' };
     }
   } catch (err) {
     console.error('[CmdListener] Execute hatası:', err);
-    return 'failed';
+    return { outcome: 'failed' };
   }
 }
 
@@ -206,6 +323,11 @@ async function updateCommandStatus(
   commandId:   string,
   status:      'accepted' | 'executing' | 'completed' | 'failed' | 'rejected',
   errorReason?: string,
+  /**
+   * Ölçüm sonucu (yalnız teşhis komutlarında). YAZILMAZSA kolon `NULL` kalır —
+   * "sonuç okunmadı" ile "sonuç boş" ayrımı korunur; sahte `{}` gönderilmez.
+   */
+  result?: Record<string, unknown>,
 ): Promise<void> {
   const SUPABASE_URL     = import.meta.env.VITE_SUPABASE_URL      as string | undefined;
   const SUPABASE_ANON    = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
@@ -218,6 +340,7 @@ async function updateCommandStatus(
   if (status === 'executing') updates.last_attempt_at = now;
   if (['completed', 'failed', 'rejected'].includes(status)) updates.finished_at = now;
   if (errorReason) updates.error_reason = errorReason;
+  if (result !== undefined) updates.result = result;
 
   // Komut durumu kritik — kuyruğa al, at-least-once garantisi
   await connectivityService.enqueue(
@@ -276,6 +399,11 @@ export class CommandListener {
 
   constructor(vehicleId: string) {
     this.vehicleId = vehicleId;
+  }
+
+  /** Bildirim hedefi — `notifyVehicleEvent` için salt-okunur erişim. */
+  getVehicleId(): string {
+    return this.vehicleId;
   }
 
   async connect(): Promise<void> {
@@ -396,7 +524,11 @@ export class CommandListener {
 
   private async handleCommand(cmd: VehicleCommand): Promise<void> {
     // 1. TTL kontrolü
+    bump('received');
     if (cmd.ttl && new Date(cmd.ttl) < new Date()) {
+      bump('ttlExpired');
+      _evidence.lastType = cmd.type; _evidence.lastOutcome = 'ttl_expired';
+      _evidence.lastAt = Date.now();
       await updateCommandStatus(cmd.id, 'failed', 'TTL aşıldı');
       return;
     }
@@ -415,10 +547,20 @@ export class CommandListener {
     await updateCommandStatus(cmd.id, 'accepted');
     await updateCommandStatus(cmd.id, 'executing');
 
-    const outcome = await executeCommand(cmd);
+    const { outcome, result, reason } = await executeCommand(cmd);
+
+    /* Kanıt: hangi tip, hangi sonuç, ne zaman. Komut KİMLİĞİ ve payload
+       defterlere GİRMEZ (gizlilik kuralı 6). */
+    _evidence.lastType = cmd.type;
+    _evidence.lastOutcome = outcome;
+    _evidence.lastAt = Date.now();
+    if (outcome === 'completed')          bump('completed');
+    else if (outcome === 'rejected')      bump('rejected');
+    else if (outcome === 'crypto_failed') bump('cryptoFailed');
 
     if (outcome === 'completed') {
-      await updateCommandStatus(cmd.id, 'completed');
+      // `result` yalnız ölçüm yapan komutlarda doludur → diğerlerinde kolon NULL kalır.
+      await updateCommandStatus(cmd.id, 'completed', undefined, result);
       // Push bildirim: komut tamamlandı
       void triggerPushNotify('command_completed', cmd.vehicle_id, {
         command_id:    cmd.id,
@@ -428,8 +570,11 @@ export class CommandListener {
     }
 
     if (outcome === 'rejected') {
-      // Güvenlik reddi — retry yok
-      await updateCommandStatus(cmd.id, 'rejected', 'Sürüş güvenliği: komut reddedildi');
+      // Güvenlik reddi — retry yok. Yürütücü gerçek gerekçe verdiyse o kullanılır
+      // (write-gate mesajı gibi); vermediyse eski genel metin BİREBİR korunur.
+      await updateCommandStatus(
+        cmd.id, 'rejected', reason ?? 'Sürüş güvenliği: komut reddedildi',
+      );
       return;
     }
 
@@ -448,6 +593,7 @@ export class CommandListener {
       logInfo(`[CmdListener] Retry ${retryCount + 1}/${MAX_RETRY} — ${backoffMs}ms sonra: ${cmd.id}`);
 
       // DB'yi güncelle (retry_count++ ve status pending kalır)
+      bump('retries');
       await incrementRetry(cmd.id, `Attempt ${retryCount + 1} failed`);
 
       // ID dedup'tan çıkar — bir sonraki retry'da tekrar işlenebilsin
@@ -471,11 +617,14 @@ export class CommandListener {
 
       this.retryTimers.set(cmd.id, timer);
     } else {
-      // Max retry aşıldı → kalıcı failed
-      await updateCommandStatus(cmd.id, 'failed', `${MAX_RETRY} denemede başarısız`);
+      // Max retry aşıldı → kalıcı failed. Yürütücünün gerçek gerekçesi varsa
+      // ("adaptörden ATRV gelmiyor" gibi) sayı yerine O gösterilir.
+      bump('failed');
+      const finalReason = reason ?? `${MAX_RETRY} denemede başarısız`;
+      await updateCommandStatus(cmd.id, 'failed', finalReason);
       void triggerPushNotify('command_failed', cmd.vehicle_id, {
         command_id:   cmd.id,
-        error_reason: `${MAX_RETRY} denemede başarısız`,
+        error_reason: finalReason,
       });
     }
   }
@@ -500,6 +649,21 @@ export function stopCommandListener(): void {
 /** Listener canlı mı? pushService wake kararı için. */
 export function isCommandListenerActive(): boolean {
   return _instance !== null;
+}
+
+/**
+ * Araç kaynaklı bir olayı eşleşmiş telefona bildirir (hız uyarısı gibi).
+ * Bildirim yolu TEK OTORİTEDİR — `triggerPushNotify` burada kalır, çağıranlar
+ * kendi `fetch`ini kurmaz. Araç eşleştirilmemişse (listener yok) sessizce
+ * hiçbir şey yapılmaz: kime bildirileceği bilinmez, uydurma hedef seçilmez.
+ */
+export function notifyVehicleEvent(
+  event:   string,
+  payload: Record<string, unknown>,
+): void {
+  const vehicleId = _instance?.getVehicleId();
+  if (!vehicleId) return;
+  void triggerPushNotify(event, vehicleId, payload);
 }
 
 /**

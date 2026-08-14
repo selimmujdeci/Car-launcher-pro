@@ -30,6 +30,73 @@ import { safeSetRawImmediate, safeGetRaw } from '../../utils/safeStorage';
 const PANIC_KEY         = 'caros_panic_recovery';
 const RING_BUFFER_SIZE  = 10;
 
+/**
+ * İki snapshot arasındaki asgari süre.
+ *
+ * NEDEN VAR: `window.onerror`a bağlandığımız anda bir render döngüsü hatası
+ * saniyede onlarca kez tetiklenebilir. Her tetikte 6 store `JSON.stringify`
+ * edilip diske yazılırsa düşük-uçlu head unit (Mali-400 / K24) donar —
+ * yani panik yakalayıcı paniğin KENDİSİ olur. Kapı LEADING-EDGE'dir:
+ * **ilk** hata yazılır (kök neden odur), penceredeki türev hatalar
+ * yazılmaz ama SAYILIR (`suppressedCount`) — sessizce yutulmaz.
+ */
+const PANIC_MIN_INTERVAL_MS = 10_000;
+
+// ── Fırtına kapısı durumu + gözlem sayaçları ─────────────────────────────────
+
+let _installed        = false;
+let _lastCaptureAtMs: number | null = null;
+let _captureCount     = 0;
+let _suppressedCount  = 0;
+/** Son yazılan snapshot'ın SEBEP SINIFI — serbest metin/PII taşımaz. */
+let _lastReasonKind: PanicReasonKind | null = null;
+
+/** Sebep sınıfları — ham mesaj DEĞİL, sabit enum (gizlilik + kararlı sözleşme). */
+export type PanicReasonKind =
+  | 'WINDOW_ONERROR' | 'UNHANDLED_REJECTION' | 'UI_FREEZE' | 'WATCHDOG' | 'OTHER';
+
+function _classifyReason(reason: string): PanicReasonKind {
+  if (reason.startsWith('window.onerror'))     return 'WINDOW_ONERROR';
+  if (reason.startsWith('unhandledrejection')) return 'UNHANDLED_REJECTION';
+  if (reason.startsWith('ui_freeze'))          return 'UI_FREEZE';
+  if (reason.startsWith('watchdog'))           return 'WATCHDOG';
+  return 'OTHER';
+}
+
+/** Monotonik saat — duvar saati sıçramasına bağışık; yoksa `Date.now()` (fail-soft). */
+function _monotonicNow(): number {
+  try {
+    if (typeof performance !== 'undefined' && typeof performance.now === 'function') {
+      return performance.now();
+    }
+  } catch { /* yoklama bile düşerse duvar saatine düş */ }
+  return Date.now();
+}
+
+/** Panik yakalayıcının salt-okunur durumu (gözlem içindir; PII/serbest metin YOK). */
+export interface PanicHandlerStatus {
+  /** `initPanicHandler()` çağrıldı ve hook'lar KURULU mu? */
+  readonly installed:       boolean;
+  /** Diske yazılan snapshot sayısı (bu oturum). */
+  readonly captureCount:    number;
+  /** Fırtına kapısında bastırılan tetik sayısı — sessizce yutulmaz. */
+  readonly suppressedCount: number;
+  /** Son yazılan snapshot'ın sebep sınıfı; hiç yazılmadıysa `null` (sahte 0 YOK). */
+  readonly lastReasonKind:  PanicReasonKind | null;
+  /** Olay halka tamponundaki kayıt sayısı. */
+  readonly ringSize:        number;
+}
+
+export function getPanicHandlerStatus(): PanicHandlerStatus {
+  return {
+    installed:       _installed,
+    captureCount:    _captureCount,
+    suppressedCount: _suppressedCount,
+    lastReasonKind:  _lastReasonKind,
+    ringSize:        _eventRingBuffer.length,
+  };
+}
+
 // ── Ring Buffer ───────────────────────────────────────────────────────────────
 
 const _eventRingBuffer: VehicleEvent[] = [];
@@ -65,6 +132,16 @@ interface PanicSnapshot {
  */
 export async function capturePanicSnapshot(reason = 'unknown'): Promise<void> {
   try {
+    /* Fırtına kapısı — bkz. PANIC_MIN_INTERVAL_MS. Monotonik saat KULLANILMAZ:
+       `performance.now()` boot'a görelidir ve panic anında da geçerlidir; duvar
+       saati sıçraması bu kapıyı yanlış açabilirdi (CLAUDE.md §Clock Jump). */
+    const nowMs = _monotonicNow();
+    if (_lastCaptureAtMs !== null && nowMs - _lastCaptureAtMs < PANIC_MIN_INTERVAL_MS) {
+      _suppressedCount++;
+      return;
+    }
+    _lastCaptureAtMs = nowMs;
+
     const snapshot: PanicSnapshot = {
       ts:     Date.now(),
       reason,
@@ -80,6 +157,8 @@ export async function capturePanicSnapshot(reason = 'unknown'): Promise<void> {
     };
 
     await safeSetRawImmediate(PANIC_KEY, JSON.stringify(snapshot));
+    _captureCount++;
+    _lastReasonKind = _classifyReason(reason);
 
     if (import.meta.env.DEV) {
       console.error(`[PanicHandler] Snapshot mühürlendi — reason="${reason}", ts=${snapshot.ts}`);
@@ -164,6 +243,12 @@ function _extractField(obj: unknown, field: string): string {
  * @returns cleanup fonksiyonu — SystemBoot stop() içinde çağrılır
  */
 export function initPanicHandler(): () => void {
+  /* ÇİFT KURULUM KORUMASI: ikinci çağrı `window.onerror`u KENDİ hook'umuzun
+     üzerine yazar ve `_prevOnError` zinciri kendini çağırırdı (sonsuz özyineleme).
+     İkinci çağrı no-op cleanup döner — birinci kurulum ayakta kalır. */
+  if (_installed) return () => { /* sahibi ilk kurulumdur */ };
+  _installed = true;
+
   // Ring buffer aboneliği
   const unsubEvents = onVehicleEvent(_pushEvent);
 
@@ -197,6 +282,7 @@ export function initPanicHandler(): () => void {
   }
 
   return () => {
+    _installed = false;
     unsubEvents();
     if (typeof window !== 'undefined') {
       window.onerror = _prevOnError;
