@@ -158,6 +158,8 @@ export interface AdLinkLossRaw {
   readonly dominant:             string | null;
   readonly unknownCount:         number;
   readonly pendingRecoveryCount: number;
+  /** #596 — kurtarması bir daha ölçülemeyecek kayıt (bekleyen DEĞİL). */
+  readonly supersededCount:      number;
   readonly medianRecoveryMs:     number | null;
   readonly maxRecoveryMs:        number | null;
   /** En çok eksik olan kanıt — bir sonraki turun ölçüm işi. `null` = boşluk yok. */
@@ -484,6 +486,14 @@ function _linkLossSection(s: AdRawSnapshot): AdSection {
       note: 'Kopmadan sonra HENÜZ başarılı handshake görülmemiş kayıt. ' +
             '"kurtuldu" iddiası kanıt olmadan üretilmez.' },
     l.pendingRecoveryCount,
+  ));
+
+  f.push(observed(
+    { id: 'adLossSuperseded', label: 'kurtarması ölçülemeyen', source: SRC.loss,
+      note: '#596: bu kayıt beklerken YENİ bir kopma doğdu → aradaki toparlanma ' +
+            'gözlenmedi. Süresi bir daha bilinemez; ortanca/en-uzun hesabına GİRMEZ ' +
+            've sonradan gelen ilgisiz bir kurtarma damgası ona YAZILMAZ.' },
+    l.supersededCount,
   ));
 
   for (const [id, label, v] of [

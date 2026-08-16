@@ -144,6 +144,82 @@ describe('#536 · kurtarma imzası ayrımı keskinleştirir', () => {
   });
 });
 
+/* ═══════════════════════════════════════════════════════════════════════════
+ * #596 · İLGİSİZ KURTARMA DAMGASI ESKİ KAYDA YAZILAMAZ
+ *
+ * SAHA (2026-08-16, gerçek araç · CAROS LAB kopyası): kayıt 2 (…767109) ve
+ * kayıt 3 (…776146) 9 sn arayla açıldı; kayıt 3 → 27 976 ms, kayıt 2 →
+ * 828 625 ms (13,8 dk). Sonraki kopma öncekinden 30× hızlı "kurtardı".
+ * `maxRecoveryMs` ölçülmemiş bir sayıya dönüştü; `attachRecovery` bu süreyi
+ * kök-neden keskinleştirmede kullandığı için YANLIŞ PARÇA suçlanabilirdi.
+ * ═══════════════════════════════════════════════════════════════════════ */
+describe('#596 · ölçülemeyen kurtarma uydurulmaz', () => {
+  const wd = (atMs: number, trigger: LinkLossTrigger = 'ECU_SILENT_WATCHDOG') =>
+    classifyLinkLoss(sample({ atMs, trigger }));
+
+  it('🔒 SAHA: 9 sn arayla iki watchdog kopması → eskisi 828 625 ms YEMEZ', () => {
+    let led = appendLinkLoss([], wd(767_109));
+    led = appendLinkLoss(led, wd(776_146));
+
+    // Gerçek kurtarma: en yeni (açık olan) kayda yazılır.
+    led = noteRecovery(led, { recoveredAtMs: 804_122, failedAttempts: 0 });
+    expect(led[1].recoveryMs).toBe(27_976);
+
+    // Çok sonra gelen İLGİSİZ kurtarma eski kayda SIZAMAZ (saha: 828 625).
+    led = noteRecovery(led, { recoveredAtMs: 1_595_734, failedAttempts: 0 });
+    expect(led[0].recoveryMs).toBeNull();
+    expect(led[0].recoverySuperseded).toBe(true);
+    expect(led[0].note).toMatch(/KURTARMA ÖLÇÜLEMEDİ/);
+
+    const s = summarizeLinkLosses(led);
+    expect(s.maxRecoveryMs).toBe(27_976);        // artefakt özete GİRMEZ
+    expect(s.medianRecoveryMs).toBe(27_976);
+    expect(s.supersededCount).toBe(1);
+    expect(s.pendingRecoveryCount).toBe(0);      // ölçülemez ≠ bekliyor
+  });
+
+  it('🔒 ölçülemeyen kayıtta RECOVERY kanıt boşluğu AÇIK kalır', () => {
+    let led = appendLinkLoss([], wd(1_000, 'LINK_DEAD_WATCHDOG'));
+    led = appendLinkLoss(led, wd(2_000, 'LINK_DEAD_WATCHDOG'));
+    expect(led[0].evidenceGap).toContain('RECOVERY');
+  });
+
+  it('🔒 şişmiş süre kök-neden adayını ARTIK keskinleştiremez', () => {
+    let led = appendLinkLoss([], wd(1_000, 'LINK_DEAD_WATCHDOG'));
+    expect(led[0].candidate).toBe('UNKNOWN');        // ön koşul: aday belirsiz
+    led = appendLinkLoss(led, wd(2_000, 'LINK_DEAD_WATCHDOG'));
+    led = noteRecovery(led, { recoveredAtMs: 900_000, failedAttempts: 0 });
+    // Eski kayıt sahte "yavaş kurtarma" ile ADAPTER_UNREACHABLE damgası YEMEZ.
+    expect(led[0].refinedCandidate).toBe('UNKNOWN');
+  });
+
+  it('🔒 KULLANICI eylemi mühür kanıtı DEĞİLDİR (bekleyen kayıt kapanabilir)', () => {
+    let led = appendLinkLoss([], wd(1_000, 'LINK_DEAD_WATCHDOG'));
+    led = appendLinkLoss(led, classifyLinkLoss(sample({ atMs: 2_000, trigger: 'USER' })));
+    led = noteRecovery(led, { recoveredAtMs: 3_000, failedAttempts: 0 });
+    expect(led[0].recoveryMs).toBe(2_000);
+    expect(led[0].recoverySuperseded).toBe(false);
+  });
+
+  it('🔒 başarısız reconnect denemesi mühürLEMEZ — süren kesintinin parçası', () => {
+    let led = appendLinkLoss([], wd(1_000, 'LINK_DEAD_WATCHDOG'));
+    led = appendLinkLoss(led, classifyLinkLoss(sample({ atMs: 2_000, trigger: 'CONNECT_TIMEOUT' })));
+    led = noteRecovery(led, { recoveredAtMs: 3_000, failedAttempts: 1 });
+    // En yeni bekleyen (CONNECT_TIMEOUT) kapanır; asıl kopma HÂLÂ meşru bekliyor.
+    expect(led[0].recoverySuperseded).toBe(false);
+    expect(summarizeLinkLosses(led).supersededCount).toBe(0);
+    expect(summarizeLinkLosses(led).pendingRecoveryCount).toBe(1);
+  });
+
+  it('🔒 tek kopma → mühür YOK, ölçüm normal akar (gerileme koruması)', () => {
+    let led = appendLinkLoss([], wd(1_000));
+    led = noteRecovery(led, { recoveredAtMs: 5_000, failedAttempts: 0 });
+    const s = summarizeLinkLosses(led);
+    expect(s.supersededCount).toBe(0);
+    expect(s.maxRecoveryMs).toBe(4_000);
+  });
+});
+
 describe('#536 · defter sınırlı, özet dürüst', () => {
   it('🔒 halka tavanı korunur (en YENİ kayıtlar kalır)', () => {
     let led = [] as ReturnType<typeof appendLinkLoss>;

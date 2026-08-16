@@ -195,6 +195,18 @@ export interface LinkLossRecord {
   readonly recoveryMs: number | null;
   /** Kurtarmaya kadar düşen deneme sayısı. `null` = kurtarma yok. */
   readonly recoveryFailedAttempts: number | null;
+  /**
+   * #596 — bu kaydın kurtarması ARTIK ÖLÇÜLEMEZ (kanıt penceresi kapandı).
+   *
+   * TEK LİNK → AYNI ANDA TEK AÇIK KOPMA. Bekleyen bir kayıt dururken YENİ bir
+   * kopma doğduysa, arada gözlenemeyen bir toparlanma olmuş demektir (defterin
+   * kurtarma ucu o anda kapanmadı). Eski kaydın gerçek kurtarma süresi bir daha
+   * BİLİNEMEZ; sonradan gelen ilgisiz bir kurtarma damgası ona YAZILAMAZ.
+   *
+   * `true` → `recoveryMs` kalıcı olarak `null`; kayıt "bekliyor" da SAYILMAZ
+   * (beklemek gelecekte kapanabilmek demektir — bu kayıt kapanamaz).
+   */
+  readonly recoverySuperseded: boolean;
 }
 
 /** Kurtarma kanıtı — başarılı handshake anında bilinir. */
@@ -329,6 +341,7 @@ export function classifyLinkLoss(sample: LinkLossSample): LinkLossRecord {
     protocolActive: sample.protocolActive,
     recoveryMs: null,
     recoveryFailedAttempts: null,
+    recoverySuperseded: false,
   };
 }
 
@@ -371,25 +384,68 @@ export function attachRecovery(rec: LinkLossRecord, recovery: LinkLossRecovery):
   return { ...rec, refinedCandidate: refined, note, evidenceGap: gaps, recoveryMs, recoveryFailedAttempts: attempts };
 }
 
-/** Bounded defter — en YENİ kayıtlar korunur. */
+/**
+ * Bounded defter — en YENİ kayıtlar korunur.
+ *
+ * #596 · SAHA ARIZASI (2026-08-16, gerçek araç · CAROS LAB kopyası)
+ * ─────────────────────────────────────────────────────────────────────────
+ * Kayıt 2 (`atMs …767109`) ile kayıt 3 (`atMs …776146`) YALNIZ 9 sn arayla
+ * açıldı; kayıt 3 `recoveryMs: 27976`, kayıt 2 ise `recoveryMs: 828625`
+ * (13,8 dk) aldı. SONRAKİ kopma ÖNCEKİNDEN 30× hızlı "kurtarmış" görünüyor.
+ * Bu bir ölçüm değil, ARTEFAKT: `noteRecovery` kurtarmayı EN YENİ bekleyen
+ * kayda yazar; iki kayıt aynı anda bekliyorsa eskisi açık kalır ve çok
+ * sonra gelen İLGİSİZ bir kurtarma damgasını yer. `maxRecoveryMs` (#536'nın
+ * manşet metriği) böylece ölçülmemiş bir sayı oldu.
+ *
+ * NEDEN SADECE KOZMETİK DEĞİL: `attachRecovery`, süreyi kök-neden adayını
+ * KESKİNLEŞTİRMEK için kullanır (`> LINK_LOSS_SLOW_RECOVERY_MS` →
+ * `ADAPTER_UNREACHABLE`). Şişmiş bir süre YANLIŞ PARÇAYI suçlayabilir.
+ *
+ * DÜZELTME: YALNIZ watchdog tetikleyicisi bir mühür kanıtıdır. Watchdog kopması
+ * ancak SAĞLIKLI durumdan düşerek doğar (`ECU_SILENT` için `dataFresh === true`
+ * şartı) → yeni bir watchdog kaydı, arada gözlenmemiş bir toparlanma OLDUĞUNU
+ * kanıtlar; bekleyen kayıtların kurtarma ucu ölçülemez damgalanır.
+ *
+ * `USER` ve `CONNECT_*` MÜHÜRLEMEZ: kullanıcı eylemi bir toparlanma kanıtı
+ * değildir, başarısız reconnect denemesi ise SÜREN kesintinin parçasıdır —
+ * asıl kayıt hâlâ handshake ile meşru biçimde kapanabilir.
+ *
+ * Uydurma süre yazmaktansa "ölçülemedi" demek anayasa gereğidir.
+ */
+const _SEALING_TRIGGERS: ReadonlySet<LinkLossTrigger> =
+  new Set<LinkLossTrigger>(['LINK_DEAD_WATCHDOG', 'ECU_SILENT_WATCHDOG']);
+
 export function appendLinkLoss(
   ledger: readonly LinkLossRecord[], rec: LinkLossRecord,
 ): LinkLossRecord[] {
-  const out = [...ledger, rec];
+  const sealed = !_SEALING_TRIGGERS.has(rec.trigger) ? ledger : ledger.map((r) =>
+    r.recoveryMs === null && !r.recoverySuperseded && r.trigger !== 'USER'
+      ? {
+          ...r,
+          recoverySuperseded: true,
+          note: `${r.note} → KURTARMA ÖLÇÜLEMEDİ (yeni kopma öncesi toparlanma gözlenmedi)`,
+        }
+      : r);
+  const out = [...sealed, rec];
   return out.length > LINK_LOSS_RING ? out.slice(out.length - LINK_LOSS_RING) : out;
 }
 
 /**
  * Kurtarmayı BEKLEYEN en yeni kayda işler. Bekleyen yoksa defter DEĞİŞMEZ
  * (kurtarma kanıtı sahibi olmayan bir kayda yazılmaz).
+ *
+ * EN YENİ doğrudur: kurtarma anında AÇIK olan arıza en son doğandır. #596'dan
+ * beri daha eski kayıtlar zaten `recoverySuperseded` damgalıdır → bu döngü
+ * onları atlar ve ilgisiz bir damga geriye YAZILAMAZ.
  */
 export function noteRecovery(
   ledger: readonly LinkLossRecord[], recovery: LinkLossRecovery,
 ): LinkLossRecord[] {
   for (let i = ledger.length - 1; i >= 0; i--) {
     const rec = ledger[i];
-    /* Kullanıcı eylemi bir arıza değildir → kurtarma kanıtı ona bağlanmaz. */
-    if (rec.recoveryMs !== null || rec.trigger === 'USER') continue;
+    /* Kullanıcı eylemi bir arıza değildir → kurtarma kanıtı ona bağlanmaz.
+       #596: ölçüm penceresi kapanmış kayda da YAZILMAZ. */
+    if (rec.recoveryMs !== null || rec.recoverySuperseded || rec.trigger === 'USER') continue;
     const out = ledger.slice();
     out[i] = attachRecovery(rec, recovery);
     return out;
@@ -407,8 +463,14 @@ export interface LinkLossSummary {
    * `USER_ACTION` baskın SAYILMAZ: ilki kanıt yokluğu, ikincisi arıza değildir.
    */
   readonly dominant: LinkLossCandidate | null;
-  /** Kurtarma kanıtı henüz gelmemiş kayıt sayısı. */
+  /** Kurtarma kanıtı henüz gelmemiş — ama HÂLÂ gelebilir — kayıt sayısı. */
   readonly pendingRecoveryCount: number;
+  /**
+   * #596 — kurtarması BİR DAHA ölçülemeyecek kayıt sayısı (üzerine yeni kopma
+   * doğdu). "Bekliyor" DEĞİLDİR; median/max hesabına da GİRMEZ. >0 ise defter
+   * şunu söylüyor: bu kadar toparlanma gözlenmeden geçti.
+   */
+  readonly supersededCount: number;
   /** Kanıt yetersizliğinden aday kurulamayan kayıt sayısı. */
   readonly unknownCount: number;
   readonly medianRecoveryMs: number | null;
@@ -453,13 +515,18 @@ export function summarizeLinkLosses(ledger: readonly LinkLossRecord[]): LinkLoss
   const evidenceGapCounts = _emptyGaps();
   const recoveries: number[] = [];
   let pendingRecoveryCount = 0;
+  let supersededCount = 0;
 
   for (const r of ledger) {
     byTrigger[r.trigger] += 1;
     byCandidate[r.refinedCandidate] += 1;
     for (const g of r.evidenceGap) evidenceGapCounts[g] += 1;
     if (r.recoveryMs === null) {
-      if (r.trigger !== 'USER') pendingRecoveryCount += 1;
+      /* #596: ölçülemez kayıt "bekleyen" DEĞİLDİR — ikisini aynı sayaçta
+         toplamak defterin en pahalı yalanıydı (bekleyen sanılan kayıt sonradan
+         ilgisiz bir damga yiyordu). */
+      if (r.recoverySuperseded) supersededCount += 1;
+      else if (r.trigger !== 'USER') pendingRecoveryCount += 1;
     } else {
       recoveries.push(r.recoveryMs);
     }
@@ -489,6 +556,7 @@ export function summarizeLinkLosses(ledger: readonly LinkLossRecord[]): LinkLoss
     byCandidate,
     dominant,
     pendingRecoveryCount,
+    supersededCount,
     unknownCount: byCandidate.UNKNOWN,
     medianRecoveryMs: _median(recoveries),
     maxRecoveryMs: recoveries.length > 0 ? Math.max(...recoveries) : null,

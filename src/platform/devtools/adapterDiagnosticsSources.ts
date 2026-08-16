@@ -142,6 +142,7 @@ export function readAdapterDiagnosticsSnapshot(): AdRawSnapshot {
         ? LINK_LOSS_CANDIDATE_LABEL[loss.summary.dominant] : null,
       unknownCount:         loss.summary.unknownCount,
       pendingRecoveryCount: loss.summary.pendingRecoveryCount,
+      supersededCount:      loss.summary.supersededCount,
       medianRecoveryMs:     loss.summary.medianRecoveryMs,
       maxRecoveryMs:        loss.summary.maxRecoveryMs,
       nextMeasurement:      loss.summary.nextMeasurement !== null
