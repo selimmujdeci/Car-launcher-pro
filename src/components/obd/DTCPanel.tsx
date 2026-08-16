@@ -324,7 +324,7 @@ function DTCPanelInner({ active = false }: { active?: boolean }) {
       className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden"
       style={{ WebkitOverflowScrolling: 'touch', touchAction: 'pan-y', overscrollBehavior: 'contain' } as React.CSSProperties}
     >
-    <div className="flex flex-col gap-5 p-6 glass-card border-none !shadow-none">
+    <div data-theme-surface="diagnostics" data-editable="dtc-panel" data-editable-type="panel" className="flex flex-col gap-5 p-6 glass-card border-none !shadow-none">
 
       {/* ── Title row ──────────────────────────────────── */}
       <div className="flex items-center justify-between">

@@ -35,7 +35,7 @@ import { useNavSummary } from '../../hooks/useNavSummary';
 import { type AppItem } from '../../data/apps';
 import type { SmartSnapshot } from '../../platform/smartEngine';
 import { MagicContextCard } from '../common/MagicContextCard';
-import { useLayoutStore } from '../../store/useLayoutStore';
+import { useLayoutIntent } from '../../store/useLayoutStore';
 import { solveLayout, normalizeIntent, EXPEDITION_MANIFEST, type Zone } from '../../platform/theme/layoutSolver';
 import emblemUrl from '../../assets/expedition/emblem.png';
 import roverUrl from '../../assets/expedition/rover.png';
@@ -150,10 +150,12 @@ function plateStyle(p: Pal): React.CSSProperties {
     boxShadow: `${p.plateShadow}, ${p.bevel}`,
   };
 }
-const Plate = memo(function Plate({ children, style, className, onClick }: { children: React.ReactNode; style?: React.CSSProperties; className?: string; onClick?: () => void }) {
+/* Tema Stüdyo kimliği: `editId` KARARLI bileşen kimliğidir (themeComponentRegistry).
+   CSS sınıf adı değişse bile tema bozulmaz — bağ yalnız bu öznitelik üzerindendir. */
+const Plate = memo(function Plate({ children, style, className, onClick, editId, editType = 'card' }: { children: React.ReactNode; style?: React.CSSProperties; className?: string; onClick?: () => void; editId?: string; editType?: string }) {
   const p = usePal();
   return (
-    <div className={className} onClick={onClick} style={{ ...plateStyle(p), ...style }}>
+    <div className={className} onClick={onClick} data-editable={editId} data-editable-type={editId ? editType : undefined} style={{ ...plateStyle(p), ...style }}>
       <Rivets />
       {children}
     </div>
@@ -181,7 +183,7 @@ const Header = memo(function Header() {
   // Living theme — bağlantı durumu (online yeşil nabız / offline soluk).
   const online = useLivingThemeState().conn === 'online';
   return (
-    <div className="flex items-center justify-between flex-shrink-0" style={{ height: 50, padding: '0 16px' }}>
+    <div data-editable="expedition.header" data-editable-type="header" className="flex items-center justify-between flex-shrink-0" style={{ height: 50, padding: '0 16px' }}>
       <div className="flex items-center" style={{ gap: 12 }}>
         <img src={emblemUrl} alt="CarOS" style={{ width: 38, height: 38, objectFit: 'contain', filter: p.night ? 'drop-shadow(0 2px 4px rgba(0,0,0,.55))' : 'none' }} />
         <div style={{ fontWeight: 800, fontSize: 20, letterSpacing: '0.22em', color: p.ink2 }}>CAR<b style={{ color: p.ink }}>OS</b></div>
@@ -219,7 +221,7 @@ const SpeedPlate = memo(function SpeedPlate() {
   // 270° yay (r=100, çevre 628 → görünür 471); dolum = hız/200
   const offset = useMemo(() => 471 - Math.min(speed / 200, 1) * 471, [speed]);
   return (
-    <Plate style={{ padding: '22px 20px', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+    <Plate editId="expedition.speed" editType="gauge" style={{ padding: '22px 20px', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
       <div>
         <div style={{ fontWeight: 700, fontSize: 52, lineHeight: 0.95, color: p.ink, fontVariantNumeric: 'tabular-nums', letterSpacing: '0.01em' }}>{time}</div>
         <div style={{ marginTop: 5, color: p.ink2, fontSize: 15, fontWeight: 500 }}>{date}</div>
@@ -264,7 +266,7 @@ const RangePlate = memo(function RangePlate() {
     : null;
   const seg = lvl != null ? Math.round(lvl / 10) : 0;
   return (
-    <Plate style={{ padding: '12px 20px', display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 9 }}>
+    <Plate editId="expedition.range" style={{ padding: '12px 20px', display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 9 }}>
       <div className="flex items-center" style={{ gap: 12 }}>
         <Fuel className="w-[27px] h-[27px]" style={{ color: p.ink2 }} />
         <span style={{ fontWeight: 800, fontSize: 30, color: p.ink, fontVariantNumeric: 'tabular-nums' }}>{range ?? '—'} <small style={{ fontSize: 16, color: p.ink2, fontWeight: 600 }}>km</small></span>
@@ -299,7 +301,7 @@ const MapPlate = memo(function MapPlate({ onOpenMap, fullMapOpen }: { onOpenMap:
   // minHeight 200: grid çökse bile harita konteyneri asla 0px olamaz —
   // MiniMapWidget 0 boyutta init'i bekletir (MiniMapWidget.tsx tryInit)
   return (
-    <Plate style={{ padding: 0, overflow: 'hidden', flex: 1, minWidth: 0, minHeight: 200 }} onClick={onOpenMap}>
+    <Plate editId="expedition.map" editType="map" style={{ padding: 0, overflow: 'hidden', flex: 1, minWidth: 0, minHeight: 200 }} onClick={onOpenMap}>
       <div style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, borderRadius: 20, overflow: 'hidden', cursor: 'pointer' }}>
         {fullMapOpen
           ? <div className="w-full h-full flex items-center justify-center" style={{ background: p.plateSunk }}><Navigation className="w-10 h-10" style={{ color: p.accent }} /></div>
@@ -399,7 +401,7 @@ const MusicPlate = memo(function MusicPlate() {
     ? { background: 'transparent', color: p.accent, border: `2.5px solid ${p.accent}`, boxShadow: `0 0 18px ${p.accentGlow}` }
     : { background: p.accent, color: '#1a0f02', border: 'none', boxShadow: `0 6px 16px ${p.accentGlow}, inset 0 2px 0 rgba(255,255,255,.35)` };
   return (
-    <Plate style={{ padding: '18px 20px', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+    <Plate editId="expedition.music" editType="media" style={{ padding: '18px 20px', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
       <div className="flex items-center" style={{ gap: 14 }}>
         <button onClick={() => openMusicDrawer()} style={{ width: 64, height: 64, borderRadius: 10, flexShrink: 0, border: `1px solid ${p.edge}`, boxShadow: '0 3px 8px rgba(0,0,0,.5)', overflow: 'hidden', background: p.plateSunk, cursor: 'pointer', display: 'grid', placeItems: 'center' }}>
           {track.albumArt ? <img src={track.albumArt} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : <Music2 className="w-7 h-7" style={{ color: p.accent }} />}
@@ -439,7 +441,7 @@ const VehiclePlate = memo(function VehiclePlate({ onOpenSettings }: { onOpenSett
   const motor = eng.engineTemp != null ? Math.round(eng.engineTemp) : null;
   const rpm = eng.rpm;
   return (
-    <Plate style={{ padding: '18px 20px 0', display: 'flex', flexDirection: 'column', overflow: 'hidden' }} onClick={onOpenSettings}>
+    <Plate editId="expedition.vehicle" style={{ padding: '18px 20px 0', display: 'flex', flexDirection: 'column', overflow: 'hidden' }} onClick={onOpenSettings}>
       <div className="flex items-baseline justify-between">
         <Label>Araç Durumu</Label>
         <div className="flex items-center" style={{ gap: 4 }}>
@@ -476,8 +478,10 @@ function Metric({ k, v, unit, border, warn }: { k: string; v: string; unit: stri
 function DockBtn({ Icon, cap, active, onClick, badge }: { Icon: typeof Navigation; cap: string; active?: boolean; onClick: () => void; badge?: number }) {
   const p = usePal();
   // flex 0 0 33.333% → her zaman 3 buton görünür; fazlası yatay kaydırmayla gelir.
+  // Tema Stüdyo: dock butonları TOPLUCA düzenlenir — 17 butona ayrı kimlik vermek
+  // kayıt defterini şişirir; aynı kimlik hepsinde → tek CSS kuralı hepsine iner.
   return (
-    <button onClick={onClick} className="ex-dock-btn flex flex-col items-center justify-center flex-shrink-0" style={{ flex: '0 0 38%', minWidth: 0, scrollSnapAlign: 'start', background: 'transparent', border: 'none', cursor: 'pointer', gap: 8, color: active ? p.accent : p.ink2, borderRight: `1px solid ${p.hairline}`, position: 'relative', touchAction: 'pan-x' }}>
+    <button data-editable="expedition.dock-buttons" data-editable-type="dock" onClick={onClick} className="ex-dock-btn flex flex-col items-center justify-center flex-shrink-0" style={{ flex: '0 0 38%', minWidth: 0, scrollSnapAlign: 'start', background: 'transparent', border: 'none', cursor: 'pointer', gap: 8, color: active ? p.accent : p.ink2, borderRight: `1px solid ${p.hairline}`, position: 'relative', touchAction: 'pan-x' }}>
       {active && !p.night
         ? <span style={{ width: 52, height: 52, borderRadius: '50%', background: p.accent, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', boxShadow: `0 4px 14px ${p.accentGlow}` }}><Icon className="w-8 h-8" /></span>
         : <Icon className="w-[34px] h-[34px]" style={{ filter: 'drop-shadow(0 1px 1px rgba(0,0,0,.5))' }} />}
@@ -584,7 +588,7 @@ const BrandClock = memo(function BrandClock({ onClick }: { onClick: () => void }
   }
 
   return (
-    <button onClick={onClick} className="ex-btn" aria-label="Saat — Menü" style={{ position: 'absolute', bottom: 0, left: '50%', transform: 'translateX(-50%) scale(0.95)', transformOrigin: '50% 100%', width: 162, height: 162, zIndex: 3, background: 'none', border: 'none', cursor: 'pointer', padding: 0, outline: 'none', WebkitTapHighlightColor: 'transparent', contain: 'paint' }}>
+    <button data-editable="expedition.clock" data-editable-type="card" onClick={onClick} className="ex-btn" aria-label="Saat — Menü" style={{ position: 'absolute', bottom: 0, left: '50%', transform: 'translateX(-50%) scale(0.95)', transformOrigin: '50% 100%', width: 162, height: 162, zIndex: 3, background: 'none', border: 'none', cursor: 'pointer', padding: 0, outline: 'none', WebkitTapHighlightColor: 'transparent', contain: 'paint' }}>
       {/* dış kontur — gölge taşıyıcı (gün/gece duyarlı) */}
       <div style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, borderRadius: '50%', background: outerRim, boxShadow: outerShadow }} />
       {/* altın bezel (gündüz şampanya) */}
@@ -693,7 +697,7 @@ const ExpeditionDock = memo(function ExpeditionDock({ onOpenMap, onOpenApps, onO
   // kaydırınca diğerleri gelir. Ortadaki pusula ve metal şerit aynen korunur.
   return (
     <div style={{ position: 'relative', flex: '0 0 auto', height: 124 }}>
-      <div style={{ ...plateStyle(p), position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, display: 'flex', alignItems: 'stretch', overflow: 'hidden' }}>
+      <div data-editable="expedition.dock" data-editable-type="dock" style={{ ...plateStyle(p), position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, display: 'flex', alignItems: 'stretch', overflow: 'hidden' }}>
         <Rivets />
         {/* Sol grup — kaydırılabilir */}
         <DockScrollZone>
@@ -750,7 +754,8 @@ export const ExpeditionLayout = memo(function ExpeditionLayout(props: Props) {
 
   // ── Yerleşim Motoru — Tema Stüdyo niyetinden çöz (özelleştirme yoksa = mevcut ekran) ──
   // Ham niyet EXPEDITION_MANIFEST ile normalize edilir (pro/diğer tema kartları elenir).
-  const rawIntent = useLayoutStore((s) => s.intent);
+  // Tema-başına niyet (Tema Manifesti v3); o tema için yoksa paylaşılan niyete düşer.
+  const rawIntent = useLayoutIntent('expedition');
   const intent = useMemo(() => normalizeIntent(rawIntent, EXPEDITION_MANIFEST), [rawIntent]);
   const solved = useMemo(() => solveLayout(intent, EXPEDITION_MANIFEST), [intent]);
 
@@ -776,7 +781,7 @@ export const ExpeditionLayout = memo(function ExpeditionLayout(props: Props) {
 
   return (
     <PalCtx.Provider value={pal}>
-      <div className="relative w-full h-full overflow-hidden" style={{ background: pal.desk, transition: 'background .5s ease', color: pal.ink, display: 'flex', flexDirection: 'column', padding: 16, gap: 14 }}>
+      <div data-theme-surface="home" className="relative w-full h-full overflow-hidden" style={{ background: pal.desk, transition: 'background .5s ease', color: pal.ink, display: 'flex', flexDirection: 'column', padding: 16, gap: 14 }}>
         {voiceOpen && <Suspense fallback={null}><VoiceAssistant onClose={() => setVoiceOpen(false)} minimal /></Suspense>}
 
         <Header />

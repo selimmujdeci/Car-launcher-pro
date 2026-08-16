@@ -310,7 +310,7 @@ export const SportModePanel = memo(function SportModePanel() {
   const handleCancelQM     = useCallback(() => cancelTest(), []);
 
   return (
-    <div className="h-full flex flex-col overflow-y-auto glass-card text-[color:var(--oem-ink)] border-none !shadow-none" data-editable="sport-mode" data-editable-type="card">
+    <div className="h-full flex flex-col overflow-y-auto glass-card text-[color:var(--oem-ink)] border-none !shadow-none" data-theme-surface="sport" data-editable="sport-mode" data-editable-type="card">
       {/* Başlık */}
       {/* Başlık bölümü alt kenarlık → oem-line */}
       <div className="flex-shrink-0 px-6 py-5 border-b border-[var(--oem-line)]">

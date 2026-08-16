@@ -66,7 +66,7 @@ export type CarosLabToolId =
   | 'adapter-diagnostics'
   // Runtime
   | 'queue-monitor' | 'poll-scheduler' | 'recovery-monitor' | 'evidence-viewer'
-  | 'performance' | 'capability-gates' | 'media-authority' | 'guardian-runtime'
+  | 'performance' | 'capability-gates' | 'media-authority' | 'guardian-runtime' | 'theme-runtime'
   // AI
   | 'mavi-console' | 'mavi-reasoning-engine' | 'ai-mechanic' | 'action-registry'
   | 'stt-mic' | 'tool-calling' | 'memory-explorer' | 'knowledge-explorer'
@@ -312,6 +312,12 @@ export const CAROS_LAB_TOOLS: readonly CarosLabTool[] = Object.freeze([
     desc: 'Guardian AI motorunun TICK SAHİPLİĞİ ve BÜTÇESİNİN salt-okunur gözlemi: kadans sahibi (§L.0 tik-wheel) · taban/etkin periyot ve mod çarpanı · OBD anketiyle birlikte uçtan uca EN KÖTÜ tespit gecikmesi · bağlı/bağlı olmayan sağlayıcı envanteri (gerekçesiyle) · koşum ve hata sayaçları (hata SINIFI + boru hattı aşaması) · fiilen çalışan kural sayısı, risk olayı sayısı, en yüksek severity ve toplam risk skoru · koşum süresi dağılımı (son/p50/p95/en kötü) ile bütçe (8 ms) ve #494 tavanı (16 ms) aşım sayaçları.',
     status: 'AVAILABLE', layer: null,
     note: 'Hiçbir şey BAŞLATMAZ/DURDURMAZ: Guardian tick\'i tetiklemez, kadansı değiştirmez, kural/eşik/severity değiştirmez, OBD sorgusu veya GPS düzeltmesi istemez, ağ çağrısı yapmaz — açılışta tek okuma + elle YENİLE. KOORDİNAT TAŞINMAZ (Guardian GPS\'ten yalnız hız okur); risk olayları yalnız kimlik/tip/severity/güven/mesafe olarak görünür, serbest metin (başlık/mesaj) taşınmaz. DÜRÜSTLÜK: bu tur Guardian\'a KALP ATIŞI verir, SES vermez — çıktı sürücüye SUNULMAZ; aşırı ısınma/akü uyarısının ürün otoritesi hâlâ VehicleCompute.worker → SystemOrchestrator\'dır, ikinci eylem otoritesi doğmadı. 8 kuraldan bugün fiilen KOŞAN yalnız vehicle-health\'tir; GPS hızı okunur ama hiçbir kurala girmez (map dilimleri yok). Konum tabanlı kurallar şartlı kilit #508, yorgunluk #509 altında. Bütçe aşımı SAYILIR, katman KAPATILMAZ (güvenlik katmanı sessizce ölmez). Ölçülmemiş alan UNAVAILABLE; sahte 0 üretilmez. Gerçek araç doğrulaması YAPILMADI (kütük #539–#542).',
+  },
+  {
+    id: 'theme-runtime', category: 'runtime', name: 'Tema Manifesti',
+    desc: 'Arabam Cebimde Tema Stüdyo\'sundan gelen TEMA MANİFESTİ\'nin (schemaVersion 2) araç tarafındaki salt-okunur gözlemi: son uygulanan tema/sürüm/şema/kaynak ve zamanı · uygulanan CSS değişkeni, bileşen ve ekran override adedi · üretilen CSS boyutu ve DOM\'daki stil etiketinin varlığı · fail-closed kapısında REDDEDİLEN paket sayısı ve son red sebebi · kayıt defterindeki düzenlenebilir bileşen sayısı ile o an ekranda gerçekten bulunan `data-editable` düğüm sayısı · önizleme seçim modunun durumu · tema başına saklanan manifest listesi ve deponun okunabilirliği.',
+    status: 'AVAILABLE', layer: null,
+    note: 'Hiçbir şey UYGULAMAZ/GÖNDERMEZ: tema değiştirmez, manifest yazmaz/siler, önizleme köprüsünü tetiklemez, depoya yazmaz, ağ çağrısı yapmaz — açılışta tek okuma + elle YENİLE. Manifest İÇERİĞİ TAŞINMAZ: renk değerleri, üretilen CSS metni ve kullanıcının verdiği tema adı gösterilmez; yalnız SAYI, DURUM ve ZAMAN. DÜRÜSTLÜK: "manifest uygulandı" ile "görünüm değişti" ayrı hükümlerdir (içi boş manifest de başarıyla uygulanır ve ekranı değiştirmez); uygulama sayaçları OTURUM İÇİdir; DOM sayımı yalnız o an çizili ekranı ölçer, kapalı çekmecedeki bileşenler görünmez. Gerçek araç doğrulaması YAPILMADI.',
   },
   /* ── AI ──────────────────────────────────────────────────────────────── */
   {

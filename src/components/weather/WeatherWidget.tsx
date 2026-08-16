@@ -87,7 +87,7 @@ function WeatherWidgetInner() {
   }, []);
 
   return (
-    <div className="flex flex-col gap-4 p-4 pb-6" data-editable="weather-card" data-editable-type="card">
+    <div className="flex flex-col gap-4 p-4 pb-6" data-theme-surface="weather" data-editable="weather-card" data-editable-type="card">
 
       {/* ── Header ─────────────────────────────────────────── */}
       <div className="flex items-center justify-between">

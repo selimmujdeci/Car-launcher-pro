@@ -178,7 +178,7 @@ const StatusCluster = memo(function StatusCluster() {
   // Living theme — bağlantı: online yeşil nabız (.lt-pulse, static tier'da durur), offline soluk.
   const online = useLivingThemeState().conn === 'online';
   return (
-    <div className="flex items-center gap-3" style={{ color: p.ink2 }}>
+    <div data-editable="tesla.status" data-editable-type="header" className="flex items-center gap-3" style={{ color: p.ink2 }}>
       <span className={online ? 'lt-pulse' : undefined} aria-label={online ? 'Çevrimiçi' : 'Çevrimdışı'}
         style={{ width: 7, height: 7, borderRadius: '50%', flexShrink: 0, background: online ? '#34d399' : 'currentColor', opacity: online ? 1 : 0.4 }} />
       <button onClick={() => openDrawer('notifications')} className="ex-btn relative flex items-center justify-center" style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: p.ink2 }}>
@@ -202,7 +202,7 @@ const ClockCard = memo(function ClockCard() {
   const use24Hour = useStore(s => s.settings.use24Hour);
   const { time, date } = useClock(use24Hour, false);
   return (
-    <div style={{ ...card(p, { pad: '13px 16px' }) }} className="flex-shrink-0">
+    <div data-editable="tesla.clock" data-editable-type="card" style={{ ...card(p, { pad: '13px 16px' }) }} className="flex-shrink-0">
       <Screws />
       <div style={{ fontSize: 38, fontWeight: 800, lineHeight: 1, color: p.ink, letterSpacing: '-0.5px', fontVariantNumeric: 'tabular-nums' }}>{time}</div>
       <div style={{ fontSize: 14, fontWeight: 500, color: p.ink2, marginTop: 6 }}>{date}</div>
@@ -226,7 +226,7 @@ const SpeedGauge = memo(function SpeedGauge() {
     return { track: build(START, START + SPAN), fill: pct > 0.01 ? build(START, START + pct * SPAN) : null };
   }, [speed]);
   return (
-    <div style={{ ...card(p, { pad: 14 }) }} className="flex-1 min-h-0 flex flex-col items-center justify-center gap-3">
+    <div data-editable="tesla.speed" data-editable-type="gauge" style={{ ...card(p, { pad: 14 }) }} className="flex-1 min-h-0 flex flex-col items-center justify-center gap-3">
       <Screws />
       <div style={{ position: 'relative', width: 128, height: 128 }}>
         <svg viewBox="0 0 128 128" width="128" height="128" style={{ overflow: 'visible' }}>
@@ -275,7 +275,7 @@ const FuelCard = memo(function FuelCard() {
     : null;
   const seg = lvl != null ? Math.round(lvl / 10) : 0;
   return (
-    <div style={{ ...card(p, { pad: '12px 14px' }) }} className="flex-shrink-0">
+    <div data-editable="tesla.fuel" data-editable-type="card" style={{ ...card(p, { pad: '12px 14px' }) }} className="flex-shrink-0">
       <Screws inset={6} />
       <div className="flex items-center gap-2">
         <Fuel className="w-5 h-5" style={{ color: p.accent2 }} />
@@ -303,7 +303,7 @@ const MapCard = memo(function MapCard({ onOpenMap, fullMapOpen }: { onOpenMap: (
   const p = usePal();
   const navSummary = useNavSummary();
   return (
-    <div onClick={onOpenMap} className="relative overflow-hidden cursor-pointer flex-1 min-h-0 min-w-0" style={{ borderRadius: 18, border: p.cardBorder, boxShadow: p.cardShadow }}>
+    <div data-editable="tesla.map" data-editable-type="map" onClick={onOpenMap} className="relative overflow-hidden cursor-pointer flex-1 min-h-0 min-w-0" style={{ borderRadius: 18, border: p.cardBorder, boxShadow: p.cardShadow }}>
       <div className="absolute inset-0">
         {fullMapOpen
           ? <div className="w-full h-full flex items-center justify-center" style={{ background: p.night ? '#10140c' : '#e6d6ba' }}><Navigation className="w-10 h-10" style={{ color: p.accent }} /></div>
@@ -373,7 +373,7 @@ const MusicCard = memo(function MusicCard() {
     else if (!resumeLastMedia()) openMusicDrawer();
   };
   return (
-    <div style={{ ...card(p, { pad: 14 }) }} className="flex-shrink-0 flex items-center gap-3">
+    <div data-editable="tesla.music" data-editable-type="media" style={{ ...card(p, { pad: 14 }) }} className="flex-shrink-0 flex items-center gap-3">
       <Screws />
       <button onClick={() => openMusicDrawer()} className="rounded-2xl overflow-hidden flex items-center justify-center flex-shrink-0" style={{ width: 66, height: 66, background: p.accentSoft, border: `1px solid ${p.accentA20}`, cursor: 'pointer' }}>
         {track.albumArt ? <img src={track.albumArt} className="w-full h-full object-cover" alt="" /> : <Music2 className="w-7 h-7" style={{ color: p.accent }} />}
@@ -462,7 +462,7 @@ const VehicleCard = memo(function VehicleCard({ onOpenSettings }: { onOpenSettin
   const motor = obd.engineTemp != null ? `${Math.round(obd.engineTemp)}°C` : '—';
   const aku = volt != null ? `${volt.toFixed(1)}V` : '—';
   return (
-    <div style={{ ...card(p, { solid: true, pad: 15 }) }} className="flex-1 min-h-0 flex flex-col" onClick={onOpenSettings}>
+    <div data-editable="tesla.vehicle" data-editable-type="card" style={{ ...card(p, { solid: true, pad: 15 }) }} className="flex-1 min-h-0 flex flex-col" onClick={onOpenSettings}>
       <Screws />
       <div className="flex items-center gap-2">
         <Label>Araç Durumu</Label>
@@ -618,7 +618,7 @@ const ExpeditionDock = memo(function ExpeditionDock({ onOpenMap, onOpenApps, onO
   // görünür saat (kaydırma kabı DIŞINDA overlay). Sol/sağ grup serbest kaydırılır →
   // tüm fonksiyonlara ulaşılır (pager/snap-sayfa kilidi yok).
   return (
-    <div className="relative w-full" style={{ background: p.metal, borderRadius: 22, border: p.metalBorder, boxShadow: p.night ? '0 12px 30px -12px rgba(0,0,0,0.8), inset 0 1px 0 rgba(255,255,255,0.08), inset 0 -3px 8px rgba(0,0,0,0.55)' : '0 8px 22px -10px rgba(90,68,38,0.45), inset 0 1px 0 rgba(255,255,255,0.7), inset 0 -3px 7px rgba(120,92,52,0.25)', padding: '14px 18px 20px', minHeight: 138, zIndex: 30 }}>
+    <div data-editable="tesla.dock" data-editable-type="dock" className="relative w-full" style={{ background: p.metal, borderRadius: 22, border: p.metalBorder, boxShadow: p.night ? '0 12px 30px -12px rgba(0,0,0,0.8), inset 0 1px 0 rgba(255,255,255,0.08), inset 0 -3px 8px rgba(0,0,0,0.55)' : '0 8px 22px -10px rgba(90,68,38,0.45), inset 0 1px 0 rgba(255,255,255,0.7), inset 0 -3px 7px rgba(120,92,52,0.25)', padding: '14px 18px 20px', minHeight: 138, zIndex: 30 }}>
       <Screws inset={9} />
 
       <div style={{ display: 'flex', alignItems: 'stretch' }}>
@@ -684,7 +684,7 @@ export const TeslaLayout = memo(function TeslaLayout(props: Props) {
 
   return (
     <PalCtx.Provider value={pal}>
-      <div className="relative w-full h-full overflow-hidden" style={{ background: pal.night ? '#161b11' : '#e6d6ba', transition: 'background 0.4s ease' }}>
+      <div data-theme-surface="home" className="relative w-full h-full overflow-hidden" style={{ background: pal.night ? '#161b11' : '#e6d6ba', transition: 'background 0.4s ease' }}>
         <TopoBackground />
         {voiceOpen && <Suspense fallback={null}><VoiceAssistant onClose={() => setVoiceOpen(false)} minimal /></Suspense>}
         <div className="relative flex flex-col w-full h-full">

@@ -306,7 +306,7 @@ export const SecuritySuite = memo(function SecuritySuite() {
   ];
 
   return (
-    <div className="h-full flex flex-col glass-card border-none !shadow-none text-primary overflow-hidden" data-editable="security-suite" data-editable-type="card">
+    <div className="h-full flex flex-col glass-card border-none !shadow-none text-primary overflow-hidden" data-theme-surface="security" data-editable="security-suite" data-editable-type="card">
       {/* Başlık */}
       <div className="flex-shrink-0 px-8 py-6 border-b border-white/5">
         <div className="flex items-center gap-4">

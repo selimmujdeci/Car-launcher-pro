@@ -22,6 +22,19 @@ import { executeReadDtc, executeReadVoltage, executeClearDtc } from './remoteDia
 import { applySpeedAlertConfig, getSpeedAlertConfig } from './speedAlertRuntime';
 import { logInfo }                                 from './debug';
 import { useLayoutStore }                          from '../store/useLayoutStore';
+import { applyIncomingThemeManifest, applyThemeManifest } from './theme/themeRuntime';
+import { migrateLegacyThemeVars, THEME_BASE_IDS, type ThemeBaseId } from './theme/themeManifest';
+import { useCarTheme, baseOf } from '../store/useCarTheme';
+
+/** Araçta o an geçerli baz tema (manifest desteği olmayan legacy tema → 'expedition'). */
+function currentCarThemeBase(): ThemeBaseId {
+  try {
+    const b = baseOf(useCarTheme.getState().theme);
+    return (THEME_BASE_IDS as readonly string[]).includes(b) ? (b as ThemeBaseId) : 'expedition';
+  } catch {
+    return 'expedition';
+  }
+}
 
 // buildNavIntent — website/ fork bağımlılığından koparıldı; ana app içinde (navIntent.ts).
 import { buildNavIntent } from './navIntent';
@@ -85,13 +98,85 @@ const MCU_COMMANDS: CommandType[] = ['lock', 'unlock', 'horn', 'alarm_on', 'alar
  */
 const E2E_REQUIRED_COMMANDS: CommandType[] = [...MCU_COMMANDS, 'clear_dtc'];
 
-let currentSpeedKmh = 0;
-export function updateCurrentSpeed(speedKmh: number): void {
+/**
+ * Hız ölçümünün geçerli sayıldığı en uzun yaş. Bundan eskisi **ölçüm değil,
+ * hatıradır**: OBD koptuktan sonra donmuş "0 km/h" ile kapı açık tutulursa
+ * araç 100 km/h giderken uzaktan kilit açılabilirdi (kütük #574'ün ikinci ucu).
+ *
+ * 10 s: ürünün en yavaş hız kaynağı olan OBD'nin sahada ölçülmüş kadansı
+ * ~4,3 s'tir (kütük #549) — iki kaçırılmış paket hâlâ tolere edilir, üçüncüsü
+ * "bilinmiyor" der.
+ */
+const SPEED_MAX_AGE_MS = 10_000;
+
+/**
+ * Son ölçüm — **`null` = hiç ölçülmedi**. Eskiden `0` ile başlıyordu ve bu
+ * sahte sıfır "araç duruyor" anlamına geliyordu; ölçüm hiç gelmese bile kapı
+ * kendini beslenmiş sanıyordu.
+ */
+let currentSpeedKmh: number | null = null;
+let currentSpeedAtMs = 0;
+
+/**
+ * Kapının hız otoritesini besler. İKİ besleyicisi vardır (füzyon hız akışı ve
+ * yedek doğrudan OBD akışı), bu yüzden **eski damgalı örnek taze örneği
+ * EZEMEZ** — yoksa yedek kaynak, birincil kaynağın yeni ölçümünü geri alırdı.
+ */
+export function updateCurrentSpeed(speedKmh: number, atMs: number = Date.now()): void {
+  if (currentSpeedKmh !== null && atMs < currentSpeedAtMs) return;
   currentSpeedKmh = speedKmh;
+  currentSpeedAtMs = atMs;
 }
 
-function isDangerousWhileMoving(type: CommandType): boolean {
-  return DANGEROUS_WHILE_MOVING.includes(type) && currentSpeedKmh > SPEED_THRESHOLD_KMH;
+/** Sürüş güvenliği kapısının üç hükmü — "bilinmiyor" ayrı bir sonuçtur. */
+export type MovingGateVerdict = 'ALLOW' | 'BLOCK' | 'SPEED_UNKNOWN';
+
+/**
+ * Kapı hükmü — SAF (girdiler dışarıdan; `Date.now` · global durum YOK).
+ *
+ * `SPEED_UNKNOWN` bilinçli olarak `BLOCK` DEĞİLDİR: kapalı otoparkta (GPS yok,
+ * kontak kapalı → OBD yok) kullanıcının aracını uzaktan açamaması ürünü kırardı.
+ * Ama bu kabul **kanıtsızdır** ve öyle sayılır: ayrı sayaçla defterlenir ve
+ * CAROS LAB'da görünür — "güvenlik kapısı çalışıyor" iddiası ÜRETİLMEZ.
+ */
+export function judgeMovingGate(
+  isDangerous: boolean,
+  speedKmh:    number | null,
+  ageMs:       number | null,
+  maxAgeMs:    number,
+  thresholdKmh: number,
+): MovingGateVerdict {
+  if (!isDangerous) return 'ALLOW';
+  if (speedKmh === null || ageMs === null || !Number.isFinite(speedKmh)) return 'SPEED_UNKNOWN';
+  if (ageMs > maxAgeMs) return 'SPEED_UNKNOWN';
+  return speedKmh > thresholdKmh ? 'BLOCK' : 'ALLOW';
+}
+
+function movingGateVerdict(type: CommandType, nowMs: number): MovingGateVerdict {
+  return judgeMovingGate(
+    DANGEROUS_WHILE_MOVING.includes(type),
+    currentSpeedKmh,
+    currentSpeedKmh === null ? null : nowMs - currentSpeedAtMs,
+    SPEED_MAX_AGE_MS,
+    SPEED_THRESHOLD_KMH,
+  );
+}
+
+/** Hız kapısının salt-okunur durumu (CAROS LAB). Ölçüm yoksa `null` alanlar. */
+export interface SpeedGateState {
+  readonly lastSpeedKmh: number | null;
+  readonly lastAtMs:     number | null;
+  readonly maxAgeMs:     number;
+  readonly thresholdKmh: number;
+}
+
+export function getSpeedGateState(): SpeedGateState {
+  return {
+    lastSpeedKmh: currentSpeedKmh,
+    lastAtMs:     currentSpeedKmh === null ? null : currentSpeedAtMs,
+    maxAgeMs:     SPEED_MAX_AGE_MS,
+    thresholdKmh: SPEED_THRESHOLD_KMH,
+  };
 }
 
 // ── Executor ─────────────────────────────────────────────────────────────────
@@ -120,6 +205,12 @@ export interface CommandEvidence {
   unknownType:     number;
   /** Sürüş güvenliği kapısı (>5 km/h lock/unlock) kaç kez devreye girdi. */
   movingBlocked:   number;
+  /**
+   * Tehlikeli komutun TAZE hız kanıtı OLMADAN kabul edildiği durumlar.
+   * Bu sayaç sıfırdan büyükse "sürüş güvenliği kapısı korudu" DENEMEZ —
+   * o komutlar kapıdan değil, kapının körlüğünden geçmiştir.
+   */
+  movingUnverified: number;
   /** TTL aşımıyla düşen komutlar. */
   ttlExpired:      number;
   /** Retry sayısı (toplam yeniden deneme). */
@@ -134,7 +225,7 @@ export interface CommandEvidence {
 const MAX_COUNT = 9_999_999;
 const _evidence: CommandEvidence = {
   received: 0, completed: 0, rejected: 0, failed: 0, cryptoFailed: 0,
-  unknownType: 0, movingBlocked: 0, ttlExpired: 0, retries: 0,
+  unknownType: 0, movingBlocked: 0, movingUnverified: 0, ttlExpired: 0, retries: 0,
   lastType: null, lastOutcome: null, lastAt: null,
 };
 
@@ -152,7 +243,7 @@ export function getCommandEvidence(): CommandEvidence {
 export function _resetCommandEvidenceForTest(): void {
   Object.assign(_evidence, {
     received: 0, completed: 0, rejected: 0, failed: 0, cryptoFailed: 0,
-    unknownType: 0, movingBlocked: 0, ttlExpired: 0, retries: 0,
+    unknownType: 0, movingBlocked: 0, movingUnverified: 0, ttlExpired: 0, retries: 0,
     lastType: null, lastOutcome: null, lastAt: null,
   });
 }
@@ -219,10 +310,17 @@ async function executeCommand(cmd: VehicleCommand): Promise<ExecResult> {
     }
   }
 
-  if (isDangerousWhileMoving(cmd.type)) {
+  const gate = movingGateVerdict(cmd.type, Date.now());
+  if (gate === 'BLOCK') {
     bump('movingBlocked');
     console.warn(`[CmdListener] ${cmd.type} sürüş sırasında reddedildi (${currentSpeedKmh} km/h)`);
     return { outcome: 'rejected' };
+  }
+  if (gate === 'SPEED_UNKNOWN') {
+    /* Tehlikeli komut TAZE hız kanıtı OLMADAN geçiyor. Reddedilmez (bkz.
+       `judgeMovingGate`), ama sessizce "güvenli" de sayılmaz — sayılır. */
+    bump('movingUnverified');
+    console.warn(`[CmdListener] ${cmd.type} taze hız ölçümü olmadan kabul edildi.`);
   }
 
   try {
@@ -287,16 +385,43 @@ async function executeCommand(cmd: VehicleCommand): Promise<ExecResult> {
       }
 
       case 'theme_change': {
-        const theme     = String(payload.theme ?? 'dark');
-        const themeVars = payload.themeVars as Record<string, string> | undefined;
-        document.documentElement.setAttribute('data-theme', theme);
-        if (themeVars && typeof themeVars === 'object') {
-          Object.entries(themeVars).forEach(([k, v]) => {
-            document.documentElement.style.setProperty(k, String(v));
-          });
+        /* Tema Manifesti v2 — TEK kapı, fail-CLOSED.
+         *
+         * SAHA KUSURU (kapatıldı): eskiden `payload.theme` yoksa `data-theme`
+         * doğrudan "dark" yapılıyordu. 'dark' geçerli bir CarTheme DEĞİLDİR →
+         * tüm `[data-theme="pro|tesla|…"]` CSS kuralları ıskalıyor, üstelik
+         * useCarTheme store'u güncellenmediği için React layout eski temada
+         * kalıyordu (yarı bozuk ekran). Artık baz tema YALNIZ store üzerinden
+         * (useCarTheme.setTheme) değişir ve yalnız BİLİNEN tema id'leri kabul edilir.
+         */
+        if (payload.manifest !== undefined) {
+          const r = applyIncomingThemeManifest(payload.manifest, 'command');
+          if (!r.ok) {
+            console.warn('[CmdListener] Tema manifesti reddedildi:', r.reason);
+            return { outcome: 'failed', reason: `Tema manifesti reddedildi: ${r.reason ?? 'bilinmeyen'}` };
+          }
+          return {
+            outcome: 'completed',
+            result: { themeId: r.themeId, themeVersion: r.themeVersion, appliedAt: new Date().toISOString() },
+          };
         }
-        localStorage.setItem('theme', theme);
-        return { outcome: 'completed' };
+
+        // Geri-uyum: manifest'siz eski PWA sürümü yalnız `themeVars` yollar.
+        const legacyTheme = typeof payload.theme === 'string' ? payload.theme : null;
+        const baseId: ThemeBaseId | null =
+          legacyTheme && (THEME_BASE_IDS as readonly string[]).includes(legacyTheme)
+            ? (legacyTheme as ThemeBaseId)
+            : null;
+        const themeVars = payload.themeVars as Record<string, unknown> | undefined;
+        if (!baseId && (!themeVars || typeof themeVars !== 'object')) {
+          return { outcome: 'failed', reason: 'theme_change: manifest yok, tanınan tema/themeVars da yok' };
+        }
+        const migrated = migrateLegacyThemeVars(themeVars, baseId ?? currentCarThemeBase());
+        applyThemeManifest(migrated, 'command', { setBaseTheme: baseId !== null, persist: true });
+        return {
+          outcome: 'completed',
+          result: { themeId: migrated.themeId, schemaVersion: 1, migrated: true },
+        };
       }
 
       case 'layout_change': {

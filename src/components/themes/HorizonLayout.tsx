@@ -147,11 +147,12 @@ function panelStyle(p: Pal): React.CSSProperties {
     background: p.panel, border: `1px solid ${p.edge}`, boxShadow: `${p.elev}, ${p.bevel}`,
   };
 }
-const Panel = memo(function Panel({ children, style, className, onClick }: {
-  children: React.ReactNode; style?: React.CSSProperties; className?: string; onClick?: () => void;
+/* Tema Stüdyo kimliği:  KARARLI bileşen kimliğidir (themeComponentRegistry). */
+const Panel = memo(function Panel({ children, style, className, onClick, editId, editType = 'card' }: {
+  children: React.ReactNode; style?: React.CSSProperties; className?: string; onClick?: () => void; editId?: string; editType?: string;
 }) {
   const p = usePalH();
-  return <div className={className} onClick={onClick} style={{ ...panelStyle(p), ...style }}>{children}</div>;
+  return <div className={className} onClick={onClick} data-editable={editId} data-editable-type={editId ? editType : undefined} style={{ ...panelStyle(p), ...style }}>{children}</div>;
 });
 
 /* İmza vidası — yalnızca logo plakası + dock + pusula */
@@ -194,7 +195,7 @@ const HzTopBar = memo(function HzTopBar() {
   const online = useLivingThemeState().conn === 'online';
 
   return (
-    <div className="relative flex items-center justify-between flex-shrink-0" style={{ height: HZ_TOPBAR_H, padding: '0 2px' }}>
+    <div data-editable="horizon.topbar" data-editable-type="header" className="relative flex items-center justify-between flex-shrink-0" style={{ height: HZ_TOPBAR_H, padding: '0 2px' }}>
       <div className="flex items-center">
         {/* Marka plakası — metal + imza vida */}
         <div className="flex items-center" style={{ gap: 13, padding: '8px 16px 8px 10px', borderRadius: 14, background: p.metal, border: `1px solid ${p.edgeHi}`, boxShadow: p.elev, position: 'relative' }}>
@@ -243,7 +244,7 @@ const HzTopBar = memo(function HzTopBar() {
 const HzDriveModeCard = memo(function HzDriveModeCard() {
   const p = usePalH();
   return (
-    <Panel style={{ padding: '13px 15px' }}>
+    <Panel editId="horizon.drivemode" style={{ padding: '13px 15px' }}>
       <div className="flex items-center justify-between"><HzLabel>Sürüş Modu</HzLabel><HzLabel>4WD · High</HzLabel></div>
       <div className="flex items-center" style={{ gap: 9, marginTop: 8 }}>
         <span style={{ width: 8, height: 8, borderRadius: '50%', background: p.ok, boxShadow: `0 0 8px ${p.ok}` }} />
@@ -262,7 +263,7 @@ const HzSpeedCard = memo(function HzSpeedCard() {
   const speed = rawSpeed ?? 0;   // yalnız oran hesabı için
   const pct = Math.min(speed / 200, 1) * 100;
   return (
-    <Panel style={{ padding: '14px 15px', display: 'flex', flexDirection: 'column', justifyContent: 'center', minHeight: 0 }}>
+    <Panel editId="horizon.speed" editType="gauge" style={{ padding: '14px 15px', display: 'flex', flexDirection: 'column', justifyContent: 'center', minHeight: 0 }}>
       <HzLabel>Hız</HzLabel>
       <div className="flex items-baseline" style={{ gap: 8, marginTop: 6 }}>
         <div style={{ fontWeight: 700, fontSize: 60, lineHeight: 0.85, color: p.inkCritical, fontVariantNumeric: 'tabular-nums', letterSpacing: '-0.03em' }}>{formatDisplaySpeed(rawSpeed)}</div>
@@ -289,7 +290,7 @@ const HzRangeCard = memo(function HzRangeCard() {
   const range = live && obd.estimatedRangeKm != null && obd.estimatedRangeKm >= 0 ? obd.estimatedRangeKm : null;
   const fpct = lvl != null ? Math.max(0, Math.min(lvl, 100)) : 0;
   return (
-    <Panel style={{ padding: '13px 15px' }}>
+    <Panel editId="horizon.range" style={{ padding: '13px 15px' }}>
       <div className="flex items-center justify-between"><HzLabel>Menzil</HzLabel><Fuel className="w-4 h-4" style={{ color: p.ink3 }} /></div>
       <div style={{ fontWeight: 700, fontSize: 23, marginTop: 3, color: p.ink, fontVariantNumeric: 'tabular-nums' }}>{range ?? '—'} <small style={{ fontSize: 13, color: p.ink3, fontWeight: 500 }}>km</small></div>
       <div className="flex items-center" style={{ gap: 7, marginTop: 7 }}>
@@ -319,7 +320,7 @@ const HzConsumptionCard = memo(function HzConsumptionCard({ onOpenSettings }: { 
   const l100 = (obd.fuelRemainingL != null && obd.fuelRemainingL > 0 && obd.estimatedRangeKm != null && obd.estimatedRangeKm > 0)
     ? (obd.fuelRemainingL / obd.estimatedRangeKm) * 100 : null;
   return (
-    <Panel style={{ padding: '13px 15px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }} onClick={onOpenSettings}>
+    <Panel editId="horizon.consumption" style={{ padding: '13px 15px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }} onClick={onOpenSettings}>
       <div>
         <HzLabel>Yakıt Tüketimi</HzLabel>
         <div style={{ fontWeight: 700, fontSize: 21, marginTop: 4, color: p.ink, fontVariantNumeric: 'tabular-nums' }}>{l100 != null ? l100.toFixed(1) : '—'} <small style={{ fontSize: 12, color: p.ink3, fontWeight: 500 }}>L/100km</small></div>
@@ -370,7 +371,7 @@ const HzMap = memo(function HzMap({ onOpenMap, fullMapOpen }: { onOpenMap: () =>
   const notchMask = `radial-gradient(circle at ${notchX} calc(100% + 25px), transparent 0 calc(${notchR} - 1px), #000 ${notchR})`;
   // minHeight 200: grid çökse bile harita konteyneri asla 0px olamaz (Duster vakası)
   return (
-    <Panel style={{ padding: 0, flex: 1, minWidth: 0, minHeight: 200, maskImage: notchMask, WebkitMaskImage: notchMask }} onClick={onOpenMap}>
+    <Panel editId="horizon.map" editType="map" style={{ padding: 0, flex: 1, minWidth: 0, minHeight: 200, maskImage: notchMask, WebkitMaskImage: notchMask }} onClick={onOpenMap}>
       <div style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, borderRadius: 17, overflow: 'hidden', cursor: 'pointer', background: terrain }}>
         {fullMapOpen
           ? <div className="w-full h-full flex items-center justify-center"><Navigation className="w-10 h-10" style={{ color: p.accent }} /></div>
@@ -494,7 +495,7 @@ const HzMediaCard = memo(function HzMediaCard() {
   };
   const shownPct = total > 0 ? (dragPct ?? pct) : pct;
   return (
-    <Panel style={{ padding: '13px 15px', display: 'flex', flexDirection: 'column', gap: 10, minHeight: 0 }}>
+    <Panel editId="horizon.media" editType="media" style={{ padding: '13px 15px', display: 'flex', flexDirection: 'column', gap: 10, minHeight: 0 }}>
       <div className="flex items-center" style={{ gap: 12 }}>
         <button onClick={() => openMusicDrawer()} className="hz-btn" style={{ width: 56, height: 56, borderRadius: 12, flexShrink: 0, border: `1px solid ${p.edge}`, overflow: 'hidden', background: p.metal, display: 'grid', placeItems: 'center', cursor: 'pointer', boxShadow: p.bevel }}>
           {track.albumArt ? <img src={track.albumArt} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : <Music2 className="w-6 h-6" style={{ color: p.accent }} />}
@@ -579,7 +580,7 @@ const HzVehicleStatus = memo(function HzVehicleStatus({ onOpenSettings }: { onOp
   const rpm = eng.rpm;
   const fuel = eng.fuel != null ? Math.round(eng.fuel) : null;
   return (
-    <Panel style={{ padding: '13px 15px', display: 'flex', flexDirection: 'column', minHeight: 0 }} onClick={onOpenSettings}>
+    <Panel editId="horizon.vehicle" style={{ padding: '13px 15px', display: 'flex', flexDirection: 'column', minHeight: 0 }} onClick={onOpenSettings}>
       <div className="flex items-center justify-between">
         <HzLabel>Araç Durumu</HzLabel>
         <div className="flex items-center" style={{ gap: 5 }}>
@@ -758,7 +759,7 @@ const HzDock = memo(function HzDock({ onOpenMap, onOpenApps, onOpenSettings, onV
   const carosLabAllowed = useCarosLabAllowed();
   return (
     <div style={{ position: 'relative', flex: '0 0 auto', height: HZ_DOCK_H }}>
-      <div style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, borderRadius: 17, background: p.metal, border: `1px solid ${p.edgeHi}`, boxShadow: `${p.elev}, ${p.bevel}`, display: 'flex', alignItems: 'stretch', padding: '0 10px' }}>
+      <div data-editable="horizon.dock" data-editable-type="dock" style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, borderRadius: 17, background: p.metal, border: `1px solid ${p.edgeHi}`, boxShadow: `${p.elev}, ${p.bevel}`, display: 'flex', alignItems: 'stretch', padding: '0 10px' }}>
         {/* imza vidaları — dock köşeleri */}
         <Bolt style={{ top: 8, left: 9 }} /><Bolt style={{ bottom: 8, left: 9 }} />
         <Bolt style={{ top: 8, right: 9 }} /><Bolt style={{ bottom: 8, right: 9 }} />
@@ -816,7 +817,7 @@ export const HorizonLayout = memo(function HorizonLayout(props: Props) {
 
   return (
     <PalCtxH.Provider value={pal}>
-      <div className="relative w-full h-full overflow-hidden" style={{ background: pal.desk, transition: 'background .5s ease', color: pal.ink, display: 'flex', flexDirection: 'column', padding: 15, gap: 12 }}>
+      <div data-theme-surface="home" className="relative w-full h-full overflow-hidden" style={{ background: pal.desk, transition: 'background .5s ease', color: pal.ink, display: 'flex', flexDirection: 'column', padding: 15, gap: 12 }}>
         {voiceOpen && <Suspense fallback={null}><VoiceAssistant onClose={() => setVoiceOpen(false)} minimal /></Suspense>}
 
         <HzTopBar />

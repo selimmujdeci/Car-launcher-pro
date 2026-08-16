@@ -34,7 +34,7 @@ import { useNavSummary } from '../../hooks/useNavSummary';
 import type { AppItem } from '../../data/apps';
 import type { SmartSnapshot } from '../../platform/smartEngine';
 import { MagicContextCard } from '../common/MagicContextCard';
-import { useLayoutStore } from '../../store/useLayoutStore';
+import { useLayoutIntent } from '../../store/useLayoutStore';
 import { solveLayout, normalizeIntent, PRO_MANIFEST, type Zone } from '../../platform/theme/layoutSolver';
 
 /* ════════════════════════════════════════════════════════════
@@ -177,7 +177,7 @@ const ClockCard = memo(function ClockCard() {
   const use24Hour = useStore(s => s.settings.use24Hour);
   const { time, date } = useClock(use24Hour, false);
   return (
-    <div style={{ ...cardStyle(p), padding: '14px 16px' }} className="flex-shrink-0">
+    <div data-editable="pro.clock" data-editable-type="card" style={{ ...cardStyle(p), padding: '14px 16px' }} className="flex-shrink-0">
       <div style={{ fontSize: 34, fontWeight: 800, lineHeight: 1, color: p.ink, letterSpacing: '-0.5px', fontVariantNumeric: 'tabular-nums' }}>
         {time}
       </div>
@@ -213,7 +213,7 @@ const GaugeCard = memo(function GaugeCard() {
   }, [speedKmh]);
 
   return (
-    <div style={{ ...cardStyle(p), padding: 14 }} className="flex-1 min-h-0 flex flex-col items-center justify-between">
+    <div data-editable="pro.gauge" data-editable-type="gauge" style={{ ...cardStyle(p), padding: 14 }} className="flex-1 min-h-0 flex flex-col items-center justify-between">
       {/* Hız halkası */}
       <div style={{ position: 'relative', width: 128, height: 128 }}>
         <svg viewBox="0 0 128 128" width="128" height="128" style={{ overflow: 'visible' }}>
@@ -269,6 +269,7 @@ const SettingsCard = memo(function SettingsCard({ onOpenSettings }: { onOpenSett
   return (
     <button
       onClick={onOpenSettings}
+      data-editable="pro.settings" data-editable-type="card"
       style={{ ...cardStyle(p), padding: '12px 14px' }}
       className="flex-shrink-0 w-full flex items-center gap-3 active:scale-[0.98] transition-all cursor-pointer"
     >
@@ -288,7 +289,7 @@ const NavCard = memo(function NavCard({ onOpenMap, fullMapOpen }: { onOpenMap: (
   const p = usePal();
   const navSummary = useNavSummary();
   return (
-    <div onClick={onOpenMap} className="relative overflow-hidden cursor-pointer flex-1 min-h-0"
+    <div data-editable="pro.map" data-editable-type="map" onClick={onOpenMap} className="relative overflow-hidden cursor-pointer flex-1 min-h-0"
       style={{ borderRadius: 24, border: p.border, boxShadow: p.shadow }}>
       {/* Harita */}
       <div className="absolute inset-0">
@@ -394,7 +395,7 @@ const MusicCard = memo(function MusicCard() {
   const shownPct = dragPct ?? pct;
 
   return (
-    <div style={{ ...cardStyle(p), padding: 16 }} className="flex-1 min-h-0 flex flex-col">
+    <div data-editable="pro.music" data-editable-type="media" style={{ ...cardStyle(p), padding: 16 }} className="flex-1 min-h-0 flex flex-col">
       <div className="flex items-center justify-between mb-3">
         <CardLabel>Müzik</CardLabel>
         <StatusCluster />
@@ -526,7 +527,7 @@ const VehicleCard = memo(function VehicleCard({ onOpenSettings, onLaunch }: { on
   ];
 
   return (
-    <div style={{ ...cardStyle(p, { solid: true }), padding: 16, opacity: st.dim ? 0.6 : 1 }} className="flex-1 min-h-0 flex flex-col">
+    <div data-editable="pro.vehicle" data-editable-type="card" style={{ ...cardStyle(p, { solid: true }), padding: 16, opacity: st.dim ? 0.6 : 1 }} className="flex-1 min-h-0 flex flex-col">
       {/* Durum şeridi — uyarı/tehlikede ince statik renk (box-shadow/blur YOK, Mali-safe) */}
       {st.accent && (
         <div style={{ height: 3, borderRadius: 2, background: st.accent, marginBottom: 8, opacity: 0.9 }} />
@@ -695,7 +696,7 @@ const ProDock = memo(function ProDock({ onOpenMap, onVoice, onOpenApps, onOpenSe
   const labelStyle: React.CSSProperties = { fontSize: 12.5, fontWeight: 700, letterSpacing: '0.02em', color: p.ink2, maxWidth: TILE_W - 6, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' };
 
   return (
-    <div className="relative w-full" style={{ zIndex: editMode ? 95 : undefined }}>
+    <div data-editable="pro.dock" data-editable-type="dock" className="relative w-full" style={{ zIndex: editMode ? 95 : undefined }}>
       {/* Düzenleme modu — dışarı dokununca çık */}
       {editMode && <div className="fixed inset-0" style={{ zIndex: 90 }} onClick={() => setEditMode(false)} />}
 
@@ -854,7 +855,8 @@ export const ProLayout = memo(function ProLayout({
   // ── Yerleşim Motoru — Tema Stüdyo niyetinden çöz (özelleştirme yoksa = mevcut ekran) ──
   // Ham niyeti PRO_MANIFEST ile normalize et (zero-trust okuma tarafında; diğer
   // temaların kartları bu manifest'te olmadığından elenir → pro davranışı değişmez).
-  const rawIntent = useLayoutStore((s) => s.intent);
+  // Tema-başına niyet (Tema Manifesti v3); o tema için yoksa paylaşılan niyete düşer.
+  const rawIntent = useLayoutIntent('pro');
   const intent = useMemo(() => normalizeIntent(rawIntent, PRO_MANIFEST), [rawIntent]);
   const solved = useMemo(() => solveLayout(intent, PRO_MANIFEST), [intent]);
 
@@ -896,7 +898,7 @@ export const ProLayout = memo(function ProLayout({
           <VoiceAssistant onClose={() => setVoiceOpen(false)} autoStart />
         </Suspense>
       )}
-      <div className="flex flex-col w-full h-full overflow-hidden" data-layout="pro-main" style={{ background: pal.bg, transition: 'background 0.4s ease' }}>
+      <div data-theme-surface="home" className="flex flex-col w-full h-full overflow-hidden" data-layout="pro-main" style={{ background: pal.bg, transition: 'background 0.4s ease' }}>
         {/* İçerik */}
         <div className="flex-1 min-h-0 overflow-hidden" style={{ padding: '12px 14px 6px' }}>
           <div className="h-full min-h-0 flex" style={{ flexDirection: isPortrait ? 'column' : 'row', gap: 12 }}>

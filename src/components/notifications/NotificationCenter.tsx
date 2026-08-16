@@ -226,7 +226,7 @@ function NotificationCenterInner() {
   const others   = ns.notifications.filter((n) => n.category !== 'call');
 
   return (
-    <div className="flex flex-col gap-4 p-4 pb-6">
+    <div data-theme-surface="notifications" data-editable="notification-center" data-editable-type="panel" className="flex flex-col gap-4 p-4 pb-6">
 
       {/* ── Header ────────────────────────────────────────── */}
       <div className="flex items-center justify-between">

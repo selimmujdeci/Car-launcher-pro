@@ -15,6 +15,7 @@ import { CarLauncher } from './platform/nativePlugin.ts'
 import { captureSpotifyRedirect } from './platform/spotify/spotifyAuth.ts'
 import { installConsoleGate } from './platform/system/logGate.ts'
 import { initThemePreviewBridge } from './platform/themePreviewBridge.ts'
+import { initThemeRuntime } from './platform/theme/themeRuntime.ts'
 
 /* ── Bootstrap Launcher ── */
 (async () => {
@@ -49,6 +50,11 @@ try {
   /* ── Safe Storage: Filesystem cache'ini React öncesi yükle (native) ── */
   /* Zustand store'ları ilk render'da safeGetRaw çağırır; _fsCache hazır olmalı. */
   if (isNative) await initSafeStorageAsync().catch((e) => console.error('[SafeStorage]', e));
+
+  /* ── Tema Manifesti çalışma zamanı — saklanmış özelleştirmeyi geri yükle.
+   * safeStorage HAZIR olduktan SONRA çağrılır (native'de _fsCache gerekir).
+   * Baz temayı ZORLAMAZ: yalnız aktif temaya ait tokenlar/bileşen stilleri döner. */
+  try { initThemeRuntime(); } catch (e) { console.error('[ThemeRuntime]', e); }
 
   /* ── R-7 Boot-Split: React yüklenmeden geri vites tespiti ── */
   /* CAN ve OBD verisi dinlenir; reverse sinyali gelirse kamera anında açılır.        */

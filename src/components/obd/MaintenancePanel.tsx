@@ -52,7 +52,7 @@ export const MaintenancePanel = memo(() => {
 
   /* Kart yüzeyi → oem-surface-2 (beyaz saydam overlay kaldırıldı) */
   return (
-    <div className="flex flex-col gap-6 p-6 bg-[var(--oem-surface-2)] rounded-3xl border border-[var(--oem-line)] shadow-2xl">
+    <div data-theme-surface="maintenance" data-editable="maintenance-panel" data-editable-type="panel" className="flex flex-col gap-6 p-6 bg-[var(--oem-surface-2)] rounded-3xl border border-[var(--oem-line)] shadow-2xl">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           {/* Başlık ikonu → info token (nötr bilgi/araç) */}

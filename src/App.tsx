@@ -4,7 +4,6 @@ import { useStore }           from './store/useStore';
 import MainLayout             from './components/layout/MainLayout';
 import { ErrorBoundary }      from './components/ErrorBoundary';
 import { InAppBrowser }       from './components/common/InAppBrowser';
-import { EditController }     from './components/edit/EditController';
 import { LayoutProvider }     from './context/LayoutContext';
 import { ReverseOverlay }     from './components/camera/ReverseOverlay';
 import { DisclaimerBanner }   from './components/legal/DisclaimerBanner';
@@ -177,10 +176,11 @@ function App() {
       <ErrorBoundary>
         {/* R-7: Geri vites aktifken MainLayout GPU bütçesini kameraya bırakır */}
         <div style={storeReverse ? { display: 'none' } : undefined}>
-          <EditController>
-            <MainLayout />
-            <InAppBrowser />
-          </EditController>
+          {/* #597: araç içi uzun-bas tema editörü SÖKÜLDÜ. Tema düzenleme
+              YALNIZ Arabam Cebimde / Tema Stüdyo'da yapılır; araca Manifest v3
+              olarak gelir ve `themeRuntime` uygular. Araç tarafı TÜKETİCİDİR. */}
+          <MainLayout />
+          <InAppBrowser />
         </div>
         <ReverseOverlay />
 

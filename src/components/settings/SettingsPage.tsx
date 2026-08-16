@@ -5,7 +5,7 @@ import expeditionEmblem from '../../assets/expedition/emblem.png';
 import {
   Sun, Smartphone, Zap, Palette, Layout, Check, PenTool as Tool, Volume2,
   Wifi, HardDrive, RefreshCw, Database, Cloud, ArrowLeft, X,
-  Cpu, Shield, ShieldCheck, Gauge, Settings2, Lock,
+  Cpu, Shield, ShieldCheck, Gauge, Settings2,
   Mic, Loader,
   Grid3X3, Star, Users, ChevronRight, Info, MessageCircle, AlertTriangle, type LucideIcon,
   Home, Fuel,
@@ -23,7 +23,6 @@ import { ApiCredentialsPanel } from './ApiCredentialsPanel';
 import { registerSettingsFocus } from '../../platform/settingsFocusBus';
 import { isNative, bridge } from '../../platform/bridge';
 import { PrivacyPolicy } from './PrivacyPolicy';
-import { useEditStore } from '../../store/useEditStore';
 import { useStore, type VehicleType, type VehicleProfile } from '../../store/useStore';
 import { useShallow } from 'zustand/react/shallow';
 import { MUSIC_OPTIONS, type MusicOptionKey } from '../../data/apps';
@@ -1415,7 +1414,6 @@ function SettingsPageInner({ onClose }: Props) {
   }, []);
   const [showPrivacy, setShowPrivacy] = useState(false);
   const [showOBDConnect, setShowOBDConnect] = useState(false);
-  const { locked: layoutLocked, toggleLock } = useEditStore();
   const [perfMode, setPerfMode]         = useState(() => getPerformanceMode());
   const [autoMode, setAutoMode]         = useState(() => isAutoModeEnabled());
   const [agcOn,    setAgcOn]            = useState(() => getAGCEnabled());
@@ -1524,6 +1522,9 @@ function SettingsPageInner({ onClose }: Props) {
 
   return (
     <div
+      data-theme-surface="settings"
+      data-editable="settings-page"
+      data-editable-type="panel"
       className="flex-1 flex flex-col min-h-0 ultra-premium-root settings-page"
       data-theme-pack={settings.themePack}
       data-theme-style={settings.themeStyle}
@@ -1867,12 +1868,12 @@ function SettingsPageInner({ onClose }: Props) {
                   <p className="text-[9px] mt-2 leading-relaxed" style={{ color: 'var(--oem-ink-3, rgba(255,255,255,0.3))' }}>🌐 işaretli temalar internet bağlantısı gerektirir.</p>
                 </Panel>
 
-                <Panel accent="#a78bfa">
-                  <SectionTitle icon={Settings2} title="Kişiselleştirme" sub="Sürüş odaklı arayüz ayarları" color="#a78bfa" />
-                  <div className="flex flex-col gap-3">
-                    <PremiumToggle icon={Lock} label="Layout Lock" desc="Widget düzenleme modunu kilitle" value={layoutLocked} onChange={toggleLock} accent="#a78bfa" />
-                  </div>
-                </Panel>
+                {/* #597: yerleşim kilidi anahtarı KALDIRILDI — kilitlediği araç
+                    içi uzun-bas editör söküldü. Tema/yerleşim düzenleme artık
+                    yalnız Arabam Cebimde / Tema Stüdyo'da yapılır. Panelde başka
+                    ayar kalmadığı için panel bütünüyle kaldırıldı (boş kabuk
+                    YASAK). Kilit metni bilinçli olarak yazılmadı: kasa kilidi
+                    o kimliğin kaynakta yeniden doğmasını arıyor. */}
               </div>
             </>
           )}

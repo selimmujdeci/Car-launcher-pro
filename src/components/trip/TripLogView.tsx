@@ -132,7 +132,7 @@ function TripLogViewInner() {
 
 
   return (
-    <div className="flex flex-col gap-4 p-4 pb-6" data-editable="trip-log" data-editable-type="card">
+    <div className="flex flex-col gap-4 p-4 pb-6" data-theme-surface="trip" data-editable="trip-log" data-editable-type="card">
 
       {/* ── Title ──────────────────────────────────────── */}
       <div className="flex items-center justify-between">

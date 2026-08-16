@@ -47,7 +47,7 @@ function DashcamViewInner({ onClose }: Props) {
   }, [state.active]);
 
   return (
-    <div className="flex flex-col h-full glass-card border-none !shadow-none text-[color:var(--oem-ink)] select-none" data-editable="dashcam" data-editable-type="card">
+    <div className="flex flex-col h-full glass-card border-none !shadow-none text-[color:var(--oem-ink)] select-none" data-theme-surface="dashcam" data-editable="dashcam" data-editable-type="card">
 
       {/* ── Header ───────────────────────────────────────── */}
       <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--oem-line)] flex-shrink-0">

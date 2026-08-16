@@ -12,7 +12,7 @@
  */
 /// <reference types="vite/client" />
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
-import { readFileSync, readdirSync } from 'node:fs';
+import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 
 /* Kaynak-metin kilitleri için içeriği runtime `readFileSync` yerine Vite `?raw`
@@ -6537,5 +6537,93 @@ describe('E-24 · gateway izni oturum kurulunca okunur', () => {
     const claim = roleStoreSrc.indexOf('hasRoleClaim', call);
     expect(call, 'çağrı rol kapısının arkasına alınmış — şirket izni okunamaz olur')
       .toBeLessThan(claim);
+  });
+});
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * #597 · TEMA DÜZENLEME ARAÇTA DEĞİL, ARABAM CEBİMDE'DE YAPILIR
+ *
+ * SAHA ARIZASI (2026-08-16, gerçek araç ekran görüntüsü): araçta bir karta
+ * UZUN BASINCA tam bir tema editörü açılıyordu (RENK/YAZI/ŞEKİL/EFEKT +
+ * palet). Bu, mimarinin ters kurulmuş hâliydi: araç TÜKETİCİ olmalıydı.
+ *
+ * NEDEN SADECE MİMARİ DEĞİL, ÜRÜN KUSURU: `editStyleEngine` kendi
+ * `<style id="car-edit-engine-v3">` etiketine `!important` yazıyordu →
+ * araçta kalmış eski bir yerel düzenleme, Tema Stüdyo'dan "Araca Gönder"
+ * ile gelen Manifest v3'ü SESSİZCE EZİYORDU. Ayrıca `useEditStore`
+ * varsayılanı `locked: false` idi → sürüş sırasında her uzun basış paneli
+ * açıyordu.
+ *
+ * DOĞRU ZİNCİR: Arabam Cebimde / Tema Stüdyo → Manifest v3 → `theme_change`
+ * → `parseIncomingManifest` (fail-closed) → `themeRuntime` → tek `<style>`.
+ * ═══════════════════════════════════════════════════════════════════════ */
+describe('#597 · araç içi tema editörü GERİ GELMEZ', () => {
+  const GONE = [
+    'src/store/useEditStore.ts',
+    'src/platform/editStyleEngine.ts',
+    'src/components/edit/EditController.tsx',
+    'src/components/edit/EditPanel.tsx',
+    'src/platform/theme/themeDocument.ts',
+  ];
+
+  it('🔒 sökülen editör dosyaları geri EKLENMEMİŞ', () => {
+    for (const p of GONE) {
+      expect(existsSync(resolve(root, p)), `${p} geri gelmiş — düzenleme araca taşınamaz`)
+        .toBe(false);
+    }
+  });
+
+  it('🔒 App ağacı editör sarmalayıcısıyla SARILMAZ', () => {
+    const s = read('src/App.tsx');
+    expect(s, 'EditController yeniden monte edilmiş').not.toMatch(/EditController/);
+  });
+
+  it('🔒 araçta İKİNCİ bir stil otoritesi yok — TÜM kaynak taranır', () => {
+    expect(read('src/platform/theme/themeRuntime.ts'), 'manifest stil etiketi kimliği değişmiş')
+      .toMatch(/caros-theme-manifest-css/);
+
+    /* Rakip motorun ETİKETİ ya da KAYIT DEFTERİ hiçbir dosyada yeniden doğmamalı.
+       Yorum satırları hariç tutulmaz: kimlik metni geri geliyorsa niyet geri
+       geliyor demektir — tek istisna bu kilidin kendi açıklamasıdır. */
+    const offenders: string[] = [];
+    let scanned = 0;
+    const walk = (dir: string) => {
+      for (const e of readdirSync(resolve(root, dir), { withFileTypes: true })) {
+        const rel = join(dir, e.name);
+        if (e.isDirectory()) { walk(rel); continue; }
+        if (!/\.tsx?$/.test(e.name)) continue;
+        if (rel.replace(/\\/g, '/').endsWith('src/__tests__/regression.guards.test.ts')) continue;
+        scanned++;
+        const body = read(rel);
+        if (/car-edit-engine|EDITABLE_REGISTRY/.test(body)) offenders.push(rel);
+      }
+    };
+    walk('src');
+
+    /* KONTROL: tarayıcı bozulursa `offenders` boş kalır ve kilit BOŞLUĞA atılır.
+       Gerçekten gezdiğini kanıtla — hem adet, hem bilinen bir dosyayı gördüğü. */
+    expect(scanned, 'kaynak tarayıcı hiçbir dosya gezmedi — kilit sahte geçiyor')
+      .toBeGreaterThan(300);
+    expect(offenders, `rakip editör motoru geri gelmiş: ${offenders.join(', ')}`).toEqual([]);
+
+    /* Aynı tarayıcı, VAR OLAN bir kimliği bulabildiğini de göstermeli. */
+    const positive: string[] = [];
+    const probe = (dir: string) => {
+      for (const e of readdirSync(resolve(root, dir), { withFileTypes: true })) {
+        const rel = join(dir, e.name);
+        if (e.isDirectory()) { probe(rel); continue; }
+        if (!/\.tsx?$/.test(e.name)) continue;
+        if (/caros-theme-manifest-css/.test(read(rel))) positive.push(rel);
+      }
+    };
+    probe('src/platform/theme');
+    expect(positive.length, 'tarayıcı var olan kimliği de bulamıyor — yöntem ölü')
+      .toBeGreaterThan(0);
+  });
+
+  it('🔒 Ayarlar artık sökülmüş editörün kilidini SUNMAZ', () => {
+    const s = read('src/components/settings/SettingsPage.tsx');
+    expect(s, 'ölü Layout Lock anahtarı geri gelmiş').not.toMatch(/Layout Lock/);
+    expect(s, 'sökülen store yeniden bağlanmış').not.toMatch(/useEditStore/);
   });
 });
