@@ -12,6 +12,7 @@
 import maplibregl, { Map as MapLibreMap, GeoJSONSource, Marker } from 'maplibre-gl';
 import { setMapNight } from '../mapSourceManager';
 import { safeMoveLayer, safeSetPaint } from './_safeLayerOps';
+import { captureRouteLayerProbe, rememberRouteLayerProbe } from './routeLayerProbe';
 import type { PaintedArrowVerdict } from './core/paintedArrowModel';
 import {
   _recordPaintedArrowVerdict, _recordPaintedArrowLayer,
@@ -649,6 +650,13 @@ function _applyRouteColorDecision(map: MapLibreMap, d: RouteColorDecision): void
       1,   d.coreStops[2],
     ]);
   }
+  /* #623 — BOYA YAZILDIKTAN SONRA salt-okunur fotoğraf sakla (CAROS LAB).
+     Burası boyanın TEK yazıcısıdır, dolayısıyla "haritada gerçekten ne var"
+     sorusunun tek doğru ölçüm anıdır. Fotoğraf hiçbir şey yazmaz; try/catch
+     ile sarılıdır — gözlem yolu ÜRÜN yolunu asla düşüremez. */
+  try {
+    rememberRouteLayerProbe(captureRouteLayerProbe(map, 'color'));
+  } catch { /* gözlem başarısız — ürün akışı etkilenmez */ }
 }
 
 /**

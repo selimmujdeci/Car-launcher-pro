@@ -189,6 +189,27 @@ DOĞRULANDI 6 · SAHADA DOĞRULANDI 1 · **ÜRÜN HAZIR: 1**
 
 ### 6.3 Kod tamam + test yeşil, saha borcu açık (kütük 🔴)
 
+- **CAROS LAB · ROTA KATMAN DENETÇİSİ — "SONUCU DEĞİL SEBEBİ" GÖSTEREN GÖZLEM
+  YÜZEYİ (2026-08-18, kütük 🔴 #624):** 559 dosya / **12 350 test yeşil**
+  (27 yeni kilit), `tsc` temiz.
+
+  #622'de rota cihazda soluk ÖLÇÜLDÜ ama kök teşhis edilemedi: `apk:safe`
+  artefaktında CDP kapalıdır, MapLibre'nin gerçek paint değerleri okunamıyordu.
+  Geçici bir CDP artefaktı üretmek yerine **kalıcı gözlem yüzeyi** eklendi —
+  gözlemlenebilirlik kuralının tam olarak istediği çözüm: *"gözlemlenemeyen
+  özellik tamamlanmış değildir."* Ekran her rota katmanının GERÇEK
+  `line-color`/`line-gradient`/`line-opacity`/`line-blur`/z-sırasını, kaynağın
+  `lineMetrics` durumunu ve bunların `resolveRouteColor` kararıyla farkını
+  gösterir; altı teşhis kuralı ölçülen alanlardan deterministik türetilir.
+
+  Salt-okunur olduğu **kilitle kanıtlanır** (sahte harita yazma çağrılarını
+  sayar; tek yazma bile olsa kilit düşer). "Kök adayı yok" mesajı bilerek
+  *"bu, rota doğru görünüyor DEMEK DEĞİLDİR"* der — fail-closed dil.
+
+  **Kalan eksik:** ekran gerçek araçta **bir kez bile açılmadı** — kurulum
+  anında USB bağlantısı koptu, APK cihaza gitmedi. **#623'ün kökü hâlâ
+  görülmedi.** Kabul ölçütleri kütük #624'te.
+
 - **GECE HARİTASI "GOOGLE SEVİYESİ" — KÖK ORAN DEĞİL, MUTLAK YÜZEY
   PARLAKLIĞIYMIŞ (2026-08-17, kütük 🔴 #622):** `tsc` temiz, suite yeşil.
 

@@ -67,6 +67,7 @@ export type CarosLabToolId =
   // Runtime
   | 'queue-monitor' | 'poll-scheduler' | 'recovery-monitor' | 'evidence-viewer'
   | 'performance' | 'capability-gates' | 'media-authority' | 'guardian-runtime' | 'theme-runtime'
+  | 'route-layer-inspector'
   // AI
   | 'mavi-console' | 'mavi-reasoning-engine' | 'ai-mechanic' | 'action-registry'
   | 'stt-mic' | 'tool-calling' | 'memory-explorer' | 'knowledge-explorer'
@@ -287,6 +288,12 @@ export const CAROS_LAB_TOOLS: readonly CarosLabTool[] = Object.freeze([
     id: 'evidence-viewer', category: 'runtime', name: 'Kanıt Görüntüleyici',
     desc: 'Mevcut kanıt kaynaklarının birleşik salt-okunur görünümü: olay izi + AI Core kanıtları + doğrulama kütüğü.',
     status: 'AVAILABLE', layer: null,
+    note: null,
+  },
+  {
+    id: 'route-layer-inspector', category: 'runtime', name: 'Rota Katman Denetçisi',
+    desc: 'Rota katman yığınının GERÇEK paint sözleşmesi: her katmanın line-color / line-gradient / line-opacity / line-blur / z-sırası, kaynağın lineMetrics durumu ve `resolveRouteColor` kararıyla karşılaştırma. #622\'de rota ekranda soluk ölçüldü ama kök CDP kapalı olduğu için teşhis edilemedi — bu ekran sebebi görünür kılar.',
+    status: 'AVAILABLE', layer: 'MapLibre GL',
     note: null,
   },
   {

@@ -90,6 +90,8 @@ const EnforcementPointsScreen = lazyWithRetry(() =>
   import('./screens/EnforcementPointsScreen').then((m) => ({ default: m.EnforcementPointsScreen })));
 const ThemeRuntimeScreen = lazyWithRetry(() =>
   import('./screens/ThemeRuntimeScreen').then((m) => ({ default: m.ThemeRuntimeScreen })));
+const RouteLayerInspectorScreen = lazyWithRetry(() =>
+  import('./screens/RouteLayerInspectorScreen').then((m) => ({ default: m.RouteLayerInspectorScreen })));
 const RemoteCommandScreen = lazyWithRetry(() =>
   import('./screens/RemoteCommandScreen').then((m) => ({ default: m.RemoteCommandScreen })));
 const PerformanceView = lazyWithRetry(() =>
@@ -140,6 +142,7 @@ export function renderAvailableTool(id: CarosLabToolId): ReactElement | null {
     case 'media-authority':    return <MediaAuthorityScreen />;
     case 'guardian-runtime':   return <GuardianRuntimeScreen />;
     case 'theme-runtime':      return <ThemeRuntimeScreen />;
+    case 'route-layer-inspector': return <RouteLayerInspectorScreen />;
     case 'enforcement-points': return <EnforcementPointsScreen />;
     case 'remote-command': return <RemoteCommandScreen />;
     case 'performance':        return <PerformanceView />;
