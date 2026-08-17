@@ -157,11 +157,16 @@ kilitler: `lowEndScreenPhysicalPx` · `compatModeCacheRevert` · `routeTrimGate`
 >    **Kanıt:** 16 yeni kilit; latch+taban geçici geri alınınca 4 test düşüyor.
 >    **Gözlem:** CAROS LAB → Performans ekranında aktif mod · tavan · arızalı bileşen
 >    listesi · kurtarma hedefi (salt-okunur).
-> 3. 🔴 **AÇIK** — crash-recovery **tek atımlık** olmalı (kaydı tüketmeli), her açılışı
->    sabitlememeli. Ayrı bir güvenlik-ağı politikası kararıdır; tahminle değiştirilmedi.
->    Circir kapandığı için kaydın *yeni* zehirlenmesi `failure:OBD` yolundan artık
->    gelemez, ama **hâlihazırda zehirli bir cihaz kendi kendini kurtaramaz**
->    (iki katman: dosya + localStorage).
+> 3. ✅ **KAPATILDI (2026-08-17, kütük #611)** — crash-recovery artık **tek atımlık**.
+>    Karar tahminle değil **saha kanıtıyla** verildi: #610 koşumunda telefon
+>    `rt-last-mode = SAFE_MODE` ile açıldı ve elle silinmeden çıkamadı.
+>    Oturum SAFE_MODE'da başlar (ağ görevini yapar) ama işareti **tüketir** →
+>    sonraki açılış temiz. Gerçekten yine düşülürse `_commit` kaydı yeniden yazar,
+>    koruma tekrar devreye girer — **ağ kaybolmaz, yalnız yapışmaz.** Tüketim
+>    `safeRemoveRaw` ile: kaydın İKİ katmanını da (dosya + localStorage) siler.
+>    Ayrıca erken `return` kaldırıldı → zombie tespiti artık crash-recovery
+>    açılışında da başlıyor (eskiden hiç başlamıyordu). 6 kilit; eski davranışta
+>    4'ü düşüyor. 🔴 cihazda doğrulanmadı.
 
 **Aşağıdaki `onTrimMemory` kökü de GERÇEKTİR ve düzeltildi — ama bu koşumun
 tetikleyicisi O DEĞİLDİ; arka-plana-alma senaryosu hâlâ cihazda ölçülmedi.**

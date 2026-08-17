@@ -72,11 +72,15 @@ describe('#609 (2) — gece paleti ÖLÇÜLMÜŞ kontrast sözleşmesi', () => {
   /* Saha şikâyeti "yollar ile genel harita aynı gibi" idi; ölçülen eski
      değerler: minor 1.20 · secondary 1.47 · primary 1.78 · motorway 2.76. */
   it('yol kademeleri zeminden YETERİNCE ayrılır', () => {
+    /* Eşikler 2026-08-17 KULLANICI KARARIYLA yükseltildi ("yollar daha beyaz,
+       daha keskin olsun"). Referans olarak Google Maps gece stili ÖLÇÜLDÜ:
+       normal yol 1.31 · otoyol 2.48 (kendi zeminine karşı). Hedefimiz bilinçli
+       olarak ondan keskin. Kilit ZAYIFLATILMADI, YUKARI güncellendi. */
     const hedef: Array<[keyof typeof NIGHT_PALETTE, number]> = [
-      ['minor',     2.0],
-      ['secondary', 2.8],
-      ['primary',   3.5],
-      ['motorway',  4.5],
+      ['minor',     3.0],
+      ['secondary', 4.2],
+      ['primary',   6.0],
+      ['motorway',  8.0],
     ];
     for (const [ad, min] of hedef) {
       const cr = contrast(bg, NIGHT_PALETTE[ad] as string);
@@ -119,18 +123,26 @@ describe('#609 (2) — gece paleti ÖLÇÜLMÜŞ kontrast sözleşmesi', () => {
     }
   });
 
-  it('GECE KONFORU: hiçbir zemin öğesi göz yoracak kadar parlak değil', () => {
-    /* Üst uç bilerek dizginlendi — karanlıkta aşırı parlaklık güvenlik/konfor
-       sorunudur. Etiketler (labelText/cityText) bu kuralın DIŞINDA: okunmaları
-       için parlak olmaları gerekir. */
-    const zeminOgeleri = [
-      NIGHT_PALETTE.motorway, NIGHT_PALETTE.primary, NIGHT_PALETTE.secondary,
-      NIGHT_PALETTE.minor, NIGHT_PALETTE.residential, NIGHT_PALETTE.water,
+  it('GECE KONFORU: geniş ALAN dolguları sakin kalır (yollar bu kuralın DIŞINDA)', () => {
+    /* 2026-08-17 KULLANICI KARARI: konfor tavanı YOLLARIN üstünden kaldırıldı
+       (bkz. NIGHT_PALETTE §5) — kullanıcı gerçek araçta daha beyaz/keskin yol
+       istedi. Kilit SİLİNMEDİ: kapsamı daraltıldı ve asıl gerekçesine bağlandı.
+       Parlaklık riski geniş YÜZEYlerdedir (zemin dolguları), ince ÇİZGİlerde
+       değil; ekranın büyük kısmını dolgular kaplar. */
+    const alanDolgulari = [
+      NIGHT_PALETTE.residential, NIGHT_PALETTE.water,
       NIGHT_PALETTE.park, NIGHT_PALETTE.buildingFill,
     ];
-    for (const c of zeminOgeleri) {
-      expect(contrast(bg, c), `${c} gece için fazla parlak`).toBeLessThanOrEqual(7);
+    for (const c of alanDolgulari) {
+      expect(contrast(bg, c), `${c} geniş dolgu için fazla parlak`).toBeLessThanOrEqual(2.5);
     }
+  });
+
+  it('yollar Google Maps gece stilinden DAHA KESKİN (kullanıcı hedefi, ölçülü)', () => {
+    /* Google "Night mode" kanonik değerleri kendi zeminine (#242f3e) karşı:
+       normal yol #38414e = 1.31 · otoyol #746855 = 2.48. Hedef: net biçimde üstü. */
+    expect(contrast(bg, NIGHT_PALETTE.minor)).toBeGreaterThan(1.31 * 2);
+    expect(contrast(bg, NIGHT_PALETTE.motorway)).toBeGreaterThan(2.48 * 2);
   });
 
   it('alan dolguları yollarla YARIŞMAZ (geniş yüzey, sakin kalmalı)', () => {

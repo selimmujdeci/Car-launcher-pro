@@ -168,13 +168,34 @@ interface VectorPalette {
  *   2. **Yol hiyerarşisi TONLA okunur** — her kademe bir altından ≥1.28 ayrılır.
  *   3. **Kasa gövdeden KOYU** — ince tali yolu görünür kılan gövde değil kasadır;
  *      gövdeler açıldığı için kasa/gövde ayrımı da güçlendi (minor 2.58, motorway 4.69).
- *   4. **Gece konforu sınırdır** — üst uç bilerek dizginlendi: motorway 5.2'de
- *      durur (hedef 5.6 idi), çünkü karanlıkta aşırı parlak zemin göz yorar.
- *      Alan dolguları (residential/park) ~1.29'da tutuldu: geniş yüzeydirler,
- *      yolla YARIŞMAMALIdırlar.
+ *   4. **Alan dolguları yolla YARIŞMAZ** — residential/park ~1.29'da tutulur:
+ *      geniş yüzeydirler, parlarlarsa yol ağı içlerinde kaybolur. Sınır YALNIZ
+ *      dolgulara uygulanır (yollara değil, bkz. §5).
  *
- * Ölçülen sonuç: minor **1.20 → 2.32** · secondary **1.47 → 3.10** ·
- * primary **1.78 → 4.06** · motorway **2.76 → 5.20** · residential **1.01 → 1.29**.
+ * ── §5 KULLANICI KARARI (2026-08-17) — YOLLAR DAHA BEYAZ, DAHA KESKİN ───────
+ * İlk turda üst uç "gece konforu" gerekçesiyle dizginlenmişti (motorway 5.20).
+ * Kullanıcı gerçek araçta bakıp **açıkça daha beyaz ve daha keskin yol** istedi
+ * ve referans olarak Google Maps gece stilini verdi ("ondan biraz daha net").
+ *
+ * REFERANS ÖLÇÜLDÜ (varsayılmadı) — Google Maps "Night mode" kanonik değerleri,
+ * kendi zeminine (`#242f3e`) karşı: normal yol `#38414e` → **1.31** ·
+ * otoyol `#746855` → **2.48** · yol etiketi `#9ca5b3` → 5.45 ·
+ * otoyol etiketi `#f3d19c` → 9.29. Yani Google'ın gece YOL GÖVDELERİ aslında
+ * DÜŞÜK kontrastlıdır; okunabilirliği etiketlerden alır.
+ *
+ * Bizim hedefimiz bilinçli olarak ondan KESKİN: normal yol **3.21** (Google
+ * 1.31'in ~2,5 katı), otoyol **8.98** (Google 2.48). Zemin yine SABİT — parlaklık
+ * yolun kendisine verildi, ortama değil; "keskinlik" ayrıca koyu kasadan gelir
+ * (minor/kasa **3.57**, motorway/kasa **8.10**).
+ *
+ * Ölçülen sonuç (özgün → #609 → BU TUR):
+ *   minor     1.20 → 2.32 → **3.21**      secondary 1.47 → 3.10 → **4.58**
+ *   primary   1.78 → 4.06 → **6.60**      motorway  2.76 → 5.20 → **8.98**
+ *   residential 1.01 → **1.29** (değişmedi — dolgu sınırı korunur)
+ *
+ * ⚠️ TAKAS AÇIK: bu, ilk turdaki "≤7 konfor tavanı"nı yolların üstünden
+ * KALDIRIR. Karar kullanıcınındır ve gerçek araçta gece görülerek verilmelidir;
+ * "çok parlak" denirse §5 hedefleri düşürülür — kilit SİLİNMEZ, GÜNCELLENİR.
  */
 export const NIGHT_PALETTE: VectorPalette = {
   bg:              MAP_BG_NIGHT,
@@ -192,10 +213,10 @@ export const NIGHT_PALETTE: VectorPalette = {
   motorwayCasing:  '#2a2418',
   primaryCasing:   '#16161d',
   minorCasing:     '#101015',
-  motorway:        '#9a8d6b',
-  primary:         '#7b7b83',
-  secondary:       '#636977',
-  minor:           '#515662',
+  motorway:        '#c0bcaf',
+  primary:         '#a1a1a1',
+  secondary:       '#83848a',
+  minor:           '#6a6b70',
   labelText:       '#e8e0d0',
   labelHalo:       '#0a0e16',
   townText:        '#e2eaf5',

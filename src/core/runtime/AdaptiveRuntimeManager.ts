@@ -23,7 +23,7 @@
 
 import { RuntimeMode, type RuntimeConfig } from './runtimeTypes';
 import { getRuntimeConfig }                from './runtimeConfig';
-import { safeGetRaw, safeSetRaw }          from '../../utils/safeStorage';
+import { safeGetRaw, safeSetRaw, safeRemoveRaw } from '../../utils/safeStorage';
 import { hasWeakGpu }                      from '../../utils/detectWeakGpu';
 import { getDeviceTier }                   from '../../platform/deviceCapabilities';
 import { rawWarn, rawInfo }                from '../../platform/system/rawConsole';
@@ -477,12 +477,35 @@ class AdaptiveRuntimeManager {
       /* Kapılanmamış kanal: bu satır kurbanı olduğu susturmayı AÇIKLAYAN
          satırdır — gate'e tabi olursa kalıcı SAFE_MODE sessizce sürer. */
       rawWarn(
-        '[Runtime] crash-recovery: previous session ended in SAFE_MODE — starting in SAFE_MODE',
+        '[Runtime] crash-recovery: previous session ended in SAFE_MODE — starting in SAFE_MODE (tek atımlık)',
       );
       this._commit(RuntimeMode.SAFE_MODE, 'crash-recovery');
-      return;
+
+      /* #611 — GÜVENLİK AĞI TEK ATIMLIKTIR: kayıt burada TÜKETİLİR.
+       *
+       * ESKİ DAVRANIŞ (kütük #604(F), 2026-08-17'de CİHAZDA ÖLÇÜLDÜ): `PERSIST_KEY`
+       * yalnız `_commit`te YAZILIYOR, hiçbir yerde SİLİNMİYORDU. Üstelik yukarıdaki
+       * `_commit(SAFE_MODE, 'crash-recovery')` kaydı YENİDEN YAZIYOR → bir kez
+       * SAFE_MODE'da biten oturum, sonraki HER açılışı SAFE_MODE'a sabitliyordu.
+       * Güvenlik ağı hiç devreden çıkmıyordu: telefon `rt-last-mode = SAFE_MODE`
+       * ile açıldı ve elle silinmeden çıkamadı (dosya katmanı; #604(E)'de kaydın
+       * İKİ katmanda durabildiği de ölçülmüştü — `safeRemoveRaw` ikisini de siler).
+       *
+       * DOĞRU SÖZLEŞME: crash döngüsünü kırmak için BİR korumalı açılış yeter.
+       * Bu oturum SAFE_MODE'da başlar (ağ görevini yapar), ama işareti tüketir →
+       * sonraki açılış TEMİZ başlar. Uygulama bu oturumda gerçekten yine SAFE_MODE'a
+       * düşerse `_commit` kaydı yeniden yazar ve koruma bir sonraki açılışta TEKRAR
+       * devreye girer. Yani ağ kaybolmaz, yalnız YAPIŞMAZ.
+       *
+       * SIRA ÖNEMLİ: silme `_commit`ten SONRA olmalı — `_commit` içindeki
+       * `safeSetRaw` yazımını (debounce tamponu dâhil) bu çağrı iptal eder. */
+      safeRemoveRaw(PERSIST_KEY);
     }
 
+    /* #611 — ERKEN ÇIKIŞ KALDIRILDI: eskiden crash-recovery dalı `return` ediyordu
+       ve zombie tespiti HİÇ BAŞLAMIYORDU. Oysa bozuk bir oturumda çökmüş worker'ı
+       yeniden ayağa kaldıran mekanizma tam da odur — en çok orada gerekir.
+       (CRITICAL worker'lara zaten dokunmaz; maliyeti 30 sn'de bir PING.) */
     this._startZombieDetection();
     rawInfo(`[Runtime] started: mode=${this._mode}`);
   }
