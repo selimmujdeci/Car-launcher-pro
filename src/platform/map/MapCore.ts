@@ -236,6 +236,42 @@ async function _initCore(
       fadeDuration: _lowTier ? 0 : 300,
       maxTileCacheSize: _lowTier ? 256 : undefined,
       attributionControl: false,
+
+      /**
+       * #610 — VEKTÖR KARO İSTEĞİ MapLibre'nin KENDİ yolundan ÇALIŞMIYOR.
+       *
+       * CİHAZDA ÖLÇÜLDÜ (2026-08-17, Xiaomi 23090RA98I, taze APK, CDP):
+       *   · `omv` kaynağının 22 karosunun 22'si de `state: 'errored'`, sıfır bucket.
+       *     Hata olayı: `sourceId=omv · "Failed to fetch"`.
+       *   · AYNI `.pbf` URL'i sayfadan düz `fetch()` ile **200 OK / 23 402 bayt**,
+       *     bir Web Worker içinden de **200 OK / 23 402 bayt**. Yani ağ, CORS ve
+       *     worker YOLU SAĞLAM — kırık olan yalnız MapLibre'nin iç istek yolu.
+       *   · `terrain-rgb` (raster-dem, aynı anda, https) 11/11 `loaded` → sorun
+       *     "https karo" genel değil, VEKTÖR karo isteğine özgü.
+       *
+       * SONUÇ (saha belirtisi): mini haritada yalnız arka plan katmanı boyanıyor,
+       * ekranın %94'ü tek düz renk kalıyor ve "HARİTA YÜKLENEMİYOR" çıkıyor. Ürün
+       * ancak hata sayacı 20'yi bulup RASTER'a düşünce kullanılabilir hâle geliyor
+       * — yani vektör harita bu cihazda hiç çalışmıyor, kurtarma bir kaza eseri.
+       *
+       * ÇÖZÜM — YENİ MEKANİZMA DEĞİL, KANITLANMIŞ YOLU KULLANMAK: `caros-tile://`
+       * protokolü (CacheLRUManager) isteği düz JS `fetch()` ile yapar ve
+       * `{ data: ArrayBuffer }` döner — vektör karosu için doğru biçim. Uydu
+       * karoları bu WebView'da AYNI sınıftan bir kırık yüzünden zaten bu yola
+       * taşınmıştı (bkz. `buildSatelliteStyle` yorumu, 2026-06-12); vektör
+       * kaynağı o taşımadan pay almamıştı.
+       *
+       * KAPSAM BİLEREK DAR: yalnız `Tile` kaynağı + https + `.pbf`. `terrain-rgb`
+       * ŞU AN ÇALIŞIYOR, ona DOKUNULMAZ (çalışan bir yolu "tutarlılık" için
+       * değiştirmek kanıtsız risktir). TileJSON da dışarıda: kaynak `loaded`
+       * durumuna geldiğine göre o istek zaten başarılı.
+       */
+      transformRequest: (url: string, resourceType?: string) => {
+        if (resourceType === 'Tile' && url.startsWith('https://') && url.includes('.pbf')) {
+          return { url: url.replace('https://', 'caros-tile://') };
+        }
+        return { url };
+      },
     });
 
     map.on('style.load', () => {
