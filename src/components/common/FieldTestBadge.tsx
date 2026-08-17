@@ -88,7 +88,34 @@ function FieldTestBadgeBase() {
   const canExpand = !view.moving;
 
   return (
-    <div className="pointer-events-none fixed left-2 top-2 z-[9000] select-none">
+    /* ── KONUM: ÜST BANT ORTASI, BAŞLIK ŞERİDİNİN ALTI (kütük #605) ─────────
+     *
+     * ÖLÇÜLEN KUSUR: rozet `fixed left-2 top-2` idi ve sol üst köşe ürünün
+     * MARKA MÜHRÜNÜN evi. Gerçek tarayıcıda, kırpma+görünürlük farkındalıklı
+     * kutu ölçümüyle (2026-08-16) üç çözünürlükte de örtüşme ölçüldü:
+     *   904×406  → `CAR` %64 · `OS` %67 · amblem %61 örtülü
+     *   1280×480 → `CAR` %51 · `OS` %51 · amblem %51
+     *   1024×600 → amblem %24 · `CAR` %15
+     * Yani kusur TELEFONA ÖZEL DEĞİL; head unit'te de var → düzeltme geneldir.
+     *
+     * Aynı çapa haritada da çakışıyordu: `GPS` + `±0m` rozetleri (idle) ve
+     * navigasyonda manevra kartı (`ŞİMDİ sonra` / `Sola dönün`). Tek bir
+     * yanlış çapa ÜÇ ekranda birden örtüyordu.
+     *
+     * ÇAPA VERİYLE SEÇİLDİ, tahminle değil: altı aday (sol üst · üst orta ·
+     * başlık altı sol/sağ/orta · dock üstü orta) ölçülen kutu kümesine karşı
+     * 9 durumda (ana ekran · harita boşta · navigasyon × 3 çözünürlük)
+     * sınandı. **Yalnız "başlık altı + yatay orta" 9/9 TEMİZ çıktı.**
+     * Diğerleri: üst orta → adres arama çubuğu ve yol adı çipiyle çakışır;
+     * başlık altı sol → mesafe/manevra ile; başlık altı sağ → KAPAT / ANA
+     * EKRAN düğmesiyle; dock üstü orta → saat ve koordinat okumasıyla.
+     *
+     * `--sat` EKLENİR: çentikli cihazda başlık şeridi de güvenli alandan
+     * sonra başlar; sabit 56 px yazılsaydı çentikte yeniden örterdi. */
+    <div
+      className="pointer-events-none fixed z-[9000] select-none"
+      style={{ top: 'calc(var(--sat, 0px) + 56px)', left: '50%', transform: 'translateX(-50%)' }}
+    >
       <div
         className="pointer-events-auto flex items-center gap-1.5 rounded border border-[var(--oem-line-strong)] bg-[var(--oem-surface-1)]/90 px-2 py-1 text-[10px] text-[var(--oem-ink-2)] shadow-sm"
         onClick={canExpand ? () => setExpanded((v) => !v) : undefined}

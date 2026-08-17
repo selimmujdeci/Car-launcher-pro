@@ -34,6 +34,7 @@ import {
   startVehicleDataLayer,
   restoreOdometer,
 }                                  from '../vehicleDataLayer';
+import { dispatchSpeedLimitExceeded } from '../vehicleDataLayer/VehicleEventHub';
 import { startAutoDidWatcher }     from '../obd/autoDidDiscovery';
 import { startSystemOrchestrator } from './SystemOrchestrator';
 import { startPlatformCoreVehicleHalWiring } from './platformCoreVehicleHalWiring';
@@ -872,14 +873,23 @@ class SystemBoot {
     this._regNamed('GuardianRuntime', startGuardianRuntime());
 
     /* SpeedAlertRuntime (2026-08-14): "Arabam Cebimde" hız uyarısının araç ucu.
-       Kendi timer'ı YOKTUR — mevcut `onOBDData` akışına biner. İki tüketici,
-       TEK okuma: (1) uzaktan lock/unlock'un sürüş kapısını besler
-       (`updateCurrentSpeed` bugüne dek HİÇ çağrılmıyordu → kapı kördü),
-       (2) kullanıcının belirlediği eşik aşılınca telefona bildirim gönderir.
+       Kendi timer'ı YOKTUR — mevcut veri akışlarına biner: BİRİNCİL füzyon hız
+       otoritesi (`UnifiedVehicleStore.speed`, HAL>CAN>OBD>GPS), YEDEK doğrudan
+       OBD akışı. Üç tüketici, TEK karar:
+         (1) uzaktan lock/unlock'un sürüş kapısını besler (`updateCurrentSpeed`
+             bugüne dek HİÇ çağrılmıyordu → kapı kördü; ilk turda yalnız OBD'ye
+             bağlanmıştı → dongle'sız araçta HÂLÂ kördü),
+         (2) ARAÇ İÇİNDEKİ sürücüyü uyarır — sunum otoritesi `SystemOrchestrator`
+             (ikinci eylem otoritesi kurulmaz; ses/banner/geri-vites bastırma
+             kararı orada, mevcut uyarı ailesiyle aynı yerde verilir),
+         (3) eşleşmiş telefona bildirim gönderir.
        Fail-soft + zero-leak (cleanup _reg'le). */
     _log('  › SpeedAlertRuntime');
     setSpeedAlertPushChannel(notifyVehicleEvent);
-    this._reg(startSpeedAlertRuntime({ onSpeed: updateCurrentSpeed }));
+    this._reg(startSpeedAlertRuntime({
+      onSpeed:       updateCurrentSpeed,
+      onDriverAlert: dispatchSpeedLimitExceeded,
+    }));
 
     // AutomaticVehicleFingerprint (PR-26): araç bağlanınca VID+Discovery'den otomatik
     // fingerprint üret. Fail-soft + kimlik-imza guard (hot-path'e girmez); cleanup _reg'le.

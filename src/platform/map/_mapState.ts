@@ -8,21 +8,21 @@
 //   • Paylaşılan sabitler — layer ID'leri, stiller, rover/badge sabitleri, nominatim
 //
 // MapCore / MapLayerManager / MapInteractionManager hepsi BURADAN import eder.
-// Bu modül onlardan HİÇBİR ŞEY import etmez → döngüsel modül-init riski yok.
+//
+// ⚠️ Bu modül LEAF DEĞİLDİR (aşağıda `mapStyleBuilders`'tan `RASTER_PAINT_*`
+// alır). Eski başlık "hiçbir şey import etmez" diyordu; bu YANLIŞTI ve
+// `MAP_BG_*` token'larının buraya konmasına gerekçe olmuştu → #605'te ölçülen
+// açılış çökmesi. Döngüsüz sabitlerin evi `./_mapIds` modülüdür; yeni paylaşılan
+// sabit BURAYA DEĞİL, ORAYA konur.
 // Davranış değişikliği YOK (Zero-Change in Behavior) — yalnızca konum değişti.
 
 /* ── HARİTA ARKA PLAN TOKEN'LARI (tek kaynak) ──────────────────────────────
- * Gece/gündüz arka plan rengi ÜÇ ayrı yerde sabit yazılıydı (`_mapState` ×2,
- * `mapStyleBuilders` ×2, `MapLayerManager` ×1) → biri güncellenip diğeri
- * unutulduğunda stil kurulumu ile canlı geçiş AYRIŞIYORDU. Token buraya,
- * yani zaten "paylaşılan sabitler"in evi olan LEAF modüle konur; herkes
- * buradan import eder (yön korunur, döngü YOK).
- *
- * Gece değeri 2026-08-04'te #131822 → #161c28: tile boşluğu neredeyse saf
- * siyahtı ve mini haritada "delik" gibi duruyordu. */
-export const MAP_BG_NIGHT = '#161c28';
-export const MAP_BG_DAY   = '#e9eef3';
+ * Tanım `./_mapIds`e TAŞINDI (kütük #605 — döngüsel modül-init çökmesi).
+ * Buradan yeniden dışa verilir: mevcut tüketiciler (`MapLayerManager`,
+ * testler) import yolunu DEĞİŞTİRMEK ZORUNDA KALMASIN. */
+export { MAP_BG_NIGHT, MAP_BG_DAY } from './_mapIds';
 // ══════════════════════════════════════════════════════════════════════════
+import { MAP_BG_NIGHT, MAP_BG_DAY } from './_mapIds';   // bu dosyanın kendi kullanımı
 import maplibregl, { Map as MapLibreMap, Marker } from 'maplibre-gl';
 import { create } from 'zustand';
 import { RASTER_PAINT_DAY, RASTER_PAINT_NIGHT } from '../mapStyleBuilders';

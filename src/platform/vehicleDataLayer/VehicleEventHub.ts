@@ -27,7 +27,8 @@ export type VehicleEventType =
   | 'GEOFENCE_ENTER'
   | 'GEOFENCE_EXIT'
   | 'GEOFENCE_VIOLATION'
-  | 'ENGINE_OVERHEAT';
+  | 'ENGINE_OVERHEAT'
+  | 'SPEED_LIMIT_EXCEEDED';
 
 export type EventSeverity = 'CRITICAL' | 'WARNING' | 'INFO';
 
@@ -44,7 +45,14 @@ export type VehicleEvent =
   | { type: 'GEOFENCE_EXIT';        severity: 'CRITICAL'; zoneId: string; zoneName: string; ts: number }
   | { type: 'GEOFENCE_VIOLATION';   severity: 'CRITICAL'; zoneId: string; zoneName: string; ts: number }
   /** Motor soğutma suyu histerezis eşiğini aştı (P1 — Safety Engine'i ezmez, konfor/temayı ezer). */
-  | { type: 'ENGINE_OVERHEAT';      severity: 'CRITICAL'; coolantTempC: number; ts: number };
+  | { type: 'ENGINE_OVERHEAT';      severity: 'CRITICAL'; coolantTempC: number; ts: number }
+  /**
+   * Kullanıcının KENDİ belirlediği hız eşiği aşıldı (yol hız limiti DEĞİL —
+   * o ayrı bir otoritedir: `vehicleAwareSpeedLimitAuthority`). Kararın sahibi
+   * `speedAlertRuntime`tır; histerezis ve cooldown orada uygulanır, bu olay
+   * yalnız SONUCU taşır.
+   */
+  | { type: 'SPEED_LIMIT_EXCEEDED'; severity: 'WARNING'; speedKmh: number; thresholdKmh: number; ts: number };
 
 /* ── Modül-düzeyi listener kümesi ────────────────────────────── */
 
@@ -92,6 +100,24 @@ export function dispatchCrashDetected(peakG: number): void {
   _evCrashDetected.peakG = peakG;
   _evCrashDetected.ts    = Date.now();
   _dispatch(_evCrashDetected);
+}
+
+const _evSpeedLimitExceeded: Extract<VehicleEvent, { type: 'SPEED_LIMIT_EXCEEDED' }> =
+  { type: 'SPEED_LIMIT_EXCEEDED', severity: 'WARNING', speedKmh: 0, thresholdKmh: 0, ts: 0 };
+
+/**
+ * `speedAlertRuntime` kullanıcının eşiğini aşan hız ölçtüğünde çağrılır.
+ *
+ * Bu fonksiyon KARAR VERMEZ — histerezis, cooldown ve "hız ölçüldü mü" kapısı
+ * çağıranda uygulanmıştır. Buradan sonrasının sahibi `SystemOrchestrator`dır:
+ * uyarının sürücüye nasıl gösterileceğine (banner · ses · geri viteste
+ * bastırma) o karar verir. Böylece ikinci bir eylem otoritesi doğmaz.
+ */
+export function dispatchSpeedLimitExceeded(speedKmh: number, thresholdKmh: number): void {
+  _evSpeedLimitExceeded.speedKmh     = speedKmh;
+  _evSpeedLimitExceeded.thresholdKmh = thresholdKmh;
+  _evSpeedLimitExceeded.ts           = Date.now();
+  _dispatch(_evSpeedLimitExceeded);
 }
 
 const _evGeofenceViolation: Extract<VehicleEvent, { type: 'GEOFENCE_VIOLATION' }> =

@@ -36,3 +36,31 @@
  */
 export const SHIELD_IMG_DAY   = 'road-shield-day';
 export const SHIELD_IMG_NIGHT = 'road-shield-night';
+
+/**
+ * Harita arka plan token'ları — gece/gündüz (tek kaynak).
+ *
+ * ── NEDEN BURAYA TAŞINDI (kütük #605 · 2026-08-16) ──────────────────────────
+ * Bu ikili `_mapState.ts` içindeydi ve oradaki yorumu "zaten paylaşılan
+ * sabitlerin evi olan LEAF modüle konur; döngü YOK" DİYORDU — ama `_mapState`
+ * leaf DEĞİL: `mapStyleBuilders`'tan `RASTER_PAINT_*` import ediyor. Yani
+ * #552'de `SHIELD_IMG_*` için kapatılan döngünün İKİNCİ YARISI açık kalmıştı:
+ *
+ *     mapStyleBuilders ──▶ _mapState ──▶ mapStyleBuilders
+ *
+ * ÖLÇÜLDÜ (2026-08-16, Vite dev, gerçek tarayıcı, üç çözünürlükte de):
+ *   `Cannot access 'MAP_BG_NIGHT' before initialization`
+ * → uygulama AÇILIŞTA çöküyor (DOM'da 4 kutu kalıyor). `NIGHT_PALETTE`
+ *   modül üst seviyesinde kurulduğu için, yükleme `_mapState` ile başladığında
+ *   `MAP_BG_NIGHT` binding'i henüz TDZ'de oluyor.
+ *
+ * Paketlenmiş üründe (Rollup) modül sırası bugün ters olduğu için belirti
+ * görünmüyordu — yani kusur gizliydi, YOK değildi: #552'nin sahada ölçülen
+ * sonucu (`icon-image: 'undefined' value invalid`) bu ailenin aynısıdır ve
+ * burada karşılığı `background-color: undefined` olurdu.
+ *
+ * Gece değeri 2026-08-04'te #131822 → #161c28: tile boşluğu neredeyse saf
+ * siyahtı ve mini haritada "delik" gibi duruyordu.
+ */
+export const MAP_BG_NIGHT = '#161c28';
+export const MAP_BG_DAY   = '#e9eef3';

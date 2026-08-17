@@ -295,13 +295,19 @@ public class CarLauncherPlugin extends Plugin {
         });
     }
 
-    // Plugin da kendi Activity'sinden onTrimMemory alabilir — çift güvence
+    // Plugin da kendi Activity'sinden onTrimMemory alabilir — çift güvence.
+    // ⚠️ Eşleştirme MainActivity.onTrimMemory ile BİREBİR AYNI olmalı (kütük #604):
+    // TRIM_MEMORY_* monoton bir şiddet ölçeği DEĞİLDİR; >= UI_HIDDEN(20) olanlar
+    // "arka plana düştün" bildirimidir, bellek baskısı değil. Eski `>= 15` testi
+    // bunları CRITICAL sayıp uygulamayı kalıcı SAFE_MODE'a sokuyordu.
     protected void handleOnTrimMemory(int level) {
+        if (level >= android.content.ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN) return;
+
         String pressureLevel = null;
         if (level >= android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL) {
-            pressureLevel = "CRITICAL";
-        } else if (level >= android.content.ComponentCallbacks2.TRIM_MEMORY_MODERATE) {
-            pressureLevel = "MODERATE";
+            pressureLevel = "CRITICAL";           // 15
+        } else if (level >= android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_MODERATE) {
+            pressureLevel = "MODERATE";           // 5 ve 10
         }
         if (pressureLevel != null) broadcastMemoryPressure(pressureLevel);
     }

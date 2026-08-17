@@ -230,6 +230,24 @@ export function applyCompatMode(): void {
       const root = document.getElementById('root');
       if (root) root.style.height = '100%';
     }
+  } else {
+    /* ── ÖNBELLEK GERİ ALMA (kütük #601) ───────────────────────────────────
+     * `applyCachedHeadUnitFlag()` yukarıda ÖNBELLEĞE bakıp `perf-low`u zaten
+     * eklemiş olabilir (FOUC önleme). Canlı profil "düşük değil" diyorsa o
+     * sınıf GERİ ALINMALIDIR — yoksa bir kez '1' yazılmış cihaz, sınıflandırma
+     * düzelse bile o oturum boyunca düşük-uç kalırdı.
+     *
+     * ÖLÇÜLEN BEDEL (2026-08-16, Xiaomi 23090RA98I): `perf-low` aktifken
+     * `MapInteractionManager._smoothPan` false olur ve kamera `easeTo` yerine
+     * `jumpTo` kullanır → harita ~6,7 fps'te "takıla takıla" akar (#570'in
+     * ta kendisi). Önbellek yazılıp bir daha SİLİNMEDİĞİ için, #599'un tier
+     * düzeltmesi tek başına yetmezdi: ilk açılış yine takılırdı.
+     *
+     * Yalnız bu iki işaret geri alınır. `cl_performanceMode` DEĞİŞTİRİLMEZ —
+     * onu kullanıcı da ayarlamış olabilir; sessizce ezmek kullanıcı ayarını
+     * çalmak olur. Önbellek anahtarı zaten yukarıda '0' olarak yazıldı. */
+    document.documentElement.removeAttribute('data-compat-mode');
+    document.documentElement.classList.remove('perf-low');
   }
 
   // Tüm cihazlarda: izin diyaloğu / focus dönüşü için agresif repaint

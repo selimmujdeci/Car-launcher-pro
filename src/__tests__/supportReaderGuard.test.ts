@@ -3,17 +3,25 @@
  *
  * "rapor geldi kontrol et" kapısının GÜVENLİK invaryantları:
  *  1. Token dosyası (.env.support.local) .gitignore ile korunur (asla commit edilmez).
- *  2. Migration + istemci script'i SIR İÇERMEZ (JWT / bcrypt hash / hardcoded token yok).
- *  3. İstemci token'ı YALNIZ env'den okur (SUPPORT_SECRET), gövdeye gömmez.
+ *  2. İstemci script'i SIR İÇERMEZ ve token'ı YALNIZ env'den okur.
+ *  3. Şema tarafı SIR İÇERMEZ; token bcrypt ile doğrulanır.
+ *
+ * ── HEDEF DEĞİŞİKLİĞİ (kütük #588) ────────────────────────────────────────
+ * Şema iddiaları eskiden `20260714000033_support_reports_reader.sql` dosyasını
+ * okuyordu; #583'ün baseline squash'ı onu `supabase/migrations_archive/`'e
+ * taşıyınca bu test **dosya bulunamadı** diye düşüyordu — sızıntı kilidi ölüydü.
+ * Şema iddiaları artık `00000000000000_prod_baseline.sql` üzerinden, yani
+ * **üretimin gerçeği** üzerinden sınanıyor (kapının derinlemesine kilitleri
+ * `prodBaselineSecurityGuards.test.ts` içinde).
  */
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import baselineSql from '../../supabase/migrations/00000000000000_prod_baseline.sql?raw';
 
 const ROOT = process.cwd();
 const read = (p: string) => readFileSync(resolve(ROOT, p), 'utf8');
 
-const MIGRATION = 'supabase/migrations/20260714000033_support_reports_reader.sql';
 const SCRIPT = 'scripts/support/fetch-reports.mjs';
 
 /** JWT (eyJ…) veya bcrypt hash ($2a/$2b/$2y$) literal'i = sızıntı. */
@@ -26,11 +34,12 @@ describe('SUPPORT-READ-1 — sızıntı kilidi', () => {
     expect(/\.env\.\*\.local|^\*\.local/m.test(gi)).toBe(true);
   });
 
-  it('migration SIR içermez (JWT/bcrypt hash yok) + token guard var', () => {
-    const sql = read(MIGRATION);
-    expect(SECRET_LITERAL.test(sql)).toBe(false);
-    expect(sql).toMatch(/crypt\(p_secret/);            // token bcrypt ile doğrulanıyor
-    expect(sql).toMatch(/type\s*=\s*'support_snapshot'/); // yalnız support_snapshot
+  it('KİLİT: şema SIR içermez (JWT/bcrypt hash yok) + token guard var', () => {
+    expect(SECRET_LITERAL.test(baselineSql)).toBe(false);
+    // Token bcrypt ile doğrulanıyor — düz metin karşılaştırma YOK.
+    expect(baselineSql).toMatch(/crypt\(p_secret/);
+    // Okuma yalnız destek anlık görüntüleriyle sınırlı — genel olay okuyucusu değil.
+    expect(baselineSql).toMatch(/e\.type = 'support_snapshot'/);
   });
 
   it('istemci script SIR içermez + token YALNIZ env\'den okunur', () => {

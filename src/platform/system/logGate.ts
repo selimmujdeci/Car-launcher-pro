@@ -14,8 +14,15 @@
  *
  * Tek seferlik kurulur (main.tsx boot). Testler bu fonksiyonu çağırmaz → test
  * ortamında console davranışı DEĞİŞMEZ.
+ *
+ * ⚠️ İSTİSNA (kütük #598-D): runtime MOD DEĞİŞİMİ satırları bu kapıya tabi
+ * DEĞİLDİR. `AdaptiveRuntimeManager._commit()` önce modu yazıp sonra logladığı
+ * için, `SAFE_MODE`/`BASIC_JS`'e geçişi duyuran satır kapı tarafından
+ * yutuluyordu — yani tetikleyici hiçbir iz bırakmıyordu. O satırlar artık
+ * `rawConsole` üzerinden, kapıdan bağımsız yazılır. Bkz `rawConsole.ts`.
  */
 import { runtimeManager } from '../../core/runtime/AdaptiveRuntimeManager';
+import { _rawConsoleForGate } from './rawConsole';
 
 let _installed = false;
 
@@ -24,10 +31,12 @@ export function installConsoleGate(): void {
   if (typeof console === 'undefined') return;
   _installed = true;
 
+  /* `warn`/`info` referansları `rawConsole`dan alınır — "gerçek console"un
+     tek sahibi orasıdır; burada ikinci kez yakalamak iki otorite yaratırdı. */
   const orig = {
     log:   console.log.bind(console),
-    info:  console.info.bind(console),
-    warn:  console.warn.bind(console),
+    info:  _rawConsoleForGate.info,
+    warn:  _rawConsoleForGate.warn,
     error: console.error.bind(console),
   };
 

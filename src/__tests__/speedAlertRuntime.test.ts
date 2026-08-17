@@ -8,7 +8,7 @@
  *    lock/unlock'un "sürüş sırasında reddet" kapısı KÖRDÜ.
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 const _onOBDData = vi.fn();
 vi.mock('../platform/obdService', () => ({
@@ -23,22 +23,37 @@ vi.mock('../utils/safeStorage', () => ({
 
 vi.mock('../platform/debug', () => ({ logInfo: () => {} }));
 
+import { useUnifiedVehicleStore } from '../platform/vehicleDataLayer/UnifiedVehicleStore';
 import {
   normalizeSpeedAlertConfig, evaluateSpeedAlert, isDecidableSpeed,
   applySpeedAlertConfig, getSpeedAlertConfig, startSpeedAlertRuntime,
-  setSpeedAlertPushChannel, _resetSpeedAlertForTest,
+  setSpeedAlertPushChannel, getSpeedAlertEvidence, _resetSpeedAlertForTest,
   INITIAL_SPEED_ALERT_STATE, SPEED_ALERT_COOLDOWN_MS, SPEED_ALERT_HYSTERESIS_KMH,
   type SpeedAlertConfig, type SpeedAlertState,
 } from '../platform/speedAlertRuntime';
 
 const CFG: SpeedAlertConfig = { enabled: true, thresholdKmh: 120 };
 
+/* Çalışan runtime'lar test arasında DURDURULUR: abonelikler modül-global kanıt
+   defterini besler, kapatılmazsa bir sonraki testin sayaçlarını kirletirler
+   (üründe tek runtime vardır; bu yalnız test hijyenidir). */
+let _stopRuntime: (() => void) | null = null;
+function start(deps: Parameters<typeof startSpeedAlertRuntime>[0] = {}): () => void {
+  _stopRuntime = startSpeedAlertRuntime(deps);
+  return _stopRuntime;
+}
+
 beforeEach(() => {
+  _stopRuntime?.();
+  _stopRuntime = null;
   _store.clear();
   _resetSpeedAlertForTest();
+  useUnifiedVehicleStore.setState({ speed: null, _vehicleSpeedTs: 0 });
   vi.clearAllMocks();
   _onOBDData.mockReturnValue(() => {});
 });
+
+afterEach(() => { _stopRuntime?.(); _stopRuntime = null; });
 
 describe('normalizeSpeedAlertConfig — zero-trust', () => {
   it('telefonun gönderdiği biçimi kabul eder', () => {
@@ -135,16 +150,90 @@ describe('runtime bağlantısı', () => {
 
   it('KİLİT: tehlikeli komut kapısı her ölçümde BESLENİR (eskiden hiç beslenmiyordu)', () => {
     const onSpeed = vi.fn();
-    startSpeedAlertRuntime({ onSpeed });
+    start({ onSpeed });
     const listener = capture();
 
     listener({ speed: 42 });
-    expect(onSpeed).toHaveBeenCalledWith(42);
+    /* Değerin YANINDA ölçüm ANI da taşınır: kapıda iki besleyici yarışır
+       (füzyon otoritesi + yedek OBD) ve eski damgalı örnek taze örneği
+       ezmemelidir. Damgasız beslemek o korumayı imkânsız kılardı. */
+    expect(onSpeed).toHaveBeenCalledTimes(1);
+    const [speed, atMs] = onSpeed.mock.calls[0] as [number, number];
+    expect(speed).toBe(42);
+    expect(typeof atMs).toBe('number');
+    expect(Number.isFinite(atMs)).toBe(true);
+  });
+
+  it('KİLİT: kapı FÜZYON hız otoritesinden de beslenir (OBD dongle olmayan araç)', () => {
+    const onSpeed = vi.fn();
+    start({ onSpeed });
+
+    // OBD akışına HİÇ dokunulmaz — yalnız füzyon hızı yenilenir.
+    useUnifiedVehicleStore.setState({ speed: 61, _vehicleSpeedTs: 1 });
+
+    expect(onSpeed).toHaveBeenCalledTimes(1);
+    expect(onSpeed.mock.calls[0]?.[0]).toBe(61);
+    expect(getSpeedAlertEvidence().fusedFed).toBe(1);
+    expect(getSpeedAlertEvidence().obdFed).toBe(0);
+  });
+
+  it('KİLİT: füzyon hızı BİLİNMİYORSA kapıya 0 yazılmaz (sahte "duruyor")', () => {
+    const onSpeed = vi.fn();
+    start({ onSpeed });
+
+    useUnifiedVehicleStore.setState({ speed: null, _vehicleSpeedTs: 2 });
+
+    expect(onSpeed).not.toHaveBeenCalled();
+    expect(getSpeedAlertEvidence().unknownSpeed).toBeGreaterThan(0);
+  });
+
+  it('KİLİT: hız DEĞİŞMEYEN yamalar örnek üretmez (sabit hızda gürültü yok)', () => {
+    const onSpeed = vi.fn();
+    useUnifiedVehicleStore.setState({ speed: 80, _vehicleSpeedTs: 10 });
+    start({ onSpeed });
+
+    // Hızla ilgisi olmayan bir yama (ör. GPS/CAN alanı) — damga da aynı.
+    useUnifiedVehicleStore.setState({ rpm: 2200 });
+    expect(onSpeed).not.toHaveBeenCalled();
+
+    // Aynı DEĞER ama TAZE damga = gerçekten yeni ölçüm → işlenir.
+    useUnifiedVehicleStore.setState({ speed: 80, _vehicleSpeedTs: 11 });
+    expect(onSpeed).toHaveBeenCalledTimes(1);
+  });
+
+  it('KİLİT: araç içi uyarı kanalı bağlıysa SÜRÜCÜ de uyarılır (telefon tek muhatap değil)', () => {
+    applySpeedAlertConfig({ enabled: true, threshold_kmh: 100 });
+    const push = vi.fn();
+    const onDriverAlert = vi.fn();
+    setSpeedAlertPushChannel(push);
+    start({ onDriverAlert });
+
+    capture()({ speed: 131.4 });
+
+    expect(onDriverAlert).toHaveBeenCalledWith(131, 100);
+    expect(push).toHaveBeenCalledTimes(1);      // telefon ucu bozulmadı
+    expect(getSpeedAlertEvidence().driverAlerts).toBe(1);
+    expect(getSpeedAlertEvidence().driverChannelBound).toBe(true);
+  });
+
+  it('KİLİT: araç içi uyarı DÜŞERSE telefon bildirimi yine gider (fail-soft)', () => {
+    applySpeedAlertConfig({ enabled: true, threshold_kmh: 100 });
+    const push = vi.fn();
+    setSpeedAlertPushChannel(push);
+    start({ onDriverAlert: () => { throw new Error('HMI down'); } });
+
+    expect(() => capture()({ speed: 150 })).not.toThrow();
+    expect(push).toHaveBeenCalledTimes(1);
+  });
+
+  it('KİLİT: araç içi kanal bağlı DEĞİLSE bu LAB\'da görünür (sessiz körlük yok)', () => {
+    start({});
+    expect(getSpeedAlertEvidence().driverChannelBound).toBe(false);
   });
 
   it('KİLİT: hız ölçülmemişse kapıya 0 YAZILMAZ (yanlış "duruyor" iddiası)', () => {
     const onSpeed = vi.fn();
-    startSpeedAlertRuntime({ onSpeed });
+    start({ onSpeed });
     const listener = capture();
 
     listener({ speed: undefined });
@@ -155,7 +244,7 @@ describe('runtime bağlantısı', () => {
     applySpeedAlertConfig({ enabled: true, threshold_kmh: 100 });
     const push = vi.fn();
     setSpeedAlertPushChannel(push);
-    startSpeedAlertRuntime({});
+    start({});
     const listener = capture();
 
     listener({ speed: 118.6 });
@@ -168,7 +257,7 @@ describe('runtime bağlantısı', () => {
     applySpeedAlertConfig({ enabled: false, threshold_kmh: 100 });
     const push = vi.fn();
     setSpeedAlertPushChannel(push);
-    startSpeedAlertRuntime({});
+    start({});
     capture()({ speed: 200 });
     expect(push).not.toHaveBeenCalled();
   });
@@ -176,7 +265,7 @@ describe('runtime bağlantısı', () => {
   it('cleanup aboneliği bırakır (zero-leak)', () => {
     const unsub = vi.fn();
     _onOBDData.mockReturnValue(unsub);
-    const stop = startSpeedAlertRuntime({});
+    const stop = start({});
     stop();
     expect(unsub).toHaveBeenCalled();
   });
@@ -185,7 +274,7 @@ describe('runtime bağlantısı', () => {
     applySpeedAlertConfig({ enabled: true, threshold_kmh: 140 });
     _resetSpeedAlertForTest();
     expect(getSpeedAlertConfig()).toBeNull();
-    startSpeedAlertRuntime({});
+    start({});
     expect(getSpeedAlertConfig()).toEqual({ enabled: true, thresholdKmh: 140 });
   });
 });

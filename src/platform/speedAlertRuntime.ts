@@ -12,9 +12,21 @@
  * HİÇ tetiklenemiyordu; araç 100 km/h giderken uzaktan "Aç" komutu geçerdi.
  * Aynı abonelik o kapıyı da besler — hız için İKİNCİ bir otorite kurulmaz.
  *
+ * ── ÜÇÜNCÜ KUSUR: KAPI YALNIZ OBD İLE BESLENİYORDU (2026-08-14, ikinci tur) ──
+ * İlk tur kapıyı `onOBDData`ya bağladı. Ama OBD ürünün TEK hız kaynağı değildir:
+ * gerçek otorite **HAL > CAN > OBD > GPS** önceliğiyle füzyon yapan
+ * `UnifiedVehicleStore.speed`tir (kütük #549). OBD dongle takılı olmayan bir
+ * araçta (kullanıcıların çoğunluğu) kapı **hâlâ kördü** ve CAROS LAB bunu
+ * "kapıya verilen ölçüm = 0" diye doğru şekilde raporluyordu.
+ *
+ * Artık BİRİNCİL kaynak füzyon hızıdır; `onOBDData` **yedek besleyici** olarak
+ * kalır (VAL worker düşerse kapı tamamen kör kalmasın). İki kaynak da AYNI
+ * durum makinesini besler — ikinci bir karar otoritesi doğmaz; kapıda hangi
+ * örneğin geçerli olduğunu **zaman damgası** belirler.
+ *
  * ── TASARIM ────────────────────────────────────────────────────────────────
  *  · Karar SAF fonksiyondadır (`evaluateSpeedAlert`) — I/O · `Date.now` · global YOK.
- *  · Kendi timer'ı YOKTUR: mevcut `onOBDData` akışına abone olur (hot-path'e
+ *  · Kendi timer'ı YOKTUR: mevcut veri akışlarına abone olur (hot-path'e
  *    yeni bir zamanlayıcı eklenmez; iş yalnız birkaç karşılaştırmadır).
  *  · Histerezis + cooldown: dur-kalk trafiğinde bildirim yağmuru olmaz.
  *  · Zero-trust: eşik UZAKTAN gelir → aralık dışı/bozuk yapılandırma REDDEDİLİR.
@@ -22,6 +34,7 @@
  */
 
 import { onOBDData, type OBDData } from './obdService';
+import { useUnifiedVehicleStore } from './vehicleDataLayer/UnifiedVehicleStore';
 import { safeGetRaw, safeSetRaw } from '../utils/safeStorage';
 import { logInfo } from './debug';
 
@@ -211,8 +224,19 @@ export interface SpeedAlertEvidence {
   unknownSpeed:     number;
   /** Dış hız kapısına (lock/unlock koruması) kaç kez değer verildi. */
   gateFed:          number;
+  /**
+   * BİRİNCİL kaynaktan (füzyon hız otoritesi: HAL>CAN>OBD>GPS) gelen ölçümler.
+   * OBD dongle olmayan araçta kapıyı besleyen tek kaynak budur.
+   */
+  fusedFed:         number;
+  /** YEDEK kaynaktan (doğrudan OBD akışı) gelen ölçümler. */
+  obdFed:           number;
   /** Üretilen bildirim sayısı. */
   fired:            number;
+  /** ARAÇ İÇİNDEKİ sürücüye kaç kez uyarı verildi (telefondan bağımsız). */
+  driverAlerts:     number;
+  /** Araç içi uyarı yolu bağlı mı — `false` ise sürücü UYARILMAZ. */
+  driverChannelBound: boolean;
   /** Aşım sürerken cooldown yüzünden BASTIRILAN bildirimler. */
   suppressedCooldown: number;
   /** Son karar gerekçesi — `null` = hiç örnek işlenmedi. */
@@ -225,8 +249,10 @@ export interface SpeedAlertEvidence {
 
 const _evidence = {
   running: false, samples: 0, unknownSpeed: 0, gateFed: 0,
-  fired: 0, suppressedCooldown: 0,
+  fusedFed: 0, obdFed: 0,
+  fired: 0, driverAlerts: 0, suppressedCooldown: 0,
   lastReason: null as SpeedAlertReason | null,
+  driverChannelBound: false,
 };
 
 export function getSpeedAlertEvidence(): SpeedAlertEvidence {
@@ -235,7 +261,11 @@ export function getSpeedAlertEvidence(): SpeedAlertEvidence {
     samples:            _evidence.samples,
     unknownSpeed:       _evidence.unknownSpeed,
     gateFed:            _evidence.gateFed,
+    fusedFed:           _evidence.fusedFed,
+    obdFed:             _evidence.obdFed,
     fired:              _evidence.fired,
+    driverAlerts:       _evidence.driverAlerts,
+    driverChannelBound: _evidence.driverChannelBound,
     suppressedCooldown: _evidence.suppressedCooldown,
     lastReason:         _evidence.lastReason,
     lastFiredAtMs:      _state.lastFiredAtMs,
@@ -262,57 +292,110 @@ export interface SpeedAlertRuntimeDeps {
    * Ölçülen hızı tüketen dış kapı — üründe `commandListener.updateCurrentSpeed`.
    * Enjekte edilir: bu modül `commandListener`'ı import ederse dairesel
    * bağımlılık oluşur (o modül `applySpeedAlertConfig`i import ediyor).
+   *
+   * `atMs` ölçümün alındığı andır: kapıda iki besleyici yarıştığında **eski
+   * damgalı örnek taze örneği ezmesin** diye taşınır.
    */
-  onSpeed?: (speedKmh: number) => void;
+  onSpeed?: (speedKmh: number, atMs: number) => void;
+
+  /**
+   * ARAÇ İÇİNDEKİ SÜRÜCÜYE uyarı — üründe `dispatchSpeedLimitExceeded`
+   * (VehicleEventHub → SystemOrchestrator). Enjekte edilir ki bu modül olay
+   * hub'ını import etmesin ve **ikinci bir eylem otoritesi doğmasın**: uyarının
+   * sürücüye nasıl sunulacağına (banner · sesli uyarı · geri viteste bastırma)
+   * karar veren tek yer `SystemOrchestrator`dır, burası değildir.
+   */
+  onDriverAlert?: (speedKmh: number, thresholdKmh: number) => void;
+}
+
+/** Bir hız örneğini işler — kaynak ayrımı yalnız SAYAÇTADIR, karar TEKTİR. */
+function ingestSpeedSample(
+  speed:  number | null | undefined,
+  source: 'fused' | 'obd',
+  deps:   SpeedAlertRuntimeDeps,
+): void {
+  const nowMs = Date.now();
+  _evidence.samples++;
+
+  // (1) Tehlikeli komut kapısının hız otoritesi — ölçüm yoksa BESLENMEZ
+  //     (0 yazmak "araç duruyor" iddiasıdır ve kapıyı yanlışlıkla açar).
+  if (isDecidableSpeed(speed)) {
+    _evidence.gateFed++;
+    if (source === 'fused') _evidence.fusedFed++; else _evidence.obdFed++;
+    try { deps.onSpeed?.(speed, nowMs); } catch { /* kapı hatası akışı durdurmaz */ }
+  } else {
+    _evidence.unknownSpeed++;
+  }
+
+  // (2) Hız uyarısı — iki kaynak AYNI durum makinesini sürer; histerezis ve
+  //     cooldown zaten paylaşıldığı için çift bildirim YAPISAL olarak olmaz.
+  if (!_config) return;
+  const decision = evaluateSpeedAlert(_config, _state, speed, nowMs);
+  _state = decision.state;
+  _evidence.lastReason = decision.reason;
+  if (decision.reason === 'still_over') _evidence.suppressedCooldown++;
+  if (!decision.fire) return;
+  _evidence.fired++;
+
+  const speedKmh = Math.round(speed as number);
+  logInfo(`[SpeedAlert] Eşik aşıldı: ${speedKmh} > ${_config.thresholdKmh} km/h`);
+
+  /* (a) ARAÇ İÇİ — sürücü uyarısı ÖNCE gider. Uyarının asıl muhatabı direksiyon
+     başındaki kişidir; telefon bildirimi (aracı kullanmayan sahibe) ikincildir.
+     Ağ gerektirmediği için bu uç çevrimdışıyken de çalışır. */
+  try {
+    _evidence.driverAlerts++;
+    deps.onDriverAlert?.(speedKmh, _config.thresholdKmh);
+  } catch { /* sunum hatası bildirimi engellemez */ }
+
+  // (b) TELEFON — eşleşmiş sahibe push.
+  try {
+    _push?.('speed_alert', {
+      speed_kmh:     speedKmh,
+      threshold_kmh: _config.thresholdKmh,
+    });
+  } catch { /* bildirim hatası sürüşü etkilemez */ }
 }
 
 /**
- * Hız akışına abone olur. İki iş yapar ve **ikisi de tek okumadan** türer:
+ * Hız akışlarına abone olur. İki iş yapar ve **ikisi de aynı okumadan** türer:
  *  1. `onSpeed` — uzaktan lock/unlock'un sürüş kapısını besler.
  *  2. Hız uyarısı kararı — eşik aşımında telefona bildirim.
  *
- * Yeni timer KURMAZ; `onOBDData` zaten var olan akıştır. Cleanup döner.
+ * İKİ KAYNAK: birincil füzyon hız otoritesi (`UnifiedVehicleStore.speed`),
+ * yedek doğrudan OBD akışı. Yeni timer KURULMAZ; ikisi de var olan akışlardır.
+ * Cleanup döner (zero-leak).
  */
 export function startSpeedAlertRuntime(deps: SpeedAlertRuntimeDeps = {}): () => void {
   _config = loadConfig();
   _state  = INITIAL_SPEED_ALERT_STATE;
   _evidence.running = true;
+  _evidence.driverChannelBound = typeof deps.onDriverAlert === 'function';
 
-  const unsub = onOBDData((d: OBDData) => {
-    const speed = d.speed;
-    _evidence.samples++;
+  // ── BİRİNCİL: füzyon hız otoritesi ────────────────────────────────────────
+  // Store her yamada bildirim yapar (GPS · CAN · tema …). Yalnız hızın GERÇEKTEN
+  // yenilendiği yamalar işlenir: değer değişmemiş ve zaman damgası aynıysa yeni
+  // ölçüm YOKTUR — sabit hızda giden araçta damga tazelenir, o işlenir.
+  let unsubFused: () => void = () => {};
+  try {
+    unsubFused = useUnifiedVehicleStore.subscribe((state, prev) => {
+      if (state.speed === prev.speed && state._vehicleSpeedTs === prev._vehicleSpeedTs) return;
+      ingestSpeedSample(state.speed, 'fused', deps);
+    });
+  } catch {
+    /* Store okunamadı (test/erken boot) — yedek kaynak yine de bağlanır;
+       runtime sessizce ölmez, LAB'da `fusedFed = 0` olarak GÖRÜNÜR. */
+  }
 
-    // (1) Tehlikeli komut kapısının hız otoritesi — ölçüm yoksa BESLENMEZ
-    //     (0 yazmak "araç duruyor" iddiasıdır ve kapıyı yanlışlıkla açar).
-    if (isDecidableSpeed(speed)) {
-      _evidence.gateFed++;
-      try { deps.onSpeed?.(speed); } catch { /* kapı hatası akışı durdurmaz */ }
-    } else {
-      _evidence.unknownSpeed++;
-    }
-
-    // (2) Hız uyarısı
-    if (!_config) return;
-    const decision = evaluateSpeedAlert(_config, _state, speed, Date.now());
-    _state = decision.state;
-    _evidence.lastReason = decision.reason;
-    if (decision.reason === 'still_over') _evidence.suppressedCooldown++;
-    if (!decision.fire) return;
-    _evidence.fired++;
-
-    logInfo(`[SpeedAlert] Eşik aşıldı: ${Math.round(speed as number)} > ${_config.thresholdKmh} km/h`);
-    try {
-      _push?.('speed_alert', {
-        speed_kmh:     Math.round(speed as number),
-        threshold_kmh: _config.thresholdKmh,
-      });
-    } catch { /* bildirim hatası sürüşü etkilemez */ }
-  });
+  // ── YEDEK: doğrudan OBD akışı ─────────────────────────────────────────────
+  const unsubObd = onOBDData((d: OBDData) => { ingestSpeedSample(d.speed, 'obd', deps); });
 
   return () => {
-    unsub();
+    unsubFused();
+    unsubObd();
     _push = null;
     _evidence.running = false;
+    _evidence.driverChannelBound = false;
   };
 }
 
@@ -323,6 +406,8 @@ export function _resetSpeedAlertForTest(): void {
   _push   = null;
   Object.assign(_evidence, {
     running: false, samples: 0, unknownSpeed: 0, gateFed: 0,
-    fired: 0, suppressedCooldown: 0, lastReason: null,
+    fusedFed: 0, obdFed: 0,
+    fired: 0, driverAlerts: 0, suppressedCooldown: 0, lastReason: null,
+    driverChannelBound: false,
   });
 }

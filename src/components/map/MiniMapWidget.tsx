@@ -24,6 +24,12 @@ import {
   clearRouteGeometry,
 } from '../../platform/mapService';
 import {
+  shouldTrimRoute,
+  nextTrimMark,
+  EMPTY_TRIM_MARK,
+  type RouteTrimMark,
+} from '../../platform/map/routeTrimGate';
+import {
   useNavigation,
   endNavigation,
   getRouteProgressPoint,
@@ -186,7 +192,9 @@ export const MiniMapWidget = memo(function MiniMapWidget({
   const navLiveRef      = useRef(false);
   const routeGeomRef    = useRef<[number, number][] | null>(null);
   const lastRouteKeyRef = useRef<string | null>(null);
-  const lastTrimSegRef  = useRef(-1);
+  /* #601: dedup anahtarı segment DEĞİL kat edilen mesafe — karar saf
+     `routeTrimGate`te; burada yalnız son işaret taşınır. */
+  const lastTrimMarkRef = useRef<RouteTrimMark>(EMPTY_TRIM_MARK);
   useEffect(() => {
     navLiveRef.current   = navLive;
     routeGeomRef.current = route.geometry;
@@ -333,7 +341,7 @@ export const MiniMapWidget = memo(function MiniMapWidget({
         `${geom[geom.length - 1][0].toFixed(4)},${geom[geom.length - 1][1].toFixed(4)}`;
       if (lastRouteKeyRef.current === key) return;
       lastRouteKeyRef.current = key;
-      lastTrimSegRef.current  = -1; // yeni geometri → kırpma çapası sıfırlanır
+      lastTrimMarkRef.current = EMPTY_TRIM_MARK; // yeni geometri → kırpma çapası sıfırlanır
       try {
         // Alternatif rota ÇİZİLMEZ: mini harita alanında okunmaz olur ve
         // seçilemez (dokunma hedefi yok) — kanıtsız görsel gürültü üretmeyiz.
@@ -341,7 +349,7 @@ export const MiniMapWidget = memo(function MiniMapWidget({
       } catch { /* stil yeniden yükleniyor olabilir — sonraki dep değişiminde tekrar */ }
     } else if (lastRouteKeyRef.current !== null) {
       lastRouteKeyRef.current = null;
-      lastTrimSegRef.current  = -1;
+      lastTrimMarkRef.current = EMPTY_TRIM_MARK;
       try { clearRouteGeometry(map); } catch { /* fail-soft */ }
     }
   }, [navRouteVisible, route.geometry, mapReady, styleKey]);
@@ -350,7 +358,7 @@ export const MiniMapWidget = memo(function MiniMapWidget({
   // bizim çizdiğimiz çizgi orada artık geçerli olmayabilir (Zero-Leak + temiz devir).
   useEffect(() => () => {
     lastRouteKeyRef.current = null;
-    lastTrimSegRef.current  = -1;
+    lastTrimMarkRef.current = EMPTY_TRIM_MARK;
   }, []);
 
   // Store instance değişimini izle — stale ref ve re-init yönetimi.
@@ -663,8 +671,12 @@ export const MiniMapWidget = memo(function MiniMapWidget({
     if (navLiveRef.current && mapRef.current) {
       const prog = getRouteProgressPoint();
       const geom = routeGeomRef.current;
-      if (prog && geom && geom.length >= 2 && prog.segIdx !== lastTrimSegRef.current) {
-        lastTrimSegRef.current = prog.segIdx;
+      const _next = prog && geom
+        ? { segIdx: prog.segIdx, lon: prog.lon, lat: prog.lat, geom }
+        : null;
+      if (prog && geom && geom.length >= 2 && _next &&
+          shouldTrimRoute(lastTrimMarkRef.current, _next)) {
+        lastTrimMarkRef.current = nextTrimMark(_next);
         try {
           trimRouteGeometry(mapRef.current, [
             [prog.lon, prog.lat],

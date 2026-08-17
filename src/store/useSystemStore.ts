@@ -13,7 +13,9 @@ import type { TripRecord } from '../platform/tripLogService';
 /* ── Alert tipi ──────────────────────────────────────────── */
 
 export type AlertSeverity = 'WARNING' | 'CRITICAL';
-export type AlertEventType = 'LOW_FUEL' | 'CRITICAL_FUEL' | 'MAINTENANCE_REQUIRED' | 'CRASH_DETECTED' | 'ENGINE_OVERHEAT';
+export type AlertEventType = 'LOW_FUEL' | 'CRITICAL_FUEL' | 'MAINTENANCE_REQUIRED' | 'CRASH_DETECTED' | 'ENGINE_OVERHEAT'
+  /** Kullanıcının KENDİ belirlediği hız eşiği aşıldı (yol hız limiti değil). */
+  | 'SPEED_LIMIT_EXCEEDED';
 
 export interface SystemAlert {
   id:         number;

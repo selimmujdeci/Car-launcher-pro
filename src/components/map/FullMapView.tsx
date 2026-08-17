@@ -39,6 +39,12 @@ import {
   updateMapMood,
   registerAltRouteSelectCallback,
 } from '../../platform/mapService';
+import {
+  shouldTrimRoute,
+  nextTrimMark,
+  EMPTY_TRIM_MARK,
+  type RouteTrimMark,
+} from '../../platform/map/routeTrimGate';
 import { useHazardStore } from '../../store/useHazardStore';
 import { useGPSSource, onGPSLocation, type GPSLocation, LOCATION_STALE_MS } from '../../platform/gpsService';
 import { acquireCompassDemand } from '../../platform/gps/compassDemand';
@@ -184,9 +190,11 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
   const redrawDirtyRef  = useRef(true);
   const drivingModeRef  = useRef(false);
   const routeGeometryRef  = useRef<[number, number][] | null>(null);
-  // Kat edilen rota kırpma durumu — yalnız segment index / geometri değişince setData
-  const lastTrimSegRef    = useRef(-1);
-  const lastTrimGeomRef   = useRef<[number, number][] | null>(null);
+  /* Kat edilen rota kırpma durumu. Karar SAF modelde (`routeTrimGate`);
+     burada yalnız son işaret taşınır. #601: eskiden yalnız segment indeksi
+     karşılaştırılıyordu → otoyolda uzun segmentlerde rota aracın arkasında
+     61 s'ye kadar kalıyordu (ölçüm dosyanın başında). */
+  const lastTrimMarkRef   = useRef<RouteTrimMark>(EMPTY_TRIM_MARK);
   const routeAltRef       = useRef<[number, number][][]>([]);
   const routeAltIdxRef    = useRef<number[]>([]);
   const routeAltDursRef   = useRef<number[]>([]);
@@ -434,15 +442,18 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
           // Yalnız segment index veya geometri (reroute) değişince setData — Mali-400 dostu.
           const _prog = getRouteProgressPoint();
           const _geom = routeGeometryRef.current;
-          if (_prog && _geom && _geom.length >= 2 && mapRef.current &&
-              (_prog.segIdx !== lastTrimSegRef.current || _geom !== lastTrimGeomRef.current)) {
-            lastTrimSegRef.current  = _prog.segIdx;
-            lastTrimGeomRef.current = _geom;
-            const _remaining: [number, number][] = [
-              [_prog.lon, _prog.lat],
-              ..._geom.slice(_prog.segIdx + 1),
-            ];
-            trimRouteGeometry(mapRef.current, _remaining);
+          if (_prog && _geom && _geom.length >= 2 && mapRef.current) {
+            const _next = {
+              segIdx: _prog.segIdx, lon: _prog.lon, lat: _prog.lat, geom: _geom,
+            };
+            if (shouldTrimRoute(lastTrimMarkRef.current, _next)) {
+              lastTrimMarkRef.current = nextTrimMark(_next);
+              const _remaining: [number, number][] = [
+                [_prog.lon, _prog.lat],
+                ..._geom.slice(_prog.segIdx + 1),
+              ];
+              trimRouteGeometry(mapRef.current, _remaining);
+            }
           }
 
           /* 2c) YOLA BOYANMIŞ MANEVRA OKU — aynı fix, ek abonelik/timer YOK.

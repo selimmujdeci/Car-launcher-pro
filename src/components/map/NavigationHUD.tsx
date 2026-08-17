@@ -1623,7 +1623,28 @@ const QuickDestinations = memo(function QuickDestinations({
   return (
     <div
       className="absolute left-3 z-20 pointer-events-auto animate-in fade-in slide-in-from-left-2 duration-400"
-      style={{ bottom: 'calc(var(--lp-dock-h, 68px) + 10px)' }}
+      /* ── SOL ALT KÖŞENİN İKİ SAHİBİ VARDI (kütük #605) ────────────────────
+       *
+       * ÖLÇÜLEN KUSUR: bu sütun `--lp-dock-h + 10` ile alta çapalıydı;
+       * `MapHudControls`in "Yol durumu bildir" düğmesi (48×48, amber, blur)
+       * ise `--lp-dock-h + 18` ile AYNI köşeye çapalıydı. İkisi de görünür,
+       * ikisinin de sahibi ayrı → düğme en alttaki kartın (ÖZEL KONUMLAR)
+       * üstüne biniyordu. Kullanıcı bunu "sahipsiz yarı saydam kare" diye
+       * bildirdi — etiketi olmadığı için düğme olarak okunmuyordu bile.
+       *
+       * Gerçek tarayıcı ölçümü (2026-08-16, kırpma+görünürlük farkındalıklı):
+       *   904×406  → ÖZEL KONUMLAR %30 / düğme %15 örtüşme
+       *   1024×600 → %28 / %14
+       *   1280×480 → %22 / %11
+       * Üç çözünürlükte de var → telefona özel DEĞİL, düzeltme genel.
+       *
+       * ÇÖZÜM: sütun, düğmenin kapladığı şeridin ÜSTÜNDEN başlar.
+       * 18 (düğmenin alt boşluğu) + 48 (düğme) + 10 (görsel oluk) = 76.
+       * Değerler `MapHudControls`in KENDİ stil sabitlerinden türetilmiştir;
+       * kilit testi ikisinin sessizce ayrışmadığını denetler. Düğme yerinde
+       * BIRAKILDI: sürüşte en kolay erişilen köşe odur ve navigasyonda bu
+       * sütun zaten çizilmez. */
+      style={{ bottom: 'calc(var(--lp-dock-h, 68px) + 76px)' }}
     >
       <div className="flex flex-col gap-1">
         <QuickCard

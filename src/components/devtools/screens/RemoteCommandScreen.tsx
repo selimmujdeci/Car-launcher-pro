@@ -111,8 +111,17 @@ export const RemoteCommandScreen = memo(function RemoteCommandScreen() {
     return c;
   }, [view]);
 
-  /* Hız kapısının hâlâ kör olup olmadığı — #574'ün doğrudan izi. */
-  const gateBlind = snap.speedAlert !== null && snap.speedAlert.gateFed === 0;
+  /* ── Kapı körlüğü — İKİ AYRI GERÇEK ──────────────────────────────────────
+   * `NEVER`  : kapıya bugüne dek HİÇ ölçüm verilmedi (hız otoritesi hiç akmadı).
+   * `STALE`  : ölçüm verildi ama SONUNCUSU bayat → kapı şu an hüküm veremez.
+   * İkisi aynı şey değildir: ilki bağlantı/kurulum sorunu, ikincisi veri kaybıdır.
+   */
+  const gateBlind: 'NEVER' | 'STALE' | null = (() => {
+    const g = snap.speedGate;
+    if (snap.speedAlert === null || g === null) return null;
+    if (g.lastAtMs === null) return snap.speedAlert.gateFed === 0 ? 'NEVER' : null;
+    return snap.readAt - g.lastAtMs > g.maxAgeMs ? 'STALE' : null;
+  })();
 
   return (
     <div className="flex h-full flex-col gap-2 overflow-y-auto" data-testid="remote-command">
@@ -164,18 +173,34 @@ export const RemoteCommandScreen = memo(function RemoteCommandScreen() {
       </div>
 
       {/* Hız kapısı körlüğü uyarısı — kütük #574'ün izi */}
-      {gateBlind && (
+      {gateBlind !== null && (
         <div
           data-testid="rc-gate-blind"
+          data-blind={gateBlind}
           className="shrink-0 rounded border border-[var(--oem-warn)] bg-[var(--oem-warn-soft)] px-3 py-2 font-mono text-[10px] text-[var(--oem-warn)]"
         >
           <span className="flex items-center gap-1 font-bold">
-            <AlertTriangle size={11} /> SÜRÜŞ GÜVENLİĞİ KAPISI HENÜZ BESLENMEDİ
+            <AlertTriangle size={11} />
+            {gateBlind === 'NEVER'
+              ? 'SÜRÜŞ GÜVENLİĞİ KAPISI HENÜZ BESLENMEDİ'
+              : 'KAPIDAKİ HIZ ÖLÇÜMÜ BAYAT — KAPI ŞU AN HÜKÜM VEREMEZ'}
           </span>
           <div className="mt-1 text-[9px] leading-relaxed opacity-80">
-            Hız otoritesine bugüne dek hiç ölçüm verilmemiş (kapıya verilen ölçüm = 0).
-            Bu durumda "araç hareket halindeyken kilit açma reddi" TETİKLENEMEZ.
-            OBD verisi akmaya başlayınca bu sayaç artmalıdır — artmıyorsa kapı hâlâ kördür.
+            {gateBlind === 'NEVER' ? (
+              <>
+                Hız otoritesine bugüne dek hiç ölçüm verilmemiş (kapıya verilen ölçüm = 0).
+                Bu durumda "araç hareket halindeyken kilit açma reddi" TETİKLENEMEZ.
+                Kapının İKİ besleyicisi vardır: füzyon hız otoritesi (birincil) ve
+                doğrudan OBD akışı (yedek). İkisi de akmıyorsa araç hiç hız üretmiyordur.
+              </>
+            ) : (
+              <>
+                Kapıya ölçüm verilmiş ama sonuncusu tazelik penceresini geçmiş.
+                Bayat hız bilinçli olarak "araç duruyor" sayılmaz — bu durumda tehlikeli
+                komut hız kanıtı OLMADAN kabul edilir ve <b>Hız kanıtsız kabul</b>
+                {' '}sayacında görünür. Araç park hâlindeyken bu BEKLENEN durumdur.
+              </>
+            )}
           </div>
         </div>
       )}

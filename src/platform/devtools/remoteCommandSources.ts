@@ -20,8 +20,8 @@
  */
 
 import {
-  getCommandEvidence, isCommandListenerActive,
-  type CommandEvidence,
+  getCommandEvidence, isCommandListenerActive, getSpeedGateState,
+  type CommandEvidence, type SpeedGateState,
 } from '../commandListener';
 import {
   getSpeedAlertEvidence, getSpeedAlertConfig,
@@ -36,6 +36,12 @@ export interface RemoteCommandRawSnapshot {
   readonly listenerActive: boolean | null;
   readonly command: CommandEvidence | null;
   readonly speedAlert: SpeedAlertEvidence | null;
+  /**
+   * Kapının GERÇEK durumu — kanıt defterinden değil, kapının kendisinden okunur.
+   * Sayaçlar "kaç kez beslendi"yi söyler; bu alan "ŞU AN taze ölçüm var mı"yı
+   * söyler. Bayat bir ölçümle çalışan kapı beslenmiş AMA kördür.
+   */
+  readonly speedGate: SpeedGateState | null;
   /** Araçtaki geçerli hız uyarısı ayarı; `null` = hiç kurulmadı. */
   readonly speedAlertConfig: SpeedAlertConfig | null;
   /* Politika değerleri — eşiği görmeden sayaç yorumlanamaz. */
@@ -61,6 +67,10 @@ function safeSpeedAlertConfig(): SpeedAlertConfig | null {
   try { return getSpeedAlertConfig(); } catch { return null; }
 }
 
+function safeSpeedGate(): SpeedGateState | null {
+  try { return getSpeedGateState(); } catch { return null; }
+}
+
 /** Tek okuma — her alan bağımsız fail-soft. */
 export function readRemoteCommandSnapshot(): RemoteCommandRawSnapshot {
   return {
@@ -68,6 +78,7 @@ export function readRemoteCommandSnapshot(): RemoteCommandRawSnapshot {
     listenerActive:   safeListenerActive(),
     command:          safeCommandEvidence(),
     speedAlert:       safeSpeedAlertEvidence(),
+    speedGate:        safeSpeedGate(),
     speedAlertConfig: safeSpeedAlertConfig(),
     hysteresisKmh:    SPEED_ALERT_HYSTERESIS_KMH,
     cooldownMs:       SPEED_ALERT_COOLDOWN_MS,

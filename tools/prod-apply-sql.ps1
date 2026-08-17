@@ -55,24 +55,34 @@ $ref = 'vdpcdhrdmsacftrietzq'
 $uri = "https://api.supabase.com/v1/projects/$ref/database/query"
 $headers = @{ Authorization = "Bearer $token"; 'Content-Type' = 'application/json' }
 
+# ⚠️ ONARILAN KUSUR (2026-08-16): bu fonksiyon eskiden hem `Write-Output` ile
+# yazıyor hem de `return $true/$false` döndürüyordu. `if (-not (Invoke-Sql ...))`
+# çağrısı ÇIKTI AKIŞININ TAMAMINI tek bir diziye topluyordu → dizi her zaman
+# boş değil → `-not` her zaman $false → **SQL DÜŞSE BİLE exit 0**, üstelik
+# "HATA:" satırı ekrana hiç ulaşmıyordu. Yani araç sessizce başarı bildiriyordu.
+# Çözüm: durum bayrağı çıktı akışından AYRILDI (script-scope değişken), insan
+# mesajları `Write-Host` ile stdout'a yazılır ve koşula karışmaz.
+$script:LastSqlOk = $false
+
 function Invoke-Sql([string]$text, [string]$label) {
   $body = @{ query = $text; read_only = $false } | ConvertTo-Json -Compress -Depth 3
   try {
     $r = Invoke-RestMethod -Method Post -Uri $uri -Headers $headers `
          -Body ([System.Text.Encoding]::UTF8.GetBytes($body)) -ContentType 'application/json; charset=utf-8'
-    Write-Output "OK: $label"
-    if ($r) { ($r | ConvertTo-Json -Depth 4 -Compress) }
-    return $true
+    Write-Host "OK: $label"
+    if ($r) { Write-Host ($r | ConvertTo-Json -Depth 4 -Compress) }
+    $script:LastSqlOk = $true
   } catch {
     $m = $_.Exception.Message
     if ($_.ErrorDetails) { $m = $_.ErrorDetails.Message }
-    Write-Output "HATA: $label"
-    Write-Output $m
-    return $false
+    Write-Host "HATA: $label"
+    Write-Host $m
+    $script:LastSqlOk = $false
   }
 }
 
-if (-not (Invoke-Sql $sql (Split-Path $SqlFile -Leaf))) { exit 1 }
+Invoke-Sql $sql (Split-Path $SqlFile -Leaf)
+if (-not $script:LastSqlOk) { exit 1 }
 
 if ($LedgerVersion -ne '') {
   $esc = $LedgerName.Replace("'", "''")
@@ -81,6 +91,7 @@ INSERT INTO supabase_migrations.schema_migrations (version, name, statements)
 VALUES ('$LedgerVersion', '$esc', ARRAY['-- Management API ile uygulandi (prod-apply-sql.ps1)'])
 ON CONFLICT (version) DO NOTHING;
 "@
-  if (-not (Invoke-Sql $led "defter: $LedgerVersion")) { exit 1 }
+  Invoke-Sql $led "defter: $LedgerVersion"
+  if (-not $script:LastSqlOk) { exit 1 }
 }
 exit 0

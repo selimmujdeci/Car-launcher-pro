@@ -1,169 +1,80 @@
 /**
- * remoteLogGuards.test.ts — Remote Log v1 / Commit 1: ingestion bekçileri
+ * remoteLogGuards.test.ts — Uzak log bekçileri: İSTEMCİ ↔ SUNUCU senkronu.
  *
- * Migration SQL'i lokalde koşulamadığında (Docker/linked proje yok) bile
- * şema ↔ kod sözleşmesini kilitler (otaSchema.test.ts deseni):
- *  - payload >16KB kırpılıyor (truncated/type/ctx/msg + errorCode varsa)
- *  - payload <=16KB aynen geçiyor (v_store := v_payload varsayılanı)
- *  - rate limit: 60 sn / 30 event, exception YOK → kontrollü RETURN NULL
- *  - log dışı eventler (system_health vb.) bekçilerden etkilenmiyor
- *  - 30 gün retention + pg_cron / fallback dokümantasyonu
- *  - migration 017 köprüsü (locations/telemetry) aynen korunuyor
- *  - GRANT/REVOKE + verification DO bloğu (CLAUDE.md dörtlüsü)
+ * ── BU DOSYANIN KAPSAMI DEĞİŞTİ (kütük #588) ──────────────────────────────
+ * Eskiden bu dosya migration 020'nin SQL METNİNİ okuyup sunucu bekçilerini
+ * (boyut kırpma · 60 sn/30 olay rate limit · 30 gün retention) doğruluyordu.
+ * #583'ün baseline squash'ı 020'yi `supabase/migrations_archive/`'e taşıyınca
+ * dosya yükleme anında düştü — kilitler ölüydü.
  *
- * NOT: Gerçek DB'de koşum (verification DO bloklarının PASS etmesi)
- * Supabase projesine push gerektirir — burada statik sözleşme test edilir.
+ * Sunucu bekçileri **silinmedi, TAŞINDI**: `prodBaselineSecurityGuards.test.ts`
+ * artık onları üretimin gerçeğine (`00000000000000_prod_baseline.sql`) soruyor.
+ *
+ * Burada kalan iddia tek başına ne sunucudan ne istemciden doğrulanabilir:
+ * **iki ucun BİRBİRİYLE tutarlı olması.** İstemci, sunucunun boyut tavanını
+ * bir sabitle biliyor (`SERVER_MAX_BYTES`) ve kullanıcıya "bu rapor kırpılacak"
+ * uyarısını ondan üretiyor. Sunucu tavanı değişip istemci sabiti kalırsa uyarı
+ * sessizce YANLIŞ olur — kimse fark etmez. Bu dosya o ayrışmayı yakalar.
  */
 import { describe, it, expect } from 'vitest';
-import { readFileSync, readdirSync } from 'node:fs';
-import { join } from 'node:path';
+import baselineSql from '../../supabase/migrations/00000000000000_prod_baseline.sql?raw';
+import remoteLogSrc from '../platform/remoteLogService.ts?raw';
+import { SERVER_MAX_BYTES } from '../platform/diagnosticDelivery';
 
-const MIG_DIR  = join(process.cwd(), 'supabase', 'migrations');
-const GUARD_FN = '20260610000020_remote_log_guards.sql';
+/** Prod'daki `push_vehicle_event` gövdesinden gerçek tavanı okur. */
+function serverMaxBytesFromProd(): number | null {
+  const start = baselineSql.indexOf('CREATE OR REPLACE FUNCTION public.push_vehicle_event(');
+  if (start < 0) return null;
+  const body = baselineSql.slice(start, baselineSql.indexOf('$function$;', start));
+  const m = body.match(/c_max_bytes\s+constant integer\s+:=\s+(\d+)/);
+  return m ? Number(m[1]) : null;
+}
 
-const sql = readFileSync(join(MIG_DIR, GUARD_FN), 'utf-8');
-
-// Rate limit + retention'a tabi log event sınıfı
-const LOG_TYPES = ['critical_error', 'crash', 'log', 'obd_diag', 'support_snapshot', 'ota_event'];
-
-describe('migration dosyası', () => {
-  it('timestamp sırası: bağımlı olduğu migration\'lardan SONRA gelir', () => {
-    // 017: değiştirdiği RPC'nin sahibi · 018/019: aynı OTA serisinin önceki adımları
-    const deps = readdirSync(MIG_DIR)
-      .filter((f) => /^(20260602000017|20260610000018|20260610000019)/.test(f));
-    expect(deps.length).toBe(3);
-    for (const dep of deps) expect(GUARD_FN > dep).toBe(true);
+describe('istemci ↔ sunucu — boyut tavanı senkronu', () => {
+  it('KİLİT: istemcideki SERVER_MAX_BYTES prod\'daki c_max_bytes ile AYNI', () => {
+    /* Ayrışırsa iki yönde de zarar var:
+       · istemci sabiti BÜYÜKSE  → "kırpılmayacak" der, sunucu kırpar → veri
+         sessizce kaybolur ve kullanıcı tam rapor gönderdiğini sanır;
+       · istemci sabiti KÜÇÜKSE → gereksiz yere "kırpılacak" uyarısı verir,
+         kullanıcı gönderebileceği raporu göndermez.
+       Sunucu tavanı bilinçli değişirse bu test düşer → istemci sabiti de
+       güncellenmelidir. Kilit tam olarak bunu zorlar. */
+    const prodMax = serverMaxBytesFromProd();
+    expect(prodMax, 'prod\'da boyut tavanı sabiti bulunamadı').not.toBeNull();
+    expect(SERVER_MAX_BYTES).toBe(prodMax);
   });
 
-  it('RPC imzası değişmedi: (p_api_key, p_type, p_payload jsonb DEFAULT) → uuid', () => {
-    expect(sql).toMatch(/CREATE OR REPLACE FUNCTION public\.push_vehicle_event\(\s*p_api_key text,\s*p_type\s+text,\s*p_payload jsonb DEFAULT '\{\}'\s*\) RETURNS uuid/);
-    // İmza aynı olduğu için DROP FUNCTION gerekmez — mevcut GRANT'lar korunur
-    expect(sql).not.toContain('DROP FUNCTION');
-  });
-});
-
-describe('bekçi 1 — payload boyut limiti (16KB)', () => {
-  it('octet_length tabanlı 16384 bayt eşiği var', () => {
-    expect(sql).toContain('c_max_bytes   constant integer  := 16384');
-    expect(sql).toMatch(/octet_length\(v_payload::text\) > c_max_bytes/);
-  });
-
-  it('>16KB → kırpılmış güvenli payload: truncated/type/ctx/msg', () => {
-    expect(sql).toMatch(/'truncated', true/);
-    expect(sql).toMatch(/'type',\s+p_type/);
-    expect(sql).toMatch(/'ctx',\s+left\(v_payload->>'ctx',\s*256\)/);
-    expect(sql).toMatch(/'msg',\s+left\(v_payload->>'msg',\s*2048\)/);
-  });
-
-  it('errorCode yalnız VARSA yazılır (jsonb_strip_nulls)', () => {
-    expect(sql).toMatch(/jsonb_strip_nulls\(jsonb_build_object\(/);
-    expect(sql).toMatch(/'errorCode', v_payload->>'errorCode'/);
-  });
-
-  it('<=16KB aynen geçer: kırpma IF\'inden önce v_store := v_payload', () => {
-    const passthrough = sql.indexOf('v_store := v_payload;');
-    const truncCheck  = sql.indexOf('octet_length(v_payload::text) > c_max_bytes');
-    expect(passthrough).toBeGreaterThan(-1);
-    expect(truncCheck).toBeGreaterThan(passthrough);
-  });
-
-  it('audit insert kırpılmış v_store yazar (orijinal p_payload DEĞİL)', () => {
-    expect(sql).toMatch(/INSERT INTO public\.vehicle_events \(vehicle_id, type, metadata\)\s+VALUES \(v_vehicle_id, p_type, v_store\)/);
+  it('KİLİT: tavan gerçek bir sınır — sıfır değil, fiilen sınırsız da değil', () => {
+    expect(SERVER_MAX_BYTES).toBeGreaterThan(4_096);
+    expect(SERVER_MAX_BYTES).toBeLessThanOrEqual(262_144);
   });
 });
 
-describe('bekçi 2 — rate limit (60 sn / 30 log eventi)', () => {
-  it('pencere 60 saniye, tavan 30', () => {
-    expect(sql).toContain("interval '60 seconds'");
-    expect(sql).toContain('c_rate_max    constant integer  := 30');
+describe('istemci — sunucu bekçisine bel bağlamaz', () => {
+  it('KİLİT: gönderim RPC\'den geçer (doğrudan tablo insert\'i bekçileri ATLAR)', () => {
+    /* `from('vehicle_events').insert(...)` rate limit ve kırpmayı TAMAMEN
+       atlar — ikisi de RPC gövdesindedir. */
+    expect(remoteLogSrc).toContain('push_vehicle_event');
+    expect(remoteLogSrc).not.toMatch(/\.from\(\s*['"]vehicle_events['"]\s*\)\s*\.insert/);
   });
 
-  it('yalnız log tipleri rate limit\'e girer (p_type = ANY guard)', () => {
-    expect(sql).toMatch(/IF p_type = ANY \(c_log_types\) THEN/);
-    for (const t of LOG_TYPES) {
-      expect(sql, `log tipi eksik: ${t}`).toContain(`'${t}'`);
-    }
+  it('KİLİT: istemcinin KENDİ frekans sınırı var (sunucu sessizce düşürür)', () => {
+    /* Sunucu rate limit aşımında istisna ATMAZ, `RETURN NULL` yapar — yani
+       istemci gönderdiğini "gitti" sanar. Bu yüzden frekans disiplini
+       istemcide de olmalıdır; jeton kovası sabitleri kilitlenir. */
+    expect(remoteLogSrc).toMatch(/RATE_CAPACITY\s*=\s*\d+/);
+    expect(remoteLogSrc).toMatch(/RATE_REFILL_MS\s*=/);
   });
 
-  it('aşımda exception YOK — kontrollü no-op (RETURN NULL), insert patlamaz', () => {
-    expect(sql).toMatch(/IF v_recent >= c_rate_max THEN\s+RETURN NULL;/);
-    // Rate limit dalında RAISE yok; tek RAISE EXCEPTION RPC gövdesinde
-    // invalid_api_key (017 davranışı korunur)
-    const fnBody = sql.slice(
-      sql.indexOf('CREATE OR REPLACE FUNCTION public.push_vehicle_event'),
-      sql.indexOf('-- ── 3. Retention'));
-    const raises = fnBody.match(/RAISE EXCEPTION/g) ?? [];
-    expect(raises).toHaveLength(1);
-    expect(fnBody).toContain("'invalid_api_key'");
+  it('KİLİT: istemci payload\'ı kendi de sınırlar (derinlik · dizi · metin)', () => {
+    /* Sunucu tavanı aşan payload'ı `ctx`+`msg`e indirger ve GERİSİNİ KAYBEDER.
+       Anlamlı teşhis için istemci önce kendi budamasını yapar. */
+    expect(remoteLogSrc).toMatch(/MAX_DEPTH\s*=\s*\d+/);
+    expect(remoteLogSrc).toMatch(/MAX_ARRAY_LEN\s*=\s*\d+/);
+    expect(remoteLogSrc).toMatch(/MAX_MSG_LEN\s*=\s*[\d_]+/);
   });
 
-  it('sayım sorgusu kısmi indeksle destekli (idx_vehicle_events_log_rate)', () => {
-    expect(sql).toMatch(/CREATE INDEX IF NOT EXISTS idx_vehicle_events_log_rate\s+ON public\.vehicle_events \(vehicle_id, created_at DESC\)\s+WHERE type IN/);
-  });
-});
-
-describe('bekçi 3 — retention (30 gün)', () => {
-  it('cleanup fonksiyonu yalnız log tiplerini 30 gün sonra siler', () => {
-    expect(sql).toContain('CREATE OR REPLACE FUNCTION public.cleanup_vehicle_log_events()');
-    expect(sql).toContain("created_at < now() - interval '30 days'");
-    // DELETE yalnız log tiplerine kısıtlı — diğer audit eventleri silinmez
-    const del = sql.slice(sql.indexOf('DELETE FROM public.vehicle_events'));
-    expect(del.slice(0, 300)).toMatch(/WHERE type IN \('critical_error','crash','log','obd_diag','support_snapshot','ota_event'\)/);
-  });
-
-  it('pg_cron varsa zamanlanır, yoksa fallback dokümante (NOTICE + seçenekler)', () => {
-    expect(sql).toMatch(/IF EXISTS \(SELECT 1 FROM pg_extension WHERE extname = 'pg_cron'\)/);
-    expect(sql).toMatch(/cron\.schedule\(\s+'vehicle_log_retention'/);
-    expect(sql).toContain('pg_cron YOK — fallback');
-    expect(sql).toContain('Edge Function');
-    expect(sql).toContain("rpc('cleanup_vehicle_log_events')");
-  });
-
-  it('cleanup yalnız service_role: PUBLIC revoke + anon/auth grant YOK', () => {
-    expect(sql).toContain('REVOKE ALL     ON FUNCTION public.cleanup_vehicle_log_events() FROM PUBLIC');
-    expect(sql).toContain('GRANT  EXECUTE ON FUNCTION public.cleanup_vehicle_log_events() TO service_role');
-    expect(sql).not.toMatch(/cleanup_vehicle_log_events\(\) TO (anon|authenticated)/);
-  });
-});
-
-describe('migration 017 köprüsü korunuyor (mevcut akış kırılmaz)', () => {
-  it('api_key doğrulama + invalid_api_key exception aynı', () => {
-    expect(sql).toMatch(/SELECT id INTO v_vehicle_id FROM public\.vehicles WHERE api_key = p_api_key/);
-    expect(sql).toMatch(/RAISE EXCEPTION 'invalid_api_key' USING ERRCODE = 'P0001'/);
-  });
-
-  it('konum köprüsü ORİJİNAL payload\'dan okur (kırpma lat/lng akışını bozmaz)', () => {
-    expect(sql).toMatch(/v_lat := NULLIF\(v_payload->>'lat', ''\)::double precision/);
-    expect(sql).toMatch(/INSERT INTO public\.vehicle_locations \(vehicle_id, lat, lng\)/);
-  });
-
-  it('telemetri upsert aynen duruyor (system_health/telemetry etkilenmez)', () => {
-    expect(sql).toMatch(/INSERT INTO public\.vehicle_telemetry AS t/);
-    expect(sql).toMatch(/ON CONFLICT \(vehicle_id\) DO UPDATE SET/);
-    expect(sql).toMatch(/NULLIF\(v_payload->>'speed', ''\)::integer/);
-  });
-
-  it('system_health log tipi DEĞİL → bekçilere girmez', () => {
-    expect(LOG_TYPES).not.toContain('system_health');
-    expect(sql).not.toMatch(/c_log_types[^;]*system_health/);
-  });
-});
-
-describe('CLAUDE.md — GRANT + RLS + verification', () => {
-  it('push_vehicle_event: PUBLIC revoke + anon/authenticated EXECUTE', () => {
-    expect(sql).toContain('REVOKE ALL     ON FUNCTION public.push_vehicle_event(text, text, jsonb) FROM PUBLIC');
-    expect(sql).toContain('GRANT  EXECUTE ON FUNCTION public.push_vehicle_event(text, text, jsonb) TO anon, authenticated');
-  });
-
-  it('verification DO bloğu: fonksiyon GRANT + RLS + policy + indeks, eksikte EXCEPTION', () => {
-    expect(sql).toContain('information_schema.routine_privileges');
-    expect(sql).toContain('pg_tables');
-    expect(sql).toContain('pg_policies');
-    expect(sql).toContain('pg_indexes');
-    expect(sql).toMatch(/RAISE EXCEPTION 'remote log guards: push_vehicle_event GRANT eksik/);
-    expect(sql).toMatch(/RAISE EXCEPTION 'remote log guards: cleanup fonksiyonu anon\/authenticated/);
-    expect(sql).toMatch(/RAISE EXCEPTION 'remote log guards: vehicle_events RLS kapalı/);
-    expect(sql).toMatch(/RAISE EXCEPTION 'remote log guards: vehicle_events policy eksik/);
-    expect(sql).toMatch(/RAISE EXCEPTION 'remote log guards: idx_vehicle_events_log_rate indeksi yok/);
+  it('KİLİT: kırpma UYARISI tavandan türetilir, elle yazılmaz', () => {
+    expect(remoteLogSrc).toMatch(/willTruncate:\s*sizeBytes > SERVER_MAX_BYTES/);
   });
 });

@@ -95,14 +95,44 @@ function _supportsCssLayer(): boolean {
   }
 }
 
-/** Head unit tipi ekran: düşük çözünürlük / düşük DPR / ultra-wide. */
+/**
+ * Head unit tipi ekran: düşük çözünürlük / düşük DPR / ultra-wide.
+ *
+ * ── KÜTÜK #599 · CİHAZDA ÖLÇÜLEN KUSUR (2026-08-16) ────────────────────────
+ * Eşikler (800×480 · 1024×600 · 1280×480) gerçek head unit panellerinin
+ * **FİZİKSEL** çözünürlükleridir, ama karşılaştırma `innerWidth/innerHeight`
+ * ile — yani **CSS px** ile — yapılıyordu. DPR>1 olan her cihazda CSS px
+ * fiziksel pikselin 1/dpr'ı olduğu için modern paneller bu eşiklerin ALTINA
+ * düşüyordu:
+ *
+ *   Xiaomi 23090RA98I — fiziksel 2712×1220, dpr 3 → CSS 904×407
+ *   → `maxDim(904) <= 1024 && minDim(407) <= 600` → **TRUE** (yanlış)
+ *
+ * Sonuç ölçüldü: `getDeviceTier()` → `low` → `TIER_FAST_MS.low = 1000ms`
+ * (250ms yerine) → OBD hız/RPM kadansı p50 **2361 ms**, en kötü **5570 ms**.
+ * 122 km/h'te bu, gösterge güncellemeleri arası ~80 metre demektir. Aynı
+ * yanlış sınıf `low` olan her yerde (blur/animasyon/UI Hz) da bedel ödetir.
+ *
+ * DÜZELTME: eşikler fiziksel piksel eşiği olduğu için karşılaştırma da
+ * **fiziksel pikselde** yapılır (`css × dpr`). Gerçek head unit'lerde sonuç
+ * DEĞİŞMEZ (1024×600@dpr1 → 1024×600; 1280×480@dpr1.5 → 1280×480 → yine
+ * yakalanır); yalnız yüksek-DPR panellerin sahte `low` sınıfı düşer.
+ *
+ * En/boy oranı kuralı dpr'dan bağımsızdır (oran sadeleşir) — olduğu gibi
+ * kalır, ama okuyanın "neden bu ölçüde değil" diye durmaması için fiziksel
+ * ölçüler üzerinden yazılır.
+ */
 function _lowEndScreen(): boolean {
   if (typeof window === 'undefined') return false;
-  const w   = window.innerWidth  || (typeof screen !== 'undefined' ? screen.width  : 0) || 0;
-  const h   = window.innerHeight || (typeof screen !== 'undefined' ? screen.height : 0) || 0;
-  const dpr = window.devicePixelRatio || 1;
-  if (w === 0 || h === 0) return false;
+  const cssW = window.innerWidth  || (typeof screen !== 'undefined' ? screen.width  : 0) || 0;
+  const cssH = window.innerHeight || (typeof screen !== 'undefined' ? screen.height : 0) || 0;
+  const dpr  = window.devicePixelRatio || 1;
+  if (cssW === 0 || cssH === 0) return false;
   if (dpr <= 1.0) return true;                              // head unit nadiren > 1.5 DPR
+
+  // Eşikler FİZİKSEL panel çözünürlükleridir → ölçü de fiziksel olmalı.
+  const w = cssW * dpr;
+  const h = cssH * dpr;
   const maxDim = Math.max(w, h);
   const minDim = Math.min(w, h);
   if (maxDim <= 1024 && minDim <= 600) return true;         // 800×480, 1024×600

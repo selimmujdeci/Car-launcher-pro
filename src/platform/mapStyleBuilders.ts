@@ -816,10 +816,14 @@ export const RASTER_PAINT_DAY = {
   'raster-hue-rotate': 0,
 } as const;
 
-/** Arka plan token'ları — TEK KAYNAK `map/_mapState.ts` (paylaşılan sabitler evi).
- *  Burada yalnız yeniden dışa aktarılır ki stil kurucuları tek yerden okusun. */
-export { MAP_BG_NIGHT, MAP_BG_DAY } from './map/_mapState';
-import { MAP_BG_NIGHT, MAP_BG_DAY } from './map/_mapState';
+/** Arka plan token'ları — TEK KAYNAK `map/_mapIds.ts` (DÖNGÜSÜZ sabitler evi).
+ *  Burada yalnız yeniden dışa aktarılır ki stil kurucuları tek yerden okusun.
+ *
+ *  ⚠️ Kaynak `_mapState` DEĞİL, `_mapIds`tir (kütük #605): `_mapState` bu
+ *  dosyadan `RASTER_PAINT_*` aldığı için oradan okumak döngü kurar ve
+ *  `NIGHT_PALETTE` modül üst seviyesinde kurulduğundan TDZ ile ÇÖKER. */
+export { MAP_BG_NIGHT, MAP_BG_DAY } from './map/_mapIds';
+import { MAP_BG_NIGHT, MAP_BG_DAY } from './map/_mapIds';
 
 /** Yürürlükteki kontrast profili — LAB gözlemi için. */
 export function getMapContrastProfile(night: boolean): MapContrastProfile {

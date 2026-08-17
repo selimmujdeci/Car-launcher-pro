@@ -469,21 +469,54 @@ public class MainActivity extends BridgeActivity {
 
     // ── LMK Memory Pressure ────────────────────────────────────────────────
     /**
-     * Android LMK (Low Memory Killer) sisteminin bellek baskısı sinyallerini yakalar.
-     * TRIM_MEMORY_RUNNING_CRITICAL → JS'e "CRITICAL" seviyesi iletilir.
-     * TRIM_MEMORY_MODERATE         → JS'e "MODERATE" seviyesi iletilir.
+     * Android LMK (Low Memory Killer) bellek baskısı sinyallerini yakalar.
      *
-     * CarLauncherPlugin.broadcastMemoryPressure() JS tarafındaki memoryWatchdog dinleyicisini
-     * tetikler; orası runtimeManager.setMode(SAFE_MODE) ve cache temizleme işlerini yapar.
+     * ── ONARILAN KUSUR (kütük #604) ────────────────────────────────────────
+     * Eski kod severity testini `level >= TRIM_MEMORY_RUNNING_CRITICAL` (>= 15)
+     * diye yazıyordu. TRIM_MEMORY_* sabitleri MONOTON BİR ŞİDDET ÖLÇEĞİ DEĞİLDİR:
+     *
+     *   RUNNING_MODERATE   =  5  ← ön planda, hafif baskı
+     *   RUNNING_LOW        = 10  ← ön planda, orta baskı
+     *   RUNNING_CRITICAL   = 15  ← ön planda, GERÇEK kriz
+     *   UI_HIDDEN          = 20  ← "arka plana düştün" — BASKI DEĞİL
+     *   BACKGROUND         = 40  ← arka plan LRU sırası — BASKI DEĞİL
+     *   MODERATE           = 60  ← arka plan LRU sırası — BASKI DEĞİL
+     *   COMPLETE           = 80  ← arka plan LRU sırası — BASKI DEĞİL
+     *
+     * 20/40/60/80 uygulamanın ARKA PLANA DÜŞTÜĞÜNÜ bildirir ve sistemde hiç
+     * bellek baskısı yokken bile GÖNDERİLİR. `>= 15` testi bunların HEPSİNİ
+     * "CRITICAL" sayıyordu. Sonuç zinciri:
+     *
+     *   kullanıcı Home'a bastı / ekran kapandı → UI_HIDDEN(20) → "CRITICAL"
+     *   → memoryWatchdog → runtimeManager.setMode(SAFE_MODE)
+     *   → _commit() modu safeStorage'a YAZAR
+     *   → sonraki açılışta crash-recovery SAFE_MODE'a SABİTLER (tek yön).
+     *
+     * Yani uygulamayı bir kez arka plana almak, cihazda bol RAM varken bile
+     * kalıcı SAFE_MODE'a sokuyordu. Ayrıca eski `else if (>= MODERATE=60)`
+     * dalı ERİŞİLEMEZDİ (60 >= 15 zaten ilk dala düşer) → "MODERATE" seviyesi
+     * hiç üretilmiyordu, ve gerçek ön-plan uyarıları (5/10) YOK SAYILIYORDU.
+     *
+     * DOĞRUSU: yalnız RUNNING_* ailesi bellek baskısıdır. Arka plan seviyeleri
+     * runtime modunu DEĞİŞTİRMEZ (log'lanır, kararı etkilemez).
+     *
+     * CarLauncherPlugin.broadcastMemoryPressure() JS memoryWatchdog'u tetikler.
      */
     @Override
     public void onTrimMemory(int level) {
         super.onTrimMemory(level);
+
+        // Arka plan LRU seviyeleri (>= UI_HIDDEN) baskı DEĞİLDİR — karara girmez.
+        if (level >= ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN) {
+            Log.i(TAG, "onTrimMemory level=" + level + " → arka plan sinyali (baski degil, yok sayildi)");
+            return;
+        }
+
         String pressureLevel = null;
         if (level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL) {
-            pressureLevel = "CRITICAL";
-        } else if (level >= ComponentCallbacks2.TRIM_MEMORY_MODERATE) {
-            pressureLevel = "MODERATE";
+            pressureLevel = "CRITICAL";           // 15
+        } else if (level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_MODERATE) {
+            pressureLevel = "MODERATE";           // 5 ve 10 (RUNNING_LOW dâhil)
         }
         if (pressureLevel != null) {
             Log.w(TAG, "onTrimMemory level=" + level + " → " + pressureLevel);

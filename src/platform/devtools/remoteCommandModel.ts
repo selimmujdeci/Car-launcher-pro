@@ -99,6 +99,9 @@ export function buildRemoteCommandView(
 ): RemoteCommandView {
   const c  = s.command;
   const sa = s.speedAlert;
+  /* `?? null`: kaynak katmanı bu alanı üretemezse (eski snapshot / okuma hatası)
+     model ÇÖKMEZ, alan UNAVAILABLE olur — fail-soft. */
+  const g  = s.speedGate ?? null;
   const cfg = s.speedAlertConfig;
 
   const chain: RemoteCommandCard = {
@@ -147,6 +150,10 @@ export function buildRemoteCommandView(
         note: 'Araç 5 km/h üstündeyken kilit/kilit-açma reddi. Bu sayaç ancak hız otoritesi BESLENİYORSA artabilir.',
       }, c ? c.movingBlocked : null),
       observed({
+        id: 'movingUnverified', label: 'Hız kanıtsız kabul', source: SRC_LISTENER,
+        note: 'Tehlikeli komutun TAZE hız ölçümü olmadan kabul edildiği durumlar. Sıfırdan büyükse o komutlar kapıdan değil, kapının körlüğünden geçmiştir — "güvenlik kapısı korudu" DENEMEZ.',
+      }, c ? c.movingUnverified : null),
+      observed({
         id: 'unknownType', label: 'Tanımsız komut tipi', source: SRC_LISTENER,
         note: 'Araç bu tipi bilmiyor. Artıyorsa telefon ile araç sürümleri ayrışmıştır (veya DB tip listesi eksiktir).',
       }, c ? c.unknownType : null),
@@ -181,6 +188,24 @@ export function buildRemoteCommandView(
         note: 'Sürüş güvenliği kapısına kaç kez GERÇEK hız verildi. 0 ise kapı hâlâ kördür.',
       }, sa ? sa.gateFed : null),
       observed({
+        id: 'fusedFed', label: '↳ füzyon otoritesinden', source: SRC_SPEED,
+        note: 'BİRİNCİL kaynak: HAL>CAN>OBD>GPS önceliğiyle çözülen araç hızı. OBD dongle olmayan araçta kapıyı besleyen tek kaynak budur.',
+      }, sa ? sa.fusedFed : null),
+      observed({
+        id: 'obdFed', label: '↳ doğrudan OBD (yedek)', source: SRC_SPEED,
+        note: 'YEDEK kaynak: füzyon katmanı düşerse kapı tamamen kör kalmasın diye tutulur.',
+      }, sa ? sa.obdFed : null),
+      /* Sayaç "beslendi mi"yi söyler; bu alan "ŞU AN taze mi"yi söyler.
+         Bayat ölçümle çalışan kapı beslenmiştir AMA hüküm veremez. */
+      derived({
+        id: 'gateFreshness', label: 'Kapıdaki ölçümün yaşı', source: SRC_LISTENER,
+        note: `Bu yaş ${g === null ? '?' : Math.round(g.maxAgeMs / 1000)} sn'yi geçerse kapı "hız bilinmiyor" der ve tehlikeli komutu hız kanıtı OLMADAN geçirir (reddetmez — kapalı otoparkta aracını açamamak ürünü kırardı).`,
+      }, g ? ageText(g.lastAtMs, nowMs) : null),
+      observed({
+        id: 'gateSpeed', label: 'Kapıdaki son hız', source: SRC_LISTENER,
+        note: 'Kapının hüküm kurduğu değer. "Hiç ölçülmedi" ile "ölçüldü ve 0" AYRI şeylerdir — burada sahte 0 gösterilmez.',
+      }, g && g.lastSpeedKmh !== null ? `${Math.round(g.lastSpeedKmh)} km/h` : null),
+      observed({
         id: 'unknownSpeed', label: 'Hız ölçülemedi', source: SRC_SPEED,
         note: 'Hızın bilinmediği örnekler — bu anlarda hüküm ÜRETİLMEZ ve kapıya 0 YAZILMAZ.',
       }, sa ? sa.unknownSpeed : null),
@@ -197,9 +222,17 @@ export function buildRemoteCommandView(
         note: `Aşım sürerken ${Math.round(s.cooldownMs / 60_000)} dk penceresi dolmadığı için gönderilmeyenler (bildirim yağmuru koruması).`,
       }, sa ? sa.suppressedCooldown : null),
       observed({
-        id: 'pushBound', label: 'Bildirim kanalı', source: SRC_SPEED,
+        id: 'pushBound', label: 'Telefon bildirim kanalı', source: SRC_SPEED,
         note: 'Bağlı değilse uyarı ÜRETİLSE BİLE telefona gitmez.',
       }, sa ? (sa.pushChannelBound ? 'BAĞLI' : 'BAĞLI DEĞİL') : null),
+      observed({
+        id: 'driverBound', label: 'Araç içi uyarı kanalı', source: SRC_SPEED,
+        note: 'Sürücü uyarısının yolu (VehicleEventHub → SystemOrchestrator). Bağlı değilse direksiyondaki kişi UYARILMAZ; uyarı yalnız telefona gider.',
+      }, sa ? (sa.driverChannelBound ? 'BAĞLI' : 'BAĞLI DEĞİL') : null),
+      observed({
+        id: 'driverAlerts', label: 'Sürücüye verilen uyarı', source: SRC_SPEED,
+        note: 'Araç içinde gösterilen uyarı sayısı. Bu sayı uyarının ÜRETİLDİĞİNİ gösterir; sürücünün GÖRDÜĞÜNÜ kanıtlamaz (geri viteste bastırılmış olabilir).',
+      }, sa ? sa.driverAlerts : null),
       observed({
         id: 'lastReason', label: 'Son karar gerekçesi', source: SRC_SPEED,
         note: 'disabled · speed_unknown · below · still_over · fired',

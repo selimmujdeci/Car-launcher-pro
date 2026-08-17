@@ -277,6 +277,31 @@ export function startSystemOrchestrator(): () => void {
         break;
       }
 
+      /* ── Kullanıcının belirlediği hız eşiği aşıldı ──────────────────────
+       *
+       * Karar `speedAlertRuntime`ta verilmiştir (histerezis 8 km/h + 5 dk
+       * cooldown); burada YALNIZ sunum yapılır — eşik yeniden yorumlanmaz,
+       * ikinci bir karar otoritesi doğmaz.
+       *
+       * Geri viteste bastırılır: manevra sırasında ekranı kaplayan kamerayı
+       * WARNING seviyesinde bir uyarı bölemez (LOW_FUEL ile aynı kural).
+       */
+      case 'SPEED_LIMIT_EXCEEDED': {
+        if (store().isReverseActive) break;
+        const speed = Math.round(e.speedKmh);
+        store().addAlert({
+          type:     'SPEED_LIMIT_EXCEEDED',
+          severity: 'WARNING',
+          label:    `Hız Eşiği Aşıldı: ${speed} km/h`,
+          sublabel: `Belirlediğiniz sınır ${Math.round(e.thresholdKmh)} km/h`,
+          ts:       e.ts,
+        });
+        speakAlert(`Hız sınırını aştınız. ${speed} kilometre.`);
+        const latest = useSystemStore.getState().activeAlerts.at(-1);
+        if (latest) _scheduleAutoDismiss(latest.id, AUTO_DISMISS_WARNING_MS);
+        break;
+      }
+
       case 'LOW_FUEL': {
         // Geri vites sırasında yeni uyarı ekleme — zaten kamera kaplıyor
         if (store().isReverseActive) break;

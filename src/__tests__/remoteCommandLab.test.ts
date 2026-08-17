@@ -13,21 +13,28 @@ import {
   REMOTE_COMMAND_VERDICT_LABEL,
 } from '../platform/devtools/remoteCommandModel';
 import type { RemoteCommandRawSnapshot } from '../platform/devtools/remoteCommandSources';
-import type { CommandEvidence } from '../platform/commandListener';
+import type { CommandEvidence, SpeedGateState } from '../platform/commandListener';
 import type { SpeedAlertEvidence } from '../platform/speedAlertRuntime';
 
 const NOW = 1_760_000_000_000;
 
 const ZERO_CMD: CommandEvidence = {
   received: 0, completed: 0, rejected: 0, failed: 0, cryptoFailed: 0,
-  unknownType: 0, movingBlocked: 0, ttlExpired: 0, retries: 0,
+  unknownType: 0, movingBlocked: 0, movingUnverified: 0, ttlExpired: 0, retries: 0,
   lastType: null, lastOutcome: null, lastAt: null,
 };
 
 const ZERO_SPEED: SpeedAlertEvidence = {
   running: false, samples: 0, unknownSpeed: 0, gateFed: 0,
-  fired: 0, suppressedCooldown: 0, lastReason: null,
+  fusedFed: 0, obdFed: 0,
+  fired: 0, driverAlerts: 0, driverChannelBound: false,
+  suppressedCooldown: 0, lastReason: null,
   lastFiredAtMs: null, pushChannelBound: false,
+};
+
+/** Kapının kendi durumu — sayaçlardan AYRI okunur (bkz. `speedGate`). */
+const ZERO_GATE: SpeedGateState = {
+  lastSpeedKmh: null, lastAtMs: null, maxAgeMs: 10_000, thresholdKmh: 5,
 };
 
 function snap(over: Partial<RemoteCommandRawSnapshot> = {}): RemoteCommandRawSnapshot {
@@ -36,6 +43,7 @@ function snap(over: Partial<RemoteCommandRawSnapshot> = {}): RemoteCommandRawSna
     listenerActive: true,
     command: ZERO_CMD,
     speedAlert: ZERO_SPEED,
+    speedGate: ZERO_GATE,
     speedAlertConfig: null,
     hysteresisKmh: 8,
     cooldownMs: 300_000,
@@ -168,5 +176,67 @@ describe('ageText — saf yaş metni', () => {
     expect(ageText(NOW - 120_000, NOW)).toBe('2 dk önce');
     expect(ageText(NOW - 7_200_000, NOW)).toBe('2 sa önce');
     expect(ageText(NOW + 1_000, NOW)).toBe('şimdi');
+  });
+});
+
+/* ── Kapı gerçeği: sayaç "beslendi mi", durum "ŞU AN taze mi" der ───────────
+ *
+ * Bu ikisinin ayrımı bu turun (2026-08-14, ikinci tur) ölçülen kusurudur:
+ * kapıya bir kez ölçüm verilmiş olması, o ölçümün HÂLÂ hüküm kurabildiği
+ * anlamına GELMEZ. OBD koptuktan sonra donmuş bir "0 km/h" ile kapı
+ * beslenmiş AMA kördür.
+ */
+describe('hız kapısı — beslenme ile TAZELİK ayrı gerçeklerdir', () => {
+  function field(s: RemoteCommandRawSnapshot, id: string) {
+    return buildRemoteCommandView(s, NOW).cards.flatMap((c) => c.fields).find((f) => f.id === id);
+  }
+
+  it('KİLİT: hiç ölçüm yokken kapıdaki hız sahte 0 olarak GÖSTERİLMEZ', () => {
+    const f = field(snap(), 'gateSpeed');
+    expect(f?.klass).toBe('UNAVAILABLE');
+    expect(f?.value).not.toBe('0 km/h');
+  });
+
+  it('ölçülmüş 0 km/h gerçek değer olarak gösterilir', () => {
+    const f = field(snap({
+      speedGate: { ...ZERO_GATE, lastSpeedKmh: 0, lastAtMs: NOW - 1_000 },
+    }), 'gateSpeed');
+    expect(f?.klass).toBe('OBSERVED');
+    expect(f?.value).toBe('0 km/h');
+  });
+
+  it('KİLİT: iki besleyici AYRI sayılır (füzyon otoritesi vs yedek OBD)', () => {
+    const v = buildRemoteCommandView(snap({
+      speedAlert: { ...ZERO_SPEED, gateFed: 7, fusedFed: 7, obdFed: 0 },
+    }), NOW);
+    const fields = v.cards.flatMap((c) => c.fields);
+    expect(fields.find((f) => f.id === 'fusedFed')?.value).toBe('7');
+    expect(fields.find((f) => f.id === 'obdFed')?.value).toBe('0');
+    /* Ayrım şart: OBD dongle olmayan araçta kapı YALNIZ füzyon otoritesinden
+       beslenir. Tek sayaçta toplanırsa "OBD çalışıyor" sanılırdı. */
+  });
+
+  it('KİLİT: hız kanıtsız kabul edilen tehlikeli komutlar AYRI sayaçtadır', () => {
+    const v = buildRemoteCommandView(snap({
+      command: { ...ZERO_CMD, received: 3, completed: 3, movingBlocked: 0, movingUnverified: 3 },
+    }), NOW);
+    const f = v.cards.flatMap((c) => c.fields).find((f) => f.id === 'movingUnverified');
+    expect(f?.value).toBe('3');
+    /* `movingBlocked = 0` iken "kapı korudu" DENEMEZ: bu üç komut kapıdan
+       değil, kapının körlüğünden geçmiştir ve ekran bunu ayrı gösterir. */
+  });
+
+  it('KİLİT: araç içi uyarı kanalı bağlı DEĞİLSE bu görünür (sessiz körlük yok)', () => {
+    const v = buildRemoteCommandView(snap({
+      speedAlert: { ...ZERO_SPEED, running: true, driverChannelBound: false },
+    }), NOW);
+    const f = v.cards.flatMap((c) => c.fields).find((f) => f.id === 'driverBound');
+    expect(f?.value).toBe('BAĞLI DEĞİL');
+  });
+
+  it('KİLİT: kapı durumu okunamazsa model ÇÖKMEZ, alan UNAVAILABLE olur', () => {
+    const v = buildRemoteCommandView(snap({ speedGate: null }), NOW);
+    const f = v.cards.flatMap((c) => c.fields).find((f) => f.id === 'gateFreshness');
+    expect(f?.klass).toBe('UNAVAILABLE');
   });
 });
