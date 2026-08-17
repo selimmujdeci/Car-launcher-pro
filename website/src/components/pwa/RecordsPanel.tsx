@@ -7,6 +7,7 @@ import {
   averageConsumption, totalCost,
   STORAGE_MODE_LABEL, STORAGE_MODE_HINT, ENTRY_SYNC_LABEL,
   deleteFuelEntry, deleteServiceEntry, DELETE_SCOPE_MESSAGE,
+  updateFuelEntry, updateServiceEntry, UPDATE_MODE_MESSAGE,
   type FuelEntry, type ServiceEntry, type RecordsStorageMode, type EntrySync,
 } from '@/lib/recordsService';
 import { useRecordsSync, queueFailureMessage } from '@/hooks/useRecordsSync';
@@ -159,6 +160,12 @@ function FuelTab({ vehicle }: { vehicle: LiveVehicle | null }) {
   const [saveMsg, setSaveMsg] = useState('');
   const [adding,  setAdding]  = useState(false);
   const [deleting, setDeleting] = useState<string | null>(null);
+  /**
+   * Düzenlenen kayıt — `null` ise form YENİ kayıt içindir. Ekleme ve düzenleme
+   * AYNI formu kullanır: iki ayrı form iki ayrı doğrulama yolu demek olurdu ve
+   * biri düzeltilip diğeri unutulurdu.
+   */
+  const [editing, setEditing] = useState<FuelEntry | null>(null);
   const formId = useId();
   const mounted = useRef(true);
 
@@ -203,11 +210,31 @@ function FuelTab({ vehicle }: { vehicle: LiveVehicle | null }) {
    * Yalnız form AÇILDIĞINDA ve alan boşken doldurulur; kullanıcı bir şey
    * yazdıysa araçtan gelen yeni değer onun yazdığını EZMEZ. */
   useEffect(() => {
-    if (!adding || vehicleKm === null) return;
+    // DÜZENLEMEDE öneri YAPILMAZ: geçmiş bir dolumu düzeltirken bugünkü
+    // kilometreyi önermek kaydı bozardı.
+    if (!adding || editing !== null || vehicleKm === null) return;
     setForm((f) => (f.km === '' ? { ...f, km: String(vehicleKm) } : f));
-  }, [adding, vehicleKm]);
+  }, [adding, editing, vehicleKm]);
 
-  const handleAdd = useCallback(async () => {
+  const closeForm = useCallback(() => {
+    setAdding(false);
+    setEditing(null);
+    setForm((f) => ({ ...f, liters: '', pricePerL: '' }));
+  }, []);
+
+  const startEdit = useCallback((entry: FuelEntry) => {
+    setSaveMsg('');
+    setEditing(entry);
+    setAdding(true);
+    setForm({
+      date:      entry.filledOn,
+      km:        entry.odometerKm != null ? String(entry.odometerKm) : '',
+      liters:    String(entry.liters),
+      pricePerL: entry.pricePerL != null ? String(entry.pricePerL) : '',
+    });
+  }, []);
+
+  const handleSubmit = useCallback(async () => {
     if (!vehicle?.id) return;
     const liters = parseFloat(form.liters);
     if (!form.date || !Number.isFinite(liters) || liters <= 0) {
@@ -218,24 +245,28 @@ function FuelTab({ vehicle }: { vehicle: LiveVehicle | null }) {
     const kmRaw    = parseFloat(form.km);
     const priceRaw = parseFloat(form.pricePerL);
 
-    const res = await addFuelEntry(vehicle.id, {
+    const fields = {
       filledOn:   form.date,
       odometerKm: Number.isFinite(kmRaw) && kmRaw > 0 ? Math.round(kmRaw) : null,
       liters:     Math.round(liters * 100) / 100,
       pricePerL:  Number.isFinite(priceRaw) && priceRaw >= 0 ? Math.round(priceRaw * 100) / 100 : null,
-    });
+    };
+
+    const res = editing
+      ? await updateFuelEntry(vehicle.id, editing, fields)
+      : await addFuelEntry(vehicle.id, fields);
     if (!mounted.current) return;
 
-    /* Yalancı onay YOK: kayıt gerçekten kalıcı olmadıysa "kaydedildi" denmez. */
+    /* Yalancı onay YOK: kayıt gerçekten kalıcı olmadıysa "kaydedildi" denmez.
+       Düzenleme başarısızsa form AÇIK KALIR — kullanıcı yazdığını kaybetmez. */
     if (!res.saved) {
       setSaveMsg(res.error ?? 'Kayıt yapılamadı.');
       return;
     }
-    setSaveMsg(SAVE_MESSAGE[res.mode]);
-    setAdding(false);
-    setForm((f) => ({ ...f, liters: '', pricePerL: '' }));
+    setSaveMsg(editing ? UPDATE_MODE_MESSAGE[res.mode] : SAVE_MESSAGE[res.mode]);
+    closeForm();
     await reload(vehicle.id);
-  }, [form, vehicle, reload]);
+  }, [form, vehicle, editing, reload, closeForm]);
 
   /* Silme: kaydın yaşadığı HER yerden gider (sunucu · kuyruk · cihaz).
      Sonuç DÜRÜST bildirilir — silinemeyen kayıt listede KALIR. */
@@ -296,7 +327,9 @@ function FuelTab({ vehicle }: { vehicle: LiveVehicle | null }) {
       {adding ? (
         <div className="flex flex-col gap-3 p-4 rounded-2xl"
           style={{ background: 'rgba(96,165,250,0.05)', border: '1.5px solid rgba(96,165,250,0.18)' }}>
-          <p className="text-[10px] font-black uppercase tracking-widest text-blue-400/60">Yakıt Ekle</p>
+          <p data-testid="fuel-form-title" className="text-[10px] font-black uppercase tracking-widest text-blue-400/60">
+            {editing ? 'Yakıt Kaydını Düzenle' : 'Yakıt Ekle'}
+          </p>
 
           <div className="grid grid-cols-2 gap-2">
             {[
@@ -334,14 +367,15 @@ function FuelTab({ vehicle }: { vehicle: LiveVehicle | null }) {
 
           <div className="flex gap-2">
             <button
-              onClick={() => void handleAdd()}
+              onClick={() => void handleSubmit()}
+              data-testid="fuel-form-save"
               className="flex-1 py-2.5 rounded-xl font-black text-[11px] uppercase tracking-widest text-white transition-all active:scale-95"
               style={{ background: 'linear-gradient(135deg,#3b82f6,#2563eb)', boxShadow: '0 4px 16px rgba(59,130,246,0.25)' }}
             >
               Kaydet
             </button>
             <button
-              onClick={() => setAdding(false)}
+              onClick={closeForm}
               className="flex-1 py-2.5 rounded-xl font-black text-[11px] uppercase tracking-widest transition-all active:scale-95 pwa-text-3"
               style={{ background: 'var(--pwa-surface-3)', border: '1px solid var(--pwa-border-soft)' }}
             >
@@ -402,6 +436,22 @@ function FuelTab({ vehicle }: { vehicle: LiveVehicle | null }) {
                 </div>
               </div>
               <EntrySyncBadge sync={entry.sync} />
+              {/* Düzenleme: yanlış girilen litre/kilometre kaydı SİLMEDEN
+                  düzeltilebilir — silip yeniden girmek sunucudaki kimliği ve
+                  kaydın tarihçesini kaybettirirdi. */}
+              <button
+                onClick={() => startEdit(entry)}
+                data-testid="record-edit"
+                aria-label={`${entry.filledOn} tarihli yakıt kaydını düzenle`}
+                className="flex-shrink-0 px-2 py-1.5 rounded-lg text-[8px] font-black uppercase tracking-widest transition-all active:scale-95"
+                style={{
+                  color:      'var(--pwa-text-3)',
+                  background: 'var(--pwa-border-soft)',
+                  border:     '1px solid var(--pwa-border)',
+                }}
+              >
+                Düzenle
+              </button>
               <DeleteButton
                 busy={deleting === entry.id}
                 label={`${entry.filledOn} tarihli yakıt kaydını sil`}
@@ -492,6 +542,52 @@ export function knownOdometerFloor(
   return max;
 }
 
+/* ── Elle girilen kilometrenin doğrulaması (SAF) ──────────────────────────
+ *
+ * ÖLÇÜLEN KUSUR (2026-08-14, devir belgesi B5): "Yapıldı" düğmesi aracın
+ * kilometresi okunamıyorken kaydı sessizce `odometer_km = null` ile yazıyordu.
+ * Kullanıcıya HİÇ SORULMUYORDU — oysa kilometreyi bilen tek kişi oydu ve
+ * bakım hükmü (`judgeService`) tam olarak o alan yüzünden `unknown` kalıyordu.
+ * Yani ürün, kendisine verilebilecek veriyi istemeden "hesaplayamıyorum" diyordu.
+ *
+ * Doğrulama kuralları veri tabanı CHECK'iyle aynı sınırları kullanır; boş
+ * bırakmak GEÇERLİDİR (bilinmiyor = `null`, sahte 0 YOK).
+ */
+export const ODOMETER_MAX_KM = 3_000_000;
+
+export interface OdometerInputResult {
+  /** Kaydedilecek değer — `null` = kullanıcı bilmiyor. */
+  km:      number | null;
+  /** Doluysa kayıt YAPILMAZ (girdi kabul edilemez). */
+  error?:  string;
+  /** Doluysa kayıt yapılır ama kullanıcı bilgilendirilir. */
+  warning?: string;
+}
+
+export function validateOdometerInput(raw: string, floorKm: number | null): OdometerInputResult {
+  const trimmed = raw.trim();
+  if (trimmed === '') return { km: null };          // "bilmiyorum" geçerli bir cevaptır
+
+  const n = Number(trimmed.replace(',', '.'));
+  if (!Number.isFinite(n)) return { km: null, error: 'Kilometre sayı olmalı.' };
+  if (n < 0) return { km: null, error: 'Kilometre negatif olamaz.' };
+  if (n > ODOMETER_MAX_KM) {
+    return { km: null, error: `Kilometre ${ODOMETER_MAX_KM.toLocaleString('tr')} km'den büyük olamaz.` };
+  }
+
+  const km = Math.round(n);
+  /* Araç kilometresi geriye gitmez. Girdi kayıtlardaki en yüksek değerin
+     altındaysa REDDEDİLMEZ (kullanıcı eski bir bakımı sonradan giriyor
+     olabilir) ama SESSİZ de geçilmez — bu kayıtla bakım hükmü kurulamaz. */
+  if (floorKm !== null && km < floorKm) {
+    return {
+      km,
+      warning: `Bu değer kayıtlarınızdaki en yüksek kilometreden (${floorKm.toLocaleString('tr')} km) düşük. Kaydedilir, ancak bakım durumu bu kalem için hesaplanamayabilir.`,
+    };
+  }
+  return { km };
+}
+
 const STATUS_CFG: Record<ServiceStatus, { color: string; label: string; bg: string; border: string }> = {
   ok:      { color: '#34d399', label: 'İyi',        bg: 'rgba(52,211,153,0.08)', border: 'rgba(52,211,153,0.2)' },
   soon:    { color: '#fbbf24', label: 'Yakında',    bg: 'rgba(251,191,36,0.08)', border: 'rgba(251,191,36,0.25)' },
@@ -540,18 +636,85 @@ function ServiceTab({ vehicle }: { vehicle: LiveVehicle | null }) {
      "geçmiş" hükmü kurabilir, "iyi" kuramaz (bkz. judgeService). */
   const floorKm = knownOdometerFloor(fuelLog, entries);
 
-  const markDone = useCallback(async (key: string) => {
+  /**
+   * Açık olan satır-içi form. İki iş AYNI formu paylaşır — ikisi de "bu bakım
+   * hangi kilometrede yapıldı" sorusudur:
+   *   `ASK_KM` — yeni "Yapıldı" kaydı, araçtan kilometre okunamadı.
+   *   `EDIT`   — var olan kaydın tarihini/kilometresini düzeltme.
+   */
+  type ServiceSheet =
+    | { mode: 'ASK_KM'; serviceKey: string }
+    | { mode: 'EDIT';   serviceKey: string; entry: ServiceEntry };
+
+  const [sheet,     setSheet]     = useState<ServiceSheet | null>(null);
+  const [kmDraft,   setKmDraft]   = useState('');
+  const [dateDraft, setDateDraft] = useState('');
+
+  const saveDone = useCallback(async (key: string, odometerKm: number | null) => {
     if (!vehicle?.id) return;
     const res = await addServiceEntry(vehicle.id, {
       serviceKey:  key,
       performedOn: new Date().toISOString().split('T')[0],
-      odometerKm:  currentKm,   // bilinmiyorsa null — sahte 0 YAZILMAZ
+      odometerKm,   // bilinmiyorsa null — sahte 0 YAZILMAZ
     });
     if (!mounted.current) return;
     if (!res.saved) { setMsg(res.error ?? 'Kayıt yapılamadı.'); return; }
+    setSheet(null);
+    setKmDraft('');
     setMsg(SAVE_MESSAGE[res.mode]);
     await reload(vehicle.id);
-  }, [vehicle, currentKm, reload]);
+  }, [vehicle, reload]);
+
+  /** Var olan kaydı günceller — kalem anahtarı DEĞİŞMEZ. */
+  const saveEdit = useCallback(async (entry: ServiceEntry, performedOn: string, odometerKm: number | null) => {
+    if (!vehicle?.id) return;
+    const res = await updateServiceEntry(vehicle.id, entry, { performedOn, odometerKm });
+    if (!mounted.current) return;
+    // Başarısızsa form AÇIK KALIR — kullanıcı girdiğini kaybetmez.
+    if (!res.saved) { setMsg(res.error ?? 'Kayıt güncellenemedi.'); return; }
+    setSheet(null);
+    setKmDraft('');
+    setMsg(UPDATE_MODE_MESSAGE[res.mode]);
+    await reload(vehicle.id);
+  }, [vehicle, reload]);
+
+  /**
+   * "Yapıldı" akışı. Araçtan kilometre OKUNABİLİYORSA doğrudan kaydedilir —
+   * ölçüm varken kullanıcıya soru sormak gereksiz sürtünmedir. Okunamıyorsa
+   * ARTIK SORULUR: eskiden sessizce `null` yazılıyor ve bakım hükmü bu yüzden
+   * hiç kurulamıyordu.
+   */
+  const markDone = useCallback((key: string) => {
+    if (currentKm !== null) { void saveDone(key, currentKm); return; }
+    setMsg('');
+    setKmDraft('');
+    setSheet({ mode: 'ASK_KM', serviceKey: key });
+  }, [currentKm, saveDone]);
+
+  const startEdit = useCallback((entry: ServiceEntry) => {
+    setMsg('');
+    setKmDraft(entry.odometerKm != null ? String(entry.odometerKm) : '');
+    setDateDraft(entry.performedOn);
+    setSheet({ mode: 'EDIT', serviceKey: entry.serviceKey, entry });
+  }, []);
+
+  const closeSheet = useCallback(() => { setSheet(null); setKmDraft(''); }, []);
+
+  /**
+   * Formdan gelen değeri doğrulayıp kaydeder. Boş kilometre = "bilmiyorum" →
+   * `null` (sahte 0 YOK). Doğrulama TEK yerdedir; ekleme ile düzenleme aynı
+   * kuralı kullanır.
+   */
+  const submitSheet = useCallback(() => {
+    if (!sheet) return;
+    const res = validateOdometerInput(kmDraft, floorKm);
+    if (res.error) { setMsg(res.error); return; }
+    if (res.warning) setMsg(res.warning);
+
+    if (sheet.mode === 'ASK_KM') { void saveDone(sheet.serviceKey, res.km); return; }
+    if (!dateDraft) { setMsg('Tarih zorunludur.'); return; }
+    void saveEdit(sheet.entry, dateDraft, res.km);
+  }, [sheet, kmDraft, dateDraft, floorKm, saveDone, saveEdit]);
 
   /* Yanlışlıkla "Yapıldı" basılan kalemin SON kaydını geri alır. Kayıt
      nerede yaşıyorsa oradan gider — kuyruktaysa gönderilmeden iptal edilir. */
@@ -590,7 +753,8 @@ function ServiceTab({ vehicle }: { vehicle: LiveVehicle | null }) {
         const kmLeft  = kmSince != null ? def.intervalKm - kmSince : null;
 
         return (
-          <div key={def.key} className="flex items-center gap-3 px-3 py-3 rounded-xl transition-all"
+          <div key={def.key} className="flex flex-col gap-2">
+          <div className="flex items-center gap-3 px-3 py-3 rounded-xl transition-all"
             style={{ background: cfg.bg, border: `1px solid ${cfg.border}` }}>
             <span className="text-xl flex-shrink-0" role="img" aria-label={def.label}>{def.icon}</span>
 
@@ -622,7 +786,23 @@ function ServiceTab({ vehicle }: { vehicle: LiveVehicle | null }) {
             </div>
 
             <div className="flex-shrink-0 flex items-center gap-1.5">
-              {/* Kayıt varsa geri alınabilir — yanlış dokunuş kalıcı olmamalı. */}
+              {/* Kayıt varsa DÜZELTİLEBİLİR ve geri alınabilir — yanlış
+                  kilometre yüzünden kaydı silmek zorunda kalınmaz. */}
+              {last && (
+                <button
+                  onClick={() => startEdit(last)}
+                  data-testid={`service-edit-${def.key}`}
+                  aria-label={`${def.label} son kaydını düzenle`}
+                  className="flex-shrink-0 px-2 py-1.5 rounded-lg text-[8px] font-black uppercase tracking-widest transition-all active:scale-95"
+                  style={{
+                    color:      'var(--pwa-text-3)',
+                    background: 'var(--pwa-border-soft)',
+                    border:     '1px solid var(--pwa-border)',
+                  }}
+                >
+                  Düzenle
+                </button>
+              )}
               {last && (
                 <DeleteButton
                   busy={deleting === def.key}
@@ -631,7 +811,8 @@ function ServiceTab({ vehicle }: { vehicle: LiveVehicle | null }) {
                 />
               )}
               <button
-                onClick={() => void markDone(def.key)}
+                onClick={() => markDone(def.key)}
+                data-testid={`service-done-${def.key}`}
                 className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all active:scale-95"
                 style={{ background: `${cfg.color}18`, border: `1px solid ${cfg.color}30`, color: cfg.color }}
               >
@@ -641,6 +822,83 @@ function ServiceTab({ vehicle }: { vehicle: LiveVehicle | null }) {
                 Yapıldı
               </button>
             </div>
+          </div>
+
+          {/* ── KİLOMETRE FORMU ───────────────────────────────────────────
+              İki mod, tek form: yeni kayıtta araçtan ölçüm ALINAMADIĞINDA
+              açılır; düzenlemede var olan kaydı düzeltir. Kilometreyi boş
+              bırakmak geçerli bir cevaptır ("bilmiyorum" → null); uydurma 0 YOK. */}
+          {sheet?.serviceKey === def.key && (
+            <div
+              data-testid="service-km-prompt"
+              data-mode={sheet.mode}
+              className="flex flex-col gap-2 px-3 py-3 rounded-xl"
+              style={{ background: 'rgba(96,165,250,0.06)', border: '1px solid rgba(96,165,250,0.22)' }}
+            >
+              <p className="text-[10px] font-black uppercase tracking-widest" style={{ color: '#60a5fa' }}>
+                {def.label} — {sheet.mode === 'EDIT' ? 'kaydı düzenle' : 'kilometre'}
+              </p>
+              <p className="text-[9px] leading-relaxed" style={{ color: 'var(--pwa-text-3)' }}>
+                {sheet.mode === 'EDIT'
+                  ? <>Bu kalemin son kaydını düzeltebilirsiniz. Kilometreyi bilmiyorsanız <b>boş bırakın</b> — kayıt korunur, yalnız bakım durumu hesaplanamaz.</>
+                  : <>Araçtan kilometre okunamadı. Bakım durumunun hesaplanabilmesi için bakımın yapıldığı kilometreyi girin. <b>Bilmiyorsanız boş bırakın</b> — kayıt yine tutulur, yalnız bu kalem için "Bilinmiyor" görünür.</>}
+                {floorKm !== null && (
+                  <> Kayıtlarınızdaki en yüksek kilometre: <b>{floorKm.toLocaleString('tr')} km</b>.</>
+                )}
+              </p>
+
+              {sheet.mode === 'EDIT' && (
+                <input
+                  type="date"
+                  data-testid="service-date-input"
+                  value={dateDraft}
+                  onChange={(e) => setDateDraft(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl text-sm pwa-text outline-none"
+                  style={{ background: 'var(--pwa-border-soft)', border: '1px solid var(--pwa-border)' }}
+                />
+              )}
+
+              <input
+                type="number"
+                inputMode="numeric"
+                autoFocus
+                data-testid="service-km-input"
+                placeholder={floorKm !== null ? String(floorKm) : '85000'}
+                value={kmDraft}
+                onChange={(e) => setKmDraft(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') submitSheet(); }}
+                className="w-full px-3 py-2 rounded-xl text-sm pwa-text placeholder-white/15 outline-none tabular-nums"
+                style={{ background: 'var(--pwa-border-soft)', border: '1px solid var(--pwa-border)' }}
+              />
+              <div className="flex gap-2">
+                <button
+                  onClick={submitSheet}
+                  data-testid="service-km-save"
+                  className="flex-1 py-2 rounded-xl font-black text-[10px] uppercase tracking-widest text-white transition-all active:scale-95"
+                  style={{ background: 'linear-gradient(135deg,#3b82f6,#2563eb)' }}
+                >
+                  Kaydet
+                </button>
+                {sheet.mode === 'ASK_KM' && (
+                  <button
+                    onClick={() => void saveDone(def.key, null)}
+                    data-testid="service-km-unknown"
+                    className="flex-1 py-2 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all active:scale-95 pwa-text-3"
+                    style={{ background: 'var(--pwa-surface-3)', border: '1px solid var(--pwa-border-soft)' }}
+                  >
+                    Bilmiyorum
+                  </button>
+                )}
+                <button
+                  onClick={closeSheet}
+                  className="px-3 py-2 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all active:scale-95 pwa-text-3"
+                  style={{ background: 'var(--pwa-border-soft)', border: '1px solid var(--pwa-border)' }}
+                >
+                  Vazgeç
+                </button>
+              </div>
+            </div>
+          )}
           </div>
         );
       })}

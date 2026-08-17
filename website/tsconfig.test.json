@@ -1,0 +1,27 @@
+{
+  /* website test tip-denetimi — YEREL/CI için.
+   *
+   * NEDEN AYRI DOSYA: `tsconfig.json` (Next.js üretim derlemesi) test
+   * dosyalarını ve `vitest.config.ts`i BİLEREK dışlar; vitest website'in
+   * bağımlılığı değildir, KÖK `node_modules`tan gelir ve Vercel'de bu proje
+   * yalnız `website/package.json`ı kurar (bkz. `tsconfig.json` yorumu —
+   * 9 gün gizli kalan production build kırığının kökü budur).
+   *
+   * Ama dışlamak "denetimsiz bırakmak" DEĞİLDİR: testler burada denetlenir.
+   * Bu dosya kök `node_modules`ın erişilebilir olduğu her yerde (geliştirici
+   * makinesi, CI) çalışır — Vercel'de ÇALIŞTIRILMAZ.
+   *
+   * Çalıştırma:  cd website && npx tsc -p tsconfig.test.json --noEmit
+   */
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    /* Üretim tarafı `jsx: preserve` kullanır (dönüşümü Next yapar). Test
+       koşucusu JSX'i kendi dönüştürür (vitest.config.ts `oxc.jsx.runtime`),
+       bu yüzden tip denetiminde de otomatik runtime varsayılır. */
+    "jsx": "react-jsx",
+    "incremental": false,
+    "types": ["vitest/globals", "node"]
+  },
+  "include": ["vitest.config.ts", "src/__tests__/**/*.ts", "src/__tests__/**/*.tsx", "src/**/*.ts", "src/**/*.tsx"],
+  "exclude": ["node_modules", "supabase/functions"]
+}

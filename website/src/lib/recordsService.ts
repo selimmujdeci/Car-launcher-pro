@@ -28,6 +28,8 @@ import {
   pushServiceRecord,
   deleteFuelLog,
   deleteServiceRecord,
+  updateFuelLog,
+  updateServiceRecord,
   type ServerWriteResult,
 } from './recordsServerWriter';
 import { enqueueOfflineMutation, getQueue } from './offline/fleetOffline';
@@ -570,6 +572,143 @@ export function deleteServiceEntry(vehicleId: string, entry: ServiceEntry): Prom
     deleteServiceRecord,
   );
 }
+
+/* ── Düzenleme ────────────────────────────────────────────────────────────
+ *
+ * ÖLÇÜLEN BOŞLUK (2026-08-14, devir belgesi B4): tablolarda UPDATE ayrıcalığı
+ * ve politikası VARDI, ama ne yazma katmanı ne arayüz vardı. Kullanıcı yanlış
+ * girdiği litreyi veya kilometreyi düzeltemiyordu — tek çare kaydı silip
+ * yeniden girmekti ve bu, tarihi ve sunucudaki kimliği kaybettiriyordu.
+ *
+ * ── ÜÇ YOL, ÜÇ FARKLI GERÇEK ──────────────────────────────────────────────
+ *  · `SERVER` — sunucuda UPDATE. Çevrimdışıysa REDDEDİLİR: kuyruğa alınmış bir
+ *    düzenleme, aradan geçen sürede başka cihazdan yapılmış değişikliği sessizce
+ *    ezerdi (last-write-wins). "Düzenlendi" demek tutulamayacak bir söz olurdu.
+ *  · `QUEUED` — kayıt sunucuya HİÇ gitmedi. Düzenleme = kuyruktakini iptal edip
+ *    yerine düzeltilmiş kaydı koymak. Sunucuda değiştirilecek bir satır yoktur.
+ *  · `LOCAL`  — yalnız cihazda; yerinde güncellenir.
+ */
+
+/** Yerel listede TEK kaydı günceller; eşleşme yoksa `false`. */
+function updateLocal<T>(
+  key:     string,
+  matches: (row: T) => boolean,
+  apply:   (row: T) => T,
+): boolean {
+  const rows = readLocal<T>(key);
+  let hit = false;
+  const next = rows.map((row) => {
+    if (hit || !matches(row)) return row;
+    hit = true;
+    return apply(row);
+  });
+  if (!hit) return false;
+  return writeLocal(key, next);
+}
+
+/** Yakıt kaydının değiştirilebilir alanları. Kimlik alanları (`id`,
+ *  `clientRef`, `sync`) DIŞARIDADIR — düzenleme kaydın kimliğini değiştirmez. */
+export type FuelEntryEdit = Pick<FuelEntry, 'filledOn' | 'odometerKm' | 'liters' | 'pricePerL'>;
+
+export async function updateFuelEntry(
+  vehicleId: string,
+  entry:     FuelEntry,
+  edit:      FuelEntryEdit,
+): Promise<RecordsSaveResult> {
+  const sync = entry.sync ?? 'LOCAL';
+  const ref  = entry.clientRef ?? entry.id;
+  const matches = (row: FuelEntry) => row.clientRef === ref || row.id === ref;
+
+  // Sunucuya hiç gitmemiş kayıt: kuyruktakini iptal et, düzeltilmişi yeniden gönder.
+  if (sync === 'QUEUED') {
+    const removed = await deleteFuelEntry(vehicleId, entry);
+    if (!removed.deleted) {
+      return { saved: false, mode: 'QUEUED', error: removed.error ?? 'Sıradaki kayıt güncellenemedi.' };
+    }
+    return addFuelEntry(vehicleId, edit);
+  }
+
+  if (sync !== 'SERVER') {
+    const ok = updateLocal<FuelEntry>(fuelKey(vehicleId), matches, (row) => ({ ...row, ...edit }));
+    return {
+      saved: ok, mode: 'LOCAL_ONLY',
+      error: ok ? undefined : 'Kayıt cihazda bulunamadı; güncellenemedi.',
+    };
+  }
+
+  if (typeof entry.id !== 'string' || entry.id === '') {
+    return { saved: false, mode: 'SERVER_ERROR', error: 'Kaydın sunucu kimliği bilinmiyor; güncellenemedi.' };
+  }
+
+  const result = await updateFuelLog(vehicleId, entry.id, edit);
+  if (!result.ok) {
+    return {
+      saved: false, mode: 'SERVER_ERROR',
+      error: result.retryable && result.errorCode === 'network_error'
+        ? 'Bağlantı yok — kayıt güncellenemedi. Düzenleme çevrimdışı yapılamaz.'
+        : modeForWriteFailure(result),
+    };
+  }
+  // Sunucu kabul etti → yerel kopya da tazelenir (yoksa liste eski değeri gösterirdi).
+  updateLocal<FuelEntry>(fuelKey(vehicleId), matches, (row) => ({ ...row, ...edit }));
+  return { saved: true, mode: 'SERVER' };
+}
+
+/** Servis kaydının değiştirilebilir alanları. `serviceKey` DEĞİŞMEZ —
+ *  başka bir kalem, başka bir kayıttır. */
+export type ServiceEntryEdit = Pick<ServiceEntry, 'performedOn' | 'odometerKm'>;
+
+export async function updateServiceEntry(
+  vehicleId: string,
+  entry:     ServiceEntry,
+  edit:      ServiceEntryEdit,
+): Promise<RecordsSaveResult> {
+  const sync = entry.sync ?? 'LOCAL';
+  const ref  = entry.clientRef;
+  const matches = (row: ServiceEntry) =>
+    (typeof ref === 'string' && row.clientRef === ref) ||
+    (row.serviceKey === entry.serviceKey && row.performedOn === entry.performedOn);
+
+  if (sync === 'QUEUED') {
+    const removed = await deleteServiceEntry(vehicleId, entry);
+    if (!removed.deleted) {
+      return { saved: false, mode: 'QUEUED', error: removed.error ?? 'Sıradaki kayıt güncellenemedi.' };
+    }
+    return addServiceEntry(vehicleId, { serviceKey: entry.serviceKey, ...edit });
+  }
+
+  if (sync !== 'SERVER') {
+    const ok = updateLocal<ServiceEntry>(serviceKey(vehicleId), matches, (row) => ({ ...row, ...edit }));
+    return {
+      saved: ok, mode: 'LOCAL_ONLY',
+      error: ok ? undefined : 'Kayıt cihazda bulunamadı; güncellenemedi.',
+    };
+  }
+
+  if (typeof entry.id !== 'string' || entry.id === '') {
+    return { saved: false, mode: 'SERVER_ERROR', error: 'Kaydın sunucu kimliği bilinmiyor; güncellenemedi.' };
+  }
+
+  const result = await updateServiceRecord(vehicleId, entry.id, edit);
+  if (!result.ok) {
+    return {
+      saved: false, mode: 'SERVER_ERROR',
+      error: result.retryable && result.errorCode === 'network_error'
+        ? 'Bağlantı yok — kayıt güncellenemedi. Düzenleme çevrimdışı yapılamaz.'
+        : modeForWriteFailure(result),
+    };
+  }
+  updateLocal<ServiceEntry>(serviceKey(vehicleId), matches, (row) => ({ ...row, ...edit }));
+  return { saved: true, mode: 'SERVER' };
+}
+
+/** Düzenleme sonrası mesaj — kaydın GERÇEKTEN nereye yazıldığını söyler. */
+export const UPDATE_MODE_MESSAGE: Readonly<Record<RecordsStorageMode, string>> = {
+  SERVER:       'Kayıt hesabınızda güncellendi.',
+  LOCAL_ONLY:   'Kayıt bu cihazda güncellendi.',
+  QUEUED:       'Kayıt güncellendi ve sıraya alındı — bağlantı gelince gönderilecek.',
+  SERVER_ERROR: 'Kayıt güncellenemedi.',
+} as const;
 
 export const DELETE_SCOPE_MESSAGE: Readonly<Record<DeleteScope, string>> = {
   SERVER: 'Kayıt hesabınızdan silindi.',

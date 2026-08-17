@@ -16,5 +16,24 @@
     "paths": { "@/*": ["./src/*"] }
   },
   "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
-  "exclude": ["node_modules", "supabase/functions"]
+  // Test araclari URETIM tip-denetiminin DISINDADIR — yerelde kaybolmazlar,
+  // tsconfig.test.json ile denetlenirler (bkz. o dosya).
+  //
+  // OLCULEN KUSUR (2026-08-16): yukaridaki include deseni vitest.config.ts'i ve
+  // src/__tests__ altini da topluyordu. Bu dosyalar vitest tiplerine muhtac, ama
+  // vitest.config.ts'in kendi yorumunun da soyledigi gibi vitest BILEREK website'in
+  // bagimliligi DEGILDIR — KOK node_modules'tan gelir. Yerelde cozulur (tsc dizin
+  // agacinda yukari yurur), ama Vercel'de bu projenin Root Directory'si "website"
+  // oldugu icin YALNIZ website/package.json kurulur → kok node_modules YOKTUR →
+  // next build tip denetimi "Cannot find type definition file for 'vitest'" ile PATLAR.
+  //
+  // SONUC: carospro production 2026-08-07'den (commit 847d62a3) beri 9 GUN boyunca
+  // sessizce kirikti — her deploy ● Error, alan adi eski derlemeyi sunmaya devam etti.
+  // .vercelignore vakasinin (24 gun gizli kirik) aynı siniftan tekrari:
+  // BASARISIZ DEPLOY KENDINI DUYURMAZ.
+  //
+  // NOT: bu yorumlar satir yorumu (//) olarak yazildi — blok yorum icinde gecen bir
+  // yildiz-bolu dizgesi yorumu ERKEN KAPATIR ve tsconfig'i parse edilemez hale getirir
+  // (bu tuzaga bu dosyada bir kez dusuldu).
+  "exclude": ["node_modules", "supabase/functions", "vitest.config.ts", "src/__tests__"]
 }

@@ -184,6 +184,70 @@ export function deleteServiceRecord(vehicleId: string, rowId: string): Promise<S
   return deleteRow('vehicle_service_records', vehicleId, rowId);
 }
 
+/* ── Güncelleme ────────────────────────────────────────────────────────────
+ *
+ * Silme ile AYNI politika: çevrimdışı düzenleme KUYRUĞA ALINMAZ. Gerekçe daha
+ * da güçlüdür — güncelleme bir ÜST YAZMADIR (last-write-wins). Kuyrukta bekleyen
+ * bir düzenleme, aradan geçen sürede başka bir cihazdan yapılmış değişikliği
+ * sessizce ezerdi. Bağlantı yokken düzenleme REDDEDİLİR ve gerekçesi söylenir.
+ *
+ * `client_ref` DEĞİŞTİRİLMEZ: idempotency anahtarıdır, kaydın kimliğidir.
+ * Güncellemede yeniden yazılırsa kuyruktaki eşleştirme ve çift-gönderim
+ * koruması kopardı.
+ */
+async function updateRow(
+  table:     'vehicle_fuel_logs' | 'vehicle_service_records',
+  vehicleId: string,
+  rowId:     string,
+  patch:     Readonly<Record<string, unknown>>,
+): Promise<ServerWriteResult> {
+  if (!isSupabaseConfigured || !supabaseBrowser) {
+    return { ok: false, retryable: false, errorCode: 'supabase_not_configured' };
+  }
+  try {
+    const { data, error } = await supabaseBrowser
+      .from(table).update(patch).eq('vehicle_id', vehicleId).eq('id', rowId).select('id');
+    if (error) return classifyPostgresError(readErrorCode(error), readErrorMessage(error));
+
+    /* RLS altında UPDATE, satır GÖRÜNMÜYORSA hata vermez — sıfır satır etkiler
+       ve "başarılı" görünür (kütük #195'in dersi: PostgREST 200 ≠ satır etkilendi).
+       Etkilenen satır yoksa güncelleme YAPILMAMIŞTIR; başarı İDDİA EDİLMEZ. */
+    if (!Array.isArray(data) || data.length === 0) {
+      return { ok: false, retryable: false, errorCode: 'permission_denied' };
+    }
+    return { ok: true, duplicate: false };
+  } catch (e) {
+    return classifyPostgresError(readErrorCode(e), readErrorMessage(e));
+  }
+}
+
+/** Yakıt kaydının DEĞİŞTİRİLEBİLİR alanları (`client_ref` ve `vehicle_id` hariç). */
+export type FuelLogPatch = Pick<FuelLogPayload, 'filledOn' | 'odometerKm' | 'liters' | 'pricePerL'>;
+
+export function updateFuelLog(
+  vehicleId: string, rowId: string, patch: FuelLogPatch,
+): Promise<ServerWriteResult> {
+  return updateRow('vehicle_fuel_logs', vehicleId, rowId, {
+    filled_on:       patch.filledOn,
+    odometer_km:     patch.odometerKm,   // null geçerlidir — sahte 0 YOK
+    liters:          patch.liters,
+    price_per_liter: patch.pricePerL,
+  });
+}
+
+/** Servis kaydının değiştirilebilir alanları. Kalem anahtarı (`serviceKey`)
+ *  değişmez: farklı bir kalem, farklı bir kayıttır. */
+export type ServiceRecordPatch = Pick<ServiceRecordPayload, 'performedOn' | 'odometerKm'>;
+
+export function updateServiceRecord(
+  vehicleId: string, rowId: string, patch: ServiceRecordPatch,
+): Promise<ServerWriteResult> {
+  return updateRow('vehicle_service_records', vehicleId, rowId, {
+    performed_on: patch.performedOn,
+    odometer_km:  patch.odometerKm,
+  });
+}
+
 /* ── Kuyruk payload'u ⇄ yazıcı sözleşmesi ────────────────────────────────── */
 
 /**
