@@ -188,6 +188,94 @@ DOĞRULANDI 6 · SAHADA DOĞRULANDI 1 · **ÜRÜN HAZIR: 1**
 
 ### 6.3 Kod tamam + test yeşil, saha borcu açık (kütük 🔴)
 
+- **`failure:OBD` TEK YÖNLÜ CIRCIRI KAPATILDI — ARIZA MERDİVENİ ARTIK GERİ
+  DÖNÜŞLÜ (2026-08-16, kütük 🔴 #606):** araç suite **12 263 test / 551 dosya
+  YEŞİL**, guard **522/522**, `tsc` temiz, **16 yeni kilit**.
+
+  **#604 kökü cihazda yakalamıştı ama düzeltmemişti** ("runtime düşürme
+  politikası kararı gerekir" diye borç yazılmıştı). Bu tur karar verildi.
+  Üç kusur birlikte çalışıyordu: `reportFailure()` **her çağrıda** bir kademe
+  iniyordu · çağıran `_scheduleReconnect()` bir istisna değil **rutin** yoldur
+  (10 çağrı yeri, üstel tur + 5 dk'lık derin döngü) · **yukarı karşılık YOKTU**.
+  Sonuç: dongle beslenmiyorsa ~40 sn'de `SAFE_MODE`, üstelik `rt-last-mode`
+  üzerinden **sonraki açılışlara sızıyordu**.
+
+  **YENİ SÖZLEŞME:** arıza merdiveni **bileşen başına tek kademe** iner (latch),
+  tabanı **`POWER_SAVE`**'dir (SAFE_MODE yalnız **bilinçli** kararların modu:
+  RAM krizi / crash-recovery) ve **geri dönüşlüdür** — `reportRecovery()` tüm
+  arızalar geçince modu arıza öncesi seviyeye 30 sn histerezisle geri çıkarır.
+  Kurtarma hedefi `_detectCapabilities()` ile **yeniden hesaplanmaz**
+  (`runtimeOverride`'ı sessizce ezmemek için — #601(B) `cl_performanceMode`
+  dersi) ve başka bir otorite modu devraldıysa hedef unutulur. Çağrı ucunda
+  **dongle yokluğu arıza sayılmaz** (yalnız kanıtlanmış adaptörün kopması).
+
+  **YÖNTEM NOTU:** çağrı ucu düzeltmesi tek başına saha vakasını **çözmezdi** —
+  cihazdaki adres kanıtlıydı, circir tam da korunan yolda ateşleniyordu. Bu
+  tahminle değil ölçümle ayrıldı: bir test 180 sn'lik pencerede
+  `reportFailure('OBD')`'nin 1'den çok kez çağrıldığını kanıtlıyor → koruma
+  **runtime latch'inde olmak zorunda**. Kilitlerin kilit olduğu, düzeltme
+  geçici geri alınıp **4 testin düşmesiyle** gösterildi.
+
+  **GÖZLEM:** CAROS LAB → Çalışma Zamanı → **Performans** ekranı katalogda
+  "runtime modu" vaat ediyordu ama hiç göstermiyordu; eklendi (aktif mod ·
+  güç/termal tavanı · arızalı bileşen listesi · kurtarma hedefi — salt-okunur,
+  komut yok, timer yok).
+
+  **AÇIK BORÇ:** #604(F) **crash-recovery yapışkanlığı** — `PERSIST_KEY` hiçbir
+  yerde tüketilmiyor, `start()` kaydı yeniden yazıyor. Ayrı bir güvenlik-ağı
+  politikası kararıdır, tahminle değiştirilmedi. Circir kapandığı için kaydın
+  *yeni* zehirlenmesi bu yoldan gelemez, ama **hâlihazırda zehirli bir cihaz
+  kendi kendini kurtaramaz** (kayıt iki katmanda: dosya + localStorage).
+  **Cihazda doğrulanmadı → 🔴 kalır.**
+
+- **GÖRSEL ÇAKIŞMA İDDİALARI GERÇEK TARAYICIDA YENİDEN ÖLÇÜLDÜ — 2'si gerçek,
+  2'si ÖLÇÜM ARTEFAKTI (2026-08-16, kütük 🔴 #605):** araç suite **12 247 test /
+  549 dosya YEŞİL**, guard **522/522**, `tsc` temiz, **8 yeni kilit**.
+
+  **YÖNTEM DÜZELTMESİ ASIL BULGU:** saha turu çakışmaları ham
+  `getBoundingClientRect()` ile ölçmüştü. O kutu ne `overflow` kabında
+  **kaydırılmış** çocukları ne `opacity:0` katmanları bilir → "kesişiyor ama
+  BOYANMIYOR" üretir. Playwright + gerçek Chromium üzerinde **kırpma +
+  görünürlük + örtülme** farkındalıklı ölçüm kuruldu; **4 viewport × 3 ürün
+  durumu**, rozet için ayrıca **4 tema** tarandı.
+
+  **GERÇEK ÇIKANLAR (ikisi de üç çözünürlükte de vardı — telefona özel DEĞİL,
+  düzeltmeler genel):** (1) saha testi rozeti `CAROS` marka mührünü örtüyordu
+  (904×406: amblem %61 · `CAR` %64 · `OS` %67); çapa **6 aday × 9 durum**
+  sınanarak veriyle seçildi. (2) sol alt köşenin **iki sahibi** vardı —
+  etiketsiz `Yol durumu bildir` düğmesi `ÖZEL KONUMLAR` kartının üstüne
+  biniyordu (kullanıcının "sahipsiz yarı saydam kare" dediği şey buydu).
+
+  **DÜŞÜRÜLENLER (kod DEĞİŞTİRİLMEDİ — olmayan kusura düzeltme yazılmaz):**
+  `YOL/HİBRİT/UYDU` düğmeleri ayrık ölçüldü ve navigasyonda `opacity:0`;
+  alt bar etiketleri (`Bildirim`/`Menü`/`Telefon`) **dört viewport'ta da hiç
+  boyanmıyor** (`DockScrollZone` içinde kırpılı) → çakışamazlar.
+
+  **YAN BULGU — AÇILIŞ ÇÖKMESİ:** ölçüm sırasında gerçek tarayıcıda uygulama
+  `Cannot access 'MAP_BG_NIGHT' before initialization` ile **açılışta
+  çöküyordu**; kök `_mapState` ↔ `mapStyleBuilders` **dairesel bağımlılığı** —
+  #552'de kapatılan döngünün **ikinci yarısı**. Token'lar döngüsüz `_mapIds`e
+  taşındı. Rollup sırası bugün ters olduğu için üründe belirti görünmüyordu:
+  kusur **gizliydi, yok değildi**.
+
+  **AÇIK BORÇ:** `ONLINE` kaynak rozeti ↔ `KAPAT`/`ANA EKRAN` düğmesi üç
+  çözünürlükte de çakışıyor; 7 aday konum sınandı, **hepsinde temiz olan slot
+  yok** → bu tek bir çipin yeri değil, **harita HUD'unda paylaşılan köşe
+  bütçesinin olmaması** sorunudur (`useDenseHud` şerit modelinin karşılığı).
+  Tahminle taşınmadı.
+
+- **AÇILIŞTA SAFE_MODE — KÖK BULUNDU (2026-08-16, kütük 🔴 #604):** native
+  `onTrimMemory` şiddet testi `>= TRIM_MEMORY_RUNNING_CRITICAL (15)` idi; ama
+  `UI_HIDDEN=20` · `BACKGROUND=40` · `MODERATE=60` · `COMPLETE=80` **"arka
+  plana düştün"** bildirimidir, bellek baskısı değil. Zincir ürün kodunda uçtan
+  uca doğrulandı: `"CRITICAL"` → `memoryWatchdog` → `setMode(SAFE_MODE)` →
+  `_commit()` diske yazar → sonraki açılışta `start()` **SAFE_MODE'a sabitler**.
+  Yani **Home tuşuna basmak** kalıcı SAFE_MODE üretiyordu. İkinci kök: geçişi
+  duyuran log satırı, `logGate` yürürlükteki modu okuduğu için **kendi geçişi
+  tarafından susturuluyordu** — kökün iki tur boyunca bulunamamasının sebebi
+  buydu; yeni `rawConsole.ts` ile mod satırları kapıdan bağımsız yazılır.
+  8 kilit. **Cihazda canlı yakalanmadı → 🔴 kalır.**
+
 - **TEMA MİMARİSİ DÜZELTİLDİ — araç TÜKETİCİ oldu, ikinci stil otoritesi
   söküldü (2026-08-16, kütük 🔴 #597):** araç suite **12 200 test / 544 dosya
   YEŞİL**, `tsc -b` temiz, **4 yeni kilit**.
