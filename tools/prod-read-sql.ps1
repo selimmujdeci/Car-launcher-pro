@@ -12,12 +12,32 @@ $ErrorActionPreference = 'Stop'
 [string]$sql = Get-Content -Raw -Encoding UTF8 $SqlFile
 
 # --- salt-okunur kapısı (fail-closed) ---
+#
+# ⚠️ KÜLTÜRE DUYARLI EŞLEŞME YASAK — TÜRKÇE 'I' TUZAĞI (2026-08-17'de ÖLÇÜLDÜ).
+#
+# Bu makinenin kültürü tr-TR. .NET'te büyük/küçük harf duyarsız regex VARSAYILAN
+# OLARAK GEÇERLİ KÜLTÜRÜ kullanır ve Türkçede 'I'nın küçüğü 'i' DEĞİL 'ı'dır.
+# Sonuç, PowerShell `-match`/`-notmatch` ile birebir ölçüldü:
+#
+#   'INSERT INTO t' -match '(?i)insert\s'   →  False   ← KAPI AÇIK KALIYORDU
+#   'WITH x'        -match '(?i)^with\b'    →  False   ← CTE sorguları REDDEDİLİYORDU
+#
+# Yani kapı hem FAIL-OPEN'dı (içinde 'i' geçen tek yazma kelimesi olan INSERT
+# tespit edilemiyordu) hem de meşru `WITH ...` sorgularını reddediyordu. İçinde
+# 'i' geçmeyen kelimeler (UPDATE/DELETE/DROP/GRANT/TRUNCATE) yakalanıyordu —
+# bu yüzden kusur uzun süre görünmedi: kapı ÇALIŞIYOR gibi duruyordu.
+#
+# ÇÖZÜM: eşleşmeler `[regex]::IsMatch` ile ve AÇIKÇA `CultureInvariant`
+# seçeneğiyle yapılır. PowerShell'in `-match` operatörü bu seçeneği alamaz,
+# bu yüzden bilerek KULLANILMAZ.
+$reOpts = [System.Text.RegularExpressions.RegexOptions]'IgnoreCase, CultureInvariant, Singleline'
+
 $stripped = ($sql -replace '(?m)^\s*--.*$','').Trim()
-if ($stripped -notmatch '^(?is)\s*(select|with)\b') {
+if (-not [regex]::IsMatch($stripped, '^\s*(select|with)\b', $reOpts)) {
   throw "RED: sorgu SELECT/WITH ile baslamiyor (salt-okunur kapisi)"
 }
 $forbidden = 'insert\s|update\s|delete\s|create\s|alter\s|drop\s|grant\s|revoke\s|truncate\s|comment\s+on|refresh\s+materialized|call\s|do\s+\$\$'
-if ($stripped -match "(?is)\b($forbidden)") {
+if ([regex]::IsMatch($stripped, "\b($forbidden)", $reOpts)) {
   throw "RED: sorguda yazma anahtar kelimesi var (salt-okunur kapisi)"
 }
 
