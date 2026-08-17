@@ -40,6 +40,9 @@ foreach ($p in $Projects) {
   Write-Host ""
   Write-Host "=== $p ===" -ForegroundColor Cyan
 
+  # ⚠️ `2>&1` ZORUNLU: `vercel ls` tabloyu STDOUT'a DEĞİL STDERR'e basar.
+  # (Olculdu: `vercel ls carospro 2>/dev/null | grep` HİÇBİR SATIR dondurmez ve
+  #  "deployment yok" gibi gorunur — bu tuzaga bir kez dusuldu.)
   $raw = ''
   try {
     $raw = (& npx vercel ls $p 2>&1 | Out-String)
