@@ -17,6 +17,7 @@ import { handleSatelliteTileError, setActiveMapSource, getMapStyle, getMapNight 
 import { blockOnlineVector } from '../mapStyleBuilders';
 import { cacheLRUManager } from '../../core/storage/CacheLRUManager';
 import { M, useMapStore, getOnlineTileStyle, type MapConfig } from './_mapState';
+import { isBasemapTileSourceType } from './_mapIds';
 import {
   _applyRouteGeometry, ensureRoadShieldImages, _resetPaintedArrowCache,
 } from './MapLayerManager';
@@ -257,9 +258,47 @@ async function _initCore(
 
     let tileFailCount = 0;
     let _satelliteFailCount = 0;
+
+    /**
+     * #609 — Bu kaynak bir BASEMAP KAROSU mu?
+     *
+     * `tileError` bayrağı "harita çizilemiyor" demektir; bu yüzden hem sayaç hem
+     * iyileşme YALNIZ zemini çizen karo kaynaklarına bakmalıdır.
+     *
+     * SAHA KUSURU (2026-08-17, cihaz): mini haritada kalıcı "HARİTA YÜKLENEMİYOR"
+     * görünürken tam ekran harita karoları SORUNSUZ çiziyordu. İki taraflı hataydı:
+     *
+     *   · KURULUM ÇOK GENİŞ — sayaç HER kaynağın 404'ünü topluyordu. Vektör stilinde
+     *     `terrain-rgb` (raster-dem) AYRI bir kaynaktır; yokluğu haritayı çizilemez
+     *     YAPMAZ, yalnız kabartmayı kapatır. Onun hataları 20'yi bulunca bayrak
+     *     kalkıyordu.
+     *   · TEMİZLEME ÇOK DAR — iyileşme yalnız `map-tiles` adlı kaynak yüklenince
+     *     yazılıyordu. Bu ad DÖRT stilden YALNIZ BİRİNDE var: raster OSM. Vektör
+     *     stilinde kaynak `omv`, uydu/hibritte `satellite-tiles`. Yani YOL (vektör)
+     *     modunda bayrak bir kez kalktı mı BİR DAHA İNMİYORDU.
+     *
+     * Sonuç tek yönlü bir mandaldı — #606'daki `failure:OBD` circiriyle aynı sınıf:
+     * arıza sinyalinin yukarı karşılığı yok. Uyarıyı yalnız `MiniMapWidget` çizdiği
+     * için tam ekranda görünmüyor, çelişki de buradan doğuyordu.
+     */
+    const _isBasemapTileSource = (id: string | undefined): boolean => {
+      if (!id) return false;
+      try {
+        const def = (map.getStyle()?.sources ?? {})[id] as { type?: string } | undefined;
+        // Karar TÜRE göre verilir, ADA göre değil (bkz. isBasemapTileSourceType).
+        return isBasemapTileSourceType(def?.type);
+      } catch {
+        return false; // stil henüz okunamıyor → sayma (yanlış alarm üretme)
+      }
+    };
+
     map.on('error', (e) => {
       const msg = e.error?.message || '';
       if (msg.includes('404') || msg.includes('Failed to fetch') || msg.includes('NetworkError') || msg.includes('403')) {
+        const srcId = (e as unknown as { sourceId?: string }).sourceId;
+        /* Kaynak kimliği BİLİNİYORSA ve zemin karosu değilse (DEM/glyph/sprite)
+           sayaca girmez. Kimlik yoksa eski davranış korunur — sayılır. */
+        if (srcId !== undefined && !_isBasemapTileSource(srcId)) return;
         tileFailCount++;
         if (msg.includes('arcgisonline') || msg.includes('arcgis')) {
           _satelliteFailCount++;
@@ -286,13 +325,21 @@ async function _initCore(
       logError('Map:LibreError', new Error(msg));
     });
 
+    /* #609 — İYİLEŞME: AKTİF stilin HANGİ karo kaynağı yüklenirse yüklensin bayrak
+       iner. Eskiden sabit `map-tiles` aranıyordu; o ad yalnız raster OSM stilinde
+       vardır → vektör (`omv`) ve uydu (`satellite-tiles`) modlarında bayrak asla
+       temizlenmiyordu (bkz. `_isBasemapTileSource` yorumu). */
     map.on('data', (e) => {
-      if (e.dataType === 'source' && map.getSource('map-tiles') && map.isSourceLoaded('map-tiles')) {
-        if (useMapStore.getState().tileError) {
-          useMapStore.setState({ tileError: false });
-        }
-        tileFailCount = 0;
+      if (e.dataType !== 'source') return;
+      const srcId = (e as unknown as { sourceId?: string }).sourceId;
+      if (!_isBasemapTileSource(srcId)) return;
+      let loaded = false;
+      try { loaded = map.isSourceLoaded(srcId as string); } catch { loaded = false; }
+      if (!loaded) return;
+      if (useMapStore.getState().tileError) {
+        useMapStore.setState({ tileError: false });
       }
+      tileFailCount = 0;
     });
 
     // WebGL context loss — permanent loss detection + heal attempt

@@ -144,15 +144,46 @@ interface VectorPalette {
   readonly poiWeak: number;
 }
 
-/** Mevcut OEM gece paleti — değerler BİREBİR korunmuştur (davranış değişmedi). */
+/**
+ * OEM gece paleti — TON HİYERARŞİSİ ÖLÇÜLMÜŞ kontrast hedefleriyle kurulur.
+ *
+ * SAHA KUSURU (2026-08-17, gerçek araç ekranı): "harita neredeyse her şey koyu,
+ * yollar ile genel zemin aynı gibi". Ölçüldü (WCAG bağıl parlaklık, zemin
+ * `#161c28`'e karşı) — şikâyet birebir doğrulandı:
+ *
+ *     residential 1.01 · water 1.07 · buildingFill 1.08 · minor 1.20
+ *     secondary 1.47 · primary 1.78 · motorway 2.76
+ *
+ * `residential` zeminden **1.01** ile ayrılıyordu: matematiksel olarak aynı renk.
+ * Katmanlar arası adımlar da ~1.21'di → hiyerarşi hiç okunmuyordu. Grafik öğeler
+ * için yaygın alt sınır 3:1'dir; HİÇBİRİ tutmuyordu.
+ *
+ * Bu değerler bilinçli bir tasarım kararı DEĞİLDİ: eski başlık "değerler BİREBİR
+ * korunmuştur" diyordu — bir refactor'dan taşınmışlardı, arkalarında ölçülmüş bir
+ * sözleşme yoktu. Gündüz paletinin (aşağıda) aksine.
+ *
+ * ── YENİ SÖZLEŞME (hepsi ölçülüp kilitlendi) ────────────────────────────────
+ *   1. **Zemin `MAP_BG_NIGHT` SABİT** — kimliktir, testler ona bağlıdır; kontrast
+ *      zemini açarak değil, ÜSTÜNDEKİ öğeleri yükselterek kazanılır.
+ *   2. **Yol hiyerarşisi TONLA okunur** — her kademe bir altından ≥1.28 ayrılır.
+ *   3. **Kasa gövdeden KOYU** — ince tali yolu görünür kılan gövde değil kasadır;
+ *      gövdeler açıldığı için kasa/gövde ayrımı da güçlendi (minor 2.58, motorway 4.69).
+ *   4. **Gece konforu sınırdır** — üst uç bilerek dizginlendi: motorway 5.2'de
+ *      durur (hedef 5.6 idi), çünkü karanlıkta aşırı parlak zemin göz yorar.
+ *      Alan dolguları (residential/park) ~1.29'da tutuldu: geniş yüzeydirler,
+ *      yolla YARIŞMAMALIdırlar.
+ *
+ * Ölçülen sonuç: minor **1.20 → 2.32** · secondary **1.47 → 3.10** ·
+ * primary **1.78 → 4.06** · motorway **2.76 → 5.20** · residential **1.01 → 1.29**.
+ */
 export const NIGHT_PALETTE: VectorPalette = {
   bg:              MAP_BG_NIGHT,
-  water:           '#16213a',
-  park:            '#1c2b22',
-  residential:     '#171b25',
-  buildingFill:    '#1d2230',
-  buildingOutline: '#2c3346',
-  bldg3d:          ['#1d2230', '#2c3346', '#313850'],
+  water:           '#37445d',
+  park:            '#25332a',
+  residential:     '#2d3037',
+  buildingFill:    '#393c46',
+  buildingOutline: '#4d5260',
+  bldg3d:          ['#393c46', '#4d5260', '#565c6b'],
   bldg3dOpacity:   0.78,
   bldg3dAO:        0.30,
   shieldImage:     SHIELD_IMG_NIGHT,
@@ -161,10 +192,10 @@ export const NIGHT_PALETTE: VectorPalette = {
   motorwayCasing:  '#2a2418',
   primaryCasing:   '#16161d',
   minorCasing:     '#101015',
-  motorway:        '#6b6048',
-  primary:         '#44444f',
-  secondary:       '#383840',
-  minor:           '#2a2a33',
+  motorway:        '#9a8d6b',
+  primary:         '#7b7b83',
+  secondary:       '#636977',
+  minor:           '#515662',
   labelText:       '#e8e0d0',
   labelHalo:       '#0a0e16',
   townText:        '#e2eaf5',

@@ -64,3 +64,26 @@ export const SHIELD_IMG_NIGHT = 'road-shield-night';
  */
 export const MAP_BG_NIGHT = '#161c28';
 export const MAP_BG_DAY   = '#e9eef3';
+
+/**
+ * #609 — Verilen kaynak TÜRÜ zemini (basemap) çizen bir KARO kaynağı mı?
+ *
+ * `tileError` bayrağı "harita çizilemiyor" demektir; hem arıza sayacı hem
+ * iyileşme YALNIZ bu yükleme göre karar vermelidir.
+ *
+ * `raster-dem` (yükselti verisi) BİLEREK dışarıdadır: yokluğu haritayı
+ * çizilemez yapmaz, yalnız kabartmayı kapatır. Sahada tam olarak bu oldu —
+ * vektör stilindeki `terrain-rgb` kaynağının 404'leri zemin karosu arızası
+ * sayılıp mini haritada kalıcı "HARİTA YÜKLENEMİYOR" üretiyordu; oysa `omv`
+ * karoları sorunsuz çiziliyordu.
+ *
+ * Kimlik DEĞİL TÜR sorulur: karo kaynağının adı stilden stile değişir
+ * (`omv` · `map-tiles` · `satellite-tiles`) ve sabit bir ada bağlanan mantık
+ * diğer stillerde sessizce ölür — kusurun temizleme tarafı tam olarak buydu.
+ *
+ * Saf ve yaprak: bu modülün hiçbir importu yoktur (bkz. dosya başlığındaki
+ * dairesel bağımlılık tuzağı), bu yüzden doğrudan test edilebilir.
+ */
+export function isBasemapTileSourceType(type: string | undefined): boolean {
+  return type === 'raster' || type === 'vector';
+}
