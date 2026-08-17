@@ -57,7 +57,7 @@ vi.mock('../core/runtime/AdaptiveRuntimeManager', () => ({
     getMode: vi.fn(() => 'POWER_SAVE'),
     getConfig: vi.fn(() => ({ obdPollingMs: 15_000 })),
     subscribe: vi.fn(() => () => {}),
-    reportFailure: vi.fn(),
+    reportFailure: vi.fn(), reportRecovery: vi.fn(),
   },
 }));
 

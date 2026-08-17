@@ -26,6 +26,7 @@ import { getRuntimeConfig }                from './runtimeConfig';
 import { safeGetRaw, safeSetRaw }          from '../../utils/safeStorage';
 import { hasWeakGpu }                      from '../../utils/detectWeakGpu';
 import { getDeviceTier }                   from '../../platform/deviceCapabilities';
+import { rawWarn, rawInfo }                from '../../platform/system/rawConsole';
 
 /* ── Mod sıralaması (sayısal karşılaştırma) ─────────────────────── */
 
@@ -50,6 +51,21 @@ const MODE_MULTIPLIER: Readonly<Record<RuntimeMode, number>> = {
 } as const;
 
 /* ── Sabitler ────────────────────────────────────────────────────── */
+
+/**
+ * #606 — Arıza bildirimlerinin inebileceği EN DÜŞÜK mod.
+ *
+ * SAFE_MODE **bilinçli** bir karardır (RAM krizi → memoryWatchdog `setMode`,
+ * ya da crash-recovery). Biriken bileşen arızalarıyla KAZARA girilmemelidir:
+ * `_commit()` her mod değişimini `rt-last-mode` anahtarına yazar, `start()` de
+ * SAFE_MODE gördüğünde sonraki açılışı doğrudan SAFE_MODE'da başlatır — yani
+ * kazara girilen bir SAFE_MODE kalıcı olarak zehirlenir (saha #604: dongle
+ * takılı olmayan araçta ~40 sn'de SAFE_MODE, sonraki her açılış da SAFE_MODE).
+ *
+ * Arıza merdiveni bu yüzden POWER_SAVE tabanında durur. Gerçekten SAFE_MODE
+ * gereken yollar zaten `setMode(SAFE_MODE, …)` ile AÇIKÇA iner.
+ */
+const FAILURE_FLOOR = RuntimeMode.POWER_SAVE;
 
 const UPGRADE_DELAY_MS   = 30_000; // 30 saniye stabilite penceresi
 /** Termal kısıtlama recovery için aynı süre (soğuma 30s stabil kaldıktan sonra kısıt kaldırılır) */
@@ -230,6 +246,32 @@ class AdaptiveRuntimeManager {
   /** Termal recovery (kısıt gevşeme) timer handle. */
   private _thermalConstraintTimer: ReturnType<typeof setTimeout> | null = null;
 
+  /**
+   * #606 — Arıza bildirmiş ve HENÜZ kurtulmamış bileşenler.
+   *
+   * Kilit invaryant: bir bileşen bu kümedeyken `reportFailure()` çağrısı modu
+   * TEKRAR indirmez. Aynı arızanın tekrarı (OBD yeniden bağlanma turu 10 çağrı
+   * yerinden tetikleniyor) bir kademe daha aşağı ANLAMINA GELMEZ — eski kod
+   * bunu yaptığı için tek yönlü bir circir doğuyordu.
+   *
+   * Bounded: anahtar kümesi sabit ve küçüktür (OBD/RAM/VisionCompute/
+   * NavigationCompute/VehicleCompute) — sınırsız büyüme yok.
+   */
+  private readonly _failedComponents = new Set<string>();
+
+  /**
+   * #606 — İlk arıza-kaynaklı düşüşten ÖNCEKİ mod; kurtarma hedefi.
+   *
+   * `_detectCapabilities()` YENİDEN ÇALIŞTIRILMAZ: kullanıcı `runtimeOverride`
+   * ile modu zorlayabiliyor (useLayoutServices) ve yeteneği yeniden ölçüp
+   * onu sessizce ezmek #601(B)'deki `cl_performanceMode` dersinin tekrarı
+   * olurdu. Bunun yerine düşüşten önce GÖZLENEN mod hatırlanır.
+   *
+   * null → geri dönülecek bir taban yok (hiç arıza olmadı ya da başka bir
+   * otorite — termal/güç/kullanıcı/RAM — modu devraldı, bkz. `_commit`).
+   */
+  private _preFailureMode: RuntimeMode | null = null;
+
   private readonly _listeners = new Set<ModeChangeListener>();
 
   /** Worker registry: key → {worker, criticality} */
@@ -375,11 +417,32 @@ class AdaptiveRuntimeManager {
     this._mode = mode;
     this._applyCSS(mode);
 
-    // Her mod değişimini logla — downgrade warn, upgrade info (adb logcat görünürlüğü)
+    /* Her mod değişimini logla — downgrade warn, upgrade info (adb logcat görünürlüğü).
+     *
+     * ⚠️ KAPILANMAMIŞ KANAL ZORUNLU (kütük #598-D): `this._mode` YUKARIDA zaten
+     * yeni moda yazıldı. Düz `console.warn` kullanılırsa `logGate` artık YENİ
+     * modun `loggingLevel`ini okur — `SAFE_MODE` → 'silent', `BASIC_JS` →
+     * 'error' → ve **geçişi duyuran satır, duyurduğu geçiş tarafından
+     * susturulur**. Sahada "SAFE_MODE'a kim soktu" sorusunun cevapsız
+     * kalmasının sebebi tam olarak buydu. Mod değişimi seyrek bir olaydır;
+     * gate'in koruduğu IO bütçesine ölçülebilir bir yük getirmez. */
     const isDowngrade = MODE_RANK[mode] < MODE_RANK[prev];
-    (isDowngrade ? console.warn : console.info)(
+    (isDowngrade ? rawWarn : rawInfo)(
       `[Runtime] runtime_mode_changed: ${prev} → ${mode} | reason=${reason}`,
     );
+
+    /* #606 — Kurtarma tabanı SAHİPLİK devrinde geçersizleşir.
+     * Arıza merdiveni dışında bir otorite (kullanıcı · termal · güç tavanı ·
+     * RAM baskısı · crash-recovery) modu devraldıysa, `_preFailureMode`
+     * artık gerçeği tarif etmez: o hedefe geri çıkmak devralan otoriteyi
+     * sessizce ezmek olurdu. Hedef unutulur.
+     *
+     * `_failedComponents` BİLEREK korunur: bileşen hâlâ arızalı olabilir ve
+     * latch'i düşürmek circiri geri açardı (kopuk dongle her turda yeniden
+     * "yeni arıza" sayılırdı). Latch yalnız gerçek kurtarmayla düşer. */
+    if (!reason.startsWith('failure:') && reason !== 'recovery') {
+      this._preFailureMode = null;
+    }
 
     // Crash recovery için son modu disk'e yaz (4 s debounce — mod geçişi yüksek frekanslı değil)
     safeSetRaw(PERSIST_KEY, mode);
@@ -411,7 +474,9 @@ class AdaptiveRuntimeManager {
 
     const saved = safeGetRaw(PERSIST_KEY) as RuntimeMode | null;
     if (saved === RuntimeMode.SAFE_MODE) {
-      console.warn(
+      /* Kapılanmamış kanal: bu satır kurbanı olduğu susturmayı AÇIKLAYAN
+         satırdır — gate'e tabi olursa kalıcı SAFE_MODE sessizce sürer. */
+      rawWarn(
         '[Runtime] crash-recovery: previous session ended in SAFE_MODE — starting in SAFE_MODE',
       );
       this._commit(RuntimeMode.SAFE_MODE, 'crash-recovery');
@@ -419,7 +484,7 @@ class AdaptiveRuntimeManager {
     }
 
     this._startZombieDetection();
-    console.info(`[Runtime] started: mode=${this._mode}`);
+    rawInfo(`[Runtime] started: mode=${this._mode}`);
   }
 
   /**
@@ -558,16 +623,47 @@ class AdaptiveRuntimeManager {
   }
 
   /**
-   * Bileşen arızası sinyal — mevcut moddan bir adım aşağı indirir.
+   * Bileşen arızası sinyali — mevcut moddan **en fazla bir adım** aşağı indirir.
    *
-   * Kullanım: OBD disconnect, GPS kayıp, CAN timeout gibi servis
-   * katmanı hataları bu metodu çağırarak sistemi koruyucu moda geçirir.
+   * Kullanım: OBD kopması, worker çökmesi gibi servis katmanı arızaları bu
+   * metodu çağırarak sistemi koruyucu moda geçirir.
    *
-   * Downgrade anında uygulanır (hysteresis bypass — güvenlik olayı).
+   * #606 — İKİ İNVARYANT (saha kökü: kütük #604):
    *
-   * @param component  Arıza bildiren servis adı ('OBD', 'GPS', 'CAN' ...)
+   *   (1) **Bileşen başına tek kademe.** Aynı bileşen kurtulmadan tekrar arıza
+   *       bildirirse mod DEĞİŞMEZ. Eski kod her çağrıda bir kademe iniyordu;
+   *       `obdService._scheduleReconnect()` bu metodu 10 çağrı yerinden
+   *       tetiklediği için dongle takılı olmayan araçta runtime ~40 sn'de
+   *       BALANCED → BASIC_JS → POWER_SAVE → SAFE_MODE'a çakılıyordu.
+   *
+   *   (2) **Taban POWER_SAVE.** Biriken arızalar SAFE_MODE'a indiremez; orası
+   *       bilinçli kararların modudur (bkz. `FAILURE_FLOOR`). Kazara girilen
+   *       SAFE_MODE `rt-last-mode` üzerinden sonraki açılışlara da sızıyordu.
+   *
+   * Downgrade anında uygulanır (hysteresis bypass — koruyucu olay).
+   * Karşılığı `reportRecovery()`'dir: arıza geçince mod geri yükselir.
+   *
+   * @param component  Arıza bildiren servis adı ('OBD', 'VisionCompute', …)
    */
   reportFailure(component: string): void {
+    // (1) Bu bileşen zaten arızalı biliniyor → merdivende ikinci kademe YOK.
+    if (this._failedComponents.has(component)) return;
+
+    const currentRank = MODE_RANK[this._mode];
+    // (2) Taban: arıza merdiveni POWER_SAVE'in altına inmez.
+    if (currentRank <= MODE_RANK[FAILURE_FLOOR]) {
+      // Latch YAZILMAZ: bu çağrı bir kademe TÜKETMEDİ → kurtarmada geri
+      // verilecek bir şey de yok. Aksi halde (ör. RAM krizi SAFE_MODE'a
+      // indirdikten sonra gelen `reportFailure('RAM')`) ölü bir latch
+      // BAŞKA bileşenlerin kurtulmasını sonsuza dek bloklardı.
+      return;
+    }
+
+    this._failedComponents.add(component);
+    // Kurtarma hedefi YALNIZ ilk düşüşte yakalanır (sonraki bileşen arızaları
+    // tabanı daha da yukarı taşımaz — geri dönülecek yer arıza ÖNCESİDİR).
+    if (this._preFailureMode === null) this._preFailureMode = this._mode;
+
     const rankOrder: RuntimeMode[] = [
       RuntimeMode.SAFE_MODE,
       RuntimeMode.POWER_SAVE,  // akü koruma basamağı
@@ -575,12 +671,50 @@ class AdaptiveRuntimeManager {
       RuntimeMode.BALANCED,
       RuntimeMode.PERFORMANCE,
     ];
-    const currentRank = MODE_RANK[this._mode];
-    if (currentRank > 0) {
-      // Bir adım aşağı — SAFE_MODE'dan aşağısı yok
-      const downgraded = rankOrder[currentRank - 1];
-      this.setMode(downgraded, `failure:${component}`);
-    }
+    this.setMode(rankOrder[currentRank - 1], `failure:${component}`);
+  }
+
+  /**
+   * #606 — `reportFailure()`'ın YUKARI karşılığı: bileşen tekrar sağlıklı.
+   *
+   * Arıza latch'ini düşürür. Arızalı başka bileşen KALMADIYSA mod, arıza
+   * öncesi gözlenen seviyeye geri istenir — ve bu istek normal `setMode()`
+   * yolundan geçer, yani:
+   *   · 30 sn histerezis penceresine tabidir (anlık zıplama yok),
+   *   · güç/termal tavanı hâlâ üstündür (`setMode` yeniden kıskaçlar),
+   *   · arada başka bir otorite modu devraldıysa hedef zaten unutulmuştur
+   *     (`_commit`), o otorite sessizce ezilmez.
+   *
+   * Bilinmeyen/latch'siz bir bileşen için no-op'tur (idempotent).
+   *
+   * @param component  Kurtulan servis adı — `reportFailure` ile AYNI ad
+   */
+  reportRecovery(component: string): void {
+    if (!this._failedComponents.delete(component)) return; // latch yoktu — no-op
+    if (this._failedComponents.size > 0) return;           // hâlâ arızalı bileşen var
+
+    const target = this._preFailureMode;
+    this._preFailureMode = null;
+    if (target === null) return;                            // taban devredilmiş
+    if (MODE_RANK[target] <= MODE_RANK[this._mode]) return; // zaten o seviyede/üstünde
+
+    this.setMode(target, 'recovery');
+  }
+
+  /**
+   * Arızalı sayılan bileşenlerin salt-okunur, sıralı görüntüsü (gözlemlenebilirlik).
+   * Boş dizi = arıza merdiveninde bekleyen bileşen yok.
+   */
+  getFailedComponents(): readonly string[] {
+    return Object.freeze(Array.from(this._failedComponents).sort());
+  }
+
+  /**
+   * Arıza kurtarmasında geri dönülecek mod; null = hedef yok
+   * (hiç arıza olmadı ya da modu başka bir otorite devraldı).
+   */
+  getRecoveryTarget(): RuntimeMode | null {
+    return this._preFailureMode;
   }
 
   /* ══════════════════════════════════════════════════════════════
@@ -790,6 +924,14 @@ class AdaptiveRuntimeManager {
       worker.addEventListener('message', handler);
       this._workerMsgHandlers.set(key, handler);
       this._pingPendingCounts.set(key, 0);
+
+      /* #606 — CANLI worker referansı = o bileşenin kurtulduğunun kanonik
+       * kanıtıdır (çökme yolları `registerWorker(key, null, …)` yazar,
+       * restart yolları canlı referansla geri döner). Ayrı bir kurtarma
+       * çağrısı eklemek yerine mevcut sözleşme kullanılır — böylece bir
+       * worker latch'i unutulup BAŞKA bileşenlerin kurtulmasını bloklayamaz.
+       * Latch yoksa no-op'tur (boot'taki ilk kayıtta olduğu gibi). */
+      this.reportRecovery(key);
     }
   }
 
@@ -997,6 +1139,10 @@ class AdaptiveRuntimeManager {
     this._started            = false;
     this._powerCeiling       = null;
     this._thermalActiveLevel = 0;
+    // #606: arıza merdiveni defteri de sıfırlanır — sonraki oturuma sızmaz
+    // (test izolasyonu da buna dayanır).
+    this._failedComponents.clear();
+    this._preFailureMode     = null;
 
     if (typeof document === 'undefined') return;
     const root = document.documentElement;

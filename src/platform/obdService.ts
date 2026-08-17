@@ -1860,8 +1860,24 @@ function _scheduleReconnect(): void {
     } catch { /* senkron kenar durumu — yoksay */ }
   }
 
-  // OBD disconnect → RuntimeEngine'e bildir (bir adım downgrade — hysteresis bypass)
-  runtimeManager.reportFailure('OBD');
+  /* #606 — DONGLE YOKLUĞU ARIZA DEĞİLDİR.
+   *
+   * Eski kod `reportFailure('OBD')`'yi burada KOŞULSUZ çağırıyordu. Bu fonksiyon
+   * 10 çağrı yerinden tetiklenen RUTİN yeniden-bağlanma yoludur (worker çökmesi
+   * gibi istisnai bir yol değil) → dongle takılı olmayan araçta her denemede bir
+   * runtime kademesi eksiliyor, ~40 sn'de SAFE_MODE'a çakılıyordu (kütük #604,
+   * cihazda canlı yakalandı: BASIC_JS → POWER_SAVE → SAFE_MODE, reason=failure:OBD).
+   *
+   * Arıza YALNIZ **kanıtlanmış bir adaptörün kopması**dır. Hiç bağlanmamış ya da
+   * kayıtlı adresi olmayan bir durum "arıza" üretmez — sadece "OBD yok" durumudur.
+   * Kanıt kaynağı `_isAddressProven()`: bu oturumda bağlandı VEYA kalıcı defterde
+   * gerçek ECU verisi kayıtlı.
+   *
+   * İkinci kademe koruma runtime tarafındadır: `reportFailure` artık bileşen
+   * başına tek kademe iner ve POWER_SAVE tabanında durur. */
+  if (_lastKnownAddress && _isAddressProven()) {
+    runtimeManager.reportFailure('OBD');
+  }
 
   // Gerçek cihazda (native) sahte veri göstermek yasak — dürüst error state.
   // Mock sadece tarayıcı geliştirme modunda (MOCK_ENABLED=true, non-native) kullanılır.
@@ -2441,6 +2457,10 @@ async function _startNative(opts?: { trustBypass?: boolean }): Promise<void> {
   // handshake VIN'i getirince ölçek yeniden yüklenir (aşağıda).
   _fuelCalibScale = loadObdFuelCalib(candidate.address, getHandshakeVin());
   _addressConnectedOnce = true; // RFCOMM/GATT+init başarılı → bu adres bu oturumda doğrulandı
+  /* #606 — `reportFailure('OBD')`'nin YUKARI karşılığı. Kopmada inen runtime
+   * kademesi, bağlantı geri gelince geri yükselir (30 sn histerezisle, güç/termal
+   * tavanına tabi). Bu çağrı olmadan merdiven tek yönlü kalırdı. */
+  runtimeManager.reportRecovery('OBD');
   _merge({ connectionState: 'initializing', source: 'none' });
 
   // 6. INSTANT DATA LOOP — veri kapısını HEMEN aç (handshake'ten ÖNCE). Native poll

@@ -1,6 +1,7 @@
-import { memo } from 'react';
+import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { useDebugStore } from '../../platform/debug';
 import { useHALStatusStore } from '../../platform/vehicleDataLayer/halStatusStore';
+import { runtimeManager } from '../../core/runtime/AdaptiveRuntimeManager';
 
 function msAgo(ts: number) {
   if (!ts) return 'never';
@@ -50,6 +51,36 @@ function aliveLabel(v: boolean | null): string {
   return 'BİLİNMİYOR';
 }
 
+/**
+ * #606 — Arıza merdiveninin salt-okunur görünümü.
+ *
+ * Katalog bu ekranı zaten "runtime modu ve hata sayaçları" diye tarif ediyordu ama
+ * mod HİÇ gösterilmiyordu. Merdiven (hangi bileşen bir kademe düşürdü, nereye geri
+ * çıkılacak) gözlemlenemeden #604 gibi bir circir yalnız cihazda, canlı logla
+ * yakalanabiliyor. Burada KOMUT YOK — yalnız okuma; bilinmeyen alan UNKNOWN değil,
+ * gerçek "yok" durumu ayrı etiketlenir.
+ */
+interface RuntimeLadderSnapshot {
+  mode:         string;
+  powerCeiling: string;
+  failed:       readonly string[];
+  target:       string;
+}
+
+function readRuntimeLadder(): RuntimeLadderSnapshot {
+  try {
+    return {
+      mode:         String(runtimeManager.getMode()),
+      powerCeiling: runtimeManager.getPowerCeiling() ?? 'yok',
+      failed:       runtimeManager.getFailedComponents(),
+      target:       runtimeManager.getRecoveryTarget() ?? 'yok',
+    };
+  } catch {
+    // Fail-soft: kaynak patlarsa sahte "sağlıklı" ÜRETME.
+    return { mode: 'OKUNAMADI', powerCeiling: 'OKUNAMADI', failed: [], target: 'OKUNAMADI' };
+  }
+}
+
 export const PerformanceView = memo(function PerformanceView() {
   const perf       = useDebugStore((s) => s.perf);
   const errorLog   = useDebugStore((s) => s.errorLog);
@@ -61,6 +92,22 @@ export const PerformanceView = memo(function PerformanceView() {
      `updatedAt` worker MONOTONİK saatidir (performance.now()) — duvar saatiyle yaş
      hesaplamak YANLIŞ olur, o yüzden ham gösterilir. */
   const sourceHealth = useHALStatusStore((s) => s.sourceHealth);
+
+  /* #606 — Arıza merdiveni: açılışta tek okuma + mod değişiminde yeniden okuma
+     (abonelik OLAY tabanlıdır, TIMER YOK) + elle YENİLE. Zero-Leak: subscribe
+     cleanup thunk döner, mountedRef geç gelen callback'i yutar. */
+  const mountedRef = useRef(true);
+  const [ladder, setLadder] = useState<RuntimeLadderSnapshot>(readRuntimeLadder);
+  const refreshLadder = useCallback(() => {
+    if (mountedRef.current) setLadder(readRuntimeLadder());
+  }, []);
+  useEffect(() => {
+    mountedRef.current = true;
+    refreshLadder();
+    let unsub: (() => void) | undefined;
+    try { unsub = runtimeManager.subscribe(refreshLadder); } catch { /* fail-soft */ }
+    return () => { mountedRef.current = false; unsub?.(); };
+  }, [refreshLadder]);
 
   return (
     <div className="flex flex-col gap-4 px-1">
@@ -128,6 +175,35 @@ export const PerformanceView = memo(function PerformanceView() {
             value={`${cacheStats.hits} / ${cacheStats.misses}`}
           />
         </div>
+      </div>
+
+      {/* #606 Çalışma zamanı modu + arıza merdiveni — salt okunur, komut YOK */}
+      <div>
+        <div className="flex items-center justify-between mb-2">
+          <p className="text-[var(--oem-ink-3)] text-xs font-mono uppercase">Çalışma Zamanı Modu</p>
+          <button
+            onClick={refreshLadder}
+            className="px-2 py-0.5 rounded text-xs font-mono border border-[var(--oem-line)] text-[var(--oem-ink-3)] hover:bg-[var(--oem-surface-2)]"
+          >
+            YENİLE
+          </button>
+        </div>
+        <div className="border border-[var(--oem-line)] rounded px-3" data-testid="perf-runtime-ladder">
+          <StatRow label="Aktif mod" value={ladder.mode} />
+          <StatRow label="Güç/termal tavanı" value={ladder.powerCeiling} sub="null = kısıtlama yok" />
+          <StatRow
+            label="Arızalı bileşen"
+            value={ladder.failed.length === 0 ? 'yok' : ladder.failed.join(', ')}
+            sub={`${ladder.failed.length} kademe`}
+          />
+          <StatRow label="Kurtarma hedefi" value={ladder.target} sub="arıza öncesi mod" />
+        </div>
+        <p className="mt-1 text-[10px] leading-relaxed text-[var(--oem-ink-3)] font-mono">
+          Bir bileşen arıza bildirdiğinde mod EN FAZLA bir kademe iner ve taban
+          POWER_SAVE'dir; aynı bileşenin tekrarı ikinci kademe ÜRETMEZ. Tüm arızalar
+          kurtulunca mod, "kurtarma hedefi"ne 30 sn histerezisle geri çıkar. Liste boş
+          değilken mod düşük görünüyorsa sebep budur (kütük #604/#606).
+        </p>
       </div>
 
       {/* Kaynak sağlığı — GERÇEK Vehicle HAL verisi (ölü `fallback` alanı DEĞİL) */}

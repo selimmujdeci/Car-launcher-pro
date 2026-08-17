@@ -63,7 +63,7 @@ vi.mock('../core/runtime/AdaptiveRuntimeManager', () => ({
   runtimeManager: {
     getMode: vi.fn(() => 'PERFORMANCE'),
     getConfig: vi.fn(() => ({ obdPollingMs: 1_000 })),
-    subscribe: vi.fn(() => () => {}), reportFailure: vi.fn(),
+    subscribe: vi.fn(() => () => {}), reportFailure: vi.fn(), reportRecovery: vi.fn(),
   },
 }));
 vi.mock('../platform/crashLogger', () => ({ logError: vi.fn() }));
