@@ -17,36 +17,69 @@ import { SHIELD_IMG_DAY, SHIELD_IMG_NIGHT } from './map/_mapIds';
  */
 type SuppressEntry = readonly [string, 'line-opacity' | 'text-opacity', number];
 
+/**
+ * #621 — BASTIRMA ŞEHRİ SİLİYORDU: "böyle saçma harita olamaz" (kullanıcı, gece,
+ * gerçek navigasyon ekran görüntüsüyle; hedef açıkça konuldu: *"Google Maps
+ * seviyesinde olacak"*).
+ *
+ * ÖLÇÜLEN KUSUR — bastırma opaklığının EKRANDA bıraktığı kontrast (gece paleti
+ * `#161c28` zemin · tali yol `#6a6b70` · #620 sonrası `brightness(0.8)` filtresi;
+ * 1,00 = tamamen görünmez):
+ *     Tier 0 normal seyir     → tali yol **1,15** · etiket 1,69
+ *     Tier 1 dönüşe yaklaşma  → tali yol **1,05** · etiket **1,21**   ← kullanıcının ekranı
+ *     Tier 2 kavşak (<50 m)   → tali yol **1,02** · etiket 1,08
+ *     (bastırma yokken           tali yol  2,47  · etiket  7,16)
+ * Yani navigasyon açılır açılmaz sokak ağı ve sokak adları pratikte YOK oluyordu;
+ * ekranda rota + birkaç bina kalıyordu. Kullanıcının "saçma harita" dediği tablo
+ * tam olarak budur ve bu, önceki turlarda ölçülen palet kazançlarından bağımsız
+ * ÜÇÜNCÜ bir karartma otoritesiydi (palet → CSS filtresi → bastırma).
+ *
+ * YENİ SÖZLEŞME — "rota BASKIN olur, şehir SİLİNMEZ":
+ *   · Rotanın baskınlığı zaten KENDİ genişliği, rengi ve kılıfından gelir
+ *     (`routeWidthModel` + `routeColorModel`); bunu şehri silerek üretmek
+ *     sürücüyü bağlamsız bırakır — dönülecek sokağın kendisi de sönüyordu.
+ *   · Tier 0 (normal seyir): bastırma YOK. Google navigasyonda tam ağı gösterir.
+ *   · Tier 1 (50–200 m): hafif geri çekilme — tali yol 0,75 → **1,91**, etiket 0,70 → **4,15**.
+ *   · Tier 2 (<50 m): orta — tali yol 0,60 → **1,64**, etiket 0,55 → **3,05**.
+ *     Kavşakta bile ÇAPRAZ SOKAKLAR görünür kalır: manevra tam onların arasından
+ *     yapılır; %3 opaklıkta silmek güvenlik açısından yanlıştı.
+ *   · Motorway/trunk kasetleri hiçbir kademede bastırılmaz (otoyol bağlamı) —
+ *     bu kural korunur.
+ *
+ * Kademeler MONOTONİK azalır ve aynı katman kimliklerini taşır (tam restore).
+ * Eşikler `navSuppressionContrast.test.ts` ile kilitlidir; değer bilinçli
+ * değişirse kilit GÜNCELLENİR, kaldırılmaz.
+ */
 export const NAV_SUPPRESS_TIERS: ReadonlyArray<ReadonlyArray<SuppressEntry>> = [
-  // ── Tier 0: Normal navigation ─────────────────────────────────────────────
+  // ── Tier 0: Normal navigation — bastırma YOK (tam bağlam) ─────────────────
   [
-    ['road-primary-casing', 'line-opacity', 0.50],
-    ['road-minor-casing',   'line-opacity', 0.28],
-    ['road-primary',        'line-opacity', 0.50],
-    ['road-secondary',      'line-opacity', 0.35],
-    ['road-minor',          'line-opacity', 0.20],
-    ['road-label',          'text-opacity', 0.28],
-    ['place-town',          'text-opacity', 0.38],
+    ['road-primary-casing', 'line-opacity', 1.00],
+    ['road-minor-casing',   'line-opacity', 1.00],
+    ['road-primary',        'line-opacity', 1.00],
+    ['road-secondary',      'line-opacity', 1.00],
+    ['road-minor',          'line-opacity', 1.00],
+    ['road-label',          'text-opacity', 1.00],
+    ['place-town',          'text-opacity', 1.00],
   ],
-  // ── Tier 1: Turn approach (50-200m) ──────────────────────────────────────
+  // ── Tier 1: Turn approach (50-200m) — hafif geri çekilme ──────────────────
   [
-    ['road-primary-casing', 'line-opacity', 0.28],
-    ['road-minor-casing',   'line-opacity', 0.10],
-    ['road-primary',        'line-opacity', 0.32],
-    ['road-secondary',      'line-opacity', 0.16],
-    ['road-minor',          'line-opacity', 0.07],
-    ['road-label',          'text-opacity', 0.12],
-    ['place-town',          'text-opacity', 0.20],
+    ['road-primary-casing', 'line-opacity', 0.85],
+    ['road-minor-casing',   'line-opacity', 0.78],
+    ['road-primary',        'line-opacity', 0.90],
+    ['road-secondary',      'line-opacity', 0.82],
+    ['road-minor',          'line-opacity', 0.75],
+    ['road-label',          'text-opacity', 0.70],
+    ['place-town',          'text-opacity', 0.70],
   ],
-  // ── Tier 2: Junction (<50m) — lane corridor emphasis ─────────────────────
+  // ── Tier 2: Junction (<50m) — rota koridoru öne çıkar, çapraz sokak KALIR ─
   [
-    ['road-primary-casing', 'line-opacity', 0.14],
-    ['road-minor-casing',   'line-opacity', 0.04],
-    ['road-primary',        'line-opacity', 0.20],
-    ['road-secondary',      'line-opacity', 0.08],
-    ['road-minor',          'line-opacity', 0.03],
-    ['road-label',          'text-opacity', 0.05],
-    ['place-town',          'text-opacity', 0.10],
+    ['road-primary-casing', 'line-opacity', 0.72],
+    ['road-minor-casing',   'line-opacity', 0.62],
+    ['road-primary',        'line-opacity', 0.80],
+    ['road-secondary',      'line-opacity', 0.70],
+    ['road-minor',          'line-opacity', 0.60],
+    ['road-label',          'text-opacity', 0.55],
+    ['place-town',          'text-opacity', 0.55],
   ],
 ] as const;
 
@@ -199,12 +232,22 @@ interface VectorPalette {
  */
 export const NIGHT_PALETTE: VectorPalette = {
   bg:              MAP_BG_NIGHT,
-  water:           '#37445d',
-  park:            '#25332a',
-  residential:     '#2d3037',
-  buildingFill:    '#393c46',
-  buildingOutline: '#4d5260',
-  bldg3d:          ['#393c46', '#4d5260', '#565c6b'],
+  /* #622 — zemin `#161c28 → #222c3c` (Google seviyesi) çıkınca alan dolguları
+     da yükseltilmeliydi: eski değerler yeni zeminle neredeyse aynı parlaklığa
+     düşüyordu (konut 1,29 → 1,03, yani MATEMATİKSEL OLARAK kaybolurdu — #609'un
+     kilitlediği kusurun aynısı). Değerler tonu korunarak ölçülerek yükseltildi;
+     hedef, MEVCUT kilit eşiklerini zayıflatmadan sağlamaktı:
+        su 1,51 (≥1,5) · konut 1,20 (≥1,2) · bina 1,45 (≥1,4) · park 1,21
+        bina konturu dolgudan açık (0,111 > 0,058)
+     NOT: Google'ın su/zemin oranı 1,12'dir; biz BİLEREK daha ayırt edilir
+     tutuyoruz — sürücü su/park/konutu tanıyabilmeli. Yine de #612'nin "alan
+     dolguları PARLARSA yol ağı içlerinde kaybolur" tavanı korunur (hepsi ≤2,5). */
+  water:           '#294871',
+  park:            '#283d32',
+  residential:     '#2e394b',
+  buildingFill:    '#3a4557',
+  buildingOutline: '#515f76',
+  bldg3d:          ['#3a4557', '#515f76', '#5f6e88'],
   bldg3dOpacity:   0.78,
   bldg3dAO:        0.30,
   shieldImage:     SHIELD_IMG_NIGHT,
@@ -213,11 +256,17 @@ export const NIGHT_PALETTE: VectorPalette = {
   motorwayCasing:  '#2a2418',
   primaryCasing:   '#16161d',
   minorCasing:     '#101015',
-  motorway:        '#c0bcaf',
-  primary:         '#a1a1a1',
-  secondary:       '#83848a',
-  minor:           '#6a6b70',
-  labelText:       '#e8e0d0',
+  /* #622 — yol merdiveni yeni zemine göre yeniden ölçüldü. Oranlar (zemine):
+     tali **3,04** · ara 4,34 · ana 6,24 · otoyol 8,00 — Google'ın gece
+     karşılıkları 1,31 (normal) ve 2,48 (otoyol); yani tali yolda **2,3×**,
+     otoyolda **3,2×** daha keskin kalıyoruz. #612'nin "Google'dan en az 2×
+     keskin" kilidi korunur, ama artık bu keskinlik KARANLIK bir zeminde değil
+     Google seviyesinde bir yüzeyde duruyor. */
+  motorway:        '#c9c3b4',
+  primary:         '#a8adb6',
+  secondary:       '#8a8f9a',
+  minor:           '#6f7581',
+  labelText:       '#eae4d8',
   labelHalo:       '#0a0e16',
   townText:        '#e2eaf5',
   townHalo:        '#060c14',

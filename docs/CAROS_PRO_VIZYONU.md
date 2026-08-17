@@ -171,6 +171,7 @@ DOĞRULANDI 6 · SAHADA DOĞRULANDI 1 · **ÜRÜN HAZIR: 1**
 
 | # | İş | Kapsam | Test | Saha kanıtı | Kalan eksik |
 |---|---|---|---|---|---|
+| Ledger #614 | **Vektör harita cihazda ÇİZİYOR — 0 baytlık karo zehri kapatıldı** | Kök neden `caros-tile://` şeması DEĞİL: MapLibre karo `ArrayBuffer`ını worker'a transfer edip **detach** ediyor, fire-and-forget önbellek yazımı `await caches.open()` sırasında **boş gövde** yazıyordu → karo ilk açılışta çizip sonraki her açılışta kayboluyordu (0 baytlık girdi LRU baskısıyla da düşmez → kalıcı). Önbelleğe `slice(0)` kopyası yazılır; 0 baytlık isabet reddedilir/temizlenir; ağdan boş gelirse fırlatılır. Ayrıca `glyph-cache://` protokolü ilk kez üretim yoluna bağlandı (etiketler geldi) | 553 dosya / 12 289 test yeşil; **6 yeni kilit** (transfer/detach kilidi ilk yazımında sahte geçiyordu, düzeltme yokken düştüğü kanıtlandıktan sonra kabul edildi) | **Xiaomi 23090RA98I, iki ayrı açılış:** `transportation` 0 → **306 özellik**, önbellek karosu 0 → **34 095 bayt**; **2. açılış WiFi KAPALI** iken tüm sokak ağı + sokak adları önbellekten çizildi (`adb screencap`) | Sessiz başarısızlık yüzeyi (karo `errored` iken `tileError` boş) · `Map init cancelled` + her geçişte yeni harita örneği · WiFi kapalıyken "ONLİNE" etiketi · gece paleti (#612) hâlâ gerçek araçta gece görülmedi |
 | Ledger #67 | **Öğrenilmiş protokol timeout'ta korunur** (OBD-OS-F0-2) | 2-strike timeout kalıcı `obd:lastProtocol`'ü silmez, yalnız oturum-içi bypass | Suite yeşil; 3b regresyon kilidi yeni davranışa güncellendi | **Doblo (CAN) + Redmi + BLE**: kayıt korundu | Trafic (KWP) 10 soğuk açılış senaryosu hâlâ açık |
 | Ledger #3/#4/#5 | **Tanı Gönder uçtan uca** | boot self-pair → `triggerSupportSnapshot()` → RPC → `/admin/tani` | sanitize DENY_KEYS + teslimat 8-durum kilitleri | Cihazda buton → `vehicle_events` satırı → panelde listelendi | Migration 025/026 history boşluğu |
 | Ledger #B | **Backend `push_vehicle_event` `text = uuid` düzeltmesi** | RPC rate-limit sorgusu tip uyumsuzluğu | — | Canlı Supabase'te doğrulandı | — |
@@ -187,6 +188,31 @@ DOĞRULANDI 6 · SAHADA DOĞRULANDI 1 · **ÜRÜN HAZIR: 1**
 | Rapor `8edd61a6` (2026-07-15) | **KWP/protokol 5 aracında handshake TAM çalıştı** | `outcome: ok` · `vinPresent: true` · `vinClass/bitmapClass: ok` · 15 PID · 6.2 sn · quality %100 · OBD 8.2 sn'de bağlandı · DTC okundu (0 kod) · self-test 13 pass/1 warn/**0 fail** · boşta render ~3 fps | **Extended `samples: []`** (P1-1) · **hız PID'i 0 dönüyor** (→ #77 fix) · Event Bus'ta **0 tüketici** (aşağıya bkz.) |
 
 ### 6.3 Kod tamam + test yeşil, saha borcu açık (kütük 🔴)
+
+- **GECE HARİTASI "GOOGLE SEVİYESİ" — KÖK ORAN DEĞİL, MUTLAK YÜZEY
+  PARLAKLIĞIYMIŞ (2026-08-17, kütük 🔴 #622):** `tsc` temiz, suite yeşil.
+
+  #609/#612/#619/#620/#621 turlarında ölçtüğüm **kontrast oranları doğruydu**
+  (gece tali yolu 2,47 · Google 1,31), ama harita hâlâ "ölü/boş" görünüyordu.
+  Ölçüm kökü gösterdi: Google gece zemini 0,0276 luminans, bizim ekranda
+  **0,0081** — yüzey **3,4 kat** daha karanlıktı. Oran kilitleri bunu yapısal
+  olarak göremez: **zemin karardıkça oranlar YÜKSELİR.** Zemin `#222c3c`ye
+  çıkarıldı, gece CSS filtresi **tamamen kaldırıldı** (gece artık TEK
+  otoriteden — ölçülmüş paletten — gelir), alan dolguları ve yol merdiveni
+  yeni yüzeye göre yeniden ölçüldü.
+
+  **Bu turun asıl bulgusu bir SESSİZ REGRESYON:** yeni palet yolu açtı
+  (`#6a6b70 → #6f7581`) ama rota çekirdeği eski tonlarda kaldı → rota↔yol
+  kontrastı **1,95 → 1,70**, yani #619'un **kendi eşiğinin altına** düştü.
+  Kilit bunu kaçırdı çünkü zemini/yolu **sabit kopya** olarak tutuyordu; bir
+  diğeri artık **silinmiş** bir `brightness(0.8)` filtresini modelliyordu —
+  ikisi de var olmayan bir ekranı ölçüyordu. Ders, `#614` ile aynı sınıftan:
+  **düşmeyen kilit tiyatro olabilir; kilit sabiti değil KAYNAĞI okumalı.**
+  Kilitler canlı palete bağlandı, çekirdek durakları yeniden ölçüldü ve
+  kasaya bugüne dek hiç olmayan bir **mutlak parlaklık** kilidi eklendi.
+
+  **Kalan eksik:** hepsi host ölçümüdür — **#612'den beri gece paleti gerçek
+  araçta bir kez bile görülmedi.** Kabul ölçütleri kütük #622'de.
 
 - **`failure:OBD` TEK YÖNLÜ CIRCIRI KAPATILDI — ARIZA MERDİVENİ ARTIK GERİ
   DÖNÜŞLÜ (2026-08-16, kütük 🔴 #606):** araç suite **12 263 test / 551 dosya

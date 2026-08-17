@@ -54,6 +54,12 @@ import {
 } from '../../platform/navigation/cameraFollowAuthority';
 import { useCameraFollow } from '../../hooks/useCameraFollow';
 import { useGPSLocation, useGPSHeading, useGPSState } from '../../platform/gpsService';
+import { LAST_KNOWN_KEY } from '../../platform/gps/gpsUtils';
+// #618 — mesafe TEK otoriteden; elle Manhattan/derece aritmetiği YAPILMAZ.
+import { _haversineMeters } from '../../platform/gps/gpsMath';
+import { safeGetRaw } from '../../utils/safeStorage';
+// #617 — park/duruş çerçevesinin TEK otoritesi. Buraya sabit sayı YAZILMAZ.
+import { PARK_VIEW_ZOOM } from '../../platform/map/MapInteractionManager';
 import { acquireCompassDemand, releaseCompassDemand } from '../../platform/gps/compassDemand';
 
 /** Mini haritanın compass talep kimliği (owner) — tek örnek varsayımı korunur. */
@@ -128,6 +134,17 @@ export const MiniMapWidget = memo(function MiniMapWidget({
   const lastEffKmhRef     = useRef(0);
 
   const [mapReady, setMapReady] = useState(false);
+
+  /**
+   * #615 — İptal edilen init'ten KURTARMA sayaç/zamanlayıcısı.
+   * `initializeMap` tekildir: başka bir container'la ikinci bir init başlarsa
+   * `M.initGen++` olur ve bizim init'imiz `Map init cancelled` ile düşer.
+   * Sınırlı sayıda yeniden denenir (sonsuz döngü YOK), timer cleanup'ta silinir.
+   */
+  const initRetryRef  = useRef(0);
+  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** #619 — hazırlık gözcüsü TEK ATIMLIK (sonsuz yeniden kurulum yok). */
+  const readyWatchdogRef = useRef(false);
 
   // Düşük-uç: WebGL harita init'ini boot fırtınasından SONRAYA ertele. Yetenekli
   // cihazda anında (bootReady=true). Mali-400'de boot'ta eager WebGL = kara
@@ -293,7 +310,7 @@ export const MiniMapWidget = memo(function MiniMapWidget({
         // Sürüş görünümü: mevcut kamera politikası (hız/heading) korunur.
         setDrivingView(map, loc.latitude, loc.longitude, hdg, lastEffKmhRef.current, h);
       } else {
-        setMapCenter(map, [loc.longitude, loc.latitude], 16.5, true);
+        setMapCenter(map, [loc.longitude, loc.latitude], PARK_VIEW_ZOOM, true);
       }
       noteFollowZoom(map.getZoom());
       lastAppliedLatRef.current = loc.latitude;
@@ -301,6 +318,46 @@ export const MiniMapWidget = memo(function MiniMapWidget({
     } catch { /* stil hazır değil — sonraki fix'te kamera zaten takip eder */ }
     completeRecenter();
   }, []);
+
+  /**
+   * #616 — İLK AÇILIŞTA KAMERA HİÇ KURULMUYORDU → "saçma sapan yükleniyor".
+   *
+   * ÖLÇÜLEN KUSUR (cihazda, Xiaomi 23090RA98I): mini haritanın TÜM kamera işi
+   * `location` (canlı GPS fix) kapılı effect'in içindedir. Açılışta fix henüz
+   * yoksa kamera HİÇ uygulanmaz ve harita MapCore'un açılış kamerasında kalır:
+   * cihazda ölçülen zoom **15.5**, oysa duruş çerçevesinin sözleşmesi
+   * `recenterOnVehicle` park dalında **16.5**'tir. Arayüz bu telefonda 0,679
+   * kat ölçeklendiği için (kutu 781 CSS px → ekranda 530 px) bu bir kademe
+   * fark ekranda ~1,5 kat daha geniş alan demektir: yollar saç teli gibi ince
+   * ve sık görünür. Tam ekrana girip çıkmak kamerayı kurduğu için "düzeliyordu"
+   * — yani düzelme yine KAZA ESERİYDİ (aynı sınıf: #610 raster'a düşme, #615
+   * iptal edilen init).
+   *
+   * ÇÖZÜM: canlı fix yoksa çerçeve SON BİLİNEN konumdan kurulur. Yeni kamera
+   * politikası UYDURULMAZ — `recenterOnVehicle`'ın park dalıyla BİREBİR aynı
+   * çağrı kullanılır (tek kamera otoritesi). Canlı fix gelince normal yol
+   * devralır. Sahte veri YOK: son bilinen konum gerçek bir ölçümdür ve yalnız
+   * KAMERA çerçevesi için kullanılır — konum "canlı" olarak raporlanmaz.
+   */
+  const cameraSeededRef = useRef(false);
+  useEffect(() => {
+    if (!mapReady || location || cameraSeededRef.current) return;
+    const map = mapRef.current;
+    if (!map) return;
+    try {
+      const raw = safeGetRaw(LAST_KNOWN_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as { lat?: unknown; lng?: unknown };
+      const lat = Number(parsed.lat);
+      const lng = Number(parsed.lng);
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+      if (Math.abs(lat) > 90 || Math.abs(lng) > 180) return;
+      cameraSeededRef.current = true;
+      setMapCenter(map, [lng, lat], PARK_VIEW_ZOOM, true);
+      noteFollowZoom(map.getZoom());
+      logInfo('[MAP_SEED_LAST_KNOWN] MiniMap — canlı fix yok, son bilinen konumla çerçevelendi');
+    } catch { /* fail-soft: bozuk kayıt → kamera canlı fix'i bekler */ }
+  }, [mapReady, location]);
 
   /* Kullanıcı pan'ı → otoriteye BİLDİR. Kamerayı burada durdurmayız; aşağıdaki
    * konum effect'i `canDriveCamera()` kapısını okur. */
@@ -452,7 +509,69 @@ export const MiniMapWidget = memo(function MiniMapWidget({
           }
         } catch (err) {
           console.error('MiniMap init failed:', err);
-          if (!cancelled) initDone.current = false;
+          if (cancelled) return;
+
+          /**
+           * #615 — "İLK AÇILIŞTA MİNİ HARİTA SAÇMA SAPAN YÜKLENİYOR, BÜYÜK
+           * HARİTAYA GİRİP ÇIKINCA DÜZELİYOR" — KÖK NEDEN (cihazda ölçüldü).
+           *
+           * `initializeMap` TEKİLDİR. Başka bir container'la ikinci bir init
+           * başladığında `M.initGen++` olur ve bizim init'imiz `Map init
+           * cancelled` ile düşer (cihaz konsolunda her açılışta görülüyordu).
+           *
+           * ESKİ DAVRANIŞ: yalnız `initDone` sıfırlanıyordu; `initializedRef`
+           * AÇILMIYORDU ve yeniden deneyen KİMSE YOKTU. Sonuç: `mapRef.current`
+           * kalıcı olarak null, `mapReady` kalıcı olarak false → bu bileşenin
+           * kamera (`setDrivingView`), gün/gece paleti ve rota katmanı
+           * effect'lerinin HEPSİ kapalı kalıyordu (hepsi `mapReady` kapılı).
+           * Harita MapCore'un varsayılan kamerasında duruyor: yanlış zoom,
+           * artık pitch, gün/gece uygulanmamış → "saçma sapan".
+           * `subscribeMapInstance` kurtarması da bu hâli KAÇIRIYOR: A dalı
+           * `mapRef.current` dolu olsun ister, B dalı `active === null` olsun
+           * ister; burada mapRef null ve active DOLU.
+           *
+           * Tam ekrana girip çıkmak yeni ve iptal edilmeyen bir init yarattığı
+           * için tabloyu düzeltiyordu — yani kurtarma KAZA ESERİYDİ.
+           *
+           * DOĞRU DAVRANIŞ: (1) mağazadaki canlı örneğin canvas'ı BİZİM
+           * container'ımızın içindeyse onu SAHİPLEN (yeni WebGL context açmak
+           * gereksiz ve düşük-uçta pahalı); (2) değilse guard'ları AÇ ve sınırlı
+           * sayıda yeniden dene.
+           */
+          const active = getMapInstance();
+          const host   = containerRef.current;
+          if (active && host && host.contains(active.getCanvas())) {
+            mapRef.current          = active;
+            initDone.current        = true;
+            initializedRef.current  = true;
+            logInfo('[MAP_INIT_ADOPTED] MiniMap — iptal edilen init, canlı örnek sahiplenildi');
+            if (active.isStyleLoaded()) {
+              setMapReady(true);
+            } else {
+              active.once('style.load', () => { if (!cancelled) setMapReady(true); });
+            }
+            return;
+          }
+
+          /* Sahiplenilecek örnek yok → guard'ları AÇ (ikisini de).
+           *
+           * #619 — YENİDEN DENEME KOŞULLU: körlemesine denemek ZARARLI.
+           * `initializeMap` mağazada bir örnek varsa önce `destroyMap()` çağırır;
+           * yani başka bir tüketici (FullMap) haritayı kullanırken denemek onun
+           * haritasını YIKAR ve yarışı büyütür. Cihazda gözlenen sonuç: art arda
+           * iptaller ve stili HİÇ yüklenmemiş bir harita (`isStyleLoaded=false`,
+           * sıfır katman). Bu yüzden yalnız TEKİL SERBEST İKEN denenir; değilse
+           * `subscribeMapInstance` (Durum B) örnek boşaldığında zaten tetikler. */
+          initDone.current       = false;
+          initializedRef.current = false;
+          if (getMapInstance() === null && initRetryRef.current < 3) {
+            initRetryRef.current++;
+            if (retryTimerRef.current !== null) clearTimeout(retryTimerRef.current);
+            retryTimerRef.current = setTimeout(() => {
+              retryTimerRef.current = null;
+              setReinitKey((k) => k + 1);
+            }, 400);
+          }
         }
       })();
 
@@ -483,9 +602,58 @@ export const MiniMapWidget = memo(function MiniMapWidget({
     return () => {
       observer?.disconnect();
       if (resizeRafId !== null) cancelAnimationFrame(resizeRafId);
+      // #615 — bekleyen kurtarma denemesi orphan timer bırakmasın (Zero-Leak §1)
+      if (retryTimerRef.current !== null) {
+        clearTimeout(retryTimerRef.current);
+        retryTimerRef.current = null;
+      }
       cleanupRef.current?.();
     };
   }, [reinitKey, bootReady]);
+
+  /**
+   * #619 — HAZIRLIK GÖZCÜSÜ: "harita var ama HİÇ hazır olmadı" hâlinden çıkış.
+   *
+   * CİHAZDA ÖLÇÜLDÜ (2026-08-17): bir açılışta mağazada harita örneği vardı ama
+   * `isStyleLoaded() = false`, `loaded() = false`, **sıfır katman** ve konsolda
+   * `Map init cancelled`. Bu hâlde mini harita kalıcı olarak boş kalıyordu ve
+   * hiçbir kurtarma çalışmıyordu: zombi iyileştirici (`checkAndHealMapContext`)
+   * `mapReady` KAPILI, `subscribeMapInstance`'ın Durum B dalı ise yalnız örnek
+   * `null` olunca tetiklenir — burada örnek DOLU ama ölü.
+   *
+   * Gözcü tek atımlıktır ve iki ayrı sonuç üretir: harita gerçekten yaşıyorsa
+   * (stil yüklü) yalnız SAHİPLENİR; ölüyse guard'ları açıp yeniden kurar.
+   */
+  useEffect(() => {
+    if (mapReady || !bootReady) return;
+    const t = setTimeout(() => {
+      if (readyWatchdogRef.current) return;
+      const active = getMapInstance();
+      const alive = !!active && typeof active.isStyleLoaded === 'function' && active.isStyleLoaded();
+      const host  = containerRef.current;
+      readyWatchdogRef.current = true;
+      if (alive && host && host.contains(active.getCanvas())) {
+        mapRef.current         = active as MapRef;
+        initDone.current       = true;
+        initializedRef.current = true;
+        logInfo('[MAP_WATCHDOG] MiniMap — canlı harita sahiplenildi (hazır sinyali gelmemişti)');
+        setMapReady(true);
+        return;
+      }
+      /* #619 — YENİDEN KURULUM DALI ÖLÇÜLEREK KALDIRILDI (kilitli ders).
+       *
+       * İlk uygulamamda gözcü, 7 s sonunda stil yüklü değilse haritayı yıkıp
+       * yeniden kuruyordu. CİHAZDA ÖLÇÜLEN SONUÇ: soğuk açılışta stil o anda
+       * HÂLÂ YÜKLENİYOR olabiliyor; yıkım bu yüklemeyi öldürüyor ve yeni init
+       * aynı yarışa yakalanıyordu → harita HİÇ hazır olmuyordu. Ölçüm: bu dal
+       * eklenmeden 5/5 açılış zoom 16'da sağlıklıydı, eklendikten sonra 4/4
+       * açılışta `isStyleLoaded()` false kaldı. Yani "kurtarma" kusurun
+       * KENDİSİYDİ. Gözcü artık YALNIZ sahiplenir; hiçbir şeyi yıkmaz.
+       * Ölü haritanın kurtarılması `subscribeMapInstance` (Durum B) ve zombi
+       * iyileştiricinin işidir — buradan ikinci bir yıkım otoritesi doğmaz. */
+    }, 7000);
+    return () => clearTimeout(t);
+  }, [mapReady, bootReady, reinitKey]);
 
   // Zombi WebGL context guard — Android 9 düşük bellek durumunda GPU context sessizce ölebilir.
   // checkAndHealMapContext false döndürünce reinitKey arttırılır → init effect yeniden çalışır.
@@ -562,9 +730,35 @@ export const MiniMapWidget = memo(function MiniMapWidget({
     // giriş >5 km/h, çıkış <3 km/h, arası önceki durumu korur (§2 hysteresis).
     const _nowTs   = performance.now();
     const _dtSec   = (_nowTs - lastAppliedTsRef.current) / 1000;
-    const _movedM  = (Math.abs(latitude - lastAppliedLatRef.current) +
-                      Math.abs(longitude - lastAppliedLngRef.current)) * 111_320;
-    const _dispKmh = (_dtSec > 0.15 && _dtSec < 30) ? (_movedM / _dtSec) * 3.6 : 0;
+    /**
+     * #618 — DURURKEN SÜRÜŞ GÖRÜNÜMÜ AÇILIYORDU (kullanıcı: *"yolda değilim"*).
+     *
+     * CİHAZDA ÖLÇÜLDÜ (2026-08-17, araç dururken, 12 s boyunca 2 s'de bir):
+     *   GPS `speedKmh` = **0** (hepsinde) · doğruluk **1,8–4,2 m** · fix yaşı ~1 s
+     *   ama kamera kendi kendine tırmandı: zoom **16,4 → 17,5**, pitch **2° → 10°**.
+     * Yani sürüş görünümü, HİÇ HAREKET YOKKEN açılıyordu.
+     *
+     * KÖK: yer-değiştirme hızı ÜÇ ayrı yerden şişiyordu —
+     *   (1) **Manhattan** toplamı (`|Δlat| + |Δlng|`) Öklit mesafe yerine kullanılıyor;
+     *   (2) boylam farkı `cos(lat)` ile düzeltilmiyor → 36,9°'de %25 fazla;
+     *   (3) **doğruluk kapısı YOK** → doğruluk yarıçapı İÇİNDEKİ sürüklenme
+     *       hareket sayılıyor. Ölçülen örnek: 2 s'de 4,7 m sürüklenme →
+     *       **8,4 km/h** → 5 km/h eşiği aşılıyor → `isDriving = true`.
+     *
+     * DÜZELTME (zero-trust telemetri): mesafe tek otoriteden (`_haversineMeters`)
+     * hesaplanır ve yer değiştirme **doğruluk yarıçapını aşmadıkça** hareket
+     * SAYILMAZ. Taban 8 m: doğruluk iyi (1-2 m) bildirildiğinde bile şehir içi
+     * çoklu-yol yansımasında bu mertebede sürüklenme normaldir. GPS'in KENDİ
+     * hız bildirimi (`speedKmh`) bu kapıya tabi DEĞİLDİR — o ayrı bir kanıttır.
+     */
+    const _accM    = Number.isFinite(location.accuracy) ? Math.abs(location.accuracy as number) : 0;
+    const _moveGate = Math.max(_accM, 8);
+    const _movedM  = _haversineMeters(
+      lastAppliedLatRef.current, lastAppliedLngRef.current, latitude, longitude,
+    );
+    const _dispKmh = (_dtSec > 0.15 && _dtSec < 30 && _movedM > _moveGate)
+      ? (_movedM / _dtSec) * 3.6
+      : 0;
     const _effKmh  = Math.max(speedKmh, _dispKmh);
     const isDriving = _effKmh > 5
       ? true
@@ -587,8 +781,23 @@ export const MiniMapWidget = memo(function MiniMapWidget({
       // hiç yapılmıyordu (bkz. yukarıdaki kök-neden notu).
       try {
         addUserMarker(mapRef.current, latitude, longitude, hdg);
-        // Başlangıç zoom: sokak seviyesi (16 = tek tek sokaklar görünür)
-        if (_cameraOwned) setMapCenter(mapRef.current, [longitude, latitude], 16, true);
+        /* Başlangıç zoom: sokak seviyesi (16 = tek tek sokaklar görünür)
+         *
+         * #617 — TEK-ATIMLIK ÇERÇEVE SESSİZCE KAYBOLUYORDU: bu satır
+         * `_cameraOwned` kapılıdır, ama `_initialized` hemen altında KOŞULSUZ
+         * true işaretleniyordu. Kamera otoritesi o an sahiplenilmemişse
+         * (açılışta follow authority henüz kurulmamış ya da askıda) çerçeve
+         * ATLANIYOR ve bir daha ASLA denenmiyordu: park hâlinde aşağıdaki dal
+         * yalnız ~25 m yer değiştirmede merkez kuruyor → araç dururken zoom
+         * MapCore'un açılış değerinde (cihazda 15,5) kalıyor ve harita
+         * tasarlanandan ~1,5 kat geniş görünüyor (arayüz ölçeği 0,679).
+         * CİHAZDA ÖLÇÜLDÜ: iki ardışık açılışta 15,98 (çerçeve uygulandı) ve
+         * 15,5 (atlandı) — kusurun ARALIKLILIĞININ sebebi tam olarak buydu.
+         * Artık işaret yalnız çerçeve GERÇEKTEN uygulandığında konur. */
+        if (_cameraOwned) {
+          setMapCenter(mapRef.current, [longitude, latitude], PARK_VIEW_ZOOM, true);
+          cameraSeededRef.current = true;
+        }
         mapRef.current._initialized = true;
         wasDrivingRef.current = isDriving;
         lastAppliedLatRef.current = latitude;
@@ -642,14 +851,29 @@ export const MiniMapWidget = memo(function MiniMapWidget({
     } else {
       // P2-B: Dur/park. Sürüşten YENİ çıktıysak bir kez kamerayı düzleştir (exitDrivingView);
       // aksi halde GPS titremesi (≈metre-altı) için hiçbir GL işi yapma — RenderThread burst'ü
-      // önlenir. Konum gerçekten kayda değer kadar (≈25m, 0.00025°) değiştiyse marker+merkez güncellenir.
-      const movedDeg = Math.abs(latitude - lastAppliedLatRef.current) +
-                       Math.abs(longitude - lastAppliedLngRef.current);
+      // önlenir. Konum gerçekten kayda değer kadar (≥25 m) değiştiyse marker+merkez güncellenir.
+      //
+      // #618 — eşik DERECE cinsinden Manhattan toplamıydı (`|Δlat| + |Δlng| > 0.00025`):
+      // yön bağımlı (kuzey-güney ~28 m, çapraz ~14 m) ve boylamda `cos(lat)`
+      // düzeltmesi yok → 36,9°'de %25 fazla sayıyor. Mesafe artık aynı tek
+      // otoriteden metre olarak gelir (`_haversineMeters`), eşik yönden bağımsız.
+      const _parkMovedM = _movedM;
       if (wasDrivingRef.current && _cameraOwned) {
         exitDrivingView(mapRef.current);
         wasDrivingRef.current = false;
       }
-      if (movedDeg > 0.00025) {
+      /* #617 — ATLANAN BAŞLANGIÇ ÇERÇEVESİNİN TELAFİSİ.
+       * Aşağıdaki dal yalnız ~25 m yer değiştirmede çalışır; araç DURURKEN hiç
+       * çalışmaz. Çerçeve ilk kurulumda `_cameraOwned` false olduğu için
+       * atlanmışsa, kamera sahiplenildiği ilk fix'te burada BİR KEZ kurulur.
+       * Paralel kamera politikası YOK — ilk kurulumla aynı `setMapCenter`
+       * sözleşmesi (zoom 16, sokak seviyesi). */
+      if (!cameraSeededRef.current && _cameraOwned) {
+        cameraSeededRef.current = true;
+        setMapCenter(mapRef.current, [longitude, latitude], PARK_VIEW_ZOOM, true);
+        noteFollowZoom(mapRef.current.getZoom());
+      }
+      if (_parkMovedM > 25) {
         updateUserMarker(latitude, longitude, hdg);
         lastAppliedLatRef.current = latitude;
         lastAppliedLngRef.current = longitude;
@@ -659,7 +883,7 @@ export const MiniMapWidget = memo(function MiniMapWidget({
           Math.pow(longitude - center.lng, 2) + Math.pow(latitude - center.lat, 2)
         );
         if (dist > 0.002 && _cameraOwned) {
-          setMapCenter(mapRef.current, [longitude, latitude], 16.5, true);
+          setMapCenter(mapRef.current, [longitude, latitude], PARK_VIEW_ZOOM, true);
         }
       }
     }

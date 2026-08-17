@@ -37,6 +37,24 @@ import { routeWidthExpression } from './core/routeWidthModel';
 import { safeSetPaint } from './_safeLayerOps';
 import { noteLegacyCameraOutcome } from '../navigation/cameraShadowRuntime';
 
+/**
+ * #617 — PARK/DURUŞ ÇERÇEVESİNİN TEK OTORİTESİ (sokak seviyesi).
+ *
+ * ÖLÇÜLEN KUSUR (cihazda, Xiaomi 23090RA98I): park zoom'u kodda ÜÇ ayrı yerde
+ * ÜÇ ayrı sayıyla yazılıydı — ilk kurulum **16**, "Ortala" düğmesi **16,5**,
+ * `exitDrivingView` **15,5**. Açılışta GPS oynaması kısa süre sürüş modunu
+ * açıp kapatınca `exitDrivingView` çalışıyor ve `easeTo({zoom: 15.5})` ile
+ * doğru çerçeveyi EZİYORDU. Arayüz bu telefonda 0,679 kat ölçeklendiği için
+ * (kutu 781 CSS px → ekranda 530 px) bir kademe eksik zoom ekranda ~1,5 kat
+ * daha geniş alan demek: yollar saç teli gibi ince ve sık görünüyor —
+ * kullanıcının "saçma sapan yükleniyor" dediği tablo. Ölçüm: ardışık
+ * açılışlarda 16 / 15,5 / 16 / 15,5 dönüşümlü.
+ *
+ * Sayı artık TEK yerde. Değiştirilecekse burada değiştirilir; çağrı yerlerine
+ * ikinci bir park zoom'u YAZILMAZ (kilit: `mapParkViewZoom.test.ts`).
+ */
+export const PARK_VIEW_ZOOM = 16;
+
 export function setMapCenter(map: MapLibreMap, center: LngLatLike, zoom?: number, animated = true) {
   if (!map) return;
 
@@ -680,7 +698,7 @@ export function exitDrivingView(map: MapLibreMap) {
   M.lastMoodScore         = -1.0;
   M.lastHazardZoom        = 0;
   // Camera smooth state'i sıfırla — sonraki navigasyonda jump olmasın
-  resetCameraSmooth({ zoom: 15.5, pitch: 0, lookAheadM: 0, bearing: 0 });
+  resetCameraSmooth({ zoom: PARK_VIEW_ZOOM, pitch: 0, lookAheadM: 0, bearing: 0 });
   /* Sürüş bittiğinde kadans ölçümü de biter: bir sonraki oturumun ilk karesi
      "iki oturum arası geçen süre" kadar Δt görmemelidir. */
   _resetCameraCadence();
@@ -692,7 +710,7 @@ export function exitDrivingView(map: MapLibreMap) {
   }
   map.easeTo({
     bearing: 0,
-    zoom: 15.5,
+    zoom: PARK_VIEW_ZOOM,
     pitch: 0,
     padding: { top: 0, bottom: 0, left: 0, right: 0 },
     duration: 800,

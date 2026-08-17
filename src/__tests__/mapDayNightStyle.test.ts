@@ -201,11 +201,32 @@ describe('kaynak sözleşmeleri — stil karar zinciri tek kaynaklı', () => {
     expect(mapCoreSrc).toMatch(/getOnlineTileStyle\(getMapNight\(\)\)/);
   });
 
-  it('FullMapView canvas CSS filtresi mapNight sinyaline bağlı — gündüzde filtre yok', () => {
-    expect(fullMapSrc).toMatch(/filter: mapNight\s*\?/);
+  /**
+   * #622 — KİLİT BİLİNÇLİ GÜNCELLENDİ (kaldırılmadı).
+   *
+   * Eski sözleşme "filtre `mapNight` sinyaline bağlı olsun" idi; amacı, filtrenin
+   * YANLIŞ sinyalden (autoBrightness.phase) sürülüp gündüz de karartmasını
+   * engellemekti. O kusur artık YAPISAL olarak imkânsız: gece karartma filtresi
+   * TAMAMEN kaldırıldı, gece görünümü ölçülmüş paletten geliyor.
+   * Ölçüm gerekçesi: Google gece zemini 0,028 lum · bizim ekranda 0,008 idi
+   * (filtre × koyu palet) → yüzey 3,5 kat karanlıktı. Yeni kilit, karartma
+   * filtresinin GERİ GELMEMESİNİ korur.
+   */
+  it('FullMapView haritayı KARARTAN bir CSS filtresi uygulamaz (#622)', () => {
+    // Gece/gündüz ayrımı artık filtreyle YAPILMAZ.
+    expect(fullMapSrc).not.toMatch(/filter: mapNight\s*\?/);
     expect(fullMapSrc).not.toMatch(/filter: isNight/);
-    // Eski farklı sinyal (autoBrightness.phase) filtre kararında kullanılmıyor
+    // Eski yanlış sinyal hâlâ yasak.
     expect(fullMapSrc).not.toMatch(/autoBrightness\.phase === 'night'/);
+    /* Karartan/ton bozan primitifler harita kabında bulunmamalı.
+       Yorumlar ÇIKARILIR: gerekçe metinleri eski değerleri anlatır ve kilidi
+       yanıltmamalıdır (kilit KODA bakar, açıklamaya değil). */
+    const kod = fullMapSrc
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/^[ \t]*\/\/.*$/gm, '');
+    for (const bad of ['brightness(0.', 'sepia(', 'hue-rotate(', 'grayscale(']) {
+      expect(kod, `harita filtresinde ${bad} var`).not.toContain(bad);
+    }
   });
 
   it("applyMapDayNight standart 'tiles-layer' id'sini canlı patch'ler", () => {

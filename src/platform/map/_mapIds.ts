@@ -62,7 +62,25 @@ export const SHIELD_IMG_NIGHT = 'road-shield-night';
  * Gece değeri 2026-08-04'te #131822 → #161c28: tile boşluğu neredeyse saf
  * siyahtı ve mini haritada "delik" gibi duruyordu.
  */
-export const MAP_BG_NIGHT = '#161c28';
+/**
+ * #622 — GECE ZEMİNİ GOOGLE SEVİYESİNE ÇIKARILDI (kullanıcı hedefi: *"Google
+ * Maps seviyesinde olacak"*).
+ *
+ * ÖLÇÜM — mutlak yüzey parlaklığı (WCAG relative luminance; yüksek = okunur yüzey):
+ *     Google Maps gece zemini `#242f3e` → **0,028**
+ *     bizim ham palet        `#161c28` → 0,012
+ *     bizim EKRANDA (o günkü `brightness(0.8)` filtresiyle) → **0,008**
+ * Yani kontrast ORANLARIMIZ Google'dan yüksekti (tali yol 2,47 vs 1,31) ama
+ * yüzeyin kendisi **3,5 kat daha karanlıktı** — harita bu yüzden "ölü/boş"
+ * görünüyordu. Kusur ilişki değil, MUTLAK parlaklıktı; onca kontrast turunda
+ * ölçtüğüm oranlar doğruydu, yanlış olan zemindi.
+ *
+ * Yeni değer `#222c3c` → 0,025 (Google'ın 0,028'ine yakın), ve gece filtresi
+ * KALDIRILDI (bkz. FullMapView #622): gece görünümü artık TEK otoriteden,
+ * paletten gelir. Önceki değer 2026-08-04'te `#131822 → #161c28` yapılmıştı
+ * (tile boşluğu saf siyah görünüyordu); bu tur aynı yönde ikinci adımdır.
+ */
+export const MAP_BG_NIGHT = '#222c3c';
 export const MAP_BG_DAY   = '#e9eef3';
 
 /**

@@ -146,10 +146,72 @@ export interface RouteColorInput {
   readonly lightBasemap: boolean;
 }
 
+/**
+ * #619 — ÇEKİRDEK GRADIENTİ ARTIK KARARIN PARÇASI (gece rota "karanlık"tı).
+ *
+ * KULLANICI BİLDİRİMİ (2026-08-17, gerçek araç, gece, tam ekran navigasyon):
+ * *"gece rota böyle karanlık oluyor."*
+ *
+ * ÖLÇÜM (gece zemini `#161c28`, #612 sonrası gece tali yolu `#6a6b70`):
+ *   MEVCUT tema-BAĞIMSIZ gradient →
+ *     başlangıç `#1A73E8` zemin 3,79 · **yol 1,18** · kılıf(beyaz) 4,51
+ *     orta      `#4F46E5` zemin **2,71** · **yol 1,18** · kılıf 6,29
+ *     bitiş     `#10b981` zemin 6,73 · yol 2,10 · kılıf 2,54
+ *   Yani rota, ÜZERİNDE ÇİZİLDİĞİ YOLDAN neredeyse ayrışmıyordu (1,18).
+ *   Bu, #612'nin bilinçli bir yan etkisiydi: orada gece YOLLARI açıldı
+ *   (yol↔zemin 3,21), rota çekirdeği ise gündüz için seçilmiş koyu tonlarda
+ *   kaldı → rota, parlatılmış yolun içinde kayboldu.
+ *
+ * SEÇİLEN GECE TONLARI (ölçülerek; renk KİMLİĞİ korunur: mavi → indigo → yeşil)
+ *     başlangıç `#5b9dff` zemin 6,27 · yol 1,95 · kılıf 2,72
+ *     orta      `#9aa0ff` zemin 7,19 · yol 2,24 · kılıf 2,37
+ *     bitiş     `#34d399` zemin 8,87 · yol 2,77 · kılıf 1,92
+ *   Kazanç: orta kademe zeminde **2,71 → 7,19** (2,7 kat), yola karşı
+ *   **1,18 → 2,24** (1,9 kat).
+ *
+ * ÜÇ KISIT KORUNDU:
+ *   1. **Kılıf/çekirdek ayrımı ölmedi** — beyaz kılıfa karşı en zayıf kademe
+ *      1,92'dir. Daha parlak bir aday (`#5ee9b5` bitiş) kılıfa karşı 1,52'ye
+ *      düşüyordu: rota tek parlak bloğa dönüşüp beyaz kenar kaybolurdu →
+ *      ÖLÇÜLEREK REDDEDİLDİ.
+ *   2. **Gündüz DOKUNULMADI** — açık zeminde kılıf koyu mürekkeptir (`#0A0C10`)
+ *      ve mevcut gradient ona karşı 3,11–7,72 ile zaten çalışıyor.
+ *   3. **Tek hakem** — gradient artık `resolveRouteColor` kararının parçası ve
+ *      `routeColorKey`e girer; katman kurulumunda ikinci bir renk yazıcısı
+ *      DOĞMAZ (K1'in tam olarak bu dosyada anlatılan kusuru).
+ */
+/**
+ * #622 — GECE DURAKLARI YENİ ZEMİNE GÖRE YENİDEN ÖLÇÜLDÜ (sessiz regresyon).
+ *
+ * #622 zemini `#161c28 → #222c3c` ve tali yolu `#6a6b70 → #6f7581` açtı; rota
+ * çekirdeği ise #619'da seçilen tonlarda KALDI. Sonuç, gerçek ekranda:
+ *     `#5b9dff` ↔ gece yolu **1,95 → 1,70** — #619'un KENDİ eşiğinin (≥1,9)
+ *     altına düştü, yani "rota, üzerinde çizildiği yoldan ayrışsın" sözleşmesi
+ *     bozuldu. Kilit bunu YAKALAMADI çünkü zemini/yolu sabit kopya olarak
+ *     tutuyordu (düzeltildi: artık `NIGHT_PALETTE`'ten canlı okur).
+ *
+ * YENİ TONLAR (zemin `#222c3c` · yol `#6f7581` · beyaz kılıf; kimlik korunur):
+ *     başlangıç `#79b0ff` zemin 6,34 · yol **2,09** · kılıf 2,22
+ *     orta      `#a5aaff` zemin 6,56 · yol **2,16** · kılıf 2,14
+ *     bitiş     `#34d399` zemin 7,31 · yol **2,41** · kılıf 1,92  (DEĞİŞMEDİ)
+ *
+ * ÜST SINIR YİNE ÖLÇÜLEREK KONDU: yeşili `#3ddba3`ye açmak yola karşı 2,61
+ * verirdi ama beyaz kılıfa karşı **1,77** — ≥1,8 eşiğinin altı: rota tek parlak
+ * bloğa dönüşüp beyaz kenar kaybolurdu. REDDEDİLDİ; mevcut yeşil korundu.
+ */
+export const ROUTE_CORE_STOPS_DARK_BASEMAP  = ['#79b0ff', '#a5aaff', '#34d399'] as const;
+/** Açık zemin (gündüz road modu) — mevcut davranış, bilinçli olarak değişmedi. */
+export const ROUTE_CORE_STOPS_LIGHT_BASEMAP = ['#1A73E8', '#4F46E5', '#10b981'] as const;
+
 export interface RouteColorDecision {
   readonly casing: string;
   readonly glow: string;
   readonly coreMode: RouteCoreMode;
+  /**
+   * Çekirdek gradient durakları [başlangıç, orta, bitiş] — zemin kutbundan
+   * gelir. Düşük-uçta gradient yoktur; orada `coreStops[0]` düz renk olur.
+   */
+  readonly coreStops: readonly [string, string, string];
   /** Çekirdek opaklığı — bugün her iki kipte de 1,0 (davranış değişmez). */
   readonly coreOpacity: number;
   readonly reason: RouteColorReason;
@@ -244,10 +306,17 @@ export function resolveRouteColor(input: RouteColorInput): RouteColorDecision {
      görmek ZORUNDADIR; yoksa uydu görüntüsünde koyu kılıf asılı kalırdı. */
   const routeColorKey = `${reason}|${light ? 'light' : 'dark'}|${ROUTE_COLOR_POLICY_VERSION}`;
 
+  /* #619 — çekirdek durakları da zemin kutbundan gelir. `routeColorKey` zaten
+     kutbu taşıdığı için gündüz↔gece geçişinde gradient de kendiliğinden
+     yeniden yazılır; ek bir bayrak GEREKMEZ. */
+  const stopsSrc = light ? ROUTE_CORE_STOPS_LIGHT_BASEMAP : ROUTE_CORE_STOPS_DARK_BASEMAP;
+  const coreStops: readonly [string, string, string] = [stopsSrc[0], stopsSrc[1], stopsSrc[2]];
+
   return {
     casing,
     glow,
     coreMode,
+    coreStops,
     coreOpacity: 1.0,
     reason,
     routeColorKey,

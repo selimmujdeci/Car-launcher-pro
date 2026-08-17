@@ -151,6 +151,32 @@ describe('#609 (2) — gece paleti ÖLÇÜLMÜŞ kontrast sözleşmesi', () => {
     }
   });
 
+  /**
+   * #622 — MUTLAK YÜZEY PARLAKLIĞI (bu dosyadaki HER ŞEY oran ölçüyordu).
+   *
+   * Kusurun kökü buydu: yukarıdaki oranların HEPSİ geçerken bile harita
+   * "ölü/boş" görünüyordu, çünkü kontrast ORANLARI değil YÜZEYİN KENDİSİ
+   * yanlıştı. Ölçüm: Google gece zemini `#242f3e` = 0,0276 · bizim eski
+   * `#161c28` = 0,0115, ekranda (o günkü `brightness(0.8)` filtresiyle)
+   * **0,0081** → 3,4 kat daha karanlık. Oran kilitleri bunu göremez: zemin
+   * karardıkça oranlar YÜKSELİR. Bu yüzden ayrı bir MUTLAK kilit gerekir,
+   * yoksa zemin sessizce yeniden karartılabilir ve tüm kasa yeşil kalır.
+   */
+  it('🔒 #622 gece zemini Google seviyesinde bir YÜZEY (mutlak parlaklık)', () => {
+    const GOOGLE_NIGHT_BG = 0.0276;          // #242f3e — ölçülmüş referans
+    const L = luminance(NIGHT_PALETTE.bg);
+    // Taban: referansın %80'i. Eski `#161c28` (0,0115) bu kilidi GEÇEMEZDİ.
+    expect(L, `gece zemini fazla karanlık: ${L.toFixed(4)}`)
+      .toBeGreaterThanOrEqual(GOOGLE_NIGHT_BG * 0.8);
+    // Tavan: gece gece kalsın — referansın 1,6 katını aşmaz.
+    expect(L, `gece zemini fazla açık: ${L.toFixed(4)}`)
+      .toBeLessThanOrEqual(GOOGLE_NIGHT_BG * 1.6);
+  });
+
+  it('eski gece zemini bu kilidi GEÇEMEZDİ — kilidin anlamı', () => {
+    expect(luminance('#161c28')).toBeLessThan(0.0276 * 0.8);
+  });
+
   it('gündüz paleti gece paletinden AÇIK kalır (temalar karışmadı)', () => {
     expect(luminance(DAY_PALETTE.bg)).toBeGreaterThan(luminance(NIGHT_PALETTE.bg));
   });

@@ -2066,14 +2066,58 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
           width: '100%',
           height: '100%',
           opacity: navMode === 'HYBRID_AR_NAVIGATION' ? 0.55 : 1,
-          // Dark-amber cockpit aesthetic — matches map.jsx OEM palette.
-          // Night: deep brightness drop + amber sepia overlay via hue-rotate.
-          // Day: full color preserved for outdoor sunlight readability.
-          // mapNight (settings.dayNightMode) — harita stiliyle AYNI sinyal; eski
-          // autoBrightness.phase sinyali gündüzde de filtre uygulayıp haritayı karartıyordu.
-          filter: mapNight
-            ? 'brightness(0.4) saturate(0.8) sepia(0.2) hue-rotate(-10deg)'
-            : 'none',
+          /**
+           * #620 — GECE FİLTRESİ, PALETİN ÜSTÜNDE İKİNCİ BİR KARARTMA OTORİTESİYDİ.
+           *
+           * KULLANICI BİLDİRİMİ: *"gece rota böyle karanlık oluyor."*
+           *
+           * CİHAZDA ÖLÇÜLDÜ (2026-08-17, gece, ACTIVE navigasyon, gerçek rota):
+           * ekran pikselinden okunan rota gövdesi **#2D3F52** = rgb(45,63,82) —
+           * oysa palet rengi `#5b9dff` = rgb(91,157,255). Filtre zinciri
+           * modellendiğinde tahmin rgb(49,64,87) çıktı: **ölçümle birebir**.
+           * Yani rotayı karartan şey palet DEĞİL, bu CSS filtresiydi.
+           *
+           * ETKİ (WCAG kontrast, gece zemini `#131822`):
+           *     filtre yok        → rota↔zemin **6,53** · amber sinyal↔zemin **8,28**
+           *     brightness(0.4)…  → rota↔zemin **1,89** · amber sinyal↔zemin **2,13**
+           * Yani #612 (gece yolları) ve #619 (gece rotası) turlarında ölçülerek
+           * kazanılan kontrastın neredeyse tamamını bu satır geri alıyordu.
+           *
+           * GÜVENLİK GEREKÇESİ (kozmetikten önce gelir): filtre yalnız estetik
+           * değil, **amber uyarı sinyalini** de eziyordu (tehlike + kritik manevra
+           * kılıfı/halosu 8,28 → 2,13). Sinyal renginin post-hoc bir filtreyle
+           * körelmesi kabul edilemez.
+           *
+           * SEÇİLEN DEĞER — ölçülerek: `brightness(0.8) saturate(0.95)`
+           *     rota↔zemin **4,53** · amber↔zemin **5,54**
+           * `sepia(0.2)` ve `hue-rotate(-10deg)` KALDIRILDI: ikisi maviyi ve
+           * amber'i kahverengiye çekip sinyal kimliğini bozuyordu (ölçümde yolun
+           * kendisi bile #25221F gibi kahverengi okunuyordu). Gece görünümü artık
+           * ÖLÇÜLMÜŞ gece paletinden gelir (#612/#619) — filtre yalnız hafif bir
+           * parlaklık düşüşü yapar, ikinci bir palet OLMAZ.
+           *
+           * NOT: gündüzde filtre YOKTUR (güneş altında okunabilirlik) — eski
+           * `autoBrightness.phase` sinyali gündüzde de karartıyordu, o düzeltme
+           * korunuyor: karar `mapNight` ile AYNI sinyalden gelir.
+           */
+          /**
+           * #622 — GECE FİLTRESİ TAMAMEN KALDIRILDI: gece görünümü artık TEK
+           * otoriteden, ÖLÇÜLMÜŞ gece paletinden gelir.
+           *
+           * #620'de filtre 0,4 → 0,8'e çekilmişti (rota 1,89 → 4,53). Bu turda
+           * palet ve filtre BİRLİKTE ölçülünce asıl kusur görüldü: sorun
+           * kontrast ORANI değil, yüzeyin MUTLAK parlaklığıydı —
+           *     Google gece zemini `#242f3e` → 0,028
+           *     bizim ekranda (`#161c28` × 0,8) → **0,008** (3,5 kat karanlık)
+           * Zemin `#222c3c`ye (0,025) çıkarıldıktan sonra filtre yalnız aynı
+           * kazancı geri alan ikinci bir karartma otoritesi olurdu.
+           *
+           * Kalan gece "hissi" paletin kendisindedir (koyu lacivert zemin,
+           * sakin alan dolguları, kontrastlı yol merdiveni) — post-hoc bir
+           * filtreyle üretilmez. Gündüzde de filtre yoktur; iki tema artık
+           * AYNI mekanizmayı kullanır.
+           */
+          filter: 'none',
           transition: 'opacity 500ms ease, filter 5s ease',
         }}
       />

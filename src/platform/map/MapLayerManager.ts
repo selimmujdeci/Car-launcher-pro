@@ -620,11 +620,35 @@ export function resolveLightBasemap(): boolean {
   }
 }
 
+/**
+ * Düşük-uç (head unit / zayıf GPU) yüzeyi mi — `line-gradient` ve `line-blur`
+ * bu yüzeyde atlanır. TEK türetme yeri: `perf-low` sınıfı CANLI okunur (sınıf
+ * çalışma anında eklenip kaldırılabilir; önbelleğe alınmaz — bkz. #599).
+ */
+function _isPerfLowSurface(): boolean {
+  return typeof document !== 'undefined' &&
+    document.documentElement.classList.contains('perf-low');
+}
+
 /** Kararı haritaya uygula — boya yazan TEK yer. */
 function _applyRouteColorDecision(map: MapLibreMap, d: RouteColorDecision): void {
   safeSetPaint(map, ROUTE_CASE,     'line-color',   d.casing);
   safeSetPaint(map, ROUTE_GLOW_SEL, 'line-color',   d.glow);
   safeSetPaint(map, SEL_LAYER,      'line-opacity', d.coreOpacity);
+  /* #619 — ÇEKİRDEK de burada yazılır. Yazılmazsa gündüz↔gece geçişinde
+   * (ya da road↔uydu mod değişiminde) kılıf/halo güncellenir ama çekirdek
+   * KURULUM ANINDAKİ renkte asılı kalırdı — kararın yarısı uygulanmış olurdu.
+   * Düşük-uçta gradient yok: orada düz renk yazılır (aynı karar, tek yazıcı). */
+  if (_isPerfLowSurface()) {
+    safeSetPaint(map, SEL_LAYER, 'line-color', d.coreStops[0]);
+  } else {
+    safeSetPaint(map, SEL_LAYER, 'line-gradient', [
+      'interpolate', ['linear'], ['line-progress'],
+      0,   d.coreStops[0],
+      0.5, d.coreStops[1],
+      1,   d.coreStops[2],
+    ]);
+  }
 }
 
 /**
@@ -1290,9 +1314,10 @@ export function _applyRouteGeometry(
       (map.getSource(ALT_BADGE_SRC) as GeoJSONSource).setData(badgeData);
     }
 
-    // Head unit / düşük GPU tespiti — line-blur, line-gradient ve ekstra katmanlar atlanır
-    const _isLowEnd = typeof document !== 'undefined' &&
-      document.documentElement.classList.contains('perf-low');
+    // Head unit / düşük GPU tespiti — line-blur, line-gradient ve ekstra katmanlar atlanır.
+    // #619: türetme TEK yerde (`_isPerfLowSurface`) — renk yazıcısı da aynı gerçeği okur,
+    // yoksa kurulum gradient kurup canlı güncelleme düz renk yazabilirdi (iki gerçek).
+    const _isLowEnd = _isPerfLowSurface();
 
     // ── Step 3: route stack — source + layer re-creation (robust) ──
     const _selSrcOk    = !!map.getSource(SEL_SRC);
@@ -1395,13 +1420,14 @@ export function _applyRouteGeometry(
         'line-opacity': _rc.coreOpacity,
       };
       if (_isLowEnd) {
-        _coreFillPaint['line-color'] = '#1A73E8'; // Solid Google blue — head unit safe
+        // #619 — düz renk de karardan gelir (gece parlak, gündüz Google mavisi).
+        _coreFillPaint['line-color'] = _rc.coreStops[0];
       } else {
         _coreFillPaint['line-gradient'] = [
           'interpolate', ['linear'], ['line-progress'],
-          0,   '#1A73E8',  // departure — Google blue
-          0.5, '#4F46E5',  // mid — indigo
-          1,   '#10b981',  // arrival — emerald
+          0,   _rc.coreStops[0],  // departure
+          0.5, _rc.coreStops[1],  // mid
+          1,   _rc.coreStops[2],  // arrival
         ];
       }
       map.addLayer({

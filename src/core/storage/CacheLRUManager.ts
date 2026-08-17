@@ -140,11 +140,26 @@ class CacheLRUManager {
     signal: AbortSignal,
   ): Promise<{ data: ArrayBuffer }> {
     // Cache Storage'da var mı?
+    //
+    // #613 — SIFIR BAYTLIK İSABET, İSABET DEĞİLDİR (CİHAZDA ÖLÇÜLDÜ, 2026-08-17).
+    // `new ArrayBuffer(0)` truthy'dir: eski `if (cached)` kapısı 0 baytlık bir
+    // gövdeyi GEÇERLİ karo sayıyordu. MapLibre boş vektör karosunu sorunsuz
+    // ayrıştırır → tile state `loaded`, **sıfır özellik**, HATA YOK → mini harita
+    // sessizce bomboş kalır ve #609'un hata mandalı hiç tetiklenmez. Üstelik
+    // 0 baytlık girdi `_totalBytes`i büyütmediği için LRU baskısıyla ASLA
+    // düşmez → zehir KALICI olur. Cihazda ölçülen tam tablo: aynı z14 karosu
+    // önbellekte `200 / 0 bayt`, canlı ağda `200 / 34 095 bayt`.
     const cached = await this._getFromCache(url);
-    if (cached) {
+    if (cached && cached.byteLength > 0) {
       this._hits++;
       this._touchLastAccess(url);
       return { data: cached };
+    }
+    if (cached) {
+      // Zehirli girdi: ISABETSİZ say ve TEMİZLE (tembel onarım — `cache.keys()`
+      // bu boyutta "Operation too large" attığı için toplu tarama YAPILAMAZ,
+      // her karo ilk dokunuşunda kendi kendini onarır).
+      void this._purgePoisoned(url);
     }
 
     // Cache miss → ağdan indir
@@ -155,8 +170,50 @@ class CacheLRUManager {
     });
     if (!res.ok) throw new Error(`Tile HTTP ${res.status}`);
     const buffer = await res.arrayBuffer();
-    void this._putToCache(url, buffer);   // fire-and-forget
+    // #613 — Boş gövde SESSİZCE DÖNDÜRÜLMEZ. Fırlatmak, MapLibre'nin tile'ı
+    // `errored` işaretlemesini ve ürünün mevcut kurtarma yolunun (hata sayacı →
+    // raster) çalışmasını sağlar. Eski davranış boş buffer'ı hem döndürüyor hem
+    // ÖNBELLEĞE YAZIYORDU — zehrin kaynağı buydu.
+    if (buffer.byteLength === 0) throw new Error('Tile empty (0 bayt)');
+    /**
+     * #613 — ZEHRİN KAYNAĞI: TRANSFER EDİLEN BUFFER (cihazda ölçüldü, 2026-08-17).
+     *
+     * MapLibre döndürdüğümüz `ArrayBuffer`ı vektör karosunu ayrıştırmak üzere
+     * worker'a **transfer** eder; transfer edilen buffer bu iş parçacığında
+     * DETACH olur ve `byteLength` 0'a düşer. `_putToCache` fire-and-forget
+     * olduğu için `await caches.open(...)` noktasında sıra bırakır — o arada
+     * detach gerçekleşir ve Cache Storage'a **boş gövde** yazılır.
+     *
+     * Sonuç (sahada ölçülen tam tablo): karo İLK açılışta çizilir, ama diskteki
+     * kopyası 0 bayttır → sonraki her açılış boş karo servis eder → mini harita
+     * kalıcı olarak bomboş. Girdi 0 bayt olduğu için LRU baskısı da onu düşürmez.
+     * Bu kusur, düzeltmenin ilk turunda önbelleği TEMİZLEYİP hemen yeniden
+     * zehirlediği için cihazda tekrar yakalandı (yeni içerik türüyle 0 bayt).
+     *
+     * ÇÖZÜM: önbelleğe KENDİ kopyamızı yaz. `slice(0)` detach'tan bağımsız yeni
+     * bir buffer üretir; maliyeti karo başına tek memcpy (~34 KB) — ölçülebilir
+     * bir yük değil. Kopya SENKRON alınır (await'ten önce), yoksa yarış sürer.
+     */
+    const cacheCopy = buffer.slice(0);
+    void this._putToCache(url, cacheCopy);   // fire-and-forget
     return { data: buffer };
+  }
+
+  /** #613 — 0 baytlık (zehirli) önbellek girdisini sil; manifest kaydını da düşür. */
+  private async _purgePoisoned(url: string): Promise<void> {
+    try {
+      if (typeof caches === 'undefined') return;
+      const cache = await caches.open(CACHE_NAME);
+      await cache.delete(url);
+      const key   = _urlToKey(url);
+      const entry = this._manifest.get(key);
+      if (entry) {
+        this._totalBytes -= entry.size;
+        this._manifest.delete(key);
+        this._dirty = true;
+        this._scheduleFlush();
+      }
+    } catch { /* Cache Storage erişilemez — bir sonraki dokunuşta yine denenir */ }
   }
 
   /* ── Cache Storage ──────────────────────────────────────────────── */
@@ -174,12 +231,19 @@ class CacheLRUManager {
   }
 
   private async _putToCache(url: string, data: ArrayBuffer): Promise<void> {
+    // #613 — Boş gövde ÖNBELLEĞE YAZILMAZ (savunma derinliği: çağıran zaten
+    // fırlatıyor, ama bu satır zehrin bir daha ASLA diske inmemesini garanti eder).
+    if (data.byteLength === 0) return;
     try {
       if (typeof caches === 'undefined') return;
       const cache = await caches.open(CACHE_NAME);
+      // Vektör karosu PNG DEĞİLDİR — tür URL uzantısından türetilir.
+      const contentType = url.includes('.pbf')
+        ? 'application/vnd.mapbox-vector-tile'
+        : 'image/png';
       await cache.put(
         url,
-        new Response(data, { headers: { 'Content-Type': 'image/png' } }),
+        new Response(data, { headers: { 'Content-Type': contentType } }),
       );
 
       const key   = _urlToKey(url);

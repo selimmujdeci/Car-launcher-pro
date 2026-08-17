@@ -206,9 +206,20 @@ describe('PR-3b uyumu — zemin kutbu ve rota rengi', () => {
        `#e892a2` …) YORUMLARDA geçer ve palet değildir. */
     const hexes = new Set(codeOf(colorSrc).match(/#[0-9a-fA-F]{6}/g) ?? []);
     // PR-3a/3b paleti: beyaz · koyu mürekkep · halo mavisi · amber + gradient üç durak.
+    //
+    // #619 — KİLİT BİLİNÇLİ GÜNCELLENDİ (KALDIRILMADI): gece çekirdeği için üç
+    // durak eklendi. Gerekçe ÖLÇÜMDÜR — tema-bağımsız gradient gece yolundan
+    // yalnız 1,18 kontrastla ayrışıyordu (kullanıcı: *"gece rota böyle karanlık
+    // oluyor"*). Yeni duraklar `routeNightContrast.test.ts` içinde zemin/yol/
+    // kılıf eşiklerine bağlandı; palet SERBEST BÜYÜMEZ, bu liste hâlâ kapıdır.
     const allowed = new Set([
       '#ffffff', '#0A0C10', '#4285f4', '#f59e0b',
       '#1A73E8', '#4F46E5', '#10b981', '#1A56C4',
+      // #619 → #622 gece çekirdeği — renk kimliği korunur (mavi → indigo → yeşil).
+      // Değerler #622'de yeni gece zeminine göre YENİDEN ÖLÇÜLDÜ; eski
+      // `#5b9dff`/`#9aa0ff` yalnız gerekçe yorumlarında kaldı (kod DEĞİL) ve
+      // bu liste bilinçli olarak yalnız KODDAKİ renkleri taşır — kapı dar kalsın.
+      '#79b0ff', '#a5aaff', '#34d399',
     ]);
     for (const h of hexes) {
       expect(allowed.has(h), `rota paletine yeni renk girmiş: ${h}`).toBe(true);

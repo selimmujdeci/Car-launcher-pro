@@ -15,6 +15,7 @@ import { logInfo } from '../debug';
 import { logError } from '../crashLogger';
 import { handleSatelliteTileError, setActiveMapSource, getMapStyle, getMapNight } from '../mapSourceManager';
 import { blockOnlineVector } from '../mapStyleBuilders';
+import { registerGlyphCacheProtocol } from '../mapProtocols';
 import { cacheLRUManager } from '../../core/storage/CacheLRUManager';
 import { M, useMapStore, getOnlineTileStyle, type MapConfig } from './_mapState';
 import { isBasemapTileSourceType } from './_mapIds';
@@ -29,6 +30,21 @@ import { getDeviceTier } from '../deviceCapabilities';
 try { maplibregl.removeProtocol('smart-tile'); } catch { /* not registered */ }
 // Register caros-tile cache interceptor (idempotent)
 cacheLRUManager.init();
+/**
+ * #613 — `glyph-cache://` HİÇ KAYITLI DEĞİLDİ (cihazda ölçüldü, 2026-08-17).
+ *
+ * Stil (`buildVectorStyle`) glyph URL'si olarak `glyph-cache://` ÜRETİYOR, ama
+ * protokolü kaydeden `registerGlyphCacheProtocol()`'ün TEK üretim çağıranı
+ * `initializeMapSources()`'tu ve o fonksiyon üretim kodunda **hiçbir yerden
+ * çağrılmıyor** (yalnız testlerde) → cihaz konsolunda her açılışta:
+ *   `Fetch API cannot load glyph-cache://… URL scheme "glyph-cache" is not supported`
+ * Sonuç: karolar çizilse bile yol/şehir ETİKETLERİ hiç gelmiyordu.
+ *
+ * Kayıt burada yapılır (haritanın sahibi bu modül), ağır `initializeMapSources`
+ * çağrılmaz — o fonksiyon dosya sistemi yoklaması + ağ dinleyicisi de kurar;
+ * kapsamı bu kusurdan geniştir. Kayıt idempotenttir.
+ */
+registerGlyphCacheProtocol();
 
 /** JS Heap anlık snapshot — Chrome/Android WebView destekli; diğer ortamlarda no-op. */
 /** Chrome/Android WebView'a ÖZGÜ, standart DIŞI bellek alanı (spec'te yok). */
