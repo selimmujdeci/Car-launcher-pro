@@ -26,6 +26,11 @@ import {
   resolveRouteColor, ROUTE_COLOR_POLICY_VERSION,
   type RouteColorDecision,
 } from './core/routeColorModel';
+import {
+  buildRouteStepLabelSegments,
+  type RouteStepLabelInput,
+} from './core/routeStepLabelsModel';
+import type { RouteStep } from '../routingService';
 import { getMapNight, getMapMode } from '../mapSourceManager';
 import {
   NAV_SUPPRESS_LAYERS,
@@ -55,6 +60,8 @@ import {
   ALT_FILL,
   ALT_BADGE_SRC,
   ALT_BADGE_LAYER,
+  ROUTE_STEP_LABELS_SRC,
+  ROUTE_STEP_LABELS_LAYER,
   DEBUG_SRC,
   DEBUG_LAYER,
   SEL_SRC,
@@ -826,6 +833,93 @@ function _ensureBadgeImage(map: MapLibreMap): void {
   });
 }
 
+/* ── Rota bandı üstü sokak adı etiketleri (kök 1, harita bilgi yoğunluğu) ──
+ *
+ * Google Maps rota çizgisi üstüne geçilen her sokağın adını mavi bir "pill"
+ * ile basar. Bu katman aynı bağlamı verir: SAF modelin (`routeStepLabelsModel`)
+ * ürettiği, isimli her rota segmenti için TEK bir ortalanmış etiket.
+ *
+ * GÖRSEL AÇIK BORÇ (bilinçli, dürüst): Google'daki gerçek dolgu "pill" arka
+ * planı DEĞİL, kalın renkli halo kullanılıyor — `road-shield` (E-5/D-100)
+ * kalkanındaki `icon-text-fit` canvas-pill tekniği burada TEKRARLANMADI; bu
+ * ilk turda işlevsel çekirdek (rota üstünde GERÇEKTEN bir sokak adı var mı)
+ * önceliklendirildi. Sprite tabanlı pill sonraki bir turda `ensureRoadShieldImages`
+ * ile AYNI desenle eklenebilir.
+ *
+ * Saf/görsel bir eklentidir — kendi sağlığı/zamanlaması YOKTUR, CAROS LAB
+ * gözlem ekranı gerektirmez (var olan rota geometrisinin türetilmiş görünümü).
+ */
+function _applyRouteStepLabels(
+  map: MapLibreMap,
+  geometry: readonly [number, number][] | null,
+  steps: readonly RouteStep[],
+  glyphsOk: boolean,
+): void {
+  /* Glyphs yoksa (raster stil) `text-field` taşıyan katman MapLibre'yi
+     REDDETTİRİR (bkz. `_ensureBadgeImage` üstündeki aynı kusur sınıfı notu,
+     saha 2026-08-02). Kaynak zaten kuruluysa boş veri yazılır — SİLİNMEZ
+     (katman yaratıp silmek stil sırasını bozar, GPU'yu yorar). */
+  if (!glyphsOk) {
+    if (map.getSource(ROUTE_STEP_LABELS_SRC)) {
+      try {
+        (map.getSource(ROUTE_STEP_LABELS_SRC) as GeoJSONSource)
+          .setData({ type: 'FeatureCollection', features: [] });
+      } catch { /* stil geçişi — yoksay */ }
+    }
+    return;
+  }
+
+  const labelInputs: RouteStepLabelInput[] = steps.map(s => ({
+    streetName:         s.streetName,
+    coordinate:          s.coordinate,
+    geometryPointCount:  s.geometryPointCount,
+  }));
+  const segments = buildRouteStepLabelSegments(geometry, labelInputs);
+
+  const data = {
+    type: 'FeatureCollection' as const,
+    features: segments.map(seg => ({
+      type: 'Feature' as const,
+      properties: { name: seg.name },
+      geometry: { type: 'LineString' as const, coordinates: seg.coordinates },
+    })),
+  };
+
+  if (!map.getSource(ROUTE_STEP_LABELS_SRC) || !map.getLayer(ROUTE_STEP_LABELS_LAYER)) {
+    try { if (map.getLayer(ROUTE_STEP_LABELS_LAYER)) map.removeLayer(ROUTE_STEP_LABELS_LAYER); } catch { /* ignore */ }
+    try { if (map.getSource(ROUTE_STEP_LABELS_SRC)) map.removeSource(ROUTE_STEP_LABELS_SRC); } catch { /* ignore */ }
+    map.addSource(ROUTE_STEP_LABELS_SRC, { type: 'geojson', data });
+    map.addLayer({
+      id:      ROUTE_STEP_LABELS_LAYER,
+      type:    'symbol',
+      source:  ROUTE_STEP_LABELS_SRC,
+      minzoom: 14, // düşük zoom'da anlamsız kalabalık — nav ekranı zaten z17-19 civarında
+      layout: {
+        'text-field':             ['get', 'name'],
+        'text-font':              ['Noto Sans Bold'],
+        'text-size':              ['interpolate', ['linear'], ['zoom'], 14, 11, 18, 13],
+        'symbol-placement':       'line-center', // segment başına TEK ortalanmış etiket
+        'text-rotation-alignment': 'map',        // rota yönünü izler (Google gibi)
+        'text-pitch-alignment':    'viewport',    // sürüş kamerasında YATAY okunur kalır
+        'text-allow-overlap':      false,
+        'text-ignore-placement':   false,
+        'text-padding':            6,
+        'text-letter-spacing':     0.02,
+      },
+      paint: {
+        'text-color':      '#ffffff',
+        'text-halo-color': 'rgba(23,74,196,0.94)', // Google rota etiketi mavisiyle aynı aile
+        'text-halo-width': 3.4,
+        'text-halo-blur':  0.2,
+      },
+    });
+  } else {
+    try {
+      (map.getSource(ROUTE_STEP_LABELS_SRC) as GeoJSONSource).setData(data);
+    } catch { /* stil geçişi — yoksay */ }
+  }
+}
+
 /* ── Yola boyanmış manevra oku ────────────────────────────────────────────── */
 
 const _EMPTY_FC = { type: 'FeatureCollection' as const, features: [] as unknown[] };
@@ -1213,11 +1307,13 @@ export function setRouteGeometry(
   altRealIndices?: number[],
   altDurations?:   number[],
   mainDuration?:   number,
+  /** Kök 1 (2026-08-18) — rota bandı üstü sokak adı etiketleri için OSRM adımları. */
+  steps:           readonly RouteStep[] = [],
 ): void {
   if (!map || !coordinates.length) return;
 
-  M.cachedRoute          = { coords: coordinates, alts: alternatives, altIdx: altRealIndices, altDurs: altDurations, mainDur: mainDuration };
-  M.pendingRouteGeometry = { coords: coordinates, alts: alternatives, altIdx: altRealIndices, altDurs: altDurations, mainDur: mainDuration };
+  M.cachedRoute          = { coords: coordinates, alts: alternatives, altIdx: altRealIndices, altDurs: altDurations, mainDur: mainDuration, steps: steps as RouteStep[] };
+  M.pendingRouteGeometry = { coords: coordinates, alts: alternatives, altIdx: altRealIndices, altDurs: altDurations, mainDur: mainDuration, steps: steps as RouteStep[] };
 
   // Visibility / Deadlock Watchdog
   if (map.isStyleLoaded() && !map.getLayer(SEL_LAYER)) {
@@ -1226,7 +1322,7 @@ export function setRouteGeometry(
 
   if (M.isStyleChanging) return;
 
-  _applyRouteGeometry(map, coordinates, alternatives, altRealIndices, 0, altDurations, mainDuration);
+  _applyRouteGeometry(map, coordinates, alternatives, altRealIndices, 0, altDurations, mainDuration, steps);
 }
 
 export function _applyRouteGeometry(
@@ -1237,13 +1333,14 @@ export function _applyRouteGeometry(
   retryCount       = 0,
   altDurations?:   number[],
   mainDuration?:   number,
+  steps:           readonly RouteStep[] = [],
 ): void {
   if (!map) return;
 
   if (!map.isStyleLoaded()) {
     if (retryCount < 40) {
       setTimeout(
-        () => _applyRouteGeometry(map, coordinates, alternatives, altRealIndices, retryCount + 1, altDurations, mainDuration),
+        () => _applyRouteGeometry(map, coordinates, alternatives, altRealIndices, retryCount + 1, altDurations, mainDuration, steps),
         50,
       );
     }
@@ -1350,6 +1447,9 @@ export function _applyRouteGeometry(
     } else {
       (map.getSource(ALT_BADGE_SRC) as GeoJSONSource).setData(badgeData);
     }
+
+    // Kök 1 — rota bandı üstü sokak adı etiketleri (ALT_BADGE ile aynı glyphs kapısı).
+    _applyRouteStepLabels(map, coords as [number, number][], steps, _glyphsOk);
 
     // Head unit / düşük GPU tespiti — line-blur, line-gradient ve ekstra katmanlar atlanır.
     // #619: türetme TEK yerde (`_isPerfLowSurface`) — renk yazıcısı da aynı gerçeği okur,
@@ -1545,7 +1645,7 @@ export function _applyRouteGeometry(
     // olmayan katmanda throw ETMEZ, `error` olayı yayınlar → eski `try/catch`
     // hiçbir şey yakalamıyor, her kare hata defterini dolduruyordu (saha 2026-08-02).
     for (const id of [ALT_FILL, ALT_BADGE_LAYER, ROUTE_SHADOW, ROUTE_GLOW_SEL,
-                      ROUTE_CASE, SEL_LAYER, ROUTE_FLOW,
+                      ROUTE_CASE, SEL_LAYER, ROUTE_FLOW, ROUTE_STEP_LABELS_LAYER,
                       // Araç marker'ı tüm rota katmanlarının üstünde
                       'user-glow', 'user-ring', 'user-vehicle']) {
       safeMoveLayer(map, id);
@@ -1567,7 +1667,7 @@ export function _applyRouteGeometry(
     const msg = e instanceof Error ? e.message : String(e);
     console.error('[MAP_WEBGL_ERROR]', msg);
     if (retryCount < 1) {
-      setTimeout(() => _applyRouteGeometry(map, coordinates, alternatives, altRealIndices, 1, altDurations, mainDuration), 500);
+      setTimeout(() => _applyRouteGeometry(map, coordinates, alternatives, altRealIndices, 1, altDurations, mainDuration, steps), 500);
     }
     return;
   }
@@ -1666,6 +1766,8 @@ export function clearRouteGeometry(map: MapLibreMap): void {
     if (map.getSource(ALT_SRC))         map.removeSource(ALT_SRC);
     if (map.getLayer(ALT_BADGE_LAYER))  map.removeLayer(ALT_BADGE_LAYER);
     if (map.getSource(ALT_BADGE_SRC))   map.removeSource(ALT_BADGE_SRC);
+    if (map.getLayer(ROUTE_STEP_LABELS_LAYER)) map.removeLayer(ROUTE_STEP_LABELS_LAYER);
+    if (map.getSource(ROUTE_STEP_LABELS_SRC))  map.removeSource(ROUTE_STEP_LABELS_SRC);
   } catch { /* ignore — style may already be reset */ }
   /* #625 — rota kaldırıldı: yankı da temizlenir, yoksa görünürlük ölçümü ARTIK
      OLMAYAN bir rotayı "ekranda değil" diye raporlar (hayalet kök adayı). */

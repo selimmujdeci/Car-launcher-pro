@@ -6853,3 +6853,66 @@ describe('Vektör→raster gözlemlenebilirlik + kalıcı mandal kilidi (kök 2)
     expect(mapCoreSrc).toMatch(/_armVectorRetry/);
   });
 });
+
+/* ─────────────────────────────────────────────────────────────────────────
+   KÖK 1 (2026-08-18, harita bilgi yoğunluğu denetimi) — rota bandı üstü
+   sokak adı etiketleri (Google "pill" karşılığı). Kaynak: OSRM adımlarının
+   ZATEN taşıdığı `streetName`; geometri bağlanması painted-arrow'un (#485)
+   kullandığı AYNI `buildManeuverAnchors` anchor çözücüsü üstünden — ikinci
+   bir geometri kaynağı YAZILMADI. Davranış kilitleri `routeStepLabelsModel.test.ts`de;
+   burada YALNIZ üç yapısal/kablo kilidi var:
+     (a) glyphs kapısı (raster stilde text-field katmanı MapLibre'yi reddettirir —
+         ALT_BADGE_LAYER'daki aynı kusur sınıfı, saha 2026-08-02),
+     (b) `clearRouteGeometry` yeni kaynağı/katmanı da temizliyor,
+     (c) `setRouteGeometry` → `_applyRouteGeometry` → `_applyRouteStepLabels`
+         zincirinde `steps` parametresi GERÇEKTEN taşınıyor (sessizce
+         düşürülmüyor).
+   ───────────────────────────────────────────────────────────────────────── */
+describe('Rota bandı üstü sokak adı etiketleri — kablo kilitleri (kök 1)', () => {
+  it('KAYNAK: glyphs KAPALIYKEN katman kurulmaz (raster stil text-field reddeder)', () => {
+    expect(mapLayerManagerSrc).toMatch(/function _applyRouteStepLabels/);
+    // Fonksiyon glyphsOk parametresini erken-dönüş kapısı olarak kullanmalı.
+    const fnMatch = mapLayerManagerSrc.match(
+      /function _applyRouteStepLabels\([\s\S]*?\n\}/,
+    )?.[0] ?? '';
+    expect(fnMatch, 'fonksiyon bulunamadı').not.toBe('');
+    expect(fnMatch).toMatch(/if \(!glyphsOk\)/);
+  });
+
+  it('KAYNAK: `clearRouteGeometry` yeni katmanı/kaynağı da temizliyor', () => {
+    const fnMatch = mapLayerManagerSrc.match(
+      /export function clearRouteGeometry[\s\S]*?\n\}/,
+    )?.[0] ?? '';
+    expect(fnMatch, 'fonksiyon bulunamadı').not.toBe('');
+    expect(fnMatch).toMatch(/ROUTE_STEP_LABELS_LAYER/);
+    expect(fnMatch).toMatch(/ROUTE_STEP_LABELS_SRC/);
+  });
+
+  it('KAYNAK: `steps` parametresi setRouteGeometry → _applyRouteGeometry → _applyRouteStepLabels zincirinde taşınır', () => {
+    const setFn = mapLayerManagerSrc.match(
+      /export function setRouteGeometry\([\s\S]*?\n\}/,
+    )?.[0] ?? '';
+    expect(setFn, 'setRouteGeometry bulunamadı').not.toBe('');
+    expect(setFn, 'steps M.cachedRoute\'a yazılmıyor').toMatch(/steps:\s*steps as RouteStep\[\]/);
+    expect(setFn, 'steps _applyRouteGeometry\'ye geçirilmiyor')
+      .toMatch(/_applyRouteGeometry\(map, coordinates, alternatives, altRealIndices, 0, altDurations, mainDuration, steps\)/);
+
+    expect(mapLayerManagerSrc, '_applyRouteStepLabels hiç çağrılmıyor — ölü kod')
+      .toMatch(/_applyRouteStepLabels\(map, coords as \[number, number\]\[\], steps, _glyphsOk\)/);
+  });
+
+  it('KAYNAK: yeni katman z-order listesinde (rota çekirdeğinin üstü, araç marker\'ının altı)', () => {
+    const orderMatch = mapLayerManagerSrc.match(
+      /for \(const id of \[ALT_FILL[\s\S]*?\]\) \{/,
+    )?.[0] ?? '';
+    expect(orderMatch, 'z-order listesi bulunamadı').not.toBe('');
+    expect(orderMatch).toMatch(/ROUTE_STEP_LABELS_LAYER/);
+    // Sıra: rota çekirdeği/akışından SONRA, araç marker'ından ÖNCE.
+    const flowPos   = orderMatch.indexOf('ROUTE_FLOW');
+    const labelsPos = orderMatch.indexOf('ROUTE_STEP_LABELS_LAYER');
+    const vehiclePos = orderMatch.indexOf("'user-vehicle'");
+    expect(flowPos).toBeGreaterThan(-1);
+    expect(labelsPos).toBeGreaterThan(flowPos);
+    expect(vehiclePos).toBeGreaterThan(labelsPos);
+  });
+});

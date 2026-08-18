@@ -303,7 +303,7 @@ async function _initCore(
       _resetPaintedArrowCache();
       _setupRouteInteractions(map); // C7.2 — ilk yüklemede etkileşimleri kur
       if (M.cachedRoute && M.cachedRoute.coords?.length > 2) {
-        _applyRouteGeometry(map, M.cachedRoute.coords, M.cachedRoute.alts, M.cachedRoute.altIdx);
+        _applyRouteGeometry(map, M.cachedRoute.coords, M.cachedRoute.alts, M.cachedRoute.altIdx, 0, undefined, undefined, M.cachedRoute.steps);
         logInfo('[ROUTE_LAYER_RECREATED] after style.load');
       }
     });
@@ -472,7 +472,7 @@ async function _initCore(
           try { map.resize(); } catch { /* ignore */ }
         });
         if (M.cachedRoute && M.cachedRoute.coords?.length > 2) {
-          _applyRouteGeometry(map, M.cachedRoute.coords, M.cachedRoute.alts, M.cachedRoute.altIdx);
+          _applyRouteGeometry(map, M.cachedRoute.coords, M.cachedRoute.alts, M.cachedRoute.altIdx, 0, undefined, undefined, M.cachedRoute.steps);
         }
         useMapStore.setState({ isReady: true });
       };
@@ -570,6 +570,7 @@ export function switchMapStyle(map: MapLibreMap, style: StyleSpecification | str
           0,
           _routeToReplay.altDurs,
           _routeToReplay.mainDur,
+          _routeToReplay.steps,
         );
       }
 

@@ -91,6 +91,7 @@ import {
   notifyStyleChange,
   selectAltRoute,
   registerNavigationStyleCallback,
+  type RouteStep,
 } from '../../platform/routingService';
 import { resolveRouteForwardBearing } from '../../platform/navigation/core/navigationEntryBearing';
 import { useStore } from '../../store/useStore';
@@ -200,6 +201,8 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
   const routeAltIdxRef    = useRef<number[]>([]);
   const routeAltDursRef   = useRef<number[]>([]);
   const routeMainDurRef   = useRef<number>(0);
+  /** Kök 1 (2026-08-18) — rota bandı üstü sokak adı etiketleri için OSRM adımları. */
+  const routeStepsRef     = useRef<RouteStep[]>([]);
   const prevStepIndexRef  = useRef(0);
   /** True while a style switch is in-flight — drives the anti-flicker overlay. */
   const [isSwitchingStyle, setIsSwitchingStyle] = useState(false);
@@ -1670,6 +1673,7 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
       clearRoute();
       routeGeometryRef.current = null;
       routeAltRef.current      = [];
+      routeStepsRef.current    = [];
     }
   }, [isNavigating, destination, location]);
 
@@ -1755,6 +1759,7 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
     routeAltIdxRef.current   = route.altRealIndices;
     routeAltDursRef.current  = route.altDurations;
     routeMainDurRef.current  = route.totalDurationSeconds;
+    routeStepsRef.current    = route.steps;
 
     // Ground-truth READY: mapStatus bayrağı bir style-switch'te false'ta TAKILABİLİR
     // (style.load kaçırılırsa). O durumda harita render olur (tile/marker/ETA çalışır) ama
@@ -1767,7 +1772,7 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
     const styleKeyChanged = !last || last.styleKey !== styleKey;
     if (!styleKeyChanged && last && last.hash === hash && last.navStatus === navStatus) return;
     lastAppliedRef.current = { hash, styleKey, navStatus };
-    setRouteGeometry(mapRef.current, route.geometry, route.alternatives, route.altRealIndices, route.altDurations, route.totalDurationSeconds);
+    setRouteGeometry(mapRef.current, route.geometry, route.alternatives, route.altRealIndices, route.altDurations, route.totalDurationSeconds, route.steps);
     pushDebug('ROUTE_GEOMETRY_SET', { pts: route.geometry?.length, first: route.geometry?.[0] });
   }, [route.geometry, route.alternatives, route.altRealIndices, mapStatus, styleKey, navStatus]);
 
@@ -1807,7 +1812,7 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
         notifyStyleChange(false); // module _isStyleChanging=false → setRouteGeometry erken-return etmez
         const geom = routeGeometryRef.current ?? getRouteState().geometry;
         if (geom) {
-          setRouteGeometry(map, geom, routeAltRef.current, routeAltIdxRef.current, routeAltDursRef.current, routeMainDurRef.current);
+          setRouteGeometry(map, geom, routeAltRef.current, routeAltIdxRef.current, routeAltDursRef.current, routeMainDurRef.current, routeStepsRef.current);
           lastAppliedRef.current = null;
         }
       }
@@ -1939,7 +1944,7 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
       const _storeGeom = getRouteState().geometry;
       const _geomToRender = routeGeometryRef.current ?? _storeGeom;
       if (_geomToRender && map.isStyleLoaded()) {
-        setRouteGeometry(map, _geomToRender, routeAltRef.current, routeAltIdxRef.current, routeAltDursRef.current, routeMainDurRef.current);
+        setRouteGeometry(map, _geomToRender, routeAltRef.current, routeAltIdxRef.current, routeAltDursRef.current, routeMainDurRef.current, routeStepsRef.current);
       }
       // Style switch sonrası focus mode'u yeniden uygula (setStyle tüm paint'leri sıfırlar)
       reapplyNavigationFocus(map);
@@ -1986,6 +1991,7 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
     routeGeometryRef.current = null;
     routeAltRef.current      = [];
     routeAltIdxRef.current   = [];
+    routeStepsRef.current    = [];
   }, []);
 
   const handleZoomIn = () => mapRef.current?.zoomIn();

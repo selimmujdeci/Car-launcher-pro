@@ -26,6 +26,7 @@ import { MAP_BG_NIGHT, MAP_BG_DAY } from './_mapIds';   // bu dosyanın kendi ku
 import maplibregl, { Map as MapLibreMap, Marker } from 'maplibre-gl';
 import { create } from 'zustand';
 import { RASTER_PAINT_DAY, RASTER_PAINT_NIGHT } from '../mapStyleBuilders';
+import type { RouteStep } from '../routingService';
 
 // ── Public config tipi ──────────────────────────────────────────────────────
 export interface MapConfig {
@@ -67,6 +68,8 @@ export interface RouteGeom {
   altIdx?: number[];
   altDurs?: number[];
   mainDur?: number;
+  /** Kök 1 (2026-08-18) — rota bandı üstü sokak adı etiketleri bunu okur. */
+  steps?: RouteStep[];
 }
 
 // ── Modül-seviyesi mutable state (tek nesne — modüller arası paylaşım) ───────
@@ -229,6 +232,9 @@ export const ROUTE_GLOW_SEL  = 'car-route-glow-sel';   // Layer 1 — neon outer
 export const ROUTE_CASE      = 'car-route-casing';      // Layer 2 — contrast border
 export const SEL_LAYER       = 'selected-route-layer';  // Layer 3 — gradient core
 export const ROUTE_FLOW      = 'car-route-flow';        // Layer 4 — marching-ants flow
+/** Kök 1 (2026-08-18) — rota bandı üstü segment-bazlı sokak adı etiketleri (Google "pill" karşılığı). */
+export const ROUTE_STEP_LABELS_SRC   = 'car-route-step-labels-src';
+export const ROUTE_STEP_LABELS_LAYER = 'car-route-step-labels';
 export const ALT_SRC         = 'car-route-alt';
 export const ALT_FILL        = 'car-route-alt-fill';
 export const ALT_BADGE_SRC   = 'car-route-alt-badge';
