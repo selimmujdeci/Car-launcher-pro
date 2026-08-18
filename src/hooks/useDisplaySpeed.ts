@@ -32,7 +32,50 @@ export function useDisplaySpeed(): number | null {
   return useUnifiedVehicleStore((s) => s.speed);
 }
 
-/** Yuvarlanmış metin gösterimi — `null` → `—`. Sahte 0 üretmez. */
+/**
+ * Gösterimde kabul edilen FİZİKSEL üst sınır (km/h).
+ *
+ * `UnifiedVehicleStore`daki güvenlik kapısıyla AYNI değerdir ve bu tekrar
+ * bilinçlidir: burası SON savunma hattıdır. Store'a başka bir yoldan yazılan
+ * ya da ileride eklenecek bir kaynaktan gelen absürt değer, kapıyı atlarsa
+ * bile ekrana ÇIKAMAZ.
+ */
+export const SPEED_PHYSICAL_MAX_KMH = 300;
+
+/* ── Gözlem: sınır kaç kez ihlal edildi (#634) ─────────────────────────────
+ * Sahada ölçülemeyen aralıklı bir kusur var: araç dururken hız göstergesinde
+ * beş haneli değerler görüldü (kullanıcı ekran görüntüsü, 2026-08-18 18:33).
+ * Kusur cihazda tekrarlatılamadı ve WebView console logları logcat'e
+ * düşmediği için iz de bırakmıyordu. Sayaç, bir dahaki ihlalde EN AZINDAN
+ * "oldu ve şu değerle oldu" bilgisini saklar — sahte bir kök ilan etmeden.
+ * Bounded: yalnız sayaç + son değer; geçmiş TUTULMAZ. */
+let _rejectedCount = 0;
+let _lastRejected: number | null = null;
+
+/** Gözlem okuması — CAROS LAB / tanı için. Hiçbir şey yazmaz. */
+export function getSpeedDisplayRejections(): { count: number; last: number | null } {
+  return { count: _rejectedCount, last: _lastRejected };
+}
+
+/** Test yalıtımı — üretim yolunda ÇAĞRILMAZ. */
+export function _resetSpeedDisplayRejectionsForTest(): void {
+  _rejectedCount = 0;
+  _lastRejected = null;
+}
+
+/**
+ * Yuvarlanmış metin gösterimi — `null` → `—`. Sahte 0 üretmez.
+ *
+ * Fiziksel olarak imkânsız bir değer de `—` gösterir: sürücüye "1.203 km/h"
+ * yazmak, hiçbir şey yazmamaktan DAHA KÖTÜDÜR — hız aynı zamanda ETA ve
+ * hız-limiti uyarısının girdisidir, güveni kırar.
+ */
 export function formatDisplaySpeed(kmh: number | null | undefined): string {
-  return kmh == null || !Number.isFinite(kmh) ? SPEED_UNKNOWN_TEXT : String(Math.round(kmh));
+  if (kmh == null || !Number.isFinite(kmh)) return SPEED_UNKNOWN_TEXT;
+  if (kmh < 0 || kmh > SPEED_PHYSICAL_MAX_KMH) {
+    _rejectedCount++;
+    _lastRejected = kmh;
+    return SPEED_UNKNOWN_TEXT;
+  }
+  return String(Math.round(kmh));
 }
