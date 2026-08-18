@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { fetchVehicles } from '@/lib/vehicles.service';
 import { formatLastSeen } from '@/lib/utils';
+import { getLocalVehicle } from '@/lib/pairingService';
 import { TIMING, ALERT_THRESHOLDS } from '@/lib/constants';
 import {
   buildVehicleFreshness,
@@ -45,12 +46,10 @@ function isValidSensorData(u: VehicleUpdate, existing: LiveVehicle): boolean {
 }
 
 // ── localStorage keys (must match pairingService.ts) ────────────────────────
-const LOCAL_KEYS = {
-  VEHICLE_ID:    'caros_pair_vehicle_id',
-  API_KEY:       'caros_pair_api_key',
-  VEHICLE_NAME:  'caros_pair_vehicle_name',
-  VEHICLE_PLATE: 'caros_pair_vehicle_plate',
-} as const;
+/* `caros_pair_*` anahtarlarının kopyası BURADAN KALDIRILDI (#632): okuma tek
+   otoritededir (`pairingService.getLocalVehicle`). İki ayrı kopya, biri
+   düzeltilip öteki eski kuralda kalınca sahada "eşleşti ama araç yok"
+   kusurunu üretmişti. */
 
 interface VehicleStoreState {
   vehicles: Record<string, LiveVehicle>;
@@ -87,17 +86,30 @@ export const useVehicleStore = create<VehicleStoreState>((set, get) => ({
       return;
     }
     try {
-      const id    = localStorage.getItem(LOCAL_KEYS.VEHICLE_ID);
-      const key   = localStorage.getItem(LOCAL_KEYS.API_KEY);
-      if (!id || !key) { set({ loading: false }); return; }
+      /* ── TEK OKUMA OTORİTESİ (#632) ────────────────────────────────────
+       * Burası eskiden `localStorage`ı KENDİ okuyordu ve `api_key` yoksa
+       * erken dönüyordu. Kanonik eşleştirme rotası ham anahtar DÖNDÜRMEDİĞİ
+       * için (eski rota döndürdüğü için kapatılmıştı) yeni akışla eşleşen
+       * araç burada SESSİZCE DÜŞÜYORDU: eşleştirme "başarılı" diyor, liste
+       * boş kalıyor, sayfa kullanıcıyı otomatik eşleştirme sekmesine geri
+       * atıyordu — kullanıcı bunu *"eşleşti diyor yine bu ekran çıkıyor"*
+       * diye tarif etti.
+       *
+       * Kusurun asıl sebebi İKİNCİ OTORİTEYDİ: aynı `caros_pair_*`
+       * anahtarlarını `pairingService.getLocalVehicle` ve burası ayrı ayrı
+       * okuyordu; biri düzeltilince öteki eski kuralla kaldı. Artık okuma
+       * TEK yerdedir. */
+      const local = getLocalVehicle();
+      if (!local) { set({ loading: false }); return; }
+      const id = local.id;
 
       const existing = get().vehicles[id];
       if (existing) return; // already loaded (Supabase may have beaten us)
 
       const vehicle: LiveVehicle = {
         id,
-        plate:         localStorage.getItem(LOCAL_KEYS.VEHICLE_PLATE) ?? id,
-        name:          localStorage.getItem(LOCAL_KEYS.VEHICLE_NAME)  ?? 'Araç',
+        plate:         local.plate,
+        name:          local.name,
         driver:        '—',
         status:        'offline',
         /* ⚠️ Eski sayısal yüzey — yalnız geriye uyumluluk. Bu araç henüz

@@ -60,7 +60,12 @@ export default function KumandaPage() {
   }, []);
 
   const handlePaired = useCallback(() => {
+    /* Yerel kayıt ANINDA görünür kılar (ağ beklenmez); Supabase okuması ise
+       gerçek adı/plakayı ve telemetriyi getirir. #632 öncesinde yalnız yerel
+       okuma vardı ve o okuma `api_key` yoksa aracı düşürüyordu → "eşleşti"
+       denip eşleştirme ekranına geri dönülüyordu. */
     useVehicleStore.getState().initializeFromLocal();
+    void useVehicleStore.getState().initializeFromSupabase();
     setActiveTab('kumanda');
   }, []);
 

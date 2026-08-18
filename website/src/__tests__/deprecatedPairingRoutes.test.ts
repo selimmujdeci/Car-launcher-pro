@@ -150,6 +150,28 @@ describe('eşleştirme · PWA ekranı dürüstlüğü', () => {
     expect(svc).toMatch(/['"]\/api\/vehicle\/link['"]/);
   });
 
+  /* ── #632 — "eşleşti diyor yine bu ekran çıkıyor" ──────────────────────────
+   * Sahada ölçüldü: eşleştirme başarılı oluyor ama araç listesi boş kalıyor ve
+   * sayfa kullanıcıyı otomatik eşleştirme sekmesine geri atıyordu. Kök, #631'in
+   * kaçırdığı İKİNCİ OKUMA NOKTASIYDI: `vehicleStore.initializeFromLocal` aynı
+   * `caros_pair_*` anahtarlarını KENDİ okuyor ve `api_key` yoksa erken
+   * dönüyordu. Kanonik rota anahtar döndürmediği için araç sessizce düşüyordu.
+   * Okuma artık TEK otoritededir. */
+  it('11d. 🔒 araç kimliği `api_key` VARLIĞINA bağlanamaz', () => {
+    const store = read('src/store/vehicleStore.ts');
+    expect(store, 'store yine kendi localStorage kopyasını okuyor (ikinci otorite)')
+      .not.toMatch(/caros_pair_api_key/);
+    expect(store, 'yerel araç okuması tek otoriteden gelmiyor')
+      .toMatch(/getLocalVehicle/);
+  });
+
+  it('11e. 🔒 yerel araç okuması yalnız `vehicleId` ister', () => {
+    const svc = read('src/lib/pairingService.ts');
+    /* `!id || !apiKey` deseni geri gelirse yeni akışla eşleşen araç kaybolur. */
+    expect(svc).not.toMatch(/!id\s*\|\|\s*!apiKey/);
+    expect(svc).toMatch(/if\s*\(!id\)\s*return null/);
+  });
+
   it('11c. 🔒 eşleştirme OTURUM ister ve ham anahtar SAKLAMAZ', () => {
     const svc = read('src/lib/pairingService.ts');
     /* Kapalı rotanın kapatılma sebeplerinden biri oturumsuz çalışıp yanıtta
