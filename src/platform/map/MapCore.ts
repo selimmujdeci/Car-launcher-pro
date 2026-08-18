@@ -21,7 +21,7 @@ import { cacheLRUManager } from '../../core/storage/CacheLRUManager';
 import { M, useMapStore, getOnlineTileStyle, type MapConfig } from './_mapState';
 import { isBasemapTileSourceType } from './_mapIds';
 import {
-  _applyRouteGeometry, ensureRoadShieldImages, _resetPaintedArrowCache,
+  _applyRouteGeometry, ensureRoadShieldImages, _resetPaintedArrowCache, getRouteStepsFor,
 } from './MapLayerManager';
 import { _setupRouteInteractions, _cleanupRouteInteractions } from './MapInteractionManager';
 import { hasWeakGpu } from '../../utils/detectWeakGpu';
@@ -303,7 +303,9 @@ async function _initCore(
       _resetPaintedArrowCache();
       _setupRouteInteractions(map); // C7.2 — ilk yüklemede etkileşimleri kur
       if (M.cachedRoute && M.cachedRoute.coords?.length > 2) {
-        _applyRouteGeometry(map, M.cachedRoute.coords, M.cachedRoute.alts, M.cachedRoute.altIdx, 0, undefined, undefined, M.cachedRoute.steps);
+        /* #639: adımlar PAYLAŞILAN önbellekten DEĞİL, BU harita örneğinden okunur —
+           mini harita ile tam harita birbirinin etiketlerini eziyordu. */
+        _applyRouteGeometry(map, M.cachedRoute.coords, M.cachedRoute.alts, M.cachedRoute.altIdx, 0, undefined, undefined, getRouteStepsFor(map));
         logInfo('[ROUTE_LAYER_RECREATED] after style.load');
       }
     });
@@ -472,7 +474,8 @@ async function _initCore(
           try { map.resize(); } catch { /* ignore */ }
         });
         if (M.cachedRoute && M.cachedRoute.coords?.length > 2) {
-          _applyRouteGeometry(map, M.cachedRoute.coords, M.cachedRoute.alts, M.cachedRoute.altIdx, 0, undefined, undefined, M.cachedRoute.steps);
+          /* #639: WebGL restore da adımları BU harita örneğinden okur. */
+          _applyRouteGeometry(map, M.cachedRoute.coords, M.cachedRoute.alts, M.cachedRoute.altIdx, 0, undefined, undefined, getRouteStepsFor(map));
         }
         useMapStore.setState({ isReady: true });
       };
@@ -570,7 +573,11 @@ export function switchMapStyle(map: MapLibreMap, style: StyleSpecification | str
           0,
           _routeToReplay.altDurs,
           _routeToReplay.mainDur,
-          _routeToReplay.steps,
+          /* #639 (3. geri-kurma yolu): adımlar PAYLAŞILAN `pendingRouteGeometry`den
+             DEĞİL, BU harita örneğinden okunur. `pendingRouteGeometry`ye mini
+             harita da yazar (adımları bilmez) ve tema geçişindeki bu replay
+             sokak adı etiketlerini boş veriyle yeniden doğuruyordu. */
+          getRouteStepsFor(map),
         );
       }
 

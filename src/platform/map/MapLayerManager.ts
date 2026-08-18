@@ -1410,6 +1410,25 @@ export function setMapStyleChanging(active: boolean): void {
 /**
  * Haritada rota çizgisi göster ya da güncelle (hardened).
  */
+/* ── #639 — ROTA ADIMLARININ SAHİBİ HARİTA ÖRNEĞİDİR ───────────────────────
+ * `M.cachedRoute` modül seviyesinde PAYLAŞILIR, ama harita örneği İKİ tanedir
+ * (MiniMapWidget · FullMapView — sahiplik devreder). Adımları tek bir paylaşılan
+ * alanda tutmak iki yönlü sızıntı üretiyordu:
+ *   (a) mini haritanın adımsız çağrısı tam haritanın adımlarını SİLİYORDU
+ *       (cihazda ölçüldü: tema geçişinden sonra sokak adı etiketleri öldü),
+ *   (b) tersi de mümkündü — paylaşılan adımlar mini haritanın `style.load`
+ *       geri kurmasında etiket çizdirir, #635 (f) kapsam kararını çiğnerdi.
+ * Bu yüzden adımlar harita ÖRNEĞİNE bağlanır. WeakMap: harita yok olunca kayıt
+ * da düşer (sıfır sızıntı — zero-leak invaryantı).
+ */
+const _stepsByMap = new WeakMap<MapLibreMap, RouteStep[]>();
+
+/** Bu harita örneği için EN SON açıkça verilmiş rota adımları (yoksa boş). */
+export function getRouteStepsFor(map: MapLibreMap | null): RouteStep[] {
+  if (!map) return [];
+  return _stepsByMap.get(map) ?? [];
+}
+
 export function setRouteGeometry(
   map:             MapLibreMap,
   coordinates:     [number, number][],
@@ -1417,13 +1436,48 @@ export function setRouteGeometry(
   altRealIndices?: number[],
   altDurations?:   number[],
   mainDuration?:   number,
-  /** Kök 1 (2026-08-18) — rota bandı üstü sokak adı etiketleri için OSRM adımları. */
-  steps:           readonly RouteStep[] = [],
+  /** Kök 1 (2026-08-18) — rota bandı üstü sokak adı etiketleri için OSRM adımları.
+   *  VERİLMEYEN (`undefined`) çağrı "adım yok" DEMEZ — "bu çağıran adımları
+   *  bilmiyor" demektir; aşağıdaki #639 notuna bak. */
+  steps?:          readonly RouteStep[],
 ): void {
   if (!map || !coordinates.length) return;
 
-  M.cachedRoute          = { coords: coordinates, alts: alternatives, altIdx: altRealIndices, altDurs: altDurations, mainDur: mainDuration, steps: steps as RouteStep[] };
-  M.pendingRouteGeometry = { coords: coordinates, alts: alternatives, altIdx: altRealIndices, altDurs: altDurations, mainDur: mainDuration, steps: steps as RouteStep[] };
+  /* ── #639 (CİHAZDA ÖLÇÜLDÜ 2026-08-18 22:0x) ──────────────────────────────
+   * `M.cachedRoute` MODÜL SEVİYESİNDE PAYLAŞILIR ama harita ÖRNEĞİ iki tanedir
+   * (MiniMapWidget ile FullMapView ayrı instance kurar, sahiplik devreder).
+   * `MiniMapWidget` rotayı `setRouteGeometry(map, geom)` ile — adımları
+   * BİLMEDEN — uyguluyor. Eski kod `steps` varsayılanını `[]` alıp önbelleğe
+   * KOŞULSUZ yazdığı için mini haritanın her çağrısı TAM HARİTANIN adımlarını
+   * siliyordu. Tam harita bir sonraki `style.load`'da (tema geçişi, WebGL
+   * restore) rotayı bu önbellekten geri kurduğu için sokak adı etiketleri
+   * (#635/#638) SESSİZCE ölüyordu ve bir daha geri gelmiyordu.
+   *
+   * Kural: adımlar YALNIZ açıkça verildiğinde yazılır. Verilmeyen çağrı,
+   * AYNI rota için önbellektekini korur; rota DEĞİŞTİYSE temizler — eski
+   * adımları yeni geometriye iliştirmek yanlış sokak adı basardı ("dayanağı
+   * yoksa çizilmez" disiplini: yanlış etiket, etiketsizden KÖTÜDÜR).
+   *
+   * Uygulama (çizim) tarafına yine `steps ?? []` gider: mini harita kapsam
+   * dışıdır (#635 (f)) ve önbellekteki adımlarla ETİKET ÇİZMEZ. */
+  const _prev  = M.cachedRoute;
+  const _pc    = _prev?.coords;
+  const _sameRoute = !!_pc && _pc.length === coordinates.length && _pc.length > 0
+    && _pc[0][0] === coordinates[0][0]
+    && _pc[0][1] === coordinates[0][1]
+    && _pc[_pc.length - 1][0] === coordinates[coordinates.length - 1][0]
+    && _pc[_pc.length - 1][1] === coordinates[coordinates.length - 1][1];
+  if (steps !== undefined) {
+    _stepsByMap.set(map, steps as RouteStep[]);
+  } else if (!_sameRoute) {
+    /* Yeni rota + adım bilgisi YOK → bu haritanın eski adımları GEÇERSİZ.
+       Eski adları yeni geometriye iliştirmek yanlış sokak adı basardı. */
+    _stepsByMap.delete(map);
+  }
+  const _cachedSteps: RouteStep[] = _stepsByMap.get(map) ?? [];
+
+  M.cachedRoute          = { coords: coordinates, alts: alternatives, altIdx: altRealIndices, altDurs: altDurations, mainDur: mainDuration, steps: _cachedSteps };
+  M.pendingRouteGeometry = { coords: coordinates, alts: alternatives, altIdx: altRealIndices, altDurs: altDurations, mainDur: mainDuration, steps: _cachedSteps };
 
   // Visibility / Deadlock Watchdog
   if (map.isStyleLoaded() && !map.getLayer(SEL_LAYER)) {
@@ -1432,7 +1486,7 @@ export function setRouteGeometry(
 
   if (M.isStyleChanging) return;
 
-  _applyRouteGeometry(map, coordinates, alternatives, altRealIndices, 0, altDurations, mainDuration, steps);
+  _applyRouteGeometry(map, coordinates, alternatives, altRealIndices, 0, altDurations, mainDuration, steps ?? []);
 }
 
 export function _applyRouteGeometry(

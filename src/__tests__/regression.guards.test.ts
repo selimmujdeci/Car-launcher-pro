@@ -6893,9 +6893,13 @@ describe('Rota bandı üstü sokak adı etiketleri — kablo kilitleri (kök 1)'
       /export function setRouteGeometry\([\s\S]*?\n\}/,
     )?.[0] ?? '';
     expect(setFn, 'setRouteGeometry bulunamadı').not.toBe('');
-    expect(setFn, 'steps M.cachedRoute\'a yazılmıyor').toMatch(/steps:\s*steps as RouteStep\[\]/);
+    /* #639 GÜNCELLEMESİ: adımlar artık KOŞULSUZ yazılmaz — paylaşılan önbelleği
+       mini haritanın adımsız çağrısı siliyordu (cihazda ölçüldü 2026-08-18).
+       Sahiplik harita ÖRNEĞİNDE; davranış kilitleri routeStepsOwnership.test.ts. */
+    expect(setFn, 'adımlar harita örneğine bağlanmıyor').toMatch(/_stepsByMap\.set\(map, steps as RouteStep\[\]\)/);
+    expect(setFn, 'önbellek harita-başı adımdan türetilmiyor').toMatch(/steps: _cachedSteps/);
     expect(setFn, 'steps _applyRouteGeometry\'ye geçirilmiyor')
-      .toMatch(/_applyRouteGeometry\(map, coordinates, alternatives, altRealIndices, 0, altDurations, mainDuration, steps\)/);
+      .toMatch(/_applyRouteGeometry\(map, coordinates, alternatives, altRealIndices, 0, altDurations, mainDuration, steps \?\? \[\]\)/);
 
     expect(mapLayerManagerSrc, '_applyRouteStepLabels hiç çağrılmıyor — ölü kod')
       .toMatch(/_applyRouteStepLabels\(map, coords as \[number, number\]\[\], steps, _glyphsOk\)/);
