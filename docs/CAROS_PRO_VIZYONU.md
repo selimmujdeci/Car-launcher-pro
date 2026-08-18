@@ -189,6 +189,36 @@ DOĞRULANDI 6 · SAHADA DOĞRULANDI 1 · **ÜRÜN HAZIR: 1**
 
 ### 6.3 Kod tamam + test yeşil, saha borcu açık (kütük 🔴)
 
+- **TEMA STÜDYO: SINIRSIZ RENK — "MOTOR VAR, BESLEYEN YOK"UN BİR ÖRNEĞİ DAHA
+  (2026-08-18, kütük 🔴 #627):** website 57 dosya / **1189 test yeşil**
+  (16 yeni kilit), `tsc` temiz, `next build` başarılı.
+
+  Kullanıcı *"renkler yeterli değil sınırsız renk lazım ve yazılarda da renk
+  az"* dedi. Ölçüm: renk alanları 16 hazır renk + native `<input type="color">`
+  sunuyordu — native seçici **saydamlığı hiç vermez** ve küçük bir kare olduğu
+  için "her rengi seçebilirim" bilgisini taşımıyordu.
+
+  **Asıl bulgu:** manifest sözleşmesi (`isSafeColor`) `#RRGGBBAA` · `rgba()` ·
+  `hsla()` zaten kabul ediyordu — **sınırsız renk ve saydamlık altyapıda
+  vardı**, eksik olan tek şey arayüzdü. Bu, denetimlerde tekrar tekrar çıkan
+  "motor var, besleyen yok" deseninin bir örneğidir.
+
+  Eklenenler: saf `colorMath` (üç yazımı okur, tek kanonik hex üretir, HSV↔RGB,
+  WCAG kontrast, nötr rampa) ve `ColorPicker` (doygunluk×parlaklık alanı · ton ·
+  **saydamlık** · son kullandıkların). Sürüklerken `onChange` kare başına en çok
+  bir kez (rAF) — her değişim iframe'e canlı manifest yayını tetikliyor.
+
+  "Yazılarda renk az" için 12 basamaklı **nötr rampa**: eski liste ağırlıkla
+  vurgu renkleriydi, oysa gövde metninde doğru cevap çoğu zaman bir gri tonudur.
+
+  En kritik kilit: **tüm HSV uzayından üretilen her hex `isSafeColor`dan
+  geçer** — geçmeseydi renk sessizce düşerdi (kullanıcı seçer, hata görmez,
+  araçta hiçbir şey değişmez). Yan düzeltme: kaynak kilitleri artık yorumları
+  soyarak tarar; *"X KALDIRILDI"* açıklaması tam da X'i arayan kilidi
+  düşürüyordu (tiyatro kilit tuzağı).
+
+  **Kalan eksik:** telefonda henüz kullanılmadı. Kabul ölçütleri kütük #627'de.
+
 - **TEMA STÜDYO CANLI ÖNİZLEMESİ GERÇEKTEN CANLANDI — İKİ KÖK, İKİSİ DE
   YAYINDA (2026-08-18, kütük 🟡 #626):** website 57 dosya / **1174 test yeşil**
   (9 yeni kilit), `tsc` temiz, `next build` başarılı.
