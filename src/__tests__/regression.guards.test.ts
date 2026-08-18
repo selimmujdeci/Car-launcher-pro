@@ -6683,3 +6683,87 @@ describe('#625 giriş kamerası yön kararı kilidi (rota ekrandan çıkıyordu)
       .toContain('resolveRouteForwardBearing');
   });
 });
+
+/* ─────────────────────────────────────────────────────────────────────────
+   KÖK 4 (2026-08-18, harita bilgi yoğunluğu denetimi) — `updateDrivingLayers`
+   içindeki hız-bazlı bina gizleme TEK YÖNLÜ bir mandaldı: 80 km/h üstüne bir
+   kez çıkılıp geri düşüldüğünde `building-3d` katmanının opaklığı sabit
+   `0.4`'e yazılıyordu — bu, stilin kendi varsayılanından (gece `bldg3dOpacity`
+   0.78 · gündüz 0.95, `mapStyleBuilders.ts`) DAHA DÜŞÜKTÜ. Sonuç: bir kez
+   80'i geçen her sürüşte binalar geri kalan sürüş boyunca stilin
+   öngördüğünden kalıcı olarak soluk kalıyordu. Düzeltme: geri dönüş değeri
+   artık o anki gün/gece paletinden (`NIGHT_PALETTE`/`DAY_PALETTE`) okunur —
+   tek kaynak, palet değişirse burası otomatik izler.
+   ───────────────────────────────────────────────────────────────────────── */
+describe('Bina 3B opaklık mandalı — hız eşiği geri dönüşte PALET değerine döner (kök 4)', () => {
+  let originalNight: boolean;
+
+  beforeEach(async () => {
+    const { getMapNight } = await import('../platform/mapSourceManager');
+    originalNight = getMapNight();
+  });
+
+  afterEach(async () => {
+    const { setMapNight } = await import('../platform/mapSourceManager');
+    const { M } = await import('../platform/map/_mapState');
+    setMapNight(originalNight);
+    M.lastSpeedHide = false; // sonraki testleri kirletme
+  });
+
+  it('DAVRANIŞ: 80 km/h üstüne çıkıp geri düşünce GECE paletinin kendi değerine döner (0.78, sabit 0.4 DEĞİL)', async () => {
+    const { updateDrivingLayers } = await import('../platform/map/MapLayerManager');
+    const { M } = await import('../platform/map/_mapState');
+    const { setMapNight } = await import('../platform/mapSourceManager');
+    const { NIGHT_PALETTE } = await import('../platform/mapStyleBuilders');
+
+    setMapNight(true);
+    M.lastSpeedHide = false; // deterministik başlangıç: henüz gizlenmemiş
+
+    const writes: Array<{ layer: string; prop: string; value: unknown }> = [];
+    const mockMap = {
+      isStyleLoaded: () => true,
+      getLayer: (id: string) => (id === 'building-3d' ? {} : undefined),
+      setPaintProperty: (layer: string, prop: string, value: unknown) => {
+        writes.push({ layer, prop, value });
+      },
+    } as unknown as import('maplibre-gl').Map;
+
+    // 1) Hız 80'i geçer → binalar gizlenir (opaklık 0)
+    updateDrivingLayers(mockMap, 95, 36.9, 34.85);
+    const hideWrite = writes.find((w) => w.layer === 'building-3d');
+    expect(hideWrite?.value, 'yüksek hızda bina opaklığı 0 olmalı').toBe(0);
+
+    // 2) Hız tekrar 80'in altına düşer → opaklık PALETİN gece değerine dönmeli
+    writes.length = 0;
+    updateDrivingLayers(mockMap, 50, 36.9, 34.85);
+    const restoreWrite = writes.find((w) => w.layer === 'building-3d');
+    expect(restoreWrite?.value, 'kök 4: geri dönüş sabit 0.4 yerine palet değeri OLMALI')
+      .toBe(NIGHT_PALETTE.bldg3dOpacity);
+    expect(restoreWrite?.value, 'sabit eski değer 0.4 GERİ GELMEMELİ').not.toBe(0.4);
+  });
+
+  it('DAVRANIŞ: aynı geri dönüş GÜNDÜZ modda gündüz paletinin değerine döner (0.95)', async () => {
+    const { updateDrivingLayers } = await import('../platform/map/MapLayerManager');
+    const { M } = await import('../platform/map/_mapState');
+    const { setMapNight } = await import('../platform/mapSourceManager');
+    const { DAY_PALETTE } = await import('../platform/mapStyleBuilders');
+
+    setMapNight(false);
+    M.lastSpeedHide = false;
+
+    const writes: Array<{ layer: string; prop: string; value: unknown }> = [];
+    const mockMap = {
+      isStyleLoaded: () => true,
+      getLayer: (id: string) => (id === 'building-3d' ? {} : undefined),
+      setPaintProperty: (layer: string, prop: string, value: unknown) => {
+        writes.push({ layer, prop, value });
+      },
+    } as unknown as import('maplibre-gl').Map;
+
+    updateDrivingLayers(mockMap, 95, 36.9, 34.85);
+    writes.length = 0;
+    updateDrivingLayers(mockMap, 50, 36.9, 34.85);
+    const restoreWrite = writes.find((w) => w.layer === 'building-3d');
+    expect(restoreWrite?.value).toBe(DAY_PALETTE.bldg3dOpacity);
+  });
+});

@@ -34,6 +34,8 @@ import {
   RASTER_PAINT_NIGHT,
   MAP_BG_NIGHT,
   MAP_BG_DAY,
+  NIGHT_PALETTE,
+  DAY_PALETTE,
 } from '../mapStyleBuilders';
 import { useHazardStore }    from '../../store/useHazardStore';
 import { useSafetyStore }    from '../../store/useSafetyStore';
@@ -1727,7 +1729,15 @@ export function updateDrivingLayers(
   if (hideHighSpeed !== M.lastSpeedHide) {
     M.lastSpeedHide = hideHighSpeed;
     if (map.getLayer('building-3d')) {
-      map.setPaintProperty('building-3d', 'fill-extrusion-opacity', hideHighSpeed ? 0 : 0.4);
+      /* KÖK 4 (2026-08-18): sabit `0.4` geri dönüş değeri stilin KENDİ
+         varsayılanından (gece 0.78 / gündüz 0.95 — `bldg3dOpacity`) DAHA
+         DÜŞÜKTÜ. 80 km/h üstüne bir kez çıkıp geri düşen her sürüşte binalar
+         kalıcı olarak stilin öngördüğünden soluk kalıyordu — mandal tek
+         yönlüydü (yalnız gizleniyor, DOĞRU değere geri dönmüyordu). Geri
+         dönüş artık o anki gün/gece paletinden okunur — tek kaynak, palet
+         değişirse burası otomatik izler. */
+      const restoredOpacity = (getMapNight() ? NIGHT_PALETTE : DAY_PALETTE).bldg3dOpacity;
+      map.setPaintProperty('building-3d', 'fill-extrusion-opacity', hideHighSpeed ? 0 : restoredOpacity);
     }
     if (map.getLayer('road-label')) {
       // Focus mode already reduces road-label opacity; only override when hiding fully
