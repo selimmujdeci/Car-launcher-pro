@@ -189,6 +189,23 @@ DOĞRULANDI 6 · SAHADA DOĞRULANDI 1 · **ÜRÜN HAZIR: 1**
 
 ### 6.3 Kod tamam + test yeşil, saha borcu açık (kütük 🔴)
 
+- **TÜM ALT EKRANLAR DÜZENLENEBİLİR: 43 → 64 BİLEŞEN (2026-08-18, kütük 🔴 #629):**
+  araç 561 dosya / **12 409 test yeşil**, website **1191 yeşil**.
+
+  #628'in açık borcu kapandı: Teşhis · Bakım · Bildirimler · Hava · Güvenlik ·
+  Dashcam · Spor · Seyahat ekranlarının hepsi artık iç yapı taşlarıyla
+  düzenlenebiliyor. Her ekranın "tüm sayfa" kimliği korundu.
+
+  **Bu turun asıl dersi kilidin kendisinden çıktı:** yeni yazdığım "defterdeki
+  her kimlik kaynakta işaretli" kilidi Horizon temasını hatalı biçimde
+  "işaretsiz" saydı. Ürün doğruydu — kimlikler `<Panel editId="…">`
+  sarmalayıcısıyla geçiyordu. Ölçüm: ürün iki deseni birden kullanıyor (21
+  doğrudan, 12 sarmalayıcı). **Aşırı katı kilit, gevşek kilit kadar yanlış
+  yönlendirir**: biri sahte alarm, öteki sahte güven üretir. Kilit yazarken
+  ürünün gerçek desenleri ÖNCE ölçülmeli.
+
+  **Kalan eksik:** telefonda kullanılmadı. Kabul ölçütleri kütük #629'da.
+
 - **AYARLAR EKRANI TEMA STÜDYO'DA TEK PARÇAYDI — 1 BİLEŞENDEN 9'A
   (2026-08-18, kütük 🔴 #628):** araç 561 dosya / **12 405 test yeşil**,
   website **1191 yeşil** (10 + 3 yeni kilit), `tsc` iki tarafta temiz.
