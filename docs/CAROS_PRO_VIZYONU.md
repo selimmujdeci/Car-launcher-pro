@@ -189,6 +189,34 @@ DOĞRULANDI 6 · SAHADA DOĞRULANDI 1 · **ÜRÜN HAZIR: 1**
 
 ### 6.3 Kod tamam + test yeşil, saha borcu açık (kütük 🔴)
 
+- **AYARLAR EKRANI TEMA STÜDYO'DA TEK PARÇAYDI — 1 BİLEŞENDEN 9'A
+  (2026-08-18, kütük 🔴 #628):** araç 561 dosya / **12 405 test yeşil**,
+  website **1191 yeşil** (10 + 3 yeni kilit), `tsc` iki tarafta temiz.
+
+  Kullanıcı *"ayarlarda istediğim yeri düzenleyemiyorum"* dedi. Kayıt defteri
+  sayımı şikâyeti birebir doğruladı: `home` yüzeyi **33** düzenlenebilir bileşen
+  taşıyor, `settings` yüzeyi **1**. Üst bar, kategori menüsü, bölüm başlıkları,
+  ayar kartları, anahtarlar ve kaydırıcılar Stüdyo için görünmezdi.
+
+  **İkinci kök ölçüm tarafındaydı:** `probeEditableGeometry` `querySelector`
+  kullanıyordu — bir kimliğin ekrandaki ilk düğümü dışında hiçbir örneği
+  dokunulabilir değildi. Bu sınır kodda *"bilinen ve beyan edilen sınır"* diye
+  yazılıydı; **beyan edilmiş olması onu zararsız yapmıyordu.** Sahada tam olarak
+  o sınır kullanıcıyı durdurdu.
+
+  Ölçüm artık `querySelectorAll` ile her örneği bildiriyor (kimlik başına en çok
+  24 kutu, her kutu `index` taşıyor). Tek kural çok öğeye indiği için
+  düzenleyici bunu **açıkça yazıyor**: *"Bu ayar aynı türdeki TÜM öğelere
+  uygulanır."* — kullanıcı tek karta dokunduğunu sanıp "neden hepsi değişti"
+  demesin.
+
+  Eski kilit (*"yinelenen kimlik tek kutuya iner"*) sahada zarar veren
+  davranışı koruyordu; **kaldırılmadı, yeni doğru davranışa güncellendi.**
+
+  **Kalan eksik:** diğer 8 alt ekran (Teşhis · Bakım · Bildirimler · Hava ·
+  Güvenlik · Dashcam · Spor · Seyahat) hâlâ 1'er bileşen — aynı desenle
+  açılmalı. Telefonda kullanılmadı. Kabul ölçütleri kütük #628'de.
+
 - **TEMA STÜDYO: SINIRSIZ RENK — "MOTOR VAR, BESLEYEN YOK"UN BİR ÖRNEĞİ DAHA
   (2026-08-18, kütük 🔴 #627):** website 57 dosya / **1189 test yeşil**
   (16 yeni kilit), `tsc` temiz, `next build` başarılı.
