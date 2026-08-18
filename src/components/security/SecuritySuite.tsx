@@ -191,7 +191,7 @@ const GeofenceMap = memo(function GeofenceMap({
   const color = isOutside ? '#ef4444' : pct > 80 ? '#f59e0b' : '#22c55e';
 
   return (
-    <div className="w-full rounded-xl p-4"
+    <div className="w-full rounded-xl p-4" data-editable="security.panel" data-editable-type="panel"
       style={{ background: 'var(--oem-surface-2)', border: '1px solid var(--oem-line)' }}>
       {/* Merkez konum */}
       <div className="flex items-center gap-2 mb-3">

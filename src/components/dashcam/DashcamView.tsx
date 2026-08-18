@@ -73,7 +73,8 @@ function DashcamViewInner({ onClose }: Props) {
       <div className="flex-1 flex gap-4 p-4 min-h-0">
 
         {/* Camera preview */}
-        <div className="flex-[2] min-h-0 relative bg-[var(--oem-surface-2)] rounded-2xl overflow-hidden border border-[var(--oem-line)]">
+        <div className="flex-[2] min-h-0 relative bg-[var(--oem-surface-2)] rounded-2xl overflow-hidden border border-[var(--oem-line)]"
+          data-editable="dashcam.viewport" data-editable-type="panel">
           {state.active ? (
             <video
               ref={videoRef}

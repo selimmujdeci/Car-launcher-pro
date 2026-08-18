@@ -27,7 +27,8 @@ function fmtDuration(min: number): string {
 const TripCard = memo(function TripCard({ trip }: { trip: TripRecord }) {
   /* Seyahat kartı → oem yüzey/kenarlık */
   return (
-    <div className="bg-[var(--oem-surface-2)] border border-[var(--oem-line)] rounded-2xl p-4">
+    <div className="bg-[var(--oem-surface-2)] border border-[var(--oem-line)] rounded-2xl p-4"
+      data-editable="trip.card" data-editable-type="card">
       {/* Header */}
       <div className="flex items-start justify-between mb-3">
         <div>
@@ -108,7 +109,8 @@ function Stat({
 }) {
   const cfg = COLOR_MAP[color];
   return (
-    <div className={`flex flex-col items-center gap-1 rounded-xl p-2 border ${cfg.bg} ${cfg.border}`}>
+    <div className={`flex flex-col items-center gap-1 rounded-xl p-2 border ${cfg.bg} ${cfg.border}`}
+      data-editable="trip.stat" data-editable-type="card">
       <Icon className={`w-4 h-4 ${cfg.icon}`} />
       <span className="text-primary font-black text-sm tabular-nums leading-none">{value}</span>
       {unit && <span className="text-[9px] text-slate-600">{unit}</span>}
@@ -249,7 +251,8 @@ function SummaryCard({
 }) {
   const cfg = COLOR_MAP[color];
   return (
-    <div className={`flex items-center gap-3 rounded-2xl p-4 border ${cfg.bg} ${cfg.border}`}>
+    <div className={`flex items-center gap-3 rounded-2xl p-4 border ${cfg.bg} ${cfg.border}`}
+      data-editable="trip.summary" data-editable-type="card">
       <Icon className={`w-8 h-8 flex-shrink-0 ${cfg.icon}`} />
       <div>
         <div className="text-primary font-black text-xl tabular-nums leading-none">

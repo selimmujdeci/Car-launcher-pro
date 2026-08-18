@@ -64,7 +64,7 @@ const GMeter = memo(function GMeter({
   const rings = [0.25, 0.5, 0.75, 1.0];
 
   return (
-    <div className="flex flex-col items-center gap-2">
+    <div className="flex flex-col items-center gap-2" data-editable="sport.gmeter" data-editable-type="gauge">
       <span className="text-[color:var(--oem-ink-3)] text-[10px] uppercase tracking-widest">G-Metre</span>
       <svg width={SIZE} height={SIZE} viewBox={`0 0 ${SIZE} ${SIZE}`} className="overflow-visible">
         <defs>
@@ -254,7 +254,8 @@ const PeakCard = memo(function PeakCard({
 }) {
   /* Peak rekor kartı → oem yüzey/kenarlık */
   return (
-    <div className="rounded-2xl border border-[var(--oem-line)] bg-[var(--oem-surface-2)] p-4">
+    <div className="rounded-2xl border border-[var(--oem-line)] bg-[var(--oem-surface-2)] p-4"
+      data-editable="sport.peak-card" data-editable-type="card">
       <div className="flex items-center justify-between mb-3">
         <span className="text-[color:var(--oem-ink-3)] text-[10px] uppercase tracking-widest">Oturum Rekoru</span>
         <button

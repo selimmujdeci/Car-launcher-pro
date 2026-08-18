@@ -65,7 +65,8 @@ const DTCCodeCard = memo(function DTCCodeCard({
   const hasFreezeFrame = !!freezeFrame && freezeFrame.dtc === code.code;
 
   return (
-    <div className={`rounded-2xl border p-4 ${cfg.bg} ${cfg.border}`}>
+    <div className={`rounded-2xl border p-4 ${cfg.bg} ${cfg.border}`}
+      data-editable="diagnostics.code-card" data-editable-type="card">
       <div className="flex items-start gap-3">
         <div className="flex-1 min-w-0">
           {/* Code + badge */}

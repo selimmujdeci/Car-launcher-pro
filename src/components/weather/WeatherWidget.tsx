@@ -20,7 +20,8 @@ function windDir(deg: number): string {
 
 const StationCard = memo(function StationCard({ s }: { s: FuelStation }) {
   return (
-    <div className={`flex-shrink-0 w-52 rounded-2xl border p-4 flex flex-col gap-3 ${
+    <div data-editable="weather.station-card" data-editable-type="card"
+      className={`flex-shrink-0 w-52 rounded-2xl border p-4 flex flex-col gap-3 ${
       s.isCheapest
         ? 'bg-[var(--oem-good-soft)] border-[var(--oem-good)]'
         : 'bg-[var(--oem-surface-2)] border-[var(--oem-line)]'
@@ -220,7 +221,7 @@ function Detail({
   icon: typeof Wind; label: string; value: string; color: string;
 }) {
   return (
-    <div className="flex items-center gap-1.5">
+    <div className="flex items-center gap-1.5" data-editable="weather.detail" data-editable-type="card">
       <Icon className={`w-3.5 h-3.5 ${color}`} />
       <div>
         <div className="text-[color:var(--oem-ink-3)] text-[9px] uppercase tracking-wide">{label}</div>
