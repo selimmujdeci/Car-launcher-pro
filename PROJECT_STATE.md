@@ -2,13 +2,45 @@
 
 > Bu dosya projenin **anlık gerçek durumunu** tutar. Ajan/oturum değişince
 > "şu an neredeyiz?" sorusunun cevabı burada. İddialar kod tabanından doğrulandı.
-> Son güncelleme: 2026-07-05.
+> Son güncelleme: 2026-08-18.
+
+> ⚠️ **BOŞLUK NOTU:** 2026-07-05 → 2026-08-18 arası (~6 hafta) bu dosya güncellenmedi;
+> o aralığın kaydı auto-memory sisteminde (`MEMORY.md` indeksi) ve
+> `docs/DEVICE_VALIDATION_LEDGER.md`/`docs/CAROS_PRO_VIZYONU.md`'de. Devralan önce
+> oraya baksın; bu dosyadaki alttaki eski girişler hâlâ doğru ama GÜNCEL DEĞİL.
 
 ---
 
 ## Aktif Branch
 
-- **Aktif branch:** `feat/obd-core-v2` — **push EDİLMEDİ**. (Önceki: `feat/assistant-open-app`, hâlâ merge bekliyor.)
+- **Aktif branch:** `feat/fleet-offline-final-local-completion`.
+
+## ⭐ HARİTA BİLGİ YOĞUNLUĞU — Google Maps karşılaştırması, 4 kök kapatıldı (2026-08-18)
+
+Kullanıcı ekran görüntüsü karşılaştırmasıyla ("aynı gerçek kavşak, dağlar kadar fark")
+CarOS Pro'nun turn-by-turn haritasının Google Maps'e göre çok daha düşük bilgi
+yoğunluğuna (rota üzerinde sokak adı yok, bina/landuse dokusu yok) sahip olduğunu
+bildirdi. `caros-navigation` ajanıyla kök neden analizi + atomik düzeltmeler yapıldı,
+ana oturum bağımsız doğruladı. Tam detay: `HANDOFF.md` "SON İŞ (2026-08-18 #21)".
+
+- **Kök 3 (tanı, kod yok):** Overpass ile ölçüldü — konum Tarsus/Bağlar Mahallesi,
+  Mersin; o bölgede OSM bina/landuse verisi gerçekten neredeyse yok. Kod sorunu değil.
+- **Kök 4 (`c2773564`):** bina 3B opaklık mandalı — 80 km/h sonrası kalıcı 0.4 kilidi
+  düzeltildi, artık gece/gündüz kendi değerine geri dönüyor.
+- **Kök 2 (`1c53a86c`):** vektör→raster sessiz+kalıcı düşüş — LAB artık gerçek render
+  modunu gösteriyor; basemap 30 sn istikrarlı yüklenince vektöre otomatik geri dönülüyor.
+- **Kök 1 (`831ca92f`):** rota bandı üstü sokak adı etiketleri (Google "pill" karşılığı)
+  — yeni `routeStepLabelsModel.ts` + `car-route-step-labels` katmanı, OSRM
+  `RouteStep.streetName` kullanır, uydurma etiket yok. Açık görsel borç: gerçek dolgu
+  "pill" değil, kalın halo.
+
+Doğrulama: her commit'te test+tsc+eslint yeşil, ana oturum ayrıca bağımsız
+`npm run build` koştu (temiz). Tam suite 12443/12443. Kütüğe **#635** eklendi (🔴
+CİHAZDA TEST EDİLMEDİ — 6 somut kabul ölçütü). **Cihaza HİÇBİR ŞEY kurulmadı** —
+ajan görev bitince kendiliğinden APK/cihaz doğrulamasına girişmişti, kullanıcının
+"apk ver diyene kadar apk verme" kalıcı kuralına aykırı olduğu için ana oturum
+durdurdu (pipeline henüz `npm run test` aşamasındaydı, gradle/adb hiç çalışmadı).
+Cihaz doğrulaması kullanıcı isteyince ayrı adımda yapılacak.
 
 ## ⭐ ASİSTAN "OFFLINE'A DÜŞÜYOR" KÖK NEDENİ + ANAHTAR CİHAZ-YEDEĞİ (2026-07-05)
 

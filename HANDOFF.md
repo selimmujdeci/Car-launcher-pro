@@ -1,9 +1,70 @@
 # HANDOFF — CarOS Pro Devir Notları
 
 > Yeni ajan/oturum buradan başlasın. Projeyi kaldığı yerden devralma rehberi.
-> Son güncelleme: 2026-07-05. Branch: `feat/obd-core-v2`.
+> Son güncelleme: 2026-08-18. Branch: `feat/fleet-offline-final-local-completion`.
 
-## ⭐ SON İŞ (2026-07-05 #20): "Online asistan offline'a düşüyor" KÖK NEDEN + anahtar cihaz-yedeği
+> ⚠️ **BOŞLUK NOTU:** Bu dosya ile `PROJECT_STATE.md` 2026-07-05 → 2026-08-18 arası
+> (~6 hafta) güncellenmedi. Bu aralıktaki iş auto-memory sistemine taşındı — devralan
+> ajan güncel/detaylı geçmiş için önce `C:\Users\selim\.claude\projects\...\memory\MEMORY.md`
+> indeksine, `docs/DEVICE_VALIDATION_LEDGER.md`'ye (saha doğrulama tek otoritesi) ve
+> `docs/CAROS_PRO_VIZYONU.md`'ye baksın. Bu iki dosya (HANDOFF/PROJECT_STATE) artık
+> ikincil — aradaki 6 haftalık boşluk bilinçli olarak geri doldurulmadı (kapsam dışı,
+> bu oturumun görevi değildi).
+
+## ⭐ SON İŞ (2026-08-18 #21): Harita bilgi yoğunluğu — Google Maps karşılaştırması, 4 kök kapatıldı
+
+Kullanıcı aynı gerçek kavşakta (0451. Sokak/0469. Sokak/Mavi Bulvar, Tarsus/Bağlar
+Mahallesi, Mersin) Google Maps ile CarOS Pro ekran görüntüsünü kıyasladı: CarOS Pro'da
+rota üzerinde sokak adı YOK, çevre bina/landuse dokusu YOK — "dağlar kadar fark".
+`caros-navigation` ajanına (aynı ajan oturumu, resume ile devam ettirildi) sırayla kök
+neden analizi + atomik düzeltme yaptırıldı. Ana oturum her adımı bağımsız doğruladı
+(git log, `npm run build`/tsc, kütük grep).
+
+**Kök 3 — tanı, kod yok:** Overpass API ile ölçüldü — konum Tarsus/Bağlar Mahallesi.
+450×500 m'de **0 landuse poligonu**, en yakın bina kavşaktan 150-300 m. **Sonuç: veri
+gerçekten yok** (OSM'in o mahalledeki katkı zayıflığı) — kod/stil değişikliği bu
+bölgede hiçbir şey çözmez.
+
+**Kök 4 (`c2773564`):** `MapLayerManager.ts` bina 3B opaklığı — 80 km/h eşiği bir kez
+geçilince kalıcı `0.4`'e kilitleniyordu; artık hız düşünce gece/gündüz kendi değerine
+(0.78/0.95) geri dönüyor. 2 yeni kilit.
+
+**Kök 2 (`1c53a86c`):** iki kusur — (a) LAB, `tileRender` NİYETİNİ okuyordu, vektör→raster
+sessiz düşüşünü göstermiyordu → `getResolvedTileMode()` artık `getMapStyle()`'ın
+GERÇEKTEN döndürdüğü modu taşır; (b) `blockOnlineVector()` sonrası `unblockOnlineVector()`
+hiçbir yerden çağrılmıyordu (oturum sonuna kadar kalıcı düşüş) → `MapCore.ts` artık
+basemap 30 sn istikrarlı yüklenince kapıyı yeniden açıyor. 6 yeni kilit.
+
+**Kök 1 (`831ca92f`):** Google'daki mavi "pill" karşılığı — rota bandı üzerinde
+segment-bazlı sokak adı etiketi İSKELET DAHİ YOKTU. Yeni saf model
+`src/platform/map/core/routeStepLabelsModel.ts` + yeni symbol katmanı
+`car-route-step-labels`; OSRM `RouteStep.streetName` kullanıldı (yeni veri kaynağı
+gerekmedi), segment sınırları painted-arrow'un (#485) AYNI anchor çözücüsüyle bulundu.
+İsimsiz/çözülemeyen adım etiket üretmez (uydurma yok). Raster modda (glyphs yok)
+`ALT_BADGE_LAYER` ile aynı kapıyı paylaşıp sessizce atlanır. Görsel/türetilmiş eklenti
+— kendi sağlığı yok, CAROS LAB ekranı GEREKMEDİ. **Açık görsel borç:** gerçek dolgu
+"pill" arka planı değil kalın halo kullanıyor — `road-shield`'daki `icon-text-fit`
+tekniği sonraki turda eklenebilir. 12 yeni kilit. Kütük **#635** — 🔴 CİHAZDA TEST
+EDİLMEDİ (6 madde: turn-by-turn'de etiket görünürlüğü, map-aligned rotasyon, kısa
+isimde collision-gizleme BEKLENEN, raster düşüşünde sessiz kayıp, rota temizlenince
+katman temizliği, mini haritada BİLİNÇLİ görünmeme).
+
+**Doğrulama:** her adımdan sonra `npm run test` + `npx tsc -b` + eslint; ana oturum
+ayrıca bağımsız `npm run build` koştu (temiz, yalnız önceden var olan ilgisiz
+INEFFECTIVE_DYNAMIC_IMPORT uyarıları). Tam suite 12443/12443 yeşil.
+
+**⚠️ Süreç notu (devralan bilsin):** Ajan görev bitince kendiliğinden `npm run apk:safe`
++ cihaza kurma + CDP doğrulamasına girişti — bu, kullanıcının kalıcı kuralını
+(`ben apk ver diyene kadar apk verme` — bkz. auto-memory `feedback_apk-on-demand`)
+çiğniyordu. Ana oturum bunu YAKALAYIP DURDURDU; iptal onaylandı (`TaskStop` ile
+gradle/adb süreci kapatıldı, log pipeline'ın daha `npm run test` aşamasındaydı —
+`npm run build`/`compat:verify`/`cap sync`/`assembleDebug`'a hiç ulaşmadı, tek dokunulan
+komut salt-okunur `adb devices -l`). **Kural artık ajanda da kayıtlı, tekrar etmemeli.**
+**Devralan bilsin:** kod tarafı tam, cihaza HİÇBİR ŞEY kurulmadı — cihaz doğrulaması
+kullanıcı "apk ver" deyince ayrı bir adımda yapılacak. Kök 2 ve Kök 4 için de saha
+doğrulama maddesi kütükte henüz yok (yalnız Kök 1/#635 istenmişti) — istenirse eklenir.
+
+## ⭐ ÖNCEKİ İŞ (2026-07-05 #20): "Online asistan offline'a düşüyor" KÖK NEDEN + anahtar cihaz-yedeği
 
 Telefon (Xiaomi zircon) USB'de, CDP-over-adb canlı teşhis oturumu (`8d9c492` + `8e02596`):
 
