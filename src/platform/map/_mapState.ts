@@ -256,6 +256,8 @@ export const BADGE_IMAGE_ID  = 'alt-badge-bg'; // C7.3 — premium glassmorphic 
  * kırılmasın). Yeni kod doğrudan `_mapIds`'ten almalıdır.
  */
 export { SHIELD_IMG_DAY, SHIELD_IMG_NIGHT } from './_mapIds';
+/** Rota sokak adı pill arkaplanı — tanım `_mapIds.ts` (aynı leaf ev). */
+export { ROUTE_PILL_IMG_DAY, ROUTE_PILL_IMG_NIGHT } from './_mapIds';
 
 /**
  * Yola boyanmış manevra oku — kaynak ve katman kimlikleri.

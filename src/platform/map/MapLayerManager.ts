@@ -68,6 +68,8 @@ import {
   BADGE_IMAGE_ID,
   SHIELD_IMG_DAY,
   SHIELD_IMG_NIGHT,
+  ROUTE_PILL_IMG_DAY,
+  ROUTE_PILL_IMG_NIGHT,
   PAINTED_ARROW_SRC,
   PAINTED_ARROW_FILL,
   PAINTED_ARROW_EDGE,
@@ -473,6 +475,8 @@ export function applyMapDayNight(night: boolean, mapArg?: ReturnType<typeof useM
   // Boyanmış ok raster yolunda katmanını korur → rengi canlı tazelenmeli.
   // (Vektör yolunda tam restyle olur; `style.load` zaten sıfırlayıp yeniden kurar.)
   setPaintedArrowTheme(map, night);
+  // Rota sokak adı pill'i de raster yolunda katmanını korur → imajı canlı tazelenmeli.
+  setRouteStepLabelsTheme(map, night);
   try {
     // 'tiles-layer' = buildRoadStyle/getOnlineTileStyle standardı; 'osm-tiles'/'osm-layer'
     // eski sabit stillerin id'leri — id eşleşmezse geçiş sessizce no-op oluyordu (gündüz
@@ -839,12 +843,16 @@ function _ensureBadgeImage(map: MapLibreMap): void {
  * ile basar. Bu katman aynı bağlamı verir: SAF modelin (`routeStepLabelsModel`)
  * ürettiği, isimli her rota segmenti için TEK bir ortalanmış etiket.
  *
- * GÖRSEL AÇIK BORÇ (bilinçli, dürüst): Google'daki gerçek dolgu "pill" arka
- * planı DEĞİL, kalın renkli halo kullanılıyor — `road-shield` (E-5/D-100)
- * kalkanındaki `icon-text-fit` canvas-pill tekniği burada TEKRARLANMADI; bu
- * ilk turda işlevsel çekirdek (rota üstünde GERÇEKTEN bir sokak adı var mı)
- * önceliklendirildi. Sprite tabanlı pill sonraki bir turda `ensureRoadShieldImages`
- * ile AYNI desenle eklenebilir.
+ * GÖRSEL BORÇ KAPATILDI (kütük #635 → #638): ilk tur kalın renkli HALO
+ * kullanıyordu (dolgu yok); artık `road-shield` (E-5/D-100) kalkanıyla AYNI
+ * desende — canvas'ta üretilen 9-patch imaj + `icon-text-fit: 'both'` — gerçek
+ * dolgu pill çiziliyor. İkinci bir teknik YAZILMADI, var olan kalkan deseni
+ * tekrar kullanıldı.
+ *
+ * FAIL-SOFT: `icon-optional: true` — imaj herhangi bir nedenle kaydedilememişse
+ * (WebGL restore, bellek baskısı) sembol METNİ yine çizilir; bu yüzden ince
+ * karanlık halo KORUNUR (pill'siz durumda okunabilirlik sigortası). Yani pill
+ * bir SÜS katmanıdır, etiketin varlık koşulu DEĞİLDİR.
  *
  * Saf/görsel bir eklentidir — kendi sağlığı/zamanlaması YOKTUR, CAROS LAB
  * gözlem ekranı gerektirmez (var olan rota geometrisinin türetilmiş görünümü).
@@ -889,6 +897,11 @@ function _applyRouteStepLabels(
     try { if (map.getLayer(ROUTE_STEP_LABELS_LAYER)) map.removeLayer(ROUTE_STEP_LABELS_LAYER); } catch { /* ignore */ }
     try { if (map.getSource(ROUTE_STEP_LABELS_SRC)) map.removeSource(ROUTE_STEP_LABELS_SRC); } catch { /* ignore */ }
     map.addSource(ROUTE_STEP_LABELS_SRC, { type: 'geojson', data });
+    /* İmaj katmandan ÖNCE kaydedilmeli: MapLibre `icon-image` doğrulamasını
+       katman eklenirken yapar ve eksik imaj sahada `icon-image: 'undefined'
+       value invalid` sınıfı reddine yol açar (kalkanda #552'de ölçüldü). */
+    ensureRouteStepPillImages(map);
+    const night = getMapNight();
     map.addLayer({
       id:      ROUTE_STEP_LABELS_LAYER,
       type:    'symbol',
@@ -905,12 +918,26 @@ function _applyRouteStepLabels(
         'text-ignore-placement':   false,
         'text-padding':            6,
         'text-letter-spacing':     0.02,
+        /* Dolgu "pill" — kalkanla AYNI teknik (9-patch + icon-text-fit).
+           Hizalama İKİZLENİR: metin map-rotated/viewport-pitched olduğu için
+           imaj da öyle olmalı, yoksa pill metinden ayrı düzlemde durur. */
+        'icon-image':             night ? ROUTE_PILL_IMG_NIGHT : ROUTE_PILL_IMG_DAY,
+        'icon-text-fit':          'both',
+        'icon-text-fit-padding':  [3, 9, 3, 9], // üst, sağ, alt, sol (px)
+        'icon-rotation-alignment': 'map',
+        'icon-pitch-alignment':    'viewport',
+        'icon-optional':           true,  // imaj yoksa METİN yine çizilir (fail-soft)
+        'icon-allow-overlap':      false,
+        'icon-ignore-placement':   false,
       },
       paint: {
         'text-color':      '#ffffff',
-        'text-halo-color': 'rgba(23,74,196,0.94)', // Google rota etiketi mavisiyle aynı aile
-        'text-halo-width': 3.4,
+        /* Pill geldiği için halo artık ZEMİN değil, yalnız `icon-optional`
+           devreye girerse okunabilirliği koruyan ince sigorta. */
+        'text-halo-color': 'rgba(11,31,84,0.72)',
+        'text-halo-width': 1.1,
         'text-halo-blur':  0.2,
+        'icon-opacity':    1,
       },
     });
   } else {
@@ -1098,6 +1125,89 @@ export function ensureRoadShieldImages(map: MapLibreMap, force?: boolean): void 
       },
     );
   }
+}
+
+/**
+ * Rota sokak adı "pill" arkaplan imajlarını üretir ve kaydeder (gündüz + gece).
+ *
+ * `ensureRoadShieldImages` ile AYNI desen ve AYNI gerekçe: stilde `sprite`
+ * yoktur → arkaplan canvas'ta üretilir (ek asset yok → lisans yüzeyi büyümez,
+ * çevrimdışı çalışır, gündüz/gece ayrı üretilir).
+ *
+ * 9-PATCH ZORUNLU: `icon-text-fit: 'both'` `stretchX/stretchY/content` olmadan
+ * TÜM imajı esnetir → pill'in yuvarlak uçları yamulur ve "Mavi Bulvar" ile
+ * "0451. Sokak" farklı biçimlerde çıkardı. Esneme bölgesi köşe yarıçapının
+ * İÇİNDE kalır, bu yüzden tek imaj her uzunlukta düzgün sarar.
+ *
+ * Stil yeniden yüklenince (gündüz/gece vektör geçişi, WebGL restore) imajlar
+ * GPU'dan silinir; `_applyRouteStepLabels` katmanı yeniden kurarken burayı
+ * yeniden çağırdığı için ek bir `style.load` kancası GEREKMEZ.
+ *
+ * force=true: bayat imajı tazele (aynı kalkan sözleşmesi).
+ */
+export function ensureRouteStepPillImages(map: MapLibreMap, force?: boolean): void {
+  const PR = 2;                                   // HiDPI: 2x çiz, pixelRatio 2 bildir
+  const W = 44 * PR, H = 22 * PR, R = H / 2;      // R = H/2 → tam yuvarlak uç (Google pill)
+
+  for (const [id, night] of [[ROUTE_PILL_IMG_DAY, false], [ROUTE_PILL_IMG_NIGHT, true]] as const) {
+    if (!force && map.hasImage(id)) continue;
+    if (map.hasImage(id)) { try { map.removeImage(id); } catch { /* ignore */ } }
+
+    const canvas = document.createElement('canvas');
+    canvas.width = W; canvas.height = H;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) continue;
+
+    ctx.beginPath();
+    ctx.moveTo(R, 0);
+    ctx.lineTo(W - R, 0); ctx.arcTo(W, 0, W, R, R);
+    ctx.lineTo(W, H - R); ctx.arcTo(W, H, W - R, H, R);
+    ctx.lineTo(R, H);     ctx.arcTo(0, H, 0, H - R, R);
+    ctx.lineTo(0, R);     ctx.arcTo(0, 0, R, 0, R);
+    ctx.closePath();
+
+    /* Rota mavisiyle aynı aile; gece MUTLAK yüzey parlaklığı düşürülür
+       (kütük #622 dersi: gece kararması oran değil MUTLAK parlaklık işidir).
+       Beyaz metinle kontrast gündüz ~7,7:1, gece ~10:1 — OEM okunabilirlik. */
+    ctx.fillStyle = night ? '#123a99' : '#1a4fd0';
+    ctx.fill();
+    /* İnce çerçeve: pill rota çizgisinin ÜSTÜNDE durur ve ikisi de mavidir —
+       çerçeve olmadan bant ile pill birbirine karışır. */
+    ctx.strokeStyle = night ? 'rgba(226,232,240,0.55)' : 'rgba(255,255,255,0.92)';
+    ctx.lineWidth = 1.4 * PR;
+    ctx.stroke();
+
+    const imgData = ctx.getImageData(0, 0, W, H);
+    map.addImage(
+      id,
+      { width: W, height: H, data: new Uint8Array(imgData.data.buffer) },
+      {
+        pixelRatio: PR,
+        stretchX: [[R + 2 * PR, W - R - 2 * PR]],
+        stretchY: [[H / 2 - 1 * PR, H / 2 + 1 * PR]],
+        content:  [R * 0.5, 3 * PR, W - R * 0.5, H - 3 * PR],
+      },
+    );
+  }
+}
+
+/**
+ * Gün/gece geçişinde pill imajını canlı değiştirir (katman yeniden kurulmaz).
+ *
+ * NEDEN GEREKLİ: raster yolunda `applyMapDayNight` RESTYLE YAPMAZ — katman
+ * ayakta kalır, yani `icon-image` elle tazelenmezse gece haritada gündüz pill'i
+ * kalırdı (painted-arrow'da aynı kusur `setPaintedArrowTheme` ile kapatılmıştı).
+ */
+export function setRouteStepLabelsTheme(map: MapLibreMap | null, night: boolean): void {
+  if (!map || !map.isStyleLoaded() || !map.getLayer(ROUTE_STEP_LABELS_LAYER)) return;
+  try {
+    /* İmaj stille birlikte silinmiş olabilir (vektör restyle) — önce garanti et. */
+    ensureRouteStepPillImages(map);
+    map.setLayoutProperty(
+      ROUTE_STEP_LABELS_LAYER, 'icon-image',
+      night ? ROUTE_PILL_IMG_NIGHT : ROUTE_PILL_IMG_DAY,
+    );
+  } catch { /* stil geçişi — bir sonraki _applyRouteStepLabels doğru variantı kurar */ }
 }
 
 function _startLightTrail(): void {

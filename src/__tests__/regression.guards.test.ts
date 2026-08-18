@@ -6901,6 +6901,71 @@ describe('Rota bandı üstü sokak adı etiketleri — kablo kilitleri (kök 1)'
       .toMatch(/_applyRouteStepLabels\(map, coords as \[number, number\]\[\], steps, _glyphsOk\)/);
   });
 
+  /* ── #638: ilk turun AÇIK GÖRSEL BORCU kapatıldı — halo yerine gerçek
+     dolgu "pill" (kalkanla AYNI 9-patch + icon-text-fit tekniği). Bu dört kilit
+     borcun sessizce geri açılmasını (pill'in kaldırılması, imajın katmandan
+     SONRA kaydedilmesi, hizalamanın metinden ayrışması, gece variantının
+     unutulması) engeller. ─────────────────────────────────────────────────── */
+  it('KAYNAK: etiket katmanı gerçek dolgu pill kullanır (icon-text-fit) — halo tek başına ZEMİN değil', () => {
+    const fnMatch = mapLayerManagerSrc.match(
+      /function _applyRouteStepLabels\([\s\S]*?\n\}/,
+    )?.[0] ?? '';
+    expect(fnMatch, 'fonksiyon bulunamadı').not.toBe('');
+    expect(fnMatch, 'pill imajı katmana bağlanmamış')
+      .toMatch(/'icon-image':\s*night \? ROUTE_PILL_IMG_NIGHT : ROUTE_PILL_IMG_DAY/);
+    expect(fnMatch, "icon-text-fit 'both' olmalı — yoksa pill metni sarmaz").toMatch(/'icon-text-fit':\s*'both'/);
+    expect(fnMatch, 'imaj düşerse metin kaybolmamalı (fail-soft)').toMatch(/'icon-optional':\s*true/);
+    /* Halo artık ZEMİN değil ince sigorta: kalın halo geri gelirse pill'in
+       üstüne ikinci bir zemin biner ve #635'in görsel borcu başka biçimde
+       geri döner. */
+    const haloWidth = fnMatch.match(/'text-halo-width':\s*([\d.]+)/)?.[1];
+    expect(haloWidth, 'text-halo-width okunamadı').toBeTruthy();
+    expect(Number(haloWidth)).toBeLessThan(2);
+  });
+
+  it('KAYNAK: pill imajı katman eklenmeden ÖNCE kaydedilir (#552 icon-image undefined sınıfı)', () => {
+    const fnMatch = mapLayerManagerSrc.match(
+      /function _applyRouteStepLabels\([\s\S]*?\n\}/,
+    )?.[0] ?? '';
+    const ensurePos = fnMatch.indexOf('ensureRouteStepPillImages(map)');
+    const addPos    = fnMatch.indexOf('map.addLayer(');
+    expect(ensurePos, 'imaj kaydı hiç çağrılmıyor').toBeGreaterThan(-1);
+    expect(addPos).toBeGreaterThan(-1);
+    expect(ensurePos, 'imaj katmandan SONRA kaydediliyor — MapLibre katmanı reddeder').toBeLessThan(addPos);
+  });
+
+  it('KAYNAK: pill imajı 9-patch kaydedilir (stretchX/stretchY/content) — köşe yamulmasın', () => {
+    const fnMatch = mapLayerManagerSrc.match(
+      /export function ensureRouteStepPillImages\([\s\S]*?\n\}/,
+    )?.[0] ?? '';
+    expect(fnMatch, 'ensureRouteStepPillImages bulunamadı').not.toBe('');
+    expect(fnMatch).toMatch(/stretchX:/);
+    expect(fnMatch).toMatch(/stretchY:/);
+    expect(fnMatch).toMatch(/content:/);
+    /* Gündüz VE gece variantı — tek imajla yetinilirse gece harita gündüz
+       pill'ini taşır (kütük #622'nin mutlak parlaklık dersi). */
+    expect(fnMatch).toMatch(/ROUTE_PILL_IMG_DAY/);
+    expect(fnMatch).toMatch(/ROUTE_PILL_IMG_NIGHT/);
+  });
+
+  it('KAYNAK: pill hizalaması metinle İKİZ + gün/gece raster yolunda canlı tazelenir', () => {
+    const fnMatch = mapLayerManagerSrc.match(
+      /function _applyRouteStepLabels\([\s\S]*?\n\}/,
+    )?.[0] ?? '';
+    /* Metin map-rotated + viewport-pitched; imaj aynı olmazsa pill metinden
+       ayrı düzlemde durur (yamuk zemin). */
+    expect(fnMatch).toMatch(/'icon-rotation-alignment':\s*'map'/);
+    expect(fnMatch).toMatch(/'icon-pitch-alignment':\s*'viewport'/);
+    /* Raster yolunda applyMapDayNight RESTYLE YAPMAZ → icon-image elle tazelenmeli
+       (painted-arrow'da aynı kusur `setPaintedArrowTheme` ile kapatılmıştı). */
+    const themeFn = mapLayerManagerSrc.match(
+      /export function applyMapDayNight\([\s\S]*?\n\}/,
+    )?.[0] ?? '';
+    expect(themeFn, 'applyMapDayNight bulunamadı').not.toBe('');
+    expect(themeFn, 'gece geçişinde pill gündüz variantında kalır')
+      .toMatch(/setRouteStepLabelsTheme\(map, night\)/);
+  });
+
   it('KAYNAK: yeni katman z-order listesinde (rota çekirdeğinin üstü, araç marker\'ının altı)', () => {
     const orderMatch = mapLayerManagerSrc.match(
       /for \(const id of \[ALT_FILL[\s\S]*?\]\) \{/,

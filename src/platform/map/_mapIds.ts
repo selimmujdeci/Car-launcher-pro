@@ -38,6 +38,21 @@ export const SHIELD_IMG_DAY   = 'road-shield-day';
 export const SHIELD_IMG_NIGHT = 'road-shield-night';
 
 /**
+ * Rota bandı üstü sokak adı "pill" arkaplan imajları (kütük #635 görsel borcu).
+ *
+ * Kalkanla AYNI gerekçe: stilde `sprite` YOKTUR → arkaplan çalışma zamanında
+ * canvas'ta üretilip `addImage` ile kaydedilir. Gündüz/gece ayrı imaj; ikisi de
+ * 9-patch (`stretchX/stretchY/content`) olarak kaydedilir ki `icon-text-fit`
+ * "0451. Sokak" ile "Mavi Bulvar"ı AYNI imajla, köşe yarıçapı yamulmadan sarsın.
+ *
+ * ⚠️ Kimlikler burada durur (leaf) — imajı üreten ve katmanı kuran taraf aynı
+ * modül olsa bile, kalkanda sahada ölçülen `icon-image: 'undefined'` sınıfı
+ * kusurun (#552) tekrar etmemesi için tek ev korunur.
+ */
+export const ROUTE_PILL_IMG_DAY   = 'route-step-pill-day';
+export const ROUTE_PILL_IMG_NIGHT = 'route-step-pill-night';
+
+/**
  * Harita arka plan token'ları — gece/gündüz (tek kaynak).
  *
  * ── NEDEN BURAYA TAŞINDI (kütük #605 · 2026-08-16) ──────────────────────────
