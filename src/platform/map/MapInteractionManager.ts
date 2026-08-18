@@ -19,6 +19,9 @@ import {
   clampTopPadForVehicle,
   isVehicleFramed,
 } from '../cameraEngine';
+import {
+  resolveEntryBearing, type EntryBearingDecision,
+} from '../navigation/core/navigationEntryBearing';
 import { useHazardStore } from '../../store/useHazardStore';
 import {
   M,
@@ -637,17 +640,44 @@ export function setDrivingView(
   }
 }
 
+/* ── Giriş kamerası yön kararının GÖZLEM YANKISI (#625) ────────────────────
+ * Kararın gerekçesi CAROS LAB'da okunabilsin diye saklanır. Tek nesne,
+ * büyümez, geçmiş tutmaz; ürün akışını hiçbir şekilde etkilemez. */
+let _lastEntryBearing: (EntryBearingDecision & { at: number }) | null = null;
+
+/** Son giriş kamerası yön kararı — hiç girilmediyse null. */
+export function getLastEntryBearingDecision(): (EntryBearingDecision & { at: number }) | null {
+  return _lastEntryBearing;
+}
+
+/** Test yalıtımı — üretim yolunda ÇAĞRILMAZ. */
+export function _resetEntryBearingForTest(): void { _lastEntryBearing = null; }
+
 /**
  * Navigation entry animation — called ONCE when the user taps "Başlat".
  *
- * @param bearing  Initial bearing in degrees (first route step direction or GPS heading)
+ * ── #625: YÖN ARTIK KARARA BAĞLI ────────────────────────────────────────────
+ * Eskiden bu fonksiyon HER çağrı yerinde `headingRef.current ?? 0` ile, yani
+ * ham GPS heading (ya da kuzey) ile çağrılıyordu — dokümantasyonu "first route
+ * step direction or GPS heading" dediği hâlde rota yönü hiç kullanılmıyordu.
+ * Cihazda ölçülen sonuç: park hâlindeki araçta kamera rotanın 257° tersine
+ * kuruldu ve rotanın 309 noktasının **0'ı** ekranda kaldı; araç hareket
+ * etmediği için hiçbir kod bunu düzeltmedi (`setDrivingView`in yön düzeltmesi
+ * >5 km/h ister). Karar artık `resolveEntryBearing` içinde ve gerekçesiyle
+ * birlikte saklanıyor.
+ *
+ * @param gpsHeading      Ham GPS heading (derece) — durağan araçta ANLAMSIZDIR.
+ * @param routeBearing    Rotanın ileri yönü (`resolveRouteForwardBearing`), yoksa null.
+ * @param speedKmh        Anlık hız; bilinmiyorsa null → DURAĞAN varsayılır (fail-safe).
  */
 export function enterNavigationView(
   map: MapLibreMap,
   lat: number,
   lng: number,
-  bearing: number,
+  gpsHeading: number,
   containerHeight: number,
+  routeBearing?: number | null,
+  speedKmh?: number | null,
 ) {
   // easeTo kamera işlemi stil gerektirmez — isStyleLoaded() tile yüklenirken de
   // false döndüğünden "Başlat" anında giriş animasyonunu sessizce yutuyordu
@@ -657,6 +687,22 @@ export function enterNavigationView(
   const TARGET_ZOOM    = 18.0; // Yakın yol detayı
   const TARGET_PITCH   = 38;   // 40°+ üzerinde siyah köşe riski artar
   const DURATION_MS    = 1000; // Yumuşak giriş animasyonu
+
+  let _curBear: number | null = null;
+  try { _curBear = map.getBearing(); } catch { _curBear = null; }
+
+  const _decision = resolveEntryBearing({
+    routeBearing: routeBearing ?? null,
+    gpsHeading: Number.isFinite(gpsHeading) ? gpsHeading : null,
+    speedKmh: speedKmh ?? null,
+    currentBearing: _curBear,
+  });
+  _lastEntryBearing = { ..._decision, at: Date.now() };
+
+  /* `bearing === null` = "kamerayı döndürme". Mevcut yön okunamadıysa (harita
+     bozuk) 0'a düşmek zorundayız; ama bu artık bir VARSAYILAN değil, ölçülmüş
+     bir yokluğun son çaresidir. */
+  const bearing = _decision.bearing ?? _curBear ?? 0;
 
   // Smooth camera state'i giriş noktasıyla eşitle — ilk tick'te jump olmasın
   resetCameraSmooth({ zoom: TARGET_ZOOM, pitch: TARGET_PITCH, lookAheadM: 30, bearing });

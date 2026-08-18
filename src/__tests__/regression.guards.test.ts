@@ -6627,3 +6627,59 @@ describe('#597 · araç içi tema editörü GERİ GELMEZ', () => {
     expect(s, 'sökülen store yeniden bağlanmış').not.toMatch(/useEditStore/);
   });
 });
+
+/* ───────────────────────────────────────────────────────────────
+   #625 — GİRİŞ KAMERASI HAM GPS HEADING'E BAĞLANAMAZ
+   Regresyon (CİHAZDA ÖLÇÜLDÜ 2026-08-18 07:31, Xiaomi 23090RA98I):
+   `enterNavigationView` altı çağrı yerinin HEPSİNDE `headingRef.current ?? 0`
+   ile çağrılıyordu. Park hâlindeki araçta GPS heading fiziksel olarak
+   anlamsızdır (Doppler yok) ve `?? 0` kamerayı kuzeye çevirir. Ölçülen sonuç:
+   kamera −42,5° (kuzeybatı) bakarken rota güneybatıya gidiyordu; rotanın
+   309 noktasının **0'ı** ekranda kaldı ve MapLibre 5 katmanın hiçbirini
+   çizmedi — BOYA KUSURSUZ olduğu hâlde rota GÖRÜNMÜYORDU.
+   Kural: giriş kamerasının yönü bir KARARDAN gelir (`resolveEntryBearing`);
+   durağan araçta rota yönü GPS heading'i EZER.
+   ─────────────────────────────────────────────────────────────── */
+describe('#625 giriş kamerası yön kararı kilidi (rota ekrandan çıkıyordu)', () => {
+  it('DAVRANIŞ: park hâlinde rota yönü uygulanır, GPS heading DEĞİL', async () => {
+    const { resolveEntryBearing } =
+      await import('../platform/navigation/core/navigationEntryBearing');
+    const d = resolveEntryBearing({
+      routeBearing: 215, gpsHeading: -42.5, speedKmh: 0, currentBearing: -42.5,
+    });
+    expect(d.source, 'durağan araçta yine GPS heading uygulanıyor').toBe('ROUTE');
+    expect(d.bearing).toBe(215);
+  });
+
+  it('DAVRANIŞ: hareket hâlinde GPS heading üstünlüğü KORUNUR', async () => {
+    const { resolveEntryBearing } =
+      await import('../platform/navigation/core/navigationEntryBearing');
+    const d = resolveEntryBearing({
+      routeBearing: 215, gpsHeading: 30, speedKmh: 90, currentBearing: 0,
+    });
+    expect(d.source).toBe('GPS_HEADING');
+    expect(d.bearing).toBe(30);
+  });
+
+  it('KAYNAK: `enterNavigationView` yön kararını İÇERİDE verir', () => {
+    expect(mapInteractionManagerSrc, 'giriş kamerası karara bağlı değil')
+      .toContain('resolveEntryBearing');
+  });
+
+  it('KAYNAK: çağrı yerleri rota yönünü GEÇİRİR (ham heading yalnız başına yetmez)', () => {
+    const full = read('src/components/map/FullMapView.tsx');
+    const calls = full.split('enterNavigationView(').length - 1;
+    expect(calls, 'çağrı yeri kalmamış — kilit anlamsızlaştı').toBeGreaterThan(1);
+    /* Her çağrı `entryBearingArgs` ile beslenmeli; biri kaçarsa o yol eski
+       kusuru geri getirir (kamera rotanın tersine kurulur). */
+    const fed = full.split('...entryBearingArgs(').length - 1;
+    expect(fed, `${calls} çağrıdan yalnız ${fed} tanesi rota yönü geçiriyor`)
+      .toBe(calls);
+  });
+
+  it('KAYNAK: "aracı ortala" mini haritada da rota yönünü geçirir', () => {
+    const mini = read('src/components/map/MiniMapWidget.tsx');
+    expect(mini, 'mini haritada rota yönü otoritesi kullanılmıyor')
+      .toContain('resolveRouteForwardBearing');
+  });
+});

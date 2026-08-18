@@ -51,6 +51,14 @@ export interface RouteLayerView {
   readonly probeNote: string;
   readonly rows: readonly RouteLayerRow[];
   readonly layerRows: readonly RouteLayerRow[];
+  /**
+   * #625 — "rota ekranda mı" ölçümü. Ölçülmediyse TEK bir UNAVAILABLE satır
+   * döner; boş dizi DÖNMEZ, çünkü ölçümün yokluğu da beyan edilmesi gereken
+   * bir gerçektir ("ölçmedim" ≠ "sorun yok").
+   */
+  readonly visibilityRows: readonly RouteLayerRow[];
+  /** Görünürlük GERÇEKTEN ölçülebildi mi — ekranın hüküm metnini belirler. */
+  readonly visibilityMeasured: boolean;
   readonly findings: readonly RouteLayerFinding[];
 }
 
@@ -118,6 +126,81 @@ export function deriveRouteFindings(
       evidence: 'Fotoğraf çekildiğinde MapLibre örneği mevcut değildi; katman okunamaz.',
     });
     return out;
+  }
+
+  /* ══════════════════════════════════════════════════════════════════════════
+   * GÖRÜNÜRLÜK KURALLARI — PAINT KURALLARINDAN ÖNCE (#625).
+   *
+   * Sıra bilinçlidir: rota EKRANDA çizilmiyorsa boyanın doğruluğu tartışması
+   * anlamsızdır. Cihazda ölçüldü (2026-08-18): boya kusursuzdu (çekirdek
+   * `#79b0ff`, WCAG parlaklık 0,424 = hedefin birebir kendisi) ama MapLibre
+   * rotayı HİÇ çizmiyordu — 309 noktanın 0'ı görüş alanındaydı. O turda bu
+   * ekranın TÜM paint kuralları sessiz kalırdı ve "kök adayı yok" derdi.
+   * ════════════════════════════════════════════════════════════════════════ */
+  const vis = probe.visibility;
+  if (vis && vis.sampled !== null && vis.sampled > 0) {
+    const camTxt = vis.bearing === null ? 'okunamadı' : `${Math.round(vis.bearing)}°`;
+    const rtTxt  = vis.routeBearing === null ? 'okunamadı' : `${Math.round(vis.routeBearing)}°`;
+    const dTxt   = vis.bearingDeltaDeg === null ? '—' : `${Math.round(vis.bearingDeltaDeg)}°`;
+    const vpTxt  = vis.viewportW !== null && vis.viewportH !== null
+      ? `${vis.viewportW}×${vis.viewportH}` : 'okunamadı';
+    const renderTxt = vis.renderedFeatures === null
+      ? 'ölçülmedi'
+      : `${vis.renderedFeatures} özellik`;
+
+    if (vis.onScreen === 0) {
+      out.push({
+        id: 'route-off-screen', severity: 'ROOT',
+        title: 'Rota EKRANDA ÇİZİLMİYOR — görüş alanının tamamen DIŞINDA',
+        evidence: `Haritaya yazılı ${vis.totalPoints ?? '?'} noktadan örneklenen `
+          + `${vis.sampled} noktanın **0**'ı görüş alanında (${vpTxt} px). `
+          + `MapLibre render kanıtı: ${renderTxt}. `
+          + `Kamera ${camTxt} · rota yönü ${rtTxt} · fark ${dTxt}. `
+          + 'Boya doğru olsa bile rota GÖRÜNMEZ; kök boyada DEĞİL, KAMERADADIR.',
+      });
+    } else if (vis.headOnScreen === 0) {
+      out.push({
+        id: 'route-head-off-screen', severity: 'ROOT',
+        title: 'Rotanın BAŞI ekran dışında — önündeki yol görünmüyor',
+        evidence: `Rotanın ilk çeyreğinden ${vis.headSampled ?? '?'} örneğin **0**'ı `
+          + `görüş alanında; yalnız uzak kısmı (${vis.onScreen}/${vis.sampled}) görünüyor. `
+          + `Kamera ${camTxt} · rota yönü ${rtTxt} · fark ${dTxt}. `
+          + 'Sürücü gideceği yolu göremez — navigasyon işlevi kaybolmuştur.',
+      });
+    }
+
+    /* Kamera rotanın tersine bakıyor — rota şu an kısmen görünse bile bu
+       kararsız bir çerçevedir ve ilk harekette rota ekrandan çıkar. */
+    if (vis.bearingDeltaDeg !== null && vis.bearingDeltaDeg > 90) {
+      out.push({
+        id: 'camera-against-route', severity: 'WARN',
+        title: 'Kamera rotanın TERSİNE bakıyor',
+        evidence: `Kamera ${camTxt} · rota yönü ${rtTxt} · fark ${dTxt} (>90°). `
+          + 'Durağan araçta GPS heading fiziksel olarak anlamsızdır (Doppler yok); '
+          + 'giriş kamerası yönü rotadan almazsa bu sapma oluşur.',
+      });
+    }
+
+    /* Türetilen ölçüm ile MapLibre'nin GÖZLENEN render'ı çelişiyor — biri
+       yanlıştır ve hangisi olduğu ölçülmeden kök ilan EDİLEMEZ. */
+    if (vis.renderedFeatures === 0 && vis.onScreen !== null && vis.onScreen > 0) {
+      out.push({
+        id: 'render-contradiction', severity: 'WARN',
+        title: 'ÇELİŞKİ: nokta görüş alanında ama MapLibre hiçbir şey çizmiyor',
+        evidence: `${vis.onScreen}/${vis.sampled} örnek görüş alanında ama `
+          + 'render edilen rota özelliği 0. Katman gizli/boş olabilir ya da '
+          + 'geometri yankısı haritadaki veriden FARKLI (kırpma yazımı kaçmış olabilir).',
+      });
+    }
+
+    if (vis.geometryAgeMs !== null && vis.geometryAgeMs > ROUTE_PROBE_FRESH_WINDOW_MS) {
+      out.push({
+        id: 'geometry-echo-stale', severity: 'INFO',
+        title: 'Geometri yankısı bayat',
+        evidence: `Rota geometrisi ${Math.round(vis.geometryAgeMs / 1000)} sn önce yazılmış — `
+          + 'görünürlük ölçümü o geometriye dayanır.',
+      });
+    }
   }
 
   const core = probe.layers.find((l) => l.id === 'selected-route-layer') ?? null;
@@ -247,6 +330,8 @@ export function buildRouteLayerView(
       probeNote: 'Rota boyası bu oturumda hiç yazılmadı — fotoğraf yok. Rota çizdirince dolar.',
       rows: [UNAVAILABLE_ROW('probe', 'Fotoğraf', 'Kaynak yok.')],
       layerRows: [],
+      visibilityRows: [UNAVAILABLE_ROW('vis', 'Rota ekranda mı', 'Fotoğraf yok — ölçülemedi.')],
+      visibilityMeasured: false,
       findings: [],
     };
   }
@@ -321,6 +406,64 @@ export function buildRouteLayerView(
       : 'Düşük-uçta gölge/halo/akış bilerek kurulmaz.',
   }));
 
+  /* ── GÖRÜNÜRLÜK SATIRLARI (#625) ─────────────────────────────────────────
+     Ölçüm yoksa TEK bir UNAVAILABLE satır — sahte 0 / sahte "görünüyor" YOK. */
+  const v = probe.visibility;
+  const visMeasured = !!v && v.sampled !== null && v.sampled > 0;
+  const visibilityRows: RouteLayerRow[] = [];
+  if (!v) {
+    visibilityRows.push(UNAVAILABLE_ROW('vis-none', 'Rota ekranda mı',
+      'Bu fotoğraf görünürlük ölçümü TAŞIMIYOR (sıcak yolda alınmış). YENİLE ile ölçülür.'));
+  } else if (!visMeasured) {
+    visibilityRows.push(UNAVAILABLE_ROW('vis-nogeom', 'Rota ekranda mı',
+      v.totalPoints === null
+        ? 'Haritaya yazılmış rota geometrisi YOK — ölçülecek bir rota bulunmuyor.'
+        : 'Görüş alanı okunamadı (harita kabı ölçülemedi).'));
+  } else {
+    visibilityRows.push({
+      id: 'vis-onscreen', label: 'Görüş alanındaki nokta',
+      value: `${v.onScreen}/${v.sampled}`,
+      klass: 'DERIVED',
+      note: `Haritaya yazılı ${v.totalPoints} noktadan örneklendi; ufuk-ötesi noktalar `
+        + 'gidiş-dönüş projeksiyonuyla ELENDİ (eğik kamerada arkadaki noktalar da '
+        + 'ekran koordinatı üretir).',
+    });
+    visibilityRows.push({
+      id: 'vis-head', label: 'Rotanın BAŞI görünür mü',
+      value: `${v.headOnScreen}/${v.headSampled}`,
+      klass: 'DERIVED',
+      note: 'Sürücünün gideceği ilk kısım. 0 ise rota ekranda olsa bile navigasyon işlevsizdir.',
+    });
+    visibilityRows.push(
+      v.renderedFeatures === null
+        ? UNAVAILABLE_ROW('vis-rendered', 'MapLibre render kanıtı', 'Bu okumada sorulmadı.')
+        : {
+          id: 'vis-rendered', label: 'MapLibre render kanıtı',
+          value: `${v.renderedFeatures} özellik`,
+          klass: 'OBSERVED' as Observability,
+          note: 'queryRenderedFeatures — MapLibre\'nin KENDİ ölçümü. Yukarıdaki türetilen '
+            + 'sayımla çelişirse ölçüm güvenilmez demektir.',
+        },
+    );
+    visibilityRows.push({
+      id: 'vis-camera', label: 'Kamera / rota yönü',
+      value: `${v.bearing === null ? '—' : Math.round(v.bearing) + '°'}`
+        + ` / ${v.routeBearing === null ? '—' : Math.round(v.routeBearing) + '°'}`
+        + ` · fark ${v.bearingDeltaDeg === null ? '—' : Math.round(v.bearingDeltaDeg) + '°'}`,
+      klass: v.bearing === null || v.routeBearing === null ? 'UNAVAILABLE' : 'DERIVED',
+      note: 'Durağan araçta GPS heading anlamsızdır (Doppler yok); giriş kamerası '
+        + 'yönü rotadan almalıdır.',
+    });
+    visibilityRows.push({
+      id: 'vis-viewport', label: 'Görüş alanı · zoom · pitch',
+      value: `${v.viewportW ?? '—'}×${v.viewportH ?? '—'} px`
+        + ` · z=${v.zoom === null ? '—' : v.zoom.toFixed(1)}`
+        + ` · pitch ${v.pitch === null ? '—' : Math.round(v.pitch) + '°'}`,
+      klass: 'OBSERVED',
+      note: 'CSS pikseli — `map.project` bu ölçekte çalışır.',
+    });
+  }
+
   return {
     probeAgeMs: ageMs,
     probeKlass: stale ? 'STALE' : 'OBSERVED',
@@ -329,6 +472,8 @@ export function buildRouteLayerView(
       : `Fotoğraf ${Math.round(ageMs / 1000)} sn önce alındı.`,
     rows,
     layerRows,
+    visibilityRows,
+    visibilityMeasured: visMeasured,
     findings: deriveRouteFindings(probe, decision),
   };
 }

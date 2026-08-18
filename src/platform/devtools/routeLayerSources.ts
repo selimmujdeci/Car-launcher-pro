@@ -44,7 +44,10 @@ export function readRouteLayerSnapshot(): RouteLayerRawSnapshot {
   let probe: RouteLayerProbe | null = null;
   let live = false;
   if (map) {
-    probe = _safe(() => captureRouteLayerProbe(map, 'manual'));
+    /* #625 — ELLE okumada görünürlük de ölçülür (`withVisibility`): "boya doğru
+       ama rota ekranda YOK" kökü yalnız burada görülebilir. Sıcak yolda saklanan
+       fotoğraf bu ölçümü TAŞIMAZ (pahalı) → orada alan `null` kalır. */
+    probe = _safe(() => captureRouteLayerProbe(map, 'manual', true));
     /* Harita var ama rota katmanları yoksa canlı fotoğraf "boş" olur; böyle bir
        durumda saklanan fotoğraf DAHA BİLGİLENDİRİCİDİR (rota en son nasıl
        boyanmıştı). Canlıyı yalnız gerçekten katman gördüysek üstün tutarız. */

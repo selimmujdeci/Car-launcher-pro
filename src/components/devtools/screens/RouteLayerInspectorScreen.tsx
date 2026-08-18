@@ -144,8 +144,13 @@ export const RouteLayerInspectorScreen = memo(function RouteLayerInspectorScreen
       >
         {roots.length > 0
           ? <>KÖK ADAYI BULUNDU: {roots.length} adet</>
-          : <>KÖK ADAYI YOK — bu, "rota doğru görünüyor" DEMEK DEĞİLDİR; yalnız
-              bu ekranın bildiği kuralların hiçbiri tetiklenmedi.</>}
+          : view.visibilityMeasured
+            ? <>KÖK ADAYI YOK — rota GÖRÜNÜRLÜĞÜ ölçüldü ve boya kuralları da temiz.
+                Yine de bu "ekranda doğru görünüyor" DEMEK DEĞİLDİR: piksel
+                parlaklığı yalnız `adb screencap` ile ölçülür.</>
+            : <>KÖK ADAYI YOK — ama GÖRÜNÜRLÜK ÖLÇÜLMEDİ. Bu, "rota doğru
+                görünüyor" DEMEK DEĞİLDİR; rota ekranın tamamen dışında olsa
+                bile paint kuralları sessiz kalır (#625'te cihazda ölçüldü).</>}
       </div>
 
       {/* Bulgular */}
@@ -176,6 +181,18 @@ export const RouteLayerInspectorScreen = memo(function RouteLayerInspectorScreen
         </div>
       )}
 
+      {/* Görünürlük — "boya doğru" ile "ekranda var" AYNI ŞEY DEĞİLDİR (#625) */}
+      <div
+        data-testid="rl-visibility"
+        data-measured={view.visibilityMeasured ? '1' : '0'}
+        className="shrink-0 rounded border border-[var(--oem-line)] bg-[var(--oem-surface-1)]"
+      >
+        <div className="border-b border-[var(--oem-line)] px-3 py-1.5 font-mono text-[11px] uppercase tracking-wide text-[var(--oem-info)]">
+          Rota Ekranda mı (görünürlük)
+        </div>
+        {view.visibilityRows.map((r) => <Row key={r.id} row={r} />)}
+      </div>
+
       {/* Yığın gerçeği */}
       <div className="shrink-0 rounded border border-[var(--oem-line)] bg-[var(--oem-surface-1)]">
         <div className="border-b border-[var(--oem-line)] px-3 py-1.5 font-mono text-[11px] uppercase tracking-wide text-[var(--oem-info)]">
@@ -197,11 +214,13 @@ export const RouteLayerInspectorScreen = memo(function RouteLayerInspectorScreen
       </div>
 
       <p className="shrink-0 pb-2 font-mono text-[9px] leading-relaxed text-[var(--oem-ink-3)]">
-        KAPSAM SINIRI (dürüstlük): bu ekran haritanın PAINT SÖZLEŞMESİNİ okur —
-        ekranda gerçekten hangi pikselin çizildiğini ÖLÇMEZ. WebGL çıktısı
-        yalnız `adb screencap` ile ölçülür (CDP ekran görüntüsü WebGL'i yakalamaz).
-        "Paint doğru" ile "ekranda doğru görünüyor" AYNI ŞEY DEĞİLDİR; bu ekran
-        ikisini birbirine karıştırmaz.
+        KAPSAM SINIRI (dürüstlük): bu ekran haritanın PAINT SÖZLEŞMESİNİ ve
+        rotanın GÖRÜŞ ALANINDA olup olmadığını okur — ekranda gerçekten hangi
+        pikselin çizildiğini ÖLÇMEZ. WebGL çıktısı yalnız `adb screencap` ile
+        ölçülür (CDP ekran görüntüsü WebGL'i yakalamaz). "Paint doğru" ile
+        "ekranda doğru görünüyor" AYNI ŞEY DEĞİLDİR; bu ekran ikisini birbirine
+        karıştırmaz. #625'te cihazda ölçüldü: boya kusursuzken rota görüş
+        alanının tamamen dışındaydı ve paint kurallarının hiçbiri tetiklenmedi.
       </p>
     </div>
   );

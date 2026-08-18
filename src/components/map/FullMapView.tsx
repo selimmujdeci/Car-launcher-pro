@@ -92,6 +92,7 @@ import {
   selectAltRoute,
   registerNavigationStyleCallback,
 } from '../../platform/routingService';
+import { resolveRouteForwardBearing } from '../../platform/navigation/core/navigationEntryBearing';
 import { useStore } from '../../store/useStore';
 import { showToast } from '../../platform/errorBus';
 import { MapOverlay } from './MapOverlay';
@@ -633,6 +634,27 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
    * `requestFollow`u deps'e eklemek TDZ (ReferenceError) üretirdi ve bu yüzden
    * eksik-bağımlılık uyarısı "çözülemez" görünürdü. Tanım yukarı alınınca deps
    * dürüstçe tam yazılabiliyor. */
+  /* ── #625 — GİRİŞ KAMERASININ YÖN GİRDİLERİ (tek yer) ──────────────────────
+   * Cihazda ölçüldü: `enterNavigationView` altı çağrı yerinin hepsinde ham GPS
+   * heading (`?? 0`) ile çağrılıyordu. Park hâlindeki araçta bu değer fiziksel
+   * olarak anlamsızdır (Doppler yok) ve kamera rotanın 257° tersine kuruldu →
+   * rotanın 309 noktasının 0'ı ekranda kaldı. Rota yönü ürünün MEVCUT
+   * otoritesinden (`currentStepIndex + 1` adımı) okunur; paralel bir hesap
+   * KURULMAZ. Tüm erişimler ref üzerinden olduğu için bağımlılık dizisi boştur. */
+  const entryBearingArgs = useCallback((lat: number, lng: number): [number | null, number | null] => {
+    let rb: number | null = null;
+    try {
+      const rs = getRouteState();
+      rb = resolveRouteForwardBearing(lat, lng, rs.steps, rs.currentStepIndex);
+    } catch { rb = null; }
+    let sp: number | null = null;
+    try {
+      const gpsKmh = (locationRef.current?.speed ?? 0) * 3.6;
+      sp = gpsKmh > 0.5 ? gpsKmh : obdSpeedRef.current;
+    } catch { sp = null; }
+    return [rb, sp];
+  }, []);
+
   /* Takibi otoriteden iste — kamerayı da uygular. Görünüm ARTIK kendi bayrağını
    * yazmaz; tek yol burasıdır. */
   const requestFollow = useCallback((reason: RecenterReason) => {
@@ -644,7 +666,7 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
                   navStatusRef.current === NavStatus.REROUTING;
     if (mapRef.current && loc) {
       if (drivingModeRef.current || isNav) {
-        enterNavigationView(mapRef.current, loc.latitude, loc.longitude, bear, h);
+        enterNavigationView(mapRef.current, loc.latitude, loc.longitude, bear, h, ...entryBearingArgs(loc.latitude, loc.longitude));
       } else {
         setMapCenter(mapRef.current, [loc.longitude, loc.latitude], 15, true);
       }
@@ -1374,7 +1396,7 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
       // enterNavigationView kamera-tek işlemdir; isStyleLoaded kapısı tile
       // yüklenirken auto-follow dönüşünü sessizce yutuyordu (KÖK NEDEN ailesi).
       if (mapRef.current && loc && (drivingModeRef.current || isNav)) {
-        enterNavigationView(mapRef.current, loc.latitude, loc.longitude, bear, h);
+        enterNavigationView(mapRef.current, loc.latitude, loc.longitude, bear, h, ...entryBearingArgs(loc.latitude, loc.longitude));
       }
       try { noteFollowZoom(mapRef.current?.getZoom() ?? null); } catch { /* stil geçişi */ }
     };
@@ -1429,7 +1451,7 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
       const bear = headingRef.current ?? 0;
       const h    = containerRef.current?.offsetHeight ?? 600;
       if (mapRef.current && loc) {
-        enterNavigationView(mapRef.current, loc.latitude, loc.longitude, bear, h);
+        enterNavigationView(mapRef.current, loc.latitude, loc.longitude, bear, h, ...entryBearingArgs(loc.latitude, loc.longitude));
       }
     }
   }, [drivingMode, requestFollow]);
@@ -1690,7 +1712,7 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
     const bear = headingRef.current ?? 0;
     const h    = containerRef.current?.offsetHeight ?? 600;
     if (mapRef.current && loc) {
-      enterNavigationView(mapRef.current, loc.latitude, loc.longitude, bear, h);
+      enterNavigationView(mapRef.current, loc.latitude, loc.longitude, bear, h, ...entryBearingArgs(loc.latitude, loc.longitude));
     }
   }, [navStatus, requestFollow]);  
 
@@ -1905,7 +1927,7 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
           const h = containerRef.current?.offsetHeight ?? 600;
           lastDrivingPosRef.current = null;
           redrawDirtyRef.current = true;    // dedup çapasını da sıfırla → kamera/marker kesinlikle yeniden çizilsin
-          enterNavigationView(map, loc.latitude, loc.longitude, hdg || 0, h);
+          enterNavigationView(map, loc.latitude, loc.longitude, hdg || 0, h, ...entryBearingArgs(loc.latitude, loc.longitude));
         } else {
           setMapCenter(map, [loc.longitude, loc.latitude], 15, false);
         }
@@ -1944,7 +1966,7 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
     const bear = headingRef.current ?? 0;
     const h    = containerRef.current?.offsetHeight ?? 600;
     if (mapRef.current && loc) {
-      enterNavigationView(mapRef.current, loc.latitude, loc.longitude, bear, h);
+      enterNavigationView(mapRef.current, loc.latitude, loc.longitude, bear, h, ...entryBearingArgs(loc.latitude, loc.longitude));
     }
   }, [requestFollow]);
   /* Açık "Navigasyonu sonlandır" eylemi — oturumu GERÇEKTEN bitiren tek yol.

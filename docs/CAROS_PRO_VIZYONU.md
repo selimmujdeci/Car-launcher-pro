@@ -189,6 +189,48 @@ DOĞRULANDI 6 · SAHADA DOĞRULANDI 1 · **ÜRÜN HAZIR: 1**
 
 ### 6.3 Kod tamam + test yeşil, saha borcu açık (kütük 🔴)
 
+- **#623'ÜN KÖKÜ CİHAZDA GÖRÜLDÜ: BOYA KUSURSUZ, ROTA EKRANIN DIŞINDA —
+  GİRİŞ KAMERASI HAM GPS HEADING'E BAĞLIYDI (2026-08-18, kütük 🔴 #625):**
+  560 dosya / **12 395 test yeşil** (**+45 kilit**), `tsc` temiz.
+
+  #624'ün APK'sı gerçek cihaza kuruldu ve CDP-over-adb ile canlı MapLibre
+  okundu. **Boya kusursuz çıktı** — #622'nin hedefi tutturulmuş: çekirdek
+  gradient `#79b0ff → #a5aaff → #34d399` (WCAG parlaklık **0,424** = hedef
+  0,42), kılıf `#f59e0b`, opaklık **1,00**, blur yok, `lineMetrics: true`,
+  z-sırası doğru. #623'te şüphelenilen köklerin **hepsi elendi**.
+
+  **Ama rota ekranda hiç yoktu:** MapLibre 5 rota katmanının hiçbirini
+  çizmiyordu ve rotanın **309 noktasının 0'ı** görüş alanındaydı — araç
+  ekranda (451,301), rotanın ilk noktası (465,**432**), pencere 902×405.
+  Kamera −42,5° bakarken rota güneybatıya gidiyordu.
+
+  **Kök:** `enterNavigationView` altı çağrı yerinin hepsinde ham GPS heading
+  (`headingRef.current ?? 0`) ile çağrılıyordu — dokümantasyonu *"first route
+  step direction or GPS heading"* dediği hâlde rota yönü hiç kullanılmıyordu.
+  Park hâlindeki araçta GPS heading **fiziksel olarak anlamsızdır** (Doppler
+  yok) ve `?? 0` kamerayı kuzeye çevirir; kamera bir kez yanlış kurulunca araç
+  hareket etmediği sürece hiçbir kod düzeltmiyordu (`setDrivingView`in yön
+  düzeltmesi >5 km/h ister). **Google/BMW/Mercedes'te "Başlat"a basıldığı an
+  kamera rotanın ilk adımına döner — araç dursa bile. Bizde dönmüyordu.**
+
+  **#624'ün yapısal kör noktası da kanıtlandı:** paint denetçisi bu durumda
+  hiçbir kural tetiklemez ve *"kök adayı yok"* der. Ekranın kendi uyarısı
+  (*"kök bu ekranın bilmediği bir yerdedir"*) doğrulandı ve o boşluk kapatıldı:
+  denetçiye **"Rota Ekranda mı"** bölümü + 4 teşhis kuralı eklendi; ölçüm
+  türetilen sayımı (DERIVED) MapLibre'nin kendi render kanıtıyla (OBSERVED)
+  yan yana koyar, ufuk-ötesi noktaları gidiş-dönüş projeksiyonuyla eler.
+
+  **Düzeltme:** yön artık bir karardır (`resolveEntryBearing`, saf) — durağan
+  araçta rota yönü GPS'i ezer, hareket hâlinde GPS üstünlüğü korunur, hiçbir
+  kaynak yoksa kamera döndürülmez. Rotanın ileri yönü hesabının üründe **iki
+  kopyası** vardı; üçüncüsü yazılmadı, kural tek saf fonksiyona taşındı.
+
+  **Kalan eksik:** düzeltme **gerçek araçta bir kez bile çalıştırılmadı**
+  (kullanıcı rotayı kapatıp ayrıldı). **Açık borç:** rota yine de kaybedilirse
+  otomatik toparlama YOK — ölçüm katmanı hazır, tetikleyici bilerek
+  bağlanmadı (cihazda doğrulanamayan kamera değişikliği bu dosyada daha önce
+  iki kez regresyon üretti). Kabul ölçütleri kütük #625'te.
+
 - **CAROS LAB · ROTA KATMAN DENETÇİSİ — "SONUCU DEĞİL SEBEBİ" GÖSTEREN GÖZLEM
   YÜZEYİ (2026-08-18, kütük 🔴 #624):** 559 dosya / **12 350 test yeşil**
   (27 yeni kilit), `tsc` temiz.

@@ -22,6 +22,7 @@ import type { Map as MapLibreMap } from 'maplibre-gl';
 import {
   ROUTE_SHADOW, ROUTE_GLOW_SEL, ROUTE_CASE, SEL_LAYER, ROUTE_FLOW, SEL_SRC,
 } from './_mapState';
+import { captureRouteVisibility, type RouteVisibilitySample } from './routeVisibilityProbe';
 
 /** Rota yığınının z-sırası (alt → üst) — kurulum sırasıyla AYNI olmalıdır. */
 export const ROUTE_LAYER_ORDER: readonly string[] = [
@@ -63,6 +64,13 @@ export interface RouteLayerProbe {
   /** `line-gradient` için ZORUNLU. null = stil okunamadı. */
   readonly sourceLineMetrics: boolean | null;
   readonly layers: readonly RouteLayerPaintProbe[];
+  /**
+   * #625 — "rota EKRANDA mı" ölçümü. Boya doğru olduğu hâlde rota görünmüyor
+   * olabilir (cihazda ölçüldü); paint alanları bu kökü YAPISAL OLARAK göremez.
+   * PAHALI olduğu için yalnız ELLE okumada (LAB) doldurulur; sıcak yolda
+   * (renk yazımı) `null` kalır — "ölçülmedi" ile "görünmüyor" karıştırılmaz.
+   */
+  readonly visibility: RouteVisibilitySample | null;
 }
 
 /** Boş/başarısız okuma için TEK şablon — hidden class kararlılığı (V8). */
@@ -139,17 +147,28 @@ function _probeLayer(map: MapLibreMap, id: string, order: readonly string[] | nu
  * Haritadan TEK seferlik fotoğraf çek. Harita yoksa `mapPresent:false` döner —
  * çağıran bunu UNAVAILABLE olarak gösterir.
  */
-export function captureRouteLayerProbe(map: MapLibreMap | null, reason: string): RouteLayerProbe {
+export function captureRouteLayerProbe(
+  map: MapLibreMap | null,
+  reason: string,
+  /** #625 — görünürlük ölçümü de yapılsın mı (PAHALI: projeksiyon + render sorgusu).
+   *  Sıcak yol (renk yazımı) BUNU İSTEMEZ; yalnız LAB'ın elle okuması ister. */
+  withVisibility = false,
+): RouteLayerProbe {
   const capturedAt = Date.now();
   const perfLow = _safe(() =>
     typeof document !== 'undefined' &&
     document.documentElement.classList.contains('perf-low')) === true;
+
+  const visibility = withVisibility
+    ? _safe(() => captureRouteVisibility(map, capturedAt, true))
+    : null;
 
   if (!map) {
     return {
       capturedAt, reason,
       mapPresent: false, styleLoaded: false, perfLow,
       sourcePresent: false, sourceLineMetrics: null, layers: [],
+      visibility,
     };
   }
 
@@ -181,6 +200,7 @@ export function captureRouteLayerProbe(map: MapLibreMap | null, reason: string):
     sourcePresent,
     sourceLineMetrics,
     layers: ROUTE_LAYER_ORDER.map((id) => _probeLayer(map, id, order)),
+    visibility,
   };
 }
 

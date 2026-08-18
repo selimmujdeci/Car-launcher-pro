@@ -38,6 +38,7 @@ import {
   NavStatus,
 } from '../../platform/navigationService';
 import { useRouteState, getRouteState } from '../../platform/routingService';
+import { resolveRouteForwardBearing } from '../../platform/navigation/core/navigationEntryBearing';
 import { useEffectiveSpeedLimit } from '../../platform/navigation/useEffectiveSpeedLimit';
 import {
   getRenderedMotion, useMarkerMotionSampleTick,
@@ -307,8 +308,19 @@ export const MiniMapWidget = memo(function MiniMapWidget({
       const hdg = headingRef.current ?? 0;
       if (wasDrivingRef.current) {
         const h = containerRef.current?.offsetHeight ?? 400;
-        // Sürüş görünümü: mevcut kamera politikası (hız/heading) korunur.
-        setDrivingView(map, loc.latitude, loc.longitude, hdg, lastEffKmhRef.current, h);
+        /* Sürüş görünümü: mevcut kamera politikası (hız/heading) korunur.
+           #625 — rota yönü de GEÇİLİR. Eskiden geçilmiyordu ve `setDrivingView`in
+           durakta yön denetimi (`oriented`) FAIL-OPEN'dı: rota yönü bilinmiyorsa
+           "yön zaten doğru" sayılıp kamera hiç düzeltilmiyordu. Kullanıcı "aracı
+           ortala"ya bastığında harita rotanın tersine bakmaya devam ediyordu. */
+        const _rsR = getRouteState();
+        const _rbR = resolveRouteForwardBearing(
+          loc.latitude, loc.longitude, _rsR.steps, _rsR.currentStepIndex,
+        ) ?? undefined;
+        setDrivingView(
+          map, loc.latitude, loc.longitude, hdg, lastEffKmhRef.current, h,
+          undefined, undefined, undefined, _rbR,
+        );
       } else {
         setMapCenter(map, [loc.longitude, loc.latitude], PARK_VIEW_ZOOM, true);
       }
@@ -822,20 +834,14 @@ export const MiniMapWidget = memo(function MiniMapWidget({
         const _turnDist = _rs.steps.length && _rs.distanceToNextTurnSource === 'ALONG_ROUTE'
           ? _rs.distanceToNextTurnMeters : undefined;
         /* Rotanın İLERİ yönü — tam ekranla AYNI otorite: bir SONRAKİ manevra
-           adımı (`currentStepIndex + 1`). Paralel bir "ileri yön" otoritesi
-           KURULMAZ; 8 m altındaki mesafede yön gürültülü olur, üretilmez. */
-        let _routeBearing: number | undefined;
-        const _ni = _rs.currentStepIndex + 1;
-        const _st = _rs.steps.length > _ni ? _rs.steps[_ni] : null;
-        if (_st?.coordinate) {
-          const [_sLon, _sLat] = _st.coordinate;
-          const _dLat = (_sLat - latitude) * 111_320;
-          const _dLon = (_sLon - longitude) * 111_320 * Math.cos(latitude * Math.PI / 180);
-          if (Math.hypot(_dLat, _dLon) > 8) {
-            _routeBearing = (Math.atan2(_dLon, _dLat) * 180) / Math.PI;
-            if (_routeBearing < 0) _routeBearing += 360;
-          }
-        }
+           adımı (`currentStepIndex + 1`). #625'te bu hesabın burada ve
+           `FullMapView`de İKİ KOPYASI olduğu görüldü (biri düzlemsel `atan2`,
+           diğeri `bearingBetween`); kural tek saf fonksiyona taşındı ve iki
+           çağıran da onu kullanır. Paralel otorite KURULMAZ; 8 m altındaki
+           tabanda yön gürültüdür ve ÜRETİLMEZ. */
+        const _routeBearing = resolveRouteForwardBearing(
+          latitude, longitude, _rs.steps, _rs.currentStepIndex,
+        ) ?? undefined;
         setDrivingView(
           mapRef.current, latitude, longitude, hdg, _effKmh, containerH,
           _turnDist, undefined, undefined, _routeBearing,

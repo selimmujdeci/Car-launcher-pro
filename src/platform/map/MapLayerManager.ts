@@ -13,6 +13,7 @@ import maplibregl, { Map as MapLibreMap, GeoJSONSource, Marker } from 'maplibre-
 import { setMapNight } from '../mapSourceManager';
 import { safeMoveLayer, safeSetPaint } from './_safeLayerOps';
 import { captureRouteLayerProbe, rememberRouteLayerProbe } from './routeLayerProbe';
+import { rememberRouteGeometry } from './routeVisibilityProbe';
 import type { PaintedArrowVerdict } from './core/paintedArrowModel';
 import {
   _recordPaintedArrowVerdict, _recordPaintedArrowLayer,
@@ -1492,6 +1493,11 @@ export function _applyRouteGeometry(
       geometry: { type: 'LineString' as const, coordinates: coords },
     };
     (map.getSource(SEL_SRC) as GeoJSONSource).setData(routeFeature);
+    /* #625 — GEOMETRİ YANKISI (salt-gözlem). Rota geometrisinin haritadaki TEK
+       yazıcısı burasıdır; yankı bounded örnektir (≤64 nokta) ve yalnız
+       "rota ekranda mı" ölçümünde kullanılır. Ham rota kopyalanmaz, ekrana
+       koordinat gitmez. try/catch — gözlem yolu ürün yolunu düşüremez. */
+    try { rememberRouteGeometry(coords as [number, number][], Date.now()); } catch { /* gözlem */ }
 
     // NAV-5: rotayı TRAFİK YOĞUNLUĞUNA göre renklendir (best-effort, BYOK, fail-soft).
     // Yalnız SEL_LAYER'ın line-gradient paint'ini değiştirir → rota ÇİZGİSİNİ bozamaz.
@@ -1592,6 +1598,9 @@ export function trimRouteGeometry(map: MapLibreMap, remaining: [number, number][
       properties: {},
       geometry: { type: 'LineString', coordinates: remaining },
     });
+    /* #625 — kırpma da bir GEOMETRİ YAZIMIDIR; yankı güncellenmezse görünürlük
+       ölçümü kat edilmiş (artık çizilmeyen) rotayı ölçerdi. */
+    try { rememberRouteGeometry(remaining, Date.now()); } catch { /* gözlem */ }
   } catch { /* stil yeniden yükleniyor olabilir — sonraki tick yeniden dener */ }
 }
 
@@ -1623,6 +1632,9 @@ export function clearRouteGeometry(map: MapLibreMap): void {
     if (map.getLayer(ALT_BADGE_LAYER))  map.removeLayer(ALT_BADGE_LAYER);
     if (map.getSource(ALT_BADGE_SRC))   map.removeSource(ALT_BADGE_SRC);
   } catch { /* ignore — style may already be reset */ }
+  /* #625 — rota kaldırıldı: yankı da temizlenir, yoksa görünürlük ölçümü ARTIK
+     OLMAYAN bir rotayı "ekranda değil" diye raporlar (hayalet kök adayı). */
+  try { rememberRouteGeometry(null, Date.now()); } catch { /* gözlem */ }
   clearTurnFocus();
 }
 
