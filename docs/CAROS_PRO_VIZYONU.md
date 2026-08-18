@@ -189,6 +189,33 @@ DOĞRULANDI 6 · SAHADA DOĞRULANDI 1 · **ÜRÜN HAZIR: 1**
 
 ### 6.3 Kod tamam + test yeşil, saha borcu açık (kütük 🔴)
 
+- **HARİTA BİLGİ YOĞUNLUĞU — GOOGLE KARŞILAŞTIRMASI, 4 KÖK (2026-08-18, kütük
+  🔴 #635 · #636 · #637 · #638):** araç **12 447 test yeşil**, `tsc` temiz,
+  production build temiz. **Cihaza hiçbir şey kurulmadı** — dördü de saha borcu.
+
+  Kullanıcı aynı gerçek kavşakta (0451. Sokak / 0469. Sokak / Mavi Bulvar,
+  Tarsus–Bağlar) Google Maps ile CarOS Pro ekranını yan yana koydu: *"dağlar
+  kadar fark"*. Denetim tek bir kusur değil **dört ayrı kök** buldu:
+
+  - **KÖK 1 (#635 + #638):** rota bandı üstü sokak adı etiketi **iskeleti dahi
+    yoktu**. OSRM adımlarının zaten taşıdığı `streetName` kullanıldı — yeni veri
+    kaynağı/geocoding gerekmedi; segment sınırları painted-arrow'un (#485) AYNI
+    anchor çözücüsünden geldi (ikinci geometri otoritesi kurulmadı). İlk tur
+    zemini halo ile geçmişti; **#638'de `road-shield` kalkanının aynı 9-patch +
+    `icon-text-fit` deseniyle gerçek dolgu "pill"e taşındı** (borç aynı gün
+    kapatıldı, kütükte açıkça izlendi).
+  - **KÖK 2 (#637):** vektör→raster düşüşü hem **gözlemlenemiyordu** (LAB
+    `tileRender` NİYETİNİ okuyordu → yalancı tanıklık) hem de `unblockOnlineVector()`
+    üründe hiç çağrılmadığı için **oturum sonuna kadar kalıcıydı**.
+  - **KÖK 3 (kod yok, ölçüm):** Overpass ile ölçüldü — o mahallede 450×500 m'de
+    **0 landuse poligonu**, en yakın bina 150-300 m. Eksik olan kod değil
+    **OSM verisi**; stil değişikliği o bölgede hiçbir şey çözmez.
+  - **KÖK 4 (#636):** bina 3B opaklık mandalı tek yönlüydü — 80 km/h'i bir kez
+    gören sürüşte binalar kalıcı olarak stilin öngördüğünden soluk kalıyordu.
+
+  **Süreç notu:** #636 ve #637 commit'lenmiş ama **kütük maddesi yazılmamıştı**;
+  bu boşluk aynı turda kapatıldı (anayasa: kod değil KÜTÜK saha otoritesidir).
+
 - **PWA ARACI DOĞRUDAN EŞLEŞTİRİYOR; FİLO AYRI AKIŞ (2026-08-18, kütük 🔴 #631):**
   website **1193 test yeşil**, `tsc` temiz. **Canlıda ölçülerek doğrulandı**
   (`api/vehicle/link` bundle'da VAR, `api/pwa/pair` YOK).
