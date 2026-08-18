@@ -364,14 +364,28 @@ describe('ENTEGRASYON — gerçek yazım zinciri (mock harita)', () => {
     expect(paints.length, 'aynı kararda gereksiz boya yazımı var').toBe(afterFirst);
   });
 
-  it('RENK ÜÇÜ BİRLİKTE yazılır — biri güncellenip diğeri eskide kalamaz', async () => {
+  /* ── KİLİT GÜNCELLENDİ (#633) ─────────────────────────────────────────────
+   * Eski sözleşme "üç katmana da yazılır" diyordu ve `line-color`ı katman
+   * BAŞINA tek sayıyordu. Sahada ölçülen kusur tam bu boşluktaydı: çekirdeğe
+   * yazılan tek şey `line-gradient` olduğunda ve kaynak `lineMetrics`
+   * taşımadığında yazım ÖLÜ kalıyor, çekirdek kurulum renginde donuyordu
+   * (gece'de gündüz mavisi `#1A73E8`, WCAG parlaklık 0,183). Yeni sözleşme:
+   * çekirdeğin DÜZ RENGİ her koşulda yazılır; gradient yalnız EK'tir. */
+  it('RENK ÜÇÜ BİRLİKTE yazılır — ve çekirdeğin DÜZ rengi her koşulda', async () => {
     _resetRouteColorForTest();
     const { map, paints } = mockMap();
 
     syncRouteColor(map, 0, false);
     const written = paints.filter((p) => p.prop === 'line-color' || p.prop === 'line-opacity');
-    expect(written.map((p) => p.layer).sort())
+    /* Üç katmanın hepsi güncellenir (çekirdek hem opaklık hem düz renk alır). */
+    expect([...new Set(written.map((p) => p.layer))].sort())
       .toEqual(['car-route-casing', 'car-route-glow-sel', 'selected-route-layer']);
+    /* Ve çekirdeğin DÜZ RENGİ gerçekten yazılmış olmalı — gradient'e
+       güvenilmez: kaynak `lineMetrics` taşımıyorsa o yazım sessizce ölür. */
+    expect(
+      written.some((p) => p.layer === 'selected-route-layer' && p.prop === 'line-color'),
+      'çekirdeğin düz rengi yazılmadı — "kararın yarısı uygulandı" kusuru geri geldi',
+    ).toBe(true);
   });
 
   for (const p of POLES) {

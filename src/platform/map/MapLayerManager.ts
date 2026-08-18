@@ -632,6 +632,26 @@ function _isPerfLowSurface(): boolean {
     document.documentElement.classList.contains('perf-low');
 }
 
+/**
+ * Rota kaynağının `lineMetrics` YETENEĞİ — kurulum anında ne yazıldıysa o.
+ *
+ * ── NEDEN HATIRLANIR (cihazda ölçüldü 2026-08-18, #633) ─────────────────────
+ * `lineMetrics` kaynak KURULURKEN sabitlenir (`!_isLowEnd`), ama boya yazan yol
+ * `_isPerfLowSurface()`i YAZMA ANINDA yeniden okuyordu. `perf-low` sınıfı
+ * çalışma anında değişebilir (#599'da kanıtlandı) ve iki an ayrışınca:
+ *   kurulum perf-low (lineMetrics:false) + yazma perf-low DEĞİL
+ *      → `line-gradient` yazılır, kaynak desteklemediği için ÖLÜ kalır
+ *      → çekirdek kurulum renginde donar (gece'de GÜNDÜZ mavisi #1A73E8)
+ * Sahada ölçülen tam buydu: gece kılıf `#ffffff` (karar uygulanmış) ama
+ * çekirdek `#1A73E8` → WCAG parlaklık **0,183**; #623'te piksel taramasıyla
+ * ölçülen 0,128–0,184 ile üst sınırda BİREBİR. Beklenen `#79b0ff` = 0,423.
+ */
+let _routeSrcLineMetrics = false;
+
+/** Test yalıtımı — üretim yolunda ÇAĞRILMAZ. */
+export function _setRouteSrcLineMetricsForTest(v: boolean): void { _routeSrcLineMetrics = v; }
+export function _getRouteSrcLineMetrics(): boolean { return _routeSrcLineMetrics; }
+
 /** Kararı haritaya uygula — boya yazan TEK yer. */
 function _applyRouteColorDecision(map: MapLibreMap, d: RouteColorDecision): void {
   safeSetPaint(map, ROUTE_CASE,     'line-color',   d.casing);
@@ -641,9 +661,15 @@ function _applyRouteColorDecision(map: MapLibreMap, d: RouteColorDecision): void
    * (ya da road↔uydu mod değişiminde) kılıf/halo güncellenir ama çekirdek
    * KURULUM ANINDAKİ renkte asılı kalırdı — kararın yarısı uygulanmış olurdu.
    * Düşük-uçta gradient yok: orada düz renk yazılır (aynı karar, tek yazıcı). */
-  if (_isPerfLowSurface()) {
-    safeSetPaint(map, SEL_LAYER, 'line-color', d.coreStops[0]);
-  } else {
+  /* #633 — ÇEKİRDEK RENGİ HER KOŞULDA YAZILIR.
+   * `line-color` önce ve KOŞULSUZ yazılır: gradient bir sebeple uygulanmazsa
+   * (kaynak `lineMetrics` taşımıyor, ifade reddedildi, stil yeniden kuruluyor)
+   * geriye SAHTE bir renk değil, KARARIN düz karşılığı kalır. Böylece "kararın
+   * yarısı uygulandı" durumu — kılıf gece, çekirdek gündüz — imkânsızlaşır.
+   * Gradient yalnız kaynağın GERÇEKTEN desteklediği yerde eklenir; bu bilgi
+   * hesaplanmaz, kurulumdan HATIRLANIR (bkz. `_routeSrcLineMetrics`). */
+  safeSetPaint(map, SEL_LAYER, 'line-color', d.coreStops[0]);
+  if (_routeSrcLineMetrics) {
     safeSetPaint(map, SEL_LAYER, 'line-gradient', [
       'interpolate', ['linear'], ['line-progress'],
       0,   d.coreStops[0],
@@ -1378,6 +1404,12 @@ export function _applyRouteGeometry(
         data: { type: 'FeatureCollection', features: [] },
         lineMetrics: !_isLowEnd, // perf-low'da gerekmiyor (gradient yok)
       });
+      /* #633 — KAYNAĞIN YETENEĞİ HESAPLANMAZ, HATIRLANIR. Boya yazan yol
+         eskiden `_isPerfLowSurface()`i YENİDEN okuyordu; o sınıf çalışma
+         anında değişebildiği için (#599) kurulum anıyla ayrışıyor ve gradient
+         `lineMetrics:false` bir kaynağa yazılmaya çalışılıyordu → yazım ölü
+         kalıyor, çekirdek KURULUM RENGİNDE donuyordu. */
+      _routeSrcLineMetrics = !_isLowEnd;
 
       // Layer 0 — Shadow: line-blur GPU yoğun, head unit'lerde atla
       if (!_isLowEnd) {
@@ -1428,10 +1460,11 @@ export function _applyRouteGeometry(
         'line-width':  routeWidthExpression(_rw.core),
         'line-opacity': _rc.coreOpacity,
       };
-      if (_isLowEnd) {
-        // #619 — düz renk de karardan gelir (gece parlak, gündüz Google mavisi).
-        _coreFillPaint['line-color'] = _rc.coreStops[0];
-      } else {
+      /* #619 — düz renk de karardan gelir (gece parlak, gündüz Google mavisi).
+         #633 — ve KOŞULSUZ yazılır: gradient bir sebeple uygulanmazsa geriye
+         kararın düz karşılığı kalsın, kurulum rengi donmasın. */
+      _coreFillPaint['line-color'] = _rc.coreStops[0];
+      if (!_isLowEnd) {
         _coreFillPaint['line-gradient'] = [
           'interpolate', ['linear'], ['line-progress'],
           0,   _rc.coreStops[0],  // departure
@@ -1635,6 +1668,9 @@ export function clearRouteGeometry(map: MapLibreMap): void {
   /* #625 — rota kaldırıldı: yankı da temizlenir, yoksa görünürlük ölçümü ARTIK
      OLMAYAN bir rotayı "ekranda değil" diye raporlar (hayalet kök adayı). */
   try { rememberRouteGeometry(null, Date.now()); } catch { /* gözlem */ }
+  /* #633 — kaynak gitti: yeteneği de unut. Kalırsa bir sonraki kurulum farklı
+     bir yüzeyde yapılsa bile eski yetenek varsayılır ve gradient yine ölü yazılır. */
+  _routeSrcLineMetrics = false;
   clearTurnFocus();
 }
 
