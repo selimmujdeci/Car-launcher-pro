@@ -424,6 +424,26 @@ export function setTunnelNightOverride(active: boolean): boolean {
   return _mapNight !== before;                  // gece zaten açıksa boyama gerekmez
 }
 
+/**
+ * KÖK 2 (2026-08-18, harita bilgi yoğunluğu denetimi) — İSTENEN vs GERÇEKLEŞEN
+ * karo modu ayrımı. `useMapSourceStore.tileRender` yalnız NİYETİ taşır
+ * (`notifyNavigationRender` yazar); `buildVectorStyle` kaynak yoksa/kapalıysa
+ * SESSİZCE `onFallback()` ile raster'a düşer ama store'daki `tileRender` alanı
+ * bundan HABERSİZ 'vector' kalırdı — CAROS LAB (`navigationCoreSources.ts`
+ * `miniMapStyle`) bu yüzden "road/vector" gösterirken ürün fiilen raster
+ * çizebiliyordu (gözlemlenemeyen düşüş, CLAUDE.md'nin gözlemlenebilirlik
+ * maddesiyle çelişiyordu).
+ *
+ * `_mapNightRequested`/`_mapNight` ile AYNI desen: bu alan store'a YAZILMAZ
+ * (yazılsaydı `useTileRenderMode()`e abone `[tileRender]` efekti tekrar
+ * tetiklenir, gereksiz bir stil-değişim turu daha yapardı) — yalnız GÖZLEM
+ * için ayrı, salt-okunur bir değişkendir.
+ */
+let _lastResolvedTileMode: TileRenderMode = 'vector';
+
+/** Bu oturumda `getMapStyle()`in GERÇEKTEN döndürdüğü mod — LAB gözlemi için. */
+export function getResolvedTileMode(): TileRenderMode { return _lastResolvedTileMode; }
+
 export function getMapStyle(): StyleSpecification {
   const { mapMode, tileRender, sources, activeSourceId } = useMapSourceStore.getState();
   if (import.meta.env.DEV) {
@@ -432,8 +452,16 @@ export function getMapStyle(): StyleSpecification {
   }
   if (mapMode === 'satellite') return buildSatelliteStyle();
   if (mapMode === 'hybrid')    return buildHybridStyle();
-  const roadFallback = () => buildRoadStyle(activeSourceId, sources, getActiveTileUrls, _mapNight);
-  if (tileRender === 'vector') return buildVectorStyle(sources, roadFallback, _mapNight);
+  const roadFallback = () => {
+    // Yalnız GERÇEKTEN çağrılırsa (yani vektör kaynağı reddedildiyse) tetiklenir.
+    _lastResolvedTileMode = 'raster';
+    return buildRoadStyle(activeSourceId, sources, getActiveTileUrls, _mapNight);
+  };
+  if (tileRender === 'vector') {
+    _lastResolvedTileMode = 'vector'; // varsayım — `roadFallback` çağrılırsa düzelir
+    return buildVectorStyle(sources, roadFallback, _mapNight);
+  }
+  _lastResolvedTileMode = 'raster';
   return buildRoadStyle(activeSourceId, sources, getActiveTileUrls, _mapNight);
 }
 

@@ -26,6 +26,7 @@ import expeditionLayoutSrc from '../components/themes/ExpeditionLayout.tsx?raw';
 import mapLayerManagerSrc from '../platform/map/MapLayerManager.ts?raw';
 import mapInteractionManagerSrc from '../platform/map/MapInteractionManager.ts?raw';
 import mapStateSrc from '../platform/map/_mapState.ts?raw';
+import mapCoreSrc from '../platform/map/MapCore.ts?raw';
 import proLayoutSrc from '../components/themes/ProLayout.tsx?raw';
 import teslaLayoutSrc from '../components/themes/TeslaLayout.tsx?raw';
 import volumeGestureLayerSrc from '../components/common/VolumeGestureLayer.tsx?raw';
@@ -6765,5 +6766,90 @@ describe('Bina 3B opaklık mandalı — hız eşiği geri dönüşte PALET değe
     updateDrivingLayers(mockMap, 50, 36.9, 34.85);
     const restoreWrite = writes.find((w) => w.layer === 'building-3d');
     expect(restoreWrite?.value).toBe(DAY_PALETTE.bldg3dOpacity);
+  });
+});
+
+/* ─────────────────────────────────────────────────────────────────────────
+   KÖK 2 (2026-08-18, harita bilgi yoğunluğu denetimi) — İKİ ayrı kusur:
+
+   (a) `useMapSourceStore.tileRender` yalnız NİYETİ taşırdı; `buildVectorStyle`
+       kaynak yoksa/kapalıysa SESSİZCE `onFallback()` ile raster'a düşerdi ama
+       LAB (`navigationCoreSources.ts` → `miniMapStyle`) hâlâ "road/vector"
+       gösterirdi — gözlemlenemeyen düşüş. `getResolvedTileMode()` artık
+       `getMapStyle()`in GERÇEKTEN döndürdüğü modu taşır.
+
+   (b) `blockOnlineVector()` tetiklendikten sonra `unblockOnlineVector()`
+       ÜRÜNDE HİÇBİR YERDEN çağrılmıyordu (dead code) — düşüş ağ toparlansa
+       bile OTURUM SONUNA KADAR kalıcıydı. `MapCore.ts` artık basemap karosu
+       30 sn istikrarlı yüklenince kapıyı yeniden açar (yeni bir hata gelirse
+       pencere sıfırlanır).
+   ───────────────────────────────────────────────────────────────────────── */
+describe('Vektör→raster gözlemlenebilirlik + kalıcı mandal kilidi (kök 2)', () => {
+  it('DAVRANIŞ: vektör kaynağı YOKKEN getMapStyle() raster döner ve getResolvedTileMode() bunu DOĞRU yansıtır', async () => {
+    const { getMapStyle, getResolvedTileMode } = await import('../platform/mapSourceManager');
+    const { useMapSourceStore } = await import('../platform/mapSourceStore');
+    const { unblockOnlineVector } = await import('../platform/mapStyleBuilders');
+    unblockOnlineVector(); // önceki testlerden sızmış olabilecek kapı durumunu sıfırla
+
+    const prevEnv = import.meta.env['VITE_VECTOR_TILE_URL'];
+    import.meta.env['VITE_VECTOR_TILE_URL'] = ''; // özel sunucu yok
+    try {
+      useMapSourceStore.setState({
+        mapMode: 'road',
+        tileRender: 'vector', // NİYET vektör — ama kaynak yok
+        sources: new Map([[
+          'online', { id: 'online', name: 'OpenStreetMap', type: 'online', description: '', isAvailable: true },
+        ]]),
+        activeSourceId: 'online',
+      });
+
+      const style = getMapStyle();
+      expect(style.name, 'yerel .pbf/özel URL yokken stil GERÇEKTEN raster olmalı')
+        .not.toMatch(/Vector/);
+      expect(getResolvedTileMode(), 'KÖK 2: LAB artık NİYET değil GERÇEK modu göstermeli')
+        .toBe('raster');
+    } finally {
+      import.meta.env['VITE_VECTOR_TILE_URL'] = prevEnv;
+    }
+  });
+
+  it('DAVRANIŞ: vektör kaynağı VARKEN getResolvedTileMode() vector döner (kontrol testi)', async () => {
+    const { getMapStyle, getResolvedTileMode } = await import('../platform/mapSourceManager');
+    const { useMapSourceStore } = await import('../platform/mapSourceStore');
+    const { unblockOnlineVector } = await import('../platform/mapStyleBuilders');
+    unblockOnlineVector();
+
+    const prevEnv = import.meta.env['VITE_VECTOR_TILE_URL'];
+    import.meta.env['VITE_VECTOR_TILE_URL'] = 'https://tiles.example.org/planet';
+    try {
+      useMapSourceStore.setState({
+        mapMode: 'road',
+        tileRender: 'vector',
+        sources: new Map([[
+          'online', { id: 'online', name: 'OpenStreetMap', type: 'online', description: '', isAvailable: true },
+        ]]),
+        activeSourceId: 'online',
+      });
+
+      const style = getMapStyle();
+      expect(style.name, 'özel URL varken stil vektör dönmeli').toMatch(/Vector/);
+      expect(getResolvedTileMode()).toBe('vector');
+    } finally {
+      import.meta.env['VITE_VECTOR_TILE_URL'] = prevEnv;
+    }
+  });
+
+  it('KAYNAK: `unblockOnlineVector` artık GERÇEKTEN ÇAĞRILIYOR (kök 2 öncesi: tanımlı ama ölü koddu)', () => {
+    const calls = mapCoreSrc.match(/unblockOnlineVector\(\)/g)?.length ?? 0;
+    expect(calls, 'kapı bir daha hiç açılmıyor — kalıcı tek yönlü mandal geri gelmiş')
+      .toBeGreaterThanOrEqual(1);
+  });
+
+  it('KAYNAK: yeniden deneme YALNIZ yeni bir karo hatası GELMEDEN stabilite penceresi dolunca tetiklenir', () => {
+    // Debounce mekanizması sessizce kaldırılırsa (anında unblock) ilk hatada
+    // yeniden 20'lik eşiğe çarpıp salınım riski geri gelir.
+    expect(mapCoreSrc).toMatch(/VECTOR_RETRY_STABLE_MS/);
+    expect(mapCoreSrc).toMatch(/_cancelVectorRetry/);
+    expect(mapCoreSrc).toMatch(/_armVectorRetry/);
   });
 });

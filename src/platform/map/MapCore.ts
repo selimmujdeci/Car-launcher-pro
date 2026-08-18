@@ -14,7 +14,8 @@ import type { StyleSpecification } from 'maplibre-gl';
 import { logInfo } from '../debug';
 import { logError } from '../crashLogger';
 import { handleSatelliteTileError, setActiveMapSource, getMapStyle, getMapNight } from '../mapSourceManager';
-import { blockOnlineVector } from '../mapStyleBuilders';
+import { useMapSourceStore } from '../mapSourceStore';
+import { blockOnlineVector, unblockOnlineVector, isOnlineVectorBlocked } from '../mapStyleBuilders';
 import { registerGlyphCacheProtocol } from '../mapProtocols';
 import { cacheLRUManager } from '../../core/storage/CacheLRUManager';
 import { M, useMapStore, getOnlineTileStyle, type MapConfig } from './_mapState';
@@ -312,6 +313,45 @@ async function _initCore(
     let _satelliteFailCount = 0;
 
     /**
+     * KÖK 2 (2026-08-18) — çevrimiçi vektör kapısı `blockOnlineVector()` ile
+     * kapandıktan sonra `unblockOnlineVector()` ÜRÜNDE HİÇBİR YERDEN ÇAĞRILMIYORDU
+     * (dead code) — yani düşüş OTURUM SONUNA KADAR kalıcıydı, ağ tamamen
+     * toparlansa bile bir daha vektör denenmiyordu. Bu ONARILMADI, sadece
+     * KOŞULLANDI: bir sonraki basemap karosu sorunsuz yüklenmeye başladıktan
+     * sonra `VECTOR_RETRY_STABLE_MS` boyunca YENİ bir karo hatası GELMEZSE
+     * kapı yeniden açılır. Yeni bir hata gelirse pencere sıfırlanır — kısa
+     * süreli "toparlanma" sinyaline güvenip hemen vektöre dönmek, ilk karo
+     * hatasında yeniden 20'lik eşiğe çarpıp sonsuz salınım yapardı.
+     */
+    const VECTOR_RETRY_STABLE_MS = 30_000;
+    let _vectorRetryTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const _cancelVectorRetry = () => {
+      if (_vectorRetryTimer !== null) {
+        clearTimeout(_vectorRetryTimer);
+        _vectorRetryTimer = null;
+      }
+    };
+
+    const _armVectorRetry = () => {
+      if (!isOnlineVectorBlocked() || _vectorRetryTimer !== null) return;
+      _vectorRetryTimer = setTimeout(() => {
+        _vectorRetryTimer = null;
+        // Bu arada başka bir map instance kurulmuş olabilir — o zaman dokunma.
+        if (useMapStore.getState().mapInstance !== map) return;
+        if (!useMapSourceStore.getState().isOnline) return; // gerçek bağlantı yok — deneme
+        unblockOnlineVector();
+        logInfo('[MAP_TILE_FALLBACK] ağ 30 sn stabil — çevrimiçi vektör yeniden denemeye açıldı');
+        // Navigasyon hâlâ vektör istiyorsa (tileRender niyeti), gerçek bir
+        // deneme başlat; istemiyorsa yalnız kapıyı aç, bir sonraki doğal
+        // stil çözümü (`getMapStyle()`) kendiliğinden vektörü dener.
+        if (useMapSourceStore.getState().tileRender === 'vector') {
+          switchMapStyle(map, getMapStyle());
+        }
+      }, VECTOR_RETRY_STABLE_MS);
+    };
+
+    /**
      * #609 — Bu kaynak bir BASEMAP KAROSU mu?
      *
      * `tileError` bayrağı "harita çizilemiyor" demektir; bu yüzden hem sayaç hem
@@ -352,6 +392,9 @@ async function _initCore(
            sayaca girmez. Kimlik yoksa eski davranış korunur — sayılır. */
         if (srcId !== undefined && !_isBasemapTileSource(srcId)) return;
         tileFailCount++;
+        // Yeni bir zemin karo hatası: bekleyen "30 sn stabil" penceresi geçersiz —
+        // ağ hâlâ güvenilmez, vektörü şimdi yeniden denemek erken olurdu.
+        _cancelVectorRetry();
         if (msg.includes('arcgisonline') || msg.includes('arcgis')) {
           _satelliteFailCount++;
           if (_satelliteFailCount >= 3) { _satelliteFailCount = 0; handleSatelliteTileError(); }
@@ -392,6 +435,9 @@ async function _initCore(
         useMapStore.setState({ tileError: false });
       }
       tileFailCount = 0;
+      // Zemin karosu sorunsuz yüklendi — vektör kapısı kapalıysa 30 sn'lik
+      // stabilite penceresini kur (bkz. `_armVectorRetry` üstteki not).
+      _armVectorRetry();
     });
 
     // WebGL context loss — permanent loss detection + heal attempt

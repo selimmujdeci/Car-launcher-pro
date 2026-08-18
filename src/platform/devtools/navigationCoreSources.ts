@@ -76,8 +76,9 @@ import {
 } from '../map/MapLayerManager';
 import { useUnifiedVehicleStore } from '../vehicleDataLayer/UnifiedVehicleStore';
 import {
-  getMapNight, getMapMode, useMapSourceStore,
+  getMapNight, getMapMode,
   isTunnelNightOverrideActive, getRequestedMapNight,
+  getResolvedTileMode,
 } from '../mapSourceManager';
 import { getTunnelMode } from '../autoBrightnessService';
 import {
@@ -562,10 +563,11 @@ export function readNavigationCoreSnapshot(): NavigationCoreRawSnapshot {
     roundaboutStepCount,
     roundaboutWithExitCount,
 
-    miniMapStyle: _safe(() => {
-      const st = useMapSourceStore.getState();
-      return `${getMapMode()}/${st.tileRender}`;
-    }, 'UNKNOWN'),
+    /* KÖK 2 (2026-08-18): eskiden `st.tileRender` (NİYET) okunuyordu — vektör
+       kaynağı reddedip `buildVectorStyle` sessizce raster'a düştüğünde bu alan
+       hâlâ "vector" yazıyordu, LAB yalancı tanıklık ediyordu. `getResolvedTileMode()`
+       `getMapStyle()`in GERÇEKTEN döndürdüğü modu taşır — tek doğruluk kaynağı. */
+    miniMapStyle: _safe(() => `${getMapMode()}/${getResolvedTileMode()}`, 'UNKNOWN'),
     mapTheme:           _safe(() => (getMapNight() ? 'night' : 'day'), 'night'),
     mapContrastProfile: _safe(() => getMapContrastProfile(getMapNight()), 'NIGHT_READABLE'),
     /* Okunamazsa örtü YOK sayılır (fail-safe: sahte tünel ilan edilmez). */
