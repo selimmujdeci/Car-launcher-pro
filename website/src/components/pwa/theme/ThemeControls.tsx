@@ -11,7 +11,7 @@
  * dokunmadıkça araç görünümü DEĞİŞMEZ.
  */
 
-import { memo, useCallback } from 'react';
+import { memo, useCallback, useState } from 'react';
 import {
   isSafeColor,
   makeSolid,
@@ -19,6 +19,8 @@ import {
   type Paint,
   type PaintKind,
 } from '@/lib/theme/themeManifest';
+import { NEUTRAL_TEXT_RAMP } from '@/lib/theme/colorMath';
+import { CHECKER_BG, ColorPicker, rememberColor } from './ColorPicker';
 
 /* ── Ortak kabuk ──────────────────────────────────────────────────── */
 
@@ -73,35 +75,60 @@ export const COLOR_SWATCHES = [
   '#131C10', '#111A2B', '#221B13', '#101117',
 ];
 
+/**
+ * Yazı alanları için hızlı renkler: NÖTR RAMPA + birkaç vurgu.
+ *
+ * NEDEN AYRI (kullanıcı: *"yazılarda da renk az"*): yukarıdaki liste ağırlıkla
+ * VURGU renkleridir; gövde metninde doğru cevap çoğu zaman bir gri tonudur ve
+ * o tonların hiçbiri listede yoktu. Rampa parlaklık algısına göre seyreltilmiş
+ * 12 nötr değer verir. Sınırsız seçim zaten seçicidedir — bu yalnız kısayol.
+ */
+export const TEXT_SWATCHES: readonly string[] = [
+  ...NEUTRAL_TEXT_RAMP,
+  '#F2871C', '#5B8DFF', '#22C55E', '#E31937', '#D4AF37', '#00D4FF',
+];
+
+/**
+ * Renk alanı — SINIRSIZ seçim.
+ *
+ * Native `<input type="color">` KALDIRILDI (2026-08-18). Kullanıcı *"renkler
+ * yeterli değil sınırsız renk lazım"* dedi; ölçülen durum şuydu: native seçici
+ * tarayıcıya göre değişir, **saydamlığı hiç vermez** ve küçük bir kare olduğu
+ * için "buradan her rengi seçebilirim" bilgisini taşımıyordu → kullanıcı
+ * pratikte 16 hazır renge mahkûmdu. Artık renk kutusuna dokunmak tüm RGB
+ * uzayını + saydamlığı açar (`ColorPicker`), hazır renkler yalnız kısayoldur.
+ */
 export const ColorField = memo(function ColorField({
-  label, hint, value, onChange, swatches = COLOR_SWATCHES,
+  label, hint, value, onChange, swatches = COLOR_SWATCHES, allowAlpha = true, swatchLabel,
 }: {
   label: string;
   hint?: string;
   value: string | null;
   onChange: (v: string | null) => void;
-  swatches?: string[];
+  swatches?: readonly string[];
+  allowAlpha?: boolean;
+  swatchLabel?: string;
 }) {
-  const current = value ?? '#808080';
+  const [open, setOpen] = useState(false);
   return (
     <FieldRow label={label} hint={hint} inherited={value === null} onReset={() => onChange(null)}>
       <div className="flex items-center gap-3">
-        <label className="relative flex-shrink-0" style={{ width: 52, height: 44 }}>
-          <span
-            className="absolute inset-0 rounded-xl block"
-            style={{
-              background: value ?? 'repeating-linear-gradient(45deg, #444 0 6px, #666 6px 12px)',
-              border: '2px solid var(--pwa-border)',
-            }}
-          />
-          <input
-            type="color"
-            value={/^#[0-9a-f]{6}$/i.test(current) ? current : '#808080'}
-            onChange={(e) => onChange(e.target.value)}
-            className="absolute inset-0 opacity-0 w-full h-full"
-            aria-label={`${label} rengi`}
-          />
-        </label>
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          aria-expanded={open}
+          aria-label={`${label} rengini seç`}
+          className="relative flex-shrink-0 rounded-xl active:scale-95"
+          style={{
+            width: 52, height: 44,
+            background: value ? CHECKER_BG : 'repeating-linear-gradient(45deg, #444 0 6px, #666 6px 12px)',
+            border: open ? '2px solid #60a5fa' : '2px solid var(--pwa-border)',
+          }}
+        >
+          {value && (
+            <span className="absolute inset-0 rounded-[10px] block" style={{ background: value }} />
+          )}
+        </button>
         <input
           type="text"
           inputMode="text"
@@ -121,22 +148,48 @@ export const ColorField = memo(function ColorField({
           }}
           aria-label={`${label} renk kodu`}
         />
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          className="flex-shrink-0 text-[11px] font-bold rounded-xl px-3 active:scale-95"
+          style={{
+            height: 44,
+            background: open ? 'rgba(96,165,250,0.18)' : 'var(--pwa-surface)',
+            border: `1px solid ${open ? 'rgba(96,165,250,0.5)' : 'var(--pwa-border)'}`,
+            color: open ? '#60a5fa' : 'var(--pwa-text-2)',
+          }}
+        >
+          {open ? 'Kapat' : 'Seç'}
+        </button>
       </div>
-      <div className="flex flex-wrap gap-2">
-        {swatches.map((c) => (
-          <button
-            key={c}
-            type="button"
-            onClick={() => onChange(c)}
-            aria-label={c}
-            className="rounded-xl active:scale-90"
-            style={{
-              width: 40, height: 40, backgroundColor: c,
-              border: value === c ? '3px solid #fff' : '1.5px solid var(--pwa-border)',
-            }}
-          />
-        ))}
-      </div>
+
+      {open && (
+        <ColorPicker
+          value={value}
+          onChange={onChange}
+          allowAlpha={allowAlpha}
+          swatches={swatches}
+          swatchLabel={swatchLabel ?? 'Hazır Renkler'}
+        />
+      )}
+
+      {!open && (
+        <div className="flex flex-wrap gap-2">
+          {swatches.slice(0, 16).map((c) => (
+            <button
+              key={c}
+              type="button"
+              onClick={() => { onChange(c); rememberColor(c); }}
+              aria-label={c}
+              className="rounded-xl active:scale-90"
+              style={{
+                width: 40, height: 40, backgroundColor: c,
+                border: value === c ? '3px solid #fff' : '1.5px solid var(--pwa-border)',
+              }}
+            />
+          ))}
+        </div>
+      )}
     </FieldRow>
   );
 });

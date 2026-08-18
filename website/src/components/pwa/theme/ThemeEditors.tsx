@@ -42,6 +42,7 @@ import {
   NumberField,
   PaintField,
   SectionTitle,
+  TEXT_SWATCHES,
   ToggleField,
 } from './ThemeControls';
 
@@ -480,7 +481,7 @@ export const ComponentEditor = memo(function ComponentEditor({
               <div key={key} className="rounded-2xl p-2.5 flex flex-col gap-2"
                 style={{ background: 'var(--pwa-surface)', border: '1px solid var(--pwa-border-soft)' }}>
                 <p className="text-[11px] font-bold" style={{ color: 'var(--pwa-text-2)' }}>{STATE_LABEL[key]}</p>
-                <ColorField label="Metin" value={st?.textColor ?? null} onChange={(v) => onPatchState(key, { textColor: v })} />
+                <ColorField label="Metin" value={st?.textColor ?? null} onChange={(v) => onPatchState(key, { textColor: v })} swatches={TEXT_SWATCHES} swatchLabel="Yazı Renkleri" />
                 <ColorField label="Kenarlık" value={st?.borderColor ?? null} onChange={(v) => onPatchState(key, { borderColor: v })} />
                 <PaintField label="Arka Plan" value={st?.bg ?? null} onChange={(v) => onPatchState(key, { bg: v })} />
                 <NumberField label="Saydamlık" value={st?.opacity ?? null} min={0} max={100} unit="%" fallback={100}
@@ -546,9 +547,9 @@ export const TokensEditor = memo(function TokensEditor({
       <ColorField label="İkincil Vurgu" hint={`Tema varsayılanı: ${preset.base.accentSecondary}`}
         value={tokens.accentSecondary} onChange={(v) => onPatch({ accentSecondary: v })} />
       <ColorField label="Ana Metin" hint={`Tema varsayılanı: ${preset.base.textPrimary}`}
-        value={tokens.textPrimary} onChange={(v) => onPatch({ textPrimary: v })} />
+        value={tokens.textPrimary} onChange={(v) => onPatch({ textPrimary: v })} swatches={TEXT_SWATCHES} swatchLabel="Yazı Renkleri" />
       <ColorField label="İkincil Metin" hint={`Tema varsayılanı: ${preset.base.textSecondary}`}
-        value={tokens.textSecondary} onChange={(v) => onPatch({ textSecondary: v })} />
+        value={tokens.textSecondary} onChange={(v) => onPatch({ textSecondary: v })} swatches={TEXT_SWATCHES} swatchLabel="Yazı Renkleri" />
       <ColorField label="Kenarlık" value={tokens.borderColor} onChange={(v) => onPatch({ borderColor: v })} />
       <ColorField label="Parıltı Rengi" value={tokens.glowColor} onChange={(v) => onPatch({ glowColor: v })} />
       <ColorField label="Başarı" value={tokens.successColor} onChange={(v) => onPatch({ successColor: v })} />
@@ -639,8 +640,8 @@ export const SurfaceEditor = memo(function SurfaceEditor({
       }
     >
       <ColorField label="Ekran Vurgusu" value={override.accentPrimary} onChange={(v) => onPatch({ accentPrimary: v })} />
-      <ColorField label="Ana Metin" value={override.textPrimary} onChange={(v) => onPatch({ textPrimary: v })} />
-      <ColorField label="İkincil Metin" value={override.textSecondary} onChange={(v) => onPatch({ textSecondary: v })} />
+      <ColorField label="Ana Metin" value={override.textPrimary} onChange={(v) => onPatch({ textPrimary: v })} swatches={TEXT_SWATCHES} swatchLabel="Yazı Renkleri" />
+      <ColorField label="İkincil Metin" value={override.textSecondary} onChange={(v) => onPatch({ textSecondary: v })} swatches={TEXT_SWATCHES} swatchLabel="Yazı Renkleri" />
       <PaintField label="Ekran Zemini" value={override.bg} onChange={(v) => onPatch({ bg: v })} />
       <NumberField label="Kart Köşesi" value={override.radiusCard} min={0} max={48} unit="px" fallback={18}
         onChange={(v) => onPatch({ radiusCard: v })} />
