@@ -189,6 +189,39 @@ DOĞRULANDI 6 · SAHADA DOĞRULANDI 1 · **ÜRÜN HAZIR: 1**
 
 ### 6.3 Kod tamam + test yeşil, saha borcu açık (kütük 🔴)
 
+- **TEMA STÜDYO CANLI ÖNİZLEMESİ GERÇEKTEN CANLANDI — İKİ KÖK, İKİSİ DE
+  YAYINDA (2026-08-18, kütük 🟡 #626):** website 57 dosya / **1174 test yeşil**
+  (9 yeni kilit), `tsc` temiz, `next build` başarılı.
+
+  Kullanıcı *"yaptığım düzenlemeleri göremiyorum"* dedi. İki bağımsız kök vardı:
+
+  **(A) Canlı araç uygulaması eski sözleşmeyi taşıyordu.** Bundle taramasıyla
+  ölçüldü: `caros-preview-ready` VAR (bu yüzden arayüz "CANLI ÖNİZLEME" diyor)
+  ama `caros-theme-manifest` ve `caros-preview-probe` **YOK**. Yani araç
+  "hazırım" deyip manifesti hiç dinlemiyordu — hata çıkmadan, sessizce. v3
+  köprüsü çalışma branch'indeydi, `origin/main`'de değildi.
+
+  **(B) Düzenleyici önizlemeyi tamamen kaldırıyordu.** `ThemeStudio` editör
+  açılınca erken `return` ediyor, kabuk `fixed inset-0` ile ekranı kaplıyordu →
+  "canlı önizleme" yalnız *hiçbir şey düzenlenmezken* görülebiliyordu; üstelik
+  iframe unmount olduğu için araç uygulaması her seferinde baştan boot ediyordu.
+
+  Panel artık sticky önizlemenin **altında**, aynı ağaçta; iframe hiç taşınmaz.
+  Düzenlerken önizleme %62'ye inip ortalanır — yer açar ama **kaybolmaz**.
+  Seçim overlay'i editör açıkken de canlı: başka bir karta dokunmak doğrudan o
+  kartın düzenleyicisine geçirir.
+
+  Her iki Vercel projesi `main`'e dokunulmadan hedefli production deploy ile
+  yayınlandı ve **canlıda ölçülerek doğrulandı** (araç bundle'ında beş mesaj
+  tipinin hepsi; PWA chunk'ında `62%` ve `caros-theme-manifest` var,
+  `aria-modal`/`fixed inset-0` yok).
+
+  **Kalan eksik:** kullanıcının üçüncü isteği — *"yazıya dokununca yazı
+  değişsin"* — YAPILMADI. Kart editöründe "Yazı" bölümü ayrı duruyor, ama
+  görsel olarak metnin üstüne dokunma yok: araç ölçümü yalnız `[data-editable]`
+  KART kutularını bildiriyor. Ayrıca düzeltme gerçek telefonda henüz
+  kullanılmadı. Kabul ölçütleri kütük #626'da.
+
 - **#623'ÜN KÖKÜ CİHAZDA GÖRÜLDÜ: BOYA KUSURSUZ, ROTA EKRANIN DIŞINDA —
   GİRİŞ KAMERASI HAM GPS HEADING'E BAĞLIYDI (2026-08-18, kütük 🔴 #625):**
   560 dosya / **12 395 test yeşil** (**+45 kilit**), `tsc` temiz.
