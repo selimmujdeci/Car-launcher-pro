@@ -293,6 +293,10 @@ export const ComponentEditor = memo(function ComponentEditor({
   const preset = THEME_PRESETS[themeId].base;
   const layoutCardId = layoutCardIdFor(info, themeId);
   const [confirmReset, setConfirmReset] = useState(false);
+  /* "(tümü)" etiketli kimlikler ekranda birden çok düğüme iner ve tek kural
+     hepsine uygulanır. Bunu SÖYLEMEK zorundayız: kullanıcı tek bir karta
+     dokunduğunu sanıp "neden hepsi değişti" diye sormasın. */
+  const appliesToMany = info.label.includes('(tümü)');
 
   return (
     <FullScreenSheet
@@ -353,6 +357,18 @@ export const ComponentEditor = memo(function ComponentEditor({
         )
       }
     >
+      {appliesToMany && (
+        <div className="rounded-2xl p-2.5"
+          style={{ background: 'rgba(96,165,250,0.10)', border: '1px solid rgba(96,165,250,0.30)' }}>
+          <p className="text-[11px] font-bold" style={{ color: '#60a5fa' }}>
+            Bu ayar aynı türdeki TÜM öğelere uygulanır.
+          </p>
+          <p className="text-[10px] mt-1" style={{ color: 'var(--pwa-text-3)' }}>
+            Önizlemede hangisine dokunursanız dokunun aynı kural yazılır — araçta
+            bu türün her örneği birlikte değişir.
+          </p>
+        </div>
+      )}
       {confirmReset && (
         <div className="rounded-2xl p-3"
           style={{ background: 'rgba(248,113,113,0.08)', border: '1px solid rgba(248,113,113,0.32)' }}>

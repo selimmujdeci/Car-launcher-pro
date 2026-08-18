@@ -43,7 +43,7 @@ import {
   type ThemeSurfaceId,
 } from '@/lib/theme/themeComponentRegistry';
 import { solvePreview, ZONE_LABEL } from '@/lib/theme/themeLayoutBridge';
-import { resolveProbeSelection, sanitizeProbeItems, type ProbeItem } from '@/lib/theme/themeProbe';
+import { distinctProbeIds, resolveProbeSelection, sanitizeProbeItems, type ProbeItem } from '@/lib/theme/themeProbe';
 import {
   canRedo as canRedoOf,
   canRedoScoped,
@@ -446,7 +446,11 @@ export const ThemeStudio = memo(function ThemeStudio({ vehicleId }: Props) {
                 const info = getThemeComponent(it.id);
                 return (
                   <button
-                    key={it.id}
+                    /* Aynı kimlik ekranda birden çok düğüme inebilir (ayar
+                       kartları, kategori menüsü, dock butonları) → anahtar
+                       kimlik + örnek sırasıdır; yoksa React kutuları birbirine
+                       karıştırır ve yalnız biri çizilir. */
+                    key={`${it.id}#${it.index}`}
                     type="button"
                     aria-label={info?.label ?? it.id}
                     onPointerEnter={() => setHoverId(it.id)}
@@ -489,7 +493,9 @@ export const ThemeStudio = memo(function ThemeStudio({ vehicleId }: Props) {
             }}
           >
             {selectMode
-              ? `DOKUN & DÜZENLE${probe === null ? ' · ölçülüyor…' : ` · ${probe.length} bileşen`}`
+              ? `DOKUN & DÜZENLE${probe === null
+                  ? ' · ölçülüyor…'
+                  : ` · ${distinctProbeIds(probe)} bileşen · ${probe.length} alan`}`
               : 'CANLI ÖNİZLEME'}
           </span>
         </div>

@@ -69,6 +69,8 @@ function PremiumSlider({ icon: Icon, label, value, onChange, colorA, colorB }: {
 }) {
   return (
     <div className="rounded-xl p-4 lux-noise amber-soft"
+      data-editable="settings.slider"
+      data-editable-type="card"
       style={{
         background: 'rgba(255,255,255,0.03)',
         border: '1px solid var(--oem-line, rgba(255,255,255,0.06))',
@@ -267,6 +269,8 @@ function ThemePanel() {
 function Panel({ children, className = '', accent }: { children: ReactNode; className?: string; accent?: string }) {
   return (
     <div className={`glass-card lux-panel lux-noise amber-soft cool-sheen overflow-hidden group transition-all duration-500 ${className}`}
+      data-editable="settings.panel"
+      data-editable-type="panel"
       style={{ padding: 0 }}>
       {accent && (
         <div className="lux-accent-top group-hover:opacity-100 transition-opacity" style={{ color: accent }} />
@@ -283,7 +287,9 @@ function SectionTitle({ icon: Icon, title, sub, color = 'var(--oem-accent)' }: {
   icon: typeof Settings2; title: string; sub?: string; color?: string;
 }) {
   return (
-    <div className="flex items-center gap-4 mb-5">
+    <div className="flex items-center gap-4 mb-5"
+      data-editable="settings.section-title"
+      data-editable-type="header">
       <div className="lux-icon-box rounded-xl flex items-center justify-center flex-shrink-0"
         style={{ width: '2.5rem', height: '2.5rem', borderColor: `${color}35`, boxShadow: `0 0 14px ${color}20` }}>
         <Icon className="w-5 h-5" style={{ color, filter: `drop-shadow(0 0 8px ${color}80)` }} />
@@ -900,7 +906,10 @@ function LiveStatsRow() {
 
 function SettingsHero({ eyebrow, title, sub }: { eyebrow: string; title: string; sub?: string }) {
   return (
-    <div className="flex items-end justify-between gap-6" style={{ marginBottom: 36 }}>
+    <div className="flex items-end justify-between gap-6"
+      data-editable="settings.hero"
+      data-editable-type="header"
+      style={{ marginBottom: 36 }}>
       <div style={{ maxWidth: 780 }}>
         <div className="text-[11px] font-black uppercase"
           style={{ letterSpacing: '0.20em', color: 'var(--oem-ink-2, rgba(240,235,224,0.74))' }}>
@@ -939,6 +948,8 @@ function SettingTile({ icon, title, sub, control, accent, span = 1, onClick }: {
   return (
     <div
       onClick={onClick}
+      data-editable="settings.tile"
+      data-editable-type="card"
       style={{
         gridColumn: `span ${span}`,
         padding: '28px 30px',
@@ -991,7 +1002,9 @@ function SettingTile({ icon, title, sub, control, accent, span = 1, onClick }: {
 
 function BigToggle({ value, onChange }: { value: boolean; onChange?: (v: boolean) => void }) {
   return (
-    <div className="flex items-center justify-between gap-4">
+    <div className="flex items-center justify-between gap-4"
+      data-editable="settings.toggle"
+      data-editable-type="card">
       <span
         className="font-bold uppercase"
         style={{
@@ -1534,6 +1547,8 @@ function SettingsPageInner({ onClose }: Props) {
 
       {/* ═══ HEADER — 2 satır: üst (nav+stats), alt (sekmeler) ═══ */}
       <div className="flex-shrink-0 relative z-20"
+        data-editable="settings.header"
+        data-editable-type="header"
         style={{
           background: settings.dayNightMode === 'day' ? 'rgba(248,249,251,0.94)' : 'rgba(8,12,24,0.92)',
           backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)',
@@ -1612,6 +1627,8 @@ function SettingsPageInner({ onClose }: Props) {
                 <button
                   key={s.id}
                   onClick={() => setTab(s.id)}
+                  data-editable="settings.nav-item"
+                  data-editable-type="card"
                   style={{
                     width: '100%',
                     appearance: 'none',

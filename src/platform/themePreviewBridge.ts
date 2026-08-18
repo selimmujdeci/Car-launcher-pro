@@ -54,7 +54,16 @@ export interface PreviewProbeItem {
   y: number;
   w: number;
   h: number;
+  /** Aynı kimliğin kaçıncı örneği (0 tabanlı) — bkz. `MAX_BOXES_PER_ID`. */
+  index: number;
 }
+
+/**
+ * Bir kimlikten bildirilen en çok kutu. PWA tarafındaki `MAX_BOXES_PER_ID` ile
+ * AYNI değerdir; iki uç da kendi sınırını uygular (fail-closed, tek tarafa
+ * güvenilmez).
+ */
+const MAX_BOXES_PER_ID = 24;
 
 function inIframe(): boolean {
   try {
@@ -80,18 +89,29 @@ export function probeEditableGeometry(): PreviewProbeItem[] {
   if (typeof document === 'undefined') return out;
   for (const c of THEME_COMPONENTS) {
     try {
-      const el = document.querySelector(`[data-editable="${c.id}"]`);
-      if (!el) continue;
-      const r = el.getBoundingClientRect();
-      // Sıfır boyutlu / görünmez düğüm dokunulabilir değildir — raporlanmaz.
-      if (!(r.width > 0) || !(r.height > 0)) continue;
-      out.push({
-        id: c.id,
-        x: Math.round(r.left + window.scrollX),
-        y: Math.round(r.top + window.scrollY),
-        w: Math.round(r.width),
-        h: Math.round(r.height),
-      });
+      /* ── TÜM ÖRNEKLER (2026-08-18) ────────────────────────────────────────
+       * Eskiden `querySelector` ile YALNIZ İLK düğüm bildiriliyordu. Bir tema
+       * kuralı ekranda birden çok düğüme iner (ayar kartları, kategori menüsü,
+       * dock butonları); ilk örnek dışındaki her şey Stüdyo'da DOKUNULAMAZ
+       * kalıyordu. Kullanıcı bunu *"ayarlarda istediğim yeri düzenleyemiyorum"*
+       * diye tarif etti. Artık her örnek kendi kutusunu alır; hepsi aynı
+       * kimliğin düzenleyicisini açar. Sayı `MAX_BOXES_PER_ID` ile sınırlıdır. */
+      const els = document.querySelectorAll(`[data-editable="${c.id}"]`);
+      let n = 0;
+      for (let i = 0; i < els.length && n < MAX_BOXES_PER_ID; i++) {
+        const r = els[i].getBoundingClientRect();
+        // Sıfır boyutlu / görünmez düğüm dokunulabilir değildir — raporlanmaz.
+        if (!(r.width > 0) || !(r.height > 0)) continue;
+        out.push({
+          id: c.id,
+          x: Math.round(r.left + window.scrollX),
+          y: Math.round(r.top + window.scrollY),
+          w: Math.round(r.width),
+          h: Math.round(r.height),
+          index: n,
+        });
+        n++;
+      }
     } catch { /* tek bileşen patlarsa kalanı bildir */ }
   }
   return out;

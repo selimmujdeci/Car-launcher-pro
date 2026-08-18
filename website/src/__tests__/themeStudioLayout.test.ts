@@ -38,7 +38,9 @@ import {
   THEME_COMPONENTS,
 } from '@/lib/theme/themeComponentRegistry';
 import { solvePreview, solverEntry, solverManifestFor, ZONE_LABEL } from '@/lib/theme/themeLayoutBridge';
-import { resolveProbeSelection, sanitizeProbeItems } from '@/lib/theme/themeProbe';
+import {
+  distinctProbeIds, MAX_BOXES_PER_ID, resolveProbeSelection, sanitizeProbeItems,
+} from '@/lib/theme/themeProbe';
 
 function run(actions: Parameters<typeof studioReducer>[1][], start?: StudioState): StudioState {
   return actions.reduce((s, a) => studioReducer(s, a), start ?? createStudioState());
@@ -189,13 +191,44 @@ describe('Stüdyo — dokunma ölçümü zero-trust', () => {
     expect(items.map((i) => i.id)).toEqual(['pro.map']);
   });
 
-  it('yinelenen kimlik tek kutuya iner', () => {
+  /* ── KİLİT GÜNCELLENDİ (2026-08-18) ───────────────────────────────────────
+   * Eski sözleşme: "yinelenen kimlik TEK kutuya iner". Sahada ölçülen zarar:
+   * bir tema kuralı ekranda birden çok düğüme iner (ayar kartları, kategori
+   * menüsü, dock butonları) ve ilk örnek dışındaki her şey Stüdyo'da
+   * DOKUNULAMAZ kalıyordu. Kullanıcı: *"ayarlarda istediğim yeri
+   * düzenleyemiyorum."* Yeni sözleşme: her örnek kendi kutusunu alır, hepsi
+   * AYNI kimliği açar; sayı `MAX_BOXES_PER_ID` ile sınırlıdır (güvenilmez
+   * iframe verisi overlay'i kilitlemesin). */
+  it('🔒 yinelenen kimlik HER ÖRNEK için kutu üretir (sıralı index ile)', () => {
     const items = sanitizeProbeItems([
       { id: 'pro.clock', x: 0, y: 0, w: 10, h: 10 },
       { id: 'pro.clock', x: 5, y: 5, w: 20, h: 20 },
     ]);
-    expect(items).toHaveLength(1);
+    expect(items).toHaveLength(2);
+    expect(items.map((i) => i.index)).toEqual([0, 1]);
     expect(items[0].x).toBe(0);
+    expect(items[1].x).toBe(5);
+    /* Kimlik aynı kalır — iki farklı düzenleyici DOĞMAZ. */
+    expect(new Set(items.map((i) => i.id)).size).toBe(1);
+  });
+
+  it(`🔒 bir kimlikten en çok ${MAX_BOXES_PER_ID} kutu kabul edilir (overlay kilitlenmesin)`, () => {
+    const raw = Array.from({ length: MAX_BOXES_PER_ID + 30 }, (_, i) => ({
+      id: 'pro.clock', x: i, y: 0, w: 4, h: 4,
+    }));
+    const items = sanitizeProbeItems(raw);
+    expect(items).toHaveLength(MAX_BOXES_PER_ID);
+    expect(items[items.length - 1].index).toBe(MAX_BOXES_PER_ID - 1);
+  });
+
+  it('🔒 FARKLI bileşen sayısı kutu sayısından ayrı raporlanır', () => {
+    const items = sanitizeProbeItems([
+      { id: 'pro.clock', x: 0, y: 0, w: 10, h: 10 },
+      { id: 'pro.clock', x: 5, y: 5, w: 10, h: 10 },
+      { id: 'settings.tile', x: 9, y: 9, w: 10, h: 10 },
+    ]);
+    expect(items).toHaveLength(3);
+    expect(distinctProbeIds(items), 'ekran "3 bileşen" der; oysa 2 tür var').toBe(2);
   });
 
   it('dizi olmayan/boş girdi THROW ETMEZ', () => {

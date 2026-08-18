@@ -190,7 +190,22 @@ const HOME_COMPONENTS: ThemeComponentInfo[] = [
 
 /** Tema-bağımsız ekranlar (her temada aynı bileşen render edilir). */
 const SHARED_COMPONENTS: ThemeComponentInfo[] = [
-  { id: 'settings-page', surface: 'settings', type: 'panel', label: 'Ayarlar Sayfası', themes: null },
+  { id: 'settings-page', surface: 'settings', type: 'panel', label: 'Ayarlar Sayfası (tüm sayfa)', themes: null },
+  /* AYARLARIN İÇ YAPISI (2026-08-18) — kullanıcı: *"ayarlarda istediğim yeri
+     düzenleyemiyorum"*. Ölçüm: ana ekranda 33 düzenlenebilir bileşen vardı,
+     ayarlarda YALNIZ 1 (tüm sayfa tek panel). Bu girdiler sayfanın gerçek
+     yapı taşlarını açar. "(tümü)" etiketi bilerek yazılıdır: bir kimlik
+     ekranda birden çok düğüme iner ve tek CSS kuralı HEPSİNE uygulanır —
+     Stüdyo overlay'i her örneği ayrı dokunma alanı olarak çizer, ama hepsi
+     aynı düzenleyiciyi açar (sahte "her biri ayrı" iddiası KURULMAZ). */
+  { id: 'settings.header', surface: 'settings', type: 'header', label: 'Üst Bar (Geri + Başlık)', themes: null },
+  { id: 'settings.nav-item', surface: 'settings', type: 'card', label: 'Kategori Menüsü Öğeleri (tümü)', themes: null },
+  { id: 'settings.hero', surface: 'settings', type: 'header', label: 'Sayfa Başlığı', themes: null },
+  { id: 'settings.section-title', surface: 'settings', type: 'header', label: 'Bölüm Başlıkları (tümü)', themes: null },
+  { id: 'settings.panel', surface: 'settings', type: 'panel', label: 'Kart Kabı (tümü)', themes: null },
+  { id: 'settings.tile', surface: 'settings', type: 'card', label: 'Ayar Kartları (tümü)', themes: null },
+  { id: 'settings.toggle', surface: 'settings', type: 'card', label: 'Aç/Kapa Anahtarları (tümü)', themes: null },
+  { id: 'settings.slider', surface: 'settings', type: 'card', label: 'Kaydırıcılar (tümü)', themes: null },
   { id: 'dtc-panel', surface: 'diagnostics', type: 'panel', label: 'Arıza Kodu Paneli', themes: null },
   { id: 'maintenance-panel', surface: 'maintenance', type: 'panel', label: 'Bakım Paneli', themes: null },
   { id: 'notification-center', surface: 'notifications', type: 'panel', label: 'Bildirim Merkezi', themes: null },
