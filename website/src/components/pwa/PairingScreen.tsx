@@ -445,24 +445,25 @@ export default function PairingScreen({ onPaired }: Props) {
         <p className="text-white/40 text-xs mt-1 leading-relaxed">
           {success
             ? 'Başarıyla bağlandı. Yönlendiriliyorsunuz…'
-            : 'Araç ekranında görünen 6 haneli kodu Filo panosuna girin'}
+            : 'Araç ekranında görünen 6 haneli kodu buraya girin'}
         </p>
       </div>
 
       {/**
-       * KANONİK YOL UYARISI — bu ekranın dayandığı `/api/pwa/pair` yolu
-       * fail-closed KAPATILDI (`pair_vehicle` RPC'si hiçbir migration'da yok ve
-       * yanıtta raw `api_key` dönüyordu). Kullanıcıya çalışmayan bir yol
-       * çalışıyormuş gibi gösterilmez; tek geçerli yol açıkça söylenir.
+       * #631 — EŞLEŞTİRME ARTIK BU EKRANDAN YAPILIR.
+       * Eski `/api/pwa/pair` yolu kapalı kalmaya devam ediyor (oturumsuzdu ve
+       * yanıtta ham `api_key` döndürüyordu); bu ekran artık KANONİK rotayı
+       * (`/api/vehicle/link` → `pair_vehicle_to_user`) kullanır. O RPC bireysel
+       * eşleştirmeyi zaten destekler — filo üyeliği ŞART DEĞİLDİR.
        */}
       {!success && (
         <div
           className="w-full max-w-[280px] rounded-xl px-3 py-2.5 text-[11px] leading-relaxed"
-          style={{ background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.25)', color: '#fde68a' }}
+          style={{ background: 'rgba(59,130,246,0.08)', border: '1px solid rgba(59,130,246,0.25)', color: '#bfdbfe' }}
         >
-          Bu ekrandan eşleştirme şu an kullanılamıyor. Aracı bağlamak için{' '}
-          <b>Filo panosu → Araç Ekle</b> ekranından, araç ekranında görünen{' '}
-          <b>6 haneli kodu</b> girin.
+          Araç ekranında <b>Ayarlar → Telefonumu Bağla</b>&apos;yı açın, orada görünen{' '}
+          <b>6 haneli kodu</b> buraya girin. Araç doğrudan <b>hesabınıza</b> bağlanır —
+          filo üyeliği gerekmez.
         </div>
       )}
 

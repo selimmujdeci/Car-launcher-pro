@@ -57,12 +57,18 @@ export const DEPRECATED_PAIRING_ROUTES: readonly DeprecatedRoute[] = [
 export function deprecatedRouteBody(route: DeprecatedRoute): {
   error: string; code: string; canonicalFlow: string;
 } {
+  /* #631 — mesaj GÜNCELLENDİ: eşleştirme artık YALNIZ filo panosundan değil,
+     uygulamanın kendi "Eşleştir" ekranından da yapılır (ikisi de aynı kanonik
+     rotayı kullanır: `/api/vehicle/link` → `pair_vehicle_to_user`, bireysel
+     hesap için `company_id` null). Kullanıcıyı var olmayan bir zorunluluğa
+     yönlendirmek YANLIŞ bilgidir. */
   return {
     error:
-      'Bu uç nokta kullanımdan kaldırıldı. Araç bağlamak için Filo panosundaki ' +
-      '"Araç Ekle" ekranından, araç ekranında görünen 6 haneli kodu girin.',
+      'Bu uç nokta kullanımdan kaldırıldı. Araç bağlamak için uygulamadaki ' +
+      '"Eşleştir" ekranından (ya da filo hesabıysanız Filo panosu → "Araç Ekle") ' +
+      'araç ekranında görünen 6 haneli kodu girin.',
     code: route.code,
-    canonicalFlow: 'FLEET_DASHBOARD_6_DIGIT_CODE',
+    canonicalFlow: 'VEHICLE_LINK_6_DIGIT_CODE',
   };
 }
 

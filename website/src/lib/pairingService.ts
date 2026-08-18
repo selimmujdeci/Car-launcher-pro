@@ -1,6 +1,7 @@
 import {
   authorizePairingContinuation,
 } from '@/security/accountCleanup/accountCleanupRuntime';
+import { supabaseBrowser } from '@/lib/supabase';
 
 // ── Storage keys ─────────────────────────────────────────────────────────────
 const STORAGE = {
@@ -43,15 +44,22 @@ function storeLocalVehicle(v: LocalVehicle): void {
   } catch { /* quota — silently ignore */ }
 }
 
-/** Returns the locally paired vehicle, or null if none. */
+/**
+ * Returns the locally paired vehicle, or null if none.
+ *
+ * ⚠️ `api_key` ARTIK ZORUNLU DEĞİLDİR (#631). Kanonik eşleştirme rotası
+ * anahtar döndürmez (eski rota ham anahtar döndürdüğü için kapatılmıştı);
+ * oturumlu modda komutlar kullanıcı JWT'siyle gider. Eski kod `!apiKey` ise
+ * `null` dönüyordu — bu, yeni akışla eşleştirilen aracın PWA'da HİÇ
+ * GÖRÜNMEMESİNE yol açardı. Kimliğin tek şartı `vehicleId`dir.
+ */
 export function getLocalVehicle(): LocalVehicle | null {
   try {
-    const id     = localStorage.getItem(STORAGE.VEHICLE_ID);
-    const apiKey = localStorage.getItem(STORAGE.API_KEY);
-    if (!id || !apiKey) return null;
+    const id = localStorage.getItem(STORAGE.VEHICLE_ID);
+    if (!id) return null;
     return {
       id,
-      apiKey,
+      apiKey: localStorage.getItem(STORAGE.API_KEY) ?? '',
       name:  localStorage.getItem(STORAGE.VEHICLE_NAME)  ?? 'Araç',
       plate: localStorage.getItem(STORAGE.VEHICLE_PLATE) ?? '—',
     };
@@ -73,15 +81,43 @@ export function getStoredApiKey(vehicleId: string): string | null {
   try {
     const storedId = localStorage.getItem(STORAGE.VEHICLE_ID);
     if (storedId !== vehicleId) return null;
-    return localStorage.getItem(STORAGE.API_KEY);
+    /* Boş dize anahtar DEĞİLDİR: kanonik eşleştirme anahtar döndürmez ve o
+       durumda çağıran "anahtar yok" görmeli (oturumsuz mod gerçekten
+       çalışamaz), sahte bir anahtarla şifreleme denememeli. */
+    const key = localStorage.getItem(STORAGE.API_KEY);
+    return key && key.length > 0 ? key : null;
   } catch { return null; }
 }
 
 // ── Pairing ───────────────────────────────────────────────────────────────────
 
+/** Kanonik eşleştirme rotası — TEK otorite. */
+export const PAIRING_ENDPOINT = '/api/vehicle/link';
+
 /**
- * Pairs a vehicle via PIN or QR code — no user login required.
- * Calls /api/pwa/pair which uses service-role credentials server-side.
+ * PWA, aracı DOĞRUDAN kendi ekranından eşleştirir (#631).
+ *
+ * ── NEDEN DEĞİŞTİ (kullanıcı + kaynak ölçümü, 2026-08-18) ───────────────────
+ * Kullanıcı: *"pwa sadece araç uygulaması ile işlemeli, filo da araç ile
+ * eşleşmesi ikisi ayrı."* Ölçülen durum: bu fonksiyon `/api/pwa/pair`'i
+ * çağırıyordu ve o rota **410 ile KALICI KAPALI**. Yani PWA'daki "Eşleştir"
+ * düğmesi hiçbir koşulda çalışmıyordu; ekran kullanıcıyı *"Filo panosu → Araç
+ * Ekle"*ye yönlendiriyordu. Bireysel kullanıcı için "filo panosu" kavramı
+ * anlamsızdır ve eşleştirme oradan geçmek zorunda DEĞİLDİR.
+ *
+ * ── NEDEN BU ROTA DOĞRU ─────────────────────────────────────────────────────
+ * `pair_vehicle_to_user()` RPC'si bireysel eşleştirmeyi ZATEN destekliyor:
+ * `company_id` null olabilir, `is_individual` döner ve bireysel hesaba 3 araç
+ * limiti uygular. Yani "kullanıcı ↔ araç" ilişkisi altyapıda vardı; eksik olan
+ * yalnız PWA'nın bu rotayı çağırmasıydı ("motor var, besleyen yok").
+ * Filo ↔ araç eşleşmesi AYRI akış olarak (Filo panosu) yerinde kalır.
+ *
+ * ── GÜVENLİK: OTURUM ARTIK ŞART ─────────────────────────────────────────────
+ * Eski rota oturumsuz çalışıp yanıtta HAM `api_key` döndürüyordu — kapatılma
+ * sebeplerinden biri buydu. Kanonik rota kullanıcı JWT'si ister ve anahtar
+ * DÖNDÜRMEZ. Komut gönderimi bundan etkilenmez: `sendCommand` oturum varsa
+ * zaten Supabase oturumuyla çalışır; `api_key` yalnız oturumsuz (standalone)
+ * mod içindir.
  */
 export async function pairVehicle(code: string): Promise<PairResult> {
   const access = await authorizePairingContinuation();
@@ -92,24 +128,43 @@ export async function pairVehicle(code: string): Promise<PairResult> {
       message: 'Güvenli oturum temizliği sırasında eşleştirme kullanılamaz.',
     };
   }
+
+  /* Oturum yoksa sunucuya gitmeyiz: rota 401 dönerdi ve kullanıcı sebebini
+     anlamazdı. Bu bir AĞ hatası değildir → `offline` İŞARETLENMEZ (yoksa
+     çevrimdışı kuyruğa yazılır ve sonsuza dek 401 alırdı). */
+  let token: string | null = null;
   try {
-    const res = await fetch('/api/pwa/pair', {
+    const session = supabaseBrowser
+      ? (await supabaseBrowser.auth.getSession()).data.session
+      : null;
+    token = session?.access_token ?? null;
+  } catch { token = null; }
+
+  if (!token) {
+    return {
+      success: false,
+      code: 'AUTH_REQUIRED',
+      message: 'Aracı hesabına bağlamak için önce giriş yapmalısın.',
+    };
+  }
+
+  try {
+    const res = await fetch(PAIRING_ENDPOINT, {
       method:  'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ code: code.trim().toUpperCase() }),
+      headers: {
+        'Content-Type':  'application/json',
+        Authorization:   `Bearer ${token}`,
+      },
+      body:    JSON.stringify({ code: code.trim() }),
     });
 
     const data = (await res.json()) as {
-      success?:   boolean;
-      vehicleId?: string;
-      apiKey?:    string;
-      name?:      string;
-      plate?:     string;
-      error?:     string;
-      code?:      string;
+      vehicle?: { id?: string; name?: string; plate?: string; company_id?: string | null };
+      error?:   string;
+      code?:    string;
     };
 
-    if (!res.ok || !data.success || !data.vehicleId || !data.apiKey) {
+    if (!res.ok || !data.vehicle?.id) {
       // 5xx/429 sunucu tarafı geçici arıza → RED değil, tekrar denenebilir.
       const transient = res.status >= 500 || res.status === 429;
       return {
@@ -120,16 +175,19 @@ export async function pairVehicle(code: string): Promise<PairResult> {
       };
     }
 
+    /* Araç kimliği/adı yerelde tutulur; `api_key` ARTIK SAKLANMAZ — kanonik
+       rota anahtar döndürmez ve döndürmemelidir. Oturumlu modda komutlar
+       kullanıcı JWT'siyle gider. */
     storeLocalVehicle({
-      id:     data.vehicleId,
-      apiKey: data.apiKey,
-      name:   data.name  ?? 'Araç',
-      plate:  data.plate ?? '—',
+      id:     data.vehicle.id,
+      apiKey: '',
+      name:   data.vehicle.name  ?? 'Araç',
+      plate:  data.vehicle.plate ?? '—',
     });
 
     return {
       success:   true,
-      vehicleId: data.vehicleId,
+      vehicleId: data.vehicle.id,
       message:   'Araç başarıyla eşleştirildi.',
     };
   } catch {

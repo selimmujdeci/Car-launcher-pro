@@ -29,14 +29,18 @@ const code = (p: string) =>
 
 describe('eşleştirme · tek otorite', () => {
   it('1. 🔒 kanonik akış head unit kodu → /api/vehicle/link zinciridir', () => {
-    // Tek otorite: head unit `register_vehicle` ile kod üretir, kullanıcı onu
-    // Filo panosuna girer, `/api/vehicle/link` → `pair_vehicle_to_user` bağlar.
+    /* Tek otorite DEĞİŞMEDİ: head unit `register_vehicle` ile kod üretir,
+       kullanıcı onu GİRER, `/api/vehicle/link` → `pair_vehicle_to_user` bağlar.
+       #631'de değişen tek şey KODU NEREYE GİRDİĞİDİR: artık uygulamanın kendi
+       "Eşleştir" ekranı da aynı rotayı çağırır (bireysel hesap → company_id
+       null). Filo panosu ikinci bir OTORİTE değil, aynı rotanın ikinci
+       giriş noktasıdır. */
     expect(CANONICAL_PAIRING_FLOW).toContain('register_vehicle');
     expect(CANONICAL_PAIRING_FLOW).toContain('/api/vehicle/link');
     expect(CANONICAL_PAIRING_FLOW).toContain('pair_vehicle_to_user');
-    // Kullanıcıya dönen gövde ise sade akış adını taşır.
+    // Kullanıcıya dönen gövde akış adını ROTAYA göre taşır, panoya göre değil.
     expect(deprecatedRouteBody(DEPRECATED_PAIRING_ROUTES[0]).canonicalFlow)
-      .toBe('FLEET_DASHBOARD_6_DIGIT_CODE');
+      .toBe('VEHICLE_LINK_6_DIGIT_CODE');
   });
 
   it('2. 🔒 kapatılan her rota GEREKÇESİYLE kayıtlıdır', () => {
@@ -50,8 +54,11 @@ describe('eşleştirme · tek otorite', () => {
   it('3. 🔒 kapalı rota gövdesi kullanıcıyı KANONİK akışa yönlendirir', () => {
     for (const route of DEPRECATED_PAIRING_ROUTES) {
       const body = deprecatedRouteBody(route);
-      expect(body.canonicalFlow).toBe('FLEET_DASHBOARD_6_DIGIT_CODE');
-      expect(body.error).toMatch(/Araç Ekle/);
+      expect(body.canonicalFlow).toBe('VEHICLE_LINK_6_DIGIT_CODE');
+      /* Mesaj, kullanıcıyı GERÇEKTEN çalışan yola göndermeli. #631 öncesinde
+         "yalnız Filo panosu" diyordu — bireysel kullanıcı için bu YANLIŞ
+         bilgiydi ve uygulamanın kendi ekranı zaten kapalıydı. */
+      expect(body.error).toMatch(/Eşleştir/);
       expect(body.error).toMatch(/6 haneli/);
       // Teknik iç detay (RPC/kolon adı) kullanıcıya SIZMAZ.
       expect(body.error).not.toMatch(/rpc|api_key|pairing_code|column/i);
@@ -120,10 +127,37 @@ describe('eşleştirme · ölü rotalar GERÇEKTEN kapalı', () => {
 describe('eşleştirme · PWA ekranı dürüstlüğü', () => {
   const PAIRING = 'src/components/pwa/PairingScreen.tsx';
 
-  it('11. 🔒 ekran kullanıcıyı Filo panosuna yönlendirir', () => {
+  /* ── KİLİT GÜNCELLENDİ (#631) ─────────────────────────────────────────────
+   * Eski sözleşme: "ekran kullanıcıyı Filo panosuna yönlendirir". O, ekranın
+   * kendi eşleştirme yolu KAPALI olduğu için doğruydu. Kullanıcı bunu şöyle
+   * tarif etti: *"pwa sadece araç uygulaması ile işlemeli, filo da araç ile
+   * eşleşmesi ikisi ayrı."* Ekran artık kanonik rotayı KENDİSİ çağırır;
+   * bireysel kullanıcıyı var olmayan bir filo zorunluluğuna göndermek YANLIŞ
+   * bilgidir. */
+  it('11. 🔒 ekran kendi akışını anlatır, filo ZORUNLU gibi sunulmaz', () => {
     const src = read(PAIRING);
-    expect(src).toMatch(/Filo panosu/);
     expect(src).toMatch(/6 haneli/);
+    expect(src, 'ekran hâlâ "buradan eşleştirme kullanılamıyor" diyor')
+      .not.toMatch(/eşleştirme şu an kullanılamıyor/);
+    expect(src, 'kullanıcı yine Filo panosuna gönderiliyor')
+      .not.toMatch(/Filo panosu → Araç Ekle/);
+  });
+
+  it('11b. 🔒 PWA eşleştirmesi KANONİK rotayı çağırır, kapalı rotayı ÇAĞIRMAZ', () => {
+    const svc = read('src/lib/pairingService.ts');
+    expect(svc, 'PWA hâlâ 410 dönen rotayı çağırıyor → düğme hiç çalışmaz')
+      .not.toMatch(/['"]\/api\/pwa\/pair['"]/);
+    expect(svc).toMatch(/['"]\/api\/vehicle\/link['"]/);
+  });
+
+  it('11c. 🔒 eşleştirme OTURUM ister ve ham anahtar SAKLAMAZ', () => {
+    const svc = read('src/lib/pairingService.ts');
+    /* Kapalı rotanın kapatılma sebeplerinden biri oturumsuz çalışıp yanıtta
+       ham `api_key` döndürmesiydi; yeni yol o hatayı tekrarlamamalı. */
+    expect(svc).toMatch(/Authorization/);
+    expect(svc).toMatch(/access_token/);
+    expect(svc, 'yanıttan api_key okunuyor — kapatılan kusur geri geldi')
+      .not.toMatch(/data\.apiKey/);
   });
 
   it('12. 🔒 QR sekmesi DESTEKLENİYORMUŞ gibi gösterilmiyor', () => {
