@@ -45,7 +45,19 @@ import {
   ToggleField,
 } from './ThemeControls';
 
-/* ── Tam ekran kabuk ──────────────────────────────────────────────── */
+/* ── Düzenleyici kabuğu ───────────────────────────────────────────────
+ * ARTIK TAM EKRAN DEĞİL (2026-08-18). Eskiden `fixed inset-0 · zIndex 60` ile
+ * tüm ekranı kaplıyordu; Tema Stüdyo da editör açılınca erken `return`
+ * ettiğinden canlı önizleme hem GÖRÜNMÜYOR hem de DOM'dan kalkıyordu (iframe
+ * remount → araç uygulaması baştan boot). Kullanıcı bunu şöyle tarif etti:
+ * *"ekran sabit kalsın ki yaptığım düzenlemeleri görebileyim."*
+ *
+ * Kabuk artık sayfa akışında bir PANELDİR: kendi kaydırma kabı YOKTUR — sayfa
+ * kaydırılır, önizleme `sticky` olduğu için üstte SABİT kalır. İç scroll
+ * bırakmak sticky'yi yapısal olarak öldürürdü.
+ *
+ * Adı geriye uyum için korunur (dış tüketiciler değişmez); davranışı gömülüdür.
+ */
 
 export function FullScreenSheet({
   title, subtitle, onClose, onUndo, onRedo, canUndo, canRedo, footer, children,
@@ -61,21 +73,18 @@ export function FullScreenSheet({
   children: React.ReactNode;
 }) {
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
+    <section
       aria-label={title}
       data-theme-editor
-      className="fixed inset-0 flex flex-col"
-      style={{ zIndex: 60, background: 'var(--pwa-bg)', color: 'var(--pwa-text)' }}
+      className="flex flex-col pt-3 pb-6"
+      style={{ color: 'var(--pwa-text)' }}
     >
       <header
-        className="flex items-center gap-2 px-3 pt-safe flex-shrink-0"
+        className="flex items-center gap-2 flex-shrink-0"
         style={{
-          paddingTop: 'max(12px, env(safe-area-inset-top))',
+          paddingTop: 2,
           paddingBottom: 10,
           borderBottom: '1px solid var(--pwa-border-soft)',
-          background: 'var(--pwa-panel)',
         }}
       >
         <button
@@ -123,24 +132,23 @@ export function FullScreenSheet({
         )}
       </header>
 
-      <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden px-3 py-3 flex flex-col gap-2.5">
+      {/* Kendi kaydırma kabı YOK — sayfa kaydırılır, önizleme sticky kalır. */}
+      <div className="overflow-x-hidden py-3 flex flex-col gap-2.5">
         {children}
-        <div style={{ height: 24 }} />
       </div>
 
       {footer && (
         <div
-          className="flex-shrink-0 px-3 pt-2.5 flex gap-2"
+          className="flex gap-2 pt-2.5"
           style={{
-            paddingBottom: 'max(12px, env(safe-area-inset-bottom))',
+            paddingBottom: 'max(4px, env(safe-area-inset-bottom))',
             borderTop: '1px solid var(--pwa-border-soft)',
-            background: 'var(--pwa-panel)',
           }}
         >
           {footer}
         </div>
       )}
-    </div>
+    </section>
   );
 }
 

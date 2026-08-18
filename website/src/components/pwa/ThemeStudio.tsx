@@ -286,7 +286,21 @@ export const ThemeStudio = memo(function ThemeStudio({ vehicleId }: Props) {
   const touched = customizationCount(manifest);
   const syncColor = sync === 'ok' ? '#34d399' : sync === 'fail' ? '#f87171' : sync === 'sending' ? '#60a5fa' : 'var(--pwa-text-3)';
 
-  /* ── Tam ekran editörler ────────────────────────────────────────── */
+  /* ── DÜZENLEYİCİ PANELİ — ÖNİZLEMEYİ KAPATMADAN ───────────────────
+   * KULLANICI ŞİKÂYETİ (2026-08-18): *"yaptığım düzenlemeleri göremiyorum,
+   * ekran sabit kalsın ki yaptığım düzenlemeleri görebileyim."*
+   *
+   * ÖLÇÜLEN KUSUR: bu blok eskiden `return <ComponentEditor/>` ile ERKEN
+   * DÖNÜYORDU. Sonuç iki katmanlıydı:
+   *   1. Önizleme DOM'dan tamamen kalkıyordu → düzenleme yapılırken canlı
+   *      önizlemeyi görmek YAPISAL OLARAK imkânsızdı ("canlı önizleme"
+   *      vaadi yalnız hiçbir şey düzenlemezken geçerliydi).
+   *   2. iframe UNMOUNT oluyordu → her editör açılış/kapanışında araç
+   *      uygulaması BAŞTAN boot ediyor, `previewReady` sıfırlanıyor ve
+   *      manifest yeniden gönderiliyordu.
+   * Panel artık ana ağaçta, sticky önizlemenin ALTINDA render edilir;
+   * iframe hiç taşınmaz → remount YOK, geri bildirim ANLIK. */
+  const editorNode = (() => {
   if (editor.kind === 'tokens') {
     return (
       <TokensEditor
@@ -347,6 +361,12 @@ export const ThemeStudio = memo(function ThemeStudio({ vehicleId }: Props) {
     }
   }
 
+  return null;
+  })();
+  /** Düzenleyici açıkken önizleme KOMPAKT olur — panel için yer açar ama
+   *  ekrandan KAYBOLMAZ (kullanıcının istediği "ekran sabit kalsın"). */
+  const editing = editorNode !== null;
+
   /* ── Ana görünüm ────────────────────────────────────────────────── */
   return (
     <div className="flex flex-col">
@@ -388,7 +408,13 @@ export const ThemeStudio = memo(function ThemeStudio({ vehicleId }: Props) {
         <div
           ref={wrapRef}
           style={{
-            position: 'relative', width: '100%', aspectRatio: `${PREVIEW_W} / ${PREVIEW_H}`,
+            position: 'relative',
+            /* Genişlik daralınca `ResizeObserver` ölçeği kendiliğinden yeniden
+               hesaplar (scale = clientWidth / PREVIEW_W) — ayrı bir ölçek
+               otoritesi kurulmaz. */
+            width: editing ? '62%' : '100%',
+            marginLeft: 'auto', marginRight: 'auto',
+            aspectRatio: `${PREVIEW_W} / ${PREVIEW_H}`,
             overflow: 'hidden', borderRadius: 14,
             border: selectMode ? '2px solid #60a5fa' : '1px solid var(--pwa-border)',
             background: '#000',
@@ -514,7 +540,11 @@ export const ThemeStudio = memo(function ThemeStudio({ vehicleId }: Props) {
           <p className="text-[10px] mt-1.5 px-1" style={{ color: syncColor }}>{syncNote}</p>
         )}
 
-        {/* Geri al / Yinele */}
+        {/* Geri al / Yinele — GLOBAL kapsam. Düzenleyici açıkken GİZLENİR:
+            panelin kendi başlığında KART KAPSAMLI geri al/yinele vardır ve iki
+            farklı kapsamı yan yana göstermek "hangisi neyi geri alıyor"
+            belirsizliği üretir. Ayrıca sticky başlık kısalır → panele yer açılır. */}
+        {!editing && (
         <div className="flex gap-2 mt-2">
           <button
             type="button" onClick={undo} disabled={!canUndo}
@@ -531,9 +561,11 @@ export const ThemeStudio = memo(function ThemeStudio({ vehicleId }: Props) {
             ↷ Yinele
           </button>
         </div>
+        )}
       </div>
 
-      {/* ═══ KAYAN İÇERİK ═══ */}
+      {/* ═══ KAYAN İÇERİK — düzenleyici açıkken ONUN YERİNE panel gelir ═══ */}
+      {editorNode ?? (
       <div className="flex flex-col gap-4 pt-4 pb-6">
 
         {/* ── 4 tema galerisi ── */}
@@ -817,6 +849,7 @@ export const ThemeStudio = memo(function ThemeStudio({ vehicleId }: Props) {
         </div>
 
       </div>
+      )}
     </div>
   );
 });
