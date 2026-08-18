@@ -189,6 +189,31 @@ DOĞRULANDI 6 · SAHADA DOĞRULANDI 1 · **ÜRÜN HAZIR: 1**
 
 ### 6.3 Kod tamam + test yeşil, saha borcu açık (kütük 🔴)
 
+- **PWA ARACI DOĞRUDAN EŞLEŞTİRİYOR; FİLO AYRI AKIŞ (2026-08-18, kütük 🔴 #631):**
+  website **1193 test yeşil**, `tsc` temiz. **Canlıda ölçülerek doğrulandı**
+  (`api/vehicle/link` bundle'da VAR, `api/pwa/pair` YOK).
+
+  Kullanıcı: *"pwa sadece araç uygulaması ile işlemeli, filo da araç ile
+  eşleşmesi ikisi ayrı."* Ölçüm: PWA'daki "Eşleştir" düğmesi **hiçbir koşulda
+  çalışmıyordu** — çağırdığı rota 410 ile kalıcı kapalıydı ve ekran kullanıcıyı
+  Filo panosuna yönlendiriyordu. Bireysel kullanıcı için "filo panosu" kavramı
+  anlamsızdır.
+
+  **Asıl bulgu — altyapı zaten hazırdı:** `pair_vehicle_to_user()` bireysel
+  eşleştirmeyi destekliyor (`company_id` null, 3 araç limiti). "Kullanıcı ↔
+  araç" ilişkisi vardı; eksik olan yalnız PWA'nın o rotayı çağırmasıydı.
+  **Bu, tek oturumda karşılaşılan ÜÇÜNCÜ "motor var, besleyen yok" örneğidir**
+  (sınırsız renk altyapısı · v3 önizleme köprüsü · bireysel eşleştirme).
+  Denetim önceliği buradan çıkıyor: yeni motor yazmadan önce **var olan
+  motorların besleniyor mu** diye taranması, yeni özellik yazmaktan daha çok
+  değer üretiyor.
+
+  Güvenlik tarafında kapatılan iki kusur geri gelmedi: oturum artık zorunlu,
+  ham `api_key` saklanmıyor. Bir yan etki yakalandı: `getLocalVehicle` apiKey
+  yoksa `null` dönüyordu → yeni akışla eşleşen araç PWA'da hiç görünmezdi.
+
+  **Kalan eksik:** gerçek araç kodu ile eşleştirme denenmedi. Ölçütler #631'de.
+
 - **TÜM ALT EKRANLAR DÜZENLENEBİLİR: 43 → 64 BİLEŞEN (2026-08-18, kütük 🔴 #629):**
   araç 561 dosya / **12 409 test yeşil**, website **1191 yeşil**.
 
