@@ -4,7 +4,8 @@
  * Kilitlenen davranışlar:
  *  - Yerleşim düzenleme reducer'ı: patch / reset / undo / geçmiş.
  *  - Yerleşim önizlemesi GERÇEK `layoutSolver`dan gelir (ikinci motor yok).
- *  - Solver kullanmayan temada (horizon/tesla) yerleşim arayüzü YOK.
+ *  - #660'a kadar Horizon/Tesla solver kullanmıyordu ve yerleşim arayüzü YOKTU;
+ *    artık dört tema da motora bağlı. Kilitler yeni doğru davranışı korur.
  *  - Ölçüm (probe) zero-trust: hayalet kimlik ve bozuk kutu düşürülür.
  *  - Dokunulan kutu → bileşen listesiyle AYNI seçim yolu.
  *  - v2 kalıcı veri (layoutOverrides'sız) sorunsuz yüklenir (geri-uyum).
@@ -120,10 +121,19 @@ describe('Stüdyo — yerleşim düzenleme', () => {
 /* ── Solver köprüsü ───────────────────────────────────────────────── */
 
 describe('Stüdyo — yerleşim önizlemesi GERÇEK solver\'dan', () => {
-  it('solver kullanmayan temada manifest YOK (arayüz göstermez)', () => {
-    expect(solverManifestFor('horizon')).toBeNull();
-    expect(solverManifestFor('tesla')).toBeNull();
-    expect(solvePreview('horizon', createStudioState().manifests.horizon)).toBeNull();
+  /* #660 ile GÜNCELLENDİ (kaldırılmadı): eski kilit Horizon/Tesla'da yerleşim
+     arayüzünün HİÇ çıkmamasını koruyordu ve o gün doğruydu (motor yoktu, sahte
+     alan da gösterilmiyordu). Artık dört tema da motora bağlı; kilit bu kez
+     "dördü de GERÇEK manifest döndürür"ü korur. Uydurma manifest hâlâ yasak:
+     köprü yalnız `isLayoutCapableTheme` diyen temaya manifest verir. */
+  it('DÖRT temanın DÖRDÜ de gerçek solver manifesti döndürür (#660)', () => {
+    for (const t of ['pro', 'expedition', 'horizon', 'tesla'] as const) {
+      const man = solverManifestFor(t);
+      expect(man, `${t} için manifest yok — yerleşim bölümü boş kalır`).not.toBeNull();
+      expect(man!.length).toBeGreaterThan(0);
+      const preview = solvePreview(t, createStudioState().manifests[t]);
+      expect(preview, `${t} önizlemesi çözülemedi`).not.toBeNull();
+    }
   });
 
   it('pro/expedition için çözülmüş bölgeler gelir', () => {
@@ -162,7 +172,11 @@ describe('Stüdyo — yerleşim önizlemesi GERÇEK solver\'dan', () => {
   it('solverEntry gerçek bölge/boyut bilgisini verir', () => {
     expect(solverEntry('pro', 'nav')?.zone).toBe('center-stage');
     expect(solverEntry('expedition', 'range')?.zone).toBe('left-rail');
-    expect(solverEntry('horizon', 'map')).toBeNull();
+    /* #660: Horizon artık motora bağlı → kendi kartı ÇÖZÜLÜR. Uydurma kart
+       hâlâ null döner (kilidin asıl koruduğu şey budur). */
+    expect(solverEntry('horizon', 'map')?.zone).toBe('center-stage');
+    expect(solverEntry('tesla', 'fuel')?.zone).toBe('left-rail');
+    expect(solverEntry('horizon', 'boyleBirKartYok')).toBeNull();
   });
 
   it('manifest → ham niyet yalnız dokunulanı taşır', () => {
@@ -323,7 +337,8 @@ describe('Stüdyo — 4 tema paritesi', () => {
 
   it('yerleşim yeteneği tema başına DOĞRU raporlanır', () => {
     const capable = THEME_BASE_IDS.filter(isLayoutCapableTheme);
-    expect(capable.sort()).toEqual(['expedition', 'pro']);
+    /* #660 ile GÜNCELLENDİ: dört tema da yetenekli. */
+    expect(capable.slice().sort()).toEqual(['expedition', 'horizon', 'pro', 'tesla']);
     for (const t of THEME_BASE_IDS) {
       const n = layoutComponentsForTheme(t).length;
       if (isLayoutCapableTheme(t)) expect(n).toBeGreaterThan(0);
@@ -333,7 +348,10 @@ describe('Stüdyo — 4 tema paritesi', () => {
 
   it('tema farkları korunur — bir temada olmayan bileşen uydurulmaz', () => {
     expect(getThemeComponent('tesla.fuel')?.themes).toEqual(['tesla']);
-    expect(layoutCardIdFor(getThemeComponent('tesla.fuel')!, 'tesla')).toBeNull();
+    /* #660: Tesla motora bağlandı → kendi kartına eşlenir. Tema karışması
+       yasağı (asıl korunan kural) aşağıdaki yabancı-tema kontrolüyle sürüyor. */
+    expect(layoutCardIdFor(getThemeComponent('tesla.fuel')!, 'tesla')).toBe('fuel');
+    expect(layoutCardIdFor(getThemeComponent('tesla.fuel')!, 'horizon')).toBeNull();
     expect(THEME_COMPONENTS.find((c) => c.id === 'horizon.consumption')?.themes).toEqual(['horizon']);
   });
 });

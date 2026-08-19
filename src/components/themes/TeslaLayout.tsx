@@ -35,6 +35,8 @@ import { useNavSummary } from '../../hooks/useNavSummary';
 import { type AppItem } from '../../data/apps';
 import type { SmartSnapshot } from '../../platform/smartEngine';
 import { MagicContextCard } from '../common/MagicContextCard';
+import { useLayoutIntent, useZoneWidths } from '../../store/useLayoutStore';
+import { solveLayout, normalizeIntent, TESLA_MANIFEST, type Zone } from '../../platform/theme/layoutSolver';
 
 const VoiceAssistant = lazy(() => import('../modals/VoiceAssistant').then(m => ({ default: m.VoiceAssistant })));
 
@@ -682,6 +684,61 @@ export const TeslaLayout = memo(function TeslaLayout(props: Props) {
   const dayNightMode = useDayNightAttr(); // kanonik (data-day-night) → kartlar+saat senkron
   const pal = dayNightMode === 'day' ? SAND : LAVA;
 
+  /* ── YERLEŞİM MOTORU (#660) ────────────────────────────────────────────
+   * Tesla bugüne dek SABİT sütunlarla çiziliyordu ve Stüdyo bu temada yerleşim
+   * düzenlemeyi HİÇ göstermiyordu (motor yoktu, sahte alan da gösterilmiyordu).
+   * Manifest ekranın BUGÜNKÜ yapısından çıkarıldı → hiç dokunulmadığında
+   * görünüm birebir aynıdır. */
+  const rawIntent = useLayoutIntent('tesla');
+  const intent = useMemo(() => normalizeIntent(rawIntent, TESLA_MANIFEST), [rawIntent]);
+  const solved = useMemo(() => solveLayout(intent, TESLA_MANIFEST), [intent]);
+  const zoneW = useZoneWidths('tesla');
+
+  /* Sütun genişlikleri çarpanla ölçeklenir; çarpansız değerler BİREBİR
+     ekranın bugünkü clamp'leridir. */
+  const tsColWidth = (zone: 'left-rail' | 'right-rail'): string => {
+    const k = zoneW[zone] ?? 1;
+    return zone === 'left-rail'
+      ? `clamp(${Math.round(150 * k)}px, ${(15 * k).toFixed(1)}vw, ${Math.round(198 * k)}px)`
+      : `clamp(${Math.round(280 * k)}px, ${(28 * k).toFixed(1)}vw, ${Math.round(358 * k)}px)`;
+  };
+
+  const renderTsCard = (id: string) => {
+    switch (id) {
+      case 'clock':   return <ClockCard />;
+      case 'speed':   return <SpeedGauge />;
+      case 'fuel':    return <FuelCard />;
+      case 'music':   return <MusicCard />;
+      case 'vehicle': return <VehicleCard onOpenSettings={onOpenSettings} />;
+      default:        return null;
+    }
+  };
+
+  /* Sütunlar flex; elle boyut verilmemişse kartlar doğal boylarında kalır —
+     yani bugünkü ekran. */
+  const tsItemStyle = (id: string): React.CSSProperties => {
+    const gc = intent[id]?.growCustom;
+    if (gc != null) return { flexGrow: gc, flexBasis: 0, flexShrink: 1, minHeight: 0, display: 'flex', flexDirection: 'column' };
+    return { display: 'flex', flexDirection: 'column', minHeight: 0 };
+  };
+
+  /* Tek elemanlı grup da BURADAN geçer — ikinci kod yolu yok. */
+  const renderTsGroup = (g: { id: string }[], key: string) => {
+    if (g.length === 1) {
+      return <div key={key} style={tsItemStyle(g[0].id)}>{renderTsCard(g[0].id)}</div>;
+    }
+    return (
+      <div key={key} data-merged="true" style={{ display: 'flex', flexDirection: 'column', gap: 0, minHeight: 0 }}>
+        {g.map((it) => (
+          <div key={it.id} style={tsItemStyle(it.id)}>{renderTsCard(it.id)}</div>
+        ))}
+      </div>
+    );
+  };
+
+  const tsRail = (zone: Zone) =>
+    solved[zone].groups.map((g, i) => renderTsGroup(g, g.map((x) => x.id).join('+') || String(i)));
+
   return (
     <PalCtx.Provider value={pal}>
       <div data-theme-surface="home" className="relative w-full h-full overflow-hidden" style={{ background: pal.night ? '#161b11' : '#e6d6ba', transition: 'background 0.4s ease' }}>
@@ -692,10 +749,8 @@ export const TeslaLayout = memo(function TeslaLayout(props: Props) {
             <StatusCluster />
           </div>
           <div className="flex-1 min-h-0 flex" style={{ gap: 12, padding: '4px 14px 8px' }}>
-            <div className="flex flex-col min-h-0" style={{ gap: 12, width: 'clamp(150px, 15vw, 198px)', flexShrink: 0 }}>
-              <ClockCard />
-              <SpeedGauge />
-              <FuelCard />
+            <div className="flex flex-col min-h-0" style={{ gap: 12, width: tsColWidth('left-rail'), flexShrink: 0 }}>
+              {tsRail('left-rail')}
             </div>
             <div className="flex flex-col min-h-0 min-w-0 flex-1 relative" style={{ gap: 12 }}>
               <MapCard onOpenMap={onOpenMap} fullMapOpen={fullMapOpen} />
@@ -705,9 +760,8 @@ export const TeslaLayout = memo(function TeslaLayout(props: Props) {
                 </div>
               )}
             </div>
-            <div className="flex flex-col min-h-0" style={{ gap: 12, width: 'clamp(280px, 28vw, 358px)', flexShrink: 0 }}>
-              <MusicCard />
-              <VehicleCard onOpenSettings={onOpenSettings} />
+            <div className="flex flex-col min-h-0" style={{ gap: 12, width: tsColWidth('right-rail'), flexShrink: 0 }}>
+              {tsRail('right-rail')}
             </div>
           </div>
           <div className="flex-shrink-0" style={{ padding: '6px 16px 14px' }}>

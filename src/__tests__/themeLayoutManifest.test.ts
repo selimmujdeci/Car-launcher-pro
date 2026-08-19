@@ -38,6 +38,9 @@ import {
 import {
   EXPEDITION_MANIFEST,
   PRO_MANIFEST,
+  HORIZON_MANIFEST,
+  TESLA_MANIFEST,
+  ZONES,
   normalizeIntent,
   solveLayout,
 } from '../platform/theme/layoutSolver';
@@ -214,16 +217,29 @@ describe('yerleşim — mevcut layoutSolver ile uyum', () => {
 /* ── Kayıt defteri eşlemesi ───────────────────────────────────────── */
 
 describe('yerleşim — kimlik eşlemesi (uydurma yok)', () => {
-  it('yalnız pro ve expedition solver kullanır', () => {
-    expect(isLayoutCapableTheme('pro')).toBe(true);
-    expect(isLayoutCapableTheme('expedition')).toBe(true);
-    expect(isLayoutCapableTheme('horizon')).toBe(false);
-    expect(isLayoutCapableTheme('tesla')).toBe(false);
+  /* #660 ile GÜNCELLENDİ (kaldırılmadı): eski kilit "yalnız pro ve expedition
+     solver kullanır" diyordu ve o gün DOĞRUYDU — Horizon/Tesla sabit grid ile
+     çiziliyor, Stüdyo o temalarda yerleşim bölümünü hiç göstermiyordu. #660 ile
+     iki tema da motora bağlandı; kilit yeni doğru davranışı korur. */
+  it('DÖRT temanın DÖRDÜ de solver kullanır (#660)', () => {
+    for (const t of ['pro', 'expedition', 'horizon', 'tesla'] as const) {
+      expect(isLayoutCapableTheme(t), `${t} yerleşim yeteneksiz işaretlenmiş`).toBe(true);
+    }
   });
 
-  it('horizon/tesla bileşenlerinde yerleşim kartı YOKTUR', () => {
+  it('horizon/tesla bileşenleri artık yerleşim kartına eşlenir (#660)', () => {
     for (const t of ['horizon', 'tesla'] as const) {
-      expect(layoutComponentsForTheme(t)).toHaveLength(0);
+      const list = layoutComponentsForTheme(t);
+      expect(list.length, `${t} için yerleşim kartı eşlemesi yok — bölüm boş kalır`)
+        .toBeGreaterThan(0);
+      /* Her eşleme GERÇEK bir manifest kartına gitmeli (uydurma id yok). */
+      const man = t === 'horizon' ? HORIZON_MANIFEST : TESLA_MANIFEST;
+      const ids = man.map((e) => e.id);
+      for (const c of list) {
+        const cardId = layoutCardIdFor(c, t);
+        expect(cardId, `${c.id} için kart id çözülemedi`).not.toBeNull();
+        expect(ids, `${c.id} → ${cardId} manifestte YOK (uydurma eşleme)`).toContain(cardId);
+      }
     }
   });
 
@@ -247,8 +263,15 @@ describe('yerleşim — kimlik eşlemesi (uydurma yok)', () => {
   });
 
   it('yanlış tema için eşleme null döner (tema karışması yok)', () => {
+    /* #660 ile GÜNCELLENDİ: ikinci satır eskiden `horizon.map`in HİÇBİR temada
+       çözülmediğini kilitliyordu (Horizon solver kullanmıyordu). Artık Horizon
+       da motora bağlı → kendi temasında ÇÖZÜLMELİ, YABANCI temada null kalmalı.
+       Kilidin koruduğu asıl şey (tema karışmaması) aynen sürüyor. */
     expect(layoutCardIdFor(getThemeComponent('pro.map')!, 'expedition')).toBeNull();
-    expect(layoutCardIdFor(getThemeComponent('horizon.map')!, 'horizon')).toBeNull();
+    expect(layoutCardIdFor(getThemeComponent('horizon.map')!, 'pro')).toBeNull();
+    expect(layoutCardIdFor(getThemeComponent('horizon.map')!, 'horizon')).toBe('map');
+    expect(layoutCardIdFor(getThemeComponent('tesla.clock')!, 'expedition')).toBeNull();
+    expect(layoutCardIdFor(getThemeComponent('tesla.clock')!, 'tesla')).toBe('clock');
   });
 });
 
@@ -266,13 +289,29 @@ describe('yerleşim — araç çalışma zamanı', () => {
     expect(getThemeRuntimeSnapshot().layoutCapable).toBe(true);
   });
 
-  it('solver kullanmayan temada yerleşim YAZILMAZ (ölü veri üretilmez)', () => {
+  /* #660 ile GÜNCELLENDİ: Horizon artık solver kullanıyor, dolayısıyla yerleşim
+     YAZILIR ve bu ölü veri DEĞİLDİR. Kilidin koruduğu asıl kural değişmedi —
+     "solver kullanmayan temaya yazma" — ama bugün öyle bir tema kalmadı, o
+     yüzden kural manifestte OLMAYAN karta yazılmaması üzerinden korunur. */
+  it('solver kartı OLMAYAN id ölü veri üretmez (#660 ile güncellendi)', () => {
     const m = createThemeManifest('horizon');
-    m.layoutOverrides.music = { visible: false, size: null, ord: null, grow: null };
+    m.layoutOverrides.media = { visible: false, size: null, ord: null, grow: null, merge: null };
     applyThemeManifest(m, 'command', { setBaseTheme: false, persist: false });
-    expect(useLayoutStore.getState().byTheme.horizon).toBeUndefined();
-    expect(getThemeRuntimeSnapshot().layoutCapable).toBe(false);
-    expect(getThemeRuntimeSnapshot().appliedLayoutCount).toBeNull();
+    expect(useLayoutStore.getState().byTheme.horizon,
+      'Horizon artık solver kullanıyor — yerleşim niyeti yazılmalı').toBeDefined();
+    expect(getThemeRuntimeSnapshot().layoutCapable).toBe(true);
+
+    /* Horizon manifestinde `clock` YOKTUR (o Tesla/Pro kartıdır). Niyet ham
+       saklanır ama ÇÖZÜM sırasında elenir → ekrana uydurma kart çıkmaz. */
+    const yabanci = createThemeManifest('horizon');
+    yabanci.layoutOverrides.clock = { visible: false, size: null, ord: null, grow: null, merge: null };
+    applyThemeManifest(yabanci, 'command', { setBaseTheme: false, persist: false });
+    const c = solveLayout(
+      normalizeIntent(useLayoutStore.getState().byTheme.horizon, HORIZON_MANIFEST),
+      HORIZON_MANIFEST,
+    );
+    const hepsi = ZONES.flatMap((z) => c[z].items.map((x) => x.id));
+    expect(hepsi, 'yabancı kart id ekrana sızmış').not.toContain('clock');
   });
 
   it('paylaşılan kart id\'leri temalar arasında SIZMAZ', () => {

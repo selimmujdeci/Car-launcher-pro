@@ -12,6 +12,8 @@
 import {
   EXPEDITION_MANIFEST,
   PRO_MANIFEST,
+  HORIZON_MANIFEST,
+  TESLA_MANIFEST,
   defaultIntent,
   normalizeIntent,
   solveLayout,
@@ -31,13 +33,20 @@ export const ZONE_LABEL: Record<Zone, string> = {
 };
 
 /**
- * Temanın solver manifesti. Solver kullanmayan tema (Horizon/Tesla) için `null`
- * — arayüz yerleşim bölümünü hiç göstermez, sahte kart üretmez.
+ * Temanın solver manifesti. Solver kullanmayan tema için `null` — arayüz
+ * yerleşim bölümünü hiç göstermez, sahte kart üretmez.
+ *
+ * #660: Horizon ve Tesla da solver'a bağlandı. Kapı hâlâ
+ * `isLayoutCapableTheme`dir (kod gerçeği); burada ikinci bir liste TUTULMAZ —
+ * yeni bir tema yetenekli olur da buraya eklenmezse `null` döner ve arayüz
+ * yerleşimi göstermez (fail-closed: sahte alan yerine hiç alan).
  */
 export function solverManifestFor(themeId: ThemeBaseId): Manifest | null {
   if (!isLayoutCapableTheme(themeId)) return null;
   if (themeId === 'pro') return PRO_MANIFEST;
   if (themeId === 'expedition') return EXPEDITION_MANIFEST;
+  if (themeId === 'horizon') return HORIZON_MANIFEST;
+  if (themeId === 'tesla') return TESLA_MANIFEST;
   return null;
 }
 

@@ -43,6 +43,17 @@ describe('tema sözleşmesi — araç ↔ PWA paritesi', () => {
     const pwa = body(readRepo('website/src/lib/theme/themeComponentRegistry.ts'));
     expect(pwa).toBe(car);
   });
+
+  /* #660 — layoutSolver ELLE kopyalanıyordu ve SESSİZCE AYRIŞTI: #656'da araç
+   * kopyasına `mergeNext`/`groups` eklendi, PWA kopyası eski kaldı. Ayrışma
+   * kimse fark etmeden sürebilirdi çünkü PWA kopyası yalnız Stüdyo önizlemesini
+   * besliyor. Artık aynı senkron kapısından geçiyor ve burada kilitli. */
+  it('layoutSolver.ts iki pakette BİREBİR aynıdır (#660)', () => {
+    const car = body(readRepo('src/platform/theme/layoutSolver.ts'));
+    const pwa = body(readRepo('website/src/lib/layoutSolver.ts'));
+    expect(pwa, 'iki solver ayrışmış — Stüdyo önizlemesi araçtan farklı çözer')
+      .toBe(car);
+  });
 });
 
 /* ── Kablolama ────────────────────────────────────────────────────── */
@@ -239,5 +250,68 @@ describe('önizlenemeyen ekran KULLANICIYA söylenir (#653)', () => {
       .toContain('surfaceShown === false');
     expect(studio, 'uyarı metni yok — kullanıcı neden göremediğini bilemez')
       .toContain('önizlemede gösterilemiyor');
+  });
+});
+
+describe('#660 — dört temanın DÖRDÜ de yerleşim motorunu kullanır', () => {
+  /* Horizon ve Tesla bugüne dek SABİT grid ile çiziliyordu; Stüdyo o temalarda
+   * yerleşim bölümünü hiç göstermiyordu (dürüsttü: motor yoktu). Manifestleri
+   * ekranların BUGÜNKÜ yapısından çıkarıldı — varsayılan niyet aynı sırayı
+   * üretmeli, yani hiç dokunulmadığında görünüm DEĞİŞMEMELİ. */
+
+  it('KİLİT: dört tema da yetenekli işaretli', async () => {
+    const { isLayoutCapableTheme } = await import('../platform/theme/themeComponentRegistry');
+    for (const t of ['pro', 'expedition', 'horizon', 'tesla'] as const) {
+      expect(isLayoutCapableTheme(t), `${t} yerleşim yeteneksiz işaretlenmiş`).toBe(true);
+    }
+  });
+
+  it('KİLİT: yeni manifestler ekranın BUGÜNKÜ sırasını üretir', async () => {
+    const { defaultIntent, solveLayout, HORIZON_MANIFEST, TESLA_MANIFEST } =
+      await import('../platform/theme/layoutSolver');
+
+    const hz = solveLayout(defaultIntent(HORIZON_MANIFEST), HORIZON_MANIFEST);
+    expect(hz['left-rail'].items.map((x) => x.id),
+      'Horizon sol ray sırası ekrandan farklı — varsayılanda görünüm değişir')
+      .toEqual(['drivemode', 'speed', 'range', 'consumption']);
+    expect(hz['right-rail'].items.map((x) => x.id)).toEqual(['media', 'vehicle']);
+    expect(hz['center-stage'].items.map((x) => x.id)).toEqual(['map']);
+
+    const ts = solveLayout(defaultIntent(TESLA_MANIFEST), TESLA_MANIFEST);
+    expect(ts['left-rail'].items.map((x) => x.id),
+      'Tesla sol sütun sırası ekrandan farklı')
+      .toEqual(['clock', 'speed', 'fuel']);
+    expect(ts['right-rail'].items.map((x) => x.id)).toEqual(['music', 'vehicle']);
+  });
+
+  it('KİLİT: hız ve harita kilitli — gizlenemez', async () => {
+    const { normalizeIntent, solveLayout, HORIZON_MANIFEST, TESLA_MANIFEST } =
+      await import('../platform/theme/layoutSolver');
+    for (const man of [HORIZON_MANIFEST, TESLA_MANIFEST]) {
+      const gizle = normalizeIntent(
+        { speed: { visible: false }, map: { visible: false } }, man,
+      );
+      const c = solveLayout(gizle, man);
+      const hepsi = [...c['left-rail'].items, ...c['center-stage'].items].map((x) => x.id);
+      expect(hepsi, 'kilitli hız kartı gizlenebilmiş').toContain('speed');
+      expect(hepsi, 'kilitli harita gizlenebilmiş').toContain('map');
+    }
+  });
+
+  it('KİLİT: iki tema da GRUPLARI çizer (kart birleştirme orada da çalışır)', () => {
+    for (const t of ['HorizonLayout', 'TeslaLayout']) {
+      const src = readRepo(`src/components/themes/${t}.tsx`);
+      expect(src, `${t} solver'a bağlanmamış`).toContain('solveLayout(');
+      expect(src, `${t} hâlâ items üzerinden çiziyor — birleştirme ekrana ulaşmaz`)
+        .toContain('.groups.map(');
+      expect(src, `${t} sütun genişliği çarpanını okumuyor`).toContain('useZoneWidths(');
+    }
+  });
+
+  it('KİLİT: Stüdyo köprüsü dört temanın manifestini de bulur', () => {
+    const src = readRepo('website/src/lib/theme/themeLayoutBridge.ts');
+    for (const m of ['PRO_MANIFEST', 'EXPEDITION_MANIFEST', 'HORIZON_MANIFEST', 'TESLA_MANIFEST']) {
+      expect(src, `${m} köprüde yok — o temada yerleşim bölümü boş kalır`).toContain(m);
+    }
   });
 });

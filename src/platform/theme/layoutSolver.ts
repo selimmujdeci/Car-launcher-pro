@@ -15,6 +15,8 @@
  * kart kümesini kendi manifest'iyle çözer; niyet ham blob olarak saklanır,
  * her tema OKUMA anında kendi manifest'ine göre normalize eder → temalar
  * birbirinin kartını ezmez.
+ *
+---8<--- PARITY-START --->8---
  */
 
 export type Zone = 'left-rail' | 'center-stage' | 'right-rail' | 'dock';
@@ -56,6 +58,44 @@ export const EXPEDITION_MANIFEST: Manifest = [
   { id: 'vehicle', label: 'Araç Durumu',  zone: 'right-rail',   size: 'L', priority: 65 },
   { id: 'dock',    label: 'Dock',         zone: 'dock',         size: 'L', priority: 100, locked: true },
 ];
+
+/**
+ * HORIZON — yerleşim motoruna BAĞLANDI (#660).
+ *
+ * Değerler ekranın BUGÜNKÜ yapısından çıkarıldı, uydurulmadı:
+ * sol ray `gridTemplateRows: 'auto 1fr auto auto'` ile dört kart
+ * (sürüş modu · hız · menzil · tüketim), orta sahne harita, sağ ray
+ * `'0.93fr 1fr'` ile iki kart (medya · araç durumu), altta dock.
+ * `priority` sırası mevcut ekran sırasının AYNISIDIR → hiç dokunulmadığında
+ * ekran birebir eskisi gibi çözülür.
+ */
+export const HORIZON_MANIFEST: Manifest = [
+  { id: 'drivemode',   label: 'Sürüş Modu',  zone: 'left-rail',    size: 'S', priority: 90 },
+  { id: 'speed',       label: 'Hız',         zone: 'left-rail',    size: 'L', priority: 80, locked: true },
+  { id: 'range',       label: 'Menzil',      zone: 'left-rail',    size: 'S', priority: 70 },
+  { id: 'consumption', label: 'Tüketim',     zone: 'left-rail',    size: 'S', priority: 60 },
+  { id: 'map',         label: 'Harita',      zone: 'center-stage', size: 'L', priority: 90, locked: true },
+  { id: 'media',       label: 'Medya',       zone: 'right-rail',   size: 'M', priority: 70 },
+  { id: 'vehicle',     label: 'Araç Durumu', zone: 'right-rail',   size: 'L', priority: 65 },
+  { id: 'dock',        label: 'Dock',        zone: 'dock',         size: 'L', priority: 100, locked: true },
+];
+
+/**
+ * TESLA — yerleşim motoruna BAĞLANDI (#660).
+ *
+ * Bugünkü yapı: sol sütun (saat · hız · yakıt), orta harita, sağ sütun
+ * (müzik · araç), altta dock. Sıra mevcut ekranla aynıdır.
+ */
+export const TESLA_MANIFEST: Manifest = [
+  { id: 'clock',   label: 'Saat',        zone: 'left-rail',    size: 'S', priority: 90 },
+  { id: 'speed',   label: 'Hız',         zone: 'left-rail',    size: 'L', priority: 80, locked: true },
+  { id: 'fuel',    label: 'Yakıt',       zone: 'left-rail',    size: 'S', priority: 70 },
+  { id: 'map',     label: 'Harita',      zone: 'center-stage', size: 'L', priority: 90, locked: true },
+  { id: 'music',   label: 'Müzik',       zone: 'right-rail',   size: 'M', priority: 70 },
+  { id: 'vehicle', label: 'Araç Durumu', zone: 'right-rail',   size: 'L', priority: 65 },
+  { id: 'dock',    label: 'Dock',        zone: 'dock',         size: 'L', priority: 100, locked: true },
+];
+
 
 export const GROW_BY_SIZE: Record<SizeClass, number> = { S: 1, M: 2, L: 3 };
 export const ZONE_CAPACITY: Record<Zone, number> = {

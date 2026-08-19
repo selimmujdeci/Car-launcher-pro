@@ -170,11 +170,15 @@ export interface ThemeComponentInfo {
 }
 
 /**
- * `layoutSolver`ı fiilen kullanan temalar. Horizon ve Tesla sabit grid ile
- * çizilir (`HorizonLayout`/`TeslaLayout` solver'ı import ETMEZ) → o temalarda
- * yerleşim düzenleme YOKTUR. Bu liste kod gerçeğidir, tercih değildir.
+ * `layoutSolver`ı fiilen kullanan temalar. Bu liste KOD GERÇEĞİDİR, tercih değil.
+ *
+ * #660'a kadar yalnız `pro` ve `expedition` vardı: Horizon ve Tesla sabit grid
+ * ile çiziliyor ve solver'ı import ETMİYORDU, dolayısıyla o temalarda yerleşim
+ * düzenleme YOKTU (Stüdyo bunu açıkça söylüyordu — sahte alan gösterilmiyordu).
+ * #660 ile iki tema da solver'a bağlandı; manifestleri ekranların BUGÜNKÜ
+ * yapısından çıkarıldı, uydurulmadı → hiç dokunulmadığında ekran aynı kalır.
  */
-export const LAYOUT_CAPABLE_THEMES: readonly ThemeBaseId[] = ['pro', 'expedition'];
+export const LAYOUT_CAPABLE_THEMES: readonly ThemeBaseId[] = ['pro', 'expedition', 'horizon', 'tesla'];
 
 export function isLayoutCapableTheme(themeId: ThemeBaseId): boolean {
   return (LAYOUT_CAPABLE_THEMES as readonly string[]).includes(themeId);
@@ -198,23 +202,23 @@ const HOME_COMPONENTS: ThemeComponentInfo[] = [
   { id: 'expedition.dock-buttons', surface: 'home', type: 'dock', label: 'Dock Butonları (tümü)', themes: ['expedition'] },
   // ── Horizon ──
   { id: 'horizon.topbar', surface: 'home', type: 'header', label: 'Üst Bar', themes: ['horizon'] },
-  { id: 'horizon.drivemode', surface: 'home', type: 'card', label: 'Sürüş Modu Kartı', themes: ['horizon'] },
-  { id: 'horizon.speed', surface: 'home', type: 'gauge', label: 'Hız Kartı', themes: ['horizon'], locked: true },
-  { id: 'horizon.range', surface: 'home', type: 'card', label: 'Menzil Kartı', themes: ['horizon'] },
-  { id: 'horizon.consumption', surface: 'home', type: 'card', label: 'Tüketim Kartı', themes: ['horizon'] },
-  { id: 'horizon.map', surface: 'home', type: 'map', label: 'Harita (Hero)', themes: ['horizon'], locked: true },
-  { id: 'horizon.media', surface: 'home', type: 'media', label: 'Medya Kartı', themes: ['horizon'] },
-  { id: 'horizon.vehicle', surface: 'home', type: 'card', label: 'Araç Durumu', themes: ['horizon'] },
-  { id: 'horizon.dock', surface: 'home', type: 'dock', label: 'Dock Bar', themes: ['horizon'], locked: true },
+  { id: 'horizon.drivemode', surface: 'home', type: 'card', label: 'Sürüş Modu Kartı', themes: ['horizon'], layoutCardId: 'drivemode' },
+  { id: 'horizon.speed', surface: 'home', type: 'gauge', label: 'Hız Kartı', themes: ['horizon'], locked: true, layoutCardId: 'speed' },
+  { id: 'horizon.range', surface: 'home', type: 'card', label: 'Menzil Kartı', themes: ['horizon'], layoutCardId: 'range' },
+  { id: 'horizon.consumption', surface: 'home', type: 'card', label: 'Tüketim Kartı', themes: ['horizon'], layoutCardId: 'consumption' },
+  { id: 'horizon.map', surface: 'home', type: 'map', label: 'Harita (Hero)', themes: ['horizon'], locked: true, layoutCardId: 'map' },
+  { id: 'horizon.media', surface: 'home', type: 'media', label: 'Medya Kartı', themes: ['horizon'], layoutCardId: 'media' },
+  { id: 'horizon.vehicle', surface: 'home', type: 'card', label: 'Araç Durumu', themes: ['horizon'], layoutCardId: 'vehicle' },
+  { id: 'horizon.dock', surface: 'home', type: 'dock', label: 'Dock Bar', themes: ['horizon'], locked: true, layoutCardId: 'dock' },
   // ── Tesla ──
   { id: 'tesla.status', surface: 'home', type: 'header', label: 'Durum Kümesi', themes: ['tesla'] },
-  { id: 'tesla.clock', surface: 'home', type: 'card', label: 'Saat Kartı', themes: ['tesla'] },
-  { id: 'tesla.speed', surface: 'home', type: 'gauge', label: 'Hız Göstergesi', themes: ['tesla'], locked: true },
-  { id: 'tesla.fuel', surface: 'home', type: 'card', label: 'Yakıt Kartı', themes: ['tesla'] },
-  { id: 'tesla.map', surface: 'home', type: 'map', label: 'Harita Kartı', themes: ['tesla'], locked: true },
-  { id: 'tesla.music', surface: 'home', type: 'media', label: 'Müzik Kartı', themes: ['tesla'] },
-  { id: 'tesla.vehicle', surface: 'home', type: 'card', label: 'Araç Kartı', themes: ['tesla'] },
-  { id: 'tesla.dock', surface: 'home', type: 'dock', label: 'Dock Bar', themes: ['tesla'], locked: true },
+  { id: 'tesla.clock', surface: 'home', type: 'card', label: 'Saat Kartı', themes: ['tesla'], layoutCardId: 'clock' },
+  { id: 'tesla.speed', surface: 'home', type: 'gauge', label: 'Hız Göstergesi', themes: ['tesla'], locked: true, layoutCardId: 'speed' },
+  { id: 'tesla.fuel', surface: 'home', type: 'card', label: 'Yakıt Kartı', themes: ['tesla'], layoutCardId: 'fuel' },
+  { id: 'tesla.map', surface: 'home', type: 'map', label: 'Harita Kartı', themes: ['tesla'], locked: true, layoutCardId: 'map' },
+  { id: 'tesla.music', surface: 'home', type: 'media', label: 'Müzik Kartı', themes: ['tesla'], layoutCardId: 'music' },
+  { id: 'tesla.vehicle', surface: 'home', type: 'card', label: 'Araç Kartı', themes: ['tesla'], layoutCardId: 'vehicle' },
+  { id: 'tesla.dock', surface: 'home', type: 'dock', label: 'Dock Bar', themes: ['tesla'], locked: true, layoutCardId: 'dock' },
   // ── Glass Pro ──
   { id: 'pro.clock', surface: 'home', type: 'card', label: 'Saat Kartı', themes: ['pro'], layoutCardId: 'clock' },
   { id: 'pro.gauge', surface: 'home', type: 'gauge', label: 'Hız & Menzil', themes: ['pro'], locked: true, layoutCardId: 'gauge' },

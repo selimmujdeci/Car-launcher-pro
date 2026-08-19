@@ -16,6 +16,10 @@ const MARK = '---8<--- PARITY-START --->8---';
 const PAIRS = [
   ['src/platform/theme/themeManifest.ts', 'website/src/lib/theme/themeManifest.ts'],
   ['src/platform/theme/themeComponentRegistry.ts', 'website/src/lib/theme/themeComponentRegistry.ts'],
+  /* layoutSolver ELLE kopyalanıyordu ve #656'da sessizce ayrıştı (araçta
+     `mergeNext`/`groups` vardı, PWA kopyasında YOKTU). Artık aynı kapıdan
+     senkronlanır — ikinci otorite yapısal olarak imkânsız. */
+  ['src/platform/theme/layoutSolver.ts', 'website/src/lib/layoutSolver.ts'],
 ];
 
 let changed = 0;

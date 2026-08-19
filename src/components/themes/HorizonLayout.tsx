@@ -39,6 +39,8 @@ import { type AppItem } from '../../data/apps';
 import type { SmartSnapshot } from '../../platform/smartEngine';
 import { MagicContextCard } from '../common/MagicContextCard';
 import { SUPPORTS_CSS_CLAMP, SUPPORTS_ASPECT_RATIO, cssClamp } from '../../utils/cssCompat';
+import { useLayoutIntent, useZoneWidths } from '../../store/useLayoutStore';
+import { solveLayout, normalizeIntent, HORIZON_MANIFEST, type Zone } from '../../platform/theme/layoutSolver';
 
 const VoiceAssistant = lazy(() => import('../modals/VoiceAssistant').then(m => ({ default: m.VoiceAssistant })));
 
@@ -815,6 +817,78 @@ export const HorizonLayout = memo(function HorizonLayout(props: Props) {
   const dayNightMode = useDayNightAttr(); // kanonik (data-day-night) → kartlar+saat senkron
   const pal = dayNightMode === 'day' ? DAY_H : NIGHT_H;
 
+  /* ── YERLEŞİM MOTORU (#660) ────────────────────────────────────────────
+   * Horizon bugüne dek SABİT grid ile çiziliyordu ve Stüdyo bu temada
+   * yerleşim düzenlemeyi HİÇ göstermiyordu (dürüst davranıyordu: motor yoktu).
+   * Manifest ekranın BUGÜNKÜ yapısından çıkarıldı; varsayılan niyet aynı sırayı
+   * üretir → hiç dokunulmadığında görünüm birebir eskisi gibidir. */
+  const rawIntent = useLayoutIntent('horizon');
+  const intent = useMemo(() => normalizeIntent(rawIntent, HORIZON_MANIFEST), [rawIntent]);
+  const solved = useMemo(() => solveLayout(intent, HORIZON_MANIFEST), [intent]);
+  const zoneW = useZoneWidths('horizon');
+
+  /* Sütun genişlikleri çarpanla ölçeklenir; çarpan yoksa referans oranlar
+     (Sol %17,8 · Orta %51 · Sağ %25,8) BİREBİR korunur. */
+  const hzGridCols = useMemo(() => {
+    const sol = zoneW['left-rail'] ?? 1;
+    const sag = zoneW['right-rail'] ?? 1;
+    if (sol === 1 && sag === 1) return HZ_GRID_COLS;
+    const ol = (a: number, b: number, c: number, k: number) =>
+      SUPPORTS_CSS_CLAMP
+        ? `clamp(${Math.round(a * k)}px,${(b * k).toFixed(1)}vw,${Math.round(c * k)}px)`
+        : `minmax(${Math.round(a * k)}px,${Math.round(c * k)}px)`;
+    return `${ol(150, 17.8, 250, sol)} minmax(0,1fr) ${ol(230, 25.8, 360, sag)}`;
+  }, [zoneW]);
+
+  const renderHzCard = (id: string) => {
+    switch (id) {
+      case 'drivemode':   return <HzDriveModeCard />;
+      case 'speed':       return <HzSpeedCard />;
+      case 'range':       return <HzRangeCard />;
+      case 'consumption': return <HzConsumptionCard onOpenSettings={onOpenSettings} />;
+      case 'media':       return <HzMediaCard />;
+      case 'vehicle':     return <HzVehicleStatus onOpenSettings={onOpenSettings} />;
+      default:            return null;
+    }
+  };
+
+  /* Satır boyu: elle boyut varsa o; yoksa ekranın BUGÜNKÜ oranı korunur
+     (sol ray 'auto 1fr auto auto', sağ ray '0.93fr 1fr'). */
+  const HZ_DEFAULT_ROW: Record<string, string> = {
+    drivemode: 'auto', speed: 'minmax(0,1fr)', range: 'auto', consumption: 'auto',
+    media: 'minmax(0,0.93fr)', vehicle: 'minmax(0,1fr)',
+  };
+  const hzRowSize = (id: string): string => {
+    const gc = intent[id]?.growCustom;
+    if (gc != null) return `minmax(0, ${gc}fr)`;
+    return HZ_DEFAULT_ROW[id] ?? 'minmax(0,1fr)';
+  };
+  const hzGroupRow = (ids: string[]): string => {
+    const boylar = ids.map((id) => hzRowSize(id));
+    if (boylar.some((b) => !b.startsWith('minmax(0,'))) return 'auto';
+    const toplam = ids.reduce((acc, id) => acc + (intent[id]?.growCustom ?? 1), 0);
+    return `minmax(0, ${toplam}fr)`;
+  };
+  const hzRailRows = (zone: Zone) =>
+    solved[zone].groups.map((g) => hzGroupRow(g.map((it) => it.id))).join(' ') || 'minmax(0,1fr)';
+
+  /* Tek elemanlı grup da BURADAN geçer — çizimde ikinci kod yolu yok. */
+  const renderHzGroup = (g: { id: string }[], key: string) => {
+    if (g.length === 1) {
+      return <div key={key} style={{ minWidth: 0, minHeight: 0, display: 'grid' }}>{renderHzCard(g[0].id)}</div>;
+    }
+    return (
+      <div key={key} data-merged="true" style={{
+        minWidth: 0, minHeight: 0, display: 'grid', gap: 0,
+        gridTemplateRows: g.map((it) => hzRowSize(it.id)).join(' '),
+      }}>
+        {g.map((it) => (
+          <div key={it.id} style={{ minWidth: 0, minHeight: 0, display: 'grid' }}>{renderHzCard(it.id)}</div>
+        ))}
+      </div>
+    );
+  };
+
   return (
     <PalCtxH.Provider value={pal}>
       <div data-theme-surface="home" className="relative w-full h-full overflow-hidden" style={{ background: pal.desk, transition: 'background .5s ease', color: pal.ink, display: 'flex', flexDirection: 'column', padding: 15, gap: 12 }}>
@@ -823,12 +897,9 @@ export const HorizonLayout = memo(function HorizonLayout(props: Props) {
         <HzTopBar />
 
         {/* Kolon oranları referanstan: Sol 17.8% · Orta 51% (harita hero) · Sağ 25.8% */}
-        <div style={{ flex: '1 1 auto', minHeight: 0, display: 'grid', gridTemplateColumns: HZ_GRID_COLS, gap: 12 }}>
-          <div style={{ display: 'grid', gap: 11, minWidth: 0, minHeight: 0, gridTemplateRows: 'auto 1fr auto auto' }}>
-            <HzDriveModeCard />
-            <HzSpeedCard />
-            <HzRangeCard />
-            <HzConsumptionCard onOpenSettings={onOpenSettings} />
+        <div style={{ flex: '1 1 auto', minHeight: 0, display: 'grid', gridTemplateColumns: hzGridCols, gap: 12 }}>
+          <div style={{ display: 'grid', gap: 11, minWidth: 0, minHeight: 0, gridTemplateRows: hzRailRows('left-rail') }}>
+            {solved['left-rail'].groups.map((g, i) => renderHzGroup(g, g.map((x) => x.id).join('+') || String(i)))}
           </div>
 
           <div style={{ position: 'relative', minWidth: 0, minHeight: 0, display: 'flex' }}>
@@ -840,9 +911,8 @@ export const HorizonLayout = memo(function HorizonLayout(props: Props) {
             )}
           </div>
 
-          <div style={{ display: 'grid', gap: 11, minWidth: 0, minHeight: 0, gridTemplateRows: '0.93fr 1fr' }}>
-            <HzMediaCard />
-            <HzVehicleStatus onOpenSettings={onOpenSettings} />
+          <div style={{ display: 'grid', gap: 11, minWidth: 0, minHeight: 0, gridTemplateRows: hzRailRows('right-rail') }}>
+            {solved['right-rail'].groups.map((g, i) => renderHzGroup(g, g.map((x) => x.id).join('+') || String(i)))}
           </div>
         </div>
 
