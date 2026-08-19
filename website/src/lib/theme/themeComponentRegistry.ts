@@ -39,7 +39,16 @@ export type ThemeSurfaceId =
   /* PR-2b: en çok bakılan iki ekran. `nav` GÜVENLİK YÜZEYİDİR — manevra kartı,
      hız kümesi ve tehlike uyarısı `locked` işaretlidir (gizlenemez). */
   | 'media'
-  | 'nav';
+  | 'nav'
+  /* PR-2c — kapsam turunun son partisi. `camera` GÜVENLİK YÜZEYİDİR
+     (geri vites görüntüsü): `locked`, yani tema ile GİZLENEMEZ.
+     CAROS LAB / Keşif panoları BİLEREK dışarıda: onlar geliştirici yüzeyidir,
+     ürün derisi değildir (FAZ A politikası). */
+  | 'traffic'
+  | 'entertainment'
+  | 'camera'
+  | 'split'
+  | 'theater';
 
 export interface ThemeSurfaceInfo {
   id: ThemeSurfaceId;
@@ -64,6 +73,11 @@ export const THEME_SURFACES: readonly ThemeSurfaceInfo[] = [
   { id: 'apps', label: 'Uygulamalar', perTheme: false },
   { id: 'media', label: 'Müzik / Medya', perTheme: false },
   { id: 'nav', label: 'Navigasyon / Harita', perTheme: false },
+  { id: 'traffic', label: 'Trafik', perTheme: false },
+  { id: 'entertainment', label: 'Eğlence Portalı', perTheme: false },
+  { id: 'camera', label: 'Geri Görüş Kamerası', perTheme: false },
+  { id: 'split', label: 'Bölünmüş Ekran', perTheme: false },
+  { id: 'theater', label: 'Sinema Modu', perTheme: false },
 ];
 
 /* ── Bileşen tipleri + yetenekleri ────────────────────────────────── */
@@ -300,6 +314,26 @@ const SHARED_COMPONENTS: ThemeComponentInfo[] = [
   { id: 'nav.current-street', surface: 'nav', type: 'card', label: 'Bulunulan Sokak', themes: null },
   { id: 'nav.street-bar', surface: 'nav', type: 'card', label: 'Cadde Adı Barı', themes: null },
   { id: 'nav.summary', surface: 'nav', type: 'card', label: 'Rota Özet / Varış Kartı', themes: null },
+
+  /* ── PR-2c: kalan ürün ekranları ───────────────────────────────────── */
+  { id: 'traffic.screen', surface: 'traffic', type: 'panel', label: 'Trafik Paneli (tüm sayfa)', themes: null },
+  { id: 'traffic.header', surface: 'traffic', type: 'header', label: 'Başlık', themes: null },
+  { id: 'traffic.badge', surface: 'traffic', type: 'card', label: 'Kaynak Rozeti', themes: null },
+  { id: 'entertainment.screen', surface: 'entertainment', type: 'panel', label: 'Eğlence Portalı (tüm sayfa)', themes: null },
+  { id: 'entertainment.header', surface: 'entertainment', type: 'header', label: 'Başlık', themes: null },
+  /* GÜVENLİK: geri vites görüntüsü tema ile KAPATILAMAZ. */
+  { id: 'camera.screen', surface: 'camera', type: 'panel', label: 'Geri Görüş Ekranı', themes: null, locked: true },
+  { id: 'camera.topbar', surface: 'camera', type: 'header', label: 'Üst Bar (kayıt/kaynak)', themes: null },
+  { id: 'camera.error', surface: 'camera', type: 'card', label: 'Kamera Hata Kartı', themes: null },
+  { id: 'split.screen', surface: 'split', type: 'panel', label: 'Bölünmüş Ekran (tüm sayfa)', themes: null },
+  { id: 'split.header', surface: 'split', type: 'header', label: 'Üst Şerit', themes: null },
+  { id: 'theater.screen', surface: 'theater', type: 'panel', label: 'Sinema Modu Katmanı', themes: null },
+  { id: 'theater.exit', surface: 'theater', type: 'card', label: 'Çıkış Butonu', themes: null },
+  { id: 'theater.badge', surface: 'theater', type: 'card', label: 'Mod Rozeti', themes: null },
+  /* GÜVENLİK: gösterge lambaları (sinyal · far · dörtlü · el freni) sürücünün
+     yasal/ikaz bilgisidir — tema onları GİZLEYEMEZ. Renkleri semantiktir ve
+     sabit değerle verilir, yazı rengi kanalından etkilenmez (#650). */
+  { id: 'vehicle.telltales', surface: 'home', type: 'card', label: 'Gösterge Lambaları Şeridi', themes: null, locked: true },
 ];
 
 export const THEME_COMPONENTS: readonly ThemeComponentInfo[] = [...HOME_COMPONENTS, ...SHARED_COMPONENTS];

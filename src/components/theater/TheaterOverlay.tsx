@@ -84,6 +84,7 @@ export function TheaterOverlay() {
     <div
       role="dialog"
       aria-label="Sinema Modu"
+      data-theme-surface="theater" data-editable="theater.screen" data-editable-type="panel"
       style={{
         position:       'fixed',
         inset:          0,
@@ -116,6 +117,7 @@ export function TheaterOverlay() {
       <button
         onClick={handleExit}
         aria-label="Sinema modundan çık"
+        data-editable="theater.exit" data-editable-type="card"
         style={{
           position:       'absolute',
           top:            20,
@@ -138,6 +140,7 @@ export function TheaterOverlay() {
 
       {/* Rozet — sol üst */}
       <div
+        data-editable="theater.badge" data-editable-type="card"
         style={{
           position:   'absolute',
           top:        20,

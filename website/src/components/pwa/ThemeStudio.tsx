@@ -99,6 +99,7 @@ export const ThemeStudio = memo(function ThemeStudio({ vehicleId }: Props) {
   /** Ölçümden gelen kimlikler = o an araçta GERÇEKTEN çizili bileşenler. */
   const inventory = useMemo(() => (probe === null ? null : probe.map((p) => p.id)), [probe]);
 
+
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
   const mountedRef = useRef(true);
@@ -113,6 +114,27 @@ export const ThemeStudio = memo(function ThemeStudio({ vehicleId }: Props) {
     () => componentsForSurface(state.themeId, state.surface),
     [state.themeId, state.surface],
   );
+
+  /**
+   * ÖNİZLEME BU EKRANI GÖSTEREBİLİYOR MU? — ÖLÇÜLEN gerçek, sabit liste DEĞİL.
+   *
+   * Bazı yüzeyler önizlemede AÇILAMAZ ve bu bilerek böyledir: geri görüş
+   * kamerası vitese, Sinema/Bölünmüş ekran kullanıcı eylemine bağlıdır —
+   * onları Stüdyo'dan taklit etmek bir güvenlik yüzeyini YALANLAMAK olurdu.
+   * Bu durumda kullanıcı ana ekranı görür ve farkında olmadan KÖRLEMESİNE
+   * düzenler. Uyarı, sabit bir "gösterilemeyenler" listesinden değil, ÖLÇÜMDEN
+   * türetilir: seçili ekranın hiçbir bileşeni ölçümde görünmüyorsa gösterim
+   * yok demektir. Böylece ileride eklenip gezinmesi unutulan her yüzey de
+   * kendiliğinden yakalanır (sabit liste bayatlar, ölçüm bayatlamaz).
+   *
+   * `null` = henüz ölçüm yok → HİÇBİR ŞEY iddia edilmez.
+   */
+  const surfaceShown = useMemo<boolean | null>(() => {
+    if (probe === null) return null;
+    if (components.length === 0) return null;
+    const olculen = new Set(probe.map((p) => p.id));
+    return components.some((c) => olculen.has(c.id));
+  }, [probe, components]);
 
   /* ── Kalıcılık: yükle (bir kez) ─────────────────────────────────── */
   useEffect(() => {
@@ -686,6 +708,16 @@ export const ThemeStudio = memo(function ThemeStudio({ vehicleId }: Props) {
               </button>
             ))}
           </div>
+          {surfaceShown === false && (
+            <p
+              className="mt-2 text-[10px] leading-snug font-semibold rounded-lg px-2.5 py-2"
+              style={{ background: 'rgba(251,191,36,0.10)', border: '1px solid rgba(251,191,36,0.30)', color: '#fbbf24' }}
+            >
+              Bu ekran önizlemede gösterilemiyor — araçta kullanıcı eylemiyle açılır
+              (geri vites, uzun basma). Değişiklikler yine de kaydedilir ve araca gider;
+              ama burada <b>sonucu göremezsin</b>.
+            </p>
+          )}
         </div>
 
         {/* ── Ekran ayarı ── */}

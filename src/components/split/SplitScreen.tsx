@@ -219,6 +219,7 @@ export const SplitScreen = memo(function SplitScreen({ onClose }: SplitScreenPro
 
   return (
     <div
+      data-theme-surface="split" data-editable="split.screen" data-editable-type="panel"
       className="fixed inset-0 z-[60] flex flex-col"
       style={{
         background:
@@ -226,7 +227,8 @@ export const SplitScreen = memo(function SplitScreen({ onClose }: SplitScreenPro
       }}
     >
       {/* Top header strip — title + close */}
-      <div className="flex-shrink-0 flex items-center justify-between px-5 py-3"
+      <div data-editable="split.header" data-editable-type="header"
+        className="flex-shrink-0 flex items-center justify-between px-5 py-3"
         style={{ borderBottom: '1px solid var(--oem-line, rgba(255,240,210,0.08))' }}>
         <div className="flex items-center gap-2">
           <div className="w-8 h-8 rounded-lg flex items-center justify-center"

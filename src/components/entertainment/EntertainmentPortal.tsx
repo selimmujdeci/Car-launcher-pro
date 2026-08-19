@@ -213,9 +213,10 @@ export const EntertainmentPortal = memo(function EntertainmentPortal() {
   const isParked = obd.speed === 0;
 
   return (
-    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', background: DARK_BG, overflow: 'hidden' }}>
+    <div data-theme-surface="entertainment" data-editable="entertainment.screen" data-editable-type="panel"
+      style={{ height: '100%', display: 'flex', flexDirection: 'column', background: DARK_BG, overflow: 'hidden' }}>
       {/* Başlık */}
-      <div style={{ flexShrink: 0, padding: '20px 24px', borderBottom: '1px solid var(--oem-line)', display: 'flex', alignItems: 'center', gap: 16, background: 'var(--oem-surface-2)' }}>
+      <div data-editable="entertainment.header" data-editable-type="header" style={{ flexShrink: 0, padding: '20px 24px', borderBottom: '1px solid var(--oem-line)', display: 'flex', alignItems: 'center', gap: 16, background: 'var(--oem-surface-2)' }}>
         <div style={{ width: 52, height: 52, borderRadius: 20, background: 'rgba(168,85,247,0.15)', border: '1px solid rgba(168,85,247,0.30)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <Tv size={26} color="#a78bfa" />
         </div>

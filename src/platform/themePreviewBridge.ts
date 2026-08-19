@@ -80,6 +80,15 @@ const SURFACE_DRAWER: Partial<Record<ThemeSurfaceId, DrawerType>> = {
   /* Harita ÇEKMECE DEĞİLDİR — tam ekran görünümdür. Çekmeceler kapatılır,
      tam ekran harita ayrıca `mapViewBus` ile açılır (aşağıya bakın). */
   nav:           'none',
+  traffic:       'traffic',
+  entertainment: 'entertainment',
+  /* Geri görüş kamerası ve Sinema/Bölünmüş ekran KULLANICI EYLEMİYLE
+     (vites, uzun bas) açılır — Stüdyo'dan tetiklenmez. Çekmeceler
+     kapatılır; bu yüzeyler önizlemede AÇILAMAZ ve bu bilerek böyledir:
+     geri vitesi taklit etmek güvenlik yüzeyini yalanlamak olurdu. */
+  camera:        'none',
+  split:         'none',
+  theater:       'none',
 };
 
 let installed = false;

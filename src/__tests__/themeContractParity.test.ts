@@ -69,6 +69,13 @@ const WIRED_SOURCES = [
   'src/components/media/MediaScreen.tsx',
   'src/components/map/FullMapView.tsx',
   'src/components/map/NavigationHUD.tsx',
+  // PR-2c
+  'src/components/traffic/TrafficPanel.tsx',
+  'src/components/entertainment/EntertainmentPortal.tsx',
+  'src/components/vehicle/VehicleTellTales.tsx',
+  'src/components/camera/RearViewCamera.tsx',
+  'src/components/split/SplitScreen.tsx',
+  'src/components/theater/TheaterOverlay.tsx',
 ];
 
 const ALL_SOURCE = WIRED_SOURCES.map(readRepo).join('\n');
@@ -204,5 +211,33 @@ describe('harita yüzeyi önizlemede GERÇEKTEN açılır (#652)', () => {
       .toContain('registerMapViewHandler(setFullMapOpen)');
     expect(layout, 'unregisterMapViewHandler yok — zero-leak ihlali (zombi handler)')
       .toContain('unregisterMapViewHandler()');
+  });
+});
+
+describe('önizlenemeyen ekran KULLANICIYA söylenir (#653)', () => {
+  /* Bazı yüzeyler önizlemede AÇILAMAZ (geri görüş kamerası vitese, Sinema /
+   * Bölünmüş ekran kullanıcı eylemine bağlıdır) — onları Stüdyo'dan taklit
+   * etmek bir güvenlik yüzeyini YALANLAMAK olurdu. O hâlde kullanıcı ana
+   * ekranı görür ve KÖRLEMESİNE düzenler. Uyarı SABİT LİSTEDEN değil
+   * ÖLÇÜMDEN türetilir: sabit liste bayatlar, ölçüm bayatlamaz. */
+  const studio = readRepo('website/src/components/pwa/ThemeStudio.tsx');
+
+  it('gösterilebilirlik ÖLÇÜMDEN türetilir (sabit liste değil)', () => {
+    expect(studio, 'surfaceShown türetimi kaldırılmış — önizlenemeyen ekran sessizce ana ekranı gösterir')
+      .toContain('const surfaceShown');
+    expect(studio, 'türetme ölçüme (probe) bağlı değil — sabit liste bayatlar')
+      .toMatch(/surfaceShown[\s\S]{0,900}probe\.map/);
+  });
+
+  it('ölçüm yokken HİÇBİR ŞEY iddia edilmez (fail-closed, sahte güven yok)', () => {
+    expect(studio, 'probe null iken false dönüyor olabilir — "gösterilemiyor" yalanı üretilir')
+      .toMatch(/if \(probe === null\) return null;/);
+  });
+
+  it('uyarı metni kullanıcıya GÖRÜNÜR', () => {
+    expect(studio, 'uyarı bloğu kaldırılmış')
+      .toContain('surfaceShown === false');
+    expect(studio, 'uyarı metni yok — kullanıcı neden göremediğini bilemez')
+      .toContain('önizlemede gösterilemiyor');
   });
 });
