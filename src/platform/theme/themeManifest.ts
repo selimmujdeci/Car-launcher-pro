@@ -72,6 +72,27 @@ export const FONT_STACKS: Record<FontId, string> = {
   sharetech: "'Share Tech Mono', monospace",
 };
 
+/**
+ * TÜRKÇE KAPSAM GERÇEĞİ — ÖLÇÜLDÜ, tahmin değil (#655).
+ *
+ * Fontlar `public/fonts/` içine gömülüdür. Google'ın `latin-ext` alt kümesini
+ * SUNMADIĞI ailelerde Türkçeye özgü harfler YOKTUR ve tarayıcı onları fallback
+ * fontla çizer — aynı satırda iki farklı yazı tipi görünür.
+ *
+ * Ölçüm: her ailenin `unicode-range` birleşimi şu kod noktalarına karşı
+ * sınandı — U+011E/011F (Ğ/ğ) · U+015E/015F (Ş/ş) · U+0130 (İ) · U+0131 (ı).
+ * (Ç/Ö/Ü zaten Latin-1'dedir, her ailede vardır.)
+ *
+ * Boş dize = eksik harf YOK. Bu tablo GİZLENMEZ; Stüdyo kullanıcıya söyler.
+ */
+export const FONT_TURKISH_GAPS: Readonly<Record<FontId, string>> = {
+  system:    '',
+  orbitron:  'Ğ ğ Ş ş İ',
+  rajdhani:  '',
+  exo2:      '',
+  sharetech: 'Ğ ğ Ş ş İ',
+};
+
 export type TextAlign = 'left' | 'center' | 'right';
 const TEXT_ALIGNS: readonly TextAlign[] = ['left', 'center', 'right'];
 
@@ -140,6 +161,15 @@ export const EMPTY_TOKENS: GlobalTokens = {
   lineHeight: null,
 };
 
+/* ══ Kenarlık deseni ═════════════════════════════════════════════════
+ * SABİT LİSTE — serbest metin manifest üzerinden CSS enjeksiyonu yüzeyi açardı.
+ * Yazı tipi için AYRI bir liste KURULMAZ: `FontId`/`FONT_STACKS` zaten vardır
+ * ve tek otorite odur (ilk denemede ikinci bir set eklenmişti, kaldırıldı).
+ * ══════════════════════════════════════════════════════════════════════ */
+
+export const BORDER_STYLES = ['solid', 'dashed', 'dotted'] as const;
+export type BorderStyle = typeof BORDER_STYLES[number];
+
 /* ══ Bileşen stili ═══════════════════════════════════════════════════ */
 
 export interface ComponentStyle {
@@ -150,6 +180,12 @@ export interface ComponentStyle {
   radius: number | null;
   textColor: string | null;
   textSecondaryColor: string | null;
+  /**
+   * ÜÇÜNCÜL yazı rengi. Paletlerdeki `ink3` (en soluk etiketler, ayraç yazıları)
+   * bugüne dek SABİT bir hex'ti — hiçbir tema ayarına tepki vermiyordu (#654).
+   * Artık `--text-tertiary` değişkenini besler.
+   */
+  textTertiaryColor: string | null;
   accentColor: string | null;
   iconColor: string | null;
   iconSize: number | null;
@@ -158,6 +194,23 @@ export interface ComponentStyle {
   letterSpacing: number | null;
   lineHeight: number | null;
   textAlign: TextAlign | null;
+  /**
+   * Bileşene özgü yazı tipi. TİP GLOBAL TOKENLA AYNI (`FontId`) — ikinci bir
+   * font kümesi kurulmaz. Boşsa global token geçerlidir.
+   */
+  fontFamily: FontId | null;
+  /** Kenarlık deseni. `borderWidth` 0 ise etkisizdir (kural yine de yazılır). */
+  borderStyle: BorderStyle | null;
+  /**
+   * Arka plan bulanıklığı (px). PERFORMANS: `backdrop-filter` zayıf GPU'da
+   * (Mali-400 sınıfı) pahalıdır; bu yüzden runtime bütçesine ABONEDİR —
+   * `--rt-blur` 0 olduğunda değer 0'a çarpılır ve GPU stall OLUŞMAZ.
+   * Ürünün başka yerlerinde kullanılan `calc(var(--rt-blur,1) * Npx)` deseninin
+   * aynısıdır; ikinci bir bütçe mekanizması kurulmaz.
+   */
+  backdropBlur: number | null;
+  /** Geçiş süresi (ms). 0 = animasyon yok (hareket duyarlılığı / düşük uç). */
+  transitionMs: number | null;
   padding: number | null;
   gap: number | null;
   opacity: number | null;
@@ -183,6 +236,7 @@ export const EMPTY_COMPONENT_STYLE: ComponentStyle = {
   radius: null,
   textColor: null,
   textSecondaryColor: null,
+  textTertiaryColor: null,
   accentColor: null,
   iconColor: null,
   iconSize: null,
@@ -191,6 +245,10 @@ export const EMPTY_COMPONENT_STYLE: ComponentStyle = {
   letterSpacing: null,
   lineHeight: null,
   textAlign: null,
+  fontFamily: null,
+  borderStyle: null,
+  backdropBlur: null,
+  transitionMs: null,
   padding: null,
   gap: null,
   opacity: null,
@@ -572,6 +630,7 @@ export function coerceComponentStyle(raw: unknown): ComponentStyle {
     radius: num(raw.radius, 0, 48),
     textColor: safeColor(raw.textColor),
     textSecondaryColor: safeColor(raw.textSecondaryColor),
+    textTertiaryColor: safeColor(raw.textTertiaryColor),
     accentColor: safeColor(raw.accentColor),
     iconColor: safeColor(raw.iconColor),
     iconSize: num(raw.iconSize, 12, 48),
@@ -580,6 +639,11 @@ export function coerceComponentStyle(raw: unknown): ComponentStyle {
     letterSpacing: num(raw.letterSpacing, -1, 6, false),
     lineHeight: num(raw.lineHeight, 1, 2.2, false),
     textAlign: inList(TEXT_ALIGNS, raw.textAlign) ? raw.textAlign : null,
+    /* Liste dışı değer SESSİZCE DÜŞER — ham CSS manifestten geçemez. */
+    fontFamily: inList(FONT_IDS, raw.fontFamily) ? raw.fontFamily : null,
+    borderStyle: inList(BORDER_STYLES, raw.borderStyle) ? raw.borderStyle : null,
+    backdropBlur: num(raw.backdropBlur, 0, 24),
+    transitionMs: num(raw.transitionMs, 0, 800),
     padding: num(raw.padding, 0, 40),
     gap: num(raw.gap, 0, 32),
     opacity: num(raw.opacity, 20, 100),
@@ -922,7 +986,15 @@ export function componentStyleToCss(id: string, s: ComponentStyle): string {
   if (s.visible === false) decls.push('display: none !important;');
   if (s.bg) decls.push(`background: ${paintToCss(s.bg)} !important;`);
   if (s.borderColor) decls.push(`border-color: ${s.borderColor} !important;`);
-  if (s.borderWidth !== null) decls.push(`border-width: ${s.borderWidth}px !important;`, 'border-style: solid !important;');
+  if (s.borderWidth !== null) {
+    decls.push(`border-width: ${s.borderWidth}px !important;`);
+    /* Desen seçilmediyse eski davranış BİREBİR korunur (`solid`). */
+    decls.push(`border-style: ${s.borderStyle ?? 'solid'} !important;`);
+  } else if (s.borderStyle) {
+    /* Kalınlık verilmemiş ama desen seçilmişse deseni yine uygula — kullanıcı
+       mevcut kalınlığı korumak isteyebilir; sahte bir kalınlık UYDURULMAZ. */
+    decls.push(`border-style: ${s.borderStyle} !important;`);
+  }
   if (s.radius !== null) decls.push(`border-radius: ${s.radius}px !important;`);
   /* YAZI RENGİ — `color` TEK BAŞINA YETMEZ (saha kusuru, 2026-08-19).
    *
@@ -950,6 +1022,9 @@ export function componentStyleToCss(id: string, s: ComponentStyle): string {
     decls.push(`--text-primary: ${s.textColor};`);
   }
   if (s.textSecondaryColor) decls.push(`--text-secondary: ${s.textSecondaryColor};`);
+  /* Üçüncül renk: paletlerdeki `ink3` bu değişkeni okur (#654). Değişken
+     olmadan o yazılar SABİT hex'te kalıyor ve hiçbir ayara tepki vermiyordu. */
+  if (s.textTertiaryColor) decls.push(`--text-tertiary: ${s.textTertiaryColor};`);
   if (s.accentColor) {
     decls.push(`--pack-accent: ${s.accentColor};`);
     const rgb = colorToRgbTriplet(s.accentColor);
@@ -958,12 +1033,28 @@ export function componentStyleToCss(id: string, s: ComponentStyle): string {
   }
   if (s.fontWeight !== null) decls.push(`font-weight: ${s.fontWeight} !important;`);
   if (s.fontScale !== null) decls.push(`font-size: ${s.fontScale}em !important;`);
+  if (s.fontFamily) {
+    /* Yığın SABİT tablodan gelir; manifest ham CSS TAŞIMAZ (enjeksiyon yüzeyi yok). */
+    decls.push(`font-family: ${FONT_STACKS[s.fontFamily]} !important;`);
+  }
   if (s.letterSpacing !== null) decls.push(`letter-spacing: ${s.letterSpacing}px !important;`);
   if (s.lineHeight !== null) decls.push(`line-height: ${s.lineHeight} !important;`);
   if (s.textAlign) decls.push(`text-align: ${s.textAlign} !important;`);
   if (s.padding !== null) decls.push(`padding: ${s.padding}px !important;`);
   if (s.gap !== null) decls.push(`gap: ${s.gap}px !important;`);
   if (s.opacity !== null) decls.push(`opacity: ${s.opacity / 100} !important;`);
+  if (s.backdropBlur !== null && s.backdropBlur > 0) {
+    /* RUNTIME BÜTÇESİNE ABONE: `--rt-blur` düşük uçta (Mali-400 sınıfı) 0'dır →
+       çarpım 0px olur ve GPU stall OLUŞMAZ. Ürünün mevcut deseninin aynısı;
+       ikinci bir bütçe mekanizması KURULMAZ. */
+    const b = `calc(var(--rt-blur, 1) * ${s.backdropBlur}px)`;
+    decls.push(`backdrop-filter: blur(${b}) !important;`, `-webkit-backdrop-filter: blur(${b}) !important;`);
+  }
+  if (s.transitionMs !== null) {
+    /* 0 = animasyon YOK (hareket duyarlılığı / düşük uç). `none` yerine 0ms
+       yazılır ki mevcut geçiş tanımları ezilsin. */
+    decls.push(`transition-duration: ${s.transitionMs}ms !important;`);
+  }
 
   const glowColor = s.accentColor ?? s.borderColor ?? s.textColor;
   const parts = [
@@ -985,6 +1076,9 @@ export function componentStyleToCss(id: string, s: ComponentStyle): string {
 
   // Yazı ağırlığı/hizası alt metinlere de geçsin (kart içi etiketler).
   if (s.fontWeight !== null) blocks.push(`${sel} * {\n  font-weight: ${s.fontWeight} !important;\n}`);
+  if (s.fontFamily) {
+    blocks.push(`${sel} * { font-family: ${FONT_STACKS[s.fontFamily]} !important; }`);
+  }
 
   if (s.states) {
     for (const key of STATE_KEYS) {

@@ -1,6 +1,8 @@
 @import "tailwindcss";
 @import "maplibre-gl/dist/maplibre-gl.css";
 
+/* Gömülü yazı tipleri (self-hosted, OFL) — ağ gerektirmez (#655). */
+@import "./styles/fonts.css";
 @import "./styles/base.css";
 @import "./styles/theme.css";
 @import "./styles/drive-states.css";

@@ -348,3 +348,69 @@ describe('yazı rengi gerçekten uygulanır (#650 — saha: "yazılar renk deği
     expect(css).not.toMatch(/--text-secondary/);
   });
 });
+
+describe('PR-3 yeni stil yetenekleri (#654) — ölü ayar bırakmaz', () => {
+  it('KİLİT: textTertiaryColor `--text-tertiary` yazar (ink3 artık sabit hex değil)', () => {
+    const css = componentStyleToCss('expedition.vehicle', {
+      ...EMPTY_COMPONENT_STYLE, textTertiaryColor: '#123456',
+    });
+    expect(css, 'üçüncül renk değişkeni yazılmıyor — en soluk yazılar hiçbir ayara tepki vermez')
+      .toMatch(/--text-tertiary:\s*#123456/);
+  });
+
+  it('KİLİT: kenarlık deseni uygulanır, kalınlık verilmediyse desen yine yazılır', () => {
+    const a = componentStyleToCss('pro.clock', { ...EMPTY_COMPONENT_STYLE, borderWidth: 2, borderStyle: 'dashed' });
+    expect(a).toMatch(/border-style:\s*dashed/);
+    const b = componentStyleToCss('pro.clock', { ...EMPTY_COMPONENT_STYLE, borderStyle: 'dotted' });
+    expect(b, 'kalınlıksız desen düşürülüyor — kullanıcı mevcut kalınlığı korumak isteyebilir')
+      .toMatch(/border-style:\s*dotted/);
+  });
+
+  it('KİLİT: kenarlık kalınlığı verilip desen verilmediyse ESKİ davranış (solid) korunur', () => {
+    const css = componentStyleToCss('pro.clock', { ...EMPTY_COMPONENT_STYLE, borderWidth: 3 });
+    expect(css).toMatch(/border-style:\s*solid/);
+  });
+
+  it('KİLİT: blur RUNTIME BÜTÇESİNE abonedir (düşük uçta GPU stall yok)', () => {
+    const css = componentStyleToCss('pro.clock', { ...EMPTY_COMPONENT_STYLE, backdropBlur: 10 });
+    expect(css, 'blur sabit px yazılmış — Mali-400 sınıfı cihazda GPU stall üretir')
+      .toContain('var(--rt-blur, 1)');
+    expect(css, 'webkit öneki yok — eski WebView bulanıklığı hiç uygulamaz')
+      .toContain('-webkit-backdrop-filter');
+  });
+
+  it('KİLİT: blur 0 iken hiçbir kural yazılmaz (bedava GPU maliyeti yok)', () => {
+    const css = componentStyleToCss('pro.clock', { ...EMPTY_COMPONENT_STYLE, backdropBlur: 0 });
+    expect(css).not.toContain('backdrop-filter');
+  });
+
+  it('KİLİT: geçiş süresi 0 yazılabilir (animasyon kapatma gerçek bir seçim)', () => {
+    const css = componentStyleToCss('pro.clock', { ...EMPTY_COMPONENT_STYLE, transitionMs: 0 });
+    expect(css, '0 değeri düşürülüyor — "animasyon yok" seçeneği ölü kalır')
+      .toMatch(/transition-duration:\s*0ms/);
+  });
+
+  it('KİLİT: yazı tipi SABİT tablodan gelir — manifest ham CSS taşıyamaz', () => {
+    const kotu = coerceComponentStyle({ fontFamily: 'x; background: url(javascript:alert(1))' });
+    expect(kotu.fontFamily, 'liste dışı değer kabul edildi — CSS enjeksiyonu yüzeyi açık')
+      .toBeNull();
+    const iyi = componentStyleToCss('pro.clock', { ...EMPTY_COMPONENT_STYLE, fontFamily: 'orbitron' });
+    expect(iyi).toContain("font-family: 'Orbitron', monospace");
+  });
+
+  it('KİLİT: yazı tipi için İKİNCİ bir font kümesi kurulmaz (tek otorite)', async () => {
+    const mod = await import('../platform/theme/themeManifest');
+    expect(Object.prototype.hasOwnProperty.call(mod, 'FONT_FAMILY_IDS'),
+      'ikinci font kümesi geri gelmiş — global token ile bileşen ayarı ayrışır').toBe(false);
+    expect(mod.FONT_STACKS).toBeTruthy();
+  });
+
+  it('KİLİT: Türkçe kapsam tablosu ÖLÇÜLEN gerçeği taşır (sahte "hepsi tam" yok)', async () => {
+    const { FONT_TURKISH_GAPS } = await import('../platform/theme/themeManifest');
+    expect(FONT_TURKISH_GAPS.orbitron, 'Orbitron Türkçe tam sanılıyor — ğ/ş/İ fallback fontla çizilir')
+      .not.toBe('');
+    expect(FONT_TURKISH_GAPS.sharetech).not.toBe('');
+    expect(FONT_TURKISH_GAPS.rajdhani, 'Rajdhani gereksiz yere eksik işaretlenmiş').toBe('');
+    expect(FONT_TURKISH_GAPS.exo2).toBe('');
+  });
+});

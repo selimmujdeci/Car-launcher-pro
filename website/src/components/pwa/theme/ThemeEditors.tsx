@@ -27,6 +27,8 @@ import {
   type StateKey,
   type StateStyle,
   type TextAlign,
+  type BorderStyle,
+  FONT_TURKISH_GAPS,
   type ThemeBaseId,
 } from '@/lib/theme/themeManifest';
 import {
@@ -167,6 +169,12 @@ const ALIGN_OPTIONS: { id: TextAlign; label: string }[] = [
   { id: 'left', label: 'Sola' },
   { id: 'center', label: 'Ortala' },
   { id: 'right', label: 'Sağa' },
+];
+
+const BORDER_STYLE_OPTIONS: { id: BorderStyle; label: string }[] = [
+  { id: 'solid', label: 'Düz' },
+  { id: 'dashed', label: 'Kesikli' },
+  { id: 'dotted', label: 'Noktalı' },
 ];
 
 const STATE_LABEL: Record<StateKey, string> = {
@@ -403,6 +411,10 @@ export const ComponentEditor = memo(function ComponentEditor({
         <NumberField label="Kenarlık Kalınlığı" value={style.borderWidth} min={0} max={6} unit="px" fallback={1}
           onChange={(v) => onPatch({ borderWidth: v })} />
       )}
+      {has('borderStyle') && (
+        <ChoiceField label="Kenarlık Deseni" value={style.borderStyle} options={BORDER_STYLE_OPTIONS}
+          onChange={(v) => onPatch({ borderStyle: v })} />
+      )}
       {has('radius') && (
         <NumberField label="Köşe Yuvarlaklığı" value={style.radius} min={0} max={48} unit="px" fallback={18}
           onChange={(v) => onPatch({ radius: v })} />
@@ -419,6 +431,16 @@ export const ComponentEditor = memo(function ComponentEditor({
         <NumberField label="Gölge / Yükseklik" value={style.shadowLevel} min={0} max={3} unit="" fallback={1}
           onChange={(v) => onPatch({ shadowLevel: v })} />
       )}
+      {has('backdropBlur') && (
+        <NumberField label="Arka Plan Bulanıklığı" value={style.backdropBlur} min={0} max={24} unit="px" fallback={0}
+          hint="Düşük güçlü araç ekranlarında otomatik olarak kapanır (performans bütçesi)"
+          onChange={(v) => onPatch({ backdropBlur: v })} />
+      )}
+      {has('transitionMs') && (
+        <NumberField label="Geçiş Süresi" value={style.transitionMs} min={0} max={800} step={20} unit="ms" fallback={150}
+          hint="0 = animasyon yok"
+          onChange={(v) => onPatch({ transitionMs: v })} />
+      )}
 
       {(has('textColor') || has('fontWeight')) && <SectionTitle>Yazı</SectionTitle>}
       {has('textColor') && (
@@ -428,6 +450,27 @@ export const ComponentEditor = memo(function ComponentEditor({
       {has('textSecondaryColor') && (
         <ColorField label="İkincil Metin" value={style.textSecondaryColor} onChange={(v) => onPatch({ textSecondaryColor: v })}
           swatches={['#94A0B8', preset.textSecondary, '#A89678', '#9A9082', '#606060']} />
+      )}
+      {has('textTertiaryColor') && (
+        <ColorField label="Soluk Metin" value={style.textTertiaryColor} onChange={(v) => onPatch({ textTertiaryColor: v })}
+          hint="En soluk etiketler ve ayraç yazıları"
+          swatches={['#6E6049', '#556077', '#A79E90', '#9A907A', '#4A4A4A']} />
+      )}
+      {has('fontFamily') && (
+        <>
+          <ChoiceField label="Yazı Tipi" value={style.fontFamily} options={FONT_OPTIONS}
+            onChange={(v) => onPatch({ fontFamily: v })} />
+          {/* ÖLÇÜLMÜŞ GERÇEK, tahmin değil: bazı ailelerde Türkçeye özgü harfler
+              YOKTUR ve tarayıcı onları fallback fontla çizer (aynı satırda iki
+              yazı tipi). Gizlemek yerine söylenir. */}
+          {style.fontFamily && FONT_TURKISH_GAPS[style.fontFamily] !== '' && (
+            <p className="text-[10px] leading-snug font-semibold rounded-lg px-2.5 py-2 -mt-1"
+              style={{ background: 'rgba(251,191,36,0.10)', border: '1px solid rgba(251,191,36,0.30)', color: '#fbbf24' }}>
+              Bu yazı tipinde <b>{FONT_TURKISH_GAPS[style.fontFamily]}</b> harfleri yok —
+              o harfler farklı bir yazı tipiyle çizilir. Türkçe metinde karışık görünür.
+            </p>
+          )}
+        </>
       )}
       {has('fontWeight') && (
         <NumberField label="Yazı Kalınlığı" value={style.fontWeight} min={300} max={900} step={100} unit="" fallback={600}

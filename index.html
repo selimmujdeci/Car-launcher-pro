@@ -9,11 +9,10 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="theme-color" content="#060d1a" />
     <title>Caros Pro</title>
-    <!-- Inter font: async (non-blocking) — internet yoksa system-ui kullanılır, sayfa beklemez -->
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" onload="this.rel='stylesheet'" />
-    <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" /></noscript>
+    <!-- Yazı tipleri GÖMÜLÜDÜR (src/styles/fonts.css → /fonts/*.woff2), ağdan
+         ÇEKİLMEZ (#655). Eskiden Inter Google'dan yükleniyordu; araç çevrimdışı
+         olduğu için çoğu zaman hiç gelmiyor, üstelik her açılışta üçüncü tarafa
+         istek gidiyordu. Artık ne ağ gerekir ne de dışarı istek çıkar. -->
     <!-- Kritik fallback: font yüklenemese de sistem fontu devreye girer -->
     <style>
       html, body { font-family: 'Inter', system-ui, -apple-system, sans-serif; margin: 0; padding: 0; }

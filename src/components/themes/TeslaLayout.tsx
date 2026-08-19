@@ -69,7 +69,7 @@ const SAND: Pal = {
   // `--accent-rgb` yollarsa CANLI yansır.
   accent: 'var(--accent-primary, #E0822E)', accent2: '#B85C16', accentSoft: 'rgba(var(--accent-rgb, 224,130,46), 0.16)', accentGlow: 'rgba(var(--accent-rgb, 224,130,46), 0.30)',
   accentA33: 'rgba(var(--accent-rgb, 224,130,46), 0.33)', accentA20: 'rgba(var(--accent-rgb, 224,130,46), 0.2)',
-  inkCritical: '#160F06', ink: 'var(--text-primary, #2A2014)', ink2: 'var(--text-secondary, rgba(42,32,20,0.66))', ink3: 'rgba(42,32,20,0.45)',
+  inkCritical: '#160F06', ink: 'var(--text-primary, #2A2014)', ink2: 'var(--text-secondary, rgba(42,32,20,0.66))', ink3: 'var(--text-tertiary, rgba(42,32,20,0.45))',
   card: 'var(--bg-card, linear-gradient(155deg,#fbf5e9 0%,#efe3cf 100%))', cardSolid: '#f6efe0',
   cardBorder: '1px solid rgba(120,92,52,0.26)',
   cardShadow: '0 6px 16px -8px rgba(90,68,38,0.34), inset 0 1px 0 rgba(255,255,255,0.75)',
@@ -89,7 +89,7 @@ const LAVA: Pal = {
   night: true,
   accent: 'var(--accent-primary, #E0822E)', accent2: '#F4A24E', accentSoft: 'rgba(var(--accent-rgb, 224,130,46), 0.14)', accentGlow: 'rgba(var(--accent-rgb, 224,130,46), 0.45)',
   accentA33: 'rgba(var(--accent-rgb, 224,130,46), 0.33)', accentA20: 'rgba(var(--accent-rgb, 224,130,46), 0.2)',
-  inkCritical: '#FDFAF3', ink: 'var(--text-primary, #F2ECE0)', ink2: 'var(--text-secondary, rgba(242,236,224,0.60))', ink3: 'rgba(242,236,224,0.34)',
+  inkCritical: '#FDFAF3', ink: 'var(--text-primary, #F2ECE0)', ink2: 'var(--text-secondary, rgba(242,236,224,0.60))', ink3: 'var(--text-tertiary, rgba(242,236,224,0.34))',
   // CarOS Night Collection — Tesla = koyu ESPRESSO / sıcak kahve. Olive yeşilden
   // espresso kahveye çekildi (Expedition'ın yeşilinden NET ayrışır); çok hafif amber
   // yansıma, premium ve sakin. Accent/ink/plateActive korunur; yalnız zemin/yüzey hue.

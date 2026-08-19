@@ -1059,6 +1059,14 @@ const OSS_LICENSES: { name: string; license: string }[] = [
   { name: 'Lucide Icons',                license: 'ISC' },
   { name: 'usb-serial-for-android',      license: 'MIT' },
   { name: 'OVMS3 — Renault Zoe DID tanımları', license: 'MIT' },
+  /* Gömülü yazı tipleri (#655) — `public/fonts/`, self-hosted, ağ gerektirmez.
+     Hepsi SIL Open Font License 1.1; CLAUDE.md permissive listesinde ve ticari
+     dağıtıma uygundur. Atıf yükümlülüğü BURADAN karşılanır. */
+  { name: 'Inter — yazı tipi',           license: 'OFL-1.1' },
+  { name: 'Orbitron — yazı tipi',        license: 'OFL-1.1' },
+  { name: 'Rajdhani — yazı tipi',        license: 'OFL-1.1' },
+  { name: 'Exo 2 — yazı tipi',           license: 'OFL-1.1' },
+  { name: 'Share Tech Mono — yazı tipi', license: 'OFL-1.1' },
 ];
 
 function AboutTabContent() {

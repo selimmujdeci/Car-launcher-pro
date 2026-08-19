@@ -98,6 +98,7 @@ export type EditableProp =
   | 'radius'
   | 'textColor'
   | 'textSecondaryColor'
+  | 'textTertiaryColor'
   | 'accentColor'
   | 'iconColor'
   | 'iconSize'
@@ -106,6 +107,10 @@ export type EditableProp =
   | 'letterSpacing'
   | 'lineHeight'
   | 'textAlign'
+  | 'fontFamily'
+  | 'borderStyle'
+  | 'backdropBlur'
+  | 'transitionMs'
   | 'padding'
   | 'gap'
   | 'opacity'
@@ -115,10 +120,12 @@ export type EditableProp =
   | 'states';
 
 const SURFACE_PROPS: EditableProp[] = [
-  'bg', 'borderColor', 'borderWidth', 'radius', 'opacity', 'glowLevel', 'shadowLevel',
+  'bg', 'borderColor', 'borderWidth', 'borderStyle', 'radius', 'opacity',
+  'glowLevel', 'shadowLevel', 'backdropBlur', 'transitionMs',
 ];
 const TEXT_PROPS: EditableProp[] = [
-  'textColor', 'textSecondaryColor', 'fontWeight', 'fontScale', 'letterSpacing', 'lineHeight', 'textAlign',
+  'textColor', 'textSecondaryColor', 'textTertiaryColor', 'fontFamily',
+  'fontWeight', 'fontScale', 'letterSpacing', 'lineHeight', 'textAlign',
 ];
 const ICON_PROPS: EditableProp[] = ['iconColor', 'iconSize'];
 const BOX_PROPS: EditableProp[] = ['padding', 'gap'];
@@ -131,7 +138,7 @@ const BOX_PROPS: EditableProp[] = ['padding', 'gap'];
 export const PROPS_BY_TYPE: Record<ThemeComponentType, EditableProp[]> = {
   header: [...SURFACE_PROPS, ...TEXT_PROPS, ...ICON_PROPS, ...BOX_PROPS, 'accentColor'],
   card: [...SURFACE_PROPS, ...TEXT_PROPS, ...ICON_PROPS, ...BOX_PROPS, 'accentColor', 'visible', 'states'],
-  gauge: [...SURFACE_PROPS, 'textColor', 'fontWeight', 'fontScale', 'accentColor', ...ICON_PROPS],
+  gauge: [...SURFACE_PROPS, 'textColor', 'fontFamily', 'fontWeight', 'fontScale', 'accentColor', ...ICON_PROPS],
   map: [...SURFACE_PROPS, 'accentColor', ...ICON_PROPS],
   media: [...SURFACE_PROPS, ...TEXT_PROPS, ...ICON_PROPS, ...BOX_PROPS, 'accentColor', 'visible', 'states'],
   dock: [...SURFACE_PROPS, ...ICON_PROPS, ...BOX_PROPS, 'accentColor', 'states'],

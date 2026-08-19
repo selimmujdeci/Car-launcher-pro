@@ -90,7 +90,7 @@ const NIGHT_H: Pal = {
   // `--accent-rgb` yollarsa CANLI yansır.
   desk: 'var(--bg-primary, radial-gradient(150% 130% at 50% -15%, #17263f 0%, #111a2b 55%, #090e18 100%))',
   panel: 'var(--bg-card, #19233a)', panelHi: '#222e49', panelLo: '#0f141f',
-  inkCritical: '#F2F6FE', ink: 'var(--text-primary, #E2E8F3)', ink2: 'var(--text-secondary, #94A0B8)', ink3: '#556077',
+  inkCritical: '#F2F6FE', ink: 'var(--text-primary, #E2E8F3)', ink2: 'var(--text-secondary, #94A0B8)', ink3: 'var(--text-tertiary, #556077)',
   accent: 'var(--accent-primary, #F2871C)', accent2: '#FFB35C', accentDeep: '#B25F0C', accentGlow: 'rgba(var(--accent-rgb, 242,135,28), .42)', accentInk: '#1A0D02',
   edge: 'rgba(120,150,210,.14)', edgeHi: 'rgba(165,195,242,.20)',
   metal: 'linear-gradient(160deg,#283448 0%,#1a2336 55%,#111726 100%)',
@@ -106,7 +106,7 @@ const DAY_H: Pal = {
   night: false,
   desk: 'var(--bg-primary, radial-gradient(150% 130% at 50% -15%, #ece3d0 0%, #ddd2b9 55%, #cabd9f 100%))',
   panel: 'var(--bg-card, #F2ECDE)', panelHi: '#F8F3E9', panelLo: '#E2D8C4',
-  inkCritical: '#221C12', ink: 'var(--text-primary, #2E281C)', ink2: 'var(--text-secondary, #6C6250)', ink3: '#9A907A',
+  inkCritical: '#221C12', ink: 'var(--text-primary, #2E281C)', ink2: 'var(--text-secondary, #6C6250)', ink3: 'var(--text-tertiary, #9A907A)',
   accent: 'var(--accent-primary, #DA801A)', accent2: '#E89A3C', accentDeep: '#A85C0C', accentGlow: 'rgba(var(--accent-rgb, 218,128,26), .28)', accentInk: '#FFF6E9',
   edge: 'rgba(92,72,38,.20)', edgeHi: 'rgba(255,250,238,.7)',
   metal: 'linear-gradient(160deg,#d3c9b3 0%,#b8ac90 55%,#9c9075 100%)',
