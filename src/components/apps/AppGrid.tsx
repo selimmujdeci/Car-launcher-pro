@@ -88,6 +88,7 @@ const AppItemCard = memo(function AppItemCard({ app, isFav, index, animate, onTo
       style={animate ? { animationDelay: (Math.min(index, 5) * 15) + 'ms' } : undefined}
     >
       <button
+        data-editable="apps.tile" data-editable-type="card"
         onClick={handleLaunch}
         className="w-full aspect-square flex flex-col items-center justify-center gap-6 rounded-[3rem] glass-card border-white/10 hover:border-white/30 hover:scale-[1.03] active:scale-[0.92] transition-all duration-500 group shadow-lg"
       >
@@ -214,11 +215,12 @@ export const AppGrid = memo(function AppGrid({ apps, favorites, onToggleFavorite
   const animate = runtimeMode === RuntimeMode.PERFORMANCE || runtimeMode === RuntimeMode.BALANCED;
 
   return (
-    <div className="h-full overflow-y-auto overflow-x-hidden custom-scrollbar">
+    <div data-theme-surface="apps" data-editable="apps.screen" data-editable-type="panel"
+      className="h-full overflow-y-auto overflow-x-hidden custom-scrollbar">
       <div className="p-8 pb-12">
 
         {/* Başlık */}
-        <div className="flex items-center justify-between mb-10 px-4">
+        <div data-editable="apps.header" data-editable-type="header" className="flex items-center justify-between mb-10 px-4">
           <div>
             <h2 className="text-4xl font-black text-primary uppercase tracking-[0.2em] drop-shadow-sm">Uygulamalar</h2>
             <div className="h-1.5 w-16 bg-blue-500 rounded-full mt-3 shadow-[0_0_15px_rgba(59,130,246,0.6)]" />
@@ -235,7 +237,7 @@ export const AppGrid = memo(function AppGrid({ apps, favorites, onToggleFavorite
         {carosLabAllowed && <CarosLabCard />}
 
         {/* Grid */}
-        <div className={`grid ${COL_CLASS[gridColumns] ?? 'grid-cols-3'} gap-6`}>
+        <div data-editable="apps.grid" data-editable-type="panel" className={`grid ${COL_CLASS[gridColumns] ?? 'grid-cols-3'} gap-6`}>
           {apps.map((app, index) => (
             <AppItemCard
               key={app.id}

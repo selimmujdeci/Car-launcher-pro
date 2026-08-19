@@ -33,7 +33,9 @@
 import { useLayoutStore } from '../store/useLayoutStore';
 import { useCarTheme, type CarTheme } from '../store/useCarTheme';
 import { applyIncomingThemeManifest } from './theme/themeRuntime';
-import { THEME_COMPONENTS } from './theme/themeComponentRegistry';
+import { THEME_COMPONENTS, type ThemeSurfaceId } from './theme/themeComponentRegistry';
+import { openDrawer } from './drawerBus';
+import type { DrawerType } from '../components/layout/DockBar';
 
 const TRUSTED = [
   /^https:\/\/carospro\.com$/,
@@ -41,6 +43,39 @@ const TRUSTED = [
   /^http:\/\/localhost(:\d+)?$/,
   /^http:\/\/127\.0\.0\.1(:\d+)?$/,
 ];
+
+/**
+ * Yüzey → çekmece eşlemesi (ÖNİZLEME GEZİNMESİ).
+ *
+ * ── KAPATILAN BOŞLUK ────────────────────────────────────────────────────────
+ * Stüdyo'da bir ekran seçilince önizleme O EKRANA GİTMİYORDU: iframe ana
+ * ekranda kalıyor, kullanıcı Ayarlar/Bildirim/İklim düzenlerken sonucu
+ * GÖREMİYORDU. Yani düzenleme körlemesineydi. Bu, yeni eklenen ekranlara özgü
+ * DEĞİLDİ — mevcut on çekmece ekranı da aynı durumdaydı.
+ *
+ * Eşleme BURADA yaşar (araç tarafı): `DrawerType` araca özgüdür ve paylaşılan
+ * sözleşmeye SOKULMAZ. PWA yalnız kayıt defterindeki yüzey kimliğini yollar.
+ *
+ * `null` = bu yüzeyin ayrı bir çekmecesi yok (ana ekran) → tüm çekmeceler kapanır.
+ * Listede olmayan yüzey → gezinme YAPILMAZ (uydurma hedef seçilmez).
+ */
+const SURFACE_DRAWER: Partial<Record<ThemeSurfaceId, DrawerType>> = {
+  home:          'none',
+  settings:      'settings',
+  /* Bakım paneli Ayarlar sayfasının İÇİNDE yaşar — ayrı çekmecesi yoktur.
+     Ayarları açmak, hiç gitmemekten iyidir; bölüme kaydırma AYRI iştir. */
+  maintenance:   'settings',
+  diagnostics:   'dtc',
+  notifications: 'notifications',
+  weather:       'weather',
+  security:      'security',
+  dashcam:       'dashcam',
+  sport:         'sport',
+  trip:          'triplog',
+  climate:       'climate',
+  phone:         'phone',
+  apps:          'apps',
+};
 
 let installed = false;
 /** Kaç kez ölçüm raporlandı (CAROS LAB gözlemi). */
@@ -155,6 +190,8 @@ export function initThemePreviewBridge(): void {
       vars?: Record<string, unknown>;
       layout?: unknown;
       manifest?: unknown;
+      /** `caros-preview-surface`: Stüdyo'da seçilen ekranın kayıt defteri kimliği. */
+      surface?: unknown;
     } | null;
     if (!data || typeof data.type !== 'string') return;
 
@@ -205,6 +242,18 @@ export function initThemePreviewBridge(): void {
         case 'caros-preview-probe':
           sendProbe();
           break;
+
+        /* ── Önizleme gezinmesi: Stüdyo'da seçilen ekrana git ── */
+        case 'caros-preview-surface': {
+          const sid = data.surface;
+          if (typeof sid !== 'string') break;
+          const hedef = SURFACE_DRAWER[sid as ThemeSurfaceId];
+          // Bilinmeyen yüzey → HİÇBİR ŞEY yapılmaz (rastgele ekran açılmaz).
+          if (hedef === undefined) break;
+          try { openDrawer(hedef); } catch { /* fail-soft: gezinme ölçümü bozmaz */ }
+          scheduleProbe();
+          break;
+        }
 
         default:
           break;

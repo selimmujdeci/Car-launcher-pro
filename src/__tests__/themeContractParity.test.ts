@@ -61,6 +61,10 @@ const WIRED_SOURCES = [
   'src/components/dashcam/DashcamView.tsx',
   'src/components/sport/SportModePanel.tsx',
   'src/components/trip/TripLogView.tsx',
+  // PR-2a — kapsam genişletmesi (bu ekranlarda önce SIFIR düzenlenebilir nokta vardı)
+  'src/components/climate/ClimateScreen.tsx',
+  'src/components/phone/PhoneScreen.tsx',
+  'src/components/apps/AppGrid.tsx',
 ];
 
 const ALL_SOURCE = WIRED_SOURCES.map(readRepo).join('\n');
@@ -100,6 +104,52 @@ describe('tema kayıt defteri — her kimlik GERÇEKTEN kablolanmış', () => {
     const { propsForComponent } = await import('../platform/theme/themeComponentRegistry');
     for (const c of THEME_COMPONENTS) {
       if (c.locked) expect(propsForComponent(c)).not.toContain('visible');
+    }
+  });
+});
+
+/* ── Önizleme gezinmesi (PR-2a) ───────────────────────────────────── */
+
+describe('Stüdyo önizlemesi seçilen EKRANA gider', () => {
+  /* KAPATILAN BOŞLUK: ekran seçilince önizleme ana ekranda kalıyordu →
+   * kullanıcı Ayarlar/Bildirim/İklim düzenlerken sonucu GÖREMİYOR, körlemesine
+   * renk seçiyordu. Yeni ekranlara özgü değildi; mevcut on çekmece ekranı da
+   * aynı durumdaydı. Bu kilitler boşluğun geri gelmesini engeller. */
+
+  const bridge = readRepo('src/platform/themePreviewBridge.ts');
+  const studio = readRepo('website/src/components/pwa/ThemeStudio.tsx');
+
+  it('araç köprüsü `caros-preview-surface` mesajını işler', () => {
+    expect(bridge, 'köprü ekran gezinme mesajını artık işlemiyor — önizleme ana ekranda takılı kalır')
+      .toMatch(/case 'caros-preview-surface'/);
+  });
+
+  it('Stüdyo ekran değişiminde hedefi yollar', () => {
+    expect(studio, "Stüdyo 'caros-preview-surface' yollamıyor — seçim önizlemeye ulaşmaz")
+      .toMatch(/type:\s*'caros-preview-surface'/);
+  });
+
+  it('KİLİT: HER kayıtlı yüzeyin gezinme hedefi vardır (sessiz körlük yok)', () => {
+    /* Yeni bir yüzey eklenip eşlemeye yazılmazsa o ekran SESSİZCE
+     * düzenlenemez hâle gelir — kullanıcı fark etmez, çünkü önizleme yine
+     * bir şey gösterir (yanlış ekranı). Bu kilit tam onu yakalar. */
+    const basi = bridge.indexOf('const SURFACE_DRAWER');
+    expect(basi, 'SURFACE_DRAWER eşlemesi kaldırılmış — hiçbir ekrana gidilemez').toBeGreaterThan(-1);
+    const govde = bridge.slice(basi);
+    const kesit = govde.slice(0, govde.indexOf('};'));
+    /* Kaçış karakteri KULLANILMAZ: düz `includes` araması. Bu turda bir kez
+       kaçış hatası kilidi fail-open bıraktı — desen tekrarlanmasın. */
+    const eksik = THEME_SURFACES.filter((s) => !kesit.includes(s.id + ':')).map((s) => s.id);
+    expect(eksik, 'bu yüzeyler SURFACE_DRAWER eşlemesinde YOK — seçilince önizleme yanlış ekranda kalır').toEqual([]);
+  });
+
+  it('KİLİT: eşleme tablosu TEK yerdedir (PWA ikinci kopya tutmaz)', () => {
+    /* PWA yalnız kayıt defterindeki YÜZEY kimliğini yollar; hangi çekmecenin
+       açılacağı ARAÇ bilgisidir. İkinci tablo sessiz ayrışma üretir. Arama
+       yalnız çekmeceye özgü (yüzey adlarıyla çakışmayan) kimlikler üzerinden. */
+    for (const cekmece of ['triplog', 'dtc', 'vehicle-reminder', 'super-admin']) {
+      expect(studio, 'PWA çekmece kimliği taşıyor — eşleme ikiye bölünmüş: ' + cekmece)
+        .not.toContain("'" + cekmece + "'");
     }
   });
 });

@@ -164,6 +164,26 @@ export const ThemeStudio = memo(function ThemeStudio({ vehicleId }: Props) {
     } catch { /* ignore */ }
   }, []);
 
+  /* ── ÖNİZLEME GEZİNMESİ ──────────────────────────────────────────────
+   * KAPATILAN BOŞLUK: ekran seçilince önizleme O EKRANA GİTMİYORDU — iframe
+   * ana ekranda kalıyordu. Kullanıcı Ayarlar/Bildirim/İklim düzenlerken
+   * sonucu GÖREMİYOR, körlemesine renk seçiyordu. Bu, yeni eklenen ekranlara
+   * özgü DEĞİLDİ: mevcut on çekmece ekranı da aynı durumdaydı.
+   *
+   * Hedef eşlemesi ARAÇ tarafında yaşar (`themePreviewBridge.SURFACE_DRAWER`);
+   * burada yalnız kayıt defterindeki yüzey kimliği yollanır — çekmece kavramı
+   * PWA'ya sızdırılmaz ve ikinci bir eşleme tablosu KURULMAZ. */
+  useEffect(() => {
+    if (!previewReady) return;
+    try {
+      iframeRef.current?.contentWindow?.postMessage(
+        { type: 'caros-preview-surface', surface: state.surface }, PREVIEW_ORIGIN,
+      );
+    } catch { /* ignore */ }
+    /* Ekran değişince kutular tamamen değişir → taze ölçüm şart. */
+    requestProbe();
+  }, [state.surface, previewReady, requestProbe]);
+
   /* ── Önizleme: araçtan gelen mesajlar ───────────────────────────── */
   useEffect(() => {
     const onMsg = (e: MessageEvent) => {

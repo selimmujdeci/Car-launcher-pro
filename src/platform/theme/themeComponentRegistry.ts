@@ -28,7 +28,13 @@ export type ThemeSurfaceId =
   | 'security'
   | 'dashcam'
   | 'sport'
-  | 'trip';
+  | 'trip'
+  /* PR-2a (2026-08-19): kullanıcı *"uygulamanın her noktasını düzenleme"*.
+     Ölçüm: bu üç ekran ailesinde SIFIR `data-editable` vardı — yani tema
+     onları hiç görmüyordu. */
+  | 'climate'
+  | 'phone'
+  | 'apps';
 
 export interface ThemeSurfaceInfo {
   id: ThemeSurfaceId;
@@ -48,6 +54,9 @@ export const THEME_SURFACES: readonly ThemeSurfaceInfo[] = [
   { id: 'dashcam', label: 'Dashcam', perTheme: false },
   { id: 'sport', label: 'Spor Modu', perTheme: false },
   { id: 'trip', label: 'Seyahat Kaydı', perTheme: false },
+  { id: 'climate', label: 'İklim Kontrolü', perTheme: false },
+  { id: 'phone', label: 'Telefon / Rehber', perTheme: false },
+  { id: 'apps', label: 'Uygulamalar', perTheme: false },
 ];
 
 /* ── Bileşen tipleri + yetenekleri ────────────────────────────────── */
@@ -228,6 +237,34 @@ const SHARED_COMPONENTS: ThemeComponentInfo[] = [
   { id: 'trip.card', surface: 'trip', type: 'card', label: 'Yolculuk Kartları (tümü)', themes: null },
   { id: 'trip.stat', surface: 'trip', type: 'card', label: 'İstatistik Kutuları (tümü)', themes: null },
   { id: 'trip.summary', surface: 'trip', type: 'card', label: 'Özet Kartları (tümü)', themes: null },
+
+  /* ── İklim Kontrolü (PR-2a) ──────────────────────────────────────────
+     "(tümü)" etiketi bilerek yazılıdır: bir kimlik ekranda birden çok düğüme
+     iner (iki bölge, dört sıcaklık butonu, üç mod butonu…) ve tek CSS kuralı
+     HEPSİNE uygulanır. Sahte "her biri ayrı" iddiası KURULMAZ. */
+  { id: 'climate.screen', surface: 'climate', type: 'panel', label: 'İklim Ekranı (tüm sayfa)', themes: null },
+  { id: 'climate.header', surface: 'climate', type: 'header', label: 'Üst Bar', themes: null },
+  { id: 'climate.cabin-badge', surface: 'climate', type: 'card', label: 'Kabin Sıcaklığı Rozeti', themes: null },
+  { id: 'climate.zone', surface: 'climate', type: 'card', label: 'Sürücü / Yolcu Bölgesi (ikisi)', themes: null },
+  { id: 'climate.temp-button', surface: 'climate', type: 'card', label: 'Sıcaklık +/− Butonları (tümü)', themes: null },
+  { id: 'climate.fan', surface: 'climate', type: 'gauge', label: 'Fan Bloğu', themes: null },
+  { id: 'climate.mode-button', surface: 'climate', type: 'card', label: 'Mod Butonları A/C·AUTO·SYNC (tümü)', themes: null },
+  { id: 'climate.air-panel', surface: 'climate', type: 'panel', label: 'Hava Yönü Kabı', themes: null },
+  { id: 'climate.air-button', surface: 'climate', type: 'card', label: 'Hava Yönü Butonları (tümü)', themes: null },
+  { id: 'climate.comfort-panel', surface: 'climate', type: 'panel', label: 'Koltuk/Direksiyon Kabı', themes: null },
+  { id: 'climate.heat-row', surface: 'climate', type: 'card', label: 'Isıtma Satırları (tümü)', themes: null },
+
+  /* ── Telefon / Rehber (PR-2a) ──────────────────────────────────────── */
+  { id: 'phone.screen', surface: 'phone', type: 'panel', label: 'Telefon Ekranı (tüm sayfa)', themes: null },
+  { id: 'phone.search', surface: 'phone', type: 'card', label: 'Arama Kutusu', themes: null },
+  { id: 'phone.contact-row', surface: 'phone', type: 'card', label: 'Kişi Satırları (tümü)', themes: null },
+  { id: 'phone.number-picker', surface: 'phone', type: 'panel', label: 'Numara Seçici', themes: null },
+
+  /* ── Uygulamalar (PR-2a) ───────────────────────────────────────────── */
+  { id: 'apps.screen', surface: 'apps', type: 'panel', label: 'Uygulamalar (tüm sayfa)', themes: null },
+  { id: 'apps.header', surface: 'apps', type: 'header', label: 'Başlık', themes: null },
+  { id: 'apps.grid', surface: 'apps', type: 'panel', label: 'Izgara Kabı', themes: null },
+  { id: 'apps.tile', surface: 'apps', type: 'card', label: 'Uygulama Kartları (tümü)', themes: null },
 ];
 
 export const THEME_COMPONENTS: readonly ThemeComponentInfo[] = [...HOME_COMPONENTS, ...SHARED_COMPONENTS];

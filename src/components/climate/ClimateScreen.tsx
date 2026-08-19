@@ -121,6 +121,7 @@ function FanViz({ speed, on }: { speed: number; on: boolean }) {
 function TmpBtn({ label, onClick, disabled }: { label: string; onClick: () => void; disabled: boolean }) {
   return (
     <button
+      data-editable="climate.temp-button" data-editable-type="card"
       onClick={onClick}
       disabled={disabled}
       className="flex items-center justify-center text-xl font-light rounded-2xl transition-all duration-100 active:scale-90"
@@ -144,6 +145,7 @@ function ModBtn({
     <button
       onClick={onClick}
       disabled={disabled}
+      data-editable="climate.mode-button" data-editable-type="card"
       className="w-full py-[9px] rounded-xl text-[11px] font-extrabold tracking-widest uppercase transition-all duration-150 active:scale-95"
       style={{
         background: active ? `${col}1e` : 'var(--oem-surface-2)',
@@ -165,6 +167,7 @@ function AirBtn({
     <button
       onClick={onClick}
       disabled={disabled}
+      data-editable="climate.air-button" data-editable-type="card"
       className="flex-1 flex flex-col items-center gap-[5px] py-2.5 rounded-xl transition-all duration-150 active:scale-95"
       style={{
         background: active ? 'rgba(224,162,60,0.13)' : 'var(--oem-surface-2)',
@@ -190,7 +193,7 @@ function HeatCtrl({
 }: { label: string; level: Heat; on: boolean; onSet: (l: Heat) => void; icon?: string }) {
   const color = hc(level);
   return (
-    <div className="flex items-center gap-2.5">
+    <div data-editable="climate.heat-row" data-editable-type="card" className="flex items-center gap-2.5">
       <span className="text-[11px] text-[color:var(--oem-ink-3)] w-14 shrink-0 font-medium">{icon ? <span className="mr-1">{icon}</span> : null}{label}</span>
       <div className="flex gap-1.5">
         {([0, 1, 2, 3] as Heat[]).map(l => (
@@ -262,11 +265,12 @@ export const ClimateScreen = memo(function ClimateScreen({ onClose }: { onClose?
 
   return (
     <div
+      data-theme-surface="climate" data-editable="climate.screen" data-editable-type="panel"
       className="flex flex-col h-full text-[color:var(--oem-ink)] select-none overflow-hidden"
       style={{ background: 'linear-gradient(155deg, #060c1a 0%, #030810 100%)' }}
     >
       {/* ── Başlık ── */}
-      <header className="flex items-center justify-between px-6 pt-5 pb-2 shrink-0">
+      <header data-editable="climate.header" data-editable-type="header" className="flex items-center justify-between px-6 pt-5 pb-2 shrink-0">
         <div className="flex items-center gap-2.5">
           <Wind size={16} className="text-[color:var(--oem-ink-3)]" />
           <span className="text-[13px] font-bold tracking-[0.18em] uppercase text-[color:var(--oem-ink-2)]">
@@ -276,6 +280,7 @@ export const ClimateScreen = memo(function ClimateScreen({ onClose }: { onClose?
 
         {/* Kabin sıcaklığı */}
         <div
+          data-editable="climate.cabin-badge" data-editable-type="card"
           className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full"
           style={{ background: 'var(--oem-surface-2)', border: '1px solid var(--oem-line)' }}
         >
@@ -325,7 +330,7 @@ export const ClimateScreen = memo(function ClimateScreen({ onClose }: { onClose?
       <div className="flex items-center justify-center gap-3 px-4 py-4 flex-1 min-h-0">
 
         {/* Sürücü */}
-        <div className="flex-1 flex flex-col items-center gap-3">
+        <div data-editable="climate.zone" data-editable-type="card" className="flex-1 flex flex-col items-center gap-3">
           <span className="text-[10px] font-extrabold tracking-[0.2em] uppercase text-[color:var(--oem-ink-4)]">Sürücü</span>
           <div className="relative" style={{ width: 160, height: 160 }}>
             <Arc temp={s.dTemp} on={s.on} />
@@ -348,7 +353,7 @@ export const ClimateScreen = memo(function ClimateScreen({ onClose }: { onClose?
         </div>
 
         {/* Merkez: Fan + Mod butonları */}
-        <div className="flex flex-col items-center gap-3 shrink-0" style={{ width: 176 }}>
+        <div data-editable="climate.fan" data-editable-type="gauge" className="flex flex-col items-center gap-3 shrink-0" style={{ width: 176 }}>
           <FanViz speed={s.fan} on={s.on} />
 
           {/* Fan hızı çubukları */}
@@ -389,7 +394,7 @@ export const ClimateScreen = memo(function ClimateScreen({ onClose }: { onClose?
         </div>
 
         {/* Yolcu */}
-        <div className="flex-1 flex flex-col items-center gap-3">
+        <div data-editable="climate.zone" data-editable-type="card" className="flex-1 flex flex-col items-center gap-3">
           <span className="text-[10px] font-extrabold tracking-[0.2em] uppercase text-[color:var(--oem-ink-4)]">Yolcu</span>
           <div className="relative" style={{ width: 160, height: 160 }}>
             <Arc temp={s.pTemp} on={s.on} />
@@ -415,6 +420,7 @@ export const ClimateScreen = memo(function ClimateScreen({ onClose }: { onClose?
       {/* ── Hava yönü ── */}
       <div className="shrink-0 px-4 pb-3">
         <div
+          data-editable="climate.air-panel" data-editable-type="panel"
           className="rounded-2xl p-4"
           style={{ background: 'var(--oem-surface-2)', border: '1px solid var(--oem-surface-2)' }}
         >
@@ -435,6 +441,7 @@ export const ClimateScreen = memo(function ClimateScreen({ onClose }: { onClose?
       {/* ── Koltuk ısıtma + Direksiyon ── */}
       <div className="shrink-0 px-4 pb-5">
         <div
+          data-editable="climate.comfort-panel" data-editable-type="panel"
           className="rounded-2xl p-4"
           style={{ background: 'var(--oem-surface-2)', border: '1px solid var(--oem-surface-2)' }}
         >
