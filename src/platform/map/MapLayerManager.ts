@@ -1329,30 +1329,73 @@ export function updateMapMood(map: MapLibreMap, riskScore: number): void {
     catch { /* noop */ }
   }
 
-  // Background: OEM --map-bg-1 #131822 → riskte hafif koyulaşır (#0c0f19)
-  const bR = Math.round(19 - 7 * r);
-  const bG = Math.round(24 - 9 * r);
-  const bB = Math.round(34 - 9 * r);
+  /* ── #641 · MOOD ARTIK RENK İCAT ETMEZ (CİHAZDA ÖLÇÜLDÜ 2026-08-19) ───────
+   * KULLANICI: *"ana yollar siyah, belli olmuyor."*
+   * ÖLÇÜLDÜ (ekran pikseli): ana yol bandı **RGB(56,56,64)** — bu satırların
+   * ESKİ hâlindeki `road-secondary` formülünün (r=0) birebir çıktısıydı. Yani
+   * ekrandaki siyah bantlar paletten DEĞİL, buradan geliyordu.
+   *
+   * Kusur sınıfı: **İKİNCİ RENK OTORİTESİ.** Bu blok "OEM grafit" döneminden
+   * kalma SABİT sayılarla yolları ve zemini yeniden boyuyordu ve ölçülerek
+   * kazanılmış iki turu sessizce geri alıyordu:
+   *   · #612/#619 yol merdiveni — palet `primary #a8adb6` / `secondary #8a8f9a`
+   *     (zeminden AÇIK) iken buradan (68,68,79)/(56,56,64) yazılıyordu; ikisi de
+   *     zemin (#222c3c) ve `minor` (#6f7581) tonundan KOYU → hiyerarşi TERSİNE
+   *     dönüyor, en önemli yol en görünmez oluyordu.
+   *   · #622 mutlak parlaklık — zemin ölçülerek `#131822` → `#222c3c`ye
+   *     çıkarılmıştı; bu blok her mood güncellemesinde `#131822`ye geri yazıyordu.
+   * Üstelik yazım KALICIDIR (paint property stil yeniden yüklenene kadar durur),
+   * bu yüzden harita "önce doğru, ilk risk güncellemesinden sonra siyah" oluyordu.
+   *
+   * YENİ KURAL: renk PALETTEN gelir; risk yalnız o rengi ZEMİNE DOĞRU harmanlar
+   * (en fazla %25). Harmanlama zemine yaklaştırdığı için hem gece (yol zeminden
+   * açık) hem gündüz (yol zeminden koyu) paletinde "geri çekilme" anlamına gelir
+   * — iki tema için ayrı politika YAZILMAZ. Merdiven sırası her r değerinde
+   * korunur (kilit: mapMoodPaletteAuthority.test.ts). */
+  const _pal   = getMapNight() ? NIGHT_PALETTE : DAY_PALETTE;
+  const _bgHex = getMapNight() ? MAP_BG_NIGHT : MAP_BG_DAY;
+  const _bg    = _hexToRgb(_bgHex);
+  const _t     = 0.25 * r;                     // risk → en fazla %25 zemine harman
+
   if (map.getLayer('background')) {
-    try { map.setPaintProperty('background', 'background-color', `rgb(${bR},${bG},${bB})`); }
+    /* Zemin RİSKTE hafif koyulaşır ama TABAN paletten gelir (#622 kilidi). */
+    const bg2 = _mixRgb(_bg, [0, 0, 0], 0.18 * r);
+    try { map.setPaintProperty('background', 'background-color', `rgb(${bg2[0]},${bg2[1]},${bg2[2]})`); }
     catch { /* noop */ }
   }
 
-  // Road colors — OEM grafit paletiyle hizalı (style base ile aynı çıpa)
   if (map.getLayer('road-primary')) {
-    const pR = Math.round(68 - 20 * r);
-    const pG = Math.round(68 - 20 * r);
-    const pB = Math.round(79 - 24 * r);
-    try { map.setPaintProperty('road-primary', 'line-color', `rgb(${pR},${pG},${pB})`); }
+    const c = _mixRgb(_hexToRgb(_pal.primary), _bg, _t);
+    try { map.setPaintProperty('road-primary', 'line-color', `rgb(${c[0]},${c[1]},${c[2]})`); }
     catch { /* noop */ }
   }
   if (map.getLayer('road-secondary')) {
-    const sR = Math.round(56 - 18 * r);
-    const sG = Math.round(56 - 18 * r);
-    const sB = Math.round(64 - 20 * r);
-    try { map.setPaintProperty('road-secondary', 'line-color', `rgb(${sR},${sG},${sB})`); }
+    const c = _mixRgb(_hexToRgb(_pal.secondary), _bg, _t);
+    try { map.setPaintProperty('road-secondary', 'line-color', `rgb(${c[0]},${c[1]},${c[2]})`); }
     catch { /* noop */ }
   }
+}
+
+/** `#rrggbb` → [r,g,b]. Geçersizse siyah döner (fail-soft; renk icat edilmez). */
+export function _hexToRgb(hex: string): [number, number, number] {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
+  if (!m) return [0, 0, 0];
+  const v = parseInt(m[1], 16);
+  return [(v >> 16) & 255, (v >> 8) & 255, v & 255];
+}
+
+/** a→b arası doğrusal harman (t=0 → a, t=1 → b). */
+export function _mixRgb(
+  a: readonly [number, number, number],
+  b: readonly [number, number, number],
+  t: number,
+): [number, number, number] {
+  const k = Math.max(0, Math.min(1, t));
+  return [
+    Math.round(a[0] + (b[0] - a[0]) * k),
+    Math.round(a[1] + (b[1] - a[1]) * k),
+    Math.round(a[2] + (b[2] - a[2]) * k),
+  ];
 }
 
 /* ── Navigation Focus Mode — adaptive road suppression (Faz 3.1 / 3.2) ────── */

@@ -76,9 +76,9 @@ import {
 } from '../map/MapLayerManager';
 import { useUnifiedVehicleStore } from '../vehicleDataLayer/UnifiedVehicleStore';
 import {
-  getMapNight, getMapMode,
+  getMapNight,
   isTunnelNightOverrideActive, getRequestedMapNight,
-  getResolvedTileMode,
+  getTileModeVerdict,
 } from '../mapSourceManager';
 import { getTunnelMode } from '../autoBrightnessService';
 import {
@@ -567,7 +567,15 @@ export function readNavigationCoreSnapshot(): NavigationCoreRawSnapshot {
        kaynağı reddedip `buildVectorStyle` sessizce raster'a düştüğünde bu alan
        hâlâ "vector" yazıyordu, LAB yalancı tanıklık ediyordu. `getResolvedTileMode()`
        `getMapStyle()`in GERÇEKTEN döndürdüğü modu taşır — tek doğruluk kaynağı. */
-    miniMapStyle: _safe(() => `${getMapMode()}/${getResolvedTileMode()}`, 'UNKNOWN'),
+    /* #640: mod YETMEZ, SEBEP de görünmeli. Sahada "harita neden gri?" sorusu
+       yalnız "raster" bilgisiyle cevaplanamadı — hangi kapıdan düşüldüğü
+       (termal kilit / AR / niyet / vektör kapısı / kaynak yok) ekranda yazar. */
+    miniMapStyle: _safe(() => {
+      const v = getTileModeVerdict();
+      return v.reason
+        ? `${v.mapMode}/${v.resolved} · sebep: ${v.reason}`
+        : `${v.mapMode}/${v.resolved}`;
+    }, 'UNKNOWN'),
     mapTheme:           _safe(() => (getMapNight() ? 'night' : 'day'), 'night'),
     mapContrastProfile: _safe(() => getMapContrastProfile(getMapNight()), 'NIGHT_READABLE'),
     /* Okunamazsa örtü YOK sayılır (fail-safe: sahte tünel ilan edilmez). */

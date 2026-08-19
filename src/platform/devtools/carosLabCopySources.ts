@@ -30,6 +30,7 @@ import { getExtendedEliminationRefreshedAt } from '../obd/extendedElimination';
 import { getEtaJumpLedger } from '../navigationService';
 import { getFixAgeLedger } from '../gpsService';
 import { readNavigationCoreSnapshot } from './navigationCoreSources';
+import { getTileModeVerdict } from '../mapSourceManager';
 import { buildPidTimingReport } from '../obd/pidTimingExperimentModel';
 import type { CarosLabCopyInput } from './carosLabCopyModel';
 
@@ -148,6 +149,9 @@ export function readCarosLabCopyInput(ctx: CopyContext): CarosLabCopyInput {
        dışarı çıkarılmadı. İki kaynak da senkron okunur (kopya sözleşmesi). */
     navigationCore: safe(() => {
       const n = readNavigationCoreSnapshot();
+      /* Her getter kendi try/catch'inde — karo hükmü okunamazsa nav ölçümü
+         yine de kopyaya girer (fail-soft, kopya sözleşmesi). */
+      const tileVerdict = (() => { try { return getTileModeVerdict(); } catch { return null; } })();
       return {
         /* ⚠️ #537 DÜZELTMESİ: bu alan EŞLEŞTİRİLMİŞ (map-match) fix'in yaşıdır ve
            nav aktif değilken tazelenmez. Sahada (2026-08-11) `fixAgeMs: 5237`
@@ -164,6 +168,20 @@ export function readCarosLabCopyInput(ctx: CopyContext): CarosLabCopyInput {
         routeRevision:     n.routeRevision,
         distanceSource:    n.nextManeuverDistanceSource,
         mapMatchState:     n.mapMatchState,
+        /* ── #640 · "HARİTA NEDEN GRİ?" TEK YAPIŞTIRMAYLA CEVAPLANSIN ────────
+           SAHA (2026-08-19): kullanıcı gri-üstüne-gri harita bildirdi; ekran
+           pikselinden yol↔zemin **1,21:1** ölçüldü (vektör merdiveni 3,04–8,00).
+           Sebep raster'a düşülmesiydi — ama TAM KOPYADA ne çözülen karo modu
+           ne sebebi vardı; gönderilen tam dökümden teşhis ÇIKARILAMADI.
+           `getResolvedTileMode()` NİYETİ değil GERÇEĞİ taşır (#637). */
+        haritaKaroModu:    tileVerdict?.resolved  ?? 'UNKNOWN',
+        haritaKaroNiyeti:  tileVerdict?.intent    ?? 'UNKNOWN',
+        haritaRasterSebebi: tileVerdict?.reason   ?? null,
+        haritaModu:        tileVerdict?.mapMode   ?? 'UNKNOWN',
+        haritaTermalKilit: tileVerdict?.thermalLock ?? null,
+        haritaArAktif:     tileVerdict?.arActive    ?? null,
+        haritaVektorKapisiKapali: tileVerdict?.vectorGateBlocked ?? null,
+        cihazSinifi:       tileVerdict?.deviceTier ?? 'UNKNOWN',
       } as unknown;
     }),
     /* ── #537 · FIX YAŞI DAĞILIMI (GÖREV B — #508'İN KAPANIŞ ŞARTI) ─────────
