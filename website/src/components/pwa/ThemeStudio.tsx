@@ -70,6 +70,7 @@ import {
   STUDIO_STORAGE_KEY,
 } from '@/lib/theme/themeStudioState';
 import { ComponentEditor, SurfaceEditor, TokensEditor } from './theme/ThemeEditors';
+import { ZoneReorder } from './theme/ZoneReorder';
 
 /* ── Önizleme hedefi (gerçek araç uygulaması) ─────────────────────── */
 
@@ -812,14 +813,15 @@ export const ThemeStudio = memo(function ThemeStudio({ vehicleId }: Props) {
                   <p className="text-[9px] font-bold uppercase tracking-wider" style={{ color: 'var(--pwa-text-3)' }}>
                     {ZONE_LABEL[z.zone]}
                   </p>
+                  {/* SÜRÜKLE-BIRAK (#658): sıra artık sayı girerek değil,
+                      taşıyarak değiştirilir. Liste `solved`dan gelir — yani
+                      ARAÇTAKİ çözücünün gerçek sonucudur, ayrı bir sıra
+                      kopyası tutulmaz. */}
+                  <ZoneReorder
+                    items={z.items.map((it) => ({ id: it.id, label: it.label, locked: it.locked }))}
+                    onCommit={(ids) => dispatch({ type: 'reorder-zone', zone: z.zone, orderedCardIds: ids })}
+                  />
                   <div className="flex flex-wrap gap-1.5">
-                    {z.items.map((it, i) => (
-                      <span key={it.id}
-                        className="text-[10px] font-semibold px-2 py-1 rounded-lg"
-                        style={{ background: 'var(--pwa-surface)', border: '1px solid var(--pwa-border)', color: 'var(--pwa-text-2)' }}>
-                        {i + 1}. {it.label} · {it.size} · {it.grow}×{it.locked ? ' 🔒' : ''}
-                      </span>
-                    ))}
                     {z.overflow.map((id) => (
                       <span key={id}
                         className="text-[10px] font-semibold px-2 py-1 rounded-lg"

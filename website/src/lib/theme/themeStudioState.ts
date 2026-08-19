@@ -67,6 +67,22 @@ export type HistoryTarget =
   /** Kart = bileşen stili + (varsa) yerleşim kartı — TEK işlem olarak. */
   | { kind: 'card'; componentId: string; layoutCardId: string | null }
   | { kind: 'screen'; surface: string }
+  /**
+   * Bölge (sütun) genişliği — `zoneWidths` dilimi.
+   *
+   * ── NEDEN AYRI TÜR (ölçülen kusur) ────────────────────────────────────
+   * Önce bu iki eylem `{ kind: 'layout', cardId: 'zone:...' }` gibi UYDURMA
+   * bir kart kimliğiyle işaretlenmişti. `commit` DEĞİŞİKLİĞİ hedefin
+   * DİLİMİNDEN okur (`readSlice`) ve `before === after` ise state'i OLDUĞU
+   * GİBİ döndürür. Uydurma kimliğin dilimi hem öncesinde hem sonrasında
+   * `undefined` olduğu için mutasyon **sessizce çöpe gidiyordu**: kullanıcı
+   * kaydırıcıyı çekiyor, hiçbir şey olmuyordu.
+   *
+   * Ders: `commit` hedefi, MUTASYONUN DOKUNDUĞU alanı kapsamak ZORUNDADIR.
+   */
+  | { kind: 'zone-width'; zone: string }
+  /** Bir bölgenin kart SIRASI — birden çok karta dokunur, tek işlemdir. */
+  | { kind: 'zone-order'; zone: string; cardIds: string[] }
   /** Tüm manifest (tema sıfırlama · kopyalama · toplu yerleşim sıfırlama). */
   | { kind: 'theme' };
 
@@ -119,6 +135,13 @@ export type StudioAction =
   | { type: 'reset-layout'; cardId: string }
   /** Bölge (sütun) genişlik çarpanı — `null` = tema varsayılanına dön. */
   | { type: 'patch-zone-width'; zone: ScalableZoneId; scale: number | null }
+  /**
+   * Bir bölgenin kart sırasını TEK işlemde yazar (sürükle-bırak).
+   * Kart başına ayrı `patch-layout` atılsaydı tek bir sürükleme geri-al
+   * geçmişinde N adıma bölünürdü ve "geri al" kullanıcının beklediği şeyi
+   * yapmazdı. `orderedCardIds` SOLVER kart id'leridir.
+   */
+  | { type: 'reorder-zone'; zone: string; orderedCardIds: string[] }
   | { type: 'reset-all-layout' }
   | { type: 'reset-component'; componentId: string }
   /** Kartı BAŞLANGIÇ hâline döndür — stil + yerleşim TEK transaction. */
@@ -160,6 +183,10 @@ export function targetKeys(t: HistoryTarget): string[] {
     case 'layout': return [`l:${t.cardId}`];
     case 'card': return t.layoutCardId ? [`c:${t.componentId}`, `l:${t.layoutCardId}`] : [`c:${t.componentId}`];
     case 'screen': return [`s:${t.surface}`];
+    case 'zone-width': return [`zw:${t.zone}`];
+    /* Sıra, dokunduğu HER kartın yerleşim anahtarını kapsar → aynı kartın
+       tekil düzenlemesiyle çakışma doğru hesaplanır (yinele kutusu tutarlı). */
+    case 'zone-order': return t.cardIds.map((id) => `l:${id}`);
     case 'theme': return ['*'];
   }
 }
@@ -191,6 +218,10 @@ function readSlice(m: ThemeManifest, t: HistoryTarget): unknown {
       layout: t.layoutCardId ? (m.layoutOverrides[t.layoutCardId] ?? null) : null,
     };
     case 'screen': return m.screenOverrides[t.surface] ?? null;
+    case 'zone-width': return m.zoneWidths[t.zone as 'left-rail'] ?? null;
+    /* Dilim = dokunulan kartların SIRA değerleri. Yalnız `ord` okunur; aynı
+       kartın rengi/boyutu değiştiğinde sıra geçmişi kirlenmesin. */
+    case 'zone-order': return t.cardIds.map((id) => m.layoutOverrides[id]?.ord ?? null);
     case 'theme': return cloneManifest(m);
   }
 }
@@ -228,6 +259,34 @@ function writeSlice(m: ThemeManifest, t: HistoryTarget, v: unknown): ThemeManife
         else lo[t.layoutCardId] = pack.layout;
         next.layoutOverrides = lo;
       }
+      return next;
+    }
+    case 'zone-width': {
+      const z = { ...next.zoneWidths };
+      if (v === null || v === undefined) delete z[t.zone as 'left-rail'];
+      else z[t.zone as 'left-rail'] = v as number;
+      next.zoneWidths = z;
+      return next;
+    }
+    case 'zone-order': {
+      /* Dilim, kart id sırasına KARŞILIK GELEN `ord` dizisidir. Geri alınırken
+         her karta kendi eski değeri yazılır; `null` ise `ord` alanı temizlenir
+         ve kart override'ı boşaldıysa tamamen düşer (uydurma boş kayıt kalmaz). */
+      const orders = (Array.isArray(v) ? v : []) as (number | null)[];
+      const lo = { ...next.layoutOverrides };
+      t.cardIds.forEach((cardId, i) => {
+        const ord = orders[i] ?? null;
+        const cur = lo[cardId];
+        if (ord === null) {
+          if (!cur) return;
+          const temiz: CardLayout = { ...cur, ord: null };
+          if (isEmptyCardLayout(temiz)) delete lo[cardId];
+          else lo[cardId] = temiz;
+          return;
+        }
+        lo[cardId] = { ...(cur ?? EMPTY_CARD_LAYOUT), ord };
+      });
+      next.layoutOverrides = lo;
       return next;
     }
     case 'screen': {
@@ -440,13 +499,24 @@ export function studioReducer(s: StudioState, a: StudioAction): StudioState {
       /* Hedef `layout` kovasıdır: geri-al/ileri-al ve "yerleşimi sıfırla"
          akışları bölge genişliğini de kapsasın (ayrı kova = ayrı geçmiş =
          kullanıcının "geri al" beklentisinin bozulması). */
-      return commit(s, { kind: 'layout', cardId: `zone:${a.zone}` }, (m) => {
+      return commit(s, { kind: 'zone-width', zone: a.zone }, (m) => {
         const z = { ...m.zoneWidths };
         if (a.scale === null) delete z[a.zone];
         else z[a.zone] = a.scale;
         m.zoneWidths = z;
         return m;
       }, `z:${a.zone}`, 'Sütun genişliği');
+
+    case 'reorder-zone':
+      return commit(s, { kind: 'zone-order', zone: a.zone, cardIds: a.orderedCardIds }, (m) => {
+        const layouts = { ...m.layoutOverrides };
+        a.orderedCardIds.forEach((cardId, i) => {
+          const cur = layouts[cardId] ?? { ...EMPTY_CARD_LAYOUT };
+          layouts[cardId] = { ...cur, ord: i };
+        });
+        m.layoutOverrides = layouts;
+        return m;
+      }, `zo:${a.zone}`, 'Sıra');
 
     case 'reset-layout':
       return commit(s, { kind: 'layout', cardId: a.cardId }, (m) => {
