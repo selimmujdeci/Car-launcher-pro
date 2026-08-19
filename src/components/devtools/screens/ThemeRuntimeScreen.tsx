@@ -35,6 +35,7 @@ const VERDICT_STYLE: Record<ThemeRuntimeVerdict, string> = {
   RUNTIME_UNAVAILABLE: 'border-[var(--oem-danger)] bg-[var(--oem-danger-soft)] text-[var(--oem-danger)]',
   NEVER_APPLIED:       'border-[var(--oem-line-strong)] bg-[var(--oem-surface-2)] text-[var(--oem-ink-2)]',
   REJECTED_LAST:       'border-[var(--oem-warn)] bg-[var(--oem-warn-soft)] text-[var(--oem-warn)]',
+  PARTIAL_APPLY:       'border-[var(--oem-warn)] bg-[var(--oem-warn-soft)] text-[var(--oem-warn)]',
   APPLIED_EMPTY:       'border-[var(--oem-info)] bg-[var(--oem-info-soft)] text-[var(--oem-info)]',
   APPLIED_ACTIVE:      'border-[var(--oem-good)] bg-[var(--oem-good-soft)] text-[var(--oem-good)]',
 };

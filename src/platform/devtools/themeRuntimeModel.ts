@@ -22,6 +22,8 @@ export type ThemeRuntimeVerdict =
   | 'RUNTIME_UNAVAILABLE'
   | 'NEVER_APPLIED'
   | 'REJECTED_LAST'
+  /** Uygulandı AMA bazı alanlar bu araç sürümünce TANINMADI (#659). */
+  | 'PARTIAL_APPLY'
   | 'APPLIED_EMPTY'
   | 'APPLIED_ACTIVE';
 
@@ -29,6 +31,7 @@ export const THEME_RUNTIME_VERDICT_LABEL: Readonly<Record<ThemeRuntimeVerdict, s
   RUNTIME_UNAVAILABLE: 'ÇALIŞMA ZAMANI OKUNAMADI',
   NEVER_APPLIED: 'HİÇ MANİFEST UYGULANMADI',
   REJECTED_LAST: 'SON PAKET REDDEDİLDİ (fail-closed)',
+  PARTIAL_APPLY: 'KISMEN UYGULANDI — ARAÇ BAZI ALANLARI TANIMIYOR',
   APPLIED_EMPTY: 'MANİFEST UYGULANDI — İÇİ BOŞ (görünüm değişmez)',
   APPLIED_ACTIVE: 'MANİFEST UYGULANDI VE ETKİN',
 } as const;
@@ -137,6 +140,15 @@ export function buildThemeRuntimeCards(s: ThemeRuntimeRawSnapshot): ThemeRuntime
         'parseIncomingManifest', rejectMs, 'Hiç red yoksa KAYNAK YOK — "sorun yok" diye yazılmaz.'),
       field('reject-at', 'Son Red Zamanı', rt?.lastRejectAt ?? null, 'OBSERVED',
         'themeRuntime', rejectMs, 'Duvar saati.'),
+      /* #659 — SESSİZ DÜŞÜRME artık görünür. Şema sürümü bilerek
+         yükseltilmiyor (yükseltilseydi eski araç manifestin TAMAMINI reddeder,
+         tema komple ölürdü); bedeli, yeni alanların eski araçta sessizce
+         düşmesiydi. Bu alan "araç uygulamadı" ile "araç bilmiyor"u AYIRIR.
+         Boş liste = hepsi tanındı; bu bir ÖLÇÜMDÜR, iyimser varsayım değil. */
+      field('unsupported-keys', 'Araç bu alanları TANIMIYOR',
+        rt && rt.lastUnsupportedKeys.length > 0 ? rt.lastUnsupportedKeys.join(', ') : null,
+        'DERIVED', 'themeManifest.collectUnsupportedKeys', null,
+        'Telefon araçtan YENİ bir sürüm gönderiyorsa o alanlar sessizce düşer. Boş = tanınmayan alan yok (uygulama sırasında ÖLÇÜLDÜ).'),
     ],
   };
 
@@ -201,6 +213,15 @@ export function deriveThemeRuntimeVerdict(s: ThemeRuntimeRawSnapshot): ThemeRunt
     return {
       status: 'RUNTIME_UNAVAILABLE',
       reasons: ['themeRuntime anlık görüntüsü okunamadı — modül yüklenmemiş veya hata attı.'],
+    };
+  }
+  if (rt.applyCount > 0 && rt.lastUnsupportedKeys.length > 0) {
+    return {
+      status: 'PARTIAL_APPLY',
+      reasons: [
+        `Son paket uygulandı AMA ${rt.lastUnsupportedKeys.length} alan bu araç sürümü tarafından TANINMADI: ${rt.lastUnsupportedKeys.join(', ')}.`,
+        'Telefon araçtan daha yeni bir sürüm gönderiyor — o alanlar sessizce düştü. Araç uygulamasını güncelleyin.',
+      ],
     };
   }
   if (rt.rejectCount > 0 && rt.applyCount === 0) {

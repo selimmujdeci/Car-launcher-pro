@@ -556,6 +556,16 @@ export const ComponentEditor = memo(function ComponentEditor({
                 <PaintField label="Arka Plan" value={st?.bg ?? null} onChange={(v) => onPatchState(key, { bg: v })} />
                 <NumberField label="Saydamlık" value={st?.opacity ?? null} min={0} max={100} unit="%" fallback={100}
                   onChange={(v) => onPatchState(key, { opacity: v })} />
+                {/* PR-6: durum çeşitleri artık yalnız renk+opaklık değil.
+                    Yerleşim alanları (padding/gap/ölçek) BİLEREK yok — kart
+                    basılıyken zıplarsa bu dokunmatikte kusurdur, özellik değil. */}
+                <NumberField label="Kenarlık Kalınlığı" value={st?.borderWidth ?? null} min={0} max={6} unit="px" fallback={1}
+                  onChange={(v) => onPatchState(key, { borderWidth: v })} />
+                <NumberField label="Köşe Yuvarlaklığı" value={st?.radius ?? null} min={0} max={48} unit="px" fallback={18}
+                  onChange={(v) => onPatchState(key, { radius: v })} />
+                <NumberField label="Parıltı" value={st?.glowLevel ?? null} min={0} max={3} unit="" fallback={0}
+                  hint="Renk bu durumun vurgu/kenarlık/metin renginden türetilir; hiçbiri yoksa parıltı uygulanmaz."
+                  onChange={(v) => onPatchState(key, { glowLevel: v })} />
               </div>
             );
           })}

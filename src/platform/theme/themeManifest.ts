@@ -226,6 +226,18 @@ export interface StateStyle {
   textColor: string | null;
   accentColor: string | null;
   opacity: number | null;
+  /* ── PR-6 genişletmesi ───────────────────────────────────────────────
+   * Durum çeşitleri bugüne dek YALNIZ renk + opaklıktı; "basılı" ya da "hata"
+   * hâlinde kenarlığı kalınlaştırmak, köşeyi değiştirmek veya parıltı vermek
+   * MÜMKÜN DEĞİLDİ. Eklenen üç alan da mevcut ana stille AYNI birim ve
+   * aralıktadır (ikinci bir ölçek kurulmaz).
+   *
+   * YERLEŞİM ALANLARI BİLEREK YOK: `padding`/`gap`/`fontScale` durum başına
+   * değişseydi kart basılıyken zıplardı — dokunmatik ekranda bu bir kusurdur,
+   * özellik değil. Bu sınır ana stil yorumunda da beyan edilmişti. */
+  borderWidth: number | null;
+  radius: number | null;
+  glowLevel: number | null;
 }
 
 export const EMPTY_COMPONENT_STYLE: ComponentStyle = {
@@ -263,6 +275,9 @@ export const EMPTY_STATE_STYLE: StateStyle = {
   textColor: null,
   accentColor: null,
   opacity: null,
+  borderWidth: null,
+  radius: null,
+  glowLevel: null,
 };
 
 /* ══ Yerleşim (layout) ═══════════════════════════════════════════════
@@ -646,11 +661,16 @@ export function coerceStateStyle(raw: unknown): StateStyle {
     textColor: safeColor(raw.textColor),
     accentColor: safeColor(raw.accentColor),
     opacity: num(raw.opacity, 0, 100),
+    borderWidth: num(raw.borderWidth, 0, 6),
+    radius: num(raw.radius, 0, 48),
+    glowLevel: num(raw.glowLevel, 0, 3),
   };
 }
 
 function isEmptyState(s: StateStyle): boolean {
-  return !s.bg && !s.borderColor && !s.textColor && !s.accentColor && s.opacity === null;
+  return !s.bg && !s.borderColor && !s.textColor && !s.accentColor
+    && s.opacity === null && s.borderWidth === null && s.radius === null
+    && s.glowLevel === null;
 }
 
 export function coerceComponentStyle(raw: unknown): ComponentStyle {
@@ -833,6 +853,58 @@ export type ManifestParseResult =
  *  - schemaVersion === 2 → doğrudan
  *  - schemaVersion === 1 → v1 `themeVars` torbası; tanınırsa v2'ye TAŞINIR
  */
+/**
+ * TANINMAYAN ALAN ÖLÇÜMÜ (#659).
+ *
+ * ── KAPATILAN BOŞLUK ──────────────────────────────────────────────────────
+ * Manifest şema sürümü BİLEREK yükseltilmiyor (yükseltilseydi eski APK'lı araç
+ * manifestin TAMAMINI reddeder ve tema komple ölürdü — bkz. #654). Bunun bedeli
+ * şuydu: yeni bir stil alanı ekleyip eski araca gönderdiğinizde araç o alanı
+ * SESSİZCE düşürüyordu. Kullanıcı Stüdyo'da bulanıklığı açıyor, araçta hiçbir
+ * şey olmuyor ve HİÇBİR YERDE sebebi yazmıyordu.
+ *
+ * Artık araç, tanımadığı alanların ADLARINI sayar ve bildirir. Böylece
+ * "araç bunu uygulamadı" ile "araç bunu bilmiyor" AYRILIR.
+ *
+ * GİZLİLİK: yalnız ŞEMA ANAHTAR ADLARI toplanır (`backdropBlur` gibi) —
+ * kullanıcı değeri, renk, kimlik veya payload ASLA. Liste tavanlıdır.
+ */
+const KNOWN_COMPONENT_KEYS: ReadonlySet<string> = new Set(Object.keys(EMPTY_COMPONENT_STYLE));
+const KNOWN_STATE_KEYS: ReadonlySet<string> = new Set(Object.keys(EMPTY_STATE_STYLE));
+const KNOWN_MANIFEST_KEYS: ReadonlySet<string> = new Set([
+  'schemaVersion', 'themeId', 'themeVersion', 'tokens', 'componentOverrides',
+  'screenOverrides', 'layoutOverrides', 'zoneWidths', 'metadata',
+]);
+const UNSUPPORTED_CAP = 12;
+
+export function collectUnsupportedKeys(raw: unknown): string[] {
+  const bulunan = new Set<string>();
+  if (!isObj(raw)) return [];
+  for (const k of Object.keys(raw)) {
+    if (!KNOWN_MANIFEST_KEYS.has(k)) bulunan.add(k);
+  }
+  const co = raw.componentOverrides;
+  if (isObj(co)) {
+    for (const stil of Object.values(co)) {
+      if (!isObj(stil)) continue;
+      for (const k of Object.keys(stil)) {
+        if (!KNOWN_COMPONENT_KEYS.has(k)) bulunan.add(k);
+      }
+      const st = (stil as Record<string, unknown>).states;
+      if (!isObj(st)) continue;
+      for (const durum of Object.values(st)) {
+        if (!isObj(durum)) continue;
+        for (const k of Object.keys(durum)) {
+          if (!KNOWN_STATE_KEYS.has(k)) bulunan.add(`states.${k}`);
+        }
+      }
+    }
+  }
+  /* Sıralı ve tavanlı: rapor kararlı olsun, defter şişmesin. */
+  /* `Array.from`: website paketi ES5 hedefliyor ve Set spread'i derlemiyor. */
+  return Array.from(bulunan).sort().slice(0, UNSUPPORTED_CAP);
+}
+
 export function parseIncomingManifest(raw: unknown): ManifestParseResult {
   if (!isObj(raw)) return { ok: false, reason: 'Manifest bir nesne değil' };
 
@@ -1136,6 +1208,24 @@ export function componentStyleToCss(id: string, s: ComponentStyle): string {
       if (st.textColor) stDecls.push(`color: ${st.textColor} !important;`);
       if (st.accentColor) stDecls.push(`--pack-accent: ${st.accentColor};`);
       if (st.opacity !== null) stDecls.push(`opacity: ${st.opacity / 100} !important;`);
+      if (st.borderWidth !== null) {
+        stDecls.push(`border-width: ${st.borderWidth}px !important;`);
+        /* Desen ana stilden miras alınır; durum başına desen YOKTUR (gereksiz
+           genişleme). Kalınlık verildiyse stil `solid` DEĞİL, ana stilin
+           seçimi geçerli kalsın diye burada yazılmaz. */
+      }
+      if (st.radius !== null) stDecls.push(`border-radius: ${st.radius}px !important;`);
+      if (st.glowLevel !== null) {
+        /* Parıltı rengi durum → ana stil sırasıyla çözülür; hiçbiri yoksa
+           parıltı YAZILMAZ (renksiz gölge sahte bir efekt olurdu). */
+        const gc = st.accentColor ?? st.borderColor ?? st.textColor
+          ?? s.accentColor ?? s.borderColor ?? s.textColor;
+        if (gc) {
+          const g = glowShadow(gc, st.glowLevel);
+          if (g) stDecls.push(`box-shadow: ${g} !important;`);
+          else if (st.glowLevel === 0) stDecls.push('box-shadow: none !important;');
+        }
+      }
       if (stDecls.length === 0) continue;
       const selectors = STATE_SELECTOR_SUFFIX[key].map((suffix) => `${sel}${suffix}`).join(',\n');
       blocks.push(`${selectors} {\n  ${stDecls.join('\n  ')}\n}`);

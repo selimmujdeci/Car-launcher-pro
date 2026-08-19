@@ -441,7 +441,16 @@ async function executeCommand(cmd: VehicleCommand): Promise<ExecResult> {
           }
           return {
             outcome: 'completed',
-            result: { themeId: r.themeId, themeVersion: r.themeVersion, appliedAt: new Date().toISOString() },
+            result: {
+              themeId: r.themeId,
+              themeVersion: r.themeVersion,
+              appliedAt: new Date().toISOString(),
+              /* #659: aracın TANIMADIĞI şema anahtarları. Boş dizi = hepsi
+                 tanındı. Şema sürümü bilerek yükseltilmediği için eski APK
+                 yeni alanları sessizce düşürüyordu; artık telefon "araç bunu
+                 bilmiyor" diyebilir. Yalnız ANAHTAR ADLARI taşınır. */
+              unsupportedKeys: r.unsupportedKeys ?? [],
+            },
           };
         }
 

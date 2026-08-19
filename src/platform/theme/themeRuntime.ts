@@ -24,6 +24,7 @@ import {
   manifestToCss,
   manifestToCssVars,
   manifestToLayoutIntent,
+  collectUnsupportedKeys,
   parseIncomingManifest,
   THEME_BASE_IDS,
   type ThemeBaseId,
@@ -65,6 +66,13 @@ export interface ThemeRuntimeSnapshot {
   storedThemeIds: ThemeBaseId[];
   /** Kalıcı depo okunabildi mi (false → salt-bellek çalışıyoruz). */
   storageReadable: boolean;
+  /**
+   * Son uygulamada bu ARAÇ SÜRÜMÜNÜN TANIMADIĞI şema anahtarları (#659).
+   * Boş dizi = hepsi tanındı. Dolu ise telefon araçtan daha yeni bir sürüm
+   * gönderiyordur ve o alanlar SESSİZCE düşürülmüştür — LAB bunu söyler.
+   * Yalnız anahtar ADLARI (gizlilik kuralı 6).
+   */
+  lastUnsupportedKeys: string[];
 }
 
 const STATE: {
@@ -84,7 +92,10 @@ const STATE: {
   lastRejectReason: string | null;
   lastRejectAt: string | null;
   storageReadable: boolean;
+  /** Son uygulamada aracın TANIMADIĞI şema anahtarları (#659). Yalnız AD. */
+  lastUnsupportedKeys: string[];
 } = {
+  lastUnsupportedKeys: [],
   lastThemeId: null,
   lastThemeVersion: null,
   lastSchemaVersion: null,
@@ -269,6 +280,13 @@ export interface ApplyIncomingResult {
   reason?: string;
   themeId?: ThemeBaseId;
   themeVersion?: number;
+  /**
+   * Aracın TANIMADIĞI şema anahtarları (#659) — boş dizi = hepsi tanındı.
+   * Yalnız anahtar ADLARI; kullanıcı değeri/renk/kimlik TAŞIMAZ.
+   * Telefon bunu komut sonucunda görür → "araç uygulamadı" ile "araç bilmiyor"
+   * birbirinden ayrılır (eski APK sessizce düşürüyordu).
+   */
+  unsupportedKeys?: string[];
 }
 
 /**
@@ -285,7 +303,17 @@ export function applyIncomingThemeManifest(raw: unknown, source: ThemeApplySourc
   }
   const m = parsed.manifest;
   applyThemeManifest(m, source, { setBaseTheme: source === 'command', persist: source === 'command' });
-  return { ok: true, themeId: m.themeId, themeVersion: m.themeVersion };
+  /* Araç, TANIMADIĞI alanları bildirir (#659). Şema sürümü bilerek
+     yükseltilmediği için eski araç yeni alanları sessizce düşürürdü; artık
+     "uygulamadı" ile "bilmiyor" ayrılabiliyor. Yalnız ANAHTAR ADLARI. */
+  const unsupported = collectUnsupportedKeys(raw);
+  STATE.lastUnsupportedKeys = unsupported;
+  return {
+    ok: true,
+    themeId: m.themeId,
+    themeVersion: m.themeVersion,
+    unsupportedKeys: unsupported,
+  };
 }
 
 /* ── Boot geri yükleme + tema değişimi takibi ─────────────────────── */
@@ -369,6 +397,7 @@ export function getThemeRuntimeSnapshot(): ThemeRuntimeSnapshot {
     lastRejectAt: STATE.lastRejectAt,
     storedThemeIds: Object.keys(stored) as ThemeBaseId[],
     storageReadable: STATE.storageReadable,
+    lastUnsupportedKeys: [...STATE.lastUnsupportedKeys],
   };
 }
 
