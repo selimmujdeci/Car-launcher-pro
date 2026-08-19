@@ -291,6 +291,12 @@ export interface CardLayout {
   ord: number | null;
   /** elle boyut ağırlığı (flex-grow) — solver sınırı 0.5–5 */
   grow: number | null;
+  /**
+   * GÖRSEL BİRLEŞTİRME: bu kart, aynı bölgede kendisinden hemen SONRAKİ görünür
+   * kartla TEK kart gibi çizilir. `layoutSolver.CardIntent.mergeNext` ile birebir
+   * aynı anlamdadır; burada yalnız TAŞINIR (bu dosya solver'ı import etmez).
+   */
+  merge: boolean | null;
 }
 
 export const EMPTY_CARD_LAYOUT: CardLayout = {
@@ -298,6 +304,7 @@ export const EMPTY_CARD_LAYOUT: CardLayout = {
   size: null,
   ord: null,
   grow: null,
+  merge: null,
 };
 
 /** Solver'ın kabul ettiği elle-boyut aralığı (layoutSolver.normalizeIntent ile aynı). */
@@ -662,6 +669,7 @@ export function coerceCardLayout(raw: unknown): CardLayout {
     size: inList(LAYOUT_SIZE_CLASSES, raw.size) ? raw.size : null,
     ord: num(raw.ord, 0, LAYOUT_ORD_MAX),
     grow: num(raw.grow, LAYOUT_GROW_MIN, LAYOUT_GROW_MAX, false),
+    merge: bool(raw.merge),
   };
 }
 
@@ -1155,6 +1163,7 @@ export function manifestToLayoutIntent(m: ThemeManifest): Record<string, Record<
     // growCustom: solver'da `null` "boyut sınıfından türet" demektir; kullanıcı
     // elle boyutu geri alınca null göndeririz, dokunmadıysa alanı hiç koymayız.
     if (l.grow !== null) partial.growCustom = l.grow;
+    if (l.merge !== null) partial.mergeNext = l.merge;
     if (Object.keys(partial).length > 0) out[id] = partial;
   }
   return out;

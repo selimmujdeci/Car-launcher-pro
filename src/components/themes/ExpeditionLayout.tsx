@@ -776,8 +776,36 @@ export const ExpeditionLayout = memo(function ExpeditionLayout(props: Props) {
     if (id === 'range') return SUPPORTS_CSS_CLAMP ? 'clamp(120px,18vh,160px)' : 'minmax(120px,160px)';
     return 'minmax(0, 1fr)';
   };
+  /* GRUP satır boyu (#656): birleşik kartlar TEK grid satırı kaplar. Sabit
+     yükseklikli üye varsa (menzil plakası) satır `auto` olur ve iç ızgara
+     dağıtır; hepsi esnekse fr değerleri TOPLANIR → birleştirme öncesi ile
+     sonrası aynı toplam alanı kullanır (ekran zıplamaz). */
+  const exGroupRow = (ids: string[]): string => {
+    const boylar = ids.map((id) => exRowSize(id));
+    if (boylar.some((b) => !b.startsWith('minmax(0,'))) return 'auto';
+    const toplam = ids.reduce((acc, id) => acc + (intent[id]?.growCustom ?? 1), 0);
+    return `minmax(0, ${toplam}fr)`;
+  };
   const exRailRows = (zone: Zone) =>
-    solved[zone].items.map((it) => exRowSize(it.id)).join(' ') || 'minmax(0,1fr)';
+    solved[zone].groups.map((g) => exGroupRow(g.map((it) => it.id))).join(' ') || 'minmax(0,1fr)';
+
+  /* Bir grubu çizer. Tek elemanlı grup da BURADAN geçer — çizimde ikinci bir
+     kod yolu yoktur (birleşik/değil ayrımı yalnız `data-merged` ile görünür). */
+  const renderExGroup = (g: { id: string }[], key: string) => {
+    if (g.length === 1) {
+      return <div key={key} style={{ minWidth: 0, minHeight: 0, display: 'grid' }}>{renderExCard(g[0].id)}</div>;
+    }
+    return (
+      <div key={key} data-merged="true" style={{
+        minWidth: 0, minHeight: 0, display: 'grid', gap: 0,
+        gridTemplateRows: g.map((it) => exRowSize(it.id)).join(' '),
+      }}>
+        {g.map((it) => (
+          <div key={it.id} style={{ minWidth: 0, minHeight: 0, display: 'grid' }}>{renderExCard(it.id)}</div>
+        ))}
+      </div>
+    );
+  };
 
   return (
     <PalCtx.Provider value={pal}>
@@ -789,9 +817,7 @@ export const ExpeditionLayout = memo(function ExpeditionLayout(props: Props) {
         <div style={{ flex: '1 1 auto', minHeight: 0, display: 'grid', gridTemplateColumns: GRID_COLS, gap: 14 }}>
           {/* Sol ray — Yerleşim Motoru'ndan (sıra/görünürlük/boyut niyete göre; varsayılan = mevcut ekran) */}
           <div style={{ display: 'grid', gap: 14, minWidth: 0, minHeight: 0, gridTemplateRows: exRailRows('left-rail') }}>
-            {solved['left-rail'].items.map((it) => (
-              <div key={it.id} style={{ minWidth: 0, minHeight: 0, display: 'grid' }}>{renderExCard(it.id)}</div>
-            ))}
+            {solved['left-rail'].groups.map((g, i) => renderExGroup(g, g.map((x) => x.id).join('+') || String(i)))}
           </div>
           {/* Orta */}
           <div style={{ position: 'relative', minWidth: 0, minHeight: 0, display: 'flex' }}>
@@ -804,9 +830,7 @@ export const ExpeditionLayout = memo(function ExpeditionLayout(props: Props) {
           </div>
           {/* Sağ ray — Yerleşim Motoru'ndan (sıra/görünürlük/boyut niyete göre) */}
           <div style={{ display: 'grid', gap: 14, minWidth: 0, minHeight: 0, gridTemplateRows: exRailRows('right-rail') }}>
-            {solved['right-rail'].items.map((it) => (
-              <div key={it.id} style={{ minWidth: 0, minHeight: 0, display: 'grid' }}>{renderExCard(it.id)}</div>
-            ))}
+            {solved['right-rail'].groups.map((g, i) => renderExGroup(g, g.map((x) => x.id).join('+') || String(i)))}
           </div>
         </div>
 

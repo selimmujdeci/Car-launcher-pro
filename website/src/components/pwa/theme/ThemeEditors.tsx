@@ -207,7 +207,8 @@ const LayoutSection = memo(function LayoutSection({
   onReset: () => void;
 }) {
   const entry = solverEntry(themeId, cardId);
-  const touched = layout.visible !== null || layout.size !== null || layout.ord !== null || layout.grow !== null;
+  const touched = layout.visible !== null || layout.size !== null || layout.ord !== null
+    || layout.grow !== null || layout.merge !== null;
   return (
     <>
       <SectionTitle>Yerleşim</SectionTitle>
@@ -258,6 +259,16 @@ const LayoutSection = memo(function LayoutSection({
         unit="×"
         fallback={2}
         onChange={(v) => onPatch({ grow: v })}
+      />
+      {/* GÖRSEL BİRLEŞTİRME (#656) — kullanıcı isteği: "iki kartı tek kart yapma".
+          Kart KİMLİĞİ ile eşleştirme yerine "sonrakine bağlan" seçildi: geçersiz
+          hedef, döngü ve "hedef gizlenirse ne olur?" sorunları yapısal olarak
+          doğmaz. Bölgenin SON kartında bayrak sessizce etkisizdir. */}
+      <ToggleField
+        label="Alttaki Kartla Birleştir"
+        hint="Bu kart ve hemen altındaki kart tek kart gibi çizilir: aradaki boşluk kalkar, iç köşeler düzleşir. Bölgenin son kartında etkisizdir."
+        value={layout.merge}
+        onChange={(v) => onPatch({ merge: v })}
       />
       {touched && (
         <button

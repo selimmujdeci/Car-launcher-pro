@@ -905,10 +905,35 @@ export const ProLayout = memo(function ProLayout({
             {/* Zone'lar Yerleşim Motoru'ndan — sıra/görünürlük/boyut niyete göre; varsayılan = mevcut ekran */}
             {RAIL_ZONES.map((zone) => (
               <div key={zone} className="flex flex-col" style={zoneOuterStyle(zone)}>
-                {solved[zone].items.map((it) => (
-                  <div key={it.id} style={itemStyle(it.id)}>
-                    {renderCard(it.id)}
-                  </div>
+                {solved[zone].groups.map((g, i) => (
+                  g.length === 1
+                    ? (
+                      <div key={g[0].id} style={itemStyle(g[0].id)}>
+                        {renderCard(g[0].id)}
+                      </div>
+                    )
+                    : (
+                      /* GÖRSEL BİRLEŞTİRME (#656): grup tek kart gibi çizilir —
+                         aradaki boşluk 0, iç köşeler düzleşir. Grubun flex payı
+                         üyelerin TOPLAMIdır → birleştirme öncesi/sonrası aynı
+                         alan kullanılır ve ekran zıplamaz. */
+                      <div
+                        key={g.map((x) => x.id).join('+') || String(i)}
+                        data-merged="true"
+                        style={{
+                          display: 'flex', flexDirection: 'column', gap: 0, minHeight: 0,
+                          flexGrow: g.reduce((acc, it) => acc + (itemStyle(it.id).flexGrow as number ?? 0), 0),
+                          flexBasis: 0,
+                          flexShrink: 1,
+                        }}
+                      >
+                        {g.map((it) => (
+                          <div key={it.id} style={itemStyle(it.id)}>
+                            {renderCard(it.id)}
+                          </div>
+                        ))}
+                      </div>
+                    )
                 ))}
               </div>
             ))}
