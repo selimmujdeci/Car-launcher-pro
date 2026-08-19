@@ -932,6 +932,8 @@ export interface CarLauncherPlugin {
     coreNoDataStreak: number;
     maxCoreNoDataStreak: number;
     recoveryCount: number;
+    /** #642 — TAVAN kararının baktığı sayaç. Eski APK vermez → alan YOK olabilir. */
+    consecutiveFailedRecoveries?: number;
     suppressedCount: number;
     atpcSendFailures: number;
     lastRecoveryAt: number;

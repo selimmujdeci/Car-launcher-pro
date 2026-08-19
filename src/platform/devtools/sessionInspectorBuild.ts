@@ -91,6 +91,8 @@ export interface SessionRawSnapshot {
     status: string;
     coreNoDataStreak: number | null; maxCoreNoDataStreak: number | null;
     recoveryCount: number | null; suppressedCount: number | null;
+    /** #642 — tavan kararının baktığı sayaç; `null` = native vermiyor (BİLİNMİYOR). */
+    consecutiveFailedRecoveries: number | null;
     atpcSendFailures: number | null; lastRecoveryAt: number | null;
     lastRecoveryToFirstPidMs: number | null; killedByDataGate: number | null;
     protocolAtRecovery: string | null; threshold: number | null;
@@ -451,13 +453,23 @@ function _kwpCard(s: SessionRawSnapshot): InspectorCard {
   f.push(observed({ id: 'kwpStatus', label: 'kurtarma durumu', source: SRC.kwp, note: cached }, k.status));
   f.push(observed({ id: 'kwpStreak', label: 'ardışık çekirdek NO_DATA (anlık/azami)', source: SRC.kwp, note: `Eşik: ${_nz(k.threshold)}.` },
     `${_nz(k.coreNoDataStreak)} / ${_nz(k.maxCoreNoDataStreak)}`));
-  f.push(observed({ id: 'kwpRecoveryCount', label: 'ATPC gönderimi / tavan', source: SRC.kwp, note: cached },
-    `${_nz(k.recoveryCount)} / ${_nz(k.maxPerSession)}`));
+  /* #642: eskiden "ATPC gönderimi / tavan" diye YAN YANA yazılıyordu ve iki sayı
+     karşılaştırılabilir sanılıyordu (sahada 4/3 görülüp "tavan doldu" sanıldı).
+     `recoveryCount` oturum TOPLAMIDIR, tavanla ilgisi YOKTUR; tavan sayacı ayrı satırda. */
+  f.push(observed({ id: 'kwpRecoveryCount', label: 'ATPC gönderimi (oturum toplamı)', source: SRC.kwp, note: cached },
+    `${_nz(k.recoveryCount)}`));
+  f.push(k.consecutiveFailedRecoveries !== null
+    ? observed({ id: 'kwpConsecFailed', label: 'ardışık BAŞARISIZ kurtarma / tavan', source: SRC.kwp,
+        note: 'Tavan kararının baktığı sayaç. Başarılı kurtarma bunu SIFIRLAR.' },
+      `${k.consecutiveFailedRecoveries} / ${_nz(k.maxPerSession)}`)
+    : unavailable({ id: 'kwpConsecFailed', label: 'ardışık BAŞARISIZ kurtarma / tavan', source: SRC.kwp, note: '' },
+      'Native bu sayacı vermiyor (eski APK) — tavan durumu BİLİNMİYOR.'));
   f.push(derived(
-    { id: 'kwpAtLimit', label: 'kurtarma tavanına ulaşıldı mı', source: `${SRC.kwp} (recoveryCount vs maxPerSession)`,
-      note: 'KURAL: maxPerSession > 0 VE recoveryCount >= maxPerSession → EVET.' },
-    k.maxPerSession !== null && k.recoveryCount !== null && k.maxPerSession > 0
-      ? (k.recoveryCount >= k.maxPerSession ? 'EVET' : 'HAYIR') : null,
+    { id: 'kwpAtLimit', label: 'kurtarma tavanına ulaşıldı mı',
+      source: `${SRC.kwp} (consecutiveFailedRecoveries vs maxPerSession)`,
+      note: 'KURAL (#642): tavan kararı YALNIZ ardışık BAŞARISIZ kurtarma sayacına bakar — BAŞARILI kurtarma seriyi SIFIRLAR (native semantik 2026-07-23 tarihinde değişti). Sayaç yoksa (eski APK) BİLİNMİYOR; oturum toplamından TÜRETİLMEZ.' },
+    k.maxPerSession !== null && k.maxPerSession > 0 && k.consecutiveFailedRecoveries !== null
+      ? (k.consecutiveFailedRecoveries >= k.maxPerSession ? 'EVET' : 'HAYIR') : null,
   ));
   f.push(observed({ id: 'kwpSuppressed', label: 'tavan dolduğu için gönderilmedi', source: SRC.kwp, note: cached }, k.suppressedCount));
   f.push(observed({ id: 'kwpSendFail', label: 'ATPC kanal hatası', source: SRC.kwp, note: cached }, k.atpcSendFailures));
@@ -624,8 +636,10 @@ export function buildHealthInput(s: SessionRawSnapshot, mismatchCount: number): 
     nowMs:           typeof s?.readAt === 'number' ? s.readAt : 0,
     dataSource:      s?.obdStatus?.source ?? null,
     kwpStatus:       k ? k.status : null,
-    kwpAtLimit:      k && k.maxPerSession !== null && k.recoveryCount !== null
-      && k.maxPerSession > 0 ? k.recoveryCount >= k.maxPerSession : null,
+    /* #642 — bkz. runtimeSchedulingBuild: karar sayacı `recoveryCount` DEĞİL. */
+    kwpAtLimit:      k && k.maxPerSession !== null && k.maxPerSession > 0
+      && k.consecutiveFailedRecoveries !== null
+      ? k.consecutiveFailedRecoveries >= k.maxPerSession : null,
     mismatchCount:   typeof mismatchCount === 'number' && mismatchCount > 0 ? mismatchCount : 0,
   };
 }

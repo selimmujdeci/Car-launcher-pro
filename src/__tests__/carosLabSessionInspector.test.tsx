@@ -303,19 +303,39 @@ describe('KİLİT 8 — DERIVED değerlerin SAF ve test edilebilir kuralı var',
     expect(findField(diff, 'protocolMatch')!.value).toBe('FARKLI');
   });
 
-  it('KWP tavan kuralı: recoveryCount >= maxPerSession', () => {
+  /* #642 GÜNCELLEMESİ (saha 2026-08-19): kural DEĞİŞTİ. Tavan kararı native'de
+     ARDIŞIK BAŞARISIZ kurtarmaya bakar (BAŞARI seriyi sıfırlar, 2026-07-23 P0);
+     `recoveryCount` oturum TOPLAMIDIR. Eski kilit yanlış kuralı koruyordu ve
+     sahada `recoveryCount 4 / maxPerSession 3` görülünce LAB "tavana ulaşıldı:
+     EVET" YALANINI üretti — gerçek sayaç 0'dı. Kilit kaldırılmadı, GÜNCELLENDİ. */
+  it('KWP tavan kuralı: ardışık BAŞARISIZ sayaç (oturum toplamı DEĞİL)', () => {
+    const base = {
+      status: 'FAILED', coreNoDataStreak: 4, maxCoreNoDataStreak: 6,
+      suppressedCount: 2, atpcSendFailures: 0, lastRecoveryAt: NOW - 5_000,
+      lastRecoveryToFirstPidMs: -1, killedByDataGate: 1, protocolAtRecovery: '5',
+      threshold: 4, maxPerSession: 3,
+    };
     const atLimit = buildInspectorCards(snapshot({
-      kwp: {
-        status: 'FAILED', coreNoDataStreak: 4, maxCoreNoDataStreak: 6, recoveryCount: 3,
-        suppressedCount: 2, atpcSendFailures: 0, lastRecoveryAt: NOW - 5_000,
-        lastRecoveryToFirstPidMs: -1, killedByDataGate: 1, protocolAtRecovery: '5',
-        threshold: 4, maxPerSession: 3,
-      },
+      kwp: { ...base, recoveryCount: 3, consecutiveFailedRecoveries: 3 },
     }));
     const f = findField(atLimit, 'kwpAtLimit')!;
     expect(f.klass).toBe('DERIVED');
     expect(f.value).toBe('EVET');
-    expect(f.note).toContain('KURAL:');
+    expect(f.note).toContain('KURAL');
+
+    /* SAHA SENARYOSU: 4 kurtarma tetiklendi ama hepsi BAŞARILI → seri 0.
+       Eski kural burada "EVET" derdi. */
+    const notAtLimit = buildInspectorCards(snapshot({
+      kwp: { ...base, status: 'RECOVERED', recoveryCount: 4, consecutiveFailedRecoveries: 0 },
+    }));
+    expect(findField(notAtLimit, 'kwpAtLimit')!.value,
+      'oturum toplamından tavan türetiliyor — sahadaki yalan geri geldi').toBe('HAYIR');
+
+    /* Eski APK sayacı vermiyor → BİLİNMİYOR; toplamdan TÜRETİLMEZ. */
+    const unknown = buildInspectorCards(snapshot({
+      kwp: { ...base, recoveryCount: 9, consecutiveFailedRecoveries: null },
+    }));
+    expect(findField(unknown, 'kwpAtLimit')!.klass).toBe('UNAVAILABLE');
   });
 
   it('türetme girdisi eksikse DERIVED değil UNAVAILABLE olur', () => {

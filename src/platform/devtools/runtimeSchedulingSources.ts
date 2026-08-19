@@ -164,6 +164,8 @@ export function readSchedRawSnapshot(): SchedRawSnapshot {
     kwp: kwp ? {
       status:           String(kwp.status),
       recoveryCount:    _num(kwp.recoveryCount),
+      /* #642 — tavan sayacı; eski APK vermezse null kalır (BİLİNMİYOR). */
+      consecutiveFailedRecoveries: _num(kwp.consecutiveFailedRecoveries),
       maxPerSession:    _num(kwp.maxPerSession),
       suppressedCount:  _num(kwp.suppressedCount),
       atpcSendFailures: _num(kwp.atpcSendFailures),

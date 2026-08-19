@@ -147,6 +147,8 @@ export interface SchedRawSnapshot {
   readonly kwp: {
     status: string;
     recoveryCount: number | null; maxPerSession: number | null;
+    /** #642 — tavan kararının baktığı sayaç; `null` = BİLİNMİYOR. */
+    consecutiveFailedRecoveries: number | null;
     suppressedCount: number | null; atpcSendFailures: number | null;
     lastRecoveryAt: number | null; coreNoDataStreak: number | null;
     threshold: number | null;
@@ -678,13 +680,28 @@ function _kwpChannel(s: SchedRawSnapshot): SchedChannel {
     });
   }
 
-  const atLimit = k.maxPerSession !== null && k.recoveryCount !== null
-    && k.maxPerSession > 0 && k.recoveryCount >= k.maxPerSession;
+  /* #642 — ÜÇÜNCÜ yanlış hesap buradaydı ve yalnız etiketi değil KANAL DURUMUNU
+     belirliyordu: `atLimit` true olunca kanal `BLOCKED` ilan ediliyordu. Oturum
+     toplamı (`recoveryCount`) tavanla ilgisizdir; karar ardışık BAŞARISIZ sayaca
+     aittir (native 2026-07-23). Sayaç bilinmiyorsa TAVAN İDDİA EDİLMEZ → false,
+     sınıflandırma status'e düşer (kanıtsız BLOCKED yasak). */
+  const atLimit = k.maxPerSession !== null && k.maxPerSession > 0
+    && k.consecutiveFailedRecoveries !== null
+    && k.consecutiveFailedRecoveries >= k.maxPerSession;
 
   f.push(schedObserved({ id: 'kwpStatus', label: 'kurtarma durumu', source: SRC.kwp,
     note: 'Önbellekten; tazelenme zamanı kaynakta KAYITLI DEĞİL.' }, k.status));
-  f.push(schedObserved({ id: 'kwpCount', label: 'ATPC gönderimi / tavan', source: SRC.kwp, note: 'Oturum tavanı native sabiti.' },
-    `${_nz(k.recoveryCount)} / ${_nz(k.maxPerSession)}`));
+  /* #642: iki sayı YAN YANA yazılınca karşılaştırılabilir sanılıyordu (sahada
+     "4 / 3" görülüp tavan doldu sanıldı). Toplam ve tavan artık AYRI satırlarda. */
+  f.push(schedObserved({ id: 'kwpCount', label: 'ATPC gönderimi (oturum toplamı)', source: SRC.kwp,
+    note: 'Tavanla KARŞILAŞTIRILMAZ — tavan ardışık BAŞARISIZ sayaca bakar.' },
+    `${_nz(k.recoveryCount)}`));
+  f.push(k.consecutiveFailedRecoveries !== null
+    ? schedObserved({ id: 'kwpConsecFailed', label: 'ardışık BAŞARISIZ / tavan', source: SRC.kwp,
+        note: 'Tavan kararının tek girdisi; başarılı kurtarma bunu SIFIRLAR.' },
+      `${k.consecutiveFailedRecoveries} / ${_nz(k.maxPerSession)}`)
+    : schedUnavailable({ id: 'kwpConsecFailed', label: 'ardışık BAŞARISIZ / tavan', source: SRC.kwp, note: '' },
+      'Native bu sayacı vermiyor (eski APK) — tavan durumu BİLİNMİYOR.'));
   f.push(schedObserved({ id: 'kwpSuppressed', label: 'tavan nedeniyle gönderilmedi', source: SRC.kwp, note: 'Bastırılan kurtarma sayısı.' }, k.suppressedCount));
   f.push(schedObserved({ id: 'kwpStreak', label: 'ardışık NO_DATA / eşik', source: SRC.kwp, note: 'Eşiğe doğru sayan sayaç.' },
     `${_nz(k.coreNoDataStreak)} / ${_nz(k.threshold)}`));
@@ -695,9 +712,11 @@ function _kwpChannel(s: SchedRawSnapshot): SchedChannel {
         new Date(k.lastRecoveryAt).toISOString())
     : schedUnavailable({ id: 'kwpLastAt', label: 'son kurtarma tetiği', source: SRC.kwp, note: '' }, 'Hiç kurtarma tetiklenmedi.'));
   f.push(schedDerived(
-    { id: 'kwpAtLimit', label: 'oturum tavanına ulaşıldı mı', source: `${SRC.kwp} (recoveryCount vs maxPerSession)`,
-      note: 'KURAL: maxPerSession > 0 VE recoveryCount >= maxPerSession → EVET.' },
-    k.maxPerSession !== null && k.maxPerSession > 0 ? (atLimit ? 'EVET' : 'HAYIR') : null,
+    { id: 'kwpAtLimit', label: 'oturum tavanına ulaşıldı mı',
+      source: `${SRC.kwp} (consecutiveFailedRecoveries vs maxPerSession)`,
+      note: 'KURAL (#642): tavan kararı YALNIZ ardışık BAŞARISIZ kurtarma sayacına bakar — BAŞARILI kurtarma seriyi SIFIRLAR (native semantik 2026-07-23 tarihinde değişti). Sayaç yoksa (eski APK) BİLİNMİYOR; oturum toplamından TÜRETİLMEZ.' },
+    k.maxPerSession !== null && k.maxPerSession > 0 && k.consecutiveFailedRecoveries !== null
+      ? (atLimit ? 'EVET' : 'HAYIR') : null,
   ));
 
   let activity: ChannelActivity = 'UNKNOWN';
@@ -862,8 +881,12 @@ export function buildSchedConflictInput(s: SchedRawSnapshot): SchedConflictInput
     healthIsStale:      s?.health ? s.health.isStale : null,
     burstEnabled:       s?.pollEvidence && s.pollEvidence.present ? s.pollEvidence.burstEnabled : null,
     liveDataScreenOpen: s?.capture ? s.capture.obdRefs > 0 : null,
-    kwpAtLimit:         k && k.maxPerSession !== null && k.recoveryCount !== null
-      && k.maxPerSession > 0 ? k.recoveryCount >= k.maxPerSession : null,
+    /* #642: eskiden oturum TOPLAMI tavanla karşılaştırılıyordu — native'in "buna BAKMA"
+       dediği karşılaştırma. Sahada (2026-08-19) 4 >= 3 çıkıp "tavandayız" YALANI
+       üretti; gerçek sayaç 0'dı (başarı seriyi sıfırlamıştı). */
+    kwpAtLimit:         k && k.maxPerSession !== null && k.maxPerSession > 0
+      && k.consecutiveFailedRecoveries !== null
+      ? k.consecutiveFailedRecoveries >= k.maxPerSession : null,
     kwpStatus:          k ? k.status : null,
   };
 }

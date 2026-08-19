@@ -231,6 +231,17 @@ public final class KwpRecoveryEvidence {
         public final int coreNoDataStreak;
         public final int maxCoreNoDataStreak;
         public final int recoveryCount;
+        /**
+         * ARDIŞIK BAŞARISIZ kurtarma — TAVAN KARARININ BAKTIĞI TEK SAYAÇ.
+         *
+         * ⚠️ #642 (saha 2026-08-19): bu alan snapshot'a EKLENMEMİŞTİ, bu yüzden JS
+         * tarafı "tavana ulaşıldı mı?" sorusunu {@code recoveryCount >= maxPerSession}
+         * ile hesaplıyordu — yani 2026-07-23'te DEĞİŞTİRİLEN semantiğin ESKİ hâliyle.
+         * Gerçek kopyada {@code recoveryCount=4 · maxPerSession=3} iken LAB "tavana
+         * ulaşıldı: EVET" diyordu; oysa başarı seriyi sıfırladığı için gerçek sayaç 0'dı.
+         * Karar sayacı dışa aktarılmadıkça gözlem yüzeyi YANLIŞ İDDİA üretir.
+         */
+        public final int consecutiveFailedRecoveries;
         public final int suppressedCount;
         public final int atpcSendFailures;
         public final long lastRecoveryAt;
@@ -241,11 +252,13 @@ public final class KwpRecoveryEvidence {
         public final int threshold;
         public final int maxPerSession;
 
-        Snapshot(int streak, int maxStreak, int recoveries, int suppressed, int atpcFails,
+        Snapshot(int streak, int maxStreak, int recoveries, int consecutiveFailed,
+                 int suppressed, int atpcFails,
                  long lastAt, long toFirstPid, int gateKills, String st, String proto) {
             this.coreNoDataStreak = streak;
             this.maxCoreNoDataStreak = maxStreak;
             this.recoveryCount = recoveries;
+            this.consecutiveFailedRecoveries = consecutiveFailed;
             this.suppressedCount = suppressed;
             this.atpcSendFailures = atpcFails;
             this.lastRecoveryAt = lastAt;
@@ -261,6 +274,7 @@ public final class KwpRecoveryEvidence {
     public Snapshot snapshot() {
         synchronized (lock) {
             return new Snapshot(coreNoDataStreak, maxCoreNoDataStreak, recoveryCount,
+                consecutiveFailedRecoveries,
                 suppressedCount, atpcSendFailures, lastRecoveryAt, lastRecoveryToFirstPidMs,
                 killedByDataGate, status.name(), protocolAtRecovery);
         }

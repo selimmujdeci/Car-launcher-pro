@@ -47,6 +47,10 @@ export interface DiagObdDeepLike {
   readonly kwpRecoveryEvidence?: {
     readonly status?: string; readonly recoveryCount?: number;
     readonly maxCoreNoDataStreak?: number; readonly suppressedCount?: number;
+    /** #642 — tavan kararının baktığı sayaç (oturum toplamı DEĞİL). */
+    readonly consecutiveFailedRecoveries?: number | null;
+    /** #642 — snapshot'ın KENDİ tazelenme damgası; yoksa yaş BİLİNMEZ. */
+    readonly refreshedAt?: number;
   } | null;
 }
 
@@ -324,10 +328,33 @@ function _recoveryEvidence(od: DiagObdDeepLike, now: number, out: AiEvidenceItem
   if (kwp && typeof kwp.status === 'string') {
     const rc = _num(kwp.recoveryCount) ?? 0;
     const maxStreak = _num(kwp.maxCoreNoDataStreak) ?? 0;
+    const consecFailed = _num(kwp.consecutiveFailedRecoveries);
+    /* ── #642 · TAZELİK YALANI KAPATILDI (saha 2026-08-19) ────────────────────
+     * Bu kanıt `getKwpRecoveryEvidence()` ÖNBELLEĞİNDEN okunur ve o önbelleği
+     * YALNIZ rapor üretimi / LAB ekranı açılışı doldurur — periyodik tazeleyen
+     * YOKTUR. Eski kod yine de `observedAt: now` damgası atıyordu.
+     * Kullanıcı kopyasında (2026-08-19) sonuç şuydu: AI "KWP kurtarma:
+     * NOT_ATTEMPTED (ATPC 0×)" derken canlı otorite AYNI anda
+     * `RECOVERED · recoveryCount 4 · son kurtarma 3,5 dk önce` diyordu.
+     * AI Mechanic yanlış olguyla akıl yürütüyordu.
+     *
+     * Artık damga snapshot'ın KENDİ zamanıdır; yaş ölçülebiliyorsa özete yazılır,
+     * ölçülemiyorsa "yaş BİLİNMİYOR" denir (sahte tazelik ÜRETİLMEZ). */
+    const refreshedAt = _num(kwp.refreshedAt);
+    const ageMs = refreshedAt !== null && refreshedAt > 0 ? Math.max(0, now - refreshedAt) : null;
+    /* Özet TAVANLIDIR (`MAX_SUMMARY_CHARS`) → kritik bilgi ÖNE alınır ve kısa
+       yazılır; uzun cümle kurulursa tazelik etiketi kesilir ve yalan geri gelir. */
+    const freshTxt = ageMs === null
+      ? ' · yaş ?'
+      : ageMs > 30_000 ? ` · ${Math.round(ageMs / 1000)}sn önce` : '';
+    const capTxt = consecFailed === null ? ' · ardışık ?' : ` · ardışık ${consecFailed}`;
     const ev = makeEvidence({
       key: 'recovery.kwp', kind: 'diagnostic',
-      summary: `KWP kurtarma: ${kwp.status} (ATPC ${rc}×, max NO_DATA serisi ${maxStreak})`,
-      confidence: 0.7, observedAt: now, source: 'obd',
+      summary: `KWP: ${kwp.status}${freshTxt}${capTxt} · ATPC ${rc}× · NO_DATA max ${maxStreak}`,
+      /* Bayat kanıt daha DÜŞÜK güvenle girer — silinmez, ama "şu an" gibi ağırlık taşımaz. */
+      confidence: ageMs !== null && ageMs > 30_000 ? 0.4 : 0.7,
+      observedAt: refreshedAt !== null && refreshedAt > 0 ? refreshedAt : now,
+      source: 'obd',
     });
     if (ev) out.push(ev);
   }

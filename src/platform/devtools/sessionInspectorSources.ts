@@ -149,6 +149,8 @@ export function readSessionRawSnapshot(): SessionRawSnapshot {
       coreNoDataStreak:         _numOrNull(kwp.coreNoDataStreak),
       maxCoreNoDataStreak:      _numOrNull(kwp.maxCoreNoDataStreak),
       recoveryCount:            _numOrNull(kwp.recoveryCount),
+      /* #642 — tavan sayacı; eski APK vermezse null (BİLİNMİYOR). */
+      consecutiveFailedRecoveries: _numOrNull(kwp.consecutiveFailedRecoveries),
       suppressedCount:          _numOrNull(kwp.suppressedCount),
       atpcSendFailures:         _numOrNull(kwp.atpcSendFailures),
       lastRecoveryAt:           _numOrNull(kwp.lastRecoveryAt),

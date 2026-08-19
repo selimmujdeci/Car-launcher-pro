@@ -36,6 +36,20 @@ export interface KwpRecoveryEvidenceSnapshot {
   maxCoreNoDataStreak: number;
   /** ATPC kaç kez gönderildi. */
   recoveryCount: number;
+  /**
+   * #642 — ARDIŞIK BAŞARISIZ kurtarma: TAVAN KARARININ baktığı TEK sayaç.
+   * `null` = eski APK bu alanı vermiyor → "tavanda mıyız" BİLİNMİYOR demektir,
+   * `recoveryCount`tan TÜRETİLMEZ (saha 2026-08-19: türetince yalan çıktı).
+   */
+  consecutiveFailedRecoveries: number | null;
+  /**
+   * #642 — Bu snapshot NE ZAMAN tazelendi (epoch ms).
+   * Önbelleği yalnız `refreshKwpRecoveryEvidence()` doldurur ve o da yalnız rapor
+   * üretimi / LAB ekranı açılışında çağrılır. Tüketiciler (AI kanıtı) bu damgayı
+   * KULLANMALIDIR: sahada AI, 3,5 dakika önceki `NOT_ATTEMPTED` değerini
+   * `observedAt: now` ile TAZE kanıt gibi sunuyordu.
+   */
+  refreshedAt: number;
   /** Tavan dolduğu için ATPC'nin GÖNDERİLMEDİĞİ kez. */
   suppressedCount: number;
   /** ATPC gönderimi kanal hatasına düştü (denendi ama gitmedi). */
@@ -73,6 +87,8 @@ export async function refreshKwpRecoveryEvidence(): Promise<void> {
       coreNoDataStreak: r.coreNoDataStreak ?? 0,
       maxCoreNoDataStreak: r.maxCoreNoDataStreak ?? 0,
       recoveryCount: r.recoveryCount ?? 0,
+      consecutiveFailedRecoveries: typeof r.consecutiveFailedRecoveries === 'number'
+        ? r.consecutiveFailedRecoveries : null,
       suppressedCount: r.suppressedCount ?? 0,
       atpcSendFailures: r.atpcSendFailures ?? 0,
       lastRecoveryAt: r.lastRecoveryAt ?? 0,
@@ -81,6 +97,7 @@ export async function refreshKwpRecoveryEvidence(): Promise<void> {
       protocolAtRecovery: r.protocolAtRecovery ?? null,
       threshold: r.threshold ?? 0,
       maxPerSession: r.maxPerSession ?? 0,
+      refreshedAt: Date.now(),
     };
   } catch {
     _snapshot = null; // fail-soft — kanıt yoksa YOK de, uydurma

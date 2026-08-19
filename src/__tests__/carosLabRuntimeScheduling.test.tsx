@@ -451,17 +451,34 @@ describe('KİLİT 12 — DERIVED kurallar SAF ve test edilebilir', () => {
     expect(findField(incomplete, 'cmdEvidenceFreshness')!.value).toBe('EKSİK');
   });
 
-  it('KWP tavan kuralı', () => {
+  /* #642 GÜNCELLEMESİ (saha 2026-08-19): tavan kararı ARDIŞIK BAŞARISIZ sayaca
+     bakar; `recoveryCount` oturum TOPLAMIDIR ve tavanla ilgisi yoktur. Eski kilit
+     yanlış kuralı koruyordu. Kaldırılmadı, GÜNCELLENDİ. */
+  it('KWP tavan kuralı: ardışık BAŞARISIZ sayaç', () => {
+    const base = {
+      status: 'IN_PROGRESS', maxPerSession: 3, suppressedCount: 1,
+      atpcSendFailures: 0, lastRecoveryAt: NOW - 4_000, coreNoDataStreak: 4, threshold: 4,
+    };
     const ch = buildSchedChannels(snapshot({
-      kwp: {
-        status: 'IN_PROGRESS', recoveryCount: 3, maxPerSession: 3, suppressedCount: 1,
-        atpcSendFailures: 0, lastRecoveryAt: NOW - 4_000, coreNoDataStreak: 4, threshold: 4,
-      },
+      kwp: { ...base, recoveryCount: 3, consecutiveFailedRecoveries: 3 },
     }));
     const f = findField(ch, 'kwpAtLimit')!;
     expect(f.klass).toBe('DERIVED');
     expect(f.value).toBe('EVET');
-    expect(f.note).toContain('KURAL:');
+    expect(f.note).toContain('KURAL');
+
+    // Saha senaryosu: 4 tetik ama hepsi başarılı → seri 0 → tavan DOLU DEĞİL.
+    const ok = buildSchedChannels(snapshot({
+      kwp: { ...base, status: 'RECOVERED', recoveryCount: 4, consecutiveFailedRecoveries: 0 },
+    }));
+    expect(findField(ok, 'kwpAtLimit')!.value,
+      'oturum toplamından tavan türetiliyor — sahadaki yalan geri geldi').toBe('HAYIR');
+
+    // Sayaç yoksa BİLİNMİYOR.
+    const unknown = buildSchedChannels(snapshot({
+      kwp: { ...base, recoveryCount: 9, consecutiveFailedRecoveries: null },
+    }));
+    expect(findField(unknown, 'kwpAtLimit')!.klass).toBe('UNAVAILABLE');
   });
 
   it('türetme girdisi yoksa DERIVED üretilmez', () => {

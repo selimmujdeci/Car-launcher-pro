@@ -1653,6 +1653,9 @@ public class CarLauncherPlugin extends Plugin {
         ret.put("coreNoDataStreak", s.coreNoDataStreak);
         ret.put("maxCoreNoDataStreak", s.maxCoreNoDataStreak);
         ret.put("recoveryCount", s.recoveryCount);
+        // #642 — TAVAN KARARININ baktığı sayaç. Bu alan olmadan JS "tavandayız"ı
+        // yanlış sayıdan (recoveryCount) türetiyordu; bkz. KwpRecoveryEvidence.Snapshot.
+        ret.put("consecutiveFailedRecoveries", s.consecutiveFailedRecoveries);
         ret.put("suppressedCount", s.suppressedCount);
         ret.put("atpcSendFailures", s.atpcSendFailures);
         ret.put("lastRecoveryAt", s.lastRecoveryAt);

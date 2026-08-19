@@ -54,7 +54,20 @@ beforeEach(() => {
 describe('köprü — alan eşlemesi', () => {
   it('native kanıtı eksiksiz aynalar', async () => {
     await refreshKwpRecoveryEvidence();
-    expect(getKwpRecoveryEvidence()).toEqual(FULL);
+    const s = getKwpRecoveryEvidence()!;
+    /* #642: `refreshedAt` snapshot'ın KENDİ tazelenme damgasıdır (Date.now) →
+       sabit fixture ile eşitlenemez; ayrı doğrulanır. Kalan alanlar birebir aynalanır. */
+    const { refreshedAt, consecutiveFailedRecoveries, ...mirrored } = s;
+    expect(mirrored).toEqual(FULL);
+    expect(refreshedAt, 'tazelik damgası atılmamış — bayat kanıt taze sunulur (#642)')
+      .toBeGreaterThan(0);
+    expect(consecutiveFailedRecoveries, 'native alanı vermediyse 0 UYDURULMAMALI').toBeNull();
+  });
+
+  it('#642 — native tavan sayacını veriyorsa aynalanır', async () => {
+    M.evidence = { ...FULL, consecutiveFailedRecoveries: 2 };
+    await refreshKwpRecoveryEvidence();
+    expect(getKwpRecoveryEvidence()!.consecutiveFailedRecoveries).toBe(2);
   });
 
   it('CAN oturumu: NOT_ATTEMPTED + sıfır sayaç (KWP yolu devrede değil)', async () => {
