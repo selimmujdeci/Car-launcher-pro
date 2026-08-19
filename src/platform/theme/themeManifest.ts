@@ -305,6 +305,37 @@ export const EMPTY_CARD_LAYOUT: CardLayout = {
   merge: null,
 };
 
+/* ══ Bölge (sütun) genişliği ══════════════════════════════════════════
+ * KULLANICI İSTEĞİ (PR-5): *"sütun genişliği"*. Bugüne dek raylar SABİT
+ * `clamp(...)` değerleriyle çiziliyordu ve hiçbir tema ayarıyla değişmiyordu.
+ *
+ * ÖLÇEK, MUTLAK PİKSEL DEĞİL: kullanıcı 0,6×–1,6× arası bir ÇARPAN seçer ve
+ * temanın kendi `clamp()` değerleri o çarpanla ölçeklenir. Gerekçe ölçülmüştür
+ * (kütük #x: "HU px/metre ölçüleri telefonda ÇÖKÜYOR") — mutlak piksel farklı
+ * ekran boyutlarında taşma/ezilme üretir; oran ise temanın kendi duyarlı
+ * sınırlarını KORUR. Alt/üst sınırlar `clamp` içinde yaşamaya devam eder.
+ */
+export const ZONE_SCALE_MIN = 0.6;
+export const ZONE_SCALE_MAX = 1.6;
+
+/** Genişliği ölçeklenebilen bölgeler. Orta sahne (harita) ESNEKTİR ve
+ *  kalan alanı alır — onu ölçeklemek anlamsızdır, listeye ALINMAZ. */
+export const SCALABLE_ZONES = ['left-rail', 'right-rail'] as const;
+export type ScalableZoneId = typeof SCALABLE_ZONES[number];
+
+/** zoneId → genişlik çarpanı. Yok/boş = tema varsayılanı (hiç dokunulmamış). */
+export type ZoneWidths = Partial<Record<ScalableZoneId, number>>;
+
+export function coerceZoneWidths(raw: unknown): ZoneWidths {
+  if (!isObj(raw)) return {};
+  const out: ZoneWidths = {};
+  for (const z of SCALABLE_ZONES) {
+    const v = num((raw as Record<string, unknown>)[z], ZONE_SCALE_MIN, ZONE_SCALE_MAX, false);
+    if (v !== null) out[z] = v;
+  }
+  return out;
+}
+
 /** Solver'ın kabul ettiği elle-boyut aralığı (layoutSolver.normalizeIntent ile aynı). */
 export const LAYOUT_GROW_MIN = 0.5;
 export const LAYOUT_GROW_MAX = 5;
@@ -356,6 +387,11 @@ export interface ThemeManifest {
    * üzerinden yapılır. Yalnız solver kullanan temalarda dolar.
    */
   layoutOverrides: Record<string, CardLayout>;
+  /**
+   * Bölge (sütun) genişlik çarpanları. Boş nesne = hiç dokunulmamış → tema
+   * kendi varsayılan genişliklerini kullanır (mevcut ekran birebir korunur).
+   */
+  zoneWidths: ZoneWidths;
   metadata: ThemeManifestMeta;
 }
 
@@ -711,6 +747,7 @@ export function createThemeManifest(themeId: ThemeBaseId, updatedAt: string | nu
     componentOverrides: {},
     screenOverrides: {},
     layoutOverrides: {},
+    zoneWidths: {},
     metadata: { name: THEME_PRESETS[id].label, origin: 'pwa-studio', updatedAt },
   };
 }
@@ -767,6 +804,7 @@ export function coerceThemeManifest(raw: unknown, fallback: ThemeBaseId = 'exped
     componentOverrides,
     screenOverrides,
     layoutOverrides,
+    zoneWidths: coerceZoneWidths(raw.zoneWidths),
     metadata: { name, origin, updatedAt },
   };
 }

@@ -33,7 +33,11 @@ import {
   type StateKey,
   type StateStyle,
   type ThemeBaseId,
-} from '@/lib/theme/themeManifest';
+  SCALABLE_ZONES,
+  ZONE_SCALE_MIN,
+  ZONE_SCALE_MAX,
+}
+from '@/lib/theme/themeManifest';
 import {
   componentsForSurface,
   getThemeComponent,
@@ -753,6 +757,56 @@ export const ThemeStudio = memo(function ThemeStudio({ vehicleId }: Props) {
                 ürettiği gerçek sonuçtur. Bir kartın sırasını/boyutunu değiştirmek için
                 kartın kendi editörünü açın.
               </p>
+
+              {/* ── SÜTUN GENİŞLİĞİ (PR-5) ─────────────────────────────────
+                  Kullanıcı isteği: "sütun genişliği". Bugüne dek raylar SABİT
+                  clamp() değerleriyle çiziliyordu ve hiçbir ayarla değişmiyordu.
+                  MUTLAK PİKSEL DEĞİL ÇARPAN: temanın kendi duyarlı sınırları
+                  ölçeklenir, böylece farklı ekran boyutlarında taşma/ezilme
+                  olmaz. Orta sahne (harita) listede YOKTUR — o esnektir ve
+                  kalan alanı alır; ölçeklemek anlamsız olurdu. */}
+              <div className="flex flex-col gap-1.5 pt-1"
+                style={{ borderTop: '1px solid var(--pwa-border-soft)' }}>
+                <p className="text-[9px] font-bold uppercase tracking-wider" style={{ color: 'var(--pwa-text-3)' }}>
+                  Sütun Genişliği
+                </p>
+                {SCALABLE_ZONES.map((z) => {
+                  const deger = manifest.zoneWidths[z] ?? null;
+                  return (
+                    <div key={z} className="flex items-center gap-2">
+                      <span className="text-[10px] font-bold flex-1" style={{ color: 'var(--pwa-text-2)' }}>
+                        {ZONE_LABEL[z]}
+                      </span>
+                      <input
+                        type="range"
+                        min={ZONE_SCALE_MIN}
+                        max={ZONE_SCALE_MAX}
+                        step={0.05}
+                        value={deger ?? 1}
+                        onChange={(e) => dispatch({
+                          type: 'patch-zone-width', zone: z, scale: Number(e.target.value),
+                        })}
+                        style={{ flex: 2, minWidth: 0 }}
+                      />
+                      <span className="text-[10px] font-black tabular-nums w-10 text-right"
+                        style={{ color: deger === null ? 'var(--pwa-text-3)' : '#60a5fa' }}>
+                        {deger === null ? 'oto' : `${deger.toFixed(2)}×`}
+                      </span>
+                      {deger !== null && (
+                        <button
+                          type="button"
+                          aria-label="Sütun genişliğini sıfırla"
+                          onClick={() => dispatch({ type: 'patch-zone-width', zone: z, scale: null })}
+                          className="text-[9px] font-bold px-1.5 py-1 rounded-md active:scale-95"
+                          style={{ background: 'var(--pwa-surface)', border: '1px solid var(--pwa-border)', color: 'var(--pwa-text-3)' }}
+                        >
+                          ↺
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
               {solved.zones.filter((z) => z.items.length > 0 || z.overflow.length > 0).map((z) => (
                 <div key={z.zone} className="flex flex-col gap-1">
                   <p className="text-[9px] font-bold uppercase tracking-wider" style={{ color: 'var(--pwa-text-3)' }}>

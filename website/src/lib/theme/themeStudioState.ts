@@ -30,6 +30,7 @@ import {
   THEME_BASE_IDS,
   THEME_PRESETS,
   type CardLayout,
+  type ScalableZoneId,
   type ComponentStyle,
   type GlobalTokens,
   type ScreenOverride,
@@ -116,6 +117,8 @@ export type StudioAction =
   | { type: 'patch-screen'; surface: ThemeSurfaceId; patch: Partial<ScreenOverride> }
   | { type: 'patch-layout'; cardId: string; patch: Partial<CardLayout> }
   | { type: 'reset-layout'; cardId: string }
+  /** Bölge (sütun) genişlik çarpanı — `null` = tema varsayılanına dön. */
+  | { type: 'patch-zone-width'; zone: ScalableZoneId; scale: number | null }
   | { type: 'reset-all-layout' }
   | { type: 'reset-component'; componentId: string }
   /** Kartı BAŞLANGIÇ hâline döndür — stil + yerleşim TEK transaction. */
@@ -255,6 +258,7 @@ function cloneManifest(m: ThemeManifest): ThemeManifest {
     componentOverrides: { ...m.componentOverrides },
     screenOverrides: { ...m.screenOverrides },
     layoutOverrides: { ...m.layoutOverrides },
+    zoneWidths: { ...m.zoneWidths },
     metadata: { ...m.metadata },
   };
 }
@@ -431,6 +435,18 @@ export function studioReducer(s: StudioState, a: StudioAction): StudioState {
         m.layoutOverrides = layouts;
         return m;
       }, `l:${a.cardId}:${patchKey(a.patch)}`, 'Yerleşim');
+
+    case 'patch-zone-width':
+      /* Hedef `layout` kovasıdır: geri-al/ileri-al ve "yerleşimi sıfırla"
+         akışları bölge genişliğini de kapsasın (ayrı kova = ayrı geçmiş =
+         kullanıcının "geri al" beklentisinin bozulması). */
+      return commit(s, { kind: 'layout', cardId: `zone:${a.zone}` }, (m) => {
+        const z = { ...m.zoneWidths };
+        if (a.scale === null) delete z[a.zone];
+        else z[a.zone] = a.scale;
+        m.zoneWidths = z;
+        return m;
+      }, `z:${a.zone}`, 'Sütun genişliği');
 
     case 'reset-layout':
       return commit(s, { kind: 'layout', cardId: a.cardId }, (m) => {

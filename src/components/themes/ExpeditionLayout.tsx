@@ -35,7 +35,7 @@ import { useNavSummary } from '../../hooks/useNavSummary';
 import { type AppItem } from '../../data/apps';
 import type { SmartSnapshot } from '../../platform/smartEngine';
 import { MagicContextCard } from '../common/MagicContextCard';
-import { useLayoutIntent } from '../../store/useLayoutStore';
+import { useLayoutIntent, useZoneWidths } from '../../store/useLayoutStore';
 import { solveLayout, normalizeIntent, EXPEDITION_MANIFEST, type Zone } from '../../platform/theme/layoutSolver';
 import emblemUrl from '../../assets/expedition/emblem.png';
 import roverUrl from '../../assets/expedition/rover.png';
@@ -45,9 +45,18 @@ import { SUPPORTS_CSS_CLAMP, SUPPORTS_ASPECT_RATIO } from '../../utils/cssCompat
  * clamp()/aspect-ratio desteklenmeyince tarayıcı deklarasyonu sessizce düşürür:
  * grid tek kolona çöker, harita plakası 0px olur (Duster saha vakası).
  * Şablonlar module-eval'de BİR KEZ seçilir. */
-const GRID_COLS = SUPPORTS_CSS_CLAMP
-  ? 'clamp(200px,24vw,330px) minmax(0,1fr) clamp(230px,27vw,360px)'
-  : 'minmax(200px,330px) minmax(0,1fr) minmax(230px,360px)';
+/* Sütun genişlikleri ÇARPANLA ölçeklenir (PR-5). Çarpan yoksa (varsayılan)
+   değerler BİREBİR eskisiyle aynıdır — mevcut ekran korunur. Mutlak piksel
+   YAZILMAZ: temanın kendi `clamp()` alt/üst sınırları oranla ölçeklenir, böylece
+   farklı ekran boyutlarında taşma/ezilme olmaz (ölçülmüş ders: oran ile mutlak
+   aynı formülde buluşunca HU ölçüleri telefonda çöküyordu). */
+function exGridCols(sol: number, sag: number): string {
+  const ol = (a: number, b: number, c: number, k: number) =>
+    SUPPORTS_CSS_CLAMP
+      ? `clamp(${Math.round(a * k)}px,${(b * k).toFixed(1)}vw,${Math.round(c * k)}px)`
+      : `minmax(${Math.round(a * k)}px,${Math.round(c * k)}px)`;
+  return `${ol(200, 24, 330, sol)} minmax(0,1fr) ${ol(230, 27, 360, sag)}`;
+}
 const RING_BOX: React.CSSProperties = (SUPPORTS_CSS_CLAMP && SUPPORTS_ASPECT_RATIO)
   ? { position: 'relative', width: 'min(210px, 80%)', aspectRatio: '1' }
   : { position: 'relative', width: 210, maxWidth: '100%', height: 210 };
@@ -755,6 +764,11 @@ export const ExpeditionLayout = memo(function ExpeditionLayout(props: Props) {
   // ── Yerleşim Motoru — Tema Stüdyo niyetinden çöz (özelleştirme yoksa = mevcut ekran) ──
   // Ham niyet EXPEDITION_MANIFEST ile normalize edilir (pro/diğer tema kartları elenir).
   // Tema-başına niyet (Tema Manifesti v3); o tema için yoksa paylaşılan niyete düşer.
+  const zoneW = useZoneWidths('expedition');
+  const gridCols = useMemo(
+    () => exGridCols(zoneW['left-rail'] ?? 1, zoneW['right-rail'] ?? 1),
+    [zoneW],
+  );
   const rawIntent = useLayoutIntent('expedition');
   const intent = useMemo(() => normalizeIntent(rawIntent, EXPEDITION_MANIFEST), [rawIntent]);
   const solved = useMemo(() => solveLayout(intent, EXPEDITION_MANIFEST), [intent]);
@@ -814,7 +828,7 @@ export const ExpeditionLayout = memo(function ExpeditionLayout(props: Props) {
 
         <Header />
 
-        <div style={{ flex: '1 1 auto', minHeight: 0, display: 'grid', gridTemplateColumns: GRID_COLS, gap: 14 }}>
+        <div style={{ flex: '1 1 auto', minHeight: 0, display: 'grid', gridTemplateColumns: gridCols, gap: 14 }}>
           {/* Sol ray — Yerleşim Motoru'ndan (sıra/görünürlük/boyut niyete göre; varsayılan = mevcut ekran) */}
           <div style={{ display: 'grid', gap: 14, minWidth: 0, minHeight: 0, gridTemplateRows: exRailRows('left-rail') }}>
             {solved['left-rail'].groups.map((g, i) => renderExGroup(g, g.map((x) => x.id).join('+') || String(i)))}

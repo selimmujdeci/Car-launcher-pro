@@ -233,6 +233,9 @@ export function applyThemeManifest(
   if (capable) {
     try {
       useLayoutStore.getState().applyIntent(manifestToLayoutIntent(m), m.themeId);
+      /* Bölge genişlikleri AYNI kapıdan geçer (PR-5): ikinci bir uygulama yolu
+         kurulmaz ve solver kullanmayan temalara ölü veri yazılmaz. */
+      useLayoutStore.getState().applyZoneWidths(m.zoneWidths, m.themeId);
       layoutCount = layoutOverrideCount(m);
     } catch { /* fail-soft */ }
   }

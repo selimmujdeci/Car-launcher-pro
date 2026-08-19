@@ -34,7 +34,7 @@ import { useNavSummary } from '../../hooks/useNavSummary';
 import type { AppItem } from '../../data/apps';
 import type { SmartSnapshot } from '../../platform/smartEngine';
 import { MagicContextCard } from '../common/MagicContextCard';
-import { useLayoutIntent } from '../../store/useLayoutStore';
+import { useLayoutIntent, useZoneWidths } from '../../store/useLayoutStore';
 import { solveLayout, normalizeIntent, PRO_MANIFEST, type Zone } from '../../platform/theme/layoutSolver';
 
 /* ════════════════════════════════════════════════════════════
@@ -859,6 +859,7 @@ export const ProLayout = memo(function ProLayout({
   const rawIntent = useLayoutIntent('pro');
   const intent = useMemo(() => normalizeIntent(rawIntent, PRO_MANIFEST), [rawIntent]);
   const solved = useMemo(() => solveLayout(intent, PRO_MANIFEST), [intent]);
+  const zoneW = useZoneWidths('pro');
 
   const renderCard = (id: string) => {
     switch (id) {
@@ -874,7 +875,14 @@ export const ProLayout = memo(function ProLayout({
 
   const zoneOuterStyle = (zone: Zone): React.CSSProperties => {
     if (zone === 'center-stage') return { gap: 12, flex: 1, minHeight: 0 };
-    const w = zone === 'left-rail' ? 'clamp(132px, 13vw, 168px)' : 'clamp(260px, 27vw, 340px)';
+    /* Sütun genişliği ÇARPANLA ölçeklenir (PR-5). Çarpan yoksa değerler
+       BİREBİR eskisiyle aynıdır → mevcut ekran korunur. Mutlak piksel yerine
+       oran kullanılır ki `clamp` alt/üst sınırları ekran boyutuna uyum
+       sağlamaya devam etsin. */
+    const k = zoneW[zone] ?? 1;
+    const w = zone === 'left-rail'
+      ? `clamp(${Math.round(132 * k)}px, ${(13 * k).toFixed(1)}vw, ${Math.round(168 * k)}px)`
+      : `clamp(${Math.round(260 * k)}px, ${(27 * k).toFixed(1)}vw, ${Math.round(340 * k)}px)`;
     return { gap: 12, minHeight: 0, width: isPortrait ? '100%' : w, flexShrink: 0 };
   };
 
