@@ -18,10 +18,17 @@ import type { SpeedAlertEvidence } from '../platform/speedAlertRuntime';
 
 const NOW = 1_760_000_000_000;
 
+/**
+ * Taban: hicbir komut islenmemis AMA cekme (poll) SAGLIKLI kosuyor.
+ * `pollRuns: 1` bilerek verilir — aksi halde hukum `NOT_POLLING` olur ve
+ * asagidaki kapi testleri o hukmun arkasinda gizlenirdi (#647).
+ */
 const ZERO_CMD: CommandEvidence = {
   received: 0, completed: 0, rejected: 0, failed: 0, cryptoFailed: 0,
   unknownType: 0, movingBlocked: 0, movingUnverified: 0, ttlExpired: 0, retries: 0,
   lastType: null, lastOutcome: null, lastAt: null,
+  pollRuns: 1, pollWithRows: 0, pollErrors: 0,
+  lastPollRows: 0, lastPollAt: NOW, lastPollOutcome: 'empty',
 };
 
 const ZERO_SPEED: SpeedAlertEvidence = {
@@ -238,5 +245,45 @@ describe('hız kapısı — beslenme ile TAZELİK ayrı gerçeklerdir', () => {
     const v = buildRemoteCommandView(snap({ speedGate: null }), NOW);
     const f = v.cards.flatMap((c) => c.fields).find((f) => f.id === 'gateFreshness');
     expect(f?.klass).toBe('UNAVAILABLE');
+  });
+});
+
+describe('#647 cekme (poll) yolu — sessizligin SEBEBI ayrilir', () => {
+  /* Teslim yolu CEKME'dir: Realtime `postgres_changes` olaylari anon istemcide
+   * RLS yuzunden HIC gelmez. Bu kilitler "komut gelmedi" ile "hic sorulmadi"
+   * ve "sorduk ama hata aldik" durumlarinin BIRBIRINE KARISMASINI engeller —
+   * sahadaki kusur tam bu ayrimin yoklugundan uzun sure gorunmedi. */
+
+  it('KILIT: yoklama hic kosmadiysa hukum NOT_POLLING (NEVER_RECEIVED DEGIL)', () => {
+    expect(judgeRemoteCommandChain(snap({
+      command: { ...ZERO_CMD, pollRuns: 0, lastPollAt: null, lastPollOutcome: null, lastPollRows: null },
+    }))).toBe('NOT_POLLING');
+  });
+
+  it('KILIT: turlarin cogu hata veriyorsa hukum POLL_FAILING (sessizlik olcum sayilmaz)', () => {
+    expect(judgeRemoteCommandChain(snap({
+      command: { ...ZERO_CMD, pollRuns: 4, pollErrors: 3, lastPollOutcome: 'no_key', lastPollRows: null },
+    }))).toBe('POLL_FAILING');
+  });
+
+  it('KILIT: yoklama saglikli + hic komut yoksa NEVER_RECEIVED', () => {
+    expect(judgeRemoteCommandChain(snap())).toBe('NEVER_RECEIVED');
+  });
+
+  it('KILIT: hata turunda satir sayisi UYDURULMAZ (sahte 0 yok)', () => {
+    const v = buildRemoteCommandView(snap({
+      command: { ...ZERO_CMD, pollRuns: 2, pollErrors: 2, lastPollRows: null, lastPollOutcome: 'error' },
+    }), NOW);
+    const chain = v.cards.find((c) => c.id === 'chain');
+    const rows  = chain?.fields.find((f) => f.id === 'lastPollRows');
+    expect(rows?.klass).toBe('UNAVAILABLE');
+    const outcome = chain?.fields.find((f) => f.id === 'lastPollOutcome');
+    expect(outcome?.value).toBe('error');
+  });
+
+  it('KILIT: her hukum icin etiket ve stil TANIMLI (ekranda bos rozet olmaz)', () => {
+    for (const k of ['NOT_POLLING', 'POLL_FAILING'] as const) {
+      expect(REMOTE_COMMAND_VERDICT_LABEL[k]).toBeTruthy();
+    }
   });
 });

@@ -16,7 +16,7 @@ import {
   isEncryptedPayload, decryptPayload,
 } from './commandCrypto';
 import { sensitiveKeyStore }                       from './sensitiveKeyStore';
-import { connectivityService }                     from './connectivityService';
+import { callVehicleRpc, updateRemoteCommandStatus } from './vehicleIdentityService';
 import { executeMcuCommand, checkCrossChannelNonceReplay } from './nativeCommandBridge';
 import { executeReadDtc, executeReadVoltage, executeClearDtc } from './remoteDiagnosticCommands';
 import { applySpeedAlertConfig, getSpeedAlertConfig } from './speedAlertRuntime';
@@ -53,6 +53,22 @@ function getSupabase() {
 
 const MAX_RETRY         = 3;
 const RECONNECT_DELAY   = 3_000;   // ms — bağlantı kopunca bekleme
+
+/**
+ * Bekleyen komut yoklama aralığı (ms).
+ *
+ * NEDEN POLL VAR (#647): Supabase Realtime `postgres_changes` olayları da
+ * RLS'e tabidir ve araç Supabase'e **oturumsuz** (anon) bağlanır → `auth.uid()`
+ * NULL → araç kendi komutlarının INSERT olayını HİÇ GÖREMEZ. Yani abonelik
+ * kurulsa bile komut İTİLMEZ. Cihazın komutu görebildiği tek yol, api_key ile
+ * doğrulanan `fetch_pending_vehicle_commands` RPC'sidir → ÇEKME şarttır.
+ *
+ * 15 s: komut TTL'i 5 dakikadır (website `api/pwa/command`), dolayısıyla en kötü
+ * durumda TTL'in %5'i kadar gecikme eklenir. Hot-path DEĞİLDİR: tek satırlık,
+ * indeksli (`idx_vcmd_vehicle_status`) bir RPC çağrısıdır; 3 Hz hız/RPM yoluna
+ * girmez. Push-to-Wake (FCM) çalıştığında bu yol yalnız güvence kaplamasıdır.
+ */
+const PENDING_POLL_MS   = 15_000;
 const PUSH_EDGE_FN_URL  = (import.meta.env.VITE_SUPABASE_URL as string | undefined)
   ? `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/push-notify`
   : null;
@@ -80,7 +96,9 @@ interface VehicleCommand {
   created_at:      string;
   retry_count?:    number;
   last_attempt_at?: string | null;
-  error_reason?:   string | null;
+  /* Şemadaki gerçek ad `error_message`tir (#647). Eskiden burada `error_reason`
+     yazıyordu ve durum yazma yolu da o adı kullanıyordu → `42703`. */
+  error_message?:  string | null;
 }
 
 // ── Tehlikeli komut koruması ──────────────────────────────────────────────────
@@ -220,14 +238,39 @@ export interface CommandEvidence {
   lastOutcome:     string | null;
   /** Son işlem anı (epoch ms) — `null` = hiç komut işlenmedi. */
   lastAt:          number | null;
+
+  /* ── ÇEKME (poll) KANITI — #647 ──────────────────────────────────────────
+   * Bu alanlar OLMADAN dört durum ayırt EDİLEMİYORDU ve kusur tam bu yüzden
+   * uzun süre görünmedi: (a) yoklama HİÇ koşmadı · (b) koştu ama cihaz
+   * anahtarı yok · (c) koştu ve RPC hata verdi · (d) koştu, 0 satır döndü
+   * (gerçekten bekleyen komut yok). LAB ekranı artık dördünü ayırır. */
+
+  /** Tamamlanan yoklama turu sayısı (sonuç ne olursa olsun). */
+  pollRuns:        number;
+  /** Yoklamanın komut DÖNDÜRDÜĞÜ tur sayısı. */
+  pollWithRows:    number;
+  /** Yoklamanın hata verdiği tur sayısı (RPC/ağ/anahtar). */
+  pollErrors:      number;
+  /** Son yoklamada dönen satır sayısı — `null` = hiç yoklama yapılmadı. */
+  lastPollRows:    number | null;
+  /** Son yoklama anı (epoch ms) — `null` = hiç yoklanmadı. */
+  lastPollAt:      number | null;
+  /**
+   * Son yoklamanın sonucu: `'ok'` · `'empty'` · `'no_key'` · `'error'`.
+   * `null` = hiç yoklanmadı. Anahtarın KENDİSİ değil, YALNIZ var/yok.
+   */
+  lastPollOutcome: string | null;
 }
 
 const MAX_COUNT = 9_999_999;
-const _evidence: CommandEvidence = {
+const EVIDENCE_SIFIR: CommandEvidence = {
   received: 0, completed: 0, rejected: 0, failed: 0, cryptoFailed: 0,
   unknownType: 0, movingBlocked: 0, movingUnverified: 0, ttlExpired: 0, retries: 0,
   lastType: null, lastOutcome: null, lastAt: null,
+  pollRuns: 0, pollWithRows: 0, pollErrors: 0,
+  lastPollRows: null, lastPollAt: null, lastPollOutcome: null,
 };
+const _evidence: CommandEvidence = { ...EVIDENCE_SIFIR };
 
 function bump(k: keyof CommandEvidence): void {
   const v = _evidence[k];
@@ -241,11 +284,7 @@ export function getCommandEvidence(): CommandEvidence {
 
 /** Yalnız test içindir. */
 export function _resetCommandEvidenceForTest(): void {
-  Object.assign(_evidence, {
-    received: 0, completed: 0, rejected: 0, failed: 0, cryptoFailed: 0,
-    unknownType: 0, movingBlocked: 0, movingUnverified: 0, ttlExpired: 0, retries: 0,
-    lastType: null, lastOutcome: null, lastAt: null,
-  });
+  Object.assign(_evidence, EVIDENCE_SIFIR);
 }
 
 /**
@@ -444,43 +483,35 @@ async function executeCommand(cmd: VehicleCommand): Promise<ExecResult> {
 
 // ── Durum güncelleme ─────────────────────────────────────────────────────────
 
+/**
+ * Komut durumunu yazar — TEK KAPI: `update_command_status` RPC (api_key kimliği).
+ *
+ * ── ÖLÇÜLEN KUSUR (#647, 2026-08-19, prod salt-okunur) ──────────────────────
+ * Burası eskiden `vehicle_commands` tablosuna DOĞRUDAN REST `PATCH` atıyordu.
+ * Prod'da bu yolun ÜÇ ayrı ölümcül engeli vardı:
+ *   1. `anon` rolünün `vehicle_commands` üzerinde HİÇBİR tablo ayrıcalığı YOK
+ *      (037 daralttı) → istek daha RLS'e varmadan reddediliyordu.
+ *   2. Varsa bile UPDATE politikası `auth.uid()`e dayanıyor; araç oturumsuz
+ *      bağlanır → 0 satır (#646'daki OKUMA kusurunun aynısı, yazma ucunda).
+ *   3. Yazılan `error_reason` kolonu şemada HİÇ YOK → `42703`.
+ * Yani araç komutu işlese bile durumu HİÇBİR ZAMAN geri yazamıyordu; telefon
+ * komutu sonsuza dek `pending` görüyordu.
+ *
+ * Artık cihaz kimliğinin şemadaki TEK karşılığı olan `api_key` yolu kullanılır
+ * (069'un OKUMA ucuyla simetrik). At-least-once kuyruk garantisi
+ * `updateRemoteCommandStatus` içinde KORUNUR — ikinci kuyruk kurulmaz.
+ */
 async function updateCommandStatus(
   commandId:   string,
   status:      'accepted' | 'executing' | 'completed' | 'failed' | 'rejected',
   errorReason?: string,
   /**
-   * Ölçüm sonucu (yalnız teşhis komutlarında). YAZILMAZSA kolon `NULL` kalır —
-   * "sonuç okunmadı" ile "sonuç boş" ayrımı korunur; sahte `{}` gönderilmez.
+   * Ölçüm sonucu (yalnız teşhis komutlarında). YAZILMAZSA kolon OLDUĞU GİBİ
+   * kalır — "sonuç okunmadı" ile "sonuç boş" ayrımı korunur; sahte `{}` yok.
    */
   result?: Record<string, unknown>,
 ): Promise<void> {
-  const SUPABASE_URL     = import.meta.env.VITE_SUPABASE_URL      as string | undefined;
-  const SUPABASE_ANON    = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
-
-  if (!SUPABASE_URL || !SUPABASE_ANON) return;
-
-  const now     = new Date().toISOString();
-  const updates: Record<string, unknown> = { status };
-  if (status === 'accepted')  updates.accepted_at = now;
-  if (status === 'executing') updates.last_attempt_at = now;
-  if (['completed', 'failed', 'rejected'].includes(status)) updates.finished_at = now;
-  if (errorReason) updates.error_reason = errorReason;
-  if (result !== undefined) updates.result = result;
-
-  // Komut durumu kritik — kuyruğa al, at-least-once garantisi
-  await connectivityService.enqueue(
-    `${SUPABASE_URL}/rest/v1/vehicle_commands?id=eq.${commandId}`,
-    'PATCH',
-    {
-      'Content-Type':  'application/json',
-      'apikey':        SUPABASE_ANON,
-      'Authorization': `Bearer ${SUPABASE_ANON}`,
-      'Prefer':        'return=minimal',
-    },
-    updates,
-    'high',
-    'cmd_status',
-  );
+  await updateRemoteCommandStatus(commandId, status, errorReason, result);
 }
 
 // ── Retry increment (RPC üzerinden — atomik) ─────────────────────────────────
@@ -512,6 +543,62 @@ async function triggerPushNotify(
   } catch { /* fire-and-forget — bildirim hatası ana akışı etkilemez */ }
 }
 
+/**
+ * Bekleyen komutları CİHAZ KİMLİĞİYLE okur — TEK OKUMA KAPISI.
+ *
+ * ── ÖLÇÜLEN KUSUR (#646/#647) ───────────────────────────────────────────────
+ * Burası eskiden `vehicle_commands` tablosunu doğrudan sorguluyordu. Prod'da:
+ *   · `anon` rolünün bu tabloda HİÇBİR ayrıcalığı yok (037) → izin reddi,
+ *   · SELECT politikalarının üçü de `auth.uid()`e dayanıyor ve araç oturumsuz
+ *     bağlanıyor → 0 satır.
+ * Sonuç sahada şuydu: telefon "✓ ARACA GÖNDERİLDİ" diyor, komut satırı
+ * `pending` kalıyor, TTL doluyor, araçta HİÇBİR ŞEY olmuyordu.
+ *
+ * `fetch_pending_vehicle_commands` (069) `api_key_hash` ile YALNIZ bu aracın
+ * pending + TTL'i geçmemiş + retry tavanını aşmamış komutlarını FIFO döner.
+ * Geçersiz anahtar → istisna; başka aracın satırı hiçbir koşulda dönmez.
+ *
+ * Fail-soft: ağ/anahtar hatası boş dizi döner — çağıran akış kırılmaz.
+ */
+async function fetchPendingCommands(): Promise<VehicleCommand[]> {
+  bump('pollRuns');
+  _evidence.lastPollAt = Date.now();
+  try {
+    const rows = await callVehicleRpc('fetch_pending_vehicle_commands', {
+      p_max_retry: MAX_RETRY,
+      p_limit:     10,
+    });
+    /* `callVehicleRpc` cihaz anahtarı ya da yapılandırma yoksa `null` döner —
+       bu "bekleyen komut yok" DEĞİLDİR ve öyle raporlanmaz (sahte 0 yasak). */
+    if (rows === null) {
+      bump('pollErrors');
+      _evidence.lastPollRows    = null;
+      _evidence.lastPollOutcome = 'no_key';
+      return [];
+    }
+    if (!Array.isArray(rows)) {
+      bump('pollErrors');
+      _evidence.lastPollRows    = null;
+      _evidence.lastPollOutcome = 'error';
+      return [];
+    }
+    /* Sunucu sırasını (FIFO, `created_at ASC`) KORU — yeniden sıralama YOK. */
+    const cmds = rows.filter(
+      (r): r is VehicleCommand =>
+        !!r && typeof r === 'object' && typeof (r as { id?: unknown }).id === 'string',
+    );
+    _evidence.lastPollRows    = cmds.length;
+    _evidence.lastPollOutcome = cmds.length > 0 ? 'ok' : 'empty';
+    if (cmds.length > 0) bump('pollWithRows');
+    return cmds;
+  } catch {
+    bump('pollErrors');
+    _evidence.lastPollRows    = null;
+    _evidence.lastPollOutcome = 'error';
+    return [];
+  }
+}
+
 // ── Ana Listener Sınıfı ───────────────────────────────────────────────────────
 
 export class CommandListener {
@@ -521,6 +608,8 @@ export class CommandListener {
   private executedIds:    Set<string> = new Set(); // ID bazlı dedup (nonce değil)
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private retryTimers:    Map<string, ReturnType<typeof setTimeout>> = new Map();
+  private pollTimer:      ReturnType<typeof setInterval> | null = null;
+  private polling =       false;  // yoklamalar üst üste binmesin (yavaş ağ)
 
   constructor(vehicleId: string) {
     this.vehicleId = vehicleId;
@@ -555,7 +644,7 @@ export class CommandListener {
     }
 
     // Reconnect'te bekleyen + retry-eligible komutları işle
-    await this.processPendingCommands(supabase);
+    await this.processPendingCommands();
 
     this.channel = supabase
       .channel(`vehicle-cmds:${this.vehicleId}`)
@@ -578,6 +667,25 @@ export class CommandListener {
           this.scheduleReconnect();
         }
       });
+
+    this.startPolling();
+  }
+
+  /**
+   * Periyodik yoklama — komutun araca ulaşmasının TEK GÜVENİLİR yolu.
+   * Realtime aboneliği anon istemcide RLS yüzünden olay ÜRETMEZ (bkz.
+   * `PENDING_POLL_MS`), bu yüzden yoklama "yedek" değil ASIL yoldur.
+   * Zero-Leak: tek timer; `disconnect()` her koşulda temizler.
+   */
+  private startPolling(): void {
+    if (this.pollTimer || !this._alive) return;
+    this.pollTimer = setInterval(() => {
+      if (!this._alive || this.polling) return;
+      this.polling = true;
+      void this.processPendingCommands()
+        .catch(() => { /* fail-soft: bir tur düşerse bir sonraki tur dener */ })
+        .finally(() => { this.polling = false; });
+    }, PENDING_POLL_MS);
   }
 
   /**
@@ -586,13 +694,16 @@ export class CommandListener {
    */
   async triggerPendingPoll(): Promise<void> {
     if (!this._alive) return;
-    const supabase = await getSupabase();
-    if (!supabase) return;
-    await this.processPendingCommands(supabase);
+    await this.processPendingCommands();
   }
 
   disconnect(): void {
     this._alive = false;
+    if (this.pollTimer) {
+      clearInterval(this.pollTimer);
+      this.pollTimer = null;
+    }
+    this.polling = false;
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
@@ -622,26 +733,14 @@ export class CommandListener {
   //   2. retry_count < MAX_RETRY olanları dahil et
   //   3. FIFO sırayla işle
 
-  private async processPendingCommands(
-    supabase: NonNullable<Awaited<ReturnType<typeof getSupabase>>>,
-  ): Promise<void> {
-    const now = new Date().toISOString();
+  private async processPendingCommands(): Promise<void> {
+    const cmds = await fetchPendingCommands();
 
-    const { data: cmds } = await supabase
-      .from('vehicle_commands')
-      .select('*')
-      .eq('vehicle_id', this.vehicleId)
-      .eq('status', 'pending')
-      .gt('ttl', now)                         // TTL geçmemiş
-      .lt('retry_count', MAX_RETRY)           // max retry aşılmamış
-      .order('created_at', { ascending: true })
-      .limit(10);
-
-    for (const cmd of cmds ?? []) {
+    for (const cmd of cmds) {
       if (!this._alive) break;
       // ID dedup: zaten bu session'da işlenmiş olanları atla
-      if (this.executedIds.has(cmd.id as string)) continue;
-      await this.handleCommand(cmd as unknown as VehicleCommand);
+      if (this.executedIds.has(cmd.id)) continue;
+      await this.handleCommand(cmd);
     }
   }
 
@@ -728,16 +827,11 @@ export class CommandListener {
       const timer = setTimeout(async () => {
         this.retryTimers.delete(cmd.id);
         if (!this._alive) return;
-        // Güncel cmd'yi DB'den çek (retry_count güncellenmiş olabilir)
-        const supabase = await getSupabase();
-        if (!supabase) return;
-        const { data } = await supabase
-          .from('vehicle_commands')
-          .select('*')
-          .eq('id', cmd.id)
-          .eq('status', 'pending')
-          .single();
-        if (data) await this.handleCommand(data as unknown as VehicleCommand);
+        /* Güncel satırı DB'den çek (retry_count artmış olabilir). Tabloyu
+           DOĞRUDAN sorgulamak ölü yoldur (#647: anon'un tablo ayrıcalığı YOK)
+           → aynı api_key kapısından okunur ve bu komut kimliği aranır. */
+        const fresh = (await fetchPendingCommands()).find((c) => c.id === cmd.id);
+        if (fresh) await this.handleCommand(fresh);
       }, backoffMs);
 
       this.retryTimers.set(cmd.id, timer);
@@ -759,16 +853,41 @@ export class CommandListener {
 
 let _instance: CommandListener | null = null;
 
-export function startCommandListener(vehicleId: string): () => void {
-  stopCommandListener();
-  _instance = new CommandListener(vehicleId);
+/**
+ * Dinleyici KALICI mı? — sahiplik tek yerde tutulur (#647).
+ *
+ * ÖLÇÜLEN ÇAKIŞMA: iki modül aynı dinleyiciyi yönetiyordu. `pushService`
+ * (Play Services yoksa) KALICI bir dinleyici açıyor, `fcmService` ise kendi
+ * 30 sn'lik boşta sayacı dolunca `stopCommandListener()` diyerek ONU
+ * KAPATIYORDU. Kapatan taraf açanı bilmediği için araç sessizce sağır kalıyordu.
+ *
+ * Artık karar dinleyicinin KENDİSİNDEDİR: boşta-kapatma (`force` olmayan
+ * çağrı) kalıcı dinleyiciyi ÖLDÜREMEZ. Gerçek kapatma (uygulama sökülüşü)
+ * `force = true` ile yapılır.
+ */
+let _permanent = false;
+
+export function startCommandListener(
+  vehicleId: string,
+  opts?: { permanent?: boolean },
+): () => void {
+  const permanent = opts?.permanent === true;
+  // Kalıcı dinleyici zaten canlıysa geçici bir uyandırma onu YENİDEN KURMAZ:
+  // bağlantı ve `executedIds` dedup kümesi korunur.
+  if (_instance && _permanent && !permanent) return () => { /* sahip değiliz */ };
+
+  stopCommandListener(true);
+  _permanent = permanent;
+  _instance  = new CommandListener(vehicleId);
   void _instance.connect();
-  return stopCommandListener;
+  return () => stopCommandListener(permanent);
 }
 
-export function stopCommandListener(): void {
+export function stopCommandListener(force = false): void {
+  if (_permanent && !force) return;
   _instance?.disconnect();
-  _instance = null;
+  _instance  = null;
+  _permanent = false;
 }
 
 /** Listener canlı mı? pushService wake kararı için. */

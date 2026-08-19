@@ -33,7 +33,7 @@ const WAKE_TIMEOUT_MS = 30_000;  // 30s işlem yoksa CommandListener uyutulur
 let _initialized = false;
 let _wakeTimer: ReturnType<typeof setTimeout> | null = null;
 let _isWaking   = false;  // async wake devam ederken çift çağrıyı engeller
-let _fallbackActive = false; // Play Services yok → kalıcı WS CommandListener açık mı
+let _listenerOwned  = false; // kalıcı CommandListener bu servis tarafından açıldı mı
 
 /**
  * Push/GApps durumu — teşhis kartı (DeviceDiagnosticCard) okur.
@@ -49,18 +49,30 @@ let _status: PushStatus = 'web';
 export function getPushStatus(): PushStatus { return _status; }
 
 /**
- * Play Services yok / FCM register başarısız → uzak komutlar push-to-wake ile
- * gelemez. Cihaz EŞLİYSE CommandListener'ı KALICI aç (idle-stop YOK, çünkü
- * yeniden uyandıracak push gelmeyecek) → companion komutları WS üzerinden çalışır.
- * Head unit sürekli beslemeli olduğundan sürekli WS akü riski düşük (§HEAD_UNIT_MATRIX §3.5).
+ * Cihaz EŞLİYSE komut dinleyicisini KALICI açar.
+ *
+ * ── ÖLÇÜLEN KUSUR (#647, 2026-08-19) ────────────────────────────────────────
+ * Bu fonksiyon eskiden YALNIZ "FCM kaydı başarısız" dalında çağrılıyordu; yani
+ * dinleyicinin ömrü *push'ın çalışmamasına* bağlıydı. Prod ölçümü:
+ * `vehicle_push_tokens` tablosunda **0 satır** — hiçbir araç için token YOK.
+ * Dolayısıyla push-to-wake HİÇ tetiklenmiyor; FCM kaydı "başarılı" görünen bir
+ * cihazda ise fallback de çağrılmıyordu → **dinleyici hiç açılmıyordu**.
+ * Komut yazılıyor, kimse dinlemiyordu.
+ *
+ * Doğru sahiplik: dinleyicinin ömrü CİHAZ EŞLİ Mİ sorusuna bağlıdır, push'ın
+ * durumuna değil. Push çalışıyorsa yalnızca HIZLANDIRICIDIR (anlık poll
+ * tetikler), tek taşıyıcı değildir.
+ *
+ * Head unit sürekli beslemeli olduğundan kalıcı bağlantının akü riski düşüktür
+ * (§HEAD_UNIT_MATRIX §3.5); yoklama aralığı da 15 sn'dir (hot-path DEĞİL).
  */
-async function _startCommandFallback(): Promise<void> {
-  if (_fallbackActive) return;
+async function _ensureCommandListener(): Promise<void> {
+  if (_listenerOwned) return;
   const vehicleId = await sensitiveKeyStore.get('veh_vehicle_id');
   if (!vehicleId) { _status = 'unpaired'; return; } // eşli değil → uzak komut yok
-  _fallbackActive = true;
-  if (!isCommandListenerActive()) startCommandListener(vehicleId);
-  logInfo('[PushService] Play Services yok → uzak komut kalıcı WS fallback (push-to-wake devre dışı)');
+  _listenerOwned = true;
+  startCommandListener(vehicleId, { permanent: true });
+  logInfo('[PushService] Uzak komut dinleyicisi KALICI açıldı (eşleşmiş cihaz)');
 }
 
 // ── FCM Token kaydı ───────────────────────────────────────────────────────────
@@ -87,6 +99,9 @@ async function _saveFcmToken(token: string): Promise<void> {
 // ── Wake Timer yönetimi ───────────────────────────────────────────────────────
 
 function _resetWakeTimer(): void {
+  /* Kalıcı dinleyici bu servise aitse boşta-kapatma sayacı KURULMAZ: onu
+     uyandıracak bir push gelmeyeceği için uyutmak = sağır kalmak. */
+  if (_listenerOwned) return;
   if (_wakeTimer) clearTimeout(_wakeTimer);
   _wakeTimer = setTimeout(() => {
     _wakeTimer = null;
@@ -168,7 +183,13 @@ export async function initPushService(): Promise<() => void> {
   // Token alındığında Supabase'e kaydet + push aktif işaretle
   const tokenL = await PushNotifications.addListener(
     'registration',
-    ({ value }) => { _status = 'active'; void _saveFcmToken(value); },
+    ({ value }) => {
+      _status = 'active';
+      void _saveFcmToken(value);
+      /* Push ÇALIŞSA BİLE dinleyici kalıcıdır: push yalnız hızlandırıcıdır
+         (#647 — token kaydı sessizce düşerse tek taşıyıcı ölürdü). */
+      void _ensureCommandListener();
+    },
   );
 
   // Token hatası — Play Services YOK olabilir. Servisi durdurmaz; uzak komutları
@@ -178,7 +199,7 @@ export async function initPushService(): Promise<() => void> {
     (err) => {
       console.error('[PushService] FCM kayıt hatası — Play Services yok olabilir:', err);
       _status = 'unavailable';
-      void _startCommandFallback();
+      void _ensureCommandListener();
     },
   );
 
@@ -208,8 +229,13 @@ export async function initPushService(): Promise<() => void> {
   } catch (e) {
     console.warn('[PushService] FCM register başarısız — Play Services yok olabilir:', e);
     _status = 'unavailable';
-    void _startCommandFallback();
+    void _ensureCommandListener();
   }
+
+  /* Kayıt sonucundan BAĞIMSIZ garanti: eşli cihazda dinleyici açık olmalı.
+     (registration/registrationError geri çağrıları asenkron gelir; hiçbiri
+     gelmezse bile araç sağır kalmaz.) */
+  await _ensureCommandListener();
 
   return () => {
     tokenL.remove();
@@ -217,7 +243,8 @@ export async function initPushService(): Promise<() => void> {
     pushL.remove();
     actionL.remove();
     if (_wakeTimer) { clearTimeout(_wakeTimer); _wakeTimer = null; }
-    if (_fallbackActive) { stopCommandListener(); _fallbackActive = false; }
+    // Gerçek sökülüş → kalıcı dinleyici de kapatılır (force).
+    if (_listenerOwned) { stopCommandListener(true); _listenerOwned = false; }
     _initialized = false;
   };
 }

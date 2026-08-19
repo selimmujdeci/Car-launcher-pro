@@ -36,6 +36,7 @@ import visionCoreSrc from '../platform/vision/visionCore.ts?raw';
 import offlineRoutingSrc from '../platform/offlineRoutingService.ts?raw';
 import deviceCapabilitiesSrc from '../platform/deviceCapabilities.ts?raw';
 import pushServiceSrc from '../platform/pushService.ts?raw';
+import commandListenerSrc from '../platform/commandListener.ts?raw';
 import fcmServiceSrc from '../platform/fcmService.ts?raw';
 import obdServiceSrc from '../platform/obdService.ts?raw';
 import blackBoxServiceSrc from '../platform/security/blackBoxService.ts?raw';
@@ -1516,12 +1517,24 @@ describe('Play Services yok sertleştirme kilidi (dağıtıcı GApps\'siz ROM �
       .toMatch(/try\s*{[\s\S]*PushNotifications\.register\(\)[\s\S]*catch/);
   });
 
-  it('YAPISAL: pushService uzak komut WS fallback + durum getter', () => {
-    expect(pushServiceSrc, '_startCommandFallback kaldırılmış — Play Services yoksa push-to-wake ölür, uzak komutlar hiç çalışmaz')
-      .toMatch(/_startCommandFallback/);
-    expect(pushServiceSrc, 'registrationError → fallback bağlantısı kopmuş — async FCM hatası uzak komutu WS\'e devretmiyor')
-      .toMatch(/registrationError[\s\S]*_startCommandFallback/);
-    expect(pushServiceSrc, 'getPushStatus export kaldırılmış — teşhis kartı Play Services durumunu okuyamaz')
+  /* #647 ile GUNCELLENDI (kaldirilmadi): eski kilit dinleyicinin omrunu
+     "FCM kaydi basarisiz oldu mu?" sorusuna bagliyordu. Prod olcumu
+     `vehicle_push_tokens` = 0 satir -> push-to-wake HIC tetiklenmiyor; kayit
+     "basarili" gorunen cihazda ise fallback de cagrilmiyor, yani dinleyici
+     HIC acilmiyordu. Dogru sahiplik: omur ESLESMEYE baglidir, push yalniz
+     hizlandiricidir. Kilit yeni dogru davranisi korur. */
+  it('YAPISAL: pushService kalici komut dinleyicisi (push durumundan BAGIMSIZ) + durum getter', () => {
+    expect(pushServiceSrc, '_ensureCommandListener kaldirilmis — eslesmis cihazda uzak komut dinleyicisi hic acilmaz')
+      .toMatch(/_ensureCommandListener/);
+    expect(pushServiceSrc, 'dinleyici KALICI acilmiyor — { permanent: true } kaldirilmis, bosta-kapatma araci sagir eder')
+      .toMatch(/startCommandListener\(\s*vehicleId\s*,\s*\{\s*permanent:\s*true\s*\}\s*\)/);
+    expect(pushServiceSrc, 'registrationError -> dinleyici baglantisi kopmus — async FCM hatasi uzak komutu oldurur')
+      .toMatch(/registrationError[\s\S]*_ensureCommandListener/);
+    expect(pushServiceSrc, 'init sonunda kosulsuz garanti kaldirilmis — hicbir FCM geri cagrisi gelmezse arac sagir kalir')
+      .toMatch(/await _ensureCommandListener\(\);[\s\S]{0,500}return \(\) =>/);
+    expect(pushServiceSrc, 'bosta-kapatma sayaci kalici dinleyiciyi de uyutuyor — _listenerOwned kapisi kaldirilmis')
+      .toMatch(/function _resetWakeTimer[\s\S]{0,400}if \(_listenerOwned\) return;/);
+    expect(pushServiceSrc, 'getPushStatus export kaldirilmis — teshis karti Play Services durumunu okuyamaz')
       .toMatch(/export function getPushStatus/);
   });
 
@@ -6983,5 +6996,55 @@ describe('Rota bandı üstü sokak adı etiketleri — kablo kilitleri (kök 1)'
     expect(flowPos).toBeGreaterThan(-1);
     expect(labelsPos).toBeGreaterThan(flowPos);
     expect(vehiclePos).toBeGreaterThan(labelsPos);
+  });
+});
+
+describe('#647 Uzak komut yolu — cihaz kimligi (api_key) kilidi', () => {
+  /* SAHA + PROD OLCUMU (2026-08-19): PWA "ARACA GONDERILDI" diyor, komut satiri
+   * `pending` kalip TTL doluyordu. Kok: arac Supabase'e OTURUMSUZ (anon)
+   * baglanir; prod'da `anon` rolunun `vehicle_commands` uzerinde HICBIR tablo
+   * ayricaligi YOK (037) ve SELECT/UPDATE politikalarinin tamami `auth.uid()`e
+   * dayanir. Yani arac kendi komutunu ne OKUYABILIYOR ne de durumunu
+   * YAZABILIYORDU. Tek gecerli kapi, `api_key_hash` dogrulayan SECURITY DEFINER
+   * RPC'leridir (069 okuma, 070 yazma). Bu kilitler tabloya donusu engeller. */
+
+  it('YAPISAL: bekleyen komutlar RPC ile okunur, tablo DOGRUDAN sorgulanmaz', () => {
+    expect(commandListenerSrc, 'fetch_pending_vehicle_commands cagrisi kaldirilmis — arac kendi komutunu 0 satir gorur')
+      .toMatch(/callVehicleRpc\(\s*'fetch_pending_vehicle_commands'/);
+    expect(commandListenerSrc, 'vehicle_commands tablosu DOGRUDAN sorgulaniyor — anon ayricaligi YOK, sessizce bos doner')
+      .not.toMatch(/\.from\(\s*'vehicle_commands'\s*\)/);
+  });
+
+  it('YAPISAL: komut durumu api_key RPC ile yazilir (REST PATCH ve error_reason YOK)', () => {
+    expect(commandListenerSrc, 'updateRemoteCommandStatus baglantisi kopmus — durum yazma yolu tabloya geri donmus olabilir')
+      .toMatch(/updateRemoteCommandStatus\(/);
+    expect(commandListenerSrc, 'REST PATCH ile vehicle_commands guncelleniyor — anon ayricaligi YOK, istek RLS-e bile varmaz')
+      .not.toMatch(/rest\/v1\/vehicle_commands/);
+    /* `error_reason` push bildirim GOVDESINDE mesrudur (kolon degil). Yasak
+       olan, onu bir DB GUNCELLEME alani gibi kullanmaktir. */
+    expect(commandListenerSrc, 'error_reason DB guncelleme alani gibi yaziliyor — semada BOYLE BIR KOLON YOK (42703)')
+      .not.toMatch(/updates\.error_reason|p_error_reason/);
+    expect(commandListenerSrc, 'VehicleCommand arayuzu error_reason tasiyor — semadaki gercek ad error_message')
+      .not.toMatch(/error_reason\?:/);
+  });
+
+  it('YAPISAL: Realtime tek tasiyici DEGIL — periyodik yoklama var', () => {
+    /* Realtime `postgres_changes` olaylari da RLS'e tabidir -> anon istemci
+       komut INSERT'unu HIC gormez. Yoklama "yedek" degil ASIL yoldur. */
+    expect(commandListenerSrc, 'PENDING_POLL_MS kaldirilmis — anon istemcide Realtime olay uretmez, komut hic ulasmaz')
+      .toMatch(/const PENDING_POLL_MS/);
+    expect(commandListenerSrc, 'poll timer kurulmuyor — startPolling/setInterval kaldirilmis')
+      .toMatch(/startPolling\(\): void \{[\s\S]{0,400}setInterval\(/);
+    expect(commandListenerSrc, 'poll timer disconnect() icinde temizlenmiyor — zero-leak ihlali')
+      .toMatch(/disconnect\(\): void \{[\s\S]{0,300}clearInterval\(this\.pollTimer\)/);
+  });
+
+  it('YAPISAL: kalici dinleyici bosta-kapatmayla oldurulemez (tek sahiplik)', () => {
+    expect(commandListenerSrc, '_permanent sahiplik bayragi kaldirilmis — fcmService bosta sayaci pushService dinleyicisini kapatir')
+      .toMatch(/let _permanent = false/);
+    expect(commandListenerSrc, 'stopCommandListener force kapisi kaldirilmis — kalici dinleyici sessizce olur')
+      .toMatch(/export function stopCommandListener\(force = false\)[\s\S]{0,200}if \(_permanent && !force\) return;/);
+    expect(fcmServiceSrc, 'fcmService canli dinleyiciyi yeniden kuruyor — baglanti ve dedup kumesi sifirlanir')
+      .toMatch(/if \(isCommandListenerActive\(\)\)\s*\{[\s\S]{0,200}triggerPendingPoll\(\);/);
   });
 });

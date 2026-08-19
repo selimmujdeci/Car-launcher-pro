@@ -20,7 +20,12 @@ import type { RemoteCommandRawSnapshot } from './remoteCommandSources';
 /**
  * Zincirin tek cümlelik hükmü. Amaç "komut çalışmadı"nın SEBEBİNİ ayırt etmek:
  *  · `NOT_LISTENING`  — dinleyici hiç bağlı değil: komut araca ULAŞAMAZ.
- *  · `NEVER_RECEIVED` — dinleyici bağlı ama hiç komut gelmemiş (sessizlik).
+ *  · `NOT_POLLING`    — dinleyici bağlı ama komutlar HİÇ çekilmemiş. Teslim
+ *                       yolu ÇEKME'dir (Realtime anon istemcide RLS yüzünden
+ *                       olay üretmez, #647); yoklama koşmuyorsa komut gelmez.
+ *  · `POLL_FAILING`   — yoklama koşuyor ama hata veriyor (cihaz anahtarı yok
+ *                       ya da RPC/ağ hatası). "Bekleyen komut yok" DEĞİLDİR.
+ *  · `NEVER_RECEIVED` — dinleyici bağlı, yoklama sağlıklı, hiç komut gelmemiş.
  *  · `CRYPTO_BLOCKED` — komutlar geliyor ama E2E kapısında düşüyor.
  *  · `TYPE_UNKNOWN`   — komutlar geliyor ama tipi araçta tanımsız (#573 izi).
  *  · `SAFETY_BLOCKED` — sürüş güvenliği kapısı baskın.
@@ -28,11 +33,14 @@ import type { RemoteCommandRawSnapshot } from './remoteCommandSources';
  *  · `UNKNOWN`        — kaynak okunamadı, hüküm verilemez (fail-closed).
  */
 export type RemoteCommandVerdict =
-  | 'NOT_LISTENING' | 'NEVER_RECEIVED' | 'CRYPTO_BLOCKED'
+  | 'NOT_LISTENING' | 'NOT_POLLING'    | 'POLL_FAILING'
+  | 'NEVER_RECEIVED' | 'CRYPTO_BLOCKED'
   | 'TYPE_UNKNOWN'  | 'SAFETY_BLOCKED' | 'HEALTHY' | 'UNKNOWN';
 
 export const REMOTE_COMMAND_VERDICT_LABEL: Readonly<Record<RemoteCommandVerdict, string>> = {
   NOT_LISTENING:  'DİNLEYİCİ BAĞLI DEĞİL',
+  NOT_POLLING:    'KOMUT HİÇ ÇEKİLMEDİ',
+  POLL_FAILING:   'ÇEKME HATA VERİYOR',
   NEVER_RECEIVED: 'HİÇ KOMUT GELMEDİ',
   CRYPTO_BLOCKED: 'ŞİFRE KAPISINDA DÜŞÜYOR',
   TYPE_UNKNOWN:   'KOMUT TİPİ TANIMSIZ',
@@ -51,6 +59,13 @@ export function judgeRemoteCommandChain(s: RemoteCommandRawSnapshot): RemoteComm
   if (!s.listenerActive) return 'NOT_LISTENING';
 
   const c = s.command;
+
+  /* Teslim yolu ÇEKME'dir (#647). Yoklama hiç koşmadıysa "komut gelmedi"
+     DENEMEZ — henüz SORULMAMIŞTIR. */
+  if (c.pollRuns === 0) return 'NOT_POLLING';
+  /* Turların yarısından fazlası hata veriyorsa sessizlik bir ölçüm değildir. */
+  if (c.pollErrors > c.pollRuns / 2) return 'POLL_FAILING';
+
   if (c.received === 0) return 'NEVER_RECEIVED';
 
   // Baskınlık: bir engel işlenen komutların yarısından fazlasını yiyorsa hükümdür.
@@ -109,11 +124,31 @@ export function buildRemoteCommandView(
     fields: [
       observed({
         id: 'listener', label: 'Komut dinleyicisi', source: SRC_LISTENER,
-        note: 'Realtime aboneliği canlı mı. Bağlı değilse telefondan gönderilen komut araca ULAŞMAZ (kuyrukta bekler).',
+        note: 'Dinleyici canlı mı. Bağlı değilse telefondan gönderilen komut araca ULAŞMAZ (DB’de pending kalır, TTL dolar).',
       }, s.listenerActive === null ? null : (s.listenerActive ? 'BAĞLI' : 'BAĞLI DEĞİL')),
       observed({
+        id: 'pollRuns', label: 'Yoklama turu', source: SRC_LISTENER,
+        note: 'Bekleyen komutların cihaz anahtarıyla SORULDUĞU tur sayısı. Teslim yolu ÇEKME’dir: Realtime olayları anon istemcide RLS yüzünden HİÇ gelmez (#647). 0 ise komut hiç sorulmamıştır.',
+      }, c ? c.pollRuns : null),
+      observed({
+        id: 'pollErrors', label: '↳ hatalı tur', source: SRC_LISTENER,
+        note: 'Cihaz anahtarı yok / RPC / ağ hatası. Hatalı tur "bekleyen komut yok" ANLAMINA GELMEZ.',
+      }, c ? c.pollErrors : null),
+      observed({
+        id: 'lastPollOutcome', label: 'Son yoklama sonucu', source: SRC_LISTENER,
+        note: 'ok = komut döndü · empty = gerçekten bekleyen yok · no_key = cihaz anahtarı okunamadı · error = RPC/ağ hatası. Bu ayrım olmadan sessizlik yorumlanamaz.',
+      }, c ? c.lastPollOutcome : null),
+      observed({
+        id: 'lastPollRows', label: 'Son turda dönen komut', source: SRC_LISTENER,
+        note: 'Son yoklamada gelen satır sayısı. Hata durumunda sahte 0 YAZILMAZ, "okunamadı" kalır.',
+      }, c ? c.lastPollRows : null),
+      derived({
+        id: 'lastPollAt', label: 'Son yoklama', source: SRC_LISTENER,
+        note: 'Yoklama yaşı. Aralık 15 sn’dir; bundan çok daha eskiyse dinleyici uyutulmuş olabilir.',
+      }, c ? ageText(c.lastPollAt, nowMs) : null),
+      observed({
         id: 'received', label: 'Alınan komut', source: SRC_LISTENER,
-        note: 'Realtime kanalından gelen komut sayısı. 0 ise ya hiç komut gönderilmedi ya da abonelik kurulmadı.',
+        note: 'Araca ULAŞAN komut sayısı. 0 ise ya hiç komut gönderilmedi, ya yoklama koşmadı, ya da yoklama hata veriyor — üstteki alanlar ayırır.',
       }, c ? c.received : null),
       observed({
         id: 'completed', label: 'Tamamlanan', source: SRC_LISTENER,

@@ -38,6 +38,8 @@ const CLASS_STYLE: Record<Observability, string> = {
 
 const VERDICT_STYLE: Record<RemoteCommandVerdict, string> = {
   NOT_LISTENING:  'border-[var(--oem-danger)] bg-[var(--oem-danger-soft)] text-[var(--oem-danger)]',
+  NOT_POLLING:    'border-[var(--oem-danger)] bg-[var(--oem-danger-soft)] text-[var(--oem-danger)]',
+  POLL_FAILING:   'border-[var(--oem-warn)] bg-[var(--oem-warn-soft)] text-[var(--oem-warn)]',
   NEVER_RECEIVED: 'border-[var(--oem-line-strong)] bg-[var(--oem-surface-2)] text-[var(--oem-ink-2)]',
   CRYPTO_BLOCKED: 'border-[var(--oem-danger)] bg-[var(--oem-danger-soft)] text-[var(--oem-danger)]',
   TYPE_UNKNOWN:   'border-[var(--oem-warn)] bg-[var(--oem-warn-soft)] text-[var(--oem-warn)]',
@@ -48,8 +50,10 @@ const VERDICT_STYLE: Record<RemoteCommandVerdict, string> = {
 
 /** Hükmün ne anlama geldiğini tek cümlede söyler — sayı yorumsuz bırakılmaz. */
 const VERDICT_HINT: Record<RemoteCommandVerdict, string> = {
-  NOT_LISTENING:  'Realtime aboneliği kurulmamış: telefondan gönderilen komut araca ULAŞAMAZ, kuyrukta bekler (5 dk TTL).',
-  NEVER_RECEIVED: 'Dinleyici bağlı ama hiç komut gelmemiş. Bu bir arıza DEĞİL, yalnız sessizliktir.',
+  NOT_LISTENING:  'Dinleyici kurulmamış: telefondan gönderilen komut araca ULAŞAMAZ, DB’de pending kalır (5 dk TTL).',
+  NOT_POLLING:    'Dinleyici bağlı ama bekleyen komutlar HİÇ SORULMAMIŞ. Teslim yolu ÇEKME’dir (Realtime olayları anon istemcide RLS yüzünden gelmez) — yoklama koşmadan komut ulaşmaz.',
+  POLL_FAILING:   'Yoklama koşuyor ama hata veriyor (cihaz anahtarı okunamıyor ya da RPC/ağ hatası). Ekrandaki sessizlik "komut yok" ANLAMINA GELMEZ.',
+  NEVER_RECEIVED: 'Dinleyici bağlı, yoklama sağlıklı, hiç komut gelmemiş. Bu bir arıza DEĞİL, yalnız sessizliktir.',
   CRYPTO_BLOCKED: 'Komutlar geliyor fakat E2E kapısında düşüyor — araç ile telefonun anahtar eşleşmesi bozuk.',
   TYPE_UNKNOWN:   'Komutlar geliyor fakat araç tipi tanımıyor. Telefon/araç sürümleri ayrışmış olabilir.',
   SAFETY_BLOCKED: 'Komutlar sürüş güvenliği kapısında reddediliyor — araç hareket halinde. Bu DOĞRU davranıştır.',

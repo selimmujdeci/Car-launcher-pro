@@ -197,6 +197,12 @@ export async function updateRemoteCommandStatus(
   commandId: string,
   status:    CommandLifecycleStatus,
   error?:    string,
+  /**
+   * Araç tarafının ÖLÇÜM sonucu (DTC listesi, voltaj…). YALNIZ ölçen komutlarda
+   * doludur; verilmezse `result` kolonu OLDUĞU GİBİ kalır (migration 070'te
+   * `coalesce(p_result, result)`) — sahte `{}` yazılmaz, "okunmadı ≠ boş".
+   */
+  result?:   Record<string, unknown>,
 ): Promise<void> {
   if (!RPC_BASE || !SUPABASE_ANON_KEY) return;
   const apiKey = _apiKey ?? (await sensitiveKeyStore.get(SK_API_KEY));
@@ -215,6 +221,7 @@ export async function updateRemoteCommandStatus(
   if (status === 'completed' || status === 'failed' ||
       status === 'rejected'  || status === 'expired')  body.p_finished_at  = now;
   if (error)                                          body.p_error        = error;
+  if (result !== undefined)                           body.p_result       = result;
 
   // Yüksek öncelik — at-least-once garantisi (connectivityService kuyruğu)
   await connectivityService.enqueue(

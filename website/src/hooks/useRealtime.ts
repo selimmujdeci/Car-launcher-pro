@@ -44,18 +44,67 @@ export function useRealtime(): void {
   /* 1) YAŞAM DÖNGÜSÜ: motor + izleyici. Araç kimliklerine BAĞLI DEĞİLDİR →
    *    her araç eklendiğinde motor yeniden YARATILMAZ, yalnız yeniden abone olur. */
   useEffect(() => {
-    const access = evaluateAccountScopedCapability('REALTIME_SUBSCRIBE');
-    if (!access.allowed) return;
+    let sokuldu = false;
+    let temizle: (() => void) | null = null;
+
+    /* ── ÖLÇÜLEN KUSUR: SAYFA YENİLENİNCE EŞLEŞTİRME "DÜŞÜYORDU" (#648) ────
+     * Kapı buradan SENKRON soruluyordu:
+     *     const access = evaluateAccountScopedCapability('REALTIME_SUBSCRIBE');
+     *     if (!access.allowed) return;
+     * Oysa `evaluateAccountScopedCapability` üretim runtime'ı HENÜZ
+     * YARATILMAMIŞSA `RUNTIME_UNAVAILABLE` döner ve runtime'ı yaratan/başlatan
+     * çağrı BU EFEKTİN İÇİNDEDİR — yani her taze sayfa yüklemesinde kapı
+     * KESİN olarak kapalıydı. Ölçüm (jsdom, temiz modül kaydı):
+     *     evaluateAccountScopedCapability('REALTIME_SUBSCRIBE')
+     *       → { allowed: false, code: 'RUNTIME_UNAVAILABLE' }
+     * Sonuç: `initializeFromLocal()` HİÇ çalışmıyordu → `localStorage`daki
+     * eşleşmiş araç store'a girmiyor, `loading` sonsuza dek `true` kalıyor ve
+     * kullanıcı yeniden eşleştirmeye zorlanıyordu. Eşleştirmenin hemen ardından
+     * çalışmasının sebebi, `kumanda/page.tsx`in `handlePaired` içinde
+     * `initializeFromLocal()`i DOĞRUDAN çağırmasıydı — yani kusur yalnız
+     * YENİLEMEDE görünüyordu; sahadaki tarif de tam buydu.
+     *
+     * Düzeltme: runtime ÖNCE başlatılır, kapı SONRA sorulur. Yetki modeli
+     * değişmez, ikinci otorite kurulmaz. */
+    const runtime = getAccountCleanupRuntime();
+    const baslatFn = (runtime as { initialize?: () => Promise<unknown> }).initialize;
+    let hazir: Promise<unknown>;
+    try {
+      hazir = typeof baslatFn === 'function'
+        ? Promise.resolve(baslatFn.call(runtime)).catch(() => undefined)
+        : Promise.resolve(undefined);
+    } catch { hazir = Promise.resolve(undefined); }
+
+    void hazir.then(() => {
+      if (sokuldu) return;
+      temizle = baglan();
+    });
+
+    return () => {
+      sokuldu = true;
+      temizle?.();
+    };
+
+    /** Asıl bağlanma — runtime başlatıldıktan SONRA çağrılır. */
+    function baglan(): () => void {
     const cleanupGeneration = captureCleanupGeneration();
     const notifEngine  = new NotificationEngine();
     const vehicleState = useVehicleStore.getState();
 
+    /* Yerel okuma KAPIDAN ÖNCE yapılır: eşleşmiş aracın ekranda görünmesi
+       realtime yetkisine BAĞLI DEĞİLDİR (ağ/oturum gerektirmez) ve hesap
+       temizliği kilidi zaten `initializeFromLocal` İÇİNDE sorulur
+       (`isAccountAccessLocked`) — ikinci kapı kurulmaz. Ayrıca `loading`
+       bayrağını da bu çağrı düşürür; kapı kapalıyken sonsuz "yükleniyor"
+       ekranı KALMAZ. */
+    vehicleState.initializeFromLocal();
+
+    const access = evaluateAccountScopedCapability('REALTIME_SUBSCRIBE');
+    if (!access.allowed) return () => { /* abonelik kurulmadı */ };
+
     /* TEK BOŞLUK OTORİTESİ. Motor yalnız ham sinyal üretir; "veriler güncel mi?"
        kararını YALNIZ bu runtime verir (ikinci otorite YOK). */
     const syncRuntime = attachRealtimeSyncRuntime();
-
-    // Instant local load — shows the paired vehicle immediately, no auth needed
-    vehicleState.initializeFromLocal();
 
     const engine = createRealtimeEngine({
       onUpdate: (update) => {
@@ -78,24 +127,20 @@ export function useRealtime(): void {
       },
     });
     engineRef.current = engine;
-    const runtime = getAccountCleanupRuntime();
-    /**
-     * Runtime BURADA da başlatılır.
-     *
-     * ONARILAN KUSUR (telefonda ölçüldü): yetki kapısı
-     * (`REALTIME_SUBSCRIBE`) runtime `initialized` olana kadar
-     * `RUNTIME_UNAVAILABLE` döner. Başlatmayı yalnız `useFleet` yapıyordu;
-     * bu yüzden `useFleet` kullanmayan sayfalarda (ör. CAROS LAB) tarayıcı
-     * `offline`/`online` olayları otoriteye HİÇ ulaşmıyordu: LAB açıkken
-     * 9 sn'lik tam kesinti `LIVE` kalıyordu, oysa `/dashboard/fleet`'te aynı
-     * kesinti doğru şekilde `SUSPECTED_GAP → LIVE` üretiyordu (ölçüldü).
-     */
-    // Savunmalı çağrı: test/mock runtime'larında `initialize` bulunmayabilir.
-    const baslat = (runtime as { initialize?: () => Promise<unknown> }).initialize;
-    if (typeof baslat === 'function') {
-      try { void Promise.resolve(baslat.call(runtime)).catch(() => { /* fail-soft */ }); }
-      catch { /* fail-soft */ }
-    }
+
+    /* İLK ABONELİK BURADA YAPILIR (#648).
+     * Motor artık runtime hazır olduktan SONRA kuruluyor; (2) numaralı efekt ise
+     * mount anında bir kez koşup `engineRef.current` boş olduğu için hiçbir şey
+     * yapmadan dönüyor ve araç kümesi DEĞİŞMEDİĞİ sürece bir daha koşmuyordu →
+     * motor kurulsa bile HİÇBİR araca abone olmuyordu. Kaynak yine TEK
+     * otoritedir (store); ikinci liste tutulmaz. */
+    engine.syncVehicleIds(
+      normalizeVehicleIds(Object.keys(useVehicleStore.getState().vehicles)),
+    );
+
+    /* Runtime bu efektin BAŞINDA başlatıldı (bkz. #648 notu) — burada yalnız
+       yetki değişimi izlenir. `useFleet` kullanmayan sayfalarda (ör. CAROS LAB)
+       da otorite beslenmeye devam eder. */
     const unsubscribeRuntime = runtime.subscribe(() => {
       if (!runtime.evaluateCapability('REALTIME_SUBSCRIBE').allowed) {
         engineRef.current = null;
@@ -169,6 +214,7 @@ export function useRealtime(): void {
       engine.disconnect();   // kuşak artar → uçuştaki geç geri çağrılar ölür
       stopWatchdog();
     };
+    }
   }, []);
 
   /* 2) ABONELİK: araç kümesi değiştikçe. Aynı kümede `syncVehicleIds` NO-OP'tur,
