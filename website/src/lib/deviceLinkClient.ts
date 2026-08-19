@@ -48,8 +48,11 @@ export async function fetchMyVehicles(): Promise<LinkedVehicle[]> {
 export function toLiveVehicle(v: LinkedVehicle): LiveVehicle {
   return {
     id:            v.id,
-    name:          v.name ?? 'Araç',
-    plate:         v.plate ?? v.device_id ?? v.id,
+    /* Kimlik UYDURULMAZ (#661): eskiden plaka boşsa cihaz kimliği ya da
+       araç UUID'si plaka alanına yazılıyordu. Boş kalır; gösterim
+       `vehicleTitle()` tek otoritesinden yapılır. */
+    name:          v.name ?? '',
+    plate:         v.plate ?? '',
     driver:        '—',
     status:        'offline',
     lat:           0,

@@ -3,6 +3,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import { useVehicleStore } from '@/store/vehicleStore';
 import LiveMap from '@/components/map/LiveMap';
+import { vehicleTitle } from '@/lib/vehicleDisplay';
 import { SpeedGauge, RpmGauge, FuelGauge, TempGauge } from '@/components/dashboard/Gauges';
 
 export default function MapPage() {
@@ -76,6 +77,7 @@ export default function MapPage() {
             selectedId={selectedId}
             onSelect={handleSelect}
             followMode={followMode}
+            showStyleToggle
             className="absolute inset-0 w-full h-full"
           />
 
@@ -118,7 +120,7 @@ export default function MapPage() {
             }`}>
               <div className="flex justify-between items-center mb-6">
                 <div>
-                  <h3 className="text-lg font-bold tracking-tight text-white/95">{selected.plate}</h3>
+                  <h3 className="text-lg font-bold tracking-tight text-white/95">{vehicleTitle(selected)}</h3>
                   <p className="text-[10px] uppercase tracking-widest text-white/40 font-bold">{selected.driver}</p>
                 </div>
                 <div className="px-3 py-1 bg-white/5 rounded-lg border border-white/5 text-[10px] font-mono text-white/60">
@@ -173,7 +175,7 @@ export default function MapPage() {
                   v.status === 'alarm' ? 'bg-red-400 animate-pulse' : 'bg-emerald-400'
                 }`} />
                 <div className="text-left">
-                  <p className="text-xs font-bold tracking-tight">{v.plate}</p>
+                  <p className="text-xs font-bold tracking-tight">{vehicleTitle(v)}</p>
                   <p className={`text-[10px] font-mono ${selectedId === v.id ? 'text-white/70' : 'text-white/30'}`}>
                     {Math.round(v.speed)} KM/H
                   </p>

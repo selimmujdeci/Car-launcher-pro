@@ -1,4 +1,5 @@
 import type { LiveVehicle } from '@/types/realtime';
+import { vehicleTitle, vehicleSubtitle, isFallbackTitle } from '@/lib/vehicleDisplay';
 
 interface VehicleListProps {
   vehicles: LiveVehicle[];
@@ -38,8 +39,12 @@ export default function VehicleList({ vehicles, onSelect }: VehicleListProps) {
             {/* Vehicle info */}
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
-                <span className="font-mono text-xs font-semibold text-white/85">{v.plate}</span>
-                <span className="text-[10px] text-white/35 truncate">{v.name}</span>
+                <span className={`text-xs font-semibold text-white/85 ${isFallbackTitle(v) ? '' : 'font-mono'}`}>
+                  {vehicleTitle(v)}
+                </span>
+                {vehicleSubtitle(v) && (
+                  <span className="text-[10px] text-white/35 truncate">{vehicleSubtitle(v)}</span>
+                )}
               </div>
               <div className="text-[11px] text-white/30 mt-0.5 truncate">
                 {v.location}

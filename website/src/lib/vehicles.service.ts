@@ -248,8 +248,11 @@ export async function fetchVehicles(): Promise<LiveVehicle[]> {
 
     return {
       id: vehicle.id,
-      plate: vehicle.plate ?? vehicle.id,
-      name: vehicle.name ?? 'Araç',
+      /* KİMLİK UYDURULMAZ (#661): plaka boşsa ARAÇ UUID'si plaka diye
+         GÖSTERİLİYORDU. Boş kimlik boş kalır; gösterim `vehicleTitle()`
+         tek otoritesinden yapılır ve orada "Araç #kısaid" olur. */
+      plate: vehicle.plate ?? '',
+      name: vehicle.name ?? '',
       driver: vehicle.driver_name ?? '—',
       status: timestamp > 0 && Date.now() - timestamp < TIMING.OFFLINE_TIMEOUT_MS ? 'online' : 'offline',
       /* ⚠️ ESKİ SAYISAL YÜZEY — bilinmeyeni 0 ile doldurur, yalnız harita/
@@ -268,4 +271,46 @@ export async function fetchVehicles(): Promise<LiveVehicle[]> {
       telemetry: telemetryTruth,
     };
   });
+}
+
+/**
+ * ARAÇ KİMLİĞİNİ YAZ (plaka / isim / sürücü) — #661.
+ *
+ * Bu proje daha önce `vehicles` satırının kimlik alanlarına HİÇ yazmıyordu:
+ * araç eşleşiyor, panelde UUID görünüyor ve kullanıcının isim verebileceği
+ * bir yüzey bulunmuyordu ("motor var, besleyen yok" deseninin bir örneği).
+ *
+ * Yazma sunucu rotası üzerinden yapılır (`PATCH /api/vehicles/:id`): oturum
+ * doğrulaması ve kapsam kontrolü orada tek yerde durur.
+ *
+ * Dönüş: `{ ok: true }` ya da `{ ok: false, error }` — sessiz başarı YOK.
+ */
+export async function updateVehicleIdentity(
+  vehicleId: string,
+  patch: { plate?: string | null; name?: string | null; driver?: string | null },
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const supabase = getSupabaseBrowserClient();
+  if (!supabase) return { ok: false, error: 'Supabase yapılandırılmamış.' };
+
+  let token: string | null = null;
+  try {
+    const { data } = await supabase.auth.getSession();
+    token = data.session?.access_token ?? null;
+  } catch {
+    token = null;
+  }
+  if (!token) return { ok: false, error: 'Oturum bulunamadı. Yeniden giriş yapın.' };
+
+  try {
+    const res = await fetch(`/api/vehicles/${vehicleId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify(patch),
+    });
+    if (res.ok) return { ok: true };
+    const body = (await res.json().catch(() => ({}))) as { error?: string };
+    return { ok: false, error: body.error ?? `Hata ${res.status}: kimlik kaydedilemedi.` };
+  } catch {
+    return { ok: false, error: 'Bağlantı hatası. İnternet bağlantınızı kontrol edin.' };
+  }
 }

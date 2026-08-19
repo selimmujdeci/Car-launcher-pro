@@ -6,6 +6,9 @@ import StatCard from '@/components/dashboard/StatCard';
 import VehicleList from '@/components/dashboard/VehicleList';
 import VehicleModal from '@/components/dashboard/VehicleModal';
 import LiveMap from '@/components/map/LiveMap';
+import VehicleMapCard from '@/components/map/VehicleMapCard';
+import VehicleIdentityEditor from '@/components/dashboard/VehicleIdentityEditor';
+import { vehicleTitle, vehicleSubtitle, isFallbackTitle } from '@/lib/vehicleDisplay';
 import { GeofenceAlertsPanel } from '@/components/dashboard/GeofenceAlertsPanel';
 import { RemoteCommandPanel } from '@/components/dashboard/RemoteCommandPanel';
 import { ProGate } from '@/components/plan/ProGate';
@@ -181,7 +184,7 @@ function PanelHeader({
 
 /* ── Focused vehicle header ──────────────────────────────── */
 
-function FocusedVehicleHeader({ vehicle: v }: { vehicle: LiveVehicle }) {
+function FocusedVehicleHeader({ vehicle: v, onEditIdentity }: { vehicle: LiveVehicle; onEditIdentity?: () => void }) {
   return (
     <div
       className="flex items-center gap-3 px-4 py-3 rounded-xl mb-4"
@@ -193,8 +196,21 @@ function FocusedVehicleHeader({ vehicle: v }: { vehicle: LiveVehicle }) {
       <StatusPulse status={v.status} />
       <div className="flex-1 min-w-0">
         <div className="flex items-baseline gap-2">
-          <span className="font-mono text-sm font-bold text-white/90">{v.plate}</span>
-          <span className="text-[10px] text-white/35 truncate">{v.name}</span>
+          {/* Kimlik TEK otoriteden (#661): plaka boşsa UUID DEĞİL, "Araç #kısaid". */}
+          <span className={`text-sm font-bold text-white/90 ${isFallbackTitle(v) ? '' : 'font-mono'}`}>
+            {vehicleTitle(v)}
+          </span>
+          {vehicleSubtitle(v) && (
+            <span className="text-[10px] text-white/35 truncate">{vehicleSubtitle(v)}</span>
+          )}
+          {isFallbackTitle(v) && onEditIdentity && (
+            <button
+              onClick={onEditIdentity}
+              className="text-[10px] font-bold text-accent hover:underline flex-shrink-0"
+            >
+              İsim ver
+            </button>
+          )}
         </div>
         <div className="text-[10px] text-white/25 mt-0.5">
           {v.status === 'online' ? `${v.driver} · ${v.location}` : 'Son görülme: ' + v.lastSeen}
@@ -251,7 +267,14 @@ export default function DashboardPage() {
   const connectionStatus = useVehicleStore((s) => s.connectionStatus);
   const loading          = useVehicleStore((s) => s.loading);
   const error            = useVehicleStore((s) => s.error);
+  /* HARİTA SEÇİMİ ≠ DETAY MODALI (#661).
+     Eskiden haritadaki noktaya dokunmak doğrudan tam ekran modalı açıyordu;
+     kullanıcı "nokta neyi gösteriyor" sorusunun cevabını haritayı KAYBEDEREK
+     alıyordu. Artık dokunma haritanın üstünde bir kart açar; modal ayrı bir
+     eylemdir. */
+  const [mapSelectedId, setMapSelectedId] = useState<string | null>(null);
   const [selected, setSelected] = useState<LiveVehicle | null>(null);
+  const [editingIdentity, setEditingIdentity] = useState<LiveVehicle | null>(null);
 
   // Hooks must be called before any early returns
   const stats = useMemo(() => {
@@ -262,7 +285,8 @@ export default function DashboardPage() {
   }, [vehicles]);
 
   const mapVehicles    = vehicles.filter((v) => v.status !== 'offline' && v.lat !== 0);
-  const focusedVehicle = selected ?? vehicles.find((v) => v.status === 'online') ?? null;
+  const mapSelected   = mapSelectedId ? vehicles.find((v) => v.id === mapSelectedId) ?? null : null;
+  const focusedVehicle = mapSelected ?? selected ?? vehicles.find((v) => v.status === 'online') ?? null;
 
   if (loading) {
     return <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-6 text-sm text-white/60">Araç verileri yükleniyor...</div>;
@@ -332,12 +356,16 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* ── Canlı harita ── */}
-      <div className="relative rounded-2xl overflow-hidden h-52 card-enter" style={{ animationDelay: '0.18s' }}>
+      {/* ── Canlı harita ──
+          Yükseklik 52 → 80: 13 rem'lik şeritte sokak seviyesinde hiçbir şey
+          okunmuyordu. Kadraj artık araca göre kurulur (LiveMap#frameVehicles). */}
+      <div className="relative rounded-2xl overflow-hidden h-80 sm:h-96 card-enter" style={{ animationDelay: '0.18s' }}>
         <ProGate feature="live_location">
         <LiveMap
           vehicles={mapVehicles}
-          onSelect={(id) => setSelected(vehicles.find((v) => v.id === id) ?? null)}
+          selectedId={mapSelectedId}
+          onSelect={(id) => setMapSelectedId(id)}
+          showStyleToggle
           className="absolute inset-0 w-full h-full"
         />
         {/* Status glow badge */}
@@ -369,6 +397,16 @@ export default function DashboardPage() {
             animation: 'scanLine 6s linear infinite',
           }}
         />
+
+        {/* Noktaya dokununca: konum + araç bilgileri KARTI (#661) */}
+        {mapSelected && (
+          <VehicleMapCard
+            vehicle={mapSelected}
+            onClose={() => setMapSelectedId(null)}
+            onOpenDetail={() => setSelected(mapSelected)}
+            onEditIdentity={() => setEditingIdentity(mapSelected)}
+          />
+        )}
         </ProGate>
       </div>
 
@@ -393,7 +431,10 @@ export default function DashboardPage() {
                   icon={<GaugeIcon />}
                   title="Canlı Telemetri"
                   color="#60a5fa"
-                  badge={<FocusedVehicleHeader vehicle={focusedVehicle} />}
+                  badge={<FocusedVehicleHeader
+                    vehicle={focusedVehicle}
+                    onEditIdentity={() => setEditingIdentity(focusedVehicle)}
+                  />}
                 />
                 {/* badge is rendered in header, no duplicate needed */}
                 <div className="mt-1">
@@ -451,6 +492,13 @@ export default function DashboardPage() {
       </div>
 
       {selected && <VehicleModal vehicle={selected} onClose={() => setSelected(null)} />}
+
+      {editingIdentity && (
+        <VehicleIdentityEditor
+          vehicle={editingIdentity}
+          onClose={() => setEditingIdentity(null)}
+        />
+      )}
     </div>
   );
 }

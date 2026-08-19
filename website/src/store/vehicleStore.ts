@@ -69,6 +69,15 @@ interface VehicleStoreState {
   addVehicle: (vehicle: LiveVehicle) => void;
   /** Remove a vehicle by id (used after unlinking). */
   removeVehicle: (id: string) => void;
+  /**
+   * Araç kimliğini (plaka · isim · sürücü) yerelde tazeler — #661.
+   * YALNIZCA sunucu yazması BAŞARILI döndükten sonra çağrılır;
+   * bu fonksiyon kendi başına hiçbir şey KAYDETMEZ.
+   */
+  patchVehicleIdentity: (
+    id: string,
+    patch: { plate?: string | null; name?: string | null; driver?: string | null },
+  ) => void;
   clearVehicleAuthority: () => void;
   isVehicleAuthorityEmpty: () => boolean;
 }
@@ -282,6 +291,25 @@ export const useVehicleStore = create<VehicleStoreState>((set, get) => ({
       const next = { ...state.vehicles };
       delete next[id];
       return { vehicles: next };
+    });
+  },
+
+  patchVehicleIdentity: (id, patch) => {
+    if (isAccountAccessLocked()) return;
+    set((state) => {
+      const existing = state.vehicles[id];
+      if (!existing) return state;
+      return {
+        vehicles: {
+          ...state.vehicles,
+          [id]: {
+            ...existing,
+            plate:  patch.plate  !== undefined ? patch.plate  ?? '' : existing.plate,
+            name:   patch.name   !== undefined ? patch.name   ?? '' : existing.name,
+            driver: patch.driver !== undefined ? patch.driver ?? '—' : existing.driver,
+          },
+        },
+      };
     });
   },
 

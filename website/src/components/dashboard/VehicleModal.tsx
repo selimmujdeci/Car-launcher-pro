@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { LiveVehicle } from '@/types/realtime';
 import { supabaseBrowser } from '@/lib/supabase';
+import VehicleIdentityEditor from '@/components/dashboard/VehicleIdentityEditor';
+import { vehicleTitle, vehicleSubtitle, isFallbackTitle } from '@/lib/vehicleDisplay';
 import {
   measurementLabel,
   locationLabel,
@@ -187,6 +189,7 @@ export default function VehicleModal({ vehicle: v, onClose, onRemove }: VehicleM
 
   const [removing, setRemoving] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState(false);
+  const [editingIdentity, setEditingIdentity] = useState(false);
   const [removeError, setRemoveError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -242,13 +245,24 @@ export default function VehicleModal({ vehicle: v, onClose, onRemove }: VehicleM
         <div className="flex items-center justify-between px-5 py-4 sm:px-6 sm:py-5 border-b border-white/[0.07] flex-shrink-0">
           <div>
             <div className="flex items-center gap-3">
-              <p className="font-mono text-base font-semibold text-white">{v.plate}</p>
+              {/* Kimlik TEK otoriteden (#661) — plaka boşsa UUID GÖSTERİLMEZ. */}
+              <p className={`text-base font-semibold text-white ${isFallbackTitle(v) ? '' : 'font-mono'}`}>
+                {vehicleTitle(v)}
+              </p>
               <div className={`flex items-center gap-1.5 text-xs font-medium ${s.text}`}>
                 <span className={`w-1.5 h-1.5 rounded-full ${s.dot}`} />
                 {s.label}
               </div>
             </div>
-            <p className="text-xs text-white/35 mt-0.5">{v.name}</p>
+            <div className="flex items-center gap-2 mt-0.5">
+              <p className="text-xs text-white/35">{vehicleSubtitle(v) ?? 'İsim verilmedi'}</p>
+              <button
+                onClick={() => setEditingIdentity(true)}
+                className="text-[11px] font-bold text-accent hover:underline"
+              >
+                {isFallbackTitle(v) ? 'İsim ver' : 'Düzenle'}
+              </button>
+            </div>
           </div>
           <button
             onClick={onClose}
@@ -650,6 +664,13 @@ export default function VehicleModal({ vehicle: v, onClose, onRemove }: VehicleM
           </div>
         )}
       </div>
+
+      {editingIdentity && (
+        <VehicleIdentityEditor
+          vehicle={v}
+          onClose={() => setEditingIdentity(false)}
+        />
+      )}
     </div>
   );
 }

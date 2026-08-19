@@ -1,6 +1,7 @@
 'use client';
 
 import { useVehicleStore } from '@/store/vehicleStore';
+import { vehicleTitle } from '@/lib/vehicleDisplay';
 
 const severityConfig = {
   high:   { bg: 'bg-red-500/[0.08]',   border: 'border-red-500/25',   badge: 'bg-red-500/15 text-red-400 border-red-500/20',     label: 'Kritik' },
@@ -24,7 +25,7 @@ export default function DiagnosticPage() {
             </svg>
           </div>
           <div className="flex-1">
-            <p className="text-sm font-semibold text-red-400">Aktif Alarm — {alarmVehicle.plate}</p>
+            <p className="text-sm font-semibold text-red-400">Aktif Alarm — {vehicleTitle(alarmVehicle)}</p>
             <p className="text-xs text-white/40 mt-0.5">
               Motor sıcaklığı {alarmVehicle.engineTemp}°C · Hız {alarmVehicle.speed} km/h
             </p>
@@ -45,7 +46,7 @@ export default function DiagnosticPage() {
             {vehicles.map((v) => (
               <div key={v.id} className="p-5 rounded-2xl bg-white/[0.03] border border-white/[0.07]">
                 <div className="flex items-center justify-between mb-4">
-                  <p className="font-mono text-xs text-white/70">{v.plate || v.id.slice(0, 8)}</p>
+                  <p className="font-mono text-xs text-white/70">{vehicleTitle(v)}</p>
                   <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${
                     v.status === 'alarm'  ? 'bg-red-500/15 text-red-400 border-red-500/25' :
                     v.status === 'online' ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/25' :

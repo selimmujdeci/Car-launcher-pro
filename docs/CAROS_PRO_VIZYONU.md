@@ -216,6 +216,47 @@ DOĞRULANDI 6 · SAHADA DOĞRULANDI 1 · **ÜRÜN HAZIR: 1**
   **Süreç notu:** #636 ve #637 commit'lenmiş ama **kütük maddesi yazılmamıştı**;
   bu boşluk aynı turda kapatıldı (anayasa: kod değil KÜTÜK saha otoritesidir).
 
+- **FİLO PANELİ ARAÇ KİMLİĞİ + HARİTA (2026-08-19, kütük 🔴 #661):**
+  website **1230 test yeşil**, `tsc` + `next build` temiz. Telefonda test
+  EDİLMEDİ → kütükte 🔴 bekliyor, "çalışıyor" DENMEZ.
+
+  Kullanıcı (carospro.com → Panel, telefon ekran görüntüsü): *"araca isim koyma
+  yok · harita çok kötü duruyor · yeşil noktaya dokununca aracın konumu tam
+  olarak ve araç bilgileri belli olacak kart içinde"*. Ekranda araç kimliği
+  olarak ham UUID görünüyordu.
+
+  **KÖK 1 — uydurulmuş kimlik:** `plate: vehicle.plate ?? vehicle.id`. Plaka
+  boşken araç UUID'si **plaka diye** gösteriliyordu; aynı desen iki yerde daha
+  vardı (`deviceLinkClient`, `notificationEngine`). Kimlik yokken kimlik
+  UYDURMAK, "sahte 0" ile aynı sınıf kusurdur: kullanıcı eksikliği göremez,
+  dolayısıyla düzeltemez. Artık tek otorite var (`vehicleDisplay.ts`) ve
+  kimlik yoksa **`Araç #kısaid` + `İsim ver`** görünür.
+
+  **KÖK 2 — yazma ucu HİÇ yoktu ("motor var, besleyen yok" — dördüncü örnek):**
+  `vehicles` satırının `plate/name/driver_name` alanlarına yazan tek bir çağrı
+  yeri bile yoktu. Özellik eksik değildi, **hiç yoktu**. `PATCH /api/vehicles/:id`
+  açıldı; yazma ucunda iki sessiz-ölüm kapatıldı: (a) PostgREST 200 ≠ satır
+  etkilendi → boş dönüşte **403**, sahte "kaydedildi" YOK; (b) service_role
+  RLS'i devre dışı bıraktığı için kapsam kullanıcının kendi token'ıyla ayrıca
+  doğrulanır — **aynı kapı mevcut DELETE rotasında da eksikti** ve bu turda
+  kapatıldı.
+
+  **KÖK 3 — kamera hiç kurulmuyordu:** `LiveMap` her açılışta ülke zoom'unda
+  (5,8) başlıyor, araç konumu geldiğinde kadraj kurmuyordu. Kusur "harita
+  stili" değil **kamera sahipliğiydi**: boya doğruydu, çerçeve yanlıştı
+  (#625 ile aynı sınıf). Artık konum bilinir bilinmez kadraj kurulur, ama
+  kullanıcı haritayı eline aldıysa kamera geri ALINMAZ.
+
+  Nokta dokunuşu artık tam ekran modal değil, harita üstünde **konum kartı**
+  açar; kart adres · koordinat · konum tazeliği/kaynağı/doğruluğu ve dört
+  ölçümü `VehicleFreshness` gerçek katmanından okur — bilinmeyen `Veri yok`
+  yazar, adres çözümlenemezse bunu SÖYLER.
+
+  **AÇIK BORÇ:** bu üç yüzeyin CAROS LAB gözlem ekranı YOK (kimlik yazma
+  sonucu · ters çözümleme önbellek/başarı sayaçları · kadraj kararı gözlenemez);
+  gözlemlenebilirlik kuralı gereği borç olarak yazıldı. PWA (`app/(pwa)`)
+  bu turda kapsam DIŞI tutuldu.
+
 - **PWA ARACI DOĞRUDAN EŞLEŞTİRİYOR; FİLO AYRI AKIŞ (2026-08-18, kütük 🔴 #631):**
   website **1193 test yeşil**, `tsc` temiz. **Canlıda ölçülerek doğrulandı**
   (`api/vehicle/link` bundle'da VAR, `api/pwa/pair` YOK).

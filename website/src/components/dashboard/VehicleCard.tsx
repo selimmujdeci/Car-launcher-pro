@@ -1,4 +1,5 @@
 import type { LiveVehicle } from '@/types/realtime';
+import { vehicleTitle, vehicleSubtitle, isFallbackTitle } from '@/lib/vehicleDisplay';
 import {
   measurementLabel,
   locationLabel,
@@ -53,8 +54,10 @@ export default function VehicleCard({ vehicle: v, onClick }: VehicleCardProps) {
       {/* Header */}
       <div className="flex items-start justify-between mb-4">
         <div>
-          <p className="font-mono text-sm text-white/80 font-medium">{v.plate}</p>
-          <p className="text-xs text-white/40 mt-0.5">{v.name}</p>
+          <p className={`text-sm text-white/80 font-medium ${isFallbackTitle(v) ? '' : 'font-mono'}`}>
+            {vehicleTitle(v)}
+          </p>
+          <p className="text-xs text-white/40 mt-0.5">{vehicleSubtitle(v) ?? 'İsim verilmedi'}</p>
         </div>
         <div className={`flex items-center gap-1.5 text-[11px] font-medium ${s.text}`}>
           <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${s.dot}`} />
