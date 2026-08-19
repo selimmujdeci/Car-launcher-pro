@@ -22,9 +22,25 @@ export interface PairResult {
    * Çağıran bunu görürse çevrimdışı claim üretir; "başarısız" DEMEZ.
    */
   offline?:   boolean;
+  /**
+   * #643 — "ULAŞILAMADI"nın SEBEBİ. `offline` yalnız "tekrar denenebilir" der;
+   * KULLANICIYA GÖSTERİLEN cümle bu alandan türer.
+   *
+   * SAHA (2026-08-19): kullanıcı 5G ile tam sinyaldeyken ekranda
+   * *"Çevrimdışısınız"* yazıyordu. Sebep: sunucu 5xx/429 dönünce istemci bunu
+   * `offline` sayıyor, ekran da CİHAZI suçluyordu. Cihazın çevrimdışı olması
+   * ile sunucunun düşmesi AYNI ŞEY DEĞİLDİR ve kullanıcıya farklı şey söyler.
+   */
+  reason?:    PairFailureReason;
+  /** Sunucu yanıt verdiyse HTTP durumu (teşhis için; yanıt yoksa `undefined`). */
+  httpStatus?: number;
   /** Sunucunun typed hata kodu (döndürdüyse) — conflict sınıflandırması için. */
   code?:      string;
 }
+
+/* #643 — sınıflandırma SAF modelde (`pairing/pairFailureModel`); burada yalnız
+   yeniden dışa aktarılır ki çağıranlar tek yerden alsın (ikinci tanım YOK). */
+export type { PairFailureReason } from './pairing/pairFailureModel';
 
 export interface LocalVehicle {
   id:     string;
@@ -92,6 +108,10 @@ export function getStoredApiKey(vehicleId: string): string | null {
 // ── Pairing ───────────────────────────────────────────────────────────────────
 
 /** Kanonik eşleştirme rotası — TEK otorite. */
+import {
+  classifyHttpFailure, classifyRequestFailure, type PairFailureReason,
+} from './pairing/pairFailureModel';
+
 export const PAIRING_ENDPOINT = '/api/vehicle/link';
 
 /**
@@ -166,11 +186,14 @@ export async function pairVehicle(code: string): Promise<PairResult> {
 
     if (!res.ok || !data.vehicle?.id) {
       // 5xx/429 sunucu tarafı geçici arıza → RED değil, tekrar denenebilir.
-      const transient = res.status >= 500 || res.status === 429;
+      /* #643: sunucu YANIT VERDİ → cihaz çevrimiçi. "Çevrimdışısınız" DENMEZ. */
+      const verdict = classifyHttpFailure(res.status);
       return {
         success: false,
         message: data.error ?? 'Eşleştirme başarısız.',
-        offline: transient,
+        offline: verdict.retryable,
+        reason:  verdict.reason ?? undefined,
+        httpStatus: res.status,
         code:    data.code,
       };
     }
@@ -191,11 +214,19 @@ export async function pairVehicle(code: string): Promise<PairResult> {
       message:   'Araç başarıyla eşleştirildi.',
     };
   } catch {
-    // Ağ hatası: eşleştirme REDDEDİLMEDİ — yalnız ulaşılamadı.
+    /* #643 — İstek hiç tamamlanamadı. Bu, "cihaz çevrimdışı" DEMEK DEĞİLDİR:
+       DNS, TLS (ör. sertifikanın alan adını kapsamaması), captive portal veya
+       sunucunun erişilemez olması da aynı yola çıkar. Tarayıcı ağı kapalı
+       diyorsa öyle deriz; demiyorsa SEBEBİ BİLMİYORUZ ve öyle yazarız. */
+    const browserOnline = typeof navigator === 'undefined' || navigator.onLine !== false;
+    const verdict = classifyRequestFailure(browserOnline);
     return {
       success: false,
-      offline: true,
-      message: 'Sunucuya ulaşılamadı. İnternet bağlantınızı kontrol edin.',
+      offline: verdict.retryable,
+      reason:  verdict.reason ?? undefined,
+      message: browserOnline
+        ? 'Sunucuya ulaşılamadı (istek tamamlanmadı). Bağlantı gelince otomatik denenecek.'
+        : 'Cihaz çevrimdışı. Bağlantı gelince otomatik denenecek.',
     };
   }
 }

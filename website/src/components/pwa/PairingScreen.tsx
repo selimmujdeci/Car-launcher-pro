@@ -5,6 +5,7 @@ import {
   authorizePairingContinuation,
 } from '@/security/accountCleanup/accountCleanupRuntime';
 import { pairVehicle } from '@/lib/pairingService';
+import { pairFailureNotice, type PairFailureReason } from '@/lib/pairing/pairFailureModel';
 import {
   pairingNamespace,
   createPendingPairing,
@@ -190,7 +191,7 @@ export default function PairingScreen({ onPaired }: Props) {
    * DİKKAT: burada araç EŞLEŞMEZ — yalnız doğrulanmayı bekleyen claim üretilir.
    */
   const queueOffline = useCallback(
-    async (pairCode: string) => {
+    async (pairCode: string, cause: PairFailureReason = 'DEVICE_OFFLINE', httpStatus?: number) => {
       if (!(await authorizePairingContinuation()).allowed) {
         if (mountedRef.current) {
           setError('Güvenli oturum temizliği sırasında eşleştirme kullanılamaz.');
@@ -204,10 +205,11 @@ export default function PairingScreen({ onPaired }: Props) {
         await refreshClaims();
         if (mountedRef.current) {
           setError('');
-          setNotice(
-            'Çevrimdışısınız. Talebiniz cihazınıza kaydedildi ve bağlantı gelince ' +
-            'sunucuda doğrulanacak. Araç HENÜZ eşleşmedi.',
-          );
+          /* #643 — CÜMLE SEBEBE GÖRE KURULUR. Saha (2026-08-19): kullanıcı 5G ile
+             tam sinyaldeyken "Çevrimdışısınız" okuyordu; sunucu 5xx/429 dönmüştü.
+             Kuyruk davranışı AYNI (talep saklanır, bağlantı gelince denenir) —
+             değişen tek şey, kullanıcıya DOĞRUYU söylemek. */
+          setNotice(pairFailureNotice(cause, httpStatus));
         }
       } catch {
         if (mountedRef.current) {
@@ -229,7 +231,7 @@ export default function PairingScreen({ onPaired }: Props) {
       // Çevrimdışıysak sunucuya HİÇ gitmeyiz; sahte "başarısız" da göstermeyiz.
       if (isBrowserOffline()) {
         setLoading(false);
-        await queueOffline(pairCode);
+        await queueOffline(pairCode, 'DEVICE_OFFLINE');
         if (mode === 'qr') setMode('pin');
         return;
       }
@@ -247,7 +249,7 @@ export default function PairingScreen({ onPaired }: Props) {
 
       // Ağ hatası RED DEĞİLDİR → talebi kaydet, bekleyen olarak göster.
       if (res.offline) {
-        await queueOffline(pairCode);
+        await queueOffline(pairCode, res.reason ?? 'NETWORK_FAILED', res.httpStatus);
         if (mode === 'qr') setMode('pin');
         return;
       }
