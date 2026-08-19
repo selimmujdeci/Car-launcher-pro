@@ -46,6 +46,8 @@ interface Props {
   styleKey?: MapStyleKey;
   /** Haritanın üstüne stil değiştirici koy. */
   showStyleToggle?: boolean;
+  /* NOT: `className` KONUMLANDIRILMIŞ bir kutu vermelidir (`absolute`
+     ya da `relative`) — harita kabı ve üst katmanlar ona göre yerleşir. */
 }
 
 interface VehicleFeature {
@@ -373,8 +375,15 @@ export default function LiveMap({
     frameVehicles(true);
   }, [frameVehicles]);
 
+  /* ⚠️ SARMALAYICIYA INLINE `position` VERİLMEZ.
+     İlk denemede sarmalayıcıya inline bir konum stili (relative) konmuştu;
+     inline stil Tailwind'in `absolute inset-0` sınıfını EZDİĞİ için kutu
+     akışa düşüyor, `h-full` yüzdesi flex ebeveynde çözülemiyor ve harita
+     kabı 0 YÜKSEKLİKTE kalıyordu → ekran tamamen siyah, zoom kontrolleri bile
+     çizilmiyordu. Konumlandırma TAMAMEN `className`e aittir; çağıran taraf
+     konumlandırılmış bir kutu vermek ZORUNDADIR (`absolute`/`relative`). */
   return (
-    <div className={className} style={{ position: 'relative' }}>
+    <div className={className}>
       <div ref={containerRef} className="absolute inset-0" style={{ background: '#0d1117' }} />
 
       {showStyleToggle && (

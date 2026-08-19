@@ -11,6 +11,8 @@
  */
 
 import { describe, it, expect, beforeEach } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import {
   isUuidLike,
   vehicleTitle,
@@ -113,5 +115,24 @@ describe('#661 · konum gösterimi kanıta bağlı', () => {
     expect(
       formatNominatimAddress({ display_name: 'Atatürk Bulvarı, Çankaya, Ankara, Türkiye' }),
     ).toBe('Atatürk Bulvarı, Çankaya');
+  });
+});
+
+describe('#661 · harita kabı ÇÖKMEZ (siyah ekran kilidi)', () => {
+  /* Vitest kökü `website/` (vitest.config.ts). */
+  const liveMap = readFileSync(resolve(process.cwd(), 'src/components/map/LiveMap.tsx'), 'utf8');
+
+  it("KİLİT: sarmalayıcıya inline `position` VERİLMEZ — className'i ezip kabı 0 yüksekliğe düşürür", () => {
+    /* Saha kusuru: sarmalayıcıya inline konum stili (relative) konmuştu;
+       Tailwind `absolute inset-0` sınıfını ezdi, kutu akışa düştü,
+       `h-full` yüzdesi flex ebeveynde çözülemedi ve harita ekranı tamamen
+       SİYAH kaldı (zoom kontrolleri bile çizilmedi). */
+    expect(liveMap).not.toMatch(/position:\s*'relative'/);
+    expect(liveMap).not.toMatch(/position:\s*"relative"/);
+    expect(liveMap).toContain('<div className={className}>');
+  });
+
+  it('KİLİT: harita kabı sarmalayıcıyı tamamen kaplar', () => {
+    expect(liveMap).toContain('<div ref={containerRef} className="absolute inset-0"');
   });
 });
