@@ -2064,7 +2064,8 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
   }
 
   return (
-    <div ref={outerDivRef} className="fixed inset-0 glass-card border-none !shadow-none z-50">
+    <div ref={outerDivRef} data-theme-surface="nav" data-editable="nav.screen" data-editable-type="panel"
+      className="fixed inset-0 glass-card border-none !shadow-none z-50">
       {/* ═══ #529 · KONUM BAYAT ROZETİ (vizyon §7.9 Katman 6: ekranda dürüstlük) ═══
           Konum bayatken harita BUNU SÖYLER; akıcı animasyonla taze veri varmış
           gibi gösterilmez. Yalnız bayatken çizilir → normal sürüşte ekran bütçesi
@@ -2305,6 +2306,7 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
             style={{ bottom: 'calc(var(--nav-bar-h, 72px) + 8px)', left: '50%', transform: 'translateX(-50%)' }}
           >
             <div
+              data-editable="nav.street-bar" data-editable-type="card"
               className="futurist-glass px-5 py-2 rounded-2xl flex items-center gap-2"
               style={{ border: '1px solid rgba(255,255,255,0.12)', minWidth: 160, maxWidth: 320 }}
             >

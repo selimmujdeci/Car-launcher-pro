@@ -286,7 +286,8 @@ export const MediaScreen = memo(function MediaScreen({ defaultMusic }: Props) {
 
   /* ── İçerik ─────────────────────────────────────────────── */
   return (
-    <div className="h-full flex flex-col overflow-hidden bg-transparent">
+    <div data-theme-surface="media" data-editable="media.screen" data-editable-type="panel"
+      className="h-full flex flex-col overflow-hidden bg-transparent">
       {/* ── Aktif sayfa ─────────────────────────────────────── */}
       <div className="flex-1 min-h-0 overflow-hidden">
         {tab === 'player' && (
@@ -335,6 +336,7 @@ export const MediaScreen = memo(function MediaScreen({ defaultMusic }: Props) {
       {/* Zemin token tabanlı: tema + güneş moduyla senkron (güneşte beyaz/yüksek kontrast).
           Önceki 'var(--panel-bg-secondary)' geçersiz bir className'di → şerit zeminsiz kalıyordu. */}
       <div
+        data-editable="media.tabbar" data-editable-type="dock"
         className="flex-shrink-0 flex border-t rounded-b-[32px] overflow-hidden"
         style={{
           background:           'var(--oem-surface-0, rgba(20,24,32,0.85))',
@@ -359,6 +361,7 @@ export const MediaScreen = memo(function MediaScreen({ defaultMusic }: Props) {
 function TabBtn({ active, icon, label, onClick }: { active: boolean; icon: React.ReactNode; label: string; onClick: () => void }) {
   return (
     <button
+      data-editable="media.tab-button" data-editable-type="dock"
       onClick={onClick}
       className="flex-1 flex flex-col items-center justify-center gap-1.5 py-4 transition-all duration-300"
       style={{ color: active ? 'var(--oem-accent, #E0A23C)' : 'var(--oem-ink-3, var(--text-dim, rgba(255,255,255,0.5)))' }}
@@ -633,7 +636,8 @@ function PlayerView({
   // Oturum yoksa bile çalma ekranı düzeni gösterilir (placeholder kapak + başlık).
   // Boş "kaynak bulunamadı" durumu kaldırıldı — büyük oynat butonu arka planda çalmayı başlatır.
   return (
-    <div className="relative h-full flex flex-col overflow-hidden bg-transparent">
+    <div data-editable="media.player" data-editable-type="panel"
+      className="relative h-full flex flex-col overflow-hidden bg-transparent">
 
       {/* Tam ekran video kontrol katmanı — video host'u (body, tam ekran) üstüne biner */}
       {isYouTube && videoMode && (
@@ -679,7 +683,8 @@ function PlayerView({
 
         {/* Üst: kaynak badge + ayar/kaynak kısayolu */}
         <div className="flex items-center justify-between flex-shrink-0 mb-6">
-          <div className="flex items-center gap-2.5 px-4 py-2 rounded-2xl text-[10px] font-black uppercase tracking-[0.2em] glass-card"
+          <div data-editable="media.source-badge" data-editable-type="card"
+            className="flex items-center gap-2.5 px-4 py-2 rounded-2xl text-[10px] font-black uppercase tracking-[0.2em] glass-card"
             style={{ color: srcMeta.color, borderColor: `${srcMeta.color}40` }}>
             <srcMeta.Icon className="w-4 h-4" />
             {displayName}
@@ -697,7 +702,8 @@ function PlayerView({
 
         {/* Albüm kapağı — premium AlbumArt with texture + specular + 4-layer shadow */}
         <div className="flex-1 flex items-center justify-center min-h-0 py-4">
-          <div ref={artRef} className="relative group" style={{ width: 'min(280px, 70vw)', aspectRatio: '1 / 1' }}>
+          <div ref={artRef} data-editable="media.album-art" data-editable-type="card"
+            className="relative group" style={{ width: 'min(280px, 70vw)', aspectRatio: '1 / 1' }}>
             <AlbumArt size={280} src={track.albumArt ?? undefined} />
             {playing && !blurOff && (
               <div
@@ -713,7 +719,8 @@ function PlayerView({
         </div>
 
         {/* Şarkı bilgisi + beğeni */}
-        <div className="flex-shrink-0 flex items-center justify-between mt-6 mb-4 px-1">
+        <div data-editable="media.track-info" data-editable-type="card"
+          className="flex-shrink-0 flex items-center justify-between mt-6 mb-4 px-1">
           <div className="flex-1 min-w-0 pr-4">
             <div className="font-black text-2xl leading-tight truncate tracking-tight drop-shadow-md" style={{ color: 'var(--oem-ink)' }}>
               {track.title || (hasSession ? 'Bilinmeyen parça' : 'Müzik başlat')}
@@ -748,7 +755,7 @@ function PlayerView({
         </div>
 
         {/* Cinematic thin progress meter with subtle glow at current position */}
-        <div className="flex-shrink-0 mb-6 px-1">
+        <div data-editable="media.progress" data-editable-type="card" className="flex-shrink-0 mb-6 px-1">
           {/* Geniş dokunma alanı (py-3 -my-3) — 3px çubuğu kolayca hedeflemek için */}
           <div className="relative w-full py-3 -my-3 cursor-pointer"
             style={{ touchAction: 'none' }}
@@ -796,7 +803,8 @@ function PlayerView({
         </div>
 
         {/* Kontrol butonları — cinematic premium */}
-        <div className="flex-shrink-0 flex items-center justify-between mb-4">
+        <div data-editable="media.transport" data-editable-type="card"
+          className="flex-shrink-0 flex items-center justify-between mb-4">
           {/* Shuffle — glass ghost */}
           <button onClick={toggleShuffle} disabled={!isNative}
             aria-label="Karıştır"
@@ -922,7 +930,8 @@ function SourcesView({
   })).filter((g) => g.sources.length > 0);
 
   return (
-    <div className="h-full overflow-y-auto scrollbar-none px-5 pt-5 pb-3">
+    <div data-editable="media.sources-page" data-editable-type="panel"
+      className="h-full overflow-y-auto scrollbar-none px-5 pt-5 pb-3">
       <div className="mb-5">
         <div className="font-black text-base tracking-tight" style={{ color: 'var(--oem-ink)' }}>Medya Kaynakları</div>
         <div className="text-xs mt-0.5 font-bold uppercase tracking-wider" style={{ color: 'var(--oem-ink-2)' }}>Tercih ettiğiniz uygulamayı seçin</div>
@@ -952,6 +961,7 @@ function SourcesView({
                 <button
                   key={src.key}
                   onClick={() => { onSelectSource(src); }}
+                  data-editable="media.source-card" data-editable-type="card"
                   className="flex items-center gap-4 p-4 rounded-2xl glass-card text-left transition-all active:scale-[0.98] group"
                   style={{
                     backgroundColor: isActive ? `${src.color}20` : 'rgba(255,255,255,0.03)',

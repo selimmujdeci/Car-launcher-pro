@@ -185,6 +185,7 @@ const HazardBanner = memo(function HazardBanner() {
 
   return (
     <div
+      data-editable="nav.hazard" data-editable-type="card"
       className="absolute z-30 pointer-events-none flex flex-col items-center"
       style={{ top: 'calc(var(--sat, 0px) + 72px)', left: '50%', transform: 'translateX(-50%)' }}
     >
@@ -554,6 +555,7 @@ const TurnPanel = memo(function TurnPanel({
 
   return (
     <div
+      data-editable="nav.maneuver" data-editable-type="card"
       className={`absolute z-30 pointer-events-none flex flex-col ${dense ? 'gap-1.5' : 'gap-3'}`}
       style={{
         /* Dar ekranda dönüş kartı GPS rozeti (15,15,68×20) ve km çipi
@@ -694,6 +696,7 @@ const RoadSignsPanel = memo(function RoadSignsPanel({
 
   return (
     <div
+      data-editable="nav.current-street" data-editable-type="card"
       className="absolute z-30 pointer-events-none"
       style={{ top: 'calc(var(--sat, 0px) + 14px)', left: '50%', transform: 'translateX(-50%)' }}
     >
@@ -915,6 +918,7 @@ const SpeedPanel = memo(function SpeedPanel({
 
   return (
     <div
+      data-editable="nav.speed-cluster" data-editable-type="gauge"
       className={`absolute right-4 z-30 pointer-events-none flex items-center gap-2.5 ${
         dense ? 'flex-row-reverse' : 'flex-col'
       }`}
@@ -1255,6 +1259,7 @@ const PreviewCard = memo(function PreviewCard({
 
   return (
     <div
+      data-editable="nav.summary" data-editable-type="card"
       className="absolute inset-x-4 z-30 pointer-events-auto animate-in zoom-in-95 fade-in duration-500"
       style={{ bottom: 'calc(var(--lp-dock-h, 68px) + 20px)' }}
     >

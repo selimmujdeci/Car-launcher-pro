@@ -35,7 +35,11 @@ export type ThemeSurfaceId =
      onları hiç görmüyordu. */
   | 'climate'
   | 'phone'
-  | 'apps';
+  | 'apps'
+  /* PR-2b: en çok bakılan iki ekran. `nav` GÜVENLİK YÜZEYİDİR — manevra kartı,
+     hız kümesi ve tehlike uyarısı `locked` işaretlidir (gizlenemez). */
+  | 'media'
+  | 'nav';
 
 export interface ThemeSurfaceInfo {
   id: ThemeSurfaceId;
@@ -58,6 +62,8 @@ export const THEME_SURFACES: readonly ThemeSurfaceInfo[] = [
   { id: 'climate', label: 'İklim Kontrolü', perTheme: false },
   { id: 'phone', label: 'Telefon / Rehber', perTheme: false },
   { id: 'apps', label: 'Uygulamalar', perTheme: false },
+  { id: 'media', label: 'Müzik / Medya', perTheme: false },
+  { id: 'nav', label: 'Navigasyon / Harita', perTheme: false },
 ];
 
 /* ── Bileşen tipleri + yetenekleri ────────────────────────────────── */
@@ -266,6 +272,34 @@ const SHARED_COMPONENTS: ThemeComponentInfo[] = [
   { id: 'apps.header', surface: 'apps', type: 'header', label: 'Başlık', themes: null },
   { id: 'apps.grid', surface: 'apps', type: 'panel', label: 'Izgara Kabı', themes: null },
   { id: 'apps.tile', surface: 'apps', type: 'card', label: 'Uygulama Kartları (tümü)', themes: null },
+
+  /* ── Müzik / Medya (PR-2b) ─────────────────────────────────────────── */
+  { id: 'media.screen', surface: 'media', type: 'panel', label: 'Medya Ekranı (tüm sayfa)', themes: null },
+  { id: 'media.tabbar', surface: 'media', type: 'dock', label: 'Sekme Çubuğu', themes: null },
+  { id: 'media.tab-button', surface: 'media', type: 'dock', label: 'Sekme Butonları (tümü)', themes: null },
+  { id: 'media.player', surface: 'media', type: 'panel', label: 'Oynatıcı Sayfası', themes: null },
+  { id: 'media.source-badge', surface: 'media', type: 'card', label: 'Kaynak Rozeti', themes: null },
+  { id: 'media.album-art', surface: 'media', type: 'card', label: 'Albüm Kapağı', themes: null },
+  { id: 'media.track-info', surface: 'media', type: 'card', label: 'Şarkı Bilgisi', themes: null },
+  { id: 'media.progress', surface: 'media', type: 'card', label: 'İlerleme Çubuğu', themes: null },
+  { id: 'media.transport', surface: 'media', type: 'card', label: 'Oynatma Kontrolleri', themes: null },
+  { id: 'media.sources-page', surface: 'media', type: 'panel', label: 'Kaynaklar Sayfası', themes: null },
+  { id: 'media.source-card', surface: 'media', type: 'card', label: 'Kaynak Kartları (tümü)', themes: null },
+
+  /* ── Navigasyon / Harita (PR-2b) ───────────────────────────────────────
+     GÜVENLİK SINIRI (vizyon anayasası: güvenlik-kritik katmanlar korunur):
+     manevra kartı · hız/hız-limiti kümesi · tehlike uyarısı `locked`tır →
+     `propsForComponent` bunlardan `visible` yeteneğini DÜŞÜRÜR, yani tema ile
+     GİZLENEMEZLER. Renk/yazı/köşe düzenlenebilir; VARLIKLARI pazarlık dışıdır.
+     (Anlamlı renkler — kırmızı aşım, amber dikkat — zaten yazı rengi kanalından
+     etkilenmez; bkz. #650.) */
+  { id: 'nav.screen', surface: 'nav', type: 'panel', label: 'Harita Ekranı (tüm sayfa)', themes: null, locked: true },
+  { id: 'nav.maneuver', surface: 'nav', type: 'card', label: 'Manevra Kartı (dönüş talimatı)', themes: null, locked: true },
+  { id: 'nav.speed-cluster', surface: 'nav', type: 'gauge', label: 'Hız + Hız Limiti Kümesi', themes: null, locked: true },
+  { id: 'nav.hazard', surface: 'nav', type: 'card', label: 'Tehlike Uyarısı', themes: null, locked: true },
+  { id: 'nav.current-street', surface: 'nav', type: 'card', label: 'Bulunulan Sokak', themes: null },
+  { id: 'nav.street-bar', surface: 'nav', type: 'card', label: 'Cadde Adı Barı', themes: null },
+  { id: 'nav.summary', surface: 'nav', type: 'card', label: 'Rota Özet / Varış Kartı', themes: null },
 ];
 
 export const THEME_COMPONENTS: readonly ThemeComponentInfo[] = [...HOME_COMPONENTS, ...SHARED_COMPONENTS];

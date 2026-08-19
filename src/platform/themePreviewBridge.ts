@@ -35,6 +35,7 @@ import { useCarTheme, type CarTheme } from '../store/useCarTheme';
 import { applyIncomingThemeManifest } from './theme/themeRuntime';
 import { THEME_COMPONENTS, type ThemeSurfaceId } from './theme/themeComponentRegistry';
 import { openDrawer } from './drawerBus';
+import { setFullMapView } from './mapViewBus';
 import type { DrawerType } from '../components/layout/DockBar';
 
 const TRUSTED = [
@@ -75,6 +76,10 @@ const SURFACE_DRAWER: Partial<Record<ThemeSurfaceId, DrawerType>> = {
   climate:       'climate',
   phone:         'phone',
   apps:          'apps',
+  media:         'music',
+  /* Harita ÇEKMECE DEĞİLDİR — tam ekran görünümdür. Çekmeceler kapatılır,
+     tam ekran harita ayrıca `mapViewBus` ile açılır (aşağıya bakın). */
+  nav:           'none',
 };
 
 let installed = false;
@@ -251,6 +256,10 @@ export function initThemePreviewBridge(): void {
           // Bilinmeyen yüzey → HİÇBİR ŞEY yapılmaz (rastgele ekran açılmaz).
           if (hedef === undefined) break;
           try { openDrawer(hedef); } catch { /* fail-soft: gezinme ölçümü bozmaz */ }
+          /* Harita yüzeyi çekmece DEĞİL, tam ekran görünümdür — ayrı yol.
+             Diğer yüzeylere geçilirken KAPATILIR, yoksa harita üstte kalıp
+             seçilen ekranı örter ve ölçüm yanlış kutuları bildirir. */
+          try { setFullMapView(sid === 'nav'); } catch { /* fail-soft */ }
           scheduleProbe();
           break;
         }

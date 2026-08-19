@@ -29,6 +29,7 @@ import { GoldenHourAccent } from './GoldenHourAccent';
 import { SleepOverlay } from './SleepOverlay';
 import type { DrawerType } from './DockBar';
 import { registerDrawerHandler, unregisterDrawerHandler } from '../../platform/drawerBus';
+import { registerMapViewHandler, unregisterMapViewHandler } from '../../platform/mapViewBus';
 // DriveHUD kaldırıldı
 // DrawerPanel lazy-loaded — ilk render'da bundle parse yükü yoktur
 const DrawerPanel      = lazyWithRetry(() => import('./DrawerPanel').then((m) => ({ default: m.DrawerPanel })));
@@ -255,6 +256,14 @@ export default function MainLayout() {
   useEffect(() => {
     registerDrawerHandler(setDrawer);
     return () => { unregisterDrawerHandler(); };
+  }, []);
+
+  /* Harita görünümü veri yolu — `drawerBus` ile AYNI desen (#652).
+     Harita bir çekmece değildir; Tema Stüdyo önizlemesi "Navigasyon" yüzeyini
+     seçtiğinde tam ekran haritayı bu yoldan açar. */
+  useEffect(() => {
+    registerMapViewHandler(setFullMapOpen);
+    return () => { unregisterMapViewHandler(); };
   }, []);
 
 

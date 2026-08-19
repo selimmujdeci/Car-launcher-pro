@@ -65,6 +65,10 @@ const WIRED_SOURCES = [
   'src/components/climate/ClimateScreen.tsx',
   'src/components/phone/PhoneScreen.tsx',
   'src/components/apps/AppGrid.tsx',
+  // PR-2b
+  'src/components/media/MediaScreen.tsx',
+  'src/components/map/FullMapView.tsx',
+  'src/components/map/NavigationHUD.tsx',
 ];
 
 const ALL_SOURCE = WIRED_SOURCES.map(readRepo).join('\n');
@@ -151,5 +155,54 @@ describe('Stüdyo önizlemesi seçilen EKRANA gider', () => {
       expect(studio, 'PWA çekmece kimliği taşıyor — eşleme ikiye bölünmüş: ' + cekmece)
         .not.toContain("'" + cekmece + "'");
     }
+  });
+});
+
+/* ── Güvenlik sınırı (PR-2b) ──────────────────────────────────────── */
+
+describe('tema güvenlik-kritik navigasyon yüzeylerini GİZLEYEMEZ', () => {
+  /* Vizyon anayasası: güvenlik-kritik katmanlar HER tier'da garanti açıktır.
+   * Tema bir görünüm katmanıdır — rengi/köşeyi değiştirebilir, ama sürücünün
+   * manevra talimatını, hız limitini veya tehlike uyarısını EKRANDAN
+   * KALDIRAMAZ. `locked` işareti `propsForComponent`ten `visible` yeteneğini
+   * düşürür; bu kilit işaretin sessizce kalkmasını engeller. */
+  const KORUNAN = ['nav.maneuver', 'nav.speed-cluster', 'nav.hazard', 'nav.screen'] as const;
+
+  it('KİLİT: korunan navigasyon bileşenleri `locked` işaretlidir', async () => {
+    const { getThemeComponent, propsForComponent } =
+      await import('../platform/theme/themeComponentRegistry');
+    for (const id of KORUNAN) {
+      const info = getThemeComponent(id);
+      expect(info, `kayıt defterinde yok: ${id}`).not.toBeNull();
+      expect(info!.locked, `${id} artık locked DEĞİL — tema ile gizlenebilir hâle geldi`).toBe(true);
+      expect(propsForComponent(info!), `${id} için 'visible' yeteneği açılmış`).not.toContain('visible');
+    }
+  });
+});
+
+describe('harita yüzeyi önizlemede GERÇEKTEN açılır (#652)', () => {
+  /* Harita bir çekmece değildir; `drawerBus` onu açamaz. Bu yol olmasaydı
+   * "Navigasyon / Harita" seçilince önizleme ana ekranda kalır ve kullanıcı
+   * manevra kartını KÖRLEMESİNE düzenlerdi — kapattığımız kusurun aynısı. */
+  const bridge = readRepo('src/platform/themePreviewBridge.ts');
+  const layout = readRepo('src/components/layout/MainLayout.tsx');
+
+  it('köprü harita görünümünü açar/kapatır', () => {
+    expect(bridge, 'setFullMapView çağrısı yok — nav yüzeyi seçilince harita açılmaz')
+      .toContain('setFullMapView(');
+  });
+
+  it("KİLİT: nav DIŞINDAKİ yüzeye geçilince harita KAPATILIR", () => {
+    /* Açık kalırsa harita üstte durur, seçilen ekranı örter ve ölçüm yanlış
+       kutuları bildirir (kullanıcı görünmeyen bir şeyi düzenler). */
+    expect(bridge, 'harita koşulsuz açılıyor — başka ekrana geçince kapanmaz')
+      .toContain("setFullMapView(sid === 'nav')");
+  });
+
+  it('MainLayout veri yoluna kendini kaydeder (sahipsiz yol değil)', () => {
+    expect(layout, 'registerMapViewHandler çağrılmıyor — veri yolu sahipsiz, çağrı sessizce düşer')
+      .toContain('registerMapViewHandler(setFullMapOpen)');
+    expect(layout, 'unregisterMapViewHandler yok — zero-leak ihlali (zombi handler)')
+      .toContain('unregisterMapViewHandler()');
   });
 });
