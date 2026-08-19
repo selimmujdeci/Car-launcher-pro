@@ -302,3 +302,49 @@ describe('themeManifest — v1 taşıma', () => {
     expect(Object.keys(manifestToCssVars(m))).toHaveLength(0);
   });
 });
+
+describe('yazı rengi gerçekten uygulanır (#650 — saha: "yazılar renk değiştirmiyor")', () => {
+  /* KÖK: tema düzenleri yazı rengini INLINE STYLE ile verir ve değeri paletten
+   * alır; palet değişkene bağlıdır (`ink: 'var(--text-primary, …)'`). Yani her
+   * yazı düğümü kendi `color`unu KENDİ üzerinde tanımlar → kartın kökündeki
+   * `color` bildirimi ona miras KALMAZ. Eski üretici yalnız `color` yazıyordu,
+   * `--text-primary` YAZMIYORDU → seçilen renk hiçbir yazıya ulaşmıyordu. */
+
+  it('KİLİT: textColor `--text-primary` değişkenini de yazar (paletin okuduğu kanal)', () => {
+    const css = componentStyleToCss('expedition.vehicle', {
+      ...EMPTY_COMPONENT_STYLE, textColor: '#FF0000',
+    });
+    expect(css, 'color bildirimi kayboldu — değişkeni kullanmayan düğümler boyanmaz')
+      .toMatch(/color:\s*#FF0000\s*!important/);
+    expect(css, '--text-primary yazılmıyor — palet var(--text-primary) okuduğu için hiçbir yazı değişmez')
+      .toMatch(/--text-primary:\s*#FF0000/);
+  });
+
+  it('KİLİT: textSecondaryColor `--text-secondary` yazar', () => {
+    const css = componentStyleToCss('expedition.vehicle', {
+      ...EMPTY_COMPONENT_STYLE, textSecondaryColor: '#00FF00',
+    });
+    expect(css).toMatch(/--text-secondary:\s*#00FF00/);
+  });
+
+  it('KİLİT: blanket `sel *` renk kuralı KURULMAZ — uyarı/kritik renkleri ezerdi', () => {
+    /* Kolay çözüm `${sel} * { color: X !important }` olurdu ve ÇALIŞIRDI, ama
+     * `var(--oem-warn)` ile boyanan düşük akü değerini ve `inkCritical` ile
+     * boyanan kritik metni de ezerdi → güvenlik anlamı yok olurdu. Değişken
+     * yolu bu renkleri doğası gereği korur. Bu kilit kolay çözüme dönüşü
+     * engeller. */
+    const css = componentStyleToCss('expedition.vehicle', {
+      ...EMPTY_COMPONENT_STYLE, textColor: '#FF0000',
+    });
+    expect(css, 'blanket alt-öğe renk kuralı eklenmiş — anlamlı renkler (uyarı/kritik) eziliyor')
+      .not.toMatch(/\*\s*\{[^}]*color:\s*#FF0000/);
+  });
+
+  it('KİLİT: renk seçilmemişse yazı değişkeni HİÇ yazılmaz (sahte varsayılan yok)', () => {
+    const css = componentStyleToCss('expedition.vehicle', {
+      ...EMPTY_COMPONENT_STYLE, radius: 10,
+    });
+    expect(css).not.toMatch(/--text-primary/);
+    expect(css).not.toMatch(/--text-secondary/);
+  });
+});

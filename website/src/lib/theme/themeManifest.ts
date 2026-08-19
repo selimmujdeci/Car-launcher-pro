@@ -926,7 +926,31 @@ export function componentStyleToCss(id: string, s: ComponentStyle): string {
   if (s.borderColor) decls.push(`border-color: ${s.borderColor} !important;`);
   if (s.borderWidth !== null) decls.push(`border-width: ${s.borderWidth}px !important;`, 'border-style: solid !important;');
   if (s.radius !== null) decls.push(`border-radius: ${s.radius}px !important;`);
-  if (s.textColor) decls.push(`color: ${s.textColor} !important;`);
+  /* YAZI RENGİ — `color` TEK BAŞINA YETMEZ (saha kusuru, 2026-08-19).
+   *
+   * KULLANICI: *"yazılar renk değiştirmiyor"*. Ölçüm: tema düzenleri yazı
+   * rengini INLINE STYLE ile verir ve değeri paletten alır; palet ise
+   * değişkene bağlıdır:
+   *     ink:  'var(--text-primary,  #EDE4D2)'
+   *     ink2: 'var(--text-secondary, #A89678)'
+   * Yani her yazı düğümü kendi `color`unu KENDİ üzerinde tanımlar → kartın
+   * kökündeki `color` bildirimi ona ASLA miras kalmaz. `--text-primary` ise
+   * yalnız `<html>` üzerinde tanımlıydı, kart üzerinde DEĞİL → kullanıcının
+   * seçtiği renk hiçbir yazıya ulaşmıyordu. (`--text-secondary` zaten
+   * yazılıyordu; ölü olan BİRİNCİL yoldu.)
+   *
+   * Çözüm paletin ZATEN okuduğu kanaldan gider: değişken kartın kökünde
+   * tanımlanır, alt yazılar miras alır. Blanket `sel *` kuralı BİLEREK
+   * kullanılmadı — o kural uyarı/kritik renkleri de ezerdi (`var(--oem-warn)`,
+   * `inkCritical`), yani güvenlik anlamını yok ederdi. Bu yolla anlamlı
+   * renkler doğası gereği korunur.
+   *
+   * `color` bildirimi de KORUNUR: değişkeni kullanmayan, rengi miras alan
+   * düğümler (düz metin, `currentColor`) onunla boyanır. */
+  if (s.textColor) {
+    decls.push(`color: ${s.textColor} !important;`);
+    decls.push(`--text-primary: ${s.textColor};`);
+  }
   if (s.textSecondaryColor) decls.push(`--text-secondary: ${s.textSecondaryColor};`);
   if (s.accentColor) {
     decls.push(`--pack-accent: ${s.accentColor};`);
