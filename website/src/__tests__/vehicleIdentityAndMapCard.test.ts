@@ -133,6 +133,13 @@ describe('#661 · harita kabı ÇÖKMEZ (siyah ekran kilidi)', () => {
   });
 
   it('KİLİT: harita kabı sarmalayıcıyı tamamen kaplar', () => {
-    expect(liveMap).toContain('<div ref={containerRef} className="absolute inset-0"');
+    /* #664'te GÜNCELLENDİ (zayıflatılmadı): kabın tam kaplaması hâlâ şart, ama
+       bunu SINIFLA yapmak ÖLÜ bir kuraldı — MapLibre'nin kendi stil sayfası
+       `.maplibregl-map { position: relative }` taşır ve Tailwind utilities'ten
+       SONRA yerleşir, yani `absolute inset-0` sınıfı eziliyordu (ölçüldü:
+       kap height=0, canvas görünmüyor). Kilit artık INLINE konumlandırmayı
+       doğrular; kaplama şartı korunuyor, aracı değişti. */
+    expect(liveMap).toMatch(/ref=\{containerRef\}[\s\S]{0,200}position: 'absolute'/);
+    expect(liveMap).toMatch(/top: 0, right: 0, bottom: 0, left: 0/);
   });
 });

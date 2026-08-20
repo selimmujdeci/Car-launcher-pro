@@ -117,3 +117,27 @@ describe('#663 · sökülen tiyatro geri gelmez', () => {
     expect(src).toContain('sunucuda saklanmaz');
   });
 });
+
+describe('#664 · harita kabı çökmez (ölçülmüş kök)', () => {
+  const liveMap = read('src/components/map/LiveMap.tsx');
+
+  it('KİLİT: harita kabının konumlandırması INLINE verilir, sınıfla DEĞİL', () => {
+    /* ÖLÇÜLDÜ (Playwright, izole sayfa): MapLibre'nin kendi stil sayfası
+       `.maplibregl-map { position: relative }` kuralını taşır ve Next.js onu
+       Tailwind utilities'ten SONRA yerleştirir. Kaba `absolute inset-0` SINIFI
+       verildiğinde bu kural kazanıyor, `inset-0` ölüyor ve kap `height: 0`
+       kalıyordu: canvas oluşuyor, kontroller çiziliyor, ama harita hiç
+       görünmüyordu. Ölçüm: kap h=0 → düzeltme sonrası h=540. */
+    expect(liveMap).toMatch(/ref=\{containerRef\}[\s\S]{0,220}position: 'absolute'/);
+    expect(liveMap).not.toMatch(/ref=\{containerRef\}\s+className="absolute inset-0"/);
+  });
+
+  it('KİLİT: yükleme zemini taban stiliyle uyumlu', () => {
+    expect(liveMap).toContain("activeStyle === 'clear'");
+  });
+
+  it('KİLİT: teşhis logları üründe kalmadı', () => {
+    expect(liveMap).not.toContain('MAPDBG');
+    expect(liveMap).not.toContain('console.log');
+  });
+});

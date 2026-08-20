@@ -384,7 +384,23 @@ export default function LiveMap({
      konumlandırılmış bir kutu vermek ZORUNDADIR (`absolute`/`relative`). */
   return (
     <div className={className}>
-      <div ref={containerRef} className="absolute inset-0" style={{ background: '#0d1117' }} />
+      {/* ⚠️ KONUMLANDIRMA INLINE VERİLİR — SINIFLA DEĞİL (#664).
+          MapLibre'nin kendi stil sayfası `.maplibregl-map { position: relative }`
+          kuralını taşır ve Next.js onu Tailwind utilities'ten SONRA yerleştirir;
+          yani `absolute inset-0` sınıfı ÖLÜDÜR. ÖLÇÜLDÜ (Playwright, /maptest):
+          kap `position: relative`, `height: 0` → canvas oluşuyor ama hiç
+          görünmüyor. Ekranda kontroller ve lejant çıkıp haritanın boş kalmasının
+          sebebi buydu. Inline stil MapLibre'nin kuralını ezer. */}
+      <div
+        ref={containerRef}
+        style={{
+          position: 'absolute',
+          top: 0, right: 0, bottom: 0, left: 0,
+          /* Karolar gelene kadar görünen zemin — taban stiliyle uyumlu,
+             aksi hâlde gündüz temasında "Net" tabanda koyu bir kare flaşlar. */
+          background: activeStyle === 'clear' ? '#e8e6e1' : '#0d1117',
+        }}
+      />
 
       {showStyleToggle && (
         <div
