@@ -339,3 +339,31 @@ describe('#662 · tasarım sistemi sabitleri', () => {
     expect(chart).toContain('function Facet');
   });
 });
+
+describe('#662 · konsola giden yol AÇIK (erişilebilirlik değil, ulaşılabilirlik)', () => {
+  const read = (rel: string) => readFileSync(resolve(process.cwd(), rel), 'utf8');
+
+  it('KİLİT: telefon alt navigasyonunda Filo sekmesi VAR', () => {
+    /* Saha kusuru: konsol kuruldu, deploy edildi, canlıda çalışıyordu — ama
+       telefondaki birincil navigasyonda ona giden sekme YOKTU. Kullanıcı yeni
+       paneli hiç görmedi ve "değişen bir şey yok" dedi. Yüzey kurup ona giden
+       yolu açmamak, bu projede tekrarlanan "motor var, besleyen yok" desenidir. */
+    const nav = read('src/components/layout/BottomNav.tsx');
+    expect(nav).toContain("href: '/dashboard/fleet'");
+    expect(nav).toContain("label: 'Filo'");
+  });
+
+  it('KİLİT: masaüstü kenar çubuğunda da Filo girişi VAR', () => {
+    expect(read('src/components/layout/Sidebar.tsx')).toContain("href: '/dashboard/fleet'");
+  });
+
+  it('KİLİT: konsol sekmeleri yedi bölümün tamamını gösterir', () => {
+    const layout = read('src/app/dashboard/fleet/layout.tsx');
+    for (const href of [
+      '/dashboard/fleet/vehicles', '/dashboard/fleet/records', '/dashboard/fleet/alerts',
+      '/dashboard/fleet/reports', '/dashboard/fleet/manage', '/dashboard/fleet/settings',
+    ]) {
+      expect(layout).toContain(href);
+    }
+  });
+});

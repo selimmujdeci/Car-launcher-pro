@@ -30,6 +30,23 @@ const items = [
     ),
   },
   {
+    /* KANIT KONSOLU — telefonun BİRİNCİL navigasyonuna bağlıdır (#662).
+       Konsol kurulduğunda buraya eklenmemişti: kullanıcı yeni panelin
+       varlığını göremedi ("değişen bir şey yok"), çünkü telefonda ona giden
+       tek yol hamburger → Sidebar'dı. Yüzey kurup ona giden yolu açmamak,
+       bu projede defalarca yakalanan "motor var, besleyen yok" desenidir. */
+    href: '/dashboard/fleet',
+    label: 'Filo',
+    icon: (
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+        <path d="M2.5 10a7.5 7.5 0 0115 0" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+        <path d="M10 10l3.5-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+        <circle cx="10" cy="10" r="1.4" fill="currentColor"/>
+        <path d="M2.5 10v4.5a1 1 0 001 1h13a1 1 0 001-1V10" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/>
+      </svg>
+    ),
+  },
+  {
     href: '/dashboard/map',
     label: 'Harita',
     icon: (
