@@ -12,6 +12,11 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import {
+  formatMeasurementValue,
+  measurementLabel,
+  SPEED_NOISE_FLOOR_KMH,
+} from '@/lib/fleet/vehicleTelemetryFreshness';
 
 const read = (rel: string) => readFileSync(resolve(process.cwd(), rel), 'utf8');
 
@@ -179,5 +184,50 @@ describe('#665 · harita teması ve kartı', () => {
   it('KİLİT: haritada araç noktası kart açar (dokunma hedefi dahil)', () => {
     expect(liveMap).toContain("'vehicle-hit'");
     expect(liveMap).toContain("map.on('click', 'vehicle-hit'");
+  });
+});
+
+describe('#666 · ölçüm gösterimi ham değer BASMAZ', () => {
+  it('KİLİT: hız birime göre yuvarlanır — ham GPS ondalığı ekrana çıkmaz', () => {
+    /* Saha: ekranda `1.57855 km/h` görünüyordu. Sebep GPS: hız `m/s × 3.6`
+       ile üretilir, yani ondalıklıdır (OBD `010D` tam sayıdır — kusur bu
+       yüzden aralıklı görünürdü). APK tarafında #548'de düzeltilen kusurun
+       web karşılığı; çözüm aynı: TEK biçimleyici. */
+    expect(formatMeasurementValue(1.57855, 'km/h')).toBe('0');
+    expect(formatMeasurementValue(67.1544, 'km/h')).toBe('67');
+    expect(formatMeasurementValue(67.9, 'km/h')).toBe('68');
+  });
+
+  it('KİLİT: durağan araçta GPS gürültüsü hareket olarak GÖSTERİLMEZ', () => {
+    /* ±2 m hassasiyetli GPS park hâlinde 1–3 km/h "hareket" üretir; olduğu
+       gibi basmak duran aracı hareket ediyormuş gibi gösterir. Ham değer
+       `Measurement.value` içinde KANIT olarak korunur, yalnız gösterim kırpılır
+       — bu, "bilinmeyeni 0 yapmak" (sahte 0) DEĞİLDİR. */
+    expect(SPEED_NOISE_FLOOR_KMH).toBe(3);
+    expect(formatMeasurementValue(2.9, 'km/h')).toBe('0');
+    expect(formatMeasurementValue(3.4, 'km/h')).toBe('3');
+  });
+
+  it('KİLİT: gürültü tabanı YALNIZ hıza uygulanır', () => {
+    expect(formatMeasurementValue(2.4, '°C')).toBe('2');
+    expect(formatMeasurementValue(2.4, '%')).toBe('2');
+    expect(formatMeasurementValue(12.64, 'V')).toBe('12.6');
+    expect(formatMeasurementValue(776.3, 'rpm')).toBe('776');
+  });
+
+  it('KİLİT: ölçüm etiketi biçimleyiciyi kullanır (bayat/çevrimdışı eki korunur)', () => {
+    const m = { value: 1.57855, state: 'LIVE', observedAt: 1, ageMs: 1, source: 'HEAD_UNIT_GPS' } as const;
+    expect(measurementLabel(m, 'km/h')).toBe('0 km/h');
+    const stale = { ...m, state: 'STALE' } as const;
+    expect(measurementLabel(stale, 'km/h')).toBe('0 km/h · eski veri');
+  });
+
+  it('KİLİT: ham değer basan gösterim noktası kalmadı', () => {
+    for (const rel of [
+      'src/components/dashboard/VehicleCard.tsx',
+      'src/components/console/primitives.tsx',
+    ]) {
+      expect(read(rel), rel).toContain('formatMeasurementValue');
+    }
   });
 });

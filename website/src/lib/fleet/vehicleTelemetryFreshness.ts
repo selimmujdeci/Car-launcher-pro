@@ -386,13 +386,49 @@ export function locationLabel(f: VehicleFreshness): string {
   return 'Konum okunamadı';
 }
 
+/* ── Gösterim hassasiyeti (#666) ───────────────────────────────────────────
+   Kusur: ham değer YUVARLANMADAN basılıyordu ve ekranda `1.57855 km/h`
+   görünüyordu. Sebep GPS: hız `m/s × 3.6` ile üretilir, yani ONDALIKLIDIR
+   (OBD `010D` tam sayı döner — kusur bu yüzden aralıklı görünüyordu).
+   Bu, APK tarafında #548'de düzeltilen kusurun web karşılığıdır; oradaki
+   çözümle aynı: TEK biçimleyici, birime göre hassasiyet. */
+
+/** Birim başına gösterilecek ondalık hane. Bilinmeyen birim 1 haneye düşer. */
+const UNIT_DIGITS: Readonly<Record<string, number>> = {
+  'km/h': 0, '%': 0, '°C': 0, 'rpm': 0, 'sn': 0, 'm': 0, '': 0,
+  V: 1, volt: 1, L: 1, kWh: 1,
+};
+
+/**
+ * GPS GÜRÜLTÜ TABANI — durağan araç sıfır okumaz.
+ *
+ * ±2 m hassasiyetli bir GPS, park hâlindeki araçta tipik olarak 1–3 km/h
+ * "hareket" üretir. Bunu olduğu gibi basmak, duran aracı hareket ediyormuş
+ * gibi göstermektir (kullanıcı: *"sabit duruyorum"*). Eşiğin ALTI `0` yazılır.
+ *
+ * Bu SAHTE 0 DEĞİLDİR: sahte 0, BİLİNMEYENİ sıfır yapmaktır ve burada ölçüm
+ * vardır — yapılan şey, ölçüm belirsizliğini gösterime yansıtmaktır. Ham değer
+ * `Measurement.value` içinde KANIT olarak korunur; yalnız GÖSTERİM kırpılır.
+ * Aynı ilke araç tarafında da uygulanır (hayalet hız kapısı).
+ */
+export const SPEED_NOISE_FLOOR_KMH = 3;
+
+/** Ölçüm değerini birime göre gösterime hazırlar (yuvarlama + gürültü tabanı). */
+export function formatMeasurementValue(value: number, unit: string): string {
+  if (!Number.isFinite(value)) return '—';
+  if (unit === 'km/h' && Math.abs(value) < SPEED_NOISE_FLOOR_KMH) return '0';
+  const digits = UNIT_DIGITS[unit] ?? 1;
+  const rounded = Number(value.toFixed(digits));
+  return rounded.toFixed(digits);
+}
+
 /**
  * Ölçüm metni. `null` → "Veri yok"; ölçülen `0` → "0 <birim>".
  * Bayat değer gösterilir ama ETİKETLENİR — sessizce canlı gibi sunulmaz.
  */
 export function measurementLabel(m: Measurement, unit: string): string {
   if (m.value === null) return 'Veri yok';
-  const value = `${m.value} ${unit}`.trim();
+  const value = `${formatMeasurementValue(m.value, unit)} ${unit}`.trim();
   if (m.state === 'LIVE') return value;
   if (m.state === 'STALE') return `${value} · eski veri`;
   if (m.state === 'OFFLINE') return `${value} · araç çevrimdışı`;

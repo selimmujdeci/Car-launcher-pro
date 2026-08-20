@@ -14,6 +14,7 @@
 import type { LiveVehicle } from '@/types/realtime';
 import { vehicleTitle, vehicleSubtitle, isFallbackTitle } from '@/lib/vehicleDisplay';
 import {
+  formatMeasurementValue,
   measurementLabel,
   locationLabel,
   dataSourceLabel,
@@ -142,7 +143,8 @@ function Metric({ label, m, unit }: { label: string; m: Measurement | undefined;
         className="cn-num text-[14px] mt-1"
         style={{ color: known ? (m!.state === 'LIVE' ? 'var(--cn-text-1)' : 'var(--cn-text-3)') : 'var(--cn-unknown)' }}
       >
-        {known ? `${m!.value}${unit ? ` ${unit}` : ''}` : <span className="text-[10px]">YOK</span>}
+        {/* Ham değer BASILMAZ — tek biçimleyiciden geçer (#666). */}
+        {known ? `${formatMeasurementValue(m!.value as number, unit)}${unit ? ` ${unit}` : ''}` : <span className="text-[10px]">YOK</span>}
       </div>
     </div>
   );

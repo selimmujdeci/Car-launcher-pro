@@ -10,6 +10,7 @@
  */
 
 import type { ReactNode } from 'react';
+import { formatMeasurementValue } from '@/lib/fleet/vehicleTelemetryFreshness';
 import {
   agoLabel,
   evidenceLine,
@@ -224,9 +225,11 @@ export function LedgerRow({
       </div>
       <div className="text-right">
         <div className="cn-num text-[15px]" style={{ color: TOKEN_COLOR[token] }}>
+          {/* Ham değer BASILMAZ — tek biçimleyiciden geçer (#666): birime göre
+              yuvarlar ve hızda GPS gürültü tabanını uygular. */}
           {reading.value === null
             ? '—'
-            : `${reading.value.toFixed(precision)}${unit ? ` ${unit}` : ''}`}
+            : `${formatMeasurementValue(reading.value, unit)}${unit ? ` ${unit}` : ''}`}
         </div>
         <div className="mt-1">
           <EvidenceBadge verdict={reading.verdict} compact />
