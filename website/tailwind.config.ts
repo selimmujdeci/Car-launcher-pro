@@ -30,10 +30,29 @@ const config: Config = {
         'emerald-ink': 'var(--st-emerald-ink)',
         'violet-ink': 'var(--st-violet-ink)',
         'amber-ink': 'var(--st-amber-ink)',
+
+        /* ── KANIT KONSOLU (filo paneli) ─────────────────────────────────
+           Gece/gündüz iki palet; değerler `[data-console]` kapsamında
+           tanımlıdır (globals.css). Pazarlama tokenlarıyla KARIŞMAZ. */
+        void:        'var(--cn-bg-void)',
+        panel:       'var(--cn-bg-panel)',
+        bezel:       'var(--cn-bg-bezel)',
+        hair:        'var(--cn-line)',
+        'hair-soft': 'var(--cn-line-soft)',
+        t1:          'var(--cn-text-1)',
+        t2:          'var(--cn-text-2)',
+        t3:          'var(--cn-text-3)',
+        copper:      'var(--cn-copper)',
+        'copper-ink':'var(--cn-copper-ink)',
+        verified:    'var(--cn-verified)',
+        warning:     'var(--cn-warning)',
+        critical:    'var(--cn-critical)',
+        unknown:     'var(--cn-unknown)',
       },
       fontFamily: {
         sans: ['var(--font-sans)', 'Inter', 'system-ui', 'sans-serif'],
         mono: ['var(--font-mono)', 'JetBrains Mono', 'monospace'],
+        display: ['var(--font-display)', 'Fraunces', 'Georgia', 'serif'],
       },
       letterSpacing: {
         tightest: '-0.03em',

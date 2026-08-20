@@ -216,6 +216,44 @@ DOĞRULANDI 6 · SAHADA DOĞRULANDI 1 · **ÜRÜN HAZIR: 1**
   **Süreç notu:** #636 ve #637 commit'lenmiş ama **kütük maddesi yazılmamıştı**;
   bu boşluk aynı turda kapatıldı (anayasa: kod değil KÜTÜK saha otoritesidir).
 
+- **FİLO PANELİ "KANIT KONSOLU" OLARAK YENİDEN KURULDU (2026-08-20, kütük 🔴 #662):**
+  website **1268 test yeşil**, `tsc` + `next build` temiz. Tarayıcıda/cihazda
+  doğrulanMADI → kütükte 🔴 bekliyor.
+
+  **Neden bu iş vizyonla hizalı:** CAROS PRO'nun ayırt edici iddiası "gösteren
+  değil, doğrulayan sistem"di; ama bu iddia bugüne dek yalnız *kodun içinde*
+  yaşıyordu (`vehicleTelemetryFreshness`, `sessionInspectorModel`). Filo
+  panelinde kullanıcı hâlâ generic bir SaaS ekranı görüyordu. Kanıt Konsolu,
+  o iddiayı **görsel dile** çevirir: kanıtsız metrik yeşil boyanmaz, gösterge
+  ibresi ölçüm yokken ortalamaya yaslanmaz, her sayının altında kaynağı ve
+  yaşı yazar.
+
+  **Yeni katman (7 ekran):** Genel Bakış · Araçlar · Araç Detay · Kayıtlar ·
+  Uyarılar · Raporlar · Yönetim · Ayarlar. Hepsi mevcut Supabase yüzeyinden
+  besleniyor; araç ve telemetri okuması `vehicleStore` TEK otoritesinden gelir
+  (#632/#660'ta ikinci kopya sahada sessiz ayrışma üretmişti — tekrarlanmadı).
+
+  **Üç yeni "dürüst düşüş" deseni ürüne girdi:**
+  1. **Üçlü DTC durumu** — "okunamadı" ≠ "tarama yok" ≠ "tarandı, kod çıkmadı".
+     Kısmi tarama boş liste ile "arıza yok" sayılmaz.
+  2. **Bayat ölçüm tavanı** — bayat veri `KANITLI` olamaz (en fazla `UYARI`),
+     ama kritik eşiği aşan bayat ölçüm kritik KALIR: güvenlik sinyali tazelik
+     yüzünden yumuşatılmaz.
+  3. **Türetim etiketi** — rapor serisi bir ölçüm değil türetimdir (geçmiş
+     sağlık saklanmıyor) ve ekran bunu cümleyle söyler.
+
+  **Ölçülen sınır — palet:** dayatılan gündüz paletinde kritik ↔ uyarı ayrımı
+  normal görüşte ΔE 13,5 (eşik 15), deutan 6,4. Palet tasarım sisteminin
+  sabiti olduğu için çözüm **formda** arandı: sağlık serisi iki seriyi ayrı
+  katlarda çizer, renk tek başına anlam taşımaz. Bu, "renk bir süs değil bir
+  hüküm" ilkesinin ölçüme dayalı ilk uygulamasıdır.
+
+  **AÇIK BORÇLAR (ekranda da yazılı):** bildirim türü tercihleri sunucuda
+  saklanmıyor · metrik geçmişi yok (`vehicle_telemetry` araç başına tek satır)
+  · eski `/dashboard/settings` ekranı hâlâ sahte profil alanları ve ölü
+  "Kaydet" düğmesi taşıyor · konsolun CAROS LAB gözlem ekranı YOK · üç
+  kırılımda tarayıcı doğrulaması yapılmadı.
+
 - **FİLO PANELİ ARAÇ KİMLİĞİ + HARİTA (2026-08-19, kütük 🔴 #661):**
   website **1230 test yeşil**, `tsc` + `next build` temiz. Telefonda test
   EDİLMEDİ → kütükte 🔴 bekliyor, "çalışıyor" DENMEZ.

@@ -3,7 +3,7 @@
  *
  * İki katman:
  *   A) `vehicleOfflineStatus` SAF modeli (I/O yok, saat enjekte).
- *   B) `/dashboard/fleet/vehicles` ilk-render kanıtı.
+ *   B) `/dashboard/fleet/company-vehicles` ilk-render kanıtı.
  *
  * YAKLAŞIM: @testing-library/react depoda YOK ve yeni bağımlılık eklenmez
  * (ticari lisans + bağımlılık disiplini). Proje konvansiyonu neyse o kullanılır:
@@ -314,7 +314,7 @@ vi.mock('@/lib/offline/vehicleCommandSource', () => ({
   readVehicleCommands: async () => ({ byVehicle: commandReading, readAt: NOW }),
 }));
 
-import FleetVehiclesPage from '@/app/dashboard/fleet/vehicles/page';
+import FleetVehiclesPage from '@/app/dashboard/fleet/company-vehicles/page';
 
 describe('B. Araç çevrimdışı — sayfa render kilitleri', () => {
   beforeEach(() => {

@@ -1,279 +1,209 @@
 'use client';
 
 /**
- * /dashboard/fleet/vehicles — FİLO ARAÇLARI · ATA · ÇIKAR + ÇEVRİMDIŞI DURUM.
+ * ARAÇ KAPSAMI — Kanıt Konsolu araç ızgarası (#662).
  *
- * Her araç kartı DÜRÜST durum gösterir: son görülme, sahiplik doğrulaması,
- * eşleştirme doğrulaması, bekleyen filo işlemi, bekleyen konum/olay, bekleyen
- * komutlar (evre evre), senkron durumu ve çakışma. Araç çevrimdışıyken
- * yapılamayacak işlem "başarılı" gibi GÖSTERİLMEZ.
- *
- * Tüm türetme `vehicleOfflineStatus` saf modelindedir — bu dosya yalnız
- * gösterir. Okunamayan alan "okunamadı" yazar; sahte 0 ÜRETİLMEZ.
+ * Her kart bir HÜKÜM taşır. Kanıtı olmayan araç yeşil boyanmaz; kartı gri
+ * kalır ve "KANIT YOK" der. Ölçüm okuması `vehicleStore`dan gelir.
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { useSessionUser } from '@/hooks/useSessionUser';
-import { useFleet } from '@/hooks/useFleet';
+import { useMemo, useState } from 'react';
+import Link from 'next/link';
+import { useVehicleStore } from '@/store/vehicleStore';
 import {
-  ConfirmDialog, StateCard, LoadingState, ErrorState, EmptyState,
-  PermissionDeniedState, OfflineBanner, PendingSyncBanner,
-} from '@/components/fleet/FleetUi';
+  judgeVehicle,
+  verdictLabel,
+  verdictToken,
+  agoLabel,
+  evidenceLine,
+  type Verdict,
+} from '@/lib/console/evidenceModel';
 import {
-  buildVehicleOfflineStatus, connectivityLabel, lastSeenLabel,
-  ownershipLabel, pairingLabel, syncStateLabel, commandPhaseLabel,
-  COMMAND_PHASES, type VehicleCommandRow, type CommandPhase,
-} from '@/lib/offline/vehicleOfflineStatus';
-import { readVehicleCommands } from '@/lib/offline/vehicleCommandSource';
+  Panel,
+  PanelHead,
+  EvidenceBadge,
+  StatusDot,
+  EmptyState,
+  ErrorState,
+  TOKEN_COLOR,
+} from '@/components/console/primitives';
+import { vehicleTitle, vehicleSubtitle, isFallbackTitle } from '@/lib/vehicleDisplay';
 
-const UNREADABLE = 'Okunamadı';
+type SortKey = 'verdict' | 'name' | 'lastSeen';
 
-/** Sayı ya da "okunamadı" — sahte 0 YAZILMAZ. */
-function countText(value: number | null, zeroLabel = 'Yok'): string {
-  if (value === null) return UNREADABLE;
-  return value === 0 ? zeroLabel : String(value);
-}
+const VERDICT_ORDER: Record<Verdict, number> = {
+  CRITICAL: 0, WARNING: 1, NO_EVIDENCE: 2, VERIFIED: 3,
+};
 
-export default function FleetVehiclesPage() {
-  const { userId, loading } = useSessionUser();
-  const fleet = useFleet(userId);
-  const [vehicleId, setVehicleId] = useState('');
-  const [confirmRemove, setConfirmRemove] = useState<{ id: string; label: string } | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
-  const [busy, setBusy]     = useState(false);
-  const [commands, setCommands] =
-    useState<Readonly<Record<string, readonly VehicleCommandRow[]>> | null>(null);
+export default function ConsoleVehiclesPage() {
+  const vehicles = useVehicleStore((s) => s.getList());
+  const loading = useVehicleStore((s) => s.loading);
+  const error = useVehicleStore((s) => s.error);
+  const [query, setQuery] = useState('');
+  const [sort, setSort] = useState<SortKey>('verdict');
 
-  const mountedRef = useRef(true);
-  useEffect(() => {
-    mountedRef.current = true;
-    return () => { mountedRef.current = false; };
-  }, []);
+  const rows = useMemo(() => {
+    const judged = vehicles.map((v) => ({
+      v,
+      j: judgeVehicle(v.telemetry, v.batteryVoltage ?? null),
+      offline: v.status === 'offline',
+    }));
 
-  // Komutlar: açılışta TEK okuma; abonelik/timer YOK (elle yenilenir).
-  const ids = fleet.vehicles.map((v) => v.vehicle_id).join(',');
-  const loadCommands = useCallback(async () => {
-    const list = ids.length > 0 ? ids.split(',') : [];
-    const reading = await readVehicleCommands(list, Date.now());
-    if (mountedRef.current) setCommands(reading.byVehicle);
-  }, [ids]);
-  useEffect(() => { void loadCommands(); }, [loadCommands]);
+    const needle = query.trim().toLocaleLowerCase('tr-TR');
+    const filtered = needle
+      ? judged.filter(({ v }) =>
+          `${vehicleTitle(v)} ${v.name} ${v.plate} ${v.driver}`
+            .toLocaleLowerCase('tr-TR')
+            .includes(needle),
+        )
+      : judged;
 
-  if (loading || fleet.phase === 'loading') return <LoadingState label="Araçlar yükleniyor…" />;
-  if (fleet.phase === 'error' && fleet.errorMessage) return <ErrorState message={fleet.errorMessage} />;
-  if (!fleet.company) {
-    return <StateCard title="Filonuz yok">Araç atamak için önce bir filo oluşturun.</StateCard>;
+    return [...filtered].sort((a, b) => {
+      if (sort === 'verdict') {
+        const d = VERDICT_ORDER[a.j.verdict] - VERDICT_ORDER[b.j.verdict];
+        if (d !== 0) return d;
+        return vehicleTitle(a.v).localeCompare(vehicleTitle(b.v), 'tr');
+      }
+      if (sort === 'name') return vehicleTitle(a.v).localeCompare(vehicleTitle(b.v), 'tr');
+      return (b.v.telemetry?.deviceLastSeenAt ?? b.v.lastTimestamp)
+        - (a.v.telemetry?.deviceLastSeenAt ?? a.v.lastTimestamp);
+    });
+  }, [vehicles, query, sort]);
+
+  if (loading) {
+    return <Panel><EmptyState title="ARAÇ KAPSAMI YÜKLENİYOR" /></Panel>;
   }
-  if (!fleet.can('vehicle.read')) return <PermissionDeniedState />;
-
-  async function run(action: () => Promise<{ ok: boolean; queued: boolean; message: string | null }>) {
-    setBusy(true);
-    const r = await action();
-    setBusy(false);
-    setNotice(r.ok ? (r.queued ? r.message : 'İşlem tamamlandı.') : r.message);
-  }
-
-  const now = Date.now();
 
   return (
-    <div className="space-y-5">
-      {fleet.phase === 'offline' ? <OfflineBanner pendingCount={fleet.pending.length} /> : null}
-      <PendingSyncBanner count={fleet.pending.length} onSync={() => void fleet.sync()} />
+    <div className="flex flex-col gap-3 lg:gap-4">
+      {error && <ErrorState message={`Araç verisi okunamadı: ${error}`} />}
 
-      {fleet.can('vehicle.assign') ? (
-        <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-6">
-          <h3 className="text-base font-semibold text-white">Aracı filoya ata</h3>
-          <p className="mt-1 text-sm text-white/60">
-            Yalnızca size veya filodaki bir üyeye ait araçlar filoya eklenebilir.
-            Henüz kimseye bağlanmamış bir araç önce eşleştirilmelidir.
-          </p>
-          <div className="mt-4 flex flex-col gap-3 sm:flex-row">
-            <input
-              value={vehicleId}
-              onChange={(e) => setVehicleId(e.target.value)}
-              placeholder="Araç kimliği"
-              className="flex-1 rounded-xl border border-white/15 bg-black/30 px-4 py-2.5 text-white placeholder:text-white/30 focus:border-sky-500 focus:outline-none"
-            />
-            <button
-              type="button"
-              disabled={busy || !vehicleId.trim()}
-              onClick={() => void run(async () => {
-                const r = await fleet.assignVehicle(vehicleId.trim());
-                if (r.ok) setVehicleId('');
-                return r;
-              })}
-              className="rounded-xl bg-sky-600 px-5 py-2.5 text-sm font-medium text-white hover:bg-sky-500 disabled:opacity-40"
-            >
-              Filoya ata
-            </button>
-          </div>
-        </div>
-      ) : null}
-
-      {notice ? <StateCard tone="info" title="Bilgi">{notice}</StateCard> : null}
-
-      {fleet.vehicles.length === 0 ? (
-        <EmptyState
-          title="Filoda araç yok"
-          hint="Araçlarınızı eşleştirdikten sonra buradan filoya atayabilirsiniz."
-        />
-      ) : (
-        <div className="space-y-3">
-          {fleet.vehicles.map((v) => {
-            const status = buildVehicleOfflineStatus({
-              vehicleId:  v.vehicle_id,
-              lastSeen:   v.last_seen,
-              ownerId:    v.owner_id,
-              viewerId:   userId,
-              queueItems: fleet.queueItems,
-              commands:   commands === null ? null : (commands[v.vehicle_id] ?? []),
-              now,
-            });
-            const online = status.connectivity === 'ONLINE';
-
-            return (
-              <div
-                key={v.vehicle_id}
-                data-testid="vehicle-card"
-                className="rounded-2xl border border-white/10 bg-white/[0.03] p-4"
+      <Panel>
+        <PanelHead
+          title="Araç kapsamı"
+          meta={`${rows.length} araç`}
+          action={
+            <div className="flex items-center gap-2">
+              <input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Ara: plaka, isim, sürücü"
+                aria-label="Araç ara"
+                className="cn-num text-[11px] px-2 py-1 bg-bezel text-t1 border border-hair w-40 sm:w-56 placeholder:text-t3"
+                style={{ borderRadius: 2 }}
+              />
+              <select
+                value={sort}
+                onChange={(e) => setSort(e.target.value as SortKey)}
+                aria-label="Sıralama"
+                className="cn-num text-[11px] px-2 py-1 bg-bezel text-t1 border border-hair"
+                style={{ borderRadius: 2 }}
               >
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className={`h-2 w-2 rounded-full ${online ? 'bg-emerald-400' : 'bg-white/25'}`} />
-                      <p className="truncate font-medium text-white">
-                        {v.name ?? v.plate ?? 'İsimsiz araç'}
-                      </p>
+                <option value="verdict">Önce acil</option>
+                <option value="name">Ada göre</option>
+                <option value="lastSeen">Son görülme</option>
+              </select>
+            </div>
+          }
+        />
+
+        {rows.length === 0 ? (
+          <EmptyState
+            title={vehicles.length === 0 ? 'FİLODA ARAÇ YOK' : 'ARAMAYA UYAN ARAÇ YOK'}
+            detail={
+              vehicles.length === 0
+                ? 'Araç eşleştirildiğinde kapsam burada belirir.'
+                : undefined
+            }
+          />
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-3 p-3">
+            {rows.map(({ v, j, offline }) => {
+              const token = offline ? 'unknown' : verdictToken(j.verdict);
+              return (
+                <Link
+                  key={v.id}
+                  href={`/dashboard/fleet/vehicles/${v.id}`}
+                  className="cn-panel p-4 flex flex-col gap-3 hover:bg-bezel transition-colors"
+                  style={{ borderColor: TOKEN_COLOR[token] }}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <StatusDot verdict={j.verdict} offline={offline} />
+                      <div className="min-w-0">
+                        <div className={`text-[15px] text-t1 truncate ${isFallbackTitle(v) ? 'cn-num' : 'cn-display'}`}>
+                          {vehicleTitle(v)}
+                        </div>
+                        <div className="cn-num text-[10px] text-t3 truncate">
+                          {vehicleSubtitle(v) ?? 'isim verilmedi'}
+                        </div>
+                      </div>
                     </div>
-                    <p className="truncate text-xs text-white/40">{v.vehicle_id}</p>
-
-                    <dl className="mt-3 grid gap-x-6 gap-y-1 text-sm sm:grid-cols-2">
-                      <Row label="Durum" value={connectivityLabel(status.connectivity)} />
-                      <Row
-                        label="Son görülme"
-                        value={
-                          status.connectivity === 'NEVER_CONNECTED'
-                            ? 'Hiç bağlanmadı'
-                            : lastSeenLabel(status.lastSeenAt, now)
-                        }
-                      />
-                      <Row label="Sahiplik doğrulaması" value={ownershipLabel(status.ownership)} />
-                      <Row label="Eşleştirme doğrulaması" value={pairingLabel(status.pairing)} />
-                      <Row label="Bekleyen filo işlemi" value={countText(status.pendingFleetOps)} />
-                      <Row
-                        label="Bekleyen konum / olay"
-                        value={
-                          status.pendingLocationEvents === null || status.pendingVehicleEvents === null
-                            ? UNREADABLE
-                            : `${status.pendingLocationEvents} konum · ${status.pendingVehicleEvents} olay`
-                        }
-                      />
-                      <Row label="Bekleyen komut" value={countText(status.activeCommands)} />
-                      <Row label="Senkron" value={syncStateLabel(status.syncState)} />
-                    </dl>
-
-                    <CommandBreakdown byPhase={status.commandsByPhase} unknown={status.unknownCommands} />
+                    <EvidenceBadge verdict={offline ? 'NO_EVIDENCE' : j.verdict} compact />
                   </div>
 
-                  {fleet.can('vehicle.remove') ? (
-                    <button
-                      type="button"
-                      disabled={busy}
-                      onClick={() => setConfirmRemove({
-                        id: v.vehicle_id, label: v.name ?? v.plate ?? v.vehicle_id,
-                      })}
-                      className="rounded-lg border border-red-500/30 px-3 py-1.5 text-sm text-red-300 hover:bg-red-500/10 disabled:opacity-30"
-                    >
-                      Filodan çıkar
-                    </button>
-                  ) : null}
-                </div>
+                  <div className="grid grid-cols-3 gap-2 border-t border-hair-soft pt-3">
+                    <MiniStat
+                      label="Akü"
+                      value={j.readings.battery.value}
+                      unit="V"
+                      precision={1}
+                      verdict={j.readings.battery.verdict}
+                    />
+                    <MiniStat
+                      label="Motor"
+                      value={j.readings.engineTemp.value}
+                      unit="°C"
+                      precision={0}
+                      verdict={j.readings.engineTemp.verdict}
+                    />
+                    <MiniStat
+                      label="GPS"
+                      value={j.readings.gpsFreshness.value}
+                      unit="sn"
+                      precision={0}
+                      verdict={j.readings.gpsFreshness.verdict}
+                    />
+                  </div>
 
-                {!online && (status.activeCommands ?? 0) > 0 ? (
-                  <p className="mt-3 rounded-lg border border-amber-500/25 bg-amber-500/[0.07] px-3 py-2 text-xs text-amber-100">
-                    Araç şu anda çevrimdışı. Bekleyen komutlar araca <strong>henüz
-                    ulaşmadı</strong> ve araç bağlanana kadar uygulanmayacak.
-                  </p>
-                ) : null}
-
-                {(status.conflicts ?? 0) > 0 ? (
-                  <p className="mt-3 rounded-lg border border-red-500/25 bg-red-500/[0.07] px-3 py-2 text-xs text-red-100">
-                    Bu araçla ilgili {status.conflicts} işlem sunucudaki durumla çakıştı.
-                    Çakışmalar sayfasından karar vermeniz gerekiyor.
-                  </p>
-                ) : null}
-              </div>
-            );
-          })}
-        </div>
-      )}
-
-      <ConfirmDialog
-        open={confirmRemove !== null}
-        title="Aracı filodan çıkar"
-        description={`${confirmRemove?.label ?? ''} filodan çıkarılacak. Araç SİLİNMEZ ve sahibi değişmez; yalnızca filo ile bağlantısı kesilir. Filo üyeleri artık bu aracı göremez.`}
-        confirmLabel="Evet, çıkar"
-        danger
-        onCancel={() => setConfirmRemove(null)}
-        onConfirm={() => {
-          const target = confirmRemove?.id;
-          setConfirmRemove(null);
-          if (target) void run(() => fleet.removeVehicle(target));
-        }}
-      />
+                  <div className="cn-num text-[10px] text-t3 leading-relaxed">
+                    {offline ? 'ÇEVRİMDIŞI' : verdictLabel(j.verdict)} · {j.reason}
+                    <span className="block">
+                      ünite {agoLabel(v.telemetry?.deviceAgeMs ?? null)}
+                      {v.driver && v.driver !== '—' && ` · ${v.driver}`}
+                    </span>
+                    <span className="block text-t3">{evidenceLine(j.readings.engineTemp)}</span>
+                  </div>
+                </Link>
+              );
+            })}
+          </div>
+        )}
+      </Panel>
     </div>
   );
 }
 
-/**
- * Komut evrelerinin kırılımı — "gönderildi" ile "araç gerçekten yaptı" AYRI
- * gösterilir. Sıfır olan evre yazılmaz (gürültü); hiç komut yoksa bölüm çıkmaz.
- */
-function CommandBreakdown({
-  byPhase, unknown,
+function MiniStat({
+  label,
+  value,
+  unit,
+  precision,
+  verdict,
 }: {
-  byPhase: Readonly<Record<CommandPhase, number>> | null;
-  unknown: number | null;
+  label: string;
+  value: number | null;
+  unit: string;
+  precision: number;
+  verdict: Verdict;
 }) {
-  if (byPhase === null) {
-    return (
-      <p className="mt-3 text-xs text-white/45">
-        Komut durumu okunamadı — bu alan boş sayılmamalıdır.
-      </p>
-    );
-  }
-  const shown = COMMAND_PHASES.filter((p) => byPhase[p] > 0);
-  if (shown.length === 0 && !unknown) return null;
-
+  const token = verdictToken(verdict);
   return (
-    <div className="mt-3">
-      <p className="text-xs text-white/45">
-        Komutlar (yalnız sizin gönderdikleriniz)
-      </p>
-      <ul className="mt-1 flex flex-wrap gap-2">
-        {shown.map((p) => (
-          <li
-            key={p}
-            className="rounded-lg border border-white/12 bg-white/5 px-2.5 py-1 text-xs text-white/75"
-          >
-            {commandPhaseLabel(p)}: {byPhase[p]}
-          </li>
-        ))}
-        {unknown ? (
-          <li className="rounded-lg border border-amber-500/25 bg-amber-500/[0.07] px-2.5 py-1 text-xs text-amber-100">
-            Tanınmayan durum: {unknown}
-          </li>
-        ) : null}
-      </ul>
-    </div>
-  );
-}
-
-function Row({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex justify-between gap-3 sm:block">
-      <dt className="text-white/45">{label}</dt>
-      <dd className="text-white/80 sm:mt-0.5">{value}</dd>
+    <div>
+      <div className="cn-eyebrow">{label}</div>
+      <div className="cn-num text-[15px] mt-1" style={{ color: TOKEN_COLOR[token] }}>
+        {value === null ? <span className="text-[10px] text-unknown">YOK</span> : `${value.toFixed(precision)}${unit}`}
+      </div>
     </div>
   );
 }

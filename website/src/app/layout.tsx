@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from 'next';
-import { Inter, JetBrains_Mono } from 'next/font/google';
+import { Inter, JetBrains_Mono, Fraunces } from 'next/font/google';
 import './globals.css';
 import PWARegistration from '@/components/layout/PWARegistration';
 import { AuthRecoveryHandler } from '@/components/auth/AuthRecoveryHandler';
@@ -11,9 +11,18 @@ const inter = Inter({
 });
 const jetbrainsMono = JetBrains_Mono({
   subsets: ['latin'],
-  weight: ['400', '500'],
+  weight: ['400', '500', '600', '700'],
   display: 'swap',
   variable: '--font-mono',
+});
+/* KANIT KONSOLU başlık/marka/plaka yüzü — serif ağırlık, enstrüman paneli
+   kimliği. Yalnız konsol yüzeylerinde kullanılır; pazarlama sayfaları Inter
+   ile kalır (mevcut kimlik DEĞİŞMEZ). */
+const fraunces = Fraunces({
+  subsets: ['latin'],
+  weight: ['500', '600', '700'],
+  display: 'swap',
+  variable: '--font-display',
 });
 
 // İlk boyamadan önce temayı uygula → flash yok. Varsayılan koyu (marka kimliği).
@@ -56,7 +65,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       lang="tr"
       data-theme="dark"
       translate="no"
-      className={`${inter.variable} ${jetbrainsMono.variable}`}
+      className={`${inter.variable} ${jetbrainsMono.variable} ${fraunces.variable}`}
       suppressHydrationWarning
     >
       <head>
