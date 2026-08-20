@@ -15,6 +15,7 @@ import { resolve } from 'node:path';
 import {
   formatMeasurementValue,
   measurementLabel,
+  plausibleSignal,
   SPEED_NOISE_FLOOR_KMH,
 } from '@/lib/fleet/vehicleTelemetryFreshness';
 
@@ -229,5 +230,43 @@ describe('#666 · ölçüm gösterimi ham değer BASMAZ', () => {
     ]) {
       expect(read(rel), rel).toContain('formatMeasurementValue');
     }
+  });
+});
+
+describe('#667 · sahte -1 ve sahte 0 yasağı (LAB kopyasından)', () => {
+  it('KİLİT: araç "-1" sentineli ölçüm SAYILMAZ', () => {
+    /* CAROS LAB kopyası (cihazdan) araç veri sözleşmesini gösterdi: okunamayan
+       sinyal `-1` ile gelir (fuelLevel:-1, boostPressure:-1, egt:-1, range:-1).
+       Web `Number.isFinite` baktığı için -1'i GEÇERLİ ölçüm sayıyordu: araç
+       "yakıtı okuyamadım" derken panel "-1 %" yazar, araç kartı da bunu
+       `fuelPct < 20` ile KIRMIZI "yakıt bitti" alarmına çevirirdi. */
+    expect(plausibleSignal('fuel', -1)).toBeNull();
+    expect(plausibleSignal('rpm', -1)).toBeNull();
+    expect(plausibleSignal('speed', -1)).toBeNull();
+  });
+
+  it('KİLİT: geçerli aralık korunur — ölçülmüş 0 REDDEDİLMEZ', () => {
+    /* Ölçülmüş sıfır gerçek bir gözlemdir: park hâlinde hız 0, depo boşken
+       yakıt 0. Sentinel reddi bunları elemez. */
+    expect(plausibleSignal('speed', 0)).toBe(0);
+    expect(plausibleSignal('fuel', 0)).toBe(0);
+    expect(plausibleSignal('rpm', 0)).toBe(0);
+    expect(plausibleSignal('temp', -1)).toBe(-1); // -1 °C gerçek bir sıcaklık
+  });
+
+  it('KİLİT: imkânsız değer elenir', () => {
+    expect(plausibleSignal('speed', 999)).toBeNull();
+    expect(plausibleSignal('fuel', 140)).toBeNull();
+    expect(plausibleSignal('rpm', 99_000)).toBeNull();
+    expect(plausibleSignal('temp', -80)).toBeNull();
+  });
+
+  it('KİLİT: sunucu rotası eksik alanı SIFIRA çevirmez', () => {
+    /* `body.fuel ?? 0` bilinmeyeni ölçülmüş sıfıra çeviriyordu. */
+    const route = read('src/app/api/vehicle/update/route.ts');
+    expect(route).not.toContain('body.fuel        ?? 0');
+    expect(route).not.toContain('body.speed       ?? 0');
+    expect(route).toContain('orMissing');
+    expect(route).toContain('Number.NaN');
   });
 });

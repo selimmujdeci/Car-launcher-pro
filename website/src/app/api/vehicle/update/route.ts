@@ -52,14 +52,23 @@ export async function POST(req: NextRequest) {
 
   const body = (await req.json().catch(() => ({}))) as Partial<VehicleUpdate>;
 
+  /* ── SAHTE 0 YASAĞI (#667) ──────────────────────────────────────────────
+     Eksik alan `?? 0` ile SIFIRA çevriliyordu: araç yakıtı hiç göndermediğinde
+     panele "yakıt %0" gidiyordu — bilinmeyen, ölçülmüş sıfır gibi görünüyordu.
+     Artık eksik alan `NaN` taşır; alıcı taraf (`applyUpdate` ve tazelik
+     katmanı) `Number.isFinite` ile bunu ELER ve ÖNCEKİ gerçek ölçümü korur.
+     JSON'da `NaN` `null`a döner — o da aynı şekilde elenir. */
+  const orMissing = (v: number | undefined): number =>
+    typeof v === 'number' && Number.isFinite(v) ? v : Number.NaN;
+
   const update: VehicleUpdate = {
     vehicleId,
-    lat:         body.lat         ?? 0,
-    lng:         body.lng         ?? 0,
-    speed:       body.speed       ?? 0,
-    fuel:        body.fuel        ?? 0,
-    engineTemp:  body.engineTemp  ?? 0,
-    rpm:         body.rpm         ?? 0,
+    lat:         orMissing(body.lat),
+    lng:         orMissing(body.lng),
+    speed:       orMissing(body.speed),
+    fuel:        orMissing(body.fuel),
+    engineTemp:  orMissing(body.engineTemp),
+    rpm:         orMissing(body.rpm),
     timestamp:   now,
   };
 

@@ -182,14 +182,47 @@ export function judgeFreshness(
 }
 
 /** Ölçümü hükümle birlikte kurar. Değer `null` ise durum daima UNAVAILABLE-eş. */
+/* ── Sinyal geçerliliği (#667) ─────────────────────────────────────────────
+   CAROS LAB kopyası (cihazdan, 2026-08-20) araç veri sözleşmesini gösterdi:
+   okunamayan sinyal **`-1` SENTINEL**'i ile gelir —
+   `fuelLevel:-1 · boostPressure:-1 · egt:-1 · batteryLevel:-1 · range:-1`.
+   Web tarafı bu sözleşmeyi BİLMİYORDU: `measure()` yalnız `Number.isFinite`
+   bakıyordu, `-1` sonlu olduğu için GEÇERLİ ÖLÇÜM sayılıyordu. Sonuç: araç
+   "yakıtı okuyamadım" derken panel **"-1 %"** yazar ve araç kartı bunu
+   `fuelPct < 20` kuralıyla KIRMIZI "yakıt bitti" alarmına çevirirdi.
+   Sahte 0'ın kardeşi: SAHTE -1.
+
+   Aralıklar araç tarafındaki sağlamlık kapısıyla aynı (hız 0–300, RPM 0–10k,
+   sıcaklık -40..150, yakıt 0–100); yeni bir otorite kurulmaz. Aralık dışı
+   değer `null` = BİLİNMİYOR olur, sıfıra çevrilmez. */
+export const SIGNAL_RANGE = {
+  speed: { min: 0,   max: 300 },
+  rpm:   { min: 0,   max: 10_000 },
+  temp:  { min: -40, max: 150 },
+  fuel:  { min: 0,   max: 100 },
+} as const;
+
+export type SignalField = keyof typeof SIGNAL_RANGE;
+
+/** Alan için fiziksel olarak makul mü? Değilse `null` (BİLİNMİYOR). */
+export function plausibleSignal(field: SignalField, value: unknown): number | null {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return null;
+  const range = SIGNAL_RANGE[field];
+  if (value < range.min || value > range.max) return null;
+  return value;
+}
+
 function measure(
   value: number | null | undefined,
   state: FreshnessState,
   observedAt: number | null,
   ageMs: number | null,
   source: DataSource,
+  field?: SignalField,
 ): Measurement {
-  const v = typeof value === 'number' && Number.isFinite(value) ? value : null;
+  /* Alan verilmişse sentinel/imkânsız değer BURADA elenir (#667). */
+  const v = field ? plausibleSignal(field, value)
+    : (typeof value === 'number' && Number.isFinite(value) ? value : null);
   if (v === null) {
     // BİLİNMİYOR: değer yok → 0 GÖSTERİLMEZ, durum da ölçüm yokluğunu yansıtır.
     return { value: null, state: state === 'UNKNOWN' ? 'UNKNOWN' : 'NEVER_SEEN', observedAt, ageMs, source };
@@ -273,10 +306,10 @@ export function buildVehicleFreshness(input: FreshnessInput): VehicleFreshness {
     accuracyM: typeof row.accuracyM === 'number' && Number.isFinite(row.accuracyM) ? row.accuracyM : null,
     locationIsLive: location === 'LIVE',
     engine, engineObservedAt: obdAt,
-    speedKmh:    measure(row.speed, engine, obdAt, engineJudge.ageMs, telSource),
-    rpm:         measure(row.rpm,   engine, obdAt, engineJudge.ageMs, engineSource),
-    engineTempC: measure(row.temp,  engine, obdAt, engineJudge.ageMs, engineSource),
-    fuelPercent: measure(row.fuel,  engine, obdAt, engineJudge.ageMs, engineSource),
+    speedKmh:    measure(row.speed, engine, obdAt, engineJudge.ageMs, telSource, 'speed'),
+    rpm:         measure(row.rpm,   engine, obdAt, engineJudge.ageMs, engineSource, 'rpm'),
+    engineTempC: measure(row.temp,  engine, obdAt, engineJudge.ageMs, engineSource, 'temp'),
+    fuelPercent: measure(row.fuel,  engine, obdAt, engineJudge.ageMs, engineSource, 'fuel'),
     health, healthObservedAt: healthAt,
   };
 }
@@ -302,10 +335,18 @@ export function applyFreshnessUpdate(
 ): VehicleFreshness | undefined {
   if (!prev) return prev;
   const at = Number.isFinite(u.timestamp) ? u.timestamp : null;
-  const live = (m: Measurement, v: number | undefined, source: DataSource): Measurement =>
-    typeof v === 'number' && Number.isFinite(v)
-      ? { value: v, state: 'LIVE', observedAt: at, ageMs: 0, source }
-      : m;
+  /* Canlı güncelleme de sentinel/imkânsız değeri REDDEDER (#667): araç
+     "okuyamadım" derken (`-1`) önceki gerçek ölçüm KORUNUR; ekranda `-1`
+     belirmez ve bilinmeyen sıfıra da çevrilmez. */
+  const live = (
+    m: Measurement,
+    v: number | undefined,
+    source: DataSource,
+    field: SignalField,
+  ): Measurement => {
+    const value = plausibleSignal(field, v);
+    return value === null ? m : { value, state: 'LIVE', observedAt: at, ageMs: 0, source };
+  };
 
   const hasCoords = Number.isFinite(u.lat) && Number.isFinite(u.lng);
   return {
@@ -323,10 +364,10 @@ export function applyFreshnessUpdate(
       ? 'LIVE' : prev.engine,
     engineObservedAt: Number.isFinite(u.rpm) || Number.isFinite(u.engineTemp)
       ? at : prev.engineObservedAt,
-    speedKmh:    live(prev.speedKmh,    u.speed,      prev.speedKmh.source),
-    rpm:         live(prev.rpm,         u.rpm,        'HEAD_UNIT_OBD'),
-    engineTempC: live(prev.engineTempC, u.engineTemp, 'HEAD_UNIT_OBD'),
-    fuelPercent: live(prev.fuelPercent, u.fuel,       'HEAD_UNIT_OBD'),
+    speedKmh:    live(prev.speedKmh,    u.speed,      prev.speedKmh.source, 'speed'),
+    rpm:         live(prev.rpm,         u.rpm,        'HEAD_UNIT_OBD', 'rpm'),
+    engineTempC: live(prev.engineTempC, u.engineTemp, 'HEAD_UNIT_OBD', 'temp'),
+    fuelPercent: live(prev.fuelPercent, u.fuel,       'HEAD_UNIT_OBD', 'fuel'),
   };
 }
 
