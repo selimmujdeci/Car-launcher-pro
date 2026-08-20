@@ -600,7 +600,13 @@ describe('tryCompanionBrain — komut/sohbet kararını tek Gemini çağrısı v
     expect(prompt).toContain('FIND_NEARBY_GAS');               // şiveli komut örneği
   });
 
-  it('FAZ 3 — No Dead-Ends: online deneme çöktü + offline eşleşme yok → kişiliğe uygun tekrar-rica (null DEĞİL)', async () => {
+  it('FAZ 3 — No Dead-Ends: online deneme çöktü + offline eşleşme yok → kişiliğe uygun DÜRÜST cevap (null DEĞİL)', async () => {
+    /* #669'da GÜNCELLENDİ (zayıflatılmadı): kilidin koruduğu kural —
+       "kullanıcı ÇIKMAZ görmez, null dönmez, cevap kişiliğe uyar" — aynen
+       duruyor. Değişen tek şey CÜMLENİN DOĞRULUĞU: `fetch` throw ettiğinde
+       (ağ ölümü) eskiden "tekrar alabilir miyim?" deniyordu; tekrar söylemek
+       işe yaramadığı için kullanıcı döngüye giriyordu (saha: "Mavi cevap
+       vermiyor, 'of orayı kaçırdım' diyor"). Artık gerçek neden söyleniyor. */
     setupCompanion(true);
     useStore.getState().updateSettings({ companionPersonality: 'profesyonel' });
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('timeout')));
@@ -608,8 +614,10 @@ describe('tryCompanionBrain — komut/sohbet kararını tek Gemini çağrısı v
     const r = await tryCompanionBrain('xqwzt blgrh vmpld', GEMINI_OPTS);
     expect(r!.kind).toBe('chat');
     if (r!.kind === 'chat') {
-      expect(r.route).toBe('companion_offline');
-      expect(r.response).toBe('Tam anlayamadım, tekrar alabilir miyim?');
+      expect(r.route).toBe('companion_net_down');
+      // Kişilik tonu korunur (persona sözleşmesi) + içerik dürüst
+      expect(r.response).toBe('Şu anda internet bağlantısı kurulamıyor. Bağlantı sağlandığında tekrar deneyebilirsiniz.');
+      expect(r.response.toLowerCase()).not.toContain('hata');
     }
   });
 
@@ -1048,7 +1056,12 @@ describe('tryCompanionBrain — hibrit zincir yedekleme (429/timeout sırasında
     }
   });
 
-  it('Gemini VE Groq ikisi de attı → çökmez, kişiliğe uygun tekrar-rica ile döner (No Dead-Ends)', async () => {
+  it('Gemini VE Groq ikisi de attı → çökmez, kişiliğe uygun DÜRÜST cevapla döner (No Dead-Ends)', async () => {
+    /* #669'da GÜNCELLENDİ (zayıflatılmadı): zincirin tamamı THROW ettiğinde
+       hiçbir sağlayıcıdan HTTP yanıtı gelmemiştir → ağ ÖLÜDÜR. Kilidin
+       koruduğu "çökmez, cevapsız kalmaz" kuralı aynen duruyor; cevap artık
+       "tekrar söyle" değil, gerçek neden. HTTP yanıtı gelen hâllerde
+       (429/4xx/5xx/parse) REASK yolu KORUNUR — ayrı kilit. */
     setupCompanion(true);
     const fetchSpy = vi.fn().mockRejectedValue(new Error('timeout')); // her iki çağrı da atar
     vi.stubGlobal('fetch', fetchSpy);
@@ -1056,7 +1069,30 @@ describe('tryCompanionBrain — hibrit zincir yedekleme (429/timeout sırasında
     const r = await tryCompanionBrain('xqwzt blgrh vmpld', GEMINI_GROQ_CHAIN);
     expect(fetchSpy).toHaveBeenCalledTimes(2); // Gemini + Groq yedeği denendi
     expect(r!.kind).toBe('chat');
-    if (r!.kind === 'chat') expect(r.route).toBe('companion_offline');
+    if (r!.kind === 'chat') {
+      expect(r.route).toBe('companion_net_down');
+      expect(r.response.toLowerCase()).not.toContain('hata');
+    }
+  });
+
+  it('#669 KİLİT: HTTP yanıtı geldiyse ağ ÖLÜ sayılmaz → "tekrar söyle" korunur', async () => {
+    /* Ayrımın kalbi: sunucudan yanıt gelmesi ağın CANLI olduğunun kanıtıdır.
+       Boş/eksik gövde bir sağlayıcı hatasıdır, ağ ölümü DEĞİL — o hâlde tekrar
+       söylemek İŞE YARAYABİLİR, dolayısıyla REASK doğrudur. Bu kilit olmadan
+       #669'un düzeltmesi aşırı genişleyip her hatada "internet yok" diyebilirdi. */
+    setupCompanion(true);
+    useStore.getState().updateSettings({ companionPersonality: 'profesyonel' });
+    const fetchSpy = vi.fn().mockResolvedValue({
+      ok: true, status: 200, json: async () => ({ candidates: [] }),
+    });
+    vi.stubGlobal('fetch', fetchSpy);
+
+    const r = await tryCompanionBrain('xqwzt blgrh vmpld', GEMINI_OPTS);
+    expect(r!.kind).toBe('chat');
+    if (r!.kind === 'chat') {
+      expect(r.route).not.toBe('companion_net_down');      // "internet yok" DEMEZ
+      expect(r.route).toBe('companion_offline');           // REASK yolu
+    }
   });
 
   it('Gemini web kararı verdi ama grounding çöktü + chain\'de Groq var → Groq yedeği dener', async () => {

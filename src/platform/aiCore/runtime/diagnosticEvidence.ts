@@ -210,8 +210,14 @@ function _handshakeEvidence(od: DiagObdDeepLike, now: number, out: AiEvidenceIte
 function _transportEvidence(od: DiagObdDeepLike, now: number, out: AiEvidenceItem[]): void {
   const h = od.health;
   if (!h) return;
+  /* SAHTE -1 YASAĞI (#669): `connectionQuality` bağlantı yokken **-1** taşır
+     (bilinmiyor sentineli). Ham basıldığı için LAB kanıt satırı
+     **"Bağlantı kalitesi %-1"** yazıyordu — hem anlamsız hem de kanıt gibi
+     görünen bir bilinmezlik. Negatif değer ÖLÇÜM DEĞİLDİR: kanıt üretilmez.
+     Bu, panel tarafında #667'de kapatılan sentinel kusurunun kanıt zincirindeki
+     eşidir. */
   const q = _num(h.connectionQuality);
-  if (q !== null) {
+  if (q !== null && q >= 0) {
     const ev = makeEvidence({
       key: 'transport.quality', kind: 'diagnostic',
       summary: `Bağlantı kalitesi %${Math.round(q)}`,

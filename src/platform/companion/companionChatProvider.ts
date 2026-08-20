@@ -159,7 +159,7 @@ import { pushTrail } from '../diagnosticTrailCore';
 
 /* ── Tipler ─────────────────────────────────────────────────── */
 
-export type CompanionChatRoute = 'companion_gemini' | 'companion_groq' | 'companion_haiku' | 'companion_gateway' | 'companion_offline' | 'companion_rate_limited' | 'companion_key_invalid' | 'companion_safety';
+export type CompanionChatRoute = 'companion_gemini' | 'companion_groq' | 'companion_haiku' | 'companion_gateway' | 'companion_offline' | 'companion_rate_limited' | 'companion_key_invalid' | 'companion_net_down' | 'companion_safety';
 
 export interface CompanionChatResult {
   response: string;
@@ -1864,6 +1864,25 @@ const REASK_BY_PERSONALITY: Record<string, string> = {
 };
 const REASK_DEFAULT = 'Tam anlayamadım, bir daha söyler misin?';
 
+/* SAHA (#669): kullanıcı telefonda da *"Mavi cevap vermiyor, 'of orayı
+   kaçırdım' diyor"* dedi. O cümle REASK'tır ve "seni duyamadım, TEKRAR SÖYLE"
+   anlamına gelir — oysa tetikleyen şey çoğu kez STT değil, AĞIN ÖLMÜŞ
+   olmasıdır. Tekrar söylemek işe yaramaz; kullanıcı aynı cümleyi tekrarlayıp
+   aynı yanıtı alarak DÖNGÜYE girer.
+
+   Sağlayıcı zinciri ağ ölümünü ZATEN ölçüyordu (`sawNetFailure` +
+   `!sawHttpResponse`, yani hiçbir sunucudan HTTP yanıtı gelmemiş) ama bu bilgi
+   REASK dalına HİÇ TAŞINMIYORDU — bilgi var, besleyen yok. Artık taşınıyor ve
+   kullanıcı gerçek nedeni duyuyor. Kota ve geçersiz anahtar için zaten dürüst
+   cevaplar vardı; eksik olan üçüncü hâlin karşılığıydı. */
+const NET_DOWN_BY_PERSONALITY: Record<string, string> = {
+  sessiz:      'İnternete ulaşamıyorum. Bağlantı gelince tekrar dene.',
+  samimi:      'Kusura bakma, şu an internete çıkamıyorum — bağlantı gelince hallederiz.',
+  neseli:      'Eyvah, internet yok! Bağlantı gelince yine buradayım.',
+  profesyonel: 'Şu anda internet bağlantısı kurulamıyor. Bağlantı sağlandığında tekrar deneyebilirsiniz.',
+};
+const NET_DOWN_DEFAULT = 'Şu an internete ulaşamıyorum. Bağlantı gelince tekrar dene.';
+
 /**
  * Beyin system prompt'u.
  * @param supportsGrounding true → Gemini (google_search grounding mevcut);
@@ -2301,6 +2320,9 @@ async function runCompanionBrain(
   // TÜM adaylar kota soğumasından atlandı (hiçbiri denenmedi) → aşağıda dürüst
   // kota cevabı (offline motorun söyleyecek sözü yoksa).
   let rateLimitedOnly = false;
+  /* Bu turda ağ GERÇEKTEN ölü müydü? (throw/timeout var VE hiçbir sağlayıcıdan
+     HTTP yanıtı gelmedi). Blok içindeki ölçüm dışarı TAŞINIR — #669. */
+  let netDeathOnly = false;
 
   if (netUsable) {
     const id = resolveIdentityWithDriverStyle(settings);
@@ -2472,6 +2494,9 @@ async function runCompanionBrain(
     }
 
     rateLimitedOnly = !aiAttempted && skippedByCooldown;
+    /* AĞ CANLI KANITI KAZANIR: bir sağlayıcı HTTP yanıtı verdiyse ağ ölü DEĞİLDİR
+       (429/4xx/5xx/parse hataları buraya girmez) — o durumda REASK doğrudur. */
+    netDeathOnly = aiAttempted && sawNetFailure && !sawHttpResponse;
   }
 
   // Offline fallback: yalnız sohbet (komut kararı offline'da yerel parser'ındır)
@@ -2500,6 +2525,15 @@ async function runCompanionBrain(
   // kişiliğe uygun bir tekrar-rica duyar (takip dinlemesi açılır → tekrar söyler).
   // AI HİÇ denenmediyse (offline) null korunur: eski dürüst zincir
   // (yerel öneriler + offline müzik kapısı) bozulmaz.
+  /* Ağ ölüyse "tekrar söyle" DEME (#669) — tekrar söylemek işe yaramaz ve
+     kullanıcıyı döngüye sokar; gerçek nedeni söyle. */
+  if (netDeathOnly) {
+    /* Ton kişiliğe uyar (persona sözleşmesi korunur), içerik DÜRÜSTTÜR. */
+    const personality = resolveIdentityWithDriverStyle(settings).personality;
+    const reply = NET_DOWN_BY_PERSONALITY[personality] ?? NET_DOWN_DEFAULT;
+    return { kind: 'chat', response: reply, route: 'companion_net_down' };
+  }
+
   if (aiAttempted) {
     const reask = REASK_BY_PERSONALITY[resolveIdentityWithDriverStyle(settings).personality] ?? REASK_DEFAULT;
     return { kind: 'chat', response: reask, route: 'companion_offline' };

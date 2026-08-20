@@ -79,3 +79,38 @@ describe('#668 · ağ yokluğu hata defterini kirletmez', () => {
     expect(src).toMatch(/kayd[ıi] BASTIRMAZ|Olay yine defterdedir/i);
   });
 });
+
+describe('#669 · "tekrar söyle" yalnız tekrarın işe yaradığı yerde', () => {
+  const provider = read('src/platform/companion/companionChatProvider.ts');
+
+  it('KİLİT: ağ ölümünde REASK DEĞİL, dürüst cevap verilir', () => {
+    /* Saha: kullanıcı telefonda "Mavi cevap vermiyor, 'of orayı kaçırdım'
+       diyor" dedi. O cümle REASK'tır ve "seni duyamadım, TEKRAR SÖYLE"
+       anlamına gelir — oysa tetikleyen şey çoğu kez STT değil, ağın ölmüş
+       olmasıydı. Tekrar söylemek işe yaramaz; kullanıcı döngüye girer. */
+    expect(provider).toContain('NET_DOWN_BY_PERSONALITY');
+    expect(provider).toContain("route: 'companion_net_down'");
+    /* Ton kişiliğe uyar (persona sözleşmesi korunur), içerik dürüsttür. */
+    expect(provider).toMatch(/netDeathOnly[\s\S]{0,300}NET_DOWN_BY_PERSONALITY/);
+  });
+
+  it('KİLİT: ağ ölümü ölçümü dış kapsama TAŞINIR (bilgi var, besleyen yok deseni)', () => {
+    expect(provider).toContain('let netDeathOnly = false;');
+    expect(provider).toContain('netDeathOnly = aiAttempted && sawNetFailure && !sawHttpResponse;');
+  });
+
+  it('KİLİT: HTTP yanıtı gelmişse ağ ölü SAYILMAZ — REASK korunur', () => {
+    /* 429/4xx/5xx/parse hataları ağın canlı olduğunun kanıtıdır; o hâllerde
+       "tekrar söyle" doğru cevaptır ve dürüst kota/anahtar dalları da bozulmaz. */
+    expect(provider).toContain('!sawHttpResponse');
+    expect(provider).toContain("route: 'companion_rate_limited'");
+    expect(provider).toContain("route: 'companion_key_invalid'");
+  });
+
+  it('KİLİT: bağlantı kalitesi -1 iken kanıt ÜRETİLMEZ', () => {
+    /* LAB kopyasında kanıt satırı "Bağlantı kalitesi %-1" yazıyordu; -1
+       bilinmiyor sentinelidir, ölçüm değildir. */
+    const diag = read('src/platform/aiCore/runtime/diagnosticEvidence.ts');
+    expect(diag).toContain('q !== null && q >= 0');
+  });
+});
