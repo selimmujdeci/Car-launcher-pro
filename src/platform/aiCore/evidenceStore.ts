@@ -78,6 +78,27 @@ export function makeEvidence(input: {
  * Kaynak adaptörleri (mevcut şekilleri → kanıt; SAF, decoupled)
  * ════════════════════════════════════════════════════════════════════════ */
 
+/* ── Kanıt özetinde gösterim hassasiyeti (#668) ────────────────────────────
+   Saha kanıtı (CAROS LAB kopyası, 2026-08-20): kanıt satırı
+   `trip_distance=0.11309596145554154km` yazıyordu — ham çift duyarlıklı sayı.
+   Kanıt metni İNSAN OKUR bir özettir; 17 haneli bir sayı okunmayı zorlaştırır
+   ve LAB defterini şişirir. Bu, panel tarafında #666'da düzeltilen kusurun
+   APK'daki eşidir.
+
+   ÖNEMLİ: kırpılan yalnız ÖZET METNİDİR. Ham değer `sig.value` olarak
+   zarfın içinde ve kanıt payload'ında AYNEN kalır — hassasiyet kaybı yoktur,
+   yalnız gösterim okunur hâle gelir. */
+const EVIDENCE_UNIT_DIGITS: Readonly<Record<string, number>> = {
+  km: 2, m: 0, 'km/h': 0, '°C': 0, '%': 0, rpm: 0, V: 1, L: 2, s: 0, ms: 0,
+};
+
+/** Kanıt özeti için sayıyı birime göre kısaltır (ham değer DEĞİŞMEZ). */
+export function formatEvidenceValue(value: number | string | boolean, unit?: string): string {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return String(value);
+  const digits = EVIDENCE_UNIT_DIGITS[unit ?? ''] ?? 2;
+  return Number(value.toFixed(digits)).toString();
+}
+
 /**
  * SignalEnvelope → kanıt. "0 ≠ no-data" ilkesine sadık: value null (no_data/unsupported)
  * ise KANIT DEĞİL → null döner (araç sinyali vermiyorsa uydurma yok). Değeri olan
@@ -86,7 +107,7 @@ export function makeEvidence(input: {
 export function signalToEvidence(key: string, sig: SignalEnvelope | null | undefined, label?: string): AiEvidenceItem | null {
   if (!sig || sig.value === null || sig.state === 'no_data' || sig.state === 'unsupported') return null;
   const name = label ?? key;
-  const summary = `${name}=${sig.value}${sig.unit || ''} (${sig.state}, güven ${(sig.confidence * 100).toFixed(0)}%)`;
+  const summary = `${name}=${formatEvidenceValue(sig.value, sig.unit)}${sig.unit || ''} (${sig.state}, güven ${(sig.confidence * 100).toFixed(0)}%)`;
   return makeEvidence({
     key: `signal.${key}`,
     kind: 'signal',

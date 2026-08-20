@@ -121,6 +121,39 @@ function _errToMsg(error: unknown): string {
   return String(error);
 }
 
+/**
+ * AĞ YOKLUĞU MU, GERÇEK HATA MI? (#668)
+ *
+ * Saha kanıtı (CAROS LAB kopyası, 2026-08-20): araç açılışında iki kayıt
+ * KIRMIZI `[error]` olarak defterde duruyordu —
+ * `weatherService:fetchFuel — Failed to fetch` ve
+ * `geofenceService:_loadAndPushZones — TypeError: Failed to fetch`.
+ * İkisi de fail-soft yakalanmıştı (ürün bozulmadı), ama araç açılışında ağın
+ * henüz hazır olmaması BEKLENEN bir durumdur; `error` seviyesinde yazmak
+ * hata defterini gürültüyle doldurur ve GERÇEK hataları görünmez kılar.
+ *
+ * Bu yardımcı yalnız SEVİYE seçer — kaydı bastırmaz. Olay yine defterdedir,
+ * yalnız `warning` olarak; "ağ yoktu" ile "kod patladı" karışmaz.
+ */
+export function isNetworkAbsenceError(error: unknown): boolean {
+  const msg = (error instanceof Error ? error.message : String(error ?? '')).toLowerCase();
+  if (!msg) return false;
+  return (
+    msg.includes('failed to fetch') ||
+    msg.includes('networkerror') ||
+    msg.includes('network request failed') ||
+    msg.includes('err_internet_disconnected') ||
+    msg.includes('err_name_not_resolved') ||
+    msg.includes('the operation was aborted') ||
+    msg.includes('aborterror')
+  );
+}
+
+/** Ağ yokluğu `warning`, gerçek hata `error` olarak yazılır. */
+export function logNetworkAware(ctx: string, error: unknown): void {
+  logError(ctx, error, isNetworkAbsenceError(error) ? 'warning' : 'error');
+}
+
 export function logError(ctx: string, error: unknown, severity: CrashSeverity = 'error'): void {
   try {
     _ensureLoaded();

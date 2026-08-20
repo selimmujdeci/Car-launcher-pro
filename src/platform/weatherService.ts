@@ -20,7 +20,7 @@
 import { signalWithTimeout } from '../utils/abortCompat';
 import { useState, useEffect } from 'react';
 import { getSupabaseClient } from './supabaseClient';
-import { logError } from './crashLogger';
+import { logNetworkAware } from './crashLogger';
 
 /* ── Types ───────────────────────────────────────────────── */
 
@@ -157,7 +157,8 @@ async function _fetchFuelFromAPI(lat: number, lng: number): Promise<FuelStation[
     // Gerçek EPDK verisi — isSimulated her zaman false
     return data.stations.map(s => ({ ...s, isSimulated: false as const }));
   } catch (e) {
-    logError('weatherService:fetchFuel', e);
+    /* Ağ yoksa `warning` — açılışta beklenen durum, hata defterini kirletmez (#668). */
+    logNetworkAware('weatherService:fetchFuel', e);
     return null;
   }
 }
