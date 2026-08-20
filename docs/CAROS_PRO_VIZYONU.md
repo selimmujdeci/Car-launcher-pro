@@ -216,6 +216,32 @@ DOĞRULANDI 6 · SAHADA DOĞRULANDI 1 · **ÜRÜN HAZIR: 1**
   **Süreç notu:** #636 ve #637 commit'lenmiş ama **kütük maddesi yazılmamıştı**;
   bu boşluk aynı turda kapatıldı (anayasa: kod değil KÜTÜK saha otoritesidir).
 
+- **DASHBOARD'UN TAMAMI KONSOL DİLİNE ALINDI (2026-08-20, kütük 🔴 #663):**
+  website **1282 test yeşil**, `tsc` + `next build` temiz. Tarayıcıda
+  doğrulanMADI → kütükte 🔴.
+
+  **İki ders, ikisi de tekrar eden desenler:**
+  1. **Ulaşılamayan yüzey = olmayan yüzey.** Konsol canlıdaydı, CSS'te palet
+     doğrulandı, ama telefonun birincil navigasyonunda ona giden sekme yoktu;
+     kullanıcı için "değişen bir şey yok"tu. Bu, depoda dördüncü kez görülen
+     "motor var, besleyen yok" örneğidir (#631 · #647 · #661 · #663).
+  2. **Kapsam beyanı ≠ kullanıcının gördüğü.** "Filo paneli" diye tanımlanan
+     iş, kullanıcının günlük baktığı ekranların çoğunu dışarıda bırakıyordu.
+
+  **Sökülen üç sessiz kusur** (hepsi kanıt felsefesinin ihlaliydi): Ayarlar
+  ekranının tamamı tiyatroydu (sahte profil formu + ölü Kaydet + tıklanamayan
+  anahtarlar); Tanı ekranı eski sayısal yüzeyden okuyup telemetrisiz araçta
+  "Yakıt %0" sahte alarmı üretiyordu; Harita ekranı kabuk içinde ikinci bir
+  kabuk kurup hiçbir yere gitmeyen dekoratif bir alt menü çiziyordu.
+
+  **Token kapsamı:** `[data-console]` yalnız token tanımıdır (`<html>`);
+  zemin/mürekkep/odak `[data-console-root]`a bağlıdır — böylece pazarlama
+  sayfaları kendi kimliğini korur.
+
+  **AÇIK BORÇ:** pazarlama sayfaları ve PWA kapsam dışı · repaint toplu sınıf
+  değişimiydi, alt bileşenlerin (araç modalı, PIN diyaloğu, komut paneli)
+  kontrastı tek tek görsel doğrulanmadı · konsolun CAROS LAB gözlem ekranı yok.
+
 - **FİLO PANELİ "KANIT KONSOLU" OLARAK YENİDEN KURULDU (2026-08-20, kütük 🔴 #662):**
   website **1268 test yeşil**, `tsc` + `next build` temiz. Tarayıcıda/cihazda
   doğrulanMADI → kütükte 🔴 bekliyor.

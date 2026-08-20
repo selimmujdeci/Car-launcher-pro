@@ -57,9 +57,9 @@ interface VehicleModalProps {
 }
 
 const statusConfig = {
-  online: { label: 'Online', dot: 'bg-emerald-400', text: 'text-emerald-400' },
-  offline: { label: 'Offline', dot: 'bg-white/30', text: 'text-white/40' },
-  alarm: { label: 'Alarm', dot: 'bg-red-400 animate-pulse', text: 'text-red-400' },
+  online: { label: 'Online', dot: 'bg-verified', text: 'text-verified' },
+  offline: { label: 'Offline', dot: 'bg-white/30', text: 'text-t2' },
+  alarm: { label: 'Alarm', dot: 'bg-critical animate-pulse', text: 'text-critical' },
 };
 
 export default function VehicleModal({ vehicle: v, onClose, onRemove }: VehicleModalProps) {
@@ -232,9 +232,9 @@ export default function VehicleModal({ vehicle: v, onClose, onRemove }: VehicleM
       className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4"
       onClick={(e) => e.target === e.currentTarget && onClose()}
     >
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+      <div className="absolute inset-0 bg-black/60 " onClick={onClose} />
 
-      <div className="relative w-full sm:max-w-lg bg-[#0a1628] border border-white/[0.1] rounded-t-3xl sm:rounded-2xl shadow-[0_24px_80px_rgba(0,0,0,0.8)] overflow-hidden max-h-[92dvh] sm:max-h-[85vh] flex flex-col">
+      <div className="relative w-full sm:max-w-lg bg-panel border border-hair rounded-t-sm sm:rounded-sm shadow-[0_24px_80px_rgba(0,0,0,0.8)] overflow-hidden max-h-[92dvh] sm:max-h-[85vh] flex flex-col">
 
         {/* Drag handle — mobile only */}
         <div className="sm:hidden flex justify-center pt-3 pb-1 flex-shrink-0">
@@ -242,11 +242,11 @@ export default function VehicleModal({ vehicle: v, onClose, onRemove }: VehicleM
         </div>
 
         {/* Header */}
-        <div className="flex items-center justify-between px-5 py-4 sm:px-6 sm:py-5 border-b border-white/[0.07] flex-shrink-0">
+        <div className="flex items-center justify-between px-5 py-4 sm:px-6 sm:py-5 border-b border-hair flex-shrink-0">
           <div>
             <div className="flex items-center gap-3">
               {/* Kimlik TEK otoriteden (#661) — plaka boşsa UUID GÖSTERİLMEZ. */}
-              <p className={`text-base font-semibold text-white ${isFallbackTitle(v) ? '' : 'font-mono'}`}>
+              <p className={`text-base font-semibold text-t1 ${isFallbackTitle(v) ? '' : 'font-mono'}`}>
                 {vehicleTitle(v)}
               </p>
               <div className={`flex items-center gap-1.5 text-xs font-medium ${s.text}`}>
@@ -255,10 +255,10 @@ export default function VehicleModal({ vehicle: v, onClose, onRemove }: VehicleM
               </div>
             </div>
             <div className="flex items-center gap-2 mt-0.5">
-              <p className="text-xs text-white/35">{vehicleSubtitle(v) ?? 'İsim verilmedi'}</p>
+              <p className="text-xs text-t3">{vehicleSubtitle(v) ?? 'İsim verilmedi'}</p>
               <button
                 onClick={() => setEditingIdentity(true)}
-                className="text-[11px] font-bold text-accent hover:underline"
+                className="text-[11px] font-bold text-copper-ink hover:underline"
               >
                 {isFallbackTitle(v) ? 'İsim ver' : 'Düzenle'}
               </button>
@@ -266,7 +266,7 @@ export default function VehicleModal({ vehicle: v, onClose, onRemove }: VehicleM
           </div>
           <button
             onClick={onClose}
-            className="w-9 h-9 rounded-xl bg-white/[0.04] border border-white/[0.08] flex items-center justify-center text-white/40 hover:text-white hover:bg-white/[0.08] transition-all"
+            className="w-9 h-9 rounded-sm bg-bezel border border-hair flex items-center justify-center text-t2 hover:text-t1 hover:bg-bezel transition-all"
           >
             <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
               <path d="M2 2l10 10M12 2L2 12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
@@ -288,14 +288,14 @@ export default function VehicleModal({ vehicle: v, onClose, onRemove }: VehicleM
               // Uyarı YALNIZ ölçülmüş + CANLI veriye verilir.
               const warn = known && m!.state === 'LIVE' && warnAbove !== undefined && (m!.value as number) > warnAbove;
               return (
-                <div key={label} className="p-4 rounded-2xl bg-white/[0.03] border border-white/[0.06] text-center">
+                <div key={label} className="p-4 rounded-sm bg-bezel border border-hair text-center">
                   <p className={`text-base font-bold font-mono ${
-                    !known ? 'text-white/25' : warn ? 'text-red-400'
-                    : m!.state !== 'LIVE' ? 'text-white/45' : 'text-white/85'
+                    !known ? 'text-t3' : warn ? 'text-critical'
+                    : m!.state !== 'LIVE' ? 'text-t2' : 'text-t1'
                   }`}>
                     {m ? measurementLabel(m, unit) : 'Veri yok'}
                   </p>
-                  <p className="text-[10px] text-white/30 mt-0.5">{label}</p>
+                  <p className="text-[10px] text-t3 mt-0.5">{label}</p>
                 </div>
               );
             })}
@@ -303,28 +303,28 @@ export default function VehicleModal({ vehicle: v, onClose, onRemove }: VehicleM
 
           {/* Bağlantı ve tazelik — kaynak ve yaş açıkça yazılır. */}
           {t && (
-            <div className="p-4 rounded-2xl bg-white/[0.03] border border-white/[0.06] flex flex-col gap-2">
+            <div className="p-4 rounded-sm bg-bezel border border-hair flex flex-col gap-2">
               <div className="flex items-center justify-between">
-                <span className="text-xs text-white/35">Araç ünitesi</span>
-                <span className="text-xs text-white/70">
+                <span className="text-xs text-t3">Araç ünitesi</span>
+                <span className="text-xs text-t1">
                   {freshnessLabel(t.device)} · {ageLabel(t.deviceAgeMs)}
                 </span>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-xs text-white/35">Konum</span>
-                <span className="text-xs text-white/70 text-right">
+                <span className="text-xs text-t3">Konum</span>
+                <span className="text-xs text-t1 text-right">
                   {locationLabel(t)}
-                  <span className="text-white/30"> · {dataSourceLabel(t.locationSource)}</span>
+                  <span className="text-t3"> · {dataSourceLabel(t.locationSource)}</span>
                 </span>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-xs text-white/35">Motor verisi (OBD)</span>
-                <span className="text-xs text-white/70">{freshnessLabel(t.engine)}</span>
+                <span className="text-xs text-t3">Motor verisi (OBD)</span>
+                <span className="text-xs text-t1">{freshnessLabel(t.engine)}</span>
               </div>
               {t.accuracyM !== null && (
                 <div className="flex items-center justify-between">
-                  <span className="text-xs text-white/35">Konum doğruluğu</span>
-                  <span className="text-xs text-white/70">±{Math.round(t.accuracyM)} m</span>
+                  <span className="text-xs text-t3">Konum doğruluğu</span>
+                  <span className="text-xs text-t1">±{Math.round(t.accuracyM)} m</span>
                 </div>
               )}
             </div>
@@ -338,9 +338,9 @@ export default function VehicleModal({ vehicle: v, onClose, onRemove }: VehicleM
               { label: 'Son Görülme', value: t ? ageLabel(t.deviceAgeMs) : v.lastSeen },
               { label: 'Kilometre', value: v.odometer > 0 ? `${v.odometer.toLocaleString()} km` : 'Veri yok' },
             ].map(({ label, value }) => (
-              <div key={label} className="p-4 rounded-2xl bg-white/[0.03] border border-white/[0.06]">
-                <p className="text-[10px] text-white/25 mb-1">{label}</p>
-                <p className="text-sm text-white/70 font-medium truncate">{value}</p>
+              <div key={label} className="p-4 rounded-sm bg-bezel border border-hair">
+                <p className="text-[10px] text-t3 mb-1">{label}</p>
+                <p className="text-sm text-t1 font-medium truncate">{value}</p>
               </div>
             ))}
           </div>
@@ -349,55 +349,55 @@ export default function VehicleModal({ vehicle: v, onClose, onRemove }: VehicleM
               GÖZLEM ≠ KARAR: "araçta görüldü" demek, yolculuğun ona ait
               olduğu demek DEĞİLDİR. Doğrulanmamış kaynak (araç ekranı
               beyanı) burada İSİM olarak GÖSTERİLMEZ. */}
-          <div className="p-4 rounded-2xl bg-white/[0.03] border border-white/[0.06] flex flex-col gap-2">
+          <div className="p-4 rounded-sm bg-bezel border border-hair flex flex-col gap-2">
             <div className="flex items-center justify-between">
-              <span className="text-xs text-white/35">Son görülen sürücü</span>
+              <span className="text-xs text-t3">Son görülen sürücü</span>
               {!lastSeen.readable ? (
                 /* OKUNAMADI ≠ GÖZLEM YOK — dürüstçe ayrı söylenir. */
-                <span className="text-[11px] text-white/40">Okunamadı</span>
+                <span className="text-[11px] text-t2">Okunamadı</span>
               ) : lastSeen.isCurrent ? (
-                <span className="text-[11px] font-medium text-emerald-400">Şu an araçta</span>
+                <span className="text-[11px] font-medium text-verified">Şu an araçta</span>
               ) : null}
             </div>
 
             <p className={`text-sm font-medium ${
-              lastSeen.entry?.driverName != null ? 'text-white/75'
-              : lastSeen.unverifiedOnly ? 'text-amber-300/70'
-              : 'text-white/30'
+              lastSeen.entry?.driverName != null ? 'text-t1'
+              : lastSeen.unverifiedOnly ? 'text-warning/70'
+              : 'text-t3'
             }`}>
               {lastSeenDriverLabel(lastSeen)}
             </p>
 
             {lastSeenDetail !== null && (
               <div className="flex items-center justify-between">
-                <span className="text-[10px] text-white/25">Gözlem</span>
-                <span className="text-[10px] font-mono text-white/45">{lastSeenDetail}</span>
+                <span className="text-[10px] text-t3">Gözlem</span>
+                <span className="text-[10px] font-mono text-t2">{lastSeenDetail}</span>
               </div>
             )}
 
             {/* Doğrulanmamış kaynak SESSİZCE GİZLENMEZ: kayıt olduğu ama
                 kimlik kanıtı olmadığı açıkça yazılır. */}
             {lastSeen.readable && lastSeen.unverifiedOnly && (
-              <p className="text-[10px] text-amber-300/40">
+              <p className="text-[10px] text-warning/40">
                 Araçta bir gözlem kaydı var, ancak kaynağı kimlik doğrulamıyor
                 (araç ekranı beyanı kanıt sayılmaz) — sürücü adı gösterilmez.
               </p>
             )}
 
-            <p className="text-[10px] text-white/25">
+            <p className="text-[10px] text-t3">
               Bu bir <strong>gözlemdir</strong>, yolculuk sürücüsü kararı
               değildir. Yolculuğun sürücüsü aşağıda ayrıca gösterilir.
             </p>
           </div>
 
           {/* Trips (P1) — tahmin "(tahmini)" etiketli, okunamadı ≠ trip yok */}
-          <div className="p-4 rounded-2xl bg-white/[0.03] border border-white/[0.06] flex flex-col gap-2">
+          <div className="p-4 rounded-sm bg-bezel border border-hair flex flex-col gap-2">
             <div className="flex items-center justify-between">
-              <span className="text-xs text-white/35">Yolculuklar</span>
+              <span className="text-xs text-t3">Yolculuklar</span>
               {!tripsView.readable ? (
-                <span className="text-[11px] text-white/40">Okunamadı</span>
+                <span className="text-[11px] text-t2">Okunamadı</span>
               ) : (
-                <span className="text-[11px] text-white/40">
+                <span className="text-[11px] text-t2">
                   {tripsView.isEmpty ? 'Kayıt yok' : `${tripsView.trips.length} yolculuk`}
                 </span>
               )}
@@ -406,7 +406,7 @@ export default function VehicleModal({ vehicle: v, onClose, onRemove }: VehicleM
             {tripsView.readable && !tripsView.isEmpty && (
               <div className="flex flex-col gap-2">
                 {tripsView.trips.slice(0, 5).map((t) => (
-                  <div key={t.tripKey} className="rounded-xl bg-white/[0.02] border border-white/[0.05] p-3 flex flex-col gap-1">
+                  <div key={t.tripKey} className="rounded-sm bg-bezel border border-hair p-3 flex flex-col gap-1">
                     {/* Detay acma — gercek kullanici yolu (mount degil, TIKLAMA). */}
                     <button
                       type="button"
@@ -418,31 +418,31 @@ export default function VehicleModal({ vehicle: v, onClose, onRemove }: VehicleM
                       {openTripKey === t.tripKey ? 'Kaniti gizle' : 'Yolculuk kaniti'}
                     </button>
                     <div className="flex items-center justify-between">
-                      <span className="text-[11px] text-white/60 font-mono">
+                      <span className="text-[11px] text-t2 font-mono">
                         {tripTimeLabel(t.startedAtMs)}
                       </span>
-                      <span className="text-[10px] text-emerald-400/70">
+                      <span className="text-[10px] text-verified/70">
                         {tripUploadStateLabel(t.uploadState)}
                       </span>
                     </div>
                     {/* ── SÜRÜCÜ ─────────────────────────────────────────
                         Kanıt yoksa "Sürücü bilinmiyor" — araç sahibine,
                         son giriş yapana veya yöneticiye DÜŞMEZ. */}
-                    <div className="flex items-center justify-between gap-2 border-b border-white/[0.05] pb-1 mb-0.5">
-                      <span className="text-[10px] text-white/25">Sürücü</span>
+                    <div className="flex items-center justify-between gap-2 border-b border-hair pb-1 mb-0.5">
+                      <span className="text-[10px] text-t3">Sürücü</span>
                       <span className="flex items-center gap-1.5">
                         <span className={`text-[11px] ${
                           t.driver.status === 'ATTRIBUTED' || t.driver.status === 'LOCKED'
-                            ? 'text-white/75'
+                            ? 'text-t1'
                             : t.driver.status === 'CONFLICTED'
-                              ? 'text-amber-300/70'
-                              : 'text-white/30'
+                              ? 'text-warning/70'
+                              : 'text-t3'
                         }`}>
                           {tripDriverLabel(t.driver)}
                         </span>
                         {/* Elle düzeltme GİZLENMEZ. */}
                         {t.driver.isManual && (
-                          <span className="text-[9px] px-1.5 py-0.5 rounded border border-white/10 text-white/35">
+                          <span className="text-[9px] px-1.5 py-0.5 rounded border border-hair text-t3">
                             elle
                           </span>
                         )}
@@ -450,8 +450,8 @@ export default function VehicleModal({ vehicle: v, onClose, onRemove }: VehicleM
                     </div>
                     {t.driver.status !== 'UNKNOWN' && (
                       <div className="flex items-center justify-between">
-                        <span className="text-[10px] text-white/25">Sürücü kaynağı</span>
-                        <span className="text-[10px] font-mono text-white/45">
+                        <span className="text-[10px] text-t3">Sürücü kaynağı</span>
+                        <span className="text-[10px] font-mono text-t2">
                           {attributionSourceLabel(t.driver.source)}
                           {' · '}
                           {attributionConfidenceLabel(t.driver.confidence)}
@@ -486,11 +486,11 @@ export default function VehicleModal({ vehicle: v, onClose, onRemove }: VehicleM
                         { label: 'Güvenilirlik', text: tripConfidenceLabel(t.confidence) },
                       ].map(({ label, text }) => (
                         <div key={label} className="flex items-center justify-between">
-                          <span className="text-[10px] text-white/25">{label}</span>
+                          <span className="text-[10px] text-t3">{label}</span>
                           <span className={`text-[10px] font-mono ${
-                            text === 'Veri yok' ? 'text-white/25'
-                            : text.includes('(tahmini)') ? 'text-white/45'
-                            : 'text-white/70'
+                            text === 'Veri yok' ? 'text-t3'
+                            : text.includes('(tahmini)') ? 'text-t2'
+                            : 'text-t1'
                           }`}>
                             {text}
                           </span>
@@ -501,7 +501,7 @@ export default function VehicleModal({ vehicle: v, onClose, onRemove }: VehicleM
                         tahmine düşmek, kullanıcının varsayımı ölçüm sanmasına
                         yol açar. */}
                     {fuelRejectReasonLabel(t.fuelRejectReason) !== null && (
-                      <p className="text-[10px] text-amber-300/40 mt-0.5">
+                      <p className="text-[10px] text-warning/40 mt-0.5">
                         Yakıt ölçülemedi: {fuelRejectReasonLabel(t.fuelRejectReason)}
                       </p>
                     )}
@@ -509,13 +509,13 @@ export default function VehicleModal({ vehicle: v, onClose, onRemove }: VehicleM
                     {openTripKey === t.tripKey && (
                       <div className="mt-1" data-testid="trip-evidence-panel">
                         {t.tripId === null ? (
-                          <p className="text-[10px] text-white/30">
+                          <p className="text-[10px] text-t3">
                             Bu yolculuk sunucuda kimliklenmemis — kanit SORULAMAZ.
                           </p>
                         ) : tripEvidence === null ? (
-                          <p className="text-[10px] text-white/30">Kanit okunuyor…</p>
+                          <p className="text-[10px] text-t3">Kanit okunuyor…</p>
                         ) : !tripEvidence.readable ? (
-                          <p className="text-[10px] text-amber-300/70">
+                          <p className="text-[10px] text-warning/70">
                             Kanit OKUNAMADI — bu &quot;kanit yok&quot; demek degildir.
                           </p>
                         ) : (
@@ -525,7 +525,7 @@ export default function VehicleModal({ vehicle: v, onClose, onRemove }: VehicleM
                     )}
                   </div>
                 ))}
-                <p className="text-[10px] text-white/25">
+                <p className="text-[10px] text-t3">
                   &quot;(tahmini)&quot; işaretli değerler araçtan ölçülmedi; ortalama
                   tüketim ve birim fiyat varsayımıyla hesaplandı.
                   <br />
@@ -537,18 +537,18 @@ export default function VehicleModal({ vehicle: v, onClose, onRemove }: VehicleM
           </div>
 
           {/* Vehicle Identity (P1) — kanıt yoksa "Veri yok", onay yoksa "Doğrulanıyor" */}
-          <div className="p-4 rounded-2xl bg-white/[0.03] border border-white/[0.06] flex flex-col gap-2">
+          <div className="p-4 rounded-sm bg-bezel border border-hair flex flex-col gap-2">
             <div className="flex items-center justify-between">
-              <span className="text-xs text-white/35">Araç Kimliği</span>
+              <span className="text-xs text-t3">Araç Kimliği</span>
               {identityReadable === false ? (
                 /* OKUNAMADI ≠ KAYIT YOK — kullanıcıya dürüstçe ayrı söylenir. */
-                <span className="text-[11px] text-white/40">Okunamadı</span>
+                <span className="text-[11px] text-t2">Okunamadı</span>
               ) : (
                 <span className={`text-[11px] font-medium ${
-                  identity.status === 'VERIFIED' ? 'text-emerald-400'
-                  : identity.status === 'CONFLICT' ? 'text-red-400'
-                  : identity.status === 'STALE' ? 'text-amber-400'
-                  : 'text-white/40'
+                  identity.status === 'VERIFIED' ? 'text-verified'
+                  : identity.status === 'CONFLICT' ? 'text-critical'
+                  : identity.status === 'STALE' ? 'text-warning'
+                  : 'text-t2'
                 }`}>
                   {identityStatusLabel(identity.status)}
                 </span>
@@ -566,16 +566,16 @@ export default function VehicleModal({ vehicle: v, onClose, onRemove }: VehicleM
                   { label: 'İmza Sürümü',   value: identity.fingerprintVersion },
                 ].map(({ label, value }) => (
                   <div key={label} className="flex items-center justify-between">
-                    <span className="text-[11px] text-white/30">{label}</span>
-                    <span className={`text-[11px] font-mono ${value === null ? 'text-white/25' : 'text-white/70'}`}>
+                    <span className="text-[11px] text-t3">{label}</span>
+                    <span className={`text-[11px] font-mono ${value === null ? 'text-t3' : 'text-t1'}`}>
                       {identityFieldLabel(value)}
                     </span>
                   </div>
                 ))}
                 <div className="flex items-center justify-between">
-                  <span className="text-[11px] text-white/30">Kimlik Güveni</span>
+                  <span className="text-[11px] text-t3">Kimlik Güveni</span>
                   <span className={`text-[11px] font-mono ${
-                    identity.confidence === null ? 'text-white/25' : 'text-white/70'
+                    identity.confidence === null ? 'text-t3' : 'text-t1'
                   }`}>
                     {identityConfidenceLabel(identity.confidence)}
                   </span>
@@ -583,34 +583,34 @@ export default function VehicleModal({ vehicle: v, onClose, onRemove }: VehicleM
 
                 {/* Çakışma GİZLENMEZ. */}
                 {identityConflictText !== null && (
-                  <p className="text-[11px] text-red-400/80 mt-1">⚠ {identityConflictText}</p>
+                  <p className="text-[11px] text-critical/80 mt-1">⚠ {identityConflictText}</p>
                 )}
               </>
             )}
           </div>
 
           {/* Fuel bar */}
-          <div className="p-4 rounded-2xl bg-white/[0.03] border border-white/[0.06]">
+          <div className="p-4 rounded-sm bg-bezel border border-hair">
             <div className="flex items-center justify-between mb-2.5">
-              <span className="text-xs text-white/35">Yakıt Seviyesi</span>
+              <span className="text-xs text-t3">Yakıt Seviyesi</span>
               <span className={`text-sm font-mono font-semibold ${
-                !fuelKnown ? 'text-white/25'
-                : fuel!.state !== 'LIVE' ? 'text-white/45'
-                : fuelPct < 20 ? 'text-red-400'
-                : fuelPct < 35 ? 'text-amber-400' : 'text-emerald-400'
+                !fuelKnown ? 'text-t3'
+                : fuel!.state !== 'LIVE' ? 'text-t2'
+                : fuelPct < 20 ? 'text-critical'
+                : fuelPct < 35 ? 'text-warning' : 'text-verified'
               }`}>
                 {t ? measurementLabel(t.fuelPercent, '%').replace(' %', '%') : 'Veri yok'}
               </span>
             </div>
-            <div className="h-2.5 rounded-full bg-white/[0.06] overflow-hidden">
+            <div className="h-2.5 rounded-full bg-bezel overflow-hidden">
               {/* Yakıt bilinmiyorsa dolgu ÇİZİLMEZ — boş kırmızı çubuk
                   "yakıt bitti" sahte alarmı üretiyordu. */}
               {fuelKnown && (
                 <div
                   className={`h-full rounded-full transition-all duration-700 ${
                     fuel!.state !== 'LIVE' ? 'bg-white/25'
-                    : fuelPct < 20 ? 'bg-red-400'
-                    : fuelPct < 35 ? 'bg-amber-400' : 'bg-emerald-400'
+                    : fuelPct < 20 ? 'bg-critical'
+                    : fuelPct < 35 ? 'bg-warning' : 'bg-verified'
                   }`}
                   style={{ width: `${fuelPct}%` }}
                 />
@@ -618,10 +618,10 @@ export default function VehicleModal({ vehicle: v, onClose, onRemove }: VehicleM
             </div>
             {/* İkmal uyarısı YALNIZ ölçülmüş + CANLI düşük yakıtta verilir. */}
             {fuelKnown && fuel!.state === 'LIVE' && fuelPct < 20 && (
-              <p className="text-[11px] text-red-400/80 mt-2">⚠ Yakıt ikmali gerekiyor</p>
+              <p className="text-[11px] text-critical/80 mt-2">⚠ Yakıt ikmali gerekiyor</p>
             )}
             {!fuelKnown && (
-              <p className="text-[11px] text-white/30 mt-2">Yakıt verisi araçtan okunamadı</p>
+              <p className="text-[11px] text-t3 mt-2">Yakıt verisi araçtan okunamadı</p>
             )}
           </div>
 
@@ -632,9 +632,9 @@ export default function VehicleModal({ vehicle: v, onClose, onRemove }: VehicleM
         {/* ARAC KANITI — kanit zincirinin okunabilir ucu. */}
         <div className="flex-shrink-0 px-5 sm:px-6 pb-3">
           {evidence === null ? (
-            <p className="text-xs text-white/30">Kanit okunuyor…</p>
+            <p className="text-xs text-t3">Kanit okunuyor…</p>
           ) : !evidence.readable ? (
-            <p className="text-xs text-amber-300/70">
+            <p className="text-xs text-warning/70">
               Kanit OKUNAMADI — bu &quot;kanit yok&quot; demek degildir.
             </p>
           ) : (
@@ -644,19 +644,19 @@ export default function VehicleModal({ vehicle: v, onClose, onRemove }: VehicleM
 
         {/* Footer — remove button */}
         {onRemove && (
-          <div className="flex-shrink-0 px-5 pb-5 sm:px-6 sm:pb-6 pt-3 border-t border-white/[0.07] flex flex-col gap-2">
+          <div className="flex-shrink-0 px-5 pb-5 sm:px-6 sm:pb-6 pt-3 border-t border-hair flex flex-col gap-2">
             {removeError && (
-              <p className="text-xs text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2">
+              <p className="text-xs text-critical bg-[var(--cn-critical-bg)] border border-critical rounded-sm px-3 py-2">
                 ⚠ {removeError}
               </p>
             )}
             <button
               onClick={handleRemove}
               disabled={removing}
-              className={`w-full py-2.5 rounded-xl text-sm font-medium transition-all border ${
+              className={`w-full py-2.5 rounded-sm text-sm font-medium transition-all border ${
                 confirmRemove
-                  ? 'bg-red-500/15 border-red-500/40 text-red-400 hover:bg-red-500/25'
-                  : 'bg-white/[0.03] border-white/[0.07] text-white/40 hover:text-red-400 hover:border-red-500/30 hover:bg-red-500/[0.07]'
+                  ? 'bg-[var(--cn-critical-bg)] border-critical text-critical hover:bg-[var(--cn-critical-bg)]'
+                  : 'bg-bezel border-hair text-t2 hover:text-critical hover:border-critical hover:bg-[var(--cn-critical-bg)]'
               }`}
             >
               {removing ? 'Kaldırılıyor…' : confirmRemove ? 'Emin misin? Tekrar tıkla' : 'Aracı Listeden Kaldır'}

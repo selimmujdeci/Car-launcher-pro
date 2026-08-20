@@ -71,7 +71,7 @@ export function TrialBanner() {
         </div>
         <a
           href="/contact"
-          className="px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all active:scale-95"
+          className="px-3 py-1 rounded-sm text-[10px] font-black uppercase tracking-widest transition-all active:scale-95"
           style={{ background: 'rgba(239,68,68,0.15)', color: '#f87171', border: '1px solid rgba(239,68,68,0.3)' }}
         >
           PRO'ya Geç →

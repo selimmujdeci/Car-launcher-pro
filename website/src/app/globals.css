@@ -368,23 +368,26 @@
     color-scheme: light;
   }
 
-  /* Konsol gövdesi — enstrüman paneli zemini. */
-  [data-console] {
+  /* ⚠️ KAPSAM AYRIMI (#663): `[data-console]` YALNIZ TOKEN TANIMIDIR ve
+     `<html>` üzerinde durur. Zemin/mürekkep kuralı `[data-console-root]`a
+     bağlıdır — aksi hâlde attribute `<html>`e yazıldığı anda PAZARLAMA
+     sayfalarının zemini de konsol rengine döner ve site kimliği bozulur. */
+  [data-console-root] {
     background-color: var(--cn-bg-void);
     color: var(--cn-text-1);
   }
 
   /* Klavye odağı HER ZAMAN görünür (WCAG 2.4.7) — bakır halka. */
-  [data-console] :focus-visible {
+  [data-console-root] :focus-visible {
     outline: 2px solid var(--cn-copper);
     outline-offset: 2px;
   }
 
   /* Hareket azaltma tercihi — ibre/akış animasyonları durur (WCAG 2.3.3). */
   @media (prefers-reduced-motion: reduce) {
-    [data-console] *,
-    [data-console] *::before,
-    [data-console] *::after {
+    [data-console-root] *,
+    [data-console-root] *::before,
+    [data-console-root] *::after {
       animation-duration: 0.001ms !important;
       animation-iteration-count: 1 !important;
       transition-duration: 0.001ms !important;
@@ -434,25 +437,25 @@
    ister ve paket boyutunu büyütür. Tarayıcının "PDF olarak kaydet" çıktısı
    aynı işi görür; burada yalnız sayfanın yazdırmaya uygun hâli tanımlanır. */
 @media print {
-  [data-console] {
+  [data-console-root] {
     background: #ffffff !important;
     color: #000000 !important;
   }
   /* Etkileşim yüzeyleri kâğıda basılmaz. */
-  [data-console] nav,
-  [data-console] button,
-  [data-console] select,
-  [data-console] input {
+  [data-console-root] nav,
+  [data-console-root] button,
+  [data-console-root] select,
+  [data-console-root] input {
     display: none !important;
   }
-  [data-console] .cn-panel,
-  [data-console] .cn-bezel {
+  [data-console-root] .cn-panel,
+  [data-console-root] .cn-bezel {
     background: #ffffff !important;
     border-color: #999999 !important;
     box-shadow: none !important;
     break-inside: avoid;
   }
-  [data-console] .cn-print-keep {
+  [data-console-root] .cn-print-keep {
     display: block !important;
   }
 }

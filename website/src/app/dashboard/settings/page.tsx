@@ -1,69 +1,130 @@
+'use client';
+
+/**
+ * AYARLAR — Kanıt Konsolu dili (#663).
+ *
+ * ── SÖKÜLEN TİYATRO ───────────────────────────────────────────────────────
+ * Bu ekran baştan sona SAHTEYDİ: "Ad Soyad / E-posta / Şirket" alanları
+ * sabit yer tutucu metinlerle önceden doldurulmuştu, "Kaydet" düğmesinin
+ * hiçbir `onClick`i yoktu, dört bildirim anahtarı `div` idi (tıklanmıyordu
+ * bile) ve "Zaman Dilimi / Dil / Sürüm" satırları sabit yazıydı. Kullanıcı
+ * kaydettiğini sanıp hiçbir şey kaydetmiyordu.
+ *
+ * Yerine konan: yalnız GERÇEK olan yollar. Saklanmayan bir tercih için
+ * anahtar KONMAZ; nereye gitmesi gerektiği söylenir.
+ */
+
+import Link from 'next/link';
+import { useEffect, useState } from 'react';
+import ConsoleThemeToggle from '@/components/console/ConsoleThemeToggle';
+import { PushNotificationWidget } from '@/components/dashboard/PushNotificationWidget';
+import { Panel, PanelHead } from '@/components/console/primitives';
+
 export default function SettingsPage() {
+  /* Zaman dilimi TARAYICIDAN okunur — sabit "Europe/Istanbul" yazmak,
+     başka saat diliminde çalışan kullanıcıya yanlış bilgi vermekti. */
+  const [timeZone, setTimeZone] = useState<string | null>(null);
+  useEffect(() => {
+    try {
+      setTimeZone(Intl.DateTimeFormat().resolvedOptions().timeZone ?? null);
+    } catch {
+      setTimeZone(null);
+    }
+  }, []);
+
   return (
-    <div className="max-w-2xl flex flex-col gap-6">
-      {/* Profil */}
-      <section className="p-6 rounded-2xl bg-white/[0.03] border border-white/[0.07]">
-        <h2 className="text-sm font-semibold text-white/70 mb-5">Profil</h2>
-        <div className="flex flex-col gap-4">
-          {[
-            { label: 'Ad Soyad', placeholder: 'Admin Kullanıcı', type: 'text' },
-            { label: 'E-posta', placeholder: 'admin@carlauncher.pro', type: 'email' },
-            { label: 'Şirket', placeholder: 'Caros Pro Ltd.', type: 'text' },
-          ].map(({ label, placeholder, type }) => (
-            <div key={label}>
-              <label className="block text-[11px] text-white/30 mb-1.5 font-medium">{label}</label>
-              <input
-                type={type}
-                defaultValue={placeholder}
-                className="w-full bg-white/[0.04] border border-white/[0.1] rounded-xl px-4 py-3 text-sm text-white/70 placeholder-white/20 focus:outline-none focus:border-accent/50 focus:bg-white/[0.06] transition-all"
-              />
+    <div className="flex flex-col gap-3 lg:gap-4 max-w-3xl">
+      <Panel>
+        <PanelHead title="Görünüm" meta="tercih bu cihazda saklanır" />
+        <div className="p-4 flex items-center justify-between gap-3">
+          <div>
+            <div className="text-[13px] text-t1">Gece / Gündüz teması</div>
+            <div className="text-[11px] text-t3 mt-1 leading-relaxed">
+              Panelin tamamı için geçerlidir. Tarayıcı deposunda tutulur, hesaba
+              bağlı DEĞİLDİR — başka cihazda tekrar seçilmesi gerekir.
             </div>
-          ))}
-          <button className="self-start px-5 py-2.5 rounded-xl bg-accent hover:bg-accent/90 text-white text-sm font-medium transition-colors">
-            Kaydet
-          </button>
+          </div>
+          <ConsoleThemeToggle />
         </div>
-      </section>
+      </Panel>
 
-      {/* Bildirimler */}
-      <section className="p-6 rounded-2xl bg-white/[0.03] border border-white/[0.07]">
-        <h2 className="text-sm font-semibold text-white/70 mb-5">Bildirim Tercihleri</h2>
-        <div className="flex flex-col gap-4">
-          {[
-            { label: 'Alarm bildirimleri', sub: 'Araç alarmlarında anında bildirim al', on: true },
-            { label: 'Hız aşımı uyarıları', sub: '90 km/h üzerinde bildirim', on: true },
-            { label: 'Yakıt uyarısı', sub: '%20 altında bildirim', on: true },
-            { label: 'Günlük rapor', sub: 'Her gün 09:00\'da özet e-posta', on: false },
-          ].map(({ label, sub, on }) => (
-            <div key={label} className="flex items-center justify-between py-1">
-              <div>
-                <p className="text-sm text-white/70">{label}</p>
-                <p className="text-[11px] text-white/30 mt-0.5">{sub}</p>
-              </div>
-              <div className={`w-11 h-6 rounded-full border transition-colors relative cursor-pointer ${on ? 'bg-accent/20 border-accent/40' : 'bg-white/[0.05] border-white/[0.1]'}`}>
-                <div className={`absolute top-0.5 w-5 h-5 rounded-full transition-all ${on ? 'left-5 bg-accent' : 'left-0.5 bg-white/20'}`} />
-              </div>
-            </div>
-          ))}
+      <Panel>
+        <PanelHead title="Bildirimler" meta="push kaydı · gerçek" />
+        <div className="p-4 flex flex-col gap-3">
+          <PushNotificationWidget />
+          <p className="cn-num text-[10px] text-t3 leading-relaxed border-t border-hair-soft pt-3">
+            AÇIK BORÇ: bildirim türü tercihleri (hız aşımı, yakıt, günlük özet)
+            sunucuda saklanmıyor. Saklanmadığı için burada anahtar GÖSTERİLMİYOR —
+            kaydetmiyormuş gibi görünen bir anahtar koymak yanlış olurdu.
+          </p>
         </div>
-      </section>
+      </Panel>
 
-      {/* Bölge */}
-      <section className="p-6 rounded-2xl bg-white/[0.03] border border-white/[0.07]">
-        <h2 className="text-sm font-semibold text-white/70 mb-5">Bölge & Zaman</h2>
-        <div className="flex flex-col gap-4">
-          {[
-            { label: 'Zaman Dilimi', value: 'Europe/Istanbul (UTC+3)' },
-            { label: 'Dil', value: 'Türkçe' },
-            { label: 'Sürüm', value: 'v2.0.0 — Production' },
-          ].map(({ label, value }) => (
-            <div key={label} className="flex items-center justify-between py-1 border-b border-white/[0.04] last:border-0">
-              <span className="text-sm text-white/40">{label}</span>
-              <span className="text-sm text-white/65 font-medium">{value}</span>
-            </div>
-          ))}
+      <Panel>
+        <PanelHead title="Hesap ve organizasyon" />
+        <div className="p-4 flex flex-col gap-3">
+          <p className="text-[12px] text-t2 leading-relaxed">
+            Organizasyon adı, üyeler, roller ve yetkiler filo yönetimi altındadır;
+            hepsi sunucuda saklanır ve rol matrisine tabidir.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <Link
+              href="/dashboard/fleet/settings"
+              className="cn-num text-[10px] uppercase tracking-[0.16em] px-3 py-2 border border-hair text-t2 hover:text-t1"
+              style={{ borderRadius: 2 }}
+            >
+              Filo ayarları →
+            </Link>
+            <Link
+              href="/dashboard/fleet/members"
+              className="cn-num text-[10px] uppercase tracking-[0.16em] px-3 py-2 border border-hair text-t2 hover:text-t1"
+              style={{ borderRadius: 2 }}
+            >
+              Rol ve yetkiler →
+            </Link>
+          </div>
+          <p className="cn-num text-[10px] text-t3 leading-relaxed border-t border-hair-soft pt-3">
+            AÇIK BORÇ: profil alanları (ad soyad, e-posta) için bir yazma ucu YOK.
+            Bu ekranda daha önce sahte bir profil formu ve çalışmayan bir
+            &quot;Kaydet&quot; düğmesi vardı; sökülmüştür.
+          </p>
         </div>
-      </section>
+      </Panel>
+
+      <Panel>
+        <PanelHead title="Bölge ve sürüm" />
+        <dl className="divide-y" style={{ borderColor: 'var(--cn-line-soft)' }}>
+          <Row label="Zaman dilimi" value={timeZone} />
+          <Row label="Arayüz dili" value="Türkçe" />
+          <Row
+            label="Uygulama sürümü"
+            value={process.env.NEXT_PUBLIC_APP_VERSION ?? null}
+            missing="derleme sürümü gömülmedi"
+          />
+        </dl>
+      </Panel>
+    </div>
+  );
+}
+
+function Row({
+  label,
+  value,
+  missing = 'bilinmiyor',
+}: {
+  label: string;
+  value: string | null;
+  missing?: string;
+}) {
+  return (
+    <div className="flex items-center justify-between px-4 py-3">
+      <dt className="cn-eyebrow">{label}</dt>
+      <dd
+        className="cn-num text-[12px]"
+        style={{ color: value ? 'var(--cn-text-1)' : 'var(--cn-unknown)' }}
+      >
+        {value ?? missing}
+      </dd>
     </div>
   );
 }

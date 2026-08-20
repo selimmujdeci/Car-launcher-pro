@@ -79,15 +79,15 @@ export default function AddVehicleModal({ onClose }: Props) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-      <div className="relative w-full max-w-sm mx-4 bg-[#0b1628] border border-white/10 rounded-2xl shadow-2xl overflow-hidden">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 ">
+      <div className="relative w-full max-w-sm mx-4 bg-[#0b1628] border border-hair rounded-sm shadow-2xl overflow-hidden">
         {/* Header */}
-        <div className="flex items-center justify-between px-6 pt-6 pb-4 border-b border-white/[0.07]">
+        <div className="flex items-center justify-between px-6 pt-6 pb-4 border-b border-hair">
           <div className="flex items-center gap-2">
-            <_Link2 className="w-4 h-4 text-accent" />
-            <span className="font-semibold text-white text-sm">Araç Bağla</span>
+            <_Link2 className="w-4 h-4 text-copper-ink" />
+            <span className="font-semibold text-t1 text-sm">Araç Bağla</span>
           </div>
-          <button onClick={onClose} className="text-white/30 hover:text-white/60 transition-colors">
+          <button onClick={onClose} className="text-t3 hover:text-t2 transition-colors">
             <_X className="w-5 h-5" />
           </button>
         </div>
@@ -96,8 +96,8 @@ export default function AddVehicleModal({ onClose }: Props) {
           {/* Input step */}
           {(step === 'input' || step === 'loading') && (
             <>
-              <p className="text-white/50 text-xs mb-5 leading-relaxed">
-                Araç ekranında görünen <span className="text-white/70 font-medium">6 haneli kodu</span> girin.
+              <p className="text-t2 text-xs mb-5 leading-relaxed">
+                Araç ekranında görünen <span className="text-t1 font-medium">6 haneli kodu</span> girin.
                 Kod 60 saniye geçerlidir.
               </p>
 
@@ -114,9 +114,9 @@ export default function AddVehicleModal({ onClose }: Props) {
                     onChange={(e) => handleDigit(i, e.target.value)}
                     onKeyDown={(e) => handleKey(i, e)}
                     disabled={step === 'loading'}
-                    className={`w-10 h-12 text-center text-lg font-semibold rounded-xl border bg-white/[0.04] text-white outline-none transition-all
-                      ${d ? 'border-accent/60' : 'border-white/10'}
-                      focus:border-accent/80 focus:bg-accent/5
+                    className={`w-10 h-12 text-center text-lg font-semibold rounded-sm border bg-bezel text-t1 outline-none transition-all
+                      ${d ? 'border-copper' : 'border-hair'}
+                      focus:border-copper focus:bg-[var(--cn-copper-bg)]
                       disabled:opacity-40`}
                   />
                 ))}
@@ -125,10 +125,10 @@ export default function AddVehicleModal({ onClose }: Props) {
               <button
                 onClick={submit}
                 disabled={!ready || step === 'loading'}
-                className={`w-full py-3 rounded-xl text-sm font-semibold transition-all flex items-center justify-center gap-2
+                className={`w-full py-3 rounded-sm text-sm font-semibold transition-all flex items-center justify-center gap-2
                   ${ready && step === 'input'
-                    ? 'bg-accent hover:bg-accent/90 text-white'
-                    : 'bg-white/[0.05] text-white/25 cursor-not-allowed'}`}
+                    ? 'bg-copper hover:bg-[var(--cn-copper-bg)] text-t1'
+                    : 'bg-bezel text-t3 cursor-not-allowed'}`}
               >
                 {step === 'loading' ? (
                   <><_Loader2 className="w-4 h-4 animate-spin" /> Bağlanıyor…</>
@@ -140,15 +140,15 @@ export default function AddVehicleModal({ onClose }: Props) {
           {/* Success step */}
           {step === 'success' && linked && (
             <div className="text-center">
-              <_CheckCircle className="w-12 h-12 text-green-400 mx-auto mb-3" />
-              <p className="text-white font-semibold mb-1">Araç Bağlandı!</p>
-              <p className="text-white/50 text-sm mb-1">{linked.name}</p>
+              <_CheckCircle className="w-12 h-12 text-verified mx-auto mb-3" />
+              <p className="text-t1 font-semibold mb-1">Araç Bağlandı!</p>
+              <p className="text-t2 text-sm mb-1">{linked.name}</p>
               {linked.plate && (
-                <p className="text-xs text-white/30 font-mono mb-5">{linked.plate}</p>
+                <p className="text-xs text-t3 font-mono mb-5">{linked.plate}</p>
               )}
               <button
                 onClick={onClose}
-                className="w-full py-3 rounded-xl text-sm font-semibold bg-accent hover:bg-accent/90 text-white transition-colors"
+                className="w-full py-3 rounded-sm text-sm font-semibold bg-copper hover:bg-[var(--cn-copper-bg)] text-t1 transition-colors"
               >
                 Kapat
               </button>
@@ -158,19 +158,19 @@ export default function AddVehicleModal({ onClose }: Props) {
           {/* Error step */}
           {step === 'error' && (
             <div className="text-center">
-              <_AlertCircle className="w-12 h-12 text-red-400 mx-auto mb-3" />
-              <p className="text-white font-semibold mb-1">Bağlama Başarısız</p>
-              <p className="text-white/50 text-sm mb-5">{errMsg}</p>
+              <_AlertCircle className="w-12 h-12 text-critical mx-auto mb-3" />
+              <p className="text-t1 font-semibold mb-1">Bağlama Başarısız</p>
+              <p className="text-t2 text-sm mb-5">{errMsg}</p>
               <div className="flex gap-3">
                 <button
                   onClick={retry}
-                  className="flex-1 py-3 rounded-xl text-sm font-semibold bg-white/[0.07] hover:bg-white/[0.12] text-white transition-colors"
+                  className="flex-1 py-3 rounded-sm text-sm font-semibold bg-bezel hover:bg-white/[0.12] text-t1 transition-colors"
                 >
                   Tekrar Dene
                 </button>
                 <button
                   onClick={onClose}
-                  className="flex-1 py-3 rounded-xl text-sm font-semibold bg-accent hover:bg-accent/90 text-white transition-colors"
+                  className="flex-1 py-3 rounded-sm text-sm font-semibold bg-copper hover:bg-[var(--cn-copper-bg)] text-t1 transition-colors"
                 >
                   Kapat
                 </button>

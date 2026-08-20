@@ -48,6 +48,9 @@ const config: Config = {
         warning:     'var(--cn-warning)',
         critical:    'var(--cn-critical)',
         unknown:     'var(--cn-unknown)',
+        /* Repaint (#663) `bg-copper` / `text-verified` gibi kısa adları üretir;
+           renk ailesi burada tanımlı olmazsa Tailwind sınıfı ATAR ve öğe
+           renksiz kalır (sessiz görsel kayıp). */
       },
       fontFamily: {
         sans: ['var(--font-sans)', 'Inter', 'system-ui', 'sans-serif'],

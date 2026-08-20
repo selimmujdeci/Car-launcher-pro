@@ -1,21 +1,16 @@
 'use client';
 
 /**
- * KANIT KONSOLU — filo panelinin kabuğu (#662).
+ * FİLO BÖLÜMÜ KABUĞU — sekme şeridi (#662, #663'te sadeleşti).
  *
- * Konsol, dashboard kabuğunun İÇİNDE tam alanı kaplar: üstteki `p-4/lg:p-6`
- * dolgusu negatif kenar boşluğuyla iptal edilir, böylece enstrüman paneli
- * kenardan kenara oturur (kart içinde kart görüntüsü olmaz).
- *
- * Tema: `data-console` attribute'u `<html>` üzerine yazılır — boot script'in
- * bastığı yerin AYNISI (iki ayrı kök seçilirse ilk kare yanlış temada boyanır).
+ * #663'te dashboard kabuğunun TAMAMI konsol diline geçtiği için buradaki
+ * negatif kenar boşluğu hilesi ve ikinci başlık çubuğu KALDIRILDI: tema
+ * anahtarı artık Topbar'da, zemin de kökte. Geriye yalnız filo sekmeleri
+ * kaldı — iki ayrı başlık çubuğu kullanıcıya aynı bilgiyi iki kez gösteriyordu.
  */
 
-import { useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import ConsoleThemeToggle from '@/components/console/ConsoleThemeToggle';
-import { CONSOLE_THEME_ATTR, readStoredTheme } from '@/lib/console/consoleTheme';
 
 const TABS: Array<{ href: string; label: string }> = [
   { href: '/dashboard/fleet',          label: 'Genel Bakış' },
@@ -31,45 +26,16 @@ const TABS: Array<{ href: string; label: string }> = [
 export default function ConsoleLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
 
-  /* Tema attribute'u konsol açıkken garanti altına alınır: kullanıcı doğrudan
-     bu rotaya girdiyse boot script zaten basmıştır, ama istemci tarafı
-     gezinmede (`/dashboard` → `/dashboard/fleet`) attribute hiç yazılmamış
-     olabilir; o durumda tokenlar çözümlenmez ve ekran renksiz kalır. */
-  useEffect(() => {
-    const root = document.documentElement;
-    if (!root.getAttribute(CONSOLE_THEME_ATTR)) {
-      root.setAttribute(CONSOLE_THEME_ATTR, readStoredTheme());
-    }
-  }, []);
-
   const isActive = (href: string) =>
     href === '/dashboard/fleet' ? pathname === href : pathname.startsWith(href);
 
   return (
-    <div
-      data-console-root
-      className="-m-4 lg:-m-6 min-h-full flex flex-col"
-      style={{ background: 'var(--cn-bg-void)', color: 'var(--cn-text-1)' }}
-    >
-      {/* Konsol başlığı */}
-      <header
-        className="flex items-center justify-between gap-3 px-4 lg:px-6 h-14 border-b"
-        style={{ borderColor: 'var(--cn-line)', background: 'var(--cn-bg-panel)' }}
-      >
-        <div className="flex items-baseline gap-3 min-w-0">
-          <span className="cn-display text-[15px] tracking-tight" style={{ color: 'var(--cn-text-1)' }}>
-            Kanıt Konsolu
-          </span>
-          <span className="cn-eyebrow hidden sm:inline">FİLO / EVIDENCE CONSOLE</span>
-        </div>
-        <ConsoleThemeToggle />
-      </header>
-
+    <div className="-mx-4 lg:-mx-6 -mt-4 lg:-mt-6 flex flex-col">
       {/* Sekmeler — mobilde yatay kaydırılır */}
       <nav
-        className="flex items-stretch gap-0 overflow-x-auto border-b flex-shrink-0"
+        className="flex items-stretch gap-0 overflow-x-auto border-b flex-shrink-0 sticky top-0 z-10"
         style={{ borderColor: 'var(--cn-line)', background: 'var(--cn-bg-panel)' }}
-        aria-label="Konsol bölümleri"
+        aria-label="Filo bölümleri"
       >
         {TABS.map(({ href, label }) => {
           const active = isActive(href);
@@ -91,7 +57,7 @@ export default function ConsoleLayout({ children }: { children: React.ReactNode 
         })}
       </nav>
 
-      <main className="flex-1 min-h-0 p-3 sm:p-4 lg:p-6">{children}</main>
+      <div className="p-3 sm:p-4 lg:p-6">{children}</div>
     </div>
   );
 }

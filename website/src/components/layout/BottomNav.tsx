@@ -88,8 +88,8 @@ export default function BottomNav() {
 
   return (
     <nav
-      className="lg:hidden fixed bottom-0 left-0 right-0 z-30 flex items-stretch bg-[#070e1c]/96 backdrop-blur-xl border-t border-white/[0.07]"
-      style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}
+      className="lg:hidden fixed bottom-0 left-0 right-0 z-30 flex items-stretch border-t border-hair"
+      style={{ background: 'var(--cn-bg-panel)', paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}
     >
       {items.map(({ href, label, icon, badge }) => {
         const active = isActive(href);
@@ -97,26 +97,25 @@ export default function BottomNav() {
           <Link
             key={href}
             href={href}
-            className={`flex-1 flex flex-col items-center justify-center gap-1 py-3 relative transition-colors ${
-              active ? 'text-accent' : 'text-white/35 active:text-white/60'
-            }`}
+            className="flex-1 flex flex-col items-center justify-center gap-1 py-3 relative transition-colors"
+            style={{ color: active ? 'var(--cn-copper)' : 'var(--cn-text-3)' }}
           >
             {/* Active indicator bar */}
             {active && (
-              <span className="absolute top-0 left-1/2 -translate-x-1/2 w-8 h-0.5 rounded-full bg-accent" />
+              <span aria-hidden className="absolute top-0 left-1/2 -translate-x-1/2 w-8 h-0.5" style={{ background: 'var(--cn-copper)' }} />
             )}
 
             {/* Icon with notification badge */}
             <span className="relative">
               {icon}
               {badge && unreadCount > 0 && (
-                <span className="absolute -top-1 -right-1.5 min-w-[14px] h-3.5 px-0.5 rounded-full bg-red-500 text-[8px] text-white font-bold flex items-center justify-center leading-none">
+                <span className="absolute -top-1 -right-1.5 min-w-[14px] h-3.5 px-0.5 cn-num text-[8px] flex items-center justify-center leading-none" style={{ background: 'var(--cn-critical)', color: 'var(--cn-bg-void)', borderRadius: 2 }}>
                   {unreadCount > 9 ? '9+' : unreadCount}
                 </span>
               )}
             </span>
 
-            <span className="text-[10px] font-medium leading-none">{label}</span>
+            <span className="cn-num text-[9px] uppercase tracking-[0.1em] leading-none">{label}</span>
           </Link>
         );
       })}

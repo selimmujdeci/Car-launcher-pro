@@ -16,10 +16,16 @@ function DashboardInner({ children }: { children: React.ReactNode }) {
   const [drawerOpen, setDrawerOpen] = useState(false);
 
   return (
-    <div className="flex h-[100dvh] bg-[#060d1a] overflow-hidden">
+    /* KANIT KONSOLU KÖKÜ (#663) — `data-console-root` zemin/mürekkep/odak
+       kurallarını açar; token tanımı `<html data-console>` üzerindedir. */
+    <div
+      data-console-root
+      className="flex h-[100dvh] overflow-hidden"
+      style={{ background: 'var(--cn-bg-void)', color: 'var(--cn-text-1)' }}
+    >
       {/* Mobile drawer backdrop */}
       <div
-        className={`fixed inset-0 z-40 bg-black/70 backdrop-blur-sm lg:hidden transition-opacity duration-300 ${
+        className={`fixed inset-0 z-40 bg-black/70 lg:hidden transition-opacity duration-300 ${
           drawerOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
         }`}
         onClick={() => setDrawerOpen(false)}

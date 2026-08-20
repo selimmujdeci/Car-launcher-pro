@@ -89,7 +89,7 @@ const CommandButton = memo(function CommandButton({
       key={type}
       onClick={onClick}
       disabled={disabled}
-      className="flex flex-col items-center justify-center gap-2.5 py-5 rounded-2xl transition-all duration-200 active:scale-95 disabled:opacity-60 group min-h-[64px]"
+      className="flex flex-col items-center justify-center gap-2.5 py-5 rounded-sm transition-all duration-200 active:scale-95 disabled:opacity-60 group min-h-[64px]"
       style={{ background: bgColor, border: `1px solid ${borderColor}`, boxShadow }}
     >
       {isPending
@@ -191,7 +191,7 @@ export function RemoteCommandPanel({ vehicleId }: Props) {
 
       {/* Lock state display */}
       <div
-        className="flex items-center gap-3 px-4 py-2.5 rounded-xl"
+        className="flex items-center gap-3 px-4 py-2.5 rounded-sm"
         style={{
           background: `${lockColor}08`,
           border:     `1px solid ${lockColor}22`,
@@ -250,7 +250,7 @@ export function RemoteCommandPanel({ vehicleId }: Props) {
         <button
           onClick={() => setShowNav((v) => !v)}
           disabled={cmdState['route_send'] === 'pending'}
-          className="flex items-center gap-3 px-4 py-4 rounded-xl transition-all duration-150 active:scale-[0.98] disabled:opacity-40 group min-h-[56px]"
+          className="flex items-center gap-3 px-4 py-4 rounded-sm transition-all duration-150 active:scale-[0.98] disabled:opacity-40 group min-h-[56px]"
           style={{
             background: showNav ? 'rgba(96,165,250,0.12)' : 'rgba(96,165,250,0.07)',
             border:     `1px solid rgba(96,165,250,${showNav ? '0.35' : '0.18'})`,
@@ -258,11 +258,11 @@ export function RemoteCommandPanel({ vehicleId }: Props) {
           }}
         >
           {cmdState['route_send'] === 'pending' ? <SpinIcon /> : <NavIcon />}
-          <span className="text-[11px] font-black uppercase tracking-[0.28em] text-blue-400">
+          <span className="text-[11px] font-black uppercase tracking-[0.28em] text-copper-ink">
             Navigasyon Gönder
           </span>
           <span
-            className="ml-auto text-[10px] font-mono text-blue-400/50 transition-transform duration-200"
+            className="ml-auto text-[10px] font-mono text-copper-ink/50 transition-transform duration-200"
             style={{ transform: showNav ? 'rotate(90deg)' : 'rotate(0deg)' }}
           >
             ›
@@ -280,12 +280,12 @@ export function RemoteCommandPanel({ vehicleId }: Props) {
               onChange={(e) => setNavDest(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleNav()}
               placeholder="Hedef adres veya yer adı…"
-              className="flex-1 px-4 py-3.5 rounded-xl text-sm text-white/80 placeholder:text-white/20 bg-white/[0.04] border border-white/[0.08] focus:border-blue-500/40 focus:outline-none transition-colors min-h-[52px]"
+              className="flex-1 px-4 py-3.5 rounded-sm text-sm text-t1 placeholder:text-t3 bg-bezel border border-hair focus:border-copper focus:outline-none transition-colors min-h-[52px]"
             />
             <button
               onClick={handleNav}
               disabled={!navDest.trim() || cmdState['route_send'] === 'pending'}
-              className="px-4 py-3.5 rounded-xl text-[10px] font-black uppercase tracking-widest text-blue-400 disabled:opacity-40 transition-all active:scale-95 min-h-[52px]"
+              className="px-4 py-3.5 rounded-sm text-[10px] font-black uppercase tracking-widest text-copper-ink disabled:opacity-40 transition-all active:scale-95 min-h-[52px]"
               style={{
                 background: 'rgba(96,165,250,0.1)',
                 border:     '1px solid rgba(96,165,250,0.22)',
@@ -300,7 +300,7 @@ export function RemoteCommandPanel({ vehicleId }: Props) {
       {/* Sonuç banner */}
       {result && (
         <div
-          className="flex items-center gap-3 px-4 py-2.5 rounded-xl"
+          className="flex items-center gap-3 px-4 py-2.5 rounded-sm"
           style={{
             background: result.ok ? 'rgba(52,211,153,0.07)' : 'rgba(239,68,68,0.07)',
             border:     `1px solid ${result.ok ? 'rgba(52,211,153,0.22)' : 'rgba(239,68,68,0.22)'}`,

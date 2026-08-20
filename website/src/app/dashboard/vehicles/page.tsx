@@ -1,17 +1,25 @@
 'use client';
 
-import { useState } from 'react';
-import React from 'react';
-import { Plus } from 'lucide-react';
-type SvgFC = React.FC<{ className?: string }>;
-const _Plus = Plus as unknown as SvgFC;
+/**
+ * ARAÇLARIM — Kanıt Konsolu dili (#663).
+ *
+ * Kapsam farkı (bilinçli): bu ekran KULLANICININ araçlarını yönetir (ekle,
+ * kaldır, kimlik ver). Filo → Araçlar ekranı ise FİLO KAPSAMINI hüküm
+ * sırasına göre gösterir. İkisi aynı `vehicleStore` otoritesinden okur;
+ * ikinci bir liste kaynağı KURULMAZ.
+ */
+
+import { useMemo, useState } from 'react';
 import { useVehicleStore } from '@/store/vehicleStore';
 import VehicleCard from '@/components/dashboard/VehicleCard';
 import VehicleModal from '@/components/dashboard/VehicleModal';
 import AddVehicleModal from '@/components/dashboard/AddVehicleModal';
+import { Panel, PanelHead, StatTile, EmptyState, ErrorState } from '@/components/console/primitives';
+import { judgeVehicle, tallyFleet } from '@/lib/console/evidenceModel';
+import { vehicleTitle } from '@/lib/vehicleDisplay';
 import type { LiveVehicle, VehicleStatus } from '@/types/realtime';
 
-const filters: { label: string; value: VehicleStatus | 'all' }[] = [
+const FILTERS: { label: string; value: VehicleStatus | 'all' }[] = [
   { label: 'Tümü', value: 'all' },
   { label: 'Online', value: 'online' },
   { label: 'Alarm', value: 'alarm' },
@@ -23,71 +31,113 @@ export default function VehiclesPage() {
   const loading = useVehicleStore((s) => s.loading);
   const error = useVehicleStore((s) => s.error);
   const removeVehicle = useVehicleStore((s) => s.removeVehicle);
-  const [filter, setFilter] = useState<VehicleStatus | 'all'>('all');
-  const [selected, setSelected] = useState<LiveVehicle | null>(null);
-  const [showAddModal, setShowAddModal] = useState(false);
 
-  const filtered = filter === 'all' ? vehicles : vehicles.filter((v) => v.status === filter);
+  const [filter, setFilter] = useState<VehicleStatus | 'all'>('all');
+  const [query, setQuery] = useState('');
+  const [selected, setSelected] = useState<LiveVehicle | null>(null);
+  const [showAdd, setShowAdd] = useState(false);
+
+  const tally = useMemo(
+    () =>
+      tallyFleet(
+        vehicles.map((v) => ({
+          verdict: judgeVehicle(v.telemetry, v.batteryVoltage ?? null).verdict,
+          offline: v.status === 'offline',
+        })),
+      ),
+    [vehicles],
+  );
+
+  const visible = useMemo(() => {
+    const byStatus = filter === 'all' ? vehicles : vehicles.filter((v) => v.status === filter);
+    const needle = query.trim().toLocaleLowerCase('tr-TR');
+    if (!needle) return byStatus;
+    return byStatus.filter((v) =>
+      `${vehicleTitle(v)} ${v.name} ${v.plate} ${v.driver}`.toLocaleLowerCase('tr-TR').includes(needle),
+    );
+  }, [vehicles, filter, query]);
 
   if (loading) {
-    return <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-6 text-sm text-white/60">Araçlar yükleniyor...</div>;
-  }
-
-  if (error) {
-    return <div className="rounded-2xl border border-red-500/20 bg-red-500/[0.07] p-6 text-sm text-red-300/90">Supabase bağlantı hatası: {error}</div>;
+    return <Panel><EmptyState title="ARAÇLAR YÜKLENİYOR" /></Panel>;
   }
 
   return (
-    <>
-      {/* Filter bar + add button */}
-      <div className="flex flex-col sm:flex-row gap-3 mb-5">
-        {/* Filter chips — horizontally scrollable on mobile */}
-        <div className="flex items-center gap-2 overflow-x-auto scrollbar-none flex-1 pb-0.5">
-          {filters.map(({ label, value }) => {
+    <div className="flex flex-col gap-3 lg:gap-4">
+      {error && <ErrorState message={`Supabase bağlantı hatası: ${error}`} />}
+
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 lg:gap-3">
+        <StatTile label="Toplam araç" count={tally.total} token="copper" />
+        <StatTile label="Kritik" count={tally.critical} token="critical" />
+        <StatTile label="Uyarı" count={tally.warning} token="warning" />
+        <StatTile label="Kanıt bekliyor" count={tally.noEvidence} token="unknown" />
+      </div>
+
+      <Panel>
+        <PanelHead
+          title="Araçlarım"
+          meta={`${visible.length} / ${vehicles.length} gösteriliyor`}
+          action={
+            <div className="flex items-center gap-2 flex-wrap justify-end">
+              <input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Ara"
+                aria-label="Araç ara"
+                className="cn-num text-[11px] px-2 py-1 bg-bezel text-t1 border border-hair w-28 sm:w-44 placeholder:text-t3"
+                style={{ borderRadius: 2 }}
+              />
+              <button
+                onClick={() => setShowAdd(true)}
+                className="cn-num text-[10px] uppercase tracking-[0.16em] px-3 py-2"
+                style={{ borderRadius: 2, background: 'var(--cn-copper)', color: '#0A0A0C' }}
+              >
+                ARAÇ EKLE
+              </button>
+            </div>
+          }
+        />
+
+        {/* Durum filtreleri */}
+        <div className="flex items-center gap-2 px-4 py-3 overflow-x-auto border-b border-hair-soft">
+          {FILTERS.map(({ label, value }) => {
             const count = value === 'all' ? vehicles.length : vehicles.filter((v) => v.status === value).length;
+            const active = filter === value;
             return (
               <button
                 key={value}
                 onClick={() => setFilter(value)}
-                className={`flex-shrink-0 flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-sm font-medium transition-all min-h-[44px] ${
-                  filter === value
-                    ? 'bg-accent/15 text-accent border border-accent/30'
-                    : 'bg-white/[0.03] text-white/45 border border-white/[0.07] hover:text-white/70 hover:bg-white/[0.05]'
-                }`}
+                aria-pressed={active}
+                className="cn-num text-[10px] uppercase tracking-[0.14em] px-3 py-2 whitespace-nowrap border flex-shrink-0"
+                style={{
+                  borderRadius: 2,
+                  borderColor: active ? 'var(--cn-copper)' : 'var(--cn-line)',
+                  color: active ? 'var(--cn-copper)' : 'var(--cn-text-2)',
+                  background: active ? 'var(--cn-copper-bg)' : 'transparent',
+                }}
               >
-                {label}
-                <span className="text-[10px] text-white/25 bg-white/[0.06] rounded-full px-1.5 py-0.5 leading-none">
-                  {count}
-                </span>
+                {label} <span className="text-t3">{count}</span>
               </button>
             );
           })}
         </div>
 
-        {/* Add button — full width on mobile, auto on desktop */}
-        <button
-          onClick={() => setShowAddModal(true)}
-          className="flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-sm font-semibold bg-accent hover:bg-accent/90 text-white transition-colors min-h-[44px] sm:w-auto w-full"
-        >
-          <_Plus className="w-4 h-4 flex-shrink-0" />
-          Araç Ekle
-        </button>
-      </div>
-
-      {/* Result count */}
-      <p className="text-xs text-white/25 mb-4">{filtered.length} araç gösteriliyor</p>
-
-      {/* Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
-        {filtered.map((vehicle) => (
-          <VehicleCard key={vehicle.id} vehicle={vehicle} onClick={(v) => setSelected(v as LiveVehicle)} />
-        ))}
-        {filtered.length === 0 && (
-          <div className="col-span-full py-16 text-center text-white/25 text-sm">
-            Bu filtre için araç bulunamadı.
+        {visible.length === 0 ? (
+          <EmptyState
+            title={vehicles.length === 0 ? 'ARAÇ YOK' : 'BU FİLTREDE ARAÇ YOK'}
+            detail={
+              vehicles.length === 0
+                ? 'Araç ekle düğmesiyle eşleştirme kodunu girerek aracınızı bağlayabilirsiniz.'
+                : undefined
+            }
+          />
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-3 p-3">
+            {visible.map((v) => (
+              <VehicleCard key={v.id} vehicle={v} onClick={(x) => setSelected(x as LiveVehicle)} />
+            ))}
           </div>
         )}
-      </div>
+      </Panel>
 
       {selected && (
         <VehicleModal
@@ -96,7 +146,7 @@ export default function VehiclesPage() {
           onRemove={(id) => { removeVehicle(id); setSelected(null); }}
         />
       )}
-      {showAddModal && <AddVehicleModal onClose={() => setShowAddModal(false)} />}
-    </>
+      {showAdd && <AddVehicleModal onClose={() => setShowAdd(false)} />}
+    </div>
   );
 }

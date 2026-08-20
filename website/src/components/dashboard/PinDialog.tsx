@@ -43,7 +43,7 @@ export function PinDialog() {
       onClick={cancel}
     >
       <div
-        className="w-full max-w-xs rounded-3xl p-6 flex flex-col items-center gap-5"
+        className="w-full max-w-xs rounded-sm p-6 flex flex-col items-center gap-5"
         style={{
           background: 'linear-gradient(145deg, #0c1a2e, #070f1d)',
           border:     '1px solid rgba(239,68,68,0.25)',
@@ -55,7 +55,7 @@ export function PinDialog() {
         {/* Başlık */}
         <div className="flex flex-col items-center gap-2">
           <div
-            className="w-12 h-12 rounded-2xl flex items-center justify-center"
+            className="w-12 h-12 rounded-sm flex items-center justify-center"
             style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.25)' }}
           >
             <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
@@ -64,8 +64,8 @@ export function PinDialog() {
               <circle cx="11" cy="15" r="1.5" fill="#ef4444"/>
             </svg>
           </div>
-          <p className="text-white font-bold text-sm">Kritik Komut</p>
-          <p className="text-white/40 text-xs text-center">{prompt}</p>
+          <p className="text-t1 font-bold text-sm">Kritik Komut</p>
+          <p className="text-t2 text-xs text-center">{prompt}</p>
         </div>
 
         {/* PIN noktaları */}
@@ -90,7 +90,7 @@ export function PinDialog() {
               key={i}
               onClick={() => press(key)}
               disabled={key === ''}
-              className="aspect-square rounded-2xl flex items-center justify-center text-lg font-bold transition-all duration-100 active:scale-90 disabled:opacity-0"
+              className="aspect-square rounded-sm flex items-center justify-center text-lg font-bold transition-all duration-100 active:scale-90 disabled:opacity-0"
               style={{
                 background: key === '⌫'
                   ? 'rgba(239,68,68,0.08)'
@@ -113,7 +113,7 @@ export function PinDialog() {
         {/* İptal */}
         <button
           onClick={cancel}
-          className="text-xs text-white/30 hover:text-white/50 transition-colors"
+          className="text-xs text-t3 hover:text-t2 transition-colors"
         >
           İptal
         </button>
