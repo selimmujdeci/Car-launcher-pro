@@ -6,6 +6,22 @@ import type { Map as MLMap, GeoJSONSource } from 'maplibre-gl';
 import type { LiveVehicle } from '@/types/realtime';
 import { TIMING } from '@/lib/constants';
 import { vehicleTitle } from '@/lib/vehicleDisplay';
+import {
+  MAP_STYLE_URL,
+  baseForTheme,
+  loadingBackdrop,
+  nightRoadColor,
+  isLabelLayer,
+  NIGHT_BACKGROUND,
+  NIGHT_LABEL,
+  NIGHT_WATER,
+} from '@/lib/console/mapStyle';
+import {
+  CONSOLE_THEME_ATTR,
+  normalizeTheme,
+  readStoredTheme,
+  type ConsoleTheme,
+} from '@/lib/console/consoleTheme';
 
 /**
  * CANLI FİLO HARİTASI.
@@ -21,15 +37,18 @@ import { vehicleTitle } from '@/lib/vehicleDisplay';
  *     var.
  */
 
-/** Karo stilleri — ikisi de CARTO tabanı (atıflı, ticari kullanıma uygun). */
-const MAP_STYLES = {
-  /** Gece paneli için koyu taban. */
-  dark:  'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json',
-  /** Yol/sokak/POI kontrastı yüksek "net" taban. */
-  clear: 'https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json',
-} as const;
+/** Taban ve gece okunurluk kuralları tek yerde (`mapStyle`). */
+const MAP_STYLES: Record<MapStyleKey, string> = {
+  dark:  MAP_STYLE_URL.night,
+  clear: MAP_STYLE_URL.day,
+};
 
-export type MapStyleKey = keyof typeof MAP_STYLES;
+export type MapStyleKey = 'dark' | 'clear';
+
+/** Konsol teması → taban anahtarı. Harita uygulamanın temasını TAKİP EDER. */
+function styleKeyForTheme(theme: ConsoleTheme): MapStyleKey {
+  return baseForTheme(theme) === 'day' ? 'clear' : 'dark';
+}
 
 const TURKEY_CENTER: [number, number] = [32.5, 39.5];
 const TURKEY_ZOOM = 5.8;
@@ -42,7 +61,7 @@ interface Props {
   onSelect?: (id: string | null) => void;
   followMode?: boolean;
   className?: string;
-  /** Taban stili — dışarıdan verilmezse koyu. */
+  /** Taban stili. VERİLMEZSE konsol temasını takip eder (önerilen). */
   styleKey?: MapStyleKey;
   /** Haritanın üstüne stil değiştirici koy. */
   showStyleToggle?: boolean;
@@ -96,7 +115,7 @@ export default function LiveMap({
   onSelect,
   followMode,
   className,
-  styleKey = 'dark',
+  styleKey,
   showStyleToggle = false,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -107,8 +126,37 @@ export default function LiveMap({
   const autoFramedRef = useRef(false);
   const userMovedRef  = useRef(false);
 
-  const [activeStyle, setActiveStyle] = useState<MapStyleKey>(styleKey);
-  useEffect(() => { setActiveStyle(styleKey); }, [styleKey]);
+  /* HARİTA UYGULAMANIN TEMASINI TAKİP EDER (#665).
+     ── TEK OTORİTE, TÜRETİLMİŞ DEĞER ──
+     Önce iki ayrı state (tema + taban) senkron tutulmaya çalışılmıştı ve
+     ÖLÇÜLDÜ ki ayrışıyorlar: harita `voyager` yüklerken düğme hâlâ "Koyu"yu
+     işaretliyordu — çünkü tabanı belirleyen `useState` başlangıcı ile
+     effect'te okunan attribute farklı anlarda değerleniyordu. Artık taban
+     RENDER SIRASINDA TÜRETİLİR: manuel seçim varsa o, yoksa tema. Senkron
+     tutulacak ikinci bir kopya YOKTUR. */
+  const [themeState, setThemeState] = useState<ConsoleTheme>(() => readStoredTheme());
+  const [override, setOverride] = useState<MapStyleKey | null>(styleKey ?? null);
+
+  useEffect(() => { if (styleKey) setOverride(styleKey); }, [styleKey]);
+
+  /* `<html data-console>` tek kaynaktır; ayrı bir tema aboneliği KURULMAZ. */
+  useEffect(() => {
+    const root = document.documentElement;
+    const read = () => {
+      const raw = root.getAttribute(CONSOLE_THEME_ATTR);
+      setThemeState(raw ? normalizeTheme(raw) : readStoredTheme());
+    };
+    read();
+    const observer = new MutationObserver(read);
+    observer.observe(root, { attributes: true, attributeFilter: [CONSOLE_THEME_ATTR] });
+    return () => observer.disconnect();
+  }, []);
+
+  const activeStyle: MapStyleKey = override ?? styleKeyForTheme(themeState);
+
+  /* `load` handler bir kez kurulur; o an geçerli tabanı ref'ten okur
+     (closure'da donmuş eski değeri kullanmasın). */
+  const activeStyleRef = useRef<MapStyleKey>(activeStyle);
 
   // Keep latest callbacks/values in refs to avoid stale closures in event handlers
   const onSelectRef   = useRef(onSelect);
@@ -116,6 +164,7 @@ export default function LiveMap({
   const selectedIdRef = useRef(selectedId);
   const followModeRef = useRef(followMode);
 
+  activeStyleRef.current = activeStyle;
   onSelectRef.current   = onSelect;
   vehiclesRef.current   = vehicles;
   selectedIdRef.current = selectedId;
@@ -147,6 +196,58 @@ export default function LiveMap({
       [[minLng, minLat], [maxLng, maxLat]],
       { padding: 56, maxZoom: 14, duration: animate ? 700 : 0 },
     );
+  }, []);
+
+  /**
+   * GECE OKUNURLUK YAMASI (#665).
+   *
+   * ÖLÇÜLDÜ: CARTO dark-matter'da yol DOLGULARI `#0b0b0b` — zeminden ayırt
+   * edilemiyor; kullanıcı bunu *"kapkara bir şey"* diye tarif etti. Stil
+   * yüklendikten sonra yol katmanları hiyerarşiye göre parlatılır, zemin bir
+   * tık açılır, etiketler okunur hâle getirilir. Kuralı olmayan katmana
+   * DOKUNULMAZ — stilin kendi kimliği korunur.
+   *
+   * Yalnız gece tabanında çalışır; gündüz tabanı (voyager) zaten okunur.
+   */
+  const applyNightLegibility = useCallback((map: MLMap) => {
+    let style: { layers?: Array<{ id: string; type: string }> } | undefined;
+    try {
+      style = map.getStyle() as unknown as { layers?: Array<{ id: string; type: string }> };
+    } catch {
+      return; /* stil henüz hazır değilse yama atlanır — ekran çökmez */
+    }
+    const layers = style?.layers;
+    if (!Array.isArray(layers)) return;
+
+    const setPaint = (id: string, prop: string, value: string) => {
+      try {
+        (map as unknown as { setPaintProperty(i: string, p: string, v: unknown): void })
+          .setPaintProperty(id, prop, value);
+      } catch {
+        /* Katman bu stilde yoksa/özellik desteklenmiyorsa sessizce geç. */
+      }
+    };
+
+    for (const layer of layers) {
+      if (layer.type === 'background') {
+        setPaint(layer.id, 'background-color', NIGHT_BACKGROUND);
+        continue;
+      }
+      if (layer.type === 'line') {
+        const color = nightRoadColor(layer.id);
+        if (color) setPaint(layer.id, 'line-color', color);
+        else if (/water/i.test(layer.id)) setPaint(layer.id, 'line-color', NIGHT_WATER);
+        continue;
+      }
+      if (layer.type === 'fill' && /water/i.test(layer.id)) {
+        setPaint(layer.id, 'fill-color', NIGHT_WATER);
+        continue;
+      }
+      if (layer.type === 'symbol' && isLabelLayer(layer.id)) {
+        setPaint(layer.id, 'text-color', NIGHT_LABEL.text);
+        setPaint(layer.id, 'text-halo-color', NIGHT_LABEL.halo);
+      }
+    }
   }, []);
 
   /** Katman/kaynak kurulumu — stil her değiştiğinde yeniden çalışır. */
@@ -245,7 +346,7 @@ export default function LiveMap({
 
       const map = new ml.Map({
         container: containerRef.current,
-        style: MAP_STYLES[activeStyle],
+        style: MAP_STYLES[activeStyleRef.current],
         center: TURKEY_CENTER,
         zoom: TURKEY_ZOOM,
         attributionControl: false,
@@ -278,6 +379,7 @@ export default function LiveMap({
         });
         if (containerRef.current) resizeObserver.observe(containerRef.current);
 
+        if (activeStyleRef.current === 'dark') applyNightLegibility(map);
         installLayers(map);
 
         /* Konumlar zaten elimizdeyse ilk kadrajı ANİMASYONSUZ kur —
@@ -332,6 +434,7 @@ export default function LiveMap({
 
     const onStyleData = () => {
       if (!mapRef.current || !map.isStyleLoaded()) return;
+      if (activeStyle === 'dark') applyNightLegibility(map);
       installLayers(map);
       const source = map.getSource('vehicles') as GeoJSONSource | undefined;
       source?.setData(
@@ -342,7 +445,7 @@ export default function LiveMap({
     map.on('styledata', onStyleData);
 
     return () => { map.off('styledata', onStyleData); };
-  }, [activeStyle, installLayers]);
+  }, [activeStyle, installLayers, applyNightLegibility]);
 
   // ── Update GeoJSON when vehicles or selection changes ─────────────────
   useEffect(() => {
@@ -397,35 +500,32 @@ export default function LiveMap({
           position: 'absolute',
           top: 0, right: 0, bottom: 0, left: 0,
           /* Karolar gelene kadar görünen zemin — taban stiliyle uyumlu,
-             aksi hâlde gündüz temasında "Net" tabanda koyu bir kare flaşlar. */
-          background: activeStyle === 'clear' ? '#e8e6e1' : '#0d1117',
+             aksi hâlde gündüz temasında açık tabanda koyu bir kare flaşlar. */
+          background: loadingBackdrop(activeStyle === 'clear' ? 'day' : 'night'),
         }}
       />
 
       {showStyleToggle && (
         <div
-          className="absolute top-3 right-3 z-10 flex items-center gap-1 rounded-xl p-1"
+          className="absolute top-3 right-3 z-10 p-1"
           style={{
-            background: 'rgba(0,0,0,0.55)',
-            backdropFilter: 'blur(8px)',
-            border: '1px solid rgba(255,255,255,0.1)',
+            background: 'var(--cn-bg-panel)',
+            border: '1px solid var(--cn-line)',
+            borderRadius: 2,
           }}
         >
-          {([['dark', 'Koyu'], ['clear', 'Net']] as Array<[MapStyleKey, string]>).map(([key, label]) => (
-            <button
-              key={key}
-              onClick={() => setActiveStyle(key)}
-              className={`px-2.5 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-colors ${
-                activeStyle === key ? 'bg-white/15 text-white' : 'text-white/40 hover:text-white/70'
-              }`}
-            >
-              {label}
-            </button>
-          ))}
+          {/* TABAN SEÇİCİ KALDIRILDI (#665).
+              Kullanıcı: *"gündüz modunda gündüz haritası, gece modunda gece
+              haritası olacak"*. Taban artık YALNIZ temadan gelir; ayrı bir
+              seçici hem bu kararı ikinci bir yerden ezebiliyordu hem de kendi
+              state kopyası tema ile ölçülebilir biçimde AYRIŞMIŞTI (harita
+              voyager yüklerken düğme "Koyu"yu işaretliyordu). Tek otorite:
+              `<html data-console>`. Geriye yalnız kadraj düğmesi kaldı. */}
           <button
             onClick={recenter}
             title="Araçları kadraja al"
-            className="px-2.5 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest text-white/40 hover:text-white/80 transition-colors"
+            className="cn-num px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-widest text-t2 hover:text-t1 transition-colors"
+            style={{ borderRadius: 2 }}
           >
             Ortala
           </button>

@@ -141,3 +141,43 @@ describe('#664 · harita kabı çökmez (ölçülmüş kök)', () => {
     expect(liveMap).not.toContain('console.log');
   });
 });
+
+describe('#665 · harita teması ve kartı', () => {
+  const liveMap = read('src/components/map/LiveMap.tsx');
+  const card = read('src/components/map/VehicleMapCard.tsx');
+  const style = read('src/lib/console/mapStyle.ts');
+
+  it('KİLİT: harita tabanı UYGULAMANIN temasından türetilir', () => {
+    /* Kullanıcı: "gündüz modunda gündüz haritası, gece modunda gece haritası".
+       ÖLÇÜLDÜ: tema=night → dark-matter, tema=day → voyager. */
+    expect(liveMap).toContain('styleKeyForTheme');
+    expect(liveMap).toContain('CONSOLE_THEME_ATTR');
+    expect(style).toContain('baseForTheme');
+  });
+
+  it('KİLİT: taban RENDER SIRASINDA türetilir — senkron tutulan ikinci kopya YOK', () => {
+    /* İki ayrı state (tema + taban) ayrışmıştı: harita voyager yüklerken
+       düğme "Koyu"yu işaretliyordu. Artık tek türetme. */
+    expect(liveMap).toContain('override ?? styleKeyForTheme(themeState)');
+    expect(liveMap).not.toContain('setActiveStyle');
+  });
+
+  it('KİLİT: gece tabanına okunurluk yaması uygulanır', () => {
+    /* ÖLÇÜLDÜ: dark-matter yol DOLGULARI #0b0b0b — zeminden ayırt edilemiyor
+       ("kapkara bir şey"). Yol hiyerarşisi parlatılır, zemin bir tık açılır. */
+    expect(liveMap).toContain('applyNightLegibility');
+    expect(style).toContain('NIGHT_ROAD_RULES');
+    expect(style).toContain('NIGHT_BACKGROUND');
+  });
+
+  it('KİLİT: araç kartı TEMA-FARKINDA (sabit koyu zemin yok)', () => {
+    expect(card).toContain('var(--cn-bg-panel)');
+    expect(card).not.toContain('rgba(6,13,26,0.92)');
+    expect(card).not.toMatch(/text-white\/\d/);
+  });
+
+  it('KİLİT: haritada araç noktası kart açar (dokunma hedefi dahil)', () => {
+    expect(liveMap).toContain("'vehicle-hit'");
+    expect(liveMap).toContain("map.on('click', 'vehicle-hit'");
+  });
+});
