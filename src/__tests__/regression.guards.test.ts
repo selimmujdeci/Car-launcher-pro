@@ -7048,3 +7048,81 @@ describe('#647 Uzak komut yolu — cihaz kimligi (api_key) kilidi', () => {
       .toMatch(/if \(isCommandListenerActive\(\)\)\s*\{[\s\S]{0,200}triggerPendingPoll\(\);/);
   });
 });
+
+/* ═════════════════════════════════════════════════════════════════════════
+ * KİLİT — NATIVE JAVA CI KAPISI (denetim 2026-08-21, kütük #675, plan V-01)
+ *
+ * BUG SINIFI: "yazılmış ama hiç koşmayan test". Depoda 25 Java test sınıfı /
+ * 335 test yıllardır duruyordu; hiçbir workflow gradle çağırmıyordu. Kapı
+ * eklendi — bu kilitler onun SESSİZCE geri alınmasını engeller.
+ *
+ * Bu kilitler Java'yı ÇALIŞTIRMAZ (vitest'in işi değil); kapının VARLIĞINI ve
+ * CI'da kırılacağı bilinen üç bağımlılığın karşılandığını doğrular.
+ * ══════════════════════════════════════════════════════════════════════ */
+describe('KİLİT: native Java CI kapısı (#675)', () => {
+  const repoRoot = resolve(__dirname, '../..');
+  const rf = (p: string) => readFileSync(resolve(repoRoot, p), 'utf8');
+  const ci = rf('.github/workflows/main.yml');
+
+  it('main.yml gradle JVM unit testlerini KOŞAR (job sessizce silinmemiş)', () => {
+    expect(ci, 'android_unit_tests job\'ı main.yml\'den kaldırılmış — 335 Java testi tekrar kapısız')
+      .toMatch(/android_unit_tests:/);
+    expect(ci, 'gradle test görevi çağrısı yok — job var ama hiçbir şey koşmuyor')
+      .toMatch(/gradlew\s+:app:testDebugUnitTest/);
+    expect(ci, 'phonehub-protocol testleri kapı dışında bırakılmış')
+      .toMatch(/:phonehub-protocol:test/);
+  });
+
+  it('güvenlik-kritik Java suite kapısı duruyor (4 suite adıyla aranıyor)', () => {
+    /* Bir suite sessizce düşerse/atlanırsa XML'de sınıfı bulunmaz → build bloke.
+       McuCommandWhitelistTest fiziksel komut whitelist'ini (kilit/korna/alarm)
+       koruyan tek otomatik kapıdır; listeden çıkarılması regresyondur. */
+    for (const suite of [
+      'McuCommandWhitelistTest', 'ElmProtocolTest',
+      'BootReceiverActionGateTest', 'SessionCryptoTest',
+    ]) {
+      expect(ci, `${suite} otomotiv-kritik Java suite listesinden çıkarılmış`).toContain(suite);
+    }
+  });
+
+  it('"0 test = başarı" deliği kapalı ve sayaç bc\'ye BAĞLI DEĞİL', () => {
+    /* İlk yazımda sayım `bc` ile yapılıyordu; `bc` olmayan ortamda çıktı
+       SESSİZCE boş kalıp adım YEŞİL geçiyordu (ölçüldü, Git Bash). */
+    expect(ci, 'sayaç yine `bc`ye bağlanmış — eksikse adım sessizce yeşil geçer')
+      .not.toMatch(/paste -sd\+ \| bc/);
+    expect(ci, 'toplam test sayısı 0 iken bloke eden kapı kaldırılmış')
+      .toMatch(/total.*-le 0|-le 0.*total/s);
+  });
+
+  it('CI\'da kırılan ÜÇ gizli bağımlılık karşılanmış durumda', () => {
+    /* 1) capacitor-cordova-android-plugins .gitignore'lu ama settings.gradle
+          onu include ediyor → taze checkout'ta KONFİGÜRASYON DÜŞER.
+          `cap update` onu üretir; `cap sync` DEĞİL (sync dist/ ister). */
+    expect(ci, 'cap update adımı kaldırılmış — taze checkout\'ta gradle konfigürasyonu düşer')
+      .toMatch(/cap update android/);
+    expect(ci, 'cap sync kullanılmış — dist/ gerektirir, unit test job\'ını gereksiz yere build\'e bağlar')
+      .not.toMatch(/cap sync android/);
+
+    /* 2) gradlew Linux'ta çalıştırılabilir olmalı (git modu 100755 + chmod). */
+    expect(ci, 'chmod +x gradlew savunması kaldırılmış').toMatch(/chmod \+x android\/gradlew/);
+
+    /* 3) buildDir Windows mutlak yolu OS-koşullu kalmalı; koşulsuz hâline
+          dönerse Linux runner proje altında "C:" adlı klasör üretir. */
+    const rootGradle = rf('android/build.gradle');
+    expect(rootGradle, 'buildDir tekrar KOŞULSUZ C:/Temp\'e bağlanmış — Linux CI kırılır')
+      .toMatch(/if \(usesWindowsTempBuildDir\)/);
+    expect(rootGradle, 'os.name karşılaştırması Locale.ROOT\'suz — tr-TR\'ye bağımlılık geri gelmiş')
+      .toMatch(/toLowerCase\(java\.util\.Locale\.ROOT\)/);
+  });
+
+  it('Java test kaynakları hâlâ yerinde (kapı boş kümeyi korumasın)', () => {
+    /* Kapı var ama test dosyaları silinmişse kapı hiçbir şey korumuyordur. */
+    const appTests = resolve(repoRoot, 'android/app/src/test/java/com/cockpitos/pro');
+    expect(existsSync(appTests), 'android app birim test dizini yok').toBe(true);
+    expect(existsSync(resolve(appTests, 'can/McuCommandWhitelistTest.java')),
+      'McuCommandWhitelistTest silinmiş — fiziksel komut whitelist\'i korumasız').toBe(true);
+    expect(existsSync(resolve(repoRoot,
+      'android/phonehub-protocol/src/test/java/com/cockpitos/phonehub/protocol/SessionCryptoTest.java')),
+      'SessionCryptoTest silinmiş').toBe(true);
+  });
+});

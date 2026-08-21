@@ -20,14 +20,37 @@ buildscript {
 
 apply from: "variables.gradle"
 
+/*
+ * Windows geliştirme makinesinde build çıktısı C:/Temp altına taşınır — Desktop
+ * altındaki proje dosyalarını antivirüsün kilitlemesi derlemeyi düşürüyordu.
+ *
+ * ⚠️ `Locale.ROOT` BİLİNÇLİ — tr-TR bağımlılığı bırakmamak için.
+ * ÖLÇÜLDÜ (2026-08-21, bu makine): JVM varsayılan locale `tr_TR`, `os.name` =
+ * "Windows 11". Bu DEĞER için parametresiz `toLowerCase()` de doğru sonuç verir
+ * ("Windows" içinde büyük `I` YOK; tuzak yalnız `I` → `ı` eşlemesinde patlar).
+ * Yani buradaki `Locale.ROOT` bir hatayı ONARMIYOR, bir KAZAYA GÜVENMEYİ
+ * bırakıyor: `os.name` "WINDOWS" döndüren bir JVM/ortamda parametresiz çağrı
+ * tr-TR'de "wındows" üretip koşulu sessizce yanlışa düşürürdü. Aynı sınıf tuzağın
+ * gerçekten ısırdığı yer app/build.gradle testOptions'tır (Robolectric conscrypt
+ * "WINDOWS" ile arar) — bkz. CLAUDE.md tr-TR kuralı.
+ *
+ * CI (Linux) bu yolu KULLANMAZ: orada mutlak Windows yolu, proje dizini altında
+ * "C:" adlı bir klasöre dönüşür ve rapor/cache yolları anlamsızlaşırdı. Linux'ta
+ * Gradle varsayılanı (<module>/build) kullanılır — CI iş akışı JUnit XML'i
+ * android/app/build/test-results/... altında bulur.
+ */
+def usesWindowsTempBuildDir =
+    System.getProperty('os.name').toLowerCase(java.util.Locale.ROOT).contains('windows')
+
 allprojects {
     repositories {
         google()
         mavenCentral()
         maven { url 'https://jitpack.io' }
     }
-    // Build to a temp path to avoid antivirus locking Desktop project files
-    buildDir = new File("C:/Temp/carlauncher/${project.name}/build")
+    if (usesWindowsTempBuildDir) {
+        buildDir = new File("C:/Temp/carlauncher/${project.name}/build")
+    }
 }
 
 task clean(type: Delete) {

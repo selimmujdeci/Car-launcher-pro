@@ -5,10 +5,15 @@
 #
 # Triggers : push → main, dev  |  pull_request → main, dev
 # Jobs     : lint-typecheck → test → build  (serial fail-fast)
+#            android_unit_tests                (PARALEL — ayrı dil zinciri)
 #
 # Automotive Critical Tests (must pass):
 #   src/__tests__/geofence.test.ts
 #   src/__tests__/obdService.test.ts
+#   android .../can/McuCommandWhitelistTest.java     ← fiziksel komut whitelist'i
+#   android .../obd/ElmProtocolTest.java             ← OBD protokol seçimi
+#   android .../BootReceiverActionGateTest.java      ← boot action kapısı
+#   android .../protocol/SessionCryptoTest.java      ← Phone Hub oturum kriptosu
 # ─────────────────────────────────────────────────────────────────────────────
 
 name: CI
@@ -193,3 +198,138 @@ jobs:
           name:            dist-${{ github.sha }}
           path:            dist/
           retention-days:  7
+
+# ─────────────────────────────────────────────────────────────────────────────
+# JOB 4 — Android Unit Tests (JVM / JUnit + Robolectric)
+#
+#   NEDEN VAR (denetim 2026-08-21, kütük V-01):
+#     Depoda 25 Java test sınıfı / 335 test YAZILI ama HİÇBİR workflow gradle
+#     çağırmıyordu. `codeql.yml` yalnız javascript-typescript tarıyor; JOB 2'deki
+#     `reporter: java-junit` bir RAPOR BİÇİMİ adıdır, Java testi değildir. Yani
+#     27 820 satır native Java — kilit/korna/alarm komutlarını MCU'ya seri porttan
+#     gönderen katman — otomatik kapı olmadan sürüm alıyordu.
+#
+#   NEDEN PARALEL (needs: yok):
+#     Java doğruluğu TypeScript lint'ine bağlı değildir. Seri zincire eklemek,
+#     bir ESLint uyarısının native regresyonu GİZLEMESİ demekti. İki zincir
+#     bağımsız koşar; "CI" durumu ikisinin de yeşil olmasını ister.
+#
+#   CI'DA KIRILAN ÜÇ GİZLİ BAĞIMLILIK (ölçüldü, hepsi bu job'da karşılandı):
+#     1. `capacitor-cordova-android-plugins/` .gitignore'ludur (android/.gitignore)
+#        ama settings.gradle onu `include` eder → taze checkout'ta KONFİGÜRASYON
+#        DÜŞER. Çözüm: `npx cap update android` (dist/ GEREKTİRMEZ — ölçüldü).
+#     2. `android/gradlew` git'te 100644'tü → Linux'ta "permission denied".
+#        Kalıcı çözüm depoda (100755); buradaki `chmod +x` savunma derinliğidir.
+#     3. Root build.gradle `buildDir`i C:/Temp'e taşıyordu → Linux'ta proje
+#        altında "C:" adlı klasör. Artık OS-koşullu (bkz. android/build.gradle).
+#
+#   NDK KURULMAZ — BİLİNÇLİ: yerel koşumda görev grafiği 49 görevdi ve içinde
+#   TEK BİR cmake/externalNativeBuild/jniLib görevi YOKTU. `testDebugUnitTest`
+#   native derlemeye dokunmaz → ~1 GB indirme ve dakikalar tasarruf edilir.
+#   Bu varsayım yanlışsa job KIRMIZI olur ve nedenini adıyla söyler (sessiz
+#   geçmez); o durumda `packages:` satırına `ndk;26.3.11579264` eklenir.
+# ─────────────────────────────────────────────────────────────────────────────
+  android_unit_tests:
+    name: Android Unit Tests (JVM)
+    runs-on: ubuntu-latest
+
+    permissions:
+      checks: write          # test-reporter Check annotation'ları için
+      pull-requests: write   # PR özet yorumu için
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup JDK 21 (Temurin)
+        # Capacitor plugin modülleri Java 21 toolchain ister
+        # (app/capacitor.build.gradle → sourceCompatibility VERSION_21).
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+
+      - name: Setup Node ${{ env.NODE_VERSION }}
+        # Gradle, node_modules/@capacitor/*/android altındaki modülleri
+        # `capacitor.settings.gradle` üzerinden include eder → Node şart.
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --prefer-offline
+
+      - name: Capacitor — native modülleri üret
+        # `cap update` (SYNC DEĞİL) yalnız native bağımlılıkları tazeler;
+        # web varlıklarını kopyalamaz → `dist/` gerekmez, `npm run build` beklenmez.
+        run: npx cap update android
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools platforms;android-36 build-tools;36.0.0'
+
+      - name: Setup Gradle (dependency cache)
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: gradlew çalıştırılabilir olsun
+        run: chmod +x android/gradlew
+
+      - name: Gradle — JVM unit tests
+        # :app                → 20 sınıf (OBD/ELM · KWP · MCU whitelist · Phone Hub · media)
+        # :phonehub-protocol  →  5 sınıf (frame codec · session crypto · handshake · diagnostics)
+        # :phonehub-companion → test kaynağı YOK (bilinçli: saf Android companion)
+        working-directory: android
+        run: ./gradlew :app:testDebugUnitTest :phonehub-protocol:test --console=plain --stacktrace
+
+      - name: Verify automotive-critical Java suites ran
+        # JS tarafındaki aynı kapı deseni: bir suite sessizce düşerse/atlanırsa
+        # XML'de sınıfı bulunmaz → build BLOKE. "0 test koştu" da başarı SAYILMAZ.
+        if: always()
+        shell: bash
+        run: |
+          shopt -s globstar nullglob
+          xmls=(android/**/build/test-results/**/TEST-*.xml)
+          if [ ${#xmls[@]} -eq 0 ]; then
+            echo "::error::Java JUnit XML üretilmedi — gradle test görevi hiç koşmamış olabilir. Build blocked."
+            exit 1
+          fi
+
+          for suite in "McuCommandWhitelistTest" "ElmProtocolTest" "BootReceiverActionGateTest" "SessionCryptoTest"; do
+            if ! grep -qh "classname=\"[^\"]*${suite}\"" "${xmls[@]}"; then
+              echo "::error::Automotive critical Java suite '${suite}' not found in JUnit reports. Build blocked."
+              exit 1
+            fi
+          done
+          echo "✓ Automotive critical Java suites confirmed: McuCommandWhitelist, ElmProtocol, BootReceiverActionGate, SessionCrypto"
+
+          # Toplam sayım `awk` ile — `bc` her ortamda YOK ve eksikse sayaç
+          # SESSİZCE boş kalıp adım yeşil geçiyordu (ölçüldü). Sıfır test de
+          # başarı SAYILMAZ: suite dosyası var ama içi boşalmışsa burada düşer.
+          total=$(grep -ho 'tests="[0-9]*"' "${xmls[@]}" \
+                  | grep -o '[0-9]*' \
+                  | awk '{ s += $1 } END { print s + 0 }')
+          if [ "${total}" -le 0 ]; then
+            echo "::error::Java JUnit raporlarında 0 test var — suite'ler boşalmış olabilir. Build blocked."
+            exit 1
+          fi
+          echo "✓ Java test sınıfı: ${#xmls[@]} · toplam test: ${total}"
+
+      - name: Publish Android test results
+        if: always()
+        uses: dorny/test-reporter@v3
+        with:
+          name:              Android Unit Test Results
+          path:              android/**/build/test-results/**/TEST-*.xml
+          reporter:          java-junit
+          fail-on-error:     true
+          fail-on-empty:     true
+
+      - name: Upload Android JUnit artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name:            android-test-results-${{ github.run_number }}
+          path:            android/**/build/test-results/**/TEST-*.xml
+          retention-days:  30

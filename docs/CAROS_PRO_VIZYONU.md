@@ -189,6 +189,37 @@ DOĞRULANDI 6 · SAHADA DOĞRULANDI 1 · **ÜRÜN HAZIR: 1**
 
 ### 6.3 Kod tamam + test yeşil, saha borcu açık (kütük 🔴)
 
+- **NATIVE JAVA ARTIK CI KAPISINDA — 335 TEST YILLARDIR YAZILIYDI, HİÇ KOŞMUYORDU
+  (2026-08-21, kütük 🔴 #675, plan V-01):** vizyon denetimi ölçtü — `android/app/src/test`
+  + `android/phonehub-protocol/src/test` altında **25 test sınıfı / 335 test** var ve
+  hepsi yerelde GEÇİYOR, ama **hiçbir workflow gradle çağırmıyordu**. `codeql.yml` yalnız
+  `javascript-typescript` tarıyor; `main.yml`'deki `reporter: java-junit` bir **rapor biçimi**
+  adı, Java testi değil. Yani **27 820 satır native Java** — kilit/korna/alarm komutlarını
+  MCU'ya seri porttan gönderen katman — otomatik kapı olmadan sürüm alıyordu.
+
+  **Eklenen:** `main.yml` JOB 4 `android_unit_tests` (PARALEL — Java doğruluğu TypeScript
+  lint'ine bağlı değil; seri zincire eklemek bir ESLint uyarısının native regresyonu
+  GİZLEMESİ demekti). Kapının ısırdığı **ürün mutasyonuyla** kanıtlandı (testi değil):
+  `McuCommandFactory`'den `CMD_HONK_HORN` whitelist'ten çıkarılınca
+  `251 tests completed, 2 failed → BUILD FAILED` (exit 1); geri alınca exit 0.
+  Kasaya 5 kilit eklendi ve **iki mutasyonla düşürüldükleri gösterildi**
+  (gradle çağrısı silinince · `buildDir` koşulsuz hâline dönünce).
+
+  **Üç ders, üçü de bu depoda tekrar eden desenler:**
+  1. **Yazılmış test ≠ koşan test.** "Java testlerimiz var" ifadesi 25 sınıf için
+     doğruydu ve **hiçbir koruma sağlamıyordu** — "motor var, besleyen yok"un test
+     katmanındaki kopyası.
+  2. **Ad benzerliği kanıt sanıldı.** `reporter: java-junit` satırı yıllarca "Java
+     testleri koşuyor" izlenimi verdi; o bir XML **biçim** adıdır.
+  3. **Kapı, teşhis edeceği arızada ölmemeli.** İlk yazımda sayaç `bc`ye bağlıydı;
+     `bc` olmayan ortamda çıktı **sessizce boş** kalıp adım YEŞİL geçiyordu (ölçüldü).
+     `awk` + `total<=0` bloke ile kapatıldı.
+
+  **AÇIK BORÇ:** iş akışı **GitHub Actions'ta hiç koşmadı** — "CI kırmızı olur" yarısı
+  yalnız gerçek runner'da kanıtlanır. Ayrıca NDK bilinçli kurulmuyor (yerel görev
+  grafiğinde native görev yok); varsayım yanlışsa ilk koşum bunu adıyla söyleyecek.
+  **ÜRÜN HAZIR: HAYIR.**
+
 - **HARİTA BİLGİ YOĞUNLUĞU — GOOGLE KARŞILAŞTIRMASI, 4 KÖK (2026-08-18, kütük
   🔴 #635 · #636 · #637 · #638):** araç **12 447 test yeşil**, `tsc` temiz,
   production build temiz. **Cihaza hiçbir şey kurulmadı** — dördü de saha borcu.
