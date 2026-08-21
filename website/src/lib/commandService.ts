@@ -8,6 +8,9 @@
  * - Offline guard: Araç çevrimdışıysa kullanıcıya "Sıraya alındı" mesajı
  */
 
+import {
+  requiresE2E, fetchCarPublicKey, encryptE2EPayload, carKeyErrorMessage,
+} from '@/lib/e2eCommandCrypto';
 import { supabaseBrowser, isSupabaseConfigured } from './supabase';
 import { encryptPayload } from './commandCrypto';
 import { getStoredApiKey } from './pairingService';
@@ -128,10 +131,24 @@ async function sendCommandViaApiKey(
   options:   SendCommandOptions = {},
 ): Promise<SendResult> {
   try {
+    /* OTURUMSUZ PWA YOLU DA ŞİFRELENİR (#672): burada gövde DÜZ METİN
+       gidiyordu; araç E2E gerektiren komutlarda düz metni reddeder. Aynı
+       kural: anahtar yoksa/şifrelenemezse komut GÖNDERİLMEZ, gerekçe döner. */
+    let outPayload: Record<string, unknown> = payload as Record<string, unknown>;
+    if (requiresE2E(type)) {
+      const keyRes = await fetchCarPublicKey(vehicleId);
+      if (!keyRes.ok) return { ok: false, error: carKeyErrorMessage(keyRes.reason) };
+      try {
+        outPayload = await encryptE2EPayload(payload as Record<string, unknown>, keyRes.publicKey) as unknown as Record<string, unknown>;
+      } catch {
+        return { ok: false, error: 'Komut şifrelenemedi; güvenlik gereği gönderilmedi.' };
+      }
+    }
+
     const body: Record<string, unknown> = {
       vehicleId,
       type,
-      payload,
+      payload: outPayload,
       nonce: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       ttl:   new Date(Date.now() + 5 * 60_000).toISOString(),
     };
@@ -191,11 +208,32 @@ export async function sendCommand(
   // Araç çevrimdışı uyarısı — komut sıraya girer (TTL sayesinde araç gelince alır)
   const online = await isVehicleOnline(vehicleId);
 
-  // E2E şifreleme: api_key varsa payload'u şifrele
+  /* ── E2E ŞİFRELEME (#672) ────────────────────────────────────────────────
+     Araç tarafı `lock`, `unlock`, `horn`, `alarm_on`, `alarm_off`, `lights_on`, `clear_dtc` için `ecdh_v1`
+     zarfı ŞART koşar ve başka her biçimi `Decryption Error` ile reddeder.
+     Buradaki eski kod ya PBKDF2 `{iv,data}` üretiyordu ya da düz metin
+     gönderiyordu — İKİSİ DE reddediliyordu, üstelik `.catch(() => payload)`
+     şifreleme çökerse SESSİZCE düz metne düşüyordu. Artık:
+       · E2E gerektiren komut → araç public key'iyle `ecdh_v1` zarfı,
+       · anahtar yoksa/şifrelenemezse KOMUT GÖNDERİLMEZ ve gerekçe döner
+         (sessizce reddedilen komut göndermek kullanıcıyı kör bırakır),
+       · diğer komutlar → eski davranış aynen korunur. */
   const apiKey = getStoredApiKey(vehicleId);
-  const finalPayload = apiKey
-    ? await encryptPayload(payload, apiKey).catch(() => payload)
-    : payload;
+  let finalPayload: Record<string, unknown> = payload as Record<string, unknown>;
+
+  if (requiresE2E(type)) {
+    const keyRes = await fetchCarPublicKey(vehicleId);
+    if (!keyRes.ok) return { ok: false, error: carKeyErrorMessage(keyRes.reason) };
+    try {
+      finalPayload = await encryptE2EPayload(payload, keyRes.publicKey) as unknown as Record<string, unknown>;
+    } catch {
+      return { ok: false, error: 'Komut şifrelenemedi; güvenlik gereği gönderilmedi.' };
+    }
+  } else if (apiKey) {
+    finalPayload = await encryptPayload(payload, apiKey)
+      .then((enc) => enc as unknown as Record<string, unknown>)
+      .catch(() => payload as Record<string, unknown>);
+  }
 
   const nonce = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const ttl   = new Date(Date.now() + 5 * 60_000).toISOString();

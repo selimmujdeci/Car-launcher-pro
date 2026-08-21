@@ -52,6 +52,20 @@ vi.mock('../security/accountCleanup/accountCleanupRuntime', () => ({
   evaluateAccountScopedCapability: cleanupPolicy.evaluate,
 }));
 
+/* #672: `sendCommand` artık E2E gerektiren komutlarda (lock/unlock/...) araç
+   public key'ini okuyup `ecdh_v1` zarfı üretiyor. BU DOSYANIN kilitleri RLS ve
+   TTL davranışını korur — şifreleme onların konusu değil, yalnız önlerine
+   geçen bir adım. Şifreleme başarılı VARSAYILIR; asıl kural aynen test edilir.
+   E2E zarfının kendisi `e2eCommandCrypto.test.ts`te parite kilitleriyle
+   doğrulanır. */
+vi.mock('@/lib/e2eCommandCrypto', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  fetchCarPublicKey: vi.fn(async () => ({ ok: true, publicKey: 'dGVzdC1rZXk=' })),
+  encryptE2EPayload: vi.fn(async () => ({
+    type: 'ecdh_v1', eph_pub: 'ZQ==', iv: 'aXY=', data: 'ZGF0YQ==', ts: Date.now(),
+  })),
+}));
+
 // ── Test yardımcıları ─────────────────────────────────────────────────────────
 
 beforeEach(() => {
