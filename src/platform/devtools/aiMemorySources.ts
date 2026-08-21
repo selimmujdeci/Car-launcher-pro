@@ -82,18 +82,29 @@ export function readAiMemorySnapshot(nowMs: number): AiMemoryRawSnapshot {
   let vehicleHistoryWired = false;
   try {
     const sources = createMaviMemorySources();
-    try { preferenceCount = sources.readUserPreferences().length; } catch { /* fail-soft */ }
-    try {
-      const facts = sources.readVehicleHistory();
-      vehicleFactCount = facts.length;
-      /* "Bağlı" ile "kayıt yok" AYRIDIR: otorite bağlıysa 0 kayıt geçerli bir
-         cevaptır; bağlı değilse 0 bir ÖLÇÜM DEĞİLDİR. */
-      vehicleHistoryWired = true;
-      confidentVehicleFactCount = facts.filter(
-        (f) => typeof f.confidence === 'number'
-          && f.confidence >= MIN_VEHICLE_FACT_CONFIDENCE,
-      ).length;
-    } catch { /* fail-soft */ }
+
+    /* OKUYUCULAR OPSİYONELDİR (`MemorySources` sözleşmesi). Yokluğu bir HATA
+       değil, "o otorite bağlı değil" demektir — ve bu, "0 kayıt"tan FARKLIDIR.
+       Bu yüzden yoksa sayaç `null` kalır; sahte 0 üretilmez. */
+    const readPrefs = sources.readUserPreferences;
+    if (typeof readPrefs === 'function') {
+      try { preferenceCount = readPrefs().length; } catch { /* fail-soft */ }
+    }
+
+    const readHistory = sources.readVehicleHistory;
+    if (typeof readHistory === 'function') {
+      try {
+        const facts = readHistory();
+        vehicleFactCount = facts.length;
+        /* "Bağlı" ile "kayıt yok" AYRIDIR: otorite bağlıysa 0 kayıt geçerli bir
+           cevaptır; bağlı değilse 0 bir ÖLÇÜM DEĞİLDİR. */
+        vehicleHistoryWired = true;
+        confidentVehicleFactCount = facts.filter(
+          (f) => typeof f.confidence === 'number'
+            && f.confidence >= MIN_VEHICLE_FACT_CONFIDENCE,
+        ).length;
+      } catch { /* fail-soft */ }
+    }
   } catch { /* fail-soft: kaynak fabrikası kurulamadı */ }
 
   return {
