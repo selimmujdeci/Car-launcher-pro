@@ -1654,6 +1654,13 @@ async function askCompanionBrainHaiku(
       'Content-Type':      'application/json',
       'x-api-key':         apiKey,
       'anthropic-version': '2023-06-01',
+      /* #699 İKİNCİ KAPI: native taşıma yoksa (tarayıcı / `npm run dev`) istek
+         `fetch`e düşer ve CORS duvarına ÇARPARDI. Bu header Anthropic'in
+         tarayıcıdan doğrudan erişim izni; cihazda ölçüldü — headersiz `fetch`
+         THROW ederken bu header'la GERÇEK 401 döndü. `credentialVerifiers`
+         bunu ZATEN biliyordu, beyin çağrısı bilmiyordu (bilgi var, besleyen
+         yok). Native yolda zararsızdır: sunucu fazladan header'ı yok sayar. */
+      'anthropic-dangerous-direct-browser-access': 'true',
     },
     body,
     decisionMs,
@@ -1752,7 +1759,12 @@ async function groundHaikuWithTavily(
   try {
     const resp = await aiPostJson(
       HAIKU_COMPANION_ENDPOINT,
-      { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
+      {
+        'Content-Type':      'application/json',
+        'x-api-key':         apiKey,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true', // #699 ikinci kapı (bkz. yukarısı)
+      },
       body,
       HAIKU_COMPANION_TIMEOUT_MS,
       signalWithTimeout(HAIKU_COMPANION_TIMEOUT_MS),

@@ -1100,6 +1100,11 @@ describe('Sesli asistan — hava/trafik dürüstlüğü + hibrit beyin zinciri k
     const viaNative = brain.split('aiPostJson(').filter((c) => c.trimStart().startsWith('HAIKU_COMPANION_ENDPOINT'));
     expect(viaNative.length).toBeGreaterThanOrEqual(2);
 
+    /* İKİNCİ KAPI: fetch'e düşülen ortamlarda (tarayıcı/dev) CORS'u açan header
+       şart — cihazda ölçüldü: headersiz fetch THROW, header'lı fetch 401. */
+    const dangerous = brain.split('anthropic-dangerous-direct-browser-access').length - 1;
+    expect(dangerous).toBeGreaterThanOrEqual(2);
+
     const t = read('src/platform/ai/nativeHttp.ts');
     // Native yalnız GERÇEK native platformda kullanılır (tarayıcıda fetch korunur).
     expect(t).toMatch(/isNativePlatform/);
