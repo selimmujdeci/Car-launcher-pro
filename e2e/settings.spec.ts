@@ -12,18 +12,28 @@ test.describe('Settings Page', () => {
 
   /** Ayarlar panelini aç ve içerik görünene kadar bekle. */
   async function openSettings(page: import('@playwright/test').Page): Promise<void> {
-    const settingsBtn = page.getByRole('button', { name: 'Ayarlar' });
-    await settingsBtn.first().click({ force: true });
-    /* SettingsPage lazy-load. METNE DEĞİL SÖZLEŞMEYE bakılır (kütük #679):
-       eski hâli `text=Sistem` / `text=Arayüz` arıyordu ve o başlıklar üründe
-       ARTIK YOK (grep: 0 eşleşme) — panel açılıyor olmasına rağmen test
-       düşüyordu. `data-theme-surface="settings"` SettingsPage kökünde duran
-       kararlı işarettir; bölüm adları değişse de ayakta kalır. */
-    await page
-      .locator('[data-theme-surface="settings"]')
-      .first()
-      .waitFor({ state: 'visible', timeout: 5000 })
-      .catch(() => {});
+    const settingsBtn = page.getByRole('button', { name: 'Ayarlar' }).first();
+    const panel = page.locator('[data-theme-surface="settings"]').first();
+
+    /* METNE DEĞİL SÖZLEŞMEYE bakılır (kütük #679): eski hâli `text=Sistem` /
+       `text=Arayüz` arıyordu ve o başlıklar üründe ARTIK YOK (grep: 0 eşleşme) —
+       panel açılıyor olmasına rağmen test düşüyordu. `data-theme-surface="settings"`
+       SettingsPage kökünde duran kararlı işarettir; bölüm adları değişse de kalır.
+
+       TIKLAMA TEKRARLANIR — sebebi ölçüldü: ilk CI koşumunda (run 32485763054) bu
+       test chromium ve Mobile Chrome'da **2 flaky** olarak geçti; yani ilk deneme
+       düştü, retry kurtardı. Retry ile gizlenen kararsızlık KAPANMIŞ SAYILMAZ.
+       İki olasılık AYRILAMADI (yerelde tekrar üretilemedi, CI'da tek gözlem):
+         (a) panel lazy-load'u yavaş runner'da 5 sn'yi aşıyor,
+         (b) dock yatay kaydırmalı ve `force` tıklama bazen etkisiz kalıyor.
+       `toPass` ikisini de kapsar: panel görünene kadar tıklama yeniden denenir.
+       ⚠️ (b) doğruysa bu bir ÜRÜN şüphesidir (gerçek kullanıcı da ıskalayabilir) —
+       test onu ÖRTMESİN diye burada açıkça yazılıdır. */
+    await expect(async () => {
+      await settingsBtn.scrollIntoViewIfNeeded().catch(() => {});
+      await settingsBtn.click({ force: true });
+      await expect(panel).toBeVisible({ timeout: 4000 });
+    }).toPass({ timeout: 25_000 });
   }
 
   test('ayarlar drawer acilir', async ({ page }) => {
