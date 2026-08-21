@@ -16,10 +16,8 @@ import {
   buildCoverageReport,
   HARSH_DELTA_KMH,
   HARSH_DEBOUNCE_MS,
-  SAMPLE_STALE_MS,
   STOP_MIN_MS,
   REFUEL_RISE_PCT,
-  MAX_FUEL_PCT_PER_100KM,
   type MetricSample,
   type TripMetricsAccumulator,
 } from '../platform/trip/tripMetricsAccumulator';

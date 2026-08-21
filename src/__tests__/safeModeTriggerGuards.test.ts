@@ -59,7 +59,7 @@ describe('SAFE_MODE kökü #1 — native onTrimMemory arka plan seviyesini bask�
     });
 
     it(`KİLİT: ${ad} — MODERATE dalı ARKA PLAN sabitini (TRIM_MEMORY_MODERATE) KULLANMAZ`, () => {
-      /* Eski kusur: `else if (level >= TRIM_MEMORY_MODERATE /*60*​/)`. Bu dal
+      /* Eski kusur: `else if (level >= TRIM_MEMORY_MODERATE (60))`. Bu dal
          hem ERİŞİLEMEZDİ (60 >= 15 zaten ilk dala düşer) hem de yanlış
          aileden bir sabitti. Doğrusu RUNNING_MODERATE (5) — ön plan baskısı.
          NOT: "TRIM_MEMORY_RUNNING_MODERATE" dizisi "TRIM_MEMORY_MODERATE"

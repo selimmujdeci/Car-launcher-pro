@@ -10,7 +10,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { CAROS_LAB_TOOLS } from '../platform/devtools/carosLabCatalog';
 import {
-  buildPidTimingReport, RESCUE_MIN_DROP, MIN_SAMPLES_PER_PHASE, MIN_ROUNDS_PER_PHASE,
+  buildPidTimingReport, RESCUE_MIN_DROP, MIN_ROUNDS_PER_PHASE,
   VERDICT_MIN_DROP, ATST_APPLIED_MIN_RATIO,
   EXPERIMENT_VERDICT_LABEL, PID_VERDICT_LABEL,
   type PidTimingSample, type PidTimingRaw,

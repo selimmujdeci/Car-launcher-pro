@@ -451,6 +451,22 @@ describe('MAVI-M4 · 11. stale tur action BAŞLATAMAZ', () => {
     const ok = consumePendingAction(5, 1_100);
     expect(ok?.actionId).toBe('phone.call.start');
   });
+  /* `clearPendingAction` ÜRÜN YOLUNDA VAR ama bu dosyada import edilip HİÇ
+     çağrılmıyordu (ESLint no-unused-vars ile yakalandı, 2026-08-21). Kullanılmayan
+     import burada kozmetik değildi: iptal davranışının KİLİDİ YOKTU. Import'u
+     silmek boşluğu gizlerdi — kilit yazıldı. */
+  it('clearPendingAction bekleyen onayı DÜŞÜRÜR — iptal edilen istek canlandırılamaz', () => {
+    setPendingAction(req(4));
+    expect(peekPendingAction(1_100)).not.toBeNull();
+
+    clearPendingAction();
+
+    expect(peekPendingAction(1_100)).toBeNull();
+    /* En kritik yarı: temizlenmiş istek MEŞRU sıradaki turda BİLE tüketilemez.
+       Yalnız peek'e bakmak, consume yolunun ayrı bir kopya tutması hâlinde
+       kusuru kaçırırdı. */
+    expect(consumePendingAction(5, 1_100)).toBeNull();
+  });
 
   it('yürütücü KAYITLI DEĞİLSE onay çözülemez → fail-closed', () => {
     setConfirmedActionExecutor(null);

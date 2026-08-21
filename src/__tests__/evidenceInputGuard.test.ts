@@ -7,6 +7,8 @@
  * ARIZA sinyalidir (şema sürüklenmesi · bozuk veri · sürüm farkı).
  */
 
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, it, expect, beforeEach } from 'vitest';
 import {
   validateEvidenceInput, readUnknownInputStats, _resetUnknownInputStatsForTest,
@@ -123,8 +125,8 @@ describe('gizlilik — DEĞER hiçbir yerde saklanmaz', () => {
 
   it('kaynak kanıtı: modül DEĞER saklamıyor', () => {
     // `rejectedValue` benzeri bir alan eklenirse bu kilit düşer.
-    const src = require('node:fs').readFileSync(
-      require('node:path').join(process.cwd(),
+    const src = readFileSync(
+      join(process.cwd(),
         'src', 'platform', 'reasoning', 'core', 'evidenceInputGuard.ts'), 'utf8') as string;
     expect(src).not.toMatch(/rejectedValue|lastValue|sampleValue/);
   });
@@ -132,8 +134,8 @@ describe('gizlilik — DEĞER hiçbir yerde saklanmaz', () => {
 
 describe('sözleşme', () => {
   it('doğrulayıcı SAFTIR — Date.now çağırmaz (zaman dışarıdan verilir)', () => {
-    const src = require('node:fs').readFileSync(
-      require('node:path').join(process.cwd(),
+    const src = readFileSync(
+      join(process.cwd(),
         'src', 'platform', 'reasoning', 'core', 'evidenceInputGuard.ts'), 'utf8') as string;
     const codeOnly = src.split('\n')
       .filter((l) => { const t = l.trimStart(); return !t.startsWith('*') && !t.startsWith('//') && !t.startsWith('/*'); })
@@ -144,8 +146,8 @@ describe('sözleşme', () => {
   });
 
   it('sayaç tavanı vardır — teşhis aracı sonsuz büyümez', () => {
-    const src = require('node:fs').readFileSync(
-      require('node:path').join(process.cwd(),
+    const src = readFileSync(
+      join(process.cwd(),
         'src', 'platform', 'reasoning', 'core', 'evidenceInputGuard.ts'), 'utf8') as string;
     expect(src).toContain('COUNTER_CEILING');
   });

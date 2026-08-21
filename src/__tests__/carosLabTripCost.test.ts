@@ -131,6 +131,6 @@ describe('LAB · DÜRÜSTLÜK', () => {
     expect(c, 'composition metersToKm otoritesini kullanmıyor').toMatch(/metersToKm\(/);
     /* Herhangi bir yerde ELLE 1000'e bölme = ikinci dönüşüm gerçeği. */
     expect(c, 'composition kendi metre→km dönüşümünü kurmuş (ikinci gerçek)')
-      .not.toMatch(/\/\s*1000/);
+      .not.toMatch(/\/\s*1000\b/);
   });
 });
