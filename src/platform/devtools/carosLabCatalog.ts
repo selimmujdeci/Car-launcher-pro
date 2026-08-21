@@ -60,7 +60,7 @@ export type CarosLabToolId =
   | 'remote-command'
   | 'fleet-identity' | 'fleet-driver-identity' | 'fleet-presence-history'
   | 'fleet-driver-authentication' | 'fleet-driver-dna' | 'fleet-intelligence' | 'ai-evidence-engine'
-  | 'deep-scan' | 'vehicle-fingerprint'
+  | 'deep-scan' | 'vehicle-fingerprint' | 'prediction-engine'
   // Communication
   | 'raw-obd-traffic' | 'can-monitor' | 'kwp-monitor' | 'uds-explorer'
   | 'session-inspector' | 'phone-hub-probe' | 'phone-hub-field-validation' | 'phone-hub-link'
@@ -212,6 +212,12 @@ export const CAROS_LAB_TOOLS: readonly CarosLabTool[] = Object.freeze([
     desc: 'Tüm AI sistemlerinin ortak kanıt omurgasının salt-okunur gözlemi: kanıt sayaçları (aktif · süresi dolmuş · reddedilmiş · güveni türetilememiş) · kaynak dağılımı · birleştirme ve tazeleme sayaçları · kanıt zinciri (hangi çıktı hangi kanıta dayanıyor) · kanıt kapsamı ve eksik kategoriler · bütünlük bayrağı.',
     status: 'AVAILABLE', layer: null,
     note: 'Hiçbir şey BAŞLATMAZ ve KARAR VERMEZ: kanıt üretme/yazma, zincir kurma, süre kapatma, sunucuya yazma, ağ çağrısı ve timer YOK. BU KATMAN AI CEVABI ÜRETMEZ — LLM, model, tahmin, öneri ve doğal dil YOKTUR; kanıt bir CÜMLE değil, kaynağı ve ölçüm kalitesi belli bir KAYITTIR. KAYNAKSIZ KANIT GEÇERLİ OLAMAZ (hangi modülden geldiği bilinmeyen iddia kanıt sayılmaz) ve GÜVEN DIŞARIDAN YAZILAMAZ: kaynak, ölçüm kalitesi ve örnek sayısının en zayıf halkasından TÜRETİLİR (tek gözlem MEDIUM tavanını aşamaz). Kanıt DEĞİŞMEZDİR ve süresi dolunca SİLİNMEZ — geçmiş bir iddianın dayanağı yok edilirse o iddia açıklanamaz. Kapsam UNAVAILABLE ise bu "sıfır ölçtük" değil "HİÇ BAKMADIK" demektir. Üretim SUNUCUDADIR; head unit tarafında kanıt üretilmez. KİŞİSEL VERİ TAŞINMAZ: araç/sürücü ADI, plaka, VIN ve konum GELMEZ. Gerçek araç doğrulaması YAPILMADI (BLOCKED_REAL_VEHICLE).',
+  },
+  {
+    id: 'prediction-engine', category: 'vehicle', name: 'Öngörü Motoru',
+    desc: 'Anayasanın 6. kapısının ("5 dk sonra ne olacak?") salt-okunur gözlemi: koşucunun çalışıp çalışmadığı · bütçe sınıfı ve periyodu · tik sayacı ve son tik yaşı · sinyal başına biriken örnek sayısı · kanıt eşikleri · atlanan örnekler (bayat / sensör yok) · tampon temizliği · kural başına durum ve gerekçe.',
+    status: 'AVAILABLE', layer: null,
+    note: 'SALT-OKUNUR: koşucuyu başlatmaz/durdurmaz, tik tetiklemez, örnek eklemez, tampon temizlemez, kural veya eşik değiştirmez, araca komut göndermez, timer kurmaz. ÜÇ DURUM BİRLEŞTİRİLMEZ: TAHMİN VAR · KANIT YETERSİZ · SİNYAL KAYNAĞI YOK. Üçüncüsü en önemlisidir — sessizce boş bırakmak "kural çalışıyor ama arıza yok" izlenimi verirdi; oysa gerçek "hiç bakılmıyor"dur. MOTOR FAIL-CLOSED: yetersiz örneklem, zayıf uyum (R² eşiği), yanlış yön veya ufuk dışı varışta SUSAR — sahte tahmin ÜRETİLMEZ ve bu ekran o kararı DEĞİŞTİRMEZ. ÖRNEKLEM DÜRÜSTLÜĞÜ: bayat veri örneklenmez (duran sayı sahte "trend yok" üretir ve gerçek yükselişi maskeler), sensör okunamazsa örnek alınmaz (sahte 0 bir ÖLÇÜM DEĞİLDİR), araç/bağlantı değişince tampon SIFIRLANIR (iki farklı aracın değerlerini aynı doğruya uydurmak uydurma trend üretir). Atlanan her örnek SAYILIR — sessiz atlama yoktur. BÜTÇE: koşucu SOĞUK YOLDA çalışır (15 sn) ve 3 Hz hot-path\'e HİÇ dokunmaz; ama görev SAFETY kritikliğindedir — aşırı ısınma uyarısı düşük-uç cihazda YAVAŞLATILMAZ (anayasa: güvenlik katmanı her tier\'da açık). Gerçek araç doğrulaması YAPILMADI (kütük #706).',
   },
   {
     id: 'deep-scan', category: 'vehicle', name: 'Derin Tarama',

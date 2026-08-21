@@ -637,21 +637,32 @@ görülmemeli**.
 
 # 🧠 P2 — ZEKÂ KATMANININ GERÇEKLEŞMESİ
 
-## ⬜ V-09 — Prediction Engine'i bağla (anayasanın 6. kapısı kapalı)
+## 🟨 V-09 — Prediction Engine  **[BAĞLANDI 2026-08-22 — kütükte 🔴 saha borcu açık]**
 
-**BULGU:** *"5 dk sonra ne olacak?"* kapısı fiilen kapalı. 164 satır trend/öngörü motoru
-(`fitTrend`, `predict`, `DEFAULT_PREDICTION_RULES`: overheat · battery_drain · oil_pressure_drop)
-**tek tüketicisi kendi testi**.
+**BULGU (doğrulandı):** 164 satırlık motor yazılı, **tek tüketicisi kendi testi** —
+üretimde 0 çağrı. Anayasanın 6. kapısı fiilen kapalıydı.
 
-**KANIT:** `grep -rn predictionEngine src` → `src/platform/obd/predictionEngine.ts` +
-`src/__tests__/predictionEngine.test.ts`. Üretimde **0 çağrı**.
+**YAPILDI:** `predictionRuntime` — motorun eksik KOŞUCUSU. Motora dokunulmadı; eşikler
+yeniden tanımlanmadı (ikinci otorite yok). LAB ekranı açıldı (V-09 bunu **zorunlu**
+kılıyordu).
 
-**YAPILACAK:** `maintenanceBrain` / `signalHub` üzerinden **cold-path**'te besle
-(3 Hz hot-path'e ASLA girmez). Güvenlik-kritik tahminler (overheat, yağ basıncı)
-**her tier'da açık** (CLAUDE.md). CAROS LAB'a salt-okunur gözlem ekranı **zorunlu**.
+**BÜTÇE — İKİ KURAL AYNI ANDA:** koşucu **soğuk yolda** çalışır (15 sn; 3 Hz hot-path'e
+hiç dokunmaz) **ama** görev `SAFETY` kritikliğindedir — düşük-uçta **yavaşlatılmaz**.
+Aşırı ısınma uyarısını "cihaz zayıf" diye geciktirmek, korumak için var olduğu şeyi
+kaybetmektir.
 
-**KABUL ÖLÇÜTÜ:** Motor sıcaklığı 5 örnekte yükselirken LAB'da `overheat` tahmini
-`fitQuality ≥ 0.6` ile görünür; kanıt yetersizken `UNAVAILABLE` yazar (sahte tahmin YOK).
+**ÖRNEKLEM DÜRÜSTLÜĞÜ:** bayat veri örneklenmez (duran sayı sahte "trend yok" üretip
+gerçek yükselişi maskeler) · sensör yoksa örnek alınmaz (sahte 0 ölçüm değildir) ·
+araç değişince tampon sıfırlanır. Atlanan her örnek sayılır.
+
+**ÖLÇÜLEN GERÇEK — BİR KURAL ÇALIŞAMAZ:** `oil_pressure_drop`'un sinyal kaynağı üründe
+**yok** (`OBDData` böyle bir alan taşımıyor; araca özel DID gerekir). LAB üç durumu AYRI
+gösterir: **TAHMİN VAR · KANIT YETERSİZ · SİNYAL KAYNAĞI YOK** — sessizce boş bırakmak
+"kural çalışıyor ama arıza yok" izlenimi verirdi.
+
+**AÇIK BORÇ (🟢 DEĞİL 🟨):** gerçek araçta ölçülmedi — kütük **🔴 #706**. Çekirdek
+ölçüt: sıcaklık 5 örnekte yükselirken `overheat` tahmini `fitQuality ≥ 0,6` ile
+görünmeli; kanıt yetersizken **KANIT YETERSİZ** yazmalı (sahte tahmin YOK).
 
 ---
 

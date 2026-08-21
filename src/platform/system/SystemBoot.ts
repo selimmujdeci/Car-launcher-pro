@@ -86,6 +86,7 @@ import { startLocationEngine } from '../location/locationEngineRuntime';
 import { startNavigationSessionRuntime } from '../navigation/navigationSessionRuntime';
 import { startTripUpload } from '../trip/tripUploadRuntime';
 import { startFleetReadback } from '../fleet/fleetReadbackService';
+import { startPredictionRuntime } from '../obd/predictionRuntime';
 import { startAutoLearningEngine } from '../autoLearningEngine';
 import { startVehicleKnowledgeBase } from '../vehicleKnowledgeBase';
 import { startVehicleLearningEvidenceBridge } from '../vehicleLearningEvidenceBridge';
@@ -932,6 +933,14 @@ class SystemBoot {
     // çağrı HİÇ yapılmaz. Fail-soft: yolculuk akışını asla etkilemez.
     _log('  › FleetReadback');
     this._reg(startFleetReadback());
+
+    // Prediction Engine koşucusu (V-09): anayasanın 6. kapısı ("5 dk sonra ne
+    // olacak?") fiilen kapalıydı — motor yazılı, üretimde 0 çağrı. Koşucu SOĞUK
+    // YOLDA örnekler (15 sn; 3 Hz hot-path'e HİÇ dokunmaz) ama görev SAFETY
+    // kritikliğinde kaydedilir: aşırı ısınma uyarısı düşük-uçta yavaşlatılmaz.
+    // Fail-soft + zero-leak (cleanup _reg'le).
+    _log('  › PredictionRuntime');
+    this._reg(startPredictionRuntime());
 
     // Fleet Vehicle Identity koordinatörü (P1): üretici YUKARIDAKİ abonelik olduğu
     // için burada BAŞLATILACAK bir şey yok — yalnız kapatma kaydı gerekir, çünkü
