@@ -23,44 +23,9 @@ import { RecoveryMonitorScreen } from '../components/devtools/screens/RecoveryMo
 import { getCarosLabTool } from '../platform/devtools/carosLabCatalog';
 import { renderAvailableTool } from '../components/devtools/carosLabScreenMap';
 
-const read = (p: string) => readFileSync(resolve(process.cwd(), p), 'utf8');
+import { stripComments } from './helpers';
 
-/**
- * Kilitler KODU hedefler, BELGEYİ değil.
- *
- * Bu dosyanın ilk koşumunda dört kilit yalnız YORUM metnine takılmıştı: başlık
- * bloğu doğal olarak "refreshKwpRecoveryEvidence çağrılmaz", "VIN taşınmaz",
- * "_maybeRunEcuRecovery" gibi ifadeler içeriyor. Yasağı ANLATAN cümleyi yasağın
- * İHLALİ sayan bir kilit, doğru kodu kırmızı gösterir ve zamanla belgeyi
- * budamaya zorlar. Bu yüzden eşleşme öncesi yorumlar SÖKÜLÜR.
- */
-function stripComments(text: string): string {
-  let out = '';
-  let i = 0;
-  let quote: string | null = null;
-  while (i < text.length) {
-    const c = text[i];
-    const next = text[i + 1];
-    if (quote !== null) {
-      if (c === '\\') { out += c + (next ?? ''); i += 2; continue; }
-      if (c === quote) quote = null;
-      out += c; i += 1; continue;
-    }
-    if (c === '"' || c === "'" || c === '`') { quote = c; out += c; i += 1; continue; }
-    if (c === '/' && next === '*') {
-      const end = text.indexOf('*/', i + 2);
-      i = end === -1 ? text.length : end + 2;
-      continue;
-    }
-    if (c === '/' && next === '/') {
-      const end = text.indexOf('\n', i);
-      i = end === -1 ? text.length : end;
-      continue;
-    }
-    out += c; i += 1;
-  }
-  return out;
-}
+const read = (p: string) => readFileSync(resolve(process.cwd(), p), 'utf8');
 
 const NOW = 1_700_000_000_000;
 

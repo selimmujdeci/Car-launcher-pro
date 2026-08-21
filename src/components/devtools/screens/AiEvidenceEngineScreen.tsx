@@ -49,6 +49,7 @@ import {
   type EvidenceConfidence,
 } from '../../../platform/fleet/aiEvidence';
 import type { AdapterResult } from '../../../platform/fleet/aiEvidenceEngine';
+import { FleetScopeNotice } from './FleetScopeNotice';
 
 /** Adaptör sonucunun tonu — yalnız `REPORTED`/`DEDUPED` iyi sayılır. */
 function adapterResultTone(r: AdapterResult): string {
@@ -182,6 +183,9 @@ function AiEvidenceEngineScreenBase() {
 
   return (
     <div className="flex flex-col gap-3 p-3">
+      {/* YETKİ KAPSAMI: bu ekranın boş olması BEKLENEN mi yoksa KUSUR mu —
+          ölçülmüş GRANT gerçeğinden (fleetScopeModel) okunur. */}
+      <FleetScopeNotice surface="ai-evidence-engine" />
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-[13px] font-semibold text-[var(--oem-ink-1)]">

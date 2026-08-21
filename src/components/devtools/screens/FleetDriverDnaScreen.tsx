@@ -28,6 +28,7 @@ import {
   RefreshCw, Dna, Gauge, Clock, TrendingUp, AlertTriangle, HelpCircle,
 } from 'lucide-react';
 import { readDriverDna } from '../../../platform/fleet/driverDnaEngine';
+import { FleetScopeNotice } from './FleetScopeNotice';
 import {
   dnaComponentLabel, dnaLearningLevelLabel, dnaStatusLabel,
   dnaDriftStateLabel, dnaUnknownReasonLabel, vehicleImpactKindLabel,
@@ -137,6 +138,9 @@ function FleetDriverDnaScreenBase() {
 
   return (
     <div className="flex flex-col gap-3 p-3">
+      {/* YETKİ KAPSAMI: bu ekranın boş olması BEKLENEN mi yoksa KUSUR mu —
+          ölçülmüş GRANT gerçeğinden (fleetScopeModel) okunur. */}
+      <FleetScopeNotice surface="fleet-driver-dna" />
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-[13px] font-semibold text-[var(--oem-ink-1)]">

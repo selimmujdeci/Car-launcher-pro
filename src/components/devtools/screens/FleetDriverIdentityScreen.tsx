@@ -19,6 +19,7 @@
 
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { RefreshCw, UserCheck, AlertTriangle, ShieldCheck, Clock } from 'lucide-react';
+import { FleetScopeNotice } from './FleetScopeNotice';
 import {
   readDriverSnapshot, evaluateSnapshotFreshness,
   SNAPSHOT_MAX_AGE_MS,
@@ -160,6 +161,9 @@ function FleetDriverIdentityScreenBase() {
 
   return (
     <div className="flex flex-col gap-3 p-3">
+      {/* YETKİ KAPSAMI: bu ekranın boş olması BEKLENEN mi yoksa KUSUR mu —
+          ölçülmüş GRANT gerçeğinden (fleetScopeModel) okunur. */}
+      <FleetScopeNotice surface="fleet-driver-identity" />
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-[13px] font-semibold text-[var(--oem-ink-1)]">

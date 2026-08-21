@@ -28,6 +28,7 @@ import {
   RefreshCw, Brain, Layers, TrendingUp, HelpCircle, Gauge, Activity, Clock,
 } from 'lucide-react';
 import { readFleetIntelligence } from '../../../platform/fleet/fleetIntelligenceEngine';
+import { FleetScopeNotice } from './FleetScopeNotice';
 import {
   insightTypeLabel, insightStateLabel, trendMetricLabel, trendDirectionLabel,
   healthDimensionLabel, healthStateLabel, insightUnknownReasonLabel,
@@ -123,6 +124,9 @@ function FleetIntelligenceScreenBase() {
 
   return (
     <div className="flex flex-col gap-3 p-3">
+      {/* YETKİ KAPSAMI: bu ekranın boş olması BEKLENEN mi yoksa KUSUR mu —
+          ölçülmüş GRANT gerçeğinden (fleetScopeModel) okunur. */}
+      <FleetScopeNotice surface="fleet-intelligence" />
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-[13px] font-semibold text-[var(--oem-ink-1)]">

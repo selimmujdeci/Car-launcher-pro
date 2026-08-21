@@ -21,6 +21,7 @@
  */
 
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
+import { FleetScopeNotice } from './FleetScopeNotice';
 import {
   RefreshCw, History, ArrowRightLeft, Clock, ShieldCheck,
   Database, Link2, AlertTriangle,
@@ -199,6 +200,9 @@ function FleetPresenceHistoryScreenBase() {
 
   return (
     <div className="flex flex-col gap-3 p-3">
+      {/* YETKİ KAPSAMI: bu ekranın boş olması BEKLENEN mi yoksa KUSUR mu —
+          ölçülmüş GRANT gerçeğinden (fleetScopeModel) okunur. */}
+      <FleetScopeNotice surface="fleet-presence-history" />
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-[13px] font-semibold text-[var(--oem-ink-1)]">

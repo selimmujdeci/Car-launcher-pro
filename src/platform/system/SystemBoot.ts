@@ -85,6 +85,7 @@ import { stopVehicleIdentityCoordinator } from '../telemetry/vehicleIdentityRunt
 import { startLocationEngine } from '../location/locationEngineRuntime';
 import { startNavigationSessionRuntime } from '../navigation/navigationSessionRuntime';
 import { startTripUpload } from '../trip/tripUploadRuntime';
+import { startFleetReadback } from '../fleet/fleetReadbackService';
 import { startAutoLearningEngine } from '../autoLearningEngine';
 import { startVehicleKnowledgeBase } from '../vehicleKnowledgeBase';
 import { startVehicleLearningEvidenceBridge } from '../vehicleLearningEvidenceBridge';
@@ -922,6 +923,14 @@ class SystemBoot {
     // Trip yukleme kablolamasi (P1): tripLogService'i GOZLER (degistirmez) ve
     // YALNIZ kapanan trip icin tek kanonik ozet yukler. Canli olcum GONDERILMEZ.
     this._reg(startTripUpload());
+
+    // Fleet geri-okuma köprüsü (kütük #690): `driverSnapshotRuntime.capture()`
+    // yazılmıştı ama ÇAĞIRANI YOKTU → Fleet Driver Identity ekranı yapısal olarak
+    // boştu. Köprü trip başına TEK ağ çağrısı yapar (yalnız active false→true
+    // kenarında); TİMER YOK, polling YOK, hot-path'e girmez. Eşleşmemiş cihazda
+    // çağrı HİÇ yapılmaz. Fail-soft: yolculuk akışını asla etkilemez.
+    _log('  › FleetReadback');
+    this._reg(startFleetReadback());
 
     // Fleet Vehicle Identity koordinatörü (P1): üretici YUKARIDAKİ abonelik olduğu
     // için burada BAŞLATILACAK bir şey yok — yalnız kapatma kaydı gerekir, çünkü
