@@ -1372,6 +1372,20 @@ export interface CarLauncherPlugin {
   probeEcus?(): Promise<{ raw: string }>;
 
   /**
+   * OBD-OS-F3-5: adaptör kimlik probu — `ATI` + `AT@1` + `STDI` ham yanıtları,
+   * `'|'` ile ayrılmış tek dizge (`"ELM327 v1.5|?|?"` gibi; parçalar boş olabilir).
+   *
+   * NEDEN: piyasadaki "ELM327 v1.5" adaptörlerin çoğu KLONdur ve etiketteki
+   * yetenekleri (29-bit adresleme, flow-control) taşımaz. Klonu gerçek sanmak,
+   * desteklenmeyen komut göndermeye ve SESSİZ başarısızlığa yol açar — yetenek
+   * etiketten değil DAVRANIŞTAN çıkarılır.
+   *
+   * Ayrıştırma BURADA YAPILMAZ: tek sınıflandırma kaynağı `adapterCapability.ts`.
+   * Opsiyonel (`?`): eski plugin sürümlerinde yok → çağıran guard'lar.
+   */
+  probeAdapterIdentity?(): Promise<{ raw: string }>;
+
+  /**
    * OBD-OS-F2-3: belirli bir ECU'dan DTC okur (fiziksel adresleme, Mode 03/07/0A).
    * Native `withEcuHeader` ile header set → oku → restore ATOMİK yapılır (yanlış ECU'ya
    * sızıntı imkânsız). `supported:false` = ECU o modu desteklemiyor (hata DEĞİL — bilgi).

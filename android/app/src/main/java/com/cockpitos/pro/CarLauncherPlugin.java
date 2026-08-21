@@ -2363,6 +2363,12 @@ public class CarLauncherPlugin extends Plugin {
         if (obdManager    != null && obdManager.isConnected())    return obdManager.probeEcus();
         throw new java.io.IOException("OBD okuyucu bağlı değil");
     }
+    /** Aktif transport üzerinden adaptör kimlik probu (F3-5); bağlı yoksa IOException. */
+    private String probeAdapterIdentityFromActive() throws Exception {
+        if (bleObdManager != null && bleObdManager.isConnected()) return bleObdManager.probeAdapterIdentity();
+        if (obdManager    != null && obdManager.isConnected())    return obdManager.probeAdapterIdentity();
+        throw new java.io.IOException("OBD okuyucu bağlı değil");
+    }
 
     /** Aktif transport üzerinden UDS 0x19 (F3-1). */
     private String readUdsDtcsActive(String tx, String rx, String mask) throws Exception {
@@ -2467,6 +2473,32 @@ public class CarLauncherPlugin extends Plugin {
                 mainHandler.post(() -> call.reject("OBD_ECU_PROBE_FAILED", msg));
             }
         }, "obd-ecu-probe").start();
+    }
+    /**
+     * OBD-OS-F3-5 — Adaptör kimlik probu: ATI + AT@1 + STDI ham yanıtları.
+     *
+     * NEDEN: piyasadaki "ELM327 v1.5" adaptörlerin çoğu KLONdur ve etikette yazan
+     * yetenekleri (ATCP 29-bit adresleme, ATCFC flow-control) TAŞIMAZ. Klonu gerçek
+     * sanmak → desteklemediği komutu göndeririz → SESSİZ başarısızlık. Yetenek
+     * ETİKETTEN değil DAVRANIŞTAN çıkarılır (zero-trust).
+     *
+     * AYRIŞTIRMA YAPILMAZ — ham "ATI|AT@1|STDI" TS'e döner; sınıflandırmanın tek
+     * kaynağı {@code adapterCapability.ts}. Ayrı thread: prob ELM kuyruğunda
+     * saniyeler sürebilir, plugin handler bloklanmamalı (probeEcus ile aynı desen).
+     */
+    @PluginMethod
+    public void probeAdapterIdentity(PluginCall call) {
+        new Thread(() -> {
+            try {
+                String raw = probeAdapterIdentityFromActive();
+                JSObject ret = new JSObject();
+                ret.put("raw", raw != null ? raw : "");
+                mainHandler.post(() -> call.resolve(ret));
+            } catch (Exception e) {
+                String msg = e.getMessage() != null ? e.getMessage() : "Adaptör kimlik probu başarısız";
+                mainHandler.post(() -> call.reject("OBD_ADAPTER_PROBE_FAILED", msg));
+            }
+        }, "obd-adapter-probe").start();
     }
 
     // ── OBD internals ───────────────────────────────────────────────────────

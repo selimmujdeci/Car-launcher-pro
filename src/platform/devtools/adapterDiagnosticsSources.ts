@@ -29,7 +29,10 @@ import { getObdHealth } from '../obd/ObdHealthMonitor';
 import {
   LINK_LOSS_CANDIDATE_LABEL, LINK_LOSS_GAP_LABEL, type LinkLossCandidate,
 } from '../obd/linkLossLedger';
-import type { AdRawSnapshot } from './adapterDiagnosticsModel';
+import type { AdRawSnapshot, AdIdentityRaw } from './adapterDiagnosticsModel';
+import {
+  getAdapterCapabilities, getAdapterIdentityRaw, wasAdapterProbeAttempted,
+} from '../obd/adapterIdentityService';
 
 /** Sayı okuma — sahte 0 ÜRETMEZ (E-21). Alan yoksa `null`. */
 function _num(v: unknown): number | null {
@@ -54,6 +57,28 @@ function _safe<T>(fn: () => T): T | null {
  *   · `connectionQuality === -1` → bağlantı hiç kurulmadı (0 puan DEĞİL)
  *   · `lastSeenMs / lastRxAt / lastResetAt … === 0` → damga YOK (epoch 0 DEĞİL)
  */
+/**
+ * Adaptör kimliği — ÜÇ DURUM KORUNUR (bkz. AdIdentityRaw notu). Prob hiç koşmadıysa
+ * `null` döner; 'unknown' UYDURULMAZ, çünkü 'sormadık' ile 'bilemedik' ayrı arızalardır.
+ */
+function _readIdentity(): AdIdentityRaw | null {
+  const attempted = _safe(() => wasAdapterProbeAttempted());
+  const caps      = _safe(() => getAdapterCapabilities());
+  const raw       = _safe(() => getAdapterIdentityRaw());
+  /* Hiç denenmediyse ve sonuç da yoksa: kaynak YOK — boş kabuk döndürmek,
+     okuyana 'prob çalıştı ama bulamadı' yalanını söylerdi. */
+  if (attempted !== true && caps == null) return null;
+  return {
+    attempted:          attempted === true,
+    kind:               caps?.kind ?? null,
+    identity:           caps?.identity ?? null,
+    extendedAddressing: caps?.extendedAddressing ?? null,
+    flowControl:        caps?.flowControl ?? null,
+    summary:            caps?.summary ?? null,
+    raw:                raw ?? null,
+  };
+}
+
 export function readAdapterDiagnosticsSnapshot(): AdRawSnapshot {
   const readAt = Date.now();
 
@@ -69,6 +94,9 @@ export function readAdapterDiagnosticsSnapshot(): AdRawSnapshot {
 
   return {
     readAt,
+
+    /* Adaptör kimlik probu — üç durum korunur (yok / denendi-yanıtsız / sınıflandırıldı). */
+    identity: _readIdentity(),
 
     transport: trans ? {
       transport:            String(trans.transport),

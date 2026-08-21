@@ -18,6 +18,7 @@ import type { NativeOBDData } from './nativePlugin';
 import { getConfig, onPerformanceModeChange } from './performanceMode';
 import { runtimeManager }                     from '../core/runtime/AdaptiveRuntimeManager';
 import { logError } from './crashLogger';
+import { probeAdapterIdentity, resetAdapterIdentity } from './obd/adapterIdentityService';
 import { useRafSmoothed } from './rafSmoother';
 import { parseBinaryOBDFrame, hasBinaryFrame, clearAccumulatedBuffer } from './obdBinaryParser';
 import {
@@ -804,6 +805,11 @@ function _merge(partial: Partial<OBDData>): void {
   // yerine burada zorlanır → yeni bir kopma yolu eklendiğinde bayraklar SESSİZCE
   // "bağlı" kalamaz. Çağıran açıkça değer verdiyse (ör. watchdog dataFresh:false) o kazanır.
   if (partial.connectionState !== undefined && partial.connectionState !== 'connected') {
+    /* Adaptör kimliği bir SONRAKİ bağlantıya TAŞINMAZ: aynı dongle başka araca ya da
+       başka dongle aynı araca takılabilir (sahada yaşandı). Eski kimliği devretmek
+       ölçümü varsayıma çevirir — aynı invaryantın (kanıt düşerse bayrak da düşer)
+       kimlik tarafındaki karşılığıdır. */
+    resetAdapterIdentity();
     partial = {
       transportConnected: false,
       dataFresh: false,
@@ -1499,6 +1505,15 @@ function _onRealData(patch: Partial<OBDData>): void {
       try { recordFeatureRecovered('obdDataGateAutoReconnect'); }
       catch { /* defter yazılamadı — bağlantı gerçekliği bundan etkilenmez */ }
       _logStateTransition(_current.connectionState, 'connected', 'first_ecu_frame', _rxNow, _staleThresholdMs());
+      /* OBD-OS-F3-5 — adaptör kimlik probu (ATI/AT@1/STDI): "ELM327 v1.5" yazan
+         adaptörlerin çoğu KLONdur ve 29-bit adresleme / flow-control taşımaz; klonu
+         gerçek sanmak desteklenmeyen komut → SESSİZ başarısızlık demektir.
+         BURADA çünkü: gerçek ECU frame'i aktı → ELM kesin ayakta ve konuşuyor.
+         FIRE-AND-FORGET + FAIL-SOFT: prob DISCOVERY önceliğinde kuyruğa girer
+         (hot-path'i preempt etmez, F0-3), patlarsa veri yolu ETKİLENMEZ.
+         Servis kendi içinde tek-sefer korumalı — bu blok tekrar geçilse bile
+         ELM kuyruğuna ikinci komut binmez (Mali-400 kuralı). */
+      void probeAdapterIdentity();
       _merge({
         ...patch, lastSeenMs: _lastRealDataMs, connectionState: 'connected', source: 'real',
         // Gerçek ECU frame'i aktı → link KANITLI canlı, veri KANITLI taze.

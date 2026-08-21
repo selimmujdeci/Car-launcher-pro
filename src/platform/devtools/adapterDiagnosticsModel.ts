@@ -31,10 +31,10 @@ import {
  * Tipler
  * ════════════════════════════════════════════════════════════════════════ */
 
-export type AdSectionId = 'transport' | 'session' | 'lifecycle' | 'linkLoss' | 'limits';
+export type AdSectionId = 'transport' | 'session' | 'lifecycle' | 'linkLoss' | 'identity' | 'limits';
 
 export const AD_SECTION_ORDER: readonly AdSectionId[] = [
-  'transport', 'session', 'lifecycle', 'linkLoss', 'limits',
+  'transport', 'session', 'lifecycle', 'linkLoss', 'identity', 'limits',
 ] as const;
 
 export const AD_SECTION_TITLE: Readonly<Record<AdSectionId, string>> = {
@@ -42,7 +42,8 @@ export const AD_SECTION_TITLE: Readonly<Record<AdSectionId, string>> = {
   session:   '2 · OBD Oturumu',
   lifecycle: '3 · Yaşam Döngüsü',
   linkLoss:  '4 · Kopma Kanıtı (#536)',
-  limits:    '5 · Kaynak Sınırları',
+  identity:  '5 · Adaptör Kimliği (F3-5)',
+  limits:    '6 · Kaynak Sınırları',
 } as const;
 
 export interface AdSection {
@@ -171,6 +172,26 @@ export interface AdLinkLossRaw {
   readonly lastAtMs:             number | null;
 }
 
+/**
+ * Adaptör KİMLİK probu (OBD-OS-F3-5) — `adapterIdentityService` çıktısı.
+ *
+ * ⚠️ ÜÇ DURUM AYRIDIR, karıştırılmamalı (bu ekranın dürüstlük kuralı):
+ *   · `null`                    → prob HİÇ koşmadı (bağlantı yok / eski plugin)
+ *   · `attempted:true, caps:null` → soruldu, adaptör YANIT VERMEDİ
+ *   · `caps.kind==='unknown'`     → yanıt geldi ama kimlik çıkarılamadı
+ * İkincisini üçüncüsü gibi göstermek, 'sormadık'ı 'bilemedik' sanmaktır.
+ */
+export interface AdIdentityRaw {
+  readonly attempted:          boolean;
+  readonly kind:               'stn' | 'elm327' | 'clone' | 'unknown' | null;
+  readonly identity:           string | null;
+  readonly extendedAddressing: boolean | null;
+  readonly flowControl:        boolean | null;
+  readonly summary:            string | null;
+  /** Ham "ATI|AT@1|STDI" — hüküm değil KANIT. */
+  readonly raw:                string | null;
+}
+
 export interface AdRawSnapshot {
   readonly readAt:        number;
   readonly transport:     AdTransportRaw | null;
@@ -181,6 +202,7 @@ export interface AdRawSnapshot {
   readonly lifecycle:     AdLifecycleRaw | null;
   readonly health:        AdHealthRaw | null;
   readonly linkLoss:      AdLinkLossRaw | null;
+  readonly identity:      AdIdentityRaw | null;
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
@@ -196,6 +218,7 @@ const SRC = {
   life:   'obdService.getObdConnLifecycle()',
   health: 'obd/ObdHealthMonitor.getObdHealth()',
   loss:   'obdService.getLinkLossLedger()',
+  ident:  'obd/adapterIdentityService.getAdapterCapabilities()',
   none:   'YOK',
 } as const;
 
@@ -434,6 +457,88 @@ function _lifecycleSection(s: AdRawSnapshot): AdSection {
  * yazar — sahada dört adayın (adaptör · soket · ELM init · ECU uykusu) imzası
  * bazı durumlarda BİREBİR aynıdır ve orada hüküm vermek uydurma olur.
  */
+/**
+ * Adaptör kimliği (OBD-OS-F3-5) — "ELM327 v1.5" yazan adaptörlerin çoğu KLONdur.
+ *
+ * BU BÖLÜMÜN VAR OLMA SEBEBİ: klonu gerçek sanmak, desteklenmeyen komutu göndermek
+ * ve SESSİZ başarısızlık demektir. Yetenek ETİKETTEN değil DAVRANIŞTAN çıkarılır;
+ * burada gösterilen her satır bir ÖLÇÜMDÜR (ATI/AT@1/STDI yanıtları), iddia değil.
+ *
+ * ÜÇ DURUM AYRI GÖSTERİLİR — bu ekranın dürüstlük sözleşmesi:
+ *   · kaynak yok      → prob HİÇ koşmadı (bağlantı yok / eski plugin sürümü)
+ *   · denendi, boş    → soruldu ama adaptör yanıt vermedi
+ *   · sınıflandırıldı → kanıtla hüküm
+ */
+function _identitySection(s: AdRawSnapshot): AdSection {
+  const f: InspectorField[] = [];
+  const id = s.identity;
+
+  if (!id) {
+    f.push(unavailable(
+      { id: 'adIdentKind', label: 'adaptör sınıfı', source: SRC.ident, note: '' },
+      'Kimlik probu HİÇ koşmadı (bağlantı yok ya da plugin metodu bu sürümde yok). ' +
+      '"Klon değil" DEMEK DEĞİLDİR — sormamak ile bilememek ayrı şeylerdir.',
+    ));
+    return _bound({ id: 'identity', title: AD_SECTION_TITLE.identity, fields: f });
+  }
+
+  if (id.kind === null) {
+    f.push(unavailable(
+      { id: 'adIdentKind', label: 'adaptör sınıfı', source: SRC.ident, note: '' },
+      id.attempted
+        ? 'Prob DENENDİ ama adaptör kimlik komutlarına yanıt vermedi. Yetenek VARSAYILMAZ.'
+        : 'Prob sonucu yok.',
+    ));
+    return _bound({ id: 'identity', title: AD_SECTION_TITLE.identity, fields: f });
+  }
+
+  f.push(derived(
+    { id: 'adIdentKind', label: 'adaptör sınıfı', source: SRC.ident,
+      note: 'stn = OBDLink/STN (en yetenekli) · elm327 = gerçek · clone = etiket yalan ' +
+            'söylüyor · unknown = kimlik okunamadı. Sınıf ATI/AT@1/STDI yanıtlarından ' +
+            'TÜRETİLİR, etiketten DEĞİL.' },
+    id.kind,
+  ));
+
+  f.push(id.identity !== null && id.identity.length > 0
+    ? observed(
+        { id: 'adIdentAti', label: 'etiket sürümü (ATI)', source: SRC.ident,
+          note: 'Adaptörün KENDİ İDDİASI — kanıt DEĞİL. Klonlar burada da "ELM327 v1.5" yazar.' },
+        id.identity,
+      )
+    : unavailable(
+        { id: 'adIdentAti', label: 'etiket sürümü (ATI)', source: SRC.ident, note: '' },
+        'ATI yanıtı boş.',
+      ));
+
+  f.push(derived(
+    { id: 'adIdentExt', label: '29-bit adresleme güvenilir mi', source: SRC.ident,
+      note: 'FAIL-CLOSED: klon/unknown sınıfında FALSE. Bu komutlar klonlarda ' +
+            'SESSİZCE başarısız olur — "denedik, olmadı" bile görünmez.' },
+    id.extendedAddressing === true ? 'evet' : 'hayır',
+  ));
+
+  f.push(derived(
+    { id: 'adIdentFc', label: 'flow-control güvenilir mi', source: SRC.ident,
+      note: 'Uzun ISO-TP yanıtları (çok baytlı DID/DTC) için kritik. Güvenilmezse ' +
+            'uzun yanıtlar yarım gelebilir.' },
+    id.flowControl === true ? 'evet' : 'hayır',
+  ));
+
+  f.push(id.raw !== null && id.raw.length > 0
+    ? observed(
+        { id: 'adIdentRaw', label: 'ham yanıt (ATI|AT@1|STDI)', source: SRC.ident,
+          note: 'KANIT satırı — sınıflandırmanın dayandığı ham veri. Faz A: ham gösterim serbest.' },
+        id.raw,
+      )
+    : unavailable(
+        { id: 'adIdentRaw', label: 'ham yanıt (ATI|AT@1|STDI)', source: SRC.ident, note: '' },
+        'Ham yanıt saklanmadı.',
+      ));
+
+  return _bound({ id: 'identity', title: AD_SECTION_TITLE.identity, fields: f });
+}
+
 function _linkLossSection(s: AdRawSnapshot): AdSection {
   const f: InspectorField[] = [];
   const l = s.linkLoss;
@@ -574,6 +679,7 @@ export function buildAdSections(s: AdRawSnapshot): AdSection[] {
     _sessionSection(s),
     _lifecycleSection(s),
     _linkLossSection(s),
+    _identitySection(s),
     _limitsSection(),
   ];
 }

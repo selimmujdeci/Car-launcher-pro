@@ -1529,6 +1529,26 @@ public final class OBDManager {
             throw ee;
         }
     }
+    /**
+     * OBD-OS-F3-5: adaptör kimlik probu (ATI + AT@1 + STDI → ham "a|b|c").
+     * probeEcus ile AYNI desen: DISCOVERY önceliği → hot-path'i preempt etmez (F0-3).
+     *
+     * NEDEN GEREKLİ: "ELM327 v1.5" yazan adaptörlerin çoğu klondur ve 29-bit adresleme /
+     * flow-control taşımaz. Klonu gerçek sanmak = desteklenmeyen komut = SESSİZ başarısızlık.
+     * Yetenek ETİKETTEN değil DAVRANIŞTAN çıkarılır; sınıflandırma TS'te
+     * ({@code adapterCapability.ts} tek kaynak) — burada AYRIŞTIRMA YAPILMAZ.
+     */
+    public String probeAdapterIdentity() throws Exception {
+        final ElmProtocol p = elm;
+        if (!obdRunning || p == null) throw new IOException("OBD bağlantısı yok");
+        try {
+            return cmdQueue.submit(ElmCommandQueue.Priority.DISCOVERY, null, p::probeAdapterIdentityRaw).get();
+        } catch (java.util.concurrent.ExecutionException ee) {
+            Throwable cause = ee.getCause();
+            if (cause instanceof Exception) throw (Exception) cause;
+            throw ee;
+        }
+    }
 
     /**
      * Patch 12A: UDS Mode 22 (ReadDataByIdentifier) — üretici-özel tek DID okuma.

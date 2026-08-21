@@ -363,7 +363,11 @@ satır oluşturuyor (+21) ✓ → **V-02 🟢**. Kütük **🟢 #676**.
 
 ---
 
-## ⬜ V-03 — Enterprise sayfasını gerçeğe hizala (ticari risk)
+## ⏸️ V-03 — Enterprise sayfasını gerçeğe hizala (ticari risk)  **[ERTELENDİ 2026-08-21]**
+
+> **ERTELEME GEREKÇESİ (kullanıcı kararı):** ürünün henüz **son kullanıcısı/müşterisi yok**;
+> satış sayfasındaki uyumsuzluk bugün **teorik** bir risk. Madde SİLİNMEDİ, sırası değişti —
+> ilk müşteri/demo öncesi kapatılması ZORUNLUDUR (yanıltıcı reklam + CLAUDE.md dürüstlük kuralı).
 
 **BULGU:** `website/src/app/(public)/enterprise/page.tsx` müşteriye var olmayan özellikler vaat ediyor.
 
@@ -387,7 +391,7 @@ gösterilebilir. Kalan "yol haritası" maddeleri görsel olarak ayrışır.
 
 ---
 
-## ⬜ V-04 — Ölü kodu ya bağla ya sil (~2.900 satır)
+## 🔵 V-04 — Ölü kodu ya bağla ya sil  **[DEVAM — 1/5 bağlandı]**
 
 **BULGU:** Üretimde **hiç import edilmeyen** modüller. Her biri "yapıldı" yanılsaması üretiyor.
 Doğrulama: `grep -rl "/<modül>'" src` (test ve kendisi hariç) → **0 sonuç**.
@@ -410,6 +414,33 @@ Doğrulama: `grep -rl "/<modül>'" src` (test ve kendisi hariç) → **0 sonuç*
 
 **KABUL ÖLÇÜTÜ:** Tablo boşalır; tarama sıfır bağlanmamış üretim modülü döner.
 Silinen her modül envanterde gerekçesiyle kayıtlıdır.
+
+### 🔵 KOŞUM KAYDI — 2026-08-21
+
+**KULLANICI KARARI: SİLME YOK.** *"Kurtarılabilir ise kesinlikle silme, çalışır hale getir."*
+Bu yüzden her modül **BAĞLA** yolundan gidiyor.
+
+**ÖNCE TABLO DÜZELTİLDİ — plan bir modülü YANLIŞ listelemiş:**
+`nativeCoreService` **CANLI** (`main.tsx:8` import, `main.tsx:82` çağırıyor). Hem plandaki
+`grep -rl "/<modül>'"` deseni hem benim ilk ölçümüm aynı tuzağa düştü: gerçek import
+**uzantılı** yazılmış (`nativeCoreService.ts'`) → desen eşleşmedi. *grep, aradığın adı
+bilmene bağlıdır.* Gerçek ölü: **10 → 5 modül**, **~2.900 → ~749 satır**.
+
+> ⚠️ Ama o modülde **ayrı bir eksik** bulundu: `initNativeCore()` native'den **gerçek ekran
+> pikselini** okuyor, yalnız bir CSS değişkenine yazıyor — cihaz sınıflandırmasına
+> (`deviceCapabilities._lowEndScreen`) **beslemiyor**; orası hâlâ `innerWidth × dpr` ile
+> **tahmin** yürütüyor. #599'un kökü (CSS px ↔ fiziksel px) için gerçek veri elde ama
+> kullanılmıyor. Ayrıca `initFromDeviceProfile` otorite şüphesi taşıyor (`performanceMode`
+> kendini *"tek kaynak: deviceCapabilities"* ilan etmiş). **Sıradaki iş.**
+
+| # | Modül | Satır | Durum |
+|---|---|---|---|
+| 1 | `adapterCapability` | 91 | ✅ **BAĞLANDI** — kütük 🔴 #682 (cihazda ölçülmedi) |
+| 2 | `nativeCoreService` eksiği | — | ⬜ native piksel → sınıflandırmaya besle + otorite çakışması |
+| 3 | `signalHub` | 122 | ⬜ tek sinyal okuma yüzeyi |
+| 4 | `fleetKb` | 141 | ⬜ kalıcı öğrenme (keşif turuna bağlı) |
+| 5 | `serviceFunctions` | 161 | ⬜ araca yazma rutinleri (ürün kararı) |
+| 6 | `manufacturerProfileBuilder` | 234 | ⬜ keşif çıktısına bağlı |
 
 ---
 
