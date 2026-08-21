@@ -520,7 +520,7 @@ KISA gösterirdi.
 Konya→Tarsus 310 km/4,0 sa · Ankara→İstanbul 446 km/6,0 sa · İzmir→Aydın 109 km/1,2 sa ·
 Adana→Gaziantep 210 km/2,7 sa · Bursa→Balıkesir 145 km/2,2 sa.
 
-**AÇIK BORÇ (bu yüzden 🟢 DEĞİL 🟨):** **cihazda hiç ölçülmedi.** Kütük **🔴 #697** —
+**AÇIK BORÇ (bu yüzden 🟢 DEĞİL 🟨):** **cihazda hiç ölçülmedi.** Kütük **🔴 #703** —
 kabul ölçütü uçak modunda `OFFLINE_GRAPH` kaynağı, gerçek yol geometrisi, şehirlerarası
 rotanın düşük-uçta bulunabilmesi ve ETA'nın 5–7 saat aralığında çıkması.
 
@@ -559,7 +559,7 @@ bağlıdır. `toLowerCase()` yetmez — `'İ'.toLowerCase()` görünmez U+0307 b
 **KAPSAM SINIRLI:** yalnız NODE olarak haritalanmış POI'ler; alan olarak çizilmiş yerler
 DIŞARIDA. Ürün "her yer bulunur" DEMEMELİ.
 
-**AÇIK BORÇ (🟢 DEĞİL 🟨):** cihazda hiç ölçülmedi — kütük **🔴 #699**.
+**AÇIK BORÇ (🟢 DEĞİL 🟨):** cihazda hiç ölçülmedi — kütük **🔴 #704**.
 
 ---
 
