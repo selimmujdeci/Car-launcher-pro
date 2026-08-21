@@ -392,15 +392,15 @@ export const CAROS_LAB_TOOLS: readonly CarosLabTool[] = Object.freeze([
   },
   {
     id: 'memory-explorer', category: 'ai', name: 'Bellek Gezgini',
-    desc: 'Vehicle Memory kalıcı gerçekleri ve öğrenilmiş parmak izi kayıtları.',
-    status: 'PLACEHOLDER', layer: null,
-    note: 'Ekran yok.',
+    desc: 'Mavi hafıza katmanının salt-okunur gözlemi: kısa dönem halka tamponu (adet/kapasite, en eski kaydın yaşı, köken dağılımı) · kullanıcı tercihi adedi · araç geçmişi gerçekleri ve eşik üstü güvenli olanların adedi · hassas veri kapısının sınırları · blok bütçesi.',
+    status: 'AVAILABLE', layer: null,
+    note: 'Hicbir sey BASLATMAZ ve YAZMAZ: hafizaya kayit ekleme/silme/temizleme, butce degistirme, hassas kapiyi gevsetme, asistani cagirma ve timer YOK. ICERIK GOSTERILMEZ - bu ekranin tanimlayici kuralidir: hafiza kayitlari KULLANICI METNIDIR ve ne tamami, ne kirpilmisi, ne ilk harfi, ne UZUNLUGU, ne ozeti, ne de hash degeri tasinir (uzunluk bile ayirt edicidir). Yalniz ADET, YAS, KOKEN SINIFI ve POLITIKA gorunur; bir hafiza gezgininin "gezinme" islevi BILINCLI olarak YOKTUR (ham komut ve transkript LAB ekranina tasinamaz). "OKUNAMADI" ile "0 kayit" AYRIDIR. Arac gecmisi otoritesi BAGLI DEGILSE 0 bir OLCUM SAYILMAZ ve oyle isaretlenir. Damgasiz kaydin yasi HESAPLANMAZ. Kisa donem hafiza yalniz RAM icindedir (uygulama yeniden baslayinca bosalir). Gercek cihaz dogrulamasi YAPILMADI (kutuk #692).',
   },
   {
     id: 'knowledge-explorer', category: 'ai', name: 'Bilgi Tabanı Gezgini',
-    desc: 'Teşhis bilgi tabanı (DTC → neden/kontrol eşlemeleri) gezgini.',
-    status: 'PLACEHOLDER', layer: null,
-    note: 'Ekran yok.',
+    desc: 'Araç bilgi tabanının salt-okunur gözlemi: öğrenilmiş araç sayısı ve LRU tavanı · doğrulanmış profil adedi · araç başına öğrenilen PID/DID/ECU · bağlantı ve gözlem sayısı · güven · maskeli VIN ve parmak izi ön eki · son görülme yaşı.',
+    status: 'AVAILABLE', layer: null,
+    note: 'Hicbir sey BASLATMAZ ve YAZMAZ: kayit ekleme/silme/temizleme, kesif tetikleme, araca sorgu gonderme, ogrenme motorunu baslatma ve timer YOK - ekrani ACMAK ogrenme BASLATMAZ. TEK GOZLEM KANIT DEGILDIR: bir kez gorulmus profil DOGRULANMIS sayilmaz ve satirinda acikca oyle yazar (zero-trust telemetry - tekrar etmemis sinyal kanit degildir). GUVEN 1 DEGERINE ASLA ULASMAZ; %100 gosterilmez. TAVAN UYARISI hukum sirasinda DOGRULANMIS hukmunu EZER: depo doldugunda ogrenme kaybi baslar ve bu iyi haberden onemlidir. GIZLILIK: HAM VIN ekrana GELMEZ (yalniz WMI acik maske; maskelenemezse ham deger degil KAYNAK YOK gosterilir), tam parmak izi hash degeri tasinmaz (yalniz ilk 12 - tam hash arac-arasi eslestirmeye izin verirdi), ECU adres listesi ve firmware surum dizeleri ADET olarak gecer. "OKUNAMADI" ile "hic arac ogrenilmedi" AYRIDIR. Damgasiz kayitta yas HESAPLANMAZ. Gercek cihaz dogrulamasi YAPILMADI (kutuk #692).',
   },
   /* ── Developer ───────────────────────────────────────────────────────── */
   {

@@ -100,6 +100,10 @@ const EnforcementPointsScreen = lazyWithRetry(() =>
   import('./screens/EnforcementPointsScreen').then((m) => ({ default: m.EnforcementPointsScreen })));
 const ThemeRuntimeScreen = lazyWithRetry(() =>
   import('./screens/ThemeRuntimeScreen').then((m) => ({ default: m.ThemeRuntimeScreen })));
+const MemoryExplorerScreen = lazyWithRetry(() =>
+  import('./screens/MemoryExplorerScreen').then((m) => ({ default: m.MemoryExplorerScreen })));
+const KnowledgeExplorerScreen = lazyWithRetry(() =>
+  import('./screens/KnowledgeExplorerScreen').then((m) => ({ default: m.KnowledgeExplorerScreen })));
 const RecoveryMonitorScreen = lazyWithRetry(() =>
   import('./screens/RecoveryMonitorScreen').then((m) => ({ default: m.RecoveryMonitorScreen })));
 const RouteLayerInspectorScreen = lazyWithRetry(() =>
@@ -150,6 +154,8 @@ export function renderAvailableTool(id: CarosLabToolId): ReactElement | null {
     case 'queue-monitor':      return <RuntimeSchedulingScreen focus="queue-monitor" />;
     case 'poll-scheduler':     return <RuntimeSchedulingScreen focus="poll-scheduler" />;
     case 'recovery-monitor':   return <RecoveryMonitorScreen />;
+    case 'memory-explorer':    return <MemoryExplorerScreen />;
+    case 'knowledge-explorer': return <KnowledgeExplorerScreen />;
     case 'mavi-console':       return <MaviConsoleScreen />;
     case 'mavi-reasoning-engine': return <MaviReasoningEngineScreen />;
     case 'ai-mechanic':        return <AiMechanicScreen />;
