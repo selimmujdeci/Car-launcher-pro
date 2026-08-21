@@ -1052,6 +1052,11 @@ const OSS_LICENSES: { name: string; license: string }[] = [
   { name: 'Vosk Türkçe Dil Modeli',      license: 'Apache-2.0' },
   { name: 'MapLibre GL',                 license: 'BSD-3-Clause' },
   { name: 'OpenStreetMap harita verisi', license: 'ODbL' },
+  /* V-05: çevrimdışı rota grafiği (`public/maps/routing-graph.bin`) OSM'den
+     TÜRETİLMİŞTİR → ODbL atfı bu veri için de ZORUNLUDUR. Ayrı satır olarak
+     yazılır çünkü "harita verisi" ibaresi karo görüntüsünü çağrıştırır ve
+     türetilmiş veritabanını kapsadığı açık değildir. */
+  { name: 'OpenStreetMap çevrimdışı rota grafiği', license: 'ODbL' },
   { name: 'Capacitor',                   license: 'MIT' },
   { name: 'React',                       license: 'MIT' },
   { name: 'Zustand',                     license: 'MIT' },
@@ -1102,7 +1107,7 @@ function AboutTabContent() {
         </div>
         <div className="mt-4 px-3 py-2.5 rounded-xl text-[11px] leading-relaxed"
           style={{ background: 'var(--oem-warn-soft)', border: '1px solid var(--oem-warn)', color: 'var(--oem-ink-2)' }}>
-          Harita verileri <span style={{ color: '#fbbf24', fontWeight: 800 }}>© OpenStreetMap katkıcıları</span> tarafından sağlanır (ODbL).
+          Harita verileri ve çevrimdışı rota grafiği <span style={{ color: '#fbbf24', fontWeight: 800 }}>© OpenStreetMap katkıcıları</span> tarafından sağlanır (ODbL).
           Tüm açık kaynak bileşenler izin verici (permissive) lisanslıdır ve ticari kullanıma uygundur.
         </div>
       </Panel>

@@ -479,31 +479,54 @@ gözlemlenebilirlik sınıfına eşleme bilgi kaybettiği için ham hakikat gizl
 
 # 🔥 P1 — VİZYONUN CAN DAMARI
 
-## ⬜ V-05 — Çevrimdışı rota grafiğini üret ve paketle ⭐ EN YÜKSEK GETİRİ
+## 🟨 V-05 — Çevrimdışı rota grafiği  **[ÜRETİLDİ VE PAKETLENDİ 2026-08-22 — kütükte 🔴 saha borcu açık]**
 
-**BULGU:** A* motoru (486 satır, binary min-heap, testli) **yazılı ama verisi hiç var olmamış**.
+**BULGU (doğrulandı):** A* motoru (486 satır, binary min-heap, testli) yazılıydı ama
+verisi HİÇ VAR OLMAMIŞTI — `/maps/routing-graph.bin` 404, worker `_graphFailed = true`
+ile kalıcı pes ediyor, her çevrimdışı rota kuş uçuşuna düşüyordu.
 
-**KANIT:**
+**YAPILDI:** `scripts/build-routing-graph.mjs` (OSM `.osm.pbf` → RTG2) +
+`scripts/verify-routing-graph.mjs`. Türkiye (Geofabrik 613 MB) işlendi:
 
-```
-NavigationCompute.worker.ts:29   const GRAPH_URL = '/maps/routing-graph.bin'
-NavigationCompute.worker.ts:58   if (!res.ok) { _graphFailed = true; return null; }  ← KALICI
-$ ls public/maps/    → DİZİN YOK
-$ ls dist/maps       → YOK
-$ find android/app/src/main/assets → maps/ YOK
-```
+| | |
+|---|---|
+| Taranan / seçilen yol | 9.681.702 / **162.742** |
+| Düğüm koordinatı çözümü | 2.121.987 / 2.121.987 (**%100**) |
+| Grafik | **238.252 düğüm · 295.346 kenar** |
+| Dosya | **7,30 MB** (+ ODbL lisans dosyası) |
 
-Sonuç: ağ yoksa `computeOfflineRoute()` **her zaman null** → `straightLineRoute()`
-(kuş uçuşu). Kod bunu dürüstçe `STRAIGHT_LINE_GUIDANCE` diye etiketliyor ve
-"çevrimdışı rota" DEMİYOR — **dürüstlük ✅, yetenek ❌**.
+**ÜÇ KARAR — HEPSİ ÖLÇÜMLE, TAHMİNLE DEĞİL:**
 
-**YAPILACAK:** Türkiye OSM → `routing-graph.bin` üretim script'i (format zaten tanımlı:
-`GRAPH_MAGIC_V2 = 0x32475452` yani `'RTG2'`; node/adjacency/costM/oneway) → build adımı →
-`public/maps/` → APK'ya gömme. Boyut bütçesi belirlenmeli (bölge bazlı bölme gerekebilir).
+**① Uydurma ETA düzeltildi.** Format yol sınıfı taşımıyordu, ETA sabit 30 km/h idi;
+350 km otoyol rotası **11,7 saat** görünürdü. V2 bayrak baytının bit 1-3'ü boştu →
+sınıf oraya yazıldı, süre kenar başına sınıf hızıyla toplanıyor. Eski grafikler
+`UNKNOWN` → eski sabit korunur (geriye uyum).
 
-**KABUL ÖLÇÜTÜ (cihazda):** Uçak modunda, daha önce hiç açılmamış bir hedefe rota istenir;
-`recordRouteSource()` **`OFFLINE_GRAPH`** yazar (`STRAIGHT_LINE_GUIDANCE` DEĞİL) ve
-ekranda gerçek yol geometrisi çizilir. CAROS LAB · Navigation Core'da kaynak adıyla görünür.
+**② A* düşük-uçta rota BULAMIYORDU.** Ölçüm: saf A* (W=1.0) Ankara→İstanbul için
+**33.592 düğüm** kapatıyor, `MAX_CLOSED=30.000` yüzünden başarısız.
+W=1.10→28.477 · **W=1.20→15.095 (seçildi)** · W=1.50→4.194. W=1.20 aramayı yarıya
+indirir, rota **%2,5** uzar.
+
+**③ Mesafe artık kenardan okunuyor.** Üretici ara düğümleri seyreltir (Douglas-Peucker
+100 m; kavşaklar ASLA atılmaz), `costM` seyreltmeden ÖNCEKİ poliline üzerinden toplanır.
+Worker eskiden düğümler arası haversine ile türetiyordu → kıvrımlı yolu sistematik
+KISA gösterirdi.
+
+**KAPSAM DÜRÜSTÇE SINIRLI:** yalnız `motorway · trunk · primary · secondary` (+`_link`).
+Şehirlerarası ve ana arter yönlendirmesi VAR; **kapı önüne kadar son kilometre YOK**.
+Ürün bunu böyle sunmalıdır — "çevrimdışı navigasyon çalışıyor" demek yanıltıcı olur.
+
+**HOST DOĞRULAMASI (veri, cihaz değil) — düşük-uç bütçesiyle 5/5:**
+Konya→Tarsus 310 km/4,0 sa · Ankara→İstanbul 446 km/6,0 sa · İzmir→Aydın 109 km/1,2 sa ·
+Adana→Gaziantep 210 km/2,7 sa · Bursa→Balıkesir 145 km/2,2 sa.
+
+**AÇIK BORÇ (bu yüzden 🟢 DEĞİL 🟨):** **cihazda hiç ölçülmedi.** Kütük **🔴 #697** —
+kabul ölçütü uçak modunda `OFFLINE_GRAPH` kaynağı, gerçek yol geometrisi, şehirlerarası
+rotanın düşük-uçta bulunabilmesi ve ETA'nın 5–7 saat aralığında çıkması.
+
+**SONRAKİ AÇIK SORU (V-06 ile birlikte düşünülmeli):** son kilometre kapsanacaksa
+`tertiary`/`residential` eklemek gerekir; bu düğüm sayısını ~10× büyütür ve
+`MAX_CLOSED` bütçesini yeniden ölçmeyi zorunlu kılar. Kapsam genişletmeden ÖNCE ölç.
 
 ---
 

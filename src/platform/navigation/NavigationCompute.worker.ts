@@ -17,7 +17,7 @@
 /* ── Tipler ──────────────────────────────────────────────────────────────── */
 
 interface GraphNode { lat: number; lon: number; }
-interface GraphEdge { to: number; costM: number; oneway: boolean; }
+interface GraphEdge { to: number; costM: number; oneway: boolean; roadClass: number; }
 interface RoutingGraph {
   nodes:     GraphNode[];
   adjacency: Map<number, GraphEdge[]>;
@@ -79,13 +79,17 @@ async function _loadGraph(): Promise<RoutingGraph | null> {
       const from   = view.getUint32(off, true); off += 4;
       const to     = view.getUint32(off, true); off += 4;
       const costM  = view.getUint32(off, true); off += 4;
-      const oneway = version === 2 ? ((view.getUint8(off++) & 0x01) === 1) : false;
+      /* FLAGS: bit 0 = oneway · bit 1-3 = yol sınıfı (bkz. ROAD_CLASS_SPEED_MS).
+         Eski grafiklerde sınıf bitleri 0'dır → UNKNOWN → sabit hıza düşülür. */
+      const flags     = version === 2 ? view.getUint8(off++) : 0;
+      const oneway    = (flags & 0x01) === 1;
+      const roadClass = (flags >> 1) & 0x07;
 
       if (!adjacency.has(from)) adjacency.set(from, []);
-      adjacency.get(from)!.push({ to, costM, oneway });
+      adjacency.get(from)!.push({ to, costM, oneway, roadClass });
       if (!oneway) {
         if (!adjacency.has(to)) adjacency.set(to, []);
-        adjacency.get(to)!.push({ to: from, costM, oneway: false });
+        adjacency.get(to)!.push({ to: from, costM, oneway: false, roadClass });
       }
     }
 
@@ -120,6 +124,32 @@ function _nearest(g: RoutingGraph, lat: number, lon: number): number {
   }
   return best;
 }
+
+/**
+ * SEZGİSEL AĞIRLIĞI (ε-kabul edilebilir A*).
+ *
+ * ── NEDEN 1.0 DEĞİL ─────────────────────────────────────────────────────────
+ * Türkiye grafiği (238k düğüm · 295k kenar) devreye girince ÖLÇÜLDÜ: saf A*
+ * (W=1.0) Ankara→İstanbul için **33.592 düğüm** kapatıyor. Düşük-uç RAM koruması
+ * `MAX_CLOSED = 30.000` olduğu için arama tavana çarpıyor ve rota HİÇ
+ * bulunamıyordu — kullanıcı için sonuç "çevrimdışı rota yok"tur.
+ *
+ * ── ÖLÇÜM (aynı grafik, aynı çift) ──────────────────────────────────────────
+ *   W=1.00 → 33.592 kapatılan · 435 km   ← düşük-uçta DÜŞER
+ *   W=1.10 → 28.477 kapatılan · 437 km
+ *   W=1.20 → 15.095 kapatılan · 446 km   ← seçilen
+ *   W=1.50 →  4.194 kapatılan · 463 km
+ *
+ * W=1.20 aramayı YARIYA indirir, rota yalnız **%2,5** uzar. ε-kabul edilebilir
+ * A* teorik olarak en iyi rotanın W katından kötü olamaz (yani ≤ %20); ölçülen
+ * sapma %2,5'tir. Takas BİLİNÇLİDİR: "biraz daha uzun ama VAR olan rota",
+ * "en kısa ama hesaplanamayan rota"dan iyidir.
+ *
+ * DİKKAT: bu değeri büyütmek rotayı sessizce uzatır, küçültmek uzun mesafede
+ * "rota bulunamadı"yı geri getirir. Değiştirilecekse ÖLÇÜLEREK değiştirilmeli
+ * (`scripts/verify-routing-graph.mjs` aynı bütçeyle sınar).
+ */
+const HEURISTIC_WEIGHT = 1.2;
 
 /* ── A* algoritması (binary min-heap) ────────────────────────────────────── */
 
@@ -181,7 +211,7 @@ function _aStar(g: RoutingGraph, startIdx: number, goalIdx: number): number[] | 
       if (newG < (gCost.get(to) ?? Infinity)) {
         gCost.set(to, newG);
         prev.set(to, cur);
-        heapPush([newG + _havM(nodes[to].lat, nodes[to].lon, goalNode.lat, goalNode.lon), to]);
+        heapPush([newG + HEURISTIC_WEIGHT * _havM(nodes[to].lat, nodes[to].lon, goalNode.lat, goalNode.lon), to]);
       }
     }
   }
@@ -190,10 +220,44 @@ function _aStar(g: RoutingGraph, startIdx: number, goalIdx: number): number[] | 
 
 /* ── Rota hesaplama ──────────────────────────────────────────────────────── */
 
-// ETA tahmini: graph binary formatı (from/to/costM/oneway) yol-sınıfı/hız-limiti
-// taşımaz → yol-tipine duyarlı ETA mümkün değil; sabit şehir-içi ortalama kullanılır
-// (#14). Yol sınıfı verisi eklenirse hız buradan türetilmeli.
-const AVG_ROUTE_SPEED_MS = 30 / 3.6; // 30 km/h ortalama
+/**
+ * ETA tahmini.
+ *
+ * ── ESKİ DURUM (#14) ────────────────────────────────────────────────────────
+ * Format yol sınıfı taşımadığı için ETA sabit 30 km/h ile hesaplanıyordu ve
+ * kodun kendi yorumu *"yol sınıfı verisi eklenirse hız buradan türetilmeli"*
+ * diyordu. Türkiye grafiği devreye girince bu sabit UYDURMA SÜRE üretirdi:
+ * 350 km'lik bir otoyol rotası **11,7 saat** görünürdü.
+ *
+ * ── YENİ ────────────────────────────────────────────────────────────────────
+ * `flags` baytının bit 1-3'ü yol sınıfını taşır (üretici:
+ * `scripts/build-routing-graph.mjs`). Süre KENAR BAŞINA, o kenarın sınıf
+ * hızıyla toplanır. Hızlar SERBEST AKIŞ değil, gerçekçi SEYAHAT ortalamalarıdır
+ * (kavşak, şehir geçişi, yavaşlama dahil) — "en iyi hâl" ETA'sı vermek, geç
+ * kalan sürücüye yalan söylemektir.
+ *
+ * `UNKNOWN` (0) eski grafiklerin ve sınıfsız kenarların yoludur: eski sabit
+ * korunur, böylece bu değişiklik hiçbir mevcut davranışı sessizce bozmaz.
+ */
+const ROAD_CLASS_SPEED_MS: readonly number[] = [
+  30 / 3.6,   // 0 UNKNOWN     — eski sabit (geriye uyum)
+  110 / 3.6,  // 1 motorway
+  85 / 3.6,   // 2 trunk
+  65 / 3.6,   // 3 primary
+  50 / 3.6,   // 4 secondary
+  40 / 3.6,   // 5 tertiary
+  30 / 3.6,   // 6 residential
+  45 / 3.6,   // 7 link/other  — bağlantı kolları ve rampa
+];
+
+/** Sınıfsız/eski yol için ortalama — düz çizgi rehberliğinde de kullanılır. */
+const AVG_ROUTE_SPEED_MS = ROAD_CLASS_SPEED_MS[0];
+
+/** Kenar süresini saniye olarak verir; sınıf bilinmiyorsa sabit hıza düşer. */
+function _edgeSeconds(costM: number, roadClass: number): number {
+  const v = ROAD_CLASS_SPEED_MS[roadClass] ?? AVG_ROUTE_SPEED_MS;
+  return v > 0 ? costM / v : costM / AVG_ROUTE_SPEED_MS;
+}
 
 async function _handleRoute(
   requestId: string,
@@ -229,16 +293,32 @@ async function _handleRoute(
     }
 
     const geometry: [number, number][] = path.map(idx => [graph.nodes[idx].lon, graph.nodes[idx].lat]);
+
+    /* MESAFE KENARDAN OKUNUR, DÜĞÜMDEN TÜRETİLMEZ. Grafik üretimi ara geometri
+       düğümlerini seyreltir; `costM` ise seyreltmeden ÖNCEKİ tam poliline
+       üzerinden toplanmıştır. İki kısaltılmış düğüm arasını haversine ile
+       ölçmek kıvrımlı yolu KISA gösterirdi (sistematik eksik mesafe → eksik
+       ETA). Kenar bulunamazsa haversine yalnız SON ÇARE olarak kullanılır. */
     let distanceM = 0;
+    let durationS = 0;
     for (let i = 1; i < path.length; i++) {
-      const a = graph.nodes[path[i - 1]], b = graph.nodes[path[i]];
-      distanceM += _havM(a.lat, a.lon, b.lat, b.lon);
+      const fromIdx = path[i - 1], toIdx = path[i];
+      const edge = (graph.adjacency.get(fromIdx) ?? []).find(e => e.to === toIdx);
+      if (edge) {
+        distanceM += edge.costM;
+        durationS += _edgeSeconds(edge.costM, edge.roadClass);
+      } else {
+        const a = graph.nodes[fromIdx], b = graph.nodes[toIdx];
+        const d = _havM(a.lat, a.lon, b.lat, b.lon);
+        distanceM += d;
+        durationS += d / AVG_ROUTE_SPEED_MS;
+      }
     }
 
     (self as unknown as Worker).postMessage({
       type: 'ROUTE_RESULT', requestId, geometry,
       distanceM,
-      durationS: distanceM / AVG_ROUTE_SPEED_MS,
+      durationS,
       steps: [],
     });
   } catch (err) {
