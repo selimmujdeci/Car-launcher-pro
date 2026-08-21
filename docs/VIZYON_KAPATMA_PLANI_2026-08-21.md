@@ -563,29 +563,38 @@ DIŞARIDA. Ürün "her yer bulunur" DEMEMELİ.
 
 ---
 
-## ⬜ V-07 — Vektör karo bölge paketi (indirme yanlış formatı indiriyor)
+## 🟨 V-07 — Vektör karo bölge paketi  **[BAĞLANDI 2026-08-22 — kütükte 🔴 saha borcu açık]**
 
-**BULGU:** "Çevrimdışı harita indir" düğmesi **ürünün çizdiği karoyu indirmiyor**.
+**BULGU (doğrulandı):** indirici RASTER `.png` çekip Service Worker'a güveniyordu; ürün
+VEKTÖR `.pbf` çiziyor, SW `.pbf` yakalamıyor ve vektör karoların tek deposu
+`CacheLRUManager`e hiçbir şey yazılmıyordu. Düğme bayt indiriyor, indirdiğini **hiç
+kimse okumuyordu**.
 
-**KANIT:**
+**PLANIN GÖRMEDİĞİ İKİ EK SESSİZ YALAN:**
 
-```
-offlineTileDownloader.ts:65   https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png   ← RASTER
-.env:31                       VITE_VECTOR_TILE_URL=https://tiles.openfreemap.org/planet ← VEKTÖR
-serviceWorker.js:27,31        yalnız /tiles/z/x/y.png ve tile.openstreetmap.org yakalıyor
-                              → .pbf HİÇ yakalanmıyor
-```
+| # | Yalan | Sonuç |
+|---|---|---|
+| ① | Sayaç SW'nin ölü `offline-tiles` deposunu sayıyordu | Panel başarılı paketten sonra bile **sonsuza dek 0** |
+| ② | "Sil" de o ölü depoyu siliyordu | Kullanıcı silince **gerçek önbellek duruyordu** |
+| ③ | Boyut `karo × 14 KB` (raster ortalaması) | Kapladığı yer **olduğundan küçük** görünüyordu |
 
-Vektör karoların tek önbelleği `CacheLRUManager` — **fırsatçı**, yalnız gezilen bölgeyi tutar.
-Sonuç: "Türkiye / İstanbul / Ankara / İzmir indir" düğmeleri işe yaramıyor.
-Bu, depoda tekrar eden **"motor var, besleyen yok"** deseninin **7. örneği**.
+**YAPILDI — plandaki (b) seçeneği:** `CacheLRUManager.warmUrls()` toplu ısıtma; canlı
+karo isteğiyle **AYNI `_putToCache` yolu** (aynı manifest · LRU · 0-bayt koruması).
+**İkinci önbellek KURULMADI.** Ölü raster yolu (27 satır) silindi.
 
-**YAPILACAK:** İki seçenekten biri —
-(a) `offlineTileDownloader`'ı `.pbf` indirecek şekilde çevir ve `CacheLRUManager`'a yaz, veya
-(b) `CacheLRUManager`'a bbox+zoom toplu ısıtma API'si ekle, panel onu çağırsın.
+**KARO ADRESİ SABİT YAZILAMAZ:** sağlayıcı yola veri sürümü damgası koyar
+(`/planet/20260802_080001_pt/...`). `vectorTileTemplate` şablonu **canlı TileJSON'dan**
+çözer; çözemezse indirme **hiç başlamaz**.
 
-**KABUL ÖLÇÜTÜ (cihazda):** "Ankara indir" → WiFi kapat → **hiç açılmamış** bir Ankara
-mahallesine pan → sokaklar + etiketler çizilir. `adb screencap` kanıtı.
+**KAÇINILMAZ SONUÇ, GİZLENMEDİ:** sağlayıcı veriyi tazeleyince indirilmiş paket **ölür**.
+`packVersion` panelde kullanıcıya söylenir.
+
+**AÇIK BORÇ (🟢 DEĞİL 🟨):** cihazda hiç ölçülmedi — kütük **🔴 #700**. Kabul ölçütü
+V-07'nin kendi testidir: "Ankara indir → WiFi kapat → hiç açılmamış mahalleye pan →
+sokaklar çizilir" + `adb screencap`.
+
+**AÇIK SORU:** Service Worker hâlâ `.png` yakalıyor ama artık kimse `.png` istemiyor —
+ölü kural. Zararsız, ama V-18 (doküman/kod temizliği) kapsamında ele alınmalı.
 
 ---
 

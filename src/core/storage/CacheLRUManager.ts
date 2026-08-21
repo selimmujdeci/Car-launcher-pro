@@ -268,6 +268,122 @@ class CacheLRUManager {
     } catch { /* quota veya Cache Storage API yok */ }
   }
 
+  /* ── Toplu ısıtma (V-07) ────────────────────────────────────────────────
+   *
+   * NEDEN BURADA: "Çevrimdışı harita indir" düğmesi ürünün ÇİZDİĞİ karoyu
+   * indirmiyordu — `offlineTileDownloader` OSM'den RASTER `.png` çekip Service
+   * Worker'a güveniyordu; ürün ise VEKTÖR `.pbf` çiziyor ve onları YALNIZ bu
+   * sınıf tutuyor. İki ayrı depo, biri hiç okunmuyordu.
+   *
+   * İKİNCİ ÖNBELLEK KURULMAZ: ısıtma, canlı karo isteğiyle AYNI `_putToCache`
+   * yolundan geçer. Böylece manifest, LRU baskısı, kota davranışı ve 0-bayt
+   * koruması (#613) tek yerde kalır — ısıtılan karo, oyuncunun istediği karonun
+   * ta kendisidir.
+   */
+
+  /**
+   * Bir URL listesini önbelleğe ısıtır.
+   *
+   * @param urls    GERÇEK `https://` karo adresleri (çağıran şablonu çözer).
+   * @param signal  İptal — kullanıcı vazgeçerse yarıda bırakılır.
+   * @param onTick  İlerleme bildirimi (her karo sonrası).
+   * @param concurrency Eşzamanlı istek sınırı; head unit ve sağlayıcı nezaketi.
+   *
+   * ASLA throw ETMEZ: tek tek karo hataları sayılır, tur devam eder. Bir bölge
+   * paketinin %98'i inmişse bu bir başarıdır; tamamını çöpe atmak yanlış olur.
+   */
+  async warmUrls(
+    urls: readonly string[],
+    opts: {
+      signal?: AbortSignal;
+      onTick?: (done: number, total: number, failed: number) => void;
+      concurrency?: number;
+    } = {},
+  ): Promise<{ done: number; failed: number; skipped: number; bytes: number }> {
+    const total = urls.length;
+    const limit = Math.max(1, Math.min(opts.concurrency ?? 4, 8));
+    let done = 0, failed = 0, skipped = 0, bytes = 0, cursor = 0;
+
+    const worker = async (): Promise<void> => {
+      for (;;) {
+        if (opts.signal?.aborted) return;
+        const i = cursor++;
+        if (i >= total) return;
+        const url = urls[i];
+
+        try {
+          /* ZATEN VARSA AĞA ÇIKMA. 0 baytlık zehirli girdi (#613) İSABET
+             SAYILMAZ — yeniden indirilir, yoksa bozuk paket kalıcı olur. */
+          const cached = await this._getFromCache(url);
+          if (cached && cached.byteLength > 0) {
+            skipped++;
+            this._touchLastAccess(url);
+          } else {
+            const res = await fetch(url, {
+              ...(opts.signal ? { signal: opts.signal } : {}),
+              headers: { 'User-Agent': 'CarosPro/1.0 TileWarm' },
+            });
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const buf = await res.arrayBuffer();
+            if (buf.byteLength === 0) throw new Error('0 bayt');
+            await this._putToCache(url, buf);
+            bytes += buf.byteLength;
+          }
+        } catch {
+          /* İptal bir HATA DEĞİLDİR — sayaca yazılmaz. */
+          if (!opts.signal?.aborted) failed++;
+        }
+
+        done++;
+        try { opts.onTick?.(done, total, failed); } catch { /* fail-soft */ }
+      }
+    };
+
+    await Promise.all(Array.from({ length: Math.min(limit, total) }, worker));
+    return { done, failed, skipped, bytes };
+  }
+
+  /** Bir karo GERÇEKTEN önbellekte ve sağlam mı (0 bayt İSABET SAYILMAZ). */
+  async hasTile(url: string): Promise<boolean> {
+    const c = await this._getFromCache(url);
+    return c !== null && c.byteLength > 0;
+  }
+
+  /** Isıtılan bölgeyi sürüş boyunca eviction'dan koru (mevcut koridor kanalı). */
+  protectUrls(urls: readonly string[]): void {
+    this.markCorridorProtected(urls.map((u) => _urlToKey(u)));
+  }
+
+  /** LRU tavanı — çağıran paket boyutunu buna göre değerlendirir. */
+  getCapacityBytes(): number { return MAX_BYTES; }
+
+  /**
+   * Önbelleği TAMAMEN boşaltır (kullanıcı "çevrimdışı veriyi sil" derse).
+   *
+   * KORİDOR KORUMASINI DA KALDIRIR: kullanıcı silmek istediğinde "sürüş
+   * sürüyor" gerekçesiyle bir kısmını saklamak, istenen sonucu vermez ve
+   * kullanıcı yeri boşalmadı sanır. Sayaçlar da sıfırlanır — silinmiş bir
+   * önbelleğin isabet oranı taşınmaz.
+   *
+   * ASLA throw ETMEZ; silinebilen kadarını siler ve gerçek sonucu döner.
+   */
+  async clearAll(): Promise<{ deleted: number; freedBytes: number }> {
+    const before = this._manifest.size;
+    const bytes = this._totalBytes;
+    try {
+      if (typeof caches !== 'undefined') await caches.delete(CACHE_NAME);
+    } catch { /* fail-soft */ }
+
+    this._manifest.clear();
+    this._totalBytes = 0;
+    this._hits = 0;
+    this._misses = 0;
+    this._dirty = true;
+    this._scheduleFlush();
+
+    return { deleted: before, freedBytes: bytes };
+  }
+
   private _touchLastAccess(url: string): void {
     const entry = this._manifest.get(_urlToKey(url));
     if (entry) { entry.lastAccess = Date.now(); this._dirty = true; }

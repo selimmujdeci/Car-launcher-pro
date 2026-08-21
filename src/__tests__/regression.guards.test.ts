@@ -1084,6 +1084,29 @@ describe('Sesli asistan — hava/trafik dürüstlüğü + hibrit beyin zinciri k
     expect(src).toMatch(/const aiUsable = chain\.length > 0 && hasNet;/);
   });
 
+  it('YAPISAL #699: Haiku çağrıları `fetch` DEĞİL native taşıma kullanır (Anthropic CORS duvarı)', () => {
+    /* SAHA (cihazda CDP ile KANITLANDI, 2026-08-22): aynı istek
+         fetch  → THROW "Failed to fetch" (HTTP durumu bile YOK)
+         native → 401 "x-api-key header is required" (sunucuya ULAŞILIYOR)
+       Kullanıcının Haiku anahtarı GEÇERLİYDİ (`sk-ant…`, 108 karakter); halka
+       taşıma yüzünden ölüyordu. Zincirin sessiz ölümüne bakıp "anahtarın
+       geçersiz / limitin bitmiş" demek YANLIŞ teşhisti — bu kilit o yanlışın
+       kaynağını kapatır. */
+    const brain = read('src/platform/companion/companionChatProvider.ts');
+    expect(brain).toMatch(/import \{ aiPostJson \} from '\.\.\/ai\/nativeHttp'/);
+    // Anthropic uç noktasına `fetch(` ile gidilmemeli (CORS'ta ölür).
+    expect(brain).not.toMatch(/fetch\(HAIKU_COMPANION_ENDPOINT/);
+    // İki Haiku çağrısı da taşıma katmanından geçmeli.
+    const viaNative = brain.split('aiPostJson(').filter((c) => c.trimStart().startsWith('HAIKU_COMPANION_ENDPOINT'));
+    expect(viaNative.length).toBeGreaterThanOrEqual(2);
+
+    const t = read('src/platform/ai/nativeHttp.ts');
+    // Native yalnız GERÇEK native platformda kullanılır (tarayıcıda fetch korunur).
+    expect(t).toMatch(/isNativePlatform/);
+    // Native throw'unda fetch'e düşülmemeli — sessiz çift istek/çift fatura yasak.
+    expect(t).not.toMatch(/catch[\s\S]{0,80}await fetch\(/);
+  });
+
   it('YAPISAL #697: REASK ("orayı kaçırdım") YEREL komut zincirini EZEMEZ — kendi rotasında bekletilir', () => {
     /* SAHA: kullanıcı "Mavi HER ŞEYE 'hops orayı kaçırdım' diyor" dedi. Kök:
        online zincir null döndüğünde beyin REASK cümlesini `companion_offline`

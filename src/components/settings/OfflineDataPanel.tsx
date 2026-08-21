@@ -16,6 +16,7 @@ import {
   getDownloadState,
   cancelTileDownload,
   getCachedTileCount,
+  getCachedTileBytes,
   clearCachedTiles,
   type DownloadState,
   type TileRegionPreset,
@@ -31,12 +32,14 @@ export const OfflineDataPanel = memo(function OfflineDataPanel() {
   const [meta, setMeta]         = useState<OfflineCacheMeta | null>(() => getOfflineMeta());
   const [dl, setDl]             = useState<DownloadState>(() => getDownloadState());
   const [tileCount, setTileCnt] = useState(0);
+  const [tileBytes, setTileBytes] = useState(0);
   const gps = useGPSLocation();
 
   useEffect(() => subscribeDownloadState(setDl), []);
   const refreshStats = useCallback(() => {
     setMeta(getOfflineMeta());
     getCachedTileCount().then(setTileCnt).catch(() => {});
+    getCachedTileBytes().then(setTileBytes).catch(() => {});
   }, []);
   useEffect(() => { refreshStats(); }, [refreshStats]);
   // İndirme bitince istatistikleri tazele
@@ -70,7 +73,11 @@ export const OfflineDataPanel = memo(function OfflineDataPanel() {
     refreshStats();
   }, [refreshStats]);
 
-  const tileMB = (tileCount * 14) / 1024;
+  /* GERÇEK bayt okunur. Eski hesap `tileCount * 14 KB` idi — bu RASTER karo
+     ortalamasıdır; ürün VEKTÖR karo çiziyor ve vektör karolar çok daha
+     büyüktür. Kullanıcıya kapladığı yeri olduğundan küçük göstermek, "yerim
+     var" sanıp indirmesine ve sonra kotaya çarpmasına yol açardı. */
+  const tileMB = tileBytes > 0 ? tileBytes / 1048576 : 0;
 
   return (
     <div className="flex flex-col gap-3 p-1">
@@ -107,6 +114,19 @@ export const OfflineDataPanel = memo(function OfflineDataPanel() {
         </div>
       )}
       {dl.status === 'error' && <p className="text-[10px] text-red-400 px-1">{dl.errorMsg}</p>}
+
+      {/* PAKET SÜRÜMÜ — GİZLENMEZ.
+          Harita sağlayıcısı karo yoluna veri sürümü damgası koyar; veriyi
+          tazelediğinde eski adresler bir daha istenmez ve indirilmiş paket
+          ÖLÜR. Kullanıcı bunu bilmezse çevrimdışı kalıp boş harita görür ve
+          nedenini anlayamaz. */}
+      {dl.status === 'done' && dl.packVersion && (
+        <p className="text-[10px] text-amber-400/90 px-1 leading-relaxed">
+          Paket <span className="font-semibold">{dl.packVersion}</span> sürümlü haritaya ait.
+          Sağlayıcı veriyi tazelediğinde bu paket geçersiz olur ve yeniden indirilmesi gerekir.
+          {dl.skipped > 0 && ` (${dl.skipped.toLocaleString('tr-TR')} karo zaten vardı)`}
+        </p>
+      )}
 
       {/* ── Bulunduğun bölge ── */}
       <button

@@ -156,6 +156,8 @@ import {
 // Bağımlılıksız YAZMA çekirdeği (ağır obd/store zinciri modül grafiğine GİRMEZ —
 // diagnosticTrailCore bilinçli olarak import'suzdur).
 import { pushTrail } from '../diagnosticTrailCore';
+// #699: Anthropic CORS duvarını aşan taşıma (native varsa native, yoksa fetch).
+import { aiPostJson } from '../ai/nativeHttp';
 
 /* ── Tipler ─────────────────────────────────────────────────── */
 
@@ -1642,16 +1644,21 @@ async function askCompanionBrainHaiku(
     ],
   };
 
-  const resp = await fetch(HAIKU_COMPANION_ENDPOINT, {
-    method:  'POST',
-    headers: {
+  /* #699: `fetch` DEĞİL native taşıma. `api.anthropic.com` WebView'dan CORS
+     başlığı döndürmediği için `fetch` bu çağrıyı HTTP durumu bile oluşmadan
+     öldürüyordu → geçerli anahtarla Haiku halkası HİÇ çalışmıyordu (cihazda
+     kanıtlandı). Native yoksa (tarayıcı/dev) aynı istek `fetch`e düşer. */
+  const resp = await aiPostJson(
+    HAIKU_COMPANION_ENDPOINT,
+    {
       'Content-Type':      'application/json',
       'x-api-key':         apiKey,
       'anthropic-version': '2023-06-01',
     },
-    body:   JSON.stringify(body),
-    signal: signalWithTimeout(decisionMs), // Chrome <103 WebView güvenli (abortCompat)
-  });
+    body,
+    decisionMs,
+    signalWithTimeout(decisionMs), // Chrome <103 WebView güvenli (abortCompat)
+  );
 
   // 429: KENDİ penceresi — Gemini'yi kilitlemez (çapraz kirlenme yasak).
   if (resp.status === 429) { _haikuRateLimitedUntil = _now() + RATE_LIMIT_COOLDOWN_MS; return null; }
@@ -1743,12 +1750,13 @@ async function groundHaikuWithTavily(
   };
 
   try {
-    const resp = await fetch(HAIKU_COMPANION_ENDPOINT, {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
-      body:    JSON.stringify(body),
-      signal:  signalWithTimeout(HAIKU_COMPANION_TIMEOUT_MS),
-    });
+    const resp = await aiPostJson(
+      HAIKU_COMPANION_ENDPOINT,
+      { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
+      body,
+      HAIKU_COMPANION_TIMEOUT_MS,
+      signalWithTimeout(HAIKU_COMPANION_TIMEOUT_MS),
+    );
     if (!resp.ok) return search.answer || null;
     const data = await resp.json() as { content?: { type?: string; text?: string }[] };
     const out = (data.content?.find((c) => c.type === 'text')?.text ?? '').replace(/\s+/g, ' ').trim();
