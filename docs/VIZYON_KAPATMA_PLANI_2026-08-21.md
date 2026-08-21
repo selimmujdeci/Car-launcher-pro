@@ -197,9 +197,25 @@ commit'leri `ci/v01-verify` dalında kaldı — ana dala **girmedi**.
 
 **Kanıt:** kök suite 574 dosya / **12 590 test** yeşil · `tsc -b` temiz · `npm run lint` **0 error**.
 
+### 🏁 TAM CI YEŞİL — run 32478181204
+
+Son koşumda **dört job da yeşil**: `Lint & Type-Check` · `Unit Tests` · `Production Build` ·
+`Android Unit Tests (JVM)` → **TUM CI: success**. `Production Build` bu koşumda **ilk kez**
+çalıştı (önceki koşumlarda lint/test düştüğü için hep `skipped`ti).
+
+Buraya gelmek **ikinci bir Node kökü** daha ortaya çıkardı (kütük 🟢 #680): `node:fs.globSync`
+Node 22'de geldi, 20'de yoktur → `developerAccessGate.test.tsx` KİLİT 1
+`TypeError: globSync is not a function` ile düşüyordu. Bu kilit CI'da **her zaman** düşerdi;
+görünmemesinin tek sebebi Unit Tests job'ının bu dalda **hiç koşmamış** olmasıydı.
+
+> ⚠️ Bu, bu turda düzeltilen **kendi hatamdı**: android job 22'ye alınırken global `NODE_VERSION`
+> *"diğer üç job 20'de yeşil koşuyor"* denerek 20'de bırakılmıştı — bu bir **ölçüm değil
+> varsayımdı** ve o joblar bu dalda hiç koşmamıştı. Kapsamı daraltma gerekçesi bile ölçülmüş
+> olmalı; daraltmanın kendisi bir iddiadır. Global `NODE_VERSION` 22 yapıldı, ayrım kaldırıldı.
+
 **Kalan açık uç:** kapı henüz `main`/`dev` üzerinde koşmadı — bu dal main'e girene kadar
 korumadaki PR'lar bu job'ı **görmez**. Ayrıca #678 flaky'si düzeltilene kadar job
-**rastgele kırmızı** olabilir.
+**rastgele kırmızı** olabilir (dört koşumun üçünde vurdu, dördüncüde vurmadı).
 
 
 ---
