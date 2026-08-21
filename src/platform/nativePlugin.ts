@@ -1408,6 +1408,20 @@ export interface CarLauncherPlugin {
     supported: boolean;
   }>;
 
+  /**
+   * V-08 — KWP2000 Service 0x18 (ReadDTCByStatus): KWP araçlarda üretici DTC'leri.
+   *
+   * UDS 0x19'un KWP KARŞILIĞIDIR — KWP araçlarda (Renault sınıfı, çoğu 2000-2008
+   * Avrupa aracı) 0x19 YOKTUR. Ham hex döner ("58" soyulmuş); ayrıştırma `kwpDtc.ts`
+   * tek kaynağındadır (KWP DTC 2 BAYTTIR, UDS'te 3 — aynı çözücü listeyi kaydırır).
+   *
+   * `supported:false` = ECU 0x18'i desteklemiyor (hata DEĞİL).
+   */
+  readKwpDtcs?(options: { tx: string; rx: string }): Promise<{
+    raw: string;
+    supported: boolean;
+  }>;
+
   /** CAN bus araç sinyalleri — read-only, native katmandan gelir */
   addListener(
     event: 'canData',

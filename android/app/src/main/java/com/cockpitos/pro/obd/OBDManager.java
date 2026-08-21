@@ -1497,6 +1497,32 @@ public final class OBDManager {
     }
 
     /**
+     * V-08 — KWP2000 ReadDTCByStatus (servis 0x18), {@code readUdsDtcs} ile AYNI desen.
+     *
+     * NEDEN AYRI ÇAĞRI: KWP araçlarda (Renault Trafic, eski Fiat/Doblo, çoğu 2000-2008
+     * Avrupa aracı) UDS 0x19 YOKTUR; üretici DTC'leri 0x18'de yaşar. {@code ElmProtocol}
+     * içindeki {@code readKwpDtcsRaw()} bu turdan ÖNCE yazılmıştı ama HİÇBİR YERDEN
+     * ÇAĞRILMIYORDU — zincir Java'da bile kopuktu.
+     *
+     * USER önceliği + atomik header set/restore: KWP hattı yavaştır, poll döngüsünün
+     * arasına sıkışan bir istek oturumu bozabilir.
+     *
+     * @return "58" soyulmuş ham hex; ECU 0x18'i desteklemiyorsa null.
+     */
+    public String readKwpDtcs(String tx, String rx) throws Exception {
+        final ElmProtocol p = elm;
+        if (!obdRunning || p == null) throw new IOException("OBD bağlantısı yok");
+        try {
+            return cmdQueue.submit(ElmCommandQueue.Priority.USER, null,
+                () -> p.withEcuHeader(tx, rx, () -> p.readKwpDtcsRaw())).get();
+        } catch (java.util.concurrent.ExecutionException ee) {
+            Throwable cause = ee.getCause();
+            if (cause instanceof Exception) throw (Exception) cause;
+            throw ee;
+        }
+    }
+
+    /**
      * OBD-OS-F2-3: belirli bir ECU'dan DTC okur (fiziksel adresleme). USER önceliği —
      * kullanıcının başlattığı tarama, hot-path'in ÖNÜNDE (DTC isteği beklemez).
      * Header set → oku → restore TEK atomik kuyruk görevinde (araya poll giremez).

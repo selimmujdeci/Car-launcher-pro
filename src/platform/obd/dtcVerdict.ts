@@ -36,6 +36,24 @@ export interface DtcVerdictInput {
   pid01DtcCount: number | null;
   /** Okuması gerçek HATA/timeout ile düşen modlar (unsupported DEĞİL). */
   failedModes: DtcScanMode[];
+  /**
+   * V-08 — ÜRETİCİ-ÖZEL KOD TABANINA GERÇEKTEN BAKILDI MI?
+   *
+   * Standart modlar (03/07/0A) yalnız EMİSYON kodlarını verir. Üretici arızaları
+   * CAN'de UDS 0x19'da, KWP araçlarda (Renault sınıfı) 0x18'de yaşar. O tabana
+   * BAKILMADIYSA "temiz" demek, bakılmamış bir yeri temiz ilan etmektir.
+   *
+   *  · `covered`       — okundu (0x19 veya 0x18 yanıt verdi)
+   *  · `not_supported` — soruldu, ECU desteklemiyor (GERÇEK bir cevap)
+   *  · `not_asked`     — HİÇ SORULMADI (kanal yok / protokol bilinmiyor)
+   *  · `failed`        — sorgu düştü
+   *  · `unknown`       — çağıran bildirmedi (varsayılan; eski davranış korunur)
+   *
+   * `not_asked` ve `failed` "temiz" hükmünü **inconclusive**'a düşürür.
+   * `unknown` HİÇBİR ŞEYİ DEĞİŞTİRMEZ — bu alan additive'dir ve bildirmeyen
+   * çağıranların davranışı birebir aynı kalır.
+   */
+  manufacturerScope?: 'covered' | 'not_supported' | 'not_asked' | 'failed' | 'unknown';
 }
 
 /**
@@ -97,6 +115,23 @@ export function computeDtcVerdict(input: DtcVerdictInput): DtcVerdictResult {
     return {
       verdict: 'inconclusive',
       reason: 'Bazı okumalar tamamlanamadı (' + input.failedModes.join(', ') + ') — sonuç kesin değil.',
+      issueSources: [],
+      advisories,
+    };
+  }
+
+  /* V-08 — ÜRETİCİ TABANINA BAKILMADIYSA "TEMİZ" DENMEZ.
+     Türkiye'de KWP çok yaygındır (Renault sınıfı) ve o araçlarda üretici kodu
+     0x18'dedir; sorulmadıysa standart modların temizliği aracın temiz olduğunu
+     GÖSTERMEZ. Bu, V-08'in kabul ölçütünün ta kendisidir: "fail-closed olarak
+     kapsam dışı der — sessiz 'temiz' DEMEZ". */
+  const scope = input.manufacturerScope ?? 'unknown';
+  if (scope === 'not_asked' || scope === 'failed') {
+    return {
+      verdict: 'inconclusive',
+      reason: scope === 'failed'
+        ? 'Üretici-özel kod tabanı okunamadı — sonuç kesin değil (standart modlar temiz).'
+        : 'Üretici-özel kod tabanına bakılamadı (kapsam dışı) — sonuç kesin değil (standart modlar temiz).',
       issueSources: [],
       advisories,
     };

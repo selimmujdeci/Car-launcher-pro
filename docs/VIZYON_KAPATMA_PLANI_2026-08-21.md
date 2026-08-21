@@ -598,20 +598,40 @@ sokaklar çizilir" + `adb screencap`.
 
 ---
 
-## ⬜ V-08 — KWP hattını kapat (`kwpDtc.ts` bağlanmamış + Trafic doğrulanmadı)
+## 🟨 V-08 — KWP hattı  **[ÜÇ KATMAN BAĞLANDI 2026-08-22 — kütükte 🔴 saha borcu açık]**
 
-**BULGU:** KWP protokolü Türkiye'de çok yaygın (Renault sınıfı) ama **DTC ayrıştırma
-kodu hiçbir yerden çağrılmıyor**; kütükte KWP/Trafic doğrulaması da açık borç.
+**BULGU (doğrulandı ve DERİNLEŞTİ):** plan "`kwpDtc.ts` bağlanmamış" diyordu; ölçüm
+zincirin **üç katmanda birden** kopuk olduğunu gösterdi:
 
-**KANIT:** `grep -rn kwpDtc src` (test hariç) → yalnız kendi dosyası ve `udsDtc` importu.
-Üretim yolundaki tek DTC tarayıcı `multiEcuScan.ts` → `DTCPanel.tsx` (UDS/CAN).
+| # | Katman | Durum |
+|---|---|---|
+| ① | `ElmProtocol.readKwpDtcsRaw()` | Yazılmış, **Java'da bile çağıranı yok** |
+| ② | Capacitor köprüsü | **Hiç yok** |
+| ③ | `kwpDtc.ts` ayrıştırıcı | Tüketicisi yok |
 
-**YAPILACAK:** `kwpDtc.ts`'i `dtcService`/`multiEcuScan` yoluna bağla + CAROS LAB'a
-KWP DTC gözlem satırı ekle.
+Sonuç: KWP araçlarda (Renault sınıfı) yalnız emisyon kodları görünüyor, üretici arızası
+"yok" sanılıyor ve panel bunu **sessizce "temiz"** diye sunuyordu.
 
-**KABUL ÖLÇÜTÜ (cihazda):** Renault Trafic'te (KWP) arıza paneli DTC listesi döndürür veya
-**fail-closed** olarak "kapsam dışı" der — sessiz "temiz" DEMEZ.
-`docs/DEVICE_VALIDATION_PLAN_RENAULT_TRAFIC.md` koşulur.
+**YAPILDI:** üçü de bağlandı (`readUdsDtcs` deseniyle birebir: USER önceliği + atomik
+header set/restore) ve TS tarafında `readKwpForEcu()` eklendi.
+
+**AYRI ÇÖZÜCÜ ŞART:** KWP DTC **2 bayttır** (UDS'te 3) — aynı çözücü kayıt boyunu yanlış
+sayar ve **tüm liste kayar**. Kodlar `fromKwp` ile etiketlenir; `fromUds` ile
+birleştirilmez.
+
+**PROTOKOL KAPISI:** yalnız yavaş seri hatta denenir; protokol tarama başında **bir kez**
+okunur (tur ortasında değişirse rapor kendi içinde çelişirdi). Okunamazsa denenmez ve
+`kwp: null` kalır — **`null` (sorulmadı) ≠ `unsupported` (soruldu, yok)**.
+
+**ASIL KAZANIM — HÜKÜM FAIL-CLOSED:** `computeDtcVerdict`e `manufacturerScope` eklendi.
+Üretici kod tabanına bakılmadıysa veya sorgu düştüyse, standart modlar temiz olsa bile
+hüküm **`inconclusive`**tir. Alan **additive**: bildirmeyen çağıranın davranışı birebir
+aynı kalır.
+
+**AÇIK BORÇ (🟢 DEĞİL 🟨):** gerçek araçta ölçülmedi — kütük **🔴 #705**. Kabul ölçütünün
+çekirdeği: Trafic'te `1800FF00` isteği logcat'te görülmeli; ECU desteklemiyorsa panel
+**"kapsam dışı"** demeli, sessiz "temiz" DEMEMELİ. CAN aracında o istek **hiç
+görülmemeli**.
 
 ---
 

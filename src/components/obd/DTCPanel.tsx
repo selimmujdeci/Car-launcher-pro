@@ -284,6 +284,21 @@ function DTCPanelInner({ active = false }: { active?: boolean }) {
   if (completeness?.permanent === 'failed') failedModes.push('permanent');
   if (statusFailed)                         failedModes.push('status');
 
+  /* V-08 — ÜRETİCİ KOD TABANI KAPSAMI.
+     Standart modlar yalnız emisyon kodlarını verir; üretici arızası CAN'de
+     UDS 0x19'da, KWP araçlarda (Renault sınıfı) 0x18'de yaşar. Tam araç
+     taraması hiç koşmadıysa o tabana BAKILMAMIŞTIR ve "temiz" demek yanlış
+     güven olur. En az bir ECU'da okuma başarılıysa `covered`; hepsi
+     desteklemiyorsa bu GERÇEK bir cevaptır (`not_supported`). */
+  const manufacturerScope = ((): 'covered' | 'not_supported' | 'not_asked' | 'failed' => {
+    if (!multiEcu || multiEcu.results.length === 0) return 'not_asked';
+    const states = multiEcu.results.flatMap((r) => [r.uds, r.kwp]).filter((v) => v !== null);
+    if (states.length === 0) return 'not_asked';
+    if (states.includes('ok')) return 'covered';
+    if (states.includes('failed')) return 'failed';
+    return 'not_supported';
+  })();
+
   const verdict = computeDtcVerdict({
     scanRan:        !!dtc.lastReadAt,
     storedCount:    dtc.codes.length,
@@ -292,6 +307,7 @@ function DTCPanelInner({ active = false }: { active?: boolean }) {
     mil:            diagStatus ? diagStatus.mil : null,
     pid01DtcCount:  diagStatus ? diagStatus.dtcCount : null,
     failedModes,
+    manufacturerScope,
   });
 
   // OBD-OS-F1-4: tarama KAPSAMI — "temiz" demek yetmez, kullanıcı NE KADARININ

@@ -22,6 +22,9 @@ import { logError } from '../crashLogger';
 import { buildTopology, emptyTopology, type DiscoveredEcu, type VehicleTopology } from './ecuDiscovery';
 import { scanHintsFor, recordVehicleObservation } from './fleetKbService';
 import { parseUdsDtcResponse, udsDtcToScanMode } from './udsDtc';
+import { parseKwpDtcResponse } from './kwpDtc';
+import { isSlowSerialProtocol } from './protocolProfile';
+import { getHandshakeDiagnostics } from '../obdService';
 
 /** Taranacak azami ECU sayısı — tarama süresi bütçesi (ECU × 3 mod × ~2 sn). */
 export const MAX_SCAN_ECUS = 8;
@@ -41,6 +44,12 @@ export interface EcuDtc {
    * bunu GÖREMEZDİ (Renault DF… sınıfı). UI bunu ayırt edip "üretici kodu" diye gösterir.
    */
   fromUds?: boolean;
+  /**
+   * V-08: kod KWP 0x18'den mi geldi? KWP araçlarda UDS 0x19 YOKTUR; üretici
+   * kodları burada yaşar. `fromUds` ile AYRI tutulur — ikisini birleştirmek
+   * kodun hangi protokolden geldiğini (provenance) yok ederdi.
+   */
+  fromKwp?: boolean;
   /** UDS'e özgü arıza alt tipi (FTB) — yalnız fromUds kodlarda. */
   failureType?: string;
   /** UDS status: kod ŞU AN aktif mi (testFailed) — Mode 03 bunu ayıramaz. */
@@ -54,6 +63,15 @@ export interface EcuScanResult {
   permanent: EcuModeStatus;
   /** F3-1: bu ECU UDS 0x19'u destekliyor mu? null = denenmedi. */
   uds: EcuModeStatus | null;
+  /**
+   * V-08: KWP 0x18 durumu. `null` = DENENMEDİ (protokol CAN olduğu için).
+   *
+   * `null` ile `'unsupported'` AYRI ANLAMLIDIR ve karıştırılmamalıdır:
+   * `null`  → "bu araçta sorulmadı" · `'unsupported'` → "soruldu, ECU bilmiyor".
+   * İkisini birleştirmek, KWP aracında üretici kodu olmadığı hâlde "temiz"
+   * demeye yol açardı — tam olarak V-08'in yasakladığı sessiz yalan.
+   */
+  kwp: EcuModeStatus | null;
   codes: EcuDtc[];
 }
 
@@ -111,6 +129,17 @@ export async function scanAllEcus(
 ): Promise<MultiEcuScanReport> {
   const ordered = orderByUdsHint(topology.ecus, udsFirst);
   const scanList = ordered.slice(0, MAX_SCAN_ECUS);
+
+  /* V-08 — AKTİF PROTOKOL TARAMA BAŞINDA BİR KEZ OKUNUR ve tur boyunca SABİT
+     kalır. ECU başına yeniden okumak, tarama ortasında bir yeniden bağlanma
+     olursa aynı turun bir kısmını KWP bir kısmını CAN kuralıyla işlerdi —
+     rapor kendi içinde çelişirdi. Okunamazsa `null`: KWP dalı DENENMEZ
+     (fail-closed) ve bu durum `kwp: null` olarak dürüstçe raporlanır. */
+  let activeProtocol: string | null = null;
+  try {
+    /* `protocolActive` = ATDPN ile GERÇEKTEN okunan protokol (denenen değil). */
+    activeProtocol = getHandshakeDiagnostics().protocolActive ?? null;
+  } catch { activeProtocol = null; }
   const skippedEcus = Math.max(0, topology.ecus.length - scanList.length);
 
   const results: EcuScanResult[] = [];
@@ -124,6 +153,7 @@ export async function scanAllEcus(
       pending: 'failed',
       permanent: 'failed',
       uds: null,
+      kwp: null,
       codes: [],
     };
 
@@ -160,6 +190,17 @@ export async function scanAllEcus(
     result.codes.push(...udsCodes);
     allCodes.push(...udsCodes);
     if (result.uds === 'failed') failedReads++;
+
+    /* V-08 — KWP 0x18: UDS 0x19'un KWP KARŞILIĞI.
+       YALNIZ yavaş seri protokolde (KWP2000 / ISO9141) denenir. CAN'de denemek
+       anlamsız trafik üretir ve KWP hattı zaten yavaştır. Protokol bilinmiyorsa
+       DENENMEZ ve `kwp` `null` kalır — "sorulmadı" ile "desteklenmiyor" AYRI. */
+    if (isSlowSerialProtocol(activeProtocol)) {
+      const kwpCodes = await readKwpForEcu(ecu, result);
+      result.codes.push(...kwpCodes);
+      allCodes.push(...kwpCodes);
+      if (result.kwp === 'failed') failedReads++;
+    }
 
     results.push(result);
   }
@@ -232,6 +273,56 @@ async function readUdsForEcu(ecu: DiscoveredEcu, result: EcuScanResult): Promise
   } catch (e) {
     result.uds = 'failed';
     logError('OBD:UdsDtcFailed', e);       // UDS düştü — standart sonuçlar KORUNUR
+    return [];
+  }
+}
+
+/**
+ * V-08 — bir ECU'da KWP 0x18 (ReadDTCByStatus) okur ve kodları DEDUPE ederek döner.
+ *
+ * NEDEN AYRI FONKSİYON: KWP DTC **2 BAYTTIR** (UDS 0x19'da 3). Aynı çözücüyü
+ * kullanmak kayıt boyunu yanlış sayar ve TÜM LİSTE KAYAR — sessiz veri
+ * bozulmasının klasik yolu. Bu yüzden `kwpDtc.ts` ayrı çözücüdür.
+ *
+ * DEDUPE ŞART: aynı arıza hem Mode 03'te hem 0x18'de görünebilir; iki kez
+ * listelemek kullanıcıya "iki arıza var" yalanı söyler. Standart moddan gelen
+ * kod KAZANIR; KWP yalnız EK olanları getirir (asıl kazanç zaten üretici kodu).
+ *
+ * FAIL-SOFT: ECU 0x18'i bilmiyorsa bu bir HATA DEĞİLDİR (`unsupported`) ve
+ * standart sonuçlar KORUNUR.
+ */
+async function readKwpForEcu(ecu: DiscoveredEcu, result: EcuScanResult): Promise<EcuDtc[]> {
+  if (!Capacitor.isNativePlatform() || !CarLauncher.readKwpDtcs) {
+    result.kwp = 'unsupported';
+    return [];
+  }
+  try {
+    const res = await CarLauncher.readKwpDtcs({ tx: ecu.txHeader, rx: ecu.rxHeader });
+    if (res.supported === false) {
+      result.kwp = 'unsupported';   // ECU 0x18'i bilmiyor — hata DEĞİL
+      return [];
+    }
+    result.kwp = 'ok';
+
+    const already = new Set(result.codes.map((c) => c.code));
+    const out: EcuDtc[] = [];
+    for (const d of parseKwpDtcResponse(res.raw ?? '')) {
+      if (already.has(d.code)) continue;   // standart modda zaten var → TEKRAR LİSTELEME
+      out.push({
+        code: d.code,
+        ecuLabel: ecu.label,
+        ecuTxHeader: ecu.txHeader,
+        /* KWP 0x18 "saklanan" arızaları döndürür; bekleyen/kalıcı ayrımı
+           standart modların işidir — burada UYDURULMAZ. */
+        mode: 'stored',
+        fromKwp: true,                     // ← standart tarama bunu GÖREMEZDİ
+        active: d.status.testFailed,       // Mode 03 bu ayrımı YAPAMAZ
+      });
+    }
+    return out;
+  } catch (e) {
+    result.kwp = 'failed';
+    logError('OBD:KwpDtcFailed', e);       // KWP düştü — standart sonuçlar KORUNUR
     return [];
   }
 }

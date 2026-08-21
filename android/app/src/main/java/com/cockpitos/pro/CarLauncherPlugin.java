@@ -2455,6 +2455,52 @@ public class CarLauncherPlugin extends Plugin {
         }, "obd-uds-dtc").start();
     }
 
+    /** Aktif transport üzerinden KWP 0x18 (V-08). */
+    private String readKwpDtcsActive(String tx, String rx) throws Exception {
+        if (bleObdManager != null && bleObdManager.isConnected()) return bleObdManager.readKwpDtcs(tx, rx);
+        if (obdManager    != null && obdManager.isConnected())    return obdManager.readKwpDtcs(tx, rx);
+        throw new java.io.IOException("OBD okuyucu bağlı değil");
+    }
+
+    /**
+     * V-08 — KWP2000 Service 0x18 (ReadDTCByStatus): KWP araçlarda ÜRETİCİ-ÖZEL DTC'ler.
+     *
+     * UDS 0x19'un KWP KARŞILIĞIDIR ve o araçlarda 0x19 YOKTUR. Türkiye'de KWP çok yaygın
+     * (Renault sınıfı) — bu köprü olmadan o araçlarda yalnız emisyon kodları görünüyor,
+     * üretici arızası "yok" sanılıyordu.
+     *
+     * Ham hex döner — ayrıştırma TS'te (`kwpDtc.ts` tek kaynak). KWP DTC 2 BAYTTIR
+     * (UDS'te 3); aynı çözücüyü kullanmak listeyi kaydırır, o yüzden ayrı yol.
+     *
+     * @return raw: "58" soyulmuş hex · supported: false = ECU 0x18'i desteklemiyor.
+     */
+    @PluginMethod
+    public void readKwpDtcs(PluginCall call) {
+        final String tx = call.getString("tx");
+        final String rx = call.getString("rx");
+        if (!present(tx) || !present(rx)) {
+            call.reject("OBD_BAD_ARGS", "tx ve rx zorunlu");
+            return;
+        }
+        new Thread(() -> {
+            try {
+                String raw = readKwpDtcsActive(tx, rx);
+                JSObject ret = new JSObject();
+                if (raw == null) {
+                    ret.put("raw", "");
+                    ret.put("supported", false);   // ECU 0x18'i bilmiyor — hata DEĞİL
+                } else {
+                    ret.put("raw", raw);
+                    ret.put("supported", true);
+                }
+                mainHandler.post(() -> call.resolve(ret));
+            } catch (Exception e) {
+                String msg = e.getMessage() != null ? e.getMessage() : "KWP DTC okunamadı";
+                mainHandler.post(() -> call.reject("OBD_KWP_DTC_FAILED", msg));
+            }
+        }, "obd-kwp-dtc").start();
+    }
+
     /** Aktif transport üzerinden ECU-başına DTC (F2-3). */
     private java.util.List<String> readDtcsFromEcuActive(String tx, String rx, String mode) throws Exception {
         if (bleObdManager != null && bleObdManager.isConnected()) return bleObdManager.readDtcsFromEcu(tx, rx, mode);
