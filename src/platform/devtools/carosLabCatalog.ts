@@ -215,9 +215,9 @@ export const CAROS_LAB_TOOLS: readonly CarosLabTool[] = Object.freeze([
   },
   {
     id: 'deep-scan', category: 'vehicle', name: 'Derin Tarama',
-    desc: 'Çok fazlı ECU/firmware derin tarama orkestrasyonu.',
-    status: 'PLACEHOLDER', layer: 'UDS',
-    note: 'Tek ve güvenli bir giriş noktası yok: deepScanOrchestrator (singleton) ve platformCoreDeepScanWiring (ignition-tetikli, fail-closed) iki ayrı akış. Yeni akış üretmemek için bağlanmadı.',
+    desc: 'Cok fazli ECU/firmware derin tarama orkestrasyonunun SALT-OKUNUR gozlemi: iki ayri akis (tarama runtime durum makinesi ve SystemBoot wiring) YAN YANA; durum, mod, faz, ilerleme, kontak, bulunan ECU/PID/DID adedi, yeni kesif, firmware/ECU degisimi, cevrimdisi gecis tetik sayaci ve son sonuc.',
+    status: 'AVAILABLE', layer: 'UDS',
+    note: 'TARAMA BASLATMAZ: startScan, triggerDeepScanOfflinePass, startPlatformCoreDeepScanWiring, reset ve cancel CAGRILMAZ; ekrani acmak araca tek bir sorgu bile gondermez. ESKI GEREKCE ARTIK GECERSIZ: katalog bu araci "tek ve guvenli giris noktasi yok, iki ayri akis var" diye PLACEHOLDER tutuyordu - o gerekce taramayi CALISTIRMAK icin gecerlidir, GOZLEMLEMEK icin degil; ustelik asil teshis degeri tam olarak o iki akisin yan yana gorulmesindedir. YENI UCUNCU GIRIS NOKTASI ACILMADI. ILERLEME YALNIZ YURURKEN ANLAMLIDIR: idle durumda %0 bir ILERLEME DEGIL, "hic baslamadi" demektir ve oyle gosterilir. KONTAK FAIL-CLOSED: otoriter kaynak yoksa BILINMIYOR yazar, "kapali" DEMEZ. Kablo kurulu degilse ekran bunu GIZLEMEZ (KABLO YOK - bu cihazda tetiklenemez). GIZLILIK: VIN, ham ECU/PID/DID listesi, uyari ve hata METINLERI bu ekrana GELMEZ - yalniz ADET, enum, faz, yuzde ve damga; parmak izi yalniz ilk 12 karakter. Damgasiz alan yas URETMEZ. Gercek arac dogrulamasi YAPILMADI (kutuk #693).',
   },
   {
     id: 'vehicle-fingerprint', category: 'vehicle', name: 'Araç Parmak İzi',

@@ -100,6 +100,8 @@ const EnforcementPointsScreen = lazyWithRetry(() =>
   import('./screens/EnforcementPointsScreen').then((m) => ({ default: m.EnforcementPointsScreen })));
 const ThemeRuntimeScreen = lazyWithRetry(() =>
   import('./screens/ThemeRuntimeScreen').then((m) => ({ default: m.ThemeRuntimeScreen })));
+const DeepScanScreen = lazyWithRetry(() =>
+  import('./screens/DeepScanScreen').then((m) => ({ default: m.DeepScanScreen })));
 const MemoryExplorerScreen = lazyWithRetry(() =>
   import('./screens/MemoryExplorerScreen').then((m) => ({ default: m.MemoryExplorerScreen })));
 const KnowledgeExplorerScreen = lazyWithRetry(() =>
@@ -154,6 +156,7 @@ export function renderAvailableTool(id: CarosLabToolId): ReactElement | null {
     case 'queue-monitor':      return <RuntimeSchedulingScreen focus="queue-monitor" />;
     case 'poll-scheduler':     return <RuntimeSchedulingScreen focus="poll-scheduler" />;
     case 'recovery-monitor':   return <RecoveryMonitorScreen />;
+    case 'deep-scan':          return <DeepScanScreen />;
     case 'memory-explorer':    return <MemoryExplorerScreen />;
     case 'knowledge-explorer': return <KnowledgeExplorerScreen />;
     case 'mavi-console':       return <MaviConsoleScreen />;
