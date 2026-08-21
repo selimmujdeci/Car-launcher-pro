@@ -260,9 +260,43 @@ jobs:
       - name: Install dependencies
         run: npm ci --prefer-offline
 
+      - name: Capacitor önkoşulları — assets dizini + webDir stub
+        # ⚠️ İKİSİ DE ZORUNLU. Taze checkout'ta ölçüldü (git worktree ile birebir
+        # simüle edildi); ilk yazımda İKİSİ DE eksikti ve bu job ilk koşumda
+        # kırmızı olacaktı:
+        #
+        #   1) `android/app/src/main/assets/` HİÇ OLUŞMUYOR — .gitignore altındaki
+        #      üç girdi (public/ · capacitor.config.json · capacitor.plugins.json)
+        #      yüzünden dizinde tek bir takipli dosya yok, git de boş dizin yaratmaz.
+        #      `cap update` oraya YAZMAYA çalışıp patlıyor:
+        #        ENOENT … open '…/assets/capacitor.plugins.json'
+        #      `cap update` bu dizini KENDİ OLUŞTURMUYOR (ayrıca ölçüldü).
+        #
+        #   2) `dist/` de ŞART, ama SEBEBİ "update her zaman copy çalıştırır" DEĞİL.
+        #      Mekanizma kaynaktan okundu — @capacitor/cli/dist/android/update.js:31:
+        #        if (!(await pathExists(config.android.webDirAbs))) { await copy(...) }
+        #      Yani `cap update` copy'ye YALNIZCA `android/app/src/main/assets/public`
+        #      YOKKEN düşer. Taze checkout'ta o dizin gitignore'lu olduğu için yok →
+        #      copy çağrılır → "Could not find the web assets directory: ./dist".
+        #      DİKKAT: iki ölçüm turunda iki YANLIŞ gerekçe üretildi — önce "update
+        #      dist/ istemez" (ana ağaçta dist/ VARDI: ölçüm değil artefakt), sonra
+        #      "update koşulsuz copy çalıştırır" (kaynak desteklemiyor). Doğrusu KOŞULLU.
+        #
+        # STUB BİLİNÇLİ: bu job JVM birim testleri koşar, web varlığı OKUMAZ.
+        # Tam `npm run build` yalnız Capacitor'ın ön koşulunu susturmak için
+        # dakikalar harcardı (JOB 3 zaten gerçek build'i doğruluyor). Stub'ın
+        # assets/public'e kopyalanması Robolectric için zararsızdır.
+        # DİKKAT: bu adım web varlıklarını DOĞRULAMAZ — öyle okunmamalı.
+        run: |
+          mkdir -p android/app/src/main/assets
+          mkdir -p dist
+          [ -f dist/index.html ] || printf '<!doctype html><title>ci-jvm-test-stub</title>' > dist/index.html
+
       - name: Capacitor — native modülleri üret
-        # `cap update` (SYNC DEĞİL) yalnız native bağımlılıkları tazeler;
-        # web varlıklarını kopyalamaz → `dist/` gerekmez, `npm run build` beklenmez.
+        # `capacitor-cordova-android-plugins/` .gitignore'ludur ama settings.gradle
+        # onu include eder → bu adım olmadan taze checkout'ta gradle KONFİGÜRASYONU
+        # düşer: "Could not read script '…/capacitor-cordova-android-plugins/
+        # cordova.variables.gradle' as it does not exist." (worktree'de ölçüldü).
         run: npx cap update android
 
       - name: Setup Android SDK
