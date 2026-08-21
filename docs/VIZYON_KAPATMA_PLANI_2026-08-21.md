@@ -530,17 +530,36 @@ rotanın düşük-uçta bulunabilmesi ve ETA'nın 5–7 saat aralığında çık
 
 ---
 
-## ⬜ V-06 — Çevrimdışı POI veritabanını üret ve paketle
+## 🟨 V-06 — Çevrimdışı POI veritabanı  **[ÜRETİLDİ 2026-08-22 — kütükte 🔴 saha borcu açık]**
 
-**BULGU:** FTS5 arama + SharedArrayBuffer zero-copy protokolü yazılı; `poi.db` pakette yok.
+> ⚠️ **PLANIN SAYDIĞI 1 KOPUK ASLINDA 3'TÜ.** Eski metin yalnız *"`poi.db` pakette yok"*
+> diyordu; ölçüm iki kopuk daha buldu ve ikisi de tek başına zinciri öldürüyordu.
 
-**KANIT:** `NavigationCompute.worker.ts:264` `const POI_DB_URL = '/maps/poi.db'` ·
-`:305` fetch · `:376` `'poi.db yüklenemedi'` · `public/maps/` yok.
+| # | Kopuk | Durum |
+|---|---|---|
+| a | `public/maps/poi.db` yok | ✅ üretildi (84.911 POI · 15,70 MB) |
+| b | `public/wasm/` dizini **HİÇ YOK** — worker WASM'i oradan ister | ✅ build zincirine kopyalama eklendi |
+| c | sql.js yapısında **FTS5 MODÜLÜ YOK** (4 varyantın 4'ünde de) | ✅ şema FTS5'siz kuruldu |
 
-**YAPILACAK:** OSM POI → SQLite FTS5 `poi.db` üretimi + paketleme (V-05 ile aynı pipeline).
+**(c) EN ÖNEMLİSİYDİ:** worker'ın `poi_fts` + `bm25()` tasarımı sevk edilen WASM'de
+`no such module: fts5` verir — yani **hiçbir zaman çalışamazdı**. Üç seçenek tartıldı:
+① `sql.js-fts5` (MIT ama donmuş çatal) · ② `@sqlite.org/sqlite-wasm` (resmî ama farklı
+API → worker baştan yazılırdı) · ③ **FTS5'siz düz tablo — seçildi**: yeni bağımlılık YOK,
+zaten sevk edilen güncel MIT sql.js ile çalışır.
 
-**KABUL ÖLÇÜTÜ (cihazda):** Uçak modunda "en yakın benzinlik" araması gerçek sonuç döndürür;
-`searchPOI()` `dbError:false` + `count > 0`.
+**EK KAZANÇ:** eski sorgu `ORDER BY bm25(...)` yani METİN BENZERLİĞİNE göre sıralıyordu —
+*"en yakın benzinlik"* için yanlış. Artık sıralama gerçek mesafeye göre (`cos²` ölçekli).
+
+**SESSİZ SIFIR TUZAĞI:** `lat`/`lon` REAL yazılır; metin olsalardı SQLite'ta metin > her
+sayı olduğu için `BETWEEN` filtresi sessizce boş dönerdi.
+
+**TÜRKÇE ARAMA:** veritabanını yazan ve sorguyu katlayan kural İKİZDİR ve kilitle
+bağlıdır. `toLowerCase()` yetmez — `'İ'.toLowerCase()` görünmez U+0307 bırakır.
+
+**KAPSAM SINIRLI:** yalnız NODE olarak haritalanmış POI'ler; alan olarak çizilmiş yerler
+DIŞARIDA. Ürün "her yer bulunur" DEMEMELİ.
+
+**AÇIK BORÇ (🟢 DEĞİL 🟨):** cihazda hiç ölçülmedi — kütük **🔴 #699**.
 
 ---
 

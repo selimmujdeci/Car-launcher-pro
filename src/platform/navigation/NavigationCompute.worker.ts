@@ -14,6 +14,10 @@
  *   OUT { type:'ROUTE_ERROR',  requestId, reason }
  */
 
+/* Arama katlaması: `poi.db`yi YAZAN kuralla AYNI olmak zorunda
+   (ikizi `scripts/lib/turkishFold.mjs`; kilidi `turkishFold.test.ts`). */
+import { foldTr } from './core/turkishFold';
+
 /* ── Tipler ──────────────────────────────────────────────────────────────── */
 
 interface GraphNode { lat: number; lon: number; }
@@ -390,8 +394,8 @@ async function _getPoiDb(): Promise<_SqlJsDatabase | null> {
     const buf = await res.arrayBuffer();
     const db  = new SQL.Database(new Uint8Array(buf));
 
-    // FTS5 tablosu varlık kontrolü
-    const rows = db.exec("SELECT name FROM sqlite_master WHERE type='table' AND name='poi_fts'");
+    /* Şema varlık kontrolü — tablo yoksa sahte "sonuç yok" yerine AÇIK hata. */
+    const rows = db.exec("SELECT name FROM sqlite_master WHERE type='table' AND name='poi'");
     if (!rows.length || !rows[0].values.length) {
       db.close();
       _poiDbFailed = true;
@@ -458,8 +462,11 @@ async function _handleSearch(
   }
 
   try {
-    // FTS5 özel karakterlerini temizle; prefix arama için * ekle
-    const term = query.replace(/["'*^()[\]{}\\]/g, ' ').trim();
+    /* Arama anahtarı ÜRETİMLE AYNI kuralla katlanır (`turkishFold`); aksi
+       hâlde "İstanbul" yazan kullanıcı "istanbul" yazılmış kaydı bulamaz.
+       LIKE joker karakterleri (`%` `_`) ve kaçış karakteri NÖTRLENİR — yoksa
+       kullanıcının yazdığı `%` tüm tabloyu tarar. */
+    const term = foldTr(query).replace(/[%_\\]/g, ' ').trim();
     if (!term) {
       if (sab) { Atomics.store(new Int32Array(sab), 0, 0); Atomics.store(new Int32Array(sab), 1, 0); }
       (self as unknown as Worker).postMessage({ type: 'SEARCH_RESULT', requestId, count: 0 });
@@ -470,22 +477,39 @@ async function _handleSearch(
     let params: (string | number)[];
 
     if (lat != null && lon != null) {
-      // ~50km bbox: sadece aktif bölgeyi tara → tüm Türkiye'yi RAM'e yükleme
+      /* SIRALAMA MESAFEYE GÖRE — metin benzerliğine göre DEĞİL.
+         Eski sorgu `ORDER BY bm25(...)` kullanıyordu; "en yakın benzinlik"
+         için bu YANLIŞTIR: en alakalı ad, en yakın nokta demek değildir.
+         Skor düzlemsel yaklaşık mesafenin KARESİDİR (karekök gereksiz — aynı
+         sırayı verir, ucuzdur); boylam farkı enleme göre `cos²` ile ölçeklenir,
+         yoksa kuzeyde doğu-batı mesafesi olduğundan büyük görünür.
+         ~50 km kutu: tüm Türkiye RAM'e alınmaz, indeks kullanılır. */
+      const cos = Math.cos(lat * (Math.PI / 180));
+      const lonScale = cos * cos;
       sql = `
-        SELECT id, name, address, lat, lon, category, bm25(poi_fts) AS score
-        FROM poi_fts
-        WHERE poi_fts MATCH ?
+        SELECT id, name, address, lat, lon, category,
+               ((lat - ?) * (lat - ?)) + ((lon - ?) * (lon - ?) * ?) AS score
+        FROM poi
+        WHERE search LIKE ?
           AND lat BETWEEN ? AND ?
           AND lon BETWEEN ? AND ?
         ORDER BY score LIMIT ?`;
-      params = [`${term}*`, lat - 0.45, lat + 0.45, lon - 0.60, lon + 0.60, maxResults];
+      params = [
+        lat, lat, lon, lon, lonScale,
+        `%${term}%`,
+        lat - 0.45, lat + 0.45, lon - 0.60, lon + 0.60,
+        maxResults,
+      ];
     } else {
+      /* Konum YOKSA mesafe sıralaması MÜMKÜN DEĞİLDİR. Uydurma bir yakınlık
+         skoru üretmek yerine kısa ad önceliklendirilir (daha spesifik eşleşme
+         göstergesi) — bu bir SIRALAMA tercihi olarak dürüstçe sınırlıdır. */
       sql = `
-        SELECT id, name, address, lat, lon, category, bm25(poi_fts) AS score
-        FROM poi_fts
-        WHERE poi_fts MATCH ?
+        SELECT id, name, address, lat, lon, category, length(name) AS score
+        FROM poi
+        WHERE search LIKE ?
         ORDER BY score LIMIT ?`;
-      params = [`${term}*`, maxResults];
+      params = [`%${term}%`, maxResults];
     }
 
     const res  = db.exec(sql, params);

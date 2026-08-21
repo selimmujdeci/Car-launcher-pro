@@ -135,3 +135,6 @@ tools/can-re/
 #  - `test-parser.ts`: elle koşulan komut-ayrıştırıcı deneme betiği (vitest kapsamı dışı).
 /undefined/
 /test-parser.ts
+
+# Build sırasında sql.js paketinden kopyalanır (sürüm ayrışmasını önlemek için commit EDİLMEZ)
+public/wasm/
