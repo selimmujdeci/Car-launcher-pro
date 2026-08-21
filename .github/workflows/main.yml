@@ -20,7 +20,11 @@ name: CI
 
 on:
   push:
-    branches: [main, dev]
+    # `ci/**` BİLİNÇLİ: bir workflow'un push tetikleyicisi, PUSH EDİLEN DALDAKİ
+    # dosyadan okunur — yani CI kapısı main'e girmeden, kendi dalında kanıtlanabilir.
+    # Bu olmadan yeni bir job'ın gerçekten koştuğu ancak main'e/dev'e girdikten SONRA
+    # görülürdü: kapının kendisi kapıdan geçmeden yayına alınırdı.
+    branches: [main, dev, 'ci/**']
   pull_request:
     branches: [main, dev]
 
