@@ -35,6 +35,9 @@ concurrency:
 
 env:
   NODE_VERSION: '20'
+  # Yalnız android_unit_tests job'ı için: @capacitor/cli engines node>=22.0.0.
+  # Global NODE_VERSION bilinçli olarak 20'de bırakıldı (diğer joblar orada yeşil).
+  ANDROID_NODE_VERSION: '22'
   # Placeholder values — vitest mocks supabase; only real builds need live creds
   VITE_SUPABASE_URL:      ${{ secrets.VITE_SUPABASE_URL      || 'https://placeholder.supabase.co' }}
   VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY || 'placeholder-anon-key' }}
@@ -221,7 +224,10 @@ jobs:
 #   CI'DA KIRILAN ÜÇ GİZLİ BAĞIMLILIK (ölçüldü, hepsi bu job'da karşılandı):
 #     1. `capacitor-cordova-android-plugins/` .gitignore'ludur (android/.gitignore)
 #        ama settings.gradle onu `include` eder → taze checkout'ta KONFİGÜRASYON
-#        DÜŞER. Çözüm: `npx cap update android` (dist/ GEREKTİRMEZ — ölçüldü).
+#        DÜŞER. Çözüm: `npx cap update android`. DİKKAT: bu komut dist/ İSTER —
+#        @capacitor/cli/dist/android/update.js:31 assets/public yoksa copy()ye
+#        düşer; taze checkout'ta o dizin gitignore'lu. Ayrıca CLI Node>=22 ister
+#        (gerçek koşumda ölçüldü) → bu job ANDROID_NODE_VERSION kullanır.
 #     2. `android/gradlew` git'te 100644'tü → Linux'ta "permission denied".
 #        Kalıcı çözüm depoda (100755); buradaki `chmod +x` savunma derinliğidir.
 #     3. Root build.gradle `buildDir`i C:/Temp'e taşıyordu → Linux'ta proje
@@ -253,12 +259,19 @@ jobs:
           java-version: '21'
           distribution: 'temurin'
 
-      - name: Setup Node ${{ env.NODE_VERSION }}
+      - name: Setup Node ${{ env.ANDROID_NODE_VERSION }}
+        # ⚠️ BU JOB GLOBAL `NODE_VERSION`I (20) KULLANAMAZ — gerçek CI koşumunda ölçüldü:
+        #   [fatal] The Capacitor CLI requires NodeJS >=22.0.0
+        # `@capacitor/cli` package.json'ı `engines: {node: '>=22.0.0'}` beyan ediyor.
+        # Yerelde görünmezdi (geliştirme makinesinde Node 24) — bu kusuru ancak
+        # GERÇEK bir runner ortaya çıkardı; #675'in kapıyı kurma gerekçesi tam buydu.
+        # Sürüm YALNIZ bu job'a dar tutuldu: diğer üç job Node 20'de yeşil koşuyor ve
+        # onları bu turda kanıtlanmamış bir sürüme taşımak kapsam dışı bir risktir.
         # Gradle, node_modules/@capacitor/*/android altındaki modülleri
         # `capacitor.settings.gradle` üzerinden include eder → Node şart.
         uses: actions/setup-node@v4
         with:
-          node-version: ${{ env.NODE_VERSION }}
+          node-version: ${{ env.ANDROID_NODE_VERSION }}
           cache: npm
 
       - name: Install dependencies
