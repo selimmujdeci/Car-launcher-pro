@@ -34,10 +34,14 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  NODE_VERSION: '20'
-  # Yalnız android_unit_tests job'ı için: @capacitor/cli engines node>=22.0.0.
-  # Global NODE_VERSION bilinçli olarak 20'de bırakıldı (diğer joblar orada yeşil).
-  ANDROID_NODE_VERSION: '22'
+  # 22 — ÖLÇÜLMÜŞ TABAN, keyfi değil. İki bağımsız kanıt (2026-08-21, gerçek runner):
+  #   1. `@capacitor/cli` engines: node>=22.0.0 → 20'de `[fatal] requires NodeJS >=22`
+  #   2. `node:fs.globSync` Node 22'de geldi; 20'de YOK →
+  #      `developerAccessGate.test.tsx` KİLİT 1 `TypeError: globSync is not a function`
+  #      ile düşüyordu (run 32477333286). Yerelde görünmezdi: bu makinede Node 24.
+  # Kısa süre `ANDROID_NODE_VERSION` ile yalnız android job'ı 22'ye alınmıştı; o ayrım
+  # "diğer joblar 20'de yeşil" VARSAYIMINA dayanıyordu ve ölçüm onu YANLIŞLADI.
+  NODE_VERSION: '22'
   # Placeholder values — vitest mocks supabase; only real builds need live creds
   VITE_SUPABASE_URL:      ${{ secrets.VITE_SUPABASE_URL      || 'https://placeholder.supabase.co' }}
   VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY || 'placeholder-anon-key' }}
@@ -259,19 +263,15 @@ jobs:
           java-version: '21'
           distribution: 'temurin'
 
-      - name: Setup Node ${{ env.ANDROID_NODE_VERSION }}
-        # ⚠️ BU JOB GLOBAL `NODE_VERSION`I (20) KULLANAMAZ — gerçek CI koşumunda ölçüldü:
-        #   [fatal] The Capacitor CLI requires NodeJS >=22.0.0
-        # `@capacitor/cli` package.json'ı `engines: {node: '>=22.0.0'}` beyan ediyor.
-        # Yerelde görünmezdi (geliştirme makinesinde Node 24) — bu kusuru ancak
-        # GERÇEK bir runner ortaya çıkardı; #675'in kapıyı kurma gerekçesi tam buydu.
-        # Sürüm YALNIZ bu job'a dar tutuldu: diğer üç job Node 20'de yeşil koşuyor ve
-        # onları bu turda kanıtlanmamış bir sürüme taşımak kapsam dışı bir risktir.
+      - name: Setup Node ${{ env.NODE_VERSION }}
+        # `@capacitor/cli` engines: node>=22.0.0 — 20'de `[fatal] requires NodeJS >=22`
+        # (gerçek runner'da ölçüldü, run 32473505830). Artık global NODE_VERSION zaten 22;
+        # bu job'a özel sürüm ayrımı KALDIRILDI (tek kaynak).
         # Gradle, node_modules/@capacitor/*/android altındaki modülleri
         # `capacitor.settings.gradle` üzerinden include eder → Node şart.
         uses: actions/setup-node@v4
         with:
-          node-version: ${{ env.ANDROID_NODE_VERSION }}
+          node-version: ${{ env.NODE_VERSION }}
           cache: npm
 
       - name: Install dependencies
