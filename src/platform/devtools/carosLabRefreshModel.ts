@@ -179,10 +179,25 @@ export type CarosLabRefreshVerdict =
 export const CAROS_LAB_REFRESH_VERDICT_LABEL: Readonly<Record<CarosLabRefreshVerdict, string>> = {
   NEVER_RUN:      'HENÜZ ÇALIŞMADI',
   RUNNING:        'ÇALIŞIYOR',
-  ALL_REFRESHED:  'TÜMÜ TAZELENDİ',
+  /* KAPSAM DÜRÜSTLÜĞÜ (2026-08-21 denetimi): eski etiket düz "TÜMÜ TAZELENDİ"ydi
+     ve LAB'daki 47 ekranın tamamı hakkında hüküm gibi okunuyordu. Bu tur YALNIZ
+     aşağıdaki bölümleri kapsar (bkz. CAROS_LAB_REFRESH_SECTIONS) — diğer ekranlar
+     kendi "YENİLE" düğmeleriyle tazelenir. Etiket kapsamı ADIYLA söyler. */
+  ALL_REFRESHED:  'KAPSAMIN TÜMÜ TAZELENDİ',
   PARTIAL:        'KISMİ — bazı bölümler okunamadı',
   NONE_REFRESHED: 'HİÇBİRİ TAZELENEMEDİ',
 } as const;
+
+/**
+ * Bu turun kapsamı — ekranda AÇIKÇA yazılır.
+ *
+ * "Tümü" kelimesi bir gözlem yüzeyinde tehlikelidir: tazelenmemiş bir ekranın
+ * bayat değeri, yeşil bir "tümü tazelendi" rozetinin altında TAZE sanılır.
+ * Kapsam sayısı kaynağın kendisinden türetilir (elle yazılmaz → ayrışamaz).
+ */
+export const CAROS_LAB_REFRESH_SCOPE_NOTE =
+  `KAPSAM: bu tur ${CAROS_LAB_REFRESH_SECTIONS.length} kanıt bölümünü tazeler — ` +
+  'LAB\'daki diğer ekranlar bu turdan ETKİLENMEZ, kendi YENİLE düğmeleriyle okunur.';
 
 export interface CarosLabRefreshSummary {
   readonly verdict: CarosLabRefreshVerdict;

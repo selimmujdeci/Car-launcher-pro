@@ -62,6 +62,8 @@ import {
   isCanRecoveryApplicable,
   isEngineLikelyRunning,
   ENGINE_RUNNING_VOLTAGE_MIN,
+  MAX_RECOVERY_ATTEMPTS,
+  type ObdRecoveryLevel,
 } from './obdRetryPolicy';
 // OBD-OS-F0-4: connect/data-gate/stale pencereleri artık PROTOKOL SINIFINA göre
 // (CAN/bilinmeyen → obdRetryPolicy sabitleriyle BİREBİR aynı; KWP/ISO9141 → geniş).
@@ -3129,6 +3131,100 @@ export function getObdReconnectLifecycle(): {
     lastReconnectAt,
     lastSuccessAt,
     lastOutcome,
+  };
+}
+
+/**
+ * PR-REC-1 — CAN ECU-SILENT KURTARMA MERDİVENİNİN OKUMA UCU (salt-okunur).
+ *
+ * ── NEDEN VAR ───────────────────────────────────────────────────────────────
+ * Merdiven (`_maybeRunEcuRecovery`) sahada ÇALIŞIYOR ama tek çıktısı
+ * `console.info` idi: cihazda logcat'e bağlanmadan "merdiven neden tırmanmıyor"
+ * sorusunun cevabı YOKTU. Sekiz kapının hangisinin durdurduğu görülemiyordu —
+ * "gözlemlenemeyen özellik tamamlanmış değildir" (CLAUDE.md §Gözlemlenebilirlik).
+ *
+ * ── SÖZLEŞME (getObdReconnectLifecycle ile BİREBİR aynı) ────────────────────
+ *  · YENİ SAYAÇ EKLEMEZ — yalnız mevcut durum değişkenlerini yansıtır. Çift
+ *    sayım imkânsız; kurtarma davranışı bu fonksiyonla DEĞİŞMEZ.
+ *  · KARAR VERMEZ — hangi kapının engellediğini BURADA hesaplamaz; ham gözlemi
+ *    verir, sınıflandırmayı saf model yapar (test edilebilirlik).
+ *  · `Date.now()` KULLANMAZ — cooldown'ın KALAN süresi çağırana bırakılır.
+ *    Servis katmanı zaman üretmez (saat sıçraması tek yerde ele alınır).
+ *  · Fırlatmaz; yan etkisi yoktur (kurtarma tetiklemez, kapı zorlamaz).
+ *
+ * ── "BİLİNMİYOR" DÜRÜSTLÜĞÜ ────────────────────────────────────────────────
+ * `engineLikelyRunning` tek başına YANILTICIDIR: `isEngineLikelyRunning`
+ * voltaj BİLİNMİYORKEN de `true` döner (saha 2026-07-19 / iCar3 — donmuş oturum
+ * kalıcı kalmasın diye kurtarma engellenmez). Bu yüzden `voltageKnown` AYRI
+ * alan olarak taşınır: ekran "motor çalışıyor" ile "kanıtlayamadık ama kapı
+ * açık"ı ASLA aynı şey gibi göstermesin.
+ */
+export function getEcuRecoveryLadder(): {
+  /* ── Merdivenin yeri ── */
+  /** Ardışık "ECU sessiz" doğrulaması (eşiğe doğru sayar). */
+  ecuSilentStreak: number;
+  /** Tetik eşiği — TEK stale olayı merdiveni başlatmaz. */
+  streakThreshold: number;
+  /** Bu oturumda KULLANILMIŞ deneme sayısı (0 tabanlı sıradaki denemeyi de verir). */
+  attemptsUsed: number;
+  /** Deneme tavanı — aşılınca merdiven DURUR. */
+  maxAttempts: number;
+  /** Sıradaki basamak; `null` = tavan doldu (yeni deneme YOK). */
+  nextLevel: ObdRecoveryLevel | null;
+  /** En son TIRMANILMIŞ basamak; `null` = bu oturumda hiç denenmedi. */
+  lastLevel: ObdRecoveryLevel | null;
+  /** Son deneme damgası (epoch ms). `0` = hiç denenmedi ("0 ms önce" DEĞİL). */
+  lastRecoveryAtMs: number;
+  /** Son denemeden sonra beklenmesi gereken cooldown (ms) — üstel: 10s·20s·40s. */
+  cooldownMs: number;
+
+  /* ── Kapıların ham gözlemi (karar YOK) ── */
+  inFlight: boolean;
+  exhausted: boolean;
+  transportConnected: boolean;
+  dataFresh: boolean;
+  nativeReconnectInFlight: boolean;
+  /** Kapının baktığı protokol (`ATDPN` yoksa denenen) — PII taşımaz. */
+  protocolActive: string | null;
+  /** CAN kapısı: merdiven bu protokolde uygulanabilir mi. */
+  canApplicable: boolean;
+  /** ATRV okuması (V); `null` = ölçülemedi (sahte 0 YAZILMAZ). */
+  batteryVoltage: number | null;
+  /** Voltaj GERÇEKTEN ölçüldü mü — `engineLikelyRunning`i yorumlamanın şartı. */
+  voltageKnown: boolean;
+  /** Kontak kapısının SONUCU (bilinmeyen voltajda da `true` — bkz. başlık). */
+  engineLikelyRunning: boolean;
+  /** Kontak kapısının eşiği (V) — ekranda kaynağıyla gösterilir. */
+  engineVoltageThresholdV: number;
+} {
+  const protocolActive = _lastProtocolActive ?? _lastProtocolTried ?? null;
+  const rawVoltage = _current.batteryVoltage;
+  /* `isEngineLikelyRunning`in "bilinmiyor" dalıyla BİREBİR aynı ölçüt —
+     iki yerde iki farklı eşik olursa ekran motorla çelişir. */
+  const voltageKnown =
+    typeof rawVoltage === 'number' && Number.isFinite(rawVoltage) && rawVoltage >= 0;
+
+  return {
+    ecuSilentStreak:  _ecuSilentStreak,
+    streakThreshold:  ECU_SILENT_STREAK_TO_RECOVER,
+    attemptsUsed:     _recoveryAttempt,
+    maxAttempts:      MAX_RECOVERY_ATTEMPTS,
+    nextLevel:        getRecoveryLevel(_recoveryAttempt),
+    lastLevel:        _recoveryAttempt > 0 ? getRecoveryLevel(_recoveryAttempt - 1) : null,
+    lastRecoveryAtMs: _lastRecoveryAt,
+    cooldownMs:       getRecoveryCooldownMs(_recoveryAttempt),
+
+    inFlight:                _recoveryInFlight,
+    exhausted:               _recoveryExhausted,
+    transportConnected:      _current.transportConnected === true,
+    dataFresh:               _current.dataFresh === true,
+    nativeReconnectInFlight: _nativeReconnectInFlight,
+    protocolActive,
+    canApplicable:           isCanRecoveryApplicable(protocolActive),
+    batteryVoltage:          voltageKnown ? rawVoltage : null,
+    voltageKnown,
+    engineLikelyRunning:     isEngineLikelyRunning(rawVoltage),
+    engineVoltageThresholdV: ENGINE_RUNNING_VOLTAGE_MIN,
   };
 }
 

@@ -100,6 +100,8 @@ const EnforcementPointsScreen = lazyWithRetry(() =>
   import('./screens/EnforcementPointsScreen').then((m) => ({ default: m.EnforcementPointsScreen })));
 const ThemeRuntimeScreen = lazyWithRetry(() =>
   import('./screens/ThemeRuntimeScreen').then((m) => ({ default: m.ThemeRuntimeScreen })));
+const RecoveryMonitorScreen = lazyWithRetry(() =>
+  import('./screens/RecoveryMonitorScreen').then((m) => ({ default: m.RecoveryMonitorScreen })));
 const RouteLayerInspectorScreen = lazyWithRetry(() =>
   import('./screens/RouteLayerInspectorScreen').then((m) => ({ default: m.RouteLayerInspectorScreen })));
 const RemoteCommandScreen = lazyWithRetry(() =>
@@ -147,6 +149,7 @@ export function renderAvailableTool(id: CarosLabToolId): ReactElement | null {
     // Queue Monitor ve Poll Scheduler ORTAK görünümü paylaşır; odak farklıdır.
     case 'queue-monitor':      return <RuntimeSchedulingScreen focus="queue-monitor" />;
     case 'poll-scheduler':     return <RuntimeSchedulingScreen focus="poll-scheduler" />;
+    case 'recovery-monitor':   return <RecoveryMonitorScreen />;
     case 'mavi-console':       return <MaviConsoleScreen />;
     case 'mavi-reasoning-engine': return <MaviReasoningEngineScreen />;
     case 'ai-mechanic':        return <AiMechanicScreen />;

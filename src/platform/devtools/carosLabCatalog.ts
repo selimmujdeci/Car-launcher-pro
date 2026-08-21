@@ -301,9 +301,9 @@ export const CAROS_LAB_TOOLS: readonly CarosLabTool[] = Object.freeze([
   },
   {
     id: 'recovery-monitor', category: 'runtime', name: 'Kurtarma İzleyici',
-    desc: 'Kurtarma merdiveni durumu ve tetiklenme geçmişi.',
-    status: 'PLACEHOLDER', layer: null,
-    note: 'Ekran yok.',
+    desc: 'ECU susma kurtarmasının salt-okunur gözlemi: aktif protokolde kurtarmanın SAHİBİ hangi motor (CAN merdiveni mi native ATPC mi) · merdivenin sekiz kapısı KOD SIRASIYLA ve ilk DURDURAN kapı · kullanılan deneme / tavan · ardışık ECU sessizliği ve eşiği · sıradaki ve son tırmanılan basamak · cooldown kalanı · native ATPC sayaçları ve kanıt yaşı · reconnect yaşam döngüsü · kopma defterinden ÖLÇÜLMÜŞ kurtarma süresi (medyan/en kötü).',
+    status: 'AVAILABLE', layer: 'ELM327 / CAN · KWP2000',
+    note: 'Hiçbir şey BAŞLATMAZ ve KARAR VERMEZ: kurtarma tetikleme, kapı zorlama, cooldown sıfırlama, tavan açma, reconnect başlatma, ATPC gönderme, araca komut ve timer YOK. YENİ SAYAÇ ÜRETİLMEZ — mevcut durum değişkenleri yansıtılır (çift sayım imkânsız). İKİ MOTOR BİLEREK AYNI ANDA ÇALIŞMAZ: CAN\'de TS merdiveni, KWP/ISO9141\'de native ATPC otoritedir; "diğer motor sessiz" bir arıza DEĞİL tasarımdır (çift ATPC oturumu sürekli kapatır). İLK DURDURAN KAPIDAN SONRASI "GEÇTİ" DİYE GÖSTERİLMEZ — kodda erken `return` var, sonraki koşullar HİÇ hesaplanmaz; olmayan bir değerlendirme olmuş gibi sunulamaz. KANITSIZ GEÇİŞ AYRI İŞARETLENİR: ATRV okunamadığında kontak kapısı kurtarmayı engellemez ama bu "motor çalışıyor" DEMEK DEĞİLDİR (GEÇTİ (KANITSIZ)). Native KWP kanıtı BU EKRANDA TAZELENMEZ (async native pull; salt-okunur sözleşmesi) — "TÜMÜNÜ YENİLE" doldurur, bu yüzden kanıt YAŞI her zaman gösterilir (#642: bayat NOT_ATTEMPTED taze kanıt gibi sunulmuştu). Süre ve damga UYDURULMAZ: `lastRecoveryAt=0` "hiç" demektir ("0 ms önce" değil), saat geriye sıçrarsa cooldown kalanı hesaplanmaz. GİZLİLİK: VIN, adaptör MAC, cihaz adı, ham çerçeve ve ham komut GELMEZ. Gerçek araç doğrulaması YAPILMADI (kütük #689).',
   },
   {
     id: 'evidence-viewer', category: 'runtime', name: 'Kanıt Görüntüleyici',

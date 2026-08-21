@@ -19,6 +19,13 @@
  * Bu modül gerçek head unit'te HİÇ ÇALIŞTIRILMADI. Sözleşme ve testler
  * hazırdır; saha doğrulaması `BLOCKED_REAL_DEVICE`'tır.
  *
+ * ⚠️ DAHA TEMELİ — KABLO YOK (2026-08-21 denetimi): yukarıdaki "trip
+ * başladığında okur" cümlesi TASARIMI anlatır, ÜRÜNÜ değil. `capture()`
+ * ürün kodunda hiçbir yerden ÇAĞRILMIYOR (yalnız testlerden) → üründe
+ * `fetchCount` DAİMA 0, snapshot DAİMA `UNKNOWN`. Yani bu, "cihazda
+ * denenmedi" değil "hiç bağlanmadı" durumudur; ikisini karıştırmak
+ * özelliği olduğundan hazır gösterir. Borç: kütük #690.
+ *
  * SAF DEĞİL (ağ okur) ama: timer YOK · abonelik YOK · otomatik yenileme YOK.
  */
 
@@ -157,8 +164,17 @@ class DriverSnapshotRuntime {
   /**
    * Sunucudan aktif atamayı bir kez okur.
    *
-   * Çağıran: trip başlangıcı. Otomatik yenileme YOKTUR — trip boyunca
-   * snapshot bilinçli olarak dondurulur.
+   * ⚠️ ÇAĞIRAN YOK (2026-08-21 denetimi). Bu yorum daha önce "Çağıran: trip
+   * başlangıcı" diyordu — repoda böyle bir çağrı HİÇ OLMADI. Tasarlanan yer
+   * doğruydu, kablolama yazılmadı: `capture()` yalnız testlerden çağrılıyor,
+   * dolayısıyla `fetchCount` üründe DAİMA 0 ve snapshot DAİMA `UNKNOWN`.
+   * CAROS LAB · Fleet Driver Identity ekranı bu yüzden cihazda boş görünür ve
+   * bunu dürüstçe "zincirin bu ucu bağlı değil" diye gösterir.
+   *
+   * Yorumu düzeltmek kabloyu KURMAZ; borç kütükte #690 olarak açıktır. Buraya
+   * bir çağıran eklendiğinde bu not silinmeli, aksi hâlde ters yönde yalan olur.
+   *
+   * Otomatik yenileme YOKTUR — trip boyunca snapshot bilinçli olarak dondurulur.
    */
   async capture(nowMs: number): Promise<DriverAssignmentSnapshot> {
     if (this._inFlight) return this._snapshot;

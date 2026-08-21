@@ -2673,15 +2673,18 @@ DOĞRULANDI 6 · SAHADA DOĞRULANDI 1 · **ÜRÜN HAZIR: 1**
   | Geliştirici erişim kapısı (`DEVELOPER_FEATURES_ENABLED`) | Uygulandı, LAB ekranı YOK | Bayrağın etkin değeri, hangi yüzeylerin açık olduğu, satış build'i fail-closed durumu |
   | AI kimlik bilgisi akışı (QR Key Beam + pano otomatik algılama) | Uygulandı, LAB ekranı YOK | Sağlayıcı başına anahtar VAR/YOK (**anahtarın kendisi ASLA**), son beam sonucu, pano algılama durumu |
   | Adaptif poll kadansı / tazelik kapısı | Uygulandı, kısmen kör | Çalışma Zamanı ekranında `pollCadence` KAYNAK YOK — hesaplanan profil hiçbir yerde saklanmıyor |
-  | Kurtarma merdiveni (`recovery-monitor`) | Motor var, ekran PLACEHOLDER | Kurtarma durumu yalnız Çalışma Zamanı kanalında özet olarak görünüyor |
-  | Derin Tarama (`deep-scan`) · UDS Explorer · Eylem Kayıtları · Araç Çağırma · Bellek/Bilgi Gezgini · Benchmark | Ekran PLACEHOLDER | Kendi gözlem ekranları yok |
+  | **Kurtarma merdiveni (`recovery-monitor`)** | ✅ **KAPATILDI (2026-08-21, kütük #689)** — `PLACEHOLDER→AVAILABLE` | Borç kapandı: merdivenin sekiz kapısı **kod sırasıyla**, **ilk DURDURAN kapı** adıyla, kullanılan deneme/tavan, ardışık sessizlik ve eşiği, sıradaki/son basamak, cooldown kalanı, native ATPC sayaçları + **kanıt yaşı**, reconnect yaşam döngüsü ve kopma defterinden **ölçülmüş** kurtarma süresi artık sahada GÖRÜNÜYOR. Motorun tek çıktısı `console.info` idi. **Asıl kazanım:** ekran aktif protokolde kurtarmanın **SAHİBİNİ** söyler (CAN merdiveni ↔ native ATPC) — *"kurtarma çalışmıyor"* sanılan vakaların çoğu aslında *"bu protokolde o motor bilerek devre dışı"*dır. **Yeni sayaç üretilmedi**; `getEcuRecoveryLadder()` mevcut durumdan türetir. **Kalan borç:** saha koşumu yapılmadı (#689 kabul ölçütleri 🔴). |
+  | Derin Tarama (`deep-scan`) · UDS Explorer · Araç Çağrısı · Bellek/Bilgi Gezgini · Benchmark | Ekran PLACEHOLDER | Kendi gözlem ekranları yok. **AYRIM (2026-08-21 denetimi):** `memory-explorer` ve `knowledge-explorer` motorları ÜRÜNDE VAR (`ai/memory/{memoryEngine,shortTermMemory,sensitiveMemoryGuard}` · `vehicleKnowledgeBase` · `diagnosticKnowledgeEngine`) → bunlar **gözlemlenebilirlik borcu**. `benchmark`, `stress-test`, `uds-explorer`, `tool-calling` ise motoru gerçekten olmayan **dürüst placeholder** — ikisi aynı kovaya konmamalı. |
+  | **Fleet sunucu köprüleri — ALTI EKRAN YAPISAL OLARAK BOŞ** | **Motor + ekran var, BESLEYEN YOK (2026-08-21 denetimi, kütük #690)** | `driverDnaStore.setFromServer` · `fleetIntelligenceStore.setFromServer` · `aiEvidenceStore.setFromServer` · `driverAuthenticationStore` üreticileri · `bindAuthenticationVehicle()` · `driverSnapshotRuntime.capture()` — **altısı da üründe hiç çağrılmıyor** (yalnız testler). Sonuç: `fleet-driver-dna` · `fleet-intelligence` · `ai-evidence-engine` · `fleet-driver-authentication` · `fleet-driver-identity` · `fleet-presence-history` cihazda **daima boş**. Katalog notları bunu dürüstçe beyan ediyor (sahte veri YOK) ve `capture()`'ın "trip başlangıcı çağırır" diyen **yanlış yorumu düzeltildi** — ama borç kapanmış DEĞİL. Bu *"cihazda denenmedi"* değil *"hiç bağlanmadı"*dır. |
   | **Adres sağlayıcı katmanı (`geocodingProviders` · BYOK)** | ✅ **KAPATILDI (2026-08-11, kütük #543)** — LAB ekranı **Adres Arama Kanıtı** (`address-search-evidence`) açıldı | Borç kapandı: cevabı ÜRETEN katman (premium/Nominatim/gevşetilmiş/Overpass/cihaz-içi/önbellek), kullanıcının SEÇİP SEÇMEDİĞİ, başarısızlık sebep sınıfı + `confidence`, iki yüzeyin ayrışması ve eksik kanıt sayacı artık sahada GÖRÜNÜYOR. **Gizlilik sınırı korundu:** sorgu metni hiç saklanmıyor (yalnız `AddressQueryShape` bayrakları), anahtar değeri ve koordinat taşınmıyor. **Kalan borç (ölçüldü, düzeltilmedi):** ürün "veri OSM'de var mı" sorusunu SORMUYOR → `GROUND_TRUTH` kanıt boşluğu; sorgunun ayrıştırıcıda bozulup bozulmadığı ölçülmüyor → `QUERY_INTEGRITY` boşluğu. |
   | **Servis kalp atışı izleyicisi (`SystemHealthMonitor`)** | **Motor var + `getHeartbeatEvidence()` export'u var, LAB ekranı YOK** | Servis başına **beat yaşı · eşik · saat tabanı · alarm/recovered sayısı** hiçbir LAB ekranında gösterilmiyor; `LongRoadFieldValidationScreen` yalnız türetilmiş "GPS kaybı olayı / en uzun kayıp" sayaçlarını gösteriyor. Sonuç: sahte alarm ile gerçek kesinti **ancak `cl_crash_log` ham kaydı elle okunarak** ayrılabildi (2026-08-02, kütük #327). Borç bu turda KAPATILMADI — GPS beat kaynağı DEĞİŞİM'den VARIŞ'a taşındı ama gözlem yüzeyi hâlâ yok. |
 
-  Katalog kapsamı bugün: **41 AVAILABLE · 7 PLACEHOLDER · 2 DISABLED** (50 araç)
-  — sayılar `carosLabCatalog.ts`ten SAYILDI (2026-08-11). Buradaki eski
-  "18 · 8 · 2 (28)" ifadesi koddan sapmıştı: elle artırılan bir sayı sessizce
-  yanlışlaşır, o yüzden bir daha artırma — SAY.
+  Katalog kapsamı bugün: **51 AVAILABLE · 6 PLACEHOLDER · 2 DISABLED** (59 araç)
+  — sayılar `carosLabCatalog.ts`ten SAYILDI (2026-08-21). Buradaki eski
+  "18 · 8 · 2 (28)" ve "41 · 7 · 2 (50)" ifadeleri koddan sapmıştı: elle artırılan
+  bir sayı sessizce yanlışlaşır, o yüzden bir daha artırma — SAY.
+  Aynı turda **katalog ↔ ekran haritası ayrışması ölçüldü: 51/51, fark YOK**
+  (`AVAILABLE` diyip ekranı olmayan tek araç bile yok — host kilidi mevcut).
   Bu tablo bir yol haritasıdır; kapatılan her satır ilgili PR'da işaretlenir.
 
   ### 📱 PHONE-HUB P0.5 — Donanım Keşfi ve Üretici Sondası (2026-07-26)
@@ -3987,3 +3990,62 @@ yanlış listelemişti; gerçek import **uzantılı** yazılmıştı (`'./native
 gerçek araçta tek tek işaretle. Özellikle #686(c) (ikinci taramada UDS'li ECU'nun ÖNCE
 taranması ve **toplam DTC sayısının AZALMAMASI**) atlanmamalı: ipucunun kapsamı daraltıp
 daraltmadığını ölçen tek maddedir.
+
+---
+
+## CAROS LAB DENETİMİ — "Gözlemlenemeyen motor" ve "beslenmeyen ekran" (2026-08-21)
+
+CAROS LAB'ın tamamı katalog → ekran → kaynak → üretici zinciri boyunca tarandı.
+Sorulan tek soru: **"çalışmayan yer var mı?"**
+
+### Sağlam çıkanlar (negatif bulgu da kanıttır)
+
+- **Katalog ↔ ekran ayrışması YOK** — 51 `AVAILABLE` aracın 51'inin de gerçek
+  ekran eşlemesi var; `renderAvailableTool` hiçbir arac için `null` dönmüyor.
+- **Lazy import hedeflerinin tamamı tutarlı** — 51 dinamik `import()` yolunun
+  dosyası mevcut ve beklenen named/default export'u taşıyor (host kilidi).
+- **Kapı fail-closed ve ALTI giriş noktasında da doğru sarılı** — `AppGrid` ·
+  `DockBar` · `DrawerPanel` + dört tema yerleşimi; hepsi `useCarosLabAllowed()`
+  ile korunuyor, satış build'inde dallar ölü kod olarak eleniyor.
+- **Zero-leak temiz** — LAB ağacındaki her `setInterval` karşılığında
+  `clearInterval` var; `mountedRef` deseni tutarlı uygulanmış.
+- **Sahte veri YOK** — taramada tek bir uydurma sabit/örnek veri bulunmadı;
+  `mock` geçen her yer *"mock KANIT DEĞİLDİR"* kuralını UYGULAYAN koddu.
+
+### Kapatılan iki kusur
+
+1. **Kurtarma merdiveni gözleme bağlandı (kütük #689).** CAN ECU-silent kurtarma
+   motoru sahada çalışıyordu ama tek çıktısı `console.info` idi → cihazda
+   `adb logcat` olmadan *"merdiven neden tırmanmıyor"* sorusunun yanıtı YOKTU.
+   `recovery-monitor` `PLACEHOLDER→AVAILABLE`. **Yeni sayaç üretilmedi.**
+2. **Kod yorumundaki yalan temizlendi (kütük #690).** `driverSnapshotRuntime.capture()`
+   *"Çağıran: trip başlangıcı"* diyordu; repoda çağıran YOKTU. Yorum, kablonun
+   yazılmadığını açıkça söyleyecek şekilde düzeltildi — **kablo KURULMADI**,
+   borç açık bırakıldı (uydurma veriyle boş ekran doldurmak riskliydi).
+
+### Kapsam dürüstlüğü düzeltmesi
+
+`TÜMÜNÜ YENİLE` turu LAB'ın **9 kanıt bölümünü** kapsıyor, 51 ekranı değil; ama
+hüküm rozeti düz **"TÜMÜ TAZELENDİ"** yazıyordu. Bir gözlem yüzeyinde "tümü"
+kelimesi tehlikelidir: tazelenmemiş bir ekranın bayat değeri, yeşil rozetin
+altında TAZE sanılır. Etiket **"KAPSAMIN TÜMÜ TAZELENDİ"** oldu ve bar'a kapsamı
+sayıyla söyleyen kalıcı bir satır eklendi (sayı `CAROS_LAB_REFRESH_SECTIONS`ten
+TÜRETİLİR — elle yazılmadığı için ayrışamaz).
+
+### Açık kalan borçlar (kapatılmadı, gizlenmedi)
+
+| Borç | Sınıf |
+|---|---|
+| Altı Fleet ekranı yapısal olarak boş — sunucu köprüleri hiç çağrılmıyor | **Kablo yok** (kütük #690) |
+| `memory-explorer` · `knowledge-explorer` — motor ÜRÜNDE var, LAB ekranı yok | **Gözlemlenebilirlik borcu** |
+| `benchmark` · `stress-test` · `uds-explorer` · `tool-calling` — motor da yok | Dürüst placeholder (borç DEĞİL) |
+| Testi olmayan LAB ekranları: `AiMechanic` · `CapabilityGates` · `EnforcementPoints` · `LiveData` · `RemoteCommand` · `ThemeRuntime` · `BackgroundPower` · `RecoveryMonitor` dışındaki yeni turlar | Mandate madde 7 |
+| Shell'de arama/filtre yok — 59 kart yalnız kategori sekmesiyle bulunuyor | UX (Faz A'da düşük öncelik) |
+
+**Host kanıtı:** `tsc --noEmit` temiz · lint 0 error · **583 dosya / 12.789 test yeşil**.
+**Saha kanıtı: YOK.** #689 ve #690 kütükte 🔴; hiçbiri "çalışıyor" diye sunulamaz.
+
+**Bir sonraki atomik PR:** #689'un kabul ölçütlerini gerçek araçta koş. Özellikle
+**(d)** (motor KAPALIYKEN hiçbir kurtarma tetiklenmemeli — park dalgalanması kilidi)
+ve **(e)** (KWP aracında hüküm `BU PROTOKOLDE DEVRE DIŞI`, kırmızı DEĞİL) atlanmamalı:
+ikisi de "kurtarma bozuk" yanlış teşhisini üreten vakalardır.

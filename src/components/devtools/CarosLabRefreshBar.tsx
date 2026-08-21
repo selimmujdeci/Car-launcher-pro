@@ -25,7 +25,8 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { RefreshCw, ShieldCheck, ChevronDown, ChevronRight, Timer } from 'lucide-react';
 import {
   CAROS_LAB_REFRESH_SECTIONS, CAROS_LAB_REFRESH_STATUS_LABEL,
-  CAROS_LAB_REFRESH_VERDICT_LABEL, formatRefreshAge, refreshStatusTone,
+  CAROS_LAB_REFRESH_VERDICT_LABEL, CAROS_LAB_REFRESH_SCOPE_NOTE,
+  formatRefreshAge, refreshStatusTone,
   summarizeRefreshRun,
   type CarosLabRefreshRun, type CarosLabRefreshTone,
 } from '../../platform/devtools/carosLabRefreshModel';
@@ -173,6 +174,14 @@ export const CarosLabRefreshBar = memo(function CarosLabRefreshBar() {
           {open ? 'AYRINTIYI GİZLE' : 'AYRINTI'}
         </button>
       </div>
+
+      {/* KAPSAM her zaman görünür: yeşil rozet LAB'ın TAMAMI hakkında hüküm DEĞİLDİR. */}
+      <p
+        data-testid="lab-refresh-scope"
+        className="mt-1 font-mono text-[9px] leading-relaxed text-[var(--oem-ink-3)]"
+      >
+        {CAROS_LAB_REFRESH_SCOPE_NOTE}
+      </p>
 
       {/* Sorunlu bölümler kapalıyken de ADIYLA görünür (sessiz başarısızlık YOK). */}
       {!open && problemNames.length > 0 && (
