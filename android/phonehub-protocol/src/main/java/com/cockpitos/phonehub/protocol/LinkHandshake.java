@@ -382,7 +382,27 @@ public final class LinkHandshake {
      * kontrol içeriğin de beklenen olduğunu teyit eder.
      */
     public Step onConfirm(byte[] decryptedPayload) {
-        if (stage != Stage.AUTH_EXCHANGED && stage != Stage.CONFIRM_EXCHANGED) {
+        /* AWAITING_USER_CONFIRM DA GEÇERLİDİR — bu kapı eskiden onu reddediyordu ve
+         * bu GERÇEK bir kusurdu, yalnız test gürültüsü değil:
+         *
+         * İki uçta da kullanıcı onayı gerektiğinde onaylar ASLA aynı anda olmaz —
+         * biri önce basar. Önce basanın CONFIRM'ü, henüz onaylamamış olan uca
+         * AWAITING_USER_CONFIRM aşamasındayken ulaşır. Eski kapı bunu protokol
+         * ihlali sayıp UNKNOWN_ERROR döndürüyordu → LinkSession.failAndClose() →
+         * oturum KAPANIYORDU. Yani ikinci kullanıcı kodu onaylamaya fırsat bulmadan
+         * eşleştirme ölüyordu; hız farkı büyükse HER SEFERİNDE.
+         * (CI'da flaky olarak yüzeye çıktı: kütük #678 · run 32474253133/32477333286,
+         *  düşen assertion her seferinde `client.confirmPairing(true)` idi.)
+         *
+         * ONAY ATLANMAZ: burada YALNIZ `peerConfirmVerified` işaretlenir, stage
+         * DEĞİŞMEZ. Oturum ancak yerel kullanıcı da onaylayıp `confirmByUser` →
+         * `createConfirm` çalıştığında ESTABLISHED olur (createConfirm zaten
+         * `peerConfirmVerified ? ESTABLISHED : CONFIRM_EXCHANGED` diyor — sıra
+         * bağımsızlığı tasarımda VARDI, bu aşama kapıda unutulmuştu).
+         * Kullanıcı REDDEDERSE confirmByUser PAIRING_REJECTED ile kapatır. */
+        if (stage != Stage.AUTH_EXCHANGED
+            && stage != Stage.CONFIRM_EXCHANGED
+            && stage != Stage.AWAITING_USER_CONFIRM) {
             return fail(LinkErrorCode.UNKNOWN_ERROR);
         }
         LinkKeyValue kv = LinkKeyValue.decode(decryptedPayload);

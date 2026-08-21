@@ -22,7 +22,7 @@ test.describe('Smart Engine', () => {
   });
 
   test('dock items dinamik siralanir', async ({ page }) => {
-    const dockItems = page.locator('[data-dock-item]');
+    const dockItems = page.locator('[data-dock-item], .ex-dock-btn');
     const dockCount = await dockItems.count();
     expect(dockCount).toBeGreaterThan(0);
   });

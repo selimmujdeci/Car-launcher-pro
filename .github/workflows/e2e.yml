@@ -38,8 +38,13 @@ jobs:
       - name: Install dependencies
         run: npm ci --prefer-offline
 
-      - name: Install Playwright (chromium)
-        run: npx playwright install --with-deps chromium
+      - name: Install Playwright (TÜM projeler)
+        # ⚠️ ESKİDEN YALNIZ chromium KURULUYORDU ama `npm run test:e2e` (= `playwright test`,
+        # proje filtresi YOK) config'deki BEŞ projeyi de koşuyordu. Ölçüldü
+        # (run 32444359640): firefox 74 · webkit 74 · Mobile Safari 74 hata — hepsi
+        # "browser not installed". Yani E2E'nin kırmızılığının BÜYÜK yarısı üründe
+        # değil, kurulan ile koşulanın ayrışmasındaydı. Kütük #679.
+        run: npx playwright install --with-deps
 
       - name: Run E2E suite
         run: npm run test:e2e

@@ -490,7 +490,7 @@ function DockBtn({ Icon, cap, active, onClick, badge }: { Icon: typeof Navigatio
   // Tema Stüdyo: dock butonları TOPLUCA düzenlenir — 17 butona ayrı kimlik vermek
   // kayıt defterini şişirir; aynı kimlik hepsinde → tek CSS kuralı hepsine iner.
   return (
-    <button data-editable="expedition.dock-buttons" data-editable-type="dock" onClick={onClick} className="ex-dock-btn flex flex-col items-center justify-center flex-shrink-0" style={{ flex: '0 0 38%', minWidth: 0, scrollSnapAlign: 'start', background: 'transparent', border: 'none', cursor: 'pointer', gap: 8, color: active ? p.accent : p.ink2, borderRight: `1px solid ${p.hairline}`, position: 'relative', touchAction: 'pan-x' }}>
+    <button data-dock-item data-editable="expedition.dock-buttons" data-editable-type="dock" onClick={onClick} className="ex-dock-btn flex flex-col items-center justify-center flex-shrink-0" style={{ flex: '0 0 38%', minWidth: 0, scrollSnapAlign: 'start', background: 'transparent', border: 'none', cursor: 'pointer', gap: 8, color: active ? p.accent : p.ink2, borderRight: `1px solid ${p.hairline}`, position: 'relative', touchAction: 'pan-x' }}>
       {active && !p.night
         ? <span style={{ width: 52, height: 52, borderRadius: '50%', background: p.accent, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', boxShadow: `0 4px 14px ${p.accentGlow}` }}><Icon className="w-8 h-8" /></span>
         : <Icon className="w-[34px] h-[34px]" style={{ filter: 'drop-shadow(0 1px 1px rgba(0,0,0,.5))' }} />}

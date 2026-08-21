@@ -193,6 +193,49 @@ public class LinkSessionTest {
         assertFalse(p.server.snapshot().grantedCapabilities.contains("MEDIA"));
     }
 
+    /**
+     * ERKEN PEER CONFIRM OTURUMU ÖLDÜRMEMELİ — kütük #678.
+     *
+     * İki uçta da kullanıcı onayı isteniyorsa onaylar asla aynı anda olmaz; biri
+     * önce basar. Önce basanın CONFIRM'ü, henüz onaylamamış uca AWAITING_USER_CONFIRM
+     * aşamasındayken ulaşır. Eskiden `LinkHandshake.onConfirm` bu aşamayı kabul
+     * etmiyordu → UNKNOWN_ERROR → `failAndClose` → oturum ölüyordu; ikinci kullanıcı
+     * kodu onaylamaya fırsat bulamıyordu. CI'da flaky olarak yüzeye çıktı ve düşen
+     * assertion her seferinde `client.confirmPairing(true)` idi.
+     *
+     * BU KİLİT YARIŞA BIRAKILMAZ: istemcinin sunucu CONFIRM'ünü GERÇEKTEN işlediği
+     * `framesReceived` sayacıyla ölçülür — "bir süre uyu" ile değil. Böylece kilit
+     * kusur geri gelirse HER koşumda ısırır, bazen değil.
+     */
+    @Test
+    public void peerConfirmBeforeLocalUserConfirmDoesNotKillSession() throws Exception {
+        final Pair p = connect(null, null, 10_000L, 30_000L);
+        assertTrue(p.clientEvents.codeReady.await(WAIT_MS, TimeUnit.MILLISECONDS));
+        assertTrue(p.serverEvents.codeReady.await(WAIT_MS, TimeUnit.MILLISECONDS));
+
+        final long framesBefore = p.client.snapshot().framesReceived;
+
+        /* YALNIZ sunucu onaylar → CONFIRM istemciye gider. */
+        assertTrue("sunucu onayi kabul edilmeli", p.server.confirmPairing(true));
+
+        /* Çerçevenin istemci tarafından işlendiği ÖLÇÜLÜR (tahmin edilmez). */
+        assertTrue("istemci sunucunun CONFIRM cercevesini islemeli",
+            waitUntil(() -> p.client.snapshot().framesReceived > framesBefore));
+
+        /* ESKİ KUSUR TAM BURADAYDI: istemci UNKNOWN_ERROR ile kapanmış olurdu. */
+        assertFalse("erken peer CONFIRM oturumu OLDURMEMELI", p.client.isDisposed());
+        assertTrue("kullanici onayi HALA bekleniyor olmali",
+            p.client.snapshot().awaitingUserConfirm);
+
+        /* ONAY ATLANMAZ: peer confirm tek başına oturumu KURMAMALI. */
+        assertFalse("kullanici onaylamadan oturum KURULMAMALI",
+            p.clientEvents.established.await(100L, TimeUnit.MILLISECONDS));
+
+        /* Kullanıcı onaylayınca iki uç da kurulur — sıra bağımsızlığı korunur. */
+        assertTrue("gec gelen kullanici onayi KABUL EDILMELI", p.client.confirmPairing(true));
+        assertTrue(p.clientEvents.established.await(WAIT_MS, TimeUnit.MILLISECONDS));
+        assertTrue(p.serverEvents.established.await(WAIT_MS, TimeUnit.MILLISECONDS));
+    }
     /* ══════════════════════════════════════════════════════════════════════
      * Kullanıcı reddi
      * ════════════════════════════════════════════════════════════════════ */
@@ -398,5 +441,17 @@ public class LinkSessionTest {
             Thread.sleep(20L);
         }
         return false;
+    }
+
+    /** Zamana DEĞİL koşula bağlı bekleme — "yeterince uyu" desenini değiştirir. */
+    private interface Cond { boolean ok(); }
+
+    private static boolean waitUntil(Cond c) throws Exception {
+        long deadline = System.currentTimeMillis() + WAIT_MS;
+        while (System.currentTimeMillis() < deadline) {
+            if (c.ok()) return true;
+            Thread.sleep(5L);
+        }
+        return c.ok();
     }
 }

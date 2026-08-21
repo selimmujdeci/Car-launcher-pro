@@ -14,10 +14,13 @@ test.describe('Settings Page', () => {
   async function openSettings(page: import('@playwright/test').Page): Promise<void> {
     const settingsBtn = page.getByRole('button', { name: 'Ayarlar' });
     await settingsBtn.first().click({ force: true });
-    // SettingsPage lazy-load — "Sistem" veya "Arayüz" başlığı görünene kadar bekle
+    /* SettingsPage lazy-load. METNE DEĞİL SÖZLEŞMEYE bakılır (kütük #679):
+       eski hâli `text=Sistem` / `text=Arayüz` arıyordu ve o başlıklar üründe
+       ARTIK YOK (grep: 0 eşleşme) — panel açılıyor olmasına rağmen test
+       düşüyordu. `data-theme-surface="settings"` SettingsPage kökünde duran
+       kararlı işarettir; bölüm adları değişse de ayakta kalır. */
     await page
-      .locator('text=Sistem')
-      .or(page.locator('text=Arayüz'))
+      .locator('[data-theme-surface="settings"]')
       .first()
       .waitFor({ state: 'visible', timeout: 5000 })
       .catch(() => {});
@@ -26,7 +29,7 @@ test.describe('Settings Page', () => {
   test('ayarlar drawer acilir', async ({ page }) => {
     await openSettings(page);
 
-    const settingsContent = page.locator('text=Sistem').or(page.locator('text=Arayüz')).first();
+    const settingsContent = page.locator('[data-theme-surface="settings"]').first();
     await expect(settingsContent).toBeVisible({ timeout: 5000 });
   });
 
