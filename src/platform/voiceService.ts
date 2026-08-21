@@ -1724,16 +1724,20 @@ export async function processTextCommand(
       // ACTION — beyin komuta karar verdi (Siri mantığı): intent köprüsü.
       // REASK dalı buraya CHAT olarak düşer (yukarıda return etmez) → köprü
       // kurulmaz, aşağıdaki yerel zincire devam edilir.
-      if (brain.kind === 'action') _lastCommandTime = now;
-      const intent = brain.kind === 'action' ? fromSemanticResult(brain.semantic, trimmed) : null;
-      if (intent) {
+      /* Daraltılmış tek referans: aşağıdaki blok `brain` üzerinden değil BUNUN
+       * üzerinden okur — REASK düşüşünde (chat) `semantic` yoktur ve `tsc -b`
+       * bunu haklı olarak reddeder. */
+      const brainAction = brain.kind === 'action' ? brain : null;
+      if (brainAction) _lastCommandTime = now;
+      const intent = brainAction ? fromSemanticResult(brainAction.semantic, trimmed) : null;
+      if (brainAction && intent) {
         void reportVoiceDiag('voice_route', { route: 'companion_action', provider });
         void reportVoiceDiag('voice_intent', { intent: intent.type, provider });
         const aiCompat: AIVoiceResult = {
           intent:     intent.type as AIVoiceResult['intent'],
           payload:    intent.payload as Record<string, unknown>,
-          confidence: brain.semantic.confidence,
-          feedback:   brain.semantic.feedback,
+          confidence: brainAction.semantic.confidence,
+          feedback:   brainAction.semantic.feedback,
         };
         /* MAVI-M5 · KAPI D+E: YAN ETKİ BAŞLAMA SINIRI. `_aiHandlers` navigasyon,
          * telefon araması, medya, ekran açma ve OBD okumasını BAŞLATIR — stale tur
@@ -1767,7 +1771,7 @@ export async function processTextCommand(
         /* MAVI-M6: TEK otorite. `dispatchIntent` bu turda zaten sonuç-temelli bir
          * cevap söylediyse burası SESSİZ kalır (tur başına tek `answer`); hiçbir
          * case konuşmadıysa beynin feedback'i söylenir → kapsama boşluğu yok. */
-        speakMaviAnswer(brain.semantic.feedback, { isDriving: ctx?.isDriving === true });
+        speakMaviAnswer(brainAction.semantic.feedback, { isDriving: ctx?.isDriving === true });
         if (!ctx?.isDriving) {
           push({ status: 'success', transcript: trimmed, error: null, suggestions: [] });
           // MAVI-M5: gecikmeli durum sıfırlaması YENİ turun UI'sını ezemez.

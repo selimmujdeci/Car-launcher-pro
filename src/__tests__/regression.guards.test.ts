@@ -1100,7 +1100,10 @@ describe('Sesli asistan — hava/trafik dürüstlüğü + hibrit beyin zinciri k
     expect(vs).toMatch(/brain\.route === 'companion_reask'/);
     expect(vs).toMatch(/_pendingReask = brain\.response;/);
     // ACTION köprüsü REASK düşüşünde kurulmaz (chat objesinde `semantic` yok).
-    expect(vs).toMatch(/brain\.kind === 'action' \? fromSemanticResult/);
+    // Daraltılmış referans ŞART: `brain.semantic`e doğrudan dokunmak `tsc -b`de
+    // düşer (bir kez düştü) — blok bu değişken üzerinden okumalı.
+    expect(vs).toMatch(/const brainAction = brain\.kind === 'action' \? brain : null;/);
+    expect(vs).toMatch(/if \(brainAction && intent\) \{/);
     // Çıkmaz yok: son dalda SESLİ söylenir (sürüşte ekran notu yetmez).
     expect(vs).toMatch(/if \(_pendingReask !== null\) \{[\s\S]{0,40}speakMaviAnswer\(_pendingReask/);
     // REASK dalı turu KAPATMAMALI — o satırlarda `return true` olmamalı.
