@@ -451,10 +451,11 @@ hesaplanmaması, `unsupported`ın arıza gibi sunulmaması ve **mock kaynağın 
 sayılmaması**. Ham `SignalState` ekranda ayrıca gösterilir — dört değerli
 gözlemlenebilirlik sınıfına eşleme bilgi kaybettiği için ham hakikat gizlenmez.
 
-> ⚠️ **Yan borç (bu turda kapatılmadı):** kütük #667 arka plan güç politikasının
-> CAROS LAB ekranının **hâlâ olmadığını** yazıyor (`getBackgroundPowerSnapshot()`
-> okuma katmanı hazır, kataloğa bağlı değil). Gözlemlenebilirlik kuralı gereği o
-> özellik ekran eklenene kadar "tamamlandı" SAYILMAZ.
+> ✅ **Yan borç KAPANDI (aynı gün):** kütük #667'nin "CAROS LAB ekranı yok" borcu
+> kapatıldı — **Arka Plan Gücü** ekranı eklendi (kütük 🔴 #685). Ekran kapının
+> KARARINI servislerin GERÇEK hâliyle karşılaştırır: ayrıştıklarında hüküm `DRIFT`
+> olur ve çelişki `KISMA AKTİF`i EZER — uygulanmamış kararı "aktif" saymak, bu
+> depoda tekrar eden "motor var, besleyen yok" yalanının güç katmanındaki hâli olurdu.
 
 ---
 

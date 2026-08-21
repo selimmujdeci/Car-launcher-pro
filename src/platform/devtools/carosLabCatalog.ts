@@ -67,6 +67,7 @@ export type CarosLabToolId =
   // Runtime
   | 'queue-monitor' | 'poll-scheduler' | 'recovery-monitor' | 'evidence-viewer'
   | 'performance' | 'capability-gates' | 'media-authority' | 'guardian-runtime' | 'theme-runtime'
+  | 'background-power'
   | 'route-layer-inspector'
   // AI
   | 'mavi-console' | 'mavi-reasoning-engine' | 'ai-mechanic' | 'action-registry'
@@ -331,6 +332,12 @@ export const CAROS_LAB_TOOLS: readonly CarosLabTool[] = Object.freeze([
     desc: 'Arabam Cebimde Tema Stüdyo\'sundan gelen TEMA MANİFESTİ\'nin (schemaVersion 2) araç tarafındaki salt-okunur gözlemi: son uygulanan tema/sürüm/şema/kaynak ve zamanı · uygulanan CSS değişkeni, bileşen ve ekran override adedi · üretilen CSS boyutu ve DOM\'daki stil etiketinin varlığı · fail-closed kapısında REDDEDİLEN paket sayısı ve son red sebebi · kayıt defterindeki düzenlenebilir bileşen sayısı ile o an ekranda gerçekten bulunan `data-editable` düğüm sayısı · önizleme seçim modunun durumu · tema başına saklanan manifest listesi ve deponun okunabilirliği.',
     status: 'AVAILABLE', layer: null,
     note: 'Hiçbir şey UYGULAMAZ/GÖNDERMEZ: tema değiştirmez, manifest yazmaz/siler, önizleme köprüsünü tetiklemez, depoya yazmaz, ağ çağrısı yapmaz — açılışta tek okuma + elle YENİLE. Manifest İÇERİĞİ TAŞINMAZ: renk değerleri, üretilen CSS metni ve kullanıcının verdiği tema adı gösterilmez; yalnız SAYI, DURUM ve ZAMAN. DÜRÜSTLÜK: "manifest uygulandı" ile "görünüm değişti" ayrı hükümlerdir (içi boş manifest de başarıyla uygulanır ve ekranı değiştirmez); uygulama sayaçları OTURUM İÇİdir; DOM sayımı yalnız o an çizili ekranı ölçer, kapalı çekmecedeki bileşenler görünmez. Gerçek araç doğrulaması YAPILMADI.',
+  },
+  {
+    id: 'background-power', category: 'runtime', name: 'Arka Plan Gücü',
+    desc: 'Güç kapısının girdileri, kararı ve servislerin GERÇEK hâli yan yana; karar↔gerçek çelişkisi.',
+    status: 'AVAILABLE', layer: 'backgroundPowerGate',
+    note: null,
   },
   /* ── AI ──────────────────────────────────────────────────────────────── */
   {

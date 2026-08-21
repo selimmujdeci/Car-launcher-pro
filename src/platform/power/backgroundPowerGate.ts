@@ -41,6 +41,16 @@ let _navigationActive = false;
 
 /** Son UYGULANAN karar — aynı karar tekrar uygulanmaz (donanım thrash'i yok). */
 let _lastApplied: BackgroundPowerDecision | null = null;
+/**
+ * Son kararın UYGULANDIĞI an (Unix ms). `null` = hiç uygulanmadı.
+ *
+ * Neden var: tanı ekranında "karar var ama ne zamandan beri?" sorusu kanıtsız
+ * kalıyordu. Damgasız alan için yaş HESAPLANAMAZ (sahte tarih yasağı) — bu yüzden
+ * damga ÜRETİLİR, uydurulmaz. Timer DEĞİLDİR: yalnız uygulama anında yazılır.
+ */
+let _lastAppliedAt: number | null = null;
+/** Kaç kez FARKLI karar uygulandı — sahada "kapı hiç kımıldamadı" ayrımı için. */
+let _appliedCount = 0;
 
 let _started = false;
 
@@ -92,6 +102,8 @@ export function reevaluateBackgroundPower(): void {
   const decision = decideBackgroundPower(_inputs());
   if (isSameDecision(_lastApplied, decision)) return;
   _lastApplied = decision;
+  _lastAppliedAt = Date.now();
+  _appliedCount++;
 
   try {
     void applyGpsPowerMode(decision.gps);
@@ -119,10 +131,20 @@ export interface BackgroundPowerSnapshot {
   readonly started: boolean;
   readonly inputs: BackgroundPowerInputs;
   readonly lastApplied: BackgroundPowerDecision | null;
+  /** Son kararın uygulandığı an (Unix ms) — `null` = hiç uygulanmadı (yaş HESAPLANMAZ). */
+  readonly lastAppliedAt: number | null;
+  /** Kaç kez farklı karar uygulandı. 0 = kapı hiç kımıldamadı. */
+  readonly appliedCount: number;
 }
 
 export function getBackgroundPowerSnapshot(): BackgroundPowerSnapshot {
-  return { started: _started, inputs: _inputs(), lastApplied: _lastApplied };
+  return {
+    started: _started,
+    inputs: _inputs(),
+    lastApplied: _lastApplied,
+    lastAppliedAt: _lastAppliedAt,
+    appliedCount: _appliedCount,
+  };
 }
 
 /**
@@ -196,6 +218,7 @@ export function startBackgroundPowerGate(): () => void {
     try { void applyGpsPowerMode('high'); } catch { /* ignore */ }
     try { resumeWakeWordForPower(); } catch { /* ignore */ }
     _lastApplied = null;
+    _lastAppliedAt = null;
     _appActive = null;
     _externalPower = null;
     _navigationActive = false;
@@ -206,6 +229,8 @@ export function startBackgroundPowerGate(): () => void {
 export function _resetBackgroundPowerGateForTest(): void {
   _started = false;
   _lastApplied = null;
+  _lastAppliedAt = null;
+  _appliedCount = 0;
   _appActive = null;
   _externalPower = null;
   _navigationActive = false;

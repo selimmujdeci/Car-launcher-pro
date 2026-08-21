@@ -60,6 +60,8 @@ const PhoneHubFieldValidationScreen = lazyWithRetry(() =>
   import('./screens/PhoneHubFieldValidationScreen').then((m) => ({ default: m.PhoneHubFieldValidationScreen })));
 const PhoneHubLinkScreen = lazyWithRetry(() =>
   import('./screens/PhoneHubLinkScreen').then((m) => ({ default: m.PhoneHubLinkScreen })));
+const BackgroundPowerScreen = lazyWithRetry(() =>
+  import('./screens/BackgroundPowerScreen').then((m) => ({ default: m.BackgroundPowerScreen })));
 const SignalAuthorityScreen = lazyWithRetry(() =>
   import('./screens/SignalAuthorityScreen').then((m) => ({ default: m.SignalAuthorityScreen })));
 const AdapterDiagnosticsScreen = lazyWithRetry(() =>
@@ -128,6 +130,7 @@ export function renderAvailableTool(id: CarosLabToolId): ReactElement | null {
     case 'kwp-monitor':        return <KwpMonitorScreen />;
     case 'vehicle-fingerprint': return <VehicleFingerprintScreen />;
     case 'signal-authority': return <SignalAuthorityScreen />;
+    case 'background-power': return <BackgroundPowerScreen />;
     case 'adapter-diagnostics': return <AdapterDiagnosticsScreen />;
     case 'phone-hub-probe':    return <PhoneHubProbeScreen />;
     case 'phone-hub-field-validation': return <PhoneHubFieldValidationScreen />;
