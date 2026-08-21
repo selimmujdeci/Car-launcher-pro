@@ -295,6 +295,49 @@ public class CarLauncherPlugin extends Plugin {
         });
     }
 
+    /* ── Gelen konum paylaşımı (geo: / harita bağlantısı) ──────────────────
+     *
+     * SAHA KUSURU (2026-08-21): WhatsApp'tan gelen konuma basınca Android
+     * seçicisinde CarOS Pro HİÇ çıkmıyordu (manifest'te filtre yoktu). Filtre
+     * eklendi; bu köprü de gelen URI'yi JS'e taşır.
+     *
+     * BEKLEYEN URI NEDEN VAR: soğuk açılışta intent, WebView ve JS dinleyicisi
+     * hazır olmadan gelir — `notifyListeners` o anda BOŞLUĞA düşer. Bu yüzden
+     * URI ayrıca saklanır ve JS boot'ta `consumePendingLocation()` ile alır.
+     * İkisi birden çalışırsa JS tarafındaki 4 sn'lik aynı-hedef koruması
+     * ikinci tetiği yutar (çift rota kurulmaz).
+     */
+    private static volatile String _pendingLocationUri = null;
+
+    /** MainActivity tarafından çağrılır (onCreate + onNewIntent). */
+    public static void broadcastIncomingLocation(String uri) {
+        if (uri == null || uri.isEmpty()) return;
+        _pendingLocationUri = uri;
+        final CarLauncherPlugin inst = _instance;
+        if (inst == null) return;                 // soğuk açılış → yalnız beklet
+        inst.mainHandler.post(() -> {
+            try {
+                JSObject data = new JSObject();
+                data.put("uri", uri);
+                inst.notifyListeners("incomingLocation", data);
+            } catch (Exception ignored) { /* plugin unmounted */ }
+        });
+    }
+
+    /**
+     * Bekleyen konum URI'sini alır ve KUYRUĞU BOŞALTIR (tek seferlik teslim).
+     * Boş string = bekleyen yok — `null` DÖNDÜRÜLMEZ (JS'te "okunamadı" ile
+     * "yok" karışmasın).
+     */
+    @PluginMethod
+    public void consumePendingLocation(PluginCall call) {
+        JSObject r = new JSObject();
+        String uri = _pendingLocationUri;
+        _pendingLocationUri = null;
+        r.put("uri", uri == null ? "" : uri);
+        call.resolve(r);
+    }
+
     // Plugin da kendi Activity'sinden onTrimMemory alabilir — çift güvence.
     // ⚠️ Eşleştirme MainActivity.onTrimMemory ile BİREBİR AYNI olmalı (kütük #604):
     // TRIM_MEMORY_* monoton bir şiddet ölçeği DEĞİLDİR; >= UI_HIDDEN(20) olanlar

@@ -1437,6 +1437,21 @@ export interface CarLauncherPlugin {
     event: 'memoryPressure',
     handler: (data: { level?: string }) => void,
   ): Promise<PluginListenerHandle>;
+
+  /**
+   * Başka bir uygulamadan paylaşılan konum (WhatsApp/Telegram `geo:`, harita
+   * bağlantısı). Ham URI taşınır; ayrıştırma JS'teki saf `geoUriParser`ın işidir.
+   */
+  addListener(
+    event: 'incomingLocation',
+    handler: (data: { uri?: string }) => void,
+  ): Promise<PluginListenerHandle>;
+
+  /**
+   * Soğuk açılışta bekleyen konum URI'sini alır ve kuyruğu BOŞALTIR.
+   * `uri: ''` = bekleyen yok (`null` DÖNMEZ — "yok" ile "okunamadı" karışmasın).
+   */
+  consumePendingLocation(): Promise<{ uri: string }>;
 }
 
 export interface CanData {

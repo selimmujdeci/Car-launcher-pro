@@ -15,6 +15,7 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.BatteryManager;
+import java.util.Locale;
 import android.os.PowerManager;
 import android.provider.Settings;
 import android.content.ComponentCallbacks2;
@@ -240,6 +241,10 @@ public class MainActivity extends BridgeActivity {
 
         WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
         applyImmersive();
+
+        // Soğuk açılış: uygulama BU intent ile başlatılmış olabilir (WhatsApp
+        // konumu). JS henüz dinlemiyor → köprü URI'yi bekletir, boot'ta alınır.
+        handleIncomingLocationIntent(getIntent());
 
         // ── İzin launcher ──
         permissionLauncher = registerForActivityResult(
@@ -471,6 +476,50 @@ public class MainActivity extends BridgeActivity {
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
         setIntent(intent);
+        handleIncomingLocationIntent(intent);
+    }
+
+    /* ── Gelen konum paylaşımı ────────────────────────────────────────────
+     *
+     * SAHA KUSURU (2026-08-21, kullanıcı bildirdi): WhatsApp'tan gelen konuma
+     * basınca Android "hangi uygulamayla açılsın" diye soruyor ama listede
+     * CarOS Pro YOKTU — manifest'te `geo:` filtresi hiç yazılmamıştı. Filtre
+     * eklendi; burası da gelen URI'yi JS'e taşır.
+     *
+     * BURADA AYRIŞTIRMA YAPILMAZ (bilinçli): `geo:`/`google.navigation:`/harita
+     * bağlantısı biçimleri çok çeşitli ve değişken. Ayrıştırma JS tarafındaki
+     * saf `geoUriParser`'a bırakıldı — orada birim testi yazılabiliyor.
+     * Java yalnız "bu bir konum mu" sorusunu yanıtlar ve ham URI'yi iletir.
+     */
+    private void handleIncomingLocationIntent(Intent intent) {
+        try {
+            if (intent == null) return;
+            if (!Intent.ACTION_VIEW.equals(intent.getAction())) return;
+            Uri data = intent.getData();
+            if (data == null) return;
+
+            String scheme = data.getScheme();
+            if (scheme == null) return;
+            scheme = scheme.toLowerCase(Locale.ROOT);
+
+            boolean isLocation =
+                "geo".equals(scheme) || "google.navigation".equals(scheme);
+
+            if (!isLocation && ("http".equals(scheme) || "https".equals(scheme))) {
+                String host = data.getHost();
+                if (host != null) {
+                    host = host.toLowerCase(Locale.ROOT);
+                    isLocation = host.contains("maps.google.") || host.contains("goo.gl")
+                              || host.contains("google.") || host.contains("yandex.");
+                }
+            }
+            if (!isLocation) return;
+
+            CarLauncherPlugin.broadcastIncomingLocation(data.toString());
+            Log.d("MainActivity", "Gelen konum URI'si JS'e iletildi: " + scheme);
+        } catch (Throwable t) {
+            Log.w("MainActivity", "Gelen konum işlenemedi: " + t.getMessage());
+        }
     }
 
     @Override

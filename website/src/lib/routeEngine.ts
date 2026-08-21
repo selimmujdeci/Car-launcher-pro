@@ -119,7 +119,7 @@ export async function sendRoute(opts: SendRouteOptions): Promise<{
     lat,
     lng,
     addressName,
-    provider = 'google_maps',
+    provider = 'caros',        // varsayılan: aracın KENDİ navigasyonu
     onStatus,
   } = opts;
 

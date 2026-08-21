@@ -41,6 +41,8 @@ import fcmServiceSrc from '../platform/fcmService.ts?raw';
 import wakeWordServiceSrc from '../platform/wakeWordService.ts?raw';
 import navGpsPowerBridgeSrc from '../platform/navigation/navGpsPowerBridge.ts?raw';
 import backgroundPowerGateSrc from '../platform/power/backgroundPowerGate.ts?raw';
+import commandListenerSrcNav from '../platform/commandListener.ts?raw';
+import handoffGateSrc from '../platform/navigation/destinationHandoff.ts?raw';
 import obdServiceSrc from '../platform/obdService.ts?raw';
 import blackBoxServiceSrc from '../platform/security/blackBoxService.ts?raw';
 import systemBootSrc from '../platform/system/SystemBoot.ts?raw';
@@ -7049,6 +7051,84 @@ describe('#647 Uzak komut yolu — cihaz kimligi (api_key) kilidi', () => {
       .toMatch(/export function stopCommandListener\(force = false\)[\s\S]{0,200}if \(_permanent && !force\) return;/);
     expect(fcmServiceSrc, 'fcmService canli dinleyiciyi yeniden kuruyor — baglanti ve dedup kumesi sifirlanir')
       .toMatch(/if \(isCommandListenerActive\(\)\)\s*\{[\s\S]{0,200}triggerPendingPoll\(\);/);
+  });
+});
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * PAYLAŞILAN HEDEF — "araca gönder" ve WhatsApp konumu (saha 2026-08-21)
+ *
+ * Kullanıcı iki kusur bildirdi:
+ *  ① "Arabam Cebimde" → Araca Gönder → araçta GOOGLE MAPS açılıyordu; aracın
+ *     kendi navigasyonu bu yoldan HİÇ çağrılmıyordu.
+ *  ② WhatsApp konumuna basınca Android seçicisinde CarOS Pro ÇIKMIYORDU —
+ *     manifest'te `geo:` intent-filter'ı hiç yazılmamıştı.
+ * Bu kilitler ikisinin de sessizce geri gelmesini engeller.
+ * ═══════════════════════════════════════════════════════════════════════════ */
+describe('REGRESYON: paylaşılan hedef aracın KENDİ navigasyonunda açılır', () => {
+  it('YAPISAL: uzak rota komutu hedef kapısına gider (harici uygulamaya değil)', () => {
+    expect(commandListenerSrcNav, 'handoff kapısı kaldırılmış — rota yine dışarı çıkar')
+      .toMatch(/acceptHandoffDestination\(/);
+    /* Eski kök: `route.provider_intent ?? 'google_maps'` — hiçbir şey seçilmese
+       bile harici uygulama açılıyordu. */
+    expect(commandListenerSrcNav.includes("provider_intent ?? 'google_maps'"),
+      'varsayılan sağlayıcı yine Google Maps — kusurun kökü geri gelmiş').toBe(false);
+    expect(commandListenerSrcNav, 'harici sağlayıcı beyaz listesi kaldırılmış')
+      .toMatch(/EXTERNAL\.has\(provider\)/);
+  });
+
+  it('YAPISAL: hedef kapısı harici harita uygulaması AÇMAZ', () => {
+    const code = handoffGateSrc
+      .split('\n')
+      .filter((line) => !/^\s*(\/\/|\*|\/\*)/.test(line))
+      .join('\n');
+    expect(code.includes('window.open'),
+      'hedef kapısı harici uygulama açıyor — tek kapı sözleşmesi kırılmış').toBe(false);
+    expect(code.includes('buildNavIntent'),
+      'hedef kapısı geo: intent üretiyor — dışarı çıkış yolu açılmış').toBe(false);
+    expect(handoffGateSrc, 'sahiplik USER_HANDOFF değil — aktif oturumda sessizce engellenir')
+      .toMatch(/'USER_HANDOFF'/);
+  });
+
+  it('YAPISAL: AndroidManifest geo: paylaşımını KABUL EDER', () => {
+    /* Bu filtre olmadan CarOS Pro "hangi uygulamayla açılsın" listesinde
+       HİÇ GÖRÜNMEZ — kullanıcının bildirdiği kusurun tam kökü budur. */
+    const manifest = readFileSync(
+      resolve(__dirname, '../../android/app/src/main/AndroidManifest.xml'),
+      'utf8',
+    );
+    expect(manifest, 'geo: şeması kaldırılmış — konum paylaşımında uygulama listede çıkmaz')
+      .toMatch(/android:scheme="geo"/);
+    expect(manifest, 'google.navigation şeması kaldırılmış')
+      .toMatch(/android:scheme="google\.navigation"/);
+    /* Genel http/https filtresi KONMAMALI: launcher tüm web bağlantılarını
+       üstlenirse kullanıcının tarayıcı seçimi gasp edilir. */
+    expect(manifest.includes('<data android:scheme="https" />'),
+      'kapsamsız https filtresi eklenmiş — launcher tüm bağlantıları üstlenir').toBe(false);
+  });
+
+  it('YAPISAL: MainActivity gelen konumu JS tarafina iletir (soguk acilis dahil)', () => {
+    const mainActivity = readFileSync(
+      resolve(__dirname, '../../android/app/src/main/java/com/cockpitos/pro/MainActivity.java'),
+      'utf8',
+    );
+    expect(mainActivity, 'konum intent işleyicisi kaldırılmış')
+      .toMatch(/private void handleIncomingLocationIntent\(/);
+    /* İKİ giriş de gerekli: onNewIntent (uygulama açıkken) ve onCreate (soğuk açılış). */
+    expect(mainActivity, 'onNewIntent konumu işlemiyor — uygulama açıkken paylaşım düşer')
+      .toMatch(/onNewIntent\(Intent intent\)[\s\S]{0,220}handleIncomingLocationIntent\(intent\)/);
+    expect(mainActivity, 'soğuk açılışta gelen intent işlenmiyor')
+      .toMatch(/handleIncomingLocationIntent\(getIntent\(\)\)/);
+  });
+
+  it('YAPISAL: telefon uygulamasında CarOS Pro bir SEÇENEK ve VARSAYILAN', () => {
+    const pwa = readFileSync(
+      resolve(__dirname, '../../website/src/components/dashboard/MobileCarControl.tsx'),
+      'utf8',
+    );
+    expect(pwa, "CarOS Pro sağlayıcı seçeneği kaldırılmış — kullanıcı kendi navigasyonunu seçemez")
+      .toMatch(/id: 'caros'/);
+    expect(pwa, 'varsayılan sağlayıcı yine harici — "Araca Gönder" dışarı çıkar')
+      .toMatch(/useState<NavProvider>\('caros'\)/);
   });
 });
 

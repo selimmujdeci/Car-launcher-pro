@@ -234,7 +234,15 @@ function CommandToast({ result }: { result: CommandResult }) {
 
 /* ── Provider pill ──────────────────────────────────────────────────────────── */
 
+/**
+ * Rota nerede açılsın.
+ *
+ * `caros` İLK ve VARSAYILANDIR: kullanıcı "Araca Gönder" derken aracın kendi
+ * navigasyonunu kastediyor. Eskiden bu bir seçenek DEĞİLDİ ve varsayılan
+ * `google_maps` olduğu için rota her zaman harici uygulamada açılıyordu.
+ */
 const PROVIDERS: { id: NavProvider; label: string; color: string }[] = [
+  { id: 'caros',       label: 'CarOS Pro',   color: '#22d3ee' },
   { id: 'google_maps', label: 'Google Maps', color: '#4285F4' },
   { id: 'waze',        label: 'Waze',        color: '#33CCFF' },
   { id: 'yandex',      label: 'Yandex',      color: '#FC3F1D' },
@@ -309,7 +317,7 @@ function NavPanel({
   busy: boolean;
 }) {
   const [step,     setStep]     = useState<NavStep>('closed');
-  const [provider, setProvider] = useState<NavProvider>('google_maps');
+  const [provider, setProvider] = useState<NavProvider>('caros');
   const [query,    setQuery]    = useState('');
   const [results,  setResults]  = useState<GeoResult[]>([]);
   const [selected, setSelected] = useState<GeoResult | null>(null);

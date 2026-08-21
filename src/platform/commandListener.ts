@@ -38,6 +38,9 @@ function currentCarThemeBase(): ThemeBaseId {
 
 // buildNavIntent — website/ fork bağımlılığından koparıldı; ana app içinde (navIntent.ts).
 import { buildNavIntent } from './navIntent';
+import {
+  acceptHandoffDestination, recordHandoffOutcome,
+} from './navigation/destinationHandoff';
 
 // ── Supabase client — statik import (dynamic import INEFFECTIVE_DYNAMIC_IMPORT uyarısını tetikler)
 // remoteCommandService ve weatherService zaten statik import yaptığı için
@@ -404,23 +407,104 @@ async function executeCommand(cmd: VehicleCommand): Promise<ExecResult> {
 
       case 'route_send':
       case 'navigation_start': {
+        /* SAHA KUSURU (2026-08-21, kullanıcı bildirdi — kütük #694):
+         *
+         * Burası telefondan gelen rotayı HER ZAMAN harici uygulamaya
+         * gönderiyordu: `buildNavIntent()` bir `geo:` URI üretiyor,
+         * `window.open` Android seçicisini açıyor ve **Google Maps** rotayı
+         * çiziyordu. Aracın kendi rota motoru (`navigationService`) bu yoldan
+         * HİÇ çağrılmadı — üstelik varsayılan `provider_intent` de
+         * `'google_maps'` idi, yani hiçbir şey seçilmese bile dışarı çıkıyordu.
+         *
+         * ARTIK: varsayılan KENDİ NAVİGASYONUMUZ. Harici sağlayıcıya yalnız
+         * kullanıcı telefonda AÇIKÇA onu seçmişse gidilir. Bilinmeyen/eksik
+         * sağlayıcı da kendi haritamıza düşer (fail-safe: dışarı çıkmak
+         * geri alınamaz, içeride kalmak alınabilir).
+         */
         const route = (payload.route ?? payload) as {
           lat: number; lng: number;
           address_name?: string;
           provider_intent?: string;
         };
-        const lat  = Number(route.lat);
-        const lng  = Number(route.lng);
-        if (!Number.isFinite(lat) || lat < -90 || lat > 90 ||
-            !Number.isFinite(lng) || lng < -180 || lng > 180) {
-          console.error('[CmdListener] Geçersiz koordinat:', lat, lng);
-          return { outcome: 'failed' };
+
+        const provider = String(route.provider_intent ?? '').trim().toLowerCase();
+        const EXTERNAL = new Set(['google_maps', 'yandex', 'waze', 'apple_maps']);
+
+        if (EXTERNAL.has(provider)) {
+          const lat = Number(route.lat);
+          const lng = Number(route.lng);
+          if (!Number.isFinite(lat) || lat < -90 || lat > 90 ||
+              !Number.isFinite(lng) || lng < -180 || lng > 180) {
+            console.error('[CmdListener] Geçersiz koordinat:', lat, lng);
+            return { outcome: 'failed', reason: 'Geçersiz koordinat' };
+          }
+          const intentUri = buildNavIntent(lat, lng, route.address_name ?? '',
+            provider as 'google_maps' | 'yandex' | 'waze' | 'apple_maps');
+          window.open(intentUri, '_blank');
+          return { outcome: 'completed', result: { provider, target: 'external_app' } };
         }
-        const intentUri = buildNavIntent(lat, lng, route.address_name ?? '',
-          (route.provider_intent ?? 'google_maps') as 'google_maps' | 'yandex' | 'waze' | 'apple_maps');
-        // Android'de intent URI'yi window.open ile aç
-        window.open(intentUri, '_blank');
-        return { outcome: 'completed' };
+
+        /* KOORDİNATSIZ ROTA (dashboard `RemoteCommandPanel` yolu): yalnız adres
+           METNİ gönderiliyor (`{ route: { address_name } }`). Eskiden bu yük
+           `geo:NaN,NaN` üretiyordu — telefon "iletildi" derken araçta hiçbir
+           şey olmuyordu. Metin varsa mevcut adres çözümleme yolu kullanılır;
+           yeni geocoder/rota motoru KURULMAZ. */
+        const labelText = String(route.address_name ?? '').trim();
+        const hasCoords = Number.isFinite(Number(route.lat)) && Number.isFinite(Number(route.lng));
+        if (!hasCoords && labelText.length > 0) {
+          void (async () => {
+            try {
+              const [{ resolveAndNavigate }, { getGPSState }] = await Promise.all([
+                import('./addressNavigationEngine'),
+                import('./gpsService'),
+              ]);
+              const gps = getGPSState().location;
+              resolveAndNavigate(
+                labelText,
+                gps ? { lat: gps.latitude, lng: gps.longitude } : undefined,
+              );
+            } catch (e) {
+              console.error('[CmdListener] Adres çözümleme yolu düştü:', e);
+            }
+          })();
+          /* `completed` = "araç adresi ÇÖZMEYE BAŞLADI" — rota kuruldu demek
+             DEĞİLDİR ve öyle de yazılmaz (sonuç alanı bunu açıkça söyler). */
+          return {
+            outcome: 'completed',
+            result: { target: 'caros_nav', mode: 'address_lookup', query: labelText },
+          };
+        }
+
+        /* Kendi navigasyonumuz — TEK merkezi kapı (geo: intent yolu ile AYNI). */
+        const outcome = acceptHandoffDestination({
+          lat: Number(route.lat),
+          lng: Number(route.lng),
+          label: route.address_name ?? null,
+          channel: 'REMOTE_COMMAND',
+        });
+        recordHandoffOutcome(outcome, 'REMOTE_COMMAND');
+
+        if (!outcome.ok) {
+          /* Sessiz "completed" YASAK: telefon "iletildi" derken araçta hiçbir
+             şey olmaması, kapatmaya çalıştığımız yalanın ta kendisidir. */
+          console.error('[CmdListener] Rota reddedildi:', outcome.reason);
+          return {
+            outcome: outcome.reason === 'debounced' ? 'completed' : 'failed',
+            reason: outcome.reason === 'debounced'
+              ? undefined
+              : `Rota kurulamadı: ${outcome.reason}`,
+            result: { target: 'caros_nav', handoff: outcome.reason },
+          };
+        }
+
+        return {
+          outcome: 'completed',
+          result: {
+            target: 'caros_nav',
+            destination: outcome.destination.name,
+            startedAt: new Date().toISOString(),
+          },
+        };
       }
 
       case 'theme_change': {

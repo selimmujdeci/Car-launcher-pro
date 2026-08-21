@@ -51,7 +51,17 @@ export interface RoutePayload {
   lat:             number;
   lng:             number;
   address_name:    string;
-  provider_intent: 'google_maps' | 'yandex' | 'waze' | 'apple_maps';
+  /**
+   * Rotanın araçta NEREDE açılacağı.
+   *
+   * `'caros'` = aracın KENDİ navigasyonu (varsayılan). Diğerleri aracın
+   * üzerindeki harici uygulamayı açar.
+   *
+   * SAHA KUSURU (2026-08-21): bu alan yalnız harici uygulama adlarını
+   * taşıyordu ve varsayılanı `'google_maps'`ti → "Araca Gönder" her zaman
+   * Google Maps'i açıyordu; aracın kendi navigasyonu bir SEÇENEK BİLE değildi.
+   */
+  provider_intent: 'caros' | 'google_maps' | 'yandex' | 'waze' | 'apple_maps';
 }
 
 export interface CommandPayload {

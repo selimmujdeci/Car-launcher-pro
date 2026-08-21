@@ -96,6 +96,7 @@ import { initCommunityService, stopCommunityService } from '../communityService'
 import { stopVoiceService }        from '../voiceService';
 import { startWakeWordService, notifyVoskModelReady } from '../wakeWordService';
 import { startBackgroundPowerGate } from '../power/backgroundPowerGate';
+import { startIncomingLocationBridge } from '../navigation/incomingLocationBridge';
 import { startMaviVoiceWiring } from './platformCoreMaviVoiceWiring';
 import {
   startCompanionEngine,
@@ -1036,6 +1037,12 @@ class SystemBoot {
     // Head unit etkilenmez: harici güç varken kapı kısma kararı üretmez.
     _log('  › BackgroundPowerGate');
     this._reg(startBackgroundPowerGate());
+
+    // IncomingLocationBridge: WhatsApp/Telegram gibi uygulamalardan paylaşılan
+    // konum (geo: / harita bağlantısı) aracın KENDİ navigasyonunda açılır.
+    // Kurulmazsa ürün davranışı eskisi gibi kalır (fail-soft).
+    _log('  › IncomingLocationBridge');
+    this._reg(startIncomingLocationBridge());
 
     // Mavi Çekirdeği Faz-2 wiring (SHADOW/coexistence). WakeWordService + VoiceService'ten SONRA
     // kaydedilir → LIFO shutdown'da bunlardan ÖNCE dispose olur (köprü kapanırken voiceService

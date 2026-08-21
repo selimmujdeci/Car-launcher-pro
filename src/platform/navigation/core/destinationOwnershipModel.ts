@@ -27,6 +27,20 @@ export type DestinationSource =
   | 'USER_MAP'           // haritada uzun basış
   | 'USER_VOICE'         // sesli komut / Mavi
   | 'USER_QUICK'         // ev/iş/benzinlik gibi hızlı hedefler
+  /**
+   * Kullanıcının BAŞKA BİR YÜZEYDEN araca devrettiği hedef: telefondaki
+   * "Arabam Cebimde" uygulamasından "Araca Gönder" ya da WhatsApp/harita
+   * uygulamasından gelen `geo:` paylaşımı.
+   *
+   * NEDEN KULLANICI KAYNAĞI: bu hedefi bir insan seçip GÖNDERDİ — sistemin
+   * kendi türettiği bir hedef değil. `SYSTEM` sayılsaydı aktif oturum sürerken
+   * SESSİZCE engellenirdi (`UNOWNED_CHANGE_DURING_SESSION`): kullanıcı telefondan
+   * rota gönderir, araçta hiçbir şey olmazdı.
+   *
+   * NEDEN AYRI DEĞER: `USER_SEARCH`e katsaydık defterde hedefin araç dışından
+   * geldiği kaybolurdu — sahada "bu rotayı kim koydu" sorusunun tek yanıtı budur.
+   */
+  | 'USER_HANDOFF'
   | 'SESSION_RESTORE'    // çökme/yeniden başlatma sonrası aynı yolculuğun devamı
   | 'SYSTEM';            // yukarıdakilerin hiçbiri — sahipsiz
 
@@ -51,7 +65,7 @@ export interface DestinationChange {
 
 /** Kullanıcı iradesi taşıyan kaynaklar. */
 const USER_SOURCES: ReadonlySet<DestinationSource> = new Set([
-  'USER_SEARCH', 'USER_MAP', 'USER_VOICE', 'USER_QUICK',
+  'USER_SEARCH', 'USER_MAP', 'USER_VOICE', 'USER_QUICK', 'USER_HANDOFF',
 ]);
 
 export function isUserSource(s: DestinationSource): boolean {
