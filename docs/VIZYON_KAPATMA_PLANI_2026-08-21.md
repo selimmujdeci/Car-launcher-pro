@@ -613,20 +613,69 @@ belgesindeki Deep Scan bölümü gerçeği anlatır.
 
 ---
 
-## ⬜ V-11 — Driver DNA besleme köprüsünü kur
+## ⬜ V-11 — Driver DNA: **GEREKÇE DÜZELTİLDİ (2026-08-21, PROD'DA ÖLÇÜLDÜ)**
 
-**BULGU:** 689 satır motor + SQL tablosu + LAB ekranı hazır — **veri hiç akmıyor**.
+> ⚠️ **BU MADDENİN ESKİ HÂLİ YANLIŞTI.** Eski metin *"689 satır motor hazır, veri hiç
+> akmıyor → `tripLogService` → `accumulateTrip()` köprüsü kur"* diyordu. Prod ölçümü
+> bunu ÇÜRÜTTÜ. Eski öneri uygulansaydı **İKİNCİ OTORİTE** doğardı: aynı DNA hem
+> cihazda hem sunucuda hesaplanır, ikisi kaçınılmaz olarak ayrışırdı.
 
-**KANIT:** `grep -rn 'accumulateTrip\|driverDnaStore\|buildDna(' src` (test hariç) →
-yalnız `fleet/driverDnaEngine.ts`'in kendisi. Tek okuyucu `FleetDriverDnaScreen.tsx` (LAB).
-Migration `20260731000053_driver_dna_p1.sql` mevcut.
+**ÖLÇÜLEN GERÇEK (prod `Carospro`, `supabase db query --linked`, 2026-08-21):**
 
-**YAPILACAK:** `tripLogService` → `accumulateTrip()` köprüsü (cold-path, yolculuk bitiminde).
-`TripSignal` kaynak etiketleri (`MEASURED · DERIVED · ESTIMATED · UNAVAILABLE`) korunur —
-ölçülmemiş sinyal **ESTIMATED diye sunulmaz**.
+| Sorgu | Sonuç |
+|---|---|
+| `vehicle_trips` satırı | **31** (18–21 Ağustos) |
+| `distance_km` dolu | **31/31** |
+| `driver_id` dolu | **0** |
+| `driver_attribution_status` | **31/31 `UNKNOWN`** |
+| `vehicle_driver_assignments` satırı | **0** |
+| `driver_dna` satırı | **0** |
 
-**KABUL ÖLÇÜTÜ:** 3 gerçek yolculuk sonrası LAB · Driver DNA ekranında `dnaAgeMs` güncel,
-`computeDnaConfidence` > 0, metrikler kaynak etiketleriyle görünür.
+**BESLEME KÖPRÜSÜ ZATEN VAR VE ÇALIŞIYOR — SUNUCUDA.** Zincir şudur:
+
+```
+head unit  →  upload_vehicle_trip        (distance_km · harsh_brake_count · harsh_accel_count)
+           →  vehicle_trips satırı
+           →  _trip_attribution_trigger  (sürücüyü belirler)
+           →  trg_driver_dna → _dna_apply_trip   (DNA birikir)
+```
+
+`upload_vehicle_trip` (migration 047, satır 274/323) tetikleyicinin İZLEDİĞİ kolonları
+zaten yazıyor ve `startTripUpload()` SystemBoot'ta bağlı. Yani "veri hiç akmıyor"
+iddiası yanlıştı: **veri akıyor, 31 satır var.**
+
+**ZİNCİR İLK HALKADA KOPUYOR — SÜRÜCÜ HİÇ ATANMAMIŞ.** `vehicle_driver_assignments`
+boş olduğu için: `get_active_driver_assignment` "atama yok" döner → her yolculuk
+`UNKNOWN` olarak damgalanır → DNA tetikleyicisinin bağlayacağı sürücü yoktur → 0 DNA.
+
+**BU BİR KOD KUSURU DEĞİL, EKSİK VERİ:** üretimde hiç filo sürücüsü oluşturulmamış
+(`create_fleet_driver`) ve hiçbir araca atanmamış (`create_vehicle_driver_assignment`).
+İkisi de **yönetici paneli** eylemidir; head unit bunları BİLİNÇLİ olarak yapamaz
+(güvenli kimlik doğrulama yok → "kim olduğunu iddia eden herkes o kişi sayılır").
+
+**HEAD UNIT YARISI BU TURDA BAĞLANDI:** `fleetReadbackService` (kütük #691) trip
+başlangıcında `get_active_driver_assignment` çağırıyor. Atama oluşturulana kadar
+dürüstçe `NO_ASSIGNMENT` raporlayacaktır — bu doğru davranıştır.
+
+**OKUMA UCU AYRI BİR SORU (yetki):** `get_driver_dna` GRANT'i **`authenticated`**tır;
+head unit'in kullanıcı oturumu yoktur. `anon`'a açmak bir sürücünün sürüş karakterini
+araçtaki herkese verirdi — **açılmadı** (bkz. `fleetScopeModel`, kütük #691).
+
+**YAPILACAK (yeni sıra):**
+1. Yönetici panelinden **bir sürücü oluştur + araca ata** (`create_fleet_driver` →
+   `create_vehicle_driver_assignment`). Kod işi DEĞİL, veri işi.
+2. Bir yolculuk yap; `vehicle_trips.driver_id` doluyor mu ÖLÇ.
+3. `driver_dna` satırı oluştu mu ÖLÇ (`trip_count` > 0).
+4. **Ancak bundan sonra** "head unit DNA'yı görmeli mi" kararını ver — görmeliyse
+   cihaz-yetkili bir okuma RPC'si + RLS incelemesi gerekir; görmeyecekse LAB ekranı
+   zaten kapsamı dürüstçe beyan ediyor.
+
+**KABUL ÖLÇÜTÜ (güncellendi):** Adım 1'den sonra 3 gerçek yolculukta
+`driver_attribution_status` artık `UNKNOWN` DEĞİL; `driver_dna.trip_count = 3` ve
+güven > 0. LAB · Driver DNA ekranı ancak okuma ucu kararı verilirse dolar.
+
+**YAPILMAYACAK:** `accumulateTrip()` / `buildDna()` head unit'te ÇAĞRILMAYACAK —
+sunucu zaten hesaplıyor; ikinci hesap ikinci otoritedir.
 
 ---
 
