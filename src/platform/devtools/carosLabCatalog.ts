@@ -54,7 +54,7 @@ export const CAROS_LAB_STATUS_LABEL: Readonly<Record<CarosLabToolStatus, string>
 
 export type CarosLabToolId =
   // Vehicle
-  | 'live-data' | 'pid-did-explorer' | 'signal-authority' | 'fleet-connectivity' | 'trip-engine' | 'trip-cost'
+  | 'live-data' | 'pid-did-explorer' | 'signal-authority' | 'fleet-kb' | 'fleet-connectivity' | 'trip-engine' | 'trip-cost'
   | 'location-engine' | 'navigation-core' | 'address-search-evidence' | 'enforcement-points'
   | 'remote-command'
   | 'fleet-identity' | 'fleet-driver-identity' | 'fleet-presence-history'
@@ -113,6 +113,12 @@ export const CAROS_LAB_TOOLS: readonly CarosLabTool[] = Object.freeze([
     id: 'signal-authority', category: 'vehicle', name: 'Sinyal Otoritesi',
     desc: 'signalHub zarfları: değer + durum (geçerli/bayat/şüpheli/veri yok/desteklenmiyor) + tazelik + güven + kaynak.',
     status: 'AVAILABLE', layer: 'signalHub / SignalEnvelope',
+    note: null,
+  },
+  {
+    id: 'fleet-kb', category: 'vehicle', name: 'Filo Hafızası',
+    desc: 'Araçtan öğrenilen ECU topolojisi profilleri: kimlik kaynağı, gözlem sayısı, güven, UDS kabiliyeti.',
+    status: 'AVAILABLE', layer: 'fleetKb / öğrenme',
     note: null,
   },
   {

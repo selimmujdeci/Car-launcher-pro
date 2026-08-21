@@ -20,6 +20,7 @@ import { Capacitor } from '@capacitor/core';
 import { CarLauncher } from '../nativePlugin';
 import { logError } from '../crashLogger';
 import { buildTopology, emptyTopology, type DiscoveredEcu, type VehicleTopology } from './ecuDiscovery';
+import { scanHintsFor, recordVehicleObservation } from './fleetKbService';
 import { parseUdsDtcResponse, udsDtcToScanMode } from './udsDtc';
 
 /** Taranacak azami ECU sayısı — tarama süresi bütçesi (ECU × 3 mod × ~2 sn). */
@@ -96,8 +97,20 @@ export async function discoverEcus(): Promise<VehicleTopology> {
  * FAIL-SOFT: bir ECU/mod düşerse diğerleri devam eder; düşen okuma `failedReads`'e sayılır
  * → çağıran (UI/verdict) kısmi taramayı "temiz" sanmaz.
  */
-export async function scanAllEcus(topology: VehicleTopology): Promise<MultiEcuScanReport> {
-  const scanList = topology.ecus.slice(0, MAX_SCAN_ECUS);
+export async function scanAllEcus(
+  topology: VehicleTopology,
+  /**
+   * V-04/4 — filo hafızasından gelen İPUCU: daha önce bu araçta UDS 0x19'u
+   * desteklediği GÖRÜLEN ECU'ların tx başlıkları.
+   *
+   * YALNIZ SIRA belirler; hiçbir ECU atlanmaz, hiçbir sonuç hafızadan üretilmez.
+   * Tek etkisi: `MAX_SCAN_ECUS` tavanına takılan araçlarda üretici kodlarını
+   * taşıyan ECU'ların tavanın DIŞINDA kalmaması. Boş dizi → davranış eskisi gibi.
+   */
+  udsFirst: readonly string[] = [],
+): Promise<MultiEcuScanReport> {
+  const ordered = orderByUdsHint(topology.ecus, udsFirst);
+  const scanList = ordered.slice(0, MAX_SCAN_ECUS);
   const skippedEcus = Math.max(0, topology.ecus.length - scanList.length);
 
   const results: EcuScanResult[] = [];
@@ -162,6 +175,26 @@ export async function scanAllEcus(topology: VehicleTopology): Promise<MultiEcuSc
 }
 
 /**
+ * İpucundaki ECU'ları öne alır — KARARLI sıralama (stable): ipucunda olanlar kendi
+ * aralarındaki sırayı, olmayanlar da kendi aralarındaki sırayı KORUR.
+ *
+ * Neden `sort` değil de iki kova: `Array.prototype.sort` kararlılığı ES2019'dan beri
+ * garanti olsa da niyeti okunur kılmak, "sıra neden değişti" sorusunu ileride
+ * kimsenin sormamasını sağlar. Filtreleme YOKTUR — küme aynı kalır.
+ */
+function orderByUdsHint(
+  ecus: readonly DiscoveredEcu[],
+  udsFirst: readonly string[],
+): DiscoveredEcu[] {
+  if (udsFirst.length === 0) return [...ecus];
+  const hinted = new Set(udsFirst);
+  const first: DiscoveredEcu[] = [];
+  const rest: DiscoveredEcu[] = [];
+  for (const e of ecus) (hinted.has(e.txHeader) ? first : rest).push(e);
+  return [...first, ...rest];
+}
+
+/**
  * OBD-OS-F3-1: bir ECU'da UDS 0x19-02 okur ve kodları DEDUPE ederek döner.
  *
  * DEDUPE ŞART: aynı arıza hem Mode 03'te (P0301) hem UDS 0x19'da görünebilir — aynı kodu
@@ -210,5 +243,26 @@ async function readUdsForEcu(ecu: DiscoveredEcu, result: EcuScanResult): Promise
  */
 export async function runFullVehicleScan(): Promise<MultiEcuScanReport> {
   const topology = await discoverEcus();
-  return scanAllEcus(topology);
+
+  /* V-04/4 — FİLO HAFIZASI (fail-soft, iki uç da isteğe bağlı):
+     ① okuma ucu: bilinen UDS'li ECU'lar öne alınır (yalnız SIRA).
+     ② yazma ucu: tur bitince gözlem öğrenilir.
+     Hafıza okunamaz/yazılamazsa tarama ESKİSİ GİBİ çalışır — öğrenme bir lüks,
+     teşhis bir zorunluluktur. */
+  let udsFirst: readonly string[] = [];
+  try { udsFirst = scanHintsFor(topology).udsFirst; }
+  catch (e) { logError('OBD:FleetKbHint', e); }
+
+  const report = await scanAllEcus(topology, udsFirst);
+
+  try {
+    const udsCapable = report.results
+      .filter((r) => r.uds === 'ok')
+      .map((r) => r.ecu.txHeader);
+    recordVehicleObservation(topology, udsCapable);
+  } catch (e) {
+    logError('OBD:FleetKbRecord', e);
+  }
+
+  return report;
 }
