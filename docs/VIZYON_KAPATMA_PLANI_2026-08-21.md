@@ -29,17 +29,18 @@
 ## 📊 İLERLEME ÖZETİ (her turda güncellenir)
 
 **Son güncelleme:** 2026-08-21 — **V-01 🟨** (kod bitti, CI'da hiç koşmadı · kütük 🔴 #675) ·
-**V-02 ⛔** (prod'a okuma yolu yok; salt-okuma script'i hazır, kullanıcı erişimi bekleniyor).
+**V-02 🟢 KAPANDI** (066 prod'da UYGULANMIŞ; dongle'sız yazma yolu **4 günlük gerçek üretim
+trafiğiyle** kanıtlandı — kütük 🟢 #676. Kalan tek uç PWA sunum rozeti, ayrı 🔴 olarak kütükte).
 
 | Faz | Toplam | ⬜ | 🔵 | 🟨 | 🟢 | ⛔ | 🚫 |
 |---|---|---|---|---|---|---|---|
-| P0 — Yanlış güven / güvenlik | 4 | 2 | 0 | **1** | 0 | **1** | 0 |
+| P0 — Yanlış güven / güvenlik | 4 | 2 | 0 | **1** | **1** | 0 | 0 |
 | P1 — Vizyonun can damarı | 4 | 4 | 0 | 0 | 0 | 0 | 0 |
 | P2 — Zekâ katmanı | 4 | 4 | 0 | 0 | 0 | 0 | 0 |
 | P3 — Doğrulama borcu | 3 | 3 | 0 | 0 | 0 | 0 | 0 |
 | P4 — Enterprise | 1 | 1 | 0 | 0 | 0 | 0 | 0 |
 | P5 — Mimari karar | 2 | 2 | 0 | 0 | 0 | 0 | 0 |
-| **TOPLAM** | **18** | **16** | **0** | **1** | **0** | **1** | **0** |
+| **TOPLAM** | **18** | **16** | **0** | **1** | **1** | **0** | **0** |
 
 **Vizyon skoru:** `%58` → hedef `%75` (P0+P1+P2 tamamlanınca)
 **Cihaz doğrulama oranı:** `19 / 666 = %2,85` → hedef `%15`
@@ -156,7 +157,7 @@ Kütük: **🔴 #675**.
 
 ---
 
-## ⛔ V-02 — Migration 066'nın prod durumunu doğrula
+## 🟢 V-02 — Migration 066'nın prod durumunu doğrula  **[KAPANDI 2026-08-21]**
 
 **BULGU:** `20260816000066_telemetry_honest_null_columns.sql` cihazda ölçülmüş bir kusuru
 belgeliyor: 042 sahte 0'ları kaldırdı ama tablo kolonları `NOT NULL` kaldı →
@@ -224,6 +225,58 @@ gözden geçirildi ama **çalıştığı kanıtlanmadı**. Bu dürüstçe böyle
 
 `verdict = 'UYGULANMAMIŞ'` çıkarsa sıradaki iş 066'yı uygulamak; `'UYGULANMIŞ'` çıkarsa
 V-02'nin (a) yarısı kapanır ve geriye yalnız (b) — gerçek cihazla dongle'sız heartbeat — kalır.
+
+### ✅ KAPANIŞ — 2026-08-21 (aynı gün, kullanıcı erişimi açıldıktan sonra)
+
+> ⚠️ Yukarıdaki "⛔ BLOKE" kaydı **iki denetim kusuru** içeriyordu. İkisi de burada
+> düzeltiliyor; kayıt silinmiyor çünkü hatanın kendisi derstir.
+
+**KUSUR 1 — kütük okunmadan "bilinmiyor" dendi.** V-02 *"066'nın prod'a uygulandığı
+depodan doğrulanamıyor"* diyor. Oysa **kütük #603 (2026-08-16)** zaten
+*"MIGRATION 066 PROD'A UYGULANDI"* kaydını taşıyordu — uygulama öncesi/sonrası katalog
+ölçümü, idempotans koşumu ve gerçek INSERT senaryosuyla. **Kütük saha durumunda mutlak
+otoritedir**; depo taranmadan önce oraya bakılmalıydı.
+
+**KUSUR 2 — beşinci erişim yolu denenmedi.** Dört yol ölçülüp "hepsi kapalı" dendi, ama
+`supabase db query --linked` **denenmemişti**. Bu komut **access token** ile Management API
+üzerinden çalışır; **DB parolası veya service_role GEREKTİRMEZ**. Aynı oturum
+`projects list` ve `migration list --linked` için de yeterliydi. *"Erişim yok" hükmü,
+denenmemiş bir yol varken verilemez.*
+
+**ÖLÇÜM (prod `Carospro`, `supabase db query --linked`, 2026-08-21):**
+
+| Adım | Sonuç |
+|---|---|
+| Kolon nullability | `speed·fuel·rpm·temp` → dördü de `is_nullable=YES`, `column_default` **NULL** |
+| `push_vehicle_event` gövdesi | **OK** — 042 dürüst yazma biçimi canlıda |
+| `service_role` INSERT | **OK** (`has_table_privilege`, `role_table_grants` değil) |
+| **verdict** | **`UYGULANMIŞ`** |
+
+**(b) YARISI DA KAPANDI — tek cihaz testiyle değil, 4 günlük ÜRETİM TRAFİĞİYLE:**
+
+Telemetri **42 → 63 satır**. `fuel IS NULL` olan **22 satır** var; en eski
+**2026-08-16 16:23** (066'nın uygulandığı gün), en yeni **2026-08-20 14:19**;
+**22'sinin 22'si `is_online=true`**. 066 **öncesi hiçbir günde NULL satır yok**.
+
+Bu kanıtın kusursuz olmasının sebebi RPC'nin kendi gövdesinde: `ON CONFLICT` dalı prod'dan
+okundu → `fuel = COALESCE(EXCLUDED.fuel, t.fuel)`. **UPDATE dalı NULL yazamaz.** Dolayısıyla
+`fuel IS NULL` olan satır **yalnızca INSERT dalından** gelebilir — o da `NOT NULL` kısıtı
+**yokken**. `23502` alsaydı satır **hiç oluşmazdı**.
+
+066 sonrası 23 satırın **18'i** `telemetry_source=HEAD_UNIT_GPS` **ve** `fuel+rpm+temp`
+üçü birden NULL — tam olarak *"dongle takılı değil, yalnız GPS"* senaryosu.
+
+**KABUL ÖLÇÜTÜ TAM KARŞILANDI:** dört kolon `YES` ✓ · dongle'sız araçtan gelen olay
+satır oluşturuyor (+21) ✓ → **V-02 🟢**. Kütük **🟢 #676**.
+
+**AÇIK KALAN (V-02'nin dışında, ayrı 🔴 olarak kütükte):**
+1. **Sunum ucu** — `is_online=true` *veride* doğru; PWA filo ekranında aracın gerçekten
+   **ÇEVRİMİÇİ** rozetiyle göründüğü **gözlemlenmedi**. #575 tam bu sınıftı: katman
+   doğruydu, tüketici ona bakmıyordu.
+2. **Benimseme** — prod'da **786 aracın 723'ünde** (%92) hâlâ hiç telemetri satırı yok
+   (#603'te 555/597 = %93). Kısıt kalktı, yazma yolu kanıtlandı, ama **filo genelinde
+   akış başlamadı**. Bu 066'nın kusuru değil, ayrı bir sorudur — iyimserlik yapılmıyor.
+
 
 ---
 
@@ -575,7 +628,7 @@ Denetimin en değerli çıktısı. Her satır bir iş maddesine bağlı.
 | 9 | "Enterprise özelliklerimiz var" | PDF ❌ · 90 gün ❌ · vardiya ❌ · scoring ❌ · yakıt ❌ | V-03 / V-16 |
 | 10 | "OFFLINE_MAP_GUIDE mimarimizi anlatıyor" | Anlattığı **iki dosya mevcut değil** | V-18 |
 | 11 | "KWP araçlarda DTC okuyabiliyoruz" | `kwpDtc.ts` **hiçbir yerden çağrılmıyor** | V-08 |
-| 12 | "Filo telemetrisi buluta akıyor" | `push_vehicle_event` HTTP 400/23502 ölçülmüş; 066'nın prod durumu **doğrulanamadı** | V-02 |
+| 12 | "Filo telemetrisi buluta akıyor" | **DÜZELDİ (2026-08-21):** 066 prod'da `UYGULANMIŞ`; dongle'sız yazma 4 günlük üretim trafiğiyle kanıtlandı (kütük 🟢 #676). Kalan: PWA sunum rozeti + filonun %92'sinde akış hiç başlamamış | ~~V-02~~ ✅ |
 
 ---
 
