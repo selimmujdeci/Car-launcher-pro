@@ -332,7 +332,14 @@ jobs:
         # :phonehub-protocol  →  5 sınıf (frame codec · session crypto · handshake · diagnostics)
         # :phonehub-companion → test kaynağı YOK (bilinçli: saf Android companion)
         working-directory: android
-        run: ./gradlew :app:testDebugUnitTest :phonehub-protocol:test --console=plain --stacktrace
+        # `--continue` ZORUNLU — gerçek koşumda ölçüldü (run 32474253133): gradle
+        # varsayılan fail-fast'tir; `:phonehub-protocol:test` zamana bağlı bir testte
+        # düşünce `:app:test` HİÇ KOŞMADI ve otomotiv-kritik McuCommandWhitelistTest
+        # raporu üretilmedi. Doğrulama adımı bunu yakaladı (sessiz geçmedi) ama tablo
+        # eksikti: alakasız bir flaky test, kilit/korna/alarm whitelist kapısını
+        # GÖRÜNMEZ kılıyordu. --continue ile her modül koşar, build yine kırmızı olur
+        # ama HANGİ suite'lerin düştüğü eksiksiz görünür.
+        run: ./gradlew :app:testDebugUnitTest :phonehub-protocol:test --continue --console=plain --stacktrace
 
       - name: Verify automotive-critical Java suites ran
         # JS tarafındaki aynı kapı deseni: bir suite sessizce düşerse/atlanırsa
