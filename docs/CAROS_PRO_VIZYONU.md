@@ -3933,3 +3933,57 @@ ikisi de düzeltmenin kapıyı körletip körletmediğini ölçer.
 - **Mavi proaktif katmanı 29 dk boyunca hiç konuşmadı** (~260 değerlendirme,
   hepsi `not_critical`). Kusur mu tasarım mı belirlenmedi — ölçüldü, kayda
   geçti, karar sonraki tura.
+
+---
+
+## V-04 — "Ölü kod" aslında TÜKETİCİSİ DOĞMAMIŞ KODMUŞ (2026-08-21)
+
+**Durum: ENTEGRE** · **ÜRÜN HAZIR: HAYIR** (altı madde de kütükte 🔴 — saha kanıtı YOK)
+
+Vizyon kapatma planının V-04 maddesi (`docs/VIZYON_KAPATMA_PLANI_2026-08-21.md`)
+kapandı: üretimde hiç import edilmeyen altı modülün **altısı da BAĞLANDI**, hiçbiri
+silinmedi (kullanıcı kararı: *"kurtarılabilir ise kesinlikle silme, çalışır hale getir"*).
+
+| Modül | Ne yapıldı | Kütük |
+|---|---|---|
+| `adapterCapability` | klon adaptör tespiti ürün yoluna | 🔴 #682 |
+| `nativeCoreService` eksiği | native ekran ölçümü cihaz sınıflandırmasına | 🔴 #683 |
+| `signalHub` | CAROS LAB · **Sinyal Otoritesi** (zarf dürüstlüğü gözlemlenebilir) | 🔴 #684 |
+| `fleetKb` | tarama turunun iki ucu: ipucu okuma + gözlem öğrenme | 🔴 #686 |
+| `serviceFunctions` | CAROS LAB · **Servis Fonksiyonları Kapısı** (yazma AÇILMADI) | 🔴 #687 |
+| `manufacturerProfileBuilder` | CAROS LAB · **Üretici Profil Adayları** (inceleme yüzeyi) | 🔴 #688 |
+
+**Turun asıl bulgusu — sınıflandırma yanlıştı.** Bu modüller "yazılmış ama bozuk" değil,
+**tüketicisi hiç doğmamış** modüllerdi. Üçünde (`signalHub` · `serviceFunctions` ·
+`manufacturerProfileBuilder`) eksik olan şey koddaki bir kusur değil, **modülün var oluş
+sebebini karşılayan yüzeydi**: bir sinyal otoritesinin okuyucusu, bir yazma kapısının
+gözlemi, "manuel onaya hazır" üreten bir builder'ın inceleme ekranı. Yüzey olmadan bu
+modüller "yapıldı" yanılsaması üretiyordu — depoda tekrar eden **"motor var, besleyen yok"**
+deseninin en sinsi biçimi.
+
+**Ölçüm tuzağı (V-04/1'de yakalandı):** planın "ölü modül" taraması `nativeCoreService`'i
+yanlış listelemişti; gerçek import **uzantılı** yazılmıştı (`'./nativeCoreService.ts'`) ve
+`grep -rl "/<modül>'"` deseni onu göremedi. Gerçek ölü sayısı 10 → 5, ~2.900 → ~749 satır.
+*grep, aradığın adı bilmene bağlıdır.*
+
+**Bilinçli YAPILMAYANLAR (borç değil, kapsam kararı):**
+
+- **Araca native YAZMA yolu açılmadı** (UDS 0x31 / 0x2E / 0x27). `serviceFunctions`'ın
+  kendi sözleşmesi "kapı ve model önce, yazma sonra" diyor; LAB ekranı da yazma iddiası
+  taşımıyor ve YENİLE dışında düğmesi yok. Bugünkü ürün araca yazmıyor.
+- **Rutin destek keşfi yok:** hangi servis rutininin bu araçta desteklendiğini kanıtlayan
+  bir kanal YOK. Ekranda `KANIT KANALI YOK` yazıyor — uydurulmuyor; gerçek çağrıda kapı
+  zaten fail-closed reddediyor.
+- **Profil adayı ONAY yolu yapılmadı:** çakışmalar otomatik çözülmüyor, bir aday ürüne
+  girecekse bunu insan yapacak.
+- **`predictionEngine` · `kwpDtc` · `driverDnaEngine` · `deepScanOrchestrator.run()`**
+  V-04 kapsamında değildi; sırasıyla V-09 · V-08 · V-11 · V-10 maddelerine devredilmişti.
+
+**Host kanıtı:** 582 test dosyası · 12.753 test yeşil · `tsc -b` temiz · `npm run lint`
+0 hata · `npm run build` başarılı. CAROS LAB 45 → **50 AVAILABLE** ekran.
+**Saha kanıtı: YOK.** Altısı da kütükte 🔴; hiçbiri "çalışıyor" diye sunulamaz.
+
+**Bir sonraki atomik PR:** saha koşumu — kütük #684/#686/#687/#688'in kabul ölçütlerini
+gerçek araçta tek tek işaretle. Özellikle #686(c) (ikinci taramada UDS'li ECU'nun ÖNCE
+taranması ve **toplam DTC sayısının AZALMAMASI**) atlanmamalı: ipucunun kapsamı daraltıp
+daraltmadığını ölçen tek maddedir.
