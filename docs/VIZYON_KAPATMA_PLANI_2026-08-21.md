@@ -213,9 +213,29 @@ görünmemesinin tek sebebi Unit Tests job'ının bu dalda **hiç koşmamış** 
 > varsayımdı** ve o joblar bu dalda hiç koşmamıştı. Kapsamı daraltma gerekçesi bile ölçülmüş
 > olmalı; daraltmanın kendisi bir iddiadır. Global `NODE_VERSION` 22 yapıldı, ayrım kaldırıldı.
 
+### ✅ İKİ AÇIK BORÇ DA KAPATILDI (aynı gün)
+
+**#678 — "flaky" bir hipotezdi, doğru çıkmadı.** JUnit XML artefaktları indirilip stack
+trace okununca düşen assertion'ın her koşumda **aynı satır** olduğu görüldü
+(`client.confirmPairing(true)`). Kök zamanlama değil **ürün kusuruydu**:
+`LinkHandshake.onConfirm()` `AWAITING_USER_CONFIRM` aşamasını kabul etmiyordu, dolayısıyla
+iki uçta da onay isteniyorken **önce basanın CONFIRM'ü diğerini öldürüyordu**. Sahada da
+olur; CI yalnız görünür kıldı. Onay atlanmadan düzeltildi (yalnız `peerConfirmVerified`
+işaretlenir, `stage` değişmez) ve kilit **yarışa bırakılmadan** yazıldı (`framesReceived`
+sayacıyla ölçülür). Yanlışlama: düzeltme geri alınınca 85 testin yalnız yenisi düştü.
+
+**#679 — kırmızılığın kökü tek değil DÖRTTÜ**, üçü ürün dışıydı: (1) CI yalnız chromium
+kuruyordu ama beş proje koşuluyordu (222 hata "browser not installed") · (2) config'deki
+`isLandscape: true` viewport'u **döndürmüyor** — mobil projeler ürünün desteklemediği
+PORTRE yönünde koşuyordu · (3) Supabase DNS (route + routeWebSocket ile kesildi; filtreye
+istisna **eklenmedi**) · (4) testler eski varsayılan temaya yazılmıştı ve aradıkları
+`Sistem`/`Arayüz` başlıkları üründe **hiç yok**. Sonuç: yerel E2E **185/185 yeşil, beş
+tarayıcıda**. Stub'ın kusur yaratmadığı ayrıca ölçüldü (stub geri alınınca aynı 3 test
+yine düştü — yani zaten kırıktılar, E2E hiç yeşil olmadığı için görünmüyorlardı).
+
 **Kalan açık uç:** kapı henüz `main`/`dev` üzerinde koşmadı — bu dal main'e girene kadar
-korumadaki PR'lar bu job'ı **görmez**. Ayrıca #678 flaky'si düzeltilene kadar job
-**rastgele kırmızı** olabilir (dört koşumun üçünde vurdu, dördüncüde vurmadı).
+korumadaki PR'lar bu job'ı **görmez**. #678'in **saha ucu da açık**: düzeltilen eşleştirme
+senaryosu gerçek telefon + head unit ile bir kez bile denenmedi (kabul ölçütü kütükte).
 
 
 ---
