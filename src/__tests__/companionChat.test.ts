@@ -621,6 +621,69 @@ describe('tryCompanionBrain — komut/sohbet kararını tek Gemini çağrısı v
     }
   });
 
+  it('#698 KİLİT: Gemini 401 → "tekrar söyle" DEĞİL, DÜRÜST anahtar cevabı (sahada ölçüldü)', async () => {
+    /* SAHA (cihazda CDP ile ÖLÇÜLDÜ, 2026-08-22): kullanıcının anahtarı
+       `X-goog-api-key`e DOLU gidiyordu (53 karakter) ama Google **401** ile
+       reddediyordu: "Expected OAuth 2 access token…". Dürüst cevap dalı yalnız
+       **400/403 + gövdede API_KEY_INVALID** hâlini tanıdığı için 401 sessizce
+       yutuluyor, kullanıcı REASK ("of orayı kaçırdım") duyuyordu — çözümü kendi
+       elinde olan bir arıza, çözümsüz bir "seni duyamadım" gibi görünüyordu.
+       401 tanım gereği kimlik reddidir; gövde koşulu ARANMAZ. */
+    setupCompanion(true);
+    const fetchSpy = vi.fn().mockResolvedValue({
+      ok: false, status: 401,
+      json: async () => ({ error: { code: 401, message: 'Request had invalid authentication credentials. Expected OAuth 2 access token, login cookie or other valid authentication credential.' } }),
+    });
+    vi.stubGlobal('fetch', fetchSpy);
+
+    /* Girdi, offline smalltalk motorunun cevaplayabileceği bir şey OLMAMALI:
+       offline motorun gerçek cevabı varsa o kazanır (doğru davranış) ve dürüst
+       dala hiç inilmez. Sahada REASK'ı tetikleyen de böyle bir girdiydi. */
+    const r = await tryCompanionBrain('xqwzt blgrh vmpld', GEMINI_OPTS);
+    expect(r!.kind).toBe('chat');
+    if (r!.kind === 'chat') {
+      expect(r.route).toBe('companion_key_invalid');
+      expect(r.route).not.toBe('companion_reask');      // tekrar söylemek İŞE YARAMAZ
+      expect(r.response).toContain('anahtar');          // gerçek neden söylenir
+    }
+  });
+
+  it('#698 KİLİT: Groq 401 "Invalid API Key" de dürüst cevaba besler (sağlayıcı-bağımsız)', async () => {
+    /* Sahada Groq da 401 döndü ama `!resp.ok → return null` ile SESSİZCE
+       yutuluyordu: Gemini dışındaki halkaların kimlik reddi hiç bakılmıyordu. */
+    setupCompanion(true);
+    const fetchSpy = vi.fn().mockResolvedValue({
+      ok: false, status: 401,
+      json: async () => ({ error: { message: 'Invalid API Key' } }),
+    });
+    vi.stubGlobal('fetch', fetchSpy);
+
+    const r = await tryCompanionBrain('xqwzt blgrh vmpld', { provider: 'groq', apiKey: 'gsk_test', hasNet: true });
+    expect(r!.kind).toBe('chat');
+    if (r!.kind === 'chat') expect(r.route).toBe('companion_key_invalid');
+  });
+
+  it('#698 KİLİT: 402 kredi bitişi ANAHTAR HATASINDAN AYRI cevap verir (farklı eylem gerektirir)', async () => {
+    /* Sahada gateway (OpenRouter) **402 "Insufficient credits"** döndü. Anahtar
+       GEÇERLİ, hesapta bakiye yok → "anahtarını kontrol et" YANLIŞ yönlendirme
+       olurdu. Gateway katmanı bu ayrımı zaten üretiyordu (`insufficient_credit`,
+       kütük #421); eksik olan onu dürüst cevaba TAŞIYAN kabloydu. */
+    setupCompanion(true);
+    const fetchSpy = vi.fn().mockResolvedValue({
+      ok: false, status: 402,
+      json: async () => ({ error: { message: 'Insufficient credits' } }),
+    });
+    vi.stubGlobal('fetch', fetchSpy);
+
+    const r = await tryCompanionBrain('xqwzt blgrh vmpld', { provider: 'groq', apiKey: 'gsk_test', hasNet: true });
+    expect(r!.kind).toBe('chat');
+    if (r!.kind === 'chat') {
+      expect(r.route).toBe('companion_no_credit');
+      expect(r.response.toLowerCase()).toContain('kredi');
+      expect(r.response.toLowerCase()).not.toContain('anahtarını kontrol'); // yanlış yönlendirme YOK
+    }
+  });
+
   it('FAZ 3 — Gemini HİÇ denenmediyse (offline) anlaşılmayan metin → null (eski dürüst zincir korunur)', async () => {
     setupCompanion(true);
     const fetchSpy = vi.fn();

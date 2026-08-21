@@ -159,7 +159,7 @@ import { pushTrail } from '../diagnosticTrailCore';
 
 /* ── Tipler ─────────────────────────────────────────────────── */
 
-export type CompanionChatRoute = 'companion_gemini' | 'companion_groq' | 'companion_haiku' | 'companion_gateway' | 'companion_offline' | 'companion_rate_limited' | 'companion_key_invalid' | 'companion_net_down' | 'companion_safety' | 'companion_reask';
+export type CompanionChatRoute = 'companion_gemini' | 'companion_groq' | 'companion_haiku' | 'companion_gateway' | 'companion_offline' | 'companion_rate_limited' | 'companion_key_invalid' | 'companion_net_down' | 'companion_safety' | 'companion_reask' | 'companion_no_credit';
 
 export interface CompanionChatResult {
   response: string;
@@ -316,12 +316,49 @@ const RATE_LIMIT_REPLY =
  * yerine GERÇEK neden söylenir. 400/403 gövdesi API_KEY_INVALID taşıyorsa
  * işaretlenir; o turda beyin cevabı çıkmazsa dürüst anahtar uyarısı konuşulur. */
 const KEY_INVALID_REPLY =
-  'Yapay zeka anahtarım geçersiz görünüyor. Ayarlar ekranından Gemini anahtarını kontrol etmen gerekiyor.';
-let _geminiKeyInvalidAtMs = 0;
+  'Yapay zeka anahtarım geçersiz görünüyor. Ayarlar ekranından yapay zeka anahtarlarını kontrol etmen gerekiyor.';
+/* SAHA (#698) — CİHAZDA CDP İLE ÖLÇÜLDÜ: kullanıcının zincirinde DÖRT halkanın
+   dördü de kimlik doğrulamada ölüydü — OpenRouter **402 "Insufficient credits"**,
+   Gemini **401**, Groq **401 "Invalid API Key"**, Anthropic CORS. Anahtarlar
+   BOŞ DEĞİLDİ (`X-goog-api-key` 53 karakter dolu gitti) — yani depo/şifre çözme
+   sağlamdı, kimlik bilgilerinin KENDİSİ geçersizdi.
 
-/** Gemini 400/403 gövdesini sınıflandırır — anahtar hatasıysa işaretler.
- *  Gövde okunamazsa sınıflandırma YAPILMAZ (yanlış alarm > sessizlikten kötü). */
+   Ama kullanıcı bunların HİÇBİRİNİ duymadı, "of orayı kaçırdım" duydu: dürüst
+   cevap dalı YALNIZ Gemini'nin **400/403 + gövdede API_KEY_INVALID** dar hâline
+   bağlıydı. **401 hiç sınıflandırılmıyordu** (oysa 401 tanım gereği kimlik
+   reddidir), Groq/Haiku'nun 401'i hiç bakılmıyordu, kredi bitişi (402) ise hiç
+   bilinmiyordu. Sonuç: çözümü kullanıcının elinde olan bir arıza, çözümsüz bir
+   "seni duyamadım" gibi görünüyordu — #697'nin düzelttiği çıkmazın ikizi. */
+const NO_CREDIT_REPLY =
+  'Yapay zeka servisimin kredisi bitmiş. Sağlayıcı hesabından kredi yükleyince yine buradayım.';
+let _geminiKeyInvalidAtMs = 0;
+/** Kimlik reddi (401/403) HANGİ sağlayıcıda görüldü — künye için (metin değil ad). */
+let _authFailureProvider: string | null = null;
+/** Kredi/bakiye bitişi (402) işareti — anahtar geçerli ama ödeme yok. */
+let _noCreditAtMs = 0;
+
+/** 401/403/402'yi sağlayıcı-BAĞIMSIZ sınıflandırır (Groq · Haiku · gateway).
+ *  Gövde okumaz: 401/403 tanım gereği kimlik reddi, 402 tanım gereği bakiye. */
+function _noteProviderAuthFailure(provider: string, status: number): void {
+  if (status === 401 || status === 403) {
+    _geminiKeyInvalidAtMs = _now();
+    _authFailureProvider  = provider;
+  } else if (status === 402) {
+    _noCreditAtMs = _now();
+  }
+}
+
+/** Gemini 400/401/403 gövdesini sınıflandırır — anahtar hatasıysa işaretler.
+ *  **401 gövde KOŞULSUZ işaretlenir** (SAHA #698: Google 401'de `API_KEY_INVALID`
+ *  reason'ı GÖNDERMEZ, "Expected OAuth 2 access token…" der; gövde koşulu aramak
+ *  bu hâli sessizce yutuyordu). 400/403'te eski gövde koşulu AYNEN korunur —
+ *  o kodlar anahtar dışı sebeplerle de gelebilir (yanlış alarm > sessizlik). */
 async function _noteGeminiAuthFailure(resp: Response): Promise<void> {
+  if (resp.status === 401) {
+    _geminiKeyInvalidAtMs = _now();
+    _authFailureProvider  = 'gemini';
+    return;
+  }
   if (resp.status !== 400 && resp.status !== 403) return;
   try {
     const data = await resp.json() as {
@@ -330,6 +367,7 @@ async function _noteGeminiAuthFailure(resp: Response): Promise<void> {
     const reason = data.error?.details?.find((d) => typeof d?.reason === 'string')?.reason;
     if (reason === 'API_KEY_INVALID' || /api key not valid/i.test(data.error?.message ?? '')) {
       _geminiKeyInvalidAtMs = _now();
+      _authFailureProvider  = 'gemini';
     }
   } catch { /* gövde okunamadı — sınıflandırma yapılmaz */ }
 }
@@ -370,6 +408,8 @@ export function _resetCompanionChatForTest(): void {
   _haikuRateLimitedUntil = 0;
   _groundingCooldownUntil = 0;
   _geminiKeyInvalidAtMs = 0;
+  _authFailureProvider = null;   // #698 işaretleri testler arası SIZMASIN
+  _noCreditAtMs = 0;
   _geminiModelIdx = 0;   // model zinciri testler arası SIZMASIN
   _lastProactiveKey = '';        // proaktif debounce testler arası SIZMASIN
   _lastProactiveAtMs = 0;
@@ -1193,6 +1233,7 @@ async function askCompanionGemini(
   }
   if (!resp.ok) { await _noteGeminiAuthFailure(resp); return null; }
   _geminiKeyInvalidAtMs = 0; // Gemini 200 döndü — anahtar geçerli, işaret temizlenir
+  _authFailureProvider  = null;
 
   const data = await resp.json() as {
     candidates?: { content?: { parts?: { text?: string }[] } }[]
@@ -1350,7 +1391,8 @@ async function askCompanionBrainGroq(
 
   // 429: KENDİ penceresi — Gemini'yi kilitlemez (çapraz kirlenme yasak).
   if (resp.status === 429) { _groqRateLimitedUntil = _now() + RATE_LIMIT_COOLDOWN_MS; return null; }
-  if (!resp.ok) return null;
+  // #698: kimlik reddi/bakiye SESSİZCE yutulmaz — dürüst cevabı besler.
+  if (!resp.ok) { _noteProviderAuthFailure('groq', resp.status); return null; }
 
   const data = await resp.json() as { choices?: { message?: { content?: string } }[] };
   const raw  = (data.choices?.[0]?.message?.content ?? '').trim();
@@ -1613,7 +1655,8 @@ async function askCompanionBrainHaiku(
 
   // 429: KENDİ penceresi — Gemini'yi kilitlemez (çapraz kirlenme yasak).
   if (resp.status === 429) { _haikuRateLimitedUntil = _now() + RATE_LIMIT_COOLDOWN_MS; return null; }
-  if (!resp.ok) return null;
+  // #698: kimlik reddi/bakiye SESSİZCE yutulmaz — dürüst cevabı besler.
+  if (!resp.ok) { _noteProviderAuthFailure('haiku', resp.status); return null; }
 
   const data = await resp.json() as { content?: { type?: string; text?: string }[] };
   const raw  = (data.content?.find((c) => c.type === 'text')?.text ?? '').trim();
@@ -2154,6 +2197,7 @@ async function askCompanionBrain(
   if (resp.status === 429) { _rateLimitedUntil = _now() + await _cooldownFrom429(resp); return null; }
   if (!resp.ok) { await _noteGeminiAuthFailure(resp); return null; }
   _geminiKeyInvalidAtMs = 0; // Gemini 200 döndü — anahtar geçerli, işaret temizlenir
+  _authFailureProvider  = null;
   const data = await resp.json() as { candidates?: { content?: { parts?: { text?: string }[] } }[] };
   return parseBrainJson((data.candidates?.[0]?.content?.parts?.[0]?.text ?? '').trim(), isDriving);
 }
@@ -2396,6 +2440,12 @@ async function runCompanionBrain(
           if (gw.result) return gw.result;
           // GERÇEK ağ ölümü → kesiciye say. Gateway throw ETMEZ; hata türü tipli
           // bayrakla taşınır, tür de kesiciye iletilir (timeout ayrı eşikte sayılır).
+          /* #698: gateway'in ZATEN ürettiği ayrım (auth ↔ insufficient_credit —
+             kütük #421'de sahada ölçülmüştü) dürüst cevap dalına TAŞINIR.
+             Eskiden bu sınıflandırma burada okunmuyordu: kredisi bitmiş bir
+             hesapta kullanıcı "kredi yükle" yerine "tekrar söyle" duyuyordu. */
+          if (gw.errorKind === 'auth')                     { _geminiKeyInvalidAtMs = _now(); _authFailureProvider = 'gateway'; }
+          else if (gw.errorKind === 'insufficient_credit') { _noCreditAtMs = _now(); }
           if (gw.netFailure) { sawNetFailure = true; noteNetFailureKind(gw.errorKind); }
           // Sunucudan yanıt gelmiş her hata sınıfı = ağ CANLI kanıtı (yerel kapı
           // ve sonucu-bilinmeyen sınıflar kanıt SAYILMAZ — bkz. NO_NET_EVIDENCE_KINDS).
@@ -2507,7 +2557,16 @@ async function runCompanionBrain(
   // 400 API_KEY_INVALID yediyse kullanıcı "internet gitti" değil GERÇEK nedeni
   // duyar (kota cevabıyla aynı ilke). İşaret taze olmalı (bu turun hatası) —
   // eski bir turdan kalma bayrak yeni turda konuşturmaz.
+  /* #698: KREDİ bitişi anahtar geçersizliğinden ÖNCE sorulur — ikisi AYRI eylem
+     gerektirir (bakiye yükle ↔ anahtar yenile) ve kredi bitişi daha spesifiktir. */
+  if (aiAttempted && _noCreditAtMs > 0 && _now() - _noCreditAtMs < 10_000) {
+    return { kind: 'chat', response: NO_CREDIT_REPLY, route: 'companion_no_credit' };
+  }
   if (aiAttempted && _geminiKeyInvalidAtMs > 0 && _now() - _geminiKeyInvalidAtMs < 10_000) {
+    /* Künye DOLU olmalı (sessiz arıza yasağının ruhu): hangi sağlayıcının
+       reddettiği tanı izine yazılır. Anahtarın KENDİSİ asla yazılmaz — yalnız
+       sağlayıcı ADI (gizlilik kuralı: VAR/YOK ve ADET). */
+    pushTrail('action', 'mavi kimlik reddi', `provider=${_authFailureProvider ?? 'unknown'}`);
     return { kind: 'chat', response: KEY_INVALID_REPLY, route: 'companion_key_invalid' };
   }
 
