@@ -28,19 +28,20 @@
 
 ## 📊 İLERLEME ÖZETİ (her turda güncellenir)
 
-**Son güncelleme:** 2026-08-21 — **V-01 🟨** (kod bitti, CI'da hiç koşmadı · kütük 🔴 #675) ·
+**Son güncelleme:** 2026-08-21 — **V-01 🟢 KAPANDI** (CI'da uçtan uca kanıtlandı: yeşil ·
+mutasyonda kırmızı · düzeltmede tekrar yeşil — kütük 🟢 #677) ·
 **V-02 🟢 KAPANDI** (066 prod'da UYGULANMIŞ; dongle'sız yazma yolu **4 günlük gerçek üretim
 trafiğiyle** kanıtlandı — kütük 🟢 #676. Kalan tek uç PWA sunum rozeti, ayrı 🔴 olarak kütükte).
 
 | Faz | Toplam | ⬜ | 🔵 | 🟨 | 🟢 | ⛔ | 🚫 |
 |---|---|---|---|---|---|---|---|
-| P0 — Yanlış güven / güvenlik | 4 | 2 | 0 | **1** | **1** | 0 | 0 |
+| P0 — Yanlış güven / güvenlik | 4 | 2 | 0 | 0 | **2** | 0 | 0 |
 | P1 — Vizyonun can damarı | 4 | 4 | 0 | 0 | 0 | 0 | 0 |
 | P2 — Zekâ katmanı | 4 | 4 | 0 | 0 | 0 | 0 | 0 |
 | P3 — Doğrulama borcu | 3 | 3 | 0 | 0 | 0 | 0 | 0 |
 | P4 — Enterprise | 1 | 1 | 0 | 0 | 0 | 0 | 0 |
 | P5 — Mimari karar | 2 | 2 | 0 | 0 | 0 | 0 | 0 |
-| **TOPLAM** | **18** | **16** | **0** | **1** | **1** | **0** | **0** |
+| **TOPLAM** | **18** | **16** | **0** | **0** | **2** | **0** | **0** |
 
 **Vizyon skoru:** `%58` → hedef `%75` (P0+P1+P2 tamamlanınca)
 **Cihaz doğrulama oranı:** `19 / 666 = %2,85` → hedef `%15`
@@ -72,7 +73,7 @@ alınırsa ALTINA yeni bir taban bloğu eklenir.
 
 # ⚡ P0 — YANLIŞ GÜVEN VE GÜVENLİK (HEMEN)
 
-## 🟨 V-01 — Native Java'yı CI'ya al
+## 🟢 V-01 — Native Java'yı CI'ya al  **[KAPANDI 2026-08-21]**
 
 **BULGU:** **25 Java test sınıfı / 335 test** yazılı ama CI'da hiç koşmuyordu.
 27.820 satır native Java (CAN bus, MCU komut whitelist'i, ELM327 parser) —
@@ -153,7 +154,53 @@ simüle edilerek):
 
 **AÇIK BORÇ (bu yüzden 🟢 DEĞİL 🟨):** iş akışı **GitHub Actions'ta hiç koşmadı**. Kabul
 ölçütünün "CI kırmızı olur" yarısı yalnız gerçek bir runner'da kanıtlanabilir.
-Kütük: **🔴 #675**.
+Kütük: **🔴 #675**.  → **KAPANDI, kütük 🟢 #677.**
+
+### ✅ KAPANIŞ — 2026-08-21 (gerçek GitHub Actions koşumu)
+
+Kapı `ci/v01-verify` dalında koşturuldu. Trigger'a `ci/**` deseni eklendi: bir
+workflow'un push tetikleyicisi **push edilen daldaki** dosyadan okunur, yani kapı main'e
+girmeden kendi dalında kanıtlanabildi. (`pull_request` kapsamı bilinçli olarak main/dev'de
+bırakıldı.) 390 commit'lik bir PR açmaya veya `dev` dalı uydurmaya gerek kalmadı.
+
+| Ölçüt | Koşum | Sonuç |
+|---|---|---|
+| (a) job yeşil biter, 25 sınıf / 335 test | 32473905876 | ✅ `BUILD SUCCESSFUL in 2m 27s` · `✓ Java test sınıfı: 25 · toplam test: 335` · 14/14 adım yeşil |
+| (b) ürün kırılınca KIRMIZI, düşen test adıyla | 32475771551 | ✅ `McuCommandWhitelistTest > allSixHardwareCommandsProducePackets FAILED` + `> whitelistGateIsEffective FAILED` · `251 tests completed, 2 failed` |
+| (c) düzeltme sonrası tekrar yeşil | 32476143408 | ✅ `BUILD SUCCESSFUL in 2m 47s` · yine 25 sınıf / 335 test |
+
+Mutasyon **testi değil ürünü** bozdu (`CMD_HONK_HORN` whitelist'ten çıkarıldı) ve mutasyon
+commit'leri `ci/v01-verify` dalında kaldı — ana dala **girmedi**.
+
+**Yolda çıkan üç gerçek kusur — üçü de yalnız gerçek runner'da görünürdü:**
+
+1. **`@capacitor/cli` Node≥22 istiyor, CI'da 20 vardı.** Yerelde görünmezdi (bu makinede
+   Node 24). Dikkat çekici olan: **hata mesajı doğruydu ama kök değildi** — `cap update`
+   fatal verince sonraki dört adım atlandı ve doğrulama adımı `if: always()` ile koşup
+   *"Java JUnit XML üretilmedi"* dedi. Gerçek kök dört adım yukarıdaydı.
+2. **`cap update` `dist/` istiyor** — gerekçesi bu turdan önce **iki kez yanlış** kurulmuştu
+   (*"istemez"*: ana ağaçta ölçülmüş artefakt; *"koşulsuz copy çalıştırır"*: kaynak
+   desteklemiyor). Doğrusu koşullu ve kaynaktan okundu — `update.js:31`.
+3. **gradle fail-fast kritik suite'i görünmez kılıyordu** → `--continue` eklendi (kütük #678).
+
+**Yan bulgular (V-01 kapsamı dışı, ayrı kütük maddeleri):**
+- **#678 🔴** `LinkSessionTest` **flaky** — aynı kod, iki koşum, farklı sonuç. Gerçek
+  iş parçacıkları + `Thread.sleep(900L)`. Bu flaky, gradle fail-fast ile birleşince
+  kilit/korna/alarm whitelist kapısını **görünmez** kılıyordu.
+- **#679 🔴** **E2E workflow'u 10 Temmuz'dan beri bir kez bile yeşil olmamış** (42/43
+  koşum failure). Kapı her gece koşuyor ama **hükmü kimse okumuyor** — #675'in kardeşi.
+- **CI lint'inde 12 hata** (hepsi `src/__tests__/`, ürün kodunda sıfır) — **aynı turda
+  kapatıldı**. İkisi kozmetik değildi: bir **ölü kilit** (regex'e `\b` yerine gerçek 0x08
+  baytı girmiş → kilit her zaman geçiyordu) ve bir **eksik kilit** (`clearPendingAction`
+  import edilmiş ama hiç çağrılmamış → iptal davranışının kilidi yoktu; import silmek
+  boşluğu gizlerdi, kilit yazıldı). İkisi de yanlışlamayla sınandı.
+
+**Kanıt:** kök suite 574 dosya / **12 590 test** yeşil · `tsc -b` temiz · `npm run lint` **0 error**.
+
+**Kalan açık uç:** kapı henüz `main`/`dev` üzerinde koşmadı — bu dal main'e girene kadar
+korumadaki PR'lar bu job'ı **görmez**. Ayrıca #678 flaky'si düzeltilene kadar job
+**rastgele kırmızı** olabilir.
+
 
 ---
 
@@ -624,7 +671,7 @@ Denetimin en değerli çıktısı. Her satır bir iş maddesine bağlı.
 | 5 | "Deep Scan çalışıyor" | Aktif tarama üretimde **hiç koşmuyor**; sahadaki başka motor | V-10 |
 | 6 | "Driver DNA var" | Motor + tablo + ekran var, **veri hiç akmıyor** | V-11 |
 | 7 | "Adaptive runtime cihazda tam güçte" | Cihazda **hep BASIC_JS**; SAB yolları hiç koşmuyor | V-17 |
-| 8 | "Java testlerimiz var, güvendeyiz" | **CI'da hiç koşmuyor**; `java-junit` bir format adı | V-01 |
+| 8 | "Java testlerimiz var, güvendeyiz" | **DÜZELDİ (2026-08-21):** CI kapısı kuruldu ve gerçek runner'da uçtan uca kanıtlandı — yeşil · mutasyonda kırmızı · düzeltmede yeşil (kütük 🟢 #677). Kalan: kapı henüz main/dev üzerinde koşmadı | ~~V-01~~ ✅ |
 | 9 | "Enterprise özelliklerimiz var" | PDF ❌ · 90 gün ❌ · vardiya ❌ · scoring ❌ · yakıt ❌ | V-03 / V-16 |
 | 10 | "OFFLINE_MAP_GUIDE mimarimizi anlatıyor" | Anlattığı **iki dosya mevcut değil** | V-18 |
 | 11 | "KWP araçlarda DTC okuyabiliyoruz" | `kwpDtc.ts` **hiçbir yerden çağrılmıyor** | V-08 |
