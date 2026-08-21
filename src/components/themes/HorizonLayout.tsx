@@ -1,4 +1,5 @@
 import { isObdReadingLive } from '../../platform/vehicleStatusModel';
+import { isLowEndDevice } from '../../platform/headUnitCompat';
 import { memo, useState, lazy, Suspense, useEffect, useMemo, useRef, createContext, useContext } from 'react';
 import {
   Navigation, Music2, Mic, Settings, Car, Bell,
@@ -631,11 +632,19 @@ function HzDockBtn({ Icon, cap, active, onClick, badge }: {
 const HorizonClock = memo(function HorizonClock({ onClick }: { onClick: () => void }) {
   const p = usePalH();
   const use24Hour = useStore(s => s.settings.use24Hour);
+  /* DÜŞÜK-UÇ GPU KAPISI (#670) — Tesla/Expedition'da SAHADA ölçülüp düzeltilen
+     kusur bu temaya PORTLANMAMIŞTI. Zayıf GPU'da (Mali-400/PowerVR sınıfı)
+     saniye ibresi = her saniye re-render = tik başına ~60 ms tam boyama
+     (saha ölçümü; boşta jank'ın ana etkeni). Üstelik burada ibre
+     `filter: drop-shadow` taşıyor — filter compositor-only DEĞİLDİR, her
+     tikte tam repaint tetikler. Düşük cihazda saniye ibresi çizilmez ve saat
+     30 sn'de bir tazelenir (dakika hassasiyeti korunur). */
+  const lowEnd = isLowEndDevice();
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
-    const id = setInterval(() => setNow(new Date()), 1000);
+    const id = setInterval(() => setNow(new Date()), lowEnd ? 30_000 : 1000);
     return () => clearInterval(id);
-  }, []);
+  }, [lowEnd]);
   const m = now.getMinutes();
   const s = now.getSeconds();
   const hourDeg = (now.getHours() % 12) * 30 + m * 0.5;
@@ -702,7 +711,12 @@ const HorizonClock = memo(function HorizonClock({ onClick }: { onClick: () => vo
         <g style={{ transition: 'transform .2s ease' }}>
           <line x1="90" y1="90" x2="90" y2="56" stroke={ink} strokeWidth="3.4" strokeLinecap="round" transform={`rotate(${hourDeg} 90 90)`} />
           <line x1="90" y1="90" x2="90" y2="40" stroke={ink} strokeWidth="2.4" strokeLinecap="round" transform={`rotate(${minDeg} 90 90)`} />
-          <line x1="90" y1="98" x2="90" y2="36" strokeWidth="1.3" strokeLinecap="round" transform={`rotate(${secDeg} 90 90)`} style={{ stroke: p.accent, filter: `drop-shadow(0 0 3px ${p.accentGlow})` }} />
+          {/* Saniye ibresi düşük-uçta ÇİZİLMEZ (#670): 30 sn'de bir tazelenen
+              saatte zaten yanlış yeri gösterirdi, üstelik `drop-shadow` her
+              tikte tam repaint tetikliyordu. Akrep/yelkovan aynen kalır. */}
+          {!lowEnd && (
+            <line x1="90" y1="98" x2="90" y2="36" strokeWidth="1.3" strokeLinecap="round" transform={`rotate(${secDeg} 90 90)`} style={{ stroke: p.accent, filter: `drop-shadow(0 0 3px ${p.accentGlow})` }} />
+          )}
         </g>
         {/* merkez hub */}
         <circle cx="90" cy="90" r="5.5" fill={p.night ? '#15110a' : '#f7f1e4'} strokeWidth="2" style={{ stroke: p.accent }} />

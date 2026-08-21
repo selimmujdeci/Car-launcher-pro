@@ -39,12 +39,22 @@ export function useClock(use24Hour: boolean, showSeconds: boolean) {
   return { time, date };
 }
 
-export function useAnalogClock() {
+/**
+ * Analog saat tiki (#670).
+ *
+ * `enabled=false` iken TIMER KURULMAZ. Eskiden parametresizdi ve React hooks
+ * kuralı gereği çağıran her yerde koşulsuz çalışıyordu: `SleepOverlay` hem
+ * `useClock` hem bunu çağırdığı için, kullanıcı DİJİTAL saat seçse ve
+ * "saniyeleri gizle" dese bile ekran koruyucu saniyede bir re-render alıyordu
+ * — tam da "boşta" senaryosunda gereksiz iş.
+ */
+export function useAnalogClock(enabled = true) {
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
+    if (!enabled) return;
     const id = setInterval(() => setNow(new Date()), 1000);
     return () => clearInterval(id);
-  }, []);
+  }, [enabled]);
   return {
     hours:   now.getHours() % 12,
     minutes: now.getMinutes(),

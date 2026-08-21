@@ -19,7 +19,8 @@ function getRuntimeMode() { return runtimeManager.getMode(); }
 
 export const SleepOverlay = memo(function SleepOverlay({ use24Hour, showSeconds, clockStyle, onWake }: Props) {
   const clk    = useClock(use24Hour, showSeconds);
-  const analog = useAnalogClock();
+  /* Analog saat seçili değilse tik KURULMAZ (#670). */
+  const analog = useAnalogClock(clockStyle === 'analog');
   const runtimeMode = useSyncExternalStore(subscribeRuntime, getRuntimeMode, getRuntimeMode);
   const isSafeMode = runtimeMode === RuntimeMode.SAFE_MODE;
 

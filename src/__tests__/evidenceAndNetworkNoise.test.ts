@@ -114,3 +114,37 @@ describe('#669 · "tekrar söyle" yalnız tekrarın işe yaradığı yerde', () 
     expect(diag).toContain('q !== null && q >= 0');
   });
 });
+
+describe('#670 · boşta ısıtan iş (performans denetimi bulguları)', () => {
+  it('KİLİT: DÖRT temanın saati de düşük-uç kapısına bağlı', () => {
+    /* Saha ölçümü (Tesla/Expedition yorumunda kayıtlı): zayıf GPU'da saniye
+       ibresi = her saniye re-render = tik başına ~60 ms tam boyama, boşta
+       jank'ın ana etkeni. Düzeltme Tesla ve Expedition'a uygulanmış ama
+       HORIZON'A PORTLANMAMIŞTI — aynı kusur bir temada açık kalmıştı. */
+    for (const theme of ['Tesla', 'Expedition', 'Horizon']) {
+      const src = read(`src/components/themes/${theme}Layout.tsx`);
+      expect(src, `${theme}: tier kapısı yok`).toContain('isLowEndDevice');
+      expect(src, `${theme}: koşulsuz 1 Hz saat`).not.toContain(
+        'setInterval(() => setNow(new Date()), 1000)',
+      );
+    }
+  });
+
+  it('KİLİT: Horizon saniye ibresi düşük-uçta çizilmez', () => {
+    /* İbre `drop-shadow` taşıyor; filter compositor-only değildir, her tikte
+       tam repaint tetikler. 30 sn'de tazelenen saatte zaten yanlış yeri
+       gösterirdi. */
+    expect(read('src/components/themes/HorizonLayout.tsx')).toContain('{!lowEnd && (');
+  });
+
+  it('KİLİT: analog saat tiki kapatılabilir — dijital saatte timer kurulmaz', () => {
+    /* `useAnalogClock` parametresizdi; hooks kuralı gereği çağıran her yerde
+       koşulsuz çalışıyordu. Ekran koruyucu (tam "boşta" senaryosu) dijital
+       saatte bile saniyede bir re-render alıyordu. */
+    const hook = read('src/hooks/useClock.ts');
+    expect(hook).toContain('export function useAnalogClock(enabled = true)');
+    expect(hook).toContain('if (!enabled) return;');
+    expect(read('src/components/layout/SleepOverlay.tsx'))
+      .toContain("useAnalogClock(clockStyle === 'analog')");
+  });
+});
