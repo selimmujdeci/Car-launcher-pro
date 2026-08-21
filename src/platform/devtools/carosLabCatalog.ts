@@ -75,6 +75,7 @@ export type CarosLabToolId =
   | 'stt-mic' | 'tool-calling' | 'memory-explorer' | 'knowledge-explorer'
   // Developer
   | 'decoder-registry' | 'discovery-database' | 'raw-command-console' | 'replay-log' | 'pid-timing-experiment'
+  | 'profile-candidates'
   | 'benchmark' | 'stress-test' | 'long-road-field-validation';
 
 export interface CarosLabTool {
@@ -413,6 +414,12 @@ export const CAROS_LAB_TOOLS: readonly CarosLabTool[] = Object.freeze([
     desc: 'Repoda kayıtlı standart PID ve üretici DID çözücü tanımlarının salt-okunur envanteri: birim, aralık, bayt, çözücü sınıfı, formül özeti, profil ve derleme sonucu — arama ve filtre ile.',
     status: 'AVAILABLE', layer: null,
     note: 'STATİK katalog: ECU sorgusu, PID/DID keşfi, bağlantı, polling veya native çağrı YAPMAZ; araçta neyin desteklendiğini BİLMEZ. Çözücü fonksiyon gövdesi GÖSTERİLMEZ (toString kullanılmaz). Standart PID formülleri JS kapanışı olduğu için makine-okunur özet YOKTUR.',
+  },
+  {
+    id: 'profile-candidates', category: 'developer', name: 'Üretici Profil Adayları',
+    desc: 'Gözlemlerden türetilen manuel-onaya-hazır PID/DID adayları; ECU varyantları ve çakışmalar.',
+    status: 'AVAILABLE', layer: 'manufacturerProfileBuilder',
+    note: null,
   },
   {
     id: 'discovery-database', category: 'developer', name: 'Keşif Veritabanı',

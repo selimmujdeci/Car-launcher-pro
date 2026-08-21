@@ -66,6 +66,8 @@ const FleetKbScreen = lazyWithRetry(() =>
   import('./screens/FleetKbScreen').then((m) => ({ default: m.FleetKbScreen })));
 const ServiceRoutineScreen = lazyWithRetry(() =>
   import('./screens/ServiceRoutineScreen').then((m) => ({ default: m.ServiceRoutineScreen })));
+const ProfileCandidateScreen = lazyWithRetry(() =>
+  import('./screens/ProfileCandidateScreen').then((m) => ({ default: m.ProfileCandidateScreen })));
 const SignalAuthorityScreen = lazyWithRetry(() =>
   import('./screens/SignalAuthorityScreen').then((m) => ({ default: m.SignalAuthorityScreen })));
 const AdapterDiagnosticsScreen = lazyWithRetry(() =>
@@ -134,6 +136,7 @@ export function renderAvailableTool(id: CarosLabToolId): ReactElement | null {
     case 'kwp-monitor':        return <KwpMonitorScreen />;
     case 'vehicle-fingerprint': return <VehicleFingerprintScreen />;
     case 'signal-authority': return <SignalAuthorityScreen />;
+    case 'profile-candidates': return <ProfileCandidateScreen />;
     case 'service-routines': return <ServiceRoutineScreen />;
     case 'fleet-kb': return <FleetKbScreen />;
     case 'background-power': return <BackgroundPowerScreen />;

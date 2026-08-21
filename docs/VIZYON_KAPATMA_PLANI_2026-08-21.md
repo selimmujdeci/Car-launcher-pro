@@ -391,7 +391,7 @@ gösterilebilir. Kalan "yol haritası" maddeleri görsel olarak ayrışır.
 
 ---
 
-## 🔵 V-04 — Ölü kodu ya bağla ya sil  **[DEVAM — 5/6 kapandı]**
+## 🟨 V-04 — Ölü kodu ya bağla ya sil  **[6/6 BAĞLANDI — kütükte 🔴 saha borcu açık]**
 
 **BULGU:** Üretimde **hiç import edilmeyen** modüller. Her biri "yapıldı" yanılsaması üretiyor.
 Doğrulama: `grep -rl "/<modül>'" src` (test ve kendisi hariç) → **0 sonuç**.
@@ -440,7 +440,25 @@ bilmene bağlıdır.* Gerçek ölü: **10 → 5 modül**, **~2.900 → ~749 sat�
 | 3 | `signalHub` | 122 | ✅ **BAĞLANDI** — kütük 🔴 #684 (CAROS LAB · Sinyal Otoritesi; cihazda ölçülmedi) |
 | 4 | `fleetKb` | 141 | ✅ **BAĞLANDI** — kütük 🔴 #686 (tarama turunun iki ucuna; cihazda ölçülmedi) |
 | 5 | `serviceFunctions` | 161 | ✅ **BAĞLANDI (gözlem)** — kütük 🔴 #687; native yazma bilinçli olarak AÇILMADI |
-| 6 | `manufacturerProfileBuilder` | 234 | ⬜ keşif çıktısına bağlı |
+| 6 | `manufacturerProfileBuilder` | 234 | ✅ **BAĞLANDI** — kütük 🔴 #688 (inceleme yüzeyi; cihazda ölçülmedi) |
+
+### ✅ V-04 KAPANIŞ NOTU (2026-08-21)
+
+Altı modülün **altısı da BAĞLANDI**, hiçbiri silinmedi (kullanıcı kararı: *"kurtarılabilir
+ise kesinlikle silme"*). Kütükte 🔴 altı yeni saha borcu açıldı (#682 · #683 · #684 · #686 ·
+#687 · #688) — bu yüzden madde 🟢 değil **🟨**: kod bitti, cihaz kanıtı YOK.
+
+**Dürüst kalan uçlar (borç değil, başka maddelerin kapsamı):**
+`predictionEngine` → V-09 · `kwpDtc` → V-08 · `driverDnaEngine` → V-11 ·
+`deepScanOrchestrator.run()` → V-10. Bunlar V-04'ün ilk tablosunda "karar bekliyor"
+DEĞİL, en baştan ilgili maddelere devredilmiş modüllerdi.
+
+**Bu turda öğrenilen desen:** "ölü modül"lerin çoğu yanlış yazılmış değil, **tüketicisi
+hiç doğmamış** modüllerdi. Üçünde (`signalHub` · `serviceFunctions` ·
+`manufacturerProfileBuilder`) eksik olan şey koddaki bir kusur değil, **gözlem/inceleme
+yüzeyiydi** — yani modülün var oluş sebebini karşılayan yer. Bir sonraki denetimde
+"bağlanmamış üretim kodu" ölçümü alınırken `grep` deseninin **uzantılı import**
+(`'./x.ts'`) yazımını da kapsadığından emin olunmalı (V-04/1'de plan bu tuzağa düşmüştü).
 
 **3. SIRA — `signalHub` (2026-08-21):** modül "tek otoriter sinyal okuma yüzeyi" diye
 yazılmış ama **tüketicisi hiç doğmamıştı**. Bağlanma yolu LAB deseninin aynısı:
