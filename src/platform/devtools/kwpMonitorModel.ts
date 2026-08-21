@@ -24,7 +24,7 @@
  */
 
 import {
-  observed, derived, unavailable, applyStaleness,
+  observed, derived, unavailable, applyStaleness, formatAge,
   type InspectorField, type Observability,
 } from './sessionInspectorModel';
 
@@ -33,10 +33,10 @@ import {
  * ════════════════════════════════════════════════════════════════════════ */
 
 /** Ekrandaki bölümler. Sıra sabittir (deterministik render). */
-export type KwpSectionId = 'protocol' | 'session' | 'recovery' | 'keepalive';
+export type KwpSectionId = 'protocol' | 'session' | 'recovery' | 'keepalive' | 'dtc';
 
 export const KWP_SECTION_ORDER: readonly KwpSectionId[] = [
-  'protocol', 'session', 'recovery', 'keepalive',
+  'protocol', 'session', 'recovery', 'keepalive', 'dtc',
 ] as const;
 
 export const KWP_SECTION_TITLE: Readonly<Record<KwpSectionId, string>> = {
@@ -44,6 +44,7 @@ export const KWP_SECTION_TITLE: Readonly<Record<KwpSectionId, string>> = {
   session:   '2 · Oturum Sağlığı',
   recovery:  '3 · Kurtarma Merdiveni (ATPC)',
   keepalive: '4 · Keep-Alive (ATWM/ATSW/ATST)',
+  dtc:       '5 · DTC Kanalı (0x18 ReadDTCByStatus)',
 } as const;
 
 export interface KwpSection {
@@ -126,6 +127,23 @@ export interface KwpRawSnapshot {
   readonly freshWindowMs:   number | null;
   readonly pollingActive:   boolean | null;
   readonly recovery:        KwpRecoveryRaw | null;
+  /**
+   * V-08 — KWP DTC kanalının son tam-tarama kanıtı. `null` = okunamadı.
+   * Bu kanal SÜREKLİ akmaz; yalnız tam araç taramasında çalışır.
+   */
+  readonly dtc:             KwpDtcEvidenceRaw | null;
+}
+
+/** `multiEcuScan.getKwpDtcEvidence()` çıktısının YAPISAL izdüşümü (servis importu YOK). */
+export interface KwpDtcEvidenceRaw {
+  readonly lastScanAtMs:     number | null;
+  readonly protocolAtScan:   string | null;
+  readonly attempted:        boolean;
+  readonly channelAvailable: boolean;
+  readonly okCount:          number;
+  readonly unsupportedCount: number;
+  readonly failedCount:      number;
+  readonly codeCount:        number;
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
@@ -364,6 +382,70 @@ function _keepAliveSection(): KwpSection {
 }
 
 /** Tüm bölümler, sabit sırada. */
+/**
+ * V-08 — KWP DTC kanalı (0x18). Bu kanal SÜREKLİ AKMAZ: yalnız tam araç
+ * taraması sırasında çalışır. Bu yüzden gösterilen her şey SON TURUN kanıtıdır
+ * ve "hiç taranmadı" ile "tarandı, sonuç yok" BİLİNÇLİ OLARAK AYRIDIR —
+ * ikisini birleştirmek, bakılmamış bir aracı "temiz" göstermenin LAB'daki
+ * karşılığı olurdu.
+ */
+function _dtcSection(s: KwpRawSnapshot, nowMs: number): KwpSection {
+  const f: InspectorField[] = [];
+  const d = s.dtc;
+  const SRC_DTC = 'obd/multiEcuScan.getKwpDtcEvidence()';
+
+  if (!d) {
+    f.push(unavailable(
+      { id: 'dtcEvidence', label: 'DTC kanalı', source: SRC_DTC, note: '' },
+      'Kanıt okunamadı.',
+    ));
+    return { id: 'dtc', title: KWP_SECTION_TITLE.dtc, fields: f };
+  }
+
+  f.push(observed({
+    id: 'dtcChannel', label: 'native kanal', source: SRC_DTC,
+    note: 'Köprü yoksa 0x18 HİÇ sorulamaz — web veya eski APK ortamında beklenen durumdur.',
+  }, d.channelAvailable ? 'VAR' : 'YOK'));
+
+  if (d.lastScanAtMs === null) {
+    f.push(unavailable(
+      { id: 'dtcScan', label: 'son tam tarama', source: SRC_DTC, note: '' },
+      'Bu oturumda tam araç taraması HİÇ koşmadı — DTC kanalı hakkında hüküm YOK.',
+    ));
+    return { id: 'dtc', title: KWP_SECTION_TITLE.dtc, fields: f };
+  }
+
+  f.push(derived({
+    id: 'dtcScanAge', label: 'son tam tarama', source: SRC_DTC,
+    note: 'Damgadan türetildi.', updatedAt: d.lastScanAtMs,
+  }, formatAge(d.lastScanAtMs, nowMs)));
+
+  f.push(observed({
+    id: 'dtcProtocol', label: 'taramadaki protokol', source: SRC_DTC,
+    note: 'KWP dalı yalnız yavaş seri hatta (3/4/5) denenir.',
+  }, d.protocolAtScan ?? 'bilinmiyor'));
+
+  if (!d.attempted) {
+    f.push(unavailable(
+      { id: 'dtcAttempt', label: '0x18 denemesi', source: SRC_DTC, note: '' },
+      'DENENMEDİ — protokol CAN olduğu için (veya okunamadığı için) KWP dalı hiç çalışmadı. Bu bir hata DEĞİL, kapsam kararıdır.',
+    ));
+    return { id: 'dtc', title: KWP_SECTION_TITLE.dtc, fields: f };
+  }
+
+  f.push(observed({
+    id: 'dtcEcuStates', label: 'ECU sonuçları', source: SRC_DTC,
+    note: 'ok = 0x18 yanıtladı · desteklemiyor = GERÇEK cevap · düştü = okuma hatası.',
+  }, `${d.okCount} ok · ${d.unsupportedCount} desteklemiyor · ${d.failedCount} düştü`));
+
+  f.push(observed({
+    id: 'dtcCodes', label: 'KWP kodu', source: SRC_DTC,
+    note: 'Standart modda OLMAYAN, yalnız 0x18 yanıtından gelen üretici kodları (dedupe sonrası).',
+  }, d.codeCount));
+
+  return { id: 'dtc', title: KWP_SECTION_TITLE.dtc, fields: f };
+}
+
 export function buildKwpSections(s: KwpRawSnapshot): KwpSection[] {
   const nowMs = s.readAt;
   return [
@@ -371,6 +453,7 @@ export function buildKwpSections(s: KwpRawSnapshot): KwpSection[] {
     _sessionSection(s, nowMs),
     _recoverySection(s),
     _keepAliveSection(),
+    _dtcSection(s, nowMs),
   ];
 }
 

@@ -18,6 +18,7 @@ import {
 } from '../obdService';
 import { getKwpRecoveryEvidence } from '../obd/kwpRecoveryEvidence';
 import { classifyProtocol, isSlowSerialProtocol } from '../obd/protocolProfile';
+import { getKwpDtcEvidence } from '../obd/multiEcuScan';
 import type { KwpRawSnapshot } from './kwpMonitorModel';
 
 function _safe<T>(fn: () => T): T | null {
@@ -53,6 +54,8 @@ export function readKwpRawSnapshot(): KwpRawSnapshot {
   const hs    = _safe(() => getHandshakeDiagnostics());
   const fresh = _safe(() => getObdFreshWindowMs());
   const kwp   = _safe(() => getKwpRecoveryEvidence());
+  /* V-08: DTC kanalının son tam-tarama kanıtı (sürekli akmaz — bkz. model). */
+  const dtc   = _safe(() => getKwpDtcEvidence());
 
   const protocolActive = hs?.protocolActive ?? null;
   // Protokol BİLİNMİYORSA sınıf da uygulanabilirlik de null kalır — CAN VARSAYILMAZ.
@@ -94,6 +97,17 @@ export function readKwpRawSnapshot(): KwpRawSnapshot {
       protocolAtRecovery:       kwp.protocolAtRecovery ?? null,
       threshold:                _num(kwp.threshold),
       maxPerSession:            _num(kwp.maxPerSession),
+    } : null,
+
+    dtc: dtc ? {
+      lastScanAtMs:     dtc.lastScanAtMs,
+      protocolAtScan:   dtc.protocolAtScan,
+      attempted:        dtc.attempted === true,
+      channelAvailable: dtc.channelAvailable === true,
+      okCount:          _num(dtc.okCount) ?? 0,
+      unsupportedCount: _num(dtc.unsupportedCount) ?? 0,
+      failedCount:      _num(dtc.failedCount) ?? 0,
+      codeCount:        _num(dtc.codeCount) ?? 0,
     } : null,
   };
 }

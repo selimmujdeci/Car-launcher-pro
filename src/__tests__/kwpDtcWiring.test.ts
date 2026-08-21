@@ -187,3 +187,75 @@ describe('kwpDtcWiring › üretici tabanına bakılmadıysa "temiz" DENMEZ', ()
     expect(panel).toMatch(/return 'not_asked'/);
   });
 });
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * E) CAROS LAB GÖZLEM SATIRI (gözlemlenebilirlik mandate'i)
+ * ═════════════════════════════════════════════════════════════════════════ */
+describe('kwpDtcWiring › LAB gözlem satırı', () => {
+  it('KWP İzleyici ekranında DTC bölümü VARDIR', async () => {
+    const { KWP_SECTION_ORDER, KWP_SECTION_TITLE } =
+      await import('../platform/devtools/kwpMonitorModel');
+    expect(KWP_SECTION_ORDER).toContain('dtc');
+    expect(KWP_SECTION_TITLE.dtc).toMatch(/0x18/);
+  });
+
+  it('"hiç taranmadı" ile "tarandı, sonuç yok" AYRI gösterilir', async () => {
+    const { buildKwpSections } = await import('../platform/devtools/kwpMonitorModel');
+    const base = {
+      readAt: 1_700_000_000_000,
+      protocolActive: '4', protocolTried: '4', protocolClass: 'kwp', slowSerial: true,
+      transportConnected: true, connectionState: 'connected', dataFresh: true,
+      lastRxAt: null, freshWindowMs: null, pollingActive: true, recovery: null,
+    };
+
+    /* Hiç tarama yok → hüküm YOK (KAYNAK YOK). */
+    const never = buildKwpSections({
+      ...base,
+      dtc: {
+        lastScanAtMs: null, protocolAtScan: null, attempted: false,
+        channelAvailable: true, okCount: 0, unsupportedCount: 0, failedCount: 0, codeCount: 0,
+      },
+    } as never).find((x) => x.id === 'dtc');
+    const neverScan = never!.fields.find((f) => f.id === 'dtcScan');
+    expect(neverScan?.klass).toBe('UNAVAILABLE');
+    expect(neverScan?.note).toMatch(/hüküm YOK/i);
+
+    /* Tarandı ama KWP dalı denenmedi (CAN) → bu bir HATA DEĞİL, kapsam kararı. */
+    const notTried = buildKwpSections({
+      ...base,
+      dtc: {
+        lastScanAtMs: base.readAt - 5000, protocolAtScan: '6', attempted: false,
+        channelAvailable: true, okCount: 0, unsupportedCount: 0, failedCount: 0, codeCount: 0,
+      },
+    } as never).find((x) => x.id === 'dtc');
+    const attempt = notTried!.fields.find((f) => f.id === 'dtcAttempt');
+    expect(attempt?.klass).toBe('UNAVAILABLE');
+    expect(attempt?.note).toMatch(/hata DEĞİL/i);
+  });
+
+  it('denendiğinde ECU sonuçları ve kod sayısı GÖSTERİLİR', async () => {
+    const { buildKwpSections } = await import('../platform/devtools/kwpMonitorModel');
+    const sec = buildKwpSections({
+      readAt: 1_700_000_000_000,
+      protocolActive: '4', protocolTried: '4', protocolClass: 'kwp', slowSerial: true,
+      transportConnected: true, connectionState: 'connected', dataFresh: true,
+      lastRxAt: null, freshWindowMs: null, pollingActive: true, recovery: null,
+      dtc: {
+        lastScanAtMs: 1_700_000_000_000 - 1000, protocolAtScan: '4', attempted: true,
+        channelAvailable: true, okCount: 2, unsupportedCount: 1, failedCount: 0, codeCount: 3,
+      },
+    } as never).find((x) => x.id === 'dtc');
+    expect(sec!.fields.find((f) => f.id === 'dtcEcuStates')?.value).toMatch(/2 ok/);
+    expect(sec!.fields.find((f) => f.id === 'dtcCodes')?.value).toBe('3');
+  });
+
+  it('kanıt YENİ ÖLÇÜM üretmez — tarama sonucunu hatırlar', () => {
+    const scan = stripComments(read('src/platform/obd/multiEcuScan.ts'));
+    /* Kanıt yazımı taramanın SONUNDA, zaten hesaplanmış `results`tan türetilir. */
+    expect(scan).toMatch(/_kwpEvidence = Object\.freeze\(/);
+    expect(scan).toMatch(/results\.map\(\(r\) => r\.kwp\)/);
+    /* Kanıt toplama taramayı bozamaz — YAPIYA bakılır, yoruma değil
+       (`stripComments` yorumları zaten söküyor). */
+    expect(scan).toMatch(/try \{[\s\S]*?_kwpEvidence = Object\.freeze\([\s\S]*?\} catch \{/);
+  });
+});

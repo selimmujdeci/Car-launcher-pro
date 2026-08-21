@@ -205,6 +205,21 @@ export async function scanAllEcus(
     results.push(result);
   }
 
+  /* V-08 — KWP kanalının son tur kanıtını hatırla (yeni ölçüm YOK). */
+  try {
+    const kwpStates = results.map((r) => r.kwp).filter((v) => v !== null);
+    _kwpEvidence = Object.freeze({
+      lastScanAtMs: Date.now(),
+      protocolAtScan: activeProtocol,
+      attempted: kwpStates.length > 0,
+      channelAvailable: Capacitor.isNativePlatform() && typeof CarLauncher.readKwpDtcs === 'function',
+      okCount: kwpStates.filter((v) => v === 'ok').length,
+      unsupportedCount: kwpStates.filter((v) => v === 'unsupported').length,
+      failedCount: kwpStates.filter((v) => v === 'failed').length,
+      codeCount: allCodes.filter((c) => c.fromKwp === true).length,
+    });
+  } catch { /* fail-soft: kanıt toplama taramayı ASLA bozmaz */ }
+
   return {
     topology,
     results,
@@ -275,6 +290,50 @@ async function readUdsForEcu(ecu: DiscoveredEcu, result: EcuScanResult): Promise
     logError('OBD:UdsDtcFailed', e);       // UDS düştü — standart sonuçlar KORUNUR
     return [];
   }
+}
+
+/* ── V-08: KWP DTC kanalının SALT-OKUNUR kanıtı ─────────────────────────────
+ *
+ * NEDEN: KWP dalı yalnız TAM ARAÇ TARAMASI sırasında çalışır; sürekli bir
+ * akışı yoktur. CAROS LAB "bu araçta KWP DTC sorulabildi mi" sorusunu ancak
+ * son turun sonucunu HATIRLARSAK cevaplayabilir.
+ *
+ * YENİ ÖLÇÜM ÜRETİLMEZ: tarama zaten hesapladığı durumu buraya yazar. Sınırlı
+ * (yalnız son tur), süreç-ömürlü, timer yok, I/O yok. */
+
+export interface KwpDtcEvidence {
+  /** Son tam taramanın damgası; `null` = bu oturumda hiç taranmadı. */
+  readonly lastScanAtMs: number | null;
+  /** Tarama anındaki aktif protokol (ATDPN) — `null` = okunamadı. */
+  readonly protocolAtScan: string | null;
+  /** KWP dalı GERÇEKTEN denendi mi (yavaş seri kapısı geçildi mi). */
+  readonly attempted: boolean;
+  /** Native köprü bu ortamda var mı — yoksa deneme HİÇ yapılamaz. */
+  readonly channelAvailable: boolean;
+  /** ECU başına sonuç sayaçları (yalnız denenen turda anlamlı). */
+  readonly okCount: number;
+  readonly unsupportedCount: number;
+  readonly failedCount: number;
+  /** Bu turda KWP'den gelen (standart modda OLMAYAN) kod adedi. */
+  readonly codeCount: number;
+}
+
+const _EMPTY_KWP_EVIDENCE: KwpDtcEvidence = Object.freeze({
+  lastScanAtMs: null, protocolAtScan: null, attempted: false,
+  channelAvailable: false, okCount: 0, unsupportedCount: 0,
+  failedCount: 0, codeCount: 0,
+});
+
+let _kwpEvidence: KwpDtcEvidence = _EMPTY_KWP_EVIDENCE;
+
+/** LAB salt-okuma yüzeyi — hiçbir şey tetiklemez, ASLA fırlatmaz. */
+export function getKwpDtcEvidence(): KwpDtcEvidence {
+  return _kwpEvidence;
+}
+
+/** @internal — testler arası izolasyon. */
+export function _resetKwpDtcEvidenceForTest(): void {
+  _kwpEvidence = _EMPTY_KWP_EVIDENCE;
 }
 
 /**
