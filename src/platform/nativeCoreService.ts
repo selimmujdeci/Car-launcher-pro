@@ -16,6 +16,7 @@ import { Capacitor } from '@capacitor/core';
 import { CarLauncher } from './nativePlugin';
 import type { NativeDeviceProfile, NativeScreenMetrics } from './nativePlugin';
 import { initFromDeviceProfile } from './performanceMode';
+import { setNativeScreenMetrics, getDeviceTier } from './deviceCapabilities';
 
 /* ── Module state ─────────────────────────────────────────── */
 
@@ -43,39 +44,26 @@ export async function initNativeCore(): Promise<void> {
 
   if (!Capacitor.isNativePlatform()) return; // web/demo mode — skip
 
-  // ── Device profile ────────────────────────────────────────
-  try {
-    const profile = await CarLauncher.getDeviceProfile();
-    _profile = profile;
-    notifyProfile();
+  /* ══════════════════════════════════════════════════════════════════════
+   * SIRA KRİTİK (kütük #599 · #683): ÖNCE ekran ölçümü, SONRA sınıflandırma.
+   *
+   * Eskiden ters sıradaydı: cihaz sınıfı native profilden alınıp performans modu
+   * ayarlanıyor, ekran metrikleri SONRA okunuyor ve YALNIZ bir CSS değişkenine
+   * yazılıyordu — sınıflandırmaya HİÇ girmiyordu. Yani gerçek panel ölçüsü elde
+   * olduğu hâlde `deviceCapabilities` `cssW × devicePixelRatio` TAHMİNİYLE karar
+   * veriyordu. #599 tam bu yüzden çıktı: yanlış dpr → sahte `low` → poll 1000 ms →
+   * OBD verisi bayat. Ölçüm varken tahminle karar vermek, veriyi çöpe atmaktır.
+   * ════════════════════════════════════════════════════════════════════ */
 
-    // Auto-set performance mode unless user has a manual override
-    initFromDeviceProfile(profile.deviceClass);
-
-    // Low-end veya düşük RAM cihaz: tüm pahalı CSS efektlerini hemen kapat.
-    // `perf-low` index.css'te tanımlı: animation:none, blur:none, shadow:none.
-    // `data-compat-mode`: tüm backdrop-blur sınıflarını opak arka planla değiştirir.
-    if (profile.deviceClass === 'low' || profile.isLowRamDevice) {
-      document.documentElement.classList.add('perf-low');
-      document.documentElement.setAttribute('data-compat-mode', 'true');
-      // Cache: sonraki açılışta anında uygula (FOUC önler)
-      // Kütük #411: burada YAZILAN şey performans sınıfıdır, cihaz türü DEĞİL.
-      // Eskiden `cl_isHeadUnit='1'` yazılıyordu → düşük RAM'li TELEFONLAR head
-      // unit sayılıp HU yerleşimi alıyordu (sahada ölçüldü, #412'nin kökü).
-      try { localStorage.setItem('cl_compatLowTier', '1'); } catch { /* quota */ }
-    } else if (profile.deviceClass === 'mid') {
-      // Orta sınıf cihazda animasyon yavaşlatması yeterli; blur'a izin ver
-      document.documentElement.classList.add('perf-med');
-    }
-  } catch {
-    // Native call failed — continue with defaults, no crash
-  }
-
-  // ── Screen metrics ────────────────────────────────────────
+  // ── Screen metrics (ÖNCE — sınıflandırmanın girdisi) ──────
   try {
     const metrics = await CarLauncher.getScreenMetrics();
     _screenMetrics = metrics;
     notifyMetrics();
+
+    /* Kanonik sınıflandırıcıya ÖLÇÜMÜ besle. Bu İKİNCİ OTORİTE DEĞİLDİR:
+       karar yine `deviceCapabilities`ındır, burada yalnız girdi sağlanır. */
+    setNativeScreenMetrics({ widthPx: metrics.widthPx, heightPx: metrics.heightPx });
 
     // Inject as CSS variables so components can use them
     const root = document.documentElement;
@@ -83,8 +71,44 @@ export async function initNativeCore(): Promise<void> {
     root.style.setProperty('--native-vh', `${metrics.heightPx}px`);
     root.style.setProperty('--native-density', String(metrics.density));
   } catch {
-    // Fallback — keep JS window dimensions
+    /* Ölçüm alınamadı → `deviceCapabilities` tahmin dalında kalır (fail-soft).
+       Sahte ölçüm BESLENMEZ: yanlış ölçüm, tahminden kötüdür. */
   }
+
+  // ── Device profile ────────────────────────────────────────
+  try {
+    const profile = await CarLauncher.getDeviceProfile();
+    _profile = profile;
+    notifyProfile();
+
+    /* TEK OTORİTE: performans modu KANONİK cihaz sınıfından türetilir
+       (`performanceMode.ts` kendisi de "tek kaynak: deviceCapabilities" diyor).
+       Eskiden native `profile.deviceClass` doğrudan veriliyordu — bu, aynı soruyu
+       yanıtlayan İKİNCİ bir otoriteydi ve iki yol farklı sonuç verebilirdi.
+       Sıra sayesinde `getDeviceTier()` artık native ÖLÇÜMLE hesaplanıyor. */
+    initFromDeviceProfile(getDeviceTier());
+
+    // Low-end veya düşük RAM cihaz: tüm pahalı CSS efektlerini hemen kapat.
+    // `perf-low` index.css'te tanımlı: animation:none, blur:none, shadow:none.
+    // `data-compat-mode`: tüm backdrop-blur sınıflarını opak arka planla değiştirir.
+    /* CSS baskılama kararı da KANONİK sınıfa bağlı — native `deviceClass` ile
+       `getDeviceTier()` ayrışırsa ekran bir sınıfa, poll başka sınıfa göre davranırdı. */
+    if (getDeviceTier() === 'low' || profile.isLowRamDevice) {
+      document.documentElement.classList.add('perf-low');
+      document.documentElement.setAttribute('data-compat-mode', 'true');
+      // Cache: sonraki açılışta anında uygula (FOUC önler)
+      // Kütük #411: burada YAZILAN şey performans sınıfıdır, cihaz türü DEĞİL.
+      // Eskiden `cl_isHeadUnit='1'` yazılıyordu → düşük RAM'li TELEFONLAR head
+      // unit sayılıp HU yerleşimi alıyordu (sahada ölçüldü, #412'nin kökü).
+      try { localStorage.setItem('cl_compatLowTier', '1'); } catch { /* quota */ }
+    } else if (getDeviceTier() === 'mid') {
+      // Orta sınıf cihazda animasyon yavaşlatması yeterli; blur'a izin ver
+      document.documentElement.classList.add('perf-med');
+    }
+  } catch {
+    // Native call failed — continue with defaults, no crash
+  }
+
 }
 
 /* ── Public: getters ──────────────────────────────────────── */

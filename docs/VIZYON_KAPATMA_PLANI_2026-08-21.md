@@ -391,7 +391,7 @@ gösterilebilir. Kalan "yol haritası" maddeleri görsel olarak ayrışır.
 
 ---
 
-## 🔵 V-04 — Ölü kodu ya bağla ya sil  **[DEVAM — 1/5 bağlandı]**
+## 🔵 V-04 — Ölü kodu ya bağla ya sil  **[DEVAM — 2/6 kapandı]**
 
 **BULGU:** Üretimde **hiç import edilmeyen** modüller. Her biri "yapıldı" yanılsaması üretiyor.
 Doğrulama: `grep -rl "/<modül>'" src` (test ve kendisi hariç) → **0 sonuç**.
@@ -436,7 +436,7 @@ bilmene bağlıdır.* Gerçek ölü: **10 → 5 modül**, **~2.900 → ~749 sat�
 | # | Modül | Satır | Durum |
 |---|---|---|---|
 | 1 | `adapterCapability` | 91 | ✅ **BAĞLANDI** — kütük 🔴 #682 (cihazda ölçülmedi) |
-| 2 | `nativeCoreService` eksiği | — | ⬜ native piksel → sınıflandırmaya besle + otorite çakışması |
+| 2 | `nativeCoreService` eksiği | — | ✅ **KAPATILDI** — kütük 🔴 #683 (#599'un kökü + otorite tekilleştirildi) |
 | 3 | `signalHub` | 122 | ⬜ tek sinyal okuma yüzeyi |
 | 4 | `fleetKb` | 141 | ⬜ kalıcı öğrenme (keşif turuna bağlı) |
 | 5 | `serviceFunctions` | 161 | ⬜ araca yazma rutinleri (ürün kararı) |
