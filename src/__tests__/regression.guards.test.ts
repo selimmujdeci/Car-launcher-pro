@@ -1084,6 +1084,31 @@ describe('Sesli asistan — hava/trafik dürüstlüğü + hibrit beyin zinciri k
     expect(src).toMatch(/const aiUsable = chain\.length > 0 && hasNet;/);
   });
 
+  it('YAPISAL #697: REASK ("orayı kaçırdım") YEREL komut zincirini EZEMEZ — kendi rotasında bekletilir', () => {
+    /* SAHA: kullanıcı "Mavi HER ŞEYE 'hops orayı kaçırdım' diyor" dedi. Kök:
+       online zincir null döndüğünde beyin REASK cümlesini `companion_offline`
+       rotasıyla döndürüyor, voiceService bunu GEÇERLİ sohbet cevabı sayıp turu
+       KAPATIYORDU → "müzik aç", "haritayı aç" gibi TAMAMEN YEREL çalışan
+       komutlar bile hiç denenmiyordu. Tekrar-rica artık zincirin SONUNDA,
+       yerel parser + offline sohbet DENENDİKTEN sonra söylenir. */
+    const brain = read('src/platform/companion/companionChatProvider.ts');
+    // REASK kendi rotasında döner (offline sohbet cevabıyla aynı kulvarda DEĞİL).
+    expect(brain).toMatch(/response: reask, route: 'companion_reask'/);
+
+    const vs = read('src/platform/voiceService.ts');
+    // Çağıran REASK'ı chat olarak TÜKETMEZ; bekletir ve zincire devam eder.
+    expect(vs).toMatch(/brain\.route === 'companion_reask'/);
+    expect(vs).toMatch(/_pendingReask = brain\.response;/);
+    // ACTION köprüsü REASK düşüşünde kurulmaz (chat objesinde `semantic` yok).
+    expect(vs).toMatch(/brain\.kind === 'action' \? fromSemanticResult/);
+    // Çıkmaz yok: son dalda SESLİ söylenir (sürüşte ekran notu yetmez).
+    expect(vs).toMatch(/if \(_pendingReask !== null\) \{[\s\S]{0,40}speakMaviAnswer\(_pendingReask/);
+    // REASK dalı turu KAPATMAMALI — o satırlarda `return true` olmamalı.
+    const idx = vs.indexOf("brain.route === 'companion_reask'");
+    expect(idx).toBeGreaterThan(0);
+    expect(vs.slice(idx, idx + 260)).not.toMatch(/return true;/);
+  });
+
   it('YAPISAL: beyin AYAR komutlarını (SET_SETTING) üretebilir + sahte onay YASAK — "açıyorum" deyip iş yapmama önlemi', () => {
     const brain = read('src/platform/companion/companionChatProvider.ts');
     // SET_SETTING (parlaklık/wifi/bluetooth) + yaygın eylemler beyin sözlüğünde OLMALI —

@@ -1655,6 +1655,10 @@ export async function processTextCommand(
   // yerel parser/semantic bir daha KONUŞMAZ. Offline'da bu blok atlanır,
   // doğrudan yerel zincir çalışır.
   let _thinkingTimer: ReturnType<typeof setTimeout> | null = null;
+  /* #697 — beyin "karar veremedim" dediyse (REASK) metni burada bekletilir;
+   * yerel zincirin HİÇBİR dalı tutmazsa (e) dalında SÖYLENİR. Tur-yereldir:
+   * bir sonraki tura sızmaz. */
+  let _pendingReask: string | null = null;
   if (aiUsable) try {
     const { tryCompanionBrain } = await import('./companion/companionChatProvider');
     // MAVI-M5 · KAPI B: dinamik import sürerken yeni tur başlamış olabilir.
@@ -1698,8 +1702,19 @@ export async function processTextCommand(
     if (!continueIfTurnActive(turn, 'provider_result')) return false;
 
     if (brain) {
-      _lastCommandTime = now;
-      if (brain.kind === 'chat') {
+      /* SAHA (#697): REASK ("tam anlayamadım, bir daha söyle") bir CEVAP DEĞİL,
+       * beynin "karar veremedim" itirafıdır. Eskiden normal sohbet cevabı gibi
+       * tüketiliyordu → tur burada KAPANIYOR, aşağıdaki YEREL KOMUT ZİNCİRİ
+       * (yüksek güvenli parser + offline sohbet) hiç çalışmıyordu. Online
+       * zincir bir süre null döndüğünde kullanıcı "müzik aç" gibi TAMAMEN
+       * YEREL komutlarda bile tekrar-rica duyuyordu ("Mavi her şeye 'of orayı
+       * kaçırdım' diyor"). Artık metin saklanır, yerel zincir denenir; hiçbiri
+       * tutmazsa (e) dalında bu cümle söylenir — çıkmaz yok, ama önce iş yapılır. */
+      if (brain.kind === 'chat' && brain.route === 'companion_reask') {
+        void reportVoiceDiag('voice_route', { route: brain.route, provider });
+        _pendingReask = brain.response;
+      } else if (brain.kind === 'chat') {
+        _lastCommandTime = now;
         void reportVoiceDiag('voice_route', { route: brain.route, provider });
         // Sürekli sohbet döngüsü YALNIZ companion sohbet cevabında kurulur.
         _dispatchConversation(brain.response, trimmed, true);
@@ -1707,7 +1722,10 @@ export async function processTextCommand(
         return true;
       }
       // ACTION — beyin komuta karar verdi (Siri mantığı): intent köprüsü.
-      const intent = fromSemanticResult(brain.semantic, trimmed);
+      // REASK dalı buraya CHAT olarak düşer (yukarıda return etmez) → köprü
+      // kurulmaz, aşağıdaki yerel zincire devam edilir.
+      if (brain.kind === 'action') _lastCommandTime = now;
+      const intent = brain.kind === 'action' ? fromSemanticResult(brain.semantic, trimmed) : null;
       if (intent) {
         void reportVoiceDiag('voice_route', { route: 'companion_action', provider });
         void reportVoiceDiag('voice_intent', { intent: intent.type, provider });
@@ -1842,9 +1860,17 @@ export async function processTextCommand(
   });
   _emitVoiceEvent('execution_result', { result: 'unsupported' });
   _endConvSession(); // terminal hata — sohbet döngüsü biter, pencere kapanabilir
+  /* #697 — ÇIKMAZ YOK, AMA EN SONDA: online beyin karar veremedi VE yerel
+   * zincirin hiçbir dalı tutmadı → tekrar-rica burada seslendirilir. Ekran
+   * notu yerine SES şart: sürüşte ekrana bakılmaz (eski davranışta bu cümle
+   * beyin dalında söyleniyordu ve yerel komutları ezip geçiyordu). */
+  if (_pendingReask !== null) {
+    speakMaviAnswer(_pendingReask, { isDriving: ctx?.isDriving === true });
+    _armFollowUp(); // kullanıcı tekrar söyleyebilsin — mikrofon kendiliğinden açılır
+  }
   push({
     status:      'error',
-    error:       `"${trimmed}" anlaşılamadı`,
+    error:       _pendingReask ?? `"${trimmed}" anlaşılamadı`,
     transcript:  trimmed,
     suggestions: result.suggestions,
   });

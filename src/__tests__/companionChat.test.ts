@@ -697,7 +697,12 @@ describe('tryCompanionBrain — komut/sohbet kararını tek Gemini çağrısı v
     const r = await tryCompanionBrain('haberleri söyle', GEMINI_OPTS);
     expect(r!.kind).toBe('chat');
     if (r!.kind === 'chat') {
-      expect(r.route).toBe('companion_offline');             // grounding başarısız → reask
+      /* #697'de GÜNCELLENDİ (zayıflatılmadı): REASK'ın kendisi hâlâ üretiliyor;
+         yalnız rota `companion_offline`'dan AYRIŞTIRILDI. Çağıran bu rotayı
+         "beyin karar veremedi → önce YEREL komut zincirini dene" olarak okur;
+         eskiden offline sohbet cevabıyla aynı kulvarda olduğu için turu kapatıp
+         yerel parser'ı öldürüyordu. */
+      expect(r.route).toBe('companion_reask');               // grounding başarısız → reask
       expect(r.response.toLowerCase()).not.toContain('erişim');
     }
   });
@@ -1091,7 +1096,8 @@ describe('tryCompanionBrain — hibrit zincir yedekleme (429/timeout sırasında
     expect(r!.kind).toBe('chat');
     if (r!.kind === 'chat') {
       expect(r.route).not.toBe('companion_net_down');      // "internet yok" DEMEZ
-      expect(r.route).toBe('companion_offline');           // REASK yolu
+      /* #697: REASK artık kendi rotasında (davranış aynı, kulvar ayrı). */
+      expect(r.route).toBe('companion_reask');             // REASK yolu
     }
   });
 

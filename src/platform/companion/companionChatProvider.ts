@@ -159,7 +159,7 @@ import { pushTrail } from '../diagnosticTrailCore';
 
 /* ── Tipler ─────────────────────────────────────────────────── */
 
-export type CompanionChatRoute = 'companion_gemini' | 'companion_groq' | 'companion_haiku' | 'companion_gateway' | 'companion_offline' | 'companion_rate_limited' | 'companion_key_invalid' | 'companion_net_down' | 'companion_safety';
+export type CompanionChatRoute = 'companion_gemini' | 'companion_groq' | 'companion_haiku' | 'companion_gateway' | 'companion_offline' | 'companion_rate_limited' | 'companion_key_invalid' | 'companion_net_down' | 'companion_safety' | 'companion_reask';
 
 export interface CompanionChatResult {
   response: string;
@@ -2534,9 +2534,21 @@ async function runCompanionBrain(
     return { kind: 'chat', response: reply, route: 'companion_net_down' };
   }
 
+  /* SAHA (#697) — "Mavi HER ŞEYE 'of orayı kaçırdım' diyor": bu dal
+     `companion_offline` rotasıyla dönüyordu ve çağıran (voiceService) onu
+     GEÇERLİ bir sohbet cevabı sayıp turu KAPATIYORDU. Sonuç: online zincir
+     null döndüğü her turda YEREL KOMUT PARSER'I ("müzik aç", "haritayı aç",
+     "sesi kıs") HİÇ ÇALIŞMIYOR, kullanıcı çalışabilecek komutlarda bile
+     tekrar-rica duyuyordu. Bu bir "no dead-end" değil, ÇIKMAZIN KENDİSİYDİ.
+
+     Metin ve persona sözleşmesi AYNEN korunur; değişen tek şey ROTA: artık
+     `companion_reask` — çağıran bunu "beyin karar veremedi, YEREL ZİNCİRİ
+     dene; hiçbir şey tutmazsa BUNU söyle" olarak okur (bkz. voiceService
+     `_pendingReask`). Böylece tekrar-rica çıkmazın sonunda söylenir, başında
+     değil. */
   if (aiAttempted) {
     const reask = REASK_BY_PERSONALITY[resolveIdentityWithDriverStyle(settings).personality] ?? REASK_DEFAULT;
-    return { kind: 'chat', response: reask, route: 'companion_offline' };
+    return { kind: 'chat', response: reask, route: 'companion_reask' };
   }
   return null;
 }
