@@ -94,6 +94,7 @@ import { healthMonitor }           from './SystemHealthMonitor';
 import { initCommunityService, stopCommunityService } from '../communityService';
 import { stopVoiceService }        from '../voiceService';
 import { startWakeWordService, notifyVoskModelReady } from '../wakeWordService';
+import { startBackgroundPowerGate } from '../power/backgroundPowerGate';
 import { startMaviVoiceWiring } from './platformCoreMaviVoiceWiring';
 import {
   startCompanionEngine,
@@ -1018,6 +1019,14 @@ class SystemBoot {
     // notifyVoskModelReady) — erken start "model yok" ile sağır kalıyordu.
     _log('  › WakeWordService');
     this._reg(startWakeWordService());
+
+    // BackgroundPowerGate: arka plan + pil ile çalışırken GPS'i kısar, pasif
+    // mikrofonu susturur (ölçüm 2026-08-20: 612 mAh/h, 16 saatte 169 dk deep
+    // sleep). WakeWordService'ten SONRA kaydedilir → LIFO kapanışta ONDAN ÖNCE
+    // sökülür, yani kapı kapanırken wake hâlâ ayaktadır ve kısma bırakılmaz.
+    // Head unit etkilenmez: harici güç varken kapı kısma kararı üretmez.
+    _log('  › BackgroundPowerGate');
+    this._reg(startBackgroundPowerGate());
 
     // Mavi Çekirdeği Faz-2 wiring (SHADOW/coexistence). WakeWordService + VoiceService'ten SONRA
     // kaydedilir → LIFO shutdown'da bunlardan ÖNCE dispose olur (köprü kapanırken voiceService

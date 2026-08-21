@@ -3,8 +3,10 @@ package com.cockpitos.pro;
 import android.Manifest;
 import android.app.AlarmManager;
 import android.app.PendingIntent;
+import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.pm.PackageManager;
 import android.database.ContentObserver;
 import android.net.Uri;
@@ -12,6 +14,7 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.BatteryManager;
 import android.os.PowerManager;
 import android.provider.Settings;
 import android.content.ComponentCallbacks2;
@@ -113,6 +116,109 @@ public class MainActivity extends BridgeActivity {
 
     private ActivityResultLauncher<String[]> permissionLauncher;
 
+    /** Ekran politikasının son uygulanan hâli (null = hiç uygulanmadı). */
+    private Boolean _screenPolicyApplied = null;
+    private boolean _powerReceiverRegistered = false;
+    // ── Ekran uyanıklık politikası (güç kaynağına bağlı) ───────────────────
+
+    /**
+     * SAHA ÖLÇÜMÜ (2026-08-20, Redmi Note 13 Pro 5G — telefon):
+     * `FLAG_KEEP_SCREEN_ON` + `setTurnScreenOn(true)` head unit için DOĞRUDUR
+     * (araç ekranı kontakla açılır, sürüş boyunca kapanmaz). Telefonda ise
+     * ekranın kapanmasını İMKÂNSIZ kılıyordu: güç tuşuna basılınca ekran
+     * kapanıyor, activity hâlâ resumed olduğu için `setTurnScreenOn` onu
+     * DERHAL geri açıyordu. Ölçüm: `dumpsys power` →
+     * `SCREEN_BRIGHT_WAKE_LOCK 'WindowManager' ws=WorkSource{10626}`,
+     * `mWakefulness=Awake` (POWER tuşundan 10 sn sonra bile).
+     * İki bedeli var: (1) ekran bir telefonun en büyük tüketicisidir,
+     * (2) uygulama sürekli "ön planda" sayıldığı için JS tarafındaki arka plan
+     * güç kısması (`backgroundPowerGate`) hiç devreye giremiyordu.
+     *
+     * AYRIM — harici güç: head unit her zaman beslemededir, araca monte edilmiş
+     * telefon da şarjdadır → ikisinde de davranış AYNEN KORUNUR. Yalnız pille
+     * çalışan telefonda normal Android ekran davranışına dönülür.
+     *
+     * Fail-soft: güç durumu okunamazsa (null intent) ESKİ davranış korunur —
+     * kanıtsız kısma yapılmaz, launcher ekranı beklenmedik şekilde kararmaz.
+     */
+    private void applyScreenPowerPolicy() {
+        Boolean external = readExternalPower();
+        if (external == null) return;          // okunamadı → davranışı DEĞİŞTİRME
+
+        boolean keepAwake = external;
+        // NOT: Boolean/boolean karşılaştırmasında null unboxing NPE atar — önce null kontrolü.
+        if (_screenPolicyApplied != null && _screenPolicyApplied == keepAwake) return;   // idempotent
+        _screenPolicyApplied = keepAwake;
+
+        try {
+            if (keepAwake) {
+                getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+            } else {
+                getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+            }
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+                setShowWhenLocked(keepAwake);
+                setTurnScreenOn(keepAwake);
+            } else if (keepAwake) {
+                getWindow().addFlags(
+                    WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED |
+                    WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
+                );
+            } else {
+                getWindow().clearFlags(
+                    WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED |
+                    WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
+                );
+            }
+            Log.d("MainActivity", "Ekran politikası: keepAwake=" + keepAwake);
+        } catch (Throwable t) {
+            Log.w("MainActivity", "Ekran politikası uygulanamadı: " + t.getMessage());
+        }
+    }
+
+    /**
+     * Harici güç bağlı mı. `null` = okunamadı (sticky intent yok) — çağıran
+     * bu durumda davranışı DEĞİŞTİRMEZ.
+     */
+    private Boolean readExternalPower() {
+        try {
+            Intent battery = registerReceiver(null, new IntentFilter(Intent.ACTION_BATTERY_CHANGED));
+            if (battery == null) return null;
+            int plugged = battery.getIntExtra(BatteryManager.EXTRA_PLUGGED, -1);
+            if (plugged < 0) return null;
+            return plugged != 0;               // AC / USB / WIRELESS → harici güç
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    /** Kablo takılıp çıkarıldığında politikayı yeniden uygular. */
+    private final BroadcastReceiver _powerReceiver = new BroadcastReceiver() {
+        @Override public void onReceive(Context context, Intent intent) {
+            applyScreenPowerPolicy();
+        }
+    };
+
+    private void registerPowerReceiver() {
+        try {
+            IntentFilter f = new IntentFilter();
+            f.addAction(Intent.ACTION_POWER_CONNECTED);
+            f.addAction(Intent.ACTION_POWER_DISCONNECTED);
+            ContextCompat.registerReceiver(this, _powerReceiver, f, ContextCompat.RECEIVER_NOT_EXPORTED);
+            _powerReceiverRegistered = true;
+        } catch (Throwable t) {
+            Log.w("MainActivity", "Güç alıcısı kaydedilemedi: " + t.getMessage());
+        }
+    }
+
+    private void unregisterPowerReceiver() {
+        if (!_powerReceiverRegistered) return;
+        _powerReceiverRegistered = false;
+        try { unregisterReceiver(_powerReceiver); } catch (Throwable ignored) {}
+    }
+
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         // Crash durumunda uygulamayı yeniden başlat — launcher asla kapalı kalmamalı
@@ -124,17 +230,13 @@ public class MainActivity extends BridgeActivity {
         super.onCreate(savedInstanceState);
 
         // ── Ekran ayarları ──
-        getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
-            setShowWhenLocked(true);
-            setTurnScreenOn(true);
-        } else {
-            getWindow().addFlags(
-                WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED |
-                WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
-            );
-        }
+        // Bayraklar artık SABİT DEĞİL: harici güç varken (head unit / araca
+        // monte şarjdaki telefon) eskisi gibi ekran açık kalır; pille çalışan
+        // telefonda normal Android davranışına dönülür. Gerekçe ve saha ölçümü
+        // için bkz. applyScreenPowerPolicy().
+        _screenPolicyApplied = null;           // ilk uygulama kesin çalışsın
+        applyScreenPowerPolicy();
+        registerPowerReceiver();
 
         WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
         applyImmersive();
@@ -340,6 +442,7 @@ public class MainActivity extends BridgeActivity {
     @Override
     public void onDestroy() {
         stopAnrWatchdog();
+        unregisterPowerReceiver();
         if (_canRoutingObserver != null) {
             try { getContentResolver().unregisterContentObserver(_canRoutingObserver); }
             catch (Throwable ignored) {}
@@ -352,6 +455,8 @@ public class MainActivity extends BridgeActivity {
     public void onResume() {
         super.onResume();
         applyImmersive();
+        // Kablo, activity duraklamışken takılmış/çıkarılmış olabilir.
+        applyScreenPowerPolicy();
         // UI thread aktif — watchdog'a bildir
         lastUiPing = System.currentTimeMillis();
     }

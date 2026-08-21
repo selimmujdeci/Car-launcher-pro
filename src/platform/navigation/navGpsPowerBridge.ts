@@ -23,6 +23,22 @@ import { logError } from '../crashLogger';
 /** Son gönderilen değer — aynı değeri tekrar tekrar göndermeyi engeller. */
 let _lastSent: boolean | null = null;
 
+/**
+ * Navigasyon canlılığını dinleyen JS tarafı gözlemcisi (bugün: güç kapısı).
+ *
+ * KAYIT DESENİ — bu köprü gözlemciyi İMPORT ETMEZ. Nedeni mimari: köprü
+ * navigasyon testlerinin ağır bağımlılık zincirine (gpsService, wakeWordService,
+ * voiceService…) hiçbir modül eklememelidir. Gözlemci kendini kaydeder;
+ * kaydeden yoksa köprü ESKİSİ GİBİ çalışır.
+ */
+export type NavPowerObserver = (active: boolean) => void;
+let _observer: NavPowerObserver | null = null;
+
+/** Gözlemciyi kaydeder/söker. Tek slot — son kaydeden kazanır (zero-leak). */
+export function setNavPowerObserver(fn: NavPowerObserver | null): void {
+  _observer = fn;
+}
+
 /** Test/tanı için: köprünün şu ana kadar gönderdiği son değer (hiç göndermediyse null). */
 export function getNavGpsPowerLastSent(): boolean | null {
   return _lastSent;
@@ -31,6 +47,7 @@ export function getNavGpsPowerLastSent(): boolean | null {
 /** Test izolasyonu. */
 export function _resetNavGpsPowerBridgeForTest(): void {
   _lastSent = null;
+  _observer = null;
 }
 
 /**
@@ -43,6 +60,15 @@ export function setNavigationGpsPower(active: boolean): void {
   const next = active === true;
   if (_lastSent === next) return;         // idempotent — köprü trafiği yok
   _lastSent = next;
+
+  // JS tarafındaki gözlemciye de aynı sinyal: arka plan kısması navigasyondan
+  // habersiz kalmasın (native `sNavigationActive` istisnasının JS ikizi).
+  // Fail-soft: gözlemci düşerse navigasyon ETKİLENMEZ.
+  if (_observer) {
+    try { _observer(next); }
+    catch (e) { logError('NavGpsPower:observer', e); }
+  }
+
   try {
     if (!Capacitor.isNativePlatform()) return;   // web/demo: sessiz no-op
     void CarLauncher.setNavigationActive({ active: next })

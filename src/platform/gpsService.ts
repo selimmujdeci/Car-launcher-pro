@@ -28,6 +28,7 @@ import {
 import { getThermalLevel } from './thermalWatchdog';
 import { subscribeOrientationAbsolute, subscribeOrientation } from './sensors';
 import { hasCompassDemand, subscribeCompassDemand } from './gps/compassDemand';
+import { BACKGROUND_GPS_INTERVAL_MS, type GpsPowerMode } from './power/backgroundPowerModel';
 
 // Capacitor global tip tanımı — (window as any) yerine
 declare global {
@@ -359,14 +360,7 @@ async function startNativeGPSTracking(): Promise<void> {
     } catch { /* watchPosition will handle it */ }
 
     watchId = await Geolocation.watchPosition(
-      {
-        enableHighAccuracy: true,
-        timeout: 10000,
-        maximumAge: Math.min(_gpsUpdateMs, 500), // en az 500ms taze veri
-        // Android: FusedLocationProvider update interval (ms) — RuntimeEngine'den gelir
-        // PERFORMANCE: 500ms | BALANCED: 1000ms | BASIC_JS: 2000ms | SAFE_MODE: 5000ms
-        ...({ minimumUpdateInterval: _gpsUpdateMs } as object),
-      } as Parameters<typeof Geolocation.watchPosition>[0],
+      _nativeWatchOptions(),
       (position, err) => {
         if (err) {
           _consecutiveErrors++;
@@ -652,6 +646,83 @@ function handlePosition(coords: CoordsLike, timestamp: number): void {
     error:      null,
     source,
   });
+}
+
+
+/* ── Arka plan güç modu (kütük: telefon pil sızıntısı 2026-08-20) ────────────
+ *
+ * Ölçüm: uygulama arka plandayken bu watch HIGH_ACCURACY @10 s ile 6 s 16 dk
+ * kesintisiz çalışıyordu (`dumpsys location`, 86.422 fix, araç hareketsiz).
+ * Native `CarLauncherForegroundService` park kısmasını zaten doğru yapıyordu;
+ * kaçak yalnız BU akıştaydı.
+ *
+ * SÖZLEŞME: mod değişimi konum verisini SIFIRLAMAZ (`stopGPSTracking` gibi
+ * `location: null` yazmaz) — yalnız watch seçeneklerini değiştirir. Kısık modda
+ * akış SÜRER (`enableHighAccuracy: false` → GNSS uyandırılmaz, ağ/pasif konum).
+ * Tek sahip `backgroundPowerGate`'tir; başka çağıran YOKTUR.
+ */
+let _gpsPowerMode: GpsPowerMode = 'high';
+
+type GeolocationWatchOptions =
+  Parameters<(typeof import('@capacitor/geolocation'))['Geolocation']['watchPosition']>[0];
+
+/** Aktif güç moduna göre Capacitor watch seçenekleri. */
+function _nativeWatchOptions(): GeolocationWatchOptions {
+  const low = _gpsPowerMode === 'low';
+  return {
+    enableHighAccuracy: !low,
+    // Capacitor Android bu değeri FusedLocationProvider aralığı olarak kullanır.
+    timeout:    low ? BACKGROUND_GPS_INTERVAL_MS : 10000,
+    maximumAge: low ? BACKGROUND_GPS_INTERVAL_MS : Math.min(_gpsUpdateMs, 500), // en az 500ms taze veri
+    // Android: FusedLocationProvider update interval (ms) — RuntimeEngine'den gelir
+    // PERFORMANCE: 500ms | BALANCED: 1000ms | BASIC_JS: 2000ms | SAFE_MODE: 5000ms
+    ...({ minimumUpdateInterval: low ? BACKGROUND_GPS_INTERVAL_MS : _gpsUpdateMs } as object),
+  } as GeolocationWatchOptions;
+}
+
+/** Şu anki JS konum akışı güç modu (tanı/test için salt-okunur). */
+export function getGpsPowerMode(): GpsPowerMode { return _gpsPowerMode; }
+
+/**
+ * JS konum akışının güç modunu uygular.
+ *
+ * İdempotent: aynı mod tekrar verilirse hiçbir donanım işlemi yapılmaz.
+ * Takip aktif değilse yalnız mod kaydedilir — sonraki `startGPSTracking`
+ * doğru seçeneklerle başlar. Fail-soft: yeniden kurma düşerse eski watch
+ * kapanmış olabileceğinden hata yutulmaz, `logError` ile kaydedilir ve
+ * mevcut yeniden-bağlanma yolu (`_scheduleGPSReconnect`) devreye girer.
+ */
+export async function applyGpsPowerMode(mode: GpsPowerMode): Promise<void> {
+  if (mode === _gpsPowerMode) return;
+  _gpsPowerMode = mode;
+
+  // Takip yoksa: mod kaydedildi, başlatma anında uygulanacak.
+  if (watchId == null || !_gpsTrackingOn) return;
+  // Web/demo ortamında Capacitor watch yok — seçenekler yalnız native yolda geçerli.
+  if (!isNativePlatform()) return;
+
+  try {
+    const { Geolocation } = await import('@capacitor/geolocation');
+    const previous = watchId;
+    watchId = null;                       // yeniden giriş koruması
+    try { await Geolocation.clearWatch({ id: String(previous) }); } catch { /* zaten kapalı */ }
+    watchId = await Geolocation.watchPosition(
+      _nativeWatchOptions(),
+      (position, err) => {
+        if (err) {
+          _consecutiveErrors++;
+          useGPSStore.setState({ error: err.message });
+          logError('GPS', err);
+          if (_consecutiveErrors >= MAX_GPS_ERRORS) _scheduleGPSReconnect();
+          return;
+        }
+        if (position) handlePosition(position.coords, position.timestamp);
+      },
+    );
+  } catch (e) {
+    logError('GPS:PowerMode', e);
+    _scheduleGPSReconnect();              // watch kaybolduysa mevcut kurtarma yolu
+  }
 }
 
 export async function stopGPSTracking(): Promise<void> {

@@ -713,6 +713,7 @@ export function disableWakeWord(): void {
   _stopWatchdog();
   // Etkileşim-duraklatma durumunu sıfırla: geç gelen resume timer'ı yeniden başlatmasın
   _interactionPaused = false;
+  _powerPaused = false;          // güç duraklaması da sıfırlanır (kapalıyken anlamı yok)
   if (_interactionResumeTimer) { clearTimeout(_interactionResumeTimer); _interactionResumeTimer = null; }
   void stopGrammarMode(); // Faz 5: native grammar thread + event listener kapanır
   if (_detectedTimer) { clearTimeout(_detectedTimer); _detectedTimer = null; }
@@ -754,9 +755,53 @@ export function resumeWakeWordAfterInteraction(): void {
   _interactionResumeTimer = setTimeout(() => {
     _interactionResumeTimer = null;
     _interactionPaused = false;
+    // Güç duraklaması sürüyorsa dinlemeyi GERİ KURMA — uygulama öne gelince
+    // `resumeWakeWordForPower` kuracak (aksi hâlde arka planda mikrofon yeniden açılırdı).
+    if (_powerPaused) return;
     // Hâlâ açık ve model hazırsa yeniden kur (jenerasyon artır → eski instance ölür)
     if (_state.enabled && _voskReady) { _startNativeWake(++_loopGen); _startWatchdog(); }
   }, INTERACTION_RESUME_MS);
+}
+
+
+/* ── Güç-bağlı duraklatma (arka plan + pil) ──────────────────────────────────
+ *
+ * ÖLÇÜM (2026-08-20, Redmi Note 13 Pro 5G): pasif dinleme döngüsü uygulama arka
+ * plandayken hiç durmuyordu → `PARTIAL_WAKE_LOCK 'AudioIn'` sürekli tutuluyordu
+ * (24 saatte 9 s 20 dk audio + 4 s 55 dk wakelock). CPU deep sleep'e giremediği
+ * için 16 saatte yalnız 169 dk derin uyku oldu; ölçülen tüketim 612 mAh/h.
+ *
+ * `_interactionPaused` ile AYRI bir bayraktır: etkileşim duraklaması 450 ms
+ * sonra kendiliğinden geri gelir, güç duraklaması uygulama ÖNE GELENE kadar
+ * sürer. İki bayrak birbirini ezmez — biri açıkken diğeri dinlemeyi geri kurmaz.
+ *
+ * SÖZLEŞME: `enabled` ayarı DEĞİŞMEZ (kullanıcı ayarı korunur), yalnız native
+ * dinleme askıya alınır. Head unit'te bu yol hiç çalışmaz: harici güç varken
+ * `backgroundPowerGate` duraklatma kararı üretmez.
+ */
+let _powerPaused = false;
+
+/** Wake dinlemesi şu an güç nedeniyle askıda mı (tanı/test için salt-okunur). */
+export function isWakeWordPowerPaused(): boolean { return _powerPaused; }
+
+/** Arka plan + pil: native dinlemeyi askıya al. İdempotent. */
+export function pauseWakeWordForPower(): void {
+  if (!isNative) return;
+  if (!_state.enabled || _powerPaused) return;
+  _powerPaused = true;
+  _nativeLoopActive = false;     // legacy polling döngüsü adımında kendini sonlandırır
+  _clearWakeListenTimer();       // duraklamada bekleyen wake dinleme açılışı iptal
+  void stopGrammarMode();        // grammar thread (vosk-wake-gramm) durur → mikrofon kapanır
+  _stopWatchdog();               // duraklamada watchdog re-arm etmesin
+}
+
+/** Uygulama öne geldi / harici güç bağlandı: dinlemeyi geri kur. İdempotent. */
+export function resumeWakeWordForPower(): void {
+  if (!isNative || !_powerPaused) return;
+  _powerPaused = false;
+  // Etkileşim duraklaması hâlâ açıksa geri kurmayı ONA bırak (çift kurulum yok).
+  if (_interactionPaused) return;
+  if (_state.enabled && _voskReady) { _startNativeWake(++_loopGen); _startWatchdog(); }
 }
 
 export function getWakeWordState(): WakeWordState { return _state; }
@@ -963,6 +1008,7 @@ export function _resetWakeWordForTest(): void {
   _pendingNativeGen = null;
   _clearVoskBackstop();
   _interactionPaused = false;
+  _powerPaused = false;
   if (_interactionResumeTimer) { clearTimeout(_interactionResumeTimer); _interactionResumeTimer = null; }
   if (_detectedTimer) { clearTimeout(_detectedTimer); _detectedTimer = null; }
   _clearWakeListenTimer();

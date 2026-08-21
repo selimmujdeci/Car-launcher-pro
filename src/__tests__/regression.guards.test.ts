@@ -38,6 +38,9 @@ import deviceCapabilitiesSrc from '../platform/deviceCapabilities.ts?raw';
 import pushServiceSrc from '../platform/pushService.ts?raw';
 import commandListenerSrc from '../platform/commandListener.ts?raw';
 import fcmServiceSrc from '../platform/fcmService.ts?raw';
+import wakeWordServiceSrc from '../platform/wakeWordService.ts?raw';
+import navGpsPowerBridgeSrc from '../platform/navigation/navGpsPowerBridge.ts?raw';
+import backgroundPowerGateSrc from '../platform/power/backgroundPowerGate.ts?raw';
 import obdServiceSrc from '../platform/obdService.ts?raw';
 import blackBoxServiceSrc from '../platform/security/blackBoxService.ts?raw';
 import systemBootSrc from '../platform/system/SystemBoot.ts?raw';
@@ -7046,6 +7049,130 @@ describe('#647 Uzak komut yolu — cihaz kimligi (api_key) kilidi', () => {
       .toMatch(/export function stopCommandListener\(force = false\)[\s\S]{0,200}if \(_permanent && !force\) return;/);
     expect(fcmServiceSrc, 'fcmService canli dinleyiciyi yeniden kuruyor — baglanti ve dedup kumesi sifirlanir')
       .toMatch(/if \(isCommandListenerActive\(\)\)\s*\{[\s\S]{0,200}triggerPendingPoll\(\);/);
+  });
+});
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * ARKA PLAN GÜÇ POLİTİKASI (saha ölçümü 2026-08-20 — Redmi Note 13 Pro 5G)
+ *
+ * Ölçülen kaçak: uygulama arka planda + araç park hâlindeyken JS konum akışı
+ * HIGH_ACCURACY @10 s ile 6 s 16 dk kesintisiz çalıştı (86.422 fix) ve pasif
+ * wake mikrofonu hiç susmadı (PARTIAL_WAKE_LOCK 'AudioIn'). Sonuç: 16 saatte
+ * yalnız 169 dk deep sleep, 612 mAh/h tüketim, ekran KAPALI iken 5-8 dk'da %1.
+ * Bu kilitler düzeltmenin sessizce geri alınmasını engeller.
+ * ═══════════════════════════════════════════════════════════════════════════ */
+describe('REGRESYON: arka plan güç politikası', () => {
+  it('YAPISAL: JS konum akışı güç modu KISILABİLİR — enableHighAccuracy sabit true değil', () => {
+    /* Eski hâl: `watchPosition({ enableHighAccuracy: true, ... })` sabit yazılıydı;
+       arka planda GNSS'i uyandırmaya devam ediyordu. */
+    expect(gpsServiceSrc, 'watch seçenekleri sabitlenmiş — güç moduna göre üretilmiyor')
+      .toMatch(/function _nativeWatchOptions\(\)/);
+    expect(gpsServiceSrc, 'kısık modda enableHighAccuracy kapatılmıyor — GNSS uyandırılmaya devam eder')
+      .toMatch(/enableHighAccuracy:\s*!low/);
+    expect(gpsServiceSrc, 'applyGpsPowerMode kaldırılmış — kapının GPS üzerinde tutamağı kalmaz')
+      .toMatch(/export async function applyGpsPowerMode/);
+  });
+
+  it('YAPISAL: güç modu değişimi konumu SIFIRLAMAZ (stopGPSTracking yolu kullanılmaz)', () => {
+    /* `stopGPSTracking` `location: null` yazar → üst katman "konum kayboldu"
+       sanır. Mod değişimi yalnız watch'ı yeniden kurar. */
+    /* Gövde sınırı bir sonraki tanımdır — sabit karakter penceresi KULLANILMAZ;
+       hemen ardından gelen `stopGPSTracking` tanımı pencereye girip kilidi
+       yanlış yere düşürürdü. */
+    const fnIdx  = gpsServiceSrc.indexOf('export async function applyGpsPowerMode');
+    const endIdx = gpsServiceSrc.indexOf('export async function stopGPSTracking', fnIdx);
+    expect(fnIdx, 'applyGpsPowerMode bulunamadı').toBeGreaterThan(-1);
+    expect(endIdx, 'stopGPSTracking bulunamadı — gövde sınırı belirsiz').toBeGreaterThan(fnIdx);
+    const body = gpsServiceSrc.slice(fnIdx, endIdx);
+    expect(body.includes('stopGPSTracking('),
+      'applyGpsPowerMode stopGPSTracking çağırıyor — konum sıfırlanır, sahte "sinyal yok" üretir').toBe(false);
+    expect(body.includes('location: null'),
+      'applyGpsPowerMode location: null yazıyor — mod değişimi veri kaybı gibi görünür').toBe(false);
+  });
+
+  it('YAPISAL: pasif mikrofon güç nedeniyle duraklatılabilir ve etkileşim onu EZMEZ', () => {
+    expect(wakeWordServiceSrc, 'pauseWakeWordForPower kaldırılmış — arka planda AudioIn wakelock geri gelir')
+      .toMatch(/export function pauseWakeWordForPower/);
+    expect(wakeWordServiceSrc, 'resumeWakeWordForPower kaldırılmış — öne dönünce wake sağır kalır')
+      .toMatch(/export function resumeWakeWordForPower/);
+    /* En sinsi regresyon: etkileşim duraklamasının 450 ms'lik resume timer'ı
+       güç duraklaması sürerken mikrofonu ARKA PLANDA yeniden açardı. */
+    expect(wakeWordServiceSrc, 'etkilesim resume timer guc duraklamasini eziyor — arka planda mikrofon acilir')
+      .toMatch(/_interactionPaused = false;[\s\S]{0,400}if \(_powerPaused\) return;/);
+  });
+
+  it('YAPISAL: güç kaynağı Web Battery API\'sinden DEĞİL native\'den okunur', () => {
+    /* SAHA (2026-08-20): `navigator.getBattery()` WebView'de gizlilik gerekçesiyle
+       sabit `charging: true` döndürebiliyor. O hâlde kapı `external_power` dalına
+       düşüp HİÇBİR ZAMAN kısma üretmiyordu — telefon pille çalışırken JS konum
+       isteği `@+10s HIGH_ACCURACY` olarak kaldı (`dumpsys location` listeners). */
+    /* Yorumlar elenir: NEDEN'i anlatan açıklama metni API adını anmak ZORUNDA;
+       kilit yalnız gerçek ÇAĞRIYI yasaklar. */
+    const gateCode = backgroundPowerGateSrc
+      .split('\n')
+      .filter((line) => !/^\s*(\/\/|\*|\/\*)/.test(line))
+      .join('\n');
+    expect(gateCode.includes('getBattery'),
+      'kapı Web Battery API kullanıyor — WebView sabit charging:true döndürüp kısmayı öldürür').toBe(false);
+    expect(backgroundPowerGateSrc, 'native güç okuması kaldırılmış — güç durumu güvenilir kaynaktan gelmez')
+      .toMatch(/getDeviceStatus\(\)/);
+    /* Ön/arka plan için tek dayanak `appStateChange` DEĞİL: ekran kapanınca
+       WebView her hâlükârda `visibilitychange` yayınlar. */
+    expect(backgroundPowerGateSrc, 'görünürlük yedeği kaldırılmış — appStateChange düşerse kapı kör kalır')
+      .toMatch(/visibilitychange/);
+  });
+
+  it('YAPISAL: ekran açık tutma bayrakları KOŞULSUZ değil — güce bağlı', () => {
+    /* SAHA (2026-08-20, telefon): `FLAG_KEEP_SCREEN_ON` + `setTurnScreenOn(true)`
+       onCreate'te koşulsuz uygulanıyordu. POWER tuşuna basılınca ekran kapanıyor,
+       activity resumed olduğu için DERHAL geri açılıyordu → ekran hiç kapanmadı
+       (`dumpsys power`: SCREEN_BRIGHT_WAKE_LOCK ws=WorkSource{10626}). Yan etki:
+       uygulama hep "ön planda" sayıldığı için arka plan güç kısması da hiç
+       çalışamıyordu. Head unit (sürekli besleme) davranışı korunur. */
+    const mainActivity = readFileSync(
+      resolve(__dirname, '../../android/app/src/main/java/com/cockpitos/pro/MainActivity.java'),
+      'utf8',
+    );
+    expect(mainActivity, 'ekran politikası metodu kaldırılmış — bayraklar yine koşulsuz olur')
+      .toMatch(/private void applyScreenPowerPolicy\(\)/);
+    /* onCreate gövdesinde ham bayrak KALMAMALI: tek yetkili nokta politika metodudur. */
+    const createIdx = mainActivity.indexOf('protected void onCreate');
+    const resumeIdx = mainActivity.indexOf('public void onResume');
+    expect(createIdx, 'onCreate bulunamadı').toBeGreaterThan(-1);
+    const onCreateBody = mainActivity.slice(createIdx, resumeIdx > createIdx ? resumeIdx : createIdx + 4000);
+    expect(onCreateBody.includes('FLAG_KEEP_SCREEN_ON'),
+      'onCreate ekranı koşulsuz açık tutuyor — pille çalışan telefonda ekran hiç kapanmaz').toBe(false);
+    expect(onCreateBody.includes('setTurnScreenOn(true)'),
+      'onCreate ekranı koşulsuz uyandırıyor — güç tuşu işlevsiz kalır').toBe(false);
+    /* Kablo takılıp çıkarıldığında politika tazelenmeli. */
+    expect(mainActivity, 'güç alıcısı kaldırılmış — kablo çıkınca politika eski hâlde kalır')
+      .toMatch(/ACTION_POWER_DISCONNECTED/);
+    expect(mainActivity, 'alıcı onDestroy\'da sökülmüyor — zero-leak ihlali')
+      .toMatch(/onDestroy\(\)[\s\S]{0,200}unregisterPowerReceiver\(\)/);
+  });
+
+  it('YAPISAL: navigasyon köprüsü güç kapısını İMPORT ETMEZ (bağımlılık tek yönlü)', () => {
+    /* Köprü kapıyı statik import ettiğinde navigasyon testleri kapının tüm
+       zincirini (gpsService → wakeWordService → voiceService → ttsService)
+       yüklemeye başladı ve 3 dosya / 8 test mock eksikliğinden düştü.
+       Doğru yön: kapı köprüye KAYDOLUR, köprü hiçbir şey import etmez. */
+    expect(navGpsPowerBridgeSrc.includes('backgroundPowerGate'),
+      'köprü güç kapısını import ediyor — navigasyon testlerine ağır zincir sızar').toBe(false);
+    expect(navGpsPowerBridgeSrc, 'gözlemci kayıt slotu kaldırılmış — kapı navigasyonu duyamaz')
+      .toMatch(/export function setNavPowerObserver/);
+    expect(systemBootSrc.length, 'SystemBoot okunamadı').toBeGreaterThan(0);
+  });
+
+  it('YAPISAL: güç kapısı boot zincirinde kurulu ve wake servisinden SONRA kayıtlı', () => {
+    /* LIFO kapanış: kapı ONDAN ÖNCE sökülür → kapanırken kısma bırakılmaz. */
+    expect(systemBootSrc, 'BackgroundPowerGate boot zincirinden çıkarılmış — politika hiç çalışmaz')
+      .toMatch(/startBackgroundPowerGate\(\)/);
+    const wakeIdx = systemBootSrc.indexOf('this._reg(startWakeWordService())');
+    const gateIdx = systemBootSrc.indexOf('this._reg(startBackgroundPowerGate())');
+    expect(wakeIdx, 'WakeWordService kaydı bulunamadı').toBeGreaterThan(-1);
+    expect(gateIdx, 'BackgroundPowerGate kaydı bulunamadı').toBeGreaterThan(-1);
+    expect(gateIdx, 'kapı wake servisinden ÖNCE kaydedilmiş — LIFO kapanışta wake ölüyken kısma bırakılır')
+      .toBeGreaterThan(wakeIdx);
   });
 });
 
