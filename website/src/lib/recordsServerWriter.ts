@@ -167,9 +167,20 @@ async function deleteRow(
     return { ok: false, retryable: false, errorCode: 'supabase_not_configured' };
   }
   try {
-    const { error } = await supabaseBrowser
-      .from(table).delete().eq('vehicle_id', vehicleId).eq('id', rowId);
-    if (!error) return { ok: true, duplicate: false };
+    /* PostgREST 200 ≠ SATIR ETKİLENDİ (#671) — aynı dosyadaki `updateRow`
+       bu dersi (#195) zaten uyguluyordu, SİLME ucu ondan sapmıştı: RLS satırı
+       görünmez kıldığında (erişim devri, şirketten çıkarılma, yanlış
+       `vehicle_id`) istemci "silindi" der, yerel kopyayı atar, satır sunucuda
+       KALIR. Kullanıcı "sildim ama duruyor" yaşar ya da kayıt sessizce yetim
+       kalır. Artık etkilenen satır KANITI isteniyor. */
+    const { data, error } = await supabaseBrowser
+      .from(table).delete().eq('vehicle_id', vehicleId).eq('id', rowId).select('id');
+    if (!error) {
+      if (!Array.isArray(data) || data.length === 0) {
+        return { ok: false, retryable: false, errorCode: 'permission_denied' };
+      }
+      return { ok: true, duplicate: false };
+    }
     return classifyPostgresError(readErrorCode(error), readErrorMessage(error));
   } catch (e) {
     return classifyPostgresError(readErrorCode(e), readErrorMessage(e));

@@ -54,17 +54,21 @@ vi.mock('@/lib/supabase', () => ({
       }),
       delete: () => {
         const filters: Record<string, unknown> = {};
+        /* #671'de GÜNCELLENDİ: silme artık `.select('id')` ile ETKİLENEN SATIR
+           kanıtı istiyor (PostgREST 200 ≠ satır etkilendi). Mock bu yüzden
+           `data` da döndürür; hata yoksa bir satır silinmiş sayılır. Kilidin
+           koruduğu kural (DELETE gider + yerel kopya temizlenir) DEĞİŞMEDİ. */
+        const settle = (resolve: (v: { data: unknown; error: unknown }) => void) => {
+          h.deletes.push({ table, filters: { ...filters } });
+          resolve({ data: h.deleteError ? null : [{ id: filters.id }], error: h.deleteError });
+        };
         const chain = {
           eq: (col: string, val: unknown) => {
             filters[col] = val;
-            // İkinci `.eq` await edilir → thenable olmalı.
-            return Object.assign(chain, {
-              then: (resolve: (v: { error: unknown }) => void) => {
-                h.deletes.push({ table, filters: { ...filters } });
-                resolve({ error: h.deleteError });
-              },
-            });
+            // İkinci `.eq` await edilebilir → thenable olmalı.
+            return Object.assign(chain, { then: settle });
           },
+          select: () => Object.assign(chain, { then: settle }),
         };
         return chain;
       },

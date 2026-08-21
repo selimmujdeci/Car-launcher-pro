@@ -270,3 +270,15 @@ describe('#667 · sahte -1 ve sahte 0 yasağı (LAB kopyasından)', () => {
     expect(route).toContain('Number.NaN');
   });
 });
+
+describe('#671 · silme de etkilenen satır KANITI ister', () => {
+  it('KİLİT: delete `.select()` ile doğrulanır — 0 satır "silindi" SAYILMAZ', () => {
+    /* Aynı dosyadaki `updateRow` bu dersi (#195: PostgREST 200 ≠ satır
+       etkilendi) zaten uyguluyordu; SİLME ucu ondan sapmıştı. RLS satırı
+       görünmez kıldığında istemci "silindi" deyip yerel kopyayı atıyor,
+       satır sunucuda kalıyordu. */
+    const src = read('src/lib/recordsServerWriter.ts');
+    expect(src).toContain(".delete().eq('vehicle_id', vehicleId).eq('id', rowId).select('id')");
+    expect(src).toMatch(/data\.length === 0[\s\S]{0,120}permission_denied/);
+  });
+});
