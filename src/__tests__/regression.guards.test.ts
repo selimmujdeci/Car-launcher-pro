@@ -7100,10 +7100,17 @@ describe('REGRESYON: paylaşılan hedef aracın KENDİ navigasyonunda açılır'
       .toMatch(/android:scheme="geo"/);
     expect(manifest, 'google.navigation şeması kaldırılmış')
       .toMatch(/android:scheme="google\.navigation"/);
-    /* Genel http/https filtresi KONMAMALI: launcher tüm web bağlantılarını
-       üstlenirse kullanıcının tarayıcı seçimi gasp edilir. */
-    expect(manifest.includes('<data android:scheme="https" />'),
-      'kapsamsız https filtresi eklenmiş — launcher tüm bağlantıları üstlenir').toBe(false);
+    /* Genel http/https FİLTRESİ konmamalı: launcher tüm web bağlantılarını
+       üstlenirse kullanıcının tarayıcı seçimi gasp edilir.
+       ⚠️ `<queries>` bloğundaki `<intent>` girdileri BAŞKA ŞEYDİR (Android 11
+       paket görünürlüğü — "hangi uygulamalar http açabiliyor" sorgusu) ve
+       hiçbir bağlantıyı üstlenmez. Bu yüzden yalnız `<intent-filter>`
+       blokları taranır; ham metin araması ikisini karıştırırdı. */
+    const filters = manifest.match(/<intent-filter[\s\S]*?<\/intent-filter>/g) ?? [];
+    const unscoped = filters.filter((f) =>
+      /scheme="https?"/.test(f) && !/android:host=/.test(f));
+    expect(unscoped, 'kapsamsız http/https FİLTRESİ eklenmiş — launcher tüm bağlantıları üstlenir')
+      .toHaveLength(0);
   });
 
   it('YAPISAL: MainActivity gelen konumu JS tarafina iletir (soguk acilis dahil)', () => {
