@@ -391,7 +391,7 @@ gösterilebilir. Kalan "yol haritası" maddeleri görsel olarak ayrışır.
 
 ---
 
-## 🔵 V-04 — Ölü kodu ya bağla ya sil  **[DEVAM — 2/6 kapandı]**
+## 🔵 V-04 — Ölü kodu ya bağla ya sil  **[DEVAM — 3/6 kapandı]**
 
 **BULGU:** Üretimde **hiç import edilmeyen** modüller. Her biri "yapıldı" yanılsaması üretiyor.
 Doğrulama: `grep -rl "/<modül>'" src` (test ve kendisi hariç) → **0 sonuç**.
@@ -437,10 +437,24 @@ bilmene bağlıdır.* Gerçek ölü: **10 → 5 modül**, **~2.900 → ~749 sat�
 |---|---|---|---|
 | 1 | `adapterCapability` | 91 | ✅ **BAĞLANDI** — kütük 🔴 #682 (cihazda ölçülmedi) |
 | 2 | `nativeCoreService` eksiği | — | ✅ **KAPATILDI** — kütük 🔴 #683 (#599'un kökü + otorite tekilleştirildi) |
-| 3 | `signalHub` | 122 | ⬜ tek sinyal okuma yüzeyi |
+| 3 | `signalHub` | 122 | ✅ **BAĞLANDI** — kütük 🔴 #684 (CAROS LAB · Sinyal Otoritesi; cihazda ölçülmedi) |
 | 4 | `fleetKb` | 141 | ⬜ kalıcı öğrenme (keşif turuna bağlı) |
 | 5 | `serviceFunctions` | 161 | ⬜ araca yazma rutinleri (ürün kararı) |
 | 6 | `manufacturerProfileBuilder` | 234 | ⬜ keşif çıktısına bağlı |
+
+**3. SIRA — `signalHub` (2026-08-21):** modül "tek otoriter sinyal okuma yüzeyi" diye
+yazılmış ama **tüketicisi hiç doğmamıştı**. Bağlanma yolu LAB deseninin aynısı:
+`signalAuthoritySources` → `signalAuthorityModel` (saf) → `SignalAuthorityScreen` →
+katalog + screen-map + 39 kilit. Ekranın asıl işi zarfın **dürüstlük sözleşmesini
+cihazda gözlemlenebilir kılmak**: `0` ile "veri yok" ayrımı, damgasız alanda yaş
+hesaplanmaması, `unsupported`ın arıza gibi sunulmaması ve **mock kaynağın ASLA CANLI
+sayılmaması**. Ham `SignalState` ekranda ayrıca gösterilir — dört değerli
+gözlemlenebilirlik sınıfına eşleme bilgi kaybettiği için ham hakikat gizlenmez.
+
+> ⚠️ **Yan borç (bu turda kapatılmadı):** kütük #667 arka plan güç politikasının
+> CAROS LAB ekranının **hâlâ olmadığını** yazıyor (`getBackgroundPowerSnapshot()`
+> okuma katmanı hazır, kataloğa bağlı değil). Gözlemlenebilirlik kuralı gereği o
+> özellik ekran eklenene kadar "tamamlandı" SAYILMAZ.
 
 ---
 

@@ -54,7 +54,7 @@ export const CAROS_LAB_STATUS_LABEL: Readonly<Record<CarosLabToolStatus, string>
 
 export type CarosLabToolId =
   // Vehicle
-  | 'live-data' | 'pid-did-explorer' | 'fleet-connectivity' | 'trip-engine' | 'trip-cost'
+  | 'live-data' | 'pid-did-explorer' | 'signal-authority' | 'fleet-connectivity' | 'trip-engine' | 'trip-cost'
   | 'location-engine' | 'navigation-core' | 'address-search-evidence' | 'enforcement-points'
   | 'remote-command'
   | 'fleet-identity' | 'fleet-driver-identity' | 'fleet-presence-history'
@@ -106,6 +106,12 @@ export const CAROS_LAB_TOOLS: readonly CarosLabTool[] = Object.freeze([
     id: 'pid-did-explorer', category: 'vehicle', name: 'PID/DID Gezgini',
     desc: 'Salt-okunur PID/DID keşif koordinatörü: aday tarama, doğrulanan/şüpheli/reddedilen sayaçları.',
     status: 'AVAILABLE', layer: 'Mode 22 / DID',
+    note: null,
+  },
+  {
+    id: 'signal-authority', category: 'vehicle', name: 'Sinyal Otoritesi',
+    desc: 'signalHub zarfları: değer + durum (geçerli/bayat/şüpheli/veri yok/desteklenmiyor) + tazelik + güven + kaynak.',
+    status: 'AVAILABLE', layer: 'signalHub / SignalEnvelope',
     note: null,
   },
   {
