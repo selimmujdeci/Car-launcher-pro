@@ -385,10 +385,10 @@ export const CAROS_LAB_TOOLS: readonly CarosLabTool[] = Object.freeze([
     note: 'SALT-OKUNUR gözlem — hiçbir şey BAŞLATMAZ: mikrofon açma/kapama, STT veya wake motoru başlatma/durdurma, VAD eşiği değiştirme, AudioSource seçimi, AEC/NS/AGC aç-kapa ve izin isteği YOK. GİZLİLİK: transcript, n-best, wake sözcüğünün kendisi, grammar kelimeleri ve HAM SES bu ekrana HİÇ GELMEZ — yalnız sabit enum, adet ve normalize RMS skaleri. Klima/fan seviyesi için repoda KAYNAK YOKTUR (KAYNAK YOK gösterilir, sahte 0 üretilmez). Wake yolunda gürültü tabanı ÖĞRENİLMEZ ve efekt KURULMAZ — bu bir hata değil, kodun gerçeğidir. Otomatik yenileme VARSAYILAN KAPALIDIR.',
   },
   {
-    id: 'tool-calling', category: 'ai', name: 'Araç Çağrısı',
-    desc: 'Araç çağrısı (tool call) izleme: girdi, çıktı, red nedenleri.',
-    status: 'PLACEHOLDER', layer: null,
-    note: 'Ekran yok.',
+    id: 'tool-calling', category: 'ai', name: 'Arac Cagrisi',
+    desc: 'Tool call turlarinin salt-okunur gozlemi: cagri ve dusme sayaci, basari orani, tool loop turu ve TAVANA takilan tur adedi, son cagri yasi, baskin hata kodu, kanit tamponu doluluk orani ve arac basina dagilim (cagri/dusme/ortalama sure).',
+    status: 'AVAILABLE', layer: null,
+    note: 'SALT-OKUNUR: arac CAGIRMAZ, Maviyi tetiklemez, tool loop BASLATMAZ, defteri temizlemez, timer kurmaz. YENI VERI URETILMEDI: runToolLoop her cagri icin ZATEN gizlilik-guvenli ToolTelemetry uretiyordu (arac adi, etki sinifi, basari, hata kodu, sure, alan adedi) - ama yalniz cagirana donup KAYBOLUYORDU; bu tur onu bounded bir halka tampona yaziyor. GIZLILIK: ToolTelemetry tasarimi geregi ARGUMAN ve SONUC TASIMAZ; kullanici sorusu, arac argumani, arac ciktisi, konum ve serbest metin bu ekrana GELMEZ - yalniz sabit tanimlayici, enum, sayac ve sure. HIC CAGRI YOKSA BASARI ORANI UYDURULMAZ (KAYNAK YOK gosterilir): "%100 basarili" demek hic denenmemis bir sistemi saglikli gostermek olurdu. TAVANA TAKILAN TUR AYRI SAYILIR ve hukumde HEALTHY durumunu EZER: model arac istiyordu ama tur sinirina takildi, yani cevap eksik veriyle uretildi - bu bir BASARISIZLIK DEGIL ama sessizce gecistirilmemesi gereken ayri bir durumdur. Defter surec omurludur (kalici depo YOK; uygulama yeniden baslayinca bosalir) ve sabit tavanli halkadir (sinirsiz buyume YOK). Kayit yolu fail-soft: kanit toplama sohbet akisini ASLA bozmaz. Gercek cihaz dogrulamasi YAPILMADI (kutuk #694).',
   },
   {
     id: 'memory-explorer', category: 'ai', name: 'Bellek Gezgini',

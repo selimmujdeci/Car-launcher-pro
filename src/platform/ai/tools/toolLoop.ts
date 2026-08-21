@@ -26,6 +26,7 @@ import type { AiGenerateRequest, AiGenerateResult, AiMessage, AiToolSpec } from 
 import type { ToolRouter } from './toolRouter';
 import type { ToolTelemetry } from './toolTypes';
 import { stripControlChars } from '../controlChars';
+import { recordToolCall, recordToolLoopEnd } from './toolCallEvidence';
 
 /** Araç çağrısıyla geçilecek azami tur (sonra araçlar kapatılır). */
 export const MAX_TOOL_ROUNDS = 2;
@@ -94,13 +95,20 @@ export async function runToolLoop(
     });
     pending = undefined;                       // yalnız İLK turda kullanılır
 
-    if (!result.ok) return { result, rounds, toolCalls: toolCallCount, telemetry };
+    if (!result.ok) {
+      recordToolLoopEnd(false);
+      return { result, rounds, toolCalls: toolCallCount, telemetry };
+    }
 
     const calls = result.toolCalls ?? [];
     if (calls.length === 0 || isLastRound) {
+      /* TAVAN: model HÂLÂ araç istiyordu ama tur sınırına takıldık. Bu, sessizce
+         "araçsız cevap" üretilen durumdur ve teşhiste ayrı sayılmalıdır. */
+      recordToolLoopEnd(isLastRound && calls.length > 0);
       return { result, rounds, toolCalls: toolCallCount, telemetry };
     }
     if (deps.signal?.aborted) {
+      recordToolLoopEnd(false);
       return { result, rounds, toolCalls: toolCallCount, telemetry };
     }
 
@@ -117,6 +125,10 @@ export async function runToolLoop(
         ...(deps.timeoutMs ? { timeoutMs: deps.timeoutMs } : {}),
       });
       telemetry.push(outcome.telemetry);
+      /* GÖZLEMLENEBİLİRLİK (#694): bu telemetri zaten üretiliyordu ama yalnız
+         çağırana dönüp kayboluyordu. Bounded deftere yazmak YENİ VERİ ÜRETMEZ;
+         kayıt yolu fail-soft'tur ve sohbet akışını etkilemez. */
+      recordToolCall(outcome.telemetry, Date.now());
 
       const line = outcome.result.ok
         ? `- ${sanitizeToolValue(call.name)}: ${sanitizeToolValue(outcome.result.summary)}`
