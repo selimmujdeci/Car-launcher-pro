@@ -12,6 +12,8 @@
     "android": "npm run build && npx cap sync android && npx cap open android",
     "cap:sync": "npm run build && npx cap sync",
     "cap:copy": "npm run build && npx cap copy",
+    "test:rls": "node scripts/run-rls-matrix.mjs",
+    "test:rls:prod": "node scripts/run-prod-rls-probe.mjs",
     "guard": "vitest run src/__tests__/regression.guards.test.ts",
     "compat:verify": "node scripts/verify-webview-compat.mjs",
     "apk:safe": "npm run test && npm run build && npm run compat:verify && npx cap sync android && node scripts/gradle-build.mjs clean assembleDebug",

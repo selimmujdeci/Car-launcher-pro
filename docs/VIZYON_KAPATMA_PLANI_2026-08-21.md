@@ -830,15 +830,34 @@ Görsel doğrulama **YALNIZ `adb screencap`** (CDP ekran görüntüsü WebGL'i y
 
 ---
 
-## ⬜ V-15 — RLS matris testi
+## 🟢 V-15 — RLS maruziyet matrisi  **[TAMAM 2026-08-22 — ÜRETİMDE ÖLÇÜLDÜ]**
 
-**BULGU:** Kütükte kayıtlı: migration 038'de **member kendini admin yapabiliyordu**.
-Kapatıldı ama bu sınıfın **sistematik kapısı yok**.
+**BULGU:** 038 döneminde `member` kendini admin yapabiliyordu; kapatıldı ama bu SINIFIN
+sistematik kapısı yoktu. Ayrıca ölçüm: **prod'da 17 tabloda `anon` GRANT'i var** (yerelde 12) —
+`vehicles · vehicle_locations · vehicle_telemetry · vehicle_commands · vehicle_events ·
+vehicle_pairings` dahil. Tek savunma RLS policy'si.
 
-**YAPILACAK:** Her rol × her tablo × her işlem matrisi (`supabase/tests/` altında).
-84 policy · 54 RLS tablosu · 194 SECURITY DEFINER kapsanacak.
+**"SAHTE 0" TUZAĞI:** `anon` 0 satır görmesi koruma KANITI DEĞİLDİR — tablo boş da olabilir.
+Ölçümde yerelde 47 tablonun **20 tanesi boştu**; naif bir matris "47/47 GEÇTİ" derdi. Boş tablo
+**UNPROVEN** sayılır, GEÇTİ SAYILMAZ.
 
-**KABUL ÖLÇÜTÜ:** Bir policy bilinçli gevşetildiğinde matris testi **düşer**.
+**DÖRT KAPI:** ① anon izinsiz OKUYAMAZ · ② anon doğrudan YAZAMAZ · ③ her tabloda RLS AÇIK ·
+④ **kimliksiz `authenticated` görürse policy sabite bağlıdır** (038 sınıfı).
+
+**KAPI 4 İLK KOŞUŞTA GERÇEK BULGU YAKALADI:** `ai_evidence_adapter_state` = `USING (true)`.
+İncelendi, **meşru** (şirket-bağımsız sayaç, PII yok, anon REVOKE) → gerekçesiyle imzalandı.
+
+**İZİN LİSTESİ KİLİTLİ:** matrisin zayıf noktası listedir; vitest kilidi listeyi imzalı kümeyle
+birebir karşılaştırır ve kiracıya-özgü 27 tablonun girmesini yasaklar (Docker'sız CI'da koşar).
+
+**MUTASYONLA KANITLANDI:** `vehicles`→`USING(true)` KAPI 1 · `vehicle_telemetry` anon INSERT
+KAPI 2 · `vehicle_trips` RLS off KAPI 3 · listeye `vehicles` eklemek vitest kilidini düşürdü.
+
+**ÜRETİM ÖLÇÜMÜ:** gerçek `anon` rolüyle koşuldu → **izinsiz maruziyet = 0**; satırı olan
+**8 kritik tablo kanıtlanmış şekilde kapalı**. 9 tablo boş olduğu için kanıtlanamadı.
+
+**AÇIK BORÇ:** o 9 tabloya gerçek satır girdiğinde `npm run test:rls:prod` tekrar koşulmalı
+(kütük **#709**).
 
 ---
 
