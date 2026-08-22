@@ -769,20 +769,34 @@ sunucu zaten hesaplıyor; ikinci hesap ikinci otoritedir.
 
 ---
 
-## ⬜ V-12 — Digital Twin'in ilk gerçek katmanı: provenance (P2-5)
+## 🟨 V-12 — Digital Twin provenance  **[BAĞLANDI 2026-08-22 — kütükte 🔴 saha borcu açık]**
 
-**BULGU:** Vizyon belgesi kendi beyanıyla **İSKELET** diyor, kod bunu doğruluyor:
-*"`UnifiedVehicleStore` gerçek Digital Twin değildir — yalnız anlık sinyal aynasıdır.
-Kimlik, history, prediction, provenance ve lifecycle eksiktir."*
+**BULGU (doğrulandı):** `UnifiedVehicleState` çıplak skalerler taşıyor; **`gpsSource`
+dışında hiçbir sinyalde** "bu değer nereden geldi, ne zaman ölçüldü" bilgisi yoktu.
+`speed` "fused" diye yazılı ama kaynağı okunamıyordu.
 
-**KANIT:** `docs/CAROS_PRO_VIZYONU.md:3307-3326` · `grep -il 'digital twin' src` →
-yalnız `platform/trip/tripCanonicalModel.ts` (bir yorum).
+**MİMARİ KARAR — YAN KANAL:** her alanı `{value, source, at}` yapmak mağazayı okuyan
+onlarca bileşeni kırardı (anayasa: çok-sistemli refactor yasak). Provenance **paralel bir
+defterdir**: değer alanları değişmedi, umursamayan okuyucu hiç etkilenmedi.
 
-**YAPILACAK:** Vizyonun kendi belirlediği sonraki atomik PR: **her sinyalin kaynak izi**.
-`Measurement` katmanı (`LIVE · STALE · OFFLINE · NEVER_SEEN · UNKNOWN`) zaten var — üzerine provenance.
+**HOT-PATH GÜVENLİĞİ:** defter başlangıçta dolu (sonradan anahtar eklenmez → hidden-class
+geçişi yok) · yazma yolunda **tahsis yok** (kayıt yerinde değişir) · damga **yama başına
+bir kez** (`stampProvenance(..., Date.now())` deseni kilitle yasaklandı).
 
-**KABUL ÖLÇÜTÜ:** (kod) her sinyal kaynağıyla birlikte okunur; (cihaz) gerçek araçta
-provenance zinciri kanıtla doğrulanır.
+**SAHTE YAŞ YASAĞI:** hiç yazılmamışta yaş **hesaplanmaz** — `nowMs - 0` yapılsaydı
+**56 yıllık** sahte yaş çıkar ve "çok bayat" diye okunurdu.
+
+**ÜÇ DURUM AYRI:** AKIYOR · BAYAT · **HİÇ YAZILMADI**. Sonuncusunu "bayat" saymak, hiç
+gelmemiş sinyali "gelmiş ama eskimiş" göstermek olurdu.
+
+**KAYNAK DÜRÜSTLÜĞÜ:** `speed` = **fused** (tek üreticiye indirgemek yalan olurdu,
+kilitli) · `odometer` = **derived** (ölçüm değil) · CAN/GPS kendi kaynakları · bildirilmemişse
+**unknown** (uydurulmaz).
+
+**LAB:** CAROS LAB · Araç · **Sinyal Kaynak İzi** açıldı.
+
+**AÇIK BORÇ (🟢 DEĞİL 🟨):** gerçek araçta ölçülmedi — kütük **🔴 #708**. Çekirdek ölçüt:
+`speed` **fused** görünmeli; CAN'siz araçta `canRpm` **HİÇ YAZILMADI** demeli (bayat DEĞİL).
 
 ---
 

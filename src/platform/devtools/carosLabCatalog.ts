@@ -60,7 +60,7 @@ export type CarosLabToolId =
   | 'remote-command'
   | 'fleet-identity' | 'fleet-driver-identity' | 'fleet-presence-history'
   | 'fleet-driver-authentication' | 'fleet-driver-dna' | 'fleet-intelligence' | 'ai-evidence-engine'
-  | 'deep-scan' | 'vehicle-fingerprint' | 'prediction-engine'
+  | 'deep-scan' | 'vehicle-fingerprint' | 'prediction-engine' | 'signal-provenance'
   // Communication
   | 'raw-obd-traffic' | 'can-monitor' | 'kwp-monitor' | 'uds-explorer'
   | 'session-inspector' | 'phone-hub-probe' | 'phone-hub-field-validation' | 'phone-hub-link'
@@ -212,6 +212,12 @@ export const CAROS_LAB_TOOLS: readonly CarosLabTool[] = Object.freeze([
     desc: 'Tüm AI sistemlerinin ortak kanıt omurgasının salt-okunur gözlemi: kanıt sayaçları (aktif · süresi dolmuş · reddedilmiş · güveni türetilememiş) · kaynak dağılımı · birleştirme ve tazeleme sayaçları · kanıt zinciri (hangi çıktı hangi kanıta dayanıyor) · kanıt kapsamı ve eksik kategoriler · bütünlük bayrağı.',
     status: 'AVAILABLE', layer: null,
     note: 'Hiçbir şey BAŞLATMAZ ve KARAR VERMEZ: kanıt üretme/yazma, zincir kurma, süre kapatma, sunucuya yazma, ağ çağrısı ve timer YOK. BU KATMAN AI CEVABI ÜRETMEZ — LLM, model, tahmin, öneri ve doğal dil YOKTUR; kanıt bir CÜMLE değil, kaynağı ve ölçüm kalitesi belli bir KAYITTIR. KAYNAKSIZ KANIT GEÇERLİ OLAMAZ (hangi modülden geldiği bilinmeyen iddia kanıt sayılmaz) ve GÜVEN DIŞARIDAN YAZILAMAZ: kaynak, ölçüm kalitesi ve örnek sayısının en zayıf halkasından TÜRETİLİR (tek gözlem MEDIUM tavanını aşamaz). Kanıt DEĞİŞMEZDİR ve süresi dolunca SİLİNMEZ — geçmiş bir iddianın dayanağı yok edilirse o iddia açıklanamaz. Kapsam UNAVAILABLE ise bu "sıfır ölçtük" değil "HİÇ BAKMADIK" demektir. Üretim SUNUCUDADIR; head unit tarafında kanıt üretilmez. KİŞİSEL VERİ TAŞINMAZ: araç/sürücü ADI, plaka, VIN ve konum GELMEZ. Gerçek araç doğrulaması YAPILMADI (BLOCKED_REAL_VEHICLE).',
+  },
+  {
+    id: 'signal-provenance', category: 'vehicle', name: 'Sinyal Kaynak İzi',
+    desc: 'Digital Twin\'in ilk gerçek katmanının salt-okunur gözlemi: izlenen her sinyalin ÜRETİCİSİ (OBD · CAN · GPS · harmanlanmış · türetilmiş · diskten) · yazım sayısı · son yazım yaşı ve durumu (AKIYOR · BAYAT · HİÇ YAZILMADI) · kaynağı bildirilmemiş sinyal adedi.',
+    status: 'AVAILABLE', layer: null,
+    note: 'SALT-OKUNUR: sinyal yazmaz, damga basmaz, defteri temizlemez, araca komut göndermez, timer kurmaz. NEDEN VAR: vizyon belgesi `UnifiedVehicleStore` için "gerçek Digital Twin değildir — yalnız anlık sinyal aynasıdır; provenance eksiktir" diyordu ve ölçüm bunu doğruladı — `gpsSource` DIŞINDA hiçbir sinyalde "bu değer nereden geldi, ne zaman ölçüldü" bilgisi YOKTU. Kaynağı bilinmeyen bir değerle KARAR vermek zero-trust telemetrinin ihlalidir. ÜÇ DURUM BİRLEŞTİRİLMEZ: AKIYOR · BAYAT · HİÇ YAZILMADI — sonuncusunu "bayat" saymak, hiç gelmemiş bir sinyali "gelmiş ama eskimiş" göstermek olurdu (iki tamamen farklı arıza) ve hiç yazılmamış alanda yaş HESAPLANMAZ (sahte 56 yıllık yaş üretilmez). "OKUNAMADI" ile "sinyal yok" da AYRIDIR. `speed` bilinçli olarak HARMANLANMIŞ (fused) işaretlenir — tek üreticiye indirgemek yalan olurdu. MİMARİ: kaynak izi PARALEL bir defterdir; değer alanları DEĞİŞTİRİLMEDİ, mağazayı okuyan hiçbir bileşen etkilenmedi (çok-sistemli refactor YASAĞI). HOT-PATH GÜVENLİĞİ: defter önceden dolu tutulur (sonradan anahtar eklenmez → V8 hidden-class geçişi yok), yazma yolunda TAHSİS YOKTUR ve zaman damgası yama başına BİR KEZ alınır. Gerçek araç doğrulaması YAPILMADI (kütük #708).',
   },
   {
     id: 'prediction-engine', category: 'vehicle', name: 'Öngörü Motoru',

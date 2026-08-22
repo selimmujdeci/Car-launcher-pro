@@ -15,6 +15,7 @@
  */
 
 import { create } from 'zustand';
+import { stampProvenance } from './vehicleProvenance';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import { openRearCamera, closeRearCamera } from '../cameraService';
 import type { VehicleState, GPSLocation } from './types';
@@ -243,6 +244,17 @@ export const useUnifiedVehicleStore = create<UnifiedVehicleState>()(
         // heading ve location: GPS tarafı yetkilidir, worker patch'leri yok sayılır.
 
         if (dirty) {
+          /* V-12 — KAYNAK İZİ. Damga YAMA BAŞINA bir kez alınır (alan başına
+             DEĞİL): bu yol saniyede birkaç kez çalışır ve `Date.now()` alan
+             başına çağrılsaydı hot-path'e gereksiz yük binerdi.
+             `speed` FUSED'dır — tek bir üreticiye indirgemek yalan olurdu. */
+          const _pAt = Date.now();
+          if ('speed' in u)    stampProvenance('speed', 'fused', _pAt);
+          if ('rpm' in u)      stampProvenance('rpm', 'obd', _pAt);
+          if ('fuel' in u)     stampProvenance('fuel', 'obd', _pAt);
+          if ('odometer' in u) stampProvenance('odometer', 'derived', _pAt);
+          if ('reverse' in u)  stampProvenance('reverse', 'obd', _pAt);
+
           set(u as Partial<UnifiedVehicleState>);
 
           // Odometer KM mühürleme: araç durduğunda veya 1 km artışta 1s debounce bypass
@@ -313,7 +325,12 @@ export const useUnifiedVehicleStore = create<UnifiedVehicleState>()(
           u.gpsSource = gpsPatch.source ?? null; dirty = true;
         }
 
-        if (dirty) set(u as Partial<UnifiedVehicleState>);
+        if (dirty) {
+          const _pAt = Date.now();
+          if ('location' in u) stampProvenance('location', 'gps', _pAt);
+          if ('heading' in u)  stampProvenance('heading', 'gps', _pAt);
+          set(u as Partial<UnifiedVehicleState>);
+        }
       },
 
       // ── CAN extras update (tüm CAN sinyalleri) ───────────────────────────
@@ -382,7 +399,15 @@ export const useUnifiedVehicleStore = create<UnifiedVehicleState>()(
         if (patch.airCondition  != null) chkBool('canAirCondition',  patch.airCondition);
         if (patch.cruiseControl != null) chkBool('canCruiseControl', patch.cruiseControl);
 
-        if (dirty) set(u as Partial<UnifiedVehicleState>);
+        if (dirty) {
+          /* V-12 — CAN kaynaklı alanların izi. Tek damga, alan başına değil. */
+          const _pAt = Date.now();
+          for (const k of ['canRpm', 'canCoolantTemp', 'canOilTemp', 'canThrottle',
+                           'canBatteryVolt', 'canGearPos', 'canAmbientTemp', 'canTpmsKpa'] as const) {
+            if (k in u) stampProvenance(k, 'can', _pAt);
+          }
+          set(u as Partial<UnifiedVehicleState>);
+        }
       },
 
       // ── CAN data reset (transport disconnect) ─────────────────────────────

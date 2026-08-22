@@ -102,6 +102,8 @@ const ThemeRuntimeScreen = lazyWithRetry(() =>
   import('./screens/ThemeRuntimeScreen').then((m) => ({ default: m.ThemeRuntimeScreen })));
 const ToolCallingScreen = lazyWithRetry(() =>
   import('./screens/ToolCallingScreen').then((m) => ({ default: m.ToolCallingScreen })));
+const ProvenanceScreen = lazyWithRetry(() =>
+  import('./screens/ProvenanceScreen').then((m) => ({ default: m.ProvenanceScreen })));
 const PredictionEngineScreen = lazyWithRetry(() =>
   import('./screens/PredictionEngineScreen').then((m) => ({ default: m.PredictionEngineScreen })));
 const DeepScanScreen = lazyWithRetry(() =>
@@ -162,6 +164,7 @@ export function renderAvailableTool(id: CarosLabToolId): ReactElement | null {
     case 'recovery-monitor':   return <RecoveryMonitorScreen />;
     case 'deep-scan':          return <DeepScanScreen />;
     case 'prediction-engine':  return <PredictionEngineScreen />;
+    case 'signal-provenance':  return <ProvenanceScreen />;
     case 'tool-calling':       return <ToolCallingScreen />;
     case 'memory-explorer':    return <MemoryExplorerScreen />;
     case 'knowledge-explorer': return <KnowledgeExplorerScreen />;
