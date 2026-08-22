@@ -5,6 +5,12 @@
 > Felsefe: sesli komut sistemi DEĞİL, gömülü ChatGPT DEĞİL — yanda oturan,
 > konuşmak için konuşmayan akıllı yol arkadaşı.
 
+> **DURUM NOTU (2026-08-22 · V-18):** Belgedeki tespitler **2026-06-11 tarihli kod
+> tabanından** doğrulanmıştı. O tarihten sonra adı geçen bazı dosyalar **silindi** —
+> ör. `voiceContextBuilder.ts` ve önerilen `companionDiag.ts` repoda **YOKTUR**.
+> Belge tasarım niyetini korur; **dosya referansları güncel değildir** ve mevcut
+> mimarinin kanıtı olarak kullanılmamalıdır.
+
 ---
 
 ## 1. Mevcut Mimari Analizi

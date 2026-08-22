@@ -909,19 +909,30 @@ yürürlük↔tespit farkı · son değişimin nedeni).
 
 ---
 
-## ⬜ V-18 — Eskimiş dokümanları temizle
+## 🟢 V-18 — Eskimiş dokümanlar  **[TAMAM 2026-08-22 — kalıcı kapı kuruldu]**
 
-**BULGU:** `src/platform/OFFLINE_MAP_GUIDE.md` mimari çekirdek olarak iki dosya anlatıyor:
-`offlineMapService.ts` ve `tileLoader.ts` — **ikisi de mevcut değil**.
-→ `DOCUMENTATION ≠ IMPLEMENTATION`
+**TARAMA YÖNTEMİ ÖNCE KENDİ KUSURUNU GÖSTERDİ:** ilk tarayıcı yalnız `backtick` referansları
+arıyordu ve **asıl kanıtı kaçırdı** — `OFFLINE_MAP_GUIDE` dosyaları `**kalın**` yazmıştı.
+Düzeltilmiş yöntemle: **123 belge tarandı · 13 sorunlu · 33 kırık referans.**
 
-**KANIT:** `ls src/platform/offlineMapService.ts src/platform/tileLoader.ts` → *No such file*
+**AYRIM:** tarihsel kayıt kusur DEĞİLDİR. `ARCHITECTURE_DATAFLOW` · `PROJECT_STATE` ·
+`CAROS_PRO_VIZYONU` silinmiş dosyaları *"SİLİNDİ/SÖKÜLDÜ/ÖLÜ"* bağlamında anıyor; bunları
+"düzeltmek" tarihi yeniden yazmak olurdu. ROADMAP/BACKLOG ise **gelecek** dosyaları anar.
 
-**YAPILACAK:** Rehberi gerçek mimariye (`mapSourceManager` · `mapProtocols` ·
-`CacheLRUManager` · `serviceWorker`) göre yeniden yaz veya sil. Kökteki 47 markdown +
-`docs/` altındaki 100 dosya için aynı taramayı yap.
+**DÜZELTİLENLER:** ① `OFFLINE_MAP_GUIDE.md` **baştan yazıldı** (gerçek dört katman ölçüldü;
+her fonksiyon adı repodan doğrulandı; #614 ve V-07 tuzakları eklendi) · ② `TECHNICAL_SPEC_STYLE_ENGINE`
+*"Ready for Implementation"* diyordu ama o tasarım **uygulanıp geri alınmıştı** (1416 satır söküldü) ·
+③ `TECHNICAL_SPEC_REMOTE_COMMAND` *"Draft"* diyordu ama özellik **başka yolda uygulanmıştı**
+(`src/platform/remoteCommandService.ts`) · ④ `COMPANION_AI_ARCHITECTURE`'a tarih notu.
 
-**KABUL ÖLÇÜTÜ:** Hiçbir belge var olmayan bir dosyayı "çekirdek bileşen" diye anlatmıyor.
+**BELGELER SİLİNMEDİ:** kusur belgenin varlığı değil, *"bugünün mimarisi"* sanılmasıdır →
+başa **durum bandı** (kilit, bandın ilk 2000 karakterde olmasını şart koşar).
+
+**KALICI KAPI:** `docsReferenceIntegrity.test.ts`. Muafiyet listesi **kalkan olamaz** — ayrı
+bir kilit muafiyetteki adların gerçekten var olmadığını sınar. **Mutasyonla kanıtlandı.**
+
+**AÇIK BORÇ:** kapı şu an yalnız `OFFLINE_MAP_GUIDE.md`'yi izliyor; yeni mimari rehber
+`GUIDES` listesine eklenmelidir (kütük **#711**).
 
 ---
 

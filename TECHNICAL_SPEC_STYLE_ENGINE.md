@@ -1,5 +1,18 @@
 # Technical Specification: Live Design Studio (Style Engine)
 
+> ## ⛔ DURUM DÜZELTMESİ (2026-08-22 · V-18)
+>
+> Aşağıdaki **"Status: Ready for Implementation"** satırı **ARTIK GEÇERLİ DEĞİLDİR.**
+> Bu tasarım **uygulandı ve GERİ ALINDI**: `editStyleEngine` kendi `<style>` etiketini
+> yönetirken ürünü kırıyordu; ilgili katman (`useEditStore` · `EditPanel` ·
+> `editStyleEngine` · `EditController` · `themeDocument.ts`) **1416 satır olarak
+> SÖKÜLDÜ** (bkz. `docs/CAROS_PRO_VIZYONU.md`).
+>
+> **Bu belgede adı geçen `src/platform/editStyleEngine.ts` repoda YOKTUR.** Belge
+> tarihsel tasarım gerekçesi olarak saklanır; **uygulama talimatı olarak
+> okunmamalıdır.** Canlı tema/stil işi bugün Tema Stüdyo hattından yürür.
+
+
 **Status:** Ready for Implementation | **Target:** Claude
 **Reference:** `CLAUDE.md`, `TECHNICAL_SPEC_REMOTE_COMMAND.md`
 **Goal:** Implement a real-time, low-latency style synchronization between the PWA (Web) and the Vehicle (App) using CSS Variables and Supabase.

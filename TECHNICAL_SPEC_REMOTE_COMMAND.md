@@ -1,5 +1,16 @@
 # Technical Specification: Remote Command Service (Vehicle Side)
 
+> ## ⚠️ DURUM DÜZELTMESİ (2026-08-22 · V-18)
+>
+> **"Status: Draft"** satırı yanıltıcıdır: özellik **UYGULANDI**, ama bu belgenin
+> önerdiği yolda değil. Belge `src/hooks/useRemoteCommandService.ts` oluşturulmasını
+> söyler; **o dosya YOKTUR.** Gerçek uygulama:
+> **`src/platform/remoteCommandService.ts`** (platform servisi — repodaki köprü
+> desenine uygun; `src/hooks/` altına konmamıştır).
+>
+> Belge tasarım gerekçesi olarak saklanır; **dosya yolları güncel değildir.**
+
+
 **Status:** Draft | **Version:** 1.0.0
 **Target Implementation:** Claude (via `CLAUDE.md` guidelines)
 **Reference Standards:** Automotive Grade Engineering (Memory, Performance, Data Integrity)
