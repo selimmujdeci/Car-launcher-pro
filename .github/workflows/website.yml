@@ -8,7 +8,12 @@ name: Website CI
 
 on:
   push:
-    branches: [main, dev]
+    # `ci/**` BİLİNÇLİ (main.yml ile aynı gerekçe): bir workflow'un push
+    # tetikleyicisi, PUSH EDİLEN DALDAKİ dosyadan okunur — yani CI kapısı main'e
+    # girmeden, kendi dalında kanıtlanabilir. Bu olmadan yeni bir job'ın
+    # gerçekten koştuğu ancak main'e/dev'e girdikten SONRA görülürdü: kapının
+    # kendisi kapıdan geçmeden yayına alınırdı.
+    branches: [main, dev, 'ci/**']
     paths:
       - "website/**"
       - ".github/workflows/website.yml"
@@ -50,3 +55,50 @@ jobs:
 
       - name: Build
         run: npm run build
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # TESTLER — 1.309 kilit CI'da GERÇEKTEN koşar.
+  #
+  # ÖNCEKİ DURUM: `website/src/__tests__` altında 64 test dosyası ve
+  # `website/vitest.config.ts` koşucusu VARDI ama bu iş akışı yalnız
+  # `npm run build` yapıyordu. Yani testler yazılmış, koşucusu kurulmuş, ama
+  # KAPI DEĞİLDİ: website'te bir regresyon sessizce yayına gidebilirdi.
+  #
+  # İKİ KURULUM NEDEN GEREKLİ:
+  #   · kök       → `vitest` + `jsdom` YALNIZ kökte tanımlı (website'e bilinçli
+  #                 olarak eklenmedi; kökteki React 19 ile website'in React 18'i
+  #                 karışmasın diye config zaten alias'lıyor).
+  #   · website/  → `next` · `react` · `react-dom` testlerin kendisi için.
+  #
+  # `working-directory: website` ZORUNLU: testler dosya yollarını
+  # `process.cwd()` üzerinden kurar. Kökten koşulursa 18 dosya "ENOENT" ile
+  # düşer — ürün kusuru DEĞİL, yanlış çalışma dizini. (Bu tuzağa bir kez
+  # düşüldü; not burada duruyor ki bir daha "38 test bozuk" sanılmasın.)
+  # ───────────────────────────────────────────────────────────────────────────
+  test:
+    name: Vitest (website)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            website/package-lock.json
+
+      - name: Install root dependencies (vitest · jsdom)
+        run: npm ci --prefer-offline --no-audit --fund=false
+
+      - name: Install website dependencies
+        working-directory: website
+        run: npm ci --prefer-offline --no-audit --fund=false
+
+      - name: Run website tests
+        working-directory: website
+        run: npm run test

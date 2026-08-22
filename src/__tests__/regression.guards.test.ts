@@ -7396,3 +7396,75 @@ describe('KİLİT: native Java CI kapısı (#675)', () => {
       'SessionCryptoTest silinmiş').toBe(true);
   });
 });
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * KİLİT: website test kapısı (#713)
+ *
+ * ESKİ DURUM: `website/src/__tests__` altında 64 dosya / 1.309 kilit ve
+ * `website/vitest.config.ts` koşucusu VARDI — ama `website.yml` yalnız
+ * `npm run build` yapıyordu. Testler yazılmış, koşucu kurulmuş, ama KAPI
+ * DEĞİLDİ: website'te bir regresyon sessizce yayına gidebilirdi. Bu, depoda
+ * defalarca bulunan "motor var, besleyen yok" deseninin CI'daki hâlidir.
+ * ═══════════════════════════════════════════════════════════════════════════ */
+describe('KİLİT: website test kapısı (#713)', () => {
+  const repoRoot = resolve(__dirname, '../..');
+  const rf = (p: string) => readFileSync(resolve(repoRoot, p), 'utf8');
+  const ci = rf('.github/workflows/website.yml');
+
+  it('website.yml testleri GERÇEKTEN koşar (job sessizce silinmemiş)', () => {
+    expect(ci, 'test job\'ı website.yml\'den kaldırılmış — 1.309 website kilidi tekrar kapısız')
+      .toMatch(/^\s{2}test:/m);
+    expect(ci, 'job var ama test komutu yok — hiçbir şey koşmuyor')
+      .toMatch(/run:\s*npm run test/);
+  });
+
+  it('testler `website` dizininden koşar — yol tuzağı geri gelmemiş', () => {
+    /* Testler dosya yollarını `process.cwd()` üzerinden kurar. Kökten
+       koşulursa 18 dosya ENOENT ile düşer; bu bir ÜRÜN KUSURU DEĞİL, yanlış
+       çalışma dizinidir. `working-directory` düşerse CI kırmızıya döner ve
+       sebebi yanlış teşhis edilir. */
+    /* DİKKAT — bu kilidin ilk hâli SAHTEYDİ: `working-directory: website
+       [\s\S]* run: npm run test` deseni, KURULUM adımındaki
+       `working-directory`yi test adımınınkiyle eşleştiriyordu ve
+       `working-directory` test adımından silinince bile GEÇİYORDU.
+       Mutasyonla yakalandı. Artık adım adım ayrıştırılır. */
+    const testJob = ci.slice(ci.indexOf('  test:'));
+    const steps = testJob.split(/^\s{6}- /m);
+    const runStep = steps.find((st) => /run:\s*npm run test/.test(st));
+    expect(runStep, 'test job içinde `npm run test` adımı yok').toBeDefined();
+    expect(runStep, 'test ADIMINDA `working-directory: website` yok — yol tuzağına düşülür')
+      .toMatch(/working-directory:\s*website/);
+  });
+
+  it('KÖK bağımlılıkları da kurulur — `vitest` yalnız kökte tanımlı', () => {
+    /* `website/package.json` vitest/jsdom İÇERMEZ (bilinçli: kökteki React 19
+       ile website'in React 18'i karışmasın). Yalnız website kurulursa CI'da
+       `vitest: not found` alınır. */
+    const testJob = ci.slice(ci.indexOf('  test:'));
+    const installs = testJob.match(/npm ci/g) ?? [];
+    expect(installs.length, 'tek kurulum var — kök vitest kurulmadan test koşamaz')
+      .toBeGreaterThanOrEqual(2);
+  });
+
+  it('`ci/**` tetikleyicisi duruyor — kapı KENDİ DALINDA kanıtlanabilsin', () => {
+    /* main.yml ile aynı gerekçe: bir workflow'un push tetikleyicisi PUSH EDİLEN
+       DALDAKİ dosyadan okunur. Bu satır olmadan yeni bir job'ın gerçekten
+       koştuğu ancak main'e girdikten SONRA görülür — kapının kendisi kapıdan
+       geçmeden yayına alınmış olur. */
+    expect(ci, "website.yml'den `ci/**` tetikleyicisi kaldırılmış")
+      .toMatch(/branches:\s*\[main, dev, 'ci\/\*\*'\]/);
+  });
+
+  it('website test kaynakları hâlâ yerinde (kapı boş kümeyi korumasın)', () => {
+    const dir = resolve(repoRoot, 'website/src/__tests__');
+    expect(existsSync(dir), 'website test dizini yok').toBe(true);
+    expect(existsSync(resolve(repoRoot, 'website/vitest.config.ts')),
+      'website/vitest.config.ts silinmiş — koşucu yok, kapı boşa çalışır').toBe(true);
+  });
+
+  it('`npm run test` betiği website/package.json\'da duruyor', () => {
+    const pkg = JSON.parse(rf('website/package.json')) as { scripts?: Record<string, string> };
+    expect(pkg.scripts?.test, 'website/package.json\'dan `test` betiği kaldırılmış')
+      .toMatch(/vitest/);
+  });
+});
