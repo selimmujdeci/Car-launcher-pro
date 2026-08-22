@@ -115,6 +115,139 @@ const MASTER_TICK_MS = 333; // ~3Hz — wheel çözünürlüğü
 /** setMode() çağrısının hangi kaynaktan geldiğini belirtir. */
 export type ModeReason = string;
 
+/* ══════════════════════════════════════════════════════════════════════════
+   MOD TESPİT KAPILARI — TEK OTORİTE (V-17)
+
+   ESKİ KUSUR: `_detectCapabilities()` yalnız SONUCU (BASIC_JS) dönüyordu;
+   HANGİ kapının indirdiği kaybolıyordu. Sonuç: cihazda mod hep BASIC_JS
+   görünüyor ama NEDENİ görünmüyordu ve vizyon planı nedeni YANLIŞ tahmin
+   etmişti — "COEP kapalı olduğu için SAB yok" diye yazılmıştı. Oysa kapılar
+   SIRALIDIR ve SAB kapısı SONUNCUDUR: hedef donanımda (K24 · Mali-400)
+   `weakGpu` çok daha önce tetikler. **COEP açılsa bile mod DEĞİŞMEZDİ.**
+   Yanlış kapıyı suçlamak, pahalı ve yanlış bir mimari kararı doğururdu.
+
+   Tablo tek otoritedir; iki tüketicisi vardır:
+     · `firstBlockingModeGate()` — ÜRETİM yolu, KISA DEVRE (davranış birebir eski).
+     · `traceModeGates()`        — LAB, HEPSİNİ değerlendirir (bir kapı düzeltilse
+                                    sıradakinin yine engelleyip engellemediğini
+                                    gösterir; "COEP'i çöz" tuzağının panzehiri).
+   ══════════════════════════════════════════════════════════════════════════ */
+
+export type RuntimeModeGateId = 'deviceTier' | 'weakGpu' | 'worker' | 'sab';
+
+export interface RuntimeModeGate {
+  readonly id: RuntimeModeGateId;
+  /** Bu kapı modu BASIC_JS'e indiriyor mu. */
+  readonly blocking: boolean;
+  /** Kapının dayandığı HAM gözlem — yorum değil. */
+  readonly observed: string;
+}
+
+export interface RuntimeModeDecision {
+  /** Tespitin sonucu. Aktif mod DEĞİLDİR (termal/kullanıcı/güç bunu ezebilir). */
+  readonly detected: RuntimeMode;
+  /** Kısa devrede KARARI VEREN kapı; hiçbiri engellemiyorsa `null`. */
+  readonly decidedBy: RuntimeModeGateId | null;
+  /** TÜM kapılar (LAB için değerlendirildi) — sıralı. */
+  readonly gates: readonly RuntimeModeGate[];
+}
+
+/**
+ * Kapı tanımları — SIRA ANLAMLIDIR (üretim ilk engelleyende durur).
+ *
+ * `test` çağrıldığında ölçüm yapar; `describe` ham gözlemi metne çevirir.
+ * Her ikisi de fırlatmamalıdır — tespit yolu açılışta koşar.
+ */
+const MODE_GATES: ReadonlyArray<{
+  readonly id: RuntimeModeGateId;
+  readonly test: () => boolean;          // true = ENGELLİYOR
+  readonly describe: () => string;
+}> = [
+  {
+    /* getDeviceTier() GPU probe'una EK olarak ekran/çekirdek/RAM/WebView/Android/CSS
+       sinyallerini de değerlendirir; maskeli WebGL renderer'da hasWeakGpu yanılsa
+       bile (K24: Android 15 / 6 GB RAM ama Mali-400 + düşük çözünürlük) lowEndScreen
+       veya cores yakalar → blur/animation açık kalmaz. */
+    id: 'deviceTier',
+    test: () => getDeviceTier() === 'low',
+    describe: () => `getDeviceTier() = ${getDeviceTier()}`,
+  },
+  {
+    /* GPU sınıfı SAB'dan ÖNCE: CPU'da SAB/Worker olsa BİLE zayıf GPU (Mali-400
+       sınıfı Utgard / yazılım render) backdrop-filter blur'u software path'te
+       çalıştırır → her kare GPU stall → "aşırı kasma". */
+    id: 'weakGpu',
+    test: () => hasWeakGpu(),
+    describe: () => `hasWeakGpu() = ${hasWeakGpu()}`,
+  },
+  {
+    id: 'worker',
+    test: () => typeof Worker === 'undefined',
+    describe: () => `typeof Worker = ${typeof Worker}`,
+  },
+  {
+    /* `typeof SharedArrayBuffer` TEK BAŞINA YETMEZ: SAB yalnız crossOriginIsolated
+       (COOP+COEP) ortamında gerçekten kullanılabilir, aksi halde runtime'da hata
+       fırlatır. Capacitor WebView'ında COEP başlığı YOKTUR — bilinçli takas:
+       COEP açılırsa YouTube iframe'i ve çapraz-köken kaynaklar kırılır. */
+    id: 'sab',
+    test: () => !(
+      typeof SharedArrayBuffer !== 'undefined' &&
+      typeof self !== 'undefined' && self.crossOriginIsolated === true
+    ),
+    describe: () => {
+      const sab = typeof SharedArrayBuffer !== 'undefined';
+      const coi = typeof self !== 'undefined' ? self.crossOriginIsolated === true : false;
+      return `SharedArrayBuffer=${sab} · crossOriginIsolated=${coi}`;
+    },
+  },
+];
+
+/** ÜRETİM yolu — ilk engelleyen kapıda durur, sonrakileri ÇALIŞTIRMAZ. */
+function firstBlockingModeGate(): RuntimeModeGateId | null {
+  for (const g of MODE_GATES) {
+    try { if (g.test()) return g.id; }
+    catch { /* fail-soft: ölçülemeyen kapı ENGELLEMEZ (mevcut davranış) */ }
+  }
+  return null;
+}
+
+/**
+ * LAB yolu — TÜM kapıları değerlendirir.
+ *
+ * Neden hepsi: tek bir "engelleyen kapı" göstermek, "onu düzeltirsek mod yükselir"
+ * yanılsaması üretir. Hedef donanımda `weakGpu` ve `sab` AYNI ANDA engelliyor;
+ * yalnız COEP'i çözmek modu DEĞİŞTİRMEZ. Karar bunu görerek verilmelidir.
+ *
+ * Düşük tier'da ilk çağrıda WebGL probe'unu tetikleyebilir — bu yüzden ÜRETİM
+ * yolunda DEĞİL, yalnız LAB ekranı açıldığında çağrılır (sonuç önbelleklenir).
+ */
+export function traceModeGates(): RuntimeModeDecision {
+  const gates: RuntimeModeGate[] = [];
+  let decidedBy: RuntimeModeGateId | null = null;
+
+  for (const g of MODE_GATES) {
+    let blocking = false;
+    let observed: string;
+    try {
+      blocking = g.test();
+      observed = g.describe();
+    } catch (e) {
+      /* Ölçülemeyen kapı "geçti" SAYILMAZ ve "engelledi" de sayılmaz —
+         gözlem OKUNAMADI olarak bildirilir, uydurulmaz. */
+      observed = `OKUNAMADI (${e instanceof Error ? e.name : 'hata'})`;
+    }
+    if (blocking && decidedBy === null) decidedBy = g.id;
+    gates.push({ id: g.id, blocking, observed });
+  }
+
+  return {
+    detected: decidedBy === null ? RuntimeMode.BALANCED : RuntimeMode.BASIC_JS,
+    decidedBy,
+    gates,
+  };
+}
+
 /**
  * Worker kritiklik sınıfı:
  *   CRITICAL  — VehicleCompute: her koşulda çalışır, bellek baskısında dokunulmaz.
@@ -240,6 +373,21 @@ class AdaptiveRuntimeManager {
   /** Akü voltaj tavanı — bu mod üstüne çıkış engellenir; null = kısıtlama yok. */
   private _powerCeiling: RuntimeMode | null = null;
 
+  /**
+   * SON mod değişiminin kaydı (V-17 · LAB gözlemi).
+   *
+   * Neden gerek: aktif mod, TESPİT edilen moddan farklı olabilir — termal,
+   * kullanıcı override'ı, güç tavanı veya arıza merdiveni onu ezer. LAB'da
+   * yalnız "BASIC_JS" görmek, bunun tespitten mi yoksa bir ezmeden mi
+   * geldiğini SÖYLEMEZ. `reason` zaten `_commit`e geliyordu ama loga yazılıp
+   * ATILIYORDU; burada saklanır. Mod değişimi SEYREK bir olaydır (histerezis
+   * 30 sn), bu yüzden `Date.now()` hot-path'e yük getirmez.
+   */
+  private _lastModeChange: {
+    readonly from: RuntimeMode; readonly to: RuntimeMode;
+    readonly reason: ModeReason; readonly at: number;
+  } | null = null;
+
   /** Anlık termal kısıtlama seviyesi (0–3). */
   private _thermalActiveLevel: 0|1|2|3 = 0;
 
@@ -331,34 +479,11 @@ class AdaptiveRuntimeManager {
    * Her ikisi var → BALANCED (termal ve kullanıcı sinyalleri daha sonra ayarlar)
    */
   private _detectCapabilities(): RuntimeMode {
-    // Kanonik düşük donanım sınıfı (deviceCapabilities) → BASIC_JS. getDeviceTier()
-    // GPU probe'una EK olarak ekran/çekirdek/RAM/WebView/Android/CSS sinyallerini de
-    // değerlendirir; maskeli WebGL renderer'da hasWeakGpu yanılsa bile (örn. K24:
-    // Android 15 / 6GB RAM ama Mali-400 + düşük çözünürlük) lowEndScreen/cores yakalar →
-    // blur/animation açık kalmaz.
-    if (getDeviceTier() === 'low') {
-      return RuntimeMode.BASIC_JS;
-    }
-
-    // GPU sınıfı önce: CPU'da SAB/Worker olsa BİLE zayıf GPU (Mali-400 sınıfı
-    // Utgard / yazılım render) backdrop-filter blur'u software path'te çalıştırır →
-    // her kare GPU stall → "aşırı kasma". Böyle cihazlarda BASIC_JS tavanına in
-    // (enableBlur=false → --rt-blur=0 → tüm cam/blur efektleri app genelinde kapanır).
-    if (hasWeakGpu()) {
-      return RuntimeMode.BASIC_JS;
-    }
-
-    const hasWorker = typeof Worker !== 'undefined';
-    // typeof tek başına yetmez: SAB yalnızca crossOriginIsolated=true (COOP+COEP)
-    // ortamında gerçekten kullanılabilir; aksi halde runtime'da hata fırlatır.
-    const hasSAB =
-      typeof SharedArrayBuffer !== 'undefined' &&
-      typeof self !== 'undefined' && self.crossOriginIsolated === true;
-
-    if (!hasWorker || !hasSAB) {
-      return RuntimeMode.BASIC_JS;
-    }
-    return RuntimeMode.BALANCED;
+    /* Kapı tablosu TEK OTORİTEDİR (aşağıdaki `MODE_GATES`). Buradaki üretim yolu
+       KISA DEVRE yapar: ilk engelleyen kapıda durur ve sonrakileri HİÇ çalıştırmaz.
+       Bu bilinçlidir — `hasWeakGpu()` ilk çağrıda WebGL probe'u koşar; düşük
+       tier'da o probe'u açılışta yapmak, tam da kaçındığımız işi eklerdi. */
+    return firstBlockingModeGate() === null ? RuntimeMode.BALANCED : RuntimeMode.BASIC_JS;
   }
 
   /* ══════════════════════════════════════════════════════════════
@@ -415,6 +540,7 @@ class AdaptiveRuntimeManager {
   private _commit(mode: RuntimeMode, reason: ModeReason): void {
     const prev = this._mode;
     this._mode = mode;
+    this._lastModeChange = { from: prev, to: mode, reason, at: Date.now() };
     this._applyCSS(mode);
 
     /* Her mod değişimini logla — downgrade warn, upgrade info (adb logcat görünürlüğü).
@@ -638,6 +764,19 @@ class AdaptiveRuntimeManager {
   /** Aktif modu döner. */
   getMode(): RuntimeMode {
     return this._mode;
+  }
+
+  /**
+   * Son mod değişiminin kaydı; hiç değişmediyse `null` (V-17).
+   *
+   * `null` = "açılıştaki tespit modu hâlâ geçerli" demektir; sahte bir
+   * "değişti" kaydı UYDURULMAZ.
+   */
+  getLastModeChange(): {
+    readonly from: RuntimeMode; readonly to: RuntimeMode;
+    readonly reason: ModeReason; readonly at: number;
+  } | null {
+    return this._lastModeChange;
   }
 
   /** Aktif mod için RuntimeConfig döner. */

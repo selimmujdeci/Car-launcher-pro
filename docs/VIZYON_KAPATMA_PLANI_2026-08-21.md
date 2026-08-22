@@ -882,35 +882,30 @@ bir `dosya:satır` referansıyla desteklenir.
 
 # 🏛️ P5 — MİMARİ KARAR GEREKTİRENLER
 
-## ⬜ V-17 — Adaptive Runtime: üst modlar cihazda erişilemez (KARAR + ADR)
+## 🟨 V-17 — Çalışma zamanı mod tavanı: KARAR + ADR  **[KARAR VERİLDİ 2026-08-22 — ADR 0005]**
 
-**BULGU:** APK'da otomatik tespit **her zaman BASIC_JS** döner. SAB zero-copy yolları
-(`sabChannel`, POI SAB) cihazda **hiç koşmuyor**; JSON fallback kalıcı.
+**PLANIN NEDENSELLİĞİ ÖLÇÜMLE ÇÜRÜTÜLDÜ.** Bu maddenin ilk hâli *"COEP kapalı → SAB yok →
+BASIC_JS"* diyordu. Ölçüm: `_detectCapabilities()` **dört sıralı kapıdır** ve plan yalnız son
+ikisini saymıştı: ① `deviceTier` ② `weakGpu` ③ `worker` ④ `sab`. Üretim **ilk engelleyende
+durur**; referans donanımda (K24 · Mali-400) **2. kapı tetikliyor, 4. kapıya sıra gelmiyor**.
 
-**KANIT:**
+> **COEP açılsaydı bile mod DEĞİŞMEZDİ.** Planın önerdiği pahalı çözüm hedef donanımda hiçbir
+> şey açmayacak, üstelik YouTube iframe'ini kırma bedelini ödeyecekti.
 
-```
-AdaptiveRuntimeManager.ts:353-360
-  const hasSAB = typeof SharedArrayBuffer !== 'undefined'
-              && self.crossOriginIsolated === true;
-  if (!hasWorker || !hasSAB) return RuntimeMode.BASIC_JS;
+**KARAR (`docs/adr/0005-sab-crossoriginisolation-runtime-ceiling.md`):** tavan kabul edilir ·
+**COEP AÇILMAZ** (koşullu: güçlü head unit ölçülünce yeniden açılır) · **SAB yolları SİLİNMEZ**
+(16 dosya = çok-sistemli refactor, ölçülmüş fayda yok, yollar ölü değil UYKUDA) · SAB/Seqlock
+disiplini kapsamda kalır.
 
-vite.config.ts:232   const _coopCoepHeaders = {};   ← BOŞ
-capacitor.config.ts                                 ← COEP başlığı YOK
-```
+**TEK OTORİTE:** kapılar `MODE_GATES` tablosunda; `_detectCapabilities()` artık koşul içermez.
+Üretim kısa devre, LAB tümünü değerlendirir — *"tek suçlu"* yanılsaması modelde ve testte kilitli:
+`softwareFixWouldUnlock()` ancak **donanım engeli kalmadıysa** true.
 
-Bu **kaza değil, belgelenmiş takas**: COEP açılırsa YouTube iframe'i ve çapraz-köken
-kaynaklar kırılıyor (`vite.config.ts:222-230`). BALANCED'a yalnız
-`CognitivePriorityEngine.ts:100` (bilişsel toparlanma) veya `useLayoutServices.ts:64`
-(kullanıcı override) ile çıkılabiliyor.
+**LAB:** CAROS LAB · Çalışma Zamanı · **Mod Kapıları** (ham gözlem · kararı veren kapı ·
+yürürlük↔tespit farkı · son değişimin nedeni).
 
-**KARAR SEÇENEKLERİ:**
-1. **Kabul et** → ADR yaz, SAB yollarını sil (bakım maliyeti sıfırlansın), CLAUDE.md'deki
-   SAB/Seqlock disiplinini kapsam dışına al.
-2. **Çöz** → medya iframe'lerini ayrı bir WebView/origin'e taşı, ana origin'de COEP aç.
-
-**KABUL ÖLÇÜTÜ:** `docs/adr/` altında karar kayıtlı; seçilen yol koda yansımış;
-CAROS LAB · Runtime ekranında gerçek mod ve **nedeni** görünüyor.
+**AÇIK BORÇ (🟨):** gerçek head unit'te ölçülmedi — kütük **🔴 #710**. Çekirdek ölçüt: hüküm
+**KARMA ENGEL/DONANIM SINIRI** çıkmalı; **YAZILIM SINIRI çıkarsa ADR 0005 yeniden açılır**.
 
 ---
 

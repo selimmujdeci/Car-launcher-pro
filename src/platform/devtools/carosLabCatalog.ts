@@ -68,6 +68,7 @@ export type CarosLabToolId =
   // Runtime
   | 'queue-monitor' | 'poll-scheduler' | 'recovery-monitor' | 'evidence-viewer'
   | 'performance' | 'capability-gates' | 'media-authority' | 'guardian-runtime' | 'theme-runtime'
+  | 'runtime-mode'
   | 'background-power'
   | 'route-layer-inspector'
   // AI
@@ -334,6 +335,12 @@ export const CAROS_LAB_TOOLS: readonly CarosLabTool[] = Object.freeze([
     desc: 'FPS/bellek örnekleri, runtime modu ve hata sayaçları.',
     status: 'AVAILABLE', layer: null,
     note: null,
+  },
+  {
+    id: 'runtime-mode', category: 'runtime', name: 'Mod Kapilari',
+    desc: 'Calisma zamani modunun NEDENI: dort tespit kapisi (cihaz sinifi · GPU sinifi · Worker · SAB+crossOriginIsolated) ham gozlemleriyle, hangisinin KARARI VERDIGI, her birinin yazilimla acilip acilamayacagi; ayrica yururlukteki mod, tespit edilen mod, ikisi arasindaki FARK, guc tavani, kurtarma hedefi, arizali bilesenler ve son mod degisiminin nedeni.',
+    status: 'AVAILABLE', layer: null,
+    note: 'Hicbir MODU DEGISTIRMEZ: override yazmaz, kapi cevirmez, timer kurmaz - acilista tek okuma + elle YENILE. URETIM YOLU ilk engelleyen kapida DURUR; bu ekran TUMUNU degerlendirir. Tek kapiyi gosterip "onu duzeltirsek acilir" demek YANILSAMADIR: vizyon plani tam olarak buna dustu ve nedeni COEP sandi, oysa kapilar SIRALIDIR ve SAB SONUNCUDUR - hedef donanimda deviceTier/weakGpu cok daha once tetikler, yani COEP acilsa bile mod DEGISMEZ. Bu yuzden "yazilimla acilir mi" sorusuna ancak DONANIM ENGELI KALMADIYSA EVET denir. "Yururlukteki mod" ile "tespit edilen mod" AYRI gosterilir: farkliysa sebep kapilarda DEGIL, devralan bir otoritededir (termal · kullanici · guc tavani · ariza merdiveni). Mod hic degismediyse sahte bir "degisti" kaydi URETILMEZ. Okunamayan kaynak "BASIC_JS" ile KARISTIRILMAZ.',
   },
   {
     id: 'capability-gates', category: 'runtime', name: 'Yetenek Kapilari',

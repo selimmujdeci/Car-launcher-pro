@@ -112,6 +112,8 @@ const MemoryExplorerScreen = lazyWithRetry(() =>
   import('./screens/MemoryExplorerScreen').then((m) => ({ default: m.MemoryExplorerScreen })));
 const KnowledgeExplorerScreen = lazyWithRetry(() =>
   import('./screens/KnowledgeExplorerScreen').then((m) => ({ default: m.KnowledgeExplorerScreen })));
+const RuntimeModeScreen = lazyWithRetry(() =>
+  import('./screens/RuntimeModeScreen').then((m) => ({ default: m.RuntimeModeScreen })));
 const RecoveryMonitorScreen = lazyWithRetry(() =>
   import('./screens/RecoveryMonitorScreen').then((m) => ({ default: m.RecoveryMonitorScreen })));
 const RouteLayerInspectorScreen = lazyWithRetry(() =>
@@ -162,6 +164,7 @@ export function renderAvailableTool(id: CarosLabToolId): ReactElement | null {
     case 'queue-monitor':      return <RuntimeSchedulingScreen focus="queue-monitor" />;
     case 'poll-scheduler':     return <RuntimeSchedulingScreen focus="poll-scheduler" />;
     case 'recovery-monitor':   return <RecoveryMonitorScreen />;
+    case 'runtime-mode':       return <RuntimeModeScreen />;
     case 'deep-scan':          return <DeepScanScreen />;
     case 'prediction-engine':  return <PredictionEngineScreen />;
     case 'signal-provenance':  return <ProvenanceScreen />;
