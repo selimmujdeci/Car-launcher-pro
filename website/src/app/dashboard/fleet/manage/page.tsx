@@ -25,6 +25,9 @@ import {
 } from '@/lib/fleet/drivers.service';
 import type { DriverRow } from '@/lib/fleet/driverIdentity';
 import { fetchAssignments, type AssignmentRow } from '@/lib/console/consoleSources';
+import { fetchVehicleTrips } from '@/lib/vehicles.service';
+import { ShiftBoard } from '@/components/dashboard/ShiftBoard';
+import type { AssignmentInput, TripWindowInput } from '@/lib/fleet/shiftView';
 import AddVehicleModal from '@/components/dashboard/AddVehicleModal';
 import {
   Panel,
@@ -74,6 +77,14 @@ export default function FleetManagePage() {
     return () => { mountedRef.current = false; };
   }, []);
 
+  /* ── Vardiya kapsamı için yolculuklar (V-16/6) ────────────────────────
+     `null` = OKUNAMADI → pano "vardiya dışı sürüş HESAPLANAMADI" der,
+     asla "0" DEMEZ. Araç başına bir çağrı yapılır; bu yüzden BİLİNÇLİ bir
+     tavan vardır — tavan aşılırsa kapsam eksikliği AÇIKÇA yazılır, sessizce
+     kırpılmaz. */
+  const [tripWindows, setTripWindows] = useState<TripWindowInput[] | null>(null);
+  const [tripScopeNote, setTripScopeNote] = useState<string | null>(null);
+
   const load = useCallback(async () => {
     const [d, a] = await Promise.all([fetchFleetDrivers(false), fetchAssignments()]);
     if (!mountedRef.current) return;
@@ -85,6 +96,63 @@ export default function FleetManagePage() {
   }, []);
 
   useEffect(() => { void load(); }, [load]);
+
+  /* Yolculuk pencereleri — vardiya kapsamı için. Araç listesi hazır olunca
+     tavanla sınırlı biçimde çekilir; hiçbiri okunamazsa `null` bırakılır. */
+  const TRIP_SCOPE_CAP = 25;
+  useEffect(() => {
+    let alive = true;
+    void (async () => {
+      if (vehicles.length === 0) { setTripWindows(null); setTripScopeNote(null); return; }
+      const scoped = vehicles.slice(0, TRIP_SCOPE_CAP);
+      const results = await Promise.all(scoped.map((v) => fetchVehicleTrips(v.id, 50)));
+      if (!alive) return;
+      const readable = results.filter((r) => r !== null);
+      if (readable.length === 0) {
+        setTripWindows(null);
+        setTripScopeNote('Hiçbir aracın yolculukları okunamadı.');
+        return;
+      }
+      const rows: TripWindowInput[] = [];
+      scoped.forEach((v, i) => {
+        for (const t of results[i] ?? []) {
+          rows.push({
+            vehicle_id: v.id,
+            started_at: (t as { started_at?: string }).started_at ?? null,
+            ended_at: (t as { ended_at?: string }).ended_at ?? null,
+            distance_km: (t as { distance_km?: number | string }).distance_km ?? null,
+          });
+        }
+      });
+      setTripWindows(rows);
+      const missed = scoped.length - readable.length;
+      const capped = vehicles.length - scoped.length;
+      const notes: string[] = [];
+      if (capped > 0) notes.push(`${capped} araç kapsam dışı (tavan ${TRIP_SCOPE_CAP}).`);
+      if (missed > 0) notes.push(`${missed} aracın yolculukları okunamadı.`);
+      setTripScopeNote(notes.length > 0
+        ? `Kapsam EKSİK: ${notes.join(' ')} Vardiya dışı sürüş sayısı bu eksiklikle okunmalı.`
+        : null);
+    })();
+    return () => { alive = false; };
+  }, [vehicles]);
+
+  /* Pano girdisi: okunamadıysa `null` GEÇİLİR ki "vardiya yok" ile
+     karışmasın (ikisi AYRI hükümdür). */
+  const shiftAssignments = useMemo<AssignmentInput[] | null>(() => {
+    if (assignmentsUnreadable) return null;
+    return (assignments ?? []).map((a) => ({
+      assignment_id: a.id,
+      vehicle_id: a.vehicleId || null,
+      vehicle_name: a.vehicleName,
+      driver_id: a.driverId,
+      driver_name: a.driverName,
+      starts_at: a.startedAt,
+      ends_at: a.endedAt,
+      status: a.status,
+      assignment_type: a.assignmentType,
+    }));
+  }, [assignments, assignmentsUnreadable]);
 
   const activeByVehicle = useMemo(() => {
     const map = new Map<string, DriverRow>();
@@ -263,6 +331,17 @@ export default function FleetManagePage() {
               </button>
             </div>
           )}
+
+          {/* Vardiya panosu (V-16/6) — AYNI atama satırlarından türetilir;
+              ikinci bir çekim/otorite YOK. */}
+          <div className="border-t border-hair p-4">
+            <ShiftBoard
+              assignments={shiftAssignments}
+              trips={tripWindows}
+              nowMs={now}
+              tripScopeNote={tripScopeNote}
+            />
+          </div>
 
           {/* Açık atamalar */}
           <div className="border-t border-hair">

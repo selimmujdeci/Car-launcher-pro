@@ -892,7 +892,7 @@ KAPI 2 · `vehicle_trips` RLS off KAPI 3 · listeye `vehicles` eklemek vitest ki
 
 # 🏢 P4 — ENTERPRISE
 
-## 🟨 V-16 — Enterprise özelliklerini gerçekten yap  **[4/7 KAPANDI 2026-08-22]**
+## 🟨 V-16 — Enterprise özelliklerini gerçekten yap  **[5/7 KAPANDI 2026-08-22]**
 
 V-03 sayfayı gerçeğe hizalar; bu madde **özelliği inşa eder**.
 
@@ -913,7 +913,10 @@ V-03 sayfayı gerçeğe hizalar; bu madde **özelliği inşa eder**.
       prod'da yakıt **ESTIMATED**, fiyat **DEFAULT_FALLBACK**. Toplam **en zayıf girdisi kadar**
       güçlü işaretlenir; varsayılan fiyatta *"gerçek harcamayı YANSITMAZ — fiyatı girin"* denir.
       `tsc` gerçek bir üretim kusuru yakaladı: PostgREST `numeric`i **METİN** döndürür.
-- [ ] **Vardiya yönetimi** modeli
+- [x] **Vardiya yönetimi** — ✅ **YAPILDI (kütük #718)**. Yeni tablo AÇILMADI: vardiya zaten
+      `vehicle_driver_assignments` penceresidir. Yol üstünde **üç sessiz üretim kusuru** bulundu:
+      atama listesi `p_vehicle_id=NULL` yüzünden **her zaman boştu**; istemci olmayan `vehicle_id`
+      alanını okuyordu; başlangıç/bitiş **yanlış alanlardan** okunuyordu. Migration 068 giderdi.
 - [ ] **Dış müşteri REST API'si** — anahtar + doküman + rate-limit
 
 **KABUL ÖLÇÜTÜ:** Her alt madde için `enterprise/page.tsx`'teki vaat, koda giden

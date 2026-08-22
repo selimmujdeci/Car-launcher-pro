@@ -379,6 +379,15 @@ export interface AssignmentRow {
   readonly driverName: string | null;
   readonly startedAt: number;
   readonly endedAt: number | null;
+  /* ── V-16/6 ile EKLENDİ (additive: mevcut tüketiciler etkilenmez) ──────
+     Vardiya görünümü aracı, sürücüyü ve durumu bilmeden çakışma tespit
+     EDEMEZ. `vehicleId` eskiden HER SATIRDA BOŞTU: RPC `vehicle_id`
+     döndürmüyordu ve burada `row.vehicle_id ?? ''` okunuyordu. Migration
+     068 hem bunu hem de filo geneli listelemeyi düzeltti. */
+  readonly vehicleName: string | null;
+  readonly driverId: string | null;
+  readonly status: string | null;
+  readonly assignmentType: string | null;
 }
 
 export async function fetchAssignments(vehicleId?: string): Promise<AssignmentRow[] | null> {
@@ -393,8 +402,16 @@ export async function fetchAssignments(vehicleId?: string): Promise<AssignmentRo
       id: String(row.id ?? row.assignment_id ?? ''),
       vehicleId: String(row.vehicle_id ?? ''),
       driverName: strOrNull(row.driver_name ?? row.full_name),
-      startedAt: toEpoch(String(row.started_at ?? row.created_at ?? '')),
-      endedAt: row.ended_at ? toEpoch(String(row.ended_at)) : null,
+      /* RPC alan adı `starts_at`tır; `started_at` YOK. Eskiden yalnız
+         `started_at`/`created_at` deneniyordu → başlangıç YANLIŞ okunuyordu. */
+      startedAt: toEpoch(String(row.starts_at ?? row.started_at ?? row.created_at ?? '')),
+      endedAt: (row.ends_at ?? row.ended_at)
+        ? toEpoch(String(row.ends_at ?? row.ended_at))
+        : null,
+      vehicleName: strOrNull(row.vehicle_name),
+      driverId: strOrNull(row.driver_id),
+      status: strOrNull(row.status),
+      assignmentType: strOrNull(row.assignment_type),
     }));
   } catch {
     return null;
