@@ -28,6 +28,7 @@ import {
   deepScanAuthorityTone, DEEP_SCAN_AUTHORITY_LABEL,
   type DeepScanTone, type DeepScanFieldsInput,
 } from '../../../platform/devtools/deepScanObservationModel';
+import { DEEP_SCAN_AUTHORITIES } from '../../../platform/deepScan/deepScanAuthority';
 import {
   formatAge, OBSERVABILITY_LABEL,
   type InspectorField, type Observability,
@@ -185,6 +186,36 @@ export const DeepScanScreen = memo(function DeepScanScreen() {
           hiçbir tarama tetiklemez. VIN, ham ECU/PID/DID listesi, uyarı ve hata
           metinleri bu ekrana GELMEZ.
         </p>
+      </div>
+
+      {/* V-10 — OTORİTE BÖLÜMÜ. "Derin tarama" tek bir iş DEĞİLDİR; iki ayrı
+          alan iki ayrı modülde yaşar. Bu ayrımı göstermemek, orchestrator'ın
+          aktif tarama yaptığı yanılgısını sürdürürdü (V-10'un "ikinci otorite"
+          alarmının kaynağı tam olarak buydu). */}
+      <div className="shrink-0 rounded border border-[var(--oem-line)] bg-[var(--oem-surface-1)]">
+        <div className="border-b border-[var(--oem-line)] px-2 py-1 font-mono text-[10px] uppercase tracking-wider text-[var(--oem-ink-2)]">
+          OTORİTE BÖLÜMÜ — hangi işi KİM yapıyor
+        </div>
+        {DEEP_SCAN_AUTHORITIES.map((a) => (
+          <div
+            key={a.domain}
+            data-testid={`ds-authority-${a.domain}`}
+            className="border-b border-[var(--oem-line)] px-2 py-1.5 last:border-b-0"
+          >
+            <div className="flex flex-wrap items-baseline gap-2">
+              <span className="font-mono text-[11px] text-[var(--oem-ink)]">
+                {a.domain === 'active_scan' ? 'Aktif tarama' : 'Çevrimdışı değişim tespiti'}
+              </span>
+              <span className="break-all font-mono text-[10px] text-[var(--oem-good)]">{a.owner}</span>
+            </div>
+            <div className="mt-0.5 text-[9px] leading-relaxed text-[var(--oem-ink-3)]">{a.does}</div>
+            {a.notOwner && (
+              <div className="mt-0.5 text-[9px] leading-relaxed text-[var(--oem-ink-3)]">
+                <span className="text-[var(--oem-warn)]">SAHİBİ DEĞİL:</span> {a.notOwner} — {a.why}
+              </div>
+            )}
+          </div>
+        ))}
       </div>
 
       <Section title="Akış 1 — tarama runtime"          fields={runtimeFields} nowMs={nowMs} />

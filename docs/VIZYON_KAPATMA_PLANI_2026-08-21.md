@@ -666,32 +666,40 @@ görünmeli; kanıt yetersizken **KANIT YETERSİZ** yazmalı (sahte tahmin YOK).
 
 ---
 
-## ⬜ V-10 — Deep Scan aktif taramayı ya bağla ya emekli et (İKİNCİ OTORİTE)
+## 🟢 V-10 — Deep Scan otorite sınırı  **[KAPANDI 2026-08-22 — kütük 🟢 #707]**
 
-**BULGU:** Roadmap'in merkezindeki motor **üretimde hiç çalışmıyor**; sahadaki tarama
-başka bir motordan geliyor. Anayasanın "ikinci otorite" yasağının ihlali.
+> ⚠️ **ŞÜPHE HAKLIYDI AMA TEŞHİS EKSİKTİ.** Plan "iki otorite var, birini seç" diyordu.
+> Ölçüm üçüncü ve doğru seçeneği gösterdi.
 
-**KANIT:**
-- `platformCoreDeepScanWiring.ts:129` — *"HANDLER YOK (W5-3c) → tüm fazlar `skipped` → **GERÇEK İŞ YAPILMAZ**"*
-- `:316` — `hasHandlers: false`
-- `DeepScanOrchestrator.run()` (1.103 satır) → üretimden **0 çağrı**
-- Sahada çalışan: `PidDidDeepScanPanel.tsx:15` → `discoveryLive.getLiveDiscoveryCoordinator()`
+**ÖLÇÜM (2026-08-22):** üretimde `deepScanOrchestrator`a enjekte edilen **tek** handler
+`change_detection`tir (`platformCoreDeepScanWiring:374`); **hiçbir aktif faz handler'ı
+YOKTUR** — identity/protocol/ECU/PID/DID/firmware hepsi `handler_unavailable` döner.
 
-**W5 aşama durumu (denetlendi):**
+**İKİ MOTOR AYNI İŞİ YAPMIYOR — İŞ BÖLÜŞÜLMÜŞ:**
 
-| Aşama | Kod | Wiring | Aktif iş | Verdi |
-|---|---|---|---|---|
-| W5-1 ownership | ✅ | ✅ `SystemBoot.ts:813` | `hasHandlers:false` | 🟡 |
-| W5-2 Event Bridge | ❌ | ❌ | ❌ | 🔴 |
-| W5-3a Offline Surface + Guard Band | ✅ `deepScanOrchestrator.ts:208,314,655` | ✅ | guard band gerçek | 🟡 **tasarımdan ileri, tam değil** |
-| W5-3b offline trigger | ✅ `:327-395` | ✅ `SystemBoot.ts:967` | ✅ | ✅ |
-| W5-3c-3 change_detection | ✅ | ✅ | ✅ **tek gerçek handler** | ✅ |
+| Alan | Sahibi | Not |
+|---|---|---|
+| **Aktif tarama** (araca sorgu) | `discoveryLive` | Sahada çalışıyor; Mavi eylemleri + LAB paneli aynı tekil örneği kullanıyor |
+| **Çevrimdışı değişim tespiti** | `deepScanOrchestrator` | Kapsam kütüğü + tamamlanma hükmü; `discoveryLive` bunu YAPMAZ |
 
-**YAPILACAK:** İki otoriteden biri seçilecek. `discoveryLive` kazanırsa W5 roadmap dili
-güncellenir ve orchestrator emekli edilir; orchestrator kazanırsa üretim yoluna bağlanır.
+**RİSK GERÇEK AMA GİZİLDİ:** orchestrator'a bir gün aktif faz handler'ı bağlanırsa iki
+motor araca ayrı ayrı sorgu göndermeye başlar. Alarmı yaratan da orchestrator'ın kendini
+*"Deep Scan'in TÜM katmanlarını yöneten TEK koordinatör"* ilan eden başlığıydı.
 
-**KABUL ÖLÇÜTÜ:** Depoda "derin tarama" için **tek** üretim otoritesi kalır; vizyon
-belgesindeki Deep Scan bölümü gerçeği anlatır.
+**YAPILDI — SİLME DEĞİL, SINIR ÇİZME:**
+1. `deepScanAuthority.ts` — hangi işi kimin sahiplendiğinin **tek beyanı** (saf).
+2. Orchestrator başlığı gerçeğe hizalandı; **OTORİTE SINIRI** açıkça yazıldı.
+3. **KİLİT:** üretimdeki `handlers: { … }` blokları taranır; beyan edilmemiş bir faz
+   bağlanmışsa test **düşer**. İkinci otorite kazara değil, ancak beyan bilinçli
+   güncellenerek doğabilir. İzin listesinin aktif faz içermediği ayrıca kilitli.
+4. CAROS LAB · Derin Tarama ekranına **OTORİTE BÖLÜMÜ** eklendi — ayrım sahada görünür.
+
+**ORCHESTRATOR EMEKLİ EDİLMEDİ (bilinçli):** 1.103 satırı silmek, gerçekten çalışan
+çevrimdışı yarıyı kaybetmek olurdu.
+
+**NEDEN 🟢 (saha borcu YOK):** bu bir mimari sınır ve kaynak-kodu kilididir; çalışma
+zamanı davranışı **değişmedi** (hiçbir handler eklenmedi/çıkarılmadı). Kabul ölçütünün
+iki yarısı da host'ta karşılandı: tek üretim otoritesi kaldı **ve** belge gerçeği anlatıyor.
 
 ---
 

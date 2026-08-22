@@ -1,6 +1,21 @@
 /**
- * deepScanOrchestrator — Deep Scan'in TÜM katmanlarını yöneten tek koordinatör
- * (FOUNDATION).
+ * deepScanOrchestrator — Deep Scan faz orkestrasyonu (FOUNDATION).
+ *
+ * ⚠️ OTORİTE SINIRI (V-10, 2026-08-22 — ÖLÇÜLEREK BELİRLENDİ)
+ * Bu başlık eskiden *"Deep Scan'in TÜM katmanlarını yöneten TEK koordinatör"*
+ * diyordu. Bu cümle ÜRÜN GERÇEĞİYLE UYUŞMUYORDU ve depoda "ikinci otorite"
+ * alarmı yaratmıştı (V-10). Ölçüm: üretimde bu orchestrator'a enjekte edilen
+ * TEK handler `change_detection`tir; **hiçbir AKTİF faz handler'ı yoktur** →
+ * aktif fazlar `handler_unavailable` döner ve GERÇEK İŞ YAPILMAZ.
+ *
+ * ÜRETİMDEKİ İŞ BÖLÜMÜ (tek beyan: `deepScanAuthority.ts`):
+ *   · AKTİF tarama (araca sorgu)  → `discoveryLive` — TEK otorite, bu dosya DEĞİL
+ *   · ÇEVRİMDIŞI değişim tespiti  → BU DOSYA (gerçekten çalışan yarı)
+ *
+ * Aktif fazlara handler bağlamak, ikinci bir tarama otoritesi doğurur ve iki
+ * motor araca ayrı ayrı sorgu göndermeye başlar. Bu yüzden `deepScanAuthority`
+ * ve kilidi (`deepScanAuthority.test.ts`) önce GÜNCELLENMEK zorundadır — karar
+ * bilinçli olsun, kazara olmasın.
  *
  * NE YAPAR: Deep Scan sürecini deterministik faz sırasıyla yürütür — Ignition doğrula
  * → Mode seç (full_scan/change_check) → Identity → Protocol → ECU/PID/DID/Firmware
