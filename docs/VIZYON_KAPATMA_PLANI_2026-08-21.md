@@ -892,7 +892,7 @@ KAPI 2 · `vehicle_trips` RLS off KAPI 3 · listeye `vehicles` eklemek vitest ki
 
 # 🏢 P4 — ENTERPRISE
 
-## 🟨 V-16 — Enterprise özelliklerini gerçekten yap  **[6/7 KAPANDI 2026-08-22]**
+## 🟨 V-16 — Enterprise özelliklerini gerçekten yap  **[7/7 KAPANDI 2026-08-22 — e-posta taşıması sahibin kararında]**
 
 V-03 sayfayı gerçeğe hizalar; bu madde **özelliği inşa eder**.
 
@@ -900,7 +900,10 @@ V-03 sayfayı gerçeğe hizalar; bu madde **özelliği inşa eder**.
       WinAnsi ile sınırlı ve Türkçe `ğ Ğ ı İ ş Ş` orada YOK (`pdf-lib` bu harflerde HATA FIRLATIR).
       Seçenekler ~300 KB TTF gömmek ya da `/Differences` ile glifleri adlarıyla eşlemekti →
       **sıfır bağımlılık** seçildi (lisans yüzeyi büyümedi, çıktı 3,6 KB).
-- [ ] **Zamanlanmış rapor gönderimi** (günlük/haftalık)
+- [x] **Zamanlanmış rapor gönderimi** — ✅ **ÇALIŞAN YARISI YAPILDI (kütük #720)**. Zamanlama +
+      **uygulama içi teslim** gerçekten koşuyor (pg_cron saatlik, prod'da aktif). **E-posta taşıması
+      BİLİNÇLİ olarak dışarıda**: sağlayıcı seçimi maliyet/sözleşme/KVKK içerdiğinden **ürün sahibinin
+      kararıdır**. Koşucu bunu `emailTransport: NOT_CONFIGURED` diye açıkça beyan eder.
 - [x] **90 günlük geçmiş** + saklama politikası — ✅ **YAPILDI (kütük #715)**. Ölçüm:
       `vehicle_trips` için politika **HİÇ YOKTU** (sonsuz büyüme); `vehicle_locations` 7 gündü.
       Artık `retention_policy` tablosu tek otorite: trips **90** · locations **30** · events **90**.
