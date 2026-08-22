@@ -892,11 +892,14 @@ KAPI 2 · `vehicle_trips` RLS off KAPI 3 · listeye `vehicles` eklemek vitest ki
 
 # 🏢 P4 — ENTERPRISE
 
-## ⬜ V-16 — Enterprise özelliklerini gerçekten yap
+## 🟨 V-16 — Enterprise özelliklerini gerçekten yap  **[1/7 KAPANDI 2026-08-22]**
 
 V-03 sayfayı gerçeğe hizalar; bu madde **özelliği inşa eder**.
 
-- [ ] **PDF rapor üretimi** — permissive lisans şart (`pdf-lib` MIT ✅; GPL/AGPL/NC **YASAK**)
+- [x] **PDF rapor üretimi** — ✅ **YAPILDI (kütük #714)**. `pdf-lib` KULLANILMADI: base-14 fontlar
+      WinAnsi ile sınırlı ve Türkçe `ğ Ğ ı İ ş Ş` orada YOK (`pdf-lib` bu harflerde HATA FIRLATIR).
+      Seçenekler ~300 KB TTF gömmek ya da `/Differences` ile glifleri adlarıyla eşlemekti →
+      **sıfır bağımlılık** seçildi (lisans yüzeyi büyümedi, çıktı 3,6 KB).
 - [ ] **Zamanlanmış rapor gönderimi** (günlük/haftalık)
 - [ ] **90 günlük geçmiş** + saklama politikası (pg_cron; şu an max 30 gün)
 - [ ] **Driver scoring** (Driver DNA metrikleri üzerine — V-11'e bağımlı)
@@ -906,6 +909,30 @@ V-03 sayfayı gerçeğe hizalar; bu madde **özelliği inşa eder**.
 
 **KABUL ÖLÇÜTÜ:** Her alt madde için `enterprise/page.tsx`'teki vaat, koda giden
 bir `dosya:satır` referansıyla desteklenir.
+
+---
+
+### ✅ V-16/1 — PDF rapor üretimi **[KAPANDI 2026-08-22 · kütük #714]**
+
+**Vaat vardı, üretici YOKTU:** düğmenin ipucu bile *"Tarayıcının yazdır diyaloğunda 'PDF olarak
+kaydet'"* diyordu — iş kullanıcıya devrediliyordu.
+
+**Kod referansı (kabul ölçütü gereği):** `website/src/lib/reports/pdfWriter.ts` ·
+`website/src/lib/reports/fleetReportPdf.ts` ·
+`website/src/components/console/DownloadPdfButton.tsx` ·
+`website/src/app/dashboard/fleet/reports/page.tsx`
+
+**GÖRSEL DOĞRULAMA, YAPISAL TESTLERİN GÖREMEDİĞİNİ YAKALADI (bu turun dersi):** 21 yapısal kilit
+YEŞİLKEN sayfa görsel olarak BOZUKTU. PDF `pypdfium2` (Chrome'un PDF motoru) ile PNG'ye çevrilip
+**gözle** bakılınca iki kusur çıktı: başlıklar sola/değerler sağa yaslıydı → sayılar bir sonraki
+sütunun altına düşüyordu; ve sağa yaslı sayı komşu sütuna değiyordu (`11,4` + `2 dk önce` =
+**`11,42 dk once`**). Kök neden: "0,5 em ortalama" tahmini rakamları (0,556 em) dar sayıyordu.
+
+**Bağımsız kanıt:** `pypdf` metni kayıpsız çıkardı (`Oluşturma` · `yoğunluğu` · `—` birebir doğru),
+`pdftotext` belgeyi açtı, `pypdfium2` sayfayı doğru çizdi.
+
+**Açık borç:** vaat *"günlük/haftalık **gönderim**"*di; bu tur yalnız **üretimi** kapattı.
+Teslimat (pg_cron + e-posta) **V-16/2** olarak açık.
 
 ---
 

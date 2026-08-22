@@ -24,6 +24,7 @@ import {
 import { trNumber } from '@/lib/console/exportModel';
 import HealthTrendChart from '@/components/console/HealthTrendChart';
 import DownloadCsvButton from '@/components/console/DownloadCsvButton';
+import DownloadPdfButton from '@/components/console/DownloadPdfButton';
 import {
   Panel,
   PanelHead,
@@ -84,6 +85,26 @@ export default function ReportsPage() {
     [judged],
   );
 
+  /* PDF, ekranın kullandığı AYNI sayılardan üretilir — burada hiçbir metrik
+     YENİDEN HESAPLANMAZ. Ayrı bir hesap ikinci otorite olurdu ve PDF ile ekran
+     kaçınılmaz olarak ayrışırdı. Zaman damgası düğmede, tıklama anında üretilir
+     (bu bileşen render sırasında saat okumaz). */
+  const pdfData = useMemo(() => ({
+    windowDays: WINDOW_DAYS,
+    tally,
+    days: state === 'unreadable' ? [] : buckets.map((b) => ({
+      key: shortDayLabel(b.at), critical: b.critical, warning: b.warning, info: b.info,
+    })),
+    vehicles: judged.map(({ v, j, offline }) => ({
+      title: vehicleTitle(v),
+      verdict: offline ? 'ÇEVRİMDIŞI' : verdictLabel(j.verdict),
+      batteryVolt: j.readings.battery.value,
+      lastSeenLabel: agoLabel(v.telemetry?.deviceAgeMs ?? null) || null,
+      evidence: j.reason || null,
+    })),
+    logUnreadable: state === 'unreadable',
+  }), [tally, buckets, judged, state]);
+
   return (
     <div className="flex flex-col gap-3 lg:gap-4">
       {/* ── Anlık hüküm dağılımı (ÖLÇÜM) ── */}
@@ -123,13 +144,14 @@ export default function ReportsPage() {
                 headers={['Gün', 'Kritik', 'Uyarı', 'Bilgi']}
                 rows={buckets.map((b) => [b.key, b.critical, b.warning, b.info])}
               />
+              <DownloadPdfButton data={pdfData} label="PDF RAPOR" />
               <button
                 onClick={() => { if (typeof window !== 'undefined') window.print(); }}
-                title="Tarayıcının yazdır diyaloğunda 'PDF olarak kaydet' seçilebilir"
+                title="Sayfanın tarayıcı çıktısı — biçimlendirilmiş PDF için 'PDF RAPOR' düğmesini kullanın"
                 className="cn-num text-[9px] uppercase tracking-[0.16em] px-2 py-1 border border-hair text-t2 hover:text-t1"
                 style={{ borderRadius: 2 }}
               >
-                PDF / YAZDIR
+                YAZDIR
               </button>
               <button
                 onClick={() => void load()}
