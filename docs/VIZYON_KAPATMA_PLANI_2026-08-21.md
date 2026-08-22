@@ -892,7 +892,7 @@ KAPI 2 · `vehicle_trips` RLS off KAPI 3 · listeye `vehicles` eklemek vitest ki
 
 # 🏢 P4 — ENTERPRISE
 
-## 🟨 V-16 — Enterprise özelliklerini gerçekten yap  **[2/7 KAPANDI 2026-08-22]**
+## 🟨 V-16 — Enterprise özelliklerini gerçekten yap  **[3/7 KAPANDI 2026-08-22]**
 
 V-03 sayfayı gerçeğe hizalar; bu madde **özelliği inşa eder**.
 
@@ -906,7 +906,10 @@ V-03 sayfayı gerçeğe hizalar; bu madde **özelliği inşa eder**.
       Artık `retention_policy` tablosu tek otorite: trips **90** · locations **30** · events **90**.
       **90 günlük HAM ROTA sunulmuyor** — ölçülen maliyet 100 araçta ~2,4 GB (ürün kararı).
 - [ ] **Driver scoring** (Driver DNA metrikleri üzerine — V-11'e bağımlı)
-- [ ] **Yakıt maliyet analizi**
+- [x] **Yakıt maliyet analizi** — ✅ **YAPILDI (kütük #716)**. Asıl mesele "hangi veriyle":
+      prod'da yakıt **ESTIMATED**, fiyat **DEFAULT_FALLBACK**. Toplam **en zayıf girdisi kadar**
+      güçlü işaretlenir; varsayılan fiyatta *"gerçek harcamayı YANSITMAZ — fiyatı girin"* denir.
+      `tsc` gerçek bir üretim kusuru yakaladı: PostgREST `numeric`i **METİN** döndürür.
 - [ ] **Vardiya yönetimi** modeli
 - [ ] **Dış müşteri REST API'si** — anahtar + doküman + rate-limit
 
