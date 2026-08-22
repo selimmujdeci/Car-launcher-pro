@@ -892,7 +892,7 @@ KAPI 2 · `vehicle_trips` RLS off KAPI 3 · listeye `vehicles` eklemek vitest ki
 
 # 🏢 P4 — ENTERPRISE
 
-## 🟨 V-16 — Enterprise özelliklerini gerçekten yap  **[1/7 KAPANDI 2026-08-22]**
+## 🟨 V-16 — Enterprise özelliklerini gerçekten yap  **[2/7 KAPANDI 2026-08-22]**
 
 V-03 sayfayı gerçeğe hizalar; bu madde **özelliği inşa eder**.
 
@@ -901,7 +901,10 @@ V-03 sayfayı gerçeğe hizalar; bu madde **özelliği inşa eder**.
       Seçenekler ~300 KB TTF gömmek ya da `/Differences` ile glifleri adlarıyla eşlemekti →
       **sıfır bağımlılık** seçildi (lisans yüzeyi büyümedi, çıktı 3,6 KB).
 - [ ] **Zamanlanmış rapor gönderimi** (günlük/haftalık)
-- [ ] **90 günlük geçmiş** + saklama politikası (pg_cron; şu an max 30 gün)
+- [x] **90 günlük geçmiş** + saklama politikası — ✅ **YAPILDI (kütük #715)**. Ölçüm:
+      `vehicle_trips` için politika **HİÇ YOKTU** (sonsuz büyüme); `vehicle_locations` 7 gündü.
+      Artık `retention_policy` tablosu tek otorite: trips **90** · locations **30** · events **90**.
+      **90 günlük HAM ROTA sunulmuyor** — ölçülen maliyet 100 araçta ~2,4 GB (ürün kararı).
 - [ ] **Driver scoring** (Driver DNA metrikleri üzerine — V-11'e bağımlı)
 - [ ] **Yakıt maliyet analizi**
 - [ ] **Vardiya yönetimi** modeli
@@ -933,6 +936,43 @@ sütunun altına düşüyordu; ve sağa yaslı sayı komşu sütuna değiyordu (
 
 **Açık borç:** vaat *"günlük/haftalık **gönderim**"*di; bu tur yalnız **üretimi** kapattı.
 Teslimat (pg_cron + e-posta) **V-16/2** olarak açık.
+
+---
+
+### ✅ V-16/3 — 90 günlük geçmiş + saklama politikası **[KAPANDI 2026-08-22 · kütük #715]**
+
+**Vaat 90 gündü; `vehicle_trips` için politika HİÇ YOKTU** — tablo sonsuz büyüyordu.
+`vehicle_locations` ise 7 gün sonra siliniyordu. Süreler ayrıca fonksiyon gövdesine gömülüydü.
+
+**Olumlu bulgu:** `cleanup_old_telemetry()` pg_cron ile **gerçekten zamanlanmış ve aktif**
+(her gün 03:00) — bu sefer motorun besleyeni vardı.
+
+**Ölçülen maliyet (varsayılmadı):** prod'da araç başına ~0,27 MB/gün →
+ham konum 30 gün ≈ 8 MB/araç · 90 gün ≈ 24 MB/araç (**100 araçta 2,4 GB**).
+`vehicle_trips` yolculuk başına ~4 kB → 90 gün ihmal edilebilir.
+
+**Karar — kademeli saklama:** trips **90** · locations **7→30** · events **90** · komut/log 14.
+**Açıkça söylendi:** 90 günlük *ham rota noktası* sunulmuyor; 90 gün geriye giden **yolculuk özetleri**.
+
+**Silme güvenli mi — ÖNCE ölçüldü:** `vehicle_trips`'in dört tetikleyicisi de
+`AFTER INSERT OR UPDATE`; hiçbiri DELETE'te tetiklenmiyor → **Driver DNA geri alınmaz**.
+Bu doğrulanmadan saklama eklenseydi DNA sessizce erirdi.
+
+**İki migration zinciri ayrışması ortaya çıktı:** `telemetry_events` · `command_logs` prod'da VAR
+yerelde YOK; `vehicle_commands.updated_at` yerelde YOK. Tek bir `DELETE` fonksiyonun tamamını
+düşürür. Çözüm: eksik **tablo** ve eksik **kolon** ayrı tespit edilip `skipped_missing` /
+`skipped_schema_mismatch` olarak **raporlanır** — sessizce atlamak bir tablonun yıllarca
+büyümesine yol açardı.
+
+**Matris sınırın İKİ TARAFINI ölçer:** naif test yalnız "eski silindi mi" bakar; asıl tehlike
+**yeni verinin silinmesidir**. Ayrıca politika 7 güne çekilip aynı satırın gittiği doğrulanır
+("tablo TİYATRO mu" kilidi).
+
+**Üretim kanıtı:** migration prod'a uygulandı, temizlik çalıştırıldı → politika yürürlükte,
+**silinen yolculuk/konum/olay = 0**, yalnız 6 süresi dolmuş bağlama kodu; `skipped_*` prod'da BOŞ.
+
+**Açık borç:** 90 günlük **ham rota** için ya maliyet kabul edilecek ya **seyrekleştirme** katmanı
+yazılacak — ürün kararı.
 
 ---
 
