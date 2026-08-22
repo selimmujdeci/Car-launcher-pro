@@ -1,5 +1,6 @@
 'use client';
 
+import FuelCostPanel from '@/components/console/FuelCostPanel';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { LiveVehicle } from '@/types/realtime';
 import { supabaseBrowser } from '@/lib/supabase';
@@ -389,6 +390,11 @@ export default function VehicleModal({ vehicle: v, onClose, onRemove }: VehicleM
               değildir. Yolculuğun sürücüsü aşağıda ayrıca gösterilir.
             </p>
           </div>
+
+          {/* Yakıt maliyeti (V-16/5) — AYNI yolculuk satırlarından türetilir;
+              ikinci bir çekim YAPILMAZ (tek otorite). `tripsReadable === false`
+              ise `null` geçilir: "okunamadı" ile "yolculuk yok" AYRI kalsın. */}
+          <FuelCostPanel rows={tripsReadable === false ? null : tripRows} />
 
           {/* Trips (P1) — tahmin "(tahmini)" etiketli, okunamadı ≠ trip yok */}
           <div className="p-4 rounded-sm bg-bezel border border-hair flex flex-col gap-2">
