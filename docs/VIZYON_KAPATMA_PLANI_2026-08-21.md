@@ -892,7 +892,7 @@ KAPI 2 · `vehicle_trips` RLS off KAPI 3 · listeye `vehicles` eklemek vitest ki
 
 # 🏢 P4 — ENTERPRISE
 
-## 🟨 V-16 — Enterprise özelliklerini gerçekten yap  **[3/7 KAPANDI 2026-08-22]**
+## 🟨 V-16 — Enterprise özelliklerini gerçekten yap  **[4/7 KAPANDI 2026-08-22]**
 
 V-03 sayfayı gerçeğe hizalar; bu madde **özelliği inşa eder**.
 
@@ -905,7 +905,10 @@ V-03 sayfayı gerçeğe hizalar; bu madde **özelliği inşa eder**.
       `vehicle_trips` için politika **HİÇ YOKTU** (sonsuz büyüme); `vehicle_locations` 7 gündü.
       Artık `retention_policy` tablosu tek otorite: trips **90** · locations **30** · events **90**.
       **90 günlük HAM ROTA sunulmuyor** — ölçülen maliyet 100 araçta ~2,4 GB (ürün kararı).
-- [ ] **Driver scoring** (Driver DNA metrikleri üzerine — V-11'e bağımlı)
+- [x] **Driver scoring** — ✅ **YAPILDI (kütük #717)**. Ürün felsefesi ("puan değil, kanıt")
+      ile satış vaadi çelişiyordu; çelişki EZİLMEDİ: skor DNA kartının içine konmadı, **ayrı kart**
+      oldu ve **asla yalnız** gösterilmiyor — bileşenler, eşikler ve ağırlıklar hep yanında.
+      Kanıt yoksa skor ÜRETİLMEZ (NO_DNA · LEARNING · NO_MEASURES · RETRACTED).
 - [x] **Yakıt maliyet analizi** — ✅ **YAPILDI (kütük #716)**. Asıl mesele "hangi veriyle":
       prod'da yakıt **ESTIMATED**, fiyat **DEFAULT_FALLBACK**. Toplam **en zayıf girdisi kadar**
       güçlü işaretlenir; varsayılan fiyatta *"gerçek harcamayı YANSITMAZ — fiyatı girin"* denir.

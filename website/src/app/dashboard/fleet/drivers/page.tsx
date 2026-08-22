@@ -32,6 +32,7 @@ import {
   type DriverDnaReading, type SubjectEvidenceReading,
 } from '@/lib/lab/intelligenceLabSource';
 import { DriverDnaCard } from '@/components/dashboard/DriverDnaCard';
+import { DriverScoreCard } from '@/components/dashboard/DriverScoreCard';
 import { SubjectEvidenceList } from '@/components/dashboard/SubjectEvidenceList';
 
 function fmtDate(ms: number | null): string {
@@ -279,7 +280,13 @@ export default function FleetDriversPage() {
                       </p>
                     ) : (
                       /* AD DEGIL, kisaltilmis referans (kart paylasilabilir olmali). */
-                      <DriverDnaCard row={dna.row} driverRef={`drv:${d.driverId.slice(0, 8)}`} />
+                      <>
+                        <DriverDnaCard row={dna.row} driverRef={`drv:${d.driverId.slice(0, 8)}`} />
+                        {/* Skor AYRI kart: DNA "puan degil, kanit" der ve o
+                            durusunu korur; skor ondan TURETILIR, yerine gecmez.
+                            Ayni satirdan beslenir -> ikinci cekim/otorite YOK. */}
+                        <DriverScoreCard row={dna.row} />
+                      </>
                     )}
 
                     {dnaEv !== null && dnaEv.readable && (
