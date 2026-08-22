@@ -703,7 +703,7 @@ iki yarısı da host'ta karşılandı: tek üretim otoritesi kaldı **ve** belge
 
 ---
 
-## ⬜ V-11 — Driver DNA: **GEREKÇE DÜZELTİLDİ (2026-08-21, PROD'DA ÖLÇÜLDÜ)**
+## 🟨 V-11 — Driver DNA: **ZİNCİR KANITLANDI (2026-08-22) — kalan iş SAHİBİNDE (veri)**
 
 > ⚠️ **BU MADDENİN ESKİ HÂLİ YANLIŞTI.** Eski metin *"689 satır motor hazır, veri hiç
 > akmıyor → `tripLogService` → `accumulateTrip()` köprüsü kur"* diyordu. Prod ölçümü
@@ -766,6 +766,35 @@ güven > 0. LAB · Driver DNA ekranı ancak okuma ucu kararı verilirse dolar.
 
 **YAPILMAYACAK:** `accumulateTrip()` / `buildDna()` head unit'te ÇAĞRILMAYACAK —
 sunucu zaten hesaplıyor; ikinci hesap ikinci otoritedir.
+
+### ✅ ZİNCİR ARTIK VARSAYIM DEĞİL — ÖLÇÜLDÜ (2026-08-22, kütük #712)
+
+Yukarıdaki *"besleme köprüsü zaten var ve çalışıyor"* cümlesi bir **VARSAYIMDI**: üretimde
+statü bir kez bile `UNKNOWN` dışında olmadı, `driver_dna`ya bir kez bile satır düşmedi.
+`supabase/tests/064_driver_dna_chain_matrix.sql` bunu sınadı — **6 halka, 6'sı da geçti**
+(`npm run test:dna`):
+
+| Halka | Sınanan | Sonuç |
+|---|---|---|
+| 0 | Atama yokken dürüst cevap | `NO_ACTIVE_ASSIGNMENT` |
+| 1 | Sürücü oluştur + araca ata | ✅ |
+| 2 | Cihaz atamayı görüyor mu | ✅ |
+| 3 | Atıf tetikleyicisi bağlıyor mu | **`ATTRIBUTED`** (UNKNOWN DEĞİL) |
+| 4 | DNA birikiyor mu | `trip_count = 3` |
+| 5 | Tekrar yükleme şişiriyor mu | **hayır** |
+
+**Teşhis DOĞRULANDI:** kalan iş gerçekten yalnız veri — ama artık ölçüme dayanıyor.
+
+**ÜÇ SESSİZ SÖZLEŞME KUSURU çıktı** (fonksiyon hata FIRLATMAZ; dönüş okunmazsa "başarılı"
+sanılır): `driverId` (camelCase) · atama tipi **BÜYÜK HARF** (`PRIMARY`) · metrik
+**`distanceKm`** (`distance_km` → `REJECTED/NO_DISTANCE`, yolculuk tabloya HİÇ düşmez).
+
+**Kendi kilidim kendi testimin yalancı geçtiğini yakaladı:** Halka 5 önce snake_case
+gönderiyordu → yükleme reddediliyor → sayaç *idempotans sayesinde değil, yükleme hiç
+olmadığı için* 3 kalıyordu.
+
+**Üretime dokunulmadı:** matris yerelde koşar ve `ROLLBACK` ile biter. Üretimde sahte
+sürücü oluşturmak filo verisini kirletirdi — o adım **sahibinin kararıdır**.
 
 ---
 

@@ -111,7 +111,11 @@ describe('RLS maruziyet matrisi › sahte 0 tuzağı', () => {
 });
 
 describe('RLS maruziyet matrisi › koşucu fail-closed', () => {
-  const RUNNER = readFileSync(resolve(process.cwd(), 'scripts/run-rls-matrix.mjs'), 'utf8');
+  /* Koşucu GENELDİR: 063 (RLS) ve 064 (Driver DNA) aynı betikle koşar.
+     İki ayrı koşucu tutmak, tam da bu projede tekrar tekrar bulduğumuz
+     "iki otorite" desenini üretirdi. */
+  const RUNNER = readFileSync(resolve(process.cwd(), 'scripts/run-db-matrix.mjs'), 'utf8');
+  const PKG = readFileSync(resolve(process.cwd(), 'package.json'), 'utf8');
 
   it('Docker/konteyner yoksa SIFIR DÖNMEZ — "koşamadım" ≠ "geçti"', () => {
     expect(RUNNER).toMatch(/process\.exit\(1\)/);
@@ -119,7 +123,15 @@ describe('RLS maruziyet matrisi › koşucu fail-closed', () => {
     expect(RUNNER).toMatch(/Konteyner ayakta değil/);
   });
 
-  it('psql 0 dönse bile kapı bildirimi çıktıda ARANIR (sessiz atlama yok)', () => {
-    expect(RUNNER).toMatch(/4 KAPI DA GECTI/);
+  it('psql 0 dönse bile BAŞARI İMZASI çıktıda ARANIR (sessiz atlama yok)', () => {
+    expect(RUNNER).toMatch(/out\.includes\(marker\)/);
+  });
+
+  it('npm betikleri doğru matrisi ve doğru imzayı geçiriyor', () => {
+    /* İmza yanlış yazılırsa koşucu "kanıt yok" der ve DÜŞER — sessizce
+       yeşile dönmez; bu kilit imzanın gerçek olanla eşleştiğini korur. */
+    expect(PKG).toContain('063_rls_exposure_matrix.sql');
+    expect(PKG).toContain('4 KAPI DA GECTI');
+    expect(SQL).toContain('4 KAPI DA GECTI');
   });
 });
