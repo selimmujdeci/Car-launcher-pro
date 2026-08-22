@@ -892,7 +892,7 @@ KAPI 2 · `vehicle_trips` RLS off KAPI 3 · listeye `vehicles` eklemek vitest ki
 
 # 🏢 P4 — ENTERPRISE
 
-## 🟨 V-16 — Enterprise özelliklerini gerçekten yap  **[5/7 KAPANDI 2026-08-22]**
+## 🟨 V-16 — Enterprise özelliklerini gerçekten yap  **[6/7 KAPANDI 2026-08-22]**
 
 V-03 sayfayı gerçeğe hizalar; bu madde **özelliği inşa eder**.
 
@@ -917,7 +917,10 @@ V-03 sayfayı gerçeğe hizalar; bu madde **özelliği inşa eder**.
       `vehicle_driver_assignments` penceresidir. Yol üstünde **üç sessiz üretim kusuru** bulundu:
       atama listesi `p_vehicle_id=NULL` yüzünden **her zaman boştu**; istemci olmayan `vehicle_id`
       alanını okuyordu; başlangıç/bitiş **yanlış alanlardan** okunuyordu. Migration 068 giderdi.
-- [ ] **Dış müşteri REST API'si** — anahtar + doküman + rate-limit
+- [x] **Dış müşteri REST API'si** — ✅ **YAPILDI (kütük #719)**. Şirket kapsamlı, **salt-okunur**,
+      iptal edilebilir anahtar sınıfı (cihaz anahtarından AYRI). Anahtar ham saklanmaz; hız sınırı
+      **atomik** ve doğrulamayla **tek çağrıda**; geçersiz ile iptal edilmiş anahtar **aynı** cevabı
+      alır (varlık oracle'ı yok). Doküman: `docs/PUBLIC_API_V1.md`. Gerçek anahtarla ölçülmedi (🔴).
 
 **KABUL ÖLÇÜTÜ:** Her alt madde için `enterprise/page.tsx`'teki vaat, koda giden
 bir `dosya:satır` referansıyla desteklenir.

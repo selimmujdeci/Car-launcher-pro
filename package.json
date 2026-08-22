@@ -14,6 +14,7 @@
     "cap:copy": "npm run build && npx cap copy",
     "test:rls": "node scripts/run-db-matrix.mjs supabase/tests/063_rls_exposure_matrix.sql \"4 KAPI DA GECTI\"",
     "test:retention": "node scripts/run-db-matrix.mjs supabase/tests/065_retention_policy_matrix.sql \"4 HALKA DA GECTI\"",
+    "test:apikey": "node scripts/run-db-matrix.mjs supabase/tests/066_company_api_key_matrix.sql \"6 HALKA DA GECTI\"",
     "test:dna": "node scripts/run-db-matrix.mjs supabase/tests/064_driver_dna_chain_matrix.sql \"6 HALKA DA GECTI\"",
     "test:rls:prod": "node scripts/run-prod-rls-probe.mjs",
     "guard": "vitest run src/__tests__/regression.guards.test.ts",
