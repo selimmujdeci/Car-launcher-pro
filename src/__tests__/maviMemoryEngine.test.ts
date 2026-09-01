@@ -317,9 +317,21 @@ describe('mevcut hafıza otoriteleri KORUNUR (yeni depo yok)', () => {
     }
   });
 
-  it('concrete bağlama mevcut companionMemory\'yi SALT-OKUNUR kullanır', () => {
+  /* ⚠️ MAVI-F10 KİLİT GÜNCELLEMESİ (kaldırma DEĞİL, yeniden bağlama).
+   *
+   * ESKİ HÂLİ `getFacts` (yani `companionMemory`) okunuyor olmasını şart
+   * koşuyordu. F10 AÇIK tercihlerin gerçeklik kaynağını kanonik cepheye
+   * (`assistant/maviMemory`) taşıdı; `getFacts` artık üretim OKUMA yolunda
+   * KULLANILMAZ (yalnız bir kerelik içe aktarma kaynağıydı). Kilit eski adı
+   * arasaydı ya kırmızı kalır ya da adı geri koymaya zorlardı — ikisi de
+   * iki-gerçeklik kusurunu geri getirirdi.
+   *
+   * Korunan invaryant AYNI: bağlama SALT-OKUNURDUR, yazma yollarına dokunmaz. */
+  it('concrete bağlama tercihleri KANONİK cepheden SALT-OKUNUR okur', () => {
     const src = code('src/platform/ai/memory/concrete/maviMemorySources.ts');
-    expect(src).toMatch(/getFacts/);                       // mevcut otorite okunur
+    expect(src).toMatch(/readExplicitPreferenceTexts/);     // F10 kanonik okuma
+    expect(src).toMatch(/readInferredPreferenceTexts/);     // çıkarım AYRI etiketle
+    expect(src).not.toMatch(/getFacts\(/);                  // eski ikinci gerçek YOK
     expect(src).not.toMatch(/addFact|forgetFact|clearFacts/); // yazma yolu DEĞİŞMEZ
   });
 

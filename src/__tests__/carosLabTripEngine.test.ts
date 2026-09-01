@@ -155,9 +155,16 @@ describe('"Yeni trip sistemi yazma" — yapısal kilit', () => {
   });
 
   it('16. 🔒 SystemBoot yükleme kablolamasını cleanup zincirine kaydeder', () => {
+    /* ARCH-06/F2 KİLİT GÜNCELLEMESİ (zayıflatma DEĞİL — kapsam GENİŞLEDİ).
+       Yükleme artık IDLE tetikleyicisine ertelendi (ağ işi; ilk ekrana
+       katkısı yok). Korunan invaryant aynı: servis BAŞLAR ve cleanup'ı
+       SystemBoot'un LIFO zincirine kaydolur — sahiplik taşınmadı. */
     const boot = read('src/platform/system/SystemBoot.ts');
     expect(boot).toMatch(/startTripUpload/);
-    expect(boot).toMatch(/this\._reg\(startTripUpload\(\)\)/);
+    expect(boot).toMatch(
+      /jobId: 'TripUpload'[\s\S]{0,160}run: \(\) => startTripUpload\(\)/);
+    expect(boot).toMatch(
+      /bootDeferral\.begin\([\s\S]{0,160}this\._regNamed\(jobId, cleanup\)/);
   });
 });
 

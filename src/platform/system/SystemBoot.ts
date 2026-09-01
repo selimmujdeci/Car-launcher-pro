@@ -28,7 +28,17 @@ import { startNativeGuardBridge }  from '../native/NativeGuardBridge';
 import { startUiActivityRecorder } from '../uiActivityRecorder';
 import { startDiagnosticTrail }    from '../diagnosticTrail';
 import { startPerfSeries }         from '../perfSeriesRecorder';
-import { resetBootTiming, recordBootStart, recordBootWave, recordBootComplete } from '../bootTimingRecorder';
+import {
+  resetBootTiming, recordBootStart, recordBootWave, recordBootComplete,
+  /* ARCH-06/F1 — SALT GÖZLEM: sıra, bağımlılık ve abort davranışı DEĞİŞMEZ. */
+  markBootMilestone, measureBootService,
+} from '../bootTimingRecorder';
+/* ARCH-06/F2 — ERTELEME SINIRI. İkinci boot otoritesi DEĞİLDİR: işi bu sınıf
+   TESLİM EDER, `bootDeferral` yalnız "ne zaman" sorusunu F1'in ZATEN ölçtüğü
+   kilometre taşlarına bağlar. Cleanup sahipliği burada KALIR (LIFO). */
+import { bootDeferral } from '../boot/bootDeferral';
+/* P0-VDK-F5F — boşluk sicilinin açılış adımı (yükleme YAPMAZ, ölçüm üretir). */
+import { beginGapLedgerBoot } from '../obd/gapRegistry';
 import { useUnifiedVehicleStore as useVehicleStore } from '../vehicleDataLayer/UnifiedVehicleStore';
 import {
   startVehicleDataLayer,
@@ -36,6 +46,7 @@ import {
 }                                  from '../vehicleDataLayer';
 import { dispatchSpeedLimitExceeded } from '../vehicleDataLayer/VehicleEventHub';
 import { startAutoDidWatcher }     from '../obd/autoDidDiscovery';
+import { startEarlyIdentityWatcher } from '../obd/identity/earlyIdentityRuntime';
 import { startSystemOrchestrator } from './SystemOrchestrator';
 import { startPlatformCoreVehicleHalWiring } from './platformCoreVehicleHalWiring';
 import { startPlatformCoreVehicleHalBridgeWiring } from './platformCoreVehicleHalBridgeWiring';
@@ -48,6 +59,7 @@ import {
   publishRuntimeStopped,
 } from './platformCoreEventBusWiring';
 import { initPanicHandler }       from './SystemPanicHandler';
+import { startMediaAuthority, stopMediaAuthority } from '../media/authority/mediaAuthorityRuntime';
 import { startProviderReadiness } from '../ai/gateway/aiProviderReadinessService';
 import { startPlatformCoreAiRuntimeWiring } from './platformCoreAiRuntimeWiring';
 import { startMaintenanceBrain }   from '../diagnostic/maintenanceBrain';
@@ -107,29 +119,13 @@ import { restoreNavigationAsync }  from '../navigationService';
 import { wireGrammarContext }      from '../voice/contextGrammarWiring';
 import { startCognitiveEngine, stopCognitiveEngine } from './CognitivePriorityEngine';
 import { useCognitiveStore }       from '../../store/useCognitiveStore';
+import { runtimeRecoverySupervisor } from '../runtime/runtimeRecoverySupervisor';
+import { SYSTEM_BOOT_SERVICE_DESCRIPTORS } from '../runtime/runtimeServiceRegistry';
+import { beginSystemBootShutdown, finishSystemBootShutdown, noteStaleRecoveryCompletion, recordSystemBootCleanup } from '../runtime/runtimeShutdownEvidence';
 
 // ── Yardımcılar ───────────────────────────────────────────────────────────────
 
 type Cleanup = () => void;
-
-/**
- * Worker crash backoff durumu.
- *
- * ZERO-LEAK SÖZLEŞMESİ: bekleyen HER timer bu duruma AİTTİR (yaşam döngüsü sahipliği).
- * Sahipsiz bir `setTimeout` stop() ile iptal edilemez → gecikme dolduğunda servis
- * kapanmış yaşam döngüsünde yeniden doğar (zombi servis).
- */
-interface BackoffState {
-  count: number;
-  /** Bekleyen gecikmeli restart timer'ı (yoksa null). */
-  restartTimer: ReturnType<typeof setTimeout> | null;
-  /** Max deneme sonrası soğuma timer'ı (yoksa null). */
-  cooloffTimer: ReturnType<typeof setTimeout> | null;
-  /** TEŞHİS: bekleyen restart planının kurulma anı (Date.now(); yoksa null). */
-  scheduledAtMs: number | null;
-  /** TEŞHİS: bekleyen restart planının gecikmesi (ms; yoksa null). */
-  delayMs: number | null;
-}
 
 /* ── Yaşam döngüsü teşhisi (B-1) ──────────────────────────────────────────────
    SALT GÖZLEM: aşağıdaki sayaçlar ve `getLifecycleDiagnostics()` hiçbir karar
@@ -147,18 +143,6 @@ function _satInc(n: number): number {
   return n >= DIAG_COUNTER_MAX ? DIAG_COUNTER_MAX : n + 1;
 }
 
-/** Bekleyen bir gecikmeli restart planının salt-okunur görünümü. */
-export interface PendingRestartDiagnostic {
-  /** Worker/servis anahtarı (ör. 'VehicleCompute'). Hassas veri içermez. */
-  readonly key: string;
-  /** Planın kurulduğu an (Date.now()). */
-  readonly scheduledAtMs: number;
-  /** Planlanan gecikme (ms). */
-  readonly delayMs: number;
-  /** Kalan süre (ms) — negatif olmaz (geçmişte kalmışsa 0). */
-  readonly remainingMs: number;
-}
-
 /** SystemBoot yaşam döngüsü teşhis anlık görüntüsü (salt-okunur, bounded). */
 export interface SystemBootLifecycleDiagnostics {
   /** Yaşam döngüsü şu an aktif mi. */
@@ -167,18 +151,10 @@ export interface SystemBootLifecycleDiagnostics {
   readonly starts: number;
   /** stop() çağrısı sayısı (her çağrı sayılır — stop() idempotent gövdedir). */
   readonly stops: number;
-  /** PLANLANAN restart sayısı (backoff timer'ı kurulan). */
-  readonly restartAttempts: number;
-  /** TAMAMLANAN restart sayısı (bilinen servis yeniden başlatıldı). */
-  readonly restartSuccesses: number;
-  /** İki yaşam döngüsü kapısı tarafından REDDEDİLEN restart sayısı. */
-  readonly rejectedPostStopRestarts: number;
   /** LIFO cleanup yığınındaki kayıt sayısı. */
   readonly activeCleanupCount: number;
   /** İsimli cleanup anahtarları (servis adları; hassas veri yok). */
   readonly namedCleanupKeys: readonly string[];
-  /** Bekleyen restart planları — uzunluk kayıtlı backoff durumu sayısını aşamaz. */
-  readonly pendingRestarts: readonly PendingRestartDiagnostic[];
   /** Sayaç doygunluk sınırı (tüketici doygunluğu ayırt edebilsin). */
   readonly counterMax: number;
 }
@@ -196,8 +172,6 @@ class SystemBoot {
   private _cleanups:     Cleanup[] = [];
   /** İsimli servis cleanup'ları — restart ve limp mekanizması için */
   private _namedCleanups = new Map<string, Cleanup>();
-  /** Worker crash exponential backoff — sayaç + bekleyen restart + cool-off timer'ı */
-  private _backoffState = new Map<string, BackoffState>();
   /** LIMP_HOME izleme durumu */
   private _limpActive  = false;
   private _cogUnsub:   (() => void) | null = null;
@@ -215,9 +189,6 @@ class SystemBoot {
      artar; `getLifecycleDiagnostics()` dışında tüketicisi yoktur. */
   private _diagStarts           = 0;
   private _diagStops            = 0;
-  private _diagRestartAttempts  = 0;
-  private _diagRestartSuccesses = 0;
-  private _diagRejectedPostStop = 0;
 
   /** Boot şu an iptal edilmiş mi? */
   private get _aborted(): boolean {
@@ -252,19 +223,6 @@ class SystemBoot {
     this._namedCleanups.set(name, fn);
   }
 
-  /**
-   * Bir worker'ın bekleyen backoff timer'larını iptal eder.
-   * İDEMPOTENT: null handle'a dokunmaz, iptal ettiğini null'lar → ikinci çağrı
-   * bayat handle'ı yeniden clearTimeout etmez.
-   */
-  private _clearBackoffTimers(state: BackoffState): void {
-    if (state.restartTimer !== null) { clearTimeout(state.restartTimer); state.restartTimer = null; }
-    if (state.cooloffTimer !== null) { clearTimeout(state.cooloffTimer); state.cooloffTimer = null; }
-    // TEŞHİS alanları da bırakılır (bekleyen plan kalmadı) — davranışsal etkisi YOK.
-    state.scheduledAtMs = null;
-    state.delayMs       = null;
-  }
-
   /* ══════════════════════════════════════════════════════════════
      Yaşam döngüsü teşhisi (B-1) — SALT-OKUMA
   ══════════════════════════════════════════════════════════════ */
@@ -275,104 +233,33 @@ class SystemBoot {
    * YAN ETKİSİZ: hiçbir alanı değiştirmez, timer kurmaz/iptal etmez, servis
    *   başlatmaz/durdurmaz; yalnız mevcut durumu okur ve DONDURULMUŞ kopya döner.
    *   Tekrarlanan çağrılar durumu MUTASYONA UĞRATMAZ.
-   * BOUNDED: `pendingRestarts` uzunluğu kayıtlı backoff durumu sayısını AŞAMAZ;
-   *   `namedCleanupKeys` isimli cleanup haritası boyutundadır.
+   * BOUNDED: `namedCleanupKeys` isimli cleanup haritası boyutundadır.
    * GİZLİLİK: yalnız servis/worker anahtarları + sayılar. VIN · GPS · OBD verisi ·
    *   kimlik bilgisi · kullanıcı verisi İÇERMEZ.
    */
   getLifecycleDiagnostics(): SystemBootLifecycleDiagnostics {
-    const now = Date.now();
-    const pending: PendingRestartDiagnostic[] = [];
-    this._backoffState.forEach((s, key) => {
-      // Yalnız GERÇEKTEN bekleyen plan raporlanır (timer + teşhis alanları dolu).
-      if (s.restartTimer === null || s.scheduledAtMs === null || s.delayMs === null) return;
-      const remaining = s.scheduledAtMs + s.delayMs - now;
-      pending.push(Object.freeze({
-        key,
-        scheduledAtMs: s.scheduledAtMs,
-        delayMs:       s.delayMs,
-        remainingMs:   remaining > 0 ? remaining : 0,
-      }));
-    });
-
     return Object.freeze({
       started:                  this._started,
       starts:                   this._diagStarts,
       stops:                    this._diagStops,
-      restartAttempts:          this._diagRestartAttempts,
-      restartSuccesses:         this._diagRestartSuccesses,
-      rejectedPostStopRestarts: this._diagRejectedPostStop,
       activeCleanupCount:       this._cleanups.length,
       namedCleanupKeys:         Object.freeze([...this._namedCleanups.keys()]),
-      pendingRestarts:          Object.freeze(pending),
       counterMax:               DIAG_COUNTER_MAX,
     });
   }
 
-  /**
-   * Worker crash olduğunda çağrılır — max 2 deneme sonrası vazgeçer.
-   */
+  /** Worker crash is evidence; bounded recovery policy belongs to the supervisor. */
   private _handleWorkerCrash(workerKey: string, restartServiceName: string): void {
-    // Yaşam döngüsü kapalıyken gelen geç crash bildirimi (teardown sırasındaki
-    // worker onerror) hiçbir timer PLANLAMAZ — aksi halde stop()'un temizleyemediği
-    // sahipsiz bir handle doğar.
     if (!this._started) {
       _log(`Worker crash: ${workerKey} — SystemBoot durmuş, yok sayıldı`);
       return;
     }
-
-    const MAX_RESTARTS    = 2;
-    const BACKOFF_BASE_MS = 5_000;        // 5s → 10s → 20s (her denemede 2x)
-    const BACKOFF_MAX_MS  = 160_000;      // üst limit ~2.5 dakika
-    const COOLOFF_MS      = 5 * 60_000;  // max limit sonrası 5 dk bekleme
-
-    const state = this._backoffState.get(workerKey)
-      ?? { count: 0, restartTimer: null, cooloffTimer: null, scheduledAtMs: null, delayMs: null };
-
-    // Zaten cool-off dönemindeyse — reset öncesi gelen crash'i yok say
-    if (state.cooloffTimer) {
-      _log(`Worker crash: ${workerKey} — cool-off aktif, yok sayıldı`);
-      return;
-    }
-
-    state.count++;
-    this._backoffState.set(workerKey, state);
-
-    const delayMs = Math.min(BACKOFF_BASE_MS * Math.pow(2, state.count - 1), BACKOFF_MAX_MS);
-
-    if (state.count <= MAX_RESTARTS) {
-      _log(`Worker crash: ${workerKey} (attempt ${state.count}/${MAX_RESTARTS}) — ${delayMs / 1000}s sonra yeniden deneniyor`);
-      // TEK BEKLEYEN RESTART invaryantı: aynı worker için önceki plan hâlâ havadaysa
-      // iptal edilir (iki timer aynı servisi iki kez diriltmesin) ve yeni handle
-      // duruma YAZILIR → stop() onu iptal edebilir.
-      if (state.restartTimer !== null) clearTimeout(state.restartTimer);
-      state.restartTimer = setTimeout(() => {
-        // Önce kendi referansını bırak: geri çağrı çalışırken durumda bayat handle kalmaz.
-        state.restartTimer  = null;
-        state.scheduledAtMs = null;   // TEŞHİS: plan artık bekliyor değil
-        state.delayMs       = null;
-        void this.restartService(restartServiceName).catch((e) => logError(`SystemBoot:restart:${restartServiceName}`, e));
-      }, delayMs);
-      // TEŞHİS (yan etkisiz gözlem): planlanan restart + bekleyen plan künyesi.
-      state.scheduledAtMs      = Date.now();
-      state.delayMs            = delayMs;
-      this._diagRestartAttempts = _satInc(this._diagRestartAttempts);
-      this._backoffState.set(workerKey, state);
-    } else {
-      _log(`  › ${workerKey} max restart limitine ulaştı — ${COOLOFF_MS / 60_000}dk cool-off başlatıldı`);
-      state.cooloffTimer = setTimeout(() => {
-        _log(`  › ${workerKey} cool-off bitti — sayaç sıfırlandı`);
-        this._backoffState.set(workerKey, {
-          count: 0, restartTimer: null, cooloffTimer: null, scheduledAtMs: null, delayMs: null,
-        });
-      }, COOLOFF_MS);
-      this._backoffState.set(workerKey, state);
-    }
+    runtimeRecoverySupervisor.request({ requestId: `worker:${workerKey}:${Date.now()}`, serviceId: restartServiceName, source: 'RESOURCE_RUNTIME', faultDomain: 'VEHICLE_DATA', observedLifecycle: 'FAILED', observedReadiness: 'NOT_READY', observedHealth: 'FAILED', reason: 'worker_crash', lifecycleEpoch: this._diagStarts, faultEvidenceRef: `SystemBoot.worker:${workerKey}`, requestedAt: Date.now(), provenance: ['SystemBoot._handleWorkerCrash'] });
   }
 
   /**
    * İsimli servisi durdur ve yeniden başlat.
-   * HealthMonitor'ın restartFn'i bu metodu çağırır.
+   * RuntimeRecoverySupervisor execution adapter'ı bu metodu çağırır.
    * Bilinmeyen isim → no-op.
    */
   async restartService(name: string): Promise<void> {
@@ -380,7 +267,6 @@ class SystemBoot {
     // geri çağrısı, HealthMonitor veya worker onerror yolu stop() sonrası buraya
     // ulaşabilir; kapanmış bir sistemde yeni servis doğurmak zombi üretir.
     if (!this._started || this._aborted) {
-      this._diagRejectedPostStop = _satInc(this._diagRejectedPostStop);   // TEŞHİS
       _log(`Restart reddedildi (SystemBoot aktif değil): ${name}`);
       return;
     }
@@ -407,7 +293,6 @@ class SystemBoot {
     // zaten çalıştı ve kayıtlardan düştü; burada erken çıkmak servisi KAPALI bırakır
     // (doğru davranış: sistem kapanıyor).
     if (!this._started || this._aborted) {
-      this._diagRejectedPostStop = _satInc(this._diagRejectedPostStop);   // TEŞHİS
       _log(`  › Restart iptal edildi (settle sırasında kapanış): ${name}`);
       return;
     }
@@ -422,21 +307,18 @@ class SystemBoot {
           this._cleanups.splice(_insertIdx, 0, newCleanup);
           this._namedCleanups.set('VehicleDataLayer', newCleanup);
         }
-        this._diagRestartSuccesses = _satInc(this._diagRestartSuccesses);   // TEŞHİS
         _log(`  › VehicleDataLayer restarted`);
         break;
       }
       case 'VisionCompute': {
         const { restartVisionWorker } = await import('../vision/visionCore');
         restartVisionWorker();
-        this._diagRestartSuccesses = _satInc(this._diagRestartSuccesses);   // TEŞHİS
         _log(`  › VisionCompute worker restarted`);
         break;
       }
       case 'NavigationCompute': {
         const { restartNavWorker } = await import('../offlineRoutingService');
         restartNavWorker();
-        this._diagRestartSuccesses = _satInc(this._diagRestartSuccesses);   // TEŞHİS
         _log(`  › NavigationCompute worker restarted`);
         break;
       }
@@ -542,12 +424,21 @@ class SystemBoot {
   async start(): Promise<void> {
     if (this._started) return;
     this._started = true;
+    runtimeRecoverySupervisor.setShutdownActive(false);
     this._diagStarts = _satInc(this._diagStarts);   // TEŞHİS (idempotent no-op sayılmaz)
     this._bootAbort = new AbortController();
 
     // Boot Zaman Çizelgesi (tanı genişliği) — yalnız ölçüm, dalga sırası/mantığı DEĞİŞMEZ.
     resetBootTiming();
     recordBootStart();
+
+    /* ARCH-06/F2: erteleme turunu AÇ. Nesil `_diagStarts`tir — YENİ bir epoch
+       otoritesi kurulmadı, mevcut boot sayacı kullanıldı. Ertelenen işin
+       döndürdüğü cleanup, AYNI LIFO yığınına adıyla teslim edilir; sahiplik
+       SystemBoot'ta kalır. */
+    bootDeferral.begin(this._diagStarts, (jobId, cleanup) => {
+      this._regNamed(jobId, cleanup);
+    });
 
     try {
       let _t0 = performance.now();
@@ -563,6 +454,9 @@ class SystemBoot {
       await this._wave4(); if (this._aborted) return this._onBootAborted();
       recordBootWave('Wave 4 (UI Services)', performance.now() - _t0);
       recordBootComplete();
+      /* ARCH-06/F1 · BACKGROUND_COMPLETE — MEVCUT `__APP_READY__` anı kullanılır.
+         İkinci bir boot-complete bayrağı KURULMADI (tek boot otoritesi). */
+      markBootMilestone('BACKGROUND_COMPLETE', 'SystemBoot:__APP_READY__');
       window.__APP_READY__ = true;
       _log('Boot complete ✓');
 
@@ -598,7 +492,12 @@ class SystemBoot {
    * start() sonrasında yeniden çağrılabilir (stop → start döngüsü güvenli).
    */
   stop(): void {
+    // F6 interlock: once shutdown begins, recovery cannot race LIFO cleanup.
+    runtimeRecoverySupervisor.setShutdownActive(true);
+    if (!this._started && this._cleanups.length === 0) return;
     this._diagStops = _satInc(this._diagStops);   // TEŞHİS (her çağrı sayılır)
+    const shutdownAt = Date.now();
+    beginSystemBootShutdown(`system-boot:${this._diagStarts}:${this._diagStops}`, this._diagStarts, shutdownAt);
     _log('Stopping all services (LIFO)...');
     // platform.runtime.stopped — LIFO cleanup'lardan (ve bus dispose'undan) ÖNCE, BİR KEZ.
     // "started" hiç yayınlanmadıysa (hiç başlamamış / yarım boot) SESSİZ kalır; tekrar stop()
@@ -606,6 +505,10 @@ class SystemBoot {
     publishRuntimeStopped();
     // Havada bekleyen async boot adımlarını iptal et (zombi servis önleme)
     this._bootAbort?.abort();
+    /* ARCH-06/F2: bekleyen ERTELENMİŞ işler de iptal edilir. Tetikleyici
+       bundan SONRA düşse bile iş BAŞLAMAZ — "stop sonrası sıfır yan etki"
+       kuralı LIFO cleanup'tan ÖNCE uygulanır ki yeni servis kaydı doğmasın. */
+    bootDeferral.abort('SystemBoot.stop()');
     // CognitivePriorityEngine + LIMP izleyici
     if (this._cogUnsub) { this._cogUnsub(); this._cogUnsub = null; }
     stopCognitiveEngine();
@@ -614,17 +517,14 @@ class SystemBoot {
     healthMonitor.stop();
     // LIFO: son başlayan ilk durur — bağımlılık zincirine saygı
     for (let i = this._cleanups.length - 1; i >= 0; i--) {
-      try { this._cleanups[i]!(); } catch (e) { logError('SystemBoot:stop', e); }
+      const cleanup = this._cleanups[i]!; const serviceId = [...this._namedCleanups.entries()].find(([, fn]) => fn === cleanup)?.[0] ?? 'UNKNOWN_CLEANUP'; const startedAt = Date.now();
+      try { cleanup(); recordSystemBootCleanup({ serviceId, phase: 'DISPOSING', startedAt, finishedAt: Date.now(), durationMs: Date.now() - startedAt, executionKind: 'SYNC', quiesce: 'UNSUPPORTED', drain: 'UNSUPPORTED', cancel: 'UNSUPPORTED', boundedTimeout: 'UNSUPPORTED', inFlightBefore: null, inFlightAfter: null, stopOutcome: 'SUCCEEDED', disposeOutcome: 'SUCCEEDED', timeout: false, failureReason: null, dependencyOrderSource: 'LIFO_FALLBACK', provenance: ['SystemBoot._cleanups'] }); } catch (e) { logError('SystemBoot:stop', e); recordSystemBootCleanup({ serviceId, phase: 'FAILED', startedAt, finishedAt: Date.now(), durationMs: Date.now() - startedAt, executionKind: 'SYNC', quiesce: 'UNSUPPORTED', drain: 'UNSUPPORTED', cancel: 'UNSUPPORTED', boundedTimeout: 'UNSUPPORTED', inFlightBefore: null, inFlightAfter: null, stopOutcome: 'FAILED', disposeOutcome: 'FAILED', timeout: false, failureReason: e instanceof Error ? e.message : 'cleanup_error', dependencyOrderSource: 'LIFO_FALLBACK', provenance: ['SystemBoot._cleanups'] }); }
     }
     this._cleanups     = [];
     this._namedCleanups.clear();
-    // Bekleyen HER backoff timer'ı iptal et (restart + cool-off). Yalnız cool-off
-    // temizlenirse bekleyen restart hayatta kalır ve kapanmış yaşam döngüsünde
-    // servisi yeniden doğurur.
-    this._backoffState.forEach((s) => this._clearBackoffTimers(s));
-    this._backoffState.clear();
     this._bootAbort    = null;
     this._started      = false;
+    finishSystemBootShutdown(Date.now());
   }
 
   // ── Wave 1: Core ──────────────────────────────────────────────────────────
@@ -661,38 +561,111 @@ class SystemBoot {
     // disclaimer gibi boot-time modaller de yakalansın; kurulumda zaten açık
     // yüzeyler seed taramasıyla alınır. Yan-etkisiz gözlem (MutationObserver).
     _log('  › startUiActivityRecorder()');
-    this._cleanups.push(startUiActivityRecorder());
+    /* ARCH-06/F2 · DEFERABLE → AFTER_FIRST_FRAME.
+       Kullanıcı etkinliği kaydı, ilk boyamadan ÖNCE kaydedilecek hiçbir
+       etkinliği kaçırmaz: ilk boyama olmadan kullanıcı zaten dokunamaz.
+       Cleanup LIFO yığınına adıyla teslim edilir. */
+    bootDeferral.schedule({
+      jobId: 'UiActivityRecorder', wave: 1, bootClass: 'DEFERABLE',
+      trigger: 'AFTER_FIRST_FRAME', run: () => startUiActivityRecorder(),
+    });
 
     // Olay izi (breadcrumb) — mod/OBD/ekran/hata/modal kronolojik hikâyesi.
     _log('  › startDiagnosticTrail()');
-    this._cleanups.push(startDiagnosticTrail());
+    /* ARCH-06/F2 · DEFERABLE → AFTER_FIRST_FRAME.
+       Olay izi bir TANI genişliğidir; ilk kareden önceki birkaç yüz ms'lik
+       breadcrumb kaybı kabul edilir — boot süresinin kendisi zaten
+       `bootTimingRecorder` ile ÖLÇÜLÜYOR (o W1'de KALIR). */
+    bootDeferral.schedule({
+      jobId: 'DiagnosticTrail', wave: 1, bootClass: 'DEFERABLE',
+      trigger: 'AFTER_FIRST_FRAME', run: () => startDiagnosticTrail(),
+    });
 
     // Perf zaman serisi — oturum boyu termal/bellek/fps/lag halka tamponu (trend).
     // Düşük frekans (12s) + düşük-tier'da fps salvosu atlanır (ısı/CPU dostu).
+    /* ⚠️ ARCH-06/F2 · ERTELENMEZ — BİLİNÇLİ.
+       Perf zaman serisi boot'un KENDİSİNİ ölçer; ilk kareye ertelenirse
+       açılışın en pahalı penceresi ölçüm dışı kalır ve F2'nin öncesi/sonrası
+       karşılaştırması anlamsızlaşırdı. Maliyeti zaten düşüktür: 12 s aralık
+       ve düşük-tier'da fps salvosu ATLANIR. */
     _log('  › startPerfSeries()');
     this._cleanups.push(startPerfSeries());
 
-    // runtimeManager: crash recovery + ilk mod logu
+    // Runtime recovery policy is canonical; SystemBoot remains execution-only.
+    runtimeRecoverySupervisor.configure(SYSTEM_BOOT_SERVICE_DESCRIPTORS, {
+      currentEpoch: () => this._started && !this._aborted ? this._diagStarts : null,
+      dependencyBlocker: () => null, // F3 has no proven runtime HARD edge in this registry snapshot.
+      onStaleCompletion: noteStaleRecoveryCompletion,
+      executeRestart: async (serviceId) => {
+        if (serviceId !== 'VehicleDataLayer') return false;
+        await this.restartService(serviceId);
+        return this._started && !this._aborted;
+      },
+    });
+
+    // runtimeManager: resource/zombie evidence only
     _log('  › runtimeManager.start()');
     runtimeManager.setZombieRestartCallback((key) => {
-      void this.restartService(key).catch((e) => logError('SystemBoot:ZombieRestart', e));
+      this._handleWorkerCrash(key, key === 'VehicleCompute' ? 'VehicleDataLayer' : key);
     });
     runtimeManager.start();
 
     // safeStorage: native FS önbelleği yükle (idempotent — main.tsx'de zaten çağrıldı)
     _log('  › initSafeStorageAsync');
-    await initSafeStorageAsync();
+    await measureBootService('initSafeStorageAsync', 1, true, () => initSafeStorageAsync());
 
-    _log('  › hydrateExpertTrustStore');
-    await hydrateExpertTrustStore();
+    // Medya otoritesi Mavi/UI mount'una bağlı değildir: boot lifecycle'ın
+    // deterministik parçasıdır. Fonksiyon idempotent, cleanup LIFO güvenlidir.
+    _log('  › Media playback authority');
+    try {
+      await measureBootService('startMediaAuthority', 1, true, () => startMediaAuthority());
+      this._regNamed('media-authority', stopMediaAuthority);
+      /* ARCH-06/F1: otorite KURULDU. Bu "çalma kullanılabilir" DEMEK DEĞİLDİR —
+         native oturum kanıtı ayrı bir taştır (MEDIA_AUTHORITY_AVAILABLE) ve
+         onu yalnız sahibi (media authority runtime) damgalayabilir. */
+      markBootMilestone('MEDIA_AUTHORITY_INITIALIZED', 'SystemBoot:wave1:startMediaAuthority');
+    } catch (e) {
+      logError('SystemBoot:mediaAuthority', e);
+    }
+
+    /* P0-VDK-F5F — BOŞLUK SİCİLİ AÇILIŞ ADIMI.
+       ⚠️ BİLEREK HİÇBİR ŞEY YÜKLEMEZ: açılışta araç kimliği HENÜZ ölçülmemiştir
+       (parmak izi ancak OBD bağlanıp ECU'lar yanıt verdikten sonra kurulur).
+       Global bir sicili "şimdilik" yüklemek, bir sonraki araca BAŞKA bir aracın
+       tanı geçmişini taşımak olurdu. Bu adım yalnız ÖLÇÜM üretir: "geri yükleme
+       denendi mi / ne zaman / hangi kapsamda". Gerçek hidrasyon araç kimliği
+       ölçülünce `productionDiscovery` içinde yapılır. */
+    _log('  › beginGapLedgerBoot (araç kimliği YOK — hidrasyon ERTELENDİ)');
+    try {
+      beginGapLedgerBoot(Date.now());
+    } catch (e) {
+      logError('SystemBoot:gapLedgerBoot', e);   // fail-soft: boot DURMAZ
+    }
+
+    /* ⚠️ ARCH-06/F2 · ERTELENMEZ — GÜVENLİK KARARI (ARCH-05 > boot hızı).
+       F0 bunu DEFERABLE önermişti; F2'de kod OKUNDU ve öneri ÇÜRÜTÜLDÜ:
+       `useExpertStore.assertWritesAllowed()` ilk satırında
+       `if (!s.hydrated) return;` yapar — yani hidrasyon TAMAMLANMADAN kapı
+       AÇIKTIR (fail-open). Ertelemek, o fail-open penceresini ilk kareye
+       kadar UZATIRDI ve `writeLocked` bir cihazda kilitli olması gereken
+       uzman yazımları geçebilirdi.
+       Karar: BOOT_CRITICAL olarak W1'de KALIR. Hız için güvenlik feda edilmez. */
+    _log('  › hydrateExpertTrustStore (BOOT_CRITICAL — ARCH-05 fail-open koruması)');
+    await measureBootService('hydrateExpertTrustStore', 1, true, () => hydrateExpertTrustStore());
     if (this._aborted) return; // stop() async sırasında geldi → erken çık
 
     _log('  › hydrateSafetyBrainFromStorage');
     hydrateSafetyBrainFromStorage();
 
-    _log('  › initCommunityService');
-    initCommunityService();
-    this._regNamed('CommunityService', stopCommunityService);
+    /* ARCH-06/F2 · IDLE_ONLY. Topluluk verisi ilk ekranda GÖRÜNMEZ ve ağ
+       işidir; ana döngü boşalınca kurulur. Cleanup adı KORUNUR ki LIFO
+       kapanışında aynı kimlikle görünsün. */
+    _log('  › initCommunityService → IDLE');
+    bootDeferral.schedule({
+      jobId: 'CommunityService', wave: 1, bootClass: 'IDLE_ONLY',
+      trigger: 'IDLE',
+      run: () => { initCommunityService(); return stopCommunityService; },
+    });
 
     // Offline auto-cache: GPS konumuna abone ol → internet varken bulunulan bölgenin
     // POI verisini arka planda sessizce indir ("offline harita kendiliğinden çalışır").
@@ -748,7 +721,9 @@ class SystemBoot {
       deadlineMs:  15_000,
       alertTitle:  'Sistem Limitli Modda',
       alertMsg:    'Sensör verisi dondu — OBD/GPS bağlantısı kontrol edin.',
-      restartFn:   () => this.restartService('VehicleDataLayer'),
+      recoveryRequest: ({ serviceId, reason, evidenceRef }) => {
+        runtimeRecoverySupervisor.request({ requestId: `health:${serviceId}:${Date.now()}`, serviceId, source: 'HEALTH_MONITOR', faultDomain: 'VEHICLE_DATA', observedLifecycle: 'FAILED', observedReadiness: 'NOT_READY', observedHealth: 'FAILED', reason, lifecycleEpoch: this._diagStarts, faultEvidenceRef: evidenceRef, requestedAt: Date.now(), provenance: ['SystemHealthMonitor'] });
+      },
       maxRestarts: 2,
     });
 
@@ -765,6 +740,15 @@ class SystemBoot {
     // Sağlık bozulursa abort → çekirdek poll'u (RPM) boğmaz. Fail-soft; salt-okuma.
     _log('  › Auto DID discovery watcher');
     this._reg(startAutoDidWatcher());
+
+    /* P0-VDK-F5H — ERKEN ARAÇ KİMLİĞİ. Tam araç taramasını BEKLEMEDEN, bağlantı
+     * kısa süre kesintisiz sağlıklı olunca en çok ÜÇ salt-okunur kimlik DID'i
+     * okur, değerin KARMASINI alır (ham değer saklanmaz), F4-C parmak izini
+     * üretir ve F5-G bağlama noktasını çağırır → boşluk sicili ve yetenek
+     * bölümü DOĞRU araca ERKEN hydrate olur. Ölçüm düşerse normal OBD akışı
+     * ETKİLENMEZ (kullanılabilirlik kapısı DEĞİLDİR). Fail-soft; salt-okuma. */
+    _log('  › Early vehicle identity watcher');
+    this._reg(startEarlyIdentityWatcher());
 
     // Platform Core: Vehicle HAL runtime wiring (PR-W2) — store→provider→adapter→HAL AYNA modu.
     // Additive; Wave sırası bozulmaz. VehicleDataLayer'dan SONRA kaydedilir → LIFO shutdown'da
@@ -830,6 +814,12 @@ class SystemBoot {
     _log('  › SystemOrchestrator');
     this._reg(startSystemOrchestrator());
 
+    /* ARCH-06/F1 · VEHICLE_CORE_INITIALIZED — ALT YAPI ayakta.
+       ⚠️ Bu taş "araç verisi var" DEMEZ: VDL ve adaptörler kurulmuş olabilir
+       ama araç bağlı olmayabilir. Gerçek sinyal kanıtı AYRI bir taştır
+       (`VEHICLE_DATA_FIRST_OBSERVATION`) ve onu ölçümün sahibi damgalar. */
+    markBootMilestone('VEHICLE_CORE_INITIALIZED', 'SystemBoot:wave2:complete');
+
     _log('Wave 2 ready ✓');
   }
 
@@ -838,8 +828,15 @@ class SystemBoot {
   private async _wave3(): Promise<void> {
     _log('Starting Wave 3 (Sensors & Intelligence)...');
 
-    _log('  › MaintenanceBrain');
-    this._regNamed('MaintenanceBrain', startMaintenanceBrain());
+    /* ARCH-06/F2 · DEFERABLE → AFTER_VEHICLE_CORE.
+       BAĞIMLILIK DENETİMİ: Wave 3'te hiçbir servis MaintenanceBrain'e
+       bağlanmıyor (tüketicisi yok, üreticisi OBD olay akışı). Bakım hükmü
+       aracın ilk saniyesinde GEREKMEZ. */
+    _log('  › MaintenanceBrain → AFTER_VEHICLE_CORE');
+    bootDeferral.schedule({
+      jobId: 'MaintenanceBrain', wave: 3, bootClass: 'DEFERABLE',
+      trigger: 'AFTER_VEHICLE_CORE', run: () => startMaintenanceBrain(),
+    });
 
     /* Cihazda kanıt üretimi (#490 · ADR-286 Adım 3/1). Kendi timer'ı YOKTUR —
        OBD olayına biner. HÜKÜM ÜRETMEZ; motoru bağlamak ikinci parçadır. */
@@ -852,8 +849,14 @@ class SystemBoot {
     _log('  › BatteryVerdictService');
     this._regNamed('BatteryVerdictService', startBatteryVerdictService());
 
-    _log('  › FuelAdvisor');
-    this._regNamed('FuelAdvisor', startFuelAdvisor());
+    /* ARCH-06/F2 · DEFERABLE → AFTER_VEHICLE_CORE.
+       BAĞIMLILIK DENETİMİ: Wave 3'te tüketicisi yok; yakıt önerisi mevcut
+       veri akışına biner ve gecikmesi güvenlik etkisi ÜRETMEZ. */
+    _log('  › FuelAdvisor → AFTER_VEHICLE_CORE');
+    bootDeferral.schedule({
+      jobId: 'FuelAdvisor', wave: 3, bootClass: 'DEFERABLE',
+      trigger: 'AFTER_VEHICLE_CORE', run: () => startFuelAdvisor(),
+    });
 
     _log('  › BlackBox');
     this._reg(startBlackBox());
@@ -904,8 +907,16 @@ class SystemBoot {
     // (M1/N1 · otomobil/kamyonet/panelvan) çözer — uygulanabilir hız sınırı
     // bundan türer. Ağ çağrısı YALNIZ araç kimliği değişince ve backend proxy
     // yapılandırılmışsa yapılır; navigasyon tick'ine GİRMEZ. Fail-soft.
-    _log('  › VehicleClassRuntime');
-    this._reg(startVehicleClassRuntime());
+    /* ARCH-06/F2 · DEFERABLE → AFTER_VEHICLE_CORE.
+       BAĞIMLILIK DENETİMİ: kendi yorumu "ağ çağrısı YALNIZ araç kimliği
+       değişince" der ve navigasyon tick'ine GİRMEZ; Wave 3'te tüketicisi yok.
+       Araç sınıfı ancak araç kimliği çözülünce anlamlıdır — o da bu taştan
+       SONRA olur. */
+    _log('  › VehicleClassRuntime → AFTER_VEHICLE_CORE');
+    bootDeferral.schedule({
+      jobId: 'VehicleClassRuntime', wave: 3, bootClass: 'DEFERABLE',
+      trigger: 'AFTER_VEHICLE_CORE', run: () => startVehicleClassRuntime(),
+    });
 
     // Konum Motoru (P1): mevcut gpsService'i GÖZLEMLER (değiştirmez/yeniden
     // başlatmaz) ve çok kaynaklı hakem kararını üretir. Fix akışı gpsService'in
@@ -920,19 +931,30 @@ class SystemBoot {
     // (kadans GPS fix'inin kendi kadansı). LocationEngine'den SONRA kaydedilir →
     // LIFO shutdown'da ondan ÖNCE kapanır. Fail-soft + zero-leak (cleanup _reg'le).
     _log('  › NavigationSessionRuntime');
-    this._reg(startNavigationSessionRuntime());
+    this._regNamed('NavigationSessionRuntime', startNavigationSessionRuntime());
 
     // Trip yukleme kablolamasi (P1): tripLogService'i GOZLER (degistirmez) ve
     // YALNIZ kapanan trip icin tek kanonik ozet yukler. Canli olcum GONDERILMEZ.
-    this._reg(startTripUpload());
+    /* ARCH-06/F2 · IDLE_ONLY. Ağ yüklemesi; kapanan trip'i gözler ve canlı
+       ölçüm GÖNDERMEZ. İlk ekranda hiçbir katkısı yok. */
+    bootDeferral.schedule({
+      jobId: 'TripUpload', wave: 3, bootClass: 'IDLE_ONLY',
+      trigger: 'IDLE', run: () => startTripUpload(),
+    });
 
     // Fleet geri-okuma köprüsü (kütük #690): `driverSnapshotRuntime.capture()`
     // yazılmıştı ama ÇAĞIRANI YOKTU → Fleet Driver Identity ekranı yapısal olarak
     // boştu. Köprü trip başına TEK ağ çağrısı yapar (yalnız active false→true
     // kenarında); TİMER YOK, polling YOK, hot-path'e girmez. Eşleşmemiş cihazda
     // çağrı HİÇ yapılmaz. Fail-soft: yolculuk akışını asla etkilemez.
-    _log('  › FleetReadback');
-    this._reg(startFleetReadback());
+    /* ARCH-06/F2 · IDLE_ONLY. Kendi yorumu "trip başına TEK ağ çağrısı,
+       TİMER YOK, eşleşmemiş cihazda çağrı HİÇ yapılmaz" der — açılışta
+       kurulması için hiçbir sebep yok. */
+    _log('  › FleetReadback → IDLE');
+    bootDeferral.schedule({
+      jobId: 'FleetReadback', wave: 3, bootClass: 'IDLE_ONLY',
+      trigger: 'IDLE', run: () => startFleetReadback(),
+    });
 
     // Prediction Engine koşucusu (V-09): anayasanın 6. kapısı ("5 dk sonra ne
     // olacak?") fiilen kapalıydı — motor yazılı, üretimde 0 çağrı. Koşucu SOĞUK
@@ -974,9 +996,17 @@ class SystemBoot {
     if (this._aborted) return;
 
     // RadarEngine: Türkiye statik radar veritabanı
-    _log('  › RadarEngine');
-    startRadarEngine(turkiyeStaticRadars);
-    this._regNamed('RadarEngine', stopRadarEngine);
+    /* ARCH-06/F2 · DEFERABLE → AFTER_SHELL_INTERACTIVE.
+       STATİK veri tabanı yüklemesidir (Türkiye radar listesi) ve boot'ta
+       senkron koşar. Radar uyarısı ancak araç HAREKET ederken anlamlıdır;
+       kabuk etkileşimli olduktan sonra kurulması yeterlidir. Wave 3'te
+       tüketicisi yok. */
+    _log('  › RadarEngine → AFTER_SHELL_INTERACTIVE');
+    bootDeferral.schedule({
+      jobId: 'RadarEngine', wave: 3, bootClass: 'DEFERABLE',
+      trigger: 'AFTER_SHELL_INTERACTIVE',
+      run: () => { startRadarEngine(turkiyeStaticRadars); return stopRadarEngine; },
+    });
 
     // CognitivePriorityEngine + LIMP_HOME izleyici
     _log('  › CognitivePriorityEngine');
@@ -990,6 +1020,11 @@ class SystemBoot {
     // BLOKLAMAZ; trigger fail-soft (dışarı throw kaçırmaz), yine de savunmacı .catch.
     _log('  › Deep Scan offline pass trigger (Platform Core)');
     void triggerDeepScanOfflinePass().catch((e: unknown) => logError('SystemBoot:deepScanOfflineTrigger', e));
+
+    /* ARCH-06/F1 · NAV_RUNTIME_INITIALIZED — navigasyon/konum motoru kuruldu.
+       Konum FIX'i veya rota olduğu ANLAMINA GELMEZ; ilk konum kanıtı ayrı
+       taştır (`NAV_LOCATION_AVAILABLE`) ve onu gpsService damgalar. */
+    markBootMilestone('NAV_RUNTIME_INITIALIZED', 'SystemBoot:wave3:complete');
 
     _log('Wave 3 ready ✓');
   }
@@ -1010,15 +1045,22 @@ class SystemBoot {
     startSmartCardEngine();
     this._reg(stopSmartCardEngine);
 
-    // PushService: FCM token kaydı (async)
-    _log('  › PushService (async)');
-    const pushCleanup = await initPushService().catch((e: unknown) => {
-      logError('SystemBoot:Push', e);
-      return undefined;
+    /* ARCH-06/F2 · IDLE_ONLY. FCM TOKEN KAYDI ağ işidir ve boot'u BEKLETİR.
+       ⚠️ GELEN BİLDİRİM KAYBOLMAZ: bu çağrı token'ı KAYDEDER, gelen mesajı
+       DİNLEMEZ — inbound intent/deep-link yolu Android tarafında ve
+       `incomingLocation` köprüsündedir (Wave 4'te AYNEN duruyor). Ertelenen
+       yalnız kayıt turudur.
+       Asenkron red `bootDeferral` içinde YAKALANIR ve kanıta yazılır;
+       fire-and-forget bırakılmaz. Cleanup LIFO'ya adıyla teslim edilir. */
+    _log('  › PushService → IDLE');
+    bootDeferral.schedule({
+      jobId: 'PushService', wave: 4, bootClass: 'IDLE_ONLY',
+      trigger: 'IDLE',
+      run: async () => {
+        const cleanup = await initPushService();
+        return cleanup;
+      },
     });
-    // Async sırasında stop() geldiyse servisi kaydetme, anında durdur (zombi önle)
-    this._regOrAbort(pushCleanup);
-    if (this._aborted) return;
 
     // VoiceService: modül-düzeyi singleton — cleanup'ı LIFO + namedCleanups'a kaydet
     _log('  › VoiceService (named cleanup)');
@@ -1066,9 +1108,15 @@ class SystemBoot {
     }
 
     // OTA güncelleme servisi: boot kontrolü + 6 saatlik poll (OTA v1 / Commit 6)
-    _log('  › OtaUpdateService');
-    startOtaService();
-    this._reg(stopOtaService);
+    /* ARCH-06/F2 · IDLE_ONLY. Güncelleme YOKLAMASI açılışta gerekmez.
+       ⚠️ ERTELENEN yalnız YOKLAMADIR: `startOtaService` içindeki devam/kurtarma
+       mantığı servisin KENDİSİNDEDİR ve kurulduğu anda koşar — IDLE'a taşımak
+       onu iptal ETMEZ, yalnız birkaç saniye geciktirir. */
+    _log('  › OtaUpdateService → IDLE');
+    bootDeferral.schedule({
+      jobId: 'OtaUpdateService', wave: 4, bootClass: 'IDLE_ONLY',
+      trigger: 'IDLE', run: () => { startOtaService(); return stopOtaService; },
+    });
 
     // Otomatik eşleştirme: eşlenmemiş cihaz tanı/telemetri gönderemiyordu
     // ("Tanı Gönder" → not_paired, admin tablosu boş). Saha veri toplama

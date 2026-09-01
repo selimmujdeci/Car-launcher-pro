@@ -21,6 +21,7 @@
  *   (BASIC_JS / POWER_SAVE / SAFE_MODE hepsi enableAnimations:false → static).
  */
 
+import { deriveMaviSurface, type MaviSurfaceState } from './assistant/maviSurfaceState';
 import type { DeviceTier } from './deviceCapabilities';
 import { type RuntimeMode } from '../core/runtime/runtimeTypes';
 import { getRuntimeConfig } from '../core/runtime/runtimeConfig';
@@ -109,17 +110,50 @@ export function deriveConnectionStatus(online: boolean): ConnectionStatus {
 }
 
 /**
+ * MAVI-F11 · TEMA EKSENİ ARTIK KANONİK YÜZEY DURUMUNDAN DARALTILIR.
+ *
+ * `CompanionStatus` bilinçli olarak **4 durumda BIRAKILDI**: bu eksen tema
+ * token'ları ve animasyon disiplini içindir; 11 duruma çıkarmak tüm temalarda
+ * görsel regresyon riski yaratırdı ve F11'in amacı bu değildir. Ama **İKİNCİ
+ * BİR GERÇEK KURULMADI**: eşleme tek yönlüdür ve kaynağı `maviSurfaceState`tir.
+ */
+export function companionStatusFromSurface(state: MaviSurfaceState): CompanionStatus {
+  switch (state) {
+    case 'LISTENING':     return 'listening';
+    case 'UNDERSTANDING': return 'processing';
+    /* Konuşma üreten her durum tema ekseninde "speaking"tir (proaktif bildirim
+       de sesle gelir); geri kalan her şey sessiz eksende "idle"dır. */
+    case 'SPEAKING':
+    case 'PROACTIVE':     return 'speaking';
+    default:              return 'idle';
+  }
+}
+
+/**
  * Yol Arkadaşım durumu — voiceService.status → companion ekseni.
- *   listening → listening · processing → processing · success → speaking (cevap TTS)
- *   idle/error/throttled → idle (geçici/sessiz durumlar tek "idle"a iner).
+ *
+ * MAVI-F11: eşleme artık ELLE YAZILMAZ; kanonik yüzey türetmesinden geçer
+ * (`deriveMaviSurface` → `companionStatusFromSurface`). Çıktı davranışı
+ * BİREBİR AYNIDIR (listening/processing/success/diğer) — kilit testi bunu
+ * doğrular; tek fark artık tek bir gerçeğin daraltılması olmasıdır.
  */
 export function deriveCompanionStatus(voiceStatus: string): CompanionStatus {
-  switch (voiceStatus) {
-    case 'listening':  return 'listening';
-    case 'processing': return 'processing';
-    case 'success':    return 'speaking';
-    default:           return 'idle';
-  }
+  const view = deriveMaviSurface({
+    voiceStatus,
+    followUp: false,
+    /* Tema ekseni HATA rengini ayrı taşımaz (mevcut sözleşme: error → idle);
+       bu yüzden hata bayrağı burada YÜKSELTİLMEZ. */
+    hasError: false,
+    wakeArmed: false,
+    workload: 'UNKNOWN',
+    motionState: 'unknown',
+    pendingConfirmation: false,
+    actionInFlight: false,
+    proactiveInFlight: false,
+    deferredPending: false,
+    degraded: 'NONE',
+  });
+  return companionStatusFromSurface(view.state);
 }
 
 /**

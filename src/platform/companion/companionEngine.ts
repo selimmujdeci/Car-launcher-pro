@@ -12,27 +12,47 @@
  * (`nowMin()` = MONOTONİK `performance.now()`) mutlak farklarla hesaplandığından
  * (tick-sayımına dayalı birikim YOK) periyodun uzaması sonuçları bozmaz.
  *
- * Tetikleyiciler (öncelik sırası):
- *  1. Yakıt menzili < 50 km  — GÜVENLİK: medya çalarken bile konuşur (duck'lı)
- *  2. Uyku önleme            — GÜVENLİK: gece + sürüş + uzun sessizlik → açık
+ * ── MAVI-F9 · ARTIK "MOTOR" DEĞİL, TEKLİF ÜRETİCİSİ ────────────────────────
+ * F9 öncesi bu dosya hem tetikleri ÜRETİYOR hem kararı KENDİSİ veriyordu:
+ * sabit bir `if/return` merdiveni, tetik başına modül-içi cooldown değişkeni
+ * ve global bir sesli proaktif tavanının YOKLUĞU. Dışarıdan hiçbir kaynak
+ * (navigasyon · araç zekâsı · filo) bu merdivene bağlanamıyordu.
+ *
+ * F9 ile karar `assistant/proactivePolicyEngine`e taşındı. Bu dosya artık
+ * yalnız **teklif** üretir; hangi teklifin konuşacağına motor karar verir:
+ * cooldown · sıklık bütçesi · saatlik tavan · medya politikası · iş yükü ·
+ * presence · öğrenilmiş bastırma · TEK KONU kuralı ORADA uygulanır.
+ * Seslendirme yine BURADADIR (motor ikinci bir TTS kanalı açmaz).
+ *
+ * Teklifler (öncelik `relevance` ile taşınır — sıra AYNEN korundu):
+ *  1. Yakıt menzili < 50 km  — `safety`, medya çalarken bile konuşur (duck'lı)
+ *  2. Kapı/bagaj açık (seyir) — `safety`, medyayı keser
+ *  3. Lastik basıncı         — `safety`
+ *  4. Kötü hava + far        — `safety`
+ *  5. Uyku önleme            — `safety`: gece + sürüş + uzun sessizlik → açık
  *     uçlu soru (sürücüyü konuşturmak uyanık tutar; Anti-Drowsiness)
- *  3. Kontak/boot selamlama  — oturumda 1 kez, boot'tan sonraki ilk dakikalar
- *  4. Mola önerisi           — sürüş > breakReminderIntervalMin (vars. 2 saat)
- *  5. Yolculuk yorumu        — yalnız chattiness='sik' (küçük sohbet)
+ *  6. Kontak/boot selamlama  — `social`, oturumda 1 kez, bütçeden MUAF
+ *  7. Mola önerisi           — `social`, sürüş > breakReminderIntervalMin
+ *  8. Yolculuk yorumu        — `social`, yalnız chattiness='sik'
+ *
+ * ⚠️ Mola önerisi bugün `social` sınıfındadır çünkü ÜRETİMDEKİ davranışı budur
+ * (bütçeye tabi + iş yükü sohbet kapısına tabi). `informational`a yükseltmek
+ * DAVRANIŞ DEĞİŞİKLİĞİDİR ve F9 kapsamı dışında bırakıldı (açık borç).
  *
  * Frequency budget (mimari §5.2): chattiness → proaktif konuşmalar arası
- * minimum boşluk (az=45dk · normal=20dk · sık=10dk). GÜVENLİK tetikleri (1-2)
- * bütçeden bağımsızdır ama kendi cooldown'larına tabidir (gevezeleşmez).
- * 'az' seçiliyse bütçeli tetikler (4-5) hiç çalışmaz — yalnız güvenlik +
- * tek seferlik selamlama (kontak açılışı her seviyede selamlanır; ürün kararı).
+ * minimum boşluk (az=45dk · normal=20dk · sık=10dk); motor uygular. GÜVENLİK
+ * teklifleri bütçeden bağımsızdır ama kendi cooldown'larına tabidir.
+ * 'az' seçiliyse bütçeli teklifler hiç çalışmaz — yalnız güvenlik + tek
+ * seferlik selamlama (kontak açılışı her seviyede selamlanır; ürün kararı,
+ * `frequencyBudget: 'EXEMPT'` ile BEYAN EDİLİR).
  *
- * Interaction Gate (mimari §5.3 — hepsi geçmeli):
- *  - companionEnabled açık · personality ≠ 'sessiz' (sessiz = proaktif 0, §7)
+ * Interaction Gate — BURADA KALAN (motor devralmadı, spec F9 "KEEP"):
+ *  - companionEnabled açık (motorun kendi şalteri) · personality ≠ 'sessiz'
+ *    (sessiz = proaktif 0, §7 — güvenlik dahil susar; ürün kararı)
  *  - CognitiveMode < PROTECTION (PROTECTION/CRITICAL/LIMP_HOME → sus)
- *  - voiceService duraklatılmamış (isVoicePaused) ve aktif sesli oturum yok
- *    (status ≠ idle veya takip dinlemesi → sus)
- *  - kendi TTS'imiz uçuşta değil
- *  - medya "prominent" (çalıyor) ise yalnız tetik #1 geçer — müzik kesilmez
+ *  - voiceService duraklatılmamış (isVoicePaused)
+ * MOTORA DEVREDİLEN: konuşma sırası meşguliyeti (`turnBusy`), medya politikası,
+ * iş yükü sınıf tavanı, presence, bütçe, cooldown, tek konu kuralı.
  *
  * Sessizlik tanımı (uyku önleme): ne sesli etkileşim ne medya — her ikisi de
  * tick'te örneklenir + komut/TTS olayları anında sıfırlar. Süreler MONOTONİK
@@ -62,6 +82,20 @@ import { getMediaState } from '../mediaService';
 import { getVoiceSnapshot, isVoicePaused, registerCommandHandler } from '../voiceService';
 import { speakAssistant, registerTtsEndListener } from '../ttsService';
 import { runtimeManager } from '../../core/runtime/AdaptiveRuntimeManager';
+/* MAVI-F8: güvenlik DIŞI proaktif konuşmanın iş yükü kapısı. SAF çözümleyici
+   (canlı okuma DI ile ayrı adaptördedir) → motor grafiği büyümez.
+   F9 NOTU: iş yükü SINIFLA uygulanır (`safety` tavanı CRITICAL, `social` tavanı
+   NORMAL) — kapı artık `proactivePolicyEngine`dedir; burada yalnız SEVİYE
+   okunur ve F8 sayacı (`noteProactiveSuppressed`) beslenir. */
+import { currentMaviWorkload, noteProactiveSuppressed } from '../assistant/maviWorkload';
+/* MAVI-F9: proaktif konuşma izninin TEK kapısı. SAF karar çekirdeği + bounded
+   defter; bu dosya yalnız TEKLİF verir ve kazananı seslendirir. */
+import {
+  evaluateProactiveProposals,
+  endProactiveDelivery,
+  _resetProactivePolicyForTest,
+  type ProactiveProposal,
+} from '../assistant/proactivePolicyEngine';
 
 /* ── Zamanlama sabitleri (dakika) ───────────────────────────── */
 
@@ -70,7 +104,7 @@ export const COMPANION_TICK_MS = 60_000;
 /** Frequency budget: proaktif konuşmalar arası minimum boşluk (mimari §5.2). */
 const BUDGET_GAP_MIN: Record<string, number> = { az: 45, normal: 20, sik: 10 };
 
-const FUEL_CRITICAL_RANGE_KM   = 50;  // tetik #1 eşiği
+const FUEL_CRITICAL_RANGE_KM   = 50;  // teklif #1 eşiği
 const FUEL_WARN_COOLDOWN_MIN   = 15;  // kritik yakıt tekrar aralığı
 const DOOR_WARN_COOLDOWN_MIN   = 3;   // kapı açık (seyir hâlinde) tekrar aralığı — acil ama gevezeleşmesin
 const TPMS_WARN_COOLDOWN_MIN   = 30;  // lastik basıncı kalıcı durum → seyrek hatırlat
@@ -82,6 +116,33 @@ const BREAK_REPEAT_GAP_MIN     = 45;  // iki mola hatırlatması arası minimum
 const GREETING_WINDOW_MIN      = 5;   // boot sonrası selamlama fırsat penceresi
 const TRIP_COMMENT_MIN_TRIP    = 30;  // yolculuk yorumu için minimum sürüş
 const SPEAK_SAFETY_TIMEOUT_MS  = 35_000; // onEnd gelmezse uçuş bayrağı sıfırla
+
+/**
+ * MAVI-F9 · KAYNAK KİMLİKLERİ. Öğrenme, susturma ve LAB tablosu bu SABİT
+ * anahtarlara bağlıdır — serbest metin DEĞİL, PII DEĞİL, çeviriye TABİ DEĞİL.
+ */
+export const COMPANION_PROACTIVE_SOURCES = Object.freeze({
+  fuel:       'companion.fuel_range',
+  door:       'companion.door_ajar',
+  tpms:       'companion.tire_pressure',
+  visibility: 'companion.visibility_lights',
+  drowsy:     'companion.drowsiness',
+  greeting:   'companion.greeting',
+  breakHint:  'companion.break_reminder',
+  tripNote:   'companion.trip_comment',
+} as const);
+
+/** Dakika → ms (motor MONOTONİK ms ile çalışır). */
+const MIN_MS = 60_000;
+
+/**
+ * Teklif önceliği (`relevance`). Bu değerler ÖLÇÜLMÜŞ kabul skoru DEĞİL, ürünün
+ * BUGÜNKÜ doğrulanmış tetik SIRASIDIR — F9 sırayı değiştirmez, taşır.
+ */
+const REL = Object.freeze({
+  fuel: 0.99, door: 0.97, tpms: 0.95, visibility: 0.93, drowsy: 0.91,
+  greeting: 0.60, breakHint: 0.50, tripNote: 0.40,
+});
 
 /* ── Şablonlar (deterministik — Math.random YOK) ────────────── */
 
@@ -137,13 +198,11 @@ let _bootAtMin        = 0;
 let _greetingDone     = false;
 let _speaking         = false;          // kendi TTS'imiz uçuşta
 let _silenceStartMin  = 0;              // sessizlik penceresi başlangıcı
-let _lastSpokeAtMin   = -Infinity;      // frequency budget saati
-let _lastFuelWarnMin  = -Infinity;
-let _lastDrowsyMin    = -Infinity;
-let _lastBreakMin     = -Infinity;
-let _lastDoorWarnMin  = -Infinity;
-let _lastTpmsWarnMin  = -Infinity;
-let _lastVisLightsMin = -Infinity;
+/* MAVI-F9 · TEK DEFTER: cooldown saatleri (`_lastFuelWarnMin` · `_lastDoorWarnMin`
+   · `_lastTpmsWarnMin` · `_lastVisLightsMin` · `_lastDrowsyMin` · `_lastBreakMin`)
+   ve sıklık bütçesi saati (`_lastSpokeAtMin`) BU DOSYADAN KALDIRILDI.
+   Tek sahibi `proactivePolicyEngine`dir; burada paralel bir zaman defteri
+   tutmak "ikinci otorite" olurdu ve iki defter kaçınılmaz olarak ayrışırdı. */
 
 // Sinyal önbellekleri (abonelikler doldurur — tick içinde senkron okunur)
 let _rangeKm      = -1;                 // -1 = veri yok
@@ -163,21 +222,68 @@ function markActivity(): void {
 
 function speak(text: string): void {
   _speaking = true;
-  _lastSpokeAtMin = nowMin();
   markActivity();
   // Web yolunda onerror userOnEnd çağırmaz → emniyet zamanlayıcısı bayrağı
   // her durumda sıfırlar (asılı _speaking = sonsuza dek susmuş motor olurdu).
   if (_speakSafetyTimer) clearTimeout(_speakSafetyTimer);
-  _speakSafetyTimer = setTimeout(() => { _speaking = false; }, SPEAK_SAFETY_TIMEOUT_MS);
+  _speakSafetyTimer = setTimeout(() => {
+    _speaking = false;
+    /* MAVI-F9: teslim penceresi de kapanır — aksi hâlde çok sonra gelen bir
+       kullanıcı kesintisi ÖLÜ bir teslime "ret" olarak yazılırdı. */
+    try { endProactiveDelivery(); } catch { /* fail-soft */ }
+  }, SPEAK_SAFETY_TIMEOUT_MS);
   // Akıllı asistan cevabı: klip → online TTS → native zinciri (motorsuz ünitede de sesli)
   speakAssistant(text, () => {
     _speaking = false;
     markActivity();
+    /* Teslim bitti. Bu bir KABUL kanıtı DEĞİLDİR (kullanıcı öneriye uydu mu
+       bilmiyoruz) — yalnız kesinti penceresini kapatır. */
+    try { endProactiveDelivery(); } catch { /* fail-soft */ }
     if (_speakSafetyTimer) { clearTimeout(_speakSafetyTimer); _speakSafetyTimer = null; }
   });
 }
 
-/* ── Tick: gate zinciri + tetik önceliği ────────────────────── */
+/* ── Tick: interaction gate + TEKLİF üretimi (karar MOTORDA) ─── */
+
+/**
+ * `chattiness` → sıklık bütçesi aralığı (ms). `'az'` = bütçeli teklifler
+ * TAMAMEN kapalı → `Infinity` (motor bunu "bu sınıf konuşmaz" olarak uygular).
+ */
+function budgetGapMs(chattiness: string): number {
+  if (chattiness === 'az') return Infinity;
+  const min = BUDGET_GAP_MIN[chattiness];
+  return typeof min === 'number' ? min * MIN_MS : Infinity;
+}
+
+/** Bounded teklif kurucusu — her alan AÇIKÇA beyan edilir (sessiz varsayılan YOK). */
+function proposal(
+  sourceId: string,
+  kind: ProactiveProposal['kind'],
+  relevance: number,
+  cooldownMin: number,
+  mediaPolicy: ProactiveProposal['mediaPolicy'],
+  frequencyBudget: ProactiveProposal['frequencyBudget'],
+  text: () => string | null,
+): ProactiveProposal {
+  return Object.freeze({
+    sourceId,
+    kind,
+    relevance,
+    /* Güven 1.0: bu tekliflerin tamamı DOĞRUDAN gözlenmiş sinyalden doğar
+       (OBD gövde/basınç/menzil · yolculuk durumu · sistem saati). Türetilmiş
+       ya da tahmini bir sinyal YOKTUR — olsaydı daha düşük yazılırdı. */
+    confidence: 1,
+    /* Teklif YALNIZ bu tick geçerlidir: sonraki tick canlı durumdan yeniden
+       türetilir. Kuyruk YOK → bayat proaktif konuşma yapısal olarak imkânsız. */
+    decayAtMs: null,
+    cooldownKey: sourceId,
+    cooldownMs: cooldownMin * MIN_MS,
+    mediaPolicy,
+    frequencyBudget,
+    deliver: 'voice' as const,
+    text,
+  });
+}
 
 function tick(): void {
   try {
@@ -189,6 +295,7 @@ function tick(): void {
     if (id.personality === 'sessiz') return;
 
     const t     = nowMin();
+    const nowMs = t * MIN_MS;
     const voice = getVoiceSnapshot();
     const media = getMediaState();
     const voiceBusy = voice.status !== 'idle' || voice.followUp;
@@ -197,98 +304,107 @@ function tick(): void {
     // şimdiden başlar — "20 dk sessizlik" yalnız gerçekten sessiz kabini sayar.
     if (voiceBusy || media.playing) markActivity();
 
-    // ── Interaction Gate ──
+    // ── Interaction Gate (F9 sonrası BURADA KALAN kısım) ──
     if (MODE_RANK[useCognitiveStore.getState().currentMode] >= MODE_RANK.PROTECTION) return;
     if (isVoicePaused()) return;
-    if (voiceBusy || _speaking) return;
 
     const isNight = interpretTimeOfDay(new Date().getHours()) === 'gece';
+    const S = COMPANION_PROACTIVE_SOURCES;
+    const proposals: ProactiveProposal[] = [];
 
-    // ── 1. Yakıt menzili < 50 km (GÜVENLİK — medya çalarken bile, duck'lı) ──
-    if (_rangeKm >= 0 && _rangeKm < FUEL_CRITICAL_RANGE_KM &&
-        t - _lastFuelWarnMin >= FUEL_WARN_COOLDOWN_MIN) {
-      const line = interpretRange(_rangeKm);
-      if (line) {
-        _lastFuelWarnMin = t;
-        speak(line);
-        return;
-      }
+    /* ── GÜVENLİK TEKLİFLERİ ──────────────────────────────────────────────
+     * Sınıf `safety`: iş yükünden, presence'tan, sıklık bütçesinden, saatlik
+     * tavandan ve öğrenilmiş bastırmadan BAĞIMSIZ (`PROACTIVE_CLASS_RULES`).
+     * Tek frenleri kendi cooldown'larıdır. */
+
+    // 1 — Yakıt menzili < 50 km: medya çalarken bile konuşur (duck ttsService işi).
+    if (_rangeKm >= 0 && _rangeKm < FUEL_CRITICAL_RANGE_KM) {
+      proposals.push(proposal(S.fuel, 'safety', REL.fuel, FUEL_WARN_COOLDOWN_MIN,
+        'INTERRUPTS_MEDIA', 'EXEMPT', () => interpretRange(_rangeKm)));
     }
 
-    // ── 1b. Kapı/bagaj açık + araç SEYİR HÂLİNDE (GÜVENLİK — medyayı da keser) ──
-    //     Park hâlinde (trip yok) uyarmaz: yükleme yaparken "kapı açık" demek
-    //     rahatsız eder. Trip aktif = araç sürülüyor → açık kapı gerçek tehlike.
-    if (_tripActive && t - _lastDoorWarnMin >= DOOR_WARN_COOLDOWN_MIN) {
-      const line = interpretDoorAjar(_doors);
-      if (line) {
-        _lastDoorWarnMin = t;
-        speak(line);
-        return;
-      }
+    /* 2 — Kapı/bagaj açık + araç SEYİR HÂLİNDE. Park hâlinde (trip yok)
+     *     uyarmaz: yükleme yaparken "kapı açık" demek rahatsız eder. */
+    if (_tripActive) {
+      proposals.push(proposal(S.door, 'safety', REL.door, DOOR_WARN_COOLDOWN_MIN,
+        'INTERRUPTS_MEDIA', 'EXEMPT', () => interpretDoorAjar(_doors)));
     }
 
-    // Medya prominent (çalıyor): müzik/video kesilmez — gerisi duraklara kalır.
-    if (media.playing) return;
+    // 3 — Lastik basıncı düşük (kalıcı durum → seyrek). Medyayı KESMEZ.
+    proposals.push(proposal(S.tpms, 'safety', REL.tpms, TPMS_WARN_COOLDOWN_MIN,
+      'DEFERS_TO_MEDIA', 'EXEMPT', () => interpretTirePressure(_tpms)));
 
-    // ── 1c. Lastik basıncı düşük (GÜVENLİK — kalıcı durum, bütçeden bağımsız) ──
-    if (t - _lastTpmsWarnMin >= TPMS_WARN_COOLDOWN_MIN) {
-      const line = interpretTirePressure(_tpms);
-      if (line) {
-        _lastTpmsWarnMin = t;
-        speak(line);
-        return;
-      }
+    /* 4 — Bağlam köprüsü: görünürlük düşüren havada (yağmur/kar/sis) farların
+     *     kapalı/bilinmiyor olması → nazik far sorusu. Yalnız seyirde anlamlı. */
+    if (_tripActive) {
+      proposals.push(proposal(S.visibility, 'safety', REL.visibility, VIS_LIGHTS_COOLDOWN_MIN,
+        'DEFERS_TO_MEDIA', 'EXEMPT', () => interpretVisibilityLights(_weatherCode, _headlights)));
     }
 
-    // ── 1d. Bağlam köprüsü: kötü hava + far hatırlatması (seyir hâlinde) ──
-    //     Görünürlük düşüren havada (yağmur/kar/sis) farların kapalı/bilinmiyor
-    //     olması → nazik far sorusu. Yalnız sürüşte anlamlı; bütçeden bağımsız.
-    if (_tripActive && t - _lastVisLightsMin >= VIS_LIGHTS_COOLDOWN_MIN) {
-      const line = interpretVisibilityLights(_weatherCode, _headlights);
-      if (line) {
-        _lastVisLightsMin = t;
-        speak(line);
-        return;
-      }
+    // 5 — Uyku önleme: gece + sürüş + uzun sessizlik → açık uçlu soru.
+    if (isNight && _tripActive && _tripMin >= DROWSY_MIN_TRIP_MIN
+        && t - _silenceStartMin >= DROWSY_SILENCE_MIN) {
+      proposals.push(proposal(S.drowsy, 'safety', REL.drowsy, DROWSY_COOLDOWN_MIN,
+        'DEFERS_TO_MEDIA', 'EXEMPT', () => drowsyQuestion(id.userCallsign)));
     }
 
-    // ── 2. Uyku önleme (GÜVENLİK): gece + sürüş + uzun sessizlik ──
-    if (isNight && _tripActive && _tripMin >= DROWSY_MIN_TRIP_MIN &&
-        t - _silenceStartMin >= DROWSY_SILENCE_MIN &&
-        t - _lastDrowsyMin >= DROWSY_COOLDOWN_MIN) {
-      _lastDrowsyMin = t;
-      speak(drowsyQuestion(id.userCallsign));
-      return;
+    /* ── SOHBET TEKLİFLERİ ────────────────────────────────────────────────
+     * Sınıf `social`: iş yükü tavanı NORMAL (ELEVATED ve üstünde SUSAR — F8
+     * `allowProactiveChatter` kapısının SINIF karşılığı), presence gerektirir
+     * ve (selamlama hariç) sıklık bütçesine tabidir. */
+
+    // 6 — Kontak/boot selamlaması: oturumda 1, ilk dakikalar, bütçeden MUAF.
+    const greetingWindowOpen = t - _bootAtMin <= GREETING_WINDOW_MIN;
+    if (!_greetingDone && greetingWindowOpen) {
+      proposals.push(proposal(S.greeting, 'social', REL.greeting, 0,
+        'DEFERS_TO_MEDIA', 'EXEMPT',
+        () => greetingLine(id.userCallsign, new Date().getHours())));
     }
 
-    // ── 3. Kontak/boot selamlaması (oturumda 1, ilk dakikalar) ──
-    if (!_greetingDone) {
-      if (t - _bootAtMin <= GREETING_WINDOW_MIN) {
-        _greetingDone = true;
-        speak(greetingLine(id.userCallsign, new Date().getHours()));
-        return;
-      }
-      _greetingDone = true; // pencere kaçtı (gate'ler doluydu) — sonradan selamlama tuhaf olur
+    // 7 — Mola önerisi (sürüş > breakReminderIntervalMin).
+    if (_tripActive) {
+      proposals.push(proposal(S.breakHint, 'social', REL.breakHint, BREAK_REPEAT_GAP_MIN,
+        'DEFERS_TO_MEDIA', 'SUBJECT',
+        () => interpretBreakNeed(_tripMin, settings.breakReminderIntervalMin)));
     }
 
-    // ── Frequency budget: 'az' = yalnız güvenlik; diğerleri aralığa tabi ──
-    if (id.chattiness === 'az') return;
-    if (t - _lastSpokeAtMin < (BUDGET_GAP_MIN[id.chattiness] ?? 45)) return;
-
-    // ── 4. Mola önerisi (sürüş > breakReminderIntervalMin) ──
-    if (_tripActive && t - _lastBreakMin >= BREAK_REPEAT_GAP_MIN) {
-      const line = interpretBreakNeed(_tripMin, settings.breakReminderIntervalMin);
-      if (line) {
-        _lastBreakMin = t;
-        speak(line);
-        return;
-      }
-    }
-
-    // ── 5. Küçük yolculuk yorumu (yalnız 'sik') ──
+    // 8 — Küçük yolculuk yorumu (yalnız 'sik').
     if (id.chattiness === 'sik' && _tripActive && _tripMin >= TRIP_COMMENT_MIN_TRIP) {
-      const line = interpretTripDuration(_tripMin, _tripKm);
-      if (line) speak(line);
+      proposals.push(proposal(S.tripNote, 'social', REL.tripNote, 0,
+        'DEFERS_TO_MEDIA', 'SUBJECT', () => interpretTripDuration(_tripMin, _tripKm)));
+    }
+
+    /* ── KARAR: MOTORDA ───────────────────────────────────────────────────
+     * Bu dosya hangi teklifin konuşacağına KARAR VERMEZ. Motor TEK KONU
+     * kuralını uygular; kazanan dışındaki her teklif DÜŞER (kuyruk YOK). */
+    const decision = evaluateProactiveProposals(proposals, {
+      nowMs,
+      workload: currentMaviWorkload(nowMs).level,
+      presenceEnabled: settings.companionEnabled === true,
+      chattinessGapMs: budgetGapMs(id.chattiness),
+      mediaProminent: media.playing === true,
+      turnBusy: voiceBusy || _speaking,
+    });
+
+    /* F8 sayacı KORUNUR: bir sohbet teklifi İŞ YÜKÜ yüzünden düştüyse tick
+       başına bir kez sayılır (F8 LAB satırı ve testleri bu sayaca bakar). */
+    if (decision.drops.some((d) => d.reason === 'workload')) {
+      try { noteProactiveSuppressed(); } catch { /* fail-soft */ }
+    }
+
+    if (decision.admitted && decision.text) speak(decision.text);
+
+    /* Selamlama defteri (mevcut davranış birebir): pencere KAÇTIYSA ve bu
+       tick'te selamlamanın SIRASI GERÇEKTEN GELDİYSE (sohbet sınıfı kapıları
+       açık · medya susuyor · daha yüksek öncelikli bir güvenlik uyarısı
+       konuşmadı) selamlama bir daha DENENMEZ — sonradan selamlamak tuhaf olur. */
+    if (decision.sourceId === S.greeting) {
+      _greetingDone = true;
+    } else if (!_greetingDone && !greetingWindowOpen
+        && !media.playing
+        && decision.admissibleKinds.includes('social')
+        && decision.kind !== 'safety') {
+      _greetingDone = true;
     }
   } catch { /* proaktif motor hiçbir koşulda uygulamayı çökertmez */ }
 }
@@ -357,13 +473,10 @@ export function _resetCompanionEngineForTest(): void {
   _silenceStartMin = _bootAtMin;
   _greetingDone    = false;
   _speaking        = false;
-  _lastSpokeAtMin  = -Infinity;
-  _lastFuelWarnMin = -Infinity;
-  _lastDrowsyMin   = -Infinity;
-  _lastBreakMin    = -Infinity;
-  _lastDoorWarnMin = -Infinity;
-  _lastTpmsWarnMin = -Infinity;
-  _lastVisLightsMin = -Infinity;
+  /* MAVI-F9: cooldown/bütçe defteri artık MOTORDA — testler arası izolasyon
+     için o defter de sıfırlanır (aksi hâlde bir testin cooldown'ı sonrakini
+     sessizce susturur ve sahte yeşil üretirdi). */
+  _resetProactivePolicyForTest();
   _drowsyVariant   = 0;
   _rangeKm    = -1;
   _tripActive = false;

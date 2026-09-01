@@ -384,6 +384,22 @@ export interface RecoveryFieldsInput {
     readonly lastReason: string | null;
     readonly lastReconnectAt: number;
     readonly lastOutcome: string;
+    /* ── P0-OBD-CORE-06 · connect otoritesi (tek-uçuş kapısının kanıtı) ────── */
+    readonly connectInFlight: boolean;
+    readonly connectAttemptsStarted: number;
+    readonly connectBusyRejections: number;
+    readonly connectPreemptions: number;
+    readonly reconnectYieldedToRecovery: number;
+    readonly lastNativeFailureClass: string | null;
+    /* ── P0-OBD-FINAL-01 · NATIVE RECONNECT OTORİTESİ ─────────────────────── */
+    readonly nativeReconnectEpoch: number | null;
+    readonly nativeReconnectInFlight: boolean;
+    readonly nativeReconnectRounds: number;
+    readonly nativeReconnectRecovered: number;
+    readonly nativeReconnectFailed: number;
+    readonly nativeReconnectGuardTimeouts: number;
+    readonly nativeReconnectLastOutcome: string | null;
+    readonly nativeReconnectLastDurationMs: number | null;
   } | null;
   readonly linkLoss: {
     readonly total: number;
@@ -538,6 +554,82 @@ export function buildReconnectFields(input: RecoveryFieldsInput): readonly Inspe
           note: 'Enum — PII taşımaz.',
           updatedAt: r.lastReconnectAt > 0 ? r.lastReconnectAt : null,
         }, r.lastReason),
+
+    /* ── P0-OBD-CORE-06 · CONNECT OTORİTESİ ───────────────────────────
+     * Sahada "17 başarısız deneme" sayılıyordu ama bu denemelerin kaçının
+     * BİZDEN (çift otorite) kaçının ARAÇTAN geldiği ÖLÇÜLEMİYORDU. Bu üç
+     * satır ayırımı kanıtlar: başlatılan · kapıda reddedilen · öne geçirilen. */
+    observed({
+      id: 'rc-connect-authority', label: 'Connect otoritesi (başlatılan / kapıda / preempt)',
+      source: SRC_RECONN,
+      note: 'Tek-uçuş kapısı. "Kapıda" > 0 → ikinci bir otorite denedi ve '
+          + 'ÖNLENDİ (eskiden bu istek gerçek bir soket açıp birincisini düşürüyordu).',
+    }, `${r.connectAttemptsStarted} / ${r.connectBusyRejections} / ${r.connectPreemptions}`),
+    observed({
+      id: 'rc-connect-inflight', label: 'Connect uçuşta', source: SRC_RECONN,
+      note: 'Uçuşta deneme varken foreground-resume, merdiven ve derin döngü '
+          + 'yeni deneme BAŞLATMAZ.',
+    }, r.connectInFlight ? 'EVET' : 'HAYIR'),
+    observed({
+      id: 'rc-recovery-yield', label: 'Kurtarmaya ertelenen tetik', source: SRC_RECONN,
+      note: 'Transport reconnect ile ECU oturum kurtarması artık çakışmaz; tetik '
+          + 'iptal EDİLMEZ, kısa süre geri çekilir.',
+    }, r.reconnectYieldedToRecovery),
+    /* ══════════════════════════════════════════════════════════════════
+       P0-OBD-FINAL-01 · ÖNCELİK 1 — NATIVE RECONNECT OTORİTESİ.
+       ══════════════════════════════════════════════════════════════════
+       Sahadaki "aynı oturumda tekrar tekrar 60 s timeout" iddiası bu dört
+       satırla DOĞRULANIR ya da ÇÜRÜTÜLÜR. Kritik alan `guardTimeouts`:
+       fail-safe zamanlayıcısı ARTIK normal yol DEĞİLDİR; ateşlenmesi
+       terminal olayın yine kaybolduğunu gösterir. */
+    observed({
+      id: 'rc-native-rounds', label: 'Native reconnect (tur / başarı / başarısız)',
+      source: SRC_RECONN,
+      note: 'Native turun SONU artık açık bir olaydır; başarısızlık da bildirilir '
+          + '(eskiden yutuluyordu → otorite 60 s askıda kalıyordu).',
+    }, `${r.nativeReconnectRounds} / ${r.nativeReconnectRecovered} / ${r.nativeReconnectFailed}`),
+    r.nativeReconnectGuardTimeouts > 0
+      ? derived({
+          id: 'rc-native-guard', label: 'FAIL-SAFE zamanlayıcı ateşlemesi', source: SRC_RECONN,
+          note: 'KUSUR SINYALI: native turun sonucu TS tarafina HIC ulasmadi ve otorite '
+              + '60 s askıda kaldı. Saha kabul ölçütü bu değerin 0 olmasıdır.',
+        }, r.nativeReconnectGuardTimeouts)
+      : observed({
+          id: 'rc-native-guard', label: 'FAIL-SAFE zamanlayıcı ateşlemesi', source: SRC_RECONN,
+          note: 'Beklenen değer 0 — her tur açık bir sonuçla kapandı.',
+        }, 0),
+    r.nativeReconnectEpoch === null
+      ? unavailable({
+          id: 'rc-native-epoch', label: 'Native tur kimliği', source: SRC_RECONN,
+          note: '',
+        }, 'Köprü tur kimliği taşımıyor (eski APK) — eşleştirme SIRAYA düşer.')
+      : observed({
+          id: 'rc-native-epoch', label: 'Native tur kimliği', source: SRC_RECONN,
+          note: '"reconnecting" ile sonucu eşleştiren tek güvenilir anahtar '
+              + '(LIFO eşleştirme artefaktı #596).',
+        }, r.nativeReconnectEpoch),
+    r.nativeReconnectLastOutcome === null
+      ? unavailable({
+          id: 'rc-native-last', label: 'Son native tur sonucu', source: SRC_RECONN,
+          note: '',
+        }, 'Bu oturumda native reconnect turu açılmadı.')
+      : observed({
+          id: 'rc-native-last', label: 'Son native tur sonucu', source: SRC_RECONN,
+          note: 'Otorite su an ' + (r.nativeReconnectInFlight ? 'NATIVE tarafinda.' : 'TS tarafinda.'),
+        }, r.nativeReconnectLastDurationMs === null
+            ? r.nativeReconnectLastOutcome
+            : `${r.nativeReconnectLastOutcome} (${r.nativeReconnectLastDurationMs} ms)`),
+
+    r.lastNativeFailureClass === null
+      ? unavailable({
+          id: 'rc-native-failclass', label: 'Native hata sınıfı', source: SRC_RECONN,
+          note: '',
+        }, 'Bu oturumda native bir bağlantı hatası bildirilmedi.')
+      : observed({
+          id: 'rc-native-failclass', label: 'Native hata sınıfı', source: SRC_RECONN,
+          note: "İstisnanın SINIFINDAN türetilir — hata MESAJINDAN değil. "
+              + "Mesaj null geldiğinde eskiden neden UNKNOWN'a düşüyordu.",
+        }, r.lastNativeFailureClass),
   ];
 }
 

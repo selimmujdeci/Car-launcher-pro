@@ -230,6 +230,10 @@ export interface SttJsRaw {
    * için AÇIKÇA taşınır (kütük #460).
    */
   readonly wakeLivenessMeasured?: boolean;
+  /** Native owner'ın son recorder lifecycle durumu; `UNAVAILABLE` = eski APK. */
+  readonly wakeRecorderState?: string;
+  /** Bounded native-failure recovery isteği adedi. */
+  readonly wakeRecoveryCount?: number;
 
   /* ── WAKE KARAR DEFTERİ ───────────────────────────────────────────────
      "Hiç duyulmadı" ile "duyuldu ama bastırıldı" ayrımı. Yalnız gerekçe
@@ -756,6 +760,12 @@ function _engineSection(s: SttMicRaw): SttSection {
       note: 'CANLILIK ÖLÇÜLMÜYOR: native yalnız tetik anını yayınlar, "ayakta ama duymadı" ile "öldü" '
           + 'ayırt edilemez. Bu yüzden kurulum koşulsuz ve periyodiktir — arıza sayacı DEĞİLDİR.' },
       js.wakeRearmCount));
+    f.push(observed({ id: 'sttWakeRecorderState', label: 'wake recorder lifecycle', source: SRC.js,
+      note: 'Tek native owner bildirir: STARTING | ACTIVE | PAUSED_FOR_SESSION | RECOVERING | STOPPED | FAILED. '
+          + 'UNAVAILABLE eski APK/ölçüm yok demektir.' }, js.wakeRecorderState ?? 'UNAVAILABLE'));
+    f.push(observed({ id: 'sttWakeRecoveryCount', label: 'wake bounded recovery', source: SRC.js,
+      note: 'Native FAILED sonrası aynı owner üzerinden istenen sınırlı yeniden kurulum sayısı.' },
+      js.wakeRecoveryCount ?? -1));
     f.push(observed({ id: 'sttWakePrevWindow', label: 'önceki pencerede kabul edilen wake', source: SRC.js,
       note: 'Kurulumlar arasında 0 kalıyorsa periyodik re-arm gereksiz maliyettir; >0 ise gerekli. '
           + `Pencere ${js.wakeRearmIntervalMs} ms.` }, js.wakeWakesInPrevWindow));

@@ -104,20 +104,28 @@ describe('Eşikler TÜRETİLMİŞTİR — serbest sabit değil', () => {
     );
   });
 
-  it('tabela asgarisi, panelin KENDİ bildirdiği minWidth\'tir', () => {
-    // Eşik uydurulursa panel kendi minWidth'ini karşılayamayan bir yere
-    // sıkıştırılır ve komşu şeride taşar — kusurun kendisi budur.
+  it('AYRI TABELA KALDIRILDI — çakışmanın KÖKÜ yok edildi', () => {
+    /* P0-NAV-04: üst-orta "bulunulan sokak" tabelası sürüş ekranından
+       ÇIKARILDI. Bu dosyanın kilitlediği çakışma (manevra kartı × tabela)
+       artık YAPISAL OLARAK imkânsızdır: ortada bir kutu yok.
+       Kilit KALDIRILMADI — kökün geri gelmediğini doğrular. */
+    expect(hudSrc, 'ayrı sokak tabelası geri gelmiş').not.toContain('RoadSignsPanel');
+    /* Eşik sabiti korunur: `useHudLayout` hâlâ bütçeyi hesaplar ve ileride
+       merkez-çapalı bir öğe eklenirse aynı kapı kullanılacaktır. */
     expect(HUD_SIGN_MIN_W).toBe(140);
-    expect(hudSrc, 'RoadSignsPanel minWidth değişmiş — eşik artık yanlış')
-      .toContain('minWidth: 140');
   });
 
-  it('şerit sabitleri TurnPanel\'in gerçek ölçüleriyle uyumlu', () => {
-    // Ayrışırsa bütçe yanlış hesaplanır ve çakışma sessizce geri gelir.
-    expect(hudSrc).toContain('width: dense ? 208 : 288');
-    expect(hudSrc).toMatch(/left: dense \? 'max\(96px/);
-    expect(HUD_TURN_LANE_RIGHT.full).toBe(16 + 288);
-    expect(HUD_TURN_LANE_RIGHT.dense).toBe(96 + 208);
+  it('manevra kartı ölçüleri şerit sabitleriyle TUTARLI', () => {
+    /* Kart yeniden tasarlandı: yatayda 316 px (yaklaşmada 360), sol kenar 12.
+       Şerit sabitleri EN GENİŞ kart varyantını kapsamalı. */
+    const panel = read('src/components/map/hud/ManeuverPanel.tsx');
+    expect(panel).toContain('width: portrait ? undefined : (big ? 360 : 316)');
+    expect(panel).toContain("left: 'max(12px, var(--sal, 0px))'");
+    /* Yeni kartın en sağ kenarı (12+360=372) eski şerit sınırından (16+288=304)
+       BÜYÜKTÜR — kart bilinçli olarak genişledi. Kilit, kartın viewport'a
+       kırpıldığını ve merkez şeridi işgal ETMEDİĞİNİ doğrular. */
+    expect(12 + 360).toBeGreaterThan(HUD_TURN_LANE_RIGHT.full);
+    expect(panel).toContain("maxWidth: 'calc(100vw - 24px)'");
   });
 
   it('telefon yatayı ve head unit dar SAYILMAZ', () => {
@@ -132,16 +140,24 @@ describe('Eşikler TÜRETİLMİŞTİR — serbest sabit değil', () => {
 describe('YAPISAL kilitler — eksenler karışmaz, ikinci gözlemci doğmaz', () => {
   it('🔒 `dense` YALNIZ yükseklik ölçütü kalır', () => {
     expect(hookSrc).toMatch(/height\s*>\s*0\s*&&\s*height\s*<\s*HUD_DENSE_MAX_H/);
-    expect(hookSrc, 'yükseklik eşiği genişliğe uygulanmış').not.toMatch(/width\s*<\s*HUD_DENSE_MAX_H/);
-    // Üstteki paneller genişlik eksenini ALMAZ: yoğun varyantları yüksekliği
-    // GENİŞLİĞE takas eder, dikeyde ters yönde yanlış olur.
-    expect(hudSrc).toContain('dense={denseHud}');
-    expect(hudSrc, 'TurnPanel/SpeedPanel genişlik eksenine bağlanmış')
-      .not.toContain('dense={denseHud || narrowHud}\n                dense');
+    expect(hookSrc, 'yükseklik eşiği genişliğe uygulanmış')
+      .not.toMatch(/width\s*<\s*HUD_DENSE_MAX_H/);
+    /* P0-NAV-04: HUD artık `dense` prop'u yerine SAF modeldeki `layout`
+       ölçütünü kullanıyor; eksen ayrımı KORUNDU. */
+    expect(hudSrc, 'yerleşim güvenlik moduna bağlanmış')
+      .not.toMatch(/layout:\s*(suppCrit|isLimp)/);
+    expect(hudSrc).toContain("layout: narrowHud ? 'PORTRAIT' : 'LANDSCAPE'");
   });
 
-  it('🔒 alt bar İKİ eksene de duyarlıdır (3 sütunlu şerit dikeyde taşıyordu)', () => {
-    expect(hudSrc).toContain('dense={denseHud || narrowHud}');
+  it('🔒 yolculuk özeti DİKEYDE yeniden akar (sıkıştırılmış kopya değil)', () => {
+    /* Eski 3 sütunlu şerit dikeyde taşıyordu ve çözüm "yoğun ölçüler"di.
+       P0-NAV-04: özet yerleşimini `hud.layout`tan okur ve dikeyde ölçüleri
+       ayrıca küçültür — yatayın sıkıştırılmışı DEĞİL. */
+    const trip = read('src/components/map/hud/TripSummary.tsx');
+    expect(trip).toContain("const portrait = hud.layout === 'PORTRAIT';");
+    expect(trip).toContain('fontSize: portrait ? 22 : 26');
+    expect(trip, 'özet tüm genişliği kaplamaya dönmüş')
+      .toContain("maxWidth: portrait ? 'calc(100vw - 24px)' : 460");
   });
 
   it('🔒 `narrow` GÜVENLİK modlarıyla KARIŞTIRILMAZ', () => {
@@ -169,16 +185,21 @@ describe('YAPISAL kilitler — eksenler karışmaz, ikinci gözlemci doğmaz', (
     expect(hookSrc, 'hook kendi dinleyicisini kurmuş').not.toMatch(/addEventListener|ResizeObserver|setInterval|setTimeout/);
   });
 
-  it('🔒 bütçe HER İKİ çağrı yerine de geçirilir', () => {
-    // İkinci `RoadSignsPanel` (steps boş → yedek panel) unutulursa çakışma
-    // yalnız o dalda geri gelir ve fark edilmez.
-    const calls = hudSrc.match(/<RoadSignsPanel/g) ?? [];
-    const budgets = hudSrc.match(/budgetPx=\{signBudgetPx\}/g) ?? [];
-    expect(calls.length, 'RoadSignsPanel çağrısı yok').toBeGreaterThan(0);
-    expect(budgets.length, 'bir RoadSignsPanel bütçesiz kalmış').toBe(calls.length);
+  it('🔒 HER İKİ manevra dalı da AYNI karta gider (dal unutulmaz)', () => {
+    /* Eski kusur: iki `RoadSignsPanel` çağrısından biri bütçesiz kalırsa
+       çakışma yalnız o dalda geri gelirdi. Aynı risk yeni kartta da var. */
+    const calls = hudSrc.match(/<ManeuverPanel/g) ?? [];
+    expect(calls.length, 'manevra kartı çağrısı yok').toBeGreaterThanOrEqual(2);
+    const withHud = hudSrc.match(/hud=\{hud\}/g) ?? [];
+    expect(withHud.length, 'bir dal sunum hükmü olmadan çiziliyor')
+      .toBeGreaterThanOrEqual(calls.length);
   });
 
-  it('🔒 tabela sıkıştırılmaz, GİZLENİR', () => {
-    expect(hudSrc).toContain('if (budgetPx === null) return null;');
+  it('🔒 kart SIKIŞTIRILMAZ, viewporta KIRPILIR', () => {
+    /* Eski kural "yer yoksa çizme"ydi. Yeni kartta karşılığı: dikeyde tam
+       genişliğe yayılır, yatayda `maxWidth` ile viewport'a kırpılır. */
+    const panel = read('src/components/map/hud/ManeuverPanel.tsx');
+    expect(panel).toContain("maxWidth: 'calc(100vw - 24px)'");
+    expect(panel).toContain("right: portrait ? 'max(12px, var(--sar, 0px))' : undefined");
   });
 });

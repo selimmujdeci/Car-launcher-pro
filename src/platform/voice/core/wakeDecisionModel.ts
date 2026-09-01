@@ -63,6 +63,13 @@ export type WakeDecisionReason =
   | 'SUPPRESSED_FOLLOWUP'
   /** Selamlama/echo penceresi (4 sn). `now - _lastWakeAcceptedAt`. */
   | 'SUPPRESSED_DEBOUNCE'
+  /**
+   * MAVI-F12 · SELF-ECHO: Mavi'nin KENDİ sözü seslendirilirken gelen tetik,
+   * echo koruması KANITLANMAMIŞ bir yakalama yolundan geldi → kullanıcı sesi
+   * sayılmaz. Bu JS'te görülebilen bir karardır (`isTtsSpeaking()` + uçuştaki
+   * sözün taşıma yolu), native dilim değildir.
+   */
+  | 'SUPPRESSED_SELF_ECHO'
   /** Vosk modeli hazır değil → native wake HİÇ kurulmadı. `enableWakeWord` else dalı. */
   | 'NOT_EVALUATED_MODEL_NOT_READY';
 
@@ -78,7 +85,7 @@ export type WakePath =
 export const WAKE_DECISION_REASONS: readonly WakeDecisionReason[] = [
   'ACCEPTED', 'ACCEPTED_NO_INTENT', 'REJECTED_TOKEN',
   'SUPPRESSED_PAUSED', 'SUPPRESSED_VOICE_ACTIVE', 'SUPPRESSED_FOLLOWUP',
-  'SUPPRESSED_DEBOUNCE', 'NOT_EVALUATED_MODEL_NOT_READY',
+  'SUPPRESSED_DEBOUNCE', 'SUPPRESSED_SELF_ECHO', 'NOT_EVALUATED_MODEL_NOT_READY',
 ] as const;
 
 /** Halka kapasitesi — FIFO. Bellek sözleşmesi: sınırsız büyüme YOK. */

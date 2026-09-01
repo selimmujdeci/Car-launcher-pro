@@ -16,6 +16,7 @@ import {
   classifyLinkLoss, appendLinkLoss, attachRecovery, noteRecovery,
   summarizeLinkLosses,
   LINK_LOSS_RING, LINK_LOSS_BROWNOUT_V, LINK_LOSS_FAST_RECOVERY_MS,
+  LINK_LOSS_VOLTAGE_FRESH_MS, classifyVoltageFreshness,
   type LinkLossSample, type LinkLossTrigger,
 } from '../platform/obd/linkLossLedger';
 
@@ -27,6 +28,9 @@ function sample(over: Partial<LinkLossSample> = {}): LinkLossSample {
     linkPacketAgeMs: 47_000,      // saha: 47 s boyunca hiç paket
     ecuDataAgeMs: 47_500,
     adapterVoltageV: 14.1,
+    /* C — voltajın OKUNDUĞU an. Damgasız voltaj artık kanıt SAYILMAZ; bu fixture
+       "ATRV kopma anında gerçekten okundu" senaryosunu temsil eder. */
+    adapterVoltageObservedAt: 1_000,
     everHadEcuData: true,
     transport: 'classic',
     protocolActive: '6',
@@ -59,6 +63,56 @@ describe('#536 · kopma imzası → aday', () => {
     const r = classifyLinkLoss(sample({ adapterVoltageV: null }));
     expect(r.adapterVoltageV).toBeNull();
     expect(r.evidenceGap).toContain('ADAPTER_VOLTAGE');
+  });
+
+  /* ── C · VOLTAJ TAZELİĞİ (saha 2026-08-30 · CAROS LAB TAM KOPYA) ──────────
+     Kopma defterinde `"hiç paket yok (ATRV dahil)"` diyen kayıt 12,6 V taşıyordu
+     ve `evidenceGap` bunu boşluk SAYMIYORDU — bayat sayı canlı kanıt gibi
+     görünüyordu. Aşağıdaki üç kilit o durumu kapatır. */
+
+  it('🔒 C · BAYAT voltaj kanıt sayılmaz; ham değer KAYITTA KALIR', () => {
+    const r = classifyLinkLoss(sample({
+      atMs: 100_000,
+      adapterVoltageV: LINK_LOSS_BROWNOUT_V - 0.5,        // brownout bandı
+      adapterVoltageObservedAt: 100_000 - LINK_LOSS_VOLTAGE_FRESH_MS - 1,
+    }));
+    expect(r.voltageFreshness).toBe('STALE');
+    expect(r.adapterVoltageV).toBe(LINK_LOSS_BROWNOUT_V - 0.5);   // kanıt SİLİNMEZ
+    expect(r.evidenceGap).toContain('ADAPTER_VOLTAGE');
+    /* Bayat brownout okuması ADAPTER_UNREACHABLE hükmü ÜRETEMEZ. */
+    expect(r.candidate).not.toBe('ADAPTER_UNREACHABLE');
+    expect(r.note).toContain('BAYAT');
+  });
+
+  it('🔒 C · ÖLÇÜM ANI BİLİNMEYEN voltaj kanıt sayılmaz (saha imzası)', () => {
+    const r = classifyLinkLoss(sample({
+      adapterVoltageV: 12.6,
+      adapterVoltageObservedAt: null,       // damga yok — sahadaki tam durum
+    }));
+    expect(r.voltageFreshness).toBe('UNKNOWN');
+    expect(r.voltageAgeMs).toBeNull();
+    expect(r.evidenceGap).toContain('ADAPTER_VOLTAGE');
+    expect(r.note).toContain('ÖLÇÜM ANI BİLİNMİYOR');
+  });
+
+  it('🔒 C · TAZE voltaj kanıt sayılır ve boşluk AÇILMAZ', () => {
+    const r = classifyLinkLoss(sample({
+      atMs: 100_000,
+      adapterVoltageV: LINK_LOSS_BROWNOUT_V - 0.5,
+      adapterVoltageObservedAt: 100_000 - 1_000,
+    }));
+    expect(r.voltageFreshness).toBe('FRESH');
+    expect(r.voltageAgeMs).toBe(1_000);
+    expect(r.evidenceGap).not.toContain('ADAPTER_VOLTAGE');
+    expect(r.candidate).toBe('ADAPTER_UNREACHABLE');    // taze brownout → hüküm ÜRETİR
+  });
+
+  it('🔒 C · tazelik sınıflandırıcısı SAF (kendi saatini okumaz)', () => {
+    expect(classifyVoltageFreshness(1_000, null).freshness).toBe('UNKNOWN');
+    expect(classifyVoltageFreshness(1_000, 0).freshness).toBe('UNKNOWN');
+    expect(classifyVoltageFreshness(5_000, 4_000)).toEqual({ freshness: 'FRESH', ageMs: 1_000 });
+    /* Saat sıçraması: negatif yaş üretilmez. */
+    expect(classifyVoltageFreshness(1_000, 9_000).ageMs).toBe(0);
   });
 
   it('🔒 timeout AŞAMASI adayı ayırır', () => {

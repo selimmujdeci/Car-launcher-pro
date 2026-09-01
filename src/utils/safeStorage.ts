@@ -33,8 +33,15 @@
  */
 
 import { Filesystem, Directory, Encoding } from '@capacitor/filesystem';
+/* ARCH-06/F1 — T0 sayaç. Debounce/idle/dayanıklılık semantiği DEĞİŞMEDİ;
+   yalnız "kaç istek, kaç flush, kaç büyük yazım" sayılır. Anahtar DEĞERİ
+   ve kullanıcı içeriği sayaca GİRMEZ. */
+import { bumpPerf } from '../platform/perf/perfCounters';
 import { Capacitor } from '@capacitor/core';
 import type { StateStorage } from 'zustand/middleware';
+import {
+  beginStorageWrite, markStorageWriteStage, completeStorageWrite,
+} from './safeStorageWriteEvidence';
 
 /* ── Platform ────────────────────────────────────────────────── */
 
@@ -51,6 +58,30 @@ const _fpt = (key: string) => `${FS_SUB}/${key}.json.tmp`;
 
 const _fsCache    = new Map<string, string>();
 let   _fsCacheReady = false;
+
+/**
+ * Salt-okunur persistence altyapısı tanısı. Bu bir yazılabilirlik probe'u
+ * değildir: yazma denemesi yapmadan quota/disk sağlığı iddia edilemez.
+ */
+export function getSafeStorageDiagnostics(): Readonly<{
+  platform: 'NATIVE_FILESYSTEM' | 'WEB_STORAGE';
+  nativeCacheHydrated: boolean | null;
+  readable: boolean | null;
+  writable: 'UNKNOWN';
+  observedAt: null;
+  provenance: readonly string[];
+}> {
+  let readable: boolean | null = null;
+  try { readable = typeof localStorage !== 'undefined'; } catch { readable = false; }
+  return Object.freeze({
+    platform: NATIVE ? 'NATIVE_FILESYSTEM' : 'WEB_STORAGE',
+    nativeCacheHydrated: NATIVE ? _fsCacheReady : null,
+    readable,
+    writable: 'UNKNOWN',
+    observedAt: null,
+    provenance: Object.freeze(['safeStorage.NATIVE', 'safeStorage._fsCacheReady', 'localStorage availability']),
+  });
+}
 
 /* ── LRU eviction sırası ─────────────────────────────────────── */
 
@@ -221,7 +252,7 @@ export function safeLruEvict(): number {
  *      "disk okunabilir + tutarlı" garantisi verir (OS-level telafi).
  *   6. _fsCache'i güncelle (verify başarısına bağlı)
  */
-async function _fsWriteAtomic(key: string, value: string): Promise<void> {
+async function _fsWriteAtomic(key: string, value: string, writeId = -1): Promise<void> {
   const finalPath = _fp(key);
   const tmpPath   = _fpt(key);
 
@@ -233,12 +264,14 @@ async function _fsWriteAtomic(key: string, value: string): Promise<void> {
     encoding:  Encoding.UTF8,
     recursive: true,
   });
+  _stage(writeId, 'tempWriteCompleted');
 
   // 2. Doğrula: stat ile boyut > 0 kontrolü
   const stat = await Filesystem.stat({ path: tmpPath, directory: FS_DIR });
   if (stat.size === 0) {
     throw new Error(`[safeStorage] Atomik yazma doğrulaması başarısız: "${key}"`);
   }
+  _stage(writeId, 'statVerified');
 
   // 3. Asıl dosyayı sil (yoksa hata sessizce yutulur)
   await Filesystem.deleteFile({ path: finalPath, directory: FS_DIR }).catch(() => {});
@@ -250,6 +283,7 @@ async function _fsWriteAtomic(key: string, value: string): Promise<void> {
     directory:   FS_DIR,
     toDirectory: FS_DIR,
   });
+  _stage(writeId, 'renameCompleted');
 
   // 5. Verify-read: rename sonrası dosyayı diskten oku — fsync telafisi
   const verifyResult = await Filesystem.readFile({
@@ -258,7 +292,12 @@ async function _fsWriteAtomic(key: string, value: string): Promise<void> {
     encoding:  Encoding.UTF8,
   });
   const readBack = typeof verifyResult.data === 'string' ? verifyResult.data : '';
-  if (readBack !== value) {
+  if (readBack === value) {
+    /* ARCH-04/F5: dayanıklılık YALNIZ burada kanıtlanır. Self-heal dalı bu
+       aşamayı İŞARETLEMEZ — yeniden yazım doğrulanmamıştır ve "tam başarı"
+       diye sunulması kısmi tamamlanmayı başarı saymak olurdu. */
+    _stage(writeId, 'verifyReadCompleted');
+  } else {
     // Her verify-read başarısızlığı — kurtarılabilir olsa bile — integrity bus'a bildirilir.
     // Dinleyiciler (blackBox / telemetri servisleri) adli kayıt için bu olayı tüketir.
     if (typeof window !== 'undefined') {
@@ -294,6 +333,18 @@ async function _fsWriteAtomic(key: string, value: string): Promise<void> {
 
   // 6. Bellek içi cache: yalnızca verify (veya self-heal) başarısından sonra güncelle
   _fsCache.set(key, value);
+  /* Cache güncellemesi bir DAYANIKLILIK kanıtı DEĞİLDİR; ayrı aşama olarak
+     yazılır ki "bellekte var" ile "diskte var" karıştırılmasın. */
+  _stage(writeId, 'cacheUpdated');
+}
+
+/** Aşama işareti — kanıt yolu ürün yolunu ASLA bozamaz. */
+function _stage(
+  writeId: number,
+  stage: Parameters<typeof markStorageWriteStage>[1],
+): void {
+  if (writeId < 0) return;
+  try { markStorageWriteStage(writeId, stage); } catch { /* kanıt kaybı yutulur */ }
 }
 
 /* ── Filesystem okuma + bozulma kurtarma ─────────────────────── */
@@ -406,6 +457,71 @@ export function getEmmcWriteCount(): { count: number; sinceMs: number } {
   return { count: _emmcWriteCount, sinceMs: Date.now() - _emmcWriteCountResetTs };
 }
 
+/* ══════════════════════════════════════════════════════════════════════════
+   ARCH-06/F5 — YAZMA GEREKÇESİ VE DAYANIKLILIK SINIFI (SALT KANIT)
+   ══════════════════════════════════════════════════════════════════════════
+   Mevcut `_emmcWriteCount` "kaç kez yazıldı" der ama "NEDEN yazıldı"
+   demez. Bir eMMC ömrü tartışmasında asıl soru budur: debounce penceresi
+   mi doldu, kullanıcı mı zorladı, kota mı doldu, kapanış mı geldi?
+
+   ⚠️ DAVRANIŞ DEĞİŞMEDİ: debounce penceresi UZATILMADI, `CRITICAL_SYNC`
+   double-lock yolu AYNEN duruyor. Eklenen tek şey SAYAÇTIR.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/** Yazımın NEDEN o anda yapıldığı — kapalı sözlük, serbest metin YOK. */
+export type StorageFlushReason =
+  /** 5 s debounce penceresi doldu → idle callback. */
+  | 'DEBOUNCE'
+  /** Çağıran `immediate: true` dedi (kritik anahtar). */
+  | 'IMMEDIATE'
+  /** `safeFlushAll` / `safeFlushKey` ile ELLE zorlandı. */
+  | 'EXPLICIT'
+  /** Kota/eviction yolu tetikledi. */
+  | 'QUOTA'
+  | 'UNKNOWN';
+
+/**
+ * Anahtarın DAYANIKLILIK sınıfı — bu bir BEYANDIR, yeni bir politika değil.
+ * Mevcut `_isCritical` / `IMMEDIATE_WRITE_KEYS` kararlarını ADLANDIRIR.
+ */
+export type StorageDurabilityClass =
+  /** localStorage senkron yedek + Filesystem — kayıp penceresi ~0. */
+  | 'CRITICAL_SYNC'
+  /** 5 s debounce + idle — normal ürün verisi. */
+  | 'NORMAL_DEBOUNCED'
+  /** Kaybı kabul edilebilir (yeniden üretilir). */
+  | 'BEST_EFFORT';
+
+const FLUSH_REASONS: readonly StorageFlushReason[] =
+  Object.freeze(['DEBOUNCE', 'IMMEDIATE', 'EXPLICIT', 'QUOTA', 'UNKNOWN']);
+
+const _flushByReason: Record<StorageFlushReason, number> = (() => {
+  const o = {} as Record<StorageFlushReason, number>;
+  for (const r of FLUSH_REASONS) o[r] = 0;
+  return o;
+})();
+
+/**
+ * Anahtarın dayanıklılık sınıfını SÖYLER — karar VERMEZ.
+ * Mevcut `_isCritical` ve `IMMEDIATE_WRITE_KEYS` kapılarını okur.
+ */
+export function storageDurabilityClass(key: string): StorageDurabilityClass {
+  try {
+    if (IMMEDIATE_WRITE_KEYS.has(key) || _isCritical(key)) return 'CRITICAL_SYNC';
+  } catch { /* fail-soft */ }
+  return 'NORMAL_DEBOUNCED';
+}
+
+/** Salt-okunur yazma kanıtı. Hiçbir sayacı sıfırlamaz. */
+export function getStorageWriteReasons(): Readonly<Record<StorageFlushReason, number>> {
+  return Object.freeze({ ..._flushByReason });
+}
+
+function _noteFlush(reason: StorageFlushReason): void {
+  const cur = _flushByReason[reason];
+  if (cur !== undefined) _flushByReason[reason] = cur + 1;
+}
+
 export function resetEmmcWriteCount(): void {
   _emmcWriteCount = 0;
   _emmcWriteCountResetTs = Date.now();
@@ -414,12 +530,17 @@ export function resetEmmcWriteCount(): void {
 /* ── Disk yazma (quota-aware) ────────────────────────────────── */
 
 // Yalnızca _scheduleIdleWrite ve safeFlushAll/safeFlushKey/safeSetRawImmediate çağırır.
-async function _commitToStorage(key: string, value: string): Promise<void> {
+async function _commitToStorage(
+  key: string, value: string, reason: StorageFlushReason = 'UNKNOWN',
+): Promise<void> {
   _emmcWriteCount++;
+  bumpPerf('storage.flush');
+  _noteFlush(reason);
 
   // Deferred Write: 50 KB+ payload → idle callback yield, sonra I/O başlar.
   // Amaç: Zustand serialize etmiş büyük objeleri ana thread'i bloke etmeden diske göndermek (Mali-400).
   if (value.length > 51_200) {
+    bumpPerf('storage.largeWrite');
     await new Promise<void>((resolve) => { _requestIdle(() => resolve()); });
     if (import.meta.env.DEV) {
       console.warn(
@@ -428,33 +549,69 @@ async function _commitToStorage(key: string, value: string): Promise<void> {
       );
     }
   }
+  /* ARCH-04/F5 — tamamlanma kanıdı. Yalnız GÖZLEM: hiçbir yazma kararına
+     girmez, hiçbir hatayı yutmaz/üretmez. */
+  const writeId = _beginWrite(key, value.length);
+
   if (NATIVE) {
     // Double-lock: kritik anahtarlar için önce localStorage senkron backup
     // Filesystem async başlamadan önce veri en az bir katmanda güvende
     if (_isCritical(key)) {
-      try { localStorage.setItem(key, value); } catch { /* quota — devam et */ }
+      try {
+        localStorage.setItem(key, value);
+        /* Yedek yazıldı. Bu ASIL yolun sağlıklı olduğunu KANITLAMAZ. */
+        _stage(writeId, 'backupUpdated');
+      } catch { /* quota — devam et */ }
     }
     try {
-      await _fsWriteAtomic(key, value);
+      await _fsWriteAtomic(key, value, writeId);
+      _finishWrite(writeId, false, null);
     } catch {
       // Disk dolu — LRU boşalt ve bir kez daha dene
       safeLruEvict();
       try {
-        await _fsWriteAtomic(key, value);
-      } catch { /* vazgeç — asıl dosya dokunulmadan kaldı, localStorage backup var */ }
+        await _fsWriteAtomic(key, value, writeId);
+        _finishWrite(writeId, false, null);
+      } catch {
+        /* vazgeç — asıl dosya dokunulmadan kaldı, localStorage backup var.
+           KISMİ TAMAMLANMA BAŞARI SAYILMAZ (kanıt bunu açıkça yazar). */
+        _finishWrite(writeId, true, 'atomic write failed after LRU evict retry');
+      }
     }
   } else {
     try {
       localStorage.setItem(key, value);
+      _stage(writeId, 'backupUpdated');
+      _finishWrite(writeId, false, null);
     } catch (e) {
       if (e instanceof DOMException && (
         e.name === 'QuotaExceededError' || e.name === 'NS_ERROR_DOM_QUOTA_REACHED'
       )) {
         safeLruEvict();
-        try { localStorage.setItem(key, value); } catch { /* vazgeç */ }
+        try {
+          localStorage.setItem(key, value);
+          _stage(writeId, 'backupUpdated');
+          _finishWrite(writeId, false, null);
+        } catch {
+          _finishWrite(writeId, true, 'localStorage quota exceeded after LRU evict');
+        }
+      } else {
+        _finishWrite(writeId, true, 'localStorage write failed');
       }
     }
   }
+}
+
+/** Kanıt açılışı — başarısız olursa `-1` döner ve tüm işaretler no-op olur. */
+function _beginWrite(key: string, byteLength: number): number {
+  try {
+    return beginStorageWrite(key, NATIVE ? 'NATIVE_FILESYSTEM' : 'WEB_STORAGE', byteLength);
+  } catch { return -1; }
+}
+
+function _finishWrite(writeId: number, failed: boolean, reason: string | null): void {
+  if (writeId < 0) return;
+  try { completeStorageWrite(writeId, failed, reason); } catch { /* kanıt kaybı yutulur */ }
 }
 
 /* ── requestIdleCallback polyfill ───────────────────────────── */
@@ -502,6 +659,7 @@ const _idlePending = new Map<string, string>();
 const _idleHandles = new Map<string, number>();
 
 function _scheduleIdleWrite(key: string, value: string): void {
+  bumpPerf('storage.idleDeferred');
   const prev = _idleHandles.get(key);
   if (prev != null) _cancelIdle(prev);
 
@@ -510,7 +668,7 @@ function _scheduleIdleWrite(key: string, value: string): void {
   const handle = _requestIdle(() => {
     _idleHandles.delete(key);
     _idlePending.delete(key);
-    void _commitToStorage(key, value);
+    void _commitToStorage(key, value, 'DEBOUNCE');
   });
   _idleHandles.set(key, handle);
 }
@@ -535,14 +693,14 @@ export function safeFlushAll(): void {
       _idleHandles.delete(key);
       _idlePending.delete(key);
     }
-    void _commitToStorage(key, value);
+    void _commitToStorage(key, value, 'EXPLICIT');
   });
   _writeBuffer.clear();
 
   _idleHandles.forEach((handle, key) => {
     _cancelIdle(handle);
     const value = _idlePending.get(key);
-    if (value !== undefined) void _commitToStorage(key, value);
+    if (value !== undefined) void _commitToStorage(key, value, 'EXPLICIT');
   });
   _idleHandles.clear();
   _idlePending.clear();
@@ -556,7 +714,7 @@ export function safeFlushKey(key: string): void {
     _writeBuffer.delete(key);
     const h = _idleHandles.get(key);
     if (h != null) { _cancelIdle(h); _idleHandles.delete(key); _idlePending.delete(key); }
-    void _commitToStorage(key, bw.value);
+    void _commitToStorage(key, bw.value, 'EXPLICIT');
     return;
   }
   const handle = _idleHandles.get(key);
@@ -566,7 +724,7 @@ export function safeFlushKey(key: string): void {
     const value = _idlePending.get(key);
     if (value !== undefined) {
       _idlePending.delete(key);
-      void _commitToStorage(key, value);
+      void _commitToStorage(key, value, 'EXPLICIT');
     }
   }
 }
@@ -595,6 +753,7 @@ if (typeof window !== 'undefined') {
  *                   Dikkat: yüksek frekanslı döngülerde kullanma — eMMC ömrünü kısaltır.
  */
 export function safeSetRaw(key: string, value: string, debounceMs = WRITE_DEBOUNCE_MS, immediate = false): void {
+  bumpPerf('storage.setRequest');
   // ── Immediate override ───────────────────────────────────────
   // Tüm debounce + idle scheduling atlanır; _commitToStorage doğrudan çağrılır.
   // IMMEDIATE_WRITE_KEYS veya LRU_PROTECTED olmayan anahtarlar da kullanabilir.
@@ -604,7 +763,7 @@ export function safeSetRaw(key: string, value: string, debounceMs = WRITE_DEBOUN
     const h = _idleHandles.get(key);
     if (h != null) { _cancelIdle(h); _idleHandles.delete(key); _idlePending.delete(key); }
     if (NATIVE) _fsCache.set(key, value);
-    void _commitToStorage(key, value); // sayacı _commitToStorage içinde artırır
+    void _commitToStorage(key, value, 'IMMEDIATE'); // sayacı _commitToStorage içinde artırır
     return;
   }
 
@@ -617,7 +776,7 @@ export function safeSetRaw(key: string, value: string, debounceMs = WRITE_DEBOUN
       const h = _idleHandles.get(key);
       if (h != null) { _cancelIdle(h); _idleHandles.delete(key); _idlePending.delete(key); }
       if (NATIVE) _fsCache.set(key, value);
-      void _commitToStorage(key, value);
+      void _commitToStorage(key, value, 'IMMEDIATE');
       return;
     }
 
@@ -644,7 +803,7 @@ export function safeSetRaw(key: string, value: string, debounceMs = WRITE_DEBOUN
     const h = _idleHandles.get(key);
     if (h != null) { _cancelIdle(h); _idleHandles.delete(key); _idlePending.delete(key); }
     if (NATIVE) _fsCache.set(key, value);
-    void _commitToStorage(key, value);
+    void _commitToStorage(key, value, 'IMMEDIATE');
     return;
   }
 
@@ -755,7 +914,7 @@ export async function safeSetRawImmediate(key: string, value: string): Promise<v
     //   burada da yazıyoruz — _commitToStorage'dan önce crash olursa bile güvende)
     try { localStorage.setItem(key, value); } catch { /* quota — LRU sonra temizler */ }
     // Katman 3: Filesystem atomik yazım (await → native katmana iletim garantisi)
-    await _commitToStorage(key, value);
+    await _commitToStorage(key, value, 'IMMEDIATE');
     return;
   }
 

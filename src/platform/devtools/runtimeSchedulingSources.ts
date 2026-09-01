@@ -16,6 +16,7 @@
 import { getOBDStatusSnapshot, getObdSessionHealth, getHandshakeDiagnostics, getObdFreshWindowMs } from '../obdService';
 import { getObdHealth } from '../obd/ObdHealthMonitor';
 import { getExtendedPollEvidence, getPollEvidenceRefreshedAt } from '../obd/extendedPollEvidence';
+import { getPollCostSnapshot, getPollCostRefreshedAt } from '../obd/pollCost';
 import { getExtendedGateState } from '../obd/extendedPidService';
 import { getExtendedElimination, getExtendedEliminationState,
          getExtendedEliminationRefreshedAt } from '../obd/extendedElimination';
@@ -83,6 +84,9 @@ export function readSchedRawSnapshot(): SchedRawSnapshot {
       // ExtendedPollEvidenceSnapshot.configuredPidCount yorumu).
       transport:          poll.transport ?? null,
       burstEnabled:       typeof poll.burstEnabled === 'boolean' ? poll.burstEnabled : null,
+      /* B2 · NİYET ile SON TUR gözlemi AYRI taşınır (tek alan iki anlamı eziyordu). */
+      burstIntent:        typeof poll.burstIntent === 'boolean' ? poll.burstIntent : null,
+      lastCycleWasBurst:  typeof poll.lastCycleWasBurst === 'boolean' ? poll.lastCycleWasBurst : null,
       configuredPidCount: typeof poll.configuredPidCount === 'number' ? poll.configuredPidCount : null,
       counters:           poll.counters ?? null,
       lastAttemptedPid:   poll.lastAttempts?.length ? poll.lastAttempts[poll.lastAttempts.length - 1].pid : null,
@@ -112,15 +116,64 @@ export function readSchedRawSnapshot(): SchedRawSnapshot {
     pollEvidenceRefreshedAt: _safe(() => getPollEvidenceRefreshedAt()) ?? null,
     elim: _safe(() => getExtendedElimination()) ?? null,
 
+    /* ── P0-VDK-B3 · POLL MALİYETİ (salt-okunur) ──────────────────────────
+       Native `PollCostLedger`ın ZATEN ölçtüğü sayaçlar. Bu okuma hiçbir OBD/AT
+       komutu TETİKLEMEZ; önbellek yalnız LAB yenilemesinde doldurulur (mevcut
+       `pollEvidence` deseniyle birebir aynı). */
+    pollCost:            _safe(() => getPollCostSnapshot()) ?? null,
+    /* B3 · BÜTÇE ve AÇLIK telemetrisi — native `AdaptivePidScheduler`ın ZATEN
+       ürettiği sayaçlar. Bugüne kadar köprüden geçiyor ama LAB'a hiç TAŞINMIYORDU
+       (`deferredTotal`/`lineBudgetMs` yalnız tipte vardı, hiçbir ekran okumuyordu). */
+    schedulerBudget: _safe(() => {
+      const sc = poll && poll.present ? poll.scheduler : null;
+      if (!sc) return null;
+      const pids = Array.isArray(sc.pids) ? sc.pids : [];
+      return {
+        activePollCount:    Number(sc.activePollCount) || 0,
+        deferredTotal:      Number(sc.deferredTotal) || 0,
+        recoveryPauseCount: Number(sc.recoveryPauseCount) || 0,
+        lineBudgetMs:       Number(sc.lineBudgetMs) || 0,
+        /* Açlık kanıtı: yaşlanma birikmiş PID adedi ve en uzun bekleyen. */
+        agingPidCount:      pids.filter((x) => Number(x.agingMs ?? 0) > 0).length,
+        maxAgingMs:         pids.reduce((m, x) => Math.max(m, Number(x.agingMs ?? 0)), 0),
+        maxAgeMs:           pids.reduce((m, x) => Math.max(m, Number(x.maxAgeMs) || 0), 0),
+        deadlineMissTotal:  pids.reduce((m, x) => m + (Number(x.deadlineMisses) || 0), 0),
+        /* Eski APK bu alanı taşımaz → `null` (ölçülmedi), 0 DEĞİL. */
+        notYetDueTotal:     pids.some((x) => x.notYetDue === undefined)
+          ? null
+          : pids.reduce((m, x) => m + (Number(x.notYetDue) || 0), 0),
+        neverSucceededCount: pids.filter((x) => (Number(x.successes) || 0) === 0).length,
+        pidCount:           pids.length,
+      };
+    }) ?? null,
+    pollCostRefreshedAt: _safe(() => getPollCostRefreshedAt()) ?? null,
+
     extGate: gate ? {
       supportedKnown:   gate.supportedKnown === true,
       supportedCount:   Number(gate.supportedCount) || 0,
       watchedCount:     Number(gate.watchedCount) || 0,
       gatedCount:       Number(gate.gatedCount) || 0,
       gatedPids:        Array.isArray(gate.gatedPids) ? gate.gatedPids.slice(0, 16).map(String) : [],
+      /* ── E · BOUNDED LİSTE KENDİNİ AÇIKLASIN ────────────────────────────
+         SAHA (2026-08-30 · TAM KOPYA): `gatedCount: 25` ile 16 elemanlı
+         `gatedPids` YAN YANA çıktı. Kırpma bilgisi YALNIZ LAB ekranının
+         "Bounded liste (≤16)" notundaydı; kopyaya TAŞINMIYORDU → kopyayı tek
+         başına okuyan SAHTE BİR ÇELİŞKİ görüyordu. Sayılar artık listenin
+         yanında yolculuk eder. */
+      gatedPidsShown:     Array.isArray(gate.gatedPids)
+        ? Math.min(gate.gatedPids.length, 16) : 0,
+      gatedPidsTotal:     Array.isArray(gate.gatedPids)
+        ? gate.gatedPids.length : (Number(gate.gatedCount) || 0),
+      gatedPidsTruncated: Array.isArray(gate.gatedPids) && gate.gatedPids.length > 16,
       discoveryPending: Number(gate.discoveryPending) || 0,
       nativeListCount:  Number(gate.nativeListCount) || 0,
       burst:            gate.burst === true,
+      /* P0-OBD-CORE-06: kanıtın BÜTÜNLÜĞÜ. Eski APK bu alanı taşımaz →
+         'not_run' (dürüst boşluk); sahte 'complete' ÜRETİLMEZ. */
+      discoveryCompleteness:
+        gate.discoveryCompleteness === 'complete' || gate.discoveryCompleteness === 'incomplete'
+          ? gate.discoveryCompleteness
+          : 'not_run',
     } : null,
 
     timeline: tl ? {

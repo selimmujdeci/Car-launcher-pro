@@ -115,7 +115,7 @@ export function useSafetyAlerts(opts?: SafetyMapOptions): UseSafetyAlertsResult 
           queue,
           v,
           now,
-          optsRef.current,
+          optsNow(),
         );
         setOutput((prev) => (safetyOutputsEqual(prev, next) ? prev : next));
         // false döndürünce ticker kendini durdurur (aktif alert kalmadı).
@@ -125,6 +125,18 @@ export function useSafetyAlerts(opts?: SafetyMapOptions): UseSafetyAlertsResult 
 
     const ticker = tickerRef.current!;
 
+    /* P0-OBD-02 — OBD tazelik kapısı DUVAR SAATİ ister (`Date.now()`), kural
+       motoru ise MONOTONİK saat (`performance.now()`). İkisi farklı eksendir ve
+       karıştırılırsa yaşlar anlamsızlaşır. Mapper kendi `Date.now()`unu ÇAĞIRMAZ
+       (saflık) → damgayı BURADAN alır. Verilmezse mapper fail-closed davranır ve
+       OBD kaynaklı motor ısısı / akü voltajı `UNAVAILABLE` sayılır. */
+    function optsNow(): SafetyMapOptions {
+      const base = optsRef.current;
+      return base === undefined
+        ? { wallClockMs: Date.now() }
+        : { ...base, wallClockMs: Date.now() };
+    }
+
     // Yardımcı: store snapshot'ından output hesapla ve gerekiyorsa state güncelle
     function runCompute(now: number): void {
       const v = useUnifiedVehicleStore.getState();
@@ -132,7 +144,7 @@ export function useSafetyAlerts(opts?: SafetyMapOptions): UseSafetyAlertsResult 
         queue,
         v,
         now,
-        optsRef.current,
+        optsNow(),
       );
       // safetyOutputsEqual: ts hariç derin kıyas → gereksiz re-render önlenir
       setOutput((prev) => (safetyOutputsEqual(prev, next) ? prev : next));
@@ -151,7 +163,9 @@ export function useSafetyAlerts(opts?: SafetyMapOptions): UseSafetyAlertsResult 
     // yapılır. safetyRelevantFieldsChanged mapper'ın MAPPING TABLOSU'na göre
     // hangi alanların ilgili olduğunu bilir (bkz. safetyStateMapper.ts).
     const unsub = useUnifiedVehicleStore.subscribe((state, prevState) => {
-      if (!safetyRelevantFieldsChanged(state, prevState, optsRef.current?.signalsAvailable)) {
+      if (!safetyRelevantFieldsChanged(
+        state, prevState, optsRef.current?.signalsAvailable, Date.now(),
+      )) {
         return; // ilgisiz değişiklik (örn. map/tema state'i) — yeniden hesaplama YOK
       }
       runCompute(performance.now());

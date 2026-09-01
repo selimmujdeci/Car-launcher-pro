@@ -40,6 +40,7 @@ import * as native from './nativeAuthorityBridge';
 import {
   recordDuplicateBackend, recordHandover, recordTruth,
 } from './mediaAuthorityEvidence';
+import { createCommandMessage, type CommandMessage } from '../../message';
 
 /* ── Oturum durumu ───────────────────────────────────────────────────────── */
 
@@ -55,6 +56,15 @@ const _nativeDuckTokens = new Map<number, number>();
 /** Bounded replay koruması. */
 const RECENT_COMMAND_LIMIT = 64;
 const _recentCommandIds: string[] = [];
+/** ARCH-03: bounded, payload-free command/result evidence; execution remains this gateway. */
+let _lastCanonicalCommand: CommandMessage | null = null;
+let _lastCanonicalResult: CommandMessage | null = null;
+
+export function getMediaCommandFlowEvidence(): Readonly<{
+  command: CommandMessage | null; result: CommandMessage | null;
+}> {
+  return Object.freeze({ command: _lastCanonicalCommand, result: _lastCanonicalResult });
+}
 
 function now(): number { return Date.now(); }
 
@@ -154,6 +164,8 @@ interface RunInput {
   readonly commandId?: string;
   readonly capabilityCommand?: CapabilityGatedCommand;
   readonly source?: SourceClass | null;
+  /** Caller provenance only; it never changes the gateway or playback owner. */
+  readonly requester?: string;
   /**
    * Komut, devir zincirine kuyruklanmalı mı (varsayılan: EVET).
    *
@@ -184,6 +196,23 @@ async function runCommand(input: RunInput): Promise<CommandTruth> {
     desiredState: input.desiredState,
     atMs: now(),
   });
+  // Contract is evidence only: no router, no second dedup and no new playback owner.
+  _lastCanonicalCommand = createCommandMessage({
+    messageId: commandId, kind: 'COMMAND', name: 'media.command.execute',
+    source: input.requester ?? 'media.requester', target: 'media.command_gateway', createdAtMs: now(),
+    correlationId: commandId, causationId: null, operationId: commandId,
+    sessionId: _sessionId, generation: _sessionSeq, epoch: null, scopeRef: `media:${source ?? 'NONE'}`,
+    provenance: ['mediaCommandGateway'], attempt: 0, idempotencyKey: commandId, payload: null,
+  });
+  const recordCanonicalResult = (): void => {
+    _lastCanonicalResult = createCommandMessage({
+      messageId: `${commandId}:result`, kind: 'RESULT', name: 'media.command.result',
+      source: 'media.command_gateway', target: null, createdAtMs: now(),
+      correlationId: commandId, causationId: commandId, operationId: commandId,
+      sessionId: _sessionId, generation: _sessionSeq, epoch: null, scopeRef: `media:${source ?? 'NONE'}`,
+      provenance: ['mediaCommandGateway', 'playbackTruth'], attempt: 0, idempotencyKey: null, payload: null,
+    });
+  };
 
   // 1) Replay / çift dokunuş
   if (isReplay(commandId)) {
@@ -191,6 +220,7 @@ async function runCommand(input: RunInput): Promise<CommandTruth> {
       outcome: 'REJECTED', observedState: observedStateFor(source),
       verificationLevel: 'NONE', failureCode: 'duplicate_command', atMs: now(),
     });
+    recordCanonicalResult();
     recordTruth(t);
     return t;
   }
@@ -203,6 +233,7 @@ async function runCommand(input: RunInput): Promise<CommandTruth> {
       outcome: 'REJECTED', observedState: 'UNKNOWN',
       verificationLevel: 'NONE', failureCode: 'no_active_source', atMs: now(),
     });
+    recordCanonicalResult();
     recordTruth(t);
     return t;
   }
@@ -214,6 +245,7 @@ async function runCommand(input: RunInput): Promise<CommandTruth> {
       outcome: 'REJECTED', observedState: observedStateFor(source),
       verificationLevel: 'NONE', failureCode: 'unsupported_capability', atMs: now(),
     });
+    recordCanonicalResult();
     recordTruth(t);
     return t;
   }
@@ -252,6 +284,7 @@ async function runCommand(input: RunInput): Promise<CommandTruth> {
     failureCode: res.failureCode,
     atMs: now(),
   });
+  recordCanonicalResult();
   recordTruth(t);
   return t;
 }
@@ -303,11 +336,12 @@ export async function playSource(req: GatewayPlayRequest): Promise<CommandTruth>
   });
 }
 
-export function play(commandId?: string): Promise<CommandTruth> {
+export function play(commandId?: string, requester?: string): Promise<CommandTruth> {
   return runCommand({
     command: 'play',
     desiredState: 'PLAYING',
     commandId,
+    requester,
     capabilityCommand: 'play',
     run: async () => {
       const res = await native.command('play');
@@ -321,11 +355,12 @@ export function play(commandId?: string): Promise<CommandTruth> {
   });
 }
 
-export function pause(commandId?: string): Promise<CommandTruth> {
+export function pause(commandId?: string, requester?: string): Promise<CommandTruth> {
   return runCommand({
     command: 'pause',
     desiredState: 'PAUSED',
     commandId,
+    requester,
     capabilityCommand: 'pause',
     run: async () => {
       const res = await native.command('pause');
@@ -355,11 +390,12 @@ export function stop(commandId?: string): Promise<CommandTruth> {
   });
 }
 
-export function next(commandId?: string): Promise<CommandTruth> {
+export function next(commandId?: string, requester?: string): Promise<CommandTruth> {
   return runCommand({
     command: 'next',
     desiredState: 'PLAYING',
     commandId,
+    requester,
     capabilityCommand: 'next',
     run: async () => {
       const res = await native.command('next');
@@ -373,11 +409,12 @@ export function next(commandId?: string): Promise<CommandTruth> {
   });
 }
 
-export function previous(commandId?: string): Promise<CommandTruth> {
+export function previous(commandId?: string, requester?: string): Promise<CommandTruth> {
   return runCommand({
     command: 'previous',
     desiredState: 'PLAYING',
     commandId,
+    requester,
     capabilityCommand: 'previous',
     run: async () => {
       const res = await native.command('previous');
@@ -518,6 +555,8 @@ export function __resetGatewayForTest(adapters?: Map<SourceClass, BackendAdapter
   _sessionSeq = 0;
   _sessionId = 'media-session-0';
   _recentCommandIds.length = 0;
+  _lastCanonicalCommand = null;
+  _lastCanonicalResult = null;
   _nativeDuckTokens.clear();
   _coordinator = adapters
     ? createSourceCoordinator({ now, adapters })

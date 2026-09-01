@@ -90,7 +90,16 @@ public final class ExtendedPollEvidence {
     public static final class Snapshot {
         public final boolean present;
         public final String transport;
+        /**
+         * GERİYE DÖNÜK ALAN — {@link #burstIntent} ile AYNI değeri taşır.
+         * Otorite olarak KULLANILMAZ; yeni tüketiciler {@code burstIntent} /
+         * {@code lastCycleWasBurst} okur (bkz. sınıf başındaki B2 notu).
+         */
         public final boolean burstEnabled;
+        /** NİYET — scheduler/plugin'in istediği mod. Poll turu bunu EZEMEZ. */
+        public final boolean burstIntent;
+        /** GÖZLEM — son TAMAMLANAN turun modu. Tarihsel kanıt {@code burstCycles}'tadır. */
+        public final boolean lastCycleWasBurst;
         public final int configuredPidCount;
         public final List<String> configuredPidPreview;
         public final int pollCycles, burstCycles, roundRobinCycles;
@@ -103,7 +112,8 @@ public final class ExtendedPollEvidence {
         public final long lastElapsedMs, lastPollAt;
         public final List<Attempt> lastAttempts;
 
-        Snapshot(boolean present, String transport, boolean burstEnabled, int configuredPidCount,
+        Snapshot(boolean present, String transport, boolean burstIntent, boolean lastCycleWasBurst,
+                 int configuredPidCount,
                  List<String> configuredPidPreview, int pollCycles, int burstCycles, int roundRobinCycles,
                  int attemptedCount, int successCount, int noDataCount, int busyCount,
                  int negativeResponseCount, int errorCount, int timeoutNoBytesCount,
@@ -113,7 +123,9 @@ public final class ExtendedPollEvidence {
                  long lastElapsedMs, long lastPollAt, List<Attempt> lastAttempts) {
             this.present = present;
             this.transport = transport;
-            this.burstEnabled = burstEnabled;
+            this.burstIntent = burstIntent;
+            this.lastCycleWasBurst = lastCycleWasBurst;
+            this.burstEnabled = burstIntent;   // geriye dönük ad — NİYETİ taşır
             this.configuredPidCount = configuredPidCount;
             this.configuredPidPreview = Collections.unmodifiableList(configuredPidPreview);
             this.pollCycles = pollCycles;
@@ -154,11 +166,26 @@ public final class ExtendedPollEvidence {
     // ── Niyet (intent) — plugin boundary'de set edilir; reset'i AŞAR (reconnect'te korunur).
     private boolean present = false;
     private String transport = "unknown";
-    private boolean burstEnabled = false;
+    /**
+     * B2 — NİYET. YALNIZ {@link #setBurstEnabled(boolean)} yazar.
+     *
+     * ── SAHA (2026-08-30 · CAROS LAB TAM KOPYA) ────────────────────────────
+     * Kopyada {@code burstEnabled:false} ile {@code burstCycles:135 / pollCycles:137}
+     * YAN YANA duruyordu. Sebep: tek alana İKİ anlam yazılıyordu — plugin niyeti
+     * ({@code setBurstEnabled}) ve her turda {@code recordCycle} tarafından yazılan
+     * SON TUR gözlemi. Son tur round-robin olduğu an niyet SİLİNİYORDU.
+     *
+     * Zararı yalnız görüntü değildi: {@code runtimeSchedulingModel} "ekran kapalı
+     * ama burst isteniyor" uyarısını BU alandan üretiyor → 135 burst turu koşmuşken
+     * uyarı hiç çıkmadı (KAÇIRILAN UYARI). Niyet ile gözlem artık AYRI.
+     */
+    private boolean burstIntent = false;
     private int configuredPidCount = 0;
     private final List<String> configuredPidPreview = new ArrayList<>();
 
     // ── Oturum sayaçları — reset() ile temizlenir (mevcut bağlantı = bir oturum).
+    /** B2 — GÖZLEM: son TAMAMLANAN turun modu. Niyeti temsil ETMEZ. */
+    private boolean lastCycleWasBurst = false;
     private int pollCycles, burstCycles, roundRobinCycles;
     private int attemptedCount, successCount, noDataCount, busyCount,
             negativeResponseCount, errorCount, timeoutNoBytesCount,
@@ -182,6 +209,7 @@ public final class ExtendedPollEvidence {
         synchronized (lock) {
             present = true;
             this.transport = transport != null ? transport : "unknown";
+            lastCycleWasBurst = false;   // GÖZLEM oturumluktur; NİYET (burstIntent) korunur
             pollCycles = burstCycles = roundRobinCycles = 0;
             attemptedCount = successCount = noDataCount = busyCount = 0;
             negativeResponseCount = errorCount = timeoutNoBytesCount = 0;
@@ -210,16 +238,23 @@ public final class ExtendedPollEvidence {
         }
     }
 
-    /** Plugin boundary — teşhis burst niyeti (Canlı Test ekranı görünürlüğü). */
+    /**
+     * Plugin boundary — teşhis burst NİYETİ (Canlı Test ekranı görünürlüğü).
+     * B2: yalnız {@link #burstIntent} değişir; tur gözlemi ({@link #lastCycleWasBurst})
+     * ve tarihsel sayaçlar bu çağrıdan ETKİLENMEZ.
+     */
     public void setBurstEnabled(boolean on) {
-        synchronized (lock) { present = true; burstEnabled = on; }
+        synchronized (lock) { present = true; burstIntent = on; }
     }
 
-    /** Poll turu kadans kanıtı — extended grubu bu turda işlendiğinde çağrılır. */
+    /**
+     * Poll turu kadans kanıtı — extended grubu bu turda işlendiğinde çağrılır.
+     * B2: yalnız GÖZLEM alanlarını yazar; {@link #burstIntent} NİYETİNE DOKUNMAZ.
+     */
     public void recordCycle(boolean burst, int configuredThisCycle) {
         synchronized (lock) {
             present = true;
-            burstEnabled = burst;
+            lastCycleWasBurst = burst;
             pollCycles = sadd(pollCycles);
             if (burst) {
                 burstCycles = sadd(burstCycles);
@@ -260,7 +295,7 @@ public final class ExtendedPollEvidence {
     /** Değişmez anlık kopya (plugin serialize eder). */
     public Snapshot snapshot() {
         synchronized (lock) {
-            return new Snapshot(present, transport, burstEnabled, configuredPidCount,
+            return new Snapshot(present, transport, burstIntent, lastCycleWasBurst, configuredPidCount,
                 new ArrayList<>(configuredPidPreview), pollCycles, burstCycles, roundRobinCycles,
                 attemptedCount, successCount, noDataCount, busyCount, negativeResponseCount,
                 errorCount, timeoutNoBytesCount, timeoutPartialCount, parseFailureCount,

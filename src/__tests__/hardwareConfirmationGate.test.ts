@@ -27,6 +27,8 @@ vi.mock('../platform/ttsService', () => ({
 }));
 vi.mock('../platform/errorBus', () => ({ showToast: vi.fn() }));
 vi.mock('../platform/dtcService', () => ({
+  // P0-OBD-10: silme envanteri (stored + pending). Testte kod VAR sayılır.
+  getClearableDtcSnapshot: () => ({ codes: [], count: 1, scanRan: true }),
   readDTCCodes: vi.fn(async () => {}),
   clearDTCCodes: vi.fn(async () => ({ allowed: true, userMessage: '' })),
   onDTCState: (cb: (s: unknown) => void) => {

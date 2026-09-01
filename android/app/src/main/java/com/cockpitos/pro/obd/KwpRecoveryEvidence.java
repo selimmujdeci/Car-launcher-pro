@@ -83,6 +83,12 @@ public final class KwpRecoveryEvidence {
         FAILED,
     }
 
+    /** LAB'de gösterilen recovery state-machine olayları (ham cevap/PII içermez). */
+    public enum Event {
+        NONE, NO_DATA, PROMPT_TIMEOUT, PARTIAL_TIMEOUT, ECU_SILENT,
+        SESSION_RECOVERY, TRANSPORT_RECONNECT, RECOVERED, RECOVERY_FAILED
+    }
+
     private final Object lock = new Object();
 
     /** Şu anki ardışık çekirdek NO_DATA sayısı (eşiğe doğru sayan). */
@@ -109,6 +115,17 @@ public final class KwpRecoveryEvidence {
     private Status status = Status.NOT_ATTEMPTED;
     /** Kurtarma tetiklendiğindeki aktif protokol ("5"/"4"/"3"); null = hiç. */
     private String protocolAtRecovery;
+    private Event lastEvent = Event.NONE;
+    private int noDataCount, promptTimeoutCount, partialTimeoutCount, ecuSilentCount;
+    private int sessionRecoveryCount, transportReconnectCount, recoveredCount, recoveryFailedCount;
+    private boolean transportReconnectRequested;
+    private long commandStartedAt;
+    private long lastCommandFinishedAt;
+    private long maxCommandDurationMs;
+    private long maxKeepAliveGapMs;
+    private int keepAliveGapExceededCount;
+    /** ISO 14230 P3 boşluğuna yaklaşmayı görünür kılan muhafazakâr ölçüm eşiği. */
+    public static final long KEEP_ALIVE_GAP_BUDGET_MS = 5_000L;
 
     private KwpRecoveryEvidence() { }
 
@@ -129,8 +146,43 @@ public final class KwpRecoveryEvidence {
             killedByDataGate = 0;
             status = Status.NOT_ATTEMPTED;
             protocolAtRecovery = null;
+            lastEvent = Event.NONE;
+            noDataCount = promptTimeoutCount = partialTimeoutCount = ecuSilentCount = 0;
+            sessionRecoveryCount = transportReconnectCount = recoveredCount = recoveryFailedCount = 0;
+            transportReconnectRequested = false;
+            commandStartedAt = lastCommandFinishedAt = maxCommandDurationMs = maxKeepAliveGapMs = 0;
+            keepAliveGapExceededCount = 0;
         }
     }
+
+    public void noteCommandStarted(long nowMs) {
+        synchronized (lock) {
+            if (lastCommandFinishedAt > 0) {
+                long gap = Math.max(0, nowMs - lastCommandFinishedAt);
+                maxKeepAliveGapMs = Math.max(maxKeepAliveGapMs, gap);
+                if (gap > KEEP_ALIVE_GAP_BUDGET_MS) keepAliveGapExceededCount = sat(keepAliveGapExceededCount);
+            }
+            commandStartedAt = nowMs;
+        }
+    }
+
+    public void noteCommandFinished(long nowMs) {
+        synchronized (lock) {
+            if (commandStartedAt > 0) maxCommandDurationMs = Math.max(maxCommandDurationMs, nowMs - commandStartedAt);
+            commandStartedAt = 0;
+            lastCommandFinishedAt = nowMs;
+        }
+    }
+
+    public void noteNoData() { synchronized (lock) { noDataCount = sat(noDataCount); lastEvent = Event.NO_DATA; } }
+    public void notePromptTimeout(boolean partial) {
+        synchronized (lock) {
+            if (partial) { partialTimeoutCount = sat(partialTimeoutCount); lastEvent = Event.PARTIAL_TIMEOUT; }
+            else { promptTimeoutCount = sat(promptTimeoutCount); lastEvent = Event.PROMPT_TIMEOUT; }
+        }
+    }
+
+    public void noteEcuSilent() { synchronized (lock) { ecuSilentCount = sat(ecuSilentCount); lastEvent = Event.ECU_SILENT; } }
 
     /**
      * Çekirdek Mode-01 yanıtı GEÇERLİ geldi (OK).
@@ -146,6 +198,8 @@ public final class KwpRecoveryEvidence {
                 // (Tavan "çalışan kurtarmayı" değil, "ölü ECU'da sonsuz turu" engellemek içindir.)
                 consecutiveFailedRecoveries = 0;
                 status = Status.RECOVERED;
+                recoveredCount = sat(recoveredCount);
+                lastEvent = Event.RECOVERED;
                 lastRecoveryToFirstPidMs = lastRecoveryAt > 0 ? Math.max(0, nowMs - lastRecoveryAt) : -1;
             }
         }
@@ -180,9 +234,12 @@ public final class KwpRecoveryEvidence {
             // geri geldiyse (noteCoreOk → seri sıfır) motor uzun sürüşte tükenmez.
             if (consecutiveFailedRecoveries >= MAX_RECOVERIES_PER_SESSION) {
                 suppressedCount = sat(suppressedCount);
+                transportReconnectRequested = true;
                 return RecoveryAction.NONE;
             }
             recoveryCount = sat(recoveryCount);
+            sessionRecoveryCount = sat(sessionRecoveryCount);
+            lastEvent = Event.SESSION_RECOVERY;
             lastRecoveryAt = nowMs;
             lastRecoveryToFirstPidMs = -1;
             protocolAtRecovery = activeProtocol;
@@ -206,10 +263,49 @@ public final class KwpRecoveryEvidence {
 
     /** ATPC gönderimi başarısız oldu (channel hatası) — fail-soft, sonraki eşikte tekrar denenir. */
     public void noteAtpcSendFailed() {
+        noteRecoveryFailed(RecoveryAction.PROTOCOL_CLOSE);
+    }
+
+    /** Recovery komutu başarısız: güçlü basamak sonrası aynı reconnect otoritesine devir. */
+    public void noteRecoveryFailed(RecoveryAction action) {
         synchronized (lock) {
             atpcSendFailures = sat(atpcSendFailures);
             status = Status.FAILED;
+            consecutiveFailedRecoveries = sat(consecutiveFailedRecoveries);
+            recoveryFailedCount = sat(recoveryFailedCount);
+            lastEvent = Event.RECOVERY_FAILED;
+            if (action == RecoveryAction.REINIT
+                    || consecutiveFailedRecoveries >= MAX_RECOVERIES_PER_SESSION) {
+                transportReconnectRequested = true;
+            }
         }
+    }
+
+    /** pollLoop mevcut reconnect zincirinde tek sefer tüketir; ikinci reconnect motoru değildir. */
+    public boolean consumeTransportReconnectRequest() {
+        synchronized (lock) {
+            boolean requested = transportReconnectRequested;
+            transportReconnectRequested = false;
+            return requested;
+        }
+    }
+
+    public void noteTransportReconnectStarted() {
+        synchronized (lock) {
+            transportReconnectCount = sat(transportReconnectCount);
+            lastEvent = Event.TRANSPORT_RECONNECT;
+        }
+    }
+
+    public void noteTransportReconnectResult(boolean ok) {
+        synchronized (lock) {
+            if (ok) { recoveredCount = sat(recoveredCount); lastEvent = Event.RECOVERED; status = Status.RECOVERED; consecutiveFailedRecoveries = 0; }
+            else { recoveryFailedCount = sat(recoveryFailedCount); lastEvent = Event.RECOVERY_FAILED; status = Status.FAILED; }
+        }
+    }
+
+    public boolean isRecoveryInProgress() {
+        synchronized (lock) { return status == Status.IN_PROGRESS || transportReconnectRequested; }
     }
 
     /**
@@ -251,10 +347,18 @@ public final class KwpRecoveryEvidence {
         public final String protocolAtRecovery;
         public final int threshold;
         public final int maxPerSession;
+        public final String lastEvent;
+        public final int noDataCount, promptTimeoutCount, partialTimeoutCount, ecuSilentCount;
+        public final int sessionRecoveryCount, transportReconnectCount, recoveredCount, recoveryFailedCount;
+        public final long maxCommandDurationMs, maxKeepAliveGapMs;
+        public final int keepAliveGapExceededCount;
 
         Snapshot(int streak, int maxStreak, int recoveries, int consecutiveFailed,
                  int suppressed, int atpcFails,
-                 long lastAt, long toFirstPid, int gateKills, String st, String proto) {
+                 long lastAt, long toFirstPid, int gateKills, String st, String proto,
+                 String event, int noData, int promptTimeout, int partialTimeout, int ecuSilent,
+                 int sessionRecovery, int transportReconnect, int recovered, int recoveryFailed,
+                 long maxCommandDuration, long maxKeepAliveGap, int keepAliveExceeded) {
             this.coreNoDataStreak = streak;
             this.maxCoreNoDataStreak = maxStreak;
             this.recoveryCount = recoveries;
@@ -268,6 +372,18 @@ public final class KwpRecoveryEvidence {
             this.protocolAtRecovery = proto;
             this.threshold = ElmProtocol.KWP_DEAD_SESSION_THRESHOLD;
             this.maxPerSession = MAX_RECOVERIES_PER_SESSION;
+            this.lastEvent = event;
+            this.noDataCount = noData;
+            this.promptTimeoutCount = promptTimeout;
+            this.partialTimeoutCount = partialTimeout;
+            this.ecuSilentCount = ecuSilent;
+            this.sessionRecoveryCount = sessionRecovery;
+            this.transportReconnectCount = transportReconnect;
+            this.recoveredCount = recovered;
+            this.recoveryFailedCount = recoveryFailed;
+            this.maxCommandDurationMs = maxCommandDuration;
+            this.maxKeepAliveGapMs = maxKeepAliveGap;
+            this.keepAliveGapExceededCount = keepAliveExceeded;
         }
     }
 
@@ -276,7 +392,10 @@ public final class KwpRecoveryEvidence {
             return new Snapshot(coreNoDataStreak, maxCoreNoDataStreak, recoveryCount,
                 consecutiveFailedRecoveries,
                 suppressedCount, atpcSendFailures, lastRecoveryAt, lastRecoveryToFirstPidMs,
-                killedByDataGate, status.name(), protocolAtRecovery);
+                killedByDataGate, status.name(), protocolAtRecovery, lastEvent.name(),
+                noDataCount, promptTimeoutCount, partialTimeoutCount, ecuSilentCount,
+                sessionRecoveryCount, transportReconnectCount, recoveredCount, recoveryFailedCount,
+                maxCommandDurationMs, maxKeepAliveGapMs, keepAliveGapExceededCount);
         }
     }
 }

@@ -36,6 +36,7 @@ import { evaluateActionIdSafety } from '../platform/maviCore/actionSafety';
 import { createAiSafetyGate, HARD_FORBIDDEN_SCOPES } from '../platform/aiCore/safetyGate';
 import type { AiSafetyGate } from '../platform/aiCore/safetyGate';
 import type { SemanticResult } from '../platform/ai/semanticAiService';
+import { brainIntentAllowlist } from '../platform/capability/fabric/carosCapabilityCatalog';
 
 const SRC = join(process.cwd(), 'src');
 const read = (...seg: string[]): string => readFileSync(join(process.cwd(), ...seg), 'utf8');
@@ -88,7 +89,10 @@ describe('MAVI M1 · LLM eylem yetkisi sınırı', () => {
   });
 
   it('beyin allowlist\'i BOŞ değildir (kapı yanlışlıkla her şeyi kapatmamalı)', () => {
-    expect(readBrainIntents().length).toBeGreaterThan(5);
+    /* MAVI-F5: allowlist artık capability kataloğundan TÜRETİLİYOR. Kaynak
+       metnini kazıyan ölçüm türetmeye geçince 0 döndürürdü — kilit körleşmesin
+       diye GERÇEK allowlist çağrılır. */
+    expect(brainIntentAllowlist().length).toBeGreaterThan(5);
   });
 });
 

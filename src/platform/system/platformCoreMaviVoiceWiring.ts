@@ -27,6 +27,7 @@ import { resolveAndNavigate } from '../addressNavigationEngine';
 import { getGPSState } from '../gpsService';
 import { readCurrentLocation } from '../location/currentLocationService';
 import { readDTCCodes, onDTCState, type DTCState } from '../dtcService';
+import { evaluateVehicleDtcVerdict } from '../obd/dtcAuthority';
 import { createMaviWiring, type MaviWiringHandle } from '../maviCore/wiring/maviWiring';
 // PR-DIAG-3: tanı raporunun segment kaynağı — MEVCUT voiceState.recent()'e REFERANS göstericisi
 // (yeni buffer/telemetri DEĞİL). start/dispose ile set/temizlenir.
@@ -34,6 +35,29 @@ import { setMaviVoiceTimingsSource } from '../maviCore/wiring/maviEvidenceSectio
 // MAVI-M2: Mavi'nin komut başına araç bağlamı — canlı okuma adaptörü YALNIZ burada
 // (composition root) import edilir; saf resolver `voiceService` tarafında kullanılır.
 import { setMaviVehicleSnapshotSource } from '../assistant/maviVehicleContext';
+/* MAVI-F8: sürüş iş yükü farkındalığı — SAF çözümleyicinin canlı kaynağı.
+   Kayıt yoksa seviye DÜRÜSTÇE `UNKNOWN` kalır (bugünkü davranışla birebir). */
+import { setMaviWorkloadSnapshotSource, currentMaviResponseBudget } from '../assistant/maviWorkload';
+/* MAVI-F10: yolculuk hafızasının KAPSAM kaynağı. Yeni kimlik sistemi KURULMAZ —
+   `tripLogService`'in MEVCUT `ActiveTrip.startTime` olgusundan türetilir
+   (aktif yolculuğun `id`si repoda YOKTUR; id yalnız yolculuk biterken üretilir). */
+import { setTripScopeSource } from '../assistant/tripMemory';
+import { getTripSnapshot } from '../tripLogService';
+import { captureMaviWorkloadSnapshot } from '../assistant/maviWorkloadSource';
+import { setResponseStreamWorkloadPort } from '../voice/maviResponseStream';
+// MAVI-F0: gecikme telemetrisi uzak bayrağı (varsayılan KAPALI).
+import {
+  setMaviSemanticEndpointRemoteFlag, MAVI_F3_REMOTE_FLAG,
+} from '../voice/voicePerceptionRuntime';
+import {
+  setCapabilityFabricEnforceRemoteFlag, MAVI_F5_ENFORCE_REMOTE_FLAG,
+} from '../capability/fabric/capabilityFabric';
+import {
+  setMaviStreamingResponseRemoteFlag, MAVI_F4_REMOTE_FLAG,
+} from '../voice/maviResponseStream';
+import {
+  setMaviLatencyTraceRemoteFlag, MAVI_LATENCY_REMOTE_FLAG,
+} from '../assistant/maviLatencyTrace';
 import { captureMaviVehicleSnapshot } from '../assistant/maviVehicleSnapshotSource';
 import { createMediaNextPort } from '../maviCore/wiring/maviMediaPort';
 // MÜZİK HUB PAKET A: Mavi'nin medya komutları tek kapıdan (MediaCommandGateway)
@@ -102,8 +126,11 @@ async function readVehicleHealth(): Promise<{ dtcCount: number; criticalCount: n
   // zamanı davranışı birebir aynıdır (aynı okuma, aynı `?? []` fallback).
   const codes = (snap as DTCState | null)?.codes ?? [];
   const criticalCount = codes.filter((c) => c.severity === 'critical').length;
+  /* P0-OBD-CORE-03 — SAHTE "TEMİZ" KAPATILDI: `codes` yalnız Mode 03'tür ve
+     boş olması "okundu ve temiz" DEMEK DEĞİLDİR. Hüküm kanonik otoriteden. */
+  const verdict = evaluateVehicleDtcVerdict();
   const summary = codes.length === 0
-    ? 'Araç sistemleri temiz, sorun yok'
+    ? (verdict.verdict === 'clean' ? 'Araç sistemleri temiz, sorun yok' : verdict.message)
     : criticalCount > 0
       ? `${codes.length} arıza kodu var, biri kritik`
       : `${codes.length} arıza kodu var`;
@@ -226,6 +253,26 @@ function buildPilotDeps(): PilotHandlerDeps {
 
 let _handle: MaviWiringHandle | null = null;
 
+/** Runtime/LAB için salt-okunur wiring gözlemi; assistant readiness iddiası değildir. */
+export function getMaviVoiceWiringDiagnostics(): Readonly<{
+  active: boolean;
+  mode: 'shadow' | 'takeover' | null;
+  generation: number | null;
+  sessionId: number | null;
+  observedAt: null;
+  provenance: readonly string[];
+}> {
+  const identity = _handle?.bridge.identity;
+  return Object.freeze({
+    active: _handle !== null,
+    mode: _handle?.mode ?? null,
+    generation: identity?.generationId ?? null,
+    sessionId: identity?.sessionId ?? null,
+    observedAt: null,
+    provenance: Object.freeze(['platformCoreMaviVoiceWiring._handle', 'MaviVoiceBridge.identity']),
+  });
+}
+
 /**
  * Mavi Voice wiring'i başlat (SHADOW). İkinci çağrı no-op (idempotent). Cleanup döner —
  * SystemBoot Wave 4'te `_reg`/`_regNamed` ile LIFO stack'e kaydedilir.
@@ -237,6 +284,56 @@ export function startMaviVoiceWiring(): () => void {
    * çalışmalıdır. Kayıt yoksa `currentMaviVehicleContext()` dürüstçe `unknown`
    * döner (fail-closed); asla "park halinde" varsayılmaz. */
   try { setMaviVehicleSnapshotSource(captureMaviVehicleSnapshot); } catch { /* fail-soft */ }
+  /* MAVI-F8: workload kaynağı + akış cevabının canlı bütçe portu. İkisi de
+   * SALT OKUNURDUR: aracı, navigasyonu ya da ses otoritesini ETKİLEMEZ. */
+  try { setMaviWorkloadSnapshotSource(captureMaviWorkloadSnapshot); } catch { /* fail-soft */ }
+  /* MAVI-F10: TRIP kapsamı. SALT OKUNUR senkron getter — yeni timer/abonelik
+     YOK. Bağlanmazsa yolculuk hafızası dürüstçe çalışmaz (uydurma yolculuk yok). */
+  try {
+    setTripScopeSource(() => {
+      const t = getTripSnapshot();
+      return t.active && t.current ? t.current.startTime : null;
+    });
+  } catch { /* fail-soft */ }
+  try {
+    setResponseStreamWorkloadPort(() => currentMaviResponseBudget().allowStreaming);
+  } catch { /* fail-soft */ }
+  /* MAVI-F0: uçtan uca gecikme telemetrisinin UZAK bayrağını enjekte et.
+   * `maviLatencyTrace` bilinçli olarak BAĞIMSIZDIR (`remoteConfigService`i import
+   * ETMEZ) — çünkü `voiceClips`/`edgeTtsService` gibi yapraklara da bağlanır ve
+   * oralara store/ağ grafiği taşımak Mavi'nin bağlam grafiğini ağırlaştırırdı.
+   * Bilinmeyen anahtar `getFlag`ten `false` döner → varsayılan KAPALI (fail-safe).
+   * Yerel geliştirme kaldıracı (`localStorage`) bundan bağımsız çalışır. */
+  try {
+    setMaviLatencyTraceRemoteFlag(getFlag(MAVI_LATENCY_REMOTE_FLAG) === true);
+  } catch { /* fail-safe → kapalı */ }
+  /* ── MAVI-F13/4 · İKİ ÖLÜ UZAK BAYRAK BESLENDİ ("bilgi var, besleyen yok") ──
+   * ÖLÇÜLDÜ: `setMaviSemanticEndpointRemoteFlag` (F3) ve
+   * `setMaviStreamingResponseRemoteFlag` (F4) tanımlıydı, `MAVI_FLAG_EXIT_CRITERIA`
+   * ikisi için de filo çapında rollout + rollback SÖZÜ VERİYORDU, hatta
+   * `voiceService` yorumu tüketiciyi "platformCoreMaviVoiceWiring uzak bayrak
+   * enjeksiyonu" diye gösteriyordu — ama iki setter de üretimde HİÇ ÇAĞRILMIYORDU.
+   * Sonuç: `mavi_semantic_endpoint` ve `mavi_streaming_response` uzak anahtarları
+   * HİÇBİR dalı kontrol etmiyordu; yalnız cihaz-yerel `localStorage` kaldıracı
+   * çalışıyordu. Yani belgedeki "AŞAMA 1 — default ON → kaldır" adımı UYGULANAMAZ
+   * durumdaydı (filo şalteri yok).
+   *
+   * Bayraklar SİLİNMEDİ (silmek, ölçülmemiş bir yeteneği çöpe atmak olurdu);
+   * F0 ile BİREBİR aynı desenle beslendi. Bilinmeyen anahtar → `getFlag` `false`
+   * → varsayılan KAPALI; bugünkü cihaz davranışı BİREBİR aynıdır. */
+  try {
+    setMaviSemanticEndpointRemoteFlag(getFlag(MAVI_F3_REMOTE_FLAG) === true);
+  } catch { /* fail-safe → kapalı */ }
+  try {
+    setMaviStreamingResponseRemoteFlag(getFlag(MAVI_F4_REMOTE_FLAG) === true);
+  } catch { /* fail-safe → kapalı */ }
+  /* MAVI-F13 final: F5 capability kapısının ZORLAYICI kipi — filo şalteri.
+   * Bu, kullanıcı komutunu engelleyebilen TEK Mavi bayrağıdır; rollback yolu
+   * cihaz-yerel olamaz. Bilinmeyen anahtar → `false` → varsayılan GÖLGE kip
+   * (hiçbir eylem engellenmez), yani bugünkü davranış birebir korunur. */
+  try {
+    setCapabilityFabricEnforceRemoteFlag(getFlag(MAVI_F5_ENFORCE_REMOTE_FLAG) === true);
+  } catch { /* fail-safe → gölge kip */ }
   // Bayrak KAPALIYSA (varsayılan) mod SHADOW'dur → hakem pasif, eski hat hiç susturulmaz.
   const takeover = readTakeoverFlag();
   _handle = createMaviWiring({
@@ -266,7 +363,19 @@ export function stopMaviVoiceWiring(): void {
   if (!_handle) return;
   // MAVI-M2: bağlam kaynağını sök → sonraki komutlar `unknown` (fail-closed) alır.
   try { setMaviVehicleSnapshotSource(null); } catch { /* fail-soft */ }
+  // MAVI-F8: workload kaynağı ve akış portu sökülür → seviye `UNKNOWN`a döner.
+  try { setMaviWorkloadSnapshotSource(null); } catch { /* fail-soft */ }
+  // MAVI-F10: yolculuk kapsamı sökülür → TRIP hafızası yazmaz/okumaz (dürüst).
+  try { setTripScopeSource(null); } catch { /* fail-soft */ }
+  try { setResponseStreamWorkloadPort(null); } catch { /* fail-soft */ }
   try { setMaviVoiceTimingsSource(null); } catch { /* fail-soft */ }
+  // MAVI-F0: uzak bayrak sökülür (yerel kaldıraç bundan bağımsız kalır).
+  try { setMaviLatencyTraceRemoteFlag(false); } catch { /* fail-soft */ }
+  // MAVI-F13/4: F3/F4 uzak bayrakları da sökülür (yerel kaldıraç bağımsız kalır).
+  try { setMaviSemanticEndpointRemoteFlag(false); } catch { /* fail-soft */ }
+  try { setMaviStreamingResponseRemoteFlag(false); } catch { /* fail-soft */ }
+  // MAVI-F13 final: F5 zorlayıcı kip sökülür → kapı GÖLGEYE döner (fail-closed).
+  try { setCapabilityFabricEnforceRemoteFlag(false); } catch { /* fail-soft */ }
   try { _handle.dispose(); } catch { /* fail-soft */ }
   _handle = null;
 }

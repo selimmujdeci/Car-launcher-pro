@@ -142,7 +142,24 @@ describe('KİLİT 5 — model SAF ve bağlam dürüst', () => {
     // eklendi. GÖREV A'nın kökü ölçülmeden bulunamaz (dört aday aynı `timeout`
     // sayısını üretiyor); #508 ise tek anlık örnekle KAPANAMAZ, dağılım gerekir.
     // Kilit yine kaldırılmadı — bölüm sayısı yeni doğru değere taşındı.
-    expect(r.sectionCount).toBe(18);
+    // 2026-08-25 (P0-OBD-FINAL-02): ECU KEŞİF / ADRESLENEBİLİRLİK KANITI bölümü
+    // eklendi. Sahada ekranda `ECU 7A (KWP)` · rx 86F17A · tx 817AF1 · rol
+    // UNKNOWN GÖRÜNÜYORDU ama kopyada bu kanıt HİÇ YOKTU → gönderilen tam
+    // dökümden teşhis çıkarılamadı (#535/#523 ile AYNI sınıf kusur).
+    // Kilit yine kaldırılmadı — bölüm sayısı yeni doğru değere taşındı.
+    // 2026-08-27 (P0-VDK-F2A): KANONİK TANI İZİ — ÖZET bölümü eklendi. Kopyada
+    // olay adedi · sıra boşluğu · tekrar · düşen olay · export engeli YOKTU →
+    // gönderilen dökümden "kanıt tam mı, kırpıldı mı" sorusu YANITLANAMIYORDU
+    // (#535/P0-OBD-FINAL-02 ile AYNI sınıf kusur). İzin TAMAMI kopyaya
+    // GİRMEZ (kullanılamaz hâle gelirdi); ÖZET girer ve kırpma SESSİZ DEĞİLDİR.
+    // Kilit yine kaldırılmadı — bölüm sayısı yeni doğru değere taşındı.
+    // 2026-08-30 (P0-VDK-FIELD-FIX-A · D): GPS OTORİTE SÖZLEŞMESİ bölümü eklendi.
+    // Kopyada `hal.gpsAlive:false` ile `connectivity[GPS].connected:true` YAN YANA
+    // duruyor ve çelişki sanılıyordu; üçü FARKLI ekseni ölçer. Ayrışma artık
+    // kopyanın KENDİSİ tarafından açıklanır. Kilit yine kaldırılmadı.
+    expect(r.sectionCount).toBe(21);
+    expect(r.text).toContain('GPS OTORİTE SÖZLEŞMESİ');
+    expect(r.text).toContain('KANONİK TANI İZİ');
     expect(r.text).toContain('ANLIK ARAÇ VERİSİ');
     expect(r.text).toContain('KAYNAK SAĞLIĞI');
     expect(r.text).toContain('BLACKBOX ÖRNEKLERİ');
@@ -153,6 +170,10 @@ describe('KİLİT 5 — model SAF ve bağlam dürüst', () => {
     /* #535 — navigasyon ölçümü kopyada HER ZAMAN görünür (veri yoksa 'okunamadı'). */
     expect(r.text).toContain('NAVİGASYON ÇEKİRDEĞİ');
     expect(r.text).toContain('ETA SIÇRAMA DEFTERİ');
+    /* P0-OBD-FINAL-02 — ECU kanıt bölümü kopyada HER ZAMAN görünür: kaynak
+       okunamadıysa bile "okunamadı" gerekçesiyle. Bölümün HİÇ OLMAMASI,
+       sahada olanın ta kendisiydi. */
+    expect(r.text).toContain('ECU KEŞİF / ADRESLENEBİLİRLİK KANITI');
   });
 
   it('aynı girdi → aynı çıktı (saat/rastgelelik okumaz)', () => {

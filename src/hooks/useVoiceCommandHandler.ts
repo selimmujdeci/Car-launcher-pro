@@ -26,6 +26,8 @@ import { getVoiceSetting } from '../platform/settingsVoice';
 import { unknownMaviVehicleContext, currentMaviVehicleContext } from '../platform/assistant/maviVehicleContext';
 // MAVI-M4: tek eylem otoritesi + açık onay akışı.
 import { executeIntent, type CommandContext } from '../platform/commandExecutor';
+// MAVI-F7: ayar portu artık KANIT döner — koşulsuz "Ayar uygulandı" iddiası kapandı.
+import type { SettingApplyEvidence } from '../platform/capability/observation/observationContract';
 import { isVehicleEffectiveIntent, getVehicleActionDef } from '../platform/action/maviActionAuthority';
 import { setPendingAction, setConfirmedActionExecutor } from '../platform/action/pendingActionConfirmation';
 import type { IntentExecutionResult } from '../platform/intentExecutionResult';
@@ -86,20 +88,45 @@ function cycleVoiceTheme(): void {
  * Aksiyonu doğrudan AppSettings'e (veya wifi/bt/brightness native) uygular.
  * getState() React dışında güvenli; openTab için drawer açıcı callback geçilir. */
 const _SETTING_STEP = 10;
-async function applyVoiceSetting(
+
+/** Ayar deposundan GERİ OKUMA — yazılan değer gerçekten oturdu mu. */
+function _readBackSetting(key: string): unknown {
+  try {
+    return (useStore.getState().settings as unknown as Record<string, unknown>)[key];
+  } catch { return undefined; }
+}
+
+/**
+ * MAVI-F7 · Sesli ayar kontrolü — **artık KANIT DÖNER.**
+ *
+ * ÖLÇÜLEN KUSUR (F5 borcu, kütük #986/b): bu fonksiyon `void` dönüyordu ve
+ * `commandExecutor` porta ULAŞSIN ULAŞMASIN koşulsuz "Ayar uygulandı" diyordu.
+ * Artık ne yaptığını bildirir:
+ *   · `APPLIED`        — depoya yazıldı ve **geri okundu** (bağımsız gözlem)
+ *   · `DELIVERED`      — native'e gönderildi, kanıt DÖNMÜYOR (WiFi/Bluetooth)
+ *   · `SURFACE_OPENED` — yalnız ilgili ayar sekmesi açıldı, ayar UYGULANMADI
+ *   · `REJECTED`       — değer yok / geri okuma tutmadı
+ *
+ * Fonksiyon SENKRON hâle geldi: kanıt depodan senkron okunur. Native yan
+ * etkiler (WiFi/BT/parlaklık) `void` promise ile ateşlenir — davranış AYNI,
+ * yalnız kanıt artık kaybolmuyor. Sahte başarı EKLENMEDİ: kanıt üretmeyen
+ * yollar dürüstçe `DELIVERED`/`SURFACE_OPENED` döner.
+ */
+function applyVoiceSetting(
   key: string,
   action: string,
   value: string | undefined,
   kind: string | undefined,
   openSettings: () => void,
-): Promise<void> {
+): SettingApplyEvidence {
   // WiFi / Bluetooth — DOĞRUDAN aç/kapat. Native önce donanım toggle'ı dener
   // (eski Android / sistem-app head unit → ekran açılmadan uygulanır); modern
   // telefonda OS engeller → native otomatik sistem paneline düşer (fail-soft).
   // Eski plugin sürümünde setWifi/setBluetooth yoksa eski panel-açma davranışı.
   if (key === 'wifi' || key === 'bluetooth') {
-    if (isNative) {
-      const opts = action === 'toggle' ? { toggle: true } : { enabled: action === 'on' };
+    if (!isNative) return { kind: 'REJECTED', key, reason: 'not_native' };
+    const opts = action === 'toggle' ? { toggle: true } : { enabled: action === 'on' };
+    void (async () => {
       try {
         if (key === 'wifi') {
           if (CarLauncher.setWifi) await CarLauncher.setWifi(opts);
@@ -109,19 +136,23 @@ async function applyVoiceSetting(
           else                          await CarLauncher.openBluetoothSettings?.();
         }
       } catch { /* fail-soft */ }
-    }
-    return;
+    })();
+    /* Native köprü sonuç DÖNDÜRMÜYOR → "uygulandı" DENEMEZ (sahte-ACK yasağı). */
+    return { kind: 'DELIVERED', key };
   }
 
   const update  = useStore.getState().updateSettings;
   const s        = useStore.getState().settings as unknown as Record<string, unknown>;
   const effKind  = kind ?? getVoiceSetting(key)?.kind;
 
-  if (effKind === 'openTab') { openSettings(); return; }
+  if (effKind === 'openTab') { openSettings(); return { kind: 'SURFACE_OPENED', key }; }
 
   if (effKind === 'enum') {
-    if (value) update({ [key]: value } as unknown as Partial<AppSettings>);
-    return;
+    if (!value) return { kind: 'REJECTED', key, reason: 'no_value' };
+    update({ [key]: value } as unknown as Partial<AppSettings>);
+    return _readBackSetting(key) === value
+      ? { kind: 'APPLIED', key }
+      : { kind: 'REJECTED', key, reason: 'readback_mismatch' };
   }
 
   if (effKind === 'number') {
@@ -133,15 +164,21 @@ async function applyVoiceSetting(
     next = Math.max(0, Math.min(100, Number.isFinite(next) ? next : cur));
     update({ [key]: next } as unknown as Partial<AppSettings>);
     if (key === 'brightness' && isNative) {
-      try { await CarLauncher.setBrightness({ value: Math.round((next / 100) * 255) }); } catch { /* fail-soft */ }
+      void CarLauncher.setBrightness({ value: Math.round((next / 100) * 255) })
+        ?.catch?.(() => { /* fail-soft */ });
     }
-    return;
+    return Number(_readBackSetting(key)) === next
+      ? { kind: 'APPLIED', key }
+      : { kind: 'REJECTED', key, reason: 'readback_mismatch' };
   }
 
   // bool (varsayılan) — on/off/toggle
   const curBool  = Boolean(s[key]);
   const nextBool = action === 'toggle' ? !curBool : action === 'on';
   update({ [key]: nextBool } as unknown as Partial<AppSettings>);
+  return Boolean(_readBackSetting(key)) === nextBool
+    ? { kind: 'APPLIED', key }
+    : { kind: 'REJECTED', key, reason: 'readback_mismatch' };
 }
 
 // Android paket adından store'daki kaynak anahtarına eşleme
@@ -286,7 +323,7 @@ export function useVoiceCommandHandler({
         cycleTheme:  cycleVoiceTheme,   // AI yolu da tema döngüsünü işlesin (yoksa "Komut Hatası")
         openDrawer:  (t) => open(t as DrawerType),
         applySetting: (key, action, value, kind) =>
-          void applyVoiceSetting(key, action, value, kind, () => open('settings' as DrawerType)),
+          applyVoiceSetting(key, action, value, kind, () => open('settings' as DrawerType)),
         openWeather: showWeather,
         // Uygulama-içi navigasyon — offline routeIntent yolu ile aynı. AI yolunun
         // (Gemini) "rota oluştur" komutunu harici Google Maps'e değil kendi
@@ -515,7 +552,7 @@ export function useVoiceCommandHandler({
         setTheme:    applyVoiceTheme,
         cycleTheme:  cycleVoiceTheme,
         applySetting: (key, action, value, kind) =>
-          void applyVoiceSetting(key, action, value, kind, () => open('settings' as DrawerType)),
+          applyVoiceSetting(key, action, value, kind, () => open('settings' as DrawerType)),
         // Medya komutları oynatmayı YÖNETİR → asistan ducking-resume'unu iptal et
         // (yoksa mikrofon ducking müziği duraklatıp idle'da geri başlatarak "durdur"u
         // eziyordu). cancelAssistantDuck idempotent; alakasız komutlarda çağrılmaz.
@@ -647,7 +684,11 @@ export function useVoiceCommandHandler({
         },
       });
 
-      void _run.then((result) => {
+      /* MAVI-F13: sonuç zinciri ARTIK ÇAĞIRANA DÖNER (eskiden `void` ile
+       * atılıyordu). Tek amaç: kanonik bileşik plan adımı yürütmenin gerçekten
+       * bitmesini bekleyip GÖZLEMİ okuyabilsin. `dispatch`/`dispatchDriving`
+       * dönüşü bugünkü gibi yok sayar → tekil komut davranışı BİREBİR aynıdır. */
+      return _run.then((result) => {
         /* MAVI-M4: onay isteniyorsa eylemi BEKLET (yürütme YAPILMADI). Bir sonraki
          * turda kullanıcı "evet" derse `voiceService` kayıtlı yürütücüyü çağırır;
          * "hayır"da slot temizlenir ve HİÇBİR yan etki oluşmaz. */

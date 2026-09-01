@@ -25,6 +25,7 @@ import {
 } from '../../../platform/devtools/predictionSources';
 import {
   buildRuleRows, buildRuntimeFields, derivePredictionVerdict,
+  buildEarlyWarningRows, summarizeEarlyWarnings,
   predictionVerdictTone, ruleStateTone,
   PREDICTION_VERDICT_LABEL, RULE_STATE_LABEL,
   type PredictionTone, type PredictionFieldsInput,
@@ -107,6 +108,9 @@ export const PredictionEngineScreen = memo(function PredictionEngineScreen() {
   const verdict = useMemo(() => derivePredictionVerdict(input), [input]);
   const rows = useMemo(() => buildRuleRows(input), [input]);
   const fields = useMemo(() => buildRuntimeFields(input), [input]);
+  const ewRows = useMemo(
+    () => buildEarlyWarningRows(snap.runtime?.earlyWarnings ?? null), [snap]);
+  const ewSummary = useMemo(() => summarizeEarlyWarnings(ewRows), [ewRows]);
 
   return (
     <div className="flex h-full flex-col gap-2 overflow-y-auto" data-testid="prediction-engine">
@@ -188,6 +192,43 @@ export const PredictionEngineScreen = memo(function PredictionEngineScreen() {
                   <> · güven %{Math.round(r.confidence * 100)}</>
                 )}
               </div>
+            )}
+          </div>
+        ))}
+      </div>
+
+      {/* ── P0-OBD-04 · ERKEN UYARI ──────────────────────────────────────
+          AYNI koşucunun ikinci çıktısı. Ayrı ekran açılmadı: iki ayrı yerde
+          göstermek iki ayrı gerçeklik izlenimi verirdi. */}
+      <div className="shrink-0 rounded border border-[var(--oem-line)] bg-[var(--oem-surface-1)]">
+        <div className="border-b border-[var(--oem-line)] px-2 py-1 font-mono text-[10px] uppercase tracking-wider text-[var(--oem-ink-2)]">
+          ERKEN UYARI — {ewSummary.attention} DİKKAT · {ewSummary.watch} İZLE ·
+          {' '}{ewSummary.normal} NORMAL · {ewSummary.unmeasurable} ÖLÇÜLEMEDİ
+        </div>
+        <p className="px-2 py-1 font-mono text-[9px] leading-relaxed text-[var(--oem-ink-3)]">
+          DTC/arıza lambası beklenmez; ölçülebilir sapma aranır. Hüküm tek ölçümle
+          DEĞİL, pencere MEDYANI + süre + kaplama oranı + ilişkili sinyallerle verilir.
+          “ÖLÇÜLEMEDİ” (sinyal yok / örneklem yetersiz) ile “NORMAL” AYRI şeylerdir —
+          desteklenmeyen bir PID sağlıklı SAYILMAZ. Güven asla %100 olmaz: bu bir
+          teşhis değil, erken belirtidir.
+        </p>
+        {ewRows.map((r) => (
+          <div key={r.id} data-testid={`ew-${r.id}`} data-verdict={r.verdict}
+            className="border-t border-[var(--oem-line)] px-2 py-1.5">
+            <div className="flex flex-wrap items-center gap-2 font-mono text-[10px]">
+              <span className={`rounded border px-1.5 py-0.5 ${TONE_STYLE[r.tone]}`}>
+                {r.verdict}
+              </span>
+              <span className="text-[var(--oem-ink-1)]">{r.title}</span>
+              <span className="text-[var(--oem-ink-3)]">güven {r.confidence}</span>
+              <span className="text-[var(--oem-ink-3)]">gözlem {r.observed}</span>
+              <span className="text-[var(--oem-ink-3)]">kaplama {r.dwell}</span>
+            </div>
+            <div className="mt-1 text-[9px] leading-relaxed text-[var(--oem-ink-2)]">{r.reason}</div>
+            {r.evidence.length > 0 && (
+              <ul className="mt-1 font-mono text-[9px] leading-relaxed text-[var(--oem-ink-3)]">
+                {r.evidence.map((e) => <li key={e}>· {e}</li>)}
+              </ul>
             )}
           </div>
         ))}

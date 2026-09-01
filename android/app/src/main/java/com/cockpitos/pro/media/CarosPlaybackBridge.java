@@ -300,14 +300,16 @@ public final class CarosPlaybackBridge {
     private List<MediaItem> parseQueue(JSObject p) {
         List<MediaItem> out = new ArrayList<>();
         try {
-            JSArray arr = p.getJSONArray("items") != null
-                ? JSArray.from(p.getJSONArray("items")) : null;
+            /* `JSObject.getJSONArray()` zaten org.json.JSONArray döndürür.
+             * Bunu `JSArray.from()` ile tekrar sarmak, Capacitor 7'de bir
+             * JSONArray'i Java array/Collection sanıp null üretir; sonuçta
+             * geçerli LOCAL payload'ı bile `empty_queue` olur. */
+            org.json.JSONArray arr = p.getJSONArray("items");
             if (arr == null) return out;
-            List<Object> list = arr.toList();
-            for (Object o : list) {
+            for (int i = 0; i < arr.length(); i++) {
                 if (out.size() >= MAX_QUEUE) break;
-                if (!(o instanceof org.json.JSONObject)) continue;
-                org.json.JSONObject j = (org.json.JSONObject) o;
+                org.json.JSONObject j = arr.optJSONObject(i);
+                if (j == null) continue;
                 MediaItem item = CarosPlaybackService.buildItem(
                     clip(j.optString("uri", "")),
                     clip(j.optString("title", "")),

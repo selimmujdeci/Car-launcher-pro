@@ -297,6 +297,78 @@ export function recordLegacyExecution(input: {
   } catch { /* fail-soft */ }
 }
 
+/* ══════════════════════════════════════════════════════════════════════════
+ * MAVI-F13 · KANONİK RUNTIME TANISI (SALT TÜRETME — YENİ TELEMETRİ YOK)
+ *
+ * Bu getter HİÇBİR yeni kayıt açmaz. YALNIZ bu dosyanın ZATEN tuttuğu bounded
+ * defterleri sayar:
+ *   · `_decisions`  → gölge hattın komut başına kararları (shadow invocation)
+ *   · `_legacyExec` → eski hattın gerçek yürütmeleri (legacy execution)
+ *   · `_counters`   → köprü yaşam döngüsü
+ *
+ * ⚠️ SAYIM SINIRI DÜRÜSTÇE BEYAN EDİLİR: defterler halka/haritadır ve
+ * `MAX_DECISIONS` / `MAX_LEGACY_EXECUTIONS` tavanına takılırsa en eski kayıt
+ * DÜŞER. Yani sayılar "uygulama ömrü boyunca toplam" DEĞİL, "defterde duran"
+ * adetlerdir; `bounded` alanı bu sınırın gerçekleşip gerçekleşmediğini söyler.
+ * "0 gördüm → hiç olmadı" çıkarımı YALNIZ `bounded === false` iken geçerlidir.
+ * ════════════════════════════════════════════════════════════════════════ */
+
+export interface MaviRuntimeConsolidationDiagnostics {
+  /** Gölge köprünün komut başına kaydettiği karar adedi (defterde duran). */
+  readonly shadowDecisions: number;
+  /** Bu kararlardan GERÇEKTEN Mavi hattının yürüttüğü adet. */
+  readonly maviExecutedDecisions: number;
+  /** Bu kararlardan hiçbir hattın yürütmediği adet (saf gözlem turu). */
+  readonly noExecutionDecisions: number;
+  /** `flagState === 'takeover'` okunan karar adedi (bayrak gerçekten açıldı mı). */
+  readonly takeoverFlagDecisions: number;
+  /** Eski hattın yürüttüğü AYRIK komut anahtarı adedi. */
+  readonly legacyExecutionKeys: number;
+  /** Eski hattın yürütme TOPLAMI (aynı anahtar tekrarları dahil). */
+  readonly legacyExecutionTotal: number;
+  /** Aynı komutu HEM Mavi HEM eski hat yürüttü mü (çift yürütme kanıtı). */
+  readonly doubleExecutionKeys: number;
+  /** Köprü start/dispose sayaçları — sızıntı işareti. */
+  readonly bridgeStarts: number;
+  readonly bridgeDisposes: number;
+  /** Defterlerden biri tavana dayandı mı → "0 = hiç olmadı" çıkarımı GEÇERSİZ. */
+  readonly bounded: boolean;
+}
+
+/**
+ * Kanonik runtime konsolidasyon tanısı. SAF sayım; PII taşımaz (komut metni,
+ * parametre, transkript YOK — yalnız adet ve bounded bayrağı).
+ */
+export function getMaviRuntimeConsolidationDiagnostics(): MaviRuntimeConsolidationDiagnostics {
+  let maviExecuted = 0;
+  let noExecution = 0;
+  let takeoverFlag = 0;
+  const maviKeys = new Set<string>();
+  for (const d of _decisions) {
+    if (d.executedBy === 'mavi') { maviExecuted += 1; maviKeys.add(d.correlationId); }
+    else if (d.executedBy === 'none') noExecution += 1;
+    if (d.flagState === 'takeover') takeoverFlag += 1;
+  }
+  let legacyTotal = 0;
+  let doubleExecution = 0;
+  for (const [key, rec] of _legacyExec) {
+    legacyTotal += rec.legacyExecutionCount;
+    if (maviKeys.has(key)) doubleExecution += 1;
+  }
+  return Object.freeze({
+    shadowDecisions:       _decisions.length,
+    maviExecutedDecisions: maviExecuted,
+    noExecutionDecisions:  noExecution,
+    takeoverFlagDecisions: takeoverFlag,
+    legacyExecutionKeys:   _legacyExec.size,
+    legacyExecutionTotal:  legacyTotal,
+    doubleExecutionKeys:   doubleExecution,
+    bridgeStarts:          _counters.starts,
+    bridgeDisposes:        _counters.disposes,
+    bounded: _decisions.length >= MAX_DECISIONS || _legacyExec.size >= MAX_LEGACY_EXECUTIONS,
+  });
+}
+
 /** Lifecycle sayaçları — wiring çağırır (yeni durum DEĞİL, zaten bilinen olgular). */
 export function recordLifecyclePhase(phase: 'start' | 'restart' | 'dispose'): void {
   try {

@@ -29,24 +29,36 @@ import {
   stopCanSnapshot,
 } from './canSnapshotService';
 import { buildHandshakeResult, classifyHandshakeResponse, buildDiscoveryEvidence } from '../core/val/OBDHandshake';
-import type { DiscoveryEvidence } from '../core/val/OBDHandshake';
+import type { DiscoveryEvidence, DiscoveryCompleteness } from '../core/val/OBDHandshake';
 import { vehicleProfileRegistry } from '../core/val/VehicleProfile';
 import type { IVehicleProfile }   from '../core/val/VehicleProfile';
 import { loadObdAddress, saveObdAddress, clearObdAddress, clearObdTransport, loadObdProfileId, saveObdProfileId, loadObdTransport, saveObdTransport, loadObdTransportVerified, saveObdTransportVerified, loadObdProtocol, saveObdProtocol, loadObdFuelCalib, saveObdFuelCalib, isValidTcpAddress, markObdAddressVerified, loadVerifiedObdAddresses, type ObdTransport } from './obdStorage';
 import { persistHandshakeVin } from './vehicleProfileService';
 import { getHandshakeVin } from './safety/vinContext';
+import { setVinEpochProvider } from './vehicle/vehicleIdentity';
 import { isFeatureEnabled, recordFault, recordFeatureRecovered } from './safety/SafetyBrain';
 import { useExpertStore } from '../store/useExpertStore';
+/* ARCH-06/F1 — T0 sayaç. OBD poll otoritesi native `AdaptivePidScheduler`da
+   KALIR; buraya hiçbir kadans kararı eklenmedi. */
+import { bumpPerf } from './perf/perfCounters';
 import { sanitizeNativeOBDPacket } from './obdSanitizer';
 import { computeFuelMetrics } from './obdMetrics';
 import { getMockInitialData, generateMockUpdate } from './obdMockEngine';
 import { getPidListForVehicle, refinePidList } from './obdPidConfig';
 import { computeObdPollProfile } from './obd/AdaptivePollingController';
 import { obdHealthMonitor, HEALTH_FIELDS } from './obd/ObdHealthMonitor';
+import { classifyFieldHealth, classifyLinkHealth } from './obd/obdHealthModel';
 import { notifyObdConnected as notifyExtendedPids, seedSupportedPids as seedExtendedSupported, watchPid as watchExtendedPid, ELM_WATCH_CAP } from './obd/extendedPidService';
+import { STANDARD_PID_MAP } from './obd/StandardPidRegistry';
+import { selectPrioritizedExtendedPids } from './obd/canonicalObdSignals';
 import { getDeviceTier } from './deviceCapabilities';
 import { recordDiag } from './obdDiagnosticRecorder';
 import { emitObdDiag, getLastObdDiagReason, classifyObdErrorReason } from './obdDiagEmitter';
+import { isNativeConnectFailureClass, resolveConnectFailureReason } from './obd/connectFailureReason';
+import {
+  canScheduleTransportReconnect, canStartEcuRecovery, canResumeFromForeground,
+  reconnectFireDecision, type ObdLineState,
+} from './obd/connectAuthority';
 import { notifyKwpDataGateTeardown } from './obd/kwpRecoveryEvidence';
 import { shouldFallbackFromEV, shouldFallbackFromICE } from './obdValidation';
 import {
@@ -73,6 +85,7 @@ import {
   type LinkLossRecord, type LinkLossSummary, type LinkLossTrigger,
 } from './obd/linkLossLedger';
 import { setActiveObdProtocol } from './obd/activeProtocol';
+import { bindObdSessionEpochReader } from './obd/obdEpochReader';
 
 /**
  * Doğrulanmamış (oturum başı / modal tahmini) bağlantıda BLE ÖNCE denenirken verilen
@@ -182,11 +195,109 @@ const LEARNED_PROTOCOL_TIMEOUT_LIMIT_AFTER_SUCCESS = 3;
 // Generation counter — prevents stale in-flight _startNative() from writing
 // state after a stop/restart cycle. Each startOBD() call increments this.
 let _nativeGeneration = 0;
+/* ARCH-04 native provenance reads the existing epoch through this callback;
+   it never owns or increments the epoch.  Keeping the callback here avoids
+   generic PDU → obdService → VDK/PDU routing module initialization cycles. */
+bindObdSessionEpochReader(() => _nativeGeneration);
 
 // stopOBD() + startOBD() arasındaki native disconnect/connect race'ini önler.
 // _startNative() bu promise'i await ederek önceki disconnectOBD() tamamlanmadan
 // connectOBD() çağrısına girmez.
 let _pendingDisconnect: Promise<void> | null = null;
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * P0-OBD-CORE-06 · TEK ÇALIŞAN CONNECT DENEMESİ (single-flight)
+ *
+ * ── ÖLÇÜLEN KUSUR (saha 2026-08-25) ────────────────────────────────────────
+ * `failedAttemptsBeforeData = 17` · çok sayıda CONNECT_FAILED · ama bağlantı
+ * bir kez kurulduktan sonra hat KUSURSUZ (34/34, 0 no-data, 0 timeout, RTT
+ * 223–330 ms). "ECU yavaş" hipotezi bu sayılarla ÇÜRÜR — kusur connect
+ * zincirindedir.
+ *
+ * `_startNative()` bugüne dek YALNIZ `_nativeGeneration` sayacıyla korunuyordu.
+ * Generation, ESKİ denemenin JS tarafındaki devamını iptal eder — ama native
+ * tarafta ÇALIŞMAKTA OLAN `connectOBD()`'yi İPTAL ETMEZ. Üstelik
+ * `OBDManager.connect()` ilk iş olarak `disconnect()` çağırır → ikinci deneme,
+ * birincinin soketini KAPATIR → birinci `IOException` ile düşer →
+ * `CONNECT_FAILED` + `_failedAttemptsBeforeData++` + `_scheduleReconnect()` →
+ * üçüncü deneme… Kendi kendini besleyen bir fırtına; her turda ürettiği tek
+ * şey KENDİ ürettiği bir hatadır.
+ *
+ * Fırtınayı başlatabilen üç ayrı otorite vardı ve hiçbiri diğerini görmüyordu:
+ *   · `_scheduleReconnect()` merdiveni (timer ateşleyince `_reconnectTimer=null`),
+ *   · `_resumeFromForeground()` (kapıları `_reconnectTimer !== null`e bakıyordu —
+ *     merdiven ATEŞLENDİKTEN SONRA o alan zaten null; `pollingActive=false`
+ *     olduğu için karar `resume:true` çıkıyordu),
+ *   · `startOBD()` doğrudan-bağlan yolu.
+ *
+ * ── SÖZLEŞME ───────────────────────────────────────────────────────────────
+ *  · Aynı anda EN FAZLA BİR connect denemesi vardır (`_connectAttempt`).
+ *  · İkinci istek YENİ OTORİTE KURMAZ; `ObdConnectBusyError` ile reddedilir ve
+ *    çağıran SESSİZCE çekilir (deneme sayılmaz, merdiven başlatılmaz) — sonucu
+ *    uçuştaki deneme bildirir.
+ *  · YALNIZ kullanıcı iradesi (`startOBD(address)`) `preempt` ile öne geçebilir:
+ *    o da yeni soketi HEMEN AÇMAZ; önce uçuştaki denemenin çözülmesini bekler.
+ *  · Mevcut tek reconnect otoritesi (merdiven + derin döngü + native otorite
+ *    devri) AYNEN korunur — bu kapı ikinci bir otorite DEĞİL, hepsinin önündeki
+ *    tek serileştiricidir.
+ */
+export class ObdConnectBusyError extends Error {
+  readonly code = 'OBD_CONNECT_BUSY';
+  constructor() {
+    super('OBD bağlantı denemesi zaten sürüyor — ikinci deneme başlatılmadı');
+    this.name = 'ObdConnectBusyError';
+  }
+}
+
+/** Bu hata "başarısız bağlantı" DEĞİLDİR: hiç denenmedi (sayaçlara girmez). */
+export function isObdConnectBusyError(e: unknown): boolean {
+  return !!e && typeof e === 'object' && (e as { code?: string }).code === 'OBD_CONNECT_BUSY';
+}
+
+/**
+ * Uçuştaki connect denemesi; `null` = deneme yok. TEK otorite kapısı.
+ *
+ * `stopOBD()` bu alanı KOŞULSUZ null'lar: uçuştaki deneme, native
+ * `connectOBD()` askıda kaldığı sürece çözülmez (üretimde protokol penceresi
+ * 15–40 sn). Kapıyı ona bağlı bırakmak, `stopOBD()` sonrası KULLANICININ
+ * başlattığı denemeyi bile "meşgul" diye reddederdi — tek-uçuş kuralı bir
+ * KİLİDE dönüşmemeli. Güvenlidir: generation zaten artmıştır (eski denemenin
+ * devamı sessizce çekilir) ve kapıyı açan handler yalnız KENDİ promise'i hâlâ
+ * sahipse temizlik yapar.
+ */
+let _connectAttempt: Promise<void> | null = null;
+/** Kapıda reddedilen ikinci istek sayısı — fırtınanın ÖNLENDİĞİNİN kanıtı. */
+let _connectBusyRejections = 0;
+/** Kullanıcı iradesiyle öne geçirilen deneme sayısı (bounded, PII yok). */
+let _connectPreemptions = 0;
+/** Gerçekten BAŞLATILAN deneme sayısı — "istenen" ile "yapılan" ayrımı. */
+let _connectAttemptsStarted = 0;
+/** Kurtarma sürerken ERTELENEN (düşürülmeyen) reconnect tetiği sayısı. */
+let _reconnectYieldedToRecovery = 0;
+/** Native'in son bildirdiği bağlantı-hatası SINIFI (enum; ham mesaj DEĞİL). */
+let _lastNativeFailureClass: string | null = null;
+
+/**
+ * Bağlantı hatasının nihai (PII-güvenli) sınıfı — mesaj kanıtı + native sınıfı.
+ * Karar `connectFailureReason` içinde SAF olarak verilir; burası yalnız iki
+ * kanıtı birleştirir. `UNKNOWN` artık ancak İKİ kanıt da yoksa çıkar.
+ */
+function _connectFailReason(err: unknown): string {
+  return resolveConnectFailureReason(classifyObdErrorReason(err), _lastNativeFailureClass);
+}
+
+/**
+ * P0-OBD-CORE-06 — hat sahipliği kararlarının TEK girdisi (ham bayraklar).
+ * Kararın kendisi saf modeldedir (`connectAuthority`); burada yalnız durum toplanır.
+ */
+function _lineState(): ObdLineState {
+  return {
+    connectInFlight:         _connectAttempt !== null,
+    reconnectPending:        _reconnectTimer !== null,
+    nativeReconnectInFlight: _nativeReconnectInFlight,
+    recoveryInFlight:        _recoveryInFlight,
+  };
+}
 
 // ── PR-OBD-CONN-1: bağlantı yaşam-döngüsü kanıtı (bounded, PII'siz) ─────────
 // "Bağlantıyı Sıfırla" saha'da görünür bir lifecycle üretmiyordu → reset gerçekten
@@ -219,6 +330,16 @@ let _lastSpeedRxMs = 0;
  * gelir → aynı damgada tutulursa donmayı maskeler (saha 2026-07-16 Doblo kökü).
  */
 let _lastRxAt = 0;
+/**
+ * C · ADAPTÖR VOLTAJININ OKUNDUĞU AN (duvar saati). `0` = hiç okunmadı.
+ *
+ * SAHA (2026-08-30 · CAROS LAB TAM KOPYA): kopma defterinde
+ * `"note":"hiç paket yok (ATRV dahil)"` ile `"adapterVoltageV":12.6` YAN YANA
+ * duruyordu. `_current.batteryVoltage` bir kez yazıldıktan sonra ESKİMEZ →
+ * ölü linkte bayat sayı canlı kanıt gibi sunuluyordu. Bu damga yalnız MEVCUT
+ * akıştaki okumayı işaretler; yeni ATRV sorgusu/timer'ı KURMAZ.
+ */
+let _lastVoltageAtMs = 0;
 
 /* ── #526 · İLK VERİYE KADAR GEÇEN SÜRE (saha "ilk 2 dakika veri yok" şikâyeti) ──
  * SAHA (2026-08-10 trail'i): kullanıcı eylemi → +30,1 sn bağlantı ZAMAN AŞIMI (15 s) →
@@ -283,6 +404,26 @@ let _dataGatePassed = false;
 // OTORİTE NATIVE'DİR: TS watchdog + data-gate + status-reconnect askıya alınır.
 let _nativeReconnectInFlight = false;
 let _nativeReconnectGuardTimer: ReturnType<typeof setTimeout> | null = null;
+
+/**
+ * P0-OBD-FINAL-01 — NATIVE RECONNECT OTORİTESİNİN ÖLÇÜLEBİLİR KÜNYESİ.
+ *
+ * Bu sayaçlar yeni bir MOTOR değildir; var olan tek otoritenin GÖZLEM
+ * yüzeyidir (CLAUDE.md gözlemlenebilirlik kuralı). Sahadaki "aynı oturumda
+ * tekrar tekrar 60 s" iddiası ancak bunlarla doğrulanabilir/çürütülebilir:
+ * `guardTimeouts > 0` ⇒ terminal olay YİNE kaybediliyor demektir.
+ */
+type NativeReconnectOutcome = 'recovered' | 'failed' | 'link_lost' | 'guard_timeout' | null;
+/** Native'in bildirdiği son tur kimliği; taşınmıyorsa (eski APK) `null`. */
+let _nativeReconnectEpoch: number | null = null;
+let _nativeReconnectStartedAt = 0;
+let _nativeReconnectRounds = 0;
+let _nativeReconnectRecovered = 0;
+let _nativeReconnectFailed = 0;
+/** FAIL-SAFE zamanlayıcısının ateşlenme sayısı — 0 DIŞINDAKİ her değer KUSURDUR. */
+let _nativeReconnectGuardTimeouts = 0;
+let _nativeReconnectLastOutcome: NativeReconnectOutcome = null;
+let _nativeReconnectLastDurationMs: number | null = null;
 /**
  * Native reconnect için üst sınır. Native tur (MAX_RECONNECT_ATTEMPTS × backoff + ELM
  * init) bunun ALTINDA biter. FAIL-SAFE: "connected"/"disconnected" event'i bir şekilde
@@ -344,6 +485,14 @@ let _activeProfile: IVehicleProfile = vehicleProfileRegistry.getById(
 // AYNEN kullanılır — fail-soft, mevcut poll zinciri regresyonsuz.
 let _handshakeSupportedPids: Set<number> = new Set();
 let _handshakeReadBlocks:    Set<number> = new Set();
+/* ── P0-OBD-CORE-06 · "15 PID" BİR TAVAN MI, ALT SINIR MI? ──────────────────
+ * `buildHandshakeResult` zaten `completeness` üretiyordu (CORE-01B) ama SONUÇ
+ * HİÇBİR KARARDA KULLANILMIYORDU: zincir 0120'de kırılsa bile okunan tek blok
+ * "aracın desteği" muamelesi görüyor, izleyiciler o daraltılmış kümeyle
+ * kuruluyor ve o oturum boyunca bir daha SORULMUYORDU. Yani ürün, kanıtı
+ * olmayan bir "desteklemiyor" hükmünü kalıcılaştırıyordu.
+ * Bu bayrak, kanıtın EKSİK olduğunu taşır ve sınırlı bir yeniden keşif açar. */
+let _handshakeDiscoveryIncomplete = false;
 
 /* Diagnostics V2 · PR-5a: handshake AŞAMA kanıtı (non-PII) — tanı snapshot'ı
  * yüzeye çıkarabilsin (root-cause "handshake başladı ama bitmap gelmedi/VIN timeout"
@@ -368,6 +517,25 @@ export interface HandshakeDiagnostics {
   supportedCount: number;
   /** Başarısızlıkta sınıflandırılmış sebep. */
   failReason: string | null;
+  /* ── P0-OBD-CORE-01B: keşif BÜTÜNLÜĞÜ kanıtı ──────────────────────────────
+     `readBlocks` yalnız SONUCU gösterir, KARARIN kanıtını göstermez: geçerli
+     "continuation CLEAR", NO DATA, timeout ve kısmi yanıt aynı nihai görüntüye
+     çöker. Bu alanlar o dört durumu ayırır ve `supportedCount`'un bir TAVAN mı
+     yoksa ALT SINIR mı olduğunu belirler. Üreten taraf `_mkHandshakeDiag` /
+     `buildHandshakeResult`; tüketen taraf `diagnosticSections` ve CAROS LAB
+     "PID Keşif Kanıtı" ekranıdır. */
+  /** Zincir kesin bir sonla mı bitti, kırıldı mı, hiç mi koşmadı. */
+  discoveryCompleteness: DiscoveryCompleteness;
+  /** Zincirin KIRILDIĞI bloğun PID'i (ör. '20'); kırılmadıysa `null`. */
+  failedBlock: string | null;
+  /**
+   * DENENEN bloklar (hex, ör. ['0','20']). `readBlocks` ile AYRI kümedir:
+   * denenmiş ama başarısız blok BURADA vardır, `readBlocks`'ta YOKTUR —
+   * "hiç sorulmadı" ile "soruldu ama cevap gelmedi" ancak böyle ayrılır.
+   */
+  attemptedBlocks: string[];
+  /** Blok başına YAPILAN deneme sayısı (native taşımıyorsa boş) — retry kanıtı. */
+  blockAttempts: number[];
   /* ── PR-1a: handshake yaşam-döngüsü kanıtı (hepsi enum/sayı/timestamp — ham veri YOK) ── */
   /** Timeout hangi aşamada oldu (null = timeout değil). */
   timeoutStage: HandshakeTimeoutStage | null;
@@ -448,9 +616,20 @@ function _noteLinkLoss(trigger: LinkLossTrigger, timeoutStage: HandshakeTimeoutS
       ecuDataAgeMs:    _lastRealDataMs > 0 ? Math.max(0, now - _lastRealDataMs) : null,
       /* ATRV okunmadıysa `null` — sahte 0 V YASAK (0 V "ölçülmedi" demek olurdu). */
       adapterVoltageV: typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : null,
+      /* C — değerin OKUNDUĞU an. Damga yoksa (`0`) defter voltajı kanıt SAYMAZ
+         ve `ADAPTER_VOLTAGE` boşluğunu açar — "dolu ama bayat" artık gizlenmez. */
+      adapterVoltageObservedAt: _lastVoltageAtMs > 0 ? _lastVoltageAtMs : null,
       everHadEcuData:  _lastRealDataMs > 0,
       transport:       _lastKnownTransport,
       protocolActive:  _lastProtocolActive,
+      /* ── P0-OBD-FINAL-02 · NATIVE HATA SINIFI ZİNCİRİNİN SON HALKASI ─────
+         SAHA (2026-08-25): 6 kopmanın 4'ü `UNKNOWN` ve `NATIVE_SOCKET_ERROR`
+         kanıt açığı 4 ölçüldü. Oysa sınıf JS'te ZATEN VARDI: native
+         `ObdFailureClass.of(e)` üretiyor → `obdStatus.failureClass` taşıyor →
+         `_lastNativeFailureClass` saklıyor (ve `_connectFailReason` onu ZATEN
+         kullanıyor). Kopan tek halka DEFTERİN GİRDİSİYDİ. Ölçülmediyse `null`
+         geçer ve defter dürüst boşluğu KORUR — sahte sınıf ÜRETİLMEZ. */
+      nativeFailureClass: _lastNativeFailureClass,
     });
     _linkLosses = appendLinkLoss(_linkLosses, rec);
     /* #554: ECU sustuysa kurtarma ucu handshake'ten DEĞİL, verinin yeniden
@@ -521,6 +700,8 @@ function _mkHandshakeDiag(partial: Partial<HandshakeDiagnostics>): HandshakeDiag
   return {
     outcome: 'not_run', ranAt: null, vinClass: null, vinPresent: false,
     bitmapClass: null, readBlocks: [], supportedCount: 0, failReason: null,
+    discoveryCompleteness: 'not_run', failedBlock: null,
+    attemptedBlocks: [], blockAttempts: [],
     timeoutStage: null, durationMs: null,
     protocolTried: _lastProtocolTried, protocolActive: _lastProtocolActive,
     lastSuccessAt: _lastHandshakeSuccessAt,
@@ -538,6 +719,8 @@ export function getHandshakeDiagnostics(): HandshakeDiagnostics {
   return {
     ..._handshakeDiag,
     readBlocks: [..._handshakeDiag.readBlocks],
+    attemptedBlocks: [..._handshakeDiag.attemptedBlocks],
+    blockAttempts: [..._handshakeDiag.blockAttempts],
     reconnectHistory: _handshakeDiag.reconnectHistory.map((r) => ({ ...r })),
     discoveryEvidence: _handshakeDiag.discoveryEvidence
       ? {
@@ -616,6 +799,9 @@ function _clearExtendedWatchRetry(): void {
 function _resetExtendedWatchRetry(): void {
   _clearExtendedWatchRetry();
   _extWatchRetries = 0;
+  /* Yeni bağlantı = yeni keşif turu: önceki oturumun "eksik kanıt" damgası
+     devralınmaz (bu bağlantının kendi handshake'i gerçeği yazacak). */
+  _handshakeDiscoveryIncomplete = false;
 }
 
 /**
@@ -641,16 +827,19 @@ function _scheduleExtendedWatchRetry(myGen: number): void {
  * profil/VIN/tanı yan işleri TEKRARLANMAZ (onların otoritesi ilk handshake'tir).
  */
 function _tryEnsureExtendedWatch(myGen: number): void {
-  if (_extraPidUnsubs.length > 0) return;
+  /* P0-OBD-CORE-06: "izleyici kurulu" ARTIK TEK BAŞINA yeterli değil — kanıt
+     EKSİKSE (zincir kırıldı) izleyiciler daraltılmış bir kümeyle kurulmuş
+     olabilir; bütçe varken zincir bir kez daha denenir. */
+  if (_extraPidUnsubs.length > 0 && !_handshakeDiscoveryIncomplete) return;
 
-  // (2) Önceki handshake kanıtı duruyorsa ek trafik GEREKMEZ.
-  if (_handshakeSupportedPids.size > 0) {
+  // (2) Önceki handshake kanıtı TAM ise ek trafik GEREKMEZ.
+  if (_handshakeSupportedPids.size > 0 && !_handshakeDiscoveryIncomplete) {
     seedExtendedSupported(_handshakeSupportedPids);
     _watchAllSupportedPids(_handshakeSupportedPids);
     return;
   }
 
-  // (3) Kanıt yok → hafif handshake tekrarı (metot yoksa yol kapalıdır, ısrar edilmez).
+  // (3) Kanıt yok/eksik → hafif handshake tekrarı (metot yoksa yol kapalıdır, ısrar edilmez).
   if (!CarLauncher.performHandshake) return;
   void CarLauncher.performHandshake()
     .then((raw) => {
@@ -660,10 +849,16 @@ function _tryEnsureExtendedWatch(myGen: number): void {
         _scheduleExtendedWatchRetry(myGen);   // kanıt hâlâ yok → bütçe varsa bir daha
         return;
       }
-      _handshakeSupportedPids = result.supportedPids;
-      _handshakeReadBlocks    = result.readBlocks;
-      seedExtendedSupported(result.supportedPids);
-      _watchAllSupportedPids(result.supportedPids);
+      /* BİRLEŞTİR, DEĞİŞTİRME: yeni tur eskisinden DAHA AZ blok okumuş olabilir
+         (ör. bu sefer 0100 kesin geldi ama 0120 sustu). Kanıt yalnız GENİŞLER;
+         bir PID'i "artık desteklenmiyor"a çevirmek için kanıt gerekir. */
+      for (const n of result.supportedPids) _handshakeSupportedPids.add(n);
+      for (const b of result.readBlocks)    _handshakeReadBlocks.add(b);
+      _handshakeDiscoveryIncomplete = result.completeness === 'incomplete';
+      seedExtendedSupported(_handshakeSupportedPids, result.completeness);
+      _watchAllSupportedPids(_handshakeSupportedPids);
+      // Hâlâ eksikse bütçe bitene dek bir kez daha denenir (sonsuz DEĞİL).
+      if (_handshakeDiscoveryIncomplete) _scheduleExtendedWatchRetry(myGen);
     })
     .catch(() => {
       if (!_running || _nativeGeneration !== myGen) return;
@@ -671,18 +866,38 @@ function _tryEnsureExtendedWatch(myGen: number): void {
     });
 }
 
-/** Handshake'te KANITLI destekli, core-olmayan PID'leri sürekli izlemeye al (cap'e kadar). */
+/**
+ * Handshake'te KANITLI destekli, core-olmayan PID'leri sürekli izlemeye al (cap'e kadar).
+ *
+ * ── P0-OBD-01 · SLOT ÖNCELİĞİ (ölçülen kusurun düzeltmesi) ──────────────────
+ * ESKİ DAVRANIŞ: `supported` bir `Set<number>`dır ve handshake onu ARTAN PID
+ * NUMARASIYLA doldurur. Döngü bu sırayı izleyip 16'lık tavanı DÜŞÜK NUMARALI
+ * PID'lerle dolduruyordu — tipik bir araçta 01·02·03·06·07·08·09·0A·0E·10·13·
+ * 14…1B (sekiz adet O2 SENSÖR VOLTAJI) tavanı bitiriyor, yağ sıcaklığı (5C) ·
+ * modül voltajı (42) · ortam ısısı (46) · yakıt debisi (5E) gibi KARAR ÜRETEN
+ * sinyaller listeye HİÇ GİREMİYORDU.
+ *
+ * İKİNCİ KUSUR (aynı döngü): `StandardPidRegistry`de TANIMI OLMAYAN PID'ler
+ * (0x02 freeze-frame · 0x03 yakıt sistemi durumu · 0x13 O2 varlığı · 0x1D…)
+ * de sayacı ilerletiyordu. Oysa `extendedPidService._buildNativeList` tanımsız
+ * PID'i tele HİÇ GÖNDERMEZ → slot HARCANIYOR ama karşılığında tek bayt veri
+ * gelmiyordu.
+ *
+ * YENİ DAVRANIŞ: önce `canonicalObdSignals` öncelik sırası, sonra kalan
+ * destekli PID'ler (artan sırayla, eski davranışın kalıntısı) — ve YALNIZ
+ * kayıtta ÇÖZÜLEBİLEN PID'ler sayılır. Tavan ve trafik bütçesi DEĞİŞMEDİ:
+ * `ELM_WATCH_CAP` aynı, native tur başına hâlâ 1 PID okur.
+ */
 function _watchAllSupportedPids(supported: ReadonlySet<number>): void {
   _clearExtraPidWatches();
-  let count = 0;
-  for (const num of supported) {
-    if (_CORE_POLL_PIDS.has(num)) continue;          // core zaten FAST poll'da
-    if (num % 0x20 === 0) continue;                  // 0x20/0x40… = "sonraki blok" bayrağı, veri değil
-    if (count >= ELM_WATCH_CAP) break;               // izleme tavanı (rotasyon makul kalsın)
-    // StandardPidRegistry key formatı: 2 haneli büyük-harf hex, '0x' YOK (ör. '2F', '04').
-    const hex = num.toString(16).toUpperCase().padStart(2, '0');
-    _extraPidUnsubs.push(watchExtendedPid(hex, () => { /* değer _values'e saklanır; panel/asistan okur */ }));
-    count++;
+  // Seçim kuralı SAF ve KİLİTLİDİR (bkz. canonicalObdSignals); burada yalnız
+  // sonucu abone ederiz. StandardPidRegistry key formatı: 2 hane büyük-harf hex.
+  const pids = selectPrioritizedExtendedPids(
+    supported, _CORE_POLL_PIDS, ELM_WATCH_CAP,
+    (hex) => { const d = STANDARD_PID_MAP.get(hex); return d !== undefined && !d.core; },
+  );
+  for (const hex of pids) {
+    _extraPidUnsubs.push(watchExtendedPid(hex, () => { /* değer _values'e saklanır; köprü/panel/asistan okur */ }));
   }
 }
 
@@ -800,6 +1015,14 @@ function _merge(partial: Partial<OBDData>): void {
     const computed = computeFuelMetrics(dispFuel, _fuelTankL, _avgConsumL100);
     partial = { ...partial, fuelLevel: dispFuel, ...computed };
   }
+  /* C — voltaj GERÇEKTEN yeniden ölçüldüyse okuma anını damgala. `_merge` tüm
+     voltaj yollarının (native paket · adaptör-seviyesi merge) ortak geçididir;
+     ayrı bir sorgu/timer EKLENMEZ. Değer değişmese de okuma tazedir. */
+  if (partial.batteryVoltage !== undefined && partial.batteryVoltage !== null
+      && Number.isFinite(partial.batteryVoltage) && partial.batteryVoltage > 0) {
+    _lastVoltageAtMs = Date.now();
+  }
+
   const prevConnState = _current.connectionState;
 
   // INVARYANT (fail-closed, TEK nokta): connectionState 'connected'ten AYRILIYORSA
@@ -852,9 +1075,25 @@ function _sanitizeNative(data: Partial<NativeOBDData>): Partial<OBDData> | null 
   try {
     for (const f of HEALTH_FIELDS) {
       const offered = data[f];
-      if (offered === undefined || offered < 0) continue;
       const patchKey = f === 'voltage' ? 'batteryVoltage' : f; // ATRV → OBDData eşlemesi
-      obdHealthMonitor.noteField(f, patch !== null && (patch as Record<string, unknown>)[patchKey] !== undefined);
+
+      /* ── P0-OBD-06 · ÜÇ NEDEN AYRI KAYDEDİLİR ────────────────────────────
+       * Bu tek nokta, ELM327'ye TEK EK SORGU göndermeden üç ayrı gerçeği
+       * ayırt edebilir — çünkü hem native'in SUNDUĞU ham değeri hem sanitizer
+       * KARARINI zaten biliyor:
+       *   · sunulmadı (`-1`/undefined) → NO DATA / bu turda sorulmadı
+       *   · sunuldu + reddedildi        → çözümleme/aralık hatası
+       *   · sunuldu + kabul edildi      → gerçek ölçüm (+ değer değişimi izlenir)
+       * Eskiden sunulmayan alan SESSİZCE atlanıyordu; "sorulmadı" ile "sağlıklı"
+       * ayırt edilemiyordu. */
+      if (offered === undefined || offered < 0) {
+        obdHealthMonitor.noteFieldSample(f, 'not_offered', null);
+        continue;
+      }
+      const accepted = patch !== null && (patch as Record<string, unknown>)[patchKey] !== undefined;
+      obdHealthMonitor.noteFieldSample(f, accepted ? 'accepted' : 'rejected', accepted ? offered : null);
+      /* Eski sayaç sözleşmesi AYNEN korunur (skorlar değişmesin). */
+      obdHealthMonitor.noteField(f, accepted);
     }
     if (patch) obdHealthMonitor.notePacketAccepted();
   } catch { /* gözlemci hatası veri akışını düşürmez */ }
@@ -1042,9 +1281,18 @@ function _diagCommon(): { source: string; vehicleType: string; lastSeenMs: numbe
  * motorları (stale watchdog + data-gate) DURDURULUR; bu sırada gelen 'link_lost'
  * event'leri de yok sayılır (bkz. obdStatus listener).
  */
-function _beginNativeReconnect(): void {
-  if (_nativeReconnectInFlight) return;
+function _beginNativeReconnect(epoch: number | null): void {
+  if (_nativeReconnectInFlight) {
+    /* Aynı otorite penceresinde İKİNCİ bir "reconnecting" gelirse bu YENİ bir
+       turdur (native epoch arttı) — guard yeniden kurulmalı, yoksa ilk turun
+       zamanlayıcısı ikinci turu erken keser. Epoch taşınmıyorsa (eski APK)
+       mevcut davranış korunur: tek guard, erken yeniden kurma yok. */
+    if (epoch === null || epoch === _nativeReconnectEpoch) return;
+  }
+  _nativeReconnectRounds++;
   _nativeReconnectInFlight = true;
+  _nativeReconnectEpoch = epoch;
+  _nativeReconnectStartedAt = Date.now();
   _stopStaleWatchdog();
   _clearDataGate();
   _merge({ connectionState: 'reconnecting' });
@@ -1052,12 +1300,32 @@ function _beginNativeReconnect(): void {
   _nativeReconnectGuardTimer = setTimeout(() => {
     _nativeReconnectGuardTimer = null;
     if (!_running || !_nativeReconnectInFlight) return;
-    // FAIL-SAFE: native ne "connected" ne "disconnected" dedi (event kaybı/donma).
-    // Otoriteyi TS geri alır — sessizce askıda kalmaktan iyidir.
-    _nativeReconnectInFlight = false;
-    logError('OBD:NativeReconnect', new Error(`Native reconnect ${NATIVE_RECONNECT_MAX_MS / 1000}s içinde sonuçlanmadı — otorite TS'e döndü`));
+    // FAIL-SAFE: native ne "connected" ne "reconnect_failed" ne "disconnected" dedi
+    // (event kaybı/donma). Otoriteyi TS geri alır — askıda kalmaktan iyidir.
+    //
+    // ⚠️ P0-OBD-FINAL-01: BURASI ARTIK NORMAL YOL DEĞİLDİR. Sahada bu zamanlayıcı
+    // her başarısız reconnect'te ateşleniyordu, çünkü terminal olay yutuluyordu
+    // (bkz. _failNativeReconnect). Ateşlenmesi ARTIK bir KUSUR SİNYALİDİR ve
+    // sayacı LAB'da görünür (`guardTimeouts`) — sessizce normalleşemez.
+    _nativeReconnectGuardTimeouts++;
+    _endNativeReconnectAuthority('guard_timeout');
+    logError('OBD:NativeReconnect', new Error(`Native reconnect ${NATIVE_RECONNECT_MAX_MS / 1000}s içinde sonuçlanmadı — otorite TS'e döndü (fail-safe)`));
     void _removeNativeHandles().then(() => _scheduleReconnect());
   }, NATIVE_RECONNECT_MAX_MS);
+}
+
+/**
+ * Otorite penceresini KAPATIR (tek yer). Zamanlayıcı temizliği ve bayrak
+ * sıfırlaması ASLA çağrı yerlerine dağıtılmaz — dağıldığı için bir dal
+ * (başarısızlık) unutulmuştu ve kusur tam olarak oradan doğdu.
+ */
+function _endNativeReconnectAuthority(outcome: NativeReconnectOutcome): void {
+  if (_nativeReconnectGuardTimer) { clearTimeout(_nativeReconnectGuardTimer); _nativeReconnectGuardTimer = null; }
+  _nativeReconnectInFlight = false;
+  _nativeReconnectLastOutcome = outcome;
+  _nativeReconnectLastDurationMs = _nativeReconnectStartedAt === 0
+    ? null : Math.max(0, Date.now() - _nativeReconnectStartedAt);
+  _nativeReconnectStartedAt = 0;
 }
 
 /**
@@ -1065,17 +1333,43 @@ function _beginNativeReconnect(): void {
  * doğrulanır: data-gate açılır (native "bağlandı" dese de PID akmıyorsa TS kopar).
  */
 function _endNativeReconnect(gen: number): void {
-  if (_nativeReconnectGuardTimer) { clearTimeout(_nativeReconnectGuardTimer); _nativeReconnectGuardTimer = null; }
-  if (!_nativeReconnectInFlight) return;
-  _nativeReconnectInFlight = false;
+  if (!_nativeReconnectInFlight) {
+    /* Uçuşta bir tur yokken gelen "connected" bir reconnect sonucu DEĞİLDİR
+       (ilk bağlantı yankısı) — zamanlayıcı yine de temizlenir. */
+    if (_nativeReconnectGuardTimer) { clearTimeout(_nativeReconnectGuardTimer); _nativeReconnectGuardTimer = null; }
+    return;
+  }
+  _endNativeReconnectAuthority('recovered');
+  _nativeReconnectRecovered++;
   // "Bağlandı" demek "veri akıyor" demek DEĞİLDİR (zero-trust) → gate yeniden kurulur.
   _startDataValidationGate(gen);
+}
+
+/**
+ * P0-OBD-FINAL-01 · ÖNCELİK 1 — Native reconnect BAŞARISIZ bitti → otorite
+ * DERHAL TS'e döner ve TS kendi turunu açar.
+ *
+ * BU FONKSİYON, 60 SANİYELİK ÖLÜ PENCERENİN KAPATILMASIDIR. Öncesinde bu yol
+ * YOKTU: başarısızlık ya hiç bildirilmiyor ya da `link_lost` olarak gelip
+ * "native'in ara adımı" sanılıp YOK SAYILIYORDU; TS ancak fail-safe
+ * zamanlayıcısı dolunca (60 s) uyanıyordu. Aynı oturumda tur tekrarlandıkça
+ * saha raporundaki "tekrar tekrar 60 s timeout" tablosu çıkıyordu.
+ *
+ * TEK OTORİTE KORUNUR: native turu BİTTİ (yeni bir soket kurmuyor); TS'in tur
+ * açması çift motor DEĞİLDİR — devir teslimdir.
+ */
+function _failNativeReconnect(reason: NativeReconnectOutcome): void {
+  if (!_nativeReconnectInFlight) return;
+  _endNativeReconnectAuthority(reason);
+  _nativeReconnectFailed++;
+  void _removeNativeHandles().then(() => _scheduleReconnect());
 }
 
 /** stopOBD / yeni bağlantı turu → otorite bayrağı temizlenir (leak yok). */
 function _clearNativeReconnectAuthority(): void {
   if (_nativeReconnectGuardTimer) { clearTimeout(_nativeReconnectGuardTimer); _nativeReconnectGuardTimer = null; }
   _nativeReconnectInFlight = false;
+  _nativeReconnectStartedAt = 0;
 }
 
 /* ── OBD-OS-F0-4: protokol-sınıfı timeout profili ────────── */
@@ -1148,6 +1442,11 @@ function _startStaleWatchdog(): void {
   _lastRealDataMs = t0;
   _lastRxAt = t0;
   _staleWatchdogTimer = setInterval(() => {
+    /* P0-OBD-03: tazelik aboneleri MEVCUT gözcüye iliştirilir — YENİ TIMER YOK.
+       Guard'lardan ÖNCE çağrılır: mock'a düşülmüş ya da kaynak değişmiş olsa da
+       eski OBD ölçümlerinin süresi dolar ve arayüz onları canlı göstermeyi
+       bırakır. Abone fırlatırsa gözcü DÜŞMEZ (fail-soft). */
+    _emitFreshnessTick();
     if (!_running || _current.source !== 'real') return;
     if (_nativeReconnectInFlight) return;   // F0-5: otorite native'de — TS tur açmaz
     const now = Date.now();
@@ -1178,9 +1477,21 @@ function _startStaleWatchdog(): void {
     if (dataStale && _current.dataFresh) {
       /* #531: veri AKIYORDU ve kesildi → bundan sonraki bağlantı çabası YENİ
          TURDUR. Tur damgası sıfırlanmazsa "ilk veriye kadar süre" araç kapalı
-         geçen saatleri de içine alır (sahada 1 sa 58 dk okundu, gerçeği 6,4 sn). */
+         geçen saatleri de içine alır (sahada 1 sa 58 dk okundu, gerçeği 6,4 sn).
+         P0-OBD-CORE-05 — `_lastAttemptStartedAtMs` da AYNI blokta sıfırlanmalı:
+         bu alan YALNIZ transport-seviye fallback denemesinde tazelenir (bkz.
+         aşağıdaki `_lastAttemptStartedAtMs = Date.now()`); KWP/ECU-seviye
+         kurtarma (ATPC/reinit) bu değişkene HİÇ DOKUNMAZ. Sıfırlanmazsa, bu
+         ECU-sessizliği turunda `firstDataAfterLastAttemptMs` YENİ `firstDataAt`ı
+         ESKİ (dakikalar önceki, hatta oturumun EN BAŞINDAKİ) bir transport
+         denemesiyle karşılaştırır — LAB'da anlamsızca büyük (ör. 223691 ms)
+         bir "son denemeden ilk veriye" süresi üretir. Bu KWP recovery'nin
+         KENDİ süresi DEĞİLDİR (o `kwpRecoveryEvidence.lastRecoveryToFirstPidMs`
+         alanında AYRICA ölçülür) — burada sıfırlamazsak iki AYRI ölçüm
+         (transport-tur hızı vs KWP-recovery hızı) birbirine KARIŞIR. */
       _connectAttemptStartedAtMs = 0;
       _firstRealDataAtMs = 0;
+      _lastAttemptStartedAtMs = 0;
       _failedAttemptsBeforeData = 0;
       _dataStaleCount++;
       /* #536: bu bir KOPMA DEĞİLDİR (link canlı, ATRV akıyor) — defter bunu
@@ -1247,7 +1558,12 @@ async function _maybeRunEcuRecovery(now: number, staleMs: number): Promise<void>
   if (_recoveryInFlight || _recoveryExhausted) return;
   if (!_current.transportConnected || _current.dataFresh) return;
   if (_ecuSilentStreak < ECU_SILENT_STREAK_TO_RECOVER) return;
-  if (_nativeReconnectInFlight) return;
+  /* P0-OBD-CORE-06 — TRANSPORT ↔ OTURUM KURTARMASI ÇAKIŞMAZ. Uçuşta bir
+     connect denemesi (ya da beklemede bir merdiven tetiği) varken ATPC/ATWS
+     koşturmak, kurulmakta olan oturumu ELM seviyesinde sıfırlar: iki motor
+     aynı hattı yönetir. Kurtarma bir sonraki gözcü turunda yeniden bakar —
+     kapı KAPANMAZ, yalnız sıra transport'undur. */
+  if (!canStartEcuRecovery(_lineState())) return;
 
   // CAN kapısı — KWP/ISO9141'in native kurtarmasına ASLA karışma.
   const activeProto = _lastProtocolActive ?? _lastProtocolTried;
@@ -1307,6 +1623,11 @@ async function _maybeRunEcuRecovery(now: number, staleMs: number): Promise<void>
       _merge({ transportConnected: false, dataFresh: false });
       await _removeNativeHandles();
       if (_nativeGeneration !== myGen || !_running) return; // oturum değişti → bırak
+      /* P0-OBD-CORE-06: son çare basamağı otoriteyi transport'a DEVREDER —
+         bayrağı burada düşürmek şart, aksi hâlde `_scheduleReconnect`'in
+         kurtarma-erteleme kapısı KENDİ tetiğimizi geri çevirirdi. `finally`
+         zaten aynı değeri yazar (idempotent). */
+      _recoveryInFlight = false;
       _scheduleReconnect();
       return;
     }
@@ -1353,6 +1674,32 @@ function _logStateTransition(
     linkFailureCount: _linkFailureCount,
     dataStaleCount:   _dataStaleCount,
   }));
+}
+
+/* ── P0-OBD-03 · tazelik tiki (mevcut gözcüye iliştirilmiş abonelik) ──────── */
+
+const _freshnessTickListeners = new Set<() => void>();
+
+/**
+ * Bayatlık gözcüsünün her turunda (WATCHDOG_INTERVAL_MS) çağrılır.
+ *
+ * NEDEN VAR: tazelik hükmü OKUMA ANINDA verilir, ama React yalnız abone olduğu
+ * değer değişince yeniden çizer. OBD kopunca mağazaya yazım durur → hiçbir
+ * referans değişmez → ekran son ölçümü sonsuza dek "LIVE" gösterir. Bu tik,
+ * süresi dolan ölçümlerin mağazadan DÜŞÜRÜLMESİNİ tetikler.
+ *
+ * YENİ TIMER KURULMAZ — proje deseni (`_sampleTimeline` ile aynı): gözlem ve
+ * çürüme ZATEN var olan bir olaya iliştirilir.
+ */
+export function onObdFreshnessTick(fn: () => void): () => void {
+  _freshnessTickListeners.add(fn);
+  return () => _freshnessTickListeners.delete(fn);
+}
+
+function _emitFreshnessTick(): void {
+  for (const fn of _freshnessTickListeners) {
+    try { fn(); } catch (e) { logError('OBD:FreshnessTick', e); }
+  }
 }
 
 function _stopStaleWatchdog(): void {
@@ -1745,10 +2092,25 @@ export function getObdSessionHealth(): {
  */
 function _foregroundResumeDecision(): { resume: boolean; reason: string } {
   if (!_running)               return { resume: false, reason: 'service_stopped' };
-  // Devam eden bir kurtarma/yeniden bağlanma varsa KARIŞMA (çift motor yasak).
-  if (_reconnectTimer !== null)     return { resume: false, reason: 'reconnect_pending' };
-  if (_nativeReconnectInFlight)     return { resume: false, reason: 'native_reconnect_inflight' };
-  if (_recoveryInFlight)            return { resume: false, reason: 'ecu_recovery_inflight' };
+  /* P0-OBD-CORE-06 — EN ÖNEMLİ KAPI, EN BAŞTA: uçuşta bir connect denemesi
+     varken foreground'da İKİNCİ deneme başlatmak sahadaki CONNECT_FAILED
+     fırtınasının kök nedeniydi. `_reconnectTimer` bu durumu GÖREMEZ: merdiven
+     timer'ı ateşlendiği anda kendini null'lar ve deneme 15–40 sn boyunca
+     uçuşta kalır; o pencerede `pollingActive=false` olduğu için karar
+     `poll_scheduler_stopped` ile `resume:true` çıkıyordu. */
+  /* Hat sahipsiz değilse MÜDAHALE YOK — karar saf modelde (`connectAuthority`).
+     Dört bayrağın hepsi TEK yerde değerlendirilir; çift motor yasağı böylece
+     üç çağırı yerinde AYNI kuralı uygular. */
+  {
+    const own = _lineState();
+    if (!canResumeFromForeground(own)) {
+      const reason = own.connectInFlight ? 'connect_inflight'
+        : own.nativeReconnectInFlight ? 'native_reconnect_inflight'
+        : own.recoveryInFlight ? 'ecu_recovery_inflight'
+        : 'reconnect_pending';
+      return { resume: false, reason };
+    }
+  }
   // KANIT KAPISI: yalnız geçmişte GERÇEK ECU verisi akmış adaptöre otomatik dönülür.
   // Kullanıcı cihazı "unuttu"ysa storage'da adres YOKTUR → burada eleriz.
   if (!_isAddressProven())     return { resume: false, reason: 'address_not_proven' };
@@ -1805,6 +2167,13 @@ async function _resumeFromForeground(): Promise<void> {
     _reconnectAttempts = 0;            // taze tur
     await _startNative({ trustBypass: true });
   } catch (e) {
+    /* P0-OBD-CORE-06: kapı "meşgul" dediyse HİÇBİR ŞEY OLMADI — bu bir bağlantı
+       hatası DEĞİLDİR. Handle'ları toplamak (uçuştaki denemenin handle'larıdır)
+       ya da merdiven açmak, önlediğimiz fırtınayı geri getirirdi. */
+    if (isObdConnectBusyError(e)) {
+      console.info('[OBD:ForegroundResume]', JSON.stringify({ event: 'skip', reason: 'connect_inflight_race' }));
+      return;
+    }
     logError('OBD:ForegroundResume', e);
     await _removeNativeHandles();
     // Kanıtlı adaptör → merdiven devralır (boot yolundaki sözleşmenin AYNISI).
@@ -1853,6 +2222,18 @@ function _stopAppStateListener(): void {
 
 function _scheduleReconnect(): void {
   if (!_running) return;
+
+  /* P0-OBD-CORE-06 — TEK OTORİTE: uçuşta bir connect denemesi varken YENİ tur
+     AÇILMAZ. Bu yol `obdStatus(link_lost)` ve link-ölü gözcüsünden de çağrılır;
+     ikisi de connect penceresi İÇİNDE tetiklenebilir (native, ölü soketi
+     kapatırken kopma bildirir). Eskiden burada yeni bir merdiven kuruluyor,
+     timer ateşleyince ikinci `connectOBD()` gidiyor ve birincinin soketini
+     kapatıyordu. Deneme sonucunu KENDİSİ bildirecek — düşerse zaten kendi
+     catch'inden merdiven açılır, hiçbir kopma kaybolmaz. */
+  if (!canScheduleTransportReconnect(_lineState())) {
+    _connectBusyRejections++;
+    return;
+  }
 
   // Patch 7: gerçek kopma → sağlık monitörüne reconnect baskısı (sönümlü sayaç).
   obdHealthMonitor.noteReconnect();
@@ -1969,15 +2350,34 @@ function _scheduleReconnect(): void {
   if (!nativePlatform) _startMock(); // web dev modu: mock no-op eğer MOCK_ENABLED=false
 
   if (_reconnectTimer) clearTimeout(_reconnectTimer);
-  _reconnectTimer = setTimeout(() => {
+  /* P0-OBD-CORE-06 — TETİK, KURTARMA İLE ÇAKIŞIRSA DÜŞÜRÜLMEZ: ERTELENİR.
+   * ECU kurtarma merdiveni (`_maybeRunEcuRecovery`) 1./2. basamakta native
+   * ATPC/ATWS koşturur ve transport'a DOKUNMAZ. Tam o sırada bir transport
+   * reconnect başlarsa `connectOBD()` → `disconnect()` zinciri kurtarmanın
+   * altındaki soketi kapatır: iki motor aynı hattı yönetir, ikisi de düşer.
+   * Tetiği iptal etmek de yanlıştır (gerçek bir kopma kaybolur) → yalnız
+   * KISA bir süre geri çekilir. Erteleme SONSUZ DEĞİLDİR: kurtarmanın kendi
+   * cooldown/tavan sözleşmesi var, üstelik burada da tavan uygulanır. */
+  let _recoveryYields = 0;
+  const _fire = (): void => {
     _reconnectTimer = null;
     if (!_running) return;
+
+    if (reconnectFireDecision(_lineState(), _recoveryYields, RECONNECT_RECOVERY_YIELD_MAX) === 'yield_to_recovery') {
+      _recoveryYields++;
+      _reconnectYieldedToRecovery++;
+      _reconnectTimer = setTimeout(_fire, RECONNECT_RECOVERY_YIELD_MS);
+      return;
+    }
 
     _stopMock();
     _startNative({ trustBypass: true }).then(() => {
       // Success — reset counter
       _reconnectAttempts = 0;
     }).catch(async (e: unknown) => {
+      /* Kapı "meşgul" dediyse HİÇ DENENMEDİ: sayaca yazmak sahada gördüğümüz
+         "17 başarısız deneme"yi ŞİŞİREN tam olarak buydu. */
+      if (isObdConnectBusyError(e)) return;
       logError('OBD:Reconnect', e);
       /* #531: RECONNECT yolundaki düşen denemeler de sayılır. Sahada 6 timeout
          vardı ama sayaç `1` diyordu — yalnız `StartNative` yolu sayılıyordu. */
@@ -1985,8 +2385,14 @@ function _scheduleReconnect(): void {
       await _removeNativeHandles(); // await so handles are gone before next attempt
       _scheduleReconnect();
     });
-  }, delayMs);
+  };
+  _reconnectTimer = setTimeout(_fire, delayMs);
 }
+
+/** Kurtarma sürerken reconnect tetiğinin geri çekilme aralığı (ms). */
+const RECONNECT_RECOVERY_YIELD_MS = 1_500;
+/** En fazla kaç kez geri çekilir — kurtarma takılırsa reconnect AÇ KALMAZ. */
+const RECONNECT_RECOVERY_YIELD_MAX = 8;
 
 /**
  * Derin yeniden bağlanma (Automotive Always-On) — üstel backoff turu tükenen
@@ -1999,6 +2405,8 @@ function _scheduleReconnect(): void {
  */
 function _scheduleDeepReconnect(): void {
   if (!_running) return;
+  // P0-OBD-CORE-06: uçuşta deneme varsa derin döngü de yeni otorite kurmaz.
+  if (_connectAttempt !== null) { _connectBusyRejections++; return; }
   if (_reconnectTimer) clearTimeout(_reconnectTimer);
   _reconnectTimer = setTimeout(() => {
     _reconnectTimer = null;
@@ -2009,6 +2417,7 @@ function _scheduleDeepReconnect(): void {
     _startNative({ trustBypass: true }).then(() => {
       _reconnectAttempts = 0;     // başarılı — sayaç sıfır
     }).catch(async (e: unknown) => {
+      if (isObdConnectBusyError(e)) return;   // P0-OBD-CORE-06: hiç denenmedi
       logError('OBD:DeepReconnect', e);
       await _removeNativeHandles();
       _scheduleReconnect();       // yeni üstel tur; o da tükenirse yine deep-loop
@@ -2026,7 +2435,43 @@ async function _removeNativeHandles(): Promise<void> {
 }
 
 
-async function _startNative(opts?: { trustBypass?: boolean }): Promise<void> {
+/**
+ * P0-OBD-CORE-06 — connect denemelerinin TEK serileştiricisi.
+ *
+ * Bu sarmalayıcı hiçbir bağlantı MANTIĞI taşımaz; yalnız "aynı anda bir deneme"
+ * kuralını uygular. Bağlantının kendisi `_runConnectAttempt` içindedir ve
+ * DEĞİŞMEMİŞTİR.
+ *
+ * @param opts.preempt YALNIZ kullanıcı iradesi (cihaz seçimi) için: uçuştaki
+ *        denemeyi geçersiz kılar (generation++) ve onun ÇÖZÜLMESİNİ BEKLEDİKTEN
+ *        SONRA yenisini başlatır — iki soket asla üst üste binmez.
+ */
+function _startNative(opts?: { trustBypass?: boolean; preempt?: boolean }): Promise<void> {
+  const inflight = _connectAttempt;
+  if (inflight !== null) {
+    if (opts?.preempt !== true) {
+      _connectBusyRejections++;
+      return Promise.reject(new ObdConnectBusyError());
+    }
+    _connectPreemptions++;
+    _nativeGeneration++;   // uçuştaki deneme bir sonraki await'inde sessizce çekilir
+    // Sonucu YUTULUR: iptal ettiğimiz denemenin hatası çağırana AİT DEĞİLDİR.
+    return inflight.catch(() => { /* iptal edilen deneme */ }).then(() => _startNative(opts));
+  }
+  _connectAttemptsStarted++;
+  const attempt = _runConnectAttempt(opts);
+  _connectAttempt = attempt;
+  /* Kapıyı açan handler çağırandan ÖNCE kaydedilir → çağıranın `.catch`i
+     koştuğunda kapı ZATEN açıktır (merdiven kendi turunu kurabilsin).
+     `.finally(...)` ile SARMALAMAK yerine ayrı zincir: sarmalama, çağırana
+     dönen promise'e fazladan bir mikro-görev adımı ekler ve bağlantı hata
+     yolunun zamanlamasını (mevcut testlerin ölçtüğü davranış) kaydırırdı. */
+  const _release = (): void => { if (_connectAttempt === attempt) _connectAttempt = null; };
+  void attempt.then(_release, _release);
+  return attempt;
+}
+
+async function _runConnectAttempt(opts?: { trustBypass?: boolean }): Promise<void> {
   if (!opts?.trustBypass) {
     useExpertStore.getState().assertWritesAllowed();
   }
@@ -2087,14 +2532,45 @@ async function _startNative(opts?: { trustBypass?: boolean }): Promise<void> {
   // 'native_reconnecting' → otorite native'e geçer · 'native_reconnected' → TS'e döner.
   const statusHandle = await CarLauncher.addListener(
     'obdStatus',
-    (event: { reason?: 'link_lost' | 'connect_failed' | 'user_disconnect' | 'native_reconnecting' | 'native_reconnected' }) => {
+    (event: {
+      reason?: 'link_lost' | 'connect_failed' | 'user_disconnect'
+        | 'native_reconnecting' | 'native_reconnected' | 'native_reconnect_failed';
+      /** P0-OBD-CORE-06: native istisna SINIFI (enum) — ham mesaj DEĞİL. */
+      failureClass?: string;
+      /** P0-OBD-FINAL-01: native reconnect TUR kimliği; eski APK taşımaz. */
+      reconnectEpoch?: number;
+      reconnectAttempts?: number;
+    }) => {
+      bumpPerf('bridge.obdStatus.received');
       if (!_running || _nativeGeneration !== myGen) return;
-      if (event.reason === 'native_reconnecting') { _beginNativeReconnect(); return; }
+      /* ── P0-OBD-CORE-06 · CONNECT_FAILED NEDENİ ARTIK KAYBOLMUYOR ──────────
+       * Bu olay `connect_failed` için bilinçli olarak reconnect TETİKLEMEZ
+       * (Patch 1 sözleşmesi) — ama eskiden olayın TAŞIDIĞI TEK KANIT da bu
+       * `return` ile birlikte çöpe gidiyordu. Nedeni yalnız reject mesajından,
+       * regex'le okuyorduk; `e.getMessage()` null olduğunda (Java'da sık) sonuç
+       * `unknown` oluyordu. Sınıf mesajdan BAĞIMSIZ olarak buradan alınır. */
+      if (isNativeConnectFailureClass(event.failureClass)) {
+        _lastNativeFailureClass = event.failureClass;
+      }
+      if (event.reason === 'native_reconnecting') {
+        _beginNativeReconnect(typeof event.reconnectEpoch === 'number' ? event.reconnectEpoch : null);
+        return;
+      }
       if (event.reason === 'native_reconnected')  { _endNativeReconnect(myGen); return; }
+      /* P0-OBD-FINAL-01 · ÖNCELİK 1 — TERMİNAL SONUÇ ARTIK YUTULMUYOR. */
+      if (event.reason === 'native_reconnect_failed') { _failNativeReconnect('failed'); return; }
       if (event.reason !== undefined && event.reason !== 'link_lost') return;
-      // Native reconnect sürerken gelen kopma bildirimi native'in KENDİ ara adımıdır
-      // (ölü soketi kapatıyor) — TS paralel tur başlatmaz; native sonucu bildirecek.
-      if (_nativeReconnectInFlight) return;
+      /* ── KÖK DÜZELTME (60 s ölü pencere) ────────────────────────────────
+         ESKİ VARSAYIM: "native reconnect sürerken gelen kopma bildirimi
+         native'in KENDİ ara adımıdır (ölü soketi kapatıyor)" → YOK SAY.
+         ÖLÇÜM: OBDManager reconnect sırasında ARA hiçbir status olayı
+         YAYINLAMAZ (`closeStreamsOnly` sessizdir). Reconnect uçuştayken gelen
+         her "disconnected/link_lost", turun TERMİNAL sonucudur — çağıranın
+         `disconnect()` + "disconnected" dalıdır. Onu yok saymak, otoriteyi
+         native'de asılı bırakıp TS'i 60 s fail-safe'e mahkûm ediyordu.
+         Artık devir teslim ANINDA yapılır: guard temizlenir, otorite TS'e
+         döner ve TS turu açar (çift motor YOK — native turu bitmiştir). */
+      if (_nativeReconnectInFlight) { _failNativeReconnect('link_lost'); return; }
       void _removeNativeHandles().then(() => _scheduleReconnect());
     },
   );
@@ -2110,6 +2586,7 @@ async function _startNative(opts?: { trustBypass?: boolean }): Promise<void> {
       try {
         // ── Binary Fast-Path ──────────────────────────────────────────────
         // parseBinaryOBDFrame içinde T507 parçalı paket birikimi yapılır;
+        bumpPerf('bridge.obdData.received');
         // null dönerse ya fragment bekleniyor (→ bekle) ya da JSON fallback.
         if (hasBinaryFrame(data)) {
           const binaryPatch = parseBinaryOBDFrame(data.binaryFrame);
@@ -2311,6 +2788,25 @@ async function _startNative(opts?: { trustBypass?: boolean }): Promise<void> {
     }
   }
 
+  /* ── P0-OBD-CORE-06 · DENEME DAMGASI ARTIK DENEMENİN BAŞINDA ──────────────
+   * ÖLÇÜLEN KUSUR: bu iki damga YALNIZ aşağıdaki `catch (ePrimary)` bloğunda
+   * (primary transport DÜŞTÜKTEN sonra, fallback'e geçerken) yazılıyordu.
+   * Sonuçları:
+   *   · primary İLK denemede başarılı olursa ikisi de 0 kalır →
+   *     `firstDataAfterConnectMs` NULL (ölçüm hiç doğmaz);
+   *   · yazıldıklarında ise ölçtükleri şey "denemenin başı" DEĞİL, "primary'nin
+   *     düştüğü an"dır → sahadaki `firstDataAfterLastAttemptMs = 53 588` aslında
+   *     "primary düştü → fallback bağlandı → ilk veri" süresidir,
+   *     `firstDataAfterConnectMs = 1 882 964` (31 dk) ise turun İLK primary
+   *     düşüşünden itibaren akmıştır. İkisi de bir ARTEFAKTTIR (bkz. #531 LIFO
+   *     dersi) ve "bağlantı çok yavaş" hükmünü tek başına TAŞIYAMAZ.
+   * Damga artık gerçekten denemenin başında alınır; tur damgası (ilk deneme)
+   * korunur, son-deneme damgası her denemede tazelenir. */
+  if (_connectAttemptStartedAtMs === 0) _connectAttemptStartedAtMs = Date.now();
+  _lastAttemptStartedAtMs = Date.now();
+  /* Yeni deneme = yeni kanıt: önceki denemenin native hata sınıfı devralınmaz. */
+  _lastNativeFailureClass = null;
+
   let _connectedTp = _primaryTp;
   let _connectResult: { protocol?: string } | void;
   try {
@@ -2345,7 +2841,7 @@ async function _startNative(opts?: { trustBypass?: boolean }): Promise<void> {
           protocol:  forcedProtocol ?? 'auto',
           attempts:  _reconnectAttempts,
           elapsedMs: performance.now() - _diagT0,
-          reason:    classifyObdErrorReason(ePrimary),
+          reason:    _connectFailReason(ePrimary),
           msg:       'WiFi (TCP) bağlantısı başarısız',
         });
         // PR-1a: handshake yaşam-döngüsü kanıtı (TCP yolu).
@@ -2359,20 +2855,16 @@ async function _startNative(opts?: { trustBypass?: boolean }): Promise<void> {
           outcome: 'fail', ranAt: Date.now(),
           timeoutStage: timedOut ? 'connect' : null,
           durationMs: Math.round(performance.now() - _diagT0),
-          failReason: classifyObdErrorReason(ePrimary),
+          failReason: _connectFailReason(ePrimary),
         });
       }
       throw ePrimary;
     }
 
     console.warn(`[OBD] ${_primaryTp} başarısız → ${_fallbackTp} deneniyor (${_fallbackTimeoutMs / 1000}s)`, ePrimary);
-    /* #526: ilk deneme anını damgala (sonraki retry'lar başlangıcı KAYDIRMAZ —
-       kullanıcı için süre ilk denemeden itibaren akar). */
-    /* Tur damgası: yalnız TURUN BAŞINDA alınır (retry'lar turun İÇİNDEDİR).
-       Tur, veri geldikten sonra veri kesilirse yeniden başlar — bkz. `_onRealData`. */
-    if (_connectAttemptStartedAtMs === 0) _connectAttemptStartedAtMs = Date.now();
-    /* #531: SON deneme damgası HER denemede tazelenir. */
-    _lastAttemptStartedAtMs = Date.now();
+    /* P0-OBD-CORE-06: tur ve son-deneme damgaları artık denemenin BAŞINDA
+       alınıyor (yukarı taşındı). Fallback AYNI denemenin ikinci bacağıdır —
+       damgayı burada tazelemek "son deneme"yi yine kaydırırdı. */
     _merge({ connectionState: 'connecting', deviceName: cand.name });
     try { await CarLauncher.disconnectOBD(); } catch { /* yoksay */ }
     if (_stale()) { void _removeNativeHandles(); return; }
@@ -2405,8 +2897,10 @@ async function _startNative(opts?: { trustBypass?: boolean }): Promise<void> {
         _noteLearnedProtocolFailure(!(_isUnableToConnectError(ePrimary) || _isUnableToConnectError(eFallback)));
         // Native soket hatasını PII-güvenli kategoriye sınıflandır (busy/refused/closed/…).
         // Fallback (son denenen transport) hatası daha alakalı; generic ise primary'e düş.
-        const _rFb = classifyObdErrorReason(eFallback);
-        const _reason = (_rFb !== 'other' && _rFb !== 'unknown') ? _rFb : classifyObdErrorReason(ePrimary);
+        /* P0-OBD-CORE-06: iki bacak da native sinifiyla desteklenir; ikisi de
+           'other'/'unknown' ise native enum devralir (bkz. connectFailureReason). */
+        const _rFb = _connectFailReason(eFallback);
+        const _reason = (_rFb !== 'other' && _rFb !== 'unknown') ? _rFb : _connectFailReason(ePrimary);
         emitObdDiag('connect', timedOut ? 'OBD_CONNECT_TIMEOUT' : 'OBD_CONNECT_FAIL', {
           ..._diagCommon(),
           transport: `${_primaryTp}+${_fallbackTp}`,
@@ -2526,8 +3020,10 @@ async function _startNative(opts?: { trustBypass?: boolean }): Promise<void> {
 
         // Capability keşif kanıtını sakla — bir sonraki reconnect'te refinePidList
         // desteklenmeyen PID'i eler, desteklenen 0x2F yakıtı oto-aktive eder.
-        _handshakeSupportedPids = result.supportedPids;
-        _handshakeReadBlocks    = result.readBlocks;
+        /* KOPYA: `_tryEnsureExtendedWatch` bu kümeye EKLEME yapar (union) —
+           `result` nesnesini mutasyona uğratmamak için kopyalanır. */
+        _handshakeSupportedPids = new Set(result.supportedPids);
+        _handshakeReadBlocks    = new Set(result.readBlocks);
 
         /* ── KANIT AYNI OTURUMDA UYGULANIR (saha 2026-07-31) ──────────────────
          * Eskiden bu kanıt YALNIZ "bir sonraki reconnect"te işe yarıyordu: çekirdek
@@ -2556,11 +3052,20 @@ async function _startNative(opts?: { trustBypass?: boolean }): Promise<void> {
         // kanaldan YENİDEN bitmask keşfi beklemez (aksi halde _supported=null iken izlenen
         // tüm PID'ler native'e gidip NO-DATA fırtınasıyla keşfi tıkıyordu). Yalnız EKLER,
         // izleyici yoksa no-op. readBlocks boşsa (kanıt yok) seed boş → fail-soft dokunmaz.
+        /* P0-OBD-CORE-06: keşif BÜTÜNLÜĞÜ artık bir KARAR girdisidir, yalnız
+           bir rapor alanı değil. `incomplete` = zincir cevapsızlık yüzünden
+           kırıldı → okunmayan blokların PID'leri BİLİNMİYOR (desteklenmiyor
+           DEĞİL) → `supportedCount` bir TAVAN değil ALT SINIRDIR. */
+        _handshakeDiscoveryIncomplete = result.completeness === 'incomplete';
         if (result.readBlocks.size > 0) {
-          seedExtendedSupported(result.supportedPids);
+          seedExtendedSupported(result.supportedPids, result.completeness);
           // "Tüm PID'leri oku": keşfedilen core-olmayan destekli PID'leri SÜREKLİ izle
           // (panel kapalıyken de akar; asistan/loglama okur). Extended POLL_SLOW → RPM'i yavaşlatmaz.
           _watchAllSupportedPids(result.supportedPids);
+          /* Kısmi keşif ARTIK NİHAİ SAYILMIYOR: sınırlı bütçeyle (20 s + 60 s)
+             zincir yeniden denenir. Eskiden bu dal "başarı" sayıldığı için
+             kırık zincir oturum boyunca kalıcı bir daralma üretiyordu. */
+          if (_handshakeDiscoveryIncomplete) _scheduleExtendedWatchRetry(myGen);
         } else {
           // S3 (#504): bitmap bloğu okunamadı → tek tetikleyici burada ÖLÜYORDU.
           // Sınırlı yeniden deneme yolu (bütçe: 2 deneme, 20 s + 60 s).
@@ -2587,6 +3092,13 @@ async function _startNative(opts?: { trustBypass?: boolean }): Promise<void> {
           vinClass, vinPresent: !!result.vin, bitmapClass: b00Class,
           readBlocks: [...result.readBlocks].map((b) => b.toString(16)),
           supportedCount: result.supportedPids.size, failReason: null,
+          /* P0-OBD-CORE-01B — `supportedCount` ARTIK YALNIZ BASINA SUNULMAZ.
+             Zincir kirildiysa bu sayi bir TAVAN degil bir ALT SINIRDIR: okunan
+             bloklarin PID'leridir, aracin destegi DEGILDIR. */
+          discoveryCompleteness: result.completeness,
+          failedBlock: result.failedBlock,
+          attemptedBlocks: [...result.attemptedBlocks].map((b) => b.toString(16)),
+          blockAttempts: Array.isArray(raw.blockAttempts) ? [...raw.blockAttempts] : [],
           durationMs: Math.round(performance.now() - _diagT0),
           // PR-OBD-DIAG-2: aynı ham bloklardan bounded keşif kanıtı türet (ek sorgu yok).
           discoveryEvidence: buildDiscoveryEvidence(raw),
@@ -2594,7 +3106,8 @@ async function _startNative(opts?: { trustBypass?: boolean }): Promise<void> {
         console.info('[OBD:Handshake]',
           result.vin ? 'VIN: ' + result.vin : `VIN yok (${vinClass}), PID heuristic`,
           `bitmap[00]=${b00Class} bloklar=${[...result.readBlocks].map((b) => b.toString(16)).join(',') || 'yok'}`,
-          `desteklenen=${result.supportedPids.size} PID`,
+          `desteklenen=${result.supportedPids.size} PID (kesif: ${result.completeness}${
+            result.failedBlock ? `, kirildi@01${result.failedBlock}` : ''})`,
           '→ profil:', profile.name,
           result.supportedPids.has(0x2F) ? '· yakıt(2F) destekli' : '');
       })
@@ -2740,7 +3253,11 @@ export function startOBD(address?: string, pin?: string, transport?: ObdTranspor
       _nativeGeneration++; // invalidate any stale _startNative() continuation
       void _removeNativeHandles().then(() => {
         if (!_running) return;
-        void _startNative().catch(async (e: unknown) => {
+        /* P0-OBD-CORE-06: KULLANICI İRADESİ tek `preempt` sahibidir — uçuştaki
+           denemeyi geçersiz kılar, ama yeni soketi onun çözülmesini BEKLEDİKTEN
+           sonra açar (iki soket üst üste binmez). */
+        void _startNative({ preempt: true }).catch(async (e: unknown) => {
+          if (isObdConnectBusyError(e)) return;
           logError('OBD:DirectConnect', e);
           await _removeNativeHandles();
           _merge({ connectionState: 'error', source: 'none' });
@@ -2814,6 +3331,8 @@ export function startOBD(address?: string, pin?: string, transport?: ObdTranspor
           //   · ortada gerçek bir cihaz olmayabilir → sonsuz reconnect döngüsü OLUŞMAZ.
           // Kanıt = `obd:verifiedAddresses` defteri (yalnız veri AKINCA yazılır; bağlanmak
           // yetmez) → "yanlış adaptöre otomatik bağlanma" garantisi buradan gelir.
+          // P0-OBD-CORE-06: kapı meşgul dediyse deneme HİÇ YAPILMADI (sayma).
+          if (isObdConnectBusyError(e)) return;
           logError('OBD:StartNative', e);
           /* #526: ilk veriye ULAŞMADAN düşen deneme — "ilk 2 dakika veri yok"
              şikâyetinin kaç denemeden geldiğini ölçer. */
@@ -2850,6 +3369,7 @@ export function stopOBD(): void {
 
   _running = false;
   _nativeGeneration++; // invalidate any in-flight _startNative() continuations
+  _connectAttempt = null;   // P0-OBD-CORE-06: tek-uçuş kapısı kilide dönüşmesin (bkz. bildirim)
   // PR-OBD-PAIR-CONTINUITY: yarım kalmış bir kullanıcı-başlatmış deneme varsa bayrağı
   // burada da temizle — aksi halde sonraki SOĞUK-BOOT no-arg reconnect (ilgisiz bir
   // startOBD() çağrısı) bu stale bayrağı miras alıp yanlışlıkla grace timeout kazanabilirdi.
@@ -2860,10 +3380,24 @@ export function stopOBD(): void {
   _reconnectAttempts = 0;
   _stopAppStateListener();  // foreground aboneliği + debounce timer (zero-leak)
   _stopStaleWatchdog();
+  /* P0-OBD-03: gözcü durdu → bir daha tik gelmeyecek. SON bir tik gönderilir ki
+     köprü süresi dolmuş ölçümleri düşürsün; aksi hâlde `stopOBD` sonrası ekranda
+     donmuş bir değer "LIVE" kalırdı. */
+  _emitFreshnessTick();
   _clearDataGate();
   _clearExtraPidWatches();            // "tüm PID" sürekli izleyicilerini bırak (zero-leak)
   _clearExtendedWatchRetry();         // S3 (#504): bekleyen izleyici-kurulum timer'ı (zero-leak)
   _clearNativeReconnectAuthority();  // F0-5: guard timer + otorite bayrağı (zero-leak)
+  /* P0-OBD-FINAL-01: otorite künyesi OTURUMLUKTUR — `stopOBD` bir oturumun
+     sonudur, sayaçlar bir sonraki oturuma TAŞINMAZ (aksi halde "bu oturumda
+     kaç kez 60 s bekledik" sorusu cevaplanamaz). */
+  _nativeReconnectEpoch = null;
+  _nativeReconnectRounds = 0;
+  _nativeReconnectRecovered = 0;
+  _nativeReconnectFailed = 0;
+  _nativeReconnectGuardTimeouts = 0;
+  _nativeReconnectLastOutcome = null;
+  _nativeReconnectLastDurationMs = null;
   // Fix 3: ısınma promise'ini çöz ve bayrağı sıfırla (Zero-Leak)
   if (_warmupResolve) { _warmupResolve(); _warmupResolve = null; }
   _warmupActive = false;
@@ -3017,6 +3551,84 @@ export function getOBDStatusSnapshot(): {
 }
 
 /**
+ * P0-OBD-06 — OBD SİNYAL SAĞLIĞININ TEK OKUMA YÜZEYİ.
+ *
+ * Mevcut kanıtları birleştirir (yeni ölçüm ÜRETMEZ, hatta çıkmaz):
+ *   · `ObdHealthMonitor` alan zamanlaması (bu oturumun kabul/red/NO-DATA damgaları)
+ *   · `transportConnected` / `dataFresh` (taşıma ve ECU sessizliğinin MEVCUT otoritesi)
+ * ve `obdHealthModel` sözleşmesine çevirir.
+ *
+ * Saf okuma: yan etkisi yok, hiçbir şey başlatmaz, ASLA fırlatmaz.
+ */
+export function getObdSignalHealth(nowMs: number = performance.now()): {
+  link: ReturnType<typeof classifyLinkHealth>;
+  fields: ReturnType<typeof classifyFieldHealth>[];
+  expectedIntervalMs: number;
+  epoch: number;
+} {
+  let snap;
+  try { snap = obdHealthMonitor.snapshot(nowMs); } catch {
+    snap = {
+      connectionQuality: -1, sensorReliability: {}, lastPacketAgeMs: -1, isStale: false,
+      reconnectPressure: 0, fieldTiming: {}, expectedIntervalMs: 0, sessionHasData: false,
+    };
+  }
+  const transportConnected = _current.transportConnected === true;
+  const fields = HEALTH_FIELDS.map((field) => classifyFieldHealth({
+    field,
+    timing: snap.fieldTiming[field],
+    nowMs,
+    expectedIntervalMs: snap.expectedIntervalMs,
+    transportConnected,
+  }));
+  return {
+    link: classifyLinkHealth({
+      transportConnected,
+      dataFresh: _current.dataFresh === true,
+      fields,
+    }),
+    fields,
+    expectedIntervalMs: snap.expectedIntervalMs,
+    epoch: _nativeGeneration,
+  };
+}
+
+/**
+ * P0-OBD-02 — OBD OTURUM NUMARASI (epoch).
+ *
+ * Her yeni native bağlantı denemesi ve her `stopOBD` bu sayacı ARTIRIR. Tüketiciler
+ * bir ölçümün HANGİ bağlantıya ait olduğunu bununla damgalar: numara değişmişse
+ * eski ölçüm — 2 saniye önce alınmış olsa bile — ARTIK GEÇERLİ DEĞİLDİR, çünkü
+ * adaptör bu arada BAŞKA BİR ARACA takılmış olabilir.
+ *
+ * Saf okuma; yan etkisi yok, hiçbir şeyi başlatmaz.
+ */
+export function getObdSessionEpoch(): number {
+  return _nativeGeneration;
+}
+
+/* P0-OBD-09: kimlik katmanı oturum numarasını ÇEKMEZ, biz İTERİZ. Ters yön
+   (`vehicleIdentity` → `obdService`) tüm OBD çekirdeğini VIN'e dokunan her
+   grafiğe sokardı. */
+setVinEpochProvider(getObdSessionEpoch);
+
+/**
+ * P0-OBD-02 — AKTİF native FAST poll tur periyodu (ms).
+ *
+ * Genişletilmiş round-robin'in gerçek kadansı buradan türer: tur başına EN FAZLA
+ * 1 PID okunduğu için bir PID'in SAĞLIKLI yaşı ≈ `cadence × izlenenPidSayısı`dır.
+ * Tazelik eşiği bu gerçeği yok sayarsa (eski sabit 15 s gibi) çalışan bir sinyali
+ * "bayat" ilan eder. Fail-soft: hesaplanamazsa profil tabanı döner.
+ */
+export function getObdPollCadenceMs(): number {
+  try {
+    return computeObdPollProfile(getDeviceTier(), runtimeManager.getConfig().obdPollingMs).fastMs;
+  } catch {
+    return 3_000; // AdaptivePollingController tabanı
+  }
+}
+
+/**
  * UI tazelik penceresi (ms) — AKTİF poll kadansından türer. TEK KAYNAK: UI'nın kendi
  * sabitini tutması, POWER_SAVE'de (15s poll) 3s'lik pencereyle sahte bayatlık üretiyordu.
  * Bağlı değilken de güvenli bir değer döner (fail-soft, throw yok).
@@ -3115,6 +3727,47 @@ export function getObdReconnectLifecycle(): {
    * Bu, "kopma yaşandı ama toparlandı" ile "hâlâ kopuk" ayrımının tek kaynağıdır.
    */
   lastOutcome: 'recovered' | 'pending' | 'none';
+
+  /* ── P0-OBD-CORE-06 · CONNECT OTORİTESİ (tek-uçuş kapısının kanıtı) ──── */
+  /** Şu an uçuşta bir connect denemesi var mı. */
+  connectInFlight: boolean;
+  /** Gerçekten BAŞLATILAN deneme sayısı (oturum). */
+  connectAttemptsStarted: number;
+  /**
+   * Kapıda REDDEDİLEN ikinci istek sayısı — önlenen çift-otorite sayısıdır.
+   * `> 0` iken sahadaki CONNECT_FAILED fırtınasının tetikleyicisi gerçekten vardı.
+   */
+  connectBusyRejections: number;
+  /** Kullanıcı iradesiyle öne geçirilen deneme sayısı. */
+  connectPreemptions: number;
+  /** Kurtarma sürerken ERTELENEN (düşürülmeyen) reconnect tetikleri. */
+  reconnectYieldedToRecovery: number;
+  /** Native'in son bildirdiği hata SINIFI (enum, PII yok); `null` = taşınmadı. */
+  lastNativeFailureClass: string | null;
+
+  /* ── P0-OBD-FINAL-01 · NATIVE RECONNECT OTORİTESİ (ÖNCELİK 1 kanıtı) ─── */
+  /** Native'in bildirdiği son tur kimliği; eski APK taşımaz → `null`. */
+  nativeReconnectEpoch: number | null;
+  /** Otorite şu an native'de mi. */
+  nativeReconnectInFlight: boolean;
+  /** Bu oturumda AÇILAN native reconnect turu sayısı. */
+  nativeReconnectRounds: number;
+  /** Sonucu BAŞARI olan tur sayısı. */
+  nativeReconnectRecovered: number;
+  /** Sonucu BAŞARISIZLIK olan tur sayısı (terminal olay ALINDI). */
+  nativeReconnectFailed: number;
+  /**
+   * FAIL-SAFE zamanlayıcısının ateşlendiği tur sayısı.
+   *
+   * `0` OLMALIDIR. `> 0` ⇒ native turun SONUCU TS'e hiç ulaşmadı ve otorite
+   * 60 s askıda kaldı — P0-OBD-FINAL-01'in kapattığı kusurun geri geldiğinin
+   * TEK ölçülebilir işaretidir. Saha kabul ölçütü bu alanı kullanır.
+   */
+  nativeReconnectGuardTimeouts: number;
+  /** Son turun sonucu (enum); hiç tur olmadıysa `null`. */
+  nativeReconnectLastOutcome: 'recovered' | 'failed' | 'link_lost' | 'guard_timeout' | null;
+  /** Son turun ÖLÇÜLEN süresi (ms); ölçülmediyse `null` (sahte 0 YASAK). */
+  nativeReconnectLastDurationMs: number | null;
 } {
   const history = _reconnectHistory;
   const lastReconnectAt = _connLifecycle.lastReconnectAt;
@@ -3131,6 +3784,22 @@ export function getObdReconnectLifecycle(): {
     lastReconnectAt,
     lastSuccessAt,
     lastOutcome,
+
+    connectInFlight:            _connectAttempt !== null,
+    connectAttemptsStarted:     _connectAttemptsStarted,
+    connectBusyRejections:      _connectBusyRejections,
+    connectPreemptions:         _connectPreemptions,
+    reconnectYieldedToRecovery: _reconnectYieldedToRecovery,
+    lastNativeFailureClass:     _lastNativeFailureClass,
+
+    nativeReconnectEpoch:          _nativeReconnectEpoch,
+    nativeReconnectInFlight:       _nativeReconnectInFlight,
+    nativeReconnectRounds:         _nativeReconnectRounds,
+    nativeReconnectRecovered:      _nativeReconnectRecovered,
+    nativeReconnectFailed:         _nativeReconnectFailed,
+    nativeReconnectGuardTimeouts:  _nativeReconnectGuardTimeouts,
+    nativeReconnectLastOutcome:    _nativeReconnectLastOutcome,
+    nativeReconnectLastDurationMs: _nativeReconnectLastDurationMs,
   };
 }
 

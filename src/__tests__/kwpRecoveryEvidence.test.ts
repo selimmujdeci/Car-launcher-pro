@@ -43,6 +43,10 @@ const FULL = {
   recoveryCount: 1, suppressedCount: 0, atpcSendFailures: 0,
   lastRecoveryAt: 1_700_000_000_000, lastRecoveryToFirstPidMs: 1_240,
   killedByDataGate: 0, protocolAtRecovery: '5', threshold: 4, maxPerSession: 3,
+  lastEvent: 'RECOVERED', noDataCount: 3, promptTimeoutCount: 2,
+  partialTimeoutCount: 1, ecuSilentCount: 1, sessionRecoveryCount: 1,
+  transportReconnectCount: 0, recoveredCount: 1, recoveryFailedCount: 0,
+  maxCommandDurationMs: 4_020, maxKeepAliveGapMs: 2_800, keepAliveGapExceededCount: 0,
 };
 
 beforeEach(() => {

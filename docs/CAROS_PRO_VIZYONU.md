@@ -4,7 +4,136 @@
 > **Belge türü:** Ürün vizyonu + capability roadmap
 > **Kaynak gerçekliği:** Kod, test, UI ve saha kanıtı ayrı değerlendirilir
 > **Güncelleme kuralı:** İlgili her PR sonrasında güncellenir
-> **Son güncelleme:** 2026-08-03 · Branch: `feat/fleet-offline-final-local-completion`
+> **Son güncelleme:** 2026-08-28 · Branch: `feat/fleet-offline-final-local-completion`
+
+> ⚠️ **VERİ KAYBI BİLDİRİMİ (2026-08-28 · dürüst kayıt — silinmesin)**
+>
+> Bu belgenin **işlenmemiş (uncommitted) çalışma kopyası** 2026-08-28'de F6-B turu
+> sırasında bir araç hatasıyla **SIFIRLANDI** ve geri getirilemedi (git'te yoktu,
+> stash/dangling blob/editör geçmişi/OneDrive kopyası yok). Belge en son
+> **`71f608a1` commit'indeki 2026-08-03 hâline** geri alındı; aşağıdaki F6-A/F6-B
+> bölümleri elde kalan metinden yeniden yazıldı.
+>
+> **KAYBOLAN içerik:** 2026-08-03 → 2026-08-28 arasında bu belgeye yazılmış ama
+> hiç commit edilmemiş vizyon güncellemeleri — **V-16 serisi** (filo/vardiya/API/
+> raporlar) ve **P0-VDK-F1-A … F5-H** turlarının vizyon anlatımları.
+>
+> **KAYBOLMAYAN kanıt:** `docs/DEVICE_VALIDATION_LEDGER.md` (2 MB, #364–#944 —
+> BÜTÜN maddeler yerinde) · kaynak kodu · testler · tur raporları (`docs/*_REPORT.md`)
+> · commit geçmişi. **Kaybolan yalnız ANLATIMDI, KANIT DEĞİL.**
+>
+> **YAPILACAK:** F1-A…F5-H ve V-16 bölümleri kütük maddeleri (#700–#937) ve
+> commit geçmişi kaynak alınarak yeniden yazılmalı. O bölümler yeniden yazılana
+> kadar bu belge **eksiktir** ve durum seviyeleri için **kütük MUTLAK OTORİTEDIR**.
+> Bu belge kütükle çelişirse kütük kazanır; durum YÜKSELTİLMEZ.
+
+> **Son iş:** P0-VDK-F6B — **Çoklu-ECU üretici DTC kapsamı (rol-farkında, salt-okunur)**:
+>   F6-A ÖLÇÜLMÜŞ uç noktaları buldu; F6-B o uç noktalardan **elde edilebilecek
+>   en tam ve en DÜRÜST read-only DTC kapsamını** alıyor ve asıl soruyu
+>   cevaplanabilir kılıyor: **“neyi sordum, ne cevap verdi, neyi okuyamadım ve
+>   NEDEN?”**
+>   **PLAN ARTIK VERİDEN TÜRER — ROL TABLOSU YOK:** `dtcCoveragePlan` (SAF · yeni)
+>   hangi salt-okunur DTC servisinin sorulacağına CDDL `ServiceDef` kümesi + native
+>   `DiagnosticServiceGate` alt fonksiyon kümesinin TS aynası (`GENERIC_UDS_19_SUBS`)
+>   + ölçülmüş protokol ailesi + adreslenebilirlik + NRC 0x11 ile ÖLÇÜLMÜŞ servis
+>   yokluğundan karar verir. **Plan girdisinde ROL ALANI YOKTUR**: rolü `unknown`
+>   olan uç nokta, rolü kanıtlanmış uç noktayla BİREBİR aynı planı alır (F6-A §4).
+>   **ON BİR KAPSAM SINIFI:** Mode 03/07/0A · UDS 19-01/02/03/04/06/0A · KWP 18/13;
+>   her biri `TAM · KISMİ · DESTEKLENMİYOR(ölçüldü) · BİLİNMİYOR · ERTELENDİ ·
+>   ENGELLİ · GEÇERSİZ` olarak sınıflandırılır. Uç nokta hükmü FAIL-CLOSED:
+>   **tek bir BİLİNMİYOR/ERTELENDİ/KISMİ bile TAM hükmünü düşürür.**
+>   **KAPATILAN ÜÇ ÖLÇÜLMÜŞ KUSUR:**
+>   ① **SİHİRLİ STATUS MASKESİ** — ürün her ECU'ya 0x19-01 gönderip dönen
+>   `statusAvailabilityMask`i kanıt defterine yazıyor ve **ATIYORDU**; 0x19-02'ye
+>   sabit `FF` konuyordu. Artık maske ÖLÇÜMDEN gelir (ek sorgu YOK); ölçülemezse
+>   `FF`e düşülür ama varsayım SESSİZ DEĞİLDİR (`ASSUMED_FULL` künyesi).
+>   ② **GÖRÜNMEZ PDU'LAR** — `_readUdsReferences` ECU başına 1+8 = **9 isteği**
+>   hatta çıkarıyordu ve HİÇBİRİ `consumeRequest`ten geçmiyordu: 8 ECU'da
+>   **72 görünmez PDU**, iptal edilemez, geç yanıt kapısı işlemez. Artık her istek
+>   (0x19-01 dâhil) F1-A `consumeRequest` TEK kapısından geçer.
+>   ③ **KAPSAM ASİMETRİSİ** — snapshot/extended kanıtı yalnız 0x19-02'nin
+>   ardından alınıyordu; **0x19-0A'nın VAR OLMA SEBEBİ olan** arşiv/etkin-değil
+>   kayıtları derin kanıt HİÇ almıyordu. Artık merdiven bitince BİR KEZ, birleşmiş
+>   kayıt kümesiyle çalışır — istek sayısı ARTMADAN kapsam simetrik olur.
+>   **BAĞIMSIZ TANIK:** 0x19-01'in BEYAN ETTİĞİ kayıt sayısı artık çözülen sayıyla
+>   karşılaştırılır; beyan > ölçüm ise kapsam `TAM` değil `KISMİ` yazılır.
+>   **KÖR SÜPÜRME YOK:** 0x19-06 yalnız ÖLÇÜLMÜŞ bir ham DTC hedefiyle ve ECU
+>   başına tavanlı (8) gönderilir; snapshot kayıt numarası süpürülmez.
+>   **0x19-04 hattan HİÇ ÇIKMAZ** — native salt-okunur alt fonksiyon kümesinde
+>   (`01·02·03·06·0A`) YOKTUR; kapı ZORLANMADI, durum dürüstçe `ENGELLİ` yazılır.
+>   **ANLAM UYDURULMAZ:** 0x19-06 gövdesinin şeması OEM’e özgüdür; yalnız
+>   “ham genişletilmiş veri MEVCUT” kanıtı üretilir.
+>   **DAVRANIŞ DEĞİŞİKLİĞİ (dikkat):** reponun KENDİ CDDL sözleşmesi 0x19'u CAN'e
+>   bağlar (`protocols: ['can']`) ama ürün yavaş seri hatta da 5 UDS isteği
+>   gönderiyordu. Artık KWP araçta 0x19 HİÇ çıkmaz; o bütçe ISO 14230-3'ün gerçek
+>   DTC servislerine (0x18/0x13) kalır. Açık risk kütükte (🔴 #943).
+>   **İKİNCİ OTORİTE KURULMADI:** kod listesi ve “temiz mi” hükmü hâlâ YALNIZ
+>   `dtcAuthority`de; sayım zinciri hâlâ `dtcPipelineAccounting`te (meta okumalar
+>   19-01/03/06 o künyeye GİRMEZ — DTC kaydı üretmezler, girselerdi parite ölçümü
+>   bozulurdu); bütçe hâlâ F1-A'da; güvenlik hâlâ native kapıda.
+>   **LAB:** yeni salt-okunur ekran “Çoklu-ECU DTC Kapsamı” (Araç kategorisi) —
+>   uç nokta başına 11 sınıfın sonucu, sorulmama gerekçesi, maske künyesi,
+>   beyan/ölçüm karşılaştırması, snapshot/extended VAR-YOK'u, alan korunumu ve
+>   mevcut RAW→PARSER→AUTHORITY→UI zinciri. **DTC KODU TAŞIMAZ** (gizlilik).
+>   **AÇIK BORÇ:** 0x19-04 kapalı (native kapı + CDDL tanımı gerekir — yeni APK işi);
+>   tarama içi yetenek yeniden kullanımı yalnız AYNI OTURUM + AYNI uç nokta
+>   kapsımlıdır (F4-C çizgesinden okuma tam tarama SONRASINDA çözülen `vehicleId`e
+>   bağlı olduğu için bu turda bağlanamadı); standart Mode 03/07/0A döngüsü plana
+>   GÖRE değil eskisi gibi koşar (plan onu yalnız SINIFLANDIRIR).
+>   **DURUM: ENTEGRE** — **SAHADA DOĞRULANMADI** (kütük 🔴 #938–#944)
+
+> **Önceki iş:** P0-VDK-F6A — **Unknown-role ECU keşfi + kanıt tabanlı ECU kimliği**:
+>   Kapatılan yapısal açık: ürün motor ECU'sunda derinleşmişti ama **rolü
+>   bilinmeyen uç noktalar ölüydü**. `EcuVariant.role` tip düzeyinde `unknown`ı
+>   yasaklıyor, `healingTargetFromProvenEcu` yalnız `MEASURABLE_ROLES` kabul
+>   ediyordu → `7E1`de cevap veren, DTC'si bile okunan bir modül F4-B servis
+>   keşfine ve F4-C öğrenmesine **HİÇ giremiyordu**. “Yalnız motoru tanıyor”
+>   olmanın yapısal sebebi buydu.
+>   **TEMEL AYRIM KURULDU: ADRES BULMAK ≠ ROL BİLMEK.** İki ayrı katman:
+>   `ecuEndpointModel` (uç nokta — kaydında `role` alanı YOKTUR) ve
+>   `ecuRoleEvidenceModel` (rol — kanıttan deterministik güven). Rol
+>   birinciden TÜRETİLMEZ.
+>   **GÜVEN SINIFLARI (AI/olasılık YOK):** `PROVEN` (standart garanti ya da
+>   ECU'nun iki bağımsız kimlik beyanı) · `STRONG` (ECU beyanı ya da iki
+>   destekleyici kanıt) · `CANDIDATE` (yalnız davranış benzerliği) ·
+>   `UNKNOWN` · `CONFLICT` (iki güçlü kanıt farklı rol → fail-closed, ilki
+>   SEÇİLMEZ). **Yetenek imzası ADAY tavanını YAPISAL olarak geçemez.**
+>   **UNKNOWN ARTIK DEĞERLİ:** `EcuVariant.role` ölçümde `unknown` taşıyabilir
+>   (BELGE yasağı `cddl/validate.ROLE_UNKNOWN_FORBIDDEN` ile DURUYOR) ve
+>   `productionDiscovery` hedefleri rol-bağımsız kuruluyor → rolsüz uç nokta
+>   keşfe ve yetenek çizgesine girer, kimlik yoklaması alır, ama rol-özel
+>   hiçbir şey çalıştıramaz. “Kim olduğunu bilmiyorum” ≠ “ECU yok”.
+>   **KÖR TARAMA YAPISAL OLARAK İMKÂNSIZ:** aday uzayı adresleme ailesine göre
+>   KAPALIDIR — CAN11 yalnız ISO 15765-4 çifti (`7E0..7E7`), CAN29 ve KWP için
+>   standart aday uzayı YOKTUR ve uç nokta yalnız ölçülmüş responder/kaynak
+>   adresinden doğar. OEM sihirli adres tablosu YOK.
+>   **CDDL VariantPattern İLK KEZ ÇALIŞTIRILIYOR:** desen artık ölçülmüş
+>   gerçeklere (VIN WMI/VDS · DID yanıtı · cevap veren adres) karşı
+>   değerlendiriliyor; TÜM kanıtlar sağlanmadan tutmaz, birden çok desen
+>   tutarsa `BELİRSİZ` olur ve **ilki seçilmez**.
+>   **ARAÇ İZOLASYONU:** üçüncü kalıcı bölüm (`caros-ecu-roles-v1:<parmakizi>`)
+>   `vehiclePartitionKeys`e dâhil (yarım GC kalkanı) ve anahtarı **ECU parmak
+>   izidir, adres değil** — bir araçta öğrenilen rol başkasının aynı CAN
+>   kimliğine uygulanamaz. Yalnız CANLI kanıt yazılır; **ölçüm kaybı
+>   kanıtlanmış rolü DÜŞÜRMEZ**, `UNKNOWN` sonraki turda `PROVEN` olabilir.
+>   **REPLAY:** `did_read` kanonik iz operasyonu eklendi; çok-ECU golden
+>   korpusu (ECM·TCM·ABS·SRS·BCM·UNKNOWN, LİTERAL hex) aynı motoru oynatıp
+>   **birebir aynı envanteri** üretiyor — ama replay rolü ürün gerçeği
+>   SAYILMIYOR ve öğrenmeye YAZILMIYOR.
+>   **GÜVENLİK:** yalnız salt-okunur `0x22` kimlik DID'i (ISO 14229-1
+>   F197·F18C·F191·F187, hepsi repoda ZATEN tanımlı); `27` SecurityAccess,
+>   kodlama, rutin, aktüatör, reset, silme YOK — destructive matris 0 PDU.
+>   **AÇIK BORÇ:** ağ geçidi topolojisi ölçülemiyor (`GATEWAY_EXPOSED`/
+>   `GATEWAY_REQUIRED` tanımlı ama ÜRETİLMEZ); `CAPABILITY_SIGNATURE` ve
+>   `CALIBRATION_MATCH` kanıt türleri modelde var ama bu turda ÜRETİLMİYOR
+>   (kanıtlanabilir eşleme tablosu repoda yok — uydurulmadı).
+>   **DURUM: ENTEGRE** — **SAHADA DOĞRULANMADI** (kütük 🔴 #932–#937)
+
+> ℹ️ **P0-VDK-F1-A … F5-H ve V-16 bölümleri:** anlatımları yukarıdaki veri kaybında
+> gitti. Kod, testler ve kütük maddeleri (#700–#931) yerinde — bu bölümler onlardan
+> yeniden yazılacak. O ana kadar bu turlar için **kütük tek otoritedir**.
+
+> **2026-08-03 öncesi başlık (korundu):**
 > **Son iş:** NAV-MINIMAP-CONT-P0 — navigasyon oturum sürekliliği · **cihazda statik
 > doğrulandı** (§6.3, kütük 🟢 #377/#379 · 🔴 #378/#380/#381/#382,
 > `docs/NAVIGATION_MINI_MAP_SESSION_CONTINUITY_P0_REPORT.md`)
@@ -39,6 +168,8 @@ hafızası uçar; bu dosya sürüm kontrolündedir.
 | **`docs/CAROS_PRO_VIZYONU.md`** (bu dosya) | **Ürün vizyonu + capability roadmap ana kaynağı** | Vizyon/öncelik/durum özetinde **birincil** |
 | `docs/CAROS_VEHICLE_INTELLIGENCE_ARCHITECTURE.md` | Mimari referans (katmanlar, motorlar, invaryantlar) | Mimari "nasıl" sorusunda birincil |
 | `docs/MAVI_NEXT_VISION.md` | **Mavi (sesli AI) uzun vadeli ürün vizyonu** (8 modül, Yol Arkadaşı, voice-first) | Mavi vizyon/yönünde birincil; durum bu belgede DEĞİL |
+| `docs/CAROS_MAVI_ULTIMATE_OEM_ARCHITECTURE_SPEC_v1.md` | **Mavi hedef MİMARİSİ (OEM++)** — repo denetimi (ölçülmüş) · KEEP listesi · Capability Fabric · streaming konuşma · gecikme bütçesi · F0–F13 fazları · ADR'ler | Mavi **mimari "nasıl"** sorusunda birincil; **saha durumu bu belgede DEĞİL** (kütük mutlak) |
+| `docs/MAVI_FLAG_EXIT_CRITERIA.md` | **16 Mavi feature flag'inin exit criteria'sı** — açılma ölçütü · `default ON` şartı · kaldırma şartı · rollback sözleşmesi · ≤2 hedefine giden migration planı | Bayrak açma/kapama/kaldırma kararında **birincil**; saha durumu bu belgede DEĞİL (kütük mutlak) |
 | `docs/OBD_DIAGNOSTIC_OS_ROADMAP.md` | OBD/teşhis **alt-roadmap'i** (FAZ 0–4 görev kırılımı) | OBD görev detayında birincil |
 | `docs-local/caros-feature-audit.html` | 57 özellik **detay denetim görünümü** | Denetim ayrıntısında yardımcı |
 | `docs/CAROS_15_YIL_VIZYON_YOL_HARITASI.md` | 2026-07-08 tarihli denetim fotoğrafı | **Tarihsel** — bayat, güncellenmiyor |
@@ -190,6 +321,1417 @@ DOĞRULANDI 6 · SAHADA DOĞRULANDI 1 · **ÜRÜN HAZIR: 1**
 | Rapor `8edd61a6` (2026-07-15) | **KWP/protokol 5 aracında handshake TAM çalıştı** | `outcome: ok` · `vinPresent: true` · `vinClass/bitmapClass: ok` · 15 PID · 6.2 sn · quality %100 · OBD 8.2 sn'de bağlandı · DTC okundu (0 kod) · self-test 13 pass/1 warn/**0 fail** · boşta render ~3 fps | **Extended `samples: []`** (P1-1) · **hız PID'i 0 dönüyor** (→ #77 fix) · Event Bus'ta **0 tüketici** (aşağıya bkz.) |
 
 ### 6.3 Kod tamam + test yeşil, saha borcu açık (kütük 🔴)
+
+- **MAVI-F13/4 · KONSOLİDASYON KAPANIŞ TURU — MİMARİ KAPANIŞ HAZIR, SAYISAL
+  HEDEFLER MUAFİYET ÖNERİLİYOR (2026-08-30, kütük 🔴 #1039-#1042):**
+  **Durum: ENTEGRE. SAHADA DOĞRULANMADI. ÜRÜN HAZIR: HAYIR. F13 KAPANMADI.**
+
+  **1) İKİ ÖLÜ UZAK BAYRAK BULUNDU VE BESLENDİ (#1039 — bu turun asıl bulgusu).**
+  `mavi_semantic_endpoint` (F3) ve `mavi_streaming_response` (F4) uzak
+  anahtarlarının setter'ı tanımlıydı, `MAVI_FLAG_EXIT_CRITERIA` ikisi için de
+  filo rollout + rollback **sözü veriyordu**, `voiceService` yorumu tüketiciyi
+  adıyla gösteriyordu — ama **iki setter de üretimde hiç çağrılmıyordu**.
+  Yani belgedeki "AŞAMA 1 · default ON → kaldır" adımı **uygulanamaz**
+  durumdaydı. Bayraklar silinmedi (silmek, ölçülmemiş bir yeteneği çöpe atmak
+  olurdu); F0'ın birebir aynı deseniyle beslendi ve söküm yolunda kapatıldı.
+  Bilinmeyen anahtar → `false` → varsayılan KAPALI; cihaz davranışı bayt bayt aynı.
+
+  **2) BAYRAK DENETİMİ TAMAMLANDI — 16 ŞALTERİN 16'SI CANLI (#1042).**
+  Her bayrağın üretim tüketicisi tek tek ölçüldü:
+  **DEAD/LEGACY 0 · MERGEABLE 0 · DEFAULT ON ELIGIBLE 0 · MUST STAY 16.**
+  Güvenle kaldırılabilecek ölü bayrak **yok**; sayı ancak saha ölçümüyle düşer.
+  Bu tur sayıyı düşürmedi ama **dürüstleştirdi**: artık 16 şalterin 16'sı
+  gerçekten çalışan bir dalı kontrol ediyor (önce 14 gerçek + 2 hayalet idi).
+
+  **3) `companionChatProvider` 2512 → 2352 satır (−%6,4; F13 toplamı −%23,8).**
+  Çıkarılanlar: `companionBrainParser` (model JSON → kanonik `SemanticResult`
+  **önerisi**; SAF — modül durumu YOK · `fetch` YOK · `Date.now`/`Math.random`
+  YOK · sağlayıcıya **yalnız `import type`** ile bağlı → çalışma zamanı kenarı
+  yok) ve persona'ya bağlı deterministik metinler → `companionAnswerShaping`.
+  Ayrıştırma sağlayıcıya özgü değildi: Gemini · Groq · Haiku · gateway
+  **dördü de** aynı fonksiyonu paylaşıyordu. Filler kapısı (`isGenericFiller`)
+  da oraya taşındı — zaten PARSE SINIRINDA olmalıydı (F2 · I11).
+  **Yetki dağıtılmadı:** ayrıştırıcı ÖNERİ üretir; kapı, onay ve yürütme
+  kanonik zincirdedir.
+
+  **4) PLAN ÖNEKİ SÖZLEŞMESİ TİPE ALINDI (#1041 — QA F13/3 bulgusu).**
+  `itemId.split(':')[1]` ile adım↔yük eşlemesi yapılıyordu ama önek serbest
+  `string`di: iki nokta içeren bir önek **yanlış komutu çalıştırırdı**. Artık
+  `MaviPlanIdPrefix = 'p' | 'c'` kapalı kümesi + çalışma zamanı fail-closed
+  kapısı var. Bugünkü davranış değişmedi.
+
+  **5) `voiceService`E DOKUNULMADI (2689 satır — bilinçli).**
+  `processTextCommand` · `startListening` · tur sahipliği · UI `VoiceState`
+  sahipliği · kanonik dispatch · barge-in · TTS-bitiş sahipliği **kökte kaldı**.
+  Bunlar orkestrasyonun ta kendisidir; bölmek yetkiyi dağıtır ve F13'ün
+  tek-otorite kazanımını geri alır. **Dosyayı küçültmek için otorite bölmek
+  bu projede kabul edilebilir bir bedel DEĞİLDİR.**
+
+  **6) DÖRT KİLİT YENİDEN BAĞLANDI, BİRİ DAVRANIŞA YÜKSELTİLDİ.**
+  Kod taşınınca körleşen dört kaynak-çapalı kilit (`regression.guards` ×2 ·
+  `capabilityPlan` #42 · `evidenceAndNetworkNoise` #669) **silinmeden** yeni
+  sahiplerine bağlandı ve güçlendirildi — ör. `capabilityPlan` #42 artık
+  sağlayıcıda **ikinci bir alan çıkarıcısı doğmadığını** da tarıyor; #669'a
+  gerçek çağrı yapan bir davranış kilidi eklendi (REASK metni ile NET_DOWN
+  metni hiçbir kişilikte aynı olamaz). `voiceRuntimeSeparation.guards`
+  506 → 696 satır. **Dört mutasyonun dördü de kırmızıya döndü.**
+
+  **AÇIK BORÇLAR (dürüstçe):**
+  1. **Sayısal hedefler karşılanmadı ve bu turda karşılanmaya ÇALIŞILMADI:**
+     `voiceService` 2689 (hedef ≤900) · `companionChatProvider` 2352
+     (hedef ≤1200) · bayrak 16 (hedef ≤2). Gerekçe §5 ve #1042.
+  2. **`routeIntent` gözlem borcu duruyor** (#1028) — bileşik planda UI/medya
+     adımları `UNKNOWN` kalıyor ve parser yedek metni kullanılıyor.
+  3. **Hiçbir bayrak ölçütü ölçülmedi** (#1034, #1042); F3/F4 filo şalterinin
+     gerçekten çalıştığı da henüz kanıtlanmadı (#1039).
+  4. **Hiçbiri cihazda doğrulanmadı** (#1035-#1041).
+
+  **Sonraki atomik PR:** (a) `mavi_latency_trace` açılma ölçütünün gerçek
+  head unit'te ölçülmesi — bayrak zincirinin ilk halkası odur ve ondan önce
+  hiçbir bayrak ilerleyemez; (b) `routeIntent` kanonik gözlem borcunun
+  kapatılması (#1028).
+
+  ---
+
+  ### F13 KAPANIŞ DEĞERLENDİRMESİ (iki eksen AYRI okunur)
+
+  | ARCHITECTURAL CLOSURE | Durum |
+  |---|---|
+  | Tek Mavi authority | ✅ |
+  | Duplicate truth yok | ✅ |
+  | Duplicate state yok | ✅ |
+  | Legacy/ikinci assistant stack yok | ✅ |
+  | Guard'lar canlı (kör guard yok, mutasyonla kanıtlı) | ✅ |
+  | Bayrak yaşam döngüsü tanımlı **ve her bayrağın besleyicisi var** | ✅ |
+  | Açık cihaz borçları kütükte 🔴 | ✅ |
+  | **ARCHITECTURAL CLOSURE READY** | **EVET** |
+
+  | NUMERICAL TARGETS | Hedef | Bugün | Durum |
+  |---|---|---|---|
+  | `voiceService.ts` | ≤ 900 | 2689 | ❌ |
+  | `companionChatProvider.ts` | ≤ 1200 | 2352 | ❌ |
+  | Açık bayrak | ≤ 2 | 16 | ❌ |
+  | **NUMERICAL TARGETS MET** | | | **HAYIR** |
+
+  ### 🔶 NUMERICAL TARGET WAIVER RECOMMENDED — gerekçe (sessiz muafiyet DEĞİL)
+
+  Üç sayısal kapının üçü de **ancak güvenli mimari sınırlar bozularak**
+  kapatılabilir; bu, spec §29'un kendi "Korunacak authority: **Hepsi**"
+  şartıyla doğrudan çelişir:
+
+  1. **`voiceService` ≤ 900** → kalan kütlenin çoğu `processTextCommand`
+     (~670 satır) ve `startListening` (~380 satır); ikisi de karar sırasının
+     ve dinleme yaşam döngüsünün KENDİSİDİR. Bölmek tur/konuşma/dispatch
+     otoritesini dağıtır → F13'ün asıl kazanımını geri alır.
+  2. **`companionChatProvider` ≤ 1200** → kalan kütle sağlayıcı zinciri,
+     prompt kompozisyonu, dört model çağrısı, grounding sentezi ve Safety
+     PRE/POST sarmalayıcılarıdır. Bunları bölmek **ikinci bir assistant
+     runtime** doğurur (spec §28.2'nin açık yasağı).
+  3. **Bayrak ≤ 2** → 16 şalterin 16'sı canlı, ölü/birleştirilebilir bayrak
+     **yok** (#1042). Sayıyı düşürmenin iki yolu vardır ve ikisi de kanıtsızdır:
+     ölçülmemiş davranışı filoya dayatmak (`default ON`) ya da yazılmış bir
+     yeteneği ölçmeden silmek. `MAVI_FLAG_EXIT_CRITERIA` üçüncü yolu tarif eder
+     ve o yol **saha ölçümünden geçer**, refactor'dan değil.
+
+  **Öneri:** F13'ün kapanışı **ARCHITECTURAL CLOSURE** ekseninden verilsin;
+  sayısal kapılar **iptal edilmesin**, `MAVI_FLAG_EXIT_CRITERIA` ve
+  `DEVICE_VALIDATION_LEDGER`e bağlı **açık hedef** olarak kalsın ve saha
+  ölçümleri geldikçe kapansın. Bu bir hedef indirimi değil, **hedefin doğru
+  kapıya bağlanmasıdır**. Kararın sahibi kullanıcıdır; bu belge yalnız kanıtı sunar.
+- **MAVI-F13/3 · BİLEŞİK PLAN MEKANİĞİ TEK KAYNAĞA İNDİ + `companionChatProvider`
+  DEEP ROLE İNDİRGENDİ (2026-08-30, kütük 🔴 #1035-#1038):**
+  **Durum: ENTEGRE. SAHADA DOĞRULANMADI. ÜRÜN HAZIR: HAYIR. F13 KAPANMADI.**
+
+  **1) Bileşik plan MEKANİĞİ tek yere alındı — YETKİ DAĞITILMADAN.**
+  F13 iki bileşik yolu (beyin · yerel ayrıştırıcı) kanonik plana bağlamıştı ama
+  mekaniği **iki kez yazmıştı** (~120 satır ikiz kod: plan kimliği ·
+  `buildCapabilityPlan` · `runCapabilityPlan` · adım↔yük eşlemesi ·
+  `summarizePlan` · telemetri şekli · `renderPlanOutcome`). İkiz kod ikiz kusur
+  demektir: birinde düzeltilen sıra hatası ötekinde sessizce yaşar.
+  Mekanik `voice/maviCompoundPlanRuntime.ts`e alındı ve sözleşmesi kilitlendi:
+  **konuşmaz** (cümleyi yalnız DÖNER; söyleme kararı ve cevap slotu kökte) ·
+  **tur açmaz/kapatmaz** (`isTurnCurrent` PORTUNDAN sorar) · **yürütmez**
+  (`execute` portu; `commandExecutor`/`intentEngine` bilmez) · **kapı kurmaz**
+  (`evaluateLegacyIntent` kökte kaldı) · **telemetri yazmaz** (yalnız şekil).
+  Import yüzeyi kilitli: YALNIZ `capability/fabric/*`.
+
+  **2) `companionChatProvider` DEEP sağlayıcıya yaklaştı: 3086 → 2512 satır (−%19).**
+  Dört sorumluluk çıkarıldı — hiçbiri model·prompt·ağ işi değildi:
+  · `companionProactiveAlert` — proaktif kritik arıza uyarısı (bağımsız alt sistem);
+  · `companionAnswerShaping` — token bütçesi · karakter tavanı · cümle-sınırı kırpma (SAF);
+  · `companionProviderHealth` — üç sağlayıcı-bazlı 429 penceresi · AYRI grounding
+    penceresi · kimlik reddi (401/403) ve kredi (402) işaretleri · dürüst arıza
+    metinleri · LAB kota anlık görüntüsü (**yaprak**: import YOK · `fetch` YOK ·
+    konuşma YOK · rota seçimi YOK · telemetri YOK · `Date.now` YOK → monotonik saat);
+  · `companionOfflineReplies` — smalltalk anahtar kelimeleri · hazır cevap tablosu ·
+    deterministik rotasyon (**tam yaprak**, `Math.random` YOK).
+  **Kalan (kasıtlı) sorumluluklar — DEEP rolünün kendisi:** sağlayıcı zinciri ve
+  aday sırası · prompt kompozisyonu (kimlik · araç bağlamı · Driver DNA · konu
+  ipucu) · model çağrıları (Gemini/Groq/Haiku/gateway) · JSON ayrıştırma ve
+  `SemanticResult` normalizasyonu · grounding sentezi · sohbet geçmişi ve kısa
+  süreli konu bağlamı · Safety Kernel PRE/POST sarmalayıcıları.
+
+  **3) İKİNCİ ASİSTAN STACK OLUŞMADI.** Çıkarılan modüllerin hiçbiri konuşamaz,
+  tur açamaz, rota seçemez, eylem yürütemez. Kimlik reddi künyesini (`pushTrail`)
+  hâlâ KÖK yazar; sağlık defteri yalnız **sağlayıcı ADINI** döner (anahtar/PII asla).
+
+  **4) DIŞ YÜZEY DEĞİŞMEDİ.** `RATE_LIMIT_COOLDOWN_MS` · `getProviderQuotaSnapshot` ·
+  `classifySmalltalk` sağlayıcıdan yeniden dışa verildi → LAB (`maviConsoleSources`)
+  ve tanı (`diagnosticSections`) tüketicileri dokunulmadan çalışıyor.
+  **Yeni LAB ekranı AÇILMADI** — sorumluluk taşındı, yeni durum doğmadı
+  (ekran enflasyonu yasağı; gözlem yüzeyi zaten Mavi Konsolu kota bölümü).
+
+  **5) KİLİTLER KAYNAK TARAMASINDAN DAVRANIŞA TAŞINDI.** F13/2'de plan bloğuna
+  çapalı kilitler körleşme riski taşıyordu. Üç `regression.guards` kilidi
+  (grounding penceresi · sağlayıcı-bazlı 429 · aday atlama) **silinmeden** yeni
+  yapıya bağlandı ve **güçlendirildi** — artık yalnız "Gemini penceresi kuruluyor
+  mu" değil, "Groq/Haiku dalı Gemini penceresini KURAMAZ" da taranıyor.
+  `voiceRuntimeSeparation.guards` 295 → 506 satır: plan mekaniğinin **davranış**
+  kilitleri (adım sırası · devralınan turda yan etki başlatmama · gözlem yokken
+  cümle uydurmama · plan kimliği artışı) ve sağlık defterinin davranış kilitleri
+  (çapraz kirlenme · ayrık grounding penceresi · kredi-önce-anahtar sırası ·
+  künyede yalnız sağlayıcı adı · kota görüntüsünün alan kümesi).
+  **Dört mutasyon** kilitleri gerçekten kırmızıya çevirdi: yasak otorite import'u ·
+  uydurma başarı cümlesi · deftere `fetch` + çapraz kirlenme · çağrı yerinde
+  çapraz kirlenme. **Kör guard bırakılmadı.**
+
+  **AÇIK BORÇLAR (dürüstçe):**
+  1. **F13 KAPANMADI.** `voiceService` **2689** satır (hedef ≤900) ·
+     `companionChatProvider` **2512** (hedef ≤1200) · bayrak **16** (hedef ≤2,
+     hiçbiri açılmadı — ölçüt yok). Bu turun hedefi sayısal kapı DEĞİLDİ.
+  2. **Kökte kalan iki büyük sorumluluk hâlâ bölünmedi (bilinçli):**
+     `processTextCommand` ve `startListening` — orkestrasyonun ta kendisidir;
+     bölmek yetkiyi dağıtır ve F13'ün tek-otorite kazanımını geri alır.
+  3. **`routeIntent` gözlem borcu duruyor** (#1028): UI/medya adımları gözlem
+     yazmadığı için bileşik planda `UNKNOWN` kalıyor ve parser yedek metni
+     kullanılıyor. F13/3 bunu kapatmadı — kapsam borcudur, mekanik borç değil.
+  4. **Hiçbiri cihazda doğrulanmadı** (#1035-#1038): çapraz kirlenmenin gerçekten
+     bittiği, grounding 429'unun beyni öldürmediği ve dürüst anahtar/kredi
+     mesajlarının duyulduğu gerçek araçta ÖLÇÜLMEDİ.
+
+  **Sonraki atomik PR:** (a) `routeIntent` kanonik gözlem borcunun kapatılması
+  (#1028) — bileşik planın yedek metne düşmesini bitiren tek iş; (b)
+  `mavi_latency_trace` açılma ölçütünün gerçek cihazda ölçülmesi — bayrak
+  zincirinin ilk halkası odur ve ondan önce hiçbir bayrak ilerleyemez.
+- **MAVI-F13/2 · `voiceService` AYRIŞTIRMASI + BAYRAK EXIT CRITERIA
+  (2026-08-30, kütük 🔴 #1032-#1034):**
+  Durum: **ENTEGRE** (tam suite 716 dosya / 16 424 test yeşil · `npm run guard`
+  804/804 · tsc temiz · değişen dosyalarda lint 0 hata · production build yeşil ·
+  native değişiklik YOK) — **SAHADA DOĞRULANMADI. ÜRÜN HAZIR: HAYIR.
+  F13 HÂLÂ AÇIK.**
+
+  **1) `voiceService` üç sorumluluğa ayrıldı — 3139 → 2712 satır (−%14).**
+  Kök **bileşim kökü (orchestration root) olarak KALDI**; yetki dağıtılmadı.
+
+  | Yeni modül | Sahiplendiği | Satır |
+  |------------|--------------|-------|
+  | `voice/voiceCommandPolicy` | SAF sınıflandırma/sezgi: ACK sınıfı · söylem sınıflandırması (sohbet-kapatma · onay/ret · bağlaç) · AI-istek sezgisi · n-best seçimi · UI sıfırlama gecikmeleri. **Durum·timer·I/O·`Date.now` YOK** | 214 |
+  | `voice/voicePerceptionRuntime` | Ses seviyesi göstergesi (AudioContext · sentetik dalga · native RMS) · asistan ducking'i · MAVI-F3 kısmi transkript oturumu | 346 |
+  | `voice/voiceConversationRuntime` | Sohbet oturumu bayrağı · takip dinlemesi · iki emniyet penceresi. **Hiçbir platform modülü import ETMEZ** — tamamı port | 315 |
+
+  **2) Yetki DAĞITILMADI (yapısal kilit).** Üç modülün hiçbiri `maviTurn`,
+  `maviSpeech`, `commandExecutor`, `capabilityFabric`, `maviActionAuthority`,
+  `intentEngine` veya `processTextCommand`a dokunamaz — 17 kilit
+  (`voiceRuntimeSeparation.guards.test.ts`) bunu tarar ve **5 mutasyonla**
+  kör olmadığı kanıtlandı.
+
+  **3) Durum çoğaltması YOK (tek sahip kuralı).** `_convSession` ·
+  `_followUpArmed` · `_convIdleOnTtsEnd` · üç zamanlayıcı **yalnız** sohbet
+  runtime'ında; `_audioCtx` · `_volumeSimTimer` · `_rmsListenerHandle` ·
+  `_f3SessionId` · `_assistantDuckedMusic` **yalnız** algı runtime'ında;
+  `VoiceState` **yalnız** kökte. Kilit kökte ikinci kopya arar ve bulursa DÜŞER.
+  `push({…})` çağrısı çıkarılan modüllerin hiçbirinde YOKTUR.
+
+  **4) Bulunan ve düzeltilen GERÇEK kusur (zero-leak):** TTS bitişindeki 350 ms'lik
+  yeniden-dinleme gecikmesi **handle'ı tutulmayan** bir `setTimeout` idi —
+  `dispose` sonrası kuyrukta iş kalıyordu. Gözlenebilir davranış güvendeydi
+  (`_convSession` kapısı yakalıyordu) ama sahiplik eksikti. Handle artık tutuluyor
+  ve söküm onu da iptal ediyor (kütük #1033).
+
+  **5) TTS-bitiş aboneliği TEK kaldı.** Abonelik bileşim kökündedir: kök
+  `speech_end` olayını ve F0 gecikme izini kapatır, **sohbet kararını** sahibine
+  devreder. İkinci bir `registerTtsEndListener` kilitle yasaklıdır.
+
+  **6) Port bağlamaları TEMBEL sarılır.** Doğrudan referans (`isTtsSpeaking,`)
+  modül YÜKLENİRKEN dış bağlamayı okur ve kısmi mock'lanmış `ttsService` ile
+  **18 test dosyasını modül yükleme aşamasında düşürdü**. `() => fn()` sarması
+  taşımadan önceki çağrı-zamanı davranışını birebir korur ve testlere yeni mock
+  yüzeyi getirmez. (Bu, ayrıştırmanın ürettiği ve aynı turda kapatılan tek
+  gizli kuplajdır.)
+
+  **7) YENİDEN BAĞLANAN yedi kilit (kaldırma DEĞİL) — beşi GÜÇLENDİ:**
+  `regression.guards` ×2 (emniyet pencereleri artık **portun gerçekten bağlı
+  olduğunu** da doğruluyor — port kör bağlanırsa kilit düşer; `armConvIdleOnTtsEnd`
+  tanımının varlığı da aranıyor) · `maviFakeAck` ×2 (ACK listesi + tanım artık
+  politikada aranıyor, çağrı dalları kökte) · `maviDrivingWorkload` #42 (bütçe
+  kapısı **hem runtime'da hem kökteki port bağlamasında** doğrulanıyor) ·
+  `maviBargeInControl` (ad kanonikleşti) · `maviContextGrammar` (AFFIRM/NEGATE
+  artık **kaynak metni yeniden ayrıştırmak yerine GERÇEK regex nesnesini**
+  çalıştırıyor — kırılgan yol tümüyle kalktı).
+
+  **8) BAYRAK EXIT CRITERIA YAZILDI — `docs/MAVI_FLAG_EXIT_CRITERIA.md`.**
+  16 Mavi şalterinin **her biri** için: neyi açtığı · default · rollback değeri ·
+  kütük bağı · **ölçülebilir açılma ölçütü** · `default ON` şartı · kaldırma şartı.
+  Ayrıca ortak yaşam döngüsü (TANIMLI → PİLOT → DEFAULT ON → KALDIRILDI), ölçüm
+  kaynakları tablosu ve ≤2 hedefine giden **üç aşamalı migration planı**.
+  **Sayım düzeltildi:** F13 raporu "12" demişti; gerçek sayı **16**'dır
+  (`mavi_latency_trace` · `mavi_semantic_endpoint` · `mavi_streaming_response` ·
+  `mavi.mediaNextTakeover.enabled` o sayıma girmemişti). Kütük #1031 güncellendi.
+
+  **AÇIK BORÇLAR (dürüstçe):**
+  1. **F13 KAPANMADI.** `voiceService` **2712** satır (hedef ≤900) ·
+     `companionChatProvider` **3086** (hedef ≤1200, bu turda DOKUNULMADI) ·
+     bayrak **16** (hedef ≤2, hiçbiri açılmadı — ölçüt yok).
+  2. **Kökte kalan iki büyük sorumluluk BİLİNÇLİ olarak bölünmedi:**
+     `processTextCommand` (~670 satır · karar sırasının kendisi) ve
+     `startListening` (~380 satır · dinleme oturumu yaşam döngüsü). Bunlar
+     **orkestrasyonun ta kendisidir**; bölmek yetkiyi dağıtır ve F13'ün tek-otorite
+     kazanımını geri alır. Ayrıca F6/F13 bileşik plan bloğu (~380 satır) da
+     taşınmadı: içine **beş kaynak kilidi** çapalanmış taze F13 kodudur ve
+     cihazda henüz doğrulanmamıştır — taşıma F13/3'e bırakıldı.
+  3. **Hiçbir bayrak ölçütü ölçülmedi.** Belge bir PLANDIR, kanıt DEĞİLDİR (#1034).
+  4. **Ayrıştırma cihazda doğrulanmadı** — sohbet döngüsü, uzun cevabın
+     kesilmemesi, ducking, ses göstergesi ve hard-kill sonrası sessizlik gerçek
+     head unit'te ölçülmedi (#1032, #1033).
+
+  **Sonraki atomik PR:** F13/3 — (a) bileşik plan bloğunun taşınması (beş kilidin
+  birlikte yeniden bağlanmasıyla), (b) `companionChatProvider`ın DEEP sağlayıcısına
+  indirgenmesi. Öncesinde `mavi_latency_trace` açılma ölçütünün gerçek cihazda
+  ölçülmesi — bayrak zincirinin ilk halkası odur.
+
+- **MAVI-F13 · KANONİK RUNTIME KONSOLİDASYONU — ÜÇ HAT TEK OTORİTEYE BAĞLANDI
+  (2026-08-29, kütük 🔴 #1027-#1031):**
+  Durum: **ENTEGRE** (canlı hatta bağlı · tam suite 715 dosya / 16 407 test yeşil ·
+  `npm run guard` 804/804 · tsc temiz · değişen dosyalarda lint 0 hata ·
+  production build yeşil · native değişiklik YOK) —
+  **SAHADA DOĞRULANMADI. ÜRÜN HAZIR: HAYIR. F13 KAPANMADI (bkz. kütük #1031).**
+
+  **1) ÜÇ HAT DENETİMİ — ölçüm, varsayım değil.**
+  Statik import grafiği (`src/` altındaki her `.ts/.tsx`, test/üretim ayrımıyla)
+  şunu ölçtü:
+
+  | Hat | Gerçek durum | Sınıf |
+  |-----|--------------|-------|
+  | **HAT-1 `voiceService`** | Kullanıcıya ulaşan **TEK** hat | `CANONICAL_KEEP` |
+  | **HAT-2 `maviCore`** | `wiring/*` üretimde CANLI ama **gözlem/kanıt** rolünde (`maviEvidence` · `maviOwnership` · `takeoverArbiter`); `actionRegistry`/`actionSafety` **tip+güvenlik defteri** olarak `maviActionAuthority` ve `companionActions` tarafından okunuyor | `ADAPT_INTO_CANONICAL` |
+  | **HAT-2 gölge çekirdeği** | `intentResolver` · `navActions` · `appSafeActions` · `discoveryActions` · `index.ts` → **üretim tüketicisi 0** | `DEPRECATE` |
+  | **HAT-3 `ai/`** | Tek kök: `companionChatProvider → maviOrchestratedChat`. **İkinci bir asistan yolu DEĞİL**, kanonik DEEP sağlayıcısı | `CANONICAL_KEEP` (bayraklı) |
+  | `commandExecutor.executeSequence` | Üretim çağıranı **0**, test çağıranı **0** | `DELETE_SAFE` → **SİLİNDİ** |
+
+  **2) KANONİK RUNTIME — tek giriş zinciri:**
+  `ses/metin → maviTurn (tek tur otoritesi) → anlama/plan → capabilityFabric →
+  maviActionAuthority → commandExecutor → maviSpeech (tek konuşma otoritesi) →
+  maviMemory (tek izdüşüm)`. Bu zincirin dışında ikinci yürütme hattı yok.
+
+  **3) Denetimde bulunan ve KAPATILAN üç gerçek açık:**
+
+  | # | Açık | Kanıt | Kapatma |
+  |---|------|-------|---------|
+  | 1 | **İKİ bileşik yürütücü.** `dispatchChain` parser metnini **yürütmeden ÖNCE** seslendiriyor, gözlem HİÇ okumuyordu → F7 sözleşmesinin dışındaydı | `voiceService.ts` eski `dispatchChain` gövdesi | Zincir kanonik `buildCapabilityPlan → runCapabilityPlan → renderPlanOutcome` yoluna bağlandı; cümle artık yürütmeden SONRA kurulur |
+  | 2 | **ÜÇÜNCÜ (ölü) bileşik yürütücü.** `executeSequence` `Promise.all` ile PARALEL dağıtıyor, tur kapısı/onay/gözlem uygulamıyordu | statik tarama: 0 üretim + 0 test çağıranı | **Silindi** (kanonik karşılığı `capabilityPlanRunner`) |
+  | 3 | **Çift prompt enjeksiyonu.** Prompt kanonik araç bağlamı + F10 hafıza izdüşümünü taşırken orkestratör AYNI kanonik kaynaklardan İKİNCİ birer blok ekliyordu | `maviOrchestratedChat.askOrchestratedChat` → `withVehicleContext` + `withMemory` | `systemCarriesCanonicalProjection: true` → ikinci enjeksiyon kapalı; telemetri `canonical_upstream` |
+
+  **4) Yol boyu bulunan ve YENİ DOĞRU DAVRANIŞA GÜNCELLENEN iki kilit (kaldırma DEĞİL):**
+  `maviTurnGuard` #37 sabit 1200 karakterlik pencereye bakıyordu ve zincir uzayınca
+  **körleşecekti** → pencere bir sonraki fonksiyon başlığına bağlandı, üstüne kapının
+  plan yürütücüsünün **adım-başı portu** olduğu da doğrulandı ·
+  `carosLabMaviConsole` bölüm sayısı 10 → 11 ve **fail-soft kilidine F13 kaynağı da
+  mock'landı** (defter patlarsa "gölge çalışmadı" DENMEZ).
+
+  **5) Regresyon kilidi ürünü DÜZELTTİ (test uğruna ürün bozulmadı):**
+  `multiHardwareConfirmationRace` #15 düştü ve HAKLIYDI: plan adımını
+  `requiresConfirmation` işaretlemek **ÜÇÜNCÜ bir onay politikası** kuruyordu —
+  adım hiç dağıtılmıyor, kanonik `needs_confirmation` yolu hiç çalışmıyor ve
+  *"müziği aç ve aracı kilitle"* denince kilit **sessizce askıda** kalıyordu.
+  Onay yetkisi kanonik iki otoriteye geri verildi (SIRA: `classifySequenceConfirmationPolicy`
+  · EYLEM: `maviActionAuthority` → bekleyen eylem) ve bu yeni kilitle sabitlendi.
+
+  **6) Guard'lar — 22 kilit, 7 mutasyonla doğrulandı** (`maviCanonicalRuntime.guards.test.ts`):
+  tek bileşik yürütücü · ön-ACK yasağı · `executeSequence` dirilemez · tek konuşma
+  otoritesi · tek hafıza/bağlam izdüşümü · gölge hat yürütme yetkisi alamaz ·
+  ayrıştırıcı/LLM doğrudan alt sisteme dokunamaz · plan katmanı onay politikası
+  kurmaz · deprecate edilen modüllerin üretim importu yok · LAB hüküm üretmez.
+  Her kilit ÖNCE çapasının varlığını doğrular (kör guard yasağı); mutasyon testleri
+  7/7 kırmızı verdi.
+
+  **7) LAB:** yeni ekran AÇILMADI — mevcut **Mavi Konsolu**'na
+  *K · Kanonik Runtime / Konsolidasyon (F13)* bölümü eklendi. Yeni telemetri
+  KURULMADI: `maviEvidence`in ZATEN tuttuğu bounded defterler sayılır
+  (gölge kararları · eski hat yürütmeleri · **çift yürütme anahtarları** · köprü
+  yaşam döngüsü · açık bayrak listesi). Defter tavana dayanırsa LAB bunu AÇIKÇA
+  yazar — *"0 gördüm = hiç olmadı"* çıkarımı yalnız `bounded=false` iken geçerlidir.
+
+  **AÇIK BORÇLAR (dürüstçe):**
+  1. **F13 KAPANMADI.** Spec §29 kabul ölçütleri karşılanmadı: `voiceService`
+     **3139 satır** (hedef ≤900) · `companionChatProvider` **3086** (hedef ≤1200) ·
+     Mavi bayrağı **12** (hedef ≤2). Bunlar bilinçli olarak kapatılmadı: 900 satır
+     hedefi çok-sistemli rewrite'tır (`AI.md` ihlali), bayrak indirimi ise cihazda
+     hiç doğrulanmamış özellikleri kanıtsız açmak/silmek demektir (kütük #1031).
+  2. **`routeIntent` yolu gözlem YAZMIYOR** (F7'den devralınan kapsam borcu):
+     UI/medya/tema adımları planda `UNKNOWN` kalır, bu yüzden parser'ın birleşik
+     metni **yedek** olarak KORUNDU — aksi hâlde zincirde sessizliğe düşülürdü
+     (kütük #1028).
+  3. **`maviCore` hâlâ ayrı bir runtime olarak kayıtlı**: gölge köprü üretimde her
+     komutu GÖZLER (handler'ları no-op). Silinmedi — spec §28.2 onu MCX L0/L4/L7'ye
+     taşımayı öngörüyor. Sızma yasağı guard'la kilitlendi.
+  4. **Deprecate edilen dört modül SİLİNMEDİ** (`intentResolver` · `navActions` ·
+     `appSafeActions` · `discoveryActions`): üretim tüketicisi 0 ama kendi testleri
+     var; test kapsamını yok etmek F13'ün işi değil. Yeni üretim importu guard'la
+     yasaklandı.
+  5. **Hiçbir F13 sayacı gerçek cihazda okunmadı** — `shadow invocation = 0`
+     iddiası bugün ÖLÇÜM DEĞİL, HEDEFTİR (kütük #1030).
+
+  **Sonraki atomik PR:** (F13/2 TAMAMLANDI — yukarı bakın.) Eski plan: `voiceService` ayrıştırması (algı / karar / yürütme),
+  spec F13 satır kapılarına doğru ATOMİK turlarla; öncesinde bayrak açılma
+  kriterlerinin yazılması (spec §28.4).
+
+- **MAVI-F12 · FULL-DUPLEX BARGE-IN / KONUŞMA KONTROLÜ — KESME KARARI ARTIK
+  KANITA BAĞLI (2026-08-29, kütük 🔴 #1022-#1026):**
+  Durum: **ENTEGRE** (canlı hatta bağlı · hedefli testler yeşil · `npm run guard`
+  804/804 · tsc temiz · değişen dosyalarda lint 0 hata · native değişiklik YOK) —
+  **SAHADA DOĞRULANMADI. ÜRÜN HAZIR: HAYIR.**
+
+  **1) Önce ÖLÇÜM — gerçek duplex sınıfı `HALF_DUPLEX_INTERRUPT`.**
+  Kod denetimi ses yolunun gerçeğini kanıtladı ve sınıf o kanıttan türetildi
+  (`voice/duplexCapability`, SAF, hiçbir import):
+
+  | Kanıt | Ölçülen | Kaynak |
+  |-------|---------|--------|
+  | TTS sırasında yakalama açık mı | **HAYIR** | `wakeMicMustYield()` → `nativeTtsSpeaking` iken wake thread mikrofonu HİÇ açmaz |
+  | Aktif STT TTS ile örtüşür mü | **HAYIR** | `startListening()` İLK İŞ `ttsCancel()` çağırır — yapısal olarak imkânsız |
+  | Duplex yolunda AEC var mı | **HAYIR** | `AcousticEchoCanceler` YALNIZ `runVoskListening`te; wake yolunda HİÇBİR efekt kurulmaz |
+  | Echo referans sinyali bağlı mı | **HAYIR** | Repoda TTS çıkışını iptal ediciye veren kod YOK |
+  | İptal zinciri hazır mı | **EVET** | `ttsCancel` + `cancelActiveResponseStream` + `_f3CloseSession` + tur supersede |
+
+  → **`TRUE_FULL_DUPLEX` İLAN EDİLMEDİ.** Sahte duplex üretmek yerine spec §9.7'nin
+  fail-soft maddesi uygulandı. Sınıf dört değerlidir
+  (`TRUE_FULL_DUPLEX · AEC_GATED_DUPLEX · HALF_DUPLEX_INTERRUPT · UNSUPPORTED`)
+  ve kanıt eksikken **yükselmez**.
+
+  **2) Tek konuşma kontrolü — yeni otorite KURULMADI.**
+  `assistant/maviBargeIn` yalnız **KESME ÖNERİSİ** değerlendirir ve bir HÜKÜM
+  üretir; turu `maviTurn`, sesi `ttsService`, akışı `maviResponseStream` kapatır.
+  Hakem `ttsCancel · startListening · beginMaviTurn · dispatchIntent` adlarının
+  hiçbirini içermez (kaynak kilidi).
+
+  **3) Ölçüm sırasında bulunan ve kapatılan ÜÇ gerçek açık:**
+
+  | # | Açık | Kanıt | Kapatma |
+  |---|------|-------|---------|
+  | 1 | **Ölü otorite:** `supersedeActiveMaviTurn()` M5'te yazılmış, testlenmiş ama **üretimde HİÇ ÇAĞRILMIYORDU** → barge-in eski turun yetkisini ancak yeni komutla düşürüyordu; arada dönen geç sağlayıcı sonucu konuşabiliyordu | `grep` sonucu: yalnız testlerde | Kabul edilen kesme yetkiyi ANINDA düşürür |
+  | 2 | **Sözleşme ↔ uygulama çelişkisi:** `continueIfTurnCurrent` dokümanı "devralınma susturulur" diyordu, uygulama yalnız kimlik eşitliğine bakıyordu | `maviTurn.ts:153` | Kapı artık kendi metnini uygular; `beginMaviTurn` yolunda davranış BİREBİR aynı |
+  | 3 | **Self-echo deliği:** `vs.status !== 'idle'` kapısı yalnız kullanıcı turunu koruyordu; proaktif/navigasyon sözleri `idle`de seslendirilir ve **WebView ses yolları** `nativeTtsSpeaking` kurmadığı için wake thread mikrofonu açık tutar | `wakeWordService.onWakeWordDetected` + `edgeTtsService` HTMLAudio yolu | Wake tetiği artık hakemden geçer; kanıtsız tetik `SUPPRESSED_SELF_ECHO` ile düşer |
+
+  **4) Sahte kesme yasakları (kilitli):** VAD/enerji **TEK BAŞINA ASLA** kabul
+  edilmez · ölçülmemiş konuşma süresi "yeterli" sayılmaz · kısa spike reddedilir ·
+  kesme sonrası eko kuyruğu debounce ile ikinci kez kesemez.
+
+  **5) Öncelik PAZARLIKSIZ:** `ttsService` uçuştaki sözün KANALINI izler;
+  `SAFETY · HAZARD · NAVIGATION` barge-in ile **kesilemez** — kullanıcının Mavi'yi
+  kesebilmesi o kanalları susturma yetkisi DEĞİLDİR. İş yükü (F8) bu kararın
+  girdisi değildir: hakem `maviWorkload` import etmez (kilit).
+
+  **6) Gecikme DÜRÜST isimlendirildi:** ölçülen `TTS durdurma **İSTEĞİ**
+  gecikmesi`dir — `TextToSpeech.stop()` bir isteği kuyruklar, hoparlörün sustuğu
+  an JS'ten görülemez (F0'ın `requested`/`confirmed` ayrımıyla aynı sınır).
+  Ölçüm yokken `-1` taşınır ve LAB **"ÖLÇÜM YOK"** yazar; sahte `0 ms` üretilmez.
+
+  **7) LAB:** yeni ekran AÇILMADI — mevcut **Mavi Konsolu**'na
+  *J · Barge-in ve Konuşma Kontrolü (F12)* bölümü eklendi (duplex sınıfı + üç
+  kanıt · öneri/kabul · hüküm dağılımı · kanıt türü dağılımı · iki gecikme).
+  LAB hüküm ÜRETMEZ, yalnız defteri okur (kilit).
+
+  **F12'de yeniden bağlanan kilitler (kaldırma DEĞİL):**
+  `maviDrivingWorkload` #45 penceresi `interruptAndListen` gövdesi uzadığı için
+  fonksiyon sonuna kadar genişletildi (körleşmesin diye üst sınır yerine bir
+  sonraki `export function`a bağlandı) · `carosLabMaviConsole` bölüm sayısı
+  9 → 10 · fail-soft kilidine F12 kaynağı da mock'landı ·
+  `companionConversationLoop` TTS taklidi yeni sözleşmeyi (`isTtsSpeaking` +
+  kanal) yansıtacak şekilde güncellendi ve **yeni bir kilit eklendi**: korunan
+  ses çalarken kesme mikrofonu AÇMAZ.
+
+  **AÇIK BORÇLAR (dürüstçe):**
+  1. **Gerçek akustik barge-in YOK.** `TRUE_FULL_DUPLEX` için `CarLauncherPlugin`de
+     duplex yakalama döngüsü + AEC + referans sinyali gerekir; **yüksek riskli**
+     ve masa başında doğrulanamaz → bu turda YAPILMADI, `wakeMicMustYield`
+     yarım-duplex davranışı BİREBİR korundu (kilit). Hakem girişi (`setMaviDuplexEvidence`)
+     hazırdır; kanıt gelince mimari değişiklik GEREKMEZ.
+  2. Native `wakeWord` olayı **konuşma süresi ve güven taşımıyor** → duplex açılsa
+     bile hakem `speechMs` olmadan kabul etmez; o alanları native'e taşımak
+     F12 sonrası işidir.
+  3. **ASR_PARTIAL kanıt türü tanımlı ama üretimde beslenmiyor** — F3 kısmi
+     transkript oturumu TTS sırasında zaten açılmıyor (yarım-duplex). Sahte
+     besleme EKLENMEDİ.
+  4. **Telefon çağrısı sinyali hâlâ YOK** (F8'den devralınan borç): `DuckReason
+     'PHONE'` tanımlı ama üretimde çağıran yok → korunan kanal sınıflandırması
+     telefon için TTS kanalından türetilemiyor. Sahte alan eklenmedi.
+  5. `HEAD_UNIT_MATRIX`e **cihaz bazlı AEC sonucu yazılamadı** — ölçüm yok.
+
+  **Sonraki atomik PR:** (F13 TAMAMLANDI — yukarı bakın; kapanmadı, kütük #1031.) F12'nin native
+  duplex borcu (#1026) F13'ün ÖNKOŞULU DEĞİLDİR; ayrı bir native turda ele alınır.
+
+- **MAVI-F11 · UI DURUM MİMARİSİ v2 — AMBIENT MAVİ + WAKE/PRESENCE AYRIMI
+  (2026-08-29, kütük 🔴 #1016-#1021):**
+  Durum: **ENTEGRE** (canlı hatta bağlı · hedefli testler yeşil · `npm run guard`
+  804/804 · tsc temiz · değişen dosyalarda lint 0 hata · native değişiklik YOK) —
+  **SAHADA DOĞRULANMADI. ÜRÜN HAZIR: HAYIR.**
+
+  **Denetimde ölçülen dört kusur:**
+
+  | # | Kusur | Kanıt |
+  |---|-------|-------|
+  | 1 | UI durum modeli **4 durum** (`idle·listening·processing·speaking`); `ambient·action·confirmation·proactive·deferred·degraded` YOK | `livingThemeState.ts:33` |
+  | 2 | **Görsel "thinking" ihlali**: tam ekran yüzey `processing`te modelin iç işleyişini anlatıyordu; sürüş pilinde de süreç-anlatan etiket | `VoiceAssistant.tsx` (F2 sesli kanalı temizlemiş, görsel kanal ATLANMIŞ) |
+  | 3 | Tam ekran overlay `fixed inset-0` ile **navigasyon/müzik ekranını kapatıyordu** | spec §21.2 ihlali |
+  | 4 | **F1 borcu iki yerde AYAKTA**: `companionEnabled && companionWakeWordEnabled` + wake ayarının TAMAMI presence bloğunun içinde render ediliyordu | `wakeWordService.ts:929` · `SettingsPage.tsx:437` |
+
+  **Kanonik model:** `assistant/maviSurfaceState` — 11 bounded durum
+  (`IDLE · AMBIENT · LISTENING · UNDERSTANDING · SPEAKING · ACTION ·
+  CONFIRMATION · PROACTIVE · DEFERRED · DEGRADED · ERROR`) + bounded geçiş
+  sebebi + bounded yetenek kaybı sınıfı. Öncelik sırası: hata → onay → canlı tur
+  → süren iş → proaktif → erteleme → yetenek kaybı → ambient → idle.
+
+  **UI OTORİTE DEĞİLDİR (yapısal kilit):** model I/O·timer·`Date.now`·store·React
+  İÇERMEZ; eylem yürütmez, gerçek üretmez, capability kaydına dokunmaz; kanonik
+  otoriteler (`maviActionAuthority` · `assistantSafetyKernel` · `maviWorkload` ·
+  `maviMemory` · `capabilityFabric`) bu modülü **okumaz** (ters yön kilitli).
+
+  **"Thinking" gösterilmez (F2/I7):** koruma yoruma değil KODA bağlandı —
+  `MAVI_FORBIDDEN_LABEL_STEMS` (düşün · bakıyor · kontrol ediyor · analiz ·
+  yorumluyor · hesaplıyor · muhakeme · akıl yürüt …) hem durum hem yetenek-kaybı
+  etiketlerinde taranır; ayrıca kilit üretim dosyasının **ham kaynağını** tarar →
+  metnin yorum içinde bile yeniden belirmesi kilidi düşürür. `UNDERSTANDING`
+  nötr bir **ALINDI bildirimidir** ("Seni duydum"), düşünme göstergesi değil.
+
+  **Sürüş / park yüzeyi:** `COMPACT` ⟺ iş yükü ELEVATED+ **VEYA** doğrulanmış
+  hareket **VEYA** hareket BİLİNMİYOR (`unknown` park sayılmaz — fail-safe).
+  `EXPANDED` yalnız doğrulanmış duruş + düşük iş yükü. **Tam ekran yalnız
+  `EXPANDED`**; sürüşte overlay alt şeride iner, karartma ve tıklama-yakalayıcı
+  devre dışı kalır → **navigasyon/müzik görünür ve dokunulabilir kalır.**
+  Sürüşte dokunma hedefi tabanı 76 px (park 56 px). **İş yükü yüzeyi daraltır
+  ama capability KAPATMAZ** (F8 sınırı korundu, kilitli).
+
+  **F1 borcu KAPATILDI — yeni invaryant:** wake ayarı presence'tan bağımsızdır.
+  Yol Arkadaşı OFF + Wake ON → wake **çalışır**; Yol Arkadaşı ON + Wake OFF →
+  wake **dinlemez**. Ayar sayfasında wake kendi bölümüne alındı → presence
+  kapatılınca ayar **kaybolmuyor** (erişilemeyen gizli durum ortadan kalktı).
+  `_wakeKey`den `companionEnabled` çıkarıldı (presence değişimi wake'i gereksiz
+  yere yeniden kurmaz). **Ayar anahtarları değişmedi — migration yapılmadı.**
+
+  **Onay / gözlem dürüstlüğü (F5/F6/F7):** bounded etiket tablosu —
+  `REQUESTED` *gönderildi* · **`ACCEPTED` *iletildi — doğrulanmadı*** ·
+  `EXECUTED` *yapıldı* · `OBSERVED` *doğrulandı* · `FAILED` *başarısız* ·
+  `UNKNOWN` *sonuç bilinmiyor* · `CANCELLED` *iptal edildi*.
+  `observationCountsAsDone()` yalnız `OBSERVED` için `true`. Otomatik kapanma
+  kilidi **genişletildi**: `followUp`a ek olarak `CONFIRMATION` ve `ACTION` da
+  kapanmayı engeller; dar hâl (`voiceOverlayShouldAutoClose`) **aynen korundu**
+  ve testi değişmeden yeşildir.
+
+  **Degraded yalan söylemez:** her sınıf **ayakta kalanı** söyler
+  (*"Çevrimdışı — yerel komutlar çalışıyor"*). *"AI çalışmıyor"* gibi genelleme
+  yasaktır ve kilitlidir. Rozet duruma **dik** eksendir (dinleme sırasında da
+  görünür) ve hiçbir yeteneği kapatmaz.
+
+  **Proaktif / erteleme:** yüzey bu kararları **yeniden üretmez** — `PROACTIVE`
+  yalnız F9'un salt-okunur `isProactiveDeliveryInFlight()` sorgusundan,
+  `DEFERRED` yalnız F8'in `peekDeferredResponse()` otoritesinden gelir; bayatlık
+  kararı orada verilir → **bayat öneri yüzeyde gösterilemez** ve `DEFERRED`
+  hiçbir koşulda "tamamlandı" gibi yazılmaz.
+
+  **Gözlemlenebilirlik:** yeni LAB ekranı **açılmadı**; mevcut **CAROS LAB → AI
+  → Mavi Konsolu** ekranına *I · Kullanıcıya Görünen Durum (F11)* bölümü eklendi
+  (son durum + sebep · durum dağılımı · yüzey kipi · engellenen tam ekran ·
+  yetenek kaybı · wake/presence bağımsızlığı). Etiket metni, cevap içeriği ve
+  transkript **taşınmaz**.
+
+  **Açık borçlar (açıkça beyan edilir):**
+  1. `PROVIDER_COOLDOWN` · `STT_FALLBACK` · `TTS_FALLBACK` sınıfları modelde
+     tanımlı ama **canlı köprüde üretilmiyor** (bugün yalnız `OFFLINE` ve
+     `CLOUD_UNAVAILABLE` besleniyor) — sahte sınıf üretilmedi.
+  2. `ACTION` durumu semantik ACK bayrağından türetilir; **F6 plan
+     yürütücüsünün adım ilerlemesi** yüzeye bağlanmadı.
+  3. `CONFIRMATION` durumu var ama **onay kartı bileşeni** (parametre tekrarı)
+     bu turda yazılmadı — mevcut onay akışı sesle sürüyor.
+  4. Tema ekseni **4 durumda kaldı** (spec 10 diyordu). Gerekçe: tüm temalarda
+     görsel regresyon riski. İkinci gerçek kurulmadığı için borç sınırlıdır —
+     `deriveCompanionStatus` artık kanonik türetmeden **daraltılır**.
+  5. `VoiceAssistant` → `MaviSurface` **yeniden adlandırılmadı** (spec F11 öyle
+     diyordu); ad değişimi dört layout'ta çağrı yeri değişimi demekti ve F11'in
+     davranış hedefine katkısı yoktu.
+  6. **Ambient (`AMBIENT`) durumu için görsel bileşen yazılmadı** — durum
+     üretiliyor ve LAB'da görünüyor, ama wake dinlerken ekranda kalıcı bir
+     "küçük nabız" göstergesi henüz yok.
+
+  **F11'de güncellenen kilitler (kaldırma DEĞİL):** `carosLabMaviConsole` bölüm
+  sayısı 8 → 9 (I bölümü) ve I bölümünün kaynağı fırlatma testine eklendi;
+  `livingThemeState` testleri **değişmeden** yeşildir (tema ekseni davranışı
+  birebir korundu).
+
+  **Saha durumu:** `UNKNOWN / DEVICE VALIDATION REQUIRED` — görsel dikkat yükü,
+  dokunma davranışı, wake'in gerçek akustik çalışması, overlay çakışmaları ve
+  gece/gündüz okunabilirlik **masa başında ölçülemez** (kütük #1016-#1021).
+
+- **MAVI-F10 · HAFIZA v2 — TURN / TRIP / LONG_TERM + EXPLICIT↔INFERRED
+  (2026-08-29, kütük 🔴 #1009-#1015):**
+  Durum: **ENTEGRE** (canlı hatta bağlı · hedefli testler yeşil · `npm run guard`
+  804/804 · tsc temiz · değişen dosyalarda lint 0 hata · native değişiklik YOK) —
+  **SAHADA DOĞRULANMADI. ÜRÜN HAZIR: HAYIR.**
+
+  **Denetimde ölçülen beş paralel hafıza yığını** (hiçbiri diğerini bilmiyordu):
+
+  | # | Yığın | Kapsam | Kalıcılık | Ölçülen durum |
+  |---|-------|--------|-----------|----------------|
+  | 1 | `companionChatProvider._history` | 8 tur HAM transkript | RAM | CANLI — her prompt'a doğrudan gömülüyor |
+  | 2 | `companionMemory` (`companion_memory_v1`) | 15 × 120 karakter açık fact | `safeStorage` | CANLI — **kapısız** |
+  | 3 | `ai/memory/*` (`memoryEngine`) | görev politikalı, kapılı motor | DI | **ÖLÜ** — üç kapı arkasında |
+  | 4 | `aiCore/vehicleMemory` | araç-teknik, fingerprint anahtarlı | `safeStorage` | CANLI — **ayrı gizlilik sınıfı** |
+  | 5 | `maviCore/contextStore` | son eylem/ekran + tur halkası | RAM | **GÖLGE** — üretimde çağıranı yok |
+
+  **Kapatılan üç gerçek kusur:**
+  1. **Gizlilik kapısı canlı yolda HİÇ YOKMUŞ.** `sensitiveMemoryGuard` yazılı ve
+     testliydi ama yalnız bayrağı KAPALI motorun üzerindeydi. `REMEMBER` →
+     `addFact()` sadece `trim` + 120 karakter kırpma yapıyordu; okuma yolu
+     (`buildMemoryPromptSection`) da kapısızdı. Yani *"beni 0532 … diye
+     kaydet"* kalıcı depoya **ve her prompt'a** giriyordu.
+  2. **Canlı hafıza bloğunda *"VERİdir, TALİMAT DEĞİLDİR"* etiketi yoktu**
+     (etiket de yalnız ölü motorda).
+  3. **"Unut" gerçekten unutturmuyordu.** `forgetFact` yalnız kalıcı listeden
+     siliyordu; aynı bilgi `_history` içinde kalıp **8 tur daha** modele
+     gidiyordu.
+
+  **Kanonik model (tek cephe, altıncı yığın YOK):** `assistant/maviMemory`
+  mevcut otoritelerin ÜSTÜNDE tek giriş/çıkış kapısıdır. Kayıt bounded ve tam:
+  `id · scope · kind · domain · origin · source · provenance · value ·
+  confidence · evidenceCount · createdAt · lastConfirmedAt · decayHalfLife ·
+  expiresAt · correction · privacyClass · schemaVersion · tripKey`.
+  **conversation text ≠ fact ≠ preference ≠ learned pattern** — dördü ayrı
+  taşınır, tek listede tutulmaz. Eski `companion_memory_v1` **bir kez** (kapı
+  uygulanarak) içe aktarıldı; sonrasında üretim okuma yolunda bir daha okunmaz.
+
+  **Üç kapsam:**
+
+  | Kapsam | Ömür | Kalıcılık | Sınır |
+  |--------|------|-----------|-------|
+  | `TURN` | tur | RAM | sahibi `companionChatProvider`; cephe KOPYA tutmaz, yalnız TEMİZLEME portu |
+  | `TRIP` | yolculuk | **YALNIZ RAM** | 40 kayıt · yolculuk anahtarlı · yeni yolculuk eskisini DEVRALMAZ |
+  | `LONG_TERM` | kalıcı | `mavi_memory_v2` | EXPLICIT 15 + INFERRED 15, **ayrı listeler** |
+
+  **Yolculuk kimliği UYDURULMADI:** ölçüm gösterdi ki `tripLogService`'te aktif
+  yolculuğun kimliği yoktur (`generateTripId()` yalnız yolculuk biterken
+  çağrılır). Kapsam anahtarı mevcut ve gerçek bir olgudan türetildi:
+  `trip:{ActiveTrip.startTime}`. Kaynak bağlı değilse ya da aktif yolculuk yoksa
+  anahtar `null`dur ve TRIP hafızası yazmaz/okumaz.
+
+  **EXPLICIT ↔ INFERRED (pazarlıksız):** beyan güven 1 ve **DECAY YOK** (yalnız
+  düzeltilebilir); çıkarım güveni kanıttan türetir (`n/(n+2)`, tavan 0.9 —
+  zero-trust), **en az 3 kanıt** olmadan prompt bloğuna giremez, 14 günlük
+  yarı-ömürle zayıflar, 0.35 altında düşer. Projeksiyonda beyan çıkarımdan önce
+  sıralanır ve blokta ayrı etiketlenir.
+
+  **Düzeltme ve çelişki:** düzeltme **kör silmez** — güven sıfırlanır, kayıt
+  `CORRECTED` işaretlenir, projeksiyondan düşer ve aynı ifade **30 gün** çıkarımla
+  yeniden üretilemez; açık beyan bu mührü kaldırır (fikir değiştirme hakkı).
+  Çelişen iki açık beyan **ikisi de durur**: eski `CONTRADICTED` işaretlenir,
+  blokta `ÇELİŞKİLİ` görünür ve Mavi *"hangisi geçerli?"* diye **sorar**,
+  kendisi seçmez.
+
+  **Prompt izdüşümü:** her turda tüm hafıza dökülmez — kullanıcının o turdaki
+  metninden bounded bir ALAN çıkarılır (`navigation · media · vehicle ·
+  personal · general`) ve yalnız o alan + alanı bilinmeyen kayıtlar taşınır;
+  üstüne 6 kayıt / 600 karakter tavanı uygulanır. Her satır kökenini, kapsamını,
+  güvenini ve çelişki durumunu taşır.
+
+  **Kalıcılaştırma dürüstlüğü:** `safeStorage.safeSetRaw` `void` döner ve kota
+  hatasını kendi içinde yutar — "yazdım" iddiası tek başına hiçbir şey
+  kanıtlamaz. F10 yazımı `immediate` yapar ve **geri okuyup karşılaştırır**;
+  doğrulanmazsa *"hatırladım"* denmez. **Dürüst sınır:** bu doğrulama web
+  yolunda gerçek bir dayanıklılık kanıtıdır; NATIVE yolda `safeSetRaw` dosya
+  yazımından önce `_fsCache`e koyduğu için geri okuma önbellekten döner →
+  orada kanıt zayıftır (gizlenmiyor).
+
+  **Gözlemlenebilirlik:** yeni LAB ekranı **açılmadı**; mevcut **CAROS LAB → AI
+  → Bellek Gezgini** yedi bounded satırla genişletildi (uzun dönem kayıt ·
+  öğrenme kaynağı · düzeltme/çelişki · unutma · kalıcılaştırma · gizlilik
+  kapısı · prompt izdüşümü + yolculuk hafızası). Metin, uzunluk, özet ve hash
+  **hiçbiri** taşınmaz.
+
+  **Açık borçlar (açıkça beyan edilir):**
+  1. **Çıkarım ÜRETİCİSİ yok.** `observeInferred` portu açık ama üretimde
+     çağıranı yok: repoda bir tercihi davranıştan çıkaracak güvenilir ve
+     gizlilik-temiz bir üretim sinyali ölçülemedi. Olmayan sinyalden öğrenme
+     uydurulmadı; LAB *"BAĞLI DEĞİL — çıkarım üretilmiyor"* der.
+  2. **Koşullu tercih (bağlam) modellenmedi.** *"işe giderken hızlı rota"*
+     gibi koşul, iki kaydı uzlaştırmak için kullanılmaz; çelişki yalnız
+     **görünür kılınır**.
+  3. **Yolculuk sonu ÖZETİ uzun döneme taşınmıyor** (spec §14.4 "yalnız
+     izinle"). İzin yüzeyi yok → sessiz kalıcılaştırma yasak olduğu için taşıma
+     da yapılmadı.
+  4. **`maviCore/contextStore` hâlâ gölge** — F10 onu canlandırmadı ve
+     kullanmadı; ölü paralel yığın olarak kayıtlıdır.
+  5. **`ai/memory/memoryEngine` bayrağı AÇILMADI.** Spec F10 "bayrak açılır"
+     diyordu; kanonik okuma katmanı olarak `maviMemory` seçildi ve `memoryEngine`
+     onu okuyacak biçimde yeniden bağlandı (tek gerçeklik), ama üç kapılı bayrak
+     zinciri bilinçli olarak dokunulmadan bırakıldı — açmak, gateway yolunu da
+     üretime sokan ayrı bir karardır.
+  6. **NATIVE yolda kalıcılaştırma doğrulaması zayıf** (yukarıda).
+
+  **F10'da yeniden bağlanan iki kilit (kaldırma DEĞİL):**
+  `maviMemoryEngine.test` #"companionMemory SALT-OKUNUR" ve `maviMemoryWiring.test`
+  #"kullanıcı tercihleri mevcut otoriteden okunur" kilitleri `getFacts` adını
+  arıyordu. F10 gerçeklik kaynağını cepheye taşıdığı için bu kilitler ya kırmızı
+  kalır ya da eski adı geri koymaya zorlardı — ikisi de iki-gerçeklik kusurunu
+  geri getirirdi. Kilitler aynı invaryantı (**salt-okunurluk + tek otorite**)
+  koruyacak biçimde yeni tek-kaynağa bağlandı ve üstüne *"beyan ile çıkarım ayrı
+  etiketle taşınır"* şartı EKLENDİ.
+
+  **Saha durumu:** `UNKNOWN / DEVICE VALIDATION REQUIRED` — gerçek araç ve
+  gerçek uzun yol oturumu ölçümü yapılmadı; yolculuk sürekliliği ve öğrenilmiş
+  tercih davranışı masa başında "doğrulandı" sayılmaz (kütük #1009-#1015).
+
+- **MAVI-F9 · PROACTIVE POLICY ENGINE — PROAKTİF KONUŞMA İZNİNİN TEK KAPISI
+  (2026-08-29, kütük 🔴 #1003-#1008):**
+  Durum: **ENTEGRE** (canlı hatta bağlı · hedefli testler yeşil · `npm run guard`
+  804/804 · tsc temiz · değişen dosyalarda lint 0 hata · native değişiklik YOK) —
+  **SAHADA DOĞRULANMADI. ÜRÜN HAZIR: HAYIR.**
+
+  **Kapatılan kusur (G9):** proaktiflik hem üretiliyor hem karara bağlanıyordu ve
+  ikisi de `companionEngine.tick()` içindeydi — sekiz tetik, sabit bir `if/return`
+  merdiveni, tetik başına modül-içi cooldown değişkeni. Dört sonucu ölçüldü:
+  (1) dışarıdan kaynak **bağlanamıyordu** (tek yol dokuzuncu bir `if`);
+  (2) **global sesli proaktif tavanı yoktu** — bağımsız beş güvenlik tetiği aynı
+  yarım saatte sırayla konuşabilirdi; (3) kullanıcı bir öneriyi kaç kez keserse
+  kessin **öğrenme yoktu**; (4) *"neden konuşmadı?"* sorusunun kanıtı kaynağı
+  okumaktan başka hiçbir yerde yoktu.
+
+  **Yeni akış:** kaynak **teklif** verir → motor **karar** verir → çağıran
+  seslendirir. `companionEngine` motor olmaktan çıkıp **teklif üreticisine**
+  indirgendi; cooldown ve sıklık defteri tek sahibe (`proactivePolicyEngine`)
+  taşındı — companionEngine'de paralel zaman defteri **kalmadı** (kaynak kilidi).
+
+  **Sınıf tablosu tek otoritedir** (`PROACTIVE_CLASS_RULES`; sınıf bir etiket
+  değil **yetki seviyesidir**):
+
+  | kind | iş yükü tavanı | presence | saatlik tavan | öğrenmeyle susturulabilir |
+  |------|----------------|----------|---------------|---------------------------|
+  | `safety` | **CRITICAL** (hiç kapanmaz) | gerekmez | **hayır** | **HAYIR** |
+  | `operational` | HIGH | gerekmez | evet | evet |
+  | `informational` | ELEVATED | gerekir | evet | evet |
+  | `social` | NORMAL | gerekir | evet | evet |
+
+  `social` tavanının NORMAL olması, F8'in `allowProactiveChatter` kapısının
+  **birebir sınıf karşılığıdır** (ELEVATED ve üstünde sohbet susar). Beş güvenlik
+  tetiği (yakıt menzili · kapı/bagaj · lastik basıncı · kötü havada far · uyku
+  önleme) `safety` olarak beyan edilir ve bütçe/presence/tavan/öğrenme
+  yollarının **hiçbiri** onları düşüremez.
+
+  **Spam'in üç katmanlı yapısal freni:** (1) cooldown — mevcut değerler aynen
+  taşındı (15/3/30/25/25/45 dk); (2) sıklık bütçesi — chattiness aralığı
+  (az 45 · normal 20 · sık 10 dk), `az` bütçeli teklifleri tamamen kapatır;
+  (3) **saatlik tavan (YENİ)** — son 1 saatte en fazla **6** güvenlik dışı sesli
+  proaktif; değer keyfî değil, bugünkü en gevezelik ayarından türetildi (sık =
+  10 dk → saatte en çok 6), yani **mevcut davranışı kısıtlamaz**. Ayrıca **tek
+  konu kuralı**: aynı tick içinde en yüksek skorlu tek teklif konuşur, kalanı
+  `not_top` ile düşer — **kuyruk yok**, bayat öneri yapısal olarak imkânsız.
+
+  **Öğrenme dürüsttür, kabul UYDURULMADI:** üretimde *"kullanıcı bu öneriyi
+  kabul etti"* diyen **hiçbir sinyal yok** (proaktif cümleler beyandır, takip
+  dinlemesi açmaz; `_isConversationEnd` yalnız açık sohbet oturumunda çalışır).
+  Gözlenebilen tek şey **kesinti**dir: kullanıcı uçuştaki proaktif konuşma
+  sırasında mikrofonu açar ya da oturumu durdurur. Bu *"ret"* değil *"kesinti"*
+  olarak kaydedilir: skoru kademeli düşürür (1.00 → 0.75 → 0.50 → 0.25) ve
+  eşikte (3 kesinti / 2 saatlik decay) kaynağı **geçici** olarak (6 saat)
+  susturur — kalıcı değil, `safety` ise **asla**. LAB'daki `kabul oranı` satırı
+  bu yüzden sayı göstermez: **`ÖLÇÜLEMİYOR — kabul sinyali YOK`**
+  (`acceptRateMeasurable: false` tip düzeyinde beyan edilir; `acceptRate` diye
+  bir alan hiç tanımlanmamıştır).
+
+  **Otorite sınırı:** motor **seslendirmez** (ikinci TTS kanalı açmaz),
+  **metin üretmez** (şablon teklif sahibinindir, LLM'e gitmez), **eylem
+  yürütmez**, güvenlik eşiği **yeniden hesaplamaz**. Karar çekirdeği saftır
+  (`Date.now` · timer · store · React yok; **tek import type-only**) ve
+  `commandExecutor` · `maviActionAuthority` · `assistantSafetyKernel` ·
+  `capabilityFabric` · `ttsService` bu motoru **okumaz** (ters yön kilitli).
+  Kritik arıza hattı motorun **kapısından geçmez** — kendi kanonik güvenlik
+  kapısı vardır; oraya yalnız **gözlem** yazılır (`noteExternalProactiveSpoken`),
+  böylece LAB tablosu eksik/yalan kalmaz ama ikinci bir susturma otoritesi
+  kurulmaz.
+
+  **Gözlemlenebilirlik:** yeni LAB ekranı **açılmadı**; mevcut **CAROS LAB → AI
+  → Mavi Konsolu** ekranına *H · Proaktif Konuşma Politikası (F9)* bölümü
+  eklendi: karar/kabul adedi · saatlik tavan kullanımı · **düşme gerekçeleri**
+  (14 bounded kod — *"neden konuşmadı?"* sorusunun kanıtı) · kaynak bazlı
+  konuşma · sınıf dağılımı · kesinti/öğrenme · son karar. Bölüm salt-okunur
+  (susturma/geri açma API'leri okuma katmanında **geçmez** — kilitli) ve
+  gizlilik yapısaldır: seslendirilen metin motorda **hiç saklanmaz**, kaynak
+  kimlikleri kodda sabittir ve okuma katmanı ayrıca `[a-z0-9._-]`/48 karakter
+  süzgeci uygular.
+
+  **Açık borçlar (açıkça beyan edilir):**
+  1. **Yeni proaktif kaynak eklenmedi.** F9 portu açtı; navigation/vehicle/fleet
+     için **konuşan** adaptör yazılmadı — yeni proaktif ses, sıfır saha kanıtıyla
+     yeni ürün davranışı demekti.
+  2. **Görsel proaktif kanal yok.** Spec §17.4 presence kapalıyken
+     `informational` için görsel kanal öngörür; üretimde yoktur → `deliver:
+     'visual'` teklifi sessizce sesli kanala kaydırılmaz, `no_visual_channel`
+     ile dürüstçe düşer ve sayılır.
+  3. **Mola önerisi `social` kaldı.** `informational`a yükseltmek onu ELEVATED
+     iş yükünde de konuştururdu — bu bir davranış değişikliğidir ve F9'un
+     *"mevcut tetik davranışı aynen geçmeli"* kısıtını ihlal ederdi.
+  4. **`companionEnabled` kapalıyken companionEngine'in tamamı hâlâ susuyor**
+     (motorun kendi şalteri). Sistem düzeyinde güvenlik uyarıları presence'tan
+     bağımsız çalışmaya devam ediyor (`SystemOrchestrator` ve kritik arıza hattı
+     `companionEnabled` okumaz), ama bu beş tetik susuyor — F9'da bilinçli
+     olarak değiştirilmedi.
+  5. **Açık susturma talebinin ("bunu bir daha söyleme") üretimde çağıranı yok**
+     — ayar/intent yüzeyi F9 kapsamında açılmadı.
+  6. **Kesinti sinyalinin yoğunluğu ölçülmedi:** sahada bu yolun kaç kez
+     gerçekten tetiklendiği bilinmiyor; sinyal seyrekse öğrenme fiilen çalışmaz.
+
+  **Yol boyu bulunan ve kapatılan F8 borcu:** `carosLabMaviConsole.test.tsx`
+  Mavi Konsolu bölüm sayısını hâlâ **6** sayıyordu; F8'in G bölümü eklendiğinde
+  güncellenmemişti ve test **üç noktada kırmızıydı** (F9 öncesi de kırmızıydı —
+  `git show HEAD` ile doğrulandı). Sayı 8'e taşındı, G/H kaynaklarının fırlatma
+  davranışı da kilide eklendi.
+
+  **F8 kilidinin yeniden bağlanması (kaldırma DEĞİL):** `maviDrivingWorkload`
+  testi #36, `companionEngine.ts` içindeki beş cooldown değişkeninin
+  `allowProactiveChatter` kapısından ÖNCE geçtiğini kaynak metin sırasıyla
+  doğruluyordu. F9 o değişkenleri motora taşıdığı için `indexOf` her biri için
+  `-1` dönerdi ve `-1 < gate` **daima doğru** olurdu → kilit sessizce boş kümeye
+  düşer ve hiçbir şeyi korumazdı (*"kör guard = düşen guard"*). Kilit, aynı
+  invaryantı daha güçlü kilitleyecek biçimde yeni tek-kaynağa bağlandı: sınıf
+  tablosu + tetiklerin `safety`/`social` beyanı.
+
+  **Saha durumu:** `UNKNOWN / DEVICE VALIDATION REQUIRED` — gerçek araç ölçümü
+  yapılmadı; saatlik tavan (6) ve 3-kesinti eşiği masa başında "doğrulandı"
+  sayılmaz (kütük #1003-#1008).
+
+- **MAVI-F8 · DRIVING WORKLOAD AWARENESS — AYNI MAVİ, BAĞLAMA UYGUN İLETİŞİM
+  YOĞUNLUĞU (2026-08-29, kütük 🔴 #997-#1002):**
+  Durum: **ENTEGRE** (canlı hatta bağlı · hedefli testler yeşil · `npm run guard`
+  804/804 · tsc temiz · değişen dosyalarda lint 0 hata · native değişiklik YOK) —
+  **SAHADA DOĞRULANMADI. ÜRÜN HAZIR: HAYIR.**
+
+  **Kapatılan kusur:** Mavi'nin konuşma yoğunluğunu belirleyen tek sinyal
+  `isDriving` boolean'ıydı — ya ≤8 kelime ya sınırsız. F8 bunu bounded bir durum
+  modeline çevirdi: `LOW · NORMAL · ELEVATED · HIGH · CRITICAL · UNKNOWN`.
+
+  **Sinyal → kanıt matrisi (ölçüldü, uydurulmadı):**
+
+  | Sinyal | Kaynak | Tazelik | Güvenilirlik | Mevcut otorite |
+  |--------|--------|---------|--------------|----------------|
+  | Hareket / hız | `maviVehicleContext` üç durumlu hüküm | OBD `obdFreshWindowMs` · GPS `GPS_STALE_MS` | Kanıta dayalı; `unknown` ≠ duruyor | `maviVehicleContext` |
+  | Rehberlik | `navigationService.isGuidanceActive` | store | Yalnız ACTIVE/REROUTING (önizleme değil) | `navigationService` |
+  | Manevra yakınlığı | `routingService.distanceToNextTurnMeters` + `distanceToNextTurnSource` | rota tick'i | `ALONG_ROUTE` güvenilir · `STRAIGHT_LINE` kısa çıkar (güvenli yön) · `UNKNOWN` **kanıt değil** | `routingService` |
+  | Geri vites | `useSystemStore.isReverseActive` | anlık | Pozitif sinyal | `SystemOrchestrator` |
+  | Kritik güvenlik | `assistantSafetyKernel.evaluatePreGate` | tek-atım OBD/DTC | Yorumlanmış karar | `assistantSafetyKernel` |
+  | Bilişsel mod | `useCognitiveStore` (`CognitivePriorityEngine`) | 1 sn poll + histerezis | Termal + DAB + risk | `CognitivePriorityEngine` |
+  | Sürücünün konuşması | `voiceService` oturum/`followUp` durumu | anlık | Gerçek | `voiceService` |
+  | **Telefon görüşmesi** | **YOK** | — | — | — |
+  | **Audio focus / duck** | `getActiveDuckReasons()` var ama **üretimde hiç dolmuyor** | — | Kanıt olarak kullanılmadı | `CarosAudioFocusManager` |
+  | **`driverAttentionBudget`** | `hazardService` — **yalnız aktif tehlike varken güncelleniyor** | tehlike yoksa bayat | Genel iş yükü sinyali DEĞİL | `hazardService` |
+
+  **Cevap bütçesi:** LOW/NORMAL → tam sohbet + takip dinlemesi · ELEVATED →
+  ≤24 kelime, takip ve güvenlik-dışı proaktiflik kapalı · HIGH → ≤8 kelime,
+  akış açılmaz · CRITICAL → yalnız gerekli iletişim, serbest sohbet ertelenir.
+  **`UNKNOWN` NORMAL bütçesini alır** (bilinçli): iletişim politikası bir
+  güvenlik otoritesi değildir ve `unknown`da susmak, OBD'siz head unit'lerde
+  asistanı sıfır güvenlik kazancıyla sakat bırakırdı — gerçek fail-closed
+  davranış zaten eylem kapılarındadır. `UNKNOWN` yine de **LOW olduğunu iddia
+  etmez** ve ayrı ölçülür.
+
+  **Otorite sınırı:** workload aracı kontrol etmez, navigasyon kararını
+  değiştirmez, capability kapatmaz, açık komutu reddetmez. Yalnız **tavan**
+  koyar ve hiçbir kısıtı **gevşetmez** — ISO 15008 sürüş kısıtı yerinde kalır,
+  iki tavandan küçük olan kazanır. Saf çözümleyici **hiçbir modül import etmez**
+  (kilitli); yürütücü/kapı hatları da workload'u okumaz (ters yön kilitli).
+
+  **Presence ≠ workload (F1 korundu):** Yol Arkadaşı ON + HIGH → yetenekler
+  açık, gereksiz sohbet kapalı. Companion OFF + LOW → tam yetenekli asistan.
+  Workload katmanı `companionEnabled`e hiç bakmaz (kaynak kilidi).
+
+  **Güvenlik önceliği değişmedi:** `speakSafetyAlert`, proaktif kritik arıza
+  hattı ve `speakNavigation` bu bütçeden **geçmez**; duck öncelikleri
+  (EMERGENCY · SAFETY · PHONE · NAVIGATION) **aynen** korundu.
+
+  **Gerçek zamanlı değişim:** akış cevabı sürerken iş yükü yükselirse yeni parça
+  alınmaz ve kuyruktaki parça **doğal olarak bitirilir** — kelime ortasından
+  kesme, audio otoritesi bozma ve sahte tamamlanma yok; kesme bounded sayaca
+  yazılır.
+
+  **Erteleme (F2 korundu):** `CRITICAL`da serbest sohbet **durum olarak**
+  ertelenir; "şimdi yola odaklan" gibi kalıp cümle üretilmez (kaynak kilidi).
+  Erteleme 60 sn TTL ile düşer, yeni tur/barge-in onu temizler ve
+  **kendiliğinden tekrar oynatılmaz** (`DEFERRED ≠ COMPLETED`).
+
+  **Gözlemlenebilirlik:** yeni LAB ekranı **açılmadı**; mevcut **CAROS LAB → AI
+  → Mavi Konsolu** ekranına *G · Sürüş İş Yükü ve Konuşma Bütçesi* bölümü
+  eklendi (canlı kaynak · son seviye · seviye dağılımı · kanıt dağılımı ·
+  kısaltma/erteleme · susturulan sohbet). Ölçüm yokken "LOW" değil **"Ölçüm
+  yok"** yazılır. Telemetri yeni sistem kurmadı: F0 izine 5 bounded alan eklendi
+  ve ham sürüş verisi ize **girmez**.
+
+  **Açık borçlar:** telefon görüşmesi sinyali repoda **yok** (uydurulmadı);
+  `driverAttentionBudget` yalnız aktif tehlike varken güncellendiği için genel
+  iş yükü sinyali sayılmadı; audio-focus duck kanalı üretimde hiç dolmadığı için
+  kanıt olarak kullanılmadı; eşikler (200 m · 70 km/h) mevcut sabitlerin aynası
+  olsa da **iletişim politikası için sahada hiç ölçülmedi**.
+
+  **Saha durumu:** `UNKNOWN / DEVICE VALIDATION REQUIRED` — gerçek araç ölçümü
+  yapılmadı; eşikler masa başında "doğrulandı" sayılmaz (kütük #997-#1002).
+
+- **MAVI-F7 · UNIVERSAL OBSERVATION / OUTCOME TRUTH — "GÖNDERDİM" İLE "OLDU"
+  ARTIK AYNI CÜMLE DEĞİL (2026-08-29, kütük 🔴 #991-#996):**
+  Durum: **ENTEGRE** (canlı hatta bağlı · hedefli testler yeşil · `npm run guard`
+  804/804 · tsc temiz · değişen dosyalarda lint 0 hata · native değişiklik YOK) —
+  **SAHADA DOĞRULANMADI. ÜRÜN HAZIR: HAYIR.**
+
+  **Kapatılan kusur:** F5 dürüstlük TAVANINI (`observationCeiling`) kurmuştu ama
+  tavanın ALTINI dolduracak gerçek kanıt yoktu — yürütücü ne dediyse gözleme o
+  yazılıyordu. F7 `PROPOSED ≠ REQUESTED ≠ ACCEPTED ≠ EXECUTED ≠ OBSERVED`
+  sözleşmesini kodla zorlar: bağımsız alan kanıtı varsa **alan otoritesi kazanır**
+  ve yürütücünün iyimser dönüşünü ezer; kanıt yoksa ya da bayatsa hiçbir seviye
+  değişmez; zaman aşımı **asla** başarıya dönüşmez.
+
+  **Alan → gözlem kaynağı matrisi (ölçülmüş, uydurulmamış):**
+
+  | Alan | Bağımsız gerçeklik kaynağı | Ulaşılabilen en yüksek seviye | Not |
+  |------|---------------------------|-------------------------------|-----|
+  | Navigation | `destinationOwnershipModel` hedef sahiplik defteri | `EXECUTED` (**gecikmeli**) | Kanıt asenkron doğar → bekleyen gözlem; anlık tavan dürüstçe `ACCEPTED` bırakıldı |
+  | Media (transport) | `playbackTruth` → `mediaCommandGateway.CommandTruth` | `OBSERVED` | Tek medya gerçeği; paralel "Mavi medya durumu" kurulmadı |
+  | Media (arama/uygulama/ses) | **YOK** | `ACCEPTED` | Açık borç — sahte yükseltme yapılmadı |
+  | Settings | Ayar deposundan **geri okuma** (`applySetting` port kanıtı) | `OBSERVED` | WiFi/BT native köprüsü kanıt döndürmez → `ACCEPTED` |
+  | Phone | **YOK** (yalnız `bridge.callNumber` sonucu) | `ACCEPTED` | Arama başladıktan sonrası gözlenmiyor — açık borç |
+  | Vehicle / Diagnostics | Gerçek okuma + `dtcAuthority` | `OBSERVED` | M4'te zaten kanıta bağlıydı; değiştirilmedi |
+  | UI / Surface | **YOK** | `ACCEPTED` | Açılışı doğrulayan yüzey gerçeği yok — açık borç |
+
+  **Kapanan sahte başarı yolları:** (1) `SET_SETTING` port bağlı olmasa bile
+  koşulsuz *"Ayar uygulandı"* diyordu (F5'in açık borcu #986/b) → artık yalnız
+  geri okunmuş kanıtla söylenir; (2) `PLAY_MEDIA`/`PAUSE_MEDIA` ateşle-unut olup
+  koşulsuz *"Devam ediyor"/"Duraklatıldı"* diyordu → artık `playbackTruth`
+  sonucunu bekler; (3) `navigateToPlace` portu yokken yalnız harita açılıp yine
+  *"… adresine gidiyoruz"* deniyordu → artık *"Haritayı açtım; hedefi oradan
+  seçmen gerekiyor"* denir.
+
+  **Otorite sınırı:** gözlem katmanı **yürütme otoritesi değildir · güvenlik
+  otoritesi değildir · ikinci gerçeklik kaynağı kurmaz.** Kaynak kilidiyle
+  zorlanır: `dispatchIntent · executeIntent · startNavigation ·
+  mediaCommandGateway · evaluateVehicleAction · createAiSafetyGate` adlarının
+  hiçbiri üç yeni dosyada geçmez. Sözleşme katmanı saftır (yalnız TİP import
+  eder); defter **timer/abonelik/`Date.now` kullanmaz** — süre dolumu tembel
+  süpürmeyle yakalanır (sıfır sızıntı), kuyruk 8 kayıtla, pencere 20 sn ile
+  sınırlıdır.
+
+  **F6 ile ilişki:** plan adımlarının gözlemi zaten tek kanaldan geliyordu; F7 o
+  kanala giren değeri uzlaştırılmış seviyeyle değiştirdi — **yeni kanal
+  açılmadı**, `capabilityPlanRunner` değişmedi ve `ACCEPTED ≠ ALL_SUCCEEDED`
+  invaryantı korundu. Bekleyen (gecikmeli) gözlem F6 yuvasına **yazmaz**.
+
+  **Gözlemlenebilirlik:** yeni LAB ekranı **açılmadı** (ekran enflasyonu yasağı);
+  mevcut **CAROS LAB → AI → Capability Fabric** ekranı üç satırla genişletildi:
+  `Gözlem kaynağı` · `Dürüstlük düzeltmesi` (düşürme/yükseltme) · `Bekleyen
+  gözlem`. Ölçüm yokken "0" değil **"ölçüm yok"** yazılır. Hedef adı · kişi adı ·
+  parça adı · VIN · transkript · ayar değeri bu katmana **girmez** (kaynak kilidi).
+
+  **Çelişki kaydı:** kütük #984'ün "ayar komutlarında hiç `EXECUTED`
+  görünmeyecek" ölçütü F7 ile **geçersizdir** — o ölçüt kanıtın yokluğunu
+  varsayıyordu, kanıt artık var. Yerine #992'nin ölçütü geçerlidir.
+
+  **Açık borçlar:** phone/surface/`searchAndPlay` alanlarında bağımsız kaynak yok;
+  yerel ayrıştırıcı yolunun (`commandParser.settingFeedback` → `routeIntent`)
+  ayar geri bildirimi hâlâ yürütmeden önce üretilir ve kanıta bağlı değildir.
+
+  **Saha durumu:** `UNKNOWN / DEVICE VALIDATION REQUIRED` — gerçek head unit
+  ölçümü yapılmadı (kütük #991-#996).
+
+- **MAVI-F6 · BİLEŞİK KOMUT + KANONİK ORKESTRASYON — MAVİ TEK CÜMLEDEKİ
+  BİRDEN FAZLA İŞİ TEK PLAN ALTINDA YÖNETİYOR (2026-08-29, kütük 🔴 #987-#990):**
+  Durum: **ENTEGRE** (canlı hatta bağlı · test yeşil · tsc temiz · lint 0 hata ·
+  native değişiklik YOK) — **SAHADA DOĞRULANMADI. ÜRÜN HAZIR: HAYIR.**
+
+  **Kapatılan kusur:** bileşik komut **yalnız yerel ayrıştırıcı yolunda** vardı
+  (`tryHandleChain` → bağlaç bölmesi → `dispatchChain`). Beyin (LLM) yolu tek
+  intent üretiyordu: `parseBrainJson` tek `intent` alanı okuyor,
+  `fromSemanticResult` tek `AppIntent` dönüyordu → "Eve rota aç, müziği kıs,
+  annemi ara" cümlesinde **tek iş yapılıp diğerleri sessizce düşüyordu**.
+
+  **Yeni hat:** beyin `{"type":"action","actions":[…]}` döndürebiliyor; adımlar
+  tek tipli plan altında yönetiliyor. Zincir:
+  `plan item → Capability Fabric (F5) → kanonik onay defteri → maviActionAuthority
+  → AiSafetyGate → dispatchIntent → observation`.
+
+  **Yeni yürütücü kurulmadı:** her adım mevcut `_aiHandlers` → `executeAIResult`
+  → `dispatchIntent` hattından geçer. Plan katmanının üç dosyası `dispatchIntent`
+  · `executeIntent` · `navigationService` · `mediaService` · `appLauncher` ·
+  `obdService` · `evaluateVehicleAction` · `evaluateActionIdSafety` ·
+  `createAiSafetyGate` adlarının **hiçbirini içermez** (kaynak kilidi) — yetki
+  plan katmanında DOĞMAZ.
+
+  **Plan modeli:** `planId · turnId · items[] · suppressed[] · resultClass ·
+  refusalReason`; her adım `capabilityId · operation · parameters · dependencies ·
+  order · confirmationRequirement · safetyClass · cancellable · reversible ·
+  executionState · observationState · failureClass`. **PROPOSAL ≠ EXECUTION ≠
+  OBSERVATION** üç ayrı alanda tutulur.
+
+  **Onay:** adım bazlıdır. Tek onay adımı varsa güvenli adımlar akar, o adım
+  `AWAITING_CONFIRMATION`ta bekler. **Birden fazla onay adımı varsa plan tümüyle
+  reddedilir** — P1 `sequenceConfirmationPolicy` kararının aynısı (yeni politika
+  icat edilmedi). Onay gerçeği **kanonik defterden** okunur; katalog alanı yalnız
+  bilgidir ve çelişkide kanonik kazanır.
+
+  **Dürüstlük:** sonuç gözlemlerden üç kovayla türetilir — `verified`
+  (EXECUTED/OBSERVED) · `delivered` (ACCEPTED, doğrulanmadı) · kalanı.
+  `ALL_SUCCEEDED` yalnız TÜM adımlar kanıtlıysa verilir. Birleşik cümlede fiil
+  seçimi dürüstlük kararıdır: `ACCEPTED` için **"açtım" asla denmez**,
+  "başlattım" denir. Metin parametre değeri taşımaz (kişi adı/adres sızmaz).
+
+  **İptal:** başlamamış adımlar iptal edilir, uçuşta olup iptal edilemeyen adım
+  dürüstçe raporlanır, **tamamlanmış adım "geri alındı" gösterilmez**. Her adım
+  `reversible:false` — katalogda geri-alma sözleşmesi yok, **sahte rollback
+  üretilmedi**.
+
+  **Determinizm:** tekrar (`DUPLICATE`) ve çakışma (`CONFLICT_SUPERSEDED`,
+  **LAST_WINS**) sabit politikayla elenir; elenen adım silinmez, gözlemde kalır.
+  Yürütme **ardışıktır** (kilitli) — paralel yürütme audio focus, tek-onay slotu
+  ve gözlem devrini aynı anda zorlar.
+
+  **Streaming (F4) izolasyonu:** `actions[]` da `type:"action"`tır → çıkarıcı
+  akışı `STRUCTURED`'a çeker ve **plan durumu, adım listesi, capability JSON'ı
+  tek karakter bile konuşulmaz**. Plan başında `answer` slotu tutulduğu için adım
+  başına gelen yürütücü geri bildirimleri susturulur ve sonda **tek** birleşik
+  cümle söylenir (duplicate speech yok).
+
+  **Telemetri:** F0 izine 7 bounded alan (`planItemCount · planDependencyCount ·
+  planConfirmationCount · planExecutedCount · planFailedCount ·
+  planCancelledCount · planResultClass`) + fabric tanısına plan sayaçları.
+  Parametre değeri · adım metni · kişi · adres bu katmana girmez.
+  LAB: AI → **Capability Fabric** → "Bileşik plan" satırı (salt-okunur).
+
+  **Bağımsız QA (aynı üretim diff'i üzerinde):** 12 mutasyon testi uygulandı,
+  11'i mevcut kilitler tarafından yakalandı. Kaçan 1 mutasyon
+  (`ACCEPTED`'i kanıtlı başarı saymak) bir **kapsama boşluğuydu — üretim
+  davranışı doğruydu**; eksik kilit (`17b`/`17c`) kapanış turunda eklendi ve
+  mutasyonu yakaladığı doğrulandı. Full suite **16108/16108**, `tsc -b` temiz,
+  production build ✓, native değişiklik yok.
+
+  **Kasıtlı olarak DEĞİŞMEYENLER:** `AiSafetyGate` · `assistantSafetyKernel` ·
+  `maviActionAuthority` defteri ve kapı sırası · `dispatchIntent` yürütücüsü ·
+  F0 telemetri · F1 presence · **F2 filler=0** · F3 kısmi-transkript yetki
+  sınırı · F4 akış sınırları · F5 capability kapısı.
+
+  **Bu turun YAPMADIĞI (onaylı kapsam):** compound planner genişletmesi YOK (F7) ·
+  eski intent parser SİLİNMEDİ · `maviCore` (frozen) DOKUNULMADI.
+
+  **Kalan eksik (açık borç — QA tarafından tek tek doğrulandı):**
+  (a) **Yerel `dispatchChain` hâlâ AYRI** — iki bileşik yol yan yana duruyor
+  (yerel bağlaç bölmesi + beyin planı); kanonik plana taşınması ayrı bir tur.
+  (b) **Gerçek model `actions[]` kapsaması UNKNOWN** — prompt öğretimi eklendi,
+  ama modelin sahada dizi üretme oranı ölçülmedi.
+  (c) **Rollback YOK** — hiçbir capability geri-alma sözleşmesi taşımıyor.
+  (d) **Clarification YOK** — çakışmada LAST_WINS uygulanıyor, kullanıcıya
+  sorulmuyor.
+  (e) **F5 `SET_SETTING` sahte-ACK borcu AÇIK** — `ctx.applySetting?.()` opsiyonel
+  porta rağmen koşulsuz "Ayar uygulandı" deniyor.
+  (f) **DEVICE VALIDATION:** kütük **#987–#990** bekliyor; hiçbir head unit
+  ölçümü yapılmadı. Bileşik kapsama, `actions[]` oranı ve birleşik cevap
+  doğruluğu **UNKNOWN**'dır.
+  (g) Gözlem (önceden var olan, F6 regresyonu DEĞİL): `_aiHandlers` beklemesinde
+  timeout yok — asılan bir handler `answer` slotunu tutar; aynı risk tekil yolda
+  da mevcut.
+
+  **Sonraki atomik PR:** F7 (bu turda BİLİNÇLİ olarak başlanmadı). Tam mimari:
+  `docs/CAROS_MAVI_ULTIMATE_OEM_ARCHITECTURE_SPEC_v1.md` §9 · §29.
+
+- **MAVI-F5 · UNIVERSAL CAPABILITY FABRIC — MAVİ ARTIK CarOS'un GERÇEK YETENEK
+  KATALOĞUNA BAĞLI (2026-08-29, kütük 🔴 #981-#986):**
+  Durum: **ENTEGRE** (canlı hatta bağlı · test yeşil · tsc temiz · lint 0 hata ·
+  native değişiklik YOK) — **SAHADA DOĞRULANMADI. ÜRÜN HAZIR: HAYIR.**
+
+  **Kapatılan kusur:** iki ayrı gerçek yan yana duruyordu ve birbirini görmüyordu.
+  `capabilityRegistry` SystemBoot'ta besleniyordu ama dosyanın kendi başlığında
+  yazdığı gibi **"kimse tüketmez — migrasyon AYRI PR"** durumundaydı; Mavi'nin ne
+  yapabileceği ise prompt'a gömülü **sabit intent listelerinden** geliyordu. Üstelik
+  o bilgi **üç ayrı listede** tutuluyor ve **üçü de birbirinden farklıydı**
+  (29 / 29 / 26) — bir intent eklenip biri güncellenmeyince beyin geçerli bir komut
+  üretiyor, doğrulayıcı onu **sessizce düşürüyordu**.
+
+  **Yeni hat:**
+  `Mavi önerisi → şema doğrulaması → capability çözümlemesi → izin → availability
+  kanıtı → [KANONİK ZİNCİR: maviActionAuthority → AiSafetyGate → onay] →
+  [KANONİK YÜRÜTÜCÜ: dispatchIntent] → gözlem sınıflandırması`.
+  Köşeli parantezli iki adım **başka modüllere aittir ve taklit edilmez**.
+
+  **En kritik ayrım — AVAILABILITY ≠ PERMISSION ≠ AUTHORITY:** üçü tek bayrağa
+  indirilmedi. *Availability* `capabilityRegistry` kanıtıdır · *permission*
+  katalogdaki `exposedToBrain`tir · *authority* YALNIZ kanonik zincirden doğar.
+  Canlı örnek: `diagnostics.dtc#clear` katalogda görünür, araçta availability'si
+  AVAILABLE olabilir, yine de Mavi bunu **öneremez**; önerse bile kanonik kapı açık
+  onay ister. Fabric kanonik güvenliği **kopyalamaz** (kaynak kilidi) — kopyalasaydı
+  iki karar kaynağı doğar ve hangisinin kazandığı çağrı sırasına kalırdı.
+
+  **Tipli eylem sözleşmesi:** LLM `capabilityId · operation · parameters ·
+  confidence · provenance · confirmationState` üretse bile **yetki kazanmaz**.
+  Şema düşerse yürütücüye ulaşamaz; **şemada olmayan bir alan da reddedilir**
+  (LLM'in uydurduğu `deleteAllData:true` gibi bir alanın sızması tipli sözleşmenin
+  tamamını anlamsız kılardı).
+
+  **Gözlem dürüstlüğü:** sonuç yedi bounded sınıfa eşlenir ve **"yaptım" denebilecek
+  tek seviye `EXECUTED`/`OBSERVED`tir**. Her işlemin bir `observationCeiling`i vardır:
+  yürütücü "başarılı" dese bile tavan `ACCEPTED` ise sonuç `ACCEPTED` yazılır
+  (`SET_SETTING` kanıt döndürmez → tavan `ACCEPTED`; `QUERY_SENSOR` gerçek değeri
+  okur → tavan `OBSERVED`). Tavan yalnız başarı iddiasını sınırlar, hatayı gizlemez.
+
+  **Availability politikası (kilitli):** yalnız **kanıtlı olumsuz**
+  (`unavailable`/`unsupported`/`restricted`) yolu kapatır; `UNKNOWN` **kapatmaz** ve
+  **bayat kanıt AVAILABLE saymaz**. Fail-closed yapmak, registry'nin henüz kanıt
+  toplamadığı her cihazda çalışan komutları sessizce öldürürdü.
+
+  **Varsayılan GÖLGE kip:** kapı karar üretir ve **ölçer** ama hiçbir eylemi
+  **engellemez** → cihaz davranışı bugünküyle **birebir** aynıdır ve kapının gerçek
+  trafikte ne kadar doğru karar verdiği, çalışan bir komutu öldürmeden ölçülebilir.
+  Zorlayıcı kipte kapı reddederse tur **sessizce ölmez**: akış yerel zincire düşer.
+
+  **Kapsam (bu tur migrate edilenler):** navigasyon (6 işlem) · medya (7) · ayarlar
+  (4) · araç salt-okunur (3) · tanılama (1, beyne kapalı) · telefon (1) · yüzey (3)
+  = **25 işlem · 16 capability · 7 alan**. Prompt intent listesi artık **elle
+  yazılmaz**; katalogdan türetilir ve **kapsam regresyonu yoktur** (eski 29 intent'in
+  tamamı korunur — kilitli).
+
+  **Telemetri:** F0 izine 7 bounded alan — `capabilityRoute` · `capabilityId` ·
+  `capabilityOperation` · `capabilityAvailability` · `capabilityValidation` ·
+  `capabilityObservation` · `capabilityEnforced`. **Yeni telemetri sistemi
+  kurulmadı; parametre değeri · transkript · kişi · adres · VIN · konum bu katmana
+  hiç girmez.** LAB: AI → **Capability Fabric** (salt-okunur).
+
+  **Kasıtlı olarak DEĞİŞMEYENLER:** `AiSafetyGate` · `assistantSafetyKernel` ·
+  `maviActionAuthority` defteri ve kapı sırası · onay politikaları · navigasyon ve
+  medya kanonik otoriteleri · `dispatchIntent` yürütücüsü · F0 telemetri · F1
+  presence · **F2 filler=0** · F3 kısmi-transkript yetki sınırı · F4 akış sınırları.
+
+  **Bu turun YAPMADIĞI (onaylı kapsam):** compound command / planner genişletmesi
+  YOK (F6) · eski intent parser SİLİNMEDİ · büyük executor rewrite YOK.
+
+  **Kalan eksik (açık borç):**
+  (a) medya · ayarlar · yüzey · telefon işlemlerinin `capabilityRegistry`de karşılığı
+  olan bir kimlik **yok** → availability `UNKNOWN` görünür; **sahte kapı kurulmadı**,
+  borç yazıldı.
+  (b) `SET_SETTING` yürütücüsü port yokken bile "Ayar uygulandı" diyor — **sahte-ACK
+  kusuru**. F5 bunu gözlem tavanıyla dürüstçe raporlar ama **konuşma metnini
+  düzeltmez** (yürütücü sözleşmesi değişikliği gerekir; F5 kapsamı dışı).
+  (c) `REMEMBER · FORGET · SHOW_WEATHER · ENABLE_DRIVING_MODE · TOGGLE_SLEEP_MODE`
+  henüz katalogda değil → `LEGACY_FALLBACK`.
+  (d) `ai/semanticAiService` ve `aiVoiceService` içindeki uykudaki `VALID_INTENTS`
+  doğrulayıcıları hâlâ kendi listelerini taşıyor (canlı Mavi yolunda değiller —
+  yalnız tip import ediliyorlar — bu yüzden dokunulmadı).
+  (e) **DEVICE VALIDATION:** hiçbir head unit ölçümü yapılmadı; kapsama oranı ve kapı
+  doğruluğu **UNKNOWN**'dır. Kapı gölge kipte olduğu için cihazdaki bugünkü davranış
+  da değişmemiştir.
+
+  **Sonraki atomik PR:** F6 — compound command / planner (bu turda BİLİNÇLİ olarak
+  başlanmadı). Tam mimari:
+  `docs/CAROS_MAVI_ULTIMATE_OEM_ARCHITECTURE_SPEC_v1.md` §9 · §29.
+
+- **MAVI-F4 · STREAMING LLM + PARÇALI TTS — MAVİ CEVABIN TAMAMINI BEKLEMEDEN
+  KONUŞUYOR (2026-08-29, kütük 🔴 #975-#980):**
+  Durum: **ENTEGRE** (canlı hatta bağlı · test yeşil · tsc temiz · lint 0 hata ·
+  native değişiklik YOK) — **SAHADA DOĞRULANMADI. ÜRÜN HAZIR: HAYIR.**
+
+  **Kapatılan kusur:** hat tümüyle seriydi —
+  `final transcript → TAM LLM cevabı → TAM TTS sentezi → çalma`.
+  `openRouterProvider`ın SSE ayrıştırıcısı GERÇEKTİ ama Mavi hattı `onToken`
+  VERMİYORDU (yani akış kurulmuyordu bile); `geminiProvider` ise dosya başlığında
+  açıkça "NON-STREAMING, `onToken` ÇAĞRILMAZ" diyordu. Kullanıcı, model son
+  token'ı üretene kadar **tam sessizlik** duyuyordu.
+
+  **Yeni hat:** `final transcript → streaming LLM → yapısal ayrım → güvenli
+  konuşma parçaları → parçalı TTS → sıralı çalma`. Zincir tek yerde kurulur
+  (`maviResponseStream`): `token → streamSayExtractor → speechChunker →
+  maviSpeechStream → TTS`.
+
+  **En kritik sınır — LLM AKIŞI OTORİTE DEĞİLDİR:** Mavi'nin beyni JSON döndürür
+  (`{"type":"chat","say":…}` · `{"type":"action",…}` · `{"type":"web",…}`).
+  `streamSayExtractor` `type` görülene kadar **tek karakter bile yayınlamaz**
+  (fail-closed) ve `chat` DEĞİLSE akışı `STRUCTURED`'a çekip **tümüyle susturur**
+  → `action` gövdesi ("intent OPEN_NAVIGATION destination …") asla seslendirilmez.
+  Akış katmanı `processTextCommand` · `dispatchIntent` · `commandExecutor` ·
+  `navigationService` · `mediaService` · `appLauncher` · `obdService` adlarının
+  hiçbirini içermez (kaynak kilidi) — eylem YALNIZ kanonik zincirden
+  (parse → planner → safety → executor) doğar.
+
+  **İlk ses değil, ilk ANLAMLI ses:** `speechChunker` kelime ortasında ASLA
+  kesmez ve içeriksiz giriş kalıbını ("Tabii," · "Elbette,") tek başına ilk parça
+  olarak yayınlamaz — arkasındaki gerçek içerikle birleştirir. Kullanıcının
+  duyduğu ilk şey "Tabii…" değil "Yaklaşık 83 kilometre…" olur. Metin SİLİNMEZ,
+  yalnız bölünme noktası değişir → **F2 filler=0 korunur** (bu katman metin
+  ÜRETMEZ, yalnız BÖLER).
+
+  **Audio authority — akış TEK konuşma oturumudur:** en sinsi tuzak, parçaların
+  ayrı ayrı "cevap bitti" yayınlamasıydı; o hâlde Mavi ilk parçadan sonra
+  mikrofonu açıp **kendi cevabının kalanını keserdi**. `ttsService`e sayılı
+  konuşma oturumu eklendi: parça bitişleri yutulur, bitiş bildirimi yalnız SON
+  parçadan sonra bir kez yapılır, sıradaki parçaya geçiş AYRI kanaldan gelir.
+  Böylece audio focus/duck akış boyunca **tek sefer** alınır ve
+  navigasyon/telefon/güvenlik ses önceliği DEĞİŞMEZ.
+
+  **Semantik ACK ile duplicate YOK:** `claimMaviAnswerStream` tur başına tek
+  `answer` slotunu bir kez tutar → nihai metnin ayrıca konuşulması **yapısal
+  olarak imkânsızdır**. Akış konuşmadan kapanırsa slot BIRAKILIR (sessiz ölüm
+  koruması) ve kanonik yol normal çalışır.
+
+  **Barge-in / iptal zinciri:** `araya girme → kuyruk temizlenir → TTS kesilir →
+  sağlayıcı akışı abort → tur iptal`. İptalde bitiş bildirimi YAPILMAZ (ikinci bir
+  "bitti" yeni turun mikrofonunu kapatırdı) ve `ttsCancel` konuşma oturumunu
+  sıfırlar. Geç gelen parçalar eskimiş kimlikle sessizce düşer → **yarım kalan
+  eski cevap sonradan konuşmaya başlayamaz** (F3 stale sözleşmesi akışa da
+  uygulanır).
+
+  **Bu turda BULUNAN VE KAPATILAN KUSUR (#980):** `tickSpeechStream` açlık kapısı
+  yazılmış ve birim testi geçiyordu ama **üretimde hiç çağrılmıyordu** — kapı bir
+  timer'la ilerletilmezse yoktur. Sağlayıcı ya da native TTS yarıda ölseydi akış
+  sonsuza kadar açık kalır, konuşma oturumu kapanmaz ve **Mavi oturumun kalanında
+  tümüyle susardı**. `voiceService` bileşim kökünde tek bir bekçi bağlandı (yalnız
+  akış açıkken yaşar, her terminal yoldan sökülür) ve kapı ikiye ayrıldı: AÇLIK
+  (`UPSTREAM_STALLED`, 6 sn) + ASILMIŞ SESLENDİRME (`SPEECH_STALLED`, 30 sn —
+  parça tavanı ≈12 sn olduğu için normal cümle asla kesilmez). Regresyon kasasına
+  "ölü güvenlik yasağı" kilidi eklendi.
+
+  **Yetenek matrisi — sahte streaming ÜRETİLMEZ:**
+  LLM `TOKEN_STREAM` (openrouter/gateway · gemini SSE) · `FINAL_ONLY`
+  (gemini_direct · groq · haiku · offline).
+  TTS: **hiçbir katman `TRUE_STREAMING` DEĞİLDİR** (dürüst tespit) —
+  edge/online/native/web `CHUNKED_SYNTHESIS`, klip `FULL_SENTENCE_ONLY`.
+  F4'ün kazancı "ses akışı" değil, **cevabın tamamının beklenmemesidir**.
+
+  **Varsayılan KAPALI:** şalter (`mavi.streamingResponse.enabled`) kapalıyken
+  `beginResponseStream` `null` döner, `onToken` sağlayıcıya HİÇ verilmez ve istek
+  akış kipine bile geçmez → davranış bugünküyle **birebir aynıdır**. Sürüşte akış
+  AÇILMAZ (ISO 15008 — cevap zaten 8 kelimeye iner).
+
+  **Telemetri:** F0 izine bounded ek — `brain_first_token` ·
+  `first_speech_chunk_ready` · `first_tts_chunk_request` · `first_tts_chunk_ready` ·
+  `llm_stream_complete` · `tts_stream_complete` · `stream_cancelled` damgaları +
+  `llmCapability` · `ttsCapability` · `streamEndReason` · `chunkCount` alanları.
+  **Yeni telemetri sistemi kurulmadı; token/transkript metni bu katmana HİÇ
+  girmez.** LAB: AI → **Mavi Gecikme** (salt-okunur).
+
+  **Kasıtlı olarak DEĞİŞMEYENLER:** `AiSafetyGate` · `assistantSafetyKernel` ·
+  `maviActionAuthority` · onay politikaları · `maviTurn`/`maviSpeech` tek-cevap
+  otoritesi · F0 telemetri · F1 presence · **F2 filler=0** · F3 kısmi-transkript
+  yetki sınırı · audio focus öncelik düzeni.
+
+  **Bu turun YAPMADIĞI (onaylı kapsam):** Capability Fabric entegrasyonu YOK (F5) ·
+  full-duplex barge-in YOK (F9.7) · offline klip sözlüğü YOK · gerçek
+  `TRUE_STREAMING` TTS sağlayıcısı YOK (mevcut sağlayıcılarda böyle bir yol
+  bulunmuyor — uydurulmadı).
+
+  **Kalan eksik (açık borç):** **DEVICE VALIDATION** — hiçbir head unit ölçümü
+  yapılmadı. `konuşma sonu → ilk onaylı ses` kazancı **UNKNOWN**'dır ve hiçbir
+  hızlanma rakamı iddia EDİLMEMİŞTİR; şalter varsayılan kapalı olduğu için
+  cihazdaki bugünkü davranış da değişmemiştir. Sahada önce taban (şalter kapalı)
+  ölçülmeli, sonra şalter açık ölçüm alınmalıdır. F0/F1/F3 borçları
+  (`wakeWordService` bileşik kapısı · `speech_end` türetilmişliği · APK doğrulaması)
+  açık kalmaya devam ediyor.
+
+  **Sonraki atomik PR:** F5 — Capability Fabric (bu turda BİLİNÇLİ olarak
+  başlanmadı). Tam mimari:
+  `docs/CAROS_MAVI_ULTIMATE_OEM_ARCHITECTURE_SPEC_v1.md` §9 · §29.
+
+- **MAVI-F3 · STREAMING ASR + SEMANTİK CÜMLE-SONU (2026-08-29, kütük 🔴 #970-#974):**
+  Durum: **ENTEGRE** (canlı hatta bağlı · test yeşil · tsc temiz · lint 0 hata ·
+  native `compileDebugJavaWithJavac` EXIT=0) —
+  **SAHADA DOĞRULANMADI. ÜRÜN HAZIR: HAYIR.**
+
+  **Kapatılan kusur:** Mavi, cümlenin BİTMESİNİ bekleyip sonra anlamaya başlayan
+  klasik bir komut sistemiydi. Kısmi transkript JS'e **hiç ulaşmıyordu**
+  (`onPartialResults` gövdesi BOŞ + `EXTRA_PARTIAL_RESULTS` istenmiyor; Vosk'un
+  `getPartialResult()`'ı yalnız wake thread'inde) ve cümle-sonu kararı **tek
+  sensörlüydü** (akustik VAD 1100 ms). O eşik bilinçli olarak 900'den 1100'e
+  ÇIKARILMIŞTI — tek sensörle "kesmemek" ancak "yavaş olmak" pahasına alınıyordu.
+
+  **Yeni hat:** `MIC → kısmi ASR → artımlı anlama → kanıt temelli endpoint →
+  kanonik final`. Karar artık **akustik sessizlik + ASR kararlılığı + Türkçe anlam
+  tamamlanmışlığı + asgari konuşma süresi + histerezis (≥2 tik)** birleşimidir.
+
+  **En kritik sınır — KISMİ SONUÇ EYLEM YETKİSİ TAŞIMAZ (spec K5/I4):**
+  `sttPartialStream` hiçbir CarOS yolunu import etmez/çağırmaz (kaynak kilidi);
+  yapabildiği tek yan etki `finalize()` portudur ve o da **yalnız mikrofonu
+  kapatır**. Eylem YALNIZ kanonik nihai transkriptten doğar → kendini düzeltme
+  ("Ankara'ya… yok Mersin'e götür") yapısal olarak korunur.
+
+  **Sözü kesmeme garantileri:** ASKIDA kontrolü FİİL kontrolünden **ÖNCE** çalışır
+  (kilitli — "beni eve götür **ama**" tamamlanmış sayılamaz) · belirsizlik daima
+  DEVAM lehine çözülür · semantik eşik (900 ms) akustik tabanı (1100 ms)
+  **aşamaz** · histerezis olmadan karar verilmez.
+
+  **Risk yönetimi (spec Risk: YÜKSEK):** erken bitirme komutu **VARSAYILAN
+  KAPALIDIR**. Karar üretilir ve ÖLÇÜLÜR ama sağlayıcıya gönderilmez → cihaz
+  davranışı bugünküyle **birebir aynıdır** ve `prematureEndpointRate` gerçek
+  kullanıcıyı KESMEDEN sahada ölçülebilir. Spec'in kademeli indirimi
+  (1100→900→700→500→350) ancak bu gölge ölçüm geçtikten sonra ilerler.
+
+  **Sağlayıcı yeteneği BİLDİRİLİR, varsayılmaz:** `STREAMING_WITH_VAD` (Vosk) ·
+  `STREAMING_TEXT_ONLY` (Google/web — sessizlik kanıtı yok, **sahte VAD
+  kurulmaz**) · `FINAL_ONLY` (bulut STT / eski plugin → bugünkü davranış aynen).
+
+  **Telemetri:** F0 izine bounded ek — `first_partial` · `stable_partial` ·
+  `semantic_complete_candidate` · `endpoint_decision` · `final_transcript_ready`
+  damgaları + `partialCount` · `endpointReason` · `endpointCompleteness` ·
+  `endpointCommanded` · `sttCapability` alanları. **Yeni telemetri sistemi
+  kurulmadı; transkript metni bu katmana HİÇ girmez.**
+
+  **Kasıtlı olarak DEĞİŞMEYENLER:** `AiSafetyGate` · `assistantSafetyKernel` ·
+  `maviActionAuthority` · onay politikaları · `maviTurn`/`maviSpeech` tek-cevap
+  otoritesi · F1 presence · **F2 filler=0** (kısmi/endpoint yolunda hiçbir ara söz
+  üretilmez — kilitli).
+
+  **Bu turun YAPMADIĞI (onaylı kapsam):** streaming LLM/TTS yok (F4) ·
+  full-duplex barge-in yok (F9.7) · Capability Fabric'e dokunulmadı (F5).
+
+  **Kalan eksik (açık borç):** **BUILD REQUIRED / DEVICE VALIDATION** — native
+  değişiklik derlendi (EXIT=0) ama **APK cihaza kurulup çalıştırılmadı**; kısmi
+  olayın gerçek head unit'te aktığı, `konuşma başı → ilk kısmi` gecikmesi ve
+  `prematureEndpointRate` **UNKNOWN**'dır. Latency kazancı **iddia edilmemiştir**:
+  komut kipi kapalıyken endpoint süresi bugünküyle aynıdır. `wakeWordService`
+  bileşik kapısı (F1 borcu) ve `speech_end` türetilmişliği (F0 sınırı) açık.
+
+  **Sonraki atomik PR:** F4 — streaming LLM + streaming TTS + offline klip sözlüğü.
+  Tam mimari: `docs/CAROS_MAVI_ULTIMATE_OEM_ARCHITECTURE_SPEC_v1.md` §9 · §29.
+
+- **MAVI-F2 · YAPAY ARA SÖZ (FILLER) İMHASI + DÜRÜST ACK POLİTİKASI (2026-08-29, kütük 🔴 #966-#969):**
+  Durum: **ENTEGRE** (canlı hatta bağlı · test yeşil · tsc temiz · lint 0 hata) —
+  **SAHADA DOĞRULANMADI. ÜRÜN HAZIR: HAYIR.**
+
+  **Kapatılan kusur (I11 ihlali):** Mavi gecikmeyi *"Bakıyorum hemen… / Bir saniye… /
+  Kontrol ediyorum…"* diyerek örtüyordu. Bu bir UX tercihi değil, seri hattın
+  gecikmesini gizleyen bir yara bandıydı: cümle hiçbir bilgi taşımıyor, tipik tur
+  1500 ms eşiğini zaten aştığı için **neredeyse her turda** çalışıyor ve geç
+  ateşlediğinde **başlamış cevabı kesiyordu** (kodda `KESİLME FIX` notuyla belgeli).
+
+  **Kaldırılan filler yolları (altısı da kaynaktan silindi/değiştirildi):**
+  `voiceService` düşünme timer'ı + `THINKING_PHRASES` + `_speakThinking` (**silindi**) ·
+  `voiceService` sensör bypass'ı `"Bakıyorum..."` · `commandExecutor` QUERY_SENSOR
+  `"Bakıyorum"` · `voiceInfoService` `"Hava durumuna bakıyorum."` · `maviFeedback`
+  STAGE tablosu `understanding`/`planning` satırları · `companionChatProvider` prompt
+  örneklerindeki `feedback:"Bakıyorum"`.
+
+  **Korunan semantik ACK'ler (§9.6 — filler DEĞİL):** `Araç sistemleri taranıyor` ·
+  `Arıza kayıtları siliniyor` · `Araç bakım durumu kontrol ediliyor` ·
+  `<sensör adı> okunuyor` · `Araçtan okuyorum.` (EXTENDED okuma 12 sn'ye kadar) ·
+  `Hava durumunu alıyorum.` (gerçek ağ çekimi). Hepsi **gerçek ve süren bir işin
+  BAŞLADIĞINI** bildirir; hiçbiri bittiğini iddia etmez (**ACK ≠ BAŞARI**).
+
+  **Yapısal ayrım (tekrar filler'a düşülemesin diye):** yeni saf modül
+  `assistant/maviAckPolicy` içeriksiz bekletme kalıplarını **ÇAPALI (tam eşleşme)**
+  regex'lerle tanır; `maviSpeech` bunu **YALNIZ `progress` katmanında** zorunlu kılar.
+  Nihai cevap, gerçek hata mesajı, belirsizlik sorusu ve yetenek reddi (`answer`)
+  kapıdan **hiç geçmez** — F2 bir susturma değil, dürüstlük kapısıdır. Model prompt
+  kuralına rağmen filler üretirse `parseBrainJson` sınırında süzülür.
+
+  **Telemetri:** `filler_trigger` **kaldırılmadı** (F2'nin işi onu sıfırlamaktı,
+  gizlemek değil); damga artık ara sözün yakalanıp **düşürüldüğü** anda basılır →
+  üretimde beklenen değer **0**, sıfırdan büyük her değer regresyon kanıtıdır. Mevcut
+  F0 izine bounded `ack_emitted` + `ackCount` eklendi ki ACK filler sayılmasın.
+  **Yeni telemetri sistemi kurulmadı**; transcript/prompt/PII taşınmıyor.
+
+  **Kasıtlı olarak DEĞİŞMEYENLER:** `AiSafetyGate` · `assistantSafetyKernel` ·
+  `maviActionAuthority` · onay politikaları · `maviTurn`/`maviSpeech` tek-cevap
+  otoritesi · F1 presence davranışı (Yol Arkadaşı AÇIK/KAPALI fark etmez, ikisinde de
+  filler yasak).
+
+  **Bu turun YAPMADIĞI (onaylı kapsam):** streaming ASR/LLM/TTS eklenmedi (F3/F4) ·
+  semantic endpointing yok · Capability Fabric'e dokunulmadı (F5).
+
+  **Kalan eksik (açık borç):** F2 riski spec'te **ORTA** olarak kayıtlıdır —
+  streaming gelmeden filler kalkınca **algılanan sessizlik artar**. Bu bilinçli kabul
+  edildi: sessizlik dürüsttür, filler yalandı; gecikme F3/F4'te **yapısal olarak**
+  azaltılacak. Cihazda algılanan gecikme kabul edilemez çıkarsa çözüm filler'ı geri
+  getirmek DEĞİL, F3/F4'ü öne almaktır. `wakeWordService` bileşik kapısı (F1 borcu)
+  ve `speech_end` türetimi (F0 sınırı) aynen açık.
+
+  **Sonraki atomik PR:** ~~F3 — streaming ASR + semantic endpointing~~
+  **TAMAMLANDI** (yukarı bkz.) → F4.
+  Tam mimari: `docs/CAROS_MAVI_ULTIMATE_OEM_ARCHITECTURE_SPEC_v1.md` §9 · §29.
+
+- **MAVI-F1 · YOL ARKADAŞI ARTIK BİR CAPABILITY ŞALTERİ DEĞİL (2026-08-29, kütük 🔴 #963-#965):**
+  Durum: **ENTEGRE** (canlı hatta bağlı · test yeşil · tsc temiz) —
+  **SAHADA DOĞRULANMADI. ÜRÜN HAZIR: HAYIR.**
+
+  **Kapatılan kusur (vizyon anayasası ihlali):** `companionEnabled !== true` **dört**
+  ayrı yerde erken `null` döndürüyordu (`runCompanionBrain` · `tryCompanionBrain` ·
+  `runCompanionChat` · `tryCompanionChat`). `voiceService` bu `null`'ı "beyin yok"
+  sayıp yerel regex zincirine düşüyordu. Sonuç: bir **kişilik ayarı** kapalıyken Mavi
+  doğal dil anlamayı, sohbeti ve beyin kararlı CarOS komutlarını (navigation · media ·
+  settings · vehicle) **kaybediyordu**. Ürün tanımı bunun tam tersini şart koşar.
+
+  **Yeni invaryant:** `companionEnabled` **yetenek kapatmaz**; yalnız **presence**
+  (konuşma tonu + kendiliğinden konuşma isteği) yönetir. Aynı tek beyne giden sistem
+  prompt'unun ton satırları değişir — ikinci beyin/zincir/hafıza **açılmadı**.
+
+  **Kasıtlı olarak DEĞİŞMEYENLER:** `companionEngine`'in proaktiflik kapısı
+  (kendiliğinden konuşma presence'ın gerçek işidir) · `assistantSafetyKernel` ·
+  `AiSafetyGate` · `maviActionAuthority` · tek-cevap sözleşmesi. Üçünün de kaynağında
+  `companionEnabled` **hiç geçmediği** yapısal kilitle kanıtlandı.
+
+  **Bu turun YAPMADIĞI (onaylı kapsam):** filler kaldırılmadı (**F2'de kaldırıldı**) ·
+  streaming eklenmedi (F3/F4) · Capability Fabric'e dokunulmadı (F5) · isim/refactor yapılmadı.
+
+  **Kalan eksik (açık borç):** `wakeWordService._applyWakeFromSettings` hâlâ
+  `companionEnabled && companionWakeWordEnabled` bileşik kapısını kullanıyor — yani
+  Yol Arkadaşı kapalıyken **uyandırma kelimesi de kapanıyor**. Bu tur **bilinçli
+  olarak dokunulmadı**: wake alt-ayarı ayarlar ekranında companion panelinin
+  **içinde** render ediliyor (`companionEnabled && (...)`), dolayısıyla kapıyı UI
+  değişikliği olmadan ayırmak **erişilemez bir ayar** yaratırdı (kullanıcı wake'i
+  açık bırakıp paneli kapatırsa geri kapatamaz). Ayrım F11 (UI durum mimarisi)
+  turunda, panel yeniden düzenlenirken yapılacak. Ayrıca `speech_end` türetimi ve
+  diğer F0 sınırları aynen geçerli.
+
+  **Sonraki atomik PR:** ~~F2 — filler imhası~~ **TAMAMLANDI** (yukarı bkz.) → F3.
+  Tam mimari: `docs/CAROS_MAVI_ULTIMATE_OEM_ARCHITECTURE_SPEC_v1.md` §29.
+
+- **MAVI-F0 · UÇTAN UCA GECİKME TELEMETRİSİ (2026-08-29, kütük 🔴 #959-#962):**
+  Durum: **ENTEGRE** (canlı hatta bağlı · test yeşil · tsc temiz) —
+  **SAHADA DOĞRULANMADI. ÜRÜN HAZIR: HAYIR.**
+
+  **Kapatılan boşluk:** Mavi'nin `speech-end → ilk duyulabilir ses` değeri
+  **UNKNOWN**'dı. Repoda iki ölçüm katmanı vardı ama ikisi de bu soruyu
+  cevaplayamıyordu: `sttLatencyTelemetry` yalnız **native STT fazlarını** ölçüyor
+  (zincir orada bitiyor), `maviCore/latencyTelemetry` ise **SHADOW orkestratöre**
+  bağlı olduğu için canlı turda hiç çalışmıyor ve marker sözlüğünde STT/beyin/TTS/
+  ses/filler/route/outcome kavramları bulunmuyordu. Yani optimizasyon kararlarının
+  dayanağı yoktu.
+
+  **Yapılan:** `assistant/maviLatencyTrace` (bağımsız · bayraklı · bounded) canlı
+  hattın **18 kanonik damgasını** tek `turnId` altında toplar; `devtools/maviLatencyModel`
+  (saf) segment/percentile/hüküm türetir; CAROS LAB → AI → **Mavi Gecikme** ekranı
+  salt-okunur gösterir. **Yeni ölçüm üretilmedi:** konuşma başı/sonu JS'te gözlenemediği
+  için `sttLatencyTelemetry`nin ZATEN ölçtüğü native VAD deltaları türetilmiş damga
+  olarak zincire bağlanır ve `derived` işaretlenir.
+
+  **Üç dürüstlük kilidi (bu turun asıl değeri):**
+  1. **Proxy ≠ kanıt.** `first_audio_requested` (`play()` çağrıldı) ile
+     `first_audio_confirmed` (platform `playing`/`onstart` bildirdi) AYRI damgalardır
+     ve birleştirilmez. **Android native TextToSpeech bu derlemede başlangıç bildirimi
+     VERMEZ** → native yolda doğrulama YAPILAMAZ ve ekran bunu açıkça söyler.
+  2. **İstatistik yalnız `completed` turlardan çıkar** — iptal/timeout/devralınan tur
+     "hızlı" görünüp p50'yi yanlış iyileştirirdi.
+  3. **Ölçüm yoksa sayı uydurulmaz** — `KAYNAK YOK` gösterilir.
+  4. **Yabancı ses kapısı.** `ttsService` tek otoritedir ve Mavi'nin cevabı dışında
+     da konuşur (navigasyon · güvenlik · tehlike · bildirim). Bir iz açıkken bunlardan
+     biri çalarsa "ilk gerçekleşme kazanır" kuralı ana metriği kalıcı olarak bozardı;
+     bu yüzden ses damgaları yalnız `tts_request` sonrası kabul edilir ve düşen damga
+     `Yabancı ses damgası` sayacında **görünür kalır**.
+
+  **Bu turun YAPMADIĞI (onaylı kapsam):** filler kaldırılmadı · streaming eklenmedi ·
+  endpoint eşiği değiştirilmedi · hiçbir karar/akış/TTS/UI davranışı değiştirilmedi.
+  Bayrak varsayılan KAPALI; kapalıyken üretim davranışı birebir aynıdır.
+
+  **Kalan eksik:** gerçek araç ölçümü (#959-#962) · web/Google STT yolunda `speech_end`
+  türetilemiyor (native telemetri gelmiyor — sahte taban bilinçli olarak üretilmedi) ·
+  `brain_first_token` damgası streaming olmadığı için hiç basılmıyor (F4'e ayrılmış).
+
+  **Sonraki atomik PR:** F1 — Yol Arkadaşı'nı capability şalteri olmaktan çıkarma
+  (`companionChatProvider` dört `companionEnabled` guard'ı). Tam mimari:
+  `docs/CAROS_MAVI_ULTIMATE_OEM_ARCHITECTURE_SPEC_v1.md` §29.
 
 - **✅ CI'DA KANITLANDI — NATIVE JAVA ARTIK CI KAPISINDA; 335 TEST YILLARDIR YAZILIYDI,
   HİÇ KOŞMUYORDU (2026-08-21, kütük 🟢 #675 → kanıt 🟢 #677, plan V-01 KAPANDI):** vizyon denetimi ölçtü — `android/app/src/test`
@@ -2825,6 +4367,455 @@ DOĞRULANDI 6 · SAHADA DOĞRULANDI 1 · **ÜRÜN HAZIR: 1**
 > hız/RPM/coolant **hâlâ akıyor mu?** Çoklu-ECU probu `ATH1` + UDS extended session açar;
 > `ATH0` restore bozulursa standart poll parser'ı **sessizce** ölür. Kod bunu korur
 > (`HeaderRestoreException`, doğrulamalı+retry'li ATH0) ama **sahada kanıtlanmadı**.
+
+
+### ARCH-05 — Security / Trust / Capability · ÜRETİM YAPTIRIMI (2026-09-01)
+
+**Durum: ENTEGRE** (QA/full-suite yeşil). **SAHADA DOĞRULANDI DEĞİL** — kütük
+#205–#210 maddeleri 🔴'dır ve bu bölüm onları YÜKSELTMEZ.
+
+**Çözülen asıl kusur:** ARCH-05 sözleşmesi (`security/authorization.ts`) güçlüydü
+ama **hiçbir üretim yoluna bağlı değildi**. Bağlanmamış bir sözleşme güvenlik
+değildir; bu tur o boşluğu kapatır.
+
+**Kurulan tek yeni katman:** `security/enforcement.ts` — bir ADAPTÖR'dür, motor
+değil. Karar kuralı hâlâ TEK yerdedir (`authorize`); burada yalnız kanıt
+toplanır: principal sınıfı, araç kapsamı (`capabilityStore`), doğrulanmış hareket
+(`obdService.getObdSpeedFresh` — **GPS hızı buraya giremez**) ve native yüzey
+kanıtı (alan sahibinin kendi ölçümü).
+
+**Yetki gerçeği tek tabloda (`PRINCIPAL_GRANTS`):**
+
+| Çağıran sınıfı | Yetkiler |
+|---|---|
+| `LOCAL_UI` | MEDIA · NAVIGATION · VEHICLE_READ · DIAGNOSTIC_READ · CLEAR_DTC · SETTINGS_WRITE · STORAGE_ADMIN · HARDWARE_MEDIA |
+| `MAVI` | MEDIA · NAVIGATION · VEHICLE_READ · DIAGNOSTIC_READ |
+| `PHONE_LINK` | yalnız oturumda ANLAŞILAN companion yeteneğinden türer (bugün: BOŞ) |
+| `PHONE_REMOTE` | VEHICLE_READ · DIAGNOSTIC_READ · SETTINGS_WRITE (+ CLEAR_DTC yalnız E2E kanıtıyla) |
+| `SYSTEM_INTERNAL` | yalnız RUNTIME_ADMIN |
+| `LAB` · `REPLAY` · `IMPORTED` · `UNKNOWN` | **YOK** |
+
+`DIAGNOSTIC_PRIVILEGED` ve `REMOTE_INPUT` **hiçbir sınıfa verilmez**
+(`DENY_DEFAULT`) — bu üründe privileged teşhis desteklenmiyor ve yol yapısal
+olarak kapalıdır. `MAVI_ACTION` ve `MEDIA_CAST` sözleşmede YOKTUR; LAB'da dürüst
+`NOT_SUPPORTED` yazar, uydurulmaz.
+
+**Ürün yoluna bağlanan altı kapı:** `dtcService.clearDTCCodes` (CLEAR_DTC +
+TOCTOU) · `genericPduTransport.send` (teşhis sınıflandırması, native kapıdan
+bağımsız birinci kapı) · `companionSessionManager.send` (`companion.control.*`) ·
+`runtimeRecoverySupervisor.request` (yalnız `MANUAL_INTERNAL`) ·
+`commandListener` ayar uygulama · `tripLogService.clearAllTrips` (STORAGE_ADMIN).
+
+**Bilinçli davranış değişikliği:** sesli asistanla DTC silme artık REDDEDİLİR —
+`MAVI` sınıfının `CLEAR_DTC` yetkisi yoktur. Silme yalnız ekrandaki iki aşamalı
+onaydan yapılır (kütük #205, saha kabulü ayrıca ölçülecek).
+
+**Sözleşmede yapılan üç politika düzeltmesi (gevşetme DEĞİL, döngü kırma):**
+`DIAGNOSTIC_READ` artık araç kapsamı ve native izin İSTEMEZ — aracın kimliği
+ancak okuyarak çözülür, kimlik şartı koymak kimliği üreten işlemi yasaklardı;
+`RUNTIME_ADMIN` ve `STORAGE_ADMIN` native izin İSTEMEZ — ikisi de süreç-içi /
+uygulama-özel eylemdir ve JS'ten ölçülebilir bir OS izni yoktur. Üçünde de
+**yetki kapısı yerinde durur** ve native `DiagnosticServiceGate` bağımsız ikinci
+kapı olarak GEVŞETİLMEDİ.
+
+**Gözlemlenebilirlik:** CAROS LAB → Runtime → *Security / Trust / Capability*
+artık gerçek üretim kararlarını gösterir (sentetik demo yok); salt-okunur,
+yetki üretmez, hiçbir değeri üretim kararına geri beslemez.
+
+**Kilitler:** `src/__tests__/arch05ProductionEnforcement.test.ts` (72 kilit,
+A–M blokları) + mevcut `arch05SecurityAuthorization.test.ts` (14).
+
+
+### ARCH-06/F1 — Performance Measurement + Baseline (2026-09-01)
+
+**Durum: ENTEGRE** (hedefli doğrulama yeşil). **SAHADA DOĞRULANDI DEĞİL** —
+kütük #211–#216 🔴'dır. Full suite ve production build **ARCH-06 FINAL**
+kapanışına bırakıldı (faz planı gereği).
+
+**F1'in tek işi ÖLÇMEKTİ — hiçbir optimizasyon yapılmadı.** Boot ertelemesi,
+timer taşıma, CAN delta yazımı, rota/render iyileştirmesi, worker taşıma,
+artwork cache tasarımı, bellek merdiveni, termal degradasyon ve storage
+debounce değişimi **bilinçli olarak F2+'ya bırakıldı**.
+
+**Kurulan ölçüm düzlemi (yeni mega depo YOK — sahip-yerel kanıt):**
+
+| Katman | Ne ölçüyor | Sahip |
+|---|---|---|
+| `perfContract` | kanonik `PerfMetric` şekli · ARCH-01/F8 tazelik sözlüğü REUSE | saf sözleşme |
+| `perfCounters` | **T0** 32 kapalı-listeli tamsayı sayaç | sıcak yol sahipleri |
+| `bootTimingRecorder` | 12 kilometre taşı + servis süreleri (tavan 96) | SystemBoot/main.tsx |
+| `perfSeriesRecorder` | **T1** fps · lag · longtask · heap (DEĞİŞTİRİLMEDİ) | mevcut |
+| `canBridgeMetrics` | native CAN coalescing kanıtı (6 monotonik sayaç) | CarLauncherPlugin |
+| `timerInventory` | 26 timer bildirimi + F2 kararı | statik bildirim |
+| `memoryInventory` | 19 kaynak + sınıf + tavan (`targetBytes` = `null`) | statik + ucuz okuyucu |
+| `hotPathLogAudit` | sıcak **BÖLGE** log riski (dosya değil bölge) | statik bildirim |
+| `performanceAggregator` | **T2** salt-okunur projeksiyon (12 bölüm) | LAB açıkken |
+| `perfBaselineExport` | gizlilik-güvenli JSON taban paketi | LAB düğmesi |
+
+**Dürüstlük kararları (F1'in asıl değeri):**
+- `null ≠ 0` **yapısal** olarak garanti: `NaN`/`Infinity`/`undefined` otomatik
+  `UNMEASURED`'a düşer ve tazelik iddiası `UNAVAILABLE` olur.
+- Ölçülemeyen metrik **listeden düşürülmez**, `UNMEASURED` olarak durur —
+  "metrik yok" ile "ölçemiyoruz" ayrı şeylerdir.
+- `render.gpuDroppedFrames` · `jsthread.longTaskOwner` · `memory.nativeTotalMb`
+  · `timers.wakeRate` · `artwork.decodedBytes` **açıkça ölçülemez** ilan edildi;
+  tarayıcının vermediği hiçbir sayı uydurulmadı.
+- `INITIALIZED ≠ AVAILABLE`: alt yapının kurulması kullanılabilirlik kanıtı
+  SAYILMAZ. Araç bağlı değilken `VEHICLE_DATA_FIRST_OBSERVATION` düşmez.
+- Eski APK CAN metrik köprüsünü taşımıyorsa durum `NOT_SUPPORTED`; sayaçlar
+  **0 gösterilmez**.
+
+**F0 kilitli kararlarının hiçbiri geri alınmadı:** ARM tek kaynak otoritesi ·
+SystemBoot tek boot otoritesi · OBD native `AdaptivePidScheduler` · GPS
+`GPS_NAV_MAX_INTERVAL_MS = 500` tabanı · CAN 80 ms native coalescing (JS'e
+ikinci throttle **eklenmedi**) · MapLibre kendi render loop'u · SAB/COEP
+varsayılmadı · timer'lar körce ARM'e taşınmadı.
+
+**Ölçülen ilk gerçek bulgu:** sıcak **bölge** log denetimi dört yolda da
+(CAN geri çağrısı · GPS `handlePosition` · OBD veri geri çağrısı · medya
+interpolasyonu) pahalı argüman deseni **bulmadı** → P0/P1 sıcak log borcu **0**.
+`obdService.ts` içindeki `JSON.stringify` log'ları olay-tetikli yollardadır
+(ECU kurtarma · durum geçişi · foreground resume) ve sıcak yol değildir.
+
+**Kilitler:** `src/__tests__/arch06PerformanceMeasurement.test.ts` — 64 kilit
+(A–L blokları), enstrümantasyon bütçesi (T0/T1/T2) dâhil.
+
+**Sonraki adım: F2 (Boot + Timer Governance).** F1 çıkış kapısının 10 şartından
+9'u kod tarafında sağlandı; onuncusu (**12 senaryonun gerçek cihaz baseline'ı**)
+sahada alınacak — kütük #211–#216.
+
+
+### ARCH-06/F2 — Boot + Timer Governance (2026-09-01)
+
+**Durum: ENTEGRE** (hedefli doğrulama yeşil). **SAHADA DOĞRULANDI DEĞİL** —
+kütük #217–#220 🔴. Full suite ve production build ARCH-06 FINAL'e ait.
+
+**Kurulan tek yeni sınır:** `platform/boot/bootDeferral.ts` — ikinci boot
+otoritesi DEĞİL. İşi `SystemBoot` teslim eder; runtime yalnız "ne zaman"
+sorusunu F1'in ZATEN ölçtüğü kilometre taşlarına bağlar. Kendi rAF döngüsü,
+periyodik tiki veya boot bayrağı YOKTUR; nesli `SystemBoot._diagStarts`tan
+alır (yeni epoch otoritesi kurulmadı).
+
+**Ertelenen 11 servis:**
+
+| Tetikleyici | Servisler |
+|---|---|
+| `AFTER_FIRST_FRAME` | UiActivityRecorder · DiagnosticTrail |
+| `AFTER_SHELL_INTERACTIVE` | RadarEngine (statik radar DB yüklemesi) |
+| `AFTER_VEHICLE_CORE` | MaintenanceBrain · FuelAdvisor · VehicleClassRuntime |
+| `IDLE` | CommunityService · TripUpload · FleetReadback · OtaUpdateService · PushService |
+
+**ERTELENMEYENLER ve gerekçeleri (F0 önerisi ÇÜRÜTÜLDÜ):**
+- `hydrateExpertTrustStore` — **GÜVENLİK.** `assertWritesAllowed()` ilk
+  satırında `if (!s.hydrated) return;` yapar: hidrasyon bitmeden yazma kapısı
+  **AÇIKTIR**. Ertelemek fail-open penceresini ilk kareye kadar uzatırdı.
+  ARCH-05 invariant'ı boot hızının üstündedir.
+- `startPerfSeries` — boot'un KENDİSİNİ ölçer; ertelenirse açılışın en pahalı
+  penceresi ölçüm dışı kalır ve öncesi/sonrası karşılaştırması anlamsızlaşır.
+- Wave 3'ün 9 VEHICLE_CORE servisi — kaynak kodun kendi yorumlarındaki sıra
+  bağımlılıkları kanıtlandı ve kilitlendi: `BatteryEvidenceSource →
+  BatteryVerdictService` (abonelik yakalama), `LocationEngine →
+  NavigationSessionRuntime` (LIFO kapanış), `VehicleKnowledgeBase →
+  VehicleLearningEvidenceBridge`.
+
+**Timer yönetişimi:** 3 `RUNTIME_BUDGETABLE` görev ARM tik-wheel'ine taşındı
+(`mapSource.ping` · `device.statusPoll` · `passenger.stateSync`), hepsi
+`criticality: 'NORMAL'` + `deferIdle`. **ARM API'si genişletilmedi** —
+sözlük `SAFETY | NORMAL` olarak kaldı. Söküm thunk'ı **tip düzeyinde**
+zorunlu: değişken tipi artık `(() => void) | null`, yani `clearInterval`
+çağırmak DERLENMEZ (sızıntı yapısal olarak imkânsız).
+
+**Dokunulmayanlar:** OBD oturum/PID zamanlaması · native heartbeat · kamera
+kare beslemesi · dashcam segmentasyonu · navigasyon DR · GPS sessizlik
+izleyicisi · CAN bayatlık kapısı · medya 5 s watchdog'u. Bunlar protokol/
+izleme zamanlamasıdır ve 3 Hz'lik bir wheel'e yuvarlanamaz.
+
+**Kaldırılan:** `main.tsx`'teki gövdesi boş `obdData` dinleyicisi — her OBD
+olayında bir köprü dağıtımı + JS çağrısı hiçbir şey için ödeniyordu. Geri
+vites davranışı değişmedi (`canData` yolu aynen duruyor).
+
+**Kilitler:** `bootDeferF2.test.ts` (40) + `bootTimerGovernanceF2.test.ts` (34).
+
+**ÖLÇÜM NOTU:** bu ortam `DESKTOP_BENCH`tir. Boot iyileşmesinin gerçek
+rakamı yalnız head unit'te alınabilir — **öncesi/sonrası deltası saha
+kanıtıdır ve kütük #217'de beklemektedir.** Bu belge hiçbir ms iyileşmesi
+İDDİA ETMEZ.
+
+
+### ARCH-06/F3 — Render + Map Performance (2026-09-01)
+
+**Durum: ENTEGRE.** **SAHADA DOĞRULANDI DEĞİL** — kütük #221–#224 🔴.
+
+**F3'ün dürüst sonucu: harita/render katmanı ZATEN optimize edilmişti.**
+Repo okunduğunda üç ayrı ölçülmüş saha düzeltmesi bulundu ve hepsi
+yerindeydi:
+
+| Mekanizma | Kanıt | Ne zaman ölçülmüş |
+|---|---|---|
+| Kamera epsilon dedup + "yapılan iş" idle ölçütü | `FullMapView.tsx` `CAM_EPS_M/BEAR` · `NO_WORK_IDLE_MS` | 2026-07-11 (boşta %43-212 CPU kök nedeni) |
+| Çoklu WebGL bağlamı önleme | `DrawerPanel` koşullu mount | 2026-06-14 (DevTools profili) |
+| Rota geometri dedup (hash + styleKey + navStatus) | `useRouteDrawingLifecycle.ts` | mevcut |
+
+**Bu yüzden F3 hiçbir şeyi YENİDEN YAZMADI.** F0 §36 açıktır: "fazı doldurmak
+için problem uydurma". F3'ün katkısı **ölçmek ve kilitlemektir**.
+
+**F0'ın açık sorusu cevaplandı:** FullMap + MiniMap **aynı anda iki MapLibre
+bağlamı yaşatmıyor** — üç ayrı yerde karşılıklı dışlama var
+(`NewHomeLayout` koşullu render · `DrawerPanel` koşullu mount ·
+`SplitScreen` erken dönüş). Artık bu bir İDDİA değil, `peakConcurrent`
+sayacıyla **ölçülüyor**.
+
+**Eklenen ölçüm (9 yeni sayaç + 2 yeni saf modül):**
+`map.cameraTargetComputed` · `cameraDedupSkipped` · `cameraSuppressedByUser` ·
+`routeGeometryDedupSkip` · `routeProgressUpdate` · 3 render sayacı +
+`mapInstanceEvidence` (active/peak/created/destroyed, harita nesnesi TUTMAZ) +
+`renderClassContract` (etiket, zamanlayıcı DEĞİL).
+
+**Bilinçle ÖLÇÜLMEYEN:** bileşen render sayaçları üretim yoluna
+TAKILMADI — sıcak render yolunda bir sayaç bile maliyet üretir. LAB'da
+`UNMEASURED` görünür, sahte 0 gösterilmez.
+
+**Değişmeyenler:** GPS/CAN/OBD kadansları · MapLibre render loop sahipliği ·
+rAF idle-uyku davranışı · 200 ms resize pump · F2 boot/timer davranışı ·
+navigasyon truth otoritesi. Global UI scheduler **kurulmadı** (yasaklı adlar
+statik kilitte).
+
+**Kilitler:** `mapRenderPerformanceF3.test.ts` — 31 kilit (A–E blokları).
+
+**PERFORMANS İDDİASI YOK:** bu ortam `DESKTOP_BENCH`tir; hiçbir ms/FPS
+kazancı iddia edilmiyor. Yapısal kanıt (dedup sayaçları, peak instance)
+sahada okunacak — kütük #221–#224.
+
+
+### ARCH-06/F4 — Streams + Bridge Performance (2026-09-01)
+
+**Durum: ENTEGRE.** **SAHADA DOĞRULANDI DEĞİL** — kütük #225–#228 🔴.
+
+**Fazın amacı akış hızlarını körce düşürmek DEĞİLDİ**: aynı truth ve aynı
+alan kadansıyla daha az gereksiz köprü/JS/VDL işi yapmaktı. Kadans, nesil
+kapıları ve poll otoritesi **hiç değişmedi**.
+
+**Bulunan tek gerçek israf:** `vehicleDataLayer/index.ts` her CAN emit'inde
+22 alanlı YENİ bir nesne literali tahsis ediyordu; nesne yalnız
+`updateCanExtras` tarafından okunup atılıyordu. Native 80 ms penceresiyle
+bu, saniyede ~12 kısa ömürlü nesne demektir. **Ön-tahsisli zarfa çevrildi** —
+`CanAdapter`ın `_data`/`_tpmsBuffer` için zaten uyguladığı desen.
+
+**Değişen-alan yaması ZATEN vardı:** `updateCanExtras` store sınırında
+alan-alan karşılaştırma yapıyor, yalnız değişenleri `u`ya koyuyor ve
+`dirty` değilse `set()`i **hiç çağırmıyordu**. F4 bunu değiştirmedi;
+**ölçülebilir yaptı** (`vdlWriteRatio` · `vdlAvgPatchFields`).
+
+**Truth semantiği kilitlendi (9 kilit):** UNKNOWN sıfıra çevrilmez ·
+ölçülmüş 0 yazılır · değişmeyen alan silinmez · TPMS eleman-eleman
+kıyaslanır · provenance yalnız değişen alana damgalanır.
+
+**Köprü sözleşmesi:** 13 yüzey sınıflandırıldı. En önemli kural —
+`safetyCritical` bir yüzey **asla** `COALESCED`/`BATCHED` olamaz; kilit
+testi bunu zorlar. `COALESCED` (ara değeri kasten düşürür) ile `BATCHED`
+(hiçbirini düşürmez) ayrımı yazıya döküldü.
+
+**OBD:** native `PollCostLedger` salt-okunur projeksiyonla profiler'a
+bağlandı — **ikinci OBD gerçeği kurulmadı**. Canlı telemetri ile burst/derin
+teşhis ayrı sayılır.
+
+**GPS:** F1'de bildirilip **bağlanmamış** olan `publishedToStore` sayacı
+takıldı; zincir tamamlandı. Kadans ve guard'lar değişmedi.
+
+**Kilitler:** `streamsBridgeF4.test.ts` — 34 kilit (A–F blokları).
+
+**PERFORMANS İDDİASI YOK:** ortam `DESKTOP_BENCH`. Tahsis azalması yapısal
+bir kazançtır (ölçülebilir), ama ms/FPS iddiası saha kanıtı ister.
+
+
+### ARCH-06/F5 — Memory + Cache + Storage (2026-09-01)
+
+**Durum: ENTEGRE.** **SAHADA DOĞRULANDI DEĞİL** — kütük #229–#232 🔴.
+
+**Çözülen gerçek kusur:** bellek baskısı yönetimi İKİLİYDİ — `CRITICAL`
+gelince kayıtlı TÜM purge fonksiyonları aynı anda çağrılıyordu. Bu iki ayrı
+sorun üretir: **aşırı yıkım** (ucuz prefetch ile pahalı arama veritabanı aynı
+anda gider) ve **kör sıra** (en çok yer açan değil, listede ilk olan silinir).
+
+**6 kademeli merdiven** (`memoryWatchdog` otorite olarak KALDI; native sinyal
+DEĞİŞMEDİ, kademeler ondan TÜRETİLİR):
+
+```
+NORMAL → TRIM_DEVTOOLS → TRIM_PREFETCH → TRIM_PRESENTATION
+       → PAUSE_BACKGROUND → CRITICAL_PROTECT
+MODERATE  ⇒ TRIM_PREFETCH'e kadar    (önceden: HİÇBİR ŞEY)
+CRITICAL  ⇒ CRITICAL_PROTECT'e kadar (önceden: HEPSİ BİRDEN)
+```
+
+**En önemli tasarım kararı — truth koruması YAPISAL:**
+`NON_EVICTABLE_TRUTH` bir katılımcı sınıfı olarak **tanımlanmadı**. Canlı araç
+gerçeği, aktif navigasyon oturumu, medya oturumu ve güvenlik durumu
+**kaydedilemez** → silinemez. Koruma bir `if` koşuluna değil **tipe** dayanır;
+bir gelecek turda yanlışlıkla "truth'u da trim edelim" demek derlenmez.
+
+**Sıralama kuralı:** ölçülmüş bayt ÖNCE (büyükten küçüğe), `estimatedBytes
+=== null` olan SONRA — bilinmeyeni önce silmek, ne kadar yer açtığını bilmeden
+pahalı bir şeyi yok etmek olabilir.
+
+**Geri uyumluluk:** eski `registerCachePurge` çalışmaya devam ediyor; sınıfı
+bilinmediği için en güvenli kademeye (`CRITICAL_PROTECT`) konur — yani
+MODERATE'te artık gereksiz yere tetiklenmez.
+
+**Depolama:** flush GEREKÇESİ ve dayanıklılık SINIFI eklendi. **5 s debounce
+uzatılmadı** (uzatmak veri kaybı penceresini büyütürdü), `CRITICAL_SYNC`
+double-lock yolu aynen duruyor. Sınıf mevcut kapıları ADLANDIRIR, yeni
+politika üretmez.
+
+**Artwork — cache KURULMADI:** §5 "kanıtlanırsa kur" der. Denetim üç mevcut
+mekanizma buldu (djb2 hash dedup · 16×16 accent downsample · IntersectionObserver
+lazy yükleme) ve **çoklu decode problemi kanıtlanmadı**. Ölçülmemiş bir soruna
+cache yazmak, bilinmeyen bir kazanç için bilinen bir karmaşıklık eklemek olurdu.
+`artwork.decodedBytes` dürüstçe `UNMEASURED` kalır; ölçüm sahadan gelirse F7'de
+açılır (kütük #232).
+
+**Kilitler:** `memoryCacheStorageF5.test.ts` — 33 kilit (A–F blokları).
+
+---
+
+### ARCH-06/F6 — Thermal + Low-End + Background (2026-09-01)
+
+**Durum: ENTEGRE.** **SAHADA DOĞRULANDI DEĞİL** — kütük #233–#235 🔴.
+
+**Önce denetim:** repoda degradasyon makinesinin büyük bölümü ZATEN VARDI ve
+DOĞRU çalışıyordu — `_THERMAL_CEILING` termal L1/L2/L3'ü `RuntimeMode` tavanına
+çeviriyor (BALANCED / BASIC_JS / POWER_SAVE), `RuntimeConfig` sekiz düğmeyi
+(`gpsUpdateMs` · `obdPollingMs` · `uiFpsTarget` · `enableBlur` · `enableAnimations`
+· `enableShadows` · `loggingLevel` · `suspendWorkers`) alanlara sunuyor,
+`getDeviceTier()` açılış modunu kapıyor. **Bunların hiçbiri yeniden
+yazılmadı.**
+
+**Gerçek eksik şuydu:** üç baskı kaynağı (termal · bellek · cihaz sınıfı) ayrı
+ayrı karar veriyordu ve hangi İŞLERİN hangi sırayla feda edileceğine dair
+**ortak bir sözleşme yoktu**. Üç ayrı tablo demek, üçünün birbiriyle
+çelişebilmesi demektir: biri "prefetch açık" derken öteki "kapat" diyebilir.
+
+**L7 — tek saf projeksiyon** (`workloadCeilings.ts`):
+
+```
+girdi:  ARM RuntimeMode · thermalWatchdog · memoryWatchdog · getDeviceTier()
+çıktı:  WorkloadCeilings = FULL | REDUCED | MINIMAL | OFF   (8 iş yükü)
+feda sırası (sabit):
+  labSampling → telemetrySampling → prefetch → backgroundIndexing
+  → nonCriticalAnimations → mapDecoration → artworkQuality → maviVisualFx
+```
+
+**L7 karar verir, işi kendisi UYGULAMAZ.** Zamanlayıcı kurmaz, `Date.now`
+kullanmaz, hiçbir sahibin durumunu yazmaz. Otoriteler yerinde kaldı.
+
+**Çelişki yapısal olarak imkânsız:** her iş yükü için dört kaynağın
+önerdiği tavanlardan **EN KISITLAYICI olanı** kazanır. Bir kaynağın gevşekliği
+ötekinin sıkılığını ezemez (kilit D3/D4).
+
+**Asla kısılmayanlar — F5'teki desenle aynı, YAPISAL:** araç gerçeği · dokunma
+yanıtı · navigasyon rehberliği · ses çalma · kritik uyarılar · komut yürütme ·
+güvenlik kapıları bir "iş yükü" olarak **tanımlı değildir**. Tavanı olmayan
+kısılamaz; koruma bir `if` koşuluna değil, **listede bulunmamaya** dayanır.
+
+**Termal bir ARIZA DEĞİLDİR:** tavan düşürmek `reportFailure` üretmez
+(kilit A4). Sıcak bir araç bozuk bir araç değildir.
+
+**Histerezis — UNCALIBRATED:** sözleşme kuruldu, **eşik sayıları yazılmadı**.
+Saha tabanı olmadan eşik uydurmak, ölçülmemiş bir sayıyı ürün kararına
+dönüştürmek olurdu. `observedTier` DAİMA `null`dır ve `staticTier`ı **otomatik
+değiştirmez** — ölçüm gürültüsü ürün davranışını sallamamalıdır. Kalibrasyondan
+BAĞIMSIZ olan tek şey **asimetridir**: yükseltme düşürmeden 3× daha fazla kanıt
+ister (düşürmek ucuz ve geri alınabilir; yükseltmek kasmayı geri getirir).
+**Yeni zamanlayıcı kurulmadı** — mevcut `perfSeries` 12 s tiki kullanılır.
+
+**Bilinmeyen cihaz MID sayılır:** `getDeviceTier()` hiçbir zaman UNKNOWN dönmez;
+sınıflandırılamayan cihaz `else` dalında MID'e düşer (kilit F2). Bilinmeyeni LOW
+saymak, güçlü ama tanınmayan bir head unit'i kalıcı olarak sakatlardı.
+
+**Worker doygunluğu ÖLÇÜLMÜYOR:** F6 §1 bunu girdi olarak ister; repoda kuyruk
+derinliği ölçümü YOKTUR — `getWorkerSnapshot()` yalnız yaşam döngüsü verir.
+"Hepsi active → doygun" demek sahte bir sinyal olurdu (sağlıklı sistemde de
+hepsi active'tir). Alan `UNMEASURED` kalır ve **karara girmez** (kilit H1/H2).
+
+**Tek gerçek tüketici — dürüst kapsam:** bugün tavanı GERÇEKTEN uygulayan tek
+yol `communityService._idlePull` (7 dk'da bir bulut zenginleştirme çekimi).
+GİDEN kullanıcı kuyruğu (`_idleSync`) **bilinçli olarak kısılmadı**: kullanıcının
+kendi bildirimlerini taşır, atlanması geri getirilemez veri kaybı olurdu.
+Kalan 7 kategori BİLDİRİLDİ ama tüketici bağlanmadı — **açık borç (F7)**.
+
+**LAB:** yeni ekran AÇILMADI (ekran enflasyonu yasağı). Mevcut
+Performance/Runtime Profiler'a `workload_ceilings` bölümü eklendi; cihaz
+MODELİ/SKU taşınmaz, yalnız türetilmiş sınıf görünür (kilit J4).
+
+**Ölçülmemiş sayı iddiası YOK:** bu fazda hiçbir ms/FPS/°C kazancı iddia
+edilmedi — ortam `DESKTOP_BENCH`, saha değil.
+
+**Kilitler:** `thermalLowEndF6.test.ts` — 41 kilit (A–J blokları).
+
+---
+
+### ARCH-06/F7 — Mavi + Media + Phone Link + LAB (2026-09-01)
+
+**Durum: ENTEGRE.** **SAHADA DOĞRULANDI DEĞİL** — kütük #236–#239 🔴.
+
+**F7'nin asıl işi bağlamak değil, DÜRÜSTÇE AYIRMAKTI.** F6 sekiz degradasyon
+kategorisi bildirmiş ama yalnız birini bağlamıştı. Kolay yol "sekizini de
+bağlayıp 8/8 demek"ti; denetim bunun **yanlış** olduğunu gösterdi.
+
+**Kategori kategori denetim sonucu:**
+
+| Kategori | Uygulayıcı | Neden |
+|---|---|---|
+| `backgroundIndexing` | **WORKLOAD_CEILING** | F6'da bağlandı (bulut çekimi) |
+| `labSampling` | **WORKLOAD_CEILING** | F7'de bağlandı (aşağıda) |
+| `nonCriticalAnimations` | ARM `RuntimeConfig` | `enableAnimations` ZATEN bağlı |
+| `mapDecoration` | ARM `RuntimeConfig` | `enableShadows`/`uiFpsTarget` ZATEN bağlı |
+| `maviVisualFx` | ARM `RuntimeConfig` | `enableBlur` ZATEN bağlı (Mali-400 koruması) |
+| `prefetch` | **NO_CONSUMER** | Repoda prefetch alt sistemi YOK |
+| `telemetrySampling` | **DELIBERATELY_UNBOUND** | Ölçümün KENDİSİ — kısmak körleşmek olurdu |
+| `artworkQuality` | **DELIBERATELY_UNBOUND** | Çoklu-decode problemi KANITLANMADI (#232) |
+
+Üç kategoriye ikinci tavan bağlamak, `MainLayout` · `MediaScreen` ·
+`livingThemeState` tarafından GERÇEKTEN okunan `RuntimeConfig`in üstüne ikinci
+bir kapı takmak olurdu — **Cross-Domain §1 · §5 · §8 · §15 ihlali.** Bu yüzden
+`WorkloadCeilings` o kategoriler için yalnız **birleşik GÖRÜNÜM** sağlar
+(LAB'da "şu an ne kısıtlı?" tek yerden okunur); **uygulama otoritesi taşımaz.**
+
+**LAB örneklemesi bağlandı — yeni zamanlayıcı YOK.** Aralık zaten cihaz
+sınıfına aboneydi ama MOUNT ANINDA bir kez seçiliyordu: cihaz 65 °C'ye
+çıktığında LAB dokuz bölümü aynı hızda yoklamaya devam ediyordu. Çözüm tik
+aralığını değiştirmek değil, **adım atlamak**:
+`FULL`=1 · `REDUCED`=2 · `MINIMAL`=4 · `OFF`=tur yok.
+
+> **ELLE YENİLE tavandan ETKİLENMEZ.** Baskı, kullanıcının bilinçli niyetini
+> kısmaz; kısılan yalnız kullanıcının İSTEMEDİĞİ otomatik turdur.
+
+**`labClosedBehavior` sözleşmeye bağlandı.** Davranış zaten doğruydu (unmount
+cleanup + `visibilitychange`), ama **hiçbir yerde yazılı değildi** → sessizce
+bozulabilirdi. Artık kilitli: timer `STOPPED` · abonelik `DETACHED` · yoklama
+`NOT_INVOKED` · arka plan `STOPPED` · **üretim etkisi `NONE`**.
+"Gözlemlenemeyen özellik tamamlanmış değildir" kuralının bedeli, LAB'ın ürünü
+yavaşlatması olamaz.
+
+**Mavi: ÖLÇÜLDÜ, DOKUNULMADI.** Bağlam bütçesi (`maxChars` 700 · `maxFields` 10
+· `FIELD_PRIORITY` sırası) ve serializer **değiştirilmedi**; serializer SAF
+kaldı (sayaç/tavan/saat girmedi). Eklenen tek şey, serializer'ın ZATEN
+hesapladığı sayıların oturum boyunca biriktirilmesidir — `_lastContextTelemetry`
+tek bir anı tutuyordu, eğilimi göstermiyordu.
+
+> **Mavi bağlamı BASKIYA GÖRE kısılmaz** (kilit E3). Cross-Domain §7:
+> performans truth'u değiştiremez. Baskı altında alan düşürmek, Mavi'ye
+> yanlış araç durumu göstermek olurdu — bu bir performans kazancı değil,
+> sessiz bir doğruluk kaybıdır.
+
+**Media ve Phone Link: BİLİNÇLE DOKUNULMADI.** `playbackTruth`,
+`mediaCommandGateway` ve `companionSessionManager` performans tavanı OKUMAZ
+(kilit F1/F2/G1). ARCH-05'in `CAPABILITY_NOT_GRANTED` kapısı yerinde
+(kilit G2); kalp atışı/telemetri baskıya göre atlanmaz (G3).
+
+**Ölçülmemiş sayı iddiası YOK:** bu fazda da hiçbir ms/FPS/RAM kazancı iddia
+edilmedi.
+
+**Kilitler:** `maviMediaPhoneLabF7.test.ts` — 36 kilit (A–I blokları).
 
 ---
 

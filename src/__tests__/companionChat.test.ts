@@ -181,12 +181,19 @@ describe('tryCompanionChat — AI-first router ucu', () => {
     setupCompanion(false);
   });
 
-  it('companion KAPALI → null (eski zincir AYNEN işler)', async () => {
+  /* MAVI-F1 (2026-08-29) — KİLİT YENİ DOĞRU DAVRANIŞA GÜNCELLENDİ (kaldırılmadı).
+   * ESKİ kilit: "companion KAPALI → null (eski zincir AYNEN işler)". O davranış
+   * ÜRÜN KUSURUYDU: bir KİŞİLİK ayarı kapalıyken sohbet/anlama tamamen ölüyor,
+   * Mavi regex parser'a düşüyordu. Yeni invaryant: presence TON'u yönetir,
+   * YETENEĞİ değil. */
+  it('companion KAPALI → sohbet YİNE çalışır (presence yetenek kapatmaz)', async () => {
     setupCompanion(false);
-    const fetchSpy = mockGeminiOk();
+    const fetchSpy = mockGeminiOk('İyiyim, sen nasılsın?');
     vi.stubGlobal('fetch', fetchSpy);
-    expect(await tryCompanionChat('nasılsın', GEMINI_OPTS)).toBeNull();
-    expect(fetchSpy).not.toHaveBeenCalled();
+    const r = await tryCompanionChat('nasılsın', GEMINI_OPTS);
+    expect(r).not.toBeNull();
+    expect(r!.route).toBe('companion_gemini');
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
   });
 
   it('AI-FIRST: keyword listesinde OLMAYAN serbest cümle de Gemini\'ye gider', async () => {
@@ -344,9 +351,14 @@ describe('tryCompanionChat — AI-first router ucu', () => {
 
     await tryCompanionChat('nasılsın', GEMINI_OPTS);
     const body = lastRequestBody(fetchSpy);
-    // SAHA 2026-07-24: park bütçesi 160→900. Eski 160 token uzun anlatımı
-    // `finishReason=MAX_TOKENS` ile cümle ortasında kesiyordu (cihazda ölçüldü).
-    expect(body.generationConfig.maxOutputTokens).toBe(900);
+    /* SAHA 2026-07-24: park bütçesi 160→900. Eski 160 token uzun anlatımı
+       `finishReason=MAX_TOKENS` ile cümle ortasında kesiyordu (cihazda ölçüldü).
+       SAHA 2026-08-30 (kütük #1049 · gerçek cihaz): 900 de YETMEDİ — "coğrafi
+       bölgeleri detaylıca anlat" sorusunda 7 bölgenin yalnız 4'ü anlatıldı ve
+       kullanıcıya kısaltıldığı SÖYLENMEDİ. Park bütçesi 900→2000; sürüş değeri
+       (220) DEĞİŞMEDİ (dikkat bütçesi · ISO 15008 pazarlıksız).
+       Kilit KALDIRILMADI, yeni doğru değere GÜNCELLENDİ. */
+    expect(body.generationConfig.maxOutputTokens).toBe(2000);
     const prompt = body.system_instruction.parts[0].text;
     // Sabit "en fazla 3 cümle" tavanı KALDIRILDI — uzunluk soruya uyar.
     expect(prompt).not.toContain('en fazla 3 doğal cümleyle');
@@ -693,12 +705,15 @@ describe('tryCompanionBrain — komut/sohbet kararını tek Gemini çağrısı v
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
-  it('companion KAPALI → null (eski zincir aynen)', async () => {
+  /* MAVI-F1 — KİLİT YENİ DOĞRU DAVRANIŞA GÜNCELLENDİ (bkz. yukarıdaki not).
+   * Beyin, Mavi'nin karar çekirdeğidir; kişilik ayarı onu kapatamaz. */
+  it('companion KAPALI → BEYİN YİNE çalışır (presence yetenek kapatmaz)', async () => {
     setupCompanion(false);
-    const fetchSpy = vi.fn();
+    const fetchSpy = mockGeminiOk('{"type":"chat","say":"İyiyim."}');
     vi.stubGlobal('fetch', fetchSpy);
-    expect(await tryCompanionBrain('nasılsın', GEMINI_OPTS)).toBeNull();
-    expect(fetchSpy).not.toHaveBeenCalled();
+    const r = await tryCompanionBrain('nasılsın', GEMINI_OPTS);
+    expect(r).not.toBeNull();
+    expect(fetchSpy).toHaveBeenCalled();
   });
 
   /* ── İNTERNET / grounding yeteneği (haber/güncel bilgi) ──────── */

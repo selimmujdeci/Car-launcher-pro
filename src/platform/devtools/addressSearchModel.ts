@@ -24,6 +24,12 @@ import {
   type AddressSearchStage,
   type AddressSearchSurface,
 } from '../geo/addressSearchLedger';
+import {
+  SEARCH_PROVIDER_LABEL,
+  SEARCH_VERDICT_LABEL,
+  type SearchChainVerdict,
+  type SearchProviderId,
+} from '../geo/searchChainModel';
 
 const NA = '—';
 
@@ -213,6 +219,40 @@ export function buildAddressSearchView(snap: AddressSearchRawSnapshot): AddressS
   if (stageFields.length === 0) {
     stageFields.push(field('st-none', 'Katman', NA, 'UNAVAILABLE', src, 'kayıt yok'));
   }
+  /* Overpass KATEGORİ katmanı sağlığı — "pastane / en yakın eczane" cevabını
+     üreten katman budur; soğumadaysa kategori sorguları SESSİZCE boş döner ve
+     bu, ekranda görünmeden teşhis edilemezdi (gözlemlenebilirlik kuralı). */
+  /* `?? null`: model SAF bir okuyucudur ve anlık görüntüyü kendisi kurmaz —
+     alan hiç gelmezse "bilinmiyor" (UNAVAILABLE) demelidir, çökmemelidir. */
+  const opc = snap.overpassCategory ?? null;
+  stageFields.push(field('opc-cooldown', 'Overpass kategori · soğuma',
+    opc === null ? NA : (opc.cooldownRemainingMs > 0 ? `${Math.round(opc.cooldownRemainingMs / 1000)} sn` : 'yok'),
+    opc === null ? 'UNAVAILABLE' : 'OBSERVED',
+    'geo/overpassCategorySearch.readOverpassCategoryStatus',
+    'HTTP 429 sonrası ağa çıkılmaz — kategori sorguları bu sürede boş döner'));
+  stageFields.push(field('opc-cache', 'Overpass kategori · önbellek/uçuşta',
+    opc === null ? NA : `${opc.cachedKeys} / ${opc.inflight}`,
+    opc === null ? 'UNAVAILABLE' : 'OBSERVED',
+    'geo/overpassCategorySearch.readOverpassCategoryStatus',
+    'önbellekteki kategori+hücre anahtarı sayısı / süren istek sayısı'));
+
+  /* P0-NAV-07 — KAPSAM katmanları: uzak hedef adresini çözen çapa ve iki
+     yüzeyin paylaştığı ToS sırası. Görünmezse "neden bulamadı" teşhis
+     edilemez (gözlemlenebilirlik kuralı). */
+  const anchorCount = snap.cityAnchorCount ?? null;
+  stageFields.push(field('anchor-count', 'Çözülmüş şehir çapası',
+    anchorCount === null ? NA : String(anchorCount),
+    anchorCount === null ? 'UNAVAILABLE' : 'OBSERVED',
+    'geo/cityAnchor.readCityAnchorCacheSize',
+    'sorguda adı geçen ilin merkezi — uzak hedef adresi bu sayede bulunur'));
+
+  const slotMs = snap.nominatimSlotDelayMs ?? null;
+  stageFields.push(field('nominatim-slot', 'Nominatim ToS sırası',
+    slotMs === null ? NA : `${slotMs} ms`,
+    slotMs === null ? 'UNAVAILABLE' : 'OBSERVED',
+    'geo/nominatimRateLimit.readNominatimSlotDelayMs',
+    'iki arama yüzeyi TEK sayacı paylaşır; sürekli yüksekse birbirini bekletir'));
+
   stageFields.push(field('provider', 'BYOK premium sağlayıcı',
     snap.providerName === null
       ? NA
@@ -261,16 +301,83 @@ export function buildAddressSearchView(snap: AddressSearchRawSnapshot): AddressS
     s.nextMeasurement === null ? 'UNAVAILABLE' : 'DERIVED', src,
     'en çok eksik olan kanıt — enstrümantasyonun sonraki adımı'));
 
+  /* ── 7 · Sağlayıcı sicili (P0-NAV-08) ──────────────────────────────────
+   * `stage` yalnız KAZANANI gösterir. Kaybedenler — zaman aşımına uğrayan,
+   * hata veren, hiç çağrılmayan — sahada görünmüyordu. Bu kart onları sayar.
+   *
+   * DÜRÜSTLÜK: hiç denenmemiş sağlayıcı UNAVAILABLE'dır, "0 hata" DEĞİL. */
+  const providerFields: InspectorField[] = [];
+  const provSrc = 'geo/addressSearchLedger.summarizeAddressSearches';
+  for (const id of Object.keys(s.byProvider) as SearchProviderId[]) {
+    const r = s.byProvider[id];
+    if (r.attempted === 0) continue;
+    const parts = [`${r.attempted} deneme`, `${r.hit} sonuç`, `${r.zero} boş`];
+    if (r.timeout > 0)    parts.push(`${r.timeout} zaman aşımı`);
+    if (r.error > 0)      parts.push(`${r.error} hata`);
+    if (r.parseError > 0) parts.push(`${r.parseError} çözümleme hatası`);
+    if (r.medianMs !== null) parts.push(`medyan ${r.medianMs} ms`);
+    providerFields.push(field(
+      `pv-${id}`, SEARCH_PROVIDER_LABEL[id], parts.join(' · '), 'OBSERVED', provSrc,
+      r.parseError > 0
+        ? 'çözümleme hatası KOD kusurudur — sağlayıcı sözleşmesi değişmiş olabilir'
+        : r.timeout > 0
+          ? 'zaman aşımı "veri yok" iddiasını ÇÜRÜTÜR — cevap gelmiş olabilirdi'
+          : 'ulaşıldı / ulaşılamadı ayrımı bu satırda',
+    ));
+  }
+  if (providerFields.length === 0) {
+    providerFields.push(field('pv-none', 'Sağlayıcı denemesi', NA, 'UNAVAILABLE', provSrc,
+      'hiçbir kayıt sağlayıcı düzeyi kanıt bildirmedi — sahte 0 gösterilmez'));
+  }
+
+  /* ── 8 · Zincir hükmü + tekilleştirme + puan kanıtı ─────────────────────
+   * "0 sonuç" tek başına bir teşhis DEĞİLDİR: gerçek veri boşluğu mu,
+   * beklemediğimiz bir sağlayıcı mı, yoksa kendi kapılarımız mı eledi? */
+  const chainFields: InspectorField[] = [];
+  if (s.chainVerdictSampleCount === 0) {
+    chainFields.push(field('cv-none', 'Zincir hükmü', NA, 'UNAVAILABLE', provSrc,
+      'sağlayıcı denemesi bildiren kayıt yok — hüküm TÜRETİLEMEZ'));
+  } else {
+    for (const v of Object.keys(s.byChainVerdict) as SearchChainVerdict[]) {
+      if (s.byChainVerdict[v] === 0) continue;
+      chainFields.push(field(
+        `cv-${v}`, SEARCH_VERDICT_LABEL[v], String(s.byChainVerdict[v]),
+        v === 'UNKNOWN' ? 'UNAVAILABLE' : 'DERIVED', provSrc,
+        `${s.chainVerdictSampleCount} kayıt üzerinden — sağlayıcı olgularından türetildi`,
+      ));
+    }
+  }
+  chainFields.push(field('dedupe', 'Tekilleştirmede birleşen aday',
+    s.dedupeMergedTotal === null ? NA : String(s.dedupeMergedTotal),
+    s.dedupeMergedTotal === null ? 'UNAVAILABLE' : 'OBSERVED', provSrc,
+    s.dedupeMergedTotal === null
+      ? 'hiçbir kayıt tekilleştirme ölçmedi — sahte 0 gösterilmez'
+      : 'çevrimiçi + çevrimdışı aynı yeri verdiğinde tek kayda iner'));
+
+  /* Son kaydın BİRİNCİ sonucunun puan bileşenleri — "neden bu birinci". */
+  const lastScored = snap.records.slice().reverse().find((r) => r.topScore !== null) ?? null;
+  const ts = lastScored?.topScore ?? null;
+  chainFields.push(field('topscore', 'Son aramada 1. sonucun puanı',
+    ts === null ? NA
+      : `${ts.total} = ad ${ts.name} · kategori ${ts.category} · mesafe ${ts.distance}`
+        + ` · bağlam ${ts.context} · katman +${ts.layerBonus}`,
+    ts === null ? 'UNAVAILABLE' : 'OBSERVED', provSrc,
+    ts === null
+      ? 'sıralama koşan kayıt yok (merdiven yüzeyi sıralama YAPMAZ — açık borç)'
+      : 'ham bileşenler; ağırlıklar sorgu niyetine göre değişir'));
+
   return {
     verdict,
     verdictNote,
     cards: [
-      { id: 'summary',  title: '1 · Özet',                     fields: summaryFields },
-      { id: 'failures', title: '2 · Sebep Sınıfları',          fields: failureFields },
-      { id: 'stages',   title: '3 · Cevaplayan Katman',        fields: stageFields },
-      { id: 'surfaces', title: '4 · Arama Yüzeyleri',          fields: surfaceFields },
-      { id: 'timing',   title: '5 · Zamanlama',                fields: timingFields },
-      { id: 'gaps',     title: '6 · Eksik Kanıt (borç)',       fields: gapFields },
+      { id: 'summary',   title: '1 · Özet',                     fields: summaryFields },
+      { id: 'failures',  title: '2 · Sebep Sınıfları',          fields: failureFields },
+      { id: 'stages',    title: '3 · Cevaplayan Katman',        fields: stageFields },
+      { id: 'surfaces',  title: '4 · Arama Yüzeyleri',          fields: surfaceFields },
+      { id: 'timing',    title: '5 · Zamanlama',                fields: timingFields },
+      { id: 'gaps',      title: '6 · Eksik Kanıt (borç)',       fields: gapFields },
+      { id: 'providers', title: '7 · Sağlayıcı Sicili',         fields: providerFields },
+      { id: 'chain',     title: '8 · Zincir Hükmü',             fields: chainFields },
     ],
     recent: snap.records.slice().reverse(),
     nextMeasurement: s.nextMeasurement,

@@ -71,6 +71,8 @@ vi.mock('../platform/errorBus', () => ({ showToast: vi.fn() }));
 // Beyin — testin kontrol ettiği sağlayıcı.
 vi.mock('../platform/companion/companionChatProvider', () => ({
   tryCompanionBrain: (...a: unknown[]) => M.brain(...(a as [])),
+  // MAVI-F1: presence okuması (yalnız ÖLÇÜM alanı — akışı etkilemez).
+  currentPresenceMode: () => 'assistant' as const,
 }));
 
 import {
@@ -232,19 +234,27 @@ describe('MAVI-M5 · sağlayıcı yarışları', () => {
     await pA;
   });
 
-  it('9. gecikmeli "Bir saniye…" ara sözü yeni komuttan SONRA konuşmaz', async () => {
+  it('9. MAVI-F2: YAVAS beyin hicbir zaman ara soz uretmez (yeni komut gelse de gelmese de)', async () => {
+    /* Eskiden 1500 ms'de bir filler timer'i atesliyordu; bu kilit yalniz
+       "yeni komuttan SONRA susmasini" koruyordu. F2 ile filler KAYNAKTAN kalkti:
+       artik A askida kalirken 5 sn boyunca HICBIR ara soz duyulmaz — ne A'nin
+       turunda ne B'nin turunda. Kilit her iki turu da kapsayacak sekilde
+       GUCLENDIRILDI (zayiflatilmadi). */
     vi.useFakeTimers();
     const { pending, reached } = stallProviderForA();
+    const FILLER_RE = /Bir saniye|Bakıyorum|Kontrol ediyorum|Düşünüyorum|Anlıyorum/i;
 
     const pA = processTextCommand('uzun bir soru');
-    await reached;                               // A sağlayıcıda asılı, filler timer'ı kuruldu
-    await vi.advanceTimersByTimeAsync(100);      // eşiğe (1500 ms) henüz varmadı
-    await processTextCommand('merhaba');         // B devraldı
+    await reached;                               // A saglayicida asili
+    await vi.advanceTimersByTimeAsync(5_000);    // eski esik (1500 ms) fazlasiyla asildi
+    expect(M.speak.mock.calls.map((c) => String(c[0])).some((t) => FILLER_RE.test(t))).toBe(false);
+
+    await processTextCommand('merhaba');         // B devraldi
     M.speak.mockClear();
-    await vi.advanceTimersByTimeAsync(5_000);    // A'nın filler'ı bu aralıkta ateşlerdi
+    await vi.advanceTimersByTimeAsync(5_000);    // A'nin filler'i ESKIDEN bu aralikta ateslerdi
 
     const spoken = M.speak.mock.calls.map((c) => String(c[0]));
-    expect(spoken.some((s) => /Bir saniye|Bakıyorum hemen|Kontrol ediyorum/.test(s))).toBe(false);
+    expect(spoken.some((s) => FILLER_RE.test(s))).toBe(false);
 
     pending.resolve(NAV_ACTION);
     await pA;

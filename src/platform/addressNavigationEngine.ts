@@ -189,6 +189,9 @@ function _record(
     online:              trace?.online ?? (typeof navigator === 'undefined' ? null : navigator.onLine),
     fallbackQueryUsable: trace?.fallbackQueryUsable ?? null,
     biasDroppedCount:    trace?.biasDroppedCount ?? null,
+    /* P0-NAV-08 — sağlayıcı düzeyi kanıt İZDEN gelir; bu katman kendi
+       denemesini yapmadığı için hiçbir şey UYDURMAZ (iz yoksa `null`). */
+    providerAttempts:    trace?.attempts ?? null,
     outcome,
   }, 'addressNavigationEngine.resolveAndNavigate');
 }
@@ -285,16 +288,40 @@ function _push(partial: Partial<AddressNavState>): void {
   _listeners.forEach((fn) => fn(snap));
 }
 
+/**
+ * Sağlayıcı tip etiketinden koordinat kesinliğini TÜRETİR (P0-NAV-09).
+ *
+ * Yalnız KANITLI eşlemeler yapılır: OSM `place/city|town|suburb` bir ALAN
+ * merkezidir (nokta değil), `highway/*` sokak düzeyidir. Tanımadığımız etiket
+ * `UNKNOWN` kalır — "muhtemelen bina" demek sahte kesinliktir.
+ */
+function _precisionOfGeoType(type: string | undefined): 'ROOFTOP' | 'STREET' | 'AREA' | 'UNKNOWN' {
+  const t = (type ?? '').toLowerCase();
+  if (t.startsWith('highway/') || t.includes('/road') || t.includes('street')) return 'STREET';
+  if (t.startsWith('place/') || t.startsWith('boundary/') || t.includes('suburb')
+      || t.includes('city') || t.includes('town') || t.includes('village')) return 'AREA';
+  if (t.startsWith('building/') || t.includes('house')) return 'ROOFTOP';
+  return 'UNKNOWN';
+}
+
 function _confirmResult(result: GeoResult): void {
   // Uçuştaki tüm asenkron aramaları iptal et — onay anında gen sıfırla
   _searchGeneration++;
 
+  /* P0-NAV-09 — KÜNYE: hedefin nereden geldiği ve NE ZAMAN çözüldüğü rota
+     motoruna kadar taşınır. `result.type` sağlayıcının kendi sınıfıdır
+     (`nom-…`, `poi/…`, `provider/google`) → kesinlik ondan TÜRETİLİR,
+     bilinmiyorsa alan KONULMAZ (uydurma kesinlik YASAK). */
   startNavigation({
-    id:        result.id,
-    name:      result.name,
-    latitude:  result.lat,
-    longitude: result.lng,
-    type:      'history',
+    id:           result.id,
+    name:         result.name,
+    latitude:     result.lat,
+    longitude:    result.lng,
+    type:         'history',
+    fullAddress:  result.fullName,
+    provider:     result.source === 'offline' ? 'LOCAL' : 'ONLINE',
+    resolvedAtMs: Date.now(),
+    precision:    _precisionOfGeoType(result.type),
   }, false, 'USER_VOICE');   // kütük #429: sesli/adres onayı kullanıcı iradesidir
 
   // Offline arama veritabanına kaydet — gelecek offline sorguları için

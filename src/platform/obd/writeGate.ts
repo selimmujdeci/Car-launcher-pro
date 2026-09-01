@@ -23,7 +23,12 @@ export type WriteGateDenyReason =
   | 'stale_data'       // son telemetri çok eski → hız iddiası doğrulanamaz
   | 'speed_unknown'    // araç hız PID'ini desteklemiyor/vermiyor
   | 'vehicle_moving'   // araç hareket halinde
-  | 'not_confirmed';   // kullanıcı açık onay vermedi
+  | 'not_confirmed'    // kullanıcı açık onay vermedi
+  /* ARCH-05: ÇAĞIRANIN yetkisi yok. `evaluateDtcClearGate` bunu ASLA
+     üretmez — fiziksel önkoşul ile yetki AYRI kapılardır; bu değer yalnız
+     `dtcService.clearDTCCodes` içindeki yetki kapısından doğar ve UI'ın
+     kullanıcıya doğru cümleyi kurabilmesi için AYNI sonuç tipinde taşınır. */
+  | 'not_authorized';
 
 /** Bloke etmeyen ama kullanıcıya söylenmesi gereken durumlar (8-kapı: anlam üret). */
 export type WriteGateAdvisory =

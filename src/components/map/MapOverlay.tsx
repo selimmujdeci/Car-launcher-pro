@@ -72,7 +72,7 @@ export const MapOverlay = memo(function MapOverlay({
   /* ── Compact (mini widget) vs Full renderleri ── */
   if (compact) {
     return (
-      <div className="absolute inset-0 pointer-events-none z-10">
+      <div className="absolute inset-0 pointer-events-none z-[var(--z-map-effect)]">
 
         {/* Source badge — top-right, küçük */}
         <div className="absolute top-2 right-2">
@@ -128,7 +128,7 @@ export const MapOverlay = memo(function MapOverlay({
 
   /* ── Full (tam ekran) render ── */
   return (
-    <div className={`absolute inset-0 pointer-events-none z-10 transition-all duration-1000 ${
+    <div className={`absolute inset-0 pointer-events-none z-[var(--z-map-effect)] transition-all duration-1000 ${
       isDriving ? 'bg-gradient-to-t from-black/50 via-transparent to-transparent' : ''
     }`}>
 

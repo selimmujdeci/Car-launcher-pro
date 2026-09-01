@@ -16,9 +16,17 @@
  * ── SÖZLEŞME ────────────────────────────────────────────────────────────────
  *  · **Tur başına EN FAZLA BİR `answer`.** İlk gerçek cevap kazanır; sonrakiler
  *    sessizce düşer (sayaçla görünür).
- *  · **Tur başına EN FAZLA BİR `progress`** ("Bakıyorum…", "taranıyor").
+ *  · **Tur başına EN FAZLA BİR `progress`** — ve `progress` YALNIZ **semantik
+ *    ACK** olabilir ("Araç sistemleri taranıyor", "Hava durumunu alıyorum").
  *    `answer` verildikten SONRA `progress` konuşamaz. Böylece çok fazlı akışlar
  *    (tarama → sonuç) dürüstlüğünü korur ama gevezelik etmez.
+ *  · **MAVI-F2 · YAPAY ARA SÖZ KAPISI (I11).** İçeriksiz bekletme cümlesi
+ *    ("Bakıyorum…", "Düşünüyorum…", "Bir saniye…") `progress` katmanında
+ *    KONUŞULMAZ: `maviAckPolicy.isGenericFiller` ile düşürülür, sayılır ve F0
+ *    izine `filler_trigger` olarak yazılır (üretimde beklenen değer 0 — sayaç
+ *    artıyorsa bir çağrı yeri filler'ı geri getirmiş demektir). Kapı YALNIZ
+ *    `progress`tedir: nihai cevap, gerçek hata mesajı, belirsizlik sorusu ve
+ *    yetenek reddi (`answer`) bu kapıdan GEÇMEZ.
  *  · **ISO 15008 kısaltması TEK YERDE** yapılır → sürüşte "kısaltılmış metin
  *    dedupe'a yakalanmıyor" sınıfı yapısal olarak ORTADAN KALKAR.
  *  · **M5 turn guard'a saygılıdır:** devralınmış (superseded) tur KONUŞAMAZ.
@@ -39,10 +47,24 @@ import { speakFeedback, speakAssistant } from '../ttsService';
  * (`MaviSpeechOpts.turn`). Bu modül global aktif turu okuyup KENDİ stale kararını
  * ÜRETMEZ — öyle bir kontrol tanım gereği daima `true` döner (ölü dal dersi). */
 import { getActiveMaviTurn, isMaviTurnCurrent, type MaviTurnToken } from './maviTurn';
+/* MAVI-F2: filler ↔ semantik ACK ayrımının TEK kaynağı. Saf, yaprak modül —
+ * hiçbir şey import etmez, bu yüzden Mavi'nin bağımlılık grafiğini büyütmez. */
+import { isGenericFiller } from './maviAckPolicy';
 /* MAVI-M4-LAB-2: konuşma sonucu, kapı kararı ve yürütme sonucuyla AYNI turId
  * altında gözlemlenebilsin diye ortak aşama halkasına yazılır. Saf depo —
  * bu import yeni bir TTS kanalı/otoritesi KURMAZ ve akışı değiştirmez. */
 import { recordMaviActionStage } from '../action/maviActionTrace';
+/* MAVI-F0: nihai cevabın seslendirme otoritesine VERİLDİĞİ an — TTS sentez ve
+   ses başlangıcı segmentlerinin tabanı. YALNIZ ÖLÇÜM; bu import yeni bir TTS
+   kanalı/otoritesi KURMAZ ve `maviLatencyTrace` hiçbir modülü import etmez. */
+import { markMaviLatency, setMaviLatencyWorkload } from './maviLatencyTrace';
+/* MAVI-F8: sürüş iş yükü bütçesi. Bu import SAF çözümleyiciyi getirir (canlı
+   okuma DI ile ayrı adaptördedir) → Mavi'nin bağımlılık grafiği BÜYÜMEZ.
+   Bütçe bir GÜVENLİK kararı DEĞİLDİR ve mevcut ISO 15008 kısıtını GEVŞETMEZ:
+   iki tavandan daima KÜÇÜK olan uygulanır. */
+import {
+  applyResponseBudget, currentMaviResponseBudget, noteResponseShortened,
+} from './maviWorkload';
 
 /** Cevap katmanı — `progress` ara bilgi, `answer` nihai cevaptır. */
 export type MaviSpeechTier = 'progress' | 'answer';
@@ -99,8 +121,24 @@ let _suppressedDuplicate = 0;
  * Doyan (saturating) — uzun oturumda taşmaz. PII taşımaz (yalnız adet).
  */
 let _staleLateSpeechSuppressed = 0;
+/**
+ * MAVI-F2 — `progress` katmanında yakalanıp KONUŞULMAYAN yapay ara söz adedi.
+ * Üretimde beklenen değer **0**'dır: F2 filler'ı çağrı yerlerinden kaldırdı,
+ * bu sayaç yalnız bir REGRESYON'da (yeni bir filler çağrısı ya da modelin
+ * ürettiği içeriksiz `feedback`) artar. Doyan sayaç; PII taşımaz.
+ */
+let _rejectedFiller = 0;
 
 function _bump(v: number): number { return v >= MAX_COUNTER ? MAX_COUNTER : v + 1; }
+
+/**
+ * Ortak aşama kaydı (MAVI-M4-LAB-2). YALNIZ makine-okur kodlar ve katman adı
+ * geçer — SESLENDİRİLEN METİN ASLA KAYDEDİLMEZ (kullanıcı içeriği). Kayıt
+ * fail-soft: gözlem katmanı düşerse konuşma akışı ETKİLENMEZ.
+ */
+function _trace(status: string, reason: string, turnId: number | null): void {
+  recordMaviActionStage({ stage: 'speech', status, reason, turnId });
+}
 
 /** Sürüşte metni ISO 15008 sınırına indirir — TEK YER. */
 export function trimForDriving(text: string, isDriving: boolean): string {
@@ -134,9 +172,7 @@ export function speakMaviAnswer(text: string, opts: MaviSpeechOpts = {}): boolea
 
   /* MAVI-M4-LAB-2: sonucu ortak aşama halkasına yazar. YALNIZ makine-okur kodlar
    * ve katman adı geçer — SESLENDİRİLEN METİN ASLA KAYDEDİLMEZ (kullanıcı içeriği). */
-  const trace = (status: string, turnId: number | null): void => {
-    recordMaviActionStage({ stage: 'speech', status, reason: tier, turnId });
-  };
+  const trace = (status: string, turnId: number | null): void => _trace(status, tier, turnId);
 
   /* ── M5 STALE OTORİTESİ BURADA DEĞİLDİR (MAVI-M6-DEAD-STALE-BRANCH) ───────
    * Burada bir `isMaviTurnCurrent(getActiveMaviTurn())` kontrolü VARDI ve
@@ -176,6 +212,21 @@ export function speakMaviAnswer(text: string, opts: MaviSpeechOpts = {}): boolea
     return false;
   }
 
+  /* ── MAVI-F2 · YAPAY ARA SÖZ KAPISI (I11) ────────────────────────────────
+   * İçeriksiz bekletme cümlesi KONUŞULMAZ. Kapı DEFTER MUTASYONUNDAN ÖNCEDİR:
+   * düşürülen filler turun `progress` slotunu TÜKETMEZ → aynı turda gerçek bir
+   * semantik ACK ("Araç sistemleri taranıyor") hâlâ konuşabilir.
+   *
+   * YALNIZ `progress`: `answer` katmanı (nihai cevap · gerçek hata · belirsizlik
+   * sorusu · yetenek reddi) bu kapıya HİÇ girmez — F2 bir susturma değil, bir
+   * DÜRÜSTLÜK kapısıdır. Ölçüm F0 izine yazılır (yeni telemetri sistemi YOK). */
+  if (tier === 'progress' && isGenericFiller(t)) {
+    _rejectedFiller = _bump(_rejectedFiller);
+    markMaviLatency('filler_trigger');
+    trace('rejected_filler', getActiveMaviTurn()?.id ?? null);
+    return false;
+  }
+
   const turn = getActiveMaviTurn();
   if (turn) {
     _syncTurn(turn.id);
@@ -197,7 +248,24 @@ export function speakMaviAnswer(text: string, opts: MaviSpeechOpts = {}): boolea
     }
   }
 
-  const spoken = trimForDriving(t, opts.isDriving === true);
+  /* ── MAVI-F8 · İLETİŞİM BÜTÇESİ (TEK KISALTMA NOKTASI) ───────────────────
+   * ISO 15008 kısaltması bu satırda ZATEN tek yerdeydi; workload tavanı da
+   * BURAYA eklenir → ikinci bir kısaltma yolu doğmaz. Sıra önemlidir:
+   * önce sürüş kısıtı, sonra workload tavanı → **hangisi daha kısıtlıysa o
+   * kazanır** ve workload hiçbir kısıtı GEVŞETEMEZ.
+   * Akış parçaları (`speakMaviAnswerChunk`) bu yoldan GEÇMEZ — parça başına
+   * kelime tavanı cümleyi paramparça ederdi; akışın kendi kapısı F4'tedir. */
+  const _driveTrimmed = trimForDriving(t, opts.isDriving === true);
+  let spoken = _driveTrimmed;
+  try {
+    const budget = currentMaviResponseBudget();
+    spoken = applyResponseBudget(_driveTrimmed, budget.maxWords);
+    if (spoken !== _driveTrimmed) { noteResponseShortened(); setMaviLatencyWorkload({ shortened: true }); }
+  } catch { spoken = _driveTrimmed; }   // fail-soft: bütçe düşerse ESKİ davranış
+  /* MAVI-F0: YALNIZ nihai cevap (`answer`) ana metriğin tabanıdır. Ara söz
+   * (`progress`/filler) bu damgayı ALMAZ — alsaydı filler'ın hızı "cevap
+   * gecikmesi" gibi ölçülür ve zincir yanlış İYİ görünürdü. */
+  if (tier === 'answer') markMaviLatency('tts_request');
   try {
     if (opts.channel === 'assistant') speakAssistant(spoken);
     else speakFeedback(spoken);
@@ -210,6 +278,9 @@ export function speakMaviAnswer(text: string, opts: MaviSpeechOpts = {}): boolea
     if (tier === 'answer') _answered = true;
     else _progressed = true;
   }
+  /* MAVI-F2: GERÇEKTEN seslendirilen semantik ACK. `filler_trigger`den AYRI
+   * damgadır — ACK filler SAYILMAZ ve `fillerEmissionCount` hedefini bozmaz. */
+  if (tier === 'progress') markMaviLatency('ack_emitted');
   _spoken = _bump(_spoken);
   trace('spoken', turn?.id ?? null);
   return true;
@@ -231,6 +302,14 @@ export function getMaviSpeechDiagnostics(): {
   suppressedDuplicate: number;
   /** Geç dönen eskimiş konuşma reddi — GERÇEKTEN ölçülür (bkz. sayaç notu). */
   staleLateSpeechSuppressed: number;
+  /** MAVI-F2: konuşmadan düşürülen yapay ara söz adedi (üretimde beklenen: 0). */
+  rejectedFiller: number;
+  /** MAVI-F4: akış cevabı şu an açık mı (`answer` slotunu tutuyor). */
+  streamActive: boolean;
+  /** MAVI-F4: `answer` slotu akış için kaç kez talep edildi. */
+  streamsClaimed: number;
+  /** MAVI-F4: talep REDDEDİLDİ (tur eskimiş ya da cevap zaten verilmiş). */
+  streamsRejected: number;
 } {
   return {
     turnId: _turnId,
@@ -239,7 +318,125 @@ export function getMaviSpeechDiagnostics(): {
     spoken: _spoken,
     suppressedDuplicate: _suppressedDuplicate,
     staleLateSpeechSuppressed: _staleLateSpeechSuppressed,
+    rejectedFiller: _rejectedFiller,
+    streamActive: _streamActive,
+    streamsClaimed: _streamsClaimed,
+    streamsRejected: _streamsRejected,
   };
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * MAVI-F4 · AKIŞ (STREAMING) CEVABI — **AKIŞ TEK `answer`DIR, ÇOK DEĞİL**
+ *
+ * Streaming cevapta Mavi tek bir cümle yerine ardışık parçalar konuşur. Bu,
+ * tur başına tek-`answer` sözleşmesini BOZMAMALIDIR: parçaların her biri ayrı
+ * `answer` sayılsaydı ikinci parça kendi sözleşmesi tarafından SUSTURULURDU.
+ *
+ * Çözüm: akış BAŞLARKEN `answer` slotu BİR KEZ talep edilir (`claim`), sonraki
+ * parçalar o talebin içinde konuşulur. Bunun iki doğrudan sonucu vardır:
+ *   1. Akış konuşurken gelen başka bir `answer` (ör. `_dispatchConversation`in
+ *      nihai metni) **kendiliğinden düşer** → DUPLICATE KONUŞMA YAPISAL OLARAK
+ *      İMKÂNSIZDIR (F4 kabul kapısı 9).
+ *   2. Semantik ACK (F2 `progress`) akıştan ÖNCE konuşulmuşsa slot ayrıdır ve
+ *      korunur; ACK'ten SONRA gelen akış yine tek `answer`dır.
+ * ════════════════════════════════════════════════════════════════════════ */
+
+/** Akış açıkken `true` — `answer` slotu bu akış tarafından tutulur. */
+let _streamActive = false;
+let _streamChunks = 0;
+let _streamsClaimed = 0;
+let _streamsRejected = 0;
+
+/**
+ * Akış cevabı için `answer` slotunu talep eder.
+ *
+ * `false` dönerse akış BAŞLATILMAMALIDIR: bu turda zaten bir cevap konuşulmuş
+ * ya da tur devralınmıştır. Talep başarısızsa hiçbir parça konuşulmaz —
+ * "önce dene, sonra bak" yapılmaz (yarım cevap yasağı).
+ */
+export function claimMaviAnswerStream(turn?: MaviTurnToken | null): boolean {
+  if (turn && !isMaviTurnCurrent(turn)) {
+    _staleLateSpeechSuppressed = _bump(_staleLateSpeechSuppressed);
+    _streamsRejected = _bump(_streamsRejected);
+    _trace('suppressed_stale_late', 'stream', turn.id);
+    return false;
+  }
+  const active = getActiveMaviTurn();
+  if (active) {
+    _syncTurn(active.id);
+    if (_answered) {
+      _suppressedDuplicate = _bump(_suppressedDuplicate);
+      _streamsRejected = _bump(_streamsRejected);
+      _trace('suppressed_duplicate', 'stream', active.id);
+      return false;
+    }
+    _answered = true;                       // slot BURADA tutulur (tek answer)
+  }
+  _streamActive = true;
+  _streamChunks = 0;
+  _streamsClaimed = _bump(_streamsClaimed);
+  _trace('stream_claimed', 'stream', active?.id ?? null);
+  return true;
+}
+
+/**
+ * Akışın BİR parçasını seslendirir. Slot zaten `claimMaviAnswerStream` ile
+ * tutulduğu için tek-`answer` defteri BURADA DEĞİŞTİRİLMEZ.
+ *
+ * ISO 15008 kısaltması parçaya UYGULANMAZ ve bu bilinçlidir: sürüşte akış
+ * zaten AÇILMAZ (bkz. `voiceService` — sürüşte cevap 8 kelimeye indirildiği
+ * için parçalamanın kazancı yok, riski var). Kısaltmayı parça başına yapmak
+ * cümleleri ortasından kesip anlamı bozardı.
+ */
+export function speakMaviAnswerChunk(text: string, opts: { turn?: MaviTurnToken | null } = {}): boolean {
+  if (!_streamActive) return false;              // talep edilmemiş akış konuşamaz
+  const t = typeof text === 'string' ? text.trim() : '';
+  if (!t) return false;
+  if (opts.turn && !isMaviTurnCurrent(opts.turn)) {
+    _staleLateSpeechSuppressed = _bump(_staleLateSpeechSuppressed);
+    _trace('suppressed_stale_late', 'stream', opts.turn.id);
+    return false;
+  }
+  /* İLK parça nihai cevabın seslendirmeye verildiği andır — F0 ana metriğinin
+   * tabanı. Sonraki parçalar bu damgayı ALMAZ (ilk gerçekleşme kazanır). */
+  if (_streamChunks === 0) markMaviLatency('tts_request');
+  try {
+    speakAssistant(t);
+  } catch {
+    _trace('tts_error', 'stream', getActiveMaviTurn()?.id ?? null);
+    return false;                                // fail-soft: akış kırılmaz
+  }
+  _streamChunks = _bump(_streamChunks);
+  _spoken = _bump(_spoken);
+  _trace('stream_chunk', 'stream', getActiveMaviTurn()?.id ?? null);
+  return true;
+}
+
+/** Akışı kapatır (tamamlandı ya da iptal). Slot bırakılmaz — cevap verilmiştir. */
+export function releaseMaviAnswerStream(): void {
+  _streamActive = false;
+  _trace('stream_released', 'stream', getActiveMaviTurn()?.id ?? null);
+}
+
+/** Akış şu an açık mı (çağıranlar duplicate'ten kaçınmak için sorar). */
+export function isMaviAnswerStreamActive(): boolean { return _streamActive; }
+
+/**
+ * Tutulan `answer` slotunu GERİ BIRAKIR — akış **hiç konuşmadıysa** kullanılır.
+ *
+ * NEDEN GEREKLİ (sessiz ölüm koruması): akış slotu talep eder ama model yapısal
+ * çıktı (`action`/`web`) üretirse ya da hiç metin gelmezse tek kelime bile
+ * konuşulmaz. Slot tutulu kalsaydı kanonik yolun cevabı (`_dispatchConversation`
+ * ya da executor sonucu) tek-`answer` kuralına takılıp DÜŞER ve kullanıcı
+ * **hiçbir şey duymazdı**. Slot yalnız GERÇEKTEN konuşulduğunda tüketilmiş sayılır.
+ *
+ * Akış konuşmuşsa bu fonksiyon ÇAĞRILMAMALIDIR (çağrılırsa duplicate kapısı açılır).
+ */
+export function releaseMaviAnswerSlot(): void {
+  if (_streamChunks > 0) return;          // konuşuldu → slot GERÇEKTEN tüketildi
+  _answered = false;
+  _streamActive = false;
+  _trace('stream_slot_released', 'stream', getActiveMaviTurn()?.id ?? null);
 }
 
 /** @internal — testler arası izolasyon. */
@@ -250,4 +447,9 @@ export function _resetMaviSpeechForTest(): void {
   _spoken = 0;
   _suppressedDuplicate = 0;
   _staleLateSpeechSuppressed = 0;
+  _rejectedFiller = 0;
+  _streamActive = false;
+  _streamChunks = 0;
+  _streamsClaimed = 0;
+  _streamsRejected = 0;
 }

@@ -425,7 +425,10 @@ const CompanionPanel = memo(function CompanionPanel() {
       <PremiumToggle
         icon={MessageCircle}
         label="Yol Arkadaşım"
-        desc="Konuşan akıllı yolculuk asistanı — varsayılan kapalı"
+        /* MAVI-F1: bu şalter Mavi'yi AÇIP KAPATMAZ — kapalıyken de Mavi tam
+           yeteneklidir (komut, sohbet, araç soruları). Yalnız sohbet sıcaklığını,
+           yolculuk arkadaşlığını ve kendiliğinden konuşmayı yönetir. */
+        desc="Sohbet kişiliği ve kendiliğinden konuşma — kapalıyken Mavi yine tam yetenekli"
         value={settings.companionEnabled ?? false}
         onChange={(v) => updateSettings({ companionEnabled: v })}
         accent="#22d3ee"
@@ -507,15 +510,25 @@ const CompanionPanel = memo(function CompanionPanel() {
             </div>
           </div>
 
-          {/* Wake word — sözler asistan ADINDAN türetilir ("Mavi"/"Hey Mavi") */}
-          <PremiumToggle
-            icon={Mic}
-            label="Sesle Uyandırma"
-            desc={`"${suggestWakePhrase(settings.companionAssistantName)}" de, asistan uyansın`}
-            value={settings.companionWakeWordEnabled ?? false}
-            onChange={(v) => updateSettings({ companionWakeWordEnabled: v })}
-            accent="#a78bfa"
-          />
+        </div>
+      )}
+
+      {/* ── MAVI-F11 · SESLE UYANDIRMA — YOL ARKADAŞI'NDAN BAĞIMSIZ BÖLÜM ──
+          ESKİDEN bu bölümün TAMAMI `companionEnabled &&` koşulunun İÇİNDEydi:
+          Yol Arkadaşı kapatılınca kullanıcının AÇIK olarak işaretlediği wake
+          ayarı ekrandan KAYBOLUYOR ama depoda `true` kalıyordu → erişilemeyen
+          GİZLİ DURUM. Üstelik `wakeWordService` de presence'a bağlı olduğu için
+          ayar sessizce ETKİSİZDİ. F11 her iki bağı da kaldırdı: wake ayarı
+          presence'tan bağımsızdır ve HER ZAMAN erişilebilir. */}
+      <div className="mt-4 pt-4 border-t border-white/10 flex flex-col gap-3">
+        <PremiumToggle
+          icon={Mic}
+          label="Sesle Uyandırma"
+          desc={`"${suggestWakePhrase(settings.companionAssistantName)}" de, asistan uyansın — Yol Arkadaşı kapalıyken de çalışır`}
+          value={settings.companionWakeWordEnabled ?? false}
+          onChange={(v) => updateSettings({ companionWakeWordEnabled: v })}
+          accent="#a78bfa"
+        />
 
           {(settings.companionWakeWordEnabled ?? false) && (
             <div className="flex flex-col gap-3">
@@ -611,13 +624,13 @@ const CompanionPanel = memo(function CompanionPanel() {
             </div>
           )}
 
-          {/* Gizlilik notu */}
-          <div className="p-3 rounded-xl bg-[var(--oem-surface-2)] border border-[var(--oem-line)] text-[10px] text-[color:var(--oem-ink-3)] leading-relaxed">
-            <span className="text-[color:var(--oem-ink-2)] font-bold">Gizlilik:</span>
-            {' '}Ses tanıma %100 cihaz içinde çalışır. Ad ve hitap bilgisi cihaz dışına gönderilmez.
-          </div>
+        {/* Gizlilik / mikrofon davranışı — her iki bölüm için de geçerlidir */}
+        <div className="p-3 rounded-xl bg-[var(--oem-surface-2)] border border-[var(--oem-line)] text-[10px] text-[color:var(--oem-ink-3)] leading-relaxed">
+          <span className="text-[color:var(--oem-ink-2)] font-bold">Gizlilik:</span>
+          {' '}Ses tanıma %100 cihaz içinde çalışır. Ad ve hitap bilgisi cihaz dışına gönderilmez.
+          {' '}Sesle uyandırma kapalıyken mikrofon yalnız butona basınca açılır.
         </div>
-      )}
+      </div>
     </div>
   );
 });

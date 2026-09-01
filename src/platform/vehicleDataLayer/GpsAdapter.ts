@@ -1,6 +1,9 @@
 import { onGPSLocation } from '../gpsService';
 import type { GpsAdapterData } from './types';
 import { dbgIncGps } from '../debug';
+/* ARCH-06/F4 — YALNIZ SAYAÇ. GPS kadansı, throttle'ı ve ARCH-02/F2
+   nesil/sıra guard'ları DEĞİŞMEDİ; koordinat sayaca GİRMEZ. */
+import { bumpPerf } from '../perf/perfCounters';
 
 type Callback = (data: GpsAdapterData) => void;
 
@@ -32,6 +35,10 @@ export class GpsAdapter {
       // Ham m/s — SignalNormalizer.fromGPS() km/h'e çevirir
       if (loc.speed != null) data.speed = loc.speed;
 
+      /* VDL sınırına ULAŞAN fix sayısı. `gpsService` tarafındaki
+         `fixAccepted` ile birlikte okunur: ikisi arasındaki fark bu
+         adaptörün KENDİ throttle'ının (THROTTLE_MS) elediği fix'tir. */
+      bumpPerf('gps.publishedToStore');
       this._listeners.forEach((fn) => fn(data));
       dbgIncGps();
     });

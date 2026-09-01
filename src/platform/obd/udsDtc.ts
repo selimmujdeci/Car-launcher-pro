@@ -116,9 +116,104 @@ export function parseUdsDtcResponse(rawHex: string): UdsDtc[] {
 }
 
 /**
+ * P0-OBD-PARITY — ECU'NUN GÖNDERDİĞİ KAYIT SAYISI (parser'dan BAĞIMSIZ ölçüm).
+ *
+ * NEDEN AYRI: `parseUdsDtcResponse().length` parser'ın ÜRETTİĞİ sayıdır. Eğer
+ * parser bir kaydı düşürürse (bozuk bayt, dolgu) o kayıp GÖRÜNMEZ olur —
+ * çünkü karşılaştıracak bağımsız bir sayı yoktur. Bu fonksiyon zarfın KENDİ
+ * geometrisinden sayar: `RAW` ile `PARSED` ayrı ölçümler hâline gelir ve
+ * aradaki fark `PARSE_DROPPED` olarak raporlanabilir.
+ *
+ * `null` = gövde kayıt sınırına oturmuyor (malformed) — sayı UYDURULMAZ.
+ */
+export function countUdsDtcRecords(rawHex: string): number | null {
+  const clean = (rawHex ?? '').replace(/[^0-9A-Fa-f]/g, '').toUpperCase();
+  if (clean.length < 2 || ((clean.length - 2) % 8) !== 0) return null;
+  return (clean.length - 2) / 8;
+}
+
+/** 0x19-02/0A gövdesinin kayıt sınırlarını doğrular; boş geçerli liste ile malformed ayrılır. */
+export function validateUdsDtcResponse(rawHex: string): { valid: boolean; availabilityMask: string | null } {
+  const clean = (rawHex ?? '').replace(/[^0-9A-Fa-f]/g, '').toUpperCase();
+  if (clean.length < 2 || ((clean.length - 2) % 8) !== 0)
+    return { valid: false, availabilityMask: null };
+  return { valid: true, availabilityMask: clean.slice(0, 2) };
+}
+
+/**
  * UDS DTC'yi standart tarama modlarına eşler — çoklu-ECU raporunda tek dilde konuşmak için.
  * ONAYLI > BEKLEYEN önceliği (fail-closed: daha ciddi olanı seç).
  */
 export function udsDtcToScanMode(dtc: UdsDtc): 'stored' | 'pending' {
   return dtc.status.confirmed || dtc.status.testFailed ? 'stored' : 'pending';
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   P0-OBD-FINISH — DTC KAYDININ DURUM SEMANTİĞİ (status baytı → tek etiket)
+   ══════════════════════════════════════════════════════════════════════════
+
+   ÖLÇÜLEN KUSUR: ürün UDS/KWP kayıtlarını `stored | pending` ikilisine
+   düşürüyordu (`udsDtcToScanMode`). Car Scanner AYNI araçta aynı kayıtları
+   BEŞ ayrı durumda gösteriyor: "Onaylı" · "Arşiv / Etkin değil" · "Test
+   tamamlanmadı" · "Bu işlem çevriminde test tamamlanmadı" · "Son DTC
+   silindikten sonra test tamamlanmadı". İkiliye düşürmek, ARŞİVDEKİ bir
+   kaydı AKTİF ARIZA gibi göstermek (yanlış alarm) ya da tersine aktif bir
+   arızayı sıradan bir "kayıtlı kod" saymak demekti.
+
+   BU FONKSİYON SINIFLANDIRIR, FİLTRELEMEZ. ECU'dan gelen hiçbir kayıt bu
+   yüzden düşürülmez — yalnız DOĞRU adıyla gösterilir (görev Aşama 4).
+
+   Kaynak: ISO 14229-1 Tablo D.1 (statusOfDTC bit tanımları) — bitler zaten
+   `parseUdsStatusByte` ile çözülüyordu, kimse KARAR üretmiyordu.
+   SAF: I/O yok, durum yok. */
+
+export type UdsDtcState =
+  /** bit0 — arıza ŞU AN mevcut (testFailed). En ciddi durum. */
+  | 'ACTIVE'
+  /** bit3 — kalıcı hafızaya yazılmış, ama şu an test düşmüyor. */
+  | 'CONFIRMED_INACTIVE'
+  /** bit2 — bekleyen; henüz onaylanmadı. */
+  | 'PENDING'
+  /** bit6 — bu çalışma çevriminde test TAMAMLANMADI (sonuç BİLİNMİYOR). */
+  | 'TEST_INCOMPLETE'
+  /** Kayıt var ama hiçbir aktiflik/onay biti yok → arşiv (etkin değil). */
+  | 'STORED_INACTIVE'
+  /** Status baytı OKUNAMADI — sahte durum ÜRETİLMEZ. */
+  | 'UNKNOWN';
+
+export const UDS_DTC_STATE_LABEL: Readonly<Record<UdsDtcState, string>> = {
+  ACTIVE:             'AKTİF',
+  CONFIRMED_INACTIVE: 'ONAYLI (şu an düşmüyor)',
+  PENDING:            'BEKLEYEN',
+  TEST_INCOMPLETE:    'TEST TAMAMLANMADI',
+  STORED_INACTIVE:    'ARŞİV / ETKİN DEĞİL',
+  UNKNOWN:            'DURUM BİLİNMİYOR',
+} as const;
+
+/**
+ * Status baytından TEK durum üretir (fail-closed öncelik: aktif > onaylı >
+ * bekleyen > test yok > arşiv). `null` status → `UNKNOWN` (sahte "temiz" YOK).
+ */
+export function classifyUdsDtcState(status: UdsDtcStatus | null | undefined): UdsDtcState {
+  if (!status) return 'UNKNOWN';
+  if (status.testFailed) return 'ACTIVE';
+  if (status.confirmed) return 'CONFIRMED_INACTIVE';
+  if (status.pending || status.testFailedThisCycle) return 'PENDING';
+  if (status.testNotCompletedThisCycle) return 'TEST_INCOMPLETE';
+  return 'STORED_INACTIVE';
+}
+
+/**
+ * P0-OBD-FINISH — KULLANICIYA GÖSTERİLECEK KOD METNİ: `P0380(11)`.
+ *
+ * ÖLÇÜLEN KUSUR: alt kod (FTB / failure type byte) ayrıştırılıp `failureType`
+ * alanına yazılıyordu ama EKRANA HİÇ ÇIKMIYORDU. Aynı araçta Car Scanner
+ * `P0380(11)`, `P0380(12)`, `P0380(13)`, `P0380(96)` gösterirken CarOS tek bir
+ * "P0380" gösteriyordu — dört AYRI devre arızası tek satıra iniyordu.
+ *
+ * Alt kod yoksa (standart Mode 03) sade kod döner — parantez UYDURULMAZ.
+ */
+export function formatDtcDisplayCode(code: string, subCode?: string | null): string {
+  const s = (subCode ?? '').replace(/[^0-9A-Fa-f]/g, '').toUpperCase();
+  return s.length === 0 ? code : `${code}(${s})`;
 }

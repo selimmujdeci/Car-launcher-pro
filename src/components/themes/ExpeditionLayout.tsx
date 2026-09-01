@@ -19,7 +19,7 @@ import { isLowEndDevice } from '../../platform/headUnitCompat';
 import { useDisplaySpeed, formatDisplaySpeed } from '../../hooks/useDisplaySpeed';
 import { useBatteryVoltage } from '../../hooks/useBatteryVoltage';
 import { useLivingThemeState } from '../../hooks/useLivingThemeState';
-import { useUnifiedVehicleStore } from '../../platform/vehicleDataLayer/UnifiedVehicleStore';
+import { useAmbientTemp } from '../../hooks/useCanonicalVehicleSignal';
 import { VehicleTellTales } from '../vehicle/VehicleTellTales';
 import { useEngineReadout } from '../../hooks/useEngineReadout';
 import { useOBDState } from '../../platform/obdService';
@@ -187,7 +187,11 @@ const Header = memo(function Header() {
   const p = usePal();
   const use24Hour = useStore(s => s.settings.use24Hour);
   const { time } = useClock(use24Hour, false);
-  const ambient = useUnifiedVehicleStore(s => s.canAmbientTemp);
+  /* P0-OBD-03: doğrudan CAN alanı okuması KALDIRILDI. `canAmbientTemp` CAN'ı
+     olmayan (aftermarket ELM327'li) araçta kalıcı null'dır ve başlık sonsuza
+     dek '—' gösteriyordu — oysa PID 0x46 okunuyordu. Otorite tek yerde:
+     CAN → OBD → yok, ve YALNIZ taze (LIVE) ölçüm sayı olarak basılır. */
+  const ambient = useAmbientTemp();
   const n = useNotificationState();
   // Living theme — bağlantı durumu (online yeşil nabız / offline soluk).
   const online = useLivingThemeState().conn === 'online';

@@ -178,17 +178,99 @@ describe('MAVI-M5 · guard — kapılar yerinde', () => {
   });
 
   it('37. zincir adımları her yinelemede stale kapısından geçer', () => {
-    const chainIdx = VOICE.indexOf('function dispatchChain');
-    const chain = VOICE.slice(chainIdx, chainIdx + 1200);
+    /* MAVI-F13'te YENİDEN BAĞLANDI (kaldırma DEĞİL): eski kilit `function
+       dispatchChain`ten itibaren SABİT 1200 karakterlik bir pencereye
+       bakıyordu. Zincir kanonik plana taşınınca gövde uzadı ve kapı pencerenin
+       DIŞINA çıktı → kilit "kör" düşecekti. Pencere artık bir sonraki
+       fonksiyon başlığına (`tryHandleChain`) bağlıdır; kapının KENDİSİ
+       zayıflatılmadı, aksine plan yürütücüsünün adım-başı portu olduğu da
+       doğrulanır. */
+    const chainIdx = VOICE.indexOf('async function dispatchChain');
+    const endIdx   = VOICE.indexOf('async function tryHandleChain');
+    expect(chainIdx, 'dispatchChain bulunamadı — kilit körleşti').toBeGreaterThan(-1);
+    expect(endIdx, 'tryHandleChain bulunamadı — kilit körleşti').toBeGreaterThan(chainIdx);
+    const chain = VOICE.slice(chainIdx, endIdx);
     expect(chain).toMatch(/continueIfTurnActive\(_chainTurn, 'action'\)/);
+    /* Kapı TEK ATIŞ olamaz: plan mekaniği onu HER adımdan önce çağırır. */
+    expect(chain).toMatch(/isTurnCurrent:\s*\(\)\s*=>/);
+    /* MAVI-F13/3'te YENİDEN BAĞLANDI: mekanik `voice/maviCompoundPlanRuntime`e
+       taşındı; kök ona DELEGE eder. */
+    expect(chain).toMatch(/runMaviCompoundPlan[<(]/);
   });
 
-  it('38. gecikmeli feedback timer\'ı tur token\'ı TAŞIR', () => {
-    const timerIdx = VOICE.indexOf('THINKING_FEEDBACK_DELAY_MS);');
-    expect(timerIdx).toBeGreaterThan(-1);
-    const block = VOICE.slice(Math.max(0, timerIdx - 400), timerIdx);
-    expect(block).toMatch(/continueIfTurnActive\(turn, 'feedback'\)/);
-    expect(block).toMatch(/_speakThinking\(\)/);
+  /* MAVI-F13/3 · KAYNAK TARAMASINDAN **DAVRANIŞ KİLİDİNE** GÜÇLENDİRME.
+     Yukarıdaki kilit "kapı kodda duruyor" der; bu kilit "kapı GERÇEKTEN her
+     adımdan önce çalışıyor ve devralınan tur kalan adımları BAŞLATMIYOR" der.
+     Kaynak metni değişse bile bu kilit anlamını korur. */
+  it('37b. DAVRANIŞ: tur devralınınca kalan plan adımları YAN ETKİ BAŞLATMAZ', async () => {
+    const { runMaviCompoundPlan, _resetMaviCompoundPlanForTest } =
+      await import('../platform/voice/maviCompoundPlanRuntime');
+    _resetMaviCompoundPlanForTest();
+
+    const executed: string[] = [];
+    let live = true;
+    const step = (id: string) => ({
+      proposal: {
+        capabilityId: `legacy.${id}`, operation: 'run',
+        parameters: { slot: id }, legacyIntent: id.toUpperCase(),
+        requiresConfirmation: false,
+      },
+      payload: id,
+    });
+
+    const res = await runMaviCompoundPlan<string>({
+      steps: [step('a'), step('b'), step('c')],
+      planIdPrefix: 't',
+      turnId: 1,
+      // İlk adımdan SONRA tur devralınır.
+      isTurnCurrent: () => live,
+      execute: async (id) => { executed.push(id); live = false; return 'EXECUTED'; },
+    });
+
+    expect(executed, 'devralınan tur kalan adımları çalıştırdı').toEqual(['a']);
+    const states = res.plan.items.map((i) => i.executionState);
+    expect(states[1]).toBe('CANCELLED');
+    expect(states[2]).toBe('CANCELLED');
+  });
+
+  it('37c. DAVRANIŞ: mekanik cümleyi DÖNER, KONUŞMAZ (otorite kökte)', async () => {
+    const { runMaviCompoundPlan } =
+      await import('../platform/voice/maviCompoundPlanRuntime');
+    const res = await runMaviCompoundPlan<string>({
+      steps: [{
+        proposal: {
+          capabilityId: 'media.playback', operation: 'play',
+          parameters: {}, legacyIntent: 'PLAY_MEDIA', requiresConfirmation: false,
+        },
+        payload: 'x',
+      }],
+      planIdPrefix: 't', turnId: null,
+      isTurnCurrent: () => true,
+      execute: async () => 'EXECUTED',
+    });
+    // Sonuç METİN olarak döner — söyleme kararı çağıranındır.
+    expect(typeof res.outcomeText).toBe('string');
+    expect(res.summary.itemCount).toBe(1);
+  });
+
+  it('38. MAVI-F2: gecikme filler timer\'i voiceService\'te ARTIK YOKTUR (I11)', () => {
+    /* Eski kilit "gecikmeli feedback timer'i tur token'i TASIR" idi — timer'in
+       DOGRU calismasini koruyordu. F2 timer'in KENDISINI kaldirdi: gecikme artik
+       ortulmez, olculur (F0 izi). Kilit yeni dogru davranisa GUNCELLENDI (silinmedi)
+       ki mekanizma sessizce geri donemesin. */
+    expect(VOICE).not.toContain('THINKING_FEEDBACK_DELAY_MS');
+    expect(VOICE).not.toContain('THINKING_PHRASES');
+    expect(VOICE).not.toContain('_speakThinking');
+    expect(VOICE).not.toContain('_thinkingTimer');
+    /* Beyin dalinin ICINDE (`if (aiUsable) try {` → `tryCompanionBrain`) hicbir
+       `setTimeout` ile ara soz kurulmaz. Pencere bu iki capa ile SINIRLIDIR:
+       sabit karakter penceresi, alakasiz bir UI durum sifirlama timer'ini
+       (API anahtari uyarisi) yakalayip kilidi yanlis dusuruyordu. */
+    const branchIdx = VOICE.indexOf('if (aiUsable) try {');
+    const brainIdx = VOICE.indexOf('tryCompanionBrain(trimmed');
+    expect(branchIdx, 'beyin dali bulunamadi — kilit korlesti').toBeGreaterThan(-1);
+    expect(brainIdx).toBeGreaterThan(branchIdx);
+    expect(VOICE.slice(branchIdx, brainIdx)).not.toMatch(/setTimeout\(/);
   });
 
   it('fallback zinciri öncesinde de kapı vardır (stale tur offline cevapla konuşamaz)', () => {

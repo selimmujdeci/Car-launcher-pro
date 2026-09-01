@@ -254,6 +254,21 @@ export interface RawHandshake {
   raw0160?: string;
   raw0180?: string;
   raw01A0?: string;
+
+  /**
+   * P0-OBD-CORE-01B — blok basina YAPILAN deneme sayisi (00,20,40,60,80,A0).
+   * `0` = blok HIC sorgulanmadi. Bu alan olmadan "bos yanit" ile "hic sorulmadi"
+   * ayirt edilemez ve zincirin nerede kirildigi gorulemez.
+   * Eski native plugin bu alani TASIMAZ -> `undefined` (dürüst: olculmedi).
+   */
+  blockAttempts?: number[];
+  /**
+   * Zincirin KESIN OLMAYAN bir yanit yuzunden durdugu blok indeksi; yoksa -1.
+   * `>= 0` iken kesif EKSIKTIR ve "arac desteklemiyor" cikarimi YASAKTIR.
+   */
+  failedBlockIndex?: number;
+  /** Native'in blok basina uyguladigi deneme tavani (gozlem icin). */
+  maxBlockAttempts?: number;
 }
 
 export interface HandshakeResult {
@@ -268,7 +283,27 @@ export interface HandshakeResult {
    * ATILMAZ, mevcut davranış korunur → fail-soft, regresyonsuz).
    */
   readBlocks:    Set<number>;
+  /**
+   * P0-OBD-CORE-01B — KESIF BUTUNLUGU. `supportedPids` TEK BASINA yeterli
+   * degildir: zincir ilk blokta kirildiysa da 15 PID doner ve bu "arac 15 PID
+   * destekliyor" ANLAMINA GELMEZ.
+   *
+   *  · `complete`   : zincir KESIN bir sonla bitti (continuation=0 ya da son blok)
+   *                   -> okunmayan bloklar icin "desteklenmiyor" cikarimi GUVENLI.
+   *  · `incomplete` : zincir cevapsizlik/hata yuzunden KIRILDI -> okunmayan
+   *                   bloklarin PID'leri BILINMIYOR (desteklenmiyor DEGIL).
+   *  · `not_run`    : hic blok okunmadi.
+   */
+  completeness: DiscoveryCompleteness;
+  /** Zincirin kirildigi blok ('20','40'...); kirilmadiysa null. */
+  failedBlock:   string | null;
+  /** Sorgulanan bloklarin taban PID'leri — `readBlocks` ile AYNI DEGIL:
+   *  denenmis ama BASARISIZ blok burada VAR, `readBlocks`te YOK. */
+  attemptedBlocks: Set<number>;
 }
+
+/** Kesif zincirinin butunlugu — "kac PID" sorusundan ONCE gelen soru. */
+export type DiscoveryCompleteness = 'complete' | 'incomplete' | 'not_run';
 
 /** Bitmap blokları — probe PID → pozitif önek + offset + ham alan çıkarıcı. */
 const BITMAP_BLOCKS: ReadonlyArray<{
@@ -291,13 +326,41 @@ const BITMAP_BLOCKS: ReadonlyArray<{
 export function buildHandshakeResult(raw: RawHandshake): HandshakeResult {
   const supportedPids = new Set<number>();
   const readBlocks    = new Set<number>();
+  const attemptedBlocks = new Set<number>();
 
-  for (const blk of BITMAP_BLOCKS) {
+  for (let i = 0; i < BITMAP_BLOCKS.length; i++) {
+    const blk = BITMAP_BLOCKS[i]!;
     const ok = _parseBitmapBlock(blk.raw(raw), blk.posMode, blk.pid, blk.offset, supportedPids);
     if (ok) readBlocks.add(blk.probe);
+    /* DENENDI mi: native `blockAttempts` tasiyorsa ONDAN (kesin); tasimiyorsa
+       ham alanin VARLIGINDAN turetilir (eski plugin — daha zayif ama dürüst). */
+    const att = raw.blockAttempts?.[i];
+    const attempted = typeof att === 'number' ? att > 0 : blk.raw(raw) != null;
+    if (attempted) attemptedBlocks.add(blk.probe);
+  }
+
+  /* BUTUNLUK: native `failedBlockIndex` OTORITEDIR. Tasinmiyorsa kanit
+     `buildDiscoveryEvidence`in `evidenceComplete` hukmunden turetilir —
+     ikinci bir kural YAZILMAZ (tek dogruluk kaynagi). */
+  const failedIdx = typeof raw.failedBlockIndex === 'number' ? raw.failedBlockIndex : -1;
+  let completeness: DiscoveryCompleteness;
+  let failedBlock: string | null = null;
+  if (readBlocks.size === 0 && attemptedBlocks.size === 0) {
+    completeness = 'not_run';
+  } else if (failedIdx >= 0) {
+    completeness = 'incomplete';
+    failedBlock = BITMAP_BLOCKS[failedIdx]?.pid ?? null;
+  } else if (typeof raw.failedBlockIndex === 'number') {
+    completeness = readBlocks.size > 0 ? 'complete' : 'not_run';
+  } else {
+    // Eski plugin: alan yok -> kanittan turet (fail-closed: emin degilsek EKSIK).
+    completeness = buildDiscoveryEvidence(raw).evidenceComplete ? 'complete' : 'incomplete';
   }
 
   return {
+    completeness,
+    failedBlock,
+    attemptedBlocks,
     vin: parseVIN(raw.raw09),
     supportedPids,
     readBlocks,

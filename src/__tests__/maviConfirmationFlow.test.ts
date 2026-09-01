@@ -70,12 +70,18 @@ vi.mock('../platform/weatherService', () => ({
 vi.mock('../platform/sensitiveKeyStore', () => ({ sensitiveKeyStore: { get: async () => '' } }));
 vi.mock('../platform/voiceDiagService', () => ({ reportVoiceDiag: vi.fn(async () => true) }));
 vi.mock('../platform/errorBus', () => ({ showToast: vi.fn() }));
-vi.mock('../platform/companion/companionChatProvider', () => ({ tryCompanionBrain: async () => null }));
+vi.mock('../platform/companion/companionChatProvider', () => ({
+  tryCompanionBrain: async () => null,
+  // MAVI-F1: presence okuması (yalnız ÖLÇÜM alanı — akışı etkilemez).
+  currentPresenceMode: () => 'assistant' as const,
+}));
 vi.mock('../platform/contactsService', () => ({
   searchContacts: () => [{ id: 'k1', name: 'Selim', phones: [{ label: 'mobile', number: '+905551112233' }] }],
   recordCall: vi.fn(),
 }));
 vi.mock('../platform/dtcService', () => ({
+  // P0-OBD-10: silme envanteri (stored + pending). Testte kod VAR sayılır.
+  getClearableDtcSnapshot: () => ({ codes: [], count: M.dtcState.codes.length, scanRan: true }),
   readDTCCodes: vi.fn(async () => {}),
   clearDTCCodes: (...a: unknown[]) => M.clearDTCCodes(...(a as [])),
   onDTCState: (cb: (s: unknown) => void) => { cb(M.dtcState); return () => {}; },

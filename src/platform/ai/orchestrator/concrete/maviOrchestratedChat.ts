@@ -53,6 +53,7 @@ import { presentOperatorOutcome } from '../../operator/intent/operatorPresenter'
 import { runMaviOperator } from '../../operator/concrete/maviOperator';
 import type { OperatorReport } from '../../operator/operatorTypes';
 import { isValidationActive, recordMaviRun } from '../../../validation/validationRecorder';
+import { bumpPerf } from '../../../perf/perfCounters';
 
 /** Monotonik saat — clock-jump güvenli (CLAUDE.md §4). */
 const clock = { nowMs: (): number => (typeof performance !== 'undefined' ? performance.now() : 0) };
@@ -78,6 +79,23 @@ export interface OrchestratedChatParams extends GatewayChatParams {
   readonly task?:         MaviTaskType;
   /** Araç (OBD) bağlı mı — karara taşınır. */
   readonly vehicleConnected?: boolean;
+  /**
+   * MAVI-F13 · TEK İZDÜŞÜM SÖZLEŞMESİ.
+   *
+   * `true` → çağıranın verdiği `system` prompt'u KANONİK araç bağlamını
+   * (`buildInterpretedVehicleContext`) ve KANONİK hafıza izdüşümünü
+   * (`assistant/maviMemory.projectMaviMemory`, F10) ZATEN taşıyor. Bu katman
+   * o iki bloğu İKİNCİ KEZ EKLEMEZ.
+   *
+   * Neden: denetim (2026-08-29) ölçtü ki `companionChatProvider` prompt'a
+   * kanonik bağlam+hafıza koyuyor, ardından bu katman `withVehicleContext` +
+   * `withMemory` ile AYNI kanonik kaynaktan İKİNCİ bir blok ekliyordu →
+   * aynı olgu prompt'ta iki kez, iki farklı biçimde. Bu bir "zenginleştirme"
+   * değil, ikinci bir gerçeklik yüzeyidir.
+   *
+   * Varsayılan `false` (geriye uyum: DI/test çağıranları etkilenmez).
+   */
+  readonly systemCarriesCanonicalProjection?: boolean;
 }
 
 export interface OrchestratedChatResult {
@@ -106,7 +124,9 @@ export function _getLastContextTelemetry(): ContextTelemetry | undefined {
  * kullanıcı mesajı DEĞİŞTİRİLMEZ, bağlam kullanıcı yazmış gibi gösterilmez.
  * Toplama/serileştirme hatası isteği DÜŞÜRMEZ — bağlamsız devam edilir.
  */
-function withVehicleContext(system: string, task: MaviTaskType, nowMs: number): string {
+function withVehicleContext(
+  system: string, task: MaviTaskType, nowMs: number, canonicalUpstream = false,
+): string {
   const enabled = safeBool(() => isMaviContextEnabled());
   const consent = safeConsent();
   const record = (outcome: ContextTelemetry['contextOutcome'], s?: SerializedContext, durationMs = 0): void => {
@@ -121,8 +141,33 @@ function withVehicleContext(system: string, task: MaviTaskType, nowMs: number): 
       contextSourceCount:   s?.sourceCount ?? 0,
       contextOutcome:       outcome,
     };
+
+    /* ── ARCH-06/F7 · Mavi bağlam İŞ YÜKÜ ölçümü ────────────────────────
+       ⚠️ YALNIZ SAYAÇ. Bütçe (`maxChars` 700 · `maxFields` · öncelik sırası)
+       DEĞİŞTİRİLMEDİ, hiçbir alan eklenip çıkarılmadı — konuşma doğruluğu
+       bu turda pazarlık konusu DEĞİLDİR.
+
+       Sayılan şeyler `serializeMaviContext`in ZATEN hesapladığı değerlerdir;
+       burada yalnız oturum boyunca BİRİKTİRİLİR (`_lastContextTelemetry`
+       tek bir anı tutar, eğilimi göstermez).
+
+       GİZLİLİK: alan ADI, alan DEĞERİ, kullanıcı metni ve araç kimliği
+       sayaca GİRMEZ — yalnız ADET. */
+    try {
+      bumpPerf('mavi.contextBuildAttempt');
+      if (outcome === 'injected') bumpPerf('mavi.contextInjected');
+      else                        bumpPerf('mavi.contextSkipped');
+      if (s !== undefined) {
+        bumpPerf('mavi.contextFieldsKept', s.fieldCount);
+        bumpPerf('mavi.contextFieldsDropped', s.droppedFieldCount);
+        bumpPerf('mavi.contextFieldsStale', s.staleFieldCount);
+      }
+    } catch { /* fail-soft: ölçüm sohbeti ASLA düşürmez */ }
   };
 
+  /* MAVI-F13: kanonik izdüşüm YUKARIDA zaten var → ikinci blok EKLENMEZ.
+   * Kapı şalter/izinden ÖNCE gelir: kaynak tekliği bir tercih değil sözleşmedir. */
+  if (canonicalUpstream)               { record('canonical_upstream'); return system; }
   if (!enabled)                        { record('disabled');   return system; }
   if (consent !== 'vehicle_context')   { record('no_consent'); return system; }
 
@@ -159,7 +204,7 @@ export function _getLastMemoryTelemetry(): MemoryTelemetry | undefined {
  * olarak system seviyesinde taşınır; kullanıcı mesajı DEĞİŞTİRİLMEZ. Okuma
  * hatası isteği DÜŞÜRMEZ.
  */
-function withMemory(system: string, task: MaviTaskType): string {
+function withMemory(system: string, task: MaviTaskType, canonicalUpstream = false): string {
   const enabled = safeBool(() => isMaviMemoryEnabled());
   const consent = (() => { try { return getMaviMemoryConsent(); } catch { return 'off'; } })();
 
@@ -177,6 +222,9 @@ function withMemory(system: string, task: MaviTaskType): string {
     };
   };
 
+  /* MAVI-F13 · DUPLICATE MEMORY PROJECTION YASAĞI. Kanonik F10 izdüşümü
+   * prompt'ta ZATEN varsa ikinci hafıza bloğu EKLENMEZ. */
+  if (canonicalUpstream)    { record('canonical_upstream'); return system; }
   if (!enabled)             { record('disabled');   return system; }
   if (consent !== 'memory') { record('no_consent'); return system; }
 
@@ -376,6 +424,10 @@ export async function askOrchestratedChat(params: OrchestratedChatParams): Promi
 
   const gateway = params.gateway ?? getDefaultAiGateway();
 
+  /* MAVI-F13: prompt kanonik bağlam+hafıza taşıyorsa bu katmanın ikinci
+   * enjeksiyonu KAPALIDIR (tek izdüşüm sözleşmesi). */
+  const _canonicalUpstream = params.systemCarriesCanonicalProjection === true;
+
   /* ARAÇLAR (Faz 2): yalnız gerçekten destekleyen bir sağlayıcı varsa ve
      router izin veriyorsa bildirilir. İkisinden biri yoksa istek BİREBİR
      eskisi gibi (tool alanı hiç eklenmez). */
@@ -384,7 +436,13 @@ export async function askOrchestratedChat(params: OrchestratedChatParams): Promi
   const baseRequest: AiGenerateRequest = {
     messages: buildChatMessages(
       withOperator(
-        withDiagnosis(withPlanResults(withMemory(withVehicleContext(params.system, task, clock.nowMs()), task), planRun.block)),
+        withDiagnosis(withPlanResults(
+          withMemory(
+            withVehicleContext(params.system, task, clock.nowMs(), _canonicalUpstream),
+            task, _canonicalUpstream,
+          ),
+          planRun.block,
+        )),
         operatorRun.block,
       ),
       params.user, params.history,

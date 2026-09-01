@@ -111,5 +111,10 @@ export interface ContextTelemetry {
   readonly droppedFieldCount:   number;
   readonly collectionDurationMs: number;
   readonly contextSourceCount:  number;
-  readonly contextOutcome:      'injected' | 'empty' | 'disabled' | 'no_consent' | 'unavailable';
+  /*
+   * MAVI-F13: 'canonical_upstream' = system prompt KANONİK araç bağlamını
+   * ZATEN taşıyor (companionChatProvider.buildInterpretedVehicleContext) →
+   * bu katman İKİNCİ bir blok EKLEMEZ. Kapalı/izinsiz DEĞİL; bilinçli tek-kaynak.
+   */
+  readonly contextOutcome:      'injected' | 'empty' | 'disabled' | 'no_consent' | 'unavailable' | 'canonical_upstream';
 }

@@ -24,8 +24,9 @@
  * • Overpass halka açık ve sık MEŞGUL döner (ölçüm sırasında iki kez
  *   `Dispatcher_Client::request_read_and_idx::timeout` alındı) → bu yol
  *   ZORUNLU DEĞİL, yalnızca EK ŞANStır; hata/timeout sessizce boş döner.
- * • Kullanıcı konumu ŞARTTIR (yarıçap sorgusu). Konum yoksa sorgu yapılmaz —
- *   tüm Türkiye'yi taramak Overpass'i de bizi de boğar.
+ * • Bir MERKEZ şarttır (yarıçap sorgusu): ya sorgudaki şehrin çapası ya da
+ *   kullanıcı konumu. İkisi de yoksa sorgu yapılmaz — tüm Türkiye'yi taramak
+ *   Overpass'i de bizi de boğar (ölçüldü: ülke geneli alan sorgusu HTTP 429).
  */
 
 import type { GeoResult } from './geocodingService';
@@ -33,11 +34,83 @@ import type { GeoResult } from './geocodingService';
 /** Overpass ortak uç noktası — offlineDataService ile AYNI. */
 const OVERPASS = 'https://overpass-api.de/api/interpreter';
 const UA       = 'CarOSPro/1.0 (vehicle navigation)';
-/** Halka açık Overpass yavaş olabilir; navigasyonu BEKLETMEZ. */
-const TIMEOUT_MS = 6_000;
 /** Şehir içi makul yarıçap — "kendi sokağım" senaryosu için fazlasıyla yeter. */
 const RADIUS_M   = 20_000;
 const MAX_HITS   = 6;
+
+/* ── KAPSAM AYRIMI (P0-NAV-07 · canlı ölçüm 2026-08-23) ──────────────────────
+ *
+ * ÖLÇÜLEN KUSUR: bu katman sokağı YALNIZ kullanıcının 20 km çevresinde arıyordu.
+ * "Yakın POI" için doğru, **hedef adres** için yanlış: Tarsus'taki sürücü
+ * Mersin'deki caddeyi arayabilir. `"Kuvayimilliye Caddesi"` (OSM'deki adı
+ * "Kuvayi **Milliye** Caddesi" — BOŞLUKLU) ölçümü, Tarsus 36.9175/34.8621:
+ *
+ *   kullanıcı çevresi **20 km → 0 sonuç**    (793 ms)   ← bildirilen kusur
+ *   kullanıcı çevresi **30 km → 6 sonuç**    (4419 ms)  24,6 km'de doğru cadde
+ *   kullanıcı çevresi **60 km → 6 sonuç**    (1264 · 2302 ms)
+ *   **ÇAPA (Mersin merkezi) + 20 km → 6 sonuç (587 ms)** ← en ucuz VE en doğru
+ *
+ * Nominatim bu sınıfı ÇÖZEMEZ: `"Kuvayimilliye Caddesi"` viewbox'lı da
+ * viewbox'sız da yalnız 702 km'deki bir CAMİYİ, `"Mersin Kuvayimilliye
+ * Caddesi"` ise **0 sonuç** döndürdü. Yani doğru cevabı yalnız Overpass'in
+ * boşluğa duyarsız regexi verebilir — ama DOĞRU YERDE aranırsa.
+ *
+ * ── KÖR BÜYÜTME YOK ────────────────────────────────────────────────────────
+ * Yarıçap otomatik büyümez. Sıra: (1) ÇAPA varsa orada 20 km · (2) kullanıcı
+ * çevresinde 20 km · (3) YALNIZ ikisi de 0 döndüyse kullanıcı çevresinde
+ * `WIDE_RADIUS_M`. Üçü de ORTAK bir son tarihi paylaşır, yani toplam süre
+ * tek denemeninkiyle aynı tavana bağlıdır ve halka açık Overpass'e ardışık
+ * geniş alan sorgusu YAĞDIRILMAZ.
+ */
+/**
+ * Genişletilmiş yarıçap (m). 60 km ÖLÇÜLMÜŞ bir değerdir: 30 km da yeterdi
+ * (24,6 km'deki hedefi buldu) ama komşu il merkezleri Türkiye'de tipik olarak
+ * 40–70 km aralığındadır; 60 km "yan ildeki cadde" sınıfını kapatırken maliyet
+ * ölçümde 1,3–2,3 sn'de kaldı. 100 km denendi ve halka açık sunucuda
+ * 429/504 üretti — bu yüzden tavan 60 km'dedir.
+ */
+export const WIDE_RADIUS_M = 60_000;
+
+/** Çapa aramasının yarıçapı — il merkezinden şehir içi kapsama. */
+export const ANCHOR_RADIUS_M = 20_000;
+
+/**
+ * TEK denemenin üst sınırı (ms).
+ *
+ * ── NEDEN DENEME BAŞINA TAVAN (ölçüm bir TASARIM HATASINI ortaya çıkardı) ──
+ * İlk uygulamada yalnız ORTAK bir son tarih vardı. Canlı ölçümde yakın deneme
+ * yüklü sunucuda **8679 ms** sürdü ve 9 sn'lik ortak bütçenin tamamını yedi →
+ * genişletilmiş yarıçap denemesi **hiç koşmadı** ("aç kalma"). Yani bütçe
+ * paylaşımı, düzeltmenin kendisini sessizce devre dışı bırakıyordu.
+ * Deneme başına tavan bunu keser: yavaş bir deneme sonrakini AÇ BIRAKAMAZ.
+ *
+ * 6 sn, bu modülün P0-NAV-07 ÖNCESİNDEKİ tek-deneme toleransıyla AYNI sayıdır
+ * (eski `TIMEOUT_MS`) — yani "kendi sokağım" yolunun bekleme davranışı
+ * DEĞİŞMEZ; değişen tek şey, ikinci denemenin artık aç kalmamasıdır.
+ */
+export const STREET_ATTEMPT_TIMEOUT_MS = 6_000;
+
+/** Kaç denemeye izin verilirse verilsin, TOPLAM süre bu tavanı aşamaz. */
+export const STREET_SEARCH_BUDGET_MS = 12_000;
+
+/** Aramanın yapılacağı merkez. */
+export interface StreetSearchOrigin {
+  readonly lat: number;
+  readonly lng: number;
+}
+
+export interface StreetSearchOptions {
+  /**
+   * Sorguda adı geçen şehrin merkezi (bkz. `geo/cityAnchor`). Verilirse ARAMA
+   * ÖNCE ORADA yapılır — kullanıcı konumu ŞART DEĞİLDİR.
+   */
+  readonly anchor?: StreetSearchOrigin | null;
+  /**
+   * Kullanıcı çevresinde 20 km hiçbir şey bulamazsa `WIDE_RADIUS_M` denensin mi.
+   * Varsayılan `false` — genişletme çağıranın BİLİNÇLİ kararıdır.
+   */
+  readonly allowWideRadius?: boolean;
+}
 
 /* ── Sorgudan sokak adı çıkarma (SAF) ───────────────────────────────────── */
 
@@ -218,26 +291,24 @@ interface OverpassWay {
   center?: { lat: number; lon: number };
 }
 
-/**
- * Sokağı OSM'de ADIYLA arar. Bulunamaz/hata/timeout → **boş dizi** (fail-soft).
- * Konum verilmezse sorgu YAPILMAZ (yarıçapsız tarama yasak).
- */
-export async function searchStreetByName(
-  query: string,
-  lat?:  number,
-  lng?:  number,
-): Promise<GeoResult[]> {
-  if (lat == null || lng == null || !Number.isFinite(lat) || !Number.isFinite(lng)) return [];
-  const sq = extractStreetQuery(query);
-  if (!sq) return [];
+/** TEK Overpass denemesi. Ortak SON TARİHE uyar. `null` = hata/timeout. */
+async function _streetAttempt(
+  sq:       StreetQuery,
+  origin:   StreetSearchOrigin,
+  radiusM:  number,
+  deadline: number,
+): Promise<GeoResult[] | null> {
+  /* Deneme başına tavan + kalan ORTAK bütçe; hangisi küçükse o. */
+  const budget = Math.min(STREET_ATTEMPT_TIMEOUT_MS, deadline - Date.now());
+  if (budget <= 0) return null;
 
   const ql =
-    `[out:json][timeout:${Math.round(TIMEOUT_MS / 1000)}];` +
-    `way["highway"]["name"~"${sq.nameRegex}",i](around:${RADIUS_M},${lat},${lng});` +
+    `[out:json][timeout:${Math.max(3, Math.round(budget / 1000))}];` +
+    `way["highway"]["name"~"${sq.nameRegex}",i](around:${Math.round(radiusM)},${origin.lat},${origin.lng});` +
     `out center ${MAX_HITS};`;
 
   const ctrl  = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
+  const timer = setTimeout(() => ctrl.abort(), budget);
   try {
     const res = await fetch(OVERPASS, {
       method:  'POST',
@@ -247,7 +318,7 @@ export async function searchStreetByName(
     });
     // Overpass meşgulken JSON değil HTML hata sayfası döner → parse patlamasın.
     const text = await res.text();
-    if (!text.startsWith('{')) return [];
+    if (!text.startsWith('{')) return null;
 
     const data = JSON.parse(text) as { elements?: OverpassWay[] };
     const out: GeoResult[] = [];
@@ -285,8 +356,71 @@ export async function searchStreetByName(
       (a, b) => _candidateRank(sq, a.name) - _candidateRank(sq, b.name),
     );
   } catch {
-    return []; // ağ/abort/parse — navigasyon bu yola BAĞIMLI DEĞİLDİR
+    return null; // ağ/abort/parse — navigasyon bu yola BAĞIMLI DEĞİLDİR
   } finally {
     clearTimeout(timer);
   }
+}
+
+/**
+ * Sokağı OSM'de ADIYLA arar. Bulunamaz/hata/timeout → **boş dizi** (fail-soft).
+ *
+ * MERKEZ SIRASI (bkz. yukarıdaki KAPSAM AYRIMI ölçümü):
+ *   1. `opts.anchor` (sorgudaki şehrin merkezi) + `ANCHOR_RADIUS_M`
+ *      → kullanıcı konumu ŞART DEĞİL; hedef adres kullanıcının çevresine
+ *        HAPSEDİLMEZ.
+ *   2. kullanıcı konumu + `RADIUS_M` (DEĞİŞMEDİ — "kendi sokağım" yolu)
+ *   3. YALNIZ 1 ve 2 boş döndüyse ve `opts.allowWideRadius` ise
+ *      kullanıcı konumu + `WIDE_RADIUS_M`
+ *
+ * Her deneme `STREET_ATTEMPT_TIMEOUT_MS` ile TEK TEK sınırlıdır (yavaş bir
+ * deneme sonrakini AÇ BIRAKAMAZ — ölçülen tasarım hatası) ve hepsi birlikte
+ * `STREET_SEARCH_BUDGET_MS` tavanını aşamaz; bütçe bitmişse sonraki deneme
+ * ağa HİÇ ÇIKMAZ. Hiçbir merkez yoksa sorgu YAPILMAZ (yarıçapsız tarama
+ * yasağı korunur).
+ */
+export async function searchStreetByName(
+  query: string,
+  lat?:  number,
+  lng?:  number,
+  opts:  StreetSearchOptions = {},
+): Promise<GeoResult[]> {
+  const sq = extractStreetQuery(query);
+  if (!sq) return [];
+
+  const userOk = lat != null && lng != null
+    && Number.isFinite(lat) && Number.isFinite(lng);
+  const anchor = opts.anchor ?? null;
+  const anchorOk = anchor !== null
+    && Number.isFinite(anchor.lat) && Number.isFinite(anchor.lng)
+    && !(anchor.lat === 0 && anchor.lng === 0);
+
+  /* Ne çapa ne kullanıcı konumu var → tüm Türkiye'yi taramak YASAK. */
+  if (!anchorOk && !userOk) return [];
+
+  const deadline = Date.now() + STREET_SEARCH_BUDGET_MS;
+
+  /* 1 — ÇAPA: sorguda şehir adı geçiyorsa cevap ORADADIR. */
+  if (anchorOk && anchor !== null) {
+    const hit = await _streetAttempt(sq, anchor, ANCHOR_RADIUS_M, deadline);
+    if (hit !== null && hit.length > 0) return hit;
+  }
+
+  if (!userOk) return [];
+
+  const user: StreetSearchOrigin = { lat: lat as number, lng: lng as number };
+
+  /* 2 — Kullanıcı çevresi (DAVRANIŞ DEĞİŞMEDİ). */
+  const near = await _streetAttempt(sq, user, RADIUS_M, deadline);
+  if (near !== null && near.length > 0) return near;
+
+  /* 3 — Genişletilmiş yarıçap. `near === null` (hata/timeout) bu dala GİRMEZ:
+     "sorgu düştü" ile "burada gerçekten yok" AYNI ŞEY DEĞİLDİR ve düşen bir
+     sorguyu daha GENİŞ alanla tekrarlamak halka açık sunucuyu zorlamaktır. */
+  if (opts.allowWideRadius === true && near !== null && near.length === 0) {
+    const wide = await _streetAttempt(sq, user, WIDE_RADIUS_M, deadline);
+    if (wide !== null) return wide;
+  }
+
+  return [];
 }

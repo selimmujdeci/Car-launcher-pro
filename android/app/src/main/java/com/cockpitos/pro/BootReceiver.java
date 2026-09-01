@@ -88,15 +88,9 @@ public class BootReceiver extends BroadcastReceiver {
 
     private void startForegroundServiceSafe(Context context) {
         try {
-            Intent svc = new Intent(context, CarLauncherForegroundService.class);
-
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                // Android 8+ (API 26+): startForegroundService zorunlu
-                context.startForegroundService(svc);
-            } else {
-                context.startService(svc);
-            }
+            if (ForegroundServiceBoundary.requestStart(context, "BootReceiver")) {
             Log.i(TAG, "ForegroundService başlatıldı (API " + Build.VERSION.SDK_INT + ")");
+            }
         } catch (Exception e) {
             // Android 12+ bazen BOOT_COMPLETED'da kısıtlama uygular
             // Hata sessizce yutulur — uygulama kullanıcı açınca başlar

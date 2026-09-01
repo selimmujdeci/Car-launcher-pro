@@ -66,6 +66,19 @@ export interface KwpRecoveryEvidenceSnapshot {
   threshold: number;
   /** Oturum başına kurtarma tavanı — native sabiti. */
   maxPerSession: number;
+  lastEvent?: 'NONE' | 'NO_DATA' | 'PROMPT_TIMEOUT' | 'PARTIAL_TIMEOUT' | 'ECU_SILENT' |
+    'SESSION_RECOVERY' | 'TRANSPORT_RECONNECT' | 'RECOVERED' | 'RECOVERY_FAILED';
+  noDataCount?: number;
+  promptTimeoutCount?: number;
+  partialTimeoutCount?: number;
+  ecuSilentCount?: number;
+  sessionRecoveryCount?: number;
+  transportReconnectCount?: number;
+  recoveredCount?: number;
+  recoveryFailedCount?: number;
+  maxCommandDurationMs?: number;
+  maxKeepAliveGapMs?: number;
+  keepAliveGapExceededCount?: number;
 }
 
 let _snapshot: KwpRecoveryEvidenceSnapshot | null = null;
@@ -97,6 +110,18 @@ export async function refreshKwpRecoveryEvidence(): Promise<void> {
       protocolAtRecovery: r.protocolAtRecovery ?? null,
       threshold: r.threshold ?? 0,
       maxPerSession: r.maxPerSession ?? 0,
+      lastEvent: r.lastEvent ?? 'NONE',
+      noDataCount: r.noDataCount ?? 0,
+      promptTimeoutCount: r.promptTimeoutCount ?? 0,
+      partialTimeoutCount: r.partialTimeoutCount ?? 0,
+      ecuSilentCount: r.ecuSilentCount ?? 0,
+      sessionRecoveryCount: r.sessionRecoveryCount ?? 0,
+      transportReconnectCount: r.transportReconnectCount ?? 0,
+      recoveredCount: r.recoveredCount ?? 0,
+      recoveryFailedCount: r.recoveryFailedCount ?? 0,
+      maxCommandDurationMs: r.maxCommandDurationMs ?? 0,
+      maxKeepAliveGapMs: r.maxKeepAliveGapMs ?? 0,
+      keepAliveGapExceededCount: r.keepAliveGapExceededCount ?? 0,
       refreshedAt: Date.now(),
     };
   } catch {

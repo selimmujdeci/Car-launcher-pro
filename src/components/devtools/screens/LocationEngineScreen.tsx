@@ -32,6 +32,14 @@ import {
   PROVIDER_PRIORITY, LOCATION_PROVIDERS,
   type LocationConfidence, type LocationProviderId,
 } from '../../../platform/location/locationProvider';
+import {
+  getGPSLocationEnvelope,
+  getGPSLocationTruthDiagnostics,
+  getGPSState,
+} from '../../../platform/gpsService';
+import type { CanonicalStateEnvelope } from '../../../platform/state/canonicalStateEnvelope';
+import type { GPSLocation } from '../../../platform/vehicleDataLayer/types';
+import { getVDLHydrationDiagnostics } from '../../../platform/vehicleDataLayer/UnifiedVehicleStore';
 
 /* ── OEM tokenlar ──────────────────────────────────────────────────────── */
 
@@ -92,15 +100,27 @@ function ageText(atMs: number | null, nowMs: number): string {
 interface Snap {
   readonly engine: ArbiterSnapshot | null;
   readonly providers: readonly LocationProviderId[];
+  readonly vehicleTruth: CanonicalStateEnvelope<GPSLocation | null> | null;
+  readonly gpsState: ReturnType<typeof getGPSState> | null;
+  readonly gpsTruthDiagnostics: ReturnType<typeof getGPSLocationTruthDiagnostics> | null;
+  readonly vdlHydration: ReturnType<typeof getVDLHydrationDiagnostics> | null;
   readonly readAtMs: number;
 }
 
 function readSnap(): Snap {
   let engine: ArbiterSnapshot | null = null;
   let providers: readonly LocationProviderId[] = [];
+  let vehicleTruth: CanonicalStateEnvelope<GPSLocation | null> | null = null;
+  let gpsState: ReturnType<typeof getGPSState> | null = null;
+  let gpsTruthDiagnostics: ReturnType<typeof getGPSLocationTruthDiagnostics> | null = null;
+  let vdlHydration: ReturnType<typeof getVDLHydrationDiagnostics> | null = null;
   try { engine = readLocationEngineSnapshot(); } catch { engine = null; }
   try { providers = readLocationEngineProviders(); } catch { providers = []; }
-  return { engine, providers, readAtMs: Date.now() };
+  try { vehicleTruth = getGPSLocationEnvelope(); } catch { vehicleTruth = null; }
+  try { gpsState = getGPSState(); } catch { gpsState = null; }
+  try { gpsTruthDiagnostics = getGPSLocationTruthDiagnostics(); } catch { gpsTruthDiagnostics = null; }
+  try { vdlHydration = getVDLHydrationDiagnostics(); } catch { vdlHydration = null; }
+  return { engine, providers, vehicleTruth, gpsState, gpsTruthDiagnostics, vdlHydration, readAtMs: Date.now() };
 }
 
 function LocationEngineScreenBase() {
@@ -123,6 +143,10 @@ function LocationEngineScreenBase() {
   const now = snap?.readAtMs ?? 0;
   const sample = e?.sample ?? null;
   const registered = snap?.providers ?? [];
+  const truth = snap?.vehicleTruth ?? null;
+  const gpsState = snap?.gpsState ?? null;
+  const gpsDiagnostics = snap?.gpsTruthDiagnostics ?? null;
+  const hydration = snap?.vdlHydration ?? null;
 
   return (
     <div className="flex flex-col gap-3 p-3">
@@ -141,6 +165,50 @@ function LocationEngineScreenBase() {
           <RefreshCw size={12} /> YENİLE
         </button>
       </div>
+
+      {/* Canonical vehicle truth. Privacy: raw latitude/longitude deliberately omitted. */}
+      <Section title="Vehicle Location Truth">
+        {truth === null ? (
+          <Chip tone={NONE}>KAYNAK YOK</Chip>
+        ) : (
+          <div className="flex flex-col">
+            <Row label="Canonical Owner">VDL · UnifiedVehicleStore</Row>
+            <Row label="Source Evidence Owner">gpsService</Row>
+            <Row label="Authority Direction">gpsService → VDL → consumers</Row>
+            <Row label="Classification"><Chip tone={INFO}>{truth.classification}</Chip></Row>
+            <Row label="Freshness"><Chip tone={truth.freshness === 'CURRENT' ? OK : truth.freshness === 'STALE' ? WARN : NONE}>{truth.freshness}</Chip></Row>
+            <Row label="Provenance">{truth.provenance.length === 0 ? 'KAYNAK YOK' : truth.provenance.join(' · ')}</Row>
+            <Row label="Observed At">{truth.observedAt === null ? 'KAYNAK YOK' : 'VAR'}</Row>
+            <Row label="Generation">{truth.generation === null ? 'KAYNAK YOK' : String(truth.generation)}</Row>
+            <Row label="Scope">{truth.scope.id === null ? truth.scope.type : `${truth.scope.type} · ${truth.scope.id}`}</Row>
+            <Row label="Source Ref">{truth.sourceRef ?? 'KAYNAK YOK'}</Row>
+            <Row label="Location">{truth.value === null ? 'KAYNAK YOK' : 'ÖLÇÜLDÜ'}</Row>
+            <Row label="Heading">{truth.value?.heading == null ? 'KAYNAK YOK' : truth.value.heading === 0 ? 'ÖLÇÜLDÜ · 0 GEÇERLİ' : 'ÖLÇÜLDÜ'}</Row>
+            <Row label="Accuracy">{truth.value?.accuracy == null ? 'KAYNAK YOK' : 'ÖLÇÜLDÜ'}</Row>
+            <Row label="Provider / Tracking">{gpsState === null ? 'KAYNAK YOK' : `${gpsState.source ?? 'KAYNAK YOK'} · ${gpsState.isTracking ? 'AKTİF' : 'KAPALI'}`}</Row>
+            <Row label="Provider Error">{gpsState?.error ?? 'KAYNAK YOK'}</Row>
+            <Row label="Stale Generation Rejects">{gpsDiagnostics === null ? 'KAYNAK YOK' : String(gpsDiagnostics.staleGenerationRejectCount)}</Row>
+            <Row label="Out-of-order Rejects">{gpsDiagnostics === null ? 'KAYNAK YOK' : String(gpsDiagnostics.outOfOrderRejectCount)}</Row>
+          </div>
+        )}
+      </Section>
+
+      <Section title="VDL Persistence / Hydration">
+        {hydration === null ? <Chip tone={NONE}>KAYNAK YOK</Chip> : <div className="flex flex-col">
+          <Row label="Store Key">{hydration.storeKey}</Row>
+          <Row label="Persisted Fields">{hydration.persistedFields.join(', ')}</Row>
+          <Row label="Persisted Field Count">{hydration.persistedFieldCount}</Row>
+          <Row label="Hydrated?">{hydration.hydrated ? 'EVET' : 'HAYIR'}</Row>
+          <Row label="Hydration Timestamp">{hydration.hydratedAt === null ? 'KAYNAK YOK' : 'VAR'}</Row>
+          <Row label="Odometer Baseline Restored?">{hydration.odometerBaselineRestored ? 'EVET' : 'HAYIR'}</Row>
+          <Row label="Classification">{hydration.classification}</Row>
+          <Row label="Freshness">{hydration.freshness}</Row>
+          <Row label="Provenance">{hydration.provenance.join(' · ')}</Row>
+          <Row label="Live Revalidated?">{hydration.liveRevalidated ? 'EVET' : 'HAYIR'}</Row>
+          <Row label="Live Telemetry Persisted?">{hydration.liveTelemetryPersisted ? 'EVET' : 'HAYIR'}</Row>
+          <Row label="GPS Truth Persisted?">{hydration.gpsTruthPersisted ? 'EVET' : 'HAYIR'}</Row>
+        </div>}
+      </Section>
 
       {/* 1 · Aktif kaynak ve durum */}
       <Section title="Aktif Kaynak">

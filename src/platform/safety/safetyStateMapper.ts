@@ -37,6 +37,7 @@ import type {
   SafetyQueueOutput,
 } from './types';
 import type { UnifiedVehicleState } from '../vehicleDataLayer/UnifiedVehicleStore';
+import { resolveLiveCanonicalSignal, canonicalSignalChanged } from '../vehicleDataLayer/canonicalVehicleSignal';
 
 // ── Seçenekler arayüzü ────────────────────────────────────────────────────────
 
@@ -48,6 +49,19 @@ import type { UnifiedVehicleState } from '../vehicleDataLayer/UnifiedVehicleStor
  *   Eksik bayrak → o sinyal undefined → ilgili kural sönük (yanlış-alarm önlemi).
  */
 export interface SafetyMapOptions {
+  /**
+   * P0-OBD-02 — DUVAR SAATİ damgası (`Date.now()`), OBD tazelik kapısı İÇİN.
+   *
+   * NEDEN AYRI BİR SAAT: kural motorunun `now` parametresi `performance.now()`tir
+   * (monotonik; `_vehicleSpeedTs` ile aynı eksen). OBD ölçüm damgaları ise
+   * `Date.now()`tur (tüm OBD yığınının kullandığı saat). İkisini karıştırmak
+   * yaşları anlamsız yapardı, bu yüzden AYRI alandır — ve mapper saflığı korunur
+   * (fonksiyon kendi `Date.now()`unu ÇAĞIRMAZ).
+   *
+   * FAIL-CLOSED: verilmezse OBD kaynaklı sinyaller `UNAVAILABLE` sayılır (CAN
+   * etkilenmez). Bayat bir ölçümle alarm üretmektense sessiz kalmak yeğdir.
+   */
+  wallClockMs?: number;
   /** Gece/karanlık algısı (saat + ortam ışığı füzyonu). Bilinmiyorsa undefined. */
   isDark?: boolean;
   /** Bu araçta hangi CAN sinyallerinin gerçekten mevcut olduğunu bildirir. */
@@ -80,9 +94,9 @@ export interface SafetyMappedState {
  * | reverse            | v.reverse            | doğrudan boolean                               |
  * | doorOpen           | v.canDoorOpen        | doğrudan boolean                               |
  * | parkingBrake       | v.canParkingBrake    | doğrudan boolean                               |
- * | coolantTemp        | v.canCoolantTemp     | number|null                                    |
+ * | coolantTemp        | CAN → OBD otoritesi  | number|null (resolveCanonicalSignal)           |
  * | fuel               | v.fuel               | number|null                                    |
- * | batteryVolt        | v.canBatteryVolt     | number|null                                    |
+ * | batteryVolt        | CAN → OBD otoritesi  | number|null (resolveCanonicalSignal)           |
  * | seatbelt           | v.canSeatbelt        | YALNIZCA signalsAvailable.seatbelt=true ise;  |
  * |                    |                      | aksi halde undefined (yanlış-alarm önlemi)     |
  * | headlightsOn       | v.canHeadlights      | YALNIZCA signalsAvailable.headlights=true ise; |
@@ -108,6 +122,11 @@ export function createSafetyStateFromVehicleStore(
   // Diğer sinyaller için per-CAN timestamp store'da yok.
   // resetCanData() sonrası boolean'lar false / numerikler null → kural koşulsuz pasif.
   // Bu tasarım reset-safe'tir: stale takibi gereksiz.
+  /* FAIL-CLOSED: damga yoksa OBD tarafı kullanılamaz. `NaN` bilinçlidir —
+     `resolveLiveCanonicalSignal` sonlu olmayan damgada UNAVAILABLE döner, yani
+     "damga unutuldu" sessizce "veri taze" anlamına GELEMEZ. */
+  const _wall = typeof opts?.wallClockMs === 'number' ? opts.wallClockMs : Number.NaN;
+
   const updatedAt: SafetyUpdatedAt = {};
   if (v.speed != null) {
     // _vehicleSpeedTs performance.now() saatidir; orchestrator aynı saati kullanır
@@ -121,9 +140,16 @@ export function createSafetyStateFromVehicleStore(
     reverse:      v.reverse,
     doorOpen:     v.canDoorOpen,
     parkingBrake: v.canParkingBrake,
-    coolantTemp:  v.canCoolantTemp,
+    /* P0-OBD-01 — TEK KANONİK OTORİTE (CAN → OBD → yok).
+       ESKİDEN: bu iki alan YALNIZ `canCoolantTemp`/`canBatteryVolt`ten okunuyordu.
+       CAN'ı olmayan (aftermarket ELM327'li) araçta ikisi de KALICI `null` kalıyor,
+       dolayısıyla Guardian'ın aşırı ısınma ve akü kuralları HİÇ tetiklenmiyordu —
+       oysa OBD PID 0x05 ve 0x42 o sırada okunuyordu (worker ENGINE_OVERHEAT olayını
+       zaten OBD ısısıyla üretiyordu; Safety Brain geride kalmıştı). Otorite tek
+       yerde: bkz. `canonicalVehicleSignal.ts`. */
+    coolantTemp:  resolveLiveCanonicalSignal(v, 'coolantTemp', _wall).value,
     fuel:         v.fuel,
-    batteryVolt:  v.canBatteryVolt,
+    batteryVolt:  resolveLiveCanonicalSignal(v, 'batteryVolt', _wall).value,
 
     // Yanlış-alarm gating: sinyal mevcudiyeti açıkça bildirilmeden undefined
     // Store default false → "kemer takılı değil / far kapalı" → kural tetiklenir → YANLIŞ ALARM
@@ -170,15 +196,22 @@ export function safetyRelevantFieldsChanged(
   state: UnifiedVehicleState,
   prevState: UnifiedVehicleState,
   signalsAvailable?: SafetyMapOptions['signalsAvailable'],
+  wallClockMs?: number,
 ): boolean {
+  /* Damga yoksa İKİ tarafı da aynı (fail-closed) kabul kuralıyla kıyaslarız →
+     OBD kaynaklı değişim "değişmedi" görünür. Bu güvenlidir: 500 ms'lik
+     safetyTicker zaten periyodik olarak yeniden hesaplar (bkz. useSafetyAlerts). */
+  const _wall = typeof wallClockMs === 'number' ? wallClockMs : Number.NaN;
   if (
     state.speed           !== prevState.speed ||
     state.reverse         !== prevState.reverse ||
     state.canDoorOpen     !== prevState.canDoorOpen ||
     state.canParkingBrake !== prevState.canParkingBrake ||
-    state.canCoolantTemp  !== prevState.canCoolantTemp ||
     state.fuel             !== prevState.fuel ||
-    state.canBatteryVolt  !== prevState.canBatteryVolt
+    /* Ham alan DEĞİL, OTORİTER SONUÇ kıyaslanır: CAN varken OBD'nin değişmesi
+       mapper çıktısını DEĞİŞTİRMEZ; naif kıyas gereksiz hesap tetiklerdi (K24). */
+    canonicalSignalChanged(state, prevState, 'coolantTemp', _wall) ||
+    canonicalSignalChanged(state, prevState, 'batteryVolt', _wall)
   ) {
     return true;
   }

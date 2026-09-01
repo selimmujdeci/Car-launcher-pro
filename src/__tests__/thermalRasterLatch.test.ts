@@ -169,3 +169,88 @@ describe('#640-B — karo modu hükmü: mod + SEBEP hem ekranda hem kopyada', ()
       .not.toMatch(/miniMapStyle:[\s\S]{0,200}st\.tileRender/);
   });
 });
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * 2026-08-24 — "BAZEN GRİ BAZEN KOYU" (rota bittikten SONRA) KİLİDİ
+ *
+ * SAHA: kullanıcı gece (22:xx) 3 ekran görüntüsü gönderdi. 1) aktif
+ * navigasyon — koyu vektör, beğenildi. 2) rotasız tam ekran — AYNI koyu
+ * palet, normal. 3) rotasız tam ekran — TAMAMEN FARKLI: açık gri/beyaz zemin,
+ * düz gri yollar, soluk yeşil park — `RASTER_PAINT_DAY` imzasıyla birebir
+ * ("ham OSM'nin doğal renkleri, koyulaştırma YOK").
+ *
+ * KÖK: `useMapStyleLifecycle`in `[tileRender]` efekti `navStatusRef.current
+ * !== IDLE` iken SESSİZCE atlar (rota katmanlarını silen `setStyle()`i
+ * navigasyon sırasında tetiklememek için — kasıtlı). Ama React yalnız DEĞER
+ * DEĞİŞİNCE tetiklenir: navigasyon sırasında `tileRender` bir kez değişip
+ * (ör. termal kilit) efekt atlanırsa VE navigasyon bitene kadar bir daha
+ * değişmezse, o efekt navigasyon IDLE'a dönünce BİR DAHA ASLA çalışmaz —
+ * niyet (`tileRender`) ile fiilen ekrana çizilen stil (`getResolvedTileMode`)
+ * KALICI OLARAK sapık kalır. Sonraki tesadüfi restyle (mod değişimi, online
+ * geri dönüş, ...) hangi palet çözülürse onu gösterir — "bazen gri bazen
+ * koyu" tutarsızlığı budur.
+ *
+ * DÜZELTME: `isNavigating` düşüşünde (navigasyon bitip IDLE'a dönünce) TEK
+ * SEFERLİK mutabakat — `getResolvedTileMode() !== tileRender` ise stil
+ * yeniden kurulur. Zaten senkronsa hiçbir şey yapmaz (gereksiz setStyle YOK).
+ */
+describe('2026-08-24 — nav sonrası niyet↔çözülen mutabakatı (IDLE dönüş kilidi)', () => {
+  it('🔒 KAYNAK: mutabakat efekti var — getResolvedTileMode ile karşılaştırır', () => {
+    const src = readFileSync(
+      join(process.cwd(), 'src/components/map/hooks/useMapStyleLifecycle.ts'), 'utf8',
+    );
+    expect(src, 'getResolvedTileMode import edilmemiş').toMatch(/getResolvedTileMode/);
+    expect(src, 'mutabakat karşılaştırması yok').toMatch(
+      /getResolvedTileMode\(\) === tileRender/,
+    );
+  });
+
+  /* ── #825 · KİLİT GÜNCELLENDİ (kaldırılmadı) ────────────────────────────
+   * Eski kilit `}, [isNavigating])` bekliyordu. CİHAZDA CDP İLE ÖLÇÜLDÜ
+   * (2026-08-24): o pencere YETMİYOR — sapmanın SAHİPSİZ kaldığı iki hâl var:
+   *   (A) FullMapView UNMOUNT'ta `notifyLowFPS(false)` 2500 ms sonra
+   *       `tileRender:'vector'` yazar; o an bu bileşen YOK ve MiniMapWidget
+   *       `tileRender`a abone DEĞİL → niyet döner, ekran raster kalır.
+   *   (B) Yeniden MOUNT'ta efekt koşar ama harita ASENKRON kurulduğu için
+   *       `mapRef.current` NULL → erken döner; `isNavigating` bir daha
+   *       değişmediğinden BİR DAHA ASLA koşmaz → sapma kalıcılaşır.
+   * Ölçüm: sapık hâlde `getStyle().name='OSM Map'` (8 katman, tek raster);
+   * zorla yeniden çözdürünce `'Vector (Automotive Night)'` (30 katman, omv).
+   * Bu yüzden pencere `mapStatus` (harita HAZIR) ve `tileRender` (niyet
+   * değişimi) ile genişletildi. */
+  it('🔒 KAYNAK #825: mutabakat penceresi mapStatus + tileRender ile genişletildi', () => {
+    const src = readFileSync(
+      join(process.cwd(), 'src/components/map/hooks/useMapStyleLifecycle.ts'), 'utf8',
+    );
+    expect(src, 'mutabakat efekti hâlâ yalnız isNavigating kenarına bağlı').toMatch(
+      /\}, \[isNavigating, tileRender, mapStatus\]\)/,
+    );
+    expect(src, 'harita HAZIR kapısı yok — mount yarışı (B) kapanmaz').toMatch(
+      /mapStatus !== 'READY'\) return;/,
+    );
+  });
+
+  it('🔒 KAYNAK #825: sonsuz restyle döngüsü koruması var (aynı niyet iki kez denenmez)', () => {
+    /* Niyet 'vector' olsa bile `buildVectorStyle` kaynak yoksa raster'a düşer →
+       sapma KAPANMAZ. Genişletilmiş pencere korumasız olsaydı her
+       `mapStatus:READY` turunda yeniden denenip sonsuz setStyle döngüsü
+       kurardı (mapStyleBuilders'ın kendi gate yorumundaki uyarıyla aynı sınıf). */
+    const src = readFileSync(
+      join(process.cwd(), 'src/components/map/hooks/useMapStyleLifecycle.ts'), 'utf8',
+    );
+    expect(src, 'attemptedRef çapası yok').toMatch(/attemptedRef/);
+    expect(src, 'aynı niyet için ikinci deneme engellenmiyor').toMatch(
+      /attemptedRef\.current === tileRender\) return;/,
+    );
+    expect(src, 'sapma kapanınca çapa temizlenmiyor').toMatch(
+      /getResolvedTileMode\(\) === tileRender\) \{[\s\S]{0,120}attemptedRef\.current = null;/,
+    );
+  });
+
+  it('🔒 KAYNAK: eski `[tileRender]` efektinin navigasyon-içi atlama davranışı DOKUNULMADI (kilit korunur)', () => {
+    const src = readFileSync(
+      join(process.cwd(), 'src/components/map/hooks/useMapStyleLifecycle.ts'), 'utf8',
+    );
+    expect(src).toMatch(/if \(navStatusRef\.current !== NavStatus\.IDLE\) return;[\s\S]{0,600}\}, \[tileRender\]\)/);
+  });
+});

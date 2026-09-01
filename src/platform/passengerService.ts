@@ -17,6 +17,11 @@ import {
   play, pause, next, previous,
 } from './mediaService';
 import { logError } from './crashLogger';
+/* ARCH-06/F2 — TIMER YÖNETİŞİMİ: ham `setInterval` yerine ARM tik-wheel'i.
+   SAHİPLİK DEĞİŞMEDİ: geri çağrı, periyot kararı ve cleanup bu modülde
+   KALIR; ARM yalnız tier/mod BÜTÇESİNİ uygular (düşük-uçta yavaşlatır,
+   yüksek tier'da periyodu AYNEN korur). Yeni merkezî callback mantığı YOK. */
+import { runtimeManager } from '../core/runtime/AdaptiveRuntimeManager';
 
 /* ── Types ───────────────────────────────────────────────── */
 
@@ -28,7 +33,8 @@ export interface PassengerSession {
 /* ── Module state ────────────────────────────────────────── */
 
 let _session:  PassengerSession | null = null;
-let _stateTimer: ReturnType<typeof setInterval> | null = null;
+/** ARM görev kaydını söken thunk. */
+let _stateTimer: (() => void) | null = null;
 let _cmdHandle: { remove: () => void } | null = null;
 
 const _listeners = new Set<(s: PassengerSession | null) => void>();
@@ -85,7 +91,13 @@ export async function startPassenger(): Promise<PassengerSession> {
 
   // Medya durumunu her 2sn'de bir nativeye push et
   pushMediaState();
-  _stateTimer = setInterval(pushMediaState, 2000);
+  _stateTimer = runtimeManager.scheduleTask({
+    id: 'passenger.stateSync', periodMs: 2_000,       /* ARM sözlüğü YALNIZ 'SAFETY' | 'NORMAL' taşır. 'NORMAL' zaten
+         tier/mod çarpanına TABİ olan sınıftır — bütçelenebilir görev
+         tam olarak budur. ARM API'si F2'de GENİŞLETİLMEDİ. */
+      criticality: 'NORMAL',
+    fn: pushMediaState, deferIdle: true,
+  });
 
   const session: PassengerSession = { url, active: true };
   push(session);
@@ -94,7 +106,7 @@ export async function startPassenger(): Promise<PassengerSession> {
 
 /** Yolcu sunucusunu durdurur ve kaynakları temizler. */
 export async function stopPassenger(): Promise<void> {
-  if (_stateTimer) { clearInterval(_stateTimer); _stateTimer = null; }
+  if (_stateTimer) { _stateTimer(); _stateTimer = null; }   // ARM unschedule thunk
   if (_cmdHandle)  { _cmdHandle.remove();         _cmdHandle  = null; }
 
   if (isNative) {

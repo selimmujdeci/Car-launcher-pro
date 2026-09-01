@@ -41,6 +41,8 @@ import {
   ROUTE_CASING_LIGHT_BASEMAP,
   ROUTE_GLOW_NORMAL,
   ROUTE_ATTENTION_AMBER,
+  ROUTE_CORE_STOPS_LIGHT_BASEMAP,
+  ROUTE_CORE_STOPS_DARK_BASEMAP,
 } from '../platform/map/core/routeColorModel';
 /* Ağır modüller TEPEDE, statik olarak alınır. Testler bunları `await import`
    ile çekiyordu; yüklü makinede tek bir dinamik import 5 sn'lik varsayılan
@@ -547,10 +549,20 @@ describe('Kontrast yardımcısı — YALNIZ ÖLÇER (PR-3b kabul ölçütü)', (
   });
 
   it('KABUL: çekirdeğin koyu kılıfla İÇ KENAR kontrastı ≥ 3:1 (üç durak)', () => {
-    for (const core of ['#1A73E8', '#4F46E5', '#10b981']) {
+    for (const core of ROUTE_CORE_STOPS_LIGHT_BASEMAP) {
       const r = contrastRatio(core, ROUTE_CASING_LIGHT_BASEMAP) as number;
       expect(r, `${core}: çekirdek koyu kılıftan ayrışmıyor`).toBeGreaterThanOrEqual(3);
     }
+  });
+
+  it('OEM çekirdek paleti gündüz ve gecede doygun mavi kimliğini korur', () => {
+    expect(ROUTE_CORE_STOPS_LIGHT_BASEMAP).toEqual(['#006CFF', '#0057D9', '#00A6FF']);
+    /* Orta gece durağı `#969CFF` → `#9CA2FF`: OEM turu #619'un gece
+       yolu eşiğini (≥1,9) 1,872 ile kaçırıyordu; ton korunarak ÖLÇÜLEREK
+       açıldı (yol 1,989). Palet geri alınmadı, kimlik aynı. */
+    expect(ROUTE_CORE_STOPS_DARK_BASEMAP).toEqual(['#72B6FF', '#9CA2FF', '#24D6C4']);
+    expect(new Set(ROUTE_CORE_STOPS_LIGHT_BASEMAP).size).toBe(3);
+    expect(new Set(ROUTE_CORE_STOPS_DARK_BASEMAP).size).toBe(3);
   });
 
   it('KABUL: amber sinyalin koyu kılıfla İÇ KENAR kontrastı ≥ 3:1', () => {

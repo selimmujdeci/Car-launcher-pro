@@ -172,6 +172,128 @@ export interface MaviRawSnapshot {
   readonly proactive: MaviProactiveRaw | null;
   readonly speech:   MaviSpeechRaw | null;
   readonly turn:     MaviTurnRaw | null;
+  /** MAVI-F8 · sürüş iş yükü tanısı. `null` = okunamadı. */
+  readonly workload: MaviWorkloadRaw | null;
+  /** MAVI-F9 · proaktif politika motoru tanısı. `null` = okunamadı. */
+  readonly proactivePolicy: MaviProactivePolicyRaw | null;
+  /** MAVI-F11 · kullanıcıya görünen yüzey durumu tanısı. `null` = okunamadı. */
+  readonly surface: MaviSurfaceRaw | null;
+  /** MAVI-F12 · barge-in / konuşma kontrolü tanısı. `null` = okunamadı. */
+  readonly bargeIn: MaviBargeInRaw | null;
+  /** MAVI-F13 · kanonik runtime konsolidasyon tanısı. `null` = okunamadı. */
+  readonly runtime: MaviRuntimeRaw | null;
+}
+
+/**
+ * MAVI-F11 · bounded yüzey satırı. Etiket METNİ, transkript, cevap içeriği ve
+ * kullanıcı verisi TAŞINMAZ — yalnız bounded durum/sebep KODLARI ve ADET.
+ */
+export interface MaviSurfaceRaw {
+  readonly transitions: number;
+  readonly lastState: string | null;
+  readonly lastReason: string | null;
+  readonly lastMode: string | null;
+  readonly lastDegraded: string;
+  readonly states: Readonly<Record<string, number>>;
+  readonly fullScreenBlocked: number;
+  /** Wake ayarı AÇIK mı (presence'tan BAĞIMSIZ — F11). */
+  readonly wakeWordEnabled: boolean;
+  /** Yol Arkadaşı presence'ı AÇIK mı. */
+  readonly companionPresence: boolean;
+}
+
+/**
+ * MAVI-F9 · bounded proaktif politika satırı. Seslendirilen METİN, transcript,
+ * konum ve kullanıcı içeriği TAŞINMAZ — yalnız SABİT kaynak kimlikleri, bounded
+ * sebep kodları ve ADET.
+ */
+export interface MaviProactivePolicyRaw {
+  readonly decisions: number;
+  readonly admitted: number;
+  readonly externalObserved: number;
+  readonly interruptions: number;
+  readonly lastAdmittedSourceId: string | null;
+  readonly lastDropReason: string | null;
+  readonly drops: Readonly<Record<string, number>>;
+  readonly admittedBySource: Readonly<Record<string, number>>;
+  readonly kinds: Readonly<Record<string, number>>;
+  readonly hourlyVoiceUsed: number;
+  readonly hourlyVoiceCeiling: number;
+  readonly userSuppressed: readonly string[];
+  readonly learnedSuppressed: readonly string[];
+  /** Kabul oranı ölçülebiliyor mu — üretimde bugün HAYIR (sahte oran yasak). */
+  readonly acceptRateMeasurable: boolean;
+}
+
+/**
+ * MAVI-F12 · bounded barge-in / konuşma kontrolü satırı.
+ *
+ * GİZLİLİK: transkript, ham ses, cevap metni ve konuşulan içerik TAŞINMAZ —
+ * yalnız SABİT sınıf/gerekçe kodları, adet ve milisaniye.
+ */
+export interface MaviBargeInRaw {
+  readonly duplexClass: string;
+  readonly captureOpenDuringTts: boolean;
+  readonly aecCountsForDuplex: boolean;
+  readonly echoReferenceWired: boolean;
+  readonly proposals: number;
+  readonly accepted: number;
+  readonly lastReason: string | null;
+  readonly reasons: Readonly<Record<string, number>>;
+  readonly evidenceKinds: Readonly<Record<string, number>>;
+  /** `-1` = ÖLÇÜM YOK (sahte `0` üretilmez). */
+  readonly lastTtsStopRequestMs: number;
+  readonly maxTtsStopRequestMs: number;
+  readonly ttsStopSamples: number;
+  readonly lastListenOpenMs: number;
+  readonly maxListenOpenMs: number;
+  readonly listenSamples: number;
+  readonly countersSaturated: boolean;
+}
+
+/**
+ * MAVI-F13 · bounded kanonik-runtime satırı.
+ *
+ * Komut metni, parametre, transkript ve eylem argümanı TAŞIMAZ — yalnız
+ * bounded ADET ve BAYRAK. "Aktif yol" bir ÖLÇÜM DEĞİL, koddaki tek giriş
+ * zincirinin BEYANIDIR ve alanı `derived` olarak işaretlenir.
+ */
+export interface MaviRuntimeRaw {
+  /** Gölge köprü defterinde duran karar adedi. */
+  readonly shadowDecisions: number;
+  /** Bu kararlardan Mavi hattının GERÇEKTEN yürüttüğü adet (hedef: 0). */
+  readonly maviExecutedDecisions: number;
+  /** Hiçbir hattın yürütmediği (saf gözlem) karar adedi. */
+  readonly noExecutionDecisions: number;
+  /** Bayrağın `takeover` okunduğu karar adedi (hedef: 0). */
+  readonly takeoverFlagDecisions: number;
+  readonly legacyExecutionKeys: number;
+  readonly legacyExecutionTotal: number;
+  /** Aynı komutu iki hat da yürüttü mü — ÇİFT YÜRÜTME kanıtı (hedef: 0). */
+  readonly doubleExecutionKeys: number;
+  readonly bridgeStarts: number;
+  readonly bridgeDisposes: number;
+  /** Defter tavana dayandı mı → "0 = hiç olmadı" çıkarımı GEÇERSİZ. */
+  readonly bounded: boolean;
+  /** Açık olan Mavi bayrakları (bounded ad listesi — değer/anahtar TAŞIMAZ). */
+  readonly openFlags: readonly string[];
+  /** Bayrak okuması yapılabildi mi (false → adet iddia edilmez). */
+  readonly flagsReadable: boolean;
+}
+
+/** MAVI-F8 · bounded iş yükü satırı — hız/mesafe/konum TAŞIMAZ. */
+export interface MaviWorkloadRaw {
+  readonly lastLevel: string | null;
+  readonly resolutions: number;
+  readonly sourceBound: boolean;
+  readonly levels: Readonly<Record<string, number>>;
+  readonly evidence: Readonly<Record<string, number>>;
+  readonly proactiveSuppressed: number;
+  readonly responsesShortened: number;
+  readonly streamsShortened: number;
+  readonly followUpSuppressed: number;
+  readonly deferrals: number;
+  readonly deferralsExpired: number;
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
@@ -179,7 +301,8 @@ export interface MaviRawSnapshot {
  * ════════════════════════════════════════════════════════════════════════ */
 
 export type MaviSectionId =
-  | 'lifecycle' | 'diag' | 'ai-health' | 'quota' | 'proactive' | 'speech';
+  | 'lifecycle' | 'diag' | 'ai-health' | 'quota' | 'proactive' | 'speech' | 'workload'
+  | 'proactive-policy' | 'surface' | 'barge-in' | 'canonical-runtime';
 
 export interface MaviSection {
   readonly id:     MaviSectionId;
@@ -194,6 +317,11 @@ export const MAVI_SECTION_TITLE: Readonly<Record<MaviSectionId, string>> = {
   'quota':     'D · Sağlayıcı Soğuma (429)',
   'proactive': 'E · Proaktif Kritik Arıza Uyarısı',
   'speech':    'F · Konuşma Otoritesi (M6) + Tur Kapıları (M5)',
+  'workload':  'G · Sürüş İş Yükü ve Konuşma Bütçesi (F8)',
+  'proactive-policy': 'H · Proaktif Konuşma Politikası (F9)',
+  'surface': 'I · Kullanıcıya Görünen Durum (F11)',
+  'barge-in': 'J · Barge-in ve Konuşma Kontrolü (F12)',
+  'canonical-runtime': 'K · Kanonik Runtime / Konsolidasyon (F13)',
 } as const;
 
 const SRC = {
@@ -205,6 +333,14 @@ const SRC = {
            + ' + ai/aiOfflineReason.getProactiveSuppressionHistory()',
   speech: 'assistant/maviSpeech.getMaviSpeechDiagnostics()',
   turn:   'assistant/maviTurn.getMaviTurnDiagnostics()',
+  workload: 'assistant/maviWorkload.getMaviWorkloadDiagnostics()',
+  policy: 'assistant/proactivePolicyEngine.getProactivePolicyDiagnostics()',
+  surface: 'assistant/maviSurfaceState.getMaviSurfaceDiagnostics()'
+         + ' + store.settings{companionWakeWordEnabled,companionEnabled}',
+  bargeIn: 'assistant/maviBargeIn.getMaviBargeInDiagnostics()'
+         + ' (voice/duplexCapability.classifyMaviDuplex)',
+  runtime: 'maviCore/wiring/maviEvidence.getMaviRuntimeConsolidationDiagnostics()'
+         + ' + ai/gateway/aiGatewayFlag + capability/fabric/capabilityFabric',
 } as const;
 
 function _bound(fields: readonly InspectorField[]): readonly InspectorField[] {
@@ -657,11 +793,496 @@ function _speechSection(s: MaviRawSnapshot): MaviSection {
   return { id: 'speech', title: MAVI_SECTION_TITLE.speech, fields: _bound(f) };
 }
 
+/* -- G . Surus is yuku (MAVI-F8) ------------------------------------------ */
+
+function _renderCounts(m: Readonly<Record<string, number>> | undefined): string | null {
+  if (!m) return null;
+  const keys = Object.keys(m).sort();
+  if (keys.length === 0) return null;
+  return keys.map((k) => `${k}: ${m[k]}`).join(' \u00b7 ');
+}
+
+function _workloadSection(s: MaviRawSnapshot): MaviSection {
+  const f: InspectorField[] = [];
+  const w = s.workload;
+
+  if (!w) {
+    f.push(unavailable(
+      { id: 'mwRoot', label: 'iş yükü tanısı', source: SRC.workload, note: '' },
+      'Sürüş iş yükü tanı yüzeyi okunamadı.',
+    ));
+    return { id: 'workload', title: MAVI_SECTION_TITLE.workload, fields: _bound(f) };
+  }
+
+  /* Kaynak bağlı DEĞİLSE seviye zaten daima UNKNOWN'dır — bunu "ölçüldü" gibi
+     göstermek yalan olurdu. */
+  f.push(w.sourceBound
+    ? observed(
+      { id: 'mwSource', label: 'canlı kaynak', source: SRC.workload,
+        note: 'Bağlıyken hareket, rehberlik, manevra yakınlığı, geri vites, '
+            + 'kritik güvenlik ve bilişsel mod MEVCUT otoritelerden OKUNUR. '
+            + 'Yeni sensör veya paralel state ÜRETİLMEZ.' },
+      'BAĞLI')
+    : unavailable(
+      { id: 'mwSource', label: 'canlı kaynak', source: SRC.workload,
+        note: 'Kaynak bağlı değil → seviye DAİMA UNKNOWN döner ve davranış '
+            + 'bugünküyle birebir aynıdır (regresyon yok).' },
+      'BAĞLI DEĞİL — seviye daima UNKNOWN'));
+
+  f.push(w.resolutions === 0
+    ? unavailable(
+      { id: 'mwLevel', label: 'son iş yükü seviyesi', source: SRC.workload,
+        note: 'Bu oturumda hiç hüküm üretilmedi. LOW yazmak bir ÖLÇÜM gibi '
+            + 'görünürdü — ölçüm yokluğu ölçüm DEĞİLDİR.' },
+      'Ölçüm yok.')
+    : observed(
+      { id: 'mwLevel', label: 'son iş yükü seviyesi', source: SRC.workload,
+        note: 'BOUNDED: LOW · NORMAL · ELEVATED · HIGH · CRITICAL · UNKNOWN. '
+            + 'Bu bir GÜVENLİK otoritesi DEĞİLDİR: aracı kontrol etmez, '
+            + 'navigasyon kararını değiştirmez, capability KAPATMAZ — yalnız '
+            + 'Mavi\'nin KENDİ konuşma bütçesine tavan koyar. UNKNOWN, NORMAL '
+            + 'bütçesini alır ama LOW olduğunu İDDİA ETMEZ.' },
+      `${w.lastLevel ?? 'UNKNOWN'} (${w.resolutions} hüküm)`));
+
+  const levels = _renderCounts(w.levels);
+  f.push(levels === null
+    ? unavailable({ id: 'mwLevels', label: 'seviye dağılımı', source: SRC.workload, note: '' },
+      'Ölçüm yok.')
+    : observed(
+      { id: 'mwLevels', label: 'seviye dağılımı', source: SRC.workload,
+        note: 'Oturum boyunca hangi seviyede kaç hüküm üretildi.' },
+      levels));
+
+  const evid = _renderCounts(w.evidence);
+  f.push(evid === null
+    ? unavailable({ id: 'mwEvidence', label: 'kanıt dağılımı', source: SRC.workload, note: '' },
+      'Ölçüm yok.')
+    : observed(
+      { id: 'mwEvidence', label: 'kanıt dağılımı', source: SRC.workload,
+        note: 'Hükmü DOĞURAN bounded kanıt kodları. Hız, mesafe, konum ve '
+            + 'manevra adı TAŞINMAZ. no_evidence = hiçbir kaynak okunamadı. '
+            + 'NOT: telefon görüşmesi kanıtı YOKTUR — repoda üretimde böyle bir '
+            + 'sinyal bulunmuyor ve uydurulmadı (açık borç).' },
+      evid));
+
+  f.push(observed(
+    { id: 'mwShort', label: 'kısaltma / erteleme', source: SRC.workload,
+      note: 'Cevap bütçe yüzünden kaç kez KISALDI, akış kaç kez erken kapandı, '
+          + 'serbest sohbet kaç kez ERTELENDİ. Erteleme bir CÜMLE değil bir '
+          + 'DURUMDUR (F2 koruması: "sonra söylerim" kalıbı üretilmez) ve '
+          + 'süresi dolunca DÜŞER — bayat cevap kendiliğinden konuşulmaz '
+          + '(DEFERRED != COMPLETED).' },
+    `cevap ${w.responsesShortened} \u00b7 akış ${w.streamsShortened} \u00b7 `
+    + `erteleme ${w.deferrals} (düşen ${w.deferralsExpired})`));
+
+  f.push(observed(
+    { id: 'mwSuppress', label: 'susturulan sohbet', source: SRC.workload,
+      note: 'GÜVENLİK DIŞI proaktif konuşma ve takip dinlemesi kaç kez '
+          + 'kurulmadı. Güvenlik uyarıları (speakSafetyAlert ve proaktif kritik '
+          + 'arıza) bu kapıdan GEÇMEZ ve ASLA susturulmaz.' },
+    `proaktif ${w.proactiveSuppressed} \u00b7 takip ${w.followUpSuppressed}`));
+
+  return { id: 'workload', title: MAVI_SECTION_TITLE.workload, fields: _bound(f) };
+}
+
+function _proactivePolicySection(s: MaviRawSnapshot): MaviSection {
+  const f: InspectorField[] = [];
+  const p = s.proactivePolicy;
+  const ID: MaviSectionId = 'proactive-policy';
+
+  if (!p) {
+    f.push(unavailable(
+      { id: 'ppRoot', label: 'proaktif politika', source: SRC.policy, note: '' },
+      'Proaktif politika tanı yüzeyi okunamadı.',
+    ));
+    return { id: ID, title: MAVI_SECTION_TITLE[ID], fields: _bound(f) };
+  }
+
+  f.push(p.decisions === 0
+    ? unavailable(
+      { id: 'ppRoot', label: 'karar sayısı', source: SRC.policy,
+        note: 'Bu oturumda hiç teklif değerlendirilmedi. "0 kabul" bir ÖLÇÜM '
+            + 'gibi görünürdü — ölçüm yokluğu ölçüm DEĞİLDİR.' },
+      'Ölçüm yok.')
+    : observed(
+      { id: 'ppRoot', label: 'karar sayısı', source: SRC.policy,
+        note: 'Motor SESLENDİRMEZ, yalnız izin verir; seslendirme çağıranın '
+            + 'kendi kanonik hattındadır. Aynı tick içinde EN FAZLA BİR teklif '
+            + 'konuşur, diğerleri DÜŞER (kuyruk YOK → bayat öneri imkânsız).' },
+      `${p.decisions} karar · ${p.admitted} kabul`));
+
+  f.push(observed(
+    { id: 'ppCeiling', label: 'saatlik sesli tavan', source: SRC.policy,
+      note: 'Yapısal spam freni: son 1 saatte kaç GÜVENLİK DIŞI sesli proaktif '
+          + 'konuşuldu. `safety` sınıfı bu tavana DAHİL DEĞİLDİR ve tavan '
+          + 'dolsa bile susturulmaz.' },
+    `${p.hourlyVoiceUsed} / ${p.hourlyVoiceCeiling}`));
+
+  const drops = _renderCounts(p.drops);
+  f.push(drops === null
+    ? unavailable({ id: 'ppDrops', label: 'düşme gerekçeleri', source: SRC.policy, note: '' },
+      'Ölçüm yok.')
+    : observed(
+      { id: 'ppDrops', label: 'düşme gerekçeleri', source: SRC.policy,
+        note: '"Neden konuşmadı?" sorusunun KANITI. Bounded kod kümesi: '
+            + 'turn_busy · user_suppressed · learned_suppressed · decayed · '
+            + 'cooldown · workload · presence · media · budget · '
+            + 'hourly_ceiling · no_visual_channel · no_text · not_top · invalid. '
+            + 'Serbest metin YOK.' },
+      drops));
+
+  const bySrc = _renderCounts(p.admittedBySource);
+  f.push(bySrc === null
+    ? unavailable({ id: 'ppSources', label: 'kaynak bazlı konuşma', source: SRC.policy, note: '' },
+      'Ölçüm yok.')
+    : observed(
+      { id: 'ppSources', label: 'kaynak bazlı konuşma', source: SRC.policy,
+        note: 'SABİT kaynak kimlikleri (companion.* · diagnostic.*). Bu sayı '
+            + 'motorun kapısından geçenleri VE kendi kanonik kapısı olan '
+            + 'hatların GÖZLENEN konuşmalarını birlikte içerir.' },
+      bySrc));
+
+  const kinds = _renderCounts(p.kinds);
+  f.push(kinds === null
+    ? unavailable({ id: 'ppKinds', label: 'sınıf dağılımı', source: SRC.policy, note: '' },
+      'Ölçüm yok.')
+    : observed(
+      { id: 'ppKinds', label: 'sınıf dağılımı', source: SRC.policy,
+        note: 'Sınıf bir ETİKET DEĞİL YETKİ SEVİYESİDİR: safety (iş yükü tavanı '
+            + 'CRITICAL, bütçesiz, presence gerektirmez, öğrenmeyle SUSTURULAMAZ) · '
+            + 'operational (HIGH) · informational (ELEVATED) · social (NORMAL).' },
+      kinds));
+
+  f.push(observed(
+    { id: 'ppLearn', label: 'kesinti / öğrenme', source: SRC.policy,
+      note: 'Kullanıcı uçuştaki proaktif konuşmayı kaç kez KESTİ. Bu bir "ret" '
+          + 'DEĞİL bir KESİNTİdir (kullanıcı ilgisiz bir sebeple de mikrofonu '
+          + 'açmış olabilir): skoru kademeli düşürür ve eşikte GEÇİCİ ve süresi dolan bir '
+          + 'bastırma uygular. Güvenlik kaynakları bu yoldan ASLA susturulmaz.' },
+    `kesinti ${p.interruptions} · öğrenilmiş bastırma ${p.learnedSuppressed.length} · `
+    + `kullanıcı bastırması ${p.userSuppressed.length}`));
+
+  f.push(p.acceptRateMeasurable
+    ? observed(
+      { id: 'ppAccept', label: 'kabul oranı', source: SRC.policy, note: '' },
+      'ölçülüyor')
+    : unavailable(
+      { id: 'ppAccept', label: 'kabul oranı (proactiveAcceptRate)', source: SRC.policy,
+        note: 'ÜRETİMDE "kullanıcı bu öneriyi KABUL ETTİ" diyen bir sinyal '
+            + 'YOKTUR — yalnız KESİNTİ gözlenebiliyor. Kesintisiz teslimi '
+            + '"kabul" saymak ölçüm uydurmak olurdu. Açık borç: gerçek kabul '
+            + 'kanalı (öneriye uyma / açık ret) tasarlanmadı.' },
+      'ÖLÇÜLEMİYOR — kabul sinyali YOK'));
+
+  f.push(p.lastAdmittedSourceId === null && p.lastDropReason === null
+    ? unavailable({ id: 'ppLast', label: 'son karar', source: SRC.policy, note: '' },
+      'Ölçüm yok.')
+    : observed(
+      { id: 'ppLast', label: 'son karar', source: SRC.policy,
+        note: 'Son konuşan kaynak ve son düşme gerekçesi (bağımsız iki alan; '
+            + 'aynı karara ait olmak ZORUNDA DEĞİLDİR).' },
+      `konuşan: ${p.lastAdmittedSourceId ?? '—'} · son düşme: ${p.lastDropReason ?? '—'}`));
+
+  return { id: ID, title: MAVI_SECTION_TITLE[ID], fields: _bound(f) };
+}
+
+function _surfaceSection(s: MaviRawSnapshot): MaviSection {
+  const f: InspectorField[] = [];
+  const v = s.surface ?? null;
+  const ID: MaviSectionId = 'surface';
+
+  if (!v) {
+    f.push(unavailable(
+      { id: 'suRoot', label: 'yüzey durumu', source: SRC.surface, note: '' },
+      'Yüzey durum tanısı okunamadı.'));
+    return { id: ID, title: MAVI_SECTION_TITLE[ID], fields: _bound(f) };
+  }
+
+  f.push(v.transitions === 0
+    ? unavailable(
+      { id: 'suRoot', label: 'son durum', source: SRC.surface,
+        note: 'Bu oturumda hiç yüzey geçişi olmadı. "IDLE" yazmak bir ÖLÇÜM gibi '
+            + 'görünürdü — ölçüm yokluğu ölçüm DEĞİLDİR.' },
+      'Ölçüm yok.')
+    : observed(
+      { id: 'suRoot', label: 'son durum', source: SRC.surface,
+        note: 'BOUNDED 11 durum: IDLE · AMBIENT · LISTENING · UNDERSTANDING · '
+            + 'SPEAKING · ACTION · CONFIRMATION · PROACTIVE · DEFERRED · '
+            + 'DEGRADED · ERROR. Bu bir OTORİTE DEĞİLDİR: eylem yürütmez, '
+            + 'gerçek üretmez, capability açıp kapatmaz — kanonik kaynaklardan '
+            + 'TÜRETİLİR. UNDERSTANDING bir "düşünüyor" göstergesi DEĞİLDİR, '
+            + 'nötr bir ALINDI bildirimidir (F2/I7).' },
+      `${v.lastState ?? '—'} (${v.transitions} geçiş) · sebep: ${v.lastReason ?? '—'}`));
+
+  const dist = _renderCounts(v.states);
+  f.push(dist === null
+    ? unavailable({ id: 'suStates', label: 'durum dağılımı', source: SRC.surface, note: '' },
+      'Ölçüm yok.')
+    : observed(
+      { id: 'suStates', label: 'durum dağılımı', source: SRC.surface,
+        note: 'Oturum boyunca hangi durumda kaç kez bulunuldu. Etiket METNİ, '
+            + 'cevap içeriği ve transkript bu katmana HİÇ GİRMEZ.' },
+      dist));
+
+  f.push(observed(
+    { id: 'suMode', label: 'yüzey kipi', source: SRC.surface,
+      note: 'COMPACT = sürüş (iş yükü ELEVATED+ VEYA hareket VEYA hareket '
+          + 'BİLİNMİYOR — kanıtsızken daha az dikkat yükü seçilir). '
+          + 'EXPANDED = yalnız DOĞRULANMIŞ duruş + düşük iş yükü. '
+          + 'İş yükü yüzeyi daraltır ama capability KAPATMAZ (F8).' },
+    v.lastMode ?? '—'));
+
+  f.push(observed(
+    { id: 'suFull', label: 'engellenen tam ekran', source: SRC.surface,
+      note: 'Sürüş kipinde tam ekran yüzey AÇILMAZ: navigasyon/müzik ekranı '
+          + 'kapanmaz (spec §21.2 — pazarlıksız). Bu sayaç o korumanın kaç kez '
+          + 'devreye girdiğini gösterir; 0 "hiç denenmedi" demektir.' },
+    `${v.fullScreenBlocked}`));
+
+  f.push(v.lastDegraded === 'NONE'
+    ? observed(
+      { id: 'suDegraded', label: 'yetenek kaybı', source: SRC.surface,
+        note: 'Kayıp sınıfı bounded ve SPESİFİKtir; "AI çalışmıyor" gibi '
+            + 'genelleme YASAKTIR — her sınıf AYAKTA KALANI söyler.' },
+      'YOK')
+    : unavailable(
+      { id: 'suDegraded', label: 'yetenek kaybı', source: SRC.surface,
+        note: 'OFFLINE · CLOUD_UNAVAILABLE · PROVIDER_COOLDOWN · STT_FALLBACK · '
+            + 'TTS_FALLBACK. Rozet duruma DİKtir: dinleme sırasında da görünür.' },
+      v.lastDegraded));
+
+  f.push(observed(
+    { id: 'suWake', label: 'sesle uyandırma / presence', source: SRC.surface,
+      note: 'MAVI-F11 · F1 BORCU KAPATILDI: wake ayarı Yol Arkadaşı '
+          + 'presence ayarından BAĞIMSIZDIR. Eskiden `companionEnabled && '
+          + 'companionWakeWordEnabled` bağı vardı → presence kapalıyken '
+          + 'kullanıcının AÇIK işaretlediği ayar sessizce ETKİSİZ kalıyor ve '
+          + 'ayar ekranından da kayboluyordu (erişilemeyen gizli durum). '
+          + 'Bu iki değerin BAĞIMSIZ olması beklenir; herhangi bir bağ '
+          + 'REGRESYON kanıtıdır.' },
+    `wake ${v.wakeWordEnabled ? 'AÇIK' : 'KAPALI'} · `
+    + `Yol Arkadaşı ${v.companionPresence ? 'AÇIK' : 'KAPALI'}`));
+
+  return { id: ID, title: MAVI_SECTION_TITLE[ID], fields: _bound(f) };
+}
+
+/* ── J · Barge-in ve konuşma kontrolü (F12) ───────────────────────────────── */
+
+/** `-1` = ölçüm yok → sahte `0` YERİNE dürüst metin. */
+function _msOrUnknown(v: number): string {
+  return typeof v === 'number' && Number.isFinite(v) && v >= 0 ? `${Math.round(v)} ms` : 'ÖLÇÜM YOK';
+}
+
+function _bargeInSection(s: MaviRawSnapshot): MaviSection {
+  const f: InspectorField[] = [];
+  const b = s.bargeIn ?? null;
+  const ID: MaviSectionId = 'barge-in';
+
+  if (!b) {
+    f.push(unavailable(
+      { id: 'bgRoot', label: 'kesme kontrolü', source: SRC.bargeIn, note: '' },
+      'Barge-in tanısı okunamadı.'));
+    return { id: ID, title: MAVI_SECTION_TITLE[ID], fields: _bound(f) };
+  }
+
+  /* Duplex sınıfı bir ÖLÇÜMDÜR, bir hedef DEĞİL. `HALF_DUPLEX_INTERRUPT`
+     bir arıza değil, ses yolunun kanıtlanmış gerçeğidir. */
+  f.push(observed(
+    { id: 'bgClass', label: 'duplex sınıfı', source: SRC.bargeIn,
+      note: 'BOUNDED 4 sınıf: TRUE_FULL_DUPLEX · AEC_GATED_DUPLEX · '
+          + 'HALF_DUPLEX_INTERRUPT · UNSUPPORTED. Sınıf KANITTAN türetilir; '
+          + 'kanıt yoksa YÜKSELMEZ (sahte full-duplex yasaktır). '
+          + 'HALF_DUPLEX_INTERRUPT = kesme mekaniği TAM (ttsCancel + akış '
+          + 'iptali + tur supersede) ama TTS sırasında korumalı yakalama yolu '
+          + 'YOK → tetik akustik olamaz, açık kullanıcı eylemi gerekir.' },
+    b.duplexClass));
+
+  f.push(observed(
+    { id: 'bgEvidence', label: 'duplex kanıtı', source: SRC.bargeIn,
+      note: 'Üç kanıt da GEREKLİDİR: (1) TTS sırasında yakalama açık, '
+          + '(2) AEC duplex yakalama yolunda etkin — aktif dinleme yolunda '
+          + 'ölçülen AEC SAYILMAZ (o yol TTS ile hiç çakışmaz), '
+          + '(3) TTS çıkışı iptal ediciye referans sinyali olarak bağlı. '
+          + 'Eksik kanıt "muhtemelen vardır"a çevrilmez.' },
+    `yakalama açık: ${b.captureOpenDuringTts ? 'EVET' : 'HAYIR'}`
+    + ` · AEC (duplex yolu): ${b.aecCountsForDuplex ? 'EVET' : 'HAYIR'}`
+    + ` · echo referansı: ${b.echoReferenceWired ? 'BAĞLI' : 'YOK'}`));
+
+  f.push(b.proposals === 0
+    ? unavailable(
+      { id: 'bgProposals', label: 'kesme önerileri', source: SRC.bargeIn,
+        note: 'Bu oturumda hiç kesme önerisi değerlendirilmedi. "0 kabul" '
+            + 'yazmak bir ÖLÇÜM gibi görünürdü — ölçüm yokluğu ölçüm DEĞİLDİR.' },
+      'Ölçüm yok.')
+    : observed(
+      { id: 'bgProposals', label: 'kesme önerileri', source: SRC.bargeIn,
+        note: 'Öneri ≠ yetki. Hakem yalnız HÜKÜM verir; turu `maviTurn`, sesi '
+            + '`ttsService`, akışı `maviResponseStream` kapatır. Kabul edilen '
+            + 'kesme eski turu SUPERSEDE eder → geç gelen sağlayıcı sonucu '
+            + 'eski cevabı diriltemez.' },
+      `${b.proposals} öneri · ${b.accepted} kabul · son hüküm: ${b.lastReason ?? '—'}`
+      + (b.countersSaturated ? ' · ⚠ SAYAÇ TAVANI DOLDU (adetler artık gerçek değil)' : '')));
+
+  const reasons = _renderCounts(b.reasons);
+  f.push(reasons === null
+    ? unavailable({ id: 'bgReasons', label: 'hüküm dağılımı', source: SRC.bargeIn, note: '' },
+      'Ölçüm yok.')
+    : observed(
+      { id: 'bgReasons', label: 'hüküm dağılımı', source: SRC.bargeIn,
+        note: 'REJECTED_SELF_ECHO_RISK = Mavi kendi sesiyle tetiklenmiş '
+            + 'olabilir (mikrofon açık, echo koruması kanıtsız). '
+            + 'REJECTED_PROTECTED_AUDIO = güvenlik/tehlike/navigasyon sözü '
+            + 'kesilemez — kullanıcının Mavi’yi kesebilmesi o kanalları kesme '
+            + 'yetkisi DEĞİLDİR. REJECTED_EVIDENCE_INSUFFICIENT = kanıt yok '
+            + '(VAD/enerji TEK BAŞINA asla yeterli değildir).' },
+      reasons));
+
+  const kinds = _renderCounts(b.evidenceKinds);
+  f.push(kinds === null
+    ? unavailable({ id: 'bgKinds', label: 'kanıt türü dağılımı', source: SRC.bargeIn, note: '' },
+      'Ölçüm yok.')
+    : observed(
+      { id: 'bgKinds', label: 'kanıt türü dağılımı', source: SRC.bargeIn,
+        note: 'EXPLICIT_USER (düğme/donanım) · WAKE_TRIGGER · ASR_PARTIAL · '
+            + 'VAD_ENERGY. Transkript ve ham ses BU KATMANA HİÇ GİRMEZ.' },
+      kinds));
+
+  /* Gecikme DÜRÜST isimlendirilir: bu bir İSTEK damgasıdır, akustik susma
+     kanıtı DEĞİLDİR (F0'ın first_audio_requested/confirmed ayrımıyla aynı). */
+  f.push(b.ttsStopSamples === 0
+    ? unavailable(
+      { id: 'bgTtsStop', label: 'TTS durdurma İSTEĞİ gecikmesi', source: SRC.bargeIn,
+        note: 'Kabul edilen kesme → `ttsCancel()` çağrısı arası. Henüz örnek yok.' },
+      'Ölçüm yok.')
+    : derived(
+      { id: 'bgTtsStop', label: 'TTS durdurma İSTEĞİ gecikmesi', source: SRC.bargeIn,
+        note: '⚠️ Bu, hoparlörün SUSTUĞU an DEĞİLDİR: native '
+            + '`TextToSpeech.stop()` bir isteği kuyruklar. Gerçek akustik '
+            + 'susma gecikmesi (spec hedefi p95 ≤ 120 ms) yalnız CİHAZDA '
+            + 'ölçülebilir — kütükte DEVICE VALIDATION REQUIRED.' },
+      `son ${_msOrUnknown(b.lastTtsStopRequestMs)} · en kötü `
+      + `${_msOrUnknown(b.maxTtsStopRequestMs)} · ${b.ttsStopSamples} örnek`));
+
+  f.push(b.listenSamples === 0
+    ? unavailable(
+      { id: 'bgListen', label: 'yeni dinleme açılış gecikmesi', source: SRC.bargeIn,
+        note: 'Kabul edilen kesme → mikrofonun GERÇEKTEN açıldığı an.' },
+      'Ölçüm yok.')
+    : derived(
+      { id: 'bgListen', label: 'yeni dinleme açılış gecikmesi', source: SRC.bargeIn,
+        note: 'Native yolda donanım ısınması (warmup) bu süreye DAHİLDİR; '
+            + 'görsel "dinliyor" durumu daha erken basılır, ölçüm mikrofonun '
+            + 'fiilen açıldığı andan alınır (erken damga KULLANILMAZ).' },
+      `son ${_msOrUnknown(b.lastListenOpenMs)} · en kötü `
+      + `${_msOrUnknown(b.maxListenOpenMs)} · ${b.listenSamples} örnek`));
+
+  return { id: ID, title: MAVI_SECTION_TITLE[ID], fields: _bound(f) };
+}
+
+/* ── K · Kanonik runtime / konsolidasyon (F13) ─────────────────────────────
+ *
+ * LAB İKİNCİ OTORİTE DEĞİLDİR: burada hiçbir hüküm ÜRETİLMEZ. Alanlar ya
+ * mevcut kanıt defterinden sayılır (`observed`) ya da koddaki tek giriş
+ * zincirinin BEYANIdır (`derived`). "Gölge yürütmesi 0" iddiası YALNIZ defter
+ * tavana dayanmamışken (`bounded === false`) anlamlıdır — aksi hâlde alan
+ * açıkça UYARIR.
+ */
+function _canonicalRuntimeSection(s: MaviRawSnapshot): MaviSection {
+  const f: InspectorField[] = [];
+  const r = s.runtime ?? null;
+  const ID: MaviSectionId = 'canonical-runtime';
+
+  /* KAYNAK YOKSA HİÇBİR ŞEY BEYAN EDİLMEZ — mimari cümlesi bile. Kanıt defteri
+     okunamıyorken "kanonik zincir şudur" yazmak, doğrulanamayan bir iddiayı
+     ölçülmüş gibi gösterirdi (LAB kural 5). */
+  if (!r) {
+    f.push(unavailable(
+      { id: 'rtRoot', label: 'kanonik runtime defteri', source: SRC.runtime, note: '' },
+      'Kanıt defteri okunamadı — "gölge çalışmadı" VARSAYILMAZ.'));
+    return { id: ID, title: MAVI_SECTION_TITLE[ID], fields: _bound(f) };
+  }
+
+  /* Aktif yol bir ÖLÇÜM DEĞİL — kod sözleşmesidir; `derived` işaretlenir. */
+  f.push(derived(
+    { id: 'rtPath', label: 'kanonik giriş zinciri', source: SRC.runtime,
+      note: 'F13 sözleşmesi: ses/metin → maviTurn (tek tur otoritesi) → '
+          + 'anlama/plan → capabilityFabric → maviActionAuthority → '
+          + 'commandExecutor → maviSpeech (tek konuşma otoritesi) → '
+          + 'maviMemory (tek izdüşüm). Bu satır ÖLÇÜM DEĞİL, koddaki tek '
+          + 'giriş yolunun beyanıdır; kilit testleri bunu kaynakta doğrular.' },
+    'turn → plan → fabric → authority → executor → speech → memory'));
+
+  f.push(derived(
+    { id: 'rtCompound', label: 'bileşik yürütücü sayısı', source: SRC.runtime,
+      note: 'F13 öncesi ÜÇ yol vardı: voiceService.dispatchChain (yerel '
+          + 'ayrıştırıcı, gözlemsiz, YÜRÜTMEDEN ÖNCE konuşuyordu) · '
+          + '_runBrainPlan (kanonik) · commandExecutor.executeSequence (ölü, '
+          + 'paralel, kapısız). Artık ikisi de `capabilityPlanRunner`a bağlı, '
+          + 'üçüncüsü SİLİNDİ.' },
+    '1 (capabilityPlanRunner)'));
+
+  const warn = r.bounded ? ' · ⚠ DEFTER TAVANI DOLDU (adetler toplam DEĞİL)' : '';
+
+  f.push(r.shadowDecisions === 0
+    ? unavailable(
+      { id: 'rtShadow', label: 'gölge hat kararları', source: SRC.runtime,
+        note: 'Bu oturumda gölge köprü hiç karar kaydetmedi. "0 gölge '
+            + 'yürütmesi" YAZILMAZ: ölçüm yokluğu ölçüm değildir.' },
+      'Ölçüm yok.')
+    : observed(
+      { id: 'rtShadow', label: 'gölge hat kararları', source: SRC.runtime,
+        note: 'Gölge köprü her sesli komutu GÖZLER ama handler’ları no-op’tur. '
+            + 'F13 hedefi: `Mavi yürütmesi = 0` ve `takeover bayrağı = 0`. '
+            + 'Bu iki sayı 0 değilse gölge hat ARTIK gölge değildir.' },
+      `${r.shadowDecisions} karar · Mavi yürüttü: ${r.maviExecutedDecisions}`
+      + ` · yürütme yok: ${r.noExecutionDecisions}`
+      + ` · takeover bayraklı: ${r.takeoverFlagDecisions}${warn}`));
+
+  f.push(r.legacyExecutionKeys === 0
+    ? unavailable(
+      { id: 'rtLegacy', label: 'eski hat yürütmeleri', source: SRC.runtime,
+        note: 'Eski hat (useVoiceCommandHandler) bu oturumda kayıt üretmedi.' },
+      'Ölçüm yok.')
+    : observed(
+      { id: 'rtLegacy', label: 'eski hat yürütmeleri', source: SRC.runtime,
+        note: 'Bugün KANONİK yürütme yolu budur (fallback DEĞİL): komutlar '
+            + '`commandExecutor` üzerinden geçer. Sayı, hattın canlı olduğunun '
+            + 'kanıtıdır; sıfırlanması BEKLENMEZ.' },
+      `${r.legacyExecutionKeys} komut anahtarı · ${r.legacyExecutionTotal} yürütme${warn}`));
+
+  f.push(observed(
+    { id: 'rtDouble', label: 'çift yürütme', source: SRC.runtime,
+      note: 'Aynı correlationId’yi HEM gölge hat HEM eski hat yürüttüyse bu '
+          + 'bir ARIZADIR (maviOwnership guard’ı delinmiş demektir). Beklenen '
+          + 'değer HER ZAMAN 0’dır.' },
+    `${r.doubleExecutionKeys} anahtar`));
+
+  f.push(observed(
+    { id: 'rtBridge', label: 'köprü yaşam döngüsü', source: SRC.runtime,
+      note: 'start − dispose farkı 1’i aşarsa abonelik SIZINTISI vardır.' },
+    `${r.bridgeStarts} start · ${r.bridgeDisposes} dispose`));
+
+  f.push(!r.flagsReadable
+    ? unavailable(
+      { id: 'rtFlags', label: 'açık Mavi bayrakları', source: SRC.runtime, note: '' },
+      'Bayrak okuması yapılamadı — "hepsi kapalı" VARSAYILMAZ.')
+    : observed(
+      { id: 'rtFlags', label: 'açık Mavi bayrakları', source: SRC.runtime,
+        note: 'F13 kabul ölçütü: açık bayrak ≤ 2. Liste yalnız bayrak ADIDIR; '
+            + 'anahtar/değer/kullanıcı verisi TAŞIMAZ. Boş liste = tüm Mavi '
+            + 'şalterleri varsayılan (kapalı) konumda.' },
+      r.openFlags.length === 0 ? 'yok (hepsi varsayılan)' : r.openFlags.join(', ')));
+
+  return { id: ID, title: MAVI_SECTION_TITLE[ID], fields: _bound(f) };
+}
+
 export function buildMaviSections(s: MaviRawSnapshot): MaviSection[] {
   if (!s) return [];
   return [
     _lifecycleSection(s), _diagSection(s), _aiHealthSection(s),
-    _quotaSection(s), _proactiveSection(s), _speechSection(s),
+    _quotaSection(s), _proactiveSection(s), _speechSection(s), _workloadSection(s),
+    _proactivePolicySection(s), _surfaceSection(s), _bargeInSection(s),
+    _canonicalRuntimeSection(s),
   ];
 }
 

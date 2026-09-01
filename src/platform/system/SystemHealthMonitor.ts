@@ -9,12 +9,10 @@
  *   1. SystemBoot servisleri register() ile kaydeder.
  *   2. Pasif izleyiciler (VehicleDataLayer, GPS) store değişimlerini dinler.
  *   3. Her 5s'de _tick() tüm servisleri kontrol eder.
- *   4. deadlineMs aşılırsa → ERROR_BUS kalıcı toast + isteğe bağlı restart.
+ *   4. deadlineMs aşılırsa → ERROR_BUS kalıcı toast + canonical recovery evidence request.
  *   5. Servis geri gelirse (beat gelirse) → toast otomatik kapanır.
  *
- * Restart Koruması:
- *   maxRestarts kez denendikten sonra restart denenmez.
- *   Restart denemesi arasında RESTART_COOLDOWN_MS beklenir.
+ * Recovery kararı RuntimeRecoverySupervisor'a aittir; bu sınıf restart çalıştırmaz.
  *
  * Zero-Leak (CLAUDE.md §1):
  *   stop() tüm interval + abonelik referanslarını temizler.
@@ -28,7 +26,6 @@ import {
 }                                   from '../obdService';
 import { showToast, dismissToast }  from '../errorBus';
 import { logError }                 from '../crashLogger';
-import { useCognitiveStore }        from '../../store/useCognitiveStore';
 import { capturePanicSnapshot }     from './SystemPanicHandler';
 import { thermalJournal }           from './ThermalJournal';
 import { getEmmcWriteCount }        from '../../utils/safeStorage';
@@ -73,11 +70,8 @@ function _isGpsPermissionDenied(): boolean {
 
 const WATCHDOG_INTERVAL_MS        = 5_000;          // watchdog tick aralığı
 const ALERT_COOLDOWN_MS           = 60_000;          // aynı servis için uyarı yenileme süresi
-const RESTART_COOLDOWN_MS         = 10_000;          // restart denemeleri arası minimum bekleme
 const MAX_RESTARTS_DEFAULT        = 2;
 const STARTUP_GRACE_MS            = 45_000;          // uygulama açılışta GPS fix almadan önce uyarı basılmaz
-/** Critical servislerde zorla restart eşiği — 30s sessizlik = process killer devreye girer */
-const CRITICAL_FORCE_RESTART_MS   = 30_000;
 /** Soak Test: her 1 saatte bir rastgele OPTIONAL servis restart edilir */
 const SOAK_TEST_INTERVAL_MS       = 60 * 60 * 1_000;
 /** UI Thread Watchdog — 8s eşiği: düşük segment cihazlarda harita yükü sırasında false-alarm engeli */
@@ -124,8 +118,8 @@ export interface ServiceConfig {
   alertTitle:    string;
   /** ERROR_BUS toast mesajı */
   alertMsg:      string;
-  /** Servis yeniden başlatma fonksiyonu (opsiyonel) */
-  restartFn?:    () => Promise<void>;
+  /** Salt evidence çıkışı; restart execution yetkisi taşımaz. */
+  recoveryRequest?: (input: { readonly serviceId: string; readonly reason: string; readonly evidenceRef: string }) => void;
   /** Maksimum restart denemesi */
   maxRestarts?:  number;
 }
@@ -136,7 +130,7 @@ interface WatchEntry extends Required<Pick<ServiceConfig, 'maxRestarts'>> {
   deadlineMs:    number;
   alertTitle:    string;
   alertMsg:      string;
-  restartFn?:    () => Promise<void>;
+  recoveryRequest?: ServiceConfig['recoveryRequest'];
   lastBeat:      number;  // performance.now() — MONOTONIC (epoch DEĞİL)
   alertId:       string | null;
   alertedAt:     number;  // performance.now()
@@ -212,7 +206,7 @@ class SystemHealthMonitor {
       deadlineMs:    config.deadlineMs,
       alertTitle:    config.alertTitle,
       alertMsg:      config.alertMsg,
-      restartFn:     config.restartFn,
+      recoveryRequest: config.recoveryRequest,
       maxRestarts:   config.maxRestarts ?? MAX_RESTARTS_DEFAULT,
       lastBeat:      performance.now(),
       alertId:       null,
@@ -360,34 +354,18 @@ class SystemHealthMonitor {
 
   /**
    * Soak Test tick — kritik altyapı (VehicleDataLayer, GPS) hariç,
-   * restartFn'i olan OPTIONAL servisleri rastgele seçer ve restart eder.
+   * recovery evidence adaptörü olan OPTIONAL servisleri gözler; execution yapmaz.
    */
   private _runSoakTestTick(): void {
     const INDESTRUCTIBLE = new Set(['VehicleDataLayer', 'GPS']);
     const candidates = [...this._registry.values()].filter(
-      (e) => e.restartFn && !INDESTRUCTIBLE.has(e.name) && e.criticality !== 'critical',
+      (e) => e.recoveryRequest && !INDESTRUCTIBLE.has(e.name) && e.criticality !== 'critical',
     );
     if (candidates.length === 0) return;
 
     const target = candidates[Math.floor(Math.random() * candidates.length)];
-    console.info(`[HealthMonitor:SoakTest] Hedef: ${target.name} — restart başlatılıyor`);
-
-    const doRestart = () => {
-      target.restartCount++;
-      target.lastRestartAt = performance.now();
-      void target.restartFn!().then(() => {
-        console.info(`[HealthMonitor:SoakTest] ${target.name} başarıyla restart edildi`);
-        target.restartCount = 0; // soak-test restart'ı production sayacını kirletmez
-      }).catch((e: unknown) => {
-        logError(`HealthMonitor:SoakTest:${target.name}`, e);
-      });
-    };
-
-    if (typeof requestIdleCallback !== 'undefined') {
-      requestIdleCallback(doRestart, { timeout: 5_000 });
-    } else {
-      setTimeout(doRestart, 0);
-    }
+    console.info(`[HealthMonitor:SoakTest] Hedef: ${target.name} — recovery evidence gönderiliyor`);
+    target.recoveryRequest?.({ serviceId: target.name, reason: 'soak_test_evidence', evidenceRef: 'SystemHealthMonitor.soakTest' });
   }
 
   // ── UI Thread Watchdog ────────────────────────────────────────────────────────
@@ -665,65 +643,12 @@ class SystemHealthMonitor {
         ),
       );
 
-      // Restart dene — UI thread asla bloke edilmez (requestIdleCallback)
-      if (
-        entry.restartFn &&
-        entry.restartCount < entry.maxRestarts &&
-        (now - entry.lastRestartAt) > RESTART_COOLDOWN_MS
-      ) {
-        const isCriticalForce =
-          entry.criticality === 'critical' && elapsed > CRITICAL_FORCE_RESTART_MS;
-
-        entry.restartCount++;
-        entry.lastRestartAt = now;
-
-        const attempt  = entry.restartCount;
-        const svcName  = entry.name;
-        const elapsedS = (elapsed / 1000).toFixed(0);
-
-        // ── Escalation Ladder ──────────────────────────────────────────────────
-        // attempt 1: sessiz restart
-        // attempt 2: CRITICAL moduna geç (medya + opsiyonel sistemler kapanır)
-        if (attempt === 1) {
-          console.warn(`[HealthMonitor:Escalation] Step 1: Silent Restart — ${svcName}`);
-        } else if (attempt >= 2) {
-          console.warn(`[HealthMonitor:Escalation] Step 2: CRITICAL Mode Activated — ${svcName}`);
-          useCognitiveStore.getState().setMode('CRITICAL');
-        }
-
-        console.warn(
-          isCriticalForce
-            ? `[HealthMonitor:Watchdog] ${svcName} ${elapsedS}s sessiz → zorla yeniden başlatılıyor`
-            : `[HealthMonitor] Restarting ${svcName} (attempt ${attempt}/${entry.maxRestarts})`,
-        );
-
-        const doRestart = () => {
-          void entry.restartFn!().then(() => {
-            if (import.meta.env.DEV) {
-              console.info(`[HealthMonitor] ${svcName} restart tamamlandı`);
-            }
-          }).catch((e: unknown) => {
-            logError(`HealthMonitor:Restart:${svcName}`, e);
-          });
-        };
-
-        if (typeof requestIdleCallback !== 'undefined') {
-          requestIdleCallback(doRestart, { timeout: isCriticalForce ? 1_000 : 5_000 });
-        } else {
-          setTimeout(doRestart, 0);
-        }
-      } else if (entry.restartFn && entry.restartCount >= entry.maxRestarts) {
-        // ── Ladder Step 3: restart limiti doldu ──────────────────────────────
-        const svcName = entry.name;
-        console.warn(`[HealthMonitor:Escalation] Step 3: Panic Snapshot + User Toast — ${svcName} max restarts exceeded`);
-        showToast({
-          type:     'warning',
-          title:    'Güvenli Sürüş Modu Aktif',
-          message:  'Sistem kendini yeniledi. Sürüşünüz korunuyor.',
-          duration: 5_000,
-        });
-        void capturePanicSnapshot(`watchdog_max_restarts:${svcName}`);
-      }
+      // Health evidence only: policy/execution belongs to RuntimeRecoverySupervisor.
+      entry.recoveryRequest?.({
+        serviceId: entry.name,
+        reason: 'heartbeat_timeout',
+        evidenceRef: `SystemHealthMonitor:${entry.name}:deadline=${entry.deadlineMs}`,
+      });
     }
   }
 

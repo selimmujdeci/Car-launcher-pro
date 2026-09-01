@@ -17,6 +17,7 @@
  *
  * Zero-leak: `start...` bir cleanup döndürür; SystemBoot LIFO yığınına kaydeder.
  */
+import { Capacitor } from '@capacitor/core';
 import { logError } from '../crashLogger';
 import { parseGeoUri } from './geoUriParser';
 import {
@@ -134,6 +135,12 @@ export async function handleIncomingLocationUri(uri: string): Promise<void> {
  */
 export function startIncomingLocationBridge(): () => void {
   if (_started) return () => { /* çift kurulum yok */ };
+
+  // Bu köprü yalnız Android native eklentisiyle anlamlıdır. Web/PWA'da
+  // registerPlugin proxy'sini çağırmak beklenen bir "not implemented" hatası
+  // üretir ve gerçek başlangıç hatalarını örter.
+  if (!Capacitor.isNativePlatform()) return () => { /* web/PWA no-op */ };
+
   _started = true;
 
   let removeListener: (() => void) | null = null;

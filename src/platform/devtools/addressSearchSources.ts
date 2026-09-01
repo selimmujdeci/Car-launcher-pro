@@ -17,6 +17,11 @@ import type {
   AddressSearchRecord, AddressSearchSummary,
 } from '../geo/addressSearchLedger';
 import { getGeocodeProviderStatus } from '../geocodingProviders';
+import {
+  readOverpassCategoryStatus, type OverpassCategoryStatus,
+} from '../geo/overpassCategorySearch';
+import { readCityAnchorCacheSize } from '../geo/cityAnchor';
+import { readNominatimSlotDelayMs } from '../geo/nominatimRateLimit';
 
 /** Ham okuma — hiçbir alan uydurulmaz; okunamayan alan `null` kalır. */
 export interface AddressSearchRawSnapshot {
@@ -31,6 +36,27 @@ export interface AddressSearchRawSnapshot {
    */
   readonly providerName: string | null;
   readonly providerHasKey: boolean | null;
+  /**
+   * Overpass KATEGORİ katmanının sağlığı — ağa çıkılabiliyor mu, önbellekte kaç
+   * anahtar var, soğuma sürüyor mu. Okunamazsa `null` (sahte "sağlıklı" YOK).
+   *
+   * GİZLİLİK: yalnız ADET ve KALAN SÜRE taşınır — hangi kategori arandığı,
+   * hangi konumda arandığı ve sonuç içeriği BU KATMANDAN GEÇMEZ.
+   */
+  readonly overpassCategory: OverpassCategoryStatus | null;
+  /**
+   * Çözülmüş şehir ÇAPASI sayısı (P0-NAV-07). Uzak hedef adresi kullanıcının
+   * çevresinden bağımsız aramayı bu katman sağlar; kaç ilin çözüldüğü
+   * gözlemlenebilir olmalıdır. Okunamazsa `null`.
+   *
+   * GİZLİLİK: yalnız ADET — hangi il arandığı TAŞINMAZ.
+   */
+  readonly cityAnchorCount: number | null;
+  /**
+   * Nominatim ToS sırasında şu an beklenmesi gereken süre (ms). 0 = sıra boş.
+   * Sürekli yüksekse arama yüzeyleri birbirini bekletiyordur.
+   */
+  readonly nominatimSlotDelayMs: number | null;
 }
 
 function _safe<T>(fn: () => T, fallback: T): T {
@@ -52,6 +78,9 @@ export function readAddressSearchSnapshot(): AddressSearchRawSnapshot {
     summary,
     providerName:   null,
     providerHasKey: null,
+    overpassCategory: _safe(() => readOverpassCategoryStatus(), null),
+    cityAnchorCount:      _safe(() => readCityAnchorCacheSize(), null),
+    nominatimSlotDelayMs: _safe(() => readNominatimSlotDelayMs(), null),
   };
 }
 

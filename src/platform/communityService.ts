@@ -27,6 +27,8 @@ import { useUnifiedVehicleStore }        from './vehicleDataLayer/UnifiedVehicle
 import { injectCommunityHazard }         from './hazardService';
 import type { HazardType }               from '../store/useHazardStore';
 import { runtimeManager }                from '../core/runtime/AdaptiveRuntimeManager';
+import { ceilingFor } from './perf/workloadCeilings';
+import { bumpPerf } from './perf/perfCounters';
 
 /* ── Sabitler ────────────────────────────────────────────────────────────── */
 
@@ -557,6 +559,22 @@ export async function fetchNearbyCommunityEvents(): Promise<void> {
 
 /** MALI-400 güvenli: UI thread boştayken cloud pull başlatır. */
 function _idlePull(): void {
+  /* ══ ARCH-06/F6 · TAVAN UYGULAYAN TEK GERÇEK TÜKETİCİ ═══════════════
+     Bu çekim ARAÇ GERÇEĞİ DEĞİLDİR ve KRİTİK UYARI DEĞİLDİR: bulut
+     tarafından gelen topluluk tehlike ZENGİNLEŞTİRMESİdir. Cihaz gerçek
+     baskı altındayken (65°C üstü termal, CRITICAL bellek, SAFE_MODE) bir ağ
+     isteği + JSON ayrıştırma harcamak, kullanıcının GÖRDÜĞÜ işi yavaşlatır.
+
+     ⚠️ GİDEN kuyruk (`_syncTimer` → `_idleSync`) KISILMAZ — o kullanıcının
+     kendi bildirimlerini taşır; atlanması VERİ KAYBI olurdu. Tavan yalnız
+     yeniden üretilebilir GELEN zenginleştirmeye uygulanır. */
+  const ceiling = ceilingFor('backgroundIndexing');
+  if (ceiling === 'OFF' || ceiling === 'MINIMAL') {
+    bumpPerf('ceiling.backgroundPullSkipped');
+    return;
+  }
+  bumpPerf('ceiling.backgroundPullRan');
+
   if (typeof requestIdleCallback !== 'undefined') {
     requestIdleCallback(
       () => { void fetchNearbyCommunityEvents(); },

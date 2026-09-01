@@ -25,6 +25,14 @@ const SRC = readFileSync(
   'utf8',
 );
 
+describe('camera turn-progress dedupe', () => {
+  it('does not repaint for sub-meter floating point progress noise', () => {
+    expect(SRC).toContain('Math.abs(_turnKey - sentCamTurn) >= 1');
+    expect(SRC).toContain('_rs.currentStepIndex !== sentCamStep');
+    expect(SRC).not.toContain('_turnKey !== sentCamTurn');
+  });
+});
+
 /* ────────────────────────────────────────────────────────────────────────────
  * FullMapView tick protokolünün SADIK MODELİ
  * (sabitler ve koşullar FullMapView.tsx ile birebir — aşağıdaki kilitler doğrular)
@@ -472,7 +480,10 @@ describe('Duplicate & zero-leak', () => {
 describe('Regresyon kilitleri — gerçek FullMapView.tsx kaynağı', () => {
   it('18. "yapılan iş" idle kapısı kodda VAR (kök-neden fix\'i geri alınamaz)', () => {
     expect(SRC).toMatch(/NO_WORK_IDLE_MS/);
-    expect(SRC).toMatch(/now - lastWorkTs >= NO_WORK_IDLE_MS\)\s*return true/);
+    expect(SRC).toMatch(/const motionModeActive = navActive \|\| drivingModeRef\.current/);
+    expect(SRC).toMatch(/const noWorkIdleMs = motionModeActive/);
+    expect(SRC).toMatch(/LOCATION_STALE_MS \+ 1_000/);
+    expect(SRC).toMatch(/now - lastWorkTs >= noWorkIdleMs\)\s*return true/);
   });
 
   it('19. marker ve kamera DEDUP guard\'ları kodda VAR', () => {

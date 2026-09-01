@@ -63,7 +63,9 @@ export const MapHudControls = memo(function MapHudControls({
   drivingMode,
   cameraOn,
   mode,
-  heading,
+  /* `heading` prop KORUNDU (çağıran kanonik kaynaktan besliyor) ama artık
+     tüketilmiyor: onu okuyan tek yer kaldırılan nav pusulasıydı. */
+  heading: _heading,
   location,
   onClose,
   onZoomIn,
@@ -75,7 +77,8 @@ export const MapHudControls = memo(function MapHudControls({
   showControls,
 }: MapHudControlsProps) {
   /* Dar ekran (telefon yatayı) yerleşimi — eşik TEK KAYNAKTAN gelir. */
-  const dense = useDenseHud();
+  /* `dense` yalnız kaldırılan nav kolonunun çapası içindi. */
+  void useDenseHud();
 
   const [reportOpen, setReportOpen] = useState(false);
 
@@ -107,22 +110,29 @@ export const MapHudControls = memo(function MapHudControls({
           onClick={onClose}
           aria-label="Ana ekrana dön — navigasyon sürer"
           title="Ana ekrana dön (navigasyon sürer)"
-          className="flex items-center gap-2 rounded-2xl active:scale-90 transition-all hover:brightness-110"
+          /* ── GÖRSEL ÖNCELİK DÜŞÜRÜLDÜ (P0-NAV-05) ────────────────────────
+           * Eski hâli koyu dolgu + 1,5 px parlak kenar + 28 px gölge + büyük
+           * harfli metinle navigasyon bilgisinden DAHA ÇOK dikkat çekiyordu.
+           * Bu bir görünüm anahtarıdır, sürüş kararı değildir. Artık ikon
+           * ağırlıklı ve saydam; DOKUNMA HEDEFİ 44×44 px KORUNUR (araç ekranı
+           * şartı) — küçülen görsel ağırlık, tıklanabilirlik değil. */
+          className="flex items-center justify-center gap-2 rounded-full active:scale-90 transition-all"
           style={{
             position: 'fixed',
-            top: 'calc(var(--sat) + 16px)', right: 'calc(var(--sar) + 16px)',
-            zIndex: 9999,
-            padding: '10px 16px',
-            background: 'rgba(15,23,42,0.72)',
-            backdropFilter: 'blur(20px)',
-            border: '1.5px solid rgba(255,255,255,0.22)',
-            color: '#e2e8f0', fontWeight: 800, fontSize: 12,
-            letterSpacing: '0.08em', cursor: 'pointer',
-            boxShadow: '0 8px 28px rgba(0,0,0,0.45)',
+            top: 'calc(var(--sat) + 12px)', right: 'calc(var(--sar) + 12px)',
+            zIndex: 'var(--z-map-alert)',
+            minWidth: 44, minHeight: 44,
+            padding: '0 14px',
+            background: 'rgba(15,23,42,0.42)',
+            backdropFilter: 'blur(14px)',
+            border: '1px solid rgba(255,255,255,0.12)',
+            color: 'rgba(226,232,240,0.72)', fontWeight: 700, fontSize: 11,
+            letterSpacing: '0.06em', cursor: 'pointer',
+            boxShadow: 'none',
           }}
         >
-          <Minimize2 className="w-4 h-4 stroke-[2.5px]" style={{ color: '#e2e8f0' }} />
-          <span className="uppercase tracking-widest">ANA EKRAN</span>
+          <Minimize2 className="w-4 h-4 stroke-[2px]" />
+          <span className="uppercase tracking-wider">ANA EKRAN</span>
         </button>
       )}
 
@@ -137,7 +147,7 @@ export const MapHudControls = memo(function MapHudControls({
           style={{
             position: 'fixed',
             top: 'calc(var(--sat) + 16px)', right: 'calc(var(--sar) + 16px)',
-            zIndex: 9999,
+            zIndex: 'var(--z-map-alert)',
             padding: '12px 20px',
             background: 'rgba(239,68,68,0.18)',
             backdropFilter: 'blur(20px)',
@@ -170,7 +180,7 @@ export const MapHudControls = memo(function MapHudControls({
 
       {/* ── SAĞ: Nav dışı kontroller — sürüş modunda gizle ── */}
       <div
-        className="absolute right-4 z-20 flex flex-col items-center gap-2.5"
+        className="absolute right-4 z-[var(--z-map-label)] flex flex-col items-center gap-2.5"
         style={{
           bottom: 'calc(var(--lp-dock-h,68px) + 18px)',
           opacity: isNavigating ? 0 : ctrlVisible ? 1 : 0.32,
@@ -185,9 +195,15 @@ export const MapHudControls = memo(function MapHudControls({
           className={`w-12 h-12 rounded-2xl border flex items-center justify-center active:scale-95 transition-colors duration-300 backdrop-blur-xl ${
             drivingMode
               ? 'bg-amber-500 border-amber-400/50 text-black'
-              : 'bg-black/60 border-white/15 text-slate-400 hover:text-white hover:border-white/25'
+              : 'text-slate-400 hover:text-white'
           }`}
-          style={{ boxShadow: drivingMode ? '0 0 20px rgba(224,162,60,0.5), 0 4px 16px rgba(0,0,0,0.5)' : '0 4px 16px rgba(0,0,0,0.5)' }}
+          style={{
+            background: drivingMode ? undefined : 'var(--oem-surface-1, rgba(38,44,60,0.86))',
+            borderColor: drivingMode ? undefined : 'var(--oem-line-strong, rgba(255,240,210,0.18))',
+            boxShadow: drivingMode
+              ? '0 0 20px rgba(224,162,60,0.5), 0 4px 16px rgba(0,0,0,0.5)'
+              : 'var(--oem-shadow-card, 0 20px 44px -22px rgba(0,0,0,0.55))',
+          }}
         >
           <Navigation2 className={`w-5 h-5 ${drivingMode ? 'fill-black' : ''}`} />
         </button>
@@ -195,8 +211,12 @@ export const MapHudControls = memo(function MapHudControls({
         {/* Konuma dön */}
         <button
           onClick={() => { onRecenter(); showControls(); }}
-          className="w-12 h-12 rounded-2xl bg-black/60 backdrop-blur-xl border border-white/15 flex items-center justify-center text-slate-400 hover:text-amber-300 hover:border-amber-400/35 active:scale-90 transition-colors"
-          style={{ boxShadow: '0 4px 16px rgba(0,0,0,0.5)' }}
+          className="w-12 h-12 rounded-2xl backdrop-blur-xl border flex items-center justify-center text-slate-400 hover:text-amber-300 active:scale-90 transition-colors"
+          style={{
+            background: 'var(--oem-surface-1, rgba(38,44,60,0.86))',
+            borderColor: 'var(--oem-line-strong, rgba(255,240,210,0.18))',
+            boxShadow: 'var(--oem-shadow-card, 0 20px 44px -22px rgba(0,0,0,0.55))',
+          }}
         >
           <Crosshair className="w-5 h-5" />
         </button>
@@ -207,17 +227,25 @@ export const MapHudControls = memo(function MapHudControls({
           className={`w-12 h-12 rounded-2xl backdrop-blur-xl border flex items-center justify-center active:scale-90 transition-all ${
             cameraOn
               ? 'bg-amber-500 border-amber-400 text-black shadow-[0_0_16px_rgba(224,162,60,0.6)]'
-              : 'bg-black/60 border-white/15 text-slate-400 hover:text-amber-300 hover:border-amber-400/35'
+              : 'text-slate-400 hover:text-amber-300'
           }`}
-          style={{ boxShadow: cameraOn ? '0 0 16px rgba(224,162,60,0.5)' : '0 4px 16px rgba(0,0,0,0.5)' }}
+          style={{
+            background: cameraOn ? undefined : 'var(--oem-surface-1, rgba(38,44,60,0.86))',
+            borderColor: cameraOn ? undefined : 'var(--oem-line-strong, rgba(255,240,210,0.18))',
+            boxShadow: cameraOn ? '0 0 16px rgba(224,162,60,0.5)' : 'var(--oem-shadow-card, 0 20px 44px -22px rgba(0,0,0,0.55))',
+          }}
         >
           {cameraOn ? <Camera className="w-5 h-5" /> : <CameraOff className="w-5 h-5" />}
         </button>
 
         {/* Zoom pill */}
         <div
-          className="flex flex-col bg-black/60 backdrop-blur-xl rounded-2xl border border-white/15 overflow-hidden"
-          style={{ boxShadow: '0 4px 20px rgba(0,0,0,0.55)' }}
+          className="flex flex-col backdrop-blur-xl rounded-2xl border overflow-hidden"
+          style={{
+            background: 'var(--oem-surface-1, rgba(38,44,60,0.86))',
+            borderColor: 'var(--oem-line-strong, rgba(255,240,210,0.18))',
+            boxShadow: 'var(--oem-shadow-card, 0 20px 44px -22px rgba(0,0,0,0.55))',
+          }}
         >
           <button
             onClick={() => { onZoomIn(); showControls(); }}
@@ -225,7 +253,7 @@ export const MapHudControls = memo(function MapHudControls({
           >
             <ZoomIn className="w-5 h-5" />
           </button>
-          <div className="h-px bg-white/12 mx-2.5" />
+          <div style={{ height: 1, margin: '0 10px', background: 'var(--oem-line-strong, rgba(255,240,210,0.18))' }} />
           <button
             onClick={() => { onZoomOut(); showControls(); }}
             className="w-12 h-12 flex items-center justify-center text-slate-400 hover:text-white hover:bg-white/10 active:scale-90 transition-colors"
@@ -235,54 +263,14 @@ export const MapHudControls = memo(function MapHudControls({
         </div>
       </div>
 
-      {/* ── SAĞ: Navigasyon zoom + pusula — nav modunda görünür ── */}
-      {isNavigating && (
-        <div
-          className="absolute right-4 z-20 flex flex-col items-center gap-2"
-          /* DAR EKRAN ÇAKIŞMASI (cihazda ölçüldü 2026-08-03, 904×406):
-             hız paneli (814,81,76×66) ile bu zoom kolonu (836,92,54×166)
-             **54×55 px** örtüşüyordu — kullanıcı ekran görüntüsünde tam bu
-             yeri daire içine aldı. Alttan çapalı olduğu için kısa ekranda
-             yukarı taşıp hız panelinin ÜSTÜNE biniyor.
-             Dar ekranda ÜSTTEN çapalanır: hız paneli `--sat + 80` konumunda
-             ve 66 px yüksekliğinde → 12 px boşlukla `+158`. Yüksek ekranlarda
-             (head unit) ESKİ alttan çapa AYNEN korunur. */
-          style={dense
-            ? { top: 'calc(var(--sat, 0px) + 158px)' }
-            : { bottom: 'calc(var(--lp-dock-h,68px) + 96px)' }}
-        >
-          {/* Pusula — bearing'e göre döner */}
-          <button
-            onClick={() => { onRecenter(); showControls(); }}
-            className="w-11 h-11 rounded-full flex items-center justify-center bg-black/70 backdrop-blur-xl border border-white/15 active:scale-90 transition-all"
-            style={{ boxShadow: '0 4px 16px rgba(0,0,0,0.55)' }}
-          >
-            <Navigation2
-              className="w-5 h-5 text-white"
-              style={{ transform: `rotate(${-(heading ?? 0)}deg)`, transition: 'transform 0.3s ease' }}
-            />
-          </button>
-          {/* Zoom pill */}
-          <div
-            className="flex flex-col bg-black/70 backdrop-blur-xl rounded-2xl border border-white/15 overflow-hidden"
-            style={{ boxShadow: '0 4px 20px rgba(0,0,0,0.55)' }}
-          >
-            <button
-              onClick={() => { onZoomIn(); showControls(); }}
-              className="w-11 h-11 flex items-center justify-center text-slate-300 hover:text-white hover:bg-white/10 active:scale-90 transition-colors"
-            >
-              <ZoomIn className="w-4.5 h-4.5" />
-            </button>
-            <div className="h-px bg-white/12 mx-2" />
-            <button
-              onClick={() => { onZoomOut(); showControls(); }}
-              className="w-11 h-11 flex items-center justify-center text-slate-300 hover:text-white hover:bg-white/10 active:scale-90 transition-colors"
-            >
-              <ZoomOut className="w-4.5 h-4.5" />
-            </button>
-          </div>
-        </div>
-      )}
+      {/* ── NAV ZOOM + PUSULA KOLONU KALDIRILDI (P0-NAV-04) ─────────────────
+       * Sürüş boyunca sağ kenarda duran pusula + zoom(+/−) üçlüsü bir WEB
+       * HARİTASI hissiydi; sürücü seyirde zoom'a basmaz ve kamera zaten hıza
+       * göre ölçekleniyor. Bu kolonun hız paneliyle **54×55 px çakıştığı** eski
+       * yorumda ölçülmüştü. Yerini `hud/DrivingControls` aldı: ORTALA düğmesi
+       * yalnız kullanıcı kamerayı bıraktığında (`cameraFollowAuthority`
+       * FOLLOW_SUSPENDED / USER_PANNING) görünür. Zoom, rehberlik dışında
+       * aşağıdaki idle kolonunda AYNEN durmaya devam eder. */}
 
       {/* ── SOL: Yol durumu rapor butonu — sürüş modunda gizli ── */}
       {!drivingMode && (
@@ -293,7 +281,7 @@ export const MapHudControls = memo(function MapHudControls({
             position: 'fixed',
             bottom: 'calc(var(--lp-dock-h,68px) + 18px)',
             left:   'calc(var(--sal,0px) + 16px)',
-            zIndex: 9998,
+            zIndex: 'var(--z-map-control)',
             width: 48, height: 48,
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             background:     'rgba(251,191,36,0.15)',
@@ -318,7 +306,7 @@ export const MapHudControls = memo(function MapHudControls({
           style={{
             position:   'fixed',
             inset:      0,
-            zIndex:     99999,
+            zIndex:     'var(--z-map-sheet)',
             background: 'rgba(0,0,0,0.72)',
             display:    'flex',
             alignItems: 'center',
@@ -399,7 +387,7 @@ export const MapHudControls = memo(function MapHudControls({
 
       {/* ── ALT MERKEZ: Harita katman seçici — nav/preview'da kaybolur, idle'da soluklaşır ── */}
       <div
-        className="absolute left-1/2 -translate-x-1/2 z-20 flex flex-col items-center gap-2"
+        className="absolute left-1/2 -translate-x-1/2 z-[var(--z-map-label)] flex flex-col items-center gap-2"
         style={{
           bottom: 'calc(var(--lp-dock-h,68px) + 14px)',
           opacity: (isNavigating || isPreview) ? 0 : ctrlVisible ? 1 : 0.28,
@@ -409,8 +397,12 @@ export const MapHudControls = memo(function MapHudControls({
         }}
       >
         <div
-          className="flex items-center gap-0.5 bg-black/60 backdrop-blur-xl rounded-2xl p-1 border border-white/15"
-          style={{ boxShadow: '0 4px 20px rgba(0,0,0,0.55)' }}
+          className="flex items-center gap-0.5 backdrop-blur-xl rounded-2xl p-1 border"
+          style={{
+            background: 'var(--oem-surface-1, rgba(38,44,60,0.86))',
+            borderColor: 'var(--oem-line-strong, rgba(255,240,210,0.18))',
+            boxShadow: 'var(--oem-shadow-card, 0 20px 44px -22px rgba(0,0,0,0.55))',
+          }}
         >
           {(['road', 'hybrid', 'satellite'] as MapMode[]).map((m) => (
             <button
@@ -418,9 +410,10 @@ export const MapHudControls = memo(function MapHudControls({
               onClick={() => { onSetMapMode(m); showControls(); }}
               className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-[10px] font-bold tracking-[0.12em] uppercase transition-all duration-200 active:scale-95 ${
                 mode === m
-                  ? 'bg-white/18 text-white'
+                  ? 'text-[color:var(--oem-accent,#E0A23C)]'
                   : 'text-slate-400 hover:text-slate-200 hover:bg-white/8'
               }`}
+              style={mode === m ? { background: 'var(--oem-accent-soft, rgba(224,162,60,0.18))' } : undefined}
             >
               {m === 'road' && <Map className="w-3.5 h-3.5" />}
               {m === 'hybrid' && <Layers className="w-3.5 h-3.5" />}

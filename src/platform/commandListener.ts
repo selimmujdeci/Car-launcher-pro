@@ -20,6 +20,8 @@ import { callVehicleRpc, updateRemoteCommandStatus } from './vehicleIdentityServ
 import { executeMcuCommand, checkCrossChannelNonceReplay } from './nativeCommandBridge';
 import { executeReadDtc, executeReadVoltage, executeClearDtc } from './remoteDiagnosticCommands';
 import { applySpeedAlertConfig, getSpeedAlertConfig } from './speedAlertRuntime';
+/* ARCH-05 — uzak kanalın ayar uygulama kapısı (bkz. `security/enforcement`). */
+import { authorizeSettingApply } from './security/enforcement';
 import { logInfo }                                 from './debug';
 import { useLayoutStore }                          from '../store/useLayoutStore';
 import { applyIncomingThemeManifest, applyThemeManifest } from './theme/themeRuntime';
@@ -263,6 +265,23 @@ export interface CommandEvidence {
    * `null` = hiç yoklanmadı. Anahtarın KENDİSİ değil, YALNIZ var/yok.
    */
   lastPollOutcome: string | null;
+
+  /* ── E2E AÇIK ANAHTAR YAYINI — P0-001B ──────────────────────────────────
+   * Bu alanlar OLMADAN kusur iki yıl görünmeyebilirdi: yayın `catch` içinde
+   * yutuluyordu ve telefon tarafı dürüstçe "araç anahtarını yayınlamadı"
+   * diyordu — doğru cümle, YANLIŞ sebep (şema eksikti). Artık dört durum
+   * ayrılır: hiç denenmedi · başarılı · reddedildi · hata. */
+
+  /** Yayın denemesi sayısı (her bağlantıda bir kez). */
+  keyPublishRuns:    number;
+  /** Sunucunun KABUL ettiği yayın sayısı. */
+  keyPublishOk:      number;
+  /** Son yayının sonucu: `'ok'` · `'rotated'` · `'rejected'` · `'no_key'` · `'error'`. */
+  keyPublishOutcome: string | null;
+  /** Sunucunun reddetme GEREKÇESİ (`INVALID_KEY_FORMAT` · `UNSUPPORTED_ALG`). */
+  keyPublishReason:  string | null;
+  /** Son yayın anı (epoch ms) — `null` = hiç denenmedi. */
+  keyPublishAt:      number | null;
 }
 
 const MAX_COUNT = 9_999_999;
@@ -272,6 +291,8 @@ const EVIDENCE_SIFIR: CommandEvidence = {
   lastType: null, lastOutcome: null, lastAt: null,
   pollRuns: 0, pollWithRows: 0, pollErrors: 0,
   lastPollRows: null, lastPollAt: null, lastPollOutcome: null,
+  keyPublishRuns: 0, keyPublishOk: 0,
+  keyPublishOutcome: null, keyPublishReason: null, keyPublishAt: null,
 };
 const _evidence: CommandEvidence = { ...EVIDENCE_SIFIR };
 
@@ -314,6 +335,12 @@ async function executeCommand(cmd: VehicleCommand): Promise<ExecResult> {
     return { outcome: 'crypto_failed' };
   }
 
+  /* ARCH-05: E2E doğrulaması bu kanalın KRİPTOGRAFİK kimlik kanıtıdır ve
+     YALNIZ bu dosya (kanalın sahibi) onu üretebilir. Aşağıdaki `decrypt`
+     BAŞARIRSA `true` olur; başarısız her yol zaten erken döner. Yıkıcı teşhis
+     yürütücüsü bu kanıtı kendisi UYDURAMAZ — parametre olarak alır. */
+  let e2eVerified = false;
+
   // ── E2E (ECDH) deşifreleme — yeni yol, önce kontrol edilir ──────────────────
   if (isE2EPayload(payload)) {
     const privKey = getCarPrivateKey();
@@ -326,6 +353,7 @@ async function executeCommand(cmd: VehicleCommand): Promise<ExecResult> {
       payload = await decryptE2EPayload(payload, privKey, {
         crossChannelNonceCheck: checkCrossChannelNonceReplay,
       });
+      e2eVerified = true;
     } catch (err) {
       // Zero-Plaintext: hata mesajını logla, komutu ASLA icra etme
       const reason = err instanceof Error ? err.message : 'Decryption Error';
@@ -385,10 +413,25 @@ async function executeCommand(cmd: VehicleCommand): Promise<ExecResult> {
         return await executeReadVoltage();
 
       case 'clear_dtc':
-        // Yıkıcı: write-gate (hız · rpm · bağlantı) kararı burada EZİLMEZ.
-        return await executeClearDtc();
+        /* Yıkıcı: write-gate (hız · rpm · bağlantı) kararı burada EZİLMEZ ve
+           ARCH-05 yetki kapısı AYRICA işler — uzak kanal CLEAR_DTC yetkisini
+           yalnız DOĞRULANMIŞ E2E kanıtıyla kazanır (`read_dtc` yetkisi silme
+           yetkisi DEĞİLDİR). */
+        return await executeClearDtc({ e2eVerified });
 
       case 'set_speed_alert': {
+        /* ARCH-05 · AYAR UYGULAMA KAPISI. Ayar sınıflandırılır ve gerekiyorsa
+           yetki sorulur: KALICI BİR AYAR DEĞERİ ASLA YETKİ ÜRETMEZ — uygulama
+           anında yetki ayrıca sorulur, dolayısıyla açılıştaki hidrasyon bir
+           kapı AÇAMAZ. Reddedilirse çalışma zamanı yan etkisi SIFIRDIR. */
+        const settingAuthz = authorizeSettingApply({
+          principalClass: 'PHONE_REMOTE', key: 'speed_alert',
+          operationId: `remote.settings.speed_alert:${cmd.id}`,
+          channel: { e2eVerified, authenticated: true },
+        });
+        if (!settingAuthz.allowed) {
+          return { outcome: 'rejected', reason: 'Bu ayar için yetki yok — değişiklik uygulanmadı' };
+        }
         // Zero-trust: eşik UZAKTAN gelir. Doğrulama düşerse ayar DEĞİŞMEZ ve
         // komut `failed` olur — sessizce "kaydedildi" denmez (eski yalanın kökü).
         const ok = applySpeedAlertConfig(payload.speed_alert ?? payload);
@@ -718,23 +761,10 @@ export class CommandListener {
     const supabase = await getSupabase();
     if (!supabase || !this._alive) return;
 
-    // ── E2E Anahtar Init + Supabase'e Public Key Yayını ─────────────────────
+    // ── E2E Anahtar Init + Açık Anahtar Yayını (P0-001B) ────────────────────
     // loadOrCreateDeviceKey RAM'i önbelleğe alır; ilk çağrı ~10–20ms, sonraki <1 μs.
     // Bağlantı kurulmadan önce anahtar hazır olmalı — komutlar gelmeden önce init tam olsun.
-    try {
-      const { pubKeyB64 } = await loadOrCreateDeviceKey();
-      // vehicles tablosuna e2e_public_key yaz — telefon bu key ile şifreler
-      await supabase
-        .from('vehicles')
-        .upsert({
-          id:             this.vehicleId,
-          e2e_public_key: pubKeyB64,
-          e2e_key_alg:    'ECDH-P256-AES-GCM-256',
-        });
-    } catch (e) {
-      // Non-fatal: anahtar publish başarısız olursa eski key ile devam
-      console.warn('[CmdListener] E2E public key publish başarısız:', e);
-    }
+    await this.publishPublicKey();
 
     // Reconnect'te bekleyen + retry-eligible komutları işle
     await this.processPendingCommands();
@@ -825,6 +855,72 @@ export class CommandListener {
   //   1. TTL'i geçmemiş pending komutları çek
   //   2. retry_count < MAX_RETRY olanları dahil et
   //   3. FIFO sırayla işle
+
+  /**
+   * Aracın E2E **AÇIK** anahtarını yayınlar — P0-001B.
+   *
+   * ── NEDEN RPC, NEDEN DOĞRUDAN UPSERT DEĞİL ────────────────────────────
+   * Burası eskiden `supabase.from('vehicles').upsert({ e2e_public_key … })`
+   * çağırıyordu. İKİ ayrı nedenle hiç çalışmadı:
+   *   ① `vehicles.e2e_public_key` kolonu üretimde HİÇ YOKTU (ölçüldü);
+   *   ② kolon olsaydı bile araç Supabase'e **oturumsuz** (`anon`) bağlanır ve
+   *      `vehicles` UPDATE politikası `auth.uid()`e dayanır → 0 satır.
+   * Hata `catch` içinde yutulduğu için kimse fark etmedi; telefon tarafı
+   * *"araç anahtarını henüz yayınlamadı"* diyordu — doğru cümle, yanlış sebep.
+   *
+   * Sonuç: `lock · unlock · horn · alarm_on · alarm_off · lights_on ·
+   * clear_dtc` komutları üretimde **hiç gönderilemedi** (telefon zarfı
+   * üretemedi, araç da düz metni kategorik reddediyor).
+   *
+   * Yayın artık komut OKUMA ucuyla aynı sözleşmede: `api_key` ile doğrulayan
+   * SECURITY DEFINER RPC (`publish_device_public_key`, migration 073).
+   *
+   * GİZLİLİK: yayınlanan değer ECDH **açık** anahtarıdır; özel anahtar araçta
+   * Keystore'da kalır ve buradan ASLA çıkmaz.
+   *
+   * FAIL-SOFT ama SESSİZ DEĞİL: yayın başarısız olursa bağlantı sürer (komut
+   * okuma ayrı yoldur), fakat sonuç `_evidence`e yazılır — "denenmedi",
+   * "reddedildi" ve "hata" ayrı ayrı görünür.
+   */
+  private async publishPublicKey(): Promise<void> {
+    bump('keyPublishRuns');
+    _evidence.keyPublishAt = Date.now();
+    try {
+      const { pubKeyB64 } = await loadOrCreateDeviceKey();
+
+      const res = await callVehicleRpc('publish_device_public_key', {
+        p_public_key: pubKeyB64,
+        p_alg:        'ECDH-P256-AES-GCM-256',
+      });
+
+      /* `callVehicleRpc` cihaz anahtarı ya da yapılandırma yoksa `null` döner —
+         bu "yayın başarısız" DEĞİL, "hiç denenemedi"dir (sahte hata yasak). */
+      if (res === null) {
+        _evidence.keyPublishOutcome = 'no_key';
+        _evidence.keyPublishReason  = null;
+        return;
+      }
+
+      const row = res as { ok?: boolean; rotated?: boolean; reason?: string };
+      if (row?.ok === true) {
+        bump('keyPublishOk');
+        _evidence.keyPublishOutcome = row.rotated === true ? 'rotated' : 'ok';
+        _evidence.keyPublishReason  = null;
+        return;
+      }
+
+      _evidence.keyPublishOutcome = 'rejected';
+      _evidence.keyPublishReason  =
+        typeof row?.reason === 'string' ? row.reason : null;
+      console.warn(
+        `[CmdListener] E2E açık anahtar yayını REDDEDİLDİ: ${_evidence.keyPublishReason ?? 'gerekçe yok'}`,
+      );
+    } catch {
+      /* Ağ/RPC hatası. Anahtarın KENDİSİ loglanmaz. */
+      _evidence.keyPublishOutcome = 'error';
+      _evidence.keyPublishReason  = null;
+    }
+  }
 
   private async processPendingCommands(): Promise<void> {
     const cmds = await fetchPendingCommands();

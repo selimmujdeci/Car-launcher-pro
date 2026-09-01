@@ -99,7 +99,7 @@ export const M = {
   lastJumpLat:        0,
   lastJumpLng:        0,
 
-  // Cinematic light trail (rAF)
+  // Cinematic light trail (80 ms zamanlayıcı; alan adı geriye dönük uyumluluk için korunur)
   flowRafId:          null as number | null,
   flowProgress:       0.0,
 

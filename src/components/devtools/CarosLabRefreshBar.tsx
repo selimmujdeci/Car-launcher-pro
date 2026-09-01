@@ -32,7 +32,7 @@ import {
 } from '../../platform/devtools/carosLabRefreshModel';
 import {
   getCarosLabAutoRefreshMs, getCarosLabRefreshRun, runCarosLabRefreshAll,
-  subscribeCarosLabRefresh,
+  stepCarosLabAutoRefresh, subscribeCarosLabRefresh,
 } from '../../platform/devtools/carosLabRefreshRuntime';
 
 const TONE_CLASS: Record<CarosLabRefreshTone, string> = {
@@ -78,18 +78,21 @@ export const CarosLabRefreshBar = memo(function CarosLabRefreshBar() {
     const stop = () => { if (timer !== null) { clearInterval(timer); timer = null; } };
     const start = () => {
       stop();
-      timer = setInterval(() => { void runCarosLabRefreshAll('auto'); }, intervalMs);
+      /* ARCH-06/F7: tik ARALIĞI değişmez; baskı altında ADIM ATLANIR
+         (`stepCarosLabAutoRefresh`). Böylece ikinci bir zamanlayıcı kurmadan
+         LAB örneklemesi `labSampling` tavanına uyar. */
+      timer = setInterval(() => { stepCarosLabAutoRefresh(); }, intervalMs);
     };
     const hidden = () => hasDoc && document.visibilityState === 'hidden';
 
     const onVisibility = () => {
       if (hidden()) { stop(); return; }
-      void runCarosLabRefreshAll('auto');
+      stepCarosLabAutoRefresh();
       start();
     };
 
     if (!hidden()) {
-      void runCarosLabRefreshAll('auto');   // LAB açılır açılmaz ilk tur
+      stepCarosLabAutoRefresh();   // LAB açılır açılmaz ilk tur (tavana tabi)
       start();
     }
     if (hasDoc) document.addEventListener('visibilitychange', onVisibility);
@@ -116,9 +119,9 @@ export const CarosLabRefreshBar = memo(function CarosLabRefreshBar() {
       data-testid="lab-refresh-bar"
       data-verdict={summary.verdict}
       data-cycle={run.cycle}
-      className="shrink-0 border-b border-[var(--oem-line)] bg-[var(--oem-surface-1)] px-4 py-1.5"
+      className="shrink-0 border-b border-[var(--oem-line)] bg-[var(--oem-surface-1)] px-3 py-1"
     >
-      <div className="flex flex-wrap items-center gap-2 font-mono text-[10px]">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-[10px]">
         <button
           type="button"
           data-testid="lab-refresh-all"
@@ -164,6 +167,27 @@ export const CarosLabRefreshBar = memo(function CarosLabRefreshBar() {
           <ShieldCheck size={11} /> SALT OKUNUR — bağlantı kurmaz
         </span>
 
+        {/* KAPSAM HÂLÂ HER ZAMAN GÖRÜNÜR — yeşil rozet LAB'ın TAMAMI hakkında
+            hüküm DEĞİLDİR ve bu cümle gizlenemez. Yalnız KENDİ paragraf satırını
+            bırakıp bu sarmalanan şeride katıldı: metin aynı, dikey maliyet yok
+            (yer varsa kendi satırını bile açmaz). */}
+        <span
+          data-testid="lab-refresh-scope"
+          className="text-[9px] text-[var(--oem-ink-3)]"
+        >
+          {CAROS_LAB_REFRESH_SCOPE_NOTE}
+        </span>
+
+        {/* Sorunlu bölümler kapalıyken de ADIYLA görünür (sessiz başarısızlık YOK). */}
+        {!open && problemNames.length > 0 && (
+          <span
+            data-testid="lab-refresh-problems"
+            className="text-[9px] text-[var(--oem-warn)]"
+          >
+            Tazelenemeyen: {problemNames}
+          </span>
+        )}
+
         <button
           type="button"
           data-testid="lab-refresh-toggle-detail"
@@ -175,26 +199,10 @@ export const CarosLabRefreshBar = memo(function CarosLabRefreshBar() {
         </button>
       </div>
 
-      {/* KAPSAM her zaman görünür: yeşil rozet LAB'ın TAMAMI hakkında hüküm DEĞİLDİR. */}
-      <p
-        data-testid="lab-refresh-scope"
-        className="mt-1 font-mono text-[9px] leading-relaxed text-[var(--oem-ink-3)]"
-      >
-        {CAROS_LAB_REFRESH_SCOPE_NOTE}
-      </p>
-
-      {/* Sorunlu bölümler kapalıyken de ADIYLA görünür (sessiz başarısızlık YOK). */}
-      {!open && problemNames.length > 0 && (
-        <p
-          data-testid="lab-refresh-problems"
-          className="mt-1 font-mono text-[9px] leading-relaxed text-[var(--oem-warn)]"
-        >
-          Tazelenemeyen bölümler: {problemNames}
-        </p>
-      )}
-
+      {/* AYRINTI paneli SABİT şeridin içindedir → tavanlanır ve KENDİ kaydırmasını
+          kurar; aksi hâlde 9 bölümlük döküm başlığı büyütüp içeriğe yer bırakmazdı. */}
       {open && (
-        <div data-testid="lab-refresh-detail" className="mt-1.5">
+        <div data-testid="lab-refresh-detail" className="mt-1 max-h-[38vh] overflow-y-auto overscroll-contain">
           {run.results.map((r) => {
             const meta = SECTION_LABEL.get(r.id);
             return (

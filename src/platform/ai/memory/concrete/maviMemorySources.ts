@@ -2,7 +2,8 @@
  * maviMemorySources — hafıza kaynaklarının GERÇEK bağlaması (concrete binding).
  *
  * ⚠️ YENİ DEPO YOK. Mevcut otoriteler SALT-OKUNUR biçimde okunur:
- *   - `companion/companionMemory.getFacts()` → kullanıcı tercihleri (kalıcı)
+ *   - `assistant/maviMemory` → kullanıcı tercihleri (F10 kanonik cephe;
+ *     AÇIK beyan + ÇIKARIM ayrı etiketle, kalıcı)
  *   - `aiCore/vehicleMemory` → araç geçmişi (fingerprint-anahtarlı, kalıcı)
  *   - `shortTermMemory` → süreç-ömürlü oturum kayıtları (RAM)
  *
@@ -18,7 +19,12 @@
  * DI ile ezilebilir (test/izolasyon).
  */
 
-import { getFacts } from '../../../companion/companionMemory';
+/* MAVI-F10: AÇIK tercihlerin TEK gerçeklik kaynağı artık kanonik cephedir.
+   `companionMemory.getFacts()` ARTIK OKUNMAZ — o depo yalnız bir kerelik içe
+   aktarma kaynağıydı ve iki ayrı okuma yolu iki ayrı gerçek üretiyordu. */
+import {
+  readExplicitPreferenceTexts, readInferredPreferenceTexts,
+} from '../../../assistant/maviMemory';
 import { getShortTermMemory } from '../shortTermMemory';
 import { getLiveVehicleMemoryStore } from '../../../system/platformCoreAiRuntimeWiring';
 import { vehicleHal } from '../../../vehicleHal';
@@ -85,7 +91,11 @@ export function createMaviMemorySources(deps: MaviMemorySourcesDeps = {}): Memor
   return {
     readUserPreferences: (): readonly string[] => {
       try {
-        return getFacts().map((f) => f.text);
+        /* AÇIK beyan ile ÇIKARIM ASLA aynı listede değildir (spec §14.2/1):
+           çıkarımlar açıkça "(çıkarım, güven …)" etiketiyle taşınır, böylece
+           motor ve LAB ikisini karıştıramaz. */
+        return [...readExplicitPreferenceTexts(Date.now()),
+          ...readInferredPreferenceTexts(Date.now())];
       } catch {
         return [];
       }

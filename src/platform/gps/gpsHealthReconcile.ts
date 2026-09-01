@@ -129,3 +129,105 @@ export function reconcileGpsHealth(input: GpsHealthInput): GpsHealthVerdict {
   }
   return { cls: 'GPS_HEARTBEAT_STALE', reason: 'Sağlık kalp atışı bayat; fix tazeliği doğrulanamadı.', evidence };
 }
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * D · GPS OTORİTE SÖZLEŞMESİ — ÜÇ AYRI EKSEN, ÜÇ AYRI İSİM
+ *
+ * ── SAHA (2026-08-30 · gerçek araç · CAROS LAB TAM KOPYA) ──────────────────
+ * Aynı kopyada YAN YANA şunlar vardı:
+ *     hal:          {"gpsAlive": false}
+ *     connectivity: {"source":"GPS","connected":true,"confidence":0.7}
+ *     navigasyon:   {"fixAgeMs": null, "konumFixYasMs": 735}
+ * Okuyan için bu "ürün kendi kendisiyle çelişiyor" demekti. Oysa üç sayı ÜÇ
+ * FARKLI ŞEYİ ölçüyor ve üçü de doğru olabilir:
+ *
+ *   (1) PROVIDER_LINK  — sağlayıcı/izleme kanalı ayakta mı.
+ *       Kaynak: `VehicleConnectivityManager` (SİSTEM görüşü, DUVAR saati, 10 sn eşik).
+ *       #517 otorite kuralı: "kaynak canlı mı" sorusunun cevabı BUDUR.
+ *   (2) RECENT_FIX     — konum sağlayıcısından yeni fix akıyor mu.
+ *       Kaynak: G1 konum defteri (`locationFixAgeMs`).
+ *   (3) NAV_CONSUMABLE — navigasyonun TÜKETEBİLECEĞİ (map-matched) fix var mı.
+ *       Kaynak: navigasyon çekirdeği (`fixAgeMs`). ⚠️ #537: nav AKTİF DEĞİLKEN
+ *       TAZELENMEZ → `null` burada ARIZA DEĞİLDİR, "rota yok" demektir.
+ *
+ * `hal.gpsAlive` bu eksenlerin HİÇBİRİ değildir: worker-yerel füzyon girdisidir
+ * (MONOTONİK saat, 5 sn watchdog). Sistemin cevabıyla ayrışabilir ve ayrışma
+ * bir ARIZA değil ÖLÇÜM FARKIDIR — ama açıklamasız BIRAKILAMAZ.
+ *
+ * Bu blok YENİ BİR GPS MOTORU DEĞİLDİR: ölçüm yapmaz, karar üretmez, I/O yapmaz,
+ * saat okumaz. Yalnız var olan sayıları KENDİ ADLARIYLA sunar ve ayrışmayı yazar.
+ * ════════════════════════════════════════════════════════════════════════ */
+
+/** GPS'in "canlı mı" sorusunun üç ayrı ekseni (birbirinin yerine KULLANILAMAZ). */
+export type GpsAuthorityAxis = 'PROVIDER_LINK' | 'RECENT_FIX' | 'NAV_CONSUMABLE';
+
+export interface GpsAuthorityInput {
+  /** Sistem görüşü — `connectivity[GPS].connected`. #517: OTORİTE budur. */
+  readonly connectivityConnected: boolean | null;
+  /** Worker-yerel füzyon girdisi — `hal.gpsAlive`. Otorite DEĞİLDİR. */
+  readonly halGpsAlive:           boolean | null;
+  /** Konum sağlayıcısının son fix yaşı (ms) — G1 tek otoritesi. */
+  readonly locationFixAgeMs:      number | null;
+  /** Map-matched fix yaşı (ms) — nav aktif değilken `null` (arıza DEĞİL). */
+  readonly navFixAgeMs:           number | null;
+  /** Fix'in "taze" sayıldığı pencere (ms). */
+  readonly fixFreshWindowMs:      number;
+}
+
+export interface GpsAuthorityView {
+  readonly axis:   GpsAuthorityAxis;
+  readonly label:  string;
+  /** `null` = ÖLÇÜLMEDİ. `false` başarısızlık, `null` bilinmezliktir. */
+  readonly value:  boolean | null;
+  /** Değerin geldiği KANONİK yer — LAB ikinci otorite kurmasın diye taşınır. */
+  readonly source: string;
+  readonly note:   string;
+}
+
+function _fresh(ageMs: number | null, windowMs: number): boolean | null {
+  if (typeof ageMs !== 'number' || !Number.isFinite(ageMs) || ageMs < 0) return null;
+  return ageMs <= windowMs;
+}
+
+/** Üç ekseni kendi adıyla sunar. SAF: hesap yok, karar yok, I/O yok. */
+export function describeGpsAuthorities(input: GpsAuthorityInput): readonly GpsAuthorityView[] {
+  return [
+    {
+      axis: 'PROVIDER_LINK',
+      label: 'sağlayıcı bağlantısı',
+      value: input.connectivityConnected,
+      source: 'connectivity[GPS].connected (sistem görüşü · duvar saati)',
+      note: '#517 OTORİTE: "kaynak canlı mı" sorusunun cevabı budur. '
+          + 'hal.gpsAlive füzyon girdisidir, bu sorunun cevabı DEĞİLDİR.',
+    },
+    {
+      axis: 'RECENT_FIX',
+      label: 'taze konum fix\'i',
+      value: _fresh(input.locationFixAgeMs, input.fixFreshWindowMs),
+      source: 'konum defteri: locationFixAgeMs (G1 tek otoritesi)',
+      note: 'Sağlayıcıdan YENİ fix akıyor mu. Bağlantının ayakta olması '
+          + 'fix geldiği anlamına GELMEZ.',
+    },
+    {
+      axis: 'NAV_CONSUMABLE',
+      label: 'navigasyonun tüketebildiği fix',
+      value: _fresh(input.navFixAgeMs, input.fixFreshWindowMs),
+      source: 'navigasyon çekirdeği: fixAgeMs (map-matched)',
+      note: '#537: nav AKTİF DEĞİLKEN tazelenmez → null burada ARIZA DEĞİL, '
+          + '"rota yok" demektir. Konum sağlayıcısının yaşıyla KARIŞTIRILMAZ.',
+    },
+  ];
+}
+
+/**
+ * Sistem görüşü ile worker-yerel görüşün ayrışmasını AÇIKLAR (gizlemez).
+ * `null` = ayrışma yok ya da taraflardan biri ölçülmedi (yokluk kanıt değildir).
+ */
+export function explainGpsAuthorityDivergence(input: GpsAuthorityInput): string | null {
+  const { connectivityConnected: sys, halGpsAlive: hal } = input;
+  if (sys === null || hal === null || sys === hal) return null;
+  return `GPS: sistem görüşü ${sys ? 'CANLI' : 'ÖLÜ'} · worker-yerel görüş `
+       + `${hal ? 'CANLI' : 'ÖLÜ'} — eşikler ve saatler FARKLI (sistem: duvar saati, `
+       + `worker: monotonik/5 sn watchdog). Bu bir ARIZA DEĞİL ÖLÇÜM FARKIDIR; `
+       + `"kaynak canlı mı" sorusunun cevabı #517 gereği SİSTEM görüşüdür.`;
+}

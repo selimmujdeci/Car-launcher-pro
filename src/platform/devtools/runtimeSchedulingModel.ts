@@ -44,7 +44,8 @@ export interface SchedField {
 export type ChannelActivity = 'RUNNING' | 'NOT_RUNNING' | 'BLOCKED' | 'UNKNOWN';
 
 export type SchedChannelId =
-  | 'command-exec' | 'live-polling' | 'handshake' | 'kwp' | 'discovery-deepscan' | 'can-collect';
+  | 'command-exec' | 'poll-cost' | 'live-polling' | 'handshake' | 'kwp'
+  | 'discovery-deepscan' | 'can-collect';
 
 export interface SchedChannel {
   readonly id:        SchedChannelId;
@@ -58,7 +59,12 @@ export interface SchedChannel {
 }
 
 export const SCHED_CHANNEL_ORDER: readonly SchedChannelId[] = [
-  'command-exec', 'live-polling', 'handshake', 'kwp', 'discovery-deepscan', 'can-collect',
+  /* P0-VDK-B3: hat MALİYETİ kendi kanalında. YENİ EKRAN DEĞİLDİR — aynı Sorgu
+     Zamanlayıcı ekranının bir bölümüdür (LAB yüzey politikası adım 2: mevcut
+     ekrana bölüm ekle). Ayrı kanal ZORUNLUYDU: "Komut Yürütme" kanalı 32 alanlık
+     tavana dayanmıştı ve maliyet alanları SESSİZCE kırpılıyordu. */
+  'command-exec', 'poll-cost', 'live-polling', 'handshake', 'kwp',
+  'discovery-deepscan', 'can-collect',
 ] as const;
 
 /* ══════════════════════════════════════════════════════════════════════════
@@ -120,11 +126,12 @@ export function orderChannelsForFocus(
 
 export const SCHED_CHANNEL_TITLE: Readonly<Record<SchedChannelId, string>> = {
   'command-exec':       '1 · Komut Yürütme',
-  'live-polling':       '2 · Canlı Sorgulama',
-  'handshake':          '3 · Handshake / İlk Kurulum',
-  'kwp':                '4 · KWP Keep-Alive / Kurtarma',
-  'discovery-deepscan': '5 · Keşif / Derin Tarama Zamanlaması',
-  'can-collect':        '6 · CAN Toplama',
+  'poll-cost':          '2 · Hat Maliyeti / Bütçe (PID + AT)',
+  'live-polling':       '3 · Canlı Sorgulama',
+  'handshake':          '4 · Handshake / İlk Kurulum',
+  'kwp':                '5 · KWP Keep-Alive / Kurtarma',
+  'discovery-deepscan': '6 · Keşif / Derin Tarama Zamanlaması',
+  'can-collect':        '7 · CAN Toplama',
 } as const;
 
 /**
@@ -281,8 +288,18 @@ export interface SchedConflictInput {
   readonly dataFresh:          boolean | null;
   /** ObdHealthMonitor MUTLAK donma sinyali. */
   readonly healthIsStale:      boolean | null;
-  /** Native poll kanıtı burst açık diyor mu (önbellek). */
-  readonly burstEnabled:       boolean | null;
+  /**
+   * B2 · NİYET — native poll kanıtının bildirdiği İSTENEN mod (önbellek).
+   *
+   * ⚠️ Buraya SON TUR gözlemi (`lastCycleWasBurst`) BAĞLANAMAZ. Saha (2026-08-30):
+   * `burstCycles:135 / pollCycles:137` iken son tur round-robin olduğu için tek
+   * alan `false` görünüyordu → aşağıdaki uyarı HİÇ ÜRETİLMEDİ (kaçırılan uyarı).
+   */
+  readonly burstIntent:        boolean | null;
+  /** B2 · GÖZLEM — son TAMAMLANAN turun modu. Niyet yerine KULLANILMAZ. */
+  readonly lastCycleWasBurst:  boolean | null;
+  /** B2 · TARİHSEL kanıt — bu oturumda kaç tur burst koştu. `null` = ölçülmedi. */
+  readonly burstCycles:        number | null;
   /** OBD Canlı Test ekranı (burst tüketicisi) şu an açık mı — ref sayacı. */
   readonly liveDataScreenOpen: boolean | null;
   /** KWP kurtarma tavanına ulaşıldı mı. */
@@ -320,13 +337,29 @@ export function detectSchedConflicts(input: SchedConflictInput): SchedConflict[]
     });
   }
 
-  if (input.burstEnabled === true && input.liveDataScreenOpen === false) {
+  /* B2: hüküm NİYETTEN üretilir. Son tur round-robin olduğu için niyetin
+     silinmesi bu uyarıyı sahada tamamen susturmuştu. */
+  if (input.burstIntent === true && input.liveDataScreenOpen === false) {
     out.push({
       id: 'burst-vs-consumer',
       topic: 'Command execution',
-      aSource: 'native poll kanıtı: burstEnabled', aValue: 'true',
+      aSource: 'native poll kanıtı: burstIntent', aValue: 'true',
       bSource: 'devtoolsCapture: Live Data tüketicisi', bValue: 'kapalı',
-      note: 'Native tanı BURST modu açık görünüyor ama onu açan ekran kapalı — kanıt önbelleği bayat olabilir.',
+      note: 'Native tanı BURST NİYETİ açık görünüyor ama onu açan ekran kapalı — kanıt önbelleği bayat olabilir.',
+    });
+  }
+
+  /* B2: niyet KAPALI ama bu oturumda burst turları KOŞMUŞ. Bu bir arıza değildir
+     (niyet sonradan kapanmış olabilir) ama "burst kapalıydı / hiç çalışmadı"
+     hükmünün ÜRETİLEMEYECEĞİNİ gösteren kanıttır — gizlenmez. */
+  if (input.burstIntent === false && typeof input.burstCycles === 'number' && input.burstCycles > 0) {
+    out.push({
+      id: 'burst-intent-vs-history',
+      topic: 'Command execution',
+      aSource: 'native poll kanıtı: burstIntent', aValue: 'false (şu anki niyet)',
+      bSource: 'native poll sayacı: burstCycles', bValue: `${input.burstCycles} tur burst koştu`,
+      note: 'Niyet şu an kapalı, ama bu oturumda burst turları gerçekten çalıştı — '
+          + '"burst hiç çalışmadı" hükmü BU ALANDAN üretilemez.',
     });
   }
 

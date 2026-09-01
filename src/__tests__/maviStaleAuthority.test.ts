@@ -184,10 +184,11 @@ describe('MAVI-M6-DSB · 3/4. cevap sözleşmesi korunur', () => {
 
   it('4b. `progress` + `answer` ayrımı ve geç-filler yasağı korunur', () => {
     beginMaviTurn();
-    expect(speakMaviAnswer('Bakıyorum', { tier: 'progress' })).toBe(true);
+    // MAVI-F2: `progress` metni SEMANTİK ACK olmak zorunda ("Bakıyorum" artık düşer).
+    expect(speakMaviAnswer('Araç sistemleri taranıyor', { tier: 'progress' })).toBe(true);
     expect(speakMaviAnswer('sonuç')).toBe(true);
-    expect(speakMaviAnswer('geç filler', { tier: 'progress' })).toBe(false);
-    expect(S.spoken).toEqual(['Bakıyorum', 'sonuç']);
+    expect(speakMaviAnswer('geç ara bilgi', { tier: 'progress' })).toBe(false);
+    expect(S.spoken).toEqual(['Araç sistemleri taranıyor', 'sonuç']);
   });
 
   it('4c. yeni tur cevap slotunu TAZELER', () => {
@@ -264,8 +265,13 @@ describe('MAVI-M6-DSB · 6/7. ölü dal ve sayaç', () => {
     speakMaviAnswer('cevap');
     const d = getMaviSpeechDiagnostics();
     expect(Object.keys(d).sort()).toEqual([
-      'answeredThisTurn', 'progressedThisTurn', 'spoken',
-      'staleLateSpeechSuppressed', 'suppressedDuplicate', 'turnId',
+      'answeredThisTurn', 'progressedThisTurn',
+      // MAVI-F2: konuşmadan düşürülen yapay ara söz sayacı (üretimde beklenen 0).
+      'rejectedFiller', 'spoken',
+      'staleLateSpeechSuppressed',
+      // MAVI-F4: akış cevabı `answer` slotunu tutuyor mu + talep/ret sayaçları.
+      'streamActive', 'streamsClaimed', 'streamsRejected',
+      'suppressedDuplicate', 'turnId',
     ]);
     expect('suppressedStale' in d).toBe(false);   // ölçülemeyen eski alan GERİ GELMEZ
   });

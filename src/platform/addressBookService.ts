@@ -14,6 +14,22 @@ export interface Address {
   /** Son kayıt zamanı (ms) — Ev/İş hızlı-kayıt akışında "kullanıcı gerçekten kaydetti mi"
    *  ayrımı için kullanılır (bkz. isValidDestination + NAVIGATION-P0-1). */
   updatedAt?: number;
+
+  /* ── P0-NAV-09 · HEDEF KÜNYESİ (opsiyonel — mevcut çağıranlar bozulmaz) ────
+   * Ölçülen boşluk: rota motoruna giden hedefin NEREDEN geldiği, NE ZAMAN
+   * çözüldüğü ve KOORDİNATIN NE KADAR kesin olduğu üründe hiçbir yerde
+   * taşınmıyordu → "aramada doğru yeri bulduk ama rotaya yanlış nokta mı
+   * gitti" sorusu ölçülemiyordu.
+   *
+   * ⚠️ Hepsi OPSİYONELDİR ve BİLDİRİLMEDİĞİNDE hiçbir kural çalışmaz —
+   * "bilinmiyor" ile "bayat/kesin değil" AYNI ŞEY DEĞİLDİR. Uydurma
+   * varsayılan ATANMAZ. */
+  /** Hedefi üreten sağlayıcı/katman etiketi (ör. `NOMINATIM`, `LOCAL_POI`). */
+  provider?: string;
+  /** Hedefin ÇÖZÜLDÜĞÜ an (ms) — bayat arama sonucu bu alanla yakalanır. */
+  resolvedAtMs?: number;
+  /** Koordinatın kesinliği; sağlayıcı söylemediyse alan KONULMAZ. */
+  precision?: 'ROOFTOP' | 'STREET' | 'AREA' | 'UNKNOWN';
 }
 
 interface AddressBookState {

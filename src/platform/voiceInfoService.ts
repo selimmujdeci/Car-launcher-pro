@@ -27,6 +27,10 @@ import {
   type WeatherState,
 } from './weatherService';
 import { useUnifiedVehicleStore } from './vehicleDataLayer/UnifiedVehicleStore';
+import { resolveLiveCanonicalSignal } from './vehicleDataLayer/canonicalVehicleSignal';
+import { getEarlyWarnings } from './obd/predictionRuntime';
+import { getObdSignalHealth } from './obdService';
+import { explainEarlyWarnings } from './obd/earlyWarningEngine';
 import { getMaintenanceSummaryText } from './vehicleMaintenanceService';
 
 /* ── Bilgi sorgusu tipleri ───────────────────────────────────────────────── */
@@ -76,7 +80,9 @@ async function _speakWeather(turn: MaviTurnToken | null): Promise<void> {
     return;
   }
   // Veri yok → kullanıcıyı oyalamadan tetikle ve kısa bekle.
-  speakMaviAnswer('Hava durumuna bakıyorum.', { tier: 'progress', turn });   // MAVI-M6: ara bilgi
+  /* MAVI-F2: SEMANTİK ACK — gerçek bir ağ çekimi (`refreshWeather`) başlıyor ve
+   * 5 sn'ye kadar sürebilir; cümle NE alındığını söyler, alındığını İDDİA ETMEZ. */
+  speakMaviAnswer('Hava durumunu alıyorum.', { tier: 'progress', turn });
   refreshWeather().catch(() => { /* ignore */ });
   const s = await _waitForWeather(5000);
   /* AWAIT SONRASI: 5 sn'lik pencerede kullanıcı yeni komut vermiş olabilir. */
@@ -110,32 +116,64 @@ function _speakFuel(turn: MaviTurnToken | null): void {
 }
 
 function _speakTemp(turn: MaviTurnToken | null): void {
-  const { canCoolantTemp } = useUnifiedVehicleStore.getState();
-  if (canCoolantTemp == null) {
+  /* P0-OBD-03: eskiden YALNIZ `canCoolantTemp` okunuyordu → CAN'ı olmayan
+     araçta Mavi "veri yok" diyordu, oysa PID 0x05 okunuyordu. Otorite tek
+     yerde (CAN → OBD → yok) ve BAYAT ölçüm konuşulmaz: sesli asistanın
+     donmuş bir sıcaklığı söylemesi, sessiz kalmasından daha kötüdür. */
+  const coolant = resolveLiveCanonicalSignal(
+    useUnifiedVehicleStore.getState(), 'coolantTemp', Date.now(),
+  ).value;
+  if (coolant == null) {
     speakMaviAnswer('Motor sıcaklığı verisi yok. OBD bağlantısını kontrol et.', { turn });
     return;
   }
-  const t = Math.round(canCoolantTemp);
+  const t = Math.round(coolant);
   const note = t > 105 ? ', yüksek, dikkat et' : '';
   speakMaviAnswer(`Motor sıcaklığı ${t} derece${note}.`, { turn });
 }
 
 async function _speakStatus(turn: MaviTurnToken | null): Promise<void> {
-  const { speed, fuel, canCoolantTemp } = useUnifiedVehicleStore.getState();
+  /* P0-OBD-06: hat DURDUYSA sayı okumak yalan olur — ekrandaki değerler
+     ölüdür. Mavi bunu söyler ve karar üretmez. */
+  try {
+    const link = getObdSignalHealth().link;
+    if (link.state === 'STALLED') {
+      speakMaviAnswer(
+        `Araç verisi şu an güncellenmiyor: ${link.reason} Elimdeki değerler bayat, `
+        + 'onlara göre yorum yapmıyorum.', { turn });
+      return;
+    }
+  } catch { /* sağlık okunamadı → eski davranış (fail-soft) */ }
+
+  const vs = useUnifiedVehicleStore.getState();
+  const { speed, fuel } = vs;
+  // P0-OBD-03: motor ısısı kanonik otoriteden (CAN → OBD → yok), yalnız LIVE.
+  const coolant = resolveLiveCanonicalSignal(vs, 'coolantTemp', Date.now()).value;
   const parts: string[] = [];
   if (speed != null) parts.push(`Hızın ${Math.round(speed)} kilometre`);
   if (fuel != null) {
     const pct = Math.round(fuel);
     parts.push(pct < 15 ? `yakıtın yüzde ${pct}, az kaldı` : `yakıtın yüzde ${pct}`);
   }
-  if (canCoolantTemp != null) {
-    const t = Math.round(canCoolantTemp);
+  if (coolant != null) {
+    const t = Math.round(coolant);
     parts.push(`motor sıcaklığı ${t} derece`);
   }
   if (parts.length === 0) {
     speakMaviAnswer('Araç verisi alınamıyor. OBD bağlantısını kontrol et.', { turn });
     return;
   }
+
+  /* P0-OBD-04 — ERKEN UYARI. Mavi artık yalnız anlık değerleri okumakla
+     kalmaz, ölçüme dayalı erken belirtiyi de GEREKÇESİYLE söyler. Dil
+     bilinçlidir: "arıza var" DEMEZ — kesinlik iddiası ölçümün taşıyabileceğinden
+     fazla olurdu. Kaynak `predictionRuntime`ın hükmüdür; Mavi kendi eşiğini
+     ya da kendi yorumunu ÜRETMEZ (ikinci karar katmanı yok). */
+  try {
+    const warn = explainEarlyWarnings(getEarlyWarnings());
+    if (warn) parts.push(warn);
+  } catch { /* erken uyarı opsiyonel — sesli cevabı düşürmez */ }
+
   try {
     const maintenance = await getMaintenanceSummaryText();
     if (maintenance) parts.push(maintenance);

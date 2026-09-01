@@ -17,6 +17,8 @@
 import { signalWithTimeout } from '../utils/abortCompat';
 import { sensitiveKeyStore } from './sensitiveKeyStore';
 import { duckMedia, unduckMedia } from './audioService';
+/* MAVI-F0: TTS sentez + ilk duyulabilir ses ölçümü (YALNIZ ÖLÇÜM). */
+import { markMaviLatency } from './assistant/maviLatencyTrace';
 
 const TTS_MODEL    = 'gemini-2.5-flash-preview-tts';
 const TTS_ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/${TTS_MODEL}:generateContent`;
@@ -160,6 +162,7 @@ export async function speakOnline(text: string, onEnd?: () => void): Promise<boo
   if (!url) return false;
   // Bu çağrı uçuştayken daha yeni bir konuşma istendi → bu sonucu çalma (QUEUE_FLUSH).
   if (seq !== _seq) return false;
+  markMaviLatency('tts_audio_ready');   // MAVI-F0: sentezlenmiş ses verisi hazır
 
   if (_active) { try { _active.pause(); } catch { /* zaten durmuş */ } }
   const audio = new Audio(url);
@@ -174,10 +177,14 @@ export async function speakOnline(text: string, onEnd?: () => void): Promise<boo
     if (_active === audio) _active = null;
     audio.onended = null;
     audio.onerror = null;
+    audio.onplaying = null;              // MAVI-F0: zero-leak
     onEnd?.();
   };
 
   try {
+    // MAVI-F0: `playing` platformun GERÇEK başlangıç bildirimidir; `play()` yalnız İSTEK.
+    audio.onplaying = () => { markMaviLatency('first_audio_confirmed'); };
+    markMaviLatency('first_audio_requested');
     const p = audio.play();
     ducked = true;
     duckMedia();

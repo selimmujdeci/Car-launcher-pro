@@ -50,6 +50,22 @@ import {
 import {
   recordRouteSource, recordRemoteFailure,
 } from './navigation/core/routeProviderReadiness';
+import {
+  classifyRouteError, recordRouteAttempt, recordRouteChainOutcome,
+  summarizeRouteChain,
+  type RouteAttempt, type RouteAttemptOutcome, type RouteProviderId,
+} from './navigation/core/routeProviderLedger';
+import {
+  geometryDistanceM, judgeGeometry,
+  recordCommittedGeometry, recordRejectedGeometry, resetRouteGeometryEvidence,
+} from './navigation/core/routeGeometryModel';
+import {
+  judgeProgress, recordProgressJudgement, resetProgressLedger,
+} from './navigation/core/routeProgressLedger';
+import { maneuverToTr } from './navigation/core/maneuverSemanticsModel';
+import {
+  recordNavTickCost, resetNavTickCost,
+} from './navigation/core/navTickCostModel';
 
 /* Geometri primitifleri artık `navigation/core/geo` içinde YAŞAR (saf katman
  * onları import edebilsin diye). Mevcut tüketiciler — hazardService,
@@ -293,6 +309,14 @@ export function setRerouteContext(toLat: number, toLon: number): void {
   _lastFix           = null;
   _offRoute          = initialOffRoute();
   resetRouteRequestLedger();
+  /* P0-NAV-12: yeni hedef = yeni ilerleme geçmişi. Eski rotanın sıçraması
+     yenisine YAZILMAZ (oturum yalıtımı — bkz. P0-NAV-18). */
+  resetProgressLedger();
+  _lastProgressRevision = null;
+  /* P0-NAV-18: eski oturumun geometrisi yeni oturumda "uygulanan geometri"
+     diye GÖSTERİLEMEZ. "Henüz rota yok" demek daha dürüsttür. */
+  resetRouteGeometryEvidence();
+  resetNavTickCost();
 }
 
 /** Navigasyon durduğunda bağlamı temizle. */
@@ -303,6 +327,10 @@ export function clearRerouteContext(): void {
   _lastFix           = null;
   _offRoute          = initialOffRoute();
   resetRouteRequestLedger();
+  resetProgressLedger();
+  _lastProgressRevision = null;
+  resetRouteGeometryEvidence();
+  resetNavTickCost();
 }
 
 /**
@@ -338,38 +366,22 @@ function getRoutingServers(): string[] {
 /* ── OSRM maneuver → Türkçe ──────────────────────────────────── */
 
 /**
- * Dönel kavşak çıkış numarasının Türkçe sıralaması.
- * KANIT YOKSA (exit ayrıştırılamadıysa) sayı UYDURULMAZ — genel ifade kullanılır.
+ * OSRM manevrasını Türkçeye çevirir.
+ *
+ * ── ÇEVİRİ OTORİTESİ TAŞINDI (P0-NAV-15) ───────────────────────────────────
+ * Kurallar artık SAF `navigation/core/maneuverSemanticsModel` içindedir;
+ * burası ince bir sarmalayıcıdır. Sebep ÖLÇÜLDÜ: eski gövde tip listesini
+ * tamamlamıyordu ve **tanınmayan her tip sessizce DEĞİŞTİRİCİYE düşüyordu**.
+ * `merge` · `fork` · `on ramp` · `off ramp` ürün kodunun HİÇBİR yerinde
+ * geçmiyordu; OSRM bunları üretir ve sonuç şuydu:
+ *   otoyol birleşmesi → **"Sağa dönün"** · otoyol çıkışı → **"Sağa dönün"**
+ * Bunlar dönüş DEĞİLDİR; 120 km/h'te sürücüye var olmayan bir kavşak
+ * aratmak yalnız yanlış değil TEHLİKELİDİR.
+ *
+ * Mevcut doğru çıktılar BİREBİR korunur (kilitli testler denetler).
  */
-const _EXIT_ORDINAL: Readonly<Record<number, string>> = {
-  1: 'birinci', 2: 'ikinci', 3: 'üçüncü', 4: 'dördüncü',
-  5: 'beşinci', 6: 'altıncı', 7: 'yedinci', 8: 'sekizinci',
-};
-
 function toTR(type: string, mod: string, name: string, exit?: number | null): string {
-  const s = name ? ` (${name})` : '';
-  if (type === 'depart')                            return `Yola çıkın${s}`;
-  if (type === 'arrive')                            return 'Hedefinize ulaştınız';
-  if (type === 'roundabout' || type === 'rotary' || type === 'roundabout turn') {
-    /* DÖNEL KAVŞAK ÇIKIŞI (denetim §8 madde 2): `maneuver.exit` bugüne kadar
-     * HİÇ ayrıştırılmıyordu ve sürücüye yalnız "Dönel kavşakta devam edin"
-     * deniyordu. Artık sayı VARSA söylenir, YOKSA uydurulmaz. */
-    const ord = exit != null && Number.isFinite(exit) ? _EXIT_ORDINAL[exit] : undefined;
-    return ord
-      ? `Dönel kavşakta ${ord} çıkıştan ayrılın${s}`
-      : 'Dönel kavşakta devam edin';
-  }
-  if (type === 'exit roundabout' || type === 'exit rotary') return `Dönel kavşaktan çıkın${s}`;
-  if (type === 'end of road')                       return 'Yol sonunda dönün';
-  if (mod  === 'uturn')                             return 'U dönüşü yapın';
-  if (mod  === 'sharp right')                       return `Sert sağa dönün${s}`;
-  if (mod  === 'right')                             return `Sağa dönün${s}`;
-  if (mod  === 'slight right')                      return `Hafif sağa dönün${s}`;
-  if (mod  === 'straight')                          return `Düz devam edin${s}`;
-  if (mod  === 'slight left')                       return `Hafif sola dönün${s}`;
-  if (mod  === 'left')                              return `Sola dönün${s}`;
-  if (mod  === 'sharp left')                        return `Sert sola dönün${s}`;
-  return `Devam edin${s}`;
+  return maneuverToTr(type, mod, name, exit);
 }
 
 /* ── Dahili OSRM adım tipi ───────────────────────────────────── */
@@ -846,6 +858,16 @@ export function selectAltRoute(index: number): void {
  *
  * @returns Uygulandıysa `true`; bayat olduğu için reddedildiyse `false`.
  */
+/* ── P0-NAV-11 · UÇ ÖLÇÜMÜ İÇİN İSTEK BAĞLAMI ──────────────────────────────
+ * `_commitRoute` origin/dest almıyor (imzası ÜÇ çağrı yerinde kullanılıyor ve
+ * genişletmek gereksiz kırılganlık olurdu). `fetchRoute` her istekte bunu
+ * tazeler; TEK yazan vardır, yarış yoktur. Ölçüm dışında HİÇBİR karar bu
+ * değerlere bakmaz. */
+/** P0-NAV-12 — ilerleme yargısının gördüğü SON rota sürümü. */
+let _lastProgressRevision: number | null = null;
+let _commitOrigin: { lat: number; lon: number } | null = null;
+let _commitDest:   { lat: number; lon: number } | null = null;
+
 function _commitRoute(
   reqId: number,
   patch: Partial<RouteState>,
@@ -875,6 +897,32 @@ function _commitRoute(
      doğrudan yeni rotanın süresidir. */
   const rev = _nextRevision();
   const parsed = parseRouteDurations(annotationDurations, geometry.length);
+
+  /* ── P0-NAV-11 · UYGULANAN GEOMETRİNİN KÜNYESİ ──────────────────────────
+   * LAB `useRouteStore.geometry`yi OKUYAMAZ (koordinat = PII). Bu kayıt aynı
+   * geometrinin PII TAŞIMAYAN ölçümüdür: nokta sayısı · yinelenen · ölçülen
+   * uzunluk · bbox genişliği · uçların uzaklığı. Böylece "haritadaki çizgi
+   * sağlayıcının verdiği rota mı" sorusu cihaz olmadan da yanıtlanabilir.
+   * Ölçüm KARAR ÜRETMEZ — rota zaten doğrulama kapısından geçmiştir. */
+  try {
+    const _g = judgeGeometry(geometry, typeof patch.totalDistanceMeters === 'number'
+      ? patch.totalDistanceMeters : null);
+    const _first = geometry[0];
+    const _last  = geometry[geometry.length - 1];
+    recordCommittedGeometry({
+      requestId: reqId,
+      providerLabel: providerLabel,
+      integrity: _g.integrity,
+      metrics: _g.metrics,
+      flaws: _g.flaws,
+      startDistanceM: _commitOrigin !== null && _first !== undefined
+        ? geometryDistanceM(_commitOrigin.lat, _commitOrigin.lon, _first[1], _first[0]) : null,
+      endDistanceM: _commitDest !== null && _last !== undefined
+        ? geometryDistanceM(_commitDest.lat, _commitDest.lon, _last[1], _last[0]) : null,
+      routeRevision: rev,
+      atMs: Date.now(),
+    });
+  } catch { /* kanıt kaydı rota uygulamasını ASLA düşürmez */ }
 
   useRouteStore.setState({
     ...patch,
@@ -925,6 +973,54 @@ export async function fetchRoute(
   const reqId = beginRouteRequest(kind, performance.now());
   const headingDeg = _currentHeadingDeg();
 
+  /* ── P0-NAV-10 · SAĞLAYICI SİCİLİ ────────────────────────────────────────
+   * Ölçülen kusur: `catch { recordRemoteFailure(); }` zaman aşımını, HTTP
+   * hatasını, "yol yok"u ve bozuk geometriyi TEK sayaca indiriyordu — dördünün
+   * sonraki adımı FARKLI. Artık her katman kendi denemesini yazar; hüküm
+   * (birincil mi, yedek mi, düz hat mı) SAF katmanda türetilir.
+   *
+   * KAYIT AKIŞI ETKİLEMEZ: `recordRouteAttempt` throw etmez ve hiçbir karar
+   * bu listeye bakarak verilmez. */
+  _commitOrigin = { lat: fromLat, lon: fromLon };
+  _commitDest   = { lat: toLat,   lon: toLon   };
+  const _chain: RouteAttempt[] = [];
+  const _note = (
+    provider: RouteProviderId, outcome: RouteAttemptOutcome,
+    serverLabel: string | null, startedAt: number | null,
+    candidateCount: number | null = null, rejectedCount: number | null = null,
+  ): void => {
+    const at: RouteAttempt = {
+      requestId: reqId, provider, serverLabel, outcome,
+      ms: startedAt === null ? null : Math.max(0, Math.round(performance.now() - startedAt)),
+      candidateCount, rejectedCount, atMs: Date.now(),
+    };
+    _chain.push(at);
+    recordRouteAttempt(at);
+  };
+  /** Zincir bittiğinde hükmü mühürle — her çıkış yolundan çağrılır. */
+  const _sealChain = (): void => {
+    recordRouteChainOutcome(summarizeRouteChain(_chain).outcome);
+  };
+
+  /* ── P0-NAV-11 · REDDEDİLEN ADAYIN KANITI SİLİNMEZ ───────────────────────
+   * Kural: bozuk geometri haritada gerçek rota gibi GÖSTERİLMEZ — ama
+   * sağlayıcı yanıtı kanıttan SİLİNMEZ. Eskiden reddedilen aday yalnız bir
+   * sayaç artırıyordu; kaç noktası vardı, nerede bozuktu — `console.warn`da
+   * kalıp kayboluyordu. KOORDİNAT TAŞINMAZ, yalnız ölçüm. */
+  const _noteRejected = (
+    providerLabel: string | null, candidateIndex: number,
+    geometry: readonly (readonly [number, number])[] | null,
+    claimedDistanceM: number | null,
+    failedCheckIds: readonly string[],
+  ): void => {
+    const g = judgeGeometry(geometry, claimedDistanceM);
+    recordRejectedGeometry({
+      requestId: reqId, providerLabel, candidateIndex,
+      integrity: g.integrity, metrics: g.metrics, flaws: g.flaws,
+      failedCheckIds, atMs: Date.now(),
+    });
+  };
+
   // Preserve currentStepIndex during loading so UI keeps the active turn instruction.
   // It will be overwritten to 0 once the new route geometry arrives.
   const { currentStepIndex: _prevStepIdx } = useRouteStore.getState();
@@ -943,6 +1039,11 @@ export async function fetchRoute(
   // ÖLÜ KATMAN KAPATILDI (denetim §4.2): daemon hazırlığı oturumda BİR KEZ,
   // sınırlı süreyle yoklanır. Yoksa bir daha DENENMEZ — her rotada 3 sn'ye
   // kadar boşuna bekleme, sapma anında doğrudan reroute gecikmesiydi.
+  const _t0Daemon = performance.now();
+  if (!isNative) {
+    /* Daemon YALNIZ native'de vardır — tarayıcıda "düştü" demek yanlış alarmdır. */
+    _note('LOCAL_DAEMON', 'UNAVAILABLE', 'localhost:5000', null);
+  }
   if (isNative) {
     const daemonResult = await tryLocalDaemon(fromLon, fromLat, toLon, toLat);
     if (daemonResult && daemonResult.geometry && daemonResult.geometry.length >= 2) {
@@ -952,6 +1053,9 @@ export async function fetchRoute(
       const v = _validateOne(cand);
       if (v.verdict === 'REJECTED') {
         recordInvalidRejected(reqId);
+        _note('LOCAL_DAEMON', 'VALIDATION_REJECTED', 'localhost:5000', _t0Daemon, 1, 1);
+        _noteRejected('localhost:5000', 0, daemonResult.geometry, daemonResult.distanceM,
+          v.checks.filter((c) => c.status === 'FAIL').map((c) => c.id));
         console.warn('[ROUTE] Layer 0 rotası doğrulama kapısından geçemedi — sonraki katman', v.checks.filter(c => c.status === 'FAIL'));
       } else {
         await _waitForStyleReady();
@@ -962,11 +1066,18 @@ export async function fetchRoute(
           totalDurationSeconds: daemonResult.durationS,
           serverUsed: 'localhost:5000',
         }, daemonResult.geometry, daemonResult.steps, 'localhost:5000', 'LOCAL_DAEMON', v);
+        _note('LOCAL_DAEMON', ok ? 'SUCCESS' : 'STALE', 'localhost:5000', _t0Daemon, 1, 0);
+        _sealChain();
         if (ok) { _fireNavStyle(true); return; }
         return; // bayat — yeni istek zaten yolda
       }
     } else if (daemonResult) {
+      _note('LOCAL_DAEMON', 'EMPTY_GEOMETRY', 'localhost:5000', _t0Daemon, 1, null);
       console.error('[ROUTE] Layer 0: daemon returned NO_GEOMETRY — falling through', { pts: daemonResult.geometry?.length ?? 0 });
+    } else {
+      /* `tryLocalDaemon` null döndü — yoklama sonucu "daemon yok" demektir.
+         Bu bir DÜŞÜŞ değil, katmanın YOKLUĞUDUR (yanlış alarm üretilmez). */
+      _note('LOCAL_DAEMON', 'UNAVAILABLE', 'localhost:5000', _t0Daemon);
     }
   }
 
@@ -975,10 +1086,14 @@ export async function fetchRoute(
   // İlk OSRM isteği HEADERS_TIMEOUT_MS içinde yanıt vermezse → tüm sunucular kesilir,
   // anında Katman 3'e (A* Worker) düşülür. Kullanıcı "Hesaplanıyor..." ekranında beklemez.
   if (!navigator.onLine) {
+    /* Çevrimdışı: uzak sağlayıcılar DENENMEDİ. "0 rota döndü" DEMEK DEĞİLDİR —
+       bu ayrım olmadan hüküm katmanı yok yere "veri boşluğu" sanar. */
+    _note('REMOTE_OSRM', 'SKIPPED_OFFLINE', null, null);
     console.warn('[ROUTE] Fail-Fast: navigator.onLine=false → offline katmana geç');
   } else {
     const servers = getRoutingServers();
     for (const server of servers) {
+      const _t0Server = performance.now();
       try {
         const result = await _tryServer(server, fromLon, fromLat, toLon, toLat, headingDeg);
         recordResponse(reqId, performance.now(), server);
@@ -1000,6 +1115,16 @@ export async function fetchRoute(
         const picked = pickBestRoute(cands);
         if (!picked) {
           recordInvalidRejected(reqId);
+          _note('REMOTE_OSRM', 'VALIDATION_REJECTED', server, _t0Server,
+            cands.length, cands.length);
+          /* HER aday ayrı kanıt bırakır: hangisinin hangi denetimden düştüğü
+             sahada tek tek görülebilmeli (biri geometriden, öteki yönden
+             düşmüş olabilir ve ikisi FARKLI işi işaret eder). */
+          for (let ci = 0; ci < cands.length; ci++) {
+            _noteRejected(server, ci, cands[ci].candidate.geometry,
+              cands[ci].candidate.distanceM,
+              cands[ci].validation.checks.filter((c) => c.status === 'FAIL').map((c) => c.id));
+          }
           console.warn(`[ROUTE] ${server}: TÜM adaylar doğrulama kapısından düştü — sonraki sunucu`,
             cands.map(c => c.validation.checks.filter(k => k.status === 'FAIL').map(k => k.id)));
           continue;
@@ -1049,11 +1174,17 @@ export async function fetchRoute(
               süresi uygulanırdı. */
            result.annotationDurations[picked.index] ?? null);
 
+        _note('REMOTE_OSRM', ok ? 'SUCCESS' : 'STALE', server, _t0Server,
+          cands.length, cands.filter((c) => c.validation.verdict === 'REJECTED').length);
+        _sealChain();
         if (ok) _fireNavStyle(true);
         return;
       } catch (e) {
         const _errMsg = e instanceof Error ? e.message : String(e);
         recordRemoteFailure();
+        /* Sebep SINIFI korunur: zaman aşımı · HTTP · yol yok · bozuk geometri
+           dört FARKLI işi işaret eder ve tek sayaçta kaybolurdu. */
+        _note('REMOTE_OSRM', classifyRouteError(_errMsg), server, _t0Server);
         if (_errMsg === 'HEADERS_TIMEOUT') {
           // Tek sunucu yavaş → diğerlerini de dene, hepsi timeout'a girerse offline'a geç
           console.warn(`[ROUTE] Fail-Fast: ${server} ${HEADERS_TIMEOUT_MS}ms içinde yanıt vermedi → sonraki sunucuya geç`);
@@ -1065,9 +1196,16 @@ export async function fetchRoute(
   }
 
   // ── Katman 3: WebWorker A* (offline graph) ───────────────────
+  const _t0Offline = performance.now();
   const offlineResult = await computeOfflineRoute(fromLat, fromLon, toLat, toLon);
+  if (!offlineResult) {
+    /* Graf yok / Worker yok → katman bu cihazda KULLANILABİLİR DEĞİL.
+       "Rota bulamadı" demek veri boşluğu iddiası olurdu — kanıt yok. */
+    _note('OFFLINE_GRAPH', 'UNAVAILABLE', 'offline-graph', _t0Offline);
+  }
   if (offlineResult) {
     if (!offlineResult.geometry || offlineResult.geometry.length < 2) {
+      _note('OFFLINE_GRAPH', 'EMPTY_GEOMETRY', offlineResult.source, _t0Offline, 1, null);
       console.error('[ROUTE] Layer 3: offline A* returned NO_GEOMETRY — falling through to straight-line', { pts: offlineResult.geometry?.length ?? 0 });
     } else {
       recordResponse(reqId, performance.now(), offlineResult.source);
@@ -1079,6 +1217,9 @@ export async function fetchRoute(
         offlineResult.durationS, offlineSteps));
       if (v.verdict === 'REJECTED') {
         recordInvalidRejected(reqId);
+        _note('OFFLINE_GRAPH', 'VALIDATION_REJECTED', offlineResult.source, _t0Offline, 1, 1);
+        _noteRejected(offlineResult.source, 0, offlineResult.geometry, offlineResult.distanceM,
+          v.checks.filter((c) => c.status === 'FAIL').map((c) => c.id));
         console.warn('[ROUTE] Layer 3 rotası doğrulama kapısından geçemedi — düz hata düşülüyor');
       } else {
         const ok = _commitRoute(reqId, {
@@ -1088,6 +1229,8 @@ export async function fetchRoute(
           totalDurationSeconds: offlineResult.durationS,
           serverUsed: offlineResult.source,
         }, offlineResult.geometry, offlineSteps, offlineResult.source, 'OFFLINE_GRAPH', v);
+        _note('OFFLINE_GRAPH', ok ? 'SUCCESS' : 'STALE', offlineResult.source, _t0Offline, 1, 0);
+        _sealChain();
         if (ok) _fireNavStyle(true);
         return;
       }
@@ -1102,7 +1245,12 @@ export async function fetchRoute(
   // Doğrulama kapısı burada UYGULANMAZ: düz hat bir rota adayı değil, açıkça
   // etiketlenmiş bir SON ÇAREdir (`STRAIGHT_LINE_GUIDANCE`). Ona rota muamelesi
   // yapmak — doğrulayıp "GEÇERLİ" demek — tam olarak kaçındığımız yalandır.
-  if (!isCurrentRequest(reqId)) { recordStaleRejected(reqId); return; }
+  if (!isCurrentRequest(reqId)) {
+    recordStaleRejected(reqId);
+    _note('STRAIGHT_LINE', 'STALE', 'straight-line', null);
+    _sealChain();
+    return;
+  }
   const _offline = typeof navigator !== 'undefined' && !navigator.onLine;
   console.warn(`[ROUTE] All OSRM layers failed — straight-line fallback (offline=${_offline})`);
   speakNavigation(_offline
@@ -1110,7 +1258,12 @@ export async function fetchRoute(
     : 'Rota sunucusu şu an yanıt vermiyor. Düz hat navigasyon aktif.');
   const sl = straightLineRoute(fromLat, fromLon, toLat, toLon);
   await _waitForStyleReady(); // stil yenileniyorsa layer hazır olana kadar bekle
-  if (!isCurrentRequest(reqId)) { recordStaleRejected(reqId); return; }
+  if (!isCurrentRequest(reqId)) {
+    recordStaleRejected(reqId);
+    _note('STRAIGHT_LINE', 'STALE', 'straight-line', null);
+    _sealChain();
+    return;
+  }
   /* `recordFailure` isteği PENDING'den çıkarır — bu yüzden SON güncellik
    * kontrolünden SONRA çağrılır. Aksi hâlde kendi kapımıza takılır ve düz-hat
    * yönlendirmesi hiç yazılmazdı (rota tamamen kaybolurdu). */
@@ -1148,6 +1301,10 @@ export async function fetchRoute(
     remainingRouteDurationSeconds: null,
   });
   recordRouteSource('STRAIGHT_LINE_GUIDANCE', 'straight-line');
+  /* DÜZ HAT `SUCCESS` DEĞİLDİR — sağlayıcı bile değildir. Zincir hükmü
+     `DEGRADED_STRAIGHT_LINE` olur ve LAB'da GERÇEK ROTA YOK diye görünür. */
+  _note('STRAIGHT_LINE', 'NO_ROUTE', 'straight-line', null);
+  _sealChain();
   _fireNavStyle(true); // düz hat fallback → focus mode aktif
 }
 
@@ -1183,6 +1340,23 @@ export function updateRouteProgress(
   lon: number,
   opts?: { allowReroute?: boolean },
 ): void {
+  /* P0-NAV-19: TAM tick maliyeti — eşleştirme + adım ilerletme + sapma
+     değerlendirmesi + ses kararı. `MAP_MATCH` bunun İÇİNDEKİ en pahalı
+     parçadır; ikisini AYRI ölçmek "yavaşlık eşleştirmede mi başka yerde mi"
+     sorusunu ayırt edilebilir kılar. */
+  const _tTick0 = performance.now();
+  try {
+    _updateRouteProgressInner(lat, lon, opts);
+  } finally {
+    recordNavTickCost('PROGRESS_TICK', performance.now() - _tTick0);
+  }
+}
+
+function _updateRouteProgressInner(
+  lat: number,
+  lon: number,
+  opts?: { allowReroute?: boolean },
+): void {
   const st = useRouteStore.getState();
   const { steps, currentStepIndex, geometry, cumulativeDistances, maneuverAnchors } = st;
   if (!steps.length) return;
@@ -1210,13 +1384,55 @@ export function updateRouteProgress(
     tsMs: now,
   };
   const prevFix = _lastFix;
+  /* ── P0-NAV-19 · SICAK YOL MALİYETİ ──────────────────────────────────────
+   * `matchToRoute` her GPS fix'inde (ve GPS yokken her DR tick'inde) çalışır ve
+   * rota uzadıkça pahalılaşan TEK iştir. Maliyeti üründe hiçbir yerde
+   * ölçülmüyordu; düşük-uçlu head unit'te "harita takılıyor" şikâyeti gelince
+   * bakılacak bir sayı YOKTU. Ölçüm iki `performance.now()` çağrısıdır —
+   * tick zaten birini yapıyor. YENİ TIMER YOK. */
+  const _tMatch0 = performance.now();
   const fix = matchToRoute(sample, geometry, cumulativeDistances, prevFix, now);
+  recordNavTickCost('MAP_MATCH', performance.now() - _tMatch0);
   _lastFix = fix;
 
   const vehicleAlong = fix.alongRemainingM;
   const progressM = (prevFix?.alongRemainingM != null && vehicleAlong != null)
     ? prevFix.alongRemainingM - vehicleAlong
     : null;
+
+  /* ── P0-NAV-12 · İLERLEME YARGILANIR (KIRPILMAZ) ─────────────────────────
+   * `progressM` bugüne kadar yalnız adım ilerletmede kullanılıp ATILIYORDU.
+   * ETA sıçramalarının defteri VARDI (`etaJumpLedger`) ama onu BESLEYEN
+   * ilerlemenin defteri YOKTU: "ETA 12 dk zıpladı" görülüyor, "çünkü kalan
+   * mesafe 3 km geri gitti" görülmüyordu.
+   *
+   * ⚠️ KÖR CLAMP YOK: gerçek U dönüşü rotada GERİYE gitmektir ve meşrudur.
+   * Burada hiçbir değer kırpılmaz — yalnız SINIFLANDIRILIR ve sayılır. */
+  try {
+    const _prog = judgeProgress({
+      prevRemainingM: prevFix?.alongRemainingM ?? null,
+      remainingM: vehicleAlong,
+      elapsedMs: prevFix != null ? now - prevFix.tsMs : null,
+      speedKmh: speedKmhOrNull,
+      headingDeltaDeg: fix.headingDeltaDeg,
+      matchState: fix.state,
+      confidence: fix.confidence,
+      prevRouteRevision: _lastProgressRevision,
+      routeRevision: useRouteStore.getState().routeRevision ?? null,
+    });
+    recordProgressJudgement(_prog, {
+      prevRemainingM: prevFix?.alongRemainingM ?? null,
+      remainingM: vehicleAlong,
+      elapsedMs: prevFix != null ? now - prevFix.tsMs : null,
+      speedKmh: speedKmhOrNull,
+      headingDeltaDeg: fix.headingDeltaDeg,
+      matchState: fix.state,
+      confidence: fix.confidence,
+      prevRouteRevision: _lastProgressRevision,
+      routeRevision: useRouteStore.getState().routeRevision ?? null,
+    }, Date.now());
+    _lastProgressRevision = useRouteStore.getState().routeRevision ?? null;
+  } catch { /* teşhis kaydı navigasyon tick'ini ASLA düşüremez */ }
 
   // ── 2) ADIM İLERLEME — yol-boyu, kuş uçuşu DEĞİL ──────────────────────────
   // Manevra çapaları çözülmüşse ilerleme rota üzerindeki mesafeye göre kararlaşır;

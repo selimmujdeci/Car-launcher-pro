@@ -39,7 +39,7 @@ export const VehicleClassPrompt = memo(function VehicleClassPrompt() {
   return (
     <div
       data-testid="vehicle-class-prompt"
-      className="absolute left-1/2 -translate-x-1/2 z-40 pointer-events-auto rounded-2xl px-3 py-2.5"
+      className="absolute left-1/2 -translate-x-1/2 z-[var(--z-map-prompt)] pointer-events-auto rounded-2xl px-3 py-2.5"
       style={{
         bottom: 'calc(var(--sab, 0px) + 96px)',
         maxWidth: 'min(94vw, 560px)',

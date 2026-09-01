@@ -30,14 +30,10 @@ import {
   clearRouteGeometry,
   trimRouteGeometry,
   setPaintedArrow,
-  setTurnFocus,
-  clearTurnFocus,
   setMapStyleChanging,
-  setNavigationFocusMode,
   reapplyNavigationFocus,
   updateNavigationStyle,
   updateMapMood,
-  registerAltRouteSelectCallback,
 } from '../../platform/mapService';
 import {
   shouldTrimRoute,
@@ -55,7 +51,6 @@ import {
   setMapMode,
   useMapMode,
   useTileRenderMode,
-  notifyNavigationRender,
   notifyLowFPS,
   useMapNetworkStatus,
   getMapStyle,
@@ -80,7 +75,7 @@ import {
 import {
   useNavigation, getSnappedMarkerPosition, getSnappedRoadBearing,
   getRouteProgressPoint,
-  setNavStatus, NavStatus, activateNavigation, startNavigation,
+  setNavStatus, NavStatus, activateNavigation,
   getNavigationState, claimRouteRequest, releaseRouteRequest, endNavigation,
 } from '../../platform/navigationService';
 import {
@@ -89,7 +84,6 @@ import {
   getRouteState,
   clearRoute,
   notifyStyleChange,
-  selectAltRoute,
   registerNavigationStyleCallback,
   type RouteStep,
 } from '../../platform/routingService';
@@ -101,6 +95,10 @@ import { NavigationHUD } from './NavigationHUD';
 import { VehicleClassPrompt } from './VehicleClassPrompt';
 import { acquireFullNavigationOrientation } from '../../platform/navigation/navigationOrientation';
 import { MapHudControls } from './MapHudControls';
+import { useMapOverlayLifecycle } from './hooks/useMapOverlayLifecycle';
+import { useRouteDrawingLifecycle } from './hooks/useRouteDrawingLifecycle';
+import { useMapStyleLifecycle } from './hooks/useMapStyleLifecycle';
+import { mapMutexWindow as _mapMutexWindow, routeHash as _routeHash } from './hooks/_mapSurfaceInternals';
 import { MapSearchBar } from './MapSearchBar';
 // VisionOverlay lazy — kamera/AR katmanı yalnızca vision aktifken yüklenir.
 // Bu import zinciri: VisionOverlay → visionEngine.ts (2280 satır WebGL/CV kodu)
@@ -113,6 +111,9 @@ import { useRadarMapLayer } from '../../hooks/useRadarMapLayer';
 import { useOBDState } from '../../platform/obdService';
 import { useDisplaySpeed } from '../../hooks/useDisplaySpeed';
 import { useUnifiedVehicleStore } from '../../platform/vehicleDataLayer/UnifiedVehicleStore';
+/* ARCH-06/F3 — YALNIZ SAYAÇ. Koordinat, bearing ve rota verisi ölçüm
+   katmanına TAŞINMAZ; rAF sahipliği ve idle-uyku davranışı DEĞİŞMEDİ. */
+import { bumpPerf } from '../../platform/perf/perfCounters';
 
 interface FullMapViewProps {
   onClose: () => void;
@@ -121,18 +122,10 @@ interface FullMapViewProps {
 }
 
 /** Stable hash of a route geometry — first point + last point + length. */
-function _routeHash(geometry: [number, number][] | null | undefined): string {
-  if (!geometry || geometry.length < 2) return '';
-  const f = geometry[0];
-  const l = geometry[geometry.length - 1];
-  return `${geometry.length}:${f[0].toFixed(5)},${f[1].toFixed(5)}:${l[0].toFixed(5)},${l[1].toFixed(5)}`;
-}
-
-/* routingService mutex bayrağı `window` üzerinden paylaşılır (modüller arası tek
-   nokta). Global `Window` arayüzünü genişletmek yerine dar bir görünüm kullanılır:
-   bayrak yalnız BURADA ve routingService'te okunur/yazılır. */
-interface MapMutexWindow { __MAP_MUTEX__?: boolean }
-const _mapMutexWindow = (): MapMutexWindow => window as unknown as MapMutexWindow;
+/* `_routeHash` ve `_mapMutexWindow` `./hooks/_mapSurfaceInternals`e TAŞINDI
+   (P0-NAV-02): ayrıştırılan rota-çizim hook'u da aynı tanımı kullanır. İkinci
+   bir kopya bırakılsaydı biri değişip diğeri değişmediğinde çizim sessizce iki
+   farklı dedup anahtarı kullanırdı. */
 
 export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: FullMapViewProps) {
   const outerDivRef   = useRef<HTMLDivElement>(null);
@@ -219,7 +212,7 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
   const location  = gpsView.location;
   const heading   = gpsView.heading;
   const gpsSource = useGPSSource();
-  const { isNavigating, destination, status: navStatus, distanceMeters: navDistMeters } = useNavigation();
+  const { isNavigating, destination, status: navStatus } = useNavigation();
   const route = useRouteState();
   const mode = useMapMode();
   const tileRender = useTileRenderMode();
@@ -285,7 +278,9 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
     gpsLostWarnRef.current  = gpsLostWarn;
     destinationRef.current  = destination;
     thermalLevelRef.current = thermalLevel;
+  }, [navStatus, drivingMode, obdState.speed, gpsLostWarn, destination, thermalLevel]);
 
+  useEffect(() => {
     // Wake tetikleyicisi: navStatus veya drivingMode değişince döngüyü uyandır.
     // Navigasyon başlarken / sürüş modu açılırken döngünün uyuyor olması kabul edilemez.
     const navActive =
@@ -296,7 +291,16 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
     if (navActive || drivingMode) {
       wakeLoopRef.current?.();
     }
-  }, [navStatus, drivingMode, obdState.speed, gpsLostWarn, destination, thermalLevel]);
+  }, [navStatus, drivingMode]);
+
+  // Mod değişmeden gelen gerçek hareket ve yeni hedef de uyuyan çizim döngüsünü açar.
+  // Sıfır/durgun OBD örnekleri rAF'ı boş yere yeniden başlatmaz.
+  useEffect(() => {
+    if (obdState.speed >= 1.5) wakeLoopRef.current?.();
+  }, [obdState.speed]);
+  useEffect(() => {
+    if (destination) wakeLoopRef.current?.();
+  }, [destination]);
 
   const [mapStatus, setMapStatus]     = useState<'IDLE' | 'LOADING' | 'READY' | 'ERROR'>('IDLE');
   const [mapError, setMapError]       = useState<string | null>(null);
@@ -380,17 +384,11 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
         // dolmuyor → döngü HİÇ uyumuyordu (cihaz: idle CPU ~108%, rAF 137/sn, %100 histerezis
         // bloğu). #61'in park tutucusu yalnız isIdleNow (döngü ÇIKIŞI) tarafındaydı; wake
         // GİRİŞİ korunmamıştı → yarım fix. ÇÖZÜM: isIdleNow ile TUTARLI semantik — park
-        // (nav/sürüş yok + hız<STANDSTILL_KMH) hâlinde, fix'in KENDİ doğruluk yarıçapı
+        // (hız<STANDSTILL_KMH) hâlinde, fix'in KENDİ doğruluk yarıçapı
         // (≥STANDSTILL_HOLD_M) altındaki kayma GPS jitter'ıdır → wake ETME. Gerçek hareket
         // hız alanında (≥1.5 km/h) görünür → tutucu es geçilir, takip bozulmaz.
         const _WAKE_STANDSTILL_KMH = 1.5; // isIdleNow STANDSTILL_KMH ile aynı
         const _WAKE_STANDSTILL_M   = 5;   // isIdleNow STANDSTILL_HOLD_M ile aynı
-        const _navOrDrive =
-          drivingModeRef.current ||
-          navStatusRef.current === NavStatus.ACTIVE    ||
-          navStatusRef.current === NavStatus.REROUTING ||
-          navStatusRef.current === NavStatus.PREVIEW   ||
-          navStatusRef.current === NavStatus.ROUTING;
         const _noiseFloorM = Math.max(_WAKE_STANDSTILL_M, loc.accuracy ?? 0);
 
         const _anchor = wakeAnchorRef.current;
@@ -404,7 +402,7 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
               (newPoint.lng - _anchor.lng) * 111_320 * Math.cos((newPoint.lat * Math.PI) / 180),
             );
             // Park gürültüsü: park + doğruluk yarıçapı altı kayma → hareket DEĞİL, wake etme
-            const _standstillNoise = !_navOrDrive && speedKmh < _WAKE_STANDSTILL_KMH && _movedM < _noiseFloorM;
+            const _standstillNoise = speedKmh < _WAKE_STANDSTILL_KMH && _movedM < _noiseFloorM;
             if (!_standstillNoise && _movedM >= 3 && (_movedM / _dtS) * 3.6 >= 5) wakeLoopRef.current?.();
             wakeAnchorRef.current = { lat: newPoint.lat, lng: newPoint.lng, ts: newPoint.ts };
           }
@@ -725,6 +723,7 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
     let sentMarkerLat = NaN, sentMarkerLng = NaN, sentMarkerBear = NaN, sentMarkerSpeed = NaN;
     let sentCamLat    = NaN, sentCamLng    = NaN, sentCamBear    = NaN, sentCamSpeed    = NaN;
     let sentCamTurn   = NaN;
+    let sentCamStep   = -1;
     let lastWorkTs    = performance.now(); // son GERÇEK güncelleme (marker/kamera) zamanı
 
     /** İki koordinat arası metre (düz yaklaşım — tick hot-path, allocation yok). */
@@ -797,8 +796,6 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
         status === NavStatus.REROUTING ||
         status === NavStatus.PREVIEW   ||
         status === NavStatus.ROUTING;
-      if (navActive)                          return false;
-      if (drivingModeRef.current)             return false;
       if (userInteractingRef.current)         return false;
 
       // ── YAPILAN İŞ ÖLÇÜTÜ (kök-neden kapısı) ──────────────────────────────
@@ -807,7 +804,15 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
       // güvenilirdir: onlar park hâlindeki GPS gürültüsünü "hareket" sanıp döngüyü
       // sonsuza dek ayakta tutuyordu (cihaz QA: %43-212 CPU). Gerçek hareket varsa
       // her karede iş çıkar → lastWorkTs tazedir → burada uyunmaz.
-      if (now - lastWorkTs >= NO_WORK_IDLE_MS) return true;
+      // Aktif navigasyonda GPS kaybı → DR geçişi LOCATION_STALE_MS'de başlar.
+      // O ana kadar döngüyü açık tut; stale eşik geçildiğinde DR gerçek hareket
+      // üretiyorsa lastWorkTs zaten tazelenir. Araç duruyorsa sonsuz boş rAF yerine
+      // döngü uyur ve yeni GPS/route/interaction olayı wake() ile geri açar.
+      const motionModeActive = navActive || drivingModeRef.current;
+      const noWorkIdleMs = motionModeActive
+        ? Math.max(NO_WORK_IDLE_MS, LOCATION_STALE_MS + 1_000)
+        : NO_WORK_IDLE_MS;
+      if (now - lastWorkTs >= noWorkIdleMs) return true;
       // NOT: isFollowing TEK BAŞINA idle'ı engellemez. Araç park halindeyken (hız<1.5,
       // nav yok) takip edilecek hareket olmadığından döngü uykuya geçebilir; GPS yeniden
       // hareket taşıdığında onGPSLocation→wake() döngüyü uyandırır. Eski davranışta
@@ -842,11 +847,11 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
 
     // ── Wake — döngüyü uyandır ───────────────────────────────────────────────
     const wake = () => {
+      if (loopActive) return; // aktif döngünün idle saatini/gürültü filtresini sıfırlama
       lastWakeTs = performance.now();
       // Uyandırma "iş var" varsayımıdır: döngüye histerezis kadar süre tanı, iş
       // çıkmazsa (dedup her şeyi elerse) NO_WORK_IDLE_MS sonunda kendiliğinden uyur.
       lastWorkTs = lastWakeTs;
-      if (loopActive) return; // zaten çalışıyor
       loopActive = true;
       startFpsMonitor();
       rafId = requestAnimationFrame(tick);
@@ -1181,6 +1186,8 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
             const _camBearD  = Number.isNaN(sentCamBear) ? Infinity : bearDelta(sentCamBear, _camBear);
             const _camSpeedD = Number.isNaN(sentCamSpeed) ? Infinity : Math.abs(speedKmh - sentCamSpeed);
             const _turnKey   = turnDist ?? -1;
+            const _turnChanged = Number.isNaN(sentCamTurn) || Math.abs(_turnKey - sentCamTurn) >= 1;
+            const _stepChanged = _rs.currentStepIndex !== sentCamStep;
             /* Rota yönü ile harita yönü ayrıştıysa kamera GÜNCELLENMELİ.
                Yoksa durakta hiçbir girdi değişmediği için `setDrivingView` hiç
                çağrılmaz ve harita rotanın tersine bakmaya devam eder
@@ -1190,11 +1197,14 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
               ? Math.abs(((((_routeBearing - _mapBear) % 360) + 540) % 360) - 180)
               : 0;
 
+            /* ARCH-06/F3: hedef HESAPLANDI (dedup kararından ÖNCE). */
+            bumpPerf('map.cameraTargetComputed');
             const _camChanged =
               _camMovedM >= CAM_EPS_M ||
               _camBearD  >= CAM_EPS_BEAR ||
               _camSpeedD >= MARKER_EPS_SPEED ||
-              _turnKey !== sentCamTurn ||
+              _turnChanged ||
+              _stepChanged ||
               _routeBearOff > 15;
 
             if (_camChanged) {
@@ -1205,7 +1215,12 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
               sentCamBear  = _camBear;
               sentCamSpeed = speedKmh;
               sentCamTurn  = _turnKey;
+              sentCamStep  = _rs.currentStepIndex;
               lastWorkTs   = now;   // gerçek iş
+            } else {
+              /* AYNI hedef — harita mutasyonu GÖNDERİLMEDİ. Bu sayaç,
+                 kamera dedup'ının GERÇEKTEN kazandırdığını kanıtlar. */
+              bumpPerf('map.cameraDedupSkipped');
             }
             lastCameraUpdate = now; // throttle penceresi her koşulda ilerler
           }
@@ -1214,6 +1229,7 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
           if (now - lastCameraUpdate > 500) {
             const _camMovedM = Number.isNaN(sentCamLat) ? Infinity : distM(sentCamLat, sentCamLng, lat, lng);
             const _camBearD  = Number.isNaN(sentCamBear) ? Infinity : bearDelta(sentCamBear, bear);
+            bumpPerf('map.cameraTargetComputed');
             if (_camMovedM >= CAM_EPS_M || _camBearD >= CAM_EPS_BEAR) {
               setMapCenter(mapRef.current, [lng, lat], 15, false);
               setMapHeading(mapRef.current, bear);
@@ -1221,6 +1237,8 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
               sentCamLng  = lng;
               sentCamBear = bear;
               lastWorkTs  = now;   // gerçek iş
+            } else {
+              bumpPerf('map.cameraDedupSkipped');
             }
             lastCameraUpdate = now;
           }
@@ -1282,6 +1300,10 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
 
   // Interaction guard — map READY olduktan sonra bağlanır (mount-time null sorunu çözüldü)
   const _onInteractStart = useCallback(() => {
+    /* ARCH-06/F3: kullanıcı haritayı elle oynattı → takip kamerası BASTIRILIR.
+       Bu sayaç "follow camera kullanıcıyı EZMİYOR" iddiasının ölçülebilir
+       kanıtıdır (F3 kabul ölçütü §34). */
+    bumpPerf('map.cameraSuppressedByUser');
     userInteractingRef.current = true;
     if (interactTimerRef.current) { clearTimeout(interactTimerRef.current); interactTimerRef.current = null; }
     // Kullanıcı kamerayı elle oynattı → dedup çapası artık kamerayı temsil etmiyor.
@@ -1341,41 +1363,11 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
   // Eagle Eye: render radar / speed-camera icons on the map
   useRadarMapLayer(mapRef, mapStyleReady);
 
-  // C7.2 — alternatif rota seçim köprüsü: mapService click → routingService
-  // mapService, style.load sonrası etkileşimleri otomatik yeniler (persistence garantisi).
-  useEffect(() => {
-    return registerAltRouteSelectCallback((idx) => selectAltRoute(idx));
-  }, []);
-
-  // Haritaya tıklanınca kontrolleri göster (MapLibre canvas olayları)
-  useEffect(() => {
-    if (mapStatus !== 'READY' || !mapRef.current) return;
-    const map = mapRef.current;
-    map.on('mousedown', showControls);
-    map.on('touchstart', showControls);
-    return () => {
-      map.off('mousedown', showControls);
-      map.off('touchstart', showControls);
-    };
-  }, [mapStatus, showControls]);
-
-  // Haritaya uzun basış (sağ tık / contextmenu) → o noktayı hedef seç
-  useEffect(() => {
-    if (mapStatus !== 'READY' || !mapRef.current) return;
-    const map = mapRef.current;
-    const onLongPress = (e: { lngLat: { lng: number; lat: number } }) => {
-      const { lng, lat } = e.lngLat;
-      startNavigation({
-        id: `map-${Date.now()}`,
-        name: 'Haritadan Seçilen Nokta',
-        latitude: lat,
-        longitude: lng,
-        type: 'history',
-      }, false, 'USER_MAP');   // kütük #429: haritada uzun basış
-    };
-    map.on('contextmenu', onLongPress);
-    return () => { map.off('contextmenu', onLongPress); };
-  }, [mapStatus]);
+  /* ── OVERLAY KÖPRÜLERİ → `useMapOverlayLifecycle` (P0-NAV-02) ─────────────
+   * Alternatif rota seçimi · dokununca kontrolleri göster · uzun basış hedefi.
+   * Üç efekt de burada, TAM BU KONUMDA bildirilir → React efekt sırası
+   * taşımadan önceki hâliyle birebir aynıdır. */
+  useMapOverlayLifecycle({ mapRef, mapStatus, showControls });
 
   /* Kullanıcı pan'ı → KANONİK OTORİTE.
    *
@@ -1738,156 +1730,35 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
     });
   }, [isNavigating, route.loading, route.geometry, route.error, route.serverUsed, navStatus]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // routeReady: rota geometrisi hesaplandı mı? → buton hemen açılır (harita render beklenmez)
-  useEffect(() => {
-    if (route.geometry && route.geometry.length >= 2) {
-      setRouteReady(true);
-    }
-  }, [route.geometry]);
+  /* ── ROTA ÇİZİM YAŞAM DÖNGÜSÜ → `useRouteDrawingLifecycle` (P0-NAV-02) ────
+   * routeReady · rota çizgisi · deadlock kurtarma · dönüş odağı · başlangıç
+   * parlaması. Beş efekt de TAM BU KONUMDA bildirilir; eşikler ve bağımlılık
+   * dizileri değişmedi. Rota MOTORU (routingService / navigation core) bu
+   * turda ELLENMEDİ — burada yalnız ÇİZİM yaşar. */
+  useRouteDrawingLifecycle({
+    mapRef, mountedRef,
+    /* Vurgu sözleşmesi için iki MEVCUT hüküm daha geçirilir; yeni hesap YOK. */
+    route: {
+      ...route,
+      serverUsed: route.serverUsed ?? null,
+      validationVerdict: route.validation?.verdict ?? null,
+    },
+    mapStatus, styleKey, navStatus, isNavigating, isPreview,
+    styleChangingRef, lastAppliedRef, routeGeometryRef, routeAltRef, routeAltIdxRef,
+    routeAltDursRef, routeMainDurRef, routeStepsRef, prevStepIndexRef,
+    setRouteReady, setRouteStartFlash, pushDebug,
+  });
 
-  // Draw / update route line — only when READY and style is not reloading.
-  // styleChangingRef guard: MapLibre wipes all sources/layers on setStyle(); applying
-  // route geometry before style.load completes throws "source does not exist" errors.
-  // notifyStyleChange(false) → styleKey increments → this effect re-runs automatically.
-  useEffect(() => {
-    if (!route.geometry) return;
-    // Ref'leri mapStatus'ten bağımsız her zaman güncelle.
-    // _onStyleReady ve webglcontextrestored callback'leri bu ref'lerden okur;
-    // harita LOADING iken gelen yeni geometri kaybolmamalı.
-    routeGeometryRef.current = route.geometry;
-    routeAltRef.current      = route.alternatives;
-    routeAltIdxRef.current   = route.altRealIndices;
-    routeAltDursRef.current  = route.altDurations;
-    routeMainDurRef.current  = route.totalDurationSeconds;
-    routeStepsRef.current    = route.steps;
-
-    // Ground-truth READY: mapStatus bayrağı bir style-switch'te false'ta TAKILABİLİR
-    // (style.load kaçırılırsa). O durumda harita render olur (tile/marker/ETA çalışır) ama
-    // rota çizimi hiç tetiklenmezdi → "çizgi hiçbir yerde yok". Bayrak takılıysa bile stil
-    // gerçekten yüklüyse (isStyleLoaded) çizime devam et.
-    if (!mapRef.current || (mapStatus !== 'READY' && !mapRef.current.isStyleLoaded())) return;
-    if (styleChangingRef.current) return; // style reload in-flight — wait for notifyStyleChange(false)
-    const hash = _routeHash(route.geometry);
-    const last = lastAppliedRef.current;
-    const styleKeyChanged = !last || last.styleKey !== styleKey;
-    if (!styleKeyChanged && last && last.hash === hash && last.navStatus === navStatus) return;
-    lastAppliedRef.current = { hash, styleKey, navStatus };
-    setRouteGeometry(mapRef.current, route.geometry, route.alternatives, route.altRealIndices, route.altDurations, route.totalDurationSeconds, route.steps);
-    pushDebug('ROUTE_GEOMETRY_SET', { pts: route.geometry?.length, first: route.geometry?.[0] });
-  }, [route.geometry, route.alternatives, route.altRealIndices, mapStatus, styleKey, navStatus]);
-
-  // Failsafe Deadlock Recovery — SEL_LAYER 3 saniye boyunca kayıpsa rota yeniden inşa edilir.
-  // Senaryo: Android low-memory → layer silindi ama style READY → setRouteGeometry hiç tetiklenmedi.
-  useEffect(() => {
-    // mapStatus gate'i KASTEN kaldırıldı: takılı bayrak failsafe'i de devre dışı bırakıyordu.
-    // İçerideki map.isStyleLoaded() ground-truth kontrolü hazır olup olmadığını zaten yönetir.
-    if (!isNavigating) return;
-    let missingStart: number | null = null;
-    const t = setInterval(() => {
-      const map = mapRef.current;
-      // Bekleme koşulu artık BAYRAĞA değil, ground-truth'a (isStyleLoaded) bakar.
-      // styleChangingRef burada KASTEN yok sayılır: takılı bir bayrak rota çizimini
-      // kalıcı bloke ediyorsa ("hiç çizilmiyor, beklesen de gelmiyor") deadlock'u burada kırarız.
-      if (!map || !mountedRef.current || !map.isStyleLoaded()) {
-        missingStart = null;
-        return;
-      }
-      if (map.getLayer('selected-route-layer')) {
-        missingStart = null;
-        return;
-      }
-      if (missingStart === null) {
-        missingStart = performance.now();
-        return;
-      }
-      if (performance.now() - missingStart >= 1200) {
-        missingStart = null;
-        // Stil yüklü ama rota katmanı 1.2sn+ yok → çizimi bloke eden takılı/bayat
-        // style-changing guard'larını (component ref + module _isStyleChanging) zorla temizle.
-        // Stil zaten yüklü olduğundan setRouteGeometry güvenli — "source does not exist" riski yok.
-        if (styleChangingRef.current) {
-          styleChangingRef.current = false;
-          _mapMutexWindow().__MAP_MUTEX__ = false;
-        }
-        notifyStyleChange(false); // module _isStyleChanging=false → setRouteGeometry erken-return etmez
-        const geom = routeGeometryRef.current ?? getRouteState().geometry;
-        if (geom) {
-          setRouteGeometry(map, geom, routeAltRef.current, routeAltIdxRef.current, routeAltDursRef.current, routeMainDurRef.current, routeStepsRef.current);
-          lastAppliedRef.current = null;
-        }
-      }
-    }, 400);
-    return () => clearInterval(t);
-  }, [isNavigating]);
-
-  // Turn focus: highlight next turn when approaching, clear on step advance
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map || !route.steps.length) return;
-
-    // Step just advanced → turn completed, clear focus
-    if (route.currentStepIndex !== prevStepIndexRef.current) {
-      prevStepIndexRef.current = route.currentStepIndex;
-      clearTurnFocus();
-      return;
-    }
-
-    const nextIdx  = Math.min(route.currentStepIndex + 1, route.steps.length - 1);
-    const nextStep = route.steps[nextIdx];
-    const dist     = route.distanceToNextTurnMeters;
-
-    if (dist > 0 && dist < 200 && nextStep && nextIdx > route.currentStepIndex) {
-      const [nLon, nLat] = nextStep.coordinate;
-      setTurnFocus(map, nLon, nLat);
-    } else {
-      clearTurnFocus();
-    }
-  }, [route.currentStepIndex, route.distanceToNextTurnMeters, route.steps.length]);
-
-  // Route start micro-interaction flash
-  useEffect(() => {
-    if (!isPreview) return;
-    setRouteStartFlash(true);
-    const t = setTimeout(() => setRouteStartFlash(false), 700);
-    return () => clearTimeout(t);
-  }, [isPreview]);
-
-  // Map mode change (road/satellite/hybrid) — switch tile style
-  useEffect(() => {
-    if (!modeInitRef.current) {
-      modeInitRef.current = true;
-      return;
-    }
-    if (!mapRef.current) return;
-    _doStyleSwitch(mapRef.current, false);
-  }, [mode]);  
-
-  // Tile render mode change (raster ↔ vector) — auto-driven by navigation/AR state
-  useEffect(() => {
-    if (!renderInitRef.current) {
-      renderInitRef.current = true;
-      return;
-    }
-    if (!mapRef.current) return;
-    // Navigasyon sırasında style switch atla — setStyle() tüm rota katmanlarını siler
-    // ve rota geçici olarak kayboluyor. tileRender geçişi (raster↔vector) yalnızca
-    // IDLE modda anlamlıdır; navigasyon tile'ları OSM raster üzerinden zaten akar.
-    if (navStatusRef.current !== NavStatus.IDLE) return;
-    // Raster switch (nav start): no fade, no delay — immediate for safety.
-    // Vector switch (idle): soft fade-in from dark background.
-    const instant = tileRender === 'raster';
-    _doStyleSwitch(mapRef.current, !instant);
-  }, [tileRender]);  
-
-  // Navigation + AR state → notify auto-switch engine + apply focus mode
-  useEffect(() => {
-    const arActive = arState === 'active' || arState === 'degraded';
-    notifyNavigationRender(isNavigating, arActive);
-    // Focus mode: yardımcı yol katmanlarını navigasyon aktifken soldur
-    if (mapRef.current && mapRef.current.isStyleLoaded()) {
-      setNavigationFocusMode(mapRef.current, isNavigating);
-    }
-  }, [isNavigating, arState]);
+  /* ── STİL / TEMA YAŞAM DÖNGÜSÜ → `useMapStyleLifecycle` (P0-NAV-02) ───────
+   * Harita modu · karo render modu · navigasyon+AR odak modu. Üç efekt de TAM
+   * BU KONUMDA bildirilir. İlk-render atlama bayrakları burada KALIR: harita
+   * yeniden kurulduğunda (WebGL context kaybı) ilk stil değişimi sessizce
+   * atlanmasın diye ömürleri bileşene bağlıdır. */
+  useMapStyleLifecycle({
+    mapRef, mode, tileRender, navStatusRef, isNavigating, arState,
+    modeInitRef, renderInitRef, doStyleSwitch: _doStyleSwitch,
+    styleKey, mapStatus,
+  });
 
   /** Shared style-switch helper — avoids duplicating the marker/route restore logic. */
   function _doStyleSwitch(map: MapRef, withFadeOverlay: boolean): void {
@@ -2016,7 +1887,7 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
   if (!webglSupported || mapStatus === 'ERROR') {
     return (
       <div
-        className="fixed inset-0 z-[2000] flex flex-col items-center justify-center gap-8 p-10"
+        className="fixed inset-0 z-[var(--z-map-fatal)] flex flex-col items-center justify-center gap-8 p-10"
         style={{ background: 'linear-gradient(160deg,#08090e,#0a0c12)' }}
       >
         {/* Kapatma — sağ üst */}
@@ -2026,7 +1897,7 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
           style={{
             position: 'fixed',
             top: 'calc(var(--sat) + 14px)', right: 'calc(var(--sar) + 14px)',
-            zIndex: 9999,
+            zIndex: 'var(--z-map-alert)',
             padding: '10px 16px',
             background: 'rgba(239,68,68,0.92)', backdropFilter: 'blur(12px)',
             border: '1.5px solid rgba(255,255,255,0.30)',
@@ -2065,23 +1936,24 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
 
   return (
     <div ref={outerDivRef} data-theme-surface="nav" data-editable="nav.screen" data-editable-type="panel"
-      className="fixed inset-0 glass-card border-none !shadow-none z-50">
+      className="fixed inset-0 glass-card border-none !shadow-none z-[var(--z-map-surface)]">
       {/* ═══ #529 · KONUM BAYAT ROZETİ (vizyon §7.9 Katman 6: ekranda dürüstlük) ═══
           Konum bayatken harita BUNU SÖYLER; akıcı animasyonla taze veri varmış
           gibi gösterilmez. Yalnız bayatken çizilir → normal sürüşte ekran bütçesi
           etkilenmez. Tek bilgi birimi, 1 saniyede okunur. */}
       {staleFixSec !== null && (
         <div
-          className="absolute top-3 left-1/2 -translate-x-1/2 z-[70] pointer-events-none
+          className="absolute top-3 left-1/2 -translate-x-1/2 z-[var(--z-map-honesty)] pointer-events-none
                      rounded-full border border-[var(--oem-warn)] bg-[var(--oem-warn-soft)]
-                     px-3 py-1 text-[13px] font-semibold text-[var(--oem-warn)]"
+                     backdrop-blur-md px-3.5 py-1.5 text-[12px] font-bold tracking-wide text-[var(--oem-warn)]"
+          style={{ boxShadow: '0 10px 28px -14px rgba(0,0,0,0.6)' }}
           data-testid="stale-fix-badge"
         >
           KONUM {staleFixSec} sn
         </div>
       )}
       {mapStatus !== 'READY' && (
-        <div className="absolute inset-0 z-[60] flex items-center justify-center pointer-events-none">
+        <div className="absolute inset-0 z-[var(--z-map-loading)] flex items-center justify-center pointer-events-none">
           <div className="w-16 h-16 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center animate-spin-slow">
             <Globe className="w-8 h-8" style={{ color: 'rgba(224,162,60,0.6)' }} />
           </div>
@@ -2153,18 +2025,25 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
 
       {/* Vignette — HUD geçişi için hafif gradyan (koyu değil, sadece kenar yumuşatma) */}
       <div
-        className="absolute bottom-0 left-0 right-0 pointer-events-none z-[35]"
+        className="absolute bottom-0 left-0 right-0 pointer-events-none z-[var(--z-map-scrim)]"
         style={{ height: '18%', background: 'linear-gradient(to top, rgba(6,9,15,0.38) 0%, transparent 100%)' }}
       />
       <div
-        className="absolute top-0 left-0 right-0 pointer-events-none z-[35]"
+        className="absolute top-0 left-0 right-0 pointer-events-none z-[var(--z-map-scrim)]"
         style={{ height: '8%', background: 'linear-gradient(to bottom, rgba(6,9,15,0.22) 0%, transparent 100%)' }}
       />
 
-      {/* GPS konum durum göstergesi — sol üst köşe */}
-      {mapStatus === 'READY' && (
+      {/* ── GPS konum rozeti — YALNIZ REHBERLİK YOKKEN (P0-NAV-05) ────────────
+       * ÖLÇÜLEN KUSUR: P0-NAV-04 raporu bu rozetin "manevra kartından
+       * kaldırıldığını" söylüyordu — YANLIŞTI. Rozet kartın İÇİNDE değil,
+       * BURADA yaşıyor (`top: sat+14, left: 14`) ve yeni kart `left: 12`den
+       * başladığı için TAM ÜSTÜNE düştü. Kart eskiden 96 px sağa kaydırılarak
+       * kaçınıyordu; kaydırma kalkınca çakışma ortaya çıktı.
+       * Rehberlik sırasında konum durumunun tek sahibi `NavigationStatus`tır
+       * (GPS_DEGRADED). Rozet yalnız harita gezinme modunda kalır. */}
+      {mapStatus === 'READY' && !isNavigating && (
         <div
-          className="absolute pointer-events-none z-[36]"
+          className="absolute pointer-events-none z-[var(--z-map-chip)]"
           style={{ top: 'calc(var(--sat, 0px) + 14px)', left: 14 }}
         >
           <div
@@ -2212,49 +2091,18 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
         />
       )}
 
-      {/* KM Sayacı — sol üst, navigasyon aktifken kalan mesafeyi gösterir */}
-      {isNavigating && mapStatus === 'READY' && (() => {
-        const effectiveDist = (navDistMeters && navDistMeters > 10)
-          ? navDistMeters
-          : route.totalDistanceMeters;
-        if (!effectiveDist || effectiveDist <= 0) return null;
-        const distLabel = effectiveDist < 1000
-          ? `${Math.round(effectiveDist / 10) * 10} m`
-          : `${(effectiveDist / 1000).toFixed(1)} km`;
-        return (
-          <div
-            className="absolute pointer-events-none z-[36]"
-            style={{ top: 'calc(var(--sat, 0px) + 48px)', left: 14 }}
-          >
-            <div
-              className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl"
-              style={{
-                background: 'rgba(0,0,0,0.50)',
-                backdropFilter: 'blur(8px)',
-                border: '1px solid rgba(224,162,60,0.35)',
-              }}
-            >
-              <div
-                className="w-2 h-2 rounded-full flex-shrink-0"
-                style={{ background: '#E0A23C', boxShadow: '0 0 6px rgba(224,162,60,0.7)' }}
-              />
-              <span
-                className="font-black uppercase tracking-widest"
-                style={{ fontSize: 11, color: '#E8B86A' }}
-              >
-                {distLabel}
-              </span>
-            </div>
-          </div>
-        );
-      })()}
+      {/* ── KM SAYACI ÇİPİ KALDIRILDI (P0-NAV-05) ─────────────────────────────
+       * Kalan mesafenin TEK sahibi `hud/TripSummary`nin "Mesafe" sütunudur.
+       * Bu çip (`top: sat+48, left: 14`) aynı sayıyı ikinci kez gösteriyor VE
+       * yeni manevra kartının altına biniyordu. İki yerde gösterilen bir sayı,
+       * biri güncellenmediğinde sessizce ayrışır — depoda kayıtlı kusur sınıfı. */}
 
       {/* Style-switch anti-flicker overlay.
           Fades in over the map (dark fill) while vector↔raster transition is
           in-flight, then fades out once first tiles have rendered.
           Not used for raster→raster switches (nav start) — those are instant. */}
       <div
-        className="absolute inset-0 pointer-events-none z-[45]"
+        className="absolute inset-0 pointer-events-none z-[var(--z-map-transition)]"
         style={{
           background: '#0d1117',
           opacity: isSwitchingStyle ? 1 : 0,
@@ -2277,7 +2125,7 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
       {/* Route start micro-interaction */}
       {routeStartFlash && (
         <div
-          className="absolute inset-0 pointer-events-none z-10"
+          className="absolute inset-0 pointer-events-none z-[var(--z-map-effect)]"
           style={{
             background: 'radial-gradient(ellipse at 50% 65%, rgba(59,130,246,0.22) 0%, transparent 70%)',
             animation: 'routeStartFlash 0.7s ease-out forwards',
@@ -2302,15 +2150,20 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
         const street = route.steps[route.currentStepIndex]?.streetName;
         return street ? (
           <div
-            className="absolute z-20 pointer-events-none"
+            className="absolute z-[var(--z-map-label)] pointer-events-none"
             style={{ bottom: 'calc(var(--nav-bar-h, 72px) + 8px)', left: '50%', transform: 'translateX(-50%)' }}
           >
             <div
               data-editable="nav.street-bar" data-editable-type="card"
-              className="futurist-glass px-5 py-2 rounded-2xl flex items-center gap-2"
-              style={{ border: '1px solid rgba(255,255,255,0.12)', minWidth: 160, maxWidth: 320 }}
+              className="oem-glass px-5 py-2 rounded-2xl flex items-center gap-2"
+              style={{
+                background: 'var(--oem-surface-1, rgba(38,44,60,0.86))',
+                border: '1px solid var(--oem-line-strong, rgba(255,240,210,0.18))',
+                boxShadow: 'var(--oem-shadow-card, 0 20px 44px -22px rgba(0,0,0,0.55))',
+                minWidth: 160, maxWidth: 320,
+              }}
             >
-              <span className="text-white font-black text-sm tracking-wide truncate">{street}</span>
+              <span className="font-black text-sm tracking-wide truncate" style={{ color: 'var(--oem-ink, #F0EBE0)' }}>{street}</span>
             </div>
           </div>
         ) : null;
@@ -2319,7 +2172,7 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
       {/* GPS Kayıp Uyarısı — 30s GPS yok + OBD hız 0 */}
       {gpsLostWarn && isNavigating && (
         <div
-          className="absolute z-[9998] pointer-events-none"
+          className="absolute z-[var(--z-map-control)] pointer-events-none"
           style={{ top: 'calc(var(--sat, 0px) + 70px)', left: '50%', transform: 'translateX(-50%)' }}
         >
           <div className="flex items-center gap-2 px-4 py-2 rounded-2xl"
@@ -2335,6 +2188,7 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
         onCancel={handleNavCancel}
         routeReady={routeReady}
         gpsValid={isValidGPS}
+        onRecenter={handleRecenter}
         onNavTab={(id) => {
           if (id === 'media')    { onClose(); onOpenDrawer?.('music');    return; }
           if (id === 'phone')    { onClose(); onOpenDrawer?.('phone');    return; }

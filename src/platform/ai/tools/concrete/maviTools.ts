@@ -13,6 +13,7 @@
  */
 
 import { createMaviContextSources } from '../../context/concrete/maviContextSources';
+import { evaluateVehicleDtcVerdict } from '../../../obd/dtcAuthority';
 import { getScreenById, screenIds } from '../../../screenRegistry';
 import { readCurrentLocation } from '../../../location/currentLocationService';
 import type { ToolDefinition, ToolResult } from '../toolTypes';
@@ -110,9 +111,16 @@ const dtcSummaryTool: ToolDefinition = {
     codes.forEach((code, i) => { data[`code${i + 1}`] = code; });
     if (typeof dtc.lastReadAt === 'number' && dtc.lastReadAt > 0) data['lastReadAtMs'] = dtc.lastReadAt;
 
+    /* P0-OBD-CORE-03 — "kod bulunmuyor" YALNIZ kanıtlı temizlikte söylenir.
+       `codes` Mode 03'tür; bekleyen/kalıcı/çoklu-ECU/üretici bulguları orada
+       YOKTUR ve boş dizi "okuma yapılmadı"yı da kapsar. */
+    const verdict = evaluateVehicleDtcVerdict();
+    data['verdict'] = verdict.verdict;
     return {
       ok: true, data,
-      summary: codes.length === 0 ? 'Kayıtlı arıza kodu bulunmuyor.' : `${codes.length} arıza kodu bulundu.`,
+      summary: codes.length > 0 ? `${codes.length} arıza kodu bulundu.`
+             : verdict.verdict === 'clean' ? 'Kayıtlı arıza kodu bulunmuyor.'
+             : verdict.message,
     };
   },
 };

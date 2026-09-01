@@ -51,7 +51,19 @@ export const MapSearchBar = memo(function MapSearchBar({
     const myReq = ++reqRef.current;
     const t = setTimeout(async () => {
       try {
-        const r = await searchPlaces(q, gpsRef.current.lat ?? undefined, gpsRef.current.lon ?? undefined, 8);
+        const r = await searchPlaces(
+          q, gpsRef.current.lat ?? undefined, gpsRef.current.lon ?? undefined, 8,
+          /* ARA SONUÇ: cihaz-içi katmanlar (geçmiş + poi.db) milisaniyeler
+             içinde hazır olur; çevrimiçi kategori/Nominatim saniyeler sürebilir.
+             Liste hemen boyanır, çevrimiçi sonuç gelince EZİLİR. Aynı yarış
+             koruması (`myReq`) burada da geçerlidir — bayat isteğin ara sonucu
+             ekrana YAZILMAZ. Spinner nihai sonuca kadar döner. */
+          (partial) => {
+            if (myReq !== reqRef.current) return;
+            setResults(partial);
+            setOpen(true);
+          },
+        );
         if (myReq !== reqRef.current) return;        // bayat istek — yok say
         setResults(r);
         setOpen(true);
@@ -68,10 +80,15 @@ export const MapSearchBar = memo(function MapSearchBar({
     /* Kanıt defteri: sunulan liste KULLANILDI. Bu, "sonuç döndü" ile "aradığı
        yer bulundu" arasındaki farkı ölçen tek sinyaldir (teşhis turu 2026-08-11). */
     noteAddressSearchChoice(true);
+    /* P0-NAV-09 — KÜNYE: seçim ANINDA damgalanır. `resolvedAtMs` olmadan
+       "bayat arama sonucu" sınıfı ÖLÇÜLEMEZ (bkz. DESTINATION_STALE_MS). */
     startNavigation({
       id: loc.id, name: loc.name,
       latitude: loc.lat, longitude: loc.lng,
       type: 'history',
+      fullAddress:  loc.address,
+      provider:     'MAP_SEARCH_BAR',
+      resolvedAtMs: Date.now(),
     }, false, 'USER_SEARCH');   // kütük #429: hedefi kullanıcı seçti
     if (inputRef.current) inputRef.current.value = '';
     setQuery('');
@@ -92,7 +109,7 @@ export const MapSearchBar = memo(function MapSearchBar({
 
   return (
     <div
-      className="absolute z-[37] pointer-events-auto"
+      className="absolute z-[var(--z-map-search)] pointer-events-auto"
       style={{
         top:       'calc(var(--sat, 0px) + 12px)',
         left:      '50%',

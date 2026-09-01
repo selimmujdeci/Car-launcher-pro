@@ -15,6 +15,9 @@
  */
 
 import { useUnifiedVehicleStore } from './vehicleDataLayer/UnifiedVehicleStore';
+import { resolveLiveCanonicalSignal } from './vehicleDataLayer/canonicalVehicleSignal';
+import { getObdSignalHealth } from './obdService';
+import { isDecisionGrade } from './obd/obdHealthModel';
 import {
   useVehicleIntelligenceStore,
   type HealthState,
@@ -371,21 +374,43 @@ function _tick(): void {
 
   const speedKmh = vs.speed ?? 0;
   const rpm      = vs.rpm;
-  const coolant  = vs.canCoolantTemp;
+  /* P0-OBD-03: eskiden ham CAN alanları okunuyordu → CAN'ı olmayan araçta
+     soğutma ve gaz kelebeği makullük denetimleri HİÇ çalışmıyordu (sessizce
+     "sorun yok" görünüyordu). Otorite tek yerde: CAN → OBD → yok. BAYAT ölçüm
+     ELENİR — donmuş bir değerle "sıçrama yok" demek sahte güven üretirdi. */
+  const coolant  = resolveLiveCanonicalSignal(vs, 'coolantTemp', Date.now()).value;
   const fuel     = vs.fuel;
-  const throttle = vs.canThrottle;
+  const throttle = resolveLiveCanonicalSignal(vs, 'throttle', Date.now()).value;
   const gpsMs    = vs.location?.speed ?? null;
   const gpsKmh   = gpsMs !== null ? gpsMs * 3.6 : null;
   const isMoving = speedKmh > MOVING_KMH;
 
+  /* ── P0-OBD-07 · DONMUŞ DEVİRDEN "SORUN YOK" HÜKMÜ ÇIKARILMAZ ──────────
+   * `store.rpm` SAB hot-path'inden gelir ve kanonik tazelik penceresi YOKTUR.
+   * Hat durduğunda devir SON DEĞERİNDE DONAR → ardışık iki örnek eşit olur →
+   * `d = 0` → `clearPlausibility('rpm.jump')` çağrılır ve sistem "devir
+   * makul" der. Bu, ölü bir hattan üretilmiş SAHTE BİR SAĞLIK HÜKMÜDÜR.
+   *
+   * Doğru davranış susmaktır: hüküm ne "geçerli" ne "geçersiz" olur, önceki
+   * durum OLDUĞU GİBİ bırakılır. `updatePlausibility(false)` demek de yanlış
+   * olurdu — sensör bozuk değil, HAT ölü. */
+  let rpmDecidable = true;
+  try {
+    const h = getObdSignalHealth().fields.find((f) => f.field === 'rpm');
+    rpmDecidable = h === undefined || isDecisionGrade(h.state);
+  } catch { /* sağlık okunamadı → eski davranış (fail-soft) */ }
+
   // ── 1. İmkânsız Sıçrama ──────────────────────────────────────────────
-  if (rpm !== undefined && rpm !== null && _prevRpmRaw !== null) {
+  if (rpmDecidable && rpm !== undefined && rpm !== null && _prevRpmRaw !== null) {
     const d = Math.abs(rpm - _prevRpmRaw);
     if (d > RPM_JUMP_THRESHOLD)
       intel.updatePlausibility('rpm.jump', { isValid: false, reason: `RPM Δ${d} rpm/500ms` });
     else intel.clearPlausibility('rpm.jump');
   }
-  if (rpm !== undefined && rpm !== null) _prevRpmRaw = rpm;
+  /* Referans yalnız KARAR VERİLEBİLİR ölçümle güncellenir: donmuş bir değeri
+     referans almak, hat düzeldiğinde ilk gerçek okumayı "dev sıçrama" gösterirdi. */
+  if (rpmDecidable && rpm !== undefined && rpm !== null) _prevRpmRaw = rpm;
+  if (!rpmDecidable) _prevRpmRaw = null;
 
   if (coolant !== null && _prevCoolantRaw !== null) {
     const d = Math.abs(coolant - _prevCoolantRaw);
@@ -573,7 +598,12 @@ export function startVehicleIntelligenceService(): () => void {
       cur.rpm            !== prev.rpm            ||
       cur.fuel           !== prev.fuel           ||
       cur.canCoolantTemp !== prev.canCoolantTemp ||
-      cur.canThrottle    !== prev.canThrottle
+      cur.canThrottle    !== prev.canThrottle    ||
+      /* P0-OBD-03: OBD kanonik ölçümü de bir ÖRNEKTİR. Referans kıyası
+         bilinçlidir — `obdSignals` yalnız gerçek bir ölçüm yazıldığında yeni
+         referans alır (mağaza değişmeyen yamada `set()` çağırmaz), yani bu
+         satır sahte örnek SAYMAZ ve alan alan kıyastan ucuzdur (3 Hz yol). */
+      cur.obdSignals     !== prev.obdSignals
     ) _obdSampleCount++;
   });
 

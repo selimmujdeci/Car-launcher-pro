@@ -52,6 +52,8 @@ vi.mock('../platform/bridge', () => ({
 vi.mock('../platform/nativePlugin', () => ({ CarLauncher: {} }));
 vi.mock('../platform/errorBus', () => ({ showToast: vi.fn() }));
 vi.mock('../platform/dtcService', () => ({
+  // P0-OBD-10: silme envanteri (stored + pending). Testte kod VAR sayılır.
+  getClearableDtcSnapshot: () => ({ codes: [], count: H.dtcState.codes.length, scanRan: true }),
   readDTCCodes: vi.fn(async () => {}),
   clearDTCCodes: vi.fn(async () => ({ allowed: true, userMessage: '' })),
   onDTCState: (cb: (s: unknown) => void) => { cb(M.dtcState); return () => {}; },
@@ -131,9 +133,11 @@ describe('MAVI-M6-LSG · 1-4. eski tur geç cevabı susar', () => {
     const p = answerInformational('show_weather', t1);
     beginMaviTurn();                           // kullanıcı YENİ komut verdi
     await p;
-    /* AWAIT ÖNCESİ progress ("bakıyorum") tur HÂLÂ GÜNCELKEN söylendi → meşrudur
-       ve susturulmaz. Kapının işi AWAIT SONRASI gelen NİHAİ CEVABI durdurmaktır. */
-    expect(M.spoken).toEqual(['Hava durumuna bakıyorum.']);
+    /* AWAIT ÖNCESİ SEMANTİK ACK tur HÂLÂ GÜNCELKEN söylendi → meşrudur ve
+       susturulmaz. Kapının işi AWAIT SONRASI gelen NİHAİ CEVABI durdurmaktır.
+       MAVI-F2: metin "Hava durumuna bakıyorum" değil, gerçek işi adlandıran
+       "Hava durumunu alıyorum" — filler değil, bilgi taşıyan ACK. */
+    expect(M.spoken).toEqual(['Hava durumunu alıyorum.']);
     expect(M.spoken.join(' ')).not.toContain('on sekiz derece');
   });
 
@@ -174,7 +178,7 @@ describe('MAVI-M6-LSG · 1-4. eski tur geç cevabı susar', () => {
   it('4. eski tur PROGRESS mesajı konuşmaz', async () => {
     const t1 = beginMaviTurn();
     beginMaviTurn();
-    expect(speakMaviAnswer('Bakıyorum', { tier: 'progress', turn: t1 })).toBe(false);
+    expect(speakMaviAnswer('Araç sistemleri taranıyor', { tier: 'progress', turn: t1 })).toBe(false);
     expect(M.spoken).toHaveLength(0);
   });
 });
@@ -264,7 +268,7 @@ describe('MAVI-M6-LSG · 6-8. geçerli akışlar korunur', () => {
     const t = beginMaviTurn();
     await answerInformational('show_weather', t);
     expect(M.spoken.length).toBeLessThanOrEqual(2);
-    expect(M.spoken[0]).toBe('Hava durumuna bakıyorum.');
+    expect(M.spoken[0]).toBe('Hava durumunu alıyorum.');
   });
 });
 

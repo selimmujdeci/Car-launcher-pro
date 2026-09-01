@@ -9,13 +9,17 @@ import {
   useDTCState,
   readDTCCodes, clearDTCCodes, readAllDTCs, readFreezeFrame,
   type DTCCode, type DTCSeverity, type DTCCodeWithStatus, type FreezeFrameResult,
-  type DtcScanCompleteness,
+  type DtcScanCompleteness, type DtcClearReport,
 } from '../../platform/dtcService';
+import { DTC_CLEAR_VERDICT_LABEL, isClearSuccessVerdict } from '../../platform/obd/dtcClearModel';
 import { readDiagnosticStatus, type DiagnosticStatusResult } from '../../platform/obd/StandardPidEnums';
 import { computeDtcVerdict, DTC_ADVISORY_TEXT, type DtcScanMode } from '../../platform/obd/dtcVerdict';
 import { buildScanReport } from '../../platform/obd/scanReport';
-import { runFullVehicleScan, type MultiEcuScanReport } from '../../platform/obd/multiEcuScan';
+import { DTC_OBSERVATION_CLASS_LABEL } from '../../platform/obd/dtcAuthority';
+import { lookupDtc, isKnownDtcCode } from '../../platform/dtcService';
+import { isEcuReadable, runFullVehicleScan, type MultiEcuScanReport } from '../../platform/obd/multiEcuScan';
 import { buildVehicleVerdict } from '../../platform/obd/verdictEngine';
+import { formatDtcDisplayCode, UDS_DTC_STATE_LABEL } from '../../platform/obd/udsDtc';
 import { logError } from '../../platform/crashLogger';
 import { CarLauncher } from '../../platform/nativePlugin';
 import { useDebugStore } from '../../platform/debug';
@@ -23,6 +27,10 @@ import { isValidationActive, recordLog, recordObdMetrics } from '../../platform/
 import { ObdRawView } from '../debug/ObdRawView';
 import { SensorPanel } from './SensorPanel';
 import { ObdLiveTestPanel } from './ObdLiveTestPanel';
+import {
+  DTC_CLASS_LABEL, DTC_CLASS_HINT, DTC_CLASS_OF_SCAN_MODE,
+  type DtcClass,
+} from '../../platform/obd/dtcClassModel';
 
 /* ── Severity config ─────────────────────────────────────── */
 
@@ -52,14 +60,34 @@ const SEV: Record<DTCSeverity, { color: string; bg: string; border: string; labe
 
 /* ── DTC Code card ───────────────────────────────────────── */
 
+/**
+ * P0-OBD-09 — DTC SINIF ROZETİ. Üç sınıf birbirine KARIŞTIRILMAZ; etiket tek
+ * otoriteden (`dtcClassModel`) gelir, burada ELLE yazılmaz.
+ *
+ * Renk sınıfın AĞIRLIĞINI anlatır: bekleyen henüz onaylanmamıştır (uyarı
+ * tonu), onaylanmış ve kalıcı ise ECU'nun kesinleştirdiği arızalardır.
+ */
+const DTC_CLASS_STYLE: Readonly<Record<DtcClass, string>> = {
+  PENDING:   'text-[color:var(--oem-warn)] border-[var(--oem-warn)] bg-[var(--oem-warn-soft)]',
+  CONFIRMED: 'text-[color:var(--oem-danger)] border-[var(--oem-danger)] bg-[var(--oem-danger-soft)]',
+  PERMANENT: 'text-[color:var(--oem-ink)] border-[var(--oem-ink-3)] bg-[var(--oem-surface-2)]',
+};
+
 const DTCCodeCard = memo(function DTCCodeCard({
-  code, freezeFrame, ffExpanded, onToggleFreezeFrame,
+  code, freezeFrame, ffExpanded, onToggleFreezeFrame, dtcClass, ecuLabel,
 }: {
   code: DTCCode;
   /** Patch 11B: yalnız `freezeFrame.dtc === code.code` eşleşirse genişletilebilir satır gösterilir. */
   freezeFrame?: FreezeFrameResult | null;
   ffExpanded?: boolean;
   onToggleFreezeFrame?: () => void;
+  /**
+   * P0-OBD-09 — kodun SINIFI. Verilmezse rozet GÖSTERİLMEZ; "onaylanmış"
+   * varsayılmaz (sınıfı bilmediğimizi uydurmayla örtmeyiz).
+   */
+  dtcClass?: DtcClass;
+  /** Kodun geldiği ECU. Bilinmiyorsa alan GİZLENİR — adresten ECU uydurulmaz. */
+  ecuLabel?: string | null;
 }) {
   const cfg = SEV[code.severity];
   const hasFreezeFrame = !!freezeFrame && freezeFrame.dtc === code.code;
@@ -77,6 +105,21 @@ const DTCCodeCard = memo(function DTCCodeCard({
             <span className={`text-[9px] font-black uppercase px-1.5 py-0.5 rounded-full border ${cfg.color} ${cfg.border} ${cfg.bg}`}>
               {cfg.label}
             </span>
+            {/* P0-OBD-09 — DURUM: BEKLEYEN / ONAYLANMIŞ / KALICI */}
+            {dtcClass && (
+              <span
+                title={DTC_CLASS_HINT[dtcClass]}
+                className={`text-[9px] font-black uppercase px-1.5 py-0.5 rounded-full border ${DTC_CLASS_STYLE[dtcClass]}`}
+              >
+                {DTC_CLASS_LABEL[dtcClass]}
+              </span>
+            )}
+            {/* Kodun KAYNAĞI — yalnız gerçekten biliniyorsa gösterilir. */}
+            {ecuLabel != null && ecuLabel.length > 0 && (
+              <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full border border-[var(--oem-ink-4)] text-[color:var(--oem-ink-3)]">
+                {ecuLabel}
+              </span>
+            )}
             <span className="text-[color:var(--oem-ink-3)] text-[10px]">{code.system}</span>
           </div>
 
@@ -206,11 +249,19 @@ function DTCPanelInner({ active = false }: { active?: boolean }) {
   const [clearArmed, setClearArmed] = useState(false);
   const [clearDenial, setClearDenial] = useState<string | null>(null);
   const [engineRunningWarn, setEngineRunningWarn] = useState(false);
+  // P0-OBD-10: son silme denemesinin ÖLÇÜLEN hükmü — "silindi" iddiası buradan gelir.
+  const [clearReport, setClearReport] = useState<DtcClearReport | null>(null);
   // OBD-OS-F2: çoklu-ECU tarama sonucu (null = çalışmadı/desteklenmiyor → tek-ECU akışı).
   const [multiEcu, setMultiEcu] = useState<MultiEcuScanReport | null>(null);
 
   const criticalCount = dtc.codes.filter((c) => c.severity === 'critical').length;
   const warningCount  = dtc.codes.filter((c) => c.severity === 'warning').length;
+
+  /* P0-OBD-10 — Mode 04 ile SİLİNEBİLİR kod adedi: onaylanmış (Mode 03) + BEKLEYEN
+     (Mode 07). KALICI (Mode 0A) bilinçli DIŞARIDA — Mode 04 onu silemez, düğmeyi
+     onun için açmak "sil" deyip "silinemedi" demek olurdu. Nihai kapı YİNE serviste
+     (`getClearableDtcSnapshot`); buradaki sayım yalnız düğmenin görünür durumudur. */
+  const clearableCount = dtc.codes.length + pending.length;
 
   const lastReadStr = dtc.lastReadAt
     ? new Date(dtc.lastReadAt).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })
@@ -268,11 +319,27 @@ function DTCPanelInner({ active = false }: { active?: boolean }) {
    */
   async function handleClear(): Promise<void> {
     setClearDenial(null);
+    setClearReport(null);
     if (!clearArmed) { setClearArmed(true); return; }
-    const decision = await clearDTCCodes({ confirmed: true });
+    /* ARCH-05: baş ünitenin başındaki kullanıcı — fiziksel varlık kimlik
+       kanıtıdır. Düğmenin `disabled` olması GÜVENLİK DEĞİLDİR; gerçek kapı
+       `dtcService.clearDTCCodes` içindedir ve bu çağrı oraya principal taşır. */
+    const decision = await clearDTCCodes({
+      confirmed: true, principal: 'LOCAL_UI',
+      operationId: `ui.dtc.clear:${Date.now()}`,
+    });
     setClearArmed(false);
     setEngineRunningWarn(decision.advisories.includes('engine_running'));
-    if (!decision.allowed) setClearDenial(decision.userMessage);
+    if (!decision.allowed) { setClearDenial(decision.userMessage); return; }
+
+    /* P0-OBD-10 — BAYAT EKRAN KAPATILDI. Eskiden silme sonrası bu panelin
+       YEREL durumu (pending · permanent · freeze frame · çoklu-ECU · kapsam)
+       HİÇ tazelenmiyordu: servis Mode 03 listesini boşaltsa bile ekranda
+       P0089 BEKLEYEN olduğu gibi duruyordu → kullanıcı "silinmedi" görüyordu.
+       Artık silme sonrası okuma servis içinde ZATEN yapılır; burada aynı tam
+       tarama akışı koşularak ekranın TAMAMI ölçümden yeniden kurulur. */
+    setClearReport(decision.clear);
+    await handleFullScan();
   }
 
   // ── OBD-OS-F0-1: fail-closed verdi ──────────────────────────────────────────
@@ -284,6 +351,24 @@ function DTCPanelInner({ active = false }: { active?: boolean }) {
   if (completeness?.permanent === 'failed') failedModes.push('permanent');
   if (statusFailed)                         failedModes.push('status');
 
+  /* P0-OBD-CORE-05 — admisyon kapısının ERTELEDİĞİ modlar (recovery/reconnect
+     sürerken sorgu hiç gönderilmedi). "failed" DEĞİLDİR — oturum hazır olunca
+     otomatik düzelir; ama "temiz" hükmüne temel de OLAMAZ. */
+  const deferredModes: DtcScanMode[] = [];
+  if (completeness?.stored    === 'deferred') deferredModes.push('stored');
+  if (completeness?.pending   === 'deferred') deferredModes.push('pending');
+  if (completeness?.permanent === 'deferred') deferredModes.push('permanent');
+
+  /* P0-OBD-11 — ECU SESSİZLİĞİ AYRI TAŞINIR.
+     ÖLÇÜLEN SAHA KUSURU: ELM327 "NO DATA" derken ECU CEVAP VERMEMİŞTİR; eski
+     zincir bunu `ok` + boş liste sayıyordu → kapsam %100, Onaylı ✓, Bekleyen ✓,
+     "SİSTEM TEMİZ" — ve P0089 sessizce kayboluyordu. Artık sessizlik kendi
+     sınıfıdır ve "temiz" hükmünü FAIL-CLOSED olarak engeller. */
+  const noResponseModes: DtcScanMode[] = [];
+  if (completeness?.stored    === 'no_response') noResponseModes.push('stored');
+  if (completeness?.pending   === 'no_response') noResponseModes.push('pending');
+  if (completeness?.permanent === 'no_response') noResponseModes.push('permanent');
+
   /* V-08 — ÜRETİCİ KOD TABANI KAPSAMI.
      Standart modlar yalnız emisyon kodlarını verir; üretici arızası CAN'de
      UDS 0x19'da, KWP araçlarda (Renault sınıfı) 0x18'de yaşar. Tam araç
@@ -292,7 +377,13 @@ function DTCPanelInner({ active = false }: { active?: boolean }) {
      desteklemiyorsa bu GERÇEK bir cevaptır (`not_supported`). */
   const manufacturerScope = ((): 'covered' | 'not_supported' | 'not_asked' | 'failed' => {
     if (!multiEcu || multiEcu.results.length === 0) return 'not_asked';
-    const states = multiEcu.results.flatMap((r) => [r.uds, r.kwp]).filter((v) => v !== null);
+    /* P0-OBD-PARITY: üretici tabanı DÖRT kanaldan okunabilir — 0x19-02,
+       0x19-0A, KWP 0x18 ve KWP 0x13. Rozet eskiden yalnız ikisine bakıyordu;
+       yalnız 0x19-0A cevap veren bir araçta "üretici taraması yapılmadı"
+       diyordu. */
+    const states = multiEcu.results
+      .flatMap((r) => [r.uds, r.udsSupported, r.kwp, r.kwp13])
+      .filter((v) => v !== null);
     if (states.length === 0) return 'not_asked';
     if (states.includes('ok')) return 'covered';
     if (states.includes('failed')) return 'failed';
@@ -307,6 +398,8 @@ function DTCPanelInner({ active = false }: { active?: boolean }) {
     mil:            diagStatus ? diagStatus.mil : null,
     pid01DtcCount:  diagStatus ? diagStatus.dtcCount : null,
     failedModes,
+    noResponseModes,
+    deferredModes,
     manufacturerScope,
   });
 
@@ -314,13 +407,51 @@ function DTCPanelInner({ active = false }: { active?: boolean }) {
   // tarandığını görmeli. 'unsupported' kapsam kaybı DEĞİL (araçta o mod yok) → rozet
   // bunu "desteklemiyor" diye ayrı söyler, coverage'ı düşürmez.
   const scanReport = buildScanReport({
+    /* P0-OBD-11: Mode 03'ün durumu ARTIK `completeness`ten gelir — eskiden burada
+       "hata yoksa ok" varsayılıyordu ve ECU sessizliği (NO DATA) sessizce `ok`
+       oluyordu. Kapsam yüzdesi bu satır yüzünden %100 görünüyordu. */
     stored:    !dtc.lastReadAt ? 'not_run'
-             : (dtc.error || dtc.isStale || completeness?.stored === 'failed') ? 'failed' : 'ok',
+             : (dtc.error || dtc.isStale) ? 'failed'
+             : (completeness?.stored ?? 'ok'),
     pending:   !completeness ? 'not_run' : completeness.pending,
     permanent: !completeness ? 'not_run' : completeness.permanent,
     status:    !dtc.lastReadAt ? 'not_run'
              : statusFailed ? 'failed'
              : diagStatus ? 'ok' : 'not_run',
+    /* ── P0-OBD-FINAL-02 · ECU KANITI KAPSAM KARARINA GİRER ────────────────
+       SAHA (2026-08-25, Protocol 5 / KWP · ECU 7A · rx 86F17A · tx 817AF1):
+       aynı ekranda "KISMİ TARAMA — GÜVEN %0 · 1 ECU okunamadı" ile "TARAMA
+       KAPSAMI %100 · Tam tarama" birlikte görünüyordu. İki AYRI otorite vardı:
+       rozet YALNIZ mod kapsamını okuyor, hüküm motoru ECU kanıtını okuyordu.
+       Artık TEK karar: `multiEcu.completeness` (ECU tamlık kanıtı) doğrudan
+       kapsam modeline verilir. Tarama HİÇ koşmadıysa alan verilmez (kanıt
+       yokluğu uydurulmaz); koştuysa keşfin gerçekten çalışıp çalışmadığı da
+       (`topology.probedAt`) kanıtın PARÇASIDIR. */
+    ecu: multiEcu ? {
+      discoveryRan:     multiEcu.topology.probedAt !== null,
+      discovered:       multiEcu.completeness.discovered,
+      scanned:          multiEcu.completeness.scanned,
+      failed:           multiEcu.completeness.failed,
+      skipped:          multiEcu.completeness.skipped,
+      notAddressable:   multiEcu.completeness.notAddressable,
+      staleSession:     multiEcu.completeness.staleSession,
+      denominatorKnown: multiEcu.completeness.denominatorKnown,
+      /* ── P0-VDK-F6C · TANI KAPSAMI DA KARARA GİRER ───────────────
+         "ECU'ları buldum" ile "arıza hafızalarını yeterince taradım" AYNI ŞEY
+         DEĞİLDİR. Önceki turlarda üst seviye kapsam yalnız 4 standart
+         FONKSİYONEL modu ve taranan ECU oranını biliyordu; UDS 0x19 / KWP
+         0x18-0x13 kapsamı karara HİÇ GİRMİYORDU. Kanıt ölçülmediyse alanlar
+         verilmez ve davranış BİREBİR eskisi gibi kalır. */
+      ...(multiEcu.completeness.diagnostic === null ? {} : {
+        diagnosticPlannedUnits:  multiEcu.completeness.diagnostic.corePlannedUnits,
+        diagnosticTerminalUnits: multiEcu.completeness.diagnostic.coreTerminalUnits,
+        diagnosticCoreComplete:  multiEcu.completeness.diagnostic.verdict === 'CORE_COMPLETE',
+        diagnosticGaps: multiEcu.completeness.diagnostic.verdict === 'CORE_COMPLETE' ? [] : [
+          `tanı kapsamı: ${multiEcu.completeness.diagnostic.coreTerminalUnits}`
+          + `/${multiEcu.completeness.diagnostic.corePlannedUnits} temel kanal terminal kanıt aldı`,
+        ],
+      }),
+    } : undefined,
   });
 
   // OBD-OS-F4-1: tüm kanıtlar → TEK verdi + AKSİYON. Güven KANITTAN türer: göremediğimiz
@@ -394,7 +525,13 @@ function DTCPanelInner({ active = false }: { active?: boolean }) {
 
         <button
           onClick={handleClear}
-          disabled={dtc.isClearing || dtc.codes.length === 0}
+          /* P0-OBD-10 — ÖLÇÜLEN KUSUR: koşul `dtc.codes.length === 0` idi ve
+             `dtc.codes` YALNIZ Mode 03'tür (onaylanmış). Gerçek araçta tek arıza
+             P0089 BEKLEYEN (Mode 07) olduğu için düğme KALICI OLARAK PASİFTİ →
+             kullanıcı "temizle" diyordu, ECU'ya tek bayt gitmiyordu. Envanter
+             artık servisteki tek doğruluk kaynağından gelir (stored + pending;
+             KALICI hariç — Mode 04 onu zaten silemez). */
+          disabled={dtc.isClearing || clearableCount === 0}
           /* Temizle butonu → danger token (yıkıcı eylem) */
           className="flex-1 h-14 flex items-center justify-center gap-3 bg-[var(--oem-danger-soft)] border border-[var(--oem-danger)] text-[color:var(--oem-danger)] rounded-2xl font-black text-sm uppercase tracking-widest hover:opacity-80 disabled:opacity-50 disabled:cursor-not-allowed transition-all active:scale-95 shadow-md"
         >
@@ -463,10 +600,18 @@ function DTCPanelInner({ active = false }: { active?: boolean }) {
             <span className="text-[10px] font-black uppercase tracking-widest text-[color:var(--oem-text-dim)]">
               Tarama kapsamı
             </span>
-            <span className={`text-[10px] font-black uppercase tracking-widest ${
-              scanReport.failedCount > 0 ? 'text-[color:var(--oem-warn)]' : 'text-[color:var(--oem-success)]'
-            }`}>
-              %{Math.round(scanReport.coverage * 100)}
+            {/* P0-OBD-FINAL-02: sayı YALNIZ kanonik kapsam BİLİNİYORSA basılır.
+                `null` = payda ölçülemedi → "BİLİNMİYOR" (sahte %100 YASAK). */}
+            <span
+              data-testid="dtc-scan-coverage"
+              className={`text-[10px] font-black uppercase tracking-widest ${
+                scanReport.canonicalCoverage === null || !scanReport.complete
+                  ? 'text-[color:var(--oem-warn)]' : 'text-[color:var(--oem-success)]'
+              }`}
+            >
+              {scanReport.canonicalCoverage === null
+                ? 'BİLİNMİYOR'
+                : `%${Math.round(scanReport.canonicalCoverage * 100)}`}
             </span>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -514,7 +659,10 @@ function DTCPanelInner({ active = false }: { active?: boolean }) {
           ) : (
             <div className="space-y-1.5">
               {multiEcu.results.map((r) => {
-                const failed = r.stored === 'failed' && r.pending === 'failed' && r.permanent === 'failed';
+                /* P0-OBD-PARITY: "okunamadı" hükmü TÜM DTC servislerine bakar
+                   — yalnız UDS konuşan bir ECU eskiden yanlışlıkla düşmüş
+                   sayılıyordu. Kural `multiEcuScan.isEcuReadable`de TEK yerde. */
+                const failed = !isEcuReadable(r);
                 return (
                   <div key={r.ecu.txHeader} className="flex items-center justify-between gap-3 text-xs">
                     <span className="font-bold text-[color:var(--oem-text)]">{r.ecu.label}</span>
@@ -533,15 +681,115 @@ function DTCPanelInner({ active = false }: { active?: boolean }) {
             </div>
           )}
 
-          {/* Motor DIŞI ECU'lardan gelen kodlar — bugüne kadar HİÇ görünmüyorlardı. */}
-          {multiEcu.allCodes.filter((c) => c.ecuTxHeader !== '7E0').length > 0 && (
-            <div className="mt-3 pt-3 border-t border-[var(--oem-border)] space-y-1">
-              {multiEcu.allCodes.filter((c) => c.ecuTxHeader !== '7E0').map((c, i) => (
-                <div key={`${c.ecuTxHeader}-${c.code}-${i}`} className="flex items-center gap-2 text-xs">
-                  <span className="font-black tracking-widest text-[color:var(--oem-danger)]">{c.code}</span>
-                  <span className="text-[color:var(--oem-text-dim)]">— {c.ecuLabel}</span>
-                </div>
-              ))}
+          {/* ── P0-OBD-FINISH · ECU'LARDAN OKUNAN HAM KOD KÜNYELERİ ─────────
+              ÖLÇÜLEN KUSUR (ürünün kullanıcıya kod göstermediği YER): bu blok
+              `allCodes.filter((c) => c.ecuTxHeader !== '7E0')` ile açılıyordu.
+              Yani MOTOR ECU'sundan okunan HER üretici kodu (UDS 0x19 / KWP
+              0x18 / 0x13) ekrandan YAPISAL OLARAK dışlanıyordu — ve Renault
+              Clio'da aranan kodların TAMAMI motor ECU'sundadır. Üstteki ECU
+              satırı "N kod" derken bu liste boş kalıyordu: kullanıcının
+              gördüğü tam olarak buydu.
+
+              Filtre KALDIRILDI. Ana liste (`dtc.codes`) YALNIZ fonksiyonel
+              Mode 03'tür; bu blok ECU BAŞINA fiziksel okumanın künyesidir ve
+              ikisi AYRI gerçeklerdir — bu yüzden "çift gösterim" değil,
+              provenance'ı ayrı iki kayıttır (rozetler hangisi olduğunu yazar). */}
+          {multiEcu.allCodes.length > 0 && (
+            <div className="mt-3 pt-3 border-t border-[var(--oem-border)] space-y-2">
+              <div className="text-[10px] font-black uppercase tracking-widest text-[color:var(--oem-text-dim)]">
+                ECU’lardan okunan kodlar ({multiEcu.allCodes.length})
+              </div>
+              {multiEcu.allCodes.map((c, i) => {
+                /* P0-OBD-DIAG-02 — sınıf `mode`dan DEĞİL kaynak servisten gelir:
+                   KWP/UDS üretici kodlarının `mode`u 'stored'dur → eskiden
+                   "ONAYLANMIŞ" yazıyor ve üretici tabanından geldiği kayboluyordu. */
+                const obsCls = c.fromUds === true ? 'UDS'
+                  : c.fromKwp === true ? 'KWP'
+                    : c.mode === 'pending' ? 'PENDING'
+                      : c.mode === 'permanent' ? 'PERMANENT' : 'CONFIRMED';
+                const sourceLabel = c.fromUds === true ? 'UDS 0x19-02'
+                  : c.fromKwp === true ? (c.kwpService === '13' ? 'KWP 0x13' : 'KWP 0x18')
+                    : c.mode === 'pending' ? 'Mode 07'
+                      : c.mode === 'permanent' ? 'Mode 0A' : 'Mode 03';
+                /* P0-OBD-FINISH — KOD ARTIK ALT KODUYLA BASILIR: `P0380(11)`.
+                   Alt kod ÖLÇÜLMEDİYSE parantez YAZILMAZ (uydurma yok). */
+                const display = formatDtcDisplayCode(c.code, c.subCode);
+                /* AÇIKLAMA: katalogda varsa TANIM, yoksa ön ekten TÜRETİLMİŞ genel
+                   cümle. İkisi AYIRT EDİLİR — türetilmişi tanım gibi sunmak,
+                   bilmediğimiz bir arızayı biliyormuş gibi göstermek olurdu. */
+                const known = isKnownDtcCode(c.code);
+                const desc = lookupDtc(c.code).description;
+                const cls = DTC_CLASS_OF_SCAN_MODE[c.mode];
+                return (
+                  <div
+                    key={`${c.ecuTxHeader}-${c.code}-${c.subCode ?? ''}-${c.rawStatus ?? ''}-${c.mode}-${i}`}
+                    data-testid={`dtc-record-${display}`}
+                    className="flex items-center gap-2 text-xs flex-wrap"
+                  >
+                    <span
+                      data-testid={`dtc-code-${c.code}`}
+                      className="font-black tracking-widest text-[color:var(--oem-danger)]"
+                    >
+                      {display}
+                    </span>
+                    <span
+                      title={DTC_CLASS_HINT[cls]}
+                      className={`text-[9px] font-black uppercase px-1.5 py-0.5 rounded-full border ${DTC_CLASS_STYLE[cls]}`}
+                    >
+                      {DTC_OBSERVATION_CLASS_LABEL[obsCls]}
+                    </span>
+                    {/* P0-OBD-FINISH — DURUM: status baytından ÖLÇÜLDÜ. Arşiv kaydını
+                        aktif arıza gibi göstermek de, aktif arızayı sıradan bir kayıt
+                        saymak da yanlıştı; ikisi artık AYRI yazılır. Ölçülmediyse
+                        rozet HİÇ basılmaz — sahte "temiz/aktif" YASAK. */}
+                    {c.state !== undefined && (
+                      <span
+                        data-testid={`dtc-state-${c.code}`}
+                        title="ECU status baytından ölçülen kayıt durumu (ISO 14229-1 D.1)"
+                        className={`text-[9px] font-black uppercase px-1.5 py-0.5 rounded-full border ${
+                          c.state === 'ACTIVE'
+                            ? 'border-[var(--oem-danger)] text-[color:var(--oem-danger)] bg-[var(--oem-danger-soft)]'
+                            : c.state === 'UNKNOWN'
+                              ? 'border-[var(--oem-border)] text-[color:var(--oem-text-dim)]'
+                              : 'border-[var(--oem-warn)] text-[color:var(--oem-warn)] bg-[var(--oem-warn-soft)]'
+                        }`}
+                      >
+                        {UDS_DTC_STATE_LABEL[c.state]}
+                      </span>
+                    )}
+                    <span
+                      data-testid={`dtc-source-${c.code}`}
+                      title="Kodu üreten servis — provenance"
+                      className="text-[9px] font-bold uppercase px-1.5 py-0.5 rounded-full border border-[var(--oem-border)] text-[color:var(--oem-text-dim)]"
+                    >
+                      {sourceLabel}
+                    </span>
+                    <span className="text-[color:var(--oem-text-dim)]">— {c.ecuLabel}</span>
+                    {/* HAM KANIT (Faz A · developer-first): ham hex GİZLENMEZ. */}
+                    {(c.rawDtc !== undefined || c.rawStatus !== undefined) && (
+                      <span
+                        data-testid={`dtc-raw-${c.code}`}
+                        title="Ham DTC baytları / status baytı — ECU'dan geldiği gibi"
+                        className="font-mono text-[9px] text-[color:var(--oem-text-dim)] opacity-80"
+                      >
+                        {c.rawDtc ?? '—'}
+                        {c.rawStatus === undefined ? '' : ` · ST ${c.rawStatus}`}
+                      </span>
+                    )}
+                    <span className="w-full text-[11px] leading-snug text-[color:var(--oem-text)]">
+                      {desc}
+                      {!known && (
+                        <span
+                          title="Bu kod katalogda YOK; cümle SAE J2012 ön ekinden türetildi — üretici tanımı DEĞİLDİR."
+                          className="ml-1.5 text-[9px] font-bold uppercase text-[color:var(--oem-warn)]"
+                        >
+                          türetildi
+                        </span>
+                      )}
+                    </span>
+                  </div>
+                );
+              })}
             </div>
           )}
 
@@ -586,6 +834,45 @@ function DTCPanelInner({ active = false }: { active?: boolean }) {
         <div className="rounded-2xl border border-[var(--oem-warn)] bg-[var(--oem-warn-soft)] p-4 flex items-start gap-3">
           <Lock className="w-5 h-5 shrink-0 text-[color:var(--oem-warn)]" />
           <div className="text-xs leading-relaxed text-[color:var(--oem-warn)]">{clearDenial}</div>
+        </div>
+      )}
+
+      {/* ── P0-OBD-10: SİLME HÜKMÜ ─────────────────────────────────────────
+          "Temizlendi" YALNIZ ECU onayı + silme sonrası yeniden okuma birlikte
+          doğrularsa yazılır. Başarısız/doğrulanamamış hüküm ASLA yeşil gösterilmez. */}
+      {clearReport && (
+        <div className={`rounded-2xl border p-4 flex items-start gap-3 ${
+          isClearSuccessVerdict(clearReport.verdict)
+            ? 'border-[var(--oem-good)] bg-[var(--oem-good-soft)]'
+            : 'border-[var(--oem-danger)] bg-[var(--oem-danger-soft)]'
+        }`}>
+          {isClearSuccessVerdict(clearReport.verdict)
+            ? <CheckCircle2 className="w-5 h-5 shrink-0 text-[color:var(--oem-good)]" />
+            : <AlertTriangle className="w-5 h-5 shrink-0 text-[color:var(--oem-danger)]" />}
+          <div className={`text-xs leading-relaxed ${
+            isClearSuccessVerdict(clearReport.verdict)
+              ? 'text-[color:var(--oem-good)]' : 'text-[color:var(--oem-danger)]'
+          }`}>
+            <span className="font-black uppercase tracking-wider">
+              {DTC_CLEAR_VERDICT_LABEL[clearReport.verdict]}
+            </span>
+            <div className="mt-1">{clearReport.userMessage}</div>
+            {clearReport.removed.length > 0 && (
+              <div className="mt-1 font-mono">SİLİNEN: {clearReport.removed.join(' · ')}</div>
+            )}
+            {clearReport.remaining.length > 0 && (
+              <div className="mt-1 font-mono">DURAN: {clearReport.remaining.join(' · ')}</div>
+            )}
+            {clearReport.returned.length > 0 && (
+              <div className="mt-1 font-mono">GERİ GELEN: {clearReport.returned.join(' · ')}</div>
+            )}
+            {clearReport.permanentRemaining.length > 0 && (
+              <div className="mt-1 font-mono">KALICI (Mode 0A, silinmez): {clearReport.permanentRemaining.join(' · ')}</div>
+            )}
+            {!clearReport.rereadRan && (
+              <div className="mt-1">Silme sonrası doğrulama okuması YAPILAMADI.</div>
+            )}
+          </div>
         </div>
       )}
       {engineRunningWarn && !clearDenial && (
@@ -672,6 +959,10 @@ function DTCPanelInner({ active = false }: { active?: boolean }) {
                 <DTCCodeCard
                   key={code.code}
                   code={code}
+                  /* Bu liste Mode 03 okumasidir -> ONAYLANMIS. Rozet artik
+                     ACIKCA yazilir; eskiden sinif hic gosterilmiyordu ve
+                     kullanici bekleyen ile onaylanmisi ayirt edemiyordu. */
+                  dtcClass="CONFIRMED"
                   freezeFrame={freezeFrame}
                   ffExpanded={ffExpanded}
                   onToggleFreezeFrame={() => setFfExpanded((v) => !v)}
@@ -699,7 +990,9 @@ function DTCPanelInner({ active = false }: { active?: boolean }) {
               </div>
             ) : (
               <div className="flex flex-col gap-2">
-                {pending.map((c) => <DTCCodeCard key={c.code} code={c} />)}
+                {pending.map((c) => (
+                  <DTCCodeCard key={c.code} code={c} dtcClass="PENDING" ecuLabel={c.ecuLabel ?? null} />
+                ))}
               </div>
             )}
           </div>
@@ -723,7 +1016,9 @@ function DTCPanelInner({ active = false }: { active?: boolean }) {
               </div>
             ) : (
               <div className="flex flex-col gap-2">
-                {permanent.map((c) => <DTCCodeCard key={c.code} code={c} />)}
+                {permanent.map((c) => (
+                  <DTCCodeCard key={c.code} code={c} dtcClass="PERMANENT" ecuLabel={c.ecuLabel ?? null} />
+                ))}
               </div>
             )}
           </div>

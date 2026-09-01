@@ -12,6 +12,8 @@
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 
 /* ── Native/ağır kenarlar izole ────────────────────────────────────────────── */
 
@@ -146,6 +148,50 @@ describe('KİLİT 3 — gate açıkken shell açılır', () => {
     // Açılışta hiçbir araç ekranı aktif değil → breadcrumb ve GERİ yok
     expect(html).not.toContain('lab-breadcrumb');
     expect(html).not.toContain('lab-back');
+  });
+
+  /* ── YERLEŞİM KİLİTLERİ (SAHA 2026-08-25, gerçek cihaz) ──────────────────
+     ÖLÇÜLEN KUSUR: araç gövdesinin sarmalayıcısı `overflow-hidden` idi. Kendi
+     iç kaydırmasını KURMAYAN 24 ekranda (DTC Kapsamı & ECU Adreslenebilirlik
+     dâhil) katlanın altındaki içeriğe ULAŞMANIN YOLU YOKTU — "o bölüm LAB'da
+     yok" gözleminin gerçek nedeni buydu. İkinci kusur: başlık · yenileme
+     çubuğu · araç künyesi üç ayrı şeritti ve ~4 satır yiyordu.
+     Bu iki kilit ikisinin de sessizce geri gelmesini engeller. */
+  it('🔒 KİLİT: araç gövdesi KAYDIRILABİLİR (overflow-hidden geri gelmedi)', () => {
+    const src = readFileSync(
+      resolve(process.cwd(), 'src/components/devtools/CarosLabShell.tsx'), 'utf8',
+    );
+    expect(src, 'araç gövdesi kaydırılamıyor — kendi kaydirmasi olmayan ekranlar kırpılır')
+      .toContain('min-h-0 flex-1 overflow-y-auto overscroll-contain p-3');
+    expect(src, 'gövde yine overflow-hidden ile kilitlenmiş')
+      .not.toContain('min-h-0 flex-1 overflow-hidden p-3');
+  });
+
+  it('🔒 KİLİT: araç künyesi SABİT şeride katlı — ayrı bir satır açmıyor', () => {
+    const src = readFileSync(
+      resolve(process.cwd(), 'src/components/devtools/CarosLabShell.tsx'), 'utf8',
+    );
+    /* GERİ · breadcrumb · durum çipi başlık şeridinde YAŞAR; ikinci bir künye
+       şeridi açmak kazanılan satırı geri verir. */
+    const backIdx  = src.indexOf('data-testid="lab-back"');
+    const copyIdx  = src.indexOf('data-testid="lab-copy-all"');
+    const hostIdx  = src.indexOf('<CarosLabToolHost');
+    expect(backIdx, 'GERİ düğmesi kaybolmuş').toBeGreaterThan(0);
+    expect(backIdx, 'GERİ hâlâ ayrı bir künye şeridinde (başlıktan sonra)').toBeLessThan(copyIdx);
+    expect(copyIdx, 'kopyala düğmesi gövdeden sonra kalmış').toBeLessThan(hostIdx);
+  });
+
+  it('🔒 KİLİT: KAPSAM cümlesi GİZLENMEDİ (yesil rozet LAB genelini kapsamaz)', () => {
+    const src = readFileSync(
+      resolve(process.cwd(), 'src/components/devtools/CarosLabRefreshBar.tsx'), 'utf8',
+    );
+    /* Yer kazanmak için kaldırılması EN KOLAY şey buydu; kaldırılmadı — yalnız
+       kendi paragrafından çıkıp sarmalanan şeride katıldı ve KOŞULSUZ basılır. */
+    expect(src).toContain('data-testid="lab-refresh-scope"');
+    expect(src).toContain('{CAROS_LAB_REFRESH_SCOPE_NOTE}');
+    const scopeIdx = src.indexOf('data-testid="lab-refresh-scope"');
+    const openIdx  = src.indexOf('{open && (');
+    expect(scopeIdx, 'KAPSAM cümlesi AYRINTI kapısının ARDINA saklanmış').toBeLessThan(openIdx);
   });
 });
 

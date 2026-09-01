@@ -261,7 +261,14 @@ describe('8 — bağımsız sorular eski davranışı korur', () => {
     OBD.engineTemp = HOT;
     _buildPromptForTest();
     const p = _buildPromptForTest();
-    expect(p).toContain('yol arkadaşısın');            // kişilik omurgası duruyor
+    /* MAVI-F1: kilit AYNI ŞEYİ ölçmeye devam ediyor ("konu ipucu diğer bölümleri
+     * bozmaz"), yalnız PRESENCE'TAN BAĞIMSIZ bir omurga işaretine bağlandı.
+     * Eski işaret 'yol arkadaşısın' artık AÇILIŞ cümlesindedir ve Yol Arkadaşı
+     * ayarına göre değişir (açıkken "yol arkadaşısın", kapalıyken "asistansın").
+     * Bu test presence'ı kurmuyor → varsayılan KAPALI'da haksız yere düşerdi.
+     * 'bu arabanın ruhusun' HER İKİ kipte de vardır ve kişilik omurgasının
+     * gerçek işaretidir. */
+    expect(p).toContain('bu arabanın ruhusun');        // kişilik omurgası duruyor
     expect(p).toContain('SÜRÜCÜNÜN MEVCUT DURUMU');    // araç bağlamı duruyor
   });
 });

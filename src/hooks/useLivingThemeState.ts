@@ -21,9 +21,9 @@ import { useStore } from '../store/useStore';
 import {
   useOBDConnectionState,
   useOBDFuelLevel,
-  useOBDEngineTemp,
   getOBDStatusSnapshot,
 } from '../platform/obdService';
+import { useLiveVehicleSignal } from './useCanonicalVehicleSignal';
 import { useVoiceState } from '../platform/voiceService';
 import { getDeviceTier } from '../platform/deviceCapabilities';
 import { runtimeManager } from '../core/runtime/AdaptiveRuntimeManager';
@@ -87,7 +87,10 @@ function usePrefersReducedMotion(): boolean {
 export function useLivingThemeState(): LivingThemeState {
   const connectionState = useOBDConnectionState();
   const fuelLevel       = useOBDFuelLevel();
-  const engineTemp      = useOBDEngineTemp();
+  /* P0-OBD-03: tema ekseni de bir KARARDIR (sıcak motor görünümü). Eskiden
+     yalnız OBD okunuyordu → CAN'lı/OBD'siz araçta eksen hiç tetiklenmiyordu.
+     `null` → `-1`: `deriveLivingThemeState` negatifi "bilinmiyor" sayar. */
+  const engineTemp      = useLiveVehicleSignal('coolantTemp') ?? -1;
   const voice           = useVoiceState();
   const dayNightMode    = useStore((s) => s.settings.dayNightMode);
   const online          = useOnlineStatus();

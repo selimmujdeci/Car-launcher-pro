@@ -180,6 +180,13 @@ export function readAdapterDiagnosticsSnapshot(): AdRawSnapshot {
         .map((k) => ({ key: k, count: loss.summary.byCandidate[k] })),
       lastNote: loss.records.length > 0 ? loss.records[loss.records.length - 1].note : null,
       lastAtMs: loss.records.length > 0 ? loss.records[loss.records.length - 1].atMs : null,
+      /* C — voltajın kanıt değeri. Ham sayı defterde KALIR; burada kaçının
+         sınıflandırmaya GİRMEDİĞİ sayılır (dürüst boşluk görünür olsun). */
+      voltageNotEvidenceCount: loss.records.filter((r) => r.voltageFreshness !== 'FRESH').length,
+      lastVoltageFreshness: loss.records.length > 0
+        ? loss.records[loss.records.length - 1].voltageFreshness : null,
+      lastVoltageAgeMs: loss.records.length > 0
+        ? loss.records[loss.records.length - 1].voltageAgeMs : null,
     } : null,
   };
 }

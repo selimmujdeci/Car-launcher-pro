@@ -20,6 +20,8 @@ import { isLowEndDevice } from './headUnitCompat';
 import { tryPlayClip, cancelClip } from './voiceClips';
 import { speakOnline, isOnlineTtsAvailable, cancelOnline } from './onlineTtsService';
 import { speakEdge, isEdgeTtsAvailable, cancelEdge } from './edgeTtsService';
+/* MAVI-F0: ilk duyulabilir ses ölçümü (YALNIZ ÖLÇÜM — hiçbir TTS kararını etkilemez). */
+import { markMaviLatency } from './assistant/maviLatencyTrace';
 
 /* ── Platform detection ──────────────────────────────────── */
 
@@ -110,8 +112,87 @@ function _nowMono(): number {
   return typeof performance !== 'undefined' ? performance.now() : Date.now();
 }
 
-function _markSpeakingStart(): void { _speakingSince = _nowMono(); }
-function _markSpeakingEnd():   void { _speakingSince = 0; }
+/* ══════════════════════════════════════════════════════════════════════════
+ * MAVI-F12 · UÇUŞTAKİ SÖZÜN KANALI ve TAŞIMA YOLU
+ *
+ * Barge-in hakemi (`assistant/maviBargeIn`) iki soruyu SORMAK ZORUNDADIR ve
+ * ikisinin de cevabı YALNIZ burada bilinir:
+ *
+ *  1. **Bu söz KORUNAN bir kanal mı?** Kullanıcının Mavi'yi kesebilmesi,
+ *     güvenlik/tehlike/navigasyon sesini kesme yetkisi DEĞİLDİR (K1 korunur).
+ *     `isTtsSpeaking()` tek başına bunu söyleyemez — "konuşuyor" der, "ne
+ *     konuşuyor" demez.
+ *  2. **Bu söz çalarken mikrofon FİİLEN açık mı?** Native motor yolunda
+ *     `CarLauncherPlugin.wakeMicMustYield()` mikrofonu BIRAKIR (`nativeTtsSpeaking`).
+ *     Ama premium klip · Edge · online · `speechSynthesis` sesi WebView'den
+ *     çıkar ve o bayrağı KURMAZ → wake thread mikrofonu AÇIK TUTAR ve Mavi
+ *     kendi sesini duyabilir. Bu, self-echo riskinin ÖLÇÜLEBİLİR kaynağıdır.
+ *
+ * Yeni bir otorite kurulmaz: bu alanlar yalnız GÖZLEMdir, hiçbir TTS kararını
+ * değiştirmez ve dışarı METİN taşımaz.
+ * ════════════════════════════════════════════════════════════════════════ */
+
+/** Uçuştaki sözün kanalı — bounded, serbest metin YOK. */
+export type MaviTtsChannel =
+  | 'NONE' | 'ASSISTANT' | 'NAVIGATION' | 'SAFETY' | 'HAZARD' | 'HARDWARE' | 'STATUS';
+
+/** Sesin fiilen hangi motordan çıktığı — mikrofon yaşam döngüsünü belirler. */
+export type MaviTtsTransport = 'NONE' | 'NATIVE_ENGINE' | 'WEBVIEW_AUDIO';
+
+/**
+ * Kesilemeyen kanallar. **Pazarlıksız:** bu üçü kullanıcının barge-in'iyle
+ * susturulamaz (spec §20.2 önceliği aynen korunur).
+ */
+const PROTECTED_SPEECH_CHANNELS: readonly MaviTtsChannel[] =
+  Object.freeze(['SAFETY', 'HAZARD', 'NAVIGATION']);
+
+let _speechChannel: MaviTtsChannel = 'NONE';
+/** Bir sonraki söz için sarmalayıcının bildirdiği kanal (tek kullanımlık). */
+let _nextSpeechChannel: MaviTtsChannel | null = null;
+let _speechTransport: MaviTtsTransport = 'NONE';
+
+/** Sarmalayıcı kendi kanalını bildirir; `_markSpeakingStart` bunu TÜKETİR. */
+function _pinSpeechChannel(c: MaviTtsChannel): void { _nextSpeechChannel = c; }
+/** Ses fiilen hangi motordan çıkıyor (hibrit zincirde tier seçildiği anda). */
+function _markTransport(t: MaviTtsTransport): void { _speechTransport = t; }
+
+function _markSpeakingStart(): void {
+  _speakingSince = _nowMono();
+  _speechChannel = _nextSpeechChannel ?? 'ASSISTANT';
+  _nextSpeechChannel = null;
+}
+/** Yalnız emniyet tavanını tazeler — kanal/taşıma DOKUNULMAZ (akış ortası). */
+function _refreshSpeakingClock(): void { _speakingSince = _nowMono(); }
+function _markSpeakingEnd():   void {
+  _speakingSince = 0;
+  _speechChannel = 'NONE';
+  _speechTransport = 'NONE';
+}
+
+/** Uçuştaki sözün kanalı. Konuşulmuyorsa `NONE` (sahte değer ÜRETİLMEZ). */
+export function getMaviTtsChannel(): MaviTtsChannel {
+  return isTtsSpeaking() ? _speechChannel : 'NONE';
+}
+
+/**
+ * Uçuştaki söz KORUNAN bir kanal mı — barge-in bunu kesemez.
+ * Telefon çağrısı ayrı bir ses odağı otoritesidir ve zaten Mavi'yi susturur;
+ * burada yalnız TTS kanalları sınıflandırılır.
+ */
+export function isProtectedSpeechInFlight(): boolean {
+  return isTtsSpeaking() && PROTECTED_SPEECH_CHANNELS.includes(_speechChannel);
+}
+
+/**
+ * Bu söz çalarken mikrofon FİİLEN açık mı (self-echo riskinin ölçüsü).
+ *
+ * `true` YALNIZ native platformda ve WebView ses yolunda döner: orada
+ * `nativeTtsSpeaking` KURULMAZ → wake grammar thread'i mikrofonu bırakmaz.
+ * Web/tarayıcı modunda native wake thread'i YOKTUR → `false`.
+ */
+export function isMicCaptureOpenDuringSpeech(): boolean {
+  return isTtsSpeaking() && _isNative && _speechTransport === 'WEBVIEW_AUDIO';
+}
 
 /**
  * Şu anda bir asistan/geri bildirim sözü seslendiriliyor mu?
@@ -127,7 +208,71 @@ export function isTtsSpeaking(): boolean {
   return true;
 }
 
+/* ══════════════════════════════════════════════════════════════════════════
+ * MAVI-F4 · TEK KONUŞMA OTURUMU (streaming cevap)
+ *
+ * Streaming cevapta Mavi tek metin yerine ardışık PARÇALAR konuşur. Her parça
+ * kendi bitişini yayınlasaydı `voiceService` İLK PARÇADAN SONRA "cevap bitti"
+ * sayıp takip dinlemesini açar, duck'ı kaldırır ve **Mavi kendi cevabının
+ * kalanını keserdi** (mikrofon açılışı `ttsCancel` çağırır).
+ *
+ * Bu sayaç açıkken bitiş bildirimi YUTULUR ve "konuşuyor" bayrağı TAZELENİR →
+ * emniyet zamanlayıcıları (MAX_SPEAKING_MS · takip penceresi) akışı ortadan
+ * kesmez. Oturum kapanınca bitiş TEK KEZ yayınlanır.
+ *
+ * `ttsCancel` sayacı SIFIRLAR: barge-in sonrası oturum askıda kalamaz.
+ * ════════════════════════════════════════════════════════════════════════ */
+let _speechSessionDepth = 0;
+
+/** Akış başlıyor — bitiş bildirimleri oturum kapanana kadar YUTULUR. */
+export function beginTtsSpeechSession(): void {
+  _speechSessionDepth += 1;
+  _markSpeakingStart();
+}
+
+/**
+ * Akış bitti — bitiş bildirimi TEK KEZ yayınlanır.
+ * @param notify `false` ise bildirim yapılmaz (iptal yolu: `ttsCancel` zaten
+ *        uçuştaki sözü bayatlattı, ikinci bir "bitti" takip dinlemesini açardı).
+ */
+export function endTtsSpeechSession(notify = true): void {
+  if (_speechSessionDepth > 0) _speechSessionDepth -= 1;
+  if (_speechSessionDepth > 0) return;
+  if (notify) _notifyTtsEnd();
+  else _markSpeakingEnd();
+}
+
+/** Akış oturumu şu an açık mı (tanı/kilit yüzeyi). */
+export function isTtsSpeechSessionActive(): boolean { return _speechSessionDepth > 0; }
+
+/**
+ * MAVI-F4 · PARÇA bitişi dinleyicileri — oturum açık olsun olmasın HER utterance
+ * bitişinde çalışır. Akış sıralayıcısı (`maviSpeechStream`) sıradaki parçaya
+ * ancak bu sinyalle geçer → iki TTS parçası ÜST ÜSTE BİNEMEZ.
+ *
+ * `_ttsEndListeners`ten AYRIDIR ve olmak zorundadır: o dinleyiciler "CEVAP
+ * bitti" anlamına gelir (takip dinlemesi · idle · duck kaldırma) ve akış
+ * ortasında tetiklenirse Mavi kendi cevabını keser.
+ */
+const _chunkEndListeners = new Set<TtsEndListener>();
+
+/** Parça bitişine abone olur; dönen fonksiyon aboneliği söker (zero-leak). */
+export function registerTtsChunkEndListener(cb: TtsEndListener): () => void {
+  _chunkEndListeners.add(cb);
+  return () => { _chunkEndListeners.delete(cb); };
+}
+
 function _notifyTtsEnd(): void {
+  // PARÇA bitişi HER durumda yayınlanır (akış sıralayıcısının tek sinyali).
+  _chunkEndListeners.forEach((fn) => { try { fn(); } catch { /* dinleyici hatası TTS'i kırmasın */ } });
+  /* MAVI-F4: oturum açıkken bu bir PARÇA bitişidir, CEVAP bitişi DEĞİL. */
+  if (_speechSessionDepth > 0) {
+    /* MAVI-F12: YALNIZ saat tazelenir. `_markSpeakingStart()` çağrılsaydı akışın
+     * ortasında kanal `ASSISTANT`a sıfırlanır ve taşıma yolu bilgisi (self-echo
+     * kanıtı) her parçada kaybolurdu. */
+    _refreshSpeakingClock();   // konuşma SÜRÜYOR — emniyet tavanı tazelenir
+    return;
+  }
   _markSpeakingEnd();
   _ttsEndListeners.forEach((fn) => { try { fn(); } catch { /* dinleyici hatası TTS'i kırmasın */ } });
 }
@@ -214,7 +359,10 @@ export function ttsSpeak(text: string, opts: SpeakOptions = {}): void {
   // ── Premium ses bankası (hibrit Phase 1) — sabit/kritik ifadeler stüdyo kalite
   // klipten çalınır; native/web TTS atlanır. Eşleşmezse normal TTS yoluna düşer.
   // Klip bitiş semantiği TTS ile aynı: takip dinlemesi (_notifyTtsEnd) + onEnd.
-  if (tryPlayClip(text, () => { _notifyTtsEnd(); opts.onEnd?.(); })) return;
+  if (tryPlayClip(text, () => { _notifyTtsEnd(); opts.onEnd?.(); })) {
+    _markTransport('WEBVIEW_AUDIO');   // MAVI-F12: klip WebView'den çalar → mikrofon açık kalır
+    return;
+  }
 
   // ── Ön-işleme (P0-1) + segmentasyon/prozodi (P0-2 + P1-1) — platformdan ÖNCE ──
   // Taban değerler: native motor 1.0, web 1.05 (eski davranış korunur).
@@ -230,6 +378,9 @@ export function ttsSpeak(text: string, opts: SpeakOptions = {}): void {
   // ── Native path: Android TextToSpeech (güvenilir, Türkçe destekli) ──
   if (_isNative) {
     const seq = ++_speakSeq;
+    /* MAVI-F12: native motor yolu — `CarLauncherPlugin` `nativeTtsSpeaking`
+     * bayrağını kurar ve wake thread mikrofonu BIRAKIR (yarım-duplex). */
+    _markTransport('NATIVE_ENGINE');
     if (!_ttsDucking) { _ttsDucking = true; duckMedia(); }
     // speak()/speakSegments() Promise'i seslendirme BİTİNCE çözülür (UtteranceProgressListener;
     // segmentlerde yalnız SON segmentin onDone'u). Bazı OEM motorları onDone'u hiç çağırmayabilir
@@ -248,6 +399,12 @@ export function ttsSpeak(text: string, opts: SpeakOptions = {}): void {
     };
     const estimatedMs = Math.min(30_000, 3_000 + spoken.length * 110);
     const safety = setTimeout(settle, estimatedMs);
+    /* MAVI-F0 · DÜRÜSTLÜK SINIRI: Android `TextToSpeech` bu derlemede BAŞLANGIÇ
+     * geri bildirimi VERMEZ — `CarLauncher.speak()` Promise'i seslendirme BİTİNCE
+     * çözülür (UtteranceProgressListener.onDone). Bu yüzden native yolda yalnız
+     * `first_audio_requested` (PROXY) damgalanır; `first_audio_confirmed` ASLA
+     * basılmaz. Kuyruklama, sesin duyulduğunun kanıtı DEĞİLDİR. */
+    markMaviLatency('first_audio_requested');
     // Çok segmentli → speakSegments (kuyruk native'de yönetilir, son segmentte çözülür).
     // Tek segment → klasik speak (pitch artık native'de uygulanır).
     // Eski APK'da speakSegments yoksa reject → tek-utterance'a düş (asla sessiz kalma).
@@ -265,6 +422,10 @@ export function ttsSpeak(text: string, opts: SpeakOptions = {}): void {
   if (!isTTSAvailable()) { _markSpeakingEnd(); return; }
 
   if (!opts.queue) window.speechSynthesis.cancel();
+
+  /* MAVI-F12: tarayıcı sentezi WebView ses yoludur — native platformda
+   * `nativeTtsSpeaking` KURULMAZ, wake thread mikrofonu açık tutar. */
+  _markTransport('WEBVIEW_AUDIO');
 
   // duckMedia() TTS engine init'inden ÖNCE çağrılır — gain ramp başlangıç avantajı.
   // _ttsDucking guard: önceki TTS henüz bitmeden yeni çağrı gelirse çift duck önlenir.
@@ -297,6 +458,13 @@ export function ttsSpeak(text: string, opts: SpeakOptions = {}): void {
     // Segmentler art arda kuyruğa eklenir (cancel yalnız en başta yapıldı).
     if (i === segments.length - 1) utter.onend = webSettle;
     utter.onerror = webSettle; // fail-soft: herhangi bir segment hatası ducking'i geri açar
+    /* MAVI-F0: web yolunda `onstart` GERÇEK seslendirme başlangıcıdır (kanıt);
+     * `speak()` çağrısı yalnız kuyruklama isteğidir (proxy). Yalnız İLK segment
+     * ölçülür — sonraki segmentler aynı cevabın devamıdır. */
+    if (i === 0) {
+      utter.onstart = () => { markMaviLatency('first_audio_confirmed'); };
+      markMaviLatency('first_audio_requested');
+    }
     window.speechSynthesis.speak(utter);
   });
 }
@@ -304,6 +472,10 @@ export function ttsSpeak(text: string, opts: SpeakOptions = {}): void {
 /** Devam eden seslendirmeyi anında durdur */
 export function ttsCancel(): void {
   _speakSeq++;     // uçuştaki sözü bayatlat → kesilen bitiş follow-up/idle tetiklemesin
+  /* MAVI-F4: akış oturumu KOŞULSUZ kapanır. Aksi halde barge-in sonrası sayaç
+   * sıfırlanmaz ve sonraki NORMAL cevabın bitişi de yutulurdu (takip dinlemesi
+   * bir daha hiç açılmazdı) — sessiz ölüm sınıfı bir hata. */
+  _speechSessionDepth = 0;
   _markSpeakingEnd(); // konuşma kesildi: emniyet zamanlayıcıları artık uzatma yapmasın
   cancelClip();    // çalan premium klibi de durdur
   cancelEdge();    // uçuştaki/çalan Edge asistan sesini de durdur
@@ -376,6 +548,7 @@ export function speakHazardAlert(type: string, distanceM?: number): void {
       : `${(distanceM / 1000).toFixed(1)} kilometre ileride`;
   }
   const text = dist ? `Dikkat! ${label}, ${dist}.` : `Dikkat! ${label}.`;
+  _pinSpeechChannel('HAZARD');   // MAVI-F12: barge-in KESEMEZ
   // Daha ağır ve yavaş ton — sürücüde aciliyet hissi yaratır.
   // segment: false → tek utterance, mikro-duraklama gecikmesi yok (aciliyet korunur).
   ttsSpeak(text, { rate: 0.86, pitch: 0.85, queue: false, segment: false });
@@ -392,6 +565,7 @@ export function speakHazardAlert(type: string, distanceM?: number): void {
  *  - Arbitraj: yakın dönüş (<50m) varsa safetyService zaten atlar.
  */
 export function speakSafetyAlert(message: string): void {
+  _pinSpeechChannel('SAFETY');   // MAVI-F12: barge-in KESEMEZ (en yüksek öncelik)
   // segment: false → en yüksek öncelik kanalı gecikmesiz tek utterance olarak gider.
   ttsSpeak(message, { rate: 0.82, pitch: 0.82, queue: false, force: true, segment: false });
 }
@@ -438,7 +612,10 @@ export function speakAssistant(text: string, onEnd?: () => void): void {
   const gen = ++_assistantGen; // bu cevabın nesli — supersede'de yedeğe düşmeyi engeller
 
   // 1) Sabit ifade → premium klip (online olsa bile: hızlı + maliyetsiz + offline)
-  if (tryPlayClip(t, () => { _notifyTtsEnd(); onEnd?.(); })) return;
+  if (tryPlayClip(t, () => { _notifyTtsEnd(); onEnd?.(); })) {
+    _markTransport('WEBVIEW_AUDIO');   // MAVI-F12
+    return;
+  }
 
   // Hibrit ses zinciri: 2) Edge (premium TR KADIN, kotasız) → 3) Gemini TTS (kotalı)
   //   → 4) native/tarayıcı eSpeak yedek. Gemini kotası bitince (saha 2026-07-03) Edge
@@ -449,14 +626,14 @@ export function speakAssistant(text: string, onEnd?: () => void): void {
     try {
       if (isEdgeTtsAvailable()) {
         const ok = await speakEdge(t, () => { _notifyTtsEnd(); onEnd?.(); });
-        if (ok) return;
+        if (ok) { _markTransport('WEBVIEW_AUDIO'); return; }   // MAVI-F12
       }
     } catch { /* Edge yolu kırılırsa Gemini'ye düş */ }
     if (gen !== _assistantGen) return; // yeni cevap devraldı → yedeğe düşme
     try {
       if (await isOnlineTtsAvailable()) {
         const ok = await speakOnline(t, () => { _notifyTtsEnd(); onEnd?.(); });
-        if (ok) return;
+        if (ok) { _markTransport('WEBVIEW_AUDIO'); return; }   // MAVI-F12
       }
     } catch { /* online yolu kırılırsa sessizce yedeğe düş */ }
     if (gen !== _assistantGen) return; // yeni cevap devraldı → tarayıcıya (erkek) düşme
@@ -502,6 +679,7 @@ export function speakNavigation(instruction: string): void {
   const needsShorten = driverAttentionBudget < 0.4 || hazardStatus === 'ATTENTION';
   const text = needsShorten ? shortenInstruction(instruction) : instruction;
 
+  _pinSpeechChannel('NAVIGATION');   // MAVI-F12: barge-in KESEMEZ (navigasyon önceliklidir)
   ttsSpeak(text, { rate: 0.92, queue: false });
 }
 
@@ -519,6 +697,7 @@ export function speakAlert(message: string): void {
  * ISO 15008: araç içi sesli geri bildirim kısa ve net olmalı.
  */
 export function speakHardwareConfirm(action: string): void {
+  _pinSpeechChannel('HARDWARE');   // MAVI-F12: korunan DEĞİL — barge-in kesebilir
   ttsSpeak(action, { rate: 1.0, queue: false });
 }
 
@@ -526,6 +705,7 @@ export function speakHardwareConfirm(action: string): void {
  * Donanım komutu başarısız — MCU bağlı değil veya hata.
  */
 export function speakHardwareError(): void {
+  _pinSpeechChannel('HARDWARE');   // MAVI-F12
   ttsSpeak('Bağlantı kurulamadı. Tekrar deneyin.', { rate: 0.95, pitch: 1.1, queue: false });
 }
 
@@ -541,6 +721,7 @@ export function speakVehicleStatus(opts: {
   const { speedKmh, fuelPct, tempC } = opts;
 
   if (speedKmh === undefined && fuelPct === undefined && tempC === undefined) {
+    _pinSpeechChannel('STATUS');   // MAVI-F12
     ttsSpeak('Araç verisi alınamıyor. OBD bağlantısını kontrol edin.', { rate: 0.95, queue: false });
     return;
   }
@@ -555,5 +736,6 @@ export function speakVehicleStatus(opts: {
   }
   if (tempC !== undefined) parts.push(`Motor sıcaklığı ${Math.round(tempC)} derece`);
 
+  _pinSpeechChannel('STATUS');   // MAVI-F12
   ttsSpeak(parts.join('. ') + '.', { rate: 0.95, queue: false });
 }

@@ -167,16 +167,41 @@ export const CarosLabShell = memo(function CarosLabShell({ onClose }: { onClose:
 
   return (
     <div className="flex h-full w-full flex-col bg-[var(--oem-bg)] text-[var(--oem-ink)]" style={{ fontFamily: 'monospace' }}>
-      {/* Başlık */}
-      <div className="flex shrink-0 items-center gap-3 border-b border-[var(--oem-line)] bg-[var(--oem-surface-0)] px-4 py-2">
-        <FlaskConical size={16} className="text-[var(--oem-info)]" />
-        <span className="text-sm font-bold tracking-[0.2em] text-[var(--oem-info)]">CAROS LAB</span>
-        <span className="hidden text-[10px] text-[var(--oem-ink-3)] sm:inline">FAZ A · GELİŞTİRİCİ PLATFORMU</span>
+      {/* ── SABİT KOMUTA ŞERİDİ ────────────────────────────────────────────
+          SAHA (2026-08-25, gerçek cihaz): başlık · yenileme çubuğu · araç künyesi
+          ÜÇ AYRI şerittti ve alt alta ~4 satır yiyordu; 7"/10" ünitede içerik için
+          neredeyse yer kalmıyordu. Araç künyesi (GERİ · ad · durum · katman) artık
+          BU şeride katlandı — bir tam satır kazanıldı. Hiçbir düğme kaldırılmadı,
+          hiçbir testid değişmedi; yalnız konum değişti. */}
+      <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-[var(--oem-line)] bg-[var(--oem-surface-0)] px-3 py-1.5">
+        {active && (
+          <button
+            type="button"
+            data-testid="lab-back"
+            onClick={backToHub}
+            className="flex shrink-0 items-center gap-1 rounded border border-[var(--oem-line-strong)] px-2 py-1 text-[10px] text-[var(--oem-ink-2)] hover:bg-[var(--oem-surface-2)]"
+          >
+            <ChevronLeft size={12} /> GERİ
+          </button>
+        )}
+        <FlaskConical size={15} className="shrink-0 text-[var(--oem-info)]" />
+        <span className="shrink-0 text-[12px] font-bold tracking-[0.18em] text-[var(--oem-info)]">CAROS LAB</span>
+        {!active && (
+          <span className="hidden text-[10px] text-[var(--oem-ink-3)] sm:inline">FAZ A · GELİŞTİRİCİ PLATFORMU</span>
+        )}
 
         {active && (
-          <span data-testid="lab-breadcrumb" className="truncate text-[10px] text-[var(--oem-ink-3)]">
-            / {CAROS_LAB_CATEGORY_LABEL[active.category]} / {active.name}
-          </span>
+          <>
+            <span data-testid="lab-breadcrumb" className="min-w-0 truncate text-[11px] uppercase text-[var(--oem-ink-2)]">
+              {CAROS_LAB_CATEGORY_LABEL[active.category]} / {active.name}
+            </span>
+            <StatusChip status={active.status} />
+            {active.layer && (
+              <span className="hidden shrink-0 rounded border border-[var(--oem-line-strong)] px-1.5 py-0.5 text-[9px] text-[var(--oem-ink-3)] sm:inline">
+                {active.layer}
+              </span>
+            )}
+          </>
         )}
 
         <button
@@ -233,29 +258,20 @@ export const CarosLabShell = memo(function CarosLabShell({ onClose }: { onClose:
       )}
 
       {active ? (
-        /* ── Araç ekranı ── */
-        <>
-          <div className="flex shrink-0 items-center gap-2 border-b border-[var(--oem-line)] px-4 py-1.5">
-            <button
-              type="button"
-              data-testid="lab-back"
-              onClick={backToHub}
-              className="flex items-center gap-1 rounded border border-[var(--oem-line-strong)] px-2 py-1 text-[10px] text-[var(--oem-ink-2)] hover:bg-[var(--oem-surface-2)]"
-            >
-              <ChevronLeft size={12} /> GERİ
-            </button>
-            <span className="font-mono text-[11px] uppercase text-[var(--oem-ink-2)]">{active.name}</span>
-            <StatusChip status={active.status} />
-            {active.layer && (
-              <span className="rounded border border-[var(--oem-line-strong)] px-1.5 py-0.5 text-[9px] text-[var(--oem-ink-3)]">
-                {active.layer}
-              </span>
-            )}
-          </div>
-          <div className="min-h-0 flex-1 overflow-hidden p-3">
-            <CarosLabToolHost tool={active} />
-          </div>
-        </>
+        /* ── Araç ekranı — YALNIZ BU BÖLGE KAYAR ────────────────────────────
+           ÖLÇÜLEN KUSUR (gerçek cihaz): bu sarmalayıcı `overflow-hidden` idi.
+           Kendi iç kaydırmasını kuran 45 ekran çalışıyordu, ama kurmayan 24 ekran
+           (DTC Kapsamı & ECU Adreslenebilirlik · DTC Otoritesi · Trip Engine ·
+           Fleet ekranları …) katlanın ALTINDA KALAN içeriği GÖSTEREMİYORDU —
+           içerik kırpılıyordu ve ulaşmanın hiçbir yolu yoktu. "ECU KEŞİF &
+           ADRESLENEBİLİRLİK bölümü LAB'da yok" gözlemi tam olarak buydu: bölüm
+           vardı, ekrana sığmıyordu.
+           `h-full` + kendi kaydırmasını kuran ekranlar ETKİLENMEZ: sarmalayıcı
+           kesin yükseklik taşıdığı için `h-full` yine tam oturur, çift kaydırma
+           çubuğu OLUŞMAZ. `overscroll-contain`: kaydırma çekmeceye SIZMAZ. */
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-3">
+          <CarosLabToolHost tool={active} />
+        </div>
       ) : (
         /* ── Katalog ── */
         <>

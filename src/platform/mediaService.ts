@@ -16,6 +16,12 @@ import { isNative } from './bridge';
 import { CarLauncher } from './nativePlugin';
 import type { NativeMediaInfo } from './nativePlugin';
 import { logError } from './crashLogger';
+import { isLegacyLocalPlayerEnabled } from './localMusicService';
+
+/* ARCH-06/F1 — T0 sayaçlar + medya hazırlık taşı. Çalma otoritesi native
+   tarafta KALIR; buraya hiçbir kadans/karar eklenmedi. */
+import { bumpPerf } from './perf/perfCounters';
+import { markBootMilestone } from './bootTimingRecorder';
 
 /* ── Issue 2: albumArt hash — köprü trafiği önleme ──────────
  * Base64 bir kapak ~20–80 KB. 5 saniyelik poll döngüsünde değişmemiş
@@ -114,9 +120,15 @@ let _lastAccentHash = 0;
 
 function _extractAndApplyAccent(albumArt: string): void {
   const hash = _djb2(albumArt);
-  if (hash === _lastAccentHash) return;
+  if (hash === _lastAccentHash) {
+    bumpPerf('artwork.hashDedupHit');
+    return;
+  }
   _lastAccentHash = hash;
 
+  /* ARCH-06/F1: GERÇEK decode sayısı. F5'te "aynı kapak kaç kez çözülüyor"
+     sorusunun tabanı budur — bu turda YALNIZ ÖLÇÜLÜR, optimize EDİLMEZ. */
+  bumpPerf('artwork.accentDecode');
   const img = new Image();
   img.crossOrigin = 'anonymous';
   img.onload = () => {
@@ -158,10 +170,20 @@ function _extractAndApplyAccent(albumArt: string): void {
 function _setupMediaSession(): void {
   if (typeof navigator === 'undefined' || !('mediaSession' in navigator)) return;
   const ms = navigator.mediaSession;
-  ms.setActionHandler('play',          () => { play(); });
-  ms.setActionHandler('pause',         () => { pause(); });
-  ms.setActionHandler('nexttrack',     () => { next(); });
-  ms.setActionHandler('previoustrack', () => { previous(); });
+  // Hardware/notification MediaSession actions are requesters, never a second
+  // player path. The canonical media gateway retains dedup and native authority.
+  const route = (action: 'play' | 'pause' | 'next' | 'previous'): void => {
+    void import('./media/authority/mediaCommandGateway').then((gateway) => {
+      if (action === 'play') return gateway.play(undefined, 'native_mediasession');
+      if (action === 'pause') return gateway.pause(undefined, 'native_mediasession');
+      if (action === 'next') return gateway.next(undefined, 'native_mediasession');
+      return gateway.previous(undefined, 'native_mediasession');
+    }).catch((error) => logError(`MediaSession:${action}`, error));
+  };
+  ms.setActionHandler('play',          () => { route('play'); });
+  ms.setActionHandler('pause',         () => { route('pause'); });
+  ms.setActionHandler('nexttrack',     () => { route('next'); });
+  ms.setActionHandler('previoustrack', () => { route('previous'); });
 }
 
 function _teardownMediaSession(): void {
@@ -504,8 +526,8 @@ export function togglePlayPause(): void {
     return;
   }
   if (!isNative) return;
-  // Yerel müzik aktifse localMusicService'e yönlendir (circular import önlemek için lazy import)
-  if (_current.activePackage === 'com.cockpitos.pro') {
+  // Legacy rollback dışında yerel transport gateway'den çıkarılmaz.
+  if (isLegacyLocalPlayerEnabled() && _current.activePackage === 'com.cockpitos.pro') {
     import('./localMusicService').then(({ localTogglePlayPause }) => localTogglePlayPause()).catch(() => {});
     return;
   }
@@ -537,7 +559,7 @@ export async function next(): Promise<MediaCommandResult> {
   if (!isNative) return _MEDIA_NO_TARGET;
   const viaAuthority = await _routeToAuthority('next');
   if (viaAuthority) return viaAuthority;
-  if (_current.activePackage === 'com.cockpitos.pro') {
+  if (isLegacyLocalPlayerEnabled() && _current.activePackage === 'com.cockpitos.pro') {
     try {
       const { localNext } = await import('./localMusicService');
       return localNext();
@@ -557,12 +579,46 @@ export async function next(): Promise<MediaCommandResult> {
   }
 }
 
+/**
+ * MAVI-F7 · Çalmayı başlat/devam ettir — **SONUÇ DÖNEN** sürüm.
+ *
+ * NEDEN AYRI FONKSİYON: `play()` UI düğmeleri ve MediaSession için `void`
+ * sözleşmesini korur (davranış DEĞİŞMEZ). Sesli asistan ise doğrulanmamış bir
+ * komuta "çalıyor" DİYEMEZ → `next()`/`previous()` ile BİREBİR aynı deseni
+ * kullanır: otorite sahibi kaynakta `playbackTruth` sonucu, aksi hâlde
+ * dürüstçe `unverified_backend`.
+ *
+ * **YENİ OTORİTE KURULMAZ:** tek medya gerçeği `mediaCommandGateway`dir.
+ */
+export async function playWithResult(): Promise<MediaCommandResult> {
+  const viaAuthority = await _routeToAuthority('play');
+  if (viaAuthority) return viaAuthority;
+  /* Otorite sahibi değil → mevcut yönlendirme AYNEN çalışır; ama etkisi
+     GÖZLENEMEZ, bu yüzden doğrulanmış SAYILMAZ. */
+  play();
+  return isNative || _isInAppPkg(_current.activePackage)
+    ? _MEDIA_SENT_UNVERIFIED
+    : _MEDIA_NO_TARGET;
+}
+
+/** MAVI-F7 · Duraklat — `playWithResult()` ile AYNI sözleşme. */
+export async function pauseWithResult(): Promise<MediaCommandResult> {
+  const viaAuthority = await _routeToAuthority('pause');
+  if (viaAuthority) return viaAuthority;
+  pause();
+  /* Otorite dışındaki yollarda (harici MediaSession · uygulama-içi toggle)
+     etkinin GÖZLENDİĞİ bir kanıt YOKTUR — "duraklattım" doğrulanmış SAYILMAZ. */
+  return isNative || _isInAppPkg(_current.activePackage)
+    ? _MEDIA_SENT_UNVERIFIED
+    : _MEDIA_NO_TARGET;
+}
+
 /** Önceki parça — `next()` ile AYNI sözleşme. */
 export async function previous(): Promise<MediaCommandResult> {
   if (!isNative) return _MEDIA_NO_TARGET;
   const viaAuthority = await _routeToAuthority('previous');
   if (viaAuthority) return viaAuthority;
-  if (_current.activePackage === 'com.cockpitos.pro') {
+  if (isLegacyLocalPlayerEnabled() && _current.activePackage === 'com.cockpitos.pro') {
     try {
       const { localPrev } = await import('./localMusicService');
       return localPrev();
@@ -708,6 +764,7 @@ function applyNativeMediaInfo(info: NativeMediaInfo): void {
       if (incomingHash !== _lastArtHash) {
         _lastArtHash = incomingHash;
         albumArt     = info.albumArt;
+        bumpPerf('artwork.sourceChanged');
         // Yeni albüm kapağı → ambient renk güncelle (async, sızıntısız)
         _extractAndApplyAccent(info.albumArt);
       }
@@ -864,8 +921,16 @@ export async function startMediaHub(): Promise<void> {
   // Gerçek zamanlı MediaSession event dinle
   try {
     const handle = await CarLauncher.addListener('mediaChanged', (info) => {
+      bumpPerf('bridge.mediaChanged.received');
       if (_current.permissionRequired) updateMediaState({ permissionRequired: false });
       applyNativeMediaInfo(info);
+      /* ARCH-06/F1 · MEDIA_AUTHORITY_AVAILABLE — GERÇEK native oturum kanıtı.
+         `MEDIA_AUTHORITY_INITIALIZED` yalnız "kod kuruldu" der; kullanılabilirlik
+         ancak native tarafın bir oturum bildirmesiyle KANITLANIR. Çalma
+         BAŞLATILMAZ — ölçüm için ürün davranışı değiştirilmez. */
+      if (_current.hasSession) {
+        markBootMilestone('MEDIA_AUTHORITY_AVAILABLE', 'mediaService:mediaChanged:hasSession');
+      }
     });
     _hubListenerStop = () => { try { handle.remove(); } catch { /* ignore */ } };
   } catch (e) {

@@ -87,5 +87,10 @@ export interface MemoryTelemetry {
   readonly shortTermCount: number;
   readonly rejectedCount:  number;
   readonly droppedCount:   number;
-  readonly outcome:        'injected' | 'empty' | 'disabled' | 'no_consent' | 'unavailable';
+  /*
+   * MAVI-F13: 'canonical_upstream' = system prompt KANONİK hafıza izdüşümünü
+   * ZATEN taşıyor (assistant/maviMemory.projectMaviMemory, F10) → bu katman
+   * İKİNCİ bir hafıza bloğu EKLEMEZ (duplicate projection yasağı).
+   */
+  readonly outcome:        'injected' | 'empty' | 'disabled' | 'no_consent' | 'unavailable' | 'canonical_upstream';
 }

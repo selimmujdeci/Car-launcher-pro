@@ -2,8 +2,8 @@
  * canSnapshotService.test.ts — Persistence Chain Polish.
  *
  * Kapsam: snapshot kurtarma (_buildPatch via hydrateCanSnapshotSync) artık
- * source='real' taşıyor → boot'ta UI 'none/idle' boş göstergede takılmaz, son
- * bilinen değerleri gösterir. Bayat veride source EKLENMEZ (Object.keys kontrolü
+ * source/session/connection taşımıyor → boot'ta geçmiş değerler canlı OBD diye
+ * sunulmaz. Bayat veride source EKLENMEZ (Object.keys kontrolü
  * korunur). Per-field stale eşikleri (dinamik 30s / yarı-statik 5dk / statik 12sa).
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -27,13 +27,13 @@ function makeSnap(overrides: Record<string, unknown> = {}): string {
   });
 }
 
-describe('canSnapshotService — snapshot kurtarmada source devamlılığı', () => {
+describe('canSnapshotService — snapshot kurtarmada fail-closed canlılık sınırı', () => {
   beforeEach(() => { STORE.raw = null; });
 
-  it('taze snapshot → patch source="real" + değerler (UI artık idle\'da kalmaz)', () => {
+  it('taze snapshot → yalnız geçmiş değerler; canlı source/session yok', () => {
     STORE.raw = makeSnap();
     const patch = hydrateCanSnapshotSync();
-    expect(patch.source).toBe('real');
+    expect(patch.source).toBeUndefined();
     expect(patch.fuelLevel).toBe(23);
     expect(patch.speed).toBe(60);
     expect(patch.range).toBe(140);
@@ -46,10 +46,10 @@ describe('canSnapshotService — snapshot kurtarmada source devamlılığı', ()
     expect(patch.source).toBeUndefined();   // boş patch'e source eklenmez (kontrol korundu)
   });
 
-  it('kısmi bayatlık: dinamik bayat (>30s) + statik taze → source="real", speed YOK', () => {
+  it('kısmi bayatlık: dinamik bayat (>30s) + statik taze → source yok, speed yok', () => {
     STORE.raw = makeSnap({ ts: Date.now() - 60_000 }); // 1 dk
     const patch = hydrateCanSnapshotSync();
-    expect(patch.source).toBe('real');       // statik alanlar kurtarıldı → real
+    expect(patch.source).toBeUndefined();    // persistence canlı source değildir
     expect(patch.speed).toBeUndefined();     // dinamik alan bayat → kurtarılmadı
     expect(patch.fuelLevel).toBe(23);        // statik alan taze
   });

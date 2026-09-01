@@ -5,6 +5,7 @@ import { safeSetRaw } from '../utils/safeStorage';
 import { checkGeofence } from './geofenceService';
 import { GPS_FIX_STALE_MS } from './freshnessPolicy';
 import { runtimeManager } from '../core/runtime/AdaptiveRuntimeManager';
+import { CarLauncher } from './nativePlugin';
 import { useUnifiedVehicleStore } from './vehicleDataLayer/UnifiedVehicleStore';
 import { applyCompassSmoothing, computeBlendedHeading } from './gps/headingCore';
 import { applySpeedFilters, computeSpeedDelta, computeCourseDelta, pickRawSpeed,
@@ -39,6 +40,7 @@ declare global {
 
 // GPSLocation tipi vehicleDataLayer/types.ts'te tanımlıdır.
 import type { GPSLocation } from './vehicleDataLayer/types';
+import { createCanonicalStateEnvelope, type CanonicalStateEnvelope } from './state/canonicalStateEnvelope';
 export type { GPSLocation } from './vehicleDataLayer/types';
 
 interface GPSState {
@@ -63,6 +65,26 @@ const useGPSStore = create<GPSState>(() => ({
 
 // DEV-only: GPS durum override — null = gerçek GPS aktif
 let _gpsTestOverride: Partial<GPSState> | null = null;
+let _gpsGeneration = 0;
+let _lastLocationEnvelope: CanonicalStateEnvelope<GPSLocation | null> | null = null;
+let _lastAcceptedTimestamp = -Infinity;
+let _staleGenerationRejectCount = 0;
+let _outOfOrderRejectCount = 0;
+
+/**
+ * GPS ingress'in saf kabul kapısı. Generation callback'in ait olduğu canlı
+ * oturumu, timestamp ise yalnız o oturum içindeki observation sırasını korur.
+ * Yeni bir oturum eski timestamp tabanını devralmaz.
+ */
+export function isCurrentGPSObservation(
+  expectedGeneration: number,
+  currentGeneration: number,
+  timestamp: number,
+  lastAcceptedTimestamp: number,
+): boolean {
+  if (expectedGeneration !== currentGeneration) return false;
+  return !Number.isFinite(timestamp) || timestamp > lastAcceptedTimestamp;
+}
 
 // ── UnifiedVehicleStore mirror ──────────────────────────────────────────────
 // useGPSStore değişimlerini UnifiedVehicleStore'a yansıt.
@@ -80,8 +102,15 @@ useGPSStore.subscribe((state) => {
     error:       eff.error,
     unavailable: eff.unavailable,
     source:      eff.source,
+    locationEnvelope: _lastLocationEnvelope,
   });
 });
+
+/* ARCH-06/F1 — T0 sayaçlar (tek tamsayı artırımı) + konum hazırlık taşı.
+   Mevcut GPS kadans/throttle otoritesi AYNEN korunur; buraya hiçbir karar
+   eklenmedi (bkz. `bumpPerf` başlığı: hot-path'te tahsis/log/zaman YASAK). */
+import { bumpPerf } from './perf/perfCounters';
+import { markBootMilestone } from './bootTimingRecorder';
 
 let watchId: number | string | null = null;
 let _lastPositionPerf = 0; // performance.now() — clock-jump immune throttle
@@ -294,6 +323,11 @@ function _scheduleGPSReconnect(): void {
  */
 export async function startGPSTracking(): Promise<void> {
   if (watchId != null) return;
+  const generation = ++_gpsGeneration;
+  _lastAcceptedTimestamp = -Infinity;
+  // Native foreground-service events carry this opaque JS generation. A late
+  // event without the current binding is fail-closed at background ingress.
+  void CarLauncher.setBackgroundGpsGeneration({ gpsGeneration: generation }).catch(() => undefined);
 
   // Kütük #401: alım sağlığı sayaçları OTURUM başına ölçülür — önceki oturumun
   // red serisi yeni oturumun sağlığı gibi okunmasın.
@@ -309,11 +343,11 @@ export async function startGPSTracking(): Promise<void> {
   _applyCompassDemand();
 
   if (isNativePlatform()) {
-    await startNativeGPSTracking();
+    await startNativeGPSTracking(generation);
   } else {
     // Web/browser ortamı: navigator.geolocation ile dene
     if (navigator.geolocation) {
-      startWebGPSTracking();
+      startWebGPSTracking(generation);
     } else {
       useGPSStore.setState({ unavailable: true, source: null });
     }
@@ -323,7 +357,7 @@ export async function startGPSTracking(): Promise<void> {
 /**
  * Native (Capacitor) GPS tracking
  */
-async function startNativeGPSTracking(): Promise<void> {
+async function startNativeGPSTracking(generation: number): Promise<void> {
   try {
     const { Geolocation } = await import('@capacitor/geolocation');
 
@@ -356,7 +390,7 @@ async function startNativeGPSTracking(): Promise<void> {
     // Warm start: immediate fix before watchPosition fires (reduces GPS cold-start delay)
     try {
       const pos = await Geolocation.getCurrentPosition({ enableHighAccuracy: true, timeout: 10000 });
-      if (pos?.coords) handlePosition(pos.coords, pos.timestamp);
+      if (pos?.coords) handlePosition(pos.coords, pos.timestamp, generation);
     } catch { /* watchPosition will handle it */ }
 
     watchId = await Geolocation.watchPosition(
@@ -373,21 +407,21 @@ async function startNativeGPSTracking(): Promise<void> {
         }
 
         if (position) {
-          handlePosition(position.coords, position.timestamp);
+          handlePosition(position.coords, position.timestamp, generation);
         }
       }
     );
   } catch (err) {
     logError('GPS:NativeFallback', err);
     watchId = null; // ensure clean state before web fallback
-    startWebGPSTracking();
+    startWebGPSTracking(generation);
   }
 }
 
 /**
  * Web (browser navigator.geolocation) GPS tracking
  */
-function startWebGPSTracking(): void {
+function startWebGPSTracking(generation = _gpsGeneration): void {
   if (watchId != null) return; // already tracking
   if (!navigator.geolocation) {
     useGPSStore.setState({ error: 'Geolocation not supported' });
@@ -397,7 +431,7 @@ function startWebGPSTracking(): void {
   try {
     const id = navigator.geolocation.watchPosition(
       (position) => {
-        handlePosition(position.coords, position.timestamp);
+        handlePosition(position.coords, position.timestamp, generation);
       },
       (err) => {
         _consecutiveErrors++;
@@ -474,20 +508,30 @@ interface CoordsLike {
   speed: number | null;
 }
 
-function handlePosition(coords: CoordsLike, timestamp: number): void {
+function handlePosition(coords: CoordsLike, timestamp: number, expectedGeneration = _gpsGeneration): void {
+  if (expectedGeneration !== _gpsGeneration) {
+    _staleGenerationRejectCount++;
+    return;
+  }
+  if (!isCurrentGPSObservation(expectedGeneration, _gpsGeneration, timestamp, _lastAcceptedTimestamp)) {
+    _outOfOrderRejectCount++;
+    return;
+  }
   const now     = Date.now();
   const perfNow = performance.now();
   // Kütük #401/#423: hattın SAĞLIĞI artık sayılıyor. "Fix geldi" ile "fix kabul
   // edildi" ayrı sorulardır; sahada ikisi arasındaki fark 19,5 s bayatlık üretmişti.
   noteArrival(now);
+  bumpPerf('gps.providerCallback');
   if (perfNow - _lastPositionPerf < _positionThrottleMs()) {
     noteRejected('THROTTLED', coords.accuracy);
+    bumpPerf('gps.fixThrottled');
     return;
   }
 
-  if (!isFinite(coords.latitude) || !isFinite(coords.longitude)) {
+  if (!isFinite(coords.latitude) || !isFinite(coords.longitude) || !Number.isFinite(coords.accuracy)) {
     noteRejected('INVALID_COORDS', null);
-    logError('GPS', new Error(`Invalid coords: ${coords.latitude},${coords.longitude}`));
+    logError('GPS', new Error(`Invalid location sample: ${coords.latitude},${coords.longitude}, accuracy:${coords.accuracy}`));
     return;
   }
 
@@ -502,6 +546,11 @@ function handlePosition(coords: CoordsLike, timestamp: number): void {
 
   _lastPositionPerf  = perfNow;
   _consecutiveErrors = 0;
+  bumpPerf('gps.fixAccepted');
+  /* ARCH-06/F1 · NAV_LOCATION_AVAILABLE — navigasyonun kullanabileceği İLK
+     geçerli konum kanıtı. Damgayı ölçümün SAHİBİ atar; SystemBoot "navigasyon
+     hazır" diye VARSAYMAZ. GPS yoksa taş `null` KALIR (sahte hazırlık yok). */
+  markBootMilestone('NAV_LOCATION_AVAILABLE', 'gpsService:handlePosition:firstAcceptedFix');
 
   // ── Jump Guard: tünel çıkışı gürültülü ilk fix koruması ─────────────────
   const _drActiveNow = isDeadReckoningActive();
@@ -612,11 +661,12 @@ function handlePosition(coords: CoordsLike, timestamp: number): void {
      Saat sıçraması yaşı bozamaz. */
   _lastFixPerfMs = performance.now();
   _lastFixWallMs = timestamp ?? now;
+  if (Number.isFinite(timestamp)) _lastAcceptedTimestamp = timestamp;
 
   const loc: GPSLocation = {
     latitude:  _fusedLat,
     longitude: _fusedLng,
-    accuracy:  Number.isFinite(coords.accuracy) ? coords.accuracy : 999,
+    accuracy:  coords.accuracy,
     altitude:  coords.altitude ?? undefined,
     heading:   heading ?? undefined,
     speed:     filteredSpeed, // ← filtreli hız (deadzone + EMA)
@@ -636,6 +686,13 @@ function handlePosition(coords: CoordsLike, timestamp: number): void {
   _saveLastKnown(loc);
 
   const source: GPSState['source'] = isNativePlatform() ? 'native' : 'web';
+  _lastLocationEnvelope = createCanonicalStateEnvelope({
+    value: loc, classification: 'OBSERVED', provenance: [source, 'gpsService.handlePosition'],
+    scope: { type: 'PROCESS', id: null }, epoch: _gpsGeneration, expectedEpoch: _gpsGeneration,
+    sessionId: String(_gpsGeneration), generation: _gpsGeneration, observedAt: timestamp ?? now,
+    nowMs: now, freshnessWindowMs: GPS_FIX_STALE_MS, liveEvidence: true,
+    sourceRef: `gps-provider:${source}`, evidenceRef: `gps:${_gpsGeneration}:${timestamp ?? now}`,
+  });
 
   noteAccepted(now, loc.accuracy);
 
@@ -716,7 +773,7 @@ export async function applyGpsPowerMode(mode: GpsPowerMode): Promise<void> {
           if (_consecutiveErrors >= MAX_GPS_ERRORS) _scheduleGPSReconnect();
           return;
         }
-        if (position) handlePosition(position.coords, position.timestamp);
+        if (position) handlePosition(position.coords, position.timestamp, _gpsGeneration);
       },
     );
   } catch (e) {
@@ -726,6 +783,10 @@ export async function applyGpsPowerMode(mode: GpsPowerMode): Promise<void> {
 }
 
 export async function stopGPSTracking(): Promise<void> {
+  _gpsGeneration++;
+  _lastLocationEnvelope = null;
+  _lastAcceptedTimestamp = -Infinity;
+  void CarLauncher.setBackgroundGpsGeneration({ gpsGeneration: -1 }).catch(() => undefined);
   // Cancel any pending reconnect so it doesn't fire after stop
   if (_reconnectTimer) { clearTimeout(_reconnectTimer); _reconnectTimer = null; }
   _clearFirstFixTimer();
@@ -775,6 +836,26 @@ export function getGPSState(): GPSState {
     unavailable: s.gpsUnavailable,
     source:      s.gpsSource,
   };
+}
+
+/** ARCH-02/F2: VDL's read-only consumer-facing location evidence. */
+export function getGPSLocationEnvelope(): CanonicalStateEnvelope<GPSLocation | null> | null {
+  return useUnifiedVehicleStore.getState().gpsLocationEnvelope;
+}
+export function getGPSLocationTruthDiagnostics(): Readonly<{
+  generation: number;
+  staleGenerationRejectCount: number;
+  outOfOrderRejectCount: number;
+  rejectedCount: number;
+}> {
+  const staleGenerationRejectCount = _staleGenerationRejectCount;
+  const outOfOrderRejectCount = _outOfOrderRejectCount;
+  return Object.freeze({
+    generation: _gpsGeneration,
+    staleGenerationRejectCount,
+    outOfOrderRejectCount,
+    rejectedCount: staleGenerationRejectCount + outOfOrderRejectCount,
+  });
 }
 
 // ── React hooks — UnifiedVehicleStore'dan okur (tek kaynak) ─────────────────
@@ -844,17 +925,12 @@ export function getGPSSpeedKmh(): number | null {
 export function setGPSTestOverride(data: Partial<GPSState> | null): void {
   if (!import.meta.env.DEV) return;
   _gpsTestOverride = data;
-  // Mevcut GPS store'una override uygulayarak anında emit et
+  // VDL'ye doğrudan yazma: test override da normal source-evidence → VDL
+  // tek yönlü projeksiyonundan geçer.
   const current = useGPSStore.getState();
-  const eff     = data ? { ...current, ...data } : current;
-  useUnifiedVehicleStore.getState().updateGPSState({
-    location:    eff.location,
-    heading:     eff.heading,
-    isTracking:  eff.isTracking,
-    error:       eff.error,
-    unavailable: eff.unavailable,
-    source:      eff.source,
-  });
+  // Zustand aynı nesne referansını yazınca aboneleri çağırmaz; bu da override'ın
+  // canonical VDL projeksiyonuna hiç ulaşmamasına yol açardı.
+  useGPSStore.setState({ ...current });
 }
 
 /**
@@ -885,9 +961,15 @@ export function feedBackgroundLocation(data: {
   speed:    number;
   bearing:  number;
   accuracy: number;
+  observationTimestamp: number;
+  gpsGeneration: number;
 }): void {
   // Guard against null/undefined data from native background service
   if (!data) return;
+  if (!Number.isFinite(data.gpsGeneration) || !Number.isFinite(data.observationTimestamp)) {
+    _staleGenerationRejectCount++;
+    return;
+  }
   // Guard against malformed data from native background service
   if (!Number.isFinite(data.lat) || !Number.isFinite(data.lng)) {
     logError('GPS:Background', new Error(`Invalid coords: ${data.lat},${data.lng}`));
@@ -907,7 +989,8 @@ export function feedBackgroundLocation(data: {
       heading:   data.bearing,
       speed:     data.speed / 3.6, // km/h → m/s (GPS API standardı)
     },
-    Date.now(),
+    data.observationTimestamp,
+    data.gpsGeneration,
   );
 }
 

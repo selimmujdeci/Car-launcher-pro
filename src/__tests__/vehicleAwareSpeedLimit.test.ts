@@ -18,6 +18,7 @@ import roadClassSrc from '../platform/navigation/policy/roadClassResolver.ts?raw
 import hudSrc       from '../components/map/NavigationHUD.tsx?raw';
 import miniSrc      from '../components/map/MiniMapWidget.tsx?raw';
 import cardSrc      from '../components/map/SpeedLimitCard.tsx?raw';
+import drivingSpeedSrc from '../components/map/hud/DrivingSpeed.tsx?raw';
 import promptSrc    from '../components/map/VehicleClassPrompt.tsx?raw';
 import researchSrc  from '../platform/vehicle/vehicleClassResearch.ts?raw';
 
@@ -695,7 +696,9 @@ describe('D2. 🔒 UI — tek motor, iki ekran aynı kart', () => {
 
   it('🔒 iki ekran AYNI kart bileşenini render eder', () => {
     expect(code(miniSrc)).toContain('<SpeedLimitCard');
-    expect(code(hudSrc)).toContain('<SpeedLimitCard');
+    /* P0-NAV-04: hız kümesi `hud/DrivingSpeed`e taşındı; levhayı orası çizer.
+       Kilidin amacı (İKİ yüzeyin AYNI paylaşılan kartı kullanması) korunur. */
+    expect(code(drivingSpeedSrc)).toContain('<SpeedLimitCard');
   });
 
   it('🔒 tam ekran KENDİ sorgu döngüsünü açmaz', () => {

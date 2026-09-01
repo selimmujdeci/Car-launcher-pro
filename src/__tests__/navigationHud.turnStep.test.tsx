@@ -192,12 +192,18 @@ describe('KİLİT: TBT talimatı yaklaşan manevrayı okur (off-by-one yasağı)
     speakNavigationMock.mockClear();
   });
 
-  it('TurnPanel yaklaşan manevrayı (steps[idx+1] = Sola dönün) gösterir, geçilmişi değil', () => {
+  it('manevra kartı YAKLAŞAN manevrayı (steps[idx+1]) gösterir, geçilmişi değil', () => {
     const html = renderToStaticMarkup(<NavigationHUD {...hudProps} />);
-    // Yaklaşan manevra başlıkta olmalı
-    expect(html).toContain('Sola dönün');
-    // Geçilmiş manevra ("Sağa dönün") ana talimat olarak GÖSTERİLMEMELİ
-    expect(html).not.toContain('Sağa dönün');
+    /* P0-NAV-04: kart artık "girilecek yol"u gösteriyor (talimat metni yerine
+       `streetName`) — sürücünün sorusu "hangi yola gireceğim"dir. Off-by-one
+       YASAĞI DEĞİŞMEDİ, yalnız hangi alanla doğrulandığı güncellendi:
+         geçilmiş  steps[1] = Atatürk Cd   → EKRANDA OLMAMALI
+         yaklaşan  steps[2] = İnönü Cd     → EKRANDA OLMALI */
+    expect(html, 'yaklaşan manevranın yolu gösterilmiyor').toContain('İnönü Cd');
+    expect(html, 'GEÇİLMİŞ manevra gösteriliyor (off-by-one geri geldi)')
+      .not.toContain('Atatürk Cd');
+    /* Sol dönüş oku çizilmeli — yön bilgisi metinden bağımsız okunur. */
+    expect(html).toContain('data-testid="maneuver-panel"');
   });
 
   /* KİLİT TAŞINDI (NAVIGATION_DELIVERY_CORE_P0): sesli anons artık görünümde

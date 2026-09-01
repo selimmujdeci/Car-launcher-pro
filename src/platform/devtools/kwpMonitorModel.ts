@@ -33,10 +33,10 @@ import {
  * ════════════════════════════════════════════════════════════════════════ */
 
 /** Ekrandaki bölümler. Sıra sabittir (deterministik render). */
-export type KwpSectionId = 'protocol' | 'session' | 'recovery' | 'keepalive' | 'dtc';
+export type KwpSectionId = 'protocol' | 'session' | 'recovery' | 'keepalive' | 'dtc' | 'sessionProbe' | 'addressing';
 
 export const KWP_SECTION_ORDER: readonly KwpSectionId[] = [
-  'protocol', 'session', 'recovery', 'keepalive', 'dtc',
+  'protocol', 'session', 'recovery', 'keepalive', 'dtc', 'sessionProbe', 'addressing',
 ] as const;
 
 export const KWP_SECTION_TITLE: Readonly<Record<KwpSectionId, string>> = {
@@ -45,6 +45,8 @@ export const KWP_SECTION_TITLE: Readonly<Record<KwpSectionId, string>> = {
   recovery:  '3 · Kurtarma Merdiveni (ATPC)',
   keepalive: '4 · Keep-Alive (ATWM/ATSW/ATST)',
   dtc:       '5 · DTC Kanalı (0x18 ReadDTCByStatus)',
+  sessionProbe: '6 · Tanı Oturumu Probu (0x10 StartDiagnosticSession)',
+  addressing:   '7 · Fiziksel Adresleme Matrisi (ISO 14230-2 format baytı)',
 } as const;
 
 export interface KwpSection {
@@ -109,6 +111,18 @@ export interface KwpRecoveryRaw {
   readonly protocolAtRecovery:       string | null;
   readonly threshold:                number | null;
   readonly maxPerSession:            number | null;
+  readonly lastEvent:                string | null;
+  readonly noDataCount:              number | null;
+  readonly promptTimeoutCount:       number | null;
+  readonly partialTimeoutCount:      number | null;
+  readonly ecuSilentCount:           number | null;
+  readonly sessionRecoveryCount:     number | null;
+  readonly transportReconnectCount: number | null;
+  readonly recoveredCount:           number | null;
+  readonly recoveryFailedCount:      number | null;
+  readonly maxCommandDurationMs:     number | null;
+  readonly maxKeepAliveGapMs:        number | null;
+  readonly keepAliveGapExceededCount:number | null;
 }
 
 export interface KwpRawSnapshot {
@@ -132,6 +146,55 @@ export interface KwpRawSnapshot {
    * Bu kanal SÜREKLİ akmaz; yalnız tam araç taramasında çalışır.
    */
   readonly dtc:             KwpDtcEvidenceRaw | null;
+  /**
+   * P0-OBD-FINAL-02 — KWP TANI OTURUMU (0x10) PROBUNUN KANIT DEFTERİ.
+   *
+   * `null` = defter okunamadı. Boş dizi = prob bu oturumda HİÇ KOŞMADI
+   * ("oturum yok" DEMEK DEĞİLDİR — prob yalnız tam araç taramasında koşar).
+   * Bu ekran KOMUT GÖNDERMEZ; yalnız son turun kaydını GÖSTERİR.
+   */
+  readonly sessionProbes?: readonly KwpSessionProbeRawRow[] | null;
+  /**
+   * P0-OBD-DIAG-01 — fiziksel adresleme matrisinin kanıt defteri.
+   *
+   * `null` = defter okunamadı. Boş dizi = matris bu oturumda HİÇ KOŞMADI
+   * ("adres yanlış" DEMEK DEĞİLDİR — matris yalnız tam araç taramasında ve
+   * yalnız adres henüz kanıtlanmamışken koşar).
+   */
+  readonly addressingProbes?: readonly KwpAddressingProbeRawRow[] | null;
+}
+
+/** `kwpAddressingProbe.getKwpAddressingProbes()` satırının YAPISAL izdüşümü. */
+export interface KwpAddressingProbeRawRow {
+  readonly rx: string;
+  readonly header: string;
+  readonly variantId: string;
+  readonly physical: boolean;
+  /** Satır K-line başlatma yaptı mı ('FAST'/'SLOW'); yapmadıysa null. */
+  readonly initFirst: string | null;
+  /** Başlatma komutunun HAM yanıtı; yoksa null (gerekçesiz düşüş YASAK). */
+  readonly initRaw: string | null;
+  readonly request: string | null;
+  readonly raw: string | null;
+  readonly result: string;
+  readonly nrc: number | null;
+  readonly nativeOutcome: string | null;
+  readonly sessionEpoch: number;
+  readonly protocol: string | null;
+}
+
+/** `kwpSessionProbe.getKwpSessionProbes()` satırının YAPISAL izdüşümü. */
+export interface KwpSessionProbeRawRow {
+  readonly tx: string;
+  readonly rx: string;
+  readonly request: string | null;
+  readonly positiveNeedle: string;
+  readonly raw: string | null;
+  readonly result: string;
+  readonly nrc: number | null;
+  readonly nativeOutcome: string | null;
+  readonly sessionEpoch: number;
+  readonly protocol: string | null;
 }
 
 /** `multiEcuScan.getKwpDtcEvidence()` çıktısının YAPISAL izdüşümü (servis importu YOK). */
@@ -144,6 +207,18 @@ export interface KwpDtcEvidenceRaw {
   readonly unsupportedCount: number;
   readonly failedCount:      number;
   readonly codeCount:        number;
+  readonly functional03Raw?: string | null;
+  readonly functional07Raw?: string | null;
+  readonly physicalTarget?: string | null;
+  readonly targetProvenance?: string | null;
+  readonly sessionRequest?: string | null;
+  readonly sessionResponse?: string | null;
+  readonly request18Tx?: string | null;
+  readonly response18Raw?: string | null;
+  readonly gateOutcome?: 'SENT' | 'NOT_SENT' | null;
+  readonly notSentReason?: string | null;
+  readonly foundDtcs?: readonly string[];
+  readonly publishedToCanonicalAuthority?: boolean | null;
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
@@ -268,6 +343,23 @@ function _recoverySection(s: KwpRawSnapshot): KwpSection {
   ));
 
   f.push(observed(
+    { id: 'lastEvent', label: 'son recovery olayı', source: SRC.kwp,
+      note: 'NO_DATA / PROMPT_TIMEOUT / PARTIAL_TIMEOUT / ECU_SILENT / SESSION_RECOVERY / TRANSPORT_RECONNECT / RECOVERED / RECOVERY_FAILED.' },
+    k.lastEvent,
+  ));
+
+  for (const [id, label, value] of [
+    ['noDataCount', 'NO_DATA', k.noDataCount],
+    ['promptTimeoutCount', 'PROMPT_TIMEOUT', k.promptTimeoutCount],
+    ['partialTimeoutCount', 'PARTIAL_TIMEOUT', k.partialTimeoutCount],
+    ['ecuSilentCount', 'ECU_SILENT', k.ecuSilentCount],
+    ['sessionRecoveryCount', 'SESSION_RECOVERY', k.sessionRecoveryCount],
+    ['transportReconnectCount', 'TRANSPORT_RECONNECT', k.transportReconnectCount],
+    ['recoveredCount', 'RECOVERED', k.recoveredCount],
+    ['recoveryFailedCount', 'RECOVERY_FAILED', k.recoveryFailedCount],
+  ] as const) f.push(observed({ id, label, source: SRC.kwp, note: 'Oturumluk bounded sayaç.' }, value));
+
+  f.push(observed(
     { id: 'coreNoDataStreak', label: 'ardışık çekirdek NO_DATA', source: SRC.kwp,
       note: 'Eşiğe doğru sayan anlık seri.' },
     k.coreNoDataStreak,
@@ -357,7 +449,8 @@ function _recoverySection(s: KwpRawSnapshot): KwpSection {
  * değeri ölçülmüş gibi göstermek olurdu — Session Inspector ve Runtime Scheduling
  * ekranları da bu alanları aynı gerekçeyle UNAVAILABLE gösterir.
  */
-function _keepAliveSection(): KwpSection {
+function _keepAliveSection(s: KwpRawSnapshot): KwpSection {
+  const k = s.recovery;
   const f: InspectorField[] = [
     unavailable(
       { id: 'kwpKeepAliveMsg', label: 'wakeup mesajı (ATWM)', source: SRC.none, note: '' },
@@ -372,11 +465,12 @@ function _keepAliveSection(): KwpSection {
       { id: 'kwpResponseTimeout', label: 'yanıt bekleme (ATST)', source: SRC.none, note: '' },
       'ATST yalnız native init dizisinde uygulanır; JS\'e raporlanmaz.',
     ),
-    unavailable(
-      { id: 'kwpKeepAliveHealth', label: 'keep-alive sağlığı', source: SRC.none, note: '' },
-      'ECU wakeup\'ı kabul etti mi bilgisi native tarafta bile ayrıca ölçülmüyor. ' +
-      'Dolaylı kanıt: yukarıdaki kurtarma sayaçları.',
-    ),
+    observed({ id: 'maxCommandDurationMs', label: 'en uzun komut süresi (ms)', source: SRC.kwp,
+      note: 'DTC/DID dahil KWP komutunun hattı ne kadar tuttuğu.' }, k?.maxCommandDurationMs ?? null),
+    observed({ id: 'maxKeepAliveGapMs', label: 'en uzun komutlar arası boşluk (ms)', source: SRC.kwp,
+      note: 'TesterPresent/wakeup boşluğu riski için ölçülen üst değer.' }, k?.maxKeepAliveGapMs ?? null),
+    observed({ id: 'keepAliveGapExceededCount', label: '5 sn boşluk aşımı', source: SRC.kwp,
+      note: 'KWP session keep-alive risk penceresini aşan boşluk sayısı.' }, k?.keepAliveGapExceededCount ?? null),
   ];
   return _bound({ id: 'keepalive', title: KWP_SECTION_TITLE.keepalive, fields: f });
 }
@@ -425,6 +519,36 @@ function _dtcSection(s: KwpRawSnapshot, nowMs: number): KwpSection {
     note: 'KWP dalı yalnız yavaş seri hatta (3/4/5) denenir.',
   }, d.protocolAtScan ?? 'bilinmiyor'));
 
+  f.push(observed({ id: 'functional03Raw', label: 'fonksiyonel 03 ham RX', source: SRC_DTC,
+    note: 'null = bu ürün yolunda ham yanıt taşınmadı; temiz anlamına gelmez.' }, d.functional03Raw ?? null));
+  f.push(observed({ id: 'functional07Raw', label: 'fonksiyonel 07 ham RX', source: SRC_DTC,
+    note: 'null = bu ürün yolunda ham yanıt taşınmadı; temiz anlamına gelmez.' }, d.functional07Raw ?? null));
+  f.push(observed({ id: 'kwpPhysicalTarget', label: 'KWP fiziksel hedef', source: SRC_DTC,
+    note: 'Yalnız doğrulanmış keşif kanıtından gelir; Renault adresi tahmin edilmez.' }, d.physicalTarget ?? null));
+  f.push(observed({ id: 'kwpTargetProvenance', label: 'hedef provenance', source: SRC_DTC,
+    note: 'UNKNOWN ise fiziksel komut fail-closed kesilir.' }, d.targetProvenance ?? null));
+  /* P0-OBD-FINAL-02: bu iki alan artık ÖLÇÜLÜYOR (`kwpSessionProbe`). Eskiden
+     kodda VARDI ama sonsuza dek `null`dı — oturum komutu yalnız bir NRC sonrası
+     YAN ETKİ olarak gidiyor ve sonucu bir `boolean`a düşürülüp ATILIYORDU. */
+  f.push(observed({ id: 'kwpSessionRequest', label: 'oturum isteği', source: SRC_DTC,
+    note: 'Kontrollü prob ölçer (10 81 → 50 81; olmazsa 10 C0 → 50 C0). null = prob koşmadı.' },
+  d.sessionRequest ?? null));
+  f.push(observed({ id: 'kwpSessionResponse', label: 'oturum yanıtı', source: SRC_DTC,
+    note: 'Gerçek TX/RX kanıtı olmadan oturum doğrulandı denmez.' }, d.sessionResponse ?? null));
+  f.push(observed({ id: 'kwp18Tx', label: 'KWP 0x18 TX', source: SRC_DTC,
+    note: 'Yalnız komut gerçekten köprüye verildiyse 1800FF00 gösterilir.' }, d.request18Tx ?? null));
+  f.push(observed({ id: 'kwp18RawRx', label: 'KWP 0x18 ham RX', source: SRC_DTC,
+    note: 'NO DATA/malformed/null temiz sonuç değildir.' }, d.response18Raw ?? null));
+  f.push(observed({ id: 'kwpGate', label: '0x18 gate sonucu', source: SRC_DTC,
+    note: 'SENT veya NOT_SENT; kanıt yoksa alan da yoktur.' }, d.gateOutcome ?? null));
+  f.push(observed({ id: 'kwpNotSentReason', label: 'gönderilmeme nedeni', source: SRC_DTC,
+    note: 'Fail-closed kapının kesin gerekçesi.' }, d.notSentReason ?? null));
+  f.push(observed({ id: 'kwpFoundDtcs', label: 'bulunan KWP DTC’leri', source: SRC_DTC,
+    note: 'Aynı kodun başka kaynağı authority katmanında korunur.' }, d.foundDtcs?.join(', ') ?? null));
+  f.push(observed({ id: 'kwpAuthorityPublish', label: 'canonical authority yayını', source: SRC_DTC,
+    note: 'true yalnız KWP kaynağından en az bir gözlem yayınlandı demektir.' },
+  d.publishedToCanonicalAuthority ?? null));
+
   if (!d.attempted) {
     f.push(unavailable(
       { id: 'dtcAttempt', label: '0x18 denemesi', source: SRC_DTC, note: '' },
@@ -446,14 +570,147 @@ function _dtcSection(s: KwpRawSnapshot, nowMs: number): KwpSection {
   return { id: 'dtc', title: KWP_SECTION_TITLE.dtc, fields: f };
 }
 
+/**
+ * P0-OBD-FINAL-02 — TANI OTURUMU PROBU BÖLÜMÜ (SALT-OKUNUR).
+ *
+ * NEDEN AYRI BÖLÜM: DTC bölümü `attempted:false` / `lastScanAtMs:null` olunca
+ * ERKEN DÖNER. Sahada tam olarak bu durumdaydık (KWP dalı hiç denenmemişti) —
+ * yani oturum kanıtını DTC bölümüne koysaydık, EN ÇOK İHTİYAÇ DUYULAN ANDA
+ * görünmezdi. Kendi bölümü kısa devreye UĞRAMAZ.
+ *
+ * Bu bölüm KOMUT GÖNDERMEZ: prob yalnız tam araç taraması sırasında koşar,
+ * burada YALNIZ son turun kaydı okunur.
+ */
+function _sessionProbeSection(s: KwpRawSnapshot): KwpSection {
+  const f: InspectorField[] = [];
+  const SRC_PROBE = 'obd/kwpSessionProbe.getKwpSessionProbes()';
+  const rows = s.sessionProbes;
+
+  if (rows === null || rows === undefined) {
+    f.push(unavailable(
+      { id: 'sessionProbeLedger', label: 'oturum probu defteri', source: SRC_PROBE, note: '' },
+      'Kanıt okunamadı.',
+    ));
+    return _bound({ id: 'sessionProbe', title: KWP_SECTION_TITLE.sessionProbe, fields: f });
+  }
+
+  if (rows.length === 0) {
+    f.push(unavailable(
+      { id: 'sessionProbeLedger', label: 'oturum probu defteri', source: SRC_PROBE, note: '' },
+      'Bu oturumda prob HİÇ koşmadı — prob yalnız tam araç taramasında ve yalnız '
+      + 'fiziksel adres henüz kanıtlanmamışken çalışır. Bu "oturum yok" DEMEK DEĞİLDİR.',
+    ));
+    return _bound({ id: 'sessionProbe', title: KWP_SECTION_TITLE.sessionProbe, fields: f });
+  }
+
+  const proven = rows.filter((r) => r.result === 'POSITIVE');
+  f.push(observed({
+    id: 'sessionProbeCount', label: 'deneme sayısı', source: SRC_PROBE,
+    note: 'ECU başına en fazla 2 komut (10 81 → 50 81; olmazsa 10 C0 → 50 C0).',
+  }, rows.length));
+
+  f.push(observed({
+    id: 'sessionProven', label: 'pozitif oturum kanıtı', source: SRC_PROBE,
+    note: 'YALNIZ pozitif önek HAM YANITTA görüldüyse VAR. Sessizlik/NRC/bozuk yanıt '
+        + 'POZİTİF SAYILMAZ ve 0x18 zincirini AÇMAZ (fail-closed).',
+  }, proven.length > 0 ? `VAR (${proven.length})` : 'YOK'));
+
+  for (const r of rows) {
+    f.push(observed({
+      id: `sessionProbe:${r.tx}:${r.request ?? 'none'}`,
+      label: `${r.tx} · ${r.request ?? 'gönderilmedi'}`,
+      source: SRC_PROBE,
+      note: 'Ham yanıt · ölçülen sonuç · NRC. Karar TS tarafında verilir; native yalnız kanıt taşır.',
+    }, `${r.result}${r.nrc !== null ? ` · NRC 0x${r.nrc.toString(16).toUpperCase().padStart(2, '0')}` : ''}`
+       + ` · rx=${r.raw ?? 'YOK'}`));
+  }
+
+  return _bound({ id: 'sessionProbe', title: KWP_SECTION_TITLE.sessionProbe, fields: f });
+}
+
+/**
+ * P0-OBD-DIAG-01 — FİZİKSEL ADRESLEME MATRİSİ BÖLÜMÜ (SALT-OKUNUR).
+ *
+ * NEDEN AYRI BÖLÜM: sahadaki soru "0x18 gitti mi" DEĞİL, "bu ECU'ya fiziksel
+ * istek HANGİ header ile ulaşıyor" idi. Matris tam olarak bunu ölçer ve cevabı
+ * BURADA, satır satır gösterir: hangi header + hangi istek → hangi ham yanıt.
+ *
+ * KONTROL SATIRI AYRI OKUNUR: fiziksel satırların hepsi sustu VE kontrol de
+ * sustuysa teşhis "adres yanlış" DEĞİL "hat matris sırasında ölmüş"tür.
+ */
+function _addressingSection(s: KwpRawSnapshot): KwpSection {
+  const f: InspectorField[] = [];
+  const SRC = 'obd/kwpAddressingProbe.getKwpAddressingProbes()';
+  const rows = s.addressingProbes;
+
+  if (rows === null || rows === undefined) {
+    f.push(unavailable(
+      { id: 'addressingLedger', label: 'adresleme matrisi defteri', source: SRC, note: '' },
+      'Kanıt okunamadı.',
+    ));
+    return _bound({ id: 'addressing', title: KWP_SECTION_TITLE.addressing, fields: f });
+  }
+
+  if (rows.length === 0) {
+    f.push(unavailable(
+      { id: 'addressingLedger', label: 'adresleme matrisi defteri', source: SRC, note: '' },
+      'Bu oturumda matris HİÇ koşmadı — yalnız tam araç taramasında ve yalnız '
+      + 'fiziksel adres henüz kanıtlanmamışken çalışır. Bu "adres yanlış" DEMEK DEĞİLDİR.',
+    ));
+    return _bound({ id: 'addressing', title: KWP_SECTION_TITLE.addressing, fields: f });
+  }
+
+  const answered = rows.filter((r) => r.physical && (r.result === 'ANSWERED' || r.result === 'NEGATIVE'));
+  const control  = rows.find((r) => !r.physical) ?? null;
+
+  f.push(observed({
+    id: 'addressingProven', label: 'fiziksel adres KANITI', source: SRC,
+    note: 'Pozitif yanıt DA ayrık negatif yanıt DA adresin CANLI olduğunu kanıtlar; '
+        + 'yalnız SESSİZLİK kanıt değildir (fail-closed).',
+  }, answered.length > 0
+      ? `VAR — ${answered[0]!.header}`
+        + (answered[0]!.initFirst !== null
+            ? ` (${answered[0]!.initFirst === 'FAST' ? 'ATFI' : 'ATSI'} BAŞLATMA GEREKTİ)` : '')
+      : 'YOK'));
+
+  f.push(control === null
+    ? unavailable({ id: 'addressingControl', label: 'kontrol satırı (fonksiyonel)', source: SRC, note: '' },
+        'Kontrol satırı kaydı yok.')
+    : observed({
+        id: 'addressingControl', label: 'kontrol satırı (fonksiyonel)', source: SRC,
+        note: 'Matris sırasında hattın CANLI olduğunu kanıtlar. Bu satır da sustuysa '
+            + 'fiziksel sessizlik "adres yanlış" KANITI DEĞİLDİR.',
+      }, `${control.header} + ${control.request ?? 'gönderilmedi'} → ${control.result}`));
+
+  for (const r of rows) {
+    f.push(observed({
+      id: `addressingRow:${r.variantId}`,
+      label: `${r.physical ? 'fiziksel' : 'KONTROL'} · ${r.header}`
+           + `${r.initFirst !== null ? ` + ${r.initFirst === 'FAST' ? 'ATFI' : 'ATSI'}` : ''}`
+           + ` + ${r.request ?? '—'}`,
+      source: SRC,
+      note: 'ISO 14230-2: format baytının alt 6 biti VERİ UZUNLUĞUDUR. Satırlar tam '
+          + 'olarak o alanın (ve servis seçiminin) etkisini ölçer.',
+    }, `${r.result}${r.nrc !== null ? ` · NRC 0x${r.nrc.toString(16).toUpperCase().padStart(2, '0')}` : ''}`
+       + ` · rx=${r.raw ?? 'YOK'}`
+       /* P0-OBD-DIAG-03: başlatma düştüyse GEREKÇE burada görünür — "rx=YOK"
+          tek başına teşhis edilemez bir düşüştür. */
+       + (r.initRaw !== null ? ` · başlatma: ${r.initRaw}` : '')));
+  }
+
+  return _bound({ id: 'addressing', title: KWP_SECTION_TITLE.addressing, fields: f });
+}
+
 export function buildKwpSections(s: KwpRawSnapshot): KwpSection[] {
   const nowMs = s.readAt;
   return [
     _protocolSection(s),
     _sessionSection(s, nowMs),
     _recoverySection(s),
-    _keepAliveSection(),
+    _keepAliveSection(s),
     _dtcSection(s, nowMs),
+    _sessionProbeSection(s),
+    _addressingSection(s),
   ];
 }
 

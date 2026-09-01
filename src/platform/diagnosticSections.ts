@@ -30,6 +30,7 @@ import { getGeofenceStatus } from './security/geofenceService';
 import { connectivityService } from './connectivityService';
 import { getVoltageStats } from './power/BatteryProtectionService';
 import { useUnifiedVehicleStore } from './vehicleDataLayer/UnifiedVehicleStore';
+import { resolveBatteryVoltage } from './vehicleDataLayer/canonicalVehicleSignal';
 import { useHALStatusStore } from './vehicleDataLayer/halStatusStore';
 import type { SignalSource } from './vehicleDataLayer/valTypes';
 import {
@@ -74,6 +75,19 @@ export interface ObdDeepSnapshot {
   handshake: {
     outcome: string; ranAt: number | null; vinClass: string | null; vinPresent: boolean;
     bitmapClass: string | null; readBlocks: string[]; supportedCount: number;
+    /**
+     * P0-OBD-CORE-01B — KESIF BUTUNLUGU. `supportedCount` TEK BASINA kanit
+     * DEGILDIR: zincir ilk blokta kirildiginda da ~15 doner ve bu "arac 15 PID
+     * destekliyor" ANLAMINA GELMEZ. 'incomplete' iken okunmayan bloklarin
+     * PID'leri BILINMIYOR (desteklenmiyor DEGIL).
+     */
+    discoveryCompleteness: 'complete' | 'incomplete' | 'not_run';
+    /** Zincirin kirildigi blok ('20','40'...); kirilmadiysa null. */
+    failedBlock: string | null;
+    /** Denenmis blok taban PID'leri — basarisiz olan da DAHIL. */
+    attemptedBlocks: string[];
+    /** Blok basina yapilan deneme sayisi; native tasimiyorsa bos. */
+    blockAttempts: number[];
     failReason: string | null;
     // PR-1a
     timeoutStage: string | null; durationMs: number | null;
@@ -108,9 +122,13 @@ export function buildObdDeepSnapshot(): ObdDeepSnapshot {
   const status = _safe(() => getOBDStatusSnapshot(), {
     connectionState: 'unknown', source: 'none', vehicleType: 'ice', lastSeenMs: 0,
   });
+  /* P0-OBD-06: yedek anlık görüntü sözleşmeyi TAM karşılar. Eksik alan bırakmak
+     "ölçüm yok" ile "sıfır ölçüm" ayrımını bulanıklaştırırdı — `fieldTiming` BOŞ
+     harita demek "hiçbir alan gözlenmedi"dir, `sessionHasData:false` de bunu söyler. */
   const health = _safe(() => getObdHealth(), {
     connectionQuality: 0, lastPacketAgeMs: -1, isStale: false, reconnectPressure: 0,
     sensorReliability: {} as Record<string, number>,
+    fieldTiming: {}, expectedIntervalMs: 0, sessionHasData: false,
   });
 
   const data = _safe(() => getOBDDataSnapshot(), null as ReturnType<typeof getOBDDataSnapshot> | null);
@@ -190,6 +208,8 @@ export function buildObdDeepSnapshot(): ObdDeepSnapshot {
     handshake: _safe(() => getHandshakeDiagnostics(), {
       outcome: 'not_run', ranAt: null, vinClass: null, vinPresent: false,
       bitmapClass: null, readBlocks: [], supportedCount: 0, failReason: null,
+      discoveryCompleteness: 'not_run', failedBlock: null,
+      attemptedBlocks: [], blockAttempts: [],
       timeoutStage: null, durationMs: null, protocolTried: null, protocolActive: null,
       lastSuccessAt: null, reconnectReason: null, reconnectHistory: [], discoveryEvidence: null,
     }),
@@ -399,18 +419,25 @@ const VOLT_LOW_V      = 12.2;
 const VOLT_CHARGING_V = 13.2;
 
 export function buildPowerSnapshot(): PowerSnapshot {
-  // CAN (gövde veriyolu, ProfileSignalGate → UnifiedVehicleStore.canBatteryVolt)
-  const canV = _safe(() => useUnifiedVehicleStore.getState().canBatteryVolt, null as number | null);
-  // OBD (PID 0x42 ATRV, obdSanitizer → OBDData.batteryVoltage; -1 = desteklenmiyor)
-  const obdV = _safe(() => getOBDDataSnapshot().batteryVoltage, undefined as number | undefined);
-
-  let source: PowerSnapshot['source'] = 'none';
-  let voltageV: number | null = null;
-  if (canV != null && Number.isFinite(canV) && canV > 0) {
-    source = 'CAN'; voltageV = canV;
-  } else if (obdV != null && Number.isFinite(obdV) && obdV > 0 && obdV !== -1) {
-    source = 'OBD'; voltageV = obdV;
-  }
+  /* P0-OBD-03 · ÜÇÜNCÜ KOPYA KALDIRILDI. Bu blok CAN → ATRV önceliğini KENDİ
+     yazıyordu ve `useBatteryVoltage` ile AYRIŞABİLİYORDU: farklı geçerlilik
+     bandı (`> 0` vs 8–16 V) ve PID 0x42'den habersizlik yüzünden gösterge bir
+     değer gösterirken tanı raporu "kaynak yok" diyebiliyordu. Zincir artık
+     TEK yerde: CAN → OBD PID 0x42 → adaptör ATRV → yok. */
+  const atrv = _safe(() => getOBDDataSnapshot().batteryVoltage, undefined as number | undefined);
+  const reading = _safe(
+    () => resolveBatteryVoltage(
+      useUnifiedVehicleStore.getState(),
+      typeof atrv === 'number' && atrv > 0 ? atrv : null,
+      Date.now(),
+    ),
+    null as { value: number | null; source: 'CAN' | 'OBD' | 'NONE' } | null,
+  );
+  const source: PowerSnapshot['source'] =
+    reading === null || reading.source === 'NONE'
+      ? 'none'
+      : (reading.source as PowerSnapshot['source']);
+  const voltageV: number | null = reading === null ? null : reading.value;
 
   let severity: PowerSnapshot['severity'] = 'unknown';
   if (voltageV != null) {

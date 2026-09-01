@@ -26,6 +26,11 @@ import {
 import { _setupRouteInteractions, _cleanupRouteInteractions } from './MapInteractionManager';
 import { hasWeakGpu } from '../../utils/detectWeakGpu';
 import { getDeviceTier } from '../deviceCapabilities';
+/* ARCH-06/F1 — MapLibre ÖRNEK SAYACI. F0'ın açık sorusu: MiniMap ile FullMap
+   aynı anda iki WebGL bağlamı yaşatıyor mu? Bu turda YALNIZ ÖLÇÜLÜR;
+   optimizasyon F3'e bırakılır. */
+import { bumpPerf } from '../perf/perfCounters';
+import { noteMapInstanceMounted, noteMapInstanceUnmounted } from '../perf/mapInstanceEvidence';
 
 // Ensure smart-tile protocol is never active
 try { maplibregl.removeProtocol('smart-tile'); } catch { /* not registered */ }
@@ -110,6 +115,8 @@ async function _freeContext(map: MapLibreMap): Promise<void> {
 
   // 4. Bilinen event aboneliklerini kaldır — map.remove() tüm listener'ları zaten temizler.
 
+  bumpPerf('map.instanceUnmounted');
+  noteMapInstanceUnmounted();
   try { map.remove(); } catch { /* canvas already removed */ }
 
   // GPU'ya context kaybını bildir — slot hemen serbest kalır
@@ -231,6 +238,8 @@ async function _initCore(
     // repaint kuyruğunu tamamen keser; maxTileCacheSize tavanı bellek baskısını (GC) sınırlar.
     const _lowTier = getDeviceTier() === 'low';
 
+    bumpPerf('map.instanceMounted');
+    noteMapInstanceMounted('FULL');
     const map = new MapLibreMap({
       container,
       style,
@@ -500,6 +509,8 @@ async function _initCore(
 
     // Son çare fallback: minimal harita — gün/gece paleti getMapNight() ile seçilir
     try {
+      bumpPerf('map.instanceMounted');
+      noteMapInstanceMounted('FULL');
       const fallbackMap = new MapLibreMap({
         container,
         style: getOnlineTileStyle(getMapNight()),

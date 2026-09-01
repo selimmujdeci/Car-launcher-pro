@@ -12,7 +12,7 @@
  */
 import { useStore } from '../../store/useStore';
 import {
-  getLocalMusicState, loadMusicTracks, playAtIndex, localSeek, setLocalOnEnded,
+  getLocalMusicState, loadMusicTracks, playLocalSelection, localSeek,
 } from '../localMusicService';
 import { playStream, streamSeek, setStreamOnEnded, STREAM_PKG } from '../streamMusicService';
 import {
@@ -198,7 +198,7 @@ function _playTrack(t: UnifiedTrack): void {
       albumArt: t.artwork, durationMs: t.spotifyDurationMs ?? 0,
     });
   } else if (typeof t.localIndex === 'number') {
-    void playAtIndex(t.localIndex);
+    void playLocalSelection(t.localIndex);
   } else if (t.streamUrl?.startsWith(ARCHIVE_SCHEME)) {
     // Internet Archive: gerçek ses dosyası URL'sini çalmadan hemen önce çöz
     const identifier = t.streamUrl.slice(ARCHIVE_SCHEME.length);
@@ -446,7 +446,6 @@ export function getUiQueueView(): {
 setStreamOnEnded(() => next());
 setYouTubeOnEnded(() => next());
 // Cihaz parçası doğal bitince de kuyruğu caros yönetsin (tek tip sonraki/önceki + persist).
-setLocalOnEnded(() => next());
 
 /* ── YouTube "oynatılamaz" kurtarması (gömme kapalı / kaldırılmış) ──────────
  * Resmî Türkçe klipler sık sık gömmeye (embedding) izin vermez → loadVideoById

@@ -8,9 +8,10 @@
  * İKİ İLKE (CLAUDE.md · task):
  *  - "BAŞARISIZ EYLEM YAPILMIŞ GİBİ CEVAP VERME": ok olmayan HER sonuç (denied/failed/timeout/
  *    invalid/no_handler/rejected) severity error/warning + DÜRÜST mesaj üretir; ASLA "yapıldı" demez.
- *  - "SESSİZ BIRAKMA": aşama geçişleri (listening/understanding/planning/executing) için nötr ara
- *    mesajlar sağlar (köprü, gecikme/aşama başında yayınlar). Anlama İMA eden mesaj YOK (saha dersi:
- *    "anladım deyip yapamadı" — voiceService THINKING_PHRASES nötrleştirmesiyle hizalı).
+ *  - "SESSİZ BIRAKMA" ARTIK GECİKME ÖRTMEK DEĞİLDİR (MAVI-F2 · I11): yalnız kullanıcının
+ *    DAVRANIŞINI değiştirebilecek aşamalar mesaj üretir — `listening` (mikrofon açık, konuşabilirsin)
+ *    ve `executing` (gerçek eylem başladı). `understanding` ve `planning` satırları KALDIRILDI:
+ *    "Bir saniye" / "Bakıyorum" hiçbir bilgi taşımıyor, yalnız beynin süresini örtüyordu.
  *
  * SAF: builder'lar zaman/yan-etki taşımaz; kanal emit'te zaman damgalar. Fail-soft.
  */
@@ -45,17 +46,22 @@ export interface MaviFeedback extends MaviFeedbackData {
  * Aşama feedback'i (sessiz bırakmama) — nötr, kısa
  * ════════════════════════════════════════════════════════════════════════ */
 
+/* MAVI-F2 · I11: `understanding` ("Bir saniye") ve `planning` ("Bakıyorum") satırları
+ * KALDIRILDI — ikisi de yapay ara sözdü: kullanıcıya hiçbir şey söylemiyor, yalnız
+ * anlama/planlama gecikmesini örtüyorlardı. Tablodan düşen durum için
+ * `buildStageFeedback` artık `null` döner → o aşamada SESSİZLİK doğru davranıştır.
+ * Kalan iki satır bilgi TAŞIR: "Dinliyorum" mikrofonun açık olduğunu (kullanıcı
+ * konuşmaya başlayabilir), "Yapıyorum" gerçek bir eylemin BAŞLADIĞINI söyler —
+ * bittiğini İDDİA ETMEZ (sonuç metni `buildActionFeedback`ten gelir). */
 const STAGE_TABLE: Partial<Record<MaviState, { code: string; message: string }>> = {
-  listening:     { code: 'stage_listening',     message: 'Dinliyorum' },
-  understanding: { code: 'stage_understanding', message: 'Bir saniye' },
-  planning:      { code: 'stage_planning',      message: 'Bakıyorum' },
-  executing:     { code: 'stage_executing',     message: 'Yapıyorum' },
+  listening: { code: 'stage_listening', message: 'Dinliyorum' },
+  executing: { code: 'stage_executing', message: 'Yapıyorum' },
 };
 
 /**
- * Aşama geçişi için nötr ara feedback (yoksa null → o durumda sessizlik uygun: idle/speaking/
- * cancelled/error kendi sonuç mesajını üretir). Köprü bunu YALNIZ gerekince (aşama başında /
- * yavaş aşamada) yayınlar — her geçişte gevezelik ETMEZ.
+ * Aşama geçişi için ara feedback. Tabloda olmayan her durum `null` döner → o aşamada
+ * SESSİZLİK doğru davranıştır (idle/speaking/cancelled/error kendi sonuç mesajını üretir;
+ * understanding/planning ise MAVI-F2 ile bilinçli olarak SESSİZDİR).
  */
 export function buildStageFeedback(state: MaviState): MaviFeedbackData | null {
   const row = STAGE_TABLE[state];

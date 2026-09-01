@@ -151,10 +151,16 @@ async function applySnapshotToMediaState(s: NativeAuthoritySnapshot): Promise<vo
       ...cur.track,
       title: s.title || cur.track.title,
       artist: s.artist || cur.track.artist,
+      albumArt: s.artworkUri || cur.track.albumArt,
       positionSec: (s.positionMs ?? 0) / 1000,
       durationSec: (s.durationMs ?? 0) / 1000,
     },
   });
+
+  if (s.activeSource === 'LOCAL') {
+    const { reflectCanonicalLocalSnapshot } = await import('../../localMusicService');
+    reflectCanonicalLocalSnapshot(s);
+  }
 }
 
 function persistNow(): void {

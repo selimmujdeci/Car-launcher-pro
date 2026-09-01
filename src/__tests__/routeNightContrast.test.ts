@@ -18,6 +18,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   resolveRouteColor,
+  ROUTE_COLOR_POLICY_VERSION,
   ROUTE_CORE_STOPS_DARK_BASEMAP,
   ROUTE_CORE_STOPS_LIGHT_BASEMAP,
 } from '../platform/map/core/routeColorModel';
@@ -92,8 +93,18 @@ describe('#619 — gece rota çekirdeği', () => {
     expect(cr(NIGHT_BG,   ROUTE_CORE_STOPS_LIGHT_BASEMAP[1])).toBeLessThan(4.5);
   });
 
-  it('🔒 gündüz kararı DEĞİŞMEDİ (kapsam dışı bırakıldı)', () => {
-    expect(ROUTE_CORE_STOPS_LIGHT_BASEMAP).toEqual(['#1A73E8', '#4F46E5', '#10b981']);
+  it('🔒 gündüz kararı POLİTİKA SÜRÜMÜNE bağlı — sessizce değişemez', () => {
+    /* #619 gündüz paletini KAPSAM DIŞI bırakmıştı ve bu kilit onu donduruyordu.
+       RC-2026.08.24-OEM turu gündüz duraklarını BİLİNÇLİ değiştirdi (doygun OEM
+       mavi → derin mavi → camgöbeği) ve gerekçesini `routeColorPolicy.test.ts`
+       içinde ölçtü (çekirdek ↔ koyu kılıf ≥ 3:1, üç durak).
+
+       Kilit KALDIRILMADI, GÜÇLENDİRİLDİ: artık yalnız değerleri değil, o
+       değerlerin AİT OLDUĞU politika sürümünü de bağlar. Palet sürüm
+       yükseltilmeden değiştirilirse bu kilit yine düşer — "sessiz palet
+       kayması" #622'nin kök nedeniydi ve bir daha sessiz olamaz. */
+    expect(ROUTE_COLOR_POLICY_VERSION).toBe('RC-2026.08.24-OEM');
+    expect(ROUTE_CORE_STOPS_LIGHT_BASEMAP).toEqual(['#006CFF', '#0057D9', '#00A6FF']);
   });
 
   it('🔒 karar anahtarı zemin kutbunu taşır — tema geçişinde gradient yeniden yazılır', () => {

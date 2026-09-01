@@ -88,10 +88,29 @@ describe('#669 · "tekrar söyle" yalnız tekrarın işe yaradığı yerde', () 
        diyor" dedi. O cümle REASK'tır ve "seni duyamadım, TEKRAR SÖYLE"
        anlamına gelir — oysa tetikleyen şey çoğu kez STT değil, ağın ölmüş
        olmasıydı. Tekrar söylemek işe yaramaz; kullanıcı döngüye girer. */
-    expect(provider).toContain('NET_DOWN_BY_PERSONALITY');
+    /* MAVI-F13/4: persona metinleri `companionAnswerShaping`e taşındı — kilit
+       SİLİNMEDİ, yeni sahibine bağlandı ve DAVRANIŞLA güçlendirildi: artık
+       "REASK ≠ NET_DOWN" ayrımının GERÇEKTEN korunduğu da doğrulanıyor. */
+    const shaping = read('src/platform/companion/companionAnswerShaping.ts');
+    expect(shaping).toContain('NET_DOWN_BY_PERSONALITY');
     expect(provider).toContain("route: 'companion_net_down'");
     /* Ton kişiliğe uyar (persona sözleşmesi korunur), içerik dürüsttür. */
-    expect(provider).toMatch(/netDeathOnly[\s\S]{0,300}NET_DOWN_BY_PERSONALITY/);
+    expect(provider).toMatch(/netDeathOnly[\s\S]{0,300}netDownReply\(/);
+  });
+
+  it('DAVRANIŞ: REASK ile NET_DOWN metinleri ASLA aynı değildir (#669 özü)', async () => {
+    /* Kusurun özü iki farklı arızanın AYNI cümleyi duyurmasıydı. Kaynak taraması
+       bunu yakalayamaz; iki tabloyu gerçekten çağırıp karşılaştırıyoruz. */
+    const { reaskReply, netDownReply } =
+      await import('../platform/companion/companionAnswerShaping');
+    for (const p of ['sessiz', 'samimi', 'neseli', 'profesyonel', 'bilinmeyen']) {
+      expect(reaskReply(p), `${p}: REASK boş`).toBeTruthy();
+      expect(netDownReply(p), `${p}: NET_DOWN boş`).toBeTruthy();
+      expect(netDownReply(p), `${p}: ağ ölümünde yine "tekrar söyle" duyuluyor`)
+        .not.toBe(reaskReply(p));
+    }
+    // Bilinmeyen kişilik fail-soft: cümle üretilir, boşluğa düşülmez.
+    expect(reaskReply('bilinmeyen')).toBe(reaskReply('__yok__'));
   });
 
   it('KİLİT: ağ ölümü ölçümü dış kapsama TAŞINIR (bilgi var, besleyen yok deseni)', () => {
@@ -104,7 +123,15 @@ describe('#669 · "tekrar söyle" yalnız tekrarın işe yaradığı yerde', () 
        "tekrar söyle" doğru cevaptır ve dürüst kota/anahtar dalları da bozulmaz. */
     expect(provider).toContain('!sawHttpResponse');
     expect(provider).toContain("route: 'companion_rate_limited'");
-    expect(provider).toContain("route: 'companion_key_invalid'");
+    /* MAVI-F13/3: kimlik/kredi dalı TEK noktadan ve `failure.kind`e göre
+       yönlendiriliyor (işaretler `companionProviderHealth` defterinden okunur).
+       Kilit sabit metne değil DALIN KENDİSİNE bağlanır — ve GÜÇLENDİ: artık
+       kredi ↔ anahtar AYRIMININ da kaybolmadığı doğrulanıyor (ikisi AYRI
+       eylem gerektirir: bakiye yükle ↔ anahtar yenile, #698). */
+    expect(provider, 'dürüst kimlik/kredi dalı kayboldu — kullanıcı yine REASK duyar')
+      .toMatch(/resolveProviderFailureAnswer\(\)/);
+    expect(provider, 'kimlik ↔ kredi rota ayrımı kayboldu (#698)')
+      .toMatch(/failure\.kind === 'no_credit' \? 'companion_no_credit' : 'companion_key_invalid'/);
   });
 
   it('KİLİT: bağlantı kalitesi -1 iken kanıt ÜRETİLMEZ', () => {

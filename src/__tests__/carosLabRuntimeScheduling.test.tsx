@@ -51,6 +51,7 @@ function snapshot(over: Partial<SchedRawSnapshot> = {}): SchedRawSnapshot {
     readAt: NOW,
     pollEvidence: {
       present: true, evidenceComplete: true, transport: 'classic', burstEnabled: false,
+      burstIntent: false, lastCycleWasBurst: false,
       configuredPidCount: 12, counters: COUNTERS,
       lastAttemptedPid: '010C', lastSuccessfulPid: null, lastOutcome: 'SUCCESS',
       lastElapsedMs: 42, lastPollAt: NOW - 800, decisionLabel: 'HAT SAĞLIKLI',
@@ -78,7 +79,8 @@ function snapshot(over: Partial<SchedRawSnapshot> = {}): SchedRawSnapshot {
 function conflictInput(over: Partial<SchedConflictInput> = {}): SchedConflictInput {
   return {
     pollingTimerActive: true, dataFresh: true, healthIsStale: false,
-    burstEnabled: false, liveDataScreenOpen: false, kwpAtLimit: null, kwpStatus: null,
+    burstIntent: false, lastCycleWasBurst: false, burstCycles: null,
+    liveDataScreenOpen: false, kwpAtLimit: null, kwpStatus: null,
     ...over,
   };
 }
@@ -547,21 +549,47 @@ describe('KİLİT 14 — çelişkiler GÖRÜNÜR', () => {
     expect(lp.activityNote).toContain('DENMEZ');
   });
 
-  it('burst açık ama tüketici kapalı → çelişki', () => {
-    const c = detectSchedConflicts(conflictInput({ burstEnabled: true, liveDataScreenOpen: false }));
+  it('burst NİYETİ açık ama tüketici kapalı → çelişki', () => {
+    const c = detectSchedConflicts(conflictInput({ burstIntent: true, liveDataScreenOpen: false }));
     expect(c.map((x) => x.id)).toContain('burst-vs-consumer');
+  });
+
+  /* B2 KİLİDİ — KAÇIRILAN UYARI (saha 2026-08-30 · CAROS LAB TAM KOPYA).
+     Tek alan hem niyeti hem son turu taşırken, son tur round-robin olduğu an
+     niyet siliniyor ve bu uyarı HİÇ üretilmiyordu. Niyet artık ezilemez. */
+  it('🔒 son tur round-robin OLSA BİLE burst niyeti uyarısı üretilir', () => {
+    const c = detectSchedConflicts(conflictInput({
+      burstIntent: true, lastCycleWasBurst: false, burstCycles: 135, liveDataScreenOpen: false,
+    }));
+    expect(c.map((x) => x.id)).toContain('burst-vs-consumer');
+  });
+
+  it('🔒 niyet kapalı + tarihsel burst turları → "burst hiç çalışmadı" hükmü çürütülür', () => {
+    const c = detectSchedConflicts(conflictInput({
+      burstIntent: false, lastCycleWasBurst: false, burstCycles: 135,
+    }));
+    const hit = c.find((x) => x.id === 'burst-intent-vs-history');
+    expect(hit).toBeDefined();
+    expect(hit!.bValue).toContain('135');
+  });
+
+  it('🔒 son tur GÖZLEMİ tek başına çelişki üretmez (niyet yerine geçmez)', () => {
+    const c = detectSchedConflicts(conflictInput({
+      burstIntent: false, lastCycleWasBurst: true, burstCycles: 0, liveDataScreenOpen: false,
+    }));
+    expect(c.map((x) => x.id)).not.toContain('burst-vs-consumer');
   });
 
   it('null (bilinmiyor) çelişki üretmez', () => {
     expect(detectSchedConflicts(conflictInput({
       pollingTimerActive: null, dataFresh: null, healthIsStale: null,
-      burstEnabled: null, liveDataScreenOpen: null,
+      burstIntent: null, lastCycleWasBurst: null, burstCycles: null, liveDataScreenOpen: null,
     }))).toHaveLength(0);
   });
 
   it('çelişki listesi bounded', () => {
     const c = detectSchedConflicts(conflictInput({
-      dataFresh: false, healthIsStale: true, burstEnabled: true, liveDataScreenOpen: false,
+      dataFresh: false, healthIsStale: true, burstIntent: true, liveDataScreenOpen: false,
       kwpAtLimit: true, kwpStatus: 'IN_PROGRESS',
     }));
     expect(c.length).toBeLessThanOrEqual(MAX_SCHED_CONFLICTS);
@@ -720,10 +748,13 @@ describe('KİLİT 20 — saha doğrulaması olmadan "çalışıyor" iddiası YOK
 const GATE_OPEN = {
   supportedKnown: true, supportedCount: 15, watchedCount: 6, gatedCount: 0,
   gatedPids: [] as string[], discoveryPending: 0, nativeListCount: 6, burst: false,
+  /* P0-OBD-CORE-06: kanıt TAM (continuation CLEAR ile bitmiş zincir). */
+  discoveryCompleteness: 'complete',
 };
 const GATE_CLOSED = {
   supportedKnown: false, supportedCount: 0, watchedCount: 16, gatedCount: 16,
   gatedPids: ['04', '10', '33'], discoveryPending: 1, nativeListCount: 1, burst: false,
+  discoveryCompleteness: 'not_run',
 };
 
 describe('KİLİT 21 — sessizliğin sebebi görünür (#503 gözlem borcu)', () => {
@@ -760,8 +791,29 @@ describe('KİLİT 21 — sessizliğin sebebi görünür (#503 gözlem borcu)', (
   it('kanıt varken kapı AÇIK okunur (sahte alarm üretmez)', () => {
     const ch = buildSchedChannels(snapshot({ extGate: GATE_OPEN }));
     const gate = findField(ch, 'cmdGate')!;
-    expect(String(gate.value)).toContain('kanıt VAR');
+    /* P0-OBD-CORE-06 — KİLİT YENİ DOĞRU DAVRANIŞA GÜNCELLENDİ (kaldırılmadı):
+       "kanıt VAR" iki farklı gerçeği aynı gösteriyordu. Zincir kesin bittiyse
+       (continuation CLEAR) hüküm "kanıt TAM"dır; kırıldıysa hüküm VERİLEMEZ. */
+    expect(String(gate.value)).toContain('kanıt TAM');
     expect(findField(ch, 'cmdGateSupported')!.value).toBe('15');
+  });
+
+  it('keşif KIRILDIYSA kapı "araç desteklemiyor" HÜKMÜ VERMEZ', () => {
+    const ch = buildSchedChannels(snapshot({
+      extGate: { ...GATE_OPEN, gatedCount: 86, discoveryCompleteness: 'incomplete' },
+    }));
+    const v = String(findField(ch, 'cmdGate')!.value);
+    expect(v).toContain('KEŞİF EKSİK');
+    expect(v).not.toContain('desteklemediği için');
+  });
+
+  it('bütünlük ÖLÇÜLMEDİYSE de "desteklemiyor" denmez (eski APK / eksik alan)', () => {
+    const ch = buildSchedChannels(snapshot({
+      extGate: { ...GATE_OPEN, gatedCount: 5, discoveryCompleteness: 'not_run' },
+    }));
+    const v = String(findField(ch, 'cmdGate')!.value);
+    expect(v).toContain('ÖLÇÜLMEDİ');
+    expect(v).not.toContain('desteklemediği için');
   });
 
   it('kapı durumu OKUNAMAZSA "açık" VARSAYILMAZ', () => {

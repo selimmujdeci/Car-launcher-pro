@@ -20,6 +20,13 @@ import {
   isVehicleFramed,
 } from '../cameraEngine';
 import {
+  resolveSpeedBand, SPEED_BANDS, type SpeedBand,
+} from '../navigation/core/cameraPolicyModel';
+import {
+  resolveTopPadForAnchor, updateAnchorBias, limitStep, limitAngleStep,
+  ANCHOR_MAX_STEP, ZOOM_MAX_STEP, PITCH_MAX_STEP_DEG, BEARING_MAX_STEP_DEG,
+} from './core/cameraCompositionModel';
+import {
   resolveEntryBearing, type EntryBearingDecision,
 } from '../navigation/core/navigationEntryBearing';
 import { useHazardStore } from '../../store/useHazardStore';
@@ -39,6 +46,9 @@ import {
 import { routeWidthExpression } from './core/routeWidthModel';
 import { safeSetPaint } from './_safeLayerOps';
 import { noteLegacyCameraOutcome } from '../navigation/cameraShadowRuntime';
+/* ARCH-06/F1 — YALNIZ SAYAÇ: kaç kamera komutu üretildi. Koordinat/bearing
+   ölçüm katmanına TAŞINMAZ; kamera otoritesi bu modülde KALIR. */
+import { bumpPerf } from '../perf/perfCounters';
 
 /**
  * #617 — PARK/DURUŞ ÇERÇEVESİNİN TEK OTORİTESİ (sokak seviyesi).
@@ -274,6 +284,33 @@ function _reportShadow(
   } catch { /* gölge gözlem kamerayı ASLA bozmaz */ }
 }
 
+/* ── P0-NAV-03 · KOMPOZİSYON DURUMU (tek kamera politikası) ─────────────────
+ * Aracın ekrandaki yeri artık `cameraPolicyModel.SPEED_BANDS[*].anchorY`den
+ * gelir; eski `CAMERA_CFG.TOP_PAD_*` eğrisi kompozisyon için KULLANILMAZ.
+ * Böylece iki paralel kompozisyon teke iner — `cameraShadowRuntime`ın ölçtüğü
+ * `anchorYDelta` bu turdan sonra sıfıra yaklaşmalıdır (cihaz kabul ölçütü).
+ *
+ * `cameraFollowAuthority` DOKUNULMADI: o "kamera sürülebilir mi"ye karar verir,
+ * burası yalnız "sürülüyorsa nasıl çerçevelenir"i hesaplar. */
+let _camPrevBand: SpeedBand | null = null;
+/** Ölçülen ileri-bakış payı (px) — analitik tahmin DEĞİL (bkz. model başlığı). */
+let _anchorBiasPx = 0;
+/** Bir önceki karede UYGULANAN anchor — kare başı sıçrama sınırı için. */
+let _prevAppliedAnchor: number | null = null;
+let _prevAppliedZoom: number | null = null;
+let _prevAppliedPitch: number | null = null;
+let _prevAppliedBearing: number | null = null;
+
+/** @internal — oturum/test sıfırlaması. */
+export function _resetCameraComposition(): void {
+  _camPrevBand = null;
+  _anchorBiasPx = 0;
+  _prevAppliedAnchor = null;
+  _prevAppliedZoom = null;
+  _prevAppliedPitch = null;
+  _prevAppliedBearing = null;
+}
+
 export function setDrivingView(
   map: MapLibreMap,
   lat: number,
@@ -430,9 +467,20 @@ export function setDrivingView(
      gideceği yönü gösterir. Rota yoksa mevcut bearing korunur. */
   const _bearing = _standstillFix
     ? (Number.isFinite(routeBearing ?? NaN) ? (routeBearing as number) : map.getBearing())
-    : smooth.bearing;
-  const _zoomEff = _standstillFix ? map.getZoom()    : _zoom;
-  const _pitchEff = _standstillFix ? map.getPitch()  : _pitch;
+    : limitAngleStep(_prevAppliedBearing, smooth.bearing, BEARING_MAX_STEP_DEG);
+  _prevAppliedBearing = _bearing;
+  /* P0-NAV-03 — kare başı SERT tavan. Sönümleme yumuşak bir yaklaşımdır ama
+     hedef bir karede büyük sıçrarsa ilk adım da büyüktür; bu sınır o adımı
+     keser. Durakta zaten dondurulmuş değerler kullanılır → sınırlayıcı YALNIZ
+     hareket hâlinde iş görür. */
+  const _zoomEff = _standstillFix
+    ? map.getZoom()
+    : limitStep(_prevAppliedZoom, _zoom, ZOOM_MAX_STEP);
+  const _pitchEff = _standstillFix
+    ? map.getPitch()
+    : limitStep(_prevAppliedPitch, _pitch, PITCH_MAX_STEP_DEG);
+  _prevAppliedZoom  = _zoomEff;
+  _prevAppliedPitch = _pitchEff;
   /* Öğrenilen tavan BAŞTAN uygulanır — düzeltme sonraki karelere maliyet
      çıkarmaz (bkz. `_lookCapM`). */
   const _lookEff = _standstillFix ? 0 : Math.min(_lookAhead, _lookCapM);
@@ -444,7 +492,38 @@ export function setDrivingView(
   const centerLat  = lat + _lookDeg * Math.cos(_bearRad);
   const centerLng  = lng + _lookDeg * Math.sin(_bearRad) / _cosLat;
 
-  const topPad = Math.round(containerHeight * target.topPadFrac);
+  /* ── KOMPOZİSYON: aracın yeri POLİTİKADAN gelir (P0-NAV-03) ───────────────
+   * Eski satır `containerHeight * target.topPadFrac` idi — `cameraPolicyModel`
+   * ile YARIŞAN ikinci bir kompozisyon eğrisi. Artık hedef doğrudan aracın
+   * ekrandaki oranıdır (`anchorY`) ve padding ondan TÜRETİLİR; ileri bakış payı
+   * tahmin edilmez, `map.project` ile ÖLÇÜLÜP geri beslenir (aşağıya bakınız). */
+  /* Ekran yönü FAIL-SOFT okunur: `getCanvas()` harita henüz kurulurken
+     atabilir ve bu çağrı kamera uygulamasının ÖNÜNDEDİR — korumasız bırakmak,
+     stil kapısı kusurunun (bu dosyanın §1 notu) aynısını geri getirirdi:
+     kamera bir yan okuma yüzünden hiç uygulanmaz. Ölçülemezse YATAY varsayılır
+     (head unit'lerin baskın hâli) ve kamera çalışmaya DEVAM eder. */
+  let _orientation: 'LANDSCAPE' | 'PORTRAIT' = 'LANDSCAPE';
+  try {
+    const _cvNow = map.getCanvas();
+    if (_cvNow && _cvNow.clientHeight > _cvNow.clientWidth) _orientation = 'PORTRAIT';
+  } catch { /* ölçülemedi → yatay varsayılır */ }
+  const _band = resolveSpeedBand(effectiveSpeed, _camPrevBand);
+  _camPrevBand = _band;
+  const _bandProfile = SPEED_BANDS.find((b) => b.id === _band) ?? SPEED_BANDS[0];
+  const _wantAnchor = _orientation === 'PORTRAIT'
+    ? _bandProfile.anchorYPortrait
+    : _bandProfile.anchorYLandscape;
+  /* Kare başı sıçrama tavanı: bant atlaması (CITY → CRUISE) anchor'ı bir karede
+     zıplatır; sönümlemeden ÖNCE gelen sert sınır haritanın kaymasını engeller. */
+  const _anchorY = limitStep(_prevAppliedAnchor, _wantAnchor, ANCHOR_MAX_STEP);
+  _prevAppliedAnchor = _anchorY;
+
+  const _padDecision = resolveTopPadForAnchor({
+    anchorY: _anchorY,
+    containerHeight,
+    lookAheadPx: _anchorBiasPx,
+  });
+  const topPad = Math.round(_padDecision.topPad);
 
   /* ── KAMERA UYGULAMA: SIÇRAMA mı, AKIŞ mı (saha 2026-08-13) ────────────────
    * Eski yorum *"rAF loop 150ms throttle zaten smooth hissettiriyor"* diyordu;
@@ -478,6 +557,7 @@ export function setDrivingView(
     padding: { top: topPad, bottom: 0, left: 0, right: 0 },
   };
   if (_smoothPan) {
+    bumpPerf('map.cameraCommand');
     map.easeTo({
       ..._cameraOpts,
       duration: _cameraEaseDurationMs(),
@@ -485,6 +565,7 @@ export function setDrivingView(
       essential: true,            // "reduce motion" bunu KAPATAMAZ (takip kamerası)
     });
   } else {
+    bumpPerf('map.cameraCommand');
     map.jumpTo(_cameraOpts);
   }
 
@@ -503,6 +584,7 @@ export function setDrivingView(
     let _padEff = topPad;
     if (_fixedPad !== null) {
       _padEff = _fixedPad;
+      bumpPerf('map.cameraCommand');
       map.jumpTo({
         center:  [centerLng, centerLat],
         bearing: _bearing,
@@ -540,6 +622,7 @@ export function setDrivingView(
       // Taşma → tavanı YARILA ve BİR KEZ düzelt. Sonraki kareler tavanlı gelir.
       _lookCapM = _lookEff * 0.5;
       const _ld = _lookCapM / 111_320;
+      bumpPerf('map.cameraCommand');
       map.jumpTo({
         center: [
           lng + (_ld * Math.sin(_bearRad)) / _cosLat,
@@ -558,6 +641,20 @@ export function setDrivingView(
     /* GÖLGE GÖZLEM — legacy'nin GERÇEKTEN uyguladığı değerler.
        `_p2.y` ZATEN yukarıda çerçeve denetimi için hesaplandı; gölge katmanı
        için EK Map API çağrısı YAPILMAZ. Koordinat GEÇİRİLMEZ. */
+    /* ── ÖLÇÜLEN ANCHOR GERİ BESLEMESİ (P0-NAV-03) ────────────────────────
+     * `_p2.y` ZATEN ölçüldü (ek Map API çağrısı YOK). İstenen anchor ile
+     * gerçekleşen arasındaki fark küçük bir kazançla padding yanlılığına
+     * işlenir → pitch/zoom/ekran boyu ne olursa olsun kompozisyon yakınsar.
+     * Analitik `lookAheadPx` tahmini bilinçle KULLANILMADI: düz Mercator
+     * pitch'i saymaz ve hatayı aracı ekran DIŞINA iten yönde yapar. */
+    if (_h > 0 && !_standstillFix) {
+      _anchorBiasPx = updateAnchorBias({
+        prevBiasPx: _anchorBiasPx,
+        measuredAnchorY: _p2.y / _h,
+        desiredAnchorY: _anchorY,
+        containerHeight: _h,
+      }).biasPx;
+    }
     _reportShadow(map, true, _zoomEff, _pitchEff, _bearing,
       _h > 0 ? _p2.y / _h : null, effectiveSpeed, _lookEff, _standstillFix);
   } catch { /* project() harita hazır değilken atabilir — kamera olduğu gibi kalır */ }
@@ -718,6 +815,7 @@ export function enterNavigationView(
 
   const topPad = Math.round(containerHeight * 0.48);
 
+  bumpPerf('map.cameraCommand');
   map.easeTo({
     center:  [centerLng, centerLat],
     bearing,
@@ -754,6 +852,7 @@ export function exitDrivingView(map: MapLibreMap) {
   if (map.isStyleLoaded()) {
     syncRouteColor(map, 0, useHazardStore.getState().globalRiskScore > 0.5, true);
   }
+  bumpPerf('map.cameraCommand');
   map.easeTo({
     bearing: 0,
     zoom: PARK_VIEW_ZOOM,

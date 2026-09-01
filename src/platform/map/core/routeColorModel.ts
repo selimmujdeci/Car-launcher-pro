@@ -47,7 +47,7 @@
  */
 
 /** Politika sürümü — herhangi bir karar değişince yükselir, LAB'da görünür. */
-export const ROUTE_COLOR_POLICY_VERSION = 'RC-2026.08.07' as const;
+export const ROUTE_COLOR_POLICY_VERSION = 'RC-2026.08.24-OEM' as const;
 
 /* ── Palet: BUGÜNKÜ değerler, birebir taşındı ─────────────────────────────── */
 
@@ -198,10 +198,22 @@ export interface RouteColorInput {
  * ÜST SINIR YİNE ÖLÇÜLEREK KONDU: yeşili `#3ddba3`ye açmak yola karşı 2,61
  * verirdi ama beyaz kılıfa karşı **1,77** — ≥1,8 eşiğinin altı: rota tek parlak
  * bloğa dönüşüp beyaz kenar kaybolurdu. REDDEDİLDİ; mevcut yeşil korundu.
+ *
+ * ── RC-2026.08.24-OEM · ORTA DURAK ÖLÇÜLEREK DÜZELTİLDİ ───────────────────
+ * OEM turu paleti doygunlaştırırken orta durağı `#969CFF` yaptı ve #619'un
+ * KENDİ eşiğini kaçırdı — bu, #622'de yaşanan kusurun BİREBİR aynısıdır
+ * (yol/zemin açıldı, çekirdek yerinde kaldı):
+ *     `#969CFF` ↔ gece yolu **1,872** — ≥1,9 sözleşmesinin ALTI.
+ * Palet GERİ ALINMADI (OEM kimliği korunur); durak ÖLÇÜLEREK en az düzeyde
+ * açıldı — ton aynı periwinkle, yalnız parlaklık ~%7 arttı:
+ *     `#9CA2FF` zemin 6,04 · yol **1,989** · beyaz kılıf 2,33  (üç eşik de ✓)
+ * Diğer iki durak ölçüldü ve DEĞİŞTİRİLMEDİ:
+ *     `#72B6FF` zemin 6,60 · yol 2,17 · kılıf 2,13
+ *     `#24D6C4` zemin 7,69 · yol 2,53 · kılıf 1,83
  */
-export const ROUTE_CORE_STOPS_DARK_BASEMAP  = ['#79b0ff', '#a5aaff', '#34d399'] as const;
-/** Açık zemin (gündüz road modu) — mevcut davranış, bilinçli olarak değişmedi. */
-export const ROUTE_CORE_STOPS_LIGHT_BASEMAP = ['#1A73E8', '#4F46E5', '#10b981'] as const;
+export const ROUTE_CORE_STOPS_DARK_BASEMAP  = ['#72B6FF', '#9CA2FF', '#24D6C4'] as const;
+/** Açık zemin (gündüz road modu) — doygun OEM mavi → derin mavi → camgöbeği. */
+export const ROUTE_CORE_STOPS_LIGHT_BASEMAP = ['#006CFF', '#0057D9', '#00A6FF'] as const;
 
 export interface RouteColorDecision {
   readonly casing: string;

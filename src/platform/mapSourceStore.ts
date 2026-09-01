@@ -1,5 +1,10 @@
 import { create } from 'zustand';
 import type { MapMode, MapSourceState } from './mapSourceTypes';
+/* ARCH-06/F2 — TIMER YÖNETİŞİMİ: ham `setInterval` yerine ARM tik-wheel'i.
+   SAHİPLİK DEĞİŞMEDİ: geri çağrı, periyot kararı ve cleanup bu modülde
+   KALIR; ARM yalnız tier/mod BÜTÇESİNİ uygular (düşük-uçta yavaşlatır,
+   yüksek tier'da periyodu AYNEN korur). Yeni merkezî callback mantığı YOK. */
+import { runtimeManager } from '../core/runtime/AdaptiveRuntimeManager';
 
 export const useMapSourceStore = create<MapSourceState>(() => ({
   sources: new Map(),
@@ -25,7 +30,8 @@ let _offlineHandler: (() => void) | null = null;
  */
 let _forcedDowngradeFrom: MapMode | null = null;
 
-let _pingTimer: ReturnType<typeof setInterval> | null = null;
+/** ARM görev kaydını söken thunk (eski `setInterval` handle'ının yerine). */
+let _pingTimer: (() => void) | null = null;
 /**
  * Son başarılı tile fetch zamanı (Date.now()).
  * Tile akışı varsa redundant HEAD isteği gönderilmez — veri tasarrufu.
@@ -114,7 +120,13 @@ export function attachNetworkListeners(): void {
   };
   // İlk kontrol: 1 saniye gecikmeyle (uygulama açılır açılmaz değil)
   setTimeout(checkAndUpdate, 1_000);
-  _pingTimer = setInterval(checkAndUpdate, 30_000);
+  _pingTimer = runtimeManager.scheduleTask({
+    id: 'mapSource.ping', periodMs: 30_000,       /* ARM sözlüğü YALNIZ 'SAFETY' | 'NORMAL' taşır. 'NORMAL' zaten
+         tier/mod çarpanına TABİ olan sınıftır — bütçelenebilir görev
+         tam olarak budur. ARM API'si F2'de GENİŞLETİLMEDİ. */
+      criticality: 'NORMAL',
+    fn: checkAndUpdate, deferIdle: true,
+  });
 }
 
 /**
@@ -128,5 +140,5 @@ export function detachNetworkListeners(): void {
   _onlineHandler  = null;
   _offlineHandler = null;
   networkListenersAttached = false;
-  if (_pingTimer !== null) { clearInterval(_pingTimer); _pingTimer = null; }
+  if (_pingTimer !== null) { _pingTimer(); _pingTimer = null; }   // ARM unschedule thunk
 }

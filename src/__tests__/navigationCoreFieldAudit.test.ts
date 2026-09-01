@@ -73,6 +73,89 @@ function full(over: Partial<NavigationCoreRawSnapshot> = {}): NavigationCoreRawS
     fetchInFlight: false,
     stepsWithRealLanes: 2, roundaboutStepCount: 2, roundaboutWithExitCount: 1,
     sessionId: 3, hasRouteClaim: true,
+    /* P0-NAV-09 — hedef bütünlüğü (kabul edilmiş hedef + ölçülmüş asimetri). */
+    destinationOk: true, destinationRejection: null, destinationRejectionCount: 0,
+    destinationRejectedTotal: 1, destinationSwapSuspectTotal: 0,
+    destinationSwapSuspected: false,
+    destinationSwapAsGivenKm: 4.2, destinationSwapIfSwappedKm: 812.5,
+    destinationPrecision: 'STREET', destinationProvider: 'NOMINATIM',
+    destinationAgeMs: 4_000, destinationIdMasked: 'no…23 (7)',
+    /* P0-NAV-10 — sağlayıcı sicili (yedek kurtarması = gizli degradasyon). */
+    routeChain: {
+      outcome: 'FALLBACK_SUCCESS', winner: 'REMOTE_OSRM', winnerLabel: 'srv-b',
+      fallbackReason: 'TIMEOUT', degradedSteps: 1, attemptedCount: 2,
+      why: '1 katman düştü, uzak OSRM sunucusu kurtardı',
+    },
+    routeAttemptCounts: { 'REMOTE_OSRM|TIMEOUT': 1, 'REMOTE_OSRM|SUCCESS': 1 },
+    routeFallbackSuccessCount: 1, routeStraightLineChainCount: 0,
+    routeAttempts: [],
+    /* P0-NAV-11 — uygulanan geometrinin künyesi + reddedilen aday kanıtı. */
+    committedGeometry: {
+      requestId: 3, providerLabel: 'routing.openstreetmap.de',
+      integrity: 'VALID',
+      metrics: {
+        pointCount: 640, uniquePointCount: 638, duplicateCount: 2,
+        invalidPointCount: 0, maxGapM: 84, polylineLengthM: 9_780,
+        bboxWidthDeg: 0.0812, bboxHeightDeg: 0.0447,
+      },
+      flaws: [],
+      startDistanceM: 4, endDistanceM: 11, routeRevision: 7,
+      atMs: NOW - 1_200,
+    },
+    rejectedGeometryTotal: 1,
+    lastRejectedFlaws: ['LENGTH_MISMATCH'],
+    lastRejectedCheckIds: ['REACHES_DESTINATION'],
+    /* P0-NAV-12 — ilerleme dürüstlüğü (bir gerçek geri dönüş + bir sıçrama). */
+    progress: {
+      counts: {
+        PLAUSIBLE: 120, STATIONARY: 8, IMPLAUSIBLE_FORWARD: 1, REAL_BACKTRACK: 1,
+        IMPLAUSIBLE_BACKWARD: 0, ROUTE_CHANGED: 2, UNKNOWN: 5,
+      },
+      anomalies: [{
+        verdict: 'IMPLAUSIBLE_FORWARD', deltaM: 3_000, budgetM: 122,
+        speedKmh: 90, headingDeltaDeg: 4, atMs: NOW - 30_000,
+      }],
+      lastVerdict: 'PLAUSIBLE',
+      maxForwardJumpM: 3_000, maxBackwardJumpM: 800, totalSamples: 137,
+    },
+    /* P0-NAV-13 — engellenen reroute'lar artık GÖRÜNÜR (eskiden hiç okunmuyordu). */
+    rerouteHealth: {
+      health: 'BLOCKED_TRANSIENT', offRouteForMs: 8_200,
+      blockedBy: 'THROTTLED', why: '8 saniyedir bekleniyor — son engel: THROTTLED',
+    },
+    rerouteBlockedCount: 3,
+    rerouteBlockByReason: { WEAK_ACCURACY: 1, THROTTLED: 2, NO_CONTEXT: 0, STRAIGHT_LINE: 0, DR_POSITION: 0 },
+    rerouteLastBlockReason: 'THROTTLED',
+    /* P0-NAV-16 — anons denetimi: bir geç anons + bir meşru sessizlik. */
+    guidanceAudit: {
+      timing: { ON_TIME: 14, LATE: 1, VERY_LATE: 0, UNKNOWN: 0 },
+      missed: { NONE: 5, MISSED_IMMINENT: 0, MISSED_ALL: 0, SILENCE_JUSTIFIED: 2 },
+      recent: [{
+        maneuverId: '3:7:4', stage: 'NEAR', timing: 'LATE', missed: 'NONE',
+        distanceM: 90, atMs: NOW - 20_000,
+      }],
+      announcementCount: 15, maneuverCount: 7,
+    },
+    /* P0-NAV-19 — sıcak yol maliyeti (düşük-uçlu cihazda p95 kritiktir). */
+    tickCost: {
+      mapMatch:     { samples: 128, total: 940, p50Ms: 0.42, p95Ms: 1.8, maxMs: 6.2 },
+      progressTick: { samples: 128, total: 940, p50Ms: 0.91, p95Ms: 3.4, maxMs: 11.7 },
+    },
+    /* P0-NAV-20 — arıza tablosu (bir eksen degrade: yedek kurtarmış). */
+    failureMatrix: {
+      axes: [
+        { axis: 'GPS', state: 'HEALTHY', why: 'konum karar kalitesinde' },
+        { axis: 'NETWORK', state: 'HEALTHY', why: 'çevrimiçi' },
+        { axis: 'SEARCH', state: 'HEALTHY', why: 'sonuç üretildi' },
+        { axis: 'ROUTE_PROVIDER', state: 'DEGRADED', why: 'yedek katman kurtardı — gizli degradasyon' },
+        { axis: 'GEOMETRY', state: 'HEALTHY', why: 'geometri sağlam' },
+        { axis: 'PROGRESS', state: 'HEALTHY', why: 'ilerleme makul' },
+        { axis: 'REROUTE', state: 'HEALTHY', why: 'sapma yok ya da rota kuruldu' },
+      ],
+      overall: 'DEGRADED',
+      worstAxis: 'ROUTE_PROVIDER',
+      summary: 'rota sağlayıcı: kusurlu ama çalışıyor — yedek katman kurtardı',
+    },
     miniMapStyle: 'road/raster', mapTheme: 'night', mapContrastProfile: 'NIGHT_READABLE',
     camera: {
       cameraMode: 'FOLLOWING', isVehicleCentered: true, lastUserPanAgeMs: 4200,
@@ -201,6 +284,23 @@ function full(over: Partial<NavigationCoreRawSnapshot> = {}): NavigationCoreRawS
  */
 type Stamp = 'GPS' | 'NONE' | 'OWN';
 interface Reg { source: string; key: keyof NavigationCoreRawSnapshot | string; stamp: Stamp; }
+
+/** P0-NAV-09 hedef bütünlüğü kaynağı — kart ile kayıt aynı etiketi kullanır. */
+const SRC_DEST_AUDIT = 'navigationService.getDestinationIntegritySnapshot';
+/** P0-NAV-10 rota sağlayıcı sicili kaynağı. */
+const SRC_ROUTE_LEDGER_AUDIT = 'routeProviderLedger.getRouteProviderLedger';
+/** P0-NAV-11 geometri kanıtı kaynağı. */
+const SRC_GEOMETRY_AUDIT = 'routeGeometryModel.getCommittedGeometry';
+/** P0-NAV-12 ilerleme defteri kaynağı. */
+const SRC_PROGRESS_AUDIT = 'routeProgressLedger.getProgressLedger';
+/** P0-NAV-13 reroute engel/açlık kaynağı. */
+const SRC_REROUTE_AUDIT = 'routeRequestLedger.getRerouteBlockStats';
+/** P0-NAV-16 sesli yönlendirme denetimi kaynağı. */
+const SRC_GUIDANCE_AUDIT_AUDIT = 'voiceGuidanceAudit.getGuidanceAudit';
+/** P0-NAV-19 sıcak yol maliyeti kaynağı. */
+const SRC_TICK_COST_AUDIT = 'navTickCostModel.getNavTickCostSnapshot';
+/** P0-NAV-20 arıza tablosu kaynağı. */
+const SRC_MATRIX_AUDIT = 'navFailureMatrixModel.buildNavFailureMatrix';
 
 const REGISTRY: Record<string, Reg> = {
   /* 1 · Durum */
@@ -409,6 +509,54 @@ const REGISTRY: Record<string, Reg> = {
   'sh-dupe':         { source: 'cameraShadowRuntime', key: 'cameraShadow', stamp: 'NONE' },
   'sh-supreason':    { source: 'cameraShadowRuntime', key: 'cameraShadow', stamp: 'NONE' },
   'sh-ctx':          { source: 'cameraShadowRuntime', key: 'cameraShadow', stamp: 'NONE' },
+  /* 14 · Hedef Bütünlüğü (P0-NAV-09) — hepsi anlık okuma, damga YOK.
+     Hiçbiri GPS türevli değildir: hedef kararı fix'ten değil, kullanıcı
+     seçiminden doğar; GPS damgası taşısalardı yaşlanmış görünürlerdi. */
+  'de-ok':         { source: SRC_DEST_AUDIT, key: 'destinationOk',               stamp: 'NONE' },
+  'de-reason':     { source: SRC_DEST_AUDIT, key: 'destinationRejection',        stamp: 'NONE' },
+  'de-rejected':   { source: SRC_DEST_AUDIT, key: 'destinationRejectedTotal',    stamp: 'NONE' },
+  'de-swap':       { source: SRC_DEST_AUDIT, key: 'destinationSwapSuspected',    stamp: 'NONE' },
+  'de-swapcount':  { source: SRC_DEST_AUDIT, key: 'destinationSwapSuspectTotal', stamp: 'NONE' },
+  'de-precision':  { source: SRC_DEST_AUDIT, key: 'destinationPrecision',        stamp: 'NONE' },
+  'de-provider':   { source: SRC_DEST_AUDIT, key: 'destinationProvider',         stamp: 'NONE' },
+  'de-age':        { source: SRC_DEST_AUDIT, key: 'destinationAgeMs',            stamp: 'NONE' },
+  'de-id':         { source: SRC_DEST_AUDIT, key: 'destinationIdMasked',         stamp: 'NONE' },
+  /* 2 · Rota Sağlayıcı — P0-NAV-10 fallback gerçeği. Anlık okuma, damga YOK. */
+  'pv-chain':           { source: SRC_ROUTE_LEDGER_AUDIT, key: 'routeChain',                  stamp: 'NONE' },
+  'pv-fallback-reason': { source: SRC_ROUTE_LEDGER_AUDIT, key: 'routeChain.fallbackReason',   stamp: 'NONE' },
+  'pv-fallback-count':  { source: SRC_ROUTE_LEDGER_AUDIT, key: 'routeFallbackSuccessCount',   stamp: 'NONE' },
+  'pv-outcomes':        { source: SRC_ROUTE_LEDGER_AUDIT, key: 'routeAttemptCounts',          stamp: 'NONE' },
+  /* 6 · Rota Doğrulama Kapısı — P0-NAV-11 geometri künyesi. Anlık okuma. */
+  'gm-integrity':       { source: SRC_GEOMETRY_AUDIT, key: 'committedGeometry',        stamp: 'NONE' },
+  'gm-points':          { source: SRC_GEOMETRY_AUDIT, key: 'committedGeometry.metrics', stamp: 'NONE' },
+  'gm-ends':            { source: SRC_GEOMETRY_AUDIT, key: 'committedGeometry',        stamp: 'NONE' },
+  'gm-extent':          { source: SRC_GEOMETRY_AUDIT, key: 'committedGeometry.metrics', stamp: 'NONE' },
+  'gm-rejected':        { source: SRC_GEOMETRY_AUDIT, key: 'rejectedGeometryTotal',    stamp: 'NONE' },
+  'gm-rejected-checks': { source: SRC_GEOMETRY_AUDIT, key: 'lastRejectedCheckIds',     stamp: 'NONE' },
+  /* 15 · İlerleme Dürüstlüğü (P0-NAV-12). `pr-verdict` GPS türevlidir:
+     ilerleme hükmü doğrudan fix'ten doğar ve fix donunca YAŞLANMALIDIR. */
+  'pr-verdict':    { source: SRC_PROGRESS_AUDIT, key: 'progress.lastVerdict',     stamp: 'GPS'  },
+  'pr-counts':     { source: SRC_PROGRESS_AUDIT, key: 'progress.counts',          stamp: 'NONE' },
+  'pr-backtrack':  { source: SRC_PROGRESS_AUDIT, key: 'progress.counts',          stamp: 'NONE' },
+  'pr-forward':    { source: SRC_PROGRESS_AUDIT, key: 'progress.counts',          stamp: 'NONE' },
+  'pr-extremes':   { source: SRC_PROGRESS_AUDIT, key: 'progress.maxForwardJumpM', stamp: 'NONE' },
+  'pr-anomaly':    { source: SRC_PROGRESS_AUDIT, key: 'progress.anomalies',       stamp: 'NONE' },
+  /* 5 · Reroute — P0-NAV-13 engel sebepleri + açlık. Anlık okuma, damga YOK. */
+  'rq-blocked':     { source: SRC_REROUTE_AUDIT, key: 'rerouteBlockedCount',    stamp: 'NONE' },
+  'rq-blocked-why': { source: SRC_REROUTE_AUDIT, key: 'rerouteBlockByReason',   stamp: 'NONE' },
+  'rq-health':      { source: SRC_REROUTE_AUDIT, key: 'rerouteHealth',          stamp: 'NONE' },
+  'rq-starve':      { source: SRC_REROUTE_AUDIT, key: 'rerouteHealth.offRouteForMs', stamp: 'NONE' },
+  /* 12 · Teslim Çekirdeği — P0-NAV-16 anons denetimi. Anlık okuma, damga YOK. */
+  'vg-audit':     { source: SRC_GUIDANCE_AUDIT_AUDIT, key: 'guidanceAudit.timing', stamp: 'NONE' },
+  'vg-missed':    { source: SRC_GUIDANCE_AUDIT_AUDIT, key: 'guidanceAudit.missed', stamp: 'NONE' },
+  'vg-last-flaw': { source: SRC_GUIDANCE_AUDIT_AUDIT, key: 'guidanceAudit.recent', stamp: 'NONE' },
+  /* 15 · Sıcak yol maliyeti (P0-NAV-19). Anlık okuma, damga YOK. */
+  'tc-match':   { source: SRC_TICK_COST_AUDIT, key: 'tickCost.mapMatch',     stamp: 'NONE' },
+  'tc-tick':    { source: SRC_TICK_COST_AUDIT, key: 'tickCost.progressTick', stamp: 'NONE' },
+  'tc-samples': { source: SRC_TICK_COST_AUDIT, key: 'tickCost.mapMatch',     stamp: 'NONE' },
+  /* 1 · Durum — P0-NAV-20 arıza tablosu. Anlık okuma, damga YOK. */
+  'fm-overall': { source: SRC_MATRIX_AUDIT, key: 'failureMatrix.overall', stamp: 'NONE' },
+  'fm-axes':    { source: SRC_MATRIX_AUDIT, key: 'failureMatrix.axes',    stamp: 'NONE' },
 };
 
 function allFields(s: NavigationCoreRawSnapshot) {

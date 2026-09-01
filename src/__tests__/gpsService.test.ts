@@ -61,9 +61,17 @@ import {
   startGPSTracking,
   stopGPSTracking,
   feedBackgroundLocation,
+  getGPSLocationTruthDiagnostics,
   getGPSState,
   getGPSSpeedKmh,
 } from '../platform/gpsService';
+
+const feedBackground = (data: Parameters<typeof feedBackgroundLocation>[0] extends never ? never : Omit<Parameters<typeof feedBackgroundLocation>[0], 'observationTimestamp' | 'gpsGeneration'>) =>
+  feedBackgroundLocation({
+    ...data,
+    observationTimestamp: Date.now(),
+    gpsGeneration: getGPSLocationTruthDiagnostics().generation,
+  });
 
 /* ── Web modu ────────────────────────────────────────────── */
 
@@ -263,7 +271,7 @@ describe('gpsService — feedBackgroundLocation', () => {
   });
 
   it('geçerli data store\'a yazılır', () => {
-    feedBackgroundLocation({
+    feedBackground({
       lat: 41.015, lng: 28.979, speed: 72, bearing: 90, accuracy: 5,
     });
     const loc = getGPSState().location;
@@ -276,13 +284,13 @@ describe('gpsService — feedBackgroundLocation', () => {
 
   it('NaN enlem yoksayılır — location değişmez', () => {
     const before = getGPSState().location; // null after stopGPSTracking
-    feedBackgroundLocation({ lat: NaN, lng: 28.979, speed: 0, bearing: 0, accuracy: 0 });
+    feedBackground({ lat: NaN, lng: 28.979, speed: 0, bearing: 0, accuracy: 0 });
     expect(getGPSState().location).toBe(before);
   });
 
   it('range dışı enlem (>90) yoksayılır', () => {
     const before = getGPSState().location;
-    feedBackgroundLocation({ lat: 95, lng: 28.979, speed: 0, bearing: 0, accuracy: 0 });
+    feedBackground({ lat: 95, lng: 28.979, speed: 0, bearing: 0, accuracy: 0 });
     // getGPSState reads from UnifiedVehicleStore, feedBackgroundLocation uses handlePosition
     // which validates coords. Let's check the actual store location.
     const after = getGPSState().location;
@@ -291,7 +299,7 @@ describe('gpsService — feedBackgroundLocation', () => {
 
   it('range dışı boylam (>180) yoksayılır', () => {
     const before = getGPSState().location;
-    feedBackgroundLocation({ lat: 41.0, lng: 200, speed: 0, bearing: 0, accuracy: 0 });
+    feedBackground({ lat: 41.0, lng: 200, speed: 0, bearing: 0, accuracy: 0 });
     const after = getGPSState().location;
     expect(after).toBe(before);
   });
@@ -317,18 +325,18 @@ describe('gpsService — getGPSSpeedKmh', () => {
   });
 
   it('geçerli speed → km/h dönüşümü', () => {
-    feedBackgroundLocation({ lat: 41.0, lng: 29.0, speed: 90, bearing: 0, accuracy: 3 });
+    feedBackground({ lat: 41.0, lng: 29.0, speed: 90, bearing: 0, accuracy: 3 });
     expect(getGPSSpeedKmh()).toBeCloseTo(90, 0);
   });
 
   it('speed=0 → null döner', async () => {
     // Her test beforeEach ile throttle sıfırlanır
-    feedBackgroundLocation({ lat: 41.0, lng: 29.0, speed: 0, bearing: 0, accuracy: 3 });
+    feedBackground({ lat: 41.0, lng: 29.0, speed: 0, bearing: 0, accuracy: 3 });
     expect(getGPSSpeedKmh()).toBeNull();
   });
 
   it('negatif speed → null döner', async () => {
-    feedBackgroundLocation({ lat: 41.0, lng: 29.0, speed: -10, bearing: 0, accuracy: 3 });
+    feedBackground({ lat: 41.0, lng: 29.0, speed: -10, bearing: 0, accuracy: 3 });
     // negatif km/h → m/s negatif → speed <= 0 → null
     expect(getGPSSpeedKmh()).toBeNull();
   });

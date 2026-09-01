@@ -278,6 +278,13 @@
 
     <!-- Mikrofon — sesli asistan -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- SAHA 2026-08-30 (Xiaomi 23090RA98I / Android 13): WebView (Chromium) mikrofon
+         açmak için RECORD_AUDIO ile BİRLİKTE bunu da ister. Eksikken logcat
+         "Requires MODIFY_AUDIO_SETTINGS and RECORD_AUDIO. No audio device will be
+         available for recording" yazıp kaydı SESSİZCE reddediyordu; getUserMedia
+         kullanan yollar (dashcam ses kaydı · ses seviyesi ölçer · web STT yedeği)
+         cihazda hiç çalışamıyordu. Normal izin — çalışma zamanı sorusu ÇIKARMAZ. -->
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
 
     <!-- Kamera — geri görüş kamerası -->
     <uses-permission android:name="android.permission.CAMERA" />

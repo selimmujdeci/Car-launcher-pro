@@ -80,6 +80,12 @@ const WIRED_SOURCES = [
   'src/components/media/MediaScreen.tsx',
   'src/components/map/FullMapView.tsx',
   'src/components/map/NavigationHUD.tsx',
+  /* P0-NAV-04 — HUD alt bileşenlere ayrıldı; düzenlenebilir noktalar da
+     onlarla birlikte taşındı. Liste genişletilmezse defter "hayalet kimlik"
+     alarmı verir (verdi: `nav.maneuver` · `nav.speed-cluster`). */
+  'src/components/map/hud/ManeuverPanel.tsx',
+  'src/components/map/hud/DrivingSpeed.tsx',
+  'src/components/map/hud/TripSummary.tsx',
   // PR-2c
   'src/components/traffic/TrafficPanel.tsx',
   'src/components/entertainment/EntertainmentPortal.tsx',

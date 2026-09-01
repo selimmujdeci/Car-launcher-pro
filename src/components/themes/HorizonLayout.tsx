@@ -22,7 +22,7 @@ import { useGPSLocation } from '../../platform/gpsService';
 import { useDisplaySpeed, formatDisplaySpeed } from '../../hooks/useDisplaySpeed';
 import { useBatteryVoltage } from '../../hooks/useBatteryVoltage';
 import { useLivingThemeState } from '../../hooks/useLivingThemeState';
-import { useUnifiedVehicleStore } from '../../platform/vehicleDataLayer/UnifiedVehicleStore';
+import { useAmbientTemp } from '../../hooks/useCanonicalVehicleSignal';
 import { VehicleTellTales } from '../vehicle/VehicleTellTales';
 import { useEngineReadout } from '../../hooks/useEngineReadout';
 import { useClock, MONTHS_TR } from '../../hooks/useClock';
@@ -32,7 +32,8 @@ import { openMusicDrawer } from '../../platform/mediaUi';
 import { StatusControls } from '../common/StatusControls';
 import { MiniMapWidget } from '../map/MiniMapWidget';
 import { TripMeterRow } from '../trip/TripMeterRow';
-import { useNavigation } from '../../platform/navigationService';
+import { useNavigation, readEtaStateSafe } from '../../platform/navigationService';
+import { decideEtaDisplay } from '../../platform/navigation/core/navigationHonestyModel';
 import { useRouteState } from '../../platform/routingService';
 import { useMapStore } from '../../platform/map/_mapState';
 import { setMapCenter, setMapHeading } from '../../platform/mapService';
@@ -190,7 +191,11 @@ const HzTopBar = memo(function HzTopBar() {
   const p = usePalH();
   const use24Hour = useStore(s => s.settings.use24Hour);
   const { time, date } = useClock(use24Hour, false);
-  const ambient = useUnifiedVehicleStore(s => s.canAmbientTemp);
+  /* P0-OBD-03: doğrudan CAN alanı okuması KALDIRILDI. `canAmbientTemp` CAN'ı
+     olmayan (aftermarket ELM327'li) araçta kalıcı null'dır ve başlık sonsuza
+     dek '—' gösteriyordu — oysa PID 0x46 okunuyordu. Otorite tek yerde:
+     CAN → OBD → yok, ve YALNIZ taze (LIVE) ölçüm sayı olarak basılır. */
+  const ambient = useAmbientTemp();
   const gps = useGPSLocation();
   const n = useNotificationState();
   const alt = gps?.altitude;
@@ -359,6 +364,8 @@ const HzMap = memo(function HzMap({ onOpenMap, fullMapOpen }: { onOpenMap: () =>
   // (SAHA 2026-07-04: rota yokken bile hep görünüyordu, sürücü aktif rota sanıyordu).
   const { isNavigating, distanceMeters, etaSeconds } = useNavigation();
   const route = useRouteState();
+  /* ETA gösterim kararı — sayı ÜRETMEZ, motorun hükmünü okur (P0-NAV-14). */
+  const etaDec = decideEtaDisplay(etaSeconds, readEtaStateSafe());
   const nextStep = isNavigating ? (route.steps[route.currentStepIndex + 1] ?? null) : null;
   const turnDist = isNavigating ? fmtTurnDist(route.distanceToNextTurnMeters) : null;
   const chip: React.CSSProperties = { background: p.panel, border: `1px solid ${p.edge}`, boxShadow: p.elev };
@@ -425,14 +432,17 @@ const HzMap = memo(function HzMap({ onOpenMap, fullMapOpen }: { onOpenMap: () =>
           katmanıdır (MapLayerManager user-vehicle). */}
 
       {/* seyahat bilgisi — YALNIZ gerçek aktif rotada (kalan süre / kalan km / varış) */}
-      {isNavigating && etaSeconds != null && etaSeconds > 0 && (
+      {/* ETA — TEK OTORİTE KAPISI (P0-NAV-14). Eskiden yalnız `etaSeconds > 0`
+          sorulup süre ve VARIŞ SAATİ basılıyordu; motorun "güvenme" hükmü
+          okunmuyordu. Kapı artık `TripSummary` ile AYNI. */}
+      {isNavigating && etaDec.showNumber && etaDec.seconds !== null && (
         <div className="absolute" style={{ bottom: 15, left: 15, pointerEvents: 'auto' }}>
           <div className="flex items-center" style={{ borderRadius: 14, ...chip }}>
-            <HzTripCell k="Süre" v={fmtEta(etaSeconds)} />
+            <HzTripCell k="Süre" v={`${etaDec.approximate ? '~' : ''}${fmtEta(etaDec.seconds)}`} />
             <span style={{ width: 1, height: 28, background: p.edge }} />
             <HzTripCell k="KM" v={((distanceMeters ?? 0) / 1000).toFixed(1)} />
             <span style={{ width: 1, height: 28, background: p.edge }} />
-            <HzTripCell k="Varış" v={new Date(Date.now() + etaSeconds * 1000).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })} accent />
+            <HzTripCell k="Varış" v={new Date(Date.now() + etaDec.seconds * 1000).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })} accent />
           </div>
         </div>
       )}

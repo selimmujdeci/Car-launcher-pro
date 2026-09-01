@@ -315,6 +315,18 @@ export interface ScheduledTask {
   deferIdle?:  boolean;
 }
 
+export interface RuntimeResourceDiagnostics {
+  readonly mode: RuntimeMode;
+  readonly effectivePowerCeiling: RuntimeMode | null;
+  readonly observedThermalTier: 0 | 1 | 2 | 3;
+  readonly memoryPressure: 'UNKNOWN';
+  readonly mitigationState: 'UNKNOWN';
+  readonly workers: readonly WorkerStatusRow[];
+  readonly tasks: readonly { readonly taskId: string; readonly cadenceMs: number; readonly priority: TaskCriticality; readonly effectiveTicks: number; readonly runCount: null; readonly deferCount: null; readonly throttleCount: null; readonly staleDropCount: null; readonly lastRunAt: null; readonly nextEligibleAt: null; readonly requestedBudget: null; readonly grantedBudget: null; }[];
+    readonly summary: { readonly registered: number; readonly running: number | null; readonly queued: null; readonly deferred: null; readonly throttled: null; readonly staleDropped: null; readonly unknown: number; };
+  readonly provenance: readonly string[];
+}
+
 /** Dahili görev kaydı — kullanıcı ScheduledTask'ına önceden hesaplanmış tik periyodu eklenir. */
 interface InternalScheduledTask extends ScheduledTask {
   /** _rescaleTasks() içinde mod değişince yeniden hesaplanan tik periyodu (zero-alloc hot-path cache). */
@@ -764,6 +776,16 @@ class AdaptiveRuntimeManager {
   /** Aktif modu döner. */
   getMode(): RuntimeMode {
     return this._mode;
+  }
+
+  /** Read-only, data-only projection of this manager's existing resource state. */
+  getResourceDiagnostics(): RuntimeResourceDiagnostics {
+    const workers = this.getWorkerSnapshot();
+    const tasks = Object.freeze([...this._tasks.values()].map((task) => Object.freeze({
+      taskId: task.id, cadenceMs: task.periodMs, priority: task.criticality, effectiveTicks: task._effectiveTicks,
+      runCount: null, deferCount: null, throttleCount: null, staleDropCount: null, lastRunAt: null, nextEligibleAt: null, requestedBudget: null, grantedBudget: null,
+    })));
+     return Object.freeze({ mode: this._mode, effectivePowerCeiling: this._powerCeiling, observedThermalTier: this._thermalActiveLevel, memoryPressure: 'UNKNOWN', mitigationState: 'UNKNOWN', workers, tasks, summary: Object.freeze({ registered: tasks.length, running: null, queued: null, deferred: null, throttled: null, staleDropped: null, unknown: tasks.length }), provenance: Object.freeze(['AdaptiveRuntimeManager._tasks', 'AdaptiveRuntimeManager._thermalActiveLevel', 'AdaptiveRuntimeManager._powerCeiling', 'AdaptiveRuntimeManager.getWorkerSnapshot()']) });
   }
 
   /**

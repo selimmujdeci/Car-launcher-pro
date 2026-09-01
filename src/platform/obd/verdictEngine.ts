@@ -24,7 +24,8 @@
 
 import type { DtcVerdictResult } from './dtcVerdict';
 import type { ScanReport } from './scanReport';
-import type { MultiEcuScanReport, EcuDtc } from './multiEcuScan';
+import { isEcuReadable, type MultiEcuScanReport, type EcuDtc } from './multiEcuScan';
+import { formatDtcDisplayCode, UDS_DTC_STATE_LABEL } from './udsDtc';
 
 export type VerdictLevel = 'not_scanned' | 'clean' | 'attention' | 'critical' | 'inconclusive';
 
@@ -60,8 +61,14 @@ export interface VehicleVerdict {
   confidence: number;
   /** Neden bu güven seviyesinde olduğumuzun açık gerekçesi (şeffaflık). */
   confidenceReason: string;
-  /** 0..1 — taramanın kapsamı (mod + ECU bazında). */
-  coverage: number;
+  /**
+   * 0..1 — taramanın KANONİK kapsamı (mod × ECU). `null` = BİLİNMİYOR.
+   *
+   * P0-OBD-FINAL-02: bu alan artık `scan.canonicalCoverage`tan gelir. Eskiden
+   * `scan.coverage` (YALNIZ mod kapsamı) yazılıyordu ve aynı ekranda "GÜVEN %0"
+   * ile "%100 kapsam" yan yana durabiliyordu.
+   */
+  coverage: number | null;
   findings: Finding[];
   actions: RecommendedAction[];
 }
@@ -87,7 +94,14 @@ export interface VerdictEngineInput {
  */
 function computeConfidence(input: VerdictEngineInput): { value: number; reason: string } {
   const reasons: string[] = [];
-  let conf = input.scan.coverage;
+  /* P0-OBD-FINAL-02 — kanonik kapsam BİLİNMİYORSA (null) güven tavanı fail-closed
+     olarak mod kapsamının YARISIDIR: ölçemediğimiz bir araç için tam güven
+     iddia etmek, tam olarak bu turda düzelttiğimiz yalandır. */
+  let conf = input.scan.canonicalCoverage ?? input.scan.coverage * 0.5;
+  if (input.scan.canonicalCoverage === null && input.scan.ecuEvidencePresent) {
+    reasons.push('araç kapsamı BİLİNMİYOR (ECU kanıtı eksik)');
+  }
+  for (const g of input.scan.ecuGaps) reasons.push(g);
 
   if (input.scan.failedCount > 0) {
     reasons.push(`${input.scan.failedCount} standart okuma tamamlanamadı`);
@@ -105,9 +119,11 @@ function computeConfidence(input: VerdictEngineInput): { value: number; reason: 
   } else {
     const total = me.scannedEcus;
     if (total > 0) {
-      const cleanEcus = me.results.filter(
-        (r) => !(r.stored === 'failed' && r.pending === 'failed' && r.permanent === 'failed'),
-      ).length;
+      /* P0-OBD-PARITY: okunabilirlik artık TÜM DTC servislerine bakar.
+         Eski kural yalnız standart modlara bakıyordu ve OBD kapsamı dışındaki
+         (yalnız UDS konuşan) bir ECU'yu "okunamadı" sayıp güveni haksız yere
+         düşürüyordu. Kural TEK yerde yaşar: `multiEcuScan.isEcuReadable`. */
+      const cleanEcus = me.results.filter(isEcuReadable).length;
       conf *= cleanEcus / total;
       if (cleanEcus < total) reasons.push(`${total - cleanEcus} ECU okunamadı`);
     }
@@ -134,20 +150,34 @@ function buildFindings(input: VerdictEngineInput): Finding[] {
   const codes: EcuDtc[] = input.multiEcu?.allCodes ?? [];
   for (const c of codes) {
     const isCritical = crit.has(c.code);
+    /* P0-OBD-FINISH — BAŞLIK VE KİMLİK ALT KODU TAŞIR.
+       ÖLÇÜLEN KUSUR: `id` yalnız `ECU:kod` idi → aynı ECU'nun `P0380(11)` ve
+       `P0380(96)` bulguları AYNI kimliğe düşüyor, bu listeyi anahtarlayan her
+       tüketicide üçü kayboluyordu. Alt kod ölçülmediyse kimlik BİREBİR eskisi
+       gibi kalır (geri uyum). */
+    const display = formatDtcDisplayCode(c.code, c.subCode);
+    const sourceService = c.fromUds ? 'UDS 0x19-02 (üretici tabanı)'
+      : c.fromKwp ? `KWP 0x${c.kwpService ?? '18'} (üretici tabanı)`
+        : `Mode ${c.mode === 'pending' ? '07' : c.mode === 'permanent' ? '0A' : '03'}`;
     out.push({
-      id: `dtc:${c.ecuTxHeader}:${c.code}`,
+      id: `dtc:${c.ecuTxHeader}:${display}`,
       severity: isCritical ? 'critical' : 'warning',
-      title: `${c.code} — ${c.ecuLabel}`,
-      detail: c.fromUds
+      title: `${display} — ${c.ecuLabel}`,
+      detail: c.fromUds || c.fromKwp
         ? 'Üretici-özel arıza kodu (standart OBD taraması bu kodu göremez).'
         : 'Standart OBD arıza kodu.',
       evidence: [
         `ECU ${c.ecuTxHeader}`,
-        c.fromUds ? 'UDS 0x19 (üretici tabanı)' : `Mode ${c.mode === 'pending' ? '07' : c.mode === 'permanent' ? '0A' : '03'}`,
+        sourceService,
+        ...(c.state ? [`durum: ${UDS_DTC_STATE_LABEL[c.state]}`] : []),
         ...(c.active ? ['şu anda AKTİF'] : []),
-        ...(c.failureType ? [`arıza tipi ${c.failureType}`] : []),
+        ...(c.subCode ? [`alt kod ${c.subCode}`] : c.failureType ? [`arıza tipi ${c.failureType}`] : []),
+        ...(c.rawStatus ? [`status baytı ${c.rawStatus}`] : []),
       ],
-      source: c.fromUds ? 'uds_dtc' : 'standard_dtc',
+      /* KWP üretici kodu da UDS'le AYNI ürün kararını doğurur (standart tarama
+         onu göremez) — eskiden yalnız `fromUds` sayılıyordu ve KWP araçlarında
+         "üretici kodu bulundu" aksiyonu HİÇ üretilmiyordu. */
+      source: c.fromUds || c.fromKwp ? 'uds_dtc' : 'standard_dtc',
     });
   }
 
@@ -166,6 +196,12 @@ function buildFindings(input: VerdictEngineInput): Finding[] {
   // 3) Tarama boşluğu (F1-4 / F2-4) — sessiz eksiklik = yanlış güven.
   const gaps: string[] = [];
   if (input.scan.failedCount > 0) gaps.push(input.scan.summary);
+  /* P0-OBD-FINAL-02 — ECU kanıt boşlukları da KAPSAM BOŞLUĞUDUR: mod okumaları
+     kusursuz olsa bile ulaşılamayan/okunamayan bir ECU varken "temiz" denemez. */
+  for (const g of input.scan.ecuGaps) gaps.push(g);
+  if (input.scan.canonicalCoverage === null && input.scan.ecuEvidencePresent) {
+    gaps.push('kanonik tarama kapsamı BİLİNMİYOR — payda ölçülemedi');
+  }
   if (input.multiEcu && input.multiEcu.failedReads > 0) {
     gaps.push(`${input.multiEcu.failedReads} ECU okuması tamamlanamadı`);
   }
@@ -217,8 +253,13 @@ function buildActions(level: VerdictLevel, findings: Finding[]): RecommendedActi
     out.push({
       id: 'uds_codes_found',
       priority: 2,
-      title: 'Üretici-özel kodlar bulundu',
-      reason: 'Bu kodlar standart OBD taramasında görünmez; servise giderken kod numaralarını iletin.',
+      title: `Üretici-özel kodlar bulundu (${udsFindings.length})`,
+      /* P0-OBD-FINISH — KOD NUMARALARI ARTIK AKSİYONUN İÇİNDE. Eskiden
+         "kod numaralarını iletin" deniyor ama numaralar HİÇBİR YERDE
+         yazmıyordu; kullanıcı iletemezdi. */
+      reason: `Bu kodlar standart OBD taramasında görünmez: ${
+        udsFindings.map((f) => f.title.split(' — ')[0]).join(' · ')
+      }. Servise giderken bu numaraları iletin.`,
     });
   }
 
@@ -252,7 +293,7 @@ function buildActions(level: VerdictLevel, findings: Finding[]): RecommendedActi
 export function buildVehicleVerdict(input: VerdictEngineInput): VehicleVerdict {
   const findings = buildFindings(input);
   const { value: confidence, reason: confidenceReason } = computeConfidence(input);
-  const coverage = input.scan.coverage;
+  const coverage = input.scan.canonicalCoverage;
 
   const hasCritical = findings.some((f) => f.severity === 'critical');
   const realFindings = findings.filter((f) => f.source !== 'scan_gap');

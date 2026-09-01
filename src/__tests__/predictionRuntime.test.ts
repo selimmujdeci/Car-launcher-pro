@@ -12,6 +12,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 import { stripComments } from './helpers';
+import { useUnifiedVehicleStore } from '../platform/vehicleDataLayer/UnifiedVehicleStore';
 
 const read = (p: string) => readFileSync(resolve(process.cwd(), p), 'utf8');
 
@@ -21,10 +22,24 @@ vi.mock('../platform/obdService', () => ({
   getOBDDataSnapshot: () => snapshotMock(),
 }));
 
-/* Zamanlayıcı tekerine gerçek kayıt yapılmasın. */
+/* Zamanlayıcı tekerine gerçek kayıt yapılmasın.
+ *
+ * P0-OBD-04 — SAHTE TAMAMLANDI (ZAYIFLATILMADI): bu sahte yalnız `scheduleTask`
+ * taşıyordu ve YALNIZCA import zinciri `useStore`a ulaşmadığı için çalışıyordu.
+ * Koşucu kanonik mağazayı okumaya başlayınca zincir `useStore`a ulaştı ve
+ * `runtimeManager.getMode()` modül yüklenirken çağrıldı → 16 test TypeError ile
+ * düştü. Kök neden sahtenin GERÇEK arayüzü eksik temsil etmesiydi.
+ *
+ * Aşağıdaki eklemeler ATIL saplamalardır: hiçbir iddiayı gevşetmez, `scheduleMock`
+ * hâlâ tek kayıt noktasıdır ve testlerin tamamı DEĞİŞMEDEN korunur. */
 const scheduleMock = vi.fn(() => () => {});
 vi.mock('../core/runtime/AdaptiveRuntimeManager', () => ({
-  runtimeManager: { scheduleTask: (t: unknown) => scheduleMock(t as never) },
+  runtimeManager: {
+    scheduleTask: (t: unknown) => scheduleMock(t as never),
+    getMode:   () => 'BALANCED',
+    getConfig: () => ({ obdPollingMs: 1_000 }),
+    subscribe: () => () => {},
+  },
 }));
 
 const BASE = {
@@ -32,6 +47,27 @@ const BASE = {
   dataFresh: true, lastSeenMs: 0,
   engineTemp: 90, batteryVoltage: 12.6,
 };
+
+/* ── P0-OBD-04 · ÖLÇÜM KAYNAĞI BİLİNÇLİ OLARAK DEĞİŞTİ ──────────────────────
+ * `overheat` ve `battery_drain` artık ham OBD anlık görüntüsünden DEĞİL, kanonik
+ * otoriteden okunur (CAN → OBD → yok) ve her ölçüm kendi tazelik penceresinden
+ * geçer. Sebep: eski yol CAN'lı araçta motor ısısını HİÇ göremiyor, bayat bir
+ * okumayı ise trend sanabiliyordu.
+ *
+ * Kilitler KALDIRILMADI — kaynak beslemesi yeni sözleşmeye taşındı. Aşağıdaki
+ * yardımcı, BASE'in `engineTemp`/`batteryVoltage` değerlerinin kanonik karşılığını
+ * mağazaya TAZE ölçüm olarak koyar. */
+function seedCanonical(coolantC = 90, voltV = 12.6): void {
+  const now = Date.now();
+  const e = (value: number) => ({
+    value, atMs: now, epoch: 1, staleMs: 600_000, unavailableMs: 1_800_000,
+  });
+  useUnifiedVehicleStore.setState({
+    obdSessionEpoch: 1,
+    obdSignals: Object.freeze({ coolantTemp: e(coolantC), moduleVoltage: e(voltV) }),
+    canCoolantTemp: null, canBatteryVolt: null,
+  });
+}
 
 async function mod() {
   return import('../platform/obd/predictionRuntime');
@@ -42,6 +78,7 @@ describe('predictionRuntime › örneklem dürüstlüğü', () => {
     (await mod())._resetPredictionRuntimeForTest();
     snapshotMock.mockReset();
     scheduleMock.mockClear();
+    useUnifiedVehicleStore.getState().resetObdSignals();
   });
 
   it('BAYAT veri örneklenmez — duran sayı sahte "trend yok" üretirdi', async () => {
@@ -75,6 +112,7 @@ describe('predictionRuntime › örneklem dürüstlüğü', () => {
   it('taze ve geçerli veri örneklenir', async () => {
     const m = await mod();
     snapshotMock.mockReturnValue({ ...BASE });
+    seedCanonical();
     m._tickForTest();
     m._tickForTest();
     const s = m.getPredictionSnapshot();
@@ -85,6 +123,7 @@ describe('predictionRuntime › örneklem dürüstlüğü', () => {
   it('ARAÇ DEĞİŞİNCE tampon SIFIRLANIR — iki aracın değeri aynı doğruya uydurulamaz', async () => {
     const m = await mod();
     snapshotMock.mockReturnValue({ ...BASE });
+    seedCanonical();
     m._tickForTest(); m._tickForTest();
     expect(m.getPredictionSnapshot().sampleCounts['overheat']).toBe(2);
 
@@ -98,6 +137,7 @@ describe('predictionRuntime › örneklem dürüstlüğü', () => {
   it('halka tampon TAVANI aşmaz', async () => {
     const m = await mod();
     snapshotMock.mockReturnValue({ ...BASE });
+    seedCanonical();
     for (let i = 0; i < m.MAX_SAMPLES + 20; i++) m._tickForTest();
     expect(m.getPredictionSnapshot().sampleCounts['overheat']).toBe(m.MAX_SAMPLES);
   });

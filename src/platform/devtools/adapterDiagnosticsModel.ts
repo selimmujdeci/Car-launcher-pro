@@ -170,6 +170,15 @@ export interface AdLinkLossRaw {
   /** En YENİ kaydın insan-okur notu. `null` = hiç kayıt yok. */
   readonly lastNote:             string | null;
   readonly lastAtMs:             number | null;
+  /**
+   * C — voltajı KANIT SAYILMAYAN kayıt adedi (bayat ya da ölçüm anı bilinmiyor).
+   * Saha (2026-08-30): "hiç paket yok (ATRV dahil)" diyen kayıt 12,6 V taşıyordu.
+   */
+  readonly voltageNotEvidenceCount: number;
+  /** C — en yeni kaydın voltaj tazeliği. `null` = kayıt yok. */
+  readonly lastVoltageFreshness: string | null;
+  /** C — en yeni kaydın voltaj ölçüm yaşı (ms). `null` = damga yoktu. */
+  readonly lastVoltageAgeMs:     number | null;
 }
 
 /**
@@ -623,6 +632,28 @@ function _linkLossSection(s: AdRawSnapshot): AdSection {
         { id: 'adLossNextMeasure', label: 'önce ölçülmesi gereken', source: SRC.loss, note: '' },
         l.total === 0 ? 'Kayıt yok — eksik kanıt listesi de yok.' : 'Kanıt boşluğu kalmadı.',
       ));
+
+  /* ── C · VOLTAJ TEK BAŞINA KANIT DEĞİLDİR ────────────────────────────────
+     Saha (2026-08-30): "hiç paket yok (ATRV dahil)" diyen kayıt 12,6 V taşıyordu
+     ve `evidenceGap` bunu boşluk saymıyordu — alan "dolu" görünüyordu. */
+  f.push(observed(
+    { id: 'adLossVoltGap', label: 'voltajı KANIT SAYILMAYAN kayıt', source: SRC.loss,
+      note: 'Ölçüm anı bilinmeyen ya da pencereyi aşmış (bayat) voltaj sınıflandırmaya '
+          + 'GİRMEZ. Ham değer defterde kalır; "adaptör sağlıklı" izlenimi ÜRETMEZ.' },
+    l.voltageNotEvidenceCount,
+  ));
+
+  f.push(l.lastVoltageFreshness !== null
+    ? observed(
+        { id: 'adLossVoltFresh', label: 'son kaydın voltaj tazeliği', source: SRC.loss,
+          note: 'FRESH = ölçüm kopma anına yakın · STALE = eski okuma · '
+              + 'UNKNOWN = okuma anı hiç damgalanmamış.' },
+        l.lastVoltageAgeMs === null
+          ? l.lastVoltageFreshness
+          : `${l.lastVoltageFreshness} (${l.lastVoltageAgeMs} ms)`,
+      )
+    : unavailable({ id: 'adLossVoltFresh', label: 'son kaydın voltaj tazeliği', source: SRC.loss, note: '' },
+        'Defterde kayıt yok — tazelik de yok.'));
 
   f.push(l.lastNote !== null
     ? observed(

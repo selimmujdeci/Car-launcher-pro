@@ -107,6 +107,20 @@ export interface CarosLabCopyInput {
   /** Debug hata kütüğü (halka tampon). */
   readonly errorLog: readonly unknown[] | null;
   /**
+   * P0-OBD-FINAL-02 — ECU KEŞİF / ADRESLENEBİLİRLİK KANITI.
+   *
+   * SAHA GEREKÇESİ (2026-08-25 · Protocol 5 / KWP): ekranda `ECU 7A (KWP)` ·
+   * rx `86F17A` · tx `817AF1` · 8-bit · rol UNKNOWN GÖRÜNÜYORDU ama "TÜMÜNÜ
+   * KOPYALA" çıktısında bu kanıt HİÇ YOKTU — gönderilen tam dökümden teşhis
+   * ÇIKARILAMIYORDU. #535/#523 ile AYNI SINIF kusur: ölçüm yapıldı, dışarı
+   * çıkarılmadı.
+   *
+   * Kaynak KANONİKTİR (`ecuAddressability` · `ecuCompleteness` ·
+   * `kwpSessionProbe` · `getKwpDtcEvidence`); ikinci paralel state YOKTUR.
+   * `null` = kaynak okunamadı ("ECU yok" DEMEK DEĞİLDİR).
+   */
+  readonly ecuDiscovery?: unknown | null;
+  /**
    * #523 — H-A DENEYİ (ATST) SONUCU.
    *
    * SAHA GEREKÇESİ (2026-08-10): deney gerçek araçta koştu, ekranda hüküm göründü,
@@ -137,12 +151,24 @@ export interface CarosLabCopyInput {
    */
   readonly fixAgeDistribution: unknown | null;
   /**
+   * P0-VDK-F2A — kanonik tanı izinin ÖZETİ (olayların tamamı DEĞİL).
+   * Yüzlerce ham olayı kopyaya basmak onu kullanılamaz kılardı; sessiz
+   * kırpma da YASAK → adet · boşluk · tekrar · düşen · export engeli yazılır.
+   */
+  readonly tanIzi: unknown | null;
+  /**
    * #536 — KOPMA KANIT DEFTERİ (GÖREV A). Sahada 8 timeout ölçüldü ama dört kök
    * neden adayının (adaptör · soket · ELM init · ECU uykusu) hepsi AYNI sayıyı
    * üretiyordu. Bu bölüm kopma anındaki imzayı, kurtarma imzasını ve **eksik
    * kanıt listesini** taşır. `null` = defter okunamadı ("kopma yok" DEĞİL).
    */
   readonly linkLosses: unknown | null;
+  /**
+   * D — GPS OTORİTE SÖZLEŞMESİ (saha 2026-08-30). `hal.gpsAlive:false` ile
+   * `connectivity[GPS].connected:true` aynı kopyada çelişki gibi okunuyordu;
+   * üçü FARKLI ekseni ölçer. Bölüm sayıları değil ANLAMLARINI taşır.
+   */
+  readonly gpsAuthority?: unknown;
   /** Vehicle HAL kaynak sağlığı — `canAlive/obdAlive/gpsAlive`, null = BİLİNMİYOR. */
   readonly sourceHealth: unknown | null;
   /**
@@ -318,6 +344,9 @@ export function buildCarosLabCopy(input: CarosLabCopyInput): CarosLabCopyResult 
     fromRows('KATALOG DURUMU', input?.catalog ?? null, (r) => r),
     fromObject('ANLIK ARAÇ VERİSİ', input?.obdData ?? null),
     fromObject('KAYNAK SAĞLIĞI (HAL · null = BİLİNMİYOR)', input?.sourceHealth ?? null),
+    /* D: HAL bölümünün HEMEN ARDINDAN — okuyucu `gpsAlive:false` satırını görür
+       görmez onun hangi ekseni ölçtüğünü (ve hangisini ÖLÇMEDİĞİNİ) okusun. */
+    fromObject('GPS OTORİTE SÖZLEŞMESİ (üç eksen · ayrışma açıklaması)', input?.gpsAuthority ?? null),
     /* #526 — yaş bölümü sayaçlardan ÖNCE gelir: okuyucu sayıya bakmadan önce
        hangi ANDAN geldiğini görsün. */
     fromObject('NATIVE SAYAÇ SNAPSHOT YAŞI (#526)', input?.nativeSnapshotAge ?? null),
@@ -325,6 +354,7 @@ export function buildCarosLabCopy(input: CarosLabCopyInput): CarosLabCopyResult 
     fromObject('NAVİGASYON ÇEKİRDEĞİ (#508 · fixAgeMs)', input?.navigationCore ?? null),
     /* #537: dağılım AYRI bölümdür — tek anlık örnekle karıştırılmasın. #508
        hükmü burada okunur; nav çekirdeği bölümündeki tek örnek KANIT DEĞİLDİR. */
+    fromObject('KANONİK TANI İZİ — ÖZET (P0-VDK-F2A)', input?.tanIzi ?? null),
     fromObject('KONUM FIX YAŞI DAĞILIMI (#537 · #508 hükmü)', input?.fixAgeDistribution ?? null),
     fromObject('ETA SIÇRAMA DEFTERİ (#530)', input?.etaJumps ?? null),
     /* #536: kopma kanıtı — sayaçlardan (kalite/baskı) SONRA değil ÖNCE okunmalı
@@ -346,6 +376,16 @@ export function buildCarosLabCopy(input: CarosLabCopyInput): CarosLabCopyResult 
       : unreadable('H-A DENEYİ · ATST YANIT SÜRESİ (#518)',
           'bu oturumda deney ekranı hiç okunmadı — kopya yolu senkrondur, veri ancak '
           + 'ekran bir kez açıldıysa önbellekte olur. "deney koşmadı" ANLAMINA GELMEZ'),
+    /* ── P0-OBD-FINAL-02 · ECU KEŞİF / ADRESLENEBİLİRLİK KANITI ────────────
+       AYRI ve AÇIK bir bölümdür: okuyucu "ECU keşfedildi mi · fiziksel adrese
+       ulaşıldı mı · KWP oturumu ne dedi · 0x18 gönderildi mi" sorularını TEK
+       yapıştırmayla cevaplayabilmelidir. Kaynak okunamazsa "okunamadı" yazılır
+       — boş/0 VARSAYILMAZ. */
+    input?.ecuDiscovery
+      ? fromObject('ECU KEŞİF / ADRESLENEBİLİRLİK KANITI', input.ecuDiscovery)
+      : unreadable('ECU KEŞİF / ADRESLENEBİLİRLİK KANITI',
+          'kanıt kaynağı okunamadı — bu "araçta ECU yok" ANLAMINA GELMEZ; '
+          + 'tam araç taraması bu oturumda hiç koşmamış da olabilir'),
     /* SAHA (2026-07-25): cihaz çıktısında bu bölüm boştu, oysa KANITLAR'da 40+
        `OBD:Reconnect — CONNECT_FAILED` vardı. Sebep: `dbgPushError`in ÇAĞIRANI YOK —
        kanal yapısal olarak boş. "(kayıt yok)" burada "hata olmadı" diye OKUNUR;

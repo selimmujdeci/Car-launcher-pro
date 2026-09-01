@@ -118,15 +118,31 @@ vi.mock('../platform/obdService', () => ({
 import { CarLauncher } from '../platform/nativePlugin';
 import { getOBDDataSnapshot } from '../platform/obdService';
 import { clearDTCCodes, readDTCCodes } from '../platform/dtcService';
+/* ARCH-05 FIXTURE (kilit ZAYIFLATMASI DEĞİL): `clearDTCCodes` artık write
+   gate'in YANINDA bir yetki kapısı da taşır ve o kapı araç kapsamını
+   `capabilityStore`dan, hareketi `obdService.getObdSpeedFresh`ten okur.
+   Bu dosyada `obdService` mocklandığı için o okuyucular ölçüm bulamaz ve
+   fail-closed davranır. Aşağıdaki bağlam, testin ZATEN kurduğu araç durumunu
+   (kimlikli araç + mocklanan hız) güvenlik katmanına da ANLATIR; hiçbir
+   iddia gevşetilmez — kapı hâlâ gerçekten çalışır (bkz.
+   `arch05ProductionEnforcement.test.ts` E ve G blokları). */
+import { _setSecurityContextForTest } from '../platform/security/enforcement';
+
+const TEST_VEHICLE_REF = 'a1b2c3d4e5f60718';
 
 /** OBD servisinin döndüreceği anlık veri — testler bunu araç durumu olarak kurar. */
 function mockObd(over: { speed?: number; rpm?: number; connectionState?: string; lastSeenMs?: number }): void {
+  const speed = over.speed ?? 0;
   vi.mocked(getOBDDataSnapshot).mockReturnValue({
     connectionState: over.connectionState ?? 'connected',
-    speed:      over.speed ?? 0,
+    speed,
     rpm:        over.rpm ?? 0,
     lastSeenMs: over.lastSeenMs ?? Date.now(),
   } as ReturnType<typeof getOBDDataSnapshot>);
+  /* Güvenlik bağlamı AYNI araç durumunu görür — iki katman çelişmez. */
+  _setSecurityContextForTest({
+    vehicleRef: TEST_VEHICLE_REF, motion: speed < 1 ? 'PARKED' : 'MOVING',
+  });
 }
 
 describe('OBD-OS-F0-6 · clearDTCCodes kapıyı ZORLAR (native yazma engellenir)', () => {
@@ -135,9 +151,11 @@ describe('OBD-OS-F0-6 · clearDTCCodes kapıyı ZORLAR (native yazma engellenir)
     // Silinecek bir kod OLMALI — aksi halde fonksiyon kapıya gelmeden çıkar.
     // State'i GERÇEK okuma yolundan doldururuz (üretim koduna test-only kapı açmayız).
     vi.mocked(CarLauncher.readDTC).mockResolvedValue({ codes: ['P0301'] });
+    /* Varsayılan: kimlikli araç, park edilmiş. Her test `mockObd` ile üzerine yazar. */
+    _setSecurityContextForTest({ vehicleRef: TEST_VEHICLE_REF, motion: 'PARKED' });
     await readDTCCodes();
   });
-  afterEach(() => { vi.useRealTimers(); });
+  afterEach(() => { vi.useRealTimers(); _setSecurityContextForTest(null); });
 
   it('🔒 KİLİT: araç 42 km/h → native clearDTC ÇAĞRILMAZ, kodlar KORUNUR', async () => {
     mockObd({ speed: 42 });

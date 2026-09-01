@@ -208,6 +208,8 @@ export function readSttMicSnapshot(): SttMicRaw {
     /* Kanıtsız iyimserlik yok: sözleşme bunu LİTERAL `false` olarak tipler —
        canlılık ölçülmediği sürece bu alan `true` OLAMAZ (kütük #460). */
     wakeLivenessMeasured:    wdog ? wdog.livenessMeasured : false,
+    wakeRecorderState:       wdog ? wdog.recorderState : 'UNAVAILABLE',
+    wakeRecoveryCount:       wdog ? wdog.recoveryCount : 0,
 
     /* Wake karar defteri — okunamazsa SAHTE sayaç üretilmez (boş/0/null). */
     wakeDecisionCounts:      forensics ? forensics.counts : {},

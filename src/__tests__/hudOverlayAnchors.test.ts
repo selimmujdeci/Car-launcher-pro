@@ -77,7 +77,9 @@ describe('#605 · P2-3 — sol alt köşenin TEK sahibi var', () => {
   /** `NavigationHUD` hızlı kart sütununun alt çapası. */
   function quickCardBottom(): number {
     const m = /bottom:\s*'calc\(var\(--lp-dock-h,\s*68px\)\s*\+\s*(\d+)px\)'/.exec(
-      hud.slice(hud.indexOf('absolute left-3 z-20 pointer-events-auto')),
+      /* P0-NAV-02: ham `z-20` merkezi katman sözleşmesine taşındı
+         (`--z-map-label`). Çapa dizgesi güncellendi; ÖLÇÜM aynı. */
+      hud.slice(hud.indexOf('absolute left-3 z-[var(--z-map-label)] pointer-events-auto')),
     );
     expect(m, 'hızlı kart sütununun alt çapası okunamadı').not.toBeNull();
     return Number(m![1]);

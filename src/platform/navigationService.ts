@@ -31,6 +31,12 @@ import {
   judgeDestinationChange, recordDestinationChange,
   type DestinationSource,
 } from './navigation/core/destinationOwnershipModel';
+import {
+  judgeDestinationIntegrity,
+  type DestinationIdentity,
+  type DestinationIntegrityVerdict,
+} from './navigation/core/destinationIntegrityModel';
+import { OwnerCommandEvidence } from './message';
 // Phase H1 re-export kaldırıldı (H5 circular import fix).
 // startHazardEngine / stopHazardEngine doğrudan hazardService.ts'ten import edilebilir.
 
@@ -178,9 +184,6 @@ export const ARRIVAL_THRESHOLD_M = 20;
 // 5 s ARRIVED → IDLE timer
 let _arrivedTimer: ReturnType<typeof setTimeout> | null = null;
 let _unregisterReroutingCb: (() => void) | null = null;
-// H1: restoreNavigationAsync'in GPS-fix bekleme aboneliğini temizler (Zero-Leak).
-// Fix hiç gelmezse 60s timeout veya stopNavigation() bu fonksiyonu çağırır.
-let _restoreGpsCleanup: (() => void) | null = null;
 
 /** Hedefe varış — ARRIVED durumuna geç ve 5 s sonra IDLE'a dön. */
 function transitionToArrived(): void {
@@ -214,8 +217,44 @@ function transitionToArrived(): void {
  * Bu blok rota HESAPLAMA davranışını değiştirmez — yalnız "bu istek daha önce
  * yapıldı mı" sorusunun sahibini değiştirir. */
 
+/* ── P0-NAV-09 · HEDEF BÜTÜNLÜĞÜ KANITI ─────────────────────────────────────
+ * Ölçülen kusur: koordinat kapısı (`isValidDestination`) ÜRÜNDE VARDI ama
+ * YALNIZ Ev/İş yolunda çağrılıyordu; tüm hedeflerin geçtiği `startNavigation`
+ * ondan HİÇ geçmiyordu. Artık her hedef denetlenir ve hüküm burada tutulur —
+ * LAB bunu okur, yeni bir store KURULMAZ (mevcut modül-düzeyi kayıt deseni). */
+let _lastIntegrity: DestinationIntegrityVerdict | null = null;
+let _rejectedDestinationCount = 0;
+let _swapSuspectCount = 0;
+/** Rota isteğine GERÇEKTEN gönderilen hedefin künyesi (zincirin son halkası). */
+let _committedIdentity: DestinationIdentity | null = null;
+
+/** Salt-okunur gözlem — LAB bu değerleri DEĞİŞTİREMEZ. */
+export function getDestinationIntegritySnapshot(): {
+  readonly last: DestinationIntegrityVerdict | null;
+  readonly rejectedCount: number;
+  readonly swapSuspectCount: number;
+  readonly committed: DestinationIdentity | null;
+} {
+  return {
+    last: _lastIntegrity,
+    rejectedCount: _rejectedDestinationCount,
+    swapSuspectCount: _swapSuspectCount,
+    committed: _committedIdentity,
+  };
+}
+
+/** Test izolasyonu — sayaçlar testler arasında sızmasın. */
+export function _resetDestinationIntegrityForTest(): void {
+  _lastIntegrity = null;
+  _rejectedDestinationCount = 0;
+  _swapSuspectCount = 0;
+  _committedIdentity = null;
+}
+
 /** Her YENİ hedef (startNavigation) ile artan oturum numarası. */
 let _sessionId = 0;
+const _commandEvidence = new OwnerCommandEvidence('navigationService');
+export function getNavigationCommandFlowEvidence() { return _commandEvidence.recent(); }
 /** Bu oturumda rota isteği sahiplenilen hedef: `${sessionId}:${destinationId}`. */
 let _routeClaim: string | null = null;
 
@@ -276,6 +315,43 @@ export function startNavigation(
   source: DestinationSource = 'SYSTEM',
 ): void {
   const st = useNavigationStore.getState();
+
+  /* ── P0-NAV-09 · BÜTÜNLÜK KAPISI — SAHİPLİKTEN ÖNCE ──────────────────────
+   * Sıra bilinçlidir: "bu hedefi kim koydu" sorusunu sormadan ÖNCE "bu
+   * koordinat gerçek bir yer mi" sorulur. Tersi olsaydı, kullanıcı kaynaklı
+   * bir NaN hedefi sahiplik kapısından ALLOW alır ve mühürlenirdi.
+   * FAIL-CLOSED: geçersiz hedefle rota BAŞLATILMAZ. */
+  const loc = useUnifiedVehicleStore.getState().location;
+  const integrity = judgeDestinationIntegrity(
+    {
+      id:           destination.id,
+      name:         destination.name,
+      latitude:     destination.latitude,
+      longitude:    destination.longitude,
+      address:      destination.fullAddress,
+      provider:     destination.provider,
+      resolvedAtMs: destination.resolvedAtMs,
+      precision:    destination.precision,
+    },
+    {
+      nowMs:  Date.now(),
+      origin: loc && Number.isFinite(loc.latitude) && Number.isFinite(loc.longitude)
+        ? { lat: loc.latitude, lng: loc.longitude } : null,
+    },
+  );
+  _lastIntegrity = integrity;
+  if (integrity.swap.suspected) _swapSuspectCount += 1;
+
+  if (!integrity.ok) {
+    _rejectedDestinationCount += 1;
+    /* Hedef ADI loglanmaz (PII): yalnız sebep sınıfı. */
+    console.warn(
+      `[Nav] Hedef REDDEDİLDİ (${integrity.rejection}) · kaynak=${source} · `
+      + `${integrity.allRejections.length} ihlal — rota BAŞLATILMADI`,
+    );
+    return;
+  }
+
   const cur = st.destination;
   const verdict = judgeDestinationChange({
     current: cur ? { id: cur.id, name: cur.name, latitude: cur.latitude, longitude: cur.longitude } : null,
@@ -301,14 +377,21 @@ export function startNavigation(
   // Yeni hedef → yeni oturum; önceki oturumun istek sahipliği düşer.
   _sessionId += 1;
   _routeClaim = null;
+  const op = `nav:${_sessionId}:${destination.id}`;
+  _commandEvidence.record({ id: `${op}:request`, kind: 'COMMAND', name: 'navigation.destination.set', source, target: 'navigationService', operationId: op, correlationId: op, sessionId: String(_sessionId), generation: _sessionId, nowMs: Date.now() });
   useNavigationStore.getState().setDestination(destination, isOffline);
   setRerouteContext(destination.latitude, destination.longitude);
   _unregisterReroutingCb?.();  // önceki navigasyondan kalan callback'i temizle
   _unregisterReroutingCb = registerReroutingCallback(
     (val) => useNavigationStore.getState().setRerouting(val),
   );
+  /* Zincirin son halkası: rota isteğine GERÇEKTEN giden künye. LAB bunu
+     arama sonucuyla karşılaştırarak "doğru yeri bulduk ama yanlış koordinat
+     mı gitti" sorusunu yanıtlar (bkz. judgeChainIntegrity). */
+  _committedIdentity = integrity.identity;
   // Crash recovery: varış noktasını anında mühürle (debounce bypass)
   _sealNavState(destination, 0, false);
+  _commandEvidence.record({ id: `${op}:result`, kind: 'RESULT', name: 'navigation.destination.result', source: 'navigationService', target: null, operationId: op, correlationId: op, sessionId: String(_sessionId), generation: _sessionId, nowMs: Date.now() });
 }
 
 /* ── ROTA SAHİPLİĞİ GÖRÜNÜMDEN AYRILDI (saha 2026-08-04) ────────────────────
@@ -361,6 +444,8 @@ function _ensureRouteForSession(): void {
 export function activateNavigation(): void {
   const { status } = useNavigationStore.getState();
   if (status === NavStatus.PREVIEW || status === NavStatus.ROUTING) {
+    const op = `nav:${_sessionId}:activate`;
+    _commandEvidence.record({ id: `${op}:request`, kind: 'COMMAND', name: 'navigation.guidance.start', source: 'ui_or_mavi', target: 'navigationService', operationId: op, correlationId: op, sessionId: String(_sessionId), generation: _sessionId, nowMs: Date.now() });
     useNavigationStore.getState()._setStatus(NavStatus.ACTIVE);
     /* Konum tazeliği (saha 2026-08-08): native park kısması navigasyondan
        habersizdi — uzun duruşta 1 Hz GPS kapanıp kalkışta ilk ~60 m kör
@@ -387,6 +472,7 @@ export function activateNavigation(): void {
       _sealNavState(destination, _lastPersistedStepIdx < 0 ? 0 : _lastPersistedStepIdx, true);
       injectSentinelStepIfEmpty(destination.latitude, destination.longitude);
     }
+    _commandEvidence.record({ id: `${op}:result`, kind: 'RESULT', name: 'navigation.guidance.result', source: 'navigationService', target: null, operationId: op, correlationId: op, sessionId: String(_sessionId), generation: _sessionId, nowMs: Date.now() });
     // Konum merkezi kaynaktan gelir (useUnifiedVehicleStore) — yerel DR yok
   }
 }
@@ -410,7 +496,6 @@ export function stopNavigation(): void {
   _lastPersistedStepIdx = -1;
   if (_arrivedTimer) { clearTimeout(_arrivedTimer); _arrivedTimer = null; }
   _unregisterReroutingCb?.(); _unregisterReroutingCb = null;
-  _restoreGpsCleanup?.(); // H1: bekleyen GPS-fix aboneliğini temizle
   useNavigationStore.getState().clearNavigation();
   clearRerouteContext();
   // Per-session izleme state'ini sıfırla — sonraki navigasyon temiz başlar
@@ -460,7 +545,11 @@ export function getNavigationState(): NavigationState {
  * Crash Recovery — Phase S3 Zero-Touch Navigation Restore.
  *
  * Uygulama crash/LBO ile kapanırken mühürlenen navigasyon state'ini geri yükler.
- * GPS fix beklenmeksizin PREVIEW modunda rota çizilir; fix gelince ACTIVE'e geçer.
+ * Geri yükleme yalnız kullanıcının beyan ettiği hedefi PREVIEW olarak kurar.
+ * Diskteki `wasActive`, eski bir oturumun tarihçesidir; yeni süreçte ACTIVE,
+ * rehberlik, ETA veya manevra gerçeği üretemez. Bunlar ancak yeni provider/GPS
+ * gözlemi ve açık kullanıcı aktivasyonu ile kurulabilir. Yeni GPS kanıtı için
+ * zaman disiplini `Date.now() - location.timestamp` ile owner ingress'te uygulanır.
  * Tüm süreç sessizdir — TTS çalışmaz, kullanıcıyı korkutmaz.
  *
  * @returns true — başarılı geri yükleme, false — mühürlü veri yok veya süresi geçmiş
@@ -493,49 +582,17 @@ export async function restoreNavigationAsync(): Promise<boolean> {
       return false;
     }
 
-    // PREVIEW modunda rota hazırla — TTS yok (sessiz crash recovery)
-    // Kütük #429: aynı yolculuğun devamı — kullanıcı eylemi DEĞİL ama meşru.
+    // PREVIEW modunda hedef önerisini kur. Bu bir rota/guidance restore değildir.
+    // `SESSION_RESTORE` yalnız destination ownership kaydı için kullanılır.
     startNavigation(persist.destination, false, 'SESSION_RESTORE');
-    // startNavigation step=0 yazar; geri yüklenen asıl step+wasActive'i üzerine mühürle
-    _sealNavState(persist.destination, persist.stepIndex, persist.wasActive);
+    // Eski step ve wasActive değerleri canlı progress/guidance olarak yazılmaz.
+    // Diskteki kaydı da yeni fail-closed proposal olarak mühürle.
+    _sealNavState(persist.destination, 0, false);
 
     console.info(
       `[NavRestore] "${persist.destination.name}" geri yüklendi` +
-      ` (step=${persist.stepIndex}, wasActive=${persist.wasActive})`,
+      ' (desired destination only; live guidance is not resurrected)',
     );
-
-    if (persist.wasActive) {
-      // GPS fix zaten varsa → anında ACTIVE'e al
-      const { location } = useUnifiedVehicleStore.getState();
-      const hasGpsFix = location &&
-        Number.isFinite(location.latitude) &&
-        (Date.now() - location.timestamp) < 30_000;
-
-      if (hasGpsFix) {
-        activateNavigation();
-        console.info('[NavRestore] GPS fix mevcut — navigasyon ACTIVE moduna alındı');
-      } else {
-        // GPS fix bekleniyor — gelince ACTIVE'e al (Zero-Touch).
-        // H1: temizlik referansı + 60s timeout — fix hiç gelmezse abonelik sonsuza dek yaşamaz.
-        _restoreGpsCleanup?.(); // önceki bekleyen aboneliği temizle (çift restore koruması)
-        const unsub = useUnifiedVehicleStore.subscribe((s) => {
-          const loc = s.location;
-          if (!loc || !Number.isFinite(loc.latitude)) return;
-          if ((Date.now() - loc.timestamp) >= 30_000) return;
-          _restoreGpsCleanup?.();
-          if (useNavigationStore.getState().status === NavStatus.PREVIEW) {
-            activateNavigation();
-            console.info('[NavRestore] GPS fix geldi — navigasyon ACTIVE moduna alındı');
-          }
-        });
-        const _gpsWaitTimer = setTimeout(() => _restoreGpsCleanup?.(), 60_000);
-        _restoreGpsCleanup = () => {
-          unsub();
-          clearTimeout(_gpsWaitTimer);
-          _restoreGpsCleanup = null;
-        };
-      }
-    }
 
     return true;
   } catch {
@@ -915,6 +972,22 @@ let _prevEtaSample: EtaSample | null = null;
 
 /** Son ETA hükmü — sayı DEĞİL, GEREKÇE taşır. Yan etkisi yoktur. */
 export function getEtaVerdict(): EtaVerdict { return _lastEtaVerdict; }
+
+/**
+ * ETA HÜKMÜNÜN durumu — THROW ETMEYEN okuma (P0-NAV-14).
+ *
+ * NEDEN VAR: ETA gösteren yüzeyler (`MiniMapWidget` · `SplitScreen` ·
+ * `HorizonLayout` · `TripSummary`) motorun hükmünü okumak zorundadır ama
+ * hiçbiri bir okuma hatası yüzünden ÇÖKMEMELİDİR. Okunamıyorsa `'UNKNOWN'`
+ * döner ve `decideEtaDisplay` sayıyı GİZLER (fail-closed: emin değilsek
+ * sürücüye sayı göstermeyiz).
+ *
+ * Abonelik KURMAZ — render sırasında okunur (`useNavigationHonesty` ile aynı
+ * desen; yüzeyler zaten rota tick'inde yeniden render olur).
+ */
+export function readEtaStateSafe(): EtaVerdict['state'] {
+  try { return _lastEtaVerdict.state; } catch { return 'UNKNOWN'; }
+}
 
 /** @internal — testler arası izolasyon. */
 export function _resetEtaVerdictForTest(): void {

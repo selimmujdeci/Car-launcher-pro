@@ -45,6 +45,22 @@ function memInput(over: Partial<AiMemoryFieldsInput> = {}): AiMemoryFieldsInput 
     budgetMaxShortTerm: 4,
     budgetMaxChars: 800,
     nowMs: NOW,
+    /* MAVI-F10: yeni bölümler VARSAYILAN OLARAK DOLU verilir — aksi hâlde
+       gizlilik kilidi (aşağıda) o alanları hiç taramaz ve sessizce boş kümeye
+       düşerdi ("kör guard = düşen guard"). */
+    canonical: {
+      explicitCount: 2, inferredCount: 1, inferredPromoted: 0,
+      correctedCount: 0, contradictedCount: 0, suppressionCount: 0,
+      rejectedSensitive: 0, corrections: 0, forgets: 0, forgottenRecords: 0,
+      historyPurges: 0, projections: 3, persistFailures: 0, lastPersistOk: true,
+      legacyImported: 0, legacyRejected: 0, schemaDropped: 0,
+      conversationPurgeBound: true, inferredProducerWired: false,
+      minEvidence: 3, maxExplicit: 15, maxInferred: 15,
+    },
+    trip: {
+      scopeBound: true, hasActiveTrip: true, recordCount: 4, capacity: 40,
+      written: 4, rejectedSensitive: 0, droppedOverflow: 0, tripsSealed: 1,
+    },
     ...over,
   };
 }

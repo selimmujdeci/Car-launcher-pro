@@ -221,6 +221,22 @@ export const RecoveryMonitorScreen = memo(function RecoveryMonitorScreen() {
       lastReason: snap.reconnect.lastReason,
       lastReconnectAt: snap.reconnect.lastReconnectAt,
       lastOutcome: snap.reconnect.lastOutcome,
+      /* P0-OBD-CORE-06 — connect otoritesi (tek-uçuş kapısı) kanıtı. */
+      connectInFlight: snap.reconnect.connectInFlight,
+      connectAttemptsStarted: snap.reconnect.connectAttemptsStarted,
+      connectBusyRejections: snap.reconnect.connectBusyRejections,
+      connectPreemptions: snap.reconnect.connectPreemptions,
+      reconnectYieldedToRecovery: snap.reconnect.reconnectYieldedToRecovery,
+      lastNativeFailureClass: snap.reconnect.lastNativeFailureClass,
+      /* P0-OBD-FINAL-01 — native reconnect otoritesinin ölçülen künyesi. */
+      nativeReconnectEpoch: snap.reconnect.nativeReconnectEpoch,
+      nativeReconnectInFlight: snap.reconnect.nativeReconnectInFlight,
+      nativeReconnectRounds: snap.reconnect.nativeReconnectRounds,
+      nativeReconnectRecovered: snap.reconnect.nativeReconnectRecovered,
+      nativeReconnectFailed: snap.reconnect.nativeReconnectFailed,
+      nativeReconnectGuardTimeouts: snap.reconnect.nativeReconnectGuardTimeouts,
+      nativeReconnectLastOutcome: snap.reconnect.nativeReconnectLastOutcome,
+      nativeReconnectLastDurationMs: snap.reconnect.nativeReconnectLastDurationMs,
     },
     linkLoss: snap.linkLoss === null ? null : {
       total: snap.linkLoss.summary.total,

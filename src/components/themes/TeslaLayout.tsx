@@ -22,7 +22,7 @@ import { useOBDState } from '../../platform/obdService';
 import { useDisplaySpeed, formatDisplaySpeed } from '../../hooks/useDisplaySpeed';
 import { useBatteryVoltage } from '../../hooks/useBatteryVoltage';
 import { useLivingThemeState } from '../../hooks/useLivingThemeState';
-import { useUnifiedVehicleStore } from '../../platform/vehicleDataLayer/UnifiedVehicleStore';
+import { useAmbientTemp, useLiveVehicleSignal } from '../../hooks/useCanonicalVehicleSignal';
 import { useClock } from '../../hooks/useClock';
 import { useDeviceStatus } from '../../platform/deviceApi';
 import { StatusControls } from '../common/StatusControls';
@@ -176,7 +176,11 @@ const StatusCluster = memo(function StatusCluster() {
   const p = usePal();
   const device = useDeviceStatus();
   const n = useNotificationState();
-  const ambient = useUnifiedVehicleStore(s => s.canAmbientTemp);
+  /* P0-OBD-03: doğrudan CAN alanı okuması KALDIRILDI. `canAmbientTemp` CAN'ı
+     olmayan (aftermarket ELM327'li) araçta kalıcı null'dır ve başlık sonsuza
+     dek '—' gösteriyordu — oysa PID 0x46 okunuyordu. Otorite tek yerde:
+     CAN → OBD → yok, ve YALNIZ taze (LIVE) ölçüm sayı olarak basılır. */
+  const ambient = useAmbientTemp();
   // Living theme — bağlantı: online yeşil nabız (.lt-pulse, static tier'da durur), offline soluk.
   const online = useLivingThemeState().conn === 'online';
   return (
@@ -457,11 +461,16 @@ const RuggedSUV = memo(function RuggedSUV() {
 /* ─── VEHICLE STATUS CARD ────────────────────────────────────────── */
 const VehicleCard = memo(function VehicleCard({ onOpenSettings }: { onOpenSettings: () => void }) {
   const p = usePal();
-  const obd = useOBDState();
   const battery = useBatteryVoltage();   // kütük #427: CAN → OBD otoritesi
   const volt = battery.volt;
   const rawSpeed = useDisplaySpeed();
-  const motor = obd.engineTemp != null ? `${Math.round(obd.engineTemp)}°C` : '—';
+  /* P0-OBD-03 · GERÇEK KUSUR: `obd.engineTemp` tipi `number` ve desteklenmeyen
+     PID'de `-1` döner — `!= null` HER ZAMAN doğruydu, dolayısıyla bu kart
+     araç 0x05'i desteklemediğinde ekrana **"-1°C"** basıyordu. Ayrıca CAN'ı
+     olan ama OBD'si olmayan araçta CAN ısısı hiç görünmüyordu. Otorite tek
+     yerde (CAN → OBD → yok) ve yalnız LIVE ölçüm sayıya dönüşür. */
+  const motorC = useLiveVehicleSignal('coolantTemp');
+  const motor = motorC != null ? `${Math.round(motorC)}°C` : '—';
   const aku = volt != null ? `${volt.toFixed(1)}V` : '—';
   return (
     <div data-editable="tesla.vehicle" data-editable-type="card" style={{ ...card(p, { solid: true, pad: 15 }) }} className="flex-1 min-h-0 flex flex-col" onClick={onOpenSettings}>

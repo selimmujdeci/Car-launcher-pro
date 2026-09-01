@@ -4,6 +4,26 @@
 
 **Tüm yanıtlar Türkçe olacak.** Kod dışındaki her şey — açıklamalar, sorular, öneriler, hata mesajları, yorumlar — Türkçe yazılacak. İstisna yok.
 
+**HER ZAMAN TÜRKÇE CEVAP VERİLECEK.** Bu kural her oturumda, her fazda, her görev
+tipinde ve kullanıcının yazdığı dil ne olursa olsun geçerlidir — kullanıcı
+İngilizce yazsa bile yanıt Türkçe verilir. Rapor, denetim, plan, hata açıklaması,
+kod yorumu ve commit mesajı gövdesi dahil: **istisna yoktur**.
+
+## 📋 KOPYALANABİLİR ÇIKTI KURALI (ZORUNLU)
+
+**Her yanıt kopyalanabilir olarak verilecek.** Rapor, analiz, plan, denetim sonucu,
+liste, tablo, komut dizisi — kullanıcının başka bir yere taşıyabileceği her çıktı
+**tek bir ham markdown kod bloğu** içinde sunulur (```` ```markdown ```` … ```` ``` ````),
+böylece tek tıkla kopyalanır.
+
+- Blok İÇİNDE düz markdown yazılır: başlıklar, tablolar, listeler bozulmadan taşınır.
+- Blok içinde üç ters tırnak kullanılması gerekiyorsa dış blok **dört** ters tırnakla açılır.
+- Kısa sohbet cevabı, tek cümlelik onay veya soru sorma bu kuralın dışındadır —
+  taşınacak bir çıktı yoksa blok açılmaz.
+- Kod/SQL/komut örnekleri zaten kendi bloklarındadır; dış blok bunları sarmalar.
+- Blok dışına en fazla **bir cümlelik** giriş yazılır; açıklama, gerekçe ve uyarılar
+  bloğun İÇİNE girer (dışarıda kalan metin kopyalanmaz → kaybolur).
+
 ## 🎯 VİZYON ANAYASASI (KUZEY YILDIZI — BAĞLAYICI)
 
 **CarOS Pro bir launcher değildir; aracın ikinci beynidir** — evrensel, aftermarket
@@ -103,8 +123,153 @@ Gözlemlenebilirlik sınıflandırması `sessionInspectorModel` sözleşmesini K
 alt sistem. Saf yardımcı fonksiyon, tek dosyalık kozmetik düzeltme ve yalnız
 görsel değişiklik bu kuralın dışındadır.
 
+**Ekran enflasyonu yasağı (LAB yüzey politikası):** gözlemlenebilirlik borcu YENİ
+EKRAN sayısıyla ödenmez. Sıra şudur: **(1)** mevcut ilgili ekranı GENİŞLET →
+**(2)** olmuyorsa mevcut ekrana sekme/bölüm ekle → **(3)** ancak bağımsız durumu ve
+kendi tanı akışı olan bir alt sistem için YENİ ekran aç. Her küçük özellik için ayrı
+ekran üretmek LAB'ı gezilemez hale getirir ve gerçek cihaz doğrulamasını
+KOLAYLAŞTIRMAK yerine zorlaştırır — LAB'ın varlık sebebi budur.
+
+**LAB ikinci otorite OLAMAZ (mimari sınır):** LAB salt-okunur gözlem/teşhis
+yüzeyidir. Kural 4 ("aktif komut göndermez") bunun davranış tarafıdır; mimari tarafı
+şudur: LAB **kendi gerçeğini üretmez** — hüküm, eşik, sağlık kararı ve durum
+sınıflandırması **kanonik otoritelerden** okunur (`dtcAuthority`, `playbackTruth`,
+`capabilityRegistry`, `sessionInspectorModel` …). LAB'da hesaplanan bir değer
+üretim kararına GERİ BESLENMEZ.
+
 **Gözlem yüzeyi HENÜZ yoksa:** özellik "tamamlandı" diye sunulmaz; eksik LAB ekranı
 **açık borç** olarak vizyon belgesine ve kütüğe yazılır.
+
+## 🧭 CROSS-DOMAIN ARCHITECTURE RULES — SYSTEM COHERENCE (BAĞLAYICI)
+
+Bu kurallar CarOS Pro'daki **TÜM** domain mimarileri için bağlayıcıdır: Music ·
+Navigation · Mavi · Phone Link · OBD/VDK · CAN/VSI · VehicleDataLayer · Runtime ·
+Security · Performance · UI ve gelecekte eklenecek tüm platform alanları.
+
+### 1. ONE DOMAIN = ONE AUTHORITY
+Her gerçek kavramın **tek** writable/kanonik sahibi olur:
+vehicle truth → VDL / ilgili signal owner · playback truth → native media
+authority / `playbackTruth` · navigation truth → navigation owner · phone session
+truth → companion/session owner · Mavi lifecycle → `MaviLifecycle` · runtime
+lifecycle → SystemBoot / ARCH-01 sahipleri.
+**İkinci truth store, mirror-authority veya gizli fallback authority KURULMAZ.**
+
+### 2. DOMAIN OWNERSHIP CANNOT BE STOLEN
+Bir domain başka domainin truth'unu sahiplenemez.
+- **Mavi**: media/navigation/diagnostic truth sahibi DEĞİLDİR — yalnız
+  requester/orchestrator olabilir.
+- **Phone Link**: transport/control plane sağlar; CarOS iç domain truth'unu
+  sahiplenmez.
+- **UI**: presentation state sahibi olabilir, domain truth sahibi OLAMAZ.
+
+### 3. CROSS-DOMAIN COMMUNICATION MUST USE BOUNDARIES
+Domainler birbirinin private store/internal state'ine doğrudan bağlanmaz.
+**Kullan:** kanonik command/request/result sözleşmeleri · salt-okunur
+projeksiyonlar · capability/admission arayüzleri · domain port/adapter.
+**Kaçın:** başka domainin mutable store'una doğrudan import · gizli side-effect
+çağrıları · duplicate state senkronizasyonu.
+
+### 4. NO DIRECT HARD COUPLING WITHOUT PROOF
+Navigation ↔ Music · Mavi ↔ OBD · Phone Link ↔ Media · CAN ↔ UI gibi ilişkiler
+**varsayılan olarak hard dependency DEĞİLDİR.** Hard edge yalnız repo/ürün
+gereksinimi **kanıtıyla** eklenir; aksi hâlde `SOFT` / `OBSERVATION_ONLY` /
+`REQUESTER` ilişkisi kullanılır.
+
+### 5. SHARED PLATFORM LAYERS ARE HORIZONTAL, NOT OWNERS
+Runtime/Lifecycle · Message Flow · Security/Authorization · Performance/Resource
+Governance · Observability · Native/HAL boundary **domain truth sahibi değildir.**
+Bunlar politika/kanıt/taşıma sağlar; domain truth'unu ele geçiremez.
+
+### 6. SECURITY DOES NOT CREATE DOMAIN TRUTH
+Authorization yalnız **ALLOW / DENY** kararı verir. Playback state üretmez,
+vehicle state üretmez, navigation readiness üretmez.
+> **Permission ≠ capability · Capability ≠ readiness · Readiness ≠ active truth**
+
+### 7. PERFORMANCE DOES NOT CHANGE TRUTH
+Performans; sampling · coalescing · throttling · defer · cache trim uygulayabilir.
+**Ama ASLA:** stale → current · missing → zero · dropped → success · memory
+pressure → service failure · low FPS → recovery/restart nedeni.
+**Truth cadence ile render cadence AYRI tutulur.**
+
+### 8. RESOURCE OWNERSHIP
+`AdaptiveRuntimeManager` tek resource/runtime authority olarak kalır; **domain
+cadence sahipliği korunur:** OBD poll timing → OBD scheduler · GPS cadence →
+`gpsService` · CAN acquisition → native CAN owner · map render →
+MapLibre/component · media playback cadence → media owner.
+ARM **bütçe/hint** verir; domain protocol timing'ini ele geçirmez.
+
+### 9. AUDIO ARBITRATION
+Music, Navigation ve Mavi birbirine **doğrudan** ses kontrolü uygulamaz. Ses
+etkileşimi ortak **Audio Arbitration / Focus / Duck / Disposition** üzerinden
+çözülür. Navigation → Music direct mute YOK. Mavi → Media direct volume truth YOK.
+
+### 10. VEHICLE TRUTH PATH
+`OBD / CAN / GPS / HAL → domain adapters → VDL / kanonik signal owner →
+Navigation / Mavi context / UI projections`
+UI · Mavi · Navigation doğrudan **raw transport truth** sahibi olamaz.
+
+### 11. PHONE LINK BOUNDARY
+Phone Link: discovery · identity · control plane · data plane olarak ayrılır.
+High-bandwidth data plane **control-plane authority ÜRETMEZ**;
+projection/cast/media transfer session/capability authority'yi **ele geçirmez**.
+
+### 12. MAVI ROLE
+Mavi bir **requester · orchestrator · conversational layer**'dır. Bir domain
+aksiyonu isterse akış şudur:
+`authorization → kanonik command → domain owner executes → result returns`.
+**Mavi domain state'ini kendi başına DEĞİŞTİRMEZ.**
+
+### 13. PERSISTENCE ≠ LIVE TRUTH
+Persisted / cached / replayed / imported state **CURRENT live observation
+DEĞİLDİR.** Hydration `CACHED` / `DECLARED` / `RECOVERY` önerisi olarak gelir;
+native/domain owner **yeniden doğrulamadan** live truth'e yükselmez.
+
+### 14. UI IS A PROJECTION
+UI; salt-okunur domain projeksiyonları, presentation cache ve animation/layout
+state taşıyabilir. UI üzerinden **doğrudan** vehicle · navigation · playback ·
+connectivity · diagnostic truth **YAZILMAZ**.
+
+### 15. NO NEW GLOBAL GOD OBJECT
+Yeni global event router · mega store · global scheduler · global performance
+manager · global truth manager · global recovery engine **EKLENMEZ.** Yeni ortak
+katman ancak mevcut **authority boşluğu repo kanıtıyla gösterilirse** oluşturulur.
+
+### 16. CROSS-DOMAIN FAILURE ISOLATION
+Bir domain failure'ı yalnız dependency graph izin veriyorsa diğerini etkiler:
+Media failure → Navigation KAPATILMAZ · Mavi unavailable → driving core KAPANMAZ ·
+Phone Link unavailable → yerel araç fonksiyonları KAPANMAZ · network unavailable →
+offline Navigation/Media KAPANMAZ.
+
+### 17. STALE / SESSION / GENERATION SAFETY
+Cross-domain tüm async result/callback **epoch · generation · session ·
+correlation** kanıtına göre kabul edilir.
+**Eski session sonucu yeni session truth'unu DEĞİŞTİREMEZ.**
+
+### 18. NO DUPLICATE RECOVERY
+Domain **failure evidence** üretir · policy `RuntimeRecoverySupervisor`'ındır ·
+execution `SystemBoot`'undur. Domain kendi gizli restart/backoff motorunu KURMAZ.
+
+### 19. CROSS-DOMAIN ARCHITECTURE REVIEW (her büyük domain kapanışında ZORUNLU)
+- duplicate authority var mı?
+- hidden hard dependency var mı?
+- circular dependency var mı?
+- private mutable store import edilmiş mi?
+- second scheduler var mı?
+- second freshness/truth sistemi var mı?
+- security/performance domain truth üretmiş mi?
+- UI writable truth'a dönüşmüş mü?
+- failure propagation gereksiz mi?
+- session/generation sınırı korunuyor mu?
+
+### 20. FINAL SYSTEM COHERENCE GATE
+Tüm büyük domainler tamamlandıktan sonra zorunlu final faz:
+**ARCH-FINAL — CROSS-DOMAIN INTEGRATION / SYSTEM COHERENCE.**
+Bu fazda Music · Navigation · Mavi · Phone Link · OBD/VDK · CAN/VSI · VDL ·
+Runtime · Security · Performance · Native/HAL · UI **aynı anda** denetlenir.
+
+**PASS ölçütü (hepsi = 0):** authority collision · duplicate truth · illegal hard
+dependency · duplicate scheduler · duplicate recovery · cross-domain stale write ·
+security bypass · performance truth corruption.
 
 ## CAROS PRO Vizyon Kaynağı
 
@@ -153,6 +318,93 @@ onaylı maliyet politikası; "agent spawn etme" varsayılanını bu politika eze
 - Aktif saha/acil debug oturumu (bağlam kaybı riskli).
 Delege edilen işin sonucu ana oturumda DOĞRULANIR (test/tsc) — ajan çıktısına
 körlemesine güvenilmez.
+
+## 🔁 IMPLEMENTATION / QA AYRIMI (ZORUNLU — YÜRÜTME POLİTİKASI)
+
+> **Bu bir test AZALTMA politikası DEĞİLDİR.** Güvence aynı kalır; yalnız aynı ağır
+> doğrulamanın gereksiz TEKRARI kaldırılır ve geliştirme oturumunun bağlamı ağır QA
+> çıktılarıyla tüketilmez.
+
+Ağır doğrulama (full suite · production build · native build) tek bir oturumu
+dakikalarca bloklar ve bağlamı doldurur. Bu yüzden iş **iki role** ayrılır. İkisi de
+aynı anayasaya tabidir; ayrım YETKİ değil, YÜRÜTME ZAMANLAMASI ayrımıdır.
+
+### IMPLEMENTATION SESSION (varsayılan)
+
+Görevi: repo denetimi · mimariyi koruyarak kod yazmak · atomik patch.
+
+**Çalıştırır:**
+- Değişen modüllerin **ilgili feature testleri**
+- İlgili **regresyon / authority / safety** kilitleri (hızlı kasa: `npm run guard`)
+- **TypeScript** kontrolü (`tsc -b`)
+- **Yalnız değişen dosyalarda** lint
+
+**Normal geliştirme döngüsünde ÇALIŞTIRMAZ:**
+- Full test suite · production build · gereksiz full lint
+- Aynı ağır doğrulamanın tekrarı
+
+### QA SESSION (ayrı pencere)
+
+Ayrı bir Claude/Codex penceresinde çalışır — bu, §🤖'daki `caros-tester` ajanını
+KALDIRMAZ: ajan oturum-içi hedefli doğrulama içindir, QA SESSION ise fazın bağımsız
+kapanış kapısıdır.
+
+**Çalıştırır:** implementation diff'ini bağımsız inceleme · feature/regresyon/authority
+testleri · **full suite** · TypeScript · kapanış lint'i · **production build** · native
+kod değiştiyse **native compile/build** · gerçek hata ↔ önceden var olan hata sınıflandırması.
+
+**QA ürün mimarisini kendi başına yeniden tasarlamaz.** Ürün davranışını veya mimariyi
+değiştirecek düzeltme implementation penceresine devredilir; QA yalnız küçük, açık ve
+**test altyapısına ait** düzeltmeyi yapabilir.
+
+### Faz kapanış protokolü
+
+| Aşama | Hüküm | Kim verir |
+|-------|-------|-----------|
+| Kod tamamlandı, ağır doğrulama yapılmadı | `IMPLEMENTATION COMPLETE — QA REQUIRED` | Implementation |
+| Ağır doğrulama BİR KEZ koştu ve geçti | `QA PASS — PHASE CLOSURE ELIGIBLE` | QA |
+| Ağır doğrulama düştü | `QA FAIL` + kök neden | QA |
+
+- Implementation oturumu **`F5 PASS` gibi kesin faz hükmü VERMEZ** — o hüküm QA'nın.
+- **`QA PASS` gerçek araç doğrulaması YERİNE GEÇMEZ.** Kod/test/build yeşil olması
+  `docs/DEVICE_VALIDATION_LEDGER.md` maddelerini 🔴'dan çıkarmaz; saha kanıtı gelene
+  kadar ilgili maddeler **`UNKNOWN / DEVICE VALIDATION REQUIRED`** kalır.
+- Vizyon durum seviyesiyle bağ: `QA PASS` en fazla **ENTEGRE** demektir;
+  **DOĞRULANDI / SAHADA DOĞRULANDI** yalnız kütükten gelir (bkz. §CAROS PRO Vizyon Kaynağı).
+
+### Ağır doğrulama tekrar yasağı
+
+Aynı kod/diff değişmediyse full suite · production build · native build **sebepsiz
+tekrar çalıştırılmaz.**
+
+QA'dan sonra kod değişirse:
+1. Önce **yalnız etkilenen hızlı testler** koşulur.
+2. Değişiklik **üretim kodunu** etkiliyorsa (test/doküman değil) kapanış kanıtı
+   GEÇERSİZDİR → ilgili ağır doğrulama yeniden yapılır.
+3. Yalnız test/yorum/doküman değiştiyse kapanış kanıtı geçerli kalır; bu **açıkça
+   yazılır** (hangi kanıtın hangi diff'e ait olduğu belirsiz bırakılmaz).
+
+### Test uğruna ürün bozma YASAĞI
+
+PASS almak için **asla**: test silme · assertion gevşetme · authority/safety guard
+kaldırma · timeout'u kör şekilde büyütme · production davranışını teste uydurma.
+
+Bir test YANLIŞSA önce **neden yanlış olduğunun kanıtı** sunulur; ancak ondan sonra
+kilit **yeni doğru davranışa GÜNCELLENİR** (kaldırılmaz — bkz. §REGRESYON KASASI).
+
+> ⚠️ **Kör guard = düşen guard.** Kaynak metni tarayan bir kilit, taradığı yapı
+> değiştiği için 0 sonuç üretiyorsa o kilit **artık hiçbir şeyi korumuyordur**
+> (sessizce "geçen" boş-küme testleri dahil). Bu bir başarı değil, bir ARIZADIR:
+> kilit yeni tek-kaynağa yeniden bağlanır.
+
+### Raporlama (kısa)
+
+**Implementation:** ne değişti · hangi hızlı testler geçti · açık risk/borç · `QA REQUIRED`.
+**QA:** diff · feature/regresyon sonuçları · full suite · typecheck/lint/build ·
+gerçek hata varsa kök neden · `QA PASS` / `QA FAIL`.
+
+Binlerce satırlık test/build çıktısı rapora YAPIŞTIRILMAZ — özet sayılar ve gerçek
+hata mesajı yeter.
 
 ## Project Overview
 
@@ -290,6 +542,10 @@ sesli rota uygulama-içi, reroute eşiği, saat siyah-dikdörtgen…).
   bir daha sessizce geri gelmesin).
 - **Cihaza APK göndermeden önce `npm run apk:safe`** kullan: test geçmezse APK
   üretilmez. Manuel build'de bile önce `npm run test` koş — yeşil olmadan APK YOK.
+  ↳ Bu kapı **sevkiyat ve faz kapanışı** kapısıdır (§IMPLEMENTATION / QA AYRIMI):
+  her implementation döngüsünde değil, **APK üretiminden ve `QA PASS` hükmünden
+  önce** koşar. Geliştirme döngüsünün hızlı karşılığı `npm run guard`'dır — o
+  kasayı ATLAMAK serbest değildir, yalnız FULL suite ertelenir.
 - **Stale-APK tuzağı:** gradle "up-to-date" deyip eski APK paketleyebilir;
   `apk:safe` bu yüzden `gradlew clean` kullanır (taze APK garantisi).
 

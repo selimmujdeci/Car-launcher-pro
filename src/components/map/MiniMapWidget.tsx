@@ -35,8 +35,10 @@ import {
   getRouteProgressPoint,
   formatDistance,
   formatEta,
+  readEtaStateSafe,
   NavStatus,
 } from '../../platform/navigationService';
+import { decideEtaDisplay } from '../../platform/navigation/core/navigationHonestyModel';
 import { useRouteState, getRouteState } from '../../platform/routingService';
 import { resolveRouteForwardBearing } from '../../platform/navigation/core/navigationEntryBearing';
 import { useEffectiveSpeedLimit } from '../../platform/navigation/useEffectiveSpeedLimit';
@@ -61,6 +63,9 @@ import { _haversineMeters } from '../../platform/gps/gpsMath';
 import { safeGetRaw } from '../../utils/safeStorage';
 // #617 — park/duruş çerçevesinin TEK otoritesi. Buraya sabit sayı YAZILMAZ.
 import { PARK_VIEW_ZOOM } from '../../platform/map/MapInteractionManager';
+import {
+  applyMapDeclutter, invalidateMapDeclutter,
+} from '../../platform/map/MapLayerManager';
 import { acquireCompassDemand, releaseCompassDemand } from '../../platform/gps/compassDemand';
 
 /** Mini haritanın compass talep kimliği (owner) — tek örnek varsayımı korunur. */
@@ -422,6 +427,31 @@ export const MiniMapWidget = memo(function MiniMapWidget({
       try { clearRouteGeometry(map); } catch { /* fail-soft */ }
     }
   }, [navRouteVisible, route.geometry, mapReady, styleKey]);
+
+  /* ── GÜRÜLTÜ SÖZLEŞMESİ · MİNİ PROFİL (P0-NAV-03) ────────────────────────
+   * ÖLÇÜLEN BOŞLUK: `mapDeclutterModel` MINI profilini (POI/bina/şehir etiketi
+   * daha sert geri çekilir, yol gövdesi/etiketi ölçekle küçültülür) baştan beri
+   * TANIMLIYOR ve `applyMapDeclutter` onu uygulayabiliyordu — ama MINI'yi
+   * ÇAĞIRAN KİMSE YOKTU. Yalnız tam ekran (`useMapStyleLifecycle`) bağlanmıştı;
+   * mini harita hiçbir profil almadan, tam ekranın gürültüsüyle çiziliyordu.
+   * Yani "mini harita tam ekranın KOPYASI değildir" sözleşmesi ekranda
+   * uygulanmıyordu.
+   *
+   * `initializeMap` TEKİLDİR (aynı anda tek MapLibre örneği) — bu yüzden
+   * yüzeyler `applyMapDeclutter`ın modül düzeyindeki istenen-profil durumunu
+   * paylaşmaz; devir sırasında yeni sahibi profili yeniden yazar.
+   *
+   * `styleKey`/`reinitKey` bağımlılıkta: `setStyle` tüm katmanları siler →
+   * sözleşme yeniden yazılmalıdır. Stil hazır değilse uygulayıcı kalıcı
+   * gözlemcisini kurar ve stil gelince KENDİ yazar (sahte "uygulandı" yok). */
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady) return;
+    invalidateMapDeclutter();          // yüzey/stil değişti → yeniden yaz
+    try {
+      applyMapDeclutter(map, 'MINI', mapNight, isNavigating);
+    } catch { /* fail-soft — gürültü sözleşmesi kamerayı/rotayı ASLA bozmaz */ }
+  }, [mapReady, mapNight, isNavigating, styleKey, reinitKey]);
 
   // Unmount: rota katmanlarını bırak — harita singleton'ı FullMapView'a devredilirken
   // bizim çizdiğimiz çizgi orada artık geçerli olmayabilir (Zero-Leak + temiz devir).
@@ -920,6 +950,19 @@ export const MiniMapWidget = memo(function MiniMapWidget({
   // Hız: tek gösterim otoritesi (`useDisplaySpeed`) — null ise rozet `—` gösterir.
   const speedKmh = displaySpeedKmh;
 
+  /* ── KATMAN SÖZLEŞMESİ (P0-NAV-02) ────────────────────────────────────────
+   * Mini haritanın iç katmanları da `--z-map-*` sözleşmesinden okunur; ham
+   * Tailwind `z-10`/`z-20` sınıfları KALDIRILDI. Eşleme DEĞER KORUYUCUDUR
+   * (`--z-map-effect` = 10 · `--z-map-label` = 20) → yığın sırası bire bir
+   * aynı kalır, bu turda hiçbir görsel değişiklik ÜRETİLMEZ.
+   *
+   * TEK İSTİSNA: karo hatası örtüsü (eski `z-30`) anlamsal şeridine
+   * (`--z-map-alert` = 90) taşındı. Görsel sonuç yine AYNIdır — bu kapsayıcıda
+   * ondan yüksek kardeş YOKTUR, örtü eskiden de en üstteydi.
+   *
+   * Katmanların anlamsal olarak yeniden derecelendirilmesi (rozet →
+   * `--z-map-chip` gibi) ayrı bir tasarım kararıdır ve bilinçli olarak bu
+   * turun DIŞINDADIR. */
   return (
     <div className="w-full h-full min-h-0 min-w-0 glass-card flex flex-col overflow-hidden relative border-none !shadow-none">
       {/* Ambient glow */}
@@ -927,7 +970,7 @@ export const MiniMapWidget = memo(function MiniMapWidget({
 
       {/* Header — hideHeader=true ise tamamen gizlenir, harita tüm alanı kaplar */}
       {!hideHeader && (
-        <div className="flex-shrink-0 flex items-center justify-between px-5 pt-5 pb-2 relative z-10">
+        <div className="flex-shrink-0 flex items-center justify-between px-5 pt-5 pb-2 relative z-[var(--z-map-label)]">
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-xl bg-[#E0A23C] border-2 border-[#E0A23C] flex items-center justify-center flex-shrink-0 shadow-lg shadow-[#E0A23C]/20">
               <div className={`w-2.5 h-2.5 rounded-full ${location ? 'bg-emerald-300 animate-pulse shadow-[0_0_10px_rgba(110,231,183,0.8)]' : 'bg-white opacity-40'}`} />
@@ -967,7 +1010,7 @@ export const MiniMapWidget = memo(function MiniMapWidget({
          *  cubic-bezier(0.4,0,0.2,1) geçişi: Tesla UI motion tasarım dili uyumlu.       */}
         {!mapReady && (
           <div
-            className="absolute inset-0 z-10 rounded-[inherit] overflow-hidden"
+            className="absolute inset-0 z-[var(--z-map-effect)] rounded-[inherit] overflow-hidden"
             style={{
               background: 'linear-gradient(160deg, rgba(8,12,28,0.97) 0%, rgba(14,20,42,0.97) 100%)',
               transition: 'opacity 400ms cubic-bezier(0.4,0,0.2,1)',
@@ -1010,7 +1053,7 @@ export const MiniMapWidget = memo(function MiniMapWidget({
 
         {/* GPS placeholder — konum yokken MapLibre siyah canvas'ı örter */}
         {!location && (
-          <div className="absolute inset-0 z-20 rounded-2xl overflow-hidden bg-white/10">
+          <div className="absolute inset-0 z-[var(--z-map-label)] rounded-2xl overflow-hidden bg-white/10">
             {/* Grid çizgileri — harita hissi */}
             <svg className="absolute inset-0 w-full h-full opacity-[0.08]" xmlns="http://www.w3.org/2000/svg">
               <defs>
@@ -1051,7 +1094,7 @@ export const MiniMapWidget = memo(function MiniMapWidget({
               <div className="absolute w-8  h-8  rounded-full border border-[#E0A23C]/30 animate-ping [animation-duration:2s] [animation-delay:1s]" />
 
               {/* İkon + yazı kartı */}
-              <div className="relative flex flex-col items-center gap-2.5 z-10">
+              <div className="relative flex flex-col items-center gap-2.5 z-[var(--z-map-effect)]">
                 <div className="w-10 h-10 rounded-full bg-[#E0A23C]/20 border border-[#E0A23C]/40 flex items-center justify-center shadow-[0_0_24px_rgba(224,162,60,0.3)]">
                   <svg viewBox="0 0 24 24" fill="none" className="w-5 h-5 text-[#E0A23C]" stroke="currentColor" strokeWidth="2">
                     <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z"/>
@@ -1075,7 +1118,7 @@ export const MiniMapWidget = memo(function MiniMapWidget({
         )}
         {/* Fallback konum badge — gerçek GPS değil ama harita gösteriliyor */}
         {location && (gpsState.source === 'last_known' || gpsState.source === 'default') && (
-          <div className="absolute top-2 left-2 z-10 flex items-center gap-1 px-2 py-1 rounded-lg bg-amber-500/15 border border-amber-500/30 backdrop-blur-sm pointer-events-none">
+          <div className="absolute top-2 left-2 z-[var(--z-map-effect)] flex items-center gap-1 px-2 py-1 rounded-lg bg-amber-500/15 border border-amber-500/30 backdrop-blur-sm pointer-events-none">
             <div className="w-1.5 h-1.5 rounded-full bg-amber-400" />
             <span className="text-amber-400 text-[9px] font-bold uppercase tracking-wide">
               {gpsState.source === 'last_known' ? 'Son Konum' : 'Çevrimdışı'}
@@ -1092,7 +1135,7 @@ export const MiniMapWidget = memo(function MiniMapWidget({
          *  Konum: sağ üst, kaynak rozetinin ALTINDA; sağ alttaki hız
          *  göstergesiyle ve tema kartının +/- düğmeleriyle çakışmaz.
          *  Animasyon YOK — sürüşte dikkat dağıtmaz.                            */}
-        <div className="absolute z-20 pointer-events-none" style={{ top: 34, right: 8 }}>
+        <div className="absolute z-[var(--z-map-label)] pointer-events-none" style={{ top: 34, right: 8 }}>
           <SpeedLimitCard limit={speedLimit} size="mini" />
         </div>
 
@@ -1107,7 +1150,7 @@ export const MiniMapWidget = memo(function MiniMapWidget({
             onClick={recenterOnVehicle}
             aria-label="Aracı ortala"
             title="Aracı ortala"
-            className="absolute z-20 flex items-center justify-center rounded-full active:scale-90 transition-all"
+            className="absolute z-[var(--z-map-label)] flex items-center justify-center rounded-full active:scale-90 transition-all"
             style={{
               top: 8, left: '50%', transform: 'translateX(-50%)',
               width: 44, height: 44,
@@ -1142,8 +1185,18 @@ export const MiniMapWidget = memo(function MiniMapWidget({
           const remainM = (distanceMeters != null && Number.isFinite(distanceMeters) && distanceMeters > 10)
             ? distanceMeters
             : (route.totalDistanceMeters > 0 ? route.totalDistanceMeters : null);
-          const etaTxt = (etaSeconds != null && Number.isFinite(etaSeconds))
-            ? formatEta(etaSeconds) : '—';
+          /* ── ETA — TEK KARAR OTORİTESİ (P0-NAV-14) ───────────────────────
+           * ÖLÇÜLEN KUSUR: burada yalnız "sayı var mı ve sonlu mu" soruluyordu.
+           * Motor "bu ETA'ya GÜVENME" dediğinde (bayat süre revizyonu · düz hat
+           * · yetersiz rota verisi) tam ekran HUD `—` basarken mini harita AYNI
+           * anda bir süre gösteriyordu → iki yüzey ayrışıyordu. Bu, bu deponun
+           * tekrar eden saha kusurudur (#332 · #547 · P0-NAV-06/1 · P0-NAV-07).
+           * Karar artık `decideEtaDisplay` ile TEK yerde; sıfır/negatif/geçersiz
+           * denetimi de o kuralın İÇİNDEDİR (kapı zayıflamadı, tek otoriteye
+           * bağlandı). Güvenilmiyorsa `—` yazılır — uydurma süre YOK. */
+          const etaDec = decideEtaDisplay(etaSeconds, readEtaStateSafe());
+          const etaTxt = (etaDec.showNumber && etaDec.seconds !== null)
+            ? formatEta(etaDec.seconds) : '—';
           const phase =
             navStatus === NavStatus.REROUTING ? 'YENİDEN HESAPLANIYOR' :
             navStatus === NavStatus.ARRIVED   ? 'VARDINIZ'             :
@@ -1151,7 +1204,7 @@ export const MiniMapWidget = memo(function MiniMapWidget({
             navStatus === NavStatus.PREVIEW   ? 'ÖNİZLEME'             : null;
 
           return (
-            <div className="absolute bottom-2 left-2 z-20 max-w-[68%] pointer-events-auto">
+            <div className="absolute bottom-2 left-2 z-[var(--z-map-label)] max-w-[68%] pointer-events-auto">
               <div
                 className="flex flex-col gap-1 px-2.5 py-1.5 rounded-xl bg-black/65 backdrop-blur-xl shadow-lg"
                 style={{ border: '1px solid rgba(224,162,60,0.35)' }}
@@ -1203,7 +1256,7 @@ export const MiniMapWidget = memo(function MiniMapWidget({
         })()}
 
         {tileError && (
-          <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-30">
+          <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-[var(--z-map-alert)]">
             <div className="flex flex-col items-center gap-1.5 px-3 py-2 rounded-xl bg-black/60 backdrop-blur-md border border-red-500/30">
               <div className="w-2 h-2 rounded-full bg-red-400 animate-pulse" />
               <span className="text-red-400 text-[9px] font-semibold tracking-wide uppercase">Harita yüklenemiyor</span>

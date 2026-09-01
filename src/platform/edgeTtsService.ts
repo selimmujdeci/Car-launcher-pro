@@ -11,6 +11,8 @@
  */
 
 import { duckMedia, unduckMedia } from './audioService';
+/* MAVI-F0: TTS sentez + ilk duyulabilir ses ölçümü (YALNIZ ÖLÇÜM). */
+import { markMaviLatency } from './assistant/maviLatencyTrace';
 
 const TTS_URL =
   (import.meta.env.VITE_EDGE_TTS_URL as string | undefined) || 'https://carospro.com/api/tts';
@@ -82,6 +84,7 @@ export async function speakEdge(text: string, onEnd?: () => void): Promise<boole
   const url = await _synthesize(t);
   if (!url) return false;
   if (seq !== _seq) return false;  // daha yeni konuşma istendi → bunu çalma
+  markMaviLatency('tts_audio_ready');   // MAVI-F0: sentezlenmiş ses verisi hazır
 
   if (_active) { try { _active.pause(); } catch { /* durmuş */ } }
   const audio = new Audio(url);
@@ -95,10 +98,14 @@ export async function speakEdge(text: string, onEnd?: () => void): Promise<boole
     if (ducked) { unduckMedia(); ducked = false; }
     if (_active === audio) _active = null;
     audio.onended = null; audio.onerror = null;
+    audio.onplaying = null;              // MAVI-F0: zero-leak
     onEnd?.();
   };
 
   try {
+    // MAVI-F0: `playing` platformun GERÇEK başlangıç bildirimidir; `play()` yalnız İSTEK.
+    audio.onplaying = () => { markMaviLatency('first_audio_confirmed'); };
+    markMaviLatency('first_audio_requested');
     const p = audio.play();
     ducked = true; duckMedia();
     audio.onended = settle;

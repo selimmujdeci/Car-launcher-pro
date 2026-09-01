@@ -24,6 +24,14 @@ import { isNative } from '../../platform/bridge';
 import { VOICE_TUNING } from '../../platform/voiceTuning';
 import { useLivingThemeState } from '../../hooks/useLivingThemeState';
 import type { AnimationLevel } from '../../platform/livingThemeState';
+/* MAVI-F11: durum etiketi ARTIK BURADA ÜRETİLMEZ. Tek kanonik kaynak
+   `maviSurfaceState`tir — çünkü bu dosya kendi etiketini üretirken tam ekran
+   yüzeyde modelin İÇ İŞLEYİŞİNİ anlatan bir cümle yazıyordu: bu bir iç akıl
+   yürütme göstergesidir ve F2/I7 ile YASAKTIR. */
+import { useMaviSurface } from '../../hooks/useMaviSurface';
+import {
+  surfaceShouldAutoClose, noteFullScreenBlocked,
+} from '../../platform/assistant/maviSurfaceState';
 
 /* ── Waveform animation ─────────────────────────────────────── */
 
@@ -36,6 +44,12 @@ import type { AnimationLevel } from '../../platform/livingThemeState';
 export function voiceOverlayShouldAutoClose(followUp: boolean): boolean {
   return !followUp;
 }
+
+/* MAVI-F11 · GENİŞLETİLMİŞ kilit `maviSurfaceState.surfaceShouldAutoClose`
+ * içindedir (yeniden dışa aktarılmaz — bu dosya bir COMPONENT modülüdür).
+ * `voiceOverlayShouldAutoClose` onun DAR hâlidir ve davranışı AYNEN korunur
+ * (`followUp` → asla kapanmaz); genişletilmiş hâl buna `CONFIRMATION` ve
+ * `ACTION` durumlarını EKLER. */
 
 const Waveform = memo(function Waveform({ active, level }: { active: boolean; level: AnimationLevel }) {
   const bars = [3, 7, 11, 6, 9, 13, 5, 10, 7, 4, 8, 12, 6, 9, 5];
@@ -96,6 +110,7 @@ const PulseRing = memo(function PulseRing({ active }: { active: boolean }) {
 
 const VoiceOverlay = memo(function VoiceOverlay({ onClose, autoStart }: { onClose: () => void; autoStart?: boolean }) {
   const voice       = useVoiceState();
+  const surface     = useMaviSurface();      // MAVI-F11: kanonik yüzey durumu
   const { level }   = useLivingThemeState(); // companion wave animasyon kademesi
 
   const isListening   = voice.status === 'listening';
@@ -129,7 +144,10 @@ const VoiceOverlay = memo(function VoiceOverlay({ onClose, autoStart }: { onClos
     // Eskiden success(2200ms)/error(3000ms) otokapat bu bayrağı yok sayıp pencereyi
     // kapatıyordu → kullanıcı cevabını söyleyemeden "kapanıyordu". Döngü, kullanıcı
     // susunca (_endConvSession → followUp=false, status idle) normal şekilde kapanır.
-    if (!voiceOverlayShouldAutoClose(voice.followUp)) return;
+    /* MAVI-F11: kilit GENİŞLETİLDİ — `followUp`a EK OLARAK onay bekleyen ve
+       süren iş durumları da otomatik kapanmayı engeller. Dar hâl
+       (`voiceOverlayShouldAutoClose`) bunun içinde AYNEN korunur. */
+    if (!surfaceShouldAutoClose(surface)) return;
     if (isSuccess) {
       const id = setTimeout(onClose, 2200);
       return () => clearTimeout(id);
@@ -146,19 +164,23 @@ const VoiceOverlay = memo(function VoiceOverlay({ onClose, autoStart }: { onClos
       const id = setTimeout(onClose, 200);    // dinleme bitti, sonuç yok → kapan
       return () => clearTimeout(id);
     }
-  }, [isSuccess, isError, voice.status, voice.followUp, onClose]);
+  }, [isSuccess, isError, voice.status, voice.followUp, surface, onClose]);
 
   const handleQuickCmd = useCallback((cmd: string) => {
     processTextCommand(cmd);
   }, []);
 
-  /* ── Status label ── */
+  /* ── Durum etiketi — MAVI-F11 · KANONİK KAYNAK ──────────────────────────
+   * ESKİ HÂLİ `processing` durumunda modelin İÇ İŞLEYİŞİNİ anlatan bir cümle
+   * basıyordu. Bu bir iç akıl yürütme göstergesidir ve F2/I7 ile yasaktır
+   * (kullanıcıya modelin ne yaptığı anlatılmaz). Yeni etiket
+   * `maviSurfaceState`ten gelir ve `UNDERSTANDING` için nötr bir ALINDI
+   * bildirimi ("Seni duydum") üretir. Yasak sözcük listesi kilitlidir.
+   * Throttle bir Mavi durumu değil bir HIZ KAPISIDIR → yerel kalır. */
   const statusLabel =
-    isListening   ? 'Dinliyorum…' :
-    isProcessing  ? 'AI düşünüyor…' :
-    isSuccess     ? 'Anlaşıldı' :
-    isError       ? 'Anlaşılamadı' :
-    isThrottled   ? 'Bekleyin' : 'Sesli Asistan';
+    isThrottled ? 'Bekleyin'
+    : surface.label !== '' ? surface.label
+    : 'Sesli Asistan';
 
   const statusColor =
     isListening   ? 'text-blue-400' :
@@ -174,10 +196,20 @@ const VoiceOverlay = memo(function VoiceOverlay({ onClose, autoStart }: { onClos
     isError       ? 'bg-red-400' :
     isThrottled   ? 'bg-amber-400 animate-pulse' : 'bg-slate-700';
 
+  /* MAVI-F11 · NAVİGASYON/MÜZİK KAPANMAZ (spec §21.2 — pazarlıksız).
+   * Tam ekran yüzey YALNIZ `EXPANDED` (park) kipinde açılır; sürüşte (COMPACT)
+   * arka plan tıklama-yakalayıcı ve karartma DEVRE DIŞI kalır → altındaki
+   * navigasyon/müzik ekranı görünür ve dokunulabilir olmaya devam eder.
+   * Reddedilen tam ekran istekleri bounded sayaca yazılır (LAB). */
+  const fullScreen = surface.allowsFullScreen;
+  if (!fullScreen) noteFullScreenBlocked();
+
   return (
     <div
-      className="fixed inset-0 z-[70] flex flex-col items-center justify-center px-4"
-      onClick={(e) => { if (e.target === e.currentTarget) { stopListening(); onClose(); } }}
+      className={fullScreen
+        ? 'fixed inset-0 z-[70] flex flex-col items-center justify-center px-4'
+        : 'fixed inset-x-0 bottom-0 z-[70] flex flex-col items-center justify-end px-4 pb-4 pointer-events-none'}
+      onClick={(e) => { if (fullScreen && e.target === e.currentTarget) { stopListening(); onClose(); } }}
     >
       {/* Backdrop — çok şeffaf, sadece hafif karartma */}
       <div
@@ -303,6 +335,7 @@ const VoiceOverlay = memo(function VoiceOverlay({ onClose, autoStart }: { onClos
 
 const VoiceDrivePill = memo(function VoiceDrivePill({ onClose }: { onClose: () => void }) {
   const voice = useVoiceState();
+  const surface = useMaviSurface();          // MAVI-F11: kanonik yüzey durumu
   const isListening  = voice.status === 'listening';
   const isProcessing = voice.status === 'processing';
   const isSuccess    = voice.status === 'success';
@@ -339,7 +372,8 @@ const VoiceDrivePill = memo(function VoiceDrivePill({ onClose }: { onClose: () =
     // otokapat 1800ms'de stopListening() çağırıp _endConvSession ile takip döngüsünü
     // ÖLDÜRÜYORDU → kullanıcının cevabı hiç alınmıyordu. Cevap TTS'i bitince mikrofon
     // yeniden açılır (status → listening); döngü kullanıcı susunca normal kapanır.
-    if (!voiceOverlayShouldAutoClose(voice.followUp)) return;
+    /* MAVI-F11: genişletilmiş kilit (onay/süren iş de kapanmayı engeller). */
+    if (!surfaceShouldAutoClose(surface)) return;
     if (voice.status === 'idle') {
       if (!startedRef.current) return; // warmup sürüyor → henüz kapatma
       const id = setTimeout(() => { onCloseRef.current(); }, 80);
@@ -349,18 +383,22 @@ const VoiceDrivePill = memo(function VoiceDrivePill({ onClose }: { onClose: () =
       const id = setTimeout(() => { stopListening(); onCloseRef.current(); }, 1800);
       return () => clearTimeout(id);
     }
-  }, [isSuccess, isError, voice.status, voice.followUp]);
+  }, [isSuccess, isError, voice.status, voice.followUp, surface]);
 
   // idle iken hiçbir şey render etme — "Hazır" görüntüsü yok
   if (voice.status === 'idle') return null;
 
+  /* MAVI-F11: etiketler KANONİK modelden gelir (tek kaynak). Eski süreç-anlatan
+     etiket yerine nötr ALINDI bildirimi kullanılır — süreç anlatımı da bir
+     iç-durum göstergesidir ve sürüşte gereksiz dikkat yüküdür.
+     İKİ İSTİSNA BİLİNÇLİDİR ve daha DÜRÜSTTÜR:
+       · başarıda yürütücünün GERÇEK geri bildirimi ("Klima açılıyor"),
+       · hatada GERÇEK sebep (izin / model / dil paketi) — genel "Anlaşılamadı"
+         kullanıcının neden çalışmadığını göremediği eski kusurdu. */
   const label =
-    isListening  ? 'Dinliyorum…' :
-    isProcessing ? 'İşleniyor…' :
-    isSuccess    ? (voice.lastCommand?.feedback ?? 'Anlaşıldı') :
-    // Hata: GERÇEK sebebi göster (izin / Vosk model / dil paketi). Eskiden hep "Anlaşılamadı"
-    // yazıyordu → kullanıcı mikrofonun neden çalışmadığını göremiyordu ("hiç tepki vermiyor").
-    isError      ? (voice.error ?? 'Anlaşılamadı') : '';
+    isSuccess ? (voice.lastCommand?.feedback ?? surface.label)
+    : isError ? (voice.error ?? surface.label)
+    : surface.label;
 
   const accent =
     isListening  ? 'rgba(96,165,250,1)'   :

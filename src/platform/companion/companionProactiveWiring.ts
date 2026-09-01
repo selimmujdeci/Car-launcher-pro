@@ -39,6 +39,15 @@ import {
 import type { ProactiveReasonCode } from '../ai/aiOfflineReason';
 // MAVI-M4-LAB-2: zincir gözlemi (saf depo — TTS kanalını veya kararı DEĞİŞTİRMEZ).
 import { recordMaviActionStage } from '../action/maviActionTrace';
+/* MAVI-F9 · YALNIZ GÖZLEM. Bu hat kendi KANONİK güvenlik kapısına sahiptir
+   (`assistantSafetyKernel` + `triggerProactiveDiagnosticAlert` debounce'u) ve
+   proaktif politika motorunun kapısından GEÇMEZ — geçseydi, güvenlik hattının
+   üstüne İKİNCİ bir susturma otoritesi kurulmuş olurdu (yasak). Buradaki tek
+   çağrı DEFTERE yazar: LAB'daki proaktif tablo eksik/yalan kalmasın. */
+import { noteExternalProactiveSpoken } from '../assistant/proactivePolicyEngine';
+
+/** Bu hattın proaktif defterdeki KARARLI kimliği (PII yok, çeviriye tabi değil). */
+export const PROACTIVE_SOURCE_CRITICAL_DIAGNOSTIC = 'diagnostic.critical_root_cause';
 
 /**
  * `SystemOrchestrator`'ın ZATEN seslendirdiği güvenlik şablonları. Bu şablonlardan
@@ -116,6 +125,14 @@ export function handleAiCoreRunResult(
       ...(deps.now ? { now: deps.now } : {}),
     });
     traceProactive(alert.outcome, alert.reason, alert.alertKey);
+    /* Gözlem: konuşulduysa proaktif deftere yazılır. GATE DEĞİLDİR — bu satır
+       hiçbir koşulda uyarıyı engelleyemez (karar YUKARIDA çoktan verildi). */
+    if (alert.outcome === 'spoken') {
+      try {
+        const at = typeof performance !== 'undefined' ? performance.now() : 0;
+        noteExternalProactiveSpoken(PROACTIVE_SOURCE_CRITICAL_DIAGNOSTIC, 'safety', at);
+      } catch { /* defter hatası güvenlik uyarısını ETKİLEMEZ */ }
+    }
     return alert;
   } catch {
     return suppressed('wiring_error');   // köprü hatası aiCore döngüsünü ASLA bozmaz

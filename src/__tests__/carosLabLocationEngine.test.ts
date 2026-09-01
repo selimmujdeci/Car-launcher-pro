@@ -110,6 +110,18 @@ describe('LAB · KOORDİNAT gösterilmez (kişisel veri)', () => {
     expect(src).toMatch(/try \{ engine = readLocationEngineSnapshot\(\); \} catch/);
     expect(src).toMatch(/try \{ providers = readLocationEngineProviders\(\); \} catch/);
   });
+
+  it('10b. 🔒 ARCH-02/F2 canonical VDL truth kartı gerçek salt-okunur evidence alanlarını basar', () => {
+    const src = read(SCREEN);
+    expect(src).toMatch(/Vehicle Location Truth/);
+    expect(src).toMatch(/getGPSLocationEnvelope/);
+    expect(src).toMatch(/getGPSLocationTruthDiagnostics/);
+    expect(src).toMatch(/VDL · UnifiedVehicleStore/);
+    expect(src).toMatch(/gpsService → VDL → consumers/);
+    for (const field of ['Classification', 'Freshness', 'Provenance', 'Generation', 'Scope', 'Stale Generation Rejects', 'Out-of-order Rejects']) {
+      expect(src).toContain(field);
+    }
+  });
 });
 
 describe('"Mevcut davranışı bozma" — yapısal kilit', () => {

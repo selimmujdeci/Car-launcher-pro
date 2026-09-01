@@ -26,6 +26,15 @@ import {
 } from '../ai/memory/memoryEngine';
 import { createMaviMemorySources } from '../ai/memory/concrete/maviMemorySources';
 import type { MemoryOrigin } from '../ai/memory/memoryTypes';
+/* MAVI-F10: kanonik hafıza + yolculuk hafızası tanısı. İkisi de SAF sayaç
+   okumasıdır ve KAYIT METNİ TAŞIMAZ (bu dosyanın en önemli sözleşmesi).
+   YENİ EKRAN AÇILMADI — mevcut Bellek Gezgini genişletildi. */
+import { getMaviMemoryDiagnostics } from '../assistant/maviMemory';
+import { getTripMemoryDiagnostics } from '../assistant/tripMemory';
+import {
+  MAVI_MEMORY_MAX_EXPLICIT, MAVI_MEMORY_MAX_INFERRED, MAVI_MEMORY_MIN_EVIDENCE,
+} from '../assistant/maviMemoryModel';
+import type { CanonicalMemoryShape, TripMemoryShape } from './aiMemoryModel';
 
 /** Tek kaydın METİNSİZ izdüşümü — içerik ALANI YOKTUR (bilinçli). */
 export interface MemoryRecordShape {
@@ -59,6 +68,12 @@ export interface AiMemoryRawSnapshot {
   readonly budgetMaxLongTerm: number;
   readonly budgetMaxShortTerm: number;
   readonly budgetMaxChars: number;
+
+  /* ── MAVI-F10 ── */
+  /** Kanonik hafıza tanısı; `null` = okunamadı. İÇERİK ALANI YOKTUR. */
+  readonly canonical: CanonicalMemoryShape | null;
+  /** Yolculuk hafızası tanısı; `null` = okunamadı. İÇERİK ALANI YOKTUR. */
+  readonly trip: TripMemoryShape | null;
 }
 
 /**
@@ -107,6 +122,51 @@ export function readAiMemorySnapshot(nowMs: number): AiMemoryRawSnapshot {
     }
   } catch { /* fail-soft: kaynak fabrikası kurulamadı */ }
 
+  /* MAVI-F10 · her kaynak KENDİ try/catch'inde (fail-soft sözleşmesi). */
+  let canonical: CanonicalMemoryShape | null = null;
+  try {
+    const d = getMaviMemoryDiagnostics(nowMs);
+    canonical = {
+      explicitCount: d.explicitCount,
+      inferredCount: d.inferredCount,
+      inferredPromoted: d.inferredPromoted,
+      correctedCount: d.correctedCount,
+      contradictedCount: d.contradictedCount,
+      suppressionCount: d.suppressionCount,
+      rejectedSensitive: d.rejectedSensitive,
+      corrections: d.corrections,
+      forgets: d.forgets,
+      forgottenRecords: d.forgottenRecords,
+      historyPurges: d.historyPurges,
+      projections: d.projections,
+      persistFailures: d.persistFailures,
+      lastPersistOk: d.lastPersistOk,
+      legacyImported: d.legacyImported,
+      legacyRejected: d.legacyRejected,
+      schemaDropped: d.schemaDropped,
+      conversationPurgeBound: d.conversationPurgeBound,
+      inferredProducerWired: d.inferredProducerWired,
+      minEvidence: MAVI_MEMORY_MIN_EVIDENCE,
+      maxExplicit: MAVI_MEMORY_MAX_EXPLICIT,
+      maxInferred: MAVI_MEMORY_MAX_INFERRED,
+    };
+  } catch { canonical = null; }
+
+  let trip: TripMemoryShape | null = null;
+  try {
+    const t = getTripMemoryDiagnostics();
+    trip = {
+      scopeBound: t.scopeBound,
+      hasActiveTrip: t.hasActiveTrip,
+      recordCount: t.recordCount,
+      capacity: t.capacity,
+      written: t.written,
+      rejectedSensitive: t.rejectedSensitive,
+      droppedOverflow: t.droppedOverflow,
+      tripsSealed: t.tripsSealed,
+    };
+  } catch { trip = null; }
+
   return {
     readAt: nowMs,
     shortTerm,
@@ -121,5 +181,7 @@ export function readAiMemorySnapshot(nowMs: number): AiMemoryRawSnapshot {
     budgetMaxLongTerm: DEFAULT_MEMORY_BUDGET.maxLongTerm,
     budgetMaxShortTerm: DEFAULT_MEMORY_BUDGET.maxShortTerm,
     budgetMaxChars: DEFAULT_MEMORY_BUDGET.maxChars,
+    canonical,
+    trip,
   };
 }

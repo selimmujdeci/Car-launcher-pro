@@ -22,6 +22,21 @@ export type DtcVerdict = 'not_scanned' | 'clean' | 'issues' | 'inconclusive';
 export type DtcScanMode = 'stored' | 'pending' | 'permanent' | 'status';
 
 export interface DtcVerdictInput {
+  /**
+   * P0-OBD-11 — ECU'nun SUSTUĞU modlar (NO DATA / timeout). `failedModes` ile
+   * TOPLANMAZ: hat hatası ile ECU sessizliği ayrı teşhislerdir. Verilmezse boş
+   * sayılır (geri-uyumlu).
+   */
+  noResponseModes?: DtcScanMode[];
+
+  /**
+   * P0-OBD-CORE-05 — admisyon kapısının ERTELEDİĞİ modlar (recovery/reconnect
+   * sürerken sorgu hiç gönderilmedi). `failedModes`/`noResponseModes` İLE
+   * TOPLANMAZ: "denendi ve düştü"/"ECU sustu" ile "hiç sorulmadı" farklı
+   * teşhislerdir. Verilmezse boş sayılır (geri-uyumlu).
+   */
+  deferredModes?: DtcScanMode[];
+
   /** En az bir tarama çalıştı mı (dtc.lastReadAt karşılığı). */
   scanRan: boolean;
   /** Mode 03 onaylı/stored kod sayısı. */
@@ -111,10 +126,37 @@ export function computeDtcVerdict(input: DtcVerdictInput): DtcVerdictResult {
     return { verdict: 'issues', reason: 'Bulgu: ' + issueSources.join(', ') + '.', issueSources, advisories };
   }
 
+  /* P0-OBD-11 — ECU SESSİZLİĞİ AYRI RAPORLANIR.
+     "okuma düştü" (hat hatası) ile "ECU yanıt vermedi" (NO DATA/timeout) farklı
+     teşhislerdir ve kullanıcıya farklı şey söylerler. İkisi de 'inconclusive'
+     üretir — ama gerekçe karıştırılmaz. */
+  const silentModes = input.noResponseModes ?? [];
+  if (silentModes.length > 0) {
+    return {
+      verdict: 'inconclusive',
+      reason: 'ECU yanıt vermedi (' + silentModes.join(', ') + ') — sonuç BİLİNMİYOR, "arıza yok" DEMEK DEĞİLDİR.',
+      issueSources: [],
+      advisories,
+    };
+  }
+
   if (input.failedModes.length > 0) {
     return {
       verdict: 'inconclusive',
       reason: 'Bazı okumalar tamamlanamadı (' + input.failedModes.join(', ') + ') — sonuç kesin değil.',
+      issueSources: [],
+      advisories,
+    };
+  }
+
+  /* P0-OBD-CORE-05 — ERTELENEN modlar "temiz" hükmünü ENGELLER ama "arıza"
+     ya da "ECU sustu" gibi de sunulmaz: oturum hazır olunca otomatik düzelir. */
+  const deferredModesList = input.deferredModes ?? [];
+  if (deferredModesList.length > 0) {
+    return {
+      verdict: 'inconclusive',
+      reason: 'Bazı okumalar ertelendi (' + deferredModesList.join(', ')
+        + ') — oturum hazır değildi, sonuç kesin değil.',
       issueSources: [],
       advisories,
     };

@@ -50,6 +50,11 @@ export const PROVENANCE_KEYS = [
   'canRpm', 'canCoolantTemp', 'canOilTemp', 'canThrottle',
   'canBatteryVolt', 'canGearPos', 'canAmbientTemp', 'canTpmsKpa',
   'heading', 'location',
+  /* P0-OBD-01 · OBD Data Bridge. TEK anahtar (sinyal başına DEĞİL) bilinçlidir:
+     defter yalnız "köprü gerçekten akıyor mu" sorusuna cevap verir; sinyal
+     başına yaş/kaynak zaten `obdSignalsAt` haritasında ölçülür — aynı gerçeği
+     iki yerde tutmak ikinci otorite üretirdi. */
+  'obdCanonical',
 ] as const;
 
 export type ProvenanceKey = (typeof PROVENANCE_KEYS)[number];

@@ -11,6 +11,9 @@ import { useEffect, useRef, memo } from 'react';
 import maplibregl from 'maplibre-gl';
 import { getMapStyle } from '../../platform/mapSourceManager';
 import type { TrafficSegment } from '../../platform/trafficService';
+/* ARCH-06/F3 — ÜÇÜNCÜ harita yüzeyi. Yalnız sayılır; yaşam döngüsü bu
+   bileşende KALIR (DrawerPanel yalnız drawer açıkken mount eder). */
+import { noteMapInstanceMounted, noteMapInstanceUnmounted } from '../../platform/perf/mapInstanceEvidence';
 
 /* ── Sabitler ──────────────────────────────────────────────── */
 
@@ -78,6 +81,7 @@ export const TrafficMapMini = memo(function TrafficMapMini({ lat, lng, segments,
       };
     }
 
+    noteMapInstanceMounted('TRAFFIC');
     const map = new maplibregl.Map({
       container:        el,
       style,
@@ -219,7 +223,7 @@ export const TrafficMapMini = memo(function TrafficMapMini({ lat, lng, segments,
     });
 
     return () => {
-      if (mapRef.current) { mapRef.current.remove(); mapRef.current = null; }
+      if (mapRef.current) { noteMapInstanceUnmounted(); mapRef.current.remove(); mapRef.current = null; }
     };
   // Sadece konum veya tile URL değiştiğinde yeniden init
   // eslint-disable-next-line react-hooks/exhaustive-deps

@@ -15,6 +15,9 @@
 import { Capacitor } from '@capacitor/core';
 import { CarLauncher } from '../nativePlugin';
 import { useDebugStore } from '../debug';
+/* ARCH-06/F1 — T0 sayaç (tek tamsayı artırımı). Bu satır hiçbir kararı,
+   kadansı ya da sahipliği DEĞİŞTİRMEZ. */
+import { bumpPerf } from '../perf/perfCounters';
 
 export interface ObdTrafficEvent {
   readonly ts?:   number;
@@ -35,7 +38,10 @@ export interface ObdTrafficCaptureDeps {
 const DEFAULT_OBD_DEPS: ObdTrafficCaptureDeps = {
   isNative:   () => { try { return Capacitor.isNativePlatform(); } catch { return false; } },
   setCapture: (enable) => { try { void CarLauncher.setObdTrafficCapture?.({ enable })?.catch(() => {}); } catch { /* fail-soft */ } },
-  addListener: (cb) => CarLauncher.addListener('obdTraffic', (e) => cb(e as ObdTrafficEvent)),
+  addListener: (cb) => CarLauncher.addListener('obdTraffic', (e) => {
+    bumpPerf('bridge.obdTraffic.received');
+    cb(e as ObdTrafficEvent);
+  }),
   onEntry:    (e) => { try { useDebugStore.getState().pushObdTraffic(e); } catch { /* fail-soft */ } },
 };
 

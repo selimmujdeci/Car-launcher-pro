@@ -71,6 +71,7 @@ export function refreshStatusTone(s: CarosLabRefreshStatus): CarosLabRefreshTone
 export type CarosLabRefreshSectionId =
   | 'native-poll-evidence'
   | 'native-elimination'
+  | 'poll-cost'
   | 'kwp-recovery'
   | 'poll-scheduler'
   | 'location-engine'
@@ -100,6 +101,8 @@ export interface CarosLabRefreshSectionMeta {
 export const CAROS_LAB_REFRESH_SECTIONS: readonly CarosLabRefreshSectionMeta[] = [
   { id: 'native-poll-evidence', label: 'Native poll sayacı (extended)', screen: 'Runtime Scheduling', nativePull: true },
   { id: 'native-elimination',   label: 'Extended PID eleme sayacı',     screen: 'Runtime Scheduling', nativePull: true },
+  /* B3: hat maliyeti — SALT SAYAÇ okuması, araca hiçbir komut GİTMEZ. */
+  { id: 'poll-cost',            label: 'Poll maliyeti (PID + AT)',      screen: 'Runtime Scheduling', nativePull: true },
   { id: 'kwp-recovery',         label: 'KWP kurtarma sayacı',           screen: 'KWP İzleyici',       nativePull: true },
   { id: 'poll-scheduler',       label: 'Poll zamanlayıcı / kanallar',   screen: 'Poll Scheduler',     nativePull: false },
   { id: 'location-engine',      label: 'Konum motoru (hakem)',          screen: 'Location Engine',    nativePull: false },

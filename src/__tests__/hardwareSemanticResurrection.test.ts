@@ -65,6 +65,8 @@ vi.mock('../platform/voiceDiagService', () => ({ reportVoiceDiag: vi.fn(async ()
 vi.mock('../platform/errorBus', () => ({ showToast: vi.fn() }));
 vi.mock('../platform/companion/companionChatProvider', () => ({
   tryCompanionBrain: (...a: unknown[]) => M.brain(...(a as [])),
+  // MAVI-F1: presence okuması (yalnız ÖLÇÜM alanı — akışı etkilemez).
+  currentPresenceMode: () => 'assistant' as const,
   warmupGemini: async () => {},
 }));
 vi.mock('../platform/action/pendingActionConfirmation', () => ({

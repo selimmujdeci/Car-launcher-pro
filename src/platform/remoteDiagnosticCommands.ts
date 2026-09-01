@@ -50,6 +50,17 @@ export interface RemoteDtcScanResult {
   completeness: ReadAllDTCsResult['completeness'];
 }
 
+/**
+ * Uzak kanalın KENDİ ölçtüğü güvenlik kanıtı.
+ *
+ * ⚠️ Yalnız `commandListener` (kanalın sahibi) doldurabilir. Bir alt katman
+ * `e2eVerified: true` uyduramaz — kilit testi çağıran sahibini sabitler.
+ */
+export interface RemoteChannelEvidence {
+  /** Uçtan uca şifre çözme BAŞARILI mı (kriptografik kimlik kanıtı). */
+  readonly e2eVerified?: boolean;
+}
+
 export type RemoteDiagOutcome =
   | { outcome: 'completed'; result: Record<string, unknown> }
   | { outcome: 'failed';    reason: string }
@@ -147,23 +158,48 @@ export async function executeReadVoltage(): Promise<RemoteDiagOutcome> {
  * gerçek gerekçeyi görür. Silme başarılı sayılmadan önce liste yeniden okunur —
  * "silindi" iddiası ölçüme dayanır, umuda değil.
  */
-export async function executeClearDtc(): Promise<RemoteDiagOutcome> {
+export async function executeClearDtc(
+  channel: RemoteChannelEvidence = {},
+): Promise<RemoteDiagOutcome> {
   if (!Capacitor.isNativePlatform()) {
     return { outcome: 'rejected', reason: NO_LINK_REASON };
   }
   try {
-    // `clearDTCCodes` modül durumundaki listeye bakar (boşsa reddeder) →
-    // önce gerçek okuma yapılır. Bu okuma aynı zamanda silme öncesi kanıttır.
+    /* `clearDTCCodes` modül durumundaki envantere bakar (boşsa reddeder) → önce
+       gerçek okuma yapılır. P0-OBD-10: TAM tarama (03+07+0A) koşulur — yalnız
+       Mode 03 okumak, BEKLEYEN kodu envantere sokmaz ve uzak komut "silinecek
+       kod yok" diye sessizce hiçbir şey yapmazdı. Bu okuma silme öncesi kanıttır. */
     await readDTCCodes();
+    /* Tam tarama FAIL-SOFT: envanteri zenginleştirmek içindir, KARAR değildir.
+       Düşerse silme yine denenir (Mode 03 envanteri elimizde) — bir okuma
+       hatası yıkıcı komutu sessizce iptal etmemelidir. */
+    try { await readAllDTCs(); } catch { /* envanter kısmi kalır; kapı yine işler */ }
 
-    const decision = await clearDTCCodes({ confirmed: true });
+    /* ARCH-05: uzak kanal KENDİ principal sınıfıyla ve KENDİ kriptografik
+       kanıtıyla çağırır. E2E doğrulanmamış bir komut CLEAR_DTC yetkisi
+       ALAMAZ → `clearDTCCodes` içindeki kapı reddeder ve ECU'ya tek bayt
+       gitmez. Kanıtı bu dosya ÜRETMEZ, `commandListener`dan taşır. */
+    const decision = await clearDTCCodes({
+      confirmed: true, principal: 'PHONE_REMOTE',
+      channel: { e2eVerified: channel.e2eVerified === true, authenticated: channel.e2eVerified === true },
+      operationId: `remote.dtc.clear:${Date.now()}`,
+    });
     if (!decision.allowed) {
       return { outcome: 'rejected', reason: decision.userMessage };
     }
 
-    // Silme sonrası DOĞRULAMA okuması — kalan kodlar dürüstçe raporlanır.
+    /* P0-OBD-10 — "completed" ARTIK KAPI KARARINA DEĞİL ÖLÇÜME BAĞLI.
+       Eskiden kapı izin verdiyse `completed` dönüyordu: ECU reddetse bile uzak
+       operatör "silindi" görüyordu. Silme sonrası yeniden okuma zaten
+       `clearDTCCodes` içinde yapılır — burada TEKRARLANMAZ (ikinci otorite yok),
+       taze envanterden rapor kurulur. */
     const after = await readAllDTCs();
     const scan  = buildRemoteScanResult(after);
+    // `clear` alanı YOKSA (web/demo yolu veya kapı öncesi çıkış) hüküm de yoktur.
+    const report = decision.clear ?? null;
+    if (report !== null && !report.success) {
+      return { outcome: 'failed', reason: report.userMessage };
+    }
     return {
       outcome: 'completed',
       result: { ...scan, clearedAt: new Date().toISOString(), readAt: new Date().toISOString() },

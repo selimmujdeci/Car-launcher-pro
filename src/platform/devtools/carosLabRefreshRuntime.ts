@@ -24,6 +24,8 @@ import {
   type CarosLabRefreshProbe, type CarosLabRefreshResult, type CarosLabRefreshRun,
   type CarosLabRefreshTrigger, type RefreshDeviceTier,
 } from './carosLabRefreshModel';
+import { ceilingFor, type WorkloadCeiling } from '../perf/workloadCeilings';
+import { bumpPerf, getPerfCounters } from '../perf/perfCounters';
 
 /** Bölüm başına üst sınır. Aşılırsa bölüm `TIMEOUT` olur, tur devam eder. */
 export const CAROS_LAB_REFRESH_TIMEOUT_MS = 6_000;
@@ -59,6 +61,98 @@ export function getCarosLabAutoRefreshMs(): number {
     tier = t === 'high' || t === 'mid' ? t : 'low';
   } catch { /* fail-soft: bilinmiyorsa EN YAVAŞ aralık (bütçe lehine) */ }
   return pickAutoRefreshIntervalMs(tier);
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   ARCH-06/F7 — LAB ÖRNEKLEMESİ BASKI TAVANINA BAĞLI
+   ══════════════════════════════════════════════════════════════════════════
+   Aralık ZATEN cihaz sınıfına aboneydi (`getCarosLabAutoRefreshMs`), ama bu
+   MOUNT ANINDA bir kez seçiliyordu: cihaz 65 °C'ye çıktığında LAB dokuz
+   bölümü aynı hızda yoklamaya devam ediyordu.
+
+   ÇÖZÜM — yeni zamanlayıcı YOK: mevcut tik korunur, tavana göre **adım
+   atlanır**. Bu deterministik, saf ve test edilebilir bir karardır.
+
+   ⚠️ **ELLE YENİLE TAVANDAN ETKİLENMEZ.** Kullanıcı düğmeye bastığında iş
+   yapılır — baskı, kullanıcının bilinçli niyetini kısmaz. Kısılan yalnız
+   kullanıcının İSTEMEDİĞİ otomatik turdur. */
+
+/** Kaç tikte bir otomatik tur koşulacağı. `null` = otomatik tur YOK. */
+export function labSamplingStride(ceiling: WorkloadCeiling): number | null {
+  if (ceiling === 'OFF') return null;
+  if (ceiling === 'MINIMAL') return 4;
+  if (ceiling === 'REDUCED') return 2;
+  return 1;
+}
+
+/**
+ * Otomatik tur adımı — tavan izin veriyorsa turu koşar.
+ *
+ * Bileşen bunu SABİT aralıkla çağırır; kısıtlama burada, tek yerde ve
+ * ölçülebilir biçimde uygulanır.
+ */
+/* Adım sırası — bir SAYAÇ değil, modulo için konum göstergesidir.
+   Ölçüm sayaçları `perfCounters`ta TEK yerde tutulur (çift kaynak yasağı). */
+let _tickIndex = 0;
+
+export function stepCarosLabAutoRefresh(): boolean {
+  _tickIndex += 1;
+  let stride: number | null;
+  try {
+    stride = labSamplingStride(ceilingFor('labSampling'));
+  } catch {
+    stride = 1;   // fail-soft: tavan okunamazsa LAB çalışmaya DEVAM eder
+  }
+  if (stride === null || _tickIndex % stride !== 0) {
+    bumpPerf('lab.autoRefreshSkipped');
+    return false;
+  }
+  bumpPerf('lab.autoRefreshRan');
+  void runCarosLabRefreshAll('auto');
+  return true;
+}
+
+/**
+ * LAB KAPALI DAVRANIŞI — sözleşme (ARCH-06/F7, kilit testiyle korunur).
+ *
+ * "Gözlemlenemeyen özellik tamamlanmış değildir" kuralının bedeli, LAB'ın
+ * ürünü YAVAŞLATMASI olamaz. LAB kapalıyken maliyeti **sıfır** olmalıdır.
+ */
+export const LAB_CLOSED_BEHAVIOR = Object.freeze({
+  /** LAB kapalıyken otomatik tur zamanlayıcısı YOK (unmount → cleanup). */
+  autoRefreshTimer: 'STOPPED' as const,
+  /** LAB kapalıyken tur durumuna abonelik YOK. */
+  subscriptions: 'DETACHED' as const,
+  /** LAB kapalıyken hiçbir kanıt yoklaması ÇAĞRILMAZ. */
+  probes: 'NOT_INVOKED' as const,
+  /** Uygulama arka plandayken de durur (`visibilitychange`). */
+  backgrounded: 'STOPPED' as const,
+  /** LAB'ın açık/kapalı olması ÜRETİM davranışını DEĞİŞTİRMEZ. */
+  productionEffect: 'NONE' as const,
+  rationale: 'LAB salt-okunur gözlem yüzeyidir; açıkken bile yalnız MEVCUT '
+    + 'okuma çağrılarını tetikler, kapalıyken hiçbir maliyeti yoktur.',
+});
+
+/**
+ * Otomatik tur kanıtı — salt-okunur, hiçbir sayacı sıfırlamaz.
+ *
+ * ⚠️ Sayılar `perfCounters`tan TÜRETİLİR; bu modül kendi ölçüm sayacını
+ * TUTMAZ. Aynı olgu için iki sayaç tutmak, ikisinin ayrışması demektir.
+ */
+export function getLabSamplingEvidence(): {
+  readonly ticks: number; readonly ran: number; readonly skipped: number;
+  readonly ceiling: WorkloadCeiling | null; readonly stride: number | null;
+} {
+  let ceiling: WorkloadCeiling | null = null;
+  try { ceiling = ceilingFor('labSampling'); } catch { /* fail-soft */ }
+  const c = getPerfCounters();
+  const ran = c['lab.autoRefreshRan'];
+  const skipped = c['lab.autoRefreshSkipped'];
+  return Object.freeze({
+    ticks: ran + skipped, ran, skipped,
+    ceiling,
+    stride: ceiling === null ? null : labSamplingStride(ceiling),
+  });
 }
 
 /**
@@ -157,6 +251,7 @@ export function runCarosLabRefreshAll(
 
 /** @internal testler için — modül durumunu sıfırlar. */
 export function _resetCarosLabRefreshForTest(): void {
+  _tickIndex = 0;   // ölçüm sayaçları perfCounters'ın kendi sıfırlamasına ait
   _run = initialRefreshRun();
   _inFlight = null;
   _listeners.clear();

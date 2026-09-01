@@ -98,10 +98,40 @@ describe('kwpDtcWiring › KWP çözücüsü ayrıdır', () => {
     expect(scan).toMatch(/fromUds\?: boolean/);
   });
 
-  it('aynı kod iki kez listelenmez (dedupe)', () => {
+  it('aynı KAYIT iki kez listelenmez — ama alt kodu farklı kayıt AYRI KALIR', () => {
+    /* Dedup mantığı `readKwpForEcu` gövdesinden `_tagKwpCodes` yardımcısına
+       ÇIKARILDI (iki çağrı yeri paylaşıyor). Kilit davranışa bağlandı, konuma
+       ve değişken adına DEĞİL — aksi hâlde her refactor'da kırılır ve gerçek
+       kusuru değil, ismi kollar. Korunan iki ayrı dedup vardır ve İKİSİ DE şart:
+         (a) `seen` → AYNI yanıt içinde tekrar eden KAYIT ikinci kez işlenmez,
+         (b) `existing` → listede ZATEN olan kod tekrar döndürülmez.
+
+       ── P0-OBD-FINISH: (a) BİLİNÇLİ OLARAK DEĞİŞTİ ─────────────────────────
+       Kilit eskiden `seen.has(d.code)` metnini arıyordu, yani anahtarın YALNIZ
+       koda bakmasını KORUYORDU. Ölçülen kusur tam oradaydı: aynı araçta Car
+       Scanner'ın gösterdiği `P0380(11)` · `P0380(12)` · `P0380(13)` ·
+       `P0380(96)` dört AYRI kayıttır ve o anahtar üçünü sessizce ATIYORDU.
+       Kilit KALDIRILMADI, YENİ DOĞRU DAVRANIŞA taşındı: anahtar kod + ALT KOD
+       + STATUS baytıdır (`_recordKey`). (b) DEĞİŞMEDİ. */
     const scan = stripComments(read('src/platform/obd/multiEcuScan.ts'));
-    const fn = scan.slice(scan.indexOf('async function readKwpForEcu('));
-    expect(fn).toMatch(/already\.has\(d\.code\)/);
+    const start = scan.indexOf('function _tagKwpCodes(');
+    expect(start, 'KWP etiketleme yolu bulunamadı — dedup kilidi kör kaldı')
+      .toBeGreaterThan(-1);
+    const fn = scan.slice(start, start + 1400);
+
+    expect(fn, 'yanıt-içi dedup (seen) kaldırılmış').toMatch(/seen\.has\(key\)/);
+    expect(fn, 'dedup anahtarı alt kod/status taşımıyor')
+      .toMatch(/_recordKey\(d\.code,\s*d\.failureType,\s*d\.rawStatus\)/);
+    expect(fn, 'mevcut-liste dedup (existing) kaldırılmış').toMatch(/existing\.has\(d\.code\)/);
+    /* Yeni kod yalnız listede YOKKEN döndürülür — koşul ters çevrilemez. */
+    expect(fn, 'yalnız yeni kod döndürme koşulu bozulmuş')
+      .toMatch(/if\s*\(!existing\.has\(d\.code\)\)\s*out\.push/);
+
+    /* Anahtarın kendisi de kilitlenir — üç bileşenin biri düşerse kayıt kaybolur. */
+    const keyStart = scan.indexOf('function _recordKey(');
+    expect(keyStart, '_recordKey kaldırılmış — alt kod ayrımı kör kaldı').toBeGreaterThan(-1);
+    expect(scan.slice(keyStart, keyStart + 200))
+      .toMatch(/\$\{code\}\|\$\{subCode \?\? ''\}\|\$\{rawStatus \?\? ''\}/);
   });
 });
 
@@ -182,7 +212,13 @@ describe('kwpDtcWiring › üretici tabanına bakılmadıysa "temiz" DENMEZ', ()
   it('panel kapsamı GERÇEK tarama raporundan türetir', () => {
     const panel = stripComments(read('src/components/obd/DTCPanel.tsx'));
     expect(panel).toMatch(/manufacturerScope/);
-    expect(panel).toMatch(/multiEcu\.results\.flatMap\(\(r\) => \[r\.uds, r\.kwp\]\)/);
+    /* ── P0-OBD-PARITY: KİLİT BİLİNÇLİ OLARAK GENİŞLETİLDİ ─────────────────
+       Eskiden yalnız İKİ kanal aranıyordu (`[r.uds, r.kwp]`). Üretici tabanı
+       artık DÖRT kanaldan okunabilir: UDS 0x19-02 · UDS 0x19-0A · KWP 0x18 ·
+       KWP 0x13. Yalnız 0x19-0A cevap veren bir araçta eski rozet "üretici
+       taraması yapılmadı" diyordu — yani kapsamı OLDUĞUNDAN KÖTÜ gösteriyordu.
+       Kilit KALDIRILMADI, dördünü birden zorunlu kılacak biçimde güncellendi. */
+    expect(panel).toMatch(/r\.uds, r\.udsSupported, r\.kwp, r\.kwp13/);
     /* Tarama hiç koşmadıysa "sorulmadı" demeli — sessizce "covered" DEMEMELİ. */
     expect(panel).toMatch(/return 'not_asked'/);
   });

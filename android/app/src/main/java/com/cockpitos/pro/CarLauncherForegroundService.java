@@ -126,7 +126,8 @@ public class CarLauncherForegroundService extends Service {
     }
 
     public interface LocationCallback {
-        void onLocation(double lat, double lng, float speedKmh, float bearing, float accuracy);
+        void onLocation(double lat, double lng, float speedKmh, float bearing, float accuracy,
+                        long observationTimestampMs, long gpsGeneration);
     }
     public interface BreakCallback {
         void onBreakReminder(long drivingMinutes);
@@ -134,10 +135,16 @@ public class CarLauncherForegroundService extends Service {
 
     private static volatile LocationCallback sLocationCallback;
     private static volatile BreakCallback    sBreakCallback;
+    /** JS canonical GPS session generation; -1 means no live JS session is bound. */
+    private static volatile long sGpsGeneration = -1L;
 
     public static void setCallbacks(LocationCallback lc, BreakCallback bc) {
         sLocationCallback = lc;
         sBreakCallback    = bc;
+    }
+
+    public static void setGpsGeneration(long generation) {
+        sGpsGeneration = generation;
     }
 
     // ── Servis durumu ──────────────────────────────────────────────────────
@@ -196,6 +203,7 @@ public class CarLauncherForegroundService extends Service {
     public void onCreate() {
         super.onCreate();
         instance = this;
+        ForegroundServiceBoundary.markStarted();
         lastGpsMotionMs = System.currentTimeMillis();
         createNotificationChannels();
         startForeground(NOTIF_ID, buildNotification("GPS takibi aktif", false));
@@ -216,6 +224,7 @@ public class CarLauncherForegroundService extends Service {
     @Override
     public void onDestroy() {
         instance = null;
+        ForegroundServiceBoundary.markStopped();
         stopWatchdog();
         stopLocationUpdates();
         mainHandler.removeCallbacksAndMessages(null);
@@ -307,7 +316,8 @@ public class CarLauncherForegroundService extends Service {
                 if (cb != null) {
                     // WebView aktif — normal yol
                     cb.onLocation(loc.getLatitude(), loc.getLongitude(),
-                                  speedKmh, loc.getBearing(), loc.getAccuracy());
+                                  speedKmh, loc.getBearing(), loc.getAccuracy(),
+                                  loc.getTime(), sGpsGeneration);
                 } else {
                     // WebView ölü — native heartbeat
                     nativeHeartbeat(loc.getLatitude(), loc.getLongitude(), speedKmh);

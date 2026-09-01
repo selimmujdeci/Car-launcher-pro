@@ -11,8 +11,10 @@
  * When VITE_SUPABASE_URL is not set → demo mode (mock codes, no network).
  */
 
+import { Capacitor }              from '@capacitor/core';
 import { sensitiveKeyStore }      from './sensitiveKeyStore';
 import { connectivityService }    from './connectivityService';
+import { CarLauncher }            from './nativePlugin';
 
 const SK_DEVICE_ID  = 'veh_device_id'  as const;
 const SK_API_KEY    = 'veh_api_key'    as const;
@@ -41,7 +43,35 @@ let _apiKey:   string | null = null;
 
 /* ── Internal helpers ───────────────────────────────────────── */
 
+/**
+ * Rastgele UUID v4 — KRİPTOGRAFİK kaynaktan.
+ *
+ * Eskiden `Math.random()` kullanılıyordu. Bu değer bir araç kaydını temsil eder
+ * ve sunucuda `device_name` olarak aranır; tahmin edilebilir olması, bir
+ * saldırganın var olan kayıtlara denk gelmesini kolaylaştırırdı.
+ *
+ * FAIL-SOFT: çok eski WebView'larda `crypto.getRandomValues` bulunmayabilir.
+ * O durumda kimlik ÜRETİLEMEZ demek cihazı hiç açılamaz hâle getirirdi; eski
+ * yola düşülür ve bu durum `getDeviceIdentityStatus()` ile GÖRÜNÜR kılınır —
+ * sessizce zayıf rastgelelik kullanmak, kullanılmadığını sanmaktan kötüdür.
+ */
+let _weakRandomUsed = false;
+
 function _uuid(): string {
+  try {
+    const g = globalThis.crypto;
+    if (g && typeof g.getRandomValues === 'function') {
+      const b = new Uint8Array(16);
+      g.getRandomValues(b);
+      b[6] = (b[6] & 0x0f) | 0x40;   // sürüm 4
+      b[8] = (b[8] & 0x3f) | 0x80;   // varyant 10x
+      const h = Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('');
+      return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
+    }
+  } catch {
+    /* aşağıdaki zayıf yola düşülür */
+  }
+  _weakRandomUsed = true;
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
     const r = (Math.random() * 16) | 0;
     return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);
@@ -68,12 +98,130 @@ async function _rpc(fn: string, body: Record<string, unknown>): Promise<unknown>
   return data;
 }
 
+/* ══════════════════════════════════════════════════════════════════════════
+ * CİHAZ KİMLİĞİNİN KALICILIĞI — P0-001C
+ *
+ * ── ÖLÇÜLEN KUSUR ────────────────────────────────────────────────────────
+ * `veh_device_id` rastgele üretilip `sensitiveKeyStore`a yazılıyordu. O depo
+ * native tarafta EncryptedSharedPreferences'tır ve şifreleme anahtarı Android
+ * Keystore'dadır: **uygulama kaldırılınca Keystore anahtarı da silinir**, depo
+ * çözülemez hâle gelir. Reinstall sonrası cihaz kendini yeni sanıp yeni bir
+ * UUID üretiyor, sunucu da onu YENİ BİR ARAÇ olarak açıyordu.
+ * Üretim izi: 838 araç satırı · 822 tekil `device_name` · **837'si SAHİPSİZ**.
+ *
+ * ── NEDEN "YEDEKLE" DEĞİL, "TÜRET" ───────────────────────────────────────
+ * Akla ilk gelen çözüm kimliği bir yedek dosyasına yazmaktır. Depoda böyle bir
+ * katman zaten var (`deviceKeyBackupWrite` → paylaşımlı harici depolama) ama
+ * oraya cihaz kimliği KOYULMADI, çünkü:
+ *   · o dosya `/sdcard`'tadır ve şifreleme anahtarı SSAID'den türer — SSAID
+ *     gizli değildir, yani dosya "kilitli" değil yalnızca "gözden uzak"tır;
+ *   · bir yedek, kimliği KOPYALANABİLİR BİR VARLIĞA çevirir: kopyalayan kişi
+ *     `register_vehicle` çağırıp o araç için taze eşleştirme kodu üretebilir.
+ * Türetmede yazılan hiçbir şey yoktur → çalınacak dosya da yoktur.
+ *
+ * ── SIRA BAĞLAYICIDIR ────────────────────────────────────────────────────
+ * ① SAKLI değer → varsa AYNEN korunur. Sahadaki cihazların kimliği DEĞİŞMEZ;
+ *    bu kural olmasaydı bu düzeltmenin kendisi 838 aracın hepsini yeni araç
+ *    açmaya zorlardı — düzeltmek istediği felaketin aynısı.
+ * ② TÜRETİLMİŞ (SSAID) → yalnız saklı değer YOKKEN. Reinstall tam olarak bu
+ *    daldan geçer ve aynı kimliği geri bulur.
+ * ③ RASTGELE → SSAID de yoksa (web/demo, SSAID'i boş dönen ROM'lar).
+ *
+ * ── NE ÇÖZÜLMEZ ──────────────────────────────────────────────────────────
+ * Bu, `veh_api_key`i geri getirmez — o HAM KİMLİK BİLGİSİDİR ve bilinçli
+ * olarak yalnız Keystore'da tutulur. Reinstall sonrası cihaz kendini doğru
+ * araçla eşleştirir ama anahtarsız kalır. Kazanç yine de büyüktür: sunucu
+ * kirlenmez ve sahiplik korunur. Anahtarın geri kazanımı sunucu tarafında bir
+ * yeniden-provisioning yolu ister (P0-001D/K) ve bu turun kapsamı DIŞINDADIR.
+ * Durum uydurulmaz, `getDeviceIdentityStatus()` ile GÖRÜNÜR kılınır.
+ * ══════════════════════════════════════════════════════════════════════════ */
+
+export type DeviceIdSource =
+  | 'STORED'           // güvenli depodan okundu (normal çalışma)
+  | 'DERIVED_SSAID'    // SSAID'den türetildi (ilk kurulum ya da reinstall)
+  | 'RANDOM_FALLBACK'  // SSAID yok → rastgele üretildi
+  | 'UNKNOWN';         // henüz hiç çözülmedi
+
+let _deviceIdSource: DeviceIdSource = 'UNKNOWN';
+
+/** Sunucuda kayıtlı ama YEREL ANAHTAR YOK — reinstall'ın çözülemeyen yarısı. */
+let _registeredWithoutKey = false;
+
+/**
+ * SSAID'den türetilmiş kararlı kimlik. Ham SSAID JS'e ÇIKMAZ; native taraf
+ * yalnız `sha256(salt|ssaid)` döner.
+ *
+ * Eski APK'larda bu native metot yoktur → çağrı hata verir → `null` döner ve
+ * çağıran rastgele yola düşer (davranış bugünküyle aynı kalır).
+ */
+async function _deriveStableDeviceId(): Promise<string | null> {
+  if (!Capacitor.isNativePlatform()) return null;
+  try {
+    const res = await CarLauncher.getStableDeviceId();
+    const id = res?.deviceId;
+    /* Biçim DOĞRULANIR: native taraf bozuk/kısa bir değer dönerse onu kimlik
+       diye kabul etmek, birden çok cihazı aynı araca çökertebilir. */
+    return typeof id === 'string' && /^[0-9a-f]{64}$/.test(id) ? id : null;
+  } catch {
+    return null;
+  }
+}
+
 async function _getOrCreateDeviceId(): Promise<string> {
+  // ① SAKLI — sahadaki cihazlar için TEK doğru cevap.
   const stored = await sensitiveKeyStore.get(SK_DEVICE_ID);
-  if (stored) return stored;
+  if (stored) {
+    _deviceIdSource = 'STORED';
+    return stored;
+  }
+
+  // ② TÜRETİLMİŞ — reinstall bu daldan geçer ve aynı kimliği geri bulur.
+  const derived = await _deriveStableDeviceId();
+  if (derived) {
+    await sensitiveKeyStore.set(SK_DEVICE_ID, derived);
+    _deviceIdSource = 'DERIVED_SSAID';
+    return derived;
+  }
+
+  // ③ RASTGELE — son çare. Bu dalda reinstall hâlâ yeni araç açar.
   const id = _uuid();
   await sensitiveKeyStore.set(SK_DEVICE_ID, id);
+  _deviceIdSource = 'RANDOM_FALLBACK';
   return id;
+}
+
+export interface DeviceIdentityStatus {
+  /** Kimliğin NEREDEN geldiği — reinstall dayanıklılığının tek dürüst ölçüsü. */
+  source: DeviceIdSource;
+  /** true → kimlik reinstall'a dayanıklı (saklı ya da türetilebilir). */
+  reinstallSafe: boolean;
+  /** true → sunucu aracı tanıyor ama yerel anahtar yok (P0-001D/K bekliyor). */
+  registeredWithoutKey: boolean;
+  /** true → `crypto.getRandomValues` yoktu, zayıf rastgelelik kullanıldı. */
+  weakRandomUsed: boolean;
+}
+
+/**
+ * Kimlik katmanının durumu — senkron, ucuz, yan etkisiz.
+ * Bilinmeyen alan UYDURULMAZ: kimlik henüz çözülmediyse `source: 'UNKNOWN'`
+ * döner ve `reinstallSafe` false olur ("bilmiyoruz" ≠ "güvenli").
+ */
+export function getDeviceIdentityStatus(): DeviceIdentityStatus {
+  return {
+    source:               _deviceIdSource,
+    reinstallSafe:        _deviceIdSource === 'STORED' || _deviceIdSource === 'DERIVED_SSAID',
+    registeredWithoutKey: _registeredWithoutKey,
+    weakRandomUsed:       _weakRandomUsed,
+  };
+}
+
+/** @internal — testler arası izolasyon. */
+export function _resetDeviceIdentityStateForTest(): void {
+  _deviceIdSource = 'UNKNOWN';
+  _registeredWithoutKey = false;
+  _weakRandomUsed = false;
+  _identity = null;
+  _apiKey = null;
 }
 
 /* ── Public API ─────────────────────────────────────────────── */
@@ -117,16 +265,25 @@ export async function registerVehicle(name = 'Araç'): Promise<LinkingCodeInfo> 
 
   try {
     const data = await _rpc('register_vehicle', { p_device_id: deviceId, p_name: name }) as {
-      vehicle_id:    string;
-      api_key?:      string;
-      linking_code?: string;
-      expires_at?:   string;
+      vehicle_id:           string;
+      api_key?:             string;
+      /** P0-001A: sunucu bu cihazı ZATEN tanıyor → ham anahtar DÖNMEZ. */
+      already_provisioned?: boolean;
+      linking_code?:        string;
+      expires_at?:          string;
     };
 
     await sensitiveKeyStore.set(SK_VEHICLE_ID, data.vehicle_id);
     if (data.api_key) {
       await sensitiveKeyStore.set(SK_API_KEY, data.api_key);
       _apiKey = data.api_key;
+      _registeredWithoutKey = false;
+    } else if (data.already_provisioned === true) {
+      /* Sunucu aracı tanıyor ama ham anahtarı bir daha VERMEZ (P0-001A).
+         Yerelde de anahtar yoksa cihaz "kayıtlı ama anahtarsız"dır: doğru
+         araca bağlıdır, yeni araç AÇMAZ, ama telemetri gönderemez.
+         Bu durum SESSİZ BIRAKILMAZ — ölçülür ve raporlanır. */
+      _registeredWithoutKey = !(await isDevicePaired());
     }
     _identity = { vehicleId: data.vehicle_id, deviceId };
 

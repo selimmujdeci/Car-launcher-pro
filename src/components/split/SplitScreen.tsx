@@ -21,9 +21,11 @@ import {
   fmtTime,
 } from '../../platform/mediaService';
 import { useOBDState } from '../../platform/obdService';
+import { useLiveVehicleSignal } from '../../hooks/useCanonicalVehicleSignal';
 import { useUnifiedVehicleStore } from '../../platform/vehicleDataLayer';
 import { useRouteState } from '../../platform/routingService';
-import { useNavigation, formatDistance } from '../../platform/navigationService';
+import { useNavigation, formatDistance, readEtaStateSafe } from '../../platform/navigationService';
+import { decideEtaDisplay } from '../../platform/navigation/core/navigationHonestyModel';
 import { openMusicDrawer } from '../../platform/mediaUi';
 import { runtimeManager } from '../../core/runtime/AdaptiveRuntimeManager';
 import { RuntimeMode } from '../../core/runtime/runtimeTypes';
@@ -184,7 +186,9 @@ export const SplitScreen = memo(function SplitScreen({ onClose }: SplitScreenPro
   const obd = useOBDState();
   const fuelPct  = useUnifiedVehicleStore((s) => s.fuel);
   const rawSpeed = useDisplaySpeed();        // kütük #417: tek gösterim otoritesi
-  const engineT  = obd.engineTemp >= 0 ? obd.engineTemp : null;
+  /* P0-OBD-03: doğrudan OBD okuması KALDIRILDI — CAN'lı/OBD'siz araçta ısı hiç
+     görünmüyordu ve bayat okuma canlı gibi basılıyordu. Otorite tek yerde. */
+  const engineT  = useLiveVehicleSignal('coolantTemp');
   const speedKmh = rawSpeed ?? 0;
   const route = useRouteState();
   const nav   = useNavigation();
@@ -195,13 +199,25 @@ export const SplitScreen = memo(function SplitScreen({ onClose }: SplitScreenPro
   // Detail: speed limit (best-effort — we don't subscribe to dynamic limit here to avoid extra fetch)
   const speedLimit: number | null = null;
 
-  // ETA computation
+  /* ── VARIŞ SAATİ — TEK ETA OTORİTESİ (P0-NAV-14) ──────────────────────────
+   * ÖLÇÜLEN KUSUR: burada `nav.etaSeconds ?? route.totalDurationSeconds`
+   * yazıyordu. Motor "bu ETA'ya GÜVENME" dediğinde (bayat süre revizyonu ·
+   * düz hat · yetersiz rota verisi) bu satır sağlayıcının HAM toplam süresini
+   * varış saati gibi sunuyordu. Ham süre bir ETA DEĞİLDİR, bir rota
+   * özelliğidir — yerine geçirmek sürücüye yalan söylemektir.
+   * Kural artık `navigationHonestyModel.decideEtaDisplay` ile TEK yerdedir
+   * (`TripSummary` ile AYNI kapı). Güvenilmiyorsa `—` basılır. */
   const arrivalStr = useMemo(() => {
-    const sec = nav.etaSeconds ?? route.totalDurationSeconds ?? 0;
-    if (sec <= 0) return '—';
-    const d = new Date(Date.now() + sec * 1000);
+    const d0 = decideEtaDisplay(nav.etaSeconds, readEtaStateSafe());
+    if (!d0.showNumber || d0.seconds === null) return '—';
+    const d = new Date(Date.now() + d0.seconds * 1000);
     return `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
-  }, [nav.etaSeconds, route.totalDurationSeconds]);
+    /* `route.routeRevision` KASITLI bir bağımlılıktır: `readEtaStateSafe()`
+       render sırasında okunan, ABONELİKSİZ bir değerdir (`useNavigationHonesty`
+       ile aynı desen). Rota sürümü değişince hüküm de değişebilir; bu dep
+       olmadan varış saati eski hükümle donardı. Linter bunu göremez. */
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nav.etaSeconds, route.routeRevision]);
 
   const distLabel = useMemo(() => {
     const m = nav.distanceMeters ?? route.totalDistanceMeters ?? 0;

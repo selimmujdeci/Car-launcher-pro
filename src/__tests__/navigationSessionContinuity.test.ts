@@ -410,7 +410,8 @@ describe('5. 🔒 Yapısal kilitler — sahiplik görünüme geri dönmesin', ()
 
   it('🔒 motor uygulama boot\'una bağlı — görünüme değil', () => {
     expect(systemBootSrc).toContain('startNavigationSessionRuntime()');
-    expect(systemBootSrc).toContain('this._reg(startNavigationSessionRuntime());');
+    expect(systemBootSrc).toContain("this._regNamed('NavigationSessionRuntime', startNavigationSessionRuntime());");
+    expect(systemBootSrc).not.toContain('this._reg(startNavigationSessionRuntime());');
     // Hiçbir görünüm motoru başlatmaz.
     expect(fullMapViewSrc).not.toContain('startNavigationSessionRuntime');
     expect(miniMapWidgetSrc).not.toContain('startNavigationSessionRuntime');

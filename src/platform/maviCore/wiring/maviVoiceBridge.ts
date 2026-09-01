@@ -45,7 +45,7 @@
 import type { MaviOrchestrator } from '../maviOrchestrator';
 import type { MaviPlan, StepResult } from '../executionEngine';
 import { MaviFeedbackChannel } from './maviFeedback';
-import { buildActionFeedback, buildPlanFeedback, buildStageFeedback } from './maviFeedback';
+import { buildActionFeedback, buildPlanFeedback } from './maviFeedback';
 import { getTakeoverArbiter, type TakeoverArbiter, type TakeoverOwnershipKey } from './takeoverArbiter';
 import { isMediaCommandFeedback } from './maviPilotHandlers';
 import {
@@ -529,8 +529,10 @@ export class MaviVoiceBridge {
         return;
       }
 
-      // Sessiz bırakmama: planlama başında nötr ara feedback.
-      this._feedback.emit(buildStageFeedback('planning'));
+      /* MAVI-F2 · I11: planlama başında "Bakıyorum" ara sözü YAYINLANMAZ.
+       * Planlama gecikmesi kullanıcının davranışını değiştirmez; onu bir cümleyle
+       * örtmek gecikme hakkında bilgi vermeyen bir ara söz üretirdi. Kullanıcının
+       * duyduğu tek şey `buildActionFeedback`in ÖLÇÜLEN sonucudur. */
 
       const plan: MaviPlan = {
         mode: 'sequential',

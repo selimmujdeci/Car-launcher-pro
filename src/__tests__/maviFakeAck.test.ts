@@ -53,6 +53,8 @@ vi.mock('../platform/ttsService', () => ({
 }));
 vi.mock('../platform/errorBus', () => ({ showToast: vi.fn() }));
 vi.mock('../platform/dtcService', () => ({
+  // P0-OBD-10: silme envanteri (stored + pending). Testte kod VAR sayılır.
+  getClearableDtcSnapshot: () => ({ codes: [], count: H.dtcState.codes.length, scanRan: true }),
   readDTCCodes:  (...a: unknown[]) => H.readDTCCodes(...(a as [])),
   clearDTCCodes: (...a: unknown[]) => H.clearDTCCodes(...(a as [])),
   onDTCState:    (cb: (s: unknown) => void) => { cb(H.dtcState); return () => {}; },
@@ -460,21 +462,36 @@ describe('MAVI-M3 · guard — sahte ACK yolu kapalı', () => {
     }
   });
 
+  /* MAVI-F13/2'de YENİDEN BAĞLANDI (zayıflatma DEĞİL): sınıflandırmanın TANIMI
+     `voice/voiceCommandPolicy`e taşındı, ÇAĞRI DALLARI `voiceService`te kaldı.
+     Kilit artık İKİSİNİ birden doğrular — eskiden yalnız tek dosyaya bakıyordu
+     ve tanım silinse bile "tanım + 3 dal" sayımı yanlış yerden dolabilirdi. */
+  const POLICY_SRC = readFileSync(
+    join(process.cwd(), 'src', 'platform', 'voice', 'voiceCommandPolicy.ts'), 'utf8');
+
   it('voiceService sonuç-ACK komutlarında parser metnini SESLENDİRMEZ', () => {
-    expect(VOICE_SRC).toMatch(/isResultAckCommand/);
+    // Tek gerçeklik kaynağı: sınıflandırma politikada TANIMLI.
+    expect(POLICY_SRC).toMatch(/export function isResultAckCommand\(/);
     // dispatch + dispatchDriving + dispatchChain → üç seslendirme dalı da korumalı.
+    expect(VOICE_SRC).toMatch(/isResultAckCommand/);
+    /* #1047: birleşik parser metni artık gözlem yokken sonuç diye konuşulmaz;
+       eski koruma çağrısının üçüncüsü fallback fonksiyonuydu ve kaldırıldı. */
+    expect(VOICE_SRC).not.toContain('_parserChainFallbackText');
     const guarded = VOICE_SRC.match(/isResultAckCommand\(/g) ?? [];
-    expect(guarded.length).toBeGreaterThanOrEqual(4);   // tanım + 3 dal
+    expect(guarded.length, 'tekil dispatch yolları sonuç-ACK korumasını korumalı')
+      .toBeGreaterThanOrEqual(2);   // dispatch + dispatchDriving
   });
 
   it('sonuç-ACK komut listesi davranışsal araç eylemlerini KAPSAR', () => {
+    // Liste artık politikada; çapa oradan doğrulanır (kör guard yasağı).
+    expect(POLICY_SRC).toMatch(/RESULT_ACK_COMMAND_TYPES/);
     for (const t of [
       'hw_lock_doors', 'hw_unlock_doors', 'hw_honk_horn', 'hw_flash_lights',
       'hw_alarm_on', 'hw_alarm_off', 'hw_rear_camera', 'hw_lights_off', 'hw_screen_off',
       'vehicle_clear_dtc', 'vehicle_health_check',
       'call_contact',   // MAVI-M4: onay bekleyen arama "başlatılıyor" DİYEMEZ
     ]) {
-      expect(VOICE_SRC, t).toMatch(new RegExp(`'${t}'`));
+      expect(POLICY_SRC, t).toMatch(new RegExp(`'${t}'`));
     }
   });
 

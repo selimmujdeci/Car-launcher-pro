@@ -198,6 +198,10 @@ export type CompanionErrorCode =
   | 'COMPRESSION_UNSUPPORTED'
   | 'ENCRYPTION_UNSUPPORTED'
   | 'CAPABILITY_TOKEN_INVALID'
+  /* ARCH-05: kontrol komutu için AÇIK yetenek izni yok. Jeton biçimi geçerli
+     olabilir (`CAPABILITY_TOKEN_INVALID` ondan AYRIDIR); burada eksik olan
+     İZNİN KENDİSİDİR. */
+  | 'CAPABILITY_NOT_GRANTED'
   | 'SESSION_GENERATION_STALE'
   | 'SESSION_NOT_ACTIVE'
   | 'PAIRING_NOT_TRUSTED'
@@ -222,6 +226,7 @@ export const COMPANION_ERROR_LABEL: Readonly<Record<CompanionErrorCode, string>>
   COMPRESSION_UNSUPPORTED:     'Sıkıştırma desteklenmiyor',
   ENCRYPTION_UNSUPPORTED:      'Şifreleme desteklenmiyor',
   CAPABILITY_TOKEN_INVALID:    'Yetenek jetonu geçersiz',
+  CAPABILITY_NOT_GRANTED:      'Bu komut için yetenek izni verilmedi',
   SESSION_GENERATION_STALE:    'Bayat oturum nesli reddedildi',
   SESSION_NOT_ACTIVE:          'Aktif oturum yok',
   PAIRING_NOT_TRUSTED:         'Eşleştirme güvenilir değil',

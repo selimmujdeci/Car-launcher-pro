@@ -401,12 +401,7 @@ public class MainActivity extends BridgeActivity {
      */
     private void startForegroundServiceNow() {
         try {
-            Intent svcIntent = new Intent(this, CarLauncherForegroundService.class);
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                startForegroundService(svcIntent);
-            } else {
-                startService(svcIntent);
-            }
+            ForegroundServiceBoundary.requestStart(this, "MainActivity");
         } catch (Exception ignored) {
             // Servis zaten çalışıyorsa veya başlatılamıyorsa sessizce devam et
         }

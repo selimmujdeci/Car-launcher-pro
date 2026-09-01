@@ -36,7 +36,14 @@ import {
    Transcript BU KAPIDAN GEÇMEZ; yalnız türetilmiş sayılar taşınır. */
 import { recordWake, markWakeIntentReached } from './voice/wakeForensics';
 import { deriveTokenShape, type TokenShape, type WakePath } from './voice/core/wakeDecisionModel';
-import { isTtsSpeaking } from './ttsService';
+import {
+  isTtsSpeaking,
+  /* MAVI-F12: uçuştaki sözün korunan olup olmadığı + o söz çalarken mikrofonun
+     FİİLEN açık kalıp kalmadığı. Self-echo kararının tek kanonik kanıtı. */
+  isProtectedSpeechInFlight, isMicCaptureOpenDuringSpeech,
+} from './ttsService';
+/* MAVI-F12: kesme önerisi hakemi — wake yolu KENDİ kararını vermez, hükmü OKUR. */
+import { evaluateBargeIn } from './assistant/maviBargeIn';
 import {
   matchesWakeTranscript,
   fuzzyMatchesWake,
@@ -46,6 +53,7 @@ import {
 } from './companion/companionIdentity';
 import { VOICE_TUNING } from './voiceTuning';
 import { useStore } from '../store/useStore';
+import type { WakeRecorderStateEvent } from './nativePlugin';
 
 /* ── Tipler ──────────────────────────────────────────────── */
 
@@ -179,6 +187,33 @@ let _nativeLoopActive = false;
 /** Faz 5: native grammar modu aktif mi + event listener handle'ı. */
 let _grammarMode = false;
 let _grammarHandle: { remove: () => Promise<void> } | null = null;
+let _wakeRecorderState: WakeRecorderStateEvent['state'] = 'STOPPED';
+let _wakeRecoveryCount = 0;
+let _wakeRecoveryTimer: ReturnType<typeof setTimeout> | null = null;
+const WAKE_JS_RECOVERY_LIMIT = 3;
+
+function _clearWakeRecovery(): void {
+  if (_wakeRecoveryTimer) { clearTimeout(_wakeRecoveryTimer); _wakeRecoveryTimer = null; }
+}
+
+/** Native owner FAILED dediyse, ikinci recorder kurmadan aynı owner üzerinden
+ * sınırlı yeniden başlatma ister. Başarı varsayılmaz; native ACTIVE olayı gerekir. */
+function _recoverWakeRecorder(): void {
+  if (_wakeRecoveryTimer || !_state.enabled || _interactionPaused || _powerPaused) return;
+  if (_wakeRecoveryCount >= WAKE_JS_RECOVERY_LIMIT) {
+    push({ status: 'error', errorMsg: 'Wake recorder yeniden başlatılamadı' });
+    return;
+  }
+  _wakeRecoveryCount++;
+  _wakeRecoveryTimer = setTimeout(() => {
+    _wakeRecoveryTimer = null;
+    if (!_state.enabled || _interactionPaused || _powerPaused) return;
+    void (async () => {
+      await stopGrammarMode();
+      if (_state.enabled && !_interactionPaused && !_powerPaused) _startNativeWake(++_loopGen);
+    })();
+  }, 500);
+}
 
 function clearRestartTimer(): void {
   if (_restartTimer) { clearTimeout(_restartTimer); _restartTimer = null; }
@@ -344,6 +379,38 @@ function onWakeWordDetected(
       path: _path, ..._tel,
     });
     return;
+  }
+
+  /* ── MAVI-F12 · SELF-ECHO KAPISI ───────────────────────────────────────
+   * ÖLÇÜLEN AÇIK: yukarıdaki `vs.status !== 'idle'` kapısı, Mavi'nin KENDİ
+   * sesini duymasını yalnız KULLANICI TURU sürerken engelliyordu. Proaktif
+   * bildirim, navigasyon ve güvenlik sözleri `idle` durumdayken seslendirilir;
+   * o sözler **native motordan çıkmadığında** (premium klip · Edge · online ·
+   * `speechSynthesis`) `nativeTtsSpeaking` KURULMAZ → wake grammar thread'i
+   * mikrofonu açık tutar ve Mavi kendi sesiyle tetiklenebilir.
+   *
+   * Hüküm hakemin: tetik bir KESME ÖNERİSİdir. Duplex sınıfı akustik kesmeyi
+   * kanıtlamadığı sürece bu öneri reddedilir ve tetik SESSİZCE düşer (hata
+   * değildir). Sınıf yükselirse (native duplex yakalama + AEC + referans
+   * sinyali) aynı tetik kabul edilir ve buradan normal akış sürer — bu kapı
+   * o gün için de doğrudur, dallanma değişmez.
+   *
+   * ⚠️ AÇIK BORÇ: bu olay konuşma SÜRESİ ve GÜVEN taşımaz (native `wakeWord`
+   * olayı yalnız transcript verir). Duplex açıldığında hakem `speechMs`
+   * olmadan zaten kabul etmez — o alanları native taşımak F12 sonrası işidir. */
+  if (isTtsSpeaking()) {
+    const bargeVerdict = evaluateBargeIn(
+      { evidence: 'WAKE_TRIGGER', atMs: Date.now() },
+      {
+        ttsSpeaking: true,
+        protectedSpeech: isProtectedSpeechInFlight(),
+        captureOpenOnThisPath: isMicCaptureOpenDuringSpeech(),
+      },
+    );
+    if (!bargeVerdict.accepted) {
+      recordWake({ reason: 'SUPPRESSED_SELF_ECHO', path: _path, ..._tel });
+      return;
+    }
   }
 
   // Selamlama/echo debounce: kabul edilen tetikten sonra kısa süre (selam TTS'i
@@ -590,7 +657,13 @@ async function startGrammarMode(gen: number): Promise<boolean> {
     // hedefini ilk tetikte de tutar (soğuk import head unit'te yüzlerce ms).
     void import('./ttsService').catch(() => { /* TTS yoksa selamlamasız akış */ });
 
-    const handle = await CarLauncher.addListener('wakeWord', (data: { transcript?: string }) => {
+    const handle = await CarLauncher.addListener('wakeWord', (data: { transcript?: string } & Partial<WakeRecorderStateEvent>) => {
+      if (data?.state) {
+        _wakeRecorderState = data.state;
+        if (_wakeRecorderState === 'ACTIVE') { _wakeRecoveryCount = 0; return; }
+        if (_wakeRecorderState === 'FAILED' && data.unexpected === true) _recoverWakeRecorder();
+        return;
+      }
       if (!_state.enabled || !_grammarMode) return;
       const transcript = typeof data?.transcript === 'string' ? data.transcript : '';
       if (transcript) _pushHeard(transcript);
@@ -608,7 +681,6 @@ async function startGrammarMode(gen: number): Promise<boolean> {
       }
       onWakeWordDetected(shape);
     });
-
     try {
       await CarLauncher.startWakeWordListening({
         phrases: _state.wakeWords,
@@ -634,10 +706,12 @@ async function startGrammarMode(gen: number): Promise<boolean> {
 }
 
 async function stopGrammarMode(): Promise<void> {
+  _clearWakeRecovery();
   const handle = _grammarHandle;
   _grammarHandle = null;
   const wasActive = _grammarMode;
   _grammarMode = false;
+  _wakeRecorderState = 'STOPPED';
   if (!handle && !wasActive) return;
   try {
     if (handle) await handle.remove();
@@ -823,7 +897,11 @@ export interface WakeWatchdogStats {
    * ('wakeWord' olayı) yayınlar; "ayakta ama duymadı" ile "öldü" JS'ten
    * ayırt edilemez. Kanıtsız iyimserlik üretmemek için açıkça bildirilir.
    */
-  readonly livenessMeasured: false;
+  readonly livenessMeasured: boolean;
+  /** Native owner'ın son bildirdiği canonical recorder durumu. */
+  readonly recorderState: WakeRecorderStateEvent['state'];
+  /** Native FAILED sonrasında JS'in istediği bounded yeniden kurma sayısı. */
+  readonly recoveryCount: number;
 }
 
 /**
@@ -840,7 +918,9 @@ export function getWakeWatchdogStats(): WakeWatchdogStats {
     wakesSinceRearm:   _wakesSinceRearm,
     wakesInPrevWindow: _wakesInPrevWindow,
     rearmIntervalMs:   WAKE_WATCHDOG_INTERVAL_MS,
-    livenessMeasured:  false,
+    livenessMeasured:  _wakeRecorderState === 'ACTIVE' || _wakeRecorderState === 'PAUSED_FOR_SESSION',
+    recorderState:     _wakeRecorderState,
+    recoveryCount:     _wakeRecoveryCount,
   };
 }
 
@@ -913,7 +993,9 @@ type AppSettings = ReturnType<typeof useStore.getState>['settings'];
 
 function _wakeKey(s: AppSettings): string {
   return [
-    s.companionEnabled ? 1 : 0,
+    /* MAVI-F11: `companionEnabled` wake anahtarından ÇIKARILDI — presence artık
+       wake'i etkilemediği için değişimi wake'i yeniden kurmayı GEREKTİRMEZ
+       (gereksiz churn olurdu). Ayar hâlâ izlenir, yalnız wake'e bağlı değildir. */
     s.companionWakeWordEnabled ? 1 : 0,
     s.wakeWordEnabled ? 1 : 0,
     s.wakeWord ?? '',
@@ -925,8 +1007,20 @@ function _wakeKey(s: AppSettings): string {
 }
 
 function _applyWakeFromSettings(s: AppSettings): void {
-  const companionWake =
-    (s.companionEnabled ?? false) && (s.companionWakeWordEnabled ?? false);
+  /* ── MAVI-F11 · F1 BORCUNUN KAPATILMASI ───────────────────────────────────
+   * ESKİ HÂLİ: `companionEnabled && companionWakeWordEnabled`.
+   * Bu bağ YANLIŞTI ve F1 anayasasını (I2) çiğniyordu: **Yol Arkadaşı bir
+   * capability kısıtlaması DEĞİLDİR.** Kapalıyken Mavi tam yetenekli kalır;
+   * susan yalnız proaktif sohbettir. Buna rağmen presence şalteri kapalıyken
+   * kullanıcının AÇIK olarak işaretlediği "Sesle Uyandırma" ayarı SESSİZCE
+   * ETKİSİZLEŞİYORDU — ayar açık görünüyor ama wake hiç kurulmuyordu.
+   *
+   * YENİ INVARYANT: wake ayarı presence'tan BAĞIMSIZDIR.
+   *   · Yol Arkadaşı OFF + Wake ON  → wake ÇALIŞIR
+   *   · Yol Arkadaşı ON  + Wake OFF → wake DİNLEMEZ (presence sohbeti etkiler)
+   * Wake sözleri yine asistan ADINDAN türer; ad/kişilik ayarları presence'tan
+   * bağımsız okunur (`resolveCompanionIdentity` zaten yalnız ad/mod/cümle alır). */
+  const companionWake = s.companionWakeWordEnabled ?? false;
   if (companionWake) {
     // Wake sözleri asistan ADINDAN türer ("Mavi"/"Hey Mavi"/özel cümle).
     const identity = resolveCompanionIdentity({

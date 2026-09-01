@@ -298,9 +298,19 @@ describe('fleetReadback › köprü', () => {
  * ═════════════════════════════════════════════════════════════════════════ */
 describe('fleetReadback › kablo ve yan etki', () => {
   it('SystemBoot köprüyü BAŞLATIR ve temizliğini KAYDEDER', () => {
+    /* ARCH-06/F2 KİLİT GÜNCELLEMESİ (zayıflatma DEĞİL — kapsam GENİŞLEDİ).
+       Köprü artık doğrudan `_reg(...)` ile değil, `bootDeferral` üzerinden
+       IDLE tetikleyicisiyle kuruluyor: kendi yorumunun dediği gibi "trip
+       başına TEK ağ çağrısı, TİMER YOK" — açılışta kurulması için sebep yok.
+       Kilidin KORUDUĞU invaryant aynı: servis BAŞLAR ve cleanup'ı SystemBoot'un
+       LIFO zincirine kaydolur. Artık cleanup LAVABOSU da doğrulanıyor. */
     const boot = read('src/platform/system/SystemBoot.ts');
     expect(boot).toContain("import { startFleetReadback } from '../fleet/fleetReadbackService'");
-    expect(boot).toMatch(/this\._reg\(startFleetReadback\(\)\)/);
+    expect(boot).toMatch(
+      /jobId: 'FleetReadback'[\s\S]{0,160}run: \(\) => startFleetReadback\(\)/);
+    /* Cleanup sahipliği SystemBoot'ta KALIR — ikinci yaşam döngüsü otoritesi yok. */
+    expect(boot).toMatch(
+      /bootDeferral\.begin\([\s\S]{0,160}this\._regNamed\(jobId, cleanup\)/);
   });
 
   it('köprü TIMER kurmaz (trip kenarı dışında ağa çıkmaz)', () => {

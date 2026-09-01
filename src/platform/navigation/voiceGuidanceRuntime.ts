@@ -25,8 +25,12 @@
 
 import { speakNavigation } from '../ttsService';
 import {
+  recordAnnouncementTiming, recordMissedGuidance, resetGuidanceAudit,
+} from './core/voiceGuidanceAudit';
+import {
   decideGuidance, maneuverId,
   type GuidanceStage, type GuidanceDecisionInput,
+  finalTierMetres, FAR_TIER_M, NEAR_TIER_M,
 } from './core/voiceGuidanceModel';
 
 /* ══════════════════════════════════════════════════════════════════════════
@@ -62,6 +66,35 @@ let _spokenCount = 0;
 let _duplicateSuppressed = 0;
 /** "Rota yeniden hesaplanıyor" anonsu bu reroute turunda söylendi mi. */
 let _rerouteAnnounced = false;
+
+/* ── P0-NAV-16 · KAÇIRILAN ANONS ÖLÇÜMÜ ───────────────────────────────────
+ * Runtime bugüne kadar yalnız SÖYLENENİ sayıyordu. NAV-16'nın dört sorusundan
+ * (çok erken · çok geç · iki kez · HİÇ) yalnız "iki kez" ölçülebiliyordu.
+ * Sürücünün gerçekten yaşadığı kusur ise ötekiler: dönüşü kaçırmak, anonsu
+ * dönüşün üstünde duymak. Manevra GEÇİLDİĞİNDE (adım indeksi ilerlediğinde)
+ * geride bıraktığımız manevra yargılanır. */
+/** İzlenen manevranın kimliği ve o manevra boyunca toplanan bağlam. */
+let _watchedId: string | null = null;
+/** İzlenen manevra boyunca mesafe kaynağı en az bir kez kullanılabildi mi. */
+let _watchedHadDistance = false;
+/** İzlenen manevra boyunca reroute sürdü mü. */
+let _watchedWasRerouting = false;
+
+/** Geride bırakılan manevrayı yargılar ve izlemeyi yeni manevraya taşır. */
+function _closeWatchedManeuver(nextId: string | null, nowMs: number): void {
+  if (_watchedId !== null && _watchedId !== nextId) {
+    recordMissedGuidance(_watchedId, {
+      spokenBits: _spoken.get(_watchedId) ?? 0,
+      hadUsableDistance: _watchedHadDistance,
+      wasRerouting: _watchedWasRerouting,
+    }, nowMs);
+  }
+  if (_watchedId !== nextId) {
+    _watchedId = nextId;
+    _watchedHadDistance = false;
+    _watchedWasRerouting = false;
+  }
+}
 
 export interface VoiceGuidanceSnapshot {
   readonly state: VoiceRuntimeState;
@@ -145,6 +178,7 @@ export function noteVoiceGuidanceTick(
   /* ── Yeniden rota: manevra anonsu BASTIRILIR, bir kez durum bildirilir ──── */
   if (input.isRerouting) {
     _state = 'REROUTING';
+    _watchedWasRerouting = true;
     if (!_rerouteAnnounced) {
       _rerouteAnnounced = true;
       try { speak('Rota yeniden hesaplanıyor'); } catch { /* TTS yoksa sessiz */ }
@@ -155,6 +189,9 @@ export function noteVoiceGuidanceTick(
   _rerouteAnnounced = false;
 
   const id = maneuverId(input.sessionId, input.routeRevision, input.stepIndex);
+  /* Manevra DEĞİŞTİYSE geride bırakılanı yargıla (kaçırılan anons ölçümü). */
+  _closeWatchedManeuver(id, Date.now());
+  if (input.distanceSource !== 'UNKNOWN') _watchedHadDistance = true;
   const bits = _spoken.get(id) ?? 0;
 
   const decision = decideGuidance({
@@ -184,6 +221,16 @@ export function noteVoiceGuidanceTick(
   _lastSpokenStage = decision.stage;
   _spokenCount++;
 
+  /* Anonsun ZAMANLAMASI ölçülür — "çok geç" sınıfı sahada görünür olsun.
+     Kademe eşiği kademeye göre değişir; `IMMINENT` hıza bağlıdır. */
+  recordAnnouncementTiming(
+    id, decision.stage, input.distanceM,
+    decision.stage === 'IMMINENT' ? finalTierMetres(input.speedKmh)
+      : decision.stage === 'NEAR' ? NEAR_TIER_M
+      : FAR_TIER_M,
+    Date.now(),
+  );
+
   try { speak(decision.text); } catch { /* TTS yoksa sessiz — navigasyon bozulmaz */ }
   try { markFirstInstruction?.(); } catch { /* ölçüm hatası anonsu bozmaz */ }
 
@@ -205,6 +252,13 @@ export function resetVoiceGuidance(_reason = 'sıfırlandı'): void {
   _lastSpokenManeuverId = null;
   _lastSpokenStage = null;
   _rerouteAnnounced = false;
+  /* P0-NAV-16: izlenen manevra da düşer — oturum bitince yarım kalan bir
+     manevrayı "kaçırıldı" diye saymak yanlış olurdu (sürücü zaten durdu). */
+  _watchedId = null;
+  _watchedHadDistance = false;
+  _watchedWasRerouting = false;
+  /* Yeni oturum: eski yolculuğun anons kusurları yenisine TAŞINMAZ. */
+  resetGuidanceAudit();
 }
 
 /** @internal — testler arası izolasyon (sayaçlar dahil). */

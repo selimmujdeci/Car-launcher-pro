@@ -155,7 +155,7 @@ describe('OBD-OS-F4-1 — bulgular KANITA bağlı (uydurma yasak)', () => {
     }));
     const f = v.findings.find((x) => x.source === 'uds_dtc')!;
     expect(f.detail).toMatch(/Üretici-özel/);
-    expect(f.evidence).toContain('UDS 0x19 (üretici tabanı)');
+    expect(f.evidence).toContain('UDS 0x19-02 (üretici tabanı)');
     expect(f.evidence).toContain('şu anda AKTİF');
     expect(v.actions.some((a) => a.id === 'uds_codes_found')).toBe(true);
   });

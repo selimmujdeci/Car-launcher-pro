@@ -26,8 +26,12 @@ vi.mock('../utils/safeStorage', () => ({
   safeGetRaw_impl: undefined,
 }));
 
+/* ARCH-06/F5: `offlineSearchService` artık TİPLİ katılımcı kaydı kullanıyor
+   (`registerMemoryParticipant`). Mock her iki API'yi de taşır — eski
+   `registerCachePurge` geri uyumluluk için hâlâ dışa açık. */
 vi.mock('../platform/memoryWatchdog', () => ({
   registerCachePurge: vi.fn(() => () => {}),
+  registerMemoryParticipant: vi.fn(() => () => {}),
 }));
 
 /* ── Mock: offlineRoutingService ────────────────────────────────────────── */
@@ -318,17 +322,17 @@ describe('searchPOI — caros:offline-data-missing event dispatch', () => {
 ═══════════════════════════════════════════════════════════════ */
 
 describe('MemoryWatchdog CRITICAL — closeWorkerDatabase kesin tetiklenmesi', () => {
-  it('registerCachePurge ile kaydedilen handler closeWorkerDatabase\'ı çağırır', async () => {
-    // Modül yüklendiğinde registerCachePurge'e verilen handler'ı yakala
-    const { registerCachePurge } = await import('../platform/memoryWatchdog');
-    const capturedHandlers: Array<() => void> = [];
+  it('bellek katılımcısı olarak kaydedilen handler closeWorkerDatabase\'ı çağırır', async () => {
+    /* ARCH-06/F5 KİLİT GÜNCELLEMESİ (zayıflatma DEĞİL — kapsam GENİŞLEDİ).
+       `offlineSearchService` artık TİPLİ katılımcı kaydı kullanıyor. Kilidin
+       KORUDUĞU davranış aynen duruyor (baskı → closeWorkerDatabase) ve artık
+       SINIFI da doğrulanıyor: POI veritabanı `REBUILDABLE_DERIVED`tir, yani
+       merdivenin SON kademesinde feda edilir — ucuz bir prefetch'le aynı anda
+       silinmez. */
+    const capturedHandlers: Array<(level: string) => void> = [];
+    let capturedClass: string | null = null;
+    let capturedCost: string | null = null;
 
-    (registerCachePurge as ReturnType<typeof vi.fn>).mockImplementation(
-      (fn: () => void) => { capturedHandlers.push(fn); return () => {}; },
-    );
-
-    // offlineSearchService modülü modül düzeyinde registerCachePurge çağırır.
-    // vi.resetModules + dinamik import ile taze modül yükle.
     vi.resetModules();
 
     // Bağımlılıkları yeniden mock'la (resetModules sonrası gerekli)
@@ -339,16 +343,27 @@ describe('MemoryWatchdog CRITICAL — closeWorkerDatabase kesin tetiklenmesi', (
     vi.doMock('../utils/safeStorage',    () => ({ safeGetRaw: vi.fn(() => null) }));
     vi.doMock('../platform/memoryWatchdog', () => ({
       registerCachePurge: (fn: () => void) => { capturedHandlers.push(fn); return () => {}; },
+      registerMemoryParticipant: (p: {
+        participantClass: string; rebuildCost: string; onTrim: (l: string) => void;
+      }) => {
+        capturedClass = p.participantClass;
+        capturedCost = p.rebuildCost;
+        capturedHandlers.push(p.onTrim);
+        return () => {};
+      },
     }));
 
     await import('../platform/offlineSearchService');
 
     // Modül yüklenince en az 1 handler kayıtlı olmalı
     expect(capturedHandlers.length).toBeGreaterThan(0);
+    // Ve doğru sınıfta olmalı — yanlış sınıf erken silinmeye yol açardı.
+    expect(capturedClass).toBe('REBUILDABLE_DERIVED');
+    expect(capturedCost).toBe('EXPENSIVE');
 
-    // CRITICAL simülasyonu: tüm purge handler'larını ateşle
+    // CRITICAL simülasyonu: tüm handler'ları ateşle
     const { closeWorkerDatabase } = await import('../platform/offlineRoutingService');
-    for (const fn of capturedHandlers) fn();
+    for (const fn of capturedHandlers) fn('CRITICAL_PROTECT');
 
     expect(closeWorkerDatabase).toHaveBeenCalledTimes(capturedHandlers.length);
   });

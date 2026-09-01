@@ -149,12 +149,23 @@ export function continueIfTurnActive(
  * çözülür; `isMaviTurnActive` kullanılırsa o dürüst cevap ("Bu araçta kapı kilitleme
  * bağlantısı henüz hazır değil") ÜRETİMDE HİÇ DUYULMAZDI. Susturulması gereken
  * DEVRALINMA'dır (yeni komut geldi), tamamlanma değil.
+ *
+ * ── MAVI-F12 DÜZELTMESİ ────────────────────────────────────────────────────
+ * Yukarıdaki sözleşme "devralınma SUSTURULUR" diyordu ama uygulama YALNIZ
+ * `isMaviTurnCurrent` (kimlik eşitliği) bakıyordu. Bu, devralınmanın HER ZAMAN
+ * `beginMaviTurn` ile olduğu varsayımına dayanıyordu — o yolda `_activeId`
+ * değiştiği için kapı zaten kapanıyordu. F12 barge-in'i devralınmayı YENİ KOMUT
+ * BEKLEMEDEN yapar (`supersedeActiveMaviTurn`): kimlik AYNI kalır, durum
+ * `superseded` olur. Kimlik kontrolü tek başına bırakılsaydı **kullanıcı Mavi'yi
+ * kestikten sonra eski turun geç sağlayıcı cevabı yine konuşurdu** — F12'nin
+ * kapatmak zorunda olduğu tam da budur. Kapı artık sözleşmenin KENDİ metnini
+ * uygular; `beginMaviTurn` yolu için davranış BİREBİR aynıdır.
  */
 export function continueIfTurnCurrent(
   token: MaviTurnToken | null | undefined,
   kind: MaviStaleKind,
 ): boolean {
-  if (isMaviTurnCurrent(token)) return true;
+  if (isMaviTurnCurrent(token) && _activeState !== 'superseded') return true;
   _countStale(kind);
   return false;
 }

@@ -19,6 +19,25 @@ vi.mock('../platform/nativePlugin', () => ({
     readUdsDtcs:    vi.fn(),
   },
 }));
+// P0-OBD-CORE-05: discoverEcus() artık admisyon kapısından geçer — gerçek
+// obdService başlangıç durumu 'idle'dir (bağlı değil), bu da bu dosyanın
+// simüle ettiği "zaten bağlı" senaryosuyla çelişir. Bu paket bu test dosyasının
+// KULLANDIĞI yüzeyi (getObdSessionEpoch/getHandshakeDiagnostics zaten diğer
+// testlerde dolaylı kullanılıyor) "bağlı/hazır" değerlerle sabitler — ikinci
+// bir sahte otorite KURULMAZ, yalnız admisyon kapısının girdisi netleştirilir.
+// NOT: `importOriginal` ile kısmi mock KASITLI OLARAK kullanılmadı — bu dosyanın
+// geniş transitive import grafiğinde (fleetKbService/ecuIdentityService/…)
+// gözlemlenen bir modül-ikilenmesi kısmi mock'u sessizce ATLATIYORDU (tam,
+// açık mock bu riski taşımaz).
+vi.mock('../platform/obdService', () => ({
+  getOBDDataSnapshot: () => ({ connectionState: 'connected', transportConnected: true, dataFresh: true }),
+  getObdSessionHealth: () => ({
+    transportReady: true, sessionReady: true, pollingActive: true, dataFresh: true, ready: true,
+  }),
+  getEcuRecoveryLadder: () => ({ inFlight: false, nativeReconnectInFlight: false }),
+  getObdSessionEpoch: () => 0,   // gerçek modülün varsayılanıyla AYNI (_nativeGeneration başlangıcı)
+  getHandshakeDiagnostics: () => ({ protocolActive: null, protocolTried: null }),
+}));
 
 import { CarLauncher } from '../platform/nativePlugin';
 import { buildTopology, emptyTopology } from '../platform/obd/ecuDiscovery';
@@ -157,8 +176,11 @@ describe('OBD-OS-F3-1 — UDS 0x19 çoklu-ECU taramasında', () => {
 
     const report = await scanAllEcus(twoEcuTopology());
     const p0301 = report.allCodes.filter((c) => c.code === 'P0301');
-    expect(p0301).toHaveLength(1);          // iki kaynaktan geldi ama TEK kayıt
+    expect(p0301).toHaveLength(1);          // ürün listesinde yalancı çift arıza YOK
     expect(p0301[0]!.fromUds).toBeUndefined();  // standart moddan gelen KAZANIR
+    const sourceRows = report.results[0]!.authorityCodes.filter((c) => c.code === 'P0301');
+    expect(sourceRows).toHaveLength(2);     // kanonik authority için İKİ kaynak KORUNUR
+    expect(sourceRows.some((c) => c.fromUds === true && c.rawStatus === '09')).toBe(true);
   });
 
   it('ECU 0x19’u desteklemiyorsa HATA sayılmaz (çoğu eski araç) — tarama sürer', async () => {

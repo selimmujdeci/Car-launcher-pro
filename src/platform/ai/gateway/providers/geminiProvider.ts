@@ -13,12 +13,23 @@
  *    sağlayıcıdan gelen hata metni anahtar-benzeri desenlere karşı REDAKTE edilir.
  *  - Gemini'ye ÖZGÜ tipler bu dosyanın DIŞINA taşmaz (gateway tipleri döner).
  *
- * ── STREAMING (DÜRÜST BEYAN) ────────────────────────────────────────────────
- * Bu ilk sürüm NON-STREAMING'dir. `stream:true` istense bile tek seferlik
- * `generateContent` çağrılır, `onToken` ÇAĞRILMAZ ve sonuçta `streamed:false`
- * bildirilir. Yetenek tanımında da `supportsStreaming:false` yazar — SAHTE
- * DESTEK İLAN EDİLMEZ. Sonuç: token akmadığı için yürütücü hata durumunda
- * diğer sağlayıcıya güvenle geçebilir (çift cevap riski YOK).
+ * ── STREAMING (DÜRÜST BEYAN — MAVI-F4'te GERÇEKLEŞTİ) ───────────────────────
+ * Bu dosya ÖNCEDEN non-streaming'di: `stream:true` istense bile tek seferlik
+ * `generateContent` çağrılıyor, `onToken` HİÇ çağrılmıyor ve `streamed:false`
+ * bildiriliyordu (sahte destek ilan edilmiyordu — dürüst ama yavaş).
+ *
+ * MAVI-F4 ile GERÇEK akış eklendi: `stream:true` VE `onToken` verildiyse
+ * `streamGenerateContent?alt=sse` uç noktası kullanılır, SSE gövdesi satır satır
+ * çözülür ve her metin parçası `onToken` ile akıtılır; sonuçta `streamed:true`
+ * bildirilir. Akış İSTENMEZSE davranış BİREBİR eskisi gibidir.
+ *
+ * **DÜŞÜŞ (fail-soft):** akış kurulamazsa (ağ/uç nokta yok · gövde okunamıyor ·
+ * boş akış) tek seferlik çağrıya DÜŞÜLÜR ve `streamed:false` bildirilir. Yarım
+ * metinle başarı İDDİA EDİLMEZ.
+ *
+ * **ÇİFT TOKEN YASAĞI:** akış ortasında koparsa bu sağlayıcı KENDİ İÇİNDE
+ * yeniden denemez — aksi halde kullanıcı aynı cümlenin başını iki kez duyardı.
+ * Hata yukarı taşınır; yeniden deneme politikası gateway'in işidir.
  *
  * ── MODEL ───────────────────────────────────────────────────────────────────
  * Model kimliği katalogdan gelir (`DEFAULT_GEMINI_MODEL`); istek `model` ile
@@ -193,6 +204,128 @@ function extractText(payload: Record<string, unknown>): { text: string; finishRe
   return { text, ...(finish ? { finishReason: finish } : {}) };
 }
 
+/* -- MAVI-F4 . SSE (akis) --------------------------------------------------- */
+
+/**
+ * Gemini SSE govdesinden metin parcalarini cikarir.
+ *
+ * Google `alt=sse` biciminde her olay `data: {json}` satiridir ve JSON govdesi
+ * NON-STREAMING yanitla AYNI semadadir -> mevcut `extractText` yeniden kullanilir
+ * (ikinci bir ayristirici KURULMAZ).
+ */
+function consumeGeminiSseLine(
+  rawLine: string,
+  state: { text: string; finishReason?: string },
+  onToken?: (t: string) => void,
+): void {
+  const line = rawLine.trim();
+  if (!line || !line.startsWith('data:')) return;
+  const body = line.slice(5).trim();
+  if (!body || body === '[DONE]') return;
+  let payload: unknown;
+  try { payload = JSON.parse(body); } catch { return; }   // bozuk olay AKISI KIRMAZ
+  if (!isObject(payload)) return;
+  const { text, finishReason } = extractText(payload);
+  if (finishReason && !state.finishReason) state.finishReason = finishReason;
+  if (!text) return;
+  state.text += text;
+  try { onToken?.(text); } catch { /* tuketici hatasi akisi bozmaz */ }
+}
+
+/**
+ * Akisi dener. **`null` = akis kurulamadi** (cagiran tek seferlik yola duser).
+ * Gercek HTTP hatasi tipli `AiGenerateResult` olarak doner -- DUSULMEZ, cunku
+ * 401/429 gibi hatalarda ikinci bir cagri kotayi bosa yakar.
+ */
+async function tryStreamGemini(
+  fetchImpl: typeof fetch,
+  baseUrl: string,
+  model: string,
+  apiKey: string,
+  request: AiProviderRequest,
+  onToken: ((t: string) => void) | undefined,
+  signal: AbortSignal | undefined,
+): Promise<AiGenerateResult | null> {
+  let response: Response;
+  try {
+    response = await fetchImpl(
+      `${baseUrl}/models/${encodeURIComponent(model)}:streamGenerateContent?alt=sse`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type':   'application/json',
+          'x-goog-api-key': apiKey,                    // anahtarin TEK yeri (URL'de YOK)
+        },
+        body: JSON.stringify(toGeminiPayload(request)),
+        ...(signal ? { signal } : {}),
+      },
+    );
+  } catch {
+    return null;                                        // ag/uc nokta yok -> tek seferlige dus
+  }
+  if (!response || typeof response.ok !== 'boolean') return null;
+
+  if (!response.ok) {
+    const cls = classifyStatus(response.status);
+    let raw = '';
+    try { raw = await response.text(); } catch { /* govde okunamadi */ }
+    const detail = redact(raw).slice(0, MAX_ERROR_BODY_CHARS);
+    const retryAfterMs = response.status === 429 ? readRetryAfterMs(raw) : undefined;
+    return {
+      ok: false,
+      error: mkError(cls.kind, detail ? `${cls.message} (${detail})` : cls.message,
+        cls.retryable, response.status, retryAfterMs),
+    };
+  }
+
+  const state: { text: string; finishReason?: string } = { text: '' };
+  const body = (response as { body?: ReadableStream<Uint8Array> | null }).body;
+
+  if (body && typeof body.getReader === 'function') {
+    const reader = body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    try {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        let nl = buffer.indexOf('\n');
+        while (nl >= 0) {
+          consumeGeminiSseLine(buffer.slice(0, nl), state, onToken);
+          buffer = buffer.slice(nl + 1);
+          nl = buffer.indexOf('\n');
+        }
+      }
+      if (buffer.length > 0) consumeGeminiSseLine(buffer, state, onToken);
+    } catch (err) {
+      /* CIFT TOKEN YASAGI: akis ortasinda koptu -- BURADA YENIDEN DENENMEZ.
+       * Yeniden denemek kullaniciya ayni cumlenin basini IKINCI kez duyururdu. */
+      if (!state.text) return null;                     // hic token akmadi -> tek seferlige dus
+      return { ok: false, error: classifyThrown(err, signal) };
+    } finally {
+      try { reader.releaseLock(); } catch { /* zero-leak: kilit her halukarda birakilir */ }
+    }
+  } else {
+    /* WebView `Response.body` vermiyor (head unit'te olagan) -> tum govde bir kerede
+     * okunur ve SATIR SATIR ayni ayristiricidan gecirilir. Token'lar TEK SEFERDE
+     * akar; bu bir HIZ KAZANCI DEGILDIR ama davranis tutarli kalir. */
+    let full = '';
+    try { full = await response.text(); } catch { return null; }
+    for (const line of full.split('\n')) consumeGeminiSseLine(line, state, onToken);
+  }
+
+  if (!state.text) return null;                         // bos akis BASARI sayilmaz
+  return {
+    ok:       true,
+    text:     state.text,
+    model,
+    provider: GEMINI_PROVIDER_ID,
+    streamed: true,
+    ...(state.finishReason ? { finishReason: state.finishReason } : {}),
+  };
+}
+
 /* ── Provider ──────────────────────────────────────────────────────────────── */
 
 export function createGeminiProvider(deps: GeminiProviderDependencies): AiProvider {
@@ -251,9 +384,18 @@ export function createGeminiProvider(deps: GeminiProviderDependencies): AiProvid
       const model = request.model || DEFAULT_GEMINI_MODEL;
       const { signal, dispose } = makeSignal(request.timeoutMs, options?.signal);
 
+      /* MAVI-F4: akış YALNIZ hem istendiğinde hem TÜKETİCİSİ varken denenir.
+       * `onToken` yoksa akıtmanın faydası yok, riski var. */
+      const wantStream = request.stream === true && typeof options?.onToken === 'function';
+
       try {
-        // NON-STREAMING: `stream:true` istense bile tek seferlik çağrı yapılır ve
-        // `onToken` ÇAĞRILMAZ (bkz. dosya başlığı — sahte streaming yok).
+        if (wantStream) {
+          const streamed = await tryStreamGemini(
+            fetchImpl, baseUrl, model, apiKey, request, options?.onToken, signal,
+          );
+          // `null` = akış KURULAMADI → aşağıdaki tek seferlik yola düşülür (fail-soft).
+          if (streamed) return streamed;
+        }
         const response = await fetchImpl(`${baseUrl}/models/${encodeURIComponent(model)}:generateContent`, {
           method: 'POST',
           headers: {

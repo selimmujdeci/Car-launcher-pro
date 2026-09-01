@@ -243,3 +243,92 @@ export function buildRuntimeFields(i: PredictionFieldsInput): readonly Inspector
 
   return out;
 }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   P0-OBD-04 · ERKEN UYARI SATIRLARI (aynı ekranın ikinci bölümü)
+
+   AYRI EKRAN AÇILMADI: erken uyarı, öngörü koşucusunun AYNI tikinde ve aynı
+   örnekleme disipliniyle üretilir; onu ayrı bir yere koymak iki ayrı gerçeklik
+   izlenimi verirdi. Bu model yalnız BİÇİMLENDİRİR — hüküm üretmez.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+export interface EarlyWarningRow {
+  readonly id: string;
+  readonly title: string;
+  /** `NORMAL` · `WATCH` · `ATTENTION` · `INSUFFICIENT_DATA` · `SIGNAL_MISSING`. */
+  readonly verdict: string;
+  readonly tone: PredictionTone;
+  /** `0.62` → `%62`; hüküm yoksa `—` (sahte güven basılmaz). */
+  readonly confidence: string;
+  readonly reason: string;
+  /** `Uzun dönem yakıt trim (B1): %14.2 (12 örnek)` biçiminde kanıt satırları. */
+  readonly evidence: readonly string[];
+  /** Gözlem süresi (`4 dk`) — kanıtın YAŞI değil SÜRESİ. */
+  readonly observed: string;
+  /** Koşulun pencerede kapladığı oran (`%92`); hüküm yoksa `—`. */
+  readonly dwell: string;
+}
+
+/** Hüküm → ton. `SIGNAL_MISSING` UYARI DEĞİLDİR: ölçemedik demektir. */
+export function earlyWarningTone(verdict: string): PredictionTone {
+  switch (verdict) {
+    case 'ATTENTION':         return 'bad';
+    case 'WATCH':             return 'warn';
+    case 'NORMAL':            return 'ok';
+    case 'INSUFFICIENT_DATA': return 'muted';
+    case 'SIGNAL_MISSING':    return 'muted';
+    default:                  return 'muted';
+  }
+}
+
+function _dur(ms: number): string {
+  if (!Number.isFinite(ms) || ms <= 0) return '—';
+  const min = ms / 60_000;
+  return min < 1 ? `${Math.round(ms / 1000)} sn` : `${min.toFixed(1)} dk`;
+}
+
+export function buildEarlyWarningRows(
+  results: readonly {
+    readonly id: string; readonly title: string; readonly verdict: string;
+    readonly confidence: number; readonly reason: string;
+    readonly evidence: readonly { readonly label: string; readonly median: number;
+      readonly unit: string; readonly samples: number }[];
+    readonly missing: readonly string[];
+    readonly dwellFraction: number; readonly observedMs: number;
+  }[] | null,
+): readonly EarlyWarningRow[] {
+  if (results === null) return [];
+  return results.map((r) => ({
+    id: r.id,
+    title: r.title,
+    verdict: r.verdict,
+    tone: earlyWarningTone(r.verdict),
+    /* Güven YALNIZ gerçek bir hüküm varken gösterilir; `NORMAL` için "%0"
+       basmak "hiç güvenmiyoruz" gibi okunurdu — oysa ölçtük ve iyi. */
+    confidence: r.verdict === 'WATCH' || r.verdict === 'ATTENTION'
+      ? `%${Math.round(r.confidence * 100)}`
+      : '—',
+    reason: r.reason,
+    evidence: r.evidence.map(
+      (e) => `${e.label}: ${e.median}${e.unit ? ' ' + e.unit : ''} (${e.samples} örnek)`),
+    observed: _dur(r.observedMs),
+    dwell: r.verdict === 'WATCH' || r.verdict === 'ATTENTION'
+      ? `%${Math.round(r.dwellFraction * 100)}`
+      : '—',
+  }));
+}
+
+/** Kaç kural gerçekten hüküm verdi / kaçı ölçülemedi — tek bakışta özet. */
+export function summarizeEarlyWarnings(rows: readonly EarlyWarningRow[]): {
+  readonly total: number; readonly attention: number; readonly watch: number;
+  readonly normal: number; readonly unmeasurable: number;
+} {
+  let attention = 0, watch = 0, normal = 0, unmeasurable = 0;
+  for (const r of rows) {
+    if (r.verdict === 'ATTENTION') attention++;
+    else if (r.verdict === 'WATCH') watch++;
+    else if (r.verdict === 'NORMAL') normal++;
+    else unmeasurable++;
+  }
+  return { total: rows.length, attention, watch, normal, unmeasurable };
+}

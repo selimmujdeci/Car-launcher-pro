@@ -17,10 +17,15 @@ describe('buildStageFeedback — sessiz bırakmama', () => {
   it('aktif aşamalar nötr ara mesaj üretir', () => {
     expect(buildStageFeedback('listening')?.message).toBe('Dinliyorum');
     expect(buildStageFeedback('executing')?.code).toBe('stage_executing');
-    expect(buildStageFeedback('understanding')?.severity).toBe('info');
+    expect(buildStageFeedback('executing')?.severity).toBe('info');
   });
 
   it('idle/speaking/cancelled → null (kendi sonuç mesajı var)', () => {
+    /* MAVI-F2 · I11 KİLİDİ: "Bir saniye" / "Bakıyorum" aşama satırları KALDIRILDI —
+       gecikmeyi örten ara söz üretmiyorlar, o aşamada SESSİZLİK doğru davranıştır.
+       Bu iki satır geri eklenirse filler de geri gelir; kilit onu yakalar. */
+    expect(buildStageFeedback('understanding')).toBeNull();
+    expect(buildStageFeedback('planning')).toBeNull();
     expect(buildStageFeedback('idle')).toBeNull();
     expect(buildStageFeedback('speaking')).toBeNull();
     expect(buildStageFeedback('cancelled')).toBeNull();
@@ -103,11 +108,11 @@ describe('MaviFeedbackChannel', () => {
     const ch = createFeedbackChannel();
     const seen: string[] = [];
     ch.subscribe((fb) => seen.push(fb.code));
-    ch.emit(buildStageFeedback('planning'));
+    ch.emit(buildStageFeedback('listening'));
     ch.reset();
     ch.reset();
     expect(ch.last()).toBeNull();            // reset last'ı temizledi
     ch.emit(buildStageFeedback('executing')); // dinleyici yok → yayılmaz
-    expect(seen).toEqual(['stage_planning']); // reset sonrası dinleyici duymaz
+    expect(seen).toEqual(['stage_listening']); // reset sonrası dinleyici duymaz
   });
 });

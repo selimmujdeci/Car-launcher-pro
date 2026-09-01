@@ -22,6 +22,7 @@
  */
 
 import { registerPlugin } from '@capacitor/core';
+import { ingestPhoneHubNativeEvent, _resetPhoneHubIngressForTest } from './phoneHubNativeIngress';
 
 /* ══════════════════════════════════════════════════════════════════════════
  * Native sözleşme
@@ -179,6 +180,7 @@ export async function refreshPhoneHubLink(): Promise<PhoneHubLinkSnapshotRaw> {
     if (typeof fn !== 'function') {
       _cache = ABSENT;
       _cachedAt = Date.now();
+      _ingest(_cache);
       return _cache;
     }
     const raw = await PhoneHubLink.getSnapshot();
@@ -186,12 +188,25 @@ export async function refreshPhoneHubLink(): Promise<PhoneHubLinkSnapshotRaw> {
       ? { ...raw, present: true }
       : ABSENT;
     _cachedAt = Date.now();
+    _ingest(_cache);
     return _cache;
   } catch {
     _cache = ABSENT;
     _cachedAt = Date.now();
+    _ingest(_cache);
     return _cache;
   }
+}
+
+/**
+ * ARCH-04/F5 — native olay companion GİRİŞ ADAPTÖRÜNDEN geçer.
+ *
+ * Bu çağrı bir GÖZLEM'dir: companion oturum gerçeğini YAZMAZ, yalnız nesil
+ * kapısını uygular ve kanıt üretir. Giriş adaptörü patlasa bile native
+ * önbelleğin davranışı DEĞİŞMEZ (fail-soft).
+ */
+function _ingest(snapshot: PhoneHubLinkSnapshotRaw): void {
+  try { ingestPhoneHubNativeEvent(snapshot); } catch { /* kanıt yolu ürünü bozamaz */ }
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
@@ -303,4 +318,5 @@ export async function getPhoneHubPairingCode(): Promise<string | null> {
 export function _resetPhoneHubLinkForTest(): void {
   _cache = ABSENT;
   _cachedAt = 0;
+  _resetPhoneHubIngressForTest();
 }

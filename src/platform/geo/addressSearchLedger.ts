@@ -41,6 +41,15 @@
  *    seçim gelmediyse "kullanıcı beğenmedi" İDDİA EDİLMEZ (`AWAITING_CHOICE`).
  */
 
+import {
+  classifySearchChain,
+  type SearchProviderId,
+  type DedupeEvidence,
+  type SearchChainVerdict,
+  type SearchProviderAttempt,
+  type SearchScoreEvidence,
+} from './searchChainModel';
+
 /** Defterin tavanı — sınırsız kayıt cihazda bellek sorunudur. */
 export const ADDRESS_SEARCH_RING = 40;
 
@@ -163,6 +172,15 @@ export type AddressSearchStage =
   | 'NOMINATIM_RELAXED'
   /** Overpass ile sokak adına TAM eşleşme (son şans). */
   | 'OVERPASS_STREET'
+  /**
+   * Overpass ile KATEGORİ + yarıçap ("pastane" · "en yakın eczane").
+   *
+   * NEDEN AYRI KATMAN (ölçüm 2026-08-23): Nominatim kategori SORAMAZ, yalnız
+   * ADI sorguya benzeyen yeri döndürür — "pastane" sorgusunda en yakın aday
+   * 372 km'deydi, 2,17 km'deki "Florya Pastanesi" listeye HİÇ girmiyordu.
+   * Kategori cevabı ayrı bir kaynaktan gelir, deftere de ayrı yazılır.
+   */
+  | 'OVERPASS_CATEGORY'
   /** Cihaz-içi navigasyon geçmişi / favoriler (IndexedDB). */
   | 'LOCAL_HISTORY'
   /** İndirilmiş POI veritabanı (SQLite FTS5 / offlineDataService). */
@@ -177,6 +195,7 @@ export const ADDRESS_SEARCH_STAGE_LABEL: Readonly<Record<AddressSearchStage, str
   NOMINATIM:         'Nominatim — yazılan sorgu',
   NOMINATIM_RELAXED: 'Nominatim — gevşetilmiş varyant',
   OVERPASS_STREET:   'Overpass — sokak adı tam eşleşme',
+  OVERPASS_CATEGORY: 'Overpass — kategori + yarıçap',
   LOCAL_HISTORY:     'cihaz-içi geçmiş / favoriler',
   LOCAL_POI:         'indirilmiş POI veritabanı',
   GEO_CACHE:         'geocode önbelleği',
@@ -338,6 +357,16 @@ export interface AddressSearchSample {
    */
   readonly biasDroppedCount: number | null;
   readonly outcome: AddressSearchOutcome;
+  /* ── P0-NAV-08 · SAĞLAYICI DÜZEYİ KANIT ───────────────────────────────────
+   * Alanlar İSTEĞE BAĞLIDIR: bildirmeyen çağıran `null` taşır ve hüküm
+   * `UNKNOWN` kalır. Sahte tamlık üretmemek için varsayılan BOŞ DİZİ DEĞİL,
+   * `null`dır — "hiç sağlayıcı denenmedi" ile "bildirilmedi" AYNI ŞEY DEĞİL. */
+  /** Zincirdeki HER sağlayıcı denemesi. `null`/eksik = bildirilmedi. */
+  readonly providerAttempts?: readonly SearchProviderAttempt[] | null;
+  /** Tekilleştirme öncesi/sonrası aday sayısı. `null`/eksik = ölçülmedi. */
+  readonly dedupe?: DedupeEvidence | null;
+  /** Birinci sonucun sıralama kanıtı. `null`/eksik = sıralama koşmadı. */
+  readonly topScore?: SearchScoreEvidence | null;
 }
 
 export interface AddressSearchRecord {
@@ -367,6 +396,18 @@ export interface AddressSearchRecord {
   readonly fastFailHit: boolean | null;
   /** Konum/şehir kapısının eledİĞİ aday sayısı. `null` = kapı çalışmadı. */
   readonly biasDroppedCount: number | null;
+  /** Zincirdeki her sağlayıcı denemesi. Bildirilmediyse boş dizi. */
+  readonly providerAttempts: readonly SearchProviderAttempt[];
+  /**
+   * Sağlayıcı denemelerinden TÜRETİLEN zincir hükmü. Deneme bildirilmediyse
+   * `null` — `failureClass`ın YERİNE GEÇMEZ, onu AYRIŞTIRIR ("0 sonuç" ile
+   * "beklemedik" ve "çözümleyemedik" farklı sonraki adımlardır).
+   */
+  readonly chainVerdict: SearchChainVerdict | null;
+  /** Tekilleştirme kanıtı. `null` = ölçülmedi. */
+  readonly dedupe: DedupeEvidence | null;
+  /** Birinci sonucun sıralama kanıtı. `null` = sıralama koşmadı. */
+  readonly topScore: SearchScoreEvidence | null;
 }
 
 /** Kullanıcı seçimi kanıtı — liste sunulduktan SONRA bilinir. */
@@ -485,6 +526,16 @@ export function classifyAddressSearch(
     why = 'numaralı yol + ekli tip ("Caddesi"/"Sokağı") — numara doğrulaması bu biçimi kapsamıyor';
   }
 
+  /* ── P0-NAV-08 · ZİNCİR HÜKMÜ ────────────────────────────────────────────
+   * Sağlayıcı denemeleri bildirildiyse hüküm SAF katmanda türetilir. Bu hüküm
+   * `failureClass`ı EZMEZ: o "ürün açısından ne oldu", bu "hangi sağlayıcı ne
+   * yaptı" sorusunun cevabıdır. İkisi ayrı kalır çünkü ayrı işleri işaret eder
+   * (eşik/ağ · kod · veri lisansı · poi.db kapsamı). */
+  const attempts = sample.providerAttempts ?? null;
+  const chainVerdict = attempts !== null && attempts.length > 0
+    ? classifySearchChain(attempts, { resultCount: sample.resultCount, online: sample.online }).verdict
+    : null;
+
   const uniqueGaps = gaps.filter((g, i) => gaps.indexOf(g) === i);
   const note = `${ADDRESS_SEARCH_OUTCOME_LABEL[sample.outcome]} · `
              + `${ADDRESS_SEARCH_STAGE_LABEL[sample.stage]} → `
@@ -507,6 +558,10 @@ export function classifyAddressSearch(
     providerMs: sample.providerMs,
     fastFailHit: sample.fastFailHit,
     biasDroppedCount: sample.biasDroppedCount,
+    providerAttempts: attempts ?? [],
+    chainVerdict,
+    dedupe: sample.dedupe ?? null,
+    topScore: sample.topScore ?? null,
   };
 }
 
@@ -630,11 +685,40 @@ export interface AddressSearchSummary {
   readonly nextMeasurement: AddressSearchEvidenceGap | null;
   /** Kayıtların ortalama kanıt sağlamlığı. Kayıt yoksa `null`. */
   readonly meanConfidence: number | null;
+  /* ── P0-NAV-08 ─────────────────────────────────────────────────────────── */
+  /**
+   * Zincir hükmü dağılımı — YALNIZ hüküm TÜRETİLEBİLEN kayıtlar sayılır.
+   * Sağlayıcı denemesi bildirmeyen kayıt hiçbir kovaya girmez (sahte tamlık
+   * üretmemek için `UNKNOWN`a de DOLDURULMAZ).
+   */
+  readonly byChainVerdict: Readonly<Record<SearchChainVerdict, number>>;
+  /** Hükmü türetilebilen kayıt sayısı — yukarıdaki dağılımın paydası. */
+  readonly chainVerdictSampleCount: number;
+  /** Sağlayıcı başına deneme/sonuç sayacı. */
+  readonly byProvider: Readonly<Record<SearchProviderId, ProviderRollup>>;
+  /**
+   * Tekilleştirmede birleşen TOPLAM aday. `null` = hiçbir kayıt ölçmedi
+   * (sahte 0 YASAK).
+   */
+  readonly dedupeMergedTotal: number | null;
+}
+
+/** Tek bir sağlayıcının defter genelindeki sicili. */
+export interface ProviderRollup {
+  readonly attempted: number;
+  readonly hit: number;
+  readonly zero: number;
+  readonly timeout: number;
+  readonly error: number;
+  readonly parseError: number;
+  /** Ölçülen sürelerin medyanı (ms). Ölçüm yoksa `null`. */
+  readonly medianMs: number | null;
 }
 
 function _emptyStages(): Record<AddressSearchStage, number> {
   return {
     PREMIUM: 0, NOMINATIM: 0, NOMINATIM_RELAXED: 0, OVERPASS_STREET: 0,
+    OVERPASS_CATEGORY: 0,
     LOCAL_HISTORY: 0, LOCAL_POI: 0, GEO_CACHE: 0, NONE: 0,
   };
 }
@@ -655,6 +739,19 @@ function _emptyGaps(): Record<AddressSearchEvidenceGap, number> {
   return { GROUND_TRUTH: 0, USER_CHOICE: 0, LATENCY: 0, QUERY_INTEGRITY: 0, LOCATION: 0, SURFACE: 0 };
 }
 
+const _ALL_PROVIDERS: readonly SearchProviderId[] = [
+  'PREMIUM', 'NOMINATIM', 'NOMINATIM_RELAXED',
+  'OVERPASS_STREET', 'OVERPASS_CATEGORY', 'LOCAL_HISTORY', 'LOCAL_POI',
+];
+
+function _emptyChainVerdicts(): Record<SearchChainVerdict, number> {
+  return {
+    RESULTS: 0, TRUE_ZERO: 0, FILTERED_OUT: 0, NETWORK_UNAVAILABLE: 0,
+    OFFLINE_NO_COVERAGE: 0, TIMEOUT: 0, PROVIDER_ERROR: 0, PARSE_FAILURE: 0,
+    UNKNOWN: 0,
+  };
+}
+
 function _median(values: readonly number[]): number | null {
   if (values.length === 0) return null;
   const s = values.slice().sort((a, b) => a - b);
@@ -669,6 +766,22 @@ export function summarizeAddressSearches(
   const byFailureClass = _emptyFailures();
   const bySurface = _emptySurfaces();
   const evidenceGapCounts = _emptyGaps();
+  const byChainVerdict = _emptyChainVerdicts();
+  /* Sağlayıcı sicilinin ham toplayıcıları — süreler medyan için biriktirilir. */
+  const provAcc: Record<SearchProviderId, {
+    attempted: number; hit: number; zero: number; timeout: number;
+    error: number; parseError: number; ms: number[];
+  }> = {
+    PREMIUM:           { attempted: 0, hit: 0, zero: 0, timeout: 0, error: 0, parseError: 0, ms: [] },
+    NOMINATIM:         { attempted: 0, hit: 0, zero: 0, timeout: 0, error: 0, parseError: 0, ms: [] },
+    NOMINATIM_RELAXED: { attempted: 0, hit: 0, zero: 0, timeout: 0, error: 0, parseError: 0, ms: [] },
+    OVERPASS_STREET:   { attempted: 0, hit: 0, zero: 0, timeout: 0, error: 0, parseError: 0, ms: [] },
+    OVERPASS_CATEGORY: { attempted: 0, hit: 0, zero: 0, timeout: 0, error: 0, parseError: 0, ms: [] },
+    LOCAL_HISTORY:     { attempted: 0, hit: 0, zero: 0, timeout: 0, error: 0, parseError: 0, ms: [] },
+    LOCAL_POI:         { attempted: 0, hit: 0, zero: 0, timeout: 0, error: 0, parseError: 0, ms: [] },
+  };
+  let chainVerdictSampleCount = 0;
+  let dedupeMergedTotal: number | null = null;
   const latencies: number[] = [];
   const confidences: number[] = [];
   let resolvedCount = 0;
@@ -680,6 +793,20 @@ export function summarizeAddressSearches(
 
   for (const r of ledger) {
     if (r.biasDroppedCount !== null) biasDroppedTotal = (biasDroppedTotal ?? 0) + r.biasDroppedCount;
+    if (r.chainVerdict !== null) { byChainVerdict[r.chainVerdict] += 1; chainVerdictSampleCount += 1; }
+    if (r.dedupe !== null) dedupeMergedTotal = (dedupeMergedTotal ?? 0) + r.dedupe.merged;
+    for (const a of r.providerAttempts) {
+      const acc = provAcc[a.provider];
+      if (acc === undefined) continue;               // bilinmeyen kimlik sayılmaz
+      if (a.outcome === 'NOT_ATTEMPTED') continue;   // denenmemiş deneme değildir
+      acc.attempted += 1;
+      if (a.outcome === 'HIT')         acc.hit += 1;
+      if (a.outcome === 'ZERO')        acc.zero += 1;
+      if (a.outcome === 'TIMEOUT')     acc.timeout += 1;
+      if (a.outcome === 'ERROR')       acc.error += 1;
+      if (a.outcome === 'PARSE_ERROR') acc.parseError += 1;
+      if (a.ms !== null) acc.ms.push(a.ms);
+    }
     byStage[r.stage] += 1;
     byFailureClass[r.refinedFailureClass] += 1;
     bySurface[r.surface] += 1;
@@ -732,5 +859,17 @@ export function summarizeAddressSearches(
     meanConfidence: confidences.length > 0
       ? Math.round((confidences.reduce((a, b) => a + b, 0) / confidences.length) * 100) / 100
       : null,
+    byChainVerdict,
+    chainVerdictSampleCount,
+    byProvider: _ALL_PROVIDERS.reduce((out, id) => {
+      const a = provAcc[id];
+      out[id] = {
+        attempted: a.attempted, hit: a.hit, zero: a.zero,
+        timeout: a.timeout, error: a.error, parseError: a.parseError,
+        medianMs: _median(a.ms),
+      };
+      return out;
+    }, {} as Record<SearchProviderId, ProviderRollup>),
+    dedupeMergedTotal,
   };
 }

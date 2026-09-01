@@ -19,6 +19,17 @@ import { ROUTE_COLOR_REASON_LABEL } from '../map/core/routeColorModel';
 import {
   PROVIDER_READINESS_LABEL, ROUTE_SOURCE_LABEL,
 } from '../navigation/core/routeProviderReadiness';
+import {
+  ROUTE_CHAIN_LABEL, ROUTE_OUTCOME_LABEL,
+} from '../navigation/core/routeProviderLedger';
+import { GEOMETRY_INTEGRITY_LABEL } from '../navigation/core/routeGeometryModel';
+import {
+  NAV_AXIS_LABEL, NAV_AXIS_STATE_LABEL,
+} from '../navigation/core/navFailureMatrixModel';
+import {
+  PROGRESS_VERDICT_LABEL, type ProgressVerdict,
+} from '../navigation/core/routeProgressLedger';
+import { REROUTE_HEALTH_LABEL } from '../navigation/core/rerouteStarvationModel';
 import { REQUEST_OUTCOME_LABEL } from '../navigation/core/routeRequestLedger';
 import { offlineGraphStateLabel } from '../navigation/offlineRoutingStatus';
 import { SPEED_LIMIT_STATE_LABEL } from '../navigation/core/speedLimitTruthModel';
@@ -47,7 +58,7 @@ import type { ManeuverDistanceSource } from '../routingService';
 export type NavCoreCardId =
   | 'state' | 'provider' | 'matching' | 'offroute'
   | 'reroute' | 'validation' | 'maneuver' | 'truth' | 'session' | 'viewport'
-  | 'vehicleclass' | 'delivery' | 'motion';
+  | 'vehicleclass' | 'delivery' | 'motion' | 'destination' | 'progress';
 
 export interface NavCoreCard {
   readonly id: NavCoreCardId;
@@ -69,6 +80,8 @@ export const NAV_CORE_CARD_TITLE: Readonly<Record<NavCoreCardId, string>> = {
   vehicleclass: '11 · Araç Sınıfı · Uygulanabilir Hız Sınırı',
   delivery:     '12 · Teslim Çekirdeği (Ses · Ölü Hesaplama · ETA)',
   motion:       '13 · İşaret Hareketi · Takip Kamerası',
+  destination:  '14 · Hedef Bütünlüğü (arama → hedef → rota isteği)',
+  progress:     '15 · İlerleme Dürüstlüğü (kırpma YOK)',
 } as const;
 
 export const MAP_MATCH_STATE_LABEL: Readonly<Record<MapMatchState, string>> = {
@@ -158,6 +171,21 @@ const _m  = (v: number | null): string => (v == null ? '—' : `${Math.round(v)}
 /** Sayı metni — `null` sahte 0 olarak YAZILMAZ (E-11). */
 const _n  = (v: number | null): string => (v == null ? '—' : String(v));
 
+/** P0-NAV-10 rota sağlayıcı sicili kaynağı — kart ile alan denetimi aynı etiketi kullanır. */
+const SRC_ROUTE_LEDGER = 'routeProviderLedger.getRouteProviderLedger';
+/** P0-NAV-11 geometri kanıtı kaynağı. */
+const SRC_GEOMETRY = 'routeGeometryModel.getCommittedGeometry';
+/** P0-NAV-12 ilerleme defteri kaynağı. */
+const SRC_PROGRESS = 'routeProgressLedger.getProgressLedger';
+/** P0-NAV-13 reroute sağlığı + engel sebepleri kaynağı. */
+const SRC_REROUTE_HEALTH = 'routeRequestLedger.getRerouteBlockStats';
+/** P0-NAV-16 sesli yönlendirme denetimi kaynağı. */
+const SRC_GUIDANCE_AUDIT = 'voiceGuidanceAudit.getGuidanceAudit';
+/** P0-NAV-19 sıcak yol maliyeti kaynağı. */
+const SRC_TICK_COST = 'navTickCostModel.getNavTickCostSnapshot';
+/** P0-NAV-20 arıza tablosu kaynağı. */
+const SRC_MATRIX = 'navFailureMatrixModel.buildNavFailureMatrix';
+
 export function buildNavigationCoreCards(s: NavigationCoreRawSnapshot): readonly NavCoreCard[] {
   const cards: NavCoreCard[] = [];
 
@@ -179,10 +207,35 @@ export function buildNavigationCoreCards(s: NavigationCoreRawSnapshot): readonly
    */
   const OBS = s.gpsObservedAtWall;
 
+  /* ── P0-NAV-20 · ARIZA TABLOSU ───────────────────────────────────────────
+   * Sürüş sırasında bakılacak TEK satır. Yeni ölçüm YOK — bu gece kurulan
+   * otoritelerin hükümlerini toplar. Genel hüküm EN KÖTÜ eksene eşittir:
+   * bir eksen çökmüşken "iyi" demek sürücüye yalan söylemektir. */
+  const _fm = s.failureMatrix ?? null;
+
   /* 1 · Durum */
   cards.push({
     id: 'state', title: NAV_CORE_CARD_TITLE.state,
     fields: [
+      _fm === null || _fm.axes.length === 0
+        ? unavailable({ id: 'fm-overall', label: '⚑ ARIZA TABLOSU (genel)', source: SRC_MATRIX,
+            note: 'Tablo okunamadı — sahte "sağlıklı" ÜRETİLMEZ.', updatedAt: null },
+            'ölçüm yok')
+        : (_fm.overall === 'FAILED' || _fm.overall === 'DEGRADED'
+            ? derived({ id: 'fm-overall', label: '⚑ ARIZA TABLOSU (genel)', source: SRC_MATRIX,
+                note: _fm.summary, updatedAt: null }, NAV_AXIS_STATE_LABEL[_fm.overall])
+            : observed({ id: 'fm-overall', label: '⚑ ARIZA TABLOSU (genel)', source: SRC_MATRIX,
+                note: _fm.summary, updatedAt: null }, NAV_AXIS_STATE_LABEL[_fm.overall])),
+      _fm === null || _fm.axes.length === 0
+        ? unavailable({ id: 'fm-axes', label: 'Eksenler', source: SRC_MATRIX,
+            note: '', updatedAt: null }, 'ölçüm yok')
+        : observed({ id: 'fm-axes', label: 'Eksenler', source: SRC_MATRIX,
+            note: 'Her eksen AYRI bir otoritenin hükmüdür. OBD durumu GİRDİ DEĞİLDİR.',
+            updatedAt: null },
+            _fm.axes
+              .filter((a) => a.state !== 'HEALTHY')
+              .map((a) => `${NAV_AXIS_LABEL[a.axis]}=${a.state}`)
+              .join(' · ') || 'hepsi sağlıklı'),
       observed({ id: 'nav-status', label: 'Navigasyon durumu', source: 'navigationService',
         note: '', updatedAt: null }, s.navStatus),
       observed({ id: 'nav-active', label: 'Aktif mi', source: 'navigationService',
@@ -204,6 +257,8 @@ export function buildNavigationCoreCards(s: NavigationCoreRawSnapshot): readonly
   });
 
   /* 2 · Sağlayıcı */
+  /* P0-NAV-10 — sicil okunamamış olabilir; model ÇÖKMEZ, "bilinmiyor" der. */
+  const _chain = s.routeChain ?? null;
   cards.push({
     id: 'provider', title: NAV_CORE_CARD_TITLE.provider,
     fields: [
@@ -235,6 +290,46 @@ export function buildNavigationCoreCards(s: NavigationCoreRawSnapshot): readonly
             note: '', updatedAt: null }, s.routeError)
         : observed({ id: 'pv-error', label: 'Rota hatası', source: 'useRouteStore.error',
             note: '', updatedAt: null }, 'yok'),
+
+      /* ── P0-NAV-10 · FALLBACK GERÇEĞİ ───────────────────────────────────
+       * `pv-server` yalnız KAZANANI yazar. İlk sağlayıcı düşüp ikincisi
+       * cevap verdiğinde zincir "sağlıklı" okunur — oysa bu bir DEGRADASYONdur
+       * ve her rotada gizli bir gecikme ödenir. Bu satırlar onu görünür kılar. */
+      /* `?? null`: model SAF bir OKUYUCUDUR ve anlık görüntüyü kendisi kurmaz —
+         alan hiç gelmezse "bilinmiyor" demeli, ÇÖKMEMELİDİR (aynı sözleşme
+         `opc-cooldown` satırında da uygulanır). */
+      _chain !== null
+        ? observed({ id: 'pv-chain', label: 'Son isteğin zincir hükmü', source: SRC_ROUTE_LEDGER,
+            note: _chain.why, updatedAt: null }, ROUTE_CHAIN_LABEL[_chain.outcome])
+        : unavailable({ id: 'pv-chain', label: 'Son isteğin zincir hükmü', source: SRC_ROUTE_LEDGER,
+            note: 'Sicil okunamadı — sahte "sağlıklı" ÜRETİLMEZ.', updatedAt: null }, 'ölçüm yok'),
+      _chain === null
+        ? unavailable({ id: 'pv-fallback-reason', label: 'Yedeğe düşme sebebi', source: SRC_ROUTE_LEDGER,
+            note: '', updatedAt: null }, 'ölçüm yok')
+        : _chain.fallbackReason !== null
+          ? derived({ id: 'pv-fallback-reason', label: 'Yedeğe düşme sebebi', source: SRC_ROUTE_LEDGER,
+              note: `${_chain.degradedSteps} katman düştü.`, updatedAt: null },
+              ROUTE_OUTCOME_LABEL[_chain.fallbackReason])
+          : observed({ id: 'pv-fallback-reason', label: 'Yedeğe düşme sebebi', source: SRC_ROUTE_LEDGER,
+              note: 'Birincil katman cevapladı — degradasyon yok.', updatedAt: null }, 'yok'),
+      observed({ id: 'pv-fallback-count', label: 'Yedek kurtarması / düz hat zinciri',
+        source: SRC_ROUTE_LEDGER,
+        note: 'İkisi de GİZLİ DEGRADASYONdur; sürekli artıyorsa birincil katman hastadır.',
+        updatedAt: null },
+        `${s.routeFallbackSuccessCount ?? 0} / ${s.routeStraightLineChainCount ?? 0}`),
+      /* Sebep DAĞILIMI: dört farklı sınıf dört farklı işi işaret eder
+         (eşik/ağ · sağlayıcı kotası · veri boşluğu · KOD). Eskiden hepsi
+         `remoteFailureCount` tek sayacında kayboluyordu. */
+      Object.keys(s.routeAttemptCounts ?? {}).length > 0
+        ? observed({ id: 'pv-outcomes', label: 'Sağlayıcı × sonuç dağılımı', source: SRC_ROUTE_LEDGER,
+            note: 'Zaman aşımı ≠ yol yok ≠ HTTP hatası ≠ bozuk geometri.', updatedAt: null },
+            Object.entries(s.routeAttemptCounts ?? {})
+              .sort((a, b) => b[1] - a[1])
+              .map(([k, n]) => `${k.replace('|', '→')} ×${n}`)
+              .join(' · '))
+        : unavailable({ id: 'pv-outcomes', label: 'Sağlayıcı × sonuç dağılımı', source: SRC_ROUTE_LEDGER,
+            note: 'Henüz hiç rota isteği yapılmadı — sahte 0 gösterilmez.', updatedAt: null },
+            'ölçüm yok'),
     ],
   });
 
@@ -299,6 +394,9 @@ export function buildNavigationCoreCards(s: NavigationCoreRawSnapshot): readonly
     ],
   });
 
+  /* P0-NAV-13 — hüküm okunamamış olabilir; model ÇÖKMEZ. */
+  const _rr = s.rerouteHealth ?? null;
+
   /* 5 · Reroute */
   const L = s.requests.latency.detectToCommitMs != null ? s.requests.latency : s.requests.lastCompletedLatency;
   cards.push({
@@ -341,6 +439,45 @@ export function buildNavigationCoreCards(s: NavigationCoreRawSnapshot): readonly
             _ms(L.detectToFirstInstructionMs))
         : unavailable({ id: 'rq-lat-instr', label: 'Sapma → ilk yeni talimat', source: 'routeRequestLedger',
             note: '', updatedAt: null }, 'henüz ölçülmedi'),
+
+      /* ── P0-NAV-13 · ENGELLENEN REROUTE'LAR ────────────────────────────
+       * ÖLÇÜLEN KUSUR: `getRerouteBlockStats()` üründe HİÇBİR yerden
+       * okunmuyordu (tek çağıranı bir testti). `routingService` içindeki
+       * yorum "LAB'da görünür" diyordu; ölçüm bunu ÇÜRÜTTÜ. Kütük #402'nin
+       * kapatmayı amaçladığı "sapma %17,5, reroute %0, arada ne oldu
+       * bilinmiyor" boşluğu GÖZLEM tarafında açık kalmıştı. */
+      observed({ id: 'rq-blocked', label: 'Engellenen reroute', source: SRC_REROUTE_HEALTH,
+        note: 'Sapma DOĞRULANDI ama rota isteği ÇIKMADI — sebep aşağıda.',
+        updatedAt: null }, String(s.rerouteBlockedCount ?? 0)),
+      Object.keys(s.rerouteBlockByReason ?? {}).some((k) => (s.rerouteBlockByReason ?? {})[k] > 0)
+        ? observed({ id: 'rq-blocked-why', label: 'Engel sebepleri', source: SRC_REROUTE_HEALTH,
+            note: 'Zayıf doğruluk ≠ throttle ≠ düz hat — üçü FARKLI işi işaret eder.',
+            updatedAt: null },
+            Object.entries(s.rerouteBlockByReason ?? {})
+              .filter(([, n]) => n > 0)
+              .sort((a, b) => b[1] - a[1])
+              .map(([k, n]) => `${k} ×${n}`)
+              .join(' · '))
+        : observed({ id: 'rq-blocked-why', label: 'Engel sebepleri', source: SRC_REROUTE_HEALTH,
+            note: '', updatedAt: null }, 'engel yok'),
+      /* AÇLIK: rota dışındayken uzun süre yeni rota kurulamaması SESSİZ bir
+         kusurdur — sürücü eski talimatla gider. Bu satır onu görünür kılar.
+         ⚠️ Bu bir ALARM'dır, aksiyon DEĞİL: doğruluk kapısı EZİLMEZ. */
+      _rr !== null
+        ? (_rr.health === 'STARVED'
+            ? derived({ id: 'rq-health', label: '⚠️ Reroute sağlığı', source: SRC_REROUTE_HEALTH,
+                note: _rr.why, updatedAt: null }, REROUTE_HEALTH_LABEL[_rr.health])
+            : observed({ id: 'rq-health', label: 'Reroute sağlığı', source: SRC_REROUTE_HEALTH,
+                note: _rr.why, updatedAt: null }, REROUTE_HEALTH_LABEL[_rr.health]))
+        : unavailable({ id: 'rq-health', label: 'Reroute sağlığı', source: SRC_REROUTE_HEALTH,
+            note: 'Hüküm okunamadı.', updatedAt: null }, 'ölçüm yok'),
+      _rr !== null && _rr.offRouteForMs !== null
+        ? derived({ id: 'rq-starve', label: 'Sapmadan bu yana', source: SRC_REROUTE_HEALTH,
+            note: 'Rota kurulamadan geçen süre. Uzuyorsa sürücü eski talimatla gidiyordur.',
+            updatedAt: null }, _ms(_rr.offRouteForMs))
+        : unavailable({ id: 'rq-starve', label: 'Sapmadan bu yana', source: SRC_REROUTE_HEALTH,
+            note: 'Doğrulanmış sapma yok — sahte 0 gösterilmez.', updatedAt: null },
+            'sapma yok'),
     ],
   });
 
@@ -364,7 +501,188 @@ export function buildNavigationCoreCards(s: NavigationCoreRawSnapshot): readonly
             note: '', updatedAt: null }, val));
     }
   }
+  /* ── P0-NAV-11 · GEOMETRİ BÜTÜNLÜĞÜ ─────────────────────────────────────
+   * `validateRoute` rotayı KABUL/RET eder; bu satırlar UYGULANAN geometrinin
+   * ÖLÇÜMÜNÜ gösterir. İkisi farklı sorulardır: "rota kabul edildi mi" ile
+   * "haritadaki çizgi sağlayıcının verdiği rota mı".
+   * GİZLİLİK: koordinat YOK — bbox yalnız derece GENİŞLİĞİ olarak. */
+  const _cg = s.committedGeometry ?? null;
+  vFields.push(
+    _cg !== null
+      ? observed({ id: 'gm-integrity', label: 'Uygulanan geometri hükmü', source: SRC_GEOMETRY,
+          note: _cg.flaws.length > 0
+            ? `Kusurlar: ${_cg.flaws.join(' · ')}`
+            : 'Ölçülen kusur yok.',
+          updatedAt: null }, GEOMETRY_INTEGRITY_LABEL[_cg.integrity])
+      : unavailable({ id: 'gm-integrity', label: 'Uygulanan geometri hükmü', source: SRC_GEOMETRY,
+          note: 'Henüz hiç rota uygulanmadı — sahte künye ÜRETİLMEZ.', updatedAt: null },
+          'rota yok'),
+    _cg !== null
+      ? observed({ id: 'gm-points', label: 'Nokta / benzersiz / yinelenen', source: SRC_GEOMETRY,
+          note: 'Yinelenen nokta sıfır uzunluklu segment üretir ve ilerleme matematiğini bozar.',
+          updatedAt: null },
+          `${_cg.metrics.pointCount} / ${_cg.metrics.uniquePointCount} / ${_cg.metrics.duplicateCount}`)
+      : unavailable({ id: 'gm-points', label: 'Nokta / benzersiz / yinelenen', source: SRC_GEOMETRY,
+          note: '', updatedAt: null }, 'ölçüm yok'),
+    _cg !== null
+      ? observed({ id: 'gm-ends', label: 'Başlangıç / bitiş sapması', source: SRC_GEOMETRY,
+          note: 'İlk nokta araca, son nokta hedefe ne kadar uzak.', updatedAt: null },
+          `${_cg.startDistanceM ?? '—'} m / ${_cg.endDistanceM ?? '—'} m`)
+      : unavailable({ id: 'gm-ends', label: 'Başlangıç / bitiş sapması', source: SRC_GEOMETRY,
+          note: '', updatedAt: null }, 'ölçüm yok'),
+    _cg !== null
+      ? observed({ id: 'gm-extent', label: 'Ölçülen uzunluk / kapsam', source: SRC_GEOMETRY,
+          note: 'Kapsam DERECE GENİŞLİĞİDİR — köşe koordinatları TAŞINMAZ (gizlilik).',
+          updatedAt: null },
+          `${_cg.metrics.polylineLengthM ?? '—'} m · `
+          + `${_cg.metrics.bboxWidthDeg ?? '—'}° × ${_cg.metrics.bboxHeightDeg ?? '—'}°`)
+      : unavailable({ id: 'gm-extent', label: 'Ölçülen uzunluk / kapsam', source: SRC_GEOMETRY,
+          note: '', updatedAt: null }, 'ölçüm yok'),
+    /* Reddedilen adayın kanıtı SİLİNMEZ — bozuk geometri haritaya çizilmez
+       ama sağlayıcının ne gönderdiği sahada görülebilir olmalıdır. */
+    observed({ id: 'gm-rejected', label: 'Reddedilen aday geometrisi', source: SRC_GEOMETRY,
+      note: (s.lastRejectedFlaws ?? []).length > 0
+        ? `Son adayın kusurları: ${(s.lastRejectedFlaws ?? []).join(' · ')}`
+        : 'Kanıt halkası boş — henüz aday reddedilmedi.',
+      updatedAt: null },
+      `${s.rejectedGeometryTotal ?? 0} aday`),
+    (s.lastRejectedCheckIds ?? []).length > 0
+      ? observed({ id: 'gm-rejected-checks', label: 'Son reddin düşen denetimleri', source: SRC_GEOMETRY,
+          note: 'Hangi denetimin düşürdüğü, hangi işi işaret ettiğini belirler.', updatedAt: null },
+          (s.lastRejectedCheckIds ?? []).join(' · '))
+      : observed({ id: 'gm-rejected-checks', label: 'Son reddin düşen denetimleri', source: SRC_GEOMETRY,
+          note: '', updatedAt: null }, 'red yok'),
+  );
+
   cards.push({ id: 'validation', title: NAV_CORE_CARD_TITLE.validation, fields: vFields });
+
+  /* ── P0-NAV-16 · SESLİ YÖNLENDİRME DENETİMİ ──────────────────────────────
+   * "Söylendi" sayacı VARDI; "söylenmedi" ve "geç söylendi" YOKTU. Sürücünün
+   * gerçekten yaşadığı kusur ötekiler: dönüşü kaçırmak, anonsu dönüşün
+   * üstünde duymak. Bu alanlar mevcut Teslim Çekirdeği kartına eklenir. */
+  const _ga = s.guidanceAudit ?? null;
+  const _gaFields: InspectorField[] = _ga === null || _ga.announcementCount + _ga.maneuverCount === 0
+    ? [unavailable({ id: 'vg-audit', label: 'Anons denetimi', source: SRC_GUIDANCE_AUDIT,
+        note: 'Henüz hiç anons/manevra yargılanmadı — sahte "kusursuz" ÜRETİLMEZ.',
+        updatedAt: null }, 'ölçüm yok')]
+    : [
+      observed({ id: 'vg-audit', label: 'Anons zamanlaması', source: SRC_GUIDANCE_AUDIT,
+        note: 'GEÇ = kademe penceresinin yarısı kaçmış · ÇOK GEÇ = sürücü tepki veremez.',
+        updatedAt: null },
+        `${_ga.timing.ON_TIME} zamanında · ${_ga.timing.LATE} geç · ${_ga.timing.VERY_LATE} çok geç`),
+      /* MEŞRU sessizlik AYRI sayılır: mesafe kanıtı yokken susmak ürünün
+         fail-closed tasarımıdır, kusur DEĞİLDİR. */
+      observed({ id: 'vg-missed', label: 'Kaçırılan anons / meşru sessizlik',
+        source: SRC_GUIDANCE_AUDIT,
+        note: 'İlki KUSURDUR. İkincisi DOĞRU davranıştır (kanıt yokken konuşulmaz).',
+        updatedAt: null },
+        `${_ga.missed.MISSED_ALL + _ga.missed.MISSED_IMMINENT} / ${_ga.missed.SILENCE_JUSTIFIED}`),
+      _ga.recent.length > 0
+        ? derived({ id: 'vg-last-flaw', label: 'Son anons kusuru', source: SRC_GUIDANCE_AUDIT,
+            note: 'Talimat METNİ taşınmaz (gizlilik) — yalnız kademe ve mesafe.',
+            updatedAt: null },
+            (() => {
+              const e = _ga.recent[_ga.recent.length - 1];
+              return e.missed !== 'NONE'
+                ? `${e.missed}`
+                : `${e.stage ?? '—'} · ${e.timing} · ${e.distanceM ?? '—'} m`;
+            })())
+        : observed({ id: 'vg-last-flaw', label: 'Son anons kusuru', source: SRC_GUIDANCE_AUDIT,
+            note: '', updatedAt: null }, 'kusur yok'),
+    ];
+
+  /* ── P0-NAV-19 · SICAK YOL MALİYETİ ──────────────────────────────────────
+   * Ölçüm turu bulgusu: gecikmeler (arama · rota · reroute) ZATEN ölçülüydü,
+   * yinelenen istekler ZATEN kapalıydı, zamanlayıcı disiplini SAĞLAMDI
+   * (tüm navigasyon yolunda tek `setInterval`: GPS yokken 1 Hz ölü hesap).
+   * Ölçülmeyen TEK şey sıcak yolun KENDİ maliyetiydi. */
+  const _tc = s.tickCost ?? null;
+  const _tcFields: InspectorField[] = _tc === null || _tc.mapMatch.samples === 0
+    ? [unavailable({ id: 'tc-match', label: 'Harita eşleştirme maliyeti', source: SRC_TICK_COST,
+        note: 'Henüz hiç tick ölçülmedi — sahte 0 ms gösterilmez.', updatedAt: null },
+        'ölçüm yok'),
+       unavailable({ id: 'tc-tick', label: 'Tam ilerleme tick maliyeti', source: SRC_TICK_COST,
+        note: '', updatedAt: null }, 'ölçüm yok'),
+       unavailable({ id: 'tc-samples', label: 'Ölçülen tick (pencere / toplam)', source: SRC_TICK_COST,
+        note: '', updatedAt: null }, 'ölçüm yok')]
+    : [
+      observed({ id: 'tc-match', label: 'Harita eşleştirme (p50 / p95 / en büyük)',
+        source: SRC_TICK_COST,
+        note: 'Rota uzadıkça pahalılaşan TEK iş. Düşük-uçlu cihazda p95 kritiktir.',
+        updatedAt: null },
+        `${_tc.mapMatch.p50Ms ?? '—'} / ${_tc.mapMatch.p95Ms ?? '—'} / ${_tc.mapMatch.maxMs ?? '—'} ms`),
+      observed({ id: 'tc-tick', label: 'Tam ilerleme tick maliyeti (p50 / p95 / en büyük)',
+        source: SRC_TICK_COST,
+        note: 'Eşleştirme + adım ilerletme + sapma + ses kararı. Eşleştirmeyle farkı yavaşlığın NEREDE olduğunu söyler.',
+        updatedAt: null },
+        `${_tc.progressTick.p50Ms ?? '—'} / ${_tc.progressTick.p95Ms ?? '—'} / ${_tc.progressTick.maxMs ?? '—'} ms`),
+      observed({ id: 'tc-samples', label: 'Ölçülen tick (pencere / toplam)', source: SRC_TICK_COST,
+        note: 'Pencere sabit boyutludur; toplam ömür boyu sayacıdır.', updatedAt: null },
+        `${_tc.mapMatch.samples} / ${_tc.mapMatch.total}`),
+    ];
+
+  /* ── 15 · İlerleme Dürüstlüğü (P0-NAV-12) ────────────────────────────────
+   * ÖLÇÜLEN BOŞLUK: `routingService` her fix'te ilerlemeyi HESAPLIYOR ama
+   * yargılamıyordu. ETA sıçramalarının defteri vardı; onu BESLEYEN ilerlemenin
+   * defteri YOKTU. "ETA 12 dk zıpladı" görülüyor, "kalan mesafe 3 km geri
+   * gitti" görülmüyordu.
+   * ⚠️ Bu kart hiçbir değeri KIRPMAZ — gerçek U dönüşü meşrudur ve
+   * `REAL_BACKTRACK` olarak AYRI sayılır. */
+  const _pg = s.progress ?? null;
+  cards.push({
+    id: 'progress', title: NAV_CORE_CARD_TITLE.progress,
+    fields: _pg === null || _pg.totalSamples === 0
+      ? [unavailable({ id: 'pr-verdict', label: 'İlerleme hükmü', source: SRC_PROGRESS,
+          note: 'Henüz hiç ilerleme örneği yargılanmadı — sahte "normal" ÜRETİLMEZ.',
+          updatedAt: null }, 'ölçüm yok')]
+      : [
+        _pg.lastVerdict !== null
+          ? observed({ id: 'pr-verdict', label: 'İlerleme hükmü', source: SRC_PROGRESS,
+              note: 'Son yargılanan örneğin sınıfı.', updatedAt: OBS },
+              PROGRESS_VERDICT_LABEL[_pg.lastVerdict])
+          : unavailable({ id: 'pr-verdict', label: 'İlerleme hükmü', source: SRC_PROGRESS,
+              note: '', updatedAt: null }, 'ölçüm yok'),
+        observed({ id: 'pr-counts', label: 'Sınıf dağılımı', source: SRC_PROGRESS,
+          note: `${_pg.totalSamples} örnek üzerinden.`, updatedAt: null },
+          (Object.keys(_pg.counts) as ProgressVerdict[])
+            .filter((k) => _pg.counts[k] > 0)
+            .sort((a, b) => _pg.counts[b] - _pg.counts[a])
+            .map((k) => `${k} ×${_pg.counts[k]}`)
+            .join(' · ') || 'yok'),
+        /* GERÇEK geri dönüş bir KUSUR DEĞİLDİR — U dönüşü yapan sürücü
+           rotada geriye gider. Kusur, yön kanıtı OLMADAN geriye kaymadır. */
+        observed({ id: 'pr-backtrack', label: 'Gerçek geri dönüş / kanıtsız kayma',
+          source: SRC_PROGRESS,
+          note: 'İlki MEŞRUDUR (U dönüşü). İkincisi eşleştirme kaymasıdır.',
+          updatedAt: null },
+          `${_pg.counts.REAL_BACKTRACK} / ${_pg.counts.IMPLAUSIBLE_BACKWARD}`),
+        observed({ id: 'pr-forward', label: 'Aşırı ileri sıçrama', source: SRC_PROGRESS,
+          note: 'Hızın izin verdiğinden fazla ilerleme — eşleştirme atlamış olabilir.',
+          updatedAt: null }, String(_pg.counts.IMPLAUSIBLE_FORWARD)),
+        _pg.maxForwardJumpM !== null || _pg.maxBackwardJumpM !== null
+          ? observed({ id: 'pr-extremes', label: 'En büyük ileri / geri fark', source: SRC_PROGRESS,
+              note: 'Ölçülen uçlar — kırpma YAPILMADI.', updatedAt: null },
+              `${_pg.maxForwardJumpM ?? '—'} m / ${_pg.maxBackwardJumpM ?? '—'} m`)
+          : unavailable({ id: 'pr-extremes', label: 'En büyük ileri / geri fark', source: SRC_PROGRESS,
+              note: 'Hiç fark ölçülmedi — sahte 0 gösterilmez.', updatedAt: null }, 'ölçüm yok'),
+        _pg.anomalies.length > 0
+          ? observed({ id: 'pr-anomaly', label: 'Son anormal ilerleme', source: SRC_PROGRESS,
+              note: 'Yalnız anormal örnekler halkaya girer.', updatedAt: null },
+              (() => {
+                const a = _pg.anomalies[_pg.anomalies.length - 1];
+                return `${a.verdict} · ${a.deltaM ?? '—'} m / bütçe ${a.budgetM ?? '—'} m`
+                     + ` · ${a.speedKmh?.toFixed(0) ?? '—'} km/sa`;
+              })())
+          : observed({ id: 'pr-anomaly', label: 'Son anormal ilerleme', source: SRC_PROGRESS,
+              note: '', updatedAt: null }, 'anormallik yok'),
+      ],
+  });
+  /* P0-NAV-19: maliyet alanları aynı karta eklenir — ilerleme ile maliyet aynı
+     tick'in iki yüzüdür ve yan yana okunmaları teşhisi kolaylaştırır. */
+  cards[cards.length - 1] = {
+    ...cards[cards.length - 1],
+    fields: [...cards[cards.length - 1].fields, ..._tcFields],
+  };
 
   /* 7 · Manevra mesafesi */
   cards.push({
@@ -687,6 +1005,7 @@ export function buildNavigationCoreCards(s: NavigationCoreRawSnapshot): readonly
   cards.push({
     id: 'delivery', title: NAV_CORE_CARD_TITLE.delivery,
     fields: [
+      ..._gaFields,
       observed({ id: 'dl-voice-state', label: 'Ses runtime durumu', source: SRC_VOICE,
         note: 'Görünüm kapalıyken de ETKİN olmalı.', updatedAt: null },
         VOICE_RUNTIME_STATE_LABEL[v.state]),
@@ -990,6 +1309,80 @@ export function buildNavigationCoreCards(s: NavigationCoreRawSnapshot): readonly
             + ` · ${sh.last.headingConfidence != null ? sh.last.headingConfidence.toFixed(2) : '—'}`)
         : unavailable({ id: 'sh-ctx', label: 'Bağlam (hız · manevra · yaş · güven)', source: SRC_SHADOW,
             note: '', updatedAt: null }, 'henüz gözlem yok'),
+    ],
+  });
+
+  /* ── 14 · Hedef Bütünlüğü (P0-NAV-09) ────────────────────────────────────
+   * ÖLÇÜLEN KUSUR: koordinat kapısı (`isValidDestination`) üründe VARDI ama
+   * TÜM hedeflerin geçtiği `startNavigation` onu HİÇ çağırmıyordu — sahiplik
+   * sorgulanıyor, GEÇERLİLİK sorulmuyordu. Bu kart o kapının GERÇEKTEN
+   * çalıştığının ve zincirin kopmadığının kanıtıdır.
+   *
+   * GİZLİLİK: hedef ADI ve KOORDİNATI bu karta GİRMEZ — yalnız hüküm,
+   * sebep sınıfı, kesinlik, maskeli kimlik ve sayaçlar. */
+  const SRC_DEST = 'navigationService.getDestinationIntegritySnapshot';
+  cards.push({
+    id: 'destination', title: NAV_CORE_CARD_TITLE.destination,
+    fields: [
+      s.destinationOk === null
+        ? unavailable({ id: 'de-ok', label: 'Son hedef hükmü', source: SRC_DEST,
+            note: 'Bu oturumda hiç hedef konmadı — "sağlıklı" İDDİA EDİLMEZ.', updatedAt: null },
+            'hedef konmadı')
+        : observed({ id: 'de-ok', label: 'Son hedef hükmü', source: SRC_DEST,
+            note: 'FAIL-CLOSED: reddedilen hedefle rota BAŞLATILMAZ.', updatedAt: null },
+            s.destinationOk ? 'KABUL' : 'REDDEDİLDİ'),
+      /* "Red yok" bir ÖLÇÜMDÜR (hüküm verildi, ihlal çıkmadı) — kaynak
+         yokluğu DEĞİLDİR. UNAVAILABLE yalnız hiç hedef konmadığında doğrudur. */
+      s.destinationOk === null
+        ? unavailable({ id: 'de-reason', label: 'Red sebebi', source: SRC_DEST,
+            note: 'Hüküm verilmedi — "red yok" da İDDİA EDİLMEZ.', updatedAt: null },
+            'hedef konmadı')
+        : observed({ id: 'de-reason', label: 'Red sebebi', source: SRC_DEST,
+            note: s.destinationRejectionCount > 1
+              ? `Toplam ${s.destinationRejectionCount} ihlal — ilki gösteriliyor.`
+              : '', updatedAt: null },
+            s.destinationRejection ?? 'red yok'),
+      observed({ id: 'de-rejected', label: 'Reddedilen hedef (oturum)', source: SRC_DEST,
+        note: 'Bu sayı 0 değilse kapı GERÇEKTEN iş yapıyor demektir.', updatedAt: null },
+        s.destinationRejectedTotal),
+      /* Takas ŞÜPHESİ bir DÜZELTME DEĞİLDİR: koordinat asla kendiliğinden
+         çevrilmez (aralık denetimi takas edilmiş TR koordinatını yakalayamaz —
+         ~36–42 ile ~26–45 örtüşür). Yalnız asimetri KANIT olarak gösterilir. */
+      s.destinationSwapSuspected
+        ? derived({ id: 'de-swap', label: '⚠️ Enlem/boylam takas şüphesi', source: SRC_DEST,
+            note: 'Koordinat DEĞİŞTİRİLMEDİ — yalnız mesafe asimetrisi ölçüldü.', updatedAt: null },
+            `verilen ${s.destinationSwapAsGivenKm ?? '—'} km · takas edilmiş ${s.destinationSwapIfSwappedKm ?? '—'} km`)
+        : s.destinationSwapAsGivenKm === null
+          ? unavailable({ id: 'de-swap', label: 'Enlem/boylam takas şüphesi', source: SRC_DEST,
+              note: 'Kullanıcı konumu yok → asimetri ÖLÇÜLEMEZ.', updatedAt: null }, 'ölçülemedi')
+          : observed({ id: 'de-swap', label: 'Enlem/boylam takas şüphesi', source: SRC_DEST,
+              note: 'Ölçüldü, eşiklerin altında.', updatedAt: null }, 'YOK'),
+      observed({ id: 'de-swapcount', label: 'Takas şüphesi (oturum)', source: SRC_DEST,
+        note: '', updatedAt: null }, s.destinationSwapSuspectTotal),
+      s.destinationPrecision !== null
+        ? observed({ id: 'de-precision', label: 'Koordinat kesinliği', source: SRC_DEST,
+            note: 'ALAN merkezi bir NOKTA değildir — varış hassasiyeti buna bağlıdır.', updatedAt: null },
+            s.destinationPrecision)
+        : unavailable({ id: 'de-precision', label: 'Koordinat kesinliği', source: SRC_DEST,
+            note: 'Sağlayıcı kesinlik bildirmedi — uydurulmaz.', updatedAt: null }, 'bildirilmedi'),
+      s.destinationProvider !== null
+        ? observed({ id: 'de-provider', label: 'Hedefi üreten katman', source: SRC_DEST,
+            note: '', updatedAt: null }, s.destinationProvider)
+        : unavailable({ id: 'de-provider', label: 'Hedefi üreten katman', source: SRC_DEST,
+            note: 'Çağıran künye bildirmedi — açık borç.', updatedAt: null }, 'bildirilmedi'),
+      s.destinationAgeMs !== null
+        ? derived({ id: 'de-age', label: 'Çözümden bu yana', source: SRC_DEST,
+            note: 'Bayat arama sonucu bu eksende yakalanır.', updatedAt: null },
+            `${Math.round(s.destinationAgeMs / 1000)} sn`)
+        : unavailable({ id: 'de-age', label: 'Çözümden bu yana', source: SRC_DEST,
+            note: '`resolvedAtMs` bildirilmedi — "bayat" İDDİA EDİLEMEZ.', updatedAt: null },
+            'ölçülmedi'),
+      s.destinationIdMasked !== null
+        ? observed({ id: 'de-id', label: 'Rota isteğine giden kimlik (maskeli)', source: SRC_DEST,
+            note: 'Zincirin son halkası. Tam kimlik bu ekrana TAŞINMAZ.', updatedAt: null },
+            s.destinationIdMasked)
+        : unavailable({ id: 'de-id', label: 'Rota isteğine giden kimlik (maskeli)', source: SRC_DEST,
+            note: '', updatedAt: null }, 'hedef sahiplenilmedi'),
     ],
   });
 

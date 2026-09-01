@@ -217,9 +217,39 @@ export interface WakeWordListeningOptions {
   gain?: number;
 }
 
+/** Native wake recorder yaşam döngüsü; metin/PII içermez. */
+export interface WakeRecorderStateEvent {
+  state: 'STARTING' | 'ACTIVE' | 'PAUSED_FOR_SESSION' | 'RECOVERING' | 'STOPPED' | 'FAILED';
+  unexpected?: boolean;
+  recoveryAttempt?: number;
+}
+
 /** Native 'wakeWord' event'i — grammar thread'i wake sözü duyduğunda düşer. */
 export interface WakeWordEvent {
   transcript: string;
+  state?: WakeRecorderStateEvent['state'];
+  unexpected?: boolean;
+  recoveryAttempt?: number;
+}
+
+/**
+ * MAVI-F3 · Native 'sttPartial' event'i — tanıma SÜRERKEN gelen kısmi transkript.
+ *
+ * **EYLEM YETKİSİ TAŞIMAZ (spec K5).** Yalnız artımlı anlama ve cümle-sonu
+ * (endpoint) kanıtı üretir; hiçbir CarOS eylemi bu olaydan doğamaz.
+ *
+ * `silenceMs` / `speechMs`: akustik VAD **native'de** ölçülür (JS ölçemez), bu
+ * yüzden ölçüm kararı verecek katmana buradan taşınır. Ölçmeyen yollar (Google/
+ * sistem STT) **-1** gönderir → JS sahte bir sessizlik UYDURMAZ ve o yolda
+ * semantik endpoint'i çalıştırmaz.
+ */
+export interface SttPartialEvent {
+  /** Kısmi metin. Telemetriye/log'a ASLA yazılmaz; yalnız pipeline'da kullanılır. */
+  text: string;
+  /** Konuşma sonrası sessizlik (ms). **-1 = ölçülmedi** (sahte değer üretilmez). */
+  silenceMs: number;
+  /** Konuşma başlangıcından bu yana geçen süre (ms). **-1 = ölçülmedi.** */
+  speechMs: number;
 }
 
 export interface SpeechRecognitionResult {
@@ -717,13 +747,75 @@ export interface NativePhoneHubFieldProbe {
 }
 
 /**
+ * P0-VDK-B3 · POLL MALİYETİ — `getObdPollCost`'un döndürdüğü ham şekil.
+ *
+ * Kullanıcı/teşhis VERİSİ isteği ile ADAPTÖR YÖNETİM komutu ayrı taşınır: "8 PID +
+ * 5 AT" asla tek sayıya indirgenmez. Ölçülmeyen alan `null` gelir (sahte 0 YASAK).
+ * Eski APK bu metodu HİÇ taşımaz → çağrı fail-soft, kanıt `UNAVAILABLE`.
+ */
+export interface NativePollCycleCost {
+  cycleId: number;
+  sessionEpoch: number;
+  burst: boolean;
+  diagnosticPayloadRequests: number;
+  adapterControlCommands: number;
+  headerSwitches: number;
+  voltageReads: number;
+  protocolChecks: number;
+  /** Hiç kullanılmadan bir sonraki ATSH/ATCRA ile ezilen adresleme yazımı. */
+  redundantHeaderSwitches: number;
+  noResponses: number;
+  negativeResponses: number;
+  noResponseMs: number;
+  payloadMs: number;
+  adapterMs: number;
+  elapsedMs: number;
+  bytesTx: number;
+  bytesRx: number;
+  /** `null` = ÖLÇÜLMEDİ (bu katmanda retry muhasebesi yok) — 0 DEĞİL. */
+  retries: number | null;
+  provenance: string;
+}
+
+export interface NativePollCost {
+  present: boolean;
+  sessionEpoch: number;
+  cyclesRecorded: number;
+  burstCyclesRecorded: number;
+  /** Poll turu AÇIK DEĞİLKEN gelen komutlar (handshake · keşif · DTC taraması). */
+  unattributedCommands: number;
+  totals: {
+    diagnosticPayloadRequests: number;
+    adapterControlCommands: number;
+    headerSwitches: number;
+    voltageReads: number;
+    protocolChecks: number;
+    redundantHeaderSwitches: number;
+    noResponses: number;
+    negativeResponses: number;
+    noResponseMs: number;
+    payloadMs: number;
+    adapterMs: number;
+    bytesTx: number;
+    bytesRx: number;
+  };
+  lastCycle: NativePollCycleCost | null;
+  recentCycles: NativePollCycleCost[];
+}
+
+/**
  * PR-OBD-DIAG-3: native EXTENDED PID poll kanıtı — {@code getObdExtendedPollEvidence}'ın
  * döndürdüğü ham şekil. Tümü bounded; ham yanıt gövdesi YOK (yalnız responseLength) → PII-güvenli.
  */
 export interface NativeExtendedPollEvidence {
   present: boolean;
   transport: string;
+  /** Geriye dönük ad — NİYETİ taşır (bkz. `burstIntent`). Hüküm için KULLANILMAZ. */
   burstEnabled: boolean;
+  /** B2 · NİYET — scheduler/plugin'in istediği mod; poll turu bunu ezemez. */
+  burstIntent?: boolean;
+  /** B2 · GÖZLEM — son TAMAMLANAN turun modu. Tarihsel kanıt `counters.burstCycles`. */
+  lastCycleWasBurst?: boolean;
   configuredPidCount: number;
   configuredPidPreview: string[];
   counters: {
@@ -743,6 +835,17 @@ export interface NativeExtendedPollEvidence {
     pid: string; outcome: string; elapsedMs: number;
     responseLength: number; callbackEmitted: boolean;
   }[];
+  scheduler?: {
+    supportedConfiguredCount: number; activePollCount: number; deferredTotal: number;
+    recoveryPauseCount: number; lineBudgetMs: number;
+    pids: { pid: string; targetFreshnessMs: number; ageMs: number | null;
+      avgRttMs: number; avgAgeMs: number; maxAgeMs: number; deadlineMisses: number; deferred: number;
+      /* P0-VDK-B3: kadans penceresi ERTELEME DEĞİLDİR — ayrı sayılır; `agingMs`
+         o PID'in açlık yüzünden ne kadar öne çekildiğini gösterir. Eski APK bu
+         alanları taşımaz → `undefined` (sahte 0 ÜRETİLMEZ). */
+      notYetDue?: number; agingMs?: number;
+      attempts: number; successes: number }[];
+  };
 }
 
 export interface CarLauncherPlugin {
@@ -781,6 +884,8 @@ export interface CarLauncherPlugin {
   // System hardware controls
   setBrightness(options: SetBrightnessOptions): Promise<void>;
   setVolume(options: SetVolumeOptions): Promise<void>;
+  /** Cihazın GERÇEK medya sesi (index/max/yüzde) — kütük #1054. */
+  getVolume(): Promise<{ value: number; max: number; percent: number }>;
 
   // Sistem ayar panelleri — WiFi/Bluetooth (Android 10+ doğrudan toggle'ı engeller,
   // panel açmak satışa-uygun tek yol). Opsiyonel: eski plugin sürümlerinde bulunmayabilir.
@@ -824,6 +929,27 @@ export interface CarLauncherPlugin {
     handler: (data: { value: number }) => void,
   ): Promise<PluginListenerHandle>;
 
+  /**
+   * MAVI-F3 · Kısmi transkript akışı. Eski plugin sürümleri bu olayı YAYINLAMAZ;
+   * abonelik yine de güvenlidir (Capacitor bilinmeyen olayı hiç tetiklemez) →
+   * o cihazlarda yol `FINAL_ONLY` olarak bildirilir ve davranış bugünküyle
+   * BİREBİR aynı kalır.
+   */
+  addListener(
+    event: 'sttPartial',
+    handler: (data: SttPartialEvent) => void,
+  ): Promise<PluginListenerHandle>;
+
+  /**
+   * MAVI-F3 · **SEMANTİK ENDPOINT KOMUTU** — çalışan tanıma oturumunu erken
+   * finalize eder (yalnız mikrofonu kapatır; HİÇBİR CarOS eylemi tetiklemez).
+   *
+   * Opsiyonel: eski plugin sürümlerinde YOKTUR → çağıran `typeof` ile korur ve
+   * komut kipi kendiliğinden kapalı kalır (akustik VAD karar vermeye devam eder).
+   * `applied:false` bir hata DEĞİLDİR: aktif oturum yoktu demektir.
+   */
+  finalizeSpeechRecognition?(): Promise<{ applied: boolean }>;
+
   // OBD-II Bluetooth Serial
   scanOBD(): Promise<OBDScanResult>;
   /**
@@ -836,6 +962,36 @@ export interface CarLauncherPlugin {
   disconnectOBD(): Promise<void>;
   readDTC(): Promise<{ codes: string[] }>;
   clearDTC(): Promise<void>;
+
+  /**
+   * P0-OBD-10 — Mode 04 (DTC hafızasını sil) KANITLI yol.
+   *
+   * NEDEN AYRI METOT: `clearDTC()` yalnız resolve/reject taşır; ECU'nun NE
+   * cevapladığı (ham RX · negatif yanıt kodu · NO DATA mı timeout mu · protokol
+   * · süre) plugin sınırında ATILIYORDU. Saha kusuru tam bu kör noktada yaşadı:
+   * kullanıcı "sildim ama silinmedi" derken ürün tek bir kanıt üretemiyordu.
+   *
+   * SÖZLEŞME: ECU'nun OLUMSUZ cevabı ISTISNA DEĞİLDİR — `outcome` alanında
+   * resolve ile döner (kanıt kaydedilebilsin diye). YALNIZ taşıma hatası
+   * (adaptör bağlı değil / bağlantı koptu) reject eder.
+   *
+   * `outcome` sözlüğü `dtcClearModel.DtcClearCommandOutcome` ile BİREBİRDİR.
+   * Opsiyonel: eski plugin sürümlerinde yoktur (dtcService geri-uyumlu çağırır).
+   */
+  clearDtcCodes?(): Promise<{
+    /** Hatta gönderilen komut — her zaman '04'. */
+    tx: string;
+    /** ELM327 ham yanıtı (kırpılmış). */
+    raw: string;
+    /** POSITIVE | NEGATIVE | NO_DATA | NO_RESPONSE | BUS_ERROR | UNSUPPORTED | UNKNOWN */
+    outcome: string;
+    /** Negatif yanıt kodu (2 hane hex); alan YOKSA ölçülmedi (sahte '00' YAZILMAZ). */
+    nrc?: string;
+    /** Komut anındaki ATDPN protokolü; alan YOKSA bilinmiyor. */
+    protocol?: string;
+    /** Komutun uçtan uca süresi (ms). */
+    elapsedMs: number;
+  }>;
 
   /**
    * Teşhis: ELM327 ham komut/yanıt trafiği yakalamayı aç/kapat. Açıkken her AT/OBD
@@ -858,6 +1014,42 @@ export interface CarLauncherPlugin {
   // supported=false → araç/adaptör Mode 0A'yı hiç desteklemiyor (2010 öncesi araçlar) —
   // "kalıcı kod yok" (supported:true, codes:[]) ile KARIŞTIRILMAZ.
   readPermanentDTC?(): Promise<{ codes: string[]; supported: boolean }>;
+
+  /**
+   * P0-OBD-09 — TEK DTC SINIFINI HAM yanıtla birlikte okur.
+   *
+   * NEDEN AYRI METOT: mevcut `readDTC`/`readPendingDTC`/`readPermanentDTC`
+   * yalnız ÇÖZÜMLENMİŞ kod döndürür. Çözümleyicinin kendisi hatalı olduğunda
+   * (P0-OBD-09 kök nedeni tam olarak buydu) hiçbir ekran o hatayı göremez.
+   * Bu metot ham yanıtı da taşır → CAROS LAB "ne geldi / ne çözümlendi"yi
+   * YAN YANA gösterebilir. Eski metotlar DEĞİŞMEDİ.
+   *
+   * `supported:false` YALNIZ açık negatif yanıt (7F) / "?" içindir —
+   * "NO DATA" desteklenmiyor DEMEK DEĞİLDİR.
+   */
+  readDtcClass?(options: { mode: '03' | '07' | '0A' }): Promise<{
+    codes: string[];
+    raw: string;
+    supported: boolean;
+    /**
+     * P0-OBD-11 — okumanın ÖLÇÜLEN sonucu. `supported` bunu TAŞIYAMAZ: eskiden
+     * "NO DATA" (ECU sustu) da "43 00" (ECU cevap verdi, kod yok) da
+     * `supported:true, codes:[]` idi → ürün ECU sustuğu anda "temiz" diyordu.
+     *
+     * OK | NO_RESPONSE | UNSUPPORTED | BUS_ERROR | NO_SID
+     * Alan YOKSA eski plugin — TS geri-uyumlu yola düşer.
+     */
+    outcome?: string;
+    /** Bu okumanın uçtan uca süresi (ms). */
+    elapsedMs?: number;
+    /** Okuma anındaki aktif ATDPN protokolü; alan yoksa bilinmiyor. */
+    protocol?: string;
+    /**
+     * Okuma anındaki KWP kurtarma sayacı. İki okuma arasında ARTMIŞSA tarama
+     * ortasında recovery (ATPC/reinit) olmuştur.
+     */
+    recoveryCount?: number;
+  }>;
 
   // Patch 11B: Mode 02 freeze frame — native yalnız HAM veri döner, çözümleme TS'te
   // (StandardPidRegistry.decode, Mode 01 ile AYNI formül). Opsiyonel: eski plugin.
@@ -942,6 +1134,19 @@ export interface CarLauncherPlugin {
     protocolAtRecovery: string | null;
     threshold: number;
     maxPerSession: number;
+    lastEvent?: 'NONE' | 'NO_DATA' | 'PROMPT_TIMEOUT' | 'PARTIAL_TIMEOUT' | 'ECU_SILENT' |
+      'SESSION_RECOVERY' | 'TRANSPORT_RECONNECT' | 'RECOVERED' | 'RECOVERY_FAILED';
+    noDataCount?: number;
+    promptTimeoutCount?: number;
+    partialTimeoutCount?: number;
+    ecuSilentCount?: number;
+    sessionRecoveryCount?: number;
+    transportReconnectCount?: number;
+    recoveredCount?: number;
+    recoveryFailedCount?: number;
+    maxCommandDurationMs?: number;
+    maxKeepAliveGapMs?: number;
+    keepAliveGapExceededCount?: number;
   }>;
 
   /** PR-KWP-EVID: JS Data Gate oturumu yıktı → native kanıta işlensin (ateşle-unut). */
@@ -966,6 +1171,12 @@ export interface CarLauncherPlugin {
   // (attempted/success/callbackEmitted…) + son 8 deneme. "Tanı Gönder" H1/H2/H3 ayrımı için.
   // Opsiyonel: eski plugin sürümlerinde bulunmayabilir (fail-soft: kanıt yok → NO_NATIVE_EVIDENCE).
   getObdExtendedPollEvidence?(): Promise<NativeExtendedPollEvidence>;
+
+  /**
+   * P0-VDK-B3 — poll hattının GERÇEK maliyeti (salt-okunur; komut TETİKLEMEZ).
+   * Opsiyonel: eski APK'da yoktur → fail-soft, "maliyet ÖLÇÜLEMEDİ" (0 DEĞİL).
+   */
+  getObdPollCost?(): Promise<NativePollCost>;
 
   /**
    * #524 — extended PID ELEME durumu (salt-okunur teşhis; araca komut GÖNDERMEZ).
@@ -1071,6 +1282,16 @@ export interface CarLauncherPlugin {
   deviceKeyBackupStatus(): Promise<{ writable: boolean; needsAllFiles: boolean }>;
   requestAllFilesAccess(): Promise<void>;
 
+  /**
+   * Kararlı cihaz kimliği (P0-001C) — reinstall'a DAYANIKLI, çünkü SAKLANMAZ:
+   * `sha256(salt | SSAID)` olarak TÜRETİLİR. Ham SSAID JS'e çıkmaz.
+   *
+   * `deviceId: null` + `source: 'UNAVAILABLE'` → SSAID okunamadı (bazı head unit
+   * ROM'ları boş döner). Çağıran bu durumda rastgele kimliğe düşer; sahte bir
+   * sabit ASLA üretilmez (o ROM'daki tüm cihazlar tek araca çökerdi).
+   */
+  getStableDeviceId(): Promise<{ deviceId: string | null; source: 'SSAID' | 'UNAVAILABLE' }>;
+
   // Native TTS — Android TextToSpeech API (WebView speechSynthesis'den daha güvenilir)
   // pitch (P1-1): setPitch() ile perde; varsayılan 1.0. Her çağrı perdeyi sıfırlar
   // (segmentli çağrıdan kalan perde sonraki tek çağrıya sızmasın).
@@ -1087,7 +1308,9 @@ export interface CarLauncherPlugin {
   getContacts(): Promise<GetContactsResult>;
 
   // Background GPS + break reminder foreground service
-  startBackgroundService(): Promise<void>;
+  startBackgroundService(options?: { gpsGeneration?: number }): Promise<void>;
+  /** Binds native foreground GPS events to the current canonical JS GPS generation. */
+  setBackgroundGpsGeneration(options: { gpsGeneration: number }): Promise<void>;
   stopBackgroundService():  Promise<void>;
 
   // Special Android system permissions
@@ -1243,6 +1466,8 @@ export interface CarLauncherPlugin {
     handler: (data: {
       lat: number; lng: number;
       speed: number; bearing: number; accuracy: number;
+      observationTimestamp: number;
+      gpsGeneration: number;
     }) => void,
   ): Promise<PluginListenerHandle>;
 
@@ -1298,6 +1523,27 @@ export interface CarLauncherPlugin {
   getCanIds?(): Promise<CanIdConfig>;
   /** CAN sniffer'ı açar/kapatır — aktifken her frame `canRawFrame` olarak emit edilir. */
   setCanSnifferEnabled?(options: { enabled: boolean }): Promise<void>;
+
+  /**
+   * ARCH-06/F1 — CAN köprü ÖLÇÜM anlık görüntüsü (SALT-OKUNUR).
+   *
+   * Yan etkisiz: sayaçları SIFIRLAMAZ, emit tetiklemez, sniffer açmaz.
+   * Sayaçlar MONOTONİKTİR — pencere hızı isteyen taraf iki okuma arasındaki
+   * FARKI alır. Ham CAN yükü, CAN ID ve sinyal değeri TAŞINMAZ.
+   *
+   * `?` işareti bilinçlidir: eski APK bu metodu taşımaz → TS tarafı
+   * `UNAVAILABLE` gösterir, sahte 0 ÜRETMEZ.
+   */
+  getCanBridgeMetrics?(): Promise<{
+    inputCount: number;
+    emitCount: number;
+    coalescedOverwriteCount: number;
+    dedupSkippedCount: number;
+    safetyBypassCount: number;
+    snifferEmitCount: number;
+    windowMs: number;
+    snifferActive: boolean;
+  }>;
 
   // ── Native Guard Bridge ───────────────────────────────────────────────
   /** WebView yaşıyor sinyali — native taraf 3s heartbeat görmezse WebView crashed kabul eder */
@@ -1359,6 +1605,21 @@ export interface CarLauncherPlugin {
     raw0160?: string;
     raw0180?: string;
     raw01A0?: string;
+
+    /**
+     * P0-OBD-CORE-01B — blok başına YAPILAN deneme sayısı (00,20,40,60,80,A0).
+     * `0` = blok HİÇ sorgulanmadı. Bu alan olmadan "boş yanıt" ile "hiç sorulmadı"
+     * ayırt edilemez; sahadaki `supportedCount ≈ 15` şüphesi tam olarak bu
+     * belirsizlikten doğuyordu. Eski plugin taşımaz → `undefined`.
+     */
+    blockAttempts?: number[];
+    /**
+     * Zincirin KESİN OLMAYAN bir yanıt yüzünden durduğu blok indeksi; yoksa `-1`.
+     * `>= 0` iken keşif EKSİKTİR → "araç desteklemiyor" çıkarımı YASAKTIR.
+     */
+    failedBlockIndex?: number;
+    /** Native'in blok başına uyguladığı deneme tavanı (gözlem için). */
+    maxBlockAttempts?: number;
   }>;
 
   /**
@@ -1395,6 +1656,49 @@ export interface CarLauncherPlugin {
   readDtcFromEcu?(options: { tx: string; rx: string; mode: '03' | '07' | '0A' }): Promise<{
     codes: string[];
     supported: boolean;
+    /**
+     * P0-OBD-FINAL-01 — HAM yanıt (kırpılmış). Eski APK bu alanı TAŞIMAZ →
+     * `undefined`. Boş string "ham geldi ama boştu" demektir; ikisi KARIŞTIRILMAZ.
+     */
+    raw?: string;
+    /**
+     * P0-OBD-FINAL-01 — native'in ÖLÇTÜĞÜ sonuç sınıfı:
+     * `OK` (pozitif SID geldi — 0 kod olabilir) · `NO_RESPONSE` (ECU SUSTU) ·
+     * `UNSUPPORTED` (açık 7F / '?') · `BUS_ERROR` · `NO_SID`.
+     *
+     * `supported` bu ayrımı TAŞIYAMAZ: "43 00" ile "NO DATA" ikisi de
+     * `supported:true, codes:[]` idi — yani ECU sustuğunda ürün "temiz" diyordu.
+     * Eski APK'da `undefined` → çağıran eski (kaba) sözleşmeye düşer.
+     */
+    outcome?: string;
+    elapsedMs?: number;
+    recoveryCount?: number;
+    /** Okuma anındaki aktif ATDPN protokolü; native taşımıyorsa `undefined`. */
+    protocol?: string;
+  }>;
+
+  /**
+   * P0-OBD-05 — SAE J1979 Servis 06 (On-Board Monitoring Test Results). SALT-OKUNUR.
+   *
+   * İstek `06 <MID>`; olumlu yanıt öneki (`46` + MID) SOYULMUŞ ham hex döner.
+   * Çözümleme TS'tedir (`mode06.ts`) — bu dosyanın felsefesi: native KARAR VERMEZ.
+   *
+   * ÇOK-ÇERÇEVE ZORUNLUDUR: bir test kaydı 9 bayt + servis baytı = 10 bayt, CAN
+   * tek çerçevesine (7 bayt) SIĞMAZ. Native mevcut ISO-TP birleştiricisini
+   * (`ElmProtocol.splitResponseBodies`) yeniden kullanır — ikinci birleştirici YOK.
+   *
+   * `kind`: 'OK' | 'NO_DATA' | 'ERROR' — HAM KANITTIR, karar TS'te verilir.
+   * NO_DATA "test geçti" DEĞİLDİR; ECU sustu demektir.
+   *
+   * `tx`/`rx` BOŞ olabilir → native header'a dokunmaz (fonksiyonel adresleme).
+   * Dolu ise `withEcuHeader` ile ATOMİK set→oku→restore yapılır (yanlış ECU'ya
+   * sızıntı imkânsız — çoklu ECU provenance'ı bu sayede korunur).
+   *
+   * Opsiyonel (`?`): eski plugin sürümlerinde yok → çağıran fail-soft guard'lar.
+   */
+  readMode06?(options: { tx: string; rx: string; mid: string }): Promise<{
+    data: string | null;
+    kind: 'OK' | 'NO_DATA' | 'ERROR';
   }>;
 
   /**
@@ -1420,6 +1724,187 @@ export interface CarLauncherPlugin {
   readKwpDtcs?(options: { tx: string; rx: string }): Promise<{
     raw: string;
     supported: boolean;
+  }>;
+
+  /**
+   * P0-OBD-FINAL-02 — KWP2000 TANI OTURUMU PROBU (servis 0x10). SALT-OKUNUR KANIT.
+   *
+   * NEDEN: sahada (Protocol 5 / KWP · ECU 7A) fonksiyonel sorgular cevap verirken
+   * FİZİKSEL `817AF1` susuyordu. Sessizliğin iki ayrı nedeni olabilir — ECU o
+   * adreste YOK, ya da ECU TANI OTURUMU AÇILMADAN fiziksel isteğe cevap vermiyor.
+   * Bu ikisini ayırmanın TEK yolu oturum komutunu KANIT olarak göndermektir.
+   *
+   * Native `10 81` (ISO 14230-4 standart tanı oturumu) gönderir; pozitif kabul
+   * `50 81`. Yanıt yoksa/negatifse `10 C0` (Renault/PSA genişletilmiş oturum,
+   * pozitif kabul `50 C0`) denenir. Her ikisi de SALT OTURUM komutudur: ECU'ya
+   * YAZMAZ, security access DEĞİLDİR.
+   *
+   * `withEcuHeader` ile ATOMİK set→gönder→restore yapılır (yanlış ECU'ya sızıntı
+   * imkânsız). Ayrıştırma/karar TS'tedir (`kwpSessionProbe.ts` tek kaynak):
+   * native yalnız HAM yanıt + ölçülen sonuç sınıfını taşır.
+   *
+   * Opsiyonel (`?`): eski plugin sürümlerinde yok → çağıran guard'lar
+   * (graceful degrade; kanıt yoksa oturum "UNKNOWN" kalır, uydurulmaz).
+   */
+  /**
+   * P0-OBD-DIAG-01 — KWP FİZİKSEL ADRESLEME MATRİSİNİN TEK SATIRI (SALT-OKUMA).
+   *
+   * `header` (ATSH değeri) ve `request` TS'ten gelir — matrisin tek sahibi
+   * `kwpAddressingProbe.ts`tir; native yalnız GÖNDERİR ve ham yanıtı taşır.
+   * Native ayrıca kapalı bir servis beyaz listesi uygular: yazma · silme ·
+   * reset · security access · rutin hatta ÇIKAMAZ (fail-closed ikinci kapı).
+   *
+   * Opsiyonel (`?`): eski plugin sürümlerinde yok → çağıran guard'lar; kanıt
+   * yoksa adreslenebilirlik UNKNOWN/NOT_ADDRESSABLE KALIR, uydurulmaz.
+   */
+  probeKwpAddressingRow?(options: {
+    header: string;
+    request: string;
+    /**
+     * P0-OBD-DIAG-01/2 — istekten ÖNCE K-line başlatma. `'FAST'` = `ATFI`
+     * (ISO 14230-4 hızlı başlatma), `'SLOW'` = `ATSI`. Verilmezse başlatma YOK.
+     * Başlatma çalışan oturumu anlık böler; çağıran bunu yalnız hat canlılığı
+     * ÖLÇÜLDÜKTEN sonra ister.
+     */
+    init?: 'FAST' | 'SLOW';
+  }): Promise<{
+    /** GERÇEKTEN gönderilen istek; gönderilmediyse ''. */
+    request: string;
+    /** Ham yanıt; yanıt yoksa ''. */
+    raw: string;
+    /** 'ok' | 'no_response' | 'malformed' | 'transport_error' | 'init_failed' | 'not_attempted' */
+    outcome: string;
+    /** P0-OBD-DIAG-03: başlatma komutunun (ATFI/ATSI) HAM yanıtı; yoksa alan HİÇ YOK. */
+    initRaw?: string;
+    error?: string;
+  }>;
+
+  probeKwpSession?(options: { tx: string; rx: string }): Promise<{
+    /** GERÇEKTEN gönderilen istek ('1081'/'10C0'); gönderilmediyse ''. */
+    request: string;
+    /** Ham yanıt (kırpılmış); yanıt yoksa ''. */
+    raw: string;
+    /** 'ok' | 'negative_nrc' | 'no_response' | 'timeout' | 'malformed' | 'transport_error' | 'not_attempted' */
+    outcome: string;
+    /** Ayrık negatif yanıtın NRC baytı; yoksa alan HİÇ yazılmaz. */
+    nrc?: number;
+    error?: string;
+  }>;
+
+  /** P1-OBD-02: NRC/timeout/malformed ayrımını koruyan salt-okunur gelişmiş DTC köprüsü. */
+  readAdvancedDtcs?(options: {
+    /** P0-OBD-DIAG-02: '13' = ISO 14230-3 eski nesil readDTC; 0x18 ile AYNI hedef kapısına tabidir. */
+    service: '19' | '18' | '13'; subFunction: string; payload: string;
+    tx: string; rx: string; targetVerified?: boolean;
+    /**
+     * P0-VDK-F1C — ISO-TP flow control tuning UYGULA (yalnız service '19').
+     * Native ZORLAMAZ: TS adapter capability kanıtına bakarak karar verir.
+     * Tuning atomiktir — okuma düşse bile restore ÇALIŞIR.
+     */
+    isoTpTuning?: boolean;
+  }): Promise<{
+    raw: string; kind: string;
+    outcome: 'ok' | 'negative_nrc' | 'no_response' | 'timeout' | 'malformed' | 'transport_error' | 'not_addressable';
+    nrc?: number; error?: string;
+    /**
+     * P0-VDK-F1B — bu istek sırasında VARSAYILAN DIŞI tanı oturumu açıldı mı.
+     * Eski APK bu alanı taşımaz (`undefined`) → keepalive AÇILMAZ (fail-closed).
+     */
+    sessionOpened?: boolean;
+    /** Oturumu açan komut ('1003'/'1081'/'10C0'); açılmadıysa yok. */
+    sessionCommand?: string;
+    /* ── P0-VDK-F1C: transport kanıtı ─────────────────────────────────── */
+    /** Tuning GERÇEKTEN uygulandı mı (üç AT komutu da kabul edildi). */
+    tuningApplied?: boolean;
+    /** Denenen komutlar + ham yanıtları ("ATFCSH7E0=OK|ATFCSD300000=?"). */
+    tuningCommands?: string;
+    tuningPreviousMode?: string;
+    tuningNewMode?: string;
+    /** Restore ÇALIŞTI mı — `false` ise adaptör kirli kalmış OLABİLİR. */
+    tuningRestored?: boolean;
+    tuningRestoreDetail?: string;
+    /** Gövde bayt sayısı (ölçüm). */
+    byteCount?: number;
+    /** ISO-TP çerçeve sayısı (ölçüm) — truncation ancak bununla görülür. */
+    frameCount?: number;
+  }>;
+
+  /**
+   * P0-VDK-F4A — GENEL SALT-OKUNUR TANI PDU KÖPRÜSÜ.
+   *
+   * ── NEDEN VAR ────────────────────────────────────────────────────────────
+   * Bu köprüde bugüne kadar SERVİSE ÖZEL metotlar vardı; yeni bir salt-okunur
+   * servis eklemek yeni bir Java metodu ve YENİ APK demekti. CDDL bir PDU
+   * üretebilse bile gönderemiyordu. Bu metot o duvarı kaldırır: **ne
+   * sorulacağı çağırandan gelir**, native yalnız GÖNDERİR ve HAM yanıtı döner.
+   *
+   * ── BU BİR "HEX KONSOLU" DEĞİLDİR ────────────────────────────────────────
+   * Native tarafta `DiagnosticServiceGate` İKİNCİ ve SON kapıdır: destructive
+   * servisler (04 · 11 · 14 · 27 · 28 · 2E · 2F · 31 · 34-37 · 3B · 85) ve
+   * beyaz liste dışındaki HER servis reddedilir — TS/CDDL bozulsa bile hatta
+   * tek bayt çıkmaz. Ret hâlinde `outcome: 'denied'` döner ve bu **araç
+   * hakkında bir iddia DEĞİLDİR** (`not_supported` ile karıştırılamaz).
+   *
+   * Eski APK bu metodu TAŞIMAZ (`undefined`) → TS `NOT_SUPPORTED_BY_TRANSPORT`
+   * ile fail-closed davranır ve legacy yola düşer.
+   */
+  sendDiagnosticPdu?(options: {
+    /** Servis baytı, 2 hane hex. Beyaz liste dışı = `denied`. */
+    service: string;
+    /** Alt fonksiyon, 2 hane hex; yoksa boş string. */
+    subFunction: string;
+    /** Gövde (hex); yoksa boş string. */
+    payload: string;
+    /** Hedef başlık; fonksiyonel yayın için BOŞ string. */
+    tx: string;
+    rx: string;
+    /**
+     * Yanıtta yankılanan istek baytı sayısı — **VERİ**.
+     * Olumlu yanıt öneki `SID+0x40` evrensel kuralından üretilir; kaç baytın
+     * yankılandığı servise özeldir ve native'de DAL olarak değil, burada VERİ
+     * olarak taşınır (19-02 → 1 · 18 → 0 · 22 → 2).
+     */
+    echoBytes?: number;
+    /** KWP FİZİKSEL hedef için ZORUNLU kanıt; yoksa istek gönderilmez. */
+    targetVerified?: boolean;
+    /** F1-C ISO-TP ayarı; KWP'de native tarafından REDDEDİLİR. */
+    isoTpTuning?: boolean;
+  }): Promise<{
+    raw: string; kind: string;
+    outcome: 'ok' | 'negative_nrc' | 'no_response' | 'timeout' | 'malformed'
+      | 'transport_error' | 'not_addressable' | 'denied';
+    nrc?: number; error?: string;
+    /** Kapı gerekçesi: 'OK' | 'SERVICE_NOT_READ_ONLY' | 'SUBFUNCTION_NOT_READ_ONLY'
+     *  | 'MALFORMED_REQUEST' | 'ADDRESSING_UNKNOWN' | 'KWP_TARGET_UNVERIFIED'. */
+    gate?: string;
+    /** Hatta ÇIKAN ham istek (gitmediyse de taşınır — kanıt kaybolmaz). */
+    request?: string;
+    /** Soyulan olumlu yanıt öneki — parity karşılaştırması için. */
+    positiveNeedle?: string;
+    latencyMs?: number;
+    sessionOpened?: boolean;
+    sessionCommand?: string;
+    tuningApplied?: boolean;
+    tuningCommands?: string;
+    tuningPreviousMode?: string;
+    tuningNewMode?: string;
+    tuningRestored?: boolean;
+    tuningRestoreDetail?: string;
+    byteCount?: number;
+    frameCount?: number;
+  }>;
+
+  /**
+   * P0-VDK-F1B — TesterPresent (ISO 14229-1 servis 0x3E, alt fonksiyon 0x00).
+   *
+   * SALT OTURUM CANLI TUTMA: ECU'ya YAZMAZ, rutin çalıştırmaz, security access
+   * DEĞİLDİR, hiçbir yetki AÇMAZ. TS bunu YALNIZ oturumun gerçekten açıldığı
+   * kanıtlanmış (`sessionOpened: true`) bir ECU için çağırır.
+   */
+  sendTesterPresent?(options: { tx: string; rx: string }): Promise<{
+    raw: string; kind: string;
+    outcome: 'ok' | 'negative_nrc' | 'no_response' | 'timeout' | 'transport_error';
+    nrc?: number; error?: string;
   }>;
 
   /** CAN bus araç sinyalleri — read-only, native katmandan gelir */

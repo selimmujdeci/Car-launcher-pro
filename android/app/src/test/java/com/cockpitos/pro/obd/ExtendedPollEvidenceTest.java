@@ -91,7 +91,58 @@ public class ExtendedPollEvidenceTest {
         assertEquals(1, s.burstCycles);
         assertEquals(0, s.roundRobinCycles);
         assertEquals(7, s.maxBurstSizeObserved);
-        assertTrue(s.burstEnabled);
+        // B2: tur GÖZLEMİ burst'tü. `burstEnabled` artık NİYETİ taşır ve bu testte
+        // setUp() onu false bırakmıştır → tur gözlemi niyeti EZMEZ.
+        assertTrue(s.lastCycleWasBurst);
+        assertFalse(s.burstIntent);
+    }
+
+    /**
+     * B2 KİLİDİ (saha 2026-08-30 · CAROS LAB TAM KOPYA) — NİYET ≠ SON TUR.
+     *
+     * Kopyada `burstEnabled:false` ile `burstCycles:135 / pollCycles:137` yan yana
+     * duruyordu: `recordCycle` her turda niyet alanını eziyordu. Son tur round-robin
+     * olduğu an "burst kapalı" görünüyor, `runtimeSchedulingModel`in
+     * "ekran kapalı ama burst isteniyor" uyarısı HİÇ üretilmiyordu.
+     */
+    @Test
+    public void b2_niyetSonTurTarafindanEZILEMEZ() {
+        ev.setBurstEnabled(true);
+        ev.recordCycle(false, 5);
+        ExtendedPollEvidence.Snapshot s = ev.snapshot();
+        assertTrue("burst NİYETİ son tur tarafından silindi", s.burstIntent);
+        assertFalse("son tur gözlemi yanlış", s.lastCycleWasBurst);
+        assertTrue("geriye dönük alan NİYETİ taşımalı", s.burstEnabled);
+    }
+
+    /** B2 — saha imzası: çoğu tur burst, son tur round-robin. "Burst kapalıydı" DENEMEZ. */
+    @Test
+    public void b2_sahaImzasi_burstCalistiSonTurRoundRobin() {
+        ev.setBurstEnabled(true);
+        for (int i = 0; i < 135; i++) ev.recordCycle(true, 9);
+        ev.setBurstEnabled(false);              // Canlı Test ekranı kapandı
+        ev.recordCycle(false, 9);
+        ev.recordCycle(false, 9);
+        ExtendedPollEvidence.Snapshot s = ev.snapshot();
+        assertEquals(137, s.pollCycles);
+        assertEquals(135, s.burstCycles);
+        assertEquals(2, s.roundRobinCycles);
+        assertFalse(s.lastCycleWasBurst);
+        assertFalse(s.burstIntent);
+        // Tarihsel kanıt KAYBOLMAZ: "burst hiç çalışmadı" hükmü bu sayaçla çürütülür.
+        assertTrue(s.burstCycles > 0);
+    }
+
+    /** B2 — GÖZLEM oturumluktur, NİYET reset'i aşar. */
+    @Test
+    public void b2_resetSonTurGozleminiTemizlerNiyetiKorur() {
+        ev.setBurstEnabled(true);
+        ev.recordCycle(true, 6);
+        ev.reset("classic");
+        ExtendedPollEvidence.Snapshot s = ev.snapshot();
+        assertFalse("son tur gözlemi reset'te temizlenmeli", s.lastCycleWasBurst);
+        assertTrue("niyet reset'i AŞMALI", s.burstIntent);
+        assertEquals(0, s.burstCycles);
     }
 
     @Test

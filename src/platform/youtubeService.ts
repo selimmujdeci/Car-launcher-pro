@@ -64,7 +64,7 @@ interface YtEvent { data?: number }
 interface YtPlayerOptions {
   width:      string;
   height:     string;
-  playerVars: Record<string, number>;
+  playerVars: Record<string, number | string>;
   events: {
     onReady:       () => void;
     onStateChange: (e: YtEvent) => void;
@@ -175,6 +175,13 @@ function _loadApi(): Promise<void> {
 export function preloadYouTubeIfAffordable(): void {
   try {
     if (getDeviceTier() === 'low') return;   // düşük-uç: ön yükleme YOK
+    // Safari/WebKit, görünmeyen IFrame API ön yüklemesinde zaman zaman yanlış
+    // postMessage origin'i üretir. Yalnız spekülatif ısıtmayı atla; kullanıcı
+    // YouTube'u seçtiğinde ensureYouTubeReady() aynı işlevi kurmaya devam eder.
+    const ua = navigator.userAgent;
+    const isSafariWebKit = /AppleWebKit/i.test(ua)
+      && !/(Chrome|Chromium|CriOS|Android)/i.test(ua);
+    if (isSafariWebKit) return;
     void ensureYouTubeReady().catch(() => { /* fail-soft */ });
   } catch { /* fail-soft */ }
 }
@@ -194,6 +201,10 @@ export function ensureYouTubeReady(): Promise<void> {
         playerVars: {
           autoplay: 1, controls: 0, disablekb: 1, fs: 0,
           modestbranding: 1, rel: 0, playsinline: 1, iv_load_policy: 3,
+          // IFrame API postMessage hedefini açıkça ana uygulama origin'ine bağla.
+          // Özellikle WebKit, origin verilmezse zaman zaman youtube.com hedefiyle
+          // localhost/Capacitor origin'ini karıştırıp konsol hatası üretiyor.
+          origin: window.location.origin,
         },
         events: {
           onReady: () => { console.warn('[YT] player hazır'); _applyVolume(); resolve(); },

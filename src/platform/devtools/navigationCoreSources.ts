@@ -21,11 +21,36 @@ import { getLocationEvidence, getFixAgeLedger } from '../gpsService';
 import type { FixAgeSummary } from '../navigation/core/fixAgeLedger';
 import {
   getNavigationState, getNavSessionId, getRouteRequestClaim, getEtaVerdict,
+  getDestinationIntegritySnapshot,
 } from '../navigationService';
 import {
   getVoiceGuidanceSnapshot, type VoiceGuidanceSnapshot,
 } from '../navigation/voiceGuidanceRuntime';
 import type { EtaVerdict } from '../navigation/core/etaModel';
+import {
+  getRouteProviderLedger,
+  type RouteAttempt, type RouteChainSummary,
+} from '../navigation/core/routeProviderLedger';
+import {
+  getCommittedGeometry, getRejectedGeometryEvidence,
+  type CommittedGeometryEvidence,
+} from '../navigation/core/routeGeometryModel';
+import {
+  getProgressLedger, type ProgressLedgerSnapshot,
+} from '../navigation/core/routeProgressLedger';
+import {
+  judgeRerouteHealth, type RerouteHealthVerdict,
+} from '../navigation/core/rerouteStarvationModel';
+import {
+  getGuidanceAudit, type GuidanceAuditSnapshot,
+} from '../navigation/core/voiceGuidanceAudit';
+import {
+  getNavTickCostSnapshot, type NavTickCostSnapshot,
+} from '../navigation/core/navTickCostModel';
+import {
+  buildNavFailureMatrix, type NavFailureMatrix,
+} from '../navigation/core/navFailureMatrixModel';
+import { isGpsDecisionGrade } from '../navigation/core/hudPresentationModel';
 import type {
   RouteDurationSource, RouteDurationIntegrity,
 } from '../navigation/core/routeDurationModel';
@@ -86,6 +111,7 @@ import {
 } from '../map/tunnelNightRuntime';
 import { getMapContrastProfile, type MapContrastProfile } from '../mapStyleBuilders';
 import {
+  getRerouteBlockStats,
   getRouteRequestSnapshot, type RouteRequestSnapshot,
 } from '../navigation/core/routeRequestLedger';
 import {
@@ -310,6 +336,89 @@ export interface NavigationCoreRawSnapshot {
   /** Rota isteği sahiplenilmiş mi — hedef KİMLİĞİ taşınmaz, yalnız VAR/YOK. */
   readonly hasRouteClaim: boolean;
   readonly runtime: NavigationSessionRuntimeSnapshot;
+
+  /* ── P0-NAV-09 · HEDEF BÜTÜNLÜĞÜ — SALT-OKUNUR ──────────────────────────
+   * GİZLİLİK: hedefin ADI ve KOORDİNATI buradan GEÇMEZ. Yalnız hüküm,
+   * sebep sınıfı, kesinlik, sayaçlar ve MASKELİ kimlik taşınır. */
+  /** Son hedefin bütünlük hükmü — `null` = bu oturumda hiç hedef konmadı. */
+  readonly destinationOk: boolean | null;
+  /** İlk red sebebi (varsa). */
+  readonly destinationRejection: string | null;
+  /** Tüm ihlallerin sayısı. */
+  readonly destinationRejectionCount: number;
+  /** Bu oturumda REDDEDİLEN hedef sayısı — fail-closed kapının etkisi. */
+  readonly destinationRejectedTotal: number;
+  /** Enlem/boylam takas ŞÜPHESİ sayısı (koordinat ASLA düzeltilmez). */
+  readonly destinationSwapSuspectTotal: number;
+  /** Son hedefte takas şüphesi var mı ve mesafe asimetrisi. */
+  readonly destinationSwapSuspected: boolean;
+  readonly destinationSwapAsGivenKm: number | null;
+  readonly destinationSwapIfSwappedKm: number | null;
+  /** Koordinat kesinliği — sağlayıcı söylemediyse `UNKNOWN`. */
+  readonly destinationPrecision: string | null;
+  /** Hedefi üreten sağlayıcı/katman etiketi. Bildirilmediyse `null`. */
+  readonly destinationProvider: string | null;
+  /** Çözümden bu yana geçen süre (ms). Ölçülemezse `null`. */
+  readonly destinationAgeMs: number | null;
+  /**
+   * Rota isteğine GİDEN kimliğin MASKELİ hâli — zincirin son halkası.
+   * Tam kimlik PII taşıyabilir (arama sonucu kimliği), bu yüzden yalnız
+   * uzunluk + ilk/son karakter gösterilir.
+   */
+  readonly destinationIdMasked: string | null;
+
+  /* ── P0-NAV-10 · ROTA SAĞLAYICI SİCİLİ — SALT-OKUNUR ────────────────────
+   * GİZLİLİK: koordinat ve tam URL taşınmaz — yalnız ana makine etiketi,
+   * sınıf, adet ve süre. */
+  readonly routeChain: RouteChainSummary;
+  /** Sağlayıcı × sonuç sayacı (`provider|outcome` → adet). */
+  readonly routeAttemptCounts: Readonly<Record<string, number>>;
+  /** Yedek katmanın kurtardığı istek sayısı — GİZLİ DEGRADASYONun ölçüsü. */
+  readonly routeFallbackSuccessCount: number;
+  /** Düz hatta düşen istek sayısı — GERÇEK ROTA ÜRETİLEMEDİ. */
+  readonly routeStraightLineChainCount: number;
+  /** Son isteğin denemeleri (en fazla halka kadar). */
+  readonly routeAttempts: readonly RouteAttempt[];
+
+  /* ── P0-NAV-11 · GEOMETRİ BÜTÜNLÜĞÜ — SALT-OKUNUR ───────────────────────
+   * GİZLİLİK: koordinat TAŞINMAZ. bbox yalnız DERECE GENİŞLİĞİ olarak gelir,
+   * köşe noktaları DEĞİL — rota geometrisi sürücünün gittiği yeri açık eder. */
+  /** Haritaya UYGULANAN geometrinin künyesi. Hiç rota yoksa `null`. */
+  readonly committedGeometry: CommittedGeometryEvidence | null;
+  /** REDDEDİLEN aday sayısı — kanıt silinmez (halka taşsa bile toplam korunur). */
+  readonly rejectedGeometryTotal: number;
+  /** Son reddedilen adayın bozukluk sınıfları. Yoksa boş dizi. */
+  readonly lastRejectedFlaws: readonly string[];
+  /** Son reddedilen adayın FAIL veren denetim kimlikleri. */
+  readonly lastRejectedCheckIds: readonly string[];
+
+  /* ── P0-NAV-12 · İLERLEME DÜRÜSTLÜĞÜ — SALT-OKUNUR ──────────────────────
+   * Koordinat TAŞIMAZ: yalnız metre · km/h · derece · sınıf. */
+  readonly progress: ProgressLedgerSnapshot;
+
+  /* ── P0-NAV-13 · REROUTE SAĞLIĞI + ENGEL SEBEPLERİ — SALT-OKUNUR ────────
+   * ÖLÇÜLEN KUSUR: `getRerouteBlockStats()` ürünün HİÇBİR yerinden
+   * okunmuyordu (tek çağıranı bir testti) — engellenen reroute'ların sebebi
+   * yazılıyor ama hiçbir ekrana TAŞINMIYORDU. */
+  readonly rerouteHealth: RerouteHealthVerdict;
+  readonly rerouteBlockedCount: number;
+  readonly rerouteBlockByReason: Readonly<Record<string, number>>;
+  readonly rerouteLastBlockReason: string | null;
+
+  /* ── P0-NAV-16 · SESLİ YÖNLENDİRME DENETİMİ — SALT-OKUNUR ───────────────
+   * Runtime yalnız SÖYLENENİ sayıyordu; "hiç söylenmedi" ve "geç söylendi"
+   * hiçbir yerde görünmüyordu. GİZLİLİK: talimat METNİ taşınmaz. */
+  readonly guidanceAudit: GuidanceAuditSnapshot;
+
+  /* ── P0-NAV-19 · SICAK YOL MALİYETİ — SALT-OKUNUR ───────────────────────
+   * Rota uzadıkça pahalılaşan tek iş harita eşleştirmedir; maliyeti üründe
+   * hiçbir yerde ölçülmüyordu. */
+  readonly tickCost: NavTickCostSnapshot;
+
+  /* ── P0-NAV-20 · ARIZA TABLOSU — SALT-OKUNUR ────────────────────────────
+   * Yeni ölçüm YOK: bu gece kurulan otoritelerin hükümlerini TEK tabloda
+   * toplar. **OBD durumu bilinçli olarak GİRDİ DEĞİLDİR.** */
+  readonly failureMatrix: NavFailureMatrix;
 }
 
 function _safe<T>(fn: () => T, fallback: T): T {
@@ -404,6 +513,135 @@ const _EMPTY_RUNTIME: NavigationSessionRuntimeSnapshot = {
 };
 
 /** Tek senkron okuma — çağrıldığı anın anlık görüntüsü. */
+/** Kimliği maskele — uzunluk + uçlar. Tam kimlik LAB'a TAŞINMAZ. */
+function _maskId(id: string | null): string | null {
+  if (id === null || id.length === 0) return null;
+  if (id.length <= 4) return `${id.length} karakter`;
+  return `${id.slice(0, 2)}…${id.slice(-2)} (${id.length})`;
+}
+
+/**
+ * P0-NAV-09 hedef bütünlüğü alanları. Okuma başarısızsa hepsi "bilinmiyor"
+ * döner — sahte "sağlıklı" ÜRETİLMEZ.
+ */
+function _destinationIntegrityFields(): Pick<NavigationCoreRawSnapshot,
+  | 'destinationOk' | 'destinationRejection' | 'destinationRejectionCount'
+  | 'destinationRejectedTotal' | 'destinationSwapSuspectTotal'
+  | 'destinationSwapSuspected' | 'destinationSwapAsGivenKm'
+  | 'destinationSwapIfSwappedKm' | 'destinationPrecision'
+  | 'destinationProvider' | 'destinationAgeMs' | 'destinationIdMasked'> {
+  const snap = _safe(() => getDestinationIntegritySnapshot(), null);
+  const last = snap?.last ?? null;
+  return {
+    destinationOk:               last === null ? null : last.ok,
+    destinationRejection:        last?.rejection ?? null,
+    destinationRejectionCount:   last?.allRejections.length ?? 0,
+    destinationRejectedTotal:    snap?.rejectedCount ?? 0,
+    destinationSwapSuspectTotal: snap?.swapSuspectCount ?? 0,
+    destinationSwapSuspected:    last?.swap.suspected ?? false,
+    destinationSwapAsGivenKm:    last?.swap.asGivenKm ?? null,
+    destinationSwapIfSwappedKm:  last?.swap.ifSwappedKm ?? null,
+    destinationPrecision:        last?.identity?.precision ?? null,
+    destinationProvider:         last?.identity?.provider ?? null,
+    destinationAgeMs:            last?.ageMs ?? null,
+    destinationIdMasked:         _maskId(snap?.committed?.placeId ?? null),
+  };
+}
+
+const _EMPTY_CHAIN: RouteChainSummary = {
+  outcome: 'UNKNOWN', winner: null, winnerLabel: null,
+  fallbackReason: null, degradedSteps: 0, attemptedCount: 0,
+  why: 'defter okunamadı',
+};
+
+/** P0-NAV-10 sağlayıcı sicili. Okuma başarısızsa "bilinmiyor" döner. */
+function _routeProviderFields(): Pick<NavigationCoreRawSnapshot,
+  | 'routeChain' | 'routeAttemptCounts' | 'routeFallbackSuccessCount'
+  | 'routeStraightLineChainCount' | 'routeAttempts'> {
+  const led = _safe(() => getRouteProviderLedger(), null);
+  return {
+    routeChain:                  led?.lastChain ?? _EMPTY_CHAIN,
+    routeAttemptCounts:          led?.counts ?? {},
+    routeFallbackSuccessCount:   led?.fallbackSuccessCount ?? 0,
+    routeStraightLineChainCount: led?.straightLineChainCount ?? 0,
+    routeAttempts:               led?.attempts ?? [],
+  };
+}
+
+const _EMPTY_MATRIX: NavFailureMatrix = {
+  axes: [], overall: 'UNKNOWN', worstAxis: null, summary: 'tablo okunamadı',
+};
+
+const _EMPTY_TICK_STATS = {
+  samples: 0, total: 0, p50Ms: null, p95Ms: null, maxMs: null,
+} as const;
+const _EMPTY_TICK_COST: NavTickCostSnapshot = {
+  mapMatch: _EMPTY_TICK_STATS, progressTick: _EMPTY_TICK_STATS,
+};
+
+const _EMPTY_GUIDANCE_AUDIT: GuidanceAuditSnapshot = {
+  timing: { ON_TIME: 0, LATE: 0, VERY_LATE: 0, UNKNOWN: 0 },
+  missed: { NONE: 0, MISSED_IMMINENT: 0, MISSED_ALL: 0, SILENCE_JUSTIFIED: 0 },
+  recent: [], announcementCount: 0, maneuverCount: 0,
+};
+
+const _EMPTY_PROGRESS: ProgressLedgerSnapshot = {
+  counts: {
+    PLAUSIBLE: 0, STATIONARY: 0, IMPLAUSIBLE_FORWARD: 0, REAL_BACKTRACK: 0,
+    IMPLAUSIBLE_BACKWARD: 0, ROUTE_CHANGED: 0, UNKNOWN: 0,
+  },
+  anomalies: [], lastVerdict: null,
+  maxForwardJumpM: null, maxBackwardJumpM: null, totalSamples: 0,
+};
+
+/**
+ * P0-NAV-13 reroute sağlığı + engel sebepleri.
+ *
+ * ⚠️ SAAT BİRLİĞİ: `offRoute.confirmedAtMs` ve `routeRequestLedger`in
+ * `committedAtMs` alanı İKİSİ DE `performance.now()` mertebesindedir
+ * (monotonik). Duvar saatiyle karıştırmak açlık süresini saçmalatırdı —
+ * bu yüzden `nowMs` olarak `nowPerf` verilir.
+ */
+function _rerouteHealthFields(
+  confirmedAtMs: number | null, offRouteState: string, nowPerf: number,
+): Pick<NavigationCoreRawSnapshot,
+  | 'rerouteHealth' | 'rerouteBlockedCount'
+  | 'rerouteBlockByReason' | 'rerouteLastBlockReason'> {
+  const stats = _safe(() => getRerouteBlockStats(), null);
+  const reqs  = _safe(() => getRouteRequestSnapshot(), null);
+  return {
+    rerouteHealth: _safe(() => judgeRerouteHealth({
+      confirmedAtMs,
+      lastCommitAtMs: reqs?.current?.committedAtMs ?? null,
+      offRouteState,
+      lastBlock: stats?.last ?? null,
+      nowMs: nowPerf,
+    }), {
+      health: 'UNKNOWN', offRouteForMs: null, blockedBy: null,
+      why: 'okuma başarısız',
+    }),
+    rerouteBlockedCount:    stats?.blockedCount ?? 0,
+    rerouteBlockByReason:   stats?.byReason ?? {},
+    rerouteLastBlockReason: stats?.last?.reason ?? null,
+  };
+}
+
+/** P0-NAV-11 geometri kanıtı. Okuma başarısızsa "bilinmiyor" döner. */
+function _routeGeometryFields(): Pick<NavigationCoreRawSnapshot,
+  | 'committedGeometry' | 'rejectedGeometryTotal'
+  | 'lastRejectedFlaws' | 'lastRejectedCheckIds'> {
+  const committed = _safe(() => getCommittedGeometry(), null);
+  const rejected  = _safe(() => getRejectedGeometryEvidence(), null);
+  const last = rejected && rejected.recent.length > 0
+    ? rejected.recent[rejected.recent.length - 1] : null;
+  return {
+    committedGeometry:     committed,
+    rejectedGeometryTotal: rejected?.total ?? 0,
+    lastRejectedFlaws:     last?.flaws ?? [],
+    lastRejectedCheckIds:  last?.failedCheckIds ?? [],
+  };
+}
+
 export function readNavigationCoreSnapshot(): NavigationCoreRawSnapshot {
   const readAt = Date.now();
   const paintedArrow = _safe(() => readPaintedArrowDiagnostics(), PAINTED_ARROW_FALLBACK);
@@ -602,6 +840,39 @@ export function readNavigationCoreSnapshot(): NavigationCoreRawSnapshot {
     policySourceAuthority: POLICY_SOURCE_AUTHORITY,
     offlineCacheState: vehicleClass.profile.resolutionState === 'UNAVAILABLE' ? 'EMPTY' : 'CACHED',
 
+    ..._destinationIntegrityFields(),
+    ..._routeProviderFields(),
+    ..._routeGeometryFields(),
+    progress: _safe(() => getProgressLedger(), _EMPTY_PROGRESS),
+    guidanceAudit: _safe(() => getGuidanceAudit(), _EMPTY_GUIDANCE_AUDIT),
+    tickCost: _safe(() => getNavTickCostSnapshot(), _EMPTY_TICK_COST),
+    failureMatrix: _safe(() => buildNavFailureMatrix({
+      navActive: nav?.isNavigating ?? false,
+      gpsUsable: core?.fix != null,
+      fixAgeMs: fix ? Math.max(0, Math.round(nowPerf - fix.tsMs)) : null,
+      /* Doğruluk `location`dan gelir (map-match fix'i doğruluğu taşımaz);
+         eşik HUD ile AYNI otoriteden okunur — ikinci eşik İCAT EDİLMEZ. */
+      gpsDecisionGrade: isGpsDecisionGrade(
+        core?.fix != null,
+        _safe(() => useUnifiedVehicleStore.getState().location?.accuracy ?? null, null),
+      ),
+      online: typeof navigator === 'undefined' ? null : navigator.onLine,
+      searchVerdict: null,   // arama hükmü ayrı ekranda (Adres Arama Kanıtı)
+      routeChainOutcome: _safe(() => getRouteProviderLedger().lastChain.outcome, null),
+      geometryIntegrity: _safe(() => getCommittedGeometry()?.integrity ?? null, null),
+      progressVerdict: _safe(() => getProgressLedger().lastVerdict, null),
+      rerouteHealth: _safe(() => judgeRerouteHealth({
+        confirmedAtMs: core?.offRoute.confirmedAtMs ?? null,
+        lastCommitAtMs: getRouteRequestSnapshot().current?.committedAtMs ?? null,
+        offRouteState: core?.offRoute.state ?? 'UNKNOWN',
+        lastBlock: getRerouteBlockStats().last,
+        nowMs: nowPerf,
+      }).health, null),
+      routeRequestPending: _safe(
+        () => getRouteRequestSnapshot().current?.outcome === 'PENDING', false),
+    }), _EMPTY_MATRIX),
+    ..._rerouteHealthFields(core?.offRoute.confirmedAtMs ?? null,
+      core?.offRoute.state ?? 'UNKNOWN', nowPerf),
     sessionId:     _safe(() => getNavSessionId(), 0),
     hasRouteClaim: _safe(() => getRouteRequestClaim() !== null, false),
     runtime:       _safe(() => getNavigationSessionRuntimeSnapshot(), _EMPTY_RUNTIME),

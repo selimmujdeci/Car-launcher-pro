@@ -19,6 +19,8 @@ import {
 import { getKwpRecoveryEvidence } from '../obd/kwpRecoveryEvidence';
 import { classifyProtocol, isSlowSerialProtocol } from '../obd/protocolProfile';
 import { getKwpDtcEvidence } from '../obd/multiEcuScan';
+import { getKwpSessionProbes } from '../obd/kwpSessionProbe';
+import { getKwpAddressingProbes } from '../obd/kwpAddressingProbe';
 import type { KwpRawSnapshot } from './kwpMonitorModel';
 
 function _safe<T>(fn: () => T): T | null {
@@ -56,6 +58,13 @@ export function readKwpRawSnapshot(): KwpRawSnapshot {
   const kwp   = _safe(() => getKwpRecoveryEvidence());
   /* V-08: DTC kanalının son tam-tarama kanıtı (sürekli akmaz — bkz. model). */
   const dtc   = _safe(() => getKwpDtcEvidence());
+  /* P0-OBD-FINAL-02: KWP tanı oturumu (0x10) probunun kanıt defteri. Bu ekran
+     KOMUT GÖNDERMEZ — prob yalnız tam araç taraması sırasında koşar; burada
+     yalnız SON turun kaydı OKUNUR. Boş defter "oturum yok" DEMEK DEĞİLDİR. */
+  const sessionProbes = _safe(() => getKwpSessionProbes());
+  /* P0-OBD-DIAG-01: fiziksel adresleme matrisinin kanıt defteri. Bu ekran
+     KOMUT GÖNDERMEZ — matris yalnız tam araç taraması sırasında koşar. */
+  const addressingProbes = _safe(() => getKwpAddressingProbes());
 
   const protocolActive = hs?.protocolActive ?? null;
   // Protokol BİLİNMİYORSA sınıf da uygulanabilirlik de null kalır — CAN VARSAYILMAZ.
@@ -97,6 +106,18 @@ export function readKwpRawSnapshot(): KwpRawSnapshot {
       protocolAtRecovery:       kwp.protocolAtRecovery ?? null,
       threshold:                _num(kwp.threshold),
       maxPerSession:            _num(kwp.maxPerSession),
+      lastEvent:                kwp.lastEvent ?? null,
+      noDataCount:              _num(kwp.noDataCount),
+      promptTimeoutCount:       _num(kwp.promptTimeoutCount),
+      partialTimeoutCount:      _num(kwp.partialTimeoutCount),
+      ecuSilentCount:           _num(kwp.ecuSilentCount),
+      sessionRecoveryCount:     _num(kwp.sessionRecoveryCount),
+      transportReconnectCount: _num(kwp.transportReconnectCount),
+      recoveredCount:           _num(kwp.recoveredCount),
+      recoveryFailedCount:      _num(kwp.recoveryFailedCount),
+      maxCommandDurationMs:     _num(kwp.maxCommandDurationMs),
+      maxKeepAliveGapMs:        _num(kwp.maxKeepAliveGapMs),
+      keepAliveGapExceededCount:_num(kwp.keepAliveGapExceededCount),
     } : null,
 
     dtc: dtc ? {
@@ -108,6 +129,35 @@ export function readKwpRawSnapshot(): KwpRawSnapshot {
       unsupportedCount: _num(dtc.unsupportedCount) ?? 0,
       failedCount:      _num(dtc.failedCount) ?? 0,
       codeCount:        _num(dtc.codeCount) ?? 0,
+      functional03Raw: dtc.functional03Raw,
+      functional07Raw: dtc.functional07Raw,
+      physicalTarget: dtc.physicalTarget,
+      targetProvenance: dtc.targetProvenance,
+      sessionRequest: dtc.sessionRequest,
+      sessionResponse: dtc.sessionResponse,
+      request18Tx: dtc.request18Tx,
+      response18Raw: dtc.response18Raw,
+      gateOutcome: dtc.gateOutcome,
+      notSentReason: dtc.notSentReason,
+      foundDtcs: [...dtc.foundDtcs],
+      publishedToCanonicalAuthority: dtc.publishedToCanonicalAuthority,
     } : null,
+
+    /* P0-OBD-FINAL-02 — oturum probu kanıtı (SALT-OKUNUR, bounded).
+       `null` = defter okunamadı; boş dizi = prob bu oturumda hiç koşmadı. */
+    sessionProbes: sessionProbes === null ? null : sessionProbes.map((e) => ({
+      tx: e.tx, rx: e.rx, request: e.request, positiveNeedle: e.positiveNeedle,
+      raw: e.raw, result: e.result, nrc: e.nrc, nativeOutcome: e.nativeOutcome,
+      sessionEpoch: e.sessionEpoch, protocol: e.protocol,
+    })),
+
+    /* P0-OBD-DIAG-01 — fiziksel adresleme matrisi kanıtı (SALT-OKUNUR, bounded).
+       `null` = defter okunamadı; boş dizi = matris bu oturumda hiç koşmadı. */
+    addressingProbes: addressingProbes === null ? null : addressingProbes.map((e) => ({
+      rx: e.rx, header: e.header, variantId: e.variantId, physical: e.physical,
+      initFirst: e.initFirst, initRaw: e.initRaw,
+      request: e.request, raw: e.raw, result: e.result, nrc: e.nrc,
+      nativeOutcome: e.nativeOutcome, sessionEpoch: e.sessionEpoch, protocol: e.protocol,
+    })),
   };
 }

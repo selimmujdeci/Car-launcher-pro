@@ -242,8 +242,30 @@ export const NIGHT_PALETTE: VectorPalette = {
      NOT: Google'ın su/zemin oranı 1,12'dir; biz BİLEREK daha ayırt edilir
      tutuyoruz — sürücü su/park/konutu tanıyabilmeli. Yine de #612'nin "alan
      dolguları PARLARSA yol ağı içlerinde kaybolur" tavanı korunur (hepsi ≤2,5). */
-  water:           '#294871',
-  park:            '#283d32',
+  /* 2026-08-24 — "kesinlikle premium değil" turu: kullanıcı gerçek cihaz ekran
+   * görüntüsünde yol/bina/su tek düzlemde göründüğünü bildirdi ("Google'da
+   * parklar yeşil, su mavi, biz her şey aynı"). Yukarıdaki değerler HER BİRİ
+   * zemine karşı ayrı ayrı ölçülüp geçiyordu (su 1,51 · park 1,21 · konut 1,20 ·
+   * bina 1,45) — ama bu turda dolgular BİRBİRİNE karşı ölçüldü (WCAG, önceki
+   * değerlerle): `park↔residential` kontrastı **1,00** (matematiksel olarak
+   * AYNI parlaklık — #609'un zemin kusurunun aynı sınıfı, bu kez dolgular
+   * arasında) ve `water↔buildingFill` **1,04** (neredeyse ayırt edilemez).
+   * Yani ekranın büyük kısmını kaplayan dört dolgu (su/park/konut/bina) sadece
+   * 0,040–0,063 dar bir parlaklık bandına sıkışmıştı — yalnız YOLLAR (0,09+)
+   * bu bandın dışındaydı, bu yüzden "yol dışında her şey tek düzlem" hissi
+   * matematiksel olarak doğruydu, göz yanılması değildi.
+   * DÜZELTME: yalnız `water` ve `park` yükseltildi (residential/buildingFill
+   * KORUNDU — konutun sakin/"yarışmayan" zemin işlevi kilitli, bkz. testteki
+   * "alan dolguları yollarla YARIŞMAZ"). Yeni oranlar (zemine karşı):
+   *     su      1,51 → **1,86**   park    1,21 → **1,61**
+   * İkisi de ≤2,5 tavanını (GECE KONFORU kilidi) ve `< minor` (0,177) sınırını
+   * korur; ama artık `park↔residential` **1,33** ve `water↔buildingFill`
+   * **1,28** — dolgular birbirinden GÖRÜNÜR şekilde ayrışıyor. Renk yönü
+   * KORUNDU (su hâlâ mavi ekseninde, park hâlâ yeşil ekseninde) — yalnız
+   * parlaklık/doygunluk artırıldı, OEM koyu paleti Google'ın renklerine
+   * KAYDIRILMADI. Kilit: `mapNightAreaFillDistinctness.test.ts`. */
+  water:           '#2c5490',
+  park:            '#2f5240',
   residential:     '#2e394b',
   buildingFill:    '#3a4557',
   buildingOutline: '#515f76',

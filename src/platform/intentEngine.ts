@@ -139,7 +139,11 @@ export interface RouterContext {
   setTheme:         (theme: 'night' | 'day' | 'oled' | 'dark') => void;
   cycleTheme?:      () => void;
   /** Sesli ayar kontrolü — key/action/value ile AppSettings (veya wifi/bt/brightness). */
-  applySetting?:    (key: string, action: string, value?: string, kind?: string, label?: string) => void;
+  /* MAVI-F7: port kanıt DÖNEBİLİR (`SettingApplyEvidence`). Bu hat kanıtı
+     kullanmaz (yerel ayrıştırıcı kendi geri bildirimini üretir) ama tipler
+     TEK sözleşmede kalsın diye aynı dönüşü kabul eder. */
+  applySetting?:    (key: string, action: string, value?: string, kind?: string, label?: string)
+    => SettingApplyEvidence | void;
   playMedia:        () => void;
   pauseMedia:       () => void;
   nextTrack?:       () => void;
@@ -616,6 +620,7 @@ const VALID_INTENTS = new Set<IntentType>([
 
 import type { SemanticResult } from './ai/semanticAiService';
 import { buildPoiSearchQuery } from './ai/semanticAiService';
+import type { SettingApplyEvidence } from './capability/observation/observationContract';
 
 /**
  * Semantik NLP servisinden gelen `SemanticResult`'ı `AppIntent`'e dönüştürür.

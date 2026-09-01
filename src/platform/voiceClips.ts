@@ -15,6 +15,9 @@
  */
 
 import { duckMedia, unduckMedia } from './audioService';
+/* MAVI-F0: ilk duyulabilir ses ölçümü. `maviLatencyTrace` HİÇBİR modülü import
+   etmez → bu yaprağın bağımlılık grafiği büyümez. YALNIZ ÖLÇÜM. */
+import { markMaviLatency } from './assistant/maviLatencyTrace';
 
 /**
  * Konuşulan TAM metin → klip id (public/voice/<id>.wav).
@@ -102,11 +105,17 @@ export function tryPlayClip(text: string, onEnd?: () => void): boolean {
     if (_active === audio) _active = null;
     audio.onended = null;
     audio.onerror = null;
+    audio.onplaying = null;              // MAVI-F0: zero-leak (ölçüm kancası bırakılmaz)
     onEnd?.();
   };
 
   try {
     audio.currentTime = 0;
+    /* MAVI-F0: klip ÖNCEDEN sentezlenmiştir → sentez süresi ~0; `playing` olayı
+     * platformun GERÇEK başlangıç bildirimidir (proxy değil, kanıt). */
+    markMaviLatency('tts_audio_ready');
+    audio.onplaying = () => { markMaviLatency('first_audio_confirmed'); };
+    markMaviLatency('first_audio_requested');
     const p = audio.play();
     // play() başlatıldı → klibi sahiplen, ducking + bitiş kancalarını bağla.
     _active = audio;

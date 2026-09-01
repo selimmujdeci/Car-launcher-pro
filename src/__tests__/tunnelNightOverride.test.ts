@@ -214,12 +214,16 @@ describe('PR-3b uyumu — zemin kutbu ve rota rengi', () => {
     // kılıf eşiklerine bağlandı; palet SERBEST BÜYÜMEZ, bu liste hâlâ kapıdır.
     const allowed = new Set([
       '#ffffff', '#0A0C10', '#4285f4', '#f59e0b',
-      '#1A73E8', '#4F46E5', '#10b981', '#1A56C4',
-      // #619 → #622 gece çekirdeği — renk kimliği korunur (mavi → indigo → yeşil).
-      // Değerler #622'de yeni gece zeminine göre YENİDEN ÖLÇÜLDÜ; eski
-      // `#5b9dff`/`#9aa0ff` yalnız gerekçe yorumlarında kaldı (kod DEĞİL) ve
-      // bu liste bilinçli olarak yalnız KODDAKİ renkleri taşır — kapı dar kalsın.
-      '#79b0ff', '#a5aaff', '#34d399',
+      // RC-2026.08.24-OEM — GÜNDÜZ çekirdeği: doygun OEM mavi → derin mavi →
+      // camgöbeği. Eski `#1A73E8`/`#4F46E5`/`#10b981` KODDAN ÇIKTI (yalnız
+      // gerekçe yorumlarında kaldı) ve bu liste bilinçli olarak yalnız KODDAKİ
+      // renkleri taşır — kapı dar kalsın.
+      '#006CFF', '#0057D9', '#00A6FF',
+      // #619 → #622 → RC-2026.08.24-OEM gece çekirdeği — renk kimliği korunur
+      // (mavi → indigo → camgöbeği). Orta durak `#969CFF` ile geldi ama #619'un
+      // gece-yolu eşiğini (≥1,9) 1,872 ile kaçırıyordu; ÖLÇÜLEREK `#9CA2FF`ye
+      // açıldı (yol 1,989) — palet geri alınmadı, yalnız eşiğe getirildi.
+      '#72B6FF', '#9CA2FF', '#24D6C4',
     ]);
     for (const h of hexes) {
       expect(allowed.has(h), `rota paletine yeni renk girmiş: ${h}`).toBe(true);

@@ -34,11 +34,21 @@
  */
 
 import { runtimeManager } from '../../core/runtime/AdaptiveRuntimeManager';
-import { getOBDDataSnapshot } from '../obdService';
+import { getOBDDataSnapshot, getObdSignalHealth } from '../obdService';
+import { engineRunningFrom, type ObdHealthState } from './obdHealthModel';
+import { useUnifiedVehicleStore } from '../vehicleDataLayer/UnifiedVehicleStore';
+import {
+  resolveLiveCanonicalSignal, resolveBatteryVoltage, readLiveObdSignal,
+} from '../vehicleDataLayer/canonicalVehicleSignal';
 import {
   predict, DEFAULT_PREDICTION_RULES, MIN_TREND_SAMPLES,
   type Prediction, type PredictionKind, type TrendSample,
 } from './predictionEngine';
+import {
+  evaluateEarlyWarnings, EARLY_WARNING_RULES,
+  type EarlyWarningResult, type SignalWindow,
+} from './earlyWarningEngine';
+import type { CanonicalObdKey } from './canonicalObdSignals';
 
 /** Görev kimliği — çift kayıt öncekini değiştirir (idempotent). */
 export const PREDICTION_TASK_ID = 'prediction-engine';
@@ -73,17 +83,26 @@ export const MAX_SAMPLE_AGE_MS = 60_000;
 const TRACKED: ReadonlyArray<{
   readonly kind: PredictionKind;
   readonly signal: string;
-  readonly read: ((d: ReturnType<typeof getOBDDataSnapshot>) => number | null) | null;
+  readonly read: ((d: ReturnType<typeof getOBDDataSnapshot>, nowMs: number) => number | null) | null;
 }> = [
   {
     kind: 'overheat',
-    signal: 'engineTemp',
-    read: (d) => _num(d.engineTemp),
+    signal: 'coolantTemp',
+    /* P0-OBD-04: ham `d.engineTemp` yerine KANONİK otorite (CAN → OBD → yok) +
+       tazelik kapısı. Eskiden bu koşucu OBD anlık görüntüsünü okuyordu; CAN'lı
+       araçta motor ısısını HİÇ göremiyor, bayat okumayı ise trend sanabiliyordu. */
+    read: (_d, nowMs) =>
+      resolveLiveCanonicalSignal(useUnifiedVehicleStore.getState(), 'coolantTemp', nowMs).value,
   },
   {
     kind: 'battery_drain',
-    signal: 'batteryVoltage',
-    read: (d) => _num(d.batteryVoltage),
+    signal: 'batteryVolt',
+    /* TEK ZİNCİR (P0-OBD-03): CAN → OBD PID 0x42 → adaptör ATRV → yok. */
+    read: (d, nowMs) => resolveBatteryVoltage(
+      useUnifiedVehicleStore.getState(),
+      _num(d.batteryVoltage),
+      nowMs,
+    ).value,
   },
   {
     kind: 'oil_pressure_drop',
@@ -102,6 +121,101 @@ export const RULES_WITHOUT_SOURCE: readonly PredictionKind[] =
 /** Sayı mı — sentinel (`-1`) ve `NaN` ÖLÇÜM SAYILMAZ. */
 function _num(v: unknown): number | null {
   return typeof v === 'number' && Number.isFinite(v) && v > -1 ? v : null;
+}
+
+/* ── P0-OBD-04 · ERKEN UYARI ÖRNEKLEMESİ ─────────────────────────────────────
+ * AYRI BİR KOŞUCU KURULMADI: erken uyarı, ZATEN çalışan bu tikin içinde ve
+ * AYNI örnekleme disipliniyle beslenir (bayat/eksik örnek alınmaz, araç
+ * değişince tampon temizlenir). İkinci bir zamanlayıcı, ikinci bir tazelik
+ * kapısı ve ikinci bir "araç değişti" kararı demek olurdu.
+ *
+ * PID EKLENMEDİ: aşağıdaki sinyallerin HEPSİ `canonicalObdSignals` katalogunda
+ * ZATEN tanımlı ve köprü tarafından ZATEN okunuyor. Bu liste yalnız hangilerinin
+ * TREND TAMPONUNA alınacağını söyler — ELM327 hattına tek bir ek sorgu gitmez.
+ *
+ * Paylaşılan beş büyüklük (CAN karşılığı olanlar) `resolveLiveCanonicalSignal`
+ * ile, OBD'ye özgü olanlar `readLiveObdSignal` ile okunur — ikisi de AYNI
+ * tazelik/oturum politikasını uygular.
+ */
+const EW_SHARED = ['coolantTemp', 'ambientTemp'] as const;
+const EW_OBD_ONLY: readonly CanonicalObdKey[] = [
+  'longFuelTrimB1', 'longFuelTrimB2', 'shortFuelTrimB1',
+  'egrError', 'egrCommanded',
+  'moduleVoltage', 'engineRunTime',
+  'catTempB1S1', 'oilTemp', 'intakeTemp', 'maf', 'manifoldPressure',
+];
+
+/** Erken uyarı tamponları — kanonik anahtar → örnekler. */
+const _ewSamples = new Map<CanonicalObdKey, TrendSample[]>();
+/** Araç bu sinyali HİÇ verdi mi (desteklenmeyen PID "normal" SAYILMASIN). */
+const _ewSeen = new Set<CanonicalObdKey>();
+let _earlyWarnings: readonly EarlyWarningResult[] = Object.freeze([]);
+let _ewSkippedMissing = 0;
+
+/**
+ * Motor çalışıyor mu — `store.rpm` MEVCUT füzyon otoritesidir (yeni kaynak
+ * eklenmedi). `undefined`/`null` → BİLİNMİYOR: motor durumuna bağlı kurallar
+ * fail-closed susar (kontak kapalıyken düşük voltaj NORMALDİR).
+ *
+ * ── P0-OBD-07 · SICAK SİNYAL TAZELİK KAPISI (yeni) ─────────────────────────
+ * `store.rpm` SAB hot-path'inden akar ve **kanonik tazelik penceresi YOKTUR**
+ * (P0-OBD-02 yalnız `obdSignals` kayıtlarını kapsar). Yani hat durduğunda devir
+ * son değerinde DONAR ve buradan bakan biri "motor 2000 devirde çalışıyor"
+ * sanmaya devam ederdi. O yanlış bağlam, motor-bağımlı TÜM erken uyarı
+ * kurallarını (şarj sistemi · termostat · yakıt trimi · EGR · katalizör) ölü
+ * bir hattın son değeriyle çalıştırırdı.
+ *
+ * İKİNCİ FRESHNESS SİSTEMİ DEĞİL: rpm'in BAŞKA hiçbir tazelik otoritesi yok;
+ * `obdHealthModel` onun TEK kapısıdır. Kanonik sinyaller bu kapıdan GEÇMEZ —
+ * onların otoritesi P0-OBD-02'de kalır.
+ *
+ * FAIL-CLOSED: devir sinyali `STALLED`/`DISCONNECTED` ise cevap `null`
+ * ("bilinmiyor") olur; motor durumuna bağlı kurallar susar. "Motor duruyor"
+ * DEMEYİZ — bu da bir iddia olurdu ve bazı kuralları yanlış yönde açardı.
+ */
+function _engineRunning(): boolean | null {
+  let rpmState: ObdHealthState | null = null;
+  try {
+    rpmState = getObdSignalHealth().fields.find((f) => f.field === 'rpm')?.state ?? null;
+  } catch { /* sağlık okunamadı → kapı uygulanmaz (fail-soft, eski davranış) */ }
+  try {
+    /* Karar TEK yerde: `engineRunningFrom` saf ve kilitli. */
+    return engineRunningFrom(rpmState, useUnifiedVehicleStore.getState().rpm);
+  } catch {
+    return null;
+  }
+}
+
+function _ewClear(): void {
+  _ewSamples.clear();
+  _ewSeen.clear();
+  _earlyWarnings = Object.freeze([]);
+}
+
+/** Tik başına bir kez: kanonik ölçümleri tampona al ve kuralları değerlendir. */
+function _ewTick(nowMs: number): void {
+  const st = useUnifiedVehicleStore.getState();
+
+  const push = (k: CanonicalObdKey, v: number | null): void => {
+    if (v === null) { _ewSkippedMissing += 1; return; }
+    _ewSeen.add(k);
+    let buf = _ewSamples.get(k);
+    if (!buf) { buf = []; _ewSamples.set(k, buf); }
+    buf.push({ t: nowMs, value: v });
+    if (buf.length > MAX_SAMPLES) buf.splice(0, buf.length - MAX_SAMPLES);
+  };
+
+  for (const k of EW_SHARED) push(k, resolveLiveCanonicalSignal(st, k, nowMs).value);
+  for (const k of EW_OBD_ONLY) push(k, readLiveObdSignal(st, k, nowMs));
+
+  const windows = new Map<CanonicalObdKey, SignalWindow>();
+  for (const k of _ewSeen) {
+    windows.set(k, { available: true, samples: _ewSamples.get(k) ?? [] });
+  }
+
+  _earlyWarnings = Object.freeze(
+    evaluateEarlyWarnings({ windows, engineRunning: _engineRunning() }),
+  );
 }
 
 /* ── Durum (süreç ömürlü, sınırlı) ───────────────────────────────────────── */
@@ -143,6 +257,18 @@ export interface PredictionRuntimeSnapshot {
    * yok" izlenimi verirdi.
    */
   readonly rulesWithoutSource: readonly string[];
+  /**
+   * P0-OBD-04 — erken uyarı hükümleri. HER kural için bir kayıt vardır
+   * (`NORMAL` · `WATCH` · `ATTENTION` · `INSUFFICIENT_DATA` · `SIGNAL_MISSING`);
+   * sessizce atlanan kural YOKTUR.
+   */
+  readonly earlyWarnings: readonly EarlyWarningResult[];
+  /** Erken uyarı için tanımlı kural adedi. */
+  readonly earlyWarningRuleCount: number;
+  /** Kanonik ölçüm okunamadığı için alınmayan erken-uyarı örneği sayısı. */
+  readonly earlyWarningSkippedMissing: number;
+  /** Erken uyarı sinyali başına biriken örnek sayısı. */
+  readonly earlyWarningSampleCounts: Readonly<Record<string, number>>;
 }
 
 /** LAB salt-okuma yüzeyi — ASLA fırlatmaz, hiçbir şey tetiklemez. */
@@ -152,6 +278,8 @@ export function getPredictionSnapshot(): PredictionRuntimeSnapshot {
     if (read === null) continue;   // kaynaksız kural sayaçta yer TUTMAZ
     counts[kind] = _samples.get(kind)?.length ?? 0;
   }
+  const ewCounts: Record<string, number> = {};
+  for (const [k, buf] of _ewSamples) ewCounts[k] = buf.length;
   return {
     running: _running,
     taskId: PREDICTION_TASK_ID,
@@ -167,7 +295,19 @@ export function getPredictionSnapshot(): PredictionRuntimeSnapshot {
     skippedMissing: _skippedMissing,
     clearCount: _clearCount,
     rulesWithoutSource: RULES_WITHOUT_SOURCE,
+    earlyWarnings: _earlyWarnings,
+    earlyWarningRuleCount: EARLY_WARNING_RULES.length,
+    earlyWarningSkippedMissing: _ewSkippedMissing,
+    earlyWarningSampleCounts: ewCounts,
   };
+}
+
+/**
+ * Erken uyarı hükümleri — Mavi ve ürün yüzeyleri için doğrudan okuma.
+ * Yan etkisiz; hiçbir şey tetiklemez.
+ */
+export function getEarlyWarnings(): readonly EarlyWarningResult[] {
+  return _earlyWarnings;
 }
 
 /**
@@ -176,14 +316,21 @@ export function getPredictionSnapshot(): PredictionRuntimeSnapshot {
  * uydurmak, olmayan bir trend üretir.
  */
 function _vehicleKey(d: ReturnType<typeof getOBDDataSnapshot>): string {
-  return `${d.connectionState}|${d.source}|${d.vehicleType}`;
+  /* P0-OBD-04: OBD OTURUM NUMARASI da anahtara girer. Bağlantı durumu aynı
+     kalarak yeniden bağlanılabilir (aynı `connected|real|ice`), o zaman eski
+     tampon SESSİZCE yeni oturuma taşınır ve önceki aracın değerleriyle trend
+     üretilirdi. Epoch bunu yapısal olarak imkânsız kılar. */
+  let epoch = -1;
+  try { epoch = useUnifiedVehicleStore.getState().obdSessionEpoch; } catch { /* fail-soft */ }
+  return `${d.connectionState}|${d.source}|${d.vehicleType}|${epoch}`;
 }
 
 function _clearSamples(): void {
-  if (_samples.size === 0) return;
+  const had = _samples.size > 0 || _ewSamples.size > 0;
   _samples.clear();
   _predictions = Object.freeze({});
-  _clearCount += 1;
+  _ewClear();
+  if (had) _clearCount += 1;
 }
 
 /** Tik gövdesi — tahsis-fakiri, ASLA fırlatmaz. */
@@ -197,11 +344,37 @@ function _tick(): void {
     if (_lastVehicleKey !== null && _lastVehicleKey !== key) _clearSamples();
     _lastVehicleKey = key;
 
+    const now = Date.now();
+
+    /* ── P0-OBD-06 · BURAYA HAT KAPISI EKLENMEDİ (bilinçli) ────────────────
+     * Denendi ve GERİ ALINDI. Sebep ölçüldü: bu koşucunun okuduğu HER ölçüm
+     * zaten kendi tazelik penceresinden ve oturum damgasından geçiyor
+     * (`resolveLiveCanonicalSignal` · `readLiveObdSignal` — P0-OBD-02). Üstüne
+     * bir de hat düzeyi blok koymak İKİNCİ bir tazelik otoritesi olurdu ve
+     * yanlış tarafa çalışırdı: hat hükmü ÇEKİRDEK sinyallerden (hız/devir)
+     * türer, ama ECU çekirdek PID'lere susarken genişletilmiş rotasyon hâlâ
+     * geçerli yakıt trimi verebilir — o ölçüm çöpe atılırdı (P0-OBD-04'ün
+     * aynı gerekçeyle aldığı karar).
+     *
+     * Hat sağlığı bu turda GÖZLEM ve SUNUM katmanına bağlandı (LAB ekranı ·
+     * Mavi'nin "veriler bayat" cevabı); karar kapısı per-sinyal olarak
+     * TEK yerde kalmaya devam ediyor. */
+
+    /* ── P0-OBD-04 · ERKEN UYARI, ÇEKİRDEK `dataFresh` KAPISINDAN ÖNCE ──────
+     * Bilinçli sıra. Erken uyarı örnekleri KANONİK mağazadan okunur ve her
+     * ölçüm KENDİ tazelik penceresini taşır (`readLiveObdSignal` bayatı zaten
+     * eler). Buraya bir de çekirdek `dataFresh` kapısı koymak İKİNCİ bir
+     * tazelik otoritesi olurdu ve yanlış tarafa çalışırdı: ECU çekirdek
+     * PID'lere susarken (0x0C/0x0D timeout) genişletilmiş rotasyon hâlâ yakıt
+     * trimi verebilir — o ölçüm GEÇERLİDİR ve atılmamalıdır.
+     *
+     * Aşağıdaki `dataFresh` kapısı ÖNGÖRÜ yolunun MEVCUT sözleşmesidir ve
+     * DEĞİŞTİRİLMEDİ. */
+    _ewTick(now);
+
     /* BAYAT VERİ ÖRNEKLENMEZ. Duran bir sayıyı örneklemek "trend yok" üretir
        ve gerçek yükselişi maskeler — sessiz körlük. */
     if (d.dataFresh !== true) { _skippedStale += 1; return; }
-
-    const now = Date.now();
     const lastSeen = typeof d.lastSeenMs === 'number' ? d.lastSeenMs : 0;
     if (lastSeen > 0 && now - lastSeen > MAX_SAMPLE_AGE_MS) { _skippedStale += 1; return; }
 
@@ -210,7 +383,7 @@ function _tick(): void {
       /* Kaynağı olmayan kural HİÇ denenmez — "eksik ölçüm" sayacını da
          şişirmez (eksik olan ölçüm değil, sinyalin KENDİSİ). */
       if (read === null) continue;
-      const value = read(d);
+      const value = read(d, now);
       if (value === null) { _skippedMissing += 1; continue; }
 
       let buf = _samples.get(kind);
@@ -223,6 +396,8 @@ function _tick(): void {
       if (p) next[kind] = p;
     }
     _predictions = Object.freeze(next);
+
+
   } catch {
     /* fail-soft: öngörü katmanı hiçbir koşulda veri yolunu bozamaz. */
   }
@@ -269,6 +444,8 @@ export function _resetPredictionRuntimeForTest(): void {
   _skippedMissing = 0;
   _clearCount = 0;
   _lastVehicleKey = null;
+  _ewClear();
+  _ewSkippedMissing = 0;
 }
 
 /** @internal — testler tik gövdesini doğrudan koşturur (timer beklemeden). */

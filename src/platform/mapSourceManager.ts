@@ -466,6 +466,15 @@ export interface TileModeVerdict {
   readonly arActive:    boolean;
   readonly vectorGateBlocked: boolean;
   readonly deviceTier: string;
+  /** ETKİN gece/gündüz (tünel örtüsü dahil) — `getMapStyle()`in okuduğu değer.
+   *  #652-sonrası saha bulgusu: `resolved`/`intent` senkron olsa bile GECE
+   *  yanlış çözülürse harita "ham OSM" (RASTER_PAINT_DAY) gibi görünür —
+   *  önceki verdict bunu göstermiyordu (gözlemlenebilirlik boşluğu). */
+  readonly mapNight: boolean;
+  /** İSTENEN gece/gündüz (saat/kullanıcı) — tünel örtüsü kalkınca dönülecek değer. */
+  readonly mapNightRequested: boolean;
+  /** `intent !== resolved` — niyet ile fiilen ekrana çizilen mod SENKRON DEĞİL. */
+  readonly intentResolvedMismatch: boolean;
 }
 
 /**
@@ -500,6 +509,8 @@ export function getTileModeVerdict(): TileModeVerdict {
     resolved, intent: tileRender, reason, mapMode,
     thermalLock: _thermalLock, arActive: _arActive,
     vectorGateBlocked: gateBlocked, deviceTier: tier,
+    mapNight: _mapNight, mapNightRequested: _mapNightRequested,
+    intentResolvedMismatch: resolved !== tileRender,
   };
 }
 

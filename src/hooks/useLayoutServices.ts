@@ -23,7 +23,7 @@ import {
   setBrightness,
   startHeadlightAutoBrightness, stopHeadlightAutoBrightness,
 } from '../platform/systemSettingsService';
-import { startGPSTracking, stopGPSTracking, feedBackgroundLocation } from '../platform/gpsService';
+import { startGPSTracking, stopGPSTracking, feedBackgroundLocation, getGPSLocationTruthDiagnostics } from '../platform/gpsService';
 import { startOBD, stopOBD, setObdFuelConfig } from '../platform/obdService';
 import { syncManufacturerDidProfile } from '../platform/obd/profiles';
 import { startWifiService, stopWifiService } from '../platform/wifiService';
@@ -182,7 +182,7 @@ export function useLayoutServices({
   // Background GPS service + break reminder (native only, once)
   useEffect(() => {
     if (!isNative) return;
-    CarLauncher.startBackgroundService().catch((e: unknown) => {
+    CarLauncher.startBackgroundService({ gpsGeneration: getGPSLocationTruthDiagnostics().generation }).catch((e: unknown) => {
       logError('useLayoutServices:startBackgroundService', e);
       showToast({ type: 'warning', title: 'Arka Plan GPS', message: 'Foreground servis başlatılamadı.', duration: 5000 });
     });

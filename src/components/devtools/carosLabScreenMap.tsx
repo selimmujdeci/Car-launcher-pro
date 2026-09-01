@@ -12,6 +12,24 @@ import type { ReactElement } from 'react';
 import { lazyWithRetry } from '../../utils/lazyWithRetry';
 import type { CarosLabToolId } from '../../platform/devtools/carosLabCatalog';
 
+const NativeBoundaryHalScreen = lazyWithRetry(() =>
+  import('./screens/NativeBoundaryHalScreen').then((m) => ({ default: m.NativeBoundaryHalScreen })));
+const SecurityTrustCapabilityScreen = lazyWithRetry(() =>
+  import('./screens/SecurityTrustCapabilityScreen').then((m) => ({ default: m.SecurityTrustCapabilityScreen })));
+const PerformanceProfilerScreen = lazyWithRetry(() =>
+  import('./screens/PerformanceProfilerScreen').then((m) => ({ default: m.PerformanceProfilerScreen })));
+const EarlyVehicleIdentityScreen = lazyWithRetry(() =>
+  import('./screens/EarlyVehicleIdentityScreen').then((m) => ({ default: m.EarlyVehicleIdentityScreen })));
+const EcuEndpointInventoryScreen = lazyWithRetry(() =>
+  import('./screens/EcuEndpointInventoryScreen').then((m) => ({ default: m.EcuEndpointInventoryScreen })));
+const MultiEcuDtcCoverageScreen = lazyWithRetry(() =>
+  import('./screens/MultiEcuDtcCoverageScreen').then((m) => ({ default: m.MultiEcuDtcCoverageScreen })));
+const CapabilityLearningScreen = lazyWithRetry(() =>
+  import('./screens/CapabilityLearningScreen').then((m) => ({ default: m.CapabilityLearningScreen })));
+const GapResolverScreen = lazyWithRetry(() =>
+  import('./screens/GapResolverScreen').then((m) => ({ default: m.GapResolverScreen })));
+const DiscoveryCapabilityScreen = lazyWithRetry(() =>
+  import('./screens/DiscoveryCapabilityScreen').then((m) => ({ default: m.DiscoveryCapabilityScreen })));
 const LiveDataScreen = lazyWithRetry(() =>
   import('./screens/LiveDataScreen').then((m) => ({ default: m.LiveDataScreen })));
 const PidDidExplorerScreen = lazyWithRetry(() =>
@@ -28,6 +46,30 @@ const TripCostScreen = lazyWithRetry(() =>
   import('./screens/TripCostScreen').then((m) => ({ default: m.TripCostScreen })));
 const FleetConnectivityScreen = lazyWithRetry(() =>
   import('./screens/FleetConnectivityScreen'));
+const DeviceIdentityScreen = lazyWithRetry(() =>
+  import('./screens/DeviceIdentityScreen'));
+const ObdDataBridgeScreen = lazyWithRetry(() =>
+  import('./screens/ObdDataBridgeScreen'));
+const Mode06MonitorsScreen = lazyWithRetry(() =>
+  import('./screens/Mode06MonitorsScreen'));
+const DtcCoverageScreen = lazyWithRetry(() =>
+  import('./screens/DtcCoverageScreen'));
+const EcuCapabilityScreen = lazyWithRetry(() =>
+  import('./screens/EcuCapabilityScreen'));
+const DtcClearEvidenceScreen = lazyWithRetry(() =>
+  import('./screens/DtcClearEvidenceScreen'));
+const PidDiscoveryScreen = lazyWithRetry(() =>
+  import('./screens/PidDiscoveryScreen'));
+const DtcAuthorityScreen = lazyWithRetry(() =>
+  import('./screens/DtcAuthorityScreen'));
+const EcuInventoryScreen = lazyWithRetry(() =>
+  import('./screens/EcuInventoryScreen'));
+const OemEcuProfileScreen = lazyWithRetry(() =>
+  import('./screens/OemEcuProfileScreen'));
+const VehicleIdentityVinScreen = lazyWithRetry(() =>
+  import('./screens/VehicleIdentityVinScreen'));
+const ObdSignalHealthScreen = lazyWithRetry(() =>
+  import('./screens/ObdSignalHealthScreen'));
 const FleetIdentityScreen = lazyWithRetry(() =>
   import('./screens/FleetIdentityScreen'));
 const FleetDriverIdentityScreen = lazyWithRetry(() =>
@@ -72,6 +114,10 @@ const SignalAuthorityScreen = lazyWithRetry(() =>
   import('./screens/SignalAuthorityScreen').then((m) => ({ default: m.SignalAuthorityScreen })));
 const AdapterDiagnosticsScreen = lazyWithRetry(() =>
   import('./screens/AdapterDiagnosticsScreen').then((m) => ({ default: m.AdapterDiagnosticsScreen })));
+const VdkReplayScreen = lazyWithRetry(() =>
+  import('./screens/VdkReplayScreen').then((m) => ({ default: m.VdkReplayScreen })));
+const CddlInventoryScreen = lazyWithRetry(() =>
+  import('./screens/CddlInventoryScreen').then((m) => ({ default: m.CddlInventoryScreen })));
 const MaviConsoleScreen = lazyWithRetry(() =>
   import('./screens/MaviConsoleScreen').then((m) => ({ default: m.MaviConsoleScreen })));
 const MaviReasoningEngineScreen = lazyWithRetry(() =>
@@ -102,6 +148,10 @@ const ThemeRuntimeScreen = lazyWithRetry(() =>
   import('./screens/ThemeRuntimeScreen').then((m) => ({ default: m.ThemeRuntimeScreen })));
 const ToolCallingScreen = lazyWithRetry(() =>
   import('./screens/ToolCallingScreen').then((m) => ({ default: m.ToolCallingScreen })));
+const MaviLatencyScreen = lazyWithRetry(() =>
+  import('./screens/MaviLatencyScreen').then((m) => ({ default: m.MaviLatencyScreen })));
+const CapabilityFabricScreen = lazyWithRetry(() =>
+  import('./screens/CapabilityFabricScreen').then((m) => ({ default: m.CapabilityFabricScreen })));
 const ProvenanceScreen = lazyWithRetry(() =>
   import('./screens/ProvenanceScreen').then((m) => ({ default: m.ProvenanceScreen })));
 const PredictionEngineScreen = lazyWithRetry(() =>
@@ -114,6 +164,12 @@ const KnowledgeExplorerScreen = lazyWithRetry(() =>
   import('./screens/KnowledgeExplorerScreen').then((m) => ({ default: m.KnowledgeExplorerScreen })));
 const RuntimeModeScreen = lazyWithRetry(() =>
   import('./screens/RuntimeModeScreen').then((m) => ({ default: m.RuntimeModeScreen })));
+const RuntimeAuthorityMapScreen = lazyWithRetry(() =>
+  import('./screens/RuntimeAuthorityMapScreen').then((m) => ({ default: m.RuntimeAuthorityMapScreen })));
+const RuntimeLifecycleContractScreen = lazyWithRetry(() =>
+  import('./screens/RuntimeLifecycleContractScreen').then((m) => ({ default: m.RuntimeLifecycleContractScreen })));
+const RuntimeServiceRegistryScreen = lazyWithRetry(() =>
+  import('./screens/RuntimeServiceRegistryScreen').then((m) => ({ default: m.RuntimeServiceRegistryScreen })));
 const RecoveryMonitorScreen = lazyWithRetry(() =>
   import('./screens/RecoveryMonitorScreen').then((m) => ({ default: m.RecoveryMonitorScreen })));
 const RouteLayerInspectorScreen = lazyWithRetry(() =>
@@ -145,18 +201,38 @@ export function renderAvailableTool(id: CarosLabToolId): ReactElement | null {
     case 'ai-evidence-engine': return <AiEvidenceEngineScreen />;
     case 'location-engine':    return <LocationEngineScreen />;
     case 'navigation-core':    return <NavigationCoreScreen />;
+    case 'discovery-capability': return <DiscoveryCapabilityScreen />;
+    case 'early-vehicle-identity': return <EarlyVehicleIdentityScreen />;
+    case 'ecu-endpoint-inventory': return <EcuEndpointInventoryScreen />;
+    case 'multi-ecu-dtc-coverage': return <MultiEcuDtcCoverageScreen />;
+    case 'capability-learning': return <CapabilityLearningScreen />;
+    case 'gap-resolver': return <GapResolverScreen />;
     case 'address-search-evidence': return <AddressSearchEvidenceScreen />;
     case 'trip-engine':        return <TripEngineScreen />;
     case 'trip-cost':          return <TripCostScreen />;
     case 'pid-timing-experiment': return <PidTimingExperimentScreen />;
     case 'kwp-monitor':        return <KwpMonitorScreen />;
     case 'vehicle-fingerprint': return <VehicleFingerprintScreen />;
+    case 'device-identity': return <DeviceIdentityScreen />;
+    case 'obd-data-bridge': return <ObdDataBridgeScreen />;
+    case 'mode06-monitors': return <Mode06MonitorsScreen />;
+    case 'dtc-coverage': return <DtcCoverageScreen />;
+    case 'ecu-capability': return <EcuCapabilityScreen />;
+    case 'dtc-clear-evidence': return <DtcClearEvidenceScreen />;
+    case 'pid-discovery': return <PidDiscoveryScreen />;
+    case 'dtc-authority': return <DtcAuthorityScreen />;
+    case 'ecu-inventory': return <EcuInventoryScreen />;
+    case 'oem-ecu-profiles': return <OemEcuProfileScreen />;
+    case 'vehicle-identity-vin': return <VehicleIdentityVinScreen />;
+    case 'obd-signal-health': return <ObdSignalHealthScreen />;
     case 'signal-authority': return <SignalAuthorityScreen />;
     case 'profile-candidates': return <ProfileCandidateScreen />;
     case 'service-routines': return <ServiceRoutineScreen />;
     case 'fleet-kb': return <FleetKbScreen />;
     case 'background-power': return <BackgroundPowerScreen />;
     case 'adapter-diagnostics': return <AdapterDiagnosticsScreen />;
+    case 'vdk-replay': return <VdkReplayScreen />;
+    case 'cddl-inventory': return <CddlInventoryScreen />;
     case 'phone-hub-probe':    return <PhoneHubProbeScreen />;
     case 'phone-hub-field-validation': return <PhoneHubFieldValidationScreen />;
     case 'phone-hub-link':     return <PhoneHubLinkScreen />;
@@ -165,10 +241,18 @@ export function renderAvailableTool(id: CarosLabToolId): ReactElement | null {
     case 'poll-scheduler':     return <RuntimeSchedulingScreen focus="poll-scheduler" />;
     case 'recovery-monitor':   return <RecoveryMonitorScreen />;
     case 'runtime-mode':       return <RuntimeModeScreen />;
+    case 'runtime-authority-map': return <RuntimeAuthorityMapScreen />;
+    case 'security-trust-capability': return <SecurityTrustCapabilityScreen />;
+    case 'performance-profiler': return <PerformanceProfilerScreen />;
+    case 'runtime-lifecycle-contract': return <RuntimeLifecycleContractScreen />;
+    case 'runtime-service-registry': return <RuntimeServiceRegistryScreen />;
+    case 'native-boundary-hal': return <NativeBoundaryHalScreen />;
     case 'deep-scan':          return <DeepScanScreen />;
     case 'prediction-engine':  return <PredictionEngineScreen />;
     case 'signal-provenance':  return <ProvenanceScreen />;
     case 'tool-calling':       return <ToolCallingScreen />;
+    case 'mavi-latency':       return <MaviLatencyScreen />;
+    case 'capability-fabric': return <CapabilityFabricScreen />;
     case 'memory-explorer':    return <MemoryExplorerScreen />;
     case 'knowledge-explorer': return <KnowledgeExplorerScreen />;
     case 'mavi-console':       return <MaviConsoleScreen />;

@@ -10,6 +10,9 @@
 // değişikliği YOK; mapService.ts'ten birebir taşındı.
 // ══════════════════════════════════════════════════════════════════════════
 import maplibregl, { Map as MapLibreMap, GeoJSONSource, Marker } from 'maplibre-gl';
+/* ARCH-06/F1 — YALNIZ SAYAÇ. Koordinat, geometri ve rota verisi ölçüm
+   katmanına TAŞINMAZ; MapLibre render otoritesi DEĞİŞMEDİ. */
+import { bumpPerf } from '../perf/perfCounters';
 import { setMapNight } from '../mapSourceManager';
 import { safeMoveLayer, safeSetPaint } from './_safeLayerOps';
 import { captureRouteLayerProbe, rememberRouteLayerProbe } from './routeLayerProbe';
@@ -31,6 +34,14 @@ import {
   type RouteStepLabelInput,
 } from './core/routeStepLabelsModel';
 import type { RouteStep } from '../routingService';
+import {
+  resolveDeclutter, DECLUTTER_OWNED_LAYERS, DECLUTTER_POLICY_VERSION,
+  type MapSurface, type DeclutterDecision,
+} from './core/mapDeclutterModel';
+import {
+  resolveRouteEmphasis, routeConfidenceFrom, ROUTE_EMPHASIS_POLICY_VERSION,
+  type RouteConfidence, type RouteEmphasisDecision,
+} from './core/routeEmphasisModel';
 import { getMapNight, getMapMode } from '../mapSourceManager';
 import {
   NAV_SUPPRESS_LAYERS,
@@ -171,25 +182,30 @@ function _drawRover(ctx: CanvasRenderingContext2D, size: number, night: boolean)
   ctx.fillRect(0, 0, size, size);
   ctx.restore();
 
-  // 3c) Kenar ışığı (rim light)
+  /* 3c) Kenar ışığı (rim light) — 1.6 → 2.0px. KÜÇÜK-ÖLÇEK OKUNABİLİRLİK TURU
+   * (2026-08-24, kullanıcı: "kesinlikle premium değil", gerçek cihaz ekran
+   * görüntüsü): marker GPU'ya 144px çizilir ama haritada icon-size 0.30-0.51
+   * ile ~40-70px'e küçültülür. 1.6px bir kenar çizgisi bu küçültmede
+   * bilinear/mipmap örneklemesiyle neredeyse tamamen erir; 2.0px kenarda
+   * hayatta kalma payı bırakır. */
   _roundRectPath(ctx, X(-30), Y(14), P(60), P(116), P(13));
-  ctx.lineWidth = P(1.6);
+  ctx.lineWidth = P(2.0);
   ctx.strokeStyle = night ? 'rgba(255,185,90,0.6)' : 'rgba(255,255,255,0.5)';
   ctx.stroke();
 
-  // 4) Panel/kapı dikişleri
-  ctx.strokeStyle = night ? 'rgba(0,0,0,0.4)' : 'rgba(70,55,35,0.35)';
-  ctx.lineWidth = P(1);
-  for (const seam of [[-26, 26, 46], [-30, 30, 74], [-26, 26, 112]]) {
-    ctx.beginPath(); ctx.moveTo(X(seam[0]), Y(seam[2])); ctx.lineTo(X(seam[1]), Y(seam[2])); ctx.stroke();
-  }
+  /* ── KÜÇÜK-ÖLÇEK SADELEŞTİRME (2026-08-24) ─────────────────────────────
+   * Kullanıcı kararı: siluet + amber ışık barı + camlar KALIR (marka
+   * kimliğinin çekirdeği); yalnız BÜYÜK boyutta anlamlı olan ince detaylar
+   * kaldırılır. Kaldırılanlar — panel/kapı dikişleri (1px çizgi), kaput
+   * havalandırma yarıkları (3px dolgu), tavan rafı (yan ray + çapraz bar),
+   * yan aynalar (6x5 birim dolgu): hepsi 144px tuval üstünde ~40-70px'e
+   * küçülünce (icon-size 0.30-0.51) tek başına anlamsız, üst üste binince
+   * "bulanık/ucuz" okunan gürültüye dönüşüyordu — gövde/cam/ışık barının
+   * netliğini onlar yiyordu. Silinen katmanların çekirdek siluete hiçbir
+   * katkısı yoktu (yalnız yakın-çekim detayıydı); kaldırılmaları görsel
+   * bilgi KAYBI değil, KONTRAST KAZANCI (kalan öğeler artık rakipsiz). */
 
-  // 5) Kaput havalandırma yarıkları
-  ctx.fillStyle = night ? 'rgba(0,0,0,0.32)' : 'rgba(80,62,38,0.3)';
-  _roundRectPath(ctx, X(-8), Y(30), P(16), P(3), P(1.5)); ctx.fill();
-  _roundRectPath(ctx, X(-8), Y(35), P(16), P(3), P(1.5)); ctx.fill();
-
-  // 6) Greenhouse — ön cam, tavan paneli, arka cam
+  // 4) Greenhouse — ön cam, tavan paneli, arka cam (marka kimliği: camlar)
   ctx.fillStyle = glass;
   _roundRectPath(ctx, X(-23), Y(48), P(46), P(12), P(4)); ctx.fill(); // ön cam
   ctx.fillStyle = night ? '#5a5343' : '#d8c9a8';
@@ -197,39 +213,27 @@ function _drawRover(ctx: CanvasRenderingContext2D, size: number, night: boolean)
   ctx.fillStyle = glass;
   _roundRectPath(ctx, X(-23), Y(100), P(46), P(10), P(4)); ctx.fill(); // arka cam
 
-  // 6b) Tavan rafı (yan raylar + çapraz barlar)
-  ctx.strokeStyle = night ? '#1f1c16' : '#6a5c42';
-  ctx.lineWidth = P(2);
-  ctx.beginPath(); ctx.moveTo(X(-19), Y(62)); ctx.lineTo(X(-19), Y(98)); ctx.stroke();
-  ctx.beginPath(); ctx.moveTo(X(19),  Y(62)); ctx.lineTo(X(19),  Y(98)); ctx.stroke();
-  ctx.lineWidth = P(1.5);
-  for (const yy of [68, 78, 88]) {
-    ctx.beginPath(); ctx.moveTo(X(-19), Y(yy)); ctx.lineTo(X(19), Y(yy)); ctx.stroke();
-  }
-
-  // 7) Yan aynalar
-  ctx.fillStyle = night ? '#4a4536' : '#b6a684';
-  _roundRectPath(ctx, X(-35), Y(54), P(6), P(5), P(2)); ctx.fill();
-  _roundRectPath(ctx, X(29),  Y(54), P(6), P(5), P(2)); ctx.fill();
-
-  // 8) Ön tampon + CAROS amber ışık barı + farlar (Expedition imzası)
+  /* 5) Ön tampon + CAROS amber ışık barı + farlar (Expedition imzası — marka
+   * kimliği: amber ışık barı). Küçük ölçekte GÜÇLENDİRİLDİ: bar 3→4px, glow
+   * blur night 11→14px / gündüz 5→7px, farlar 9x4→10x5px — ince detaylar
+   * kaldırılınca boşalan kontrast bütçesi bilinçli olarak buraya aktarıldı. */
   ctx.fillStyle = night ? 'rgba(20,17,12,0.9)' : 'rgba(70,56,36,0.7)';
   _roundRectPath(ctx, X(-27), Y(16), P(54), P(6), P(3)); ctx.fill();
   ctx.save();
-  ctx.shadowColor = amberGlow; ctx.shadowBlur = night ? P(11) : P(5);
+  ctx.shadowColor = amberGlow; ctx.shadowBlur = night ? P(14) : P(7);
   ctx.fillStyle = amber;
-  _roundRectPath(ctx, X(-20), Y(18), P(40), P(3), P(1.5)); ctx.fill();      // ışık barı
+  _roundRectPath(ctx, X(-20), Y(17.5), P(40), P(4), P(2)); ctx.fill();      // ışık barı
   ctx.fillStyle = night ? '#FFD27A' : '#F0B85A';
-  _roundRectPath(ctx, X(-26), Y(23), P(9), P(4), P(2)); ctx.fill();          // sol far
-  _roundRectPath(ctx, X(17),  Y(23), P(9), P(4), P(2)); ctx.fill();          // sağ far
+  _roundRectPath(ctx, X(-26.5), Y(23), P(10), P(5), P(2.5)); ctx.fill();    // sol far
+  _roundRectPath(ctx, X(16.5),  Y(23), P(10), P(5), P(2.5)); ctx.fill();    // sağ far
   ctx.restore();
 
-  // 9) Arka stop lambaları
+  // 6) Arka stop lambaları — küçük ölçekte 8x4→9x5px, glow 6→8px
   ctx.save();
-  if (night) { ctx.shadowColor = 'rgba(255,40,30,0.8)'; ctx.shadowBlur = P(6); }
+  if (night) { ctx.shadowColor = 'rgba(255,40,30,0.8)'; ctx.shadowBlur = P(8); }
   ctx.fillStyle = night ? 'rgba(255,70,55,0.95)' : 'rgba(190,55,42,0.85)';
-  _roundRectPath(ctx, X(-25), Y(122), P(8), P(4), P(2)); ctx.fill();
-  _roundRectPath(ctx, X(17),  Y(122), P(8), P(4), P(2)); ctx.fill();
+  _roundRectPath(ctx, X(-25.5), Y(121.5), P(9), P(5), P(2.5)); ctx.fill();
+  _roundRectPath(ctx, X(16.5),  Y(121.5), P(9), P(5), P(2.5)); ctx.fill();
   ctx.restore();
 }
 
@@ -292,27 +296,41 @@ export function addUserMarker(
     data: { type: 'FeatureCollection', features: [feature] },
   });
 
-  // 1. Amber glow halesi (en altta) — gece güçlü, gündüz sade. circle-blur ile yumuşak parıltı.
+  /* 1. Amber glow halesi (en altta) — gece güçlü, gündüz sade. circle-blur ile
+   * yumuşak parıltı.
+   *
+   * KÜÇÜLTÜLDÜ (2026-08-24, kullanıcı: gerçek cihazda glow/ring aracı
+   * "boğuyor"du). ÖLÇÜLEN KÖK: `circle-blur:1` MapLibre'de kenar geçişini
+   * TÜM yarıçapa yayar — görünür yumuşak kenar nominal radius'un ~2 katına
+   * kadar uzar. Zoom 16'da (tipik nav zoom'u) nominal glow radius'u (≈28.7px)
+   * aracın kendi yarıçapından (≈33.1px, icon-size ~0.46 × 144px/2) KÜÇÜKTÜ —
+   * yani sayı olarak "araçtan büyük" değildi ama blur=1 ile görünür yayılma
+   * ~57px'e çıkıyor, aracın silüetini aşıp üstteki HUD öğelerine (örn. #529
+   * KONUM rozeti) bulaşıyordu. Üç değişken birden geri çekildi: blur 1→0.75
+   * (yayılma ~%25 azalır), tepe yarıçap 34→30 (zoom18), opaklık gece 0.42→0.36
+   * / gündüz 0.22→0.19. Nabız/GPS-canlı işlevi KORUNUR — yalnız boyut/güç
+   * kısıldı, katman kaldırılmadı. */
   map.addLayer({
     id: 'user-glow',
     type: 'circle',
     source: sourceId,
     paint: {
-      'circle-radius': ['interpolate', ['linear'], ['zoom'], 10, 16, 15, 26, 18, 34],
+      'circle-radius': ['interpolate', ['linear'], ['zoom'], 10, 14, 15, 23, 18, 30],
       'circle-color': M.markerNight ? '#FF9E2C' : '#E0A23C',
-      'circle-blur': 1,
-      'circle-opacity': M.markerNight ? 0.42 : 0.22,
+      'circle-blur': 0.75,
+      'circle-opacity': M.markerNight ? 0.36 : 0.19,
       'circle-pitch-alignment': 'map',
     },
   });
 
-  // 2. Amber konum halkası — aracın altında çepeçevre, pulse/expand burada animasyonlu
+  // 2. Amber konum halkası — aracın altında çepeçevre, pulse/expand burada animasyonlu.
+  // Tepe yarıçap 22→19 (zoom18): halka artık aracın gövdesine daha SIKI sarılır.
   map.addLayer({
     id: 'user-ring',
     type: 'circle',
     source: sourceId,
     paint: {
-      'circle-radius': ['interpolate', ['linear'], ['zoom'], 10, 11, 15, 17, 18, 22],
+      'circle-radius': ['interpolate', ['linear'], ['zoom'], 10, 10, 15, 15, 18, 19],
       'circle-color': 'rgba(0,0,0,0)',
       'circle-stroke-width': 2.5,
       'circle-stroke-color': M.markerNight ? '#FFB347' : '#E0A23C',
@@ -381,33 +399,42 @@ export function updateUserMarker(latitude: number, longitude: number, heading?: 
   if (!moving) {
     if (!M.markerPulseStatic) {
       M.markerPulseStatic = true;
-      const navBoost = M.markerNavActive ? 1.18 : 1.0;
+      /* P0-NAV-04: durakta da halka BÜYÜTÜLMEZ (bkz. hareket dalı gerekçesi). */
+      const navBoost = 1.0;
       try {
         map.setPaintProperty('user-ring', 'circle-radius', [
           'interpolate', ['linear'], ['zoom'],
-          10, 11 * navBoost,
-          15, 17 * navBoost,
-          18, 22 * navBoost,
+          10, 10 * navBoost,
+          15, 15 * navBoost,
+          18, 19 * navBoost,
         ]);
         map.setPaintProperty('user-glow', 'circle-opacity',
-          (M.markerNight ? 0.42 : 0.22) * navBoost);
+          _markerGlowOpacity() * navBoost);
       } catch { /* stil yeniden yükleniyor */ }
     }
   } else if (now - M.lastRingPulseMs > 150) {
     M.lastRingPulseMs   = now;
     M.markerPulseStatic = false;
-    const pulse    = Math.sin(now / 450) * 0.5 + 0.5;        // 0..1, ~2.8s periyot
-    const navBoost = M.markerNavActive ? 1.18 : 1.0;          // nav: halka genişler
+    /* ── P0-NAV-04 · NABIZ REHBERLİKTE SUSAR ─────────────────────────────
+     * Gerçek cihaz karesinde araç işareti çoklu turuncu halkayla bir OYUN
+     * HUD'una benziyordu. Nabız, konumu ARAMAYA yarar (harita gezinirken
+     * "buradayım"); rehberlik sürerken sürücü zaten aracını takip ediyor ve
+     * pulsing halka rotanın üstünde görsel gürültüdür.
+     * Rehberlik DIŞINDA nabız AYNEN korunur — kaldırılmadı, KAPSAMLANDI. */
+    const pulse    = M.markerNavActive ? 0.5 : (Math.sin(now / 450) * 0.5 + 0.5);
+    /* Nav halkası artık BÜYÜTÜLMÜYOR: 1,18 boyut artışı halkayı aracın
+       siluetinden ayırıp ikinci bir daire gibi gösteriyordu. */
+    const navBoost = 1.0;
     const rScale   = navBoost * (1 + pulse * 0.10);
     try {
       map.setPaintProperty('user-ring', 'circle-radius', [
         'interpolate', ['linear'], ['zoom'],
-        10, 11 * rScale,
-        15, 17 * rScale,
-        18, 22 * rScale,
+        10, 10 * rScale,
+        15, 15 * rScale,
+        18, 19 * rScale,
       ]);
-      const baseOp = M.markerNight ? 0.42 : 0.22;
-      map.setPaintProperty('user-glow', 'circle-opacity', baseOp * (0.8 + pulse * 0.4) * navBoost);
+      map.setPaintProperty('user-glow', 'circle-opacity',
+        _markerGlowOpacity() * (0.8 + pulse * 0.4) * navBoost);
     } catch { /* stil yeniden yükleniyor */ }
   }
 
@@ -446,7 +473,7 @@ export function setMarkerTheme(night: boolean): void {
     map.setLayoutProperty('user-vehicle', 'icon-image', night ? ROVER_IMG_NIGHT : ROVER_IMG_DAY);
     map.setPaintProperty('user-ring', 'circle-stroke-color', night ? '#FFB347' : '#E0A23C');
     map.setPaintProperty('user-glow', 'circle-color',   night ? '#FF9E2C' : '#E0A23C');
-    map.setPaintProperty('user-glow', 'circle-opacity', night ? 0.42 : 0.22);
+    map.setPaintProperty('user-glow', 'circle-opacity', night ? 0.36 : 0.19);
   } catch { /* stil yeniden yükleniyor — sonraki addUserMarker doğru variantı kurar */ }
 }
 
@@ -527,8 +554,11 @@ function _buildPulseGradient(p: number, riskScore = 0, isAttention = false): map
     M.pCacheAttn  = isAttention;
     const peak   = isAttention ? 0.96 : 0.80 + 0.15 * riskScore;
     const shldr  = 0.22 + 0.10 * riskScore;
-    M.pPeakStr    = `rgba(255,255,255,${peak.toFixed(2)})`;
-    M.pShoulderStr = `rgba(255,255,255,${shldr.toFixed(2)})`;
+    // Normal akış soğuk camgöbeğidir: beyaz şerit mavi çekirdeği pastel bir
+    // banda çeviriyordu. ATTENTION beyaz kalır; güvenlik sinyali renklenmez.
+    const rgb = isAttention ? '255,255,255' : '152,220,255';
+    M.pPeakStr     = `rgba(${rgb},${peak.toFixed(2)})`;
+    M.pShoulderStr = `rgba(${rgb},${shldr.toFixed(2)})`;
   }
 
   const W  = 0.10 - 0.04 * riskScore;
@@ -1065,6 +1095,9 @@ export function setPaintedArrowTheme(map: MapLibreMap | null, night: boolean): v
 
 /** Stil yeniden yüklendiğinde katman/kaynak gider → dedup anahtarı sıfırlanmalı. */
 export function _resetPaintedArrowCache(): void {
+  /* ARCH-06/F1: stil yeniden yüklemesi TÜM katman/kaynağı yeniden kurdurur —
+     en pahalı harita olayıdır ve sayılması gerekir. */
+  bumpPerf('map.styleReload');
   _lastArrowKey = '';
   _recordPaintedArrowLayer(false);
 }
@@ -1212,13 +1245,13 @@ export function setRouteStepLabelsTheme(map: MapLibreMap | null, night: boolean)
 
 function _startLightTrail(): void {
   if (M.flowRafId !== null) return;
-  let lastMs = 0;
   const TICK_MS = 80;
 
-  const frame = (nowMs: number) => {
-    M.flowRafId = requestAnimationFrame(frame);
-    if (nowMs - lastMs < TICK_MS) return;
-    lastMs = nowMs;
+  const frame = () => {
+    // Boya yalnız 80 ms'de bir değişiyor; aradaki her ekran karesine rAF bağlamak
+    // Android WebView compositor'ını gereksiz yere sürekli açık tutuyordu.
+    M.flowRafId = window.setTimeout(frame, TICK_MS);
+    const nowMs = performance.now();
 
     const map = useMapStore.getState().mapInstance;
     if (!map || !map.isStyleLoaded() || !map.getLayer(ROUTE_FLOW)) return;
@@ -1250,11 +1283,11 @@ function _startLightTrail(): void {
     updateMapMood(map, globalRiskScore);
   };
 
-  M.flowRafId = requestAnimationFrame(frame);
+  M.flowRafId = window.setTimeout(frame, TICK_MS);
 }
 
 function _stopLightTrail(): void {
-  if (M.flowRafId !== null) { cancelAnimationFrame(M.flowRafId); M.flowRafId = null; }
+  if (M.flowRafId !== null) { clearTimeout(M.flowRafId); M.flowRafId = null; }
   M.flowProgress = 0;
 }
 
@@ -1268,7 +1301,7 @@ let _flowPausedForInteraction = false;
 
 export function pauseRouteFlowAnimation(): void {
   if (M.flowRafId !== null) {
-    cancelAnimationFrame(M.flowRafId);
+    clearTimeout(M.flowRafId);
     M.flowRafId = null;
     _flowPausedForInteraction = true;
   }
@@ -1278,19 +1311,35 @@ export function resumeRouteFlowAnimation(): void {
   if (!_flowPausedForInteraction) return;
   _flowPausedForInteraction = false;
   const map = useMapStore.getState().mapInstance;
-  // Yalnız rota hâlâ aktifse yeniden başlat (etkileşim sırasında rota iptal edilmiş olabilir)
-  if (map && map.getLayer(ROUTE_FLOW)) _startLightTrail();
+  // Yalnız rota hâlâ aktif VE araç gerçekten hareketliyse yeniden başlat.
+  if (map && map.getLayer(ROUTE_FLOW) && M.lastFlowSpeedKmh >= 1.5) _startLightTrail();
 }
 
 /* ── Movement Energy — pulse speed scales with vehicle velocity (Faz 3.3) ─── */
 export function _updateFlowSpeed(speedKmh: number, deltaSpeed: number): void {
+  const wasMoving = M.lastFlowSpeedKmh >= 1.5;
+  const isMoving = Number.isFinite(speedKmh) && speedKmh >= 1.5;
+
+  // Dekoratif rota akışı park hâlinde WebGL yüzeyini sürekli repaint etmemeli.
+  // Bu kapı hysteresis'ten önce gelir; ilk 0 km/s örneği de mutlaka döngüyü keser.
+  if (!isMoving) {
+    M.lastFlowSpeedKmh = Number.isFinite(speedKmh) ? speedKmh : 0;
+    M.flowSpeedFactor = 0.4;
+    _stopLightTrail();
+    return;
+  }
+
   // Hysteresis: hız veya delta değişmediğinde güncelleme atla
-  if (Math.abs(speedKmh - M.lastFlowSpeedKmh) < 3 && Math.abs(deltaSpeed) < 2) return;
+  if (wasMoving && Math.abs(speedKmh - M.lastFlowSpeedKmh) < 3 && Math.abs(deltaSpeed) < 2) return;
   M.lastFlowSpeedKmh = speedKmh;
   const baseSpeed   = Math.max(0.4, Math.min(1.4, 0.4 + speedKmh / 100));
   // Pozitif delta (hızlanma) → anlık pulse burst; negatif delta etkisiz (braking sönük)
   const accelBoost  = Math.max(0, deltaSpeed * 0.018);
   M.flowSpeedFactor  = Math.min(1.8, baseSpeed + accelBoost);
+  if (!wasMoving && !_flowPausedForInteraction) {
+    const map = useMapStore.getState().mapInstance;
+    if (map && map.getLayer(ROUTE_FLOW)) _startLightTrail();
+  }
 }
 
 /* ── Map Mood Controller (Phase H3) ───────────────────────────────────────── */
@@ -1396,6 +1445,23 @@ export function _mixRgb(
     Math.round(a[1] + (b[1] - a[1]) * k),
     Math.round(a[2] + (b[2] - a[2]) * k),
   ];
+}
+
+/**
+ * Konum işaretinin dış hale opaklığı — P0-NAV-04.
+ *
+ * Rehberlik sürerken hale KISILIR: rotanın üstünde duran turuncu bulut,
+ * aracın kendisini ve altındaki rota çizgisini yutuyordu (cihaz karesinde
+ * gözlendi). Rehberlik dışında (harita gezinme) eski değerler AYNEN korunur —
+ * orada halenin işi konumu BULDURMAKTIR.
+ */
+function _markerGlowOpacity(): number {
+  // 2026-08-24: 0.42/0.22 → 0.36/0.19 (bkz. addUserMarker'daki `user-glow` yorumu —
+  // circle-blur:1 nominal yarıçapın ~2 katına yayılıyordu, araç silüetini/HUD'u boğuyordu).
+  // Bu sabitler addUserMarker + setMarkerTheme ile AYNI kalmalı — üçü de tek gerçek kaynağı
+  // (gece/gündüz baz opaklığı) temsil eder; biri değişirse üçü BİRDEN değişir.
+  const base = M.markerNight ? 0.36 : 0.19;
+  return M.markerNavActive ? base * 0.45 : base;
 }
 
 /* ── Navigation Focus Mode — adaptive road suppression (Faz 3.1 / 3.2) ────── */
@@ -1803,8 +1869,9 @@ export function _applyRouteGeometry(
           },
         });
 
-        // Light trail rAF loop başlat (singleton — çift çağrı güvenli)
-        _startLightTrail();
+        // Park hâlinde dekoratif animasyon başlatılmaz; ilk gerçek hareket örneği
+        // `_updateFlowSpeed` üzerinden döngüyü açar.
+        if (M.lastFlowSpeedKmh >= 1.5) _startLightTrail();
       }
 
     } else {
@@ -1835,6 +1902,10 @@ export function _applyRouteGeometry(
       geometry: { type: 'LineString' as const, coordinates: coords },
     };
     (map.getSource(SEL_SRC) as GeoJSONSource).setData(routeFeature);
+    /* ARCH-06/F1: rota geometrisinin TAM yeniden kurulum sayacı. F3'ün hedefi
+       "ilerleme güncellemesinde bu sayacın ARTMAMASI"dır; taban burada ölçülür. */
+    bumpPerf('map.routeGeometryRebuild');
+    bumpPerf('map.setDataCall');
     /* #625 — GEOMETRİ YANKISI (salt-gözlem). Rota geometrisinin haritadaki TEK
        yazıcısı burasıdır; yankı bounded örnektir (≤64 nokta) ve yalnız
        "rota ekranda mı" ölçümünde kullanılır. Ham rota kopyalanmaz, ekrana
@@ -2092,3 +2163,208 @@ export function updateDrivingLayers(
     if (hot) map.setPaintProperty(layer, 'circle-stroke-color', glowStroke[layer] ?? '#ffffff');
   }
 }
+
+
+/* ══════════════════════════════════════════════════════════════════════════
+   P0-NAV-03 · GÖRSEL SÖZLEŞMELERİN UYGULANMASI
+   ──────────────────────────────────────────────────────────────────────────
+   Kararlar SAF modellerde (`mapDeclutterModel` · `routeEmphasisModel`) alınır;
+   burada YALNIZ MapLibre'a yazılır. Bu bölüme yeni eşik/sayı EKLENMEZ.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+let _lastDeclutterKey: string | null = null;
+let _lastDeclutter: DeclutterDecision | null = null;
+/* ── KENDİNİ ONARAN UYGULAMA (cihazda İKİ TUR ölçüldü) ────────────────────
+ * 1. tur: uygulayıcı `isStyleLoaded()` false iken sessizce dönüyordu ve
+ *    "stil gelince tekrar denensin" diyordu — TEKRAR DENEYECEK KİMSE YOKTU.
+ *    Gerçek cihazda gece mini haritada binalar görünmeye devam etti.
+ * 2. tur: tek seferlik `once('idle')` de YETMEDİ. Stil bir kullanıcı akışında
+ *    BİRDEN ÇOK kez yeniden yükleniyor (tema geçişi · raster↔vektör · ayarlar
+ *    dönüşü); ilk yeniden deneme ateşlendikten SONRAKİ yükleme katmanları
+ *    yeniden yaratıyor ve profil yine kayboluyordu — cihazda binalar geri geldi.
+ *
+ * Çözüm: İSTENEN profil hatırlanır ve harita başına TEK bir kalıcı `styledata`
+ * gözlemcisi kurulur. Gözlemci ucuz bir SONDA ile gerçekten sapma olup
+ * olmadığını ölçer (kör yeniden yazma yok) ve yalnız saptığında yeniden yazar.
+ * Böylece kaç kez stil yüklenirse yüklensin sözleşme geri gelir. */
+
+/** İstenen profil — stil yeniden yüklendiğinde buradan geri yazılır. */
+let _desired: { surface: MapSurface; night: boolean; navActive: boolean; tier: number } | null = null;
+/** Gözlemci kurulmuş haritalar — aynı haritaya iki kez abone olunmaz. */
+const _watchedMaps = new WeakSet<object>();
+
+/** Sapmayı ölçmek için kullanılan sonda katmanı (gürültü tablosunun ilk üyesi). */
+const DECLUTTER_PROBE_LAYER = 'building';
+const DECLUTTER_PROBE_PROP  = 'fill-opacity';
+
+function _declutterDrifted(map: MapLibreMap, decision: DeclutterDecision): boolean {
+  const want = decision.noiseEntries.find(
+    ([id, prop]) => id === DECLUTTER_PROBE_LAYER && prop === DECLUTTER_PROBE_PROP,
+  );
+  if (!want) return true;                       // sonda yoksa ölçemeyiz → yeniden yaz
+  try {
+    if (!map.getLayer(DECLUTTER_PROBE_LAYER)) return false;  // katman yok → yazacak şey de yok
+    const cur = map.getPaintProperty(DECLUTTER_PROBE_LAYER, DECLUTTER_PROBE_PROP);
+    return typeof cur !== 'number' || Math.abs(cur - (want[2] as number)) > 1e-6;
+  } catch { return true; }
+}
+
+function _ensureDeclutterWatcher(map: MapLibreMap): void {
+  if (_watchedMaps.has(map as unknown as object)) return;
+  try {
+    map.on('styledata', () => {
+      const d = _desired;
+      if (d === null) return;
+      if (!map.isStyleLoaded()) return;         // henüz erken — sonraki olayda bakılır
+      const decision = resolveDeclutter(d, NAV_SUPPRESS_TIERS[Math.min(d.tier, NAV_SUPPRESS_TIERS.length - 1)] ?? NAV_SUPPRESS_TIERS[0]);
+      if (!_declutterDrifted(map, decision)) return;   // sapma yok → hiç yazma
+      _lastDeclutterKey = null;                 // sapmış → yeniden yaz
+      try { applyMapDeclutter(map, d.surface, d.night, d.navActive, d.tier); } catch { /* fail-soft */ }
+    });
+    _watchedMaps.add(map as unknown as object);
+  } catch { /* abone olunamadı — sözleşme yine de ilk yazımda uygulanır */ }
+}
+
+/**
+ * Gürültü sözleşmesini uygula (tam ekran / mini harita).
+ *
+ * Idempotent: aynı profil iki kez çağrılırsa MapLibre'a hiç yazılmaz.
+ * Fail-soft: olmayan katman sessizce atlanır (stil henüz kurulmamış olabilir).
+ */
+export function applyMapDeclutter(
+  map: MapLibreMap,
+  surface: MapSurface,
+  night: boolean,
+  navActive: boolean,
+  tier: number = 0,
+): DeclutterDecision | null {
+  if (!map) return _lastDeclutter;
+  /* İSTENEN profil her çağrıda tazelenir; kalıcı gözlemci onu geri yazar. */
+  _desired = { surface, night, navActive, tier };
+  _ensureDeclutterWatcher(map);
+  const key = `${surface}|${night ? 'n' : 'd'}|${navActive ? 'a' : 'i'}|${tier}`;
+  if (key === _lastDeclutterKey) return _lastDeclutter;
+
+  const table = NAV_SUPPRESS_TIERS[Math.min(tier, NAV_SUPPRESS_TIERS.length - 1)]
+    ?? NAV_SUPPRESS_TIERS[0];
+  const decision = resolveDeclutter({ surface, night, navActive, tier }, table);
+
+  /* ── STİL HAZIR DEĞİLSE: TEK SEFERLİK YENİDEN DENEME (cihazda ölçüldü) ────
+   * İlk yazımda burada yalnız `return` vardı ve yorum "stil geldiğinde tekrar
+   * denensin" diyordu — AMA TEKRAR DENEYECEK KİMSE YOKTU. Gerçek cihazda
+   * ölçüldü (2026-08-23, gece mini harita): gündüz→gece geçişi stili yeniden
+   * yüklerken efekt bir kez koşuyor, `isStyleLoaded()` false dönüyor ve profil
+   * BİR DAHA yazılmıyordu → mini haritada binalar görünmeye devam etti.
+   * Artık stilin hazır olacağı ana tek seferlik abone olunur. */
+  if (!map.isStyleLoaded()) return decision;
+
+  for (const [id, prop, value] of decision.entries) {
+    try {
+      if (map.getLayer(id)) map.setPaintProperty(id, prop, value);
+    } catch { /* ignore — tek katman sözleşmenin tamamını düşürmez */ }
+  }
+  _lastDeclutterKey = key;
+  _lastDeclutter = decision;
+  return decision;
+}
+
+/** Yüzey değişiminde (mini ↔ tam) sözleşme yeniden uygulanabilsin. */
+export function invalidateMapDeclutter(): void {
+  _lastDeclutterKey = null;
+}
+
+/** CAROS LAB gözlemi — hangi profil yürürlükte. */
+export function getDeclutterSnapshot(): {
+  readonly policyVersion: string;
+  readonly owned: readonly string[];
+  readonly current: DeclutterDecision | null;
+} {
+  return {
+    policyVersion: DECLUTTER_POLICY_VERSION,
+    owned: DECLUTTER_OWNED_LAYERS,
+    current: _lastDeclutter,
+  };
+}
+
+let _lastEmphasisKey: string | null = null;
+let _lastEmphasis: RouteEmphasisDecision | null = null;
+let _emphasisRetryPending = false;
+
+function _scheduleEmphasisRetry(
+  map: MapLibreMap, confidence: RouteConfidence, navActive: boolean, altCount: number,
+): void {
+  if (_emphasisRetryPending) return;
+  _emphasisRetryPending = true;
+  try {
+    map.once('idle', () => {
+      _emphasisRetryPending = false;
+      try { applyRouteEmphasis(map, confidence, navActive, altCount); } catch { /* fail-soft */ }
+    });
+  } catch {
+    _emphasisRetryPending = false;
+  }
+}
+
+/**
+ * Rota vurgu sözleşmesini uygula.
+ *
+ * ── OTORİTE PAYLAŞIMI (bilinçli) ─────────────────────────────────────────
+ * RENK `routeColorModel`indir, OPAKLIK bu modelindir. Çekirdek opaklığı
+ * İKİSİNİN ÇARPIMIDIR: renk kararı bugün 1,0 verir (davranış değişmez) ama
+ * ileride bir veto koyarsa vurgu onu EZMEZ. Kalınlık `routeWidthModel`de
+ * kalır — buradan hiçbir genişlik yazılmaz.
+ */
+export function applyRouteEmphasis(
+  map: MapLibreMap,
+  confidence: RouteConfidence,
+  navActive: boolean,
+  altCount: number,
+): RouteEmphasisDecision | null {
+  if (!map) return _lastEmphasis;
+  const lightBasemap = resolveLightBasemap();
+  const key = `${confidence}|${navActive ? 'a' : 'i'}|${lightBasemap ? 'l' : 'd'}|${altCount > 0 ? 1 : 0}`;
+  if (key === _lastEmphasisKey) return _lastEmphasis;
+
+  const d = resolveRouteEmphasis({ confidence, navActive, lightBasemap, altCount });
+  if (!map.isStyleLoaded()) {
+    /* Gürültü sözleşmesiyle AYNI kusur sınıfı: tekrar deneyecek kimse olmazsa
+       vurgu sessizce hiç uygulanmaz (cihazda ölçüldü). */
+    _scheduleEmphasisRetry(map, confidence, navActive, altCount);
+    return d;
+  }
+
+  const colorCore = _routeColor?.coreOpacity ?? 1;
+  safeSetPaint(map, SEL_LAYER,      'line-opacity', colorCore * d.coreOpacity);
+  safeSetPaint(map, ROUTE_CASE,     'line-opacity', d.casingOpacity);
+  safeSetPaint(map, ROUTE_GLOW_SEL, 'line-opacity', d.glowOpacity);
+  safeSetPaint(map, ROUTE_SHADOW,   'line-opacity', d.shadowOpacity);
+  safeSetPaint(map, ROUTE_FLOW,     'line-opacity', d.flowOpacity);
+  safeSetPaint(map, ALT_FILL,       'line-opacity', d.altOpacity);
+
+  /* Kesik çizgi YALNIZ düz-hat tahmininde — evrensel "bu kesin değil" işareti. */
+  try {
+    if (map.getLayer(SEL_LAYER)) {
+      map.setPaintProperty(SEL_LAYER, 'line-dasharray',
+        d.coreDashArray === null ? null : [...d.coreDashArray]);
+    }
+  } catch { /* ignore */ }
+
+  _lastEmphasisKey = key;
+  _lastEmphasis = d;
+  return d;
+}
+
+/** Rota yeniden kurulunca vurgu tekrar yazılsın. */
+export function invalidateRouteEmphasis(): void {
+  _lastEmphasisKey = null;
+}
+
+/** CAROS LAB gözlemi. */
+export function getRouteEmphasisSnapshot(): {
+  readonly policyVersion: string;
+  readonly current: RouteEmphasisDecision | null;
+} {
+  return { policyVersion: ROUTE_EMPHASIS_POLICY_VERSION, current: _lastEmphasis };
+}
+
+export { routeConfidenceFrom };

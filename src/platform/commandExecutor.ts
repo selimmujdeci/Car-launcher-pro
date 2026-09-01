@@ -4,7 +4,8 @@
  * Akış:
  *   AIVoiceResult → executeAIResult() → dispatchIntent() → bridge / mediaService / …
  *   AppIntent     → executeIntent()  → dispatchIntent()
- *   AppIntent[]   → executeSequence() → paralel dispatchIntent()
+ *   Bileşik plan  → capabilityPlanRunner → (adım başına) yukarıdaki iki yol
+ *                   — MAVI-F13: ayrı bir `executeSequence` yolu YOKTUR.
  *
  * 8-Kelime TTS Kuralı (ISO 15008 / NHTSA §3.4):
  *   Araç hareket halindeyken (isDriving=true) tüm sesli geri bildirimler
@@ -14,9 +15,37 @@
 import { bridge, type CommandResult }   from './bridge';
 import { fromAIResponse, type AppIntent } from './intentEngine';
 import type { AIVoiceResult, VehicleContext } from './aiVoiceService';
-import { play, pause, next, previous, setMediaPreferredPackage } from './mediaService';
+/* MAVI-F5: yürütme SONUCUNU capability gözlem seviyesine çevirir. Bu katman
+   yeni bir yürütücü ya da ikinci bir gerçeklik kaynağı KURMAZ — yalnız kanonik
+   `IntentExecutionResult`ü bounded bir gözlem sınıfına EŞLER ve sayar. */
+import { classifyObservation, recordCapabilityObservation } from './capability/fabric/capabilityFabric';
+/* MAVI-F7: gözlem katmanı — YÜRÜTME/GÜVENLİK OTORİTESİ DEĞİLDİR. Alan
+   otoritelerini (navigasyon hedef defteri · `playbackTruth` · ayar portu)
+   OKUR ve "yaptım" iddiasını yalnız KANITA kadar açık tutar. */
+import {
+  evidenceFromSettingApply, reconcileObservation,
+  type DomainEvidence, type SettingApplyEvidence,
+} from './capability/observation/observationContract';
+import {
+  captureObservationBaseline, hasDeferredEvidence, readImmediateEvidence,
+  type ObservationBaseline,
+} from './capability/observation/observationAdapters';
+import {
+  OBSERVATION_WINDOW_MS, openPendingObservation, recordReconciliation,
+} from './capability/observation/observationLedger';
+import { setMaviLatencyCapability } from './assistant/maviLatencyTrace';
+import { findByLegacyIntent } from './capability/fabric/carosCapabilityCatalog';
+import {
+  play, next, previous, playWithResult, pauseWithResult, setMediaPreferredPackage,
+} from './mediaService';
 import type { MediaCommandResult } from './mediaService';
 import { setVolume }                    from './systemSettingsService';
+/* SAHA 2026-08-30 (kütük #1054): ses yüzdesinin KANONİK kaynağı store'dur
+ * (`settings.volume`) — ayarlar slider'ı da tam olarak bunu yazar. Modül-yerel
+ * `_currentVolume` gölgesi ne cihazla ne store'la senkrondu. */
+import { useStore } from '../store/useStore';
+import { CarLauncher } from './nativePlugin';
+import { isNative } from './bridge';
 // MAVI-M6: normal kullanıcı cevabının TEK otoritesi. `speakAlert` ayrı hata
 // kanalıdır (uyarı tonu) ve bu görevde DEĞİŞTİRİLMEDİ.
 import { speakAlert } from './ttsService';
@@ -32,7 +61,8 @@ import { recordMaviActionStage } from './action/maviActionTrace';
 import { intentResult, type IntentExecutionResult } from './intentExecutionResult';
 import { showToast }                    from './errorBus';
 import type { NavOptionKey, MusicOptionKey } from '../data/apps';
-import { readDTCCodes, clearDTCCodes, onDTCState, type DTCState } from './dtcService';
+import { readDTCCodes, clearDTCCodes, getClearableDtcSnapshot, onDTCState, type DTCState } from './dtcService';
+import { evaluateVehicleDtcVerdict } from './obd/dtcAuthority';
 import { querySensor } from './obd/sensorQueryService';
 import { getMaintenanceSummaryText } from './vehicleMaintenanceService';
 import { openInApp } from './inAppBrowser';
@@ -42,7 +72,11 @@ import { useUnifiedVehicleStore } from './vehicleDataLayer/UnifiedVehicleStore';
 import { resolveAppByName } from './appRegistry';
 import { resolveScreen } from './screenRegistry';
 import { searchContacts, recordCall } from './contactsService';
-import { addFact, forgetFact } from './companion/companionMemory';
+/* MAVI-F10: hafızanın TEK kanonik cephesi. `companionMemory.addFact/forgetFact`
+   ARTIK ÇAĞRILMAZ — o yol hassas-veri kapısından GEÇMİYORDU (ölçülen kusur A)
+   ve sildiği kaydı konuşma geçmişinden düşürmüyordu (kusur: unutulan hafıza
+   8 tur daha prompt'ta yaşıyordu). */
+import { rememberExplicit, forgetMemory } from './assistant/maviMemory';
 import { isHomeWorkDestination, dispatchHomeWorkNavigation } from './homeWorkNavigation';
 import type { NearbyPoiCategory } from './nearbyPoiNavigation';
 
@@ -70,8 +104,18 @@ export interface CommandContext {
   setTheme?:    (theme: 'night' | 'day' | 'oled' | 'dark') => void;
   /** Temalar arası döngü ("temayı değiştir"/"başka tema") — routeIntent ile aynı yol. */
   cycleTheme?:  () => void;
-  /** Sesli ayar kontrolü — key/action/value ile AppSettings (veya wifi/bt/brightness). */
-  applySetting?: (key: string, action: string, value?: string, kind?: string, label?: string) => void;
+  /**
+   * Sesli ayar kontrolü — key/action/value ile AppSettings (veya wifi/bt/brightness).
+   *
+   * MAVI-F7: port artık NE YAPTIĞINI BİLDİREBİLİR (`SettingApplyEvidence`).
+   * Dönüş `void` ise kanıt YOKTUR ve yürütücü "uygulandı" DEMEZ — F5'in açık
+   * sahte-ACK borcu (kütük #986/b) burada kapanır. Dönüş tipi geriye
+   * uyumludur: kanıt üretmeyen eski bağlantılar aynen çalışır, yalnız
+   * DÜRÜSTÇE daha düşük seviyede raporlanır.
+   */
+  applySetting?: (
+    key: string, action: string, value?: string, kind?: string, label?: string,
+  ) => SettingApplyEvidence | void;
   openDrawer?:  (target: 'apps' | 'settings' | 'music' | 'none') => void;
   openWeather?: () => void;
   /** Uygulama-içi serbest adres/yer navigasyonu (resolveAndNavigate wrapper'ı).
@@ -140,9 +184,13 @@ function _speak(text: string, isDriving: boolean, turn: MaviTurnToken | null): v
 }
 
 /**
- * Ara bilgi ("taranıyor", "bakıyorum") — NİHAİ CEVAP DEĞİLDİR. Tur başına en fazla
- * bir kez geçer ve cevap verildikten sonra hiç konuşmaz. Bu ayrım sayesinde çok
- * fazlı akışlar (tarama → sonuç) dürüstlüğünü korur, gevezelik etmez.
+ * **SEMANTİK ACK** ("Araç sistemleri taranıyor") — NİHAİ CEVAP DEĞİLDİR ve
+ * BAŞARI İDDİASI DEĞİLDİR: yalnız gerçek ve süren bir işin BAŞLADIĞINI bildirir.
+ * Tur başına en fazla bir kez geçer, cevap verildikten sonra hiç konuşmaz.
+ *
+ * MAVI-F2 (I11): buradan geçen metin NE YAPILDIĞINI SÖYLEMELİDİR. İçeriksiz
+ * bekletme cümlesi ("Bakıyorum", "Bir saniye") `maviSpeech` kapısında
+ * KONUŞULMADAN düşürülür — ayrım `assistant/maviAckPolicy.ts` içindedir.
  */
 function _speakProgress(text: string, isDriving: boolean, turn: MaviTurnToken | null): void {
   speakMaviAnswer(text, { isDriving, tier: 'progress', turn });
@@ -196,7 +244,19 @@ function _getDTCSnapshot(): DTCState {
  * Sürücünün anlayacağı, güvenlik öncelikli dil kullanır.
  */
 function _buildDTCSpeech(state: DTCState, isDriving: boolean): string {
-  if (state.codes.length === 0) return 'Araç sistemleri temiz, sorun yok';
+  /* P0-OBD-CORE-03 — SAHTE "TEMİZ" KAPATILDI.
+     Eski satır `state.codes.length === 0` → "Araç sistemleri temiz, sorun yok"
+     idi. `state.codes` YALNIZ Mode 03'tür; bekleyen (07), kalıcı (0A),
+     çoklu-ECU ve üretici (UDS/KWP) bulguları o dizide YOKTUR. Dahası boş dizi
+     "okuma yapılmadı"yı da kapsıyordu → ECU sustuğunda da "temiz" deniyordu.
+     Hüküm artık TEK kanonik otoriteden gelir. */
+  const verdict = evaluateVehicleDtcVerdict();
+  if (verdict.verdict !== 'issues' && state.codes.length === 0) {
+    return verdict.verdict === 'clean'
+      ? 'Araç sistemleri temiz, sorun yok'
+      : verdict.message;
+  }
+  if (state.codes.length === 0) return verdict.message;
 
   const critical = state.codes.filter((c) => c.severity === 'critical');
   const warnings = state.codes.filter((c) => c.severity === 'warning');
@@ -319,6 +379,46 @@ function _mediaSkipReply(r: MediaCommandResult, okText: string): string {
   }
 }
 
+/**
+ * MAVI-F7 · medya durum komutu (play/pause) için DÜRÜST cevap.
+ *
+ * `verified` YALNIZ `playbackTruth` `VERIFIED` dediğinde gelir. Doğrulanmamış
+ * yolda "başlattım/gönderdim" denir — "çalıyor" DENMEZ.
+ */
+function _mediaStateReply(
+  r: MediaCommandResult, verifiedText: string, acceptedText: string,
+): string {
+  if (r.verified) return verifiedText;
+  if (!r.dispatched) return 'Şu anda çalan bir şey yok.';
+  switch (r.failureCode) {
+    case 'no_media':
+    case 'empty_queue':
+      return 'Şu anda çalan bir şey yok.';
+    case 'focus_denied':
+      return 'Ses odağını alamadım.';
+    default:
+      /* Gönderildi ama etkisi GÖZLENEMEZ (harici MediaSession · in-app toggle). */
+      return `${acceptedText} ama çaldığını doğrulayamıyorum.`;
+  }
+}
+
+/**
+ * MAVI-F7 · TEK ATIŞLIK AYAR KANIDI YUVASI.
+ *
+ * `SET_SETTING` yürütücüsü kanıtı `dispatchIntent` İÇİNDE üretir; gözlem kaydı
+ * ise `executeIntent`/`executeAIResult`ta yapılır. Sözleşmeyi genişletmek
+ * yerine (F6'daki `takeLastCapabilityObservation` deseniyle AYNI) tek atışlık
+ * bir yuva kullanılır: okunur ve TEMİZLENİR → bayat kanıt başka bir tura
+ * bağlanamaz. Yürütme ARDIŞIKTIR; yarış yoktur.
+ */
+let _pendingSettingEvidence: DomainEvidence | null = null;
+
+function _takeSettingEvidence(): DomainEvidence | null {
+  const e = _pendingSettingEvidence;
+  _pendingSettingEvidence = null;
+  return e;
+}
+
 async function dispatchIntent(intent: AppIntent, ctx: CommandContext): Promise<IntentExecutionResult> {
   const { isDriving } = ctx.vehicleCtx;
   /* MAVI-M6-LATE-SPEECH-GATE: yakalanmış tur token'ı BİR KEZ, await'lerden ÖNCE
@@ -386,18 +486,35 @@ async function dispatchIntent(intent: AppIntent, ctx: CommandContext): Promise<I
         _speak('Navigasyon başlatılıyor', isDriving, _turn);
         break;
       }
+      /* MAVI-F7 · PORT YOKKEN SAHTE ROTA İDDİASI KAPANDI ───────────────────
+       * `navigateToPlace` OPSİYONEL bir porttur. Bağlı değilken eski kod
+       * yalnız harita uygulamasını açıyor ama yine "… adresine gidiyoruz"
+       * diyordu → hedef HİÇ girilmemişken kullanıcı rotanın kurulduğunu
+       * duyuyordu. Artık iki yol AYRI konuşur. (Rota isteği asenkrondur; port
+       * BAĞLIYKEN bile cümle `ACCEPTED` seviyesindedir — doğrulama iddiası
+       * taşımaz. Gerçek kanıt bekleyen gözlemle ölçülür.) */
       case 'NAVIGATE_ADDRESS': {
         const dest = intent.payload.destination;
-        if (dest && ctx.navigateToPlace) ctx.navigateToPlace(dest);
-        else ctx.launch(ctx.defaultNav);
-        _speak(dest ? `${dest} adresine gidiyoruz` : 'Navigasyon başlatılıyor', isDriving, _turn);
+        if (dest && ctx.navigateToPlace) {
+          ctx.navigateToPlace(dest);
+          _speak(`${dest} için rota kuruyorum`, isDriving, _turn);
+        } else {
+          ctx.launch(ctx.defaultNav);
+          _speak(dest ? 'Haritayı açtım; hedefi oradan seçmen gerekiyor' : 'Haritayı açtım',
+            isDriving, _turn);
+        }
         break;
       }
       case 'NAVIGATE_PLACE': {
         const place = intent.payload.destination;
-        if (place && ctx.navigateToPlace) ctx.navigateToPlace(place);
-        else ctx.launch(ctx.defaultNav);
-        _speak(place ? `${place} aranıyor` : 'Yer aranıyor', isDriving, _turn);
+        if (place && ctx.navigateToPlace) {
+          ctx.navigateToPlace(place);
+          _speak(`${place} aranıyor`, isDriving, _turn);
+        } else {
+          ctx.launch(ctx.defaultNav);
+          _speak(place ? 'Haritayı açtım; yeri oradan arayabilirsin' : 'Haritayı açtım',
+            isDriving, _turn);
+        }
         break;
       }
       case 'SEARCH_POI': {
@@ -524,14 +641,20 @@ async function dispatchIntent(intent: AppIntent, ctx: CommandContext): Promise<I
       }
 
       /* ── Medya kontrolü ─────────────────────────────────── */
+      /* ── MAVI-F7: "çalıyor/duraklatıldı" ARTIK KANITA BAĞLI ──────────────
+       * Eskiden `play()`/`pause()` ateşle-unut çağrılıp KOŞULSUZ "Devam ediyor"
+       * / "Duraklatıldı" deniyordu. Oysa tek medya gerçeği `playbackTruth`tır
+       * ve o gerçek `VERIFIED` demedikçe komut yalnız GÖNDERİLMİŞTİR.
+       * `next()`/`previous()` bu deseni zaten kullanıyordu; play/pause artık
+       * AYNI sözleşmeye bağlandı — paralel bir "Mavi medya durumu" KURULMADI. */
       case 'PLAY_MEDIA': {
-        play();
-        _speak('Devam ediyor', isDriving, _turn);
+        const r = await playWithResult();
+        _speak(_mediaStateReply(r, 'Devam ediyor', 'Çalmayı başlattım'), isDriving, _turn);
         break;
       }
       case 'PAUSE_MEDIA': {
-        pause();
-        _speak('Duraklatıldı', isDriving, _turn);
+        const r = await pauseWithResult();
+        _speak(_mediaStateReply(r, 'Duraklatıldı', 'Duraklatma komutunu gönderdim'), isDriving, _turn);
         break;
       }
       /* ── Parça atlama — SAHTE ONAY YOK (saha 2026-08-08) ────────────────
@@ -553,15 +676,16 @@ async function dispatchIntent(intent: AppIntent, ctx: CommandContext): Promise<I
 
       /* ── Ses ────────────────────────────────────────────── */
       case 'VOLUME_UP': {
-        _currentVolume = Math.min(100, _currentVolume + 10);
-        setVolume(_currentVolume);
-        _speak('Ses artırıldı', isDriving, _turn);
+        _currentVolume = await _applyVolumeStep(+1);
+        /* `setVolume` bu legacy yolda gözlem döndürmez. İstek gönderildi diye
+         * gerçek medya seviyesi değişti denemez (#1047); plan varsa nihai metin
+         * yalnız F7 gözleminden gelir. */
+        _speak('Ses ayarlama komutunu gönderdim ama sonucu doğrulayamıyorum.', isDriving, _turn);
         break;
       }
       case 'VOLUME_DOWN': {
-        _currentVolume = Math.max(0, _currentVolume - 10);
-        setVolume(_currentVolume);
-        _speak('Ses azaltıldı', isDriving, _turn);
+        _currentVolume = await _applyVolumeStep(-1);
+        _speak('Ses ayarlama komutunu gönderdim ama sonucu doğrulayamıyorum.', isDriving, _turn);
         break;
       }
 
@@ -675,15 +799,42 @@ async function dispatchIntent(intent: AppIntent, ctx: CommandContext): Promise<I
         _speak('Tema değiştirildi', isDriving, _turn);
         break;
       }
+      /* ── AYAR — MAVI-F7: SAHTE "UYGULANDI" KAPANDI ────────────────────
+       * ÖLÇÜLEN KUSUR (F5 borcu, kütük #986/b): `ctx.applySetting` OPSİYONEL
+       * bir porttu ve `void` dönüyordu; yürütücü port BAĞLI OLMASA BİLE
+       * koşulsuz "Ayar uygulandı" diyordu. Yani hiçbir şey olmadığı hâlde
+       * kullanıcı ayarın değiştiğini duyuyordu.
+       * Artık iddia KANITA bağlıdır: `APPLIED` = depoya yazıldı ve GERİ
+       * OKUNDU · `DELIVERED` = gönderildi ama kanıt yok · `SURFACE_OPENED` =
+       * yalnız ekran açıldı, ayar UYGULANMADI · port yok/`REJECTED` = dürüst
+       * başarısızlık. Kanıt üretmeyen porta SAHTE başarı EKLENMEDİ. */
       case 'SET_SETTING': {
-        ctx.applySetting?.(
+        const applied = ctx.applySetting?.(
           intent.payload.settingKey ?? '',
           intent.payload.settingAction ?? '',
           intent.payload.settingValue,
           intent.payload.settingKind,
         );
-        _speak('Ayar uygulandı', isDriving, _turn);
-        break;
+        const ev: SettingApplyEvidence | null = applied ?? null;
+        _pendingSettingEvidence = evidenceFromSettingApply(ev);
+        if (!ev) {
+          return intentResult(intent.type, 'failed', 'setting_port_missing',
+            'Ayarı uygulayamadım.');
+        }
+        switch (ev.kind) {
+          case 'APPLIED':
+            return intentResult(intent.type, 'succeeded', 'setting_readback', 'Ayar uygulandı');
+          case 'DELIVERED':
+            /* §12.3 `TRANSPORT_ACK` satırı: gönderdim, olduğunu göremiyorum. */
+            return intentResult(intent.type, 'started', 'setting_unverified',
+              'Komutu gönderdim ama uygulandığını doğrulayamıyorum.');
+          case 'SURFACE_OPENED':
+            return intentResult(intent.type, 'started', 'setting_surface_only',
+              'Ayarlar ekranını açtım; bunu oradan seçmen gerekiyor.');
+          default:
+            return intentResult(intent.type, 'failed', 'setting_rejected',
+              'Ayarı değiştiremedim.');
+        }
       }
       case 'ENABLE_DRIVING_MODE': {
         ctx.openDrawer?.('none');
@@ -747,8 +898,11 @@ async function dispatchIntent(intent: AppIntent, ctx: CommandContext): Promise<I
         return intentResult(intent.type, 'succeeded', 'health_read', _buildDTCSpeech(healthSnap, isDriving));
       }
       case 'CLEAR_DTC_CODES': {
-        const clearSnap = _getDTCSnapshot();
-        if (clearSnap.codes.length === 0) {
+        /* P0-OBD-10: envanter YALNIZ Mode 03'e bakmaz — BEKLEYEN (Mode 07) kod da
+           silinebilir. Eskiden burada `_getDTCSnapshot().codes` (yalnız onaylanmış)
+           okunuyordu; bekleyen-yalnız araçta sesli komut "temizlenecek kod yok"
+           diyor ve ECU'ya HİÇ komut göndermiyordu. */
+        if (getClearableDtcSnapshot().count === 0) {
           return intentResult(intent.type, 'succeeded', 'nothing_to_clear', 'Temizlenecek arıza kodu yok');
         }
         // OBD-OS-F0-6: sesli komut da WriteGate'ten GEÇER — seyir halinde ECU'ya yazılmaz.
@@ -757,11 +911,29 @@ async function dispatchIntent(intent: AppIntent, ctx: CommandContext): Promise<I
         _speakProgress('Arıza kayıtları siliniyor', isDriving, _turn);   // ara bilgi — nihai cevap WriteGate sonucu
         // Onay MAVI-M4 kapısında alındı (`ctx.actionConfirmed`); WriteGate fiziksel
         // önkoşulları (bağlantı · tazelik · hız) AYRICA denetler — bypass YOK.
-        const clearResult = await clearDTCCodes({ confirmed: true });
+        /* ARCH-05: sesli asistan KENDİ sınıfıyla çağırır. `MAVI` principal'ının
+           CLEAR_DTC yetkisi YOKTUR (yetki tablosu `security/enforcement.ts`);
+           LLM metni ya da onaylanmış bir niyet bu yetkiyi ÜRETEMEZ. Varsayılana
+           (`LOCAL_UI`) yaslanmak sessizce ayrıcalık kazanmak olurdu. */
+        const clearResult = await clearDTCCodes({
+          confirmed: true, principal: 'MAVI',
+          operationId: `mavi.dtc.clear:${Date.now()}`,
+        });
         if (!clearResult.allowed) {
           return intentResult(intent.type, 'denied', 'write_gate_denied', clearResult.userMessage);
         }
-        return intentResult(intent.type, 'succeeded', 'dtc_cleared', 'Arıza kayıtları silindi');
+        /* P0-OBD-10 — SAHTE ONAY KAPATILDI. Eskiden burada kapı izin verdiyse
+           koşulsuz "Arıza kayıtları silindi" deniyordu: ECU reddetse, sussa veya
+           kod anında geri gelse bile sesli asistan "silindi" diyordu. Artık
+           konuşulan cümle ÖLÇÜLEN hükümden gelir (tek metin kaynağı: dtcClearModel). */
+        const clearReport = clearResult.clear ?? null;
+        if (clearReport === null) {
+          // Web/demo yolu — gerçek araç yok; ölçüm de yok, iddia da yok.
+          return intentResult(intent.type, 'succeeded', 'dtc_cleared', 'Arıza kayıtları silindi');
+        }
+        return clearReport.success
+          ? intentResult(intent.type, 'succeeded', 'dtc_cleared', clearReport.userMessage)
+          : intentResult(intent.type, 'failed', `dtc_clear_${clearReport.verdict.toLowerCase()}`, clearReport.userMessage);
       }
 
       /* ── Araç Bakım ─────────────────────────────────────── */
@@ -780,7 +952,10 @@ async function dispatchIntent(intent: AppIntent, ctx: CommandContext): Promise<I
       case 'QUERY_SENSOR': {
         const sensorQuery = intent.payload.sensorQuery ?? '';
         if (!sensorQuery) return intentResult(intent.type, 'unknown', 'no_sensor_name', 'Hangi sensörü soruyorsun?');
-        _speakProgress('Bakıyorum', isDriving, _turn);   // ara bilgi — nihai cevap sensör değeri
+        /* MAVI-F2: SEMANTİK ACK — sorulan sensörün ADINI taşır ("yağ sıcaklığı
+         * okunuyor"), böylece kullanıcı Mavi'nin NEYİ okuduğunu duyar. Değer
+         * İDDİA EDİLMEZ; gerçek değer aşağıda `querySensor`dan gelir. */
+        _speakProgress(`${sensorQuery} okunuyor`, isDriving, _turn);
         const answer = await querySensor(sensorQuery);
         if (!answer) return intentResult(intent.type, 'unknown', 'sensor_unknown', 'Bu sensörü tanımıyorum');
         // VIN gibi uzun metin DID'leri TTS'te OKUNMAZ (ISO 15008) — ekrana yönlendir.
@@ -842,18 +1017,38 @@ async function dispatchIntent(intent: AppIntent, ctx: CommandContext): Promise<I
 
       /* ── Uzun-dönem kişisel hafıza ──────────────────────── */
       case 'REMEMBER': {
-        // Kullanıcının açıkça istediği kalıcı fact'i sakla. Boş/geçersizse
-        // SAHTE ONAY YOK — dürüstçe "neyi hatırlayayım" der.
-        const fact = addFact(intent.payload.memoryText ?? '');
-        _speak(fact ? 'Tamam, aklımda tutuyorum' : 'Neyi hatırlamamı istersin?', isDriving, _turn);
+        /* MAVI-F10 · AÇIK BEYAN. Dört dürüstlük kuralı:
+         *  1. Boş/geçersiz → SAHTE ONAY YOK.
+         *  2. Hassas veri (telefon · plaka · VIN · IBAN · e-posta · konum) →
+         *     kapı REDDEDER ve bu AÇIKÇA söylenir. F10 öncesi bu kapı canlı
+         *     yolda HİÇ YOKTU; böyle bir cümle kalıcı depoya ve HER prompt'a
+         *     giriyordu.
+         *  3. Depoya GERÇEKTEN yazılamadıysa "hatırladım" DENMEZ.
+         *  4. Mevcut bir kayıtla ÇELİŞİYORSA kör silme yapılmaz — çelişki
+         *     kullanıcıya bildirilir (eski kayıt işaretlenir, durur). */
+        const result = rememberExplicit(intent.payload.memoryText ?? '', Date.now());
+        _speak(
+          result.outcome === 'empty'              ? 'Neyi hatırlamamı istersin?'
+          : result.outcome === 'rejected_sensitive' ? 'Bunu hafızama alamam; kişisel/hassas bilgi içeriyor.'
+          : result.outcome === 'not_persisted'    ? 'Şu an hafızama yazamadım, kaydedemedim.'
+          : result.contradicts                    ? 'Tamam, not ettim. Bu daha önce söylediğinle çelişiyor; hangisi geçerli?'
+          :                                         'Tamam, aklımda tutuyorum',
+          isDriving, _turn,
+        );
         break;
       }
       case 'FORGET': {
-        const removed = forgetFact(intent.payload.memoryText ?? '');
+        /* MAVI-F10: unutma artık YALNIZ kalıcı deponun değil, aktif yolculuk
+         * hafızasının ve KONUŞMA GEÇMİŞİNİN de temizlenmesidir — aksi hâlde
+         * "unuttum" dedikten sonra aynı bilgi 8 tur daha prompt'ta yaşıyordu.
+         * Geçmiş temizleme portu bağlı değilse bu AÇIKÇA söylenir. */
+        const result = forgetMemory(intent.payload.memoryText ?? '', Date.now());
+        const touched = result.removed + result.tripRemoved;
         _speak(
-          removed === 'all' ? 'Hepsini unuttum'
-          : removed          ? 'Tamam, unuttum'
-          :                    'Öyle bir şey hatırlamıyorum zaten',
+          !result.persisted && touched > 0 ? 'Sildim ama kalıcı olarak kaydedemedim, tekrar dener misin?'
+          : result.all && touched > 0      ? 'Hepsini unuttum'
+          : touched > 0                    ? 'Tamam, unuttum'
+          :                                  'Öyle bir şey hatırlamıyorum zaten',
           isDriving, _turn,
         );
         break;
@@ -890,6 +1085,62 @@ async function dispatchIntent(intent: AppIntent, ctx: CommandContext): Promise<I
 /* ── Public API ───────────────────────────────────────────── */
 
 /**
+ * MAVI-F5 · GÖZLEM KAYDI — "yaptım" iddiasının TEK kaynağı.
+ *
+ * Katalogdaki `observationCeiling` burada uygulanır: yürütücü `succeeded` dese
+ * bile, o işlemin başarısını DOĞRULAYAN bir kanıt yoksa (tavan `ACCEPTED`)
+ * gözlem `ACCEPTED` olarak kaydedilir — sistem doğrulayamadığı bir şeye
+ * "doğrulandı" DEMEZ. Katalog dışı intent kaydedilmez (kapsam ölçümü dürüst
+ * kalsın; sahte kapsama üretilmez).
+ *
+ * PII: yalnız intent adı ve bounded enum kaydedilir; `result.detail`
+ * (gerçek kullanıcı metni · sensör değeri · kişi adı) ASLA taşınmaz.
+ */
+function _recordCapabilityOutcome(
+  intentType: string, status: string,
+  baseline: ObservationBaseline | null, turnId: string | null,
+): void {
+  try {
+    const settingEvidence = _takeSettingEvidence();
+    const def = findByLegacyIntent(intentType);
+    if (!def) return;
+    const base = classifyObservation(status, def.observationCeiling);
+
+    /* MAVI-F7 · UZLAŞTIRMA. Taban yürütücünün kendi beyanıdır; BAĞIMSIZ kanıt
+     * varsa o kazanır. Kanıt yoksa/bayatsa taban AYNEN kalır — uydurulmaz. */
+    const evidence: DomainEvidence = baseline
+      ? readImmediateEvidence(def, baseline, settingEvidence)
+      : (settingEvidence ?? readImmediateEvidence(def, { atMs: 0, navChangeCount: -1, mediaCommandCount: -1 }, null));
+    const reconciled = reconcileObservation({
+      base, evidence, ceiling: def.observationCeiling,
+    });
+    recordReconciliation(reconciled);
+    recordCapabilityObservation(reconciled.level);
+    setMaviLatencyCapability({ observation: reconciled.level });
+
+    /* Kanıtı GECİKMELİ gelen alan (navigasyon: geocode → rota) → bekleyen
+     * gözlem açılır. Bu kayıt SÖYLENMİŞ CÜMLEYİ DEĞİŞTİRMEZ; yalnız "rota
+     * gerçekten kuruldu mu" sorusunu ölçülebilir kılar ve süre dolarsa
+     * `UNKNOWN` kapanır (zaman aşımı ASLA başarı olmaz). */
+    if (baseline && hasDeferredEvidence(def.domain) && reconciled.level !== 'FAILED'
+        && reconciled.level !== 'CANCELLED' && reconciled.level !== 'REQUESTED') {
+      openPendingObservation({
+        key: `${def.capabilityId}#${def.operation}`,
+        capabilityId: def.capabilityId,
+        operation: def.operation,
+        domain: def.domain,
+        ceiling: def.observationCeiling,
+        turnId,
+        requestedAtMs: baseline.atMs,
+        deadlineMs: baseline.atMs + OBSERVATION_WINDOW_MS,
+        baseline: baseline.navChangeCount,
+        base: reconciled.level,
+      }, baseline);
+    }
+  } catch { /* fail-soft: gözlem kaydı yürütmeyi ETKİLEMEZ */ }
+}
+
+/**
  * Tek bir AppIntent'i çalıştır.
  * intentEngine.routeIntent() yerine bu fonksiyon kullanılabilir;
  * TTS geri bildirimi ve hata yönetimini otomatik sağlar.
@@ -898,6 +1149,11 @@ export async function executeIntent(
   intent: AppIntent,
   ctx:    CommandContext,
 ): Promise<IntentExecutionResult> {
+  /* MAVI-F7: alan tabanı YÜRÜTMEDEN ÖNCE alınır. Sonradan bakıp "defterde
+     kayıt var" demek hiçbir şey kanıtlamaz — o kayıt önceki turdan kalmış
+     olabilir. Kanıt yalnız TABANIN ÜSTÜNE eklenen ve bu isteğin damgasından
+     SONRA üretilen kayıtlardan okunur. */
+  const _baseline = captureObservationBaseline(Date.now());
   const result = await dispatchIntent(intent, ctx);
   /* MAVI-M4-LAB-2: yürütücünün GERÇEK sonucu, kapı kararıyla AYNI turId altında
    * gözlem halkasına yazılır. Tek nokta — `dispatchIntent`in onlarca `return`ü
@@ -917,22 +1173,24 @@ export async function executeIntent(
       reason:   result.reason ?? '',
     });
   }
+  _recordCapabilityOutcome(intent.type, result.status, _baseline, ctx.turn?.id != null ? String(ctx.turn.id) : null);
   return result;
 }
 
-/**
- * Birden fazla intent'i paralel çalıştır (komut zinciri).
+/* ── MAVI-F13 · `executeSequence` KALDIRILDI (ölü ÜÇÜNCÜ bileşik yürütücü) ──
  *
- * Kullanım — bileşik komut:
- *   "Benzinliğe git ve Spotify'da yol şarkıları çal"
- *   → executeSequence([navIntent, musicIntent], ctx)
+ * Silme kanıtı (2026-08-29 statik tarama):
+ *   · üretim çağıranı: **0** (yalnız kendi tanımı ve doküman satırları)
+ *   · test çağıranı:   **0**
+ *   · kanonik karşılığı VAR: `capability/fabric/capabilityPlan` +
+ *     `capabilityPlanRunner` (ardışık · stale kapılı · onay kapılı · gözlemli)
+ *
+ * Neden yalnız "ölü kod" değil, aynı zamanda YANLIŞ bir sözleşmeydi:
+ * `Promise.all` ile PARALEL dağıtım audio focus'u, tek onay slotunu ve
+ * tek-cevap sözleşmesini aynı anda zorlar; ne gözlem yazar ne de tur kapısı
+ * uygular. Canlanması hâlinde F6/F7 invaryantlarını sessizce delerdi.
+ * Geri dönüş: git geçmişi + kanonik plan yolu (`runCapabilityPlan`).
  */
-export async function executeSequence(
-  intents: AppIntent[],
-  ctx:     CommandContext,
-): Promise<void> {
-  await Promise.all(intents.map((intent) => dispatchIntent(intent, ctx)));
-}
 
 /**
  * AI sesli asistan sonucunu doğrudan çalıştır.
@@ -978,7 +1236,9 @@ export async function executeAIResult(
    * kullanıcı "annemi ara" diyor, beynin iyimser metni "aranıyor" deniyor ama
    * ARAMA HİÇ BAŞLAMIYORDU. Yerel parser yolu bu sonucu zaten tüketiyordu;
    * AI yolu artık AYNI sözleşmeyi kullanır (ikinci otorite YOK). */
+  const _baseline = captureObservationBaseline(Date.now());
   const execResult = await dispatchIntent(intent, ctx);
+  _recordCapabilityOutcome(intent.type, execResult.status, _baseline, ctx.turn?.id != null ? String(ctx.turn.id) : null);
   return { intent, result: execResult };
 }
 
@@ -988,4 +1248,62 @@ export async function executeAIResult(
  */
 export function syncVolume(percent: number): void {
   _currentVolume = Math.max(0, Math.min(100, percent));
+}
+
+/**
+ * Ses yüzdesini KANONİK kaynaktan (store `settings.volume`) okuyup delta uygular.
+ *
+ * ── SAHA 2026-08-30 · GERÇEK CİHAZDA ÖLÇÜLEN KUSUR (kütük #1054) ──────────────
+ * Eskiden `_currentVolume` modül düzeyinde **60 ile başlıyor** ve üretimde
+ * HİÇBİR ŞEY onu beslemiyordu (`syncVolume` dışa veriliyor ama çağıran YOK —
+ * "bilgi var, besleyen yok"). Sonuç: cihaz gerçekte 11/15 (≈%73) iken JS %60
+ * sanıyordu; *"sesi artır"* 70'e çıkıp `round(70/100*15) = 11` yazıyordu ve
+ * **hiçbir şey değişmiyordu** — gerçek seviye daha yüksekse sesi DÜŞÜRÜRDÜ.
+ * Cihazda ölçüldü: `dumpsys audio streamVolume` 11 → 11 (55 örnek).
+ *
+ * Artık taban store'dan gelir (slider'ın yazdığı AYNI alan) ve sonuç store'a
+ * geri yazılır → slider ile sesli komut aynı gerçeği paylaşır. İkinci bir ses
+ * otoritesi KURULMAZ; `setVolume` yine tek uygulama yoludur.
+ */
+/**
+ * Ses seviyesini CİHAZIN GERÇEK değerinden okuyup **index uzayında** ±1 adım
+ * değiştirir; sonucu tek uygulama yolundan (`setVolume`, yüzde) yazar ve
+ * store'u senkronlar.
+ *
+ * ── SAHA 2026-08-30 · GERÇEK CİHAZDA ÖLÇÜLEN KUSUR (kütük #1054) ──────────────
+ * İki ayrı kusur üst üste biniyordu:
+ *  1. **Okuma yoktu.** `_currentVolume` modül düzeyinde %60 ile başlıyor ve
+ *     üretimde hiçbir şey onu beslemiyordu (`syncVolume` çağıransız). Cihaz
+ *     11/15 (≈%73) iken JS %60 sanıyordu.
+ *  2. **Yüzde uzayı kayıplı.** 15 adımda her adım ≈%6,7; ±%10'luk delta
+ *     `round(p/100*15)` sonrası çoğu zaman AYNI index'e düşüyordu →
+ *     `dumpsys audio streamVolume` 11 → 11 (55 örnek, iki ayrı derlemede).
+ *
+ * Çözüm: gerçek `value/max` okunur, index ±1 adım kaydırılır, yüzdeye çevrilip
+ * MEVCUT tek yoldan (`setVolume`) uygulanır. Yeni ses otoritesi KURULMAZ.
+ * Native okuma başarısızsa store tabanına düşülür (fail-soft) — sessizce
+ * yanlış bir taban UYDURULMAZ.
+ */
+async function _applyVolumeStep(step: number): Promise<number> {
+  let percent: number | null = null;
+  if (isNative) {
+    try {
+      const r = await CarLauncher.getVolume();
+      if (r && Number.isFinite(r.value) && Number.isFinite(r.max) && r.max > 0) {
+        const nextIdx = Math.max(0, Math.min(r.max, r.value + step));
+        percent = Math.round((nextIdx * 100) / r.max);
+      }
+    } catch { /* okunamadı → store tabanına düş */ }
+  }
+  if (percent === null) {
+    let base = _currentVolume;
+    try {
+      const v = useStore.getState().settings.volume;
+      if (typeof v === 'number' && Number.isFinite(v)) base = v;
+    } catch { /* fail-soft */ }
+    percent = Math.max(0, Math.min(100, base + step * 10));
+  }
+  setVolume(percent);
+  try { useStore.getState().updateSettings({ volume: percent }); } catch { /* fail-soft */ }
+  return percent;
 }

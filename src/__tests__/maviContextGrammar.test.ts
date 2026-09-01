@@ -17,6 +17,7 @@
  */
 
 import { describe, it, expect, beforeEach } from 'vitest';
+import { AFFIRM_RE, NEGATE_RE } from '../platform/voice/voiceCommandPolicy';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -126,13 +127,14 @@ describe('MAVI-STT-CONTEXT-GRAMMAR · 1-6. confirmation', () => {
   });
 
   it('2b. confirmation sözcükleri gerçek onay ayrıştırıcısına ÖLÇÜLEREK bağlanır', () => {
-    /* Gramer, parser'ın göremeyeceği bir sözcük ÖNERMEMELİDİR. AFFIRM_RE/NEGATE_RE
-       `voiceService`te özeldir → kaynaktan okunup BİREBİR çalıştırılır (varsayım YOK). */
-    const vs = readSrc('src', 'platform', 'voiceService.ts');
-    const affirm = /const AFFIRM_RE = (\/.+\/i);/.exec(vs)![1]!;
-    const negate = /const NEGATE_RE = (\/.+\/i);/.exec(vs)![1]!;
-    const AFFIRM = new RegExp(affirm.slice(1, -2), 'i');
-    const NEGATE = new RegExp(negate.slice(1, -2), 'i');
+    /* Gramer, parser'ın göremeyeceği bir sözcük ÖNERMEMELİDİR.
+       MAVI-F13/2'de YENİDEN BAĞLANDI ve GÜÇLENDİ: AFFIRM_RE/NEGATE_RE artık
+       `voice/voiceCommandPolicy`de DIŞA VERİLİR → kilit kaynak metnini regex ile
+       yeniden ayrıştırmak yerine GERÇEK nesneyi çalıştırır. Eski yol kırılgandı
+       (kaynak biçimi değişince kilit sessizce kopardı); yeni yol o riski
+       tümüyle kaldırır. */
+    const AFFIRM = AFFIRM_RE;
+    const NEGATE = NEGATE_RE;
 
     expect(AFFIRM.test('evet')).toBe(true);
     expect(AFFIRM.test('onayla')).toBe(true);

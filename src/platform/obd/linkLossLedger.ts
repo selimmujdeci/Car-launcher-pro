@@ -141,7 +141,16 @@ export type LinkLossEvidenceGap =
   | 'TIMEOUT_STAGE'
   /** Kurtarma henüz olmadı → hız/deneme imzası okunamaz. */
   | 'RECOVERY'
-  /** Native soket hata kodu JS'e açılmamış (repoda kaynak YOK). */
+  /**
+   * Native hata SINIFI bu kopmada YOK.
+   *
+   * P0-OBD-FINAL-02: bu boşluk artık "repoda kaynak yok" DEMEK DEĞİLDİR —
+   * kaynak VAR (`ObdFailureClass` → `obdStatus.failureClass` → obdService).
+   * Sahada 6 kopmanın 4'ü UNKNOWN'a düşüyordu ve `NATIVE_SOCKET_ERROR`
+   * kanıt açığı 4 sayılıyordu ÇÜNKÜ defterin girdisinde bu alan HİÇ YOKTU
+   * (zincirin son halkası kopuktu). Artık boşluk YALNIZ native gerçekten
+   * ölçemediğinde (`unknown` / alan yok) yazılır — sahte sınıf ÜRETİLMEZ.
+   */
   | 'NATIVE_SOCKET_ERROR';
 
 export const LINK_LOSS_GAP_LABEL: Readonly<Record<LinkLossEvidenceGap, string>> = {
@@ -166,12 +175,27 @@ export interface LinkLossSample {
   readonly ecuDataAgeMs: number | null;
   /** Son okunan adaptör voltajı (V). `null` = ATRV hiç okunmadı. */
   readonly adapterVoltageV: number | null;
+  /**
+   * C — o voltajın OKUNDUĞU an (duvar saati damgası). `null` = damga yok →
+   * değer sınıflandırmada KULLANILMAZ (bayat olabilir; bkz. tazelik sözleşmesi).
+   */
+  readonly adapterVoltageObservedAt?: number | null;
   /** Bu oturumda hiç ECU verisi aktı mı. */
   readonly everHadEcuData: boolean;
   /** Taşıma katmanı (classic/ble) — PII taşımaz. */
   readonly transport: string | null;
   /** Aktif protokol (ATDPN) — PII taşımaz. */
   readonly protocolActive: string | null;
+  /**
+   * P0-OBD-FINAL-02 — NATIVE'İN ÖLÇTÜĞÜ hata SINIFI (`ObdFailureClass` enum'u;
+   * ham mesaj DEĞİL, PII taşımaz). `null` = native ölçemedi / köprü taşımadı.
+   *
+   * ZİNCİR: `ObdFailureClass.of(e)` → `onFailed(..., failureClass)` →
+   * `obdStatus` olayı → `obdService._lastNativeFailureClass` → BURASI.
+   * Bu alan eklenmeden önce zincir tam olarak BURADA kopuyordu: sınıf JS'te
+   * VARDI ama defter onu HİÇ GÖRMÜYORDU ve kopma "UNKNOWN" damgalanıyordu.
+   */
+  readonly nativeFailureClass?: string | null;
 }
 
 export interface LinkLossRecord {
@@ -188,9 +212,18 @@ export interface LinkLossRecord {
   readonly linkPacketAgeMs: number | null;
   readonly ecuDataAgeMs: number | null;
   readonly adapterVoltageV: number | null;
+  /** C — voltaj ölçümünün kopma anındaki yaşı (ms). `null` = damga yoktu. */
+  readonly voltageAgeMs: number | null;
+  /**
+   * C — voltajın kanıt değeri. `STALE`/`UNKNOWN` iken `adapterVoltageV` ham kayıt
+   * olarak KALIR ama sınıflandırmaya GİRMEZ ve `ADAPTER_VOLTAGE` boşluğu açılır.
+   */
+  readonly voltageFreshness: VoltageFreshness;
   readonly timeoutStage: LinkLossSample['timeoutStage'];
   readonly transport: string | null;
   readonly protocolActive: string | null;
+  /** Native'in ölçtüğü hata sınıfı; `null` = ölçülmedi (sahte sınıf YAZILMAZ). */
+  readonly nativeFailureClass: string | null;
   /** Kopmadan başarılı handshake'e geçen süre (ms). `null` = HÂLÂ BEKLİYOR. */
   readonly recoveryMs: number | null;
   /** Kurtarmaya kadar düşen deneme sayısı. `null` = kurtarma yok. */
@@ -223,6 +256,95 @@ function _voltageBand(v: number | null): 'BROWNOUT' | 'IGNITION_OFF' | 'RUNNING'
   return 'RUNNING';
 }
 
+/* ══════════════════════════════════════════════════════════════════════════
+ * C · VOLTAJ TEK BAŞINA KANIT DEĞİLDİR — TAZELİK SÖZLEŞMESİ
+ *
+ * ── SAHA (2026-08-30 · gerçek araç · CAROS LAB TAM KOPYA) ──────────────────
+ * Kopma defterinde şu kayıt vardı:
+ *     {"trigger":"LINK_DEAD_WATCHDOG",
+ *      "note":"hiç paket yok (ATRV dahil)", "adapterVoltageV":12.6}
+ * Kayıt "ATRV DAHİL hiçbir paket gelmedi" derken 12,6 V raporluyordu ve son 200
+ * ham trafik kaydında ATRV HİÇ YOKTU. Değer `_current.batteryVoltage`ten geliyor;
+ * o alan bir kez yazıldıktan sonra ESKİMİYOR. Yani ölü linkte "adaptör sağlıklı"
+ * izlenimi veren BAYAT bir sayı canlı kanıt gibi sunuluyordu — ve `evidenceGap`
+ * `ADAPTER_VOLTAGE` boşluğunu İŞARETLEMİYORDU, çünkü alan "dolu" görünüyordu.
+ *
+ * SÖZLEŞME: voltajın YAŞI bilinmiyorsa ya da pencereyi aşmışsa değer sınıflandırma
+ * için YOK sayılır (`UNKNOWN` bandı) ve `ADAPTER_VOLTAGE` boşluğu işaretlenir.
+ * Ham sayı kayıtta KALIR (kanıt silinmez) ama TAZELİK ETİKETİYLE birlikte.
+ *
+ * ⚠️ Yeni ATRV poll motoru / timer KURULMAZ: yalnız mevcut akıştaki okuma anı
+ * damgalanır. Damga yoksa dürüst cevap `UNKNOWN`tur.
+ * ════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * ATRV okuması bu süreden eskiyse kopma anının kanıtı SAYILMAZ.
+ * Native `VOLTAGE_EVERY_N_CYCLES` turda bir okur (~5 sn mertebesi); 20 sn'lik
+ * pencere normal kadansın çok üstünde → yalnız GERÇEKTEN bayat değeri eler.
+ */
+export const LINK_LOSS_VOLTAGE_FRESH_MS = 20_000;
+
+/** Voltaj ölçümünün kopma anındaki tazeliği. `UNKNOWN` = yaş hiç ölçülmedi. */
+export type VoltageFreshness = 'FRESH' | 'STALE' | 'UNKNOWN';
+
+/** Ölçüm anı damgasından tazelik sınıfı — SAF (kendi saatini OKUMAZ). */
+export function classifyVoltageFreshness(
+  atMs: number,
+  observedAtMs: number | null | undefined,
+): { freshness: VoltageFreshness; ageMs: number | null } {
+  if (typeof observedAtMs !== 'number' || !Number.isFinite(observedAtMs) || observedAtMs <= 0) {
+    return { freshness: 'UNKNOWN', ageMs: null };
+  }
+  /* Saat sıçramasında negatif yaş üretme — 0'a kırp (bkz. `_noteLinkLoss`). */
+  const ageMs = Math.max(0, atMs - observedAtMs);
+  return { freshness: ageMs <= LINK_LOSS_VOLTAGE_FRESH_MS ? 'FRESH' : 'STALE', ageMs };
+}
+
+/**
+ * P0-OBD-FINAL-02 — NATIVE HATA SINIFI → KOPMA ADAYI (SAF, KAPALI KÜME).
+ *
+ * SÖZLEŞME: yalnız sınıfın GERÇEKTEN ima ettiği aday döner. İma etmiyorsa
+ * `null` — "bir şey yazmış olmak için" aday UYDURULMAZ. Tanınmayan bir dize
+ * de `null` döner (ileri/eski APK teşhisi KİRLETEMEZ).
+ *
+ * NEDEN BAZI SINIFLAR `null`:
+ *  · `io_error`   — "IOException ama alt ayrım yok"; soket düşüşü ile hat
+ *                   hatası bu bilgiyle AYRILAMAZ.
+ *  · `timeout`    — hangi AŞAMADA olduğu bilinmeden aday kurulamaz
+ *                   (`timeoutStage` zaten ayrı bir kanıt eksenidir).
+ *  · `interrupted`— bizim kendi disconnect'imiz de olabilir; "kullanıcı
+ *                   eylemi" demek KANITSIZ bir iddia olurdu.
+ *  · `unknown`    — native ölçemedi; dürüst boşluk KORUNUR.
+ */
+export function candidateFromNativeFailureClass(
+  cls: string | null | undefined,
+): { candidate: LinkLossCandidate; why: string } | null {
+  switch (cls) {
+    /* Soket AÇILMIŞTI ve düştü → adaptör ayaktaydı, taşıma koptu. */
+    case 'socket_closed':
+    case 'broken_pipe':
+    case 'read_failed':
+      return { candidate: 'RFCOMM_SOCKET_DROP', why: `native hata sınıfı: ${cls} (açık soket düştü)` };
+    /* Uzak uç hiç kabul etmedi / adaptör görünmüyor → adaptöre ULAŞILAMIYOR. */
+    case 'connection_refused':
+    case 'device_not_found':
+    case 'bt_disabled':
+    case 'bond_failed':
+    case 'gatt_failure':
+    case 'resource_busy':
+    case 'permission_denied':
+      return { candidate: 'ADAPTER_UNREACHABLE', why: `native hata sınıfı: ${cls} (soket hiç kurulamadı)` };
+    /* Soket açıldı, ELM zinciri düştü. */
+    case 'elm_init_failed':
+      return { candidate: 'ELM_INIT_INCOMPLETE', why: 'native hata sınıfı: elm_init_failed' };
+    /* ELM bağlandı, araç 0100'e cevap vermedi → adaptör suçsuz. */
+    case 'no_vehicle_response':
+      return { candidate: 'ECU_SILENT', why: 'native hata sınıfı: no_vehicle_response (ELM ayakta, ECU sustu)' };
+    default:
+      return null;
+  }
+}
+
 /**
  * Kopma anındaki kanıttan aday üretir. Kanıt yetmezse `UNKNOWN` + boşluk listesi.
  *
@@ -231,7 +353,12 @@ function _voltageBand(v: number | null): 'BROWNOUT' | 'IGNITION_OFF' | 'RUNNING'
  */
 export function classifyLinkLoss(sample: LinkLossSample): LinkLossRecord {
   const gaps: LinkLossEvidenceGap[] = [];
-  const band = _voltageBand(sample.adapterVoltageV);
+  /* C — TAZELİK KAPISI: yaşı bilinmeyen ya da pencereyi aşmış voltaj sınıflandırma
+     için YOK sayılır. Ham değer kayıtta kalır; hüküm ondan ÜRETİLMEZ. */
+  const { freshness: voltageFreshness, ageMs: voltageAgeMs } =
+    classifyVoltageFreshness(sample.atMs, sample.adapterVoltageObservedAt);
+  const usableVoltageV = voltageFreshness === 'FRESH' ? sample.adapterVoltageV : null;
+  const band = _voltageBand(usableVoltageV);
 
   let candidate: LinkLossCandidate = 'UNKNOWN';
   let why = 'kanıt yetersiz';
@@ -246,7 +373,7 @@ export function classifyLinkLoss(sample: LinkLossSample): LinkLossRecord {
     case 'ECU_SILENT_WATCHDOG':
       candidate = 'ECU_SILENT';
       why = band === 'IGNITION_OFF' || band === 'BROWNOUT'
-        ? `ECU sustu, adaptör canlı · voltaj ${sample.adapterVoltageV} V (kontak kapalı olabilir)`
+        ? `ECU sustu, adaptör canlı · voltaj ${usableVoltageV} V (kontak kapalı olabilir)`
         : 'ECU sustu, adaptör canlı (ATRV akıyor)';
       break;
 
@@ -281,20 +408,38 @@ export function classifyLinkLoss(sample: LinkLossSample): LinkLossRecord {
           candidate = 'UNKNOWN';
           why = 'yalnız VIN (0902) aşamasında timeout — kopmayı açıklamaz';
           break;
-        default:
-          candidate = 'UNKNOWN';
-          why = 'timeout aşaması bildirilmedi';
+        default: {
+          /* P0-OBD-FINAL-02: aşama bildirilmemiş olsa da native SINIF ayırt
+             edici olabilir. Aşama boşluğu YİNE DE raporlanır (iki ayrı kanıt
+             ekseni — biri diğerinin yerine GEÇMEZ). */
+          const nativeT = candidateFromNativeFailureClass(sample.nativeFailureClass);
+          candidate = nativeT?.candidate ?? 'UNKNOWN';
+          why = nativeT ? `timeout aşaması bildirilmedi; ${nativeT.why}` : 'timeout aşaması bildirilmedi';
           gaps.push('TIMEOUT_STAGE');
           break;
+        }
       }
       break;
 
-    case 'CONNECT_FAIL':
-      /* Native hata sınıfı JS'e açılmamıştır → tahmin yapılmaz. */
-      candidate = 'UNKNOWN';
-      why = 'bağlantı düştü, hata sınıfı JS\'e açılmamış';
-      gaps.push('NATIVE_SOCKET_ERROR');
+    case 'CONNECT_FAIL': {
+      /* P0-OBD-FINAL-02 — NATIVE SINIFI ARTIK OKUNUR.
+         SAHA (2026-08-25): 6 kopmanın 4'ü UNKNOWN'a düşüyor ve
+         `NATIVE_SOCKET_ERROR` kanıt açığı 4 sayılıyordu. Sınıf JS'te ZATEN
+         VARDI (`obdService._lastNativeFailureClass`) — defterin GİRDİSİNDE
+         yoktu. Zincirin son halkası bağlandı; kanıt yoksa UNKNOWN KORUNUR. */
+      const native = candidateFromNativeFailureClass(sample.nativeFailureClass);
+      if (native !== null) {
+        candidate = native.candidate;
+        why = native.why;
+      } else {
+        candidate = 'UNKNOWN';
+        why = sample.nativeFailureClass
+          ? `bağlantı düştü; native sınıfı ayırt edici değil (${sample.nativeFailureClass})`
+          : 'bağlantı düştü, native hata sınıfı ÖLÇÜLMEDİ';
+        gaps.push('NATIVE_SOCKET_ERROR');
+      }
       break;
+    }
 
     case 'LINK_DEAD_WATCHDOG': {
       const lead = (sample.ecuDataAgeMs !== null && sample.linkPacketAgeMs !== null)
@@ -303,7 +448,7 @@ export function classifyLinkLoss(sample: LinkLossSample): LinkLossRecord {
 
       if (band === 'BROWNOUT') {
         candidate = 'ADAPTER_UNREACHABLE';
-        why = `adaptör beslemesi çökmüş (${sample.adapterVoltageV} V < ${LINK_LOSS_BROWNOUT_V} V)`;
+        why = `adaptör beslemesi çökmüş (${usableVoltageV} V < ${LINK_LOSS_BROWNOUT_V} V)`;
       } else if (lead !== null && lead > LINK_LOSS_ECU_LEAD_MS) {
         candidate = 'ECU_SILENT';
         why = `ECU link'ten ${Math.round(lead / 1000)} s ÖNCE susmuş — sıra ECU→link`;
@@ -321,10 +466,20 @@ export function classifyLinkLoss(sample: LinkLossSample): LinkLossRecord {
 
   if (sample.linkPacketAgeMs === null) gaps.push('LINK_PACKET_AGE');
   if (sample.ecuDataAgeMs === null && sample.everHadEcuData) gaps.push('ECU_DATA_AGE');
+  /* C — "alan dolu ama BAYAT" hâli artık dürüst boşluk sayılır. Eskiden 12,6 V
+     bir ölü linkte canlı kanıt gibi duruyor, boşluk HİÇ işaretlenmiyordu. */
+  if (voltageFreshness !== 'FRESH') gaps.push('ADAPTER_VOLTAGE');
 
   const uniqueGaps = gaps.filter((g, i) => gaps.indexOf(g) === i);
+  const voltageNote = sample.adapterVoltageV === null
+    ? ''
+    : voltageFreshness === 'FRESH'
+      ? ` · voltaj ${sample.adapterVoltageV} V (taze${voltageAgeMs === null ? '' : `, ${voltageAgeMs} ms`})`
+      : voltageFreshness === 'STALE'
+        ? ` · voltaj ${sample.adapterVoltageV} V BAYAT (${voltageAgeMs} ms) — kanıt SAYILMADI`
+        : ` · voltaj ${sample.adapterVoltageV} V — ÖLÇÜM ANI BİLİNMİYOR, kanıt SAYILMADI`;
   const note = `${LINK_LOSS_TRIGGER_LABEL[sample.trigger]} → `
-             + `${LINK_LOSS_CANDIDATE_LABEL[candidate]} · ${why}`;
+             + `${LINK_LOSS_CANDIDATE_LABEL[candidate]} · ${why}${voltageNote}`;
 
   return {
     atMs: sample.atMs,
@@ -336,9 +491,12 @@ export function classifyLinkLoss(sample: LinkLossSample): LinkLossRecord {
     linkPacketAgeMs: sample.linkPacketAgeMs,
     ecuDataAgeMs: sample.ecuDataAgeMs,
     adapterVoltageV: sample.adapterVoltageV,
+    voltageAgeMs,
+    voltageFreshness,
     timeoutStage: sample.timeoutStage,
     transport: sample.transport,
     protocolActive: sample.protocolActive,
+    nativeFailureClass: sample.nativeFailureClass ?? null,
     recoveryMs: null,
     recoveryFailedAttempts: null,
     recoverySuperseded: false,

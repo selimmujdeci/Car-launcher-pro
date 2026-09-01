@@ -99,6 +99,7 @@ import com.cockpitos.pro.obd.BleObdScanner;
 import com.cockpitos.pro.obd.ExtendedPollEvidence;
 import com.cockpitos.pro.obd.KwpRecoveryEvidence;
 import com.cockpitos.pro.obd.OBDBluetoothManager;
+import com.cockpitos.pro.obd.PollCostLedger;
 import com.cockpitos.pro.obd.OBDManager;
 import com.cockpitos.pro.obd.ObdPollSample;
 import com.cockpitos.pro.can.ReverseSignalGuard;
@@ -1075,11 +1076,27 @@ public class CarLauncherPlugin extends Plugin {
             // TS native'in soketini kapatır, native yeniden kurmaya çalışır). Daha kötüsü:
             // native reconnect BAŞARILI olduğunda ("connected") bile TS bunu link kaybı sanıp
             // az önce iyileşmiş bağlantıyı yeniden kuruyordu.
+            //
+            // P0-OBD-FINAL-01 (ÖNCELİK 1) — RECONNECT'İN SONU DA BİR OLAYDIR.
+            // Eskiden yalnız "başladı" ve "başardı" bildiriliyordu; BAŞARISIZLIK
+            // sessizdi. TS otoritesi native reconnect uçuştayken gelen "link_lost"u
+            // bilinçli olarak yok saydığı için, başarısız tur TS'e HİÇ ulaşmıyor ve
+            // otorite yalnız 60 s'lik fail-safe zamanlayıcısıyla geri dönüyordu →
+            // her başarısız reconnect 60 s ölü pencere. Artık üçüncü bir sonuç var.
             final String reason;
-            if ("reconnecting".equals(state))     reason = "native_reconnecting"; // TS: KARIŞMA, bekle
-            else if ("connected".equals(state))   reason = "native_reconnected";  // TS: iyileşti, izlemeye dön
-            else                                  reason = "link_lost";           // gerçek kopma → TS otoritesi
+            if ("reconnecting".equals(state))          reason = "native_reconnecting";     // TS: KARIŞMA, bekle
+            else if ("connected".equals(state))        reason = "native_reconnected";      // TS: iyileşti, izlemeye dön
+            else if ("reconnect_failed".equals(state)) reason = "native_reconnect_failed"; // TS: otoriteyi GERİ AL
+            else                                       reason = "link_lost";               // gerçek kopma → TS otoritesi
             event.put("reason", reason);
+            /* Tur kimliği + deneme sayısı: "reconnecting" ile sonucu EŞLEŞTİRMEK
+               ve LAB'da "aynı olay mı, yeni tur mu" sorusunu cevaplamak için.
+               Ölçülemiyorsa anahtar HİÇ yazılmaz (sahte 0 YASAK). */
+            OBDManager mgr = obdManager;
+            if (mgr != null) {
+                event.put("reconnectEpoch",    mgr.getReconnectEpoch());
+                event.put("reconnectAttempts", mgr.getReconnectAttempts());
+            }
             notifyListeners("obdStatus", event);
         }
 
@@ -1484,7 +1501,7 @@ public class CarLauncherPlugin extends Plugin {
                 }
 
                 @Override
-                public void onFailed(String error, String code) {
+                public void onFailed(String error, String code, String failureClass) {
                     JSObject event = new JSObject();
                     event.put("state",   "error");
                     event.put("message", error);
@@ -1493,6 +1510,12 @@ public class CarLauncherPlugin extends Plugin {
                     // olayı YOK SAYAR (reconnect tetiklemez); asıl reconnect kararı reject/catch
                     // zincirinde (fallback transport deneme / _scheduleReconnect) verilir.
                     event.put("reason",  "connect_failed");
+                    /* P0-OBD-CORE-06: neden ARTIK taşınıyor. Bu olay bilinçli olarak
+                       reconnect TETİKLEMEZ (Patch 1) ama taşıdığı KANIT da eskiden
+                       kayboluyordu: JS nedeni yalnız reject MESAJINDAN regex'le okuyor,
+                       mesaj null gelince UNKNOWN yazıyordu (saha: 17 CONNECT_FAILED,
+                       hepsi "bilinmiyor"). Sınıf istisna TİPİNDEN türetilir. */
+                    if (present(failureClass)) event.put("failureClass", failureClass);
                     notifyListeners("obdStatus", event);
 
                     // Patch 3: code — "OBD_UNABLE_TO_CONNECT" | "CONNECT_FAILED" (bkz. ConnectCallback).
@@ -1521,13 +1544,19 @@ public class CarLauncherPlugin extends Plugin {
                 }
 
                 @Override
-                public void onFailed(String error, String code) {
+                public void onFailed(String error, String code, String failureClass) {
                     JSObject event = new JSObject();
                     event.put("state",   "error");
                     event.put("message", error);
                     // Patch 1 sözleşmesiyle aynı: bu DENEMENİN başarısızlığı, obdService
                     // reconnect kararını reject/catch zincirinden alır.
                     event.put("reason",  "connect_failed");
+                    /* P0-OBD-CORE-06: neden ARTIK taşınıyor. Bu olay bilinçli olarak
+                       reconnect TETİKLEMEZ (Patch 1) ama taşıdığı KANIT da eskiden
+                       kayboluyordu: JS nedeni yalnız reject MESAJINDAN regex'le okuyor,
+                       mesaj null gelince UNKNOWN yazıyordu (saha: 17 CONNECT_FAILED,
+                       hepsi "bilinmiyor"). Sınıf istisna TİPİNDEN türetilir. */
+                    if (present(failureClass)) event.put("failureClass", failureClass);
                     notifyListeners("obdStatus", event);
                     mainHandler.post(() -> call.reject(code, error));
                 }
@@ -1552,13 +1581,19 @@ public class CarLauncherPlugin extends Plugin {
             }
 
             @Override
-            public void onFailed(String error, String code) {
+            public void onFailed(String error, String code, String failureClass) {
                 JSObject event = new JSObject();
                 event.put("state",   "error");
                 event.put("message", error);
                 // Patch 1: bkz. BLE onFailed yorumu — bu bağlantı DENEMESİNİN başarısızlığı,
                 // obdService reconnect kararını reject/catch zincirinden alır (çift reaksiyon yok).
                 event.put("reason",  "connect_failed");
+                /* P0-OBD-CORE-06: neden ARTIK taşınıyor. Bu olay bilinçli olarak
+                   reconnect TETİKLEMEZ (Patch 1) ama taşıdığı KANIT da eskiden
+                   kayboluyordu: JS nedeni yalnız reject MESAJINDAN regex'le okuyor,
+                   mesaj null gelince UNKNOWN yazıyordu (saha: 17 CONNECT_FAILED,
+                   hepsi "bilinmiyor"). Sınıf istisna TİPİNDEN türetilir. */
+                if (present(failureClass)) event.put("failureClass", failureClass);
                 notifyListeners("obdStatus", event);
 
                 // Patch 3: code — "OBD_UNABLE_TO_CONNECT" | "CONNECT_FAILED" (bkz. ConnectCallback).
@@ -1706,6 +1741,18 @@ public class CarLauncherPlugin extends Plugin {
         ret.put("killedByDataGate", s.killedByDataGate);
         ret.put("threshold", s.threshold);
         ret.put("maxPerSession", s.maxPerSession);
+        ret.put("lastEvent", s.lastEvent);
+        ret.put("noDataCount", s.noDataCount);
+        ret.put("promptTimeoutCount", s.promptTimeoutCount);
+        ret.put("partialTimeoutCount", s.partialTimeoutCount);
+        ret.put("ecuSilentCount", s.ecuSilentCount);
+        ret.put("sessionRecoveryCount", s.sessionRecoveryCount);
+        ret.put("transportReconnectCount", s.transportReconnectCount);
+        ret.put("recoveredCount", s.recoveredCount);
+        ret.put("recoveryFailedCount", s.recoveryFailedCount);
+        ret.put("maxCommandDurationMs", s.maxCommandDurationMs);
+        ret.put("maxKeepAliveGapMs", s.maxKeepAliveGapMs);
+        ret.put("keepAliveGapExceededCount", s.keepAliveGapExceededCount);
         if (s.protocolAtRecovery != null) ret.put("protocolAtRecovery", s.protocolAtRecovery);
         else ret.put("protocolAtRecovery", org.json.JSONObject.NULL);
         call.resolve(ret);
@@ -2030,13 +2077,85 @@ public class CarLauncherPlugin extends Plugin {
         }
     }
 
+    /**
+     * P0-VDK-B3 — POLL MALİYETİ (salt-okunur). Hiçbir komut TETİKLEMEZ: yalnız
+     * {@link PollCostLedger}'ın zaten ölçtüğü sayaçları serialize eder.
+     *
+     * Ölçülmeyen alanlar {@code null} taşır ({@link PollCostLedger#UNKNOWN} → null):
+     * "ölçmedik" ile "sıfırdı" LAB'da AYNI görünemez.
+     */
+    @PluginMethod
+    public void getObdPollCost(PluginCall call) {
+        PollCostLedger.Snapshot s = PollCostLedger.INSTANCE.snapshot();
+        JSObject ret = new JSObject();
+        ret.put("present", s.present);
+        ret.put("sessionEpoch", s.sessionEpoch);
+        ret.put("cyclesRecorded", s.cyclesRecorded);
+        ret.put("burstCyclesRecorded", s.burstCyclesRecorded);
+        /* Poll turu AÇIK DEĞİLKEN gelen komutlar (handshake · keşif · DTC taraması):
+           poll bütçesine YAZILAMAZ ama görünmez de kalamaz — dürüst boşluk. */
+        ret.put("unattributedCommands", s.unattributedCommands);
+
+        JSObject t = new JSObject();
+        t.put("diagnosticPayloadRequests", s.totalPayloadRequests);
+        t.put("adapterControlCommands", s.totalAdapterCommands);
+        t.put("headerSwitches", s.totalHeaderSwitches);
+        t.put("voltageReads", s.totalVoltageReads);
+        t.put("protocolChecks", s.totalProtocolChecks);
+        t.put("redundantHeaderSwitches", s.totalRedundantHeaderSwitches);
+        t.put("noResponses", s.totalNoResponses);
+        t.put("negativeResponses", s.totalNegativeResponses);
+        t.put("noResponseMs", s.totalNoResponseMs);
+        t.put("payloadMs", s.totalPayloadMs);
+        t.put("adapterMs", s.totalAdapterMs);
+        t.put("bytesTx", s.totalBytesTx);
+        t.put("bytesRx", s.totalBytesRx);
+        ret.put("totals", t);
+
+        ret.put("lastCycle", s.lastCycle == null ? JSObject.NULL : cycleCostJson(s.lastCycle));
+        JSArray recent = new JSArray();
+        for (PollCostLedger.CycleCost c : s.recentCycles) recent.put(cycleCostJson(c));
+        ret.put("recentCycles", recent);
+        call.resolve(ret);
+    }
+
+    /** {@link PollCostLedger.CycleCost} → JSON. `retries` ölçülmediyse {@code null}. */
+    private static JSObject cycleCostJson(PollCostLedger.CycleCost c) {
+        JSObject o = new JSObject();
+        o.put("cycleId", c.cycleId);
+        o.put("sessionEpoch", c.sessionEpoch);
+        o.put("burst", c.burst);
+        o.put("diagnosticPayloadRequests", c.diagnosticPayloadRequests);
+        o.put("adapterControlCommands", c.adapterControlCommands);
+        o.put("headerSwitches", c.headerSwitches);
+        o.put("voltageReads", c.voltageReads);
+        o.put("protocolChecks", c.protocolChecks);
+        o.put("redundantHeaderSwitches", c.redundantHeaderSwitches);
+        o.put("noResponses", c.noResponses);
+        o.put("negativeResponses", c.negativeResponses);
+        o.put("noResponseMs", c.noResponseMs);
+        o.put("payloadMs", c.payloadMs);
+        o.put("adapterMs", c.adapterMs);
+        o.put("elapsedMs", c.elapsedMs);
+        o.put("bytesTx", c.bytesTx);
+        o.put("bytesRx", c.bytesRx);
+        /* SAHTE 0 YASAK: ölçülmeyen alan null gider. */
+        o.put("retries", c.retries == PollCostLedger.UNKNOWN ? JSObject.NULL : c.retries);
+        o.put("provenance", c.provenance);
+        return o;
+    }
+
     @PluginMethod
     public void getObdExtendedPollEvidence(PluginCall call) {
         ExtendedPollEvidence.Snapshot s = ExtendedPollEvidence.INSTANCE.snapshot();
         JSObject ret = new JSObject();
         ret.put("present", s.present);
         ret.put("transport", s.transport);
+        /* B2 — NİYET ≠ SON TUR. `burstEnabled` geriye dönük ad olarak KALIR (niyeti
+           taşır); hüküm üreten tüketiciler `burstIntent`/`lastCycleWasBurst` okur. */
         ret.put("burstEnabled", s.burstEnabled);
+        ret.put("burstIntent", s.burstIntent);
+        ret.put("lastCycleWasBurst", s.lastCycleWasBurst);
         ret.put("configuredPidCount", s.configuredPidCount);
         JSArray preview = new JSArray();
         for (String pid : s.configuredPidPreview) preview.put(pid);
@@ -2079,6 +2198,10 @@ public class CarLauncherPlugin extends Plugin {
             attempts.put(o);
         }
         ret.put("lastAttempts", attempts);
+        if (bleObdManager != null && bleObdManager.isConnected())
+            ret.put("scheduler", bleObdManager.getAdaptiveSchedulerJson());
+        else if (obdManager != null)
+            ret.put("scheduler", obdManager.getAdaptiveSchedulerJson());
         call.resolve(ret);
     }
 
@@ -2133,6 +2256,44 @@ public class CarLauncherPlugin extends Plugin {
         }, "obd-dtc-clear").start();
     }
 
+    /**
+     * P0-OBD-10 — Mode 04 KANITLI silme. Eski {@link #clearDTC} sozlesmesi DEGISMEDI.
+     *
+     * NEDEN AYRI METOT: {@code clearDTC} yalnizca "resolve mi reject mi" bilgisini
+     * tasir; ECU nun ne cevapladigi (ham RX, negatif yanit kodu, NO DATA mi timeout
+     * mu, hangi protokol, ne kadar surdu) ATILIYORDU. Saha kusuru tam olarak bu kor
+     * noktada yasadi: kullanici "sildim ama silinmedi" derken urun TEK BIR kanit
+     * uretemiyordu.
+     *
+     * SOZLESME: ECU nun OLUMSUZ cevabi ISTISNA DEGILDIR - {@code resolve} ile
+     * {@code outcome} alaninda doner (kanit kaydedilebilsin diye). Yalnizca TASIMA
+     * hatasi (adaptor bagli degil / baglanti koptu) reject eder.
+     */
+    @PluginMethod
+    public void clearDtcCodes(PluginCall call) {
+        new Thread(() -> {
+            try {
+                com.cockpitos.pro.obd.ElmProtocol.ClearResult r;
+                if (bleObdManager != null && bleObdManager.isConnected())  r = bleObdManager.clearDtcCodesDetailed();
+                else if (obdManager != null && obdManager.isConnected())   r = obdManager.clearDtcCodesDetailed();
+                else throw new java.io.IOException("OBD okuyucu bağlı değil");
+                JSObject ret = new JSObject();
+                ret.put("tx", r.tx);
+                ret.put("raw", r.raw == null ? "" : r.raw);
+                ret.put("outcome", r.outcome);
+                // Bilinmeyen alan UYDURULMAZ: anahtar HIC YAZILMAZ (TS tarafi `?? null`
+                // ile "olculmedi" okur). Sahte "00" veya bos string YAZILMAZ.
+                if (r.nrc != null)      ret.put("nrc", r.nrc);
+                if (r.protocol != null) ret.put("protocol", r.protocol);
+                ret.put("elapsedMs", r.elapsedMs);
+                mainHandler.post(() -> call.resolve(ret));
+            } catch (Exception e) {
+                String msg = e.getMessage() != null ? e.getMessage() : "DTC silinemedi";
+                mainHandler.post(() -> call.reject("DTC_CLEAR_FAILED", msg));
+            }
+        }, "obd-dtc-clear-detailed").start();
+    }
+
     // ── Patch 11A: Mode 07 (bekleyen) / Mode 0A (kalıcı) DTC ─────────────────
 
     /** Aktif transport üzerinden BEKLEYEN DTC okur; hiçbiri bağlı değilse IOException. */
@@ -2164,6 +2325,40 @@ public class CarLauncherPlugin extends Plugin {
                 mainHandler.post(() -> call.reject("DTC_READ_FAILED", msg));
             }
         }, "obd-dtc-read-pending").start();
+    }
+
+    /**
+     * P0-OBD-09 - Tek DTC SINIFINI HAM yanitla birlikte okur (CAROS LAB kaniti).
+     * Mevcut readDTC / readPendingDTC / readPermanentDTC metotlari DEGISMEDI.
+     */
+    @PluginMethod
+    public void readDtcClass(PluginCall call) {
+        final String mode = call.getString("mode", "03");
+        new Thread(() -> {
+            try {
+                com.cockpitos.pro.obd.ElmProtocol.DtcClassResult r;
+                if (bleObdManager != null && bleObdManager.isConnected())      r = bleObdManager.readDtcClass(mode);
+                else if (obdManager != null && obdManager.isConnected())       r = obdManager.readDtcClass(mode);
+                else throw new java.io.IOException("OBD okuyucu bagli degil");
+                JSArray arr = new JSArray();
+                for (String c : r.codes) arr.put(c);
+                JSObject ret = new JSObject();
+                ret.put("codes", arr);
+                ret.put("raw", r.raw == null ? "" : r.raw);
+                ret.put("supported", r.supported);
+                /* P0-OBD-11: "NO DATA" ile "43 00" ayrimini tasiyan ALAN.
+                   `supported` bunu tasiyamaz - ikisi de true idi. */
+                ret.put("outcome", r.outcome);
+                ret.put("elapsedMs", r.elapsedMs);
+                ret.put("recoveryCount", r.recoveryCount);
+                // Bilinmeyen alan UYDURULMAZ: anahtar hic yazilmaz.
+                if (r.protocol != null) ret.put("protocol", r.protocol);
+                mainHandler.post(() -> call.resolve(ret));
+            } catch (Exception e) {
+                String msg = e.getMessage() != null ? e.getMessage() : "DTC sinifi okunamadi";
+                mainHandler.post(() -> call.reject("DTC_READ_FAILED", msg));
+            }
+        }, "obd-dtc-class").start();
     }
 
     @PluginMethod
@@ -2363,6 +2558,49 @@ public class CarLauncherPlugin extends Plugin {
         }, "obd-read-did").start();
     }
 
+    /* ══ P0-OBD-05: SAE J1979 Servis 06 — On-Board Monitoring Test Results ══ */
+
+    /** Aktif transport üzerinden Mode 06 okur; hiçbiri bağlı değilse IOException. */
+    private com.cockpitos.pro.obd.ElmProtocol.Mode06Evidence readMode06FromActive(
+            String tx, String rx, String mid) throws Exception {
+        if (bleObdManager != null && bleObdManager.isConnected()) return bleObdManager.readMode06(tx, rx, mid);
+        if (obdManager    != null && obdManager.isConnected())    return obdManager.readMode06(tx, rx, mid);
+        throw new java.io.IOException("OBD bağlantısı yok");
+    }
+
+    /**
+     * P0-OBD-05 — Servis 06 (izleme testi sonuçları). SALT-OKUNUR: yazma, aktüatör,
+     * servis rutini ve oturum değişikliği YOKTUR.
+     *
+     * Native ÇÖZÜMLEME YAPMAZ: "46"+MID öneki soyulmuş HAM hex ile birlikte ham
+     * sınıflandırma (`kind`) döner; test kayıtlarını ve ölçek/birim yorumunu TS
+     * yapar (`mode06.ts`). NO_DATA "test geçti" DEĞİLDİR.
+     */
+    @PluginMethod
+    public void readMode06(PluginCall call) {
+        String mid = call.getString("mid");
+        if (mid == null || !mid.trim().toUpperCase(java.util.Locale.ROOT).matches("[0-9A-F]{2}")) {
+            call.reject("OBD_MODE06_FAILED", "mid 2 haneli hex olmalı");
+            return;
+        }
+        final String t = call.getString("tx") == null ? "" : call.getString("tx").toUpperCase(java.util.Locale.ROOT);
+        final String r = call.getString("rx") == null ? "" : call.getString("rx").toUpperCase(java.util.Locale.ROOT);
+        final String m = mid.trim().toUpperCase(java.util.Locale.ROOT);
+        new Thread(() -> {
+            try {
+                com.cockpitos.pro.obd.ElmProtocol.Mode06Evidence ev = readMode06FromActive(t, r, m);
+                JSObject ret = new JSObject();
+                if (ev.data != null) ret.put("data", ev.data);
+                else                 ret.put("data", org.json.JSONObject.NULL);
+                ret.put("kind", ev.kind);
+                mainHandler.post(() -> call.resolve(ret));
+            } catch (Exception e) {
+                String msg = e.getMessage() != null ? e.getMessage() : "Mode 06 okunamadı";
+                mainHandler.post(() -> call.reject("OBD_MODE06_FAILED", msg));
+            }
+        }, "obd-read-mode06").start();
+    }
+
     // ── W5-OBD-PR1: OBD el sıkışması (VIN + desteklenen-PID bitmap keşfi) ─────
 
     /** Aktif transport üzerinden el sıkışması ham yanıtlarını okur; hiçbiri bağlı değilse IOException. */
@@ -2390,6 +2628,16 @@ public class CarLauncherPlugin extends Plugin {
                 ret.put("raw0160", hs.raw0160);
                 ret.put("raw0180", hs.raw0180);
                 ret.put("raw01A0", hs.raw01A0);
+                /* P0-OBD-CORE-01B — KESIF BUTUNLUGU KANITI.
+                   `attempts[i] == 0` -> blok HIC sorgulanmadi (bos yanittan AYRI).
+                   `failedBlockIndex >= 0` -> zincir KESIN OLMAYAN yanit yuzunden
+                   durdu; ust katman "arac desteklemiyor" DEMEMELIDIR. */
+                JSArray att = new JSArray();
+                for (int a : hs.attempts) att.put(a);
+                ret.put("blockAttempts", att);
+                ret.put("failedBlockIndex", hs.failedBlockIndex);
+                ret.put("maxBlockAttempts",
+                    com.cockpitos.pro.obd.ElmProtocol.HANDSHAKE_BLOCK_MAX_ATTEMPTS);
                 mainHandler.post(() -> call.resolve(ret));
             } catch (Exception e) {
                 String msg = e.getMessage() != null ? e.getMessage() : "El sıkışması başarısız";
@@ -2501,10 +2749,363 @@ public class CarLauncherPlugin extends Plugin {
         }, "obd-kwp-dtc").start();
     }
 
-    /** Aktif transport üzerinden ECU-başına DTC (F2-3). */
-    private java.util.List<String> readDtcsFromEcuActive(String tx, String rx, String mode) throws Exception {
-        if (bleObdManager != null && bleObdManager.isConnected()) return bleObdManager.readDtcsFromEcu(tx, rx, mode);
-        if (obdManager    != null && obdManager.isConnected())    return obdManager.readDtcsFromEcu(tx, rx, mode);
+    /**
+     * P0-OBD-FINAL-02 — KWP2000 TANI OTURUMU (servis 0x10) KANIT PROBU. SALT-OKUNUR.
+     *
+     * Sahada (Protocol 5 / KWP · ECU 7A · rx 86F17A · tx 817AF1) fonksiyonel
+     * sorgular cevap verirken FİZİKSEL istekler susuyordu. Sessizliğin iki ayrı
+     * nedeni olabilir: o adreste ECU yok, ya da ECU tanı oturumu açılmadan
+     * fiziksel isteğe cevap vermiyor. Bu prob o ikisini AYIRAN kanıtı toplar.
+     *
+     * ECU'ya YAZMAZ, security access DEĞİLDİR, en fazla 2 komut gönderir
+     * ({@code 10 81} → {@code 50 81}; olmazsa {@code 10 C0} → {@code 50 C0}).
+     * Ayrıştırma/karar TS'tedir ({@code kwpSessionProbe.ts} tek kaynak).
+     *
+     * @return request · raw · outcome (+nrc) — HAM KANIT; hüküm TS'te verilir.
+     */
+    @PluginMethod
+    public void probeKwpSession(PluginCall call) {
+        final String tx = call.getString("tx");
+        final String rx = call.getString("rx");
+        if (!present(tx) || !present(rx)) {
+            call.reject("OBD_BAD_ARGS", "tx ve rx zorunlu");
+            return;
+        }
+        new Thread(() -> {
+            JSObject ret = new JSObject();
+            try {
+                com.cockpitos.pro.obd.ElmProtocol.SessionEvidence ev =
+                    bleObdManager != null && bleObdManager.isConnected()
+                        ? bleObdManager.probeKwpSession(tx, rx)
+                        : obdManager.probeKwpSession(tx, rx);
+                ret.put("request", ev.request == null ? "" : ev.request);
+                ret.put("raw", ev.raw == null ? "" : ev.raw);
+                ret.put("outcome", ev.outcome);
+                // Bilinmeyen alan UYDURULMAZ: anahtar hiç yazılmaz.
+                if (ev.nrc != null) ret.put("nrc", ev.nrc);
+            } catch (Exception e) {
+                String msg = e.getMessage() == null ? "" : e.getMessage();
+                ret.put("request", "");
+                ret.put("raw", "");
+                ret.put("outcome", "transport_error");
+                ret.put("error", msg);
+            }
+            mainHandler.post(() -> call.resolve(ret));
+        }, "obd-kwp-session").start();
+    }
+
+    /**
+     * P0-OBD-DIAG-01 — KWP FIZIKSEL ADRESLEME MATRISININ TEK SATIRI. SALT-OKUNUR.
+     *
+     * Sahada fonksiyonel sorgular cevap verirken fiziksel {@code 817AF1} istekleri
+     * (DTC'ler de, oturum probu da) susuyordu. Urun fiziksel hedefi HER ZAMAN
+     * {@code 81<src>F1} kuruyor; ISO 14230-2'de o baytin alt alti biti VERI
+     * UZUNLUGUDUR ve cok baytli isteklerde YANLIS beyan edilir. Bu kopru, hangi
+     * header/istek kombinasyonunun GERCEKTEN cevaplandigini ARACA olcturur.
+     *
+     * Header ve istek TS'ten gelir (matrisin tek sahibi {@code kwpAddressingProbe.ts});
+     * native yalniz gonderir. Servis beyaz listesi native'de ZORLANIR: yazma ·
+     * silme · reset · security access · rutin hatta CIKAMAZ.
+     *
+     * @return request · raw · outcome — HAM KANIT; hukum TS'te verilir.
+     */
+    @PluginMethod
+    public void probeKwpAddressingRow(PluginCall call) {
+        final String header  = call.getString("header");
+        final String request = call.getString("request");
+        // P0-OBD-DIAG-01/2 — istekten ONCE K-line baslatma; verilmezse baslatma YOK.
+        final String initRaw = call.getString("init");
+        final String init = "FAST".equals(initRaw) || "SLOW".equals(initRaw) ? initRaw : null;
+        if (!present(header) || !present(request)) {
+            call.reject("OBD_BAD_ARGS", "header ve request zorunlu");
+            return;
+        }
+        new Thread(() -> {
+            JSObject ret = new JSObject();
+            try {
+                com.cockpitos.pro.obd.ElmProtocol.AddressingEvidence ev =
+                    bleObdManager != null && bleObdManager.isConnected()
+                        ? bleObdManager.probeKwpAddressingRow(header, request, init)
+                        : obdManager.probeKwpAddressingRow(header, request, init);
+                ret.put("request", ev.request == null ? "" : ev.request);
+                ret.put("raw", ev.raw == null ? "" : ev.raw);
+                ret.put("outcome", ev.outcome);
+                // P0-OBD-DIAG-03: baslatma ham yaniti — bilinmiyorsa alan HIC YAZILMAZ.
+                if (present(ev.initRaw)) ret.put("initRaw", ev.initRaw);
+            } catch (Exception e) {
+                String msg = e.getMessage() == null ? "" : e.getMessage();
+                ret.put("request", "");
+                ret.put("raw", "");
+                ret.put("outcome", "transport_error");
+                ret.put("error", msg);
+            }
+            mainHandler.post(() -> call.resolve(ret));
+        }, "obd-kwp-addressing").start();
+    }
+
+    /** P1-OBD-02 — ayrımlı, salt-okunur UDS 0x19 / KWP 0x18 kanıt köprüsü. */
+    @PluginMethod
+    public void readAdvancedDtcs(PluginCall call) {
+        final String service = call.getString("service", "19");
+        final String sub = call.getString("subFunction", "02");
+        final String payload = call.getString("payload", "");
+        final String tx = call.getString("tx"); final String rx = call.getString("rx");
+        final boolean targetVerified = call.getBoolean("targetVerified", false);
+        // P0-OBD-DIAG-02: "13" (ISO 14230-3 eski nesil readDTC) kabul edilir.
+        if (!present(tx) || !present(rx)
+            || !("19".equals(service) || "18".equals(service) || "13".equals(service))) {
+            call.reject("OBD_BAD_ARGS", "service/tx/rx geçersiz"); return;
+        }
+        /* HEDEF KAPISI 0x13'e de UYGULANIR: her ikisi de FIZIKSEL adresle giden
+           uretici DTC servisidir; kanitlanmamis hedefe gonderilirse K-line'da
+           baska modulu uyandirir. Kapiyi 0x18'e ozel birakmak, ayni riski yeni
+           servis uzerinden geri getirirdi. */
+        if (("18".equals(service) || "13".equals(service)) && !targetVerified) {
+            JSObject ret = new JSObject(); ret.put("outcome", "not_addressable");
+            ret.put("kind", "NOT_SENT"); ret.put("raw", "");
+            mainHandler.post(() -> call.resolve(ret)); return;
+        }
+        new Thread(() -> {
+            JSObject ret = new JSObject();
+            try {
+                com.cockpitos.pro.obd.ElmProtocol.UdsEvidence ev;
+                /* P0-VDK-F1C: ISO-TP tuning YALNIZ cok-frame beklenen UDS 0x19
+                   okumalarinda ve YALNIZ cagiran acikca isterse. TS bunu adapter
+                   capability kanitina bakarak karar verir; native ZORLAMAZ. */
+                final boolean wantTuning = call.getBoolean("isoTpTuning", false)
+                    && "19".equals(service);
+                com.cockpitos.pro.obd.ElmProtocol.IsoTpTuningEvidence tuning = null;
+                if (wantTuning) {
+                    com.cockpitos.pro.obd.ElmProtocol.TunedUdsResult tuned =
+                        bleObdManager != null && bleObdManager.isConnected()
+                            ? bleObdManager.readAdvancedUdsDtcTuned(tx, rx, sub, payload)
+                            : obdManager.readAdvancedUdsDtcTuned(tx, rx, sub, payload);
+                    ev = tuned.uds; tuning = tuned.tuning;
+                } else if ("13".equals(service)) {
+                    ev = bleObdManager != null && bleObdManager.isConnected()
+                        ? bleObdManager.readAdvancedKwp13Dtc(tx, rx)
+                        : obdManager.readAdvancedKwp13Dtc(tx, rx);
+                } else if ("18".equals(service)) {
+                    ev = bleObdManager != null && bleObdManager.isConnected()
+                        ? bleObdManager.readAdvancedKwpDtc(tx, rx)
+                        : obdManager.readAdvancedKwpDtc(tx, rx);
+                } else {
+                    ev = bleObdManager != null && bleObdManager.isConnected()
+                        ? bleObdManager.readAdvancedUdsDtc(tx, rx, sub, payload)
+                        : obdManager.readAdvancedUdsDtc(tx, rx, sub, payload);
+                }
+                ret.put("raw", ev.data == null ? "" : ev.data);
+                ret.put("kind", ev.kind); if (ev.nrc != null) ret.put("nrc", ev.nrc);
+                /* P0-VDK-F1B: bu istek sirasinda varsayilan disi oturum acildi mi.
+                   TS keepalive'i YALNIZ bu kanit varsa baslatir. */
+                ret.put("sessionOpened", ev.sessionOpened);
+                if (ev.sessionCommand != null) ret.put("sessionCommand", ev.sessionCommand);
+                /* P0-VDK-F1C — TRANSPORT KANITI. Tuning uygulanmadiysa da
+                   frame/byte sayimi TASINIR: tuning oncesi/sonrasi ancak boyle
+                   karsilastirilabilir. */
+                if (tuning != null) {
+                    ret.put("tuningApplied", tuning.applied);
+                    ret.put("tuningCommands", tuning.commands);
+                    ret.put("tuningPreviousMode", tuning.previousMode);
+                    ret.put("tuningNewMode", tuning.newMode);
+                    ret.put("tuningRestored", tuning.restored);
+                    ret.put("tuningRestoreDetail", tuning.restoreDetail);
+                }
+                String rawBody = ev.data == null ? "" : ev.data;
+                ret.put("byteCount", rawBody.replaceAll("[^0-9A-Fa-f]", "").length() / 2);
+                ret.put("frameCount", com.cockpitos.pro.obd.ElmProtocol.countIsoTpFrames(rawBody));
+                ret.put("outcome", "OK".equals(ev.kind) ? "ok"
+                    : "NO_DATA".equals(ev.kind) ? "no_response"
+                    : "NEG_7F".equals(ev.kind) ? "negative_nrc" : "malformed");
+            } catch (Exception e) {
+                String msg = e.getMessage() == null ? "" : e.getMessage();
+                String up = msg.toUpperCase(java.util.Locale.ROOT);
+                String outcome = (e instanceof com.cockpitos.pro.obd.ElmPromptTimeoutException || up.contains("ZAMAN AŞIM")) ? "timeout"
+                    : up.contains("YANIT VERMEDİ") ? "no_response"
+                    : (up.contains("BEKLENMEYEN") || up.contains("BOZUK")) ? "malformed"
+                    : "transport_error";
+                ret.put("raw", ""); ret.put("kind", "ERROR"); ret.put("outcome", outcome);
+                ret.put("error", msg);
+            }
+            mainHandler.post(() -> call.resolve(ret));
+        }, "obd-advanced-dtc").start();
+    }
+
+    /**
+     * P0-VDK-F4A — GENEL SALT-OKUNUR TANI PDU KOPRUSU.
+     *
+     * ==========================================================================
+     * -- KOK PROBLEM (bu metodun var olma sebebi) -------------------------------
+     * ==========================================================================
+     * Bu koprude bugune kadar SERVISE OZEL metotlar vardi (readDtcClass ·
+     * readAdvancedDtcs · sendTesterPresent · readDtcFromEcu). Sonuc: CDDL yeni
+     * bir salt-okunur servis TANIMLAYABILSE bile gonderemiyordu — yeni servis
+     * = yeni Java metodu = YENI APK. F3-B'nin urettigi PDU'lar duvara carpiyordu.
+     *
+     * Bu metot tek genel yoldur: ne sorulacagi CAGIRANDAN gelir, native yalnizca
+     * GONDERIR ve HAM yaniti doner. Servis kimligine gore parser SECMEZ,
+     * ayristirma YAPMAZ (bu dosyanin ve ElmProtocol'un felsefesi).
+     *
+     * ==========================================================================
+     * -- GUVENLIK: IKINCI VE SON KAPI ------------------------------------------
+     * ==========================================================================
+     * "Istedigin hex'i gonder" konsolu DEGILDIR. {@link com.cockpitos.pro.obd.DiagnosticServiceGate}
+     * TS/CDDL katmanindan BAGIMSIZ olarak servis baytini suzer; destructive
+     * servisler (04 · 11 · 14 · 27 · 28 · 2E · 2F · 31 · 34-37 · 3B · 85)
+     * buradan GECEMEZ ve hatta TEK BAYT CIKMAZ. Kapi reddederse outcome
+     * {@code not_supported} DEGIL {@code denied}dir: arac hakkinda hicbir sey
+     * olculmedi, bu bir KOPRU kararidir.
+     *
+     * ADRESLEME: yeni tahmin sistemi YOK. Header uzunlugu mevcut
+     * {@code withEcuHeader} sozlesmesiyle AYNI siniflandirilir (3=CAN11 ·
+     * 6=KWP · 8=CAN29 · bos=fonksiyonel). Taninmayan uzunluk = istek GITMEZ.
+     * KWP FIZIKSEL hedef ayrica {@code targetVerified} ister — kanitlanmamis
+     * K-line adresine istek baska modulu uyandirir (mevcut 0x18/0x13 kurali
+     * genellestirildi, gevsetilmedi).
+     *
+     * @return outcome: ok | negative_nrc | no_response | timeout | malformed |
+     *                  transport_error | not_addressable | denied
+     */
+    @PluginMethod
+    public void sendDiagnosticPdu(PluginCall call) {
+        final String service = call.getString("service", "");
+        final String sub = call.getString("subFunction", "");
+        final String payload = call.getString("payload", "");
+        final String tx = call.getString("tx", "");
+        final String rx = call.getString("rx", "");
+        final int echoBytes = call.getInt("echoBytes", 0);
+        final boolean targetVerified = call.getBoolean("targetVerified", false);
+        final boolean isoTpTuning = call.getBoolean("isoTpTuning", false);
+
+        final String txHex = tx == null ? "" : tx.replaceAll("[^0-9A-Fa-f]", "");
+
+        /* (1) KAPI — servis/alt fonksiyon/bicim. TS bozulsa bile burasi tutar. */
+        final String gate = com.cockpitos.pro.obd.DiagnosticServiceGate.judge(service, sub, payload);
+        if (!com.cockpitos.pro.obd.DiagnosticServiceGate.OK.equals(gate)) {
+            JSObject ret = new JSObject();
+            ret.put("outcome", "denied"); ret.put("kind", "NOT_SENT");
+            ret.put("raw", ""); ret.put("gate", gate);
+            mainHandler.post(() -> call.resolve(ret)); return;
+        }
+
+        /* (2) ADRESLEME — uydurma adrese kor istek YASAK. */
+        final boolean functional = txHex.isEmpty();
+        final boolean known = functional || txHex.length() == 3
+            || txHex.length() == 6 || txHex.length() == 8;
+        if (!known) {
+            JSObject ret = new JSObject();
+            ret.put("outcome", "not_addressable"); ret.put("kind", "NOT_SENT");
+            ret.put("raw", ""); ret.put("gate", "ADDRESSING_UNKNOWN");
+            mainHandler.post(() -> call.resolve(ret)); return;
+        }
+        if (txHex.length() == 6 && !targetVerified) {
+            JSObject ret = new JSObject();
+            ret.put("outcome", "not_addressable"); ret.put("kind", "NOT_SENT");
+            ret.put("raw", ""); ret.put("gate", "KWP_TARGET_UNVERIFIED");
+            mainHandler.post(() -> call.resolve(ret)); return;
+        }
+
+        new Thread(() -> {
+            JSObject ret = new JSObject();
+            try {
+                com.cockpitos.pro.obd.ElmProtocol.TunedGenericResult res =
+                    bleObdManager != null && bleObdManager.isConnected()
+                        ? bleObdManager.sendReadOnlyPdu(txHex, rx == null ? "" : rx,
+                            service, sub, payload, echoBytes, isoTpTuning)
+                        : obdManager.sendReadOnlyPdu(txHex, rx == null ? "" : rx,
+                            service, sub, payload, echoBytes, isoTpTuning);
+
+                com.cockpitos.pro.obd.ElmProtocol.GenericPduEvidence g = res.pdu;
+                com.cockpitos.pro.obd.ElmProtocol.UdsEvidence ev = g.uds;
+
+                ret.put("raw", ev.data == null ? "" : ev.data);
+                ret.put("kind", ev.kind);
+                if (ev.nrc != null) ret.put("nrc", ev.nrc);
+                ret.put("gate", g.gate);
+                ret.put("request", g.request);
+                ret.put("positiveNeedle", g.positiveNeedle);
+                if (g.latencyMs != null) ret.put("latencyMs", g.latencyMs);
+                /* F1-B: oturum kaniti — keepalive YALNIZ bu kanitla acilir. */
+                ret.put("sessionOpened", ev.sessionOpened);
+                if (ev.sessionCommand != null) ret.put("sessionCommand", ev.sessionCommand);
+                /* F1-C: ayar kaniti (uygulanmadiysa da tasinir). */
+                if (res.tuning != null) {
+                    ret.put("tuningApplied", res.tuning.applied);
+                    ret.put("tuningCommands", res.tuning.commands);
+                    ret.put("tuningPreviousMode", res.tuning.previousMode);
+                    ret.put("tuningNewMode", res.tuning.newMode);
+                    ret.put("tuningRestored", res.tuning.restored);
+                    ret.put("tuningRestoreDetail", res.tuning.restoreDetail);
+                }
+                String rawBody = ev.data == null ? "" : ev.data;
+                ret.put("byteCount", rawBody.replaceAll("[^0-9A-Fa-f]", "").length() / 2);
+                ret.put("frameCount", com.cockpitos.pro.obd.ElmProtocol.countIsoTpFrames(rawBody));
+                /* SOZLUK readAdvancedDtcs ILE BIREBIR AYNI — ikinci sonuc sozlugu
+                   kurulmaz; parity karsilastirmasi ancak boyle anlamli olur. */
+                ret.put("outcome", "OK".equals(ev.kind) ? "ok"
+                    : "NO_DATA".equals(ev.kind) ? "no_response"
+                    : "NEG_7F".equals(ev.kind) ? "negative_nrc"
+                    : "NOT_SENT".equals(ev.kind) ? "denied" : "malformed");
+            } catch (Exception e) {
+                String msg = e.getMessage() == null ? "" : e.getMessage();
+                String up = msg.toUpperCase(java.util.Locale.ROOT);
+                String outcome = (e instanceof com.cockpitos.pro.obd.ElmPromptTimeoutException || up.contains("ZAMAN AŞIM")) ? "timeout"
+                    : up.contains("YANIT VERMEDİ") ? "no_response"
+                    : (up.contains("BEKLENMEYEN") || up.contains("BOZUK")) ? "malformed"
+                    : "transport_error";
+                ret.put("raw", ""); ret.put("kind", "ERROR"); ret.put("outcome", outcome);
+                ret.put("error", msg);
+            }
+            mainHandler.post(() -> call.resolve(ret));
+        }, "obd-generic-pdu").start();
+    }
+
+    /**
+     * P0-VDK-F1B — TESTER PRESENT (ISO 14229-1 servis 0x3E, alt fonksiyon 0x00).
+     *
+     * SALT OTURUM CANLI TUTMA. ECU'ya YAZMAZ, rutin CALISTIRMAZ, security access
+     * DEGILDIR, hicbir yetki ACMAZ. Tek islevi ECU'nun S3 oturum zamanlayicisini
+     * sifirlamaktir.
+     *
+     * KAPI: TS katmani bu metodu YALNIZ oturumun GERCEKTEN acildigi kanitlanmis
+     * (readAdvancedDtcs -> sessionOpened:true) bir ECU icin cagirir. Kor/varsayilan
+     * oturumda 3E gondermek anlamsiz hat trafigidir ve bu turda TEST ILE yasaklanmistir.
+     *
+     * @return outcome: ok | negative_nrc | no_response | timeout | transport_error
+     */
+    @PluginMethod
+    public void sendTesterPresent(PluginCall call) {
+        final String tx = call.getString("tx"); final String rx = call.getString("rx");
+        if (!present(tx) || !present(rx)) { call.reject("OBD_BAD_ARGS", "tx ve rx zorunlu"); return; }
+        new Thread(() -> {
+            JSObject ret = new JSObject();
+            try {
+                com.cockpitos.pro.obd.ElmProtocol.UdsEvidence ev =
+                    bleObdManager != null && bleObdManager.isConnected()
+                        ? bleObdManager.sendTesterPresent(tx, rx)
+                        : obdManager.sendTesterPresent(tx, rx);
+                ret.put("raw", ev.data == null ? "" : ev.data);
+                ret.put("kind", ev.kind); if (ev.nrc != null) ret.put("nrc", ev.nrc);
+                ret.put("outcome", "OK".equals(ev.kind) ? "ok"
+                    : "NO_DATA".equals(ev.kind) ? "no_response"
+                    : "NEG_7F".equals(ev.kind) ? "negative_nrc" : "transport_error");
+            } catch (Exception e) {
+                String msg = e.getMessage() == null ? "" : e.getMessage();
+                String up = msg.toUpperCase(java.util.Locale.ROOT);
+                ret.put("raw", ""); ret.put("kind", "ERROR");
+                ret.put("outcome", (e instanceof com.cockpitos.pro.obd.ElmPromptTimeoutException
+                    || up.contains("ZAMAN AŞIM")) ? "timeout" : "transport_error");
+                ret.put("error", msg);
+            }
+            mainHandler.post(() -> call.resolve(ret));
+        }, "obd-tester-present").start();
+    }
+
+    /** P0-OBD-FINAL-01: ECU-basina DTC + HAM yanit + olculen sonuc (aktif transport). */
+    private com.cockpitos.pro.obd.ElmProtocol.DtcClassResult readDtcClassFromEcuActive(
+            String tx, String rx, String mode) throws Exception {
+        if (bleObdManager != null && bleObdManager.isConnected()) return bleObdManager.readDtcClassFromEcu(tx, rx, mode);
+        if (obdManager    != null && obdManager.isConnected())    return obdManager.readDtcClassFromEcu(tx, rx, mode);
         throw new java.io.IOException("OBD okuyucu bağlı değil");
     }
 
@@ -2513,7 +3114,14 @@ public class CarLauncherPlugin extends Plugin {
      * Bugüne kadar DTC yalnız motor ECU'sundan geliyordu; bu metod ABS/airbag/şanzıman
      * gibi diğer ECU'ların kodlarını da erişilebilir kılar (Car Scanner farkı).
      *
-     * @return codes: kod listesi · supported: false = ECU o modu desteklemiyor (0A yolu).
+     * P0-OBD-FINAL-01 — DÖNÜŞ ARTIK BİR ÜST KÜMEDİR (geri uyumlu):
+     * `codes` + `supported` DEĞİŞMEDİ; yanlarına `raw` · `outcome` · `elapsedMs` ·
+     * `recoveryCount` · `protocol` EKLENDİ. Neden zorunlu: "43 00" (POZİTİF, 0 kod),
+     * "NO DATA" (ECU SUSTU) ve "7F 03 11" (servis yok) eski sözleşmede AYNI görünüyordu.
+     * Bu ayrım olmadan ne kapsam dürüst raporlanabilir ne de bir ECU'ya fiziksel
+     * isteğin ULAŞTIĞI (adreslenebilirlik) ölçülebilir.
+     *
+     * @return codes · supported · raw · outcome · elapsedMs · recoveryCount · protocol
      */
     @PluginMethod
     public void readDtcFromEcu(PluginCall call) {
@@ -2526,16 +3134,19 @@ public class CarLauncherPlugin extends Plugin {
         }
         new Thread(() -> {
             try {
-                java.util.List<String> codes = readDtcsFromEcuActive(tx, rx, mode);
+                com.cockpitos.pro.obd.ElmProtocol.DtcClassResult r =
+                        readDtcClassFromEcuActive(tx, rx, mode);
                 JSObject ret = new JSObject();
-                if (codes == null) {
-                    // Mode 0A desteklenmiyor — hata DEĞİL, bilgi (fail-soft sözleşme).
-                    ret.put("codes", new org.json.JSONArray());
-                    ret.put("supported", false);
-                } else {
-                    ret.put("codes", new org.json.JSONArray(codes));
-                    ret.put("supported", true);
-                }
+                org.json.JSONArray arr = new org.json.JSONArray();
+                for (String c : r.codes) arr.put(c);
+                ret.put("codes", arr);
+                ret.put("supported", r.supported);
+                ret.put("raw", r.raw == null ? "" : r.raw);
+                ret.put("outcome", r.outcome);
+                ret.put("elapsedMs", r.elapsedMs);
+                ret.put("recoveryCount", r.recoveryCount);
+                // Bilinmeyen alan UYDURULMAZ: anahtar hiç yazılmaz.
+                if (r.protocol != null) ret.put("protocol", r.protocol);
                 mainHandler.post(() -> call.resolve(ret));
             } catch (Exception e) {
                 String msg = e.getMessage() != null ? e.getMessage() : "ECU DTC okunamadı";
@@ -2635,6 +3246,32 @@ public class CarLauncherPlugin extends Plugin {
         }
     }
 
+    /**
+     * Cihazın GERÇEK medya ses seviyesini okur (index + max + yüzde).
+     *
+     * SAHA 2026-08-30 (kütük #1054): uygulamada cihaz sesini okuyan HİÇBİR yol
+     * yoktu; JS modül-yerel bir tahminle (%60) çalışıyor, "sesi artır" gerçek
+     * seviyeyle ilgisiz bir yüzde yazıyor ve çoğu zaman HİÇBİR ŞEY değişmiyordu
+     * (cihazda ölçüldü: streamVolume 11 → 11). Okuma olmadan artırma/azaltma
+     * dürüst olamaz.
+     */
+    @PluginMethod
+    public void getVolume(PluginCall call) {
+        try {
+            AudioManager am =
+                (AudioManager) getContext().getSystemService(Context.AUDIO_SERVICE);
+            int max = am.getStreamMaxVolume(AudioManager.STREAM_MUSIC);
+            int cur = am.getStreamVolume(AudioManager.STREAM_MUSIC);
+            JSObject r = new JSObject();
+            r.put("value", cur);
+            r.put("max", max);
+            r.put("percent", max > 0 ? Math.round(cur * 100f / max) : 0);
+            call.resolve(r);
+        } catch (Exception e) {
+            call.reject("VOLUME_READ_FAILED", e.getMessage());
+        }
+    }
+
     @PluginMethod
     public void setVolume(PluginCall call) {
         Integer value = call.getInt("value");
@@ -2645,6 +3282,10 @@ public class CarLauncherPlugin extends Plugin {
             int max     = am.getStreamMaxVolume(AudioManager.STREAM_MUSIC);
             int clamped = Math.max(0, Math.min(max, value));
             am.setStreamVolume(AudioManager.STREAM_MUSIC, clamped, 0);
+            /* Dinleme sürerken gelen AÇIK ses komutu YENİ TABANDIR: bekleyen bir
+             * duck-restore varsa hedefi güncellenir. Savunma katmanı — sahada
+             * tetiklendiği kanıtlanmadı (bkz. restoreMusicAfterListening notu). */
+            if (savedMusicVolume >= 0) { savedMusicVolume = clamped; duckedMusicVolume = clamped; }
             call.resolve();
         } catch (Exception e) {
             call.reject("VOLUME_FAILED", e.getMessage());
@@ -2766,6 +3407,21 @@ public class CarLauncherPlugin extends Plugin {
     // Konuşma eşiği (taban×FACTOR) ve mutlak alt eşik düşürüldü; sessizlik penceresi
     // biraz uzatıldı ki kullanıcı cümle ortasında duraklayınca erken kesilmesin.
     private static final long  VOSK_VAD_SILENCE_MS   = 1100;   // 900 → 1100 (duraklama toleransı)
+    /* ── MAVI-F3 · KISMİ TRANSKRİPT AKIŞI ────────────────────────────────────
+     * Aktif dinleme döngüsü, endpoint BEKLEMEDEN Vosk'un kısmi çıktısını JS'e
+     * yayınlar ("sttPartial"). YENİ SES YAKALAMA AÇILMAZ: aynı döngü, aynı
+     * recognizer, yalnız ek bir okuma + event. Yayın METİN DEĞİŞTİĞİNDE ya da
+     * en fazla bu aralıkta olur (köprü trafiği bounded kalsın).
+     *
+     * KRİTİK: kısmi sonuç JS'te HİÇBİR eylem yetkisi taşımaz (spec K5) — yalnız
+     * artımlı anlama ve endpoint kanıtı üretir. */
+    private static final long VOSK_PARTIAL_MIN_INTERVAL_MS = 160;
+    /* MAVI-F3 · SEMANTİK ENDPOINT KOMUTU: JS "cümle bitti" kararı verdiğinde bu
+     * bayrağı set eder; capture döngüsü bir sonraki pencerede finalize eder.
+     * KONUŞMA GÖRÜLMEDİYSE YOK SAYILIR — komut, kullanıcı hiç konuşmadan
+     * oturumu "no_speech"e düşüremez (fail-safe). Bayrak set EDİLMEZSE davranış
+     * bugünküyle BİREBİR aynıdır (akustik VAD + Vosk endpoint karar verir). */
+    private volatile boolean voskFinalizeRequested = false;
     private static final float VOSK_VAD_MIN_THRESH   = 0.010f; // 0.015 → 0.010 (sessiz kabinde daha hassas)
     private static final float VOSK_VAD_FLOOR_FACTOR = 1.9f;   // 2.5 → 1.9 (gürültü tabanına daha yakın konuşmayı yakala)
     // ── Mikrofon kaynağı prob'u (head unit uyumluluğu) — SAHA 2026-07-19 (Duster)
@@ -2806,6 +3462,52 @@ public class CarLauncherPlugin extends Plugin {
     // her oynatıcı için garanti çalışır.
     private static final float VOSK_DUCK_RATIO = 0.12f; // dinlerken müzik max'ın ~%12'sine iner
     private volatile int savedMusicVolume = -1;         // -1 = kısılmadı (geri yükleme bekleyen yok)
+    /** SAHA 2026-08-30: duck sırasında BİZİM yazdığımız değer. Geri yükleme yalnız
+     *  bu değer hâlâ duruyorsa yapılır — aksi hâlde araya giren kasıtlı bir ses
+     *  komutunu ezerdik (aşağıdaki yarış notuna bakın). -1 = duck yok. */
+    private volatile int duckedMusicVolume = -1;
+
+    /**
+     * MAVI-F3 · **SEMANTİK ENDPOINT KOMUTU** — "kullanıcı sözünü bitirdi, şimdi finalize et".
+     *
+     * JS'teki `semanticEndpointer` (SAF, test edilebilir) kararı verir; YÜRÜTME burasıdır.
+     * Karar mantığının native'e taşınmamasının nedeni: Türkçe anlam tamamlanmışlığı
+     * (fiil-sonu örüntüleri, askıda bağlaçlar, kendini düzeltme) JS'te birim
+     * testlerle kilitlenebilir; native'de kilitlenemezdi.
+     *
+     * ── NE YAPAR / NE YAPMAZ ────────────────────────────────────────────────
+     *  · YAPAR: çalışan tanıma oturumunu erken finalize eder (mikrofonu kapatır).
+     *  · YAPMAZ: hiçbir CarOS eylemi tetiklemez — navigasyon, arama, ayar, medya,
+     *    araç yazma YOK. Kısmi transkript ASLA eylem yetkisi taşımaz (spec K5).
+     *
+     * ── FAIL-SAFE ───────────────────────────────────────────────────────────
+     *  · Vosk yolunda yalnız bir BAYRAK set eder; capture döngüsü konuşma
+     *    GÖRÜLDÜYSE finalize eder, görmediyse komutu YOK SAYAR → yanlış bir karar
+     *    kullanıcı daha konuşmadan oturumu kapatamaz.
+     *  · Google yolunda `stopListening()` çağrılır (ses girişi kapanır, motor kendi
+     *    nihai sonucunu üretir — sonuç KAYBOLMAZ).
+     *  · Aktif oturum yoksa sessizce `{ applied:false }` döner (hata DEĞİL).
+     *  · Komut hiç gelmezse davranış bugünküyle BİREBİR aynıdır (akustik VAD karar verir).
+     */
+    @PluginMethod
+    public void finalizeSpeechRecognition(PluginCall call) {
+        boolean applied = false;
+        try {
+            if (voskCapturing) {
+                voskFinalizeRequested = true;   // capture döngüsü bir sonraki pencerede uygular
+                applied = true;
+            } else if (speechRecognizer != null) {
+                final SpeechRecognizer sr = speechRecognizer;
+                new Handler(Looper.getMainLooper()).post(() -> {
+                    try { sr.stopListening(); } catch (Throwable ignored) {}
+                });
+                applied = true;
+            }
+        } catch (Throwable ignored) { /* fail-soft: komut düşerse akustik yol bitirir */ }
+        JSObject r = new JSObject();
+        r.put("applied", applied);
+        call.resolve(r);
+    }
 
     @PluginMethod
     public void startSpeechRecognition(PluginCall call) {
@@ -2911,7 +3613,33 @@ public class CarLauncherPlugin extends Plugin {
                     }
                     @Override public void onBufferReceived(byte[] buffer) {}
                     @Override public void onEndOfSpeech() {}
-                    @Override public void onPartialResults(android.os.Bundle partialResults) {}
+                    /**
+                     * MAVI-F3 · Google/sistem STT yolunda KISMİ SONUÇ.
+                     * Gövde EskiDEN BOŞTU — platform kısmi sonuç üretse bile JS hiç
+                     * görmüyordu. Artık Vosk yoluyla AYNI olay şemasına yayınlanır.
+                     *
+                     * `silenceMs`/`speechMs` **-1** gider: bu yolda akustik VAD'ı
+                     * platform yapar ve JS'e vermez → sahte sessizlik ÜRETİLMEZ.
+                     * JS bunu `STREAMING_TEXT_ONLY` yeteneği olarak görür ve semantik
+                     * endpoint'i çalıştırmaz (platformun kendi endpoint'i karar verir).
+                     */
+                    @Override public void onPartialResults(android.os.Bundle partialResults) {
+                        try {
+                            if (partialResults == null) return;
+                            ArrayList<String> p = partialResults.getStringArrayList(
+                                SpeechRecognizer.RESULTS_RECOGNITION);
+                            if (p == null || p.isEmpty()) return;
+                            String t = p.get(0);
+                            if (t == null) return;
+                            t = t.trim();
+                            if (t.isEmpty()) return;
+                            JSObject ev = new JSObject();
+                            ev.put("text", t);
+                            ev.put("silenceMs", -1);
+                            ev.put("speechMs", -1);
+                            notifyListeners("sttPartial", ev);
+                        } catch (Throwable ignored) { /* kısmi sonuç ASLA tanımayı kıramaz */ }
+                    }
                     @Override public void onEvent(int eventType, android.os.Bundle params) {}
 
                     @Override
@@ -2979,6 +3707,9 @@ public class CarLauncherPlugin extends Plugin {
                     RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
                 intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, language);
                 intent.putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, finalMaxResults);
+                /* MAVI-F3: kısmi sonuç İSTENİR. Bu bayrak olmadan `onPartialResults`
+                 * çoğu motorda HİÇ çağrılmaz — gövdeyi doldurmak tek başına yetmezdi. */
+                intent.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true);
                 // Sadece açıkça istenirse offline'a zorla — aksi halde sistem online'ı kullanabilir.
                 if (finalPreferOffline) {
                     intent.putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true);
@@ -3156,6 +3887,7 @@ public class CarLauncherPlugin extends Plugin {
             if (ducked < cur) {
                 if (savedMusicVolume < 0) savedMusicVolume = cur; // ilk kısmada gerçek seviyeyi sakla
                 am.setStreamVolume(AudioManager.STREAM_MUSIC, ducked, 0);
+                duckedMusicVolume = ducked;                        // ne yazdığımızı hatırla
             }
         } catch (Exception ignored) {}
     }
@@ -3163,11 +3895,25 @@ public class CarLauncherPlugin extends Plugin {
     /** Dinleme bitince müzik sesini eski seviyeye geri yükle. */
     private void restoreMusicAfterListening() {
         try {
-            int saved = savedMusicVolume;
-            savedMusicVolume = -1;
+            int saved  = savedMusicVolume;
+            int ducked = duckedMusicVolume;
+            savedMusicVolume  = -1;
+            duckedMusicVolume = -1;
             if (saved < 0) return; // kısılmamıştı → dokunma
             AudioManager am = (AudioManager) getContext().getSystemService(Context.AUDIO_SERVICE);
             if (am == null) return;
+            /* ── SAHA 2026-08-30 · GERÇEK CİHAZDA ÖLÇÜLEN YARIŞ ────────────────────
+             * ⚠️ DÜRÜSTLÜK NOTU: bu koruma, `settings get system volume_music`
+             * satırının canlı değer sandığım YANLIŞ bir ölçüme dayanarak eklendi;
+             * o satır bu cihazda BAYATTIR (gerçek kaynak `dumpsys audio`
+             * `streamVolume`). Yarışın sahada GERÇEKTEN tetiklendiği KANITLANMADI.
+             * Koruma yine de doğrudur ve savunma katmanı olarak bırakıldı:
+             * dinleme sürerken gelen kasıtlı bir ses değişikliği geri yükleme
+             * tarafından ezilmemelidir.
+             * Artık yalnız BİZİM yazdığımız ducked değer hâlâ duruyorsa geri
+             * yükleriz; başka biri (kullanıcı komutu · sistem · başka uygulama)
+             * seviyeyi değiştirdiyse DOKUNMAYIZ. */
+            if (ducked >= 0 && am.getStreamVolume(AudioManager.STREAM_MUSIC) != ducked) return;
             am.setStreamVolume(AudioManager.STREAM_MUSIC, saved, 0);
         } catch (Exception ignored) {}
     }
@@ -3203,7 +3949,14 @@ public class CarLauncherPlugin extends Plugin {
     }
 
     private AudioRecord openBestMicRecorder(int bufBytes) {
-        // Sıra: ASR-ideal → en evrensel ham mik → çağrı yolu → sistem → kamera.
+        /* Sıra: ASR-ideal → en evrensel ham mik → çağrı yolu → sistem → kamera.
+         *
+         * SAHA 2026-08-30 · DENENDİ VE GERİ ALINDI: müzik çalarken wake sözcüğü
+         * duyulmuyor (cihazda AEC yok: AcousticEchoCanceler.isAvailable()=false).
+         * VOICE_COMMUNICATION (7) öne alınarak platform HAL'inin yerleşik eko
+         * iptali denendi — GERÇEK CİHAZDA ÇALIŞMADI (müzikte yine uyanmadı).
+         * Fayda sağlamadığı için sıra eski hâline döndürüldü; sessiz ortam
+         * tanıma kalitesi riske atılmadı. Bkz. kütük #1055. */
         final int[] base = {
             MediaRecorder.AudioSource.VOICE_RECOGNITION,
             MediaRecorder.AudioSource.MIC,
@@ -3308,6 +4061,10 @@ public class CarLauncherPlugin extends Plugin {
         // Bekleyen JS çağrısı yoksa (kullanıcı vazgeçti / preload yolu) mikrofonu boşuna açma
         if (savedSpeechCall == null) return;
         stopVosk(); // önceki oturumu temizle (varsa eski thread'i durdur)
+        /* MAVI-F3 · STALE KOMUT KORUMASI: önceki oturumdan kalmış bir "şimdi bitir"
+         * komutu YENİ oturumu ilk pencerede öldürebilirdi. Bayrak her oturum
+         * açılışında sıfırlanır — komut yalnız kendi oturumunu bitirebilir. */
+        voskFinalizeRequested = false;
         voskCapturing = true;
         // MAVI-STT-LAB-1 (yalnız gözlem): aktif dinleme oturumu ölçüm penceresi açılır.
         VoiceMicDiagnostics.INSTANCE.noteSessionStart(
@@ -3416,6 +4173,9 @@ public class CarLauncherPlugin extends Plugin {
                 // RMS-VAD durumu (pencere ~250ms): taban öğrenimi → konuşma → sessizlik
                 double vadFloorSum = 0; int vadFloorWin = 0; double vadFloor = 0;
                 boolean vadSpeechSeen = false; long vadSilenceStart = 0;
+                // MAVI-F3: kısmi yayın durumu — son yayınlanan metin + son yayın anı +
+                // konuşmanın başladığı an (JS'in ölçmediği, YALNIZ burada bilinen kanıt).
+                String lastPartialSent = ""; long lastPartialAtMs = 0; long speechStartedAtMs = 0;
                 // MAVI-STT-LAB-1: kullanılan VAD sabitleri (DEĞİŞTİRİLMEZ, yalnız kaydedilir).
                 VoiceMicDiagnostics.INSTANCE.noteVadConfig(VOSK_VAD_MIN_THRESH, VOSK_VAD_FLOOR_FACTOR);
                 telPhase = "capture";
@@ -3461,6 +4221,33 @@ public class CarLauncherPlugin extends Plugin {
                         notifyListeners("rmsData", d);
                     }
 
+                    /* ── MAVI-F3 · JS'İN SEMANTİK ENDPOINT KOMUTU ────────────────
+                     * Konuşma GÖRÜLDÜYSE erken finalize et. Konuşma yoksa komut YOK
+                     * SAYILIR (bayrak temizlenir): aksi halde yanlış bir karar,
+                     * kullanıcı daha ağzını açmadan oturumu kapatabilirdi. */
+                    if (voskFinalizeRequested) {
+                        voskFinalizeRequested = false;
+                        if (vadSpeechSeen) {
+                            gotResult = true;
+                            telPhase = "decode";
+                            if (tel != null) {
+                                tel.speechEndDetectedAt = SystemClock.elapsedRealtime();
+                                tel.decodeStartAt = tel.speechEndDetectedAt;
+                            }
+                            String fjson = recognizer.getFinalResult();
+                            if (tel != null) tel.decodeEndAt = SystemClock.elapsedRealtime();
+                            String ftext = extractVoskText(fjson);
+                            if (ftext != null && !ftext.isEmpty()) {
+                                if (tel != null) tel.terminalStatus = "success";
+                                resolveVoskWithAudio(ftext, extractVoskAlternatives(fjson), pcm);
+                            } else {
+                                if (tel != null) tel.terminalStatus = "no_speech";
+                                finishNoSpeech(pcm);
+                            }
+                            break;
+                        }
+                    }
+
                     boolean endpointHit = recognizer.acceptWaveForm(buf, n);
                     if (endpointHit) {
                         if (tel != null) tel.acceptedWaveformCount++;
@@ -3478,6 +4265,35 @@ public class CarLauncherPlugin extends Plugin {
                             if (tel != null) tel.terminalStatus = "success";
                             resolveVoskWithAudio(text, extractVoskAlternatives(json), pcm);
                             break;
+                        }
+                    }
+
+                    /* ── MAVI-F3 · KISMİ TRANSKRİPT YAYINI ───────────────────────
+                     * Endpoint vurmadı → konuşma sürüyor. Vosk'un o ana kadarki
+                     * kısmi çıktısını JS'e ver ki Mavi kullanıcı KONUŞURKEN anlamaya
+                     * başlasın. Yayın koşullu: metin değiştiyse ya da en az
+                     * VOSK_PARTIAL_MIN_INTERVAL_MS geçtiyse (köprü bounded).
+                     * Konuşma görülmeden yayın YAPILMAZ (gürültüde boş event akmaz). */
+                    if (vadSpeechSeen) {
+                        long nowPartial = System.currentTimeMillis();
+                        if (nowPartial - lastPartialAtMs >= VOSK_PARTIAL_MIN_INTERVAL_MS) {
+                            String pjson = recognizer.getPartialResult();
+                            String ptext = extractVoskText(pjson);
+                            if (ptext == null) ptext = "";
+                            if (!ptext.equals(lastPartialSent)) {
+                                lastPartialSent = ptext;
+                                lastPartialAtMs = nowPartial;
+                                JSObject pev = new JSObject();
+                                pev.put("text", ptext);
+                                /* Akustik kanıt JS'te ÖLÇÜLEMEZ (VAD burada) → kararı
+                                 * verecek katmana ölçümü BURADAN taşıyoruz. Sahte VAD
+                                 * kurulmasın diye sessizlik bilinmiyorsa -1 gider. */
+                                pev.put("silenceMs", vadSilenceStart > 0 ? (nowPartial - vadSilenceStart) : 0);
+                                pev.put("speechMs", speechStartedAtMs > 0 ? (nowPartial - speechStartedAtMs) : 0);
+                                notifyListeners("sttPartial", pev);
+                            } else {
+                                lastPartialAtMs = nowPartial;
+                            }
                         }
                     }
 
@@ -3505,6 +4321,7 @@ public class CarLauncherPlugin extends Plugin {
                                 if (!vadSpeechSeen) tel.firstSpeechDetectedAt = now;
                                 tel.lastSpeechFrameAt = now;
                             }
+                            if (!vadSpeechSeen) speechStartedAtMs = System.currentTimeMillis();
                             vadSpeechSeen = true; vadSilenceStart = 0;
                         } else if (vadSpeechSeen) {
                             long nowMs = System.currentTimeMillis();
@@ -3684,6 +4501,7 @@ public class CarLauncherPlugin extends Plugin {
         }
         voskTimeoutRunnable = null;
         voskCapturing = false;                 // capture döngüsüne dur sinyali
+        voskFinalizeRequested = false;         // MAVI-F3: komut oturumla ölür (sızıntı yok)
         Thread th = voskCaptureThread;
         voskCaptureThread = null;
         // KRİTİK: resolveVosk/rejectVosk capture thread'inden stopVosk çağırır → kendini
@@ -3785,6 +4603,19 @@ public class CarLauncherPlugin extends Plugin {
     private volatile String  wakeGrammarJson = null;
     private volatile String[] wakePhrases    = new String[0];
     private volatile float   wakeWordGain    = VOSK_GAIN_DEFAULT;
+    private static final int WAKE_READ_FAILURE_LIMIT = 5;
+    private static final int WAKE_RECOVERY_LIMIT = 3;
+
+    /** Tek native owner'ın bounded, PII'siz yaşam olayı. */
+    private void noteWakeRecorderState(String state, boolean unexpected, int recoveryAttempt) {
+        VoiceMicDiagnostics.INSTANCE.noteWakeEngineActive("ACTIVE".equals(state)
+            || "PAUSED_FOR_SESSION".equals(state) || "RECOVERING".equals(state));
+        JSObject ev = new JSObject();
+        ev.put("state", state);
+        ev.put("unexpected", unexpected);
+        ev.put("recoveryAttempt", recoveryAttempt);
+        notifyListeners("wakeWord", ev);
+    }
 
     @PluginMethod
     public void startWakeWordListening(PluginCall call) {
@@ -3815,7 +4646,7 @@ public class CarLauncherPlugin extends Plugin {
             () -> {
                 stopWakeWordThread();        // olası eski thread → tek instance garantisi
                 wakeWordActive = true;
-                VoiceMicDiagnostics.INSTANCE.noteWakeEngineActive(true); // yalnız gözlem
+                noteWakeRecorderState("STARTING", false, 0);
                 runVoskGrammar();
                 call.resolve();
             },
@@ -3830,7 +4661,7 @@ public class CarLauncherPlugin extends Plugin {
 
     private void stopWakeWordThread() {
         wakeWordActive = false;
-        VoiceMicDiagnostics.INSTANCE.noteWakeEngineActive(false); // yalnız gözlem
+        noteWakeRecorderState("STOPPED", false, 0);
         Thread t = wakeWordThread;
         wakeWordThread = null;
         if (t != null && t != Thread.currentThread()) {
@@ -3866,11 +4697,15 @@ public class CarLauncherPlugin extends Plugin {
             try {
                 android.os.Process.setThreadPriority(2);
             } catch (Throwable ignored) {}
+            int recoveryAttempt = 0;
+            boolean activeNoted = false;
             while (wakeWordActive && !Thread.currentThread().isInterrupted()) {
                 // HALF-DUPLEX bekleme: aktif STT/TTS bitene dek mikrofon kapalı.
                 if (wakeMicMustYield()) {
                     // ÖLÇÜM (şema 2): mikrofon HİÇ AÇILMADI — JS bu sağırlığı göremez.
                     VoiceMicDiagnostics.INSTANCE.noteWakeYield();
+                    noteWakeRecorderState("PAUSED_FOR_SESSION", false, recoveryAttempt);
+                    activeNoted = false;
                     try { Thread.sleep(250); } catch (InterruptedException e) { return; }
                     continue;
                 }
@@ -3881,6 +4716,10 @@ public class CarLauncherPlugin extends Plugin {
                 VoiceMicDiagnostics.INSTANCE.noteSessionStart(
                     VoiceMicDiagnostics.PATH_WAKE, System.currentTimeMillis());
                 try {
+                    if (!activeNoted) {
+                        noteWakeRecorderState("ACTIVE", false, recoveryAttempt);
+                        activeNoted = true;
+                    }
                     int minBuf = AudioRecord.getMinBufferSize(VOSK_SAMPLE_RATE,
                             AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT);
                     if (minBuf <= 0) minBuf = VOSK_SAMPLE_RATE;
@@ -3945,10 +4784,17 @@ public class CarLauncherPlugin extends Plugin {
                     /* ÖLÇÜM (şema 2): konuşma penceresinin açıldığı monotonik an.
                        Karar akışında KULLANILMAZ — yalnız gecikme türetilir. */
                     long speechOnsetMs = 0;
+                    int consecutiveReadFailures = 0;
                     while (wakeWordActive && !wakeMicMustYield()
                             && !Thread.currentThread().isInterrupted()) {
                         int n = recorder.read(buf, 0, buf.length);
-                        if (n <= 0) continue;
+                        if (n <= 0) {
+                            if (++consecutiveReadFailures >= WAKE_READ_FAILURE_LIMIT) {
+                                throw new IllegalStateException("wake_audio_read_dead");
+                            }
+                            continue;
+                        }
+                        consecutiveReadFailures = 0;
                         // Adaptif kazanç — runVoskListening ile aynı clipping koruması.
                         // Aynı geçişte RMS de hesaplanır (VAD için, ekstra döngü yok).
                         int peak = 0;
@@ -4038,9 +4884,18 @@ public class CarLauncherPlugin extends Plugin {
                         }
                     }
                 } catch (Throwable th) {
-                    // Donanım/izin hatası: sıkı döngüye girmeden bekle, yeniden dene
+                    // Donanım/AudioRecord ölümü: bounded recovery. Başarısızlığı
+                    // sessizce ACTIVE gösterme; üçüncü denemeden sonra owner durur.
                     VoiceMicDiagnostics.INSTANCE.noteResult(
                         VoiceMicDiagnostics.RESULT_ERROR, System.currentTimeMillis());
+                    recoveryAttempt++;
+                    activeNoted = false;
+                    if (recoveryAttempt > WAKE_RECOVERY_LIMIT) {
+                        wakeWordActive = false;
+                        noteWakeRecorderState("FAILED", true, recoveryAttempt);
+                        break;
+                    }
+                    noteWakeRecorderState("RECOVERING", true, recoveryAttempt);
                     try { Thread.sleep(3000); } catch (InterruptedException e) { return; }
                 } finally {
                     VoiceMicDiagnostics.INSTANCE.noteSessionEnd();
@@ -4056,6 +4911,13 @@ public class CarLauncherPlugin extends Plugin {
                     try { Thread.sleep(600); } catch (InterruptedException e) { return; }
                 }
             }
+            if (wakeWordThread == Thread.currentThread()) {
+                wakeWordThread = null;
+                if (wakeWordActive) {
+                    wakeWordActive = false;
+                    noteWakeRecorderState("FAILED", true, recoveryAttempt);
+                }
+            }
         }, "vosk-wake-grammar");
         wakeWordThread = t;
         t.start();
@@ -4065,14 +4927,18 @@ public class CarLauncherPlugin extends Plugin {
 
     @PluginMethod
     public void startBackgroundService(PluginCall call) {
+        final long gpsGeneration = call.getLong("gpsGeneration", -1L);
+        CarLauncherForegroundService.setGpsGeneration(gpsGeneration);
         CarLauncherForegroundService.setCallbacks(
-            (lat, lng, speedKmh, bearing, accuracy) -> {
+            (lat, lng, speedKmh, bearing, accuracy, observationTimestampMs, callbackGeneration) -> {
                 JSObject d = new JSObject();
                 d.put("lat",      lat);
                 d.put("lng",      lng);
                 d.put("speed",    speedKmh);
                 d.put("bearing",  bearing);
                 d.put("accuracy", accuracy);
+                d.put("observationTimestamp", observationTimestampMs);
+                d.put("gpsGeneration", callbackGeneration);
                 notifyListeners("backgroundLocation", d);
             },
             (drivingMinutes) -> {
@@ -4082,13 +4948,8 @@ public class CarLauncherPlugin extends Plugin {
             }
         );
 
-        Intent intent = new Intent(getContext(), CarLauncherForegroundService.class);
         try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                getContext().startForegroundService(intent);
-            } else {
-                getContext().startService(intent);
-            }
+            ForegroundServiceBoundary.requestStart(getContext(), "CarLauncherPlugin");
             call.resolve();
         } catch (Exception e) {
             call.reject("START_FAILED", e.getMessage());
@@ -4096,8 +4957,15 @@ public class CarLauncherPlugin extends Plugin {
     }
 
     @PluginMethod
+    public void setBackgroundGpsGeneration(PluginCall call) {
+        final long gpsGeneration = call.getLong("gpsGeneration", -1L);
+        CarLauncherForegroundService.setGpsGeneration(gpsGeneration);
+        call.resolve();
+    }
+
+    @PluginMethod
     public void stopBackgroundService(PluginCall call) {
-        getContext().stopService(new Intent(getContext(), CarLauncherForegroundService.class));
+        ForegroundServiceBoundary.requestStop(getContext(), "CarLauncherPlugin");
         call.resolve();
     }
 
@@ -5136,6 +6004,33 @@ public class CarLauncherPlugin extends Plugin {
     // throttle state'i _emitLock ile korunur. JS'e gerçek emit ise kilit DIŞINDA yapılır
     // (notifyListeners'ı kilit altında tutup olası yeniden-giriş/gecikme riskini önlemek için).
     private static final long CAN_EMIT_MIN_INTERVAL_MS = 80L; // ~12.5Hz (CLAUDE.md 10-20Hz bandı)
+
+    /* ══════════════════════════════════════════════════════════════════════
+       ARCH-06/F1 - CAN KOPRU OLCUM SAYACLARI (T0: yalniz long artirimi)
+       ══════════════════════════════════════════════════════════════════════
+       NEDEN: coalescing/dedup mekanizmasi DOGRU calisiyordu ama HIC OLCULMEMISTI.
+       "Kac frame geldi, kacini birlestirdik, kacini duplike diye attik, kac kez
+       guvenlik bypass'i devreye girdi" sorulari cevapsizdi.
+
+       SEMANTIK (LAB bunlari UYDURMAZ, burada tanimlidir):
+         emitCount              JS'e GERCEKTEN gonderilen olay sayisi
+         coalescedOverwrite     pencere icinde BEKLEYEN deger yenisiyle
+                                degistirildi (ara deger JS'e HIC gitmedi)
+         dedupSkipped           alan seti son gonderilenle AYNI -> emit atlandi
+         safetyBypass           reverse/parkingBrake degisti -> pencere BEKLENMEDI
+         snifferEmit            ham frame JS'e gitti (yalniz sniffer acikken)
+         inputCount             emitVehicleData'ya ULASAN cagri sayisi
+                                (ham CAN + K24 + NWD + settings, TEK giris noktasi)
+
+       MALIYET: alan basina bir long artirimi. Tahsis, string, log, zaman
+       damgasi YOK. volatile: farkli thread'lerden okunur, tam dogruluk
+       gerekmez (olcum sayaci, muhasebe degil). ASLA ham CAN yuku saklanmaz. */
+    private volatile long _canInputCount        = 0L;
+    private volatile long _canEmitCount         = 0L;
+    private volatile long _canCoalescedCount    = 0L;
+    private volatile long _canDedupSkipCount    = 0L;
+    private volatile long _canSafetyBypassCount = 0L;
+    private volatile long _canSnifferEmitCount  = 0L;
     private final Object     _emitLock            = new Object();
     private final Handler    _emitHandler         = new Handler(Looper.getMainLooper());
     private final Runnable   _flushEmitRunnable   = this::flushPendingEmit;
@@ -5348,6 +6243,7 @@ public class CarLauncherPlugin extends Plugin {
             for (byte b : s.data) sb.append(String.format("%02X ", b));
             raw.put("data", sb.toString().trim());
             notifyListeners("canRawFrame", raw);
+            _canSnifferEmitCount++;
         }
 
         emitVehicleData(canSignalMapper.process(signals));
@@ -5361,6 +6257,7 @@ public class CarLauncherPlugin extends Plugin {
      */
     private void emitVehicleData(VehicleCanData data) {
         if (data == null) return;
+        _canInputCount++;   // ARCH-06/F1: TEK giris noktasi - tum kaynaklar burada birlesir
 
         if (data.speed != null) reverseGuard.updateSpeed(data.speed);
 
@@ -5427,7 +6324,12 @@ public class CarLauncherPlugin extends Plugin {
                 dataToEmitNow    = filtered;
                 _lastEmittedData = filtered;
                 _lastEmitAtMs    = SystemClock.elapsedRealtime();
+                _canSafetyBypassCount++;   // ARCH-06/F1
             } else if (!sameEmittedData(filtered, _lastEmittedData)) {
+                /* ARCH-06/F1: bekleyen bir deger VARDI ve simdi uzerine yaziliyor
+                   -> o ara deger JS'e HIC gitmeyecek. Coalescing'in gercek
+                   kazanci tam olarak bu sayidir. */
+                if (_pendingEmitData != null) _canCoalescedCount++;
                 _pendingEmitData = filtered;
                 long now     = SystemClock.elapsedRealtime();
                 long elapsed = now - _lastEmitAtMs;
@@ -5445,9 +6347,10 @@ public class CarLauncherPlugin extends Plugin {
                 // runnable pencere sonunda en güncel değeri gönderecek.
             }
             // else: dedup — değer seti son emit edilenle aynı, hiçbir şey yapma.
+            else _canDedupSkipCount++;   // ARCH-06/F1
         }
 
-        if (dataToEmitNow != null) canJsBridge.emit(dataToEmitNow);
+        if (dataToEmitNow != null) { canJsBridge.emit(dataToEmitNow); _canEmitCount++; }
         if (scheduleFlush)         _emitHandler.postDelayed(_flushEmitRunnable, delay);
     }
 
@@ -5463,7 +6366,32 @@ public class CarLauncherPlugin extends Plugin {
                 _lastEmitAtMs    = SystemClock.elapsedRealtime();
             }
         }
-        if (dataToEmit != null && canJsBridge != null) canJsBridge.emit(dataToEmit);
+        if (dataToEmit != null && canJsBridge != null) { canJsBridge.emit(dataToEmit); _canEmitCount++; }
+    }
+
+    /**
+     * ARCH-06/F1 - CAN KOPRU OLCUM ANLIK GORUNTUSU (SALT-OKUNUR).
+     *
+     * YAN ETKISIZ: sayaclari SIFIRLAMAZ, hicbir sey baslatmaz, emit tetiklemez.
+     * Sayaclar MONOTONIKTIR; pencere hizi isteyen taraf iki okuma arasindaki
+     * FARKI alir. Paylasilan sifirlama olsaydi iki farkli okuyucu birbirinin
+     * penceresini calardi.
+     *
+     * GIZLILIK: ham CAN yuku, CAN ID, sinyal degeri ve arac kimligi TASINMAZ -
+     * yalniz sayilar ve pencere sabiti.
+     */
+    @PluginMethod
+    public void getCanBridgeMetrics(PluginCall call) {
+        JSObject out = new JSObject();
+        out.put("inputCount",             _canInputCount);
+        out.put("emitCount",              _canEmitCount);
+        out.put("coalescedOverwriteCount", _canCoalescedCount);
+        out.put("dedupSkippedCount",      _canDedupSkipCount);
+        out.put("safetyBypassCount",      _canSafetyBypassCount);
+        out.put("snifferEmitCount",       _canSnifferEmitCount);
+        out.put("windowMs",               CAN_EMIT_MIN_INTERVAL_MS);
+        out.put("snifferActive",          _canSnifferActive);
+        call.resolve(out);
     }
 
     /**
@@ -5678,14 +6606,7 @@ public class CarLauncherPlugin extends Plugin {
         } else {
             // Servis ölmüşse yeniden başlat
             try {
-                Context ctx = getContext();
-                android.content.Intent intent =
-                    new android.content.Intent(ctx, CarLauncherForegroundService.class);
-                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-                    ctx.startForegroundService(intent);
-                } else {
-                    ctx.startService(intent);
-                }
+                ForegroundServiceBoundary.requestStart(getContext(), "CarLauncherPlugin.wakeUpService");
                 call.resolve();
             } catch (Exception e) {
                 call.reject("Servis başlatılamadı: " + e.getMessage());
@@ -6325,6 +7246,81 @@ public class CarLauncherPlugin extends Plugin {
         } catch (Exception e) {
             // Farklı cihaz (SSAID farklı → çözülemez) veya bozuk dosya — sessizce
             // boş dön, ASLA reject etme.
+            call.resolve(result);
+        }
+    }
+
+    // ── Kararlı Cihaz Kimliği (P0-001C) ────────────────────────────────────
+    //
+    // SORUN: `veh_device_id` rastgele üretilip EncryptedSharedPreferences'a
+    // yazılıyordu. O depo Android Keystore anahtarına bağlıdır ve uygulama
+    // KALDIRILDIĞINDA anahtarla birlikte SİLİNİR. Reinstall sonrası cihaz yeni
+    // bir UUID üretiyor, sunucu onu YENİ BİR ARAÇ sanıyordu. Üretim ölçümü:
+    // 838 araç satırı, 822 tekil device_name, 837'si SAHİPSİZ.
+    //
+    // ÇÖZÜM: kimliği SAKLAMAK yerine TÜRET. SSAID (ANDROID_ID) Android 8.0+
+    // sürümlerinde "uygulama imzalama anahtarı + kullanıcı + cihaz" başına
+    // sabittir: aynı imzayla yapılan reinstall AYNI değeri verir, fabrika
+    // ayarlarına dönüş değiştirir (o gerçekten yeni bir cihazdır).
+    //
+    // NEDEN YEDEKLEMEK DEĞİL DE TÜRETMEK: bir yedek dosyası, kimliği
+    // kopyalanabilir bir VARLIĞA çevirir. Türetme hiçbir yere yazmaz →
+    // yedeklenecek, sızacak veya çalınacak bir dosya YOKTUR.
+    //
+    // GİZLİLİK: ham SSAID JS'e ve sunucuya ASLA çıkmaz — yalnız
+    // `sha256(salt|ssaid)` döner. SSAID kalıcı bir cihaz tanımlayıcısıdır;
+    // ürün sunucusuna ham gönderilmesi gereksiz bir izleme yüzeyi olurdu.
+    // Hash tek yönlüdür ve bu ürüne özgü salt ile alan-ayrıştırılmıştır:
+    // aynı cihazdaki başka bir uygulamanın ürettiği değerle eşleşmez.
+
+    private static final String STABLE_DEVICE_ID_SALT = "caros-device-id-v1|";
+
+    /**
+     * JS → Native: bu kuruluma özgü, reinstall'a DAYANIKLI cihaz kimliği.
+     * returns: { deviceId: string | null, source: 'SSAID' | 'UNAVAILABLE' }
+     *
+     * SSAID okunamazsa (bazı özelleştirilmiş head unit ROM'ları boş döndürür)
+     * UYDURMA yapılmaz: `deviceId: null` + `source: 'UNAVAILABLE'` döner ve
+     * JS tarafı rastgele kimliğe geri düşer. Sahte bir sabit ("unknown-device")
+     * döndürmek, o ROM'daki TÜM cihazları TEK ARACA çökertirdi.
+     */
+    @PluginMethod
+    public void getStableDeviceId(PluginCall call) {
+        JSObject result = new JSObject();
+        try {
+            String ssaid = Settings.Secure.getString(
+                getContext().getContentResolver(), Settings.Secure.ANDROID_ID);
+
+            // "9774d56d682e549c" = API 8 dönemi emülatör/ROM hatasının bilinen
+            // sabit değeri; cihazlar arasında ÇAKIŞIR, kimlik olarak kullanılamaz.
+            if (ssaid == null || ssaid.isEmpty() || "9774d56d682e549c".equals(ssaid)) {
+                result.put("deviceId", null);
+                result.put("source", "UNAVAILABLE");
+                call.resolve(result);
+                return;
+            }
+
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] hash = digest.digest(
+                (STABLE_DEVICE_ID_SALT + ssaid).getBytes(StandardCharsets.UTF_8));
+
+            StringBuilder hex = new StringBuilder(hash.length * 2);
+            for (byte b : hash) {
+                String h = Integer.toHexString(b & 0xFF);
+                if (h.length() == 1) hex.append('0');
+                hex.append(h);
+            }
+
+            result.put("deviceId", hex.toString());
+            result.put("source", "SSAID");
+            call.resolve(result);
+        } catch (Exception e) {
+            // Fail-soft: kimlik türetilemedi. Hata METNİ SSAID içerebileceği için
+            // loglanmaz; yalnız türün kendisi bildirilir.
+            android.util.Log.e("CarLauncherPlugin",
+                "getStableDeviceId hatası: " + e.getClass().getSimpleName());
+            result.put("deviceId", null);
+            result.put("source", "UNAVAILABLE");
             call.resolve(result);
         }
     }

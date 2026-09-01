@@ -17,6 +17,10 @@ import { onGPSLocation }   from './gpsService';
 import type { GPSLocation } from './gpsService';
 import type { OBDData }    from './obdTypes';
 import { safeSetRaw, safeGetRaw } from '../utils/safeStorage';
+/* ARCH-05 — yıkıcı depolama işlemi `STORAGE_ADMIN` yetkisi ister. Normal ayar
+   yazımı bu yetkiyi ASLA vermez (`SETTINGS_WRITE` ≠ `STORAGE_ADMIN`). */
+import { authorizeStorageAdmin } from './security/enforcement';
+import type { SecurityPrincipalClass } from './security/enforcement';
 import { useStore }        from '../store/useStore';
 /* P2 metrikleri: SAF yardımcılar (abonelik/timer/durum SAHİPLENMEZ).
    Bu modül TEK trip otoritesi olarak KALIR; yalnız hesap mantığı test
@@ -742,9 +746,26 @@ export function deleteTrip(id: string): void {
   });
 }
 
-export function clearAllTrips(): void {
+/**
+ * TÜM seyahat geçmişini siler — GERİ DÖNDÜRÜLEMEZ.
+ *
+ * ARCH-05: çağıran `STORAGE_ADMIN` yetkisine sahip DEĞİLSE hiçbir şey
+ * silinmez ve `false` döner — kısmi silme, sessiz başarı ya da "sildim"
+ * iddiası YOKTUR. Varsayılan principal `LOCAL_UI`dir: bu ekran yalnız baş
+ * ünitenin başındaki kullanıcıya açıktır; Mavi ve telefon KENDİ sınıflarını
+ * vermek zorundadır ve o sınıfların bu yetkisi yoktur.
+ *
+ * @returns silme GERÇEKTEN yapıldıysa `true`.
+ */
+export function clearAllTrips(principal: SecurityPrincipalClass = 'LOCAL_UI'): boolean {
+  const authz = authorizeStorageAdmin({
+    principalClass: principal, operation: 'CLEAR_TRIP_HISTORY',
+    operationId: `storage.trips.clear:${Date.now()}`,
+  });
+  if (!authz.allowed) return false;
   _save([]);
   _setState({ history: [], totalDistanceKm: 0, totalTrips: 0 });
+  return true;
 }
 
 export function onTripState(fn: (s: TripState) => void): () => void {

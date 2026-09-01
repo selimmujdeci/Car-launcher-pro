@@ -6,7 +6,8 @@
  * değişir.
  *
  * BU KİLİTLER NEYİ KORUR:
- *  - hiçbir kanal gizlenmez / silinmez / birleştirilmez (6 kanal her iki girişte de var),
+ *  - hiçbir kanal gizlenmez / silinmez / birleştirilmez (TÜM kanallar her iki girişte de
+ *    var — 2026-08-30 · P0-VDK-B3 ile 'poll-cost' kanalı eklendi: 6 → 7),
  *  - bağlam yokken ESKİ sıra bit bit korunur (geriye uyumluluk),
  *  - sıralama SAF bir fonksiyondur (imperative scroll / DOM hack / timer YOK),
  *  - iki katalog girdisi ayrı ayrı yaşar,
@@ -125,7 +126,7 @@ describe('KİLİT 2 — poll-scheduler live-polling kanalını İLK gösterir', 
  * ════════════════════════════════════════════════════════════════════════ */
 
 describe('KİLİT 3 — kalan kanallar korunur (gizleme/silme/birleştirme YOK)', () => {
-  it('her iki girişte de 6 kanalın TAMAMI vardır', () => {
+  it('her iki girişte de TÜM kanalların TAMAMI vardır', () => {
     const base = buildSchedChannels(snapshot());
     for (const focus of ['queue-monitor', 'poll-scheduler'] as const) {
       const ids = orderChannelsForFocus(base, focus).map((c) => c.id);
@@ -135,13 +136,16 @@ describe('KİLİT 3 — kalan kanallar korunur (gizleme/silme/birleştirme YOK)'
     }
   });
 
-  it('kalan 5 kanalın GÖRELİ sırası bozulmaz', () => {
+  it('kalan kanalların GÖRELİ sırası bozulmaz', () => {
     const base = buildSchedChannels(snapshot());
     for (const focus of ['queue-monitor', 'poll-scheduler'] as const) {
       const target = SCHED_FOCUS_CHANNEL[focus];
       const rest = orderChannelsForFocus(base, focus).map((c) => c.id).slice(1);
       expect(rest).toEqual(DEFAULT_ORDER.filter((id) => id !== target));
-      expect(rest).toHaveLength(5);
+      /* P0-VDK-B3 (2026-08-30): 'poll-cost' kanalı eklendi → 5 → 6. Kilit
+         KALDIRILMADI, yeni doğru değere taşındı; sayı artık `DEFAULT_ORDER`den
+         TÜRETİLİR ki bir sonraki kanal değişiminde sessizce kaymasın. */
+      expect(rest).toHaveLength(DEFAULT_ORDER.length - 1);
     }
   });
 

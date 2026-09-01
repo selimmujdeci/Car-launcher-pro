@@ -53,6 +53,8 @@ export type ExtendedPollEvidenceState =
   | 'insufficient';
 
 export interface ExtendedPollEvidenceSnapshot {
+  /** Native adaptive scheduler budget/deadline telemetry (null on older builds). */
+  scheduler: NativeExtendedPollEvidence['scheduler'] | null;
   present: boolean;
   /** T6-B: kanıt önbelleği bu oturumda tazelendi mi — "ölçmedik" ≠ "yok". */
   cacheState: PollEvidenceCacheState;
@@ -62,6 +64,17 @@ export interface ExtendedPollEvidenceSnapshot {
   transport: string | null;
   /** Native kanıt yoksa `null` (false DEĞİL — "burst kapalı" iddiası kanıtsızdı). */
   burstEnabled: boolean | null;
+  /**
+   * B2 · NİYET — scheduler/plugin'in istediği mod. `null` = ölçülmedi.
+   * Eski native (alan yok) → `burstEnabled`e düşülür: o da artık NİYETİ taşır.
+   */
+  burstIntent: boolean | null;
+  /**
+   * B2 · GÖZLEM — son TAMAMLANAN turun modu. `null` = ölçülmedi.
+   * ⚠️ "burst hiç çalışmadı" hükmü BU alandan ÜRETİLEMEZ; tarihsel kanıt
+   * `counters.burstCycles`tir (saha: `lastCycleWasBurst:false` + `burstCycles:135`).
+   */
+  lastCycleWasBurst: boolean | null;
   /**
    * Native kanıt yoksa `null`.
    *
@@ -247,12 +260,17 @@ export function getExtendedPollEvidence(): ExtendedPollEvidenceSnapshot {
     ? 'native_available'
     : hasJsObservation ? 'native_unavailable_js_only' : 'insufficient';
   return {
+    scheduler: native?.scheduler ?? null,
     present,
     cacheState: _refreshState,
     evidenceState,
     // Kanıt yoksa alanlar NULL — uydurma varsayılan ('unknown'/false/0) YOK.
     transport: present ? (native?.transport ?? null) : null,
     burstEnabled: present ? (native?.burstEnabled ?? null) : null,
+    /* Eski native yalnız `burstEnabled` gönderir; o alan da NİYETİ taşıdığı için
+       geri düşüş SEMANTİK OLARAK GÜVENLİDİR. Gözlem alanı uydurulmaz → null. */
+    burstIntent:       present ? (native?.burstIntent ?? native?.burstEnabled ?? null) : null,
+    lastCycleWasBurst: present ? (native?.lastCycleWasBurst ?? null) : null,
     configuredPidCount: present ? (native?.configuredPidCount ?? null) : null,
     configuredPidPreview: present ? (native?.configuredPidPreview ?? []) : [],
     counters: native?.counters ?? null,

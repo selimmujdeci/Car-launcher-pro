@@ -14,6 +14,9 @@
  *   89  Edit panel
  *   90  Boot splash
  *   99  Çok kritik — üstüne hiçbir şey gelmesin
+ *
+ * Harita/navigasyon katmanları AYRI bir sözleşmededir (--z-map-*),
+ * aşağıya bakınız: hepsi harita yüzeyinin KENDİ yığın bağlamındadır.
  * ─────────────────────────────────────────────────────────── */
 :root {
   --z-widgets:       10;
@@ -29,6 +32,38 @@
   --z-edit-panel:    89;
   --z-boot:          90;
   --z-critical:      99;
+
+  /* ── HARİTA / NAVİGASYON KATMAN SÖZLEŞMESİ (P0-NAV-02) ───────────────
+   * Harita yüzeyi kendi YIĞIN BAĞLAMIDIR: `FullMapView` kökü
+   * `position:fixed` + `z-index: var(--z-map-surface)` taşır, bu yüzden
+   * içindeki HİÇBİR değer uygulama düzeyindeki katmanların üstüne çıkamaz.
+   * Somut sonuç (bu turun güvenlik şartı):
+   *   geri vites overlay'i (App.tsx, z 100000) ve portre uyarısı (99999)
+   *   harita içindeki EN YÜKSEK değerden bile HER ZAMAN üstte kalır.
+   *
+   * Buradaki değerler ölçülmüş MEVCUT sırayı birebir korur; yalnız eski
+   * 9998/9999/99999 üçlüsü 80/90/95'e indirildi — aynı bağlamda oldukları
+   * için GÖRELİ SIRA değişmedi, şişirilmiş sayı ise kalkmış oldu.
+   * Harita bileşenlerinde ham `z-<n>` / `z-[<n>]` / `zIndex: <n>` YASAKTIR
+   * (regresyon kilidi: "harita katman sözleşmesi").
+   * ─────────────────────────────────────────────────────────────────── */
+  --z-map-vision:       5;   /* AR video/canvas — haritanın hemen üstü      */
+  --z-map-effect:      10;   /* dekoratif parlama / tint / iskelet          */
+  --z-map-label:       20;   /* sokak adı pili, harita kontrol kümeleri     */
+  --z-map-hud:         30;   /* navigasyon panelleri (dönüş, hız, alt bar)  */
+  --z-map-scrim:       35;   /* kenar yumuşatma gradyanları                 */
+  --z-map-chip:        36;   /* GPS durumu / mesafe rozetleri               */
+  --z-map-search:      37;   /* arama çubuğu                                */
+  --z-map-prompt:      40;   /* varış / araç sınıfı istemi                  */
+  --z-map-transition:  45;   /* stil geçişi kararma perdesi                 */
+  --z-map-surface:     50;   /* HARİTA KÖKÜ (uygulama düzeyinde = --z-modal)*/
+  --z-map-limp:        50;   /* LIMP_HOME tam kaplama                       */
+  --z-map-loading:     60;   /* harita yükleniyor göstergesi                */
+  --z-map-honesty:     70;   /* bayat konum rozeti (dürüstlük)              */
+  --z-map-control:     80;   /* sabitlenmiş yuvarlak kontroller             */
+  --z-map-alert:       90;   /* kayıp GPS / risk çerçevesi / kapat düğmesi  */
+  --z-map-sheet:       95;   /* harita içi tam kaplama sayfa (bildir)       */
+  --z-map-fatal:     2000;   /* WebGL yok ekranı — harita hiç kurulmadı     */
 
   /* ── Adaptive Layout Profile — set by LayoutContext.tsx ─────
    * Fallback values match NORMAL profile (1024×600 baseline).

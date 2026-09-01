@@ -6,6 +6,7 @@ import { RuntimeMode }           from '../core/runtime/runtimeTypes';
 import { runtimeManager }        from '../core/runtime/AdaptiveRuntimeManager';
 import { setObdVehicleType } from '../platform/obdService';
 import { safeStorage } from '../utils/safeStorage';
+import { OwnerCommandEvidence, type CommandMessage } from '../platform/message';
 import type { ManufacturerDidProfileId } from '../platform/obd/profiles';
 import {
   DEFAULT_ASSISTANT_NAME, DEFAULT_WAKE_PHRASE, DEFAULT_WAKE_MODE,
@@ -34,6 +35,21 @@ function deepMergeSettings<T extends Record<string, unknown>>(defaults: T, persi
     }
   }
   return result;
+}
+
+/* ARCH-03: bounded, reference-first evidence only. This store remains the
+ * declared-settings owner; evidence neither persists nor applies runtime state. */
+const _settingsCommandEvidence = new OwnerCommandEvidence('settingsStore');
+let _settingsOperationSequence = 0;
+export function getSettingsCommandFlowEvidence(): readonly CommandMessage[] {
+  return _settingsCommandEvidence.recent();
+}
+export function recordSettingsRuntimeApply(
+  settingRef: string, correlationId: string, applied: boolean,
+): void {
+  const operationId = `${correlationId}:runtime_apply`;
+  _settingsCommandEvidence.record({ id: `${operationId}:request`, kind: 'COMMAND', name: 'settings.runtime.apply', source: 'settings_store', target: 'runtime_setting_owner', operationId, correlationId, sessionId: null, generation: null, epoch: null, reason: settingRef.slice(0, 64), nowMs: Date.now() });
+  _settingsCommandEvidence.record({ id: `${operationId}:result`, kind: 'RESULT', name: 'settings.runtime.result', source: 'runtime_setting_owner', target: null, operationId, correlationId, sessionId: null, generation: null, epoch: null, reason: applied ? null : 'RUNTIME_APPLY_FAILED', nowMs: Date.now() });
 }
 
 
@@ -410,7 +426,11 @@ export const useStore = create<StoreState>()(
           activeSmartCards:  state.activeSmartCards.filter((c) => c.id !== id),
           _dismissedCardIds: [...state._dismissedCardIds, id],
         })),
-      updateSettings: (partial) =>
+      updateSettings: (partial) => {
+        const correlationId = `settings:${++_settingsOperationSequence}`;
+        const settingRef = Object.keys(partial).sort().join(',').slice(0, 64) || 'empty';
+        _settingsCommandEvidence.record({ id: `${correlationId}:request`, kind: 'COMMAND', name: 'settings.declared.persist', source: 'settings.requester', target: 'settings_store', operationId: correlationId, correlationId, sessionId: null, generation: null, epoch: null, reason: settingRef, nowMs: Date.now() });
+        let accepted = true;
         set((state) => {
           // Negative Delta Guard (CLAUDE.md §4): maintenance km değerleri geri gidemez
           if (partial.maintenance !== undefined) {
@@ -420,10 +440,14 @@ export const useStore = create<StoreState>()(
                partial.maintenance.lastOilChangeKm < cur.lastOilChangeKm) ||
               (partial.maintenance.nextOilChangeKm !== undefined &&
                partial.maintenance.nextOilChangeKm < cur.lastOilChangeKm)
-            ) return state; // saat atlama / veri bozulması — reddet
+            ) { accepted = false; return state; } // saat atlama / veri bozulması — reddet
           }
           return { settings: { ...state.settings, ...partial } };
-        }),
+        });
+        // Zustand persistence is its own storage boundary; this result intentionally
+        // means declared write accepted, never runtime application succeeded.
+        _settingsCommandEvidence.record({ id: `${correlationId}:result`, kind: 'RESULT', name: 'settings.declared.result', source: 'settings_store', target: null, operationId: correlationId, correlationId, sessionId: null, generation: null, epoch: null, reason: accepted ? 'PERSISTENCE_WRITE_ACCEPTED' : 'DECLARED_WRITE_REJECTED', nowMs: Date.now() });
+      },
       updateMaintenance: (partial) =>
         set((state) => {
           const cur = state.settings.maintenance;

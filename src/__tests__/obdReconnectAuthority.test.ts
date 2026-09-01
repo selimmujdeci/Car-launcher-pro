@@ -16,13 +16,13 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { Capacitor } from '@capacitor/core';
 import { CarLauncher } from '../platform/nativePlugin';
-import { startOBD, stopOBD, getOBDStatusSnapshot } from '../platform/obdService';
+import { startOBD, stopOBD, getOBDStatusSnapshot, getObdReconnectLifecycle } from '../platform/obdService';
 
 vi.mock('@capacitor/core', () => ({
   Capacitor: { isNativePlatform: vi.fn(() => true) },
 }));
 
-type StatusEvent = { state?: string; reason?: string };
+type StatusEvent = { state?: string; reason?: string; reconnectEpoch?: number };
 type Listener = (e: StatusEvent) => void;
 
 /** Kayıtlı obdStatus dinleyicisi — testler native event'i buradan "yayınlar". */
@@ -86,17 +86,66 @@ describe('OBD-OS-F0-5 · tek reconnect otoritesi', () => {
     expect(CarLauncher.connectOBD).not.toHaveBeenCalled();
   });
 
-  it('🔒 KİLİT: native reconnect sırasındaki KOPMA bildirimleri TS turu başlatmaz', async () => {
-    emitStatus({ state: 'reconnecting', reason: 'native_reconnecting' });
+  /* ══════════════════════════════════════════════════════════════════════
+     P0-OBD-FINAL-01 — KİLİT BİLİNÇLİ OLARAK GÜNCELLENDİ (kaldırılmadı).
+     ══════════════════════════════════════════════════════════════════════
+     ESKİ KİLİT: "native reconnect sırasındaki KOPMA bildirimleri TS turu
+     başlatmaz" — varsayım, native'in ölü soketi kapatırken ARA bir
+     "disconnected" sızdırdığıydı.
+
+     ÖLÇÜM (OBDManager kaynağı): reconnect sırasında hiçbir ara status olayı
+     YAYINLANMAZ (`closeStreamsOnly` sessizdir). Reconnect uçuştayken gelen
+     "disconnected/link_lost", turun TERMİNAL sonucudur (çağıranın
+     `disconnect()` dalı). Eski kilit bu olayı yutuyordu → otorite native'de
+     asılı kalıyor, TS yalnız 60 s fail-safe ile uyanıyordu. Sahadaki
+     "aynı oturumda tekrar tekrar 60 s timeout" tam olarak buydu.
+
+     YENİ KİLİT: terminal sonuç ANINDA devir teslimdir — 60 s BEKLENMEZ. */
+  it('🔒 KİLİT: native reconnect uçuşta iken gelen link_lost TERMİNALDİR — TS 60 s BEKLEMEZ', async () => {
+    emitStatus({ state: 'reconnecting', reason: 'native_reconnecting', reconnectEpoch: 1 });
     await flush();
 
-    // Native ölü soketi kapatırken kopma bildirimi sızabilir — TS karışmamalı.
     emitStatus({ state: 'disconnected', reason: 'link_lost' });
+    await flush();
+    // Yalnız TS'in KENDİ üstel backoff turu kadar ilerle (guard 60 s'e ASLA gelinmez).
+    await vi.advanceTimersByTimeAsync(10_000);
+    await flush();
+
+    expect(CarLauncher.connectOBD).toHaveBeenCalled();
+    // FAIL-SAFE zamanlayıcısı ATEŞLENMEMİŞ olmalı: sonuç açık olayla geldi.
+    expect(getObdReconnectLifecycle().nativeReconnectGuardTimeouts).toBe(0);
+    expect(getObdReconnectLifecycle().nativeReconnectInFlight).toBe(false);
+  });
+
+  it('🔒 KİLİT: native_reconnect_failed → otorite ANINDA TS\'e döner (60 s ölü pencere YOK)', async () => {
+    emitStatus({ state: 'reconnecting', reason: 'native_reconnecting', reconnectEpoch: 1 });
+    await flush();
+    expect(getObdReconnectLifecycle().nativeReconnectInFlight).toBe(true);
+
+    emitStatus({ state: 'reconnect_failed', reason: 'native_reconnect_failed' });
     await flush();
     await vi.advanceTimersByTimeAsync(10_000);
     await flush();
 
-    expect(CarLauncher.connectOBD).not.toHaveBeenCalled();
+    const l = getObdReconnectLifecycle();
+    expect(CarLauncher.connectOBD).toHaveBeenCalled();
+    expect(l.nativeReconnectInFlight).toBe(false);
+    expect(l.nativeReconnectFailed).toBe(1);
+    expect(l.nativeReconnectGuardTimeouts).toBe(0);   // 0 DIŞINDAKİ her değer KUSURDUR
+    expect(l.nativeReconnectLastOutcome).toBe('failed');
+  });
+
+  it('otorite künyesi ÖLÇÜLÜR: tur / başarı sayaçları ve tur kimliği', async () => {
+    emitStatus({ state: 'reconnecting', reason: 'native_reconnecting', reconnectEpoch: 7 });
+    await flush();
+    emitStatus({ state: 'connected', reason: 'native_reconnected' });
+    await flush();
+
+    const l = getObdReconnectLifecycle();
+    expect(l.nativeReconnectRounds).toBe(1);
+    expect(l.nativeReconnectRecovered).toBe(1);
+    expect(l.nativeReconnectEpoch).toBe(7);
+    expect(l.nativeReconnectLastOutcome).toBe('recovered');
   });
 
   it('native reconnect BAŞARILI → otorite TS\'e döner, bağlantı YENİDEN KURULMAZ', async () => {

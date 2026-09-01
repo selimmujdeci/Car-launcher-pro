@@ -2,7 +2,7 @@
  * VisionOverlay — AR kamera + şerit/tabela katmanı.
  *
  * Katman mimarisi (z-index sırası):
- *   MapView     (z-0)  — harita, her zaman mount'ta
+ *   MapView     (taban)  — harita, her zaman mount'ta
  *   VisionOverlay içi:
  *     <video>   (z-1)  — kamera feed'i, sadece HYBRID modunda opak
  *     <canvas>  (z-2)  — şerit çizgileri + AR rotası + tabela bbox
@@ -704,7 +704,7 @@ export const VisionOverlay = memo(function VisionOverlay({
 
   return (
     // Outer container — always present in DOM, no pointer-events by default
-    <div className="absolute inset-0 pointer-events-none" style={{ zIndex: 5 }}>
+    <div className="absolute inset-0 pointer-events-none" style={{ zIndex: 'var(--z-map-vision)' }}>
 
       {/* ── Camera feed — background when HYBRID ── */}
       <video
@@ -748,7 +748,7 @@ export const VisionOverlay = memo(function VisionOverlay({
 
         {/* Vision status badge — always visible during navigation */}
         {isNavigating && (
-          <div className="absolute top-5 right-[7rem] pointer-events-auto z-10">
+          <div className="absolute top-5 right-[7rem] pointer-events-auto z-[var(--z-map-effect)]">
             <VisionBadge
               visionState={vision.state}
               frame={vision.frame}

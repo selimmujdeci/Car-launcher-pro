@@ -14,13 +14,13 @@ import { next, previous } from '../../platform/media/carosMediaLayer';
 import {
   useOBDVehicleType,
   useOBDFuelLevel,
-  useOBDEngineTemp,
   useOBDRPM,
   useOBDRange,
   useOBDBatteryLevel,
   useOBDBatteryTemp,
   useOBDMotorPower,
 } from '../../platform/obdService';
+import { useLiveVehicleSignal } from '../../hooks/useCanonicalVehicleSignal';
 import { useGPSLocation } from '../../platform/gpsService';
 import { useUnifiedVehicleStore } from '../../platform/vehicleDataLayer';
 import { useClock } from '../../hooks/useClock';
@@ -275,7 +275,10 @@ const SpeedCard = memo(function SpeedCard() {
   // yeniden render edilmez, sadece değişen field'ı okuyan chip güncellenir.
   const vehicleType  = useOBDVehicleType();
   const rpm          = useOBDRPM();
-  const engineTemp   = useOBDEngineTemp();
+  /* P0-OBD-03: kanonik otorite (CAN → OBD → yok) + tazelik kapısı. Dar abonelik
+     korundu: hook üç ilkel seçici kullanır, kütlesel abonelik AÇMAZ.
+     `null` → `-1` eşlemesi aşağıdaki `< 0` sentinel sözleşmesini KORUR. */
+  const engineTemp   = useLiveVehicleSignal('coolantTemp') ?? -1;
   const fuelLevel    = useOBDFuelLevel();
   const batteryLevel = useOBDBatteryLevel();
   const batteryTemp  = useOBDBatteryTemp();

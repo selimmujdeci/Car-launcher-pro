@@ -21,6 +21,8 @@ import {
   type SchedChannel, type SchedField, type ChannelActivity, type SchedConflictInput,
   type RuntimeSummaryInput,
 } from './runtimeSchedulingModel';
+import type { PollCostSnapshot } from '../obd/pollCost';
+import { adapterOverheadShare, wastedShare, costliestClass, burstVsNormal } from '../obd/pollCost';
 
 /* ══════════════════════════════════════════════════════════════════════════
  * Ham anlık görüntü — YAPISAL tip
@@ -44,7 +46,12 @@ export interface SchedRawSnapshot {
     evidenceState: string;
     /** T6: kanıt yoksa null — sahte varsayılan taşınmaz. */
     transport: string | null;
+    /** Geriye dönük ad — NİYETİ taşır. Yeni hükümler `burstIntent` okur. */
     burstEnabled: boolean | null;
+    /** B2 · NİYET (istenen mod) — poll turu bunu ezemez. */
+    burstIntent: boolean | null;
+    /** B2 · GÖZLEM (son tamamlanan turun modu) — niyet yerine kullanılmaz. */
+    lastCycleWasBurst: boolean | null;
     configuredPidCount: number | null;
     counters: {
       pollCycles: number; burstCycles: number; roundRobinCycles: number;
@@ -97,15 +104,47 @@ export interface SchedRawSnapshot {
     reasonNeverOk: string; reasonPaused: string;
   } | null;
 
+  /**
+   * P0-VDK-B3 — poll hattının ölçülen maliyeti. `null` = hiç okunmadı;
+   * `state:'UNAVAILABLE'` = eski APK / klon köprü → **ölçülemedi (0 DEĞİL)**.
+   */
+  readonly pollCost: PollCostSnapshot | null;
+  readonly pollCostRefreshedAt: number | null;
+
+  /**
+   * P0-VDK-B3 — native `AdaptivePidScheduler` bütçe/açlık telemetrisi.
+   * `null` = ölçülemedi (web modu / eski APK) — "bütçe 0" DEĞİL.
+   */
+  readonly schedulerBudget: {
+    readonly activePollCount: number;
+    readonly deferredTotal: number;
+    readonly recoveryPauseCount: number;
+    readonly lineBudgetMs: number;
+    readonly agingPidCount: number;
+    readonly maxAgingMs: number;
+    readonly maxAgeMs: number;
+    readonly deadlineMissTotal: number;
+    /** Eski APK bu alanı taşımaz → `null` (sahte 0 üretilmez). */
+    readonly notYetDueTotal: number | null;
+    readonly neverSucceededCount: number;
+    readonly pidCount: number;
+  } | null;
+
   readonly extGate: {
     supportedKnown: boolean;
     supportedCount: number;
     watchedCount: number;
     gatedCount: number;
     gatedPids: string[];
+    /** E — listede KAÇ tanesinin gösterildiği / toplamı / kırpıldı mı. */
+    gatedPidsShown: number;
+    gatedPidsTotal: number;
+    gatedPidsTruncated: boolean;
     discoveryPending: number;
     nativeListCount: number;
     burst: boolean;
+    /** P0-OBD-CORE-06: 'complete' | 'incomplete' | 'not_run'. */
+    discoveryCompleteness: string;
   } | null;
 
   /** #512 · saha hipotezi 2: eleme ↔ tazelik zaman ekseni (bounded kuyruk). */
@@ -379,13 +418,30 @@ function _pushGateFields(f: SchedField[], s: SchedRawSnapshot): void {
   }
 
   // Ana satır: tek bakışta "neden sessiz".
+  /* ── P0-OBD-CORE-06 · KANITSIZ HÜKÜM DÜZELTMESİ ──────────────────────────
+   * Eski metin `supportedKnown` tek başına true olduğunda "N PID ARAÇ
+   * DESTEKLEMEDİĞİ İÇİN elendi" diyordu. Ama keşif zinciri bir blokta
+   * kırıldıysa (`incomplete`) o PID'ler HİÇ SORULMAMIŞTIR: "desteklemiyor"
+   * bir ölçüm değil, bir VARSAYIMDIR. Sahada `supportedCount = 15` ile
+   * `gatedCount = 86` yan yana dururken bu cümle, ürünün kendi kanıt
+   * kuralını çiğniyordu. Artık bütünlük ayrı bir dal. */
+  const _incomplete = g.discoveryCompleteness === 'incomplete';
+  /* FAIL-CLOSED: 'complete' DIŞINDAKİ her şey (not_run · eksik alan · eski APK)
+     "bütünlük ÖLÇÜLMEDİ" sayılır. Bilinmeyeni TAM saymak, tam olarak kaçındığımız
+     kanıtsız hükmü geri getirirdi. */
+  const _unproven   = g.discoveryCompleteness !== 'complete' && !_incomplete;
   const reason = !g.supportedKnown
     ? (g.gatedCount > 0
         ? `DESTEK KANITI YOK → ${g.gatedCount} PID BEKLEMEDE`
         : 'DESTEK KANITI YOK · izlenen PID de yok')
-    : (g.gatedCount > 0
-        ? `kanıt VAR · ${g.gatedCount} PID araç desteklemediği için elendi`
-        : 'kanıt VAR · elenen PID yok');
+    : _incomplete
+      ? `KEŞİF EKSİK (zincir kırıldı) · ${g.supportedCount} PID bir TAVAN DEĞİL ALT SINIR`
+        + (g.gatedCount > 0 ? ` · ${g.gatedCount} PID durumu BİLİNMİYOR` : '')
+      : _unproven
+        ? `kanıt kısmi · bütünlük ÖLÇÜLMEDİ · ${g.gatedCount} PID beklemede`
+        : (g.gatedCount > 0
+            ? `kanıt TAM · ${g.gatedCount} PID araç desteklemediği için elendi`
+            : 'kanıt TAM · elenen PID yok');
   f.push(schedObserved(
     { id: 'cmdGate', label: 'extended sorgu kapısı', source: SRC.extGate,
       note: '#503 fail-closed: destek kanıtı YOKKEN izlenen PID native\'e GİTMEZ. '
@@ -401,7 +457,10 @@ function _pushGateFields(f: SchedField[], s: SchedRawSnapshot): void {
 
   f.push(g.gatedPids.length > 0
     ? schedObserved({ id: 'cmdGatePids', label: 'bekleyen PID\'ler', source: SRC.extGate,
-        note: 'Bounded liste (≤16) — hangi sinyalin sustuğu görünsün.' }, g.gatedPids.join(' '))
+        note: 'Bounded liste (≤16) — hangi sinyalin sustuğu görünsün. '
+            + 'Kırpılmışsa liste TAM LİSTE DEĞİLDİR; sayı yanında yazar.' },
+        g.gatedPids.join(' ')
+        + (g.gatedPidsTruncated ? ` … (${g.gatedPidsShown}/${g.gatedPidsTotal} gösteriliyor)` : ''))
     : schedObserved({ id: 'cmdGatePids', label: 'bekleyen PID\'ler', source: SRC.extGate,
         note: 'Bekleyen yok.' }, '—'));
 
@@ -499,11 +558,32 @@ function _commandExecChannel(s: SchedRawSnapshot): SchedChannel {
         'Kanıtta başarılı PID yok (hiç değer üretilmedi ya da kanıt tazelenmedi).'));
 
   // T6: kanıt yoksa bu iki alan UNAVAILABLE'dır — `false`/`0` göstermek sahte bilgiydi.
-  f.push(ev!.burstEnabled === null
-    ? schedUnavailable({ id: 'cmdBurst', label: 'tanı BURST modu', source: SRC.pollEv, note: '' },
-        'Native kanıt yok — burst durumu BİLİNMİYOR (kapalı olduğu iddia EDİLEMEZ).')
-    : schedObserved({ id: 'cmdBurst', label: 'tanı BURST modu', source: SRC.pollEv,
-        note: 'Açıkken EXTENDED grubu her turda tümüyle okunur (ekstra ECU trafiği).' }, ev!.burstEnabled));
+  /* ── B2 · NİYET ve GÖZLEM AYRI SATIRLARDA ────────────────────────────────
+     Saha (2026-08-30): tek satır "tanı BURST modu: false" gösterirken sayaçlarda
+     `burstCycles:135` duruyordu. Okuyucu "burst hiç çalışmadı" sanıyordu. İki
+     alan artık kendi adıyla ve tarihsel sayaçla BİRLİKTE okunur. */
+  f.push(ev!.burstIntent === null
+    ? schedUnavailable({ id: 'cmdBurst', label: 'tanı BURST NİYETİ', source: SRC.pollEv, note: '' },
+        'Native kanıt yok — burst NİYETİ BİLİNMİYOR (kapalı olduğu iddia EDİLEMEZ).')
+    : schedObserved({ id: 'cmdBurst', label: 'tanı BURST NİYETİ', source: SRC.pollEv,
+        note: 'Açıkken EXTENDED grubu her turda tümüyle okunur (ekstra ECU trafiği). '
+            + 'Bu alan İSTENEN moddur — turun gerçekte nasıl koştuğu AYRI satırdadır.' }, ev!.burstIntent));
+  f.push(ev!.lastCycleWasBurst === null
+    ? schedUnavailable({ id: 'cmdBurstLastCycle', label: 'son turun modu (GÖZLEM)', source: SRC.pollEv, note: '' },
+        'Native kanıt yok — son turun modu ÖLÇÜLMEDİ (round-robin olduğu İDDİA EDİLEMEZ).')
+    : schedObserved({ id: 'cmdBurstLastCycle', label: 'son turun modu (GÖZLEM)', source: SRC.pollEv,
+        note: 'YALNIZ son tamamlanan tur. "Burst hiç çalışmadı" hükmü buradan ÜRETİLEMEZ — '
+            + 'tarihsel kanıt burst/round-robin tur sayaçlarıdır.' },
+        ev!.lastCycleWasBurst ? 'BURST' : 'round-robin'));
+  /* ══════════════════════════════════════════════════════════════════════
+   * P0-VDK-B3 · GERÇEK HAT MALİYETİ — PID İSTEĞİ ile AT OVERHEAD AYRI
+   *
+   * SAHA (2026-08-30 · TAM KOPYA): yukarıdaki `attempted/success` sayaçları
+   * "hat kusursuz" diyordu; aynı oturumun ham trafiğinde onlarca NO DATA,
+   * `7F1912` ve istek başına dört AT komutu vardı. Sebep: o sayaçlar YALNIZ
+   * extended PID denemelerini görür. Aşağıdaki blok hattın TAMAMINI sayar.
+   * ════════════════════════════════════════════════════════════════════ */
+
   f.push(ev!.configuredPidCount === null
     ? schedUnavailable({ id: 'cmdConfiguredPids', label: 'yapılandırılmış PID sayısı', source: SRC.pollEv, note: '' },
         'Native kanıt yok — izlenen PID sayısı BİLİNMİYOR ("0 PID" DEĞİL).')
@@ -865,10 +945,239 @@ function _canCollectChannel(s: SchedRawSnapshot): SchedChannel {
  * Dışa açık kurucular
  * ════════════════════════════════════════════════════════════════════════ */
 
+/* ══════════════════════════════════════════════════════════════════════════
+ * P0-VDK-B3 · POLL MALİYET ALANLARI (salt-okunur · additive)
+ *
+ * Bu blok hiçbir komut TETİKLEMEZ ve hiçbir karar ÜRETMEZ: native
+ * `PollCostLedger`ın zaten ölçtüğü sayaçları okunur hâle getirir.
+ * KAYNAK YOK ≠ 0 — ölçülemeyen her alan UNAVAILABLE gösterilir.
+ * ════════════════════════════════════════════════════════════════════════ */
+function _pushPollCostFields(f: SchedField[], s: SchedRawSnapshot): void {
+  const pc = s?.pollCost ?? null;
+  const SRC_COST = 'native PollCostLedger (salt-okunur)';
+
+  if (!pc || pc.state === 'UNAVAILABLE') {
+    f.push(schedUnavailable(
+      { id: 'costState', label: 'poll maliyeti', source: SRC_COST, note: '' },
+      'Maliyet ÖLÇÜLEMEDİ (web modu / eski APK / köprü düştü). '
+      + '"Maliyet 0" DEMEK DEĞİLDİR — ucuz varsayılıp daha fazla trafik gönderilmez.',
+    ));
+    return;
+  }
+  if (pc.state === 'NO_CYCLES_YET') {
+    f.push(schedUnavailable(
+      { id: 'costState', label: 'poll maliyeti', source: SRC_COST, note: '' },
+      'Ölçüm kanalı AÇIK ama henüz hiç poll turu KAPANMADI — sayı üretilmez.',
+    ));
+    return;
+  }
+
+  const c = pc.lastCycle;
+  const t = pc.totals;
+
+  /* ── Kullanıcı verisi ile adaptör yönetimi ASLA toplanmaz ─────────────── */
+  f.push(c === null
+    ? schedUnavailable({ id: 'costLastCycle', label: 'son turda PID isteği / AT komutu', source: SRC_COST, note: '' },
+        'Son tur okunamadı.')
+    : schedObserved(
+        { id: 'costLastCycle', label: 'son turda PID isteği / AT komutu', source: SRC_COST,
+          note: 'SOL sayı kullanıcı/teşhis VERİSİ üreten istek; SAĞ sayı adaptör YÖNETİM '
+              + 'komutu (ATSH · ATCRA · ATAR · ATRV · ATDPN…). İkisi AYRI maliyettir ve '
+              + 'toplanarak tek bir "n istek" sayısına indirgenmez.' },
+        `${c.diagnosticPayloadRequests} PID / ${c.adapterControlCommands} AT`));
+
+  f.push(c === null
+    ? schedUnavailable({ id: 'costLastMs', label: 'son turun süresi (PID / AT)', source: SRC_COST, note: '' },
+        'Son tur okunamadı.')
+    : schedObserved(
+        { id: 'costLastMs', label: 'son turun süresi (PID / AT)', source: SRC_COST,
+          note: 'Hattın gerçekte nereye harcandığı; tur toplam süresi ayrıca verilir.' },
+        `${c.payloadMs} ms / ${c.adapterMs} ms · tur ${c.elapsedMs} ms`));
+
+  const share = adapterOverheadShare(c);
+  f.push(share === null
+    ? schedUnavailable({ id: 'costOverheadShare', label: 'AT overhead payı', source: SRC_COST, note: '' },
+        'Süre ölçülemedi — oran UYDURULMAZ.')
+    : schedDerived(
+        { id: 'costOverheadShare', label: 'AT overhead payı', source: SRC_COST,
+          note: 'Adaptör yönetiminin toplam hat süresindeki payı. Yüksekse hat veri değil '
+              + 'YÖNETİM taşıyordur.' },
+        `%${Math.round(share * 100)}`));
+
+  /* ── Bilgi üretmeyen maliyet: 0 SAYILAMAZ ────────────────────────────── */
+  f.push(c === null
+    ? schedUnavailable({ id: 'costWaste', label: 'cevapsız / negatif yanıt maliyeti', source: SRC_COST, note: '' },
+        'Son tur okunamadı.')
+    : schedObserved(
+        { id: 'costWaste', label: 'cevapsız / negatif yanıt maliyeti', source: SRC_COST,
+          note: 'NO DATA · boş yanıt · düşen komut = CEVAPSIZ. `7F sid nrc` = NEGATİF yanıt '
+              + '(AYRI şeydir: ECU cevap verdi, hizmeti reddetti). İkisi de hattı MEŞGUL '
+              + 'ETTİ → süresi 0 sayılamaz.' },
+        `${c.noResponses} cevapsız · ${c.negativeResponses} negatif · ${c.noResponseMs} ms`));
+
+  const waste = wastedShare(c);
+  if (waste !== null) {
+    f.push(schedDerived(
+      { id: 'costWasteShare', label: 'boşa giden süre payı', source: SRC_COST,
+        note: 'Bilgi üretmeyen yanıtlara harcanan sürenin payı.' },
+      `%${Math.round(waste * 100)}`));
+  }
+
+  /* ── Gereksiz adresleme TESPİTİ — ölçüm, kör optimizasyon DEĞİL ───────── */
+  f.push(schedObserved(
+    { id: 'costRedundantHeader', label: 'kullanılmadan ezilen adresleme yazımı', source: SRC_COST,
+      note: 'Bir ATSH/ATCRA yazıldıktan sonra HİÇ istek gitmeden yeni bir ATSH/ATCRA geldiyse '
+          + 'önceki yazımın tek etkisi boşa gitmiştir. Bu bir TESPİTTİR — hiçbir komut bu sayı '
+          + 'yüzünden ATLANMAZ (fail-safe header restore sözleşmesi korunur).' },
+    `${t.redundantHeaderSwitches ?? 0} / ${t.headerSwitches ?? 0} adresleme komutu`));
+
+  /* ── En pahalı komut sınıfı ──────────────────────────────────────────── */
+  const top = costliestClass(c);
+  f.push(top === null
+    ? schedUnavailable({ id: 'costTopClass', label: 'en pahalı komut sınıfı', source: SRC_COST, note: '' },
+        'Ayırt edilemedi (eşitlik ya da ölçüm yok) — iddia ÜRETİLMEZ.')
+    : schedDerived(
+        { id: 'costTopClass', label: 'en pahalı komut sınıfı', source: SRC_COST,
+          note: 'Son turda en çok komut üreten sınıf.' }, top));
+
+  /* ── Burst ile normal tur AYRI ölçülür (B2 niyet/gözlem ayrımı korunur) ─ */
+  const bn = burstVsNormal(pc);
+  f.push(schedObserved(
+    { id: 'costBurstVsNormal', label: 'burst / normal tur maliyeti', source: SRC_COST,
+      note: 'Son turlardan ölçülen ortalama. Burst turları normal turları AÇ BIRAKIYORSA fark '
+          + 'buradan görünür. Bu satır GÖZLEMDİR — burst NİYETİ ayrı alandadır.' },
+    `burst ${bn.burstCycles} tur (${bn.burstAvgMs ?? '—'} ms · ${bn.burstAvgPayload ?? '—'} PID) · `
+    + `normal ${bn.normalCycles} tur (${bn.normalAvgMs ?? '—'} ms · ${bn.normalAvgPayload ?? '—'} PID)`));
+
+  /* ── Poll turuna YAZILAMAYAN komutlar: dürüst boşluk ─────────────────── */
+  f.push(schedObserved(
+    { id: 'costUnattributed', label: 'poll turu dışı komut', source: SRC_COST,
+      note: 'Handshake · keşif · DTC taraması gibi poll turu AÇIK DEĞİLKEN giden komutlar. '
+          + 'Poll bütçesi bunları SAHİPLENMEZ (bağlantı/kurtarma işi poll bütçesine yazılamaz) '
+          + 'ama hat maliyeti olarak görünmez de kalmaz.' },
+    pc.unattributedCommands ?? 0));
+
+  f.push(schedObserved(
+    { id: 'costTotals', label: 'oturum toplamı (PID / AT / bayt)', source: SRC_COST,
+      note: 'Bağlantı başından bu yana. Baytlar gerçekten ölçülür (komut+CR / yanıt uzunluğu).' },
+    `${t.diagnosticPayloadRequests ?? 0} PID · ${t.adapterControlCommands ?? 0} AT · `
+    + `↑${t.bytesTx ?? 0}B ↓${t.bytesRx ?? 0}B · ${pc.cyclesRecorded ?? 0} tur`));
+
+  f.push(c !== null && c.retries !== null
+    ? schedObserved({ id: 'costRetries', label: 'retry maliyeti', source: SRC_COST,
+        note: 'Native retry muhasebesi ölçüyorsa gösterilir.' }, c.retries)
+    : schedUnavailable({ id: 'costRetries', label: 'retry maliyeti', source: SRC_COST, note: '' },
+        'Bu katmanda retry muhasebesi YOK (send tek denemedir; yeniden bağlanma bağlantı '
+        + 'otoritesinin işidir). Sahte 0 GÖSTERİLMEZ.'));
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * P0-VDK-B3 · BÜTÇE ve AÇLIK GÖRÜNÜRLÜĞÜ (salt-okunur · additive)
+ *
+ * Native `AdaptivePidScheduler` bu sayaçları ZATEN üretiyordu ve köprüden de
+ * geçiyorlardı — ama HİÇBİR LAB ekranı okumuyordu (`deferredTotal`/`lineBudgetMs`
+ * yalnız tipte duruyordu). "Gözlemlenemeyen özellik tamamlanmış değildir."
+ * ════════════════════════════════════════════════════════════════════════ */
+function _pushSchedulerBudgetFields(f: SchedField[], s: SchedRawSnapshot): void {
+  const b = s?.schedulerBudget ?? null;
+  const SRC_BUDGET = 'native AdaptivePidScheduler (salt-okunur)';
+
+  if (!b) {
+    f.push(schedUnavailable(
+      { id: 'budgetState', label: 'poll bütçesi / açlık', source: SRC_BUDGET, note: '' },
+      'Bütçe telemetrisi ÖLÇÜLEMEDİ (web modu / eski APK). "Bütçe 0" DEMEK DEĞİLDİR.',
+    ));
+    return;
+  }
+
+  f.push(schedObserved(
+    { id: 'budgetAllocated', label: 'tur bütçesi (ayrılan)', source: SRC_BUDGET,
+      note: 'EXTENDED grubuna bu turda ayrılan süre. Bütçe `pollLoop` tarafından '
+          + 'hesaplanır; bu satır onu YALNIZ GÖSTERİR (ikinci bütçe motoru YOK).' },
+    `${b.lineBudgetMs} ms · ${b.pidCount} PID izleniyor · ${b.activePollCount} aktif`));
+
+  f.push(schedObserved(
+    { id: 'budgetDeferred', label: 'ertelenen iş (DEFERRED)', source: SRC_BUDGET,
+      note: 'Bütçe/tavan yüzünden bu tura sığmayan PID sayısı. ⚠️ ERTELEME "desteklenmiyor" '
+          + 'DEĞİLDİR: PID scheduler durumunda KALIR, eleme defterine YAZILMAZ ve bir '
+          + 'sonraki turda yeniden sıraya girer.' },
+    b.deferredTotal));
+
+  f.push(b.notYetDueTotal === null
+    ? schedUnavailable({ id: 'budgetNotYetDue', label: 'kadans penceresinde bekleyen', source: SRC_BUDGET, note: '' },
+        'Eski APK bu alanı taşımıyor — ÖLÇÜLEMEDİ (0 DEĞİL).')
+    : schedObserved(
+        { id: 'budgetNotYetDue', label: 'kadans penceresinde bekleyen', source: SRC_BUDGET,
+          note: 'PID\'in okunma zamanı henüz GELMEDİ. Bu ERTELEME DEĞİLDİR — normal '
+              + 'çalışmadır ve açlık sinyaliyle karıştırılmaz.' },
+        b.notYetDueTotal));
+
+  /* ── AÇLIK (starvation) kanıtı ─────────────────────────────────────────── */
+  f.push(b.agingPidCount === 0
+    ? schedObserved(
+        { id: 'budgetStarvation', label: 'açlık yaşlanması', source: SRC_BUDGET,
+          note: 'Hiçbir PID bütçe yüzünden ertelenmiş durumda değil.' },
+        'yaşlanan PID yok')
+    : schedDerived(
+        { id: 'budgetStarvation', label: 'açlık yaşlanması', source: SRC_BUDGET,
+          note: 'Ertelenen her tur PID\'in sırasını sabit miktarda öne çeker (deterministik '
+              +'ve TAVANLI). Sayı büyükse hat düşük öncelikli PID\'lere yetişemiyordur — '
+              + 'ama hiçbiri SÜRESİZ beklemez.' },
+        `${b.agingPidCount} PID yaşlanıyor · en yüksek ${b.maxAgingMs} ms`));
+
+  f.push(schedObserved(
+    { id: 'budgetFairness', label: 'hiç değer üretmemiş PID / en eski yaş', source: SRC_BUDGET,
+      note: 'Soldaki sayı bu oturumda HİÇ başarılı okuma vermemiş PID adedidir. Sağdaki '
+          + 'en uzun bekleyen PID\'in yaşıdır. İkisi birlikte "izliyoruz ama okuyamıyoruz" '
+          + 'durumunu gösterir.' },
+    `${b.neverSucceededCount} / ${b.pidCount} PID · en eski ${b.maxAgeMs} ms`));
+
+  f.push(schedObserved(
+    { id: 'budgetDeadlineMiss', label: 'tazelik hedefi kaçırma', source: SRC_BUDGET,
+      note: 'PID hedef tazelik penceresinden GEÇ okundu. Bütçe darlığının kullanıcıya '
+          + 'yansıyan ölçüsüdür.' },
+    b.deadlineMissTotal));
+
+  f.push(schedObserved(
+    { id: 'budgetRecoveryPause', label: 'kurtarma nedeniyle duraklatma', source: SRC_BUDGET,
+      note: 'KWP/ISO kurtarması sürerken poll planı BOŞ döner — poll hattı kurtarma '
+          + 'işinde İKİNCİ OTORİTE OLMAZ. Bu sayı o duraklatmaların adedidir.' },
+    b.recoveryPauseCount));
+}
+
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * 2 · Hat Maliyeti / Bütçe — P0-VDK-B3
+ *
+ * AYRI KANAL, AYRI EKRAN DEĞİL: aynı Sorgu Zamanlayıcı ekranının bir bölümüdür.
+ * Ayrılmasının ölçülmüş sebebi: "Komut Yürütme" kanalı 32 alanlık tavana dayanmıştı
+ * ve maliyet alanları SESSİZCE kırpılıyordu (kilit testi bunu yakaladı).
+ *
+ * Kanal SALT-OKUNURDUR: hiçbir poll/AT komutu tetiklemez, hiçbir karara beslenmez.
+ * ════════════════════════════════════════════════════════════════════════ */
+function _pollCostChannel(s: SchedRawSnapshot): SchedChannel {
+  const f: SchedField[] = [];
+  _pushPollCostFields(f, s);
+  _pushSchedulerBudgetFields(f, s);
+
+  const measured = s?.pollCost != null && s.pollCost.state === 'MEASURED';
+  return boundChannel({
+    id: 'poll-cost',
+    authority: 'NATIVE · PollCostLedger + AdaptivePidScheduler (yalnız sayaç)',
+    title: SCHED_CHANNEL_TITLE['poll-cost'],
+    /* Maliyet sayaçları GEÇMİŞİ anlatır; "şu an çalışıyor" hükmü ÜRETMEZ. */
+    activity: 'UNKNOWN',
+    activityNote: measured
+      ? 'Maliyet ölçülüyor. Sayaçlar geçmiş turları anlatır — anlık ilerleme buradan okunmaz.'
+      : 'Maliyet ÖLÇÜLEMEDİ (web modu / eski APK / henüz tur kapanmadı). "0" DEĞİLDİR.',
+    fields: f,
+  });
+}
+
 export function buildSchedChannels(s: SchedRawSnapshot): SchedChannel[] {
   if (!s) return [];
   return [
-    _commandExecChannel(s), _livePollingChannel(s), _handshakeChannel(s),
+    _commandExecChannel(s), _pollCostChannel(s), _livePollingChannel(s), _handshakeChannel(s),
     _kwpChannel(s), _discoveryDeepScanChannel(s), _canCollectChannel(s),
   ];
 }
@@ -879,7 +1188,11 @@ export function buildSchedConflictInput(s: SchedRawSnapshot): SchedConflictInput
     pollingTimerActive: s?.sessionHealth ? s.sessionHealth.pollingActive : null,
     dataFresh:          s?.sessionHealth ? s.sessionHealth.dataFresh : null,
     healthIsStale:      s?.health ? s.health.isStale : null,
-    burstEnabled:       s?.pollEvidence && s.pollEvidence.present ? s.pollEvidence.burstEnabled : null,
+    /* B2: hüküm NİYETTEN üretilir; gözlem ve tarihsel sayaç ayrı taşınır. */
+    burstIntent:        s?.pollEvidence && s.pollEvidence.present ? s.pollEvidence.burstIntent : null,
+    lastCycleWasBurst:  s?.pollEvidence && s.pollEvidence.present ? s.pollEvidence.lastCycleWasBurst : null,
+    burstCycles:        s?.pollEvidence && s.pollEvidence.present && s.pollEvidence.counters
+      ? s.pollEvidence.counters.burstCycles : null,
     liveDataScreenOpen: s?.capture ? s.capture.obdRefs > 0 : null,
     /* #642: eskiden oturum TOPLAMI tavanla karşılaştırılıyordu — native'in "buna BAKMA"
        dediği karşılaştırma. Sahada (2026-08-19) 4 >= 3 çıkıp "tavandayız" YALANI

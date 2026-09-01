@@ -86,8 +86,15 @@ describe('araç geçmişi — CANLI depo bağlaması', () => {
     expect(W.recallCalls).toHaveLength(0);        // canlı depo KULLANILMADI
   });
 
-  it('kullanıcı tercihleri mevcut otoriteden okunur', () => {
-    expect(createMaviMemorySources().readUserPreferences?.()).toEqual(['Kahve severim']);
+  /* MAVI-F10: kaynak DEĞİŞTİ (companionMemory → kanonik cephe), invaryant AYNI:
+     tercihler MEVCUT otoriteden okunur ve bağlama kendi deposunu KURMAZ.
+     Ek kilit: çıkarım AYRI etiketle taşınır, beyanla KARIŞMAZ. */
+  it('kullanıcı tercihleri KANONİK cepheden okunur; çıkarım AYRI etiketlidir', () => {
+    const prefs = createMaviMemorySources().readUserPreferences?.() ?? [];
+    expect(prefs).toContain('Kahve severim');
+    expect(prefs.filter((p) => p.includes('çıkarım'))).toHaveLength(1);
+    /* Beyan satırı "çıkarım" etiketi TAŞIMAZ — iki köken ayırt edilebilir. */
+    expect(prefs.find((p) => p === 'Kahve severim')).toBeDefined();
   });
 });
 
@@ -144,6 +151,15 @@ vi.mock('../platform/navigationService', () => ({ getNavigationState: () => ({ i
 vi.mock('../platform/companion/companionMemory', () => ({
   buildMemoryPromptSection: () => '',
   getFacts: () => [{ id: 'a', text: 'Kahve severim' }],
+}));
+/* MAVI-F10: AÇIK tercihlerin gerçeklik kaynağı artık kanonik cephedir; çıkarım
+   listesi AYRI okunur ve ikisi ASLA aynı listede değildir. */
+vi.mock('../platform/assistant/maviMemory', () => ({
+  readExplicitPreferenceTexts: () => ['Kahve severim'],
+  readInferredPreferenceTexts: () => ['Sakin rota (çıkarım, güven 0.60)'],
+  projectMaviMemory: () => ({ items: [], text: '', explicitCount: 0, inferredCount: 0, tripCount: 0, rejected: {} }),
+  inferPromptDomain: () => 'general',
+  setConversationPurgePort: () => {},
 }));
 vi.mock('../platform/webSearchService', () => ({ tavilySearch: async () => null }));
 vi.mock('../platform/weatherService', () => ({

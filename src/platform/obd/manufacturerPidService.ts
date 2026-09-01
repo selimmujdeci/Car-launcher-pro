@@ -20,6 +20,7 @@ import { CarLauncher } from '../nativePlugin';
 import { logError } from '../crashLogger';
 import { recordDiag } from '../obdDiagnosticRecorder';
 import { getHandshakeVin } from '../safety/vinContext';
+import { recordVinObservation, currentVinEpoch } from '../vehicle/vehicleIdentity';
 import {
   validateVehicleDidProfile,
   compileVehicleDidProfile,
@@ -422,6 +423,16 @@ export function verifyVinAgainstMode09(): VinCrossCheckResult {
   const f190Vin = typeof f190?.value === 'string' && f190.value.length > 0
     ? f190.value.trim().toUpperCase()
     : null;
+  /* P0-OBD-09: F190 okuması KANONİK kimlik katmanına da kaydedilir. İki bağımsız
+     kaynak (Mode 09 + UDS F190) aynı VIN'i verdiğinde kimlik `VERIFIED` olur;
+     farklı verdiğinde `CONFLICT` olur ve HİÇBİRİ kanonik sayılmaz. Bu fonksiyon
+     yalnız KAYIT eder — çelişki kararını kimlik katmanı verir (tek otorite). */
+  if (f190Vin !== null) {
+    try {
+      recordVinObservation(f190Vin, 'uds_f190', currentVinEpoch(), Date.now(), f190?.def?.rx ?? null);
+    } catch { /* kimlik kaydı çapraz kontrolü DÜŞÜRMEZ */ }
+  }
+
   const mode09Raw = getHandshakeVin();
   const mode09Vin = mode09Raw && mode09Raw.trim().length > 0 ? mode09Raw.trim().toUpperCase() : null;
 

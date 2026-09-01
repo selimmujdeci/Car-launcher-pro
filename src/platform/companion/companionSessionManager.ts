@@ -50,6 +50,11 @@ import {
 import { createCompanionEventBridge, type CompanionEventBridge, type CompanionEventTarget } from './companionEvents';
 import { createCompanionTelemetry, type CompanionTelemetry } from './companionTelemetry';
 import type { ConnectionTransport } from './connectionTransport';
+import { OwnerCommandEvidence, type CommandMessage } from '../message';
+/* ARCH-05 — telefon KONTROL komutları için yetki kapısı. Oturumun sahibi bu
+   sınıftır; kapı burada durur, alt katmanlara dağılmaz. */
+import { authorizeOperation } from '../security/enforcement';
+import type { Capability } from '../security/authorization';
 
 /* ══════════════════════════════════════════════════════════════════════════
  * Sonuç tipleri
@@ -76,6 +81,21 @@ export interface TickResult {
   readonly errors: readonly CompanionErrorCode[];
 }
 
+/** Native PhoneHub observations are transport evidence, never session authority. */
+export interface NativePhoneHubObservation {
+  readonly sessionId: string | null;
+  readonly generation: number | null;
+  readonly transportConnected: boolean | null;
+  readonly authenticated: boolean | null;
+  readonly capabilityCount: number | null;
+  readonly observedAtMs: number | null;
+}
+
+export interface NativePhoneHubIngressResult {
+  readonly accepted: boolean;
+  readonly reason: 'ACCEPTED' | 'SESSION_NOT_ACTIVE' | 'STALE_GENERATION' | 'WRONG_SESSION';
+}
+
 export interface CompanionSessionManagerDeps {
   readonly transport: ConnectionTransport;
   /** Duvar saati — ENJEKTE. Bu modül `Date.now()` çağırmaz. */
@@ -95,6 +115,35 @@ export interface CompanionSessionManagerDeps {
 const MAX_PENDING_REQUESTS = 32;
 const MAX_INBOUND_PER_PUMP = 32;
 
+/**
+ * KONTROL komutu ön eki. Bu ön ekle gelen HER mesaj araç/kullanıcı üstünde
+ * etki üretme İDDİASINDADIR ve yetki kapısından geçer; el sıkışma, telemetri
+ * ve bildirim mesajları kontrol DEĞİLDİR.
+ */
+const CONTROL_PREFIX = 'companion.control.';
+
+/**
+ * KONTROL ALT ALANI → GEREKEN YETKİ.
+ *
+ * Tabloda OLMAYAN her kontrol alt alanı `UNKNOWN`dur ve UNKNOWN = DENY.
+ * Teşhis · silme · runtime · depolama alt alanları BİLİNÇLİ OLARAK YOKTUR:
+ * bir telefon bu yoldan onları ASLA isteyemez (confused deputy kapısı).
+ */
+const CONTROL_CAPABILITY: Readonly<Record<string, Capability>> = Object.freeze({
+  media: 'MEDIA_CONTROL',
+  call: 'PHONE_CONTROL',
+  phone: 'PHONE_CONTROL',
+  navigation: 'NAVIGATION_CONTROL',
+  projection: 'SCREEN_PROJECTION',
+});
+
+/** Kontrol komutuysa gereken yetkiyi, değilse `null` döner (saf). */
+export function controlCapabilityOf(payloadType: string): Capability | null {
+  if (!payloadType.startsWith(CONTROL_PREFIX)) return null;
+  const sub = payloadType.slice(CONTROL_PREFIX.length).split('.')[0] ?? '';
+  return CONTROL_CAPABILITY[sub] ?? 'UNKNOWN';
+}
+
 export class CompanionSessionManager {
   private readonly _transport: ConnectionTransport;
   private readonly _now: () => number;
@@ -110,6 +159,8 @@ export class CompanionSessionManager {
   private _capsSnapshot: CapabilitySnapshot | null = null;
   private _pending = new Map<string, number>();
   private _disposed = false;
+  /** Bounded, payload-free ARCH-03 observability; it never participates in routing. */
+  private readonly _commandEvidence = new OwnerCommandEvidence('companionSessionManager');
 
   constructor(deps: CompanionSessionManagerDeps) {
     this._transport = deps.transport;
@@ -136,6 +187,28 @@ export class CompanionSessionManager {
   get isDisposed(): boolean { return this._disposed; }
 
   capabilitySnapshot(): CapabilitySnapshot | null { return this._capsSnapshot; }
+  getCommandFlowEvidence(): readonly CommandMessage[] { return this._commandEvidence.recent(); }
+
+  /**
+   * ARCH-04 native ingress boundary.  It deliberately does not promote native
+   * cache/transport observations to CONNECTED, authenticated, or capabilities.
+   * Only the existing session owner can reconcile those facts through its
+   * handshake and envelope flow.
+   */
+  observeNativePhoneHub(observation: NativePhoneHubObservation): NativePhoneHubIngressResult {
+    const current = this._session;
+    const now = observation.observedAtMs ?? this._now();
+    const operationId = `native-phone:${observation.generation ?? 'unknown'}`;
+    const reject = (reason: NativePhoneHubIngressResult['reason']): NativePhoneHubIngressResult => {
+      this._commandEvidence.record({ id: `${operationId}:${reason}`, kind: 'RESULT', name: 'phone.native.observation', source: 'PhoneHubLinkPlugin', target: 'companionSessionManager', operationId, correlationId: operationId, sessionId: observation.sessionId, generation: observation.generation, reason, nowMs: now });
+      return { accepted: false, reason };
+    };
+    if (current === null || this._disposed) return reject('SESSION_NOT_ACTIVE');
+    if (observation.sessionId !== null && observation.sessionId !== current.sessionId) return reject('WRONG_SESSION');
+    if (observation.generation !== null && observation.generation !== current.generation) return reject('STALE_GENERATION');
+    this._commandEvidence.record({ id: `${operationId}:accepted`, kind: 'NOTIFICATION', name: 'phone.native.observation', source: 'PhoneHubLinkPlugin', target: 'companionSessionManager', operationId, correlationId: operationId, sessionId: current.sessionId, generation: current.generation, reason: 'OBSERVATION_ONLY', nowMs: now });
+    return { accepted: true, reason: 'ACCEPTED' };
+  }
 
   /* ── Oturum yaşam döngüsü ───────────────────────────────────────────── */
 
@@ -395,11 +468,66 @@ export class CompanionSessionManager {
     payloadType: string, payload?: unknown,
     expectedGeneration?: number, payloadVersion = 1,
   ): CompanionOpResult {
-    if (this._disposed || this._session === null) return this._fail('SESSION_NOT_ACTIVE');
-    if (!canSendApplicationMessage(this._state)) return this._fail('SESSION_NOT_ACTIVE');
+    const session = this._session;
+    const operationId = this._newId('phone-op');
+    const correlationId = operationId;
+    const record = (kind: 'REQUEST' | 'RESULT', reason: string | null): void => {
+      this._commandEvidence.record({
+        id: `${operationId}:${kind.toLowerCase()}`, kind,
+        name: kind === 'REQUEST' ? 'phone_link.capability.request' : 'phone_link.capability.result',
+        source: kind === 'REQUEST' ? 'phone_link.requester' : 'companion_session_manager',
+        target: kind === 'REQUEST' ? 'companion_session_manager' : null,
+        nowMs: this._now(), operationId, correlationId,
+        sessionId: session?.sessionId ?? null,
+        generation: session?.generation ?? null,
+        epoch: null,
+        reason,
+      });
+    };
+    record('REQUEST', null);
+    if (this._disposed || session === null) {
+      record('RESULT', 'SESSION_NOT_ACTIVE');
+      return this._fail('SESSION_NOT_ACTIVE');
+    }
+    if (!canSendApplicationMessage(this._state)) {
+      record('RESULT', 'SESSION_NOT_ACTIVE');
+      return this._fail('SESSION_NOT_ACTIVE');
+    }
+    // The session snapshot is retained for this command; the invariant is
+    // `expectedGeneration !== this._session.generation` => stale rejection.
     if (typeof expectedGeneration === 'number'
-      && expectedGeneration !== this._session.generation) {
+      && expectedGeneration !== session.generation) {
+      record('RESULT', 'SESSION_GENERATION_STALE');
       return this._fail('SESSION_GENERATION_STALE');
+    }
+
+    /* ── ARCH-05 · KONTROL KOMUTU YETKİ KAPISI ─────────────────────────
+       Sıra PAZARLIKSIZ: kimlik doğrulandı mı → oturum bağlı mı → nesil güncel
+       mi → yetenek ANLAŞILDI mı → araç kapsamı → hedef eşleşiyor mu. Eksik her
+       kanıt REDDEDİR. CONNECTED bir taşıma, önbellekteki bir yetenek listesi
+       ya da telefonun "izinim var" demesi YETKİ DEĞİLDİR — yetki yalnız BU
+       oturumda ANLAŞILMIŞ yetenekten doğar (`capabilitySnapshot().granted`). */
+    const controlCapability = controlCapabilityOf(payloadType);
+    if (controlCapability !== null) {
+      const snapshot = this._capsSnapshot;
+      const authz = authorizeOperation({
+        principalClass: 'PHONE_LINK', capability: controlCapability,
+        operationId, targetRef: payloadType,
+        channel: {
+          attached: canSendApplicationMessage(this._state),
+          /* Kimlik doğrulaması TAŞIMA BAĞLANTISI DEĞİLDİR: yalnız el sıkışmayı
+             tamamlamış (CONNECTED/DEGRADED) bir oturum doğrulanmış sayılır;
+             CONNECTING/NEGOTIATING/RECONNECTING doğrulanmış DEĞİLDİR. */
+          authenticated: session.status === 'CONNECTED' || session.status === 'DEGRADED',
+          generation: session.generation,
+          currentGeneration: session.generation,
+          negotiatedCapabilities: snapshot === null ? [] : snapshot.granted.map(String),
+        },
+      });
+      if (!authz.allowed) {
+        record('RESULT', 'CAPABILITY_NOT_GRANTED');
+        return this._fail('CAPABILITY_NOT_GRANTED');
+      }
     }
 
     const now = this._now();
@@ -412,15 +540,20 @@ export class CompanionSessionManager {
     if (!validation.ok) {
       /* Kendi ürettiğimiz zarf geçersizse (ör. yük tavanı) GÖNDERMEYİZ ve
          "gönderdim" DEMEYİZ. */
-      return this._fail(validation.errors[0] ?? 'ENVELOPE_MALFORMED');
+      const error = validation.errors[0] ?? 'ENVELOPE_MALFORMED';
+      record('RESULT', error);
+      return this._fail(error);
     }
 
     const sent = this._transport.send(env);
     if (!sent.ok) {
       this._telemetry.recordSendFailure(now);
-      return this._raise(sent.error ?? 'TRANSPORT_SEND_FAILED');
+      const error = sent.error ?? 'TRANSPORT_SEND_FAILED';
+      record('RESULT', error);
+      return this._raise(error);
     }
     this._trackPending(env, now);
+    record('RESULT', null);
     return { ok: true, state: this._state, error: null };
   }
 

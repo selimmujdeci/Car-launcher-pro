@@ -20,6 +20,15 @@ import { searchStreetByName, extractStreetQuery } from './streetSearchService';
 import { premiumGeocode }            from './geocodingProviders';
 import type { AddressSearchStage }   from './geo/addressSearchLedger';
 import { applyLocationBias, type LocationBiasMode } from './geo/locationBiasGate';
+import { awaitNominatimSlot } from './geo/nominatimRateLimit';
+import { resolveCityAnchor } from './geo/cityAnchor';
+import {
+  classifySearchChain,
+  notAttempted,
+  type SearchChainVerdict,
+  type SearchProviderAttempt,
+  type SearchProviderOutcome,
+} from './geo/searchChainModel';
 
 const NOMINATIM          = 'https://nominatim.openstreetmap.org/search';
 const NOMINATIM_REVERSE  = 'https://nominatim.openstreetmap.org/reverse';
@@ -29,15 +38,18 @@ const TIMEOUT            = 8_000;
 const FAST_FAIL_MS       = 2_000;  // "İnternet Yok" senaryosu mühürü — 2s fast-fail
 const OFFLINE_POI_GUARD_MS = 400;  // _offlineFallback içi POI araması üst sınırı
 
-/* ── Nominatim rate limiter — max 1 req/sec (ToS) ──────────── */
-let _lastNominatimMs = 0;
-const NOMINATIM_GAP  = 1_100; // 1.1 s — small buffer over 1 s limit
-
+/* ── Nominatim rate limiter — max 1 req/sec (ToS) ──────────────────────────
+ *
+ * ⚠️ SAYAÇ ARTIK BURADA DEĞİL: `geo/nominatimRateLimit` TEK OTORİTEDİR.
+ * Sebep (P0-NAV-07): ToS sınırı İSTEMCİ BAŞINADIR, kod yolu başına değil.
+ * `mapService.searchPlaces` de Nominatim'e çıkıyor ve KENDİ bekleyicisi YOKTU;
+ * iki yüzey aynı anda arayınca sınır sessizce aşılıyordu. İki ayrı sayaç
+ * tutmak bu projenin tekrar eden "ikinci otorite" kusurudur.
+ *
+ * Bu sarmalayıcı KORUNUR: çağrı yeri (`await _waitNominatim()`) kilitlidir
+ * (`geocodeLateResponseCache.test.ts`) ve zinciri okuyan kişi için anlamlıdır. */
 async function _waitNominatim(): Promise<void> {
-  const now   = Date.now();
-  const wait  = NOMINATIM_GAP - (now - _lastNominatimMs);
-  if (wait > 0) await new Promise<void>((res) => setTimeout(res, wait));
-  _lastNominatimMs = Date.now();
+  await awaitNominatimSlot();
 }
 
 /* ── Types ───────────────────────────────────────────────── */
@@ -262,6 +274,15 @@ export interface GeocodeTrace {
   readonly biasDroppedCount: number | null;
   /** Kapının çalıştığı mod. `null` = aday yoktu. */
   readonly biasMode: LocationBiasMode | null;
+  /* ── P0-NAV-08 · SAĞLAYICI DÜZEYİ KANIT ───────────────────────────────────
+   * `stage` "kim CEVAPLADI" sorusunun TEK kazananıdır; merdivenin geri kalanı
+   * (kim denendi, kim zaman aşımına uğradı, kim hiç çağrılmadı) görünmüyordu.
+   * Ölçülen boşluk: Nominatim'in zaman aşımı, 0 dönmesi ve bozuk JSON'u üçü de
+   * `stage: 'NONE'` olarak okunuyordu — üçünün sonraki adımı FARKLI. */
+  /** Merdivendeki HER sağlayıcı denemesi (denenmeyenler dâhil). */
+  readonly attempts: readonly SearchProviderAttempt[];
+  /** Denemelerden TÜRETİLEN zincir hükmü. */
+  readonly chainVerdict: SearchChainVerdict;
 }
 
 const _traces = new WeakMap<object, GeocodeTrace>();
@@ -315,10 +336,17 @@ function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): nu
  *
  * Her sonuca `source: 'offline'` etiketi eklenir.
  */
+/** Çevrimdışı katmanların AYRI sayımı — ikisi tek kovaya katlanamaz (P0-NAV-08). */
+interface _OfflineSink {
+  historyCount: number | null;
+  poiCount:     number | null;
+}
+
 async function _offlineFallback(
   query:      string,
   currentLat?: number,
   currentLng?: number,
+  sink?:       _OfflineSink,
 ): Promise<GeoResult[]> {
   const results: GeoResult[] = [];
   const seen   = new Set<string>();
@@ -346,10 +374,12 @@ async function _offlineFallback(
         });
       }
     }
+    if (sink !== undefined) sink.historyCount = results.length;
   } catch { /* IndexedDB erişilemez */ }
 
   /* 2. SQLite FTS5 POI — 400ms üst sınırlı (Worker hazır değilse atla) */
   if (results.length < 4) {
+    const _beforePoi = results.length;
     try {
       const remaining = 4 - results.length;
       const guard     = new Promise<POISearchResult[]>((_, rej) =>
@@ -373,6 +403,7 @@ async function _offlineFallback(
           });
         }
       }
+      if (sink !== undefined) sink.poiCount = results.length - _beforePoi;
     } catch { /* Worker yok veya poi.db yüklenmedi */ }
   }
 
@@ -431,6 +462,48 @@ export async function geocodeAddress(
   /** Kapının EN SON çalıştığı mod — hiç aday görmediyse `null` kalır. */
   let biasMode: LocationBiasMode | null = null;
 
+  /* ── P0-NAV-08 · MERDİVENDEKİ HER BASAMAK ─────────────────────────────────
+   * Merdiven erken döner (ilk dolu katman kazanır) → alt basamaklar HİÇ
+   * çalışmaz. Bunu `NOT_ATTEMPTED` olarak YAZMAK zorunludur: aksi hâlde
+   * "denenmedi" ile "0 döndü" ayırt edilemez ve hüküm katmanı yok yere
+   * `TRUE_ZERO` (veri boşluğu) iddia eder. */
+  const attempts: SearchProviderAttempt[] = [];
+  /** Merdiven boyunca ÇEVRİMDIŞI katmanların ayrı sayacı. */
+  const offlineSink: _OfflineSink = { historyCount: null, poiCount: null };
+
+  /** Çevrimdışı katmanları (denendiyse) kanonik kayda çevirir. */
+  const pushOfflineAttempts = (): void => {
+    attempts.push({
+      provider:  'LOCAL_HISTORY',
+      outcome:   offlineSink.historyCount === null ? 'ERROR'
+               : offlineSink.historyCount > 0 ? 'HIT' : 'ZERO',
+      rawCount:  offlineSink.historyCount,
+      keptCount: null,
+      ms:        null,
+    });
+    attempts.push({
+      provider:  'LOCAL_POI',
+      /* `poiCount === null` = katman HİÇ çalışmadı (geçmiş zaten dolmuştu ya da
+         Worker yok). "0 sonuç" DEMEK DEĞİLDİR ve öyle yazılamaz. */
+      outcome:   offlineSink.poiCount === null ? 'NOT_ATTEMPTED'
+               : offlineSink.poiCount > 0 ? 'HIT' : 'ZERO',
+      rawCount:  offlineSink.poiCount,
+      keptCount: null,
+      ms:        null,
+    });
+  };
+
+  /** Bildirilmemiş her sağlayıcıyı `NOT_ATTEMPTED` olarak tamamlar. */
+  const completeAttempts = (): readonly SearchProviderAttempt[] => {
+    const seen = new Set(attempts.map((a) => a.provider));
+    const all = [
+      'PREMIUM', 'NOMINATIM', 'NOMINATIM_RELAXED',
+      'OVERPASS_STREET', 'LOCAL_HISTORY', 'LOCAL_POI',
+    ] as const;
+    for (const id of all) if (!seen.has(id)) attempts.push(notAttempted(id));
+    return attempts;
+  };
+
   /**
    * KONUM/ŞEHİR KAPISI — her katmanın adayları buradan geçer.
    *
@@ -460,8 +533,9 @@ export async function geocodeAddress(
     });
   };
 
-  const done = (results: GeoResult[], stage: AddressSearchStage): GeoResult[] =>
-    _trace(results, {
+  const done = (results: GeoResult[], stage: AddressSearchStage): GeoResult[] => {
+    const finalAttempts = completeAttempts();
+    return _trace(results, {
       stage,
       /* Kapı bir DOĞRULAMA filtresidir → elemesi bu toplama GİRER (defter
          "sonuç geldi ama elendi"yi bununla ayırt eder); ayrıştırılmış hâli
@@ -474,11 +548,24 @@ export async function geocodeAddress(
       fallbackQueryUsable,
       biasDroppedCount: biasMode === null ? null : biasDropped,
       biasMode,
+      attempts: finalAttempts,
+      chainVerdict: classifySearchChain(finalAttempts, {
+        resultCount: results.length,
+        online,
+      }).verdict,
     });
+  };
 
   /* Hızlı yol: ağ bağlantısı yok → rate-limiter atlanır, anında offline */
   if (typeof navigator !== 'undefined' && !navigator.onLine) {
-    const off = gate(await _offlineFallback(query, currentLat, currentLng));
+    const off = gate(await _offlineFallback(query, currentLat, currentLng, offlineSink));
+    pushOfflineAttempts();
+    /* Çevrimiçi sağlayıcılar HİÇ denenmedi — "ulaşıldı, 0 döndü" DEĞİL. */
+    attempts.push(
+      { provider: 'PREMIUM',         outcome: 'OFFLINE_SKIPPED', rawCount: null, keptCount: null, ms: null },
+      { provider: 'NOMINATIM',       outcome: 'OFFLINE_SKIPPED', rawCount: null, keptCount: null, ms: null },
+      { provider: 'OVERPASS_STREET', outcome: 'OFFLINE_SKIPPED', rawCount: null, keptCount: null, ms: null },
+    );
     return done(off, _offlineStage(off));
   }
 
@@ -489,19 +576,43 @@ export async function geocodeAddress(
      boş/hata dönerse aşağıdaki ücretsiz zincir aynen devam eder. */
   /* Kapı premium sonucu BOŞALTIRSA (hepsi yanlış şehirde) ücretsiz zincir
      devam eder — "sağlayıcı konuştu" ile "doğru cevabı verdi" aynı şey değil. */
-  const premium = gate(await premiumGeocode(query, currentLat, currentLng));
+  const _premiumT0 = Date.now();
+  const premiumRaw = await premiumGeocode(query, currentLat, currentLng);
+  const premium = gate(premiumRaw);
+  /* `premiumGeocode` fail-soft'tur: anahtar YOKSA da hata/timeout da boş dizi
+     döner. Anahtar varlığı BURADA bilinmez (gizli anahtar bu katmana taşınmaz),
+     bu yüzden 0 sonuç `ZERO` DEĞİL — kanıt yetersiz. Ayrım sağlayıcı
+     katmanının kendi turuna bırakılır; sahte kesinlik üretilmez. */
+  attempts.push({
+    provider:  'PREMIUM',
+    outcome:   premiumRaw.length > 0 ? 'HIT' : 'NOT_CONFIGURED',
+    rawCount:  premiumRaw.length > 0 ? premiumRaw.length : null,
+    keptCount: premiumRaw.length > 0 ? premium.length : null,
+    ms:        Date.now() - _premiumT0,
+  });
   if (premium.length) return done(premium, 'PREMIUM');
 
-  const first = await _nominatimOnce(query, currentLat, currentLng);
+  const firstSink = _nomSink();
+  const first = await _nominatimOnce(query, currentLat, currentLng, firstSink);
 
   // null = timeout / ağ hatası → çevrimdışı yol (DAVRANIŞ DEĞİŞMEDİ).
   // Gevşetme YALNIZ "bağlandık ama 0 sonuç" durumunda anlamlıdır; ağ yokken
   // ek denemeler yalnız zaman kaybettirir.
   if (first === null) {
     /* Bekleme bırakıldı ya da ağ düştü — ikisi de bu dalda buluşur (çağıran
-       ayırt edemez, bu yüzden tek bayrak). */
+       ayırt edemez, bu yüzden tek bayrak).
+       ⚠️ `fastFailHit` KORUNUR (kilitli davranış), ama artık YANINDA ayrıştırılmış
+       sınıf da taşınır: kova `TIMEOUT` · `ERROR` · `PARSE_ERROR` ayrımını bilir. */
     fastFailHit = true;
-    const off = gate(await _offlineFallback(query, currentLat, currentLng));
+    attempts.push({
+      provider:  'NOMINATIM',
+      outcome:   firstSink.outcome === 'NOT_ATTEMPTED' ? 'TIMEOUT' : firstSink.outcome,
+      rawCount:  firstSink.rawCount,
+      keptCount: null,
+      ms:        firstSink.ms,
+    });
+    const off = gate(await _offlineFallback(query, currentLat, currentLng, offlineSink));
+    pushOfflineAttempts();
     return done(off, _offlineStage(off));
   }
 
@@ -512,12 +623,36 @@ export async function geocodeAddress(
   /* Konum/şehir kapısı numara doğrulamasından SONRA çalışır: önce "doğru
      sokak mı", sonra "doğru şehirde / ulaşılabilir mi". */
   const firstGated = gate(firstOk);
+  attempts.push({
+    provider:  'NOMINATIM',
+    outcome:   firstSink.outcome === 'NOT_ATTEMPTED'
+                 ? (first.length > 0 ? 'HIT' : 'ZERO')
+                 : firstSink.outcome,
+    rawCount:  first.length,
+    keptCount: firstGated.length,
+    ms:        firstSink.ms,
+  });
   if (firstGated.length) return done(firstGated, 'NOMINATIM');
 
   /* 0 sonuç (veya hepsi yanlış sokak) → sorguyu BOZMADAN varyantları dene */
-  for (const variant of relaxQueryVariants(query)) {
-    const r = await _nominatimOnce(variant, currentLat, currentLng);
-    if (r === null) { fastFailHit = true; break; }  // ağ bozuldu — merdiveni uzatma
+  const variants = relaxQueryVariants(query);
+  let relaxRaw = 0;
+  let relaxKept = 0;
+  let relaxOutcome: SearchProviderOutcome = variants.length === 0 ? 'NOT_ATTEMPTED' : 'ZERO';
+  let relaxMs: number | null = null;
+  for (const variant of variants) {
+    const vSink = _nomSink();
+    const r = await _nominatimOnce(variant, currentLat, currentLng, vSink);
+    relaxMs = (relaxMs ?? 0) + (vSink.ms ?? 0);
+    if (r === null) {
+      fastFailHit = true;
+      /* Varyantlar TEK sağlayıcı denemesi olarak toplanır: kaç varyant
+         denendiği ayrı bir eksendir ve `NOMINATIM_RELAXED` sicilinde
+         "denendi/başardı" sorusuna cevap vermez. */
+      relaxOutcome = vSink.outcome === 'NOT_ATTEMPTED' ? 'TIMEOUT' : vSink.outcome;
+      break;  // ağ bozuldu — merdiveni uzatma
+    }
+    relaxRaw += r.length;
     // Doğrulama İSTENEN sorguya göre yapılır (varyanta göre değil): varyant
     // numarayı düşürmüş olsa bile kullanıcı hâlâ o sokağı istiyor.
     const ok = filterNumberedStreetMismatch(query, r);
@@ -525,14 +660,53 @@ export async function geocodeAddress(
     /* `relaxed` işareti kapıdan ÖNCE konur: mesafe kapısı "gevşetilmiş VE çok
        uzak" adayı elemek için bu işarete bakar (teşhis §3.5 — 379/696 km). */
     const okGated = gate(ok.map((x) => ({ ...x, relaxed: true })));
-    if (okGated.length) return done(okGated, 'NOMINATIM_RELAXED');
+    relaxKept += okGated.length;
+    if (okGated.length) {
+      relaxOutcome = 'HIT';
+      attempts.push({
+        provider: 'NOMINATIM_RELAXED', outcome: relaxOutcome,
+        rawCount: relaxRaw, keptCount: relaxKept, ms: relaxMs,
+      });
+      return done(okGated, 'NOMINATIM_RELAXED');
+    }
+    if (r.length > 0) relaxOutcome = 'HIT';
   }
+  attempts.push({
+    provider:  'NOMINATIM_RELAXED',
+    outcome:   relaxOutcome,
+    rawCount:  relaxOutcome === 'NOT_ATTEMPTED' ? null : relaxRaw,
+    keptCount: relaxOutcome === 'NOT_ATTEMPTED' ? null : relaxKept,
+    ms:        relaxMs,
+  });
 
   /* SON ŞANS — sokak/cadde ADIYLA doğrudan OSM'e sor.
      Nominatim numaralı Türk sokaklarını eşleştiremiyor (ölçüldü); Overpass
      aynı veriyi TAM eşleşmeyle veriyor. Fail-soft: hata/timeout → boş dizi,
-     navigasyon bu yola bağımlı değildir. Konum yoksa hiç çağrılmaz. */
-  const streets = gate(await searchStreetByName(query, currentLat, currentLng));
+     navigasyon bu yola bağımlı değildir.
+
+     ── KAPSAM AYRIMI (P0-NAV-07) ─────────────────────────────────────────
+     Bu yüzey (Mavi / adres kartı) harita arama çubuğuyla AYNI kapsamı
+     kullanır. İki yüzeyin ayrışması bu projenin tekrar eden saha kusurudur
+     (#332, #547, P0-NAV-06/1) — bu yüzden çapa ve genişletilmiş yarıçap
+     burada da AÇIKTIR. Sesli komutta şehir adı söylemek çok yaygındır
+     ("Mersin Kuvayimilliye Caddesine git"), yani çapa yolu asıl burada işler.
+     Konum YOKSA bile çapa varsa arama yapılabilir (artık şart değil). */
+  const streetAnchor = await resolveCityAnchor(query);
+  const _streetT0 = Date.now();
+  const streetsRaw = await searchStreetByName(query, currentLat, currentLng, {
+    anchor:          streetAnchor,
+    allowWideRadius: true,
+  });
+  const streets = gate(streetsRaw);
+  /* `searchStreetByName` fail-soft'tur → 0 ile hata AYIRT EDİLEMEZ. Ölçülen
+     tek olgu ham sayıdır; hata sınıfı iddia EDİLMEZ. */
+  attempts.push({
+    provider:  'OVERPASS_STREET',
+    outcome:   streetsRaw.length > 0 ? 'HIT' : 'ZERO',
+    rawCount:  streetsRaw.length,
+    keptCount: streets.length,
+    ms:        Date.now() - _streetT0,
+  });
   if (streets.length) return done(streets, 'OVERPASS_STREET');
 
   // Hâlâ yok: boş dön — çağıran (addressNavigationEngine) cihaz-içi aramayı
@@ -583,11 +757,40 @@ function _lateCachePut(key: string, results: GeoResult[]): void {
 /** Test izolasyonu — önbellek testler arasında sızmasın. */
 export function _resetGeocodeLateCacheForTest(): void { _lateCache.clear(); }
 
+/**
+ * Sağlayıcı denemesinin sonucunu ÇAĞIRANA taşıyan yazılabilir kova (P0-NAV-08).
+ * Dönüş tipi (`GeoResult[] | null`) DEĞİŞMEZ → çağıranların hiçbiri bozulmaz;
+ * eskiden `null` hem zaman aşımını hem ağ hatasını hem de bozuk JSON'u
+ * gösteriyordu ve üçü ayırt edilemiyordu.
+ */
+interface _NomSink {
+  outcome:  SearchProviderOutcome;
+  rawCount: number | null;
+  ms:       number | null;
+}
+
+function _nomSink(): _NomSink {
+  return { outcome: 'NOT_ATTEMPTED', rawCount: null, ms: null };
+}
+
+function _classifyFetchError(e: unknown): SearchProviderOutcome {
+  const name = (e as { name?: unknown } | null)?.name;
+  return name === 'AbortError' || name === 'TimeoutError' ? 'TIMEOUT' : 'ERROR';
+}
+
 async function _nominatimOnce(
   query:       string,
   currentLat?: number,
   currentLng?: number,
+  sink?:       _NomSink,
 ): Promise<GeoResult[] | null> {
+  const _t0 = Date.now();
+  const _mark = (outcome: SearchProviderOutcome, rawCount: number | null): void => {
+    if (sink === undefined) return;
+    sink.outcome  = outcome;
+    sink.rawCount = rawCount;
+    sink.ms       = Date.now() - _t0;
+  };
   const params = new URLSearchParams({
     q:              query,
     format:         'json',
@@ -607,7 +810,7 @@ async function _nominatimOnce(
      ağa hiç çıkmadan anında döner — sürücü ikinci denemede doğru POI'yi görür. */
   const cacheKey = params.toString();
   const cached   = _lateCacheGet(cacheKey);
-  if (cached) return cached;
+  if (cached) { _mark('HIT', cached.length); return cached; }
 
   /* Nominatim ToS rate-limiter — bozulmadan korunur */
   await _waitNominatim();
@@ -620,7 +823,16 @@ async function _nominatimOnce(
     signal:  ctrl.signal,
   })
     .then(async (res): Promise<GeoResult[] | null> => {
-      const data = (await res.json()) as NominatimItem[];
+      let data: NominatimItem[];
+      try {
+        data = (await res.json()) as NominatimItem[];
+      } catch {
+        /* Yanıt GELDİ, çözümlenemedi → sağlayıcı sözleşmesi kırılmış olabilir.
+           Bu tek KOD kusuru sınıfıdır; `ERROR` yazılsaydı ağ suçlanırdı. */
+        _mark('PARSE_ERROR', null);
+        return null;
+      }
+      _mark(data.length > 0 ? 'HIT' : 'ZERO', data.length);
       return data.map((r) => ({
         id:       `nom-${r.place_id}`,
         name:     shortName(r.display_name),
@@ -631,7 +843,11 @@ async function _nominatimOnce(
         source:   'online' as const,
       }));
     })
-    .catch((): null => null) // network error veya AbortError → null
+    .catch((e): null => {
+      /* Kova zaten `PARSE_ERROR` yazdıysa EZİLMEZ — ilk ve en özgül sınıf kalır. */
+      if (sink === undefined || sink.outcome === 'NOT_ATTEMPTED') _mark(_classifyFetchError(e), null);
+      return null;
+    })
     /* Yanıt GEÇ gelse bile değerlidir: 8s sert sınır burada temizlenir ve
        sonuç önbelleğe yazılır. Bu `.then` fast-fail'den SONRA da koşar —
        istek artık iptal edilmediği için. */
@@ -645,9 +861,18 @@ async function _nominatimOnce(
      Eskiden burada `ctrl.abort()` vardı ve 2 saniyeyi aşan DOĞRU cevabı
      öldürüyordu (saha 2026-08-08: "Ofis Parkı" Nominatim'de vardı, ürün
      bulamıyordu). Üst sınır artık tek yerde: `abort(TIMEOUT)` = 8 s. */
+  /* Beklemeyi BIZ bıraktık — istek hâlâ uçuyor, sağlayıcı suçlanamaz ve
+     "veri yok" İDDİA EDİLEMEZ; sınıf `TIMEOUT`tur. Geç gelen yanıt kovayı
+     sonradan `HIT`e çevirebilir, bu da doğrudur (cevap GERÇEKTEN geldi).
+     ⚠️ Zamanlayıcının GÖVDESİ kasten kısadır: kilit testi
+     (`geocodeLateResponseCache`) gövdede `abort` OLMADIĞINI denetler ve dar bir
+     pencere okur. İşi buraya taşımak o denetimi zayıflatmaz — abort YİNE YOK. */
+  const markFastFail = (): void => {
+    if (sink !== undefined && sink.outcome === 'NOT_ATTEMPTED') _mark('TIMEOUT', null);
+  };
   let fastFailTimer: ReturnType<typeof setTimeout> | null = null;
   const fastFailSafe = new Promise<null>((resolve) => {
-    fastFailTimer = setTimeout(() => resolve(null), FAST_FAIL_MS);
+    fastFailTimer = setTimeout(() => { markFastFail(); resolve(null); }, FAST_FAIL_MS);
   });
 
   try {

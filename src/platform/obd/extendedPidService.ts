@@ -3,7 +3,7 @@
  *
  * OS entegrasyon yüzeyi: dashboard widget'ı / teşhis ekranı / sesli asistan bir PID'i
  * `watchPid()` ile izler; servis izlenen listeyi native EXTENDED poll grubuna iletir
- * (turda 1 PID round-robin, POLL_SLOW). Ham hex native'den `obdExtendedData` ile gelir,
+ * (deadline/RTT/hat bütçesiyle adaptif, POLL_SLOW). Ham hex native'den `obdExtendedData` ile gelir,
  * çözümleme StandardPidRegistry'de yapılır (tek doğruluk kaynağı, test edilebilir).
  *
  * MALİ-400 KURALI (tam sözleşme):
@@ -24,17 +24,20 @@ import { Capacitor } from '@capacitor/core';
 import { CarLauncher } from '../nativePlugin';
 import type { PluginListenerHandle } from '@capacitor/core';
 import { STANDARD_PID_MAP, decodeStandardPid } from './StandardPidRegistry';
+import type { DiscoveryCompleteness } from '../../core/val/OBDHandshake';
+import { CANONICAL_OBD_BY_PID } from './canonicalObdSignals';
+import { computeFreshnessWindow } from './obdFreshnessPolicy';
 import type { StandardPidDef } from './StandardPidRegistry';
 import {
   recordExtendedTimelineSample, resetExtendedTimeline,
 } from './extendedPollTimeline';
 import { logError } from '../crashLogger';
 
-/** İzlenebilir PID sayısı TS tavanı — rotasyon gecikmesi makul kalsın (16 PID ≈ 16 tur). */
-export const ELM_WATCH_CAP = 16;
+/** Kayıtlı/çözülebilir standart PID kapsamı; kapasiteyi scheduler RTT bütçesi belirler. */
+export const ELM_WATCH_CAP = STANDARD_PID_MAP.size;
 
 /** BURST modu (Canlı Test) tavanı — tüm çekirdek-olmayan PID'ler izlenebilsin. */
-export const ELM_WATCH_CAP_BURST = 48;
+export const ELM_WATCH_CAP_BURST = STANDARD_PID_MAP.size;
 
 /**
  * Bitmask keşif PID'leri — sırayla zincirlenir. Her 0x_0 PID, bir sonraki 32'lik
@@ -62,11 +65,23 @@ type Watcher = (v: ExtendedPidValue) => void;
 const _watchers = new Map<string, Set<Watcher>>();      // pid → callback'ler
 const _values = new Map<string, ExtendedPidValue>();    // pid → son değer
 let _supported: Set<string> | null = null;              // null = keşif tamamlanmadı
+/* P0-OBD-CORE-06: destek kümesinin ARKASINDAKİ KANIT ne kadar tam?
+ *   'not_run'    → hiç blok okunmadı
+ *   'incomplete' → zincir cevapsızlık/hata yüzünden KIRILDI (okunmayan blok
+ *                  PID'leri BİLİNMİYOR — "desteklenmiyor" DEĞİL)
+ *   'complete'   → continuation=0 ya da son blok → "desteklenmiyor" ÇIKARIMI GÜVENLİ
+ * Bu alan olmadan `supportedKnown: true` iki farklı gerçeği aynı gösteriyordu ve
+ * CAROS LAB "kanıt VAR · N PID araç desteklemediği için elendi" diye KANITSIZ
+ * bir hüküm yazıyordu. */
+let _supportedCompleteness: DiscoveryCompleteness = 'not_run';
 let _discoveryQueue: string[] = [];                     // bekleyen bitmask PID'leri
 /** PR-OBD-KWP-1: native'in oturum-içi demote ettiği PID'ler (ardışık NO_DATA/7F) —
  *  "araç bu PID'i VERMİYOR" gerçek nedeni. Bitmap-destekli ama veri gelmeyen PID
  *  (Trafic 39/39 NO_DATA vakası) artık UI'da dürüstçe etiketlenebilir. */
 const _unavailable = new Map<string, string>();          // pid → neden ('no_data')
+/** P0-OBD-02: oturum numarası — `notifyObdConnected` her çağrıldığında artar.
+ *  Değerlerin HANGİ bağlantıya ait olduğunu tüketiciler bununla damgalar. */
+let _sessionEpoch = 0;
 let _listenerHandle: PluginListenerHandle | null = null;
 let _listenerStarting = false;
 let _burst = false;                                     // Canlı Test burst modu (cap+native hız)
@@ -163,6 +178,10 @@ function _onExtendedData(event: { pid: string; data: string }): void {
       const next = idx >= 0 ? DISCOVERY_PIDS[idx + 1] : undefined;
       if (next && found.has(next) && !_discoveryQueue.includes(next)) {
         _discoveryQueue.push(next);
+      } else if (found.size > 0) {
+        /* P0-OBD-CORE-06: continuation CLEAR (ya da son blok) → bu kanal için
+           zincir KESİN bitti. Yanıt çözülemediyse (`found` boş) hüküm YOK. */
+        _supportedCompleteness = 'complete';
       }
       _pushToNative(); // kuyruk değişti → native listeyi tazele
       return;
@@ -349,7 +368,7 @@ export function getSupportedPids(): Set<string> | null {
  *
  * NEDEN VAR: #503 ile gürültüyü (NO-DATA fırtınası) SESSİZLİKLE takas ettik. Kapı
  * kapalıyken sistem doğru davranır ama DIŞARIDAN "poll ölü" ile ayırt edilemez —
- * `configuredPidCount: 0/1` hem "kimse izlemiyor" hem "16 PID kanıt bekliyor"
+ * `configuredPidCount: 0/1` hem "kimse izlemiyor" hem "destekli PID kanıt bekliyor"
  * anlamına gelebilirdi. Bu getter ikisini AYIRIR.
  *
  * Saf sayım; yan etkisi YOK (native'e hiçbir şey göndermez, durum değiştirmez).
@@ -375,6 +394,14 @@ export interface ExtendedGateState {
   nativeListCount: number;
   /** Tanı BURST modu açık mı (cap'i etkiler). */
   burst: boolean;
+  /**
+   * P0-OBD-CORE-06 — destek kanıtının BÜTÜNLÜĞÜ. `supportedKnown: true` tek
+   * başına "araç bu PID'leri desteklemiyor" demeye YETMEZ: zincir kırıldıysa
+   * (`incomplete`) sorulmamış blokların PID'leri BİLİNMİYOR.
+   */
+  discoveryCompleteness: DiscoveryCompleteness;
+  /** Kısayol: yalnız `complete` iken "desteklemiyor" çıkarımı yapılabilir. */
+  supportedEvidenceComplete: boolean;
 }
 
 /**
@@ -412,10 +439,28 @@ export function getExtendedGateState(): ExtendedGateState {
     discoveryPending: _discoveryQueue.length,
     nativeListCount: _buildNativeList().length,
     burst: _burst,
+    discoveryCompleteness: _supportedCompleteness,
+    supportedEvidenceComplete: _supportedCompleteness === 'complete',
   };
 }
 
 /* ── PR-OBD-KWP-1: per-PID gerçek durum (tek veri gerçeği için) ───────────── */
+
+/**
+ * P0-OBD-02: bu PID için kadans-türevli bayatlık penceresi.
+ *
+ * Kadans bu modülde OKUNMAZ (obdService'e döngüsel import olurdu) — pencere
+ * yalnız izlenen PID adedini ve sinyal sınıfını kullanır; poll periyodu politika
+ * tarafının varsayılanına bırakılır. Kataloğa girmemiş PID'ler `medium` sayılır.
+ */
+function _defaultStaleMs(pid: string): number {
+  const def = CANONICAL_OBD_BY_PID.get(pid);
+  return computeFreshnessWindow({
+    cls:  def?.freshness ?? 'medium',
+    path: 'extended',
+    watchedCount: _buildNativeList().length,
+  }).staleMs;
+}
 
 export type ExtendedPidStatus =
   | 'live'         // taze değer var (< staleMs)
@@ -424,9 +469,21 @@ export type ExtendedPidStatus =
   | 'unsupported'  // keşif bitmap'i bu PID'i desteklemiyor diyor
   | 'probing';     // henüz kanıt yok (keşif/ilk sorgu sürüyor)
 
-/** Bir extended PID'in GERÇEK durumu — UI "neden okunamıyor"u bununla gösterir.
- *  Fail-closed sıra: gerçek değer kanıtı > native no-data kanıtı > bitmap kanıtı > bilinmiyor. */
-export function getPidStatus(pid: string, staleMs = 15_000): ExtendedPidStatus {
+/**
+ * Bir extended PID'in GERÇEK durumu — UI "neden okunamıyor"u bununla gösterir.
+ * Fail-closed sıra: gerçek değer kanıtı > native no-data kanıtı > bitmap kanıtı > bilinmiyor.
+ *
+ * ── P0-OBD-02 · `staleMs` ARTIK SABİT DEĞİL ───────────────────────────────
+ * Varsayılan 15_000 idi ve TÜM PID'lere uygulanıyordu. Ama genişletilmiş grup
+ * round-robin'dir: turda EN FAZLA 1 PID okunur → 16 PID izlenirken bir PID'in
+ * SAĞLIKLI yaşı ≈ tur × 16'dır (1 s'lik turda ~16 s). Sabit 15 s, mükemmel
+ * çalışan bir PID'i "bayat" ilan ediyordu. Varsayılan artık GERÇEK kadanstan
+ * türer (bkz. `obdFreshnessPolicy.computeFreshnessWindow`); çağıran açıkça bir
+ * değer verirse o kazanır (geriye uyumluluk).
+ *
+ * @param staleMs Açıkça verilmezse kadans + sinyal sınıfından hesaplanır.
+ */
+export function getPidStatus(pid: string, staleMs?: number): ExtendedPidStatus {
   const key = pid.toUpperCase();
   const v = _values.get(key);
   /* #525 — SIRA BİLİNÇLİ OLARAK KORUNDU: bir PID hem "verilmiyor" kaydında hem
@@ -436,7 +493,8 @@ export function getPidStatus(pid: string, staleMs = 15_000): ExtendedPidStatus {
      geldiği anda kayıt düşer, dolayısıyla akan bir PID buraya `no_data` olarak
      GELEMEZ. Bu satırı gevşetmek "artık akmıyor" bilgisini kaybettirirdi. */
   if (v && !_unavailable.has(key)) {
-    return Date.now() - v.updatedAt <= staleMs ? 'live' : 'stale';
+    const win = staleMs ?? _defaultStaleMs(key);
+    return Date.now() - v.updatedAt <= win ? 'live' : 'stale';
   }
   if (_unavailable.has(key)) return 'no_data';
   if (_supported !== null && !_supported.has(key)) return 'unsupported';
@@ -463,7 +521,10 @@ export function getUnavailablePids(): ReadonlyMap<string, string> {
  *
  * @param supportedPidNums Handshake'ten desteklenen PID numaraları (ör. 0x2F=47).
  */
-export function seedSupportedPids(supportedPidNums: Iterable<number>): void {
+export function seedSupportedPids(
+  supportedPidNums: Iterable<number>,
+  completeness: DiscoveryCompleteness = 'not_run',
+): void {
   const seed = _supported ?? new Set<string>();
   let added = 0;
   for (const n of supportedPidNums) {
@@ -474,6 +535,11 @@ export function seedSupportedPids(supportedPidNums: Iterable<number>): void {
   // Kanıt yoksa dokunma (fail-soft): boş seed + zaten null ise keşif yolu bozulmasın.
   if (seed.size === 0) return;
   _supported = seed;
+  /* BÜTÜNLÜK YALNIZ YUKARI DOĞRU GİDER: aynı oturumda ikinci (kısmi) bir tur,
+     daha önce KESİN bitmiş bir zincirin kanıtını "eksik"e ÇEVİREMEZ. */
+  if (completeness === 'complete' || _supportedCompleteness === 'not_run') {
+    _supportedCompleteness = completeness;
+  }
   if (added > 0 || _watchers.size > 0) _pushToNative(); // destek daraldı → NO-DATA fırtınası biter
 }
 
@@ -491,6 +557,21 @@ export function notifyObdConnected(): void {
   // PR-OBD-KWP-1: yeni bağlantı = native NO_DATA öğrenmesi de sıfırlandı (ExtendedNoDataTracker
   // reset) → TS aynası da sıfırlanır (farklı araç 'no_data' damgasını miras almasın).
   _unavailable.clear();
+
+  /* ── P0-OBD-02 · RECONNECT ÖNBELLEK ZEHİRLENMESİ (ölçülen kusur) ──────────
+   * `_unavailable` ve `_supported` her yeniden bağlanmada geçersizleşiyordu ama
+   * `_values` **DOKUNULMADAN** kalıyordu. Sonuç üç ayrı yalan üretiyordu:
+   *   · `getPidValue()` ÖNCEKİ oturumun ölçümünü döndürüyordu;
+   *   · `getPidStatus()` o değerin damgası 15 sn'den yeniyse `live` diyordu —
+   *     yani KOPMUŞ bir hattan "canlı" veri;
+   *   · `watchPid()` yeni aboneye önbellekteki değeri ANINDA veriyordu, dolayısıyla
+   *     kanonik köprü eski oturumun ölçümünü TAZE damgayla mağazaya yazıyordu.
+   * Adaptör bu arada BAŞKA BİR ARACA takılmış olabilir; o yağ sıcaklığı bu araca
+   * ait değildir. Kanıt kaybı DEĞİLDİR: geçmiş `extendedPollTimeline`de kalıcıdır,
+   * burada temizlenen yalnız "GÜNCEL DEĞER" iddiasıdır. */
+  _values.clear();
+  _sessionEpoch++;
+
   resetExtendedTimeline();   // #512: zaman ekseni de yeni oturuma ait olmalı
   if (_watchers.size === 0) return;
   // Yeni bağlantı = muhtemelen aynı araç ama garanti değil; keşif sonucu YENİDEN
@@ -502,6 +583,7 @@ export function notifyObdConnected(): void {
   // İzleyiciler bilinçli olarak YAŞATILIR: sahipleri onları yeniden kurmaz; keşif/tohum
   // `_supported`ı doldurunca aynı izleyiciler tek turda yeniden akmaya başlar.
   _supported = null;
+  _supportedCompleteness = 'not_run';   // yeni bağlantı = kanıt sıfırdan doğar
   _discoveryQueue = [DISCOVERY_PIDS[0]];
   _ensureListener();
   _pushToNative();
@@ -545,8 +627,10 @@ export const _internals = {
     _watchers.clear();
     _values.clear();
     _supported = null;
+    _supportedCompleteness = 'not_run';
     _discoveryQueue = [];
     _unavailable.clear();
+    _sessionEpoch = 0;
     resetExtendedTimeline();
     _listenerHandle = null;
     _listenerStarting = false;

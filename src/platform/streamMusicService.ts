@@ -13,6 +13,7 @@
  */
 import { updateMediaState, getMediaState } from './mediaService';
 import { logError } from './crashLogger';
+import { isNative } from './bridge';
 
 /** Stream kaynağı için sözde paket adı — yerel/harici kaynaklardan ayırır. */
 export const STREAM_PKG = 'com.cockpitos.pro.stream';
@@ -105,7 +106,13 @@ export async function playStream(
    * kulaklık çıkınca susmuyor, bildirim/direksiyon tuşlarıyla kontrol
    * edilemiyordu. Native'de akış artık tek otoriteye (ExoPlayer) verilir.
    * Web'de otorite YOKTUR → HTML5 yolu aynen korunur (geriye uyumluluk). */
-  if (await _playViaAuthority(name, url, artist, kind)) return;
+  if (isNative) {
+    // Native'de LOCAL/STREAM devri yalnız aynı coordinator üzerinden yapılır.
+    // Otorite erişilemezse HTML5 fallback açmak eski LOCAL sesiyle çakışabilir;
+    // fail-closed kalırız.
+    await _playViaAuthority(name, url, artist, kind);
+    return;
+  }
 
   const a = _ensureAudio();
 
@@ -190,8 +197,7 @@ async function _playViaAuthority(
   kind: 'STREAM' | 'INTERNET_RADIO',
 ): Promise<boolean> {
   try {
-    const { isNative } = await import('./bridge');
-    if (!isNative) return false;   // web: otorite yok, HTML5 devrede
+    if (!isNative) return false;   // web: çağıran HTML5 yoluna devam eder
 
     const [{ playSource }, { noteQueue }] = await Promise.all([
       import('./media/authority/mediaCommandGateway'),
@@ -203,9 +209,9 @@ async function _playViaAuthority(
     const truth = await playSource({ source: kind, items, startIndex: 0, autoPlay: true });
 
     if (truth.outcome === 'VERIFIED' || truth.outcome === 'ACCEPTED_UNVERIFIED') return true;
-    // Otorite yoksa HTML5'e düşülür; başka hata varsa ikinci ses kaynağı AÇILMAZ.
-    return truth.failureCode !== 'authority_unavailable';
+    // Native çağıran fail-closed kalır; ikinci ses kaynağı AÇILMAZ.
+    return true;
   } catch {
-    return false;
+    return isNative;
   }
 }

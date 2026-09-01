@@ -168,8 +168,13 @@ describe('KİLİT 3 — fail-soft: kaynak patlarsa ekran ayakta kalır', () => {
       readAt: NOW, voice: null, diag: null, aiHealth: null, quota: null, proactive: null,
     };
     const sections = buildMaviSections(empty);
-    /* MAVI-M6-LAB-SPEECH-COUNTERS: F bölümü (M6 konuşma + M5 tur kapıları) eklendi. */
-    expect(sections).toHaveLength(6);
+    /* Bölüm sayısı fazlarla BÜYÜR ve bu sayı bilinçli olarak kilitlidir:
+       A-F (M6 konuşma + M5 tur kapıları) · G (MAVI-F8 sürüş iş yükü) ·
+       H (MAVI-F9 proaktif politika) · I (MAVI-F11 görünen durum) ·
+       J (MAVI-F12 barge-in / duplex) · K (MAVI-F13 kanonik runtime).
+       Yeni bölüm eklendiğinde bu sayı GÜNCELLENİR — kaldırılmaz (yoksa bölüm
+       enflasyonu sessizce büyür). */
+    expect(sections).toHaveLength(11);
     for (const s of sections) {
       expect(s.fields.length).toBeGreaterThan(0);
       for (const f of s.fields) expect(f.klass).toBe('UNAVAILABLE');
@@ -224,6 +229,26 @@ describe('KİLİT 3 — fail-soft: kaynak patlarsa ekran ayakta kalır', () => {
        biri patlarsa diğerleri okunur, alan KAYNAK YOK olur. */
     vi.doMock('../platform/assistant/maviSpeech', () => ({ getMaviSpeechDiagnostics: boom }));
     vi.doMock('../platform/assistant/maviTurn', () => ({ getMaviTurnDiagnostics: boom }));
+    /* MAVI-F8 (G) ve MAVI-F9 (H) bölümlerinin kaynakları da AYNI sözleşmeye
+       tabidir: fırlatırsa alan KAYNAK YOK olur, ekran ayakta kalır. */
+    vi.doMock('../platform/assistant/maviWorkload', () => ({ getMaviWorkloadDiagnostics: boom }));
+    vi.doMock('../platform/assistant/proactivePolicyEngine', () => ({
+      getProactivePolicyDiagnostics: boom,
+    }));
+    /* MAVI-F11 (I) bölümünün kaynağı da AYNI sözleşmeye tabidir. */
+    vi.doMock('../platform/assistant/maviSurfaceState', () => ({
+      getMaviSurfaceDiagnostics: boom,
+    }));
+    /* MAVI-F12 (J) bölümünün kaynağı da AYNI sözleşmeye tabidir. */
+    vi.doMock('../platform/assistant/maviBargeIn', () => ({
+      getMaviBargeInDiagnostics: boom,
+    }));
+    /* MAVI-F13 (K) bölümünün kaynağı da AYNI sözleşmeye tabidir: kanıt defteri
+       patlarsa "gölge çalışmadı" DENMEZ, alan UNAVAILABLE olur. Bayrak okuması
+       da aynı sözleşmededir — patlarsa "hepsi kapalı" UYDURULMAZ. */
+    vi.doMock('../platform/maviCore/wiring/maviEvidence', () => ({
+      getMaviRuntimeConsolidationDiagnostics: boom,
+    }));
 
     const sources = await import('../platform/devtools/maviConsoleSources');
     const model   = await import('../platform/devtools/maviConsoleModel');
@@ -235,6 +260,11 @@ describe('KİLİT 3 — fail-soft: kaynak patlarsa ekran ayakta kalır', () => {
     expect(s.quota).toBeNull();
     expect(s.speech).toBeNull();
     expect(s.turn).toBeNull();
+    expect(s.workload).toBeNull();
+    expect(s.proactivePolicy).toBeNull();
+    expect(s.surface).toBeNull();
+    expect(s.bargeIn).toBeNull();       // MAVI-F12: kaynak patlarsa "kanıt yok"
+    expect(s.runtime).toBeNull();       // MAVI-F13: defter patlarsa "kanıt yok"
     expect(s.readAt).toBeGreaterThan(0);
 
     const v = model.deriveMaviVerdict(s);
@@ -247,6 +277,7 @@ describe('KİLİT 3 — fail-soft: kaynak patlarsa ekran ayakta kalır', () => {
     const html = renderToStaticMarkup(<screen.MaviConsoleScreen />);
     expect(html).toContain('data-verdict="UNKNOWN"');
 
+    vi.doUnmock('../platform/assistant/maviBargeIn');
     vi.doUnmock('../platform/voiceService');
     vi.doUnmock('../platform/voiceDiagService');
     vi.doUnmock('../platform/aiHealth');
@@ -620,7 +651,7 @@ describe('KİLİT 9 — katalog AVAILABLE ve eşleme doğru', () => {
 
   it('bölümler ve alanlar BOUNDED', () => {
     const sections = buildMaviSections(snapshot());
-    expect(sections).toHaveLength(6);   // F bölümü dahil
+    expect(sections).toHaveLength(11);  // A-F + G (F8) + H (F9) + I (F11) + J (F12) + K (F13)
     for (const s of sections) {
       expect(s.fields.length).toBeLessThanOrEqual(MAX_FIELDS_PER_MAVI_SECTION);
       for (const f of s.fields) expect(f.value.length).toBeLessThan(200);

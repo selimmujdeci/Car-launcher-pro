@@ -24,6 +24,7 @@ import {
 import {
   refreshKwpRecoveryEvidence, getKwpRecoveryEvidence,
 } from '../obd/kwpRecoveryEvidence';
+import { refreshPollCost } from '../obd/pollCost';
 import { readSchedRawSnapshot } from './runtimeSchedulingSources';
 import { readLocationEngineSnapshot } from '../location/locationEngineRuntime';
 import { getFixAgeLedger } from '../gpsService';
@@ -66,6 +67,29 @@ async function probeNativePollEvidence(): Promise<CarosLabRefreshProbe> {
   return _ok(
     `denenen ${_n(c.attempted)} · başarılı ${_n(c.success)} · ` +
     `yapılandırılan PID ${_n(ev.configuredPidCount)} · ${ev.decision.label}`,
+  );
+}
+
+/* ── 1b · Poll maliyeti (P0-VDK-B3) ──────────────────────────────────────── */
+
+/**
+ * Native `PollCostLedger` sayaçlarını tazeler. **Hiçbir OBD/AT komutu TETİKLEMEZ**
+ * — yalnız zaten ölçülmüş sayaçları okur (LAB salt-okunur sözleşmesi).
+ */
+async function probePollCost(): Promise<CarosLabRefreshProbe> {
+  const pc = await refreshPollCost();
+  if (pc.state === 'UNAVAILABLE') {
+    return _none('Maliyet metodu yok (web modu / eski APK) — ÖLÇÜLEMEDİ ("0" DEĞİL).');
+  }
+  if (pc.state === 'NO_CYCLES_YET') {
+    return _none('Ölçüm kanalı açık ama henüz hiç poll turu kapanmadı.');
+  }
+  const t = pc.totals;
+  const c = pc.lastCycle;
+  return _ok(
+    `oturum ${_n(t.diagnosticPayloadRequests)} PID / ${_n(t.adapterControlCommands)} AT · `
+    + `cevapsız ${_n(t.noResponses)} · negatif ${_n(t.negativeResponses)} · `
+    + `son tur ${c ? `${c.diagnosticPayloadRequests} PID / ${c.adapterControlCommands} AT / ${c.elapsedMs} ms` : '—'}`,
   );
 }
 
@@ -215,6 +239,7 @@ export async function probeRefreshSection(
     switch (id) {
       case 'native-poll-evidence': return await probeNativePollEvidence();
       case 'native-elimination':   return await probeNativeElimination();
+      case 'poll-cost':            return await probePollCost();
       case 'kwp-recovery':         return await probeKwpRecovery();
       case 'poll-scheduler':       return probePollScheduler();
       case 'location-engine':      return probeLocationEngine();

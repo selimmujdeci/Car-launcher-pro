@@ -18,6 +18,9 @@ import { isNative } from '../../bridge';
 import { CarLauncher } from '../../nativePlugin';
 import type { NativeAuthoritySnapshot } from '../../nativePlugin';
 import { logError } from '../../crashLogger';
+/* ARCH-06/F1 — T0 sayaç (tek tamsayı artırımı). Bu satır hiçbir kararı,
+   kadansı ya da sahipliği DEĞİŞTİRMEZ. */
+import { bumpPerf } from '../../perf/perfCounters';
 
 export type NativeCommand =
   | 'setQueue'
@@ -52,6 +55,7 @@ let _snapshot: NativeAuthoritySnapshot = UNAVAILABLE_SNAPSHOT;
 let _listenerStop: (() => void) | null = null;
 let _started = false;
 let _commandSeq = 0;
+let _listenerGeneration = 0;
 
 const _subscribers = new Set<(s: NativeAuthoritySnapshot) => void>();
 
@@ -125,10 +129,13 @@ export function sanitizeAuthoritySnapshot(raw: unknown): NativeAuthoritySnapshot
 export async function startNativeAuthority(): Promise<void> {
   if (_started) return;
   _started = true;
+  const generation = ++_listenerGeneration;
   if (!isNative) return;   // web: sessiz, otorite YOK
 
   try {
     const handle = await CarLauncher.addListener('mediaAuthorityEvent', (data) => {
+      bumpPerf('bridge.mediaAuthorityEvent.received');
+      if (!_started || generation !== _listenerGeneration) return;
       _emit(sanitizeAuthoritySnapshot(data));
     });
     _listenerStop = () => { try { handle.remove(); } catch { /* ignore */ } };
@@ -147,6 +154,7 @@ export async function startNativeAuthority(): Promise<void> {
 /** Zero-Leak teardown — abonelik kaldırılır, durum sıfırlanır. */
 export function stopNativeAuthority(): void {
   _started = false;
+  _listenerGeneration += 1;
   if (_listenerStop) {
     const stop = _listenerStop;
     _listenerStop = null;

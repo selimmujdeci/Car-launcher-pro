@@ -101,16 +101,16 @@ describe('MAVI-M6 · ara bilgi (progress) katmanı', () => {
   it('tur başına tek `progress` + tek `answer` (tarama → sonuç dürüstlüğü korunur)', () => {
     beginMaviTurn();
     expect(speakMaviAnswer('Araç sistemleri taranıyor', { tier: 'progress' })).toBe(true);
-    expect(speakMaviAnswer('Bir saniye', { tier: 'progress' })).toBe(false);      // ikinci ara söz YOK
+    expect(speakMaviAnswer('Arıza kayıtları siliniyor', { tier: 'progress' })).toBe(false);  // ikinci ACK YOK
     expect(speakMaviAnswer('2 arıza kodu var, biri kritik')).toBe(true);          // nihai cevap
     expect(M.feedback.mock.calls.map((c) => String(c[0])))
       .toEqual(['Araç sistemleri taranıyor', '2 arıza kodu var, biri kritik']);
   });
 
-  it('cevap verildikten SONRA gelen ara söz KONUŞAMAZ (geç filler cevabı kesemez)', () => {
+  it('cevap verildikten SONRA gelen ara bilgi KONUŞAMAZ (geç ACK cevabı kesemez)', () => {
     beginMaviTurn();
     expect(speakMaviAnswer('Tamam, yaptım')).toBe(true);
-    expect(speakMaviAnswer('Bir saniye...', { tier: 'progress' })).toBe(false);
+    expect(speakMaviAnswer('Araç sistemleri taranıyor', { tier: 'progress' })).toBe(false);
     expect(M.feedback).toHaveBeenCalledTimes(1);
   });
 });

@@ -82,7 +82,7 @@ afterEach(() => {
 });
 
 describe('voiceService — QUERY_SENSOR yerel bypass (1b2)', () => {
-  it('değer var → beyne gitmeden "Bakıyorum..." ack + gerçek cevap seslendirilir', async () => {
+  it('değer var → beyne gitmeden SEMANTİK ACK + gerçek cevap seslendirilir', async () => {
     M.parseResult = { command: QUERY_CMD, suggestions: [], needsSemantic: false };
     const answer: SensorAnswer = {
       name: 'Motor yağı sıcaklığı', value: 92, unit: '°C',
@@ -97,7 +97,8 @@ describe('voiceService — QUERY_SENSOR yerel bypass (1b2)', () => {
 
     await flush();
     expect(M.querySensorImpl).toHaveBeenCalledWith('yağ sıcaklığı kaç');
-    expect(M.speak).toHaveBeenCalledWith('Bakıyorum...');
+    // MAVI-F2: filler DEĞİL — cevabın ARAÇTAN geleceğini söyleyen semantik ACK.
+    expect(M.speak).toHaveBeenCalledWith('Araçtan okuyorum.');
     expect(M.speak).toHaveBeenCalledWith(answer.text);
     expect(_getVoiceStateForTest().status).toBe('success');
   });
