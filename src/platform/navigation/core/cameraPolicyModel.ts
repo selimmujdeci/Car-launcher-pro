@@ -126,6 +126,30 @@ export const MANEUVER_BANDS = {
   POST_EXIT_M: 90,
 } as const;
 
+/**
+ * GPS bozuk/bayatken kamera zoom TAVANI.
+ *
+ * Şehir profilinin altına inilmez: bozuk konumda yakın zoom hatayı BÜYÜTEREK
+ * gösterir ve sürücüyü yanıltır (araç yanlış şeritte/yolda duruyormuş gibi
+ * görünür). Sayı bu modelin İÇİNDE tanımlıdır ve HEM `decideCameraPolicy`
+ * (gölge) HEM üretim kamerası AYNI sabiti okur — ikinci eşik YOKTUR.
+ */
+export const GPS_DEGRADED_MAX_ZOOM = 16.5;
+
+/**
+ * Hareket durumuna göre zoom tavanı. **SAF.** `null` = tavan YOK.
+ *
+ * `decideCameraPolicy` bu fonksiyonu KULLANIR; üretim kamerası da onu
+ * kullanır → kural TEK yerde uygulanır, sürüklenme yapısal olarak imkânsız.
+ */
+export function resolveMaxZoomHint(
+  motionState: CameraPolicyInput['motionState'],
+): number | null {
+  return (motionState === 'GPS_DEGRADED' || motionState === 'STALE')
+    ? GPS_DEGRADED_MAX_ZOOM
+    : null;
+}
+
 /** Kamera güncellemeleri arasındaki asgari süre (ms) — güncelleme fırtınası yok. */
 export const CAMERA_MIN_UPDATE_MS = 120;
 /** Bu km/sa altındaki hız değişimi profil DEĞİŞTİRMEZ. */
@@ -259,9 +283,8 @@ export function decideCameraPolicy(input: CameraPolicyInput): CameraPolicyDecisi
   if (input.motionState === 'GPS_DEGRADED' || input.motionState === 'STALE') {
     return { ...base, state: 'GPS_DEGRADED', cameraDriveAllowed: true,
       applyManeuverCamera: false,
-      /* Şehir profilinin altına inilmez: bozuk konumda yakın zoom hatayı
-         BÜYÜTEREK gösterir ve sürücüyü yanıltır. */
-      maxZoomHint: 16.5,
+      /* Tavan KANONİK sabitten — üretim kamerası da AYNI sayıyı okur. */
+      maxZoomHint: resolveMaxZoomHint(input.motionState),
       updateReason: 'GPS bozuk/bayat — zoom sınırlı, manevra kamerası kapalı' };
   }
 

@@ -22,7 +22,9 @@ import {
 } from '../platform/map/core/cameraCompositionModel';
 import {
   SPEED_BANDS, resolveSpeedBand, resolveManeuverBand, MANEUVER_BANDS,
+  resolveMaxZoomHint, GPS_DEGRADED_MAX_ZOOM, decideCameraPolicy,
 } from '../platform/navigation/core/cameraPolicyModel';
+import { NIGHT_PALETTE, DAY_PALETTE } from '../platform/mapStyleBuilders';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
@@ -530,5 +532,100 @@ describe('OEM++ · sunum katmanı sınırları', () => {
   it('SUNUM HATASI navigasyon otoritesini ETKİLEYEMEZ: CEH hâlâ SHADOW', () => {
     const gate = readSrc('platform/navigation/shadow/cehCutoverGate.ts');
     expect(gate).toContain('CEH_CUTOVER_DEFAULT_OPEN: boolean = false');
+  });
+});
+
+/* ══ 7. GPS BOZUKKEN AŞIRI ZOOM YASAĞI (Faz 1 borcu — Faz 2'de kapatıldı) ══
+ *
+ * `decideCameraPolicy` bu tavanı ZATEN üretiyordu (`maxZoomHint`) ama karar
+ * üretimde HİÇ tüketilmiyordu (yalnız `cameraShadowRuntime` + LAB). Sonuç:
+ * GPS bozuk/bayatken kamera araca yaklaşmaya devam ediyor, konum hatasını
+ * BÜYÜTEREK gösteriyordu.
+ * ════════════════════════════════════════════════════════════════════════ */
+
+describe('OEM++ Faz 2 · GPS bozukken zoom tavanı', () => {
+  it('KANONİK KURAL: yalnız GPS_DEGRADED/STALE tavan üretir', () => {
+    expect(resolveMaxZoomHint('GPS_DEGRADED')).toBe(GPS_DEGRADED_MAX_ZOOM);
+    expect(resolveMaxZoomHint('STALE')).toBe(GPS_DEGRADED_MAX_ZOOM);
+    /* Kilit KÖR DEĞİL: sağlıklı durumlarda tavan YOK (kamera kısıtlanmaz). */
+    expect(resolveMaxZoomHint('TRACKING')).toBeNull();
+    expect(resolveMaxZoomHint('INTERPOLATING')).toBeNull();
+    expect(resolveMaxZoomHint('SNAP_CORRECTION')).toBeNull();
+    expect(resolveMaxZoomHint('UNKNOWN')).toBeNull();
+  });
+
+  it('TEK SAYI: gölge kararı ile üretim tavanı AYNI sabiti okur', () => {
+    const shadow = decideCameraPolicy({
+      speedKmh: 40, prevBand: null, nextManeuverM: null,
+      maneuverDistanceSource: 'UNKNOWN', secondManeuverM: null,
+      followState: 'FOLLOWING', motionState: 'GPS_DEGRADED',
+      orientation: 'LANDSCAPE', viewport: 'FULL',
+    });
+    expect(shadow.maxZoomHint).toBe(GPS_DEGRADED_MAX_ZOOM);
+    expect(shadow.maxZoomHint).toBe(resolveMaxZoomHint('GPS_DEGRADED'));
+  });
+
+  it('ÜRETİM BAĞI: `setDrivingView` tavanı kanonik modelden okur ve KIRPAR', () => {
+    const src = stripComments(readSrc('platform/map/MapInteractionManager.ts'));
+    expect(src, 'kanonik tavan çözücü kullanılmıyor').toContain('resolveMaxZoomHint(');
+    expect(src, 'zoom kırpma yok').toContain('Math.min(_zoom, _maxZoom)');
+    /* Sönümleme HAM zoom\'u değil, KIRPILMIŞ zoom\'u almalı. */
+    expect(src).toContain('limitStep(_prevAppliedZoom, _zoomWanted, ZOOM_MAX_STEP)');
+    expect(src, 'sönümleme hâlâ kırpılmamış zoom alıyor')
+      .not.toContain('limitStep(_prevAppliedZoom, _zoom, ZOOM_MAX_STEP)');
+  });
+
+  it('EŞİK BURADA İCAT EDİLMEZ: harita katmanı kendi sayısını tanımlamaz', () => {
+    const src = stripComments(readSrc('platform/map/MapInteractionManager.ts'));
+    expect(src, 'harita katmanı kendi zoom tavanını yazmış')
+      .not.toMatch(/16\.5/);
+    const model = readSrc('platform/navigation/core/cameraPolicyModel.ts');
+    expect(model).toContain('export const GPS_DEGRADED_MAX_ZOOM = 16.5');
+  });
+
+  it('HAREKET DURUMU SAHİBİNDEN okunur — bu katman ÜRETMEZ', () => {
+    const src = stripComments(readSrc('platform/map/MapInteractionManager.ts'));
+    expect(src).toContain('getMarkerMotionSnapshot(');
+    /* Kendi bozukluk kararını KURMAZ (eşik/karşılaştırma yok). */
+    expect(src, 'harita katmanı kendi GPS bozukluk kararını üretiyor')
+      .not.toMatch(/accuracy\s*[<>]=?\s*\d/);
+  });
+});
+
+/* ══ 8. GÖRSEL DİL — TEK PALET OTORİTESİ (Faz 2 kapsam sınırı) ════════════
+ *
+ * ⚠️ Bu tur paletleri YENİDEN TASARLAMADI. Değerler gerçek cihaz ekranından
+ * ÖLÇÜLMÜŞ (`adb screencap` RGB) ve gerçek araçta KULLANICI KARARIYLA
+ * belirlenmiştir (`mapStyleBuilders.ts` §5, 2026-08-17). Cihaz görülmeden
+ * üzerine tahmin yazmak, doğrulanmış kararı doğrulanmamışla değiştirmek olurdu.
+ * Bu bölüm palet OTORİTESİNİN tekliğini kilitler — DEĞERLERİ değil (onlar
+ * `mapDayPaletteContrast` · `mapNightContrastAndTileError` · `mapMood
+ * PaletteAuthority` testlerinde ZATEN kilitli).
+ * ════════════════════════════════════════════════════════════════════════ */
+
+describe('OEM++ Faz 2 · palet otoritesi', () => {
+  it('DAY ve NIGHT AYNI semantik token kümesini taşır', () => {
+    expect(Object.keys(DAY_PALETTE).sort()).toEqual(Object.keys(NIGHT_PALETTE).sort());
+  });
+
+  it('YOL HİYERARŞİSİ her iki palette de TANIMLI (dört kademe + kasa)', () => {
+    for (const [name, pal] of [['DAY', DAY_PALETTE], ['NIGHT', NIGHT_PALETTE]] as const) {
+      for (const token of ['motorway', 'primary', 'secondary', 'minor',
+        'motorwayCasing', 'primaryCasing', 'minorCasing'] as const) {
+        expect(pal[token], `${name}.${token} tanımsız`).toBeTruthy();
+      }
+    }
+  });
+
+  it('BİLEŞENLER kendi yol/rota paletini HARDCODE ETMEZ', () => {
+    for (const f of ['components/map/FullMapView.tsx', 'components/map/MiniMapWidget.tsx']) {
+      const src = stripComments(readSrc(f));
+      /* Palet token değerleri bileşene dağılmamalı — otorite tek yerdedir. */
+      for (const hex of [NIGHT_PALETTE.motorway, NIGHT_PALETTE.minor,
+        DAY_PALETTE.motorway, DAY_PALETTE.minor]) {
+        expect(src.toLowerCase(), `${f} palet rengini hardcode etmiş: ${hex}`)
+          .not.toContain(String(hex).toLowerCase());
+      }
+    }
   });
 });

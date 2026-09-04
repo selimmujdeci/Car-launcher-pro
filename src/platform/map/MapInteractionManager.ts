@@ -20,7 +20,8 @@ import {
   isVehicleFramed,
 } from '../cameraEngine';
 import {
-  resolveSpeedBand, SPEED_BANDS, resolveManeuverBand, type SpeedBand,
+  resolveSpeedBand, SPEED_BANDS, resolveManeuverBand, resolveMaxZoomHint,
+  type SpeedBand, type CameraPolicyInput,
 } from '../navigation/core/cameraPolicyModel';
 import {
   resolveTopPadForAnchor, updateAnchorBias, limitStep, limitAngleStep,
@@ -29,6 +30,9 @@ import {
 import {
   resolveEntryBearing, type EntryBearingDecision,
 } from '../navigation/core/navigationEntryBearing';
+/* Kanonik işaret hareket durumu — kamera zoom tavanının GİRDİSİ.
+   Bu dosya durumu ÜRETMEZ, yalnız OKUR (tek otorite korunur). */
+import { getMarkerMotionSnapshot } from '../navigation/navMarkerMotionRuntime';
 import { useHazardStore } from '../../store/useHazardStore';
 import {
   M,
@@ -330,6 +334,12 @@ export function setDrivingView(
    * UYGULANMAZ; gerekçe `cameraPolicyModel.resolveManeuverBand` içindedir.
    */
   maneuverDistanceSource?: 'ALONG_ROUTE' | 'STRAIGHT_LINE' | 'UNKNOWN',
+  /**
+   * İşaret hareket durumu (kanonik `navMarkerMotionRuntime`den gelir — bu
+   * katman HESAPLAMAZ, yalnız TAŞIR). `GPS_DEGRADED`/`STALE` iken kamera
+   * zoom'u kanonik tavana (`GPS_DEGRADED_MAX_ZOOM`) KIRPILIR.
+   */
+  motionState?: CameraPolicyInput['motionState'],
 ) {
   // ⭐ SAHA KÖK NEDEN (2026-07-04, "harita sabit kalıyor + gitme yönüne dönmüyor"):
   // Buradaki eski `!map.isStyleLoaded()` guard'ı sürüş kamerasını YAPISAL olarak
@@ -501,9 +511,28 @@ export function setDrivingView(
      hedef bir karede büyük sıçrarsa ilk adım da büyüktür; bu sınır o adımı
      keser. Durakta zaten dondurulmuş değerler kullanılır → sınırlayıcı YALNIZ
      hareket hâlinde iş görür. */
+  /* ── GPS BOZUKKEN AŞIRI ZOOM YASAĞI (Faz 1'in AÇIK BORCU — kapatıldı) ────
+   * `decideCameraPolicy` bu tavanı (`maxZoomHint`) ZATEN üretiyordu ama karar
+   * üretimde HİÇ tüketilmiyordu (yalnız `cameraShadowRuntime` + LAB). Sonuç:
+   * GPS bozuk/bayatken kamera araca yaklaşmaya devam ediyor, konum hatasını
+   * BÜYÜTEREK gösteriyordu — sürücü yanlış yolda duruyormuş gibi görünüyordu.
+   *
+   * Tavan KANONİK modelden okunur (`resolveMaxZoomHint`); bu dosya kendi
+   * eşiğini KURMAZ. Durakta zaten haritanın kendi zoom'u korunur → kırpma
+   * YALNIZ hareket hâlinde iş görür. */
+  const _motionNow: CameraPolicyInput['motionState'] = motionState ?? (() => {
+    /* Kanonik hareket durumu SAHİBİNDEN okunur (`navMarkerMotionRuntime`);
+       bu dosya onu HESAPLAMAZ. Okunamazsa `UNKNOWN` → tavan YOK (mevcut
+       davranış korunur, fail-open DEĞİL fail-unchanged: kırpma bir EK
+       kısıttır, yokluğu eski davranışı verir). */
+    try { return getMarkerMotionSnapshot(performance.now()).state; }
+    catch { return 'UNKNOWN'; }
+  })();
+  const _maxZoom = resolveMaxZoomHint(_motionNow);
+  const _zoomWanted = _maxZoom === null ? _zoom : Math.min(_zoom, _maxZoom);
   const _zoomEff = _standstillFix
     ? map.getZoom()
-    : limitStep(_prevAppliedZoom, _zoom, ZOOM_MAX_STEP);
+    : limitStep(_prevAppliedZoom, _zoomWanted, ZOOM_MAX_STEP);
   const _pitchEff = _standstillFix
     ? map.getPitch()
     : limitStep(_prevAppliedPitch, _pitch, PITCH_MAX_STEP_DEG);
