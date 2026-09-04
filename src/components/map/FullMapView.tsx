@@ -1055,6 +1055,12 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
         // yaklaşım zoom'u + turn anticipation hiç devreye girmiyordu).
         const _rsTick  = getRouteState();
         const turnDist = _rsTick.steps.length ? _rsTick.distanceToNextTurnMeters : undefined;
+        /* Mesafenin KAYNAĞI da taşınır — KARAR burada VERİLMEZ. Kamera/rota
+           vurgusu manevraya göre kurulacaksa mesafenin YOL-BOYU olması şarttır
+           (kuş uçuşu virajlı yaklaşımda kısa çıkar → kavşağa erken girilir).
+           Kapı `MapInteractionManager` içinde, kanonik `resolveManeuverBand`
+           ile uygulanır; bu satır yalnız gerçeği İLETİR. */
+        const _turnDistSource = _rsTick.distanceToNextTurnSource;
 
         // A — Araç işaretçisi + Visual Snapping
         // ACTIVE: snap → rota yoluna kilitle, GPS zıplamalarını gizle
@@ -1209,7 +1215,7 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
 
             if (_camChanged) {
               // Kamera snapped pozisyonu takip eder → GPS zıplamalarını sürücüye hissettirmez
-              setDrivingView(mapRef.current, displayLat, displayLng, _camBear, speedKmh, h, turnDist, obdSpeedRef.current, _nextTurnBearing, _routeBearing);
+              setDrivingView(mapRef.current, displayLat, displayLng, _camBear, speedKmh, h, turnDist, obdSpeedRef.current, _nextTurnBearing, _routeBearing, _turnDistSource);
               sentCamLat   = displayLat;
               sentCamLng   = displayLng;
               sentCamBear  = _camBear;

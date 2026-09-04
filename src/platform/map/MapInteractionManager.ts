@@ -20,7 +20,7 @@ import {
   isVehicleFramed,
 } from '../cameraEngine';
 import {
-  resolveSpeedBand, SPEED_BANDS, type SpeedBand,
+  resolveSpeedBand, SPEED_BANDS, resolveManeuverBand, type SpeedBand,
 } from '../navigation/core/cameraPolicyModel';
 import {
   resolveTopPadForAnchor, updateAnchorBias, limitStep, limitAngleStep,
@@ -324,6 +324,12 @@ export function setDrivingView(
   /** Rotanın İLERİ yönü (araçtan bir sonraki rota noktasına). Durakta kamera
    *  yönü BUNDAN alınır — bkz. `_standstillFix` gerekçesi. */
   routeBearing?: number,
+  /**
+   * `turnApproachM`in KAYNAĞI (kanonik rota durumundan gelir — bu katman
+   * HESAPLAMAZ, yalnız TAŞIR). `ALONG_ROUTE` değilse manevra kamerası
+   * UYGULANMAZ; gerekçe `cameraPolicyModel.resolveManeuverBand` içindedir.
+   */
+  maneuverDistanceSource?: 'ALONG_ROUTE' | 'STRAIGHT_LINE' | 'UNKNOWN',
 ) {
   // ⭐ SAHA KÖK NEDEN (2026-07-04, "harita sabit kalıyor + gitme yönüne dönmüyor"):
   // Buradaki eski `!map.isStyleLoaded()` guard'ı sürüş kamerasını YAPISAL olarak
@@ -420,11 +426,33 @@ export function setDrivingView(
   M.lastJumpLat = lat;
   M.lastJumpLng = lng;
 
+  /* ── MANEVRA KAMERASI KAPISI (kanonik kural, burada İCAT EDİLMEZ) ────────
+   * ÖLÇÜLEN KUSUR: `turnApproachM` üretime `distanceToNextTurnSource`
+   * DENETLENMEDEN geliyordu (`FullMapView` yalnız `steps.length`e bakıyordu).
+   * Kaynak `STRAIGHT_LINE` iken kuş uçuşu mesafe virajlı yaklaşımda gerçek
+   * yol mesafesinden KISA çıkar → kamera kavşağa ERKEN girer, zoom ve yön
+   * öngörüsü olmayan bir manevraya göre kurulur.
+   *
+   * Kural ZATEN vardı ama yalnız GÖLGEDE koşuyordu: `cameraPolicyModel.
+   * resolveManeuverBand` kaynak `ALONG_ROUTE` değilse `'NONE'` döndürür ve
+   * `decideCameraPolicy` bunu `applyManeuverCamera: false` yapar — o karar
+   * üretimde HİÇ TÜKETİLMİYORDU (yalnız `cameraShadowRuntime` + LAB).
+   * Burada kapı KANONİK modelden okunur; ikinci bir eşik/kural KURULMAZ.
+   *
+   * Kaynak BİLDİRİLMEMİŞSE (eski çağrı) davranış DEĞİŞMEZ — `undefined`
+   * geriye dönük uyum için `ALONG_ROUTE` sayılır; kilit testi bu iki yolu
+   * ayrı ayrı denetler. */
+  const _maneuverBand = resolveManeuverBand(
+    turnApproachM ?? null,
+    maneuverDistanceSource ?? 'ALONG_ROUTE',
+  );
+  const _gatedTurnM = _maneuverBand === 'NONE' ? undefined : turnApproachM;
+
   // ── Camera target → smooth (Faz 3.1/3.3/3.4) ───────────────────────────
-  const target = computeCameraTarget(effectiveSpeed, turnApproachM);
+  const target = computeCameraTarget(effectiveSpeed, _gatedTurnM);
 
   // Turn anticipation + inertia + momentum model (Faz 3.4)
-  const anticipatedBearing = computeAnticipatedBearing(heading, turnApproachM, nextTurnBearing);
+  const anticipatedBearing = computeAnticipatedBearing(heading, _gatedTurnM, nextTurnBearing);
   /* Δt tam BURADA okunur, fonksiyonun tepesinde DEĞİL: yukarıdaki durakta
      erken-dönüş yolu sönümleme yapmaz; orada saati tüketmek bir sonraki
      gerçek tick'in Δt'sini SIFIRLAR ve kamerayı yapay biçimde hızlandırırdı. */
@@ -707,9 +735,12 @@ export function setDrivingView(
     safeSetPaint(map, ROUTE_FLOW,     'line-width', routeWidthExpression(rw.flow));
   }
 
-  // ── Maneuver tier — yalnız KADEME hesabı (renk kararı burada DEĞİL) ────────
-  const _mTier = !turnApproachM || turnApproachM >= 200 ? 0
-    : turnApproachM >= 50 ? 1
+  /* ── Maneuver tier — yalnız KADEME hesabı (renk kararı burada DEĞİL) ────────
+   * AYNI KAPI: rota vurgusunun manevraya yaklaşınca güçlenmesi de bir MANEVRA
+   * kararıdır. Kaynak yol-boyu değilse kademe YÜKSELMEZ — aksi hâlde kamera
+   * susarken rota rengi hâlâ "kavşak geliyor" derdi (iki yüzey, iki gerçek). */
+  const _mTier = !_gatedTurnM || _gatedTurnM >= 200 ? 0
+    : _gatedTurnM >= 50 ? 1
     : 2;
 
   /* ── ROTA RENGİ — TEK KARAR NOKTASI (PR-3a) ────────────────────────────────

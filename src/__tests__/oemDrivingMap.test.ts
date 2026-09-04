@@ -20,7 +20,11 @@ import {
   resolveTopPadForAnchor, updateAnchorBias, limitStep, limitAngleStep,
   ANCHOR_MIN, ANCHOR_MAX, ANCHOR_MAX_STEP, ANCHOR_BIAS_DEADBAND,
 } from '../platform/map/core/cameraCompositionModel';
-import { SPEED_BANDS, resolveSpeedBand } from '../platform/navigation/core/cameraPolicyModel';
+import {
+  SPEED_BANDS, resolveSpeedBand, resolveManeuverBand, MANEUVER_BANDS,
+} from '../platform/navigation/core/cameraPolicyModel';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 
 const TIER0 = NAV_SUPPRESS_TIERS[0];
 
@@ -408,5 +412,123 @@ describe('P0-NAV-03 · sözleşme uygulayıcısı stil yarışına dayanır', ()
     applyMapDeclutter(m as never, 'FULL', false, true);
     expect(m.painted.length, 'aynı profil ikinci kez yazılmış').toBe(n);
     invalidateMapDeclutter();
+  });
+});
+
+/* ══ 5. MANEVRA KAMERASI KAPISI — GÖLGEDEN ÜRETİME (OEM++ sunum turu) ═════
+ *
+ * ÖLÇÜLEN KUSUR (2026-09-04, kod okundu): `FullMapView` kamera için manevra
+ * mesafesini YALNIZ `steps.length` kontrolüyle geçiriyordu
+ * (`_rsTick.distanceToNextTurnMeters`); `distanceToNextTurnSource` HİÇ
+ * denetlenmiyordu. Kaynak `STRAIGHT_LINE` iken kuş uçuşu mesafe virajlı
+ * yaklaşımda gerçek yol mesafesinden KISA çıkar → kamera kavşağa ERKEN
+ * girer ve rota vurgusu olmayan bir manevraya göre güçlenir.
+ *
+ * Kural ZATEN vardı ama yalnız GÖLGEDE koşuyordu: `decideCameraPolicy`
+ * üretimde HİÇ tüketilmiyordu (yalnız `cameraShadowRuntime` + LAB). Bu
+ * bölüm kapının ÜRETİMDE uygulandığını kilitler.
+ * ════════════════════════════════════════════════════════════════════════ */
+
+const SRC = resolve(__dirname, '..');
+const readSrc = (rel: string) => readFileSync(resolve(SRC, rel), 'utf8');
+const stripComments = (t: string) =>
+  t.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/\/\/[^\n]*/g, ' ');
+
+describe('OEM++ · manevra kamerası kaynak kapısı', () => {
+  it('KANONİK KURAL: yol-boyu OLMAYAN mesafe manevra bandı ÜRETMEZ', () => {
+    /* Kural modelin kendisindedir — bu tur onu YENİDEN TANIMLAMADI. */
+    expect(resolveManeuverBand(50, 'STRAIGHT_LINE')).toBe('NONE');
+    expect(resolveManeuverBand(50, 'UNKNOWN')).toBe('NONE');
+    /* Kilit KÖR DEĞİL: aynı mesafe yol-boyu iken bant GERÇEKTEN doğar. */
+    expect(resolveManeuverBand(50, 'ALONG_ROUTE')).toBe('IMMINENT');
+    expect(resolveManeuverBand(MANEUVER_BANDS.APPROACH_M, 'ALONG_ROUTE')).toBe('APPROACH');
+    expect(resolveManeuverBand(MANEUVER_BANDS.FAR_M, 'ALONG_ROUTE')).toBe('FAR');
+    expect(resolveManeuverBand(MANEUVER_BANDS.FAR_M + 1, 'ALONG_ROUTE')).toBe('NONE');
+  });
+
+  it('ölçülemeyen mesafe manevra kamerası AÇMAZ (sahte yakınlık yok)', () => {
+    expect(resolveManeuverBand(null, 'ALONG_ROUTE')).toBe('NONE');
+    expect(resolveManeuverBand(0, 'ALONG_ROUTE')).toBe('NONE');
+    expect(resolveManeuverBand(Number.NaN, 'ALONG_ROUTE')).toBe('NONE');
+  });
+
+  it('ÜRETİM KAPISI: `setDrivingView` kanonik bandı okur ve mesafeyi KAPIDAN geçirir', () => {
+    const src = stripComments(readSrc('platform/map/MapInteractionManager.ts'));
+    /* Kapı kanonik modelden gelir — ikinci eşik/kural KURULMAZ. */
+    expect(src, 'kanonik bant çözücü kullanılmıyor').toContain('resolveManeuverBand(');
+    expect(src, 'kapı sonucu değişkeni yok').toContain('_gatedTurnM');
+    /* Kamera hedefi ve yön öngörüsü HAM mesafeyi DEĞİL, kapılı mesafeyi alır. */
+    expect(src).toContain('computeCameraTarget(effectiveSpeed, _gatedTurnM)');
+    expect(src).toContain('computeAnticipatedBearing(heading, _gatedTurnM, nextTurnBearing)');
+    expect(src, 'ham turnApproachM hâlâ kamera hedefine gidiyor')
+      .not.toContain('computeCameraTarget(effectiveSpeed, turnApproachM)');
+    expect(src, 'ham turnApproachM hâlâ yön öngörüsüne gidiyor')
+      .not.toContain('computeAnticipatedBearing(heading, turnApproachM, nextTurnBearing)');
+  });
+
+  it('AYNI KAPI rota vurgusunda da geçerli (iki yüzey, TEK gerçek)', () => {
+    const src = stripComments(readSrc('platform/map/MapInteractionManager.ts'));
+    /* Kamera susarken rota rengi "kavşak geliyor" DİYEMEZ. */
+    expect(src).toMatch(/_mTier\s*=\s*!_gatedTurnM/);
+    expect(src, 'manevra kademesi hâlâ ham mesafeye bakıyor')
+      .not.toMatch(/_mTier\s*=\s*!turnApproachM/);
+  });
+
+  it('UI KARAR VERMEZ, yalnız KAYNAĞI taşır (L7 sınırı)', () => {
+    const ui = stripComments(readSrc('components/map/FullMapView.tsx'));
+    /* Kaynağı okuyup GEÇİRİR… */
+    expect(ui).toContain('_turnDistSource');
+    expect(ui).toContain('_rsTick.distanceToNextTurnSource');
+    /* …ama kapıyı KENDİSİ kurmaz: eşik/bant kararı UI'da OLMAZ. */
+    expect(ui, 'UI kendi manevra bandını hesaplıyor').not.toContain('resolveManeuverBand');
+    expect(ui, 'UI kendi manevra eşiğini tanımlıyor').not.toContain('MANEUVER_BANDS');
+  });
+
+  it('GERİYE DÖNÜK UYUM: kaynak bildirilmeyen çağrı davranışı DEĞİŞTİRMEZ', () => {
+    const src = readSrc('platform/map/MapInteractionManager.ts');
+    /* Eski çağrı imzası (`maneuverDistanceSource` yok) `ALONG_ROUTE` sayılır —
+       bu tur mevcut davranışı sessizce KISITLAMADI. */
+    expect(src).toContain("maneuverDistanceSource ?? 'ALONG_ROUTE'");
+  });
+});
+
+/* ══ 6. SUNUM KATMANI SINIRLARI (L7) ═════════════════════════════════════ */
+
+describe('OEM++ · sunum katmanı sınırları', () => {
+  it('TEK KAMERA KOMPOZİSYON OTORİTESİ: anchor→padding tek yerde çözülür', () => {
+    const hits = ['platform/map/core/cameraCompositionModel.ts',
+      'platform/map/MapInteractionManager.ts', 'platform/cameraEngine.ts',
+      'components/map/FullMapView.tsx']
+      .filter((f) => readSrc(f).includes('export function resolveTopPadForAnchor'));
+    expect(hits).toEqual(['platform/map/core/cameraCompositionModel.ts']);
+  });
+
+  it('TEK DECLUTTER OTORİTESİ: `resolveDeclutter` tek tanımlı', () => {
+    const hits = ['platform/map/core/mapDeclutterModel.ts',
+      'platform/map/MapLayerManager.ts', 'components/map/FullMapView.tsx',
+      'components/map/MiniMapWidget.tsx']
+      .filter((f) => readSrc(f).includes('export function resolveDeclutter'));
+    expect(hits).toEqual(['platform/map/core/mapDeclutterModel.ts']);
+  });
+
+  it('UI navigasyon KARARI üretmez: rota/eşleşme/CEH hesabı yok', () => {
+    const ui = stripComments(readSrc('components/map/FullMapView.tsx'));
+    for (const forbidden of [
+      'matchToRoute(', 'decideCameraPolicy(', 'resolveDeclutter(',
+      'resolveRouteEmphasis(', 'buildHorizon(', 'stepOffRoute(', 'pickBestRoute(',
+    ]) {
+      expect(ui, `UI navigasyon kararı üretiyor: ${forbidden}`).not.toContain(forbidden);
+    }
+  });
+
+  it('UI ikinci GPS aboneliği AÇMAZ (kanonik kancalar dışında)', () => {
+    const ui = stripComments(readSrc('components/map/FullMapView.tsx'));
+    expect(ui, 'UI doğrudan konum aboneliği açıyor').not.toContain('watchPosition(');
+    expect(ui, 'UI doğrudan geolocation okuyor').not.toContain('navigator.geolocation');
+  });
+
+  it('SUNUM HATASI navigasyon otoritesini ETKİLEYEMEZ: CEH hâlâ SHADOW', () => {
+    const gate = readSrc('platform/navigation/shadow/cehCutoverGate.ts');
+    expect(gate).toContain('CEH_CUTOVER_DEFAULT_OPEN: boolean = false');
   });
 });
