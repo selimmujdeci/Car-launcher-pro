@@ -33,7 +33,7 @@ import type { MonotonicMs } from '../contracts/navMonotonicTime';
 import type { EdgeId } from '../contracts/navEdgeId';
 import type { EvidenceReason } from '../contracts/navEvidence';
 import type {
-  HorizonObject, HorizonPathId, HorizonPathProvenance,
+  HorizonObject, HorizonObjectKind, HorizonPathId, HorizonPathProvenance,
 } from '../contracts/navHorizon';
 
 /* ══════════════════════════════════════════════════════════════════════════
@@ -117,6 +117,25 @@ export type HorizonAttributeDomain =
 export const HORIZON_ATTRIBUTE_DOMAINS: readonly HorizonAttributeDomain[] = [
   'ENFORCEMENT', 'SPEED_LIMIT', 'CURVE', 'ROAD_PROFILE',
 ] as const;
+
+/**
+ * Bir öznitelik alanının ürettiği ufuk nesnesi türleri — **TEK tanım.**
+ *
+ * `cehConsumerContract.aheadDomainMatchesKind` BAŞKA bir sözlüğün
+ * (`CehAheadDomain`, `MANEUVER` dâhil 5 değer) eşlemesidir; bu ise port
+ * sözlüğünündür (4 değer). İkisi ayrı vokabülerlerdir, kopya DEĞİL.
+ */
+export function attributeDomainKinds(
+  domain: HorizonAttributeDomain,
+): readonly HorizonObjectKind[] {
+  switch (domain) {
+    case 'ENFORCEMENT':  return ['ENFORCEMENT'];
+    case 'SPEED_LIMIT':  return ['SPEED_LIMIT'];
+    case 'CURVE':        return ['CURVE'];
+    case 'ROAD_PROFILE': return ['SLOPE', 'ROAD_CLASS'];
+    default:             return [];
+  }
+}
 
 export interface HorizonAttributePorts {
   /** Senkron tek okuma. Abonelik AÇMAZ, timer KURMAZ, ağa ÇIKMAZ. */

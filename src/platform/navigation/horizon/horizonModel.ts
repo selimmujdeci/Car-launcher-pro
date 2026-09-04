@@ -35,8 +35,8 @@ import type { Evidenced } from '../contracts/navEvidence';
 import { derivedNav, unavailableNav } from '../contracts/navEvidence';
 import type { MatchedRoadPose, RealtimeEgoPose } from '../contracts/navEgoPose';
 import type {
-  CehHorizonState, ElectronicHorizon, HorizonObject, HorizonPath, HorizonPathId,
-  HorizonPathProvenance,
+  CehHorizonState, ElectronicHorizon, HorizonObject, HorizonObjectKind, HorizonPath,
+  HorizonPathId, HorizonPathProvenance,
 } from '../contracts/navHorizon';
 import {
   MPP_PATH_ID, degradationForHorizonState, horizonBudgetM,
@@ -44,7 +44,7 @@ import {
 import type { RouteIntentSnapshot } from './routeIntent';
 import { routeIntentCarriesDistance } from './routeIntent';
 import type { HorizonAttributePorts, HorizonAttributeOutcome } from './horizonAttributePorts';
-import { UNAVAILABLE_HORIZON_ATTRIBUTE_PORTS } from './horizonAttributePorts';
+import { UNAVAILABLE_HORIZON_ATTRIBUTE_PORTS, attributeDomainKinds } from './horizonAttributePorts';
 import { pointToSegmentDist } from '../core/geo';
 
 /* ══════════════════════════════════════════════════════════════════════════
@@ -259,6 +259,12 @@ export function buildHorizon(input: HorizonBuildInput): ElectronicHorizon {
   let mppPathId: HorizonPathId | null = null;
   let ambiguous = false;
   let attrOutcome: HorizonAttributeOutcome = 'NOT_MEASURED';
+  /**
+   * Son `readAttrs` çağrısında kaynağın GERÇEKTEN ölçüm ürettiği türler.
+   * `OBJECTS` ve `NO_OBJECTS_IN_RANGE` birer ÖLÇÜMDÜR; `NOT_MEASURED` ve
+   * `SOURCE_UNAVAILABLE` DEĞİLDİR (F6: kesik koridor · paket yok · çapa yok).
+   */
+  let attrMeasuredKinds: readonly HorizonObjectKind[] = [];
 
   /**
    * Öznitelik sorgusunun FİZİKSEL çapası (F6). Yalnız gerçek eşleşme varken
@@ -268,6 +274,16 @@ export function buildHorizon(input: HorizonBuildInput): ElectronicHorizon {
   const anchorAlongM = hasPhysicalMatch ? _num(matched!.alongEdgeM.value) : null;
   const anchorLat = hasPhysicalMatch ? _num(matched!.snappedLat.value) : null;
   const anchorLon = hasPhysicalMatch ? _num(matched!.snappedLon.value) : null;
+
+  /** Bağlı portun KAPASİTESİ → nesne türleri (tek eşleme kaynağı). */
+  const _portMeasuredKinds = (): readonly HorizonObjectKind[] => {
+    const out: HorizonObjectKind[] = [];
+    const bound = Array.isArray(ports?.boundDomains) ? ports.boundDomains : [];
+    for (const d of bound) {
+      for (const k of attributeDomainKinds(d)) if (out.indexOf(k) < 0) out.push(k);
+    }
+    return out;
+  };
 
   const readAttrs = (
     pathId: HorizonPathId, provenance: HorizonPathProvenance,
@@ -284,9 +300,15 @@ export function buildHorizon(input: HorizonBuildInput): ElectronicHorizon {
         nowMonoMs: now,
       });
       attrOutcome = r?.outcome ?? 'SOURCE_UNAVAILABLE';
+      /* Ölçüm ÜRETİLDİ mi — "nesne bulundu mu" ile AYNI ŞEY DEĞİL: kaynak
+         baktı ve bulamadıysa (`NO_OBJECTS_IN_RANGE`) bu da bir ölçümdür. */
+      attrMeasuredKinds = (attrOutcome === 'OBJECTS' || attrOutcome === 'NO_OBJECTS_IN_RANGE')
+        ? _portMeasuredKinds()
+        : [];
       return r?.outcome === 'OBJECTS' && Array.isArray(r.objects) ? r.objects : [];
     } catch {
       attrOutcome = 'SOURCE_UNAVAILABLE';
+      attrMeasuredKinds = [];
       return [];
     }
   };
@@ -317,6 +339,8 @@ export function buildHorizon(input: HorizonBuildInput): ElectronicHorizon {
       lengthM: routeLengthM(),
       startEdgeId: null,
       objects: maneuverObjects(input.route, BRANCH_ROUTE_PATH_ID, budgetM, now, routeConf),
+      /* Bu kolda YALNIZ rota niyeti okundu — öznitelik kaynağı hiç sorulmadı. */
+      measuredKinds: ['MANEUVER'],
     });
     paths.push({
       pathId: BRANCH_MATCHED_PATH_ID,
@@ -328,6 +352,8 @@ export function buildHorizon(input: HorizonBuildInput): ElectronicHorizon {
       lengthM: unavailableNav<number>('MAP_PACKAGE', 'NO_SOURCE'),
       startEdgeId: matched!.edgeId,
       objects: readAttrs(BRANCH_MATCHED_PATH_ID, 'MATCHED_ROAD_TOPOLOGY'),
+      /* Rota niyeti bu kolda okunmadı → `MANEUVER` ÖLÇÜLMEDİ. */
+      measuredKinds: attrMeasuredKinds,
     });
   } else if (hasRoute) {
     const provenance: HorizonPathProvenance = confirmed ? 'ROUTE_INTENT_CONFIRMED' : 'ROUTE_INTENT';
@@ -348,6 +374,8 @@ export function buildHorizon(input: HorizonBuildInput): ElectronicHorizon {
       lengthM: routeLengthM(),
       startEdgeId: confirmed ? matched!.edgeId : null,
       objects,
+      /* Rota niyeti okundu (`MANEUVER`) + öznitelik kaynağının ölçtükleri. */
+      measuredKinds: ['MANEUVER', ...attrMeasuredKinds],
     });
 
     if (conf < MPP_MIN_CONFIDENCE) {
@@ -373,6 +401,8 @@ export function buildHorizon(input: HorizonBuildInput): ElectronicHorizon {
       lengthM: unavailableNav<number>('MAP_PACKAGE', 'NO_SOURCE'),
       startEdgeId: matched!.edgeId,
       objects,
+      /* Rota YOK → manevra sorusu SORULMADI; "manevra yok" DENEMEZ. */
+      measuredKinds: attrMeasuredKinds,
     });
     mppPathId = conf >= MPP_MIN_CONFIDENCE ? MPP_PATH_ID : null;
     state = objects.length === 0 ? 'INSUFFICIENT_METADATA' : 'HORIZON_PARTIAL';

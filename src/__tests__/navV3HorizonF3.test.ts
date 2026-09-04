@@ -466,6 +466,44 @@ describe('F3.3/F3.9 · ufuk motoru', () => {
     expect(mpp.startEdgeId).toBeNull();
   });
 
+  it('F6 — port ÖLÇÜM üretmezse kol o alanı "ölçüldü" SAYMAZ', () => {
+    /* Port bağlı ve `ENFORCEMENT` kapasitesi var, ama bu tik'te ölçüm YOK
+       (kesik koridor · paket hazır değil). Kol bunu saklamaz. */
+    const h = buildHorizon(input({
+      route: routeIntent(),
+      matched: matched(),
+      attributes: {
+        boundDomains: ['ENFORCEMENT'],
+        readAhead: () => ({ outcome: 'NOT_MEASURED', objects: [], reason: 'NO_SOURCE' }),
+      },
+    }));
+    const mpp = mostProbablePath(h)!;
+    expect(mpp.measuredKinds).toContain('MANEUVER');          // rota niyeti okundu
+    expect(mpp.measuredKinds).not.toContain('ENFORCEMENT');   // kaynak bakamadı
+  });
+
+  it('F6 — port "baktım, yok" derse (NO_OBJECTS_IN_RANGE) alan ÖLÇÜLDÜ sayılır', () => {
+    const h = buildHorizon(input({
+      route: routeIntent(),
+      matched: matched(),
+      attributes: {
+        boundDomains: ['ENFORCEMENT'],
+        readAhead: () => ({ outcome: 'NO_OBJECTS_IN_RANGE', objects: [], reason: 'COVERAGE_NONE' }),
+      },
+    }));
+    const mpp = mostProbablePath(h)!;
+    expect(mpp.measuredKinds).toContain('ENFORCEMENT');
+    /* Bağlanmamış alanlar UYDURULMAZ — port yalnız ENFORCEMENT taşıyor. */
+    expect(mpp.measuredKinds).not.toContain('SPEED_LIMIT');
+    expect(mpp.measuredKinds).not.toContain('CURVE');
+  });
+
+  it('F6 — rota YOKKEN manevra alanı ÖLÇÜLMÜŞ sayılmaz (soru sorulmadı)', () => {
+    const h = buildHorizon(input({ mapAvailable: true, matched: matched() }));
+    const mpp = mostProbablePath(h)!;
+    expect(mpp.measuredKinds).not.toContain('MANEUVER');
+  });
+
   it('rota + UYUŞAN fiziksel eşleşme → doğrulanmış MPP', () => {
     const h = buildHorizon(input({ route: routeIntent(), matched: matched() }));
     expect(h.state).toBe('HORIZON_AVAILABLE');

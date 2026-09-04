@@ -71,6 +71,12 @@ export interface EnforcementHorizonPortSnapshot {
   readonly lastCorridorEdgeCount: number | null;
   readonly lastCorridorNodeExpansions: number | null;
   readonly lastCorridorBranchCount: number | null;
+  /**
+   * Son koridor bir TAVAN yüzünden KESİLDİ mi. Bu alan bir tanı süsü değil,
+   * hükmün GİRDİSİDİR: kesikken boş sonuç `NOT_MEASURED` olur, `NO_OBJECTS_
+   * IN_RANGE` OLMAZ. Sahada "neden yok demedi" sorusunun cevabı burasıdır.
+   */
+  readonly lastCorridorTruncated: boolean | null;
   /** Son çağrıda yarıçapta aday nokta sayısı (eşleşmeden ÖNCE). */
   readonly lastCandidateCount: number | null;
   /** Son çağrıda üretilen `HorizonObject` sayısı. */
@@ -87,6 +93,7 @@ let _lastCorridorOutcome: RoadCorridor['outcome'] | null = null;
 let _lastCorridorEdgeCount: number | null = null;
 let _lastCorridorNodeExpansions: number | null = null;
 let _lastCorridorBranchCount: number | null = null;
+let _lastCorridorTruncated: boolean | null = null;
 let _lastCandidateCount: number | null = null;
 let _lastObjectCount: number | null = null;
 let _lastDurationMs: number | null = null;
@@ -101,6 +108,7 @@ export function getEnforcementHorizonPortSnapshot(): EnforcementHorizonPortSnaps
     lastCorridorEdgeCount: _lastCorridorEdgeCount,
     lastCorridorNodeExpansions: _lastCorridorNodeExpansions,
     lastCorridorBranchCount: _lastCorridorBranchCount,
+    lastCorridorTruncated: _lastCorridorTruncated,
     lastCandidateCount: _lastCandidateCount,
     lastObjectCount: _lastObjectCount,
     lastDurationMs: _lastDurationMs,
@@ -116,6 +124,7 @@ export function _resetEnforcementHorizonPortForTest(): void {
   _lastCorridorEdgeCount = null;
   _lastCorridorNodeExpansions = null;
   _lastCorridorBranchCount = null;
+  _lastCorridorTruncated = null;
   _lastCandidateCount = null;
   _lastObjectCount = null;
   _lastDurationMs = null;
@@ -169,6 +178,7 @@ function _readEnforcementAhead(query: HorizonAttributeQuery): HorizonAttributeRe
   _lastCorridorEdgeCount = corridor.edges.length;
   _lastCorridorNodeExpansions = corridor.nodeExpansions;
   _lastCorridorBranchCount = corridor.branchCount;
+  _lastCorridorTruncated = corridor.truncated;
 
   if (corridor.outcome === 'INVALID_START' || corridor.outcome === 'NO_TOPOLOGY') {
     /* Koridor İDDİA EDİLEMEZ (F6 kilidi: kuş uçuşuna sessiz düşüş YOK). */
@@ -242,8 +252,28 @@ function _readEnforcementAhead(query: HorizonAttributeQuery): HorizonAttributeRe
   if (objects.length > 0) {
     return { outcome: 'OBJECTS', objects, reason: 'DETERMINISTIC_DERIVATION' };
   }
-  /* Kaynak hazır + koridor kuruldu + sorgu koştu, hiçbiri bağlanmadı → bu bir
-     ÖLÇÜMDÜR ("ileride denetim yok"), bilgisizlik DEĞİL. */
+  /* ── KESİLMİŞ KORİDOR "YOK" DEMEZ (ÖLÇÜMLE BULUNDU) ────────────────────
+     Koridor bir TAVAN yüzünden kesildiyse (`EDGE_LIMIT`/`NODE_LIMIT`/
+     `DEPTH_LIMIT`, ya da L1'de kimlik çevirisinde kenar düştüyse) ileride
+     TARANMAMIŞ yol kalmıştır. `boundedCorridor` sözleşmesi bunu açıkça söyler:
+     yalnız `COMPLETE`/`BUDGET_EXHAUSTED` hâlinde tüketici "ileride yok"
+     hükmü kurabilir.
+
+     ⚠️ Bu teorik bir kenar durum DEĞİLDİR — gerçek grafta ÖLÇÜLDÜ
+     (`navV3CorridorEnforcementF6.test.ts` §F6.8): 295 346 kenarlı üretim
+     grafında 2 000 m bütçeyle 300 örneğin **74'ü (%24,7)** `NODE_LIMIT` ile
+     KESİLDİ. Kesilmiş koridorda boş sonucu `NO_OBJECTS_IN_RANGE` diye sunmak,
+     her dört sorgudan birinde bilgisizliği ölçülmüş yokluk gibi göstermek
+     olurdu (F6 görev maddesi 13 · G9 ile aynı yasak, başka bir kapıdan).
+
+     Bulunan nesneler ETKİLENMEZ: gezinme mesafe sırasında ilerler, bu yüzden
+     kesme DAİMA uzak uçtadır — yakındaki nesne bulunduysa gerçektir. */
+  if (corridor.truncated) {
+    return { outcome: 'NOT_MEASURED', objects: [], reason: 'BELOW_QUALITY_GATE' };
+  }
+
+  /* Kaynak hazır + koridor kuruldu + sorgu koştu + koridor EKSİKSİZ tarandı,
+     hiçbiri bağlanmadı → bu bir ÖLÇÜMDÜR ("ileride denetim yok"). */
   return { outcome: 'NO_OBJECTS_IN_RANGE', objects: [], reason: 'COVERAGE_NONE' };
 }
 

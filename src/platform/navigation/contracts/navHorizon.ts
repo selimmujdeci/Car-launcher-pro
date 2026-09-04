@@ -167,6 +167,19 @@ export interface HorizonPath {
   /** Kolun başladığı kenar; fiziksel eşleşme yoksa `null`. */
   readonly startEdgeId: EdgeId | null;
   readonly objects: readonly HorizonObject[];
+  /**
+   * Bu kolda kaynağın GERÇEKTEN ölçüm ürettiği nesne türleri (F6).
+   *
+   * **Neden gerekli:** `objects` boş olması iki BAMBAŞKA şey demek olabilir —
+   * (a) kaynak baktı ve ileride bu türden nesne yok (ÖLÇÜLMÜŞ YOKLUK),
+   * (b) kaynak hiç bakamadı / kesik koridor / paket hazır değil (BİLGİSİZLİK).
+   * Tür burada YOKSA boş liste **"ileride yok" DEMEK DEĞİLDİR**; tüketici
+   * `NOT_MEASURED` hükmü kurar (`cehConsumerContract` §3 kuralı).
+   *
+   * Şekil sabittir (V8 hidden-class): alan her zaman vardır, hiç ölçüm
+   * yoksa BOŞ dizidir — silinmez, `undefined` bırakılmaz.
+   */
+  readonly measuredKinds: readonly HorizonObjectKind[];
 }
 
 /* ══════════════════════════════════════════════════════════════════════════

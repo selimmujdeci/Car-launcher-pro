@@ -1685,7 +1685,10 @@ export function buildNavigationCoreCards(s: NavigationCoreRawSnapshot): readonly
                 updatedAt: null },
                 _ep.lastCorridorOutcome + ' · ' + _ep.lastCorridorEdgeCount + ' kenar · '
                   + _ep.lastCorridorNodeExpansions + ' düğüm genişletme · dal '
-                  + _ep.lastCorridorBranchCount)),
+                  + _ep.lastCorridorBranchCount
+                  + (_ep.lastCorridorTruncated === null ? ''
+                    : _ep.lastCorridorTruncated ? ' · KESİLDİ (yokluk iddiası KURULAMAZ)'
+                      : ' · eksiksiz tarandı'))),
       _ep === null
         ? unavailable({ id: 'hz-enforce-match', label: 'Denetim noktası eşleştirme', source: SRC_ENFORCEMENT_PORT,
             note: '', updatedAt: null }, 'okunamadı')

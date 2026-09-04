@@ -21,7 +21,7 @@
  * ayrı maddeler olarak kalır (#1232–#1251 + F6 maddeleri).
  */
 import { describe, it, expect, beforeEach } from 'vitest';
-import { readFileSync, readdirSync } from 'node:fs';
+import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 import {
@@ -31,8 +31,9 @@ import {
 import { buildGraphAdjacency, type GraphAdjacency } from '../platform/navigation/map/graph/graphAdjacency';
 import {
   expandBoundedCorridor, corridorLimits, corridorIsScanComplete,
-  CORRIDOR_HARD_MAX_BUDGET_M,
-  type CorridorLimits,
+  CORRIDOR_HARD_MAX_BUDGET_M, CORRIDOR_MAX_EDGES, CORRIDOR_MAX_NODE_EXPANSIONS,
+  CORRIDOR_MAX_DEPTH,
+  type CorridorLimits, type RawCorridor,
 } from '../platform/navigation/map/graph/boundedCorridor';
 import {
   matchEnforcementPointToEdge, foldEnforcementMatch, EMPTY_ENFORCEMENT_MATCH_COUNTERS,
@@ -413,6 +414,35 @@ async function loadFixturePackage(points: Record<string, unknown>[]): Promise<vo
   globalThis.fetch = original;
 }
 
+/**
+ * YOĞUN IZGARA GRAF — koridor tavanlarını GERÇEKTEN dolduran topoloji.
+ *
+ * 5 kenarlık sentetik graf hiçbir tavanı doldurmaz, bu yüzden "kesilmiş
+ * koridor" davranışını KANITLAYAMAZ. `n × n` düğümlü, hepsi çift yönlü
+ * `spacingM` metrelik ızgara, 2 000 m bütçede kenar/düğüm tavanını doldurur —
+ * gerçek şehir ağının (ölçüldü: 300 örneğin 74'ü `NODE_LIMIT`) küçük ölçekli
+ * ama aynı sınıftan bir örneğidir.
+ */
+function gridView(n: number, spacingM: number): RoutingGraphView {
+  const dLat = spacingM / 111_132;            // 1° enlem ≈ 111 132 m
+  const dLon = spacingM / 84_000;             // 1° boylam ≈ 84 000 m (41°'de)
+  const nodes: (readonly [number, number])[] = [];
+  for (let i = 0; i < n; i++) {
+    for (let j = 0; j < n; j++) nodes.push([41 + i * dLat, 29 + j * dLon]);
+  }
+  const edges: SynthEdge[] = [];
+  for (let i = 0; i < n; i++) {
+    for (let j = 0; j < n; j++) {
+      const id = i * n + j;
+      if (j + 1 < n) edges.push({ from: id, to: id + 1, costM: spacingM, oneway: false, roadClass: 3 });
+      if (i + 1 < n) edges.push({ from: id, to: id + n, costM: spacingM, oneway: false, roadClass: 3 });
+    }
+  }
+  const r = parseRoutingGraph(buildSynthBuffer(nodes, edges));
+  if (r.view === null) throw new Error(`ızgara graf ayrıştırılamadı: ${r.detail}`);
+  return r.view;
+}
+
 describe('F6.4 · enforcementHorizonPort — uçtan uca (gerçek tekiller)', () => {
   beforeEach(() => {
     _resetGraphResidencyForTest();
@@ -481,6 +511,40 @@ describe('F6.4 · enforcementHorizonPort — uçtan uca (gerçek tekiller)', () 
     });
     expect(r.outcome).toBe('NO_OBJECTS_IN_RANGE');
     expect(r.objects).toEqual([]);
+  });
+
+  it('koridor TAVANLA kesildiyse boş sonuç NOT_MEASURED — "ileride yok" DENMEZ', async () => {
+    /* ÖLÇÜMLE BULUNDU (§F6.8): gerçek grafta 2 000 m bütçeyle 300 örneğin 74'ü
+       (%24,7) `NODE_LIMIT` ile kesiliyor. Kesik koridorda "denetim yok" demek
+       her dört sorgudan birinde bilgisizliği ölçülmüş yokluk gibi sunmaktır. */
+    _setRoutingGraphViewForTest(gridView(10, 30));
+    await loadFixturePackage([rawPoint({ lat: 50.0, lng: 50.0 })]);   // ağda nokta YOK
+    const port = createEnforcementHorizonAttributePorts();
+    const r = port.readAhead({
+      pathId: 'MPP', provenance: 'MATCHED_ROAD_TOPOLOGY',
+      startEdgeId: toCanonicalEdgeId(0, 0), startAlongEdgeM: 0,
+      anchorLat: 41.0, anchorLon: 29.0, budgetM: 2_000, nowMonoMs: T0,
+    });
+
+    const snap = getEnforcementHorizonPortSnapshot();
+    expect(snap.lastCorridorTruncated).toBe(true);
+    expect(['EDGE_LIMIT', 'NODE_LIMIT', 'DEPTH_LIMIT'])
+      .toContain(snap.lastCorridorOutcome);
+    expect(r.outcome).toBe('NOT_MEASURED');
+    expect(r.outcome).not.toBe('NO_OBJECTS_IN_RANGE');
+    expect(r.objects).toEqual([]);
+  });
+
+  it('koridor EKSİKSİZ tarandıysa boş sonuç NO_OBJECTS_IN_RANGE kalır (kilit körelmedi)', async () => {
+    await loadFixturePackage([rawPoint({ lat: 50.0, lng: 50.0 })]);
+    const port = createEnforcementHorizonAttributePorts();
+    const r = port.readAhead({
+      pathId: 'MPP', provenance: 'MATCHED_ROAD_TOPOLOGY',
+      startEdgeId: toCanonicalEdgeId(0, 0), startAlongEdgeM: 0,
+      anchorLat: 41.0, anchorLon: 29.0, budgetM: 300, nowMonoMs: T0,
+    });
+    expect(getEnforcementHorizonPortSnapshot().lastCorridorTruncated).toBe(false);
+    expect(r.outcome).toBe('NO_OBJECTS_IN_RANGE');
   });
 
   it('bozuk başlangıç (INVALID_START) → SOURCE_UNAVAILABLE, throw YOK', async () => {
@@ -735,5 +799,216 @@ describe('F6.7 · mimari kilitler', () => {
     for (const bad of ['voiceGuidance', 'speak', 'TextToSpeech', 'Zustand', 'useStore']) {
       expect(src, `port: yasak tüketici API "${bad}"`).not.toContain(bad);
     }
+  });
+});
+
+/* ══════════════════════════════════════════════════════════════════════════
+   8) GERÇEK GRAF ÜZERİNDE SICAK-YOL BÜTÇE ÖLÇÜMÜ (F6 görev maddesi 20)
+   ══════════════════════════════════════════════════════════════════════════
+   Sentetik graf (5 kenar) koridorun DAVRANIŞINI kanıtlar ama MALİYETİNİ
+   kanıtlamaz. Tavanların (96 kenar · 64 düğüm · 32 derinlik · 5 km) varlık
+   sebebi 295 346 kenarlı GERÇEK graftır; bu yüzden ölçüm gerçek artefakt
+   üzerinde yapılır.
+
+   ⚠️ **HOST ÖLÇÜMÜ CİHAZ ÖLÇÜMÜ DEĞİLDİR.** Buradaki süreler geliştirme
+   makinesinin V8'inde alınmıştır; head unit'in CPU'su, belleği ve termal
+   davranışı BAŞKADIR. Kütükteki cihaz maddeleri bu ölçümle 🟢 OLMAZ.
+
+   Zaman EŞİĞİ bir kilit DEĞİLDİR (makineye göre değişir → kırılgan guard
+   olurdu): kilitlenen şey YAPISAL tavanlar, determinizm ve sızıntısızlıktır;
+   süre ÖLÇÜLÜR ve RAPORLANIR. */
+
+const REPO_ROOT = resolve(SRC, '..');
+const REAL_GRAPH_PATH = resolve(REPO_ROOT, 'public', 'maps', 'routing-graph.bin');
+const HAS_REAL_GRAPH = existsSync(REAL_GRAPH_PATH);
+
+let _realView: RoutingGraphView | null = null;
+let _realAdj: GraphAdjacency | null = null;
+
+function realGraph(): { view: RoutingGraphView; adj: GraphAdjacency } {
+  if (_realView === null || _realAdj === null) {
+    const b = readFileSync(REAL_GRAPH_PATH);
+    const buf = b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength) as ArrayBuffer;
+    const r = parseRoutingGraph(buf);
+    if (r.view === null) throw new Error(`gerçek graf ayrıştırılamadı: ${r.detail}`);
+    _realView = r.view;
+    _realAdj = buildGraphAdjacency(r.view);
+  }
+  return { view: _realView, adj: _realAdj };
+}
+
+/** Grafa YAYILMIŞ, deterministik başlangıç kenarları (rastgele DEĞİL). */
+function sampleOrdinals(edgeCount: number, count: number): number[] {
+  const stride = Math.max(1, Math.floor(edgeCount / count));
+  const out: number[] = [];
+  for (let i = 0; i < count; i++) out.push((i * stride) % edgeCount);
+  return out;
+}
+
+const MEASURE_SAMPLES = 300;
+/** Ürünün EN BÜYÜK ufuk bütçesi — en kötü hâl ölçülür (`HORIZON_MAX_M`). */
+const MEASURE_BUDGET_M = 2_000;
+
+interface MeasureRun {
+  readonly corridors: RawCorridor[];
+  readonly durationsMs: number[];
+  readonly outcomes: Record<string, number>;
+  readonly maxEdges: number;
+  readonly maxNodeExpansions: number;
+  readonly maxDepth: number;
+  readonly maxCoveredM: number;
+  readonly branchedSamples: number;
+  readonly multiEdgeSamples: number;
+}
+
+function measureRun(ordinals: readonly number[], keepCorridors: boolean): MeasureRun {
+  const { view, adj } = realGraph();
+  const limits = corridorLimits(MEASURE_BUDGET_M);
+  const corridors: RawCorridor[] = [];
+  const durationsMs: number[] = [];
+  const outcomes: Record<string, number> = {};
+  let maxEdges = 0, maxNodeExpansions = 0, maxDepth = 0, maxCoveredM = 0;
+  let branchedSamples = 0, multiEdgeSamples = 0;
+
+  for (const ordinal of ordinals) {
+    const halfway = Math.max(0, view.edgeCostM[ordinal] ?? 0) / 2;
+    const t0 = performance.now();
+    const c = expandBoundedCorridor(view, adj, ordinal, 0, halfway, limits);
+    durationsMs.push(performance.now() - t0);
+
+    outcomes[c.outcome] = (outcomes[c.outcome] ?? 0) + 1;
+    if (c.edges.length > maxEdges) maxEdges = c.edges.length;
+    if (c.nodeExpansions > maxNodeExpansions) maxNodeExpansions = c.nodeExpansions;
+    if (c.coveredM > maxCoveredM) maxCoveredM = c.coveredM;
+    for (const e of c.edges) if (e.depth > maxDepth) maxDepth = e.depth;
+    if (c.branchCount > 0) branchedSamples++;
+    if (c.edges.length > 1) multiEdgeSamples++;
+    if (keepCorridors) corridors.push(c);
+  }
+
+  return {
+    corridors, durationsMs, outcomes,
+    maxEdges, maxNodeExpansions, maxDepth, maxCoveredM,
+    branchedSamples, multiEdgeSamples,
+  };
+}
+
+function percentileMs(values: readonly number[], p: number): number {
+  const s = [...values].sort((a, b) => a - b);
+  const i = Math.min(s.length - 1, Math.max(0, Math.ceil(p * s.length) - 1));
+  return s[i];
+}
+
+const describeReal = HAS_REAL_GRAPH ? describe : describe.skip;
+
+describeReal('F6.8 · gerçek graf — sıcak-yol CPU/bellek ölçümü', () => {
+  it('M0 — gerçek artefakt okunuyor ve komşuluk kuruluyor (ölçümün ön koşulu)', () => {
+    const { view, adj } = realGraph();
+    expect(view.edgeCount).toBeGreaterThan(100_000);
+    expect(adj.halfEdgeCount).toBeGreaterThan(view.edgeCount);
+
+    const graphBytes = view.nodeLat.byteLength + view.nodeLon.byteLength
+      + view.edgeFrom.byteLength + view.edgeTo.byteLength
+      + view.edgeCostM.byteLength + view.edgeFlags.byteLength;
+    const adjBytes = adj.offsets.byteLength + adj.targetNode.byteLength
+      + adj.edgeOrdinal.byteLength + adj.dir.byteLength;
+
+    /* RAPOR — kalıcı bellek, ölçüm (tahmin değil). */
+    console.log(
+      `[F6 OLCUM] graf: ${view.nodeCount} dugum · ${view.edgeCount} kenar · `
+      + `v${view.version} · tipli dizi ${(graphBytes / 1048576).toFixed(2)} MB · `
+      + `komsuluk ${(adjBytes / 1048576).toFixed(2)} MB · `
+      + `yarim-kenar ${adj.halfEdgeCount}`,
+    );
+    /* Komşuluk graf boyutunun KATI olamaz — sınırsız türev yapı yasak. */
+    expect(adjBytes).toBeLessThan(graphBytes * 3);
+  });
+
+  it('M1 — 300 gerçek örnekte DÖRT tavanın DÖRDÜ de aşılamaz', () => {
+    const { view } = realGraph();
+    const r = measureRun(sampleOrdinals(view.edgeCount, MEASURE_SAMPLES), false);
+
+    expect(r.maxEdges).toBeLessThanOrEqual(CORRIDOR_MAX_EDGES);
+    expect(r.maxNodeExpansions).toBeLessThanOrEqual(CORRIDOR_MAX_NODE_EXPANSIONS);
+    expect(r.maxDepth).toBeLessThanOrEqual(CORRIDOR_MAX_DEPTH);
+    expect(r.maxCoveredM).toBeLessThanOrEqual(MEASURE_BUDGET_M);
+    /* Gerçek grafta topoloji VARDIR — `NO_TOPOLOGY` çıkarsa okuma bozuktur. */
+    expect(r.outcomes.NO_TOPOLOGY ?? 0).toBe(0);
+
+    console.log(
+      `[F6 OLCUM] ${MEASURE_SAMPLES} ornek @ ${MEASURE_BUDGET_M} m — hukum dagilimi: `
+      + Object.entries(r.outcomes).map(([k, v]) => `${k}=${v}`).join(' · ')
+      + ` · en cok kenar ${r.maxEdges}/${CORRIDOR_MAX_EDGES}`
+      + ` · en cok dugum genisletme ${r.maxNodeExpansions}/${CORRIDOR_MAX_NODE_EXPANSIONS}`
+      + ` · en cok derinlik ${r.maxDepth}/${CORRIDOR_MAX_DEPTH}`,
+    );
+  });
+
+  it('M2 — ölçüm KÖR DEĞİL: örnekler gerçekten çok-kenarlı/dallanan koridor üretir', () => {
+    const { view } = realGraph();
+    const r = measureRun(sampleOrdinals(view.edgeCount, MEASURE_SAMPLES), false);
+    /* Tek kenarlık koridorlar ölçülseydi "ucuz" sonucu ANLAMSIZ olurdu. */
+    expect(r.multiEdgeSamples).toBeGreaterThan(MEASURE_SAMPLES / 2);
+    expect(r.branchedSamples).toBeGreaterThan(0);
+    console.log(
+      `[F6 OLCUM] cok-kenarli ornek ${r.multiEdgeSamples}/${MEASURE_SAMPLES} · `
+      + `dallanan ornek ${r.branchedSamples}/${MEASURE_SAMPLES}`,
+    );
+  });
+
+  it('M3 — DETERMİNİZM: aynı 300 örnek ikinci koşuda BİREBİR aynı koridoru verir', () => {
+    const { view } = realGraph();
+    const ords = sampleOrdinals(view.edgeCount, MEASURE_SAMPLES);
+    const a = measureRun(ords, true);
+    const b = measureRun(ords, true);
+    for (let i = 0; i < ords.length; i++) {
+      expect(b.corridors[i].outcome).toBe(a.corridors[i].outcome);
+      expect(b.corridors[i].coveredM).toBe(a.corridors[i].coveredM);
+      expect(b.corridors[i].edges).toEqual(a.corridors[i].edges);
+    }
+  });
+
+  it('M4 — CPU: çağrı başına süre ÖLÇÜLÜR ve raporlanır (eşik kilit DEĞİL)', () => {
+    const { view } = realGraph();
+    const ords = sampleOrdinals(view.edgeCount, MEASURE_SAMPLES);
+    measureRun(ords, false);                          // ısınma (JIT)
+    const r = measureRun(ords, false);
+
+    const total = r.durationsMs.reduce((s, v) => s + v, 0);
+    const p50 = percentileMs(r.durationsMs, 0.5);
+    const p95 = percentileMs(r.durationsMs, 0.95);
+    const max = Math.max(...r.durationsMs);
+    console.log(
+      `[F6 OLCUM] genisletme maliyeti (host) — p50 ${p50.toFixed(3)} ms · `
+      + `p95 ${p95.toFixed(3)} ms · max ${max.toFixed(3)} ms · `
+      + `ortalama ${(total / r.durationsMs.length).toFixed(3)} ms · `
+      + `${MEASURE_SAMPLES} cagri toplam ${total.toFixed(1)} ms`,
+    );
+
+    /* Kaba SAĞLIK tavanı — kalibrasyon DEĞİL. Tavanlar çalışıyorken tek bir
+       genişletme host'ta 250 ms sürüyorsa gezinme sınırsızlaşmış demektir. */
+    expect(max).toBeLessThan(250);
+    expect(Number.isFinite(total)).toBe(true);
+  });
+
+  it('M5 — BELLEK: yinelenen genişletmeden sonra kalıcı yığın artışı sınırlı (sızıntı yok)', () => {
+    const { view } = realGraph();
+    const ords = sampleOrdinals(view.edgeCount, MEASURE_SAMPLES);
+    measureRun(ords, false);                          // ısınma + graf/komşuluk yerleşsin
+
+    const before = process.memoryUsage().heapUsed;
+    for (let round = 0; round < 6; round++) measureRun(ords, false);   // 1800 çağrı
+    const after = process.memoryUsage().heapUsed;
+    const deltaMb = (after - before) / 1048576;
+
+    console.log(
+      `[F6 OLCUM] bellek — 1800 genisletme sonrasi yigin farki `
+      + `${deltaMb.toFixed(2)} MB (GC belirsizligi dahil)`,
+    );
+
+    /* Genişletme MODÜL DURUMU TUTMAZ (G14/saflık kilidi); tek çağrının ürettiği
+       her şey çöp olur. Kalıcı büyüme burada bir SIZINTI imzasıdır — bu tavan
+       cömerttir, performans kalibrasyonu DEĞİLDİR. */
+    expect(deltaMb).toBeLessThan(96);
   });
 });

@@ -1,10 +1,14 @@
 # CAROS NAVİGASYON MİMARİSİ — SPESİFİKASYON v3.0
 
 **Belge kimliği:** `CAROS-NAV-ARCH-SPEC-3.0`
-**Tarih:** 2026-09-03 · **Statü:** **F0 · F1 · F2 UYGULANDI** (F3 CEH sırada)
+**Tarih:** 2026-09-04 · **Statü:** **F0 · F1 · F2 · F3 · F4 · F5 · F6 UYGULANDI**
 > F0 = sözleşme omurgası (§0–§10) · F1 = L1 MapStore (§F1.0–F1.8) ·
-> F2 = L2 Ego/Localization (§F2.0–F2.9). Hiçbiri saha doğrulaması ALMADI —
-> kütük #1205–#1219 🔴 `UNKNOWN / DEVICE VALIDATION REQUIRED`.
+> F2 = L2 Ego/Localization (§F2.0–F2.9) · F3 = L3 CEH (§F3.0–F3.8) ·
+> F4 = graf/topoloji aktivasyonu (§F4.0–F4.10) · F5 = gölge otorite + cutover
+> kapısı (**bu belgede bölümü YAZILMADI** — kayıtlı borç, bkz. §F5) ·
+> F6 = sınırlı koridor + kenar-tabanlı denetim noktası (§F6.0–F6.11).
+> **Hiçbiri saha doğrulaması ALMADI** — kütük #1205–#1268
+> 🔴 `UNKNOWN / DEVICE VALIDATION REQUIRED`.
 **Öncelik:** `AI.md` > `CLAUDE.md` > bu belge > `NAVIGATION_ARCHITECTURE_SPEC_v2.md`
 > tüm diğer navigasyon belgeleri.
 
@@ -1166,3 +1170,368 @@ hükmüne güvenecektir. Yol-ağı eşleşmesinin doğruluğu (#1237 · #1239 ·
 gerçek araçta ölçülmeden ürün kararlarını CEH'e bağlamak, ölçülmemiş bir
 eşleşmeyi uyarı üretmekte yetkili kılmak demektir. **Sıra: önce saha turu,
 sonra F5 tüketici taşıma.**
+
+---
+
+# F5 — CEH TÜKETİCİ GÖÇÜ / GÖLGE OTORİTE (BELGE BORCU)
+
+**Statü:** kod UYGULANDI (2026-09-03), **bu belgede bölümü YAZILMADI.**
+
+F5 kodu ve kilitleri repoda mevcuttur — `horizon/cehConsumerContract.ts` ·
+`shadow/cehShadowModel.ts` · `shadow/cehShadowRuntime.ts` ·
+`shadow/cehGuardianShadowAdapter.ts` · `shadow/cehSuppressionContract.ts` ·
+`shadow/cehCutoverGate.ts` + `navV3CehShadowF5.test.ts`. F5'in anlatımı
+`docs/CAROS_PRO_VIZYONU.md` → **NAV-V3-F5** maddesindedir ve kütük maddeleri
+**#1244–#1251**'dir.
+
+**AÇIK BORÇ (F6'da KAPATILMADI, bilinçli):** bu belgeye F5 bölümünü geriye
+dönük yazmak F6'nın kapsamı değildir ve F6 sınır belgesi *"scope'u sessizce
+genişletme"* der. Borç burada KAYITLIDIR; F6 metni F5'e atıf yaparken
+`CAROS_PRO_VIZYONU.md` → NAV-V3-F5 maddesini kaynak gösterir.
+
+---
+
+# F6 — SINIRLI TOPOLOJİ KORİDORU + KENAR-TABANLI DENETİM NOKTASI
+
+> **Kapsam sözü (F6 sınır belgesi):** F6 şu kanonik zinciri tamamlar —
+> `MatchedRoadPose` → *bounded topology corridor* → *edge-based enforcement
+> match* → *along-network distance* → *CEH enforcement ahead object* →
+> *F5 shadow comparison*. **CEH'i üretim otoritesi YAPMAZ.**
+
+---
+
+## F6.0 ÖLÇÜLMÜŞ GERÇEK (kod + gerçek artefakt okundu, rapora güvenilmedi)
+
+| Ne | Ölçüm |
+|----|-------|
+| Yönlendirme grafı | `public/maps/routing-graph.bin` · **238 252 düğüm · 295 346 kenar · v2** |
+| Graf tipli dizi belleği | **5,48 MB** (`nodeLat/nodeLon/edgeFrom/edgeTo/edgeCostM/edgeFlags`) |
+| CSR komşuluk belleği | **4,07 MB** · **368 758 yarım-kenar** |
+| Denetim noktası paketi | `public/data/enforcement-points.tr.json` · şema 1 · **1 503 nokta** · `EGM_EDS_MAP` |
+| Paket tür dağılımı | `UNKNOWN 1400 · AVERAGE_SPEED 81 · RED_LIGHT 14 · PARKING 8` |
+| Paketin TAŞIMADIĞI | yol kimliği · kenar kimliği · yön AÇISI · hız eşiği · şerit · carriageway |
+
+**Sonuç:** bir denetim noktasının hangi kenara ait olduğu veride YAZMAZ; yalnız
+GEOMETRİK olarak çıkarılabilir ve bu çıkarım **her zaman kesin değildir**. F6'nın
+işi bu belirsizliği gizlemek değil, **sınıflandırmaktır**.
+
+---
+
+## F6.1 SINIRLI KORİDOR — `map/graph/boundedCorridor.ts` (SAF)
+
+*"Aracın oturduğu kenardan başlayarak, önündeki en fazla X metre yol ağı hangi
+kenarlardan oluşur ve her kenarın başı araçtan kaç metre ötededir?"*
+
+Yeni bir routing motoru DEĞİLDİR: hedefi yoktur, maliyet fonksiyonu yoktur,
+yeniden yol bulmaz. A* hâlâ yalnız `NavigationCompute.worker.ts` içindedir ve bu
+dosya onu GÖRMEZ.
+
+**Dört bağımsız tavan** (politika sayıları — sahadan kalibre EDİLMEMİŞTİR):
+
+| Tavan | Değer | Sonuç | Anlamı |
+|-------|-------|-------|--------|
+| Mesafe bütçesi | çağıran verir, ≤ `CORRIDOR_HARD_MAX_BUDGET_M` = 5 000 m | `BUDGET_EXHAUSTED` | tasarım sınırı — **kesme DEĞİL** |
+| Kenar | `CORRIDOR_MAX_EDGES` = 96 | `EDGE_LIMIT` | **KESİLDİ** (kısmi) |
+| Düğüm genişletme | `CORRIDOR_MAX_NODE_EXPANSIONS` = 64 | `NODE_LIMIT` | **KESİLDİ** (kısmi) |
+| Derinlik | `CORRIDOR_MAX_DEPTH` = 32 | `DEPTH_LIMIT` | **KESİLDİ** (kısmi) |
+
+Ayrıca `INVALID_START` (yasak yön dâhil) ve `NO_TOPOLOGY` (komşuluk okunamadı —
+*"yol yok" DEĞİL*). `corridorIsScanComplete()` yalnız `COMPLETE` ve
+`BUDGET_EXHAUSTED` için `true`dur; **yalnız bu iki hâlde tüketici "ileride yok"
+hükmü kurabilir.**
+
+**Yapısal garantiler:**
+- **Yasak yöne çıkılamaz** — `buildGraphAdjacency` tek yönlü kenarın ters kolunu
+  HİÇ üretmez (ek kontrol değil, yapı).
+- **Döngü koruması** — yönlü kenar anahtarı (`ordinal*2+dir`) `visited` kümesinde.
+- **U dönüşü üretilmez** — F4 `_readEdgeTopology` ile birebir aynı kural.
+- **Determinizm** — sıraya ekleme `(mesafe, ordinal, dir)` üçlüsüne göre; eşit
+  mesafeli iki kolun sırası ASLA rastgele olamaz (aksi hâlde gölge
+  karşılaştırması yorumlanamaz).
+- **Kuş uçuşuna sessiz düşüş YOK** — topoloji okunamıyorsa `NO_TOPOLOGY`.
+- **Ham kimlik L1'de kalır** — dosya graf sıra numarasıyla çalışır; kanonik
+  `EdgeId` çevrimi L1 sınırındadır (F4 K6 kilidi korunur).
+
+---
+
+## F6.2 KENAR-TABANLI DENETİM NOKTASI EŞLEŞTİRİCİSİ — `enforcement/enforcementEdgeIndex.ts` (SAF)
+
+**Beş ayrı hüküm — tek "eşleşmedi" kovası YOK:**
+
+| Hüküm | Anlamı |
+|-------|--------|
+| `MATCHED_TO_EDGE` | tek bir yol açıkça en yakın → bağlandı |
+| `AMBIGUOUS_EDGE` | iki AYRI yol ayırt edilemeyecek kadar yakın → **bağlanmadı** |
+| `NO_EDGE_MATCH` | yakında yol VAR ama hiçbiri eşik içinde değil |
+| `OUTSIDE_COVERAGE` | ölçüldü, bu yarıçapta yol YOK (**tek ölçülmüş yokluk**) |
+| `NOT_MEASURED` | L1 hüküm vermedi — **"yok" DEĞİL** |
+
+`matchIsMeasuredAbsence()` YALNIZ `OUTSIDE_COVERAGE` için `true`dur.
+
+**Politika sayıları (kalibre edilmemiş):** dik mesafe tavanı 25 m · belirsizlik
+marjı 8 m · sorgu yarıçapı 40 m.
+
+**Yanlış carriageway'e kamera bindirmek yasak:** bölünmüş yolda iki carriageway
+AYRI kenarlardır ve bir noktaya ikisi de yakındır. "En yakını seç" demek %50
+ihtimalle karşı yöndeki sürücüye uyarı vermektir. Fark marjın altındaysa hüküm
+`AMBIGUOUS_EDGE`tir ve nokta HİÇBİR kenara bağlanmaz. Aynı kenarın iki yönü TEK
+yol sayılır (aksi hâlde her çift yönlü yol yapay olarak belirsiz görünürdü).
+
+**Yön: kanıtsız iddia yok.** Kaynakta açı yoktur, `directionHint` serbest Türkçe
+metindir ve dereceye ÇEVRİLMEZ. Yön uygulanabilirliği yalnız TOPOLOJİDEN:
+tek yönlü kenar → `ONEWAY_IMPLIED` · çift yönlü kenar → `UNKNOWN_DIRECTION`.
+
+---
+
+## F6.3 L1 CEPHESİ GENİŞLEDİ — `map/store/mapStore.ts`
+
+- `expandCorridor(start, budgetM, nowMonoMs): Evidenced<RoadCorridor>` — graf
+  hükmü yoksa/bozuksa `UNAVAILABLE`; geçersiz bütçe `BELOW_QUALITY_GATE`.
+- `alongCorridorDistanceM(corridor, edgeId, alongEdgeM): number | null` —
+  **arama YOKTUR, koridor tablosu okunur.** Konum koridorda değilse `null`;
+  düz çizgiye DÜŞÜLMEZ. Negatif sonuç MEŞRUDUR (nokta geride kalmıştır) —
+  "önümde" hükmünü çağıran kurar.
+- `corridorContainsEdge(corridor, edgeId): boolean`.
+- `RoadCorridorOutcome` L1'in KENDİ sözlüğüdür (yapısal ayna) — saf çekirdek
+  `map/graph/` içinden import ETMEZ; köprü `mapStoreSources.ts`tedir.
+- L1 kimlik çevriminde kenar düşerse koridor da **KESİLMİŞ** sayılır
+  (`truncated: raw.truncated || edges.length !== raw.edges.length`).
+
+**Neden `networkDistanceM` genişletilmedi:** F4'ün `networkDistanceM`'i HMM
+geçiş teriminin sıcak yolunda (aday × aday) çağrılır; oraya çok adımlı arama
+koymak GPS kadansında kare karmaşıklık demektir. F6 tüketicisinin ihtiyacı
+farklıdır: TEK koridor bir kez genişletilir, mesafe onun içinden OKUNUR
+(F4/E5 borcu bu şekilde ve YALNIZ bounded koridor kapsamında kapandı).
+
+---
+
+## F6.4 ÖZNİTELİK PORTU — `enforcementHorizonPort.ts` (bileşim kökü)
+
+**Zincir:** `MatchedRoadPose` (L2) → `MapStore.expandCorridor` (L1) →
+`enforcementPointsSource` (ham paket) → `matchEnforcementPointToEdge` (SAF) →
+`alongCorridorDistanceM` (yol-boyu mesafe) → `HorizonObject`.
+
+- **Neden `horizon/` ağacında değil:** `horizon/**` L3 sınırıdır ve ham
+  sağlayıcıyı DOĞRUDAN ithal edemez (F3 K1/K14). Bu dosya L3'ün DIŞINDA bir
+  bileşim köküdür; `horizon/**` içindeki hiçbir dosya onu import ETMEZ (G17).
+- **İkinci otorite yok:** graf L1'in, eşleştirme `enforcementEdgeIndex`'in,
+  koridor `boundedCorridor`'un tekelidir; burada yalnız SIRALI BAĞLAMA vardır.
+- **Yalnız `ENFORCEMENT`:** `boundDomains = ['ENFORCEMENT']`. Hız limiti/viraj/
+  eğim kaynağı bu binary'de YOKTUR ve UYDURULMAZ.
+- **Üretilen nesne:** kararlı kimlik (`enf:<pointId>:<edgeHi>:<edgeLo>`) ·
+  `distanceFromEgoM` (**yol-boyu**, `Evidenced`) · makine-okur etiket
+  (`enforcement:<tür>:<yön uygulanabilirliği>`; serbest metin TAŞINMAZ) ·
+  `magnitude` = `UNAVAILABLE` (kaynakta hız eşiği YOK) · `edgeId`.
+- **Fail-soft ama sessiz değil:** `readAhead` ASLA throw etmez; ama fail-soft
+  `NOT_MEASURED`i `NO_OBJECTS_IN_RANGE` gibi SUNMAZ.
+
+**Bağlama (F6.5):** `navEgoHorizonBridge` (bileşim kökü) portu üretir ve
+`getCehAuthority().bindAttributePorts(port)` ile bağlar. `boundDomains` CANLI
+yansır — `observe()` beklemez. Bozuk port SESSİZCE reddedilir ve üretim
+varsayılanı (`UNAVAILABLE_HORIZON_ATTRIBUTE_PORTS`) korunur.
+
+---
+
+## F6.6 ÖLÇÜMÜN BULDUĞU İKİ GERÇEK KUSUR (2026-09-04)
+
+> Bu iki kusur **testler yeşilken** vardı. Gerçek graf üzerinde ölçüm
+> yapılmasaydı ikisi de görülmezdi — F6.7'nin varlık sebebi budur.
+
+### Kusur 1 — KESİLMİŞ KORİDOR "İLERİDE YOK" DİYORDU (port seviyesi)
+
+`boundedCorridor` sözleşmesi *"yalnız `COMPLETE`/`BUDGET_EXHAUSTED` hâlinde
+tüketici 'ileride yok' hükmü kurabilir"* der ve `corridorIsScanComplete()` bu
+amaçla yazılmıştı — **ama üretimde HİÇBİR YERDE ÇAĞRILMIYORDU** (yalnız
+`map/store/index.ts` içinden re-export ediliyordu). `enforcementHorizonPort`,
+koridor bir TAVANLA kesilmiş olsa bile boş sonucu `NO_OBJECTS_IN_RANGE`
+(ölçülmüş yokluk) olarak döndürüyordu.
+
+**Ne kadar sık:** gerçek grafta 2 000 m bütçeyle 300 örneğin **74'ü (%24,7)**
+`NODE_LIMIT` ile kesiliyor (F6.7). Teorik kenar durum DEĞİL, olağan hâl.
+
+**Düzeltme:** boş sonuç + `corridor.truncated` → `NOT_MEASURED` /
+`BELOW_QUALITY_GATE`. **Bulunan nesneler etkilenmez:** gezinme mesafe sırasında
+ilerler, bu yüzden kesme DAİMA uzak uçtadır — yakındaki nesne bulunduysa
+gerçektir. `lastCorridorTruncated` LAB'a çıkarıldı (hükmün girdisi görünür).
+
+### Kusur 2 — BOŞ NESNE LİSTESİ "ÖLÇÜLMÜŞ YOKLUK"A ÇEVRİLİYORDU (tüketici seviyesi)
+
+`readCehAhead`, alan kaynağının bağlı olmasını (`domainMeasured`) ölçüm
+YERİNE sayıyordu: kol boşsa doğrudan `NO_OBJECT_IN_HORIZON` (ölçülmüş yokluk)
+dönüyordu. Port `NOT_MEASURED` dese bile (paket hazır değil · çapa yok · kesik
+koridor) bu bilgi kola TAŞINMIYOR, tüketicide yokluk hükmüne dönüşüyordu —
+`cehConsumerContract` §3'ün *"`NOT_MEASURED` → `NONE` dönüşümü YASAK"*
+kuralının ta kendisi, bir katman yukarıdan ihlal ediliyordu.
+
+**Düzeltme (sözleşme):** `HorizonPath` yeni alan taşır —
+
+```ts
+/** Bu kolda kaynağın GERÇEKTEN ölçüm ürettiği nesne türleri (F6). */
+readonly measuredKinds: readonly HorizonObjectKind[];
+```
+
+- `horizonModel` doldurur: `OBJECTS` **ve** `NO_OBJECTS_IN_RANGE` birer
+  ÖLÇÜMDÜR (port baktı); `NOT_MEASURED`/`SOURCE_UNAVAILABLE` DEĞİLDİR.
+  Alan↔tür eşlemesi TEK yerde: `horizonAttributePorts.attributeDomainKinds()`.
+  Rota niyeti okunan kollarda `MANEUVER` eklenir; rota YOKKEN eklenmez
+  ("manevra yok" denemez — soru sorulmamıştır).
+- `cehConsumerContract.pathMeasuresDomain()` — **fail-closed**: alan/şekil
+  yoksa ölçülmemiş sayılır.
+- `readCehAhead` boş kolda önce bunu sorar; ölçülmemişse `NOT_MEASURED`.
+
+**Neden gölge için kritik:** laundering yapılan her yokluk, `compareAhead`
+üzerinden `divergenceRatio`ya girer ve o oran **cutover kapısının girdisidir**.
+Yani kusur, kapıyı sahte kanıtla besleyebilecek türdendi.
+
+---
+
+## F6.7 SICAK-YOL CPU / BELLEK ÖLÇÜMÜ (görev maddesi 20)
+
+Ölçüm **gerçek artefakt** üzerinde yapılır (`navV3CorridorEnforcementF6.test.ts`
+§F6.8), 300 deterministik başlangıç kenarı, ürünün EN BÜYÜK ufuk bütçesiyle
+(`HORIZON_MAX_M` = 2 000 m).
+
+| Ölçüm | Değer (host) |
+|-------|--------------|
+| Hüküm dağılımı | `BUDGET_EXHAUSTED 221 · NODE_LIMIT 74 · COMPLETE 5` |
+| **Kesilme oranı** | **%24,7** (74/300) — hepsi düğüm tavanından |
+| En çok kenar | 91 / 96 |
+| En çok düğüm genişletme | **64 / 64** (tavan BAĞLIYOR) |
+| En çok derinlik | 27 / 32 |
+| Çok-kenarlı örnek | 296 / 300 (ölçüm KÖR değil) |
+| Dallanan örnek | 206 / 300 |
+| Genişletme süresi | p50 **0,008–0,020 ms** · p95 **0,041–0,089 ms** · max **0,052–0,231 ms** (iki koşu) |
+| 300 çağrı toplam | 4,5–10,0 ms |
+| Yığın farkı (1 800 genişletme) | −42,05 MB … +22,00 MB (GC hâkim; **sızıntı imzası YOK**) |
+
+**⚠️ HOST ÖLÇÜMÜ CİHAZ ÖLÇÜMÜ DEĞİLDİR.** Bu süreler geliştirme makinesinin
+V8'inde alınmıştır; head unit'in CPU'su, belleği ve termal davranışı BAŞKADIR.
+Kütükteki cihaz maddeleri bu ölçümle 🟢 OLMAZ.
+
+**Zaman eşiği bir kilit DEĞİLDİR** (makineye göre değişir → kırılgan guard
+olurdu). Kilitlenen: yapısal tavanlar · determinizm · sızıntısızlık. Süre
+ÖLÇÜLÜR ve RAPORLANIR.
+
+**Ürün kararına dönen bulgu:** düğüm tavanı 2 000 m bütçede gerçekten bağlıyor
+(%24,7). Bu bir kusur değil, **bütçe/tavan kalibrasyonu sorusudur** ve cevabı
+sahadan gelir (kütük). F6 bunu gizlemek yerine hükme dönüştürdü: kesik koridor
+yokluk iddiası üretemez.
+
+---
+
+## F6.8 EKLENEN MİMARİ KİLİTLER (F6)
+
+`navV3CorridorEnforcementF6.test.ts` — **61 kilit** (8 bölüm):
+
+| Bölüm | Kapsam |
+|-------|--------|
+| F6.1 | sınırlı gezinme: dört tavan · döngü · tek yön · determinizm · sert bütçe |
+| F6.2 | eşleştirici: beş hüküm · belirsizlik marjı · yön uygulanabilirliği · sayaçlar |
+| F6.3 | L1 fail-closed kapıları (port yok · graf ölçülmedi · geçersiz bütçe) |
+| F6.4 | uçtan uca gerçek tekiller + **kesik koridor → `NOT_MEASURED`** (+ kör olmadığının kanıtı) |
+| F6.5 | `bindAttributePorts` — canlı `boundDomains`, bozuk port reddi |
+| F6.6 | kapı şartı DÖRT alanı ister, alan bazlı ölçüm TEKİ yeter |
+| F6.7 | **G1–G18** mimari kilitler (aşağıda) |
+| F6.8 | gerçek graf CPU/bellek ölçümü **M0–M5** |
+
+| Kilit | Ne korur |
+|-------|----------|
+| G1 | `expandBoundedCorridor` TEK tanımlı (ikinci traversal yok) |
+| G2 | Guardian ağacı `boundedCorridor`/`rtg2Reader`/`graphAdjacency` import EDEMEZ |
+| G3 | koridor genişletme yalnız L1 + bileşim kökünden çağrılır |
+| G4/G5 | dört tavan kaynakta sabit · `visited` olmadan genişleme yok |
+| G6 | ham `ordinal` L1 DIŞINA sızmaz |
+| G7 | düz çizgi mesafesi ASLA "along" alanına yazılmaz |
+| G8 | `AMBIGUOUS_EDGE` kesin ahead-object ÜRETEMEZ |
+| G9 | `NOT_MEASURED → ABSENT` dönüşümü YASAK |
+| G10/G18 | port ses/uyarı/store/DOM API'si import ETMEZ |
+| G11 | CEH production cutover HÂLÂ kapalı |
+| G12/G13 | yeni timer YOK · duvar saati yalnız TANI amaçlı |
+| G14 | saf çekirdek dosyalar I/O · timer · saat İÇERMEZ |
+| G15 | legacy Guardian enforcement sağlayıcısı DEĞİŞMEDİ, hâlâ ÜRETİM sahibi |
+| G16 | F5 gölge dürüstlük sözlüğü (9 hüküm) BOZULMADI |
+| G17 | `horizon/**` bileşim kökünü/ham sağlayıcıyı import ETMEZ |
+
+**GÜNCELLENEN kilitler (kaldırılmadı — yeni doğru davranışa bağlandı):**
+`navV3CehShadowF5.test.ts` fixture'ı artık `measuredKinds` taşır ve **3 yeni
+kilit** eklendi (ölçülmemiş alanda yokluk yasağı · kilidin kör olmadığının
+kanıtı · `pathMeasuresDomain` fail-closed). `navV3HorizonF3.test.ts`'e **3 yeni
+kilit** (port ölçüm üretmezse alan "ölçüldü" sayılmaz · `NO_OBJECTS_IN_RANGE`
+ölçümdür · rota yokken `MANEUVER` ölçülmüş sayılmaz).
+
+---
+
+## F6.9 ÜRETİM OTORİTESİ — DEĞİŞMEDİ (pazarlıksız)
+
+| Karar | Sahibi (F6 sonrası) |
+|-------|---------------------|
+| Denetim noktası uyarısı | **LEGACY** `guardianRuntime` → `enforcementMapSource` |
+| Sesli yönlendirme | `voiceGuidanceRuntime` (`owner: 'NAV_SESSION_RUNTIME'`) |
+| Manevra mesafesi | `routingService` |
+| Hız limiti | `speedLimitService` / `useEffectiveSpeedLimit` |
+| CEH denetim çıktısı | **GÖLGE** — `cehShadowRuntime`, yan etki sayısı yapısal **0** |
+
+`CEH_CUTOVER_DEFAULT_OPEN === false` — kapı HİÇBİR girdiyle açılamaz.
+`ATTRIBUTE_PORTS_BOUND` şartı DÖRT alanın DÖRDÜNÜ ister; F6 yalnız
+`ENFORCEMENT` bağladı → şart hâlâ karşılanmıyor (kasıtlı).
+`F4_FIELD_VALIDATION` şartını üreten bir çalışma-zamanı kaynağı YOKTUR (`null`
+= ölçülmedi → fail-closed).
+
+---
+
+## F6.10 KALAN BİLİNÇLİ BORÇLAR
+
+| # | Borç | Neden F6'da kapanmadı | Ne zaman |
+|---|------|------------------------|----------|
+| F1 | Hız limiti · viraj · eğim öznitelik portları BAĞLI DEĞİL | kaynak bu binary'de YOK (`RTG2` bu alanları taşımaz); uydurmak yasak | ADAS paketi geldiğinde |
+| F2 | Koridor tavanları ve eşleştirme eşikleri **kalibre edilmedi** | politika sayıları; kalibrasyon saha ölçümüdür | saha turu |
+| F3 | %24,7 kesilme oranı ürün için kabul edilebilir mi | host ölçümü karar veremez | saha turu |
+| F4 | `guardianAlertRanker` hâlâ `validUntil` taşımıyor | F5'ten devrediyor; parite kanıtı yok | F7+ |
+| F5 | Bu belgede **F5 bölümü yazılmadı** | F6 kapsamı değil (sınır belgesi) | ayrı belge turu |
+| F6 | `MANEUVER` alanının "ölçüldü" tanımı rota varlığına bağlı | daha ince bir rota-niyeti kanıtı ayrı iştir | F7+ |
+| F7 | F1–F4 borçları (B1 · B3 · B5 · B6 · B8 · C4 · C5 · E3 · E6) | devrediyor | F7+ |
+
+---
+
+## F6.11 F6 ÇIKIŞ DURUMU
+
+| F6 sınır belgesi maddesi | Durum |
+|--------------------------|-------|
+| 1 · ileri yönlü bounded koridor | ✅ `expandBoundedCorridor` |
+| 2 · tek yön/topoloji kuralları | ✅ yapısal (ters kol hiç üretilmez) |
+| 3 · mesafe/kenar/dal/CPU sınırı | ✅ dört tavan + ölçüldü (F6.7) |
+| 4 · döngü/graf patlaması bounded | ✅ `visited` + tavanlar + ölçüm |
+| 5 · enforcement ↔ kanonik edge | ✅ `matchEnforcementPointToEdge` |
+| 6 · belirsiz eşleşme kesin sayılmaz | ✅ `AMBIGUOUS_EDGE` (G8) |
+| 7 · yanlış carriageway üretilemez | ✅ marj kuralı |
+| 8 · along-network mesafe | ✅ `alongCorridorDistanceM` (kuş uçuşu YOK) |
+| 9 · çok-edge mesafe yalnız koridorda | ✅ tablo okuması, arama yok |
+| 10 · straight-line ile sessiz doldurma yok | ✅ (G7) |
+| 11 · CEH enforcement ahead object | ✅ `HorizonObject` üretiliyor |
+| 12 · provenance/evidence/confidence/reason | ✅ `Evidenced<T>` + kol provenance |
+| 13 · ABSENT/NOT_MEASURED/AMBIGUOUS/OUTSIDE_COVERAGE ayrı | ✅ **iki kusur bulundu ve kapatıldı** (F6.6) |
+| 14 · F5 gölge karşılaştırması | ✅ `ENFORCEMENT` alanı gölgede ölçülüyor |
+| 15 · gölge yan etkisi yok | ✅ yapısal 0 (G10 · G18) |
+| 16 · Guardian üretim otoritesi legacy'de | ✅ (G15) |
+| 17 · cutover kapısı kapalı | ✅ (G11) |
+| 18 · F0–F5 guard'ları bozulmadı | ✅ 981 kasa + F0–F5 paketleri PASS |
+| 19 · hedefli testler + tsc + lint | ✅ (aşağıda) |
+| 20 · CPU/bellek ölçülüp raporlandı | ✅ F6.7 |
+| **Saha doğrulaması** | 🔴 **YOK** — kütük #1261–#1268 |
+
+**Doğrulama (2026-09-04):** `tsc -b --force` PASS · değişen 9 dosyada lint PASS ·
+F0–F6 nav paketleri **426 PASS** · LAB navigasyon paketleri **95 PASS** ·
+Guardian/oturum paketleri **249 PASS** · regresyon kasası **981 PASS**.
+Full suite · production build · native build **KOŞULMADI** (bkz. CLAUDE.md
+§IMPLEMENTATION / QA AYRIMI).
+
+**Hüküm: `F6 CODE PASS` — `IMPLEMENTATION COMPLETE / QA REQUIRED`.**
+`F6 FIELD PASS` YAZILAMAZ: gerçek araç kullanılmadı.
+
+### F7'ye gerçek blocker
+
+**Kod tarafında blocker YOK.** Ama **saha ön koşulu vardır ve F5'ten
+devretmektedir:** cutover kapısının `F4_FIELD_VALIDATION` şartı (kütük
+#1232–#1243) gerçek araçta ölçülmeden hiçbir tüketici CEH'e taşınamaz. F6 bu
+şartı DEĞİŞTİRMEDİ; yalnız kapıya bağlanacak zinciri kanıtlanabilir hâle
+getirdi. **Sıra: önce saha turu, sonra tüketici taşıma.**

@@ -80,6 +80,25 @@ export function aheadDomainMatchesKind(domain: CehAheadDomain, kind: HorizonObje
   }
 }
 
+/**
+ * Bu kolda BU alan gerçekten ölçüldü mü (F6).
+ *
+ * `path.objects` boş olması tek başına hüküm DEĞİLDİR: kaynak hiç bakamamış
+ * da olabilir (kesik koridor · paket hazır değil · fiziksel çapa yok). Kol
+ * `measuredKinds` ile hangi türlerde ÖLÇÜM ürettiğini söyler; alan orada
+ * yoksa hüküm `NOT_MEASURED`tır.
+ *
+ * Şekil eksikse (eski/elle kurulmuş kol) **fail-closed**: ölçülmemiş sayılır.
+ */
+export function pathMeasuresDomain(
+  path: HorizonPath | null | undefined, domain: CehAheadDomain,
+): boolean {
+  const kinds = path?.measuredKinds;
+  if (!Array.isArray(kinds)) return false;
+  for (const k of kinds) if (aheadDomainMatchesKind(domain, k)) return true;
+  return false;
+}
+
 /* ══════════════════════════════════════════════════════════════════════════
    2) SONUÇ — "ölçülmedi" ile "yok" YAPISAL OLARAK AYRI
    ══════════════════════════════════════════════════════════════════════════ */
@@ -223,6 +242,19 @@ export function readCehAhead(
 
   const obj = nearestObjectInPath(mpp, domain);
   if (obj === null) {
+    /* ── BOŞ LİSTE TEK BAŞINA "YOK" DEĞİLDİR (F6) ────────────────────────
+       Port bağlı olabilir (`options.domainMeasured`) ama BU TİK'te ölçüm
+       üretmemiş olabilir: koridor tavanla kesildi · denetim paketi hazır
+       değil · fiziksel çapa yok. O hâlde hüküm `NOT_MEASURED`tır.
+       ÖLÇÜLDÜ (§F6.8): gerçek grafta 2 000 m bütçede 300 örneğin 74'ü
+       (%24,7) kesik koridor üretiyor — bu, kenar durum değil olağan hâl. */
+    if (!pathMeasuresDomain(mpp, domain)) {
+      return {
+        ...noCehAheadClaim(domain, 'NOT_MEASURED', gen),
+        provenance: mpp.provenance,
+        physicallyConfirmed: mpp.physicallyConfirmed,
+      };
+    }
     /* Ölçüldü ve bu bütçede nesne yok — `NOT_MEASURED`ten AYRI hüküm. */
     return {
       ...noCehAheadClaim(domain, 'NO_OBJECT_IN_HORIZON', gen),

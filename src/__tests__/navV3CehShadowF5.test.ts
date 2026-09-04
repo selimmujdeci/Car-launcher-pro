@@ -24,12 +24,12 @@ import { derivedNav, observedNav, unavailableNav } from '../platform/navigation/
 import type {
   ElectronicHorizon, HorizonObject, HorizonPath,
 } from '../platform/navigation/contracts/navHorizon';
-import { MPP_PATH_ID } from '../platform/navigation/contracts/navHorizon';
+import { HORIZON_OBJECT_KINDS, MPP_PATH_ID } from '../platform/navigation/contracts/navHorizon';
 import type { CehAheadClaim } from '../platform/navigation/horizon/cehConsumerContract';
 import {
   CEH_AHEAD_DOMAINS, aheadDomainMatchesKind, cehClaimIsActionable,
   cehClaimIsMeasuredAbsence, cehClaimIsUnmeasured, cehClaimStillValid,
-  nearestObjectInPath, noCehAheadClaim, readCehAhead,
+  nearestObjectInPath, noCehAheadClaim, pathMeasuresDomain, readCehAhead,
 } from '../platform/navigation/horizon/cehConsumerContract';
 import type { LegacyAheadClaim } from '../platform/navigation/shadow/cehShadowModel';
 import {
@@ -115,6 +115,10 @@ function path(over: Partial<HorizonPath> = {}): HorizonPath {
     }),
     startEdgeId: null,
     objects: [obj()],
+    /* F6: bu fixture "kaynak HER alanda ölçüm üretti" senaryosudur — mevcut
+       kilitler tam olarak bunu test ediyordu ve aynı şeyi test etmeye devam
+       eder. Ölçülmemiş alan davranışı AYRI kilitlerde denenir (aşağıda). */
+    measuredKinds: [...HORIZON_OBJECT_KINDS],
     ...over,
   };
 }
@@ -190,6 +194,34 @@ describe('F5.1 · CEH tüketici sözleşmesi', () => {
     expect(c.outcome).toBe('NO_OBJECT_IN_HORIZON');
     expect(cehClaimIsMeasuredAbsence(c)).toBe(true);
     expect(cehClaimIsUnmeasured(c)).toBe(false);
+  });
+
+  it('F6 — ölçülmemiş alanda boş liste "yok" DEĞİLDİR (port bağlı olsa bile)', () => {
+    /* Port bağlı (`MEASURED`) ama kol BU alanda ölçüm üretmedi: kesik
+       koridor · paket hazır değil · fiziksel çapa yok. Eskiden bu durum
+       `NO_OBJECT_IN_HORIZON` (ölçülmüş yokluk) olarak sunuluyordu. */
+    const p = path({ measuredKinds: ['MANEUVER'] });          // ENFORCEMENT YOK
+    const c = readCehAhead(horizon({ paths: [p] }), 'ENFORCEMENT', MEASURED);
+    expect(c.outcome).toBe('NOT_MEASURED');
+    expect(cehClaimIsMeasuredAbsence(c)).toBe(false);
+    expect(cehClaimIsUnmeasured(c)).toBe(true);
+  });
+
+  it('F6 — kilit KÖR DEĞİL: alan ölçüldüyse aynı kol ölçülmüş yokluk verir', () => {
+    const p = path({ measuredKinds: ['MANEUVER', 'ENFORCEMENT'] });
+    const c = readCehAhead(horizon({ paths: [p] }), 'ENFORCEMENT', MEASURED);
+    expect(c.outcome).toBe('NO_OBJECT_IN_HORIZON');
+    expect(cehClaimIsMeasuredAbsence(c)).toBe(true);
+  });
+
+  it('F6 — `pathMeasuresDomain` FAIL-CLOSED: şekil eksik/kol yok → ölçülmedi', () => {
+    expect(pathMeasuresDomain(null, 'ENFORCEMENT')).toBe(false);
+    expect(pathMeasuresDomain(
+      { ...path(), measuredKinds: undefined as unknown as [] }, 'ENFORCEMENT',
+    )).toBe(false);
+    expect(pathMeasuresDomain(path({ measuredKinds: [] }), 'ENFORCEMENT')).toBe(false);
+    /* ROAD_PROFILE iki türü de kabul eder — eşleme tek kaynaktan okunur. */
+    expect(pathMeasuresDomain(path({ measuredKinds: ['SLOPE'] }), 'ROAD_PROFILE')).toBe(true);
   });
 
   it('iddia MPP kolundan gelir ve mesafe/etiket taşınır', () => {
