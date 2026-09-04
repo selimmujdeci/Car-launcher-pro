@@ -1,14 +1,15 @@
 # CAROS NAVİGASYON MİMARİSİ — SPESİFİKASYON v3.0
 
 **Belge kimliği:** `CAROS-NAV-ARCH-SPEC-3.0`
-**Tarih:** 2026-09-04 · **Statü:** **F0 · F1 · F2 · F3 · F4 · F5 · F6 · F7 UYGULANDI**
+**Tarih:** 2026-09-04 · **Statü:** **F0 · F1 · F2 · F3 · F4 · F5 · F6 · F7 · F8 UYGULANDI**
 > F0 = sözleşme omurgası (§0–§10) · F1 = L1 MapStore (§F1.0–F1.8) ·
 > F2 = L2 Ego/Localization (§F2.0–F2.9) · F3 = L3 CEH (§F3.0–F3.8) ·
 > F4 = graf/topoloji aktivasyonu (§F4.0–F4.10) · F5 = gölge otorite + cutover
 > kapısı (**bu belgede bölümü YAZILMADI** — kayıtlı borç, bkz. §F5) ·
 > F6 = sınırlı koridor + kenar-tabanlı denetim noktası (§F6.0–F6.11) ·
-> F7 = L4 rota "neden bu rota?" hesap verebilirliği (§F7.0–F7.9).
-> **Hiçbiri saha doğrulaması ALMADI** — kütük #1205–#1272
+> F7 = L4 rota "neden bu rota?" hesap verebilirliği (§F7.0–F7.9) ·
+> F8 = saha ölçüm hazırlığı / enstrümantasyon / replay kanıt paketi
+> (§F8.0–F8.12). **Hiçbiri saha doğrulaması ALMADI** — kütük #1205–#1275
 > 🔴 `UNKNOWN / DEVICE VALIDATION REQUIRED`.
 **Öncelik:** `AI.md` > `CLAUDE.md` > bu belge > `NAVIGATION_ARCHITECTURE_SPEC_v2.md`
 > tüm diğer navigasyon belgeleri.
@@ -1791,3 +1792,334 @@ regresyon kasası **981 PASS**. Full suite · production build · native build
    semantik hizalama kanıtı, sonra kapı.
 3. **G2 tetikleyicisi ölçülmedi:** hiyerarşik yönlendirici ancak onboard rota
    `p95 > 3 s` **gerçek cihazda** ölçülürse açılır (v2 §12/F6).
+
+---
+
+# F8 — SAHA ÖLÇÜM HAZIRLIĞI: ENSTRÜMANTASYON + REPLAY KANIT PAKETİ
+
+> **F8 bir ürün davranışı fazı DEĞİLDİR.** Amaç: *"Araç geldiğinde F4–F7
+> zincirini tek sürüşte, sonradan tekrar analiz edilebilir ve kanıtlanabilir
+> şekilde ölçebilecek canonical saha telemetry/replay paketini hazır
+> etmek."* Hiçbir routing/CEH/Guardian kararı bu fazda DEĞİŞMEDİ.
+
+---
+
+## F8.0 ÖLÇÜLMÜŞ GERÇEK — MEVCUT ÖLÇÜM OTORİTESİ (kod okundu, ikinci framework kurulmadı)
+
+Repoda navigasyon için **ZATEN** bir saha ölçüm hattı vardı — F8 onu KAPATTI,
+YENİDEN İCAT ETMEDİ:
+
+| Katman | Dosya:satır | Ne yapıyordu |
+|--------|-------------|--------------|
+| Salt-okunur köprü | `platform/devtools/navFieldBridge.ts` (211 satır, F8 öncesi) | mevcut senkron getter'ları `window.__CAROS_NAV_FIELD__`e açar |
+| Dış örnekleyici | `scripts/nav-field-record.mjs` | CDP over adb, 1 Hz, JSONL'e yazar — **kendi zamanlayıcısı budur (host'ta, uygulama İÇİNDE değil)** |
+| Analiz | `scripts/nav-field-analyze.mjs` | JSONL'den P0-1..P0-5 metrikleri çıkarır, `NOT_MEASURED` disiplinini korur |
+| Kilit | `regression.guards.test.ts:5284-5391,6342` | salt-okunur · timer yok · dev-kapısı · LAB koordinat sınırı · fail-soft |
+
+**Ölçülen boşluk:** bu hat F0–F2 döneminde yazılmıştı (`match`/`offRoute`/
+`route`/`req`/`provider` alanları) ve **F3–F7'nin ürettiği hiçbir teşhis
+yüzeyini (CEH · graf sakinliği · sınırlı koridor · denetim eşleştirme ·
+gölge karşılaştırma · rota gerekçesi · sıcak-yol maliyeti) İÇERMİYORDU.**
+Bu altı yüzey ZATEN salt-okunur getter olarak vardı (`cehAuthority.
+getDiagnostics()` · `getGraphResidencySnapshot()` · `getEnforcementHorizon
+PortSnapshot()` · `getCehShadowSnapshot()` · `getRouteRationaleLedger()` ·
+`getNavTickCostSnapshot()`) — F8 bunları TEK zaman eksenine TAŞIDI, yeni
+ölçüm otoritesi KURMADI.
+
+**İncelenip REDDEDİLEN alternatif:** `platform/fieldValidation/longRoad*`
+(6 154 satır, OBD/araç-sağlığı alanının **kendi** `setInterval`li black-box
+sistemi). Navigasyon için yeniden kullanmak ya yabancı bir alanın özel
+zamanlayıcısını/deposunu ithal etmek ya da navigasyona İKİNCİ bir zamanlayıcı
+kurmak olurdu — ikisi de CLAUDE.md §CROSS-DOMAIN 8/15 ihlali. Tasarım DESENİ
+(sınırlı halka, "dropped" dürüstlüğü) esinlenildi; kod PAYLAŞILMADI.
+
+---
+
+## F8.1 KAPSAM SINIRI (bağlayıcı)
+
+**F8 begins at:** F4–F7 otoritelerinin ZATEN ürettiği, ama bugüne kadar TEK
+BİR zaman ekseninde birlikte görülemeyen salt-okunur teşhis yüzeyleri.
+
+**F8 ends when:** aynı monotonik zaman ekseninde, sınırlı, dışa aktarılabilir,
+replay edilebilir bir `NavigationFieldTrace` gerçek saha kanıtını taşıyabilir
+durumdadır — kayıt açık/kapalıyken ürün hükümleri birebir AYNI kalır.
+
+**Explicitly outside F8:** routing davranışı değişikliği · maliyet modeli ·
+CEH cutover · Guardian taşıma · eşik kalibrasyonu · yeni harita formatı · UI
+yeniden tasarım · gerçek FIELD PASS.
+
+---
+
+## F8.2 CANONICAL `NavigationFieldTrace` — TEK ŞEMA
+
+`FIELD_TRACE_SCHEMA = 'caros.nav.fieldtrace.v1'` — TEK tanımlı (kilit T11).
+
+`NavFieldSample` (mevcut alanlar DEĞİŞMEDEN) **yedi yeni bölümle** genişledi;
+her biri `_safe(() => …, null)` ile SARILI — bir bölümün getter'ı patlarsa
+yalnız O bölüm `null` olur, örnek ÇÖKMEZ (kilit T6):
+
+| Bölüm | Kaynak (salt-okunur, ZATEN vardı) | Alanlar |
+|-------|-----------------------------------|---------|
+| `ceh` | `cehAuthority.getDiagnostics()` | state · generation · ambiguous · physicallyConfirmed · mppPresent · pathCount · objectCount · horizonAgeMs · mapAvailable · boundDomains · errorCount |
+| `graph` | `getGraphResidencySnapshot()` | state · holders · loadCount · nodeCount · edgeCount · version · parseMs · adjacencyBuilt |
+| `roadCorridor` | `getEnforcementHorizonPortSnapshot()` | calls · lastOutcome · lastCorridorOutcome · lastCorridorEdgeCount · lastCorridorNodeExpansions · **lastCorridorTruncated** · lastCandidateCount · lastObjectCount · lastDurationMs |
+| `enforcement` | aynı kaynak, `cumulativeMatch` | matchedToEdge · ambiguousEdge · noEdgeMatch · outsideCoverage · notMeasured · onewayImplied · unknownDirection · lastOutcome |
+| `shadow` | `getCehShadowSnapshot()` | active · ticks · errorCount · comparable · divergent · divergenceRatio · cutoverState · cutoverUnmet · guardianWouldEmitCount · sideEffectCount |
+| `rationale` | `getRouteRationaleLedger()` | decisions · overrodeProviderFirst · maxDurationPenaltyS · lastFactor · lastChosenIdx · lastDurationPenaltyS · lastAcceptedCount |
+| `perf` | `getNavTickCostSnapshot()` | mapMatch p50/p95/max · progressTick p50/p95/max |
+
+**Uyum:** `readonly EdgeId` gibi ham kimlikler HİÇBİR bölümde YOKTUR (F6 K6/
+G6 kilidiyle AYNI sınır — `enforcementHorizonPort` snapshot'ı zaten koordinat/
+ham-kimlik TAŞIMIYORDU, F8 bunu miras aldı).
+
+---
+
+## F8.3 SAMPLE / EVENT AYRIMI — YENİ ZAMANLAYICI YOK
+
+**Sample:** mevcut `sample()` çıktısının TAMAMI, dış CDP koşumunun HER
+çağrısında (hâlâ 1 Hz, hâlâ host'ta).
+
+**Event:** `deriveFieldEvents(sample, prev, atSampleIndex)` — SAF, iki ardışık
+örneği KARŞILAŞTIRIR (diff), modül-içi tek bir `_prevClass` nesnesiyle. Dokuz
+tür (`NAV_FIELD_EVENT_KINDS`), hepsi GEÇİŞ-tabanlı (aynı durumda kalmak
+TEKRAR üretmez — kilit F8.1'de 9/9 tür için doğrulandı):
+
+`MATCH_STATE_CHANGED · CEH_STATE_CHANGED · CORRIDOR_TRUNCATED ·
+ENFORCEMENT_ACQUIRED · ENFORCEMENT_LOST · SHADOW_DIVERGENCE ·
+ROUTE_SELECTED · RATIONALE_UNKNOWN · GRAPH_RESIDENCY_CHANGED`
+
+`RATIONALE_UNKNOWN` özel önemde: F7'nin *"açıklanamadı"* hükmüne GEÇİŞTE bir
+kez tetiklenir — #1271'in kabul ölçütü (*sahada hiç görülmemeli*) doğrudan bu
+olayın sayısıyla ölçülür.
+
+**"İkinci zamanlayıcı yok" NASIL sağlandı:** `installNavFieldBridge`'in
+döndürdüğü `sample` fonksiyonu artık şunu yapar: `_sample()` çağır → sonucu
+DÖNDÜR (davranış AYNI) → kayıt açıksa aynı sonucu `_pushToTrace`e YAZ.
+Örnekleme kadansı hâlâ dış CDP koşumunundur; app İÇİNDE `setInterval` YOKTUR
+(kilit T1).
+
+---
+
+## F8.4 SINIRLI KAYIT — TAŞMA AÇIKÇA İŞARETLİ
+
+| Sabit | Değer | Gerekçe |
+|-------|-------|---------|
+| `FIELD_TRACE_MAX_SAMPLES` | 3 600 | 1 Hz × 60 dk — tipik sürüş-günü penceresi |
+| `FIELD_TRACE_MAX_EVENTS` | 512 | geçişler örneklerden çok daha seyrek |
+
+**Politika (kasıtlı, gerekçeli):** tavan dolunca YENİ girdi REDDEDİLİR
+(`overflowSamples++`/`overflowEvents++`), EN ESKİ veri KORUNUR. Bir hata
+senaryosunun BAŞLANGICI genelde en değerli kısımdır; halka-tampon gibi eskiyi
+sessizce ezmek bunu kaybettirirdi. `getFieldRecordingStatus()` ve
+`exportFieldTrace()` **aynı** `overflow` nesnesini taşır (iki ayrı otorite
+YOK) — taşma DAİMA `TRACE_TRUNCATED` anlamına gelen `samplesTruncated`/
+`eventsTruncated` bayraklarıyla görünür, asla sessiz değil (kilit T4).
+
+**Elle başlar, elle durur:** `startFieldRecording()`/`stopFieldRecording()`
+DIŞARIDAN çağrılır; `installNavFieldBridge()` otomatik BAŞLATMAZ.
+
+---
+
+## F8.5 GİZLİLİK — VARSAYILAN EXPORT KOORDİNAT TAŞIMAZ
+
+`startFieldRecording({ fieldDebug: true })` **açıkça** istenmedikçe
+`exportFieldTrace()` çıktısında `veh.lat/lon` ve `match.snappedLat/snappedLon`
+`null`e REDAKTE edilir (`coordinatesRedacted: true` alanı bunu BEYAN eder —
+gizlilik bir varsayım değil, dosyanın kendisinde yazılı bir gerçektir).
+Kayıt İÇİ hafızada koordinat durur (mevcut `navFieldBridge` sözleşmesiyle
+AYNI — saha doğruluğu koordinatsız ölçülemez); yalnız **dışa aktarım**
+budanır. Kullanıcı adı · telefon · VIN · API anahtarı · token · ses
+transkripti hiçbir bölümde YAPISAL olarak YOKTUR (kilit: gizlilik alan
+taraması, F8.4 test bölümü).
+
+`provenance` bloğu şema sürümü · uygulama sürümü (`VITE_APP_VERSION`) · git
+revizyonu (`VITE_GIT_REVISION` — `longRoadSources.ts` ile AYNI okuma deseni)
+· kişisel OLMAYAN rastgele `sessionId` taşır; okunamayan alan `null`dır
+(uydurulmaz).
+
+---
+
+## F8.6 REPLAY — `navFieldTraceReplay.ts` (SAF, ikinci runtime DEĞİL)
+
+Saha kaydını F3–F7'nin **zaten kodda var olan** beş sözleşmesine karşı
+DENETLER — GPS/Guardian/native sağlayıcı TAKLİT ETMEZ, yalnız kaydedilmiş
+sayıları okur:
+
+| İlke | Kaynak (dosya:satır atıflı, kodda) | Denetim |
+|------|--------------------------------------|---------|
+| `AMBIGUOUS_NOT_DEFINITE` | `horizonModel.ts` §conflict: `mppPathId = null` | `ceh.state==='AMBIGUOUS_PATH' ⟹ mppPresent===false` |
+| `TRUNCATED_CORRIDOR_NOT_ABSENT` | F6 düzeltmesi (`enforcementHorizonPort.ts`) | `roadCorridor.lastCorridorTruncated===true` iken `lastOutcome !== 'NO_OBJECTS_IN_RANGE'` |
+| `NOT_MEASURED_NOT_AGREEMENT` | `cehShadowModel.ts` | `shadow.divergent ≤ shadow.comparable`; oran sayaçla TUTARLI |
+| `WRONG_DIRECTION_NOT_DEFINITE` | `enforcementEdgeIndex.ts` (ONEWAY_IMPLIED xor UNKNOWN_DIRECTION) | `matchedToEdge === onewayImplied + unknownDirection` |
+| `RATIONALE_MATCHES_SELECTION` | `routeRationaleModel.ts` (F7) | `NO_CANDIDATE ⟺ chosenIdx===null`; belirlenmiş etken ⟹ seçim VAR |
+
+**Kör olmadığının kanıtı:** her ilke için hem TEMİZ hem İHLALLİ fixture
+test edilir (`navV3FieldTraceF8.test.ts` §F8.5, 12 kilit).
+
+**Akış:** saha kaydı `exportTrace()` ile alınır → `replayFieldTrace(trace)`
+(host, vitest) çağrılır → ihlal çıkarsa TAM örnek indeksi bilinir → sentetik
+fixture'a çevrilip mevcut `navV3*.test.ts` desenlerine EKLENİR. Bu, "saha
+bug'ını host testine çevirme" mekanizmasının ta kendisidir.
+
+---
+
+## F8.7 CLI ENTEGRASYONU — TEK KOMUT, İKİ ÇIKTI
+
+`nav-field-record.mjs` **DEĞİŞMEDEN** çalışmaya devam eder (JSONL akışı,
+mevcut davranış); köprü `version >= 2` ise EK olarak:
+
+1. Koşum başında `startRecording({ label })` çağrılır (fail-soft — köprü
+   desteklemiyorsa sessizce atlanır, JSONL akışı ETKİLENMEZ).
+2. Koşum sonunda `stopRecording()` + `exportTrace()` çağrılır, sonuç
+   `<label>-<zaman>.trace.json` dosyasına yazılır.
+
+`nav-field-analyze.mjs` **DEĞİŞMEDEN** P0-1..P0-5 metriklerini basar; EK
+olarak yeni bir "F3–F7 KANIT ÖZETİ" bölümü basar (yalnız GÖZLEM — eşik/PASS
+İCAT ETMEZ; ilke denetimi `replayFieldTrace`e YÖNLENDİRİR, İKİNCİ kural
+motoru KURMAZ).
+
+**Doğrulandı (host, 2026-09-04):** hem F8-alanlı hem F8-öncesi (eski) JSONL
+kayıtları `nav-field-analyze.mjs`den hatasız geçti; eski kayıtta yeni bölüm
+dürüstçe `NOT_MEASURED` yazdı (geriye dönük uyum, kilitsiz ama elle
+doğrulandı — bkz. F8.11).
+
+---
+
+## F8.8 LAB ENTEGRASYONU — BİLİNÇLİ OLARAK GÖRSEL LAB DEĞİL
+
+Mevcut kilit (`regression.guards.test.ts` "LAB EKRANI koordinat sözleşmesini
+KORUR") `navigationCoreSources.ts`nin `navFieldBridge` İÇERMESİNİ ve
+`NavigationCoreScreen.tsx`nin `__CAROS_NAV_FIELD__` REFERANS VERMESİNİ
+**pazarlıksız yasaklar** — çünkü köprü ham koordinat taşır, LAB taşımaz.
+
+F8 görevinin kendi kaçış maddesini kullandı: *"eğer LAB'dan kontrol uygun
+değilse canonical mevcut debug/export yolunu kullan."* Kontrol yüzeyi
+**`window.__CAROS_NAV_FIELD__`** (zaten var olan kanal) — `startRecording`/
+`stopRecording`/`recordingStatus`/`exportTrace` metotlarıyla. Bu, ikinci bir
+kontrol yüzeyi İCAT ETMEK DEĞİL, MEVCUT tek kanalı genişletmektir (kilit T9).
+
+---
+
+## F8.9 KORUNAN ÜRETİM OTORİTELERİ (F8 hiçbirini değiştirmedi)
+
+| Karar | Sahibi | F8 etkisi |
+|-------|--------|-----------|
+| CEH üretim otoritesi | **SHADOW** (`CEH_CUTOVER_DEFAULT_OPEN=false`) | dokunulmadı (kilit T10) |
+| Denetim uyarısı | **LEGACY** `guardianRuntime` | dokunulmadı |
+| Rota seçimi | `pickBestRoute` | dokunulmadı |
+| Ego/eşleştirme | `mapMatchModel`/`egoAuthority` | dokunulmadı |
+| Sıcak-yol ölçümü | `navTickCostModel` (P0-NAV-19) | F8 yalnız OKUR, ikinci ölçüm otoritesi KURMADI |
+
+**Kayıt açık/kapalıyken davranış birebir aynı:** `_pushToTrace` yalnız
+BİRİKTİRİR; hiçbir navigasyon/CEH/Guardian fonksiyonunu ÇAĞIRMAZ (kilit T2 —
+`fetchRoute`/`bindAttributePorts`/`observe()`/… kaynak taramasıyla YASAK).
+
+---
+
+## F8.10 #1232–#1272 KANIT HARİTASI (F8 hiçbirini PASS YAPMAZ)
+
+> Bu tablo *"hangi trace alanı/olayı kanıt sağlar · tek trace yeterli mi ·
+> fiziksel gözlem de gerekir mi"* sorusuna cevaptır — hüküm DEĞİLDİR.
+
+| Madde grubu | Sağlanan trace kanıtı | Tek trace yeterli mi | Fiziksel gözlem AYRICA gerekir mi |
+|---|---|---|---|
+| **F4/1–2** RTG2 okuyucu · routing paritesi | `graph.{nodeCount,edgeCount,version,parseMs}` | kısmen (rota geometrisi trace'de YOK — E4 borcu) | ✅ EVET — gerçek rota sonucu görsel/manuel karşılaştırma ister |
+| **F4/3–5** graf sakinliği · kenar metadatası · topoloji | `graph.{state,holders,loadCount,adjacencyBuilt}` | ✅ EVET | hayır |
+| **F4/6** aday üretimi / yarıçap kapısı | `match.{state,confidence,reasons}` (mevcut, F8 öncesi) | ✅ EVET | hayır |
+| **F4/7** ara poliline yok (dürüstlük sınırı) | — | uygulanamaz | uygulanamaz (bilinen format sınırı, ölçülecek DAVRANIŞ yok) |
+| **F4/8–9** canlı `MatchedRoadPose` · CEH fiziksel doğrulama | `ceh.physicallyConfirmed` + `match.state` | ✅ EVET | hayır |
+| **F4/10** bozuk graf fail-closed | `graph.state==='CORRUPT'`/`'MISSING'` GEÇİŞİ | ✅ EVET (ama tetiklemek için BOZUK artefakt SAHNELENMELİ) | ✅ EVET — kasıtlı bozuk dosya testi saha DIŞI hazırlık ister |
+| **F4/11** yakınlık/bellek kalibrasyonu | `perf.*`, `roadCorridor.lastDurationMs` | ✅ EVET (ham veri) | ✅ EVET — KARAR (eşik) insan analizi ister, trace yalnız GİRDİ verir |
+| **F4/12** kod kapanışı ≠ saha hükmü | — | uygulanamaz | uygulanamaz (bu madde bir SÜREÇ beyanıdır) |
+| **F5/1–2** gölge canlı · sunum yok | `shadow.{active,ticks,sideEffectCount}` | ✅ EVET | hayır (`sideEffectCount` yapısal 0 — kod kanıtı zaten yeterli, trace TEYİT eder) |
+| **F5/3** manevra gölge farkı | `shadow.{comparable,divergent,divergenceRatio}` | ✅ EVET | hayır |
+| **F5/4** denetim gölgesi "yalnız legacy" | `enforcement.*` + Guardian log KARŞILAŞTIRMASI | kısmen | ✅ EVET — legacy Guardian'ın KENDİ gözlemi trace'de YOK, ayrı okunmalı |
+| **F5/5** Guardian otoritesi değişmedi | kod taraması (statik) | uygulanamaz | hayır — bu zaten kilitle kanıtlı, saha DOĞRULAMASI gerektirmez (yalnız ledger kaydı) |
+| **F5/6** cutover kapalı görünmeli | `shadow.cutoverState==='CLOSED'` | ✅ EVET | hayır |
+| **F5/7–8** "ölçülmedi"≠"yok" · belirsizlik kesin iddia üretmez | `RATIONALE_UNKNOWN`/`shadow` alanları + replay ①③ | ✅ EVET (replay ile) | hayır |
+| **F6/1** bounded koridor çalışıyor | `roadCorridor.*` | ✅ EVET | hayır |
+| **F6/2** kesilme oranı / tavan kalibrasyonu | `CORRIDOR_TRUNCATED` olay sayısı / toplam örnek | ✅ EVET (ham veri) | ✅ EVET — tavan DEĞİŞTİRME kararı insan analizi ister |
+| **F6/3–4** kesik koridor / boş liste kusurları | replay ② (`TRUNCATED_CORRIDOR_NOT_ABSENT`) | ✅ EVET | hayır — replay TAM budur |
+| **F6/5** eşleştirme dağılımı | `enforcement.*` (kümülatif) | ✅ EVET | hayır |
+| **F6/6** yanlış carriageway (GÜVENLİK KRİTİK) | `enforcement.ambiguousEdge` + replay ④ | kısmen | ✅ EVET — **F8 sınır maddesi ile PAZARLIKSIZ**: bölünmüş yolda GERÇEK sürüş, iki carriageway'in FİZİKSEL olarak ayrı olduğunun insan GÖZLEMİYLE teyidi gerekir; telemetri TEK BAŞINA bu maddeyi ASLA PASS yapamaz |
+| **F6/7** yol-boyu ≠ kuş uçuşu | `roadCorridor` mesafesi vs Guardian `CONE_RADIUS` KARŞILAŞTIRMASI | kısmen | ✅ EVET — legacy tarafın kendi mesafesi trace'de YOK |
+| **F6/8** sıcak-yol CPU/bellek (cihaz) | `perf.*`, `roadCorridor.lastDurationMs` | ✅ EVET (ham veri) | ✅ EVET — "kabul edilebilir mi" kararı cihaz TERMAL/DeviceTier bağlamı ister |
+| **F7/1** gerekçe kayıtlı | `rationale.*` | ✅ EVET | hayır |
+| **F7/2** doğrulama kapısının ödettiği süre | `rationale.maxDurationPenaltyS` + `ROUTE_SELECTED` olayları | ✅ EVET (ham veri) | ✅ EVET — "kabul edilebilir mi" KALİBRASYON kararı |
+| **F7/3** "açıklanamadı" sahada görülmemeli | `RATIONALE_UNKNOWN` olay SAYISI (hedef: 0) | ✅ EVET | hayır |
+| **F7/4** kullanıcı tercihi ayrı işaretli | `rationale.lastFactor==='USER_SELECTED'` | ✅ EVET | hayır |
+
+**Genel kural (F8 görev maddesi 10'un uyguladığı):** trace, *"veri neydi"*
+sorusunu cevaplar; *"bu kabul edilebilir mi"* KALİBRASYON kararını ASLA
+otomatik vermez — özellikle **#1266** (yanlış carriageway) gibi güvenlik
+kritik maddelerde telemetri TEK BAŞINA hiçbir zaman yeterli kanıt SAYILMAZ.
+
+---
+
+## F8.11 EKLENEN MİMARİ KİLİTLER
+
+`navV3FieldTraceF8.test.ts` — **41 kilit** (6 bölüm): F8.1 olay türetimi (9
+tür + fail-soft + sözlük tamlığı) · F8.2 sınırlı kayıt · F8.3 taşma · F8.4
+gizlilik · F8.5 replay (5 ilke × temiz+ihlalli + boş/eksik) · F8.6 **T1–T12**
+mimari kilitler (yeni zamanlayıcı yok · üretim komutu çağrılmaz · saf
+türetim · bounded · redaksiyon · fail-soft · dev-kapısı · ikinci runtime yok
+· LAB sınırı · üretim otoritesi değişmedi · tek şema · ilkeler kaynak atıflı).
+
+Mevcut köprü kilitleri (`regression.guards.test.ts`, 981 test) **DEĞİŞMEDEN**
+yeşil kaldı — F8 onları BOZMADI, üzerine EKLEDİ.
+
+`nav-field-record.mjs`/`nav-field-analyze.mjs` değişiklikleri host'ta
+`node --check` ile sözdizimi doğrulandı ve sentetik JSONL kayıtlarıyla
+(F8-alanlı + F8-öncesi) UÇTAN UCA çalıştırılıp doğrulandı — bu araçlar
+`vitest` kapsamına GİRMEZ (host CLI script'i), bu yüzden ayrı bir kilit
+YOKTUR; **açık borç** olarak F8.13'te kayıtlıdır.
+
+---
+
+## F8.12 F8 ÇIKIŞ DURUMU
+
+| Ölçüt | Durum |
+|-------|-------|
+| Bounded, provenance taşıyan trace | ✅ `NavFieldTrace` |
+| Sample+event ayrımı | ✅ 9 olay türü, geçiş-tabanlı |
+| Taşma açıkça işaretli | ✅ `overflow.*`, sessiz kayıp yok |
+| Gizlilik (varsayılan koordinatsız) | ✅ `coordinatesRedacted` |
+| Deterministik replay | ✅ 5 ilke, SAF, ikinci runtime değil |
+| İkinci zamanlayıcı yok | ✅ dış CDP kadansına piggyback |
+| Üretim kararına geri beslenmez | ✅ (T2, T10) |
+| LAB sınırı korunuyor | ✅ (T9) — kontrol yüzeyi `__CAROS_NAV_FIELD__` |
+| CEH hâlâ SHADOW, Guardian hâlâ PRODUCTION | ✅ (T10) |
+| Kayıt açık/kapalı — davranış birebir aynı | ✅ (T2 kaynak taraması) |
+| **Saha kaydı** | 🔴 **YOK** — kütük #1273–#1275 |
+
+**Doğrulama (2026-09-04):** `tsc -b --force` PASS · değişen dosyalarda lint
+temiz · nav F0–F8 **497 PASS** (F8 dosyası 41 kilit) · regresyon kasası
+**981 PASS** (F8 ÖNCESİ köprü kilitleri dâhil, bozulmadı). Full suite ·
+production build · native build **KOŞULMADI**.
+
+**Hüküm: `F8 CODE PASS`.**
+**`F8 FIELD = NOT EXECUTED`** — araç yoktu; hiçbir gerçek kayıt alınmadı.
+
+### Araç geldiğinde tek komut/akış
+
+```
+1) adb forward tcp:9222 localabstract:webview_devtools_remote_<PID>
+2) node scripts/nav-field-record.mjs <ETİKET>
+   → JSONL (mevcut, değişmedi) + <ETİKET>-<zaman>.trace.json (YENİ, F8)
+   Ctrl+C ile durdur.
+3) node scripts/nav-field-analyze.mjs <dosya>.jsonl
+   → P0-1..P0-5 (mevcut) + F3–F7 kanıt özeti (YENİ, F8)
+4) (host) replayFieldTrace(JSON.parse(<dosya>.trace.json))
+   → 5 ilkenin SAHA verisinde tutup tutmadığını denetler
+```
+
+### F9'a kalan gerçek blocker
+
+1. **Gerçek saha kaydı (#1273–#1275)** — bu üç madde recorder'ın KENDİSİNİN
+   cihazda çalıştığını doğrular; onlar 🟢 olmadan #1232–#1272'nin HİÇBİRİ
+   bu altyapıyla PASS edilemez.
+2. **#1266 (yanlış carriageway)** — F8 sınırı gereği, telemetri TEK BAŞINA
+   bu maddeyi ASLA kapatamaz; bölünmüş yolda insan gözlemi ZORUNLU kalır.
+3. **E4 borcu (ara poliline)** — trace rota GEOMETRİSİ taşımaz (gizlilik +
+   format sınırı); F4/1–2'nin görsel doğrulaması bu yüzden trace'in DIŞINDA
+   kalmaya devam eder.

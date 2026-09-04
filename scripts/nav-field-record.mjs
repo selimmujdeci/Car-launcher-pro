@@ -56,6 +56,21 @@ if (!ok) {
   process.exit(3);
 }
 
+// NAV v3 . F8 -- sinirli kayit destekleniyorsa (version >= 2) baslat.
+// Bu, dis 1 Hz orneklemeye IKINCI bir zamanlayici EKLEMEZ; ayni sample()
+// cagrisina PIGGYBACK eder (bkz. navFieldBridge.ts SS F8). Desteklenmiyorsa
+// (eski build) sessizce atlanir -- JSONL akisi HER durumda ayni calisir.
+const fieldTraceSupported = await page.evaluate(() => {
+  const b = window.__CAROS_NAV_FIELD__;
+  return !!(b && b.version >= 2 && typeof b.startRecording === 'function');
+}).catch(() => false);
+if (fieldTraceSupported) {
+  await page.evaluate((lbl) => window.__CAROS_NAV_FIELD__.startRecording({ label: lbl }), label).catch(() => {});
+  console.log('[kaydedici] F8 sinirli kayit ACIK (JSONL akisi degismeden AYRICA devam eder).');
+} else {
+  console.log('[kaydedici] F8 sinirli kayit bu build de YOK (eski koprü) -- yalniz JSONL akisi calisacak.');
+}
+
 let n = 0, errors = 0, lastStatus = '', lastOff = '';
 let stopping = false;
 
@@ -102,4 +117,28 @@ while (!stopping) {
 console.log(`\n[kaydedici] durdu. ${n} örnek yazıldı, ${errors} hata.`);
 console.log(`[kaydedici] dosya: ${outFile}`);
 console.log(`[kaydedici] analiz: node scripts/nav-field-analyze.mjs "${outFile}"`);
+// NAV v3 . F8 -- sinirli trace'i durdur ve disa aktar (destekleniyorsa).
+// Export SADECE host'a TASINIR -- urun kararina hicbir sekilde geri BESLENMEZ.
+if (fieldTraceSupported) {
+  try {
+    await page.evaluate(() => window.__CAROS_NAV_FIELD__.stopRecording());
+    const trace = await page.evaluate(() => window.__CAROS_NAV_FIELD__.exportTrace());
+    if (trace) {
+      const traceFile = outFile.replace(/\.jsonl$/, '.trace.json');
+      appendFileSync(traceFile, JSON.stringify(trace, null, 2));
+      const ov = trace.overflow;
+      console.log(`[kaydedici] F8 trace: ${traceFile}`);
+      console.log(`[kaydedici] F8 ozet: ${trace.samples.length} ornek . ${trace.events.length} olay . ` +
+        `koordinat redakte=${trace.coordinatesRedacted} . tasma=${ov.samplesTruncated || ov.eventsTruncated}`);
+      if (ov.samplesTruncated || ov.eventsTruncated) {
+        console.warn('[kaydedici] UYARI: F8 trace tavana ULASTI -- bazi ornek/olay REDDEDILDI (dosyada bu ACIKCA isaretli).');
+      }
+    } else {
+      console.log('[kaydedici] F8 trace: hic kayit yapilmamis (baslatilamadi).');
+    }
+  } catch (e) {
+    console.warn(`[kaydedici] F8 trace disa aktarilamadi (JSONL akisi ETKILENMEDI): ${e.message}`);
+  }
+}
+
 await browser.close().catch(() => {});

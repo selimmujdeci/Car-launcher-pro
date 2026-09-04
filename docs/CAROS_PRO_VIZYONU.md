@@ -2476,6 +2476,80 @@ DOĞRULANDI 6 · SAHADA DOĞRULANDI 1 · **ÜRÜN HAZIR: 1**
     adedi…) orada zaten görünür. Açık ekranın kendi YENİLE tuşu artık **taze
     önbelleği** okur.
 
+- **NAV-V3-F8 · Navigasyon v3 — saha ölçüm hazırlığı / enstrümantasyon / replay kanıt paketi (2026-09-04):**
+  Durum: **ENTEGRE (F3–F7 teşhisi tek zaman ekseninde, sınırlı kayıt + replay)**
+  — saha kanıtı YOK, **ÜRÜN HAZIR: HAYIR** (bu madde zaten ürün özelliği
+  DEĞİLDİR — ölçüm altyapısıdır). Kütük: 🔴 **#1273** (recorder cihazda
+  çalışıyor mu) · 🔴 **#1274** (taşma saha kanıtı) · 🔴 **#1275** (gizlilik
+  redaksiyonu gerçek koordinatla doğrulanmalı). Belge:
+  `docs/NAVIGATION_ARCHITECTURE_SPEC_v3.md` → **§F8**.
+
+  **F8'İN TEK VAADİ:** araç geldiğinde F4–F7 zincirini TEK sürüşte, sonradan
+  tekrar analiz edilebilir ve kanıtlanabilir şekilde ölçen canonical bir
+  paket HAZIR olsun — **hiçbir ürün kararı DEĞİŞMEDİ.**
+
+  **Mevcut ölçüm otoritesi genişletildi, YENİDEN İCAT EDİLMEDİ:**
+  `navFieldBridge.ts` (F0–F2 döneminden, `window.__CAROS_NAV_FIELD__`) ile
+  `nav-field-record.mjs`/`nav-field-analyze.mjs` (CDP over adb, 1 Hz, JSONL)
+  ZATEN vardı ama F3–F7'nin ürettiği hiçbir teşhis yüzeyini (CEH · graf
+  sakinliği · sınırlı koridor · denetim eşleştirme · gölge · rota gerekçesi ·
+  sıcak-yol maliyeti) İÇERMİYORDU. F8 bu ALTI yüzeyi TEK zaman eksenine
+  taşıdı — hepsi ZATEN salt-okunur getter olarak vardı.
+
+  **İncelenip REDDEDİLEN alternatif:** `platform/fieldValidation/longRoad*`
+  (6 154 satır, OBD/araç-sağlığı alanının kendi `setInterval`li black-box
+  sistemi). Yeniden kullanmak yabancı bir alanın özel zamanlayıcısını ithal
+  etmek ya da navigasyona İKİNCİ zamanlayıcı kurmak olurdu (CLAUDE.md
+  §CROSS-DOMAIN 8/15). Tasarım DESENİ esinlenildi, kod PAYLAŞILMADI.
+
+  **Yapılan:** (1) `NavFieldSample` yedi yeni bölümle genişledi, her biri
+  `_safe()` ile sarılı (bir bölüm patlarsa örnek çökmez). (2) Sample/event
+  ayrımı: event'ler `deriveFieldEvents` ile İKİ ARDIŞIK ÖRNEĞİN farkından
+  türetilir (SAF, geçiş-tabanlı, dokuz tür) — **yeni zamanlayıcı KURULMADI**,
+  kayıt mevcut dış CDP kadansına "piggyback" eder. (3) Sınırlı kayıt: tavan
+  (3 600 örnek / 512 olay) dolunca yeni girdi REDDEDİLİR, en eski veri
+  KORUNUR, taşma `overflow.*` ile AÇIKÇA işaretlenir (sessiz kayıp yok).
+  (4) Varsayılan dışa aktarım koordinat TAŞIMAZ (`fieldDebug: true` açıkça
+  istenmeden `lat/lon` `null`e redakte edilir; `coordinatesRedacted` alanı
+  bunu BEYAN eder). (5) `navFieldTraceReplay.ts` (SAF) — saha kaydını F3–F7'nin
+  ZATEN kodda var olan beş sözleşmesine karşı denetler (belirsiz kolda MPP
+  olamaz · kesik koridor "yok" diyemez · gölge fark sayısı tutarlı olmalı ·
+  her eşleşme yönü bilinir sınıflanır · gerekçe↔seçim tutarlı) — GPS/Guardian
+  TAKLİT ETMEZ, ikinci runtime DEĞİLDİR.
+
+  **LAB entegrasyonu bilinçli olarak GÖRSEL LAB DEĞİL:** mevcut kilit
+  (`navFieldBridge` LAB okuma katmanına SIZAMAZ) pazarlıksızdır — köprü ham
+  koordinat taşır. F8 görevinin kendi kaçış maddesini kullandı: kontrol
+  yüzeyi `window.__CAROS_NAV_FIELD__` (zaten var olan kanal) genişletildi,
+  ikinci kontrol yüzeyi İCAT EDİLMEDİ.
+
+  **CLI:** `nav-field-record.mjs`/`nav-field-analyze.mjs` **davranışları
+  DEĞİŞMEDEN** çalışmaya devam eder; ek olarak koşum sonunda `.trace.json`
+  yazılır ve analiz çıktısına F3–F7 kanıt özeti eklenir (yalnız GÖZLEM, eşik
+  İCAT ETMEZ). Sentetik JSONL ile uçtan uca doğrulandı (host); gerçek cihaz
+  DEĞİL (kütük #1273).
+
+  **#1232–#1272 kanıt haritası:** her madde için trace TEK BAŞINA yeterli mi
+  sorusu yanıtlandı (spec §F8.10). Genel kural: trace *"veri neydi"*yi
+  cevaplar, *"kabul edilebilir mi"* kalibrasyon kararını ASLA otomatik
+  vermez — özellikle **#1266** (yanlış carriageway, güvenlik kritik)
+  telemetri TEK BAŞINA hiçbir zaman yeterli SAYILMAZ; bölünmüş yolda insan
+  gözlemi ZORUNLU kalır.
+
+  **Üretim otoritesi (değişmedi):** CEH hâlâ SHADOW · Guardian hâlâ
+  PRODUCTION · kayıt açık/kapalıyken navigasyon hükümleri BİREBİR AYNI
+  (kaynak taramasıyla kilitli — kayıt hiçbir navigasyon/CEH/Guardian
+  fonksiyonu ÇAĞIRMAZ).
+
+  **Doğrulama:** `tsc -b --force` PASS · değişen dosyalarda lint temiz ·
+  nav F0–F8 **497 PASS** (F8 dosyası **41 kilit**, T1–T12 mimari kilitler
+  dâhil) · regresyon kasası **981 PASS** (F8 öncesi köprü kilitleri
+  bozulmadı) · `nav-field-record.mjs`/`nav-field-analyze.mjs` `node --check`
+  + sentetik JSONL ile uçtan uca (host). Full suite/production build/native
+  build KOŞULMADI.
+  Hüküm: **`F8 CODE PASS`.**
+  **`F8 FIELD = NOT EXECUTED`** — araç yoktu; hiçbir gerçek kayıt alınmadı.
+
 - **NAV-V3-F7 · Navigasyon v3 — L4 rota: "neden bu rota?" hesap verebilirliği (2026-09-04):**
   Durum: **ENTEGRE (rota seçimi artık gerekçe taşıyor)** — saha kanıtı YOK,
   **ÜRÜN HAZIR: HAYIR**. Kütük: 🔴 **#1269** (gerekçe kayıtlı) · 🔴 **#1270**

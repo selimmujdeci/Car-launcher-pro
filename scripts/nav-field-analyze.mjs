@@ -134,6 +134,58 @@ console.log(`  düz hat kullanımı        : ${last.provider.straightLineCount}`
 console.log(`  rota doğrulama hükmü     : ${last.route.validation ?? NM}`);
 console.log(`  gerçek şerit verili adım : ${last.route.lanesSteps} / ${last.route.steps}`);
 console.log(`  dönel kavşak / çıkışlı   : ${last.route.roundaboutSteps} / ${last.route.roundaboutWithExit}`);
+
+/* NAV v3 . F8 . F3-F7 KANIT OZETI - SIRF GOZLEMDIR, esik/PASS-FAIL ICAT ETMEZ.
+ * F3-F7 kalibrasyon sayilari henuz saha olcumuyle belirlenmedi (kutuk #1232 vd.);
+ * burada yalniz kayittaki SON ve TOPLAM deger basilir. Ilke ihlali denetimi
+ * (replayFieldTrace, src/platform/devtools/navFieldTraceReplay.ts) AYRI ve
+ * TEK otoritedir - burada YENIDEN UYGULANMAZ (ikinci kural motoru yok). */
+console.log('');
+console.log('-- NAV v3 . F3-F7 KANIT OZETI (F8) --');
+if (last.ceh) {
+  console.log(`  CEH son durum            : ${last.ceh.state}  .  belirsiz=${last.ceh.ambiguous}  .  bagli alan=${JSON.stringify(last.ceh.boundDomains)}`);
+} else {
+  console.log(`  CEH son durum            : ${NM} (bu kayitta hic olculmedi)`);
+}
+if (last.graph) {
+  console.log(`  Graf sakinligi           : ${last.graph.state}  .  ${last.graph.nodeCount ?? NM} dugum / ${last.graph.edgeCount ?? NM} kenar`);
+} else {
+  console.log(`  Graf sakinligi           : ${NM}`);
+}
+if (last.roadCorridor) {
+  const truncSamples = S.filter(s => s.roadCorridor?.lastCorridorTruncated === true).length;
+  console.log(`  Koridor son hukum        : ${last.roadCorridor.lastCorridorOutcome ?? NM}  .  KESILDI gorulen ornek: ${truncSamples}`);
+} else {
+  console.log(`  Koridor son hukum        : ${NM}`);
+}
+if (last.enforcement) {
+  const e = last.enforcement;
+  console.log(`  Denetim eslestirme (toplam) : bagli=${e.matchedToEdge} . belirsiz=${e.ambiguousEdge} . kapsam disi=${e.outsideCoverage} . olculmedi=${e.notMeasured}`);
+} else {
+  console.log(`  Denetim eslestirme       : ${NM}`);
+}
+if (last.shadow) {
+  console.log(`  Golge fark orani         : ${last.shadow.divergenceRatio == null ? NM : (last.shadow.divergenceRatio * 100).toFixed(1) + '%'}  .  cutover=${last.shadow.cutoverState}`);
+} else {
+  console.log(`  Golge fark orani         : ${NM}`);
+}
+if (last.rationale) {
+  console.log(`  Rota gerekcesi (son)     : ${last.rationale.lastFactor ?? NM}  .  toplam karar=${last.rationale.decisions}  .  en buyuk takas=${last.rationale.maxDurationPenaltyS == null ? NM : last.rationale.maxDurationPenaltyS + ' s'}`);
+  const unknownCount = S.filter(s => s.rationale?.lastFactor === 'UNKNOWN').length;
+  if (unknownCount > 0) {
+    console.log(`  UYARI: "aciklanamadi" (UNKNOWN) ${unknownCount} ornekte gorundu - #1271 kabul olcutu bunun SIFIR olmasidir.`);
+  }
+} else {
+  console.log(`  Rota gerekcesi           : ${NM}`);
+}
+if (last.perf) {
+  console.log(`  Sicak-yol maliyeti       : eslestirme p95=${last.perf.mapMatchP95Ms ?? NM} ms  .  tick p95=${last.perf.progressP95Ms ?? NM} ms`);
+} else {
+  console.log(`  Sicak-yol maliyeti       : ${NM}`);
+}
+console.log('  Ilke denetimi (ambiguous/truncated/direction/rationale tutarliligi)');
+console.log("  ICIN: disa aktarilan trace'i replayFieldTrace()e verin (vitest, TEK otorite).");
+
 console.log('\n' + '═'.repeat(72));
 console.log('NOT: "NOT_RUN" = o senaryo bu kayıtta YAŞANMADI. Kanıtsız PASS yazılmaz.');
 console.log('═'.repeat(72));
