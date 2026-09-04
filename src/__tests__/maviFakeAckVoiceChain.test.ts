@@ -37,7 +37,9 @@ vi.mock('../platform/ttsService', () => ({
   ttsCancel: vi.fn(),
   registerTtsEndListener: () => () => {},
 }));
-vi.mock('../platform/audioService', () => ({ duckMedia: vi.fn(), unduckMedia: vi.fn() }));
+vi.mock('../platform/media/authority/duckRequest', () => ({
+  requestDuck: () => ({ reason: 'MAVI', release: (): void => {} }),
+}));
 vi.mock('../platform/aiVoiceService', () => ({ askAI: async () => null, resolveApiKey: () => '' }));
 vi.mock('../platform/ai/semanticAiService', () => ({
   classifySemantic: async () => ({ source: 'offline', confidence: 0, feedback: '' }),
@@ -124,6 +126,11 @@ describe('MAVI-M3 · 24. yürütmeden ÖNCE sahte ACK seslendirilmez', () => {
   }
 
   it('düşük riskli komutta eski davranış BİREBİR korunur (parser metni konuşulur)', async () => {
+    /* MUSIC F14 notu: F9'un yerel bypass'ı (`voiceService` "1c0") YALNIZ genel
+       parser HİÇBİR ŞEY bulamadığında (`result.command === null`) devreye
+       girer — burada parser ZATEN `open_music` dediği için (non-null) bu
+       kilit ETKİLENMEZ, eski davranış BİREBİR sürer (bkz.
+       musicF14LiveVoiceIntentWiring.test.ts). */
     M.parseResult = { command: cmd('open_music', 'Müzik açılıyor'), suggestions: [], needsSemantic: false };
     track(() => {});
     await processTextCommand('müziği aç');

@@ -44,6 +44,10 @@ import { getOwnTrail } from '../diagnosticTrailCore';
 /* MAVI-M6-LAB-SPEECH-COUNTERS: M6 konuşma defteri + M5 tur kapısı sayaçları.
    Her iki getter de SAF ve PII'sizdir (metin taşımaz) — yalnız bayrak/adet/kimlik. */
 import { getMaviSpeechDiagnostics } from '../assistant/maviSpeech';
+/* SAHA #1256-a: TTS motor sonuç defteri — "çağrı yapıldı" ile "motor bitişi
+   bildirdi" AYRI olgulardır. SAF sayaç okuması (metin TAŞIMAZ, yalnız uzunluk);
+   YENİ EKRAN AÇILMADI, mevcut Mavi Konsolu F bölümü genişletildi. */
+import { getTtsEngineDiagnostics } from '../ttsService';
 import { getMaviTurnDiagnostics } from '../assistant/maviTurn';
 /* MAVI-F8: sürüş iş yükü tanısı. SAF sayaç okuması — YENİ EKRAN AÇILMADI,
    mevcut Mavi Konsolu genişletildi (LAB ekran enflasyonu yasağı). */
@@ -58,6 +62,12 @@ import { getMaviSurfaceDiagnostics } from '../assistant/maviSurfaceState';
 /* MAVI-F12: barge-in / konuşma kontrolü defteri. SAF sayaç okuması (PII YOK) —
    YENİ EKRAN AÇILMADI, mevcut Mavi Konsolu J bölümüyle genişletildi. */
 import { getMaviBargeInDiagnostics } from '../assistant/maviBargeIn';
+/* SAHA 2026-09-03/04 (K2401 + Xiaomi): native wake tetiği DOĞDU (`triggerCount`
+   arttı) ama Mavi hiç uyanmadı. `onWakeWordDetected` kararı ZATEN kaydediyordu
+   (`recordWake`) — ama defterin OKUNUR YÜZEYİ YOKTU, bu yüzden hangi kapının
+   yuttuğu (PAUSED · VOICE_ACTIVE · SELF_ECHO · DEBOUNCE · REJECTED_TOKEN)
+   cihazda görülemiyordu. Yeni sayaç ÜRETİLMEDİ: var olan projeksiyon okunur. */
+import { getWakeForensics } from '../voice/wakeForensics';
 /* MAVI-F13: kanonik runtime konsolidasyon tanısı. SAF SAYIM — yeni defter/telemetri
    AÇILMAZ, `maviEvidence`in ZATEN tuttuğu bounded kayıtlar sayılır. */
 import { getMaviRuntimeConsolidationDiagnostics } from '../maviCore/wiring/maviEvidence';
@@ -158,6 +168,9 @@ export function readMaviConsoleSnapshot(): MaviRawSnapshot {
   // Karar satırları GERÇEK olay izinden sayılır (kopya depo yok). null = okunamadı.
   const trail = _safe(() => getOwnTrail());
   const speech = _safe(() => getMaviSpeechDiagnostics());
+  /* SAHA #1256-a: her getter kendi try/catch'i içinde — TTS defteri okunamazsa
+     bölümün geri kalanı KÖRELMEZ (tek okuma katmanı sözleşmesi). */
+  const ttsEngine = _safe(() => getTtsEngineDiagnostics());
   const turn   = _safe(() => getMaviTurnDiagnostics());
   const workload = _safe(() => getMaviWorkloadDiagnostics());
   /* Saatlik pencere MONOTONİK saatle hesaplanır — `Date.now` verilirse pencere
@@ -186,6 +199,11 @@ export function readMaviConsoleSnapshot(): MaviRawSnapshot {
   /* MAVI-F12: SAF sayaç okuması — hakem çağrılmaz, hüküm ÜRETİLMEZ, mikrofon
      ve TTS'e DOKUNULMAZ. Yalnız defter okunur. */
   const barge = _safe(() => getMaviBargeInDiagnostics());
+  /* Wake karar defteri — SALT OKUMA. `getWakeForensics` saf projeksiyondur:
+     yeni timer kurmaz, wake motoruna dokunmaz, transkript TAŞIMAZ (yalnız
+     gerekçe enum'u + sayı + token ŞEKLİ). Okunamazsa `null` → LAB "okunamadı"
+     yazar; "hiç tetik yok" diye UYDURULMAZ. */
+  const wakeF = _safe(() => getWakeForensics(10));
   const rt    = _safe(() => getMaviRuntimeConsolidationDiagnostics());
   /* Bayraklar TEK try/catch altında okunur: biri patlarsa "hepsi kapalı"
      UYDURULMAZ — liste `null` kalır ve LAB "okunamadı" yazar. */
@@ -292,6 +310,23 @@ export function readMaviConsoleSnapshot(): MaviRawSnapshot {
       staleLateSpeechSuppressed: _num(speech.staleLateSpeechSuppressed),
     } : null,
 
+    /* SAHA #1256-a · GİZLİLİK: seslendirilen METİN taşınmaz — yalnız KARAKTER
+       SAYISI (`transcriptLength` ile aynı desen), bounded kod ve süre geçer. */
+    ttsEngine: ttsEngine ? {
+      requested:          _num(ttsEngine.requested),
+      engineDone:         _num(ttsEngine.engineDone),
+      engineError:        _num(ttsEngine.engineError),
+      noEngineReport:     _num(ttsEngine.noEngineReport),
+      suspectInstantDone: _num(ttsEngine.suspectInstantDone),
+      saturated:          ttsEngine.saturated === true,
+      lastCause:          ttsEngine.last ? String(ttsEngine.last.cause) : null,
+      lastEvidence:       ttsEngine.last ? String(ttsEngine.last.evidence) : null,
+      lastTransport:      ttsEngine.last ? String(ttsEngine.last.transport) : null,
+      lastDurationMs:     ttsEngine.last ? _num(ttsEngine.last.durationMs) : null,
+      lastMinPlausibleMs: ttsEngine.last ? _num(ttsEngine.last.minPlausibleMs) : null,
+      lastCharCount:      ttsEngine.last ? _num(ttsEngine.last.charCount) : null,
+    } : null,
+
     turn: turn ? {
       activeTurnId:                _num(turn.activeTurnId),
       activeState:                 typeof turn.activeState === 'string' ? turn.activeState : '',
@@ -368,6 +403,24 @@ export function readMaviConsoleSnapshot(): MaviRawSnapshot {
       maxListenOpenMs:      _signedMs(barge.maxListenOpenMs),
       listenSamples:        _num(barge.listenSamples),
       countersSaturated:    barge.countersSaturated === true,
+    } : null,
+
+    /* WAKE KARAR DEFTERİ — "native duydu ama Mavi uyanmadı" sorusunun TEK
+       kanıtı. GİZLİLİK: transkript METNİ bu katmana HİÇ GİRMEZ; `recordWake`
+       zaten yalnız gerekçe enum'u, yol (GRAMMAR/JS_POLLING) ve token ŞEKLİ
+       (kaç kelime · eşleşme indeksi) taşır. */
+    wakeForensics: wakeF ? {
+      counts:              _counts(wakeF.counts),
+      total:               _num(wakeF.total),
+      evicted:             _num(wakeF.evicted),
+      intentReached:       _num(wakeF.intentReached),
+      acceptedNoIntent:    _num(wakeF.acceptedNoIntent),
+      /* `null` = bekleyen kabul YOK. `_num` kullanılmaz: 0 ms "az önce kabul
+         edildi" demektir, "bekleyen yok" DEĞİL — ikisi karıştırılamaz. */
+      pendingAcceptAgeMs:  typeof wakeF.pendingAcceptAgeMs === 'number'
+        ? wakeF.pendingAcceptAgeMs : null,
+      lastReason:          _ident(wakeF.recent[0]?.reason),
+      lastPath:            _ident(wakeF.recent[0]?.path),
     } : null,
 
     /* MAVI-F13 · GİZLİLİK: komut metni, parametre, correlationId ve eylem

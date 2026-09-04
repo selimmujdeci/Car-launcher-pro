@@ -31,6 +31,24 @@ export default defineConfig({
      * olurdu (bkz. CLAUDE.md · Regresyon Kasası).
      */
     testTimeout: 20_000,
+    /**
+     * ÖLÇÜM (2026-09-02, F10.1): `dormantCapabilityActivation` hook'u SOĞUK
+     * önbellekte düştü — `Hook timed out in 10000ms`. Aynı dosya SICAK
+     * önbellekte geçiyor: transform 6,99 sn → import 60 ms. Yani düşen şey
+     * ürün davranışı değil, hook içindeki İLK `await import(...)` çağrısının
+     * Vite dönüşüm maliyeti.
+     *
+     * `testTimeout` yukarıda tam bu gerekçeyle 20 sn'ye çekilmişti; hook'lar
+     * ayrı bir bütçe (`hookTimeout`, varsayılan 10 sn) kullandığı için o karar
+     * hook'lara UYGULANMAMIŞTI. Aynı ölçüm, aynı sonuç: bu değeri hizalamak
+     * HİÇBİR İDDİAYI ZAYIFLATMAZ — hook'lar tam olarak aynı şeyi kurar, yalnız
+     * dönüşüm için beklenen süre artar.
+     *
+     * ⚠️ Bu bir "testi geçirmek için timeout büyütme" DEĞİLDİR: kök neden
+     * ölçüldü (soğuk transform), ürün kodunda değişiklik gerektirmediği
+     * kanıtlandı ve karar yukarıdaki mevcut ölçümle aynı çizgidedir.
+     */
+    hookTimeout: 20_000,
     coverage: {
       provider:  'v8',
       include:   ['src/platform/**/*.ts'],

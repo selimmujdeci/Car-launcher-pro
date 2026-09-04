@@ -22,7 +22,11 @@ import androidx.media3.common.MediaMetadata;
 import androidx.media3.common.PlaybackException;
 import androidx.media3.common.Player;
 import androidx.media3.common.util.UnstableApi;
+import androidx.media3.common.audio.AudioProcessor;
+import androidx.media3.exoplayer.DefaultRenderersFactory;
 import androidx.media3.exoplayer.ExoPlayer;
+import androidx.media3.exoplayer.audio.AudioSink;
+import androidx.media3.exoplayer.audio.DefaultAudioSink;
 import androidx.media3.session.MediaSession;
 import androidx.media3.session.MediaSessionService;
 
@@ -94,6 +98,16 @@ public class CarosPlaybackService extends MediaSessionService {
     private CarosAudioFocusManager focusManager;
     private final Handler main = new Handler(Looper.getMainLooper());
 
+    /* ── MUSIC F6 · Ses deneyimi (DSP) ────────────────────────────────────
+       Denge/preamp işlemcisi ExoPlayer'ın ses zincirine KURULUR; EQ ve
+       loudness audio session'a bağlanır. İkisi de yalnız SES RENGİNİ
+       değiştirir: oynatma, kuyruk, focus ve kullanıcı sesi bu servisin
+       mülkü olarak KALIR (Cross-Domain §1). */
+    private final CarosBalanceAudioProcessor balanceProcessor = new CarosBalanceAudioProcessor();
+    private final CarosAudioEffects audioEffects = new CarosAudioEffects(balanceProcessor);
+
+    public CarosAudioEffects getAudioEffects() { return audioEffects; }
+
     /* ── Gözlemlenebilirlik alanları (salt-okunur dışarıya) ───────────────── */
     private volatile String  activeSource        = "NONE";
     private volatile String  lastFailureCode     = "";
@@ -143,7 +157,23 @@ public class CarosPlaybackService extends MediaSessionService {
             .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
             .build();
 
-        player = new ExoPlayer.Builder(this)
+        /* F6: denge/güvenlik-preamp işlemcisi ses zincirine EKLENİR. Varsayılan
+           zincir (silence-skipping + sonic/hız) KORUNUR — setAudioProcessors
+           yalnız bizim işlemcimizi ÖNE ekler. İşlemci nötr ayarda sinyale
+           dokunmaz ve desteklenmeyen formatta tamamen PASİF kalır. */
+        DefaultRenderersFactory renderersFactory = new DefaultRenderersFactory(this) {
+            @Override
+            protected AudioSink buildAudioSink(Context context, boolean enableFloatOutput,
+                                               boolean enableAudioTrackPlaybackParams) {
+                return new DefaultAudioSink.Builder(context)
+                    .setEnableFloatOutput(enableFloatOutput)
+                    .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)
+                    .setAudioProcessors(new AudioProcessor[] { balanceProcessor })
+                    .build();
+            }
+        };
+
+        player = new ExoPlayer.Builder(this, renderersFactory)
             // handleAudioFocus=false: focus otoritesi CarosAudioFocusManager'dır.
             // ExoPlayer'ın dahili yönetimi kullanıcı-duraklatması ile focus
             // duraklatmasını AYIRMAZ; açık kalsaydı iki otorite çakışırdı.
@@ -151,6 +181,10 @@ public class CarosPlaybackService extends MediaSessionService {
             // Becoming-noisy'yi de biz ele alıyoruz (reason kodu + gözlemlenebilirlik).
             .setHandleAudioBecomingNoisy(false)
             .build();
+
+        /* Efektler player'ın GERÇEK audio session'ına bağlanır. Session henüz
+           yoksa attach hiçbir şey zorlamaz ve bypass'ta kalır (§10). */
+        audioEffects.attach(player.getAudioSessionId());
 
         player.addListener(new PlayerListenerImpl());
 
@@ -187,6 +221,7 @@ public class CarosPlaybackService extends MediaSessionService {
             logEvent(CarosMediaEventLog.EV_PLAYER_RELEASED, "");
         }
         if (focusManager != null) { focusManager.release(); focusManager = null; }
+        audioEffects.release();   // F6 zero-leak: AudioEffect nesneleri bırakılır
         logEvent(CarosMediaEventLog.EV_SERVICE_DESTROYED, "");
         instance = null;
         super.onDestroy();
@@ -337,13 +372,189 @@ public class CarosPlaybackService extends MediaSessionService {
         return true;
     }
 
-    /** Etkin ses = kullanıcı seviyesi × duck çarpanı (tek hesap noktası). */
+    /**
+     * Etkin ses = kullanıcı seviyesi × duck çarpanı × GEÇİŞ çarpanı.
+     *
+     * MUSIC F20: geçiş çarpanı (`transitionGain`) İKİNCİ BİR SES OTORİTESİ
+     * DEĞİLDİR — aynı sahibin (bu servis) uyguladığı bir çarpandır, tıpkı
+     * duck gibi. **YALNIZ KISAR** (≤ 1) ve parça sınırı dışında daima 1'dir.
+     * Geçiş çarpanı playback TRUTH'unu DEĞİŞTİRMEZ: `playing` ve
+     * `renderingVerified` ondan etkilenmez.
+     */
     private void applyEffectiveVolume() {
         Player p = player;
         if (p == null) return;
         float duck = focusManager != null ? focusManager.getDuckVolume() : 1.0f;
-        float eff  = Math.max(0f, Math.min(1f, userVolume * duck));
+        float eff  = Math.max(0f, Math.min(1f, userVolume * duck * transitionGain));
         p.setVolume(eff);
+    }
+
+    /* ══════════════════════════════════════════════════════════════════════
+       MUSIC F20 — PARÇA SINIRI GEÇİŞİ (FADE)
+
+       ÖLÇÜLEN GERÇEK:
+         · GAPLESS zaten VAR: ExoPlayer kuyruğu MediaItem listesi olarak alır
+           ve kodlayıcı gecikme/dolgu bilgisini kendisi kullanır. CarOS
+           `setPauseAtEndOfMediaItems` KULLANMAZ → boşluksuz geçiş bozulmaz.
+         · GERÇEK CROSSFADE (iki akışın ÜST ÜSTE binmesi) bu mimaride
+           MÜMKÜN DEĞİLDİR: tek bir ExoPlayer örneği vardır ve ikinci bir
+           player açmak "ikinci playback otoritesi" demektir (F20 yasağı).
+           Bu yüzden burada yapılan şey CROSSFADE DEĞİL, sınırda FADE'dir ve
+           öyle adlandırılır.
+
+       SINIRLAR:
+         · Yalnız KISAR; kullanıcı sesine ve duck'a DOKUNMAZ.
+         · Duck etkinken fade UYGULANMAZ (konuşma ile çakışmaz).
+         · Süresi bilinmeyen/canlı içerikte (radyo) fade UYGULANMAZ.
+         · Kuyrukta SONRAKİ öğe yoksa fade-out yapılmaz (sessizliğe kısmak
+           "bitti" hissini bozardı).
+         · İzleyici yalnız fade AÇIKKEN ve ses çalarken tikler; kapalıyken
+           hiçbir zamanlayıcı çalışmaz.
+       ══════════════════════════════════════════════════════════════════════ */
+
+    /** Geçiş çarpanı — sınır dışında DAİMA 1.0. */
+    private volatile float transitionGain = 1.0f;
+    private boolean fadeEnabled = false;
+    private int fadeOutMs = 0;
+    private int fadeInMs = 0;
+    /**
+     * Bu süreden kısa parçada fade UYGULANMAZ (kısa jingle/efekt bozulmasın).
+     *
+     * Kural HEM fade-out HEM fade-in için geçerlidir. Telefon ön doğrulamasında
+     * ölçülen kusur: eşik yalnız `checkFadeOut`ta uygulanıyordu, bu yüzden
+     * 9 sn'lik bir ses notu 1,2 sn'lik fade-in alıyordu (klibin %13'ü).
+     */
+    private static final long MIN_FADE_TRACK_MS = 20_000L;
+    /** İzleme tiki — ucuzdur (iki getter). */
+    private static final long FADE_MONITOR_MS = 250L;
+    /** Rampa tiki. */
+    private static final long FADE_STEP_MS = 50L;
+
+    private final android.os.Handler fadeHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+    private Runnable fadeMonitor;
+    private Runnable fadeRamp;
+    private boolean fadingOut = false;
+    private int fadeItemIndex = -1;
+
+    /**
+     * Geçiş politikasını ayarlar. Politika JS tarafındadır (kanıt + kullanıcı
+     * tercihi); burası yalnız UYGULAR.
+     *
+     * @return "" (başarı) veya hata kodu.
+     */
+    public String setTransitionPolicy(boolean enabled, int outMs, int inMs) {
+        this.fadeEnabled = enabled;
+        this.fadeOutMs = Math.max(0, Math.min(12_000, outMs));
+        this.fadeInMs = Math.max(0, Math.min(12_000, inMs));
+        if (!enabled) {
+            cancelFade();
+            resetTransitionGain();
+        }
+        updateFadeMonitor();
+        publishDiagnostics();
+        return "";
+    }
+
+    /** Geçiş çarpanını nötre çeker — sızıntı bırakmaz. */
+    private void resetTransitionGain() {
+        if (transitionGain != 1.0f) {
+            transitionGain = 1.0f;
+            applyEffectiveVolume();
+        }
+    }
+
+    private void cancelFade() {
+        fadingOut = false;
+        fadeItemIndex = -1;
+        if (fadeRamp != null) { fadeHandler.removeCallbacks(fadeRamp); fadeRamp = null; }
+    }
+
+    /** İzleyiciyi yalnız GEREKTİĞİNDE çalıştırır (kapalıyken timer YOK). */
+    private void updateFadeMonitor() {
+        Player p = player;
+        boolean want = fadeEnabled && fadeOutMs > 0 && p != null && p.isPlaying();
+        if (!want) {
+            if (fadeMonitor != null) { fadeHandler.removeCallbacks(fadeMonitor); fadeMonitor = null; }
+            return;
+        }
+        if (fadeMonitor != null) return;
+        fadeMonitor = new Runnable() {
+            @Override public void run() {
+                try { checkFadeOut(); } catch (Throwable ignored) { }
+                if (fadeMonitor == this) fadeHandler.postDelayed(this, FADE_MONITOR_MS);
+            }
+        };
+        fadeHandler.postDelayed(fadeMonitor, FADE_MONITOR_MS);
+    }
+
+    /** Parçanın sonuna yaklaşıldıysa fade-out rampasını başlatır. */
+    private void checkFadeOut() {
+        Player p = player;
+        if (p == null || !fadeEnabled || fadingOut) return;
+        if (!p.isPlaying()) { resetTransitionGain(); return; }
+        /* Duck etkinken geçiş uygulanmaz — konuşma ile çakışmaz. */
+        if (focusManager != null && focusManager.getDuckVolume() < 1.0f) return;
+
+        long duration = p.getDuration();
+        if (duration == C.TIME_UNSET || duration < MIN_FADE_TRACK_MS) return;
+        /* Sıradaki öğe yoksa fade-out YAPILMAZ. */
+        if (!p.hasNextMediaItem()) return;
+
+        long remaining = duration - Math.max(0, p.getCurrentPosition());
+        if (remaining > fadeOutMs) return;
+
+        fadingOut = true;
+        fadeItemIndex = p.getCurrentMediaItemIndex();
+        startRamp(true, Math.max(1, (int) Math.min(remaining, fadeOutMs)));
+    }
+
+    /** Doğrusal rampa — kısarken 1→0, açarken 0→1. */
+    private void startRamp(final boolean out, final int durationMs) {
+        if (fadeRamp != null) { fadeHandler.removeCallbacks(fadeRamp); fadeRamp = null; }
+        final int steps = Math.max(1, durationMs / (int) FADE_STEP_MS);
+        final int[] step = { 0 };
+        fadeRamp = new Runnable() {
+            @Override public void run() {
+                step[0]++;
+                float t = Math.min(1f, (float) step[0] / steps);
+                transitionGain = out ? Math.max(0f, 1f - t) : Math.min(1f, t);
+                applyEffectiveVolume();
+                if (step[0] < steps && fadeRamp == this) {
+                    fadeHandler.postDelayed(this, FADE_STEP_MS);
+                } else if (fadeRamp == this) {
+                    fadeRamp = null;
+                    if (!out) transitionGain = 1.0f;
+                    applyEffectiveVolume();
+                }
+            }
+        };
+        fadeHandler.postDelayed(fadeRamp, FADE_STEP_MS);
+    }
+
+    /**
+     * Yeni parçaya geçildi — fade-in (açıksa) başlatılır.
+     *
+     * Fade-out ile AYNI kapılar geçerlidir: kapalıysa, duck etkinse, süre
+     * bilinmiyorsa (canlı/hazır değil) veya parça kısaysa rampa YOKTUR ve
+     * kazanç nötre çekilir. Süre bilinmiyorsa FAIL-CLOSED davranılır: kanıt
+     * yokken rampa uygulamak kısa bir klibi bozabilir.
+     */
+    private void onTransitionToNewItem() {
+        cancelFade();
+        Player p = player;
+        if (!fadeEnabled || fadeInMs <= 0 || p == null) { resetTransitionGain(); return; }
+        if (focusManager != null && focusManager.getDuckVolume() < 1.0f) {
+            resetTransitionGain();
+            return;
+        }
+        long duration = p.getDuration();
+        if (duration == C.TIME_UNSET || duration < MIN_FADE_TRACK_MS) {
+            resetTransitionGain();
+            return;
+        }
+        transitionGain = 0f;
+        applyEffectiveVolume();
+        startRamp(false, fadeInMs);
     }
 
     /* ── Otorite komutları (yalnız köprü çağırır, main thread) ────────────── */
@@ -553,6 +764,12 @@ public class CarosPlaybackService extends MediaSessionService {
         b.putLong("queueRevision",         queueRevision);
         b.putInt("queueLength",            p != null ? p.getMediaItemCount() : 0);
         b.putInt("currentIndex",           p != null ? p.getCurrentMediaItemIndex() : -1);
+        if (p != null) {
+            int count = Math.min(p.getMediaItemCount(), 120);
+            String[] ids = new String[count];
+            for (int i = 0; i < count; i++) ids[i] = p.getMediaItemAt(i).mediaId;
+            b.putStringArray("queueEntryIds", ids);
+        }
         b.putLong("positionMs",            p != null ? Math.max(0, p.getCurrentPosition()) : 0L);
         b.putLong("durationMs",            p != null && p.getDuration() != C.TIME_UNSET
                                              ? Math.max(0, p.getDuration()) : 0L);
@@ -566,6 +783,13 @@ public class CarosPlaybackService extends MediaSessionService {
         /* ── PAKET B · generation + bounded olay izi ──────────────────────
            Olaylar kompakt satır olarak taşınır (seq|atMs|type|code|gen|repeat);
            Bundle'ı şişirmemek için en fazla 40 kayıt ve YALNIZ en yeniler. */
+        /* MUSIC F20 · geçiş kanıtı — playback TRUTH'u DEĞİLDİR, yalnız gözlem. */
+        b.putBoolean("fadeEnabled",        fadeEnabled);
+        b.putInt("fadeOutMs",              fadeOutMs);
+        b.putInt("fadeInMs",               fadeInMs);
+        b.putFloat("transitionGain",       transitionGain);
+        b.putBoolean("transitionActive",   transitionGain < 1.0f);
+        b.putBoolean("gaplessSupported",   true);
         b.putLong("sessionGeneration",     sessionGeneration);
         b.putBoolean("pendingPlayIntent",  focusManager != null && focusManager.hasPendingPlayIntent());
         b.putStringArray("events",         eventLog.snapshot(40));
@@ -595,6 +819,9 @@ public class CarosPlaybackService extends MediaSessionService {
     private final class PlayerListenerImpl implements Player.Listener {
         @Override public void onIsPlayingChanged(boolean isPlaying) {
             if (isPlaying) { audioRoute = readAudioRoute(); lastFailureCode = ""; }
+            /* F20: durunca izleyici de durur (kapalıyken timer YOK). */
+            if (!isPlaying) { cancelFade(); resetTransitionGain(); }
+            updateFadeMonitor();
             publishDiagnostics();
         }
         @Override public void onPlaybackStateChanged(int state) {
@@ -604,7 +831,15 @@ public class CarosPlaybackService extends MediaSessionService {
             lastFailureCode = "player_error_" + error.errorCode;
             publishDiagnostics();
         }
+        @Override public void onAudioSessionIdChanged(int audioSessionId) {
+            /* F6: audio session değişti → efektler YENİDEN bağlanır ve
+               yetenekler YENİDEN ölçülür. Eski oturumun kuşağıyla gelen
+               yazımlar bundan sonra stale_session ile reddedilir. */
+            audioEffects.attach(audioSessionId);
+            publishDiagnostics();
+        }
         @Override public void onMediaItemTransition(@Nullable MediaItem item, int reason) {
+            onTransitionToNewItem();
             publishDiagnostics();
         }
         @Override public void onPositionDiscontinuity(

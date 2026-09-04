@@ -36,8 +36,20 @@ import {
 import { setMaviLatencyCapability } from './assistant/maviLatencyTrace';
 import { findByLegacyIntent } from './capability/fabric/carosCapabilityCatalog';
 import {
-  play, next, previous, playWithResult, pauseWithResult, setMediaPreferredPackage,
+  playWithResult, pauseWithResult, setMediaPreferredPackage,
 } from './mediaService';
+/* MUSIC F9 ÖLÇÜMÜ: atlama buradan `mediaService`e DOĞRUDAN gidiyordu; bu,
+   F7.3'te kurulan KUYRUK-FARKINDA tek girişi atlıyordu (sağlayıcı arama
+   listesinde Mavi'nin "sonraki"si `unsupported_capability` ile düşüyordu).
+   Artık tek girişten geçer. Statik döngüyü kırmak için dinamik yüklenir. */
+async function _queueAwareNext(): Promise<MediaCommandResult> {
+  const layer = await import('./media/carosMediaLayer');
+  return layer.next('mavi');
+}
+async function _queueAwarePrevious(): Promise<MediaCommandResult> {
+  const layer = await import('./media/carosMediaLayer');
+  return layer.previous('mavi');
+}
 import type { MediaCommandResult } from './mediaService';
 import { setVolume }                    from './systemSettingsService';
 /* SAHA 2026-08-30 (kütük #1054): ses yüzdesinin KANONİK kaynağı store'dur
@@ -219,12 +231,21 @@ async function _playMusicInAppOrFallback(
    * (fire-and-forget) ve dinamik import + arama saniyeler sürebilir. */
   const _turn = ctx.turn ?? null;
   try {
-    // Lazy import: carosMediaLayer mediaService'i import ettiğinden statik döngüyü kır.
-    const { playByQuery } = await import('./media/carosMediaLayer');
-    const track = await playByQuery(query);
-    if (track) {
+    /* MUSIC F9 · ÖLÇÜLEN KUSUR: burada `playByQuery` bir parça döndürdüğü anda
+       KOŞULSUZ "<başlık> çalınıyor" deniyordu. `playByQuery` yalnız seçimin
+       KANONİK hatta gönderildiğini söyler; sesin çıktığını DOĞRULAMAZ. Artık
+       niyet kanonik yönlendiriciden geçer ve cümle YALNIZ kanıt derecesine
+       göre kurulur (`ACCEPTED_UNVERIFIED` → "çalıyor" DEMEZ).
+       Lazy import: statik döngü kırılır. */
+    const [{ dispatchMusicIntent }, { makeIntent }, { speakMusicOutcome }] = await Promise.all([
+      import('./media/intent/musicIntentRouter'),
+      import('./media/intent/musicIntent'),
+      import('./media/intent/musicIntentSpeech'),
+    ]);
+    const outcome = await dispatchMusicIntent(makeIntent('PLAY_QUERY', { query }));
+    if (outcome.status !== 'UNAVAILABLE' && outcome.status !== 'NOT_ATTEMPTED') {
       ctx.openDrawer?.('music');         // uygulama-içi çalma ekranını öne getir
-      _speak(`${track.title} çalınıyor`, isDriving, _turn);
+      _speak(speakMusicOutcome(outcome), isDriving, _turn);
       return;
     }
   } catch { /* gömülü oynatıcı hatası → harici uygulamaya düş */ }
@@ -337,13 +358,29 @@ async function _runVehiclePort(
  */
 async function _openEmbeddedMusic(): Promise<string> {
   try {
-    // Lazy import: carosMediaLayer mediaService'i import eder → statik döngü kırılır.
-    const layer = await import('./media/carosMediaLayer');
-    if (layer.resumeLastMedia()) return 'Müzik açılıyor';
-    /* Kaldığı yer yok → gömülü YouTube. `playByQuery` sağlayıcılarda arar ve
-       çalınabilir sonuç bulursa GÖMÜLÜ oynatıcıda başlatır. */
-    const track = await layer.playByQuery(EMBEDDED_MUSIC_SEED, 'all');
-    if (track) return `${track.title} çalınıyor`;
+    /* MUSIC F9 · ÖLÇÜLEN KUSUR: burada "Müzik açılıyor" ve "<başlık> çalınıyor"
+       KOŞULSUZ dönüyordu. `resumeLastMedia`/`playByQuery` yalnız komutun
+       kanonik hatta GÖNDERİLDİĞİNİ söyler; sesin çıktığını DOĞRULAMAZ.
+       Artık iki yol da kanonik niyet yönlendiricisinden geçer ve cümle
+       yalnız kanıt derecesinden doğar.
+       Lazy import: statik döngü kırılır. */
+    const [{ dispatchMusicIntent }, { makeIntent }, { speakMusicOutcome }] = await Promise.all([
+      import('./media/intent/musicIntentRouter'),
+      import('./media/intent/musicIntent'),
+      import('./media/intent/musicIntentSpeech'),
+    ]);
+    // 1) Kaldığı yer varsa oradan devam.
+    const resume = await dispatchMusicIntent(makeIntent('CONTINUE_LISTENING'));
+    if (resume.status !== 'UNAVAILABLE' && resume.status !== 'NOT_ATTEMPTED') {
+      return speakMusicOutcome(resume);
+    }
+    // 2) Kaldığı yer yok → gömülü arama tohumuyla kanonik arama yolu.
+    const played = await dispatchMusicIntent(
+      makeIntent('PLAY_QUERY', { query: EMBEDDED_MUSIC_SEED, evidence: 'DERIVED' }),
+    );
+    if (played.status !== 'UNAVAILABLE' && played.status !== 'NOT_ATTEMPTED') {
+      return speakMusicOutcome(played);
+    }
   } catch { /* gömülü katman hatası → sahte onay ÜRETME */ }
   return 'Gömülü oynatıcıda çalacak bir şey bulamadım. Kaynak söylersen oradan açayım.';
 }
@@ -579,9 +616,12 @@ async function dispatchIntent(intent: AppIntent, ctx: CommandContext): Promise<I
         if (pkg) {
           // Kullanıcı kaynağı SÖYLEDİ → mevcut davranış AYNEN korunur.
           setMediaPreferredPackage(pkg);
-          play();
+          /* MUSIC F9: `play()` ateşle-unut + KOŞULSUZ "açılıyor" idi. Tek
+             medya gerçeği `playbackTruth`tır; cümle artık kanıta bağlı. */
+          const openR = await playWithResult();
           ctx.openDrawer?.('music');
-          _speak('Müzik açılıyor', isDriving, _turn);
+          _speak(_mediaStateReply(openR, 'Müzik çalıyor', 'Müziği başlatmayı deniyorum'),
+            isDriving, _turn);
           break;
         }
         ctx.openDrawer?.('music');
@@ -597,9 +637,10 @@ async function dispatchIntent(intent: AppIntent, ctx: CommandContext): Promise<I
             _speak(`${query} aranıyor`, isDriving, _turn);
           });
         } else {
-          play();
+          const r = await playWithResult();
           ctx.openDrawer?.('music');
-          _speak('Müzik açılıyor', isDriving, _turn);
+          _speak(_mediaStateReply(r, 'Müzik çalıyor', 'Müziği başlatmayı deniyorum'),
+            isDriving, _turn);
         }
         break;
       }
@@ -623,14 +664,30 @@ async function dispatchIntent(intent: AppIntent, ctx: CommandContext): Promise<I
         } else {
           // Sadece kaynak söylendi → arka planda çal + ekranı göster
           if (pkg) setMediaPreferredPackage(pkg);
-          play();
+          const r = await playWithResult();
           ctx.openDrawer?.('music');
-          _speak('Müzik açılıyor', isDriving, _turn);
+          _speak(_mediaStateReply(r, 'Müzik çalıyor', 'Müziği başlatmayı deniyorum'),
+            isDriving, _turn);
         }
         break;
       }
       case 'ADD_MUSIC_FAVORITE': {
-        _speak('Bu özellik şu an desteklenmiyor', isDriving, _turn);
+        /* MUSIC F13 · ÖLÇÜLEN KUSUR: bu dal her zaman "desteklenmiyor" diyen
+           ölü bir uçtu — kanonik bir favori otoritesi hiç YOKTU. Artık F9
+           niyet yönlendiricisinden `musicCollectionAuthority`ye (F13) geçer;
+           diğer gömülü müzik dalları (`_playMusicInAppOrFallback` vb.) ile
+           AYNI lazy-import + `dispatchMusicIntent` deseni. */
+        try {
+          const [{ dispatchMusicIntent }, { makeIntent }, { speakMusicOutcome }] = await Promise.all([
+            import('./media/intent/musicIntentRouter'),
+            import('./media/intent/musicIntent'),
+            import('./media/intent/musicIntentSpeech'),
+          ]);
+          const outcome = await dispatchMusicIntent(makeIntent('ADD_FAVORITE'));
+          _speak(speakMusicOutcome(outcome), isDriving, _turn);
+        } catch {
+          _speak('Bu özellik şu an kullanılamıyor', isDriving, _turn);
+        }
         break;
       }
       case 'SET_MUSIC': {
@@ -664,12 +721,12 @@ async function dispatchIntent(intent: AppIntent, ctx: CommandContext): Promise<I
        * Artık YALNIZ doğrulanmış sonuçta başarı söylenir; aksi hâlde neden
        * söylenir. Yönlendirme ve komut akışı DEĞİŞMEDİ. */
       case 'MEDIA_NEXT': {
-        const r = await next();
+        const r = await _queueAwareNext();
         _speak(_mediaSkipReply(r, 'Sonraki parça'), isDriving, _turn);
         break;
       }
       case 'MEDIA_PREV': {
-        const r = await previous();
+        const r = await _queueAwarePrevious();
         _speak(_mediaSkipReply(r, 'Önceki parça'), isDriving, _turn);
         break;
       }

@@ -2476,6 +2476,352 @@ DOĞRULANDI 6 · SAHADA DOĞRULANDI 1 · **ÜRÜN HAZIR: 1**
     adedi…) orada zaten görünür. Açık ekranın kendi YENİLE tuşu artık **taze
     önbelleği** okur.
 
+- **NAV-V3-F5 · Navigasyon v3 — CEH tüketici göçü / gölge otorite / cutover kapısı (2026-09-03):**
+  Durum: **ENTEGRE (gölge ölçümü + cutover kapısı)** — saha kanıtı YOK,
+  **ÜRÜN HAZIR: HAYIR**. Kütük: 🔴 **#1244** (gölge canlı akışta) · 🔴 **#1245**
+  (gölge sunum üretmiyor) · 🔴 **#1246** (manevra fark ölçümü) · 🔴 **#1247**
+  (denetim noktası "yalnız legacy") · 🔴 **#1248** (Guardian otoritesi değişmedi) ·
+  🔴 **#1249** (cutover kapısı KAPALI) · 🔴 **#1250** ("ölçülmedi" ≠ "yok") ·
+  🔴 **#1251** (belirsizlik kesin iddia üretmiyor).
+  Belge: `docs/NAVIGATION_ARCHITECTURE_SPEC_v3.md` → F5 bölümü.
+
+  **F5'İN TEK VAADİ:** üretim kararı **DEĞİŞMEDEN** CEH aynı soruyu gölgede
+  cevaplar ve fark ÖLÇÜLÜR. Legacy = üretim · CEH = gölge · tek cutover kapısı.
+  Legacy hiçbir yerden SÖKÜLMEDİ.
+
+  **Kurulan katmanlar:** (1) `horizon/cehConsumerContract.ts` — tüketicinin TEK
+  okuma noktası; `CLAIM · NO_OBJECT_IN_HORIZON · AMBIGUOUS · HORIZON_UNAVAILABLE
+  · NOT_MEASURED` hükümleri yapısal olarak ayrı ve **hiçbirinde `NOT_MEASURED →
+  NONE` dönüşümü mümkün değil**. (2) `shadow/cehShadowModel.ts` — dokuz ayrı fark
+  sınıfı (mesafe farkı · varlık çelişkisi · tek taraflı · ortak bilgisizlik ·
+  belirsizlik · karşılaştırılamaz…); "fark" tek kova DEĞİL. (3)
+  `shadow/cehShadowRuntime.ts` — ego/ufuk tikine bağlı, **timer/abonelik YOK**,
+  yan etki yapısal olarak **0**. (4) `shadow/cehGuardianShadowAdapter.ts` —
+  Guardian'ın hiçbir sağlayıcısını/kuralını/motorunu çağırmaz; `RawMapData`
+  ÜRETMEZ (yanlışlıkla bağlanamasın diye). (5) `shadow/cehSuppressionContract.ts`
+  — bastırılan olay için `validUntil`/defer semantiği (bugün yalnız gölgede
+  tüketiliyor; `guardianAlertRanker` davranışı DEĞİŞMEDİ). (6)
+  `shadow/cehCutoverGate.ts` — **varsayılan KAPALI**, altı şart üç değerli,
+  **ölçülmemiş şart kapıyı AÇMAZ**.
+
+  **Üretim otoritesi (değişmedi):** Guardian uyarısı → legacy
+  `guardianRuntime` zinciri · sesli yönlendirme → `voiceGuidanceRuntime`
+  (`owner: 'NAV_SESSION_RUNTIME'`) · manevra mesafesi → `routingService` ·
+  hız limiti → `speedLimitService` / `useEffectiveSpeedLimit`.
+
+  **Dürüstlük sınırı (ölçülerek beyan):** CEH öznitelik portu HÂLÂ BAĞLI DEĞİL
+  (`productionHorizonAttributePorts === UNAVAILABLE_HORIZON_ATTRIBUTE_PORTS`) →
+  denetim/limit/viraj/eğim alanlarında CEH iddia ÜRETMEZ. Bugün gerçekten
+  karşılaştırılabilen TEK alan **manevra**dır. Limit/viraj/eğim ise üretimde
+  "İLERİDE" sorusunu cevaplayan otorite OLMADIĞI için `NOT_COMPARABLE` sayılır
+  ve **oranın paydasına girmez** — hiç sormayarak %100 uyum kazanmak yasaktır.
+
+  **Bilinçli ödünç (F6'ya devredildi, gerekçeli):** ① CEH denetim-noktası
+  öznitelik portu bağlanmadı — bağlamak için "ego kenarından ileriye bounded
+  koridor genişletme + kenar-bazlı denetim noktası indeksi" gerekir; ikisi de
+  bugün YOK ve yarısını yapmak yarım mantık bırakırdı. ② Çok adımlı ağ mesafesi
+  EKLENMEDİ — ①'siz gerçek bir CEH tüketici senaryosu yok, dolayısıyla
+  "bütçesiz/kanıtsız özellik ekleme yasak" kuralı gereği eklenmedi.
+  ③ `guardianAlertRanker` hâlâ `validUntil` taşımıyor (sözleşme kuruldu,
+  davranış parite kanıtı olmadan değiştirilmedi).
+
+  **Doğrulama:** `tsc -b` temiz · `navV3CehShadowF5.test.ts` **69 kilit**
+  (14 mimari kilit dâhil) · F0–F4 paketleri **309 PASS** · regresyon kasası
+  **972 PASS** · Guardian/guidance/oturum paketleri **345 PASS** · LAB alan
+  denetimi yeşil · değişen dosyalarda lint temiz.
+  Hüküm: **`F5 CODE PASS`** — `F5 FIELD PASS` YAZILAMAZ (saha ölçümü yok).
+  ⚠️ **F6 blocker'ı:** cutover kapısı `F4_FIELD_VALIDATION` şartı ölçülmediği
+  için KAPALIdır; kütük #1232–#1243 gerçek araçta gözlenmeden hiçbir tüketici
+  CEH'e taşınamaz.
+
+- **NAV-V3-F4 · Navigasyon v3 — L1/L2 topoloji aktivasyonu (RTG2 okuyucu + canlı yol eşleşmesi) (2026-09-03):**
+  Durum: **ENTEGRE (L1 kenar/topoloji gerçeği + L2 canlı eşleşme)** — saha kanıtı
+  YOK, **ÜRÜN HAZIR: HAYIR**. Kütük: 🔴 **#1232** (okuyucu taşındı) · 🔴 **#1233**
+  (routing paritesi) · 🔴 **#1234** (graf sakinliği/bellek) · 🔴 **#1235** (kenar
+  metadatası) · 🔴 **#1236** (topoloji portu) · 🔴 **#1237** (aday üretimi) ·
+  🔴 **#1238** (geometri sınırı) · 🔴 **#1239** (canlı MatchedRoadPose) ·
+  🔴 **#1240** (CEH fiziksel doğrulama) · 🔴 **#1241** (bozuk graf fail-closed) ·
+  🔴 **#1242** (kalibrasyon) · 🔴 **#1243** (kod kapanışı ≠ saha hükmü).
+  Belge: `docs/NAVIGATION_ARCHITECTURE_SPEC_v3.md` → F4 bölümü.
+
+  **KAPATILAN BLOCKER (F1/B2):** `RTG2` ayrıştırma mantığı
+  `NavigationCompute.worker.ts` İÇİNDE gömülüydü. Bu yalnız bir konum sorunu
+  değildi: ana iş parçacığı grafı okuyamadığı için `MapStore.getEdgeMetadata`
+  daima `UNAVAILABLE` dönüyor, aday üretilemiyor, `MatchedRoadPose` doğmuyor ve
+  F3 CEH fiziksel doğrulama yapamıyordu — **zincirin tamamı tek dosyanın içinde
+  kilitliydi.** Ayrıştırma tek kanonik okuyucuya (`map/graph/rtg2Reader.ts`)
+  taşındı; worker da AYNI okuyucuyu kullanıyor. Böylece F2/C3 ve F3/D3 borçları
+  da kapandı.
+
+  **BINARY FORMAT DEĞİŞMEDİ:** yeni sürüm çıkarılmadı, artefakt yeniden
+  üretilmedi, üretici betiğe dokunulmadı. Gerçek artefakt ölçülerek doğrulandı:
+  **7 651 542 bayt · 238 252 düğüm · 295 346 kenar** (%75'i tek yönlü);
+  sınıf dağılımı 1→8 013 · 2→73 099 · 3→52 169 · 4→111 639 · 7→50 426.
+
+  **ROUTING PARİTESİ (en riskli nokta, ölçülerek kapatıldı):** A*'ın eşit
+  maliyetli rotalar arasındaki seçimi komşu SIRASINA bağlıdır. Nesne grafiği
+  bitişik CSR yapıya taşınırken bu sıra birebir korundu ve parite testi
+  **gerçek graf üzerinde** eski gösterimi yeniden kurup karşılaştırıyor: aynı
+  komşu sırası · aynı düğüm dizisi · aynı mesafe · aynı ulaşılabilirlik.
+  A*, `HEURISTIC_WEIGHT = 1.2` ve `MAX_CLOSED` DEĞİŞMEDİ; worker rota YÜRÜTME
+  sahibi olarak kaldı.
+
+  **L1 cephesi genişledi:** `getEdgeTopology` (komşuluk — **yalnız kanonik
+  `EdgeId` ile**, ham düğüm indeksi L1 dışına ÇIKMAZ) · `queryEdgesNear`
+  (yarıçap sorgusu) · `networkDistanceM`. **Zorla en yakın yola snap yapısal
+  olarak imkânsız:** yarıçap dışı kenar sonuca girmez ve boş sonuç bir
+  ÖLÇÜMDÜR (`NO_COVERAGE`), ölçülmemişlikten (`NOT_MEASURED`) ayrıdır.
+
+  **Dürüstlük sınırı (format):** `RTG2` ara poliline geometrisi TAŞIMAZ —
+  kenar iki düğüm arası DÜZ segmenttir; hız limiti · yol adı · şerit · eğim ·
+  viraj yarıçapı bu binary'de YOKTUR ve UYDURULMAZ. `roadClass = 0` bir sınıf
+  değil "BİLİNMİYOR"dur.
+
+  **Bellek/güç:** graf uygulama açılışında yüklenmez; navigasyon oturumuyla
+  alınır ve bırakılır (jiro beslemesiyle aynı desen). Komşuluk · ters komşuluk ·
+  yakınlık indeksi TEMBEL kurulur; görünüm `WeakRef`te tutulur.
+
+  **Bilinçli ödünç (beyan):** CEH hâlâ **hiçbir ürün kararını beslemiyor** —
+  F5'e devrediyor. Guardian denetim-noktası tüketicisi taşınmadı (E2), ufuk
+  öznitelik portu bağlanmadı (E3 — ADAS verisi bu binary'de yok), çok adımlı
+  ağ mesafesi üretilmiyor (E5 — hot-path bütçesi).
+
+  **Doğrulama:** `tsc -b` temiz · `navV3GraphTopologyF4.test.ts` **69 kilit**
+  (gerçek artefakt üzerinde parite dâhil) · regresyon kasası **+6 kilit**
+  (972 PASS) · F0–F3 paketleri yeşil · navigasyon/LAB paketleri yeşil ·
+  değişen dosyalarda lint temiz.
+  Hüküm: **`F4 CODE PASS`** — `F4 PASS` YAZILAMAZ (saha ölçümü yok).
+  ⚠️ **F5 için saha ön koşulu:** tüketiciler CEH'in fiziksel hükmüne
+  güvenecektir; eşleşme doğruluğu (#1237 · #1239 · #1240) ölçülmeden ürün
+  kararlarını CEH'e bağlamak, ölçülmemiş bir eşleşmeyi uyarı üretmekte yetkili
+  kılmak demektir.
+
+- **NAV-V3-F3 · Navigasyon v3 — L3 CEH / Electronic Horizon + canlı ego (2026-09-03):**
+  Durum: **İSKELET → ENTEGRE (L3 ufuk otoritesi + L2 canlı akış)** — saha kanıtı
+  YOK, **ÜRÜN HAZIR: HAYIR**. Kütük: 🔴 **#1220** (canlı ego) · 🔴 **#1221**
+  (jiro işaret öğrenme) · 🔴 **#1222** (orientation ömrü) · 🔴 **#1223** (CEH
+  otoritesi) · 🔴 **#1224** (niyet ≠ fiziksel gerçek) · 🔴 **#1225** (belirsizlik)
+  · 🔴 **#1226** (UNKNOWN ≠ NONE) · 🔴 **#1227** (bayat ego) · 🔴 **#1228**
+  (tünelde jiro) · 🔴 **#1229** (LAB yüzeyi) · 🔴 **#1230** (kalibrasyon) ·
+  🔴 **#1231** (kod kapanışı ≠ saha hükmü).
+  Belge: `docs/NAVIGATION_ARCHITECTURE_SPEC_v3.md` → F3 bölümü.
+
+  **ÖLÇÜLEN VE KAPATILAN KUSUR — F2 üretimde ÖLÜYDÜ:** `egoAuthority.observe()`
+  `src/` içinde **hiçbir üretim çağrısına sahip değildi**. EKF/HMM çekirdeği
+  kuruluydu, testleri yeşildi ve sahada **hiç çalışmıyordu** — yani kütükteki ego
+  maddeleri ölçülemez durumdaydı. Aynı şekilde `yawRateRadPerSec` sabit `null`dı.
+  F3 ikisini de canlı akışa bağladı: tik sahibi `navigationSessionRuntime` hem
+  gerçek GPS fix'inde hem 1 Hz DR tick'inde `tickEgoHorizon()` çağırır —
+  **yeni GPS aboneliği YOK, yeni timer YOK** (kilit: navigasyon ağacında
+  `onGPSLocation(` tam 1 dosyada, `subscribeMotion(` tam 1 dosyada).
+
+  **L3 CEH (`navigation/horizon/`)** — "önümde ne var?" sorusunun TEK cevaplayıcısı:
+  - `cehAuthority` timer/abonelik SAHİPLENMEZ; monotonik saat yoksa hiçbir ufuk
+    yayınlamaz; her ufuk MONOTONİK artan `generation` taşır (eski ufuk yeni
+    sanılamaz).
+  - **Rota niyeti İTİLİR, çekilmez.** F0 bağımlılık yasası yönlüdür (`L4 → L3`);
+    L3'ün `routingService`i import etmesi grafiği DÖNGÜLÜ yapardı. Niyeti
+    bileşim kökü (`navEgoHorizonBridge`) taşır → `horizon/**` ağacında tek bir
+    L4 importu bile yoktur (kilit).
+  - **Niyet ≠ fiziksel gerçek (pazarlıksız):** "rota var → araç bu yolda"
+    çıkarımı yapısal olarak reddedilir. Rota kolu `ROUTE_INTENT` kökeni taşır,
+    `physicallyConfirmed = false` kalır, güveni **0,6 tavanını aşamaz** ve ufuk
+    `HORIZON_AVAILABLE` değil `HORIZON_PARTIAL`dır.
+  - **Zorla MPP YASAK:** fiziksel eşleşme rotayla çelişirse (L4'ün KENDİ sapma
+    eşiği ile ölçülür) iki kol da korunur ve `mppPathId = null` olur.
+  - **UNKNOWN ≠ NONE:** öznitelik portu (limit · viraj · eğim · denetim noktası)
+    kuruldu ama **bilinçli olarak BAĞLANMADI** — Guardian'ın mevcut denetim-noktası
+    hesabının yanına ikinci bir hesap koymak paralel otorite olurdu. Boş nesne
+    listesi "ileride bir şey yok" DEĞİL, "ölçülmedi" demektir (tipte ayrı).
+
+  **Jiro (F2 borcu C1) — eksen ÖLÇÜLÜR, işaret ÖĞRENİLİR:** sapma ekseni açısal
+  hız vektörünün yerçekimi eksenine izdüşümüdür (montajdan bağımsız, varsayım
+  değil vektör cebiri). İzdüşümün İŞARETİ platforma bağlı olduğu için sabit
+  varsayılmaz; GNSS yön değişimiyle korelasyondan öğrenilir (≥15° dönüş + oran
+  bandı + 2 ardışık tutarlı karar) ve kanıt gelene kadar sapma hızı `null`
+  kalır. **Yanlış işaret, jirosuz çalışmaktan daha kötüdür** (fail-closed).
+  Abonelik L2'de değil runtime kenarındadır; oturum kapanınca hem abonelik hem
+  öğrenilen işaret düşer (cihaz başka açıyla takılmış olabilir).
+
+  **Gözlemlenebilirlik:** yeni ekran AÇILMADI — mevcut `Navigation Core` ekranı
+  **16 · L2 Ego · L3 Ufuk** kartıyla genişletildi (LAB yüzey politikası). Kart
+  komut göndermez, kendi hükmünü üretmez, **koordinat taşımaz**; 14 alanın
+  tamamı alan denetimi kaydına bağlandı.
+
+  **Bilinçli ödünç (beyan):** CEH bugün **hiçbir ürün kararını beslemiyor** —
+  gözlem fazındadır (D4). Guardian'ın denetim-noktası tüketicisi F5'te TEK
+  hamlede taşınacak (D1). Kol topolojisi F1/B2 kapanmadan kurulamaz (D3) →
+  **F4'ün tek gerçek blocker'ı budur.**
+
+  **Doğrulama:** `tsc -b` temiz · `navV3HorizonF3.test.ts` **66 kilit** ·
+  regresyon kasası **+6 kilit** (966 PASS) · F0/F1/F2 paketleri (1115) yeşil ·
+  navigasyon oturum/DR/LAB paketleri (11 dosya / 319 + 47) yeşil · değişen
+  dosyalarda lint temiz. **Mevcut navigasyon davranışı DEĞİŞMEDİ.**
+  Hüküm: **`F3 CODE PASS`** — `F3 PASS` YAZILAMAZ (saha ölçümü yok).
+
+- **NAV-V3-F2 · Navigasyon v3 — L2 Ego/Localization (EKF + HMM) (2026-09-03):**
+  Durum: **İSKELET → ENTEGRE (L2 çekirdeği)** — saha kanıtı YOK,
+  **ÜRÜN HAZIR: HAYIR**. Kütük: 🔴 **#1212** (monotonik zaman) · 🔴 **#1213**
+  (EKF) · 🔴 **#1214** (DR iki tavan) · 🔴 **#1215** (HMM) · 🔴 **#1216**
+  (aday sınırı) · 🔴 **#1217** (tek L2 otoritesi) · 🔴 **#1218** (mimari
+  kilitler) · 🔴 **#1219** (saha kapanış listesi).
+  Belge: `docs/NAVIGATION_ARCHITECTURE_SPEC_v3.md` → F2 bölümü.
+
+  **F2.0 — ÖLÇÜLEN VE KAPATILAN KUSUR (F1 borcu B4):** `offlineRoutingStatus`
+  yalnız `Date.now()` damgası taşıyordu ve ARCH-01 runtime adaptörü bu
+  **duvar saatiyle** yaş hesaplıyordu. Araçta akü kesintisi/NTP düzeltmesi
+  saati geriye attığında bu hesap **sessizce yanlışlanır**. Artık monotonik
+  damga (`lastAttemptAtMonoMs`) taşınıyor ve navigasyon tazeliği YALNIZ onu
+  kullanıyor. NAV v3'ün tek monotonik saat okuma noktası kuruldu
+  (`navigation/time/navClock.ts`) — `performance.now` yoksa **sahte sayaç
+  üretilmez**, `null` döner ve hiçbir poz yayınlanmaz. F1 borcu **B7** (bayat
+  docblock) da kapatıldı.
+
+  **EKF ego füzyonu** (`navigation/ego/egoKalman.ts`, SAF):
+  `x = [pE, pN, ψ, v, b_ω]` — v2 §3.1 ile birebir. Geodezi için ikinci otorite
+  KURULMADI (`geo.ts` ile aynı R). **Yeni sensör uydurulmadı** — yalnız
+  GNSS konum/hız/yön, araç bus hızı ve ZUPT. Kapılar: doğruluk > 50 m RED ·
+  Mahalanobis `d² > 9.21` RED · doğruluk bilinmiyorsa RED · durakta GNSS yönü
+  reddedilir. **Reddedilen ölçüm başarı sayılmaz** — aynı durum nesnesi geri
+  döner (kilit referans eşitliğini denetler). Belirsizlik büyümesi durumun
+  parçasıdır; jiro yokken yön σ'sı daha hızlı büyür.
+
+  **DR iki bağımsız tavanla sınırlı:** ① süre `DR_TOTAL_MAX_MS = 90 sn`
+  (spec invaryantı, kilitli) · ② **belirsizlik** — 90 sn tek başına yeterli
+  güven şartı DEĞİLDİR; σ eşiği aşarsa mod **daha erken** düşer. Eşikler
+  uydurulmadı, deponun sabitlerinden türetildi: `50 m = GNSS_ACCURACY_REJECT_M`
+  ("reddedeceğimiz bir ölçümden kötüysek karar kalitesinde değiliz") ve
+  `95 m = CORRIDOR_BASE_M + CORRIDOR_ACC_CAP_M` (eşleştirme koridoru tavanı).
+  σ ölçülemezse kötümser. **Güven yalnız σ'dan gelir — "GPS var → güven 1"
+  yapısal olarak üretilemez.**
+
+  **HMM/Viterbi yol eşleştirme** (`navigation/matching/hmmMatchModel.ts`, SAF):
+  emisyon + yön cezası (yalnız ikisi de biliniyorsa), geçiş terimi ağ mesafesi
+  bilinmiyorsa UYGULANMAZ (uydurma mesafe yasak), pencere `W=10` sınırlı,
+  aday tavanı 8, yayın gecikmesi `L=2` (yayınlanmış akış değişmez — v2 P8).
+  **Zorla snap yapısal olarak imkânsız:** `candidate` yalnız `MATCHED` iken
+  dolu; `AMBIGUOUS`/`INSUFFICIENT_METADATA`/`NO_CANDIDATES` → **null**.
+  ⚠️ `σ_z` ve `β` kalibre EDİLMEDİ — saha kaydından yeniden kestirilmeden
+  üretim değeri sayılmaz.
+
+  **Aday üretimi yalnız L1 sınırından** (`matching/roadCandidateSource.ts`):
+  raw graph binary · tile store · MapLibre · routing worker internals ·
+  Overpass — beşi de kaynak taramasıyla YASAK. **Üretimdeki dürüst durum:**
+  F1 borcu B2 açık olduğu için (RTG2 okuyucusu worker içinde) bugün aday
+  üretilemiyor → `MatchedRoadPose.matchState = 'UNAVAILABLE'`, `edgeId = null`.
+  Bu bir gerileme değil — bugün de ağ-göreli eşleştirme yoktu; motor ve sınır
+  kuruldu, aday akışı F4'te açılacak.
+
+  **Tek L2 otoritesi** (`navigation/ego/egoAuthority.ts`): F0'ın
+  `RealtimeEgoPose`/`MatchedRoadPose` tiplerinin **tek üreticisi** (F0'da tip
+  vardı, üretici yoktu). Dört kanıt kaynağı ayrı taşınıyor; map-lock koruması
+  (`rawPose` daima dolu) yapısal. **İkinci otorite yok:** rota-göreli
+  `mapMatchModel` (L4 ilerleme zincirinin sahibi) DEĞİŞTİRİLMEDİ ve L2
+  ağacındaki hiçbir dosya `matchToRoute` içermiyor (kilit).
+
+  **Açık borçlar (kayıtlı):** jiro beslenmiyor — abonelik sahipliği gerektirir
+  (F3) · `observe()` üretimde çağrılmıyor, tik sahipliği ayrı tur (F3) ·
+  aday akışı yok (F4) · σ_z/β/gürültü parametreleri kalibre edilmedi (saha) ·
+  ARCH-01 runtime adaptörü hâlâ duvar saatiyle yaş gösteriyor (ayrı domain).
+
+  **Doğrulama:** `tsc -b` temiz · `navV3EgoLocalizationF2.test.ts` **77 kilit** ·
+  regresyon kasası **+4 kilit** · navigasyon test dosyaları (24 dosya / 611)
+  yeşil · değişen dosyalarda lint temiz. **Runtime davranışı DEĞİŞMEDİ** —
+  L2 üretimde henüz çağrılmıyor.
+
+- **NAV-V3-F1 · Navigasyon v3 — L1 MapStore / Map Truth Authority (2026-09-03):**
+  Durum: **İSKELET → ENTEGRE (L1 sınırı)** — saha kanıtı YOK, **ÜRÜN HAZIR: HAYIR**.
+  Kütük: 🔴 **#1208** (karo matematiği tek kaynağa indi) · 🔴 **#1209** (L1 cephesi) ·
+  🔴 **#1210** ("ölçülmedi" ≠ "yok") · 🔴 **#1211** (`EdgeId` precision-safe).
+  Belge: `docs/NAVIGATION_ARCHITECTURE_SPEC_v3.md` → F1 bölümü.
+
+  **ÖLÇÜLEN VE KAPATILAN KUSUR — aynı karo formülü ÜÇ YERDE, üç FARKLI davranışla:**
+  `mapTileProbe.ts:11` sonucu `[0,n-1]`e kırpıyordu, `CorridorSyncEngine.ts:48`
+  `1 << z` kullanıp `z ≥ 31`de NEGATİF üretiyordu, `offlineTileDownloader.ts:82`
+  `2 ** z` ile kırpmıyordu. Üçü "aynı" matematiği iddia ediyordu. Karo kimliği
+  yanlışsa "bu bölge önbellekte var" hükmü de yanlıştır. Tek kaynak
+  `navigation/map/store/tileGrid.ts`; üç çağıran delege edildi, **sayısal
+  sonuçları BİREBİR korundu** (eski gövdeler kilit testte referans kâhin).
+
+  **L1 MapStore (`navigation/map/store/`)** — statik harita gerçeğinin TEK cephesi:
+  - `getDatasetStatus` · `hasTile` · `getEdgeMetadata` · `getSnapshot`, hepsi F0
+    `Evidenced<T>` döner. `MapDataPorts` arayüzü gerçek kaynakları cepheden ayırır;
+    **mevcut altyapı SİLİNMEDİ — SARILDI** (`offlineRoutingStatus` graf yeteneği
+    otoritesi · `mapSourceStore` karo deposu). Hiçbir kaynak başlatılmaz/tetiklenmez.
+  - **Timer YOK · abonelik YOK · saat okuma YOK** (`nowMonoMs` çağırandan gelir).
+  - **Kendi bozulma otoritesini KURMAZ:** L1 yalnız epistemik durum üretir;
+    `NavDegradation` eşlemesi çağıranın işidir.
+  - **Köken maskesi** (`MapSourceMask` bitset) eklendi — kanıt sınıfının KOPYASI
+    değil, `Evidenced<T>` ile BİRLİKTE taşınır.
+
+  **Beş hâlli dürüstlük:** `AVAILABLE_FRESH` · `AVAILABLE_STALE` · `UNAVAILABLE` ·
+  `INVALID` + **"hiç ölçülmedi"**. Ölçülen gerçek: `initializeMapSources()` üretimde
+  **hiç çağrılmıyor** (`MapCore.ts:44` yazıyor) → `hasOfflineMapData()` `false`
+  dönüyordu; bu "karo yok" DEĞİL "ölçülmedi"dir ve artık ayrılıyor. Kökensiz
+  kesinlik ve tanımsız eşikle bayatlık üretimi YASAK (kilitli).
+
+  **`EdgeId` geçişi — gerçek artefakt ölçüldü:** `routing-graph.bin` = `RTG2`,
+  **238 252 düğüm · 295 346 kenar · 7 651 542 bayt**. Monolit graf için
+  `tileId = 0xFFFFFFFF` nöbetçisi + kenar sıra numarası; ölçülen kenar sayısı
+  23-bit kimlik uzayının %3,5'i (~28× başlık). Sessiz truncate YASAK →
+  `RangeError`. **Binary format DEĞİŞMEDİ, worker okuyucusu TAŞINMADI, A* hâlâ
+  `number` düğüm indeksleriyle çalışıyor.**
+
+  **Açık borçlar (kayıtlı):** karo-başına envanter yok → `hasTile` üretimde
+  `UNAVAILABLE` (F3) · kenar metadatası okunamıyor, okuyucu worker içinde (F4) ·
+  POI yetenek otoritesi yok (F3/F4) · `offlineRoutingStatus` duvar saati taşıyor,
+  monotonik tazelik yapılamıyor (F2) · harita paketi için tanımlı TTL yok, bu
+  yüzden `AVAILABLE_STALE` üretimde erişilemez (F3).
+
+  **Doğrulama:** `tsc -b` temiz · `navV3MapStoreF1.test.ts` 44 kilit ·
+  regresyon kasası +3 kilit · harita/karo/rota/navigasyon testleri (33 dosya / 649)
+  yeşil · değişen dosyalarda lint temiz. **Runtime davranışı DEĞİŞMEDİ.**
+
+- **NAV-V3-F0 · Navigasyon v3 — Mimari Kilit + Çekirdek Sözleşmeler (2026-09-03):**
+  Durum: **İSKELET** (sözleşme omurgası) — saha kanıtı YOK, **ÜRÜN HAZIR: HAYIR**.
+  Bağlayıcı hedef mimari: `docs/NAVIGATION_ARCHITECTURE_SPEC_v3.md`
+  (`CAROS-NAV-ARCH-SPEC-3.0`); v2 baseline/geçiş referansı.
+  Kütük: 🔴 **#1205** (kanonik sözleşme omurgası) · 🔴 **#1206** (mimari guard'lar) ·
+  🔴 **#1207** (davranış değişmedi).
+
+  `src/platform/navigation/contracts/**` — dokuz saf sözleşme dosyası:
+  - **Katman bağımlılık yasası** (`navLayers.ts`): L1 MapStore · L2 Ego · L3 CEH ·
+    L4 Routing · L5 Guidance · L6 Arbitration · L7 Presentation · L8 Outcome.
+    Döngüsüz; **L4–L6 MapStore'a (L1) DOKUNAMAZ** — yol gerçeğini L3'ten alır.
+  - **`Evidenced<T>` kanıt sözleşmesi** (`navEvidence.ts`): değer + `EvidenceGrade`
+    (`OBSERVED·DERIVED·UNAVAILABLE·STALE` — `sessionInspectorModel.Observability`
+    ile **birebir**, paralel tip YOK) + kaynak + gerekçe + güven + monotonik
+    gözlem anı + tazelik bütçesi. `UNAVAILABLE`→güven ≤ 0.3, `STALE`→ ≤ 0.5
+    (kurucular zorlar).
+  - **Kanonik bozulma matrisi** (`navDegradation.ts`): `FULL · NO_TRAFFIC ·
+    NO_NETWORK · STALE_MAP_DATA · NO_MAP_DATA · NO_POSITION · SAFE_STOP` — her
+    seviyenin hangi iddiaları susturduğu **TEK** matriste; kümülatif.
+  - **Ego semantiği** (`navEgoPose.ts`): `RealtimeEgoPose` (ham, yola oturmamış)
+    ↔ `MatchedRoadPose` (grafiğe oturmuş TÜREV; ham pozu **DAİMA** taşır —
+    map-lock koruması). Algoritma YOK.
+  - **JS-güvenli `EdgeId`** (`navEdgeId.ts`): `{hi, lo}` iki uint32 —
+    `tileId(32)|localIdx(23)|dir(1)` = 56 bit JS'in 53-bit güvenli sınırını aşar;
+    hiçbir ara sayı 2^32'yi geçmez.
+  - **Monotonik zaman** (`navMonotonicTime.ts`): `MonotonicMs`/`WallClockMs` marka
+    tipleri; navigasyon süre/yaş/tazelik hesabında `Date.now()` YASAK.
+  - **L8 Outcome CONTRACT'ı** (`navOutcomeContract.ts`): tahmin/gözlem/geçiş
+    kavramları — **öğrenme/geri besleme YOK**; gözlem otoritatif harita gerçeğini
+    EZEMEZ (`NAV_OUTCOME_CONTRACT.canWriteAuthoritativeMap = false`).
+  - **`VehicleEvidenceBus`** (`vehicleEvidenceBus.ts`): yalnız arayüz; acquisition
+    authority bağlanana kadar **fail-closed `UNAVAILABLE`**. CAN mimarisi
+    DEĞİŞMEDİ.
+
+  **Aktif mimari guard'lar:** `contracts/**` saflığı (dosya-tabanlı tarama) ·
+  kanonik sembol tek dosyada (ikinci authority yok) · L4 truth sahipleri ham
+  kaynak import etmez · bağımlılık yasası döngüsüz.
+  **Bilinçli ertelenen (açık borç):** tam L4–L6 taraması → F3 · `components/map/**`
+  timer/abonelik yasağı → F5.
+
+  **Doğrulama:** `tsc -b` temiz · `navV3ContractsF0.test.ts` 34 kilit · regresyon
+  kasası (+2 kilit) · ilgili navigasyon testleri (19 dosya / 426) yeşil · değişen
+  dosyalarda lint temiz. **Üretim kodu davranışı DEĞİŞMEDİ** — sözleşme dosyaları
+  runtime tarafından import edilmiyor.
+
 - **NAV-MINIMAP-CONT-P0 · Navigasyon Oturum Sürekliliği (2026-08-03 → 04):**
   tam suite **10 447 test / 468 dosya TAMAMEN YEŞİL**, `tsc -b` temiz,
   `npm run build` ve `npm run apk:safe` başarılı, dokunulan dosyalarda **yeni lint
@@ -4819,6 +5165,1077 @@ edilmedi.
 
 ---
 
+### MUSIC-F2 — YEREL KÜTÜPHANE OTORİTESİ + KAPAK KATMANI (2026-09-01)
+
+**Durum: ENTEGRE** (kod + test + tsc + lint + üretim build yeşil).
+**SAHADA DOĞRULANDI DEĞİL** — kütük 🔴 #1069–#1076 bekliyor; saha durumunda
+`docs/DEVICE_VALIDATION_LEDGER.md` mutlak otoritedir.
+
+**Kapatılan gerçek açık:** `mediaStoreRefreshPlanner` bir politikaydı ama
+**üretim çağıranı yoktu** — planlayıcı yazılmış, hiçbir yere bağlanmamıştı;
+her açılış tam tarama koşuyordu. Artık `mediaStoreRefreshExecutor` MediaStore
+taramasının TEK yürütücüsüdür ve zincir uçtan uca bağlıdır:
+`MediaStore volumes → native refresh executor → planner kararı → MusicIndex
+uzlaştırma → UI`; kapak için `UI → ArtworkResolver → bellek → disk → native
+sampled decode`.
+
+**Bu turda kapatılan sekiz blocker:** ① gerçek native refresh executor ·
+② volume başına kalıcı refresh durumu (başarısız tarama generation'ı ilerletmez) ·
+③ çok-volume kimliği `media:<volumeIdentity>:<mediaStoreId>` + eski kimlik göçü ·
+④ tak/çıkar + izin yaşam döngüsü (detach → STALE, izin geri gelirse FULL) ·
+⑤ sınırlı kalıcı disk kapak LRU (atomik yazım · tahliye · bozuk kurtarma · şema) ·
+⑥ gerçek hedef boyutlu (sampled) decode · ⑦ base64 olmayan dosya-URL taşıması ·
+⑧ ara katman bırakılmadan gerçek entegrasyon.
+
+**Otorite sınırı korundu:** `MusicIndex` = kütüphane truth · `CarosPlaybackService`
+= playback truth · `ArtworkCache` = kapak önbelleği otoritesi · `MediaCommandGateway`
+= komut yolu · UI = projeksiyon. Kütüphane erişilebilirliği (STALE) bir playback
+durumu ÜRETMEZ (Cross-Domain §1, §7, §16). F0/F1 mimarisi yeniden tasarlanmadı;
+AI öneri kapsam DIŞINDA bırakıldı.
+
+**Ölçülmemiş sayı iddiası YOK:** bellek/FPS kazancı iddia edilmedi; sampled
+decode'un etkisi kütükte #1074'ün cihaz ölçütü olarak bekliyor.
+
+**Gözlemlenebilirlik:** yeni LAB ekranı açılmadı; mevcut `media-authority`
+ekranı `11 · Yerel Kütüphane (F2)` ve `12 · Kapak Önbelleği (F2)` kartlarıyla
+genişletildi (salt-okunur · tarama tetiklemez · kullanıcı içeriği taşımaz).
+
+**Kilitler:** `musicF2ClosureRefresh.test.ts` (16) · `musicF2ClosureArtwork.test.ts`
+(13) · `musicIndexF2.test.ts` · `mediaStoreRefreshPlannerF22.test.ts` ·
+`ArtworkStoreTest.java` (JVM · sampled decode ve cache anahtarı).
+
+### MUSIC-F3 — PLAYQUEUE + LISTENING SESSION (2026-09-01)
+
+**Durum: ENTEGRE / SAHA BEKLİYOR.** Desired queue, observed timeline ve
+reconciliation ayrı tutulur. `PlayQueue` yalnız istenen sıranın otoritesidir;
+observed sıra kanıtı yoksa projeksiyon `UNKNOWN` kalır. `ListeningSession` yalnız
+kullanıcının niyetini taşır; playback truth değildir.
+
+Yerel kütüphane seçimi artık `MusicIndex identity → ListeningIntent + DesiredQueue
+→ MediaCommandGateway → F0` zincirinden gider. Now Playing yalnız kuyruk konumu,
+uyum ve süreklilik projeksiyonu gösterir; MiniPlayer iş mantığı taşımaz.
+
+`MediaIdentity` EXACT/STRONG/WEAK/NO_MATCH/UNKNOWN kanıt derecelerini üretir.
+Süreklilik yalnız EXACT/STRONG ile `CARRIED`/`DEGRADED` olabilir; belirsiz veya
+zayıf aday otomatik çalmaya yol açmaz. Kalıcı session/queue kaydı bounded'dır ve
+recovery hiçbir koşulda PLAYING iddiası üretmez.
+
+**Açık saha kapısı:** kod tarafındaki üç boşluk MUSIC-F3.2 ile kapandı (aşağı);
+kalan kapı yalnız gerçek araç kanıtıdır. Kütük 🔴 #1077.
+
+---
+
+### MUSIC-F3.2 — LIVE EVIDENCE + HANDOVER COMMIT + LAB (2026-09-01)
+
+**Durum: ENTEGRE / SAHA BEKLİYOR.** F3'ün üç üretim boşluğu gerçek kodla kapatıldı.
+
+**1) Canlı gözlenen kuyruk.** Media3 timeline'ı artık kanıt portuna BAĞLI:
+`Player.getMediaItemAt(i).mediaId` → `CarosPlaybackService.getDiagnostics()` →
+`CarosPlaybackBridge` → `nativeAuthorityBridge.sanitizeAuthoritySnapshot` →
+`mediaAuthorityRuntime.publishObservedQueue` → `publishObservedQueueEvidence`.
+Kanıt DesiredQueue'dan TÜRETİLMEZ. Otorite yoksa, kaynak sınıfı tanınmıyorsa,
+sağlayıcı çok öğeli kuyruk semantiğini desteklemiyorsa (YouTube · Spotify Connect ·
+Bluetooth) veya timeline hiç bildirilmediyse sonuç `UNAVAILABLE` + gerekçedir —
+"boş kuyruk" ile "kuyruk görünmüyor" ayrı teşhislerdir. Native'e yazılan pencere
+`PREFIX` olarak işaretlenir; kısaltılmış liste `FULL` diye sunulmaz. Kanıt 15 sn
+sonra bayatlar ve canlı gözlem sayılmaz. Böylece MATCHED/PREFIX/DRIFT hizalaması
+artık gerçek gözlemden üretilir.
+
+**2) Doğrulanmış devir → oturum commit'i.** Üretim zinciri kuruldu:
+`carryToSource → ContinuityDecision → mediaCommandGateway.playSource →
+sourceCoordinator.switchTo → handoverMachine → CommandTruth(VERIFIED) →
+commitCarriedSourceAfterHandover → ListeningSession.currentSource`. Devir komutu
+YALNIZ `sessionContinuity` otomatik devama izin verdiğinde gönderilir; kanıt
+yetersizse komut hiç gönderilmez ve rastgele parça başlatılmaz. Commit kapısı
+bilet tabanlıdır: yeni devir eskisini SUPERSEDE eder, süreç yeniden başladığında
+bilet YOKTUR — restart öncesine ait bir tamamlanma oturumu değiştiremez.
+`ACCEPTED_UNVERIFIED` · `FAILED` · `TIMED_OUT` · rollback · bayat kuşak commit
+YAPAMAZ; yinelenen `VERIFIED` sonuç idempotent düşer. Kuyruk hedef kaynağın
+ADAYLARINDAN kurulur (eski kaynağın ölü URI'lerinden değil) ve devam noktası
+taşınan liste içindeki gerçek konumdur.
+
+**3) Telemetri + CAROS LAB.** Bounded, salt-okunur `sessionTelemetry` eklendi:
+gözlem yayını/tazelik/köken/bütünlük, hizalama, sağlayıcı karşılama, kimlik kanıt
+derecesi (en zayıf halka), süreklilik, devir sonucu, commit ve bayat/yinelenen
+düşme sayaçları. Mevcut Medya Otoritesi ekranı GENİŞLETİLDİ — yeni ekran
+açılmadı (LAB yüzey politikası): `13 · Dinleme Bağlamı`, `14 · Gözlenen Kuyruk
+Kanıtı`, `15 · Devir → Oturum Commit`. LAB komut göndermez, kendi gerçeğini
+üretmez ve okuması hiçbir üretim sayacını değiştirmez; PII (başlık · sanatçı ·
+albüm · URI · öğe kimliği) taşınmaz.
+
+**Açık saha kapısı:** kod/test/build yeşil olması saha doğrulaması DEĞİLDİR.
+Kütük 🔴 #1078 · 🔴 #1079 · 🔴 #1080 gerçek araçta gözlenene kadar bu
+başlık **DOĞRULANDI** seviyesine yükseltilmez.
+
+---
+
+### MUSIC-F4 — PREMIUM NOW PLAYING + QUEUE EXPERIENCE (2026-09-01)
+
+**Durum: ENTEGRE / SAHA BEKLİYOR.** Bu faz görsel makyaj değil, **dürüstlük ve
+dikkat** fazıdır: ekranda görünen her öğe ya kanıtlıdır ya da hiç çizilmez.
+
+**Bilgi hiyerarşisi.** Artwork → başlık → sanatçı → bağlam → transport → ilerleme
+→ kuyruk/oturum → kaynak. Kaynak bilgisi görünür ama baskın değildir: kullanıcı
+müziği dinler, backend'i değil.
+
+**Capability dürüstlüğü.** Transport kontrolleri `nowPlayingModel` tarafından tek
+yerde kapılanır: kaynak yeteneği yoksa tuş **hiç render edilmez** — kalıcı sönük
+"disabled mezarlığı" kurulmaz. Spotify Connect ve Bluetooth'ta önceki/sonraki ve
+karıştır/tekrar çizilmez; yerel kaynakta hepsi açılır.
+
+**İlerleme dürüstlüğü.** Konum/süre bildirilmiyorsa çubuk, yüzde ve saat **hiç
+çizilmez** — sahte `0:00` üretmek yerine boşluk bırakılır. Seek yalnız kaynak
+gerçekten destekliyorsa bağlanır; dokunma alanı çubuktan geniştir (sürüşte yanlış
+dokunma riski düşer). `PLAYING` iddiası yalnız kanonik duyulabilir kanıttan gelir;
+komut gönderilip ses doğrulanmadıysa yüzey iyimser çalma göstermez, sakin bir
+"Başlatılıyor" ipucu verir.
+
+**Kapak.** F2 `ArtworkCache` `now-playing` kullanımıyla çözülür; bileşen kendi
+native çözümünü yapmaz ve ikinci önbellek kurmaz. Yeni kimlik çözülene kadar
+önceki kapak durur → parça geçişinde boş kareye düşüp geri dolan "flash" olmaz.
+Kapak rengi zemine **sınırlı** sızar (opacity + vignette) ve UI renk otoritesine
+dönüştürülmez; metin kontrastı her kapakta korunur.
+
+**Kuyruk deneyimi.** Now Playing'den **tek dokunuşla** açılır. Geçerli öğe yalnız
+renkle değil kenar çubuğu, kalın metin ve `aria-current` ile ayrılır. Uzun
+kuyrukta 60 satırlık pencere çizilir (satırlar **gerçek kuyruk indeksini** taşır),
+kullanıcı listeyi incelerken auto-follow durur ve "Çalana dön" düğmesi çıkar.
+Mutasyonlar UI'dan doğrudan `playQueue`'ya gitmez: `jumpToQueueIndex ·
+removeQueueEntryAt · reorderQueueEntry · playQueueEntryNext` kapısından geçer,
+mutasyon uygulanır ve pencere kanonik komut yolundan native'e **yeniden yazılır**.
+Böylece "listede seçili görünüp başka parça çalma" ayrışması kapanır; duraklatılmış
+kuyruğun düzenlenmesi müziği başlatmaz (autoPlay kanonik ses kanıtından okunur).
+
+**Süreklilik UX'i.** F3 durumları kullanıcıya **insan dilinde** anlatılır:
+CARRIED → "Dinlemeye devam ediliyor", DEGRADED → "Bazı parçalar bu kaynakta yok",
+BROKEN → "Bu dinleme burada devam ettirilemiyor". INTACT ve UNKNOWN **sessizdir**
+(gereksiz alarm üretilmez). Teknik durum adları, hizalama sınıfları ve provenance
+yalnız CAROS LAB'da kalır.
+
+**Sürüş sözleşmesi.** Sürüş dikkat düzeyi **mevcut** `smartEngine` otoritesinden
+kabuk üzerinden gelir — yeni driving-state otoritesi kurulmadı. Sürüşte ikincil
+kontroller ve kuyruk düzenleme kapanır; atlama ve okuma açık kalır; süregiden
+animasyonlar (kapak halesi, nabız) durur. Dokunma hedefleri ≥ 48 px, kuyruk
+satırları 64 px.
+
+**Otorite sınırı.** UI bir projeksiyondur: ikinci kuyruk deposu yok, bileşen-yerel
+playback state yok, UI'dan native köprü/sağlayıcı çağrısı yok, component artwork
+fetch yok, UI continuity kararı yok, iyimser kuyruk gerçeği yok. Bu altı yasak
+kaynak taraması kilidiyle korunur.
+
+**Performans telemetrisi.** `musicUiPerf` genişletildi: Now Playing ve kuyruk
+açılış gecikmesi, kuyruk projeksiyonu, satır render maliyeti, metadata commit
+gecikmesi, render sayaçları, son pencere satır sayısı. Bu turda **eski bir ölçüm
+hatası da düzeltildi**: `nowPlayingOpenMs` her okumada yeniden hesaplandığı için
+yüzey açık kaldıkça büyüyordu (açılış gecikmesi değil, açık kalma süresi). Artık
+ilk çizimde sabitlenir; çizim olmadıysa `null` kalır.
+
+**Açık saha kapısı:** host render süresi cihaz performansı DEĞİLDİR. Kütük
+🔴 #1081 · 🔴 #1082 · 🔴 #1083 gerçek araçta gözlenene kadar bu başlık
+**DOĞRULANDI** seviyesine yükseltilmez.
+
+---
+
+### MUSIC-F5 — UNIFIED SEARCH + DISCOVERY (2026-09-01)
+
+**Durum: ENTEGRE / SAHA BEKLİYOR.** Kullanıcı artık "önce kaynak seç, sonra ara"
+modeline zorlanmıyor; kaynak teknik bir detay olarak sonucun yanında duruyor.
+
+**Birleşik arama birleşik TRUTH DEĞİLDİR.** `LOCAL` gerçeği `musicIndex`'ten,
+sağlayıcı sonucu ilgili sağlayıcıdan gelir. `musicSearchCoordinator` yalnız
+sorgular, normalize eder, sıralar, gruplar ve **provenance** taşır: playback ·
+library · provider gerçeği üretmez, kuyruk yazmaz, komut göndermez.
+
+**Yetenek dürüstlüğü.** `sourceCapabilities`'e `supportsSearch` eklendi.
+Desteklemeyen kaynağa (Bluetooth, harici MediaSession) sorgu **gitmez**; şu an
+kullanılamayan kaynak (Spotify oturumu yok) ayrı bir teşhistir. İkisi de "sonuç
+bulunamadı" diye sunulmaz — LAB'da `SKIPPED_UNSUPPORTED` / `SKIPPED_UNAVAILABLE`
+olarak ayrılır.
+
+**Dürüst durum modeli.** `SEARCHING · PARTIAL · COMPLETE · DEGRADED`. Yerel
+sonuçlar hemen görünür, ama **"tamamlandı" iddiası tüm uygun kaynaklar bitmeden
+kurulmaz**. Bir sağlayıcının düşmesi diğerlerinin sonucunu yok etmez. Boş
+sonucun gerçek nedeni ayrılır: sorgu yok · gerçekten sonuç yok · uygun kaynak
+yok · hepsi erişilemez · hepsi düştü. Kullanıcıya teknik hata kodu gösterilmez.
+
+**Türkçe normalizasyon.** NFD → birleşen işaret düşürme → `tr-TR` küçültme →
+**sonra** ı/i katlaması. Sıra kritikti ve bu turda bir hata düzeltildi: katlama
+önce yapılınca "İstanbul" → "ıstanbul" oluyordu, yani kullanıcı "istanbul"
+yazınca bulamıyordu. Normalizasyon **yalnız arama anahtarıdır**; kanonik
+metadata değiştirilmez — listede başlık her zaman "Şarkı" görünür.
+
+**Sıralama deterministik ve açıklanabilir.** Sinyaller: tam başlık > başlık öneki
+> sanatçı+başlık > tam sanatçı > albüm bağlamı > kelime kapsaması > alt dizge;
+erişilebilirlik yalnız **eşitlik bozucudur**. **Sağlayıcı popülerliği puan
+vermez** — eski `_PROVIDER_RANK` tablosu (YouTube 50 > Spotify 48 > local 40)
+kullanıcının aradığını gizleyebiliyordu. LOCAL sırf yerel diye birinci yapılmaz,
+sağlayıcı sırf çevrimiçi diye öne çıkarılmaz. AI tahmini yok. Her puanın
+gerekçesi (`signals`) LAB'da incelenebilir.
+
+**Tekilleştirme.** F3 `mediaIdentityMatching` kullanılır ve **yalnız EXACT /
+STRONG** kanıtta birleştirilir. WEAK · belirsiz · aynı ad-farklı sanatçı ·
+farklı süre AYRI kalır ve bu sayılır: **yanlış birleştirme, çift göstermekten
+daha kötüdür.** Birleşen sonuçta alternatif kaynaklar korunur ("+1" rozeti).
+
+**Bayatlık.** Her arama bir kuşak taşır. "sezen" sorgusunun geç gelen sonucu
+"sezen aksu" durumunu değiştiremez; bayat sonuç düşürülür ve sayılır. İptal
+edilen arama durumu temizler.
+
+**Türetilmiş arama indeksi.** 5.000+ parçalık kütüphanede `searchMusicLibrary`
+her tuş vuruşunda tüm parçaları yeniden normalize ediyordu. Artık indeks
+kütüphane revizyonu başına bir kez kurulur ve revizyon değişince yeniden
+kurulur. **İkinci library truth değildir**: yalnız `trackId` + normalize metin
+saklar, sonuçlar kanonik anlık görüntüden çözülür.
+
+**Seçim akışı.** `SearchResult → kanonik MediaRef → ListeningIntent +
+DesiredQueue → F3 oturum yolu → MediaCommandGateway → F0`. Arama backend
+seçmez. Yerel sonuç seçilince `musicIndex` yeniden doğrulanır; bayat referans
+reddedilir — arama sonucu bir çalma garantisi değildir.
+
+**Keşif.** AI önerisi yok. Yalnız gerçek kanıt: dinlemeye devam · son çalınan ·
+albümler · sanatçılar · klasörler. **Kanıt yoksa bölüm render edilmez** — boş
+bir "Senin için" başlığı üretilmez. Sürüşte klasör gezintisi kapanır ve satır
+sayısı azalır. Arama geçmişi bounded, yerel, açıkça temizlenebilir ve **öneri
+otoritesi değildir**.
+
+**Telemetri + LAB.** Yerel/sağlayıcı gecikmesi, ilk sonuç, tamamlanma,
+projeksiyon, indeks arama, sonuç/dedup/bayat/iptal sayaçları, kaynak turları ve
+sıralama gerekçesi. **Sorgu metni telemetriye girmez** — yalnız uzunluk. Mevcut
+Medya Otoritesi ekranı genişletildi: `16 · Birleşik Arama` (yeni ekran açılmadı,
+LAB arama tetiklemez).
+
+**Açık saha kapısı:** host ölçümü cihaz performansı DEĞİLDİR. Kütük
+🔴 #1084 · 🔴 #1085 · 🔴 #1086 gerçek araçta gözlenene kadar bu başlık
+**DOĞRULANDI** seviyesine yükseltilmez.
+
+---
+
+### MUSIC-F5.1 — SEARCH UNIFICATION + DISCOVERY SURFACE (2026-09-01)
+
+**Durum: ENTEGRE / SAHA BEKLİYOR.** F5'in üç açık borcu kapandı.
+
+**1) Sağlayıcı kapsamı.** Birleşik arama artık tek hattan tüm uygun kaynakları
+yürütür: `local · youtube(piped) · radio(radioBrowser) · spotify`. Spotify portu
+eklendi ve **oturum gözlenir** — bağlı değilse sorgu gitmez, `SKIPPED_UNAVAILABLE`
+görünür; sahte boş sonuç `COMPLETE` hükmünü yanlış etkilemez. Global kataloglar
+(audius · jamendo · archive) ürün politikası gereği (`WORLDWIDE_SOURCES_ENABLED
+= false`) kayda alınmaz; **bayrak ezilmez**, gerekçe `policy_worldwide_disabled`
+olarak LAB'da görünür. Yeni sağlayıcı yazılmadı, yetenek uydurulmadı.
+
+**2) Sesli arama birleştirmesi.** İki arama otoritesi kaldırıldı.
+`playByQuery` artık `MusicSearchCoordinator.searchOnce → kanonik sıralama +
+tekilleştirme → güvenli seçim → selectSearchResult → F3 → F0` hattını kullanır.
+Sese özel sıralama, normalizasyon veya dedup **yoktur**; eski `_PROVIDER_RANK`
+popülerlik tablosu sesli yolda da devre dışıdır. Sesli arama **ekrandaki arama
+durumunu değiştirmez** (ayrı kuşak; tek orkestrasyon, iki giriş kapısı).
+**Belirsiz sonuçta otomatik çalma yoktur** — metin kanıtı hiç tutmayan sonuç
+çalınmaz, `AMBIGUOUS` döner. Sağlayıcıya doğrudan çalma komutu gönderilmez.
+
+**3) Eski arama yolu.** `carosMediaLayer.searchMedia` artık **arama otoritesi
+değildir**: `@deprecated` işaretli, hiçbir üretim yolundan çağrılmıyor (YouTube
+kurtarma da kanonik koordinatöre taşındı) ve çağrılırsa sayaca yazılıp LAB'da
+görünüyor — sessiz mimari kaçak bırakılmadı. Kaynak taraması kilidi beş üretim
+dosyasında çağrı olmadığını doğrular.
+
+**4) Keşif yüzeyi.** `MusicDiscoverySurface` ayrı bir bileşendir (MediaScreen
+monoliti büyütülmedi) ve iş mantığı taşımaz — bölümler `discoveryRuntime`den,
+seçim kanonik F3 yolundan gelir. Bölümler: Devam et · Son çalınanlar · Son
+eklenenler · Albümler · Sanatçılar · Klasörler. Arama alanı boşken keşif,
+yazmaya başlayınca sonuçlar; alan temizlenince keşif geri gelir. **Arama
+koordinatörü keşif otoritesi değildir** — iki projeksiyon yan yana yaşar.
+
+**5) Son çalınanlar.** Bounded (12), yerel, privacy-safe bir projeksiyon:
+yalnız **kimlik + kaynak + zaman** saklanır — başlık, sanatçı, albüm ve URI
+saklanmaz; gösterim anında kanonik kütüphaneden çözülür ve çözülemeyen kayıt
+**gösterilmez** (silinmiş parça için satır uydurulmaz). Playback truth değildir
+("çalma başlatıldı" kanıtıdır), öneri otoritesi değildir. Yeni analitik sistemi
+kurulmadı.
+
+**6) Son eklenenler.** MediaStore `dateAdded` bu katmanda yoktur; tek
+sıralanabilir kanıt `generationModified`'dır. Bölüm **ancak kütüphanenin
+çoğunda bu kanıt varsa** üretilir — azınlık bir kanıtla "son eklenenler" demek
+sıralamayı uydurmak olurdu.
+
+**7) Sürüş.** Mevcut `smartEngine` otoritesi kullanılır (yeni driving-state
+otoritesi yok): sürüşte bölüm sayısı ≤ 3, klasör gezintisi kapalı, satır sayısı
+20 → 8, sonuç listesi 60 → 12, dokunma hedefleri büyük.
+
+**8) Telemetri + LAB.** Kayıtlı/dışlanan sağlayıcı, sesli sorgu/çalma/belirsiz
+tutma, sesli arama ve seçim gecikmesi, **eski yol çağrı sayacı**, keşif
+bölüm/satır/**bastırılan bölüm** sayısı ve keşif projeksiyon süresi. LAB arama
+veya keşif mutasyonu tetiklemez.
+
+**Açık saha kapısı:** host ölçümü cihaz performansı DEĞİLDİR. Kütük
+🔴 #1087 · 🔴 #1088 · 🔴 #1089 gerçek araçta gözlenene kadar bu başlık
+**DOĞRULANDI** seviyesine yükseltilmez.
+
+---
+
+### MUSIC-F6 — SES DENEYİMİ / DSP OTORİTESİ (2026-09-02)
+
+**Durum: ENTEGRE / SAHA BEKLİYOR.** Kod + test + tsc + değişen dosya lint +
+Android derleme yeşil. **SAHADA DOĞRULANDI DEĞİL** — kütük 🔴 #1090–#1099
+bekliyor; saha durumunda `docs/DEVICE_VALIDATION_LEDGER.md` mutlak otoritedir.
+
+**ÜRÜN HAZIR: HAYIR.**
+
+**Kapatılan gerçek açık — karşılıksız bir "premium ses" yüzeyi.** Repo ölçümü
+şunu gösterdi: uygulamada **hiçbir `AudioEffect` yoktu**. Ayarlar'daki
+"Crystal Cabin DSP" paneli (Akıllı Ses Dengeleme / AGC · Sürücü Odaklı Ses ·
+Hıza Bağlı Ses) Web Audio tabanlı `audioService` zincirine bağlıydı; ama
+üretimde o zincire **hiçbir ses kaynağı `connectSource()` ile bağlanmıyordu**
+ve kanonik oynatma F0 gereği native ExoPlayer'dan gidiyordu. Yani üç anahtar da
+**duyulur hiçbir şeyi değiştirmiyordu**. Bu, capability-honesty kuralının açık
+ihlaliydi; anahtarlar ürün yüzeyinden kaldırıldı ve yerine cihazda gerçekten
+ölçülen bir DSP katmanı kondu.
+
+**Ne kuruldu.** `AudioExperienceAuthority` (tek DSP otoritesi · saf karar modeli
++ I/O katmanı) · `CarosAudioEffects` (player'ın gerçek `audioSessionId`'sine
+bağlanan `Equalizer` + `LoudnessEnhancer`) · `CarosBalanceAudioProcessor`
+(ExoPlayer ses zincirinde örnek düzeyinde denge + güvenlik preamp'i) ·
+`CarosAudioGain` (saf, JVM'de kilitlenen kazanç matematiği) · yedi gerçek EQ
+profili (Düz · Vokal · Rock · Elektronik · Akustik · Bas · Gece) ve `Özel`.
+
+**Otorite sınırı korundu.** DSP yalnız **ses renginin** sahibidir: playback truth
+`CarosPlaybackService`'te · kullanıcı sesi `volumePolicy`/`userVolume`'de ·
+ducking `duckPolicy` + `CarosAudioFocusManager`'da · kaynak devri
+`sourceCoordinator`'da KALDI. Bu sınır bir import-grafı kilidiyle regresyon
+kasasına yazıldı. F0–F5 yeniden tasarlanmadı.
+
+**Dürüstlük kararları — uydurulmayanlar.**
+- **Fader yok.** Uygulama ses yolu stereodur; gerçek ön/arka kanal olmadığı için
+  `supportsFader` daima `false` ve gerekçesi (`stereo_output_only`) taşınır.
+  Kontrol hiç çizilmez.
+- **LUFS uydurulmadı.** Kaynak normalizasyonu için ölçülmüş metadata yok →
+  `volumePolicy.sourceNormalization` nötr bırakıldı; ikinci bir normalizasyon
+  sistemi kurulmadı.
+- **"AI Sound" / "Studio Quality" iddiası yok.** Her preset ölçülebilir bir EQ
+  eğrisidir; bant sayısı cihazın bildirdiğidir, "premium görünsün" diye
+  artırılmaz.
+- **Üretici DSP tespiti DERIVED'dır** (AOSP dışı equalizer implementor'ü), kesin
+  donanım iddiası değildir.
+
+**Güvenlik.** Pozitif EQ boost + loudness'in ürettiği tepe artışı, ses zincirinin
+içinde **ayrı ve sınırlı** bir preamp'le ([-12 dB, 0]) telafi edilir; kullanıcı
+sesine ve duck çarpanına DOKUNULMAZ. Denge yalnız uzak kanalı kısar (hiçbir
+kanal 1.0 üstüne çıkmaz) → denge tek başına clipping üretemez. Örnek ölçeklemesi
+tavanda sature olur, wrap-around yapmaz.
+
+**Fail-safe.** Efekt kurulamaz/uygulanamazsa sonuç tek şeydir: **BYPASS** —
+oynatma, kuyruk ve focus etkilenmez, yalnız ses rengi düzleşir. Desteklenmeyen
+format işlemciyi tamamen pasif bırakır (tampon dokunulmadan geçer). Audio session
+değişince efektler yeniden bağlanır; eski kuşağın ayarı yeni oturuma
+`stale_session` ile yazılamaz.
+
+**Sürüş politikası.** Sürüşte ince adım etkileşimi kapanır; preset seçimi ve
+açma/kapama büyük dokunma hedefiyle açık kalır. Kısıtlanan zekâ değil, yalnız
+etkileşimdir. Panelde sürükleme yoktur — her ayar ± adım düğmesiyle değişir.
+
+**Gözlemlenebilirlik.** Yeni LAB ekranı açılmadı; mevcut `media-authority`
+ekranı tek kartla genişletildi: `17 · Ses Deneyimi / DSP (F6)` — yetenek,
+session/kuşak, attach durumu, bypass gerekçesi, **istenen ↔ uygulanan** bant
+kazançları, güvenlik payı, kanal kazançları, yazım/birleştirme/gecikme sayaçları.
+Salt-okunur; hiçbir probe/apply tetiklemez.
+
+**Kilitler.** `musicF6AudioExperience.test.ts` (49) · `musicF6AudioSurface.test.tsx`
+(12) · `mediaAuthorityLab.test.tsx` (F6 kartı + gizlilik) ·
+`regression.guards.test.ts` (3 yeni kilit) · `CarosAudioGainTest.java` (JVM).
+
+**Ölçülmemiş sayı iddiası YOK.** Duyulur ses kalitesi, gerçek DSP attach
+gecikmesi ve bypass davranışı host'ta ÖLÇÜLEMEZ; hepsi kütükte cihaz ölçütü
+olarak bekliyor.
+
+**Açık borç (kapatılmadı, gizlenmedi):** ① kaynak normalizasyonu ölçülmedi ·
+② SVC yeniden yapılmadı (kanonik yeri `volumePolicy.speedCompensation`) ·
+③ `audioService.ts` ölü Web Audio ducking yolu duruyor — TTS/Mavi hattı hâlâ
+`duckMedia`/`unduckMedia` çağırıyor ama zincirde kaynak olmadığı için bugün
+etkisiz; temizliği ayrı atomik tur ·  ④ Virtualizer yalnız raporlanıyor.
+
+**Sonraki atomik PR:** kütük #1090–#1099'u gerçek head unit'te koş. Özellikle
+#1091 (duyulur EQ), #1092 (fail-safe bypass) ve #1094 (session değişiminde
+yeniden bağlanma) atlanmamalı.
+
+---
+
+### MUSIC-F6.1 — ÖLÜ SES YOLU TEMİZLİĞİ / TEK DUCK OTORİTESİ (2026-09-02)
+
+**Durum: ENTEGRE / SAHA BEKLİYOR.** Kütük 🔴 #1100–#1104 bekliyor.
+**ÜRÜN HAZIR: HAYIR.**
+
+**Kapatılan gerçek açık — CarOS konuşurken müzik GERÇEKTE kısılmıyordu.**
+`ttsService` · `voiceService` · `voiceClips` · `edgeTtsService` ·
+`onlineTtsService` `audioService.duckMedia()` çağırıyordu; o fonksiyon
+üretimde **hiçbir kaynağın bağlı olmadığı** bir Web Audio `masterGain`'ini
+kısıyordu → **duyulur hiçbir etkisi yoktu**. Kanonik `duckPolicy` vardı ama
+üretimde `mediaCommandGateway.duck()`'ın **tek bir çağıranı bile yoktu**.
+
+Beş yol yeni `duckRequest` adaptörüne taşındı (token güvenli · fail-soft ·
+durum tutmaz). `audioService.ts` **tümüyle silindi** (ölü Web Audio DSP · SVC ·
+AGC · driver-focus · `STREAM_MUSIC` yazıcısı); `theaterModeService`'in
+karşılıksız ses profili sorumluluğu kaldırıldı.
+
+**Ölçüm sırasında bulunan GERÇEK hata — çift duck.** Kapı, native `setVolume`
+alanına duck DAHİL değeri yazıyordu; native `userVolume` ise açıkça duck
+ÖNCESİ seviyedir ve duck'ı AYRICA uygular. Yol ilk kez F6.1'de canlandığı için
+sahada duyulmamıştı: NAVIGATION duck'ında ses %30 yerine **%9**'a düşerdi.
+Düzeltildi (`nativeUserVolume`) ve kilitle korundu.
+
+**Açık borç (gizlenmedi):** ① native `duckMusicForListening()` `STREAM_MUSIC`e
+doğrudan yazıyor — **ölü değil, canlı** yol (üçüncü taraf sesi de kısar);
+kanonik hâle getirmenin doğru yolu TTS/STT için native
+`AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK` isteğidir · ② `radarEngine` sistem
+sesiyle duck ediyor (aynı gerekçe) · ③ native duck reddi JS kaydına geri
+beslenmiyor (LAB'da ayrışma yan yana GÖRÜNÜR).
+
+---
+
+### MUSIC-F7 — YOUTUBE DENEYİMİ (F7.1–F7.6) (2026-09-02)
+
+**Durum: ENTEGRE / SAHA BEKLİYOR.** Kütük 🔴 #1105–#1116 bekliyor.
+**ÜRÜN HAZIR: HAYIR.**
+
+Gömülü YouTube/Piped sistemi **yeniden yazılmadı**; kanonik Music
+otoritelerinin İÇİNE alındı. Ölçülen ve kapatılan gerçek açıklar:
+
+1. **Çalma kapının dışındaydı** — `carosMediaLayer` doğrudan `playYouTube()`
+   çağırıyor, `playYouTube` de diğer backend'leri **doğrulamasız** durduruyordu
+   (ikinci devir yürütücüsü). Artık `playSource({source:'YOUTUBE'})` →
+   `sourceCoordinator` (durdur + DOĞRULA) → adaptör.
+2. **Transport kapının dışındaydı** — kapı play/pause/seek'i KOŞULSUZ native
+   köprüye yolluyordu. Artık yürütme backend SAHİBİNE dağıtılır
+   (`BackendTransport`); sunmayan backend `unsupported_capability` ile
+   REDDEDİLİR (sessiz yutma yok).
+3. **YouTube duraklatılamıyordu** — IFrame kaynağında `transport` hiç `PLAYING`
+   olmuyordu; düğme hep "çal" gösterip `play` gönderiyordu. IFrame'in KENDİ
+   `PLAYING` olayı bu backend için ulaşılabilir en yüksek kanıttır ve artık
+   transporta yansır. **Native yolun dürüstlük kuralı gevşetilmedi.**
+4. **Sonraki/önceki çizilmiyordu** — düğmeler yalnız `supportsQueue` ile
+   açılıyordu; YouTube'da o (doğru biçimde) `false`. Artık sıra **backend'in
+   veya üst katmanın** olabilir; ikisi de yoksa düğme çizilmez. Ekran · split ·
+   theater · donanım tuşları AYNI kuyruk-farkında girişten geçer.
+5. **Kapak boş kalıyordu** — sağlayıcı `https` küçük resmi native MediaStore
+   decode'una gönderiliyordu. Artık GEÇİRİLİR (`REMOTE`), diske yazılmaz.
+6. **Sürüşte video açıktı — GÜVENLİK.** Video modu koşulsuzdu ve tam ekran
+   video (z-index 2147483000) araç hareket hâlindeyken de görünüyordu. Yeni SAF
+   `videoSafetyPolicy`: duruş **kanıtlanmadan** görüntü açılmaz; **ses
+   etkilenmez**; gerekçe kullanıcıya gösterilir; sesli komut sahte onay vermez.
+
+7. **Sağlayıcı sırası ikinci otoriteydi (F7.6).** Sağlayıcı kuyruğu
+   `carosMediaLayer._queue/_qIndex/_qRevision` içinde tutuluyordu; kanonik
+   `PlayQueue` yalnız kütüphane seçimleri için kuruluyor, sağlayıcı çalmasında
+   `ListeningSession` **hiç doğmuyordu**. **ÜRÜN KARARI (2026-09-02):
+   SAME-PROVIDER (Seçenek 1)** — kanonik kuyruk tek `SourceClass` taşımaya
+   devam eder; kuyruk **seçilen parçanın kaynak sınıfıyla sınırlanır**,
+   karışık-sağlayıcı `PlayQueue` modeli KURULMAZ. Artık sağlayıcı seçimi de
+   `buildProviderQueueContext → PlayQueue → ListeningSession →
+   MediaCommandGateway` zincirinden geçer; medya katmanında kalan tek şey
+   **sunum önbelleğidir** (sıra/imleç TUTMAZ). Dışarıda kalan satırlar sessizce
+   düşürülmez (`excludedIds` → LAB `Sağlayıcı sınırı (F7.6)`).
+
+**Sahte durum üretilmedi:** sağlayıcı timeline'ı olmadığı için gözlenen kuyruk
+kanıtı `UNAVAILABLE + gerekçe` kalır (uydurma kuyruk yok), playlist desteği
+**iddia edilmez** ve kuyruk DÜZENLEMESİ bu kaynaklarda hâlâ
+`unsupported_capability` ile reddedilir — yalnız **gezinme** meşrudur.
+
+**Sonraki atomik PR:** kütük #1105–#1116'yı gerçek head unit'te koş. Özellikle
+#1107 (sürüşte video kapalı — güvenlik), #1105 (tek audible backend), #1109
+(duraklat çalışıyor) ve #1113/#1115 (kanonik sağlayıcı kuyruğu + same-provider
+sınırı) atlanmamalı.
+
+**SAHA BUGFIX (2026-09-03) — 3 gerçek saha kusuru düzeltildi (kütük #1202–#1204,
+CODE FIXED · DEVICE PENDING):**
+
+- **YouTube/Piped ses hiç başlamıyordu.** Kök neden: `start()` kanıtı
+  `activePackage===YOUTUBE_PKG` bayrağından alınıyordu — bu bayrak
+  `loadVideoById` çağrılmadan ÖNCE koşulsuz yazılıyordu, yani otoyoklama
+  engeli/embed reddi sessizce COMMIT'e sürüklüyordu. Kanıt artık IFrame
+  player'ın KENDİ durumundan (`getYouTubePlaybackState`) okunuyor; sınırlı
+  (2600ms) bekleme `PLAYING`/`BUFFERING` beklerse, yoksa dürüst FAIL+rollback.
+- **MiniPlayer DockBar'ı eziyordu.** `bottom: 12` ham piksel yerine kanonik
+  `--lp-dock-h` çapası benimsendi (ikinci yerleşim otoritesi kurulmadı).
+- **Madde 6 GÜNCELLENDİ — ürün kararı değişti:** CarOS artık hareket/hız
+  nedeniyle videoyu **otomatik engellemez**. `videoSafetyPolicy`/
+  `useVideoSafety` **silinmedi** (LAB gözlemi + gelecekteki opt-in ülke/
+  mevzuat politikası için saf sınıflandırma olarak kalır) ama bugün hiçbir
+  üretim yolu onu playback/görüntü GATE'i olarak kullanmıyor.
+
+Detay: `docs/DEVICE_VALIDATION_LEDGER.md` #1202–#1204 ·
+`musicFieldBugfixYtMiniplayerVideo.test.ts` (17 kilit).
+
+### MUSIC-F8 — SÜRÜŞ-FARKINDA MÜZİK ZEKÂSI (2026-09-02)
+
+**Durum: ENTEGRE / SAHA BEKLİYOR.** Kütük 🔴 #1117–#1122 bekliyor.
+**ÜRÜN HAZIR: HAYIR.**
+
+CarOS Music'i sıradan bir çalardan ayıran katman. **AI/LLM YOKTUR, bulut
+YOKTUR, "sana özel / ruh hâlini biliyorum" iddiası YOKTUR** — yalnız ölçülen
+araç bağlamı ve sayılabilir yerel kanıt.
+
+**Ne yapar:** hız · yolculuk · rehberlik · saat sinyallerinden bir bağlam
+(`PARKED/CITY/HIGHWAY` × `DAY/NIGHT` × yolculuk evresi) sınıflandırır; aynı
+bağlamda **korunan** dinlemelerden sınırlı bir tercih kanıtı biriktirir; müzik
+durmuşken bağlama uygun TEK bir öneri sunar ve büyük çal tuşunu bağlam-farkında
+yapar.
+
+**Neyin sahibi DEĞİLDİR:** playback (F0) · kuyruk/oturum (F3) · arama (F5) ·
+sağlayıcı (F7) · sürüş durumu (`smartDrivingEngine`/VDL). İkinci otorite,
+ikinci scheduler, ikinci öneri deposu KURULMADI.
+
+**Fail-closed kapılar (sıra önemli):** ses çıkıyorsa DOKUNMA → açık kullanıcı
+niyeti varsa SUS (20 dk) → bağlam kanıtsızsa SUS → kanıt yok/zayıfsa SUS →
+ancak hepsi geçilirse öner; otomatik devam yalnız yolculuk başlangıcı + yüksek
+güven + ≥3 korunmuş dinleme + açık oturum yokken. **Kullanıcı dokunmadan
+kendiliğinden ses BAŞLAMAZ.**
+
+**Gizlilik (pazarlıksız):** kalıcı tercih kanıtına parça/albüm/sanatçı adı ·
+URI · kapak · sorgu · konuşma · konum · rota · hedef · sağlayıcı içerik kimliği
+**YAZILMAZ**. Yalnız kova · niyet türü · cihaz-yerel kütüphane kimliği · kaynak
+sınıfı · sayaçlar. Sınırlı (48 satır LRU) · TTL 45 gün · kullanıcı silebilir ·
+şema testle kilitli.
+
+**Performans:** timer YOK · polling YOK · hot-path'e maliyet YOK. Karar yalnız
+yüzey değerlendirmesinde ve dinleme oturumu değişiminde üretilir; latency LAB'da
+ölçülür. **Host ölçümü cihaz performansı SAYILMAZ** (kütük #1122).
+
+**LAB:** yeni ekran AÇILMADI — `media-authority` ekranına `18 · Sürüş-Farkında
+Müzik (F8)` kartı eklendi (bağlam kanıtı · eksik sinyal · güven · tercih kanıtı ·
+en güçlü aday · son karar · bastıran kapılar · açık niyet · sayaç · latency).
+Kullanıcıya skor/gerekçe GÖSTERİLMEZ; bunlar yalnız LAB'dadır.
+
+**Açık borç (bilinçli):** ① kontak/yolculuk başlangıcında UI olmadan otomatik
+çalma YAPILMADI (arka plan aktörü gerektirirdi — timer-kurma yasağı korundu);
+② Mavi entegrasyonu bu fazda YAPILMADI (karar katmanı saf olduğu için Mavi
+ileride *requester* olarak kullanabilir).
+
+**Sonraki atomik PR:** kütük #1117–#1122'yi gerçek araçta koş. Özellikle #1119
+(çalan müziğe karışmama) ve #1121 (kendiliğinden ses başlamaması) atlanmamalı.
+
+### MUSIC-F9 — MAVİ MUSIC COMPANION (2026-09-02)
+
+**Durum: ENTEGRE / SAHA BEKLİYOR.** Kütük 🔴 #1123–#1129 bekliyor.
+**ÜRÜN HAZIR: HAYIR.**
+
+Mavi'nin müzik tarafı yeniden yazılmadı; F0–F8 kanonik otoritelerine BAĞLANDI.
+Mavi **requester**dır — ikinci playback · kuyruk · arama · sıralama · öneri
+otoritesi KURULMADI.
+
+**Yeni:** UI-bağımsız tek `MusicIntent` sözleşmesi (taşıma · arama · kuyruk ·
+devam · bağlamsal · ses), **yerel ve deterministik** niyet çözümü (bulut/LLM
+GEREKTİRMEZ) ve kanonik yönlendirici.
+
+**Düzeltilen GERÇEK kusurlar:**
+1. Sesli **"sonraki"** sağlayıcı kuyruğunda düşüyordu — `commandExecutor`
+   F7.3'ün kuyruk-farkında girişini ATLIYORDU (`mediaService`e doğrudan
+   iniyordu). Kanonik giriş artık kanıt döndürür; tek giriş korundu.
+2. **Üç ayrı koşulsuz iddia** ("<başlık> çalınıyor" · "Müzik açılıyor" ×2)
+   kaldırıldı; cümle artık YALNIZ kanıt derecesinden doğar.
+
+**İddia ↔ kanıt kilidi:** `VERIFIED` → "çalıyor" · `ACCEPTED_UNVERIFIED` →
+"başlatmayı deniyorum" (**asla "çalıyor" değil**) · `AMBIGUOUS` → "hangisi?" ·
+diğerleri → neden + teklif. Teknik hata kodu kullanıcıya OKUNMAZ.
+
+**Ürün kararları:** kaynak niteleyicisi yalnız FİLTREdir ve **sessiz kaynak
+değişimi YOKTUR** · belirsizde **kör autoplay YOK** (F5 kanıt eşiği korunur) ·
+açık bağlamsal istek F8'in otomasyon kapılarını aşar ama **kanıt kapısını
+aşmaz** · **ruh hâli/tempo ölçümü YOKTUR** ve uydurulmaz · sorgusuz "müzik aç"
+rastgele bir şey çalmaz · kuyrukta olmayan işlem uydurulmaz.
+
+**Güvenlik:** Mavi F7.2 sürüş video kapısını BYPASS EDEMEZ (video bir müzik
+niyeti değildir) · duck F6.1 kanonik otoritesindedir.
+
+**LAB:** yeni ekran AÇILMADI — `media-authority` → `19 · Mavi Müzik Niyeti (F9)`
+(niyet · rota · komut gerçeği · iddia sınıfı · neden kodu · kaynak · netleştirme ·
+bağlam kanıtı · kuyruk · bayat tur · **iddia uyuşmazlığı 0 olmalı** · latency).
+Söylenen metin telemetriye YAZILMAZ.
+
+**Açık borç:** mood/tempo tabanlı öneri (ölçüm kaynağı yok) · kanonik playlist
+modeli · `commandParser` eski müzik niyetlerinin F9 sözleşmesine tam göçü.
+
+**Sonraki atomik PR:** kütük #1123–#1129'u gerçek araçta koş. Özellikle #1123
+(iddia ↔ gerçek oynatma) ve #1128 (sürüşte video kapısı) atlanmamalı.
+
+### MUSIC-F10 — MOOD / ENERGY INTELLIGENCE (2026-09-02)
+
+**Durum: İSKELET+ / KANIT KAYNAĞI BAĞLI DEĞİL.** Kütük 🔴 #1130–#1135 bekliyor.
+**ÜRÜN HAZIR: HAYIR.**
+
+**Bu fazın en önemli çıktısı bir ÖLÇÜMDÜR:** CarOS'ta bugün hiçbir kaynak
+gerçek enerji/tempo ölçümü VERMİYOR — MediaStore projeksiyonunda `GENRE`/`YEAR`
+sorgulanmıyor, Piped/YouTube trait vermiyor, Spotify `audio-features`
+çağrılmıyor. Bu yüzden F10 **ölçüm uydurmadı**; ölçüm geldiğinde hazır olan bir
+kanıt sözleşmesi kurdu ve bugün yalnız AÇIKÇA ETİKETLİ zayıf türetimler
+kullanıyor.
+
+**Kanıt modeli:** `MusicTraitEvidence` (energy · tempoBpm · mood · confidence ·
+provenance · signals). Zorlanan kurallar: **BPM yalnız gerçek ölçümden** ·
+**sezgisel kanıt `LOW` tavanlı** · **birleştirme güveni yükseltmez** · değersiz
+kanıt `NONE`a düşer · modelde parça/sanatçı ADI taşınmaz.
+
+**Seçim fail-closed:** "daha sakin/enerjik" GÖRECELİDİR — çalanın kanıtı yoksa
+kıyas UYDURULMAZ; algılanabilir fark (≥0.20) yoksa seçim yapılmaz; kanıtsız
+adaylar sessizce düşmez, sayılarak elenir; seçim güveni en ZAYIF halkadır.
+
+**Yürütme kanonik:** F9 niyet → F10 (yalnız KİMLİK) → F3 `startLibraryListening`
+→ PlayQueue/ListeningSession → Gateway/F0. F10 çalma başlatmaz, kuyruğa/
+kütüphaneye/F8 kanıtına yazmaz, timer kurmaz. Gömülü YouTube deneyimi
+DEĞİŞMEDİ.
+
+**Dil dürüstlüğü:** kanıt zayıfken "daha sakin olabilecek bir şey deneyeyim";
+kesin dal bugün ULAŞILAMAZDIR (sezgisel kanıt `LOW` tavanlı) ve bu LAB'da
+sayaçla görünür.
+
+**LAB:** yeni ekran AÇILMADI — `media-authority` → `20 · Karakter / Enerji
+Kanıtı (F10)`.
+
+**AÇIK BORÇ — F10 tamamlandı SAYILAMAZ:** ① MediaStore `GENRE`/`YEAR`
+projeksiyona eklenmedi (native + cihaz doğrulaması) · ② Spotify `audio-features`
+bağlanmadı (ağ bütçesi/oran sınırı/sağlayıcı politikası) · ③ sağlayıcı tarafında
+trait yok (ürün sınırı). Kütük **#1135** bu borcu açık tutar.
+
+**Sonraki atomik PR:** kütük #1130–#1135'i gerçek araçta koş; özellikle #1130
+(kanıtsızken sahte seçim yok) ve #1133 (kanonik zincir) atlanmamalı.
+
+### MUSIC-F10.1 — GERÇEK KARAKTER KANITI KAPANIŞI (2026-09-02)
+
+**Durum: ENTEGRE / SAHA BEKLİYOR.** Kütük 🔴 #1136–#1141 bekliyor.
+**ÜRÜN HAZIR: HAYIR.**
+
+F10'un açık blocker'ı (#1135 — "gerçek trait kaynağı bağlı değil") **kod
+tarafında KAPATILDI**. F10 mimarisi yeniden yazılmadı; kanıt kaynakları bağlandı.
+
+**Bağlanan GERÇEK kaynaklar:** ① MediaStore `GENRE` (API 30+) + `YEAR`
+projeksiyona eklendi · ② dosyaya gömülü ID3 `TBPM` / Vorbis `BPM` **media3
+`MetadataRetriever`** ile okunuyor (dosya DECODE EDİLMEZ; 24 dosya toplu iş,
+dosya başına 1,5 sn zaman aşımı, ayrı arka plan havuzu).
+
+**Bağlanmayanlar (uydurulmadı):** YouTube/Piped trait alanı YOK
+(`UNSUPPORTED`) · Spotify `audio-features` sözleşmesi doğrulanamadı
+(`UNVERIFIED` — varmış gibi davranılmadı) · ses analizi yapılmıyor
+(`MEASURED_AUDIO` KULLANILMIYOR).
+
+**Sıkılaştırılan kural:** F10'da `LIBRARY_METADATA` BPM taşıyabiliyordu;
+F10.1'de **tür/yıl BPM YAZAMAZ**. BPM yalnız gömülü etiket/gerçek ölçümden.
+
+**Dürüstlük:** tür TEK BAŞINA ruh hâli iddiası kuramaz (destekleyici · `LOW`) ·
+BPM'den mood üretilmez · birleştirme güveni yükseltmez · bozuk etiket (40–250
+dışı) kanıt sayılmaz · dosya değişirse bayat kanıt kullanılmaz (şema + kuşak
+anahtarda).
+
+**Ürün etkisi:** iki tarafta da gömülü BPM varsa seçim güveni `MEDIUM`a çıkar →
+Mavi artık "Daha sakin bir şey açıyorum" gibi **kesin dil** kurabilir. Etiketsiz
+kütüphanede dil **temkinli** kalır.
+
+**Bu turda yakalanan gerçek kusur:** LAB alanı `peekReferenceEvidence` üretim
+önbelleğine/sayaçlarına yazıyordu; F3.2'nin salt-okunurluk kilidi yakaladı →
+saf hesaplayıcı ayrıştırıldı + kalıcı kilit eklendi.
+
+**Açık sınır:** sağlayıcı tarafı hâlâ kanıtsız (#1141).
+
+**Sonraki atomik PR:** kütük #1136–#1141'i gerçek cihazda koş; özellikle #1136
+(Android 10'da çökme yok) ve #1137 (gerçek BPM okunuyor) atlanmamalı.
+
+### MUSIC-F13 — FAVORİLER / MUSIC COLLECTION AUTHORITY (2026-09-02)
+
+**Durum: ENTEGRE / SAHA BEKLİYOR.** Kütük 🔴 #1142–#1147 bekliyor.
+**ÜRÜN HAZIR: HAYIR.**
+
+**Ölçülen gerçek:** repoda bir favori/koleksiyon otoritesi hiç YOKTU. Tek iz
+F11'de kaldırılan `onClick`siz kalp düğmesi (süs, hiçbir state'e bağlı değildi)
+ve `commandParser`nin ölü `ADD_MUSIC_FAVORITE` dalıydı ("bu özellik şu an
+desteklenmiyor"). F13 **TEK** `musicCollectionAuthority`yi kurdu; F0–F12'nin
+hiçbir otoritesi (playback · PlayQueue · ListeningSession · MusicIndex ·
+arama sıralaması · sağlayıcı devri · öneri/F8 · trait/F10) ele geçirilmedi.
+**"Favori olmak = çalıyor olmak DEĞİLDİR. Favori olmak = öneri kanıtı
+DEĞİLDİR."**
+
+**Kimlik modeli:** F3'ün ZATEN var olan `CanonicalMediaIdentity`si YENİDEN
+KULLANILDI — yeni bir kimlik icat edilmedi. Anahtar LOCAL'de `libraryId`,
+PROVIDER'da `providerNamespace+providerId`dir; **başlık/sanatçı hiçbir zaman
+anahtarın parçası değildir**. Kanıt yetersizse (yalnız başlık/sanatçı varsa)
+favori KURULMAZ.
+
+**Kalıcılık:** LOCAL kayıt yalnız `libraryId` taşır — başlık/sanatçı/kapak her
+zaman `MusicIndex`ten CANLI çözülür. PROVIDER kayıt bounded görüntü
+metadata'sı (title/artist/artwork/contentUri) taşır — F7.6'nın kuyruk
+girdilerinde zaten yaptığının AYNISI, çünkü sağlayıcı içeriği için geriye
+dönük kanonik bir dizin yok. Sorgu/sesli komut metni/konum/rota şemaya
+GİRMEZ. Bozuk/şema-uyumsuz kayıt fail-closed atlanır.
+
+**Oynatma sınırı (yapısal):** `resolvePlaybackTarget` yalnız VERİ döndürür —
+kendisi hiçbir zaman dispatch etmez. Gerçek dispatch ÇAĞIRANDA olur (F9
+router'ın `runCollection`ı / Discovery'nin seçim akışı) ve her çağrı tek-öğe
+tek-sağlayıcı bir kuyruk kurar — bu, "favoriler playback otoritesi olamaz" ve
+"karışık-sağlayıcı favori listesi ≠ karışık-sağlayıcı PlayQueue"
+kısıtlarının YAPISAL güvencesidir.
+
+**Now Playing:** F11'de kaldırılan kalp düğmesi GERİ GELDİ — ama artık gerçek
+`useFavoriteStatus` projeksiyonuna bağlı. Kimlik kanıtsızsa düğme hiç
+çizilmez; iyimser sahte state yok, `toggle()` senkron doğrulanmış otorite
+sonucunu yansıtır.
+
+**Discovery:** yeni bir `FAVORITES` bölümü — YALNIZ gerçek favori varken
+çizilir (F5'in "kanıt yoksa bölüm yok" kuralı burada da geçerli). Seçim LOCAL
+favoride `startLibraryListening`, PROVIDER favoride `UnifiedSearchView`nin
+`PROVIDER_PATH` sınırıyla BİREBİR aynı desenle kanonik medya katmanına
+(`playMedia`) devreder.
+
+**Mavi/F9:** `MusicIntent` sözleşmesi üç yeni niyetle GENİŞLETİLDİ (yeniden
+yazılmadı): `ADD_FAVORITE` · `REMOVE_FAVORITE` · `PLAY_FAVORITES`. "Bunu"
+kimliği F3'ün ZATEN var olan `ListeningSession.currentItem`ından gelir —
+yoksa istek dürüstçe reddedilir (`no_current_item`), favori UYDURULMAZ.
+"Eklendi/çıkarıldı" YALNIZ otoritenin doğruladığı mutasyonda söylenir ve
+konuşma katmanında GENEL "X çalıyor." dalına asla düşmez (favori mutasyonu
+bir çalma iddiası değildir). Legacy `commandExecutor`'daki tek somut ölü uç
+(`ADD_MUSIC_FAVORITE`) bu kanonik yola bağlandı; F9'un `handleMusicUtterance`
+serbest-metin çözümleyicisinin canlı sesli girişe henüz bağlanmadığı (önceki
+fazlardan kalma, F13'ün kapsamı dışında bırakılan) bilinen sınır DEĞİŞMEDİ.
+
+**Performans:** üyelik sorgusu (`isFavorite`) bir `Map` üzerinde O(1)'dir;
+render hot-path'inde tarama/sıralama yok. Timer/polling/global zamanlayıcı
+kurulmadı — yalnız mutasyon-tetiklemeli abonelik.
+
+**LAB:** yeni ekran AÇILMADI — `media-authority` → `21 · Favoriler /
+Koleksiyon (F13)`. Kart salt-okunurdur, parça adı/URI taşımaz, mutasyon
+tetiklemez.
+
+**Sonraki atomik PR:** kütük #1142–#1147'yi gerçek cihazda koş; özellikle
+#1142 (kalp düğmesi anında/senkron durum) ve #1145 (karışık-sağlayıcı kuyruk
+KURULMUYOR) atlanmamalı.
+
+### MUSIC-F14 — MAVİ LIVE MUSIC INTENT WIRING (2026-09-02)
+
+**Durum: ENTEGRE / SAHA BEKLİYOR. ÜRÜN HAZIR: HAYIR.**
+
+**Ölçülen gerçek:** F9'un `handleMusicUtterance/resolveMusicIntent/MusicIntentRouter`
+hattı doğruydu ama canlı ses girişine BAĞLI DEĞİLDİ — yalnız birim testlerinden
+çağrılıyordu. F14 bunu `voiceService.processTextCommand`'a yeni bir yerel/
+deterministik bypass katmanı ("1c0") ile bağladı: yalnız yerel parser hiçbir şey
+BULAMADIĞINDA (`result.command === null`) VE `resolveMusicIntent`'in ürettiği
+niyet dar-güvenli bir kümedeyse (kuyruk/bağlamsal/koleksiyon niyetleri) devreye
+girer — kritik/hava/sensör bypass'larından SONRA, Gemini-first'ten ÖNCE. Yeni
+parser/playback yolu/otorite KURULMADI. Legacy `routeIntent` çift-yürütme yolu
+kaldırılmadı ama `useVoiceCommandHandler`'ın `_MUSIC_INTENT_TYPES` dalıyla artık
+aynı kanonik `dispatchIntent`'e yönlendirilir ve `noteLegacyRouteIntentMusicCall`
+sayacıyla izlenir (sıfır kalması beklenir — kaldırılmadı, izlenen uyumluluk
+adaptörüne indirildi).
+
+**Kalan gerçek risk:** çift-yürütme imkânsızlığı YAPISAL erişilemezlikle
+sağlandı (runtime dedup kontrolüyle DEĞİL) — kanıt kütükte AÇIK madde olarak
+BEKLİYOR (bu belgeye MUSIC-F14 kütük satırları eklenmedi; **açık borç**: F14
+kapanışı için kütük maddeleri yazılmalı — F15 bu boşluğu KAPATMAZ).
+
+### MUSIC-F15 — PLAYLIST / COLLECTION AUTHORITY (2026-09-02)
+
+**Durum: ENTEGRE / SAHA BEKLİYOR.** Kütük 🔴 #1148–#1153 bekliyor.
+**ÜRÜN HAZIR: HAYIR.**
+
+**Ölçülen gerçek:** repoda "playlist" YALNIZ F5/F9'un `PLAY_PLAYLIST`i
+anlamına geliyordu — bir sağlayıcı playlist'ini adla arayıp çalmak; CarOS'un
+KENDİ sahiplendiği, kalıcı bir koleksiyon kavramı hiç YOKTU. F15 **TEK**
+`musicPlaylistAuthority`yi kurdu — F13 favori otoritesinden TAMAMEN ayrı bir
+depoda (`caros.music.f15.playlists.v1`), F13'ün deposunu (`...f13.favorites.v1`)
+ele geçirmeden.
+
+**Kimlik/kalıcılık:** F3/F13'ün ZATEN var olan `CanonicalMediaIdentity`si
+YENİDEN KULLANILDI (`playlistItemKeyFor` = F13'ün `favoriteKeyFor`ının kendisi).
+Şema F13'le AYNI ilkeyi izler: LOCAL yalnız `libraryId`, PROVIDER bounded
+görüntü metadata'sı + `contentUri` taşır; sorgu/ses/konum/rota şemaya GİRMEZ;
+bozuk kayıt fail-closed atlanır (playlist'in geri kalanı KORUNUR).
+
+**Karma-sağlayıcı playlist ≠ karma-sağlayıcı PlayQueue:** bir playlist yerel VE
+sağlayıcı öğelerini birlikte tutabilir, ama `resolvePlaylistStartPlan`/
+`resolvePlaylistStart` yalnız VERİ ÖNİZLEMESİ döner (başlangıç öğesinin
+sınıfıyla AYNI sınıftaki öğeler) — gerçek zorlama F7.6'nın ZATEN var olan
+`buildProviderQueueContext`ı içinde, `playMedia`'nın kendi kuyruk kurulumunda
+gerçekleşir. İkinci bir kuyruk otoritesi KURULMADI; dispatch her zaman
+ÇAĞIRANDA (router/UI) kalır.
+
+**Oynatma zinciri:** LOCAL öğe F3 `startLibraryListening`, PROVIDER öğe
+kanonik medya katmanı (`playMedia`) — F13'ün `resolvePlaybackTarget` desenini
+BİREBİR izler. Çözülemeyen tek öğe listede atlanır; hiçbir çözülebilir öğe
+kalmazsa oynatma dürüstçe REDDEDİLİR (sahte çalma iddiası YOK).
+
+**UI:** Discovery'ye F13'ün `FAVORITES`iyle AYNI ilkede yeni bir `PLAYLISTS`
+bölümü eklendi (yalnız gerçek playlist varken çizilir). `PlaylistDetailPanel`
+(oynat/kaldır/sırala/yeniden adlandır/sil) ve Now Playing'deki
+`AddToPlaylistSheet` YENİ ekranlar DEĞİL — mevcut `MusicDiscoverySurface` ve
+`MediaScreen`in GENİŞLEMESİdir (ekran enflasyonu yasağına uyar). Sürüş modunda
+düzenleme kontrolleri gizlenir (F5.1/Discovery'nin sürüş-daralma desenini
+izler), oynatma erişilebilir kalır. Tüm dokunma hedefleri ≥48px.
+
+**Mavi/F9:** `MusicIntent` sözleşmesi dört yeni niyetle GENİŞLETİLDİ:
+`CREATE_PLAYLIST` · `ADD_TO_PLAYLIST` · `REMOVE_FROM_PLAYLIST` ·
+`PLAY_MY_PLAYLIST` — F14'ün canlı ses hattına (`voiceService`'in "1c0" bypass
+katmanı, `PLAYLIST_KINDS` eklenerek) bağlı. Aynı adda birden fazla playlist
+varsa AMBIGUOUS ile netleştirme istenir (yanlış liste ASLA seçilmez); adsız
+"bunu listeden çıkar" F3'ün ZATEN var olan kuyruk-çıkar anlamını KORUR (ÇAKIŞMA
+yok — playlist çıkarma isim ZORUNLU kılar). Mavi kendi başına depo yazmaz;
+"oluşturdum/ekledim/çıkardım" YALNIZ otoritenin doğruladığı mutasyonda söylenir.
+
+**LAB:** yeni ekran AÇILMADI — `media-authority` → `22 · Playlist Otoritesi
+(F15)`. Kart salt-okunurdur, playlist/parça adı/URI taşımaz, mutasyon
+tetiklemez.
+
+**Test kanıtı (masa başı):** `musicF15PlaylistCollectionAuthority.test.ts`
+(32 hedefli test) + `regression.guards.test.ts`'e eklenen 9 F15 otorite kilidi
++ ilgili F5/F5.1/F13/F14/F9/F7.6/F3/F12 regresyon dosyaları (262 test) yeşil;
+`tsc -b --force` temiz. **Bu masa başı doğrulamadır — cihaz kanıtı DEĞİLDİR.**
+
+**Sonraki atomik PR:** kütük #1148–#1153'ü gerçek cihazda koş; özellikle #1149
+(karma-sağlayıcı kuyruk KURULMUYOR) ve #1152 (Mavi belirsiz playlist adında
+yanlış liste SEÇMİYOR) atlanmamalı. F14'ün kütük borcu (yukarı bakın) da AYRICA
+kapatılmalı — F15 onu ÖRTMEZ.
+
+### MUSIC-F16 — LYRICS / ŞARKI SÖZLERİ EXPERIENCE (2026-09-03)
+
+**Durum: ENTEGRE / SAHA BEKLİYOR.** Kütük 🔴 #1154–#1160 bekliyor.
+**ÜRÜN HAZIR: HAYIR.**
+
+**Ölçülen gerçek:** repoda lyrics/altyazı otoritesi hiç YOKTU (`grep -ri lyric`
+sıfır sonuç). Kaynak taraması sonucu:
+- **LOCAL — AVAILABLE (gerçek, doğrulanmış):** media3 1.4.1'in `media3-extractor`
+  AAR'ı açılıp `Id3Decoder.class` bayt kodu incelendi — USLT/SYLT için ÖZEL
+  tipli çerçeve YOK (`decodeXxxFrame` metot listesinde yalnız Text/Comment/
+  UrlLink/Priv/Geob/Apic/Chapter/ChapterToc/Mllt/Binary var), ikisi de ham
+  `BinaryFrame`e düşüyor. F16 bu boşluğu **yeni** bir native sınıfla
+  (`TrackLyricsExtractor.java`) doldurdu — ID3v2 §4.9 (SYLT)/§4.10 (USLT)
+  spesifikasyonuna göre elle çözer; Vorbis `LYRICS`/`UNSYNCEDLYRICS` yorumu
+  media3'ün ZATEN çözdüğü `VorbisComment`tan (F10.1'in `BPM` okumasıyla AYNI
+  mekanizma) okunur.
+- **Spotify — UNSUPPORTED:** `spotifyService.ts` yalnız `api.spotify.com/v1`
+  kullanır; genel Web API'de lyrics uç noktası YOK.
+- **YouTube/Piped — UNSUPPORTED:** `pipedProvider.ts`nin Piped/Invidious
+  sözleşmesinde (`PipedSearchItem`/`PipedAudioStream`/`InvidiousVideo`/
+  `InvidiousFormat`) lyrics alanı YOK.
+- Kalıcı lyrics/cache modeli YOKTU (yeni modül, F13/F15 ile AYNI kalıcılık
+  ilkesi).
+
+**Karar kuralı uygulandı (spec §15):** gerçek/erişilebilir kaynak (LOCAL
+gömülü etiket) VARDI → güvenli şekilde bağlandı. Sağlayıcı kaynağı
+(Spotify/YouTube) YOKTU → **sahte lyrics sistemi kurulmadı**, dürüst
+`UNAVAILABLE` + açık blocker olarak kütük #1157'ye yazıldı.
+
+**Otorite:** `musicLyricsAuthority.ts` — TEK lyrics otoritesi. Kimlik F13/F15
+ile AYNI `CanonicalMediaIdentity`/`lyricsKeyFor` (F13'ün `favoriteKeyFor`ının
+kendisi — yeniden İCAT EDİLMEDİ). Playback/PlayQueue/ListeningSession/
+MusicIndex'in HİÇBİRİNİ ele geçirmez — yalnız `getListeningSession()`i ve
+`getMusicLibrarySnapshot()`i OKUR.
+
+**Senkron projeksiyon (İKİNCİ playback clock YOK):** `activeLyricsLineIndex`
+saf, İKİLİ ARAMA (O(log n)) yapan bir fonksiyondur — mevcut playback
+pozisyonunu (`music.progress.positionSec`, F7.3'ün ZATEN var olan 2 Hz
+interpolasyon döngüsünden) PARAMETRE olarak alır, kendi zamanlayıcısını
+KURMAZ. Seek → pozisyon değişir → aynı fonksiyon aynı render turunda yeni
+indeksi verir. Timestamp yalnız GERÇEK milisaniye (SYLT `timestampFormat==2`)
+ise `SYNCED`; MPEG-frame formatı (1) TAHMİNİ ms'ye ÇEVRİLMEZ, `null` döner —
+tahmini zamanlama UYDURULMAZ.
+
+**Cache/offline:** `caros.music.f16.lyrics.v1` — F13/F15 ile AYNI
+`safeStorage` deseni, AYRI anahtar. Yalnız LOCAL kaynaklı POZİTİF sonuçlar
+kalıcı olur (bugün tek gerçek kaynak budur — üçüncü taraf ToS'u söz konusu
+DEĞİL). Dosya değişince (`generationModified`) bayat kanıt DÜŞÜRÜLÜR. Negatif
+sonuç ("bu parçada söz yok") da önbelleğe alınır — aynı parça için native
+tekrar tekrar sorgulanmaz.
+
+**Now Playing:** yeni bağımsız ekran AÇILMADI — `LyricsPanel.tsx` mevcut
+`MediaScreen`in genişlemesidir (kalp/playlist düğmeleriyle AYNI `favorite.
+available` kimlik kapısı). Sürüşte yalnız tek büyük aktif satır (senkron
+varsa) veya kısıtlama notu gösterilir — tam liste gezintisi/scroll GİZLENİR
+(spec §7, mevcut `drivingMode`i okur, İKİNCİ sürüş otoritesi KURMAZ). Söz
+yoksa/aranıyorsa dürüst durum metni gösterilir, boş panel ile kandırma YOK.
+
+**Mavi/F9:** `MusicIntent` üç yeni niyetle genişletildi: `SHOW_LYRICS` ·
+`HIDE_LYRICS` · `QUERY_LYRICS_AVAILABILITY` — F14'ün canlı ses hattına
+(`voiceService`'in "1c0" bypass katmanı, `LYRICS_KINDS` eklenerek) bağlı.
+Mavi kendi başına depoya yazmaz; panel görünürlüğü `lyricsPanelVisibility.ts`
+(yeni, `videoModeStore.ts` ile BİREBİR aynı hafif presentation-store deseni)
+üzerinden TALEP edilir. "Açıyorum/buldum" YALNIZ gerçekten bulunduğunda
+söylenir — söz yoksa panel yine açılır (dürüst boş durum) ama Mavi dürüstçe
+"bulamadım" der.
+
+**LAB:** yeni ekran AÇILMADI — `media-authority` → `23 · Şarkı Sözleri
+Otoritesi (F16)`. Kart salt-okunurdur, **söz metni/satır/URI TAŞIMAZ**,
+mutasyon tetiklemez.
+
+**Native doğrulama (masa başı):** `TrackLyricsExtractor.java` bu turda gerçek
+`media3-extractor-1.4.1`/`media3-common`/`media3-exoplayer`/Capacitor-Android/
+guava sınıf yollarına karşı `javac` ile DERLENDİ (temiz, hatasız) — tam
+Gradle/Android build ÇALIŞTIRILMADI (F16 test politikası: yalnız hedefli
+native doğrulama).
+
+**Sonraki atomik PR:** kütük #1154–#1160'ı gerçek cihazda koş; özellikle
+#1155 (SYLT senkron zamanlama + seek doğruluğu) ve #1157 (Spotify/YouTube'da
+sahte söz ASLA görünmüyor) atlanmamalı.
+
+### MUSIC-F17 — SONIC AUDIO INTELLIGENCE (2026-09-03)
+
+**Durum: ENTEGRE · ÜRÜN HAZIR: HAYIR** (kod PASS · saha 🔴 #1161–#1167)
+
+**Ölçülen başlangıç:** `MEASURED_AUDIO` provenance F10'dan beri TANIMLIYDI ama
+HİÇ KULLANILMIYORDU. Native tarafta yalnız `TrackTraitExtractor` (media3
+`MetadataRetriever`) vardı — bu bir **etiket okumasıdır**, dosya DECODE
+EDİLMİYORDU. Ayrıca `traitTelemetry` switch'inde `EMBEDDED_METADATA` dalı
+YOKTU: F10.1 kanıtı `evidenceNone`a düşüyor ve LAB onu **"kanıt yok" diye
+sayıyordu** (bu turda kapatılan gerçek kusur).
+
+**Yapılan:** `SonicAudioAnalyzer.java` — `MediaExtractor` + `MediaCodec`
+(AOSP; yeni bağımlılık/lisans YOK). Mono downmix + ~11 kHz decimation +
+512 nokta Hann/FFT. Ölçülenler: tepe/RMS dBFS · crest · ZCR · spektral merkez ·
+%85 rolloff · spektral akı · 8 bant normalize enerji · onset zarfı
+otokorelasyonundan tempo + güven. Tur başına 4 dosya · dosya başına 4 sn
+bütçe · en çok 20 sn ses · `AtomicInteger` iptal kuşağı · ayrı
+`sonicAnalysisExecutor` havuzu (kütüphane taramasını bile bloklamaz).
+TS tarafı: `src/platform/media/sonic/` (SAF sözleşme + kabul modeli + tek
+okuma katmanı + tek dikiş + bounded telemetri).
+
+**Dürüstlük sınırları:** dalga formundan **mood ÜRETİLMEZ** (native tarafta
+böyle bir alan hiç yok); zayıf otokorelasyon tepesi (`< 0.35`) **tempo
+SAYILMAZ**; `energy` açıkça bir PROXY'dir (girdileri ölçüm, birleştirmesi
+yorum); termal/bellek baskısında karar **HİÇ ölçmemektir** (kaba ölçüm kanıt
+değildir); sağlayıcı içeriği ölçülemez (dürüst sınır, #1167).
+
+**LAB:** yeni ekran AÇILMADI — `media-authority` → `24 · Ses Ölçümü / Sonic (F17)`.
+
+### MUSIC-F18 — SMART RADIO / ENDLESS MIX (2026-09-03)
+
+**Durum: ENTEGRE · ÜRÜN HAZIR: HAYIR** (kod PASS · saha 🔴 #1168–#1174)
+
+**Ölçülen başlangıç:** CarOS tek parça açıp bitiyordu; "bunun gibi devam et"
+karşılanamıyordu. `PlayQueue.addToQueue` VARDI ama kütüphane parçalarını
+MEVCUT kuyruğa ekleyen kanonik bir seam YOKTU.
+
+**Yapılan:** `src/platform/media/radio/` — SAF sıralama politikası + tek dikiş
++ bounded telemetri. F3'e **yeni otorite değil**, kanonik bir uzantı eklendi:
+`appendLibraryTracksToQueue` (girdi inşası `buildLibraryQueueContext`,
+mutasyon `addToQueue`, native yazım `runQueueCommand`, `forcePlay: false`).
+Dört kanonik niyet: `CONTINUE_LIKE_THIS` · `START_RADIO` ·
+`PLAY_FAVORITES_MIX` · `LONG_DRIVE_MIX`.
+
+**Dürüstlük sınırları:** Smart Radio **kuyruk otoritesi DEĞİLDİR** (yalnız
+aday sırası üretir); **ses varken EKLENİR**, çalan parça baştan alınmaz;
+"benzer/sana özel" iddiası YALNIZ `MEASURED` sınıfında (F17 ölçümü ≥4 ve
+adayların ≥%50'si); kanıtsız sıra **deterministiktir** (`Math.random` yok);
+havuz yalnız yereldir (karma-sağlayıcı kuyruk üretilmez); kalıcı "radyo
+state" YOKTUR (istek başına ≤40 öğe).
+
+**LAB:** `media-authority` → `25 · Kesintisiz Akış / Smart Radio (F18)`.
+
+### MUSIC-F19 — LOUDNESS / REPLAYGAIN / VOLUME CONSISTENCY (2026-09-03)
+
+**Durum: ENTEGRE · ÜRÜN HAZIR: HAYIR** (kod PASS · saha 🔴 #1175–#1181)
+
+**Ölçülen başlangıç (fazın en önemli bulgusu):** `volumePolicy` formülündeki
+`sourceNormalization` alanı **F0'dan beri VARDI ama HİÇ beslenmiyordu**
+(daima 1). Yani seviye tutarlılığı kodda tanımlıydı, üretimde YOKTU.
+
+**Yapılan:** `TrackTraitExtractor` GENİŞLETİLDİ (yeni native yüzey AÇILMADI):
+ID3 `TXXX` · MP4/iTunes `----` (`InternalFrame`) · Vorbis/Opus yorumlarından
+`replaygain_track_gain` · `_peak` · `r128_track_gain` (Q7.8 → dB).
+`src/platform/media/loudness/` + gateway'de TEK yazar
+(`setSourceNormalization`). `SystemBoot` → `music-loudness`.
+
+**Dürüstlük sınırları:** **LUFS UYDURULMAZ** (elde etiket ya da düz RMS var;
+RMS referansı −14 dBFS bir mühendislik sabitidir ve saha kalibrasyonu bekler);
+**YALNIZ KISILIR** (pozitif kazanç `BOOST_NOT_SUPPORTED` ile nötr bırakılır —
+headroom/clipping güvenliği); kısma ≤ 12 dB, çarpan ≥ 0.25; **kullanıcı sesi
+ve duck DEĞİŞMEZ**, DSP güvenlik preamp'i AYRI kalır; karar parça sınırında ve
+bir kez alınır (pumping yok); katman kapanırken çarpan nötre geri çekilir.
+
+**LAB:** `media-authority` → `26 · Seviye Tutarlılığı (F19)`.
+
+### MUSIC-F20 — GAPLESS / CROSSFADE / INTELLIGENT TRANSITIONS (2026-09-03)
+
+**Durum: ENTEGRE · ÜRÜN HAZIR: HAYIR** (kod PASS · saha 🔴 #1182–#1188)
+
+**Ölçülen platform gerçeği:** (1) **gapless ZATEN VAR** — ExoPlayer kuyruğu
+`setMediaItems` ile alır ve kodlayıcı gecikme/dolgu bilgisini kendisi uygular;
+CarOS `setPauseAtEndOfMediaItems` KULLANMAZ → F20'nin işi **bozmamaktı**.
+(2) **GERÇEK CROSSFADE MÜMKÜN DEĞİL** — tek `ExoPlayer` örneği vardır; üst
+üste binme ikinci bir player/mikser ister = ikinci playback otoritesi (yasak).
+(3) **BEAT MATCHING / TIME STRETCH altyapısı YOK.**
+
+**Yapılan:** native `transitionGain` çarpanı
+(`userVolume × duck × transitionGain`) + sınırda doğrusal rampa +
+`setTransitionPolicy` komutu; TS'te `src/platform/media/transition/`
+(yetenek tablosu + politika + HAFİF kalıcı tercih + tek dikiş + telemetri);
+UI'da "Parça geçişi" bölümü (Ses Deneyimi). `SystemBoot` → `music-transition`.
+
+**Dürüstlük sınırları:** yapılan şey **crossfade DEĞİL, sınırda FADE**'dir ve
+öyle adlandırılır (`TRUE_CROSSFADE: UNSUPPORTED` · `BEAT_MATCHED: UNSUPPORTED`,
+UI'da böyle bir kontrol ÇİZİLMEZ); albüm devamlılığında fade UYGULANMAZ;
+canlı içerikte ve duck etkinken uygulanmaz (TS + native çift kapı); "akıllı"
+kısım yalnız SÜREdir ve yalnız `MEASURED_AUDIO` kanıtından gelir; varsayılan
+KAPALI; geçiş kazancı **playback truth ÜRETMEZ**.
+
+**Bu turda yakalanan gerçek kusur:** geçiş tercihi ağır politika modülünde
+durduğu için bir UI bileşeni termal/bellek gözcüsünü ve kütüphane indeksini
+transitif olarak yüklüyordu → tercih hafif `transitionPreference` modülüne
+AYRILDI ve sınır kilitle korundu.
+
+**LAB:** `media-authority` → `27 · Parça Geçişi (F20)`.
+
+### MUSIC-F21 — OFFLINE / CACHE / RECOVERY / IGNITION CONTINUITY (2026-09-03)
+
+**Durum: ENTEGRE · ÜRÜN HAZIR: HAYIR** (kod PASS · saha 🔴 #1189–#1195)
+
+**Ölçülen başlangıç:** kurtarma mimarisi ZATEN sağlamdı ve KORUNDU —
+`restoreListeningSession` bağlamı geri yükler ama **ASLA ÇALMAZ**
+(`playbackClaim: 'NONE'`), süreklilik `UNKNOWN` başlar, YouTube kuyrukta
+`piped://` **sentinel** taşır (adres çalma anında çözülür), bayat kütüphane
+girdileri `revalidateAgainstLibrary` ile düşer.
+
+**Kapatılan gerçek açık:** doğrudan `http(s)` akış adresi taşıyan sağlayıcı
+girdileri (Jamendo · Audius · doğrudan akış) kalıcı kayda giriyordu ve saatler
+sonra "canlı" muamelesi görüyordu → basınca ölen satır. Artık
+`classifyEntryFreshness` ile sınıflandırılır ve `EXPIRING_REMOTE`/`UNKNOWN`
+geri yüklemede DÜŞÜRÜLÜR (sayılarak).
+
+**Yapılan:** `src/platform/media/recovery/` — SAF sınıflandırma + fail-closed
+`decideAutoResume` + tek okuma katmanı + bounded telemetri.
+
+**Dürüstlük sınırları:** **kontak UYDURULMAZ** (kanıt yalnız RPM/akü
+geriliminden; eşik OBD `linkLossLedger` ile BİREBİR aynı 13.0 V; yoksa
+`UNKNOWN`); otomatik devam FAIL-CLOSED ve üretimde politika **KAPALI**
+(`POLICY_ALLOWS_AUTO_RESUME = false`) → kullanıcı dokunmadan ses BAŞLAMAZ;
+kullanıcı duraklattıysa kendiliğinden açılmaz; çevrimdışıyken ağ gerektiren
+kaynak dürüstçe TEKLİF edilir; **ikinci kurtarma motoru KURULMAZ** (§18).
+
+**LAB:** `media-authority` → `28 · Süreklilik / Kurtarma (F21)`.
+
+### MUSIC-F22 — FINAL COMPLETENESS AUDIT + HEAVY QA (2026-09-03)
+
+**Durum: ENTEGRE (kod kapandı) · ÜRÜN HAZIR: HAYIR** (saha 🔴 #1196–#1198)
+
+**Denetimde kapatılan gerçek açıklar:** (1) eski `musicCommandParser` shuffle
+dalı yürütmeden ÖNCE `"…karışık çalınıyor"` diyordu → `"…çalmayı deniyorum"`
+(#1196); (2) ölü kod (`isSonicResolved` · `getTransitionCapabilities`)
+kaldırıldı; (3) native derleme kusurları — `SonicAudioAnalyzer` import
+edilmemişti ve `JSArray.put(double)` `JSONException` bildirdiği için bant
+vektörü yazımı derlenmiyordu (#1197). **Üçüncüsü yalnız gerçek Android
+derlemesinde göründü; host testi yakalayamazdı.**
+
+**Denetimde temiz çıkanlar (kanıtlı):** UI'dan sağlayıcı/native doğrudan
+çalma 0 · yeni önbeleklerin hepsi sınırlı · 5 yeni telemetride ad/URI/metin
+yok · `SystemBoot` cleanup kayıtları tam · duck token deposu yapısal sınırlı.
+
+**AĞIR DOĞRULAMA (bir kez):** full suite **806 dosya / 17.949 test PASS** ·
+`tsc -b --force` PASS · değişen dosya lint PASS · production build **PASS**
+(9 dk 25 sn) · Android `compileDebugJavaWithJavac` · `testDebugUnitTest` ·
+`assembleDebug` **BUILD SUCCESSFUL**.
+*Kanıt ↔ diff notu:* full suite ve production build native düzeltmeden ÖNCE
+koştu; o düzeltme yalnız iki Java dosyasına dokundu (TS/Vite çıktısı
+etkilenmedi), bu yüzden TS kanıtı geçerlidir ve tekrar koşulmadı.
+
+**Hüküm:** `MUSIC-CODE: PASS` · `MUSIC-BUILD: PASS` · `MUSIC-NATIVE: PASS` ·
+`MUSIC-DEVICE: PENDING`.
+
+**Sonraki atomik PR:** kod tarafında Music işi KALMADI. Sıradaki iş bir
+**FIELD VALIDATION kampanyasıdır**: kütük #1161–#1198 gerçek head unit'te
+koşulmalı. Atlanamayacak maddeler: #1162 (analiz sırasında ses kesilmemesi) ·
+#1163 (uydurma BPM yok) · #1169 (çalan müziğe karışmama) · #1178 (kullanıcı
+sesi/duck değişmemesi) · #1184 (fade'in gerçekten düzgün duyulması) ·
+#1190 (phantom PLAYING yok) · #1192 (kendiliğinden ses başlamaması).
+
 ## 7. Yapılacaklar (faz ve öncelik)
 
 ### 7.0 SIRA KURALI (BAĞLAYICI — 2026-08-09)
@@ -6040,3 +7457,64 @@ TÜRETİLİR — elle yazılmadığı için ayrışamaz).
 **(d)** (motor KAPALIYKEN hiçbir kurtarma tetiklenmemeli — park dalgalanması kilidi)
 ve **(e)** (KWP aracında hüküm `BU PROTOKOLDE DEVRE DIŞI`, kırmızı DEĞİL) atlanmamalı:
 ikisi de "kurtarma bozuk" yanlış teşhisini üreten vakalardır.
+
+---
+
+## MAVI WAKE GÜVENİLİRLİK ZİNCİRİ — saha kampanyası (2026-09-03/04)
+
+**Neden burada:** "Hey Mavi çalışmıyor" iki gün boyunca TEK bir arıza sanıldı;
+gerçekte **dört ayrı katmanda dört ayrı kök neden** vardı ve üçü uygulama kodunda
+bile değildi. Bu, vizyon belgesinin "gözlemlenemeyen özellik tamamlanmış değildir"
+kuralının en pahalı kanıtı oldu.
+
+| Katman | Kök neden | Nerede çözüldü | Durum |
+|--------|-----------|----------------|-------|
+| Donanım/HAL | Yanlış mikrofon girişi seçili (`key_double_mic=0`) → konuşma RMS eşiğin ALTINDA, Vosk'a hiç gitmiyordu | cihaz ayarı | 🟢 #1255 |
+| Sistem | Varsayılan TTS motoru HİÇ seçili değil (`tts_default_synth=null`) → Mavi konuşuyor, ses çıkmıyor | cihaz ayarı | 🟢 #1256 |
+| OEM | Bozuk BT yığını mikrofon yolunu kurcalıyor (katkıda bulunan etken; "kök neden" iddiası GERİ ÇEKİLDİ) | OEM — bizde değil | 🔴 #1254 |
+| Uygulama | Takip döngüsünün UI aynası sahibinden ayrışıp wake'i KALICI kilitliyor + sohbet turu deftere hiç kapanış yazmıyor | `voiceConversationRuntime` · `wakeWordService` · `voiceService` | 🔴 #1258 (KOD DÜZELTİLDİ · CİHAZ BEKLİYOR) |
+
+**Uygulama katmanının iki dersi (mimari):**
+
+1. **Aynı olgunun iki temsili sessizce ayrışır.** `followUp` hem runtime'da
+   (`_followUpArmed`) hem UI durumunda tutuluyordu; bayrağı kapatan üç yerden
+   yalnız biri aynayı da temizliyordu. Ayna artık hiçbir yerde ELLE yazılmaz —
+   sahibin hükmüne eşitlenir. (CLAUDE.md §1)
+2. **Karar bir projeksiyondan okunamaz.** Wake kapısı UI rozetini okuyordu;
+   rozet yanlış kalınca kapı kalıcı olarak kapandı. Kapı artık sahibi sorar.
+   (CLAUDE.md §14)
+3. **Ölçüm boşluğu, arızanın kendisi kadar pahalıdır.** Sohbet yolu hiçbir
+   terminal lifecycle fazı üretmediği için defter "kabul → komut dönen 0" diyordu
+   ve teşhis iki gün yanlış yöne gitti. Sohbet artık ayrı ve dürüst bir terminal
+   faz (`conversation_result`) üretir — `execution_result` KULLANILMAZ, çünkü
+   sohbet bir komut yürütmesi değildir ve o faz sahte yürütme kanıtı olurdu.
+
+### Gözlemlenebilirlik borçlarının kapatılması (aynı tur, 2026-09-04)
+
+Bu kampanyanın en pahalı dersi şuydu: **üç kök nedenin üçü de ürünün DIŞINDAKİ
+araçlarla bulundu** (`tinycap`, mikser dökümü, `settings get secure`). Ürün
+kendi arızasını gösteremiyordu. Aynı turda iki borç kod olarak kapatıldı:
+
+| Borç | Ne eksikti | Ne eklendi | Kütük |
+|------|------------|------------|-------|
+| #1256-a | `toplam seslendirme` "çağrı gitti" der, "ses çıktı" DEMEZ | TTS motor sonuç defteri: `NO_ENGINE_REPORT` (motor hiç cevap vermedi) · `SUSPECT_INSTANT_DONE` (süre fiziksel alt sınırın altında) — Mavi Konsolu **F** bölümü | 🔴 #1259 |
+| #1255-a | OEM mikrofon yönlendirme ayarı okunmuyor; "RMS düşük" görünüyor ama SEBEBİ görünmüyor | `key_double_mic` **salt-okunur** raporlanıyor + `seviye ↔ eşik` oranı — STT/Mikrofon ekranı | 🔴 #1260 |
+
+**Dürüstlük sınırı korundu:** JS'ten hoparlöre erişim yoktur, bu yüzden hiçbir
+yerde "ses duyuldu" İDDİA EDİLMEZ; ölçülen yalnız *motorun cevap verip vermediği
+ve seslendirmenin gerçek süresidir*. Aynı şekilde OEM ayarı okunamadığında `0`
+UYDURULMAZ — "0" (yanlış giriş) ile "bilinmiyor" ayrı tutulur, çünkü karıştırılırsa
+teşhis ters döner. Her iki tur da **yeni ekran AÇMADI**: mevcut iki LAB ekranı
+genişletildi (ekran enflasyonu yasağı).
+
+**Durum seviyesi:** Mavi wake word → **ENTEGRE** (kod/test/tsc yeşil).
+**SAHADA DOĞRULANDI DEĞİL:** son ölçülen isabet oranı **%40** (5 denemede 2 kabul);
+hedef ≥%80. Kütük **#1254 · #1258** 🔴 kaldıkça bu satır yükseltilemez.
+
+**Bir sonraki atomik PR:** kod tarafında bu zincirde yapılacak iş KALMADI.
+Sıradaki iş **tek bir saha turudur** ve üç kütük maddesi AYNI oturumda ölçülmeli:
+**#1258** (10 ardışık denemede `SUPPRESSED_FOLLOWUP` ARTMAMALI + sürekli sohbet
+döngüsü BOZULMAMALI), **#1259** (motoru kasıtlı seçimsiz bırakıp `motor HİÇ cevap
+vermedi` sayacının artışını görmek), **#1260** (`key_double_mic` 0↔1 arasında
+`seviye ↔ eşik` alanının ALTINDA↔ÜSTÜNDE dönmesi). Üçü de aynı ünitede, aynı
+turda ölçülürse zincirin tamamı tek seferde kapanır.

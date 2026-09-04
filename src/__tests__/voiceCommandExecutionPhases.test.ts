@@ -51,7 +51,9 @@ vi.mock('../platform/ttsService', () => ({
   // callback'i çağırır — bkz. ttsService.ts satır 149/171/199/241/391/401/408).
   registerTtsEndListener: (cb: () => void) => { M.ttsEndCb = cb; return () => { M.ttsEndCb = null; }; },
 }));
-vi.mock('../platform/audioService', () => ({ duckMedia: vi.fn(), unduckMedia: vi.fn() }));
+vi.mock('../platform/media/authority/duckRequest', () => ({
+  requestDuck: () => ({ reason: 'MAVI', release: (): void => {} }),
+}));
 vi.mock('../platform/aiVoiceService', () => ({ askAI: async () => null, resolveApiKey: () => '' }));
 vi.mock('../platform/ai/semanticAiService', () => ({
   classifySemantic: async () => ({ source: 'offline', confidence: 0, feedback: '' }),

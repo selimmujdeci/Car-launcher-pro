@@ -1,7 +1,7 @@
 /**
  * Local Music Service — cihaz kütüphanesi / metadata adaptörü.
  *
- * - getMusicTracks()  → native MediaStore sorgusu
+ * - loadMusicTracks() → mediaStoreRefreshExecutor (tek MediaStore tarayıcısı)
  * Çalma varsayılan olarak `mediaCommandGateway → CarosPlaybackService` üzerinden
  * yapılır. Eski MediaPlayer yalnız açık rollback bayrağıyla yaşar; bu modül
  * canonical playback truth üretmez.
@@ -12,6 +12,9 @@ import type { LocalMusicTrack } from './nativePlugin';
 import { isNative } from './bridge';
 import type { MediaCommandResult } from './mediaService';
 import { logError } from './crashLogger';
+import { getMusicLibrarySnapshot, type MusicTrack } from './media/musicIndex';
+import { parseMediaTrackId } from './media/mediaIdentity';
+import { refreshMusicLibrary } from './media/mediaStoreRefreshExecutor';
 
 /** Acil rollback dışında legacy MediaPlayer ASLA açılmaz. */
 export function isLegacyLocalPlayerEnabled(): boolean {
@@ -115,12 +118,48 @@ export function destroyLocalMusic(): void {
 
 /* ── Track listesi ─────────────────────────────────────── */
 
+/**
+ * MusicIndex projeksiyonunu legacy kuyruk şekline indirger.
+ *
+ * `id` KASITEN ham MediaStore kimliğidir: native kuyruk ve kurtarma kayıtları bu
+ * değeri taşır; çok-volume kimliği (`media:<volume>:<id>`) kütüphane truth'unda
+ * kalır, çalma kuyruğunun kimliğini geriye dönük bozmaz.
+ */
+function _toLegacyTrack(t: MusicTrack): LocalMusicTrack {
+  return {
+    id:          parseMediaTrackId(t.id)?.mediaStoreId ?? t.id,
+    uri:         t.contentUri,
+    title:       t.title ?? '',
+    artist:      t.artist ?? '',
+    album:       t.album ?? '',
+    albumArtUri: t.artworkIdentity ?? '',
+    durationMs:  t.durationMs ?? 0,
+    albumArtist: t.albumArtist,
+    mimeType:    t.mimeType,
+    relativePath: t.folder,
+    generationModified: t.generationModified,
+    volumeName:  t.volumeName,
+    storageKind: t.storageKind,
+  };
+}
+
+/**
+ * Kütüphane tazeleme. Tarama kararı ve MediaStore sorgusu ARTIK burada değil:
+ * tek yürütücü `mediaStoreRefreshExecutor`'dır (UNCHANGED turunda sıfır sorgu).
+ * Bu servis yalnız kuyruk projeksiyonunu ve UI durum bayraklarını taşır.
+ */
 export async function loadMusicTracks(): Promise<void> {
   if (!isNative) return;
   _set({ loading: true, error: null });
   try {
-    const { tracks } = await CarLauncher.getMusicTracks();
-    _set({ tracks, loading: false });
+    const outcome = await refreshMusicLibrary();
+    const snapshot = getMusicLibrarySnapshot();
+    const tracks = snapshot.tracks.filter((t) => t.availability === 'AVAILABLE').map(_toLegacyTrack);
+    _set({
+      tracks,
+      loading: false,
+      error: outcome.status === 'FAILED' ? `Müzik listesi alınamadı: ${outcome.failureCode ?? outcome.reason}` : null,
+    });
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'Müzik listesi alınamadı';
     _set({ loading: false, error: msg });

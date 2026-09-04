@@ -29,7 +29,7 @@ import { useState, useEffect } from 'react';
 import { isNative } from './bridge';
 import {
   startListening, isVoicePaused, getVoiceSnapshot, notifyWakeDetected,
-  getVoiceSessionIds, subscribeVoiceState,
+  getVoiceSessionIds, subscribeVoiceState, isVoiceFollowUpEngaged,
 } from './voiceService';
 /* Wake KARAR DEFTERİ — yalnız kayıt. Karar akışı DEĞİŞMEZ: her mevcut
    `return` aynı koşulla aynı yerde kalır, yanına bir kayıt satırı eklenir.
@@ -371,7 +371,15 @@ function onWakeWordDetected(
   // → wake yeni oturum AÇMAZ. Aksi halde cevap TTS'i mikrofona echo yapıp wake'i
   // yeniden tetikliyor, sohbetin ortasında "Seni dinliyorum" + jenerik selam basıyordu.
   const vs = getVoiceSnapshot();
-  if (vs.status !== 'idle' || vs.followUp) {
+  /* ⚠️ SAHA #1258 (2026-09-04, telefon — ÖLÇÜLDÜ): burası eskiden UI ROZETİNİ
+     (`vs.followUp`) okuyordu. Rozet, takip döngüsünün sahibinden ayrışabiliyordu
+     (döngü öldüğü hâlde rozet açık kalıyordu) → `status==='idle'` iken bile her
+     tetik `SUPPRESSED_FOLLOWUP` ile düşüyordu ve wake KALICI olarak kilitleniyordu
+     ("bir kere çalışıyor, sonra bir daha uyanmıyor"; 5 denemede 3 bastırma).
+     Karar artık sahibin gerçeğinden okunur — kapı SAYISI, SIRASI ve gerekçeleri
+     DEĞİŞMEDİ (CLAUDE.md §14: UI bir projeksiyondur, karar girdisi değildir). */
+  const _followUpLive = isVoiceFollowUpEngaged();
+  if (vs.status !== 'idle' || _followUpLive) {
     /* İki ayrı gerekçe: "asistan meşgul" ile "takip döngüsü açık" farklı
        kusurlara işaret eder (echo vs. diyalog akışı). Koşul TEK kalır. */
     recordWake({
@@ -1073,7 +1081,12 @@ export function startWakeWordService(): () => void {
   let unsubVoice: (() => void) | null = null;
   try {
     unsubVoice = subscribeVoiceState((e) => {
-      if (e.phase === 'execution_result') markWakeIntentReached(e.sessionId);
+      /* SAHA #1258: sohbet turu da TERMİNAL bir sonuçtur. Eskiden yalnız
+         `execution_result` dinleniyordu → smalltalk cevabı veren tur defterde
+         "komuta dönmedi" görünüyordu (ölçüldü: 2 kabul, dönen 0). */
+      if (e.phase === 'execution_result' || e.phase === 'conversation_result') {
+        markWakeIntentReached(e.sessionId);
+      }
     });
   } catch { /* fail-soft — korelasyon kurulamazsa wake akışı etkilenmez */ }
 

@@ -109,7 +109,12 @@ import com.cockpitos.pro.can.K24CanBridge;
 import com.cockpitos.pro.can.McuEventSniffer;
 import com.cockpitos.pro.core.VehicleNativeBridge;
 import com.cockpitos.pro.voice.VoiceMicDiagnostics;
+import com.cockpitos.pro.media.ArtworkStore;
 import com.cockpitos.pro.media.MediaManager;
+import com.cockpitos.pro.media.MediaStoreLibraryScanner;
+import com.cockpitos.pro.media.TrackTraitExtractor;
+import com.cockpitos.pro.media.TrackLyricsExtractor;
+import com.cockpitos.pro.media.SonicAudioAnalyzer;
 import com.cockpitos.pro.media.CarosPlaybackBridge;
 
 import java.io.BufferedReader;
@@ -806,10 +811,46 @@ public class CarLauncherPlugin extends Plugin {
         }
     }
 
+    // ── MUSIC F6: Ses Deneyimi / DSP ────────────────────────────────────────
+    //
+    // JS tarafında TEK kapı audioExperienceAuthority'dir. Bu üç metot oynatma
+    // komutu göndermez, kullanıcı sesini değiştirmez ve audio focus'a dokunmaz.
+
+    /** Cihazın GERÇEK DSP yüzeyi. Ölçülemezse `probed:false` döner (varsayım YOK). */
+    @PluginMethod
+    public void audioDspCapabilities(PluginCall call) {
+        try {
+            call.resolve(CarosPlaybackBridge.getInstance(getContext()).audioDspCapabilities());
+        } catch (Exception e) {
+            call.reject("AUDIO_DSP_CAPS_FAILED", e.getMessage());
+        }
+    }
+
+    /** Ayarı uygular; yanıt gözlenen durumu taşır ("kabul edildi" ≠ "uygulandı"). */
+    @PluginMethod
+    public void audioDspApply(PluginCall call) {
+        try {
+            call.resolve(CarosPlaybackBridge.getInstance(getContext()).audioDspApply(call.getData()));
+        } catch (Exception e) {
+            call.reject("AUDIO_DSP_APPLY_FAILED", e.getMessage());
+        }
+    }
+
+    /** Efekt katmanının bounded, salt-okunur anlık görüntüsü. */
+    @PluginMethod
+    public void audioDspSnapshot(PluginCall call) {
+        try {
+            call.resolve(CarosPlaybackBridge.getInstance(getContext()).audioDspSnapshot());
+        } catch (Exception e) {
+            call.reject("AUDIO_DSP_SNAPSHOT_FAILED", e.getMessage());
+        }
+    }
+
     @PluginMethod
     public void getMediaArtDataUri(PluginCall call) {
         final String uri = call.getString("uri", "");
-        mediaManager.getMediaArtDataUri(uri, dataUri -> {
+        final int targetPx = Math.max(32, Math.min(1024, call.getInt("targetPx", 256)));
+        mediaManager.getMediaArtDataUri(uri, targetPx, dataUri -> {
             JSObject result = new JSObject();
             result.put("dataUri", dataUri);
             call.resolve(result);
@@ -1805,6 +1846,34 @@ public class CarLauncherPlugin extends Plugin {
                 attempts.put(o);
             }
             src.put("attempts", attempts);
+
+            /* ── SAHA #1255-a · OEM MİKROFON YÖNLENDİRME AYARI ────────────────
+             * ÖLÇÜLEN ARIZA (2026-09-04, K2401 head unit): "Hey Mavi" 10 denemede
+             * hiç tetiklenmedi. `tinycap` ile donanımdan doğrudan kayıtta tepe
+             * genlik 1.073/32768 (%3,3) çıktı — pratikte gürültü tabanı. Sebep
+             * uygulamada DEĞİLDİ: cihazda İKİ mikrofon girişi var ve OEM ayarı
+             * `key_double_mic = 0` ile YANLIŞ olan seçiliydi (ses HAL'i her
+             * kayıtta `IN_HPMIC / media-headset-mic` yolunu uyguluyordu).
+             * `settings put system key_double_mic 1` ile konuşma RMS'i 0,010'dan
+             * 0,03-0,10'a çıktı (eşiğin 3-8 katı) ve wake tetiklendi.
+             *
+             * Uygulama bu ayarı OKUMUYORDU → yanlış mikrofon seçiliyken
+             * kullanıcıya/geliştiriciye HİÇBİR teşhis verilemiyordu; ölçülen RMS
+             * "sessizlik" görünüyor ama SEBEBİ görünmüyordu.
+             *
+             * SALT-OKUNUR: ayar YAZILMAZ (OEM kararı), yalnız RAPORLANIR.
+             * DÜRÜSTLÜK: okunamazsa `read=false` döner — sahte 0 ÜRETİLMEZ. */
+            JSObject oem = new JSObject();
+            try {
+                int dual = Settings.System.getInt(
+                    getContext().getContentResolver(), "key_double_mic");
+                oem.put("dualMicSettingRead", true);
+                oem.put("dualMicSetting", dual);
+            } catch (Throwable t) {
+                // Ayar bu üründe YOK ya da okunamadı — ikisi de "bilinmiyor"dur.
+                oem.put("dualMicSettingRead", false);
+            }
+            src.put("oem", oem);
             ret.put("source", src);
 
             JSObject fx = new JSObject();
@@ -7420,70 +7489,216 @@ public class CarLauncherPlugin extends Plugin {
         }
     }
 
-    /** MediaStore'dan cihaz müziklerini listele. */
+    /* ── F2 kütüphane tarama + artwork native yüzeyi ───────────────────────
+     * Tarama KARARI JS tarafındadır (mediaStoreRefreshPlanner); burası yalnızca
+     * söylenen sorguyu koşar ve sağlayıcının GERÇEKTEN döndürdüğünü raporlar. */
+    private static final ExecutorService mediaLibraryExecutor = Executors.newSingleThreadExecutor();
+    private static final ExecutorService artworkExecutor = Executors.newFixedThreadPool(2);
+    /**
+     * MUSIC F17 — ses analizi AYRI bir tek-iş havuzunda koşar.
+     *
+     * Kütüphane tarama havuzuyla PAYLAŞILMAZ: decode uzun sürer ve tarama/
+     * etiket okumasını arkasında bekletmesi kullanıcıya "kütüphane dondu"
+     * olarak görünürdü. Tek iş parçacığıdır — eşzamanlı iki decode YOK.
+     */
+    private static final ExecutorService sonicAnalysisExecutor = Executors.newSingleThreadExecutor();
+
+    /** Gorunur volume'lar + version/generation. Parca sorgusu YAPMAZ. */
     @PluginMethod
-    public void getMusicTracks(PluginCall call) {
-        new Thread(() -> {
+    public void getMediaStoreVolumeFacts(PluginCall call) {
+        mediaLibraryExecutor.submit(() -> {
             try {
-                String[] projection = {
-                    MediaStore.Audio.Media._ID,
-                    MediaStore.Audio.Media.TITLE,
-                    MediaStore.Audio.Media.ARTIST,
-                    MediaStore.Audio.Media.ALBUM,
-                    MediaStore.Audio.Media.ALBUM_ID,
-                    MediaStore.Audio.Media.DURATION,
-                };
-                String selection = MediaStore.Audio.Media.IS_MUSIC + " != 0";
-                String sortOrder = MediaStore.Audio.Media.TITLE + " ASC";
+                call.resolve(MediaStoreLibraryScanner.volumeFacts(getContext()));
+            } catch (Throwable t) {
+                call.reject("VOLUME_FACTS_FAILED", t.getMessage());
+            }
+        });
+    }
 
-                ContentResolver cr = getContext().getContentResolver();
-                Cursor cursor = cr.query(
-                    MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
-                    projection, selection, null, sortOrder
-                );
-
-                JSArray tracks = new JSArray();
-                if (cursor != null) {
-                    int idCol       = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media._ID);
-                    int titleCol    = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE);
-                    int artistCol   = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ARTIST);
-                    int albumCol    = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM);
-                    int albumIdCol  = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM_ID);
-                    int durationCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DURATION);
-
-                    while (cursor.moveToNext()) {
-                        long   id       = cursor.getLong(idCol);
-                        String title    = cursor.getString(titleCol);
-                        String artist   = cursor.getString(artistCol);
-                        String album    = cursor.getString(albumCol);
-                        long   albumId  = cursor.getLong(albumIdCol);
-                        long   duration = cursor.getLong(durationCol);
-
-                        Uri contentUri  = ContentUris.withAppendedId(
-                            MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, id);
-                        Uri albumArtUri = Uri.parse(
-                            "content://media/external/audio/albumart/" + albumId);
-
-                        JSObject track = new JSObject();
-                        track.put("id",          String.valueOf(id));
-                        track.put("uri",         contentUri.toString());
-                        track.put("title",       title  != null ? title  : "Bilinmiyor");
-                        track.put("artist",      artist != null ? artist : "Bilinmiyor");
-                        track.put("album",       album  != null ? album  : "");
-                        track.put("albumArtUri", albumArtUri.toString());
-                        track.put("durationMs",  duration);
-                        tracks.put(track);
-                    }
-                    cursor.close();
+    /** Planlayicinin verdigi karara gore FULL/DELTA parca sorgusu. */
+    /**
+     * MUSIC F10.1 — Gömülü etiketlerden GERÇEK BPM okur (ID3 TBPM / Vorbis BPM).
+     *
+     * Kütüphane tarama havuzunda çalışır: UI thread'e ve çalma yoluna DOKUNMAZ.
+     * Toplu iş `TrackTraitExtractor.MAX_BATCH` ile sınırlıdır; etiketi olmayan
+     * dosya için `bpm: null` döner (uydurma YOK).
+     */
+    @PluginMethod
+    public void readTrackTraits(PluginCall call) {
+        final JSArray urisIn = call.getArray("uris");
+        mediaLibraryExecutor.submit(() -> {
+            try {
+                if (!MediaStoreLibraryScanner.hasAudioReadPermission(getContext())) {
+                    call.reject("MEDIA_PERMISSION_DENIED", "Ses okuma izni yok");
+                    return;
                 }
+                java.util.List<String> uris = (urisIn != null) ? urisIn.<String>toList() : null;
+                call.resolve(TrackTraitExtractor.readEmbeddedTraits(getContext(), uris));
+            } catch (Exception e) {
+                call.reject("MEDIA_TRAIT_READ_FAILED", e.getMessage());
+            }
+        });
+    }
 
-                JSObject result = new JSObject();
-                result.put("tracks", tracks);
-                call.resolve(result);
+    /**
+     * MUSIC F16 — Gömülü ID3 USLT/SYLT ve Vorbis LYRICS etiketlerinden GERÇEK
+     * şarkı sözü okur.
+     *
+     * Kütüphane tarama havuzunda çalışır: UI thread'e ve çalma yoluna DOKUNMAZ.
+     * Toplu iş `TrackLyricsExtractor.MAX_BATCH` ile sınırlıdır; söz yoksa/
+     * çözülemiyorsa `source: "NONE"` döner (uydurma YOK).
+     */
+    @PluginMethod
+    public void readEmbeddedLyrics(PluginCall call) {
+        final JSArray urisIn = call.getArray("uris");
+        mediaLibraryExecutor.submit(() -> {
+            try {
+                if (!MediaStoreLibraryScanner.hasAudioReadPermission(getContext())) {
+                    call.reject("MEDIA_PERMISSION_DENIED", "Ses okuma izni yok");
+                    return;
+                }
+                java.util.List<String> uris = (urisIn != null) ? urisIn.<String>toList() : null;
+                call.resolve(TrackLyricsExtractor.readEmbeddedLyrics(getContext(), uris));
+            } catch (Exception e) {
+                call.reject("MEDIA_LYRICS_READ_FAILED", e.getMessage());
+            }
+        });
+    }
+
+    /**
+     * MUSIC F17 — SESİN KENDİSİNİ ölçer (decode + DSP), etiket OKUMAZ.
+     *
+     * Ayrı `sonicAnalysisExecutor` havuzunda koşar: UI thread'e ve çalma
+     * yoluna DOKUNMAZ, kütüphane taramasını bekletmez. Toplu iş
+     * `SonicAudioAnalyzer.MAX_BATCH` ile sınırlıdır; ölçülemeyen alan `null`
+     * döner (sahte BPM/enerji YOK) ve **mood ÜRETİLMEZ**.
+     */
+    @PluginMethod
+    public void analyzeTrackAudio(PluginCall call) {
+        final JSArray urisIn = call.getArray("uris");
+        final Integer maxIn = call.getInt("maxItems", 0);
+        sonicAnalysisExecutor.submit(() -> {
+            try {
+                if (!MediaStoreLibraryScanner.hasAudioReadPermission(getContext())) {
+                    call.reject("MEDIA_PERMISSION_DENIED", "Ses okuma izni yok");
+                    return;
+                }
+                java.util.List<String> uris = (urisIn != null) ? urisIn.<String>toList() : null;
+                call.resolve(SonicAudioAnalyzer.analyze(
+                    getContext(), uris, maxIn == null ? 0 : maxIn.intValue()));
+            } catch (Exception e) {
+                call.reject("MEDIA_SONIC_ANALYSIS_FAILED", e.getMessage());
+            }
+        });
+    }
+
+    /**
+     * MUSIC F17 — devam eden ses analizini İPTAL eder.
+     *
+     * Kuşak sayacını artırır; çalışan decode döngüsü bir sonraki tamponda
+     * çıkar ve `CANCELLED` döner (yarım ölçüm kanıt SAYILMAZ).
+     */
+    @PluginMethod
+    public void cancelTrackAudioAnalysis(PluginCall call) {
+        try {
+            SonicAudioAnalyzer.cancelAll();
+            JSObject out = new JSObject();
+            out.put("generation", SonicAudioAnalyzer.currentGeneration());
+            call.resolve(out);
+        } catch (Exception e) {
+            call.reject("MEDIA_SONIC_CANCEL_FAILED", e.getMessage());
+        }
+    }
+
+    @PluginMethod
+    public void queryMusicTracks(PluginCall call) {
+        final JSArray volumesIn  = call.getArray("volumes");
+        final JSArray identityIn = call.getArray("identityVolumes");
+        final String  mode       = call.getString("mode", "FULL");
+        final JSObject since     = call.getObject("sinceGeneration");
+        mediaLibraryExecutor.submit(() -> {
+            try {
+                if (!MediaStoreLibraryScanner.hasAudioReadPermission(getContext())) {
+                    call.reject("MEDIA_PERMISSION_DENIED", "Ses okuma izni yok");
+                    return;
+                }
+                List<String> volumes = (volumesIn != null)
+                    ? volumesIn.<String>toList()
+                    : MediaStoreLibraryScanner.allVisibleVolumes(getContext());
+                List<String> identityVolumes = (identityIn != null) ? identityIn.<String>toList() : null;
+                call.resolve(MediaStoreLibraryScanner.queryTracks(
+                    getContext(), volumes, "DELTA".equals(mode), since, identityVolumes));
             } catch (Exception e) {
                 call.reject("MEDIA_QUERY_FAILED", e.getMessage());
             }
-        }).start();
+        });
+    }
+
+    /** Hedef boyuta gore ORNEKLENMIS decode + atomik cache dosyasi. Bayt DONDURMEZ. */
+    @PluginMethod
+    public void resolveArtworkFile(PluginCall call) {
+        final String uri = call.getString("uri", "");
+        final Integer target = call.getInt("targetPx", 256);
+        final int targetPx = (target == null || target <= 0) ? 256 : target;
+        artworkExecutor.submit(() -> {
+            try {
+                call.resolve(ArtworkStore.resolve(getContext(), uri, targetPx));
+            } catch (Throwable t) {
+                call.reject("ARTWORK_RESOLVE_FAILED", t.getMessage());
+            }
+        });
+    }
+
+    /** JS tarafindaki LRU politikasinin tahliye/gecersizlestirme emri. */
+    @PluginMethod
+    public void deleteArtworkFiles(PluginCall call) {
+        final JSArray keysIn = call.getArray("keys");
+        final Boolean allIn  = call.getBoolean("all", Boolean.FALSE);
+        final boolean all    = Boolean.TRUE.equals(allIn);
+        artworkExecutor.submit(() -> {
+            try {
+                List<String> keys = (keysIn != null) ? keysIn.<String>toList() : null;
+                JSObject out = new JSObject();
+                out.put("deleted", ArtworkStore.delete(getContext(), keys, all));
+                call.resolve(out);
+            } catch (Throwable t) {
+                call.reject("ARTWORK_DELETE_FAILED", t.getMessage());
+            }
+        });
+    }
+
+    /** CAROS LAB icin salt-okunur native cache sayilari. */
+    @PluginMethod
+    public void getArtworkCacheStats(PluginCall call) {
+        artworkExecutor.submit(() -> {
+            try {
+                call.resolve(ArtworkStore.stats(getContext()));
+            } catch (Throwable t) {
+                call.reject("ARTWORK_STATS_FAILED", t.getMessage());
+            }
+        });
+    }
+
+    /**
+     * MediaStore'dan cihaz muziklerini listele (legacy tek atis yolu).
+     *
+     * Artik tek tarayiciyi kullanir: cok-volume, tutarli kimlik ve API<30'da
+     * generation yoklugu ayni sekilde raporlanir.
+     */
+    @PluginMethod
+    public void getMusicTracks(PluginCall call) {
+        mediaLibraryExecutor.submit(() -> {
+            try {
+                if (!MediaStoreLibraryScanner.hasAudioReadPermission(getContext())) {
+                    call.reject("MEDIA_PERMISSION_DENIED", "Ses okuma izni yok");
+                    return;
+                }
+                call.resolve(MediaStoreLibraryScanner.queryTracks(
+                    getContext(), MediaStoreLibraryScanner.allVisibleVolumes(getContext()), false, null, null));
+            } catch (Exception e) {
+                call.reject("MEDIA_QUERY_FAILED", e.getMessage());
+            }
+        });
     }
 
     /** Belirtilen content:// URI'yi çal. */

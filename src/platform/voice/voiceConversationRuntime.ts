@@ -171,6 +171,37 @@ function _scheduleConvIdleFallback(delayMs: number): void {
  * TAKİP DİNLEMESİ
  * ════════════════════════════════════════════════════════════════════════ */
 
+/**
+ * **TAKİP DÖNGÜSÜ GERÇEKTEN SÜRÜYOR MU** — bu modülün SAHİP OLDUĞU tek gerçek.
+ *
+ * `_followUpArmed` tek başına yetmez: TTS bitişi ile mikrofonun yeniden açılması
+ * arasında (`FOLLOWUP_RELISTEN_DELAY_MS`) bayrak KAPALI ama döngü CANLIDIR.
+ * "Döngü sürüyor mu" sorusunun cevabı bu ikisinin BİRLEŞİMİDİR — ve kararı
+ * soran her taraf (wake kapısı · algı katmanı · UI rozeti) BURAYA sorar.
+ */
+export function isFollowUpEngaged(): boolean {
+  return _followUpArmed || _followUpRelistenTimer !== null;
+}
+
+/* ── SAHA #1258 · UI AYNASININ TEK YAZICISI ───────────────────────────────
+ * ÖLÇÜLEN ARIZA (2026-09-04, telefon): "bir kere çalışıyor, sonra bir daha
+ * uyanmıyor". `SUPPRESSED_FOLLOWUP 3` kaydı, `status==='idle'` iken UI
+ * `followUp` bayrağının HÂLÂ `true` olduğunu kanıtladı.
+ *
+ * KÖK: `_followUpArmed = false` üç ayrı yerde yazılıyordu ama UI aynası
+ * YALNIZ `disarmFollowUp()` içinde temizleniyordu. Döngü "devri teslim"
+ * dallarında (`listening`/`processing` görülünce `return`) bayrak kapanıp
+ * ayna AÇIK kalıyordu; o andan sonra döngüyü canlandıracak hiçbir zamanlayıcı
+ * kalmadığı için ayna KALICI olarak yanlış kalıyor ve wake kapısı her tetiği
+ * `SUPPRESSED_FOLLOWUP` ile düşürüyordu.
+ *
+ * ÇÖZÜM: ayna artık hiçbir yerde ELLE yazılmaz — her mutasyondan sonra
+ * sahibin gerçeğine EŞİTLENİR. Aynı olgunun iki temsili yapısal olarak
+ * ayrışamaz (CLAUDE.md §1 tek otorite · §14 UI bir projeksiyondur). */
+function _syncEngagedMirror(): void {
+  P.setUiFollowUp(isFollowUpEngaged());
+}
+
 export function disarmFollowUp(): void {
   _followUpArmed = false;
   if (_followUpFallbackTimer !== null) {
@@ -181,7 +212,7 @@ export function disarmFollowUp(): void {
     clearTimeout(_followUpRelistenTimer);
     _followUpRelistenTimer = null;
   }
-  P.setUiFollowUp(false);
+  _syncEngagedMirror();
 }
 
 /** Sesli oturum başladı (STT'den transcript geldi). */
@@ -225,7 +256,7 @@ export function armFollowUp(): void {
   _followUpArmed = true;
   _followUpExtensions = 0;
   _scheduleFollowUpFallback(FOLLOWUP_FALLBACK_MS);
-  P.setUiFollowUp(true);
+  _syncEngagedMirror();
 }
 
 // SAHA FİX 2026-06-12: TTS bitiş eventi hiç gelmezse (bazı head unit TTS
@@ -248,8 +279,11 @@ function _scheduleFollowUpFallback(delayMs: number): void {
     _followUpArmed = false;
     if (!_convSession || P.paused()) { disarmFollowUp(); return; }
     const st = P.status();
-    if (st === 'listening' || st === 'processing') return;
+    /* Devri teslim: uçuşta bir tur zaten var → döngü BURADA biter (yeniden
+       kurulmaz). Ayna sahibin gerçeğine eşitlenir; eskiden AÇIK kalıyordu. */
+    if (st === 'listening' || st === 'processing') { _syncEngagedMirror(); return; }
     P.startListening({ followUpWindow: true });
+    _syncEngagedMirror();   // mikrofon devraldı → döngü tüketildi
   }, delayMs);
 }
 
@@ -277,9 +311,12 @@ export function onTtsEnd(): void {
       _followUpRelistenTimer = null;
       if (!_convSession || P.paused()) { disarmFollowUp(); return; }
       const s2 = P.status();
-      if (s2 === 'listening' || s2 === 'processing') return;
+      if (s2 === 'listening' || s2 === 'processing') { _syncEngagedMirror(); return; }
       P.startListening({ followUpWindow: true }); // kısa pencere — wake word gerekmez
+      _syncEngagedMirror();   // mikrofon devraldı → döngü tüketildi
     }, FOLLOWUP_RELISTEN_DELAY_MS);
+    /* Bayrak kapandı ama tampon UÇUŞTA → döngü HÂLÂ canlı; ayna `true` kalır. */
+    _syncEngagedMirror();
     return;
   }
   // (B) Takipsiz sohbet cevabı → konuşma bitti, idle'a dön. UI 'success'

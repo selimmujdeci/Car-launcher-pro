@@ -60,13 +60,18 @@ interface Props {
   onClosePassenger: () => void;
   /** Navigasyon alt çubuğundan drawer açma — FullMapView'e iletilir */
   onOpenDrawerFromMap?: (type: 'music' | 'phone' | 'apps' | 'settings') => void;
+  /**
+   * F4 · Sürüş dikkat düzeyi — MEVCUT `smartEngine` otoritesinden kabuk
+   * üzerinden iletilir. Yüzeyler kendi sürüş kararını ÜRETMEZ.
+   */
+  drivingMode?: 'idle' | 'normal' | 'driving';
 }
 
 export const DrawerPanel = memo(function DrawerPanel({
   drawer, onClose, defaultMusic, allApps, favorites, gridColumns, onToggleFav, onLaunch,
   onOpenMap, splitOpen, onCloseSplit, rearCamOpen, onCloseRearCam,
   fullMapOpen, onCloseMap, passengerOpen, onClosePassenger,
-  onOpenDrawerFromMap,
+  onOpenDrawerFromMap, drivingMode,
 }: Props) {
   // CAROS LAB kapısı — FAIL-CLOSED. Kapı kapalıysa 'caros-lab' drawer'ı istense bile
   // (doğrudan openDrawer çağrısı dahil) ekran RENDER EDİLMEZ.
@@ -80,7 +85,7 @@ export const DrawerPanel = memo(function DrawerPanel({
 
       <DrawerShell open={drawer === 'settings'} onClose={onClose} fullscreen>
         <Suspense fallback={null}>
-          <SettingsPage onClose={onClose} onOpenMap={() => { onClose(); onOpenMap(); }} />
+          <SettingsPage onClose={onClose} onOpenMap={() => { onClose(); onOpenMap(); }} drivingMode={drivingMode} />
         </Suspense>
       </DrawerShell>
 
@@ -131,7 +136,7 @@ export const DrawerPanel = memo(function DrawerPanel({
       </DrawerShell>
 
       <DrawerShell open={drawer === 'music'} onClose={onClose}>
-        <MediaScreen defaultMusic={defaultMusic} />
+        <MediaScreen defaultMusic={defaultMusic} drivingMode={drivingMode} />
       </DrawerShell>
 
       <DrawerShell open={drawer === 'phone'} onClose={onClose}>

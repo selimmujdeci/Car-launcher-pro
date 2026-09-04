@@ -24,7 +24,8 @@ import {
   type CapabilityGatedCommand, type SourceClass,
 } from './sourceCapabilities';
 import {
-  createSourceCoordinator, type BackendAdapter, type PlayRequest, type SourceCoordinator,
+  createSourceCoordinator, type BackendAdapter, type BackendCommandOutcome,
+  type BackendPlaybackState, type PlayRequest, type SourceCoordinator,
 } from './sourceCoordinator';
 import { isInFlight } from './handoverMachine';
 import {
@@ -49,6 +50,14 @@ let _sessionSeq = 0;
 let _duck: DuckState = EMPTY_DUCK_STATE;
 let _userVolume = 1;
 let _muted = false;
+/**
+ * MUSIC F19 — kaynak seviye normalizasyonu (0.25..1).
+ *
+ * `volumePolicy` formülünde ZATEN var olan alandır; F19'a kadar hiç
+ * beslenmiyordu (daima 1). **İkinci bir ses otoritesi DEĞİLDİR:** yazarı tek
+ * bir seam'dir (`setSourceNormalization`) ve kullanıcı sesine DOKUNMAZ.
+ */
+let _sourceNormalization = 1;
 let _coordinator: SourceCoordinator | null = null;
 /** Native duck token'ları: JS token → native token eşlemesi. */
 const _nativeDuckTokens = new Map<number, number>();
@@ -125,12 +134,37 @@ export function getAuthorityGeneration(): number {
   return _sessionSeq;
 }
 
+/**
+ * Kapının ŞU ANKİ kanonik oturum kimliği (`CommandTruth.sessionId` ile aynı
+ * kaynaktan). Bir komut sonucunun hâlâ güncel dünyaya ait olup olmadığı bununla
+ * sınanır: araya yeni bir `playSource`/`stop` girdiyse kimlik ilerlemiştir ve
+ * ESKİ sonuç bayattır (Cross-Domain §17).
+ */
+export function getMediaSessionId(): string {
+  return _sessionId;
+}
+
 /** Kaynak devri sürüyor mu — devir bitmeden kurtarma başlamaz. */
 export function isHandoverInFlight(): boolean {
   return isInFlight(coordinator().getState().phase);
 }
 
 /* ── Gözlem yardımcıları ─────────────────────────────────────────────────── */
+
+/**
+ * MUSIC F7.1 · Backend'in gözlenen durumu → kanonik `ObservedState`.
+ * Eşleme birebirdir; ara değer TÜRETİLMEZ.
+ */
+function fromBackendState(s: BackendPlaybackState): ObservedState {
+  switch (s) {
+    case 'PLAYING': return 'PLAYING';
+    case 'PAUSED': return 'PAUSED';
+    case 'BUFFERING': return 'BUFFERING';
+    case 'STOPPED': return 'STOPPED';
+    case 'ERROR': return 'ERROR';
+    default: return 'UNKNOWN';
+  }
+}
 
 function observedStateFor(source: SourceClass | null): ObservedState {
   if (!source) return 'UNKNOWN';
@@ -143,7 +177,45 @@ function observedStateFor(source: SourceClass | null): ObservedState {
     if ((s.queueLength ?? 0) > 0) return 'PAUSED';
     return 'STOPPED';
   }
-  return 'UNKNOWN';
+  /* MUSIC F7.1: native OLMAYAN backend (YouTube IFrame …) kendi durumunu
+     bildirebiliyorsa OKUNUR. Bildiremiyorsa `UNKNOWN` kalır — eskiden bu
+     kaynaklar için durum HER ZAMAN `UNKNOWN`du ve bu yüzden transport
+     kapının DIŞINDA sürülüyordu. */
+  try {
+    const adapter = _coordinator ? _coordinator.getAdapter(source) : null;
+    const observed = adapter?.observe?.();
+    return observed ? fromBackendState(observed) : 'UNKNOWN';
+  } catch { return 'UNKNOWN'; }
+}
+
+/**
+ * MUSIC F7.1 · Transport komutunu SAHİBİNE dağıtır.
+ *
+ * `native_authority` backend'i eski yolunda kalır (davranış DEĞİŞMEDİ).
+ * Diğer backend'ler kendi `BackendTransport`ından sürülür; sunmuyorsa komut
+ * `unsupported_capability` ile REDDEDİLİR — sessizce yutulmaz, sahte başarı
+ * üretilmez.
+ */
+async function backendTransport(
+  source: SourceClass,
+  op: 'resume' | 'pause' | 'seek',
+  positionSec = 0,
+): Promise<BackendCommandOutcome> {
+  const adapter = coordinator().getAdapter(source);
+  const t = adapter?.transport;
+  if (!t) return { accepted: false, failureCode: 'unsupported_capability' };
+  try {
+    if (op === 'resume') return await t.resume();
+    if (op === 'pause') return await t.pause();
+    return await t.seek(positionSec);
+  } catch {
+    return { accepted: false, failureCode: `${op}_threw` };
+  }
+}
+
+/** Bu kaynağın transportu native otoriteye mi ait? */
+function isNativeBackend(source: SourceClass): boolean {
+  return getSource(source).backend === 'native_authority';
 }
 
 function verificationFor(source: SourceClass | null, observedPlaying: boolean): VerificationLevel {
@@ -344,6 +416,16 @@ export function play(commandId?: string, requester?: string): Promise<CommandTru
     requester,
     capabilityCommand: 'play',
     run: async () => {
+      const src = getActiveSource();
+      /* MUSIC F7.1: yürütme SAHİBİNE gider. Native backend eski yolunda kalır. */
+      if (src && !isNativeBackend(src)) {
+        const out = await backendTransport(src, 'resume');
+        return {
+          ok: out.accepted,
+          failureCode: out.accepted ? null : (out.failureCode || 'play_rejected'),
+          observed: observedStateFor(src),
+        };
+      }
       const res = await native.command('play');
       const s = await native.refreshSnapshot();
       return {
@@ -363,6 +445,15 @@ export function pause(commandId?: string, requester?: string): Promise<CommandTr
     requester,
     capabilityCommand: 'pause',
     run: async () => {
+      const src = getActiveSource();
+      if (src && !isNativeBackend(src)) {
+        const out = await backendTransport(src, 'pause');
+        return {
+          ok: out.accepted,
+          failureCode: out.accepted ? null : (out.failureCode || 'pause_rejected'),
+          observed: observedStateFor(src),
+        };
+      }
       const res = await native.command('pause');
       await native.refreshSnapshot();
       return { ok: res.accepted, failureCode: res.accepted ? null : (res.failureCode || 'pause_rejected') };
@@ -438,6 +529,15 @@ export function seek(positionSec: number, commandId?: string): Promise<CommandTr
       if (!Number.isFinite(positionSec) || positionSec < 0) {
         return { ok: false, failureCode: 'invalid_position' };
       }
+      const src = getActiveSource();
+      if (src && !isNativeBackend(src)) {
+        const out = await backendTransport(src, 'seek', positionSec);
+        return {
+          ok: out.accepted,
+          failureCode: out.accepted ? null : (out.failureCode || 'seek_rejected'),
+          observed: observedStateFor(src),
+        };
+      }
       const res = await native.command('seek', { positionMs: Math.round(positionSec * 1000) });
       return { ok: res.accepted, failureCode: res.accepted ? null : (res.failureCode || 'seek_rejected') };
     },
@@ -483,17 +583,92 @@ export async function setMuted(muted: boolean): Promise<void> {
   await applyVolume();
 }
 
-/** Etkin ses = tek formül. Native otoriteye TEK kaynaktan yazılır. */
+/**
+ * FİİLEN duyulan ses = tek formül (kullanıcı × duck). Bu bir PROJEKSİYONdur:
+ * native `CarosPlaybackService` de aynı çarpımı yapar (`applyEffectiveVolume`).
+ */
 export function getEffectiveVolume(): number {
   return computeEffectiveVolume({
     userVolume: _userVolume,
     duckLevel: effectiveDuckLevel(_duck),
+    sourceNormalization: _sourceNormalization,
+    muted: _muted,
+  });
+}
+
+/**
+ * MUSIC F19 · Kaynak seviye normalizasyonunu ayarlar.
+ *
+ * TEK YAZAR: `loudnessRuntime`. Değer bir KANITTAN gelir (ReplayGain/R128
+ * etiketi veya F17 ölçümü) ve **yalnız KISAR** (≤ 1).
+ *
+ * Kullanıcı sesi (`_userVolume`) DEĞİŞMEZ — kullanıcı slider'ını nerede
+ * bıraktıysa orada kalır; değişen yalnız kaynağa yazılan etkin değerdir.
+ * Duck'a da DOKUNULMAZ: duck'ı native uygular (F6.1 çift-duck düzeltmesi).
+ *
+ * @returns değer gerçekten değiştiyse `true` (gereksiz native yazımı yok).
+ */
+export async function setSourceNormalization(factor: number): Promise<boolean> {
+  const next = !Number.isFinite(factor) ? 1 : Math.max(0, Math.min(1, factor));
+  if (Math.abs(next - _sourceNormalization) < 1e-6) return false;
+  _sourceNormalization = next;
+  await applyVolume();
+  return true;
+}
+
+export function getSourceNormalization(): number { return _sourceNormalization; }
+
+/**
+ * MUSIC F20 · Parça sınırı geçiş politikasını native'e yazar.
+ *
+ * Bu bir SES KOMUTU DEĞİLDİR: çalma/duraklatma durumunu değiştirmez, kuyruğa
+ * dokunmaz ve playback truth ÜRETMEZ. Yalnız oynatma sahibinin (native
+ * servis) parça sınırında uygulayacağı kazanç rampasını bildirir.
+ *
+ * @returns native komutu KABUL ettiyse `true` (sahte başarı yok).
+ */
+export async function setTransitionPolicy(policy: {
+  readonly fadeEnabled: boolean;
+  readonly fadeOutMs: number;
+  readonly fadeInMs: number;
+}): Promise<boolean> {
+  const res = await native.command('setTransitionPolicy', {
+    fadeEnabled: policy.fadeEnabled === true,
+    fadeOutMs: Math.max(0, Math.round(policy.fadeOutMs)),
+    fadeInMs: Math.max(0, Math.round(policy.fadeInMs)),
+  });
+  return res.accepted;
+}
+
+/**
+ * MUSIC F6.1 · ÇİFT DUCK DÜZELTMESİ.
+ *
+ * Native `setVolume` komutu `CarosPlaybackService.setUserVolume()`e düşer ve
+ * orada saklanan alan açıkça **duck ÖNCESİ kullanıcı seviyesidir**; native
+ * kendi duck çarpanını AYRICA uygular (`userVolume × duck`). Buraya
+ * `getEffectiveVolume()` (duck DAHİL) yazılırsa duck İKİ KEZ uygulanır —
+ * NAVIGATION duck'ında ses %30 yerine %9'a düşer.
+ *
+ * Bu yol üretimde ilk kez F6.1'de canlandı (öncesinde hiçbir üretim çağrısı
+ * `duck()` yapmıyordu), kusur o yüzden sahada duyulmamıştı.
+ *
+ * Kural: **duck TEK KEZ, sahibi tarafından uygulanır.** JS tarafı yalnız
+ * politika (`duckPolicy`) ve sebebi taşır; uygulayan native otoritedir.
+ */
+function nativeUserVolume(): number {
+  /* MUSIC F19: kaynak normalizasyonu native'in BİLMEDİĞİ bir çarpandır
+     (native yalnız `userVolume × duck` yapar) → buraya DAHİL edilir. Duck
+     hâlâ dışarıda bırakılır: onu native uygular, iki kez uygulanmaz. */
+  return computeEffectiveVolume({
+    userVolume: _userVolume,
+    duckLevel: 1,
+    sourceNormalization: _sourceNormalization,
     muted: _muted,
   });
 }
 
 async function applyVolume(): Promise<void> {
-  await native.command('setVolume', { volume: getEffectiveVolume() });
+  await native.command('setVolume', { volume: nativeUserVolume() });
 }
 
 /* ── Ducking (token tabanlı, nested) ─────────────────────────────────────── */
@@ -552,6 +727,7 @@ export function __resetGatewayForTest(adapters?: Map<SourceClass, BackendAdapter
   _duck = EMPTY_DUCK_STATE;
   _userVolume = 1;
   _muted = false;
+  _sourceNormalization = 1;
   _sessionSeq = 0;
   _sessionId = 'media-session-0';
   _recentCommandIds.length = 0;

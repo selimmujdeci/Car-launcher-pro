@@ -173,11 +173,27 @@ function _setupMediaSession(): void {
   // Hardware/notification MediaSession actions are requesters, never a second
   // player path. The canonical media gateway retains dedup and native authority.
   const route = (action: 'play' | 'pause' | 'next' | 'previous'): void => {
+    /* MUSIC F7.3 · Sonraki/önceki KUYRUK-FARKINDA katmandan geçer.
+     *
+     * ÖLÇÜLEN KUSUR: donanım/bildirim tuşları doğrudan kapının `next()`ine
+     * gidiyordu. Kapı, komutu kaynağın YETENEĞİNE göre değerlendirir ve
+     * backend'i kuyruksuz olan kaynaklarda (YouTube IFrame) dürüstçe
+     * `unsupported_capability` ile REDDEDER → direksiyon "sonraki" tuşu
+     * HİÇBİR ŞEY YAPMIYORDU; oysa üst katmanda (arama sonucu listesi)
+     * gerçek bir sıra vardı ve ekrandaki düğme onu ilerletiyordu.
+     *
+     * İki farklı "sonraki" davranışı KALDIRILDI: her ikisi de aynı
+     * kuyruk-farkında girişten geçer ve o giriş yine kanonik kapıya iner. */
+    if (action === 'next' || action === 'previous') {
+      void import('./media/carosMediaLayer').then((layer) => {
+        if (action === 'next') layer.next('native_mediasession');
+        else layer.previous('native_mediasession');
+      }).catch((error) => logError(`MediaSession:${action}`, error));
+      return;
+    }
     void import('./media/authority/mediaCommandGateway').then((gateway) => {
       if (action === 'play') return gateway.play(undefined, 'native_mediasession');
-      if (action === 'pause') return gateway.pause(undefined, 'native_mediasession');
-      if (action === 'next') return gateway.next(undefined, 'native_mediasession');
-      return gateway.previous(undefined, 'native_mediasession');
+      return gateway.pause(undefined, 'native_mediasession');
     }).catch((error) => logError(`MediaSession:${action}`, error));
   };
   ms.setActionHandler('play',          () => { route('play'); });
@@ -310,6 +326,12 @@ export function updateMediaState(partial: Partial<MediaState>): void {
 
 export function getMediaState(): MediaState {
   return _current;
+}
+
+/** Read-only subscription port for presentation selectors; it creates no state owner. */
+export function subscribeMediaState(listener: () => void): () => void {
+  _listeners.add(listener);
+  return () => { _listeners.delete(listener); };
 }
 
 export function setSource(source: MediaSource): void {
@@ -485,15 +507,16 @@ const _MEDIA_SENT_UNVERIFIED: MediaCommandResult =
  */
 async function _routeToAuthority(
   action: 'play' | 'pause' | 'next' | 'previous',
+  requester?: string,
 ): Promise<MediaCommandResult | null> {
   if (!isNative || !_isAuthorityPackage(_current.activePackage)) return null;
   try {
     const gw = await import('./media/authority/mediaCommandGateway');
     const truth = await (
-      action === 'play'     ? gw.play()
-      : action === 'pause'  ? gw.pause()
-      : action === 'next'   ? gw.next()
-      :                       gw.previous()
+      action === 'play'     ? gw.play(undefined, requester)
+      : action === 'pause'  ? gw.pause(undefined, requester)
+      : action === 'next'   ? gw.next(undefined, requester)
+      :                       gw.previous(undefined, requester)
     );
     /* YALNIZ 'VERIFIED' başarı sayılır. 'ACCEPTED_UNVERIFIED' backend'in
        doğrulama sağlayamadığı durumdur ve başarı olarak SUNULAMAZ. */
@@ -521,8 +544,20 @@ export function togglePlayPause(): void {
     import('./streamMusicService').then(({ streamTogglePlayPause }) => streamTogglePlayPause()).catch(() => {});
     return;
   }
+  /* MUSIC F7.1 · YouTube transportu TEK kapıdan geçer.
+   *
+   * ÖNCESİ: doğrudan `youtubeTogglePlayPause()` çağrılıyordu → ikinci transport
+   * otoritesi; komut `CommandTruth` üretmiyor, kapı gerçeği bilmiyordu.
+   * SONRASI: kapı `BackendTransport` üzerinden IFrame'i sürer. Kapı hiç
+   * yüklenemezse (modül hatası) eski doğrudan yol yalnız FAIL-SOFT yedektir —
+   * sessiz kalmak, çalmamaktan kötüdür. */
   if (_current.activePackage === 'com.cockpitos.pro.youtube') {
-    import('./youtubeService').then(({ youtubeTogglePlayPause }) => youtubeTogglePlayPause()).catch(() => {});
+    const wantPause = _current.playing;
+    import('./media/authority/mediaCommandGateway')
+      .then((gw) => (wantPause ? gw.pause() : gw.play()))
+      .catch(() => import('./youtubeService')
+        .then(({ youtubeTogglePlayPause }) => youtubeTogglePlayPause())
+        .catch(() => {}));
     return;
   }
   if (!isNative) return;
@@ -555,9 +590,9 @@ export function cycleRepeat(): void {
  * yok sayabilir (UI düğmeleri öyle yapar); sesli asistan ise `verified`
  * olmadan başarı İDDİA ETMEZ.
  */
-export async function next(): Promise<MediaCommandResult> {
+export async function next(requester?: string): Promise<MediaCommandResult> {
   if (!isNative) return _MEDIA_NO_TARGET;
-  const viaAuthority = await _routeToAuthority('next');
+  const viaAuthority = await _routeToAuthority('next', requester);
   if (viaAuthority) return viaAuthority;
   if (isLegacyLocalPlayerEnabled() && _current.activePackage === 'com.cockpitos.pro') {
     try {
@@ -614,9 +649,9 @@ export async function pauseWithResult(): Promise<MediaCommandResult> {
 }
 
 /** Önceki parça — `next()` ile AYNI sözleşme. */
-export async function previous(): Promise<MediaCommandResult> {
+export async function previous(requester?: string): Promise<MediaCommandResult> {
   if (!isNative) return _MEDIA_NO_TARGET;
-  const viaAuthority = await _routeToAuthority('previous');
+  const viaAuthority = await _routeToAuthority('previous', requester);
   if (viaAuthority) return viaAuthority;
   if (isLegacyLocalPlayerEnabled() && _current.activePackage === 'com.cockpitos.pro') {
     try {

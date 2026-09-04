@@ -60,7 +60,14 @@
       "Bash(cmd.exe *)",
       "PowerShell($env:JAVA_HOME = 'C:\\\\Program Files\\\\Android\\\\Android Studio\\\\jbr'; Set-Location \"C:\\\\Users\\\\selim\\\\OneDrive\\\\Desktop\\\\caros pro\\\\android\"; & \".\\\\gradlew.bat\" assembleDebug 2>&1 | Select-Object -Last 30)",
       "PowerShell(Get-ChildItem \"C:\\\\Users\\\\selim\\\\OneDrive\\\\Desktop\\\\caros pro\\\\android\\\\app\\\\release\" | ForEach-Object { \"$\\($_.Name\\) | $\\($_.Length\\) bytes\" })",
-      "PowerShell(npm run *)"
+      "PowerShell(npm run *)",
+      "Bash(python -c ' *)",
+      "Bash(python sup.py profiles --project \"C:\\\\Users\\\\selim\\\\Desktop\\\\caros pro\")",
+      "Read(//tmp/**)",
+      "Bash(python -c \"print\\(open\\('/tmp/p.txt',encoding='utf-8'\\).read\\(\\).split\\('gorev:'\\)[1][:40]\\)\")",
+      "Bash(python tests/test_supervisor.py)",
+      "Bash(grep -iA2 \"permission-mode\\\\|dangerously\")",
+      "Bash(claude --version)"
     ],
     "defaultMode": "bypassPermissions"
   },

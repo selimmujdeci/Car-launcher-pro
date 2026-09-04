@@ -19,6 +19,8 @@
  */
 
 import { runtimeManager }          from '../../core/runtime/AdaptiveRuntimeManager';
+import { RuntimeMode }             from '../../core/runtime/runtimeTypes';
+import { evaluateBootResilience, startBootHeartbeat } from './bootResilienceGuard';
 import { initSafeStorageAsync }    from '../../utils/safeStorage';
 import { hydrateExpertTrustStore } from '../../store/useExpertStore';
 import { hydrateSafetyBrainFromStorage } from '../safety/SafetyBrain';
@@ -60,6 +62,25 @@ import {
 } from './platformCoreEventBusWiring';
 import { initPanicHandler }       from './SystemPanicHandler';
 import { startMediaAuthority, stopMediaAuthority } from '../media/authority/mediaAuthorityRuntime';
+/* MUSIC F8 · sürüş-farkında müzik zekâsı — TIMER KURMAZ, yalnız kanonik
+   dinleme oturumuna abone olur; cleanup LIFO güvenlidir. */
+import {
+  startMusicIntelligence, stopMusicIntelligence,
+} from '../media/intelligence/musicIntelligenceRuntime';
+/* MUSIC F3/F21 · Açılışta dinleme bağlamını BİR KEZ geri yükler. ÇALMAZ,
+   komut göndermez, native canlı truth varken ikinci kuyruk KURMAZ. */
+import { bootRestoreListeningSession } from '../media/session/listeningSessionRuntime';
+/* MUSIC F19 · Seviye tutarlılığı. Ses ÜRETMEZ ve kullanıcı sesine DOKUNMAZ:
+   yalnız parça sınırında `volumePolicy.sourceNormalization` alanını besler.
+   Timer kurmaz; kanonik dinleme oturumuna abone olur. */
+import {
+  startLoudnessNormalization, stopLoudnessNormalization,
+} from '../media/loudness/loudnessRuntime';
+/* MUSIC F20 · Parça sınırı geçiş politikası. Kuyruğa dokunmaz, playback
+   truth üretmez, timer kurmaz; yalnız oynatma sahibine politika bildirir. */
+import {
+  startTransitionPolicy, stopTransitionPolicy,
+} from '../media/transition/transitionRuntime';
 import { startProviderReadiness } from '../ai/gateway/aiProviderReadinessService';
 import { startPlatformCoreAiRuntimeWiring } from './platformCoreAiRuntimeWiring';
 import { startMaintenanceBrain }   from '../diagnostic/maintenanceBrain';
@@ -628,6 +649,51 @@ class SystemBoot {
       logError('SystemBoot:mediaAuthority', e);
     }
 
+    /* MUSIC F3/F21 · DİNLEME BAĞLAMI GERİ YÜKLEME — üretimdeki TEK giriş.
+     *
+     * Sıra ZORUNLU: `startMediaAuthority()` TAMAMLANDIKTAN sonra çağrılır,
+     * çünkü "native oturum hâlâ canlı mı" sorusu ancak anlık görüntü
+     * doldurulduktan sonra yanıtlanabilir. Müzik zekâ katmanlarından ÖNCE
+     * çağrılır ki onlar aboneliklerini kurduğunda bağlam hazır olsun.
+     *
+     * ÇALMAZ: sonuç `playbackClaim: 'NONE'`dur; kullanıcı dokunmadan ses
+     * BAŞLAMAZ. Düşerse müzik ETKİLENMEZ (fail-soft). */
+    try {
+      await bootRestoreListeningSession();
+    } catch (e) {
+      logError('SystemBoot:listeningSessionRestore', e);
+    }
+
+    /* MUSIC F8 · Sürüş-farkında müzik zekâsı.
+       Ses ÜRETMEZ, kuyruğa dokunmaz, timer kurmaz: yalnız dinleme oturumu
+       değiştikçe SINIRLI yerel tercih kanıtı yazar. Düşerse müzik etkilenmez. */
+    try {
+      startMusicIntelligence();
+      this._regNamed('music-intelligence', stopMusicIntelligence);
+    } catch (e) {
+      logError('SystemBoot:musicIntelligence', e);
+    }
+
+    /* MUSIC F19 · Seviye tutarlılığı (ReplayGain/R128 + ölçülmüş RMS).
+       Kullanıcı sesini DEĞİŞTİRMEZ, duck'a dokunmaz, timer kurmaz. Düşerse
+       normalizasyon olmaz ama müzik ETKİLENMEZ (fail-soft). */
+    try {
+      startLoudnessNormalization();
+      this._regNamed('music-loudness', stopLoudnessNormalization);
+    } catch (e) {
+      logError('SystemBoot:musicLoudness', e);
+    }
+
+    /* MUSIC F20 · Geçiş politikası (gapless korunur · sınırda fade).
+       Varsayılan KAPALIDIR; kullanıcı Ses Deneyimi'nden açar. Düşerse geçiş
+       politikası uygulanmaz ama müzik ETKİLENMEZ (fail-soft). */
+    try {
+      startTransitionPolicy();
+      this._regNamed('music-transition', stopTransitionPolicy);
+    } catch (e) {
+      logError('SystemBoot:musicTransition', e);
+    }
+
     /* P0-VDK-F5F — BOŞLUK SİCİLİ AÇILIŞ ADIMI.
        ⚠️ BİLEREK HİÇBİR ŞEY YÜKLEMEZ: açılışta araç kimliği HENÜZ ölçülmemiştir
        (parmak izi ancak OBD bağlanıp ECU'lar yanıt verdikten sonra kurulur).
@@ -681,6 +747,11 @@ class SystemBoot {
     // Crash recovery: native odo > Zustand odo → worker'a gönder
     await this._crashRecovery();
     if (this._aborted) return; // stop() async sırasında geldi → erken çık
+
+    // Boot resilience heartbeat — düşük frekanslı "hâlâ hayattayım" damgası
+    // (yalnız BİR sonraki soğuk açılışın crash tespiti için).
+    _log('  › BootResilienceGuard heartbeat');
+    this._regNamed('BootResilienceGuard', startBootHeartbeat());
 
     // MemoryWatchdog: native LMK baskı event'lerini yakala
     _log('  › MemoryWatchdog');
@@ -1308,6 +1379,21 @@ class SystemBoot {
   // ── Crash recovery yardımcısı ─────────────────────────────────────────────
 
   private async _crashRecovery(): Promise<void> {
+    // Boot resilience guard — beklenmeyen (crash/güç kesintisi) yeniden
+    // başlatma tespiti. thermalWatchdog'un kalibre edilmiş eşiklerine
+    // DOKUNMAZ; ayrı, eklemeli bir tek-seferlik downgrade isteğidir
+    // (bkz. bootResilienceGuard.ts başlık yorumu). Sağlıklı cihazda
+    // neredeyse hiç tetiklenmez.
+    try {
+      const decision = evaluateBootResilience(Date.now());
+      if (decision.abnormalRestart) {
+        _log(`  › Boot resilience: ANORMAL yeniden başlatma şüphesi (son heartbeat ${decision.heartbeatAgeMs}ms önce) — runtime bir kademe düşürülüyor`);
+        runtimeManager.setMode(RuntimeMode.BASIC_JS, 'boot-resilience');
+      }
+    } catch (e) {
+      logError('SystemBoot:BootResilience', e);
+    }
+
     // Odometer recovery — sadece native platformda
     if (isNative) {
       try {

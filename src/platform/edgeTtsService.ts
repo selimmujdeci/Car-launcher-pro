@@ -10,7 +10,8 @@
  * Offline / proxy hatası → false döner, çağıran yedeğe düşer.
  */
 
-import { duckMedia, unduckMedia } from './audioService';
+import { requestDuck, type DuckHandle } from './media/authority/duckRequest';
+import type { DuckReason } from './media/authority/duckPolicy';
 /* MAVI-F0: TTS sentez + ilk duyulabilir ses ölçümü (YALNIZ ÖLÇÜM). */
 import { markMaviLatency } from './assistant/maviLatencyTrace';
 
@@ -76,7 +77,11 @@ async function _synthesize(text: string): Promise<string | null> {
  * offline / hata → false (çağıran Gemini/eSpeak yedeğine düşmeli).
  * onEnd yalnız ses gerçekten çaldıysa bir kez çağrılır (ducking + takip dinleme).
  */
-export async function speakEdge(text: string, onEnd?: () => void): Promise<boolean> {
+export async function speakEdge(
+  text: string,
+  onEnd?: () => void,
+  duckReason: DuckReason = 'MAVI',
+): Promise<boolean> {
   const t = text.trim();
   if (!t || typeof Audio === 'undefined') return false;
 
@@ -91,11 +96,11 @@ export async function speakEdge(text: string, onEnd?: () => void): Promise<boole
   _active = audio;
 
   let settled = false;
-  let ducked  = false;
+  let duck: DuckHandle | null = null;
   const settle = () => {
     if (settled) return;
     settled = true;
-    if (ducked) { unduckMedia(); ducked = false; }
+    if (duck !== null) { duck.release(); duck = null; }
     if (_active === audio) _active = null;
     audio.onended = null; audio.onerror = null;
     audio.onplaying = null;              // MAVI-F0: zero-leak
@@ -107,7 +112,7 @@ export async function speakEdge(text: string, onEnd?: () => void): Promise<boole
     audio.onplaying = () => { markMaviLatency('first_audio_confirmed'); };
     markMaviLatency('first_audio_requested');
     const p = audio.play();
-    ducked = true; duckMedia();
+    duck = requestDuck(duckReason);
     audio.onended = settle;
     audio.onerror = settle;
     if (p && typeof p.catch === 'function') p.catch(() => settle());

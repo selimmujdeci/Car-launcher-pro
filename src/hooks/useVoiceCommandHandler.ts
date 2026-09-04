@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { toIntent, routeIntent } from '../platform/intentEngine';
+import { toIntent, routeIntent, type AppIntent } from '../platform/intentEngine';
 import { registerCommandHandler, registerAIResultHandler, cancelAssistantDuck, isResultAckCommand } from '../platform/voiceService';
 // MAVI-M3: sahte ACK yerine YÜRÜTME SONUCUNDAN türeyen tek geri bildirim zarfı.
 import { buildIntentExecutionFeedback } from '../platform/intentExecutionResult';
@@ -15,6 +15,7 @@ import { play, getMediaState, setMediaPreferredPackage } from '../platform/media
 // stream kuyruğunu bilmez → "değiştir/durdur" çalışmıyordu).
 import { next, previous, togglePlayPause } from '../platform/media/carosMediaLayer';
 import { setVideoMode as applyVideoMode } from '../platform/media/videoModeStore';
+/* MUSIC F7.2 · sürüşte video görüntüsü kapalı — sesli komut da SAHTE ONAY vermez. */
 import { bridge, isNative } from '../platform/bridge';
 import { showToast } from '../platform/errorBus';
 import { CarLauncher } from '../platform/nativePlugin';
@@ -36,6 +37,26 @@ import { recordLegacyExecution, adjustRegistration } from '../platform/maviCore/
 
 // activeMediaSourceKey değerleri içinde geçerli MusicOptionKey olabilenler
 const _MUSIC_KEY_SET = new Set<string>(['spotify', 'youtube'] satisfies MusicOptionKey[]);
+
+/* MUSIC F14 · ÖLÇÜLEN GERÇEK: bu tipler `isVehicleEffectiveIntent` DIŞINDA
+   kaldığı için `routeIntent`e (aşağıdaki `RouterContext` portları:
+   `playMusicSearch`/`playMusicQuery`/`addMusicFavorite`/`nextTrack`/
+   `prevTrack`/`playMedia`/`pauseMedia`) gidiyordu — bu portlar F9'un
+   `dispatchMusicIntent`inden GEÇMEDEN doğrudan `carosMediaLayer`/eski Zustand
+   favori deposunu çağırıyordu (`ADD_MUSIC_FAVORITE` → `useStore.addMusicFavorite`,
+   F13'ün TEK otoritesinden AYRI bir favori kaydı). AI/beyin yolu
+   (`executeAIResult` → `dispatchIntent`, HER ZAMAN) bu tipleri ZATEN
+   `commandExecutor.dispatchIntent`in F9'a bağlı/kanıta-dayalı dallarından
+   geçiriyordu — iki yol aynı komut için FARKLI davranıyordu. Bu küme o
+   ayrışmayı kapatır: müzik tipleri artık HER İKİ girişten de (yerel parser +
+   AI) AYNI tek otoriteye (`executeIntent` → `dispatchIntent`) gider.
+   `routeIntent`in müzik dalları artık bu yoldan ULAŞILAMAZ — silinmedi
+   (0 başka çağıran KANITLANDI ama büyük çok-dosyalı silme riskten kaçınmak
+   için bilinçli olarak ERTELENDİ), yalnız compatibility adapter'a indi. */
+const _MUSIC_INTENT_TYPES = new Set<AppIntent['type']>([
+  'OPEN_MUSIC', 'PLAY_MUSIC_SEARCH', 'PLAY_MUSIC_QUERY', 'ADD_MUSIC_FAVORITE',
+  'PLAY_MEDIA', 'PAUSE_MEDIA', 'MEDIA_NEXT', 'MEDIA_PREV',
+]);
 
 /* ── MAVI-M4 · sesli hattın araç etkili YÜRÜTÜCÜ PORTLARI ───────────────────
  * KÖK NEDEN (M4 envanteri): bu hat donanım portlarını HİÇ taşımıyordu —
@@ -529,8 +550,14 @@ export function useVoiceCommandHandler({
        * ÖNCE. `routeIntent` yalnız düşük riskli UI/medya/navigasyon intentlerinde
        * kalır (araç etkili portları RouterContext'te ARTIK YOK).
        * Her iki yol da AYNI `IntentExecutionResult` sözleşmesini döndürür → M6
-       * tek cevap zarfı ve M5 tur kapısı değişmeden çalışır. */
-      const _run: Promise<IntentExecutionResult> = isVehicleEffectiveIntent(intent.type)
+       * tek cevap zarfı ve M5 tur kapısı değişmeden çalışır.
+       *
+       * MUSIC F14: müzik tipleri (`_MUSIC_INTENT_TYPES`) de BURADAN
+       * `executeIntent`e yönlendirilir — AI/beyin yolunun (`executeAIResult`)
+       * ZATEN kullandığı AYNI `dispatchIntent` otoritesi. Tek amaç aynı komutun
+       * girişe göre FARKLI (ve F13/F9'dan KOPUK) davranmasını engellemek. */
+      const _run: Promise<IntentExecutionResult> = (isVehicleEffectiveIntent(intent.type)
+        || _MUSIC_INTENT_TYPES.has(intent.type))
         ? executeIntent(intent, {
             vehicleCtx: vehicleCtx ?? unknownMaviVehicleContext(),
             defaultNav:   s.defaultNav as 'maps' | 'waze' | 'yandex',
@@ -565,7 +592,19 @@ export function useVoiceCommandHandler({
         prevTrack:   () => { cancelAssistantDuck(); previous(); },    // carosMediaLayer (kuyruk-farkında)
         // "video moduna al" → müzik ekranını aç + tam ekran video modunu aç.
         // Yalnız YouTube çalarken görsel etki olur (aksi halde zararsız no-op).
-        setVideoMode: (on) => { open('music' as DrawerType); applyVideoMode(on); },
+        /* MUSIC F7.2: niyet KAYDEDİLİR (ekran açılır, mod işaretlenir) ama
+           duruş kanıtlanmadan görüntü AÇILMAZ. Kullanıcı neden görmediğini
+           öğrenir — "açtım" deyip hiçbir şey olmaması yasak. */
+        /* SAHA BUGFIX (2026-09-03) · ÜRÜN KARARI DEĞİŞTİ: hız/hareket video
+         * açma isteğini REDDEDEMEZ ve "gizlendi" diye bir gerekçe artık
+         * doğru değildir — video her durumda AÇILIR. Eskiden burada
+         * `decideVideoVisibility`/`videoBlockReason` ile "video gizlendi"
+         * toast'ı gösteriliyordu; bu artık YALAN olurdu (video gerçekten
+         * gösterilirken "gizlendi" denirdi) → kaldırıldı. */
+        setVideoMode: (on) => {
+          open('music' as DrawerType);
+          applyVideoMode(on);
+        },
         volumeUp:         () => update({ volume: Math.min(100, useStore.getState().settings.volume + 10) }),
         volumeDown:       () => update({ volume: Math.max(0,   useStore.getState().settings.volume - 10) }),
         openWeather:      showWeather,

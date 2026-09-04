@@ -10,11 +10,13 @@
  *   2) Eşleşmeyen serbest metin native TTS yedeğine (eSpeak) düşer.
  *
  * Klipler basit `HTMLAudioElement` ile çalınır (Chrome 64-78 uyumlu, decodeAudioData
- * gerekmez). `duckMedia` yalnız uygulama-içi Web Audio kaynaklarını kısar; klip ayrı
- * eleman olduğu için tam sesle duyulur — güvenlik uyarısı için istenen davranış.
+ * gerekmez). MUSIC F6.1: klip çalarken müzik KANONİK yoldan kısılır
+ * (`duckRequest` → `duckPolicy` → native authority); klip kendi WebView ses
+ * elemanından tam sesle duyulur — güvenlik uyarısı için istenen davranış.
  */
 
-import { duckMedia, unduckMedia } from './audioService';
+import { requestDuck, type DuckHandle } from './media/authority/duckRequest';
+import type { DuckReason } from './media/authority/duckPolicy';
 /* MAVI-F0: ilk duyulabilir ses ölçümü. `maviLatencyTrace` HİÇBİR modülü import
    etmez → bu yaprağın bağımlılık grafiği büyümez. YALNIZ ÖLÇÜM. */
 import { markMaviLatency } from './assistant/maviLatencyTrace';
@@ -87,7 +89,11 @@ export function hasClip(text: string): boolean {
  * `onEnd` yalnız klip GERÇEKTEN başladıysa, bitiş/hata anında bir kez çağrılır
  * (TTS bitiş semantiği: ducking geri açma + takip dinlemesi korunur).
  */
-export function tryPlayClip(text: string, onEnd?: () => void): boolean {
+export function tryPlayClip(
+  text: string,
+  onEnd?: () => void,
+  duckReason: DuckReason = 'MAVI',
+): boolean {
   const id = clipIdFor(text);
   if (!id) return false;
   const audio = _audioFor(id);
@@ -97,11 +103,11 @@ export function tryPlayClip(text: string, onEnd?: () => void): boolean {
   if (_active && _active !== audio) { try { _active.pause(); } catch { /* zaten durmuş */ } }
 
   let settled = false;
-  let ducked  = false;
+  let duck: DuckHandle | null = null;
   const settle = () => {
     if (settled) return;
     settled = true;
-    if (ducked) { unduckMedia(); ducked = false; }
+    if (duck !== null) { duck.release(); duck = null; }
     if (_active === audio) _active = null;
     audio.onended = null;
     audio.onerror = null;
@@ -119,8 +125,7 @@ export function tryPlayClip(text: string, onEnd?: () => void): boolean {
     const p = audio.play();
     // play() başlatıldı → klibi sahiplen, ducking + bitiş kancalarını bağla.
     _active = audio;
-    ducked = true;
-    duckMedia();
+    duck = requestDuck(duckReason);
     audio.onended = settle;
     audio.onerror = settle;
     if (p && typeof p.catch === 'function') p.catch(() => settle());

@@ -7,18 +7,19 @@ import { NATIVE_MAPS_SUBDIRS, OFFLINE_PREF_KEY } from './mapSourceTypes';
 import { signalWithTimeout } from '../utils/abortCompat';
 export { signalWithTimeout };
 
-/** Converts lng/lat to TMS tile x/y at a given zoom level (Web Mercator). */
+/* NAV v3 · F1 — karo matematiğinin TEK kaynağı (L1 MapStore). */
+import { lngLatToTileRawClamped } from './navigation/map/store/tileGrid';
+
+/**
+ * Converts lng/lat to TMS tile x/y at a given zoom level (Web Mercator).
+ *
+ * NAV v3 · F1: formül artık TEK kaynakta —
+ * `navigation/map/store/tileGrid.lngLatToTileRawClamped`. Bu fonksiyon
+ * geriye dönük uyumluluk için KORUNDU ve **sayısal olarak birebir aynıdır**
+ * (kırpma dâhil; parite kilidi `navV3MapStoreF1.test.ts`).
+ */
 export function lngLatToTile(lng: number, lat: number, zoom: number): { x: number; y: number } {
-  const n = Math.pow(2, zoom);
-  const x = Math.floor(((lng + 180) / 360) * n);
-  const latRad = (lat * Math.PI) / 180;
-  const y = Math.floor(
-    ((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2) * n,
-  );
-  return {
-    x: Math.max(0, Math.min(n - 1, x)),
-    y: Math.max(0, Math.min(n - 1, y)),
-  };
+  return lngLatToTileRawClamped(lng, lat, zoom);
 }
 
 interface TileMetadata {

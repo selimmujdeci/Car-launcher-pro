@@ -36,7 +36,9 @@
     "release:bump": "node scripts/bump-version.mjs",
     "release:apk": "npm run build && npx cap sync android && node scripts/gradle-build.mjs assembleRelease",
     "release:aab": "npm run build && npx cap sync android && node scripts/gradle-build.mjs bundleRelease",
-    "ota:publish": "node scripts/publish-ota.mjs"
+    "ota:publish": "node scripts/publish-ota.mjs",
+    "test:identity": "node scripts/run-db-matrix.mjs supabase/tests/069_p0_001a_identity_matrix.sql \"6 HALKA DA GECTI\"",
+    "test:e2ekey": "node scripts/run-db-matrix.mjs supabase/tests/070_e2e_key_publish_matrix.sql \"7 HALKA DA GECTI\""
   },
   "dependencies": {
     "@capacitor/android": "^8.4.1",

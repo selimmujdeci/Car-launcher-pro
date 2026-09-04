@@ -279,7 +279,14 @@ describe('F13/2-5 · port bağlamaları gerçek motorlara bağlı', () => {
     expect(i, 'algı port bağlaması bulunamadı — kilit körleşti').toBeGreaterThan(-1);
     const body = ROOT.slice(i, i + 700);
     expect(body).toContain('push({ volumeLevel:');
-    expect(body).toContain('isFollowUpArmed()');
+    /* ⚠️ BİLİNÇLİ GÜNCELLEME — SAHA #1258. Port eskiden
+       `isFollowUpArmed() || _current.followUp === true` idi: sahibin gerçeği
+       UI ROZETİYLE OR'lanıyordu. Rozet sahibinden ayrışabildiği için (ölçüldü:
+       döngü ölü, rozet açık) bu OR ayrışmayı GİZLİYORDU. Kilidin amacı aynı —
+       port kökün GERÇEK durumuna bağlı olmalı — ama kaynak artık TEK: sohbet
+       runtime'ının kendi hükmü. */
+    expect(body).toContain('isConvFollowUpEngaged()');
+    expect(body, 'algı portu yine UI rozetini OR-luyor').not.toMatch(/_current\.followUp/);
     expect(body).toContain('webkitSpeechRecognition');
   });
 

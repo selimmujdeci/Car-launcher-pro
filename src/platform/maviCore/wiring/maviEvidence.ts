@@ -458,7 +458,9 @@ export const PHASES_WITHOUT_SOURCE: readonly string[] = Object.freeze([]);
 
 export const EXPECTED_PHASES: readonly string[] = Object.freeze([
   'wake_detected', 'listening', 'transcribing', 'planning', 'executing',
-  'execution_result', 'speaking', 'speech_end', 'cancelled', 'timeout', 'error',
+  // SAHA #1258: sohbet turunun terminal fazı (komut yürütmesi DEĞİL — ayrı tutulur).
+  'execution_result', 'conversation_result',
+  'speaking', 'speech_end', 'cancelled', 'timeout', 'error',
 ]);
 
 export interface MaviEvidenceReport {

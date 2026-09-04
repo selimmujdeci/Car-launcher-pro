@@ -37,7 +37,9 @@ import {
      kendi gerçeğini üretmez, bu kanonik gözlemleri OKUR. */
   isProtectedSpeechInFlight, isMicCaptureOpenDuringSpeech,
 } from './ttsService';
-import { duckMedia, unduckMedia } from './audioService';
+import { requestDuck, type DuckHandle } from './media/authority/duckRequest';
+
+
 import { resolveApiKey, type AIProvider, type AIVoiceResult, type VehicleContext } from './aiVoiceService';
 // MAVI-M2: komut başına gerçek araç bağlamı (tek resolver — yeni araç-state kaynağı DEĞİL).
 import { currentMaviVehicleContext, unknownMaviVehicleContext } from './assistant/maviVehicleContext';
@@ -83,6 +85,10 @@ import {
   classifySequenceConfirmationPolicy, MULTI_CONFIRMATION_REFUSAL_TEXT,
 } from './action/sequenceConfirmationPolicy';
 import { fromSemanticResult, commandTypeToIntentType } from './intentEngine';
+/* MUSIC F14 · yalnız TİP — F9'un ağır modülleri (`musicIntentRouter` vb.)
+   `_answerMusicIntent`in İÇİNDE dinamik yüklenir (diğer AI/OBD dallarıyla
+   AYNI desen); tip-only import derlemede SİLİNİR, üretim paketine girmez. */
+import type { MusicIntent } from './media/intent/musicIntent';
 import { isInformationalCommand, answerInformational } from './voiceInfoService';
 import { weatherQueryNamesCity } from './weatherService';
 import { showToast } from './errorBus';
@@ -110,6 +116,7 @@ import { getSttPartialDiagnostics } from './voice/sttPartialStream';
 import {
   configureVoiceConversation, beginConversationSession, endConversationSession,
   isConversationSessionActive, armFollowUp as armVoiceFollowUp, isFollowUpArmed,
+  isFollowUpEngaged as isConvFollowUpEngaged,
   disposeConversationRuntime,
   armConvIdleOnTtsEnd, clearConvIdle, onTtsEnd as onConversationTtsEnd,
 } from './voice/voiceConversationRuntime';
@@ -154,6 +161,32 @@ import {
 } from './voice/maviCompoundPlanRuntime';
 import { findByLegacyIntent } from './capability/fabric/carosCapabilityCatalog';
 import { getVehicleActionDef, isVehicleEffectiveIntent } from './action/maviActionAuthority';
+
+/**
+ * MUSIC F6.1 · Dinleme penceresinin KANONİK duck isteği.
+ *
+ * Eskiden `audioService.duckMedia()` çağrılıyordu; o yol ÖLÜYDÜ (Web Audio
+ * zincirine üretimde hiçbir kaynak bağlı değil) → mikrofon açıkken müzik
+ * GERÇEKTE kısılmıyordu. Artık tek duck otoritesi `duckPolicy`dir.
+ *
+ * Tek handle tutulur: dinleme penceresi tekildir. `_endListenDuck()`
+ * idempotenttir — tüm çıkış yollarından (sonuç · hata · timeout · iptal ·
+ * hard kill) koşulsuz çağrılabilir.
+ */
+let _listenDuck: DuckHandle | null = null;
+
+function _beginListenDuck(): void {
+  if (_listenDuck !== null) return;
+  _listenDuck = requestDuck('MAVI');
+}
+
+function _endListenDuck(): void {
+  const h = _listenDuck;
+  if (h === null) return;
+  _listenDuck = null;
+  h.release();
+}
+
 
 /* ── MAVI-F4 · AKIŞ BEKÇİSİ (açlık + asılmış seslendirme) ───────────────────
  * `maviSpeechStream` ve `maviResponseStream` kendi timer'larını KURMAZ (saflık
@@ -343,6 +376,20 @@ export function getVoiceSnapshot(): VoiceState {
   return _current;
 }
 
+/**
+ * **TAKİP DÖNGÜSÜ CANLI MI** — karar verecek taraflar (wake kapısı) BUNU okur,
+ * `getVoiceSnapshot().followUp` ROZETİNİ DEĞİL.
+ *
+ * SAHA #1258 (2026-09-04, telefon): rozet `status==='idle'` iken açık kalıyordu
+ * ve wake kapısı her tetiği `SUPPRESSED_FOLLOWUP` ile düşürüyordu — kullanıcı
+ * "bir kere çalışıyor, sonra bir daha uyanmıyor" yaşıyordu. Rozet artık sahibine
+ * eşitleniyor (`voiceConversationRuntime._syncEngagedMirror`), ama KARAR yine de
+ * projeksiyondan değil sahibinden okunur (CLAUDE.md §14).
+ */
+export function isVoiceFollowUpEngaged(): boolean {
+  try { return isConvFollowUpEngaged(); } catch { return false; }
+}
+
 /** Tanı: son STT/komut sonucunun zamanı + başarı/hata bayrağı (ham transkript YOK — PII değil). */
 export function getLastSttOutcome(): { atMs: number; ok: boolean | null } {
   return { atMs: _lastSttOutcomeAt, ok: _lastSttOk };
@@ -488,6 +535,9 @@ registerTtsEndListener(() => {
  * ama artık takip dinlemesinin kurulu olup olmadığını KENDİ bilmez, kökten
  * PORT ile sorar. Genel API korunur (tüketici: `commandExecutor` medya dalı). */
 export { cancelAssistantDuck } from './voice/voicePerceptionRuntime';
+/* MUSIC F14 · yerel bağlama için AYRICA import edilir (yukarıdaki satır yalnız
+   YENİDEN VERİR, bu dosyanın İÇİNDE çağrılabilir bir isim YARATMAZ). */
+import { cancelAssistantDuck as _cancelAssistantDuck } from './voice/voicePerceptionRuntime';
 
 
 /* ── Voice Lifecycle Events (Faz-3 · MAVI3-1 — ADDITIVE gözlemlenebilirlik) ──
@@ -506,7 +556,8 @@ export { cancelAssistantDuck } from './voice/voicePerceptionRuntime';
 
 export type VoiceLifecyclePhase =
   | 'idle' | 'wake_detected' | 'listening' | 'transcribing'
-  | 'planning' | 'executing' | 'execution_result' | 'speaking' | 'speech_end'
+  | 'planning' | 'executing' | 'execution_result' | 'conversation_result'
+  | 'speaking' | 'speech_end'
   | 'cancelled' | 'timeout' | 'error';
 
 /** `execution_result` fazının bounded sonuç kodu — serbest metin YOK, PII YOK. */
@@ -672,7 +723,10 @@ function pushHistory(cmd: ParsedCommand): void {
  * aynı olgu iki yerde tutulmaz. */
 configureVoicePerception({
   setVolumeLevel:     (level) => push({ volumeLevel: level }),
-  isFollowUpEngaged:  () => isFollowUpArmed() || _current.followUp === true,
+  /* SAHA #1258: eskiden UI aynası (`_current.followUp`) OR'lanıyordu. Ayna
+     sahibinden ayrışabildiği için (ölçüldü: idle iken bayrak açık kalıyordu)
+     karar artık YALNIZ sahibin gerçeğine sorulur. */
+  isFollowUpEngaged:  () => isConvFollowUpEngaged(),
   webSpeechAvailable: () => {
     const w = _speechWindow();
     return !!(w.webkitSpeechRecognition || w.SpeechRecognition);
@@ -844,6 +898,54 @@ async function _answerSensorQuery(sensorQuery: string, turn?: MaviTurnToken): Pr
     _emitVoiceEvent('execution_result', { result: 'failed' });
   }
   void reportVoiceDiag('voice_success', { intent: 'query_sensor' });
+  // MAVI-M5: fire-and-forget yol turu KENDİSİ tamamlar (nihai zarf burada üretildi).
+  if (turn) completeMaviTurn(turn);
+}
+
+/**
+ * MUSIC F14 · Yerel müzik niyeti bypass'ının çalıştırıcısı.
+ *
+ * Hava durumu (1b) / sensör (1b2) bypass'larıyla AYNI ilke: F9'un YEREL,
+ * deterministik resolver'ı (`resolveMusicIntent`, çağıranda ZATEN çözülmüş
+ * olarak gelir) beyne HİÇ GİTMEDEN kanonik yürütücüye (`dispatchMusicIntent`)
+ * devredilir. Bu fonksiyon YENİ bir playback yolu/otorite KURMAZ — F0/F3/F5/
+ * F7/F8/F10/F13'ün ZATEN var olan otoriteleridir; yalnız SONUCU
+ * (`MusicIntentOutcome`) F9'un KENDİ konuşma katmanıyla (`speakMusicOutcome`)
+ * dürüst bir cümleye çevirir.
+ *
+ * TRUTH/SAFETY: `dispatchMusicIntent` içindeki bayatlık kapısı (F9 §generation)
+ * ASR metni tek başına kanıt saymaz; VERIFIED olmadan "çalıyor/ekledim" DEMEZ.
+ */
+async function _answerMusicIntent(intent: MusicIntent, turn?: MaviTurnToken): Promise<void> {
+  _emitVoiceEvent('executing');
+  /* Kullanıcı MEDYA komutu verdi (durdur/başlat/geç) → asistanın kendi
+     ducking-resume'u bunu EZMESİN (eski `routeIntent` portlarıyla AYNI
+     davranış — bkz. `voicePerceptionRuntime.cancelAssistantDuck`). */
+  if (_TRANSPORT_KINDS_FOR_DUCK.has(intent.kind)) _cancelAssistantDuck();
+  endConversationSession(); // müzik komutu = araç komutu → sohbet döngüsü başlatmaz (dispatch ile aynı)
+  push({ status: 'processing', transcript: intent.query ?? intent.kind, error: null, suggestions: [] });
+  try {
+    const [{ dispatchMusicIntent }, { speakMusicOutcome }] = await Promise.all([
+      import('./media/intent/musicIntentRouter'),
+      import('./media/intent/musicIntentSpeech'),
+    ]);
+    // MAVI-M5 · KAPI: dinamik import sürerken yeni tur başlamış olabilir.
+    if (turn && !continueIfTurnActive(turn, 'action')) return;
+    const outcome = await dispatchMusicIntent(intent);
+    if (turn && !continueIfTurnActive(turn, 'feedback')) return;
+    speakMaviAnswer(speakMusicOutcome(outcome));
+    push({ status: 'success', error: null, transcript: intent.query ?? intent.kind, suggestions: [] });
+    const delays = getResetDelays();
+    setTimeout(() => { if (_current.status === 'success') push({ status: 'idle' }); }, delays.normal ?? 2500);
+    _emitVoiceEvent('execution_result', { result: outcome.status === 'REJECTED' || outcome.status === 'UNAVAILABLE' ? 'unsupported' : 'success' });
+  } catch {
+    // fail-soft: müzik niyeti yürütme hatası komut akışını kesmez (CLAUDE.md §2)
+    speakMaviAnswer('Müzik komutunu şu an işleyemedim.');
+    push({ status: 'error', error: 'Müzik komutu hatası', transcript: intent.query ?? intent.kind, suggestions: [] });
+    setTimeout(() => { if (_current.status === 'error') push({ status: 'idle', error: null }); }, 3000);
+    _emitVoiceEvent('execution_result', { result: 'failed' });
+  }
+  void reportVoiceDiag('voice_success', { intent: 'music_intent' });
   // MAVI-M5: fire-and-forget yol turu KENDİSİ tamamlar (nihai zarf burada üretildi).
   if (turn) completeMaviTurn(turn);
 }
@@ -1224,6 +1326,7 @@ function _dispatchConversation(response: string, raw: string, armFollowUp: boole
       recordDeferredResponse(getActiveMaviTurn()?.id ?? null, _budget.level, Date.now());
       setMaviLatencyWorkload({ deferred: true });
       push({ status: 'success', transcript: raw, error: null, suggestions: [], lastCommand: null });
+      _emitVoiceEvent('conversation_result');   // SAHA #1258: ertelenen tur da KAPANIR
       return;
     }
   } catch { /* fail-soft: bütçe okunamazsa ESKİ davranış (cevap konuşulur) */ }
@@ -1240,6 +1343,20 @@ function _dispatchConversation(response: string, raw: string, armFollowUp: boole
   // Sohbet/serbest cevap: klip → online TTS → native (motorsuz ünitede de sesli)
   speakMaviAnswer(response, { channel: 'assistant' });   // MAVI-M6: tek otorite
   push({ status: 'success', transcript: raw, error: null, suggestions: [], lastCommand: null });
+  /* ── SAHA #1258 · SOHBET TURU DA TERMİNAL BİR OLAY ÜRETİR ────────────────
+   * ÖLÇÜLEN AÇIK (2026-09-04, telefon): kabul edilen 2 wake tetiğinin İKİSİ DE
+   * `ACCEPTED_NO_INTENT` sayıldı ve defter "kabul → komut dönen 0" dedi — oysa
+   * Mavi GERÇEKTEN cevap vermişti (`maviSpeech`: toplam seslendirme 2).
+   *
+   * KÖK: wake korelasyonu YALNIZ `execution_result` fazını dinliyordu; sohbet
+   * yolu hiçbir terminal faz emit etmiyordu → kabul 20 sn sonra sessizce
+   * "komuta dönmedi"ye düşüyordu. Bu bir ÖLÇÜM kusuruydu ve teşhisi iki gün
+   * yanlış yöne sürükledi.
+   *
+   * `execution_result` KULLANILMAZ: sohbet bir komut YÜRÜTMESİ DEĞİLDİR ve o
+   * fazı burada emit etmek sahte yürütme kanıtı üretirdi. Ayrı, dürüst bir
+   * terminal faz eklendi — davranış, TTS ve karar akışı DEĞİŞMEZ. */
+  _emitVoiceEvent('conversation_result');
 }
 
 /* MAVI-F13/2: sohbet kapatma sözü sınıflandırması `voiceCommandPolicy`e taşındı
@@ -1288,6 +1405,13 @@ const CRITICAL_VOICE_TYPES = new Set<ParsedCommand['type']>([
   // "OPEN_SETTINGS"e düşüp UYGULAMA AYARLARINI açıyordu (bug). Tam-güven
   // (1.0) yerel eşleşmede beyni atla → setWifi/setBluetooth anında çalışsın.
   'toggle_wifi', 'toggle_bluetooth',
+]);
+
+/* MUSIC F14 · eski `routeIntent` portlarının (`playMedia`/`pauseMedia`/
+   `nextTrack`/`prevTrack`) `cancelAssistantDuck()` çağırdığı niyet türleri —
+   `_answerMusicIntent`in AYNI davranışı KORUMASI için. */
+const _TRANSPORT_KINDS_FOR_DUCK = new Set<MusicIntent['kind']>([
+  'PLAY', 'PAUSE', 'TOGGLE', 'STOP', 'NEXT', 'PREVIOUS',
 ]);
 
 /* ── API ANAHTARI YOK yönlendirmesi ──────────────────
@@ -1741,6 +1865,79 @@ export async function processTextCommand(
     // ancak tur hâlâ güncelse konuşur ve turu KENDİSİ tamamlar.
     void _answerSensorQuery(result.command.extra?.sensorQuery ?? trimmed, turn);
     return true;
+  }
+
+  // ── 1c0 · MÜZİK NİYETİ YEREL BYPASS (MUSIC F14) ──────────────────────────
+  // F9'un yerel/deterministik resolver'ı (`resolveMusicIntent`) — hava durumu/
+  // sensör bypass'larıyla (1b/1b2) AYNI ilke: beyne HİÇ GİTMEDEN, kotasız,
+  // anında cevap. Yeni bir parser/playback yolu/otorite KURULMAZ; bu yalnız
+  // F9'un ZATEN var olan sözleşmesini gerçek girdiye BAĞLAR (MUSIC F14 amacı).
+  //
+  // KAPSAM (bilinçli dar — İKİ ayrı nedenle): genel parser (yerel/AI) BU
+  // METNİ ZATEN BAŞARIYLA sınıflandırdıysa (`result.command !== null`)
+  // buradan HİÇ geçilmez; o durumda "aynı komutun iki kez yürütülmesi
+  // imkânsız" güvencesi `useVoiceCommandHandler`daki `_MUSIC_INTENT_TYPES`
+  // yönlendirmesiyle sağlanır (→ `executeIntent` → `dispatchIntent`, F9'a
+  // ZATEN bağlı dallar) — burada TEKRAR denenmez. Bu ayrım iki riski BİRDEN
+  // önler:
+  //   1) yanlış-pozitif: F9'un genel arama yakalayıcısı (`SEARCH_KINDS`,
+  //      "aç/çal" gibi ucu açık fiillere dayanır) "haritayı aç" gibi
+  //      donanım/navigasyon komutlarıyla yüzeysel çakışabilirdi — o komutlar
+  //      zaten `result.command !== null` ile döner, buraya HİÇ girmez.
+  //   2) kullanıcı onayı EZİLMEZ: orta güvenli (`< AUTO_DISPATCH_MIN`) eski
+  //      parser eşleşmeleri "belirsiz komut → onay sorusu" akışına
+  //      (aşağıdaki yerel zincirde, DEĞİŞTİRİLMEDİ) gitmeye devam eder —
+  //      burada ERKEN kapılıp o akış atlanmaz.
+  //
+  // Bu yüzden bypass YALNIZ genel parser HİÇBİR ŞEY bulamadığında
+  // (`result.command === null`) VE F9'un çözümü kendi BELİRGİN
+  // kalıplarından biriyken (kuyruk/bağlamsal/koleksiyon) devreye girer —
+  // bunlar `isPlayish` genel yakalayıcısına DAYANMAZ, kendi ayrık ve belirgin
+  // Türkçe kalıplarıyla eşleşir (ör. "favorilerime ekle", "daha sakin bir
+  // şey", "sırayı temizle"). Genel arama/transport fallback'i (SEARCH_KINDS/
+  // TRANSPORT_KINDS) bu dalda TETİKLENMEZ — o metin bugünkü gibi AI/yerel
+  // zincire gider (davranış DEĞİŞMEZ); bu tipler zaten `result.command`
+  // null İKEN nadiren transport/arama ifade eder (net biçimler NORM_PATTERNS/
+  // tryParseMusicCommand'da ZATEN non-null döner).
+  if (result.command === null) {
+    try {
+      const [
+        { resolveMusicIntent },
+        { QUEUE_KINDS, CONTEXTUAL_KINDS, COLLECTION_KINDS, PLAYLIST_KINDS, LYRICS_KINDS, RADIO_KINDS },
+        { noteMusicVoiceBypassAttempt, noteMusicVoiceBypassHit, noteMusicVoiceBypassMiss },
+      ] = await Promise.all([
+        import('./media/intent/musicIntentResolver'),
+        import('./media/intent/musicIntent'),
+        import('./media/intent/musicVoiceWiringTelemetry'),
+      ]);
+      noteMusicVoiceBypassAttempt();
+      const musicIntent = resolveMusicIntent(trimmed);
+      const isNarrowSafeKind = musicIntent !== null && (
+        QUEUE_KINDS.includes(musicIntent.kind)
+        || CONTEXTUAL_KINDS.includes(musicIntent.kind)
+        || COLLECTION_KINDS.includes(musicIntent.kind)
+        // MUSIC F15 · playlist kalıpları da isPlayish genel yakalayıcısına
+        // DAYANMAZ (kendi belirgin "X listeme ekle/oluştur/aç" kalıpları) —
+        // aynı düşük-çakışma gerekçesiyle güvenli kümeye eklendi.
+        || PLAYLIST_KINDS.includes(musicIntent.kind)
+        // MUSIC F16 · sözler kalıpları da kendi ayrık "sözleri göster/kapat/
+        // var mı" ifadeleriyle eşleşir, isPlayish'e DAYANMAZ — AYNI gerekçe.
+        || LYRICS_KINDS.includes(musicIntent.kind)
+        // MUSIC F18 · akış kalıpları da kendi ayrık "bunun gibi devam et /
+        // radyo oluştur / favorilerimden karışık" ifadeleriyle eşleşir,
+        // isPlayish genel yakalayıcısına DAYANMAZ — AYNI gerekçe.
+        || RADIO_KINDS.includes(musicIntent.kind)
+      );
+      if (musicIntent !== null && isNarrowSafeKind) {
+        noteMusicVoiceBypassHit('narrow_safe', now);
+        _lastCommandTime = now;
+        void reportVoiceDiag('voice_route', { route: 'music_intent_local_bypass' });
+        setMaviLatencyRoute('music_intent_local_bypass');
+        void _answerMusicIntent(musicIntent, turn);
+        return true;
+      }
+      noteMusicVoiceBypassMiss(now);
+    } catch { /* fail-soft: F9 modülü yüklenemezse mevcut zincire (AI/yerel) düşülür */ }
   }
 
   // ── API anahtarları + ağ sağlığı (devre kesici dahil) ────────
@@ -2198,7 +2395,7 @@ export function startListening(opts?: StartListeningOpts): void {
         closeMaviLatencyTrace('timeout');
         closePartialTranscriptSession('CANCELLED');                // MAVI-F3
         stopNativeVolumeListener();
-        unduckMedia();
+        _endListenDuck();
         endConversationSession();
         push({ status: 'idle' });
       }
@@ -2214,7 +2411,7 @@ export function startListening(opts?: StartListeningOpts): void {
       noteBargeInListeningOpened(performance.now());
       void reportVoiceDiag('voice_listening');
       startNativeVolumeListener();
-      duckMedia();
+      _beginListenDuck();
 
       /* MAVI-F0: bu damga native `listenRequestedAt` ankoruyla HİZALIDIR — native
        * telemetrinin delta alanları (`speechEndDetectedAtMs` vb.) buradan türetilir. */
@@ -2267,7 +2464,7 @@ export function startListening(opts?: StartListeningOpts): void {
         .then(async (result) => {
           clearTimeout(sttFailsafe);
           stopNativeVolumeListener();
-          unduckMedia();
+          _endListenDuck();
           markMaviLatency('stt_result');            // MAVI-F0
           /* MAVI-F3: sağlayıcı NİHAİ sonucu verdi → kısmi oturum burada kapanır ve
            * kısmi metin bellekten SİLİNİR. Bundan sonrası kanonik final yoludur;
@@ -2351,7 +2548,7 @@ export function startListening(opts?: StartListeningOpts): void {
         .catch((err: unknown) => {
           clearTimeout(sttFailsafe);
           stopNativeVolumeListener();
-          unduckMedia();
+          _endListenDuck();
           // STT-LATENCY-2: native reject(msg,code,data) → Capacitor err.data'ya kopyalar
           // (native-bridge.js: result.error alanları err üstüne taşınır). YALNIZ ÖLÇÜM.
           const sttTelemetry = (err as { data?: RawSttTelemetry } | null | undefined)?.data;
@@ -2605,7 +2802,7 @@ export function stopListening(): void {
     } else {
       stopVolumeSimulation();
     }
-    unduckMedia();
+    _endListenDuck();
     push({ status: 'idle' });
   }
 }
@@ -2628,7 +2825,7 @@ export function stopVoiceService(): void {
      sahibin tek kapısı çağrılır (biri unutulamaz). */
   disposeVoicePerception();
   _stopWebRecognition();
-  unduckMedia();                 // ses sistemi normalize — duck aktif olmasa da güvenli
+  _endListenDuck();              // ses normalize — duck aktif olmasa da güvenli
   push({ status: 'idle', error: null, volumeLevel: 0 });
   console.info('[Voice] Hard kill complete — all timers and AudioContext cleared');
 }

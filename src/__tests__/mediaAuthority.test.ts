@@ -453,6 +453,37 @@ describe('KİLİT 13/16 — telefon ve güvenlik önceliği', () => {
     expect(await gateway.unduck(token)).toBe(true);
     expect(gateway.getEffectiveVolume()).toBe(1);
   });
+
+  /* MUSIC F6.1 · ÇİFT DUCK KİLİDİ.
+   *
+   * Native `setVolume` alanı duck ÖNCESİ kullanıcı seviyesidir
+   * (`CarosPlaybackService.userVolume`) ve native duck çarpanını AYRICA
+   * uygular. Kapı buraya duck DAHİL değeri yazarsa duck iki kez uygulanır
+   * (%30 yerine %9). Duck TEK KEZ, sahibi tarafından uygulanır. */
+  it("duck TEK KEZ uygulanır — native'e duck ÖNCESİ kullanıcı sesi yazılır", async () => {
+    await gateway.setUserVolumePercent(80);
+    nativeState.commands.length = 0;
+
+    const token = await gateway.duck('NAVIGATION');
+    expect(token).toBeGreaterThan(0);
+
+    const duckCmd = nativeState.commands.find((c) => c.cmd === 'duck');
+    expect(duckCmd?.payload).toEqual({ reason: 'NAVIGATION' });
+
+    const volCmds = nativeState.commands.filter((c) => c.cmd === 'setVolume');
+    expect(volCmds.length).toBeGreaterThan(0);
+    for (const c of volCmds) {
+      expect(c.payload?.volume, 'duck native ses yazımına KARIŞMIŞ (çift duck)')
+        .toBeCloseTo(0.8);
+    }
+
+    /* Projeksiyon yine DÜRÜST: fiilen duyulan seviye kullanıcı × duck. */
+    expect(gateway.getEffectiveVolume()).toBeCloseTo(0.8 * 0.3);
+
+    await gateway.unduck(token);
+    expect(gateway.getEffectiveVolume()).toBeCloseTo(0.8);
+    await gateway.setUserVolumePercent(100);
+  });
 });
 
 /* ══════════════════════════════════════════════════════════════════════════

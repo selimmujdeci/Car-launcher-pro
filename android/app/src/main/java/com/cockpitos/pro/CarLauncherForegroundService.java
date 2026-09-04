@@ -294,8 +294,46 @@ public class CarLauncherForegroundService extends Service {
                 // Sessiz fail: gönderilmese bile sistemi durdurmaz
             }
         }
+        _keepFanOn();
+
         // Her 1 saniyede bir tekrarla
         mainHandler.postDelayed(watchdogRunnable, WATCHDOG_INTERVAL_MS);
+    }
+
+    /* ── Fan koruyucu (K24 / nwdpower) ────────────────────────────────────────
+     *
+     * SAHA 2026-09-03 (K2401 / ceres-b3): bu ünitede aktif soğutma FANI var ama
+     * OEM güç servisi onu KAPALI tutuyor — PMU 91-95 °C, CPU 87 °C ölçülürken
+     * bile fan çalışmadı ve cihaz tekrarlayan ani reset'ler yaşadı. sysfs düğümü
+     * dünyaya yazılabilir (`-rw-rw-rw-`) ve `fan_on` yazınca gpio 0'a düşüyor
+     * (ters mantık: 0 = FAN AÇIK). OEM servisi ayarı geri aldığı için TEK SEFER
+     * yazmak YETMEZ — periyodik olarak yeniden yazılır.
+     *
+     * KURALLAR:
+     *  · Yeni timer YOK — mevcut 1 Hz MCU heartbeat'ine bağlanır, 5 sn'de bir yazar.
+     *  · Düğüm YOKSA hiçbir şey yapılmaz → bu ÜNİTEYE ÖZGÜ, diğer head unit'lerde
+     *    tamamen ölü koddur (yanlış cihazda GPIO kurcalamaz).
+     *  · Sonda newline OLMAMALI: sürücü ham tamponu karşılaştırıyor, `echo` ile
+     *    gelen `\n` eşleşmeyi bozuyor (sahada ölçüldü).
+     *  · Fail-soft: yazım hatası heartbeat'i ve servisi ASLA etkilemez.
+     */
+    private static final String FAN_CTRL_PATH   = "/sys/devices/platform/nwdpower/fan_ctrl";
+    private static final int    FAN_WRITE_TICKS = 5;   // 1 Hz heartbeat → 5 sn
+    private int _fanTick = 0;
+
+    private void _keepFanOn() {
+        if (++_fanTick < FAN_WRITE_TICKS) return;
+        _fanTick = 0;
+        try {
+            java.io.File node = new java.io.File(FAN_CTRL_PATH);
+            if (!node.exists()) return;                 // bu üniteye özgü — yoksa çık
+            try (java.io.FileOutputStream fos = new java.io.FileOutputStream(node)) {
+                fos.write("fan_on".getBytes(java.nio.charset.StandardCharsets.US_ASCII));
+                fos.flush();
+            }
+        } catch (Throwable ignored) {
+            /* fail-soft: izin yok / düğüm kayboldu / SELinux reddetti → sessiz geç */
+        }
     }
 
     /** Servisin hâlâ aktif olup olmadığını kontrol eder. */

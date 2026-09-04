@@ -1,10 +1,9 @@
 /**
- * Tema Bileşen Kayıt Defteri — düzenlenebilir yüzeylerin TEK kimlik kaynağı (PWA kopyası).
+ * Tema Bileşen Kayıt Defteri — düzenlenebilir yüzeylerin TEK kimlik kaynağı (araç tarafı).
  *
- * Araç kopyası: src/platform/theme/themeComponentRegistry.ts — ilk yorum bloğu
+ * PWA kopyası: website/src/lib/theme/themeComponentRegistry.ts — ilk yorum bloğu
  * dışında BİREBİR aynıdır (themeManifestParity testi kilitler).
- *
----8<--- PARITY-START --->8---
+ * ---8<--- PARITY-START --->8---
  *
  * KİMLİK KURALI (kırılganlık karşıtı): tema, DOM seçicisine veya CSS sınıf adına
  * DEĞİL, kararlı `componentId`'ye bağlanır. Bir bileşenin Tailwind sınıfı değişince
@@ -322,7 +321,9 @@ const SHARED_COMPONENTS: ThemeComponentInfo[] = [
   { id: 'nav.maneuver', surface: 'nav', type: 'card', label: 'Manevra Kartı (dönüş talimatı)', themes: null, locked: true },
   { id: 'nav.speed-cluster', surface: 'nav', type: 'gauge', label: 'Hız + Hız Limiti Kümesi', themes: null, locked: true },
   { id: 'nav.hazard', surface: 'nav', type: 'card', label: 'Tehlike Uyarısı', themes: null, locked: true },
-  { id: 'nav.current-street', surface: 'nav', type: 'card', label: 'Bulunulan Sokak', themes: null },
+  /* `nav.current-street` KALDIRILDI (P0-NAV-04): ayrı "bulunulan sokak"
+     tabelası sürüş ekranından çıkarıldı — girilecek yolla yarışıyordu ve
+     ekranın en değerli üst-orta bölgesini kaplıyordu. */
   { id: 'nav.street-bar', surface: 'nav', type: 'card', label: 'Cadde Adı Barı', themes: null },
   { id: 'nav.summary', surface: 'nav', type: 'card', label: 'Rota Özet / Varış Kartı', themes: null },
 

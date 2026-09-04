@@ -99,15 +99,19 @@ describe('routingGraph › üretilen veri', () => {
 describe('routingGraph › worker sözleşmesi', () => {
   const worker = stripComments(read('src/platform/navigation/NavigationCompute.worker.ts'));
   const builder = stripComments(read('scripts/build-routing-graph.mjs'));
+  /* NAV-V3-F4/1 (kütük #1232): RTG2 ayrıştırma tek otoriteye taşındı — magic
+     sayı ve flags-bit yorumu artık BURADA yaşıyor, worker yalnız import eder.
+     Kilit taşınan koda yeniden bağlanır (kaldırılmaz — CLAUDE.md "kör guard"). */
+  const rtg2Reader = stripComments(read('src/platform/navigation/map/graph/rtg2Reader.ts'));
 
-  it('sihirli sayı worker ve üreticide AYNIDIR', () => {
-    expect(worker).toMatch(/0x32475452/);
+  it('sihirli sayı okuyucu ve üreticide AYNIDIR', () => {
+    expect(rtg2Reader).toMatch(/0x32475452/);
     expect(builder).toMatch(/0x32475452/);
   });
 
   it('flags baytı: bit 0 oneway, bit 1-3 yol sınıfı (iki tarafta da)', () => {
-    expect(worker).toMatch(/flags & 0x01/);
-    expect(worker).toMatch(/\(flags >> 1\) & 0x07/);
+    expect(rtg2Reader).toMatch(/edgeFlags\[ordinal\] & 0x01/);
+    expect(rtg2Reader).toMatch(/\(view\.edgeFlags\[ordinal\] >> 1\) & 0x07/);
     expect(builder).toMatch(/\(w\.oneway \? 1 : 0\) \| \(\(w\.cls & 0x07\) << 1\)/);
   });
 
@@ -138,7 +142,11 @@ describe('routingGraph › worker sözleşmesi', () => {
   });
 
   it('SÜRE kenar başına sınıf hızıyla toplanır — tek sabitle DEĞİL', () => {
-    expect(worker).toMatch(/durationS \+= _edgeSeconds\(edge\.costM, edge\.roadClass\)/);
+    /* NAV-V3-F4/1: A* traversalı `edge` nesnesi yerine view-tabanlı okumaya
+       geçti (`costM` yerel değişkeni + `edgeRoadClass(graph.view, ordinal)`
+       erişimcisi) — anlam AYNI (kenar başına sınıf hızıyla toplama), sözdizimi
+       taşındı. Kilit güncel erişim biçimine yeniden bağlanır. */
+    expect(worker).toMatch(/durationS \+= _edgeSeconds\(costM, edgeRoadClass\(graph\.view, ordinal\)\)/);
     /* Eski hata deseni geri gelmemeli: tüm mesafeyi tek ortalamaya bölmek. */
     expect(worker).not.toMatch(/durationS: distanceM \/ AVG_ROUTE_SPEED_MS,\s*\n\s*steps: \[\],\s*\n\s*\}\);\s*\n\s*\} catch/);
   });
@@ -146,7 +154,7 @@ describe('routingGraph › worker sözleşmesi', () => {
   it('MESAFE kenardan okunur — seyreltilmiş düğümlerden TÜRETİLMEZ', () => {
     /* Üretici ara düğümleri seyreltir; iki düğüm arasını haversine ile ölçmek
        kıvrımlı yolu sistematik olarak KISA gösterir. */
-    expect(worker).toMatch(/distanceM \+= edge\.costM/);
+    expect(worker).toMatch(/distanceM \+= costM/);
   });
 
   it('sezgisel ağırlığı 1.0 DEĞİL (düşük-uçta uzun rota bulunabilsin)', () => {

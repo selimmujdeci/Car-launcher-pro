@@ -55,6 +55,9 @@ import { bridge } from '../../platform/bridge';
 import { useSystemStore } from '../../store/useSystemStore';
 import { TripSummaryBanner }  from '../trip/TripSummaryBanner';
 import { TheaterOverlay }     from '../theater/TheaterOverlay';
+import { MiniPlayer }         from '../media/MiniPlayer';
+import { useMusicViewModel }  from '../media/MusicViewModel';
+import { musicSurfaceVisibilityModel } from '../media/musicSurfaceVisibilityModel';
 
 /* ── Persistence ─────────────────────────────────────────── */
 
@@ -357,6 +360,12 @@ export default function MainLayout() {
   // subscribe) yeniden hesaplanır — config mode ile senkron yazılır.
   const blurEnabled    = runtimeManager.getConfig().enableBlur;
   const isTheaterActive = useSystemStore((s) => s.isTheaterModeActive);
+  const music = useMusicViewModel();
+  const showMiniPlayer = musicSurfaceVisibilityModel(music, {
+    drawerOpen: drawer !== 'none',
+    nowPlayingOpen: drawer === 'music',
+    criticalSurfaceOpen: isTheaterActive || splitOpen || rearCamOpen,
+  });
 
   // Mali-400 GPU guard: anasayfa TAMAMEN opak bir overlay ile kapandığında alttaki
   // MiniMapWidget'ın canlı MapLibre WebGL context'ini serbest bırak (sürekli çizim
@@ -486,6 +495,10 @@ export default function MainLayout() {
         />
       )}
 
+      {/* F1 persistent surface: map/navigation remains usable; full drawers and critical
+          camera/theater surfaces are suppressed by the single visibility policy. */}
+      {showMiniPlayer && <MiniPlayer onOpenNowPlaying={() => setDrawer('music')} />}
+
       {/* Gelen arama overlay */}
       <IncomingCallOverlay />
 
@@ -503,6 +516,7 @@ export default function MainLayout() {
           drawer={drawer}
           onClose={closeDrawer}
           defaultMusic={settings.defaultMusic as MusicOptionKey}
+          drivingMode={smart.drivingMode}
           allApps={allApps}
           favorites={favorites}
           gridColumns={settings.gridColumns as 3 | 4 | 5}

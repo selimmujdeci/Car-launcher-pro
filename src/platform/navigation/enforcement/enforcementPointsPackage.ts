@@ -398,3 +398,73 @@ export function findNearestEnforcementPoint(
     candidateCount,
   };
 }
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * Yarıçap sorgusu (F6 — yol-ağı eşleştirmesi için)
+ * ══════════════════════════════════════════════════════════════════════════ */
+
+/** Yarıçap sorgusunun döndürebileceği en fazla nokta (üst sınır güvenliği). */
+export const ENFORCEMENT_RADIUS_QUERY_MAX = 32;
+
+export interface EnforcementRadiusHit {
+  readonly point: EnforcementPoint;
+  /** Kuş uçuşu mesafe (m) — **yol-boyu DEĞİL** (o, koridor işidir). */
+  readonly straightDistanceMeters: number;
+}
+
+/**
+ * Yarıçap içindeki noktalar — **yön kapısı UYGULANMAZ**, mesafeye göre artan.
+ *
+ * ── NEDEN YÖN KONİSİ YOK (F6'nın tüm meselesi) ──────────────────────────────
+ * `findNearestEnforcementPoint` "önümde mi" sorusunu KUŞ UÇUŞU kerterizle
+ * cevaplar; bu, Guardian'ın bugünkü (legacy) yöntemidir ve KALIR. F6'da aynı
+ * soru YOL AĞI üzerinden cevaplanır: hangi noktanın önde olduğuna koridor
+ * karar verir, koni değil. Bu yüzden bu sorgu SÜZMEZ — yalnız aday toplar.
+ *
+ * ── NEDEN KUŞ UÇUŞU YARIÇAPI YETERLİ VE GÜVENLİ ────────────────────────────
+ * Yol-boyu mesafe kuş uçuşu mesafeden ASLA küçük olamaz. Bu yüzden "yol-boyu
+ * ≤ B" olan her nokta zorunlu olarak "kuş uçuşu ≤ B" kümesindedir: bu sorgu
+ * bir ÜST KÜME döndürür, eleme koridorda yapılır. Kayıp nokta riski YOKTUR.
+ *
+ * `[]` = ÖLÇÜLDÜ, bu yarıçapta nokta yok. (İndeks yoksa çağıran `null` alır —
+ * bu ayrım kaynak katmanındadır.)
+ */
+export function queryEnforcementPointsInRadius(
+  index: EnforcementIndex,
+  lat: number,
+  lng: number,
+  radiusMeters: number,
+  maxResults: number = ENFORCEMENT_RADIUS_QUERY_MAX,
+): readonly EnforcementRadiusHit[] {
+  if (!index || !isFiniteNumber(lat) || !isFiniteNumber(lng)) return [];
+  if (!isFiniteNumber(radiusMeters) || radiusMeters <= 0) return [];
+
+  const cap = Number.isInteger(maxResults) && maxResults > 0
+    ? Math.min(maxResults, ENFORCEMENT_RADIUS_QUERY_MAX)
+    : ENFORCEMENT_RADIUS_QUERY_MAX;
+
+  /* Yarıçap hücre boyunu aşarsa TEK halka komşuluk YETMEZ; taranacak halka
+     sayısı yarıçaptan türetilir (sessizce eksik tarama YASAK). */
+  const latSpanDeg = radiusMeters / 111_320;
+  const rings = Math.max(1, Math.ceil(latSpanDeg / CELL_DEG) + 1);
+
+  const latCell = Math.floor(lat / CELL_DEG);
+  const lngCell = Math.floor(lng / CELL_DEG);
+
+  const hits: EnforcementRadiusHit[] = [];
+  for (let dy = -rings; dy <= rings; dy++) {
+    for (let dx = -rings; dx <= rings; dx++) {
+      const bucket = index.cells.get(cellKey(latCell + dy, lngCell + dx));
+      if (bucket === undefined) continue;
+      for (let b = 0; b < bucket.length; b++) {
+        const p = index.points[bucket[b]];
+        const d = haversineMeters(lat, lng, p.lat, p.lng);
+        if (d > radiusMeters) continue;
+        hits.push({ point: p, straightDistanceMeters: d });
+      }
+    }
+  }
+
+  hits.sort((a, b) => a.straightDistanceMeters - b.straightDistanceMeters);
+  return hits.length > cap ? hits.slice(0, cap) : hits;
+}

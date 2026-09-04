@@ -17,6 +17,9 @@
  */
 
 import { isNative } from '../../bridge';
+import {
+  startAudioExperience, stopAudioExperience,
+} from '../audio/audioExperienceAuthority';
 import type { NativeAuthoritySnapshot } from '../../nativePlugin';
 import * as native from './nativeAuthorityBridge';
 import type { SourceClass } from './sourceCapabilities';
@@ -28,6 +31,11 @@ import {
 import { recordRecovery, recordRecoverySucceeded } from './mediaAuthorityEvidence';
 import { recordMediaEvent } from './mediaAuthorityEvents';
 import { configureQueueRecovery, runQueueRecovery } from './queueRecoveryRuntime';
+/* F3.2 — CANLI gözlenen kuyruk kanıtı. Bu iki modül SAF/tipsel ağırlıktadır
+   (I/O yok, UI yok); statik import ana paket bütçesini etkilemez ve yayının
+   snapshot işlemesiyle AYNI turda, sıra garantisiyle yapılmasını sağlar. */
+import { publishObservedQueueEvidence } from '../session/observedQueueEvidence';
+import { deriveObservedQueueEvidence } from '../session/observedQueueDerivation';
 
 /**
  * Kurtarma bağımlılıklarını bağlar. Gateway ve UI katmanı DİNAMİK yüklenir:
@@ -127,8 +135,40 @@ export function getProjectedQueueView(): {
   };
 }
 
+/**
+ * F3.2 · CANLI gözlenen kuyruk kanıtının TEK yayın noktası.
+ *
+ * Native `Player.getMediaItemAt(i).mediaId` dizisi → `CarosPlaybackService
+ * .getDiagnostics()` → `CarosPlaybackBridge` → `nativeAuthorityBridge`
+ * (`sanitizeAuthoritySnapshot`) → BURASI → `publishObservedQueueEvidence`.
+ *
+ * DesiredQueue (`noteQueue` ile gönderilen pencere) bu yayına GİRMEZ: gözlem
+ * kendi isteğimizden türetilirse "senkron" iddiası uydurma olur.
+ *
+ * Her snapshot'ta çağrılır — otorite kaybolduğunda da: sessizlik bir gözlem
+ * değildir; UNAVAILABLE + gerekçe yayınlanır ve eski sıra bayatlamaya terk
+ * edilmez.
+ */
+function publishObservedQueue(s: NativeAuthoritySnapshot): void {
+  try {
+    publishObservedQueueEvidence(deriveObservedQueueEvidence({
+      authorityAvailable: s.authorityAvailable === true,
+      activeSource: s.activeSource,
+      queueEntryIds: s.queueEntryIds,
+      queueLength: s.queueLength,
+      currentIndex: s.currentIndex,
+      queueRevision: s.queueRevision,
+      nowMs: Date.now(),
+    }));
+  } catch { /* kanıt yayını ASLA medya akışını bozmaz */ }
+}
+
 /** Native gözlemi mevcut mediaService sözleşmesine yansıtır. */
 async function applySnapshotToMediaState(s: NativeAuthoritySnapshot): Promise<void> {
+  // Kanıt yayını her turda ve HER ŞEYDEN ÖNCE: aşağıdaki erken çıkışlar
+  // (otorite yok / kaynak NONE) gözlem kanıtını da susturmamalıdır.
+  publishObservedQueue(s);
+
   if (!s.authorityAvailable) return;
   const pkg = SOURCE_PACKAGE[s.activeSource];
   if (!pkg) return;   // otorite boşta (NONE) → harici oturum mantığı dokunulmaz
@@ -243,6 +283,11 @@ export async function startMediaAuthority(): Promise<void> {
   _persistTimer = setInterval(persistNow, PERSIST_PERIOD_MS);
 
   try { await runRecovery(); } catch { /* kurtarma ASLA açılışı bozmaz */ }
+
+  /* F6 — ses deneyimi (DSP) yaşam döngüsü playback servisine BAĞLIDIR (§10).
+     Otorite burada yalnız BAŞLATILIR; DSP durumunun sahibi bu runtime DEĞİL,
+     `audioExperienceAuthority`dir. Düşerse oynatma ETKİLENMEZ. */
+  try { await startAudioExperience(); } catch { /* DSP açılışı oynatmayı bozamaz */ }
 }
 
 /** Zero-Leak teardown. */
@@ -251,6 +296,9 @@ export function stopMediaAuthority(): void {
   if (_unsubscribe) { _unsubscribe(); _unsubscribe = null; }
   if (_persistTimer) { clearInterval(_persistTimer); _persistTimer = null; }
   native.stopNativeAuthority();
+  stopAudioExperience();   // F6 zero-leak: birleştirme timer'ı temizlenir
+  // Otorite kapandı: son gözlenen sıra "hâlâ geçerli" gibi durmaz.
+  publishObservedQueue(native.getSnapshot());
   _lastQueue = [];
   _lastSource = null;
 }

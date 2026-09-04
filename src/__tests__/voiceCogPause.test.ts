@@ -34,7 +34,9 @@ vi.mock('../platform/ttsService', () => ({
   speakAlert: vi.fn(),
   registerTtsEndListener: () => () => {},   // takip dinlemesi modül-init kaydı
 }));
-vi.mock('../platform/audioService', () => ({ duckMedia: vi.fn(), unduckMedia: vi.fn() }));
+vi.mock('../platform/media/authority/duckRequest', () => ({
+  requestDuck: () => ({ reason: 'MAVI', release: (): void => {} }),
+}));
 vi.mock('../platform/aiVoiceService', () => ({ askAI: async () => null, resolveApiKey: () => '' }));
 vi.mock('../platform/ai/semanticAiService', () => ({
   classifySemantic: async () => ({ source: 'offline', confidence: 0, feedback: '' }),

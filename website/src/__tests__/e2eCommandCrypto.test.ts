@@ -40,10 +40,33 @@ describe('#672 · gönderen uç ARTIK VAR ve ürün yolunda bağlı', () => {
     expect(service).toContain('fetchCarPublicKey(vehicleId)');
   });
 
-  it('KİLİT: HER İKİ gönderme yolu da şifreler (oturumlu + api_key)', () => {
-    /* `sendCommandViaApiKey` (oturumsuz PWA) düz metin gönderiyordu. */
-    const hits = service.match(/requiresE2E\(type\)/g) ?? [];
-    expect(hits.length).toBeGreaterThanOrEqual(2);
+  it('KİLİT: KALAN TEK gönderme yolu şifreler — ikinci (api_key) yol geri gelmemiş', () => {
+    /* KİLİT GÜNCELLENDİ (P0-001A), ZAYIFLATILMADI.
+     *
+     * #672'de İKİ gönderme yolu vardı (oturumlu + oturumsuz `api_key`) ve
+     * ikincisi düz metin gönderiyordu; kilit "her ikisi de şifrelesin" diyordu.
+     * P0-001A'da ikinci yol tamamen KALDIRILDI: dayandığı `/api/pwa/command`
+     * ucu, `sha256(raw) === api_key_hash` doğrulaması düz metin kolona karşı
+     * eşleşemediği için hiç çalışmıyordu ve `getStoredApiKey` zaten null
+     * dönüyordu. Yol yoksa "o yol da şifrelesin" kilidi anlamsızdır.
+     *
+     * Kilit artık iki şeyi birden korur:
+     *   ① kalan yol HÂLÂ şifreliyor,
+     *   ② kaldırılan yol SESSİZCE geri gelmiyor (ham anahtarı tarayıcıda
+     *      taşıyan desen yeniden açılırsa bu kilit düşer). */
+    /* YORUMLAR SAYILMAZ: kaldırılan yolun NEDEN kaldırıldığı dosyada yazılıdır
+       ve o açıklama kaçınılmaz olarak eski fonksiyon adını anar. Yorumu koda
+       saymak doğru kodu düşürürdü. */
+    const code = service
+      .replace(/\/\*[\s\S]*?\*\//g, ' ')
+      .replace(/\/\/[^\n]*/g, ' ');
+
+    expect(code.match(/requiresE2E\(type\)/g) ?? [], 'kalan yol şifrelemeyi bırakmış')
+      .toHaveLength(1);
+    expect(code, 'oturumsuz api_key komut yolu geri gelmiş')
+      .not.toContain('sendCommandViaApiKey');
+    expect(code, 'ham anahtar yeniden Authorization başlığına konmuş')
+      .not.toMatch(/Authorization['"]?\s*:\s*`Bearer \$\{apiKey\}`/);
   });
 
   it('KİLİT: şifreleme başarısızsa komut GÖNDERİLMEZ — sessiz düz metin YOK', () => {

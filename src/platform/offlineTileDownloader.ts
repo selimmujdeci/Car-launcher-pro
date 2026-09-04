@@ -24,6 +24,8 @@
  */
 
 import { cacheLRUManager } from '../core/storage/CacheLRUManager';
+/* NAV v3 · F1 — karo matematiğinin TEK kaynağı (L1 MapStore). */
+import { lngLatToTileRawUnclamped } from './navigation/map/store/tileGrid';
 import {
   resolveVectorTileTemplate, tileUrlFrom, type VectorTileTemplate,
 } from './map/vectorTileTemplate';
@@ -79,12 +81,13 @@ export const TILE_PRESETS: TileRegionPreset[] = [
 
 /* ── Tile koordinat hesabı ───────────────────────────────── */
 
+/**
+ * NAV v3 · F1: formül TEK kaynakta —
+ * `navigation/map/store/tileGrid.lngLatToTileRawUnclamped`.
+ * Sayısal sonuç **birebir aynıdır** (parite kilidi `navV3MapStoreF1.test.ts`).
+ */
 function latLonToTileXY(lat: number, lon: number, zoom: number): { x: number; y: number } {
-  const n  = 2 ** zoom;
-  const x  = Math.floor(((lon + 180) / 360) * n);
-  const lr = (lat * Math.PI) / 180;
-  const y  = Math.floor(((1 - Math.log(Math.tan(lr) + 1 / Math.cos(lr)) / Math.PI) / 2) * n);
-  return { x, y };
+  return lngLatToTileRawUnclamped(lon, lat, zoom);
 }
 
 export interface TileCoord { z: number; x: number; y: number }

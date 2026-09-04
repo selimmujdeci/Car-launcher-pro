@@ -37,6 +37,7 @@ import {
   EFFECTIVE_LIMIT_STATE_LABEL,
 } from '../navigation/core/vehicleAwareSpeedLimitAuthority';
 import { ROAD_CLASS_LABEL } from '../navigation/policy/turkeySpeedPolicy';
+import { CEH_CUTOVER_CONDITION_LABEL } from '../navigation/shadow/cehCutoverGate';
 import {
   VEHICLE_CLASS_STATE_LABEL, LEGAL_CATEGORY_LABEL, BODY_TYPE_LABEL,
 } from '../vehicle/legalVehicleClass';
@@ -58,7 +59,7 @@ import type { ManeuverDistanceSource } from '../routingService';
 export type NavCoreCardId =
   | 'state' | 'provider' | 'matching' | 'offroute'
   | 'reroute' | 'validation' | 'maneuver' | 'truth' | 'session' | 'viewport'
-  | 'vehicleclass' | 'delivery' | 'motion' | 'destination' | 'progress';
+  | 'vehicleclass' | 'delivery' | 'motion' | 'destination' | 'progress' | 'horizon';
 
 export interface NavCoreCard {
   readonly id: NavCoreCardId;
@@ -82,6 +83,7 @@ export const NAV_CORE_CARD_TITLE: Readonly<Record<NavCoreCardId, string>> = {
   motion:       '13 · İşaret Hareketi · Takip Kamerası',
   destination:  '14 · Hedef Bütünlüğü (arama → hedef → rota isteği)',
   progress:     '15 · İlerleme Dürüstlüğü (kırpma YOK)',
+  horizon:      '16 · L2 Ego · L3 Ufuk (CEH) — NAV v3',
 } as const;
 
 export const MAP_MATCH_STATE_LABEL: Readonly<Record<MapMatchState, string>> = {
@@ -185,6 +187,15 @@ const SRC_GUIDANCE_AUDIT = 'voiceGuidanceAudit.getGuidanceAudit';
 const SRC_TICK_COST = 'navTickCostModel.getNavTickCostSnapshot';
 /** P0-NAV-20 arıza tablosu kaynağı. */
 const SRC_MATRIX = 'navFailureMatrixModel.buildNavFailureMatrix';
+const SRC_EGO    = 'ego/egoAuthority.getDiagnostics';
+const SRC_CEH    = 'horizon/cehAuthority.getDiagnostics';
+const SRC_YAW    = 'navOrientationFeed.getSnapshot';
+const SRC_BRIDGE = 'navEgoHorizonBridge.getSnapshot';
+const SRC_GRAPH  = 'map/graph/graphResidencyRuntime.getSnapshot';
+/** NAV v3 · F5 — gölge karşılaştırma + cutover kapısı kaynağı. */
+const SRC_CEH_SHADOW = 'shadow/cehShadowRuntime.getSnapshot';
+/** NAV v3 · F6 — sınırlı koridor + kenar-tabanlı denetim noktası kaynağı. */
+const SRC_ENFORCEMENT_PORT = 'enforcementHorizonPort.getSnapshot';
 
 export function buildNavigationCoreCards(s: NavigationCoreRawSnapshot): readonly NavCoreCard[] {
   const cards: NavCoreCard[] = [];
@@ -1385,6 +1396,316 @@ export function buildNavigationCoreCards(s: NavigationCoreRawSnapshot): readonly
             note: '', updatedAt: null }, 'hedef sahiplenilmedi'),
     ],
   });
+
+  /* 16 · NAV v3 — L2 EGO / L3 UFUK ─────────────────────────────────────────
+   * DÜRÜSTLÜK SINIRI: bu kart yeni bir gerçek ÜRETMEZ; kanonik otoritelerin
+   * (`egoAuthority` · `cehAuthority` · `navOrientationFeed`) kendi hükümlerini
+   * gösterir. KOORDİNAT TAŞIMAZ. "Ölçülmedi" ile "yok" AYRI basılır. */
+  /* `?? null`: eski/kısmi anlık görüntülerde alan HİÇ olmayabilir; `undefined`
+     ile `null` aynı hükme (okunamadı) toplanır — sahte değer üretilmez. */
+  const _ego = s.ego ?? null;
+  const _ceh = s.ceh ?? null;
+  const _yaw = s.yawFeed ?? null;
+  const _br  = s.egoHorizonBridge ?? null;
+  const _gr  = s.graphResidency ?? null;
+  const _sh  = s.cehShadow ?? null;
+  const _ep  = s.enforcementHorizonPort ?? null;
+
+  cards.push({
+    id: 'horizon', title: NAV_CORE_CARD_TITLE.horizon,
+    fields: [
+      /* ── L2 canlı akış (F2 borcu C2) ── */
+      _br === null
+        ? unavailable({ id: 'hz-bridge', label: 'Ego/ufuk köprüsü', source: SRC_BRIDGE,
+            note: 'Köprü okunamadı — "çalışıyor" İDDİA EDİLMEZ.', updatedAt: null }, 'okunamadı')
+        : observed({ id: 'hz-bridge', label: 'Ego/ufuk tik sayısı', source: SRC_BRIDGE,
+            note: 'Tik sahibi navigationSessionRuntime; köprü kendi zamanlayıcısını KURMAZ.',
+            updatedAt: null }, _br.ticks),
+      _ego === null
+        ? unavailable({ id: 'hz-ego-mode', label: 'Ego modu', source: SRC_EGO,
+            note: '', updatedAt: null }, 'okunamadı')
+        : observed({ id: 'hz-ego-mode', label: 'Ego modu', source: SRC_EGO,
+            note: 'GNSS · GNSS_DR · DR_ONLY · LAST_KNOWN — poz kendi modunu taşır.',
+            updatedAt: null }, _ego.mode + ' (' + _ego.modeReason + ')'),
+      _ego === null || _ego.sigmaHorizontalM === null
+        ? unavailable({ id: 'hz-ego-sigma', label: 'Yatay belirsizlik (1σ)', source: SRC_EGO,
+            note: 'EKF henüz konum yayınlamadı — sahte 0 ÜRETİLMEZ.', updatedAt: null }, 'ölçülmedi')
+        : derived({ id: 'hz-ego-sigma', label: 'Yatay belirsizlik (1σ)', source: SRC_EGO,
+            note: 'Güven yalnız σ değerinden gelir; "GPS var → güven 1" YASAK.', updatedAt: null },
+            _ego.sigmaHorizontalM.toFixed(1) + ' m'),
+      _ego === null
+        ? unavailable({ id: 'hz-ego-rej', label: 'GNSS kabul / red', source: SRC_EGO,
+            note: '', updatedAt: null }, 'okunamadı')
+        : observed({ id: 'hz-ego-rej', label: 'GNSS kabul / red', source: SRC_EGO,
+            note: 'Reddedilen ölçüm BAŞARI SAYILMAZ — durum güncellenmedi.', updatedAt: null },
+            _ego.positionUpdatesAccepted + ' / ' + _ego.positionUpdatesRejected),
+      _ego === null
+        ? unavailable({ id: 'hz-ego-match', label: 'Yol-ağı eşleşmesi', source: SRC_EGO,
+            note: '', updatedAt: null }, 'okunamadı')
+        : (_ego.candidateOutcome === null
+            ? unavailable({ id: 'hz-ego-match', label: 'Yol-ağı eşleşmesi', source: SRC_EGO,
+                note: 'Aday kaynağı hiç sorgulanmadı — "yol dışısın" DEMEK DEĞİLDİR.',
+                updatedAt: null }, 'ölçülmedi')
+            : derived({ id: 'hz-ego-match', label: 'Yol-ağı eşleşmesi', source: SRC_EGO,
+                note: 'F1/B2 açık: RTG2 okuyucusu worker içinde → üretimde aday YOK.',
+                updatedAt: null },
+                _ego.candidateOutcome + ' · aday ' + _ego.candidateCount
+                  + ' · ' + (_ego.matchOutcome ?? 'karar yok'))),
+
+      /* ── C1 · jiro işaret öğrenme ── */
+      _yaw === null
+        ? unavailable({ id: 'hz-yaw-feed', label: 'Jiro beslemesi', source: SRC_YAW,
+            note: '', updatedAt: null }, 'okunamadı')
+        : observed({ id: 'hz-yaw-feed', label: 'Jiro beslemesi', source: SRC_YAW,
+            note: 'Abonelik orientationSensorGate üzerinden TEK sahiplikte; oturumla bırakılır.',
+            updatedAt: null },
+            (_yaw.attached ? 'BAĞLI' : 'KAPALI') + ' · tutucu ' + _yaw.holders
+              + ' · olay ' + _yaw.events),
+      _yaw === null
+        ? unavailable({ id: 'hz-yaw-gate', label: 'Jiro kabul / red', source: SRC_YAW,
+            note: '', updatedAt: null }, 'okunamadı')
+        : observed({ id: 'hz-yaw-gate', label: 'Jiro kabul / red', source: SRC_YAW,
+            note: 'Red nedenleri sırayla: jiro alanı yok · yerçekimi bandı dışı · zaman damgası yok.',
+            updatedAt: null },
+            _yaw.accepted + ' / ' + _yaw.rejectedNoGyro + '+' + _yaw.rejectedGravity
+              + '+' + _yaw.rejectedTime),
+      _yaw === null || _yaw.polarity === 0
+        ? unavailable({ id: 'hz-yaw-pol', label: 'Sapma işareti (öğrenilen)', source: SRC_YAW,
+            note: 'İşaret GNSS dönüşüyle KANITLANMADI → sapma hızı yayınlanmaz. Yanlış '
+              + 'işaret öğretmektense susmak güvenlidir (fail-closed).',
+            updatedAt: null }, 'kanıtlanmadı')
+        : derived({ id: 'hz-yaw-pol', label: 'Sapma işareti (öğrenilen)', source: SRC_YAW,
+            note: 'Montaj açısından BAĞIMSIZ: düşey eksen izdüşümü + GNSS korelasyonu.',
+            updatedAt: null },
+            (_yaw.polarity > 0 ? '+1' : '-1') + ' · karar ' + _yaw.polarityDecisions),
+      _yaw === null || _yaw.yawRateRadPerSec === null
+        ? unavailable({ id: 'hz-yaw-rate', label: 'Sapma hızı', source: SRC_YAW,
+            note: 'Gerekçe: ' + (_yaw?.yawReason ?? 'okunamadı')
+              + '. Jiro yokken EKF yön belirsizliğini ŞİŞİRİR — sahte kesinlik üretilmez.',
+            updatedAt: null }, 'kanıt yok')
+        : derived({ id: 'hz-yaw-rate', label: 'Sapma hızı', source: SRC_YAW,
+            note: 'İz penceresi ortalaması (anlık örnek DEĞİL).', updatedAt: null },
+            ((_yaw.yawRateRadPerSec * 180) / Math.PI).toFixed(1) + ' °/sn'),
+
+      /* ── L3 · ufuk ── */
+      _ceh === null
+        ? unavailable({ id: 'hz-ceh-state', label: 'Ufuk hükmü', source: SRC_CEH,
+            note: '', updatedAt: null }, 'okunamadı')
+        : derived({ id: 'hz-ceh-state', label: 'Ufuk hükmü', source: SRC_CEH,
+            note: '"Ufuk yok" ile "ölçülmedi" ve "eşleşemedi" AYRI hükümlerdir.',
+            updatedAt: null }, _ceh.state + ' · üretim ' + _ceh.generation),
+      _ceh === null
+        ? unavailable({ id: 'hz-ceh-mpp', label: 'MPP / belirsizlik', source: SRC_CEH,
+            note: '', updatedAt: null }, 'okunamadı')
+        : derived({ id: 'hz-ceh-mpp', label: 'MPP / belirsizlik', source: SRC_CEH,
+            note: 'Belirsizlikte HİÇBİR kol MPP değildir — zorla indirgeme YASAK.',
+            updatedAt: null },
+            (_ceh.mppPresent ? 'MPP VAR' : 'MPP YOK') + ' · kol ' + _ceh.pathCount
+              + (_ceh.ambiguous ? ' · BELİRSİZ' : '')),
+      _ceh === null
+        ? unavailable({ id: 'hz-ceh-phys', label: 'Fiziksel doğrulama', source: SRC_CEH,
+            note: '', updatedAt: null }, 'okunamadı')
+        : (_ceh.physicallyConfirmed
+            ? observed({ id: 'hz-ceh-phys', label: 'Fiziksel doğrulama', source: SRC_CEH,
+                note: 'Rota niyeti yol-ağı eşleşmesiyle UYUŞUYOR.', updatedAt: null }, 'DOĞRULANDI')
+            : unavailable({ id: 'hz-ceh-phys', label: 'Fiziksel doğrulama', source: SRC_CEH,
+                note: 'Aktif rota bir NİYETTİR; aracın o yolda olduğunu KANITLAMAZ. Yol-ağı '
+                  + 'eşleşmesi üretimde yoktur (F1/B2).', updatedAt: null }, 'doğrulanmadı')),
+      _ceh === null
+        ? unavailable({ id: 'hz-ceh-obj', label: 'Ufuk nesnesi / bütçe', source: SRC_CEH,
+            note: '', updatedAt: null }, 'okunamadı')
+        : observed({ id: 'hz-ceh-obj', label: 'Ufuk nesnesi / bütçe', source: SRC_CEH,
+            note: 'Öznitelik portu (limit · viraj · eğim · denetim) F3 içinde BAĞLANMADI — '
+              + 'boş liste "ileride yok" DEMEK DEĞİLDİR.', updatedAt: null },
+            _ceh.objectCount + ' nesne · ' + Math.round(_ceh.budgetM) + ' m ufuk'),
+      _ceh === null || _ceh.mapAvailable === null
+        ? unavailable({ id: 'hz-ceh-map', label: 'L1 yol ağı', source: SRC_CEH,
+            note: 'ÖLÇÜLMEDİ — "harita yok" DEMEK DEĞİLDİR.', updatedAt: null }, 'ölçülmedi')
+        : derived({ id: 'hz-ceh-map', label: 'L1 yol ağı', source: SRC_CEH,
+            note: '', updatedAt: null }, _ceh.mapAvailable ? 'VAR' : 'YOK'),
+
+      /* ── F4 · graf sakinliği (ana iş parçacığı) ── */
+      _gr === null
+        ? unavailable({ id: 'hz-graph-state', label: 'Graf sakinliği', source: SRC_GRAPH,
+            note: '', updatedAt: null }, 'okunamadı')
+        : (_gr.state === 'AVAILABLE'
+            ? observed({ id: 'hz-graph-state', label: 'Graf sakinliği', source: SRC_GRAPH,
+                note: 'Talep-güdümlü: yalnız navigasyon sürerken çözülür ve bırakılır.',
+                updatedAt: null }, _gr.state + ' · yükleme ' + _gr.loadCount)
+            : unavailable({ id: 'hz-graph-state', label: 'Graf sakinliği', source: SRC_GRAPH,
+                note: 'BOZUK/EKSİK graf ASLA "kullanılabilir" sayılmaz; '
+                  + 'UNINITIALIZED "graf yok" DEMEK DEĞİLDİR. Gerekçe: '
+                  + (_gr.detail ?? 'yok'), updatedAt: null }, _gr.state)),
+      _gr === null || _gr.nodeCount === null || _gr.edgeCount === null
+        ? unavailable({ id: 'hz-graph-size', label: 'Graf boyutu', source: SRC_GRAPH,
+            note: 'Graf çözülmedi — sahte 0 ÜRETİLMEZ.', updatedAt: null }, 'ölçülmedi')
+        : observed({ id: 'hz-graph-size', label: 'Graf boyutu', source: SRC_GRAPH,
+            note: 'Ayrıştırma TEK kanonik okuyucudadır; worker da aynısını kullanır.',
+            updatedAt: null },
+            _gr.nodeCount + ' düğüm · ' + _gr.edgeCount + ' kenar'
+              + (_gr.version === null ? '' : ' · v' + _gr.version)),
+      _gr === null || _gr.parseMs === null
+        ? unavailable({ id: 'hz-graph-parse', label: 'Ayrıştırma süresi', source: SRC_GRAPH,
+            note: 'Ölçülmedi (graf bu oturumda ayrıştırılmadı).', updatedAt: null }, 'ölçülmedi')
+        : derived({ id: 'hz-graph-parse', label: 'Ayrıştırma süresi', source: SRC_GRAPH,
+            note: 'Sıcak yolda DEĞİL: yükleme oturum başında bir kez yapılır.',
+            updatedAt: null }, _gr.parseMs + ' ms'),
+      _gr === null
+        ? unavailable({ id: 'hz-graph-derived', label: 'Türetilmiş yapılar', source: SRC_GRAPH,
+            note: '', updatedAt: null }, 'okunamadı')
+        : observed({ id: 'hz-graph-derived', label: 'Türetilmiş yapılar', source: SRC_GRAPH,
+            note: 'Komşuluk ve yakınlık indeksi TEMBEL kurulur; oturum bitince bırakılır.',
+            updatedAt: null },
+            'komşuluk ' + (_gr.adjacencyBuilt ? 'VAR' : 'yok')
+              + ' · ters ' + (_gr.reverseAdjacencyBuilt ? 'VAR' : 'yok')
+              + ' · indeks ' + (_gr.spatialIndexBuilt ? 'VAR' : 'yok')),
+
+      /* ── F5 · GÖLGE KARŞILAŞTIRMA + CUTOVER KAPISI ─────────────────────
+       * DÜRÜSTLÜK SINIRI: bu satırlar bir HÜKÜM ÜRETMEZ. Gölge katmanı
+       * üretim kararını değiştirmez; burada yalnız legacy ↔ CEH farkının
+       * SAYILARI ve kapının neden kapalı olduğu basılır. */
+      _sh === null
+        ? unavailable({ id: 'hz-shadow-mode', label: 'Gölge koşumu', source: SRC_CEH_SHADOW,
+            note: 'Gölge katmanı okunamadı — "ölçülüyor" İDDİA EDİLMEZ.',
+            updatedAt: null }, 'okunamadı')
+        : observed({ id: 'hz-shadow-mode', label: 'Gölge koşumu', source: SRC_CEH_SHADOW,
+            note: 'Gölge SUNMAZ: bu katmandan sürücüye ses/uyarı çıkmaz — yan '
+              + 'etki sayısı yapısal olarak 0\'dır. Tik sahibi ego/ufuk '
+              + 'köprüsüdür; gölge kendi zamanlayıcısını KURMAZ.',
+            updatedAt: null },
+            (_sh.active ? 'AKTİF' : 'boşta') + ' · tik ' + _sh.ticks
+              + ' · yan etki ' + _sh.sideEffectCount
+              + ' · hata ' + _sh.errorCount),
+      _sh === null
+        ? unavailable({ id: 'hz-shadow-authority', label: 'Üretim otoritesi', source: SRC_CEH_SHADOW,
+            note: '', updatedAt: null }, 'okunamadı')
+        : derived({ id: 'hz-shadow-authority', label: 'Üretim otoritesi', source: SRC_CEH_SHADOW,
+            note: 'F4 saha doğrulaması (kütük #1232–#1243) tamamlanmadan CEH '
+              + 'kaynaklı kararlar üretim-otoriter OLAMAZ. Guardian uyarısı ve '
+              + 'sesli yönlendirme kararı LEGACY sahiplerinde kalır.',
+            updatedAt: null },
+            _sh.cutover.open ? 'CEH (cutover AÇIK)' : 'LEGACY · CEH yalnız GÖLGE'),
+      _sh === null
+        ? unavailable({ id: 'hz-shadow-maneuver', label: 'Gölge · manevra', source: SRC_CEH_SHADOW,
+            note: '', updatedAt: null }, 'okunamadı')
+        : observed({ id: 'hz-shadow-maneuver', label: 'Gölge · manevra', source: SRC_CEH_SHADOW,
+            note: 'Legacy: routeState.distanceToNextTurnMeters (sesli yönlendirmenin '
+              + 'BUGÜN kullandığı sayı). CEH: rota niyetinden üretilen ufuk manevrası. '
+              + 'Fark, yöntemin değil SONUCUN farkıdır.',
+            updatedAt: null },
+            _sh.domains.MANEUVER.samples + ' örnek · uyum '
+              + _sh.domains.MANEUVER.agree + ' · fark ' + _sh.domains.MANEUVER.divergences
+              + ' · maxΔ ' + (_sh.domains.MANEUVER.maxAbsDeltaM === null
+                ? 'ölçülmedi' : Math.round(_sh.domains.MANEUVER.maxAbsDeltaM) + ' m')),
+      _sh === null
+        ? unavailable({ id: 'hz-shadow-enforce', label: 'Gölge · denetim noktası', source: SRC_CEH_SHADOW,
+            note: '', updatedAt: null }, 'okunamadı')
+        : observed({ id: 'hz-shadow-enforce', label: 'Gölge · denetim noktası', source: SRC_CEH_SHADOW,
+            note: 'Legacy kuş uçuşu + yön konisiyle ölçer, CEH yol-boyu ister — '
+              + 'yöntem farkı korunur. "Legacy var / CEH ölçmedi" bir KUSUR değil, '
+              + 'öznitelik portunun bağlanmamış olmasının ÖLÇÜMÜDÜR.',
+            updatedAt: null },
+            _sh.domains.ENFORCEMENT.samples + ' örnek · yalnız legacy '
+              + _sh.domains.ENFORCEMENT.legacyOnly + ' · yalnız CEH '
+              + _sh.domains.ENFORCEMENT.cehOnly + ' · ortak yok '
+              + _sh.domains.ENFORCEMENT.bothAbsent),
+      _sh === null
+        ? unavailable({ id: 'hz-shadow-attr', label: 'Gölge · limit/viraj/eğim', source: SRC_CEH_SHADOW,
+            note: '', updatedAt: null }, 'okunamadı')
+        : derived({ id: 'hz-shadow-attr', label: 'Gölge · limit/viraj/eğim', source: SRC_CEH_SHADOW,
+            note: 'Üretimde "İLERİDE limit/viraj/eğim var mı" sorusunu cevaplayan '
+              + 'otorite YOKTUR (speedLimitService BULUNULAN yolu bilir). Bu yüzden '
+              + 'karşılaştırma KARŞILAŞTIRILAMAZ sayılır ve oranın paydasına GİRMEZ '
+              + '— hiç sormayarak %100 uyum kazanmak YASAK.',
+            updatedAt: null },
+            'karşılaştırılamaz ' + (_sh.domains.SPEED_LIMIT.notComparable
+              + _sh.domains.CURVE.notComparable + _sh.domains.ROAD_PROFILE.notComparable)
+              + ' · öznitelik portu ' + (_sh.attributePortsBound ? 'BAĞLI' : 'bağlı değil')),
+      _sh === null || _sh.divergenceRatio === null
+        ? unavailable({ id: 'hz-shadow-ratio', label: 'Gölge · fark oranı', source: SRC_CEH_SHADOW,
+            note: 'Karşılaştırılabilir örnek YOK → oran hesaplanamaz. "%0 sapma" '
+              + 'İDDİA EDİLMEZ (hiç ölçmeyerek uyum kazanmak yalandır).',
+            updatedAt: null }, 'ölçülmedi')
+        : derived({ id: 'hz-shadow-ratio', label: 'Gölge · fark oranı', source: SRC_CEH_SHADOW,
+            note: 'Pay = gerçek fark (mesafe/varlık/tek taraflı). Payda = '
+              + 'karşılaştırılabilir örnek. Belirsizlik ve ortak bilgisizlik '
+              + 'PAYDAYA GİRMEZ.', updatedAt: null },
+            (_sh.divergenceRatio * 100).toFixed(2) + ' % · '
+              + _sh.total.divergences + '/' + _sh.total.comparable),
+      _sh === null || _sh.guardianShadow === null
+        ? unavailable({ id: 'hz-shadow-guardian', label: 'Gölge · Guardian hükmü', source: SRC_CEH_SHADOW,
+            note: 'Gölge hüküm henüz üretilmedi — Guardian üretim yolu bundan '
+              + 'ETKİLENMEZ (bu satır yalnız gözlemdir).', updatedAt: null }, 'üretilmedi')
+        : derived({ id: 'hz-shadow-guardian', label: 'Gölge · Guardian hükmü', source: SRC_CEH_SHADOW,
+            note: 'Guardian gerçek uyarı kararı LEGACY zincirinden gelir '
+              + '(providers → adapters → rules → engine). Bu satır yalnız '
+              + '"kapı açık olsaydı ne olurdu" sorusunun cevabıdır.',
+            updatedAt: null },
+            (_sh.guardianShadow.wouldEmit ? 'UYARIRDI' : 'susardı')
+              + ' · engel ' + (_sh.guardianShadow.blockedBy ?? 'yok')
+              + ' · toplam ' + _sh.guardianWouldEmitCount),
+      _sh === null
+        ? unavailable({ id: 'hz-shadow-suppress', label: 'Gölge · bastırma akıbeti', source: SRC_CEH_SHADOW,
+            note: '', updatedAt: null }, 'okunamadı')
+        : observed({ id: 'hz-shadow-suppress', label: 'Gölge · bastırma akıbeti', source: SRC_CEH_SHADOW,
+            note: 'Geçerlilik ufku (validUntil) OLMAYAN bir olay ERTELENEMEZ — '
+              + 'kanıtsız erteleme, geçmiş bir uyarıyı geleceğe taşımaktır. '
+              + '"Sunuldu" sayısı gölgede yapısal olarak 0 kalır.',
+            updatedAt: null },
+            'değerlendirme ' + _sh.suppression.evaluated
+              + ' · ertelenebilir ' + _sh.suppression.deferred
+              + ' · geçerlilik yok ' + _sh.suppression.droppedNoValidity
+              + ' · sunuldu ' + _sh.suppression.delivered),
+      _sh === null
+        ? unavailable({ id: 'hz-shadow-gate', label: 'Cutover kapısı', source: SRC_CEH_SHADOW,
+            note: '', updatedAt: null }, 'okunamadı')
+        : derived({ id: 'hz-shadow-gate', label: 'Cutover kapısı', source: SRC_CEH_SHADOW,
+            note: 'Varsayılan KAPALI. Her şart üç değerlidir: kanıtlandı / düştü / '
+              + 'ÖLÇÜLMEDİ — ölçülmemiş şart kapıyı AÇMAZ. Saha hükmünü üreten bir '
+              + 'çalışma-zamanı kaynağı yoktur; kütük mutlak otoritedir.',
+            updatedAt: null },
+            _sh.cutover.state + ' · eksik ' + _sh.cutover.unmet.length + '/'
+              + (_sh.cutover.unmet.length + _sh.cutover.met.length)
+              + ' · ölçülmedi ' + _sh.cutover.unmeasuredCount
+              + (_sh.cutover.unmet.length === 0 ? ''
+                : ' · ' + _sh.cutover.unmet.map((c) => CEH_CUTOVER_CONDITION_LABEL[c]).join(', '))),
+
+      /* ── F6 · SINIRLI KORİDOR + KENAR-TABANLI DENETİM NOKTASI ────────────
+       * Üretim kararı ÜRETMEZ — yalnız F6 zincirinin (koridor genişleme →
+       * eşleştirme → CEH ahead nesnesi) gerçekten çalıştığının kanıtı. */
+      _ep === null
+        ? unavailable({ id: 'hz-corridor', label: 'Koridor genişlemesi (son)', source: SRC_ENFORCEMENT_PORT,
+            note: '', updatedAt: null }, 'okunamadı')
+        : (_ep.lastCorridorOutcome === null
+            ? unavailable({ id: 'hz-corridor', label: 'Koridor genişlemesi (son)', source: SRC_ENFORCEMENT_PORT,
+                note: 'Port hiç çağrılmadı (fiziksel eşleşme yok) — ölçülmedi.', updatedAt: null }, 'ölçülmedi')
+            : derived({ id: 'hz-corridor', label: 'Koridor genişlemesi (son)', source: SRC_ENFORCEMENT_PORT,
+                note: 'BUDGET_EXHAUSTED/COMPLETE bir KESME değildir; EDGE/NODE/DEPTH_LIMIT '
+                  + 'bir tavanın dolduğunu, "ileride yok" iddiası KURULAMADIĞINI gösterir.',
+                updatedAt: null },
+                _ep.lastCorridorOutcome + ' · ' + _ep.lastCorridorEdgeCount + ' kenar · '
+                  + _ep.lastCorridorNodeExpansions + ' düğüm genişletme · dal '
+                  + _ep.lastCorridorBranchCount)),
+      _ep === null
+        ? unavailable({ id: 'hz-enforce-match', label: 'Denetim noktası eşleştirme', source: SRC_ENFORCEMENT_PORT,
+            note: '', updatedAt: null }, 'okunamadı')
+        : derived({ id: 'hz-enforce-match', label: 'Denetim noktası eşleştirme', source: SRC_ENFORCEMENT_PORT,
+            note: 'AMBIGUOUS_EDGE yanlış carriageway korumasıdır — "eşleşmedi" DEĞİL '
+              + '"iki yol ayırt edilemedi, susuldu" demektir.',
+            updatedAt: null },
+            'bağlı ' + _ep.cumulativeMatch.matchedToEdge + ' · belirsiz ' + _ep.cumulativeMatch.ambiguousEdge
+              + ' · eşleşmedi ' + _ep.cumulativeMatch.noEdgeMatch + ' · kapsam dışı '
+              + _ep.cumulativeMatch.outsideCoverage + ' · ölçülmedi ' + _ep.cumulativeMatch.notMeasured),
+      _ep === null || _ep.lastDurationMs === null
+        ? unavailable({ id: 'hz-enforce-cost', label: 'Port sıcak-yol maliyeti (son)', source: SRC_ENFORCEMENT_PORT,
+            note: 'Gerçek cihazda ÖLÇÜLMEDİ — yalnız host/kod ölçümü rapor edilmiştir.',
+            updatedAt: null }, 'ölçülmedi')
+        : observed({ id: 'hz-enforce-cost', label: 'Port sıcak-yol maliyeti (son)', source: SRC_ENFORCEMENT_PORT,
+            note: 'Gerçek cihazda ÖLÇÜLMEDİ — yalnız host/kod ölçümü rapor edilmiştir.',
+            updatedAt: null }, Math.round(_ep.lastDurationMs * 100) / 100 + ' ms · çağrı ' + _ep.calls),
+    ],
+  });
+
 
   return cards;
 }

@@ -62,6 +62,19 @@ vi.mock('../platform/nativePlugin', () => ({
   },
 }));
 vi.mock('../platform/commandParser', () => ({ parseCommandFull: () => M.parseResult, buildCommandGrammar: () => ['[unk]'] }));
+/* MUSIC F14 · "1c0" yerel müzik bypass'ı `result.command === null` iken F9'un
+   resolver'ını dener — bu test sahte zamanlayıcı (`vi.useFakeTimers`)
+   kullanır ve gerçek dinamik import zinciri o kurguyla GÜVENİLİR biçimde
+   etkileşmez (müzikle ilgisiz sohbet turlarında da tetiklenir). Mock, F9
+   modülünü BASİTLEŞTİRİR — davranış assersiyonu ZAYIFLATILMAZ, yalnız test
+   ortamı belirlenir. */
+vi.mock('../platform/media/intent/musicIntentResolver', () => ({ resolveMusicIntent: () => null }));
+vi.mock('../platform/media/intent/musicIntent', () => ({
+  QUEUE_KINDS: [], CONTEXTUAL_KINDS: [], COLLECTION_KINDS: [],
+}));
+vi.mock('../platform/media/intent/musicVoiceWiringTelemetry', () => ({
+  noteMusicVoiceBypassAttempt: () => {}, noteMusicVoiceBypassHit: () => {}, noteMusicVoiceBypassMiss: () => {},
+}));
 vi.mock('../platform/offlineConversationEngine', () => ({
   tryOfflineConversation: () => ({ handled: false, response: '' }),
 }));
@@ -79,7 +92,9 @@ vi.mock('../platform/ttsService', () => ({
   isProtectedSpeechInFlight: () => M.ttsProtected,
   isMicCaptureOpenDuringSpeech: () => false,
 }));
-vi.mock('../platform/audioService', () => ({ duckMedia: vi.fn(), unduckMedia: vi.fn() }));
+vi.mock('../platform/media/authority/duckRequest', () => ({
+  requestDuck: () => ({ reason: 'MAVI', release: (): void => {} }),
+}));
 vi.mock('../platform/mediaService', () => ({
   getMediaState: () => ({ playing: false }),
   play: vi.fn(),

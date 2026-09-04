@@ -60,6 +60,10 @@ public final class CarosPlaybackBridge {
     private static final int  MAX_QUEUE      = CarosPlaybackService.MAX_QUEUE_ITEMS;
     /** Aynı commandId'nin tekrar yürütülmesini engelleyen pencere. */
     private static final int  RECENT_COMMAND_MEMORY = 64;
+    /** F6 · kabul edilen en fazla EQ bandı (cihaz daha azını bildirebilir). */
+    private static final int  MAX_DSP_BANDS  = 32;
+    /** F6 · tek bant için kabul edilen mutlak sınır (mB = dB×100). */
+    private static final int  MAX_BAND_MILLIBEL = 2000;
 
     private static volatile CarosPlaybackBridge instance;
 
@@ -199,12 +203,155 @@ public final class CarosPlaybackBridge {
                 // Bayat token sesi yükseltemez; bu bir HATA değil, "etkisiz" durumudur.
                 return new CommandResult(ok, ok ? "" : "stale_duck_token");
             }
+            case "setTransitionPolicy": {
+                /* MUSIC F20 — politika JS tarafındadır; burası yalnız uygular.
+                   Süreler native tarafta da SINIRLANIR (savunmalı kapı). */
+                boolean enabled = p.optBoolean("fadeEnabled", false);
+                int outMs = p.optInt("fadeOutMs", 0);
+                int inMs  = p.optInt("fadeInMs", 0);
+                if (outMs < 0 || inMs < 0) return new CommandResult(false, "invalid_transition");
+                err = svc.setTransitionPolicy(enabled, outMs, inMs);
+                break;
+            }
             default:
                 return new CommandResult(false, "unknown_command");
         }
 
         emitState();
         return new CommandResult(err.isEmpty(), err);
+    }
+
+    /* ── MUSIC F6 · Ses deneyimi (DSP) ────────────────────────────────────
+     *
+     * TEK tüketici JS tarafındaki `audioExperienceAuthority`'dir. Bu üç metot
+     * OYNATMA KOMUTU GÖNDERMEZ, kullanıcı sesini DEĞİŞTİRMEZ ve focus'a
+     * dokunmaz — yalnız ses rengini (EQ · loudness · denge · güvenlik
+     * kazancı) yönetir.
+     */
+
+    /** Cihazın GERÇEK DSP yüzeyi. Servis yoksa `probed:false` döner. */
+    public JSObject audioDspCapabilities() {
+        final JSObject[] out = new JSObject[1];
+        runOnMainSync(() -> {
+            CarosPlaybackService svc = CarosPlaybackService.peek();
+            out[0] = svc == null ? unavailableCapabilities()
+                                 : bundleToJson(svc.getAudioEffects().capabilities());
+        });
+        return out[0] != null ? out[0] : unavailableCapabilities();
+    }
+
+    /** Efekt katmanının bounded gözlemi. */
+    public JSObject audioDspSnapshot() {
+        final JSObject[] out = new JSObject[1];
+        runOnMainSync(() -> {
+            CarosPlaybackService svc = CarosPlaybackService.peek();
+            out[0] = svc == null ? unavailableDspSnapshot()
+                                 : bundleToJson(svc.getAudioEffects().snapshot());
+        });
+        return out[0] != null ? out[0] : unavailableDspSnapshot();
+    }
+
+    /**
+     * Ayarı uygular. Doğrulama BURADA biter: bant sayısı sınırlı, kazançlar
+     * sınırlı, kuşak zorunlu. Sonuç HER ZAMAN gözlenen durumu taşır —
+     * "gönderdim, oldu saydım" yoktur.
+     */
+    public JSObject audioDspApply(JSObject p) {
+        final JSObject[] out = new JSObject[1];
+        runOnMainSync(() -> out[0] = audioDspApplyOnMain(p == null ? new JSObject() : p));
+        if (out[0] != null) return out[0];
+        JSObject timeout = new JSObject();
+        timeout.put("applied", false);
+        timeout.put("failureCode", "command_timeout");
+        return timeout;
+    }
+
+    private JSObject audioDspApplyOnMain(JSObject p) {
+        JSObject res = new JSObject();
+        CarosPlaybackService svc = CarosPlaybackService.peek();
+        if (svc == null) {
+            res.put("applied", false);
+            res.put("failureCode", "authority_unavailable");
+            return res;
+        }
+
+        long generation = optLong(p, "generation");
+        if (generation < 0) {
+            res.put("applied", false);
+            res.put("failureCode", "invalid_generation");
+            return res;
+        }
+
+        boolean enabled = p.optBoolean("enabled", true);
+
+        int[] bands = new int[0];
+        try {
+            org.json.JSONArray arr = p.getJSONArray("bandsMilliBel");
+            if (arr != null) {
+                int n = Math.min(arr.length(), MAX_DSP_BANDS);
+                bands = new int[n];
+                for (int i = 0; i < n; i++) {
+                    bands[i] = clampInt(arr.optInt(i, 0), -MAX_BAND_MILLIBEL, MAX_BAND_MILLIBEL);
+                }
+            }
+        } catch (Exception ignored) { /* bozuk dizi → EQ yazımı yapılmaz */ }
+
+        int loudness = clampInt((int) Math.round(p.optDouble("loudnessMilliBel", 0)),
+            0, CarosAudioEffects.MAX_LOUDNESS_MILLIBEL);
+
+        double rawPreamp = p.optDouble("preampLinear", 1.0);
+        double rawBalance = p.optDouble("balance", 0.0);
+        if (Double.isNaN(rawPreamp) || Double.isNaN(rawBalance)) {
+            res.put("applied", false);
+            res.put("failureCode", "invalid_gain");
+            return res;
+        }
+
+        String err = svc.getAudioEffects().apply(
+            generation, enabled, bands, loudness, (float) rawPreamp, (float) rawBalance);
+
+        res.put("applied", err.isEmpty());
+        res.put("failureCode", err);
+        res.put("snapshot", bundleToJson(svc.getAudioEffects().snapshot()));
+        return res;
+    }
+
+    private static JSObject unavailableCapabilities() {
+        JSObject o = new JSObject();
+        o.put("probed", false);
+        o.put("unavailableReason", "authority_unavailable");
+        o.put("generation", 0);
+        return o;
+    }
+
+    private static JSObject unavailableDspSnapshot() {
+        JSObject o = new JSObject();
+        o.put("available", false);
+        o.put("bypass", true);
+        o.put("bypassReason", "authority_unavailable");
+        return o;
+    }
+
+    /** Bounded Bundle → JSObject. Yalnız bilinen ilkel tipler taşınır. */
+    private static JSObject bundleToJson(Bundle b) {
+        JSObject o = new JSObject();
+        if (b == null) return o;
+        for (String key : b.keySet()) {
+            Object v = b.get(key);
+            if (v instanceof Boolean)      o.put(key, (Boolean) v);
+            else if (v instanceof Integer) o.put(key, (Integer) v);
+            else if (v instanceof Long)    o.put(key, (Long) v);
+            else if (v instanceof Float)   o.put(key, ((Float) v).doubleValue());
+            else if (v instanceof Double)  o.put(key, (Double) v);
+            else if (v instanceof String)  o.put(key, (String) v);
+            else if (v instanceof int[]) {
+                JSArray arr = new JSArray();
+                for (int x : (int[]) v) arr.put(x);
+                o.put(key, arr);
+            }
+            // Bilinmeyen tip TAŞINMAZ — uydurma alan üretilmez.
+        }
+        return o;
     }
 
     /* ── Snapshot ─────────────────────────────────────────────────────────── */
@@ -238,6 +385,13 @@ public final class CarosPlaybackBridge {
         o.put("queueRevision",      d.getLong("queueRevision", 0L));
         o.put("queueLength",        d.getInt("queueLength", 0));
         o.put("currentIndex",       d.getInt("currentIndex", -1));
+        /* F3.2 — timeline KANITI. Player yokken alan HİÇ konmaz: "kuyruk boş" ile
+           "timeline bildirilmedi" ayrı teşhislerdir ve boş dizi ikincisini
+           birincisi gibi göstererek uydurma bir gözlem üretirdi. */
+        String[] entryIds = d.getStringArray("queueEntryIds");
+        if (entryIds != null) {
+            o.put("queueEntryIds", new org.json.JSONArray(java.util.Arrays.asList(entryIds)));
+        }
         o.put("positionMs",         d.getLong("positionMs", 0L));
         o.put("durationMs",         d.getLong("durationMs", 0L));
         o.put("buffering",          d.getBoolean("buffering", false));
@@ -245,6 +399,16 @@ public final class CarosPlaybackBridge {
         o.put("playWhenReady",      d.getBoolean("playWhenReady", false));
         o.put("renderingVerified",  d.getBoolean("renderingVerified", false));
         o.put("recoveryCount",      d.getInt("recoveryCount", 0));
+        /* MUSIC F20 — geçiş kanıtı. Servis bu alanları ZATEN üretiyordu ama bu
+           allowlist'te yoktu → JS'e HİÇ ulaşmıyordu ve LAB satırı kalıcı
+           olarak KAYNAK YOK görünüyordu (telefon ön doğrulamasında ölçüldü).
+           Bunlar playback TRUTH DEĞİLDİR: yalnız gözlem alanlarıdır. */
+        o.put("fadeEnabled",        d.getBoolean("fadeEnabled", false));
+        o.put("fadeOutMs",          d.getInt("fadeOutMs", 0));
+        o.put("fadeInMs",           d.getInt("fadeInMs", 0));
+        o.put("transitionGain",     d.getFloat("transitionGain", 1f));
+        o.put("transitionActive",   d.getBoolean("transitionActive", false));
+        o.put("gaplessSupported",   d.getBoolean("gaplessSupported", false));
         o.put("shuffle",            d.getBoolean("shuffle", false));
         o.put("repeat",             d.getString("repeat", "off"));
 

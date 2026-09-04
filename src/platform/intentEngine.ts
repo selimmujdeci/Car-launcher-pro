@@ -397,7 +397,35 @@ export function toIntent(cmd: ParsedCommand, ctx: IntentContext): AppIntent {
  * `not_handled` döner → çağıran eski davranışı BİREBİR sürdürür (geriye uyumluluk).
  * "Intent seçildi ≠ eylem başladı ≠ eylem başarıyla tamamlandı."
  */
+/* MUSIC F14 · COMPATIBILITY ADAPTER (silinmedi — kanıtlı 0 çağıran, bkz. altta).
+ * ÖLÇÜLEN GERÇEK: bu tipler `isVehicleEffectiveIntent` DIŞINDAYDI ve buraya
+ * (portlar: `playMedia`/`pauseMedia`/`nextTrack`/`prevTrack`/`playMusicSearch`/
+ * `playMusicQuery`/`addMusicFavorite`) geliyordu — F9'un `dispatchMusicIntent`
+ * inden GEÇMEDEN doğrudan `carosMediaLayer`/eski Zustand favori deposunu
+ * çağırıyordu (`ADD_MUSIC_FAVORITE` → `useStore.addMusicFavorite`, F13'ün TEK
+ * otoritesinden AYRI ikinci bir favori kaydı). AI/beyin yolu (`executeAIResult`
+ * → `dispatchIntent`, HER ZAMAN) bu tipleri ZATEN F9'a bağlı dallardan
+ * geçiriyordu — aynı komut girişe göre FARKLI davranıyordu.
+ *
+ * F14 kapanışı: `useVoiceCommandHandler`daki TEK çağıran artık müzik
+ * tiplerini de `executeIntent`e (→ `dispatchIntent` → F9) yönlendiriyor;
+ * bu switch'in müzik dalları STRÜKTÜREL OLARAK ulaşılamaz hâle geldi
+ * (`routeIntent`in tüm repo'daki TEK çağıranı budur — ölçüldü, 0 başka
+ * çağıran). Büyük çok-dosyalı bir silme riskinden kaçınmak için dallar
+ * SİLİNMEDİ — yalnız `noteLegacyRouteIntentMusicCall()` ile ANOMALİ
+ * SAYACINA bağlandı: bu sayaç LAB'da HER ZAMAN 0 olmalıdır; >0 ise "aynı
+ * komut iki kez yürütülemez" güvencesinde bir boşluk var demektir. */
+const _ROUTE_INTENT_MUSIC_TYPES = new Set<AppIntent['type']>([
+  'OPEN_MUSIC', 'PLAY_MUSIC_SEARCH', 'PLAY_MUSIC_QUERY', 'ADD_MUSIC_FAVORITE',
+  'PLAY_MEDIA', 'PAUSE_MEDIA', 'MEDIA_NEXT', 'MEDIA_PREV',
+]);
+
 export async function routeIntent(intent: AppIntent, ctx: RouterContext): Promise<IntentExecutionResult> {
+  if (_ROUTE_INTENT_MUSIC_TYPES.has(intent.type)) {
+    void import('./media/intent/musicVoiceWiringTelemetry')
+      .then((m) => m.noteLegacyRouteIntentMusicCall())
+      .catch(() => { /* fail-soft: telemetri akışı ETKİLEMEZ */ });
+  }
   switch (intent.type) {
     case 'OPEN_MUSIC': {
       // Müzik açma: uygulamayı ön plana almadan arka planda çalmayı başlat,

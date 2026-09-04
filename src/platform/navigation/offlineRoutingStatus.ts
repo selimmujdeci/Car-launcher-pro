@@ -1,10 +1,17 @@
 /**
  * offlineRoutingStatus.ts — ÇEVRİMDIŞI ROTA YETENEĞİNİN DÜRÜST DURUMU (SAF).
  *
- * ── ÇÖZÜLEN SORUN ──────────────────────────────────────────────────────
+ * ⚠️ **DÜZELTME (NAV v3 · F1 denetimi, 2026-09-03):** aşağıdaki özgün notun
+ * *"artefakt depoda YOKTUR (`public/maps/` dizini bile yok)"* iddiası ARTIK
+ * GEÇERLİ DEĞİLDİR. `public/maps/routing-graph.bin` **2026-08-22'de eklendi**
+ * ve ölçüldü: `RTG2` · 238 252 düğüm · 295 346 kenar · 7 651 542 bayt.
+ * Modülün davranışı doğru ve değişmedi; yalnız bu belge notu bayattı
+ * (F1 açık borç B7 — burada kapatıldı).
+ *
+ * ── ÇÖZÜLEN SORUN (özgün kayıt) ────────────────────────────────────────
  * `offlineRoutingService` `/maps/routing-graph.bin` bekler. Bu artefakt
- * depoda YOKTUR (`public/maps/` dizini bile yok) ve üretim hattı bu görevde
- * mevcut değildir. Davranış zaten fail-closed'dı — worker 404 alınca `null`
+ * o tarihte depoda YOKTU ve üretim hattı o görevde mevcut değildi.
+ * Davranış zaten fail-closed'dı — worker 404 alınca `null`
  * döner ve rota zinciri DÜRÜSTÇE düz-hat katmanına düşer
  * (`serverUsed: 'straight-line'`, kullanıcıya "düz hat navigasyon" denir).
  *
@@ -41,8 +48,21 @@ export interface OfflineRoutingStatus {
   readonly state: OfflineGraphState;
   /** Kaç kez denendi — sessiz tekrar israfını görünür kılar. */
   readonly attemptCount: number;
-  /** Son deneme anı (epoch ms); `null` = hiç denenmedi. */
+  /**
+   * Son deneme anı — **DUVAR SAATİ** (epoch ms); `null` = hiç denenmedi.
+   *
+   * ⚠️ **TAZELİK HESABINDA KULLANILAMAZ** (NAV v3 · F0 ADR-N09): duvar saati
+   * akü kesintisi ve NTP düzeltmesiyle GERİYE gider. Bu alan yalnız
+   * gösterim/kayıt içindir. Yaş/bayatlık için `lastAttemptAtMonoMs` kullanın.
+   */
   readonly lastAttemptAt: number | null;
+  /**
+   * Son deneme anı — **MONOTONİK** (`performance.now` alanı); `null` = hiç
+   * denenmedi ya da çağıran monotonik damga vermedi.
+   *
+   * NAV v3 · F2.0: navigasyon tazelik/yaş hesapları YALNIZ bunu kullanır.
+   */
+  readonly lastAttemptAtMonoMs: number | null;
   /**
    * Çevrimdışı rota GERÇEKTEN kullanılabilir mi.
    * `AVAILABLE` dışındaki her durumda `false` (fail-closed).
@@ -54,18 +74,34 @@ const _UNKNOWN: OfflineRoutingStatus = Object.freeze({
   state: 'UNKNOWN',
   attemptCount: 0,
   lastAttemptAt: null,
+  lastAttemptAtMonoMs: null,
   usable: false,
 });
 
 let _state: OfflineGraphState = 'UNKNOWN';
 let _attempts = 0;
 let _lastAt: number | null = null;
+let _lastAtMono: number | null = null;
 
-/** Bir deneme sonucunu kaydeder. `nowMs` dışarıdan gelir (saat okumaz). */
-export function recordOfflineGraphOutcome(state: OfflineGraphState, nowMs: number): void {
+/**
+ * Bir deneme sonucunu kaydeder. Zaman DIŞARIDAN gelir (bu modül saat OKUMAZ).
+ *
+ * @param nowMs      duvar saati (epoch ms) — gösterim/kayıt için.
+ * @param nowMonoMs  monotonik an (`performance.now`) — **tazelik otoritesi**.
+ *                   Verilmezse `null` kalır ve bayatlık HESAPLANMAZ
+ *                   (uydurma yaş yerine yokluk beyanı — fail-closed).
+ */
+export function recordOfflineGraphOutcome(
+  state: OfflineGraphState,
+  nowMs: number,
+  nowMonoMs?: number | null,
+): void {
   _state = state;
   _attempts += 1;
   _lastAt = nowMs;
+  _lastAtMono = (typeof nowMonoMs === 'number' && Number.isFinite(nowMonoMs) && nowMonoMs >= 0)
+    ? nowMonoMs
+    : null;
 }
 
 /** Güncel durum — salt-okunur kopya. */
@@ -75,6 +111,7 @@ export function getOfflineRoutingStatus(): OfflineRoutingStatus {
     state: _state,
     attemptCount: _attempts,
     lastAttemptAt: _lastAt,
+    lastAttemptAtMonoMs: _lastAtMono,
     usable: _state === 'AVAILABLE',
   });
 }
@@ -129,4 +166,5 @@ export function _resetOfflineRoutingStatusForTest(): void {
   _state = 'UNKNOWN';
   _attempts = 0;
   _lastAt = null;
+  _lastAtMono = null;
 }

@@ -20,8 +20,11 @@ import {
   buildMediaAuthorityCards, deriveMediaAuthorityVerdict, countByMediaAuthorityClass,
 } from '../platform/devtools/mediaAuthorityModel';
 import type { MediaAuthorityRawSnapshot } from '../platform/devtools/mediaAuthoritySources';
+import { getF3TelemetrySnapshot } from '../platform/media/session/sessionTelemetry';
+import { getSearchTelemetrySnapshot } from '../platform/media/search/searchTelemetry';
 import { readMediaAuthoritySnapshot } from '../platform/devtools/mediaAuthoritySources';
 import { DEVICE_SCENARIOS } from '../platform/media/authority/deviceValidationModel';
+import { UNPROBED_CAPABILITIES } from '../platform/media/audio/audioExperienceModel';
 
 /* ── Test fixture: otorite YOK (web / servis başlamadı) ──────────────────── */
 
@@ -104,6 +107,323 @@ function snapshot(over: Partial<MediaAuthorityRawSnapshot> = {}): MediaAuthority
     validationActiveState: 'idle',
     validationActiveScenario: '',
     validationResults: {},
+    /* F2 — yerel kütüphane ve kapak gözlemi. Varsayılan: HİÇ tarama olmamış
+       bir cihaz; sahte 'hazır' üretilmez. */
+    libraryAvailability: 'UNAVAILABLE',
+    libraryRevision: 0,
+    libraryTrackCount: 0,
+    libraryStaleCount: 0,
+    libraryAlbumCount: 0,
+    libraryArtistCount: 0,
+    libraryFolderCount: 0,
+    libraryVolumes: [],
+    refreshPersistedSchema: null,
+    refreshPermissionPersisted: null,
+    refreshLastSuccessAtMs: null,
+    refreshDecision: '',
+    refreshStatus: '',
+    refreshReason: '',
+    refreshPermissionTransition: '',
+    refreshSupportsGeneration: null,
+    refreshTrackQueries: null,
+    refreshTracksReceived: null,
+    refreshStaleVolumes: [],
+    refreshPrunedVolumes: [],
+    refreshStatePersisted: null,
+    refreshFailureCode: '',
+    refreshInFlight: false,
+    refreshCounters: {
+      rounds: 0, applied: 0, skipped: 0, failed: 0, unavailable: 0, trackQueries: 0, escalations: 0,
+    },
+    indexP50Ms: null,
+    indexP95Ms: null,
+    searchP50Ms: null,
+    searchP95Ms: null,
+    artworkMemoryEntries: 0,
+    artworkMemoryBytes: 0,
+    artworkMemoryMaxBytes: 2 * 1024 * 1024,
+    artworkInFlight: 0,
+    artworkNativeFileTier: true,
+    artworkDiskHydrated: false,
+    artworkDiskSchema: 1,
+    artworkDiskEntries: 0,
+    artworkDiskBytes: 0,
+    artworkDiskMaxBytes: 24 * 1024 * 1024,
+    /* F3.2 — dinleme bağlamı kanıtı. Varsayılan: HİÇ gözlem yok (UNAVAILABLE);
+       böylece "sahte sağlıklı" bir taban ile test edilmediğimiz kilitlenir. */
+    f3: getF3TelemetrySnapshot(),
+    observedAgeMs: null,
+    observedMaxAgeMs: 15_000,
+    observedLive: false,
+    listeningHasSession: false,
+    listeningIntent: '',
+    listeningOriginSource: null,
+    listeningCurrentSource: null,
+    listeningRestored: null,
+    listeningContinuity: 'UNKNOWN',
+    listeningAlignment: 'UNKNOWN',
+    listeningAlignmentReason: '',
+    listeningDesiredApplied: null,
+    listeningItemAgreement: 'UNKNOWN',
+    listeningQueueIndex: null,
+    listeningQueueLength: null,
+    /* F5 — birleşik arama kanıtı. Varsayılan: hiç arama yapılmamış cihaz. */
+    search: getSearchTelemetrySnapshot(),
+    searchIndexRevision: null,
+    searchIndexRows: null,
+    /* F6 — ses deneyimi / DSP. Varsayılan: HİÇ ölçülmemiş cihaz;
+       sahte "DSP hazır" ÜRETİLMEZ. */
+    dspCaps: UNPROBED_CAPABILITIES,
+    dspConfig: { enabled: true, presetId: 'flat', bandGainsDb: [], loudnessDb: 0, balance: 0 },
+    dspPreampDb: 0,
+    dspChannelGains: { left: 1, right: 1 },
+    dspNative: null,
+    dspTelemetry: {
+      probeCount: 0, probeFailures: 0, applyRequested: 0, applyCoalesced: 0,
+      applySent: 0, applyAccepted: 0, applyRejected: 0, applyErrors: 0,
+      staleRejections: 0, revalidations: 0, persistWrites: 0, persistRejected: 0,
+      bypassObserved: 0, applyLatencySumMs: 0, applyLatencyMaxMs: 0,
+      applyLatencyCount: 0, probeLatencyLastMs: 0, lastFailureCode: '',
+      applyLatencyAvgMs: null, capsGeneration: 0, started: false,
+    },
+    /* MUSIC F8 · sürüş-farkında zekâ. Varsayılan fixture KANITSIZ dünyadır:
+       bağlam UNKNOWN, kanıt yok, karar yok — sahte "hazır" üretilmez. */
+    f8Started: false,
+    f8Bucket: 'UNKNOWN',
+    f8Motion: 'UNKNOWN',
+    f8Daypart: 'UNKNOWN',
+    f8Journey: 'UNKNOWN',
+    f8ContextConfidence: 'NONE',
+    f8Evidence: 'YOK',
+    f8Missing: 'vehicle.speed',
+    f8PreferenceEntries: 0,
+    f8PreferenceCap: 48,
+    f8PreferenceKeptTotal: 0,
+    f8BucketBest: 'YOK',
+    f8ExplicitIntentAgeMs: null,
+    f8Telemetry: {
+      counters: {
+        evaluations: 0, hold: 0, suggest: 0, autoResume: 0, applied: 0, applyFailed: 0,
+        explicitOverrides: 0, notedStarted: 0, notedKept: 0, notedAbandoned: 0,
+        droppedUnknownBucket: 0,
+      },
+      samples: 0, decideP50Ms: null, decideP95Ms: null,
+      lastAction: null, lastReason: null, lastSuppressed: [],
+      lastBucket: null, lastDecidedAtMs: null,
+    },
+    /* MUSIC F9 · Mavi müzik niyeti. Varsayılan fixture: hiç niyet çözülmemiş
+       dünya — sahte "hazır/başarılı" üretilmez. */
+    f9Telemetry: {
+      counters: {
+        resolved: 0, unresolved: 0, dispatched: 0, verified: 0, acceptedUnverified: 0,
+        ambiguous: 0, rejected: 0, unavailable: 0, failed: 0, notAttempted: 0,
+        sourceQualified: 0, sourceHeld: 0, contextualRequests: 0, contextualFulfilled: 0,
+        contextualNoEvidence: 0, queueCommands: 0, queueUnsupported: 0,
+        staleDrops: 0, claimMismatch: 0,
+      },
+      resolveSamples: 0, dispatchSamples: 0,
+      resolveP50Ms: null, resolveP95Ms: null, dispatchP50Ms: null, dispatchP95Ms: null,
+      lastKind: null, lastRoute: null, lastStatus: null, lastClaim: null,
+      lastReasonCode: null, lastSourcePreference: null,
+      lastUsedContextEvidence: null, lastAtMs: null,
+    },
+    /* MUSIC F10 · karakter kanıtı. Varsayılan fixture: hiçbir ölçüm YOK —
+       gerçek trait kaynağı bugün bağlı değildir ve sahte kanıt üretilmez. */
+    f10ReferenceProvenance: 'NONE',
+    f10ReferenceConfidence: 'NONE',
+    f10ReferenceEnergy: null,
+    f10CacheSize: 0,
+    f10ReferenceBpm: null,
+    f10SchemaVersion: 2,
+    f10SourceAvailability: 'local:AVAILABLE · youtube:UNSUPPORTED · spotify:UNVERIFIED',
+    f10Telemetry: {
+      counters: {
+        requests: 0, selected: 0, noReference: 0, noEvidence: 0, noCandidate: 0,
+        evidenceProvider: 0, evidenceLibrary: 0, evidenceDuration: 0,
+        evidenceHeuristic: 0, evidenceNone: 0,
+        tentativeClaims: 0, confidentClaims: 0,
+        cacheHits: 0, cacheMisses: 0, claimMismatch: 0,
+      },
+      samples: 0, selectP50Ms: null, selectP95Ms: null,
+      lastDirection: null, lastStatus: null, lastConfidence: null,
+      lastProvenance: null, lastReferenceProvenance: null,
+      lastConsidered: null, lastRejectedNoEvidence: null,
+      lastRejectedWrongDirection: null, lastReasonCode: null, lastAtMs: null,
+    },
+    /* MUSIC F13 · favoriler/koleksiyon. Varsayılan fixture: boş koleksiyon —
+       gerçek favori YOK, sahte "0 favori var" iddiası ÜRETİLMEZ (0 gerçek). */
+    f13SchemaVersion: 1,
+    f13Total: 0, f13Local: 0, f13Provider: 0,
+    f13Telemetry: {
+      counters: {
+        added: 0, removed: 0, toggled: 0, alreadyPresent: 0, alreadyAbsent: 0,
+        rejectedNoIdentity: 0, rejectedCollectionFull: 0, persistWriteFailures: 0,
+        persistLoadRejectedRecords: 0, migrationDrops: 0, unresolvedLocalLookups: 0,
+      },
+      projectionSamples: 0, projectionP50Ms: null, projectionP95Ms: null,
+      lastMutationStatus: null, lastMutationAtMs: null,
+      lastLocalCount: null, lastProviderCount: null,
+    },
+    /* MUSIC F14 · canlı ses → F9 kablolama. Varsayılan fixture: hiç bypass
+       denenmedi — sahte "ses bağlandı" iddiası ÜRETİLMEZ (0 gerçek). */
+    f14Telemetry: {
+      counters: {
+        bypassAttempts: 0, bypassHits: 0, bypassMisses: 0,
+        legacyTypeReroute: 0, narrowSafeBypass: 0, legacyRouteIntentCalls: 0,
+      },
+      lastGateAtMs: null,
+    },
+    /* MUSIC F15 · playlist otoritesi. Varsayılan fixture: boş — gerçek
+       playlist YOK, sahte "0 playlist var" iddiası ÜRETİLMEZ (0 gerçek). */
+    f15SchemaVersion: 1,
+    f15PlaylistTotal: 0, f15ItemTotal: 0,
+    f15Telemetry: {
+      counters: {
+        created: 0, renamed: 0, deleted: 0, itemAdded: 0, itemAlreadyPresent: 0,
+        itemRemoved: 0, itemAlreadyAbsent: 0, reordered: 0,
+        rejectedNoIdentity: 0, rejectedNotFound: 0, rejectedNameEmpty: 0,
+        rejectedPlaylistLimit: 0, rejectedItemLimit: 0,
+        persistWriteFailures: 0, persistLoadRejectedRecords: 0, unresolvedLocalLookups: 0,
+      },
+      projectionSamples: 0, projectionP50Ms: null, projectionP95Ms: null,
+      lastMutationStatus: null, lastMutationAtMs: null,
+      lastPlaylistCount: null, lastItemTotal: null,
+      lastLocalItemCount: null, lastProviderItemCount: null,
+    },
+    /* MUSIC F16 · lyrics otoritesi. Varsayılan fixture: boş — gerçek kanıt
+       YOK, sahte "söz bulundu" iddiası ÜRETİLMEZ (0 gerçek). */
+    f16SchemaVersion: 1,
+    f16CacheSize: 0,
+    f16Telemetry: {
+      counters: {
+        resolvedAvailablePlain: 0, resolvedAvailableSynced: 0, resolvedUnavailable: 0, resolvedUnknown: 0,
+        cacheHits: 0, cacheMisses: 0, cacheStaleDropped: 0, identityMismatchRejected: 0,
+        parseFailures: 0, fakeSyncPrevented: 0, persistWriteFailures: 0, persistLoadRejectedRecords: 0,
+      },
+      syncProjectionSamples: 0, syncProjectionP50Ms: null, syncProjectionP95Ms: null,
+      lastFormat: null, lastSource: null, lastAtMs: null,
+    },
+    /* MUSIC F17 · ses ölçümü. Varsayılan fixture: HİÇ ölçüm yok — kart
+       UNAVAILABLE göstermeli, sahte 0 dBFS/BPM ÜRETİLMEMELİ. */
+    f17SchemaVersion: 1,
+    f17TempoConfidenceMin: 0.35,
+    f17CacheSize: 0,
+    f17Generation: 0,
+    f17Running: false,
+    f17ReferenceMeasured: false,
+    f17ReferenceTempoBpm: null,
+    f17ReferenceTempoConfidence: null,
+    f17ReferenceRmsDbfs: null,
+    f17ReferenceCrestDb: null,
+    f17ReferenceCentroidHz: null,
+    f17ReferenceAnalyzedMs: null,
+    f17Telemetry: {
+      counters: {
+        requested: 0, admitted: 0, deferred: 0, bypassed: 0,
+        measured: 0, failedDecode: 0, failedUnsupported: 0, failedTimeout: 0,
+        failedTooShort: 0, failedSilent: 0, cancelled: 0, rejectedMalformed: 0,
+        tempoAccepted: 0, tempoRejectedWeak: 0,
+        cacheHits: 0, cacheMisses: 0, cacheStaleDropped: 0,
+        reanalysisPrevented: 0, staleResultDropped: 0,
+        nativeUnavailable: 0, nativeErrors: 0,
+      },
+      samples: 0, runP50Ms: null, runP95Ms: null,
+      lastDecision: null, lastReason: null, lastBatchSize: null,
+      lastFailure: null, lastTier: null, lastAtMs: null,
+    },
+    /* MUSIC F18 · kesintisiz akış. Varsayılan fixture: hiç plan üretilmedi —
+       kart UNAVAILABLE göstermeli, sahte "sana özel akış" İDDİA EDİLMEMELİ. */
+    f18MaxLength: 40,
+    f18MaxScan: 400,
+    f18MeasuredClaimMinCount: 4,
+    f18Telemetry: {
+      counters: {
+        requests: 0, planned: 0, noCandidate: 0, emptyLibrary: 0,
+        claimMeasured: 0, claimWeak: 0, claimFallback: 0,
+        appended: 0, started: 0, executionRejected: 0, queueUnsupported: 0,
+        explicitIntentDeferred: 0, recentExcluded: 0, recentReadmitted: 0, artistSpacing: 0,
+      },
+      samples: 0, planP50Ms: null, planP95Ms: null,
+      lastStatus: null, lastClaim: null, lastSeed: null,
+      lastLength: null, lastMeasured: null, lastReasonCode: null, lastAtMs: null,
+    },
+    /* MUSIC F19 · seviye tutarlılığı. Varsayılan fixture: kanıt YOK —
+       çarpan tam 1.0 olmalı ve kart sahte bir kısma GÖSTERMEMELİ. */
+    f19Started: false,
+    f19ReferenceDbfs: -14,
+    f19MaxAttenuationDb: 12,
+    f19MinAdjustmentDb: 1,
+    f19GainTagCacheSize: 0,
+    f19Factor: 1,
+    f19AppliedDb: 0,
+    f19RequestedDb: null,
+    f19Provenance: 'NONE',
+    f19Clamped: false,
+    f19BypassReason: 'NO_EVIDENCE',
+    f19Telemetry: {
+      counters: {
+        evaluated: 0,
+        evidenceReplayGain: 0, evidenceR128: 0, evidenceMeasured: 0, evidenceNone: 0,
+        applied: 0, neutral: 0,
+        bypassNoEvidence: 0, bypassBelowThreshold: 0, bypassBoostUnsupported: 0,
+        clamped: 0, unchangedSkipped: 0, applyFailures: 0,
+      },
+      samples: 0, applyP50Ms: null, applyP95Ms: null,
+      lastProvenance: null, lastFactor: null, lastAppliedDb: null,
+      lastRequestedDb: null, lastBypass: null, lastAtMs: null,
+    },
+    /* MUSIC F20 · parça geçişi. Varsayılan fixture: tercih KAPALI, karar
+       yok — kart sahte bir "crossfade var" izlenimi VERMEMELİ. */
+    f20Started: false,
+    f20FadeEnabled: false,
+    f20PreferredFadeMs: 1200,
+    f20Kind: 'UNKNOWN',
+    f20Reason: 'UNKNOWN',
+    f20FadeOutMs: 0,
+    f20EvidenceBacked: false,
+    f20Capabilities: [
+      { id: 'GAPLESS', state: 'AVAILABLE' },
+      { id: 'BOUNDARY_FADE', state: 'AVAILABLE' },
+      { id: 'TRUE_CROSSFADE', state: 'UNSUPPORTED' },
+      { id: 'BEAT_MATCHED', state: 'UNSUPPORTED' },
+    ],
+    f20NativeGain: null,
+    f20NativeActive: null,
+    f20GaplessSupported: null,
+    f20Telemetry: {
+      counters: {
+        decisions: 0, gapless: 0, fade: 0, none: 0,
+        skippedDisabled: 0, skippedLive: 0, skippedDuck: 0,
+        evidenceBacked: 0,
+        pushAccepted: 0, pushRejected: 0, pushFailed: 0, unchangedSkipped: 0,
+        persistWriteFailures: 0, persistLoadRejected: 0,
+      },
+      lastKind: null, lastReason: null, lastFadeMs: null, lastAtMs: null,
+    },
+    f20PersistFailures: 0,
+    f20PersistRejected: 0,
+    /* MUSIC F21 · süreklilik. Varsayılan fixture: oturum geri yüklenmemiş,
+       kontak ÖLÇÜLEMEMİŞ — kart sahte bir "devam edilebilir" izlenimi
+       VERMEMELİ ve otomatik devam politikası KAPALI görünmeli. */
+    f21SessionRestored: false,
+    f21PlayableEntries: 0,
+    f21UserPaused: false,
+    f21Ignition: 'UNKNOWN',
+    f21Online: false,
+    f21RequiresNetwork: false,
+    f21QueueSource: null,
+    f21AutoResumePolicy: false,
+    f21Telemetry: {
+      counters: {
+        restoreAttempts: 0, restoreSucceeded: 0, restoreRejected: 0,
+        entriesLocal: 0, entriesResolveAtPlay: 0,
+        entriesExpiringDropped: 0, entriesUnknownDropped: 0,
+        autoResumeHold: 0, autoResumeOffer: 0, autoResumeResume: 0,
+        ignitionUnknown: 0, offlineBlocked: 0,
+      },
+      lastDecision: null, lastReason: null, lastIgnition: null,
+      lastOnline: null, lastRestoreRejection: null, lastAtMs: null,
+    },
     ...over,
   };
 }
@@ -207,7 +527,14 @@ describe('LAB KİLİT — bilinmeyen alan UNAVAILABLE, sahte 0 YOK', () => {
     // bağımsız ölçümlerdir ve UNAVAILABLE göstermek YANLIŞ olurdu.
     const cards = buildMediaAuthorityCards(snapshot());
     const nativeBackedCards = ['playback', 'focus', 'volume'];
-    const jsLocalFields = new Set(['duck-reasons-gw', 'vol-eff-gw']);
+    const jsLocalFields = new Set([
+      'duck-reasons-gw', 'vol-eff-gw',
+      /* MUSIC F6.1: duck İSTEK sayaçları JS tarafında sayılır (native'den bağımsız). */
+      'duck-req', 'duck-req-failed',
+      /* MUSIC F7.2: araç hızı ve video kapısı MEDYA otoritesinden BAĞIMSIZDIR —
+         medya servisi kapalıyken de ölçülür (kaynağı VehicleDataLayer). */
+      'video-speed', 'video-gate',
+    ]);
 
     cards
       .filter((c) => nativeBackedCards.includes(c.id))
@@ -238,15 +565,104 @@ describe('LAB KİLİT — bilinmeyen alan UNAVAILABLE, sahte 0 YOK', () => {
     expect(drift?.klass).toBe('UNAVAILABLE');
   });
 
-  it('on kart da üretilir ve sınıf sayacı tutarlıdır', () => {
+  it('yirmi sekiz kart da üretilir ve sınıf sayacı tutarlıdır', () => {
     const cards = buildMediaAuthorityCards(snapshot());
+    /* F2 kapanışı iki kart EKLEDİ (yeni ekran DEĞİL): yerel kütüphane + kapak.
+       F3.2 kapanışı üç kart daha EKLEDİ — yine yeni ekran DEĞİL, mevcut ekran
+       GENİŞLETİLDİ (LAB yüzey politikası: ekran enflasyonu yasağı). */
     expect(cards.map((c) => c.id)).toEqual([
       'authority', 'playback', 'focus', 'volume', 'queue', 'truth', 'recovery',
-      'queue-recovery', 'events', 'device-validation',
+      'queue-recovery', 'events', 'device-validation', 'library', 'artwork',
+      'listening-session', 'observed-queue', 'handover-commit',
+      // F5 kapanışı bir kart daha EKLEDİ — yine yeni ekran DEĞİL.
+      'unified-search',
+      // F6 kapanışı ses deneyimi / DSP kartını EKLEDİ — yine yeni ekran DEĞİL.
+      'audio-experience',
+      /* F8 kapanışı sürüş-farkında müzik kartını EKLEDİ — yine YENİ EKRAN DEĞİL
+         (LAB yüzey politikası: ekran enflasyonu yasağı). Kart SALT GÖZLEMDİR:
+         karar üretmez, yalnız son kararı ve kanıtı gösterir. */
+      'driving-intelligence',
+      /* F9 kapanışı Mavi müzik niyeti kartını EKLEDİ — yine YENİ EKRAN DEĞİL.
+         Kart salt gözlemdir: niyet çözmez, komut göndermez. */
+      'mavi-music-intent',
+      /* F10 kapanışı karakter/enerji kanıtı kartını EKLEDİ — yine YENİ EKRAN
+         DEĞİL. Kart kanıtın ZAYIFLIĞINI gizlemeden gösterir. */
+      'music-traits',
+      /* F13 kapanışı favoriler/koleksiyon kartını EKLEDİ — yine YENİ EKRAN
+         DEĞİL (LAB yüzey politikası). Kart salt gözlemdir: mutasyon
+         tetiklemez, yalnız VAR/YOK + ADET + sayaç gösterir. */
+      'music-collection',
+      /* F15 kapanışı playlist otoritesi kartını EKLEDİ — yine YENİ EKRAN
+         DEĞİL (LAB yüzey politikası). Kart salt gözlemdir: mutasyon
+         tetiklemez, yalnız VAR/YOK + ADET + sayaç gösterir. */
+      'music-playlist',
+      /* F16 kapanışı şarkı sözleri otoritesi kartını EKLEDİ — yine YENİ EKRAN
+         DEĞİL (LAB yüzey politikası). Kart salt gözlemdir: söz metni TAŞIMAZ,
+         yalnız VAR/YOK + ADET + sayaç gösterir. */
+      'music-lyrics',
+      /* F17 kapanışı ses ölçümü kartını EKLEDİ — yine YENİ EKRAN DEĞİL (LAB
+         yüzey politikası). Kart salt gözlemdir: analiz TETİKLEMEZ, yalnız
+         sayısal ölçüm + ADET + sayaç gösterir. */
+      'music-sonic',
+      /* F18 kapanışı kesintisiz akış kartını EKLEDİ — yine YENİ EKRAN DEĞİL
+         (LAB yüzey politikası). Kart salt gözlemdir: plan ÜRETMEZ, yalnız
+         ADET + iddia SINIFI + sayaç gösterir. */
+      'music-radio',
+      /* F19 kapanışı seviye tutarlılığı kartını EKLEDİ — yine YENİ EKRAN
+         DEĞİL. Kart salt gözlemdir: normalizasyon UYGULAMAZ. */
+      'music-loudness',
+      /* F20 kapanışı parça geçişi kartını EKLEDİ — yine YENİ EKRAN DEĞİL.
+         Kart salt gözlemdir: politika UYGULAMAZ ve olmayan yeteneği
+         (gerçek crossfade) VAR gibi göstermez. */
+      'music-transition',
+      /* F21 kapanışı süreklilik/kurtarma kartını EKLEDİ — yine YENİ EKRAN
+         DEĞİL. Kart salt gözlemdir: kurtarma TETİKLEMEZ, çalma BAŞLATMAZ. */
+      'music-recovery',
     ]);
     const counts = countByMediaAuthorityClass(cards);
     const total = cards.reduce((n, c) => n + c.fields.length, 0);
     expect(counts.OBSERVED + counts.DERIVED + counts.UNAVAILABLE + counts.STALE).toBe(total);
+  });
+});
+
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * 3c · F6 — Ses deneyimi / DSP gözlemi
+ * ════════════════════════════════════════════════════════════════════════ */
+
+describe('LAB KİLİT — F6 ses deneyimi dürüstçe gösterilir', () => {
+  const dspCard = (over = {}) =>
+    buildMediaAuthorityCards(snapshot(over)).find((c) => c.id === 'audio-experience')!;
+
+  it('DSP ölçülmemişse hiçbir alan ÖLÇÜLDÜ sunulmaz', () => {
+    const card = dspCard();
+    expect(card).toBeTruthy();
+    const measured = card.fields.filter((f) => f.klass === 'OBSERVED');
+    // Yalnız "ölçüldü mü" cevabının kendisi ve sayaç alanları gözlemdir;
+    // hiçbir CİHAZ yeteneği ölçülmüş gibi gösterilmez.
+    expect(measured.every((f) => !f.id.startsWith('f6-eq'))).toBe(true);
+    expect(card.fields.find((f) => f.id === 'f6-probed')!.value).toBe('HAYIR');
+  });
+
+  it('fader alanı gerekçesiyle birlikte taşınır (sahte donanım iddiası yok)', () => {
+    const f = dspCard().fields.find((x) => x.id === 'f6-balance')!;
+    expect(f.note).toMatch(/Fader KAPALI/);
+    expect(f.note).toMatch(/stereo/i);
+  });
+
+  it('güvenlik payı alanı kullanıcı sesiyle KARIŞTIRILMAZ', () => {
+    const f = dspCard().fields.find((x) => x.id === 'f6-preamp')!;
+    expect(f.note).toMatch(/KULLANICI SESİ DEĞİLDİR/);
+  });
+
+  it('bypass bir arıza değil güvenlik davranışı olarak açıklanır', () => {
+    const f = dspCard().fields.find((x) => x.id === 'f6-bypass')!;
+    expect(f.note).toMatch(/OYNATMA DEVAM EDER/);
+  });
+
+  it('DSP kartında kullanıcı verisi (parça · sanatçı · URI) TAŞINMAZ', () => {
+    const joined = dspCard().fields.map((f) => `${f.label} ${f.value}`).join(' ').toLowerCase();
+    expect(joined).not.toMatch(/content:\/\/|http|\.mp3|sanatçı adı/);
   });
 });
 

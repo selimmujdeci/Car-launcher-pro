@@ -51,11 +51,15 @@ import { useLayoutSync } from '../../platform/themeLayoutEngine';
 import { useScreenSense } from '../../hooks/useScreenSense';
 import { setObdVehicleType } from '../../platform/obdService';
 import { useSystemStore } from '../../store/useSystemStore';
-import {
-  getAGCEnabled, setAGCEnabled,
-  getDriverFocusEnabled, setDriverFocus,
-  getSvcEnabled, setSvcEnabled,
-} from '../../platform/audioService';
+/* MUSIC F6 — Ses yüzeyi artık GERÇEK DSP otoritesine bağlıdır.
+   ÖNCESİ: burada `audioService` (Web Audio) tabanlı üç anahtar vardı —
+   "Akıllı Ses Dengeleme", "Sürücü Odaklı Ses" ve "Hıza Bağlı Ses". Kanonik
+   oynatma yolu native ExoPlayer olduğundan (F0) ve Web Audio zincirine
+   üretimde HİÇBİR kaynak bağlanmadığından (`connectSource` çağrısı yok),
+   bu anahtarlar duyulabilir hiçbir şeyi değiştirmiyordu. Yeteneği olmayan
+   kontrol RENDER EDİLMEZ (CLAUDE.md · capability honesty). */
+import { AudioExperiencePanel } from '../media/AudioExperiencePanel';
+import type { DrivingMode } from '../media/nowPlayingModel';
 import { useDeviceStatus } from '../../platform/deviceApi';
 import { CarLauncher } from '../../platform/nativePlugin';
 import { getDeviceTier, type DeviceTier } from '../../platform/deviceCapabilities';
@@ -1134,29 +1138,18 @@ function AboutTabContent() {
    TAB CONTENTS — Sound, Connect, Profiles (gerçek servislere bağlı)
 ════════════════════════════════════════ */
 
-function SoundTabContent() {
-  // Gerçek DSP durumu — audioService kalıcı saklar (safeStorage); sekme her
-  // açılışta yeniden mount olduğundan getter'lar güncel değeri verir.
-  const [agc,   setAgc]   = useState(() => getAGCEnabled());
-  const [focus, setFocus] = useState(() => getDriverFocusEnabled());
-  const [svc,   setSvc]   = useState(() => getSvcEnabled());
+function SoundTabContent({ drivingMode }: { drivingMode: DrivingMode }) {
+  /* F6: tek DSP otoritesinin projeksiyonu. Bu sekme kendi ses gerçeğini
+     tutmaz ve desteklenmeyen bir kontrolü "kapalı" diye çizmez. */
   return (
     <>
       <SettingsHero
         eyebrow="Ses"
         title="Kabin akustiği"
-        sub="Hoparlör sahnesi, ekolayzer, hıza göre ses ve uyarı tonları."
+        sub="Ekolayzer, hazır profiller, loudness ve denge — cihazın gerçekten desteklediği kadarı."
       />
       <div className="grid gap-4" style={{ gridTemplateColumns: '1fr', maxWidth: 720, margin: '0 auto' }}>
-        <SettingTile icon={Volume2} accent="amber" title="Akıllı Ses Dengeleme (AGC)"
-          sub="YouTube, Spotify gibi kaynaklar arasında ses eşitlenir."
-          control={<BigToggle value={agc} onChange={(v) => { setAgc(v); setAGCEnabled(v); }} />} />
-        <SettingTile icon={Mic} title="Sürücü Odaklı Ses"
-          sub="Ses sahnesi sürücü tarafına kaydırılır — Haas Effect (15ms)."
-          control={<BigToggle value={focus} onChange={(v) => { setFocus(v); setDriverFocus(v); }} />} />
-        <SettingTile icon={Settings2} title="Hıza Bağlı Ses"
-          sub="40 km/s üzerinde yol gürültüsünü dengelemek için ses otomatik artar."
-          control={<BigToggle value={svc} onChange={(v) => { setSvc(v); setSvcEnabled(v); }} />} />
+        <AudioExperiencePanel drivingMode={drivingMode} />
         <SettingTile icon={Volume2} title="Uyarı Tonları"
           sub="Şerit ihlali, hız limiti, kapı uyarıları için özelleştirilebilir tonlar."
           control={<div className="text-[13px] font-bold" style={{ color: 'var(--oem-ink-2, rgba(240,235,224,0.74))' }}>OEM Varsayılan</div>} />
@@ -1419,13 +1412,18 @@ function ProfilesTabContent() {
 /* ════════════════════════════════════════
    MAIN COMPONENT
 ════════════════════════════════════════ */
-interface Props { onOpenMap?: () => void; onClose?: () => void; }
+interface Props {
+  onOpenMap?: () => void;
+  onClose?: () => void;
+  /** F6 · sürüş dikkat düzeyi — yalnız ses sekmesinin ETKİLEŞİMİNİ kısıtlar. */
+  drivingMode?: DrivingMode;
+}
 
 type Tab = 'general' | 'appearance' | 'performance' | 'maintenance' | 'sound' | 'connect' | 'profiles' | 'about';
 const TAB_IDS: Tab[] = ['general', 'appearance', 'performance', 'maintenance', 'sound', 'connect', 'profiles'];
 const TAB_STORAGE_KEY = 'caros.settings.tab';
 
-function SettingsPageInner({ onClose }: Props) {
+function SettingsPageInner({ onClose, drivingMode = 'idle' }: Props) {
   const { settings, updateSettings, updateVehicleProfile, setActiveVehicleProfile, addVehicleProfile, removeVehicleProfile } = useStore(
     useShallow((s) => ({
       settings: s.settings, updateSettings: s.updateSettings, updateVehicleProfile: s.updateVehicleProfile,
@@ -1457,12 +1455,6 @@ function SettingsPageInner({ onClose }: Props) {
   const [showOBDConnect, setShowOBDConnect] = useState(false);
   const [perfMode, setPerfMode]         = useState(() => getPerformanceMode());
   const [autoMode, setAutoMode]         = useState(() => isAutoModeEnabled());
-  const [agcOn,    setAgcOn]            = useState(() => getAGCEnabled());
-  const [focusOn,  setFocusOn]          = useState(() => getDriverFocusEnabled());
-  // Ses sekmesi de aynı DSP servisini yönetiyor — sekme dönüşünde bayat state'i tazele.
-  useEffect(() => {
-    if (tab === 'general') { setAgcOn(getAGCEnabled()); setFocusOn(getDriverFocusEnabled()); }
-  }, [tab]);
 
   // ── Gizli Mühendislik Erişimi ──────────────────────────────────────────────
   const [showSecureModal, setShowSecureModal] = useState(false);
@@ -1758,29 +1750,6 @@ function SettingsPageInner({ onClose }: Props) {
                   </div>
                 </Panel>
               )}
-
-              {/* ── Crystal Cabin DSP v3 ── */}
-              <Panel accent="var(--oem-accent)">
-                <SectionTitle icon={Volume2} title="Crystal Cabin DSP" sub="Otomotiv sınıfı ses işleme" color="var(--oem-accent)" />
-                <div className="flex flex-col gap-3">
-                  <PremiumToggle
-                    icon={Volume2}
-                    label="Akıllı Ses Dengeleme"
-                    desc="YouTube, Spotify gibi kaynaklar arasında ses eşitler (AGC)"
-                    value={agcOn}
-                    onChange={(v) => { setAgcOn(v); setAGCEnabled(v); }}
-                    accent="var(--oem-accent)"
-                  />
-                  <PremiumToggle
-                    icon={Cpu}
-                    label="Sürücü Odaklı Ses"
-                    desc="Ses sürücü tarafına odaklanır — Haas Effect (15ms)"
-                    value={focusOn}
-                    onChange={(v) => { setFocusOn(v); setDriverFocus(v); }}
-                    accent="#a78bfa"
-                  />
-                </div>
-              </Panel>
 
               <Panel accent="#60a5fa">
                 <SectionTitle icon={Wifi} title="Akıllı Servisler" sub="Bağlam duyarlı özellikler" color="#60a5fa" />
@@ -2170,7 +2139,7 @@ function SettingsPageInner({ onClose }: Props) {
           )}
 
           {/* ── Phase 8 new tabs — Sound, Connect, Profiles ── */}
-          {tab === 'sound' && <SoundTabContent />}
+          {tab === 'sound' && <SoundTabContent drivingMode={drivingMode} />}
           {tab === 'connect' && <ConnectTabContent />}
           {tab === 'profiles' && <ProfilesTabContent />}
           {tab === 'about' && <AboutTabContent />}

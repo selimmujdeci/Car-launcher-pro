@@ -10,7 +10,8 @@
  *   ttsCancel()                                — devam eden seslendirmeyi kes
  */
 
-import { duckMedia, unduckMedia } from './audioService';
+import { requestDuck, type DuckHandle } from './media/authority/duckRequest';
+import type { DuckReason } from './media/authority/duckPolicy';
 import { Capacitor } from '@capacitor/core';
 import { CarLauncher } from './nativePlugin';
 import { useHazardStore } from '../store/useHazardStore';
@@ -66,7 +67,7 @@ if (import.meta.hot) {
       window.speechSynthesis.cancel();
     }
     // Duck state'i sıfırla — yeni modül instance temiz başlasın
-    _ttsDucking = false;
+    _endTtsDuck();
     _cachedVoice = null;
     _lastSpokenText = '';
   });
@@ -285,6 +286,148 @@ function _notifyTtsEnd(): void {
  */
 let _speakSeq = 0;
 
+/* ══════════════════════════════════════════════════════════════════════════
+ * SAHA #1256-a · **"ÇAĞRI YAPILDI" ≠ "SES DUYULDU"**
+ *
+ * ── NEDEN VAR (ölçülmüş arıza, tercih değil) ───────────────────────────────
+ * 2026-09-04, Xiaomi 23090RA98I: kullanıcı "Hey Mavi" sonrası HİÇBİR ŞEY
+ * duymuyordu. LAB `maviSpeech` defteri ise `toplam seslendirme: 2` diyordu —
+ * yani TTS'e GERÇEKTEN iki çağrı gitmişti. Kök neden ürünün DIŞINDAYDI:
+ * `settings get secure tts_default_synth` = **null** — Google TTS kuruluydu ama
+ * varsayılan motor HİÇ SEÇİLMEMİŞTİ; motor seçili olmayınca `TextToSpeech`
+ * çağrıları sessizce hiçbir ses üretmiyor.
+ *
+ * Bu durumu ürün İÇİNDEN teşhis etmenin hiçbir yolu yoktu: `spoken` sayacı
+ * "çağrı yapıldı" der, "ses çıktı" DEMEZ. Aradaki fark bir gün kaybettirdi.
+ *
+ * ── DÜRÜSTLÜK SINIRI (pazarlıksız) ─────────────────────────────────────────
+ * JavaScript tarafından **sesin duyulduğu KANITLANAMAZ** — hoparlöre erişim
+ * yok. Bu yüzden burada "ses çıktı" İDDİA EDİLMEZ. Ölçülen yalnız şudur:
+ * *seslendirme hangi yolla sonlandı ve GERÇEKTEN ne kadar sürdü.*
+ * İki imza motorsuzluğu ele verir ve ikisi de gerçek ölçümdür:
+ *   1. `NO_ENGINE_REPORT` — motor bitişi HİÇ bildirmedi, emniyet süresi doldu.
+ *   2. `SUSPECT_INSTANT_DONE` — motor "bitti" dedi ama süre, o uzunluktaki bir
+ *      cümlenin FİZİKSEL olarak konuşulabileceği en kısa süreden bile kısa.
+ * Bunların dışındaki her şey `ENGINE_CONFIRMED`tir ve bu da yalnız
+ * "motor bitişi bildirdi" demektir — **duyulduğunun kanıtı DEĞİLDİR.**
+ *
+ * ── SÖZLEŞME ───────────────────────────────────────────────────────────────
+ *  · Yeni timer YOK (mevcut `safety`/`onend` yolları etiketlenir).
+ *  · Yeni otorite YOK — hiçbir TTS kararı bu sayaçlara BAKMAZ.
+ *  · METİN TAŞINMAZ: yalnız KARAKTER SAYISI (transcriptLength ile aynı desen).
+ *  · Sayaçlar sınırsız büyümez (tavan) ve tavan dolunca AÇIKÇA bildirilir.
+ * ════════════════════════════════════════════════════════════════════════ */
+
+/** Seslendirmenin hangi yolla sonlandığı — bounded, serbest metin YOK. */
+export type TtsSettleCause =
+  | 'ENGINE_DONE' | 'ENGINE_ERROR' | 'NO_ENGINE_REPORT' | 'ENGINE_UNAVAILABLE';
+
+/** Sesin gerçekten çıktığına dair KANIT SINIFI (kanıt ≠ iddia). */
+export type TtsAudioEvidence =
+  | 'ENGINE_CONFIRMED' | 'ENGINE_SILENT' | 'SUSPECT_INSTANT_DONE' | 'UNKNOWN';
+
+/** Sayaç tavanı — defter sınırsız büyümez (CLAUDE.md bellek sözleşmesi). */
+const TTS_LEDGER_CAP = 9_999;
+
+let _ttsRequested = 0;
+let _ttsEngineDone = 0;
+let _ttsEngineError = 0;
+let _ttsNoEngineReport = 0;
+let _ttsSuspectInstant = 0;
+let _ttsLedgerSaturated = false;
+
+interface TtsSettleRecord {
+  readonly cause: TtsSettleCause;
+  readonly evidence: TtsAudioEvidence;
+  readonly transport: MaviTtsTransport;
+  /** GERÇEK ölçülen süre (monotonik). */
+  readonly durationMs: number;
+  /** Bu uzunluktaki cümlenin FİZİKSEL en kısa konuşulma süresi (alt sınır). */
+  readonly minPlausibleMs: number;
+  /** Seslendirilen METNİN UZUNLUĞU — metnin KENDİSİ DEĞİL (PII yok). */
+  readonly charCount: number;
+}
+let _ttsLastSettle: TtsSettleRecord | null = null;
+
+/** Uçuştaki seslendirmenin başlangıcı (monotonik) — süre ölçümü için. */
+let _ttsAttemptStart = 0;
+let _ttsAttemptChars = 0;
+
+/**
+ * FİZİKSEL ALT SINIR: Türkçe TTS pratikte ~12-15 karakter/sn konuşur. Burada
+ * kasıtlı olarak ÇOK cömert bir sınır (40 karakter/sn = gerçeğin ~3 katı hızlı)
+ * kullanılır — amaç "yavaş motor" yakalamak DEĞİL, "hiç konuşmadan bitti dedi"
+ * durumunu yanlış-pozitifsiz ayıklamaktır.
+ */
+function _minPlausibleSpeechMs(charCount: number): number {
+  return 250 + charCount * 25;
+}
+
+function _noteTtsAttempt(charCount: number): void {
+  _ttsAttemptStart = _nowMono();
+  _ttsAttemptChars = charCount;
+  if (_ttsRequested >= TTS_LEDGER_CAP) { _ttsLedgerSaturated = true; return; }
+  _ttsRequested++;
+}
+
+function _noteTtsSettled(cause: TtsSettleCause): void {
+  if (_ttsAttemptStart === 0) return;              // eşleşmeyen bitiş — sahte kayıt YOK
+  const durationMs = Math.max(0, _nowMono() - _ttsAttemptStart);
+  const charCount  = _ttsAttemptChars;
+  _ttsAttemptStart = 0;
+  const minPlausibleMs = _minPlausibleSpeechMs(charCount);
+
+  let evidence: TtsAudioEvidence;
+  if (cause === 'NO_ENGINE_REPORT')            evidence = 'ENGINE_SILENT';
+  else if (cause === 'ENGINE_ERROR')           evidence = 'ENGINE_SILENT';
+  else if (cause === 'ENGINE_UNAVAILABLE')     evidence = 'ENGINE_SILENT';
+  else if (charCount <= 0)                     evidence = 'UNKNOWN';
+  else if (durationMs < minPlausibleMs)        evidence = 'SUSPECT_INSTANT_DONE';
+  else                                         evidence = 'ENGINE_CONFIRMED';
+
+  if (!_ttsLedgerSaturated) {
+    if (cause === 'ENGINE_DONE') _ttsEngineDone++;
+    else if (cause === 'ENGINE_ERROR' || cause === 'ENGINE_UNAVAILABLE') _ttsEngineError++;
+    else _ttsNoEngineReport++;
+    if (evidence === 'SUSPECT_INSTANT_DONE') _ttsSuspectInstant++;
+  }
+  _ttsLastSettle = Object.freeze({
+    cause, evidence, transport: _speechTransport,
+    durationMs, minPlausibleMs, charCount,
+  });
+}
+
+/**
+ * SALT-OKUNUR tanı — CAROS LAB → Mavi Konsolu bölüm F okur.
+ * Hiçbir üretim kararı bu değerlere BAKMAZ (LAB ikinci otorite olamaz).
+ */
+export function getTtsEngineDiagnostics(): {
+  requested: number;
+  engineDone: number;
+  engineError: number;
+  noEngineReport: number;
+  suspectInstantDone: number;
+  saturated: boolean;
+  last: TtsSettleRecord | null;
+} {
+  return {
+    requested: _ttsRequested,
+    engineDone: _ttsEngineDone,
+    engineError: _ttsEngineError,
+    noEngineReport: _ttsNoEngineReport,
+    suspectInstantDone: _ttsSuspectInstant,
+    saturated: _ttsLedgerSaturated,
+    last: _ttsLastSettle,
+  };
+}
+
+/** @internal — testler arası izolasyon (üretim yolunda çağrılmaz). */
+export function _resetTtsEngineDiagnosticsForTest(): void {
+  _ttsRequested = 0; _ttsEngineDone = 0; _ttsEngineError = 0;
+  _ttsNoEngineReport = 0; _ttsSuspectInstant = 0; _ttsLedgerSaturated = false;
+  _ttsLastSettle = null; _ttsAttemptStart = 0; _ttsAttemptChars = 0;
+}
+
 /* ── Rate limiting ───────────────────────────────────────── */
 
 /** Aynı metni kısa aralıkla tekrar seslendirme */
@@ -304,8 +447,48 @@ let _lastFeedbackAt   = 0;
  */
 let _assistantGen = 0;
 
-/** Aktif bir duckMedia çağrısı var mı — çakışan duck çağrısını önler */
-let _ttsDucking = false;
+/**
+ * MUSIC F6.1 · Uçuştaki KANONİK duck isteği (yoksa null).
+ *
+ * Eskiden bu bir `boolean` bayraktı ve `audioService.duckMedia()` çağırıyordu;
+ * o yol ÖLÜYDÜ (bkz. `duckRequest.ts`). Artık her söz kendi token'ını taşır ve
+ * seviye/öncelik kararı `duckPolicy`nindir — burada İKİNCİ otorite yoktur.
+ */
+let _ttsDuck: DuckHandle | null = null;
+
+/** Konuşma kanalı → kanonik duck sebebi. Saf eşleme; seviye HESAPLAMAZ. */
+const _CHANNEL_DUCK_REASON: Readonly<Record<MaviTtsChannel, DuckReason>> = Object.freeze({
+  NONE:       'MAVI',
+  ASSISTANT:  'MAVI',
+  STATUS:     'MAVI',
+  HARDWARE:   'MAVI',
+  NAVIGATION: 'NAVIGATION',
+  SAFETY:     'SAFETY',
+  HAZARD:     'SAFETY',
+});
+
+/**
+ * Uçuştaki sözün duck sebebi. `_markSpeakingStart()` kanalı TÜKETTİKTEN sonra
+ * çağrılır; kanal bilinmiyorsa asistan seviyesine (MAVI · 0.30) düşer — eski
+ * tek-seviyeli davranışın kanonik karşılığıdır.
+ */
+function _currentDuckReason(): DuckReason {
+  return _CHANNEL_DUCK_REASON[_speechChannel] ?? 'MAVI';
+}
+
+/** Kanonik duck'ı başlatır (zaten açıksa çift açmaz). */
+function _beginTtsDuck(): void {
+  if (_ttsDuck !== null) return;
+  _ttsDuck = requestDuck(_currentDuckReason());
+}
+
+/** Kanonik duck'ı bırakır. Idempotent; bayat token sesi yükseltemez. */
+function _endTtsDuck(): void {
+  const h = _ttsDuck;
+  if (h === null) return;
+  _ttsDuck = null;
+  h.release();
+}
 
 /* ── Core speak ──────────────────────────────────────────── */
 
@@ -334,7 +517,7 @@ export function ttsSpeak(text: string, opts: SpeakOptions = {}): void {
   if (!opts.force && text === _lastSpokenText && now - _lastSpokenAt < MIN_REPEAT_MS) {
     // Dedupe atladı — başka seslendirme uçuşta değilse yine de "bitti" bildir:
     // takip dinlemesi bu sinyali bekliyor (uçuştaki utterance kendi bitişini bildirir).
-    if (!_ttsDucking) setTimeout(_notifyTtsEnd, 0);
+    if (_ttsDuck === null) setTimeout(_notifyTtsEnd, 0);
     return;
   }
   _lastSpokenText = text;
@@ -359,7 +542,7 @@ export function ttsSpeak(text: string, opts: SpeakOptions = {}): void {
   // ── Premium ses bankası (hibrit Phase 1) — sabit/kritik ifadeler stüdyo kalite
   // klipten çalınır; native/web TTS atlanır. Eşleşmezse normal TTS yoluna düşer.
   // Klip bitiş semantiği TTS ile aynı: takip dinlemesi (_notifyTtsEnd) + onEnd.
-  if (tryPlayClip(text, () => { _notifyTtsEnd(); opts.onEnd?.(); })) {
+  if (tryPlayClip(text, () => { _notifyTtsEnd(); opts.onEnd?.(); }, _currentDuckReason())) {
     _markTransport('WEBVIEW_AUDIO');   // MAVI-F12: klip WebView'den çalar → mikrofon açık kalır
     return;
   }
@@ -381,24 +564,28 @@ export function ttsSpeak(text: string, opts: SpeakOptions = {}): void {
     /* MAVI-F12: native motor yolu — `CarLauncherPlugin` `nativeTtsSpeaking`
      * bayrağını kurar ve wake thread mikrofonu BIRAKIR (yarım-duplex). */
     _markTransport('NATIVE_ENGINE');
-    if (!_ttsDucking) { _ttsDucking = true; duckMedia(); }
+    _beginTtsDuck();
     // speak()/speakSegments() Promise'i seslendirme BİTİNCE çözülür (UtteranceProgressListener;
     // segmentlerde yalnız SON segmentin onDone'u). Bazı OEM motorları onDone'u hiç çağırmayabilir
     // → süre tahminli emniyet zamanlayıcısı: hangisi önce gelirse bir kez işlenir.
     let settled = false;
-    const settle = () => {
+    /* SAHA #1256-a: settle NEDENİ artık taşınır — "motor bitişi bildirdi" ile
+       "emniyet süresi doldu" AYRI olgulardır ve ikincisi motorsuzluğun imzasıdır.
+       Yeni timer YOK: mevcut üç yol (then · catch · safety) etiketlendi. */
+    const settle = (cause: TtsSettleCause) => {
       if (settled) return;
       settled = true;
+      _noteTtsSettled(cause);
       // Yalnız en son seslendirme global durumu kapatır (flush edilen eskiler dokunmaz)
       if (seq === _speakSeq) {
-        _ttsDucking = false;
-        unduckMedia();
+        _endTtsDuck();
         _notifyTtsEnd();
       }
       opts.onEnd?.();
     };
     const estimatedMs = Math.min(30_000, 3_000 + spoken.length * 110);
-    const safety = setTimeout(settle, estimatedMs);
+    const safety = setTimeout(() => settle('NO_ENGINE_REPORT'), estimatedMs);
+    _noteTtsAttempt(spoken.length);
     /* MAVI-F0 · DÜRÜSTLÜK SINIRI: Android `TextToSpeech` bu derlemede BAŞLANGIÇ
      * geri bildirimi VERMEZ — `CarLauncher.speak()` Promise'i seslendirme BİTİNCE
      * çözülür (UtteranceProgressListener.onDone). Bu yüzden native yolda yalnız
@@ -413,13 +600,20 @@ export function ttsSpeak(text: string, opts: SpeakOptions = {}): void {
           CarLauncher.speak({ text: spoken, rate: baseRate, pitch: basePitch }))
       : CarLauncher.speak({ text: segments[0].text, rate: segments[0].rate, pitch: segments[0].pitch });
     nativeCall
-      .then(() => { clearTimeout(safety); settle(); })
-      .catch(() => { clearTimeout(safety); settle(); });
+      .then(() => { clearTimeout(safety); settle('ENGINE_DONE'); })
+      .catch(() => { clearTimeout(safety); settle('ENGINE_ERROR'); });
     return;
   }
 
   // ── Web fallback: SpeechSynthesis API ──────────────────────────────
-  if (!isTTSAvailable()) { _markSpeakingEnd(); return; }
+  if (!isTTSAvailable()) {
+    /* SAHA #1256-a: "motor YOK" sessizce yutulan bir durumdu — defterde iz
+       bırakmıyordu. Artık ölçülür (yeni davranış YOK, yalnız kayıt). */
+    _noteTtsAttempt(spoken.length);
+    _noteTtsSettled('ENGINE_UNAVAILABLE');
+    _markSpeakingEnd();
+    return;
+  }
 
   if (!opts.queue) window.speechSynthesis.cancel();
 
@@ -427,9 +621,10 @@ export function ttsSpeak(text: string, opts: SpeakOptions = {}): void {
    * `nativeTtsSpeaking` KURULMAZ, wake thread mikrofonu açık tutar. */
   _markTransport('WEBVIEW_AUDIO');
 
-  // duckMedia() TTS engine init'inden ÖNCE çağrılır — gain ramp başlangıç avantajı.
-  // _ttsDucking guard: önceki TTS henüz bitmeden yeni çağrı gelirse çift duck önlenir.
-  if (!_ttsDucking) { _ttsDucking = true; duckMedia(); }
+  // Duck, TTS motoru başlamadan ÖNCE istenir — native tarafta gain ramp'ı
+  // sözden önce başlasın. Guard: önceki söz bitmeden yeni çağrı gelirse çift
+  // duck açılmaz (tek token).
+  _beginTtsDuck();
 
   // Bu web sözünün sıra numarası — yalnız EN SON söz global durumu (follow-up/idle)
   // sürükler. Kesilen/eski söz (yeni bir söz başladı → _speakSeq arttı) bitişinde
@@ -438,12 +633,13 @@ export function ttsSpeak(text: string, opts: SpeakOptions = {}): void {
   const voice = _getTurkishVoice();
   const userOnEnd = opts.onEnd;
   let webSettled = false;
+  _noteTtsAttempt(spoken.length);
   // Yalnız SON segmentin bitişi (veya herhangi bir segment hatası) durumu kapatır.
-  const webSettle = () => {
+  const webSettle = (cause: TtsSettleCause = 'ENGINE_DONE') => {
     if (webSettled) return;
     webSettled = true;
-    _ttsDucking = false;
-    unduckMedia();
+    _noteTtsSettled(cause);
+    _endTtsDuck();
     userOnEnd?.();
     if (seq === _speakSeq) _notifyTtsEnd(); // yalnız güncel söz takip/idle tetikler
   };
@@ -456,8 +652,9 @@ export function ttsSpeak(text: string, opts: SpeakOptions = {}): void {
     utter.volume = 1.0;
     if (voice) utter.voice = voice;
     // Segmentler art arda kuyruğa eklenir (cancel yalnız en başta yapıldı).
-    if (i === segments.length - 1) utter.onend = webSettle;
-    utter.onerror = webSettle; // fail-soft: herhangi bir segment hatası ducking'i geri açar
+    if (i === segments.length - 1) utter.onend = () => webSettle('ENGINE_DONE');
+    // fail-soft: herhangi bir segment hatası ducking'i geri açar (neden AYRI kaydedilir)
+    utter.onerror = () => webSettle('ENGINE_ERROR');
     /* MAVI-F0: web yolunda `onstart` GERÇEK seslendirme başlangıcıdır (kanıt);
      * `speak()` çağrısı yalnız kuyruklama isteğidir (proxy). Yalnız İLK segment
      * ölçülür — sonraki segmentler aynı cevabın devamıdır. */
@@ -482,12 +679,12 @@ export function ttsCancel(): void {
   cancelOnline();  // uçuştaki/çalan online asistan sesini de durdur
   if (_isNative) {
     CarLauncher.ttsStop()
-      .then(() => { if (_ttsDucking) { _ttsDucking = false; unduckMedia(); } })
-      .catch(() => { if (_ttsDucking) { _ttsDucking = false; unduckMedia(); } });
+      .then(() => { _endTtsDuck(); })
+      .catch(() => { _endTtsDuck(); });
     return;
   }
   if (isTTSAvailable()) {
-    if (_ttsDucking) { _ttsDucking = false; unduckMedia(); }
+    _endTtsDuck();
     window.speechSynthesis.cancel();
   }
 }
@@ -609,10 +806,14 @@ export function speakAssistant(text: string, onEnd?: () => void): void {
   // Asistan cevabı BAŞLIYOR — hangi tier'a düşerse düşsün (klip/Edge/online/native)
   // emniyet zamanlayıcıları bu cevabı ortasından kesmesin (isTtsSpeaking).
   _markSpeakingStart();
+  /* MUSIC F6.1: duck sebebi BURADA sabitlenir. Hibrit zincir (klip → Edge →
+     online) asenkron ilerler; araya yeni bir kanal pinlenirse eski cevabın
+     duck sebebi DEĞİŞMEMELİDİR (bayat sebep = yanlış seviye). */
+  const reason = _currentDuckReason();
   const gen = ++_assistantGen; // bu cevabın nesli — supersede'de yedeğe düşmeyi engeller
 
   // 1) Sabit ifade → premium klip (online olsa bile: hızlı + maliyetsiz + offline)
-  if (tryPlayClip(t, () => { _notifyTtsEnd(); onEnd?.(); })) {
+  if (tryPlayClip(t, () => { _notifyTtsEnd(); onEnd?.(); }, _currentDuckReason())) {
     _markTransport('WEBVIEW_AUDIO');   // MAVI-F12
     return;
   }
@@ -625,14 +826,14 @@ export function speakAssistant(text: string, onEnd?: () => void): void {
   void (async () => {
     try {
       if (isEdgeTtsAvailable()) {
-        const ok = await speakEdge(t, () => { _notifyTtsEnd(); onEnd?.(); });
+        const ok = await speakEdge(t, () => { _notifyTtsEnd(); onEnd?.(); }, reason);
         if (ok) { _markTransport('WEBVIEW_AUDIO'); return; }   // MAVI-F12
       }
     } catch { /* Edge yolu kırılırsa Gemini'ye düş */ }
     if (gen !== _assistantGen) return; // yeni cevap devraldı → yedeğe düşme
     try {
       if (await isOnlineTtsAvailable()) {
-        const ok = await speakOnline(t, () => { _notifyTtsEnd(); onEnd?.(); });
+        const ok = await speakOnline(t, () => { _notifyTtsEnd(); onEnd?.(); }, reason);
         if (ok) { _markTransport('WEBVIEW_AUDIO'); return; }   // MAVI-F12
       }
     } catch { /* online yolu kırılırsa sessizce yedeğe düş */ }

@@ -308,14 +308,16 @@ export async function playYouTube(videoId: string, title: string, artist: string
     catch (e) { console.error('[YT] loadVideoById hata:', e); }
   }
 
-  // Diğer kaynakları durdur (tek aktif kaynak) — loadVideoById'den SONRA,
-  // fire-and-forget: bekleyen import'lar user-gesture'ı tüketmesin.
-  import('./localMusicService')
-    .then(({ isLocalMusicActive, stopLocalMusic }) => { if (isLocalMusicActive()) stopLocalMusic(); })
-    .catch(() => { /* ignore */ });
-  import('./streamMusicService')
-    .then(({ streamStop, isStreamActive }) => { if (isStreamActive()) streamStop(); })
-    .catch(() => { /* ignore */ });
+  /* MUSIC F7.1 · KAYNAK DEVRİ ARTIK BURADA YAPILMAZ.
+   *
+   * Eskiden burada `stopLocalMusic()` ve `streamStop()` "ateşle-unut" biçiminde
+   * çağrılıyordu. Bu ikinci bir devir (handover) yürütücüsüydü: durduğu
+   * DOĞRULANMIYORDU, sırası garanti değildi ve `audibleBackendCount <= 1`
+   * sözleşmesini `sourceCoordinator`un dışından zorlamaya çalışıyordu.
+   *
+   * Kanonik yol: `mediaCommandGateway.playSource({ source: 'YOUTUBE' })` →
+   * `sourceCoordinator` önce aktif kaynağı durdurur ve DOĞRULAR, sonra burayı
+   * `start()` ile çağırır. Bu fonksiyon artık yalnız KENDİ backend'ini sürer. */
 }
 
 /** Host'u DOM'da render et ama UI'ı kaplamadan.
@@ -367,8 +369,55 @@ export function youtubeTogglePlayPause(): void {
   } catch { /* ignore */ }
 }
 
-export function youtubeSeek(positionSec: number): void {
-  try { _player?.seekTo(positionSec, true); } catch { /* ignore */ }
+/* ── MUSIC F7.1 · Kanonik transport yüzeyi ─────────────────────────────────
+ *
+ * `mediaCommandGateway` bu backend'i `BackendTransport` üzerinden sürer.
+ * Fonksiyonlar KABUL bilgisini döner ("çaldı" iddiası DEĞİL) — duyulabilirlik
+ * hükmü `playbackTruth`ın işidir. IFrame yoksa `false` döner ve kapı bunu
+ * dürüst bir hata olarak raporlar (sessiz yutma YOK). */
+
+/** Oynatmayı devam ettir. @returns komut player'a İLETİLDİ mi. */
+export function youtubeResume(): boolean {
+  if (!_player) return false;
+  try { _player.playVideo(); return true; } catch { return false; }
+}
+
+/** Oynatmayı duraklat. @returns komut player'a İLETİLDİ mi. */
+export function youtubePause(): boolean {
+  if (!_player) return false;
+  try { _player.pauseVideo(); return true; } catch { return false; }
+}
+
+/** IFrame oynatıcısının GÖZLENEN durumu. */
+export type YouTubePlaybackState =
+  | 'PLAYING' | 'PAUSED' | 'BUFFERING' | 'STOPPED' | 'UNKNOWN';
+
+/**
+ * IFrame player'ın gözlenen durumu — okunamıyorsa `UNKNOWN` (uydurulmaz).
+ *
+ * Durum kodları IFrame Player API'sinin belgelenmiş sabitleridir:
+ * `-1` başlamadı · `0` bitti · `1` çalıyor · `2` duraklı · `3` tamponluyor ·
+ * `5` kuyruklandı. Çalışma anında `YT.PlayerState` varsa O KULLANILIR; yoksa
+ * belgelenmiş sayısal karşılıklara düşülür (script parçalı yüklenmiş olabilir).
+ */
+export function getYouTubePlaybackState(): YouTubePlaybackState {
+  if (!_player) return 'UNKNOWN';
+  let st: number | undefined;
+  try { st = _player.getPlayerState?.(); } catch { return 'UNKNOWN'; }
+  if (typeof st !== 'number') return 'UNKNOWN';
+
+  const ps = _ytWindow().YT?.PlayerState;
+  if (st === (ps?.PLAYING ?? 1)) return 'PLAYING';
+  if (st === (ps?.PAUSED ?? 2)) return 'PAUSED';
+  if (st === 3) return 'BUFFERING';
+  if (st === (ps?.ENDED ?? 0) || st === -1 || st === 5) return 'STOPPED';
+  return 'UNKNOWN';
+}
+
+/** Konuma atlar. @returns komut player'a İLETİLDİ mi (F7.1 · kapı bunu okur). */
+export function youtubeSeek(positionSec: number): boolean {
+  if (!_player) return false;
+  try { _player.seekTo(positionSec, true); return true; } catch { return false; }
 }
 
 export function youtubeStop(): void {

@@ -148,6 +148,30 @@ export interface MaviSpeechRaw {
   readonly staleLateSpeechSuppressed: number;
 }
 
+/**
+ * SAHA #1256-a · TTS MOTOR SONUÇ DEFTERİ — **"çağrı yapıldı" ≠ "ses duyuldu".**
+ *
+ * `spoken` sayacı yalnız "TTS'e çağrı gitti" der. 2026-09-04'te ölçülen arıza
+ * (varsayılan TTS motoru HİÇ seçili değildi) tam olarak bu boşlukta saklandı.
+ * Buradaki alanlar sesin duyulduğunu İDDİA ETMEZ — yalnız seslendirmenin hangi
+ * yolla sonlandığını ve GERÇEK süresini taşır. Metin TAŞINMAZ (yalnız uzunluk).
+ */
+export interface MaviTtsEngineRaw {
+  readonly requested:          number;
+  readonly engineDone:         number;
+  readonly engineError:        number;
+  readonly noEngineReport:     number;
+  readonly suspectInstantDone: number;
+  readonly saturated:          boolean;
+  /** Son seslendirmenin sonucu — `null` = henüz hiç seslendirme kapanmadı. */
+  readonly lastCause:          string | null;
+  readonly lastEvidence:       string | null;
+  readonly lastTransport:      string | null;
+  readonly lastDurationMs:     number | null;
+  readonly lastMinPlausibleMs: number | null;
+  readonly lastCharCount:      number | null;
+}
+
 /** M5 tur kapılarının bounded sayaçları (PII YOK — yalnız adet ve durum). */
 export interface MaviTurnRaw {
   readonly activeTurnId:                number;
@@ -171,6 +195,8 @@ export interface MaviRawSnapshot {
   readonly quota:    MaviQuotaRaw | null;
   readonly proactive: MaviProactiveRaw | null;
   readonly speech:   MaviSpeechRaw | null;
+  /** SAHA #1256-a · TTS motor sonuç defteri. `null` = okunamadı. */
+  readonly ttsEngine: MaviTtsEngineRaw | null;
   readonly turn:     MaviTurnRaw | null;
   /** MAVI-F8 · sürüş iş yükü tanısı. `null` = okunamadı. */
   readonly workload: MaviWorkloadRaw | null;
@@ -182,6 +208,36 @@ export interface MaviRawSnapshot {
   readonly bargeIn: MaviBargeInRaw | null;
   /** MAVI-F13 · kanonik runtime konsolidasyon tanısı. `null` = okunamadı. */
   readonly runtime: MaviRuntimeRaw | null;
+  /** Wake karar defteri (`recordWake` projeksiyonu). `null` = okunamadı. */
+  readonly wakeForensics: MaviWakeForensicsRaw | null;
+}
+
+/**
+ * Wake tetiğinin AKIBETİ — bounded, PII'siz.
+ *
+ * NEDEN VAR: sahada (2026-09-03/04) native wake tetiği doğuyor ama Mavi
+ * uyanmıyordu; `onWakeWordDetected` kararı kaydediyordu ama okunur yüzeyi
+ * olmadığı için hangi kapının yuttuğu cihazda GÖRÜLEMİYORDU. Bu satırlar o
+ * boşluğu kapatır — yeni ölçüm ÜRETMEZ, var olan defteri okur.
+ *
+ * GİZLİLİK: transkript METNİ taşınmaz (defter zaten tutmaz).
+ */
+export interface MaviWakeForensicsRaw {
+  /** Gerekçe → adet. ACCEPTED · REJECTED_TOKEN · SUPPRESSED_* · NOT_EVALUATED_* */
+  readonly counts: Readonly<Record<string, number>>;
+  /** Kayıt toplamı (tampondan düşenler DAHİL). */
+  readonly total: number;
+  /** Tampon tavanı yüzünden düşen kayıt adedi. */
+  readonly evicted: number;
+  /** Kabul edilip GERÇEKTEN komuta dönüşen tetik adedi. */
+  readonly intentReached: number;
+  /** Kabul edildi ama komuta DÖNMEDİ (zaman aşımı dâhil) — sessiz kayıp. */
+  readonly acceptedNoIntent: number;
+  /** Bekleyen kabulün yaşı (ms). `null` = bekleyen YOK (0 ms ile karıştırılamaz). */
+  readonly pendingAcceptAgeMs: number | null;
+  /** En son kararın gerekçesi ve koştuğu yol. `null` = hiç kayıt yok. */
+  readonly lastReason: string | null;
+  readonly lastPath: string | null;
 }
 
 /**
@@ -302,7 +358,7 @@ export interface MaviWorkloadRaw {
 
 export type MaviSectionId =
   | 'lifecycle' | 'diag' | 'ai-health' | 'quota' | 'proactive' | 'speech' | 'workload'
-  | 'proactive-policy' | 'surface' | 'barge-in' | 'canonical-runtime';
+  | 'proactive-policy' | 'surface' | 'barge-in' | 'canonical-runtime' | 'wake-forensics';
 
 export interface MaviSection {
   readonly id:     MaviSectionId;
@@ -322,6 +378,7 @@ export const MAVI_SECTION_TITLE: Readonly<Record<MaviSectionId, string>> = {
   'surface': 'I · Kullanıcıya Görünen Durum (F11)',
   'barge-in': 'J · Barge-in ve Konuşma Kontrolü (F12)',
   'canonical-runtime': 'K · Kanonik Runtime / Konsolidasyon (F13)',
+  'wake-forensics': 'L · Wake Tetiğinin Akıbeti (kim yuttu?)',
 } as const;
 
 const SRC = {
@@ -332,6 +389,7 @@ const SRC = {
   proactive: 'companion/companionChatProvider.getProactiveAlertDiagnostics()'
            + ' + ai/aiOfflineReason.getProactiveSuppressionHistory()',
   speech: 'assistant/maviSpeech.getMaviSpeechDiagnostics()',
+  ttsEngine: 'ttsService.getTtsEngineDiagnostics()',
   turn:   'assistant/maviTurn.getMaviTurnDiagnostics()',
   workload: 'assistant/maviWorkload.getMaviWorkloadDiagnostics()',
   policy: 'assistant/proactivePolicyEngine.getProactivePolicyDiagnostics()',
@@ -341,6 +399,8 @@ const SRC = {
          + ' (voice/duplexCapability.classifyMaviDuplex)',
   runtime: 'maviCore/wiring/maviEvidence.getMaviRuntimeConsolidationDiagnostics()'
          + ' + ai/gateway/aiGatewayFlag + capability/fabric/capabilityFabric',
+  wakeForensics: 'voice/wakeForensics.getWakeForensics()'
+         + ' (voice/core/wakeDecisionModel.projectWakeForensics)',
 } as const;
 
 function _bound(fields: readonly InspectorField[]): readonly InspectorField[] {
@@ -721,6 +781,77 @@ function _speechSection(s: MaviRawSnapshot): MaviSection {
     ));
   }
 
+  /* ── SAHA #1256-a · ÇAĞRI ≠ DUYULAN SES ────────────────────────────────
+   * Yukarıdaki `toplam seslendirme` yalnız "TTS'e çağrı gitti" der. 2026-09-04'te
+   * o sayaç `2` derken kullanıcı HİÇBİR ŞEY duymuyordu: cihazda varsayılan TTS
+   * motoru (`secure.tts_default_synth`) HİÇ SEÇİLİ DEĞİLDİ. Aşağıdaki alanlar o
+   * boşluğu kapatır — ama **sesin duyulduğunu İDDİA ETMEZ**: JS'ten hoparlör
+   * okunamaz. Ölçülen yalnız seslendirmenin NASIL sonlandığı ve GERÇEK süresidir.
+   * Hüküm (`kanıt sınıfı`) `ttsService`in kendi defterinden gelir — LAB burada
+   * kendi gerçeğini ÜRETMEZ, taşır. */
+  const te = s.ttsEngine;
+  if (!te) {
+    f.push(unavailable(
+      { id: 'msTtsEngine', label: 'TTS motor sonucu', source: SRC.ttsEngine, note: '' },
+      'TTS motor sonuç defteri okunamadı.',
+    ));
+  } else {
+    f.push(observed(
+      { id: 'msTtsRequested', label: 'seslendirme denemesi', source: SRC.ttsEngine,
+        note: 'Motora giden seslendirme denemesi adedi. `toplam seslendirme` ile '
+            + 'aynı olgu DEĞİLDİR: bu, TTS motor yoluna FİİLEN inen çağrıdır.'
+            + (te.saturated ? ' ⚠️ Tavan doldu — sayılar artık gerçek adet DEĞİL.' : '') },
+      te.requested,
+    ));
+    f.push(observed(
+      { id: 'msTtsDone', label: 'motor bitişi bildirdi', source: SRC.ttsEngine,
+        note: 'Motor "seslendirme bitti" dedi. ⚠️ Bu, sesin DUYULDUĞUNUN kanıtı '
+            + 'DEĞİLDİR — yalnız motorun cevap verdiğini gösterir.' },
+      te.engineDone,
+    ));
+    f.push(observed(
+      { id: 'msTtsSilent', label: 'motor HİÇ cevap vermedi', source: SRC.ttsEngine,
+        note: 'Emniyet süresi doldu ama motor bitişi hiç bildirmedi. Bu sayacın '
+            + 'artması, seçili/çalışan bir TTS motoru OLMADIĞININ en güçlü '
+            + 'uygulama-içi işaretidir (saha #1256).' },
+      te.noEngineReport,
+    ));
+    f.push(observed(
+      { id: 'msTtsError', label: 'motor hata/yok', source: SRC.ttsEngine,
+        note: 'Motor çağrısı reddedildi ya da platformda hiç TTS yok.' },
+      te.engineError,
+    ));
+    f.push(derived(
+      { id: 'msTtsInstant', label: 'şüpheli anında "bitti"', source: SRC.ttsEngine,
+        note: 'Motor "bitti" dedi ama süre, o uzunluktaki cümlenin FİZİKSEL en '
+            + 'kısa konuşulma süresinden bile kısaydı → cümle GERÇEKTE '
+            + 'konuşulmamış olabilir. Sınır kasıtlı cömerttir (yanlış-pozitif '
+            + 'yerine kaçırmayı tercih eder).' },
+      te.suspectInstantDone,
+    ));
+    if (te.lastEvidence === null) {
+      f.push(unavailable(
+        { id: 'msTtsLast', label: 'son seslendirmenin kanıtı', source: SRC.ttsEngine, note: '' },
+        'Henüz hiçbir seslendirme kapanmadı.',
+      ));
+    } else {
+      f.push(derived(
+        { id: 'msTtsLast', label: 'son seslendirmenin kanıtı', source: SRC.ttsEngine,
+          note: 'ENGINE_CONFIRMED = motor bitişi bildirdi (SES KANITI DEĞİL) · '
+              + 'ENGINE_SILENT = motor cevap vermedi/hata · '
+              + 'SUSPECT_INSTANT_DONE = süre fiziksel alt sınırın altında.' },
+        `${te.lastEvidence} · ${te.lastCause} · ${te.lastTransport}`,
+      ));
+      f.push(observed(
+        { id: 'msTtsLastMs', label: 'son seslendirme süresi', source: SRC.ttsEngine,
+          note: 'GERÇEK ölçülen süre (monotonik) ile bu uzunluktaki cümlenin '
+              + 'fiziksel alt sınırı yan yana. Metin TAŞINMAZ — yalnız uzunluk.' },
+        `${te.lastDurationMs} ms · alt sınır ${te.lastMinPlausibleMs} ms · `
+        + `${te.lastCharCount} karakter`,
+      ));
+    }
+  }
+
   /* — M5 tur kapıları — */
   if (!tn) {
     f.push(unavailable(
@@ -1066,6 +1197,95 @@ function _surfaceSection(s: MaviRawSnapshot): MaviSection {
   return { id: ID, title: MAVI_SECTION_TITLE[ID], fields: _bound(f) };
 }
 
+/* ── L · Wake tetiğinin akıbeti ─────────────────────────────────────────────
+ *
+ * SAHA 2026-09-03/04 (K2401 head unit + Xiaomi 23090RA98I): native wake motoru
+ * "Hey Mavi"yi YAKALIYOR (`VoiceMicDiagnostics.wake.triggerCount` artıyor,
+ * güven %86) ama Mavi HİÇ uyanmıyor — ne selam, ne dinleme, ne durum değişimi.
+ * `onWakeWordDetected` beş ayrı kapıda tetiği sessizce düşürebiliyor ve kararı
+ * `recordWake` ile ZATEN kaydediyordu; eksik olan tek şey OKUNUR YÜZEYDİ.
+ * Bu bölüm o boşluğu kapatır: yeni sayaç üretmez, yeni ölçüm başlatmaz.
+ * ─────────────────────────────────────────────────────────────────────────── */
+
+function _wakeForensicsSection(s: MaviRawSnapshot): MaviSection {
+  const f: InspectorField[] = [];
+  const w = s.wakeForensics ?? null;
+  const ID: MaviSectionId = 'wake-forensics';
+
+  if (!w) {
+    f.push(unavailable(
+      { id: 'wfRoot', label: 'wake karar defteri', source: SRC.wakeForensics, note: '' },
+      'Wake karar defteri okunamadı — "hiç tetik yok" DEĞİL, ÖLÇÜLEMEDİ.'));
+    return { id: ID, title: MAVI_SECTION_TITLE[ID], fields: _bound(f) };
+  }
+
+  const total = w.total;
+
+  f.push(observed(
+    { id: 'wfTotal', label: 'kaydedilen wake kararı', source: SRC.wakeForensics,
+      note: 'JS katmanına ULAŞAN tetik sayısı. Native tetik sayacıyla '
+          + '(CAROS LAB → STT/Mikrofon · `wake.triggerCount`) KARŞILAŞTIRIN: '
+          + 'native artıp bu artmıyorsa kopukluk native↔JS köprüsündedir; '
+          + 'ikisi de artıyorsa tetik JS kapılarından birinde düşmüştür.' },
+    total === 0 ? '0 (hiç karar kaydedilmedi)' : String(total)));
+
+  /* EN KRİTİK SATIR: hangi kapı yuttu. */
+  f.push(observed(
+    { id: 'wfLast', label: 'son kararın gerekçesi', source: SRC.wakeForensics,
+      note: 'ACCEPTED = oturum açıldı · REJECTED_TOKEN = native eşleşti ama '
+          + 'JS kelime-sınırı süzgeci reddetti (iki süzgeç ayrıştı) · '
+          + 'SUPPRESSED_PAUSED = bilişsel mod sesi duraklatmış · '
+          + 'SUPPRESSED_VOICE_ACTIVE / SUPPRESSED_FOLLOWUP = asistan zaten '
+          + 'meşgul · SUPPRESSED_SELF_ECHO = TTS konuşurken kendi sesini '
+          + 'duydu · SUPPRESSED_DEBOUNCE = önceki kabule çok yakın · '
+          + 'NOT_EVALUATED_MODEL_NOT_READY = model henüz yüklenmemişti.' },
+    w.lastReason ? `${w.lastReason} (yol: ${w.lastPath || 'BİLİNMİYOR'})` : 'KAYIT YOK'));
+
+  /* Dağılım: tek bir gerekçe baskınsa kök neden odur. */
+  const keys = Object.keys(w.counts);
+  if (keys.length === 0) {
+    f.push(unavailable(
+      { id: 'wfDist', label: 'gerekçe dağılımı', source: SRC.wakeForensics, note: '' },
+      'Henüz hiçbir karar kaydedilmedi.'));
+  } else {
+    f.push(observed(
+      { id: 'wfDist', label: 'gerekçe dağılımı', source: SRC.wakeForensics,
+        note: 'Tek bir SUPPRESSED_* gerekçesi baskınsa kök neden odur; '
+            + 'ACCEPTED yüksek ama `komuta dönen` düşükse sorun wake\'te '
+            + 'DEĞİL, sonraki dinleme/anlama adımındadır.' },
+      keys.map((k) => `${k}: ${w.counts[k] ?? 0}`).join(' · ')));
+  }
+
+  /* Kabul edildi ama sonuçlanmadı — "uyandı ama işe yaramadı" sınıfı.
+     SAHA #1258: etiket eskiden yalnız "komut" diyordu, oysa sohbet cevabı da
+     geçerli bir turdur; komut yürütmesi olmayan sohbet turları haksız yere
+     `SESSİZ KAYIP` sayılıyordu. Ölçülen olgu artık dürüst adlandırılır. */
+  f.push(observed(
+    { id: 'wfIntent', label: 'kabul → sonuç', source: SRC.wakeForensics,
+      note: 'Kabul edilen tetiğin GERÇEKTEN bir sonuca (komut yürütmesi VEYA '
+          + 'sohbet cevabı) dönüşüp dönüşmediği. `sonuçlanmayan` sayısı '
+          + 'yüksekse kullanıcı uyandırdı ama sistem sessiz kaldı — bu '
+          + 'SESSİZ KAYIPTIR ve wake başarısı gibi sayılamaz.' },
+    `sonuçlanan ${w.intentReached} · SONUÇLANMAYAN ${w.acceptedNoIntent}`));
+
+  /* Bekleyen kabul: 0 ms ile "yok" ayrımı bilinçlidir. */
+  f.push(observed(
+    { id: 'wfPending', label: 'bekleyen kabul yaşı', source: SRC.wakeForensics,
+      note: 'Kabul edilmiş ama henüz komuta dönmemiş tetiğin yaşı. '
+          + '`YOK` ile `0 ms` AYRI şeylerdir: 0 ms = az önce kabul edildi.' },
+    w.pendingAcceptAgeMs === null ? 'YOK' : `${Math.round(w.pendingAcceptAgeMs)} ms`));
+
+  if (w.evicted > 0) {
+    f.push(observed(
+      { id: 'wfEvicted', label: 'tampondan düşen kayıt', source: SRC.wakeForensics,
+        note: 'Halka tampon tavanı. Dağılım sayaçları DOYMAZ — düşen kayıtlar '
+            + 'yalnız son-N listesinden çıkar, toplamlar korunur.' },
+      String(w.evicted)));
+  }
+
+  return { id: ID, title: MAVI_SECTION_TITLE[ID], fields: _bound(f) };
+}
+
 /* ── J · Barge-in ve konuşma kontrolü (F12) ───────────────────────────────── */
 
 /** `-1` = ölçüm yok → sahte `0` YERİNE dürüst metin. */
@@ -1282,7 +1502,7 @@ export function buildMaviSections(s: MaviRawSnapshot): MaviSection[] {
     _lifecycleSection(s), _diagSection(s), _aiHealthSection(s),
     _quotaSection(s), _proactiveSection(s), _speechSection(s), _workloadSection(s),
     _proactivePolicySection(s), _surfaceSection(s), _bargeInSection(s),
-    _canonicalRuntimeSection(s),
+    _canonicalRuntimeSection(s), _wakeForensicsSection(s),
   ];
 }
 

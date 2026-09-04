@@ -16,10 +16,11 @@ import { FullMapView } from '../map/FullMapView';
 import {
   useMediaState,
   togglePlayPause,
-  next,
-  previous,
   fmtTime,
 } from '../../platform/mediaService';
+/* MUSIC F7.3: sonraki/önceki KUYRUK-FARKINDA katmandan gelir — backend'i
+   kuyruksuz olan kaynaklarda (YouTube) üst katman sırası ilerler. */
+import { next, previous } from '../../platform/media/carosMediaLayer';
 import { useOBDState } from '../../platform/obdService';
 import { useLiveVehicleSignal } from '../../hooks/useCanonicalVehicleSignal';
 import { useUnifiedVehicleStore } from '../../platform/vehicleDataLayer';
@@ -441,7 +442,7 @@ export const SplitScreen = memo(function SplitScreen({ onClose }: SplitScreenPro
 
           {/* Controls — premium play + glass ghost prev/next */}
           <div className="flex justify-evenly items-center mt-4 flex-shrink-0">
-            <button onClick={previous} aria-label="Önceki"
+            <button onClick={() => { previous('split_screen'); }} aria-label="Önceki"
               className="w-12 h-12 rounded-full flex items-center justify-center active:scale-90 transition-all"
               style={{
                 background: 'transparent',
@@ -467,7 +468,7 @@ export const SplitScreen = memo(function SplitScreen({ onClose }: SplitScreenPro
                 : <Play  className="w-7 h-7 ml-0.5" style={{ color: '#0a0a0a', fill: '#0a0a0a' }} />
               }
             </button>
-            <button onClick={next} aria-label="Sonraki"
+            <button onClick={() => { next('split_screen'); }} aria-label="Sonraki"
               className="w-12 h-12 rounded-full flex items-center justify-center active:scale-90 transition-all"
               style={{
                 background: 'transparent',

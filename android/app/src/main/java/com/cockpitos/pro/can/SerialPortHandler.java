@@ -55,10 +55,25 @@ public final class SerialPortHandler {
      * Bu ünitede CAN, UART'tan DEĞİL OEM broadcast'inden gelir
      * (bkz. SystemCanBroadcastAdapter) — port taraması burada zaten kazanç sağlamaz,
      * yalnız zarar verir.
+     *
+     * ── ttyS2 EKLENDİ (SAHA 2026-09-03, ölçülmüş sert reset zinciri) ──────────
+     * Aynı sınıf hata, bu kez ttyS2'de ve sonucu çok daha ağır: cihaz komple
+     * resetleniyordu. Canlı yakalanan zincir:
+     *   21:14:01.897  CanBusManager başlatıldı
+     *   21:14:02.111  Bağlandı → UART:/dev/ttyS2 @ 115200      ← port AÇILDI
+     *   21:14:02.220  Heartbeat gönderildi                      ← MCU'ya yazım başladı
+     *   21:14:04.287  Heartbeat gönderildi
+     *   21:14:16      cihaz ÖLDÜ (kernel log'unda TEK satır uyarı yok)
+     * Kernel'de hiçbir panic/oops/watchdog izi olmaması, gücün YAZILIMDAN DEĞİL
+     * MCU tarafından kesildiğinin kanıtıdır. ttyS2 bu ünitede OEM'in MCU kontrol
+     * hattıdır: `nwdapp_UartCommunication` aynı hatta kendi çerçevelerini yazar
+     * (ör. `F004001800001C`). İki yazıcı = bozulan protokol = MCU kartı resetler.
+     * Kullanıcı gözlemiyle birebir örtüşür: uygulama KAPALIYKEN cihaz günlerce
+     * ayakta, AÇILINCA dakikalar içinde reset.
      */
     private static final String[][] KNOWN_OWNED_PORTS = {
-        { "sun50iw10p1", "/dev/ttyS1", "/dev/ttyS3", "/dev/ttyS0" },
-        { "ceres-b3",    "/dev/ttyS1", "/dev/ttyS3", "/dev/ttyS0" },
+        { "sun50iw10p1", "/dev/ttyS1", "/dev/ttyS2", "/dev/ttyS3", "/dev/ttyS0" },
+        { "ceres-b3",    "/dev/ttyS1", "/dev/ttyS2", "/dev/ttyS3", "/dev/ttyS0" },
     };
 
     /** UART sahipliğinin yazılı olduğu init dosyaları (head unit ROM'ları). */

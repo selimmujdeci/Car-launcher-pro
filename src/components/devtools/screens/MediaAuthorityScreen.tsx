@@ -198,7 +198,7 @@ export const MediaAuthorityScreen = memo(function MediaAuthorityScreen() {
       >
         <div className="flex flex-wrap items-center gap-2 border-b border-[var(--oem-line)] px-3 py-1.5">
           <span className="font-mono text-[11px] uppercase tracking-wide text-[var(--oem-info)]">
-            11 · Cihaz Senaryoları
+            13 · Cihaz Senaryoları
           </span>
           <span className="font-mono text-[9px] text-[var(--oem-ink-3)]">
             KOŞULMADI = cihazda hiç denenmedi (sahte yeşil ÜRETİLMEZ)

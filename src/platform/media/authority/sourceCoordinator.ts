@@ -61,6 +61,39 @@ export interface StartOutcome {
   readonly failureCode: string | null;
 }
 
+/**
+ * MUSIC F7.1 · Backend'in GÖZLENEN oynatma durumu.
+ *
+ * `UNKNOWN` dürüst bir cevaptır: backend durumunu okuyamıyorsa uydurulmaz.
+ */
+export type BackendPlaybackState =
+  | 'PLAYING' | 'PAUSED' | 'BUFFERING' | 'STOPPED' | 'ERROR' | 'UNKNOWN';
+
+export interface BackendCommandOutcome {
+  readonly accepted: boolean;
+  readonly failureCode: string | null;
+}
+
+/**
+ * MUSIC F7.1 · Native OLMAYAN backend'lerin transport yüzeyi.
+ *
+ * NEDEN VAR: `mediaCommandGateway` transport komutlarını (play · pause · seek)
+ * KOŞULSUZ `nativeAuthorityBridge`'e yolluyordu. Bu, backend'i native
+ * `CarosPlaybackService` OLMAYAN kaynaklar (YouTube IFrame · Spotify Connect)
+ * için YANLIŞTI — bu yüzden o kaynaklar kapının DIŞINDA, kendi ad-hoc
+ * yollarından sürülüyordu (ikinci transport otoritesi).
+ *
+ * Çözüm ikinci kapı açmak DEĞİL, aynı kapının yürütmesini backend'e
+ * DAĞITMAKTIR: politika · kanıt · dürüstlük kapıda kalır, yürütme sahibine
+ * gider. Bir backend bir komutu sunmuyorsa kapı onu `unsupported_capability`
+ * ile REDDEDER — sessizce yutmaz.
+ */
+export interface BackendTransport {
+  resume(): Promise<BackendCommandOutcome>;
+  pause(): Promise<BackendCommandOutcome>;
+  seek(positionSec: number): Promise<BackendCommandOutcome>;
+}
+
 export interface BackendAdapter {
   readonly sourceClass: SourceClass;
   /** Bu backend şu anda ses üretiyor mu (GÖZLENEN, varsayım değil). */
@@ -71,6 +104,14 @@ export interface BackendAdapter {
   prepare(request: PlayRequest): Promise<{ ready: boolean; failureCode: string | null }>;
   /** Başlat ve gözlenen sonucu döndür. */
   start(request: PlayRequest): Promise<StartOutcome>;
+  /**
+   * MUSIC F7.1 · Anlık gözlenen durum. Yoksa/okunamazsa `UNKNOWN`.
+   * Native backend bunu SUNMAZ — orada gerçek `nativeAuthorityBridge`
+   * anlık görüntüsüdür (tek kaynak korunur).
+   */
+  observe?(): BackendPlaybackState;
+  /** MUSIC F7.1 · Native olmayan backend'in transport yüzeyi (yoksa reddedilir). */
+  readonly transport?: BackendTransport;
 }
 
 /* ── Yürütücü ────────────────────────────────────────────────────────────── */
@@ -111,6 +152,12 @@ export interface SourceCoordinator {
   audibleBackends(): number;
   /** Aktif kaynağı güvenle durdurur (stop komutu). */
   stopActive(): Promise<StopOutcome>;
+  /**
+   * MUSIC F7.1 · Kayıtlı adaptörün SALT-OKUNUR erişimi.
+   * Kapı, transport yürütmesini sahibine dağıtmak için kullanır; adaptör
+   * kümesini DEĞİŞTİRMEZ (kayıt hâlâ `CoordinatorDeps`indir).
+   */
+  getAdapter(source: SourceClass): BackendAdapter | null;
 }
 
 export function createSourceCoordinator(deps: CoordinatorDeps): SourceCoordinator {
@@ -362,6 +409,10 @@ export function createSourceCoordinator(deps: CoordinatorDeps): SourceCoordinato
         state = { ...IDLE_HANDOVER, updatedAtMs: deps.now() };
       }
       return out;
+    },
+
+    getAdapter(source: SourceClass): BackendAdapter | null {
+      return deps.adapters.get(source) ?? null;
     },
   };
 }

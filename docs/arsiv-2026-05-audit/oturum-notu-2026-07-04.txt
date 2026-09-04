@@ -1,0 +1,29 @@
+Görev takibi kuruldu ve bağımlılıklar bağlandı. Şu an durum:
+
+Şimdiye kadar tamamlanan:
+1. Mevcut OBD mimarisi haritalandı — TS tarafında 15 servis dosyası + native tarafta 6 Java sınıfı + ADR-0003 BLE transport mimarisi.
+2. Kök neden bulguları ana oturumda doğrulandı (5/5 kontrol edildi, 4 doğru, 1 düzeltildi):
+  - obdService.ts:658-664 — obdStatus dinleyicisi neden filtrelemeden her olayda reconnect tetikliyor (kararsız döngülerin ana şüphelisi, BC8 semptomuyla uyumlu).
+  - ElmProtocol.java:32-50 — ELM init dizisi komut yolluyor ama hiçbir yanıtı doğrulamıyor (SEARCHING.../klon toleransı yok, ATDPN kontrolü yok).
+  - OBDManager.java:142-178 — soket referansı ancak connect() bittikten sonra volatile alana atanıyor → bloklu bağlantı denemesi disconnect() ile iptal edilemiyor.
+  - OBDManager.java:75 — tcpSocket alanı ölü: deklare edilmiş, hiç kullanılmıyor (K24 için WiFi ELM327 TCP yolu fiilen yok).
+  - obdStorage.ts:7 — ObdTransport = 'classic' | 'ble'; tcp tipi eksik.
+  - Düzeltme: architect "getObdBondState native'de yok" demişti — yanlış, CarLauncherPlugin.java:1075'te mevcut; yalnız performHandshake native'de eksik (TS tarafı zaten fail-soft guard'lı).
+
+Sırada: caros-architect ajanı tam raporu (mimari analiz + v2 tasarım + sıralı patch planı) arka planda tamamlıyor. Rapor gelince MVP implementasyonunu caros-obd-canbus ajanına devredeceğim, ardından ana oturumda npm run test + npm run build ile doğrulayacağım.
+
+✻ Waiting for 1 background agent to finish
+
+❯ devam et, rapor gelince implementasyona geç
+
+Raporun gelip gelmediğini kontrol ediyorum — ajanın çıktı dosyasına bakıyorum.
+
+  Read 2 files, ran 3 shell commands, recalled 1 memory
+
+● Agent "OBD mimari analizi + v2 tasarım" finished · 4m 19s
+
+● caros-obd-canbus(OBD Core v2 MVP implementasyonu)
+Done (206 tool uses · 471.2k tokens · 51m 0s)
+
+You've hit your session limit · resets 1:20am (Europe/Istanbul)
+/upgrade to increase your usage limit.

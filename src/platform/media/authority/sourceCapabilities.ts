@@ -43,6 +43,33 @@ export interface SourceCapabilities {
   readonly supportsArtwork: boolean;
   /** Durdurma komutunun GERÇEKTEN durdurduğu doğrulanabiliyor mu (handover için). */
   readonly supportsStopVerification: boolean;
+  /**
+   * F5 · Bu kaynakta KATALOG ARAMASI yapılabiliyor mu.
+   *
+   * `false` ise birleşik aramada bu kaynağa istek GÖNDERİLMEZ — desteklenmeyen
+   * bir uca sorgu atıp boş sonucu "sonuç yok" diye sunmak kullanıcıyı yanıltır.
+   * Bu, çalma yeteneğinden BAĞIMSIZDIR: Bluetooth ses çalar ama aranamaz.
+   */
+  readonly supportsSearch: boolean;
+  /**
+   * F7.6 · Bu kaynağa **hangi öğenin** çalacağı söylenebiliyor mu.
+   *
+   * `supportsQueue` ile KARIŞTIRILMAMALIDIR — ölçülen fark şudur:
+   *   · `supportsQueue`  = BACKEND'in kendi zaman çizelgesi (kuyruğu) var mı;
+   *     yani "sıraya ekle · yeniden sırala · sen ilerlet" anlamlıdır.
+   *   · `supportsDesignatedItemStart` = CarOS'un DESIRED kuyruğundaki bir öğeye
+   *     imleci taşıyıp o öğeyi çaldırabiliyor muyuz; yürütme
+   *     `mediaCommandGateway.playSource({ startIndex })` ile yapılır.
+   *
+   * Bu alan UYDURULMAZ: değeri, kayıtlı `BackendAdapter`ın ÖLÇÜLEN
+   * `prepare`/`start` davranışıdır. Harici Android MediaSession adaptörü
+   * `prepare`/`start` çağrılarını açıkça `unsupported_capability` ile reddeder
+   * → orada `false`. `VIDEO` için kayıtlı adaptör YOKTUR → `false`.
+   *
+   * Kilit: `musicF76ProviderQueue` bu tabloyu adaptör gerçeğiyle karşılaştırır;
+   * biri değişip diğeri kalırsa test düşer.
+   */
+  readonly supportsDesignatedItemStart: boolean;
 }
 
 export interface SourceDescriptor {
@@ -67,6 +94,8 @@ const NATIVE_FULL: SourceCapabilities = {
   supportsMetadata: true,
   supportsArtwork: true,
   supportsStopVerification: true,
+  supportsSearch: true,        // yerel kütüphane MusicIndex üzerinden aranır
+  supportsDesignatedItemStart: true,   // setQueue(startIndex) + play
 };
 
 const NATIVE_STREAM: SourceCapabilities = {
@@ -86,7 +115,8 @@ const YOUTUBE_IFRAME: SourceCapabilities = {
   supportsPlay: true,
   supportsPause: true,
   supportsSeek: true,
-  supportsQueue: false,          // kuyruk ÜST katmanda (carosMediaLayer) tutulur
+  // Backend'in KENDİ zaman çizelgesi yoktur; sıra kanonik `PlayQueue`dadır (F7.6).
+  supportsQueue: false,
   supportsShuffle: false,
   supportsRepeat: false,
   supportsPosition: true,
@@ -96,6 +126,9 @@ const YOUTUBE_IFRAME: SourceCapabilities = {
   supportsMetadata: true,
   supportsArtwork: true,
   supportsStopVerification: true, // iframe pause state'i okunabilir
+  supportsSearch: true,           // Piped katalog araması
+  // Adaptör `start()` doğrudan `items[startIndex]` videosunu yükler (ÖLÇÜLDÜ).
+  supportsDesignatedItemStart: true,
 };
 
 const SPOTIFY_CONNECT: SourceCapabilities = {
@@ -117,6 +150,9 @@ const SPOTIFY_CONNECT: SourceCapabilities = {
    * yoksa zaten bizim ses yolumuzu kullanmıyordur. Devir için gereken kanıt budur.
    */
   supportsStopVerification: true,
+  supportsSearch: true,           // Spotify katalog araması (yalnız bağlıyken)
+  // Adaptör `start()` belirtilen parçayı `playSpotifyTrack` ile çalar (ÖLÇÜLDÜ).
+  supportsDesignatedItemStart: true,
 };
 
 const EXTERNAL_SESSION: SourceCapabilities = {
@@ -133,6 +169,11 @@ const EXTERNAL_SESSION: SourceCapabilities = {
   supportsMetadata: true,
   supportsArtwork: true,
   supportsStopVerification: true, // PlaybackState PAUSED gözlenebilir
+  // Harici MediaSession'da katalog araması YOKTUR — sorgu gönderilmez.
+  supportsSearch: false,
+  /* Harici uygulamanın kuyruğunu BİZ kuramayız: adaptörün `prepare`/`start`
+     çağrıları açıkça `unsupported_capability` döner (ÖLÇÜLDÜ). */
+  supportsDesignatedItemStart: false,
 };
 
 const BLUETOOTH_EXTERNAL: SourceCapabilities = {
@@ -142,6 +183,7 @@ const BLUETOOTH_EXTERNAL: SourceCapabilities = {
   // AVRCP metadata'sı güvenilmez ama Bluetooth MediaSession'ın PlaybackState'i
   // (playing=false) gözlenebilir — devir kanıtı için bu yeterlidir.
   supportsStopVerification: true,
+  supportsSearch: false,
 };
 
 const VIDEO_CAPS: SourceCapabilities = {
@@ -158,6 +200,9 @@ const VIDEO_CAPS: SourceCapabilities = {
   supportsMetadata: false,
   supportsArtwork: false,
   supportsStopVerification: true,
+  supportsSearch: false,        // video oynatıcı müzik kataloğu SUNMAZ
+  // Kayıtlı bir `BackendAdapter` YOK → kapı `unknown_source_adapter` döner.
+  supportsDesignatedItemStart: false,
 };
 
 export const SOURCE_REGISTRY: Readonly<Record<SourceClass, SourceDescriptor>> = {
@@ -239,6 +284,16 @@ export function requiredCapability(command: CapabilityGatedCommand): keyof Sourc
     case 'stop':       return null;
     default:           return null;
   }
+}
+
+/**
+ * F7.6 · CarOS'un DESIRED kuyruğundaki bir öğeye imleç taşınıp o öğe
+ * çaldırılabiliyor mu. Kuyruk GEZİNMESİNİN (sonraki/önceki/atla) kapısıdır;
+ * kuyruk DÜZENLEMESİNİN (`supportsQueue`) kapısı değildir.
+ */
+export function supportsDesignatedItemStart(sourceClass: SourceClass): boolean {
+  const d = SOURCE_REGISTRY[sourceClass];
+  return d !== undefined && d.capabilities.supportsDesignatedItemStart === true;
 }
 
 /** Kaynak bu komutu destekliyor mu — desteklemiyorsa komut REDDEDİLİR. */

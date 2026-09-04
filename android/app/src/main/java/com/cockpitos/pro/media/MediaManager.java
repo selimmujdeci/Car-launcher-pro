@@ -342,13 +342,19 @@ public class MediaManager {
     }
 
     public void getMediaArtDataUri(String uri, ArtCallback callback) {
+        getMediaArtDataUri(uri, 256, callback);
+    }
+
+    /** Background decode/output bounded for HMI artwork consumers. */
+    public void getMediaArtDataUri(String uri, int targetPx, ArtCallback callback) {
         if (uri == null || uri.isEmpty()) {
             callback.onResult("");
             return;
         }
 
         synchronized (artCache) {
-            String cached = artCache.get(uri);
+            String cacheKey = uri + "#" + targetPx;
+            String cached = artCache.get(cacheKey);
             if (cached != null) {
                 callback.onResult(cached);
                 return;
@@ -358,11 +364,18 @@ public class MediaManager {
         artLoaderExecutor.submit(() -> {
             String dataUri = "";
             try {
-                Bitmap b = PluginUtils.loadBitmapFromUri(context, uri);
+                Bitmap b = PluginUtils.loadBitmapFromUri(context, uri, targetPx);
                 if (b != null) {
-                    dataUri = PluginUtils.bitmapToDataUri(b);
+                    int largest = Math.max(b.getWidth(), b.getHeight());
+                    if (largest > targetPx) {
+                        float scale = targetPx / (float) largest;
+                        Bitmap scaled = Bitmap.createScaledBitmap(b, Math.max(1, Math.round(b.getWidth() * scale)), Math.max(1, Math.round(b.getHeight() * scale)), true);
+                        if (scaled != b) { b.recycle(); b = scaled; }
+                    }
+                    dataUri = PluginUtils.bitmapToDataUri(b, targetPx);
+                    b.recycle();
                     if (!dataUri.isEmpty()) {
-                        synchronized (artCache) { artCache.put(uri, dataUri); }
+                        synchronized (artCache) { artCache.put(uri + "#" + targetPx, dataUri); }
                     }
                 }
             } catch (Throwable ignored) {}

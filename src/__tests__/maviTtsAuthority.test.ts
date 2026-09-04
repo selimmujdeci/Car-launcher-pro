@@ -243,6 +243,10 @@ describe('MAVI-M6 · guard — tek otorite', () => {
     const tts = read('platform', 'ttsService.ts');
     expect(tts).toMatch(/MIN_REPEAT_MS/);
     expect(tts).toMatch(/_lastFeedbackText/);
-    expect(tts).toMatch(/duckMedia|_ttsDucking/);
+    /* MUSIC F6.1: ducking artık KANONİK yoldan (duckRequest → duckPolicy)
+       istenir; eski ölü `duckMedia` bayrağı kaldırıldı. Kilit yeni tek-kaynağa
+       yeniden bağlandı — kaldırılmadı. */
+    expect(tts).toMatch(/duckRequest/);
+    expect(tts).toMatch(/_beginTtsDuck|_endTtsDuck/);
   });
 });

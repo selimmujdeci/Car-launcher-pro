@@ -1,7 +1,30 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { supabaseAdmin } from '@/lib/supabaseAdmin';
-import { isSupabaseConfigured } from '@/lib/supabase';
-import { verifyApiKey } from '@/lib/crypto';
+/**
+ * /api/pwa/dtc-result — FAIL-CLOSED KAPATILDI (P0-001A).
+ *
+ * ── NEDEN (kod kanıtı, 2026-08-22) ────────────────────────────────────────
+ * `verifyApiKey(rawKey, vehicle.api_key_hash)` = `sha256(raw) === kolon`;
+ * kolon düz metin UUID tutar (üretim: 834/834) → eşleşme İMKÂNSIZ, uç HER
+ * ZAMAN 401 dönüyordu. Üstelik çağıran `DiagnosticsPanel.fetchDiagResult`
+ * anahtarı bulamadığı için isteği `Authorization` BAŞLIĞI OLMADAN atıyor →
+ * pratikte 400. Yani bu uç hiç çalışmadı.
+ *
+ * ── AÇIK BORÇ (bilerek bu turda kapatılmadı) ──────────────────────────────
+ * Teşhis sonucunu okumanın ÇALIŞAN yolu vardır: oturumlu kullanıcı
+ * `vehicle_commands` satırını RLS ile (`commands: okuyabilir` →
+ * `is_vehicle_owner OR is_paired`) doğrudan okuyabilir. `DiagnosticsPanel`i
+ * o yola taşımak P0-001A kapsamı DIŞINDADIR ve ayrı bir turdur. O tur
+ * gelene kadar panel açık gerekçeli 410 alır — sessiz 401'den daha dürüsttür.
+ *
+ * TİPLER KORUNDU: `DtcCode` ve `DtcResult` bu modülden import edilir
+ * (`components/pwa/DiagnosticsPanel.tsx`). Sözleşme kaldırılırsa derleme
+ * kırılır ve kapatma, ilgisiz bir yerde hataya dönüşürdü.
+ */
+
+import { NextResponse } from 'next/server';
+import {
+  DEPRECATED_API_KEY_ROUTES,
+  deprecatedApiKeyRouteBody,
+} from '@/lib/deprecatedApiKeyRoutes';
 
 export interface DtcCode {
   code:     string;
@@ -30,97 +53,12 @@ export interface DtcResult {
   demo?:     boolean;
 }
 
-// Demo DTC codes for offline/demo mode
-const DEMO_DTCS: DtcCode[] = [
-  { code: 'P0420', severity: 'warning',  system: 'Egzoz',       desc: 'Katalitik Dönüştürücü Verimliliği Düşük (B1)' },
-  { code: 'P0171', severity: 'warning',  system: 'Yakıt',       desc: 'Yakıt Karışımı Zayıf (B1) — Hava fazlası' },
-  { code: 'P0562', severity: 'critical', system: 'Elektrik',    desc: 'Sistem Voltajı Düşük — Akü veya şarj sistemi' },
-];
+const ROUTE = DEPRECATED_API_KEY_ROUTES.find((r) => r.path === '/api/pwa/dtc-result')!;
 
-export async function GET(req: NextRequest) {
-  const rawKey    = (req.headers.get('Authorization') ?? '').replace(/^Bearer\s+/i, '');
-  const commandId = req.nextUrl.searchParams.get('commandId');
-  const vehicleId = req.nextUrl.searchParams.get('vehicleId');
+export async function GET(): Promise<NextResponse> {
+  return NextResponse.json(deprecatedApiKeyRouteBody(ROUTE), { status: ROUTE.status });
+}
 
-  if (!rawKey || !commandId || !vehicleId) {
-    return NextResponse.json({ error: 'Authorization, commandId ve vehicleId zorunlu.' }, { status: 400 });
-  }
-
-  // ── Demo mode ──────────────────────────────────────────────────────────────
-  if (!isSupabaseConfigured) {
-    if (!rawKey.startsWith('demo-api-key-')) {
-      return NextResponse.json({ error: 'Geçersiz API anahtarı.' }, { status: 401 });
-    }
-    await new Promise((r) => setTimeout(r, 800)); // simulate latency
-    const result: DtcResult = {
-      dtcs:    commandId.includes('clear') ? [] : DEMO_DTCS,
-      voltage: 12.4,
-      readAt:  new Date().toISOString(),
-      status:  'completed',
-      // Bu veri hiçbir araçtan OKUNMADI. İşaretlenmezse ürün ekranında gerçek
-      // teşhis gibi görünür (P0420/P0171/P0562 uydurma kodlardır).
-      demo:    true,
-    };
-    return NextResponse.json(result);
-  }
-
-  // ── Supabase mode ──────────────────────────────────────────────────────────
-  const { data: vehicle, error: vErr } = await supabaseAdmin
-    .from('vehicles')
-    .select('id, api_key_hash')
-    .eq('id', vehicleId)
-    .maybeSingle();
-
-  if (vErr || !vehicle) {
-    return NextResponse.json({ error: 'Araç bulunamadı.' }, { status: 404 });
-  }
-
-  const vRow = vehicle as { id: string; api_key_hash: string };
-  if (!verifyApiKey(rawKey, vRow.api_key_hash)) {
-    return NextResponse.json({ error: 'Geçersiz API anahtarı.' }, { status: 401 });
-  }
-
-  const { data: cmd, error: cmdErr } = await supabaseAdmin
-    .from('vehicle_commands')
-    .select('id, status, result, error_reason, created_at')
-    .eq('id', commandId)
-    .eq('vehicle_id', vehicleId)
-    .maybeSingle();
-
-  if (cmdErr || !cmd) {
-    return NextResponse.json({ error: 'Komut bulunamadı.' }, { status: 404 });
-  }
-
-  const row = cmd as {
-    id: string; status: string;
-    result?: Record<string, unknown> | null;
-    error_reason?: string | null;
-    created_at: string;
-  };
-
-  if (row.status !== 'completed') {
-    // Araç reddetti/başaramadıysa GERÇEK gerekçe taşınır — boş liste sessizce
-    // "arıza yok" diye okunamasın diye `partial: true` ile fail-closed işaretlenir.
-    const terminal = ['failed', 'rejected', 'expired'].includes(row.status);
-    return NextResponse.json({
-      status:      row.status,
-      dtcs:        [],
-      readAt:      row.created_at,
-      partial:     terminal,
-      errorReason: row.error_reason ?? undefined,
-    });
-  }
-
-  const result: DtcResult = {
-    dtcs:    (row.result?.dtcs as DtcCode[]) ?? [],
-    voltage: row.result?.voltage as number | undefined,
-    readAt:  (row.result?.readAt as string | undefined) ?? row.created_at,
-    status:  'completed',
-    // Araç tarafının dürüstlük bayrakları — düşürülürse "kısmi tarama" bilgisi
-    // kaybolur ve boş liste "temiz" gibi görünür.
-    partial:            row.result?.partial === true,
-    permanentSupported: row.result?.permanentSupported as boolean | undefined,
-  };
-
-  return NextResponse.json(result);
+export async function POST(): Promise<NextResponse> {
+  return NextResponse.json(deprecatedApiKeyRouteBody(ROUTE), { status: ROUTE.status });
 }

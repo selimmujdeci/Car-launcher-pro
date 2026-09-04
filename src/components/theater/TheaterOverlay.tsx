@@ -15,7 +15,9 @@ import {
   Play, Pause, SkipBack, SkipForward, X, Tv2, ExternalLink,
 } from 'lucide-react';
 import { useSystemStore }                                      from '../../store/useSystemStore';
-import { useMediaState, togglePlayPause, next, previous }     from '../../platform/mediaService';
+import { useMediaState, togglePlayPause }                     from '../../platform/mediaService';
+/* MUSIC F7.3: kuyruk-farkında sonraki/önceki (tek giriş). */
+import { next, previous }                                    from '../../platform/media/carosMediaLayer';
 import { useStore }                                            from '../../store/useStore';
 import { openApp }                                             from '../../platform/appLauncher';
 import { APP_MAP }                                             from '../../data/apps';
@@ -258,7 +260,7 @@ export function TheaterOverlay() {
 
         {/* Oynatma kontrolleri */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 24 }}>
-          <button onClick={previous} style={_btnStyle} aria-label="Önceki parça">
+          <button onClick={() => { previous('theater'); }} style={_btnStyle} aria-label="Önceki parça">
             <SkipBack size={26} color="#ffffff" />
           </button>
 
@@ -280,7 +282,7 @@ export function TheaterOverlay() {
             }
           </button>
 
-          <button onClick={next} style={_btnStyle} aria-label="Sonraki parça">
+          <button onClick={() => { next('theater'); }} style={_btnStyle} aria-label="Sonraki parça">
             <SkipForward size={26} color="#ffffff" />
           </button>
         </div>

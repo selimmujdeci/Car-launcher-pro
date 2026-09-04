@@ -34,7 +34,9 @@ export type NativeCommand =
   | 'setRepeat'
   | 'setVolume'
   | 'duck'
-  | 'unduck';
+  | 'unduck'
+  /** MUSIC F20 — parça sınırı geçiş politikası (fade süreleri). */
+  | 'setTransitionPolicy';
 
 export interface NativeCommandResult {
   readonly accepted: boolean;
@@ -109,12 +111,23 @@ export function sanitizeAuthoritySnapshot(raw: unknown): NativeAuthoritySnapshot
     queueRevision: num(r.queueRevision),
     queueLength: num(r.queueLength),
     currentIndex: num(r.currentIndex),
+    queueEntryIds: Array.isArray(r.queueEntryIds) ? r.queueEntryIds.filter((id): id is string => typeof id === 'string').slice(0, 120) : undefined,
     positionMs: num(r.positionMs),
     durationMs: num(r.durationMs),
     buffering: bool(r.buffering),
     playing: r.playing === true,
     playWhenReady: bool(r.playWhenReady),
     renderingVerified: r.renderingVerified === true,
+    /* MUSIC F20 — geçiş gözlem alanları. Native ZATEN yayınlıyordu; bu
+       allowlist'te olmadıkları için düşüyorlardı (telefon ön doğrulaması).
+       Playback truth ÜRETMEZLER: `playing`/`renderingVerified` yukarıda
+       ayrı ve bunlardan BAĞIMSIZ okunur. */
+    fadeEnabled: bool(r.fadeEnabled),
+    fadeOutMs: num(r.fadeOutMs),
+    fadeInMs: num(r.fadeInMs),
+    transitionGain: num(r.transitionGain),
+    transitionActive: bool(r.transitionActive),
+    gaplessSupported: bool(r.gaplessSupported),
     recoveryCount: num(r.recoveryCount),
     shuffle: bool(r.shuffle),
     repeat: str(r.repeat, 'off'),

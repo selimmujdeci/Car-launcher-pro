@@ -16,7 +16,8 @@
 
 import { signalWithTimeout } from '../utils/abortCompat';
 import { sensitiveKeyStore } from './sensitiveKeyStore';
-import { duckMedia, unduckMedia } from './audioService';
+import { requestDuck, type DuckHandle } from './media/authority/duckRequest';
+import type { DuckReason } from './media/authority/duckPolicy';
 /* MAVI-F0: TTS sentez + ilk duyulabilir ses ölçümü (YALNIZ ÖLÇÜM). */
 import { markMaviLatency } from './assistant/maviLatencyTrace';
 
@@ -152,7 +153,11 @@ async function _synthesize(text: string): Promise<string | null> {
  * offline / anahtar yok / hata → `false` (çağıran native TTS yedeğine düşmeli).
  * `onEnd` yalnız ses gerçekten çaldıysa, bitiş/hata anında bir kez çağrılır.
  */
-export async function speakOnline(text: string, onEnd?: () => void): Promise<boolean> {
+export async function speakOnline(
+  text: string,
+  onEnd?: () => void,
+  duckReason: DuckReason = 'MAVI',
+): Promise<boolean> {
   const t = text.trim();
   if (!t) return false;
   if (typeof Audio === 'undefined') return false;
@@ -169,11 +174,11 @@ export async function speakOnline(text: string, onEnd?: () => void): Promise<boo
   _active = audio;
 
   let settled = false;
-  let ducked  = false;
+  let duck: DuckHandle | null = null;
   const settle = () => {
     if (settled) return;
     settled = true;
-    if (ducked) { unduckMedia(); ducked = false; }
+    if (duck !== null) { duck.release(); duck = null; }
     if (_active === audio) _active = null;
     audio.onended = null;
     audio.onerror = null;
@@ -186,8 +191,7 @@ export async function speakOnline(text: string, onEnd?: () => void): Promise<boo
     audio.onplaying = () => { markMaviLatency('first_audio_confirmed'); };
     markMaviLatency('first_audio_requested');
     const p = audio.play();
-    ducked = true;
-    duckMedia();
+    duck = requestDuck(duckReason);
     audio.onended = settle;
     audio.onerror = settle;
     if (p && typeof p.catch === 'function') p.catch(() => settle());

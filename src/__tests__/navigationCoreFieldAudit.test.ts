@@ -17,9 +17,18 @@ import {
 } from '../platform/devtools/navigationCoreModel';
 import type { NavigationCoreRawSnapshot } from '../platform/devtools/navigationCoreSources';
 import { readNavigationCoreSnapshot } from '../platform/devtools/navigationCoreSources';
+import type { ShadowDomainCounters } from '../platform/navigation/shadow/cehShadowModel';
+import { EMPTY_SHADOW_COUNTERS } from '../platform/navigation/shadow/cehShadowModel';
 
 const NOW = 1_700_000_000_000;
 const GPS_AGE = 400;
+
+/** F5 gölge defteri fixture yardımcısı — sayaç şekli tek yerde kalsın. */
+function shadowCounters(
+  over: Partial<ShadowDomainCounters> = {},
+): ShadowDomainCounters {
+  return { ...EMPTY_SHADOW_COUNTERS, ...over };
+}
 
 /** Tüm alanların dolu olduğu anlık görüntü — "kaynak var mı" denetimi için. */
 function full(over: Partial<NavigationCoreRawSnapshot> = {}): NavigationCoreRawSnapshot {
@@ -270,6 +279,92 @@ function full(over: Partial<NavigationCoreRawSnapshot> = {}): NavigationCoreRawS
       /* DR projeksiyon ekseni (#451) — dolu anlik goruntude olculmus degerler. */
       drProjectionMode: 'ALONG_ROUTE', drConsumedRouteM: 118, drProjectionSegIdx: 14,
     },
+    /* NAV v3 · F3 — L2 ego / L3 ufuk gozlemi. DOLU anlik goruntu: her alan
+       olculmus deger tasir (kanit YOKKEN alanlarin UNAVAILABLE kalmasi ayri
+       testlerin konusudur — burada "kaynagi olmayan alan" aranir). */
+    ego: {
+      initialized: true, mode: 'GNSS', modeReason: 'FRESH_FIX', guidanceAllowed: true,
+      degradedByTime: false, degradedBySigma: false, sigmaHorizontalM: 4.2,
+      fixAgeMs: GPS_AGE, observations: 120, positionUpdatesAccepted: 96,
+      positionUpdatesRejected: 4, lastRejectReason: null, lastMahalanobis: 1.8,
+      zuptApplied: 3, candidateOutcome: 'CANDIDATES', candidateCount: 3,
+      matchOutcome: 'MATCHED', matchReason: 'CONFIDENT', topologyEvidence: true,
+      monotonicClock: true,
+    },
+    ceh: {
+      initialized: true, state: 'HORIZON_AVAILABLE', generation: 12, observations: 12,
+      monotonicClock: true, horizonAgeMs: 400, pathCount: 1, mppPresent: true,
+      ambiguous: false, physicallyConfirmed: true, objectCount: 2, budgetM: 600,
+      mapAvailable: true, routeIntentAvailable: true, routeIntentPushes: 12,
+      routeIntentAgeMs: 400, errorCount: 0,
+    },
+    yawFeed: {
+      attached: true, holders: 1, events: 640, lastEventAgeMs: 30,
+      accepted: 610, rejectedNoGyro: 0, rejectedGravity: 28, rejectedTime: 2,
+      polarity: 1, polarityDecisions: 4, lastPolarityDecision: 'AGREE',
+      headingObservations: 18, yawRateRadPerSec: 0.12, yawReason: 'OK',
+    },
+    egoHorizonBridge: {
+      orientationAcquired: true, graphAcquired: true, ticks: 120, headingNotes: 18,
+      routeIntentPushes: 120, errorCount: 0, lastErrorAgeMs: null,
+    },
+    graphResidency: {
+      state: 'AVAILABLE', holders: 1, loadCount: 1,
+      nodeCount: 238252, edgeCount: 295346, version: 2, bytes: 7651542,
+      parseMs: 180, adjacencyBuilt: true, reverseAdjacencyBuilt: true,
+      spatialIndexBuilt: true, detail: 'v2 · 238252 düğüm · 295346 kenar',
+      observedAtMonoMs: 1000,
+    },
+    /* NAV v3 · F5 — gölge karşılaştırma. Fixture DOLU olmalıdır: dolu anlık
+       görüntüde UNAVAILABLE kalan bir alan, kaynağı olmayan alandır. */
+    cehShadow: {
+      active: true, ticks: 120, errorCount: 0, lastErrorAgeMs: null,
+      attributePortsBound: false,
+      domains: {
+        MANEUVER:     shadowCounters({ samples: 120, agree: 114, divergeDistance: 2, comparable: 118, divergences: 4, maxAbsDeltaM: 41.2, lastVerdict: 'AGREE' }),
+        ENFORCEMENT:  shadowCounters({ samples: 12, legacyOnly: 3, bothUnmeasured: 9, comparable: 3, divergences: 3, lastVerdict: 'LEGACY_ONLY' }),
+        SPEED_LIMIT:  shadowCounters({ samples: 120, notComparable: 120, lastVerdict: 'NOT_COMPARABLE' }),
+        CURVE:        shadowCounters({ samples: 120, notComparable: 120, lastVerdict: 'NOT_COMPARABLE' }),
+        ROAD_PROFILE: shadowCounters({ samples: 120, notComparable: 120, lastVerdict: 'NOT_COMPARABLE' }),
+      },
+      total: shadowCounters({ samples: 492, agree: 114, divergeDistance: 2, legacyOnly: 3, bothUnmeasured: 9, notComparable: 360, comparable: 121, divergences: 7, maxAbsDeltaM: 41.2, lastVerdict: 'NOT_COMPARABLE' }),
+      divergenceRatio: 7 / 121,
+      states: {
+        horizons: 120, ambiguous: 3, physicallyConfirmed: 0, routeIntentOnly: 117,
+        noHorizon: 0, lastState: 'CLAIM', lastProvenance: 'ROUTE_INTENT',
+      },
+      guardianShadow: {
+        shadow: true, wouldEmit: false, blockedBy: 'CUTOVER_GATE_CLOSED',
+        distanceM: null, confidence: null, label: null,
+        sourceId: 'EGM_EDS_MAP', eventKey: null,
+      },
+      guardianWouldEmitCount: 0,
+      suppression: {
+        evaluated: 0, delivered: 0, deferred: 0, droppedExpired: 0,
+        droppedSuperseded: 0, droppedNoValidity: 0, droppedAlreadyDelivered: 0,
+        lastDisposition: null,
+      },
+      cutover: {
+        open: false, state: 'CLOSED',
+        unmet: ['F4_FIELD_VALIDATION', 'SHADOW_SAMPLE_VOLUME', 'SHADOW_DIVERGENCE',
+          'AMBIGUITY_FAIL_CLOSED', 'REGRESSION_GUARDS', 'ATTRIBUTE_PORTS_BOUND'],
+        met: [], unmeasuredCount: 3,
+      },
+      sideEffectCount: 0,
+    },
+    /* NAV v3 · F6 — sınırlı koridor + kenar-tabanlı denetim noktası. Fixture
+       DOLU olmalıdır: dolu anlık görüntüde UNAVAILABLE kalan bir alan,
+       kaynağı olmayan alandır. */
+    enforcementHorizonPort: {
+      calls: 42, lastOutcome: 'OBJECTS',
+      lastCorridorOutcome: 'COMPLETE', lastCorridorEdgeCount: 6,
+      lastCorridorNodeExpansions: 4, lastCorridorBranchCount: 1,
+      lastCandidateCount: 3, lastObjectCount: 1, lastDurationMs: 0.42,
+      cumulativeMatch: {
+        matchedToEdge: 12, ambiguousEdge: 1, noEdgeMatch: 4, outsideCoverage: 20,
+        notMeasured: 0, onewayImplied: 8, unknownDirection: 4, lastOutcome: 'MATCHED_TO_EDGE',
+      },
+    },
     ...over,
   };
 }
@@ -301,6 +396,16 @@ const SRC_GUIDANCE_AUDIT_AUDIT = 'voiceGuidanceAudit.getGuidanceAudit';
 const SRC_TICK_COST_AUDIT = 'navTickCostModel.getNavTickCostSnapshot';
 /** P0-NAV-20 arıza tablosu kaynağı. */
 const SRC_MATRIX_AUDIT = 'navFailureMatrixModel.buildNavFailureMatrix';
+/** NAV v3 · F3 — L2 ego / L3 ufuk gözlem kaynakları. */
+const SRC_EGO_AUDIT    = 'ego/egoAuthority.getDiagnostics';
+const SRC_CEH_AUDIT    = 'horizon/cehAuthority.getDiagnostics';
+const SRC_YAW_AUDIT    = 'navOrientationFeed.getSnapshot';
+const SRC_BRIDGE_AUDIT = 'navEgoHorizonBridge.getSnapshot';
+const SRC_GRAPH_AUDIT  = 'map/graph/graphResidencyRuntime.getSnapshot';
+/** NAV v3 · F5 — gölge karşılaştırma + cutover kapısı. */
+const SRC_SHADOW_AUDIT = 'shadow/cehShadowRuntime.getSnapshot';
+/** NAV v3 · F6 — sınırlı koridor + kenar-tabanlı denetim noktası. */
+const SRC_ENFORCEMENT_AUDIT = 'enforcementHorizonPort.getSnapshot';
 
 const REGISTRY: Record<string, Reg> = {
   /* 1 · Durum */
@@ -557,6 +662,43 @@ const REGISTRY: Record<string, Reg> = {
   /* 1 · Durum — P0-NAV-20 arıza tablosu. Anlık okuma, damga YOK. */
   'fm-overall': { source: SRC_MATRIX_AUDIT, key: 'failureMatrix.overall', stamp: 'NONE' },
   'fm-axes':    { source: SRC_MATRIX_AUDIT, key: 'failureMatrix.axes',    stamp: 'NONE' },
+  /* 16 · NAV v3 — L2 ego / L3 ufuk (F3). Hepsi ANLIK senkron okumadir:
+     otoritelerin kendi damgasi yoktur, bu yuzden stamp `NONE`. */
+  'hz-bridge':    { source: SRC_BRIDGE_AUDIT, key: 'egoHorizonBridge.ticks',       stamp: 'NONE' },
+  'hz-ego-mode':  { source: SRC_EGO_AUDIT,    key: 'ego.mode',                     stamp: 'NONE' },
+  'hz-ego-sigma': { source: SRC_EGO_AUDIT,    key: 'ego.sigmaHorizontalM',         stamp: 'NONE' },
+  'hz-ego-rej':   { source: SRC_EGO_AUDIT,    key: 'ego.positionUpdatesRejected',  stamp: 'NONE' },
+  'hz-ego-match': { source: SRC_EGO_AUDIT,    key: 'ego.candidateOutcome',         stamp: 'NONE' },
+  'hz-yaw-feed':  { source: SRC_YAW_AUDIT,    key: 'yawFeed.attached',             stamp: 'NONE' },
+  'hz-yaw-gate':  { source: SRC_YAW_AUDIT,    key: 'yawFeed.accepted',             stamp: 'NONE' },
+  'hz-yaw-pol':   { source: SRC_YAW_AUDIT,    key: 'yawFeed.polarity',             stamp: 'NONE' },
+  'hz-yaw-rate':  { source: SRC_YAW_AUDIT,    key: 'yawFeed.yawRateRadPerSec',     stamp: 'NONE' },
+  'hz-ceh-state': { source: SRC_CEH_AUDIT,    key: 'ceh.state',                    stamp: 'NONE' },
+  'hz-ceh-mpp':   { source: SRC_CEH_AUDIT,    key: 'ceh.mppPresent',               stamp: 'NONE' },
+  'hz-ceh-phys':  { source: SRC_CEH_AUDIT,    key: 'ceh.physicallyConfirmed',      stamp: 'NONE' },
+  'hz-ceh-obj':   { source: SRC_CEH_AUDIT,    key: 'ceh.objectCount',              stamp: 'NONE' },
+  'hz-ceh-map':   { source: SRC_CEH_AUDIT,    key: 'ceh.mapAvailable',             stamp: 'NONE' },
+  /* F4 — graf sakinliği. Anlık senkron okuma, bağımsız damga YOK. */
+  'hz-graph-state':   { source: SRC_GRAPH_AUDIT, key: 'graphResidency.state',      stamp: 'NONE' },
+  'hz-graph-size':    { source: SRC_GRAPH_AUDIT, key: 'graphResidency.nodeCount',  stamp: 'NONE' },
+  'hz-graph-parse':   { source: SRC_GRAPH_AUDIT, key: 'graphResidency.parseMs',    stamp: 'NONE' },
+  'hz-graph-derived': { source: SRC_GRAPH_AUDIT, key: 'graphResidency.adjacencyBuilt', stamp: 'NONE' },
+
+  /* 16b · NAV v3 · F5 — gölge karşılaştırma + cutover kapısı */
+  'hz-shadow-mode':      { source: SRC_SHADOW_AUDIT, key: 'cehShadow.ticks',              stamp: 'NONE' },
+  'hz-shadow-authority': { source: SRC_SHADOW_AUDIT, key: 'cehShadow.cutover.open',       stamp: 'NONE' },
+  'hz-shadow-maneuver':  { source: SRC_SHADOW_AUDIT, key: 'cehShadow.domains.MANEUVER',   stamp: 'NONE' },
+  'hz-shadow-enforce':   { source: SRC_SHADOW_AUDIT, key: 'cehShadow.domains.ENFORCEMENT', stamp: 'NONE' },
+  'hz-shadow-attr':      { source: SRC_SHADOW_AUDIT, key: 'cehShadow.attributePortsBound', stamp: 'NONE' },
+  'hz-shadow-ratio':     { source: SRC_SHADOW_AUDIT, key: 'cehShadow.divergenceRatio',    stamp: 'NONE' },
+  'hz-shadow-guardian':  { source: SRC_SHADOW_AUDIT, key: 'cehShadow.guardianShadow',     stamp: 'NONE' },
+  'hz-shadow-suppress':  { source: SRC_SHADOW_AUDIT, key: 'cehShadow.suppression',        stamp: 'NONE' },
+  'hz-shadow-gate':      { source: SRC_SHADOW_AUDIT, key: 'cehShadow.cutover.state',      stamp: 'NONE' },
+
+  /* 16c · NAV v3 · F6 — sınırlı koridor + kenar-tabanlı denetim noktası */
+  'hz-corridor':      { source: SRC_ENFORCEMENT_AUDIT, key: 'enforcementHorizonPort.lastCorridorOutcome', stamp: 'NONE' },
+  'hz-enforce-match': { source: SRC_ENFORCEMENT_AUDIT, key: 'enforcementHorizonPort.cumulativeMatch',     stamp: 'NONE' },
+  'hz-enforce-cost':  { source: SRC_ENFORCEMENT_AUDIT, key: 'enforcementHorizonPort.lastDurationMs',      stamp: 'NONE' },
 };
 
 function allFields(s: NavigationCoreRawSnapshot) {

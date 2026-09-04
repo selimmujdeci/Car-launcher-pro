@@ -138,3 +138,7 @@ tools/can-re/
 
 # Build sırasında sql.js paketinden kopyalanır (sürüm ayrışmasını önlemek için commit EDİLMEZ)
 public/wasm/
+
+# QA kanıt dökümleri (ağır doğrulama log çıktıları) — repoya girmez
+.arch-*-proof*/
+scratch_hud.py

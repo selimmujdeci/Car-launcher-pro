@@ -110,6 +110,19 @@ export interface SttSourceRaw {
   readonly bufferBytes: number;
   readonly frameSamples: number;
   readonly attempts: readonly SttSourceAttemptRaw[];
+  /**
+   * SAHA #1255-a · OEM mikrofon yönlendirme ayarı (`system.key_double_mic`).
+   *
+   * K2401 head unit'te İKİ mikrofon girişi vardır; bu OEM ayarı hangisinin
+   * kullanılacağını belirler. `0` iken ses HAL'i kulaklık mikrofonu yolunu
+   * (`IN_HPMIC`) seçiyordu ve konuşma RMS'i VAD eşiğinin ALTINDA kalıyordu →
+   * wake word HİÇ tetiklenmiyordu (ölçüldü 2026-09-04). Uygulama bu ayarı
+   * OKUMUYORDU, bu yüzden "sessizlik" görünüyor ama SEBEBİ görünmüyordu.
+   *
+   * `null` = okunamadı / bu üründe YOK. **Sahte 0 ÜRETİLMEZ** ve ayar
+   * uygulamadan YAZILMAZ (OEM kararı; LAB salt-okunurdur).
+   */
+  readonly oemDualMic: number | null;
 }
 
 export interface SttEffectsRaw {
@@ -505,6 +518,26 @@ function _sourceSection(s: SttMicRaw): SttSection {
     : unavailable({ id: 'sttSelectedSource', label: 'seçilen AudioSource', source: SRC.native, note: '' },
         'Hiç kaynak seçilmedi — varsayılan UYDURULMAZ.'));
 
+  /* ── SAHA #1255-a · OEM MİKROFON YÖNLENDİRME AYARI ──────────────────────
+   * K2401 head unit'te (2026-09-04) wake word 10 denemede hiç tetiklenmedi.
+   * `tinycap` ölçümü tepe genliği %3,3 gösterdi — pratikte gürültü tabanı.
+   * Sebep uygulamada DEĞİLDİ: iki mikrofon girişinden YANLIŞ olanı seçiliydi
+   * (`key_double_mic = 0`) ve ses HAL'i kulaklık mikrofonu yolunu uyguluyordu.
+   * `= 1` yapılınca konuşma RMS'i eşiğin 3-8 KATINA çıktı ve wake tetiklendi.
+   *
+   * Uygulama bu ayarı okumadığı için ekranda yalnız "RMS düşük" görünüyor,
+   * SEBEBİ görünmüyordu. Artık giriş yolu ile ölçülen seviye YAN YANA okunur.
+   * Bu alan SALT-OKUNURDUR: LAB ayarı DEĞİŞTİRMEZ (aktif komut yasağı). */
+  f.push(src.oemDualMic === null
+    ? unavailable({ id: 'sttOemDualMic', label: 'OEM çift-mikrofon ayarı', source: SRC.native, note: '' },
+        'Okunamadı ya da bu üründe YOK — "0" (yanlış giriş) ile "bilinmiyor" AYRIDIR.')
+    : observed({ id: 'sttOemDualMic', label: 'OEM çift-mikrofon ayarı', source: SRC.native,
+        note: '`system.key_double_mic` — hangi mikrofon girişinin kullanılacağını '
+            + 'belirleyen OEM ayarı. K2401 ünitesinde `0` iken konuşma VAD eşiğinin ALTINDA '
+            + 'kalıyor ve wake HİÇ tetiklenmiyordu (saha #1255). Bu ekran ayarı '
+            + 'DEĞİŞTİREMEZ — yalnız raporlar.' },
+        `key_double_mic = ${src.oemDualMic}`));
+
   const attempts = src.attempts.slice(0, MAX_SOURCE_ATTEMPTS);
   f.push(attempts.length > 0
     ? observed({ id: 'sttAttemptCount', label: 'denenen kaynak adedi', source: SRC.native,
@@ -618,6 +651,22 @@ function _vadSection(s: SttMicRaw): SttSection {
         fmtRms(v.effectiveThreshold))
     : unavailable({ id: 'sttThreshold', label: 'kullanılan gerçek VAD eşiği', source: SRC.native, note: '' },
         'Henüz eşik uygulanmadı (taban öğrenme penceresi).'));
+
+  /* ── SAHA #1255-a · SEVİYE ↔ EŞİK YAN YANA ──────────────────────────────
+   * İki sayı ayrı ayrı doğruydu ama teşhis ancak ORANLA anlaşılıyordu:
+   * ölçülen 0,010 · eşik 0,012 → **eşiğin ALTINDA** (wake imkânsız); düzeltme
+   * sonrası 0,03-0,10 → **eşiğin 3-8 katı**. Bu satır o kıyası tek bakışta
+   * verir. TÜRETİLMİŞTİR (`DERIVED`) — yeni ölçüm ÜRETİLMEZ, yeni eşik/hüküm
+   * KURULMAZ; iki gözlenmiş sayı oranlanır. */
+  f.push(v.lastRms >= 0 && v.effectiveThreshold > 0
+    ? derived({ id: 'sttLevelVsThreshold', label: 'seviye ↔ eşik', source: 'model kuralı',
+        note: 'Ölçülen RMS değerinin kullanılan eşiğe oranı. <1 ise konuşma "sessizlik" '
+            + 'sayılır ve tanıyıcıya HİÇ gönderilmez — yanlış mikrofon girişinin '
+            + 'imzası budur (saha #1255).' },
+        `${(v.lastRms / v.effectiveThreshold).toFixed(2)}× `
+        + `(${v.lastRms >= v.effectiveThreshold ? 'eşiğin ÜSTÜNDE' : 'eşiğin ALTINDA'})`)
+    : unavailable({ id: 'sttLevelVsThreshold', label: 'seviye ↔ eşik', source: 'model kuralı', note: '' },
+        'Ölçüm ya da eşik yok — oran UYDURULMAZ.'));
 
   f.push(v.staticMinThreshold >= 0
     ? observed({ id: 'sttStaticThreshold', label: 'statik alt eşik', source: SRC.native,

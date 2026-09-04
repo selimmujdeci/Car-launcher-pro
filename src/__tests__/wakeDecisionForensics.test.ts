@@ -417,7 +417,18 @@ describe('🔒 YAPISAL — wake davranışı DEĞİŞMEDİ', () => {
 
   it('Dört kapının KOŞULLARI aynen duruyor', () => {
     expect(code).toMatch(/if \(isVoicePaused\(\)\) \{/);
-    expect(code).toMatch(/if \(vs\.status !== 'idle' \|\| vs\.followUp\) \{/);
+    /* ⚠️ BİLİNÇLİ GÜNCELLEME — SAHA #1258 (2026-09-04, telefonda ÖLÇÜLDÜ).
+       Bu kilit eskiden `vs.followUp` ROZETİNİ pinliyordu. Rozet, takip
+       döngüsünün sahibinden (`voiceConversationRuntime`) ayrışabiliyordu:
+       döngü öldüğü hâlde rozet açık kalıyor, `status==='idle'` iken bile her
+       tetik `SUPPRESSED_FOLLOWUP` ile düşüyordu (5 denemede 3 bastırma) →
+       wake KALICI kilitleniyordu. Kilit KALDIRILMADI; yeni doğru davranışa
+       bağlandı: KAPI SAYISI, SIRASI ve gerekçeleri AYNI — yalnız kararın
+       KAYNAĞI projeksiyondan sahibe taşındı (CLAUDE.md §14).
+       Ayrışmanın kendisi `wakeFollowUpLock.test.ts` ile ayrıca kilitlidir. */
+    expect(code).toMatch(/const _followUpLive = isVoiceFollowUpEngaged\(\);/);
+    expect(code).toMatch(/if \(vs\.status !== 'idle' \|\| _followUpLive\) \{/);
+    expect(code, 'karar yine UI rozetinden okunuyor').not.toMatch(/vs\.followUp/);
     expect(code).toMatch(/if \(now - _lastWakeAcceptedAt < WAKE_REACCEPT_DEBOUNCE_MS\) \{/);
   });
 
@@ -450,8 +461,19 @@ describe('🔒 YAPISAL — wake davranışı DEĞİŞMEDİ', () => {
   });
 
   it('Korelasyon YALNIZ terminal fazı dinler (olay fırtınası yok)', () => {
-    expect(code).toContain("if (e.phase === 'execution_result') markWakeIntentReached(e.sessionId);");
+    /* ⚠️ BİLİNÇLİ GÜNCELLEME — SAHA #1258. Eski kilit TEK terminal fazı
+       (`execution_result`) pinliyordu; sohbet turu hiçbir terminal faz
+       üretmediği için kabul edilen tetik 20 sn sonra sessizce
+       `ACCEPTED_NO_INTENT` sayılıyordu — Mavi cevap vermiş olsa BİLE
+       (ölçüldü: 2 kabul · dönen 0 · toplam seslendirme 2). Kilidin AMACI
+       (olay fırtınası yok = yalnız TERMİNAL fazlar dinlenir) korunur;
+       terminal faz kümesi ikiye çıktı. */
+    expect(code).toContain(
+      "if (e.phase === 'execution_result' || e.phase === 'conversation_result') {",
+    );
+    expect(code).toContain('markWakeIntentReached(e.sessionId);');
     expect(code, 'her faz dinleniyor').not.toMatch(/e\.phase === 'transcribing'/);
+    expect(code, 'ara faz dinleniyor — olay fırtınası').not.toMatch(/e\.phase === 'listening'/);
   });
 
   it('Yeni KORELASYON KİMLİĞİ sistemi kurulmadı (mevcut oturum kimliği okunur)', () => {

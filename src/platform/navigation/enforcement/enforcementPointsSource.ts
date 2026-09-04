@@ -20,9 +20,10 @@
 
 import {
   parseEnforcementPackage, buildEnforcementIndex, findNearestEnforcementPoint,
-  filterDrivingRelevantPoints,
+  filterDrivingRelevantPoints, queryEnforcementPointsInRadius,
   type EnforcementPackage, type EnforcementIndex, type EnforcementHit,
   type EnforcementQuery, type EnforcementRejectReason,
+  type EnforcementRadiusHit,
 } from './enforcementPointsPackage';
 
 /** Uygulamaya gömülü paketin yolu (public/ altından servis edilir). */
@@ -198,6 +199,30 @@ export function queryNearestEnforcementPoint(query: EnforcementQuery): Enforceme
     return hit;
   } catch {
     return null; // fail-soft: sorgu hatası Guardian'ı devirmez
+  }
+}
+
+/**
+ * Yarıçaptaki denetim noktaları — SENKRON (F6).
+ *
+ * **`null` = paket hazır DEĞİL (ölçülmedi)** · `[]` = ölçüldü, bu yarıçapta
+ * nokta YOK. İkisi KARIŞTIRILMAZ — "0 nokta" ASLA "denetim yok" demek değildir.
+ *
+ * Yön kapısı UYGULAMAZ (bkz. `queryEnforcementPointsInRadius`): "önümde mi"
+ * kararı F6'da yol koridorunundur, kuş uçuşu koninin değil. Bu fonksiyon
+ * hiçbir şey BAŞLATMAZ ve ASLA throw etmez.
+ */
+export function queryEnforcementPointsNear(
+  lat: number, lng: number, radiusMeters: number,
+): readonly EnforcementRadiusHit[] | null {
+  if (_index === null) return null;
+  try {
+    _queryCount++;
+    const hits = queryEnforcementPointsInRadius(_index, lat, lng, radiusMeters);
+    if (hits.length > 0) _hitCount++;
+    return hits;
+  } catch {
+    return null; // fail-soft: sorgu hatası ufku/Guardian'ı devirmez
   }
 }
 

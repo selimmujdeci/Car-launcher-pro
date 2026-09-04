@@ -31,6 +31,8 @@ import { supportsModuleWorker } from './deviceCapabilities';
 import {
   recordOfflineGraphOutcome, shouldAttemptOfflineRoute,
 } from './navigation/offlineRoutingStatus';
+/* NAV v3 · F2.0 — navigasyon tazeliği MONOTONİK saatten (duvar saati değil). */
+import { readMonotonicNow } from './navigation/time/navClock';
 import {
   shouldProbeLocalDaemon, recordLocalDaemonProbe,
   getProviderReadinessSnapshot, LOCAL_PROBE_TIMEOUT_MS,
@@ -247,7 +249,7 @@ function _getOrCreateNavWorker(): Worker | null {
   if (!supportsModuleWorker()) {
     /* KALICI durum: WebView yetenek kazanmaz. Kaydedilir ki her rota
        isteğinde yeniden denenmesin ve LAB nedeni gösterebilsin. */
-    recordOfflineGraphOutcome('WORKER_UNSUPPORTED', Date.now());
+    recordOfflineGraphOutcome('WORKER_UNSUPPORTED', Date.now(), readMonotonicNow());
     return null;
   }
   try {
@@ -291,7 +293,7 @@ function _getOrCreateNavWorker(): Worker | null {
       _pending.delete(msg.requestId!);
 
       if (msg.type === 'ROUTE_RESULT') {
-        recordOfflineGraphOutcome('AVAILABLE', Date.now());
+        recordOfflineGraphOutcome('AVAILABLE', Date.now(), readMonotonicNow());
         req.resolve({
           geometry:  msg.geometry  ?? [],
           distanceM: msg.distanceM ?? 0,
@@ -306,7 +308,7 @@ function _getOrCreateNavWorker(): Worker | null {
            istekte yeniden denemek demekti (sessiz israf + görünmez arıza). */
         const reason = String(msg.reason ?? '');
         if (/graph/i.test(reason)) {
-          recordOfflineGraphOutcome('GRAPH_MISSING', Date.now());
+          recordOfflineGraphOutcome('GRAPH_MISSING', Date.now(), readMonotonicNow());
         }
         req.resolve(null); // fallback zinciri devam eder (düz hat — DÜRÜSTÇE etiketli)
       }

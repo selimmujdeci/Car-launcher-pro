@@ -261,13 +261,50 @@ describe('#667 · sahte -1 ve sahte 0 yasağı (LAB kopyasından)', () => {
     expect(plausibleSignal('temp', -80)).toBeNull();
   });
 
-  it('KİLİT: sunucu rotası eksik alanı SIFIRA çevirmez', () => {
-    /* `body.fuel ?? 0` bilinmeyeni ölçülmüş sıfıra çeviriyordu. */
-    const route = read('src/app/api/vehicle/update/route.ts');
-    expect(route).not.toContain('body.fuel        ?? 0');
-    expect(route).not.toContain('body.speed       ?? 0');
-    expect(route).toContain('orMissing');
-    expect(route).toContain('Number.NaN');
+  it('KİLİT: eksik alan SIFIRA çevrilmez — ders alıcı tarafta YAŞIYOR', () => {
+    /* `body.fuel ?? 0` bilinmeyeni ölçülmüş sıfıra çeviriyordu (#667).
+     *
+     * KİLİT TAŞINDI (P0-001A): kilit eskiden `api/vehicle/update` rotasındaki
+     * `orMissing`/`Number.NaN` ifadelerini arıyordu. O rota fail-closed
+     * kapatıldı (ham api_key doğrulaması düz metin kolona karşı eşleşemiyordu
+     * ve rotanın gerçek çağıranı yoktu) → orada artık işlenecek veri yok.
+     *
+     * Kilit KALDIRILMADI, dersin ASIL yaşadığı yere taşındı: alıcı taraf.
+     * `vehicleStore` her alanı `Number.isFinite` ile eler ve eksik ölçümde
+     * ÖNCEKİ gerçek değeri korur — sahte sıfır buradan geçerse ürün yalan söyler. */
+    const store = read('src/store/vehicleStore.ts');
+    expect(store).toContain('Number.isFinite');
+    expect(store).toMatch(/Number\.isFinite\(speed\)\s*\?\s*speed\s*:/);
+    expect(store).toMatch(/Number\.isFinite\(engineTemp\)\s*\?\s*engineTemp\s*:/);
+    expect(store).not.toContain('u.speed ?? 0');
+    expect(store).not.toContain('u.fuel ?? 0');
+  });
+
+  it('KİLİT: api_key ile kimlik doğrulayan üç rota fail-closed KAPALI', () => {
+    /* P0-001A — bu üç uç `sha256(raw) === vehicles.api_key_hash` ile
+     * doğruluyordu; kolon düz metin UUID tuttuğu için eşleşme İMKÂNSIZDI ve
+     * uçlar her zaman 401 dönüyordu (sessiz, yanlış teşhis üreten bir hata).
+     * Biri sessizce yeniden açılırsa bu kilit düşer. */
+    for (const p of [
+      'src/app/api/pwa/command/route.ts',
+      'src/app/api/pwa/dtc-result/route.ts',
+      'src/app/api/vehicle/update/route.ts',
+    ]) {
+      const src = read(p);
+      expect(src, `${p} deprecated gövdesini kullanmıyor`)
+        .toContain('deprecatedApiKeyRouteBody');
+
+      /* YORUMLAR SAYILMAZ: bu dosyaların başında kapatmanın NEDENİ yazılıdır
+         ve o metin kaçınılmaz olarak `verifyApiKey`i anar. Yorumu koda saymak
+         doğru kodu düşürür — aynı hata migration doğrulamasında da yapıldı. */
+      const code = src
+        .replace(/\/\*[\s\S]*?\*\//g, ' ')
+        .replace(/\/\/[^\n]*/g, ' ');
+      expect(code, `${p} hâlâ imkânsız api_key doğrulaması yapıyor`)
+        .not.toContain('verifyApiKey');
+      expect(code, `${p} yeniden service-role ile veritabanına gidiyor`)
+        .not.toContain('supabaseAdmin');
+    }
   });
 });
 

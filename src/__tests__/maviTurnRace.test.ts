@@ -52,7 +52,9 @@ vi.mock('../platform/ttsService', () => ({
   ttsCancel: vi.fn(),
   registerTtsEndListener: () => () => {},
 }));
-vi.mock('../platform/audioService', () => ({ duckMedia: vi.fn(), unduckMedia: vi.fn() }));
+vi.mock('../platform/media/authority/duckRequest', () => ({
+  requestDuck: () => ({ reason: 'MAVI', release: (): void => {} }),
+}));
 // Anahtar çözülsün → `chain` dolu → online beyin yolu AÇIK.
 vi.mock('../platform/aiVoiceService', () => ({ askAI: async () => null, resolveApiKey: () => 'k-test' }));
 vi.mock('../platform/aiHealth', () => ({ isAiNetHealthy: () => true, recordAiNetFailure: vi.fn(), recordAiNetSuccess: vi.fn() }));

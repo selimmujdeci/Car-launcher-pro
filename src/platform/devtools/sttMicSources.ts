@@ -99,6 +99,11 @@ export function readSttMicSnapshot(): SttMicRaw {
         bufferBytes:        _num(s.bufferBytes, 0),
         frameSamples:       _num(s.frameSamples, 0),
         attempts,
+        /* SAHA #1255-a: ayar OKUNAMADIYSA `null` — "0" (yanlış mikrofon) ile
+           "bilinmiyor" AYRI şeylerdir ve karıştırılırsa teşhis ters döner. */
+        oemDualMic: s.oem && s.oem.dualMicSettingRead === true
+          ? _num(s.oem.dualMicSetting, -1)
+          : null,
       };
     }
 

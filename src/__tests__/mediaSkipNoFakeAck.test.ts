@@ -49,8 +49,12 @@ describe('Medya komut sonucu — gerçek kaybolmuyor', () => {
   });
 
   it('next/previous SONUÇ döndürür', () => {
-    expect(mediaSrc).toMatch(/export async function next\(\): Promise<MediaCommandResult>/);
-    expect(mediaSrc).toMatch(/export async function previous\(\): Promise<MediaCommandResult>/);
+    /* MUSIC F7.3: imzaya opsiyonel `requester` (yalnız kanıt/provenance)
+       eklendi; SONUÇ sözleşmesi DEĞİŞMEDİ — kilit dönüş tipine bağlandı. */
+    expect(mediaSrc)
+      .toMatch(/export async function next\([^)]*\): Promise<MediaCommandResult>/);
+    expect(mediaSrc)
+      .toMatch(/export async function previous\([^)]*\): Promise<MediaCommandResult>/);
   });
 
   it('YALNIZ doğrulanmış sonuç başarı sayılır', () => {
@@ -97,8 +101,12 @@ describe('Yerel kuyruk — sessiz no-op yok', () => {
 
 describe('🔒 commandExecutor — doğrulanmadan başarı İDDİA ETMEZ', () => {
   it('MEDIA_NEXT/PREV sonucu BEKLER', () => {
-    expect(execSrc).toMatch(/case 'MEDIA_NEXT':[\s\S]{0,140}await next\(\)/);
-    expect(execSrc).toMatch(/case 'MEDIA_PREV':[\s\S]{0,140}await previous\(\)/);
+    /* MUSIC F9'da YENİDEN BAĞLANDI: korunan değişmez aynı — atlama sonucu
+       BEKLENİR ve cümle ondan doğar. Değişen tek şey, atlamanın artık F7.3
+       KUYRUK-FARKINDA tek girişinden geçmesidir (`mediaService`e doğrudan
+       inen eski yol sağlayıcı kuyruklarında düşüyordu). */
+    expect(execSrc).toMatch(/case 'MEDIA_NEXT':[\s\S]{0,160}await _queueAwareNext\(\)/);
+    expect(execSrc).toMatch(/case 'MEDIA_PREV':[\s\S]{0,160}await _queueAwarePrevious\(\)/);
   });
 
   it('🔒 KOŞULSUZ "Sonraki parça" cümlesi KALDIRILDI', () => {
@@ -144,8 +152,14 @@ describe('🔒 OPEN_MUSIC — kaynak söylenmediyse GÖMÜLÜ katman', () => {
     execSrc.indexOf("case 'PLAY_MUSIC_SEARCH'"),
   );
 
-  it('Kaynak SÖYLENDİYSE mevcut davranış AYNEN korunur', () => {
-    expect(block).toMatch(/if \(pkg\) \{[\s\S]{0,220}setMediaPreferredPackage\(pkg\)[\s\S]{0,120}play\(\)/);
+  /* MUSIC F9'da YENİDEN BAĞLANDI: korunan değişmez aynı — kaynak SÖYLENDİYSE
+     o kaynak tercih edilir ve çalma denenir. Değişen tek şey, çalmanın artık
+     KANIT döndüren yoldan geçmesidir (`play()` ateşle-unut değil). */
+  it('Kaynak SÖYLENDİYSE tercih uygulanır ve çalma KANITLA denenir', () => {
+    expect(block).toMatch(/if \(pkg\) \{[\s\S]{0,320}setMediaPreferredPackage\(pkg\)[\s\S]{0,400}await playWithResult\(\)/);
+    /* Kanıtsız "açılıyor" iddiası geri gelmemeli. */
+    expect(block, 'koşulsuz açılıyor iddiası geri gelmiş')
+      .not.toMatch(/_speak\('Müzik açılıyor'/);
   });
 
   it('🔒 Kaynak YOKKEN doğrudan play() ÇAĞRILMAZ (harici oturum devralınmaz)', () => {
@@ -161,8 +175,11 @@ describe('🔒 OPEN_MUSIC — kaynak söylenmediyse GÖMÜLÜ katman', () => {
       execSrc.indexOf('async function _openEmbeddedMusic'),
       execSrc.indexOf('const EMBEDDED_MUSIC_SEED'),
     );
-    expect(fn).toMatch(/resumeLastMedia\(\)/);
-    expect(fn).toMatch(/playByQuery\(EMBEDDED_MUSIC_SEED/);
+    /* MUSIC F9'da YENİDEN BAĞLANDI: sıra AYNI (kaldığı yer → gömülü arama →
+       dürüst red); değişen tek şey her iki adımın da KANONİK niyet
+       yönlendiricisinden geçmesi ve cümlenin kanıttan doğmasıdır. */
+    expect(fn).toMatch(/CONTINUE_LISTENING/);
+    expect(fn).toMatch(/PLAY_QUERY[\s\S]{0,120}EMBEDDED_MUSIC_SEED/);
     /* Hiçbiri olmazsa harici uygulamaya SESSİZCE gidilmez. */
     expect(fn, 'gömülü başarısızken harici uygulamaya kaçılmış')
       .not.toMatch(/bridge\.launchMusic|ctx\.launch\(/);
@@ -174,9 +191,13 @@ describe('🔒 OPEN_MUSIC — kaynak söylenmediyse GÖMÜLÜ katman', () => {
       execSrc.indexOf('async function _openEmbeddedMusic'),
       execSrc.indexOf('const EMBEDDED_MUSIC_SEED'),
     );
-    /* Başarı cümlesi YALNIZ gerçekten bir şey başlatıldığında döner. */
-    expect(fn).toMatch(/if \(layer\.resumeLastMedia\(\)\) return 'Müzik açılıyor';/);
-    const tail = fn.slice(fn.lastIndexOf('return'));
+    /* MUSIC F9: kilit GÜÇLENDİ. Artık sabit "Müzik açılıyor" cümlesi HİÇ
+       yoktur; cümle kanıt derecesinden (`speakMusicOutcome`) doğar ve
+       başlatılamayan durumda dürüst red döner. */
+    const code = fn.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/\/\/.*/g, ' ');
+    expect(code, 'sabit "açılıyor" iddiası geri gelmiş').not.toMatch(/'Müzik açılıyor'/);
+    expect(code, 'cümle kanıttan doğmuyor').toMatch(/speakMusicOutcome/);
+    const tail = code.slice(code.lastIndexOf('return'));
     expect(tail, 'başarısızlıkta yine "açılıyor" deniyor').not.toMatch(/açılıyor/);
   });
 

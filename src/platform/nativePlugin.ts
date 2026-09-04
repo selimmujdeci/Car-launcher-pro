@@ -347,11 +347,22 @@ export interface NativeAuthoritySnapshot {
   queueRevision?:     number;
   queueLength?:       number;
   currentIndex?:      number;
+  queueEntryIds?:     string[];
   positionMs?:        number;
   durationMs?:        number;
   buffering?:         boolean;
   playing:            boolean;
   playWhenReady?:     boolean;
+  /* MUSIC F20 — geçiş kanıtı. Bunlar playback TRUTH'u DEĞİLDİR: `playing` ve
+     `renderingVerified` geçiş kazancından ETKİLENMEZ. */
+  fadeEnabled?:       boolean;
+  fadeOutMs?:         number;
+  fadeInMs?:          number;
+  /** 1.0 = geçiş yok. Sınır dışında DAİMA 1.0. */
+  transitionGain?:    number;
+  transitionActive?:  boolean;
+  /** ExoPlayer boşluksuz geçişi destekler ve CarOS bunu bozmaz. */
+  gaplessSupported?:  boolean;
   renderingVerified:  boolean;
   recoveryCount?:     number;
   shuffle?:           boolean;
@@ -360,6 +371,71 @@ export interface NativeAuthoritySnapshot {
   artist?:            string;
   artworkUri?:        string;
   currentTrackId?:    string;
+}
+
+/* ── MUSIC F6 · Ses Deneyimi / DSP köprü tipleri ─────────────────────────
+ *
+ * Kazançlar native tarafta AudioEffect'in kendi birimiyle (milliBel = dB×100)
+ * taşınır; dönüşüm JS otoritesinde TEK noktada yapılır. `probed:false` →
+ * cihaz sorgulanamadı; alanlar "yok" demektir, "varsayılan" DEĞİL.
+ */
+export interface NativeAudioDspCapabilities {
+  probed:                  boolean;
+  supportsEqualizer:       boolean;
+  eqBandCount:             number;
+  eqBandFrequenciesHz:     number[];
+  eqMinGainMilliBel:       number;
+  eqMaxGainMilliBel:       number;
+  supportsLoudness:        boolean;
+  loudnessMaxMilliBel:     number;
+  supportsBalance:         boolean;
+  supportsFader:           boolean;
+  faderUnsupportedReason:  string;
+  supportsVirtualizer:     boolean;
+  supportsHardwareDsp:     boolean;
+  unavailableReason:       string;
+  /** Yeteneğin ölçüldüğü audio session kuşağı — bayat yazımı engeller. */
+  generation:              number;
+}
+
+export interface NativeAudioDspApplyRequest {
+  /** Okunan yetenek kuşağı. Native'de kuşak değiştiyse istek REDDEDİLİR. */
+  generation:        number;
+  enabled:           boolean;
+  bandsMilliBel:     number[];
+  loudnessMilliBel:  number;
+  /** Güvenlik preamp'i (doğrusal, 0<g<=1). Kullanıcı sesi DEĞİLDİR. */
+  preampLinear:      number;
+  balance:           number;
+}
+
+export interface NativeAudioDspApplyResult {
+  applied:     boolean;
+  failureCode: string;
+  /** Uygulama sonrası gözlenen durum — "gönderdim, oldu saydım" kapatılır. */
+  snapshot?:   NativeAudioDspSnapshot;
+}
+
+export interface NativeAudioDspSnapshot {
+  available:               boolean;
+  audioSessionId:          number;
+  generation:              number;
+  equalizerAttached:       boolean;
+  loudnessAttached:        boolean;
+  /** Denge/preamp işlemcisi ses zincirinde aktif mi (format uyumu şart). */
+  processorActive:         boolean;
+  bypass:                  boolean;
+  bypassReason:            string;
+  appliedBandsMilliBel:    number[];
+  appliedLoudnessMilliBel: number;
+  appliedPreampLinear:     number;
+  appliedBalance:          number;
+  attachCount:             number;
+  attachFailureCount:      number;
+  applyFailureCount:       number;
+  lastFailureCode:         string;
+  lastApplyLatencyMs:      number;
+  lastAttachLatencyMs:     number;
 }
 
 /* ── Local music types ───────────────────────────────────── */
@@ -373,10 +449,174 @@ export interface LocalMusicTrack {
   album:       string;
   albumArtUri: string;   // content://media/external/audio/albumart/<albumId>
   durationMs:  number;
+  /** MediaStore contract: null/undefined means provider did not expose it. */
+  albumArtist?: string | null;
+  mimeType?: string | null;
+  relativePath?: string | null;
+  sizeBytes?: number | null;
+  dateModifiedSec?: number | null;
+  generationModified?: number | null;
+  trackNumber?: number | null;
+  discNumber?: number | null;
+  volumeName?: string | null;
+  storageKind?: 'INTERNAL_SHARED' | 'REMOVABLE' | 'UNKNOWN';
+  /**
+   * MUSIC F10.1 — kütüphane metadata'sı (GERÇEK kanıt, uydurma YOK).
+   * `genre` yalnız API 30+ MediaStore sütunundan gelir; yoksa `null`.
+   * `year` 0/boş ise `null` gönderilir ("bilinmiyor" ≠ "sıfır").
+   */
+  genre?: string | null;
+  year?: number | null;
+}
+
+/** MUSIC F19 — dosyaya gömülü SEVİYE etiketinin kaynağı. */
+export type EmbeddedGainSource =
+  | 'REPLAYGAIN_TRACK' | 'REPLAYGAIN_ALBUM' | 'R128_TRACK' | 'R128_ALBUM' | 'NONE';
+
+/** MUSIC F10.1 — gömülü etiket (ID3 TBPM / Vorbis BPM) okuma sonucu. */
+export interface EmbeddedTraitRow {
+  uri: string;
+  /** Etiket YOKSA `null` — süre/başlıktan BPM ÜRETİLMEZ. */
+  bpm: number | null;
+  source: 'ID3_TBPM' | 'VORBIS_BPM' | 'NONE';
+  /**
+   * MUSIC F19 — ReplayGain/R128 kazancı (dB). Etiket YOKSA `null`.
+   * Bu bir ETİKETTİR (dosyayı üreten aracın yazdığı), bizim ölçümümüz DEĞİL —
+   * ve **LUFS DEĞİLDİR**; öyle sunulamaz.
+   */
+  gainDb?: number | null;
+  /** ReplayGain tepe değeri (1.0 = tam ölçek). Etiket yoksa `null`. */
+  gainPeak?: number | null;
+  gainSource?: EmbeddedGainSource;
+}
+
+export interface ReadTrackTraitsResult {
+  traits: EmbeddedTraitRow[];
+  scanned: number;
+  /** Toplu iş üst sınırına takıldı mı (kalanlar okunmadı). */
+  limited: boolean;
+}
+
+/**
+ * MUSIC F17 — bir dosyanın SESİNDEN ölçülen ham betimleyici.
+ *
+ * Bu bir ETİKET okuması DEĞİLDİR (F10.1 öyleydi): dosya decode edilir ve
+ * dalga formu ölçülür. Ölçülemeyen alan `null` döner — sahte 0 YOKTUR.
+ * **`mood` alanı YOKTUR ve olmayacaktır**: dalga formundan ruh hâli
+ * çıkarmak uydurma olurdu (F17 sınırı).
+ */
+export interface SonicAnalysisRow {
+  uri: string;
+  /** Ölçüm gerçekten yapıldı mı. `false` ise tüm alanlar `null`. */
+  analyzed: boolean;
+  reason: 'OK' | 'NO_AUDIO_TRACK' | 'UNSUPPORTED_CODEC' | 'DECODE_FAILED'
+  | 'TIMEOUT' | 'TOO_SHORT' | 'SILENT' | 'CANCELLED';
+  /** Analizin koştuğu (decimate edilmiş) örnekleme hızı. */
+  sampleRate: number | null;
+  /** Gerçekten çözümlenen ses süresi (parçanın tamamı DEĞİL). */
+  analyzedMs: number;
+  peakDbfs: number | null;
+  rmsDbfs: number | null;
+  crestDb: number | null;
+  zeroCrossingRate: number | null;
+  spectralCentroidHz: number | null;
+  spectralRolloffHz: number | null;
+  spectralFlux: number | null;
+  onsetRate: number | null;
+  /** Otokorelasyon tepesi; güven eşiği JS tarafında zorlanır. */
+  tempoBpm: number | null;
+  /** 0..1 tepe belirginliği. Düşükse tempo KANIT SAYILMAZ. */
+  tempoConfidence: number | null;
+  /** 8 bantlık normalize enerji vektörü (toplamı ≈ 1). Boşsa ölçüm yok. */
+  bands: number[];
+}
+
+export interface AnalyzeTrackAudioResult {
+  results: SonicAnalysisRow[];
+  scanned: number;
+  /** Toplu iş üst sınırına takıldı mı (kalanlar çözümlenmedi). */
+  limited: boolean;
+  /** Tur ortasında iptal edildi mi (kısmi sonuç kanıt sayılmaz). */
+  cancelled: boolean;
+  /** İptal kuşağı — eski turun sonucu yeni kuşağa YAZILAMAZ. */
+  generation: number;
+}
+
+/** MUSIC F16 — SYLT senkron satırı: `ms` milisaniyedir, MPEG-frame ASLA döndürülmez. */
+export interface EmbeddedSyncedLyricsLine {
+  ms: number;
+  text: string;
+}
+
+/** MUSIC F16 — gömülü etiket (ID3 USLT/SYLT / Vorbis LYRICS) okuma sonucu. */
+export interface EmbeddedLyricsRow {
+  uri: string;
+  /** Yalnız düz söz bulunduysa dolu (SYNCED bulunduysa `null`). */
+  plain: string | null;
+  /** Yalnız gerçek milisaniye zaman damgalı SYLT bulunduysa dolu. */
+  synced: EmbeddedSyncedLyricsLine[] | null;
+  source: 'ID3_USLT' | 'ID3_SYLT' | 'VORBIS_LYRICS' | 'NONE';
+}
+
+export interface ReadEmbeddedLyricsResult {
+  results: EmbeddedLyricsRow[];
+  scanned: number;
+  /** Toplu iş üst sınırına takıldı mı (kalanlar okunmadı). */
+  limited: boolean;
+}
+
+/** One MediaStore volume as the provider currently reports it. */
+export interface MediaStoreVolumeFact {
+  name: string;
+  /** MediaStore.getVersion(volume) — opaque token; null when the platform predates it. */
+  version: string | null;
+  /** MediaStore.getGeneration(volume) — null when unavailable (forces FULL_RECONCILE). */
+  generation: number | null;
+  available: boolean;
+  storageKind: 'INTERNAL_SHARED' | 'REMOVABLE' | 'UNKNOWN';
+}
+
+export interface MediaStoreVolumeFactsResult {
+  permissionGranted: boolean;
+  /** False on API < 30: no generation column, so delta refresh is impossible. */
+  supportsGeneration: boolean;
+  volumes: MediaStoreVolumeFact[];
+}
+
+export interface QueryMusicTracksOptions {
+  volumes: string[];
+  mode: 'FULL' | 'DELTA';
+  /** volumeName → exclusive lower bound on GENERATION_MODIFIED (DELTA only). */
+  sinceGeneration?: Record<string, number>;
+  /** Volumes for which the full `_ID` set is also returned, so deletions are observed, not guessed. */
+  identityVolumes?: string[];
+}
+
+export interface QueryMusicTracksResult {
+  tracks: LocalMusicTrack[];
+  volumes: MediaStoreVolumeFact[];
+  queriedVolumes: string[];
+  mode: 'FULL' | 'DELTA';
+  /** volumeName → every MediaStore `_ID` currently present on that volume. */
+  identities?: Record<string, string[]>;
+}
+
+/** Sampled-decode result written to the native artwork cache directory. */
+export interface ArtworkFileResult {
+  key: string;
+  /** Absolute path in the app cache dir; the caller converts it with Capacitor.convertFileSrc. */
+  path: string;
+  bytes: number;
+  width: number;
+  height: number;
+  sampleSize: number;
+  source: 'DISK' | 'DECODED' | 'MISSING';
 }
 
 export interface GetMusicTracksResult {
   tracks: LocalMusicTrack[];
+  /** Per-volume generation/version facts; no delta deletion claim is made. */
+  volumes?: Array<{ name: string; version: string | null; generation: number | null }>;
 }
 
 export interface LocalMusicProgressEvent {
@@ -628,6 +868,8 @@ export interface NativeVoiceMicDiagnostics {
     bufferBytes: number;
     frameSamples: number;
     attempts: { source: number; sourceName: string; outcome: string }[];
+    /** SAHA #1255-a · OEM mikrofon yönlendirme ayarı (SALT-OKUNUR, yazılmaz). */
+    oem?: { dualMicSettingRead?: boolean; dualMicSetting?: number };
   };
   effects?: {
     probed: boolean;
@@ -1333,7 +1575,7 @@ export interface CarLauncherPlugin {
    * content://, file://, http(s):// destekler. Yerel MediaStore albumart URI'leri için kullanılır.
    * Native tarafta cache'lenir — aynı URI tekrar sorgulanırsa hemen döner.
    */
-  getMediaArtDataUri(options: { uri: string }): Promise<{ dataUri: string }>;
+  getMediaArtDataUri(options: { uri: string; targetPx?: number }): Promise<{ dataUri: string }>;
 
   /* ── MÜZİK HUB PAKET A — Native Playback Authority ─────────────────────
    * CarosPlaybackService (Media3 ExoPlayer + MediaSession) tek otoritedir.
@@ -1353,10 +1595,51 @@ export interface CarLauncherPlugin {
   /** Servisi başlatır/bağlar ve mediaAuthorityEvent akışını açar (idempotent). */
   mediaAuthorityConnect(): Promise<void>;
 
+  /* ── MUSIC F6 — Ses Deneyimi / DSP ─────────────────────────────────────
+   * TEK tüketici `audioExperienceAuthority`'dir; bileşenler, Mavi ve diğer
+   * servisler bu üç metodu DOĞRUDAN çağırmaz. Hiçbiri playback komutu
+   * göndermez ve hiçbiri kullanıcı sesini (userVolume) değiştirmez. */
+
+  /** Cihazın GERÇEK DSP yüzeyi. Sorgulanamazsa `probed: false` döner. */
+  audioDspCapabilities(): Promise<NativeAudioDspCapabilities>;
+
+  /** Ayarı uygular. `applied:false` → hiçbir şey değişmedi (sahte başarı YOK). */
+  audioDspApply(options: NativeAudioDspApplyRequest): Promise<NativeAudioDspApplyResult>;
+
+  /** Efekt katmanının bounded, salt-okunur anlık görüntüsü. */
+  audioDspSnapshot(): Promise<NativeAudioDspSnapshot>;
+
   addListener(
     event: 'mediaAuthorityEvent',
     handler: (data: NativeAuthoritySnapshot) => void,
   ): Promise<PluginListenerHandle>;
+
+  /* ── F2 kütüphane tarama sözleşmesi ────────────────────────────────────
+   * MediaStore taramasının TEK giriş noktası mediaStoreRefreshExecutor'dır;
+   * bileşenler bu üç metodu DOĞRUDAN çağırmaz. */
+
+  /** Görünür volume'lar + version/generation. Parça sorgusu YAPMAZ. */
+  getMediaStoreVolumeFacts(): Promise<MediaStoreVolumeFactsResult>;
+
+  /** Planlayıcının verdiği karara göre tam veya delta parça sorgusu. */
+  queryMusicTracks(options: QueryMusicTracksOptions): Promise<QueryMusicTracksResult>;
+  /** MUSIC F10.1 — gömülü BPM etiketi okur (sınırlı toplu iş, arka plan havuzu). */
+  readTrackTraits(options: { uris: string[] }): Promise<ReadTrackTraitsResult>;
+  /** MUSIC F16 — gömülü şarkı sözü etiketi okur (sınırlı toplu iş, arka plan havuzu). */
+  readEmbeddedLyrics(options: { uris: string[] }): Promise<ReadEmbeddedLyricsResult>;
+  /** MUSIC F17 — sesi DECODE edip ölçer (ayrı havuz, sınırlı toplu iş, iptal edilebilir). */
+  analyzeTrackAudio(options: { uris: string[]; maxItems?: number }): Promise<AnalyzeTrackAudioResult>;
+  /** MUSIC F17 — devam eden ses analizini iptal eder (kuşak artar). */
+  cancelTrackAudioAnalysis(): Promise<{ generation: number }>;
+
+  /** Hedef boyuta göre örneklenmiş (sampled) decode → atomik cache dosyası. */
+  resolveArtworkFile(options: { uri: string; targetPx: number }): Promise<ArtworkFileResult>;
+
+  /** Disk LRU tahliyesi/geçersizleştirmesi; politika JS tarafındadır. */
+  deleteArtworkFiles(options: { keys?: string[]; all?: boolean }): Promise<{ deleted: number }>;
+
+  /** Native artwork cache dizininin salt-okunur sayıları (CAROS LAB). */
+  getArtworkCacheStats(): Promise<{ entries: number; bytes: number; schema: number; dir: string }>;
 
   // Yerel müzik — cihaz depolamasından MediaPlayer ile çalma
   getMusicTracks(): Promise<GetMusicTracksResult>;

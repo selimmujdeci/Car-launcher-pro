@@ -58,6 +58,10 @@ import {
 import {
   noteMotionSample, resetMarkerMotion, registerMotionFeeder,
 } from './navMarkerMotionRuntime';
+import {
+  acquireEgoHorizonSession, releaseEgoHorizonSession,
+  noteEgoHeadingFix, tickEgoHorizon,
+} from './navEgoHorizonBridge';
 import { logError } from '../crashLogger';
 
 /* ── Gözlem sayaçları (CAROS LAB · salt-okunur, koordinat TAŞIMAZ) ─────────── */
@@ -296,6 +300,20 @@ export function startNavigationSessionRuntime(): () => void {
       _tickCount++;
       _lastTickAtMs = _now();
       _feedVoiceGuidance(status);
+      /* F3/C1: GNSS yönü jiro İŞARETİNİN tek kanıtıdır (yalnız GERÇEK fix'te —
+         DR projeksiyonu bir gözlem DEĞİLDİR ve işaret öğretemez). */
+      noteEgoHeadingFix(
+        Number.isFinite(loc.heading ?? NaN) ? (loc.heading as number) : null,
+        Number.isFinite(loc.speed ?? NaN) ? (loc.speed as number) : null,
+      );
+      /* F3/C2: ego → rota niyeti → ufuk. Fail-soft: köprüdeki hata rota
+         ilerlemesini ASLA düşürmez (köprü kendi içinde yutar).
+         Jiro aboneliği TALEP-GÜDÜMLÜDÜR: yalnız navigasyon SÜRERKEN tutulur
+         (idempotent). Uygulama ömrü boyunca açık bırakmak, navigasyon kapalıyken
+         de 60 Hz sensör beslemesi demek olurdu — `compassDemand` deseniyle aynı
+         gerekçe. Bırakma `_onNavigationInactive()` ve `stop()` yollarındadır. */
+      acquireEgoHorizonSession();
+      tickEgoHorizon();
       _ensureDrTimer();
     } catch (e) {
       // Fail-soft: ilerleme hesabındaki bir hata navigasyonu ÖLDÜRMEZ; bir
@@ -356,6 +374,9 @@ function _onNavigationInactive(): void {
   _clearDrProjection();
   resetVoiceGuidance('navigasyon aktif değil');
   resetMarkerMotion();
+  /* Zero-Leak + güç: navigasyon bitince jiro aboneliği DÜŞER ve ego/ufuk
+     durumu sıfırlanır (bayat oturum kanıtı yeni oturuma taşınmaz). */
+  releaseEgoHorizonSession();
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
@@ -480,6 +501,9 @@ function _drTick(): void {
     _setDrState('DR_ACTIVE');
     _drTickCount++;
     _feedVoiceGuidance(nav.status);
+    /* Tünelde de ego/ufuk adımı sürer — ama yön gözlemi İTİLMEZ: DR bir
+       projeksiyondur, GNSS gözlemi değildir. */
+    tickEgoHorizon();
   } catch (e) {
     _errorCount++; _lastErrorAtMs = _now();
     logError('NavSessionRuntime:dr', e);
@@ -497,6 +521,9 @@ export function stopNavigationSessionRuntime(): void {
   _clearDrProjection();
   resetVoiceGuidance('runtime durduruldu');
   resetMarkerMotion();
+  /* Zero-Leak: jiro aboneliği ve ego/ufuk durumu oturumla birlikte bırakılır
+     (dengeli acquire/release — kilit test denetler). */
+  releaseEgoHorizonSession();
   _releaseMotionFeeder?.();
   _releaseMotionFeeder = null;
   if (!_unsub) return;

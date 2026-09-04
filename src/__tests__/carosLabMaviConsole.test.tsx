@@ -171,10 +171,11 @@ describe('KİLİT 3 — fail-soft: kaynak patlarsa ekran ayakta kalır', () => {
     /* Bölüm sayısı fazlarla BÜYÜR ve bu sayı bilinçli olarak kilitlidir:
        A-F (M6 konuşma + M5 tur kapıları) · G (MAVI-F8 sürüş iş yükü) ·
        H (MAVI-F9 proaktif politika) · I (MAVI-F11 görünen durum) ·
-       J (MAVI-F12 barge-in / duplex) · K (MAVI-F13 kanonik runtime).
+       J (MAVI-F12 barge-in / duplex) · K (MAVI-F13 kanonik runtime) ·
+       L (wake tetiğinin akıbeti — saha 2026-09-03/04).
        Yeni bölüm eklendiğinde bu sayı GÜNCELLENİR — kaldırılmaz (yoksa bölüm
        enflasyonu sessizce büyür). */
-    expect(sections).toHaveLength(11);
+    expect(sections).toHaveLength(12);
     for (const s of sections) {
       expect(s.fields.length).toBeGreaterThan(0);
       for (const f of s.fields) expect(f.klass).toBe('UNAVAILABLE');
@@ -249,6 +250,14 @@ describe('KİLİT 3 — fail-soft: kaynak patlarsa ekran ayakta kalır', () => {
     vi.doMock('../platform/maviCore/wiring/maviEvidence', () => ({
       getMaviRuntimeConsolidationDiagnostics: boom,
     }));
+    /* Wake karar defteri de bu senaryoya DAHİLDİR: "her kaynak patladı"
+       iddiası ancak defter de patlarsa doğrudur. Aksi hâlde bu kilit
+       yanlışlıkla "bir bölüm hep okunabiliyor" gerçeğini gizlerdi. */
+    vi.doMock('../platform/voice/wakeForensics', () => ({ getWakeForensics: boom }));
+    /* SAHA #1256-a: TTS motor sonuç defteri de bu senaryoya DAHİLDİR — aksi
+       hâlde "her kaynak patladı" iddiası yalan olurdu ve bu kilit yeni kaynağı
+       sessizce ATLARDI (kör guard yasağı). */
+    vi.doMock('../platform/ttsService', () => ({ getTtsEngineDiagnostics: boom }));
 
     const sources = await import('../platform/devtools/maviConsoleSources');
     const model   = await import('../platform/devtools/maviConsoleModel');
@@ -259,12 +268,14 @@ describe('KİLİT 3 — fail-soft: kaynak patlarsa ekran ayakta kalır', () => {
     expect(s.aiHealth).toBeNull();
     expect(s.quota).toBeNull();
     expect(s.speech).toBeNull();
+    expect(s.ttsEngine).toBeNull();     // motor defteri patlarsa "ses çıktı" UYDURULMAZ
     expect(s.turn).toBeNull();
     expect(s.workload).toBeNull();
     expect(s.proactivePolicy).toBeNull();
     expect(s.surface).toBeNull();
     expect(s.bargeIn).toBeNull();       // MAVI-F12: kaynak patlarsa "kanıt yok"
     expect(s.runtime).toBeNull();       // MAVI-F13: defter patlarsa "kanıt yok"
+    expect(s.wakeForensics).toBeNull(); // wake defteri patlarsa "tetik yok" UYDURULMAZ
     expect(s.readAt).toBeGreaterThan(0);
 
     const v = model.deriveMaviVerdict(s);
@@ -651,7 +662,7 @@ describe('KİLİT 9 — katalog AVAILABLE ve eşleme doğru', () => {
 
   it('bölümler ve alanlar BOUNDED', () => {
     const sections = buildMaviSections(snapshot());
-    expect(sections).toHaveLength(11);  // A-F + G (F8) + H (F9) + I (F11) + J (F12) + K (F13)
+    expect(sections).toHaveLength(12);  // A-F + G (F8) + H (F9) + I (F11) + J (F12) + K (F13) + L (wake akıbeti)
     for (const s of sections) {
       expect(s.fields.length).toBeLessThanOrEqual(MAX_FIELDS_PER_MAVI_SECTION);
       for (const f of s.fields) expect(f.value.length).toBeLessThan(200);
@@ -695,5 +706,80 @@ describe('KİLİT 10 — önceki fazlar bozulmadı', () => {
     expect(src).toContain("from './sessionInspectorModel'");
     // Kendi Observability birliğini YENİDEN TANIMLAMAZ
     expect(src).not.toContain("export type MaviObservability");
+  });
+});
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * KİLİT — L · WAKE TETİĞİNİN AKIBETİ (saha 2026-09-03/04)
+ *
+ * NEDEN VAR: native wake motoru "Hey Mavi"yi yakalıyordu (`triggerCount`
+ * arttı, güven %86) ama Mavi hiç uyanmadı. Karar ZATEN `recordWake` ile
+ * kaydediliyordu; eksik olan OKUNUR YÜZEYDİ — bu yüzden hangi kapının
+ * (PAUSED · VOICE_ACTIVE · SELF_ECHO · DEBOUNCE · REJECTED_TOKEN) yuttuğu
+ * cihazda görülemiyordu. Bu kilitler o yüzeyin kaybolmasını engeller.
+ * ═══════════════════════════════════════════════════════════════════════ */
+describe('KİLİT — wake karar defteri LAB\'da okunur', () => {
+  /* Diğer bölümlerin kaynakları BİLİNÇLİ olarak `null` verilir: bu kilitler
+     yalnız L bölümünü sınar, diğer bölümlerin "okunamadı" davranışı kendi
+     kilitlerinde zaten korunuyor. */
+  const WF_BASE = {
+    readAt: NOW, voice: null, diag: null, aiHealth: null, quota: null, proactive: null,
+  };
+  const wfSection = (over: Record<string, unknown>) =>
+    buildMaviSections({ ...WF_BASE, ...over } as unknown as MaviRawSnapshot)
+      .find((x) => x.id === 'wake-forensics')!;
+
+  it('kaynak katmanı GERÇEK defteri okur (kopya sayaç üretmez)', async () => {
+    const { readFileSync } = await import('node:fs');
+    const src = readFileSync('src/platform/devtools/maviConsoleSources.ts', 'utf8');
+    expect(src).toContain("from '../voice/wakeForensics'");
+    expect(src).toContain('_safe(() => getWakeForensics(10))');
+  });
+
+  it('defter okunamazsa "hiç tetik yok" UYDURULMAZ', () => {
+    const s = wfSection({});
+    expect(s.fields.length).toBeGreaterThan(0);
+    for (const f of s.fields) expect(f.klass).toBe('UNAVAILABLE');
+    expect(s.fields[0]!.note + s.fields[0]!.value + (s.fields[0]!.hint ?? ''))
+      .toMatch(/ÖLÇÜLEMEDİ|okunamadı/i);
+  });
+
+  it('hangi kapının yuttuğu TEK BAKIŞTA görünür (gerekçe + dağılım)', () => {
+    const snap = {
+      wakeForensics: {
+        counts: { SUPPRESSED_PAUSED: 7, ACCEPTED: 1 },
+        total: 8, evicted: 0, intentReached: 1, acceptedNoIntent: 0,
+        pendingAcceptAgeMs: null,
+        lastReason: 'SUPPRESSED_PAUSED', lastPath: 'GRAMMAR',
+      },
+    };
+    const s = wfSection(snap);
+    const joined = s.fields.map((f) => `${f.label}=${f.value}`).join(' | ');
+    expect(joined).toContain('SUPPRESSED_PAUSED');
+    expect(joined).toContain('GRAMMAR');
+    expect(joined).toContain('SUPPRESSED_PAUSED: 7');
+  });
+
+  it('bekleyen kabul: "YOK" ile "0 ms" AYRI tutulur (sahte 0 yasağı)', () => {
+    const mk = (age: number | null) => wfSection({
+      wakeForensics: {
+        counts: {}, total: 0, evicted: 0, intentReached: 0, acceptedNoIntent: 0,
+        pendingAcceptAgeMs: age, lastReason: null, lastPath: null,
+      },
+    });
+    const pend = (s: ReturnType<typeof mk>) =>
+      s.fields.find((f) => f.id === 'wfPending')!.value;
+    expect(pend(mk(null))).toBe('YOK');
+    expect(pend(mk(0))).toBe('0 ms');
+  });
+
+  it('GİZLİLİK: transkript metni bu bölüme HİÇ girmez', async () => {
+    const { readFileSync } = await import('node:fs');
+    const model = readFileSync('src/platform/devtools/maviConsoleModel.ts', 'utf8');
+    const i = model.indexOf('_wakeForensicsSection');
+    const body = model.slice(i, i + 4000);
+    /* Defterin kendisi metin taşımaz; bu kilit yüzeyin de taşımadığını
+       (ileride yanlışlıkla eklenmediğini) sabitler. */
+    expect(body).not.toMatch(/transcript|heard|\.text\b/i);
   });
 });

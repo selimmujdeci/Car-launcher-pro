@@ -7,29 +7,56 @@
  * Native: Android MediaSession üzerinden harici uygulama kontrolü
  * Web/Demo: mock track rotasyonu
  */
-import { memo, useEffect, useCallback, useState, useRef, useSyncExternalStore } from 'react';
+import { memo, useEffect, useCallback, useMemo, useState, useRef, useSyncExternalStore } from 'react';
 import { createPortal } from 'react-dom';
 import {
   SkipBack, SkipForward, Play, Pause,
   Music2, Music, Bluetooth, Radio, Shuffle, Repeat, Repeat1,
-  Heart, Layers, Check, ChevronRight, HardDrive, SlidersHorizontal,
+  Layers, Check, ChevronRight, HardDrive, SlidersHorizontal,
   Search, Plus, Trash2, Globe, X, Video, Download, Loader2,
+  ListMusic, Heart, Captions,
 } from 'lucide-react';
 import { LocalMusicBrowser } from './LocalMusicBrowser';
 import { LocalVideoBrowser } from './LocalVideoBrowser';
+import { useFavoriteStatus } from './useFavoriteStatus';
+import { AddToPlaylistSheet } from './AddToPlaylistSheet';
+import { LyricsPanel } from './LyricsPanel';
 import {
-  useMediaState, togglePlayPause, next, previous, seek,
-  fmtTime, startMediaHub, stopMediaHub, toggleShuffle, cycleRepeat,
+  getLyricsPanelVisible, setLyricsPanelVisible, subscribeLyricsPanelVisible,
+} from '../../platform/media/lyricsPanelVisibility';
+import {
+  fmtTime, startMediaHub, stopMediaHub,
   setMediaPreferredPackage, pollMediaNow, play,
-  searchMedia, playMedia, ensureLocalLoaded,
+  playMedia, ensureLocalLoaded,
   resumeLastMedia, previewLastMedia, getLastMedia,
-  isSpotifyConnected, beginSpotifyLogin,
-  PROVIDER_META, WORLDWIDE_SOURCES_ENABLED,
-  ensureYouTubeReady, setYouTubeRegion, YOUTUBE_PKG,
-  type UnifiedTrack, type ProviderId,
+  ensureYouTubeReady, setYouTubeRegion,
+  /* MUSIC F7.3 · sonraki/önceki KUYRUK-FARKINDA tek girişten geçer: sıra
+     backend'in (native timeline) veya üst katmanın (arama sonucu listesi)
+     olabilir. Kapıya doğrudan gitmek, YouTube gibi kuyruksuz backend'lerde
+     komutu `unsupported_capability` ile düşürüyordu. */
+  next as queueAwareNext, previous as queueAwarePrevious, hasQueue,
+  type UnifiedTrack,
   type MediaSource,
 } from '../../platform/media/carosMediaLayer';
-import { STREAM_PKG } from '../../platform/streamMusicService';
+/* MUSIC F8 · karar okuma + kanonik uygulama. Bu ekran kendi zekâ durumunu
+   TUTMAZ; karar `musicIntelligenceRuntime`den gelir. */
+import {
+  applyIntelligenceCandidate, evaluateMusicIntelligence,
+} from '../../platform/media/intelligence/musicIntelligenceRuntime';
+import { useMusicViewModel } from './MusicViewModel';
+import { NowPlayingSurface } from './NowPlayingSurface';
+import { QueuePanel } from './QueuePanel';
+import {
+  buildNowPlayingPresentation, type DrivingMode, type NowPlayingPresentation,
+} from './nowPlayingModel';
+/* F11 · Now Playing yerleşimi ÖLÇÜLEN ekran boyutundan + sürüş durumundan
+   saf bir hesap üretir (bkz. dosya başlığı). İkinci bir sürüş/ekran otoritesi
+   KURULMAZ — `useScreenSense` mevcut ResizeObserver kancasıdır. */
+import { computeNowPlayingLayout, type NowPlayingLayout } from './nowPlayingLayoutModel';
+import { useScreenSense } from '../../hooks/useScreenSense';
+import { markQueueInteraction } from '../../platform/media/musicUiPerf';
+import { useNowPlayingArtwork } from './useNowPlayingArtwork';
+import { UnifiedSearchView } from './UnifiedSearchView';
 import { setMapHeavyNeighbor } from '../../platform/mapSourceManager';
 import { isNative } from '../../platform/bridge';
 import { useStore } from '../../store/useStore';
@@ -40,6 +67,13 @@ import { getRuntimeConfig } from '../../core/runtime/runtimeConfig';
 import { isLowEndDevice } from '../../platform/headUnitCompat';
 import { getCurrentYouTubeVideoId } from '../../platform/youtubeService';
 import { getVideoMode, toggleVideoMode, subscribeVideoMode } from '../../platform/media/videoModeStore';
+/* MUSIC F7.2 · sürüşte video görüntüsü kapalıdır — karar SAF politika modülünün,
+   bu ekran yalnız uygular ve gerekçeyi GÖSTERİR (sessiz engelleme yasak). */
+import type { TrackInfo } from '../../platform/mediaService';
+import { pause, play as commandPlay, seek, setRepeat, setShuffle } from '../../platform/media/authority/mediaCommandGateway';
+import type { SourceCapabilities } from '../../platform/media/authority/sourceCapabilities';
+import { markMusicArtworkReady } from '../../platform/media/musicUiPerf';
+import { useListeningProjection, type ListeningProjection } from '../../platform/media/session/sessionProjection';
 
 /* SAFE_MODE subscription — disables heavy backdrop blurs */
 function subscribeRuntime(cb: () => void) { return runtimeManager.subscribe(cb); }
@@ -128,7 +162,9 @@ function YtDownloadButton({
 
 /* ── AlbumArt — premium 4-layer shadow + texture + specular sweep ── */
 // Per screens.jsx 247-277. oklch(56% 0.10 42) base when no cover.
-function AlbumArt({ size, src }: { size: number; src?: string }) {
+function AlbumArt({ size, src, motionEnabled = true }: {
+  size: number; src?: string; motionEnabled?: boolean;
+}) {
   return (
     <div style={{
       width: size, height: size,
@@ -149,7 +185,20 @@ function AlbumArt({ size, src }: { size: number; src?: string }) {
         ' 0 2px 6px rgba(0,0,0,0.30)',
       border: '1px solid rgba(0,0,0,0.3)',
     }}>
-      {src && <img src={src} alt="" className="absolute inset-0 w-full h-full object-cover" />}
+      {/* Kapak değişimi CROSSFADE ile yerleşir: sert flash/jump olmaz. Anahtar
+          kaynağa bağlıdır, böylece yeni görsel kendi geçişini yapar. */}
+      {src && (
+        <img
+          key={src}
+          src={src}
+          alt=""
+          onLoad={markMusicArtworkReady}
+          className="absolute inset-0 w-full h-full object-cover"
+          style={motionEnabled
+            ? { animation: 'caros-art-in 260ms ease-out both' }
+            : undefined}
+        />
+      )}
       <div className="absolute inset-0 pointer-events-none" style={{
         background: 'repeating-linear-gradient(45deg, rgba(255,255,255,0.05) 0 12px, transparent 12px 28px)',
       }} />
@@ -207,13 +256,23 @@ const KNOWN_SOURCES: KnownSource[] = [
 
 type Tab = 'player' | 'search' | 'sources' | 'library' | 'video';
 
+function requestPlayPause(isAudiblyPlaying: boolean): void {
+  void (isAudiblyPlaying ? pause(undefined, 'now_playing') : commandPlay(undefined, 'now_playing'));
+}
+
 /* ── Ana bileşen ─────────────────────────────────────────── */
 
 interface Props {
   defaultMusic: MusicOptionKey;
+  /**
+   * F4 · Sürüş dikkat düzeyi. MEVCUT `smartEngine` otoritesinden kabuk aracılığıyla
+   * gelir; bu ekran hız okumaz ve yeni bir sürüş-durumu otoritesi KURMAZ.
+   * Verilmezse en muhafazakâr değer olan `idle` kullanılır (kısıtlama uygulanmaz).
+   */
+  drivingMode?: DrivingMode;
 }
 
-export const MediaScreen = memo(function MediaScreen({ defaultMusic }: Props) {
+export const MediaScreen = memo(function MediaScreen({ defaultMusic, ...props }: Props) {
   const [tab, setTab] = useState<Tab>('player');
   // YouTube parçasında video gösterilsin mi (varsayılan: kapak/ses). Buton VEYA sesli
   // komut ("video moduna al") değiştirir → global videoModeStore (UI dışından tetiklenir).
@@ -244,14 +303,52 @@ export const MediaScreen = memo(function MediaScreen({ defaultMusic }: Props) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const media = useMediaState();
-  const { playing, track, source, activeAppName, hasSession, shuffle, repeat } = media;
+  const music = useMusicViewModel();
+  const listening = useListeningProjection();
+  /* F4 · Sürüş dikkat girdisi MEVCUT otoriteden (smartEngine) prop olarak
+     gelir; bu ekran yeni bir sürüş-durumu otoritesi KURMAZ. */
+  const drivingMode: DrivingMode = props.drivingMode ?? 'idle';
+  /* F11 · Drawer'ın gerçek içerik alanı — `DrawerShell` sabit kenar boşluğu
+     (24+24 yatay · 12+24 dikey) + sürükle tutacağı (~31px) çıkarılır. Kesin
+     piksel eşleşmesi GEREKMEZ: yerleşim modeli bir eşik sınıflandırmasıdır,
+     birkaç pikseli ıskalamak yoğunluğu DEĞİŞTİRMEZ. */
+  const screen = useScreenSense();
+  const nowPlayingLayout: NowPlayingLayout = useMemo(
+    () => computeNowPlayingLayout(screen.width - 48, screen.height - 67, drivingMode),
+    [screen.width, screen.height, drivingMode],
+  );
+  const [queueOpen, setQueueOpen] = useState(false);
+  const runtimeModeTop = useSyncExternalStore(subscribeRuntime, getRuntimeMode, getRuntimeMode);
+  /* Sakin hareket bütçesi: düşük runtime modunda ve zayıf GPU'da animasyon
+     kapanır — hareket kararı tek yerde verilir, bileşenlere dağıtılmaz. */
+  const reducedMotion = !getRuntimeConfig(runtimeModeTop).enableBlur || isLowEndDevice();
+  const { track, source, hasSession, shuffle, repeat } = music;
+  // F1: `PLAYING` only means native audible truth. Unverified transport never
+  // renders an optimistic playing surface.
+  const playing = music.isAudiblyPlaying;
 
   const srcMeta     = SOURCE_META[source] ?? SOURCE_META.unknown;
-  const displayName = activeAppName || srcMeta.label;
-  const progressPct = track.durationSec > 0
-    ? Math.min(100, (track.positionSec / track.durationSec) * 100)
-    : 0;
+  const displayName = music.sourceLabel || srcMeta.label;
+
+  /* F4 · Now Playing sunum modeli. Hangi kontrolün çizileceği, ilerlemenin
+     gösterilebilir olup olmadığı ve sürekliliğin kullanıcı dilindeki karşılığı
+     TEK saf hesaptan gelir; bileşen bu kararları dağıtık şekilde vermez. */
+  const nowPlaying = useMemo(() => buildNowPlayingPresentation({
+    music,
+    listening: listening.hasSession ? {
+      hasSession: listening.hasSession,
+      continuity: listening.continuity,
+      queuePosition: listening.queuePosition,
+      queueEditable: listening.queueEditable,
+      restored: listening.restored,
+    } : null,
+    drivingMode,
+    reducedMotion,
+    /* MUSIC F7.3 · üst katman sırası GERÇEKTEN var mı — uydurulmaz, ölçülür.
+       Backend timeline'ı olmayan kaynaklarda (YouTube) atlama meşruiyeti
+       buradan gelir. */
+    upperQueueAvailable: hasQueue(),
+  }), [music, listening, drivingMode, reducedMotion]);
 
   const handleSelectSource = useCallback((src: KnownSource) => {
     updateSettings({
@@ -263,8 +360,8 @@ export const MediaScreen = memo(function MediaScreen({ defaultMusic }: Props) {
   }, [updateSettings]);
 
   // Stream (özel internet kaynağı) / YouTube aktif mi — web'de de kontroller açık olsun
-  const isStream  = media.activePackage === STREAM_PKG;
-  const isYouTube = media.activePackage === YOUTUBE_PKG;
+  const isStream  = music.sourceClass === 'STREAM';
+  const isYouTube = music.sourceClass === 'YOUTUBE';
 
   // Birleşik çalma — arama sonucu (her kaynak) → katman doğru backend'e yönlendirir.
   // Tüm sonuç listesi kuyruk olarak geçer → sonraki/önceki bu liste üzerinde çalışır.
@@ -273,8 +370,21 @@ export const MediaScreen = memo(function MediaScreen({ defaultMusic }: Props) {
     setTab('player');
   }, []);
 
-  // Büyük oynat tuşu (aktif oturum yokken): son çalınan parçadan devam et; yoksa native play.
+  /* Büyük oynat tuşu (aktif oturum yokken).
+   *
+   * MUSIC F8: kullanıcı "çal" dedi — NE çalınacağı sürüş bağlamından
+   * gelebilir. F8 adayı YALNIZ `AUTO_RESUME` kararında kullanılır (kanıtlı
+   * bağlam + yolculuk başlangıcı + tekrarlanan alışkanlık); her başka
+   * durumda davranış DEĞİŞMEZ: son çalınandan devam, o da yoksa native play.
+   * Aday uygulanamazsa sessizce eski yola düşülür — sahte başarı yok. */
   const handleBigPlay = useCallback(() => {
+    const decision = evaluateMusicIntelligence();
+    if (decision.action === 'AUTO_RESUME' && decision.candidate !== null) {
+      void applyIntelligenceCandidate(decision.candidate).then((ok) => {
+        if (!ok && !resumeLastMedia()) play();
+      });
+      return;
+    }
     if (!resumeLastMedia()) play();
   }, []);
 
@@ -291,6 +401,7 @@ export const MediaScreen = memo(function MediaScreen({ defaultMusic }: Props) {
       {/* ── Aktif sayfa ─────────────────────────────────────── */}
       <div className="flex-1 min-h-0 overflow-hidden">
         {tab === 'player' && (
+          <NowPlayingSurface>
           <PlayerView
             hasSession={hasSession}
             playing={playing}
@@ -298,9 +409,9 @@ export const MediaScreen = memo(function MediaScreen({ defaultMusic }: Props) {
             source={source}
             srcMeta={srcMeta}
             displayName={displayName}
-            progressPct={progressPct}
             shuffle={shuffle}
             repeat={repeat}
+            capabilities={music.capabilities}
             isStream={isStream}
             isYouTube={isYouTube}
             canResume={canResume}
@@ -309,12 +420,24 @@ export const MediaScreen = memo(function MediaScreen({ defaultMusic }: Props) {
             activeSourceKey={activeMediaSourceKey}
             onTabSources={() => setTab('sources')}
             onPlay={handleBigPlay}
+            nowPlaying={nowPlaying}
+            layout={nowPlayingLayout}
+            alignment={listening.alignment}
+            queueOpen={queueOpen}
+            onOpenQueue={() => { markQueueInteraction(); setQueueOpen(true); }}
+            onCloseQueue={() => setQueueOpen(false)}
           />
+          </NowPlayingSurface>
         )}
         {tab === 'search' && (
-          <SearchView
-            onPlay={handlePlayResult}
-            onAddSource={() => setTab('sources')}
+          /* F5 · Birleşik arama. Kullanıcı "önce kaynak seç" modeline
+             zorlanmaz; sağlayıcı sonucu kanonik medya katmanına devredilir,
+             yerel sonuç F3 oturum yolundan çalar. */
+          <UnifiedSearchView
+            onPlayProviderResult={handlePlayResult}
+            drivingMode={drivingMode}
+            onResume={handleBigPlay}
+            onStarted={() => setTab('player')}
           />
         )}
         {tab === 'sources' && (
@@ -328,7 +451,7 @@ export const MediaScreen = memo(function MediaScreen({ defaultMusic }: Props) {
             onPlayStream={handlePlayStream}
           />
         )}
-        {tab === 'library' && <LocalMusicBrowser />}
+        {tab === 'library' && <LocalMusicBrowser drivingMode={drivingMode} />}
         {tab === 'video'   && <LocalVideoBrowser />}
       </div>
 
@@ -346,11 +469,11 @@ export const MediaScreen = memo(function MediaScreen({ defaultMusic }: Props) {
           WebkitBackdropFilter: 'blur(calc(var(--rt-blur, 1) * 12px))',
         }}
       >
-        <TabBtn active={tab === 'player'}  icon={<Music2     className="w-5 h-5" />} label="Çalıyor"   onClick={() => setTab('player')}  />
-        <TabBtn active={tab === 'search'}  icon={<Search     className="w-5 h-5" />} label="Ara"       onClick={() => setTab('search')}  />
-        <TabBtn active={tab === 'library'} icon={<HardDrive  className="w-5 h-5" />} label="Cihaz"     onClick={() => setTab('library')} />
-        <TabBtn active={tab === 'video'}   icon={<Video      className="w-5 h-5" />} label="Video"     onClick={() => setTab('video')}   />
-        <TabBtn active={tab === 'sources'} icon={<Layers     className="w-5 h-5" />} label="Kaynaklar" onClick={() => setTab('sources')} />
+        <TabBtn compact={nowPlayingLayout.tabBarCompact} active={tab === 'player'}  icon={<Music2     className="w-5 h-5" />} label="Çalıyor"   onClick={() => setTab('player')}  />
+        <TabBtn compact={nowPlayingLayout.tabBarCompact} active={tab === 'search'}  icon={<Search     className="w-5 h-5" />} label="Ara"       onClick={() => setTab('search')}  />
+        <TabBtn compact={nowPlayingLayout.tabBarCompact} active={tab === 'library'} icon={<HardDrive  className="w-5 h-5" />} label="Cihaz"     onClick={() => setTab('library')} />
+        <TabBtn compact={nowPlayingLayout.tabBarCompact} active={tab === 'video'}   icon={<Video      className="w-5 h-5" />} label="Video"     onClick={() => setTab('video')}   />
+        <TabBtn compact={nowPlayingLayout.tabBarCompact} active={tab === 'sources'} icon={<Layers     className="w-5 h-5" />} label="Kaynaklar" onClick={() => setTab('sources')} />
       </div>
     </div>
   );
@@ -358,19 +481,35 @@ export const MediaScreen = memo(function MediaScreen({ defaultMusic }: Props) {
 
 /* ── Tab buton ───────────────────────────────────────────── */
 
-function TabBtn({ active, icon, label, onClick }: { active: boolean; icon: React.ReactNode; label: string; onClick: () => void }) {
+/**
+ * F11 · `compact` YALNIZ küçük/düşük yükseklikli ekranlarda veya sürüşte
+ * `true` olur (bkz. `nowPlayingLayoutModel`). Etiket DOM'dan KALKMAZ —
+ * `sr-only` ile ekran okuyucuda kalır, yalnız görsel olarak gizlenir; buton
+ * yüksekliği `MIN_TOUCH_TARGET_PX`in altına asla İNMEZ.
+ */
+function TabBtn({
+  active, icon, label, onClick, compact = false,
+}: { active: boolean; icon: React.ReactNode; label: string; onClick: () => void; compact?: boolean }) {
   return (
     <button
       data-editable="media.tab-button" data-editable-type="dock"
       onClick={onClick}
-      className="flex-1 flex flex-col items-center justify-center gap-1.5 py-4 transition-all duration-300"
-      style={{ color: active ? 'var(--oem-accent, #E0A23C)' : 'var(--oem-ink-3, var(--text-dim, rgba(255,255,255,0.5)))' }}
+      aria-label={compact ? label : undefined}
+      className={`flex-1 flex flex-col items-center justify-center gap-1.5 transition-all duration-300 ${compact ? 'py-2' : 'py-4'}`}
+      style={{
+        color: active ? 'var(--oem-accent, #E0A23C)' : 'var(--oem-ink-3, var(--text-dim, rgba(255,255,255,0.5)))',
+        minHeight: compact ? 56 : undefined,
+      }}
     >
       <div className={active ? 'scale-110 transition-all' : 'transition-all'}
         style={active ? { filter: 'drop-shadow(0 0 8px var(--oem-accent-glow, rgba(224,162,60,0.55)))' } : undefined}>
         {icon}
       </div>
-      <span className="text-[10px] font-black uppercase tracking-[0.2em] transition-colors">{label}</span>
+      {/* COMPACT'ta etiket DOM'da kalır (erişilebilirlik) ama görsel olarak
+          gizlenir — sürüşte/küçük ekranda gezinme şeridi hafifler. */}
+      <span className={compact ? 'sr-only' : 'text-[10px] font-black uppercase tracking-[0.2em] transition-colors'}>
+        {label}
+      </span>
       {active && <div className="absolute bottom-0 w-12 h-1 rounded-t-full" style={{ background: 'var(--oem-accent, #E0A23C)', boxShadow: '0 0 10px var(--oem-accent-glow, rgba(224,162,60,0.8))' }} />}
     </button>
   );
@@ -381,13 +520,13 @@ function TabBtn({ active, icon, label, onClick }: { active: boolean; icon: React
 interface PlayerViewProps {
   hasSession:      boolean;
   playing:         boolean;
-  track:           ReturnType<typeof useMediaState>['track'];
+  track:           TrackInfo;
   source:          MediaSource;
   srcMeta:         typeof SOURCE_META[MediaSource];
   displayName:     string;
-  progressPct:     number;
   shuffle:         boolean;
   repeat:          'off' | 'one' | 'all';
+  capabilities:    SourceCapabilities | null;
   isStream:        boolean;
   isYouTube:       boolean;
   canResume:       boolean;
@@ -396,6 +535,14 @@ interface PlayerViewProps {
   activeSourceKey: string;
   onTabSources:    () => void;
   onPlay:          () => void;
+  /** F4 · tek saf sunum kaynağı. */
+  nowPlaying:      NowPlayingPresentation;
+  /** F11 · ölçülen ekran + sürüş durumundan gelen yerleşim değerleri. */
+  layout:          NowPlayingLayout;
+  alignment:       ListeningProjection['alignment'];
+  queueOpen:       boolean;
+  onOpenQueue:     () => void;
+  onCloseQueue:    () => void;
 }
 
 /**
@@ -532,17 +679,17 @@ function VideoFullscreenChrome({
           position: 'absolute', top: '50%', left: 0, right: 0, transform: 'translateY(-50%)',
           display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 44,
         }}>
-          <button onClick={() => { previous(); wake(); }} aria-label="Önceki" style={ctrlBtn(76)}>
+          <button onClick={() => { queueAwarePrevious('video_fullscreen'); wake(); }} aria-label="Önceki" style={ctrlBtn(76)}>
             <SkipBack className="w-9 h-9" />
           </button>
           <button
-            onClick={() => { togglePlayPause(); wake(); }}
+            onClick={() => { requestPlayPause(playing); wake(); }}
             aria-label={playing ? 'Duraklat' : 'Çal'}
             style={{ ...ctrlBtn(108), background: 'rgba(255,255,255,0.96)', color: '#0b0d12', boxShadow: '0 10px 34px rgba(0,0,0,0.5)' }}
           >
             {playing ? <Pause className="w-12 h-12" /> : <Play className="w-12 h-12 ml-1" />}
           </button>
-          <button onClick={() => { next(); wake(); }} aria-label="Sonraki" style={ctrlBtn(76)}>
+          <button onClick={() => { queueAwareNext('video_fullscreen'); wake(); }} aria-label="Sonraki" style={ctrlBtn(76)}>
             <SkipForward className="w-9 h-9" />
           </button>
         </div>
@@ -577,11 +724,34 @@ function VideoFullscreenChrome({
 }
 
 function PlayerView({
-  hasSession, playing, track, srcMeta, displayName, progressPct,
+  hasSession, playing, track, srcMeta, displayName,
   shuffle, repeat, isStream, isYouTube, canResume, videoMode, onToggleVideo, onTabSources, onPlay,
+  nowPlaying, layout, alignment, queueOpen, onOpenQueue, onCloseQueue,
 }: PlayerViewProps) {
+  const progress = nowPlaying.progress;
+  const controls = nowPlaying.controls;
+  /* Kapak F2 ArtworkCache'ten `now-playing` boyutunda gelir; bileşen kendi
+     native çözümünü YAPMAZ. Çözülene kadar önceki kapak durur. */
+  const artwork = useNowPlayingArtwork(nowPlaying.artworkIdentity);
   const progressRef = useRef<HTMLDivElement>(null);
   const artRef      = useRef<HTMLDivElement>(null);
+  /* SAHA BUGFIX (2026-09-03) · ÜRÜN KARARI DEĞİŞTİ: CarOS artık hız/hareket
+   * nedeniyle videoyu otomatik engellemez. F7.2'nin `useVideoSafety` kapısı
+   * BURADAN kaldırıldı — video görünürlüğü artık YALNIZ kullanıcının açık
+   * `videoMode` seçimine bağlıdır. `videoSafetyPolicy`/`useVideoSafety` SİLİNMEDİ:
+   * saf sınıflandırma hâlâ mevcuttur (LAB gözlemi + gelecekte ülke/mevzuat
+   * gerektirirse opt-in bir politikaya bağlanabilir) ama bugün hiçbir yerde
+   * playback/görüntü/ses reddi ÜRETMEZ. */
+  /* MUSIC F13 · gerçek favori otoritesinin projeksiyonu — kimlik yoksa
+     `available: false`, düğme HİÇ ÇİZİLMEZ (aşağıda kullanılıyor). */
+  const favorite = useFavoriteStatus();
+  // MUSIC F15 · "Playlist'e ekle" seçici — presentation state, playlist gerçeği DEĞİLDİR.
+  const [addToPlaylistOpen, setAddToPlaylistOpen] = useState(false);
+  /* MUSIC F16 · Sözler paneli görünürlüğü — `videoModeStore` ile AYNI desen,
+     Mavi UI DIŞINDAN `setLyricsPanelVisible` ile açabilir (bkz. F9 router
+     `runLyrics`). Panelin KENDİSİ presentation state'tir, lyrics İÇERİĞİ
+     `musicLyricsAuthority`dedir (Cross-Domain §14). */
+  const lyricsOpen = useSyncExternalStore(subscribeLyricsPanelVisible, getLyricsPanelVisible, getLyricsPanelVisible);
 
   // YouTube video konumlandırma:
   //  • videoMode KAPALI → host gizli (kapak/ses gösterilir).
@@ -590,6 +760,8 @@ function PlayerView({
   //    kontrolleri VideoFullscreenChrome (body portal, host'tan üst z-index) gelir.
   useEffect(() => {
     if (!isYouTube) return;
+    /* Video görünürlüğü YALNIZ kullanıcının `videoMode` seçimine bağlıdır —
+       hareket/hız bunu REDDEDEMEZ (ürün kararı, 2026-09-03). */
     if (!videoMode) {
       // Kapak modu — host gizli (rAF gerekmez). Albüm kapağını React gösterir.
       // Ses-only: harita normal (navigasyon akıcılığı korunur) → komşu kilidi kapalı.
@@ -613,15 +785,16 @@ function PlayerView({
     };
   }, [isYouTube, videoMode]);
 
-  // Progress bar'a dokununca/sürükleyince konuma atla (stream/Spotify/cihaz).
+  /* Konum değiştirme YALNIZ kaynak gerçekten destekliyorsa bağlanır. Sürüşte
+     dokunma hedefi büyütülür (aşağıdaki dolgu); yanlış dokunma riski azalır. */
   const handleSeek = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     const el = progressRef.current;
-    if (!el || track.durationSec <= 0) return;
+    if (!el || !progress?.seekable) return;
     const rect = el.getBoundingClientRect();
     if (rect.width <= 0) return;
     const frac = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
-    seek(frac * track.durationSec);
-  }, [track.durationSec]);
+    seek(frac * progress.durationSec);
+  }, [progress]);
 
   // Ağır blur GPU koruması (CLAUDE.md §3): enableBlur=false olan TÜM düşük modlarda
   // (BASIC_JS / POWER_SAVE / SAFE_MODE — yani Mali-400 sınıfı GPU'lar) kapat.
@@ -651,21 +824,25 @@ function PlayerView({
         />
       )}
 
+
       {/* Ambient backdrop — heavily blurred, low-opacity album art fills entire view */}
       <div className="absolute inset-0 pointer-events-none z-0">
-        {track.albumArt ? (
+        {artwork.url ? (
           <div
-            key={track.albumArt}
+            key={artwork.url}
             className="absolute inset-0"
             style={{
-              backgroundImage: `url(${track.albumArt})`,
+              backgroundImage: `url(${artwork.url})`,
               backgroundSize:     'cover',
               backgroundPosition: 'center',
+              /* Kapak rengi zemine SINIRLI sızar (bounded): üstteki vignette ile
+                 birlikte metin kontrastı her kapakta korunur. Kapak rengi UI
+                 renk otoritesine DÖNÜŞTÜRÜLMEZ. */
               opacity:            0.30,
               // Düşük mod (Mali-400 vb.): 0px blur → GPU korunur; aksi halde ≈ 64px
               filter:             blurOff ? 'none' : 'blur(64px)',
               transform:          'scale(1.5)',
-              transition:         'opacity 0.6s ease',
+              transition:         nowPlaying.motionEnabled ? 'opacity 0.6s ease' : 'none',
             }}
           />
         ) : (
@@ -682,14 +859,27 @@ function PlayerView({
       <div className="relative z-10 flex-1 flex flex-col px-8 pt-6 pb-4 min-h-0">
 
         {/* Üst: kaynak badge + ayar/kaynak kısayolu */}
-        <div className="flex items-center justify-between flex-shrink-0 mb-6">
+        <div className="flex items-center justify-between flex-shrink-0"
+          style={{ marginBottom: layout.sectionGapPx }}>
           <div data-editable="media.source-badge" data-editable-type="card"
             className="flex items-center gap-2.5 px-4 py-2 rounded-2xl text-[10px] font-black uppercase tracking-[0.2em] glass-card"
             style={{ color: srcMeta.color, borderColor: `${srcMeta.color}40` }}>
             <srcMeta.Icon className="w-4 h-4" />
             {displayName}
-            {playing && <span className="w-2 h-2 rounded-full animate-pulse ml-0.5 shadow-[0_0_8px_currentColor]" style={{ backgroundColor: srcMeta.color }} />}
+            {playing && (
+              <span aria-hidden
+                className={`w-2 h-2 rounded-full ml-0.5 shadow-[0_0_8px_currentColor]${nowPlaying.motionEnabled ? ' animate-pulse' : ''}`}
+                style={{ backgroundColor: srcMeta.color }} />
+            )}
           </div>
+          {/* Komut kabul edildi ama ses kanıtı YOK — sakin, dürüst ipucu.
+              "Çalıyor" İDDİA EDİLMEZ (F0 playbackTruth sözleşmesi). */}
+          {nowPlaying.awaitingConfirmation && (
+            <span data-music-awaiting="true" className="text-[10px] font-bold uppercase tracking-wider"
+              style={{ color: 'var(--oem-ink-3, rgba(240,235,224,0.52))' }}>
+              Başlatılıyor
+            </span>
+          )}
           {/* Kaynak/ayar kısayolu → Kaynaklar sekmesi */}
           <button
             onClick={onTabSources}
@@ -700,32 +890,35 @@ function PlayerView({
           </button>
         </div>
 
-        {/* Albüm kapağı — premium AlbumArt with texture + specular + 4-layer shadow */}
+        {/* Albüm kapağı — premium AlbumArt with texture + specular + 4-layer shadow.
+            F11: kenar ÖLÇÜLEN genişlik+yükseklik bütçesinden gelir (yalnız
+            genişliğe göre ölçeklenen eski `min(280px,70vw)` düşük ekranlarda
+            kendi hücresinden TAŞIYORDU — bkz. nowPlayingLayoutModel başlığı). */}
         <div className="flex-1 flex items-center justify-center min-h-0 py-4">
           <div ref={artRef} data-editable="media.album-art" data-editable-type="card"
-            className="relative group" style={{ width: 'min(280px, 70vw)', aspectRatio: '1 / 1' }}>
-            <AlbumArt size={280} src={track.albumArt ?? undefined} />
-            {playing && !blurOff && (
-              <div
-                aria-hidden
-                className="absolute -inset-3 rounded-[3rem] pointer-events-none animate-pulse"
-                style={{
-                  background: `radial-gradient(circle, ${srcMeta.color}22 0%, transparent 70%)`,
-                  filter: 'blur(20px)',
-                }}
-              />
-            )}
+            className="relative group" style={{ width: layout.artworkPx, aspectRatio: '1 / 1' }}>
+            <AlbumArt size={layout.artworkPx} src={artwork.url ?? undefined}
+              motionEnabled={nowPlaying.motionEnabled} />
+            {/* F11: sonsuz döngüde nabız atan (animate-pulse) bulanık kapak
+                halesi KALDIRILDI — bilgi taşımayan salt süs animasyondu, GPU
+                maliyeti vardı (blur+pulse üst üste) ve "oyuncak" okunuyordu.
+                Kompozisyonun kalitesi artık kapağın kendisinden (doku +
+                specular + 4 katman gölge, bkz. AlbumArt) ve arka plan
+                projeksiyonundan (üstteki ambient backdrop) geliyor. */}
           </div>
         </div>
 
-        {/* Şarkı bilgisi + beğeni */}
+        {/* Şarkı bilgisi + ikincil eylemler (yalnız gerçekten çalışanlar) */}
         <div data-editable="media.track-info" data-editable-type="card"
-          className="flex-shrink-0 flex items-center justify-between mt-6 mb-4 px-1">
+          className="flex-shrink-0 flex items-center justify-between px-1"
+          style={{ marginTop: layout.sectionGapPx, marginBottom: layout.sectionGapPx * 0.8 }}>
           <div className="flex-1 min-w-0 pr-4">
-            <div className="font-black text-2xl leading-tight truncate tracking-tight drop-shadow-md" style={{ color: 'var(--oem-ink)' }}>
+            <div className="font-black leading-tight truncate tracking-tight drop-shadow-md"
+              style={{ color: 'var(--oem-ink)', fontSize: layout.titleFontPx }}>
               {track.title || (hasSession ? 'Bilinmeyen parça' : 'Müzik başlat')}
             </div>
-            <div className="font-bold text-base truncate mt-1 tracking-wide uppercase text-[10px] opacity-80" style={{ color: 'var(--oem-ink-2)' }}>
+            <div className="font-bold truncate mt-1 tracking-wide uppercase opacity-80"
+              style={{ color: 'var(--oem-ink-2)', fontSize: layout.artistFontPx }}>
               {track.artist || (hasSession ? 'Sanatçı bilinmiyor' : 'Oynat\'a dokun')}
             </div>
           </div>
@@ -746,20 +939,85 @@ function PlayerView({
             {YT_DL && isYouTube && (
               <YtDownloadButton title={track.title} artist={track.artist} />
             )}
-            <button
-              className="w-12 h-12 rounded-2xl flex items-center justify-center glass-card active:scale-90 transition-all"
-              style={{ color: 'var(--oem-ink-2)' }}>
-              <Heart className="w-6 h-6 transition-all" />
-            </button>
+            {/* MUSIC F13 · gerçek favori otoritesi (musicCollectionAuthority)
+                ile geri geldi. F11'de KALDIRILAN onClick'siz süs düğmenin
+                yerini alır — burada artık GERÇEK state var: kimlik kanıtsızsa
+                (`favorite.available === false`) düğme HİÇ ÇİZİLMEZ; iyimser
+                sahte state YOK, `toggle()` senkron doğrulanmış sonucu
+                yansıtır. */}
+            {favorite.available && (
+              <button
+                onClick={() => { favorite.toggle(); }}
+                aria-label={favorite.isFavorite ? 'Favorilerden çıkar' : 'Favorilere ekle'}
+                aria-pressed={favorite.isFavorite}
+                data-music-favorite-toggle="true"
+                className="w-12 h-12 rounded-2xl flex items-center justify-center glass-card active:scale-90 transition-all"
+                style={favorite.isFavorite
+                  ? { color: 'var(--oem-amber, oklch(80% 0.13 60))', borderColor: 'var(--oem-line-warm, oklch(66% 0.10 55 / 0.42))' }
+                  : { color: 'var(--oem-ink-2, rgba(240,235,224,0.74))' }}>
+                <Heart className="w-6 h-6" fill={favorite.isFavorite ? 'currentColor' : 'none'} />
+              </button>
+            )}
+            {/* MUSIC F15 · "Playlist'e ekle" — heart düğmesiyle AYNI kimlik
+                kapısını (`favorite.available`) KULLANIR (F13'ün favori
+                DEĞİL, yalnız "çözülebilir bir mevcut öğe var mı" sinyalini
+                paylaşır — iki otorite BİRBİRİNE karışmaz). */}
+            {favorite.available && (
+              <button
+                onClick={() => setAddToPlaylistOpen(true)}
+                aria-label="Playlist'e ekle"
+                data-music-add-to-playlist="true"
+                className="w-12 h-12 rounded-2xl flex items-center justify-center glass-card active:scale-90 transition-all"
+                style={{ color: 'var(--oem-ink-2, rgba(240,235,224,0.74))' }}>
+                <ListMusic className="w-6 h-6" />
+              </button>
+            )}
+            {/* MUSIC F16 · "Sözler" — heart/playlist düğmeleriyle AYNI kimlik
+                kapısını (`favorite.available`) KULLANIR (yalnız "çözülebilir
+                bir mevcut öğe var mı" sinyali paylaşılır, lyrics İÇERİĞİ
+                otoritesi F13/F15'ten TAMAMEN AYRIDIR). */}
+            {favorite.available && (
+              <button
+                onClick={() => setLyricsPanelVisible(!lyricsOpen)}
+                aria-label={lyricsOpen ? 'Sözleri kapat' : 'Sözleri göster'}
+                aria-pressed={lyricsOpen}
+                data-music-lyrics-toggle="true"
+                className="w-12 h-12 rounded-2xl flex items-center justify-center glass-card active:scale-90 transition-all"
+                style={lyricsOpen
+                  ? { color: 'var(--oem-amber, oklch(80% 0.13 60))', borderColor: 'var(--oem-line-warm, oklch(66% 0.10 55 / 0.42))' }
+                  : { color: 'var(--oem-ink-2, rgba(240,235,224,0.74))' }}>
+                <Captions className="w-6 h-6" />
+              </button>
+            )}
           </div>
         </div>
 
-        {/* Cinematic thin progress meter with subtle glow at current position */}
-        <div data-editable="media.progress" data-editable-type="card" className="flex-shrink-0 mb-6 px-1">
-          {/* Geniş dokunma alanı (py-3 -my-3) — 3px çubuğu kolayca hedeflemek için */}
-          <div className="relative w-full py-3 -my-3 cursor-pointer"
-            style={{ touchAction: 'none' }}
-            onPointerDown={handleSeek}>
+        <AddToPlaylistSheet open={addToPlaylistOpen} onClose={() => setAddToPlaylistOpen(false)} />
+        <LyricsPanel
+          open={lyricsOpen}
+          onClose={() => setLyricsPanelVisible(false)}
+          drivingMode={nowPlaying.drivingMode}
+          positionSec={progress?.positionSec ?? 0}
+        />
+
+        {/* İlerleme — YALNIZ kaynak konum+süre bildirebiliyorsa çizilir.
+            Süre yoksa sahte "0:00", sahte slider ve sahte yüzde ÜRETİLMEZ:
+            boşluk, yanlış bilgiden iyidir. */}
+        {progress && (
+        <div data-editable="media.progress" data-editable-type="card"
+          data-music-progress="true" className="flex-shrink-0 px-1"
+          style={{ marginBottom: layout.sectionGapPx }}>
+          {/* Geniş dokunma alanı — 3px çubuğu sürüşte de hedeflemek için */}
+          <div className="relative w-full py-3 -my-3"
+            style={{ touchAction: 'none', cursor: progress.seekable ? 'pointer' : 'default' }}
+            onPointerDown={progress.seekable ? handleSeek : undefined}
+            role={progress.seekable ? 'slider' : 'progressbar'}
+            aria-label="Parça konumu"
+            aria-valuemin={0}
+            aria-valuemax={Math.round(progress.durationSec)}
+            aria-valuenow={Math.round(progress.positionSec)}
+            aria-valuetext={`${progress.positionLabel} / ${progress.durationLabel}`}
+            tabIndex={progress.seekable ? 0 : -1}>
           <div ref={progressRef}
             className="relative w-full rounded-full overflow-visible"
             style={{
@@ -767,21 +1025,22 @@ function PlayerView({
               background: 'var(--oem-line-strong, rgba(255,240,210,0.18))',
               boxShadow: 'inset 0 1px 1px rgba(0,0,0,0.35)',
             }}>
-            {/* Fill */}
             <div
-              className="absolute inset-y-0 left-0 rounded-full transition-[width] duration-700 ease-out"
+              className="absolute inset-y-0 left-0 rounded-full"
               style={{
-                width: `${progressPct}%`,
+                width: `${progress.percent}%`,
                 background: 'linear-gradient(90deg, oklch(72% 0.11 55), oklch(86% 0.10 70))',
                 boxShadow: '0 0 14px var(--oem-amber-glow, rgba(255,200,120,0.45))',
+                /* Sakin hareket: düşük performans/sürüşte geçiş animasyonu kapanır. */
+                transition: nowPlaying.motionEnabled ? 'width 700ms ease-out' : 'none',
               }}
             />
-            {/* Glow head — subtle marker at current position */}
-            {progressPct > 0 && progressPct < 100 && (
+            {progress.percent > 0 && progress.percent < 100 && (
               <div
+                aria-hidden
                 className="absolute pointer-events-none"
                 style={{
-                  left: `calc(${progressPct}% - 6px)`,
+                  left: `calc(${progress.percent}% - 6px)`,
                   top: '50%',
                   transform: 'translateY(-50%)',
                   width: 12, height: 12, borderRadius: '50%',
@@ -797,54 +1056,62 @@ function PlayerView({
           </div>
           <div className="flex justify-between text-[11px] mt-2.5 font-black uppercase tracking-widest tabular-nums"
             style={{ color: 'var(--oem-ink-3, rgba(240,235,224,0.52))' }}>
-            <span>{fmtTime(track.positionSec)}</span>
-            <span>{fmtTime(track.durationSec)}</span>
+            <span>{progress.positionLabel}</span>
+            <span>{progress.durationLabel}</span>
           </div>
         </div>
+        )}
 
-        {/* Kontrol butonları — cinematic premium */}
+        {/* Kontrol butonları — cinematic premium.
+            F11: çap ÖLÇÜLEN yerleşimden gelir; hiçbir yoğunlukta
+            MIN_TOUCH_TARGET_PX (48) altına İNMEZ (bkz. nowPlayingLayoutModel). */}
         <div data-editable="media.transport" data-editable-type="card"
-          className="flex-shrink-0 flex items-center justify-between mb-4">
+          className="flex-shrink-0 flex items-center justify-between"
+          style={{ marginBottom: layout.sectionGapPx * 0.8 }}>
           {/* Shuffle — glass ghost */}
-          <button onClick={toggleShuffle} disabled={!isNative}
+          {controls.shuffle && <button onClick={() => void setShuffle(!shuffle)} disabled={!isNative}
             aria-label="Karıştır"
-            className="w-12 h-12 rounded-full flex items-center justify-center active:scale-90 transition-all disabled:opacity-30"
+            className="rounded-full flex items-center justify-center active:scale-90 transition-all disabled:opacity-30"
             style={shuffle
               ? {
+                  width: layout.transportTertiaryPx, height: layout.transportTertiaryPx,
                   background: 'transparent',
                   border: '1px solid var(--oem-line-warm, oklch(66% 0.10 55 / 0.42))',
                   color: 'var(--oem-amber, oklch(80% 0.13 60))',
                   boxShadow: '0 0 18px var(--oem-amber-glow, transparent), inset 0 1px 0 rgba(255,240,210,0.06)',
                 }
               : {
+                  width: layout.transportTertiaryPx, height: layout.transportTertiaryPx,
                   background: 'transparent',
                   border: '1px solid var(--oem-line-strong, rgba(255,240,210,0.18))',
                   color: 'var(--oem-ink-2, rgba(240,235,224,0.74))',
                   boxShadow: 'inset 0 1px 0 rgba(255,240,210,0.04)',
                 }}>
             <Shuffle className="w-5 h-5" />
-          </button>
+          </button>}
 
           {/* Prev — glass ghost (larger) */}
-          <button onClick={previous} disabled={!isNative && !isStream && !isYouTube}
+          {controls.previous && <button onClick={() => { queueAwarePrevious('now_playing'); }} disabled={!isNative && !isStream && !isYouTube}
             aria-label="Önceki"
-            className="w-16 h-16 rounded-full flex items-center justify-center active:scale-90 transition-all disabled:opacity-30"
+            className="rounded-full flex items-center justify-center active:scale-90 transition-all disabled:opacity-30"
             style={{
+              width: layout.transportSecondaryPx, height: layout.transportSecondaryPx,
               background: 'transparent',
               border: '1px solid var(--oem-line-strong, rgba(255,240,210,0.18))',
               color: 'var(--oem-ink-2, rgba(240,235,224,0.74))',
               boxShadow: 'inset 0 1px 0 rgba(255,240,210,0.06)',
             }}>
             <SkipBack className="w-7 h-7" />
-          </button>
+          </button>}
 
           {/* Premium Play Button — cinematic amber gradient + heavy shadows.
               Oturum yokken oynat → arka planda çalmayı başlatır (uygulamayı öne almaz).
               Stream (özel kaynak) web'de de kontrol edilebilir. */}
-          <button onClick={hasSession ? togglePlayPause : onPlay} disabled={!isNative && !isStream && !isYouTube && !canResume}
+          <button onClick={hasSession ? () => requestPlayPause(playing) : onPlay} disabled={!isNative && !isStream && !isYouTube && !canResume}
             aria-label={playing ? 'Duraklat' : 'Çal'}
-            className="w-20 h-20 rounded-full flex items-center justify-center active:scale-95 transition-all relative disabled:opacity-40"
+            className="rounded-full flex items-center justify-center active:scale-95 transition-all relative disabled:opacity-40"
             style={{
+              width: layout.transportPrimaryPx, height: layout.transportPrimaryPx,
               background: 'linear-gradient(180deg, oklch(96% 0.02 80), oklch(78% 0.04 60))',
               color: '#0a0a0a',
               border: '1px solid oklch(78% 0.04 60)',
@@ -861,40 +1128,94 @@ function PlayerView({
           </button>
 
           {/* Next — glass ghost (larger) */}
-          <button onClick={next} disabled={!isNative && !isStream && !isYouTube}
+          {controls.next && <button onClick={() => { queueAwareNext('now_playing'); }} disabled={!isNative && !isStream && !isYouTube}
             aria-label="Sonraki"
-            className="w-16 h-16 rounded-full flex items-center justify-center active:scale-90 transition-all disabled:opacity-30"
+            className="rounded-full flex items-center justify-center active:scale-90 transition-all disabled:opacity-30"
             style={{
+              width: layout.transportSecondaryPx, height: layout.transportSecondaryPx,
               background: 'transparent',
               border: '1px solid var(--oem-line-strong, rgba(255,240,210,0.18))',
               color: 'var(--oem-ink-2, rgba(240,235,224,0.74))',
               boxShadow: 'inset 0 1px 0 rgba(255,240,210,0.06)',
             }}>
             <SkipForward className="w-7 h-7" />
-          </button>
+          </button>}
 
           {/* Repeat — glass ghost */}
-          <button onClick={cycleRepeat} disabled={!isNative}
+          {controls.repeat && <button onClick={() => void setRepeat(repeat === 'off' ? 'all' : repeat === 'all' ? 'one' : 'off')} disabled={!isNative}
             aria-label="Tekrarla"
-            className="w-12 h-12 rounded-full flex items-center justify-center active:scale-90 transition-all disabled:opacity-30"
+            className="rounded-full flex items-center justify-center active:scale-90 transition-all disabled:opacity-30"
             style={repeat !== 'off'
               ? {
+                  width: layout.transportTertiaryPx, height: layout.transportTertiaryPx,
                   background: 'transparent',
                   border: '1px solid var(--oem-line-warm, oklch(66% 0.10 55 / 0.42))',
                   color: 'var(--oem-amber, oklch(80% 0.13 60))',
                   boxShadow: '0 0 18px var(--oem-amber-glow, transparent), inset 0 1px 0 rgba(255,240,210,0.06)',
                 }
               : {
+                  width: layout.transportTertiaryPx, height: layout.transportTertiaryPx,
                   background: 'transparent',
                   border: '1px solid var(--oem-line-strong, rgba(255,240,210,0.18))',
                   color: 'var(--oem-ink-2, rgba(240,235,224,0.74))',
                   boxShadow: 'inset 0 1px 0 rgba(255,240,210,0.04)',
                 }}>
             {repeat === 'one' ? <Repeat1 className="w-5 h-5" /> : <Repeat className="w-5 h-5" />}
-          </button>
+          </button>}
         </div>
 
+        {/* F4 · Bağlam şeridi. Teknik durum adları (CARRIED · PROVIDER_DRIFT)
+            kullanıcıya GÖSTERİLMEZ — onlar CAROS LAB'a aittir; burada yalnız
+            insan dilinde tek satır ve kuyruğa TEK dokunuşluk geçiş vardır. */}
+        {(nowPlaying.canOpenQueue || nowPlaying.continuity.visible) && (
+          <div className="flex-shrink-0 mt-1 flex items-center gap-3">
+            {nowPlaying.canOpenQueue && (
+              <button
+                type="button"
+                onClick={onOpenQueue}
+                data-music-open-queue="true"
+                aria-label={`Sırayı aç — ${nowPlaying.queueSummary ?? ''}`}
+                className="flex flex-1 items-center gap-3 rounded-2xl border-0 px-4 text-left"
+                style={{
+                  minHeight: 56,
+                  background: 'rgba(255,255,255,0.035)',
+                  border: '1px solid rgba(255,255,255,0.08)',
+                }}>
+                <ListMusic aria-hidden className="w-5 h-5 flex-shrink-0" style={{ color: 'var(--oem-ink-2)' }} />
+                <span className="min-w-0 flex-1">
+                  <span className="block text-sm font-bold" style={{ color: 'var(--oem-ink)' }}>Sırada</span>
+                  {nowPlaying.continuity.visible && (
+                    <span className="block truncate text-xs" style={{ color: 'var(--oem-ink-2)' }}>
+                      {nowPlaying.continuity.message}
+                    </span>
+                  )}
+                </span>
+                <span className="flex-shrink-0 text-xs font-black tabular-nums"
+                  style={{ color: 'var(--oem-ink-3)' }}>
+                  {nowPlaying.queueSummary}
+                </span>
+              </button>
+            )}
+            {!nowPlaying.canOpenQueue && nowPlaying.continuity.visible && (
+              <p data-music-continuity="true" className="flex-1 truncate text-xs px-1"
+                style={{ color: nowPlaying.continuity.tone === 'WARN' ? 'var(--oem-warn, #e0a23c)' : 'var(--oem-ink-2)' }}>
+                {nowPlaying.continuity.message}
+              </p>
+            )}
+          </div>
+        )}
+
       </div>
+
+      {/* F4 · Kuyruk yüzeyi — Now Playing'in ÜSTÜNE gelir; durum yeniden kurulmaz. */}
+      <QueuePanel
+        open={queueOpen}
+        onClose={onCloseQueue}
+        alignment={alignment}
+        sourceLabel={displayName}
+        drivingMode={nowPlaying.drivingMode}
+        motionEnabled={nowPlaying.motionEnabled}
+      />
     </div>
   );
 }
@@ -1124,180 +1445,3 @@ function CustomSourcesSection({
     </div>
   );
 }
-
-/* ── Arama view ───────────────────────────────────────────── */
-
-interface SearchViewProps {
-  onPlay:      (t: UnifiedTrack, queue: UnifiedTrack[]) => void;
-  onAddSource: () => void;
-}
-
-/** Kaynak ikonu — kapak resmi yoksa sağlayıcıya göre. */
-function ProviderIcon({ id }: { id: ProviderId }) {
-  if (id === 'radio')  return <Radio  className="w-5 h-5" />;
-  if (id === 'stream') return <Globe  className="w-5 h-5" />;
-  if (id === 'local')  return <Music  className="w-5 h-5" />;
-  return <Music2 className="w-5 h-5" />; // spotify / audius
-}
-
-/** Kapak resmi — yüklenemezse (ör. ağ/COEP) kaynak ikonuna düşer. */
-function Artwork({ src, id }: { src?: string; id: ProviderId }) {
-  const [err, setErr] = useState(false);
-  if (!src || err) return <ProviderIcon id={id} />;
-  return <img src={src} alt="" loading="lazy" onError={() => setErr(true)} className="w-full h-full object-cover" />;
-}
-
-function SearchView({ onPlay, onAddSource }: SearchViewProps) {
-  const [query, setQuery]         = useState('');
-  const [filter, setFilter]       = useState<string>('all');
-  const [results, setResults]     = useState<UnifiedTrack[]>([]);
-  const [searching, setSearching] = useState(false);
-  const [spotifyConnected]        = useState(isSpotifyConnected());
-  const customSources = useStore((s) => s.settings.customMusicSources);
-
-  // Cihaz müzik listesini hazırla (native)
-  useEffect(() => { ensureLocalLoaded(); }, []);
-
-  // Birleşik arama — tüm kaynaklar tek katmandan (carosMediaLayer), 200ms debounce.
-  // Yazarken anlık öneri: "ib" → İbrahim... gibi sonuçlar gelir.
-  useEffect(() => {
-    let cancelled = false;
-    setSearching(true);
-    const t = setTimeout(async () => {
-      // Progresif: her sağlayıcı döndükçe sonuçları göster (en yavaşı bekleme).
-      const r = await searchMedia(query, filter, (partial) => {
-        if (!cancelled) setResults(partial);
-      });
-      if (!cancelled) { setResults(r); setSearching(false); }
-    }, 200);
-    return () => { cancelled = true; clearTimeout(t); };
-  }, [query, filter]);
-
-  const chips: { key: string; label: string }[] = [
-    { key: 'all',     label: 'Tümü' },
-    { key: 'youtube', label: 'YouTube' },
-    { key: 'spotify', label: 'Spotify' },
-    // Yabancı/global kataloglar — Türkiye odağında gizli (WORLDWIDE_SOURCES_ENABLED)
-    ...(WORLDWIDE_SOURCES_ENABLED ? [
-      { key: 'audius',  label: 'Audius' },
-      { key: 'jamendo', label: 'Jamendo' },
-      { key: 'archive', label: 'Archive' },
-    ] : []),
-    { key: 'radio',   label: 'Radyo' },
-    { key: 'local',   label: 'Cihaz' },
-    ...customSources.map((s) => ({ key: s.id, label: s.name })),
-  ];
-
-  const showSpotifyConnect = (filter === 'all' || filter === 'spotify') && !spotifyConnected;
-  const nothing = results.length === 0 && !searching && !showSpotifyConnect;
-  const shown = results.slice(0, 80);
-
-  return (
-    <div className="h-full flex flex-col overflow-hidden px-5 pt-5">
-      {/* Arama kutusu */}
-      <div className="flex items-center gap-2 px-4 py-3 rounded-2xl glass-card flex-shrink-0">
-        <Search className="w-5 h-5 flex-shrink-0" style={{ color: 'var(--oem-ink-3)' }} />
-        <input
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Şarkı, sanatçı veya kaynak ara…"
-          className="flex-1 bg-transparent text-sm outline-none"
-          style={{ color: 'var(--oem-ink)' }}
-        />
-        {query && (
-          <button onClick={() => setQuery('')} aria-label="Temizle" className="active:scale-90" style={{ color: 'var(--oem-ink-3)' }}>
-            <X className="w-4 h-4" />
-          </button>
-        )}
-      </div>
-
-      {/* Kaynak seç chip'leri */}
-      <div className="flex gap-2 overflow-x-auto scrollbar-none flex-shrink-0 mt-3 pb-1">
-        {chips.map((c) => (
-          <button
-            key={c.key}
-            onClick={() => setFilter(c.key)}
-            className="flex-shrink-0 px-3.5 py-1.5 rounded-xl text-[11px] font-black uppercase tracking-widest transition-all"
-            style={{
-              color:      filter === c.key ? 'var(--oem-info, #60a5fa)' : 'var(--oem-ink-2)',
-              background: filter === c.key ? 'rgba(59,130,246,0.18)' : 'rgba(255,255,255,0.04)',
-              border:     `1px solid ${filter === c.key ? 'rgba(59,130,246,0.5)' : 'rgba(255,255,255,0.08)'}`,
-            }}>
-            {c.label}
-          </button>
-        ))}
-      </div>
-
-      {/* Sonuçlar */}
-      <div className="flex-1 min-h-0 overflow-y-auto scrollbar-none mt-3 pb-3">
-        {/* Spotify bağlan istemi */}
-        {showSpotifyConnect && (
-          <button
-            onClick={() => { void beginSpotifyLogin(); }}
-            className="flex items-center gap-4 w-full p-4 mb-3 rounded-2xl glass-card text-left active:scale-[0.98] transition-all"
-            style={{ background: 'rgba(29,185,84,0.12)', borderColor: 'rgba(29,185,84,0.45)' }}>
-            <div className="w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: 'rgba(29,185,84,0.25)', color: '#1db954' }}>
-              <Music2 className="w-6 h-6" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="font-black text-sm" style={{ color: 'var(--oem-ink)' }}>Spotify'a Bağlan</div>
-              <div className="text-[11px]" style={{ color: 'var(--oem-ink-2)' }}>Catalog'da ara, arka planda çal</div>
-            </div>
-            <ChevronRight className="w-5 h-5 flex-shrink-0" style={{ color: 'var(--oem-ink-3)' }} />
-          </button>
-        )}
-
-        {searching && results.length === 0 && (
-          <div className="text-xs px-1 py-2 opacity-70" style={{ color: 'var(--oem-ink-3)' }}>Aranıyor…</div>
-        )}
-
-        {/* Birleşik sonuç listesi — her kaynak tek liste, rozette kaynağı görünür */}
-        {shown.length > 0 && (
-          <div className="flex flex-col gap-2">
-            {shown.map((t) => {
-              const meta = PROVIDER_META[t.providerId];
-              return (
-                <button
-                  key={t.id}
-                  onClick={() => onPlay(t, shown)}
-                  className="flex items-center gap-4 p-3.5 rounded-2xl glass-card text-left active:scale-[0.98] transition-all"
-                  style={{ borderColor: `${meta.color}33` }}>
-                  <div className="w-11 h-11 rounded-xl overflow-hidden flex items-center justify-center flex-shrink-0"
-                    style={{ background: `${meta.color}22`, color: meta.color }}>
-                    <Artwork src={t.artwork} id={t.providerId} />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="font-black text-sm truncate" style={{ color: 'var(--oem-ink)' }}>{t.title}</div>
-                    <div className="text-[11px] truncate" style={{ color: 'var(--oem-ink-2)' }}>{t.subtitle}</div>
-                  </div>
-                  <span className="text-[9px] font-black uppercase tracking-widest flex-shrink-0" style={{ color: meta.color }}>{meta.name}</span>
-                  <Play className="w-4 h-4 flex-shrink-0" style={{ color: meta.color }} />
-                </button>
-              );
-            })}
-          </div>
-        )}
-
-        {/* Boş durum */}
-        {nothing && (
-          <div className="h-full flex flex-col items-center justify-center gap-4 text-center px-6">
-            <Search className="w-10 h-10 opacity-40" style={{ color: 'var(--oem-ink-3)' }} />
-            <div className="text-sm font-medium leading-relaxed max-w-[280px]" style={{ color: 'var(--oem-ink-2)' }}>
-              {query.trim()
-                ? 'Sonuç bulunamadı.'
-                : 'Şarkı veya sanatçı yazın — Spotify, Audius, radyo ve cihazda aransın.'}
-            </div>
-            <button
-              onClick={onAddSource}
-              className="flex items-center gap-2 px-5 py-2.5 rounded-xl glass-card text-xs font-black uppercase tracking-widest active:scale-95 transition-all"
-              style={{ color: 'var(--oem-info, #60a5fa)' }}>
-              <Plus className="w-4 h-4" /> Kaynak Ekle
-            </button>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-

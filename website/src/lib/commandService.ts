@@ -131,54 +131,20 @@ export async function isVehicleOnline(vehicleId: string): Promise<boolean> {
   return (count ?? 0) > 0;
 }
 
-// ── api_key tabanlı komut gönderimi (login gerektirmez) ──────────────────────
-
-async function sendCommandViaApiKey(
-  vehicleId: string,
-  type:      CommandType,
-  payload:   CommandPayload,
-  apiKey:    string,
-  options:   SendCommandOptions = {},
-): Promise<SendResult> {
-  try {
-    /* OTURUMSUZ PWA YOLU DA ŞİFRELENİR (#672): burada gövde DÜZ METİN
-       gidiyordu; araç E2E gerektiren komutlarda düz metni reddeder. Aynı
-       kural: anahtar yoksa/şifrelenemezse komut GÖNDERİLMEZ, gerekçe döner. */
-    let outPayload: Record<string, unknown> = payload as Record<string, unknown>;
-    if (requiresE2E(type)) {
-      const keyRes = await fetchCarPublicKey(vehicleId);
-      if (!keyRes.ok) return { ok: false, error: carKeyErrorMessage(keyRes.reason) };
-      try {
-        outPayload = await encryptE2EPayload(payload as Record<string, unknown>, keyRes.publicKey) as unknown as Record<string, unknown>;
-      } catch {
-        return { ok: false, error: 'Komut şifrelenemedi; güvenlik gereği gönderilmedi.' };
-      }
-    }
-
-    const body: Record<string, unknown> = {
-      vehicleId,
-      type,
-      payload: outPayload,
-      nonce: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-      ttl:   new Date(Date.now() + 5 * 60_000).toISOString(),
-    };
-    if (options.pinHash) body.pinHash = options.pinHash;
-
-    const res = await fetch('/api/pwa/command', {
-      method:  'POST',
-      headers: {
-        'Content-Type':  'application/json',
-        'Authorization': `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify(body),
-    });
-    const data = (await res.json()) as { ok?: boolean; commandId?: string; error?: string };
-    if (!res.ok || !data.ok) return { ok: false, error: data.error ?? 'Komut gönderilemedi.' };
-    return { ok: true, commandId: data.commandId };
-  } catch {
-    return { ok: false, error: 'Sunucuya ulaşılamadı.' };
-  }
-}
+/* ── OTURUMSUZ (api_key) KOMUT YOLU KALDIRILDI — P0-001A ───────────────────
+ * Buradaki `sendCommandViaApiKey`, ham `api_key`i `Authorization` başlığında
+ * `/api/pwa/command`e gönderiyordu. O uç fail-closed kapatıldı çünkü
+ * doğrulaması (`sha256(raw) === api_key_hash`) düz metin kolona karşı
+ * MATEMATİKSEL OLARAK eşleşemiyordu (üretim: 834/834 satır UUID biçimli).
+ *
+ * Ayrıca yol ZATEN erişilemezdi: kanonik eşleştirme (#631) `api_key`
+ * döndürmez, `getStoredApiKey` boş dizeyi `null`a çevirir → fonksiyon hiç
+ * çağrılmıyordu. Kaldırılması davranış DEĞİŞTİRMEZ, yalnız ölü kodu ve
+ * "ham anahtarı tarayıcıda taşı" desenini ortadan kaldırır.
+ *
+ * Oturumsuz komut yeniden istenirse doğru çözüm bu fonksiyonu geri getirmek
+ * DEĞİL, cihaz anahtarını gerçekten hash'leyip (P0-001H) uca tek doğrulama
+ * otoritesi bağlamaktır (P0-001I). */
 
 // ── Komut gönder ──────────────────────────────────────────────────────────────
 
@@ -203,12 +169,15 @@ export async function sendCommand(
     ? (await supabaseBrowser.auth.getSession()).data.session
     : null;
 
+  /* P0-001A: oturumsuz (api_key) komut yolu KAPATILDI — gerekçe yukarıda.
+     Eskiden burada "API anahtarı bulunamadı. Aracı yeniden eşleştirin."
+     deniyordu; bu YANLIŞ TEŞHİSTİ — yeniden eşleştirmek anahtar üretmez
+     (kanonik rota anahtar döndürmez), kullanıcı sonsuz döngüye giriyordu. */
   if (!session) {
-    const apiKey = getStoredApiKey(vehicleId);
-    if (!apiKey) {
-      return { ok: false, error: 'API anahtarı bulunamadı. Aracı yeniden eşleştirin.' };
-    }
-    return sendCommandViaApiKey(vehicleId, type, payload, apiKey, options);
+    return {
+      ok: false,
+      error: 'Komut göndermek için hesabınızla giriş yapmalısınız.',
+    };
   }
 
   if (!isSupabaseConfigured || !supabaseBrowser) {

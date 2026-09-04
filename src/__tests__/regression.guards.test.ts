@@ -276,12 +276,24 @@ describe('Sesli müzik araması uygulama-içi kilidi', () => {
     expect(embedIdx, 'gömülü deneme harici launch\'tan ÖNCE olmalı').toBeLessThan(extIdx);
   });
 
-  it('YAPISAL: _playMusicInAppOrFallback playByQuery ile arar, başarısızsa fallback() çağırır', () => {
+  /* MUSIC F9'da YENİDEN BAĞLANDI (kaldırılmadı): korunan değişmez aynıdır —
+     "sesli müzik araması ÖNCE uygulama-içi kanonik yolu dener, olmazsa harici
+     uygulamaya düşer". Değişen tek şey uygulama-içi yolun ADIdır: `playByQuery`
+     yerine kanonik niyet yönlendiricisi (`dispatchMusicIntent`), çünkü eski yol
+     sonucu KANITSIZ "çalınıyor" cümlesine çeviriyordu. */
+  it('YAPISAL: _playMusicInAppOrFallback kanonik yolu dener, başarısızsa fallback() çağırır', () => {
     const src = read('src/platform/commandExecutor.ts');
     const i = src.indexOf('async function _playMusicInAppOrFallback');
-    const fn = src.slice(i, i + 1000);
-    expect(fn).toMatch(/playByQuery/);
-    expect(fn).toMatch(/fallback\(\)/);
+    const end = src.indexOf('/** Anlık DTC', i);
+    const fn = src.slice(i, end > i ? end : i + 2400);
+    expect(fn.length, 'fonksiyon gövdesi okunamadı — kilit boş kümeye düştü')
+      .toBeGreaterThan(300);
+    expect(fn, 'uygulama-içi kanonik yol kaldırılmış').toMatch(/dispatchMusicIntent/);
+    expect(fn, 'harici uygulamaya düşme yolu kaldırılmış').toMatch(/fallback\(\)/);
+    /* Kanıtsız başarı cümlesi geri gelmemeli. Yorumlar SOYULUR: tarihsel
+       anlatım ("eskiden çalınıyor deniyordu") kilidi düşürmemeli. */
+    const code = fn.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/\/\/[^\n]*/g, ' ');
+    expect(code, 'sahte "çalınıyor" iddiası geri gelmiş').not.toMatch(/çalınıyor/);
   });
 });
 
@@ -4230,6 +4242,435 @@ describe('NAV-CORE-P0 kilitleri', () => {
       expect(src, `${f} ağa çıkıyor`).not.toContain('fetch(');
     }
   });
+
+  it('🔒 SAF KATMAN (NAV v3 F0): contracts/** saflığı — tüm dosyalar taranır', () => {
+    /* CAROS-NAV-ARCH-SPEC-3.0 §F0: kanonik sözleşme paketi. Ayrıntılı davranış
+       kilitleri navV3ContractsF0.test.ts'te; burada REGRESYON KASASINA bağlı
+       kalması için dosya-tabanlı saflık taraması. Yeni dosya eklendikçe
+       otomatik kapsanır (elle liste yok → "kör guard" riski yok). */
+    const dir = 'src/platform/navigation/contracts';
+    const files = readdirSync(resolve(root, dir)).filter((f) => f.endsWith('.ts'));
+    expect(files.length, 'contracts paketi boş görünüyor — guard bağı kopmuş').toBeGreaterThanOrEqual(8);
+    for (const name of files) {
+      const src = stripSrc(read(`${dir}/${name}`));
+      expect(src, `${name}: Date.now()`).not.toContain('Date.now(');
+      expect(src, `${name}: performance.now()`).not.toContain('performance.now(');
+      expect(src, `${name}: setInterval`).not.toContain('setInterval(');
+      expect(src, `${name}: setTimeout`).not.toContain('setTimeout(');
+      expect(src, `${name}: React importu`).not.toMatch(/from ['"]react['"]/);
+      expect(src, `${name}: fetch()`).not.toContain('fetch(');
+      expect(src, `${name}: node:fs`).not.toContain('node:fs');
+    }
+  });
+
+  it('🔒 NAV v3 F0: kanonik otoriteler TEK dosyada (ikinci ufuk/konum/rota/ETA authority yok)', () => {
+    const dir = 'src/platform/navigation/contracts';
+    const files = readdirSync(resolve(root, dir)).filter((f) => f.endsWith('.ts'));
+    const once = (decl: string) => {
+      const hits = files.filter((n) => read(`${dir}/${n}`).includes(decl)).length;
+      expect(hits, `${decl} → ${hits} tanım (tam 1 olmalı)`).toBe(1);
+    };
+    once('export interface Evidenced<');
+    once('export type NavDegradation');
+    once('export const NAV_DEGRADATION_SUPPRESSION');
+    once('export interface EdgeId');
+    once('export const NAV_LAYER_DEPENDENCY_LAW');
+    once('export interface RealtimeEgoPose');
+    once('export interface MatchedRoadPose');
+  });
+
+  it('🔒 NAV v3 F1: map/store/** timer · abonelik · React · saat SAHİBİ DEĞİL', () => {
+    /* L1 MapStore salt-okunur bir cephedir: kendi tik-wheel'ini kurmaz,
+       kaynaklara abone olmaz, React'e bağlanmaz. Klasör taraması — yeni dosya
+       otomatik kapsanır (elle liste = kör guard riski). */
+    const dir = 'src/platform/navigation/map/store';
+    const files = readdirSync(resolve(root, dir)).filter((f) => f.endsWith('.ts'));
+    expect(files.length, 'map/store paketi boş görünüyor — guard bağı kopmuş').toBeGreaterThanOrEqual(5);
+    for (const name of files) {
+      const src = stripSrc(read(`${dir}/${name}`));
+      expect(src, `${name}: setInterval`).not.toContain('setInterval(');
+      expect(src, `${name}: setTimeout`).not.toContain('setTimeout(');
+      expect(src, `${name}: scheduleTask`).not.toContain('scheduleTask');
+      expect(src, `${name}: abonelik`).not.toContain('.subscribe(');
+      expect(src, `${name}: addEventListener`).not.toContain('addEventListener(');
+      expect(src, `${name}: React importu`).not.toMatch(/from ['"]react['"]/);
+      expect(src, `${name}: Date.now()`).not.toContain('Date.now(');
+      expect(src, `${name}: performance.now()`).not.toContain('performance.now(');
+      expect(src, `${name}: ağ çağrısı`).not.toContain('fetch(');
+    }
+  });
+
+  it('🔒 NAV v3 F1: Web Mercator karo formülü src\'de TEK dosyada', () => {
+    /* ÖLÇÜLMÜŞ KUSUR (2026-09-03): aynı slippy formülü mapTileProbe ·
+       CorridorSyncEngine · offlineTileDownloader içinde ÜÇ KEZ yazılmıştı ve
+       davranışları AYNI DEĞİLDİ (biri kırpıyor, biri `1 << z` ile z≥31'de
+       negatif üretiyordu). Tek kaynak: map/store/tileGrid.ts. */
+    const hits: string[] = [];
+    const walk = (rel: string): void => {
+      for (const e of readdirSync(resolve(root, rel), { withFileTypes: true })) {
+        const p = join(rel, e.name);
+        if (e.isDirectory()) { if (e.name !== '__tests__') walk(p); continue; }
+        if (!/\.tsx?$/.test(e.name)) continue;
+        if (read(p).includes('Math.log(Math.tan(')) hits.push(p.replace(/\\/g, '/'));
+      }
+    };
+    walk('src');
+    expect(hits, `slippy formülü ${hits.length} dosyada — tek kaynak olmalı`)
+      .toEqual(['src/platform/navigation/map/store/tileGrid.ts']);
+  });
+
+  it('🔒 NAV v3 F1: TEK L1 harita cephesi (ikinci map truth authority yok)', () => {
+    const dir = 'src/platform/navigation/map/store';
+    const files = readdirSync(resolve(root, dir)).filter((f) => f.endsWith('.ts'));
+    for (const decl of [
+      'export function createMapStore',
+      'export interface MapStore',
+      'export interface MapDataPorts',
+    ]) {
+      const hits = files.filter((n) => read(`${dir}/${n}`).includes(decl)).length;
+      expect(hits, `${decl} → ${hits} tanım (tam 1 olmalı)`).toBe(1);
+    }
+  });
+
+  /* ── NAV v3 · F2 — L2 EGO / LOCALIZATION ─────────────────────────────── */
+
+  const _f2Dirs = [
+    'src/platform/navigation/ego',
+    'src/platform/navigation/matching',
+    'src/platform/navigation/time',
+  ];
+  const _f2Files = (): string[] => {
+    const out: string[] = [];
+    for (const d of _f2Dirs) {
+      for (const f of readdirSync(resolve(root, d))) if (f.endsWith('.ts')) out.push(`${d}/${f}`);
+    }
+    return out;
+  };
+
+  it('🔒 NAV v3 F2: L2 timer/abonelik/React/duvar-saati SAHİBİ DEĞİL', () => {
+    const files = _f2Files();
+    expect(files.length, 'L2 paketi boş görünüyor — guard bağı kopmuş').toBeGreaterThanOrEqual(6);
+    for (const f of files) {
+      const src = stripSrc(read(f));
+      expect(src, `${f}: setInterval`).not.toContain('setInterval(');
+      expect(src, `${f}: setTimeout`).not.toContain('setTimeout(');
+      expect(src, `${f}: scheduleTask`).not.toContain('scheduleTask');
+      expect(src, `${f}: new Worker`).not.toContain('new Worker');
+      expect(src, `${f}: addEventListener`).not.toContain('addEventListener(');
+      expect(src, `${f}: React importu`).not.toMatch(/from ['"]react['"]/);
+      /* Duvar saati navigasyon tazeliğinde OTORİTE OLAMAZ (F0 ADR-N09). */
+      expect(src, `${f}: Date.now()`).not.toContain('Date.now(');
+    }
+  });
+
+  it('🔒 NAV v3 F2: L2 ham GPS/harita sağlayıcısını SAHİPLENEMEZ', () => {
+    for (const f of _f2Files()) {
+      const src = stripSrc(read(f));
+      for (const bad of [
+        'navigator.geolocation', 'watchPosition', 'getCurrentPosition', '@capacitor',
+        'deviceorientation', 'devicemotion', 'onGPSLocation', 'startGPSTracking',
+        'routing-graph', 'NavigationCompute.worker', 'mapSourceManager', 'mapTileProbe',
+        'overpass', 'maplibre-gl',
+      ]) {
+        expect(src, `${f}: yasak ham kaynak "${bad}"`).not.toContain(bad);
+      }
+    }
+  });
+
+  it('🔒 NAV v3 F2: DR tavanı 90 saniyeyi AŞAMAZ', () => {
+    const src = read('src/platform/navigation/ego/egoModeModel.ts');
+    const m = /DR_TOTAL_MAX_MS\s*=\s*([0-9_]+)/.exec(src);
+    expect(m, 'DR_TOTAL_MAX_MS bulunamadı — kilit bağı kopmuş').not.toBeNull();
+    expect(Number((m as RegExpExecArray)[1].replace(/_/g, ''))).toBeLessThanOrEqual(90_000);
+  });
+
+  it('🔒 NAV v3 F2: TEK localization cephesi (ikinci ego/match authority yok)', () => {
+    const files = _f2Files();
+    for (const decl of [
+      'export function createEgoAuthority',
+      'export interface EgoAuthority',
+      'export interface EgoSensorPort',
+      'export interface RoadCandidateSource',
+    ]) {
+      const hits = files.filter((f) => read(f).includes(decl)).length;
+      expect(hits, `${decl} → ${hits} tanım (tam 1 olmalı)`).toBe(1);
+    }
+  });
+
+  /* ── NAV v3 · F3 — L3 CEH / ELECTRONIC HORIZON ────────────────────────
+   * Ayrıntılı kilitler `navV3HorizonF3.test.ts`tedir; buradakiler kasaya
+   * bağlı OLMAZSA OLMAZLARDIR: ikinci abonelik · ters katman bağımlılığı ·
+   * duvar saati · niyetin fiziksel gerçek sayılması. */
+
+  const _f3Dir = 'src/platform/navigation/horizon';
+  const _f3Files = (): string[] =>
+    readdirSync(resolve(root, _f3Dir)).filter((f) => f.endsWith('.ts')).map((f) => `${_f3Dir}/${f}`);
+
+  it('🔒 NAV v3 F3: L3 timer/abonelik/React/duvar-saati SAHİBİ DEĞİL', () => {
+    const files = _f3Files();
+    expect(files.length, 'L3 paketi boş görünüyor — guard bağı kopmuş').toBeGreaterThanOrEqual(4);
+    for (const f of files) {
+      const src = stripSrc(read(f));
+      expect(src, `${f}: setInterval`).not.toContain('setInterval(');
+      expect(src, `${f}: setTimeout`).not.toContain('setTimeout(');
+      expect(src, `${f}: scheduleTask`).not.toContain('scheduleTask');
+      expect(src, `${f}: addEventListener`).not.toContain('addEventListener(');
+      expect(src, `${f}: React importu`).not.toMatch(/from ['"]react['"]/);
+      /* Bayat ufuk taze görünmesin: tazelik YALNIZ monotonik saatten. */
+      expect(src, `${f}: Date.now()`).not.toContain('Date.now(');
+      expect(src, `${f}: new Date()`).not.toContain('new Date(');
+    }
+  });
+
+  it('🔒 NAV v3 F3: L3 ham kaynak ve L4 modülü import EDEMEZ (yasa yönlüdür)', () => {
+    for (const f of _f3Files()) {
+      const src = stripSrc(read(f));
+      for (const bad of [
+        'gpsService', 'routingService', 'navigationService', 'onGPSLocation',
+        'routing-graph', 'NavigationCompute.worker', 'maplibre-gl', 'overpass',
+        'devicemotion', 'subscribeMotion',
+      ]) {
+        expect(src, `${f}: yasak bağımlılık "${bad}"`).not.toContain(bad);
+      }
+    }
+  });
+
+  it('🔒 NAV v3 F3: navigasyon ağacında İKİNCİ GPS/jiro aboneliği YOK', () => {
+    const walk = (dir: string): string[] => {
+      const out: string[] = [];
+      for (const e of readdirSync(resolve(root, dir), { withFileTypes: true })) {
+        const next = `${dir}/${e.name}`;
+        if (e.isDirectory()) out.push(...walk(next));
+        else if (e.name.endsWith('.ts')) out.push(next);
+      }
+      return out;
+    };
+    const navFiles = walk('src/platform/navigation');
+    const gps = navFiles.filter((f) => stripSrc(read(f)).includes('onGPSLocation('));
+    expect(gps, 'ikinci GPS aboneliği').toEqual(['src/platform/navigation/navigationSessionRuntime.ts']);
+    const motion = navFiles.filter((f) => stripSrc(read(f)).includes('subscribeMotion('));
+    expect(motion, 'ikinci jiro aboneliği').toEqual(['src/platform/navigation/navOrientationFeed.ts']);
+  });
+
+  it('🔒 NAV v3 F3: oturum ego/ufuk kaynaklarını ALIR ve BIRAKIR (sensör sızıntısı yok)', () => {
+    const rt = stripSrc(read('src/platform/navigation/navigationSessionRuntime.ts'));
+    expect(rt, 'oturum başlarken kaynak alınmıyor').toContain('acquireEgoHorizonSession()');
+    expect(rt, 'oturum biterken kaynak bırakılmıyor').toContain('releaseEgoHorizonSession()');
+    expect(rt, 'ego/ufuk tik bağı kopmuş').toContain('tickEgoHorizon()');
+  });
+
+  it('🔒 NAV v3 F3: TEK ufuk cephesi (ikinci "önümde ne var" authority yok)', () => {
+    const files = _f3Files();
+    for (const decl of [
+      'export function createCehAuthority',
+      'export interface CehAuthority',
+      'export function buildHorizon',
+      'export interface HorizonAttributePorts',
+    ]) {
+      const hits = files.filter((f) => read(f).includes(decl)).length;
+      expect(hits, `${decl} → ${hits} tanım (tam 1 olmalı)`).toBe(1);
+    }
+  });
+
+  /* ── NAV v3 · F4 — RTG2 OKUYUCU + TOPOLOJİ ───────────────────────────── */
+
+  it('🔒 NAV v3 F4: `RTG2` ayrıştırıcısı TEK tanımlı (ikinci parser yok)', () => {
+    const walk = (dir: string): string[] => {
+      const out: string[] = [];
+      for (const e of readdirSync(resolve(root, dir), { withFileTypes: true })) {
+        if (e.name === '__tests__') continue;
+        const next = `${dir}/${e.name}`;
+        if (e.isDirectory()) out.push(...walk(next));
+        else if (e.name.endsWith('.ts') || e.name.endsWith('.tsx')) out.push(next);
+      }
+      return out;
+    };
+    const hits = walk('src').filter((f) => read(f).includes('export function parseRoutingGraph'));
+    expect(hits, 'ikinci RTG2 parser').toEqual(
+      ['src/platform/navigation/map/graph/rtg2Reader.ts']);
+  });
+
+  it('🔒 NAV v3 F4: worker binary ayrıştırma SAHİBİ DEĞİL (A* sahibi KALDI)', () => {
+    const w = stripSrc(read('src/platform/navigation/NavigationCompute.worker.ts'));
+    /* Graf baytlarını okuyan tek yer kanonik okuyucudur. */
+    expect(w, 'worker hâlâ binary okuyor').not.toContain('getFloat32');
+    expect(w, 'worker kanonik okuyucuyu kullanmıyor').toContain('parseRoutingGraph(');
+    /* Rota YÜRÜTME worker'da kalmalı — taşınırsa off-main-thread garantisi düşer. */
+    expect(w, 'A* worker\'dan çıkmış').toContain('function _aStar');
+    expect(w, 'sezgisel ağırlık değişmiş').toContain('HEURISTIC_WEIGHT = 1.2');
+  });
+
+  it('🔒 NAV v3 F4: L2/L3 ham graf belleğini/okuyucusunu GÖREMEZ', () => {
+    const dirs = [
+      'src/platform/navigation/ego',
+      'src/platform/navigation/matching',
+      'src/platform/navigation/horizon',
+    ];
+    for (const d of dirs) {
+      for (const f of readdirSync(resolve(root, d))) {
+        if (!f.endsWith('.ts')) continue;
+        const src = stripSrc(read(`${d}/${f}`));
+        for (const bad of [
+          'rtg2Reader', 'graphResidencyRuntime', 'edgeSpatialIndex', 'graphAdjacency',
+          'ArrayBuffer', 'DataView', 'Uint32Array', 'Float32Array', 'routing-graph',
+          'edgeOrdinal', 'toLegacyEdgeRef',
+        ]) {
+          expect(src, `${d}/${f}: yasak graf erişimi "${bad}"`).not.toContain(bad);
+        }
+      }
+    }
+  });
+
+  it('🔒 NAV v3 F4: MapStore cephesi fetch/timer/native SAHİBİ DEĞİL', () => {
+    for (const f of [
+      'src/platform/navigation/map/store/mapStore.ts',
+      'src/platform/navigation/map/store/mapStoreSources.ts',
+    ]) {
+      const src = stripSrc(read(f));
+      for (const bad of ['fetch(', 'setInterval(', 'setTimeout(', 'new Worker', 'addEventListener(']) {
+        expect(src, `${f}: ${bad}`).not.toContain(bad);
+      }
+    }
+  });
+
+  it('🔒 NAV v3 F4: BOZUK/kısa graf ASLA başarı gibi sunulamaz', async () => {
+    const { parseRoutingGraph } = await import('../platform/navigation/map/graph/rtg2Reader');
+    /* Başlıksız çöp + kesilmiş tablo: ikisi de fail-closed. */
+    expect(parseRoutingGraph(new ArrayBuffer(4)).view).toBeNull();
+    expect(parseRoutingGraph(new ArrayBuffer(64)).view).toBeNull();
+    expect(parseRoutingGraph(null).outcome).toBe('EMPTY');
+  });
+
+  it('🔒 NAV v3 F4: binary FORMAT ve üretici DEĞİŞMEDİ', async () => {
+    const r = await import('../platform/navigation/map/graph/rtg2Reader');
+    expect(r.RTG2_MAGIC).toBe(0x32475452);
+    expect(r.RTG_NODE_STRIDE).toBe(16);
+    expect(r.RTG2_EDGE_STRIDE).toBe(13);
+    expect(r.RTG1_EDGE_STRIDE).toBe(12);
+  });
+
+  it('🔒 NAV v3 F3: AKTİF ROTA fiziksel gerçek SAYILMAZ (niyet ≠ konum)', async () => {
+    const { buildHorizon } = await import('../platform/navigation/horizon/horizonModel');
+    const { UNAVAILABLE_HORIZON_ATTRIBUTE_PORTS } =
+      await import('../platform/navigation/horizon/horizonAttributePorts');
+    const { asMonotonic } = await import('../platform/navigation/contracts/navMonotonicTime');
+    const { derivedNav, observedNav } = await import('../platform/navigation/contracts/navEvidence');
+    const now = asMonotonic(1_000);
+    const ev = (v: number) => derivedNav<number>(v, {
+      source: 'GNSS', confidence: 0.9, observedAtMonoMs: now, freshnessBudgetMs: 5_000,
+    });
+    const h = buildHorizon({
+      nowMonoMs: now,
+      generation: 1,
+      ego: {
+        kind: 'REALTIME_EGO', tsMonoMs: now, lat: ev(41), lon: ev(29),
+        headingDeg: ev(90),
+        speedMps: observedNav<number>(20, {
+          source: 'VEHICLE_BUS', confidence: 0.9, observedAtMonoMs: now, freshnessBudgetMs: 5_000,
+        }),
+        mode: 'GNSS', horizontalSigmaM: 4,
+      },
+      matched: null,
+      route: {
+        available: true, sessionId: 1, routeRevision: 1, observedAtMonoMs: now,
+        vehicleAlongRemainingM: 1_000, totalDistanceM: 2_000, maneuvers: [],
+        geometry: [[29, 41], [29.01, 41]], onCorridor: true, conflictThresholdM: 55,
+      },
+      mapAvailable: true,
+      attributes: UNAVAILABLE_HORIZON_ATTRIBUTE_PORTS,
+      egoFreshnessBudgetMs: 5_000,
+      routeConflictThresholdM: 55,
+    });
+    /* Koridorda olmak ve rota bulunmak fiziksel doğrulama DEĞİLDİR. */
+    expect(h.paths[0].physicallyConfirmed).toBe(false);
+    expect(h.paths[0].provenance).toBe('ROUTE_INTENT');
+    expect(h.state).not.toBe('HORIZON_AVAILABLE');
+  });
+
+  /* ── NAV v3 · F5 — GÖLGE OTORİTE + CUTOVER KAPISI ─────────────────────
+   * Bu beş kilit F5'in TEK vaadini korur: üretim kararı DEĞİŞMEDEN gölge
+   * ölçüm yapılır. Bir gün biri "kapıyı bir süreliğine açalım" derse veya
+   * gölge yoluna bir anons eklenirse, kilit ONDAN ÖNCE düşer. */
+
+  it('🔒 NAV v3 F5: CUTOVER kapısı VARSAYILAN KAPALI (saha kanıtı olmadan açılamaz)', async () => {
+    const g = await import('../platform/navigation/shadow/cehCutoverGate');
+    expect(g.CEH_CUTOVER_DEFAULT_OPEN, 'cutover varsayılanı açılmış').toBe(false);
+    /* Tüm şartlar KANITLANSA bile bu fazda kapı açılmaz. */
+    const v = g.evaluateCehCutoverGate({
+      f4FieldValidationPassed: true,
+      comparableSamples: g.CEH_CUTOVER_MIN_SHADOW_SAMPLES,
+      divergenceRatio: 0,
+      ambiguityFailClosedProven: true,
+      regressionGuardsPassed: true,
+      attributePortsBound: true,
+    });
+    expect(v.unmet).toEqual([]);
+    expect(v.open, 'kapı bu fazda açılamaz').toBe(false);
+    expect(g.isCehProductionAuthority(v), 'CEH üretim otoritesi olmuş').toBe(false);
+    /* Ölçülmemiş şart kapıyı AÇMAZ (üç değerli, fail-closed). */
+    expect(g.evaluateCehCutoverGate(null).unmet.length)
+      .toBe(g.CEH_CUTOVER_CONDITIONS.length);
+  });
+
+  it('🔒 NAV v3 F5: gölge katmanı SES/UYARI/DURUM YAZIMI üretemez', () => {
+    const dir = 'src/platform/navigation/shadow';
+    const files = readdirSync(resolve(root, dir)).filter((f) => f.endsWith('.ts'));
+    expect(files.length, 'gölge katmanı kaybolmuş').toBeGreaterThan(0);
+    for (const f of files) {
+      const src = stripSrc(read(`${dir}/${f}`));
+      for (const bad of [
+        'ttsService', 'speakNavigation', 'notificationService', 'setState(',
+        'useUnifiedVehicleStore', 'useRouteStore', 'localStorage', 'safeStorage',
+        'setInterval(', 'setTimeout(', 'onGPSLocation(', 'scheduleTask',
+        'Date.now(', 'runGuardian(', 'rankGuardianAlerts',
+      ]) {
+        expect(src, `${dir}/${f}: yasak "${bad}"`).not.toContain(bad);
+      }
+    }
+  });
+
+  it('🔒 NAV v3 F5: GUARDIAN üretim otoritesi legacy zincirde KALDI', () => {
+    const rt = stripSrc(read('src/platform/navigation/guardian/runtime/guardianRuntime.ts'));
+    for (const need of [
+      'buildGuardianRawPlatformData', 'buildGuardianRegistryInput',
+      'buildGuardianRuleResults', 'runGuardian(', 'createEnforcementMapSource',
+    ]) {
+      expect(rt, `Guardian üretim zinciri bozulmuş: ${need}`).toContain(need);
+    }
+    /* Guardian ağacı gölgeyi GÖRMEZ (ters bağımlılık = ikinci otorite riski). */
+    const walkG = (dir: string): string[] => {
+      const out: string[] = [];
+      for (const e of readdirSync(resolve(root, dir), { withFileTypes: true })) {
+        const next = `${dir}/${e.name}`;
+        if (e.isDirectory()) out.push(...walkG(next));
+        else if (e.name.endsWith('.ts')) out.push(next);
+      }
+      return out;
+    };
+    for (const f of walkG('src/platform/navigation/guardian')) {
+      const src = stripSrc(read(f));
+      expect(src, `${f}: Guardian gölgeyi import ediyor`).not.toContain('shadow/ceh');
+      expect(src, `${f}: Guardian CEH sözleşmesini import ediyor`).not.toContain('cehConsumerContract');
+    }
+  });
+
+  it('🔒 NAV v3 F5: SESLİ YÖNLENDİRME sahibi ve tetikleyicisi DEĞİŞMEDİ', () => {
+    const vg = stripSrc(read('src/platform/navigation/voiceGuidanceRuntime.ts'));
+    expect(vg, 'ses sahipliği değişmiş').toContain("owner: 'NAV_SESSION_RUNTIME'");
+    expect(vg, 'sesli yönlendirme gölgeye bağlanmış').not.toContain('cehShadow');
+    expect(vg, 'sesli yönlendirme ufka bağlanmış').not.toContain('ElectronicHorizon');
+  });
+
+  it('🔒 NAV v3 F5: "ÖLÇÜLMEDİ" hiçbir yolda "YOK"a dönüştürülemez', async () => {
+    const c = await import('../platform/navigation/horizon/cehConsumerContract');
+    /* Ufuk yokken de, port bağlı değilken de mesafe İDDİA EDİLMEZ. */
+    const noHorizon = c.readCehAhead(null, 'ENFORCEMENT',
+      { validityBudgetMs: 5_000, domainMeasured: true });
+    expect(noHorizon.outcome).toBe('HORIZON_UNAVAILABLE');
+    expect(noHorizon.distanceM).toBeNull();
+    expect(c.cehClaimIsMeasuredAbsence(noHorizon), '"ölçülmedi" yokluk sayılmış').toBe(false);
+    expect(c.cehClaimIsActionable(noHorizon)).toBe(false);
+  });
 });
 
 /* ───────────────────────────────────────────────────────────────
@@ -5091,6 +5532,29 @@ describe('Seri port taraması sistem sahipli portu açmaz (K24 BT)', () => {
     expect(blk).toContain('sun50iw10p1');
     expect(blk).toContain('ceres-b3');
     expect(blk).toContain('/dev/ttyS1');
+  });
+
+  /* SAHA 2026-09-03 — AYNI HATA SINIFI, ÇOK DAHA AĞIR SONUÇ.
+   * ttyS1 korunduktan sonra tarayıcı bir sonraki adaya (`/dev/ttyS2`) geçti.
+   * O port bu ünitede OEM'in MCU kontrol hattıdır (`nwdapp_UartCommunication`
+   * kendi çerçevelerini oraya yazar). İki yazıcı olunca MCU protokolü bozuluyor
+   * ve MCU kartın GÜCÜNÜ KESİYOR. Canlı yakalanan zincir:
+   *   21:14:02.111  Bağlandı → UART:/dev/ttyS2 @ 115200
+   *   21:14:02.220  Heartbeat gönderildi        (MCU'ya yazım)
+   *   21:14:16      cihaz ÖLDÜ — kernel log'unda TEK satır uyarı yok
+   * Kernel'de panic/oops/watchdog izi OLMAMASI, kapanmanın yazılımdan değil
+   * MCU'dan geldiğinin kanıtıdır. Düzeltme sonrası aynı senaryoda cihaz
+   * kesintisiz 30+ dakika ayakta kaldı (önce: 14-90 sn). */
+  it('🔒 K24 platformunda ttyS2 (OEM MCU hattı) dokunulmaz olarak işaretli', () => {
+    const start = serial.indexOf('KNOWN_OWNED_PORTS');
+    const blk = serial.slice(start, start + 400);
+    /* Her iki platform anahtarı da ttyS2 taşımalı — biri unutulursa cihaz
+       yeniden sert reset döngüsüne girer. */
+    const rows = blk.split('\n').filter((l) => l.includes('/dev/ttyS'));
+    expect(rows.length, 'platform satırları bulunamadı — kilit kör kalmış').toBeGreaterThanOrEqual(2);
+    for (const row of rows) {
+      expect(row, `ttyS2 koruması eksik: ${row.trim()}`).toContain('/dev/ttyS2');
+    }
   });
 
   it('🔒 Hiworld tarayıcısı da aynı kapıdan geçer (iki tarama yolu var)', () => {
@@ -10707,5 +11171,1884 @@ describe('🔒 KİLİT · P0-VDK-B7 — sessiz adres eleme merdiveni', () => {
     expect(discover).toBeGreaterThan(0);
     expect(gate, 'kapı pahalı keşiften SONRA soruluyor (asıl saha kusuru)')
       .toBeLessThan(discover);
+  });
+
+  /* ── F2 · yerel müzik kimliği ──────────────────────────────────────────
+   * ÖLÇÜLMÜŞ KUSUR (2026-09-01, bu turda yakalandı): kütüphane kimliği
+   * `media:<id>` → `media:<volume>:<id>` olarak genişletilince, listedeki
+   * parçaya basmayı çalma kuyruğuna bağlayan eşleme düz bir önek kırpması
+   * yapıyordu (`replace(/^media:/, '')`). Yeni kimlikte bu `external_primary:1`
+   * üretir, kuyrukta karşılığı YOKTUR ve parçaya basınca SESSİZCE hiçbir şey
+   * olmaz. Kimlik biçimi bir daha değişirse bu kilit düşsün. */
+  it('🔒 F2 · liste → kuyruk eşlemesi kimliği AYRIŞTIRIR, önek KIRPMAZ', async () => {
+    const src = read('src/components/media/LocalMusicBrowser.tsx');
+    expect(src, 'düz önek kırpması çok-volume kimliğinde sessizce düşer')
+      .not.toContain("replace(/^media:/");
+    expect(src, 'F3 seçimi canonical MusicIndex kimliğiyle gateway yoluna girmeli')
+      .toContain('startLibraryListening');
+    expect(src, 'UI eski local player adaptörünü doğrudan çağırmamalı')
+      .not.toContain('playLocalSelection(');
+
+    /* Davranış tarafı: kanonik kimlikten geri alınan ham MediaStore id,
+       kuyruğun taşıdığı id ile AYNI olmalı. */
+    const { mediaTrackId, parseMediaTrackId } = await import('../platform/media/mediaIdentity');
+    expect(parseMediaTrackId(mediaTrackId('sdcard', '1234'))?.mediaStoreId).toBe('1234');
+    expect(parseMediaTrackId(mediaTrackId('external_primary', '7'))?.mediaStoreId).toBe('7');
+  });
+
+  /* Tarama kararı ile MediaStore sorgusu arasındaki tek bağ executor'dır.
+   * `localMusicService` bir kez daha doğrudan sorgu açarsa UNCHANGED turunda
+   * sıfır-sorgu iddiası sessizce YALAN olur. */
+  it('🔒 F2 · MediaStore taramasının TEK yürütücüsü executor', () => {
+    const service = read('src/platform/localMusicService.ts');
+    expect(service, 'servis MediaStore\'u yeniden kendisi sorguluyor')
+      .not.toContain('CarLauncher.getMusicTracks(');
+    expect(service).toContain('refreshMusicLibrary');
+
+    const executor = read('src/platform/media/mediaStoreRefreshExecutor.ts');
+    expect(executor, 'UNCHANGED kararı parça sorgusuna düşerse kilit anlamsızlaşır')
+      .toContain("if (decision === 'UNCHANGED')");
+  });
+
+  /* Kapak yolu: UI native köprüyü ÇAĞIRMAZ ve ana yol base64 DEĞİLDİR. */
+  it('🔒 F2 · kapak yalnız ArtworkCache üzerinden, UI native decode ÇAĞIRMAZ', () => {
+    const browser = read('src/components/media/LocalMusicBrowser.tsx');
+    expect(browser).not.toContain('getMediaArtDataUri');
+    expect(browser).not.toContain('resolveArtworkFile');
+    expect(browser).toContain('resolveArtwork(');
+
+    const cache = read('src/platform/media/artworkCache.ts');
+    expect(cache, 'ana yol native dosya katmanını kullanmalı').toContain('resolveArtworkFile');
+    expect(cache, 'yerel dosya URL taşıması kaldırılmış').toContain('convertFileSrc');
+  });
+  /* ── F6 · SES DENEYİMİ / DSP ───────────────────────────────────────────
+   *
+   * ÖLÇÜLEN KUSUR (F6 öncesi): "Crystal Cabin DSP" yüzeyi Web Audio zincirine
+   * (audioService) bağlıydı; kanonik oynatma ise native ExoPlayer'dı ve o
+   * zincire üretimde HİÇBİR kaynak `connectSource` ile bağlanmıyordu. Yani
+   * EQ · AGC · Sürücü Odaklı Ses · Hıza Bağlı Ses anahtarları duyulur hiçbir
+   * şeyi değiştirmiyordu — kullanıcıya karşılıksız bir yetenek gösteriliyordu.
+   *
+   * Bu kilit, o yüzeyin geri gelmesini ve ikinci bir ses/kazanç otoritesinin
+   * doğmasını engeller. */
+  it('🔒 F6 · ürün ses yüzeyi Web Audio DSP\'sine DEĞİL, DSP otoritesine bağlanır', () => {
+    const settings = read('src/components/settings/SettingsPage.tsx');
+    /* Kör guard koruması: dosya gerçekten okunmuş olmalı. */
+    expect(settings.length, 'ayarlar dosyası okunamadı — kilit boş kümeye düştü')
+      .toBeGreaterThan(1000);
+
+    expect(settings, 'karşılığı olmayan DSP paneli geri gelmiş')
+      .not.toContain('Crystal Cabin DSP');
+    expect(settings, 'Web Audio AGC anahtarı ürün yüzeyine geri gelmiş')
+      .not.toContain('setAGCEnabled');
+    expect(settings, 'Web Audio Haas/pan anahtarı ürün yüzeyine geri gelmiş')
+      .not.toContain('setDriverFocus');
+    expect(settings, 'karşılıksız SVC anahtarı ürün yüzeyine geri gelmiş')
+      .not.toContain('setSvcEnabled');
+    expect(settings, 'ses sekmesi tek DSP otoritesinin projeksiyonu olmalı')
+      .toContain('AudioExperiencePanel');
+  });
+
+  /* DSP otoritesi SES RENGİNİN sahibidir; kullanıcı sesinin, ducking'in ve
+   * oynatmanın sahibi DEĞİLDİR. İkinci bir yazar doğarsa "sesi kıstım, kendi
+   * kendine açıldı" sınıfı hatalar geri gelir (volumePolicy'nin doğuş sebebi). */
+  it('🔒 F6 · DSP otoritesi ses/duck/oynatma otoritelerine YAZMAZ', () => {
+    const file = read('src/platform/media/audio/audioExperienceAuthority.ts');
+    expect(file.length, 'DSP otoritesi okunamadı — kilit boş kümeye düştü')
+      .toBeGreaterThan(1000);
+
+    /* YALNIZ import grafı taranır: dosyanın yorum bloğu bu otoriteleri zaten
+       "sahibi DEĞİLİM" demek için ANIYOR. Kör guard olmaması için import
+       kümesinin boş olmadığı ayrıca doğrulanır. */
+    const authority = (file.match(/^import[\s\S]*?from '[^']+';/gm) ?? []).join(' ');
+    expect(authority.length, 'import grafı okunamadı — kilit boş kümeye düştü')
+      .toBeGreaterThan(0);
+
+    expect(authority, 'DSP katmanı oynatma komut kapısına bağlanmış')
+      .not.toContain('mediaCommandGateway');
+    expect(authority, 'DSP katmanı ikinci bir ses hesabı kurmuş')
+      .not.toContain('volumePolicy');
+    expect(authority, 'DSP katmanı ikinci bir duck yazarı olmuş')
+      .not.toContain('duckPolicy');
+    expect(authority, 'DSP katmanı kaynak devrine karışmış')
+      .not.toContain('sourceCoordinator');
+    /* Native yüzeyi yalnız audioDsp* olmalı: mediaAuthorityCommand ile oynatma
+       komutu göndermek bu katmanın yetkisi DEĞİLDİR. */
+    expect(authority, 'DSP katmanı native oynatma köprüsüne bağlanmış')
+      .not.toContain('nativeAuthorityBridge');
+    expect(file, 'DSP katmanı oynatma komutu gönderiyor')
+      .not.toContain('mediaAuthorityCommand');
+    expect(file, 'DSP yazımı kendi native yüzeyinden gitmeli')
+      .toContain('audioDspApply');
+  });
+
+  /* Güvenlik payı (headroom) AYRI ve SINIRLI bir kazançtır. Kullanıcı sesine
+   * yazılırsa kullanıcı "sesimi kim kıstı" der ve geri açtığında clipping
+   * korumasını kaldırmış olur. */
+  it('🔒 F6 · clipping güvenlik payı sınırlı ve kullanıcı sesinden AYRI', async () => {
+    const {
+      computeSafetyPreampDb, dbToLinear, MAX_HEADROOM_DB, UNPROBED_CAPABILITIES,
+    } = await import('../platform/media/audio/audioExperienceModel');
+
+    const caps = {
+      ...UNPROBED_CAPABILITIES,
+      probed: true, supportsEqualizer: true, eqBandCount: 5,
+      eqBandFrequenciesHz: [60, 230, 910, 3600, 14000],
+      eqMinGainDb: -15, eqMaxGainDb: 15,
+      supportsLoudness: true, loudnessMaxDb: 6, supportsBalance: true,
+    };
+    const cfg = (bands: number[], loudnessDb = 0) => ({
+      enabled: true, presetId: 'custom' as const, bandGainsDb: bands, loudnessDb, balance: 0,
+    });
+
+    expect(computeSafetyPreampDb(cfg([0, 0, 0, 0, 0]), caps)).toBe(0);
+    expect(computeSafetyPreampDb(cfg([6, 0, 0, 0, 0]), caps)).toBeLessThan(0);
+    /* Sınırsız olsaydı agresif EQ sesi duyulmaz hâle getirirdi. */
+    expect(computeSafetyPreampDb(cfg([9, 9, 9, 9, 9], 6), caps)).toBe(-MAX_HEADROOM_DB);
+    expect(dbToLinear(-MAX_HEADROOM_DB)).toBeGreaterThan(0.2);
+  });
+
+  /* ── F6.1 · ÖLÜ SES YOLU TEMİZLİĞİ / TEK DUCK OTORİTESİ ────────────────
+   *
+   * ÖLÇÜLEN KUSUR: TTS · Mavi · klip · dinleme yolları
+   * `audioService.duckMedia()` çağırıyordu. O fonksiyon bir Web Audio
+   * `masterGain` düğümünü kısıyordu; üretimde o zincire hiçbir kaynak
+   * bağlanmadığı için çağrı DUYULUR HİÇBİR ŞEY YAPMIYORDU → CarOS
+   * konuşurken müzik gerçekte kısılmıyordu. Kanonik duck otoritesi
+   * `duckPolicy` + `mediaCommandGateway` + `CarosAudioFocusManager`dır.
+   *
+   * Bu kilitler ölü yolun ve ikinci bir duck/gain otoritesinin geri
+   * gelmesini engeller. */
+  it('🔒 F6.1 · ölü Web Audio ses servisi ve duckMedia yolu geri gelmedi', () => {
+    expect(
+      existsSync(resolve(root, 'src/platform/audioService.ts')),
+      'ölü Web Audio DSP servisi (audioService.ts) geri gelmiş — ikinci gain/duck otoritesi',
+    ).toBe(false);
+
+    /* Üretim kaynağının tamamı taranır; boş küme = kör guard → ayrıca sayılır. */
+    const scanned: string[] = [];
+    const walk = (dir: string): void => {
+      for (const e of readdirSync(resolve(root, dir), { withFileTypes: true })) {
+        const rel = `${dir}/${e.name}`;
+        if (e.isDirectory()) { if (e.name !== '__tests__') walk(rel); continue; }
+        if (!/\.(ts|tsx)$/.test(e.name)) continue;
+        scanned.push(rel);
+      }
+    };
+    walk('src');
+    expect(scanned.length, 'kaynak taraması boş küme — kilit hiçbir şeyi korumuyor')
+      .toBeGreaterThan(200);
+
+    /* Yorumlar SOYULUR: bu turun yorumları ölü yolu tarihsel olarak ANIYOR;
+       kilit KODU korur, açıklamayı değil. */
+    const stripF61 = (t: string): string =>
+      t.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/\/\/[^\n]*/g, ' ');
+
+    for (const rel of scanned) {
+      const src = stripF61(read(rel));
+      expect(src, `${rel}: ölü audioService yeniden import edilmiş`)
+        .not.toMatch(/from '[^']*\/audioService'/);
+      expect(src, `${rel}: ölü Web Audio duck yolu (duckMedia) geri gelmiş`)
+        .not.toMatch(/\b(un)?duckMedia\s*\(/);
+    }
+  });
+
+  it("🔒 F6.1 · ses/asistan hattı duck'ı KANONİK adaptörden ister", () => {
+    const callers = [
+      'src/platform/ttsService.ts',
+      'src/platform/voiceService.ts',
+      'src/platform/voiceClips.ts',
+      'src/platform/edgeTtsService.ts',
+      'src/platform/onlineTtsService.ts',
+    ];
+    for (const rel of callers) {
+      const src = read(rel);
+      expect(src.length, `${rel} okunamadı — kilit boş kümeye düştü`).toBeGreaterThan(500);
+      expect(src, `${rel}: kanonik duck isteği kaldırılmış`)
+        .toMatch(/from '[^']*media\/authority\/duckRequest'/);
+      /* İkinci seviye hesabı: duck çarpanı/seviyesi YALNIZ duckPolicy'nindir. */
+      expect(src, `${rel}: kendi duck seviyesini hesaplamış (ikinci otorite)`)
+        .not.toContain('DUCK_LEVEL');
+      expect(src, `${rel}: duck'ı sistem sesine yazarak uygulamış`)
+        .not.toContain('CarLauncher.setVolume');
+    }
+  });
+
+  it('🔒 F6.1 · duckRequest bir ADAPTÖRdür — ikinci duck otoritesi DEĞİL', () => {
+    const src = read('src/platform/media/authority/duckRequest.ts');
+    expect(src.length, 'duckRequest okunamadı — kilit boş kümeye düştü').toBeGreaterThan(500);
+
+    /* Kanonik kapıyı çağırmalı. */
+    expect(src, 'kanonik komut kapısı kullanılmıyor').toContain('mediaCommandGateway');
+    /* Kendi seviye/öncelik/duck-durumu hesabını KURMAMALI. */
+    expect(src, 'adaptör kendi duck seviyesini hesaplamış').not.toContain('DUCK_LEVELS');
+    expect(src, 'adaptör kendi duck durumunu tutmuş').not.toContain('effectiveDuckLevel');
+    expect(src, 'adaptör duck kayıt listesini kendisi tutmuş').not.toContain('applyDuck');
+    expect(src, 'adaptör native köprüye doğrudan inmiş').not.toContain('nativeAuthorityBridge');
+    expect(src, 'adaptör sistem sesine yazmış').not.toContain('setVolume');
+  });
+
+  /* ── F7.1 · YOUTUBE KANONİK OYNATMA / TRANSPORT ────────────────────────
+   *
+   * ÖLÇÜLEN KUSUR: YouTube tek çalma kapısının DIŞINDAYDI —
+   * `carosMediaLayer._playTrack` doğrudan `playYouTube()` çağırıyor,
+   * `playYouTube` de diğer backend'leri "ateşle-unut" durduruyordu (ikinci
+   * devir yürütücüsü, doğrulama YOK). Transport ise `mediaService`ten
+   * doğrudan IFrame'e gidiyordu (ikinci transport otoritesi).
+   *
+   * Kilit, o ikinci yolların geri gelmesini engeller. */
+  /* Yorum soyucu — tarihsel anlatım kilidi düşürmesin. */
+  const stripF71 = (t: string): string =>
+    t.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/\/\/[^\n]*/g, ' ');
+
+  it('🔒 F7.1 · YouTube çalmayı KAPI başlatır, medya katmanı doğrudan çağırmaz', () => {
+    const layer = stripF71(read('src/platform/media/carosMediaLayer.ts'));
+    expect(layer.length, 'medya katmanı okunamadı — kilit boş kümeye düştü')
+      .toBeGreaterThan(2000);
+    expect(layer, 'doğrudan IFrame başlatma geri gelmiş (ikinci çalma yolu)')
+      .not.toMatch(/\bplayYouTube\s*\(/);
+    expect(layer, 'kanonik kapı kullanılmıyor').toContain('mediaCommandGateway');
+    expect(layer, "kanonik kaynak sınıfı kaybolmuş").toContain("source: 'YOUTUBE'");
+  });
+
+  it('🔒 F7.1 · youtubeService ikinci kaynak devri YÜRÜTMEZ', () => {
+    const yt = stripF71(read('src/platform/youtubeService.ts'));
+    expect(yt.length, 'youtubeService okunamadı — kilit boş kümeye düştü')
+      .toBeGreaterThan(2000);
+    expect(yt, 'IFrame katmanı yerel müziği kendi başına durduruyor')
+      .not.toContain('stopLocalMusic');
+    expect(yt, 'IFrame katmanı akışı kendi başına durduruyor')
+      .not.toContain('streamStop');
+    /* Kapının sürebilmesi için transport yüzeyi DURMALI. */
+    expect(yt, 'kanonik transport yüzeyi kaldırılmış').toContain('youtubeResume');
+    expect(yt, 'kanonik transport yüzeyi kaldırılmış').toContain('youtubePause');
+    expect(yt, 'gözlenen durum yüzeyi kaldırılmış').toContain('getYouTubePlaybackState');
+  });
+
+  it('🔒 F7.1 · kapı transportu backend SAHİBİNE dağıtır, native yolu ezmez', () => {
+    const gw = stripF71(read('src/platform/media/authority/mediaCommandGateway.ts'));
+    expect(gw.length, 'kapı okunamadı — kilit boş kümeye düştü').toBeGreaterThan(4000);
+    expect(gw, "backend dağıtımı kaldırılmış (transport yine native'e sabitlenmiş)")
+      .toContain('backendTransport');
+    expect(gw, 'native/native-olmayan ayrımı kaldırılmış').toContain('isNativeBackend');
+
+    const co = stripF71(read('src/platform/media/authority/sourceCoordinator.ts'));
+    expect(co, 'adaptör erişimi kaldırılmış').toContain('getAdapter');
+    expect(co, 'transport sözleşmesi kaldırılmış').toContain('BackendTransport');
+  });
+
+  /* ── F7.2 · SÜRÜŞTE VİDEO KAPISI ───────────────────────────────────────
+   *
+   * ÖLÇÜLEN KUSUR: `videoModeStore` koşulsuzdu ve `MediaScreen` YouTube video
+   * host'unu tüm viewport'a yayıyordu — hiçbir hız/duruş kontrolü YOKTU.
+   * Araç hareket hâlindeyken tam ekran video görünüyordu.
+   *
+   * Kilit: kapı UI'dan kaldırılamaz ve SESE genişletilemez. */
+  it('🔒 F7.2 · SAHA BUGFIX (2026-09-03) · hız/hareket video AÇMAYI REDDEDEMEZ', () => {
+    /* ÜRÜN KARARI DEĞİŞTİ: eskiden bu kilit `useVideoSafety`/`videoSafety.allowed`
+       ile ekranın video render'ını GATE'lediğini doğruluyordu. Artık tam
+       tersini kilitler — MediaScreen video görünürlüğü için hız kapısına
+       ARTIK BAĞLI OLAMAZ (kilit KALDIRILMADI, yeni doğru davranışa BAĞLANDI). */
+    const screen = stripF71(read('src/components/media/MediaScreen.tsx'));
+    expect(screen.length, 'medya ekranı okunamadı — kilit boş kümeye düştü')
+      .toBeGreaterThan(5000);
+    expect(screen, 'video render kararı hâlâ hız kapısını çağırıyor')
+      .not.toContain('useVideoSafety');
+    expect(screen, 'video host görünürlüğü hâlâ hız kapısına bağlı')
+      .not.toContain('videoSafety.allowed');
+
+    /* Saf sınıflandırma modülü SİLİNMEDİ (LAB gözlemi + gelecekteki opt-in
+       mevzuat politikası için) — yalnız artık bir GATE olarak KULLANILMIYOR. */
+    const policy = stripF71(read('src/platform/media/videoSafetyPolicy.ts'));
+    expect(policy, 'karar fonksiyonu kaldırılmış').toContain('decideVideoVisibility');
+    expect(policy, 'gerekçe fonksiyonu kaldırılmış').toContain('videoBlockReason');
+    /* Kapı YALNIZ görüntüyü sınıflandırır: ses/playback otoritelerine karışamaz. */
+    expect(policy, 'görüntü sınıflandırması ses otoritesine karışmış')
+      .not.toContain('mediaCommandGateway');
+    expect(policy, 'görüntü sınıflandırması duck otoritesine karışmış').not.toContain('duckPolicy');
+  });
+
+  /* ── F7.4 · SAĞLAYICI (UZAK) KAPAK ─────────────────────────────────────
+   * ÖLÇÜLEN KUSUR: sağlayıcı kapak kimliği `https://` küçük resim adresidir;
+   * kanonik çözücü onu native MediaStore decode'una gönderiyordu → çözüm
+   * düşüyor, Now Playing kapağı BOŞ kalıyordu. */
+  it('🔒 F7.4 · uzak kapak GEÇİRİLİR, native decode ÇAĞRILMAZ', () => {
+    const cache = stripF71(read('src/platform/media/artworkCache.ts'));
+    expect(cache.length, 'kapak katmanı okunamadı — kilit boş kümeye düştü')
+      .toBeGreaterThan(1500);
+    expect(cache, 'uzak kapak ayrımı kaldırılmış').toContain('isRemoteArtworkIdentity');
+    expect(cache, 'uzak kapak kaynağı dürüst raporlanmıyor').toContain("'REMOTE'");
+    /* Uzak yol, native çözücüden ÖNCE dönmeli — aksi hâlde kusur geri gelir. */
+    const fn = cache.slice(
+      cache.indexOf('export async function resolveArtwork'),
+      cache.indexOf('export function reportArtworkLoadFailure'),
+    );
+    expect(fn.length, 'çözücü gövdesi okunamadı').toBeGreaterThan(100);
+    expect(fn, 'uzak kapak erken dönüşü kaldırılmış').toContain('isRemoteArtworkIdentity');
+  });
+
+  /* ── F7.5 · IFRAME KAYNAĞINDA DURAKLAT ─────────────────────────────────
+   * ÖLÇÜLEN KUSUR: gömülü IFrame kaynağında `transport` hiçbir zaman
+   * `PLAYING` olmuyordu → duraklat düğmesi hep "çal" gösteriyor ve basınca
+   * `play` gönderiyordu: YouTube DURAKLATILAMIYORDU. */
+  it('🔒 F7.5 · IFrame gözlemi transporta yansır, NATIVE dürüstlük kuralı korunur', () => {
+    const vm = stripF71(read('src/components/media/MusicViewModel.ts'));
+    expect(vm.length, 'projeksiyon okunamadı — kilit boş kümeye düştü')
+      .toBeGreaterThan(1500);
+    expect(vm, 'IFrame gözlem dalı kaldırılmış').toContain("'youtube_iframe'");
+    /* F0 kuralı GEVŞETİLMEDİ: native yolda doğrulanmamış playing PLAYING değildir. */
+    expect(vm, 'native dürüstlük kuralı kaldırılmış').toContain('renderingVerified');
+    expect(vm, 'native yolda doğrulanmamış playing PLAYING sayılmış')
+      .toMatch(/else if \(snap\.playing\) transport = 'UNKNOWN'/);
+  });
+
+  /* ── F7.6 · SAĞLAYICI KUYRUĞU + DİNLEME OTURUMU ────────────────────────
+   * ÖLÇÜLEN KUSUR: `carosMediaLayer` içinde `_queue`/`_qIndex`/`_qRevision`
+   * adında MUTABLE bir sıra vardı; kanonik `PlayQueue` yalnız KÜTÜPHANE
+   * seçimleri için kuruluyordu. Sağlayıcı tarafında ikinci bir desired-queue
+   * sahibi doğuyor ve `ListeningSession` hiç başlamıyordu (Cross-Domain §1).
+   *
+   * ÜRÜN KARARI (2026-09-02): kuyruk SEÇİLEN parçanın kaynak sınıfıyla
+   * SINIRLIDIR (same-provider). Karışık-sağlayıcı `PlayQueue` modeli YOKTUR. */
+  it('🔒 F7.6 · medya katmanı kuyruk otoritesi DEĞİLDİR (ikinci mutable sıra yok)', () => {
+    const layer = stripF71(read('src/platform/media/carosMediaLayer.ts'));
+    expect(layer.length, 'medya katmanı okunamadı — kilit boş kümeye düştü')
+      .toBeGreaterThan(2000);
+    expect(layer, 'ikinci mutable sıra sahibi geri gelmiş').not.toMatch(/\b_queue\b/);
+    expect(layer, 'ikinci imleç sahibi geri gelmiş').not.toMatch(/\b_qIndex\b/);
+    expect(layer, 'ikinci revizyon sayacı geri gelmiş').not.toMatch(/\b_qRevision\b/);
+    /* Sıra · imleç · görünüm KANONİK kaynaktan okunur. */
+    expect(layer, 'kanonik kuyruk okuması kaldırılmış').toContain('getDesiredQueue');
+    expect(layer, 'kanonik kuyruk görünümü kaldırılmış').toContain('getDesiredQueueView');
+    expect(layer, 'kanonik oturum başlatma kaldırılmış').toContain('startProviderListening');
+    /* Kalan önbellek yalnız SUNUM içindir — sıralama/imleç aritmetiği YOK. */
+    expect(layer, 'sunum önbelleği sıra otoritesine dönüşmüş')
+      .not.toMatch(/_trackByEntryId\.(sort|splice|indexOf|slice|unshift|push)\b/);
+  });
+
+  it('🔒 F7.6 · PlayQueue tek DesiredQueue · ListeningSession tek oturum otoritesi', () => {
+    const ctx = stripF71(read('src/platform/media/session/providerQueueContext.ts'));
+    expect(ctx.length, 'sağlayıcı kuyruk bağlamı okunamadı — kilit boş kümeye düştü')
+      .toBeGreaterThan(1500);
+    /* Bağlam kurucusu SAFTIR: kendi durumunu tutmaz, komut göndermez. */
+    expect(ctx, 'bağlam kurucusu kapıya inmiş').not.toContain('mediaCommandGateway');
+    expect(ctx, 'bağlam kurucusu native köprüye inmiş').not.toContain('nativeAuthorityBridge');
+    expect(ctx, 'bağlam kurucusu kendi kuyruk durumunu tutmuş').not.toMatch(/^let /m);
+    /* Same-provider kararı: kaynak sınıfı ayrımı KALDIRILAMAZ. */
+    expect(ctx, 'same-provider sınırı kaldırılmış').toContain('providerSourceClassFor');
+    expect(ctx, 'sessiz düşürme geri gelmiş (dışarıda kalanlar sayılmıyor)')
+      .toContain('excludedIds');
+
+    const runtime = stripF71(read('src/platform/media/session/listeningSessionRuntime.ts'));
+    expect(runtime, 'sağlayıcı oturum yolu kaldırılmış').toContain('startProviderListening');
+    /* Sağlayıcı yolu kütüphane yoluyla AYNI kanonik zinciri kullanır. */
+    expect(runtime, 'sağlayıcı yolu kanonik kuyruk kurucusunu atlamış')
+      .toMatch(/startProviderListening[\s\S]*?createQueue\(/);
+    expect(runtime, 'sağlayıcı yolu oturum başlatmıyor')
+      .toMatch(/startProviderListening[\s\S]*?startListeningSession\(/);
+  });
+
+  it('🔒 F7.6 · UI · sağlayıcı kanonik kuyruğu DOĞRUDAN mutasyona uğratamaz', () => {
+    for (const rel of [
+      'src/components/media/MediaScreen.tsx',
+      'src/components/media/LocalMusicBrowser.tsx',
+      'src/components/split/SplitScreen.tsx',
+      'src/components/theater/TheaterOverlay.tsx',
+    ]) {
+      const src = stripF71(read(rel));
+      expect(src.length, `${rel} okunamadı — kilit boş kümeye düştü`).toBeGreaterThan(500);
+      expect(src, `${rel}: UI kanonik kuyruğu doğrudan import etmiş`)
+        .not.toMatch(/from '[^']*session\/playQueue'/);
+      expect(src, `${rel}: UI sağlayıcı kuyruğunu kendisi kurmuş`)
+        .not.toContain('buildProviderQueueContext');
+    }
+    /* Gözlem kanıtı AYRI kalır: desired kuyruk observed diye yayımlanamaz. */
+    const evidence = stripF71(read('src/platform/media/session/observedQueueEvidence.ts'));
+    expect(evidence, 'kanıt portu desired kuyruğa bağlanmış').not.toContain('getDesiredQueue');
+    const derivation = stripF71(read('src/platform/media/session/observedQueueDerivation.ts'));
+    expect(derivation, 'gözlem desired kuyruktan türetilmiş').not.toContain('getDesiredQueue');
+  });
+
+  /* ── F8 · SÜRÜŞ-FARKINDA MÜZİK ZEKÂSI ──────────────────────────────────
+   * F8 bir öneri/otomasyon katmanıdır ve tam da bu yüzden en kolay bozulacak
+   * yerdir: sessizce ikinci bir sürüş/kuyruk otoritesi kurmak, hot-path'e
+   * yoklama eklemek veya "daha iyi bilirim" diye çalan müziğe karışmak.
+   * Bu kilitler o üç kapıyı kapatır. */
+  it('🔒 F8 · zekâ katmanı TIMER kurmaz, kanonik yoldan yürütür', () => {
+    const runtime = stripF71(read('src/platform/media/intelligence/musicIntelligenceRuntime.ts'));
+    expect(runtime.length, 'F8 runtime okunamadı — kilit boş kümeye düştü')
+      .toBeGreaterThan(2000);
+    /* Polling/timer YOK: düşük-uç bütçesinde arka planda dönen bir aktör olamaz. */
+    expect(runtime, 'F8 kendi zamanlayıcısını kurmuş').not.toMatch(/setInterval\s*\(/);
+    expect(runtime, 'F8 kendi yoklama döngüsünü kurmuş').not.toMatch(/setTimeout\s*\(/);
+    expect(runtime, 'F8 kendi scheduler görevini kurmuş').not.toContain('scheduleTask');
+    /* Tek gözlem dikişi kanonik dinleme oturumudur. */
+    expect(runtime, 'kanonik oturum aboneliği kaldırılmış').toContain('subscribeListeningSession');
+    /* Yürütme KANONİK: F3 kütüphane yolu; sağlayıcıya/native'e doğrudan komut YOK. */
+    expect(runtime, 'F8 kanonik F3 yolunu atlamış').toContain('startLibraryListening');
+    expect(runtime, 'F8 doğrudan komut kapısına inmiş').not.toContain('mediaCommandGateway');
+    expect(runtime, 'F8 kanonik kuyruğu kendisi yazmış').not.toContain('session/playQueue');
+    expect(runtime, 'F8 doğrudan sağlayıcıya inmiş').not.toMatch(/\bplayYouTube\s*\(/);
+    /* Zero-Leak: durdurma aboneliği bırakmalı. */
+    expect(runtime, 'zero-leak temizliği kaldırılmış').toContain('stopMusicIntelligence');
+  });
+
+  it('🔒 F8 · saf modeller SAF kalır (ikinci sürüş otoritesi yok)', () => {
+    const model = stripF71(read('src/platform/media/intelligence/musicIntelligenceModel.ts'));
+    const context = stripF71(read('src/platform/media/intelligence/drivingContextModel.ts'));
+    for (const [name, src] of [['karar modeli', model], ['bağlam modeli', context]] as const) {
+      expect(src.length, `${name} okunamadı — kilit boş kümeye düştü`).toBeGreaterThan(1500);
+      expect(src, `${name} zamana bağlanmış (saf değil)`).not.toContain('Date.now');
+      expect(src, `${name} timer kurmuş`).not.toMatch(/setInterval|setTimeout/);
+      expect(src, `${name} React'e bağlanmış`).not.toContain("from 'react'");
+      expect(src, `${name} native köprüye inmiş`).not.toContain('nativeAuthorityBridge');
+      expect(src, `${name} komut kapısına inmiş`).not.toContain('mediaCommandGateway');
+    }
+    /* Hız eşiği F8'in DEĞİL: bağlam modeli kendi sürüş kipini YAYINLAMAZ. */
+    expect(context, 'F8 ikinci sürüş kipi otoritesi kurmuş')
+      .not.toMatch(/export function detectDrivingMode/);
+  });
+
+  it('🔒 F8 · kalıcı tercih kanıtı GİZLİLİK sınırını genişletemez', () => {
+    const pref = read('src/platform/media/intelligence/preferenceEvidence.ts');
+    expect(pref.length, 'tercih kanıtı okunamadı — kilit boş kümeye düştü')
+      .toBeGreaterThan(1500);
+    /* Sınırlı depo: üst sınır ve TTL kaldırılamaz. */
+    expect(pref, 'sınırsız profil açılmış').toContain('MAX_PREFERENCE_ENTRIES');
+    expect(pref, 'TTL kaldırılmış').toContain('PREFERENCE_TTL_MS');
+    /* İçerik/konum alanları modele GİREMEZ. */
+    const body = stripF71(pref);
+    for (const forbidden of ['contentUri', 'artworkIdentity', 'latitude', 'longitude',
+      'destination', 'transcript', 'providerRef']) {
+      expect(body, `gizlilik sınırı genişlemiş: ${forbidden}`).not.toContain(forbidden);
+    }
+    /* Kanıt deposu konum/navigasyon/arama modüllerini GÖRMEZ. */
+    expect(body, 'kanıt deposu konum kaynağına bağlanmış').not.toContain('gpsService');
+    expect(body, 'kanıt deposu navigasyona bağlanmış').not.toContain('navigationService');
+  });
+
+  it('🔒 F8 · LAB okur, KARAR ÜRETMEZ (ikinci otorite olamaz)', () => {
+    const sources = stripF71(read('src/platform/devtools/mediaAuthoritySources.ts'));
+    expect(sources.length, 'LAB okuma katmanı okunamadı — kilit boş kümeye düştü')
+      .toBeGreaterThan(2000);
+    /* LAB karar üretemez ve uygulayamaz. */
+    expect(sources, 'LAB karar üretmiş').not.toContain('evaluateMusicIntelligence');
+    expect(sources, 'LAB eylem uygulamış').not.toContain('applyIntelligenceCandidate');
+    /* LAB gözlemi üretim histerezisini İLERLETEMEZ. */
+    expect(sources, 'LAB üretim bağlam durumunu ilerletmiş').not.toContain('readDrivingContext(');
+    expect(sources, 'LAB salt-okunur bağlam okumasını kaybetmiş').toContain('peekDrivingContext');
+  });
+
+  it('🔒 F8 · öneri yüzeyi skor/gerekçe GÖSTERMEZ ve kendi çalma yolunu kurmaz', () => {
+    const card = stripF71(read('src/components/media/MusicIntelligenceCard.tsx'));
+    expect(card.length, 'öneri kartı okunamadı — kilit boş kümeye düştü').toBeGreaterThan(800);
+    /* Teknik provenance kullanıcıya SIZMAZ. */
+    for (const leak of ['confidence', 'suppressedBy', 'keptCount', 'bucket']) {
+      expect(card, `teknik alan kullanıcı yüzeyine sızmış: ${leak}`)
+        .not.toMatch(new RegExp(`\\{[^}]*${leak}[^}]*\\}`));
+    }
+    /* Yürütme kanonik uygulama fonksiyonundan geçer; UI sağlayıcıya inmez. */
+    expect(card, 'kart kanonik uygulama yolunu atlamış').toContain('applyIntelligenceCandidate');
+    expect(card, 'UI doğrudan sağlayıcıya inmiş').not.toContain('carosMediaLayer');
+    expect(card, 'UI kanonik kuyruğa yazmış').not.toContain('session/playQueue');
+  });
+
+  it('🔒 F8 · lifecycle SystemBoot\'undur ve cleanup kayıtlıdır', () => {
+    const boot = stripF71(read('src/platform/system/SystemBoot.ts'));
+    expect(boot, 'F8 boot lifecycle\'ından çıkarılmış').toContain('startMusicIntelligence');
+    expect(boot, 'F8 cleanup kaydı kaldırılmış (zero-leak)').toContain('stopMusicIntelligence');
+    expect(boot, 'F8 cleanup adlandırması kaybolmuş').toContain('music-intelligence');
+  });
+
+  /* ── F9 · MAVİ MÜZİK COMPANION ─────────────────────────────────────────
+   * Mavi müzik tarafında en kolay bozulan şey İDDİA'dır: komut gönderilir,
+   * ses çıkmaz, asistan "çalıyor" der. F0–F8 bu yalanı tek tek kapattı;
+   * bu kilitler doğal dil yolunun onu geri getirmesini engeller. */
+  it('🔒 F9 · Mavi müzik yönlendiricisi requester\'dır, otorite DEĞİL', () => {
+    const router = stripF71(read('src/platform/media/intent/musicIntentRouter.ts'));
+    expect(router.length, 'F9 router okunamadı — kilit boş kümeye düştü')
+      .toBeGreaterThan(2000);
+    /* Doğrudan sağlayıcı/native/queue mutasyonu YOK. */
+    expect(router, 'native köprüye inmiş').not.toContain('nativeAuthorityBridge');
+    expect(router, 'sağlayıcıya doğrudan inmiş').not.toMatch(/\bplayYouTube\s*\(/);
+    expect(router, 'sağlayıcıya doğrudan inmiş').not.toMatch(/\bplaySpotifyTrack\s*\(/);
+    expect(router, 'kanonik kuyruğu doğrudan mutasyona uğratmış')
+      .not.toMatch(/\b(createQueue|addToQueue|reorder|removeAt|setCurrentIndex)\s*\(/);
+    expect(router, 'F8 tercih kanıtına YAZMIŞ').not.toContain('notePreferenceOutcome');
+    expect(router, 'duck otoritesine el atmış').not.toContain('duckRequest');
+    expect(router, 'sürüşte video güvenlik kapısına dokunmuş').not.toContain('videoModeStore');
+    expect(router, 'kendi sıralamasını kurmuş').not.toMatch(/\.sort\s*\(/);
+    /* Kanonik sahiplerden geçmeli ve F5 kanıt eşiğini KULLANMALI. */
+    expect(router, 'kanonik komut kapısı kullanılmıyor').toContain('mediaCommandGateway');
+    expect(router, 'kanonik seçim yolu kullanılmıyor').toContain('searchSelection');
+    expect(router, 'F5 otomatik çalma eşiği atlanmış').toContain('isConfidentEnoughToAutoPlay');
+  });
+
+  it('🔒 F9 · doğrulanmamış komut BAŞARI cümlesi kurduramaz', () => {
+    const speech = stripF71(read('src/platform/media/intent/musicIntentSpeech.ts'));
+    expect(speech.length, 'konuşma katmanı okunamadı — kilit boş kümeye düştü')
+      .toBeGreaterThan(1000);
+    /* Dürüstlük yardımcısı kaldırılamaz — testler bunu kilitler. */
+    expect(speech, 'iddia dürüstlüğü kontrolü kaldırılmış').toContain('claimIsHonest');
+    expect(speech, 'iddia sınıfı ayrımı kaldırılmış').toContain('CONFIRMED');
+    /* Konuşma katmanı kendi başına komut/otorite göremez. */
+    expect(speech, 'konuşma katmanı otoriteye inmiş').not.toContain('mediaCommandGateway');
+    expect(speech, 'konuşma katmanı zamana bağlanmış').not.toContain('Date.now');
+  });
+
+  it('🔒 F9 · sesli müzik yolu KOŞULSUZ "çalıyor" DEMEZ', () => {
+    const exec = stripF71(read('src/platform/commandExecutor.ts'));
+    expect(exec.length, 'komut yürütücü okunamadı — kilit boş kümeye düştü')
+      .toBeGreaterThan(5000);
+    /* ÖLÇÜLEN KUSUR (F9): `playByQuery` bir parça döndürdüğü anda koşulsuz
+       "<başlık> çalınıyor" deniyordu; o cümle bir playback kanıtı DEĞİLDİ. */
+    expect(exec, 'sahte "çalınıyor" iddiası geri gelmiş')
+      .not.toMatch(/\$\{track\.title\}\s*çalınıyor/);
+    expect(exec, 'koşulsuz "Müzik açılıyor" iddiası geri gelmiş')
+      .not.toMatch(/_speak\('Müzik açılıyor'/);
+    /* Müzik araması kanonik F9 yolundan geçmeli. */
+    expect(exec, 'kanonik müzik niyeti yolu kaldırılmış').toContain('musicIntentRouter');
+    expect(exec, 'dürüst cevap üretici kaldırılmış').toContain('speakMusicOutcome');
+  });
+
+  it('🔒 F9 · atlama KUYRUK-FARKINDA tek girişten geçer (bypass yok)', () => {
+    const exec = stripF71(read('src/platform/commandExecutor.ts'));
+    /* ÖLÇÜLEN KUSUR (F9): `next`/`previous` doğrudan `mediaService`ten import
+       ediliyordu → F7.3'te kurulan kuyruk-farkında giriş ATLANIYORDU ve
+       sağlayıcı arama listesinde Mavi'nin "sonraki"si düşüyordu. */
+    expect(exec, 'medya servisinden doğrudan atlama importu geri gelmiş')
+      .not.toMatch(/import\s*\{[^}]*\bnext\b[^}]*\}\s*from\s*'\.\/mediaService'/);
+    expect(exec, 'kuyruk-farkında atlama girişi kaldırılmış').toContain('_queueAwareNext');
+    expect(exec, 'kuyruk-farkında atlama girişi kaldırılmış').toContain('_queueAwarePrevious');
+    expect(exec, 'kuyruk-farkında giriş kanonik katmandan gelmiyor')
+      .toContain('media/carosMediaLayer');
+  });
+
+  it('🔒 F9 · kanonik atlama girişi KANIT döndürür (sessiz void yok)', () => {
+    const layer = stripF71(read('src/platform/media/carosMediaLayer.ts'));
+    /* `void` dönen giriş, çağıranı `mediaService`e kaçmaya zorluyordu. */
+    expect(layer, 'atlama girişi kanıtsız void\'e döndü')
+      .not.toMatch(/export function next\s*\([^)]*\)\s*:\s*void/);
+    expect(layer, 'atlama girişi kanıtsız void\'e döndü')
+      .not.toMatch(/export function previous\s*\([^)]*\)\s*:\s*void/);
+    expect(layer, 'atlama kanıtı kaldırılmış').toContain('MediaCommandResult');
+  });
+
+  it('🔒 F9 · niyet çözümü YEREL kalır (bulut zorunluluğu yok)', () => {
+    const resolver = stripF71(read('src/platform/media/intent/musicIntentResolver.ts'));
+    expect(resolver.length, 'çözümleyici okunamadı — kilit boş kümeye düştü')
+      .toBeGreaterThan(1000);
+    /* Temel taşıma/arama/kuyruk komutları bulut olmadan çözülmelidir. */
+    expect(resolver, 'niyet çözümü buluta bağlanmış').not.toMatch(/fetch\s*\(/);
+    expect(resolver, 'niyet çözümü LLM sağlayıcısına bağlanmış').not.toContain('aiGateway');
+    expect(resolver, 'niyet çözümü ağ servisine bağlanmış').not.toContain('cloudSttService');
+    expect(resolver, 'çözümleyici otoriteye inmiş').not.toContain('mediaCommandGateway');
+  });
+
+  it('🔒 F9 · telemetriye söylenen METİN yazılmaz (PII yok)', () => {
+    const telemetry = read('src/platform/media/intent/musicIntentTelemetry.ts');
+    expect(telemetry.length, 'telemetri okunamadı — kilit boş kümeye düştü')
+      .toBeGreaterThan(1500);
+    const body = stripF71(telemetry);
+    for (const forbidden of ['utterance', 'transcript', 'query', 'title', 'artist']) {
+      expect(body, `söylenen metin telemetriye sızmış: ${forbidden}`)
+        .not.toMatch(new RegExp(`readonly ${forbidden}`));
+    }
+    /* İddia uyuşmazlığı sayacı kaldırılamaz — dürüstlük arızasının kanıtıdır. */
+    expect(body, 'iddia uyuşmazlığı sayacı kaldırılmış').toContain('claimMismatch');
+  });
+
+  /* ── F10 · KARAKTER / ENERJİ KANITI ────────────────────────────────────
+   * Bu fazın tek gerçek riski UYDURMAKTIR: elde ölçüm yokken "bu parça
+   * enerjik" demek. Ölçülen gerçek şudur — MediaStore projeksiyonunda GENRE/
+   * YEAR yok, Piped trait vermiyor, Spotify `audio-features` çağrılmıyor.
+   * Kilitler bu boşluğun sessizce doldurulmasını engeller. */
+  it('🔒 F10 · BPM yalnız GERÇEK ölçümden gelir; sezgisel kanıt LOW tavanlıdır', () => {
+    const model = stripF71(read('src/platform/media/traits/musicTraitEvidence.ts'));
+    expect(model.length, 'kanıt modeli okunamadı — kilit boş kümeye düştü')
+      .toBeGreaterThan(1500);
+    /* Tempo kapısı ve güven tavanı kaldırılamaz. */
+    expect(model, 'tempo kaynağı kapısı kaldırılmış').toContain('mayCarryTempo');
+    expect(model, 'sezgisel güven tavanı kaldırılmış').toContain('MAX_HEURISTIC_CONFIDENCE');
+    expect(model, 'provenance sıralaması kaldırılmış').toContain('PROVENANCE_RANK');
+    /* Saf kalmalı. */
+    expect(model, 'kanıt modeli zamana bağlanmış').not.toContain('Date.now');
+    expect(model, 'kanıt modeli otoriteye inmiş').not.toContain('mediaCommandGateway');
+  });
+
+  it('🔒 F10 · "daha sakin/enerjik" GÖRECELİDİR — sahte kıyas kurulamaz', () => {
+    const selection = stripF71(read('src/platform/media/traits/traitSelectionModel.ts'));
+    expect(selection.length, 'seçim modeli okunamadı — kilit boş kümeye düştü')
+      .toBeGreaterThan(1500);
+    /* Referans kapısı ve fark marjı kaldırılamaz. */
+    expect(selection, 'referans kapısı kaldırılmış').toContain('NO_REFERENCE');
+    expect(selection, 'algılanabilir fark marjı kaldırılmış').toContain('RELATIVE_ENERGY_MARGIN');
+    /* Kanıtsız aday sessizce düşmemeli — sayılmalı. */
+    expect(selection, 'kanıtsız aday sayacı kaldırılmış').toContain('rejectedNoEvidence');
+    expect(selection, 'kesin dil kapısı kaldırılmış').toContain('allowsConfidentClaim');
+    expect(selection, 'seçim modeli zamana bağlanmış').not.toContain('Date.now');
+  });
+
+  it('🔒 F10 · runtime çalma başlatmaz, timer kurmaz, kaynak yazmaz', () => {
+    const runtime = stripF71(read('src/platform/media/traits/traitRuntime.ts'));
+    expect(runtime.length, 'F10 runtime okunamadı — kilit boş kümeye düştü')
+      .toBeGreaterThan(1500);
+    expect(runtime, 'F10 kendi zamanlayıcısını kurmuş').not.toMatch(/setInterval\s*\(/);
+    expect(runtime, 'F10 yoklama döngüsü kurmuş').not.toMatch(/setTimeout\s*\(/);
+    expect(runtime, 'F10 doğrudan çalma başlatmış').not.toContain('startLibraryListening');
+    expect(runtime, 'F10 komut kapısına inmiş').not.toContain('mediaCommandGateway');
+    expect(runtime, 'F10 kanonik kuyruğa yazmış').not.toContain('session/playQueue');
+    expect(runtime, 'F10 kütüphaneye yazmış').not.toContain('reconcileMusicIndex');
+    expect(runtime, 'F10 tercih kanıtına yazmış').not.toContain('notePreferenceOutcome');
+    /* Düşük-uç bütçesi: sınırlar kaldırılamaz. */
+    expect(runtime, 'kanıt önbelleği sınırı kaldırılmış').toContain('MAX_TRAIT_CACHE');
+    expect(runtime, 'aday tarama sınırı kaldırılmış').toContain('MAX_CANDIDATE_SCAN');
+  });
+
+  it('🔒 F10 · seçilen parça KANONİK F3 yolundan çalar (doğrudan sağlayıcı yok)', () => {
+    const router = stripF71(read('src/platform/media/intent/musicIntentRouter.ts'));
+    /* Karakter yolu da kanonik oturum yolundan geçmeli. */
+    expect(router, 'karakter yolu kaldırılmış').toContain('runTraitDirected');
+    expect(router, 'karakter seçimi kanonik F3 yolunu atlamış')
+      .toMatch(/runTraitDirected[\s\S]*?startLibraryListening/);
+    expect(router, 'karakter yolu doğrudan sağlayıcıya inmiş')
+      .not.toMatch(/runTraitDirected[\s\S]{0,900}playYouTube/);
+  });
+
+  it('🔒 F10 · zayıf kanıttan KESİN dil doğmaz', () => {
+    const speech = stripF71(read('src/platform/media/intent/musicIntentSpeech.ts'));
+    /* Temkinli/kesin ayrımı kaldırılamaz. */
+    expect(speech, 'temkinli dil dalı kaldırılmış').toContain('trait_selected_tentative');
+    expect(speech, 'kesin dil dalı kaldırılmış').toContain('trait_selected_confident');
+    expect(speech, 'karakter cümlesi üreticisi kaldırılmış').toContain('traitDirectionSpeech');
+    /* Kanıtsız durumlar için dürüst karşılıklar kaldırılamaz. */
+    for (const code of ['trait_reference_unavailable', 'trait_evidence_unavailable',
+      'trait_no_candidate']) {
+      expect(speech, `dürüst red metni kaldırılmış: ${code}`).toContain(code);
+    }
+  });
+
+  it('🔒 F10 · telemetri parça/sanatçı metni TAŞIMAZ', () => {
+    const telemetry = stripF71(read('src/platform/media/traits/traitTelemetry.ts'));
+    expect(telemetry.length, 'telemetri okunamadı — kilit boş kümeye düştü')
+      .toBeGreaterThan(1200);
+    for (const forbidden of ['title', 'artist', 'query', 'utterance', 'uri']) {
+      expect(telemetry, `metin alanı telemetriye sızmış: ${forbidden}`)
+        .not.toMatch(new RegExp(`readonly ${forbidden}`));
+    }
+    /* Kanıt kökeni sayaçları ve uyuşmazlık sayacı kaldırılamaz. */
+    expect(telemetry, 'gerçek ölçüm sayacı kaldırılmış').toContain('evidenceProvider');
+    expect(telemetry, 'sezgisel sayacı kaldırılmış').toContain('evidenceHeuristic');
+    expect(telemetry, 'iddia uyuşmazlığı sayacı kaldırılmış').toContain('claimMismatch');
+  });
+
+  /* ── F10.1 · GERÇEK KARAKTER KANITI ────────────────────────────────────
+   * F10 hiçbir gerçek kanıt olmadan kapanmıştı (#1135). F10.1 gömülü ID3/
+   * Vorbis BPM ve MediaStore GENRE'yi bağladı. Buradaki risk, bağlanan gerçek
+   * kanıdın etrafında sessizce uydurma büyümesidir. */
+  it('🔒 F10.1 · BPM kaynağı kapısı: tür/süre/başlık BPM ÜRETEMEZ', () => {
+    const model = stripF71(read('src/platform/media/traits/musicTraitEvidence.ts'));
+    expect(model.length, 'kanıt modeli okunamadı — kilit boş kümeye düştü')
+      .toBeGreaterThan(1500);
+    /* Kanonik güç sırası ve tempo kapısı kaldırılamaz. */
+    expect(model, 'gömülü etiket provenance kaldırılmış').toContain('EMBEDDED_METADATA');
+    expect(model, 'ölçüm provenance kaldırılmış').toContain('MEASURED_AUDIO');
+    /* Tempo kapısı YALNIZ gerçek kaynakları saymalı — kütüphane metadata'sı DEĞİL. */
+    expect(model, 'türden BPM üretilebilir hâle gelmiş')
+      .not.toMatch(/mayCarryTempo[\s\S]{0,220}LIBRARY_METADATA/);
+  });
+
+  it('🔒 F10.1 · tür DESTEKLEYİCİDİR: kesin ruh hâli/BPM iddiası kuramaz', () => {
+    const sources = stripF71(read('src/platform/media/traits/traitSources.ts'));
+    expect(sources.length, 'kanıt kaynakları okunamadı — kilit boş kümeye düştü')
+      .toBeGreaterThan(1500);
+    /* Tür kanıtı LOW güvenli ve mood ÜRETMEYEN bir daldır. */
+    expect(sources, 'tür kanıtı kaldırılmış').toContain('fromLibraryGenre');
+    expect(sources, 'tür kanıtı güçlendirilmiş (LOW tavanı kalkmış)')
+      .toMatch(/fromLibraryGenre[\s\S]{0,900}confidence: 'LOW'/);
+    expect(sources, 'türden ruh hâli üretilmiş')
+      .not.toMatch(/fromLibraryGenre[\s\S]{0,900}mood: '(CALM|ENERGETIC)'/);
+    /* Gömülü BPM gerçek tempo taşır ama ruh hâli ÜRETMEZ. */
+    expect(sources, 'gömülü BPM kanıtı kaldırılmış').toContain('fromEmbeddedBpm');
+    expect(sources, 'BPM\'den ruh hâli uydurulmuş')
+      .not.toMatch(/fromEmbeddedBpm[\s\S]{0,700}mood: '(CALM|ENERGETIC)'/);
+  });
+
+  it('🔒 F10.1 · doğrulanmamış sağlayıcı kaynağından kanıt OKUNMAZ', () => {
+    const sources = stripF71(read('src/platform/media/traits/traitSources.ts'));
+    /* Ölçülen yetenek tablosu ve okunabilirlik kapısı kaldırılamaz. */
+    expect(sources, 'kaynak yetenek tablosu kaldırılmış')
+      .toContain('PROVIDER_TRAIT_AVAILABILITY');
+    expect(sources, 'okunabilirlik kapısı kaldırılmış').toContain('providerTraitReadable');
+    /* Doğrulanmamış/desteklenmeyen kaynak AVAILABLE ilan EDİLEMEZ. */
+    expect(sources, 'Piped trait yokken AVAILABLE ilan edilmiş')
+      .not.toMatch(/youtube:\s*'AVAILABLE'/);
+    expect(sources, 'doğrulanmamış Spotify sözleşmesi AVAILABLE ilan edilmiş')
+      .not.toMatch(/spotify:\s*'AVAILABLE'/);
+  });
+
+  it('🔒 F10.1 · bayat kanıt sunulmaz: önbellek anahtarı şema + kuşak taşır', () => {
+    const runtime = stripF71(read('src/platform/media/traits/traitRuntime.ts'));
+    expect(runtime, 'şema sürümü kaldırılmış').toContain('TRAIT_SCHEMA_VERSION');
+    expect(runtime, 'önbellek anahtarı kuşak taşımıyor (bayat kanıt riski)')
+      .toMatch(/traitCacheKey[\s\S]{0,320}generation/);
+    /* Gömülü okuma sınırlı ve tekrarsız olmalı. */
+    expect(runtime, 'gömülü okuma sınırı kaldırılmış').toContain('MAX_EMBEDDED_PRIME');
+    expect(runtime, 'aynı dosya sürekli yeniden okunuyor').toContain('embeddedBpm.has');
+    /* İkinci bir MusicIndex kurulamaz. */
+    expect(runtime, 'kütüphaneye yazılmış').not.toContain('reconcileMusicIndex');
+  });
+
+  it('🔒 F10.1 · LAB okuması üretim sayaçlarını/önbelleğini DEĞİŞTİRMEZ', () => {
+    /* ÖLÇÜLEN KUSUR (F10.1 sırasında yakalandı): LAB alanı `peekReferenceEvidence`
+       kanıtı `resolveTraitEvidence` ile üretiyordu → LAB okuması önbelleğe yazıyor
+       ve isabet/kanıt sayaçlarını oynatıyordu. Gözlem, gözleneni etkileyemez. */
+    const runtime = stripF71(read('src/platform/media/traits/traitRuntime.ts'));
+    const peek = runtime.slice(runtime.indexOf('export function peekReferenceEvidence'));
+    expect(peek.length, 'LAB okuma fonksiyonu okunamadı — kilit boş kümeye düştü')
+      .toBeGreaterThan(200);
+    expect(peek, 'LAB okuması önbelleğe/telemetriye yazan yolu kullanmış')
+      .not.toContain('resolveTraitEvidence');
+    expect(peek, 'LAB okuması saf hesaplayıcıyı kullanmıyor').toContain('computeTraitEvidence');
+    /* Saf hesaplayıcı sayaç yazmamalı. */
+    const compute = runtime.slice(
+      runtime.indexOf('function computeTraitEvidence'),
+      runtime.indexOf('export async function primeEmbeddedTraits'),
+    );
+    expect(compute.length, 'saf hesaplayıcı okunamadı').toBeGreaterThan(200);
+    expect(compute, 'saf hesaplayıcı sayaç yazmış').not.toContain('noteTrait');
+    expect(compute, 'saf hesaplayıcı önbelleğe yazmış').not.toContain('cacheSet');
+  });
+
+  it('🔒 F10.1 · native gömülü okuma SINIRLI ve arka planda', () => {
+    const java = read('android/app/src/main/java/com/cockpitos/pro/media/TrackTraitExtractor.java');
+    expect(java.length, 'native çıkarıcı okunamadı — kilit boş kümeye düştü')
+      .toBeGreaterThan(1500);
+    expect(java, 'toplu iş sınırı kaldırılmış').toContain('MAX_BATCH');
+    expect(java, 'dosya başına zaman aşımı kaldırılmış').toContain('PER_ITEM_TIMEOUT_MS');
+    /* Dosya DECODE edilmez: yalnız kap metadata'sı okunur. */
+    expect(java, 'ses çözme (decode) yoluna girilmiş').toContain('MetadataRetriever');
+    expect(java, 'bozuk etiket filtresi kaldırılmış').toContain('bpm >= 40 && bpm <= 250');
+
+    const plugin = stripF71(read('android/app/src/main/java/com/cockpitos/pro/CarLauncherPlugin.java'));
+    expect(plugin, 'gömülü okuma UI thread\'e alınmış')
+      .toMatch(/readTrackTraits[\s\S]{0,500}mediaLibraryExecutor\.submit/);
+  });
+
+  it('🔒 F10.1 · MediaStore GENRE sürüm kapılı ve boş değer UYDURULMUYOR', () => {
+    const scanner = read('android/app/src/main/java/com/cockpitos/pro/media/MediaStoreLibraryScanner.java');
+    expect(scanner, 'GENRE projeksiyondan çıkarılmış').toContain('MediaStore.Audio.Media.GENRE');
+    expect(scanner, 'YEAR projeksiyondan çıkarılmış').toContain('MediaStore.Audio.Media.YEAR');
+    /* API 30 altında GENRE sütunu YOKTUR: kapısız sorgu cursor'ı patlatır. */
+    expect(scanner, 'GENRE sürüm kapısı kaldırılmış (eski cihazda çökme riski)')
+      .toMatch(/supportsGenreColumn\(\)\)\s*cols\.add\(MediaStore\.Audio\.Media\.GENRE\)/);
+    /* Boş tür/yıl `null` gider — sahte değer YOK. */
+    expect(scanner, 'boş tür sahte değerle doldurulmuş')
+      .toMatch(/genre[\s\S]{0,200}JSONObject\.NULL/);
+  });
+
+  /* ── F11 · OEM++ NOW PLAYING / MUSIC GÖRSEL DENEYİMİ ────────────────────
+   * Görsel redesign'ların en kolay bozduğu şey OTORİTEDİR: "biraz daha akıcı
+   * olsun" diye UI'ın kendi playback durumunu tutması, native'e doğrudan
+   * komut göndermesi veya sahte bir ilerleme çubuğu çizmesi. Bu kilitler o
+   * kapıları kapalı tutar. */
+  it('🔒 F11 · Now Playing UI native/sağlayıcıya DOĞRUDAN komut göndermez', () => {
+    const screen = stripF71(read('src/components/media/MediaScreen.tsx'));
+    expect(screen.length, 'MediaScreen okunamadı — kilit boş kümeye düştü')
+      .toBeGreaterThan(5000);
+    expect(screen, 'native köprüye doğrudan inmiş').not.toContain('nativeAuthorityBridge');
+    expect(screen, 'sağlayıcıya doğrudan inmiş').not.toMatch(/\bplayYouTube\s*\(/);
+    expect(screen, 'sağlayıcıya doğrudan inmiş').not.toMatch(/\bplaySpotifyTrack\s*\(/);
+    /* Taşıma yalnız kuyruk-farkında giriş veya F0 kapısından geçmeli. */
+    expect(screen, 'kuyruk-farkında giriş kaldırılmış').toContain('queueAwareNext');
+    expect(screen, 'kanonik komut kapısı kaldırılmış').toContain('mediaCommandGateway');
+  });
+
+  it('🔒 F11 · Now Playing UI PlayQueue\'yu DOĞRUDAN mutasyona uğratamaz', () => {
+    const screen = stripF71(read('src/components/media/MediaScreen.tsx'));
+    expect(screen, 'kanonik kuyruğu doğrudan import etmiş')
+      .not.toMatch(/from '[^']*session\/playQueue'/);
+    expect(screen, 'kanonik kuyruğu doğrudan mutasyona uğratmış')
+      .not.toMatch(/\b(createQueue|addToQueue|reorder|removeAt|setCurrentIndex)\s*\(/);
+  });
+
+  it('🔒 F11 · SAHA BUGFIX (2026-09-03) · video görünürlüğü YALNIZ videoMode\'a bağlı', () => {
+    /* ÜRÜN KARARI DEĞİŞTİ: F7.2 hız kapısı F11 fullscreen chrome'undan da
+       kaldırıldı — video hâlâ `isYouTube && videoMode` ile açılır, ama
+       artık `videoSafety.allowed`e BAĞIMLI DEĞİLDİR. */
+    const screen = stripF71(read('src/components/media/MediaScreen.tsx'));
+    expect(screen, 'video render kararı hâlâ hız kapısını çağırıyor').not.toContain('useVideoSafety');
+    expect(screen, 'video render kararı hâlâ videoSafety.allowed okuyor')
+      .not.toMatch(/videoMode\s*&&\s*videoSafety\.allowed/);
+    expect(screen, 'fullscreen chrome videoMode\'dan bağımsızlaşmış')
+      .toMatch(/isYouTube\s*&&\s*videoMode\s*&&\s*\(/);
+  });
+
+  it('🔒 F11 · yerleşim modeli SAF kalır — ikinci sürüş/ekran otoritesi kurmaz', () => {
+    const model = stripF71(read('src/components/media/nowPlayingLayoutModel.ts'));
+    expect(model.length, 'yerleşim modeli okunamadı — kilit boş kümeye düştü')
+      .toBeGreaterThan(1000);
+    expect(model, 'yerleşim modeli zamana bağlanmış').not.toContain('Date.now');
+    expect(model, 'yerleşim modeli timer kurmuş').not.toMatch(/setInterval|setTimeout/);
+    expect(model, 'yerleşim modeli React\'e bağlanmış').not.toContain("from 'react'");
+    expect(model, 'yerleşim modeli otoriteye inmiş').not.toContain('mediaCommandGateway');
+    /* Dokunma hedefi tabanı kaldırılamaz — hiçbir yoğunlukta 48px altına inilmez. */
+    expect(model, 'dokunma hedefi tabanı kaldırılmış').toContain('MIN_TOUCH_TARGET_PX');
+  });
+
+  it('🔒 F11→F13 · beğeni düğmesi YALNIZ GERÇEK favori otoritesiyle geri gelebilir', () => {
+    /* ÖLÇÜLEN KUSUR (F11): Now Playing'de `onClick`i olmayan bir beğeni
+       düğmesi vardı — hiçbir eylemi yoktu, salt süstü. F11 bunu KALDIRDI
+       (o an favori kavramı hiçbir F0–F10.1 otoritesinde YOKTU).
+       Bu kilit köre düşmüştü: `not.toContain('Heart')` özgün niyeti
+       ("işlevsiz süs buton yok") değil, o anki tek işaretini kilitliyordu.
+       MUSIC F13 gerçek bir `musicCollectionAuthority` KURDUĞUNDAN (§ONE
+       DOMAIN = ONE AUTHORITY) düğme artık MEŞRU — kilit yeni doğru
+       davranışa GÜNCELLENİR (kaldırılmaz): Heart var OLABİLİR ama YALNIZ
+       gerçek `useFavoriteStatus` durumuna bağlıysa; kanıtsız/onClick'siz
+       süs biçimi hâlâ YASAKTIR. */
+    const screen = stripF71(read('src/components/media/MediaScreen.tsx'));
+    if (screen.includes('Heart')) {
+      expect(screen, 'F13 favori hook\'u kullanılmadan Heart eklenmiş').toContain('useFavoriteStatus');
+      expect(screen, 'Heart kontrolü kanıtsızken de çizilebiliyor (available kapısı yok)')
+        .toMatch(/favorite\.available\s*&&/);
+      expect(screen, 'toggle gerçek otoriteye bağlanmamış').toMatch(/favorite\.toggle\s*\(\s*\)/);
+    }
+  });
+
+  it('🔒 F11 · albüm kapağında bilgi taşımayan "toy" nabız animasyonu YOK', () => {
+    /* ÖLÇÜLEN KUSUR: kapağın arkasında sürekli `animate-pulse` ile atan,
+       hiçbir bilgi taşımayan bulanık bir hale vardı (blur+pulse üst üste —
+       düşük-uç GPU maliyeti + "oyuncak" görünüm). Kaldırıldı; kompozisyon
+       kalitesi kapağın kendisinden ve ambient backdrop'tan gelir. */
+    /* Ham kaynak (yorum SOYULMAZ) — sınırlar gerçek JSX `data-editable`
+       öznitelikleridir; bir yorum METNİYLE sınırlamak, yorum soyulduğunda
+       o metnin de KAYBOLMASI yüzünden dilimin dosya sonuna kadar taşmasına
+       ve kilidi sessizce boş kümeye düşürmesine yol açardı (ÖLÇÜLDÜ). */
+    const raw = read('src/components/media/MediaScreen.tsx');
+    /* Sınır ham kaynaktan bulunur (yorum METNİYLE değil); YORUM içeriği ise
+       kilit değerlendirmesinden SONRA soyulur — aksi hâlde bu dosyadaki
+       açıklayıcı yorumun kendisi ("kaldırılan animate-pulse") yanlış pozitif
+       üretirdi. */
+    const artworkBlock = stripF71(raw.slice(
+      raw.indexOf('data-editable="media.album-art"'),
+      raw.indexOf('data-editable="media.track-info"'),
+    ));
+    expect(artworkBlock.length, 'kapak bloğu okunamadı — kilit boş kümeye düştü')
+      .toBeGreaterThan(100);
+    expect(artworkBlock, 'kapak arkasına sürekli nabız animasyonu geri gelmiş')
+      .not.toContain('animate-pulse');
+  });
+
+  it('🔒 F11 · başlık/sanatçı TEK yazı boyutu kaynağından gelir (çakışan sınıf YOK)', () => {
+    /* ÖLÇÜLEN KUSUR: sanatçı satırında `text-base` VE `text-[10px]` aynı anda
+       vardı — hangisinin kazandığı belirsiz, iki çelişen boyut sınıfı. Artık
+       tek kaynak `nowPlayingLayoutModel`in `titleFontPx`/`artistFontPx`sidir. */
+    const raw = read('src/components/media/MediaScreen.tsx');
+    const trackInfo = raw.slice(
+      raw.indexOf('data-editable="media.track-info"'),
+      raw.indexOf('data-editable="media.progress"'),
+    );
+    expect(trackInfo.length, 'şarkı bilgisi bloğu okunamadı — kilit boş kümeye düştü')
+      .toBeGreaterThan(100);
+    expect(trackInfo, 'başlık/sanatçı yazı boyutu yerleşim modelinden gelmiyor')
+      .toMatch(/fontSize:\s*layout\.titleFontPx/);
+    expect(trackInfo, 'başlık/sanatçı yazı boyutu yerleşim modelinden gelmiyor')
+      .toMatch(/fontSize:\s*layout\.artistFontPx/);
+    /* Çakışan sabit Tailwind boyut sınıfları geri gelmemeli. */
+    expect(trackInfo, 'çakışan sabit yazı boyutu sınıfı geri gelmiş')
+      .not.toMatch(/text-2xl|text-base/);
+  });
+
+  /* ── F12 · OEM++ LIBRARY / DISCOVERY / SEARCH GÖRSEL DENEYİMİ ───────────
+   * ÖLÇÜLEN KUSUR: `LocalMusicBrowser` CarOS'un geri kalanından (amber/koyu
+   * OEM tonları) KOPUK bir mavi (Tailwind blue-400) vurgu rengi kullanıyordu
+   * — sıradan bir Android müzik uygulaması izlenimi buradan geliyordu. Bu
+   * kilitler o kopukluğun ve kritik-altı dokunma hedefinin geri gelmesini
+   * engeller; Discovery/Search'ün kanıt-gated sözleşmesini korur. */
+  it('🔒 F12 · LocalMusicBrowser CarOS OEM tonlarını KULLANIR — yabancı vurgu YOK', () => {
+    const browser = stripF71(read('src/components/media/LocalMusicBrowser.tsx'));
+    expect(browser.length, 'LocalMusicBrowser okunamadı — kilit boş kümeye düştü')
+      .toBeGreaterThan(3000);
+    expect(browser, 'yabancı mavi vurgu rengi geri gelmiş').not.toMatch(/blue-\d/);
+    expect(browser, 'yabancı mavi RGB değeri geri gelmiş').not.toContain('59,130,246');
+    expect(browser, 'CarOS amber vurgusu kaldırılmış').toContain('var(--oem-amber');
+    /* Kritik dokunma hedefi tabanı kaldırılamaz. */
+    expect(browser, 'dokunma hedefi tabanı kaldırılmış').toContain('MIN_TOUCH_TARGET_PX');
+  });
+
+  it('🔒 F12 · LocalMusicBrowser ikinci search/discovery/driving otoritesi KURMAZ', () => {
+    const browser = stripF71(read('src/components/media/LocalMusicBrowser.tsx'));
+    expect(browser, 'kendi sürüş ölçümünü yapmış').not.toContain('smartEngine');
+    expect(browser, 'kendi hız/telemetri okuması yapmış').not.toContain('vehicleDataLayer');
+    expect(browser, 'kanonik F2 sınırı yerine kendi sınırlama motorunu kurmuş')
+      .toMatch(/searchMusicLibrary\(query,\s*limit\)/);
+    expect(browser, 'kanonik kuyruğu doğrudan mutasyona uğratmış')
+      .not.toMatch(/from '[^']*session\/playQueue'/);
+    expect(browser, 'kanonik kütüphaneyi mutasyona uğratmış').not.toContain('reconcileMusicIndex');
+  });
+
+  it('🔒 F12 · Discovery kanıtsız bölüm/iddia ÇİZMEZ (F5 sözleşmesi korunur)', () => {
+    const model = stripF71(read('src/platform/media/search/discoveryModel.ts'));
+    const surface = stripF71(read('src/components/media/MusicDiscoverySurface.tsx'));
+    for (const forbidden of ['Senin için', 'senin için', 'Önerilen', 'Beğenebileceğin']) {
+      expect(model, `kanıtsız iddia metni sızmış: ${forbidden}`).not.toContain(forbidden);
+      expect(surface, `kanıtsız iddia metni sızmış: ${forbidden}`).not.toContain(forbidden);
+    }
+    expect(surface, 'boş keşif dürüst mesajı kaldırılmış').toContain('data-discovery-empty');
+    expect(model, 'saf model React\'e bağlanmış').not.toContain("from 'react'");
+  });
+
+  it('🔒 F12 · Search boş↔sonuç↔boş akışı Discovery ile TEK yüzey kalır', () => {
+    const searchView = stripF71(read('src/components/media/UnifiedSearchView.tsx'));
+    expect(searchView, 'boşken keşif yüzeyi kaldırılmış').toContain('showDiscovery');
+    expect(searchView, 'Discovery bileşeni ayrı bir uygulama gibi kopmuş')
+      .toContain('<MusicDiscoverySurface');
+    expect(searchView, 'arama sonucu doğrudan sağlayıcıya komut vermiş')
+      .not.toMatch(/\bplayYouTube\s*\(/);
+  });
+
+  /* ── F13 · FAVORİLER / MUSIC COLLECTION AUTHORITY ───────────────────────
+   * Spec §12'nin 11 kalıcı kilidi — kalıcı yasa dosyası (bu dosya), fazın
+   * kendi hedefli paketi `musicF13FavoritesCollectionAuthority.test.ts`ten
+   * AYRI ve KALICI olarak burada tutulur. */
+
+  it('🔒 F13 · TEK MusicCollectionAuthority — Now Playing/Discovery/Mavi AYNI modülü kullanır', () => {
+    const hook = read('src/components/media/useFavoriteStatus.ts');
+    const discoveryRuntime = read('src/platform/media/search/discoveryRuntime.ts');
+    const router = read('src/platform/media/intent/musicIntentRouter.ts');
+    for (const [name, src] of [
+      ['useFavoriteStatus', hook], ['discoveryRuntime', discoveryRuntime], ['musicIntentRouter', router],
+    ] as const) {
+      expect(src, `${name} favori otoritesini kanonik yoldan İTHAL ETMEMİŞ`)
+        .toContain('collection/musicCollectionAuthority');
+    }
+  });
+
+  it('🔒 F13 · UI kalıcılığa DOĞRUDAN YAZAMAZ — yalnız otorite üzerinden', () => {
+    const hook = stripF71(read('src/components/media/useFavoriteStatus.ts'));
+    const surface = stripF71(read('src/components/media/MusicDiscoverySurface.tsx'));
+    const screen = stripF71(read('src/components/media/MediaScreen.tsx'));
+    for (const [name, src] of [['useFavoriteStatus', hook], ['MusicDiscoverySurface', surface], ['MediaScreen', screen]] as const) {
+      expect(src, `${name} safeStorage'a DOĞRUDAN yazmış`).not.toContain('safeStorage');
+      expect(src, `${name} localStorage'a DOĞRUDAN yazmış`).not.toMatch(/localStorage\s*\./);
+    }
+  });
+
+  it('🔒 F13 · favoriler PlayQueue\'yu DOĞRUDAN mutasyona uğratamaz', () => {
+    const authority = stripF71(read('src/platform/media/collection/musicCollectionAuthority.ts'));
+    expect(authority, 'kanonik kuyruğu doğrudan import etmiş')
+      .not.toMatch(/from '[^']*session\/playQueue'/);
+    expect(authority, 'kuyruk mutasyonu çağırmış')
+      .not.toMatch(/\b(createQueue|addToQueue|reorder|removeAt|setCurrentIndex)\s*\(/);
+  });
+
+  it('🔒 F13 · favoriler PLAYBACK OTORİTESİ DEĞİLDİR — dispatch YALNIZ çağıranda', () => {
+    const authority = stripF71(read('src/platform/media/collection/musicCollectionAuthority.ts'));
+    expect(authority, 'otorite kendi playMedia/dispatch çağrısı yapmış')
+      .not.toMatch(/\bplayMedia\s*\(/);
+    expect(authority, 'otorite native köprüye inmiş').not.toContain('nativeAuthorityBridge');
+    expect(authority, 'otorite komut kapısına inmiş').not.toContain('mediaCommandGateway');
+    /* `resolvePlaybackTarget` VERİ döndürür — fonksiyon adı kaldırılamaz. */
+    expect(authority, 'veri-sözleşmesi fonksiyonu kaldırılmış').toContain('export function resolvePlaybackTarget');
+  });
+
+  it('🔒 F13 · favoriler ÖNERİ KANITI DEĞİLDİR — F8/F10 favori otoritesini OKUMAZ', () => {
+    const intelligenceModel = stripF71(read('src/platform/media/intelligence/musicIntelligenceModel.ts'));
+    const intelligenceRuntime = stripF71(read('src/platform/media/intelligence/musicIntelligenceRuntime.ts'));
+    const traitModel = stripF71(read('src/platform/media/traits/traitSelectionModel.ts'));
+    const traitRuntime = stripF71(read('src/platform/media/traits/traitRuntime.ts'));
+    for (const [name, src] of [
+      ['musicIntelligenceModel', intelligenceModel], ['musicIntelligenceRuntime', intelligenceRuntime],
+      ['traitSelectionModel', traitModel], ['traitRuntime', traitRuntime],
+    ] as const) {
+      expect(src, `${name} favori otoritesini kanıt olarak OKUMUŞ`)
+        .not.toContain('collection/musicCollectionAuthority');
+    }
+  });
+
+  it('🔒 F13 · karışık-sağlayıcı favori LİSTESİ karışık-sağlayıcı PlayQueue KURMAZ', () => {
+    const router = stripF71(read('src/platform/media/intent/musicIntentRouter.ts'));
+    const surface = stripF71(read('src/components/media/MusicDiscoverySurface.tsx'));
+    /* PLAY_FAVORITES PROVIDER dalı: `layer.playMedia(unified, [unified])` —
+       tek-öğe tek-sağlayıcı kuyruk. Çoklu öğe/karma liste KURULAMAZ. */
+    expect(router, 'F13 provider dispatch\'i tek-öğe kuyruk kurmuyor')
+      .toMatch(/layer\.playMedia\(\s*unified\s*,\s*\[\s*unified\s*\]\s*\)/);
+    expect(surface, 'Discovery provider dispatch\'i tek-öğe kuyruk kurmuyor')
+      .toMatch(/onPlayProviderResult\?\.\(\s*providerTrack\s*,\s*\[\s*providerTrack\s*\]\s*\)/);
+  });
+
+  it('🔒 F13 · Mavi "eklendim/çıkardım" YALNIZ doğrulanmış mutasyonda söyler', () => {
+    const router = stripF71(read('src/platform/media/intent/musicIntentRouter.ts'));
+    const speech = stripF71(read('src/platform/media/intent/musicIntentSpeech.ts'));
+    /* Router: VERIFIED yalnız otoritenin GERÇEK sonuç kodundan gelir — sabit
+       "başarılı" DÖNDÜRÜLMEZ. */
+    expect(router, 'ADD/REMOVE_FAVORITE sabit VERIFIED üretmiş')
+      .not.toMatch(/'ADD_FAVORITE'[\s\S]{0,200}'VERIFIED'/);
+    expect(router, 'kimlik doğrulanmadan mutasyon çağrılmış').toContain('no_current_item');
+    /* Konuşma: favori mutasyon cümlesi YALNIZ CONFIRMED dalında kurulur —
+       genel "X çalıyor." dalına düşmez (favori olmak çalıyor olmak DEĞİLDİR). */
+    expect(speech, 'favori cümlesi CONFIRMED kapısı olmadan üretilebiliyor')
+      .toMatch(/ADD_FAVORITE['"]?\s*\|\|\s*outcome\.intent\.kind\s*===\s*['"]REMOVE_FAVORITE/);
+  });
+
+  it('🔒 F13 · "bunu" kimliği yoksa favori/UYDURULMAZ — no_current_item kapısı kaldırılamaz', () => {
+    const router = stripF71(read('src/platform/media/intent/musicIntentRouter.ts'));
+    expect(router, 'currentItem null iken de mutasyon denenmiş')
+      .toMatch(/currentItem\s*===\s*null[\s\S]{0,120}no_current_item/);
+  });
+
+  it('🔒 F13 · CAROS LAB salt-okunurdur — F13 kartı mutasyon TETİKLEMEZ', () => {
+    const sources = stripF71(read('src/platform/devtools/mediaAuthoritySources.ts'));
+    const model = stripF71(read('src/platform/devtools/mediaAuthorityModel.ts'));
+    for (const [name, src] of [['mediaAuthoritySources', sources], ['mediaAuthorityModel', model]] as const) {
+      expect(src, `${name} favoriye YAZMIŞ (addFavorite)`).not.toMatch(/\baddFavorite\s*\(/);
+      expect(src, `${name} favoriden ÇIKARMIŞ (removeFavorite)`).not.toMatch(/\bremoveFavorite\s*\(/);
+      expect(src, `${name} toggle çağırmış (toggleFavorite)`).not.toMatch(/\btoggleFavorite\s*\(/);
+    }
+    /* LAB yalnız ADET/sayaç okur — parça adı taşıyan alan İSİM olarak GEÇMEZ. */
+    expect(model, 'F13 kartı LAB\'a taşınmış').toContain('music-collection');
+  });
+
+  it('🔒 F13 · sağlayıcı "remote like" yeteneği UYDURULMAZ', () => {
+    const entry = stripF71(read('src/platform/media/collection/musicCollectionEntry.ts'));
+    const authority = stripF71(read('src/platform/media/collection/musicCollectionAuthority.ts'));
+    for (const [name, src] of [['musicCollectionEntry', entry], ['musicCollectionAuthority', authority]] as const) {
+      expect(src, `${name} Spotify/YouTube "save/like" API'sine çağrı uydurmuş`)
+        .not.toMatch(/spotify\.(save|like)|youtube\.(rate|like)/i);
+      expect(src, `${name} fetch ile dış sağlayıcı isteği kurmuş`).not.toMatch(/\bfetch\s*\(/);
+    }
+  });
+
+  it('🔒 F13 · gizlilik sınırı GENİŞLETİLEMEZ — kalıcı şema dar kalır', () => {
+    const entry = stripF71(read('src/platform/media/collection/musicCollectionEntry.ts'));
+    const forbidden = ['query:', 'utterance', 'transcript', 'location', 'coordinates', 'route:', 'drivingHistory', 'speech'];
+    for (const f of forbidden) {
+      expect(entry, `yasaklı alan FavoriteEntry şemasına sızmış: ${f}`).not.toContain(f);
+    }
+  });
+
+  /* ── F15 · PLAYLIST / COLLECTION AUTHORITY ──────────────────────────────
+   * Kalıcı yasa dosyası (bu dosya) — fazın kendi hedefli paketi
+   * `musicF15PlaylistCollectionAuthority.test.ts`ten AYRI ve KALICI olarak
+   * burada tutulur. */
+
+  it('🔒 F15 · TEK playlist authority — Discovery/Now Playing/Mavi AYNI modülü kullanır', () => {
+    const surface = read('src/components/media/MusicDiscoverySurface.tsx');
+    const detail = read('src/components/media/PlaylistDetailPanel.tsx');
+    const addSheet = read('src/components/media/AddToPlaylistSheet.tsx');
+    const router = read('src/platform/media/intent/musicIntentRouter.ts');
+    for (const [name, src] of [
+      ['MusicDiscoverySurface', surface], ['PlaylistDetailPanel', detail],
+      ['AddToPlaylistSheet', addSheet], ['musicIntentRouter', router],
+    ] as const) {
+      expect(src, `${name} playlist otoritesini kanonik yoldan İTHAL ETMEMİŞ`)
+        .toContain('playlist/musicPlaylistAuthority');
+    }
+  });
+
+  it('🔒 F15 · UI playlist state SAHİBİ OLAMAZ — yalnız otorite üzerinden okur/yazar', () => {
+    const detail = stripF71(read('src/components/media/PlaylistDetailPanel.tsx'));
+    const addSheet = stripF71(read('src/components/media/AddToPlaylistSheet.tsx'));
+    for (const [name, src] of [['PlaylistDetailPanel', detail], ['AddToPlaylistSheet', addSheet]] as const) {
+      expect(src, `${name} safeStorage'a DOĞRUDAN yazmış`).not.toContain('safeStorage');
+      expect(src, `${name} localStorage'a DOĞRUDAN yazmış`).not.toMatch(/localStorage\s*\./);
+      expect(src, `${name} kendi playlist dizisini useState'te TUTMUŞ`).not.toMatch(/useState<\s*Playlist/);
+    }
+  });
+
+  it('🔒 F15 · playlist authority PLAYBACK OTORİTESİ DEĞİLDİR — dispatch YALNIZ çağıranda', () => {
+    const authority = stripF71(read('src/platform/media/playlist/musicPlaylistAuthority.ts'));
+    expect(authority, 'otorite kendi playMedia/dispatch çağrısı yapmış').not.toMatch(/\bplayMedia\s*\(/);
+    expect(authority, 'otorite native köprüye inmiş').not.toContain('nativeAuthorityBridge');
+    expect(authority, 'otorite komut kapısına inmiş').not.toContain('mediaCommandGateway');
+    expect(authority, 'otorite startLibraryListening çağırmış — dispatch otoriteye SIZMIŞ')
+      .not.toContain('startLibraryListening');
+    /* Veri-sözleşmesi fonksiyonları kaldırılamaz. */
+    expect(authority, 'veri-sözleşmesi fonksiyonu kaldırılmış').toContain('export function resolvePlaybackTarget');
+    expect(authority, 'başlangıç planı fonksiyonu kaldırılmış').toContain('export function resolvePlaylistStartPlan');
+  });
+
+  it('🔒 F15 · karma-sağlayıcı playlist İKİNCİ PlayQueue KURAMAZ — F7.6 same-provider korunur', () => {
+    const authority = stripF71(read('src/platform/media/playlist/musicPlaylistAuthority.ts'));
+    const router = stripF71(read('src/platform/media/intent/musicIntentRouter.ts'));
+    /* Otorite kendi kuyruk kurucusunu İCAT ETMEMİŞ — yalnız aynı-sağlayıcı
+       ÖNİZLEMESİ üretir (gerçek filtre F7.6'nın KENDİ `buildProviderQueueContext`
+       ında, dispatch anında tekrar uygulanır). */
+    expect(authority, 'ikinci bir kuyruk kurucu (createQueue vb.) İCAT ETMİŞ')
+      .not.toMatch(/\b(createQueue|buildQueueContext|buildProviderQueueContext)\s*\(/);
+    /* Router: PROVIDER playlist dispatch'i `carosMediaLayer.playMedia`nın
+       KENDİ same-provider kuyruk kurucusuna (queue param) devreder. */
+    expect(router, 'F15 provider dispatch\'i tek listeyi playMedia\'ya devretmemiş')
+      .toMatch(/layerMod\.playMedia\(\s*startTrack\s*,\s*unified\s*\)/);
+  });
+
+  it('🔒 F15 · Mavi playlist state\'i DOĞRUDAN mutate EDEMEZ — yalnız MusicIntent → authority', () => {
+    const router = stripF71(read('src/platform/media/intent/musicIntentRouter.ts'));
+    const resolver = stripF71(read('src/platform/media/intent/musicIntentResolver.ts'));
+    for (const [name, src] of [['musicIntentRouter', router], ['musicIntentResolver', resolver]] as const) {
+      expect(src, `${name} kalıcılığa DOĞRUDAN yazmış`).not.toContain('safeStorage');
+    }
+    /* Router yalnız `ports.playlist()` üzerinden İSTER — kendi playlist
+       state'ini TUTMAZ (modül-seviyesi mutable playlist dizisi YOK). */
+    expect(router, 'runPlaylist ports.playlist() dışında bir otoriteye inmiş')
+      .toContain('await ports.playlist()');
+    expect(resolver, 'çözümleyici playlist state\'i OKUMUŞ (SAF olmalı)')
+      .not.toContain('getPlaylist');
+  });
+
+  it('🔒 F15 · Favorites (F13) ve Playlist (F15) otoriteleri BİRBİRİNE dönüşemez', () => {
+    const favAuthority = stripF71(read('src/platform/media/collection/musicCollectionAuthority.ts'));
+    const plAuthority = stripF71(read('src/platform/media/playlist/musicPlaylistAuthority.ts'));
+    expect(favAuthority, 'F13 otoritesi F15 playlist deposuna İTHAL/YAZMIŞ')
+      .not.toContain('playlist/musicPlaylistAuthority');
+    expect(plAuthority, 'F15 otoritesi F13 favori deposuna İTHAL/YAZMIŞ')
+      .not.toContain('collection/musicCollectionAuthority');
+    /* Kalıcı anahtarlar AYRIDIR — aynı depoya YAZILMAZ. */
+    expect(favAuthority).toContain('caros.music.f13.favorites.v1');
+    expect(plAuthority).toContain('caros.music.f15.playlists.v1');
+  });
+
+  it('🔒 F15 · UI/native/provider\'e DOĞRUDAN playback bypass\'ı YOK', () => {
+    const detail = stripF71(read('src/components/media/PlaylistDetailPanel.tsx'));
+    const addSheet = stripF71(read('src/components/media/AddToPlaylistSheet.tsx'));
+    const surface = stripF71(read('src/components/media/MusicDiscoverySurface.tsx'));
+    for (const [name, src] of [
+      ['PlaylistDetailPanel', detail], ['AddToPlaylistSheet', addSheet], ['MusicDiscoverySurface', surface],
+    ] as const) {
+      expect(src, `${name} native köprüye inmiş`).not.toContain('nativeAuthorityBridge');
+      expect(src, `${name} sağlayıcıya doğrudan komut vermiş`).not.toMatch(/\bplayYouTube\s*\(/);
+      expect(src, `${name} kanonik kuyruğu doğrudan import etmiş`)
+        .not.toMatch(/from '[^']*session\/playQueue'/);
+    }
+    /* Çalma yalnız kanonik F3 girişinden (PlaylistDetailPanel) veya çağırana
+       devirle (F13 deseniyle AYNI sınır). */
+    expect(detail, 'kanonik F3 girişi kaldırılmış').toContain('startLibraryListening');
+  });
+
+  it('🔒 F15 · CAROS LAB salt-okunurdur — F15 kartı mutasyon TETİKLEMEZ', () => {
+    const sources = stripF71(read('src/platform/devtools/mediaAuthoritySources.ts'));
+    const model = stripF71(read('src/platform/devtools/mediaAuthorityModel.ts'));
+    for (const [name, src] of [['mediaAuthoritySources', sources], ['mediaAuthorityModel', model]] as const) {
+      expect(src, `${name} playlist oluşturmuş (createPlaylist)`).not.toMatch(/\bcreatePlaylist\s*\(/);
+      expect(src, `${name} playlist silmiş (deletePlaylist)`).not.toMatch(/\bdeletePlaylist\s*\(/);
+      expect(src, `${name} öğe eklemiş (addItemToPlaylist)`).not.toMatch(/\baddItemToPlaylist\s*\(/);
+      expect(src, `${name} öğe çıkarmış (removeItemFromPlaylist)`).not.toMatch(/\bremoveItemFromPlaylist\s*\(/);
+    }
+    expect(model, 'F15 kartı LAB\'a taşınmış').toContain('music-playlist');
+  });
+
+  it('🔒 F15 · gizlilik allowlist KORUNUR — kalıcı şema ve telemetri dar kalır', () => {
+    const entry = stripF71(read('src/platform/media/playlist/musicPlaylistEntry.ts'));
+    const telemetry = stripF71(read('src/platform/media/playlist/musicPlaylistTelemetry.ts'));
+    const forbidden = ['utterance', 'transcript', 'location', 'coordinates', 'route:', 'drivingHistory', 'speech'];
+    for (const [name, src] of [['musicPlaylistEntry', entry], ['musicPlaylistTelemetry', telemetry]] as const) {
+      for (const f of forbidden) {
+        expect(src, `yasaklı alan ${name} şemasına sızmış: ${f}`).not.toContain(f);
+      }
+    }
+  });
+
+  /* ── F16 · LYRICS / ŞARKI SÖZLERİ EXPERIENCE ─────────────────────────────
+   * Kalıcı yasa dosyası (bu dosya) — fazın kendi hedefli paketi
+   * `musicF16LyricsExperience.test.ts`ten AYRI ve KALICI olarak burada
+   * tutulur. */
+
+  it('🔒 F16 · TEK lyrics authority — UI/Now Playing/Mavi AYNI modülü kullanır', () => {
+    const panel = read('src/components/media/LyricsPanel.tsx');
+    const router = read('src/platform/media/intent/musicIntentRouter.ts');
+    const sources = read('src/platform/devtools/mediaAuthoritySources.ts');
+    for (const [name, src] of [
+      ['LyricsPanel', panel], ['musicIntentRouter', router], ['mediaAuthoritySources', sources],
+    ] as const) {
+      expect(src, `${name} lyrics otoritesini kanonik yoldan İTHAL ETMEMİŞ`)
+        .toContain('lyrics/musicLyricsAuthority');
+    }
+  });
+
+  it('🔒 F16 · UI lyrics state SAHİBİ OLAMAZ — yalnız otorite üzerinden okur', () => {
+    const panel = stripF71(read('src/components/media/LyricsPanel.tsx'));
+    expect(panel, 'LyricsPanel safeStorage\'a DOĞRUDAN yazmış').not.toContain('safeStorage');
+    expect(panel, 'LyricsPanel localStorage\'a DOĞRUDAN yazmış').not.toMatch(/localStorage\s*\./);
+    expect(panel, 'LyricsPanel kendi lyrics dizisini useState\'te TUTMUŞ').not.toMatch(/useState<\s*LyricsResult/);
+  });
+
+  it('🔒 F16 · lyrics authority PLAYBACK/QUEUE OTORİTESİ DEĞİLDİR — dispatch/mutasyon YOK', () => {
+    const authority = stripF71(read('src/platform/media/lyrics/musicLyricsAuthority.ts'));
+    expect(authority, 'otorite kendi playMedia/dispatch çağrısı yapmış').not.toMatch(/\bplayMedia\s*\(/);
+    expect(authority, 'otorite native köprüye inmiş').not.toContain('nativeAuthorityBridge');
+    expect(authority, 'otorite komut kapısına inmiş').not.toContain('mediaCommandGateway');
+    expect(authority, 'otorite startLibraryListening çağırmış — dispatch otoriteye SIZMIŞ')
+      .not.toContain('startLibraryListening');
+    expect(authority, 'otorite MusicIndex\'i mutasyona uğratmış (ikinci F2 kopyası)')
+      .not.toContain('reconcileMusicIndex');
+    expect(authority, 'otorite PlayQueue/ListeningSession\'ı DOĞRUDAN mutasyona uğratmış')
+      .not.toMatch(/\b(noteCurrentItem|startListeningSession|noteQueueRevision)\s*\(/);
+  });
+
+  it('🔒 F16 · İKİNCİ playback clock/timer/polling KURULMAZ — pozisyon ÇAĞIRANDAN gelir', () => {
+    const authority = stripF71(read('src/platform/media/lyrics/musicLyricsAuthority.ts'));
+    const panel = stripF71(read('src/components/media/LyricsPanel.tsx'));
+    for (const [name, src] of [['musicLyricsAuthority', authority], ['LyricsPanel', panel]] as const) {
+      expect(src, `${name} setInterval ile ikinci zamanlayıcı kurmuş`).not.toMatch(/setInterval/);
+      expect(src, `${name} kendi playback pozisyonunu türetmiş (Date.now tabanlı)`).not.toMatch(/positionSec\s*=\s*Date\.now/);
+    }
+    /* Aktif satır projeksiyonu İKİLİ ARAMADIR — her render turunda TÜM
+       satırları lineer taramaz (§12 performans kilidi). */
+    expect(authority, 'aktif satır fonksiyonu kaldırılmış').toContain('export function activeLyricsLineIndex');
+    expect(authority, 'ikili arama yerine lineer tarama YAZILMIŞ')
+      .not.toMatch(/for\s*\([^)]*\)\s*\{[^}]*ms\s*<=\s*posMs/);
+  });
+
+  it('🔒 F16 · SAHTE senkron ZAMANLAMA kurulamaz — MPEG-frame reddi ve monoton kanıt KORUNUR', () => {
+    const nativeSrc = read('android/app/src/main/java/com/cockpitos/pro/media/TrackLyricsExtractor.java');
+    /* Native: yalnız timestampFormat==2 (milisaniye) KABUL edilir — MPEG-frame
+       formatı bit hızı bilinmeden ms'ye ÇEVRİLMEZ (bu bir TAHMİN olurdu). */
+    expect(nativeSrc, 'SYLT MPEG-frame reddi kaldırılmış (uydurma zamanlama riski)')
+      .toContain('if (timestampFormat != 2) return null');
+    /* Ayrıştırma döngüsü SINIRLI ve İLERLEME KORUMALIDIR — bozuk çerçeve
+       sonsuz döngü/OOM üretemez. */
+    expect(nativeSrc, 'SYLT döngü sınırı kaldırılmış').toContain('MAX_SYNC_LINES');
+    expect(nativeSrc, 'ilerlemeyen döngü koruması kaldırılmış').toContain('next <= pos');
+
+    const entry = stripF71(read('src/platform/media/lyrics/musicLyricsEntry.ts'));
+    expect(entry, 'sanitizeSyncedLines monoton kontrolü kaldırılmış').toContain('r.ms < lastMs');
+  });
+
+  it('🔒 F16 · kimlik yetersizse fail-closed — kanıtsız lyrics BAĞLANAMAZ', () => {
+    const authority = stripF71(read('src/platform/media/lyrics/musicLyricsAuthority.ts'));
+    expect(authority, 'peekLyrics kimlik kontrolünü kaldırmış').toContain("key === null");
+  });
+
+  it('🔒 F16 · Mavi lyrics state\'i DOĞRUDAN mutate EDEMEZ — yalnız MusicIntent → authority', () => {
+    const router = stripF71(read('src/platform/media/intent/musicIntentRouter.ts'));
+    const resolver = stripF71(read('src/platform/media/intent/musicIntentResolver.ts'));
+    expect(router, 'router kalıcılığa DOĞRUDAN yazmış').not.toContain('safeStorage');
+    expect(resolver, 'çözümleyici lyrics otoritesini İTHAL ETMİŞ (SAF olmalı)')
+      .not.toContain('lyrics/musicLyricsAuthority');
+    expect(router, 'runLyrics ports.lyrics() dışında bir otoriteye inmiş').toContain('await ports.lyrics()');
+  });
+
+  it('🔒 F16 · UI/native/provider\'e DOĞRUDAN playback bypass\'ı YOK', () => {
+    const panel = stripF71(read('src/components/media/LyricsPanel.tsx'));
+    expect(panel, 'LyricsPanel native köprüye inmiş').not.toContain('nativeAuthorityBridge');
+    expect(panel, 'LyricsPanel sağlayıcıya doğrudan komut vermiş').not.toMatch(/\bplayYouTube\s*\(/);
+    expect(panel, 'LyricsPanel kanonik kuyruğu doğrudan import etmiş')
+      .not.toMatch(/from '[^']*session\/playQueue'/);
+  });
+
+  it('🔒 F16 · CAROS LAB salt-okunurdur — F16 kartı mutasyon TETİKLEMEZ, söz metni TAŞIMAZ', () => {
+    const sources = stripF71(read('src/platform/devtools/mediaAuthoritySources.ts'));
+    const model = stripF71(read('src/platform/devtools/mediaAuthorityModel.ts'));
+    for (const [name, src] of [['mediaAuthoritySources', sources], ['mediaAuthorityModel', model]] as const) {
+      expect(src, `${name} lyrics'i doğrudan çağırmış (primeLyricsForCurrentItem)`)
+        .not.toMatch(/\bprimeLyricsForCurrentItem\s*\(/);
+    }
+    expect(model, 'F16 kartı LAB\'a taşınmış').toContain('music-lyrics');
+  });
+
+  it('🔒 F16 · gizlilik allowlist KORUNUR — söz metni telemetriye/kalıcı şemaya SIZMAZ', () => {
+    const entry = stripF71(read('src/platform/media/lyrics/musicLyricsEntry.ts'));
+    const telemetry = stripF71(read('src/platform/media/lyrics/musicLyricsTelemetry.ts'));
+    const forbidden = ['utterance', 'transcript', 'location', 'coordinates', 'route:', 'drivingHistory', 'speech'];
+    for (const [name, src] of [['musicLyricsEntry', entry], ['musicLyricsTelemetry', telemetry]] as const) {
+      for (const f of forbidden) {
+        expect(src, `yasaklı alan ${name} şemasına sızmış: ${f}`).not.toContain(f);
+      }
+    }
+  });
+
+  it('🔒 F16 · F7.2 video güvenliği / F6.1 duck otoritesi BYPASS EDİLEMEZ', () => {
+    const authority = stripF71(read('src/platform/media/lyrics/musicLyricsAuthority.ts'));
+    const router = stripF71(read('src/platform/media/intent/musicIntentRouter.ts'));
+    for (const [name, src] of [['musicLyricsAuthority', authority]] as const) {
+      expect(src, `${name} video güvenlik kapısını atlamış`).not.toContain('videoSafetyPolicy');
+      expect(src, `${name} duck otoritesine DOĞRUDAN yazmış`).not.toContain('duckRequest');
+    }
+    // Router'ın lyrics dalı F7.2/F6.1 modüllerine HİÇ dokunmaz — sözler bunlardan bağımsızdır.
+    expect(router, 'runLyrics civarında video/duck referansı sızmış')
+      .not.toMatch(/runLyrics[\s\S]{0,600}(videoSafetyPolicy|duckRequest)/);
+  });
+
+  it('🔒 F16 · F14/F9 ses hattı YERİNDE KALIR — bypass yalnız GENİŞLETİLDİ, koşul BOZULMADI', () => {
+    const voice = stripF71(read('src/platform/voiceService.ts'));
+    expect(voice, '1c0 bypass koşulu (yalnız result.command===null) BOZULMUŞ')
+      .toContain('if (result.command === null) {');
+    expect(voice, 'LYRICS_KINDS narrow-safe kümeye eklenmemiş').toContain('LYRICS_KINDS.includes(musicIntent.kind)');
+  });
+
+  /* ── MUSIC F17 · SONIC AUDIO INTELLIGENCE ────────────────────────────────
+   * F17 ilk kez dosyayı DECODE edip dalga formunu ÖLÇER. Buradaki kilitler
+   * "ölçüm" iddiasının ölçümle sınırlı kalmasını korur: uydurma BPM yok,
+   * uydurma mood yok, bütçesiz decode yok, ikinci otorite yok. */
+
+  it('🔒 F17 · MEASURED_AUDIO YALNIZ gerçek ölçümden gelir; mood ASLA üretilmez', () => {
+    const descriptor = read('src/platform/media/sonic/sonicDescriptor.ts');
+    expect(descriptor.length, 'sonicDescriptor okunamadı — kilit boş kümeye düştü')
+      .toBeGreaterThan(2000);
+    const code = stripF71(descriptor);
+
+    /* Tek `mood` ataması olmalı ve AÇIKÇA null olmalı. */
+    const moods = code.match(/mood:\s*[^,\n]+/g) ?? [];
+    expect(moods.length, 'mood ataması kaybolmuş — kilit kör kalmış').toBeGreaterThan(0);
+    for (const m of moods) expect(m, 'dalga formundan mood üretilmiş').toMatch(/mood:\s*null/);
+
+    /* Kanıt üretimi kanonik F10 modelinden geçmeli — paralel model KURULMAZ. */
+    expect(code, 'F17 kendi kanıt modelini kurmuş').toContain('makeTraitEvidence');
+    expect(code).toContain("provenance: 'MEASURED_AUDIO'");
+  });
+
+  it('🔒 F17 · zayıf otokorelasyon tepesi TEMPO sayılmaz (uydurma BPM yasağı)', () => {
+    const code = stripF71(read('src/platform/media/sonic/sonicDescriptor.ts'));
+    expect(code, 'tempo güven eşiği kaldırılmış').toContain('TEMPO_CONFIDENCE_MIN');
+    expect(code, 'eşik karşılaştırması kaldırılmış')
+      .toMatch(/tempoConfidence\s*>=\s*TEMPO_CONFIDENCE_MIN/);
+    /* Eşik anlamlı kalmalı: 0 veya negatif bir eşik kilidi sessizce açardı. */
+    const m = code.match(/TEMPO_CONFIDENCE_MIN\s*=\s*([0-9.]+)/);
+    expect(m, 'eşik sabiti bulunamadı').not.toBeNull();
+    expect(Number(m?.[1] ?? 0), 'tempo eşiği etkisiz hâle getirilmiş').toBeGreaterThan(0.1);
+  });
+
+  it('🔒 F17 · analiz katmanı timer KURMAZ, çalma BAŞLATMAZ, ikinci otorite AÇMAZ', () => {
+    const runtime = read('src/platform/media/sonic/sonicAnalysisRuntime.ts');
+    expect(runtime.length, 'sonicAnalysisRuntime okunamadı — kilit boş kümeye düştü')
+      .toBeGreaterThan(2000);
+    const code = stripF71(runtime);
+    expect(code, 'analiz katmanı timer/polling kurmuş').not.toMatch(/setInterval\(|setTimeout\(/);
+    expect(code, 'analiz katmanı çalma başlatmış')
+      .not.toMatch(/startLibraryListening|playByQuery|startProviderListening/);
+    expect(code, 'analiz katmanı kuyruğa yazmış').not.toMatch(/session\/playQueue/);
+
+    /* Native yüzeyi YALNIZ analiz + iptal. Başka native çağrısı ikinci
+       otorite kapısı olurdu. */
+    const calls = code.match(/CarLauncher\.[A-Za-z]+/g) ?? [];
+    expect(calls.length, 'native çağrısı bulunamadı — kilit kör kalmış').toBeGreaterThan(0);
+    for (const c of calls) expect(c).toMatch(/analyzeTrackAudio|cancelTrackAudioAnalysis/);
+  });
+
+  it('🔒 F17 · baskı altında ölçüm HİÇ yapılmaz — performans gerçeği DEĞİŞTİRMEZ', () => {
+    const code = stripF71(read('src/platform/media/sonic/sonicAdmissionModel.ts'));
+    expect(code, 'termal kapısı kaldırılmış').toContain('THERMAL_PRESSURE');
+    expect(code, 'bellek kapısı kaldırılmış').toContain('MEMORY_PRESSURE');
+    expect(code, 'düşük-uç kapısı kaldırılmış').toContain('LOW_TIER_WHILE_PLAYING');
+    /* Baskı "küçültülmüş ölçüm" ÜRETMEZ: reddedilen kararın turu 0 olmalı. */
+    expect(code, 'reddedilen kararda tur boyu sıfırlanmıyor').toMatch(/batchSize:\s*0/);
+    /* Bilinmeyen cihaz DÜŞÜK sayılır (fail-closed bütçe). */
+    expect(code).toMatch(/default:\s*return 1;/);
+  });
+
+  it('🔒 F17 · aynı dosya tekrar tekrar ÇÖZÜLMEZ; kuşak anahtarı KORUNUR', () => {
+    const code = stripF71(read('src/platform/media/sonic/sonicAnalysisRuntime.ts'));
+    /* Anahtar şema + kimlik + dosya kuşağı taşımalı — kimlik tek başına YETMEZ. */
+    expect(code, 'önbellek anahtarından şema sürümü düşmüş').toContain('SONIC_SCHEMA_VERSION');
+    expect(code, 'önbellek anahtarından dosya kuşağı düşmüş').toContain('generationModified');
+    expect(code, 'LRU tavanı kaldırılmış').toContain('MAX_SONIC_CACHE');
+    expect(code, 'sonsuz yeniden deneme kilidi kaldırılmış').toContain('MAX_TRANSIENT_RETRY');
+    /* §17 — eski kuşağın sonucu yeni gerçeğe yazılamaz. */
+    expect(code, 'bayat tur sonucu düşürülmüyor').toMatch(/runGeneration !== generation/);
+  });
+
+  it('🔒 F17 · CAROS LAB salt-okunurdur — analiz TETİKLEMEZ, ad/URI TAŞIMAZ', () => {
+    const sources = stripF71(read('src/platform/devtools/mediaAuthoritySources.ts'));
+    const model = stripF71(read('src/platform/devtools/mediaAuthorityModel.ts'));
+    expect(sources, 'LAB üretim analizini tetiklemiş').not.toMatch(/\brunSonicAnalysis\s*\(/);
+    expect(sources, 'LAB sayaç değiştiren okuyucuyu kullanmış').toContain('peekSonicDescriptor');
+    expect(sources, 'LAB parça adı/URI taşımış').not.toMatch(/f17Reference(Title|Artist|Uri|Path)/);
+    expect(model, 'F17 kartı LAB\'dan düşmüş').toContain('music-sonic');
+  });
+
+  it('🔒 F17 · gömülü etiket kanıtı "kanıt yok" diye SAYILMAZ (F17\'de kapatılan kusur)', () => {
+    const telemetry = read('src/platform/media/traits/traitTelemetry.ts');
+    expect(telemetry, 'ölçülmüş ses sayacı kaldırılmış').toContain('evidenceMeasured');
+    expect(telemetry, 'gömülü etiket sayacı kaldırılmış').toContain('evidenceEmbedded');
+    const code = stripF71(telemetry);
+    expect(code, 'MEASURED_AUDIO dalı kaldırılmış').toContain("case 'MEASURED_AUDIO'");
+    expect(code, 'EMBEDDED_METADATA yeniden default dalına düşmüş')
+      .toContain("case 'EMBEDDED_METADATA'");
+  });
+
+  it('🔒 F17 · native analizör bütçeli, iptal edilebilir ve mood ÜRETMEZ', () => {
+    const java = read('android/app/src/main/java/com/cockpitos/pro/media/SonicAudioAnalyzer.java');
+    expect(java.length, 'native analizör okunamadı — kilit boş kümeye düştü')
+      .toBeGreaterThan(3000);
+    expect(java, 'toplu iş sınırı kaldırılmış').toContain('MAX_BATCH');
+    expect(java, 'dosya başına bütçe kaldırılmış').toContain('PER_ITEM_BUDGET_MS');
+    expect(java, 'analiz süresi tavanı kaldırılmış').toContain('MAX_ANALYZE_MS');
+    expect(java, 'iptal kuşağı kaldırılmış').toContain('AtomicInteger');
+    expect(java, 'native mood alanı üretmiş').not.toMatch(/"mood"/);
+
+    const plugin = read('android/app/src/main/java/com/cockpitos/pro/CarLauncherPlugin.java');
+    expect(plugin, 'analiz kütüphane tarama havuzunu bloklamış')
+      .toContain('sonicAnalysisExecutor');
+    expect(plugin, 'analiz izin kapısı kaldırılmış')
+      .toMatch(/analyzeTrackAudio[\s\S]{0,600}hasAudioReadPermission/);
+    /* F22 QA'da yakalanan GERÇEK derleme kusuru: analizör farklı pakettedir
+       (`com.cockpitos.pro.media`) ve import EDİLMEMİŞTİ → native derleme
+       düşüyordu. Host testi bunu yakalayamaz; kilit import'u korur. */
+    expect(plugin, 'SonicAudioAnalyzer import edilmemiş (native derleme düşer)')
+      .toContain('import com.cockpitos.pro.media.SonicAudioAnalyzer;');
+  });
+
+  /* ── MUSIC F18 · SMART RADIO / ENDLESS MIX ───────────────────────────────
+   * F18'in iki riski: "radyo" adı altında İKİNCİ bir kuyruk otoritesi doğurmak
+   * ve kanıtsız bir kişiselleştirme iddiası kurmak. Kilitler ikisini de kapatır. */
+
+  it('🔒 F18 · Smart Radio KUYRUK OTORİTESİ DEĞİLDİR — yürütme kanonik F3 zincirinde', () => {
+    const runtime = read('src/platform/media/radio/smartRadioRuntime.ts');
+    expect(runtime.length, 'smartRadioRuntime okunamadı — kilit boş kümeye düştü')
+      .toBeGreaterThan(2000);
+    const code = stripF71(runtime);
+    expect(code, 'radyo kendi kuyruğunu kurmuş')
+      .not.toMatch(/\b(createQueue|addToQueue|setCurrentIndex|clearQueue|reorder)\s*\(/);
+    expect(code, 'radyo native köprüye inmiş').not.toContain('nativeAuthorityBridge');
+    expect(code, 'radyo gateway\'e doğrudan komut vermiş').not.toContain('mediaCommandGateway');
+    expect(code, 'kanonik ekleme seam\'i kullanılmamış').toContain('appendLibraryTracksToQueue');
+    expect(code, 'kanonik başlatma seam\'i kullanılmamış').toContain('startLibraryListening');
+  });
+
+  it('🔒 F18 · kalıcı "radyo state" YOKTUR ve sıra SINIRLIDIR', () => {
+    const runtime = stripF71(read('src/platform/media/radio/smartRadioRuntime.ts'));
+    const model = read('src/platform/media/radio/smartRadioModel.ts');
+    expect(runtime, 'radyo kalıcı durum yazmış').not.toMatch(/safeStorage|localStorage/);
+    expect(runtime, 'radyo timer kurmuş').not.toMatch(/setInterval\(|setTimeout\(/);
+    expect(model, 'uzunluk tavanı kaldırılmış').toContain('MAX_RADIO_LENGTH');
+    expect(runtime, 'aday tarama tavanı kaldırılmış').toContain('MAX_RADIO_SCAN');
+    const m = model.match(/MAX_RADIO_LENGTH\s*=\s*(\d+)/);
+    expect(m, 'uzunluk sabiti bulunamadı').not.toBeNull();
+    expect(Number(m?.[1] ?? 0), 'sonsuz sıra üretilebiliyor').toBeLessThanOrEqual(100);
+  });
+
+  it('🔒 F18 · kanıtsız sıra DETERMİNİSTİKtir ve kişiselleştirme İDDİA EDİLMEZ', () => {
+    const model = stripF71(read('src/platform/media/radio/smartRadioModel.ts'));
+    expect(model, 'sıralamaya rastgelelik girmiş').not.toMatch(/Math\.random/);
+    expect(model, 'kararlı karma kaldırılmış').toContain('stableHash');
+    expect(model, 'iddia sınıfı kaldırılmış').toContain('claimClass');
+    /* "Benzer" iddiası YALNIZ ölçülmüş sınıfta kurulabilir. */
+    expect(model).toMatch(/allowsSimilarityClaim[\s\S]{0,200}'MEASURED'/);
+
+    const speech = stripF71(read('src/platform/media/intent/musicIntentSpeech.ts'));
+    expect(speech, 'akış cümlesi kanıt sınıfını okumuyor').toContain('_measured');
+    /* Olculmus dalin benzerlik cumlesi VARDIR; kanitsiz dalin cumlesi
+       benzerlik IDDIA ETMEZ — iki literal de burada kilitlenir. */
+    expect(speech, 'olculmus dalda benzerlik cumlesi yok')
+      .toContain('Buna benzeyenleri sıranın devamına ekliyorum.');
+    expect(speech, 'kanitsiz dalin durust cumlesi kaldirilmis')
+      .toContain('Kütüphanenden sırayı uzatıyorum.');
+    expect(speech, 'akis cumlesinde guclu kisisel iddia var')
+      .not.toMatch(/sana özel|seversin|senin için seçtim/i);
+  });
+
+  it('🔒 F18 · havuz YALNIZ yerel — karma-sağlayıcı kuyruk ÜRETİLMEZ (F7.6)', () => {
+    const code = stripF71(read('src/platform/media/radio/smartRadioRuntime.ts'));
+    expect(code, 'sağlayıcı sonucu radyo havuzuna sokulmuş')
+      .not.toMatch(/pipedProvider|spotifyService|searchAllSources|unifiedFromSearchResult/);
+    expect(code, 'kanonik kütüphane okuması kaldırılmış').toContain('getMusicLibrarySnapshot');
+    expect(code, 'sağlayıcı favorisi havuza girmiş').toContain("f.kind === 'LOCAL'");
+    /* Kuyruk desteklemeyen kaynakta ekleme "olmuş gibi" gösterilemez. */
+    expect(code).toContain('sourceSupportsQueue');
+  });
+
+  it('🔒 F18 · ekleme seam\'i kanonik kurucuyu kullanır ve çalma durumunu DEĞİŞTİRMEZ', () => {
+    const src = stripF71(read('src/platform/media/session/listeningSessionRuntime.ts'));
+    expect(src, 'ekleme seam\'i kaldırılmış').toContain('appendLibraryTracksToQueue');
+    /* İkinci bir QueueEntry kurucusu İCAT EDİLMEMİŞ olmalı. */
+    expect(src, 'ekleme kendi girdi kurucusunu kullanmış')
+      .toMatch(/appendLibraryTracksToQueue[\s\S]{0,400}buildLibraryQueueContext/);
+    expect(src, 'ekleme kanonik mutasyonu atlamış')
+      .toMatch(/appendLibraryTracksToQueue[\s\S]{0,400}addToQueue/);
+    /* `forcePlay: false` — duraklatılmış müzik ekleme yüzünden BAŞLAMAZ. */
+    expect(src, 'ekleme çalmayı zorluyor').toMatch(/appendLibraryTracksToQueue[\s\S]{0,500}false, nowMs/);
+  });
+
+  it('🔒 F18 · Mavi akış istekleri KANONİK MusicIntent hattından geçer', () => {
+    const intent = read('src/platform/media/intent/musicIntent.ts');
+    const router = stripF71(read('src/platform/media/intent/musicIntentRouter.ts'));
+    const voice = stripF71(read('src/platform/voiceService.ts'));
+    expect(intent, 'akış niyet grubu kaldırılmış').toContain('RADIO_KINDS');
+    expect(intent, 'F18 rotası kaldırılmış').toContain('F18_SMART_RADIO');
+    expect(router, 'router radyo runtime\'ını port üzerinden almıyor').toContain('ports.radio()');
+    expect(voice, 'canlı ses hattı akış niyetlerini tanımıyor').toContain('RADIO_KINDS.includes');
+    /* Router radyo modülünü DOĞRUDAN import etmemeli (port deseni korunur). */
+    expect(router, 'router radyo modülünü doğrudan import etmiş')
+      .not.toMatch(/^import[^\n]*radio\/smartRadioRuntime/m);
+  });
+
+  it('🔒 F18 · CAROS LAB salt-okunurdur — plan ÜRETMEZ, parça kimliği TAŞIMAZ', () => {
+    const sources = stripF71(read('src/platform/devtools/mediaAuthoritySources.ts'));
+    const model = read('src/platform/devtools/mediaAuthorityModel.ts');
+    expect(sources, 'LAB akış planı üretmiş').not.toMatch(/\b(planSmartRadio|startSmartRadio)\s*\(/);
+    expect(sources, 'LAB parça kimliği taşımış').not.toMatch(/f18(Track|Title|Artist)/);
+    expect(model, 'F18 kartı LAB\'dan düşmüş').toContain('music-radio');
+  });
+
+  /* ── MUSIC F19 · LOUDNESS / REPLAYGAIN / VOLUME CONSISTENCY ──────────────
+   * F19'un riski: ses yoluna İKİNCİ bir yazar sokmak ve ölçmediğimiz bir
+   * şeyi (LUFS) ölçmüş gibi sunmak. Kilitler ikisini de kapatır. */
+
+  it('🔒 F19 · İKİNCİ ses otoritesi YOK — yalnız mevcut sourceNormalization beslenir', () => {
+    const gw = read('src/platform/media/authority/mediaCommandGateway.ts');
+    expect(gw.length, 'gateway okunamadı — kilit boş kümeye düştü').toBeGreaterThan(2000);
+    const code = stripF71(gw);
+    /* Beklenen üç konum: bildirim · setter · test sıfırlaması. */
+    const writes = code.match(/_sourceNormalization\s*=/g) ?? [];
+    expect(writes.length, 'normalizasyon yazarı bulunamadı — kilit kör kalmış')
+      .toBeGreaterThan(0);
+    expect(writes.length, 'dördüncü yazar = ikinci ses otoritesi').toBeLessThanOrEqual(3);
+    /* Native'e yazılan değer duck İÇERMEZ (F6.1 çift-duck kilidi korunur). */
+    expect(code).toMatch(/nativeUserVolume[\s\S]{0,400}duckLevel:\s*1/);
+    expect(code).toMatch(/nativeUserVolume[\s\S]{0,400}sourceNormalization:\s*_sourceNormalization/);
+  });
+
+  it('🔒 F19 · loudness katmanı kullanıcı sesine · duck\'a · DSP\'ye DOKUNMAZ', () => {
+    const rt = read('src/platform/media/loudness/loudnessRuntime.ts');
+    expect(rt.length, 'loudnessRuntime okunamadı — kilit boş kümeye düştü')
+      .toBeGreaterThan(2000);
+    const code = stripF71(rt);
+    expect(code, 'loudness kullanıcı sesini değiştirmiş')
+      .not.toMatch(/setUserVolumePercent|setMuted/);
+    expect(code, 'loudness duck otoritesine dokunmuş')
+      .not.toMatch(/\bduck\s*\(|unduck\s*\(|duckRequest/);
+    expect(code, 'loudness DSP zincirine yazmış')
+      .not.toMatch(/audioExperienceAuthority|setBandGainDb|computeSafetyPreampDb/);
+    expect(code, 'loudness timer kurmuş').not.toMatch(/setInterval\(|setTimeout\(/);
+    expect(code, 'kanonik yazma seam\'i kaldırılmış').toContain('setSourceNormalization');
+  });
+
+  it('🔒 F19 · LUFS UYDURULMAZ ve kanıt yoksa çarpan TAM 1.0', () => {
+    const ev = read('src/platform/media/loudness/loudnessEvidence.ts');
+    expect(stripF71(ev), 'kodda LUFS alanı üretilmiş').not.toMatch(/lufs/i);
+    expect(ev, 'nötr sonuç kaldırılmış').toContain('NEUTRAL_NORMALIZATION');
+    expect(ev).toMatch(/factor:\s*1/);
+    /* Yükseltme YASAK — sessiz parça boost edilmez. */
+    expect(ev, 'boost sınırı kaldırılmış').toContain('BOOST_NOT_SUPPORTED');
+    expect(ev).toMatch(/requestedDb\s*>=\s*0/);
+  });
+
+  it('🔒 F19 · kısma SINIRLIDIR ve duyulmayan fark uygulanmaz (pumping yok)', () => {
+    const ev = read('src/platform/media/loudness/loudnessEvidence.ts');
+    const maxDb = /MAX_ATTENUATION_DB\s*=\s*(\d+)/.exec(ev)?.[1];
+    expect(maxDb, 'kısma tavanı sabiti bulunamadı').toBeDefined();
+    expect(Number(maxDb), 'kısma tavanı ses kaybına yol açacak kadar büyük')
+      .toBeLessThanOrEqual(20);
+    expect(ev, 'duyulur eşik kaldırılmış').toContain('MIN_ADJUSTMENT_DB');
+    expect(ev, 'çarpan alt sınırı kaldırılmış').toContain('MIN_NORMALIZATION');
+    /* Aynı parçada yeniden yazım YOK. */
+    const rt = stripF71(read('src/platform/media/loudness/loudnessRuntime.ts'));
+    expect(rt, 'aynı parçada yeniden yazım koruması kaldırılmış')
+      .toMatch(/id === trackedId/);
+  });
+
+  it('🔒 F19 · katman kapanırken kısma SIZMAZ (nötre geri çekilir)', () => {
+    const rt = stripF71(read('src/platform/media/loudness/loudnessRuntime.ts'));
+    expect(rt, 'durdurma nötre geri çekmiyor')
+      .toMatch(/stopLoudnessNormalization[\s\S]{0,900}setSourceNormalization\(1\)/);
+  });
+
+  it('🔒 F19 · native yeni yüzey AÇMADI — mevcut readTrackTraits genişletildi', () => {
+    const java = read('android/app/src/main/java/com/cockpitos/pro/media/TrackTraitExtractor.java');
+    expect(java.length, 'native okunamadı — kilit boş kümeye düştü').toBeGreaterThan(3000);
+    expect(java, 'ReplayGain okuması kaldırılmış').toContain('replaygain_track_gain');
+    expect(java, 'R128 okuması kaldırılmış').toContain('r128_track_gain');
+    const plugin = read('android/app/src/main/java/com/cockpitos/pro/CarLauncherPlugin.java');
+    expect(plugin, 'F19 için gereksiz ikinci native metot açılmış')
+      .not.toContain('readReplayGain');
+  });
+
+  it('🔒 F19 · CAROS LAB salt-okunurdur — normalizasyon UYGULAMAZ', () => {
+    const sources = stripF71(read('src/platform/devtools/mediaAuthoritySources.ts'));
+    const model = read('src/platform/devtools/mediaAuthorityModel.ts');
+    expect(sources, 'LAB normalizasyon uygulamış')
+      .not.toMatch(/\b(applyLoudnessForCurrentItem|setSourceNormalization|primeGainTags)\s*\(/);
+    expect(sources, 'LAB parça adı/URI taşımış').not.toMatch(/f19(Title|Artist|Uri|Track)/);
+    expect(model, 'F19 kartı LAB\'dan düşmüş').toContain('music-loudness');
+  });
+
+  /* ── MUSIC F20 · GAPLESS / FADE / INTELLIGENT TRANSITIONS ────────────────
+   * F20'nin riski: ikinci bir player açmak ve olmayan bir yeteneği (gerçek
+   * crossfade / beat hizalama) varmış gibi sunmak. Kilitler ikisini kapatır. */
+
+  it('🔒 F20 · İKİNCİ player YOK ve gapless BOZULMAZ', () => {
+    const java = read('android/app/src/main/java/com/cockpitos/pro/media/CarosPlaybackService.java');
+    expect(java.length, 'native okunamadı — kilit boş kümeye düştü').toBeGreaterThan(10000);
+    const code = stripF71(java);
+    const players = code.match(/new ExoPlayer\.Builder/g) ?? [];
+    expect(players.length, 'ikinci ExoPlayer örneği açılmış').toBe(1);
+    expect(code, 'gapless bozulmuş (pauseAtEndOfMediaItems)')
+      .not.toContain('setPauseAtEndOfMediaItems');
+  });
+
+  it('🔒 F20 · geçiş kazancı YALNIZ kısar ve playback TRUTH üretmez', () => {
+    const code = stripF71(read('android/app/src/main/java/com/cockpitos/pro/media/CarosPlaybackService.java'));
+    expect(code, 'geçiş kazancı ses formülünden düşmüş')
+      .toMatch(/userVolume \* duck \* transitionGain/);
+    expect(code, 'renderingVerified geçiş kazancına bağlanmış')
+      .not.toMatch(/isRenderingVerified[\s\S]{0,400}transitionGain/);
+    /* Duck sırasında fade YOK · süresi bilinmeyen içerikte fade YOK. */
+    expect(code).toMatch(/checkFadeOut[\s\S]{0,600}getDuckVolume\(\) < 1\.0f/);
+    expect(code).toMatch(/checkFadeOut[\s\S]{0,900}C\.TIME_UNSET/);
+    expect(code).toMatch(/checkFadeOut[\s\S]{0,900}hasNextMediaItem/);
+  });
+
+  it('🔒 F20 · olmayan yetenek VAR gibi gösterilmez (crossfade · beat)', () => {
+    const model = read('src/platform/media/transition/transitionModel.ts');
+    expect(model.length, 'model okunamadı — kilit boş kümeye düştü').toBeGreaterThan(2000);
+    expect(model).toMatch(/TRUE_CROSSFADE[\s\S]{0,200}UNSUPPORTED/);
+    expect(model).toMatch(/BEAT_MATCHED[\s\S]{0,200}UNSUPPORTED/);
+    /* UI olmayan kontrolü ÇİZMEZ. */
+    const ui = stripF71(read('src/components/media/AudioExperiencePanel.tsx'));
+    expect(ui, 'olmayan crossfade kontrolü çizilmiş').not.toMatch(/crossfade/i);
+  });
+
+  it('🔒 F20 · geçiş katmanı kuyruğa DOKUNMAZ ve timer KURMAZ', () => {
+    const rt = read('src/platform/media/transition/transitionRuntime.ts');
+    expect(rt.length, 'runtime okunamadı — kilit boş kümeye düştü').toBeGreaterThan(2000);
+    const code = stripF71(rt);
+    expect(code, 'geçiş katmanı kuyruğa yazmış')
+      .not.toMatch(/\b(createQueue|addToQueue|setCurrentIndex|clearQueue)\s*\(/);
+    expect(code, 'geçiş katmanı native köprüye inmiş').not.toContain('nativeAuthorityBridge');
+    expect(code, 'geçiş katmanı timer kurmuş').not.toMatch(/setInterval\(|setTimeout\(/);
+    expect(code, 'kanonik yazma seam\'i kaldırılmış').toContain('setTransitionPolicy');
+  });
+
+  it('🔒 F20 · albüm devamlılığı ve canlı içerik korunur (fade zorlanmaz)', () => {
+    const model = stripF71(read('src/platform/media/transition/transitionModel.ts'));
+    expect(model, 'canlı içerik kapısı kaldırılmış').toContain('LIVE_CONTENT');
+    expect(model, 'duck kapısı kaldırılmış').toContain('DUCK_ACTIVE');
+    expect(model, 'albüm devamlılığı kapısı kaldırılmış').toContain('ALBUM_CONTINUITY');
+    /* Varsayılan KAPALI — duyulur davranış zorlanmaz. */
+    expect(model).toMatch(/fadeEnabled:\s*false/);
+  });
+
+  it('🔒 F20 · CAROS LAB salt-okunurdur — politika UYGULAMAZ', () => {
+    const sources = stripF71(read('src/platform/devtools/mediaAuthoritySources.ts'));
+    const model = read('src/platform/devtools/mediaAuthorityModel.ts');
+    expect(sources, 'LAB geçiş politikası uygulamış')
+      .not.toMatch(/\b(applyTransitionPolicy|setTransitionPreference)\s*\(/);
+    expect(model, 'F20 kartı LAB\'dan düşmüş').toContain('music-transition');
+  });
+
+  /* ── MUSIC F21 · OFFLINE / CACHE / RECOVERY / IGNITION CONTINUITY ────────
+   * F21'in riski: "kurtarma" adı altında ikinci bir kurtarma motoru kurmak,
+   * kontak sinyali uydurmak ve kullanıcı dokunmadan ses başlatmak. */
+
+  it('🔒 F21 · süresi dolmuş uzak adres CANLI sayılmaz (geri yüklemede düşer)', () => {
+    const model = read('src/platform/media/recovery/recoveryModel.ts');
+    expect(model.length, 'kurtarma modeli okunamadı — kilit boş kümeye düştü')
+      .toBeGreaterThan(2000);
+    expect(model, 'bayat uzak adres sınıfı kaldırılmış').toContain('EXPIRING_REMOTE');
+    expect(model, 'sentinel sınıfı kaldırılmış').toContain('RESOLVE_AT_PLAY');
+    const runtime = stripF71(read('src/platform/media/session/listeningSessionRuntime.ts'));
+    expect(runtime, 'geri yükleme tazelik sınıflandırmasını atlamış')
+      .toMatch(/restoreListeningSession[\s\S]{0,3000}classifyEntryFreshness/);
+    expect(runtime, 'düşürme kararı kaldırılmış').toContain('shouldDropOnRestore');
+  });
+
+  it('🔒 F21 · geri yükleme HÂLÂ ÇALMAZ (phantom PLAYING yok)', () => {
+    const runtime = stripF71(read('src/platform/media/session/listeningSessionRuntime.ts'));
+    expect(runtime, 'geri yükleme çalma iddiası kurmuş').toMatch(/playbackClaim: 'NONE'/);
+    expect(runtime, 'geri yüklemede süreklilik UNKNOWN başlamıyor')
+      .toMatch(/restoreListeningSession[\s\S]{0,4000}noteContinuity\('UNKNOWN'/);
+  });
+
+  it('🔒 F21 · otomatik devam FAIL-CLOSED ve üretimde KAPALI', () => {
+    const model = read('src/platform/media/recovery/recoveryModel.ts');
+    expect(model, 'kontak bilinmezken RESUME engeli kaldırılmış')
+      .toMatch(/ignition === 'UNKNOWN'/);
+    expect(model, 'kullanıcı duraklatma koruması kaldırılmış').toContain('USER_PAUSED');
+    const runtime = read('src/platform/media/recovery/recoveryRuntime.ts');
+    expect(runtime, 'UI\'sız otomatik çalma AÇILMIŞ')
+      .toMatch(/POLICY_ALLOWS_AUTO_RESUME\s*=\s*false/);
+  });
+
+  it('🔒 F21 · kontak sinyali UYDURULMAZ ve OBD ile AYNI eşiği kullanır', () => {
+    const sources = read('src/platform/media/recovery/recoverySources.ts');
+    expect(sources, 'kontak kanıtı araç store\'undan okunmuyor')
+      .toContain('useUnifiedVehicleStore');
+    const obd = /LINK_LOSS_IGNITION_OFF_V\s*=\s*([0-9.]+)/
+      .exec(read('src/platform/obd/linkLossLedger.ts'))?.[1];
+    const media = /IGNITION_OFF_VOLTAGE\s*=\s*([0-9.]+)/.exec(sources)?.[1];
+    expect(obd, 'OBD eşiği bulunamadı — kilit kör kalmış').toBeDefined();
+    expect(Number(media), 'aynı gerçeğe iki farklı eşik verilmiş').toBe(Number(obd));
+  });
+
+  it('🔒 F21 · kurtarma katmanı ÇALMA BAŞLATMAZ ve ikinci motor KURMAZ', () => {
+    const code = stripF71(read('src/platform/media/recovery/recoveryRuntime.ts'));
+    expect(code, 'kurtarma çalma başlatmış')
+      .not.toMatch(/startLibraryListening|startProviderListening|playSource|playByQuery/);
+    expect(code, 'kurtarma native köprüye inmiş').not.toContain('nativeAuthorityBridge');
+    expect(code, 'kurtarma kendi yeniden başlatma motorunu kurmuş')
+      .not.toMatch(/backoff|retryTimer|restartService/i);
+    expect(code, 'kurtarma timer kurmuş').not.toMatch(/setInterval\(|setTimeout\(/);
+  });
+
+  it('🔒 F21 · CAROS LAB salt-okunurdur — kurtarma TETİKLEMEZ', () => {
+    const sources = stripF71(read('src/platform/devtools/mediaAuthoritySources.ts'));
+    const model = read('src/platform/devtools/mediaAuthorityModel.ts');
+    expect(sources, 'LAB kurtarma tetiklemiş')
+      .not.toMatch(/\b(evaluateAutoResume|restoreListeningSession)\s*\(/);
+    expect(model, 'F21 kartı LAB\'dan düşmüş').toContain('music-recovery');
+  });
+
+  /* ── MUSIC F22 · FINAL COMPLETENESS AUDIT KAPANIŞLARI ────────────────────
+   * Bu kilitler F22 denetiminde BULUNAN gerçek açıkların geri gelmesini
+   * engeller. Yeni özellik değil, kapatılan kusurun bekçisidir. */
+
+  it('🔒 F22 · eski müzik ayrıştırıcısı YÜRÜTMEDEN ÖNCE "çalınıyor" DEMEZ', () => {
+    const parser = read('src/platform/musicCommandParser.ts');
+    expect(parser.length, 'ayrıştırıcı okunamadı — kilit boş kümeye düştü')
+      .toBeGreaterThan(2000);
+    /* Ayrıştırıcı metni yürütmeden ÖNCE seslendirilir; TAMAMLANMIŞ eylem
+       iddiası kuramaz. F22 denetiminde ölçülen kusur: shuffle dalı
+       "karışık çalınıyor" diyordu. */
+    const feedbacks = parser.match(/feedback:\s*[`'][^`']*[`']/g) ?? [];
+    expect(feedbacks.length, 'feedback metni bulunamadı — kilit kör kalmış')
+      .toBeGreaterThan(2);
+    for (const f of feedbacks) {
+      expect(f, `ayrıştırıcı tamamlanmış eylem iddiası kuruyor: ${f}`)
+        .not.toMatch(/çalınıyor|çalıyor|başlatıldı|eklendi|açıldı/);
+    }
+  });
+
+  it('🔒 F22 · UI sağlayıcıyı DOĞRUDAN çalmaz (kanonik kapı korunur)', () => {
+    const files = [
+      'src/components/media/MediaScreen.tsx',
+      'src/components/media/NowPlayingSurface.tsx',
+      'src/components/media/QueuePanel.tsx',
+      'src/components/media/MusicDiscoverySurface.tsx',
+      'src/components/media/AudioExperiencePanel.tsx',
+    ];
+    for (const f of files) {
+      const src = stripF71(read(f));
+      expect(src.length, `${f} okunamadı — kilit boş kümeye düştü`).toBeGreaterThan(200);
+      expect(src, `${f} sağlayıcıyı doğrudan çalmış`)
+        .not.toMatch(/\bplayYouTube\s*\(|\bplaySpotifyTrack\s*\(|\bplayStream\s*\(/);
+      expect(src, `${f} native köprüye inmiş`).not.toContain('nativeAuthorityBridge');
+    }
+  });
+
+  it('🔒 F22 · yeni müzik katmanları SystemBoot cleanup\'ına KAYITLI', () => {
+    const boot = read('src/platform/system/SystemBoot.ts');
+    for (const name of ['music-intelligence', 'music-loudness', 'music-transition']) {
+      expect(boot, `${name} cleanup kaydı yok (zero-leak ihlali)`)
+        .toContain(`_regNamed('${name}'`);
+    }
+  });
+
+  it('🔒 F22 · müzik telemetrileri metin/ad TAŞIMAZ (gizlilik allowlist)', () => {
+    const files = [
+      'src/platform/media/sonic/sonicTelemetry.ts',
+      'src/platform/media/radio/smartRadioTelemetry.ts',
+      'src/platform/media/loudness/loudnessTelemetry.ts',
+      'src/platform/media/transition/transitionTelemetry.ts',
+      'src/platform/media/recovery/recoveryTelemetry.ts',
+    ];
+    const forbidden = ['title:', 'artist:', 'uri:', 'query:', 'utterance:', 'transcript:', 'location:'];
+    for (const f of files) {
+      const src = read(f);
+      expect(src.length, `${f} okunamadı — kilit boş kümeye düştü`).toBeGreaterThan(500);
+      for (const bad of forbidden) {
+        expect(src, `yasaklı alan ${f} içine sızmış: ${bad}`).not.toContain(bad);
+      }
+    }
+  });
+
+  it('🔒 F22 · yeni müzik önbellekleri SINIRLIDIR (unbounded store yok)', () => {
+    const bounded: readonly [string, string][] = [
+      ['src/platform/media/sonic/sonicAnalysisRuntime.ts', 'MAX_SONIC_CACHE'],
+      ['src/platform/media/loudness/loudnessRuntime.ts', 'MAX_GAIN_CACHE'],
+      ['src/platform/media/radio/smartRadioModel.ts', 'MAX_RADIO_LENGTH'],
+      ['src/platform/media/radio/smartRadioRuntime.ts', 'MAX_RADIO_SCAN'],
+      ['src/platform/media/traits/traitRuntime.ts', 'MAX_TRAIT_CACHE'],
+    ];
+    for (const [file, cap] of bounded) {
+      const src = read(file);
+      expect(src, `${file} sınırsız büyüyebilir — ${cap} yok`).toContain(cap);
+    }
+  });
+
+  /* ── MUSIC · SAHA ÖNCESİ ONARIM (telefonda ÖLÇÜLEN üç kusur) ─────────────
+   * Bu üç kilit, gerçek cihazda ölçülmüş kusurların geri gelmesini engeller.
+   * Ayrıntılı kilitler `musicPreFieldRepair.test.ts` içindedir; buradakiler
+   * kasadaki kalıcı bekçilerdir. */
+
+  it('🔒 F20 · geçiş gözlem alanları köprü/sanitize allowlist\'lerinde KALIR', () => {
+    const fields = ['fadeEnabled', 'fadeOutMs', 'fadeInMs',
+      'transitionGain', 'transitionActive', 'gaplessSupported'];
+
+    const service = read('android/app/src/main/java/com/cockpitos/pro/media/CarosPlaybackService.java');
+    expect(service.length, 'servis okunamadı — kilit boş kümeye düştü').toBeGreaterThan(10000);
+    const bridge = stripF71(read('android/app/src/main/java/com/cockpitos/pro/media/CarosPlaybackBridge.java'));
+    const sanitize = stripF71(read('src/platform/media/authority/nativeAuthorityBridge.ts'));
+
+    for (const f of fields) {
+      /* Üretilmesi YETMEZ: iki allowlist'ten de GEÇMELİ (ölçülen kusur). */
+      expect(bridge, `köprü allowlist'i ${f} alanını düşürüyor`)
+        .toContain(`o.put("${f}"`);
+      expect(sanitize, `TS sanitize allowlist'i ${f} alanını düşürüyor`)
+        .toContain(`${f}:`);
+    }
+  });
+
+  it('🔒 F3/F21 · açılış geri yüklemesi ÜRETİMDE var, EXACTLY-ONCE ve ÇALMAZ', () => {
+    const runtime = read('src/platform/media/session/listeningSessionRuntime.ts');
+    expect(runtime.length, 'F3 runtime okunamadı — kilit boş kümeye düştü')
+      .toBeGreaterThan(10000);
+    const code = stripF71(runtime);
+    expect(code, 'açılış geri yükleme girişi kaldırılmış')
+      .toContain('export async function bootRestoreListeningSession');
+    expect(code, 'exactly-once kapısı kaldırılmış').toContain('_bootRestoreRan');
+    expect(code, 'native canlıyken atlama kapısı kaldırılmış')
+      .toContain('NATIVE_SESSION_LIVE');
+
+    /* Kanonik boot sahibi çağırmalı — başka bir component/hook DEĞİL. */
+    const boot = stripF71(read('src/platform/system/SystemBoot.ts'));
+    expect(boot, 'üretimde açılış geri yükleme çağrısı YOK (asimetrik kalıcılık)')
+      .toContain('await bootRestoreListeningSession()');
+    const callers = ['src/App.tsx', 'src/hooks/useVoiceCommandHandler.ts'];
+    for (const f of callers) {
+      let src = '';
+      try { src = read(f); } catch { src = ''; }
+      expect(src, `${f} açılış geri yüklemesini kendi başına çağırmış`)
+        .not.toContain('bootRestoreListeningSession');
+    }
+    /* Geri yükleme HÂLÂ çalma iddiası üretmez. */
+    expect(code).toMatch(/playbackClaim: 'NONE'/);
+  });
+
+  it('🔒 F20 · kısa parçada NE fade-out NE fade-in uygulanır', () => {
+    const java = stripF71(read('android/app/src/main/java/com/cockpitos/pro/media/CarosPlaybackService.java'));
+    const uses = java.match(/MIN_FADE_TRACK_MS/g) ?? [];
+    expect(uses.length, 'minimum süre kapısı yalnız tek yönde uygulanıyor')
+      .toBeGreaterThanOrEqual(3);
+    const inIdx = java.indexOf('private void onTransitionToNewItem');
+    expect(inIdx, 'fade-in girişi bulunamadı — kilit kör kalmış').toBeGreaterThan(0);
+    const inBody = java.slice(inIdx, inIdx + 1400);
+    expect(inBody, 'fade-in kısa parçayı bozuyor').toContain('MIN_FADE_TRACK_MS');
+    expect(inBody, 'süre bilinmiyorken fade-in uygulanıyor').toContain('C.TIME_UNSET');
+  });
+});
+
+describe('🔒 BOOT-RESILIENCE-1 · beklenmeyen restart tespiti thermalWatchdog kalibrasyonunu EZMEZ', () => {
+  it('bootResilienceGuard thermalWatchdog/die eşiklerini İTHAL ETMEZ (ayrı, eklemeli katman)', () => {
+    const guard = read('src/platform/system/bootResilienceGuard.ts');
+    expect(guard, 'kütük #139/#141 kalibrasyonuna bağımlılık kurulmuş — ayrım bozulmuş')
+      .not.toMatch(/^\s*import .*thermalWatchdog/m);
+    expect(guard, 'SoC die eşik sabitleri kopyalanmış/kullanılmış — tek kaynak bozulmuş')
+      .not.toMatch(/SOC_DIE_L[123]\s*=/);
+  });
+
+  it('SystemBoot Wave 1 kararı çağırır ve tek-seferlik downgrade dışında bir şey YAPMAZ', () => {
+    const boot = read('src/platform/system/SystemBoot.ts');
+    expect(boot, 'evaluateBootResilience Wave 1\'de çağrılmıyor').toContain('evaluateBootResilience(Date.now())');
+    expect(boot, 'heartbeat başlatıcı LIFO cleanup\'a kaydedilmemiş').toContain("this._regNamed('BootResilienceGuard', startBootHeartbeat())");
+    /* Paylaşılan tavan (setPowerCeiling) İCAT EDİLMEDİ — mevcut çok-çağıranlı
+       setMode kullanılıyor, thermal ile aynı slotu ele geçirmiyor. */
+    expect(boot, 'boot-resilience yeni bir paylaşılan tavan kurmuş — thermal ile çakışabilir')
+      .not.toMatch(/setPowerCeiling.*boot-resilience|boot-resilience.*setPowerCeiling/s);
+  });
+
+  it('heartbeat yazımı throttle\'lı — her poll\'de DEĞİL (eMMC ömrü, CLAUDE.md §3)', () => {
+    const guard = read('src/platform/system/bootResilienceGuard.ts');
+    expect(guard).toMatch(/HEARTBEAT_WRITE_INTERVAL_MS\s*=\s*60_000/);
   });
 });

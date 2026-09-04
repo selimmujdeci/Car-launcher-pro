@@ -17,14 +17,27 @@
 /* Arama katlaması: `poi.db`yi YAZAN kuralla AYNI olmak zorunda
    (ikizi `scripts/lib/turkishFold.mjs`; kilidi `turkishFold.test.ts`). */
 import { foldTr } from './core/turkishFold';
+/* NAV v3 · F4 — `RTG2` ayrıştırma artık BURADA DEĞİL: tek kanonik okuyucuda.
+   Worker graf YÜRÜTME (A*) sahibidir; graf OKUMA sahibi değildir. */
+import { parseRoutingGraph, edgeRoadClass, type RoutingGraphView }
+  from './map/graph/rtg2Reader';
+import { buildGraphAdjacency, outgoingRange, type GraphAdjacency }
+  from './map/graph/graphAdjacency';
 
 /* ── Tipler ──────────────────────────────────────────────────────────────── */
 
-interface GraphNode { lat: number; lon: number; }
-interface GraphEdge { to: number; costM: number; oneway: boolean; roadClass: number; }
+/**
+ * Worker'ın çalışma birimi: kanonik görünüm + CSR komşuluk.
+ *
+ * ── NEDEN DEĞİŞTİ (F4 · F1 borcu B2) ────────────────────────────────────
+ * Eskiden binary ayrıştırma bu dosyanın İÇİNDEYDİ; sonuç olarak ana iş
+ * parçacığı grafı okuyamıyor, `MapStore.getEdgeMetadata` üretimde daima
+ * `UNAVAILABLE` dönüyordu. Ayrıştırma tek otoriteye taşındı; **A* algoritması
+ * ve sezgisel ağırlık DEĞİŞMEDİ** (parite testi gerçek artefaktla doğrular).
+ */
 interface RoutingGraph {
-  nodes:     GraphNode[];
-  adjacency: Map<number, GraphEdge[]>;
+  view:      RoutingGraphView;
+  adjacency: GraphAdjacency;
   version:   1 | 2;
 }
 
@@ -32,7 +45,6 @@ interface RoutingGraph {
 
 const GRAPH_URL        = '/maps/routing-graph.bin';
 const GRAPH_TIMEOUT_MS = 5_000;
-const GRAPH_MAGIC_V2   = 0x32475452; // 'RTG2' LE
 
 function _computeMaxClosed(): number {
   const mem = (self as unknown as { navigator?: { deviceMemory?: number } }).navigator?.deviceMemory;
@@ -61,43 +73,22 @@ async function _loadGraph(): Promise<RoutingGraph | null> {
 
     if (!res.ok) { _graphFailed = true; return null; } // 404/500 → kalıcı hata
 
-    const buf  = await res.arrayBuffer();
-    const view = new DataView(buf);
-    let   off  = 0;
+    const buf = await res.arrayBuffer();
 
-    const firstWord = view.getUint32(off, true); off += 4;
-    const version: 1 | 2 = firstWord === GRAPH_MAGIC_V2 ? 2 : 1;
-    const nodeCount = version === 2 ? (off += 4, view.getUint32(off - 4, true)) : firstWord;
-
-    const nodes: GraphNode[] = [];
-    for (let i = 0; i < nodeCount; i++) {
-      const lat = view.getFloat32(off, true); off += 4;
-      const lon = view.getFloat32(off, true); off += 4;
-      off += 8; // reserved
-      nodes.push({ lat, lon });
+    /* TEK ayrıştırma otoritesi. Bozuk/kısa/desteklenmeyen girdi burada
+       AÇIKÇA reddedilir — eskiden aralık dışı düğüm indeksi A* içinde
+       `nodes[to] === undefined` olarak patlıyordu. */
+    const parsed = parseRoutingGraph(buf);
+    if (parsed.outcome !== 'OK' || parsed.view === null) {
+      /* Biçim hatası KALICIDIR: aynı artefakt her denemede aynı sonucu verir. */
+      _graphFailed = true;
+      return null;
     }
+    const view = parsed.view;
+    const adjacency = buildGraphAdjacency(view);
+    const version = view.version;
 
-    const edgeCount  = view.getUint32(off, true); off += 4;
-    const adjacency  = new Map<number, GraphEdge[]>();
-    for (let i = 0; i < edgeCount; i++) {
-      const from   = view.getUint32(off, true); off += 4;
-      const to     = view.getUint32(off, true); off += 4;
-      const costM  = view.getUint32(off, true); off += 4;
-      /* FLAGS: bit 0 = oneway · bit 1-3 = yol sınıfı (bkz. ROAD_CLASS_SPEED_MS).
-         Eski grafiklerde sınıf bitleri 0'dır → UNKNOWN → sabit hıza düşülür. */
-      const flags     = version === 2 ? view.getUint8(off++) : 0;
-      const oneway    = (flags & 0x01) === 1;
-      const roadClass = (flags >> 1) & 0x07;
-
-      if (!adjacency.has(from)) adjacency.set(from, []);
-      adjacency.get(from)!.push({ to, costM, oneway, roadClass });
-      if (!oneway) {
-        if (!adjacency.has(to)) adjacency.set(to, []);
-        adjacency.get(to)!.push({ to: from, costM, oneway: false, roadClass });
-      }
-    }
-
-    const graph: RoutingGraph = { nodes, adjacency, version };
+    const graph: RoutingGraph = { view, adjacency, version };
     _graphWeakRef = new WeakRef(graph);
     return graph;
   } catch {
@@ -121,9 +112,10 @@ function _havM(la1: number, lo1: number, la2: number, lo2: number): number {
 /* ── En yakın düğüm ──────────────────────────────────────────────────────── */
 
 function _nearest(g: RoutingGraph, lat: number, lon: number): number {
+  const { nodeLat, nodeLon, nodeCount } = g.view;
   let best = 0, bestD = Infinity;
-  for (let i = 0; i < g.nodes.length; i++) {
-    const d = _havM(lat, lon, g.nodes[i].lat, g.nodes[i].lon);
+  for (let i = 0; i < nodeCount; i++) {
+    const d = _havM(lat, lon, nodeLat[i], nodeLon[i]);
     if (d < bestD) { bestD = d; best = i; }
   }
   return best;
@@ -158,8 +150,10 @@ const HEURISTIC_WEIGHT = 1.2;
 /* ── A* algoritması (binary min-heap) ────────────────────────────────────── */
 
 function _aStar(g: RoutingGraph, startIdx: number, goalIdx: number): number[] | null {
-  const { nodes, adjacency } = g;
-  const goalNode = nodes[goalIdx];
+  const { view, adjacency } = g;
+  const { nodeLat, nodeLon, edgeCostM } = view;
+  const goalLat = nodeLat[goalIdx];
+  const goalLon = nodeLon[goalIdx];
 
   const heap: [number, number][] = [[0, startIdx]];
   const gCost  = new Map<number, number>([[startIdx, 0]]);
@@ -209,13 +203,19 @@ function _aStar(g: RoutingGraph, startIdx: number, goalIdx: number): number[] | 
     if (closed.size > MAX_CLOSED) return null; // RAM guard
 
     const curG = gCost.get(cur) ?? Infinity;
-    for (const { to, costM } of (adjacency.get(cur) ?? [])) {
+    /* Komşu SIRASI eski `Map<number, GraphEdge[]>` gösterimiyle BİREBİR
+       aynıdır (CSR aynı kenar ekleme düzeninde kurulur) → eşit maliyetli
+       rotalarda seçim de aynı kalır. */
+    const r = outgoingRange(adjacency, cur);
+    for (let k = r.start; k < r.end; k++) {
+      const to = adjacency.targetNode[k];
       if (closed.has(to)) continue;
+      const costM = edgeCostM[adjacency.edgeOrdinal[k]];
       const newG = curG + costM;
       if (newG < (gCost.get(to) ?? Infinity)) {
         gCost.set(to, newG);
         prev.set(to, cur);
-        heapPush([newG + HEURISTIC_WEIGHT * _havM(nodes[to].lat, nodes[to].lon, goalNode.lat, goalNode.lon), to]);
+        heapPush([newG + HEURISTIC_WEIGHT * _havM(nodeLat[to], nodeLon[to], goalLat, goalLon), to]);
       }
     }
   }
@@ -296,7 +296,9 @@ async function _handleRoute(
       return;
     }
 
-    const geometry: [number, number][] = path.map(idx => [graph.nodes[idx].lon, graph.nodes[idx].lat]);
+    const geometry: [number, number][] = path.map(
+      idx => [graph.view.nodeLon[idx], graph.view.nodeLat[idx]] as [number, number],
+    );
 
     /* MESAFE KENARDAN OKUNUR, DÜĞÜMDEN TÜRETİLMEZ. Grafik üretimi ara geometri
        düğümlerini seyreltir; `costM` ise seyreltmeden ÖNCEKİ tam poliline
@@ -307,13 +309,24 @@ async function _handleRoute(
     let durationS = 0;
     for (let i = 1; i < path.length; i++) {
       const fromIdx = path[i - 1], toIdx = path[i];
-      const edge = (graph.adjacency.get(fromIdx) ?? []).find(e => e.to === toIdx);
-      if (edge) {
-        distanceM += edge.costM;
-        durationS += _edgeSeconds(edge.costM, edge.roadClass);
+      /* `find` ile AYNI semantik: aralıktaki İLK eşleşen kol. */
+      let ordinal = -1;
+      const r = outgoingRange(graph.adjacency, fromIdx);
+      for (let k = r.start; k < r.end; k++) {
+        if (graph.adjacency.targetNode[k] === toIdx) {
+          ordinal = graph.adjacency.edgeOrdinal[k];
+          break;
+        }
+      }
+      if (ordinal >= 0) {
+        const costM = graph.view.edgeCostM[ordinal];
+        distanceM += costM;
+        durationS += _edgeSeconds(costM, edgeRoadClass(graph.view, ordinal));
       } else {
-        const a = graph.nodes[fromIdx], b = graph.nodes[toIdx];
-        const d = _havM(a.lat, a.lon, b.lat, b.lon);
+        const d = _havM(
+          graph.view.nodeLat[fromIdx], graph.view.nodeLon[fromIdx],
+          graph.view.nodeLat[toIdx], graph.view.nodeLon[toIdx],
+        );
         distanceM += d;
         durationS += d / AVG_ROUTE_SPEED_MS;
       }

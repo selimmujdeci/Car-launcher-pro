@@ -611,6 +611,17 @@ html.rt-no-shadow * {
 .sunlight-mode .text-2xl { font-size: 28px !important; }
 
 /* Layout Engine — fade-in when layout type changes */
+/* F4 · Now Playing kapak geçişi — sakin crossfade, ölçek zıplaması YOK.
+   Hareket azaltma isteyen kullanıcıda ve düşük performans modunda bileşen bu
+   animasyonu hiç uygulamaz; medya sorgusu ikinci bir güvence katmanıdır. */
+@keyframes caros-art-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-music-surface] * { animation: none !important; }
+}
+
 @keyframes layout-fadein {
   from { opacity: 0; transform: scale(0.985); }
   to   { opacity: 1; transform: scale(1); }

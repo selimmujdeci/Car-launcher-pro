@@ -89,6 +89,25 @@ import {
 import {
   getNavigationOrientationSnapshot, orientationOf,
 } from '../navigation/navigationOrientation';
+/* NAV v3 · F3 — L2 ego + L3 ufuk GÖZLEMİ (salt-okunur; koordinat TAŞIMAZ). */
+import { getEgoAuthority, type EgoDiagnostics } from '../navigation/ego/egoAuthority';
+import { getCehAuthority, type CehDiagnostics } from '../navigation/horizon/cehAuthority';
+import {
+  getNavOrientationFeedSnapshot, type NavOrientationFeedSnapshot,
+} from '../navigation/navOrientationFeed';
+import {
+  getNavEgoHorizonBridgeSnapshot, type NavEgoHorizonBridgeSnapshot,
+} from '../navigation/navEgoHorizonBridge';
+import {
+  getGraphResidencySnapshot, type GraphResidencySnapshot,
+} from '../navigation/map/graph/graphResidencyRuntime';
+import {
+  getCehShadowSnapshot, type CehShadowSnapshot,
+} from '../navigation/shadow/cehShadowRuntime';
+/* F6 — sınırlı koridor + kenar-tabanlı denetim noktası eşleştirme GÖZLEMİ. */
+import {
+  getEnforcementHorizonPortSnapshot, type EnforcementHorizonPortSnapshot,
+} from '../navigation/enforcementHorizonPort';
 import { getMapInstance } from '../mapService';
 import {
   getCameraShadowSnapshot, type CameraShadowSnapshot,
@@ -136,6 +155,27 @@ const PAINTED_ARROW_FALLBACK: PaintedArrowDiagnostics = {
 
 export interface NavigationCoreRawSnapshot {
   readonly readAt: number;
+
+  /* ── NAV v3 · L2 EGO / L3 UFUK (F3) ────────────────────────────────────
+   * KOORDİNAT TAŞIMAZ: yalnız hüküm, sayaç, yaş ve kalite göstergeleri.
+   * `null` = otorite okunamadı → ekran UNAVAILABLE gösterir (sahte 0 YOK). */
+  readonly ego: EgoDiagnostics | null;
+  readonly ceh: CehDiagnostics | null;
+  readonly yawFeed: NavOrientationFeedSnapshot | null;
+  readonly egoHorizonBridge: NavEgoHorizonBridgeSnapshot | null;
+  /** F4 — yol ağı grafının ana iş parçacığındaki sakinliği (koordinat YOK). */
+  readonly graphResidency: GraphResidencySnapshot | null;
+  /**
+   * F5 — legacy ↔ CEH gölge karşılaştırması + cutover kapısı. Yalnız sayaç ve
+   * hüküm taşır; koordinat, talimat metni ve nokta kimliği TAŞIMAZ.
+   */
+  readonly cehShadow: CehShadowSnapshot | null;
+  /**
+   * F6 — sınırlı koridor genişleme + kenar-tabanlı denetim noktası
+   * eşleştirme sayaçları. Yalnız SAYI/HÜKÜM taşır; koordinat, nokta
+   * kimliği ve ham etiket TAŞIMAZ.
+   */
+  readonly enforcementHorizonPort: EnforcementHorizonPortSnapshot | null;
 
   /** Yola boyanmış manevra oku — hüküm + gerekçe + sayaçlar (konum TAŞIMAZ). */
   readonly paintedArrow: PaintedArrowDiagnostics;
@@ -432,7 +472,9 @@ const _EMPTY_PROVIDER: ProviderReadinessSnapshot = {
 };
 
 const _EMPTY_OFFLINE: OfflineRoutingStatus = {
-  state: 'UNKNOWN', attemptCount: 0, lastAttemptAt: null, usable: false,
+  state: 'UNKNOWN', attemptCount: 0, lastAttemptAt: null,
+  /* NAV v3 · F2.0 — monotonik tazelik damgası (duvar saatinden AYRI). */
+  lastAttemptAtMonoMs: null, usable: false,
 };
 
 const _EMPTY_CAMERA: CameraFollowSnapshot = {
@@ -904,5 +946,18 @@ export function readNavigationCoreSnapshot(): NavigationCoreRawSnapshot {
     cameraShadow: _shadow,
     cameraDamping: _safe(() => getCameraDampingSnapshot(), _EMPTY_DAMPING),
     routeColor:    _safe(() => getRouteColorSnapshot(), _EMPTY_ROUTE_COLOR),
+
+    /* NAV v3 · F3 — her okuma kendi try/catch'inde; bir otorite patlarsa
+       diğerleri görünmeye devam eder (`<x>Sources.ts` deseni). */
+    ego:              _safe(() => getEgoAuthority().getDiagnostics(), null),
+    ceh:              _safe(() => getCehAuthority().getDiagnostics(), null),
+    yawFeed:          _safe(() => getNavOrientationFeedSnapshot(), null),
+    egoHorizonBridge: _safe(() => getNavEgoHorizonBridgeSnapshot(), null),
+    graphResidency:   _safe(() => getGraphResidencySnapshot(), null),
+    /* F5 — gölge okuması SAYAÇLARI KİRLETMEZ: `getCehShadowSnapshot` yalnız
+       okur, gölge tikini tetiklemez (ölçüm gözlemden etkilenmez). */
+    cehShadow:        _safe(() => getCehShadowSnapshot(), null),
+    /* F6 — port okuması da salt-okunur; koridor/eşleştirme TETİKLEMEZ. */
+    enforcementHorizonPort: _safe(() => getEnforcementHorizonPortSnapshot(), null),
   };
 }

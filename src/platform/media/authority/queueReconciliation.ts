@@ -167,6 +167,111 @@ export function reconcileQueue(
   };
 }
 
+/* ══════════════════════════════════════════════════════════════════════════
+ * F3 · DESIRED ↔ OBSERVED HİZALAMASI
+ *
+ * `reconcileQueue` yukarıda revizyon/indeks/uzunluk sapmasını sınıflandırır.
+ * F3 bir kavram DAHA ekler: CarOS'un İSTEDİĞİ sıra (`DesiredQueue`) ile
+ * sağlayıcının GERÇEKTEN bildirdiği sıranın ÖĞE ÖĞE ilişkisi.
+ *
+ * Neden ayrı: sağlayıcı kuyruk düzenlemeyi hiç desteklemeyebilir. O durumda
+ * "sapma var" demek yanlıştır — sapma değil, YETENEK YOKLUĞUdur; ve CarOS'un
+ * istediği sırayı sağlayıcıya uygulanmış gibi göstermek YASAKTIR.
+ * ════════════════════════════════════════════════════════════════════════ */
+
+export type QueueAlignment =
+  /** İstenen ve gözlenen sıra birebir aynı. */
+  | 'MATCHED'
+  /** Gözlenen sıra, istenenin bir ÖN EKİ (pencere yazımı — beklenen durum). */
+  | 'PREFIX_MATCH'
+  /** Sağlayıcı farklı bir sıra sürüyor (dışarıdan değişmiş olabilir). */
+  | 'PROVIDER_DRIFT'
+  /** Sağlayıcı çok öğeli kuyruk semantiğini hiç desteklemiyor. */
+  | 'UNSUPPORTED'
+  /** Gözlem yok — "uyumlu" DEĞİL, bilinmiyor. */
+  | 'UNKNOWN';
+
+export const QUEUE_ALIGNMENT_LABEL: Readonly<Record<QueueAlignment, string>> = {
+  MATCHED: 'BİREBİR',
+  PREFIX_MATCH: 'ÖN EK EŞLEŞMESİ',
+  PROVIDER_DRIFT: 'SAĞLAYICI SAPMASI',
+  UNSUPPORTED: 'SAĞLAYICI KUYRUK DESTEKLEMİYOR',
+  UNKNOWN: 'KARŞILAŞTIRILAMADI',
+} as const;
+
+export interface QueueAlignmentResult {
+  readonly alignment: QueueAlignment;
+  readonly reason: string;
+  /** Baştan itibaren kaç öğe birebir tuttu. */
+  readonly matchedPrefixLength: number;
+  readonly desiredLength: number;
+  readonly observedLength: number;
+  /** İstenen sıra sağlayıcıya UYGULANMIŞ sayılabilir mi (UI iddiası bundan çıkar). */
+  readonly desiredApplied: boolean;
+}
+
+const alignmentResult = (
+  alignment: QueueAlignment, reason: string,
+  matchedPrefixLength: number, desiredLength: number, observedLength: number,
+  desiredApplied: boolean,
+): QueueAlignmentResult => Object.freeze({
+  alignment, reason, matchedPrefixLength, desiredLength, observedLength, desiredApplied,
+});
+
+/**
+ * İstenen kuyruk kimlik dizisini gözlenenle karşılaştırır.
+ *
+ * @param desiredIds  CarOS'un istediği sıra (öğe kimlikleri)
+ * @param observedIds Sağlayıcının bildirdiği sıra; `null` = görünürlük YOK
+ * @param supportsQueue Sağlayıcı çok öğeli kuyruk semantiğini destekliyor mu
+ */
+export function alignDesiredObserved(
+  desiredIds: readonly string[],
+  observedIds: readonly string[] | null,
+  supportsQueue: boolean,
+): QueueAlignmentResult {
+  if (!supportsQueue) {
+    return alignmentResult('UNSUPPORTED',
+      'Sağlayıcı çok öğeli kuyruk semantiğini desteklemiyor — istenen sıra ONA UYGULANMADI.',
+      0, desiredIds.length, observedIds?.length ?? 0, false);
+  }
+  if (observedIds === null) {
+    return alignmentResult('UNKNOWN',
+      'Sağlayıcı kuyruk görünürlüğü yok — istenen sıranın uygulandığı DOĞRULANAMAZ.',
+      0, desiredIds.length, 0, false);
+  }
+  if (desiredIds.length === 0 && observedIds.length === 0) {
+    return alignmentResult('MATCHED', 'İki taraf da boş.', 0, 0, 0, true);
+  }
+
+  let prefix = 0;
+  const limit = Math.min(desiredIds.length, observedIds.length);
+  while (prefix < limit && desiredIds[prefix] === observedIds[prefix]) prefix += 1;
+
+  if (prefix === desiredIds.length && prefix === observedIds.length) {
+    return alignmentResult('MATCHED', 'İstenen ve gözlenen sıra birebir aynı.',
+      prefix, desiredIds.length, observedIds.length, true);
+  }
+  /* Pencere yazımı: yerel kütüphanede native'e kuyruğun tamamı değil, aktif
+     parça çevresindeki pencere yazılır. Gözlenen, istenenin ön ekiyse bu bir
+     sapma DEĞİL, bilinen ve kabul edilen bir daraltmadır. */
+  if (prefix === observedIds.length && observedIds.length > 0) {
+    return alignmentResult('PREFIX_MATCH',
+      `Gözlenen sıra istenenin ilk ${prefix} öğesi — pencere yazımı.`,
+      prefix, desiredIds.length, observedIds.length, true);
+  }
+  return alignmentResult('PROVIDER_DRIFT',
+    prefix === 0
+      ? 'Sağlayıcı ilk öğeden itibaren farklı bir sıra sürüyor.'
+      : `Sıra ${prefix}. öğeden sonra ayrışıyor.`,
+    prefix, desiredIds.length, observedIds.length, false);
+}
+
+/** Sağlayıcı sırası kullanıcıya yanlış gösterilme riski taşıyor mu. */
+export function isMisleadingAlignment(alignment: QueueAlignment): boolean {
+  return alignment === 'PROVIDER_DRIFT' || alignment === 'UNSUPPORTED';
+}
+
 /** Sapma kullanıcıya yansıyacak türden mi (yanlış parça çalma riski). */
 export function isUserVisibleDrift(drift: QueueDrift): boolean {
   return drift === 'INDEX_DRIFT'

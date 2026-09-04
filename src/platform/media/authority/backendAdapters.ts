@@ -15,6 +15,8 @@
 
 import type {
   BackendAdapter,
+  BackendCommandOutcome,
+  BackendPlaybackState,
   PlayRequest,
   StartOutcome,
   StopOutcome,
@@ -115,9 +117,53 @@ function extractVideoId(uri: string): string {
   return idx >= 0 ? uri.slice(idx + 1) : uri;
 }
 
+/**
+ * MUSIC F7.1 · IFrame komutunu kapının anlayacağı sonuca çevirir.
+ *
+ * Modül YÜKLÜ DEĞİLSE komut hiç denenmemiştir — "kabul edildi" DENMEZ.
+ * `false` dönen çağrı player'ın olmadığını gösterir; bu bir hatadır, sessizce
+ * başarı sayılmaz.
+ */
+async function ytCommand(
+  run: (yt: YouTubeModule) => boolean,
+  failureCode: string,
+): Promise<BackendCommandOutcome> {
+  try {
+    const yt = await loadYouTube();
+    return run(yt)
+      ? { accepted: true, failureCode: null }
+      : { accepted: false, failureCode };
+  } catch {
+    return { accepted: false, failureCode: 'youtube_iframe_unavailable' };
+  }
+}
+
 export function createYouTubeAdapter(): BackendAdapter {
   return {
     sourceClass: 'YOUTUBE',
+
+    /**
+     * MUSIC F7.1 · GÖZLENEN durum. IFrame player'ın kendi durumundan okunur;
+     * modül yüklü değilse veya oturum YouTube'un değilse `UNKNOWN` — sahte
+     * "duruyor/çalıyor" ÜRETİLMEZ.
+     */
+    observe(): BackendPlaybackState {
+      try {
+        const yt = _youtubeModule;
+        if (!yt) return 'UNKNOWN';
+        if (!yt.isYouTubeActive()) return 'STOPPED';
+        return yt.getYouTubePlaybackState();
+      } catch { return 'UNKNOWN'; }
+    },
+
+    /** MUSIC F7.1 · Transport artık KAPIDAN geçer; ikinci yol kapatıldı. */
+    transport: {
+      resume: () => ytCommand((yt) => yt.youtubeResume(), 'youtube_resume_rejected'),
+      pause: () => ytCommand((yt) => yt.youtubePause(), 'youtube_pause_rejected'),
+      seek: (positionSec: number) => ytCommand(
+        (yt) => yt.youtubeSeek(positionSec), 'youtube_seek_rejected',
+      ),
+    },
 
     isActive(): boolean {
       try {
@@ -161,20 +207,68 @@ export function createYouTubeAdapter(): BackendAdapter {
       try {
         const yt = await loadYouTube();
         await yt.playYouTube(extractVideoId(item.uri), item.title, item.artist, item.artworkUri);
-        const media = await loadMediaState();
-        // IFrame "PLAYING" der ama ses yolunu DOĞRULAYAMAZ → renderingVerified: false.
-        const started = media().activePackage === yt.YOUTUBE_PKG;
+        /* MUSIC SAHA BUGFIX (2026-09-03) · ÖLÇÜLEN KÖK NEDEN:
+         *
+         * "started" kararı eskiden `getMediaState().activePackage === YOUTUBE_PKG`
+         * bayrağından veriliyordu. Bu bayrak `playYouTube()` içinde `loadVideoById`
+         * ÇAĞRILMADAN ÖNCE, KOŞULSUZ yazılır (bkz. youtubeService.ts) — yani bu
+         * kanıt HİÇBİR ZAMAN `false` olamazdı. Sonuç: `loadVideoById` tarayıcının
+         * otoyoklama (autoplay) politikasınca sessizce reddedilse, video gömme
+         * kapalı olsa (ama henüz `onError` gelmeden) ya da ağ isteği hâlâ sürüyor
+         * olsa BİLE handover COMMITTED oluyor, `CommandTruth.outcome = VERIFIED`
+         * üretiliyordu — kullanıcı sessizlikle baş başa kalıyordu (saha ölçümü).
+         *
+         * DÜZELTME: gerçek kanıt IFrame player'ın KENDİ durumundan okunur
+         * (`getYouTubePlaybackState()` → `_player.getPlayerState()`, senkron ve
+         * gerçek — etiket/bayrak DEĞİL). SINIRLI bir bekleme (bounded poll — yeni
+         * bir zamanlayıcı OTORİTESİ DEĞİL: tek seferlik, süre dolunca veya kanıt
+         * gelince KENDİLİĞİNDEN biter) player'ın BUFFERING/PLAYING durumuna
+         * geçmesini bekler. Geçmezse `started:false` döner — sourceCoordinator
+         * dürüstçe FAIL+rollback uygular; sahte VERIFIED ÜRETİLMEZ. */
+        const started = await waitForRealYouTubeStart(yt, START_EVIDENCE_TIMEOUT_MS);
         return {
           accepted: true,
           started,
           renderingVerified: false,
-          failureCode: started ? null : 'not_observed_playing',
+          failureCode: started ? null : 'playback_not_observed',
         };
       } catch {
         return { accepted: false, started: false, renderingVerified: false, failureCode: 'start_threw' };
       }
     },
   };
+}
+
+/**
+ * SINIRLI, TEK SEFERLİK kanıt beklemesi (§ start() dokümantasyonu).
+ *
+ * Kalıcı bir zamanlayıcı OTORİTESİ KURMAZ: interval/timeout ÇİFTİ, kanıt
+ * gelince VEYA bütçe dolunca HER ZAMAN temizlenir (Zero-Leak). `PAUSED`/`-1`
+ * (unstarted) bilinçli olarak KANIT SAYILMAZ — otoyoklama engeli genellikle
+ * TAM OLARAK bu durumlarda takılı kalır; onları "başladı" saymak sahte
+ * başarıyı geri getirirdi.
+ */
+const START_EVIDENCE_TIMEOUT_MS = 2600;
+const START_EVIDENCE_POLL_MS = 100;
+
+function waitForRealYouTubeStart(yt: YouTubeModule, budgetMs: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = (ok: boolean): void => {
+      if (done) return;
+      done = true;
+      clearInterval(poll);
+      clearTimeout(timer);
+      resolve(ok);
+    };
+    const poll = setInterval(() => {
+      try {
+        const st = yt.getYouTubePlaybackState();
+        if (st === 'PLAYING' || st === 'BUFFERING') finish(true);
+      } catch { /* okunamadı — bütçe dolunca dürüstçe false döner */ }
+    }, START_EVIDENCE_POLL_MS);
+    const timer = setTimeout(() => finish(false), budgetMs);
+  });
 }
 
 /* ── 3) Spotify Connect ──────────────────────────────────────────────────── */
