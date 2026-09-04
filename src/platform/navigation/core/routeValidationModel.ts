@@ -285,6 +285,32 @@ function _verdict(checks: readonly RouteCheck[]): RouteValidationResult {
  * Eşitlikte kısa süreli tercih edilir (sağlayıcının kendi sıralaması korunur).
  * `REJECTED` adaylar hiç seçilmez; hepsi reddedilmişse `null`.
  */
+/**
+ * Aday sıralama anahtarı — **TEK OTORİTE** (NAV v3 · F7).
+ *
+ * `[failCount, warnCount, durationS]` sözlükbilimsel sırası: önce EN AZ KUSURLU,
+ * eşitlikte EN AZ UYARILI, ancak ondan sonra EN KISA SÜRE. Yani **süre üçüncü
+ * ölçüttür**: bir uyarısı daha az olan aday, çok daha yavaş olsa bile kazanır.
+ *
+ * ── NEDEN AYRI FONKSİYON (F7) ────────────────────────────────────────────
+ * Seçimi YAPAN (`pickBestRoute`) ile seçimi AÇIKLAYAN (`routeRationaleModel`)
+ * aynı anahtarı okumak ZORUNDADIR. İki ayrı kopya olsaydı biri değiştiğinde
+ * diğeri sessizce YANLIŞ gerekçe üretirdi — "açıklama" gerçeğin ikinci bir
+ * otoritesine dönüşürdü. Bu yüzden anahtar burada bir kez tanımlanır.
+ *
+ * Süresi bilinmeyen/0 olan aday süre bakımından EN KÖTÜ sayılır (uydurma süre
+ * yok); kabul edilmiş olması yine de mümkündür.
+ */
+export function routeRankKey(
+  candidate: RouteCandidate, validation: RouteValidationResult,
+): [number, number, number] {
+  return [
+    validation.failCount,
+    validation.warnCount,
+    candidate.durationS > 0 ? candidate.durationS : Number.MAX_SAFE_INTEGER,
+  ];
+}
+
 export function pickBestRoute(
   results: readonly { candidate: RouteCandidate; validation: RouteValidationResult }[],
 ): { index: number; candidate: RouteCandidate; validation: RouteValidationResult } | null {
@@ -293,11 +319,7 @@ export function pickBestRoute(
   for (let i = 0; i < results.length; i++) {
     const r = results[i];
     if (r.validation.verdict === 'REJECTED') continue;
-    const key: [number, number, number] = [
-      r.validation.failCount,
-      r.validation.warnCount,
-      r.candidate.durationS > 0 ? r.candidate.durationS : Number.MAX_SAFE_INTEGER,
-    ];
+    const key = routeRankKey(r.candidate, r.validation);
     if (bestKey === null ||
         key[0] < bestKey[0] ||
         (key[0] === bestKey[0] && key[1] < bestKey[1]) ||

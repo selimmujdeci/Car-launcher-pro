@@ -1,13 +1,14 @@
 # CAROS NAVİGASYON MİMARİSİ — SPESİFİKASYON v3.0
 
 **Belge kimliği:** `CAROS-NAV-ARCH-SPEC-3.0`
-**Tarih:** 2026-09-04 · **Statü:** **F0 · F1 · F2 · F3 · F4 · F5 · F6 UYGULANDI**
+**Tarih:** 2026-09-04 · **Statü:** **F0 · F1 · F2 · F3 · F4 · F5 · F6 · F7 UYGULANDI**
 > F0 = sözleşme omurgası (§0–§10) · F1 = L1 MapStore (§F1.0–F1.8) ·
 > F2 = L2 Ego/Localization (§F2.0–F2.9) · F3 = L3 CEH (§F3.0–F3.8) ·
 > F4 = graf/topoloji aktivasyonu (§F4.0–F4.10) · F5 = gölge otorite + cutover
 > kapısı (**bu belgede bölümü YAZILMADI** — kayıtlı borç, bkz. §F5) ·
-> F6 = sınırlı koridor + kenar-tabanlı denetim noktası (§F6.0–F6.11).
-> **Hiçbiri saha doğrulaması ALMADI** — kütük #1205–#1268
+> F6 = sınırlı koridor + kenar-tabanlı denetim noktası (§F6.0–F6.11) ·
+> F7 = L4 rota "neden bu rota?" hesap verebilirliği (§F7.0–F7.9).
+> **Hiçbiri saha doğrulaması ALMADI** — kütük #1205–#1272
 > 🔴 `UNKNOWN / DEVICE VALIDATION REQUIRED`.
 **Öncelik:** `AI.md` > `CLAUDE.md` > bu belge > `NAVIGATION_ARCHITECTURE_SPEC_v2.md`
 > tüm diğer navigasyon belgeleri.
@@ -1535,3 +1536,258 @@ devretmektedir:** cutover kapısının `F4_FIELD_VALIDATION` şartı (kütük
 #1232–#1243) gerçek araçta ölçülmeden hiçbir tüketici CEH'e taşınamaz. F6 bu
 şartı DEĞİŞTİRMEDİ; yalnız kapıya bağlanacak zinciri kanıtlanabilir hâle
 getirdi. **Sıra: önce saha turu, sonra tüketici taşıma.**
+
+---
+
+# F7 — L4 ROTA: "NEDEN BU ROTA?" HESAP VEREBİLİRLİĞİ
+
+> **⚠️ ÖNCE BİR DÜZELTME (kanıtla):** bu belgede **v3-F7 diye TANIMLANMIŞ bir faz
+> YOKTU.** F7 kelimesi yalnız borç tablolarında "F7+" olarak geçiyordu
+> (§F1.7/B8 · §F6.10). Kanonik faz planı `NAVIGATION_ARCHITECTURE_SPEC_v2.md`
+> **§12**'dedir ve **farklı numaralandırır**: v2/F1 = sözleşme omurgası (v3'te
+> F0'a çekildi) · v2/F2 = EGO · v2/F3 = CEH · **v2/F4 = ROTA** · v2/F5 =
+> REHBERLİK·ARBİTRAJ·GÖSTERİM · v2/F6 = İLERİ (tetikleyici eşikle).
+>
+> v3, v2/F3'ün (CEH) içeriğini **üç turda** karşıladı (F3 sözleşme · F4 graf/
+> topoloji · F6 koridor+denetim) ve araya bir güvenlik fazı ekledi (F5 gölge).
+> Dolayısıyla **katman planında sıradaki faz L4 — ROTA**'dır. F7 bu belgede
+> ilk kez tanımlanıyor ve kapsamı v2 §5 (L4) ile sınırlıdır.
+
+---
+
+## F7.0 ÖLÇÜLMÜŞ GERÇEK (kod okundu — 2026-09-04)
+
+| Ne | Ölçüm | Kanıt |
+|----|-------|-------|
+| L4 sahibi | `routingService.ts` (1 824 satır) + `navigationService.ts` (1 494) | v3 §1 katman tablosu |
+| Maliyet modeli (v2 §5.2) | **YOK** — `costModel.ts` · `CostContext` · çarpan motoru repoda hiç yok | `grep costModel\|CostContext` → 0 sonuç |
+| Onboard yönlendirici | A* var, **maliyet yok**: arama ham metre (`newG = curG + costM`) üzerinden | `NavigationCompute.worker.ts:213-214` |
+| Yol sınıfı hızı | yalnız **süre TAHMİNİNDE** kullanılır, aramada DEĞİL | `NavigationCompute.worker.ts:246-263` |
+| `RouteRationale` (v2 §5.5, **ZORUNLU**) | **YOK** | `grep RouteRationale` → 0 sonuç |
+| Aday seçimi | **VAR ve çalışıyor**: `alternatives=3` istenir, hepsi doğrulanır, biri AKTİF ROTA olur | `routingService.ts:1105-1135` |
+| Seçim anahtarı | `[failCount, warnCount, durationS]` sözlükbilimsel | `routeValidationModel.ts:288-310` |
+| Seçimin kaydı | **YOK** — yalnız `picked.index !== 0` iken bir `console.warn` | `routingService.ts:1131` |
+
+### F7 öncesi bulunan gerçek kusur
+
+**Sistem sürücü adına bir takas yapıyor ve gerekçesi hiçbir yerde yok.**
+
+Sıralama anahtarında **süre ÜÇÜNCÜ ölçüttür**: bir uyarısı daha az olan aday,
+*yirmi dakika daha yavaş olsa bile* kazanır. Bu takas bugün ölçülmüyor,
+kaydedilmiyor, LAB'da görünmüyor. v2 §5.5'in ifadesiyle: *"Cevabı olmayan zekâ,
+kullanıcı için arızadır."*
+
+Bu, bu deponun daha önce bir kez kapattığı kusur sınıfının aynısıdır
+(`offRouteModel.ts:22-51` — "sistem, üzerine HAREKET EDEMEYECEĞİ bir karar
+üretiyor, kütüğe yazıyor ve susuyordu").
+
+---
+
+## F7.1 KAPSAM SINIRI (bağlayıcı)
+
+**F7 begins at:** `pickBestRoute` uzak sağlayıcının ≤4 doğrulanmış adayından
+birini aktif rota yaptığı an — bugün yapısal hiçbir iz bırakmayan karar.
+
+**F7 ends when:** kabul edilen her rota, makine-okur bir `RouteRationale`
+taşır (adaylar · seçilen · belirleyici etken · **süre takası**), bu gerekçe
+CAROS LAB'da **salt-okunur** görünür, ve kilitler gerekçenin **kararı yeniden
+üretmediğini** ve **uydurmadığını** kanıtlar.
+
+**Explicitly outside F7:**
+maliyet modeli / `CostContext` / araç-farkında çarpanlar · hiyerarşik A* · CCH ·
+yerel daemon'ın kaldırılması (ADR-N02) · sağlayıcı arbitraj sırasının
+değiştirilmesi · reroute FSM davranışının değiştirilmesi · CEH cutover ·
+Guardian otoritesinin taşınması · hız limiti · viraj · eğim · şerit ·
+`guardianAlertRanker.validUntil` · eşik kalibrasyonu · UI/gösterim · harita
+formatı · L8 tahmin/gözlem döngüsü.
+
+### Neden maliyet modeli F7'de DEĞİL (gerekçeli ret)
+
+v2 §5.2'nin maliyet modeli L4'ün kanonik omurgasıdır ve **kurulması teknik
+olarak mümkündü**. Kapsam dışı bırakıldı çünkü:
+
+1. **Tüketicisi yok.** A* bugün ham metre üzerinden arıyor. Maliyet modelini
+   bağlamak **rota çıktısını değiştirir** — araç yokken doğrulanamaz bir ürün
+   davranışı değişikliği olurdu (FIELD FIREWALL).
+2. **Bağlamadan eklemek ölü kod olurdu.** Bu deponun kendi disiplini bunu
+   reddediyor: F5, çok adımlı ağ mesafesini tam bu gerekçeyle ERTELEMİŞTİ
+   (§F4.9/E5 — *"tüketici senaryosu yok, bütçesiz/kanıtsız özellik ekleme
+   yasak"*).
+3. **Çarpanların kanıt kaynağı yok.** `m_traffic` · `m_thermal` · `m_brake` ·
+   `m_pref_hw` için `OBSERVED` kanıt üreten bir kaynak bu binary'de yoktur;
+   v2 §5.2 zaten *"ilgili kanıt `UNAVAILABLE` ise çarpan 1.0"* der — yani bugün
+   kurulacak model **her çarpanı 1.0** yapardı ve hiçbir şeyi değiştirmezdi.
+
+`RouteRationale` ise **bugün gerçekten var olan bir kararı** açıklar; sözleşmesi
+maliyet motoru geldiğinde genişler (etken sözlüğü büyür), yeniden yazılmaz.
+
+---
+
+## F7.2 SIRALAMA ANAHTARI TEK OTORİTEYE ÇIKARILDI
+
+`routeValidationModel.routeRankKey(candidate, validation) → [fail, warn, durationS]`
+
+Seçimi **YAPAN** (`pickBestRoute`) ile seçimi **AÇIKLAYAN**
+(`routeRationaleModel`) aynı anahtarı okumak zorundadır. İki kopya olsaydı biri
+değiştiğinde diğeri sessizce **yanlış gerekçe** üretirdi — açıklama, gerçeğin
+ikinci bir otoritesine dönüşürdü. `pickBestRoute` davranışı **DEĞİŞMEDİ**
+(anahtar birebir aynı; `navigationCoreModels.test.ts` mevcut kilitleriyle
+doğrulandı).
+
+---
+
+## F7.3 GEREKÇE MODELİ — `navigation/core/routeRationaleModel.ts`
+
+**Etken sözlüğü GERÇEK karar fonksiyonundan türetildi**, v2 §5.5'in araç-maliyet
+sözlüğünden (`VEHICLE_THERMAL` · `VEHICLE_RANGE` · `DRIVER_PREF`) DEĞİL — o
+değerler çarpan motoru gerektirir ve **kaynağı olmayan etken uydurulmaz**:
+
+| Etken | Anlamı |
+|-------|--------|
+| `ONLY_OPTION` | kabul edilen tek aday — takas YAPILMADI |
+| `VALIDATION_FAIL` | daha az ağır kusur belirledi |
+| `VALIDATION_WARN` | kusur eşit, daha az uyarı belirledi |
+| `DURATION` | kusur+uyarı eşit, daha kısa süre belirledi |
+| `TIE_PROVIDER_ORDER` | üçü de eşit → sağlayıcı sırası (tercih DEĞİL) |
+| `USER_SELECTED` | aktif rotayı **kullanıcı** seçti — sistem kararı değil |
+| `NO_CANDIDATE` | hiçbir aday kabul edilmedi (rota YOK) |
+| `UNKNOWN` | seçim anahtarla **açıklanamadı** — bir kusur bildirimi |
+
+**F7'nin asıl sayısı — `durationPenaltyS`:** seçilen rota, KABUL EDİLEN en hızlı
+adaydan kaç saniye daha uzun sürüyor. `0` = takas yok. Ölçülemezse `null`
+(**sahte 0 yok**). Bu sayı olmadan *"doğrulama kapısı sürücüye ne ödetti?"*
+sorusu cevaplanamaz.
+
+**AÇIKLAYICI KARAR VERMEZ (pazarlıksız):**
+- Rotayı `pickBestRoute` seçer ve öyle KALIR; buradan hiçbir değer karara
+  geri BESLENMEZ.
+- Seçim, anahtarın ima ettiğiyle çelişiyorsa hüküm **`UNKNOWN`**tır —
+  uydurma açıklama üretilmez (fail-closed). Karar fonksiyonu değişip
+  açıklayıcı ona bağlanmazsa bu, **sessiz yalan yerine görünür bir arıza**
+  olarak çıkar.
+- Reddedilmiş bir aday "seçilmiş" gösterilirse yine `UNKNOWN`.
+
+**GİZLİLİK:** gerekçe **hiçbir koordinat/geometri/hedef/adres taşımaz** —
+yalnız sayılar ve denetim kimlikleri. Kilitle yapısal olarak denetlenir.
+
+**Defter:** bounded (`ROUTE_RATIONALE_MAX_RECORDS = 8`), `routeProviderLedger`
+deseniyle birebir aynı; sayaçlar: toplam karar · sağlayıcının ilk rotasının
+kaç kez reddedildiği · en büyük süre takası · etken dağılımı.
+
+---
+
+## F7.4 BAĞLAMA — dört karar noktası, hepsi SALT KAYIT
+
+| Nokta | Kayıt | Not |
+|-------|-------|-----|
+| Uzak OSRM — seçim yapıldı | `buildRouteRationale(cands, picked.index, 'REMOTE_OSRM')` | tek gerçek seçim noktası |
+| Uzak OSRM — tüm adaylar düştü | `buildRouteRationale(cands, null, …)` | "hiçbiri seçilmedi" de bir karardır |
+| Yerel daemon | `buildSingleCandidateRationale(…, 'LOCAL_DAEMON')` | alternatif üretmez → `ONLY_OPTION` |
+| Çevrimdışı graf | `buildSingleCandidateRationale(…, 'OFFLINE_GRAPH')` | aynı |
+| Kullanıcı alternatif seçti | `asUserSelectedRationale(son, index)` | sistem kararı gibi SUNULMAZ |
+
+Tüm kayıtlar `_noteRationale(() => …)` **fail-soft** sarmalayıcısındadır:
+gerekçe kaydındaki bir hata rota akışını ASLA düşüremez.
+
+---
+
+## F7.5 CAROS LAB — YENİ EKRAN AÇILMADI
+
+Mevcut **Navigation Core → 6 · Doğrulama** kartı dört satırla genişletildi:
+`Neden bu rota` (etken + sağlayıcı + aday) · `Aday havuzu` (kabul/red) ·
+`Süre takası` (**DERIVED**; ölçülemezse `ölçülemedi`, sıfırsa `takas yok`) ·
+`Karar defteri` (toplam karar · ilk rota reddi · en büyük takas).
+
+Hiç karar kaydedilmemişken satır **`ölçülmedi`** der — sahte "tek seçenek"
+üretilmez. LAB **salt-okunur**dur: kaynak katmanı deftere YAZMAZ (kilit R8).
+
+---
+
+## F7.6 EKLENEN KİLİTLER
+
+`navV3RouteRationaleF7.test.ts` — **30 kilit** (5 bölüm):
+
+| Bölüm | Kapsam |
+|-------|--------|
+| F7.1 | saf açıklayıcı: 8 etkenin her biri · süre takası · sahte 0 yasağı · bozuk girdi · **gizlilik** (yapısal alan taraması) |
+| F7.2 | **kararla tutarlılık**: 324 deterministik senaryoda `pickBestRoute` sonucu HİÇ `UNKNOWN` üretmez · anahtar tek kaynak |
+| F7.3 | kullanıcı tercihi sistem kararı gibi sunulmaz · önceki gerekçe yoksa uydurma liste yok |
+| F7.4 | bounded defter · ilk-rota-reddi sayacı · en büyük takas · sözlük ↔ etiket birebir |
+| F7.5 | **R1–R8** mimari kilitler |
+
+| Kilit | Ne korur |
+|-------|----------|
+| R1 | gerekçe modeli SAF (I/O · timer · saat · React · ağ yok) |
+| R2 | `routeRankKey` TEK tanımlı; gerekçe kendi anahtarını KURMAZ |
+| R3 | gerekçe üretim kararına GERİ BESLENMEZ (yalnız `_noteRationale` içinde; hiçbir `if` koşulunda okunmaz) |
+| R4 | gerekçe için yeni timer/abonelik YOK |
+| R5 | koordinat/hedef/adres gerekçeye SIZMAZ |
+| R6 | LAB yeni EKRAN açmadı — alanlar mevcut Doğrulama kartında |
+| R7 | üretim otoritesi DEĞİŞMEDİ: seçici hâlâ `pickBestRoute` |
+| R8 | LAB salt-okunur — defteri kirletmez |
+
+**Kilidin kör olmadığının kanıtı:** F7.2'deki 324 senaryonun hepsi gerçekten
+üretilir; küme hem gerçek seçim (>200) hem "hiç aday kalmadı" hâlini içerir
+(`failCount = 3` → `REJECTED`). Boş küme üzerinden "geçen" bir iddia yoktur.
+
+---
+
+## F7.7 KORUNAN ÜRETİM OTORİTELERİ
+
+| Karar | Sahibi (F7 sonrası — DEĞİŞMEDİ) |
+|-------|--------------------------------|
+| Aday seçimi | `routeValidationModel.pickBestRoute` |
+| Sağlayıcı merdiveni | `routingService` (yerel daemon **KALDIRILMADI**) |
+| Rota doğrulama hükmü | `routeValidationModel.validateRoute` |
+| Sapma/reroute | `offRouteModel` + `routingService` |
+| Denetim uyarısı | **LEGACY** `guardianRuntime` (CEH hâlâ SHADOW) |
+| Cutover kapısı | **KAPALI** (`CEH_CUTOVER_DEFAULT_OPEN === false`) |
+
+---
+
+## F7.8 KALAN BİLİNÇLİ BORÇLAR
+
+| # | Borç | Neden F7'de kapanmadı | Ne zaman |
+|---|------|------------------------|----------|
+| G1 | Maliyet modeli / `CostContext` / araç-farkında çarpanlar | tüketicisi yok + rota çıktısını değiştirir (saha) | F8 (saha sonrası) |
+| G2 | Hiyerarşik A* / CCH | v2 §12/F6: **tetikleyici eşikle** açılır (`p95 > 3 s` ölçülürse) — ölçüm saha işi | tetikleyici |
+| G3 | Yerel daemon kaldırma (ADR-N02) | FIELD FIREWALL: legacy sağlayıcı kaldırma yasak | saha sonrası |
+| G4 | v2 §5.3 "çevrimiçi sonuç aktif rotayı sessizce değiştiremez" kapısı | bugün otomatik değiştirme YOK gibi görünüyor ama **kanıtlanmadı**; kapsam dışı tutuldu | F8 (önce ölçüm) |
+| G5 | v2 §5.4 kapsam/ego-mod reroute kapıları | v2'deki `OFF_NETWORK` **harita ağı**, repodaki **aktif rota koridoru** — semantik farklı; körlemesine uygulamak yanlış olurdu | F8 (önce semantik hizalama) |
+| G6 | `guardianAlertRanker.validUntil` (F5/F4 borcu) | parite kanıtı yok; L6 işi | F8+ |
+| G7 | Bu belgeye **F5 bölümü yazılmadı** (F6'dan devrediyor) | ayrı belge turu | ayrı |
+| G8 | F1–F4 borçları (B1·B3·B5·B6·B8·C4·C5·E3·E6) | devrediyor | F8+ |
+
+---
+
+## F7.9 F7 ÇIKIŞ DURUMU
+
+| Ölçüt | Durum |
+|-------|-------|
+| Her kabul edilen rota gerekçe taşıyor | ✅ dört karar noktası bağlı |
+| Süre takası ölçülüyor | ✅ `durationPenaltyS` (sahte 0 yok) |
+| Gerekçe kararı yeniden ÜRETMİYOR | ✅ R3 + `UNKNOWN` fail-closed |
+| Sıralama anahtarı tek otorite | ✅ R2 |
+| Kullanıcı tercihi ayrı işaretleniyor | ✅ `USER_SELECTED` |
+| Gizlilik (koordinat/hedef sızmıyor) | ✅ R5 + yapısal alan taraması |
+| Gözlem yüzeyi (LAB) | ✅ kart 6 genişletildi — **yeni ekran AÇILMADI** |
+| Üretim otoritesi değişti mi | ✅ **hayır** (R7 · rota davranışı aynı) |
+| **Saha doğrulaması** | 🔴 **YOK** — kütük #1269–#1272 |
+
+**Doğrulama (2026-09-04):** `tsc -b --force` PASS · değişen 7 dosyada lint PASS ·
+nav F0–F7 **456 PASS** · LAB/rota/oturum/Guardian paketleri **276 PASS** ·
+regresyon kasası **981 PASS**. Full suite · production build · native build
+**KOŞULMADI**.
+
+**Hüküm: `F7 CODE PASS` — `IMPLEMENTATION COMPLETE / QA REQUIRED`.**
+**`F7 FIELD = NOT EXECUTED`** — araç yoktu; hiçbir saha maddesi 🟢 yapılmadı.
+
+### F8'e gerçek blocker
+
+1. **F4/F5/F6 saha kampanyası (#1232–#1268)** — hâlâ tek gerçek blocker.
+   CEH cutover, maliyet modeli bağlama ve daemon kaldırma bunun ARDINDAN gelir.
+2. **G4/G5 önce ÖLÇÜLMELİ:** v2 §5.3/§5.4 kapıları repoya körlemesine
+   uygulanamaz — `OFF_NETWORK` semantiği v2 ile repoda AYNI DEĞİL. Önce
+   semantik hizalama kanıtı, sonra kapı.
+3. **G2 tetikleyicisi ölçülmedi:** hiyerarşik yönlendirici ancak onboard rota
+   `p95 > 3 s` **gerçek cihazda** ölçülürse açılır (v2 §12/F6).

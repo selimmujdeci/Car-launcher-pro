@@ -15,6 +15,7 @@ import {
 import type { NavigationCoreRawSnapshot } from './navigationCoreSources';
 import { OFF_ROUTE_STATE_LABEL } from '../navigation/core/offRouteModel';
 import { ROUTE_VERDICT_LABEL } from '../navigation/core/routeValidationModel';
+import { ROUTE_DECIDING_FACTOR_LABEL } from '../navigation/core/routeRationaleModel';
 import { ROUTE_COLOR_REASON_LABEL } from '../map/core/routeColorModel';
 import {
   PROVIDER_READINESS_LABEL, ROUTE_SOURCE_LABEL,
@@ -175,6 +176,8 @@ const _n  = (v: number | null): string => (v == null ? '—' : String(v));
 
 /** P0-NAV-10 rota sağlayıcı sicili kaynağı — kart ile alan denetimi aynı etiketi kullanır. */
 const SRC_ROUTE_LEDGER = 'routeProviderLedger.getRouteProviderLedger';
+/** NAV v3 · F7 rota gerekçesi — kart ile alan denetimi aynı etiketi kullanır. */
+const SRC_ROUTE_RATIONALE = 'routeRationaleModel.getRouteRationaleLedger';
 /** P0-NAV-11 geometri kanıtı kaynağı. */
 const SRC_GEOMETRY = 'routeGeometryModel.getCommittedGeometry';
 /** P0-NAV-12 ilerleme defteri kaynağı. */
@@ -494,6 +497,7 @@ export function buildNavigationCoreCards(s: NavigationCoreRawSnapshot): readonly
 
   /* 6 · Doğrulama */
   const vFields: InspectorField[] = [];
+
   if (s.validationVerdict == null) {
     vFields.push(unavailable({ id: 'rv-verdict', label: 'Rota hükmü', source: 'routeValidationModel',
       note: s.straightLineActive
@@ -564,6 +568,59 @@ export function buildNavigationCoreCards(s: NavigationCoreRawSnapshot): readonly
       : observed({ id: 'gm-rejected-checks', label: 'Son reddin düşen denetimleri', source: SRC_GEOMETRY,
           note: '', updatedAt: null }, 'red yok'),
   );
+
+  /* ── F7 · "NEDEN BU ROTA?" ───────────────────────────────────────────────
+   * Bu satırlar bir KARAR ÜRETMEZ; `pickBestRoute`un ZATEN aldığı kararı
+   * okunur kılar. Sıralama anahtarı `[kusur, uyarı, süre]` olduğu için süre
+   * ÜÇÜNCÜ ölçüttür: bir uyarısı az olan aday çok daha yavaş olsa bile
+   * kazanabilir. `Süre takası` tam olarak o bedeli gösterir.
+   * GİZLİLİK: koordinat/hedef/geometri YOK — yalnız sayı ve denetim kimliği. */
+  const _ra = s.routeRationale ?? null;
+  const _raLast = _ra?.last ?? null;
+  if (_ra === null) {
+    vFields.push(unavailable({ id: 'rr-why', label: 'Neden bu rota', source: SRC_ROUTE_RATIONALE,
+      note: 'Gerekçe defteri okunamadı.', updatedAt: null }, 'okunamadı'));
+  } else if (_raLast === null) {
+    vFields.push(unavailable({ id: 'rr-why', label: 'Neden bu rota', source: SRC_ROUTE_RATIONALE,
+      note: 'Bu oturumda hiç rota kararı kaydedilmedi — sahte "tek seçenek" ÜRETİLMEZ.',
+      updatedAt: null }, 'ölçülmedi'));
+  } else {
+    vFields.push(observed({ id: 'rr-why', label: 'Neden bu rota', source: SRC_ROUTE_RATIONALE,
+      note: 'Kararı `pickBestRoute` verir; bu satır yalnız onu AÇIKLAR. '
+        + '"açıklanamadı" bir kusur bildirimidir: seçim sıralama anahtarıyla uyuşmuyor.',
+      updatedAt: null },
+      ROUTE_DECIDING_FACTOR_LABEL[_raLast.decidingFactor]
+        + ' · ' + _raLast.provider
+        + (_raLast.chosenIdx === null ? ' · aday seçilmedi' : ` · aday #${_raLast.chosenIdx}`)));
+
+    vFields.push(observed({ id: 'rr-cands', label: 'Aday havuzu', source: SRC_ROUTE_RATIONALE,
+      note: 'Sağlayıcıdan gelen ana rota + alternatifler. Reddedilenler aktif rota OLAMAZ.',
+      updatedAt: null },
+      `${_raLast.candidates.length} aday · kabul ${_raLast.acceptedCount} · reddedilen ${_raLast.rejectedCount}`));
+
+    vFields.push(_raLast.durationPenaltyS === null
+      ? unavailable({ id: 'rr-penalty', label: 'Süre takası', source: SRC_ROUTE_RATIONALE,
+          note: 'Adayların süresi ölçülemedi — sahte 0 gösterilmez.', updatedAt: null },
+          'ölçülemedi')
+      : derived({ id: 'rr-penalty', label: 'Süre takası', source: SRC_ROUTE_RATIONALE,
+          note: 'Seçilen rota, KABUL EDİLEN en hızlı adaydan ne kadar uzun sürüyor. '
+            + '0 = takas yok. Büyük bir sayı, doğrulama kapısının sürücüye ödettiği bedeldir.',
+          updatedAt: null },
+          _raLast.durationPenaltyS === 0
+            ? 'takas yok (0 sn)'
+            : `${_ms(_raLast.durationPenaltyS * 1000)}`
+              + (_raLast.durationPenaltyRatio === null ? ''
+                : ` · %${Math.round(_raLast.durationPenaltyRatio * 100)}`)));
+
+    vFields.push(derived({ id: 'rr-ledger', label: 'Karar defteri', source: SRC_ROUTE_RATIONALE,
+      note: 'Sağlayıcının İLK rotasının kaç kez reddedildiği, doğrulama kapısının '
+        + 'sahada NE SIKLIKLA devreye girdiğini gösterir.',
+      updatedAt: null },
+      `${_ra.decisions} karar · ilk rota reddi ${_ra.overrodeProviderFirst}`
+        + (_ra.maxDurationPenaltyS === null ? ''
+          : ` · en büyük takas ${_ms(_ra.maxDurationPenaltyS * 1000)}`)));
+  }
+
 
   cards.push({ id: 'validation', title: NAV_CORE_CARD_TITLE.validation, fields: vFields });
 

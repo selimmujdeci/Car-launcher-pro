@@ -28,6 +28,12 @@ import {
   matchToRoute, CORRIDOR_BASE_M, CORRIDOR_ACC_CAP_M,
   type MapMatchFix, type MapMatchSample,
 } from './navigation/core/mapMatchModel';
+/* NAV v3 · F7 — "neden bu rota?" hesap verebilirliği. SALT KAYIT: seçimi
+   `pickBestRoute` yapar ve öyle KALIR; buradan hiçbir değer karara dönmez. */
+import {
+  buildRouteRationale, buildSingleCandidateRationale, asUserSelectedRationale,
+  recordRouteRationale, getRouteRationaleLedger,
+} from './navigation/core/routeRationaleModel';
 import {
   initialOffRoute, stepOffRoute, markRerouting, markRouteCommitted,
   ACTIONABLE_ACCURACY_M,
@@ -804,8 +810,26 @@ let _allRoutes: _StoredRoute[] = [];
  * Seçilen rota ana (thick) çizgi olur; geri kalanlar alternatif (muted) olarak
  * haritaya yeniden çizilir ve altRealIndices güncellenir (harita tap için).
  */
+/**
+ * Gerekçeyi deftere yazar. **Fail-soft:** gerekçe kaydı bir rota akışını ASLA
+ * düşüremez — hesap verebilirlik, rotanın kendisinden sonra gelir.
+ */
+function _noteRationale(build: () => ReturnType<typeof buildRouteRationale>): void {
+  try {
+    recordRouteRationale(build());
+  } catch {
+    /* yutulur: gözlem katmanı üretim yolunu bozamaz */
+  }
+}
+
 export function selectAltRoute(index: number): void {
   if (index < 0 || index >= _allRoutes.length) return;
+  /* F7: aktif rota artık bir SİSTEM kararı değil, KULLANICI tercihidir —
+     gerekçe bunu açıkça söyler, sistem kendi seçimiymiş gibi göstermez.
+     `_allRoutes` seçileni BAŞA aldığı için kullanıcının gördüğü indeks ile
+     gerekçedeki aday indeksi AYNI DEĞİLDİR; bu yüzden defterdeki son
+     gerekçenin aday listesi üzerinden yeniden ifade edilir. */
+  _noteRationale(() => asUserSelectedRationale(getRouteRationaleLedger().last, index));
   const picked       = _allRoutes[index];
   const otherIndices = _allRoutes.map((_, i) => i).filter(i => i !== index);
   const otherRoutes  = otherIndices.map(i => _allRoutes[i]);
@@ -1059,6 +1083,8 @@ export async function fetchRoute(
         console.warn('[ROUTE] Layer 0 rotası doğrulama kapısından geçemedi — sonraki katman', v.checks.filter(c => c.status === 'FAIL'));
       } else {
         await _waitForStyleReady();
+        /* F7: bu katman alternatif ÜRETMEZ → takas yok, `ONLY_OPTION`. */
+        _noteRationale(() => buildSingleCandidateRationale(cand, v, 'LOCAL_DAEMON'));
         const ok = _commitRoute(reqId, {
           loading: false, error: null,
           steps: daemonResult.steps,
@@ -1115,6 +1141,9 @@ export async function fetchRoute(
         const picked = pickBestRoute(cands);
         if (!picked) {
           recordInvalidRejected(reqId);
+          /* F7: "hiçbiri seçilmedi" de bir karardır ve kaydı tutulur —
+             sessizce sonraki sunucuya geçmek gerekçeyi kaybettiriyordu. */
+          _noteRationale(() => buildRouteRationale(cands, null, 'REMOTE_OSRM'));
           _note('REMOTE_OSRM', 'VALIDATION_REJECTED', server, _t0Server,
             cands.length, cands.length);
           /* HER aday ayrı kanıt bırakır: hangisinin hangi denetimden düştüğü
@@ -1132,6 +1161,9 @@ export async function fetchRoute(
         if (picked.index !== 0) {
           console.warn(`[ROUTE] doğrulama kapısı sağlayıcının ilk rotasını REDDETTİ → alternatif #${picked.index} seçildi`);
         }
+        /* F7: seçim BURADA yapıldı; gerekçesi burada kaydedilir. Süre takası
+           (`durationPenaltyS`) bu satır olmadan hiçbir yerde görünmüyordu. */
+        _noteRationale(() => buildRouteRationale(cands, picked.index, 'REMOTE_OSRM'));
 
         await _waitForStyleReady(); // stil yenileniyorsa layer hazır olana kadar bekle
 
@@ -1222,6 +1254,10 @@ export async function fetchRoute(
           v.checks.filter((c) => c.status === 'FAIL').map((c) => c.id));
         console.warn('[ROUTE] Layer 3 rotası doğrulama kapısından geçemedi — düz hata düşülüyor');
       } else {
+        /* F7: çevrimdışı graf da tek aday üretir — seçim yok, takas yok. */
+        _noteRationale(() => buildSingleCandidateRationale(
+          _toCandidate(offlineResult.geometry, offlineResult.distanceM,
+            offlineResult.durationS, offlineSteps), v, 'OFFLINE_GRAPH'));
         const ok = _commitRoute(reqId, {
           loading: false, error: null,
           steps: offlineSteps,

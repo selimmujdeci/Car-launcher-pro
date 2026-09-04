@@ -140,6 +140,8 @@ import { getOfflineRoutingStatus, type OfflineRoutingStatus } from '../navigatio
 import type { MapMatchState, MapMatchReason } from '../navigation/core/mapMatchModel';
 import type { OffRouteState, OffRouteReason } from '../navigation/core/offRouteModel';
 import type { RouteVerdict, RouteCheck } from '../navigation/core/routeValidationModel';
+import type { RouteRationaleLedgerSnapshot } from '../navigation/core/routeRationaleModel';
+import { getRouteRationaleLedger } from '../navigation/core/routeRationaleModel';
 import type { AnchorMethod } from '../navigation/core/maneuverIndexModel';
 import type { ManeuverDistanceSource } from '../routingService';
 import {
@@ -273,6 +275,8 @@ export interface NavigationCoreRawSnapshot {
   /* ── Doğrulama ─────────────────────────────────────────────────────────── */
   readonly validationVerdict: RouteVerdict | null;
   readonly validationChecks: readonly RouteCheck[];
+  /** NAV v3 · F7 — "neden bu rota?" defteri. Okunamazsa `null` (ölçülmedi). */
+  readonly routeRationale: RouteRationaleLedgerSnapshot | null;
 
   /* ── İstek yaşam döngüsü ───────────────────────────────────────────────── */
   readonly requests: RouteRequestSnapshot;
@@ -821,6 +825,8 @@ export function readNavigationCoreSnapshot(): NavigationCoreRawSnapshot {
 
     validationVerdict: route?.validation?.verdict ?? null,
     validationChecks:  route?.validation?.checks ?? [],
+    /* F7 — salt okuma; defteri KİRLETMEZ (yalnız anlık görüntü). */
+    routeRationale:    _safe(() => getRouteRationaleLedger(), null),
 
     requests:      _safe(() => getRouteRequestSnapshot(), {
       currentId: 0, current: null, history: [], committedCount: 0,

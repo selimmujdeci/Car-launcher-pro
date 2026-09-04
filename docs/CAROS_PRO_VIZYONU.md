@@ -2476,6 +2476,68 @@ DOĞRULANDI 6 · SAHADA DOĞRULANDI 1 · **ÜRÜN HAZIR: 1**
     adedi…) orada zaten görünür. Açık ekranın kendi YENİLE tuşu artık **taze
     önbelleği** okur.
 
+- **NAV-V3-F7 · Navigasyon v3 — L4 rota: "neden bu rota?" hesap verebilirliği (2026-09-04):**
+  Durum: **ENTEGRE (rota seçimi artık gerekçe taşıyor)** — saha kanıtı YOK,
+  **ÜRÜN HAZIR: HAYIR**. Kütük: 🔴 **#1269** (gerekçe kayıtlı) · 🔴 **#1270**
+  (doğrulama kapısının ödettiği süre) · 🔴 **#1271** ("açıklanamadı" sahada
+  görülmemeli) · 🔴 **#1272** (kullanıcı tercihi ayrı işaretleniyor).
+  Belge: `docs/NAVIGATION_ARCHITECTURE_SPEC_v3.md` → **§F7**.
+
+  **ÖNCE BİR DÜZELTME (kanıtla):** v3 belgesinde **F7 diye tanımlanmış bir faz
+  YOKTU** — "F7" yalnız borç tablolarında geçiyordu. Kanonik faz planı
+  `NAVIGATION_ARCHITECTURE_SPEC_v2.md` §12'dedir ve farklı numaralandırır
+  (v2/F4 = ROTA). v3, v2/F3'ü (CEH) üç turda karşıladı (F3 · F4 · F6) ve araya
+  bir güvenlik fazı ekledi (F5 gölge). Katman planında sıradaki faz **L4 —
+  ROTA**'dır; F7 bu kapsamla ilk kez tanımlandı.
+
+  **ÖLÇÜLEN KUSUR:** `routingService` sağlayıcıdan `alternatives=3` istiyor,
+  hepsini doğruluyor ve `pickBestRoute` birini AKTİF ROTA yapıyordu — ama
+  seçim hiçbir yapısal iz bırakmıyordu (yalnız bir `console.warn`). Sıralama
+  anahtarı `[failCount, warnCount, durationS]` olduğu için **süre ÜÇÜNCÜ
+  ölçüttür**: bir uyarısı az olan aday çok daha yavaş olsa bile kazanır. Yani
+  sistem sürücü adına bir takas yapıyor ve *"neden?"* sorusunun cevabı yoktu.
+
+  **YAPILAN:** saf `routeRationaleModel` — adaylar · seçilen · belirleyici
+  etken · **süre takası** (`durationPenaltyS`: seçilen rota, KABUL EDİLEN en
+  hızlı adaydan kaç sn uzun; ölçülemezse `null`, sahte 0 YOK). Sıralama anahtarı
+  tek otoriteye çıkarıldı (`routeRankKey`) — seçimi YAPAN ile AÇIKLAYAN
+  ayrışırsa açıklama gerçeğin ikinci otoritesi olurdu. Etken sözlüğü **gerçek
+  karar fonksiyonundan** türetildi (`ONLY_OPTION · VALIDATION_FAIL ·
+  VALIDATION_WARN · DURATION · TIE_PROVIDER_ORDER · USER_SELECTED ·
+  NO_CANDIDATE · UNKNOWN`), v2 §5.5'in araç-maliyet sözlüğünden DEĞİL — çarpan
+  motoru bu binary'de yok, **kaynağı olmayan etken uydurulmaz**.
+
+  **AÇIKLAYICI KARAR VERMEZ (pazarlıksız):** rotayı `pickBestRoute` seçer ve
+  öyle KALIR; gerekçe hiçbir koşulda okunmaz (kilit R3/R7). Seçim anahtarla
+  çelişirse hüküm `UNKNOWN`tır — uydurma açıklama yerine **görünür arıza**.
+
+  **Bilinçli olarak KAPSAM DIŞI (gerekçeli):** maliyet modeli / `CostContext` /
+  araç-farkında çarpanlar **EKLENMEDİ** — tüketicisi yok (A* ham metre üzerinden
+  arıyor), bağlamak rota çıktısını değiştirirdi (araç yok → doğrulanamaz) ve
+  çarpanların kanıt kaynağı olmadığı için hepsi 1.0 olurdu. F5'in çok adımlı ağ
+  mesafesini ertelediği gerekçenin aynısı. Ayrıca: hiyerarşik A* (tetikleyici
+  eşikle açılır) · yerel daemon kaldırma (FIELD FIREWALL: legacy sağlayıcı
+  kaldırma yasak) · reroute FSM davranışı · CEH cutover · hız limiti/viraj/eğim.
+
+  **Üretim otoritesi (değişmedi):** aday seçimi → `pickBestRoute` · sağlayıcı
+  merdiveni → `routingService` (yerel daemon KALDIRILMADI) · denetim uyarısı →
+  LEGACY `guardianRuntime` · cutover kapısı **KAPALI**. Rota davranışı
+  DEĞİŞMEDİ; F7 yalnız KAYIT ekledi.
+
+  **LAB:** yeni ekran AÇILMADI — mevcut Navigation Core → **6 · Doğrulama**
+  kartı dört satırla genişletildi (`Neden bu rota` · `Aday havuzu` ·
+  `Süre takası` · `Karar defteri`). Hiç karar yokken satır **`ölçülmedi`** der.
+
+  **Doğrulama:** `tsc -b --force` PASS · değişen 7 dosyada lint PASS ·
+  nav F0–F7 **456 PASS** (F7 dosyası **30 kilit**, R1–R8 mimari kilitler dâhil) ·
+  LAB/rota/oturum/Guardian **276 PASS** · regresyon kasası **981 PASS**.
+  Full suite / production build / native build KOŞULMADI.
+  Hüküm: **`F7 CODE PASS` — `IMPLEMENTATION COMPLETE / QA REQUIRED`.**
+  **`F7 FIELD = NOT EXECUTED`** — araç yoktu, hiçbir saha maddesi 🟢 yapılmadı.
+  ⚠️ **F8 blocker'ı:** F4/F5/F6 saha kampanyası (#1232–#1268) hâlâ tek gerçek
+  engeldir; maliyet modeli bağlama, CEH cutover ve daemon kaldırma onun
+  ARDINDAN gelir.
+
 - **NAV-V3-F6 · Navigasyon v3 — sınırlı topoloji koridoru + kenar-tabanlı denetim noktası (2026-09-04):**
   Durum: **ENTEGRE (CEH artık gerçek bir enforcement ahead nesnesi üretiyor)** —
   saha kanıtı YOK, **ÜRÜN HAZIR: HAYIR**. Kütük: 🔴 **#1261** (bounded koridor) ·

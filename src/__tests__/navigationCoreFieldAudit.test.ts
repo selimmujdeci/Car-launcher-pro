@@ -63,6 +63,32 @@ function full(over: Partial<NavigationCoreRawSnapshot> = {}): NavigationCoreRawS
     anchorMethodCounts: { CONCATENATION: 14, NEAREST: 0, UNRESOLVED: 0 },
     validationVerdict: 'VALID',
     validationChecks: [{ id: 'ORIGIN_PROXIMITY', status: 'PASS', detail: '4 m' }],
+    /* NAV v3 · F7 — gerçek bir seçim turu: iki aday, biri kusurdan düştü. */
+    routeRationale: {
+      last: {
+        chosenIdx: 1,
+        candidates: [
+          { index: 0, distanceM: 12_000, durationS: 900, verdict: 'DEGRADED',
+            failCount: 1, warnCount: 0, failedCheckIds: ['DEST_PROXIMITY'], accepted: true },
+          { index: 1, distanceM: 13_400, durationS: 980, verdict: 'VALID',
+            failCount: 0, warnCount: 1, failedCheckIds: [], accepted: true },
+        ],
+        decidingFactor: 'VALIDATION_FAIL',
+        durationPenaltyS: 80,
+        durationPenaltyRatio: 80 / 900,
+        acceptedCount: 2,
+        rejectedCount: 0,
+        provider: 'REMOTE_OSRM',
+      },
+      recent: [],
+      decisions: 4,
+      overrodeProviderFirst: 1,
+      maxDurationPenaltyS: 80,
+      factorCounts: {
+        ONLY_OPTION: 2, VALIDATION_FAIL: 1, VALIDATION_WARN: 0, DURATION: 1,
+        TIE_PROVIDER_ORDER: 0, USER_SELECTED: 0, NO_CANDIDATE: 0, UNKNOWN: 0,
+      },
+    },
     requests: {
       currentId: 3,
       current: { id: 3, kind: 'REROUTE', startedAtMs: 1000, respondedAtMs: 1700,
@@ -406,6 +432,7 @@ const SRC_GRAPH_AUDIT  = 'map/graph/graphResidencyRuntime.getSnapshot';
 const SRC_SHADOW_AUDIT = 'shadow/cehShadowRuntime.getSnapshot';
 /** NAV v3 · F6 — sınırlı koridor + kenar-tabanlı denetim noktası. */
 const SRC_ENFORCEMENT_AUDIT = 'enforcementHorizonPort.getSnapshot';
+const SRC_ROUTE_RATIONALE = 'routeRationaleModel.getRouteRationaleLedger';
 
 const REGISTRY: Record<string, Reg> = {
   /* 1 · Durum */
@@ -454,6 +481,11 @@ const REGISTRY: Record<string, Reg> = {
   'rq-lat-instr':  { source: 'routeRequestLedger', key: 'requests.latency.detectToFirstInstructionMs', stamp: 'NONE' },
   /* 6 · Doğrulama */
   'rv-verdict': { source: 'routeValidationModel', key: 'validationVerdict', stamp: 'NONE' },
+  /* 6b · F7 — "neden bu rota?" */
+  'rr-why':     { source: SRC_ROUTE_RATIONALE, key: 'routeRationale.last.decidingFactor', stamp: 'NONE' },
+  'rr-cands':   { source: SRC_ROUTE_RATIONALE, key: 'routeRationale.last.candidates',     stamp: 'NONE' },
+  'rr-penalty': { source: SRC_ROUTE_RATIONALE, key: 'routeRationale.last.durationPenaltyS', stamp: 'NONE' },
+  'rr-ledger':  { source: SRC_ROUTE_RATIONALE, key: 'routeRationale.decisions',           stamp: 'NONE' },
   /* 7 · Manevra — yola boyanmış ok dahil */
   'pa-state':   { source: 'paintedArrowAccess', key: 'paintedArrow.visible',       stamp: 'NONE' },
   'pa-reason':  { source: 'paintedArrowAccess', key: 'paintedArrow.reason',        stamp: 'NONE' },
