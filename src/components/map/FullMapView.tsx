@@ -59,9 +59,11 @@ import {
 import { buildPaintedArrow } from '../../platform/map/core/paintedArrowModel';
 import { useVisionStore } from '../../platform/visionStore';
 import {
-  CameraFollowState,
+  /* F0-B8: `CameraFollowState` ve `getCameraFollowState` ARTIK GEREKMİYOR —
+     görünüm takip durumunu okuyup KARAR VERMİYOR; yalnız gözlem bildiriyor. */
+  CAMERA_STALL_RECOVERY_MS,
   canDriveCamera,
-  getCameraFollowState,
+  noteCameraStalled,
   subscribeCameraFollow,
   setCameraNavActive,
   notifyUserPanStart,
@@ -1020,16 +1022,15 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
       // toparlanır — "harita sabit, araç ekrandan çıkıyor" sürücü müdahalesiz düzelir.
       const _navActiveWd = navStatusRef.current === NavStatus.ACTIVE ||
                            navStatusRef.current === NavStatus.REROUTING;
-      if (_navActiveWd && now - lastCameraUpdate > 8_000) {
+      if (_navActiveWd && now - lastCameraUpdate > CAMERA_STALL_RECOVERY_MS) {
         userInteractingRef.current = false;
-        /* Takılı bayrak kurtarması — AMA kullanıcı ŞU AN haritayı sürüklüyorsa
-         * (USER_PANNING) kamera ASLA geri alınmaz: görev kuralı "kullanıcı hâlâ
-         * haritayı incelerken camera geri alınmasın". Yalnız FOLLOWING'e takılı
-         * kalmış bir sapma düzeltilir. */
-        if (getCameraFollowState() !== CameraFollowState.USER_PANNING && !canDriveCamera()) {
-          beginRecenter('AUTO_TIMEOUT');
-          completeRecenter();
-        }
+        /* F0-B8: KARAR ARTIK BURADA DEĞİL. Görünüm yalnız kendi görebildiği
+         * GÖZLEMİ bildirir ("kamera N ms'dir hiç güncellenmedi"); takip iznini
+         * verip vermemeye kanonik otorite karar verir. Eskiden bu satırlar
+         * `beginRecenter`/`completeRecenter` çağırarak zaman aşımından kamera
+         * izni ÜRETİYORDU (`UNKNOWN` → `FOLLOWING` dâhil). Kurallar otoriteye
+         * BİREBİR taşındı; davranış değişmedi. */
+        noteCameraStalled();
         lastCameraUpdate = now - 1_000; // kamera yolu bir sonraki tick'te hemen çalışsın
       }
 

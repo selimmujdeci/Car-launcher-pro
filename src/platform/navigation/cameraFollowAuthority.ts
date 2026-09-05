@@ -58,6 +58,15 @@ export type RecenterReason =
  * Bu iki sayı UYDURULMADI: `FullMapView`'ın `scheduleAutoFollow` fonksiyonunda
  * zaten yürürlükteydi (`isNav ? 3_000 : 10_000`). Otorite taşınırken sözleşme
  * AYNEN korunmuştur; yeni bir süre icat edilmemiştir. */
+/**
+ * Kamera bu süre boyunca HİÇ güncellenmediyse "takıldı" sayılır (saha fix
+ * 2026-06-12: *"harita sabit, araç ekrandan çıkıyor"*). Sayı UYDURULMADI —
+ * `FullMapView`in watchdog'unda zaten yürürlükteydi; otorite devralınırken
+ * BİREBİR korunmuştur. Süreyi ÖLÇEN görünümdür (yalnız o görebilir), eşiği
+ * ve kararı sahiplenen BURASIDIR.
+ */
+export const CAMERA_STALL_RECOVERY_MS = 8_000;
+
 export const AUTO_FOLLOW_DELAY_NAV_MS  = 3_000;
 export const AUTO_FOLLOW_DELAY_IDLE_MS = 10_000;
 
@@ -168,6 +177,39 @@ export function notifyUserPanEnd(onAutoRecenter?: () => void): void {
     try { onAutoRecenter(); } catch { /* fail-soft */ }
     completeRecenter();
   }, delay);
+}
+
+/**
+ * Kameranın SAHADA TAKILDIĞI gözlemi — takılı bayrak kurtarması.
+ *
+ * ── NEDEN OTORİTEDE (F0-B8 · sunum runtime temizliği) ────────────────────
+ * Bu kurtarma `FullMapView`in rAF döngüsünde YAŞIYORDU ve orada üç şey
+ * yapıyordu: (a) kameranın kaç ms'dir güncellenmediğini ÖLÇÜYOR,
+ * (b) takip izninin verilip verilmeyeceğine KARAR VERİYOR, (c) `beginRecenter`
+ * + `completeRecenter` ile durumu DEĞİŞTİRİYORDU. (b) ve (c) bu otoritenin
+ * işidir; görünümde kalması **zaman aşımından kamera izni üretmek** demekti
+ * (özellikle `UNKNOWN` → `FOLLOWING`, yani fail-closed hükmün görünüm
+ * tarafından bozulması).
+ *
+ * Bölüşüm artık nettir: **ölçüm görünümde** (yalnız o kameranın gerçekten
+ * hareket edip etmediğini görebilir), **karar burada**.
+ *
+ * ── DAVRANIŞ DEĞİŞMEDİ ───────────────────────────────────────────────────
+ * Kurallar `FullMapView`den BİREBİR taşındı: kullanıcı ŞU AN sürüklüyorsa
+ * (`USER_PANNING`) kameraya ASLA dokunulmaz; zaten takip ediliyorsa yapılacak
+ * iş yoktur; yalnız `FOLLOW_SUSPENDED` · `RECENTERING` · `UNKNOWN` takılmışsa
+ * takibe dönülür.
+ *
+ * @returns Kurtarma UYGULANDI mı (gözlem/telemetri için).
+ */
+export function noteCameraStalled(): boolean {
+  /* Kullanıcı hâlâ haritayı inceliyorsa kamera ASLA geri alınmaz. */
+  if (_state === CameraFollowState.USER_PANNING) return false;
+  /* Zaten sürülebiliyorsa takılma yoktur — kurtarılacak bir şey yok. */
+  if (canDriveCamera()) return false;
+  beginRecenter('AUTO_TIMEOUT');
+  completeRecenter();
+  return true;
 }
 
 /**
