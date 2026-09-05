@@ -28,6 +28,9 @@ const M = vi.hoisted(() => ({
   startListening: vi.fn(),
   voicePaused: false,
   voiceStatus: 'idle' as string,
+  /** Takip döngüsü AÇIK mı (`isVoiceFollowUpEngaged` sahibi). Üretim
+      varsayılanı KAPALI — açıkken wake bilinçli olarak bastırılır. */
+  followUpEngaged: false,
   /** Asistan şu an konuşuyor mu (watchdog mikrofon takasını erteler). */
   ttsSpeaking: false,
   spoken: [] as { text: string; onEnd?: () => void }[],
@@ -46,6 +49,19 @@ vi.mock('../platform/voiceService', () => ({
   isVoicePaused: () => M.voicePaused,
   getVoiceSnapshot: () => ({ status: M.voiceStatus }),
   notifyWakeDetected: vi.fn(),
+  /* BAYAT MOCK DÜZELTMESİ (2026-09-05): `14afdcf3` (Mavi wake güvenilirlik
+     zinciri) `wakeWordService`e ÜÇ yeni `voiceService` importu ekledi
+     (`getVoiceSessionIds` · `subscribeVoiceState` · `isVoiceFollowUpEngaged`)
+     ama bu fabrika güncellenmedi. `vi.mock` fabrikası modülü TAMAMEN
+     değiştirdiği için eksik dışa aktarımlar `undefined` kalıyor ve
+     `isVoiceFollowUpEngaged()` çağrısı wake yolunu düşürüyordu → 13 test
+     kırmızı. Ürün kodu SAĞLAM; kusur yalnız test altyapısındaydı.
+     Varsayılanlar ÜRETİM DAVRANIŞINI YANSITIR: takip döngüsü KAPALI, oturum
+     kimliği yok, abonelik no-op (kilitler bunları senaryoya göre M üzerinden
+     değiştirebilir). */
+  isVoiceFollowUpEngaged: () => M.followUpEngaged,
+  getVoiceSessionIds: () => ({ sessionId: null, turnId: null }),
+  subscribeVoiceState: () => () => { /* abonelik yok — test tetikleri M üzerinden */ },
 }));
 vi.mock('../platform/ttsService', () => ({
   ttsSpeak: (text: string, opts?: { onEnd?: () => void }) => {
