@@ -197,6 +197,42 @@ export interface CameraPolicyDecision {
   readonly updateReason: string;
 }
 
+/* ══════════════════════════════════════════════════════════════════════════
+   SORUMLULUK SINIRI — `cameraFollowAuthority` İLE İLİŞKİ (kanıtlı sözleşme)
+   ══════════════════════════════════════════════════════════════════════════
+   İki sistem AYNI gerçeği iki kez ÜRETMEZ; FARKLI SORU sorarlar:
+
+   · `cameraFollowAuthority.canDriveCamera()` — **ÜRETİM OTORİTESİ**:
+     *"RUTİN bir GPS fix'i kamerayı sürebilir mi?"* Yalnız `FOLLOWING` iken
+     `true` (fail-closed). Üretim tüketicileri: `FullMapView` · `MiniMapWidget`.
+
+   · `decideCameraPolicy(...).cameraDriveAllowed` — **PROJEKSİYON**:
+     *"Kamera ŞU AN sistemin denetiminde mi (kullanıcının değil)?"*
+     Takip durumunu HESAPLAMAZ; `followState` GİRDİ olarak kanonik otoriteden
+     gelir (`cameraShadowRuntime._mapFollow` — "birebir eşleme, yeni durum YOK").
+
+   ── TEK GERÇEK FARK: `RECENTERING` ────────────────────────────────────────
+   Ortalama uygulanırken (`beginRecenter` → `enterNavigationView` →
+   `completeRecenter`, hepsi SENKRON) kamerayı ORTALAMA İŞLEMİ sürer:
+     · "sistem sürüyor mu?"        → EVET → `cameraDriveAllowed: true`
+     · "rutin fix sürebilir mi?"   → HAYIR → `canDriveCamera(): false`
+       (uçuştaki ortalama animasyonuyla yarışmamalı)
+   İkisi de DOĞRUdur. Bu fark BİLİNÇLİDİR ve aşağıdaki projeksiyonla
+   açıkça ifade edilir — gölge karşılaştırması artık elmayla elmayı ölçer.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * Politika kararının `canDriveCamera()` ile KARŞILAŞTIRILABİLİR izdüşümü:
+ * *"rutin bir GPS fix'i kamerayı sürebilir mi?"*
+ *
+ * **SAF.** Yeni otorite DEĞİLDİR — kararın zaten taşıdığı iki alanı
+ * (`cameraDriveAllowed` + `state`) tek soruya indirger. `RECENTERING`
+ * dışlanır: o pencerede kamerayı ortalama işlemi sürer, rutin fix DEĞİL.
+ */
+export function routineFixMayDriveCamera(decision: CameraPolicyDecision): boolean {
+  return decision.cameraDriveAllowed === true && decision.state !== 'RECENTERING';
+}
+
 /** Hız → bant (histerezisli). */
 export function resolveSpeedBand(speedKmh: number, prev: SpeedBand | null): SpeedBand {
   const v = Number.isFinite(speedKmh) && speedKmh > 0 ? speedKmh : 0;

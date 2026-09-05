@@ -22,6 +22,7 @@
 import type {
   CameraPolicyDecision, SpeedBand, ManeuverBand, CameraState,
 } from './cameraPolicyModel';
+import { routineFixMayDriveCamera } from './cameraPolicyModel';
 
 /** Legacy `setDrivingView`in GERÇEKTEN uyguladığı kamera çıktısı. */
 export interface LegacyCameraOutcome {
@@ -126,7 +127,13 @@ export function compareCameraOutcome(
   ctx: CameraShadowContext,
 ): CameraShadowComparison {
   const anchorYDelta = _delta(legacy.anchorY, policy.anchorY);
-  const suppressionReason = policy.cameraDriveAllowed ? null : policy.updateReason;
+  /* KARŞILAŞTIRILABİLİR izdüşüm — `canDriveCamera()` ile AYNI soruyu sorar
+     (`cameraPolicyModel` §SORUMLULUK SINIRI). Ham `cameraDriveAllowed` ile
+     kıyaslamak `RECENTERING` penceresinde SAHTE ayrışma üretiyordu: orada
+     kamerayı ortalama işlemi sürer, rutin fix değil — legacy HAKLI olarak
+     erken döner, politika da HAKLI olarak "sistem sürüyor" der. */
+  const policyRoutineAllowed = routineFixMayDriveCamera(policy);
+  const suppressionReason = policyRoutineAllowed ? null : policy.updateReason;
 
   const base = {
     /* Politika bu turda zoom/pitch/bearing ÖNERMİYOR (eğriler devralınmadı) →
@@ -136,7 +143,7 @@ export function compareCameraOutcome(
     bearingDelta: null,
     anchorYDelta,
     legacyApplied: legacy.applied,
-    policyAllowed: policy.cameraDriveAllowed,
+    policyAllowed: policyRoutineAllowed,
     cameraState: policy.state,
     speedBand: policy.speedBand,
     maneuverBand: policy.maneuverBand,
@@ -152,7 +159,7 @@ export function compareCameraOutcome(
    * En anlamlı karşılaştırma bu turda SAYI değil KARARdır: legacy kamerayı
    * sürdü mü, politika sürmesine izin verir miydi? Ayrışma burada ürünün
    * gerçekten farklı davranacağı yeri işaret eder. */
-  if (legacy.applied !== policy.cameraDriveAllowed) {
+  if (legacy.applied !== policyRoutineAllowed) {
     return {
       ...base,
       divergence: 'MAJOR',
