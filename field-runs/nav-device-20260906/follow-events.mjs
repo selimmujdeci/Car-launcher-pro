@@ -1,0 +1,1 @@
+import{readFileSync}from'node:fs';const es=JSON.parse(readFileSync(process.argv[2])).result.value.events;console.log(JSON.stringify(es.filter(e=>e.follow||e.stage==='full-enable-driving-stationary').slice(-25),null,2));

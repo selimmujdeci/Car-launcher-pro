@@ -1,0 +1,1 @@
+(()=>{const m=__MAP_STORE__.getState().mapInstance;return {mode:document.documentElement.dataset.dayNight,name:m?.getStyle().name,bg:m?.getPaintProperty('background','background-color'),road:m?.getPaintProperty('road-primary','line-color')}})()

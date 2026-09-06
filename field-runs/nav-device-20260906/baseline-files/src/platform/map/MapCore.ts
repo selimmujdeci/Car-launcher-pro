@@ -1,0 +1,695 @@
+// ══════════════════════════════════════════════════════════════════════════
+// CarOS Pro — MapCore
+//
+// Sorumluluk: harita instance lifecycle (MapLibre init/destroy), WebGL context
+// yönetimi ve GPU kaynak temizliği. En kritik fonksiyon _freeContext
+// (WEBGL_lose_context — Mali-400 VRAM koruması) BURADA ve DEĞİŞTİRİLMEDİ.
+//
+// Bağımlılık: _mapState + MapLayerManager (_applyRouteGeometry) +
+// MapInteractionManager (route interaction setup/cleanup). Davranış değişikliği
+// YOK; mapService.ts'ten birebir taşındı.
+// ══════════════════════════════════════════════════════════════════════════
+import maplibregl, { Map as MapLibreMap } from 'maplibre-gl';
+import type { StyleSpecification } from 'maplibre-gl';
+import { logInfo } from '../debug';
+import { logError } from '../crashLogger';
+import { handleSatelliteTileError, setActiveMapSource, getMapStyle, getMapNight } from '../mapSourceManager';
+import { useMapSourceStore } from '../mapSourceStore';
+import { blockOnlineVector, unblockOnlineVector, isOnlineVectorBlocked } from '../mapStyleBuilders';
+import { registerGlyphCacheProtocol } from '../mapProtocols';
+import { cacheLRUManager } from '../../core/storage/CacheLRUManager';
+import { M, useMapStore, getOnlineTileStyle, type MapConfig } from './_mapState';
+import { isBasemapTileSourceType } from './_mapIds';
+import {
+  _applyRouteGeometry, ensureRoadShieldImages, _resetPaintedArrowCache, getRouteStepsFor,
+} from './MapLayerManager';
+import { _setupRouteInteractions, _cleanupRouteInteractions } from './MapInteractionManager';
+import { hasWeakGpu } from '../../utils/detectWeakGpu';
+import { getDeviceTier } from '../deviceCapabilities';
+/* ARCH-06/F1 — MapLibre ÖRNEK SAYACI. F0'ın açık sorusu: MiniMap ile FullMap
+   aynı anda iki WebGL bağlamı yaşatıyor mu? Bu turda YALNIZ ÖLÇÜLÜR;
+   optimizasyon F3'e bırakılır. */
+import { bumpPerf } from '../perf/perfCounters';
+import { noteMapInstanceMounted, noteMapInstanceUnmounted } from '../perf/mapInstanceEvidence';
+
+// Ensure smart-tile protocol is never active
+try { maplibregl.removeProtocol('smart-tile'); } catch { /* not registered */ }
+// Register caros-tile cache interceptor (idempotent)
+cacheLRUManager.init();
+/**
+ * #613 — `glyph-cache://` HİÇ KAYITLI DEĞİLDİ (cihazda ölçüldü, 2026-08-17).
+ *
+ * Stil (`buildVectorStyle`) glyph URL'si olarak `glyph-cache://` ÜRETİYOR, ama
+ * protokolü kaydeden `registerGlyphCacheProtocol()`'ün TEK üretim çağıranı
+ * `initializeMapSources()`'tu ve o fonksiyon üretim kodunda **hiçbir yerden
+ * çağrılmıyor** (yalnız testlerde) → cihaz konsolunda her açılışta:
+ *   `Fetch API cannot load glyph-cache://… URL scheme "glyph-cache" is not supported`
+ * Sonuç: karolar çizilse bile yol/şehir ETİKETLERİ hiç gelmiyordu.
+ *
+ * Kayıt burada yapılır (haritanın sahibi bu modül), ağır `initializeMapSources`
+ * çağrılmaz — o fonksiyon dosya sistemi yoklaması + ağ dinleyicisi de kurar;
+ * kapsamı bu kusurdan geniştir. Kayıt idempotenttir.
+ */
+registerGlyphCacheProtocol();
+
+/** JS Heap anlık snapshot — Chrome/Android WebView destekli; diğer ortamlarda no-op. */
+/** Chrome/Android WebView'a ÖZGÜ, standart DIŞI bellek alanı (spec'te yok). */
+interface ChromePerformanceMemory {
+  usedJSHeapSize:  number;
+  totalJSHeapSize: number;
+}
+
+function _logHeap(prefix: string): void {
+  const mem = (performance as Performance & { memory?: ChromePerformanceMemory }).memory;
+  if (mem) {
+    console.info(
+      `[MAP] ${prefix} JS Heap: ${(mem.usedJSHeapSize / 1_048_576).toFixed(1)} MB` +
+      ` / ${(mem.totalJSHeapSize / 1_048_576).toFixed(1)} MB total`,
+    );
+  }
+}
+
+// ── GPU context serbest bırakma (KRİTİK — DEĞİŞTİRİLMEDİ) ─────────────────────
+// destroyMap() sonrası WEBGL_lose_context ile GPU slot serbest bırakılır,
+// ardından 2 rAF frame beklenerek yeni context talebi güvenli hale gelir.
+async function _freeContext(map: MapLibreMap): Promise<void> {
+  // Canvas ve GL referansını remove() öncesinde al — sonrasında erişilemeyebilir
+  let gl: WebGLRenderingContext | null = null;
+  try {
+    const canvas = map.getCanvas();
+    gl = (
+      canvas.getContext('webgl2') ??
+      canvas.getContext('webgl') ??
+      canvas.getContext('experimental-webgl')
+    ) as WebGLRenderingContext | null;
+  } catch { /* ignore */ }
+
+  _logHeap('pre-destroy');
+
+  // ── Mali-400 Agresif GPU Kaynak Temizliği ────────────────────────────────────
+  if (map.isStyleLoaded()) {
+    try {
+      // 1. Custom image texture'larını boşalt (HEADING_CONE, ALT_BADGE vb.)
+      const imageIds = map.listImages();
+      for (const id of imageIds) {
+        try { map.removeImage(id); } catch { /* ignore — already removed */ }
+      }
+
+      const style = map.getStyle();
+
+      // 2. Layer'ları ters sırayla kaldır (üstten alta — bağımlılık sırası korunur)
+      if (style?.layers) {
+        for (const layer of [...style.layers].reverse()) {
+          try { map.removeLayer(layer.id); } catch { /* ignore */ }
+        }
+      }
+
+      // 3. Source'ları kaldır (tüm layer'lar kaldırıldıktan sonra referans sıfır)
+      if (style?.sources) {
+        for (const sourceId of Object.keys(style.sources)) {
+          try { map.removeSource(sourceId); } catch { /* ignore */ }
+        }
+      }
+    } catch { /* style may already be destroyed — race with map.remove() */ }
+  }
+
+  // 4. Bilinen event aboneliklerini kaldır — map.remove() tüm listener'ları zaten temizler.
+
+  bumpPerf('map.instanceUnmounted');
+  noteMapInstanceUnmounted();
+  try { map.remove(); } catch { /* canvas already removed */ }
+
+  // GPU'ya context kaybını bildir — slot hemen serbest kalır
+  try { gl?.getExtension('WEBGL_lose_context')?.loseContext(); } catch { /* ignore */ }
+
+  // 2 rAF frame: GPU sürücüsünün context'i işlemesi için minimum bekleme
+  await new Promise<void>(resolve =>
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+  );
+
+  _logHeap('post-destroy');
+}
+
+/**
+ * WebGL desteğini kontrol eder.
+ * Returns: true → WebGL kullanılabilir, false → harita açılamaz.
+ */
+export function isWebGLAvailable(): boolean {
+  if (M.webglAvailableCache !== null) return M.webglAvailableCache;
+  try {
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('webgl') ?? canvas.getContext('experimental-webgl');
+    if (!ctx) { M.webglAvailableCache = false; return false; }
+    const gl = ctx as WebGLRenderingContext;
+    const ok = typeof gl.createShader === 'function';
+    // Kontrol canvas'ını hemen serbest bırak — context slotunu tıkama
+    try { (gl.getExtension('WEBGL_lose_context') as WEBGL_lose_context | null)?.loseContext(); } catch { /* ignore */ }
+    M.webglAvailableCache = ok;
+    return ok;
+  } catch {
+    M.webglAvailableCache = false;
+    return false;
+  }
+}
+
+export function initializeMap(
+  container: HTMLElement,
+  config: MapConfig = { offline: true }
+): Promise<MapLibreMap> {
+  // WebGL olmayan cihazlarda harita açılamaz — erken hata ver
+  if (!isWebGLAvailable()) {
+    const msg = 'Bu cihazda WebGL desteklenmiyor. Harita görüntülenemiyor.';
+    useMapStore.setState({ error: msg, isReady: false });
+    return Promise.reject(new Error(msg));
+  }
+
+  // ── Idempotency + container guard ────────────────────────────────────────
+  if (M.initPromise) {
+    if (M.currentContainer === container) {
+      // Aynı container, aynı init in-flight → bekle
+      return M.initPromise;
+    }
+    // Farklı container → mevcut init'i iptal et (_initGen++ → _initCore erken çıkar)
+    logInfo('[MAP_INIT] different container — cancelling in-flight init');
+    M.initGen++;
+    M.initPromise = null;
+    M.currentContainer = null;
+  }
+
+  const existing = useMapStore.getState().mapInstance;
+  if (existing) {
+    logInfo('[MAP_DESTROY] clearing existing instance before re-init');
+    destroyMap();
+  }
+
+  M.currentContainer = container;
+  const myGen = M.initGen;
+
+  M.initPromise = Promise.race<MapLibreMap>([
+    _initCore(container, config, myGen),
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error('Map init timeout (30s)')), 30_000)
+    ),
+  ]).finally(() => {
+    if (M.initGen === myGen) {
+      M.initPromise    = null;
+      M.currentContainer = null;
+    }
+  });
+
+  return M.initPromise;
+}
+
+async function _initCore(
+  container: HTMLElement,
+  _config: MapConfig,
+  gen: number,
+): Promise<MapLibreMap> {
+  // ── Mutex: önceki context tamamen serbest kalana kadar bekle ──────────────
+  await M.destroyLock;
+  if (gen !== M.initGen) throw new Error('Map init cancelled');
+
+  // ── Dimension guard: 0×0 container'da WebGL context asla talep edilmez ───
+  if (container.offsetWidth === 0 || container.offsetHeight === 0) {
+    // Tek rAF daha bekle — CSS transition henüz bitmemiş olabilir
+    await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+    if (gen !== M.initGen) throw new Error('Map init cancelled');
+    if (container.offsetWidth === 0 || container.offsetHeight === 0) {
+      throw new Error('Container has zero dimensions — WebGL context refused');
+    }
+  }
+
+  try {
+    // Offline tile server DISABLED — device has no tiles, interceptor causes 404 spam
+    setActiveMapSource('online');
+
+    // Stil TEK kaynaktan çözülür: getMapStyle() → _mapNight + mapMode + tileRender.
+    // Eski sabit OSM_STYLE gece paletliydi ve layer id'si ('osm-tiles') canlı gün/gece
+    // güncelleyicisinin beklediği 'tiles-layer' ile eşleşmiyordu → gündüz temada harita
+    // kalıcı gece kalıyordu (applyMapDayNight no-op).
+    logInfo('[MAP_STYLE] resolved via getMapStyle', { night: getMapNight() });
+    const style = getMapStyle();
+    const TURKEY_CENTER: [number, number] = [35, 39];
+    const TURKEY_ZOOM = 6;
+
+    // Düşük tier (head unit / Android<12 / zayıf GPU): pan sırasında PowerVR/Mali sınıfı
+    // GPU'da darboğaz HAM map render + canvas→HWUI texture upload'dır (Davey: büyük
+    // DrawStart/SwapBuffers boşlukları). fadeDuration=0 pan-sonrası raster/label fade
+    // repaint kuyruğunu tamamen keser; maxTileCacheSize tavanı bellek baskısını (GC) sınırlar.
+    const _lowTier = getDeviceTier() === 'low';
+
+    bumpPerf('map.instanceMounted');
+    noteMapInstanceMounted('FULL');
+    const map = new MapLibreMap({
+      container,
+      style,
+      center: TURKEY_CENTER,
+      zoom: TURKEY_ZOOM,
+      pitch: 0,
+      bearing: 0,
+      maxPitch: 50,  // 50°+ üzerinde MapLibre siyah köşe oluşturur
+      // MSAA: Mali-400 sınıfı (Utgard) bant-genişliği aç → her kare çoklu örnekleme
+      // fragment yükünü katlar. Zayıf GPU'da kapat; capable cihazda kenar yumuşatma kalsın.
+      antialias: !hasWeakGpu(),
+      // NOT: statik pixelRatio downscale DENENDİ ve GERİ ALINDI — pan-jank'a etkisi
+      // olmadı. Kök neden: pan darboğazı RenderThread'in full-screen WebView yüzeyini
+      // EKRAN çözünürlüğünde HWUI'ye composite etmesi (Slow draw commands 52/52);
+      // pixelRatio yalnız WebGL çizim-buffer'ını küçültür (Chrome_InProcGpu %13-23),
+      // ama canvas elemanı yine 1280×720 composite edilir → darboğaz hareketsiz kalır.
+      // Netliği bozup kazanç vermediği için kaldırıldı (bkz. mapLiteMode — dinamik,
+      // zayıf-GPU'da pan sırasında overlay gizleme; dinamik resize/pixelRatio YASAK,
+      // bu cihazda canlı GL realloc 250-750ms stall yapıyor).
+      fadeDuration: _lowTier ? 0 : 300,
+      maxTileCacheSize: _lowTier ? 256 : undefined,
+      attributionControl: false,
+
+      /**
+       * #610 — VEKTÖR KARO İSTEĞİ MapLibre'nin KENDİ yolundan ÇALIŞMIYOR.
+       *
+       * CİHAZDA ÖLÇÜLDÜ (2026-08-17, Xiaomi 23090RA98I, taze APK, CDP):
+       *   · `omv` kaynağının 22 karosunun 22'si de `state: 'errored'`, sıfır bucket.
+       *     Hata olayı: `sourceId=omv · "Failed to fetch"`.
+       *   · AYNI `.pbf` URL'i sayfadan düz `fetch()` ile **200 OK / 23 402 bayt**,
+       *     bir Web Worker içinden de **200 OK / 23 402 bayt**. Yani ağ, CORS ve
+       *     worker YOLU SAĞLAM — kırık olan yalnız MapLibre'nin iç istek yolu.
+       *   · `terrain-rgb` (raster-dem, aynı anda, https) 11/11 `loaded` → sorun
+       *     "https karo" genel değil, VEKTÖR karo isteğine özgü.
+       *
+       * SONUÇ (saha belirtisi): mini haritada yalnız arka plan katmanı boyanıyor,
+       * ekranın %94'ü tek düz renk kalıyor ve "HARİTA YÜKLENEMİYOR" çıkıyor. Ürün
+       * ancak hata sayacı 20'yi bulup RASTER'a düşünce kullanılabilir hâle geliyor
+       * — yani vektör harita bu cihazda hiç çalışmıyor, kurtarma bir kaza eseri.
+       *
+       * ÇÖZÜM — YENİ MEKANİZMA DEĞİL, KANITLANMIŞ YOLU KULLANMAK: `caros-tile://`
+       * protokolü (CacheLRUManager) isteği düz JS `fetch()` ile yapar ve
+       * `{ data: ArrayBuffer }` döner — vektör karosu için doğru biçim. Uydu
+       * karoları bu WebView'da AYNI sınıftan bir kırık yüzünden zaten bu yola
+       * taşınmıştı (bkz. `buildSatelliteStyle` yorumu, 2026-06-12); vektör
+       * kaynağı o taşımadan pay almamıştı.
+       *
+       * KAPSAM BİLEREK DAR: yalnız `Tile` kaynağı + https + `.pbf`. `terrain-rgb`
+       * ŞU AN ÇALIŞIYOR, ona DOKUNULMAZ (çalışan bir yolu "tutarlılık" için
+       * değiştirmek kanıtsız risktir). TileJSON da dışarıda: kaynak `loaded`
+       * durumuna geldiğine göre o istek zaten başarılı.
+       */
+      transformRequest: (url: string, resourceType?: string) => {
+        if (resourceType === 'Tile' && url.startsWith('https://') && url.includes('.pbf')) {
+          return { url: url.replace('https://', 'caros-tile://') };
+        }
+        return { url };
+      },
+    });
+
+    map.on('style.load', () => {
+      useMapStore.setState({ isReady: true });
+      logInfo('[MAP_READY]');
+      // Yol numarası kalkanı imajı stille birlikte GİTMEZ — her stil yüklemesinde
+      // (gündüz/gece geçişi dahil) yeniden kaydedilmeli, yoksa `road-shield`
+      // katmanı sessizce boş kalır. force=true: bayat GPU imajını tazele.
+      try { ensureRoadShieldImages(map, true); } catch { /* fail-soft: kalkan yoksa harita yaşar */ }
+      // Boyanmış ok katmanı stille birlikte GİTTİ; dedup anahtarı sıfırlanmazsa
+      // bir sonraki fix "durum değişmedi" deyip oku bir daha HİÇ çizmezdi.
+      _resetPaintedArrowCache();
+      _setupRouteInteractions(map); // C7.2 — ilk yüklemede etkileşimleri kur
+      if (M.cachedRoute && M.cachedRoute.coords?.length > 2) {
+        /* #639: adımlar PAYLAŞILAN önbellekten DEĞİL, BU harita örneğinden okunur —
+           mini harita ile tam harita birbirinin etiketlerini eziyordu. */
+        _applyRouteGeometry(map, M.cachedRoute.coords, M.cachedRoute.alts, M.cachedRoute.altIdx, 0, undefined, undefined, getRouteStepsFor(map));
+        logInfo('[ROUTE_LAYER_RECREATED] after style.load');
+      }
+    });
+
+
+    let tileFailCount = 0;
+    let _satelliteFailCount = 0;
+
+    /**
+     * KÖK 2 (2026-08-18) — çevrimiçi vektör kapısı `blockOnlineVector()` ile
+     * kapandıktan sonra `unblockOnlineVector()` ÜRÜNDE HİÇBİR YERDEN ÇAĞRILMIYORDU
+     * (dead code) — yani düşüş OTURUM SONUNA KADAR kalıcıydı, ağ tamamen
+     * toparlansa bile bir daha vektör denenmiyordu. Bu ONARILMADI, sadece
+     * KOŞULLANDI: bir sonraki basemap karosu sorunsuz yüklenmeye başladıktan
+     * sonra `VECTOR_RETRY_STABLE_MS` boyunca YENİ bir karo hatası GELMEZSE
+     * kapı yeniden açılır. Yeni bir hata gelirse pencere sıfırlanır — kısa
+     * süreli "toparlanma" sinyaline güvenip hemen vektöre dönmek, ilk karo
+     * hatasında yeniden 20'lik eşiğe çarpıp sonsuz salınım yapardı.
+     */
+    const VECTOR_RETRY_STABLE_MS = 30_000;
+    let _vectorRetryTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const _cancelVectorRetry = () => {
+      if (_vectorRetryTimer !== null) {
+        clearTimeout(_vectorRetryTimer);
+        _vectorRetryTimer = null;
+      }
+    };
+
+    const _armVectorRetry = () => {
+      if (!isOnlineVectorBlocked() || _vectorRetryTimer !== null) return;
+      _vectorRetryTimer = setTimeout(() => {
+        _vectorRetryTimer = null;
+        // Bu arada başka bir map instance kurulmuş olabilir — o zaman dokunma.
+        if (useMapStore.getState().mapInstance !== map) return;
+        if (!useMapSourceStore.getState().isOnline) return; // gerçek bağlantı yok — deneme
+        unblockOnlineVector();
+        logInfo('[MAP_TILE_FALLBACK] ağ 30 sn stabil — çevrimiçi vektör yeniden denemeye açıldı');
+        // Navigasyon hâlâ vektör istiyorsa (tileRender niyeti), gerçek bir
+        // deneme başlat; istemiyorsa yalnız kapıyı aç, bir sonraki doğal
+        // stil çözümü (`getMapStyle()`) kendiliğinden vektörü dener.
+        if (useMapSourceStore.getState().tileRender === 'vector') {
+          switchMapStyle(map, getMapStyle());
+        }
+      }, VECTOR_RETRY_STABLE_MS);
+    };
+
+    /**
+     * #609 — Bu kaynak bir BASEMAP KAROSU mu?
+     *
+     * `tileError` bayrağı "harita çizilemiyor" demektir; bu yüzden hem sayaç hem
+     * iyileşme YALNIZ zemini çizen karo kaynaklarına bakmalıdır.
+     *
+     * SAHA KUSURU (2026-08-17, cihaz): mini haritada kalıcı "HARİTA YÜKLENEMİYOR"
+     * görünürken tam ekran harita karoları SORUNSUZ çiziyordu. İki taraflı hataydı:
+     *
+     *   · KURULUM ÇOK GENİŞ — sayaç HER kaynağın 404'ünü topluyordu. Vektör stilinde
+     *     `terrain-rgb` (raster-dem) AYRI bir kaynaktır; yokluğu haritayı çizilemez
+     *     YAPMAZ, yalnız kabartmayı kapatır. Onun hataları 20'yi bulunca bayrak
+     *     kalkıyordu.
+     *   · TEMİZLEME ÇOK DAR — iyileşme yalnız `map-tiles` adlı kaynak yüklenince
+     *     yazılıyordu. Bu ad DÖRT stilden YALNIZ BİRİNDE var: raster OSM. Vektör
+     *     stilinde kaynak `omv`, uydu/hibritte `satellite-tiles`. Yani YOL (vektör)
+     *     modunda bayrak bir kez kalktı mı BİR DAHA İNMİYORDU.
+     *
+     * Sonuç tek yönlü bir mandaldı — #606'daki `failure:OBD` circiriyle aynı sınıf:
+     * arıza sinyalinin yukarı karşılığı yok. Uyarıyı yalnız `MiniMapWidget` çizdiği
+     * için tam ekranda görünmüyor, çelişki de buradan doğuyordu.
+     */
+    const _isBasemapTileSource = (id: string | undefined): boolean => {
+      if (!id) return false;
+      try {
+        const def = (map.getStyle()?.sources ?? {})[id] as { type?: string } | undefined;
+        // Karar TÜRE göre verilir, ADA göre değil (bkz. isBasemapTileSourceType).
+        return isBasemapTileSourceType(def?.type);
+      } catch {
+        return false; // stil henüz okunamıyor → sayma (yanlış alarm üretme)
+      }
+    };
+
+    map.on('error', (e) => {
+      const msg = e.error?.message || '';
+      if (msg.includes('404') || msg.includes('Failed to fetch') || msg.includes('NetworkError') || msg.includes('403')) {
+        const srcId = (e as unknown as { sourceId?: string }).sourceId;
+        /* Kaynak kimliği BİLİNİYORSA ve zemin karosu değilse (DEM/glyph/sprite)
+           sayaca girmez. Kimlik yoksa eski davranış korunur — sayılır. */
+        if (srcId !== undefined && !_isBasemapTileSource(srcId)) return;
+        tileFailCount++;
+        // Yeni bir zemin karo hatası: bekleyen "30 sn stabil" penceresi geçersiz —
+        // ağ hâlâ güvenilmez, vektörü şimdi yeniden denemek erken olurdu.
+        _cancelVectorRetry();
+        if (msg.includes('arcgisonline') || msg.includes('arcgis')) {
+          _satelliteFailCount++;
+          if (_satelliteFailCount >= 3) { _satelliteFailCount = 0; handleSatelliteTileError(); }
+        }
+        if (tileFailCount >= 20 && !useMapStore.getState().tileError) {
+          useMapStore.setState({ tileError: true });
+          /* Karo akışı kesildi. Kaynak ÇEVRİMİÇİ VEKTÖR ise onu bu oturumda
+             kapat: aksi hâlde aşağıdaki `getMapStyle()` yine vektör döndürür,
+             karolar yine gelmez ve fallback SONSUZ DÖNGÜYE girer. Yerel .pbf
+             kapatılmaz — o ağdan bağımsızdır ve hatası başka sebeptendir. */
+          blockOnlineVector();
+          logInfo('[MAP_TILE_FALLBACK] çevrimiçi vektör kapatıldı → raster');
+          setTimeout(() => {
+            if (setActiveMapSource('online')) {
+              // Tek kaynaklı resolver — gün/gece paletini korur (sabit gece OSM_STYLE değil)
+              switchMapStyle(map, getMapStyle());
+              tileFailCount = 0;
+            }
+          }, 3_000);
+        }
+        return;
+      }
+      logError('Map:LibreError', new Error(msg));
+    });
+
+    /* #609 — İYİLEŞME: AKTİF stilin HANGİ karo kaynağı yüklenirse yüklensin bayrak
+       iner. Eskiden sabit `map-tiles` aranıyordu; o ad yalnız raster OSM stilinde
+       vardır → vektör (`omv`) ve uydu (`satellite-tiles`) modlarında bayrak asla
+       temizlenmiyordu (bkz. `_isBasemapTileSource` yorumu). */
+    map.on('data', (e) => {
+      if (e.dataType !== 'source') return;
+      const srcId = (e as unknown as { sourceId?: string }).sourceId;
+      if (!_isBasemapTileSource(srcId)) return;
+      let loaded = false;
+      try { loaded = map.isSourceLoaded(srcId as string); } catch { loaded = false; }
+      if (!loaded) return;
+      if (useMapStore.getState().tileError) {
+        useMapStore.setState({ tileError: false });
+      }
+      tileFailCount = 0;
+      // Zemin karosu sorunsuz yüklendi — vektör kapısı kapalıysa 30 sn'lik
+      // stabilite penceresini kur (bkz. `_armVectorRetry` üstteki not).
+      _armVectorRetry();
+    });
+
+    // WebGL context loss — permanent loss detection + heal attempt
+    let _contextLossTimer: ReturnType<typeof setTimeout> | null = null;
+
+    map.on('webglcontextlost', () => {
+      console.error('[MAP_WEBGL_ERROR] context lost');
+      useMapStore.setState({ isReady: false, tileError: true });
+
+      // 5s içinde restore gelmezse → kalıcı kayıp → destroyMap + re-init sinyali
+      _contextLossTimer = setTimeout(() => {
+        _contextLossTimer = null;
+        if (useMapStore.getState().mapInstance === map) {
+          console.error('[MAP_WEBGL_ERROR] context lost permanently — destroying instance');
+          destroyMap();
+          // FullMapView'a re-init sinyali gönder — initializedRef sıfırlansın
+          window.dispatchEvent(new CustomEvent('map:reinit-needed'));
+        }
+      }, 5_000);
+    });
+
+    map.on('webglcontextrestored', () => {
+      if (_contextLossTimer !== null) {
+        clearTimeout(_contextLossTimer);
+        _contextLossTimer = null;
+      }
+      console.warn('[MAP] WebGL context restored');
+      useMapStore.setState({ tileError: false });
+
+      const healMap = () => {
+        requestAnimationFrame(() => {
+          try { map.resize(); } catch { /* ignore */ }
+        });
+        if (M.cachedRoute && M.cachedRoute.coords?.length > 2) {
+          /* #639: WebGL restore da adımları BU harita örneğinden okur. */
+          _applyRouteGeometry(map, M.cachedRoute.coords, M.cachedRoute.alts, M.cachedRoute.altIdx, 0, undefined, undefined, getRouteStepsFor(map));
+        }
+        useMapStore.setState({ isReady: true });
+      };
+
+      if (map.isStyleLoaded()) {
+        healMap();
+      } else {
+        map.once('style.load', healMap);
+      }
+    });
+
+    if (gen !== M.initGen) {
+      try { map.remove(); } catch { /* already removed */ }
+      throw new Error('Map init cancelled');
+    }
+    useMapStore.setState({ mapInstance: map, error: null });
+    return map;
+  } catch (err) {
+    if (gen !== M.initGen) throw err; // cancelled — skip fallback
+
+    logError('Map:InitFallback', err);
+
+    // Son çare fallback: minimal harita — gün/gece paleti getMapNight() ile seçilir
+    try {
+      bumpPerf('map.instanceMounted');
+      noteMapInstanceMounted('FULL');
+      const fallbackMap = new MapLibreMap({
+        container,
+        style: getOnlineTileStyle(getMapNight()),
+        center: [35, 39],
+        zoom: 6,
+        attributionControl: false,
+      });
+
+      fallbackMap.on('error', () => {});
+      if (gen !== M.initGen) {
+        try { fallbackMap.remove(); } catch { /* already removed */ }
+        throw new Error('Map init cancelled');
+      }
+      useMapStore.setState({ mapInstance: fallbackMap, error: null });
+      return fallbackMap;
+    } catch (fallbackErr) {
+      if (gen !== M.initGen) throw fallbackErr;
+      const msg = fallbackErr instanceof Error ? fallbackErr.message : 'Map init failed';
+      useMapStore.setState({ error: msg });
+      throw fallbackErr;
+    }
+  }
+}
+
+/**
+ * Switch the map to a new style.
+ * setStyle() removes ALL sources and layers. After style.load fires:
+ *   - isReady is reset to true via the persistent style.load listener in _initCore
+ *   - _cachedRoute is replayed automatically here so the route survives style switches
+ * Caller is still responsible for re-adding the user marker.
+ */
+export function switchMapStyle(map: MapLibreMap, style: StyleSpecification | string, retryCount = 0) {
+  if (!map) return;
+  useMapStore.setState({ isReady: false });
+
+  const onError = (e: { error?: unknown }) => {
+    logError('Map:StyleSwitchError', e.error || new Error('Style load failed'));
+    if (retryCount < 1) {
+      setTimeout(() => switchMapStyle(map, style, retryCount + 1), 2000);
+    } else {
+      // Retries exhausted — style.load will never fire; release the lock.
+      M.isStyleChanging = false;
+      useMapStore.setState({ isReady: true });
+    }
+  };
+
+  map.once('error', onError);
+  M.isStyleChanging = true;
+  try { map.resize(); } catch { /* container may be transitioning */ }
+  map.setStyle(style);
+  map.once('style.load', () => {
+    map.off('error', onError);
+    M.isStyleChanging = false;
+    useMapStore.setState({ isReady: true });
+
+    // Tek rAF: resize + rota replay'i MapLibre'nin fully-loaded state'inde çalıştır.
+    requestAnimationFrame(() => {
+      const canvas = map.getCanvas();
+      if (canvas && canvas.offsetWidth > 0 && canvas.offsetHeight > 0) {
+        try { map.resize(); } catch { /* ignore */ }
+      }
+
+      // _pendingRouteGeometry null ise _cachedRoute fallback — stil geçişinde rota kaybolmaz
+      const _routeToReplay = M.pendingRouteGeometry ?? M.cachedRoute;
+      if (_routeToReplay) {
+        _applyRouteGeometry(
+          map,
+          _routeToReplay.coords,
+          _routeToReplay.alts,
+          _routeToReplay.altIdx,
+          0,
+          _routeToReplay.altDurs,
+          _routeToReplay.mainDur,
+          /* #639 (3. geri-kurma yolu): adımlar PAYLAŞILAN `pendingRouteGeometry`den
+             DEĞİL, BU harita örneğinden okunur. `pendingRouteGeometry`ye mini
+             harita da yazar (adımları bilmez) ve tema geçişindeki bu replay
+             sokak adı etiketlerini boş veriyle yeniden doğuruyordu. */
+          getRouteStepsFor(map),
+        );
+      }
+
+      // C7.2 — stil geçişi sonrası etkileşimleri yenile (zombi listener önleme)
+      _setupRouteInteractions(map);
+    });
+  });
+}
+
+export function getMapInstance(): MapLibreMap | null {
+  return useMapStore.getState().mapInstance;
+}
+
+export function useMapState() {
+  return useMapStore();
+}
+
+export function destroyMap() {
+  logInfo('[MAP_DESTROY]');
+  M.initGen++;
+  M.isStyleChanging  = false;
+  M.initPromise      = null;
+  M.currentContainer = null;
+  _cleanupRouteInteractions(); // C7.2 — zombi listener temizliği
+
+  const map = useMapStore.getState().mapInstance;
+  useMapStore.setState({ mapInstance: null, isReady: false, drivingMode: false });
+
+  if (map) {
+    // _destroyLock: WEBGL_lose_context + 2 rAF bekleme — yeni context talep edilmeden önce çözülür
+    M.destroyLock = _freeContext(map);
+  } else {
+    M.destroyLock = Promise.resolve();
+  }
+}
+
+/**
+ * Sahiplik doğrulamalı yıkım — yalnızca çağıran instance hâlâ store'daki
+ * instance ile eşleşiyorsa global destroyMap() çağrılır.
+ */
+export function destroyOwnedMap(instance: MapLibreMap): void {
+  if (useMapStore.getState().mapInstance === instance) {
+    destroyMap();
+  } else {
+    // Store'a ait değil → orphan. Sadece remove() GPU slotunu (WebGL context)
+    // SERBEST BIRAKMAZ; loseContext şart (aşağıdaki freeOrphanMapContext).
+    void freeOrphanMapContext(instance);
+  }
+}
+
+/**
+ * Store'a ait OLMAYAN (orphan) bir harita instance'ının WebGL context'ini TAM
+ * serbest bırak (map.remove() + WEBGL_lose_context). MiniMap↔FullMap devir-teslimi
+ * sırasında MiniMap'in context'i orphan kalıp serbest bırakılmıyordu → PowerVR/
+ * Mali-400'de iki canlı WebGL context render-target'ı tüketip context lost/restore
+ * döngüsüne (kasma, ~8fps) sokuyordu. Cihazda DevTools profiliyle doğrulandı (2026-06-14).
+ * Aktif singleton'a DOKUNMAZ (yanlışlıkla canlı haritayı öldürmez).
+ */
+export function freeOrphanMapContext(instance: MapLibreMap): Promise<void> {
+  if (useMapStore.getState().mapInstance === instance) return Promise.resolve();
+  return _freeContext(instance);
+}
+
+/**
+ * mapInstance değişimlerine abone ol — MiniMapWidget'ın stale-ref tespiti için.
+ */
+export function subscribeMapInstance(
+  cb: (instance: MapLibreMap | null) => void,
+): () => void {
+  return useMapStore.subscribe((state, prev) => {
+    if (state.mapInstance !== prev.mapInstance) cb(state.mapInstance);
+  });
+}
+
+/**
+ * Zombi harita tespiti — WebGL context'in hâlâ geçerli olup olmadığını kontrol eder.
+ * @returns true → context sağlıklı, false → zombi tespit edildi, harita yok edildi
+ */
+export function checkAndHealMapContext(): boolean {
+  const map = useMapStore.getState().mapInstance;
+  if (!map) return false;
+
+  try {
+    const canvas = map.getCanvas();
+    if (!canvas) { destroyMap(); return false; }
+
+    // MapLibre 4.x WebGL2 tercih eder — webgl2 önce dene, yoksa webgl1'e geç
+    const gl = canvas.getContext('webgl2') ?? canvas.getContext('webgl') ?? canvas.getContext('experimental-webgl');
+    if (!gl) { destroyMap(); return false; }
+
+    const webgl = gl as WebGLRenderingContext;
+    if (webgl.isContextLost()) {
+      logError('Map:ZombieGuard', new Error('WebGL context lost — yeniden başlatılıyor'));
+      destroyMap();
+      return false;
+    }
+
+    return true;
+  } catch (e) {
+    logError('Map:ZombieGuard', e);
+    destroyMap();
+    return false;
+  }
+}

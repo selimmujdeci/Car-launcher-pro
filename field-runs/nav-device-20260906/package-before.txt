@@ -1,0 +1,501 @@
+Activity Resolver Table:
+  Schemes:
+      google.navigation:
+        cc8d30c com.cockpitos.pro/.MainActivity filter 8da2f5b
+          Action: "android.intent.action.VIEW"
+          Category: "android.intent.category.DEFAULT"
+          Category: "android.intent.category.BROWSABLE"
+          Scheme: "geo"
+          Scheme: "google.navigation"
+      geo:
+        cc8d30c com.cockpitos.pro/.MainActivity filter 8da2f5b
+          Action: "android.intent.action.VIEW"
+          Category: "android.intent.category.DEFAULT"
+          Category: "android.intent.category.BROWSABLE"
+          Scheme: "geo"
+          Scheme: "google.navigation"
+      carospro:
+        cc8d30c com.cockpitos.pro/.MainActivity filter 36c40d1
+          Action: "android.intent.action.VIEW"
+          Category: "android.intent.category.DEFAULT"
+          Category: "android.intent.category.BROWSABLE"
+          Scheme: "carospro"
+          Authority: "auth": -1
+      https:
+        cc8d30c com.cockpitos.pro/.MainActivity filter ab613f8
+          Action: "android.intent.action.VIEW"
+          Category: "android.intent.category.DEFAULT"
+          Category: "android.intent.category.BROWSABLE"
+          Scheme: "https"
+          Authority: "maps.google.com": -1
+          Authority: "www.google.com": -1
+          Authority: "maps.app.goo.gl": -1
+          Authority: "goo.gl": -1
+          Authority: "yandex.com.tr": -1
+          Authority: "yandex.com": -1
+          Path: "PatternMatcher{PREFIX: /maps}"
+          Path: "PatternMatcher{PREFIX: /maps}"
+          Path: "PatternMatcher{PREFIX: /harita}"
+          Path: "PatternMatcher{PREFIX: /maps}"
+
+  Non-Data Actions:
+      android.hardware.usb.action.USB_DEVICE_ATTACHED:
+        cc8d30c com.cockpitos.pro/.MainActivity filter 6c7de6a
+          Action: "android.hardware.usb.action.USB_DEVICE_ATTACHED"
+      android.intent.action.MAIN:
+        cc8d30c com.cockpitos.pro/.MainActivity filter 917b455
+          Action: "android.intent.action.MAIN"
+          Category: "android.intent.category.LAUNCHER"
+          Category: "android.intent.category.HOME"
+          Category: "android.intent.category.DEFAULT"
+
+Receiver Resolver Table:
+  Non-Data Actions:
+      android.intent.action.QUICKBOOT_POWERON:
+        37d7736 com.cockpitos.pro/.BootReceiver filter 826637
+          Action: "android.intent.action.BOOT_COMPLETED"
+          Action: "android.intent.action.LOCKED_BOOT_COMPLETED"
+          Action: "android.intent.action.QUICKBOOT_POWERON"
+          Category: "android.intent.category.DEFAULT"
+          mPriority=1000, mOrder=0, mHasStaticPartialTypes=false, mHasDynamicPartialTypes=false
+      com.cockpitos.pro.COMMAND_RECEIVED:
+        83477a4 com.cockpitos.pro/.CommandBroadcastReceiver filter 7a3190d
+          Action: "com.cockpitos.pro.COMMAND_RECEIVED"
+      androidx.profileinstaller.action.SAVE_PROFILE:
+        f136a10 com.cockpitos.pro/androidx.profileinstaller.ProfileInstallReceiver filter b71e52f
+          Action: "androidx.profileinstaller.action.SAVE_PROFILE"
+      android.intent.action.LOCKED_BOOT_COMPLETED:
+        37d7736 com.cockpitos.pro/.BootReceiver filter 826637
+          Action: "android.intent.action.BOOT_COMPLETED"
+          Action: "android.intent.action.LOCKED_BOOT_COMPLETED"
+          Action: "android.intent.action.QUICKBOOT_POWERON"
+          Category: "android.intent.category.DEFAULT"
+          mPriority=1000, mOrder=0, mHasStaticPartialTypes=false, mHasDynamicPartialTypes=false
+      androidx.profileinstaller.action.INSTALL_PROFILE:
+        f136a10 com.cockpitos.pro/androidx.profileinstaller.ProfileInstallReceiver filter df53909
+          Action: "androidx.profileinstaller.action.INSTALL_PROFILE"
+      com.google.android.c2dm.intent.RECEIVE:
+        f21d0c2 com.cockpitos.pro/com.google.firebase.iid.FirebaseInstanceIdReceiver filter 70d2ed3
+          Action: "com.google.android.c2dm.intent.RECEIVE"
+      androidx.profileinstaller.action.SKIP_FILE:
+        f136a10 com.cockpitos.pro/androidx.profileinstaller.ProfileInstallReceiver filter ec0370e
+          Action: "androidx.profileinstaller.action.SKIP_FILE"
+      androidx.profileinstaller.action.BENCHMARK_OPERATION:
+        f136a10 com.cockpitos.pro/androidx.profileinstaller.ProfileInstallReceiver filter 4ad173c
+          Action: "androidx.profileinstaller.action.BENCHMARK_OPERATION"
+      android.intent.action.BOOT_COMPLETED:
+        37d7736 com.cockpitos.pro/.BootReceiver filter 826637
+          Action: "android.intent.action.BOOT_COMPLETED"
+          Action: "android.intent.action.LOCKED_BOOT_COMPLETED"
+          Action: "android.intent.action.QUICKBOOT_POWERON"
+          Category: "android.intent.category.DEFAULT"
+          mPriority=1000, mOrder=0, mHasStaticPartialTypes=false, mHasDynamicPartialTypes=false
+
+Service Resolver Table:
+  Non-Data Actions:
+      androidx.media3.session.MediaSessionService:
+        ac1a54b com.cockpitos.pro/.media.CarosPlaybackService filter 7d26b28
+          Action: "androidx.media3.session.MediaSessionService"
+      com.google.firebase.MESSAGING_EVENT:
+        a2e0041 com.cockpitos.pro/.CommandService filter cf019e6
+          Action: "com.google.firebase.MESSAGING_EVENT"
+        8034b27 com.cockpitos.pro/com.capacitorjs.plugins.pushnotifications.MessagingService filter 17711d4
+          Action: "com.google.firebase.MESSAGING_EVENT"
+        5195f7d com.cockpitos.pro/com.google.firebase.messaging.FirebaseMessagingService filter e93ee72
+          Action: "com.google.firebase.MESSAGING_EVENT"
+          mPriority=-500, mOrder=0, mHasStaticPartialTypes=false, mHasDynamicPartialTypes=false
+      android.service.notification.NotificationListenerService:
+        f2f5cc5 com.cockpitos.pro/.MediaListenerService filter accb61a permission android.permission.BIND_NOTIFICATION_LISTENER_SERVICE
+          Action: "android.service.notification.NotificationListenerService"
+
+Preferred Activities User 0:
+  Schemes:
+      geo:
+        787b24 com.cockpitos.pro/.MainActivity
+         mMatch=0x200000 mAlways=true
+          Selected from:
+            com.cockpitos.pro/.MainActivity
+            com.google.android.apps.maps/com.google.android.maps.MapsActivity
+          Action: "android.intent.action.VIEW"
+          Category: "android.intent.category.DEFAULT"
+          Scheme: "geo"
+
+Domain verification status:
+    User all:
+      Verification link handling allowed: true
+      Selection state:
+        Disabled:
+          yandex.com
+          goo.gl
+          www.google.com
+          maps.google.com
+          yandex.com.tr
+          maps.app.goo.gl
+
+Permissions:
+  Permission [com.cockpitos.pro.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION] (bc3283f):
+    sourcePackage=com.cockpitos.pro
+    uid=10626 gids=[] type=0 prot=signature
+    perm=PermissionInfo{ca706ad com.cockpitos.pro.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION}
+
+Registered ContentProviders:
+  com.cockpitos.pro/com.google.firebase.provider.FirebaseInitProvider:
+    Provider{df4bde2 com.cockpitos.pro/com.google.firebase.provider.FirebaseInitProvider}
+  com.cockpitos.pro/androidx.startup.InitializationProvider:
+    Provider{1dbe573 com.cockpitos.pro/androidx.startup.InitializationProvider}
+  com.cockpitos.pro/androidx.core.content.FileProvider:
+    Provider{47bec30 com.cockpitos.pro/androidx.core.content.FileProvider}
+
+ContentProvider Authorities:
+  [com.cockpitos.pro.androidx-startup]:
+    Provider{1dbe573 com.cockpitos.pro/androidx.startup.InitializationProvider}
+      applicationInfo=ApplicationInfo{815850c com.cockpitos.pro}
+  [com.cockpitos.pro.firebaseinitprovider]:
+    Provider{df4bde2 com.cockpitos.pro/com.google.firebase.provider.FirebaseInitProvider}
+      applicationInfo=ApplicationInfo{2fb7e55 com.cockpitos.pro}
+  [com.cockpitos.pro.fileprovider]:
+    Provider{47bec30 com.cockpitos.pro/androidx.core.content.FileProvider}
+      applicationInfo=ApplicationInfo{50e06a com.cockpitos.pro}
+
+Key Set Manager:
+  [com.cockpitos.pro]
+      Signing KeySets: 512
+
+Packages:
+  Package [com.cockpitos.pro] (af97e7c):
+    userId=10626
+    pkg=Package{5eb9b5c com.cockpitos.pro}
+    codePath=/data/app/~~nWR0Fjq6FWXhJCl-8uAGrw==/com.cockpitos.pro-DlH13DyR9MyOZtozbDEe4w==
+    resourcePath=/data/app/~~nWR0Fjq6FWXhJCl-8uAGrw==/com.cockpitos.pro-DlH13DyR9MyOZtozbDEe4w==
+    legacyNativeLibraryDir=/data/app/~~nWR0Fjq6FWXhJCl-8uAGrw==/com.cockpitos.pro-DlH13DyR9MyOZtozbDEe4w==/lib
+    extractNativeLibs=false
+    primaryCpuAbi=arm64-v8a
+    secondaryCpuAbi=null
+    cpuAbiOverride=null
+    versionCode=7 minSdk=24 targetSdk=36
+    minExtensionVersions=[]
+    versionName=1.0.3
+    usesNonSdkApi=false
+    splits=[base]
+    apkSigningVersion=2
+    flags=[ DEBUGGABLE HAS_CODE ALLOW_CLEAR_USER_DATA ALLOW_BACKUP ]
+    privateFlags=[ PRIVATE_FLAG_ACTIVITIES_RESIZE_MODE_RESIZEABLE_VIA_SDK_VERSION ALLOW_AUDIO_PLAYBACK_CAPTURE PRIVATE_FLAG_REQUEST_LEGACY_EXTERNAL_STORAGE HAS_DOMAIN_URLS PARTIALLY_DIRECT_BOOT_AWARE PRIVATE_FLAG_ALLOW_NATIVE_HEAP_POINTER_TAGGING ]
+    forceQueryable=false
+    queriesIntents=[Intent { act=android.intent.action.MAIN cat=[android.intent.category.LAUNCHER] }, Intent { act=android.intent.action.DIAL }, Intent { act=android.intent.action.SENDTO dat=sms:xx }, Intent { act=android.intent.action.VIEW cat=[android.intent.category.BROWSABLE] dat=http:/... }, Intent { act=android.intent.action.VIEW cat=[android.intent.category.BROWSABLE] dat=https:/... }]
+    dataDir=/data/user/0/com.cockpitos.pro
+    supportsScreens=[small, medium, large, xlarge, resizeable, anyDensity]
+    timeStamp=2026-09-06 01:06:34
+    lastUpdateTime=2026-09-06 01:06:35
+    packageSource=0
+    signatures=PackageSignatures{44f58b8 version:2, signatures:[ab2700c2], past signatures:[]}
+    installPermissionsFixed=true
+    pkgFlags=[ DEBUGGABLE HAS_CODE ALLOW_CLEAR_USER_DATA ALLOW_BACKUP ]
+    declared permissions:
+      com.cockpitos.pro.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION: prot=signature, INSTALLED
+    requested permissions:
+      android.permission.POST_NOTIFICATIONS
+      android.permission.INTERNET
+      android.permission.ACCESS_NETWORK_STATE
+      android.permission.ACCESS_WIFI_STATE
+      android.permission.CHANGE_WIFI_STATE
+      android.permission.RECEIVE_BOOT_COMPLETED
+      android.permission.WAKE_LOCK
+      android.permission.ACCESS_COARSE_LOCATION
+      android.permission.ACCESS_FINE_LOCATION
+      android.permission.ACCESS_BACKGROUND_LOCATION
+      android.permission.BLUETOOTH
+      android.permission.BLUETOOTH_ADMIN
+      android.permission.BLUETOOTH_CONNECT
+      android.permission.BLUETOOTH_SCAN
+      android.permission.RECORD_AUDIO
+      android.permission.MODIFY_AUDIO_SETTINGS
+      android.permission.CAMERA
+      android.permission.READ_CONTACTS
+      android.permission.CALL_PHONE
+      android.permission.READ_MEDIA_VIDEO
+      android.permission.READ_MEDIA_AUDIO
+      android.permission.MANAGE_EXTERNAL_STORAGE
+      android.permission.WRITE_SETTINGS
+      android.permission.FOREGROUND_SERVICE
+      android.permission.FOREGROUND_SERVICE_LOCATION
+      android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK
+      android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS
+      android.permission.REQUEST_INSTALL_PACKAGES
+      com.google.android.c2dm.permission.RECEIVE
+      com.cockpitos.pro.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION
+    install permissions:
+      android.permission.WRITE_SETTINGS: granted=false
+      com.google.android.c2dm.permission.RECEIVE: granted=true
+      android.permission.MODIFY_AUDIO_SETTINGS: granted=true
+      android.permission.MANAGE_EXTERNAL_STORAGE: granted=false
+      com.cockpitos.pro.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION: granted=true
+      android.permission.FOREGROUND_SERVICE: granted=true
+      android.permission.RECEIVE_BOOT_COMPLETED: granted=true
+      android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS: granted=true
+      android.permission.BLUETOOTH: granted=true
+      android.permission.INTERNET: granted=true
+      android.permission.BLUETOOTH_ADMIN: granted=true
+      android.permission.CHANGE_WIFI_STATE: granted=true
+      android.permission.ACCESS_NETWORK_STATE: granted=true
+      android.permission.ACCESS_WIFI_STATE: granted=true
+      android.permission.REQUEST_INSTALL_PACKAGES: granted=false
+      android.permission.WAKE_LOCK: granted=true
+    User 0: ceDataInode=629478 installed=true hidden=false suspended=false distractionFlags=0 stopped=false notLaunched=false enabled=0 instant=false virtual=false
+      installReason=4
+      firstInstallTime=2026-07-15 20:49:45
+      uninstallReason=0
+      overlay paths:
+        /product/overlay/GestureLineOverlay.apk
+        /data/resource-cache/com.android.systemui-neutral-Mn7A.frro
+        /data/resource-cache/com.android.systemui-accent-lHHH.frro
+      legacy overlay paths:
+        /product/overlay/GestureLineOverlay.apk
+      gids=[3002, 3003, 3001]
+      runtime permissions:
+        android.permission.POST_NOTIFICATIONS: granted=true, flags=[ USER_SET|USER_SENSITIVE_WHEN_GRANTED|USER_SENSITIVE_WHEN_DENIED]
+        android.permission.ACCESS_FINE_LOCATION: granted=true, flags=[ USER_SET|USER_SENSITIVE_WHEN_GRANTED|USER_SENSITIVE_WHEN_DENIED]
+        android.permission.BLUETOOTH_CONNECT: granted=true, flags=[ USER_SET|USER_SENSITIVE_WHEN_GRANTED|USER_SENSITIVE_WHEN_DENIED]
+        android.permission.ACCESS_COARSE_LOCATION: granted=true, flags=[ USER_SET|USER_SENSITIVE_WHEN_GRANTED|USER_SENSITIVE_WHEN_DENIED]
+        android.permission.CALL_PHONE: granted=true, flags=[ USER_SENSITIVE_WHEN_GRANTED|USER_SENSITIVE_WHEN_DENIED]
+        android.permission.CAMERA: granted=true, flags=[ USER_SET|USER_SENSITIVE_WHEN_GRANTED|USER_SENSITIVE_WHEN_DENIED]
+        android.permission.READ_MEDIA_AUDIO: granted=true, flags=[ USER_SENSITIVE_WHEN_GRANTED|USER_SENSITIVE_WHEN_DENIED]
+        android.permission.READ_MEDIA_VIDEO: granted=true, flags=[ USER_SET|USER_SENSITIVE_WHEN_GRANTED|USER_SENSITIVE_WHEN_DENIED]
+        android.permission.RECORD_AUDIO: granted=true, flags=[ USER_SET|USER_SENSITIVE_WHEN_GRANTED|USER_SENSITIVE_WHEN_DENIED]
+        android.permission.READ_CONTACTS: granted=true, flags=[ USER_SET|USER_SENSITIVE_WHEN_GRANTED|USER_SENSITIVE_WHEN_DENIED]
+        android.permission.ACCESS_BACKGROUND_LOCATION: granted=false, flags=[ USER_SENSITIVE_WHEN_GRANTED|USER_SENSITIVE_WHEN_DENIED|RESTRICTION_INSTALLER_EXEMPT]
+        android.permission.BLUETOOTH_SCAN: granted=true, flags=[ USER_SET|USER_SENSITIVE_WHEN_GRANTED|USER_SENSITIVE_WHEN_DENIED]
+    User 10: ceDataInode=0 installed=false hidden=false suspended=false distractionFlags=0 stopped=true notLaunched=true enabled=0 instant=false virtual=false
+      installReason=0
+      firstInstallTime=1970-01-01 02:00:00
+      uninstallReason=0
+      gids=[3002, 3003, 3001]
+      runtime permissions:
+        android.permission.POST_NOTIFICATIONS: granted=false
+        android.permission.ACCESS_FINE_LOCATION: granted=false
+        android.permission.BLUETOOTH_CONNECT: granted=false
+        android.permission.ACCESS_COARSE_LOCATION: granted=false
+        android.permission.CALL_PHONE: granted=false
+        android.permission.CAMERA: granted=false
+        android.permission.READ_MEDIA_AUDIO: granted=false
+        android.permission.READ_MEDIA_VIDEO: granted=false
+        android.permission.RECORD_AUDIO: granted=false
+        android.permission.READ_CONTACTS: granted=false
+        android.permission.ACCESS_BACKGROUND_LOCATION: granted=false
+        android.permission.BLUETOOTH_SCAN: granted=false
+    User 999: ceDataInode=0 installed=false hidden=false suspended=false distractionFlags=0 stopped=true notLaunched=true enabled=0 instant=false virtual=false
+      installReason=0
+      firstInstallTime=1970-01-01 02:00:00
+      uninstallReason=0
+      gids=[3002, 3003, 3001]
+      runtime permissions:
+        android.permission.POST_NOTIFICATIONS: granted=false
+        android.permission.ACCESS_FINE_LOCATION: granted=false
+        android.permission.BLUETOOTH_CONNECT: granted=false
+        android.permission.ACCESS_COARSE_LOCATION: granted=false
+        android.permission.CALL_PHONE: granted=false
+        android.permission.CAMERA: granted=false
+        android.permission.READ_MEDIA_AUDIO: granted=false
+        android.permission.READ_MEDIA_VIDEO: granted=false
+        android.permission.RECORD_AUDIO: granted=false
+        android.permission.READ_CONTACTS: granted=false
+        android.permission.ACCESS_BACKGROUND_LOCATION: granted=false, flags=[ APPLY_RESTRICTION]
+        android.permission.BLUETOOTH_SCAN: granted=false
+
+Queries:
+  system apps queryable: false
+  queries via forceQueryable:
+  queries via package name:
+  queries via component:
+    com.android.thememanager:
+      com.cockpitos.pro
+    com.miui.euicc:
+      com.cockpitos.pro
+    com.mi.globalminusscreen:
+      com.cockpitos.pro
+    com.android.contacts:
+      com.cockpitos.pro
+    com.miui.player:
+      com.cockpitos.pro
+    com.google.android.apps.messaging:
+      com.cockpitos.pro
+    com.android.settings.intelligence:
+      com.cockpitos.pro
+    com.xiaomi.glgm:
+      com.cockpitos.pro
+    com.miui.global.packageinstaller:
+      com.cockpitos.pro
+    com.xiaomi.mipicks:
+      com.cockpitos.pro
+    com.miui.msa.global:
+      com.cockpitos.pro
+    com.xiaomi.account:
+      com.cockpitos.pro
+    com.xiaomi.simactivate.service:
+      com.cockpitos.pro
+    com.calculator.hideu:
+      com.cockpitos.pro
+    com.miui.weather2:
+      com.cockpitos.pro
+    com.miui.android.fashiongallery:
+      com.cockpitos.pro
+    com.facebook.pages.app:
+      com.cockpitos.pro
+    com.instagram.android:
+      com.cockpitos.pro
+    com.vodafone.selfservis:
+      com.cockpitos.pro
+    com.abtnprojects.ambatana:
+      com.cockpitos.pro
+    com.pozitron.hepsiburada:
+      com.cockpitos.pro
+    com.preff.kb.xm:
+      com.cockpitos.pro
+    free.vpn.unblock.proxy.turbovpn:
+      com.cockpitos.pro
+    com.instagram.barcelona:
+      com.cockpitos.pro
+    com.mi.globalbrowser:
+      com.cockpitos.pro
+    com.google.android.contacts:
+      com.cockpitos.pro
+    com.garanti.cepsubesi:
+      com.cockpitos.pro
+    com.pozitron.iscep:
+      com.cockpitos.pro
+    com.glodon.drawingexplorer:
+      com.cockpitos.pro
+    com.Doviz:
+      com.cockpitos.pro
+    com.whatsapp:
+      com.cockpitos.pro
+    com.instantbits.cast.webvideo:
+      com.cockpitos.pro
+    com.anthropic.claude:
+      com.cockpitos.pro
+    com.twitter.android:
+      com.cockpitos.pro
+    com.facebook.katana:
+      com.cockpitos.pro
+    com.xiaomi.midrop:
+      com.cockpitos.pro
+    com.cockpitos.pro:
+      com.google.android.documentsui
+      com.google.android.projection.gearhead
+      com.android.contacts
+      com.android.mms
+      com.xiaomi.calendar
+      com.google.android.apps.messaging
+      com.google.android.apps.safetyhub
+      com.google.android.googlequicksearchbox
+      com.google.android.apps.docs
+      com.android.chrome
+      com.google.android.apps.subscriptions.red
+      com.google.android.inputmethod.latin
+      com.google.android.gm
+      com.google.android.apps.tachyon
+      com.google.android.apps.maps
+      com.google.android.videos
+      com.google.android.apps.photos
+      com.google.android.apps.youtube.music
+      com.google.android.youtube
+      com.google.android.setupwizard
+      com.google.android.cellbroadcastreceiver
+      com.calculator.hideu
+      com.miui.weather2
+      com.xiaomi.scanner
+      com.tmob.vodafonewallet.prod
+      com.facebook.pages.app
+      com.miui.compass
+      com.instagram.android
+      com.miui.calculator
+      com.miui.notes
+      com.android.soundrecorder
+      tr.gov.turkiye.edevlet.kapisi
+      com.vodafone.selfservis
+      com.abtnprojects.ambatana
+      com.pozitron.hepsiburada
+      com.tmob.AveaOIM
+      com.muzekart.app
+      com.google.android.apps.chromecast.app
+      com.ovz.carscanner
+      com.finansbank.mobile.cepsube
+      com.tcl.tclhome
+      free.vpn.unblock.proxy.turbovpn
+      com.selim.gunlukgelisim
+      com.voltasit.obdeleven
+      com.instagram.barcelona
+      com.sahibinden
+      com.trendyol.go
+      com.mi.globalbrowser
+      com.google.android.apps.authenticator2
+      app.revanced.android.gms
+      com.google.android.contacts
+      com.openai.chatgpt
+      com.garanti.cepsubesi
+      com.google.android.apps.playconsole
+      com.akbank.android.apps.akbank_direkt
+      com.pozitron.iscep
+      com.teb
+      com.glodon.drawingexplorer
+      com.Doviz
+      com.whatsapp
+      tr.com.topkapidanismanlik.pazarama.app
+      com.magiconnect.tcast
+      com.instantbits.cast.webvideo
+      tr.gov.saglik.MHRSMOBIL
+      tech.butterfly.app
+      com.google.android.apps.docs.editors.docs
+      com.google.android.apps.nbu.files
+      com.google.android.apps.adm
+      com.medhaapps.wififtpserver.pro
+      com.anthropic.claude
+      app.youtube.premium
+      com.canva.editor
+      org.telegram.messenger
+      com.twitter.android
+      org.chromium.webapk.a505507942db05b98_v2
+      org.chromium.webapk.a98c88b93747cc04a_v2
+      com.deepseek.chat
+      com.facebook.katana
+      com.yablio.sendfilestotv
+      com.github.android
+      com.google.android.apps.bard
+      com.soundcloud.android
+      com.carriez.flutter_hbb
+      com.xiaomi.midrop
+      com.mujdeci.puantajplus.app
+      com.google.android.apps.cloudconsole
+      com.linkedin.android
+      com.ziraat.ziraatmobil
+      com.termux
+      app.olauncher
+      com.kuveytturk.mobil
+      tm.vlinker.VgateFwUpdater
+      com.cockpitos.phonehub.companion
+  queryable via interaction:
+    User 0:
+      [com.miui.securitycore,com.miui.screenrecorder,com.android.systemui,com.mediatek.voicecommand,com.mediatek.location.lppe.main,miui.systemui.plugin,com.xiaomi.mtb,com.modemdebug,com.android.providers.settings,com.miui.miinput,com.xiaomi.joyose,com.miui.securitycenter,com.android.keychain,com.miui.freeform,com.xiaomi.barrage,com.android.wallpaperbackup,com.xiaomi.misettings,com.android.settings,com.miui.touchassistant,com.android.inputdevices,com.miui.audiomonitor,android,com.android.location.fused,com.miui.powerkeeper,com.bsp.catchlog,com.mediatek,com.xiaomi.mi_connect_service,com.android.dynsystem,com.miui.qr,com.trustonic.teeservice,com.miui.face,com.miui.bugreport,com.android.server.telecom,com.miui.aod,com.android.localtransport,com.miui.daemon,com.miui.cit,com.miui.notification,com.android.provision]:
+        com.cockpitos.pro
+      [com.android.calllogbackup,com.android.providers.userdictionary,com.android.providers.contacts,com.android.providers.blockednumber]:
+        com.cockpitos.pro
+      [com.google.android.gsf,com.google.android.gms]:
+        com.cockpitos.pro
+      com.android.camera:
+        com.cockpitos.pro
+      com.google.android.inputmethod.latin:
+        com.cockpitos.pro
+      com.cockpitos.pro:
+        com.google.android.webview
+    User 10:
+    User 999:
+  queryable via uses-library:
+
+Dexopt state:
+  [com.cockpitos.pro]
+    path: /data/app/~~nWR0Fjq6FWXhJCl-8uAGrw==/com.cockpitos.pro-DlH13DyR9MyOZtozbDEe4w==/base.apk
+      arm64: [status=run-from-apk] [reason=unknown]
+      odex file size: null
+
+Compiler stats:
+  [com.cockpitos.pro]
+     base.apk - 1856

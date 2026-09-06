@@ -1,0 +1,1 @@
+(() => { const b = document.querySelector('button[title="Tam ekran"]'); if (!b) return { error: 'no fullscreen button', buttons: [...document.querySelectorAll('button')].map(x => x.title || x.innerText.slice(0,24)).slice(0,40) }; b.click(); return 'opened'; })()

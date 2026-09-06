@@ -1,0 +1,1 @@
+(()=>{__NAV_CAMPAIGN__.stage='close-full-open-settings';document.querySelector('[aria-label="Haritayı kapat"]').click();[...document.querySelectorAll('button')].find(b=>b.innerText==='AYARLAR')?.click();return 'clicked'})()

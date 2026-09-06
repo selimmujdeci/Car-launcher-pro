@@ -1,0 +1,1 @@
+(()=>{const m=__MAP_STORE__.getState().mapInstance; return {text:document.body.innerText.slice(-4500),style:m.getStyle().name,colors:m.getStyle().layers.filter(l=>l.paint).map(l=>({id:l.id,paint:Object.fromEntries(Object.entries(l.paint).filter(([k])=>k.includes('color')))})).filter(l=>Object.keys(l.paint).length)}})()

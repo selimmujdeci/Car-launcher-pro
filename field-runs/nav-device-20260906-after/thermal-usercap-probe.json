@@ -1,0 +1,39 @@
+[
+ {
+  "l": "AYARLAR",
+  "d": true
+ },
+ {
+  "l": "slider kartları",
+  "d": []
+ },
+ {
+  "l": "%100 iste — React onChange doğrudan",
+  "d": {
+   "error": "kart yok",
+   "kartlar": 0
+  }
+ },
+ {
+  "l": "KULLANICI yolu toast farkı",
+  "d": {
+   "once": 1,
+   "sonra": 1,
+   "fark": 0
+  }
+ },
+ {
+  "l": "ekrandaki uyarı",
+  "d": {
+   "result": {
+    "type": "object",
+    "subtype": "null",
+    "value": null
+   }
+  }
+ },
+ {
+  "l": "sistem parlaklığı (0-255)",
+  "d": "okuma adb ile"
+ }
+]

@@ -1,0 +1,45 @@
+[
+  {
+    "t": 967529.200000003,
+    "stage": "mini-to-full-day",
+    "op": "tileRender-intent",
+    "before": "vector",
+    "after": "raster",
+    "verdict": {
+      "resolved": "vector",
+      "intent": "raster",
+      "reason": null,
+      "mapMode": "road",
+      "thermalLock": true,
+      "arActive": false,
+      "vectorGateBlocked": false,
+      "deviceTier": "high",
+      "mapNight": false,
+      "mapNightRequested": false,
+      "intentResolvedMismatch": true
+    },
+    "caller": "Error\n    at <anonymous>:1:522\n    at https://localhost/assets/vendor-zustand-CxLtgLxY.js:1:298\n    at Set.forEach (<anonymous>)\n    at a.r [as setState] (https://localhost/assets/vendor-zustand-CxLtgLxY.js:1:287)\n    at qe (https://localhost/assets/mapSourceManager-5QcFaJtd.js:1:25626)\n    at https://localhost/assets/FullMapView-BqHoNNTo.js:2:77662"
+  },
+  {
+    "t": 970970.700000003,
+    "stage": "mini-to-full-day",
+    "op": "tileRender-intent",
+    "before": "raster",
+    "after": "vector",
+    "verdict": {
+      "resolved": "raster",
+      "intent": "vector",
+      "reason": "NO_VECTOR_SOURCE",
+      "mapMode": "road",
+      "thermalLock": false,
+      "arActive": false,
+      "vectorGateBlocked": false,
+      "deviceTier": "high",
+      "mapNight": false,
+      "mapNightRequested": false,
+      "intentResolvedMismatch": true
+    },
+    "caller": "Error\n    at <anonymous>:1:522\n    at https://localhost/assets/vendor-zustand-CxLtgLxY.js:1:298\n    at Set.forEach (<anonymous>)\n    at a.r [as setState] (https://localhost/assets/vendor-zustand-CxLtgLxY.js:1:287)\n    at https://localhost/assets/mapSourceManager-5QcFaJtd.js:1:25821"
+  }
+]
+[]

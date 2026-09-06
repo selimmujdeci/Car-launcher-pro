@@ -1,0 +1,366 @@
+{
+  "result": {
+    "type": "object",
+    "value": {
+      "text": "Termal Koruma\nTermal koruma aktif, parlaklık kısıtlandı (maks. 50%)\nTermal Koruma\nTermal koruma aktif, parlaklık kısıtlandı (maks. 50%)\nTermal Koruma\nTermal koruma aktif, parlaklık kısıtlandı (maks. 50%)\nTermal Koruma\nTermal koruma aktif, parlaklık kısıtlandı (maks. 50%)\nTermal Koruma\nTermal koruma aktif, parlaklık kısıtlandı (maks. 50%)\nTermal Koruma\nTermal koruma aktif, parlaklık kısıtlandı (maks. 50%)\nCAROS\n—\n09:26\n09:26\nPazar, 6 Eyl\n0\nKM/H\nSOL\nFAR\nUZUN\nDÖRTLÜ\nKAPI\nEL FR.\nR\nGERİ\nSAĞ\n— km\nMENZİL\nE\nF\n32,3\nkm\nYOL SAYACI\nSıfırla\nONLİNE\nBir Oluruz Yolunda 1\nTarkan\n0:00\n--:--\nARAÇ DURUMU\nNormal\nMOTOR\n—°C\nDEVİR\n—\nAKÜ\n—V\nHIZ\n0 km/h\nNAVİGASYON\nMÜZİK\nASİSTAN\nTELEFON\nBİLDİRİM\nMENÜ\nKLİMA\nARAÇ\nAYARLAR\nHAVA\nTRAFİK\nDASHCAM\nSEYİR\nARIZA\nGÜVENLİK\nEĞLENCE\nSPORT\nCAROS LAB\nCAROS\nPRO\n09:26\n6 EYL 2026\nPAZAR\nGPS\n±3m\nONLINE\nBENZİNLİK\n1.7 km\nİŞ\n19 m\nEV\n49.0 km\nÖZEL KONUMLAR\nKAPAT\nYOL\n36.9175°, 34.8621°",
+      "style": "Vector (Automotive Day)",
+      "colors": [
+        {
+          "id": "background",
+          "paint": {
+            "background-color": "#f2efe6"
+          }
+        },
+        {
+          "id": "landcover-wood",
+          "paint": {
+            "fill-color": "#b4d3a0"
+          }
+        },
+        {
+          "id": "landcover-farmland",
+          "paint": {
+            "fill-color": "#eeeada"
+          }
+        },
+        {
+          "id": "landcover-grass",
+          "paint": {
+            "fill-color": "#c9e0b8"
+          }
+        },
+        {
+          "id": "landuse-park",
+          "paint": {
+            "fill-color": "#c9e0b8"
+          }
+        },
+        {
+          "id": "landuse-residential",
+          "paint": {
+            "fill-color": "#ece8dc"
+          }
+        },
+        {
+          "id": "landuse-urban",
+          "paint": {
+            "fill-color": "#e4dfd0"
+          }
+        },
+        {
+          "id": "landuse-green",
+          "paint": {
+            "fill-color": "#c9e0b8"
+          }
+        },
+        {
+          "id": "water-fill",
+          "paint": {
+            "fill-color": "#9cc7dc"
+          }
+        },
+        {
+          "id": "water-pool",
+          "paint": {
+            "fill-color": "#9cc7dc"
+          }
+        },
+        {
+          "id": "waterway",
+          "paint": {
+            "line-color": "#9cc7dc"
+          }
+        },
+        {
+          "id": "waterway-stream",
+          "paint": {
+            "line-color": "#9cc7dc"
+          }
+        },
+        {
+          "id": "boundary",
+          "paint": {
+            "line-color": "#c6bda9"
+          }
+        },
+        {
+          "id": "aeroway",
+          "paint": {
+            "line-color": "#e4dfd0"
+          }
+        },
+        {
+          "id": "railway",
+          "paint": {
+            "line-color": "#b9b2a3"
+          }
+        },
+        {
+          "id": "building",
+          "paint": {
+            "fill-color": "#ded6c6",
+            "fill-outline-color": "#c6bda9"
+          }
+        },
+        {
+          "id": "building-3d",
+          "paint": {
+            "fill-extrusion-color": [
+              "interpolate",
+              [
+                "linear"
+              ],
+              [
+                "coalesce",
+                [
+                  "get",
+                  "render_height"
+                ],
+                [
+                  "get",
+                  "height"
+                ],
+                5
+              ],
+              0,
+              "#ded6c6",
+              20,
+              "#e7e0d2",
+              60,
+              "#efe9dd"
+            ]
+          }
+        },
+        {
+          "id": "road-tunnel-casing",
+          "paint": {
+            "line-color": "#bdb6a6"
+          }
+        },
+        {
+          "id": "road-tunnel",
+          "paint": {
+            "line-color": "#f2efe6"
+          }
+        },
+        {
+          "id": "road-minor-casing",
+          "paint": {
+            "line-color": "#bdb6a6"
+          }
+        },
+        {
+          "id": "road-secondary-casing",
+          "paint": {
+            "line-color": "#b0a999"
+          }
+        },
+        {
+          "id": "road-primary-casing",
+          "paint": {
+            "line-color": "#a49d8e"
+          }
+        },
+        {
+          "id": "road-motorway-casing",
+          "paint": {
+            "line-color": "#9a9384"
+          }
+        },
+        {
+          "id": "road-path",
+          "paint": {
+            "line-color": "#b0a999"
+          }
+        },
+        {
+          "id": "road-service",
+          "paint": {
+            "line-color": "#f7f4ec"
+          }
+        },
+        {
+          "id": "road-minor",
+          "paint": {
+            "line-color": "#f7f4ec"
+          }
+        },
+        {
+          "id": "road-tertiary",
+          "paint": {
+            "line-color": "#faf8f1"
+          }
+        },
+        {
+          "id": "road-secondary",
+          "paint": {
+            "line-color": "#faf8f1"
+          }
+        },
+        {
+          "id": "road-primary",
+          "paint": {
+            "line-color": "#fdfcf8"
+          }
+        },
+        {
+          "id": "road-motorway",
+          "paint": {
+            "line-color": "#ffffff"
+          }
+        },
+        {
+          "id": "road-bridge-casing",
+          "paint": {
+            "line-color": "#8e877a"
+          }
+        },
+        {
+          "id": "road-bridge",
+          "paint": {
+            "line-color": [
+              "case",
+              [
+                "in",
+                [
+                  "get",
+                  "class"
+                ],
+                [
+                  "literal",
+                  [
+                    "motorway",
+                    "trunk"
+                  ]
+                ]
+              ],
+              "#ffffff",
+              [
+                "==",
+                [
+                  "get",
+                  "class"
+                ],
+                "primary"
+              ],
+              "#fdfcf8",
+              [
+                "in",
+                [
+                  "get",
+                  "class"
+                ],
+                [
+                  "literal",
+                  [
+                    "secondary",
+                    "tertiary"
+                  ]
+                ]
+              ],
+              "#faf8f1",
+              "#f7f4ec"
+            ]
+          }
+        },
+        {
+          "id": "poi-gas",
+          "paint": {
+            "circle-color": "#b4801e",
+            "circle-stroke-color": "#ffffff"
+          }
+        },
+        {
+          "id": "poi-hospital",
+          "paint": {
+            "circle-color": "#c0504a",
+            "circle-stroke-color": "#ffffff"
+          }
+        },
+        {
+          "id": "poi-police",
+          "paint": {
+            "circle-color": "#6f6a86",
+            "circle-stroke-color": "#ffffff"
+          }
+        },
+        {
+          "id": "poi-parking",
+          "paint": {
+            "circle-color": "#5b7fa6",
+            "circle-stroke-color": "#ffffff"
+          }
+        },
+        {
+          "id": "place-suburb",
+          "paint": {
+            "text-color": "#37322b",
+            "text-halo-color": "#ffffff"
+          }
+        },
+        {
+          "id": "road-label",
+          "paint": {
+            "text-color": "#3f3a32",
+            "text-halo-color": "#ffffff"
+          }
+        },
+        {
+          "id": "place-village",
+          "paint": {
+            "text-color": "#37322b",
+            "text-halo-color": "#ffffff"
+          }
+        },
+        {
+          "id": "water-label",
+          "paint": {
+            "text-color": "#3d7495",
+            "text-halo-color": "#ffffff"
+          }
+        },
+        {
+          "id": "road-label-major",
+          "paint": {
+            "text-color": "#3f3a32",
+            "text-halo-color": "#ffffff"
+          }
+        },
+        {
+          "id": "place-town",
+          "paint": {
+            "text-color": "#37322b",
+            "text-halo-color": "#ffffff"
+          }
+        },
+        {
+          "id": "road-shield",
+          "paint": {
+            "text-color": "#ffffff",
+            "text-halo-color": "rgba(0,0,0,0.35)"
+          }
+        },
+        {
+          "id": "place-city",
+          "paint": {
+            "text-color": "#1e1a15",
+            "text-halo-color": "#ffffff"
+          }
+        },
+        {
+          "id": "user-glow",
+          "paint": {
+            "circle-color": "#E0A23C"
+          }
+        },
+        {
+          "id": "user-ring",
+          "paint": {
+            "circle-color": "rgba(0,0,0,0)",
+            "circle-stroke-color": "#E0A23C"
+          }
+        }
+      ]
+    }
+  }
+}

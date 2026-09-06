@@ -1,0 +1,51 @@
+ M android/app/src/main/java/com/cockpitos/pro/CarLauncherPlugin.java
+ M docs/CAROS_PRO_VIZYONU.md
+ M docs/DEVICE_VALIDATION_LEDGER.md
+ M package.json
+ M src/__tests__/mapDayPaletteContrast.test.ts
+ M src/__tests__/mapMoodPaletteAuthority.test.ts
+ M src/__tests__/mapNightAreaFillDistinctness.test.ts
+ M src/__tests__/mapNightContrastAndTileError.test.ts
+ M src/__tests__/mapRenderPerformanceF3.test.ts
+ M src/__tests__/musicF4NowPlayingQueue.test.tsx
+ M src/__tests__/musicFieldBugfixYtMiniplayerVideo.test.ts
+ M src/__tests__/musicSurfaceSpineF1.test.ts
+ M src/__tests__/paintedArrowModel.test.ts
+ M src/__tests__/regression.guards.test.ts
+ M src/__tests__/routeColorPolicy.test.ts
+ M src/__tests__/routeCoreColorApplied.test.ts
+ M src/__tests__/routeNightContrast.test.ts
+ M src/__tests__/tunnelNightOverride.test.ts
+ M src/components/layout/MainLayout.tsx
+ M src/components/map/FullMapView.tsx
+ M src/components/map/MapHudControls.tsx
+ M src/components/map/MiniMapWidget.tsx
+ M src/components/media/MediaScreen.tsx
+ D src/components/media/MiniPlayer.tsx
+ D src/components/media/musicSurfaceVisibilityModel.ts
+ M src/core/runtime/AdaptiveRuntimeManager.ts
+ M src/index.css
+ M src/platform/map/MapCore.ts
+ M src/platform/map/MapInteractionManager.ts
+ M src/platform/map/MapLayerManager.ts
+ M src/platform/map/core/mapDeclutterModel.ts
+ M src/platform/map/core/routeColorModel.ts
+ M src/platform/mapStyleBuilders.ts
+ M src/platform/media/authority/backendAdapters.ts
+ M src/platform/media/carosMediaLayer.ts
+ M src/platform/media/pipedProvider.ts
+ M src/platform/media/videoModeStore.ts
+ M src/platform/nativePlugin.ts
+ M src/platform/thermalWatchdog.ts
+ M src/platform/youtubeService.ts
+ M version.properties
+?? 6
+?? field-runs/
+?? src/__tests__/cartographyAuthority.test.ts
+?? src/__tests__/mapDeviceLifecycleCampaign.test.ts
+?? src/__tests__/mapTwoInstanceFieldBugs.test.ts
+?? src/__tests__/musicYoutubeStartAndHomeSurface.test.ts
+?? src/__tests__/pipedCorsAndVideoIdFieldBug.test.ts
+?? src/__tests__/thermalStatusSourceFieldBug.test.ts
+?? src/platform/map/bindMapUserInteraction.ts
+?? src/platform/map/core/fpsThermalLatchModel.ts

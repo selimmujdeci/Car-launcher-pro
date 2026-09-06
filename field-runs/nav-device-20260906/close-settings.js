@@ -1,0 +1,1 @@
+(()=>{const b=[...document.querySelectorAll('button')].find(b=>/^(☀️|🌙)\s*(GÜNDÜZ|GECE)$/.test(b.innerText.trim()));const p=Object.keys(b).find(k=>k.startsWith('__reactProps'));window.__campaignThemeToggle=b[p].onClick;[...document.querySelectorAll('button')].find(b=>b.innerText==='GERİ')?.click();return {savedToggle:b.innerText};})()

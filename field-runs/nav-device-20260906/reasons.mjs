@@ -1,0 +1,1 @@
+import{readFileSync,writeFileSync}from'node:fs';const es=JSON.parse(readFileSync('field-runs/nav-device-20260906/trace-before-final.json')).result.value.events;console.log(JSON.stringify(es.filter(e=>e.op==='tileRender-intent'),null,2));console.log(JSON.stringify(es.filter(e=>e.stage==='full-pan-day-to-night'&&/To|style/.test(e.op)).slice(0,12),null,2));

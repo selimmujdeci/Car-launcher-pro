@@ -1,0 +1,117 @@
+{
+ "device": {
+  "thermalBefore": {
+   "status": 3,
+   "skinC": 51.039,
+   "skinStatus": 3
+  },
+  "sysBrightnessBefore": 128,
+  "thermalAfter": {
+   "status": 3,
+   "skinC": 51.039,
+   "skinStatus": 3
+  },
+  "sysBrightnessAfter": 128
+ },
+ "steps": [
+  {
+   "label": "cihaz termal / parlaklık",
+   "at": "2026-09-06T07:59:18.728Z",
+   "data": {
+    "status": 3,
+    "skinC": 51.039,
+    "skinStatus": 3,
+    "sysBrightness": 128
+   }
+  },
+  {
+   "label": "gözlemci",
+   "at": "2026-09-06T07:59:18.742Z",
+   "data": {
+    "baselineToastVarken": 0
+   }
+  },
+  {
+   "label": "kap sondası (kullanıcı yolu)",
+   "at": "2026-09-06T07:59:18.750Z"
+  },
+  {
+   "label": "dk 1",
+   "toasts": 0,
+   "thermal": {
+    "status": 3,
+    "skinC": 51.039,
+    "skinStatus": 3
+   },
+   "sysBrightness": 128
+  },
+  {
+   "label": "dk 2",
+   "toasts": 0,
+   "thermal": {
+    "status": 3,
+    "skinC": 51.039,
+    "skinStatus": 3
+   },
+   "sysBrightness": 128
+  },
+  {
+   "label": "dk 3",
+   "toasts": 0,
+   "thermal": {
+    "status": 3,
+    "skinC": 51.039,
+    "skinStatus": 3
+   },
+   "sysBrightness": 128
+  },
+  {
+   "label": "dk 4",
+   "toasts": 0,
+   "thermal": {
+    "status": 3,
+    "skinC": 51.039,
+    "skinStatus": 3
+   },
+   "sysBrightness": 128
+  },
+  {
+   "label": "dk 5",
+   "toasts": 0,
+   "thermal": {
+    "status": 3,
+    "skinC": 51.039,
+    "skinStatus": 3
+   },
+   "sysBrightness": 128
+  },
+  {
+   "label": "dk 6",
+   "toasts": 0,
+   "thermal": {
+    "status": 3,
+    "skinC": 51.039,
+    "skinStatus": 3
+   },
+   "sysBrightness": 128
+  },
+  {
+   "label": "SONUÇ",
+   "at": "2026-09-06T08:05:22.167Z",
+   "data": {
+    "toplamToast": 0,
+    "kayitlar": [],
+    "sysBrightnessAfter": 128,
+    "thermalAfter": {
+     "status": 3,
+     "skinC": 51.039,
+     "skinStatus": 3
+    }
+   }
+  }
+ ],
+ "result": {
+  "toplamToast": 0,
+  "kayitlar": []
+ }
+}

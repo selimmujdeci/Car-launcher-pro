@@ -1,0 +1,249 @@
+[
+ {
+  "label": "başlangıç",
+  "at": "2026-09-06T08:12:42.969Z",
+  "data": {
+   "follow": {
+    "cameraMode": "FOLLOWING",
+    "centered": true,
+    "autoRecenterPending": false,
+    "autoDelayMs": 10000,
+    "reason": "AUTO_TIMEOUT",
+    "panAgeMs": 23007,
+    "followZoom": 18.53468251578118,
+    "listeners": 1
+   },
+   "camera": {
+    "zoom": 18,
+    "pitch": 38,
+    "bearing": 170.6
+   }
+  }
+ },
+ {
+  "label": "HUD söndükten sonra",
+  "at": "2026-09-06T08:12:47.996Z",
+  "data": {
+   "follow": {
+    "cameraMode": "FOLLOWING",
+    "centered": true,
+    "autoRecenterPending": false,
+    "autoDelayMs": 10000,
+    "reason": "AUTO_TIMEOUT",
+    "panAgeMs": 28058,
+    "followZoom": 18.53468251578118,
+    "listeners": 1
+   },
+   "camera": {
+    "zoom": 18,
+    "pitch": 38,
+    "bearing": 170.6
+   }
+  }
+ },
+ {
+  "label": "pan 1 — hareket sırasında/hemen sonra",
+  "at": "2026-09-06T08:12:49.122Z",
+  "data": {
+   "follow": {
+    "cameraMode": "FOLLOW_SUSPENDED",
+    "centered": false,
+    "autoRecenterPending": true,
+    "autoDelayMs": 10000,
+    "reason": "AUTO_TIMEOUT",
+    "panAgeMs": 339,
+    "followZoom": 18.53468251578118,
+    "listeners": 1
+   },
+   "camera": {
+    "zoom": 17.997,
+    "pitch": 38,
+    "bearing": 170.6
+   }
+  }
+ },
+ {
+  "label": "pan 1 — olaylar",
+  "at": "2026-09-06T08:12:50.039Z",
+  "data": [
+   {
+    "op": "dragstart",
+    "origin": "USER",
+    "src": "touchmove",
+    "mode": "FOLLOWING"
+   },
+   {
+    "op": "dragend",
+    "origin": "USER",
+    "src": "touchend",
+    "mode": "USER_PANNING"
+   },
+   {
+    "op": "easeTo",
+    "d": 248.04891630648308
+   }
+  ]
+ },
+ {
+  "label": "pan 1 — 1.3 sn sonra",
+  "at": "2026-09-06T08:12:50.045Z",
+  "data": {
+   "follow": {
+    "cameraMode": "FOLLOW_SUSPENDED",
+    "centered": false,
+    "autoRecenterPending": true,
+    "autoDelayMs": 10000,
+    "reason": "AUTO_TIMEOUT",
+    "panAgeMs": 1262,
+    "followZoom": 18.53468251578118,
+    "listeners": 1
+   },
+   "camera": {
+    "zoom": 17.997,
+    "pitch": 38,
+    "bearing": 170.6
+   }
+  }
+ },
+ {
+  "label": "pan 1 — ORTALA",
+  "at": "2026-09-06T08:12:50.807Z",
+  "data": {
+   "before": {
+    "cameraMode": "FOLLOW_SUSPENDED",
+    "centered": false,
+    "autoRecenterPending": true,
+    "autoDelayMs": 10000,
+    "reason": "AUTO_TIMEOUT",
+    "panAgeMs": 2021,
+    "followZoom": 18.53468251578118,
+    "listeners": 1
+   },
+   "after": {
+    "cameraMode": "FOLLOWING",
+    "centered": true,
+    "autoRecenterPending": false,
+    "autoDelayMs": 10000,
+    "reason": "USER_BUTTON",
+    "panAgeMs": 2023,
+    "followZoom": 17.996651552596255,
+    "listeners": 1
+   }
+  }
+ },
+ {
+  "label": "pan 1 — ortala sonrası",
+  "at": "2026-09-06T08:12:53.324Z",
+  "data": {
+   "follow": {
+    "cameraMode": "FOLLOWING",
+    "centered": true,
+    "autoRecenterPending": false,
+    "autoDelayMs": 10000,
+    "reason": "USER_BUTTON",
+    "panAgeMs": 4541,
+    "followZoom": 17.996651552596255,
+    "listeners": 1
+   },
+   "camera": {
+    "zoom": 18,
+    "pitch": 38,
+    "bearing": 170.3
+   }
+  }
+ },
+ {
+  "label": "pan 2 — hareket sırasında/hemen sonra",
+  "at": "2026-09-06T08:12:54.429Z",
+  "data": {
+   "follow": {
+    "cameraMode": "FOLLOWING",
+    "centered": true,
+    "autoRecenterPending": false,
+    "autoDelayMs": 10000,
+    "reason": "USER_BUTTON",
+    "panAgeMs": 5645,
+    "followZoom": 17.996651552596255,
+    "listeners": 1
+   },
+   "camera": {
+    "zoom": 18,
+    "pitch": 38,
+    "bearing": 170.3
+   }
+  }
+ },
+ {
+  "label": "pan 2 — olaylar",
+  "at": "2026-09-06T08:12:55.385Z",
+  "data": []
+ },
+ {
+  "label": "pan 2 — 1.3 sn sonra",
+  "at": "2026-09-06T08:12:55.404Z",
+  "data": {
+   "follow": {
+    "cameraMode": "FOLLOWING",
+    "centered": true,
+    "autoRecenterPending": false,
+    "autoDelayMs": 10000,
+    "reason": "USER_BUTTON",
+    "panAgeMs": 6619,
+    "followZoom": 17.996651552596255,
+    "listeners": 1
+   },
+   "camera": {
+    "zoom": 18,
+    "pitch": 38,
+    "bearing": 170.3
+   }
+  }
+ },
+ {
+  "label": "pan 2 — ORTALA",
+  "at": "2026-09-06T08:12:56.189Z",
+  "data": {
+   "before": {
+    "cameraMode": "FOLLOWING",
+    "centered": true,
+    "autoRecenterPending": false,
+    "autoDelayMs": 10000,
+    "reason": "USER_BUTTON",
+    "panAgeMs": 7399,
+    "followZoom": 17.996651552596255,
+    "listeners": 1
+   },
+   "after": {
+    "cameraMode": "FOLLOWING",
+    "centered": true,
+    "autoRecenterPending": false,
+    "autoDelayMs": 10000,
+    "reason": "USER_BUTTON",
+    "panAgeMs": 7402,
+    "followZoom": 18,
+    "listeners": 1
+   }
+  }
+ },
+ {
+  "label": "pan 2 — ortala sonrası",
+  "at": "2026-09-06T08:12:58.720Z",
+  "data": {
+   "follow": {
+    "cameraMode": "FOLLOWING",
+    "centered": true,
+    "autoRecenterPending": false,
+    "autoDelayMs": 10000,
+    "reason": "USER_BUTTON",
+    "panAgeMs": 9936,
+    "followZoom": 18,
+    "listeners": 1
+   },
+   "camera": {
+    "zoom": 18,
+    "pitch": 38,
+    "bearing": 170.3
+   }
+  }
+ }
+]

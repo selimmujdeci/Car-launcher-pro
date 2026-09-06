@@ -1,0 +1,1 @@
+(()=>{__NAV_CAMPAIGN__.stage='settings-day-to-night';const b=[...document.querySelectorAll('button')].find(b=>b.innerText.trim()==='☀️\nGÜNDÜZ');if(!b)return [...document.querySelectorAll('button')].map(b=>({text:b.innerText,title:b.title})).filter(b=>/GÜNDÜZ|GECE/.test(b.text));b.click();return 'night requested'})()

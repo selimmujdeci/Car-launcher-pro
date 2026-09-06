@@ -1,0 +1,1 @@
+import {readFileSync} from 'node:fs';const es=JSON.parse(readFileSync(process.argv[2])).result.value.events;const groups={};for(const e of es){const k=e.op;groups[k]=(groups[k]||0)+1;}console.log(groups);console.log(es.filter(e=>/To|style/.test(e.op)).slice(-12));
