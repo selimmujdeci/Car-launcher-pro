@@ -27,6 +27,8 @@ import mapLayerManagerSrc from '../platform/map/MapLayerManager.ts?raw';
 import mapInteractionManagerSrc from '../platform/map/MapInteractionManager.ts?raw';
 import mapStateSrc from '../platform/map/_mapState.ts?raw';
 import mapCoreSrc from '../platform/map/MapCore.ts?raw';
+import { evaluateFpsThermalLatch, FPS_LOW_CONFIRM_SAMPLES, FPS_LOW_THRESHOLD } from '../platform/map/core/fpsThermalLatchModel';
+import { resolveRouteEmphasis } from '../platform/map/core/routeEmphasisModel';
 import proLayoutSrc from '../components/themes/ProLayout.tsx?raw';
 import teslaLayoutSrc from '../components/themes/TeslaLayout.tsx?raw';
 import volumeGestureLayerSrc from '../components/common/VolumeGestureLayer.tsx?raw';
@@ -3665,7 +3667,11 @@ describe('Durakta kamera donmaz — araç çerçevede tutulur', () => {
     /* KİLİT BİÇİMİ GÜNCELLENDİ (NAVIGATION_CAMERA_SHADOW): erken dönüş tek
        satırdan bloğa alındı çünkü çıkmadan ÖNCE gölge gözlemi bildiriliyor.
        DAVRANIŞ AYNI: çerçeve VE yön doğruyken hiç iş yapmadan `return`. */
-    expect(mapInteractionManagerSrc).toMatch(/if \(framed && oriented\) \{[\s\S]{0,400}?return;/);
+    /* 2026-09-05: `setDrivingView` artık kameranın UYGULANIP uygulanmadığını
+       DÖNER (giriş kapısının sessizce yutmasını engellemek için). Erken dönüş
+       "çerçeve VE yön zaten doğru" demek olduğu için `return true`tur —
+       davranış DEĞİŞMEDİ, yalnız sonuç bildiriliyor. Kilit güncellendi. */
+    expect(mapInteractionManagerSrc).toMatch(/if \(framed && oriented\) \{[\s\S]{0,600}?return true;/);
     expect(mapInteractionManagerSrc).toContain('isVehicleFramed(p.x, p.y, cv.clientWidth, cv.clientHeight)');
     // Eski koşulsuz erken dönüş geri gelmemeli
     expect(mapInteractionManagerSrc).not.toMatch(
@@ -4062,7 +4068,7 @@ describe('Durakta kamera yönü de kontrol edilir', () => {
   it('🔒 erken dönüş çerçeve VE yön doğruyken yapılır', () => {
     const src = mapInteractionManagerSrc;
     expect(src).toContain('const oriented =');
-    expect(src).toMatch(/if \(framed && oriented\) \{[\s\S]{0,400}?return;/);
+    expect(src).toMatch(/if \(framed && oriented\) \{[\s\S]{0,600}?return true;/);
     // Yalnız çerçeveye bakan eski hâl geri gelmemeli
     expect(src).not.toMatch(/if \(framed\) return;/);
     /* YENİ: erken dönüş yolu gölgeye de BİLDİRİLİR — atlanan güncelleme
@@ -13028,6 +13034,126 @@ describe('🔒 KİLİT · P0-VDK-B7 — sessiz adres eleme merdiveni', () => {
   });
 });
 
+describe('🔒 ROTA/FLOW · dekoratif akış katmanı çekirdeği MASKELEYEMEZ (saha 2026-09-06)', () => {
+  /* KULLANICI: *"rota çizgisi neden açık mavi · harita uzaklaşınca mavi oluyor,
+     kamera zoom yapınca açık mavi oluyor."*
+
+     ÖLÇÜM (kullanıcı ekran görüntüsü, 1 px kesit): şerit `#b0ccf1`. Açık zemin
+     çekirdek duraklarının ÜÇÜNDE de R=0'dır (`#006CFF` · `#0057D9` · `#00A6FF`) —
+     yani ölçülen R=176 ÇEKİRDEKTEN GELEMEZ; üstünde beyazımsı bir katman vardır.
+     Çözülen efektif alfa ≈ 0,68 = **kurulum flow opaklığı 0,85 × pulse tepesi 0,80**.
+
+     KÖK NEDEN: `applyRouteEmphasis` `isStyleLoaded()` kapısında erken dönüyordu.
+     O bayrak NAVİGASYON SIRASINDA neredeyse hep `false`'tır (araç işaretçisi ~16 fps
+     `setData`, sürekli karo yükleme) — bu dosyada AYNI tuzak daha önce iki kez
+     bulunmuştu (`trimRouteGeometry` 2026-08-13 · sürüş kamerası). Tek kurtarma
+     yolu `map.once('idle')` idi; sürüşte harita ASLA idle olmaz. */
+
+  it('applyRouteEmphasis `isStyleLoaded` kapısıyla erken DÖNMEZ', () => {
+    const i = mapLayerManagerSrc.indexOf('export function applyRouteEmphasis');
+    expect(i, 'applyRouteEmphasis bulunamadı — kilit kör kalmış').toBeGreaterThan(0);
+    const body = mapLayerManagerSrc.slice(i, i + 5200);
+    expect(body, 'sürüşte hiç kurulmayan stil kapısı geri gelmiş — vurgu sessizce uygulanmaz')
+      .not.toMatch(/if\s*\(!map\.isStyleLoaded\(\)\)/);
+    expect(body, 'opaklık yazımı kaybolmuş').toContain("safeSetPaint(map, ROUTE_FLOW,     'line-opacity', d.flowOpacity)");
+  });
+
+  it('ROUTE_FLOW kurulumda GÖRÜNMEZ — otorite karar vermeden çekirdeği örtemez', () => {
+    const i = mapLayerManagerSrc.indexOf('id: ROUTE_FLOW');
+    expect(i, 'ROUTE_FLOW kurulumu bulunamadı').toBeGreaterThan(0);
+    const body = mapLayerManagerSrc.slice(i, i + 900);
+    const m = body.match(/'line-opacity':\s*([0-9.]+)/);
+    expect(m, 'ROUTE_FLOW kurulum opaklığı okunamadı').not.toBeNull();
+    /* `routeLayerModel`in kendi kök kuralı ≥ 0,5'i "flow çekirdeği maskeler" sayar;
+       emphasis modelinin yorumu 0,55'i bile "pastel gösteriyor" diye kayıtlamış. */
+    expect(Number(m![1]), 'dekoratif akış karar gelmeden çekirdeği maskeleyebilir')
+      .toBeLessThanOrEqual(0);
+  });
+
+  it('açık zeminde karar edilen akış opaklığı maskeleme eşiğinin ALTINDA', () => {
+    const light = resolveRouteEmphasis({ confidence: 'CONFIRMED', navActive: true, lightBasemap: true, altCount: 0 });
+    const dark  = resolveRouteEmphasis({ confidence: 'CONFIRMED', navActive: true, lightBasemap: false, altCount: 0 });
+    expect(light.flowOpacity, 'gündüz akışı çekirdeği pastel yapacak seviyede').toBeLessThan(0.5);
+    expect(dark.flowOpacity, 'gece akışı çekirdeği pastel yapacak seviyede').toBeLessThan(0.5);
+    /* Rehberlik yokken süs HIÇ çizilmez. */
+    expect(resolveRouteEmphasis({ confidence: 'CONFIRMED', navActive: false, lightBasemap: true, altCount: 0 }).flowOpacity).toBe(0);
+  });
+});
+
+describe('🔒 NAV-CHROME · harita chrome guneş modu agirligindan MUAF (saha 2026-09-06)', () => {
+  /* KULLANICI: *"siyah kalın çerçeveli UI chrome haritadan daha baskın."*
+     ÖLÇÜM: kusur bileşen stilinde değildi — `.sunlight-mode button` her düğmeye
+     `border: 2px solid #000000` yazıyor ve `sunlight-mode` GÜNDÜZ SAATLERİNDE
+     KOŞULSUZ açık (`phase === 'morning' | 'afternoon'`; ortam ışığı sensörü YOK). */
+  const css = read('src/index.css');
+
+  it('harita yüzeyi için muafiyet kuralı VAR ve dokunma hedefini KÜÇÜLTMEZ', () => {
+    expect(css, 'harita yüzeyi muafiyeti kaldirilmis — chrome yine haritayi ezer')
+      .toMatch(/\.sunlight-mode \[data-theme-surface="nav"\] button/);
+    const i = css.indexOf('.sunlight-mode [data-theme-surface="nav"] button');
+    const body = css.slice(i, i + 260);
+    expect(body, 'harita chrome cercevesi hala kalin').toContain('border-width: 1px');
+    expect(body, 'muafiyet dokunma hedefini kucultmus — automotive ihlali')
+      .not.toMatch(/min-(height|width)/);
+  });
+
+  it('güneş okunabilirliği harita DIŞINDA aynen korunur', () => {
+    expect(css, 'genel gunes modu cercevesi kaldirilmis — dashboard okunabilirligi kaybolur')
+      .toMatch(/\.sunlight-mode button \{[^}]*border: 2px solid #000000/);
+    expect(css, 'gunes modu dokunma hedefi kaldirilmis').toMatch(/\.sunlight-mode button \{[^}]*min-height: 52px/);
+  });
+
+  it('muafiyet YALNIZ harita yüzeyini hedefler (global sızıntı yok)', () => {
+    const lines = css.split(String.fromCharCode(10)).filter((l) => l.includes('data-theme-surface="nav"') && l.trimStart().startsWith('.'));
+    expect(lines.length, 'muafiyet kurali bulunamadi').toBeGreaterThan(0);
+    for (const l of lines) {
+      expect(l, 'muafiyet secicisi sunlight-mode disina cikmis: ' + l).toContain('.sunlight-mode');
+    }
+  });
+});
+
+describe('🔒 NAV-CHROME/2 · kontroller TEK RAY, kartlar TEMAYA bağlı (saha 2026-09-06)', () => {
+  /* KULLANICI: *"sol quick destinations çok büyük · sağ controls çok ağır."*
+     ÖNCE: sağ kolonda BEŞ ayrı kutu, her birinde kendi dolgu+kenar+gölgesi;
+     sol kartlarda SABİT koyu dolgu (`rgba(10,14,26,0.28)`) — gündüz açık
+     zeminde koyu blok olarak okunuyordu. */
+  const hud = read('src/components/map/MapHudControls.tsx');
+  const nav = read('src/components/map/NavigationHUD.tsx');
+
+  it('sağ kontroller TEK ray yüzeyinde toplanır (kenar bir kez çizilir)', () => {
+    const i = hud.indexOf('absolute right-4 z-[var(--z-map-label)]');
+    expect(i, 'sağ kontrol kolonu bulunamadı — kilit kör kalmış').toBeGreaterThan(0);
+    const rail = hud.slice(i - 400, i + 500);
+    expect(rail, 'ray kendi yüzeyini kaybetmiş').toContain('--oem-surface-1');
+    expect(hud.slice(i, i + 400), 'ray kenarı yok — kontroller yine ayrı kutulara dönmüş')
+      .toContain('borderColor');
+  });
+
+  it('ray içindeki düğmeler KENDİ yüzeyini/gölgesini taşımaz', () => {
+    /* Eski desen: her düğmede `--oem-shadow-card` + `--oem-line-strong`. */
+    const i = hud.indexOf('absolute right-4 z-[var(--z-map-label)]');
+    const body = hud.slice(i, i + 3200);
+    const kutular = body.match(/--oem-shadow-card/g) ?? [];
+    expect(kutular.length, 'ray içinde düğme gölgeleri geri gelmiş: ' + kutular.length)
+      .toBeLessThanOrEqual(1);
+  });
+
+  it('DOKUNMA HEDEFLERİ KÜÇÜLMEDİ (automotive taban)', () => {
+    expect(hud, 'sağ kontrol düğme boyutu küçülmüş').toContain('w-12 h-12');
+    const css = read('src/index.css');
+    expect(css, 'güneş modu 52 px dokunma tabanı kaldırılmış')
+      .toMatch(/\.sunlight-mode button \{[^}]*min-height: 52px/);
+  });
+
+  it('hızlı hedef kartları SABİT koyu dolgu kullanmaz — tema tokenından gelir', () => {
+    const i = nav.indexOf('function QuickCard');
+    expect(i, 'QuickCard bulunamadı').toBeGreaterThan(0);
+    const body = nav.slice(i, i + 2600);
+    expect(body, 'kart dolgusu tema tokenina bağlı değil').toContain('--oem-surface-1');
+    expect(body, 'kart yükseklik sınıfı değişmiş (dokunma hedefi)').toContain('h-8');
+  });
+});
+
 describe('🔒 BOOT-RESILIENCE-1 · beklenmeyen restart tespiti thermalWatchdog kalibrasyonunu EZMEZ', () => {
   it('bootResilienceGuard thermalWatchdog/die eşiklerini İTHAL ETMEZ (ayrı, eklemeli katman)', () => {
     const guard = read('src/platform/system/bootResilienceGuard.ts');
@@ -13050,5 +13176,88 @@ describe('🔒 BOOT-RESILIENCE-1 · beklenmeyen restart tespiti thermalWatchdog 
   it('heartbeat yazımı throttle\'lı — her poll\'de DEĞİL (eMMC ömrü, CLAUDE.md §3)', () => {
     const guard = read('src/platform/system/bootResilienceGuard.ts');
     expect(guard).toMatch(/HEARTBEAT_WRITE_INTERVAL_MS\s*=\s*60_000/);
+  });
+});
+
+describe('🔒 P0-A · termal raster mandalı açılış FPS düşüşünü "termal olay" SAYMAZ', () => {
+  /* KANIT (cihaz · 2026-09-06 · Xiaomi 23090RA98I · trace-before-final.json):
+       tileRender-intent  vector → raster  thermalLock=true   deviceTier='high'
+       tileRender-intent  raster → vector  thermalLock=false  (+3442 ms)
+     Çağıran yığın: FullMapView → mapSourceManager.notifyLowFPS.
+     Sonuç: aynı GÜNDÜZ durumunda Vector → OSM Map → Vector parlaması. */
+
+  it('tek düşük örnek mandalı KAPATMAZ; kanıt ardışık örnekle oluşur', () => {
+    let st = { latched: false, lowStreak: 0 };
+    for (let i = 1; i < FPS_LOW_CONFIRM_SAMPLES; i++) {
+      const d = evaluateFpsThermalLatch({ fps: 8, latched: st.latched, lowStreak: st.lowStreak, surfaceSettling: false });
+      expect(d.latched, `${i}. örnekte erken mandal`).toBe(false);
+      expect(d.changed).toBe(false);
+      st = { latched: d.latched, lowStreak: d.lowStreak };
+    }
+    const last = evaluateFpsThermalLatch({ fps: 8, latched: st.latched, lowStreak: st.lowStreak, surfaceSettling: false });
+    expect(last.latched, 'gerçek termal olay artık yakalanmıyor — koruma öldü').toBe(true);
+    expect(last.changed).toBe(true);
+  });
+
+  it('yüzey otururken (harita READY değil / stil değişiyor) örnek KANIT SAYILMAZ', () => {
+    let st = { latched: false, lowStreak: 0 };
+    for (let i = 0; i < FPS_LOW_CONFIRM_SAMPLES + 3; i++) {
+      const d = evaluateFpsThermalLatch({ fps: 3, latched: st.latched, lowStreak: st.lowStreak, surfaceSettling: true });
+      expect(d.latched, 'açılış penceresi termal olay sayıldı — raster parlaması geri geldi').toBe(false);
+      expect(d.lowStreak, 'kurulum penceresinde seri birikiyor').toBe(0);
+      st = { latched: d.latched, lowStreak: d.lowStreak };
+    }
+  });
+
+  it('iyi örnek seriyi sıfırlar; bırakma kenarı bir kez bildirilir', () => {
+    const mid = evaluateFpsThermalLatch({ fps: 5, latched: false, lowStreak: FPS_LOW_CONFIRM_SAMPLES - 2, surfaceSettling: false });
+    expect(mid.latched).toBe(false);
+    const good = evaluateFpsThermalLatch({ fps: FPS_LOW_THRESHOLD, latched: false, lowStreak: mid.lowStreak, surfaceSettling: false });
+    expect(good.lowStreak).toBe(0);
+    expect(good.changed, 'mandal kapalı değilken boşuna bildirim').toBe(false);
+    const release = evaluateFpsThermalLatch({ fps: 60, latched: true, lowStreak: 0, surfaceSettling: false });
+    expect(release.latched).toBe(false);
+    expect(release.changed, 'kurtarma kenarı bildirilmiyor — harita raster’da kalır').toBe(true);
+  });
+
+  it('FullMapView ham `fps < 20` kenarını DEĞİL, saf modeli kullanır (tek karar yeri)', () => {
+    expect(fullMapViewSrc, 'FPS mandalı kararı tekrar bileşenin içine gömülmüş')
+      .toContain('evaluateFpsThermalLatch({');
+    expect(fullMapViewSrc, 'kurulum/stil penceresi kanıt dışı bırakılmamış')
+      .toMatch(/surfaceSettling:\s*!mapStyleReadyRef\.current \|\| styleChangingRef\.current/);
+    expect(fullMapViewSrc, 'eski tek-örnek kenarı geri gelmiş')
+      .not.toMatch(/const fpsIsLow = fps < 20;/);
+  });
+});
+
+describe('🔒 P0-B · sürüş girişinde TEK kamera üreticisi', () => {
+  /* KANIT (cihaz · 2026-09-06): aynı hedefe (~zoom 18 / pitch 38 / bearing 69.6 /
+     1000 ms) 6 ms arayla İKİ `easeTo`. Üretici: `requestFollow` zaten
+     `enterNavigationView` çağırıyordu; effect'ler bir de DOĞRUDAN çağırıyordu. */
+
+  it('drivingMode / navStatus / handleNavStart yolları doğrudan enterNavigationView ÇAĞIRMAZ', () => {
+    const idx = fullMapViewSrc.indexOf('const handleNavStart');
+    expect(idx, 'handleNavStart bulunamadı — kilit kör kalmış').toBeGreaterThan(0);
+    expect(fullMapViewSrc.slice(idx, idx + 260), 'nav başlangıcı ikinci kamera komutu üretiyor')
+      .not.toContain('enterNavigationView');
+    const drv = fullMapViewSrc.indexOf('if (drivingMode) requestFollow(');
+    expect(drv, 'sürüş girişinin tek üretici yolu bozulmuş').toBeGreaterThan(0);
+  });
+
+  it('stil yaşam döngüsü (style.load) kamerayi SÜRMEZ', () => {
+    const idx = fullMapViewSrc.indexOf('const _onStyleReady');
+    expect(idx, '_onStyleReady bulunamadı — kilit kör kalmış').toBeGreaterThan(0);
+    const body = fullMapViewSrc.slice(idx, idx + 1800);
+    expect(body, 'stil yüklemesi kamera komutu üretiyor (recenter/zoom sıfırlama)')
+      .not.toMatch(/enterNavigationView|setMapCenter/);
+  });
+
+  it('programatik MapLibre olayı kullanıcı hareketi SAYILMAZ (originalEvent kanıtı)', () => {
+    const bind = read('src/platform/map/bindMapUserInteraction.ts');
+    expect(bind, 'giriş kanıtı aranırken originalEvent kapısı kalkmış').toContain('event.originalEvent');
+    for (const f of ['src/components/map/FullMapView.tsx', 'src/components/map/MiniMapWidget.tsx']) {
+      expect(read(f), `${f} pan/zoom olaylarını ortak kapı olmadan bağlıyor`)
+        .toContain('bindMapUserInteraction(');
+    }
   });
 });

@@ -1,3 +1,4 @@
+import { bindMapUserInteraction } from '../../platform/map/bindMapUserInteraction';
 import { useCallback, useEffect, useRef, useState, memo } from 'react';
 import type { Map as MapLibreMap } from 'maplibre-gl';
 
@@ -381,22 +382,7 @@ export const MiniMapWidget = memo(function MiniMapWidget({
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapReady) return;
-    const onStart = () => notifyUserPanStart();
-    const onEnd   = () => notifyUserPanEnd(recenterOnVehicle);
-    map.on('dragstart',   onStart);
-    map.on('zoomstart',   onStart);
-    map.on('rotatestart', onStart);
-    map.on('dragend',     onEnd);
-    map.on('zoomend',     onEnd);
-    map.on('rotateend',   onEnd);
-    return () => {
-      map.off('dragstart',   onStart);
-      map.off('zoomstart',   onStart);
-      map.off('rotatestart', onStart);
-      map.off('dragend',     onEnd);
-      map.off('zoomend',     onEnd);
-      map.off('rotateend',   onEnd);
-    };
+    return bindMapUserInteraction(map, notifyUserPanStart, () => notifyUserPanEnd(recenterOnVehicle));
   }, [mapReady, reinitKey, recenterOnVehicle]);
 
   /* Rota çizgisini uygula / kaldır.

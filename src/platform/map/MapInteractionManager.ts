@@ -305,8 +305,58 @@ let _prevAppliedZoom: number | null = null;
 let _prevAppliedPitch: number | null = null;
 let _prevAppliedBearing: number | null = null;
 
+/* ═══════════════════════════════════════════════════════════════════════════
+   GİRİŞ KAMERASI PENCERESİ — SAHA KUSURU 2026-09-05
+   ═══════════════════════════════════════════════════════════════════════════
+   ÖLÇÜLEN KUSUR (kullanıcı, gerçek head unit, navigasyon aktif, 0 km/h):
+   *"aracı ortala diyorum kamera yakın oluyor geri uzaklaşıyor tam ekranda"*.
+
+   KÖK NEDEN: `enterNavigationView` 1.000 ms'lik bir `easeTo` ile zoom 18'e
+   gider. Takip döngüsü (`setDrivingView`) ise ~120 ms'de bir kamera komutu
+   yazar ve **durakta** (`_standstillFix`) zoom'u haritanın O ANKİ değerinden
+   okur:
+
+       const _zoomEff = _standstillFix ? map.getZoom() : …
+
+   Giriş animasyonu daha bitmeden çalışan ilk takip karesi, animasyonun
+   ORTASINDAKİ ara zoom'u (ör. 16,2) okuyup `jumpTo` ile SABİTLİYOR — hem
+   animasyonu iptal ediyor hem de kamerayı geri çekiyor. Ekranda görülen tam
+   olarak budur: yaklaşmaya başlar, sonra geri çekilip donar.
+
+   Bu bir "iki kamera otoritesi" kusuru DEĞİLDİR (ikisi de bu dosyanın, yani
+   aynı sahibin): eksik olan, girişin bitmesini bekleyen KAPIYDI.
+
+   ÇÖZÜM: giriş animasyonu uçuştayken takip döngüsü KAMERA KOMUTU YAZMAZ.
+   Kapı iki koşulu birden ister — süre penceresi VE haritanın gerçekten hâlâ
+   easing'de olması. İkinci koşul şart: kullanıcı giriş sırasında haritayı
+   sürüklerse MapLibre easing'i keser, kapı da ANINDA kalkar (kullanıcı
+   girdisi hiçbir koşulda 1 sn kilitlenmez).
+
+   Marker güncellemesi, rota genişliği ve renk senkronu KAPI DIŞINDADIR —
+   yalnız kamera komutu ertelenir.                                           */
+
+/** Giriş animasyonunun bitiş anı (monotonik ms). 0 = giriş yok. */
+let _entryCamUntilMs = 0;
+
+/** Giriş kamerası uçuşta mı — takip döngüsünün kamera kapısı. */
+function _entryCameraInFlight(map: MapLibreMap): boolean {
+  if (_entryCamUntilMs === 0) return false;
+  if (performance.now() >= _entryCamUntilMs) { _entryCamUntilMs = 0; return false; }
+  /* Kullanıcı araya girdiyse (pan/zoom) MapLibre easing'i keser → kapı kalkar. */
+  try {
+    if (!map.isEasing()) { _entryCamUntilMs = 0; return false; }
+  } catch { _entryCamUntilMs = 0; return false; }
+  return true;
+}
+
+/** @internal — LAB/kilit gözlemi: kapı şu an açık mı (ms cinsinden kalan). */
+export function _entryCameraRemainingMs(): number {
+  return _entryCamUntilMs === 0 ? 0 : Math.max(0, _entryCamUntilMs - performance.now());
+}
+
 /** @internal — oturum/test sıfırlaması. */
 export function _resetCameraComposition(): void {
+  _entryCamUntilMs = 0;
   _camPrevBand = null;
   _anchorBiasPx = 0;
   _prevAppliedAnchor = null;
@@ -340,7 +390,7 @@ export function setDrivingView(
    * zoom'u kanonik tavana (`GPS_DEGRADED_MAX_ZOOM`) KIRPILIR.
    */
   motionState?: CameraPolicyInput['motionState'],
-) {
+): boolean {
   // ⭐ SAHA KÖK NEDEN (2026-07-04, "harita sabit kalıyor + gitme yönüne dönmüyor"):
   // Buradaki eski `!map.isStyleLoaded()` guard'ı sürüş kamerasını YAPISAL olarak
   // öldürüyordu — isStyleLoaded() şu iki durumda false döner ve ikisi de sürüşte
@@ -351,7 +401,7 @@ export function setDrivingView(
   // jumpTo/easeTo kamera işlemleri stil GEREKTİRMEZ; aşağıdaki stil-bağımlı işler
   // zaten getLayer() + try/catch korumalı. Bu yüzden guard yalnız map varlığıdır.
   // (84237ff + 4bd4ed5 hareket-tespiti fix'leri semptomu tedavi ediyordu; katil buydu.)
-  if (!map) return;
+  if (!map) return false;   // harita yok → kamera uygulanmadı
   _drivingViewActive = true;
 
   // ── Dead Reckoning speed fusion ──────────────────────────────────────────
@@ -429,7 +479,10 @@ export function setDrivingView(
            UYGULANMADI. Politikanın aynı anda ne diyeceğini kaydeder; ürün
            davranışı DEĞİŞMEZ — bu çağrı hiçbir şey uygulamaz ve throw etmez. */
         _reportShadow(map, false, null, null, null, null, effectiveSpeed, 0, true);
-        return;   // çerçeve VE yön doğru → hiç iş yapma
+        /* Kamera ZATEN doğru: iş yapılmadı ama HEDEFE ULAŞILDI. Çağıranın dedup
+           çapası yazılmalı — aksi hâlde durakta her karede boşuna yeniden
+           denenirdi. Bu, giriş kapısının sessiz-yutma kusurunun TERSİ durumdur. */
+        return true;   // çerçeve VE yön doğru → hiç iş yapma
       }
     }
   }
@@ -605,6 +658,21 @@ export function setDrivingView(
    *    yoktur (zaten hareket yok).
    * Yani ek maliyet YALNIZ araç gerçekten hareket ederken ve GPU'su olan
    * cihazda doğar — tam da akıcılığın görüldüğü yerde. */
+  /* ── GİRİŞ KAMERASI KAPISI (bkz. `_entryCameraInFlight` gerekçesi) ───────
+   * Giriş animasyonu uçuştayken kamera komutu YAZILMAZ. Yazılsaydı durakta
+   * `map.getZoom()` animasyonun ortasındaki değeri okuyup sabitler ve kamera
+   * "yaklaşıp geri çekilir". Fonksiyonun geri kalanı (marker, rota genişliği,
+   * renk senkronu) ÇALIŞMAYA DEVAM EDER — yalnız kamera ertelenir.
+   *
+   * ⚠️ ERTELEME SESSİZ OLAMAZ (saha kusuru 2026-09-05, ikinci tur): çağıran
+   * (`FullMapView`) hedefi gönderdikten sonra `sentCam*` dedup çapalarını
+   * yazıyor. Kapı kamerayı yutup çağıran "gönderdim" diye işaretlerse, DURAKTA
+   * hiçbir girdi değişmediği için bir daha ÇAĞRILMAZ ve kamera rotanın tersine
+   * bakmaya devam eder — kullanıcının bildirdiği *"kamera yola göre bakmalı"*
+   * tablosu budur. Bu yüzden fonksiyon artık kameranın GERÇEKTEN uygulanıp
+   * uygulanmadığını DÖNER; çağıran çapayı yalnız uygulandıysa yazar. */
+  const _entryGate = _entryCameraInFlight(map);
+
   const _smoothPan = !_standstillFix && !_isLowEndCamera();
   const _cameraOpts = {
     center:  [centerLng, centerLat] as [number, number],
@@ -613,7 +681,9 @@ export function setDrivingView(
     pitch:   _pitchEff,
     padding: { top: topPad, bottom: 0, left: 0, right: 0 },
   };
-  if (_smoothPan) {
+  if (_entryGate) {
+    /* giriş animasyonu sürüyor — kamera komutu YOK */
+  } else if (_smoothPan) {
     bumpPerf('map.cameraCommand');
     map.easeTo({
       ..._cameraOpts,
@@ -636,8 +706,9 @@ export function setDrivingView(
   // hesaba katılmış GERÇEK ekran konumu. Taşma yoksa ikinci jumpTo ÇALIŞMAZ —
   // head unit yolu bu bloktan maliyetsiz çıkar.
   try {
-    const _vehY    = map.project([lng, lat]).y;
-    const _fixedPad = clampTopPadForVehicle(_vehY, containerHeight, topPad);
+    /* Giriş animasyonu sürerken bu düzeltme de yazmaz: `jumpTo` girişi keser. */
+    const _vehY    = _entryGate ? Number.NaN : map.project([lng, lat]).y;
+    const _fixedPad = _entryGate ? null : clampTopPadForVehicle(_vehY, containerHeight, topPad);
     let _padEff = topPad;
     if (_fixedPad !== null) {
       _padEff = _fixedPad;
@@ -786,6 +857,9 @@ export function setDrivingView(
    * dedup tek anahtarladır. Boyayı yazan tek yer `MapLayerManager`tir. */
   syncRouteColor(map, _mTier, useHazardStore.getState().globalRiskScore > 0.5);
 
+  /* Kamera GERÇEKTEN uygulandı mı — çağıranın dedup çapası buna bakar. */
+  return !_entryGate;
+
   // ── Intersection road suppression + tunnel glow (Faz 3.2) ──────────────────
   /* Bu blok RENK değil OPAKLIK yazar (`line-opacity`) — renk hakemiyle
      çakışmaz ve bilerek ayrı bırakıldı. */
@@ -875,6 +949,10 @@ export function enterNavigationView(
 
   const topPad = Math.round(containerHeight * 0.48);
 
+  /* Takip döngüsüne "giriş uçuşta" de — yoksa ilk takip karesi bu animasyonu
+     ortasından kesip zoom'u sabitliyor (saha kusuru 2026-09-05). */
+  _entryCamUntilMs = performance.now() + DURATION_MS;
+
   bumpPerf('map.cameraCommand');
   map.easeTo({
     center:  [centerLng, centerLat],
@@ -896,6 +974,9 @@ export function exitDrivingView(map: MapLibreMap) {
   // heading değişiminde easeTo başlar → isMoving kalıcı true → sürekli render.
   if (!_drivingViewActive) return;
   _drivingViewActive = false;
+  /* Sürüş bitti — bekleyen giriş kapısı varsa DÜŞÜRÜLÜR; aksi hâlde park
+     görünümüne dönüş 1 sn boyunca kamerasız kalırdı. */
+  _entryCamUntilMs = 0;
   M.lastPerspectiveScale  = 1.0;
   M.lastShadowPitch       = -1.0;
   M.lastShadowZoom        = -1.0;
