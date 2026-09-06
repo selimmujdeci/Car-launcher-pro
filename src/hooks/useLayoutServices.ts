@@ -20,7 +20,7 @@ import {
 } from '../platform/notificationService';
 import { startWeatherService, stopWeatherService, setWeatherFallback, feedGPSLocation } from '../platform/weatherService';
 import {
-  setBrightness,
+  setBrightnessAuto,
   startHeadlightAutoBrightness, stopHeadlightAutoBrightness,
 } from '../platform/systemSettingsService';
 import { startGPSTracking, stopGPSTracking, feedBackgroundLocation, getGPSLocationTruthDiagnostics } from '../platform/gpsService';
@@ -372,7 +372,9 @@ export function useLayoutServices({
     startTunnelNightRuntime();
     startNotificationService();
     startWeatherService();
-    setBrightness(useStore.getState().settings.brightness);
+    /* AÇILIŞ onarımı OTOMASYONDUR — kullanıcı API'si değil. Termal kap aktifken
+       eski yol talebi reddedip toast atıyor, parlaklığı HİÇ uygulamıyordu. */
+    setBrightnessAuto(useStore.getState().settings.brightness);
     startHeadlightAutoBrightness(() => useStore.getState().settings.brightness);
     return () => {
       stopTunnelNightRuntime();

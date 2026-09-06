@@ -14,7 +14,14 @@
  */
 
 import { useState, useEffect } from 'react';
-import { setBrightness } from './systemSettingsService';
+/* OTOMASYON parlaklık yolu — `setBrightness` (KULLANICI API'si) DEĞİL.
+   Cihazda ölçüldü (2026-09-06, Xiaomi 23090RA98I, Android Thermal Status 3 /
+   SKIN 52 °C): kullanıcı API'si termal kap ÜSTÜNDEKİ her talebi REDDEDER ve
+   toast gösterir. Bu servis 60 sn'de bir tick attığı için ekranı “Termal Koruma”
+   bildirimiyle dolduruyordu; ÜSTELİK tünel karartması ve kapanış onarımı
+   (`setBrightness(100)`) da SESSİZCE UYGULANMIYORDU (erken return).
+   `setBrightnessAuto` termal kapa sessizce clamp eder VE uygular. */
+import { setBrightnessAuto } from './systemSettingsService';
 import { onOBDData } from './obdService';
 import { runtimeManager } from '../core/runtime/AdaptiveRuntimeManager';
 
@@ -274,7 +281,7 @@ function applyBrightness(): void {
       _setSunlightModeClass(isSunlight);
     });
 
-    setBrightness(bright);
+    setBrightnessAuto(bright);
     push({ phase, currentBrightness: bright });
   } catch { /* Never let a brightness tick crash the interval */ }
 }
@@ -303,7 +310,7 @@ export function notifyHeadlightChange(headlightsOn: boolean): void {
     // Tünel girişi — anında karart
     _setTunnelMode(true);
     const tunnelBright = Math.min(100, Math.round(_state.minNight * 1.2));
-    setBrightness(tunnelBright);
+    setBrightnessAuto(tunnelBright);
     push({ currentBrightness: tunnelBright });
     // Tema + sunlight-mode değişimi RAF içinde — tünel girişinde harita donması önlenir
     const themeCallback = _state.autoTheme ? _onThemeChange : null;
@@ -370,7 +377,7 @@ export function stopAutoBrightness(): void {
   _setTunnelMode(false);
   if (_state.enabled) {
     // Stale brightness filter'ı temizle — aksi halde ekran karanlık kalır
-    setBrightness(100);
+    setBrightnessAuto(100);
   }
   push({ enabled: false });
 }
