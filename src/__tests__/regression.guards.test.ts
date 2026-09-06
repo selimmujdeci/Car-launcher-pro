@@ -4169,8 +4169,23 @@ describe('NAV-CORE-P0 kilitleri', () => {
     // Manevra tipinden ok türetme geri gelmemeli.
     expect(hud, 'şerit oku yine manevra tipinden türetiliyor (kanıtsız bilgi)')
       .not.toMatch(/const goesLeft\s*=\s*mod\.includes\('left'\)/);
-    // Kanıt yoksa panel HİÇ çıkmaz.
-    expect(hud).toMatch(/if \(!lanes \|\| lanes\.length === 0\) return null;/);
+    /* Kanıt yoksa panel HİÇ çıkmaz.
+       2026-09-07: boş/eksik kanıt kapısı bileşenden SAF modele taşındı
+       (`laneGuidanceModel.resolveLaneRow` → `null`). Koruma KALDIRILMADI,
+       yer değiştirdi; kilit yeni tek-kaynağa yeniden bağlandı — aksi hâlde
+       taradığı metin kaybolduğu için sessizce KÖR kalırdı.
+       Model tarafı `laneGuidanceModel.test.ts` §3'te ayrıca kilitlidir. */
+    expect(hud, 'bileşen şerit satırını modelden okumuyor')
+      .toContain('resolveLaneRow(step.lanes)');
+    expect(hud, 'kanıt yokken panel yine çiziliyor')
+      .toMatch(/if \(!row\) return null;/);
+    const lgm = read('src/platform/navigation/core/laneGuidanceModel.ts');
+    expect(lgm, 'boş/eksik şerit kanıtı kapısı modelden de kaldırılmış')
+      .toMatch(/if \(!lanes \|\| lanes\.length === 0\) return null;/);
+    /* İKİ ayrı gerçek (`valid` · `active`) yine tek boolean'a çökmesin. */
+    expect(lgm).toContain("'NOT_ALLOWED'");
+    expect(lgm).toContain("'ROUTE_SELECTED'");
+    expect(lgm).toContain("'ALLOWED'");
   });
 
   it('🔒 DÖNEL KAVŞAK çıkışı yalnız KANITLIYSA söylenir', () => {

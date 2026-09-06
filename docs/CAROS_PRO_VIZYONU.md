@@ -8178,3 +8178,69 @@ kısaltma `place-town`'a sızdırıldı.
 Hedefli 10 kartografya/stil/label dosyası **210/210** · `guard` **998/998** ·
 `tsc -b` temiz · lint 0 hata. Adım 1 bina rampası ve Adım 2 sky kararı
 regresyonsuz.
+
+---
+
+## NAV-HUD/LANE — §7 ADIM 4: MANEVRA + ŞERİT REHBERİ (2026-09-07, kütük #1315)
+
+**Durum: ENTEGRE** · **SAHADA DOĞRULANDI: HAYIR** · **ÜRÜN HAZIR: HAYIR**
+
+### Authority audit — istenenlerin ÇOĞU zaten vardı
+
+| Alan | Otorite | Durum |
+|------|---------|-------|
+| Manevra gerçeği | `routingService` → `useRouteStore.steps` | ✅ tek kaynak |
+| Manevra mesafesi | `route.distanceToNextTurnMeters` + **`distanceToNextTurnSource`** (yol-boyu / kuş uçuşu dürüstlük etiketi) | ✅ |
+| Manevra tipi/çevirisi | `maneuverSemanticsModel` | ✅ tek otorite |
+| **Şerit kanıtı** | OSRM `intersections[].lanes` → `extractLanes` → `RouteStep.lanes` | ✅ **GERÇEK veri** |
+| ETA / kalan mesafe | `TripSummary` | ✅ |
+| Hız / hız limiti | `useDisplaySpeed` · `useEffectiveSpeedLimit` | ✅ |
+| Mesafe biçimi | `formatManeuverDistance` (saf, presentation-only) | ✅ |
+| **Bağlam yoğunluğu** | `hudPresentationModel`: `ACTIVE_NORMAL → MANEUVER_APPROACH → ARRIVING`, `emphasis`, `showLaneGuidance = showManeuver && hasLaneData && emphasis` | ✅ **FSM zaten var** |
+| 800×480 / dar ekran | `useDenseHud` (`HUD_DENSE_MAX_H = 520`), üst bant şerit bütçesi | ✅ tek kaynak |
+
+> **Lane verisi UYDURULMUYOR.** Ürün bunu daha önce bir denetimde düzeltmiş:
+> "gerçek `lanes` varsa gösterilir, yoksa panel hiç çıkmaz". Bu tur o sözleşmeyi
+> **korudu**, yalnız kapıyı bileşenden saf modele taşıdı.
+
+### Bu turda kapatılan iki ÖLÇÜLMÜŞ kusur
+
+1. **İki gerçek alan tek boolean'a çöküyordu.** `ln.active && ln.valid` →
+   *"dönebilirsin ama önerilen değil"* ile *"bu şeritten dönemezsin"* ekranda
+   aynıydı. Artık **ROUTE_SELECTED · ALLOWED · NOT_ALLOWED**.
+2. **U dönüşü düz ok çiziliyordu.** Ölçüldü: `['uturn'] → straight`. Eski
+   `_laneDir` yalnız `left`/`right` alt dizesi arıyordu. Artık sekiz gösterge
+   sekiz ayrı açı; tanınmayan gösterge düz ok **uydurmaz**.
+
+Ayrıca şerit kutusundaki **gradient + glow kaldırıldı** (canonical `f-Maneuver`
+düz dolgu · ince kenar · gölgesiz kutu kullanır) ve satır sarması eklendi.
+
+### Mimari
+
+`laneGuidanceModel` **yeni bir otorite değildir** — saf sunum katmanıdır
+(I/O · timer · `Date.now` · React yok; kilitle korunuyor). Şerit gerçeği tek
+kaynaktan gelmeye devam eder. Yeni GPS aboneliği · tick · scheduler ·
+route/CEH/maneuver/lane-inference/camera/style otoritesi **kurulmadı**.
+
+### Uygulanmayanlar
+
+- **Manevra kartı tipografisi** (canonical'da "120" büyük + "m" küçük) —
+  `formatManeuverDistance` tek string döndürüyor; sayı/birim ayrımı `ManeuverPanel`
+  yeniden yerleşimi ister. Kazanç kozmetik, risk yerleşim regresyonu → **borç**.
+- **HUD → kamera padding** ilişkisi bu turda ölçülmedi; mevcut
+  `cameraCompositionModel` yolu duruyor, **kamera davranışına dokunulmadı**.
+
+### Kanıt
+
+`laneGuidanceModel.test.ts` **17/17** (deterministik, saf model + bileşen
+sözleşmesi). **Yedi mutasyonun yedisi de** ilgili kilidi düşürdü: uturn haritası
+kaldırıldı · semantik tek boolean'a çöküldü · glow geri kondu · fail-closed
+kırıldı · `flex-wrap` kaldırıldı · modelden kapı kaldırıldı (guard) · bileşen
+modeli atladı (guard).
+
+Hedefli 9 navigation/HUD dosyası **170/170** · `guard` **998/998** ·
+`tsc -b` temiz · lint 0 hata.
+
+> `regression.guards`'taki şerit kilidi **kaldırılmadı, yeniden bağlandı**:
+> taradığı metin modele taşındığı için kilit sessizce kör kalacaktı. Yeni hâli
+> hem bileşenin modelden okuduğunu hem modelin fail-closed olduğunu doğruluyor.

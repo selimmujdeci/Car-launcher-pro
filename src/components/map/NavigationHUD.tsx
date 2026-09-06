@@ -43,6 +43,7 @@ import type { Address } from '../../platform/addressBookService';
 import { useEffectiveSpeedLimit } from '../../platform/navigation/useEffectiveSpeedLimit';
 import { useNavigationHonesty } from '../../hooks/useNavigationHonesty';
 import { formatManeuverDistance as fmtTurn } from './hud/formatManeuverDistance';
+import { resolveLaneRow, type LanePresentation } from '../../platform/navigation/core/laneGuidanceModel';
 import {
   resolveHudPresentation, type HudPresentation,
 } from '../../platform/navigation/core/hudPresentationModel';
@@ -426,86 +427,115 @@ const LimpHomeHUD = memo(function LimpHomeHUD({
 // Per screens.jsx 428-447 — 56×56 rounded tile, amber gradient + line-warm border
 // when active, surface-2 + line when inactive.
 
-function LaneArrow({ dir, active }: { dir: 'left' | 'right' | 'straight'; active?: boolean }) {
-  const rot = dir === 'left' ? -90 : dir === 'right' ? 90 : 0;
-  return (
-    <div style={{
-      width: 34, height: 34, borderRadius: 10,
-      background: active
-        ? 'linear-gradient(135deg, oklch(82% 0.10 65 / 0.32), oklch(60% 0.10 50 / 0.10))'
-        : 'var(--oem-surface-2, rgba(48,55,73,0.55))',
-      border: '1px solid ' + (active
-        ? 'var(--oem-line-warm, oklch(66% 0.10 55 / 0.42))'
-        : 'var(--oem-line, rgba(255,240,210,0.08))'),
-      color: active ? 'var(--oem-amber, oklch(80% 0.13 60))' : 'var(--oem-ink-3, rgba(240,235,224,0.52))',
-      display: 'grid', placeItems: 'center',
-      boxShadow: active
-        ? '0 0 20px oklch(70% 0.10 60 / 0.30), 0 1px 0 rgba(255,240,210,0.10) inset'
-        : '0 1px 0 rgba(255,240,210,0.04) inset',
-    }}>
-      <svg viewBox="0 0 24 24" style={{ width: 17, height: 17, transform: `rotate(${rot}deg)`, color: 'currentColor' }}>
-        <path d="M12 4v16M6 10l6-6 6 6" fill="none" stroke="currentColor" strokeWidth="2"
-          strokeLinecap="round" strokeLinejoin="round" />
+/* ── Şerit oku — GÖRSEL DİL: automotive, düz dolgu ────────────────────────
+ * Eski hâlde `linear-gradient` + `0 0 20px` GLOW vardı. Canonical hedef
+ * (`field-runs/carto-2026-09-06/f-Maneuver.png`) düz dolgu · ince kenar ·
+ * gölgesiz kutular kullanır; parlama sürüş ekranında dikkat çalar ve güneş
+ * altında kontrastı DÜŞÜRÜR. Vurgu artık YALNIZ dolgu/kenar/mürekkep
+ * tonuyla taşınır. */
+const LANE_BOX = 34;
+
+function LaneArrowGlyph({ lane }: { lane: LanePresentation }) {
+  const common = {
+    fill: 'none', stroke: 'currentColor', strokeWidth: 2,
+    strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const,
+  };
+  if (lane.dir === 'unknown') {
+    /* Gösterge tanınmadı → düz ok UYDURULMAZ, nötr işaret çizilir. */
+    return (
+      <svg viewBox="0 0 24 24" style={{ width: 17, height: 17 }} aria-hidden>
+        <path d="M8 12h8" {...common} />
       </svg>
+    );
+  }
+  if (lane.dir === 'uturn') {
+    /* U dönüşü kendi şeklini alır. Eski kod bunu DÜZ ok çiziyordu. */
+    return (
+      <svg viewBox="0 0 24 24" style={{ width: 17, height: 17 }} aria-hidden>
+        <path d="M9 20V10a4 4 0 0 1 8 0v6m0 0l-3-3m3 3l3-3" {...common} />
+      </svg>
+    );
+  }
+  return (
+    <svg viewBox="0 0 24 24"
+      style={{ width: 17, height: 17, transform: `rotate(${lane.angleDeg}deg)` }} aria-hidden>
+      <path d="M12 4v16M6 10l6-6 6 6" {...common} />
+    </svg>
+  );
+}
+
+function LaneArrow({ lane }: { lane: LanePresentation }) {
+  const selected = lane.emphasis === 'ROUTE_SELECTED';
+  const blocked  = lane.emphasis === 'NOT_ALLOWED';
+  return (
+    <div
+      data-testid="lane-arrow"
+      data-lane-emphasis={lane.emphasis}
+      data-lane-dir={lane.dir}
+      style={{
+        width: LANE_BOX, height: LANE_BOX, borderRadius: 10,
+        /* DÜZ dolgu — gradient yok. */
+        background: selected
+          ? 'var(--oem-amber-weak, rgba(224,162,60,0.20))'
+          : 'var(--oem-surface-2, rgba(48,55,73,0.55))',
+        border: '1px solid ' + (selected
+          ? 'var(--oem-line-warm, rgba(224,162,60,0.42))'
+          : 'var(--oem-line, rgba(255,240,210,0.08))'),
+        color: selected
+          ? 'var(--oem-amber, #E0A23C)'
+          : blocked
+            ? 'var(--oem-ink-3, rgba(240,235,224,0.52))'
+            : 'var(--oem-ink-2, rgba(240,235,224,0.74))',
+        /* Kullanılamayan şerit GERİ ÇEKİLİR ama gizlenmez: sürücü kavşakta
+           kaç şerit olduğunu görmelidir. */
+        opacity: blocked ? 0.45 : 1,
+        display: 'grid', placeItems: 'center',
+        /* GLOW YOK. */
+      }}>
+      <LaneArrowGlyph lane={lane} />
     </div>
   );
 }
 
 /* ── LaneGuidance — YALNIZ GERÇEK şerit verisinden ────────────────────────────
  *
- * ── NE DEĞİŞTİ VE NEDEN (denetim §8 madde 1) ────────────────────────────────
- * Bu bileşen ŞERİT OKLARINI MANEVRA TİPİNDEN TÜRETİYORDU: "sağa dön" → sağ ok
- * yanar. Bu, sürücüye kavşakta GERÇEK şerit bilgisi varmış izlenimi verir.
- * OSRM şerit verisini `intersections[].lanes` içinde döner ve ürün bu alanı
- * HİÇ ayrıştırmıyordu — yani ekrandaki rehber KANITSIZDI.
+ * Bileşen şerit oklarını bir zamanlar MANEVRA TİPİNDEN türetiyordu ("sağa dön"
+ * → sağ ok yanar); bu, sürücüye kavşakta gerçek şerit bilgisi varmış izlenimi
+ * verir ve ürünün "kanıtsız bilgi üretme YASAĞI"nın doğrudan ihlaliydi.
+ * Kural değişmedi: gerçek `lanes` verisi varsa GÖSTERİLİR, yoksa panel HİÇ
+ * ÇIKMAZ. Yanlış şerit bilgisi vermek, hiç vermemekten KÖTÜDÜR.
  *
- * Bu, ürünün kendi "kanıtsız bilgi üretme YASAĞI"nın doğrudan ihlaliydi.
- * Artık: gerçek `lanes` verisi varsa GÖSTERİLİR, yoksa panel HİÇ ÇIKMAZ.
- * Yanlış şerit bilgisi vermek, hiç vermemekten KÖTÜDÜR.
- *
- * Bu tur TAM şerit rehberi geliştirmez — yalnız yanlış bilgi üretimini kapatır.
+ * 2026-09-07: vurgu semantiği `laneGuidanceModel`e taşındı. Eski hâl OSRM'in
+ * İKİ ayrı gerçeğini (`valid` · `active`) tek boolean'a çöküyordu; artık
+ * ROUTE_SELECTED / ALLOWED / NOT_ALLOWED ayrı ayrı görünüyor.
  */
-function _laneDir(indications: string[]): 'left' | 'right' | 'straight' {
-  // OSRM sözlüğü: 'left' | 'slight left' | 'sharp left' | 'straight' |
-  // 'right' | 'slight right' | 'sharp right' | 'uturn' | 'none'
-  for (const ind of indications) {
-    if (ind.includes('left'))  return 'left';
-    if (ind.includes('right')) return 'right';
-  }
-  return 'straight';
-}
-
 function LaneGuidance({ step }: { step: RouteStep }) {
-  const lanes = step.lanes;
-  // KANIT YOK → PANEL YOK. Manevra tipinden ok TÜRETİLMEZ.
-  if (!lanes || lanes.length === 0) return null;
+  const row = resolveLaneRow(step.lanes);
+  // KANIT YOK → PANEL YOK.
+  if (!row) return null;
   if (step.maneuverType === 'arrive') return null;
 
   return (
     <div
-      className="oem-glass rounded-[1.5rem]"
+      className="rounded-[1.5rem]"
       data-testid="lane-guidance"
-      data-lane-count={lanes.length}
+      data-lane-count={row.length}
       style={{
         padding: '10px 14px',
         background: 'var(--oem-surface-1, rgba(38,44,60,0.78))',
         border: '1px solid var(--oem-line-strong, rgba(255,240,210,0.18))',
-        boxShadow: 'var(--oem-shadow-card, 0 24px 48px -22px rgba(0,0,0,0.55))',
       }}>
       <div className="text-[10px] font-black uppercase tracking-[0.20em] mb-2"
         style={{ color: 'var(--oem-ink-2, rgba(240,235,224,0.74))' }}>
         Şerit Yönlendirme
       </div>
-      <div className="flex gap-2 justify-center">
-        {lanes.map((ln, i) => (
-          <LaneArrow key={i} dir={_laneDir(ln.indications)} active={ln.active && ln.valid} />
-        ))}
+      {/* Çok şeritli kavşakta 800×480'de taşma olmaz: satır sarar, ortalanır. */}
+      <div className="flex gap-2 justify-center flex-wrap">
+        {row.map((ln, i) => <LaneArrow key={i} lane={ln} />)}
       </div>
     </div>
   );
 }
-
-
 
 
 /* ══════════════════════════════════════════════════════════ */
