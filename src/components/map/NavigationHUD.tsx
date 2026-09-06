@@ -857,11 +857,22 @@ function QuickCard({ icon, label, color, onTap, disabled = false, active = false
     <button
       onClick={onTap}
       disabled={disabled}
+      /* ── CHROME TURU 2026-09-06 (saha: "sol quick destinations çok büyük") ──
+       * ÖNCE dolgu SABİT KOYUYDU (`rgba(10,14,26,0.28)`) — gece haritada doğru,
+       * ama GÜNDÜZ açık zeminde kart koyu bir blok olarak okunuyordu ve
+       * kartografiyle yarışıyordu. Dolgu artık OEM yüzey token'ından gelir →
+       * tema neyse kart da o (gündüz açık · gece koyu). Kenar da token'a
+       * bağlandı; sabit beyaz kenar açık zeminde görünmüyordu zaten.
+       * Boyut ve dokunma hedefi DEĞİŞMEDİ (`h-8` + güneş modu 52 px tabanı). */
       className="flex items-center gap-2 h-8 px-3 rounded-xl active:scale-95 transition-all disabled:opacity-35 backdrop-blur-[18px]"
       style={{
         color,
-        background: active ? 'rgba(224,162,60,0.18)' : 'rgba(10,14,26,0.28)',
-        border:     `1px solid ${active ? 'rgba(224,162,60,0.45)' : 'rgba(255,255,255,0.10)'}`,
+        background: active
+          ? 'rgba(224,162,60,0.16)'
+          : 'var(--oem-surface-1, rgba(10,14,26,0.28))',
+        border: `1px solid ${active
+          ? 'rgba(224,162,60,0.42)'
+          : 'var(--oem-line, rgba(255,255,255,0.10))'}`,
       }}
     >
       <span className="flex-shrink-0">{icon}</span>
@@ -869,7 +880,9 @@ function QuickCard({ icon, label, color, onTap, disabled = false, active = false
       {km && (
         <span
           className="ml-auto text-[13px] font-black tabular-nums whitespace-nowrap px-1.5 py-0.5 rounded-md leading-none"
-          style={{ color, background: 'rgba(0,0,0,0.45)' }}
+          /* Rozet dolgusu da temaya bağlandı: sabit `rgba(0,0,0,0.45)` gündüz
+             haritada kartın içinde ikinci bir koyu blok üretiyordu. */
+          style={{ color, background: 'var(--oem-surface-2, rgba(0,0,0,0.45))' }}
         >
           {km}
         </span>

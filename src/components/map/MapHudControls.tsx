@@ -7,6 +7,7 @@ import type { MapMode } from '../../platform/mapSourceManager';
 import { addEvent } from '../../platform/communityService';
 import type { CommunityEventType } from '../../store/useCommunityStore';
 import { useDenseHud } from '../../hooks/useDenseHud';
+import { DEVELOPER_FEATURES_ENABLED } from '../../platform/debug/developerFeatures';
 
 /* ── Manuel rapor seçenekleri ────────────────────────────────────────────── */
 
@@ -143,21 +144,29 @@ export const MapHudControls = memo(function MapHudControls({
         <button
           onClick={onClose}
           aria-label="Haritayı kapat"
-          className="flex items-center gap-2 rounded-2xl active:scale-90 transition-all hover:brightness-110"
+          /* CHROME TURU 2026-09-05 (§15 "controls haritanın önüne geçemez"):
+             düğme kırmızı ALARM diliyle çiziliyordu (kırmızı dolgu + kırmızı
+             kenar + kırmızı glow + fontWeight 900) — oysa haritayı kapatmak
+             tehlikeli bir eylem DEĞİL. Sağ üst köşede sürekli duran bir uyarı
+             rengi hem haritayı bastırıyor hem de gerçek uyarıların (rota
+             kaybı, sensör arızası) kırmızısını değersizleştiriyordu. Artık
+             sağ raydaki kontrollerle AYNI nötr yüzey dilini kullanır; dokunma
+             hedefi (≥44 px) korunur, görsel ağırlık düşer. */
+          className="flex items-center gap-2 rounded-2xl active:scale-90 transition-all hover:brightness-110 backdrop-blur-xl"
           style={{
             position: 'fixed',
             top: 'calc(var(--sat) + 16px)', right: 'calc(var(--sar) + 16px)',
             zIndex: 'var(--z-map-alert)',
-            padding: '12px 20px',
-            background: 'rgba(239,68,68,0.18)',
-            backdropFilter: 'blur(20px)',
-            border: '1.5px solid rgba(239,68,68,0.4)',
-            color: '#f87171', fontWeight: 900, fontSize: 13,
-            letterSpacing: '0.1em', cursor: 'pointer',
-            boxShadow: '0 8px 32px rgba(239,68,68,0.25)',
+            padding: '11px 15px',
+            background: 'var(--oem-surface-1, rgba(38,44,60,0.86))',
+            borderWidth: 1, borderStyle: 'solid',
+            borderColor: 'var(--oem-line-strong, rgba(255,240,210,0.18))',
+            color: 'rgba(226,232,240,0.82)', fontWeight: 700, fontSize: 12,
+            letterSpacing: '0.08em', cursor: 'pointer',
+            boxShadow: 'var(--oem-shadow-card, 0 20px 44px -22px rgba(0,0,0,0.55))',
           }}
         >
-          <X className="w-4 h-4 text-red-400 stroke-[3px]" />
+          <X className="w-4 h-4 stroke-[2.5px]" />
           <span className="uppercase tracking-widest">KAPAT</span>
         </button>
       )}
@@ -179,9 +188,19 @@ export const MapHudControls = memo(function MapHudControls({
        * başka bir yüzey (ör. sağ kontrol rayı) onu bağlayabilir. */}
 
       {/* ── SAĞ: Nav dışı kontroller — sürüş modunda gizle ── */}
+      {/* ── CHROME TURU 2026-09-06 (saha: "sağ controls çok ağır") ──────────
+       * ÖNCE: beş AYRI kutu, her birinde kendi dolgusu + kenarı + gölgesi →
+       * harita üstünde beş kez tekrarlayan çerçeve ailesi. OEM navigasyonda
+       * (HERE/TomTom) kontroller TEK ray içinde toplanır; kenar bir kez çizilir.
+       * ŞİMDİ: tek yüzey + tek kenar + tek gölge; düğmeler ray İÇİNDE
+       * çerçevesizdir, anlamı ikon ve aktif tint taşır.
+       * Dokunma hedefi DEĞİŞMEDİ (48×48 + güneş modu 52 px tabanı). */}
       <div
-        className="absolute right-4 z-[var(--z-map-label)] flex flex-col items-center gap-2.5"
+        className="absolute right-4 z-[var(--z-map-label)] flex flex-col items-center gap-0.5 p-1 rounded-[1.35rem] border backdrop-blur-xl"
         style={{
+          background:  'var(--oem-surface-1, rgba(38,44,60,0.72))',
+          borderColor: 'var(--oem-line, rgba(255,240,210,0.10))',
+          boxShadow:   'var(--oem-shadow-card, 0 18px 40px -24px rgba(0,0,0,0.5))',
           bottom: 'calc(var(--lp-dock-h,68px) + 18px)',
           opacity: isNavigating ? 0 : ctrlVisible ? 1 : 0.32,
           transform: isNavigating ? 'translateX(56px)' : 'translateX(0)',
@@ -198,11 +217,10 @@ export const MapHudControls = memo(function MapHudControls({
               : 'text-slate-400 hover:text-white'
           }`}
           style={{
-            background: drivingMode ? undefined : 'var(--oem-surface-1, rgba(38,44,60,0.86))',
-            borderColor: drivingMode ? undefined : 'var(--oem-line-strong, rgba(255,240,210,0.18))',
-            boxShadow: drivingMode
-              ? '0 0 20px rgba(224,162,60,0.5), 0 4px 16px rgba(0,0,0,0.5)'
-              : 'var(--oem-shadow-card, 0 20px 44px -22px rgba(0,0,0,0.55))',
+            /* Ray içinde: pasif hâlde YÜZEY YOK (ray zaten yüzey). */
+            background: drivingMode ? undefined : 'transparent',
+            borderColor: drivingMode ? undefined : 'transparent',
+            boxShadow: drivingMode ? '0 0 16px rgba(224,162,60,0.42)' : 'none',
           }}
         >
           <Navigation2 className={`w-5 h-5 ${drivingMode ? 'fill-black' : ''}`} />
@@ -211,12 +229,8 @@ export const MapHudControls = memo(function MapHudControls({
         {/* Konuma dön */}
         <button
           onClick={() => { onRecenter(); showControls(); }}
-          className="w-12 h-12 rounded-2xl backdrop-blur-xl border flex items-center justify-center text-slate-400 hover:text-amber-300 active:scale-90 transition-colors"
-          style={{
-            background: 'var(--oem-surface-1, rgba(38,44,60,0.86))',
-            borderColor: 'var(--oem-line-strong, rgba(255,240,210,0.18))',
-            boxShadow: 'var(--oem-shadow-card, 0 20px 44px -22px rgba(0,0,0,0.55))',
-          }}
+          className="w-12 h-12 rounded-2xl flex items-center justify-center text-slate-400 hover:text-amber-300 active:scale-90 transition-colors"
+          style={{ background: 'transparent', border: 'none', boxShadow: 'none' }}
         >
           <Crosshair className="w-5 h-5" />
         </button>
@@ -230,9 +244,9 @@ export const MapHudControls = memo(function MapHudControls({
               : 'text-slate-400 hover:text-amber-300'
           }`}
           style={{
-            background: cameraOn ? undefined : 'var(--oem-surface-1, rgba(38,44,60,0.86))',
-            borderColor: cameraOn ? undefined : 'var(--oem-line-strong, rgba(255,240,210,0.18))',
-            boxShadow: cameraOn ? '0 0 16px rgba(224,162,60,0.5)' : 'var(--oem-shadow-card, 0 20px 44px -22px rgba(0,0,0,0.55))',
+            background: cameraOn ? undefined : 'transparent',
+            borderColor: cameraOn ? undefined : 'transparent',
+            boxShadow: cameraOn ? '0 0 14px rgba(224,162,60,0.42)' : 'none',
           }}
         >
           {cameraOn ? <Camera className="w-5 h-5" /> : <CameraOff className="w-5 h-5" />}
@@ -240,12 +254,8 @@ export const MapHudControls = memo(function MapHudControls({
 
         {/* Zoom pill */}
         <div
-          className="flex flex-col backdrop-blur-xl rounded-2xl border overflow-hidden"
-          style={{
-            background: 'var(--oem-surface-1, rgba(38,44,60,0.86))',
-            borderColor: 'var(--oem-line-strong, rgba(255,240,210,0.18))',
-            boxShadow: 'var(--oem-shadow-card, 0 20px 44px -22px rgba(0,0,0,0.55))',
-          }}
+          className="flex flex-col rounded-2xl overflow-hidden"
+          style={{ background: 'transparent', border: 'none', boxShadow: 'none' }}
         >
           <button
             onClick={() => { onZoomIn(); showControls(); }}
@@ -253,7 +263,7 @@ export const MapHudControls = memo(function MapHudControls({
           >
             <ZoomIn className="w-5 h-5" />
           </button>
-          <div style={{ height: 1, margin: '0 10px', background: 'var(--oem-line-strong, rgba(255,240,210,0.18))' }} />
+          <div style={{ height: 1, margin: '0 12px', background: 'var(--oem-line, rgba(255,240,210,0.10))' }} />
           <button
             onClick={() => { onZoomOut(); showControls(); }}
             className="w-12 h-12 flex items-center justify-center text-slate-400 hover:text-white hover:bg-white/10 active:scale-90 transition-colors"
@@ -284,13 +294,17 @@ export const MapHudControls = memo(function MapHudControls({
             zIndex: 'var(--z-map-control)',
             width: 48, height: 48,
             display: 'flex', alignItems: 'center', justifyContent: 'center',
-            background:     'rgba(251,191,36,0.15)',
+            /* CHROME TURU 2026-09-05: amber dolgu + amber kenar + amber glow
+               üçlüsü haritanın sol alt köşesinde sürekli yanan bir kutu
+               yaratıyordu ("dev sol butonlar"). Anlam İKONDA taşınır; kutu
+               sağ raydaki nötr yüzey diliyle aynıdır. */
+            background:     'var(--oem-surface-1, rgba(38,44,60,0.86))',
             backdropFilter: 'blur(16px)',
-            border:         '1.5px solid rgba(251,191,36,0.38)',
+            border:         '1px solid var(--oem-line-strong, rgba(255,240,210,0.18))',
             borderRadius:   '16px',
             color:          '#fbbf24',
             cursor:         'pointer',
-            boxShadow:      '0 4px 20px rgba(251,191,36,0.18)',
+            boxShadow:      'var(--oem-shadow-card, 0 20px 44px -22px rgba(0,0,0,0.55))',
             transition:     'opacity 300ms',
             opacity:        ctrlVisible ? 1 : 0.32,
           }}
@@ -408,21 +422,34 @@ export const MapHudControls = memo(function MapHudControls({
             <button
               key={m}
               onClick={() => { onSetMapMode(m); showControls(); }}
-              className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-[10px] font-bold tracking-[0.12em] uppercase transition-all duration-200 active:scale-95 ${
+              aria-label={MODE_LABELS[m]}
+              aria-pressed={mode === m}
+              /* CHROME TURU 2026-09-05: üç mod da metin+ikon taşıyordu ve pill
+                 ekranın altında ~250 px yer kaplıyordu ("büyük YOL/HİBRİT/UYDU").
+                 Etiket artık YALNIZ seçili modda yazılır — hangi modda olunduğu
+                 okunmaya devam eder, diğer ikisi ikonla temsil edilir. Dokunma
+                 hedefi 44×40 px'in altına İNMEZ (min-w-[44px] + py-2.5). */
+              className={`flex items-center justify-center gap-1.5 min-w-[44px] px-3 py-2.5 rounded-xl text-[10px] font-bold tracking-[0.12em] uppercase transition-all duration-200 active:scale-95 ${
                 mode === m
                   ? 'text-[color:var(--oem-accent,#E0A23C)]'
                   : 'text-slate-400 hover:text-slate-200 hover:bg-white/8'
               }`}
               style={mode === m ? { background: 'var(--oem-accent-soft, rgba(224,162,60,0.18))' } : undefined}
             >
-              {m === 'road' && <Map className="w-3.5 h-3.5" />}
-              {m === 'hybrid' && <Layers className="w-3.5 h-3.5" />}
-              {m === 'satellite' && <Globe className="w-3.5 h-3.5" />}
-              <span>{MODE_LABELS[m]}</span>
+              {m === 'road' && <Map className="w-4 h-4" />}
+              {m === 'hybrid' && <Layers className="w-4 h-4" />}
+              {m === 'satellite' && <Globe className="w-4 h-4" />}
+              {mode === m && <span>{MODE_LABELS[m]}</span>}
             </button>
           ))}
         </div>
-        {location && (
+        {/* OEM++ 2026-09-05 — ham lat/lon üretim kullanıcı ekranında görünüyordu
+            (kullanıcı saha raporu: "harita üstünde gereksiz ham koordinat").
+            Bu bir navigasyon/harita otoritesi kararı değil, salt bir geliştirici
+            hata-ayıklama yardımcısıydı; tek geliştirici-yüzey otoritesi
+            (`DEVELOPER_FEATURES_ENABLED`) arkasına alındı — DEV/debug-panel
+            build'lerinde aynen kalır, satış APK'sında derleme zamanında elenir. */}
+        {DEVELOPER_FEATURES_ENABLED && location && (
           <span className="text-[9px] text-white/25 font-mono tracking-tight">
             {location.latitude.toFixed(4)}°, {location.longitude.toFixed(4)}°
           </span>
