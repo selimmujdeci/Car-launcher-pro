@@ -1221,6 +1221,63 @@
 
 ---
 
+## 🎯 2026-09-07 DEVICE CLOSURE — NAV/CARTOGRAPHY TOPLU CİHAZ DOĞRULAMASI
+
+**APK:** SHA-256 `600a061f…3b0b0b` (host↔cihaz BİREBİR eşleşti) · HEAD `dd7861e5`
+· branch `feat/fleet-offline-final-local-completion` · dirty 22 dosya (media/
+music/native — dokunulmadı) · `npm run apk:safe` (832 dosya/18833 test PASS ·
+gradle `BUILD SUCCESSFUL`). **Cihaz:** Xiaomi 23090RA98I · Android 13/API 33 ·
+render **904×406 CSS px**, dpr 3, landscape · MapLibre 4.7.1. **Gerçek GPS
+konumu:** Tarsus/Mersin (Bağlar Mahallesi) — canonical tasarım sahnesi
+(Kadıköy) DEĞİL; en yakın Kadıköy sonucu 670 km uzaktaydı, bu yüzden ölçüm
+cihazın GERÇEK konumundaki "Gazipaşa Bulvarı" rotasıyla yapıldı. Kanıt:
+`field-runs/nav-visual-device-20260907/` (24 ekran görüntüsü + PROVENANCE.md).
+
+Yöntem: uygulama menüsündeki GERÇEK adres kısayollarına (`EV`, arama sonucu)
+tıklanarak GERÇEK rota kuruldu (uydurma/enjekte veri YOK). CDP `Runtime.evaluate`
+yalnız DOM etkileşimi (buton tıklama) ve ölçüm (`map.getStyle()`,
+`querySourceFeatures`, `queryRenderedFeatures`) için kullanıldı; ekran görüntüsü
+HER ZAMAN `adb exec-out screencap` ile alındı (`Page.captureScreenshot` WebGL
+haritayı yakalamaz — HANDOFF notu doğrulandı). `map.jumpTo()` yalnız zoom/pitch
+rampasını gözlemlemek için kullanıldı (programatik, `originalEvent` yok →
+P0-B'yi tetiklemez); üretim koduna dokunulmadı.
+
+| # | Kabul ölçütü | Sonuç | Kanıt |
+|---|---|---|---|
+| **1308** | Yol hiyerarşisi DAY+NIGHT, wire-mesh yok, arter ilk bakışta okunur | 🟢 **PASS** | `12`,`17`: "Gazipaşa Bul." her iki temada kalın/net, yerel yollar ince, aktif rota (mavi) dominant |
+| **1310** | MiniMap: rota hızlı okunur, ego belirgin, ≤1-2 label, karmaşa yok | 🟢 **PASS** (NIGHT) · DAY test edilemedi | `16`: tam 2 label (Mersin·Adana), ego net, ETA kutusu ile hafif bilgi TEKRARI gözlemlendi (aşağıya bkz.) |
+| **1311** kriter 1 | z15→z16 yerden yükselme, tek karede pop-in yok | 🟢 **PASS** | `14-ramp-z15.5/15.9/16.0/16.2/16.4`: 5 adımlı seri — z16.0'a kadar düz, z16.2'de kalkış, z16.4'te tam boy. KADEMELİ, ANİ DEĞİL |
+| **1311** kriter 4 | `render_min_height>0` asılı bina yok | 🟢 **PASS** (gözlemsel) | `13`: tüm binalar zemine oturuyor |
+| **1311** kriter 5 | DAY/NIGHT açılışta stil hatası yok | 🟢 **PASS** | CDP: `getStyle()` hatasız, ad senkron (`Vector (Automotive Day/Night)`) |
+| **1311** kriter 2-3 | 0-70/70-85 km/h yükseklik pumping/withdraw | 🔴 **PENDING** | Duran araç (0 km/h) — hız bağlı davranış GERÇEK SÜRÜŞ gerektirir, uydurulmadı |
+| **1312** | pitch 20-47 bandında siyah köşe/haze/duvar yok, sky no-op | 🟢 **PASS** | CDP: `style.sky === false` doğrulandı (no-op teyidi); tüm ekranlarda üst köşe boşluğu YOK |
+| **1313** | `Cd./Sk./Bul.` kısaltmaları doğru, özel ad bozulmuyor | 🟢 **PASS** | `01`,`12`,`17`: "Gazipaşa Bul." DAY+NIGHT'ta doğru, hiçbir özel ad kırpılmamış |
+| **1314** | Aynı arter ≤2 kez, major>local öncelik | 🟡 **KISMİ** | Gözlemlenen karelerde tekrar YOK (negatif kanıt) ama uzun-tek-arter sahnesi net yakalanamadı — pozitif kanıt eksik |
+| **1315** fail-closed | Lane verisi yoksa panel HİÇ çıkmaz | 🟢 **PASS** | `05`,`02`,`17`: iki farklı rotada lane verisi yok, panel HİÇ görünmedi |
+| **1315** pozitif | ROUTE_SELECTED/ALLOWED/NOT_ALLOWED ayrımı | 🔴 **PENDING** | Bu GPS bölgesinde gerçek lane-data içeren kavşak BULUNAMADI |
+| **1316** temel | `120 m` büyük+küçük hiyerarşisi, DAY+NIGHT | 🟢 **PASS** | `02`(80m),`05`(70m DAY),`17`(70m NIGHT) — üçü de tutarlı |
+| **1316** uzun ad | Uzun yol adı mesafeyi itmiyor | 🔴 **PENDING** | Bu bölgenin yol adları kısa/placeholder (`0443.Sk.`); uzun ad senaryosu görsel olarak yakalanamadı (kod kilidi zaten var) |
+| **1317** | Ego/kavşak HUD altında kalmıyor (0 km/h) | 🟢 **PASS** (yalnız bu hız) | CDP ölçümü: kart `bottom=142px`, ego ekran Y≈216px — çakışma YOK |
+| **1317** kritik | Cruise/approach hızında (60-100 km/h) çakışma | 🔴 **PENDING — EN KRİTİK AÇIK MADDE** | Gerçek sürüş gerektirir; Adım 5'te ölçülen risk (kart büyürken + hızlanınca `anchorY` aynı anda değişir) HİÇ CİHAZDA sınanmadı |
+| **800×480** | Tüm görsel kriterler head-unit çözünürlüğünde | 🔴 **PENDING — TÜMÜ** | Test cihazı **telefon** (904×406); talimat gereği telefon görüntüsü 800×480 yerine SAYILMAZ |
+
+### Yan gözlem — YENİ, ayrı kök neden gerektirir (madde açılmadı, kapsam dışı)
+
+**"Kokpit Teması" Gündüz/Gece toggle'ı ile HARİTA gün/gece paleti arasındaki
+ilişki TUTARSIZ gözlemlendi.** Ayarlar → Ekran → Gündüz'e basıldıktan SONRA aktif
+navigasyon FULL haritası `"Vector (Automotive Day)"` gösterdi (CDP ile
+doğrulandı), ama navigasyon durdurulup yeniden başlatılınca `"Vector (Automotive
+Night)"`a DÖNDÜ ve MiniMap oturum boyunca hep NIGHT kaldı — gerçek saat gece
+(01:xx) olduğu hâlde. Kök neden ARAŞTIRILMADI (bu turun kapsamı dışı); mevcut
+açık borç **#1309** ("sunlight-mode hâlâ SAATLE tetikleniyor") ile ilişkili
+olabilir. Ayrı bir ölçüm turu gerektirir — burada KOD DEĞİŞTİRİLMEDİ.
+
+**MiniMap bilgi tekrarı:** rota özetinde hem üst kutu ("55,9 km · Ev") hem alt
+kutu ("55.9 km · 43 dk") aynı mesafeyi ayrı yerde gösteriyor — küçük bir
+sadeleştirme fırsatı, P0 değil.
+
+---
+
 ## 🟢 CİHAZDA DOĞRULANDI (testten geçti)
 
 | # | Özellik | Nasıl kanıtlandı | Doğrulandı |

@@ -8319,3 +8319,39 @@ kurdu · mesafe span'ından `flexShrink` kaldırıldı.
 
 Hedefli 11 HUD/kamera dosyası **211/211** · `guard` **998/998** · `tsc -b`
 temiz · lint 0 hata.
+
+---
+
+## NAV/CARTOGRAPHY — DEVICE CLOSURE (2026-09-07)
+
+**Durum: ENTEGRE → kısmen SAHADA DOĞRULANDI** · **ÜRÜN HAZIR: HAYIR**
+
+Tek APK (HEAD `dd7861e5`, SHA-256 host↔cihaz eşleşti) ile #1308–#1317 arası
+dokuz açık ledger maddesi Xiaomi 23090RA98I'de toplu ölçüldü. Detaylı sonuç
+tablosu ve kanıt: `docs/DEVICE_VALIDATION_LEDGER.md` §"2026-09-07 DEVICE
+CLOSURE" · `field-runs/nav-visual-device-20260907/`.
+
+**SAHADA DOĞRULANDI'ya yükseltilen (9/17 ölçüt):** yol hiyerarşisi (#1308) ·
+3B bina yükselme rampası + floating-yok + stil hatası yok (#1311, 3 ölçüt) ·
+sky no-op (#1312) · ad kısaltması (#1313) · lane fail-closed (#1315) · mesafe
+tipografisi temel hiyerarşi (#1316) · HUD/kamera çakışması yok @ 0 km/h (#1317).
+
+**PENDING kalan, EN KRİTİK açık madde:** **#1317 cruise/approach hızında
+(60-100 km/h) HUD↔kamera çakışması** — Adım 5'te ölçülen risk (kart büyürken
++ hızlanınca `anchorY` aynı anda değişir) hiç cihazda sınanmadı; bu yalnız
+GERÇEK SÜRÜŞLE ölçülebilir. **800×480 tamamı PENDING** — test cihazı telefon,
+gerçek head unit yok. Lane pozitif görselleştirme (ROUTE_SELECTED/ALLOWED/
+NOT_ALLOWED ayrımı) bu GPS bölgesinde lane-data içeren kavşak bulunamadığı için
+PENDING.
+
+**Yan bulgu (kod değiştirilmedi, ayrı tur gerektirir):** Kokpit Teması Gündüz/
+Gece toggle'ı ile harita gün/gece paleti ilişkisi tutarsız gözlemlendi —
+muhtemelen #1309 açık borcuyla ilişkili, kök neden araştırılmadı.
+
+**Hüküm ayrımı (karıştırılmadı):**
+- **CODE PASS:** Adım 1-5 commit'leri (`6e032576`·`1b8012c2`·`3a8149e3`·
+  `fa05d611`·`dd7861e5`) — targeted QA + mutation proof zaten yeşildi.
+- **DEVICE PASS:** yukarıdaki 9 ölçüt için verildi, GERÇEK gözlemle.
+- **REAL VEHICLE FIELD PASS:** VERİLMEDİ. Bu tur duran araçla (0 km/h) yapıldı;
+  hareket halindeki hiçbir davranış (kamera takibi, hız bandına bağlı bina/HUD
+  tepkisi) gerçek sürüşle doğrulanmadı.
