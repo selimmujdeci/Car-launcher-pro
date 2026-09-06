@@ -32,6 +32,7 @@ import {
   RAMP_WIDTH_FACTOR, NIGHT_PALETTE, DAY_PALETTE, BUILDING_3D_RISE,
 } from '../platform/mapStyleBuilders';
 import { DECLUTTER_OWNED_LAYERS, resolveDeclutter } from '../platform/map/core/mapDeclutterModel';
+import { CAMERA_CFG } from '../platform/cameraEngine';
 import type { MapSource } from '../platform/mapSourceTypes';
 
 /* ── Stil kurulumu ────────────────────────────────────────────────────────── */
@@ -698,6 +699,101 @@ describe('9 · üretim yüzeyi', () => {
     const kapat = src.slice(src.indexOf('aria-label="Haritayı kapat"'),
       src.indexOf('aria-label="Haritayı kapat"') + 1200);
     expect(kapat).not.toContain('rgba(239,68,68');
+  });
+});
+
+/* ═══ SKY / UFUK — MapLibre 4.7.1 KAPASİTESİ vs KAMERA BANDI ═══════════════
+
+   §7 Adım 2 ("gök katmanı + ufuk bandı") devir belgesinde *"KOLAY"* diye
+   işaretlenmişti. ÖLÇÜM bunun bu üründe UYGULANAMAZ olduğunu gösterdi ve bu
+   bölüm o ölçümü KİLİTLER — aynı yanlış varsayım bir daha yapılmasın.
+
+   MapLibre 4.7.1'de `sky` bir KATMAN TİPİ DEĞİL, root-level stil objesidir
+   (layer tipleri: fill line symbol circle heatmap fill-extrusion raster
+   hillshade background). Fragment shader'ı (bundle'dan okundu):
+
+       void main() {
+         float y = gl_FragCoord.y;
+         if (y > u_horizon) { ...sky_color / horizon_color... }
+       }                      ↑ ufkun ALTINA HİÇBİR PİKSEL YAZMAZ
+
+   ve `u_horizon = (height/2 + transform.getHorizon()) * pixelRatio` ile
+       getHorizon() = tan(90° − pitch) · cameraToCenterDistance · 0,85
+       cameraToCenterDistance = 0,5 / tan(fov/2) · height = 1,5 · height
+   (fov = 0,6435011087932844 rad → tan(fov/2) = 1/3 tam).
+
+   Yani ufuk ancak `1,275 · cot(pitch) < 0,5` iken kadraja girer →
+   **pitch > 68,59°** (yükseklikten ve dpr'den BAĞIMSIZ). Bu ürünün kamera
+   tavanı 50° (`MapCore`), sürüş eğrisinin tepesi 47° (`PITCH_HIGHWAY`).
+   Ölçülen sonuç: pitch 50'de `u_horizon` ≈ 1912 device-px, ekran 1218 px →
+   **sky HİÇBİR PİKSELİ boyamaz; tam bir no-op'tur.**
+
+   Görünür kılmanın TEK yolu pitch tavanını yükseltmekti; o tavan bir CİHAZ
+   gözlemiyle konmuştur (`MapCore`: "50°+ üzerinde MapLibre siyah köşe
+   oluşturur") ve kamera davranışını değiştirmek bu turun kapsamı DIŞIDIR.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+describe('sky / ufuk — kapasite ve kamera bandı (2026-09-06 ölçümü)', () => {
+  const FOV = 0.6435011087932844;
+  const camDistPerHeight = 0.5 / Math.tan(FOV / 2);          // = 1,5
+  const horizonPerHeight = (pitchDeg: number) =>
+    Math.tan(Math.PI / 2 - (pitchDeg * Math.PI) / 180) * camDistPerHeight * 0.85;
+  /** Ufkun kadraja girdiği pitch — `height/2 - getHorizon() > 0` çözümü. */
+  const UFUK_ESIGI_DEG = (() => {
+    let lo = 1, hi = 89;
+    for (let i = 0; i < 80; i++) {
+      const m = (lo + hi) / 2;
+      if (0.5 - horizonPerHeight(m) > 0) hi = m; else lo = m;
+    }
+    return hi;
+  })();
+
+  const mapCoreSrc = readSource('src/platform/map/MapCore.ts');
+  /** `MapCore`'daki MapLibre kurulum tavanı — TEK kaynak, kopyalanmaz. */
+  const maxPitch = Number(/maxPitch:\s*(\d+(?:\.\d+)?)/.exec(mapCoreSrc)?.[1]);
+
+  it('🔒 ufuk eşiği MapLibre formülünden hesaplanır (~68,6°)', () => {
+    expect(Number.isFinite(UFUK_ESIGI_DEG)).toBe(true);
+    expect(UFUK_ESIGI_DEG).toBeGreaterThan(68);
+    expect(UFUK_ESIGI_DEG).toBeLessThan(69);
+  });
+
+  it('🔒 `MapCore` pitch tavanı okunabiliyor — kilit KÖR değil', () => {
+    expect(Number.isFinite(maxPitch), 'maxPitch okunamadı — kilit artık hiçbir şeyi korumuyor')
+      .toBe(true);
+  });
+
+  it('🔒 kamera bandı ufuk eşiğinin ALTINDA — sürüş eğrisi de tavanı aşmaz', () => {
+    expect(maxPitch).toBeLessThan(UFUK_ESIGI_DEG);
+    expect(CAMERA_CFG.PITCH_HIGHWAY).toBeLessThanOrEqual(maxPitch);
+    expect(CAMERA_CFG.PITCH_ROAD).toBeLessThanOrEqual(CAMERA_CFG.PITCH_HIGHWAY);
+  });
+
+  it('🔒 pitch tavanı eşiğin altındayken stilde `sky` bildirimi OLMAZ (ölü stil yasağı)', () => {
+    /* İKİ YÖNLÜ kilit:
+       · Biri bu kamera bandında `sky` eklerse → hiçbir piksel boyamayan ÖLÜ
+         stil olur, üstelik `background-color`un ÜÇ yazarına (stil ·
+         `applyMapDayNight` · mood/risk) DÖRDÜNCÜ bir paralel yüzey ekler.
+       · Biri pitch tavanını 68,6°'nin ÜSTÜNE çıkarırsa bu kilit düşer ve
+         `sky` kararının YENİDEN değerlendirilmesi gerektiğini bildirir. */
+    if (maxPitch < UFUK_ESIGI_DEG) {
+      for (const s of [DAY, NIGHT]) {
+        expect(
+          (s as unknown as Record<string, unknown>).sky,
+          'kamera bandında ufuk kadraja GİRMİYOR — `sky` burada no-op ölü stildir',
+        ).toBeUndefined();
+      }
+    } else {
+      throw new Error(
+        `pitch tavanı (${maxPitch}°) ufuk eşiğini (${UFUK_ESIGI_DEG.toFixed(2)}°) AŞTI — ` +
+        'ufuk artık kadrajda; `sky` kararı yeniden değerlendirilmeli (kütük #1312).',
+      );
+    }
+  });
+
+  it('🔒 zemin rengi TEK kaynaktan gelir — sky/ufuk için ikinci zemin otoritesi YOK', () => {
+    expect(paintOf(DAY, 'background')['background-color']).toBeDefined();
+    expect(paintOf(NIGHT, 'background')['background-color']).toBeDefined();
   });
 });
 

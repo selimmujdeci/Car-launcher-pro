@@ -8043,3 +8043,69 @@ girme (pop-in yok).
 - Tasarımdaki **metre cinsinden menzil** MapLibre'de karşılanamadı; derinlik
   algısının kalan kısmı §7 Adım 2'ye (gök + ufuk bandı) bırakıldı.
 - **800×480 head unit** ve **gerçek araç sahası** hâlâ ❌.
+
+---
+
+## NAV-CARTO/SKY — §7 ADIM 2: ÖLÇÜLDÜ, UYGULANAMAZ (2026-09-06, kütük #1312)
+
+**Durum: KAPSAM DIŞI (kanıtlı)** · Üretim kodu **DEĞİŞMEDİ** · **ÜRÜN HAZIR: —**
+
+Bu, bir başarısızlık kaydı değil; **uydurulmamış bir implementasyonun** kaydıdır.
+Kullanıcı talimatı açıktı: *"Destek yoksa bunu açıkça raporlamak implementasyon
+uydurmaktan daha doğrudur."*
+
+### Ölçüm zinciri
+
+| # | Soru | Ölçüm | Sonuç |
+|---|------|-------|-------|
+| 1 | MapLibre sürümü | `maplibre-gl` **4.7.1** · style-spec **20.4.0** | — |
+| 2 | `sky` bir katman mı? | Layer tipleri: fill·line·symbol·circle·heatmap·fill-extrusion·raster·hillshade·**background** | **Katman DEĞİL** — root-level obje |
+| 3 | `sky` runtime'da var mı? | `map.setSky()`/`getSky()` API + `drawSky` bundle'da | **VAR** |
+| 4 | Terrain'e bağlı mı? | `drawSky` **ana** framebuffer'a çiziyor (`bindFramebuffer.set(null)` sonrası) | **Bağımsız** — terrain P0'ı geri gelmez |
+| 5 | Ufkun altını boyar mı? | Shader: `if (y > u_horizon) {...}` | **HAYIR** — ufkun altına hiç piksel yazmaz |
+| 6 | Ufuk ne zaman kadrajda? | `getHorizon() = tan(90°−pitch)·1,5·h·0,85` → eşik **pitch > 68,59°** | Yükseklik/dpr'den bağımsız |
+| 7 | Bu ürünün kamera bandı? | `MapCore` `maxPitch` **50** · `PITCH_HIGHWAY` **47** | **Eşiğin ALTINDA** |
+| 8 | Sonuç | pitch 50'de `u_horizon` ≈ 1912 px, ekran 1218 px | **Sky tam no-op** |
+
+### Neden zorlamadık
+
+Sky'ı görünür kılmanın tek yolu pitch tavanını 68,6°'nin üstüne çıkarmaktı.
+O tavan bir **cihaz gözlemiyle** konmuştur (`MapCore.ts`: *"50°+ üzerinde
+MapLibre siyah köşe oluşturur"*) ve kamera davranışını değiştirmek bu turun
+kapsamı dışındaydı. **Fake sky · DOM overlay · ikinci renderer · kamera hack'i
+üretilmedi.**
+
+### Yan bulgu (kütüğe geçti)
+
+`background` katmanı MapLibre'de **tile-tabanlı** çizilir
+(`transform.coveringTiles`), full-screen DEĞİL. *"50°+ siyah köşe"*
+gözleminin muhtemel mekanizması budur — cihazda doğrulanmalı (#1312 ölçüt 1).
+
+### Authority haritası (bu tur çıkarıldı)
+
+`background-color`un **üç** yazarı var ve hepsi tek token kaynağından okur
+(`MAP_BG_DAY = #e9eef3` · `MAP_BG_NIGHT = #222c3c`, `_mapIds.ts`):
+
+1. **Stil (build-time)** — `buildVectorStyle` (`P.bg`) · `_mapState` raster stilleri
+2. **`applyMapDayNight`** (`MapLayerManager:481`) — raster yolunda gün/gece
+3. **Mood/risk** (`MapLayerManager:1465`) — riskle ≤%18 koyulaştırma, taban paletten (#622)
+
+`mapDeclutterModel` zemine **dokunmuyor**. `setStyle` tek çağrı yerinde
+(`MapCore:564`) — P0-A'nın determinizmi korunuyor. `sky` eklenseydi bu üç
+yazarlı alana **dördüncü paralel yüzey** eklenmiş olurdu.
+
+### Kalıcılaştırma
+
+`cartographyAuthority` +5 kilit. **İki yönlü** ve körlüğü kanıtlandı:
+- Stile `sky` eklenince → ölü stil yasağı kilidi **düştü**.
+- `maxPitch` 50→70 yapılınca → *"pitch tavanı ufuk eşiğini AŞTI — `sky` kararı
+  yeniden değerlendirilmeli"* mesajıyla **2 kilit düştü**.
+
+### Açık borç
+
+- §7'nin kalan adımları (ad kısaltma · manevra kartı · etiket oklüzyonu) aynı
+  şekilde **kod yazılmadan ÖNCE** spec'ten doğrulanmalı. Adım 1 ve Adım 2'de
+  devir belgesinin zorluk tahmini **iki kez** yanlış çıktı.
+- Derinlik algısının kalan kısmı MapLibre stil katmanında üretilemez: 4.7.1'de
+  ekran-uzaklığına bağlı **hiçbir** stil primitifi yok (`distance-from-center` ·
+  `pitch` ifadeleri yok — Adım 1'de de ölçülmüştü).
