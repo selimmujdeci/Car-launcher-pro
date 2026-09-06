@@ -87,9 +87,22 @@ describe('#619 — gece rota çekirdeği', () => {
     }
   });
 
+  it('ESKİ AÇIK-MAVİ gece durakları beyaz yolda bu kilidi GEÇEMEZDİ', () => {
+    /* 2026-09-05 · kullanıcı gece yollarını beyaz istedi. Eski duraklar
+       (`#72B6FF · #9CA2FF · #24D6C4`) KOYU GRİ yol için tasarlanmıştı; beyaz
+       yolun üstünde turkuaz durak 1,83'e düşüyor ve ≥1,9 kuralını KIRIYORDU.
+       Kilidin anlamı budur: yeni duraklar bu sınavı geçer, eskiler geçemez. */
+    expect(cr(NIGHT_ROAD, '#24D6C4'), 'eski turkuaz durak beyaz yolda ayrışıyor mu?')
+      .toBeLessThan(1.9);
+    expect(cr(NIGHT_ROAD, ROUTE_CORE_STOPS_DARK_BASEMAP[2]), 'yeni durak ayrışmıyor')
+      .toBeGreaterThanOrEqual(1.9);
+  });
+
   it('eski (kusurlu) tema-bağımsız gradient bu kilidi GEÇEMEZDİ — kilidin anlamı', () => {
     // Sahada ölçülen kusur: orta kademe yola karşı 1,18.
-    expect(cr(NIGHT_ROAD, ROUTE_CORE_STOPS_LIGHT_BASEMAP[1])).toBeLessThan(1.9);
+    /* Gündüz durağı gece ZEMİNİNDE kaybolur — kilidin özü bu (yol karşısındaki
+       ölçüm beyaz yol sözleşmesiyle anlamını yitirdi, üstteki yeni kilide
+       taşındı). */
     expect(cr(NIGHT_BG,   ROUTE_CORE_STOPS_LIGHT_BASEMAP[1])).toBeLessThan(4.5);
   });
 
@@ -103,7 +116,7 @@ describe('#619 — gece rota çekirdeği', () => {
        değerlerin AİT OLDUĞU politika sürümünü de bağlar. Palet sürüm
        yükseltilmeden değiştirilirse bu kilit yine düşer — "sessiz palet
        kayması" #622'nin kök nedeniydi ve bir daha sessiz olamaz. */
-    expect(ROUTE_COLOR_POLICY_VERSION).toBe('RC-2026.08.24-OEM');
+    expect(ROUTE_COLOR_POLICY_VERSION).toBe('RC-2026.09.05-WHITE-NIGHT');
     expect(ROUTE_CORE_STOPS_LIGHT_BASEMAP).toEqual(['#006CFF', '#0057D9', '#00A6FF']);
   });
 

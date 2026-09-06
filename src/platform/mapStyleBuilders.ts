@@ -51,35 +51,56 @@ type SuppressEntry = readonly [string, 'line-opacity' | 'text-opacity', number];
  * değişirse kilit GÜNCELLENİR, kaldırılmaz.
  */
 export const NAV_SUPPRESS_TIERS: ReadonlyArray<ReadonlyArray<SuppressEntry>> = [
+  /* 2026-09-05 — kartografi turunda yol sınıfları ayrıştı (`road-tertiary`,
+     `road-service`, `road-secondary-casing`) ve manifest onları da kapsayacak
+     şekilde GENİŞLETİLDİ. Eksik bırakılsalardı manevrada geri çekilen yol
+     ailesi yarım kalır, ekranda "bazı yollar sönüyor bazıları sönmüyor"
+     tutarsızlığı doğardı. Değer sözleşmesi (Tier 0 = bastırma YOK, kademeler
+     monotonik) DEĞİŞMEDİ. `road-motorway*` hiçbir kademede bastırılmaz —
+     otoyol bağlamı korunur; `road-label-major` de bastırılmaz: manevra
+     sırasında sürücünün ihtiyacı olan tam odur (yerel sokak adı `road-label`
+     kimliğiyle ayrıldı ve bastırma onun üzerinde kaldı). */
   // ── Tier 0: Normal navigation — bastırma YOK (tam bağlam) ─────────────────
   [
-    ['road-primary-casing', 'line-opacity', 1.00],
-    ['road-minor-casing',   'line-opacity', 1.00],
-    ['road-primary',        'line-opacity', 1.00],
-    ['road-secondary',      'line-opacity', 1.00],
-    ['road-minor',          'line-opacity', 1.00],
-    ['road-label',          'text-opacity', 1.00],
-    ['place-town',          'text-opacity', 1.00],
+    ['road-primary-casing',   'line-opacity', 1.00],
+    ['road-secondary-casing', 'line-opacity', 1.00],
+    ['road-tertiary-casing',  'line-opacity', 1.00],
+    ['road-minor-casing',     'line-opacity', 1.00],
+    ['road-primary',          'line-opacity', 1.00],
+    ['road-secondary',        'line-opacity', 1.00],
+    ['road-tertiary',         'line-opacity', 1.00],
+    ['road-minor',            'line-opacity', 1.00],
+    ['road-service',          'line-opacity', 1.00],
+    ['road-label',            'text-opacity', 1.00],
+    ['place-town',            'text-opacity', 1.00],
   ],
   // ── Tier 1: Turn approach (50-200m) — hafif geri çekilme ──────────────────
   [
-    ['road-primary-casing', 'line-opacity', 0.85],
-    ['road-minor-casing',   'line-opacity', 0.78],
-    ['road-primary',        'line-opacity', 0.90],
-    ['road-secondary',      'line-opacity', 0.82],
-    ['road-minor',          'line-opacity', 0.75],
-    ['road-label',          'text-opacity', 0.70],
-    ['place-town',          'text-opacity', 0.70],
+    ['road-primary-casing',   'line-opacity', 0.85],
+    ['road-secondary-casing', 'line-opacity', 0.82],
+    ['road-tertiary-casing',  'line-opacity', 0.80],
+    ['road-minor-casing',     'line-opacity', 0.78],
+    ['road-primary',          'line-opacity', 0.90],
+    ['road-secondary',        'line-opacity', 0.82],
+    ['road-tertiary',         'line-opacity', 0.80],
+    ['road-minor',            'line-opacity', 0.75],
+    ['road-service',          'line-opacity', 0.70],
+    ['road-label',            'text-opacity', 0.70],
+    ['place-town',            'text-opacity', 0.70],
   ],
   // ── Tier 2: Junction (<50m) — rota koridoru öne çıkar, çapraz sokak KALIR ─
   [
-    ['road-primary-casing', 'line-opacity', 0.72],
-    ['road-minor-casing',   'line-opacity', 0.62],
-    ['road-primary',        'line-opacity', 0.80],
-    ['road-secondary',      'line-opacity', 0.70],
-    ['road-minor',          'line-opacity', 0.60],
-    ['road-label',          'text-opacity', 0.55],
-    ['place-town',          'text-opacity', 0.55],
+    ['road-primary-casing',   'line-opacity', 0.72],
+    ['road-secondary-casing', 'line-opacity', 0.66],
+    ['road-tertiary-casing',  'line-opacity', 0.64],
+    ['road-minor-casing',     'line-opacity', 0.62],
+    ['road-primary',          'line-opacity', 0.80],
+    ['road-secondary',        'line-opacity', 0.70],
+    ['road-tertiary',         'line-opacity', 0.66],
+    ['road-minor',            'line-opacity', 0.60],
+    ['road-service',          'line-opacity', 0.56],
+    ['road-label',            'text-opacity', 0.55],
+    ['place-town',            'text-opacity', 0.55],
   ],
 ] as const;
 
@@ -113,32 +134,89 @@ export const NAV_SUPPRESS_LAYERS = NAV_SUPPRESS_TIERS[0];
  * (navigasyon odak modu) katman ID'lerine isimle bağlıdır; ikinci bir liste
  * doğsaydı gündüz odak modu sessizce ölürdü.
  */
+/* ═══════════════════════════════════════════════════════════════════════════
+   TİCARİ KARTOGRAFİ YENİDEN TASARIMI — 2026-09-05 (OEM++ / COMMERCIAL)
+   ═══════════════════════════════════════════════════════════════════════════
+
+   ÖNCEKİ TURUN GERİ ALINAN KARARI: 2026-09-05 sabahı zemin ve yol ailesi
+   "CarOS'un krem/altın gösterge paneli kimliği" gerekçesiyle sıcak bronz/krem
+   eksenine taşınmıştı (`#f6f2e9` zemin · `#5e4a34`→`#a99a7f` toprak yollar ·
+   gecede `#f2c877` altın otoyol). Kullanıcı gerçek cihazda bakıp bunu
+   REDDETTİ: *"dekoratif krem/bronz yaklaşımı profesyonel kartografiye
+   dönüşmemiş"*. Karar kaydı: **dashboard teması ≠ kartografi paleti.**
+   Haritanın renk sistemi dekorasyon için değil SEMANTİK AYRIM için kurulur.
+
+   ── ÖLÇÜLEN ŞEMA (varsayım değil) ───────────────────────────────────────────
+   Kaynak: `VITE_VECTOR_TILE_URL=https://tiles.openfreemap.org/planet` —
+   DEĞİŞTİRİLMEMİŞ OpenMapTiles şeması. TileJSON + 3 Türk şehrinin (İstanbul ·
+   Siverek · Mersin) z8/10/11/12/13/14 karoları indirilip `@mapbox/vector-tile`
+   ile ÇÖZÜLDÜ. Ölçümün bulduğu üç sessiz kusur bu turun gerekçesidir:
+
+   1. **HARİTADA PARK/ORMAN YOKTU.** Eski `landuse-park` katmanı `landuse`
+      kaynağında `class in [park, grass, meadow, pitch, playground, golf]`
+      arıyordu. Ölçülen `landuse.class` değerleri: school(102) · industrial(75) ·
+      cemetery(42) · commercial(40) · university(26) · military(23) ·
+      hospital(17) · pitch(14) · residential(12) · quarry · railway · track ·
+      retail · bus_station · garages · theme_park · stadium · playground(1).
+      **`park` · `grass` · `meadow` · `golf` bu katmanda HİÇ YOK.** Yeşil,
+      hiç kullanılmayan `landcover` (grass 156 · farmland 34 · wood 28) ve
+      `park` (national_park/nature_reserve/historic/sustainable) katmanlarında
+      duruyordu. Yani "yeşil alan yok" bir renk tercihi değil, YANLIŞ KAYNAK
+      ADRESİYDİ.
+   2. **`landuse-residential` da neredeyse boştu** (`suburb`/`neighbourhood`
+      `landuse`'da değil `place`te; `residential` yalnız 12 poligon) — üstünde
+      turlarca kontrast tartışılan dolgu ekranda pratikte çizilmiyordu.
+   3. **RAMPALAR TAM SINIF GENİŞLİĞİNDE ÇİZİLİYORDU.** Ölçülen `ramp=1` oranı:
+      motorway %72 · trunk %58 · primary %25 · secondary %15 · tertiary %9.
+      Yani ekrandaki "otoyol" çizgilerinin çoğu aslında kavşak rampasıydı ve
+      ana arterle AYNI ağırlıktaydı — "yol ağı fazla baskın, yollar aynı
+      ağırlıkta" şikâyetinin matematiksel karşılığı budur.
+
+   ── TON SÖZLEŞMESİ (KORUNDU, ZAYIFLATILMADI) ───────────────────────────────
+   Gündüz: **binalar en açık (beyaz) · zemin ortada · yollar en koyu**, otoyol →
+   tali monoton açılan gri. Gece: zemin sabit `MAP_BG_NIGHT`, yollar zeminden
+   monoton açılır. Bu iki sözleşme saha turlarında kazanıldı ve BU TURDA DA
+   GEÇERLİ — değişen yalnız HUE ailesidir: bronz/altın bırakıldı, nötr grafit
+   yol ailesi + GERÇEK mavi su + GERÇEK yeşil doğa geldi.
+
+   Ölçülen kontrastlar (WCAG, kendi zeminine karşı — hepsi eski eşiklerin
+   ÜSTÜNDE; kilitler yukarı güncellendi, hiçbiri gevşetilmedi):
+     GÜNDÜZ  otoyol 4.29 · ana 2.91 · ikincil 2.26 · tali 1.70 · su 1.49
+     GECE    otoyol 9.32 · ana 6.80 · ikincil 4.67 · tali 3.03 · su 1.61
+     GECE    park↔konut 1.44 · su↔bina 1.26 (ikisi de ayrı hue ekseninde)
+
+   CarOS kimliği renkte değil DAVRANIŞTA aranır: nötr, sakin, teknik bir zemin
+   üzerinde tek doygun öğe AKTİF ROTADIR (`routeColorModel`). Google/Yandex/OEM
+   paleti KOPYALANMADI; onlardan alınan şey kartografik disiplindir.           */
+
 /**
- * Vektör gündüz zemini — nötr açık gri.
+ * Vektör gündüz zemini — SICAK kâğıt/krem. Saf beyaz DEĞİL, soğuk gri de DEĞİL.
  *
- * ⚠️ **İlk teşhiste bir incelik atlanmıştı.** İlk deneme (#fafbfc) zemini beyaza
- * çekiyordu ve tali yolun zemine kontrastı **1.38**'di → "yollar beyaz, hiçbir
- * şey seçilmiyor" şikâyeti buydu. Ama asıl kusur zeminin beyazlığı DEĞİL,
- * **yolların da açık olmasıydı** (`#d3d8df`). Yollar koyulaştıktan sonra zemini
- * beyaza geri çekmek kontrastı bozmaz, **artırır**: aynı tali yol #e9edf1
- * zeminde 1.63 iken #f5f7f9 zeminde **1.71**, otoyol 3.22 → **4.06**.
- * Bu yüzden zemin bilinçli olarak beyaza yakın ama saf beyaz değil.
- *
- * Rol dağılımı (kilitli: `mapDayPaletteContrast.test.ts`):
- * **binalar en açık (beyaz) · zemin ortada · yollar en koyu.** Böylece "evler
- * beyaz, yollar gri" okunur ve anlam TON'la taşınır — renk körlüğünden ve
- * güneş parlamasından bağımsız.
- *
- * Raster gündüz zemininden (`MAP_BG_DAY` = #e9eef3) ayrı kalır: raster
- * karoların kendi zemin rengi vardır, vektörde zemini biz çizeriz.
+ * 2026-09-05 akşamı kullanıcı gerçek head unit'te soğuk beyaza yakın zemini
+ * (`#edeeea`) işaretleyip reddetti, sıcak krem zemini seçti. Zeminin sıcaklığı
+ * artık bir DEKORASYON değil, kullanıcı tarafından cihazda seçilmiş bir
+ * okunabilirlik tercihidir: beyaz yol gövdeleri ancak sıcak/kırık bir zeminde
+ * zeminden ayrılabilir (bkz. `DAY_PALETTE` §4).
  */
-export const MAP_BG_DAY_VECTOR = '#f5f7f9';
+/* GÜNDÜZ ZEMİNİ TEK KAYNAKTAN GELİR (kullanıcı saha bildirimi 2026-09-06).
+   ÖNCE İKİ token vardı ve ÇATIŞIYORLARDI: raster yolu `MAP_BG_DAY` (#e9eef3,
+   serin) yazarken vektör paleti `#f2efe6` (krem) yazıyordu. `applyMapDayNight`
+   ikisini de çağırdığı için ekranda hangisi SON yazdıysa o kalıyordu — cihazda
+   ölçüldü: aynı anda FULL'de rgb(233,238,243), MINI'de #f2efe6. İki gündüz zemini
+   = ikinci renk otoritesi; tek token'a indirildi. */
+export const MAP_BG_DAY_VECTOR = MAP_BG_DAY;
 
 interface VectorPalette {
   readonly bg: string;
   readonly water: string;
   readonly park: string;
+  /** Orman/ağaçlık — parktan bir ton koyu (`landcover.class = wood`). */
+  readonly forest: string;
+  /** Tarım alanı — en sakin doğa tonu (`landcover.class = farmland`). */
+  readonly farmland: string;
   readonly residential: string;
+  /** Sanayi/ticaret/kurum alanları — konuttan ayrı, nötr "yapılı alan" tonu. */
+  readonly urban: string;
   readonly buildingFill: string;
   readonly buildingOutline: string;
   readonly bldg3d: readonly [string, string, string];
@@ -149,8 +227,7 @@ interface VectorPalette {
    * ⚠️ ŞU AN UYGULANMIYOR (kütük #552): `fill-extrusion-ambient-occlusion-*`
    * Mapbox GL özelliğidir; MapLibre GL 4 tanımaz ve stili reddeder. Değer
    * KORUNUYOR çünkü tasarım kararı geçerli — MapLibre desteklediğinde tek
-   * satırla geri bağlanacak. Bu alanı değiştirmek BUGÜN hiçbir şeyi
-   * değiştirmez; gündüz binaların düzlüğü bu yüzdendir (açık borç).
+   * satırla geri bağlanacak.
    */
   readonly bldg3dAO: number;
   /** Yol numarası kalkanı zemini (E-5 · D-100) — çalışma zamanı imajıyla eşleşir. */
@@ -161,194 +238,266 @@ interface VectorPalette {
   readonly bridgeCasing: string;
   readonly motorwayCasing: string;
   readonly primaryCasing: string;
+  /** İkincil yol kasası. */
+  readonly secondaryCasing: string;
+  /** Üçüncül yol kasası — ÖLÇÜM: `tertiary` bu coğrafyada EN YOĞUN sınıf
+      (Tarsus z12–14: tertiary 303 · secondary 206 parça). Kendi kasası
+      olmadan secondary ile aynı görsel ağırlıkta okunuyordu. */
+  readonly tertiaryCasing: string;
   readonly minorCasing: string;
   readonly motorway: string;
   readonly primary: string;
   readonly secondary: string;
+  /** Üçüncül yol gövdesi — secondary ile minor ARASINDA kendi kademesi. */
+  readonly tertiary: string;
   readonly minor: string;
+  /** Demiryolu — `transportation.class = rail`; yol ailesinden AYRI okunur. */
+  readonly railway: string;
+  /**
+   * Yaya yolu / patika çizgisi.
+   *
+   * Kendi tokeni ZORUNLU: gündüz gövde rengi (beyaz) açık zeminde görünmez,
+   * gece kasa rengi (neredeyse siyah) koyu zeminde görünmez — iki temada da
+   * doğru olan tek bir mevcut token YOKTU.
+   */
+  readonly pathLine: string;
   readonly labelText: string;
   readonly labelHalo: string;
   readonly townText: string;
   readonly townHalo: string;
   readonly cityText: string;
   readonly cityHalo: string;
+  /** Su adı etiketi — su gövdesiyle aynı hue ailesinde, metin ağırlığı düşük. */
+  readonly waterText: string;
   /** POI noktalarının dolgu şeffaflığı — açık zeminde soluk kalmamalı. */
   readonly poiStrong: number;
   readonly poiWeak: number;
+  /* POI aileleri — DOYGUN DEĞİL. Eski `#f59e0b/#3b82f6/#ef4444/#8b5cf6`
+     dörtlüsü z13–14'te yüzlerce parlak nokta üretiyordu (ölçüldü: tek bir
+     İstanbul z14 karosunda 978 POI, yalnız `pharmacy` 151 adet) — ekranın
+     "oyuncak" görünmesinin ana kaynaklarından biriydi. */
+  readonly poiFuel: string;
+  readonly poiMedical: string;
+  readonly poiParking: string;
+  readonly poiCivic: string;
 }
 
 /**
- * OEM gece paleti — TON HİYERARŞİSİ ÖLÇÜLMÜŞ kontrast hedefleriyle kurulur.
+ * OEM gece paleti — nötr grafit yol merdiveni, gerçek mavi su, gerçek yeşil doğa.
  *
- * SAHA KUSURU (2026-08-17, gerçek araç ekranı): "harita neredeyse her şey koyu,
- * yollar ile genel zemin aynı gibi". Ölçüldü (WCAG bağıl parlaklık, zemin
- * `#161c28`'e karşı) — şikâyet birebir doğrulandı:
+ * ── KORUNAN SÖZLEŞME ──────────────────────────────────────────────────────
+ *   1. **Zemin `MAP_BG_NIGHT` SABİT** — kimliktir; kontrast zemini açarak değil
+ *      üstündeki öğeleri yükselterek kazanılır.
+ *   2. **Yol hiyerarşisi TONLA okunur** — her kademe bir altından ≥1,25 ayrılır.
+ *   3. **Kasa gövdeden KOYU** — ince tali yolu görünür kılan kasadır.
+ *   4. **Geniş ALAN dolguları sakin kalır** (zemine karşı ≤2,5) ve `minor`
+ *      yolundan koyudur — parlarlarsa yol ağı içlerinde kaybolur.
+ *   5. **Yollar Google gece stilinden ≥2× keskin** (kullanıcı kararı, 2026-08-17).
+ *   6. `minor` parlaklığı, rota çekirdeğiyle (`ROUTE_CORE_STOPS_DARK_BASEMAP`)
+ *      ≥1,9 kontrast bırakacak DAR bir bantta kalır (ölçülen tavan L≈0,1875);
+ *      bu bant `minor` parlaklığının TAVANIDIR.
+ *      ⚠️ GÜNCELLENDİ (2026-09-06): bu not "merdiven 4 tondur, 5. ton bandı
+ *      kırar" diyordu ve `tertiary`nin `secondary` tonunu paylaşmasını
+ *      gerekçelendiriyordu. ÖLÇÜM bunu çürüttü: kısıt TON SAYISI değil, `minor`
+ *      PARLAKLIK TAVANIDIR. `tertiary` kendi tonunu (`#ecf0f5`) aldığında
+ *      `routeNightContrast` · `mapNightContrastAndTileError` · `routeColorPolicy`
+ *      kilitlerinin tamamı GEÇMEYE DEVAM ETTİ (rota/yol ayrımı ≥1,9 korunur).
+ *      Gerekçe neden önemliydi: gündüz ölçümü `tertiary`yi bu coğrafyanın EN
+ *      YOĞUN sınıfı olarak buldu (303 parça) — ton paylaşımı onu secondary ile
+ *      eşitliyordu.
  *
- *     residential 1.01 · water 1.07 · buildingFill 1.08 · minor 1.20
- *     secondary 1.47 · primary 1.78 · motorway 2.76
- *
- * `residential` zeminden **1.01** ile ayrılıyordu: matematiksel olarak aynı renk.
- * Katmanlar arası adımlar da ~1.21'di → hiyerarşi hiç okunmuyordu. Grafik öğeler
- * için yaygın alt sınır 3:1'dir; HİÇBİRİ tutmuyordu.
- *
- * Bu değerler bilinçli bir tasarım kararı DEĞİLDİ: eski başlık "değerler BİREBİR
- * korunmuştur" diyordu — bir refactor'dan taşınmışlardı, arkalarında ölçülmüş bir
- * sözleşme yoktu. Gündüz paletinin (aşağıda) aksine.
- *
- * ── YENİ SÖZLEŞME (hepsi ölçülüp kilitlendi) ────────────────────────────────
- *   1. **Zemin `MAP_BG_NIGHT` SABİT** — kimliktir, testler ona bağlıdır; kontrast
- *      zemini açarak değil, ÜSTÜNDEKİ öğeleri yükselterek kazanılır.
- *   2. **Yol hiyerarşisi TONLA okunur** — her kademe bir altından ≥1.28 ayrılır.
- *   3. **Kasa gövdeden KOYU** — ince tali yolu görünür kılan gövde değil kasadır;
- *      gövdeler açıldığı için kasa/gövde ayrımı da güçlendi (minor 2.58, motorway 4.69).
- *   4. **Alan dolguları yolla YARIŞMAZ** — residential/park ~1.29'da tutulur:
- *      geniş yüzeydirler, parlarlarsa yol ağı içlerinde kaybolur. Sınır YALNIZ
- *      dolgulara uygulanır (yollara değil, bkz. §5).
- *
- * ── §5 KULLANICI KARARI (2026-08-17) — YOLLAR DAHA BEYAZ, DAHA KESKİN ───────
- * İlk turda üst uç "gece konforu" gerekçesiyle dizginlenmişti (motorway 5.20).
- * Kullanıcı gerçek araçta bakıp **açıkça daha beyaz ve daha keskin yol** istedi
- * ve referans olarak Google Maps gece stilini verdi ("ondan biraz daha net").
- *
- * REFERANS ÖLÇÜLDÜ (varsayılmadı) — Google Maps "Night mode" kanonik değerleri,
- * kendi zeminine (`#242f3e`) karşı: normal yol `#38414e` → **1.31** ·
- * otoyol `#746855` → **2.48** · yol etiketi `#9ca5b3` → 5.45 ·
- * otoyol etiketi `#f3d19c` → 9.29. Yani Google'ın gece YOL GÖVDELERİ aslında
- * DÜŞÜK kontrastlıdır; okunabilirliği etiketlerden alır.
- *
- * Bizim hedefimiz bilinçli olarak ondan KESKİN: normal yol **3.21** (Google
- * 1.31'in ~2,5 katı), otoyol **8.98** (Google 2.48). Zemin yine SABİT — parlaklık
- * yolun kendisine verildi, ortama değil; "keskinlik" ayrıca koyu kasadan gelir
- * (minor/kasa **3.57**, motorway/kasa **8.10**).
- *
- * Ölçülen sonuç (özgün → #609 → BU TUR):
- *   minor     1.20 → 2.32 → **3.21**      secondary 1.47 → 3.10 → **4.58**
- *   primary   1.78 → 4.06 → **6.60**      motorway  2.76 → 5.20 → **8.98**
- *   residential 1.01 → **1.29** (değişmedi — dolgu sınırı korunur)
- *
- * ⚠️ TAKAS AÇIK: bu, ilk turdaki "≤7 konfor tavanı"nı yolların üstünden
- * KALDIRIR. Karar kullanıcınındır ve gerçek araçta gece görülerek verilmelidir;
- * "çok parlak" denirse §5 hedefleri düşürülür — kilit SİLİNMEZ, GÜNCELLENİR.
+ * ── BU TURDA DEĞİŞEN ──────────────────────────────────────────────────────
+ * Altın/bronz yol ailesi (`#f2c877`…`#7f7461`) bırakıldı: dekoratifti ve
+ * gecede aktif rotayla (mavi/turkuaz) renk yarışına giriyordu. Yerine nötr
+ * mavi-grafit merdiven geldi — rota artık gecede tek doygun öğedir.
+ * Su/park/konut/bina dörtlüsü hem TON hem HUE ekseninde ayrıştı.
  */
 export const NIGHT_PALETTE: VectorPalette = {
   bg:              MAP_BG_NIGHT,
-  /* #622 — zemin `#161c28 → #222c3c` (Google seviyesi) çıkınca alan dolguları
-     da yükseltilmeliydi: eski değerler yeni zeminle neredeyse aynı parlaklığa
-     düşüyordu (konut 1,29 → 1,03, yani MATEMATİKSEL OLARAK kaybolurdu — #609'un
-     kilitlediği kusurun aynısı). Değerler tonu korunarak ölçülerek yükseltildi;
-     hedef, MEVCUT kilit eşiklerini zayıflatmadan sağlamaktı:
-        su 1,51 (≥1,5) · konut 1,20 (≥1,2) · bina 1,45 (≥1,4) · park 1,21
-        bina konturu dolgudan açık (0,111 > 0,058)
-     NOT: Google'ın su/zemin oranı 1,12'dir; biz BİLEREK daha ayırt edilir
-     tutuyoruz — sürücü su/park/konutu tanıyabilmeli. Yine de #612'nin "alan
-     dolguları PARLARSA yol ağı içlerinde kaybolur" tavanı korunur (hepsi ≤2,5). */
-  /* 2026-08-24 — "kesinlikle premium değil" turu: kullanıcı gerçek cihaz ekran
-   * görüntüsünde yol/bina/su tek düzlemde göründüğünü bildirdi ("Google'da
-   * parklar yeşil, su mavi, biz her şey aynı"). Yukarıdaki değerler HER BİRİ
-   * zemine karşı ayrı ayrı ölçülüp geçiyordu (su 1,51 · park 1,21 · konut 1,20 ·
-   * bina 1,45) — ama bu turda dolgular BİRBİRİNE karşı ölçüldü (WCAG, önceki
-   * değerlerle): `park↔residential` kontrastı **1,00** (matematiksel olarak
-   * AYNI parlaklık — #609'un zemin kusurunun aynı sınıfı, bu kez dolgular
-   * arasında) ve `water↔buildingFill` **1,04** (neredeyse ayırt edilemez).
-   * Yani ekranın büyük kısmını kaplayan dört dolgu (su/park/konut/bina) sadece
-   * 0,040–0,063 dar bir parlaklık bandına sıkışmıştı — yalnız YOLLAR (0,09+)
-   * bu bandın dışındaydı, bu yüzden "yol dışında her şey tek düzlem" hissi
-   * matematiksel olarak doğruydu, göz yanılması değildi.
-   * DÜZELTME: yalnız `water` ve `park` yükseltildi (residential/buildingFill
-   * KORUNDU — konutun sakin/"yarışmayan" zemin işlevi kilitli, bkz. testteki
-   * "alan dolguları yollarla YARIŞMAZ"). Yeni oranlar (zemine karşı):
-   *     su      1,51 → **1,86**   park    1,21 → **1,61**
-   * İkisi de ≤2,5 tavanını (GECE KONFORU kilidi) ve `< minor` (0,177) sınırını
-   * korur; ama artık `park↔residential` **1,33** ve `water↔buildingFill`
-   * **1,28** — dolgular birbirinden GÖRÜNÜR şekilde ayrışıyor. Renk yönü
-   * KORUNDU (su hâlâ mavi ekseninde, park hâlâ yeşil ekseninde) — yalnız
-   * parlaklık/doygunluk artırıldı, OEM koyu paleti Google'ın renklerine
-   * KAYDIRILMADI. Kilit: `mapNightAreaFillDistinctness.test.ts`. */
-  water:           '#2c5490',
-  park:            '#2f5240',
-  residential:     '#2e394b',
-  buildingFill:    '#3a4557',
-  buildingOutline: '#515f76',
-  bldg3d:          ['#3a4557', '#515f76', '#5f6e88'],
+  water:           '#245e85',
+  park:            '#36543f',
+  forest:          '#2b4732',
+  farmland:        '#3c3f31',
+  residential:     '#333b4d',
+  urban:           '#3a4052',
+  buildingFill:    '#39445c',
+  buildingOutline: '#485369',
+  bldg3d:          ['#39445c', '#485369', '#57647e'],
   bldg3dOpacity:   0.78,
   bldg3dAO:        0.30,
   shieldImage:     SHIELD_IMG_NIGHT,
   tunnelOpacity:   0.42,
   bridgeCasing:    '#0b0e14',
-  motorwayCasing:  '#2a2418',
-  primaryCasing:   '#16161d',
-  minorCasing:     '#101015',
-  /* #622 — yol merdiveni yeni zemine göre yeniden ölçüldü. Oranlar (zemine):
-     tali **3,04** · ara 4,34 · ana 6,24 · otoyol 8,00 — Google'ın gece
-     karşılıkları 1,31 (normal) ve 2,48 (otoyol); yani tali yolda **2,3×**,
-     otoyolda **3,2×** daha keskin kalıyoruz. #612'nin "Google'dan en az 2×
-     keskin" kilidi korunur, ama artık bu keskinlik KARANLIK bir zeminde değil
-     Google seviyesinde bir yüzeyde duruyor. */
-  motorway:        '#c9c3b4',
-  primary:         '#a8adb6',
-  secondary:       '#8a8f9a',
-  minor:           '#6f7581',
-  labelText:       '#eae4d8',
+  motorwayCasing:  '#1a212c',
+  primaryCasing:   '#181e29',
+  secondaryCasing: '#161c26',
+  /* Gece yerel kılıfı bir tık derinleşti: gövde daralınca kılıfın işi arttı
+     (zemine karşı 1,24→1,32 ve 1,25→1,36). Ton merdivenine DOKUNULMADI. */
+  tertiaryCasing:  '#111620',
+  minorCasing:     '#0e131b',
+  /* ── GECE YOLLARI BEYAZ (2026-09-05 akşamı · GERÇEK CİHAZ KARARI) ────────
+   * Kullanıcı gece navigasyon ekran görüntüsüyle: *"yolları tam beyaz yap"*.
+   * Eski merdiven `#ccd3dc`→`#6f757e` idi ve tali sokaklar koyu gri kalıyordu.
+   *
+   * ⚠️ BU DEĞİŞİKLİK TEK BAŞINA YAPILAMAZDI — rota sözleşmesiyle çakışıyordu.
+   * `routeNightContrast` kilidi rota çekirdeğinin ÜSTÜNDE ÇİZİLDİĞİ YOLDAN
+   * en az **1,9** kontrastla ayrılmasını ister. Yol beyazlaşınca eski açık-mavi/
+   * turkuaz duraklar (`#72B6FF · #9CA2FF · #24D6C4`, parlaklık 0,40–0,52)
+   * beyazın üstünde 1,83'e kadar düşüyordu → rota beyaz yolda KAYBOLURDU.
+   * Bu yüzden gece rota durakları da AYNI turda derinleştirildi
+   * (`routeColorModel`); iki değişiklik BİRLİKTE geçerlidir.
+   *
+   * ── HİYERARŞİ NEREYE GİTTİ ───────────────────────────────────────────────
+   * Dört yol da beyaz aileye girince TON adımları küçülür (1,04–1,08) ve
+   * hiyerarşiyi tek başına taşıyamaz. Bu, gündüz paletinde kullanıcının ZATEN
+   * onayladığı sözleşmenin aynısıdır: hiyerarşiyi **GENİŞLİK + KASA** taşır
+   * (z14'te tali 2,2 px → otoyol 9,0 px = 4,1×; kasalar zeminden ayırır).
+   * Ton YÖNÜ korunur (otoyol en açık → tali en koyu) ve kilitlenir; ADIM
+   * büyüklüğü kilidi kasa/genişliğe taşındı — kilit SİLİNMEDİ, hedefi
+   * düzeltildi (bkz. `mapNightContrastAndTileError`).
+   *
+   * Ölçülen (zemine karşı): tali 11,96 · ara 12,85 · ana 13,55 · otoyol 14,06.
+   * Rota ↔ yol ayrımı: en dar hâlde **1,95** (turkuaz durak ↔ tali yol). */
+  motorway:        '#ffffff',
+  primary:         '#f9fbfc',
+  secondary:       '#f2f5f8',
+  tertiary:        '#ecf0f5',
+  minor:           '#e9edf2',
+  railway:         '#5a6274',
+  pathLine:        '#5f6673',
+  labelText:       '#e6eaf0',
   labelHalo:       '#0a0e16',
   townText:        '#e2eaf5',
   townHalo:        '#060c14',
   cityText:        '#ffffff',
   cityHalo:        '#060c14',
+  waterText:       '#8fb8d8',
   poiStrong:       0.6,
   poiWeak:         0.45,
+  poiFuel:         '#d9a44a',
+  poiMedical:      '#d2726c',
+  poiParking:      '#7c9dc0',
+  poiCivic:        '#8f8aa6',
 };
 
 /**
- * OEM gündüz paleti — GRİ yol hiyerarşisi, BEYAZ binalar, nötr gri zemin.
+ * OEM gündüz paleti — **BEYAZ YOL · SICAK KÂĞIT ZEMİN · GERİ ÇEKİLMİŞ BİNA.**
  *
- * Üç katmanlı ton sözleşmesi (hepsi kilitli):
- *   1. **Binalar en açık** — saf beyaz dolgu + net kontur → "evler beyaz, net".
- *   2. **Zemin ortada** — nötr açık gri; ne binayla ne yolla karışır.
- *   3. **Yollar en koyu** — otoyol → tali monoton açılan gri; hiyerarşi renkle
- *      değil TONLA okunur (güneş altında ve renk körlüğünde dayanıklı).
+ * ── SÖZLEŞME TERSİNE ÇEVRİLDİ (2026-09-05 akşamı · GERÇEK CİHAZ KARARI) ────
+ * Kullanıcı gerçek head unit'ten AYNI konumun iki farklı görünümünü yan yana
+ * gönderdi ve birini işaretleyip REDDETTİ:
  *
- * Kasalar kendi gövdesinden bir ton koyudur → yolun kenarı zeminde kaybolmaz;
- * ince tali yolu görünür kılan asıl öğe gövde değil, kasadır.
+ *   ❌ REDDEDİLEN — soğuk beyaza yakın zemin + GRİ yol gövdeleri (o an cihazda
+ *      kurulu olan vektör stili). *"işaretli olanı istemiyorum"*
+ *   ✅ İSTENEN   — sıcak krem zemin + BEYAZ yol gövdeleri + gri kasa, mavi su,
+ *      yeşil park (o an raster OSM yoluna düşülmüş kare). *"diğeri güzel"*
  *
- * Aktif rota bu sakin zeminin üstünde tek doygun öğedir; rota rengi
- * `lightBasemap` sözleşmesiyle açık zemine göre kontrast alır
- * (`routeColorModel.ts`) — bu palet o sözleşmeyi BOZMAZ, mod'a bakar renge
- * değil.
+ * Bu, eski gündüz sözleşmesinin (**"binalar en açık · zemin ortada · yollar en
+ * koyu"**) doğrudan REDDİDİR. O sözleşme bir saha turunda kazanılmıştı ve
+ * savunulabilirdi; ama kullanıcı bugün gerçek ekranda bakıp aksini seçti ve
+ * ürün kararı kullanıcınındır. Kilitler SİLİNMEDİ — yeni doğru davranışa
+ * GÜNCELLENDİ (`mapDayPaletteContrast.test.ts`).
+ *
+ * ── YENİ SÖZLEŞME (ölçülüp kilitlendi) ────────────────────────────────────
+ *   1. **Yollar EN AÇIK** — otoyol saf beyaz, aşağı doğru hafifçe kırılan bir
+ *      beyaz merdiven (otoyol 1,000 → tali 0,905 bağıl parlaklık).
+ *   2. **Zemin ORTADA ve SICAK** — `#f2efe6` kâğıt/krem (L 0,863).
+ *   3. **Binalar zeminden KOYU** — artık kütle geri çekilir, yol öne çıkar.
+ *   4. **Yol/zemin ayrımını GÖVDE DEĞİL KASA taşır.** Bu, sözleşmenin en
+ *      kritik maddesidir: beyaz gövdenin krem zemine kontrastı zaten düşüktür
+ *      (tali 1,05) ve olması gereken budur — okunabilirliği kasa üretir:
+ *          kasa↔zemin  otoyol **2,65** · ana 2,34 · ikincil 2,03 · tali **1,76**
+ *          gövde↔kasa  otoyol **3,05** · ana 2,63 · ikincil 2,20 · tali **1,84**
+ *      2026-08 turundaki *"yollar beyaz, hiçbir şey seçilmiyor"* (1,38) fiyaskosu
+ *      beyaz gövdeden DEĞİL, o turda yolun kasasının da açık olmasından geliyordu.
+ *      Kilit bu yüzden gövde/zemin oranını değil **kasa/zemin** ve **gövde/kasa**
+ *      oranlarını ölçer — kusurun gerçek yeri orasıdır.
+ *   5. **Hiyerarşi TON + KASA + GENİŞLİK üçlüsüyle** taşınır; kasa merdiveni
+ *      monotoniktir (otoyol kasası en koyu → tali kasası en açık).
+ *
+ * Gece paletiyle artık AYNI EVRENSEL YÖNDE: her iki temada da **yol en açık,
+ * zemin arkada, dolgular sakin**. Eski gündüz paleti bu yönün tersiydi ve iki
+ * tema iki ayrı okuma alışkanlığı istiyordu.
+ *
+ * Aktif rota (`ROUTE_CORE_STOPS_LIGHT_BASEMAP`, doygun mavi) beyaz yol ağının
+ * üstünde ESKİSİNDEN GÜÇLÜ okunur: eskiden koyu gri yolun üstündeydi, şimdi
+ * beyazın. `routeColorModel` sözleşmesi DEĞİŞMEDİ — mod'a bakar, renge değil.
  */
+/* ── GÜNDÜZ PALETİ · AMBER CAST KALDIRILDI (KULLANICI SAHA BİLDİRİMİ 2026-09-06) ──
+ * KULLANICI: *"amber rengi navigasyonu bu hale getiriyor"* — iki ekran görüntüsü
+ * yan yana konup krem olanı İŞARETLENEREK reddedildi.
+ *
+ * ÖLÇÜLDÜ (cihaz, 2026-09-06): yapısal ailedeki **19 rengin 19'u** 33–48° sıcak
+ * hue bandındaydı, ortalama doygunluk **%23**. Zemin · bina · kasa · yol gövdesi ·
+ * arazi aynı hue ailesini paylaşınca göz tümünü TEK PARÇA krem ağ olarak okuyordu;
+ * sınıf ayrımı (uctan uca gövde 1,099:1) algı eşiğinin altında kalıyordu.
+ *
+ * DÜZELTME İLKESİ — **BAĞIL PARLAKLIK BİREBİR KORUNDU** (her renkte ΔL < %0,5):
+ * böylece 2026-09-05 cihaz kararı ("beyaz yol + krem zemin; okunabilirliği KASA
+ * taşır") ve `mapDayPaletteContrast` eşiklerinin TAMAMI yapı gereği ayakta kaldı.
+ * Değişen tek şey HUE'dur: sıcak (~42°, %23 doygunluk) → serin-nötr (215°, %3).
+ * Su/park/orman KROMATİK bırakıldı — ayrımı taşıyan şey zaten onlar.
+ *
+ * Sonuç (ölçüldü): kasa merdiveni uçtan uca **1,513:1**, komşu sınıflar 1,13–1,16:1.
+ * Kilit: `mapDayPaletteContrast.test.ts` — "monoton" artık YETMEZ, nötr aile için
+ * doygunluk tavanı ve sınıf ayrışması da kilitlidir. */
 export const DAY_PALETTE: VectorPalette = {
   bg:              MAP_BG_DAY_VECTOR,
-  water:           '#bcd6ee',
-  park:            '#d4e6cd',
-  // Yerleşim dokusu zeminden bir tık koyu → üstündeki beyaz binalar öne çıkar.
-  residential:     '#eef1f5',
-  buildingFill:    '#ffffff',
-  // Zemin beyaza yaklaştıkça bina/zemin farkı kapanır (1.07) — bina sınırını
-  // artık DOLGU değil KONTUR taşır, bu yüzden kontur koyulaştırıldı (1.52).
-  buildingOutline: '#c3cbd5',
-  bldg3d:          ['#ffffff', '#f4f7fa', '#e7ecf1'],
+  water:           '#9cc7dc',
+  /* OLCUM 2026-09-06: park CR/zemin 1,21 idi -> 1,32; forest 1,41 -> 1,53.
+     Dogal alan artik "anlasilir" esigin ustunde ama yol merdiveninin (kasa
+     1,51-2,61) ALTINDA kalir; farmland bilerek sessiz birakildi (CR 1,03) --
+     bu cografyada EN YOGUN landcover (94 parca) ve navigasyon icin bilgi
+     tasimaz, sakin tuval gorevi gorur. */
+  park:            '#c1d7b1',
+  forest:          '#adcb9a',
+  farmland:        '#e9eaeb',
+  // Yerleşim/sanayi dokusu zeminden bir tık koyu — bina kütlesinin altında kalır.
+  residential:     '#e7e8e9',
+  urban:           '#dedfe1',
+  /* Bina artık haritanın en açık öğesi DEĞİL: yol ondan açıktır. Kütle zeminden
+     koyu (1,26) ve konturuyla ayrılır (1,29) — "evler beyaz" ilkesi kullanıcının
+     2026-09-05 cihaz kararıyla yerini "yollar beyaz"a bıraktı. */
+  buildingFill:    '#d5d7d9',
+  buildingOutline: '#bcbec0',
+  bldg3d:          ['#d5d7d9', '#dfe1e2', '#e9eaeb'],
   bldg3dOpacity:   0.95,
-  // Gündüz AO gecenin ÜSTÜNDE: beyaz bina + beyaza yakın zemin ancak taban
-  // kararmasıyla hacim kazanır (bina/zemin dolgu farkı yalnız 1.07).
   bldg3dAO:        0.48,
   shieldImage:     SHIELD_IMG_DAY,
   tunnelOpacity:   0.34,
-  bridgeCasing:    '#39424f',
-  // Kasalar gövdeden bir ton koyu → yol kenarı zeminde kaybolmaz.
-  motorwayCasing:  '#515b6a',
-  primaryCasing:   '#6e7887',
-  minorCasing:     '#9aa3b0',
-  motorway:        '#6e7a8a',
-  primary:         '#8b95a4',
-  secondary:       '#9ea7b5',
-  minor:           '#b8c0cb',
-  labelText:       '#22272f',
+  bridgeCasing:    '#87888a',
+  /* Kasa merdiveni — gündüz okunabilirliğin TAŞIYICISI (bkz. §4). */
+  motorwayCasing:  '#929496',
+  primaryCasing:   '#9c9ea0',
+  secondaryCasing: '#a8aaac',
+  /* ÖLÇÜLDÜ (2026-09-06, zemin #e9eef3): beş kademeli kasa merdiveni —
+     kasa/zemin 2,61 · 2,30 · 2,00 · 1,72 · 1,51; komşu ayrışma 1,13–1,16;
+     uçtan uca 1,725. Tertiary ESKİ minor kademesini aldı, minor GERİ ÇEKİLDİ. */
+  tertiaryCasing:  '#b5b7b9',
+  minorCasing:     '#c2c3c4',
+  /* Gövde merdiveni — saf beyazdan sıcak beyaza doğru monoton kırılır. */
+  motorway:        '#ffffff',
+  primary:         '#fcfcfc',
+  secondary:       '#f8f8f8',
+  tertiary:        '#f6f6f7',
+  minor:           '#f4f4f5',
+  railway:         '#b1b3b5',
+  /* Yaya yolu kendi tokenini taşır: gövde rengi (beyaz) açık zeminde
+     görünmezdi, kasa rengi ise gecede siyah zeminde görünmezdi. */
+  pathLine:        '#a8aaac',
+  labelText:       '#3a3b3c',
   labelHalo:       '#ffffff',
-  townText:        '#333a45',
+  townText:        '#323334',
   townHalo:        '#ffffff',
-  cityText:        '#151a23',
+  cityText:        '#1a1b1c',
   cityHalo:        '#ffffff',
+  waterText:       '#3d7495',
   poiStrong:       0.9,
   poiWeak:         0.75,
+  poiFuel:         '#b4801e',
+  poiMedical:      '#c0504a',
+  poiParking:      '#5b7fa6',
+  poiCivic:        '#6f6a86',
 };
 
 /**
@@ -401,6 +550,122 @@ function brunnelWidth(scale: number): FilterSpecification {
   ] as unknown as FilterSpecification;
 }
 
+/* ═══════════════════════════════════════════════════════════════════════════
+   KARTOGRAFİK GENELLEŞTİRME — ZOOM × ÖZELLİK GÖRÜNÜRLÜK MATRİSİ
+   ═══════════════════════════════════════════════════════════════════════════
+   Profesyonel harita "veride ne varsa çiz" mantığıyla çalışmaz; her zoom
+   seviyesinde NEYİN gösterileceğine karar verir. Aşağıdaki eşikler tahmin
+   değil ÖLÇÜM sonucudur (OpenFreeMap/OpenMapTiles karoları çözülerek):
+
+     · `transportation` z12'de karo başına 2.697 parça (İstanbul) — tali ağın
+       z12'de çizilmesi bilgi değil mürekkeptir.
+     · `building` z13'te karo başına 0–1 poligon döndürüyor; gerçek kütle z14.
+     · `place` z10–11'de karo başına 124–389 kayıt (Siverek z10: 389) — köy ve
+       mahalle adlarının o zoomda basılması etiket çöplüğüdür.
+     · `poi` z14'te karo başına 978 kayıt.
+
+   Hedef: DÜŞÜK zoom = şehir yapısı + ana arterler · ORTA zoom = ana + ikincil
+   ağ · YÜKSEK zoom = yerel sokak + bina + ayrıntı. Her küçük sokak her zoomda
+   bağırmaz.
+
+   Bu tablolar DIŞA AKTARILIR ki kilitler (`cartographyGeneralization.test.ts`)
+   stilin kendisiyle aynı tek kaynaktan okusun — ikinci bir matris YOKTUR.     */
+
+/** Yol sınıflarının ilk görüneceği zoom. */
+export const ROAD_VISIBILITY = {
+  motorway:  { minzoom: 4  },
+  primary:   { minzoom: 7  },
+  secondary: { minzoom: 9  },
+  /* ÖLÇÜLDÜ: `transportation.tertiary` karolarda z12'de başlıyor (z11'de YOK). */
+  tertiary:  { minzoom: 12 },
+  minor:     { minzoom: 13 },
+  service:   { minzoom: 15 },
+  path:      { minzoom: 16 },
+} as const;
+
+/** Alan/dolgu katmanlarının ilk görüneceği zoom. */
+export const AREA_VISIBILITY = {
+  'landcover-wood':      5,
+  'landuse-park':        5,
+  'landcover-grass':     10,
+  'landcover-farmland':  10,
+  'landuse-residential': 11,
+  'landuse-urban':       11,
+  'landuse-green':       12,
+  'water-pool':          16,
+  building:              14,
+  'building-3d':         16,
+} as const;
+
+/** Etiket ve POI katmanlarının ilk görüneceği zoom. */
+export const LABEL_VISIBILITY = {
+  'place-city':       4,
+  'place-town':       9,
+  'road-shield':      9,
+  'water-label':      11,
+  'place-village':    12,
+  'road-label-major': 12,
+  'place-suburb':     13,
+  /* OLCUM: z14 karosunda `transportation_name.minor` 101 parca; z15'te bile
+     ekrani dolduruyordu -> yerel sokak adi z16'dan once CIZILMEZ. */
+  'road-label':       16,
+  'poi-gas':          15,
+  'poi-hospital':     15,
+  'poi-police':       15,
+  'poi-parking':      16,
+} as const;
+
+/**
+ * Üst zoom sınırı — şehir adı sokak seviyesinde ekranın ortasında ASILI KALMAZ.
+ * (Eski stilde `place-city` hiçbir üst sınır taşımıyordu.)
+ */
+export const LABEL_VISIBILITY_MAX = {
+  'place-city': 15,
+} as const;
+
+/**
+ * Rampa genişlik çarpanı.
+ *
+ * ÖLÇÜLEN: `transportation.ramp = 1` oranı motorway %72 · trunk %58 ·
+ * primary %25 · secondary %15 · tertiary %9. Eski stil rampayı ana gövdeyle
+ * AYNI genişlikte çiziyordu → ekrandaki "otoyol" mürekkebinin çoğu aslında
+ * kavşak koluydu ve ana arter onun içinde kayboluyordu.
+ */
+export const RAMP_WIDTH_FACTOR = 0.55;
+
+/** `class` alanı verilen değerlerden biri mi. */
+function classIn(...values: readonly string[]): FilterSpecification {
+  return ['in', ['get', 'class'], ['literal', values]] as FilterSpecification;
+}
+
+/** `rank` alanı (yoksa 99) en fazla `n` — OMT önem sırası; küçük = önemli. */
+function rankAtMost(n: number): FilterSpecification {
+  return ['<=', ['coalesce', ['get', 'rank'], 99], n] as FilterSpecification;
+}
+
+/** Türkçe ad varsa o, yoksa varsayılan ad. */
+const localizedName = ['coalesce', ['get', 'name:tr'], ['get', 'name']] as unknown as string;
+
+/**
+ * Zoom→genişlik merdiveni; rampalar `RAMP_WIDTH_FACTOR` ile daraltılır.
+ *
+ * ⚠️ SIRALAMA PAZARLIKSIZ (kütük #552): zoom `interpolate` EN DIŞTA, rampa
+ * `case`'i stop DEĞERLERİNİN içinde. Bir ifadede yalnız BİR zoom-bağımlı
+ * alt-ifade bulunabilir; tersi MapLibre tarafından REDDEDİLİR ve katman
+ * sessizce 1 px'e düşer.
+ */
+function roadWidth(
+  stops: ReadonlyArray<readonly [zoom: number, width: number]>,
+): FilterSpecification {
+  const expr: unknown[] = ['interpolate', ['linear'], ['zoom']];
+  for (const [z, w] of stops) {
+    expr.push(z, ['case',
+      ['==', ['get', 'ramp'], 1], Math.round(w * RAMP_WIDTH_FACTOR * 100) / 100,
+      w,
+    ]);
+  }
+  return expr as unknown as FilterSpecification;
+}
 /* ── Hibrit kaynak kapısı ───────────────────────────────────────────────────
  *
  * Öncelik: **yerel .pbf > çevrimiçi vektör > raster.**
@@ -444,7 +709,6 @@ export function buildVectorStyle(
   /* Gündüzde artık raster'a DÜŞÜLMEZ — gündüz paleti yukarıda tanımlı.
      (Eski davranış: `if (!night) return onFallback();` → sürücü gündüz hep
      ham OSM raster'ı görüyordu.) */
-  const P = night ? NIGHT_PALETTE : DAY_PALETTE;
 
   const hasLocalPbf = sources.get('local')?.isAvailable === true;
   const customUrl   = (import.meta.env['VITE_VECTOR_TILE_URL'] ?? '') as string;
@@ -484,7 +748,7 @@ export function buildVectorStyle(
        gündüz paleti yazıldıktan sonra (#482) gündüzde de bu ad dönüyordu ve
        teşhis çıktısı "koyu vektör" diye okunuyordu. Ad, ne çizildiğini
        söylemeli. */
-    name: night ? 'Vector (Automotive Night)' : 'Vector (Automotive Day)',
+    name: vectorStyleName(night),
     ...(includeLabels ? { glyphs: glyphsUrl } : {}),
     sources: {
       omv: {
@@ -496,73 +760,267 @@ export function buildVectorStyle(
         // yerel .pbf olduğunda o metin gelmez — taban atıf her hâlde durur.
         attribution: '© OpenMapTiles © OpenStreetMap katkıcıları',
       },
-      // ── Terrain DEM — rgb-terrarium encoding (Mapzen/AWS) ──────────────────
-      // 3D yüzey render'ı için: fill-extrusion + hill-shade
-      // Android WebView WebGL2 desteği varsa aktif olur; yoksa sessizce atlanır.
-      'terrain-rgb': {
-        type: 'raster-dem',
-        tiles: ['https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png'],
-        tileSize: 256,
-        encoding: 'terrarium' as const,
-        maxzoom: 14,
-        attribution: '© Mapzen',
-      },
+      /* ── TERRAIN KALDIRILDI (CİHAZDA ÖLÇÜLDÜ · 2026-09-06 · KULLANICI BİLDİRİMİ)
+         KULLANICI: *"rota çizgisi neden açık mavi · harita uzaklaşınca mavi
+         oluyor, kamera zoom yapınca açık mavi oluyor."*
+
+         TEK DEĞİŞKENLİ DENEY (Xiaomi 23090RA98I, canlı harita):
+           rota çekirdeği `line-color:#FF0000`, `line-opacity:1` yazıldı.
+             terrain AÇIK  → ekranda `#edaeaf`  (efektif alfa ≈ 0,27)
+             terrain KAPALI→ ekranda `#ff0000`  (tam güç)
+         Aynı ölçüm mavi çekirdekte de birebir: `#006CFF` → `#adc4e5`.
+
+         KÖK NEDEN: `terrain` bildirildiğinde MapLibre TÜM vektör katmanlarını
+         arazi örgüsüne giydirmek için ayrı bir framebuffer'a çizip yeniden
+         örnekler. Bu cihazda o yol katman alfasını ~0,27'ye düşürüyordu —
+         yani rota DEĞİL, HARİTANIN TAMAMI yıkanıyordu. Kullanıcının "OSM
+         raster canlı, vektör soluk" karşılaştırmasının sebebi de budur:
+         raster stilde terrain YOKTUR.
+
+         Üstteki yorum "WebGL2 varsa aktif olur" diyordu ama koşul HİÇ
+         YAZILMAMIŞTI — terrain kayıtsız şartsız açıktı.
+
+         Kaybedilen: hiçbir şey. `hillshade` katmanı YOK, `setTerrain` çağıran
+         YOK; `terrain-rgb` kaynağının TEK tüketicisi bu satırdı. Kaynak da
+         kaldırıldı → AWS DEM uçlarına giden 404 trafiği de biter (bkz.
+         `_mapIds.ts` #109 notu). 3B bina (`fill-extrusion`) terrain'e BAĞLI
+         DEĞİLDİR, aynen çalışır. */
     },
-    // terrain opsiyonu — WebGL2 varsa arazi yüksekliği aktif
-    terrain: { source: 'terrain-rgb', exaggeration: 1.2 },
-    layers: [
-      // ── Base ──────────────────────────────────────────────
-      // OEM tasarım gece paleti: sıcak grafit (--map-bg-1 #131822)
+    layers: buildVectorLayers(night),
+  };
+
+  return style;
+}
+
+/**
+ * Vektör stilinin ADI — TEK KAYNAK.
+ *
+ * Ad bir TEŞHİS SÖZLEŞMESİDİR (#482: “Ad, ne çizildiğini söylemeli”):
+ * `map.getStyle().name` saha teşhisinde “ekranda hangi tema var” sorusunun
+ * cevabı olarak okunur. Canlı palet uygulaması (`applyMapDayNight`) `setStyle`
+ * ÇAĞIRMADIĞI için adı da O yol yazmalıdır — aksi hâlde boya GÜNDÜZ iken ad
+ * “Night” kalır ve teşhis “UI DAY ≠ MapLibre DAY” diye YANLIŞ okunur.
+ */
+export function vectorStyleName(night: boolean): string {
+  return night ? 'Vector (Automotive Night)' : 'Vector (Automotive Day)';
+}
+
+/** İlk stil ve canlı tema aynı katman tanımlarını kullanır; kaynak seçimi yapmaz. */
+export function buildVectorLayers(night: boolean): LayerSpecification[] {
+  const P = night ? NIGHT_PALETTE : DAY_PALETTE;
+  const includeLabels = true;
+
+  /* ── GECE YEREL AĞ GERİ ÇEKİLMESİ — GENİŞLİK + KASA (2026-09-06) ──────────
+   * SAHA: gecede yerel sokaklar arterlerle aynı görsel ağırlıkta okunuyordu.
+   * ÖLÇÜM: gece gövde merdiveni TON olarak zaten dar bir bantta (uçtan uca
+   * 1,176) — çünkü *"yolları tam beyaz yap"* KULLANICININ 2026-09-05 cihaz
+   * kararıdır ve `routeNightContrast` (rota/yol ≥1,9) o karara göre kalibre
+   * edildi. Bu yüzden TONA DOKUNULMADI.
+   *
+   * Karanlıkta beyaz bir çizginin algılanan ağırlığı ≈ GENİŞLİĞİDİR. Bu yüzden
+   * gece yalnız YEREL sınıfların gövdesi daraltılır; kasa genişliği AYNEN
+   * kalır → koyu kılıf oransal olarak kalınlaşır, parlak çekirdek incelir.
+   *
+   * ÖLÇÜLEN SONUÇ (otoyol / tali genişlik oranı):
+   *     z14  4,09 → 5,70     z16  3,63 → 5,03     z18  2,70 → 3,75
+   * Merdiven her iki temada da monotonik kalır ve kasa her zoomda gövdeden
+   * geniştir (`cartographyAuthority` §4 kilitleri). */
+  const gece = (stops: ReadonlyArray<readonly [number, number]>, k: number) =>
+    (night ? stops.map(([z, w]) => [z, Math.round(w * k * 100) / 100] as const) : stops);
+  const GECE_YEREL   = 0.72;   // minor · service
+  const GECE_UCUNCUL = 0.84;   // tertiary
+
+  return [
+      /* ═══════════════════════════════════════════════════════════════════
+         ÇİZİM SIRASI = ANLAM SIRASI
+         ───────────────────────────────────────────────────────────────────
+         zemin → doğa → yapılı alan → su → hava/demiryolu → bina → tünel →
+         yol KASALARI (küçükten büyüğe) → yol GÖVDELERİ (küçükten büyüğe) →
+         köprü → POI → ETİKETLER (en düşük öncelikliden en yükseğe).
+
+         ⚠️ İKİ SIRA KURALI PAZARLIKSIZ:
+         1. Yol gövdeleri KÜÇÜKTEN BÜYÜĞE çizilir. Eski listede `road-minor`
+            EN SON geliyordu → tali sokaklar otoyolun ÜSTÜNE biniyordu ve
+            kavşaklarda ana arter kesiliyordu. "Yol ağı fazla baskın, yollar
+            aynı ağırlıkta" şikâyetinin görsel yarısı buydu.
+         2. Etiket katmanları TERS öncelikli sıralanır: MapLibre yerleşimi
+            (`pauseable_placement.ts`, `_currentPlacementIndex = order.length-1`)
+            listeyi SONDAN BAŞA tarar → listede EN SONDAKİ sembol katmanı
+            çakışmayı KAZANIR. Bu yüzden en düşük öncelikli etiket (POI/mahalle)
+            başta, en yüksek öncelikli (şehir/kalkan) sonda durur.          */
+
+      // ── Zemin ────────────────────────────────────────────────
       { id: 'background',
         type: 'background',
         paint: { 'background-color': P.bg } },
 
-      // ── Water ─────────────────────────────────────────────
-      // --map-water-a #1A2540 / --map-water-b #152035
-      { id: 'water-fill',
+      /* ── Doğa (landcover) — bu turda İLK KEZ çiziliyor ─────────
+         Eski stil yeşili `landuse` katmanında arıyordu; ölçüm o katmanda
+         `park`/`grass`/`meadow` sınıflarının HİÇ OLMADIĞINI gösterdi.
+         Gerçek kaynak `landcover` (grass · wood · farmland · sand) ve ayrı
+         `park` katmanıdır. */
+      { id: 'landcover-wood',
         type: 'fill',
         source: 'omv',
-        'source-layer': 'water',
-        paint: { 'fill-color': P.water } },
-      { id: 'waterway',
-        type: 'line',
+        'source-layer': 'landcover',
+        minzoom: AREA_VISIBILITY['landcover-wood'],
+        filter: classIn('wood', 'forest'),
+        paint: { 'fill-color': P.forest, 'fill-opacity': 0.9 } },
+      { id: 'landcover-farmland',
+        type: 'fill',
         source: 'omv',
-        'source-layer': 'waterway',
-        paint: { 'line-color': P.water, 'line-width': 1.5 } },
-
-      // ── Landuse ───────────────────────────────────────────
-      // --map-park-a #1F2E26
+        'source-layer': 'landcover',
+        minzoom: AREA_VISIBILITY['landcover-farmland'],
+        filter: classIn('farmland'),
+        paint: { 'fill-color': P.farmland, 'fill-opacity': 0.75 } },
+      { id: 'landcover-grass',
+        type: 'fill',
+        source: 'omv',
+        'source-layer': 'landcover',
+        minzoom: AREA_VISIBILITY['landcover-grass'],
+        filter: classIn('grass', 'meadow', 'heath', 'scrub'),
+        paint: { 'fill-color': P.park, 'fill-opacity': 0.8 } },
+      /* `landuse-park` KİMLİĞİ KORUNDU (gürültü sözleşmesi ve kilitler bu ada
+         bağlı) ama artık DOĞRU kaynağı okuyor: ayrı `park` katmanı. */
       { id: 'landuse-park',
         type: 'fill',
         source: 'omv',
-        'source-layer': 'landuse',
-        filter: ['in', ['get', 'class'], ['literal', ['park', 'grass', 'meadow', 'pitch', 'playground', 'golf']]],
-        paint: { 'fill-color': P.park } },
-      // hafif yükseltilmiş yerleşim zemini — --map-residential #2A2A33'e yakın koyu
+        'source-layer': 'park',
+        minzoom: AREA_VISIBILITY['landuse-park'],
+        paint: { 'fill-color': P.park, 'fill-opacity': 0.85 } },
+
+      // ── Yapılı alan ───────────────────────────────────────────
       { id: 'landuse-residential',
         type: 'fill',
         source: 'omv',
         'source-layer': 'landuse',
-        filter: ['in', ['get', 'class'], ['literal', ['residential', 'suburb', 'neighbourhood']]],
+        minzoom: AREA_VISIBILITY['landuse-residential'],
+        filter: classIn('residential'),
         paint: { 'fill-color': P.residential } },
+      { id: 'landuse-urban',
+        type: 'fill',
+        source: 'omv',
+        'source-layer': 'landuse',
+        minzoom: AREA_VISIBILITY['landuse-urban'],
+        filter: classIn('industrial', 'commercial', 'retail', 'quarry',
+          'garages', 'railway', 'military', 'bus_station', 'school',
+          'university', 'hospital'),
+        paint: { 'fill-color': P.urban } },
+      { id: 'landuse-green',
+        type: 'fill',
+        source: 'omv',
+        'source-layer': 'landuse',
+        minzoom: AREA_VISIBILITY['landuse-green'],
+        filter: classIn('cemetery', 'pitch', 'playground', 'theme_park',
+          'stadium', 'track', 'golf'),
+        paint: { 'fill-color': P.park, 'fill-opacity': 0.7 } },
 
-      // ── Buildings ─────────────────────────────────────────
-      // --map-bldg-1b #1D2230 fill, --map-bldg-1a #2C3346 outline
+      // ── Su ────────────────────────────────────────────────────
+      /* Havuzlar (`class = swimming_pool`, ölçülen: tek karoda 18 adet) su
+         gövdesiyle AYNI katmanda çizilince şehir bahçelerinde mavi benekler
+         oluşuyordu — ayrıldı ve yalnız yakın zoomda gösteriliyor. */
+      { id: 'water-fill',
+        type: 'fill',
+        source: 'omv',
+        'source-layer': 'water',
+        filter: ['!=', ['get', 'class'], 'swimming_pool'] as FilterSpecification,
+        paint: { 'fill-color': P.water } },
+      { id: 'water-pool',
+        type: 'fill',
+        source: 'omv',
+        'source-layer': 'water',
+        minzoom: AREA_VISIBILITY['water-pool'],
+        filter: ['==', ['get', 'class'], 'swimming_pool'] as FilterSpecification,
+        paint: { 'fill-color': P.water, 'fill-opacity': 0.75 } },
+      { id: 'waterway',
+        type: 'line',
+        source: 'omv',
+        'source-layer': 'waterway',
+        minzoom: 8,
+        filter: classIn('river', 'canal'),
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: {
+          'line-color': P.water,
+          'line-width': ['interpolate', ['linear'], ['zoom'], 8, 0.6, 12, 1.6, 16, 4],
+        } },
+      { id: 'waterway-stream',
+        type: 'line',
+        source: 'omv',
+        'source-layer': 'waterway',
+        minzoom: 13,
+        filter: classIn('stream', 'ditch', 'drain'),
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: {
+          'line-color': P.water,
+          'line-opacity': 0.75,
+          'line-width': ['interpolate', ['linear'], ['zoom'], 13, 0.5, 17, 2],
+        } },
+
+      // ── İdari sınır — düşük zoomda "şehir yapısı" okunabilirliği ─
+      { id: 'boundary',
+        type: 'line',
+        source: 'omv',
+        'source-layer': 'boundary',
+        minzoom: 3,
+        filter: ['<=', ['coalesce', ['get', 'admin_level'], 99], 4] as FilterSpecification,
+        layout: { 'line-cap': 'butt', 'line-join': 'round' },
+        paint: {
+          'line-color': P.buildingOutline,
+          'line-opacity': 0.55,
+          'line-dasharray': [3, 2],
+          'line-width': ['interpolate', ['linear'], ['zoom'], 3, 0.5, 8, 1.2, 12, 1.6],
+        } },
+
+      // ── Havaalanı ve demiryolu ────────────────────────────────
+      { id: 'aeroway',
+        type: 'line',
+        source: 'omv',
+        'source-layer': 'aeroway',
+        minzoom: 11,
+        filter: classIn('runway', 'taxiway'),
+        layout: { 'line-cap': 'butt' },
+        paint: {
+          'line-color': P.urban,
+          'line-width': ['interpolate', ['linear'], ['zoom'],
+            11, ['case', ['==', ['get', 'class'], 'runway'], 2, 0.6],
+            14, ['case', ['==', ['get', 'class'], 'runway'], 7, 2],
+            17, ['case', ['==', ['get', 'class'], 'runway'], 20, 6],
+          ],
+        } } as LayerSpecification,
+      /* Demiryolu yol ailesinden AYRI okunur: kesikli, düşük ağırlık. Ölçümde
+         `transportation.class = rail` vardı ama HİÇ çizilmiyordu. */
+      { id: 'railway',
+        type: 'line',
+        source: 'omv',
+        'source-layer': 'transportation',
+        minzoom: 11,
+        filter: classIn('rail', 'transit'),
+        layout: { 'line-cap': 'butt', 'line-join': 'round' },
+        paint: {
+          'line-color': P.railway,
+          'line-opacity': 0.8,
+          'line-dasharray': [2.5, 2],
+          'line-width': ['interpolate', ['linear'], ['zoom'], 11, 0.6, 14, 1.4, 17, 2.6],
+        } } as LayerSpecification,
+
+      // ── Binalar ───────────────────────────────────────────────
+      /* z13 → z14: ölçümde `building` katmanı z13'te karo başına 0–1 poligon
+         döndürüyordu (yani z13 görünürlüğü hiçbir bilgi taşımıyor, yalnız
+         karo çözme maliyeti üretiyordu); gerçek kütle z14'te başlıyor.
+         `hide_3d` alanı OMT'de vardı ve kullanılmıyordu — 3B'de artık dikkate
+         alınır (kule/çatı çift çizimini önler). */
       { id: 'building',
         type: 'fill',
         source: 'omv',
         'source-layer': 'building',
-        minzoom: 13,
+        minzoom: AREA_VISIBILITY.building,
         paint: { 'fill-color': P.buildingFill, 'fill-outline-color': P.buildingOutline } },
-
-      // ── 3D Buildings — fill-extrusion z15+, OEM grafit ──
-      // Yükseklik-bazlı renk: alçak binalar koyu, kuleler hafif aydınlık.
-      // --map-bldg-1b #1D2230 → --map-bldg-2a #313850 → hafif sıcak vurgu.
       { id: 'building-3d',
         type: 'fill-extrusion',
         source: 'omv',
         'source-layer': 'building',
-        minzoom: 15,
+        minzoom: AREA_VISIBILITY['building-3d'],
+        filter: ['!=', ['get', 'hide_3d'], true] as FilterSpecification,
         paint: {
           'fill-extrusion-color': [
             'interpolate', ['linear'],
@@ -575,23 +1033,15 @@ export function buildVectorStyle(
           'fill-extrusion-height': ['coalesce', ['get', 'render_height'], ['get', 'height'], 10],
           'fill-extrusion-base':   ['coalesce', ['get', 'render_min_height'], ['get', 'min_height'], 0],
           /* Hacim hissini veren TEK desteklenen araç bu (taban→tepe koyu→açık).
-             `fill-extrusion-ambient-occlusion-*` BİLEREK YOK: bu özellikler
-             Mapbox GL'e aittir, MapLibre GL 4 tanımıyor ve stili sahada
-             REDDEDİYORDU (kütük #552):
-               `layers[6].paint.fill-extrusion-ambient-occlusion-intensity:
-                unknown property`
-             Yani AO zaten HİÇ uygulanmıyordu — kaldırmak görsel bir kayıp
-             değil, yalnız sessiz hatanın kesilmesidir. `P.bldg3dAO` tokeni
-             KORUNDU: MapLibre AO'yu desteklediğinde tek satırla geri bağlanır
-             (açık borç — kütük #552). */
+             `fill-extrusion-ambient-occlusion-*` BİLEREK YOK: Mapbox GL'e aittir,
+             MapLibre GL 4 tanımaz ve stili sahada REDDEDİYORDU (kütük #552).
+             `P.bldg3dAO` tokeni KORUNDU — açık borç. */
           'fill-extrusion-vertical-gradient': true,
         },
       } as LayerSpecification,
 
-      // ── Tüneller — yüzey yollarının ALTINDA ───────────────
-      // Sıra kasıtlı: tünel önce çizilir, üstüne yüzey yolları biner. Böylece
-      // tünelin dağın/şehrin altından geçtiği okunur. Kesikli kasa + soluk gövde
-      // "burada yol var ama görünmüyor" demenin OEM standardı yoludur.
+      // ── Tüneller — yüzey yollarının ALTINDA ───────────────────
+      // Sıra kasıtlı: tünel önce çizilir, üstüne yüzey yolları biner.
       { id: 'road-tunnel-casing',
         type: 'line',
         source: 'omv',
@@ -616,91 +1066,178 @@ export function buildVectorStyle(
           'line-opacity': P.tunnelOpacity + 0.24,
         } } as LayerSpecification,
 
-      // ── Roads: casings (outlines) ─────────────────────────
-      // OEM: otoyol kasası sıcak-koyu (sadece aktif rota altın renkte parlar)
-      { id: 'road-motorway-casing',
+      /* ── YOL KASALARI — küçükten büyüğe ─────────────────────────
+         Kasa, ince yolu zeminden ayıran öğedir; gövdeden bir ton koyudur ve
+         gövdeden GENİŞTİR. Kasa merdiveni gövde merdiveniyle aynı sırada
+         çizilir ki kavşakta üst sınıf altı sınıfı kessin.                  */
+      { id: 'road-minor-casing',
         type: 'line',
         source: 'omv',
         'source-layer': 'transportation',
-        filter: surfaceOnly(['in', ['get', 'class'], ['literal', ['motorway', 'trunk']]]),
+        filter: surfaceOnly(classIn('minor', 'service', 'track')),
+        minzoom: ROAD_VISIBILITY.minor.minzoom + 1,
         layout: { 'line-cap': 'round', 'line-join': 'round' },
         paint: {
-          'line-color': P.motorwayCasing,
-          'line-width': ['interpolate', ['linear'], ['zoom'], 8, 4, 14, 12],
+          'line-color': P.minorCasing,
+          'line-width': roadWidth([[14, 2.6], [16, 4.6], [18, 9]]) as unknown as number,
+        } },
+      /* ── ÜÇÜNCÜL YOL KENDİ KASASINI ALDI (ÖLÇÜM 2026-09-06) ──────────────
+         Eskiden `secondary` ve `tertiary` TEK kasayı paylaşıyordu; gövde tonu da
+         ortaktı (`P.secondary`). Yani iki sınıf ekranda TEK ağırlık okunuyordu.
+         Gerçek karo ölçümü (Tarsus z12–14, OpenFreeMap planet): tertiary **303**
+         parça · secondary **206** — yani en yoğun sınıf, en ayırt edilmesi
+         gereken sınıfın ağırlığını taşıyordu. Kullanıcının *"çok fazla yol aynı
+         görsel ağırlıkta"* bildiriminin sayısal karşılığı budur.
+         Artık: ayrı kasa tonu + ayrı gövde tonu + daha dar genişlik. */
+      { id: 'road-tertiary-casing',
+        type: 'line',
+        source: 'omv',
+        'source-layer': 'transportation',
+        filter: surfaceOnly(classIn('tertiary')),
+        minzoom: ROAD_VISIBILITY.tertiary.minzoom,
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: {
+          'line-color': P.tertiaryCasing,
+          'line-width': roadWidth([[12, 1.2], [14, 3.6], [18, 9.6]]) as unknown as number,
+        } },
+      { id: 'road-secondary-casing',
+        type: 'line',
+        source: 'omv',
+        'source-layer': 'transportation',
+        filter: surfaceOnly(classIn('secondary')),
+        minzoom: ROAD_VISIBILITY.secondary.minzoom,
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: {
+          'line-color': P.secondaryCasing,
+          /* Kasa artik z9'dan (secondary'nin kendi minzoom'u) basliyor; rampa
+             govdeyle hizalandi: govde [[9,0.8],[12,2.2],[14,4.2],[18,10.5]] -> kasa
+             her zoomda GENIS kalir (kilit: cartographyAuthority 'kasa govdeden genis'). */
+          'line-width': roadWidth([[9, 1.5], [12, 3.3], [14, 5.2], [18, 13]]) as unknown as number,
         } },
       { id: 'road-primary-casing',
         type: 'line',
         source: 'omv',
         'source-layer': 'transportation',
-        filter: surfaceOnly(['in', ['get', 'class'], ['literal', ['primary', 'secondary']]]),
+        filter: surfaceOnly(classIn('primary')),
+        minzoom: ROAD_VISIBILITY.primary.minzoom + 1,
         layout: { 'line-cap': 'round', 'line-join': 'round' },
         paint: {
           'line-color': P.primaryCasing,
-          'line-width': ['interpolate', ['linear'], ['zoom'], 8, 2.5, 14, 9],
+          'line-width': roadWidth([[8, 2.2], [14, 8.4], [18, 18]]) as unknown as number,
         } },
-      { id: 'road-minor-casing',
+      { id: 'road-motorway-casing',
         type: 'line',
         source: 'omv',
         'source-layer': 'transportation',
-        filter: surfaceOnly(['in', ['get', 'class'], ['literal', ['tertiary', 'minor', 'service']]]),
-        minzoom: 12,
+        filter: surfaceOnly(classIn('motorway', 'trunk')),
+        minzoom: ROAD_VISIBILITY.motorway.minzoom + 1,
         layout: { 'line-cap': 'round', 'line-join': 'round' },
         paint: {
-          'line-color': P.minorCasing,
-          'line-width': ['interpolate', ['linear'], ['zoom'], 12, 2, 14, 6],
+          'line-color': P.motorwayCasing,
+          'line-width': roadWidth([[5, 2.4], [10, 5], [14, 11.5], [18, 24]]) as unknown as number,
         } },
 
-      // ── Roads: fills ──────────────────────────────────────
-      // --map-hwy-b #635A44 (sıcak koyu zeytin) — otoyol gövdesi
-      { id: 'road-motorway',
+      /* ── YOL GÖVDELERİ — küçükten büyüğe ────────────────────────
+         Genişlik merdiveni her zoomda AYRIK: z14'te tali 2,2 · üçüncül 3,2 ·
+         ikincil 4,2 · ana 6,4 · otoyol 9,0 px. Rampalar (`ramp = 1`; ölçülen
+         oran otoyolda %72) `RAMP_WIDTH_FACTOR` ile daraltılır — bağlantı kolu
+         asla ana arterle aynı ağırlıkta olamaz.                            */
+      { id: 'road-path',
         type: 'line',
         source: 'omv',
         'source-layer': 'transportation',
-        filter: surfaceOnly(['in', ['get', 'class'], ['literal', ['motorway', 'trunk']]]),
-        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        filter: surfaceOnly(classIn('path')),
+        minzoom: ROAD_VISIBILITY.path.minzoom,
+        layout: { 'line-cap': 'butt', 'line-join': 'round' },
         paint: {
-          'line-color': P.motorway,
-          'line-width': ['interpolate', ['linear'], ['zoom'], 8, 2.5, 14, 9],
-        } },
-      // OEM grafit hiyerarşisi: arterler koyu arduvaz (--map-art-a #44444F),
-      // yan yollar daha geri çekilmiş (--map-secondary #353540 / --map-residential #2A2A33).
-      // Sadece aktif rota (altın) öne çıkar — tasarım dili bu.
-      { id: 'road-primary',
+          'line-color': P.pathLine,
+          'line-opacity': 0.7,
+          'line-dasharray': [1.6, 1.6],
+          'line-width': ['interpolate', ['linear'], ['zoom'], 16, 0.8, 19, 2],
+        } } as LayerSpecification,
+      { id: 'road-service',
         type: 'line',
         source: 'omv',
         'source-layer': 'transportation',
-        filter: surfaceOnly(['==', ['get', 'class'], 'primary']),
+        filter: surfaceOnly(classIn('service', 'track', 'busway')),
+        minzoom: ROAD_VISIBILITY.service.minzoom,
         layout: { 'line-cap': 'round', 'line-join': 'round' },
         paint: {
-          'line-color': P.primary,
-          'line-width': ['interpolate', ['linear'], ['zoom'], 8, 1.0, 12, 3, 14, 6.5, 18, 13],
-        } },
-      { id: 'road-secondary',
-        type: 'line',
-        source: 'omv',
-        'source-layer': 'transportation',
-        filter: surfaceOnly(['in', ['get', 'class'], ['literal', ['secondary', 'tertiary']]]),
-        layout: { 'line-cap': 'round', 'line-join': 'round' },
-        paint: {
-          'line-color': P.secondary,
-          'line-width': ['interpolate', ['linear'], ['zoom'], 10, 0.8, 12, 2, 14, 4, 18, 9],
+          'line-color': P.minor,
+          'line-opacity': 0.85,
+          'line-width': ['interpolate', ['linear'], ['zoom'],
+            15, night ? 0.65 : 0.9, 18, night ? 2.45 : 3.4],
         } },
       { id: 'road-minor',
         type: 'line',
         source: 'omv',
         'source-layer': 'transportation',
-        filter: surfaceOnly(['in', ['get', 'class'], ['literal', ['minor', 'service', 'track']]]),
-        minzoom: 12,
+        filter: surfaceOnly(classIn('minor')),
+        minzoom: ROAD_VISIBILITY.minor.minzoom,
         layout: { 'line-cap': 'round', 'line-join': 'round' },
         paint: {
           'line-color': P.minor,
-          'line-width': ['interpolate', ['linear'], ['zoom'], 12, 0.4, 14, 2, 18, 6],
+          'line-width': roadWidth(gece([[13, 0.9], [14, 2.2], [16, 4], [18, 7.4]], GECE_YEREL)) as unknown as number,
+        } },
+      { id: 'road-tertiary',
+        type: 'line',
+        source: 'omv',
+        'source-layer': 'transportation',
+        filter: surfaceOnly(classIn('tertiary')),
+        minzoom: ROAD_VISIBILITY.tertiary.minzoom,
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: {
+          'line-color': P.tertiary,
+          /* Üçüncül yol ARTIK KENDİ TONUNU taşır (`P.tertiary`, secondary ile
+             minor arasında). Eski not "secondary tonunu paylaşır" diyordu; o
+             karar 2026-09-06 ölçümüyle geri alındı — ayrımı yalnız genişliğe
+             yüklemek en yoğun sınıfı en görünür sınıfla eşitliyordu.
+             (gece 4-ton merdiven
+             zorunluluğu, bkz. NIGHT_PALETTE §6); ayrımı YALNIZ GENİŞLİK taşır.
+             ⚠️ Opaklık rampası BİLEREK KULLANILMADI: `road-tertiary`
+             `NAV_SUPPRESS_TIERS`in sahibi olduğu bir katmandır ve bastırma
+             `line-opacity`ye DÜZ SAYI yazar — stile zoom ifadesi koymak o
+             yazımla birlikte kalıcı olarak silinirdi (iki otorite çatışması).
+             Ölçüm: tertiary karo başına 808 parça, secondary'den (633) FAZLA;
+             bu yüzden orta zoomda belirgin biçimde İNCE tutulur (z12'de ~0,95 px
+             karşılık secondary 2,2 px = 2,3×). */
+          'line-width': roadWidth(gece([[11, 0.5], [13, 1.5], [14, 3.0], [18, 8.8]], GECE_UCUNCUL)) as unknown as number,
+        } },
+      { id: 'road-secondary',
+        type: 'line',
+        source: 'omv',
+        'source-layer': 'transportation',
+        filter: surfaceOnly(classIn('secondary')),
+        minzoom: ROAD_VISIBILITY.secondary.minzoom,
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: {
+          'line-color': P.secondary,
+          'line-width': roadWidth([[9, 0.8], [12, 2.2], [14, 4.2], [18, 10.5]]) as unknown as number,
+        } },
+      { id: 'road-primary',
+        type: 'line',
+        source: 'omv',
+        'source-layer': 'transportation',
+        filter: surfaceOnly(classIn('primary')),
+        minzoom: ROAD_VISIBILITY.primary.minzoom,
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: {
+          'line-color': P.primary,
+          'line-width': roadWidth([[7, 0.9], [12, 3.2], [14, 6.4], [18, 15]]) as unknown as number,
+        } },
+      { id: 'road-motorway',
+        type: 'line',
+        source: 'omv',
+        'source-layer': 'transportation',
+        filter: surfaceOnly(classIn('motorway', 'trunk')),
+        minzoom: ROAD_VISIBILITY.motorway.minzoom,
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: {
+          'line-color': P.motorway,
+          'line-width': roadWidth([[4, 0.8], [10, 3], [14, 9], [18, 20]]) as unknown as number,
         } },
 
-      // ── Köprüler — yüzey yollarının ÜSTÜNDE ───────────────
-      // Sıra kasıtlı: köprü EN SON çizilir, altındaki yolu keser. Kasa gövdeden
-      // belirgin daha geniştir → güverte kenarı gölge gibi okunur ve katlı
-      // kavşakta hangi kolun üstten geçtiği bir bakışta anlaşılır.
+      // ── Köprüler — yüzey yollarının ÜSTÜNDE ───────────────────
       { id: 'road-bridge-casing',
         type: 'line',
         source: 'omv',
@@ -721,167 +1258,310 @@ export function buildVectorStyle(
           // Gövde rengi sınıfı izler → köprüde de yol hiyerarşisi korunur.
           'line-color': ['case',
             ['in', ['get', 'class'], ['literal', ['motorway', 'trunk']]], P.motorway,
-            ['in', ['get', 'class'], ['literal', ['primary', 'secondary']]], P.primary,
+            ['==', ['get', 'class'], 'primary'], P.primary,
+            ['in', ['get', 'class'], ['literal', ['secondary', 'tertiary']]], P.secondary,
             P.minor,
           ] as unknown as string,
           'line-width': brunnelWidth(1.0) as unknown as number,
         } } as LayerSpecification,
 
-      // ── Situational POIs — automotive kritik noktalar ─────
-      // OMT schema: poi source-layer, class değerleri
+      /* ── SÜRÜŞE İLİŞKİN POI ─────────────────────────────────────
+         ÖLÇÜLEN KUSUR: `poi` katmanı tek bir İstanbul z14 karosunda 978
+         nokta taşıyor ve eski stil bunların `pharmacy`(151) · `parking` ·
+         `hospital` · `police` alt kümesini z13–14'te DOYGUN renklerle
+         (#f59e0b/#3b82f6/#ef4444/#8b5cf6) çiziyordu. Ekranın "oyuncak"
+         görünmesinin kaynaklarından biri buydu.
+         YENİ SÖZLEŞME: sürüş kararına giren dört aile · `rank` ile
+         sınırlandırılmış · sönük renkli · daha yakın zoomda. `pharmacy`
+         KALDIRILDI (sürüş kararı değil, en kalabalık POI sınıfıydı).       */
       { id: 'poi-gas',
         type: 'circle',
         source: 'omv',
         'source-layer': 'poi',
-        minzoom: 14,
-        filter: ['in', ['get', 'class'], ['literal', ['fuel', 'gas_station', 'petrol_station']]],
+        minzoom: LABEL_VISIBILITY['poi-gas'],
+        filter: ['all', classIn('fuel'), rankAtMost(15)] as FilterSpecification,
         paint: {
-          'circle-color':        '#f59e0b',
-          'circle-radius':       6,
+          'circle-color':        P.poiFuel,
+          'circle-radius':       ['interpolate', ['linear'], ['zoom'], 14, 3, 17, 5],
           'circle-opacity':      P.poiStrong,
-          'circle-stroke-color': '#fbbf24',
-          'circle-stroke-width': 1,
-        } } as LayerSpecification,
-      { id: 'poi-parking',
-        type: 'circle',
-        source: 'omv',
-        'source-layer': 'poi',
-        minzoom: 14,
-        filter: ['in', ['get', 'class'], ['literal', ['parking', 'parking_garage']]],
-        paint: {
-          'circle-color':        '#3b82f6',
-          'circle-radius':       5,
-          'circle-opacity':      P.poiWeak,
-          'circle-stroke-color': '#60a5fa',
-          'circle-stroke-width': 1,
+          'circle-stroke-color': P.labelHalo,
+          'circle-stroke-width': 0.8,
         } } as LayerSpecification,
       { id: 'poi-hospital',
         type: 'circle',
         source: 'omv',
         'source-layer': 'poi',
-        minzoom: 13,
-        filter: ['in', ['get', 'class'], ['literal', ['hospital', 'clinic', 'pharmacy']]],
+        minzoom: LABEL_VISIBILITY['poi-hospital'],
+        filter: ['all', classIn('hospital'), rankAtMost(25)] as FilterSpecification,
         paint: {
-          'circle-color':        '#ef4444',
-          'circle-radius':       6,
+          'circle-color':        P.poiMedical,
+          'circle-radius':       ['interpolate', ['linear'], ['zoom'], 14, 3, 17, 5],
           'circle-opacity':      P.poiStrong,
-          'circle-stroke-color': '#f87171',
-          'circle-stroke-width': 1,
+          'circle-stroke-color': P.labelHalo,
+          'circle-stroke-width': 0.8,
         } } as LayerSpecification,
       { id: 'poi-police',
         type: 'circle',
         source: 'omv',
         'source-layer': 'poi',
-        minzoom: 13,
-        filter: ['in', ['get', 'class'], ['literal', ['police', 'fire_station']]],
+        minzoom: LABEL_VISIBILITY['poi-police'],
+        filter: ['all', classIn('police', 'fire_station'), rankAtMost(25)] as FilterSpecification,
         paint: {
-          'circle-color':        '#8b5cf6',
-          'circle-radius':       5,
+          'circle-color':        P.poiCivic,
+          'circle-radius':       ['interpolate', ['linear'], ['zoom'], 15, 2.6, 17, 4],
           'circle-opacity':      P.poiWeak,
-          'circle-stroke-color': '#a78bfa',
-          'circle-stroke-width': 1,
+          'circle-stroke-color': P.labelHalo,
+          'circle-stroke-width': 0.8,
+        } } as LayerSpecification,
+      { id: 'poi-parking',
+        type: 'circle',
+        source: 'omv',
+        'source-layer': 'poi',
+        minzoom: LABEL_VISIBILITY['poi-parking'],
+        filter: ['all', classIn('parking'), rankAtMost(12)] as FilterSpecification,
+        paint: {
+          'circle-color':        P.poiParking,
+          'circle-radius':       ['interpolate', ['linear'], ['zoom'], 16, 2.6, 18, 4],
+          'circle-opacity':      P.poiWeak,
+          'circle-stroke-color': P.labelHalo,
+          'circle-stroke-width': 0.8,
         } } as LayerSpecification,
 
-      // ── Labels (online only) ──────────────────────────────
+      /* ═══ ETİKET MOTORU — ÖNCELİK SIRASI (düşükten yükseğe) ═══════════════
+         MapLibre yerleşimi listeyi SONDAN tarar; bu yüzden aşağıdaki sıra
+         "en son yazılan kazanır" demektir:
+             mahalle < yerel sokak < köy < su adı < ana yol < kasaba <
+             yol numarası kalkanı < şehir
+         Ayrıca her katman `symbol-sort-key` ile KENDİ İÇİNDE de sıralanır
+         (`place.rank` / `poi.rank` — ikisi de ölçülüp doğrulandı).
+
+         ÖLÇÜLEN KUSUR: `place` katmanı düşük zoomda karo başına 124–389
+         özellik taşıyor (Siverek z10: 389) ve eski `place-town` katmanı
+         town+village+hamlet'i SABİT 13 px ile, minzoom/maxzoom ve rank
+         süzgeci OLMADAN çiziyordu. `road-label` ise minzoom 12'den itibaren
+         TÜM yol sınıflarını aynı boyda basıyordu; ölçümde `transportation_name`
+         sınıf dağılımı minor 565 · trunk 238 · motorway 151 · primary 77 —
+         yani ekrandaki yazının çoğu yerel sokak adıydı. Üstelik motorway/trunk/
+         primary kayıtlarının %61–84'ü `subclass = junction` (kavşak adı) idi
+         ve bunlar da sokak adı gibi basılıyordu.                            */
       ...(includeLabels ? ([
+        /* ── ETIKET YERLESIM ONCELIGI (kanonik sira KORUNDU) ───────────────
+           MapLibre `pauseable_placement.ts` listeyi SONDAN tarar
+           (`_currentPlacementIndex = order.length - 1`) -> cakismayi EN SONDAKI
+           sembol katmani KAZANIR. Yani oncelik sirasi listede TERS durur:
+           en dusuk oncelikli BASTA. Bu sira `cartographyAuthority` kilidiyle
+           baglidir; 2026-09-06'da ters cevrilmeye calisildi ve KILIT YAKALADI.
+           Yerel sokak adi butcesi SIRAYLA degil, `minzoom` (16) ve
+           `symbol-spacing` (460) ile kisilir. */
+        { id: 'place-suburb',
+          type: 'symbol',
+          source: 'omv',
+          'source-layer': 'place',
+          minzoom: LABEL_VISIBILITY['place-suburb'],
+          filter: ['all',
+            classIn('suburb', 'quarter', 'neighbourhood'),
+            rankAtMost(30),
+          ] as FilterSpecification,
+          layout: {
+            'text-field': localizedName,
+            'text-font': ['Noto Sans Regular'],
+            'text-size': ['interpolate', ['linear'], ['zoom'], 13, 10, 16, 12.5],
+            'text-letter-spacing': 0.05,
+            'text-padding': 8,
+            'text-transform': 'uppercase',
+            'symbol-sort-key': ['coalesce', ['get', 'rank'], 99],
+          },
+          paint: {
+            'text-color': P.townText,
+            'text-opacity': 0.8,
+            'text-halo-color': P.townHalo,
+            'text-halo-width': 1.4,
+          } } as LayerSpecification,
+        /* `road-label` KİMLİĞİ KORUNDU ama artık YALNIZ YEREL sokaklar:
+           bastırma tabloları (`NAV_SUPPRESS_TIERS`), mini harita çarpanı ve
+           yüksek hız gizlemesi hep bu kimliğe bağlıydı ve hepsinin doğru
+           hedefi zaten yerel sokak adıdır. Ana yol adları ayrı katmana
+           (`road-label-major`) taşındı ve manevrada SUSTURULMAZ. */
         { id: 'road-label',
           type: 'symbol',
           source: 'omv',
           'source-layer': 'transportation_name',
-          minzoom: 12,
+          minzoom: LABEL_VISIBILITY['road-label'],
+          filter: ['all',
+            classIn('minor', 'tertiary', 'service'),
+            ['!=', ['get', 'subclass'], 'junction'],
+          ] as FilterSpecification,
           layout: {
-            'text-field': ['coalesce', ['get', 'name:tr'], ['get', 'name']],
+            'text-field': localizedName,
             'text-font': ['Noto Sans Regular'],
-            'text-size': ['interpolate', ['linear'], ['zoom'], 12, 11, 14, 14],
+            'text-size': ['interpolate', ['linear'], ['zoom'], 15, 10, 17, 12],
             'symbol-placement': 'line',
             'text-max-angle': 30,
-            'text-padding': 4,
-            'text-letter-spacing': 0.06,
+            'text-padding': 6,
+            /* Ayni sokagin adinin YOL BOYUNCA TEKRARI seyreltildi (340 -> 460 px):
+               yogun izgara sehirde tekrar, farkli sokak adlarindan daha cok yer
+               kapliyordu. */
+            'symbol-spacing': 460,
+            'text-letter-spacing': 0.01,
           },
           paint: {
-            'text-color': P.labelText,      // OEM --map-label sıcak fildişi
+            'text-color': P.labelText,
+            /* ⚠️ SABİT DEĞER, ZOOM İFADESİ DEĞİL: `road-label.text-opacity`
+               `NAV_SUPPRESS_TIERS` + `MapLayerManager` (yüksek hız gizlemesi,
+               mood) tarafından DÜZ SAYIYLA yazılır. Buraya zoom ifadesi
+               koymak ilk yazımda kalıcı olarak silinirdi — genelleştirme
+               bu yüzden `minzoom` ve `text-size` ile taşınır.
+               Ölçüm: `transportation_name` içinde en kalabalık sınıf `minor`
+               (565); eski stil bunları z12'den itibaren basıyordu — "sokak
+               isimleri haritayı domine ediyor" şikâyetinin doğrudan kaynağı.
+               Artık z15'ten önce HİÇ çizilmiyorlar. */
+            'text-opacity': 0.85,
             'text-halo-color': P.labelHalo,
-            'text-halo-width': 2.2,        // kalın halo → gün ışığı kontrast
-            'text-halo-blur': 0.5,
-          } },
+            'text-halo-width': 1.3,
+            'text-halo-blur': 0.4,
+          } } as LayerSpecification,
+        { id: 'place-village',
+          type: 'symbol',
+          source: 'omv',
+          'source-layer': 'place',
+          minzoom: LABEL_VISIBILITY['place-village'],
+          filter: ['all', classIn('village', 'hamlet'), rankAtMost(20)] as FilterSpecification,
+          layout: {
+            'text-field': localizedName,
+            'text-font': ['Noto Sans Regular'],
+            'text-size': ['interpolate', ['linear'], ['zoom'], 12, 10.5, 16, 13],
+            'text-padding': 10,
+            'text-letter-spacing': 0.02,
+            'symbol-sort-key': ['coalesce', ['get', 'rank'], 99],
+          },
+          paint: {
+            'text-color': P.townText,
+            'text-halo-color': P.townHalo,
+            'text-halo-width': 1.6,
+          } } as LayerSpecification,
+        { id: 'water-label',
+          type: 'symbol',
+          source: 'omv',
+          'source-layer': 'water_name',
+          minzoom: LABEL_VISIBILITY['water-label'],
+          layout: {
+            'text-field': localizedName,
+            'text-font': ['Noto Sans Regular'],
+            'text-size': ['interpolate', ['linear'], ['zoom'], 11, 10, 15, 13],
+            'text-padding': 10,
+            'text-letter-spacing': 0.08,
+          },
+          paint: {
+            'text-color': P.waterText,
+            'text-halo-color': P.labelHalo,
+            'text-halo-width': 1.2,
+          } } as LayerSpecification,
+        { id: 'road-label-major',
+          type: 'symbol',
+          source: 'omv',
+          'source-layer': 'transportation_name',
+          minzoom: LABEL_VISIBILITY['road-label-major'],
+          filter: ['all',
+            classIn('motorway', 'trunk', 'primary', 'secondary'),
+            ['!=', ['get', 'subclass'], 'junction'],
+          ] as FilterSpecification,
+          layout: {
+            'text-field': localizedName,
+            'text-font': ['Noto Sans Regular'],
+            'text-size': ['interpolate', ['linear'], ['zoom'], 12, 11, 16, 13.5],
+            'symbol-placement': 'line',
+            'text-max-angle': 30,
+            'text-padding': 5,
+            'symbol-spacing': 260,
+            'text-letter-spacing': 0.02,
+            'symbol-sort-key': ['match', ['get', 'class'],
+              'motorway', 1, 'trunk', 2, 'primary', 3, 4],
+          },
+          paint: {
+            'text-color': P.labelText,
+            'text-halo-color': P.labelHalo,
+            'text-halo-width': 1.7,
+            'text-halo-blur': 0.4,
+          } } as LayerSpecification,
+        { id: 'place-town',
+          type: 'symbol',
+          source: 'omv',
+          'source-layer': 'place',
+          minzoom: LABEL_VISIBILITY['place-town'],
+          filter: ['all', classIn('town'), rankAtMost(22)] as FilterSpecification,
+          layout: {
+            'text-field': localizedName,
+            'text-font': ['Noto Sans Regular'],
+            'text-size': ['interpolate', ['linear'], ['zoom'], 9, 11.5, 14, 15],
+            'text-padding': 12,
+            'text-letter-spacing': 0.03,
+            'symbol-sort-key': ['coalesce', ['get', 'rank'], 99],
+          },
+          paint: {
+            'text-color': P.townText,
+            'text-halo-color': P.townHalo,
+            'text-halo-width': 1.9,
+            'text-halo-blur': 0.4,
+          } } as LayerSpecification,
         /* ── Yol numarası kalkanı (E-5 · D-100 · O-4) ──────────────────────
            Sürücü tabelayı haritayla EŞLEŞTİRİR: yol adı yeterli değildir,
-           numara birincil referanstır. `ref` alanı OMT `transportation_name`
-           katmanında zaten geliyordu, yalnız hiç kullanılmıyordu.
-
-           `icon-text-fit: 'both'` sayesinde tek bir arkaplan imajı metne göre
-           esner → "E-5" ve "D-100" aynı imajla doğru genişlikte çıkar; her
-           numara için ayrı görsel üretilmez. İmaj çalışma zamanında canvas'ta
-           üretilir (stilde sprite YOK) — id palet üzerinden paylaşılır. */
+           numara birincil referanstır. Kavşak kayıtları (`subclass = junction`)
+           DIŞLANIR — ölçümde motorway/trunk/primary kayıtlarının %61–84'ü
+           kavşaktı ve kalkanlar kavşak adlarıyla doluyordu. */
         { id: 'road-shield',
           type: 'symbol',
           source: 'omv',
           'source-layer': 'transportation_name',
-          minzoom: 9,
+          minzoom: LABEL_VISIBILITY['road-shield'],
           filter: ['all',
             ['has', 'ref'],
-            ['in', ['get', 'class'], ['literal', ['motorway', 'trunk', 'primary']]],
+            classIn('motorway', 'trunk', 'primary'),
+            ['!=', ['get', 'subclass'], 'junction'],
           ] as FilterSpecification,
           layout: {
             'text-field': ['get', 'ref'],
             'text-font': ['Noto Sans Bold'],
-            'text-size': ['interpolate', ['linear'], ['zoom'], 9, 10, 14, 13],
+            'text-size': ['interpolate', ['linear'], ['zoom'], 9, 10, 14, 12.5],
             'text-letter-spacing': 0.04,
             'icon-image': P.shieldImage,
             'icon-text-fit': 'both',
             'icon-text-fit-padding': [2, 5, 2, 5],
             'symbol-placement': 'line',
-            'symbol-spacing': 260,
+            'symbol-spacing': 300,
             'text-padding': 3,
             'icon-allow-overlap': false,
             'text-allow-overlap': false,
+            'symbol-sort-key': ['match', ['get', 'class'],
+              'motorway', 1, 'trunk', 2, 3],
           },
           paint: {
             'text-color': '#ffffff',
             'text-halo-color': 'rgba(0,0,0,0.35)',
             'text-halo-width': 0.8,
           } } as LayerSpecification,
-        { id: 'place-town',
-          type: 'symbol',
-          source: 'omv',
-          'source-layer': 'place',
-          filter: ['in', 'class', 'town', 'village', 'hamlet'],
-          layout: {
-            'text-field': ['coalesce', ['get', 'name:tr'], ['get', 'name']],
-            'text-font': ['Noto Sans Regular'],
-            'text-size': 13,
-            'text-anchor': 'center',
-            'text-letter-spacing': 0.04,
-          },
-          paint: {
-            'text-color': P.townText,
-            'text-halo-color': P.townHalo,
-            'text-halo-width': 2.5,
-            'text-halo-blur': 0.5,
-          } },
         { id: 'place-city',
           type: 'symbol',
           source: 'omv',
           'source-layer': 'place',
-          filter: ['==', 'class', 'city'],
+          minzoom: LABEL_VISIBILITY['place-city'],
+          maxzoom: LABEL_VISIBILITY_MAX['place-city'],
+          filter: classIn('city'),
           layout: {
-            'text-field': ['coalesce', ['get', 'name:tr'], ['get', 'name']],
+            'text-field': localizedName,
             'text-font': ['Noto Sans Bold'],
-            'text-size': ['interpolate', ['linear'], ['zoom'], 6, 14, 12, 20],
-            'text-anchor': 'center',
-            'text-letter-spacing': 0.06,
+            'text-size': ['interpolate', ['linear'], ['zoom'], 5, 12, 10, 16, 14, 19],
+            'text-padding': 14,
+            'text-letter-spacing': 0.05,
+            'symbol-sort-key': ['coalesce', ['get', 'rank'], 99],
           },
           paint: {
             'text-color': P.cityText,
             'text-halo-color': P.cityHalo,
-            'text-halo-width': 3.0,
-            'text-halo-blur': 0.5,
-          } },
+            'text-halo-width': 2.2,
+            'text-halo-blur': 0.4,
+          } } as LayerSpecification,
       ] as LayerSpecification[]) : []),
-    ],
-  };
-
-  return style;
+    ];
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════

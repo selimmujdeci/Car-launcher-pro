@@ -63,8 +63,13 @@ describe('ARCH-06/F3/A · kamera coalescing', () => {
   });
 
   it('A2 — 🔒 aynı hedef → harita mutasyonu GÖNDERİLMEZ', () => {
-    /* Kamera komutu YALNIZ `_camChanged` doğruyken çıkar. */
-    expect(FULL_MAP).toMatch(/if \(_camChanged\) \{[\s\S]{0,200}setDrivingView\(/);
+    /* Kamera komutu YALNIZ `_camChanged` doğruyken çıkar.
+       2026-09-05: araya bir gerekçe yorumu girdiği için pencere 200→900
+       genişletildi; KURAL aynı. Ayrıca dedup ÇAPASININ artık koşullu
+       yazıldığı da kilitlenir — giriş kapısı kamerayı ertelediğinde çapa
+       yazılırsa durakta kamera bir daha hiç güncellenmez (saha kusuru). */
+    expect(FULL_MAP).toMatch(/if \(_camChanged\) \{[\s\S]{0,900}setDrivingView\(/);
+    expect(FULL_MAP, 'çapa koşulsuz yazılıyor').toMatch(/if \(_camApplied\) \{/);
   });
 
   it('A3 — 🔒 kullanıcı etkileşimi takip kamerasını BASTIRIR', () => {

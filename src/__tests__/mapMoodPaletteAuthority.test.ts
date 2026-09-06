@@ -72,13 +72,17 @@ describe('#641 — mood renk icat edemez, palet tek otoritedir', () => {
 
   it('🔒 GECE: ana yollar HER risk değerinde zeminden ve `minor`dan AÇIK kalır', () => {
     const bgL    = lum(_hexToRgb(MAP_BG_NIGHT));
-    const minorL = lum(_hexToRgb(NIGHT_PALETTE.minor));
     for (let r = 0; r <= 1.0001; r += 0.1) {
       const p = lum(moodColor(NIGHT_PALETTE.primary,   MAP_BG_NIGHT, r));
       const s = lum(moodColor(NIGHT_PALETTE.secondary, MAP_BG_NIGHT, r));
       expect(p, `risk ${r.toFixed(1)}: primary zeminden koyu`).toBeGreaterThan(bgL);
       expect(s, `risk ${r.toFixed(1)}: secondary zeminden koyu`).toBeGreaterThan(bgL);
-      expect(s, `risk ${r.toFixed(1)}: secondary tali yoldan koyu — hiyerarşi ters`).toBeGreaterThan(minorL);
+      /* 2026-09-05: gece yolları beyaz aileye alındı; mood artık AİLEYİ BÜTÜN
+         harmanlıyor (yalnız primary/secondary değil). Karşılaştırma bu yüzden
+         harmanlanmış `minor` ile yapılır — aksi hâlde kilit, ürünün ARTIK
+         yapmadığı bir şeyi (yarım harmanlama) ölçerdi. */
+      const m = lum(moodColor(NIGHT_PALETTE.minor, MAP_BG_NIGHT, r));
+      expect(s, `risk ${r.toFixed(1)}: secondary tali yoldan koyu — hiyerarşi ters`).toBeGreaterThan(m);
       expect(p, `risk ${r.toFixed(1)}: primary secondary'den koyu — merdiven bozuk`).toBeGreaterThan(s);
     }
   });

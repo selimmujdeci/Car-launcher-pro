@@ -272,7 +272,22 @@ describe('bağlama — ok DOĞRU kavşağa çizilmeli', () => {
   });
 
   it('hüküm değişmediyse setData çağrılmaz (1 Hz fix altında dedup)', () => {
-    expect(SET_ARROW).toMatch(/if \(key === _lastArrowKey/);
+    /* KİLİT GÜNCELLENDİ (2026-09-05 saha kusuru), ZAYIFLATILMADI.
+     * Eski hâli modül düzeyindeki `_lastArrowKey` değişkeninin ADINI arıyordu.
+     * O anahtar harita ÖRNEĞİNDEN bağımsızdı ve ürün canlı İKİ MapLibre
+     * örneği taşıdığı için (mini + tam ekran) ikinci haritaya boya HİÇ
+     * yazılmıyordu — aynı kusur rota renginde sahada görüldü (kütük #1286).
+     * Dedup KALDIRILMADI; harita örneğine BAĞLANDI. Kilit artık ismi değil
+     * DAVRANIŞI ölçüyor: dedup var VE örnek-başına. */
+    expect(SET_ARROW, 'dedup kaldırılmış — 1 Hz fix altında her tick setData')
+      .toMatch(/_paintApplied\(map, 'arrow', key\)/);
+    expect(SET_ARROW, 'uygulandı işareti yazılmıyor — dedup hiç tutmaz')
+      .toMatch(/_notePaint\(map, 'arrow', key\)/);
+    /* Kaynak denetimi KORUNDU: yaratma stil yüzünden atlandıysa bayat anahtar
+       kilitlemesin, sonraki tick yeniden denesin. */
+    expect(SET_ARROW).toContain('map.getSource(PAINTED_ARROW_SRC)');
+    /* Örnek-kör eski anahtar geri gelemez. */
+    expect(SET_ARROW).not.toMatch(/key === _lastArrowKey/);
   });
 
   it('gözlem durumu ağır modülde DEĞİL, yaprak erişim katmanında tutulur', () => {

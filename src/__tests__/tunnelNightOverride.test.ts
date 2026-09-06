@@ -223,7 +223,7 @@ describe('PR-3b uyumu — zemin kutbu ve rota rengi', () => {
       // (mavi → indigo → camgöbeği). Orta durak `#969CFF` ile geldi ama #619'un
       // gece-yolu eşiğini (≥1,9) 1,872 ile kaçırıyordu; ÖLÇÜLEREK `#9CA2FF`ye
       // açıldı (yol 1,989) — palet geri alınmadı, yalnız eşiğe getirildi.
-      '#72B6FF', '#9CA2FF', '#24D6C4',
+      '#52A0F0', '#8E8CF2', '#25BFAE',
     ]);
     for (const h of hexes) {
       expect(allowed.has(h), `rota paletine yeni renk girmiş: ${h}`).toBe(true);

@@ -47,7 +47,7 @@
  */
 
 /** Politika sürümü — herhangi bir karar değişince yükselir, LAB'da görünür. */
-export const ROUTE_COLOR_POLICY_VERSION = 'RC-2026.08.24-OEM' as const;
+export const ROUTE_COLOR_POLICY_VERSION = 'RC-2026.09.05-WHITE-NIGHT' as const;
 
 /* ── Palet: BUGÜNKÜ değerler, birebir taşındı ─────────────────────────────── */
 
@@ -211,7 +211,20 @@ export interface RouteColorInput {
  *     `#72B6FF` zemin 6,60 · yol 2,17 · kılıf 2,13
  *     `#24D6C4` zemin 7,69 · yol 2,53 · kılıf 1,83
  */
-export const ROUTE_CORE_STOPS_DARK_BASEMAP  = ['#72B6FF', '#9CA2FF', '#24D6C4'] as const;
+/* ── KOYU ZEMİN ÇEKİRDEĞİ DERİNLEŞTİRİLDİ (2026-09-05 · gece yolları beyaz) ──
+ * Eski duraklar (`#72B6FF · #9CA2FF · #24D6C4`, parlaklık 0,40–0,52) KOYU GRİ
+ * yolların üstünde tasarlanmıştı. Kullanıcı gece yollarının **beyaz** olmasını
+ * istedi (`NIGHT_PALETTE` üstündeki karar kaydı); beyazın üstünde o duraklar
+ * 1,83'e kadar düşüyor ve `routeNightContrast`ın ≥1,9 kuralını KIRIYORDU —
+ * yani rota beyaz yolda kaybolurdu.
+ *
+ * Yeni duraklar aynı kimliği (mavi → indigo → turkuaz) korur, yalnız
+ * DERİNLEŞİR. İki sınır arasında sıkışırlar ve ikisi de ölçülüp kilitlendi:
+ *   · zemine karşı ≥4,5  → çok koyu olamazlar (koyu zeminde kaybolmasınlar)
+ *   · beyaz yola karşı ≥1,9 → çok açık olamazlar (beyaz yolda kaybolmasınlar)
+ * Ölçülen: zemine 5,12 / 4,81 / 6,12 · beyaz yola 2,75 / 2,92 / 2,30 ·
+ * tali (beyaz) yola 2,34 / 2,49 / **1,95**. */
+export const ROUTE_CORE_STOPS_DARK_BASEMAP  = ['#52A0F0', '#8E8CF2', '#25BFAE'] as const;
 /** Açık zemin (gündüz road modu) — doygun OEM mavi → derin mavi → camgöbeği. */
 export const ROUTE_CORE_STOPS_LIGHT_BASEMAP = ['#006CFF', '#0057D9', '#00A6FF'] as const;
 

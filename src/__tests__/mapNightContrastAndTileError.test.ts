@@ -88,15 +88,34 @@ describe('#609 (2) — gece paleti ÖLÇÜLMÜŞ kontrast sözleşmesi', () => {
     }
   });
 
-  it('yol hiyerarşisi TONLA okunur — her kademe bir altından ayrılır', () => {
+  it('yol hiyerarşisi TON YÖNÜNÜ korur; ADIM büyüklüğü kasa/genişlikte', () => {
+    /* ⚠️ KİLİT YENİDEN HEDEFLENDİ (2026-09-05 · kullanıcı: "yolları tam beyaz
+     * yap"). Eskiden her kademenin bir altından ≥1,25 TON farkı istenirdi.
+     * Gece yolları beyaz aileye alınınca ton adımları zorunlu olarak küçülür
+     * (1,04–1,08) — çünkü dört rengin dördü de beyazın yakınındadır. Bu, TAM
+     * OLARAK gündüz paletinde kullanıcının onayladığı sözleşmedir: hiyerarşiyi
+     * GENİŞLİK + KASA taşır.
+     *
+     * Kilit KALDIRILMADI, ikiye bölündü:
+     *   (a) TON YÖNÜ hâlâ zorunlu — otoyol en açık, tali en koyu;
+     *   (b) ADIM büyüklüğü artık genişlik merdiveninde ölçülür
+     *       (`cartographyAuthority.test.ts` §4: her zoomda ayrık ve
+     *        otoyol/tali ≥ 2,5×) ve kasa/gövde ayrımında.
+     * Böylece "hiyerarşi var mı?" sorusu ölçülmeye DEVAM eder, yalnız doğru
+     * yerden. */
     const sira = ['minor', 'secondary', 'primary', 'motorway'] as const;
     for (let i = 1; i < sira.length; i++) {
       const alt = NIGHT_PALETTE[sira[i - 1]] as string;
       const ust = NIGHT_PALETTE[sira[i]] as string;
       expect(luminance(ust), `${sira[i]} ${sira[i - 1]}'den açık olmalı`)
         .toBeGreaterThan(luminance(alt));
-      expect(contrast(alt, ust), `${sira[i - 1]}→${sira[i]} adımı zayıf`)
-        .toBeGreaterThanOrEqual(1.25);
+    }
+    /* Kasa hâlâ gövdeyi zeminden ayırmalı — beyaz yolun kenarı kaybolamaz. */
+    for (const [govde, kasa] of [
+      [NIGHT_PALETTE.minor, NIGHT_PALETTE.minorCasing],
+      [NIGHT_PALETTE.motorway, NIGHT_PALETTE.motorwayCasing],
+    ] as const) {
+      expect(contrast(govde, kasa), 'kasa gövdeden ayrışmıyor').toBeGreaterThanOrEqual(3.0);
     }
   });
 

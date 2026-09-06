@@ -53,7 +53,7 @@ export const MAP_SURFACE_LABEL: Readonly<Record<MapSurface, string>> = {
 };
 
 /** Sözleşme sürümü — herhangi bir satır değişince yükselir, LAB'da görünür. */
-export const DECLUTTER_POLICY_VERSION = 'DCL-2026.08.23' as const;
+export const DECLUTTER_POLICY_VERSION = 'DCL-2026.09.05-CARTO' as const;
 
 export interface DeclutterInput {
   readonly surface: MapSurface;
@@ -89,21 +89,51 @@ interface NoiseLayer {
  * bina kütlesi zaten düşük kontrastlıdır, bu yüzden gündüz daha az
  * bastırılabilir. POI ve şehir etiketi ise açık zeminde en çok göze çarpan
  * öğelerdir — asıl gürültü onlardır.
+ *
+ * ── 2026-09-05 · TİCARİ KARTOGRAFİ TURU ───────────────────────────────────
+ * 1. **POI özelliği DÜZELTİLDİ: `icon-opacity` → `circle-opacity`.** POI
+ *    katmanları `type: 'circle'`tır; `icon-opacity` bir daire katmanında
+ *    tanımsızdır. Yani POI geri çekilmesi bugüne kadar HİÇ UYGULANMAMIŞTI —
+ *    `MapLayerManager` çağrıyı `try/catch` içinde yaptığı için sessizce
+ *    düşüyordu. Kilitler değeri ölçüyordu, ekranda karşılığı yoktu.
+ * 2. **Yeni kartografi katmanları tabloya eklendi** (landcover ailesi,
+ *    `landuse-urban`/`landuse-green`, `railway`, `aeroway`, `boundary`,
+ *    `water-label`, `place-village`, `place-suburb`, `road-label-major`,
+ *    `road-path`, `waterway-stream`). Eklenmeselerdi mini haritada ve
+ *    rehberlikte YENİ katmanlar tam güçte kalır, sözleşme yarım olurdu.
+ * 3. **Etiket hiyerarşisi mini haritada da korunur:** ana yol adı
+ *    (`road-label-major`) mini'de 0,55 · yerel sokak adı (`road-label`,
+ *    yol tablosundan gelir) `MINI_ROAD_LABEL_FACTOR` ile 0,35'e iner —
+ *    yani mini haritada da ana arter adı yerel sokaktan ÖNDE.
  */
 const NOISE_DAY: readonly NoiseLayer[] = [
-  { id: 'building',        prop: 'fill-opacity',            full: 1.00, fullNav: 0.85, mini: 0,    miniNav: 0 },
-  { id: 'building-3d',     prop: 'fill-extrusion-opacity',  full: 1.00, fullNav: 0.70, mini: 0,    miniNav: 0 },
-  { id: 'landuse-park',    prop: 'fill-opacity',            full: 1.00, fullNav: 1.00, mini: 0.55, miniNav: 0.40 },
-  { id: 'landuse-residential', prop: 'fill-opacity',        full: 1.00, fullNav: 1.00, mini: 0.45, miniNav: 0.30 },
+  { id: 'building',            prop: 'fill-opacity',           full: 1.00, fullNav: 0.85, mini: 0,    miniNav: 0 },
+  { id: 'building-3d',         prop: 'fill-extrusion-opacity', full: 1.00, fullNav: 0.70, mini: 0,    miniNav: 0 },
+  { id: 'landuse-park',        prop: 'fill-opacity',           full: 1.00, fullNav: 1.00, mini: 0.55, miniNav: 0.40 },
+  { id: 'landcover-wood',      prop: 'fill-opacity',           full: 0.90, fullNav: 0.90, mini: 0.55, miniNav: 0.40 },
+  { id: 'landcover-grass',     prop: 'fill-opacity',           full: 0.80, fullNav: 0.80, mini: 0.45, miniNav: 0.32 },
+  { id: 'landcover-farmland',  prop: 'fill-opacity',           full: 0.75, fullNav: 0.70, mini: 0.35, miniNav: 0.25 },
+  { id: 'landuse-residential', prop: 'fill-opacity',           full: 1.00, fullNav: 1.00, mini: 0.60, miniNav: 0.45 },
+  { id: 'landuse-urban',       prop: 'fill-opacity',           full: 1.00, fullNav: 0.90, mini: 0.55, miniNav: 0.40 },
+  { id: 'landuse-green',       prop: 'fill-opacity',           full: 0.70, fullNav: 0.70, mini: 0.35, miniNav: 0.25 },
   /* POI: benzin/hastane sürüşte BAĞLAMDIR → tam ekranda susturulmaz, yalnız
      geri çekilir. Otopark/polis seyir kararına girmez → daha çok geri çekilir. */
-  { id: 'poi-gas',         prop: 'icon-opacity',            full: 1.00, fullNav: 0.80, mini: 0,    miniNav: 0 },
-  { id: 'poi-hospital',    prop: 'icon-opacity',            full: 1.00, fullNav: 0.80, mini: 0,    miniNav: 0 },
-  { id: 'poi-parking',     prop: 'icon-opacity',            full: 0.85, fullNav: 0.55, mini: 0,    miniNav: 0 },
-  { id: 'poi-police',      prop: 'icon-opacity',            full: 0.85, fullNav: 0.55, mini: 0,    miniNav: 0 },
-  { id: 'place-city',      prop: 'text-opacity',            full: 1.00, fullNav: 0.75, mini: 0,    miniNav: 0 },
-  { id: 'road-shield',     prop: 'icon-opacity',            full: 1.00, fullNav: 1.00, mini: 0,    miniNav: 0 },
-  { id: 'waterway',        prop: 'line-opacity',            full: 1.00, fullNav: 1.00, mini: 0.50, miniNav: 0.40 },
+  { id: 'poi-gas',             prop: 'circle-opacity',         full: 0.90, fullNav: 0.75, mini: 0,    miniNav: 0 },
+  { id: 'poi-hospital',        prop: 'circle-opacity',         full: 0.90, fullNav: 0.75, mini: 0,    miniNav: 0 },
+  { id: 'poi-parking',         prop: 'circle-opacity',         full: 0.75, fullNav: 0.50, mini: 0,    miniNav: 0 },
+  { id: 'poi-police',          prop: 'circle-opacity',         full: 0.75, fullNav: 0.50, mini: 0,    miniNav: 0 },
+  { id: 'place-city',          prop: 'text-opacity',           full: 1.00, fullNav: 0.75, mini: 0,    miniNav: 0 },
+  { id: 'place-village',       prop: 'text-opacity',           full: 1.00, fullNav: 0.70, mini: 0,    miniNav: 0 },
+  { id: 'place-suburb',        prop: 'text-opacity',           full: 0.80, fullNav: 0.55, mini: 0,    miniNav: 0 },
+  { id: 'water-label',         prop: 'text-opacity',           full: 1.00, fullNav: 0.70, mini: 0,    miniNav: 0 },
+  { id: 'road-label-major',    prop: 'text-opacity',           full: 1.00, fullNav: 1.00, mini: 0.55, miniNav: 0.45 },
+  { id: 'road-shield',         prop: 'icon-opacity',           full: 1.00, fullNav: 1.00, mini: 0,    miniNav: 0 },
+  { id: 'road-path',           prop: 'line-opacity',           full: 0.70, fullNav: 0.45, mini: 0,    miniNav: 0 },
+  { id: 'railway',             prop: 'line-opacity',           full: 0.80, fullNav: 0.65, mini: 0.35, miniNav: 0.25 },
+  { id: 'aeroway',             prop: 'line-opacity',           full: 1.00, fullNav: 0.80, mini: 0,    miniNav: 0 },
+  { id: 'boundary',            prop: 'line-opacity',           full: 0.55, fullNav: 0.35, mini: 0,    miniNav: 0 },
+  { id: 'waterway',            prop: 'line-opacity',           full: 1.00, fullNav: 1.00, mini: 0.50, miniNav: 0.40 },
+  { id: 'waterway-stream',     prop: 'line-opacity',           full: 0.75, fullNav: 0.60, mini: 0,    miniNav: 0 },
 ];
 
 /**
@@ -116,17 +146,31 @@ const NOISE_DAY: readonly NoiseLayer[] = [
  * Su yolu gece zaten düşük kontrastlıdır, ek bastırma gerekmez.
  */
 const NOISE_NIGHT: readonly NoiseLayer[] = [
-  { id: 'building',        prop: 'fill-opacity',            full: 0.90, fullNav: 0.62, mini: 0,    miniNav: 0 },
-  { id: 'building-3d',     prop: 'fill-extrusion-opacity',  full: 0.85, fullNav: 0.50, mini: 0,    miniNav: 0 },
-  { id: 'landuse-park',    prop: 'fill-opacity',            full: 1.00, fullNav: 0.90, mini: 0.50, miniNav: 0.35 },
-  { id: 'landuse-residential', prop: 'fill-opacity',        full: 1.00, fullNav: 0.90, mini: 0.40, miniNav: 0.28 },
-  { id: 'poi-gas',         prop: 'icon-opacity',            full: 0.90, fullNav: 0.70, mini: 0,    miniNav: 0 },
-  { id: 'poi-hospital',    prop: 'icon-opacity',            full: 0.90, fullNav: 0.70, mini: 0,    miniNav: 0 },
-  { id: 'poi-parking',     prop: 'icon-opacity',            full: 0.70, fullNav: 0.45, mini: 0,    miniNav: 0 },
-  { id: 'poi-police',      prop: 'icon-opacity',            full: 0.70, fullNav: 0.45, mini: 0,    miniNav: 0 },
-  { id: 'place-city',      prop: 'text-opacity',            full: 1.00, fullNav: 0.70, mini: 0,    miniNav: 0 },
-  { id: 'road-shield',     prop: 'icon-opacity',            full: 1.00, fullNav: 1.00, mini: 0,    miniNav: 0 },
-  { id: 'waterway',        prop: 'line-opacity',            full: 1.00, fullNav: 1.00, mini: 0.45, miniNav: 0.35 },
+  { id: 'building',            prop: 'fill-opacity',           full: 0.78, fullNav: 0.50, mini: 0,    miniNav: 0 },
+  { id: 'building-3d',         prop: 'fill-extrusion-opacity', full: 0.72, fullNav: 0.40, mini: 0,    miniNav: 0 },
+  { id: 'landuse-park',        prop: 'fill-opacity',           full: 0.85, fullNav: 0.75, mini: 0.50, miniNav: 0.35 },
+  { id: 'landcover-wood',      prop: 'fill-opacity',           full: 0.85, fullNav: 0.75, mini: 0.45, miniNav: 0.32 },
+  { id: 'landcover-grass',     prop: 'fill-opacity',           full: 0.70, fullNav: 0.60, mini: 0.38, miniNav: 0.26 },
+  { id: 'landcover-farmland',  prop: 'fill-opacity',           full: 0.65, fullNav: 0.55, mini: 0.30, miniNav: 0.20 },
+  { id: 'landuse-residential', prop: 'fill-opacity',           full: 1.00, fullNav: 0.90, mini: 0.55, miniNav: 0.40 },
+  { id: 'landuse-urban',       prop: 'fill-opacity',           full: 0.95, fullNav: 0.80, mini: 0.50, miniNav: 0.36 },
+  { id: 'landuse-green',       prop: 'fill-opacity',           full: 0.45, fullNav: 0.40, mini: 0.25, miniNav: 0.18 },
+  { id: 'poi-gas',             prop: 'circle-opacity',         full: 0.85, fullNav: 0.65, mini: 0,    miniNav: 0 },
+  { id: 'poi-hospital',        prop: 'circle-opacity',         full: 0.85, fullNav: 0.65, mini: 0,    miniNav: 0 },
+  { id: 'poi-parking',         prop: 'circle-opacity',         full: 0.60, fullNav: 0.40, mini: 0,    miniNav: 0 },
+  { id: 'poi-police',          prop: 'circle-opacity',         full: 0.60, fullNav: 0.40, mini: 0,    miniNav: 0 },
+  { id: 'place-city',          prop: 'text-opacity',           full: 1.00, fullNav: 0.70, mini: 0,    miniNav: 0 },
+  { id: 'place-village',       prop: 'text-opacity',           full: 0.95, fullNav: 0.65, mini: 0,    miniNav: 0 },
+  { id: 'place-suburb',        prop: 'text-opacity',           full: 0.75, fullNav: 0.50, mini: 0,    miniNav: 0 },
+  { id: 'water-label',         prop: 'text-opacity',           full: 0.90, fullNav: 0.60, mini: 0,    miniNav: 0 },
+  { id: 'road-label-major',    prop: 'text-opacity',           full: 1.00, fullNav: 1.00, mini: 0.55, miniNav: 0.45 },
+  { id: 'road-shield',         prop: 'icon-opacity',           full: 1.00, fullNav: 1.00, mini: 0,    miniNav: 0 },
+  { id: 'road-path',           prop: 'line-opacity',           full: 0.55, fullNav: 0.35, mini: 0,    miniNav: 0 },
+  { id: 'railway',             prop: 'line-opacity',           full: 0.75, fullNav: 0.55, mini: 0.30, miniNav: 0.20 },
+  { id: 'aeroway',             prop: 'line-opacity',           full: 0.90, fullNav: 0.70, mini: 0,    miniNav: 0 },
+  { id: 'boundary',            prop: 'line-opacity',           full: 0.50, fullNav: 0.30, mini: 0,    miniNav: 0 },
+  { id: 'waterway',            prop: 'line-opacity',           full: 1.00, fullNav: 1.00, mini: 0.45, miniNav: 0.35 },
+  { id: 'waterway-stream',     prop: 'line-opacity',           full: 0.70, fullNav: 0.55, mini: 0,    miniNav: 0 },
 ];
 
 /** Bu modülün SAHİP OLDUĞU katmanlar — yol tablosuyla kesişmediğinin kanıtı. */

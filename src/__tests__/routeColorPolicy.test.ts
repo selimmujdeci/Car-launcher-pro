@@ -560,7 +560,7 @@ describe('Kontrast yardımcısı — YALNIZ ÖLÇER (PR-3b kabul ölçütü)', (
     /* Orta gece durağı `#969CFF` → `#9CA2FF`: OEM turu #619'un gece
        yolu eşiğini (≥1,9) 1,872 ile kaçırıyordu; ton korunarak ÖLÇÜLEREK
        açıldı (yol 1,989). Palet geri alınmadı, kimlik aynı. */
-    expect(ROUTE_CORE_STOPS_DARK_BASEMAP).toEqual(['#72B6FF', '#9CA2FF', '#24D6C4']);
+    expect(ROUTE_CORE_STOPS_DARK_BASEMAP).toEqual(['#52A0F0', '#8E8CF2', '#25BFAE']);
     expect(new Set(ROUTE_CORE_STOPS_LIGHT_BASEMAP).size).toBe(3);
     expect(new Set(ROUTE_CORE_STOPS_DARK_BASEMAP).size).toBe(3);
   });

@@ -44,6 +44,8 @@ import {
 } from './core/routeEmphasisModel';
 import { getMapNight, getMapMode } from '../mapSourceManager';
 import {
+  buildVectorLayers,
+  vectorStyleName,
   NAV_SUPPRESS_LAYERS,
   NAV_SUPPRESS_TIERS,
   RASTER_PAINT_DAY,
@@ -102,139 +104,96 @@ const _markerProps      = { heading: 0 };
 const _markerFeature    = { type: 'Feature' as const, geometry: _markerGeometry, properties: _markerProps };
 const _markerCollection = { type: 'FeatureCollection' as const, features: [_markerFeature] };
 
-// ── CarOS Rover konum göstergesi (marka imzası) ──────────────────────────
-
-/** Köşeleri yuvarlatılmış dikdörtgen yolu — ctx.roundRect tüm WebView'larda yok, kendi çiziyoruz. */
-function _roundRectPath(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
-  const rr = Math.min(r, w / 2, h / 2);
-  ctx.beginPath();
-  ctx.moveTo(x + rr, y);
-  ctx.arcTo(x + w, y,     x + w, y + h, rr);
-  ctx.arcTo(x + w, y + h, x,     y + h, rr);
-  ctx.arcTo(x,     y + h, x,     y,     rr);
-  ctx.arcTo(x,     y,     x + w, y,     rr);
-  ctx.closePath();
-}
+// ── CarOS ego (konum) göstergesi ─────────────────────────────────────────
+/* NOT: eski `_roundRectPath` yardımcısı YALNIZ eski SUV çiziminin panel/cam
+   dikdörtgenleri için vardı; yeni disk+ok işaretçisi yalnız daire ve çokgen
+   kullanır, bu yüzden ölü kod olarak KALDIRILDI (tsc TS6133 ile de zaten
+   derlemeyi düşürüyordu). */
 
 /**
- * Üstten görünüş CarOS Rover'ı verilen context'e çizer (ön = yukarı = heading 0°).
+ * Ego işaretçisini verilen context'e çizer (ön = yukarı = heading 0°).
+ *
+ * ── NEDEN YENİDEN ÇİZİLDİ (2026-09-05, ticari kartografi turu) ─────────────
+ * Önceki işaretçi üstten görünüşlü, şampanya-metalik gradyanlı, tekerlekli,
+ * camlı, tavan panelli, amber ışık barlı ve farlı bir SUV çizimiydi. Ürün
+ * ölçütü (§14) şunu söylüyor: *clip-art değil · oyuncak değil · dekoratif 3B
+ * oyuncak araba değil · yönü anında anlaşılır · düşük görsel karmaşa ·
+ * otomotiv HMI seviyesinde.* O çizim bu ölçütün karşısındaydı: haritada
+ * `icon-size` 0,30–0,51 ile ~40–70 px'e küçülüyor, gradyan/teker/cam
+ * ayrıntıları bilinear örneklemede eriyip bulanık bir leke bırakıyordu ve
+ * ekranda hangi yöne baktığı ancak dikkatle bakınca okunuyordu. Ayrıca terk
+ * edilen dekoratif krem/altın dilini taşıyordu (`#e4d6b8` şampanya gövde).
+ *
+ * YENİ ÇİZİM: OEM navigasyon standardı — **disk + yön oku (chevron)**.
+ *   · Yön TEK bir keskin üçgenle taşınır → 40 px'te bile tartışmasız okunur.
+ *   · Disk zeminden ayırıcıdır; rota MAVİ olduğu için ok AMBER/nötr kalır ve
+ *     rotayla renk yarışına girmez (CarOS aksan rengi zaten amber:
+ *     `user-ring` / `user-glow` bu tonu kullanır — kimlik korunur).
+ *   · Gradyan/doku YOK: küçültmede erimeyen düz alanlar ve tek bir halka.
+ *
+ * ⚠️ SINIR: bu değişiklik YALNIZ RENDER'dır. `navMarkerMotionRuntime`,
+ * `cameraFollowAuthority`, `icon-rotate`/`icon-size` sözleşmeleri ve katman
+ * kimlikleri (`user-vehicle` · `user-ring` · `user-glow`) DEĞİŞMEDİ.
  */
 function _drawRover(ctx: CanvasRenderingContext2D, size: number, night: boolean) {
   const cx = size / 2;
+  const cy = size / 2;
   const s  = size / 144;              // ölçek faktörü
   const P  = (n: number) => n * s;    // birim → piksel
-  const X  = (n: number) => cx + n * s; // merkeze göre yatay
-  const Y  = (n: number) => n * s;       // tepeden dikey (144-uzayı)
   ctx.clearRect(0, 0, size, size);
   ctx.lineJoin = 'round';
+  ctx.lineCap = 'round';
 
-  const amber     = night ? '#FFB347' : '#E0A23C';
-  const amberGlow = night ? 'rgba(255,170,60,0.95)' : 'rgba(224,162,60,0.55)';
-  const glass     = night ? 'rgba(30,36,46,0.95)' : 'rgba(22,28,38,0.92)';
-  const tireCol   = '#141417';
+  const discFill   = night ? '#141a23' : '#ffffff';
+  const discRing   = night ? '#FFB347' : '#2f363e';
+  const arrow      = night ? '#f2f5f8' : '#1b2026';
+  const arrowEdge  = night ? '#141a23' : '#ffffff';
 
-  // 1) Zemin gölgesi — radyal gradyan (filter'sız, tüm WebView'larda çalışır), aracı kaldırır
-  const sh = ctx.createRadialGradient(cx, Y(78), 0, cx, Y(78), P(58));
-  sh.addColorStop(0,   night ? 'rgba(0,0,0,0.50)' : 'rgba(30,22,10,0.36)');
-  sh.addColorStop(0.7, night ? 'rgba(0,0,0,0.22)' : 'rgba(30,22,10,0.15)');
+  /* 1) Zemin gölgesi — aracı zeminden kaldırır. Radyal gradyan `filter`
+     kullanmaz; her WebView'da aynı çıkar. */
+  const sh = ctx.createRadialGradient(cx, cy + P(3), P(10), cx, cy + P(3), P(52));
+  sh.addColorStop(0,   night ? 'rgba(0,0,0,0.55)' : 'rgba(20,26,34,0.34)');
+  sh.addColorStop(0.65, night ? 'rgba(0,0,0,0.22)' : 'rgba(20,26,34,0.13)');
   sh.addColorStop(1,   'rgba(0,0,0,0)');
   ctx.fillStyle = sh;
   ctx.beginPath();
-  ctx.ellipse(cx, Y(78), P(44), P(60), 0, 0, Math.PI * 2);
+  ctx.arc(cx, cy + P(3), P(52), 0, Math.PI * 2);
   ctx.fill();
 
-  // 2) Tekerler — koyu lastik + tread çizgileri (off-road geniş duruş)
-  const wheel = (wx: number, wy: number) => {
-    ctx.fillStyle = tireCol;
-    _roundRectPath(ctx, wx - P(7.5), wy - P(16), P(15), P(32), P(5));
-    ctx.fill();
-    ctx.strokeStyle = 'rgba(255,255,255,0.07)';
-    ctx.lineWidth = P(1);
-    for (let i = -1; i <= 1; i++) {
-      ctx.beginPath();
-      ctx.moveTo(wx + i * P(4), wy - P(13));
-      ctx.lineTo(wx + i * P(4), wy + P(13));
-      ctx.stroke();
-    }
-  };
-  wheel(X(-31), Y(42)); wheel(X(31), Y(42));    // ön
-  wheel(X(-31), Y(102)); wheel(X(31), Y(102));  // arka
-
-  // 3) Gövde — şampanya metalik (genişlik gradyanı: koyu kenar → parlak merkez)
-  _roundRectPath(ctx, X(-30), Y(14), P(60), P(116), P(13));
-  const wg = ctx.createLinearGradient(X(-30), 0, X(30), 0);
-  if (night) {
-    wg.addColorStop(0, '#2b2820'); wg.addColorStop(0.5, '#6a6353'); wg.addColorStop(1, '#2b2820');
-  } else {
-    wg.addColorStop(0, '#998969'); wg.addColorStop(0.5, '#e4d6b8'); wg.addColorStop(1, '#998969');
-  }
-  ctx.fillStyle = wg;
+  // 2) Disk gövdesi
+  ctx.beginPath();
+  ctx.arc(cx, cy, P(34), 0, Math.PI * 2);
+  ctx.fillStyle = discFill;
   ctx.fill();
 
-  // 3b) Boy gradyanı (ön aydınlık → arka koyu) — gövde yoluna clip'lenir
-  ctx.save();
-  ctx.clip();
-  const lg = ctx.createLinearGradient(0, Y(14), 0, Y(130));
-  lg.addColorStop(0,   night ? 'rgba(255,200,120,0.12)' : 'rgba(255,255,255,0.18)');
-  lg.addColorStop(0.4, 'rgba(0,0,0,0)');
-  lg.addColorStop(1,   night ? 'rgba(0,0,0,0.38)' : 'rgba(60,45,25,0.22)');
-  ctx.fillStyle = lg;
-  ctx.fillRect(0, 0, size, size);
-  ctx.restore();
-
-  /* 3c) Kenar ışığı (rim light) — 1.6 → 2.0px. KÜÇÜK-ÖLÇEK OKUNABİLİRLİK TURU
-   * (2026-08-24, kullanıcı: "kesinlikle premium değil", gerçek cihaz ekran
-   * görüntüsü): marker GPU'ya 144px çizilir ama haritada icon-size 0.30-0.51
-   * ile ~40-70px'e küçültülür. 1.6px bir kenar çizgisi bu küçültmede
-   * bilinear/mipmap örneklemesiyle neredeyse tamamen erir; 2.0px kenarda
-   * hayatta kalma payı bırakır. */
-  _roundRectPath(ctx, X(-30), Y(14), P(60), P(116), P(13));
-  ctx.lineWidth = P(2.0);
-  ctx.strokeStyle = night ? 'rgba(255,185,90,0.6)' : 'rgba(255,255,255,0.5)';
+  /* 3) Halka — 3,5 px (144-uzayında) seçildi: 40 px'e küçülmede (÷3,6)
+     ~1 px'e iner, yani hâlâ hayatta kalır. 2 px'lik bir halka bu ölçekte
+     tamamen erirdi (önceki turun 1,6 → 2,0 px kenar ışığı dersi). */
+  ctx.beginPath();
+  ctx.arc(cx, cy, P(34), 0, Math.PI * 2);
+  ctx.lineWidth = P(3.5);
+  ctx.strokeStyle = discRing;
   ctx.stroke();
 
-  /* ── KÜÇÜK-ÖLÇEK SADELEŞTİRME (2026-08-24) ─────────────────────────────
-   * Kullanıcı kararı: siluet + amber ışık barı + camlar KALIR (marka
-   * kimliğinin çekirdeği); yalnız BÜYÜK boyutta anlamlı olan ince detaylar
-   * kaldırılır. Kaldırılanlar — panel/kapı dikişleri (1px çizgi), kaput
-   * havalandırma yarıkları (3px dolgu), tavan rafı (yan ray + çapraz bar),
-   * yan aynalar (6x5 birim dolgu): hepsi 144px tuval üstünde ~40-70px'e
-   * küçülünce (icon-size 0.30-0.51) tek başına anlamsız, üst üste binince
-   * "bulanık/ucuz" okunan gürültüye dönüşüyordu — gövde/cam/ışık barının
-   * netliğini onlar yiyordu. Silinen katmanların çekirdek siluete hiçbir
-   * katkısı yoktu (yalnız yakın-çekim detayıydı); kaldırılmaları görsel
-   * bilgi KAYBI değil, KONTRAST KAZANCI (kalan öğeler artık rakipsiz). */
-
-  // 4) Greenhouse — ön cam, tavan paneli, arka cam (marka kimliği: camlar)
-  ctx.fillStyle = glass;
-  _roundRectPath(ctx, X(-23), Y(48), P(46), P(12), P(4)); ctx.fill(); // ön cam
-  ctx.fillStyle = night ? '#5a5343' : '#d8c9a8';
-  _roundRectPath(ctx, X(-22), Y(60), P(44), P(40), P(6)); ctx.fill(); // tavan
-  ctx.fillStyle = glass;
-  _roundRectPath(ctx, X(-23), Y(100), P(46), P(10), P(4)); ctx.fill(); // arka cam
-
-  /* 5) Ön tampon + CAROS amber ışık barı + farlar (Expedition imzası — marka
-   * kimliği: amber ışık barı). Küçük ölçekte GÜÇLENDİRİLDİ: bar 3→4px, glow
-   * blur night 11→14px / gündüz 5→7px, farlar 9x4→10x5px — ince detaylar
-   * kaldırılınca boşalan kontrast bütçesi bilinçli olarak buraya aktarıldı. */
-  ctx.fillStyle = night ? 'rgba(20,17,12,0.9)' : 'rgba(70,56,36,0.7)';
-  _roundRectPath(ctx, X(-27), Y(16), P(54), P(6), P(3)); ctx.fill();
-  ctx.save();
-  ctx.shadowColor = amberGlow; ctx.shadowBlur = night ? P(14) : P(7);
-  ctx.fillStyle = amber;
-  _roundRectPath(ctx, X(-20), Y(17.5), P(40), P(4), P(2)); ctx.fill();      // ışık barı
-  ctx.fillStyle = night ? '#FFD27A' : '#F0B85A';
-  _roundRectPath(ctx, X(-26.5), Y(23), P(10), P(5), P(2.5)); ctx.fill();    // sol far
-  _roundRectPath(ctx, X(16.5),  Y(23), P(10), P(5), P(2.5)); ctx.fill();    // sağ far
-  ctx.restore();
-
-  // 6) Arka stop lambaları — küçük ölçekte 8x4→9x5px, glow 6→8px
-  ctx.save();
-  if (night) { ctx.shadowColor = 'rgba(255,40,30,0.8)'; ctx.shadowBlur = P(8); }
-  ctx.fillStyle = night ? 'rgba(255,70,55,0.95)' : 'rgba(190,55,42,0.85)';
-  _roundRectPath(ctx, X(-25.5), Y(121.5), P(9), P(5), P(2.5)); ctx.fill();
-  _roundRectPath(ctx, X(16.5),  Y(121.5), P(9), P(5), P(2.5)); ctx.fill();
-  ctx.restore();
+  /* 4) Yön oku — ileri (yukarı) bakan keskin chevron. Kuyruğu içe girintili
+     olduğu için "yukarı" okunması dönme sırasında da kaybolmaz; simetrik bir
+     üçgen 180° dönmüş hâliyle karışabilirdi. */
+  const arrowPath = () => {
+    ctx.beginPath();
+    ctx.moveTo(cx,          cy - P(22));   // burun
+    ctx.lineTo(cx + P(16),  cy + P(19));   // sağ omuz
+    ctx.lineTo(cx,          cy + P(8));    // kuyruk girintisi
+    ctx.lineTo(cx - P(16),  cy + P(19));   // sol omuz
+    ctx.closePath();
+  };
+  // Okun etrafında ince kontur → disk rengiyle aynı; koyu/açık her zeminde ayırır.
+  arrowPath();
+  ctx.lineWidth = P(4);
+  ctx.strokeStyle = arrowEdge;
+  ctx.stroke();
+  arrowPath();
+  ctx.fillStyle = arrow;
+  ctx.fill();
 }
 
 /**
@@ -496,6 +455,7 @@ export function setUserMarkerEstimated(estimated: boolean): void {
  */
 export function applyMapDayNight(night: boolean, mapArg?: ReturnType<typeof useMapStore.getState>['mapInstance']): void {
   setMapNight(night);
+  night = getMapNight(); // Tünel örtüsü dahil etkin kanonik değer.
   setMarkerTheme(night);
   const map = mapArg ?? useMapStore.getState().mapInstance;
   if (!map) return;
@@ -521,9 +481,36 @@ export function applyMapDayNight(night: boolean, mapArg?: ReturnType<typeof useM
         map.setPaintProperty('background', 'background-color', night ? MAP_BG_NIGHT : MAP_BG_DAY);
       }
     }
-    // NOT: Vektör (offline .pbf) veya uydu/hibrit → burada setStyle ÇAĞIRMA.
-    // Vektör stil gündüze canlı çevrilemez — FullMapView gün/gece effect'i IDLE'da
-    // tam restyle (getMapStyle → gündüz raster fallback) tetikler.
+    if (map.getSource('omv')) {
+      // Yalnız semantik tema farkları: kaynak/rota/kamera yeniden kurulmaz.
+      const target = buildVectorLayers(night);
+      const other = buildVectorLayers(!night);
+      for (let i = 0; i < target.length; i++) {
+        const layer = target[i];
+        if (!map.getLayer(layer.id)) continue;
+        const previous = other[i];
+        for (const section of ['paint', 'layout'] as const) {
+          const values = layer[section] as Record<string, unknown> | undefined;
+          const opposite = previous[section] as Record<string, unknown> | undefined;
+          for (const [prop, value] of Object.entries(values ?? {})) {
+            if (JSON.stringify(value) === JSON.stringify(opposite?.[prop])) continue;
+            if (section === 'paint') map.setPaintProperty(layer.id, prop, value);
+            else map.setLayoutProperty(layer.id, prop, value);
+          }
+        }
+      }
+      /* Stil ADI da bu yolun sorumluluğudur: canlı palet `setStyle` ÇAĞIRMAZ,
+         dolayısıyla ad yeniden kurulmaz. Cihazda ölçüldü (2026-09-06): boya
+         GÜNDÜZ iken `getStyle().name` “Vector (Automotive Night)” kalıyordu —
+         teşhis sözleşmesi (#482) yalan söylüyordu. Ad SALT TEŞHİS ama saha
+         kök-neden aramasının ilk okuduğu alan; bayat bırakılmaz. */
+      try {
+        const sheet = (map as unknown as { style?: { stylesheet?: { name?: string } } }).style?.stylesheet;
+        if (sheet) sheet.name = vectorStyleName(night);
+      } catch { /* fail-soft — ad render'ı ETKİLEMEZ */ }
+      _moodApplied.delete(map);
+      updateMapMood(map, useHazardStore.getState().globalRiskScore);
+    }
   } catch { /* stil yeniden yükleniyor — sonraki getMapStyle doğru paleti kurar */ }
 }
 
@@ -634,7 +621,59 @@ export function _resetRouteWidthsForTest(): void { _routeWidths = null; }
    `core/routeColorModel` başlığında). İkinci bir yazıcı doğarsa kusur da
    geri döner; kilit testi bunu yapısal olarak denetler. */
 
-/** Son uygulanan karar — `null` = rota rengi henüz hiç yazılmadı. */
+/* ═══════════════════════════════════════════════════════════════════════════
+   ÖRNEK-BAŞINA BOYA DEDUP — SAHA KUSURU 2026-09-05
+   ═══════════════════════════════════════════════════════════════════════════
+   ÖLÇÜLEN KUSUR (kullanıcı, gerçek head unit, iki ekran görüntüsü yan yana):
+   *"mini haritada rota mavi, tam ekranda değil; tam ekranda bazen mavi oluyor
+   ama genelde bu renk"* — mini haritada rota doygun `#006CFF`, tam ekranda
+   soluk açık mavi.
+
+   KÖK NEDEN: bu modülde CANLI İKİ MapLibre örneği vardır (MiniMapWidget ve
+   FullMapView ayrı `Map` nesneleri — `MiniMapWidget.tsx`'te "active = FullMap
+   instance, mapRef = MiniMap instance" olarak zaten kayıtlı). Boya yazan
+   fonksiyonlar `map` parametresi alıyordu ama **dedup anahtarları modül
+   düzeyinde, örnekten BAĞIMSIZ** tutuluyordu:
+
+       syncRouteColor(mini, …)  → anahtar yazılır, MİNİ boyanır
+       syncRouteColor(full, …)  → anahtar AYNI → erken `return` → TAM EKRAN
+                                  HİÇ boyanmaz, kurulum renginde kalır
+
+   Yani kusur bir renk kararı hatası değil, **"kime uygulandı" defterinin
+   yanlış yerde tutulmasıydı.** "Bazen doğru oluyor" da bununla açıklanır:
+   anahtar tam ekran açıkken değişirse (tema/manevra/tehlike) o an tam ekran
+   boyanır ve renk düzelir.
+
+   ÇÖZÜM: karar hâlâ TEK modelden gelir (ikinci otorite YOK); yalnız
+   "hangi haritaya hangi anahtar uygulandı" kaydı harita örneğine bağlanır.
+   `WeakMap` kullanılır → harita yok edilince kayıt da düşer (zero-leak).
+   Toplu geçersizleştirme (`rota silindi`, `yüzey değişti`) bir NESİL
+   sayacıyla yapılır: `WeakMap` gezilemez, ama nesil değişince tüm eski
+   anahtarlar eşleşmez olur.                                                 */
+
+let _paintGen = 0;
+const _appliedPaintKeys = new WeakMap<MapLibreMap, Record<string, string>>();
+
+/** Bu harita ÖRNEĞİNE bu slot için aynı anahtar zaten uygulandı mı. */
+function _paintApplied(map: MapLibreMap, slot: string, key: string): boolean {
+  const rec = _appliedPaintKeys.get(map);
+  return rec !== undefined && rec[slot] === `${_paintGen}|${key}`;
+}
+/** Uygulandı olarak işaretle. */
+function _notePaint(map: MapLibreMap, slot: string, key: string): void {
+  let rec = _appliedPaintKeys.get(map);
+  if (rec === undefined) { rec = {}; _appliedPaintKeys.set(map, rec); }
+  rec[slot] = `${_paintGen}|${key}`;
+}
+/** TÜM haritalarda dedup'ı geçersiz kıl (rota silindi · yüzey/stil değişti). */
+function _invalidateAllPaint(): void { _paintGen++; }
+
+/** @internal — testler arası izolasyon. */
+export function _resetPaintDedupForTest(): void { _invalidateAllPaint(); }
+
+/** Son uygulanan karar — `null` = rota rengi henüz hiç yazılmadı.
+ *  ⚠️ Bu alan artık DEDUP İÇİN KULLANILMAZ (bkz. üstteki kusur kaydı);
+ *  yalnız CAROS LAB gözlemi için son kararı tutar. */
 let _routeColor: RouteColorDecision | null = null;
 /** Ölçülen son girdiler (LAB gözlemi; karar DEĞİL, girdinin kaydı). */
 let _routeColorInput: { maneuverTier: number; hazardHigh: boolean; lightBasemap: boolean } | null = null;
@@ -748,11 +787,14 @@ export function syncRouteColor(
   const d = resolveRouteColor({ maneuverTier, hazardHigh, lightBasemap });
   _routeColorInput = { maneuverTier, hazardHigh, lightBasemap };
 
-  if (!force && _routeColor !== null && _routeColor.routeColorKey === d.routeColorKey) return d;
+  /* DEDUP ÖRNEK-BAŞINADIR: aynı karar mini haritaya uygulanmış olsa bile tam
+     ekran HENÜZ boyanmamış olabilir (saha kusuru 2026-09-05, üstteki kayıt). */
+  if (!force && _paintApplied(map, 'routeColor', d.routeColorKey)) return d;
   _routeColor = d;
   /* `getLayer` denetimi `safeSetPaint` içinde; katman yoksa sessizce geçer ve
      karar hatırlanır → katman doğduğunda kurulum yolu aynı kararı kullanır. */
   _applyRouteColorDecision(map, d);
+  _notePaint(map, 'routeColor', d.routeColorKey);
   return d;
 }
 
@@ -781,6 +823,7 @@ export function getRouteColorSnapshot(): RouteColorSnapshot {
 export function resetRouteColorState(): void {
   _routeColor = null;
   _routeColorInput = null;
+  _invalidateAllPaint();
 }
 
 /** @internal — testler arası izolasyon. */
@@ -981,8 +1024,10 @@ function _applyRouteStepLabels(
 
 const _EMPTY_FC = { type: 'FeatureCollection' as const, features: [] as unknown[] };
 
-/** Son uygulanan hüküm — aynı durum tekrar yazılmasın (GPS fix'i 1 Hz gelir). */
-let _lastArrowKey = '';
+/* Son uygulanan hüküm artık ÖRNEK-BAŞINA `_appliedPaintKeys`te tutulur
+   (2026-09-05 saha kusuru). Buradaki modül düzeyi anahtar KALDIRILDI: iki
+   canlı harita varken hangi haritaya yazıldığını bilmediği için ikinci
+   haritayı sessizce atlıyordu. */
 
 /* Gözlem durumu bu modülde TUTULMAZ — yaprak `paintedArrowAccess` modülünde
    yaşar ki CAROS LAB onu okumak için maplibre-gl grafiğini import etmesin. */
@@ -1017,8 +1062,10 @@ export function setPaintedArrow(
   const key = verdict.visible
     ? `v|${anchorIndex}|${verdict.turn}`
     : `h|${verdict.reason}`;
-  if (key === _lastArrowKey && map.getSource(PAINTED_ARROW_SRC)) return;
-  _lastArrowKey = key;
+  /* Örnek-başına dedup (renkle aynı kusur sınıfı) — kaynak denetimi KORUNDU:
+     yaratma stil yüzünden atlandıysa sonraki tick yeniden dener. */
+  if (_paintApplied(map, 'arrow', key) && map.getSource(PAINTED_ARROW_SRC)) return;
+  _notePaint(map, 'arrow', key);
 
   _recordPaintedArrowVerdict(verdict.visible, verdict.reason);
 
@@ -1098,7 +1145,7 @@ export function _resetPaintedArrowCache(): void {
   /* ARCH-06/F1: stil yeniden yüklemesi TÜM katman/kaynağı yeniden kurdurur —
      en pahalı harita olayıdır ve sayılması gerekir. */
   bumpPerf('map.styleReload');
-  _lastArrowKey = '';
+  _invalidateAllPaint();
   _recordPaintedArrowLayer(false);
 }
 
@@ -1343,10 +1390,18 @@ export function _updateFlowSpeed(speedKmh: number, deltaSpeed: number): void {
 }
 
 /* ── Map Mood Controller (Phase H3) ───────────────────────────────────────── */
+const _moodApplied = new WeakMap<MapLibreMap, {
+  layer: unknown; night: boolean; score: number; safety: string; at: number;
+}>();
+
 export function updateMapMood(map: MapLibreMap, riskScore: number): void {
   if (!map || !map.isStyleLoaded()) return;
   const nowMs = performance.now();
-  if (nowMs - M.lastMoodMs < MOOD_THROTTLE_MS) return;
+  const applied = _moodApplied.get(map);
+  const layer = map.getLayer('background');
+  const night = getMapNight();
+  const sameStyle = applied?.layer === layer && applied?.night === night;
+  if (sameStyle && nowMs - applied.at < MOOD_THROTTLE_MS) return;
 
   // PROTECTION modunda harita mood güncellemesi askıya alınır — GPU overdraw azaltılır
   const cogMode = useCognitiveStore.getState().currentMode;
@@ -1354,8 +1409,9 @@ export function updateMapMood(map: MapLibreMap, riskScore: number): void {
 
   // S4: Safety state'i hysteresis'e dahil et — durum değişince mood güncellenir
   const { safetyState } = useSafetyStore.getState();
-  if (Math.abs(riskScore - M.lastMoodScore) < MOOD_HYSTERESIS
-    && safetyState === M.lastMoodSafetyState) return;
+  if (sameStyle && Math.abs(riskScore - applied.score) < MOOD_HYSTERESIS
+    && safetyState === applied.safety) return;
+  _moodApplied.set(map, { layer, night, score: riskScore, safety: safetyState, at: nowMs });
   M.lastMoodMs          = nowMs;
   M.lastMoodScore       = riskScore;
   M.lastMoodSafetyState = safetyState;
@@ -1421,6 +1477,32 @@ export function updateMapMood(map: MapLibreMap, riskScore: number): void {
   if (map.getLayer('road-secondary')) {
     const c = _mixRgb(_hexToRgb(_pal.secondary), _bg, _t);
     try { map.setPaintProperty('road-secondary', 'line-color', `rgb(${c[0]},${c[1]},${c[2]})`); }
+    catch { /* noop */ }
+  }
+  /* ── AİLE BÜTÜN HARMANLANIR (2026-09-05 · gece yolları beyaz) ─────────────
+   * Eskiden mood YALNIZ `primary` ve `secondary`yi zemine harmanlıyordu;
+   * `tertiary` ve `minor` paletteki hâlinde kalıyordu. Yol merdiveni GENİŞ
+   * aralıklıyken bu görünmüyordu, ama gece yolları beyaz aileye alınınca
+   * (ton adımları 1,04–1,08) risk arttığında `secondary` `minor`ın ALTINA
+   * düşüyor ve **hiyerarşi tersine dönüyordu** — kilidin (mapMoodPaletteAuthority)
+   * yakaladığı gerçek kusur budur.
+   *
+   * Kural artık aileye BÜTÜN uygulanır: aynı `_t` ile hepsi birlikte geri
+   * çekilir, sıralama her risk değerinde korunur. Yeni bir eşik/politika
+   * EKLENMEDİ — var olan tek kural eksik uygulanıyordu. */
+  if (map.getLayer('road-tertiary')) {
+    const c = _mixRgb(_hexToRgb(_pal.secondary), _bg, _t);   // tertiary secondary TONUNU paylaşır
+    try { map.setPaintProperty('road-tertiary', 'line-color', `rgb(${c[0]},${c[1]},${c[2]})`); }
+    catch { /* noop */ }
+  }
+  if (map.getLayer('road-minor')) {
+    const c = _mixRgb(_hexToRgb(_pal.minor), _bg, _t);
+    try { map.setPaintProperty('road-minor', 'line-color', `rgb(${c[0]},${c[1]},${c[2]})`); }
+    catch { /* noop */ }
+  }
+  if (map.getLayer('road-motorway')) {
+    const c = _mixRgb(_hexToRgb(_pal.motorway), _bg, _t);
+    try { map.setPaintProperty('road-motorway', 'line-color', `rgb(${c[0]},${c[1]},${c[2]})`); }
     catch { /* noop */ }
   }
 }
@@ -1864,7 +1946,13 @@ export function _applyRouteGeometry(
           layout: { 'line-join': 'round', 'line-cap': 'round' },
           paint: {
             'line-width':    routeWidthExpression(_rw.flow),
-            'line-opacity':  0.85,
+            /* DEKORATİF KATMAN OTORİTE KARAR VERMEDEN GÖRÜNMEZ (saha 2026-09-06).
+               Eskiden burada sabit `0.85` vardı ve `applyRouteEmphasis` bir
+               sebeple koşmazsa çekirdeği maskeleyerek rotayı pastel yapıyordu.
+               Fail-soft yönü artık DOĞRU tarafta: karar gelmezse süs ÇİZİLMEZ,
+               güvenlik çizgisi (çekirdek) asla örtülmez. Gerçek değeri
+               `applyRouteEmphasis` yazar (açık zemin 0.22 · gece 0.34). */
+            'line-opacity':  0,
             'line-gradient': _buildPulseGradient(0.5),
           },
         });
@@ -2265,11 +2353,13 @@ export function applyMapDeclutter(
   }
   _lastDeclutterKey = key;
   _lastDeclutter = decision;
+  _notePaint(map, 'declutter', key);
   return decision;
 }
 
 /** Yüzey değişiminde (mini ↔ tam) sözleşme yeniden uygulanabilsin. */
 export function invalidateMapDeclutter(): void {
+  _invalidateAllPaint();
   _lastDeclutterKey = null;
 }
 
@@ -2286,24 +2376,17 @@ export function getDeclutterSnapshot(): {
   };
 }
 
-let _lastEmphasisKey: string | null = null;
+/* Anahtar ÖRNEK-BAŞINA (`_appliedPaintKeys`); burada yalnız son KARAR
+   tutulur (çağıranlara döndürülür ve LAB okur). */
 let _lastEmphasis: RouteEmphasisDecision | null = null;
-let _emphasisRetryPending = false;
 
-function _scheduleEmphasisRetry(
-  map: MapLibreMap, confidence: RouteConfidence, navActive: boolean, altCount: number,
-): void {
-  if (_emphasisRetryPending) return;
-  _emphasisRetryPending = true;
-  try {
-    map.once('idle', () => {
-      _emphasisRetryPending = false;
-      try { applyRouteEmphasis(map, confidence, navActive, altCount); } catch { /* fail-soft */ }
-    });
-  } catch {
-    _emphasisRetryPending = false;
-  }
-}
+/* `_scheduleEmphasisRetry` KALDIRILDI (saha 2026-09-06). Tek işi stil kapısına
+   takılan vurgu yazımını `map.once('idle')` ile kurtarmaktı; ölçüldü ki SÜRÜŞTE
+   HARİTA ASLA IDLE OLMAZ (araç işaretçisi ~16 fps `setData`, sürekli karo
+   yükleme) → kurtarma hiç çalışmıyordu. Kapı kalkınca kurtarıcıya da gerek
+   kalmadı: `safeSetPaint` her katmanı tek tek koruyor ve bir sonraki çizim
+   zaten yeniden yazıyor. Ölü kurtarma yolu BIRAKILMADI — yanlış bir güvenlik
+   hissi verirdi. */
 
 /**
  * Rota vurgu sözleşmesini uygula.
@@ -2323,15 +2406,41 @@ export function applyRouteEmphasis(
   if (!map) return _lastEmphasis;
   const lightBasemap = resolveLightBasemap();
   const key = `${confidence}|${navActive ? 'a' : 'i'}|${lightBasemap ? 'l' : 'd'}|${altCount > 0 ? 1 : 0}`;
-  if (key === _lastEmphasisKey) return _lastEmphasis;
+  /* Renkle AYNI kusur sınıfı: dedup örnek-başına olmalı, yoksa mini haritaya
+     uygulanan vurgu tam ekranı sessizce atlar. */
+  if (_paintApplied(map, 'emphasis', key)) return _lastEmphasis;
 
   const d = resolveRouteEmphasis({ confidence, navActive, lightBasemap, altCount });
-  if (!map.isStyleLoaded()) {
-    /* Gürültü sözleşmesiyle AYNI kusur sınıfı: tekrar deneyecek kimse olmazsa
-       vurgu sessizce hiç uygulanmaz (cihazda ölçüldü). */
-    _scheduleEmphasisRetry(map, confidence, navActive, altCount);
-    return d;
-  }
+  /* ── STİL KAPISI KALDIRILDI (saha 2026-09-06 · KULLANICI BİLDİRİMİ) ───────
+   * KULLANICI: *"rota çizgisi neden açık mavi · harita uzaklaşınca mavi oluyor,
+   * kamera zoom yapınca açık mavi oluyor."*
+   *
+   * Bu, bu DOSYADA daha önce İKİ kez bulunup düzeltilmiş kusurun ÜÇÜNCÜ
+   * kopyasıydı (bkz. `trimRouteGeometry` başlığı, saha 2026-08-13 ve sürüş
+   * kamerası stil-kapısı yasağı): `isStyleLoaded()` NAVİGASYON SIRASINDA
+   * neredeyse hep `false` döner — araç işaretçisi ~16 fps `setData` yapar ve
+   * sürüşte sürekli yeni karo yüklenir. Dolayısıyla vurgu SESSİZCE hiç
+   * uygulanmıyordu ve tek kurtarma yolu `map.once('idle')` idi; sürüş hâlinde
+   * harita ASLA `idle` olmaz → geri dönüş de hiç çalışmıyordu.
+   *
+   * SONUÇ (cihazda ölçüldü): katmanlar KURULUM opaklığında kalıyordu. Kritik
+   * olan `ROUTE_FLOW`: kurulumda `0.85`, oysa açık zeminde karar `0.22`.
+   * Flow çekirdeğin ÜSTÜNDEDİR ve pulse bandı rota uzunluğunun %10'udur —
+   * yakınlaşınca görünen pencere bandın İÇİNDE kaldığı için tüm şerit beyaz
+   * pulse ile yıkanıp pastel görünüyor, uzaklaşınca bant küçük bir oran olduğu
+   * için rota gerçek mavisine dönüyordu. Kullanıcının tarif ettiği zoom
+   * bağımlılığı BUDUR.
+   *
+   * Ekran pikselinden çözülen kanıt: şerit `#b0ccf1` ≈ beyaz pulse α≈0,68
+   * (= 0.85 × pulse tepe 0,80) çekirdek `#006CFF` üzerine → R 173/ölçülen 176,
+   * G 207/ölçülen 204. Emphasis modelinin KENDİ yorumu zaten şunu diyordu:
+   * "gündüz 0,55 değeri mavi çekirdeği pastel gösteriyor" — 0,85 onun da çok
+   * üstündeydi.
+   *
+   * `safeSetPaint` katman yoksa sessizce atlar ve try/catch'lidir; stil
+   * yeniden yüklenirken yazım kaybolsa bile bir sonraki çizim düzeltir.
+   * Kapı KALDIRILDI; `idle` tabanlı kurtarma yolu da kaldırıldı (sürüşte
+   * harita hiç idle olmadığı için zaten hiç çalışmıyordu). */
 
   const colorCore = _routeColor?.coreOpacity ?? 1;
   safeSetPaint(map, SEL_LAYER,      'line-opacity', colorCore * d.coreOpacity);
@@ -2349,14 +2458,14 @@ export function applyRouteEmphasis(
     }
   } catch { /* ignore */ }
 
-  _lastEmphasisKey = key;
   _lastEmphasis = d;
+  _notePaint(map, 'emphasis', key);
   return d;
 }
 
 /** Rota yeniden kurulunca vurgu tekrar yazılsın. */
 export function invalidateRouteEmphasis(): void {
-  _lastEmphasisKey = null;
+  _invalidateAllPaint();
 }
 
 /** CAROS LAB gözlemi. */

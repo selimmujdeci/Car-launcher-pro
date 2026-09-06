@@ -21,7 +21,7 @@ import { cacheLRUManager } from '../../core/storage/CacheLRUManager';
 import { M, useMapStore, getOnlineTileStyle, type MapConfig } from './_mapState';
 import { isBasemapTileSourceType } from './_mapIds';
 import {
-  _applyRouteGeometry, ensureRoadShieldImages, _resetPaintedArrowCache, getRouteStepsFor,
+  applyMapDayNight, _applyRouteGeometry, ensureRoadShieldImages, _resetPaintedArrowCache, getRouteStepsFor,
 } from './MapLayerManager';
 import { _setupRouteInteractions, _cleanupRouteInteractions } from './MapInteractionManager';
 import { hasWeakGpu } from '../../utils/detectWeakGpu';
@@ -301,6 +301,7 @@ async function _initCore(
     });
 
     map.on('style.load', () => {
+      applyMapDayNight(getMapNight(), map);
       useMapStore.setState({ isReady: true });
       logInfo('[MAP_READY]');
       // Yol numarası kalkanı imajı stille birlikte GİTMEZ — her stil yüklemesinde

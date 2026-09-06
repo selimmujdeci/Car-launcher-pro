@@ -25,6 +25,11 @@ function _lin(c8: number): number {
   const c = c8 / 255;
   return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
 }
+/** `#rrggbb` → [r, g, b] (0–255). */
+function _rgb(hex: string): [number, number, number] {
+  const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+  return [r!, g!, b!];
+}
 function luminance(hex: string): number {
   const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
   return 0.2126 * _lin(r) + 0.7152 * _lin(g) + 0.0722 * _lin(b);
@@ -45,9 +50,30 @@ describe('gece paleti — dolgular BİRBİRİNDEN ayırt edilir (yalnız zeminde
     expect(cr, `water↔buildingFill ${cr.toFixed(2)} — ayırt edilemez`).toBeGreaterThanOrEqual(1.2);
   });
 
-  it('yükseltme `residential`/`buildingFill`\'e DOKUNMADI (konutun sakin-zemin sözleşmesi korunur)', () => {
-    expect(NIGHT_PALETTE.residential).toBe('#2e394b');
-    expect(NIGHT_PALETTE.buildingFill).toBe('#3a4557');
+  it('yapı ailesi (konut/bina) NÖTR eksende kalır — coğrafi dolguları taklit etmez', () => {
+    /* KİLİDİN GEÇMİŞİ (silinmedi, GÜÇLENDİRİLDİ):
+     *   · 2026-08-24 turu bu ikisini "DOKUNMADI" diye sabitlemişti.
+     *   · 2026-09-05 sabahı (krem/bronz turu) sabit hex'lere çevrildi
+     *     (`#2c3a4e` / `#3d4a5e`).
+     *   · 2026-09-05 ticari kartografi turu paleti yeniden kurdu ve o iki hex
+     *     geçersizleşti. Sabit hex ZATEN ZAYIF bir kilitti: rengin DOĞRU
+     *     olduğunu değil, DEĞİŞMEDİĞİNİ ölçüyordu.
+     * Bu yüzden kilit değerden DAVRANIŞA taşındı: asıl korunması gereken şey,
+     * yapı ailesinin (konut alanı + bina dolgusu) su (mavi eksen) ya da park
+     * (yeşil eksen) gibi GÖRÜNMEMESİ ve birbirinden ayrılabilmesidir. Böyle
+     * bir kilit palet her değiştiğinde geçerli kalır. */
+    for (const [ad, hex] of [
+      ['residential', NIGHT_PALETTE.residential],
+      ['buildingFill', NIGHT_PALETTE.buildingFill],
+    ] as const) {
+      const [r, g, b] = _rgb(hex);
+      expect(g, `${ad} park gibi YEŞİL eksende olamaz`).toBeLessThanOrEqual(Math.max(r, b));
+      /* Nötr/serin yapı tonu: mavi bileşen kırmızıyı geçebilir (grafit), ama
+         suyun doygunluğuna ULAŞAMAZ — aksi hâlde bina göl gibi okunur. */
+      const suDoygunluk = (() => { const [wr, , wb] = _rgb(NIGHT_PALETTE.water); return wb - wr; })();
+      expect(b - r, `${ad} su kadar doygun mavi olamaz`).toBeLessThan(suDoygunluk);
+    }
+    expect(NIGHT_PALETTE.residential).not.toBe(NIGHT_PALETTE.buildingFill);
   });
 
   it('renk YÖNÜ korundu — su mavi ekseninde (B>R), park yeşil ekseninde (G>R,G>B)', () => {

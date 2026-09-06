@@ -116,17 +116,35 @@ describe('#633 — gece çekirdeği cihazda ölçülen SOLUK değerin üstünde'
       .not.toBe(day.coreStops[0].toLowerCase());
   });
 
-  it('🔒 cihazda ölçülen soluk değer (0,183) GÜNDÜZ rengidir — gece değil', () => {
-    /* Sahada gece'de bu renk okunmuştu; kilit onun gündüze ait olduğunu sabitler. */
-    expect(lum(day.coreStops[0])).toBeLessThan(0.25);
-    expect(lum(night.coreStops[0]), 'gece çekirdeği soluk kalmış')
-      .toBeGreaterThan(0.35);
-  });
+  it('🔒 cihazda ölçülen soluk değer (0,183) gece çekirdeği OLAMAZ', () => {
+    /* ⚠️ KİLİT YENİDEN HEDEFLENDİ (2026-09-05 · "yolları tam beyaz yap").
+     *
+     * Eski hâli MUTLAK bir parlaklık TABANI koyuyordu (>0,35 ve >0,38).
+     * O taban, yolların KOYU GRİ olduğu dünyada doğruydu: rota koyu zeminden
+     * ancak parlayarak ayrılabiliyordu. Gece yolları beyaz aileye alınınca
+     * kural TERSİNE döndü — çok parlak bir çekirdek beyaz yolun üstünde
+     * KAYBOLUR (ölçüldü: eski turkuaz durak beyaz yolda 1,83).
+     *
+     * Kilit SİLİNMEDİ: koruduğu gerçek (*"cihazda ölçülen 0,183 soluk değeri
+     * bir daha üretilemez"*) İKİ YÖNLÜ kontrast sözleşmesine taşındı ve orada
+     * daha güçlü ölçülür:
+     *   · zemine karşı ≥4,5  → 0,183 bu sınavı 3,12 ile KAYBEDER (kilidin özü)
+     *   · beyaz yola karşı ≥1,9 → aşırı parlaklık da engellenir
+     * Böylece hem eski kusur imkânsız kalır hem yeni kusur (beyazda kaybolma)
+     * eklenir. Sayısal eşikler `routeNightContrast.test.ts` ile ortaktır. */
+    const night = resolveRouteColor({ maneuverTier: 0, hazardHigh: false, lightBasemap: false });
+    const BG = 0.024676;                    // MAP_BG_NIGHT bağıl parlaklığı
+    const cr = (a1: number, b1: number) => (Math.max(a1, b1) + 0.05) / (Math.min(a1, b1) + 0.05);
 
-  it('🔒 gece çekirdeği #623 hedefini (0,42) karşılar', () => {
-    const l = lum(night.coreStops[0]);
-    expect(l).toBeGreaterThan(0.38);
-    expect(l).toBeLessThan(0.50);
+    /* Kusurlu değer bu kapıyı GEÇEMEZ — kilidin anlamı budur. */
+    expect(cr(BG, 0.183), 'eski soluk değer artık geçiyor — kilit anlamsız')
+      .toBeLessThan(4.5);
+
+    for (const stop of night.coreStops) {
+      const l = lum(stop);
+      expect(cr(BG, l), `${stop} gece zemininde soluk kalıyor`).toBeGreaterThanOrEqual(4.5);
+      expect(cr(1.0, l), `${stop} BEYAZ yolun üstünde kayboluyor`).toBeGreaterThanOrEqual(1.9);
+    }
   });
 
   it('🔒 karar anahtarı zemin kutbunu taşır (gece↔gündüz dedup\'a takılmaz)', () => {
