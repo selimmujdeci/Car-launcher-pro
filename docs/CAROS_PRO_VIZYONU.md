@@ -8109,3 +8109,72 @@ yazarlı alana **dördüncü paralel yüzey** eklenmiş olurdu.
 - Derinlik algısının kalan kısmı MapLibre stil katmanında üretilemez: 4.7.1'de
   ekran-uzaklığına bağlı **hiçbir** stil primitifi yok (`distance-from-center` ·
   `pitch` ifadeleri yok — Adım 1'de de ölçülmüştü).
+
+---
+
+## NAV-CARTO/LABEL — §7 ADIM 3: YOL HİYERARŞİSİ + ETİKET MOTORU (2026-09-07, kütük #1313–#1314)
+
+**Durum: ENTEGRE** · **SAHADA DOĞRULANDI: HAYIR** · **ÜRÜN HAZIR: HAYIR**
+
+### Kapasite bulguları (kod yazmadan ÖNCE ölçüldü)
+
+| Alan | MapLibre 4.7.1 | Sonuç |
+|------|----------------|-------|
+| `symbol-sort-key` | **data-driven** | Sınıf önceliği YAPILABİLİR |
+| `text-field` | **formatted · data-driven** | Kısaltma YAPILABİLİR |
+| String ifadeleri | `let·var·case·concat·slice·index-of·length·max·to-string` **var**, regex **YOK** | Son-token eşlemesi |
+| `symbol-spacing` · `text-padding` | data-constant (zoom alır) | Tekrar/collision ayarlanabilir |
+| `text-opacity` | data-constant | **Kullanılamaz** — dört yazarı var |
+
+### Yazar haritası (bu tur çıkarıldı)
+
+| Alan | Yazar sayısı | Kim |
+|------|--------------|-----|
+| `road-label.text-opacity` | **4** | stil · mood/risk (`MapLayerManager:1433`) · `NAV_SUPPRESS_TIERS` · `mapDeclutterModel` |
+| `road-*.line-opacity` | **3** | stil · `NAV_SUPPRESS_TIERS` · declutter |
+| `road-*.line-color` | **2** | stil · mood/risk (`MapLayerManager:1474+`) |
+| **`road-label*` LAYOUT** | **1 — yalnız stil** | `applyMapDayNight` layout diff'i yalnız gün↔gece FARKLI alanları yazar; ortak alanlara dokunmaz |
+
+> Bu tabloya dayanarak turun tamamı **LAYOUT** tarafında yapıldı. Adım 1'de bina
+> opaklığı için verilen karar buradaki `text-opacity` için de aynen geçerli.
+
+### Uygulananlar
+
+1. **Yol adı tür eki kısaltması** — 10 sonek, özel ad korunuyor (`Caddesi→Cd.`).
+2. **Yerel ağda sınıf önceliği** — `road-label` `symbol-sort-key` (tertiary 1 ·
+   minor 2 · service 3). Ölçüm: `transportation_name` z14 karoda minor **101**,
+   tertiary **14** — sıra verilmezse ekranı en düşük değerli sınıf dolduruyordu.
+3. **Arter adı tekrarı kesildi** — `road-label-major` `symbol-spacing` 260→420
+   (904 px görüntü alanı ölçüsü; 260'ta aynı ad ekranda 3–4 kez).
+
+### Uygulanmayanlar ve teknik gerekçe
+
+- **Yol hiyerarşisi (A) DEĞİŞTİRİLMEDİ** — çünkü zaten hedefteydi: `trunk`
+  MapLibre filtresinde `motorway` ile gruplu, merdiven 5 kademe
+  (motorway+trunk > primary > secondary > tertiary > minor > service > path) ve
+  cihazda ölçülmüş (gece z16: 14,5 · 7,35 · 4,96 · 2,88 px). Kullanıcı görsel
+  onayı **#1308**'de zaten açık — o kapanmadan aynı yere ikinci kez dokunmak
+  ölçümü geçersiz kılardı.
+- **Bağlama göre etiket SAYISI (BROWSE 8 / NAV 6 / MINI 1–2) yapılamadı.**
+  Sayıyı ancak `minzoom`/`filter`/`spacing` (LAYOUT) belirler; navigation durumu
+  ise yalnız RUNTIME'da bilinir ve runtime yolları (`NAV_SUPPRESS_TIERS` ·
+  `mapDeclutterModel`) **paint-only**'dir — opaklık azaltmak etiketi
+  soluklaştırır, SAYISINI düşürmez. Bunu düzeltmek ya paralel bir label
+  renderer ya da mevcut context authority'yi layout yazacak şekilde genişletmek
+  demekti; **ikisi de yapılmadı** (yeni authority/FSM yasağı). **AÇIK BORÇ.**
+- **Bina oklüzyonlu etiket eleme** yapılamadı: MapLibre collision motoru
+  `fill-extrusion` kütlesini hesaba katmaz, `distance-from-center` de yok
+  (Adım 1 ve 2'de ölçüldü).
+
+### Kanıt
+
+`cartographyAuthority` +7 kilit (toplam 58). Kısaltma kilitleri ifadeyi
+**gerçekten değerlendiriyor** (`createExpression` + `evaluate`), metin
+eşleştirmesi değil. **Beş mutasyonun beşi de** ilgili kilidi düşürdü:
+kısaltma kaldırıldı · sort-key kaldırıldı · spacing 260'a döndürüldü ·
+opaklık ifadeye çevrildi (biri önceden var olan kilidi de tetikledi) ·
+kısaltma `place-town`'a sızdırıldı.
+
+Hedefli 10 kartografya/stil/label dosyası **210/210** · `guard` **998/998** ·
+`tsc -b` temiz · lint 0 hata. Adım 1 bina rampası ve Adım 2 sky kararı
+regresyonsuz.

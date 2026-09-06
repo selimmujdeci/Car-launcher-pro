@@ -683,6 +683,52 @@ function rankAtMost(n: number): FilterSpecification {
 const localizedName = ['coalesce', ['get', 'name:tr'], ['get', 'name']] as unknown as string;
 
 /**
+ * Türkçe yol adı TÜR EKİ kısaltması — **özel ada ASLA dokunulmaz.**
+ *
+ * NEDEN: kısaltma bir kartografya tekniğidir; sürücü ekranında ad tam OKUNMAZ,
+ * TANINIR. "Fahrettin Kerim Gökay Caddesi" (29) → "Fahrettin Kerim Gökay Cd."
+ * (25) — ölçülen kazanç örneklerde **%14–24**. Kazanç kozmetik değil: etiket
+ * kutusu küçüldükçe `symbol` collision motoru aynı ekrana DAHA ÇOK FARKLI yol
+ * adı sığdırır. Uzun ad yalnız kendini değil, komşu sokağın adını da eler.
+ *
+ * NEDEN SON-TOKEN EŞLEMESİ (regex değil): MapLibre ifadelerinde regex YOKTUR;
+ * ayrıca JS tarafında da `` sınırı Türkçe `ğ/ı` sonrası tutmaz (tasarım
+ * üreticisinde bu tuzağa düşülmüştü). Burada adın SONU " Caddesi" gibi bir
+ * tür ekiyle bitiyorsa o ek kesilir. Baştaki boşluk şartı, tek kelimelik
+ * "Caddesi" adının bozulmasını engeller (ölçüldü: dokunulmuyor).
+ *
+ * MapLibre 4.7.1 KAPASİTE DOĞRULAMASI (kod yazmadan önce yapıldı):
+ * `let · var · case · concat · slice · index-of · length · max · to-string`
+ * ifadelerinin hepsi `createExpression` ile derlendi ve on gerçek Türkçe ad
+ * üzerinde değerlendirildi.
+ *
+ * ⚠️ Bu bir LAYOUT (`text-field`) ifadesidir. `road-label`/`road-label-major`
+ * LAYOUT alanlarının runtime yazarı YOKTUR (repo tarandı): `applyMapDayNight`
+ * yalnız gün↔gece FARKLI olan alanları yazar, `NAV_SUPPRESS_TIERS` ·
+ * `mapDeclutterModel` · mood yalnız PAINT (`text-opacity`) yazar. Bu yüzden
+ * ifade burada güvenlidir — `text-opacity`'ye ifade konulamazdı (dört yazar).
+ */
+const ROAD_NAME_ABBREV: ReadonlyArray<readonly [long: string, short: string]> = [
+  ['Caddesi', 'Cd.'], ['Cadde', 'Cd.'], ['Sokağı', 'Sk.'], ['Sokak', 'Sk.'],
+  ['Bulvarı', 'Bul.'], ['Bulvar', 'Bul.'], ['Mahallesi', 'Mah.'],
+  ['Meydanı', 'Mey.'], ['Köprüsü', 'Köp.'], ['Otoyolu', 'Oto.'],
+];
+
+const abbreviatedRoadName = ((): unknown => {
+  const branches: unknown[] = [];
+  for (const [long, short] of ROAD_NAME_ABBREV) {
+    /* `max(0, …)` kısa adlarda negatif dilim indeksini engeller. */
+    const cut = ['max', 0, ['-', ['length', ['var', 'n']], long.length + 1]];
+    branches.push(['==', ['slice', ['var', 'n'], cut], ` ${long}`]);
+    branches.push(['concat', ['slice', ['var', 'n'], 0, cut], ` ${short}`]);
+  }
+  return ['let', 'n', ['to-string', localizedName], ['case', ...branches, ['var', 'n']]];
+})();
+
+/** Yol etiketlerinin adı — kısaltılmış. Yer adları (`place-*`) BUNU KULLANMAZ. */
+const roadLabelName = abbreviatedRoadName as unknown as string;
+
+/**
  * Zoom→genişlik merdiveni; rampalar `RAMP_WIDTH_FACTOR` ile daraltılır.
  *
  * ⚠️ SIRALAMA PAZARLIKSIZ (kütük #552): zoom `interpolate` EN DIŞTA, rampa
@@ -1437,12 +1483,23 @@ export function buildVectorLayers(night: boolean): LayerSpecification[] {
             ['!=', ['get', 'subclass'], 'junction'],
           ] as FilterSpecification,
           layout: {
-            'text-field': localizedName,
+            'text-field': roadLabelName,
             'text-font': ['Noto Sans Regular'],
             'text-size': ['interpolate', ['linear'], ['zoom'], 15, 10, 17, 12],
             'symbol-placement': 'line',
             'text-max-angle': 30,
             'text-padding': 6,
+            /* YEREL AĞ İÇİNDE DE ÖNCELİK VAR (2026-09-06).
+               `road-label-major` sınıf sırasını (motorway 1 · trunk 2 ·
+               primary 3) zaten `symbol-sort-key` ile veriyordu; yerel tabloda
+               böyle bir sıra YOKTU → collision motoru üçüncül caddeyle çıkmaz
+               sokağı EŞİT görüyor, hangisinin kalacağını karo içi sıra
+               belirliyordu. Ölçülen sınıf dağılımı (`transportation_name`,
+               z14 karo): minor 101 · tertiary 14 — yani sıra verilmezse
+               ekranı çoğunlukla EN DÜŞÜK değerli sınıf dolduruyor.
+               Küçük sayı = yüksek öncelik (MapLibre sözleşmesi). */
+            'symbol-sort-key': ['match', ['get', 'class'],
+              'tertiary', 1, 'minor', 2, 'service', 3, 4],
             /* Ayni sokagin adinin YOL BOYUNCA TEKRARI seyreltildi (340 -> 460 px):
                yogun izgara sehirde tekrar, farkli sokak adlarindan daha cok yer
                kapliyordu. */
@@ -1511,13 +1568,21 @@ export function buildVectorLayers(night: boolean): LayerSpecification[] {
             ['!=', ['get', 'subclass'], 'junction'],
           ] as FilterSpecification,
           layout: {
-            'text-field': localizedName,
+            'text-field': roadLabelName,
             'text-font': ['Noto Sans Regular'],
             'text-size': ['interpolate', ['linear'], ['zoom'], 12, 11, 16, 13.5],
             'symbol-placement': 'line',
             'text-max-angle': 30,
             'text-padding': 5,
-            'symbol-spacing': 260,
+            /* AYNI ARTERİN ADI EKRANDA TEKRARLANMASIN (2026-09-06).
+               Cihazda ölçülen görüntü alanı 904×406 CSS px (köşegen ~991 px).
+               260 px'lik tekrar aralığında tek bir arter adı ekranda 3–4 kez
+               basılabiliyordu ("… Bulvarı … Bulvarı …") — aynı bilginin
+               tekrarı, KOMŞU yolun adını collision'da eliyordu.
+               420 px → aynı ad en fazla ~2,4 kez. Yerel tablo aynı gerekçeyle
+               340→460 yapılmıştı; arter bağlamı sürüşte daha değerli olduğu
+               için major biraz daha SIK bırakıldı (420 < 460). */
+            'symbol-spacing': 420,
             'text-letter-spacing': 0.02,
             'symbol-sort-key': ['match', ['get', 'class'],
               'motorway', 1, 'trunk', 2, 'primary', 3, 4],

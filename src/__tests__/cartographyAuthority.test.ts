@@ -23,7 +23,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { validateStyleMin } from '@maplibre/maplibre-gl-style-spec';
+import { validateStyleMin, createExpression } from '@maplibre/maplibre-gl-style-spec';
 import type { LayerSpecification, StyleSpecification } from 'maplibre-gl';
 
 import {
@@ -699,6 +699,106 @@ describe('9 · üretim yüzeyi', () => {
     const kapat = src.slice(src.indexOf('aria-label="Haritayı kapat"'),
       src.indexOf('aria-label="Haritayı kapat"') + 1200);
     expect(kapat).not.toContain('rgba(239,68,68');
+  });
+});
+
+/* ═══ YOL ETİKETİ — ÖNCELİK · KISALTMA · TEKRAR (Adım 3) ═══════════════════
+
+   Bu bölüm etiketleri METİN EŞLEŞTİRMESİYLE değil, ifadeyi GERÇEKTEN
+   DEĞERLENDİREREK kilitler — bir `text-field` ifadesi spec'e uysa bile
+   yanlış çıktı üretebilir.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+describe('yol etiketi motoru — öncelik · kısaltma · tekrar', () => {
+  /** `text-field` ifadesini derleyip gerçek bir ad üzerinde çalıştırır. */
+  const adUret = (s: StyleSpecification, layerId: string, name: string): string => {
+    const field = layoutOf(s, layerId)['text-field'];
+    const c = createExpression(field as never, {
+      type: 'formatted', 'property-type': 'data-driven',
+      expression: { interpolated: false, parameters: ['zoom', 'feature'] },
+    } as never);
+    expect(c.result, `${layerId} text-field derlenemedi`).toBe('success');
+    const v = (c as { value: { evaluate: (g: unknown, f: unknown) => unknown } }).value;
+    return String(v.evaluate({ zoom: 16 }, { properties: { name } }));
+  };
+
+  it('🔒 yol adında TÜR EKİ kısalır (ölçülen kazanç: %14–24)', () => {
+    for (const s of [DAY, NIGHT]) {
+      for (const id of ['road-label', 'road-label-major']) {
+        expect(adUret(s, id, 'Kurbağalıdere Caddesi')).toBe('Kurbağalıdere Cd.');
+        expect(adUret(s, id, 'Atatürk Bulvarı')).toBe('Atatürk Bul.');
+        expect(adUret(s, id, 'Moda Sokağı')).toBe('Moda Sk.');
+        expect(adUret(s, id, 'Galata Köprüsü')).toBe('Galata Köp.');
+      }
+    }
+  });
+
+  it('🔒 ÖZEL AD BOZULMAZ — tek kelimelik tür adı ve kısaltılmış ad korunur', () => {
+    for (const id of ['road-label', 'road-label-major']) {
+      // tek kelime: önünde boşluk yok → kesilmez
+      expect(adUret(DAY, id, 'Caddesi')).toBe('Caddesi');
+      // zaten kısaltılmış: iki kez kısaltılmaz
+      expect(adUret(DAY, id, 'Kuşdili Cd.')).toBe('Kuşdili Cd.');
+      // tür eki İÇERMEYEN özel ad aynen kalır
+      expect(adUret(DAY, id, 'Bağdat')).toBe('Bağdat');
+      expect(adUret(DAY, id, 'E-5')).toBe('E-5');
+    }
+  });
+
+  it('🔒 kısaltma YALNIZ yol etiketlerinde — yer adlarına SIZMAZ', () => {
+    /* `place-*` adları özeldir ("… Mahallesi" bir yerleşim adının parçası
+       olabilir); kısaltma kapsamı yol tablolarıyla sınırlı tutuldu. */
+    for (const id of ['place-town', 'place-village', 'place-suburb', 'place-city']) {
+      const f = JSON.stringify(layoutOf(DAY, id)['text-field'] ?? null);
+      expect(f, `${id} yol kısaltmasını kullanıyor — kapsam sızdı`).not.toContain('Caddesi');
+    }
+  });
+
+  it('🔒 YEREL ağda da sınıf önceliği var (collision motoru eşit görmesin)', () => {
+    for (const s of [DAY, NIGHT]) {
+      const k = layoutOf(s, 'road-label')['symbol-sort-key'];
+      expect(k, 'yerel yol etiketinde öncelik YOK — ekranı en düşük sınıf doldurur')
+        .toBeDefined();
+      const j = JSON.stringify(k);
+      // küçük sayı = yüksek öncelik: tertiary < minor < service
+      expect(j).toContain('tertiary');
+      expect(j).toContain('service');
+      const arr = k as unknown[];
+      const idx = (cls: string) => arr.indexOf(cls);
+      expect(Number(arr[idx('tertiary') + 1])).toBeLessThan(Number(arr[idx('minor') + 1]));
+      expect(Number(arr[idx('minor') + 1])).toBeLessThan(Number(arr[idx('service') + 1]));
+    }
+  });
+
+  it('🔒 ana yol önceliği yerel yoldan ÖNDE kalır (iki tablo tutarlı)', () => {
+    const major = JSON.stringify(layoutOf(DAY, 'road-label-major')['symbol-sort-key']);
+    expect(major).toContain('motorway');
+    expect(major).toContain('trunk');
+  });
+
+  it('🔒 aynı arterin adı ekranda TEKRARLANMAZ (904 px görüntü alanı ölçüsü)', () => {
+    /* Cihazda ölçülen görüntü alanı 904×406 CSS px. Tekrar aralığı ekran
+       genişliğinin yarısından küçükse aynı ad 3+ kez basılır. */
+    const EKRAN_GENISLIK = 904;
+    for (const s of [DAY, NIGHT]) {
+      const major = layoutOf(s, 'road-label-major')['symbol-spacing'] as number;
+      const local = layoutOf(s, 'road-label')['symbol-spacing'] as number;
+      expect(major, 'arter adı ekranda 3+ kez tekrarlanıyor').toBeGreaterThan(EKRAN_GENISLIK / 3);
+      expect(local).toBeGreaterThan(EKRAN_GENISLIK / 3);
+      // arter bağlamı sürüşte daha değerli → major yerelden SIK kalır
+      expect(major).toBeLessThan(local);
+    }
+  });
+
+  it('🔒 etiket OPAKLIĞI hâlâ SABİT SAYI — dört yazarlı alan korunuyor', () => {
+    /* `road-label.text-opacity`ye YAZAN dört yol var: stil · mood/risk
+       (`MapLayerManager`) · `NAV_SUPPRESS_TIERS` · `mapDeclutterModel`.
+       Buraya bir ifade konulursa ilk runtime yazımında sessizce silinir —
+       bu turun bütün genelleştirmesi bu yüzden LAYOUT tarafında yapıldı. */
+    for (const s of [DAY, NIGHT]) {
+      const o = paintOf(s, 'road-label')['text-opacity'];
+      expect(typeof o, 'etiket opaklığı ifadeye çevrilmiş — runtime yazarları ezecek').toBe('number');
+    }
   });
 });
 
