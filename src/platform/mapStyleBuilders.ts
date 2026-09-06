@@ -597,6 +597,42 @@ export const AREA_VISIBILITY = {
   'building-3d':         16,
 } as const;
 
+/**
+ * 3B bina YÜKSELEREK GİRME rampası (`fill-extrusion-height`/`-base`, zoom bağlı).
+ *
+ * SORUN: `building-3d` katmanı `minzoom`'unda binalar TAM BOYDA, tek karede
+ * beliriyordu — ticari navigasyonda görünen bir "pop-in". Tasarım tarafında
+ * (`field-runs/carto-2026-09-06`) aynı sınıf kusur menzilin son %15'inde
+ * saydamlıkla siliniyordu.
+ *
+ * NEDEN OPAKLIKLA DEĞİL YÜKSEKLİKLE: MapLibre GL 4.7.1 style-spec'te
+ *   · `fill-extrusion-opacity` = **data-constant** (bina başına değişemez), ve
+ *     üstelik ÜÇ yazarı var: stil (`bldg3dOpacity`) · declutter profilleri
+ *     (`mapDeclutterModel`) · hız mandalı (`MapLayerManager`, 80 km/h). Oraya
+ *     zoom ifadesi yazmak o otoriteleri kırardı — runtime sabit sayıyla ezer.
+ *   · `distance-from-center` / `pitch` ifadeleri MapLibre'de **YOK** (bundle'da
+ *     doğrulandı) — tasarımdaki METRE menzili birebir çevrilemez.
+ *   · `fill-extrusion-height` ve `-base` ise **data-driven** ve stil TEK
+ *     yazarları (repo tarandı: runtime'da yazan yok). Rampa buraya kurulur.
+ *
+ * RAMPA UÇLARI ÖLÇÜYE DAYALI, seçilmiş değil (`cameraEngine.ts` hız→zoom eğrisi):
+ *   · `start` = katmanın kendi `minzoom`'u — İKİNCİ EŞİK TABLOSU KURULMAZ.
+ *   · `end` = **16,4** = `ZOOM_AT_60 (16,7)` eğrisinde **70 km/h**'ye düşen zoom,
+ *     yani şehir içi sürüş bandının ALT sınırı. Sonuç:
+ *       ≤70 km/h → binalar TAM boyda ve SABİT (sürüşte boy oynaması YOK),
+ *       70–83 km/h → alçalarak çekilir ve 80 km/h'de hız mandalı opaklığı keser
+ *                    (sert mandal artık yumuşak geçişin ÜSTÜNE biniyor),
+ *       serbest yakınlaşma z15→16 → yerden yükselerek girer, pop-in YOK.
+ *
+ * `minzoom` DEĞİŞTİRİLMEDİ → ek karo/geometri maliyeti YOK, DeviceTier bütçesi
+ * aynı kalır. `-base` de AYNI rampayı kullanır: ikisi de aynı `t` ile ölçeklendiği
+ * için `height >= base` her zoomda korunur (aksi hâlde havada asılı taban çıkardı).
+ */
+export const BUILDING_3D_RISE = {
+  start: AREA_VISIBILITY['building-3d'],
+  end:   16.4,
+} as const;
+
 /** Etiket ve POI katmanlarının ilk görüneceği zoom. */
 export const LABEL_VISIBILITY = {
   'place-city':       4,
@@ -1030,8 +1066,17 @@ export function buildVectorLayers(night: boolean): LayerSpecification[] {
             60, P.bldg3d[2],
           ],
           'fill-extrusion-opacity':           P.bldg3dOpacity,
-          'fill-extrusion-height': ['coalesce', ['get', 'render_height'], ['get', 'height'], 10],
-          'fill-extrusion-base':   ['coalesce', ['get', 'render_min_height'], ['get', 'min_height'], 0],
+          /* Yükselerek girme rampası — gerekçe ve ölçüm `BUILDING_3D_RISE`de. */
+          'fill-extrusion-height': [
+            'interpolate', ['linear'], ['zoom'],
+            BUILDING_3D_RISE.start, 0,
+            BUILDING_3D_RISE.end,   ['coalesce', ['get', 'render_height'], ['get', 'height'], 10],
+          ],
+          'fill-extrusion-base': [
+            'interpolate', ['linear'], ['zoom'],
+            BUILDING_3D_RISE.start, 0,
+            BUILDING_3D_RISE.end,   ['coalesce', ['get', 'render_min_height'], ['get', 'min_height'], 0],
+          ],
           /* Hacim hissini veren TEK desteklenen araç bu (taban→tepe koyu→açık).
              `fill-extrusion-ambient-occlusion-*` BİLEREK YOK: Mapbox GL'e aittir,
              MapLibre GL 4 tanımaz ve stili sahada REDDEDİYORDU (kütük #552).

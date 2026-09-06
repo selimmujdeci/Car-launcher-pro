@@ -7973,3 +7973,73 @@ kaybeder.*
 - **MINI/FULL mood ayrışması** — FULL yüzeyinde arka plan `rgb(233,238,243)`,
   MINI'de `#f2efe6` ölçüldü (mood denetleyicisi yalnız FULL'de yazıyor). İkisi de
   doğru gün paleti içinde; ayrışma bu turun kapsamında DEĞİLDİ, kayda geçirildi.
+
+---
+
+## NAV-CARTO/3D — CONCEPT-TO-PRODUCTION MAPLIBRE, ADIM 1 (2026-09-06, kütük #1311)
+
+**Durum: ENTEGRE** (kod + kilit + tip + kasa yeşil) · **SAHADA DOĞRULANDI: HAYIR**
+· **ÜRÜN HAZIR: HAYIR**. Yükseltme yalnız `DEVICE_VALIDATION_LEDGER.md` #1311
+maddesindeki beş ölçütün cihazda gözlenmesiyle olur.
+
+### Bağlam
+
+`docs/HANDOFF_2026-09-06_NAV_CARTOGRAPHY.md` §7, ticari navigasyon görsel
+sisteminin kavramdan üretime aktarım sırasını verir. **Adım 1 = `building-3d`
+menzil + solma.** Devir belgesi bunu *"KOLAY — paint ifadesiyle"* diye
+işaretlemişti.
+
+### Bu tur neyi kanıtladı: "KOLAY" değerlendirmesi YANLIŞTI
+
+Kod yazmadan önce MapLibre style-spec'i ve repo otorite haritası ölçüldü:
+
+| Varsayım | Ölçüm | Sonuç |
+|----------|-------|-------|
+| Opaklığa mesafe/zoom ifadesi yazılır | `fill-extrusion-opacity` = **data-constant** (spec'ten okundu) | Bina başına solma İMKANSIZ |
+| Tasarımdaki 900 m menzil çevrilir | `distance-from-center` · `pitch` ifadeleri MapLibre 4.7.1 bundle'ında **YOK** (0 eşleşme) | Metre menzili birebir çevrilemez |
+| Opaklık boş bir alan | **ÜÇ yazar**: stil `bldg3dOpacity` · `mapDeclutterModel` profilleri · `MapLayerManager` 80 km/h mandalı | Oraya yazmak runtime tarafından EZİLİRDİ |
+| — | `fill-extrusion-height`/`-base` **data-driven** ve stil **TEK yazar** (repo tarandı) | Rampanın doğru yeri BURASI |
+
+> **DERS:** Devir belgesindeki "aktarma zorluğu" sütunu bir TAHMİNDİR, ölçüm
+> değildir. §7'nin kalan adımları (özellikle *"gök katmanı — KOLAY"* ve
+> *"ad kısaltma — ORTA"*) aynı şekilde kod yazılmadan ÖNCE spec'ten
+> doğrulanmalıdır.
+
+### Yapılan
+
+`BUILDING_3D_RISE` sabiti + `building-3d` paint'inde zoom rampası. Rampa uçları
+seçilmedi, **`cameraEngine.ts` hız→zoom eğrisinden türetildi**:
+
+- `start` = katmanın KENDİ `minzoom`'u (16) — ikinci eşik tablosu kurulmadı.
+- `end` = **16,4** = eğride **70 km/h**'ye düşen zoom (şehir içi bandın alt sınırı).
+
+Davranış: ≤70 km/h tam boy ve **sabit** (sürüşte boy oynaması yok) · 70–83 km/h
+alçalarak çekilme (80 km/h'de hız mandalı opaklığı keser — sert mandal artık
+yumuşak geçişin üstüne biniyor) · serbest yakınlaşma z15→16'da yerden yükselerek
+girme (pop-in yok).
+
+### Mimari sınırlar (hiçbiri ihlal edilmedi)
+
+- **ONE DOMAIN = ONE AUTHORITY:** opaklık alanına DOKUNULMADI; declutter ve hız
+  mandalı tek yazar olarak kaldı. Bir kilit bunu açıkça koruyor.
+- **Yeni otorite/scheduler/god object YOK** — tek bir stil sabiti eklendi.
+- **Performans:** `minzoom` DEĞİŞMEDİ → ek karo/geometri maliyeti yok, DeviceTier
+  bütçesi aynı. Truth cadence ile render cadence ayrımı etkilenmedi.
+- **CAROS LAB:** yeni ekran AÇILMADI. Bu değişiklik kendi durumu/sağlığı/zamanlaması
+  olan bir alt sistem değil, tek bir stil ifadesidir — CLAUDE.md'nin "yalnız görsel
+  değişiklik" istisnası kapsamındadır (ekran enflasyonu yasağı).
+
+### Kanıt
+
+- `cartographyAuthority` +4 kilit; **körlük kanıtlandı**: rampa kaldırılınca 2
+  kilit düştü, opaklık ifadeye çevrilince 1 kilit düştü, geri alınınca geçtiler.
+- `validateStyleMin` (mevcut kilit) ifadenin MapLibre spec'ine göre GEÇERLİ
+  olduğunu doğruluyor — kütük #552'deki "stil sahada reddedildi" tuzağına karşı.
+- `tsc -b` temiz · `npm run guard` 998/998 · ilgili 6 harita test dosyası 159/159.
+
+### Açık borç
+
+- **#1311 cihazda gözlenmedi.** Beş kabul ölçütü kütükte 🔴.
+- Tasarımdaki **metre cinsinden menzil** MapLibre'de karşılanamadı; derinlik
+  algısının kalan kısmı §7 Adım 2'ye (gök + ufuk bandı) bırakıldı.
+- **800×480 head unit** ve **gerçek araç sahası** hâlâ ❌.

@@ -29,7 +29,7 @@ import type { LayerSpecification, StyleSpecification } from 'maplibre-gl';
 import {
   buildVectorStyle, NAV_SUPPRESS_TIERS,
   ROAD_VISIBILITY, AREA_VISIBILITY, LABEL_VISIBILITY, LABEL_VISIBILITY_MAX,
-  RAMP_WIDTH_FACTOR, NIGHT_PALETTE, DAY_PALETTE,
+  RAMP_WIDTH_FACTOR, NIGHT_PALETTE, DAY_PALETTE, BUILDING_3D_RISE,
 } from '../platform/mapStyleBuilders';
 import { DECLUTTER_OWNED_LAYERS, resolveDeclutter } from '../platform/map/core/mapDeclutterModel';
 import type { MapSource } from '../platform/mapSourceTypes';
@@ -225,6 +225,65 @@ describe('3 · kartografik genelleştirme', () => {
 
   it('🔒 3B bina `hide_3d` alanına saygı duyar (OMT alanı vardı, kullanılmıyordu)', () => {
     expect(filterOf(DAY, 'building-3d')).toContain('hide_3d');
+  });
+
+  /* ── 3B bina YÜKSELEREK GİRME rampası (2026-09-06) ────────────────────────
+     Binalar `minzoom`'da TAM BOYDA tek karede beliriyordu (pop-in). Rampa
+     `fill-extrusion-height`/`-base` üzerine kuruldu; OPAKLIĞA DOKUNULMADI —
+     o alanın üç yazarı var (stil · declutter · 80 km/h hız mandalı) ve
+     MapLibre'de data-constant'tır.
+     ──────────────────────────────────────────────────────────────────────── */
+
+  it('🔒 bina yüksekliği zoom rampasıdır ve rampa BAŞINDA sıfırdır (pop-in yok)', () => {
+    for (const s of [DAY, NIGHT]) {
+      const h = paintOf(s, 'building-3d')['fill-extrusion-height'] as unknown[];
+      expect(Array.isArray(h), 'yükseklik düz ifade — rampa YOK').toBe(true);
+      expect(h[0]).toBe('interpolate');
+      expect(JSON.stringify(h[2])).toBe(JSON.stringify(['zoom']));
+      // ilk durak: rampa başlangıcı → yükseklik 0
+      expect(h[3]).toBe(BUILDING_3D_RISE.start);
+      expect(h[4], 'rampa başında bina TAM BOYDA beliriyor — pop-in geri geldi').toBe(0);
+      // son durak: gerçek veri alanı
+      expect(h[5]).toBe(BUILDING_3D_RISE.end);
+      expect(JSON.stringify(h[6])).toContain('render_height');
+    }
+  });
+
+  it('🔒 `-base` AYNI rampayı kullanır — taban havada asılı KALMAZ', () => {
+    for (const s of [DAY, NIGHT]) {
+      const p = paintOf(s, 'building-3d');
+      const h = p['fill-extrusion-height'] as unknown[];
+      const b = p['fill-extrusion-base'] as unknown[];
+      expect(Array.isArray(b)).toBe(true);
+      // aynı zoom durakları → her zoomda aynı `t` → height >= base korunur
+      expect(b[3]).toBe(h[3]);
+      expect(b[5]).toBe(h[5]);
+      expect(b[4], 'taban rampa başında sıfır değil').toBe(0);
+      expect(JSON.stringify(b[6])).toContain('render_min_height');
+    }
+  });
+
+  it('🔒 rampa eşiği katmanın KENDİ minzoom değerinden gelir — ikinci eşik tablosu YOK', () => {
+    expect(BUILDING_3D_RISE.start).toBe(AREA_VISIBILITY['building-3d']);
+    expect(BUILDING_3D_RISE.end).toBeGreaterThan(BUILDING_3D_RISE.start);
+    /* Rampa ŞEHİR İÇİ sürüş bandının ALTINDA bitmeli: `cameraEngine`
+       ZOOM_AT_60 = 16,7 · ZOOM_AT_30 = 17,5. Rampa bu bandın içine taşarsa
+       binalar sürüş sırasında hıza göre boy değiştirirdi (dikkat dağıtıcı). */
+    expect(BUILDING_3D_RISE.end).toBeLessThanOrEqual(16.7);
+  });
+
+  it('🔒 OPAKLIK hâlâ SABİT SAYI — declutter ve hız mandalı otoritesi kırılmadı', () => {
+    /* `fill-extrusion-opacity` MapLibre'de data-constant'tır ve runtime'da
+       `mapDeclutterModel` profilleri ile `MapLayerManager`'ın 80 km/h mandalı
+       tarafından YAZILIR. Oraya bir zoom ifadesi konulursa runtime onu sabit
+       sayıyla ezer → stil ile ekran ayrışır (bu dosyada daha önce üç kez
+       görülen "iki yazar, tek alan" kusuru). */
+    for (const s of [DAY, NIGHT]) {
+      const o = paintOf(s, 'building-3d')['fill-extrusion-opacity'];
+      expect(typeof o, 'bina opaklığı ifadeye çevrilmiş — runtime yazarları onu ezecek').toBe('number');
+    }
+    expect(paintOf(DAY, 'building-3d')['fill-extrusion-opacity']).toBe(DAY_PALETTE.bldg3dOpacity);
+    expect(paintOf(NIGHT, 'building-3d')['fill-extrusion-opacity']).toBe(NIGHT_PALETTE.bldg3dOpacity);
   });
 });
 
