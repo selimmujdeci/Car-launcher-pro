@@ -7729,3 +7729,247 @@ döngüsü BOZULMAMALI), **#1259** (motoru kasıtlı seçimsiz bırakıp `motor 
 vermedi` sayacının artışını görmek), **#1260** (`key_double_mic` 0↔1 arasında
 `seviye ↔ eşik` alanının ALTINDA↔ÜSTÜNDE dönmesi). Üçü de aynı ünitede, aynı
 turda ölçülürse zincirin tamamı tek seferde kapanır.
+
+---
+
+### NAV-CARTO — TİCARİ KARTOGRAFİ YENİDEN TASARIMI (2026-09-05)
+
+**Durum seviyesi: ENTEGRE** (kod + kilit + tarayıcı piksel kapısı yeşil).
+**SAHADA DOĞRULANDI DEĞİL** — kütük **#1278–#1283** 🔴 kaldıkça yükseltilemez.
+**ÜRÜN HAZIR: HAYIR** (gerçek head unit görüntüsü alınmadı; oturumda `adb devices`
+boştu).
+
+#### Sorun ifadesi
+
+Kullanıcı gerçek cihaz görüntüsüyle ürün hedefinin karşılanmadığını bildirdi:
+*"sokak ağı fazla baskın · çok sayıda yol aynı görsel ağırlıkta · yol sınıfları
+ayrışmıyor · label yoğunluğu yüksek · coğrafi semantik zayıf · chrome haritayı
+boğuyor · oyuncak/aftermarket Android hissi · dekoratif krem/bronz yaklaşım
+profesyonel kartografiye dönüşmemiş."* Aynı turda **önceki oturumun krem/altın
+palet kararı geri alındı**: kayıtlı ilke artık şudur —
+**dashboard teması ≠ kartografi paleti.**
+
+#### Yöntem: önce ölç, sonra tasarla
+
+Renk seçmeden önce gerçek vektör şeması ölçüldü. Kaynak `VITE_VECTOR_TILE_URL`
+= OpenFreeMap planet (değiştirilmemiş OpenMapTiles). TileJSON + üç Türk şehrinin
+(İstanbul · Siverek · Mersin) **z8/10/11/12/13/14 karoları indirilip
+`@mapbox/vector-tile` ile çözüldü**; katman × property × değer × zoom envanteri
+ve karo başına yoğunluk sayıldı. Bu ölçüm dört SESSİZ kusuru buldu — dördü de o
+güne dek hiçbir testi düşürmüyordu:
+
+| # | Ölçülen gerçek | Sonuç |
+|---|----------------|-------|
+| 1 | `landuse.class` içinde `park` · `grass` · `meadow` · `golf` **YOK** (gerçek değerler: school 102 · industrial 75 · cemetery 42 · commercial 40 …) | Harita **park ve orman çizmiyordu**; yeşil, hiç kullanılmayan `landcover` ve `park` katmanlarındaydı |
+| 2 | `ramp = 1` oranı: motorway **%72** · trunk %58 · primary %25 | Ekrandaki "otoyol" mürekkebinin çoğu kavşak rampasıydı ve ana arterle **aynı genişlikteydi** |
+| 3 | `transportation_name` içinde `class = ferry` var; `road-label` sınıf süzgeci taşımıyordu | Boğaz'ın üstü feribot hattı adlarıyla **kaplıydı** (render'da görüldü) |
+| 4 | `place` z10'da karo başına **124–389** kayıt; `place-town` zoom/rank süzgeci taşımıyordu | Köy/mahalle adları düşük zoomda ekranı dolduruyordu |
+
+Yan bulgu: `mapDeclutterModel` POI'lere `icon-opacity` yazıyordu ama POI katmanları
+`circle` tipinde — MapLibre reddediyor, `try/catch` yutuyordu. **POI geri çekilmesi
+hiç uygulanmamıştı**; kilit yeşildi, ekranda karşılığı yoktu.
+
+#### Yapılan
+
+- **Tek kartografi otoritesi korundu** (`mapStyleBuilders`): tek katman listesi,
+  iki renk kümesi. Zoom × özellik görünürlük matrisi (`ROAD_VISIBILITY` ·
+  `AREA_VISIBILITY` · `LABEL_VISIBILITY`) **dışa aktarıldı** ki kilitler stille
+  aynı tek kaynaktan okusun — ikinci eşik tablosu yok.
+- **Yol hiyerarşisi**: `tertiary` · `service` · `path` kendi katmanlarına ayrıldı,
+  rampa `RAMP_WIDTH_FACTOR = 0,55`, çizim sırası küçükten büyüğe düzeltildi
+  (eskiden `road-minor` EN SON çiziliyordu — tali sokak otoyolun üstüne biniyordu).
+- **Etiket motoru**: ana yol adı / yerel sokak adı ayrıldı; feribot ve kavşak adı
+  dışlandı; yer adları class + rank + zoom ile kademelendi; `symbol-sort-key` ve
+  çakışma önceliği kuruldu (MapLibre yerleşimi listeyi SONDAN tarar — sıra buna
+  göre ters kuruldu).
+- **Coğrafi semantik**: `landcover` ailesi · gerçek `park` katmanı · `railway` ·
+  `aeroway` · `boundary` · `water_name` ilk kez çiziliyor; havuz denizden ayrıldı.
+- **Ego işaretçisi**: şampanya-metalik oyuncak SUV → **disk + yön oku** (OEM HMI).
+- **Chrome**: KAPAT kırmızı alarm dilinden nötr yüzeye; mod seçicide etiket yalnız
+  seçili modda; sol rapor düğmesi nötr yüzeye. Dokunma hedefleri ≥44 px korundu.
+
+#### Mimari sınırlar (hiçbiri ihlal edilmedi)
+
+`cameraFollowAuthority` · `cameraEngine` · `MapInteractionManager` ·
+`navMarkerMotionRuntime` · `routeColorModel`/`routeEmphasisModel`/`routeWidthModel` ·
+MapStore · F0-B8 · #1276 · #1277 **DEĞİŞMEDİ**. Yeni GPS aboneliği, navigasyon
+timer'ı, kamera FSM'i, rota otoritesi veya harita veri otoritesi **eklenmedi**.
+
+Turda yakalanan bir **iki-otorite riski bilinçli olarak geri alındı**: yoğunluk
+bütçesi için `road-tertiary`/`road-secondary`/`road-label` üzerine zoom-bağımlı
+opaklık rampaları yazılmıştı; bu üç katmanın `line-opacity`/`text-opacity`
+özelliği `NAV_SUPPRESS_TIERS` + `MapLayerManager`'a AİTTİR ve düz sayıyla yazılır
+— stile ifade koymak ilk yazımda onu kalıcı silerdi. Genelleştirme `minzoom`,
+`text-size` ve genişlik merdivenine taşındı; kural kilitle sabitlendi.
+
+#### Kanıt
+
+- **Kilit:** `cartographyAuthority.test.ts` **39 PASS** (9 bölüm: tek otorite ·
+  ölçülmüş şema · genelleştirme · yol hiyerarşisi · etiket motoru · POI bütçesi ·
+  yüzey bütçeleri · semantik palet · üretim yüzeyi). Stil ayrıca **resmî MapLibre
+  şema doğrulayıcısından** (`validateStyleMin`) geçiriliyor — kütük #552'deki
+  "geçersiz katman sessizce düşer" sınıfı bir daha sessiz kalamaz.
+- **Mevcut kilitler:** 18 harita/rota test dosyası **364 PASS**; regresyon kasası
+  **981 PASS**; `tsc -b` temiz.
+- **Piksel kapısı (yeni):** stil JSON'u dışa alınıp Playwright/Chromium'da GERÇEK
+  MapLibre ile render edildi — 13 sahne (FULL gün/gece z10–z17 · MINI · 800×480 ·
+  pitch 55 sürüş görünümü), öncesi/sonrası karşılaştırmalı. Bu kapı **gerçek cihaz
+  doğrulamasının YERİNE GEÇMEZ**; WebGL swiftshader, gerçek head unit GPU'su değildir.
+
+#### Açık borç
+
+1. **Gerçek head unit / gerçek araç görüntüsü alınmadı** (#1278–#1283).
+2. **CAROS LAB gözlem yüzeyi yok:** kartografi kararlarının (yürürlükteki zoom
+   bandı, hangi katmanların bastırıldığı, stil doğrulama sonucu) salt-okunur bir
+   LAB kartı YOKTUR. Bu, §👁️ Zorunlu Gözlemlenebilirlik kuralına göre **açık
+   borçtur**; mevcut bir Navigation/Map LAB ekranının GENİŞLETİLMESİYLE
+   kapatılmalıdır (yeni ekran açılmamalı).
+3. **Bir sonraki atomik PR:** ya (a) tek saha turu — aynı konumda FULL DAY/NIGHT
+   browse + MINI + aktif rota ekran görüntüleri, ya da (b) LAB kartografi kartı
+   (borç 2). Saha turu önceliklidir: kod kanıtı doygunluğa ulaştı, eksik olan
+   gerçek ekran.
+
+#### DÜZELTME — GÜNDÜZ SÖZLEŞMESİ TERSİNE ÇEVRİLDİ (aynı gün, akşam · gerçek cihaz kararı)
+
+Yukarıdaki tur gündüz için **"binalar en açık · zemin ortada · yollar en koyu"**
+sözleşmesini korumuştu ve bunu bilinçli bir CarOS kararı olarak yazmıştı.
+Kullanıcı aynı gün gerçek head unit'ten aynı konumun iki görünümünü yan yana
+gönderdi, **gri-yollu / soğuk-zeminli olanı işaretleyip reddetti** ve
+beyaz-yollu / sıcak-krem-zeminli olanı seçti.
+
+**Yeni gündüz sözleşmesi:** yollar en açık (otoyol saf beyaz) · zemin sıcak krem
+`#f2efe6` · bina kütlesi zeminden koyu · **yol/zemin ayrımını GÖVDE değil KASA
+taşır** (kasa/zemin 1,76–2,65 · gövde/kasa 1,84–3,05).
+
+Bu, gece paletiyle de tutarlıdır: gece zaten açık-yol/koyu-zemin yönündeydi.
+Artık iki tema sürücüden **iki ayrı okuma alışkanlığı istemiyor.**
+
+Dört kilit **yeniden hedeflendi, silinmedi** (`mapDayPaletteContrast.test.ts`):
+rol dağılımı · monotonluk yönü · gövde/zemin → kasa/zemin + gövde/kasa · kasa
+eşlemesi. Ayrıca 2026-08'deki 1,38 fiyaskosunun gerçek kökünü (açık kasa)
+yakalayan bir **karşıt-örnek testi** eklendi. Bronz/altın yasağı korunuyor ama
+artık zemin sıcaklığını değil **yol gövdesinin doygunluğunu** ölçüyor — reddedilen
+somut tonlar (`#5e4a34` … `#f2c877`) ayrıca çıpalandı.
+
+**Ek teşhis (kütük #1285):** kullanıcının bildirdiği "iki farklı görünüm" bir stil
+hatası değil **kaynak değişimidir** — yerel `.pbf` olmadığı için vektör yalnız
+çevrimiçi kullanılabilir; ağ yoksa ya da karo hatası eşiği aşılırsa raster OSM'e
+düşülür ve o oturumda geri dönülmez. Kapı fail-soft olduğu için DEĞİŞTİRİLMEDİ;
+yapılan şey iki yolun artık **aynı görsel dili konuşmasıdır.** Hangi kaynağın
+yürürlükte olduğunu gösteren bir LAB alanı **YOKTUR — açık borç.**
+
+**Durum seviyesi:** hâlâ **ENTEGRE**. Kütük **#1284 · #1285** 🔴 kaldıkça
+yükseltilemez; bu paletin gerçek head unit'te görülmesi şarttır.
+
+#### SAHA TURU 1 — İLK APK'DAN GELEN İKİ KUSUR (2026-09-05 akşamı)
+
+Yeni kartografi APK'sı gerçek head unit'e kuruldu. Kartografinin kendisi kabul
+gördü; iki BAŞKA kusur ortaya çıktı ve ikisi de *"kod doğru görünüyor ama
+ekranda olmuyor"* sınıfındandı — hiçbiri mevcut testleri düşürmüyordu.
+
+**1 · Rota rengi tam ekranda hiç yazılmıyordu (#1286).** Ürün canlı İKİ
+MapLibre örneği taşır (mini + tam ekran), ama boya dedup anahtarları modül
+düzeyinde, örnekten bağımsız tutuluyordu: mini boyanınca tam ekran çağrısı
+dedup'a takılıp hiç boyanmıyordu. **Dört boya yolunu birden** etkiliyordu
+(renk · vurgu · gürültü · boyanmış ok) — yani rehberlikte POI/bina bastırması
+da tam ekranda uygulanmıyor olabilirdi. Defter `WeakMap` ile harita örneğine
+bağlandı; karar hâlâ tek modelden gelir.
+
+**2 · ORTALA sonrası kamera yaklaşıp geri çekiliyordu (#1287).** Giriş
+animasyonu (1 sn) ile takip döngüsü (~120 ms) arasında kapı yoktu; durakta
+takip döngüsü zoom'u `map.getZoom()`ten okuduğu için animasyonun ortasındaki
+değeri sabitliyordu. Kapı eklendi ve **kullanıcı girdisini kilitlemeyecek**
+biçimde tasarlandı (`map.isEasing()` düşünce kapı anında kalkar).
+
+**Ders:** ikisi de tekil-örnek varsayımından doğdu. Bu sınıf için kalıcı kilit
+`mapTwoInstanceFieldBugs.test.ts` (13 kilit) — biri gerçekten iki sahte harita
+nesnesine boya yazdırıp ikisinin de boyandığını ölçer.
+
+**Durum seviyesi:** **ENTEGRE**. #1286 · #1287 🔴 kaldıkça yükseltilemez.
+
+
+## NAV-RUNTIME — HARİTA STİLİ VE KAMERA DETERMİNİZMİ (2026-09-06, kütük #1298–#1302)
+
+**Durum seviyesi: DOĞRULANDI** (kod + kilit + **gerçek cihaz ölçümü**).
+**SAHADA DOĞRULANDI DEĞİL** — ölçüm duran araçta/tezgâhta yapıldı; hareketli
+araçta GPS akarken tekrar edilmedi. **ÜRÜN HAZIR: HAYIR.**
+
+Cihaz: Xiaomi 23090RA98I · Android 13 (API 33) · 1220×2712 @480 dpi ·
+`com.cockpitos.pro` 1.0.3 (versionCode 7). Ölçüm sırasında Android
+`Thermal Status: 3` (SEVERE, SKIN 52,1 °C) — yani koşullar iyimser değildi.
+
+### Bu tur neyi kanıtladı
+
+Önceki oturum (Codex Astra) iki P0'ı gerçek cihazda **ölçtü** ve düzeltmeleri
+ayrı bir worktree'de hazırladı ama ana ağaca almadı, cihazda denemedi. Bu tur o
+düzeltmeleri denetleyip taşıdı, **eksik kalan kök nedeni buldu**, ve sonucu aynı
+cihazda yeniden ölçtü.
+
+**Astra'nın kaçırdığı kök neden — kendi kanıtının içindeydi.** `trace-before-final.json`
+şunu taşıyordu:
+
+    tileRender-intent  vector → raster   thermalLock=true   deviceTier='high'
+    tileRender-intent  raster → vector   (+3442 ms)
+    çağıran yığın: FullMapView → mapSourceManager.notifyLowFPS
+
+Yani `Vector → OSM Map → Vector` parlamasını üreten şey **ısı değildi**: tam
+ekran haritanın *açılış saniyesi* doğal olarak <20 FPS ölçülüyor ve FPS
+örnekleyicisi bu tek örneği "termal boğulma" sanıyordu. Termal mandalın
+sözleşmesi asimetrikti — **çıkışta** 2500 ms istikrarlı yüksek FPS kanıtı
+isteniyordu, **girişte** hiç kanıt istenmiyordu. Düzeltme politikayı değiştirmedi;
+girişin kanıt eşiğini çıkışınkiyle simetrik yaptı (`fpsThermalLatchModel`, saf).
+
+**Ders (kalıcı):** *bir koruma mekanizmasının girişi ile çıkışı farklı kanıt
+standardına tabiyse, koruma er ya da geç yanlış tetiklenir.* Bu, aynı ailenin
+(#634 · #640 · #604) dördüncü örneği.
+
+### Ölçülen sonuç (ÖNCE → SONRA, aynı cihaz)
+
+| Ölçüt | ÖNCE | SONRA |
+|-------|------|-------|
+| MINI→FULL `setStyle` / `style.load` | 4 / 3 | **2 / 1** (biri eski örneğin yıkımı) |
+| Ara raster ("OSM Map") | VAR | **0** (27 anlık görüntü) |
+| `tileRender-intent` olayı | vector→raster→vector | **0** (2948 olaylık oturum) |
+| Gün↔gece geçişi | tam restyle | **0 setStyle / 0 style.load** — canlı palet |
+| UI ↔ MapLibre tema mutabakatı | UI DAY iken MapLibre NIGHT | **27/27 sapmasız** |
+| Sürüş girişinde kamera komutu | 2 × `easeTo` (Δ 6 ms) | **1** |
+| <400 ms özdeş tekrar (18 komut) | — | **0** |
+| Programatik olay → `USER_PANNING` | üretiyordu | **0 / 33** |
+| Gerçek parmak pan | — | `origin=USER` → `USER_PANNING` → `FOLLOW_SUSPENDED` |
+| ORTALA / otomatik dönüş | — | `FOLLOWING` (USER_BUTTON / AUTO_TIMEOUT) |
+
+### İkinci ders: düzeltme yeni bir "sessiz yalan" doğurdu
+
+Canlı palet `setStyle` çağırmadığı için `map.getStyle().name` bayat kalıyordu:
+boya GÜNDÜZ iken ad "Vector (Automotive Night)". Render doğruydu, **etiket
+yanlıştı** — ve bu alan tam da bu turun kök nedenini bulurken okunan alandı.
+Gözlemlenebilirlik kuralı gereği (kanıtsız/yanlış bilgi üretilmez) ad tek kaynağa
+(`vectorStyleName()`) bağlandı ve canlı palet yolu onu da yazıyor. **Bir teşhis
+alanı, ürün davranışını değiştirmese bile, yalan söylemesine izin verilemez.**
+
+### Aynı turda kullanıcı sahadan bir kusur bildirdi (#1301)
+
+*"üst üste termal koruma bildirileri geliyor, telefon sıcak değil."* Ölçüm:
+Android gerçekten SEVERE diyordu (SKIN 52 °C) — **bildirim yanlış değildi,
+tekrarı kusurluydu.** `autoBrightnessService` bir OTOMASYON olduğu hâlde
+KULLANICI API'sini (`setBrightness`) çağırıyor, o da kap üstü talebi reddedip
+toast atıyordu; servis 60 saniyede bir tick attığı için ekran bildirimle
+doluyordu. Daha sinsi ikinci sonuç: **tünel karartması ve kapanış onarımı termal
+kap aktifken hiç uygulanmıyordu** (erken return). Dört otomasyon yolu, zaten var
+olan `setBrightnessAuto()`'ya alındı.
+
+**Ders:** *aynı domaine iki kapı açıldığında (kullanıcı yolu / otomasyon yolu),
+yanlış kapıyı kullanan çağıran yalnız gürültü üretmez — sessizce işlevini de
+kaybeder.*
+
+### Açık borçlar (kapatılmadı, gizlenmedi)
+
+- **#1302** — sesli komut yolu (`useVoiceCommandHandler`) parlaklığı doğrudan
+  native plugin'e yazıyor; termal kapı görmüyor. CLAUDE.md §1 (ONE DOMAIN = ONE
+  AUTHORITY) ihlali. Ayrı atomik yama gerektirir.
+- **Gerçek araç sahası** — bu turun tamamı duran araçta ölçüldü. Hareket hâlinde
+  GPS akarken MINI↔FULL geçişi, rota katmanının korunması ve takip kamerasının
+  davranışı ÖLÇÜLMEDİ. `REAL VEHICLE FIELD = NOT EXECUTED`.
+- **MINI/FULL mood ayrışması** — FULL yüzeyinde arka plan `rgb(233,238,243)`,
+  MINI'de `#f2efe6` ölçüldü (mood denetleyicisi yalnız FULL'de yazıyor). İkisi de
+  doğru gün paleti içinde; ayrışma bu turun kapsamında DEĞİLDİ, kayda geçirildi.
