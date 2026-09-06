@@ -24,7 +24,7 @@ import { memo, type ReactNode } from 'react';
 import type { RouteStep } from '../../../platform/routingService';
 import type { HudPresentation } from '../../../platform/navigation/core/hudPresentationModel';
 import { ManeuverArrow } from './ManeuverArrow';
-import { formatManeuverDistance } from './formatManeuverDistance';
+import { formatManeuverDistance, splitManeuverDistance } from './formatManeuverDistance';
 
 export interface ManeuverPanelProps {
   readonly step: RouteStep;
@@ -50,7 +50,12 @@ export const ManeuverPanel = memo(function ManeuverPanel({
   const distFont  = big ? (portrait ? 44 : 52) : (portrait ? 34 : 40);
   const streetFont = big ? (portrait ? 17 : 19) : (portrait ? 15 : 17);
 
-  const distLabel = isArrive ? 'VARIŞ' : formatManeuverDistance(distToTurnM);
+  /* Canonical hedef mesafeyi BÜYÜK değer + KÜÇÜK birim olarak dizer.
+     Parçalama tek kaynaktan gelir (`splitManeuverDistance`); burada hiçbir
+     eşik ya da yuvarlama YENİDEN tanımlanmaz. */
+  const dist = isArrive
+    ? { value: 'VARIŞ', unit: null as 'm' | 'km' | null, fullText: 'VARIŞ' }
+    : splitManeuverDistance(distToTurnM);
   /* Girilecek yol: OSRM `streetName`. Yoksa talimat metni kullanılır —
      UYDURULMAZ, yalnız elde olan gösterilir. */
   const enterRoad = step.streetName?.trim() || step.instruction?.trim() || '';
@@ -96,15 +101,38 @@ export const ManeuverPanel = memo(function ManeuverPanel({
           </span>
           <span
             data-testid="maneuver-distance"
+            data-distance-value={dist.value}
+            data-distance-unit={dist.unit ?? ''}
             className="tabular-nums leading-none"
             style={{
               fontSize: distFont,
               fontWeight: 800,
               letterSpacing: '-0.035em',
               color: 'var(--oem-ink, #F0EBE0)',
+              /* Birim değerin TABANINA hizalanır; değeri yukarı itmez. */
+              display: 'flex', alignItems: 'baseline', gap: dist.unit ? 4 : 0,
+              /* Uzun yol adı mesafeyi İTEMEZ: mesafe kendi genişliğini korur. */
+              flexShrink: 0,
             }}
+            aria-label={dist.fullText}
           >
-            {distLabel}
+            {dist.value}
+            {dist.unit !== null && (
+              <span
+                data-testid="maneuver-distance-unit"
+                aria-hidden
+                style={{
+                  /* Birim ikincildir: değerin ~%38'i, daha ince, daha soluk.
+                     Değerin görsel ağırlığını ASLA geçmez. */
+                  fontSize: Math.round(distFont * 0.38),
+                  fontWeight: 600,
+                  letterSpacing: '0',
+                  color: 'var(--oem-ink-2, rgba(240,235,224,0.72))',
+                }}
+              >
+                {dist.unit}
+              </span>
+            )}
           </span>
         </div>
 

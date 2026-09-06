@@ -8244,3 +8244,78 @@ Hedefli 9 navigation/HUD dosyası **170/170** · `guard` **998/998** ·
 > `regression.guards`'taki şerit kilidi **kaldırılmadı, yeniden bağlandı**:
 > taradığı metin modele taşındığı için kilit sessizce kör kalacaktı. Yeni hâli
 > hem bileşenin modelden okuduğunu hem modelin fail-closed olduğunu doğruluyor.
+
+---
+
+## NAV-HUD/TYPO + HUD↔CAMERA — §7 ADIM 5 (2026-09-07, kütük #1316–#1317)
+
+**Durum: ENTEGRE** (tipografi) · **KAPSAM DIŞI, KANITLI** (kamera) ·
+**SAHADA DOĞRULANDI: HAYIR**
+
+### A · Manevra mesafesi tipografisi (#1316)
+
+Canonical hedef mesafeyi **büyük değer + küçük birim** dizer; ürün tek string
+basıyordu ve birim değerle aynı görsel ağırlıktaydı.
+
+**İkinci mesafe otoritesi kurulmadı:** parçalama `splitManeuverDistance` içinde
+yapılır, `formatManeuverDistance` artık onun `fullText` alanını döndüren ince
+sarmalayıcıdır — eşikler ve yuvarlama tek yerde kalır. Navigasyon gerçeği
+(`distanceToNextTurnMeters`) değişmedi; yalnız sunum yuvarlaması.
+
+**Ölçülen yan etki (gizlenmedi):** eski `(m/1000).toFixed(1)` ikilik taban
+kusuru taşıyor — `(2.05).toFixed(1) === "2.0"`. Yeni `Math.round(m/100)/10`
+matematiksel doğru yuvarlıyor. 1–40 km arası **39.001 tam metrenin 156'sında
+(%0,40)** ayrışma var; hepsi tam `.5` sınırında, sapma tek sunum basamağı
+(0,1 km) ve yukarı yönde. Kilit bu oranı **sabitliyor** — sessizce büyürse
+yuvarlama bozulmuş demektir.
+
+**Açık borç:** ondalık ayırıcı nokta kaldı. `toFixed(1)` deseni ürünün her
+yerinde böyle (`TripCostScreen` · `RadarAlertHUD` · `HorizonLayout` …); Türkçe
+virgüle geçiş **ürün çapında** bir karardır, tek kartta yapılırsa tutarlılık
+bozulur.
+
+### B · HUD ↔ kamera kompozisyonu (#1317) — ölçüldü, DEĞİŞTİRİLMEDİ
+
+Zincir kanıtlandı:
+
+    cameraPolicyModel.SPEED_BANDS[*].anchorY   (0,50 durak → 0,68 otoyol)
+      → MapInteractionManager:631  resolveTopPadForAnchor({anchorY, containerHeight, lookAheadPx})
+      → MapLibre padding.top
+
+**`resolveTopPadForAnchor` girdisinde HUD'un kapladığı alan YOKTUR.**
+Kompozisyon yalnız hıza ve ölçülen ileri-bakış yanlılığına bakar — "manevra
+kartı + şerit paneli ne kadar yer kaplıyor" bilgisi kameraya hiç ulaşmıyor.
+
+**Risk bandı:** manevra yaklaşımında kart büyür (316→360 px, punto 40→52, şerit
+paneli açılır) ve aynı anda araç yavaşladığı için `anchorY` 0,50'ye iner —
+kartın en büyük olduğu an, aracın en yukarıda olduğu andır.
+
+**Kamera değiştirilmedi.** En küçük canonical genişletmenin sahibi kanıtlandı
+(`cameraCompositionModel` — "nasıl çerçeveleniyor"un tek sahibi), ama
+uygulanmadı çünkü: **(a)** gerçek çakışmanın cihaz kanıtı yok, **(b)** HUD
+bütçesini `anchorY`ye karıştırmak hız kompozisyonuyla HUD bütçesini tek sayıya
+çöker, **(c)** `cameraShadowRuntime`'ın ölçtüğü `anchorYDelta` anlamını
+kaybeder. İkinci kamera sistemi · FSM · timer · viewport watcher **kurulmadı**.
+
+### P0 invariant durumu
+
+Bu turda `src/platform/map/` altında **hiçbir dosya değişmedi**. Doğrulandı:
+React bileşenlerinde `easeTo`/`jumpTo` çağrısı **yok** (yalnız yorumlarda
+geçiyor); `resolveTopPadForAnchor` guard kilidi yerinde; `cameraAuthorityParity`
+· `navigationCameraShadow` · `navigationMotionCamera` · `cameraDampingCadence`
+testleri yeşil.
+
+### Kanıt
+
+`maneuverDistancePresentation.test.ts` **15/15**. **Altı mutasyonun altısı da**
+ilgili kilidi düşürdü: sarmalayıcı bağımsızlaştırıldı · gereksiz ondalık geri
+geldi · birim değerle aynı punto · `aria-label` kaldırıldı · kart kendi eşiğini
+kurdu · mesafe span'ından `flexShrink` kaldırıldı.
+
+> ⚠️ **Bir kilit önce KÖR çıktı ve düzeltildi:** `flexShrink: 0` tüm dosyada
+> aranıyordu ve manevra okunun span'ında da geçtiği için mesafeden kaldırılsa
+> bile test geçiyordu. Mutasyon bunu yakaladı; kilit artık yalnız mesafe
+> span'ına bakıyor ve MUT-6 onu düşürüyor.
+
+Hedefli 11 HUD/kamera dosyası **211/211** · `guard` **998/998** · `tsc -b`
+temiz · lint 0 hata.
