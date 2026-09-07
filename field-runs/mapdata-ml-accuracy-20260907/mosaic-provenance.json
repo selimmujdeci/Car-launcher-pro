@@ -1,0 +1,225 @@
+{
+  "measuredAt": "2026-09-07",
+  "provider": "Esri World Imagery (ArcGIS Online) — ÖLÇÜM AMAÇLI, ürüne gömülmedi",
+  "zoom": 18,
+  "note": "z19/z20 bu konumda 2521 B yer tutucu döndürdü → gerçek görüntü tavanı z18.",
+  "nearBbox": {
+    "xmin": 34.85985,
+    "ymin": 36.9157,
+    "xmax": 34.86435,
+    "ymax": 36.9193
+  },
+  "tileRange": {
+    "tx0": 156456,
+    "tx1": 156459,
+    "ty0": 102107,
+    "ty1": 102111
+  },
+  "mosaicPx": {
+    "w": 1024,
+    "h": 1280
+  },
+  "placeholderTiles": 0,
+  "tiles": [
+    {
+      "z": 18,
+      "x": 156456,
+      "y": 102107,
+      "url": "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/18/102107/156456",
+      "file": "tiles/18-156456-102107.jpg",
+      "bytes": 14500,
+      "sha256": "9941beb8a9a67cf10382a726aba88428d9509a37aa257e22c28b380fd6c36158",
+      "placeholder": false
+    },
+    {
+      "z": 18,
+      "x": 156457,
+      "y": 102107,
+      "url": "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/18/102107/156457",
+      "file": "tiles/18-156457-102107.jpg",
+      "bytes": 15204,
+      "sha256": "230cdfe08caef500911160038cb164689fa13ede306e075154ee766f41689755",
+      "placeholder": false
+    },
+    {
+      "z": 18,
+      "x": 156458,
+      "y": 102107,
+      "url": "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/18/102107/156458",
+      "file": "tiles/18-156458-102107.jpg",
+      "bytes": 11930,
+      "sha256": "fbcc31a5fb0700d723981c514887070b50c292ea05a435acb771045013ae2ea0",
+      "placeholder": false
+    },
+    {
+      "z": 18,
+      "x": 156459,
+      "y": 102107,
+      "url": "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/18/102107/156459",
+      "file": "tiles/18-156459-102107.jpg",
+      "bytes": 13018,
+      "sha256": "bd4f6b4e4c83a098a01bed73557269f7886c5ddf51700939669dd84c55834ff2",
+      "placeholder": false
+    },
+    {
+      "z": 18,
+      "x": 156456,
+      "y": 102108,
+      "url": "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/18/102108/156456",
+      "file": "tiles/18-156456-102108.jpg",
+      "bytes": 16842,
+      "sha256": "92ac70d8f0f472a279cf7a7bdfdad576aedfe1c6557093cfc12053d8a086aa6b",
+      "placeholder": false
+    },
+    {
+      "z": 18,
+      "x": 156457,
+      "y": 102108,
+      "url": "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/18/102108/156457",
+      "file": "tiles/18-156457-102108.jpg",
+      "bytes": 18271,
+      "sha256": "4dcdfaf67cfeaa3b04280de3544927ce4a7ebc98842b1c2c59f917660ef37242",
+      "placeholder": false
+    },
+    {
+      "z": 18,
+      "x": 156458,
+      "y": 102108,
+      "url": "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/18/102108/156458",
+      "file": "tiles/18-156458-102108.jpg",
+      "bytes": 14684,
+      "sha256": "672133da1ae76aedd80a0221eb0869df18a5212f881206c252bb0ee703e5e089",
+      "placeholder": false
+    },
+    {
+      "z": 18,
+      "x": 156459,
+      "y": 102108,
+      "url": "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/18/102108/156459",
+      "file": "tiles/18-156459-102108.jpg",
+      "bytes": 13862,
+      "sha256": "9387fcbf057f86cfe1f8256ff0eb036a99a986bcd90972cc66d8d4d8237bfb35",
+      "placeholder": false
+    },
+    {
+      "z": 18,
+      "x": 156456,
+      "y": 102109,
+      "url": "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/18/102109/156456",
+      "file": "tiles/18-156456-102109.jpg",
+      "bytes": 15770,
+      "sha256": "cb4985f58afcb7b4f1518db5d9ec3d67a0002e820e0d3b4d4bae0cbd0bebbfce",
+      "placeholder": false
+    },
+    {
+      "z": 18,
+      "x": 156457,
+      "y": 102109,
+      "url": "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/18/102109/156457",
+      "file": "tiles/18-156457-102109.jpg",
+      "bytes": 17720,
+      "sha256": "fc2fb9f115df0731f75aaa8fb6dbc6b3226817d144958ba57f716616ab99ba87",
+      "placeholder": false
+    },
+    {
+      "z": 18,
+      "x": 156458,
+      "y": 102109,
+      "url": "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/18/102109/156458",
+      "file": "tiles/18-156458-102109.jpg",
+      "bytes": 16132,
+      "sha256": "e1e743ce02b5ea3035e20160cba42defa6c5532fad3a332e3efb3e202e48c144",
+      "placeholder": false
+    },
+    {
+      "z": 18,
+      "x": 156459,
+      "y": 102109,
+      "url": "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/18/102109/156459",
+      "file": "tiles/18-156459-102109.jpg",
+      "bytes": 15228,
+      "sha256": "43347d4d90e9007bbe6a0274a42a1b5bfedb03ea98e1bbc5520996e8f4e263fa",
+      "placeholder": false
+    },
+    {
+      "z": 18,
+      "x": 156456,
+      "y": 102110,
+      "url": "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/18/102110/156456",
+      "file": "tiles/18-156456-102110.jpg",
+      "bytes": 14048,
+      "sha256": "f1cdd8565fb54953e49a4970ee54deaf91d480b94f0e74497123da3a49eb8083",
+      "placeholder": false
+    },
+    {
+      "z": 18,
+      "x": 156457,
+      "y": 102110,
+      "url": "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/18/102110/156457",
+      "file": "tiles/18-156457-102110.jpg",
+      "bytes": 16756,
+      "sha256": "7b39e741971ab1013579e4e47b8973d4fe8eba3d6dcab3dd10b2466943ed2b93",
+      "placeholder": false
+    },
+    {
+      "z": 18,
+      "x": 156458,
+      "y": 102110,
+      "url": "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/18/102110/156458",
+      "file": "tiles/18-156458-102110.jpg",
+      "bytes": 16352,
+      "sha256": "833f5d6dcd8d49dbad90be9db680c260a544f592bcbf63ffab07608638bf394e",
+      "placeholder": false
+    },
+    {
+      "z": 18,
+      "x": 156459,
+      "y": 102110,
+      "url": "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/18/102110/156459",
+      "file": "tiles/18-156459-102110.jpg",
+      "bytes": 16486,
+      "sha256": "d072d8f267f01c5656d60251973535a9eaec07bad927e57328de84ee5b803888",
+      "placeholder": false
+    },
+    {
+      "z": 18,
+      "x": 156456,
+      "y": 102111,
+      "url": "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/18/102111/156456",
+      "file": "tiles/18-156456-102111.jpg",
+      "bytes": 14066,
+      "sha256": "8d9e3a7902e16c4883d3df6b1c747d6e32ac894bec9b8b1956c0026868934d51",
+      "placeholder": false
+    },
+    {
+      "z": 18,
+      "x": 156457,
+      "y": 102111,
+      "url": "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/18/102111/156457",
+      "file": "tiles/18-156457-102111.jpg",
+      "bytes": 15630,
+      "sha256": "54be666964dbc3c9eb076cf7219216487f2cfd6fb5f5290ff9131c2437d43522",
+      "placeholder": false
+    },
+    {
+      "z": 18,
+      "x": 156458,
+      "y": 102111,
+      "url": "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/18/102111/156458",
+      "file": "tiles/18-156458-102111.jpg",
+      "bytes": 9992,
+      "sha256": "4a3a6cb265ba4761625dfb020cd01769ed4144d7e6b829dca912e6d4f06b0160",
+      "placeholder": false
+    },
+    {
+      "z": 18,
+      "x": 156459,
+      "y": 102111,
+      "url": "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/18/102111/156459",
+      "file": "tiles/18-156459-102111.jpg",
+      "bytes": 17372,
+      "sha256": "bf4efa35b40bd56b0e4a84bd82ecf34680c54a9dbca095579a161ac94d439414",
+      "placeholder": false
+    }
+  ]
+}

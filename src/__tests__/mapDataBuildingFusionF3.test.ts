@@ -33,7 +33,7 @@ import {
 import {
   polygonAreaM2, polygonCentroid, pointInPolygon, distanceM, measureOverlap,
 } from '../platform/mapdata/resolvers/buildingGeometry';
-import type { MapGeometry, MapSourceObservation } from '../platform/mapdata/mapDataObservation';
+import type { LonLat, MapGeometry, MapSourceObservation } from '../platform/mapdata/mapDataObservation';
 
 const FIXTURE = JSON.parse(
   readFileSync(resolve(__dirname, 'fixtures/mapdataTarsusNear.json'), 'utf8'),
@@ -94,6 +94,28 @@ describe('MAPDATA-F3 · geometri', () => {
   it('nokta-poligon: merkez içeride, uzak nokta dışarıda', () => {
     expect(pointInPolygon([34.86005, 36.91805], square)).toBe(true);
     expect(pointInPolygon([34.87, 36.92], square)).toBe(false);
+  });
+
+  it('🔒 ağırlık merkezi YEREL ÇERÇEVEDE hesaplanır (lon/lat shoelace YASAK)', () => {
+    /* ÖLÇÜLDÜ (2026-09-07, ML doğruluk turu): lon/lat koordinatları ÜZERİNDE
+       doğrudan shoelace centroid hesabı KATASTROFİK KAYAN NOKTA İPTALİ üretir.
+       Çarpım terimleri ~34.86 × 36.92 ≈ 1287 mertebesinde; bina ölçeğinde
+       toplamları ise ~1e-9. Ölçüm aracımızda bu hata 25 örneğin 24'ünde
+       >3 px sapma, en kötüsünde 11 px'lik bir bina için 302 px sapma verdi.
+
+       `polygonCentroid` bu tuzağa DÜŞMEZ çünkü önce `makeLocalFrame`/`toLocalXY`
+       ile metre uzayına geçer. Bu kilit tam olarak o gerekliliği korur: biri
+       yerel çerçeveyi kaldırıp ham lon/lat ile hesaplasa merkez metrelerce
+       kayar ve test DÜŞER. */
+    const ring: LonLat[] = [
+      [34.8621000, 36.9175000], [34.8622200, 36.9175000],
+      [34.8622200, 36.9176000], [34.8621000, 36.9176000], [34.8621000, 36.9175000],
+    ];
+    const c = polygonCentroid({ type: 'POLYGON', rings: [ring] });
+    expect(c).not.toBeNull();
+    // Dikdörtgenin gerçek merkezi bbox ortasıdır; sapma 0,25 m'yi AŞMAMALI.
+    const expected: LonLat = [34.8621600, 36.9175500];
+    expect(distanceM(c!, expected)).toBeLessThan(0.25);
   });
 
   it('alan ÖLÇÜLEMEZSE null döner — sıfır UYDURULMAZ', () => {

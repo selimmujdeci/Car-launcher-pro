@@ -1,0 +1,11 @@
+import { chromium } from '@playwright/test';
+import { fileURLToPath } from 'node:url';
+const dir = fileURLToPath(new URL('./', import.meta.url));
+const browser = await chromium.launch();
+const page = await browser.newPage({ viewport: { width: 1300, height: 1320 }, deviceScaleFactor: 1 });
+await page.goto(new URL('./zoom.html', import.meta.url).href);
+await page.waitForLoadState('networkidle');
+await page.waitForTimeout(1500);
+await (await page.$('.grid')).screenshot({ path: dir + 'zoom-sheet.png' });
+console.log('yazıldı: zoom-sheet.png');
+await browser.close();

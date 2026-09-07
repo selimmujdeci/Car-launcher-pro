@@ -1,0 +1,37 @@
+{
+  "note": "KÖR DEĞERLENDİRME. Bu dosya `sample-key.json` içindeki köken bilgisi OKUNMADAN yazıldı; hücre numarası dışında hiçbir kaynak bilgisi kullanılmadı.",
+  "method": "Esri World Imagery z18 mozaiği (0,48 m/px kaynak) üzerinde footprint dış çizgisi. Birinci geçiş 25 hücre @ ~0,24 m/px görsel; düşük güvenli hücreler için ikinci geçiş @ ~0,10 m/px görsel (yukarı örnekleme — kaynak çözünürlük değişmedi).",
+  "verdictVocabulary": {
+    "VAR": "Çerçeve, görüntüde bir bina/çatı yapısının ÜZERİNDE.",
+    "KAYIK": "Yakında bina VAR ama çerçeve belirgin biçimde kaymış / şekli tutmuyor / çatıdan çok bahçeyi kapsıyor.",
+    "BELIRSIZ": "Çerçevenin altındaki yüzey bina mı (teras/müştemilat/avlu/düz dam) ayırt edilemiyor — 0,48 m/px kaynak bu soruyu çözmüyor.",
+    "YOK": "Çerçeve boş zemin / bitki örtüsü / yol üzerinde; görünür yapı yok."
+  },
+  "cells": [
+    { "cell": 1,  "verdict": "VAR",       "note": "Çatı kompleksinin sol bölümünde; bina var ama çerçeve çatının tamamını kapsamıyor." },
+    { "cell": 2,  "verdict": "VAR",       "note": "Dikdörtgen açık gri çatıyla hizalı." },
+    { "cell": 3,  "verdict": "VAR",       "note": "Büyük beyaz çatı, döndürülmüş çerçeveyle iyi hizalanmış." },
+    { "cell": 4,  "verdict": "VAR",       "note": "L/çentikli şekil; düzensiz binanın gerçek şeklini yakalıyor." },
+    { "cell": 5,  "verdict": "YOK",       "note": "ŞÜPHELİ: çerçeve içi çevredeki toprak zeminle aynı ton, görünür çatı yok. Yanlış pozitif adayı." },
+    { "cell": 6,  "verdict": "VAR",       "note": "Ağaçlar arasındaki bina çatısı." },
+    { "cell": 7,  "verdict": "VAR",       "note": "Büyük beyaz çatıyla hizalı." },
+    { "cell": 8,  "verdict": "BELIRSIZ",  "note": "Duvarlarla çevrili koyu gri dikdörtgen — kapalı yapı mı iç avlu mu ayırt edilemedi." },
+    { "cell": 9,  "verdict": "VAR",       "note": "Duvarlı parselde koyu çatılı küçük yapı." },
+    { "cell": 10, "verdict": "VAR",       "note": "Çatıyla hizalı, döndürülmüş." },
+    { "cell": 11, "verdict": "VAR",       "note": "Mavi örtülü/çatılı yapı; büyütmede gerçek yapı olduğu netleşti." },
+    { "cell": 12, "verdict": "VAR",       "note": "Bina çatısıyla hizalı." },
+    { "cell": 13, "verdict": "VAR",       "note": "Parlak beyaz çatı; çerçeve çatının bir bölümünü kapsıyor." },
+    { "cell": 14, "verdict": "VAR",       "note": "Kırmızı çatıya bitişik çatı bölümü." },
+    { "cell": 15, "verdict": "KAYIK",     "note": "İçeride bina VAR ama çerçeve ~45° döndürülmüş ve çatıdan taşıp bahçeyi kapsıyor." },
+    { "cell": 16, "verdict": "VAR",       "note": "Çatıyla hizalı." },
+    { "cell": 17, "verdict": "VAR",       "note": "L şekli, avlulu düzensiz yapıyı izliyor." },
+    { "cell": 18, "verdict": "BELIRSIZ",  "note": "Beyaz çatıya bitişik haki dikdörtgen — alçak yapı mı teras mı belirsiz." },
+    { "cell": 19, "verdict": "VAR",       "note": "Bina çatısı." },
+    { "cell": 20, "verdict": "VAR",       "note": "Parlak beyaz çatı." },
+    { "cell": 21, "verdict": "VAR",       "note": "Uzun beyaz çatı boyunca hizalı." },
+    { "cell": 22, "verdict": "VAR",       "note": "Çatı üzerindeki koyu/mavimsi öğe (panel veya gölgeli dam); yapı üzerinde." },
+    { "cell": 23, "verdict": "BELIRSIZ",  "note": "Beyaz bina ile kırmızı çatı arasında haki dikdörtgen; müştemilat/teras ayrımı yapılamadı." },
+    { "cell": 24, "verdict": "BELIRSIZ",  "note": "Yol kenarında gri/haki dikdörtgen; düz dam mı beton avlu mu ayırt edilemedi." },
+    { "cell": 25, "verdict": "BELIRSIZ",  "note": "Kırmızı çatı kenarında gri dikdörtgen; küçük ek yapı olabilir." }
+  ]
+}
