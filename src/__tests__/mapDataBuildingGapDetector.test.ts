@@ -21,7 +21,13 @@ function square(id: string, dataset: string, x: number, verified: boolean | null
     },
     geometry: { type: 'POLYGON', rings: [[[x, 36], [x + 0.0001, 36], [x + 0.0001, 36.0001], [x, 36.0001], [x, 36]]] },
     fields: {},
-    quality: { positionalAccuracyM: null, vertexCount: 5, attributeCompleteness: 0, sourceVerified: verified },
+    quality: {
+      positionalAccuracyM: null,
+      vertexCount: 5,
+      attributeCompleteness: 0,
+      sourceVerified: verified,
+      sourceConfidence: null,
+    },
     freshness: { classification: 'UNKNOWN', ageMs: null, budgetMs: null },
     grade: dataset.includes('ML') ? 'DERIVED' : 'OBSERVED',
   };

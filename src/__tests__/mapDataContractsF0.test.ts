@@ -81,6 +81,7 @@ function obs(init: {
       vertexCount: 2,
       attributeCompleteness: null,
       sourceVerified: null,
+      sourceConfidence: null,
     },
     freshness,
     grade: 'OBSERVED',

@@ -88,6 +88,7 @@ export const osmBuildingAdapter: MapSourceAdapter<OsmBuildingRaw> = {
         attributeCompleteness: computeAttributeCompleteness('BUILDING', fields, FIELDS_BY_KIND.BUILDING),
         // OSM insan katkısıdır ama formel doğrulama işareti taşımaz.
         sourceVerified: null,
+        sourceConfidence: null,
       },
       freshness: classifyFreshness(
         recordUpdatedAtEpochMs, ctx.nowEpochMs, SOURCE_FRESHNESS_BUDGET_MS.OSM,

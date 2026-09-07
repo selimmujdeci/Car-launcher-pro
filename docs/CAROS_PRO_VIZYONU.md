@@ -8607,3 +8607,28 @@ canonical bounded dataset ve shadow tile üretilmedi.
 
 Kanıt: `field-runs/mapdata-source-benchmark-20260907/` · cihaz yerleşim borcu:
 `docs/DEVICE_VALIDATION_LEDGER.md` #1323.
+
+---
+
+## MAPDATA — GOVERNMENT/MUNICIPAL SOURCE BENCHMARK + DEV/RELEASE GATE (2026-09-07)
+
+**Hüküm: TECHNICAL RESEARCH PASS · PRODUCTION BINDING YOK · RELEASE FAIL-CLOSED.**
+
+Tarsus, Mersin dense ve Erdemli bounded AOI'lerinde OSM baseline ile resmî
+Overture `2026-08-19.0` ve GeoNames ölçüldü. Kanıtlanmış OSM üstü gerçek artış
+building/road/name/address/POI/boundary kategorilerinde **0** kaldı; Mersin'de
+Overture Places için 31 kalite-adayı ikinci doğrulama kuyruğuna alındı. ML
+footprint kararı korunur: **GEOMETRY RESCUE FAIL → yalnız GAP EVIDENCE**.
+
+Ticari hak ile geliştirme erişimi ayrıldı: resmî ve bounded erişim commercial
+belge kapanmamış olsa da DEV benchmark'a girebilir; release ise pinli sürüm,
+hak/record-license audit, attribution/NOTICE, offline redistribution ve
+Türkiye izin dokümanı tamamlanmadan geçemez. OSM baseline'ın canonical teknik
+rolü ve mevcut MapStore/renderer otoritesi değiştirilmedi.
+
+Yeni `mapDatasetGovernance` iki kapıyı ve gelecekteki
+**Ayarlar → Hakkında → Harita Verileri / Kaynaklar ve Lisanslar** metadata
+projection'ını kurar. Bounded `overturePlaceAdapter` provenance-korumalıdır;
+MapStore, Navigation, Search, CEH, MapLibre veya production renderer'a bağlı
+değildir. Ayrıntılı kanıt ve source matrix:
+`field-runs/mapdata-government-benchmark-20260907/report-source.md`.

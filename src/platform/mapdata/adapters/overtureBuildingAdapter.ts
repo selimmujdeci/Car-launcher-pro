@@ -30,17 +30,13 @@ import type { MapGeometry, LonLat } from '../mapDataObservation';
 import { classifyFreshness, computeAttributeCompleteness, isValidGeometry, SOURCE_FRESHNESS_BUDGET_MS } from '../mapDataObservation';
 import { FIELDS_BY_KIND } from '../mapDataSource';
 import type { AdapterContext, AdapterResult, MapSourceAdapter } from './adapterContract';
-import { accepted, parseIsoEpochMs, rejected } from './adapterContract';
+import { accepted, rejected } from './adapterContract';
+import type { OvertureSourceRef } from './overtureSource';
+import { normalizeOvertureSources } from './overtureSource';
+
+export type { OvertureSourceRef } from './overtureSource';
 
 /* ── Ham kayıt biçimi (Overture GeoParquet satırının JSON karşılığı) ─────── */
-
-export interface OvertureSourceRef {
-  readonly dataset?: string | null;
-  readonly license?: string | null;
-  readonly record_id?: string | null;
-  readonly update_time?: string | null;
-  readonly confidence?: number | null;
-}
 
 export interface OvertureBuildingRaw {
   readonly id?: string | null;
@@ -128,21 +124,11 @@ export const overtureBuildingAdapter: MapSourceAdapter<OvertureBuildingRaw> = {
     const geometry = overtureGeometryToCanonical(raw.geometry);
     if (!geometry) return rejected('INVALID_GEOMETRY', id);
 
-    const sources = Array.isArray(raw.sources) ? raw.sources : [];
-    const datasets = sources.map((s) => (typeof s?.dataset === 'string' ? s.dataset : 'UNKNOWN'));
-    const recordLicenses = [...new Set(
-      sources.map((s) => s?.license).filter((l): l is string => typeof l === 'string' && l.length > 0),
-    )];
-
-    // Kaydın kendi zamanı: alt kaynakların EN YENİ damgası. Hiçbiri yoksa
-    // `null` — sürüm tarihine DÜŞÜLMEZ (tazelik UNKNOWN kalır).
-    let recordUpdatedAtEpochMs: number | null = null;
-    for (const s of sources) {
-      const t = parseIsoEpochMs(s?.update_time);
-      if (t !== null && (recordUpdatedAtEpochMs === null || t > recordUpdatedAtEpochMs)) {
-        recordUpdatedAtEpochMs = t;
-      }
-    }
+    const {
+      upstreamDatasets: datasets,
+      recordLicenses,
+      recordUpdatedAtEpochMs,
+    } = normalizeOvertureSources(raw.sources);
 
     const name = (typeof raw.name === 'string' && raw.name.length > 0)
       ? raw.name
@@ -182,6 +168,7 @@ export const overtureBuildingAdapter: MapSourceAdapter<OvertureBuildingRaw> = {
         // Makine türevi footprint doğrulanmamıştır; OSM kökenli kayıt için
         // "doğrulandı" iddiası da yoktur → `null` (bilinmiyor).
         sourceVerified: machineDerived ? false : null,
+        sourceConfidence: null,
       },
       freshness: classifyFreshness(
         recordUpdatedAtEpochMs, ctx.nowEpochMs, SOURCE_FRESHNESS_BUDGET_MS.OVERTURE,

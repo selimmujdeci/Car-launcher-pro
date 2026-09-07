@@ -184,11 +184,13 @@ export interface MapObservationQuality {
   readonly attributeCompleteness: number | null;
   /** Kaynağın kendi doğrulama/onay işareti (belediye onaylı vb.). */
   readonly sourceVerified: boolean | null;
+  /** Sağlayıcının ilan ettiği güven skoru [0,1]; canonical güven DEĞİLDİR. */
+  readonly sourceConfidence: number | null;
 }
 
 export const UNMEASURED_QUALITY: MapObservationQuality = {
   positionalAccuracyM: null, vertexCount: null,
-  attributeCompleteness: null, sourceVerified: null,
+  attributeCompleteness: null, sourceVerified: null, sourceConfidence: null,
 };
 
 /**

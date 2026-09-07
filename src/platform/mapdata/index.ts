@@ -37,6 +37,20 @@ export {
 } from './mapDataLicense';
 
 export type {
+  MapDatasetTechnicalClassification, MapDatasetDevelopmentEligibility,
+  MapDatasetReleaseClassification, MapDatasetAccessMethod, MapDatasetAccessMetadata,
+  MapDatasetGovernanceRecord, DevelopmentBenchmarkEvidence,
+  DevelopmentBenchmarkGateResult, CommercialReleaseEvidence,
+  CommercialReleaseGateResult, MapDataAttributionEntry,
+} from './mapDatasetGovernance';
+export {
+  evaluateDevelopmentBenchmarkGate, evaluateCommercialReleaseGate,
+  buildMapDataAttributionProjection, OSM_TURKEY_BASELINE_GOVERNANCE,
+  OVERTURE_PLACES_2026_08_19_GOVERNANCE,
+  MAP_DATASET_GOVERNANCE_REGISTRY,
+} from './mapDatasetGovernance';
+
+export type {
   LonLat, MapGeometry, MapDataFreshnessClass, MapDataFreshness, MapDataProvenance,
   MapObservationQuality, MapFieldValue, MapSourceObservation, CandidateMapFeature,
 } from './mapDataObservation';
@@ -68,6 +82,12 @@ export type { OvertureBuildingRaw, OvertureSourceRef } from './adapters/overture
 export {
   overtureBuildingAdapter, overtureGeometryToCanonical, isMachineDerivedDataset,
 } from './adapters/overtureBuildingAdapter';
+export type { NormalizedOvertureSources } from './adapters/overtureSource';
+export { normalizeOvertureSources } from './adapters/overtureSource';
+export type { OverturePlaceRaw } from './adapters/overturePlaceAdapter';
+export {
+  overturePlaceAdapter, overturePlaceCategory, overturePointToCanonical,
+} from './adapters/overturePlaceAdapter';
 export type { OsmBuildingRaw } from './adapters/osmBuildingAdapter';
 export { osmBuildingAdapter } from './adapters/osmBuildingAdapter';
 
