@@ -8458,3 +8458,42 @@ canlı koşul) hiçbiri BAĞLI DEĞİLDİR ve ekran bunu böyle söyler.
 
 **Hüküm ayrımı:** bu tur **CODE PASS**'tir. `DEVICE PASS` verilmedi,
 `REAL VEHICLE FIELD PASS` verilmedi.
+
+### MAPDATA — İKİNCİ TUR ÖLÇÜMLERİ (2026-09-07, aynı gün)
+
+**Durum değişmedi: ENTEGRE · ÜRÜN HAZIR: HAYIR.** Bu tur yeni yetenek
+eklemedi; açık borçların **ölçülebilir olanlarını ölçtü** ve bir kusur düzeltti.
+
+**1) ML footprint doğruluğu — kapı KAPANMADI (kararsız).**
+Kör örneklem (20 ML + 5 OSM kontrol): açık yanlış pozitif **%5 (1/20)**, ama
+%95 GA **[%0,9 – %23,6]** → "%10 üstüyse askıya al" kapısı ne geçildi ne
+elendi. **%25 belirsiz** oranı veri değil GÖRÜNTÜ kusurudur (Esri bu konumda
+z18 tavanı, 0,48 m/px). **Örneklem gerektirmeyen bulgu:** ML medyan alanı
+**73 m²**, insan çizimi OSM medyanı **162 m²** → ML binayı uydurmuyor,
+**~2,2 kat küçük çiziyor**. Renderer entegrasyonu **askıda** (kütük #1321).
+
+**2) Etiket aralığı — üretim DEĞİŞTİRİLMEDİ, ama artık kör değil.**
+144 varyantlık tarama: aralık düşürmek **her zaman kazandırmıyor** (800×480 ·
+pitch 0 · z17'de 460→380 net **−2**). Aday 240 pitch 0'da +3…+4 ve kayıpsız,
+pitch 45'te +2 ama bir ad kayboluyor. Arter adı **144/144** korundu. Eşik
+(z16) ölçümle doğrulandı: minzoom 15'te z15 ekrana 29–41 ad basıyor.
+Kazancı güvenle almak pitch'e duyarlı aralık ister; `symbol-spacing` LAYOUT
+olduğu için bu runtime layout yazarı gerektirir ve `road-label` LAYOUT'unun
+yazarsız olduğu invaryantını kırar → **uygulanmadı** (kütük #1319).
+
+**3) ÜRETİM DÜZELTMESİ — kapı numarası alanındaki telefon numarası.**
+Ölçüm, dokuz üretim karosundaki 32 `housenumber` kaydının birinin upstream'de
+kapı numarası alanına yazılmış bir **telefon numarası** olduğunu gösterdi
+(`03246245701`). Dün eklenen katman filtresizdi. `length <= 8` filtresi
+eklendi: 31/32 geçiyor, en uzun meşru değer `22/D`. İki kilit mutasyonla
+kanıtlandı. Ayrıca #1318'in host'ta ölçülebilen ölçütleri kapandı:
+**48/48 sahnede sıfır etiket kaybı**, z16'da 0 numara, numara kümesinde
+z17'de 2 / z18'de 4 numara yerleşiyor.
+
+> **Cihaz testi uyarısı:** kanonik noktada (36.9175/34.8621) hiç kapı numarası
+> YOKTUR; #1318 testi **34,87115 / 36,92690** noktasında yapılmalıdır.
+
+**4) Lisans disiplini kendimize uygulandı.** Ölçümde kullanılan Esri uydu
+karoları ve ekran görüntüleri **repoya alınmadı** — yeniden dağıtım hakkı
+kanıtlanmadı, `mapDataLicense` kapısının fail-closed kuralı burada da geçerli.
+Artefaktlar provenance (URL + SHA-256) ile yeniden üretilebilir.

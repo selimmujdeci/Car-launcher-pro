@@ -269,3 +269,128 @@ npx tsc --noEmit -p tsconfig.app.json
 Veri atfı: © OpenStreetMap katkıcıları (ODbL) · © Overture Maps Foundation ·
 Microsoft ML Buildings (ODbL-1.0) · OpenMapTiles / OpenFreeMap · uydu © Esri.
 Ölçüm verisi üretime gömülmedi.
+
+---
+
+# İKİNCİ VARDİYA — SABAH LİSTESİNİN CİHAZSIZ KISMI ÖLÇÜLDÜ
+
+Bu belgenin ilk hâli üç sabah işi bırakmıştı. İkisi cihaz gerektirmiyordu ve
+ölçüldü; üçüncüsünün de **cihazsız ölçülebilen tüm ölçütleri** kapatıldı.
+
+| # | Sabah işi | Durum |
+|---|---|---|
+| 1 | #1318 kapı numarasını cihazda kapat | **kısmen** — host'ta ölçülebilen 4 ölçüt KAPANDI, okunabilirlik cihazda kaldı |
+| 2 | ML footprint doğruluk örneklemi | **ÖLÇÜLDÜ** — kapı kapanmadı (kararsız), ama alan kusuru kanıtlandı |
+| 3 | #1319 aralık deneyi | **analitik boşluk KAPANDI** — cihaz deneyi 3 değerden 2'ye indi |
+
+## A. ML footprint doğruluğu (`field-runs/mapdata-ml-accuracy-20260907`)
+
+Kör örneklem (20 ML + 5 OSM kontrol, tohum 20260907, Esri z18 mozaik,
+hükümler anahtar açılmadan ÖNCE yazıldı):
+
+- ML açık yanlış pozitif **1/20 = %5** · **%95 Wilson GA [%0,9 – %23,6]**
+  → **%10 kapısı NE GEÇİLDİ NE ELENDİ.** n=20 karar için yetersiz.
+- **%25 BELİRSİZ** — bu bir VERİ kusuru değil **GÖRÜNTÜ** kusurudur:
+  0,48 m/px'te teras/müştemilat/düz dam ayrımı yapılamıyor ve Esri bu
+  konumda z19/z20'yi vermiyor (2521 B yer tutucu).
+- Tek KAYIK bir **OSM** kaydı çıktı — insan çizimi de kusursuz değil.
+
+**Örneklem gerektirmeyen nesnel bulgu (asıl risk):** ML footprint medyan alanı
+**73 m²** (n=112), aynı alandaki insan çizimi OSM medyanı **162 m²** (n=11).
+ML kümesi binayı **uydurmuyor, ~2,2 kat KÜÇÜK çiziyor**. Overture'ın OSM
+kopyaları upstream ile birebir aynı → Overture OSM geometrisini bozmuyor.
+
+**Hüküm:** renderer entegrasyonu **askıda kalır**; gerekçe artık "bilmiyoruz"
+değil, iki somut ölçüm. Kapıyı kapatmak için cihaz değil **daha büyük ve daha
+iyi ölçüm** gerekir (kütük #1321).
+
+## B. Etiket aralık/eşik taraması (`field-runs/mapdata-label-sweep-20260907`)
+
+144 varyant (6 aralık × 3 zoom × 2 viewport × 2 pitch × 2 eşik), stil
+kaynaktan derlendi:
+
+- **Kayıp GERÇEKTİR:** 800×480 · pitch 0 · z17'de 460→380 net **−2**.
+  Önceki deneyin ölçmediği şey tam buydu.
+- Aday **240**: pitch 0 · z16'da **10→14 ad, kayıp YOK**; pitch 45'te **+2 ama
+  `0478. Sokak` kayboluyor**.
+- **Arter adı 144/144 varyantta korundu.**
+- **Tekrar pratikte YOK** (2/144) → 460'ın tekrar gerekçesi bu sahnede
+  bağlayıcı değil.
+- **Eşik doğrulandı:** minzoom 15'te z15 ekrana 29 (pitch 0) / 41 (pitch 45)
+  ad basıyor → z16 kalır.
+
+**Üretim değiştirilmedi:** kazanç pitch 0'a özgü, kayıp pitch 45'te ve
+`symbol-spacing` LAYOUT'tur — pitch'e duyarlı yapmak runtime layout yazarı
+gerektirir, bu da `road-label` LAYOUT'unun yazarsız olduğu invaryantını (ve
+ona dayanan yol adı kısaltma ifadesini) kırar.
+
+## C. ÜRETİM DEĞİŞİKLİĞİ #2 — kapı numarası filtresi
+
+Ölçüm gerçek bir kusur buldu: dokuz karodaki **32** `housenumber` kaydının
+biri upstream'de kapı numarası alanına yazılmış **telefon numarasıdır**
+(`03246245701`). Dün eklenen katman filtresizdi → haritaya basardı.
+
+Eklendi: `length(housenumber) <= 8`. Gerçek karolarda **31/32 geçiyor**,
+yalnız telefon numarası eleniyor; en uzun meşru değer `22/D` (4 karakter).
+İçerik kalıbına bakılmaz (harfli numaralar meşrudur). İki kilit **mutasyonla
+kanıtlandı**.
+
+#1318 host ölçümü: **48/48 sahnede kayıp 0** — numara hiçbir sokak/arter adını
+elemiyor; z16'da 0 numara (minzoom 17 doğrulandı); numara kümesinde z17'de 2,
+z18'de 4 numara yerleşiyor.
+
+> **CİHAZ TESTİ İÇİN KRİTİK:** kanonik noktada (36.9175/34.8621) **hiç kapı
+> numarası YOKTUR**. #1318 testi **34,87115 / 36,92690** noktasında
+> yapılmalıdır — aksi hâlde ölçüm yanıltır ve özellik "çalışmıyor" sanılır.
+
+## D. Yan bulgu — ölçüm aracında kayan nokta hatası (üretim etkilenmedi)
+
+İlk kontak sayfası atıldı: ölçüm betiğinin centroid hesabı lon/lat üzerinde
+shoelace uyguluyordu → katastrofik iptal (11 px'lik binada **302 px** sapma).
+Üretim `polygonCentroid` yerel çerçeve kullandığı için etkilenmedi ve repoda
+ikinci bir tanım yok. Bulgu **mutasyonla kanıtlanmış kilide** çevrildi
+(kaldırılınca 8 test düşüyor).
+
+## E. İkinci vardiya commit'leri
+
+```
+a335f6d8  measure(mapdata): ML footprint doğruluk örneklemi
+10e6ab2b  measure(mapdata): yerel sokak adı aralık/eşik taraması
+4e378e37  fix(nav-carto): kapı numarası TELEFON NUMARASI filtresi + #1318 host ölçümü  ← ÜRETİM DEĞİŞTİ
+```
+
+Lisans disiplini: Esri karoları ve ekran görüntüleri **repoya girmedi**
+(`.gitignore` + gerekçe). Kendi fail-closed kuralımız kendimize uygulandı;
+artefaktlar provenance (URL + SHA-256) ile yeniden üretilebilir.
+
+## F. Güncellenen sabah listesi
+
+1. **#1318'i cihazda kapat** — ama **34,87115 / 36,92690** noktasında.
+   Kalan: DPR okunabilirliği · güneş kontrastı · mini harita · 800×480 taşma.
+2. **#1319 cihaz deneyi** — artık yalnız **460 vs 240**; aranacak adlar
+   (`1951.` · `1965.` · `1971. Sokak` · `Şamil Basayev Caddesi`) ve kaybolacak
+   ad (`0478. Sokak`) isimleriyle biliniyor.
+3. **ML doğruluk kapısını kapat** — cihaz DEĞİL, ölçüm işi: n≈150–200 kör
+   örneklem + en az 0,2 m/px görüntü + ikinci doku (kırsal/yeni gelişen).
+
+## G. AĞIR DOĞRULAMA — ikinci vardiya kapanışı
+
+Üretim kodu ikinci kez değiştiği için (kapı numarası filtresi) ağır doğrulama
+YENİDEN koşuldu:
+
+- `npm run test` (full suite): **837 dosya · 18953 test · 18953 PASS · 0 FAIL**
+  (293 sn). Bir önceki tura göre +1 test = yeni centroid kilidi.
+- `npm run build` (production): **✓ built in 5m 8s**, yeni hata/uyarı YOK
+  (mevcut `INEFFECTIVE_DYNAMIC_IMPORT` uyarıları önceden var ve media/nav
+  modüllerine ait — bu turda o dosyalara dokunulmadı).
+- `npm run guard`: **1001/1001**.
+- `tsc --noEmit`: temiz · `eslint` (değişen dosyalar): 0 hata.
+
+Kanıt–diff bağı: ağır doğrulama `4e378e37` HEAD'inde koştu. Sonrasında yalnız
+doküman eklendi (bu bölüm ve vizyon güncellemesi); üretim kodu DEĞİŞMEDİ,
+dolayısıyla kanıt geçerliliğini korur.
+
+**HÜKÜM: CODE PASS.** `DEVICE PASS` ve `REAL VEHICLE FIELD PASS` VERİLMEDİ.
+Açık kütük maddeleri: **#1318** (cihazda okunabilirlik) · **#1319** (460 vs 240
+cihaz deneyi) · **#1320** (LAB ekranı cihazda) · **#1321** (ML doğruluk kapısı,
+cihaz değil ölçüm işi).
