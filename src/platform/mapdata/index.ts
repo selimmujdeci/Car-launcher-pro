@@ -130,6 +130,14 @@ export {
   isRoutableAddress, formatAddress,
 } from './indexes/addressPlaceIndex';
 
+export type {
+  AddressObservation, AddressSearchCandidate, AddressMatchLevel,
+  NearestDrivablePoint, SnapContext, SnapFailure,
+} from './addressModel';
+export {
+  normalizeTurkishAddressText, addressSearchText, resolveNearestDrivablePoint,
+} from './addressModel';
+
 /* ── Canlı yol koşulu dikişi (F6) — sağlayıcı BAĞLI DEĞİL ───────────────── */
 export type {
   LiveConditionKind, LiveRoadObservation, LiveRoadEvidence, LiveRoadQuery,

@@ -1517,3 +1517,14 @@ sadeleştirme fırsatı, P0 değil.
 - Ek ölçüt: OAuth/PKCE callback veya middleware refresh cevabı cleanup ile
   yarıştığında protected UI açılmamalı, final verification başarı vermemeli ve
   lockdown korunmalı.
+## Turkey address readiness — 2026-09-07
+
+- Code: targeted address model/search/destination tests 51/51 PASS.
+- Device: PENDING — no device run in this phase.
+- Field: PENDING — no field validation in this phase.
+- Scope: no renderer, MapStore canonical data, or route authority changed.
+- Key blocker: shipped RTG2 graph contains major roads only; residential,
+  service, unclassified and living_street coverage is not present.
+- Independent 100-address corpus: NOT AVAILABLE; current bounded evidence is
+  1 OSM-labelled address feature, so exact coverage is reported as 0/1, not
+  extrapolated.

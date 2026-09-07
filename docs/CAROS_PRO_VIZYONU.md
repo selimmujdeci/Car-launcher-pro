@@ -8632,3 +8632,12 @@ projection'ını kurar. Bounded `overturePlaceAdapter` provenance-korumalıdır;
 MapStore, Navigation, Search, CEH, MapLibre veya production renderer'a bağlı
 değildir. Ayrıntılı kanıt ve source matrix:
 `field-runs/mapdata-government-benchmark-20260907/report-source.md`.
+## Turkey address readiness (2026-09-07)
+
+Address readiness is a separate product axis from building geometry. The
+canonical chain remains Search → destination handoff → route; address sources
+enter only through SourceAdapter → evidence/provenance → resolver → shadow
+comparison. Development eligibility and commercial-release eligibility are
+separate gates. Unknown commercial permission is fail-closed for release, but
+does not block a lawful bounded development benchmark. See
+`field-runs/turkey-address-readiness-20260907/report-source.md`.
