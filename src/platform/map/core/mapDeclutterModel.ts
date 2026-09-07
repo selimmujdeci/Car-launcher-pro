@@ -127,6 +127,11 @@ const NOISE_DAY: readonly NoiseLayer[] = [
   { id: 'place-suburb',        prop: 'text-opacity',           full: 0.80, fullNav: 0.55, mini: 0,    miniNav: 0 },
   { id: 'water-label',         prop: 'text-opacity',           full: 1.00, fullNav: 0.70, mini: 0,    miniNav: 0 },
   { id: 'road-label-major',    prop: 'text-opacity',           full: 1.00, fullNav: 1.00, mini: 0.55, miniNav: 0.45 },
+  /* KAPI NUMARASI (z17+): varış/park kararının bilgisidir, seyir bilgisi değil.
+     Tam ekranda tam güçte; rehberlik sırasında geri çekilir ama SÖNDÜRÜLMEZ —
+     varışın son metrelerinde tam olarak buna bakılır. Mini haritada (220 px)
+     okunamaz → 0. */
+  { id: 'housenumber',         prop: 'text-opacity',           full: 1.00, fullNav: 0.75, mini: 0,    miniNav: 0 },
   { id: 'road-shield',         prop: 'icon-opacity',           full: 1.00, fullNav: 1.00, mini: 0,    miniNav: 0 },
   { id: 'road-path',           prop: 'line-opacity',           full: 0.70, fullNav: 0.45, mini: 0,    miniNav: 0 },
   { id: 'railway',             prop: 'line-opacity',           full: 0.80, fullNav: 0.65, mini: 0.35, miniNav: 0.25 },
@@ -164,6 +169,8 @@ const NOISE_NIGHT: readonly NoiseLayer[] = [
   { id: 'place-suburb',        prop: 'text-opacity',           full: 0.75, fullNav: 0.50, mini: 0,    miniNav: 0 },
   { id: 'water-label',         prop: 'text-opacity',           full: 0.90, fullNav: 0.60, mini: 0,    miniNav: 0 },
   { id: 'road-label-major',    prop: 'text-opacity',           full: 1.00, fullNav: 1.00, mini: 0.55, miniNav: 0.45 },
+  /* Gece: parlayan küçük yazı göz yorar → gündüzden DAHA ÇOK geri çekilir. */
+  { id: 'housenumber',         prop: 'text-opacity',           full: 0.85, fullNav: 0.60, mini: 0,    miniNav: 0 },
   { id: 'road-shield',         prop: 'icon-opacity',           full: 1.00, fullNav: 1.00, mini: 0,    miniNav: 0 },
   { id: 'road-path',           prop: 'line-opacity',           full: 0.55, fullNav: 0.35, mini: 0,    miniNav: 0 },
   { id: 'railway',             prop: 'line-opacity',           full: 0.75, fullNav: 0.55, mini: 0.30, miniNav: 0.20 },

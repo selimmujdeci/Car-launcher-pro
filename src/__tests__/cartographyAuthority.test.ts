@@ -164,9 +164,13 @@ describe('2 · ölçülmüş şema adresleri', () => {
 
   it('🔒 ölçümde VAR olan ama hiç kullanılmayan katmanlar artık çiziliyor', () => {
     for (const id of ['landcover-wood', 'landcover-grass', 'landcover-farmland',
-      'landuse-park', 'railway', 'aeroway', 'boundary', 'water-label']) {
+      'landuse-park', 'railway', 'aeroway', 'boundary', 'water-label',
+      /* 2026-09-07 (MAPDATA-F4): `housenumber` üretim karosunda VARDI ama
+         stilin tüketicisi YOKTU — veri stilde kayboluyordu. */
+      'housenumber']) {
       expect(has(DAY, id), `${id} stile eklenmemiş`).toBe(true);
     }
+    expect(srcLayer(DAY, 'housenumber')).toBe('housenumber');
     expect(srcLayer(DAY, 'railway')).toBe('transportation');
     expect(filterOf(DAY, 'railway')).toContain('rail');
     expect(srcLayer(DAY, 'water-label')).toBe('water_name');
@@ -468,7 +472,7 @@ describe('5 · etiket hiyerarşisi ve yoğunluk bütçesi', () => {
     /* `pauseable_placement.ts`: `_currentPlacementIndex = order.length - 1` →
        listede EN SONDAKİ sembol katmanı yerleşimi KAZANIR. Bu yüzden öncelik
        sırası listede TERS durmalı: en düşük öncelikli başta. */
-    const dusuktenYuksege = ['place-suburb', 'road-label', 'place-village',
+    const dusuktenYuksege = ['housenumber', 'place-suburb', 'road-label', 'place-village',
       'water-label', 'road-label-major', 'place-town', 'road-shield', 'place-city'];
     for (const s of [DAY, NIGHT]) {
       for (let i = 1; i < dusuktenYuksege.length; i++) {
@@ -494,6 +498,44 @@ describe('5 · etiket hiyerarşisi ve yoğunluk bütçesi', () => {
     for (const id of ['place-city', 'place-town', 'place-village', 'place-suburb',
       'road-label-major', 'road-shield']) {
       expect(layoutOf(DAY, id)['symbol-sort-key'], `${id} sort-key taşımıyor`).toBeDefined();
+    }
+  });
+
+  it('🔒 KAPI NUMARASI mevcut veriyi çizer, UYDURMAZ ve sokak adını ELEMEZ', () => {
+    /* ÖLÇÜM (`field-runs/map-data-coverage-20260907`): `housenumber` kaynak
+       katmanı üretim karosunda vardı (merkez z14: 7 kayıt) ama hiçbir stil
+       katmanı onu tüketmiyordu. Bu kilit üç şeyi birden korur:
+         1. tüketici VAR ve DOĞRU alanı okur (türetme/interpolasyon YOK),
+         2. seyir zoom'unda çizilmez (yerel sokak adından SONRA başlar),
+         3. çakışmada sokak adının ALTINDA kalır (listede ondan ÖNCE). */
+    for (const st of [DAY, NIGHT]) {
+      const lay = layoutOf(st, 'housenumber') as Record<string, unknown>;
+      expect(JSON.stringify(lay['text-field'])).toBe('["get","housenumber"]');
+      expect(minzoomOf(st, 'housenumber')).toBe(LABEL_VISIBILITY.housenumber);
+      expect(LABEL_VISIBILITY.housenumber).toBeGreaterThan(LABEL_VISIBILITY['road-label']);
+      expect(idx(st, 'housenumber')).toBeLessThan(idx(st, 'road-label'));
+      /* Kapı numarası her zoomda yerel sokak adından KÜÇÜK — hiyerarşi. */
+      for (const z of [17, 18, 19]) {
+        expect(evalZoom(lay['text-size'], z))
+          .toBeLessThan(evalZoom(layoutOf(st, 'road-label')['text-size'], z));
+      }
+      /* Opaklık DÜZ SAYI: declutter otoritesi bu alanı yazar. */
+      const paint = (st.layers.find((l) => l.id === 'housenumber') as unknown as
+        { paint?: Record<string, unknown> }).paint ?? {};
+      expect(typeof paint['text-opacity']).toBe('number');
+    }
+  });
+
+  it('🔒 KAPI NUMARASI mini haritada çizilmez, rehberlikte SÖNDÜRÜLMEZ', () => {
+    for (const night of [false, true]) {
+      const mini = resolveDeclutter({ surface: 'MINI', night, navActive: false, tier: 0 }, NAV_SUPPRESS_TIERS[0]!);
+      const navFull = resolveDeclutter({ surface: 'FULL', night, navActive: true, tier: 0 }, NAV_SUPPRESS_TIERS[0]!);
+      const get = (d: { entries: readonly (readonly [string, string, number])[] }, id: string) =>
+        d.entries.find(([i]) => i === id)?.[2] ?? -1;
+      expect(get(mini, 'housenumber')).toBe(0);
+      expect(get(navFull, 'housenumber')).toBeGreaterThan(0);
+      /* Varışta kapı numarası sokak adını gölgede bırakmaz. */
+      expect(get(navFull, 'housenumber')).toBeLessThanOrEqual(get(navFull, 'road-label-major'));
     }
   });
 
@@ -597,7 +639,8 @@ describe('7 · yüzey bilgi bütçesi', () => {
   it('🔒 yeni kartografi katmanları gürültü sözleşmesine EKLENDİ (sessiz kalmadı)', () => {
     for (const id of ['landcover-wood', 'landcover-grass', 'landcover-farmland',
       'landuse-urban', 'landuse-green', 'railway', 'aeroway', 'boundary',
-      'water-label', 'place-village', 'place-suburb', 'road-label-major', 'waterway-stream']) {
+      'water-label', 'place-village', 'place-suburb', 'road-label-major', 'waterway-stream',
+      'housenumber']) {
       expect(DECLUTTER_OWNED_LAYERS, `${id} gürültü tablosunda yok`).toContain(id);
     }
   });

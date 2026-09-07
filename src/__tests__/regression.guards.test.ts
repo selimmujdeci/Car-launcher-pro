@@ -13276,3 +13276,55 @@ describe('🔒 P0-B · sürüş girişinde TEK kamera üreticisi', () => {
     }
   });
 });
+
+/* ══════════════════════════════════════════════════════════════════════════
+   🔒 MAPDATA-F4 · MEVCUT VERİ STİLDE KAYBOLMASIN
+   ══════════════════════════════════════════════════════════════════════════
+   ÖLÇÜLEN KUSUR (7 Eylül 2026, `field-runs/map-data-coverage-20260907`):
+   üretim karosunda `housenumber` kaynak katmanı VARDI (merkez z14 karosunda 7
+   kayıt, çekirdek alanda 3 ve üçü de upstream OSM kayıtlarıyla eşleşiyordu)
+   ama stilde HİÇBİR tüketici yoktu. Yani veri boru hattında değil, SON ADIMDA
+   kayboluyordu — bu kusur sessizdir: log yok, hata yok, yalnız eksik ekran.
+
+   Bu kilit aynı sessiz kusurun geri gelmesini engeller.
+   ══════════════════════════════════════════════════════════════════════════ */
+describe('🔒 MAPDATA-F4 · karoda var olan veri stilde tüketiliyor', () => {
+  const _localSource = new Map([['local', {
+    id: 'local', name: 'local', type: 'offline' as const, description: '', isAvailable: true,
+  }]]);
+  const _styleFor = async (night: boolean) => {
+    const { buildVectorStyle } = await import('../platform/mapStyleBuilders');
+    return buildVectorStyle(_localSource as never, () => {
+      throw new Error('raster fallback bu kilidin konusu değil');
+    }, night) as unknown as {
+      layers: { id: string; 'source-layer'?: string; layout?: Record<string, unknown> }[];
+    };
+  };
+
+  it('`housenumber` kaynak katmanının bir tüketicisi VAR ve doğru alanı okur', async () => {
+    for (const night of [false, true]) {
+      const style = await _styleFor(night);
+      const layer = style.layers.find((l) => l.id === 'housenumber');
+      expect(layer, `housenumber tüketicisi kaldırılmış (night=${night})`).toBeDefined();
+      expect(layer!['source-layer']).toBe('housenumber');
+      /* UYDURMA YASAĞI: numara yalnız kaynak alandan okunur — bina
+         poligonundan, sokak adından veya interpolasyondan TÜRETİLMEZ. */
+      expect(JSON.stringify(layer!.layout?.['text-field'])).toBe('["get","housenumber"]');
+    }
+  });
+
+  it('kapı numarası yerel sokak adının çakışma önceliğini ÇALMAZ', async () => {
+    const { LABEL_VISIBILITY } = await import('../platform/mapStyleBuilders');
+    const style = await _styleFor(false);
+    const idxOf = (id: string) => style.layers.findIndex((l) => l.id === id);
+    /* MapLibre yerleşimi listeyi SONDAN tarar → önce gelen ÖNCELİKSİZDİR. */
+    expect(idxOf('housenumber')).toBeGreaterThanOrEqual(0);
+    expect(idxOf('housenumber')).toBeLessThan(idxOf('road-label'));
+    expect(LABEL_VISIBILITY.housenumber).toBeGreaterThan(LABEL_VISIBILITY['road-label']);
+  });
+
+  it('kapı numarası bir gürültü otoritesine AİT (sahipsiz katman yok)', async () => {
+    const { DECLUTTER_OWNED_LAYERS } = await import('../platform/map/core/mapDeclutterModel');
+    expect(DECLUTTER_OWNED_LAYERS).toContain('housenumber');
+  });
+});

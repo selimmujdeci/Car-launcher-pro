@@ -649,6 +649,14 @@ export const LABEL_VISIBILITY = {
   'poi-hospital':     15,
   'poi-police':       15,
   'poi-parking':      16,
+  /* ÖLÇÜM (7 Eylül 2026, `field-runs/map-data-coverage-20260907`): `housenumber`
+     kaynak katmanı üretim karosunda VAR (merkez z14 karosunda 7 kayıt, çekirdek
+     alanda 3) ama stilin HİÇBİR tüketicisi yoktu — veri boru hattında değil,
+     STİLDE kayboluyordu. Kapı numarası yalnız VARIŞ/park anında karar verdirir;
+     seyir zoom'unda (z16 ve altı) mürekkepten ibarettir. Bu yüzden eşik yerel
+     sokak adının (16) ÜSTÜNDE: z17. Kaynak katman sağlayıcıda z14-14'tür;
+     z17'de overzoom edilir — bu ek karo maliyeti YARATMAZ. */
+  'housenumber':      17,
 } as const;
 
 /**
@@ -1444,6 +1452,46 @@ export function buildVectorLayers(night: boolean): LayerSpecification[] {
            baglidir; 2026-09-06'da ters cevrilmeye calisildi ve KILIT YAKALADI.
            Yerel sokak adi butcesi SIRAYLA degil, `minzoom` (16) ve
            `symbol-spacing` (460) ile kisilir. */
+        /* KAPI NUMARASI — çakışma önceliğinde EN ALTTA (listede EN BAŞTA).
+           MapLibre yerleşimi listeyi SONDAN tarar; bu yüzden buraya konması
+           "her sokak adı, her yer adı, her kalkan kapı numarasından ÖNCE
+           yerleşir" demektir. Numaralar hiçbir zaman bir sokak adını elemez.
+
+           UYDURMA YASAĞI: `text-field` DOĞRUDAN `housenumber` alanını okur.
+           Adres yoksa etiket de yoktur — bina poligonundan, sokak adından
+           veya interpolasyondan numara TÜRETİLMEZ (ölçüm: bina şemasında
+           adres alanı yok, `addr:interpolation` 0).
+
+           ÖLÇÜLEN SINIR: kaynak kapsamı ÇOK SEYREK (merkez karoda 3 çekirdek
+           numara). Bu katman "adres kapsamını" çözmez; yalnız MEVCUT verinin
+           çizilmemesi kusurunu kapatır. Kapsam ayrı bir kaynak sorunudur. */
+        { id: 'housenumber',
+          type: 'symbol',
+          source: 'omv',
+          'source-layer': 'housenumber',
+          minzoom: LABEL_VISIBILITY.housenumber,
+          layout: {
+            'text-field': ['get', 'housenumber'] as unknown as string,
+            'text-font': ['Noto Sans Regular'],
+            'text-size': ['interpolate', ['linear'], ['zoom'], 17, 9.5, 19, 11.5],
+            /* Numaralar birbirine YAKIN dizilir; büyük padding aynı sokaktaki
+               ikinci numarayı elerdi. Sokak adı korumasını padding değil,
+               KATMAN SIRASI sağlar (yukarıdaki not). */
+            'text-padding': 2,
+            'text-letter-spacing': 0.02,
+            /* Kapı numaraları arasında anlamlı bir önem sırası YOKTUR; sabit
+               anahtar bunu açıkça beyan eder (uydurma rank üretilmez). */
+            'symbol-sort-key': 20,
+          },
+          paint: {
+            'text-color': P.labelText,
+            /* SABİT SAYI: `mapDeclutterModel` bu alanı düz sayıyla yazar —
+               zoom ifadesi ilk yazımda kalıcı olarak silinirdi. */
+            'text-opacity': 0.75,
+            'text-halo-color': P.labelHalo,
+            'text-halo-width': 1.2,
+            'text-halo-blur': 0.3,
+          } } as LayerSpecification,
         { id: 'place-suburb',
           type: 'symbol',
           source: 'omv',
