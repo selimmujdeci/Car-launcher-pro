@@ -178,6 +178,60 @@ export function buildMapDataFields(
   return out;
 }
 
+function countRows(rows: readonly { value: string; count: number }[]): string | null {
+  return rows.length > 0 ? rows.map((r) => `${r.value}:${r.count}`).join(' · ') : null;
+}
+
+/** Gap Detector'ın kanonik salt-okunur projeksiyonunu UI alanlarına çevirir. */
+export function buildBuildingGapFields(
+  snap: MapDataRawSnapshot | null | undefined,
+): readonly InspectorField[] {
+  const gaps = snap?.buildingGaps;
+  const available = gaps?.availability === 'OBSERVED';
+  return [
+    field('gap-total', 'PotentialBuildingGap toplamı', available ? String(gaps.total) : null,
+      available ? 'OBSERVED' : 'UNAVAILABLE',
+      available ? 'BuildingGapDetector çıktısının sayımıdır.' : 'Gap evidence akışı bağlı değil; 0 UYDURULMAZ.',
+      'BuildingGapDetector'),
+    field('gap-source', 'Kaynak', available ? countRows(gaps.sources) : null,
+      available ? 'OBSERVED' : 'UNAVAILABLE', 'Kaynak kimliği doğrudan gap provenance içinden okunur.',
+      'BuildingGapDetector'),
+    field('gap-source-family', 'Kalite ailesi', available ? countRows(gaps.sourceFamilies) : null,
+      available ? 'OBSERVED' : 'UNAVAILABLE', 'Provenance sınıfı doğrudan gap evidence içinden okunur.',
+      'BuildingGapDetector'),
+    field('gap-reasons', 'Reason dağılımı', available ? countRows(gaps.reasons) : null,
+      available ? 'DERIVED' : 'UNAVAILABLE', 'Yeni gap hükmü üretilmez; mevcut reason değerleri sayılır.',
+      'BuildingGapDetector'),
+    field('gap-grade', 'Evidence sınıfı', available ? countRows(gaps.evidenceGrades) : null,
+      available ? 'OBSERVED' : 'UNAVAILABLE', 'Mevcut EvidenceGrade sözlüğü kullanılır.',
+      'BuildingGapDetector'),
+    field('gap-confidence', 'Confidence', available
+      ? `${gaps.confidenceKnown}/${gaps.total} bilinen · medyan ${gaps.medianConfidence === null
+        ? 'UNKNOWN' : gaps.medianConfidence.toFixed(2)}` : null,
+      available ? 'OBSERVED' : 'UNAVAILABLE', 'Kaynak confidence vermediyse UNKNOWN kalır.',
+      'BuildingGapDetector'),
+    field('gap-release-freshness', 'Dataset release / freshness', available
+      ? `${countRows(gaps.releases) ?? 'UNKNOWN'} · ${countRows(gaps.freshness) ?? 'UNKNOWN'}` : null,
+    available ? 'OBSERVED' : 'UNAVAILABLE', 'Release ve freshness gap provenance içinden gelir.',
+    'BuildingGapDetector'),
+    field('gap-distance', 'Canonical mesafe medyanı', available && gaps.medianDistanceM !== null
+      ? `${gaps.medianDistanceM.toFixed(1)} m (${gaps.distanceMeasured}/${gaps.total})` : null,
+    available && gaps.medianDistanceM !== null ? 'DERIVED' : 'UNAVAILABLE',
+    'Yalnız ölçülebilen centroid mesafeleri özetlenir.', 'BuildingGapDetector'),
+    field('gap-overlap', 'Overlap / containment', available
+      ? `${gaps.overlapMeasured}/${gaps.total} ölçüldü · containment ${gaps.withContainment ?? 0}`
+        + ` · medyan alan oranı ${gaps.medianAreaRatio === null ? 'UNKNOWN' : gaps.medianAreaRatio.toFixed(2)}` : null,
+    available ? 'DERIVED' : 'UNAVAILABLE', 'Kanonik overlap kanıtının salt-okunur sayımıdır.',
+    'BuildingGapDetector'),
+    field('gap-license', 'Offline lisans eligibility', available ? countRows(gaps.licenseEligibility) : null,
+      available ? 'DERIVED' : 'UNAVAILABLE', 'Mevcut mapDataLicense kapısı her kayıt için çalıştırılır.',
+      'mapDataLicense'),
+    field('gap-publishable', 'Publishable building', 'FALSE', 'OBSERVED',
+      'GAP EVIDENCE ≠ MAP TRUTH. MapStore/renderer/routing/CEH için bina değildir.',
+      'BuildingGapDetector contract'),
+  ];
+}
+
 /* ══════════════════════════════════════════════════════════════════════════
    4) PORT AÇIKLAMALARI — "neden bağlı değil" sorusunun ölçülmüş cevabı
    ══════════════════════════════════════════════════════════════════════════ */

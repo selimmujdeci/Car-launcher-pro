@@ -25,11 +25,12 @@ import {
   readMapDataSnapshot, MAP_DATA_SOURCE_COUNT, EMPTY_MAP_DATA_SNAPSHOT,
 } from '../platform/devtools/mapDataSources';
 import {
-  buildMapDataFields, deriveMapDataVerdict, summarizeLicenses, mapDataHeadline,
+  buildBuildingGapFields, buildMapDataFields, deriveMapDataVerdict, summarizeLicenses, mapDataHeadline,
   PORT_UNBOUND_REASON, PORT_LABEL,
 } from '../platform/devtools/mapDataLabModel';
 import { MapDataPlatformScreen } from '../components/devtools/screens/MapDataPlatformScreen';
 import { evaluateLicenseGate, licensePolicyFor } from '../platform/mapdata/mapDataLicense';
+import type { PotentialBuildingGap } from '../platform/mapdata';
 
 const SOURCES_SRC = readFileSync(
   resolve(__dirname, '../platform/devtools/mapDataSources.ts'), 'utf8');
@@ -37,9 +38,27 @@ const MODEL_SRC = readFileSync(
   resolve(__dirname, '../platform/devtools/mapDataLabModel.ts'), 'utf8');
 const SCREEN_SRC = readFileSync(
   resolve(__dirname, '../components/devtools/screens/MapDataPlatformScreen.tsx'), 'utf8');
+const GAP_DETECTOR_SRC = readFileSync(
+  resolve(__dirname, '../platform/mapdata/resolvers/buildingGapDetector.ts'), 'utf8');
 
 const stripComments = (s: string) =>
   s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+
+const GAP_FIXTURE = [{
+  approximateGeometry: {
+    type: 'POLYGON',
+    rings: [[[34, 36], [34.001, 36], [34.001, 36.001], [34, 36.001], [34, 36]]],
+  },
+  source: 'OVERTURE', sourceFeatureId: 'ml-gap-observatory-fixture',
+  sourceQuality: 'ML_DERIVED_UNVERIFIED', confidence: 0.72, evidenceGrade: 'DERIVED',
+  distanceToCanonicalBuildingM: 18,
+  overlap: { centroidDistanceM: 18, mutualContainment: 0, areaRatio: 0.2,
+    areaAM2: 100, areaBM2: 500 },
+  observedDatasetRelease: { sourceId: 'OVERTURE', releaseId: '2026-08-19.0',
+    publishedAtEpochMs: null, dataCutoffEpochMs: null, retrievedFrom: 'fixture' },
+  sourceFreshness: { classification: 'AGING', ageMs: 1, budgetMs: 2 },
+  recordLicenses: ['ODbL-1.0'], reason: 'INSUFFICIENT_CANONICAL_OVERLAP',
+}] as const satisfies readonly PotentialBuildingGap[];
 
 /* ══════════════════════════════════════════════════════════════════════════
    1) KATALOG
@@ -60,6 +79,7 @@ describe('CAROS LAB · Harita Veri Platformu · katalog', () => {
     expect(note).toContain('İKİNCİ OTORİTE DEĞİL');
     expect(note).toContain('Navigation Core');
     expect(note).toContain('GİZLİLİK');
+    expect(`${tool!.desc} ${note}`).toContain('GAP EVIDENCE ≠ MAP TRUTH');
   });
 });
 
@@ -76,6 +96,9 @@ describe('CAROS LAB · Harita Veri Platformu · okuma', () => {
     expect(snap.sources.length).toBeGreaterThanOrEqual(8);
     expect(snap.readErrors).toBe(0);
     expect(snap.ports.length).toBe(3);
+    expect(snap.buildingGaps).toMatchObject({
+      availability: 'UNAVAILABLE', total: null, publishable: false,
+    });
   });
 
   it('lisans hükmü SABİT METİN DEĞİL — kanonik kapıyla birebir aynı', () => {
@@ -121,6 +144,13 @@ describe('CAROS LAB · Harita Veri Platformu · model', () => {
     expect(deriveMapDataVerdict(null)).toBe('UNAVAILABLE');
     const fields = buildMapDataFields(EMPTY_MAP_DATA_SNAPSHOT);
     expect(fields.every((f) => f.klass === 'UNAVAILABLE')).toBe(true);
+    const gapFields = buildBuildingGapFields(EMPTY_MAP_DATA_SNAPSHOT);
+    expect(gapFields.find((f) => f.id === 'gap-total')).toMatchObject({
+      value: '—', klass: 'UNAVAILABLE',
+    });
+    expect(gapFields.find((f) => f.id === 'gap-publishable')).toMatchObject({
+      value: 'FALSE', klass: 'OBSERVED',
+    });
   });
 
   it('bugünkü doğru hâl: sağlayıcı YOK → CONTRACTS_ONLY (arıza DEĞİL)', () => {
@@ -172,6 +202,24 @@ describe('CAROS LAB · Harita Veri Platformu · ekran', () => {
     expect(html).toContain('SALT OKUNUR');
   });
 
+  it('Gap Observatory gerçeği ve publish sınırını açıkça gösterir', () => {
+    expect(html).toContain('data-testid="mdp-gap-observatory" data-publishable="false"');
+    expect(html).toContain('GAP EVIDENCE ≠ MAP TRUTH');
+    expect(html).toContain('Publishable building');
+    expect(html).toContain('FALSE');
+    expect(html).toContain('Gap evidence akışı bağlı değil; 0 UYDURULMAZ.');
+  });
+
+  it('verilen detector çıktısını saklamadan salt-okunur gösterir', () => {
+    const observedHtml = renderToStaticMarkup(<MapDataPlatformScreen gapEvidence={GAP_FIXTURE} />);
+    expect(observedHtml).toContain('OVERTURE:1');
+    expect(observedHtml).toContain('ML_DERIVED_UNVERIFIED:1');
+    expect(observedHtml).toContain('INSUFFICIENT_CANONICAL_OVERLAP:1');
+    expect(observedHtml).toContain('0.72');
+    expect(observedHtml).toContain('2026-08-19.0:1');
+    expect(observedHtml).toContain('ALLOW_WITH_ATTRIBUTION:1');
+  });
+
   it('üç portu da BAĞLI DEĞİL olarak gösterir (sahte hazır YOK)', () => {
     for (const id of ['ADDRESS_INDEX', 'PLACE_INDEX', 'LIVE_ROAD_CONDITIONS']) {
       expect(html).toContain(`data-testid="mdp-port-${id}" data-bound="false"`);
@@ -193,7 +241,18 @@ describe('CAROS LAB · Harita Veri Platformu · ekran', () => {
     }
     expect(code).toContain('mountedRef');
     expect(code).toContain('return () => { mountedRef.current = false; };');
-    expect(code).toContain('readMapDataSnapshot()');
+    expect(code).toContain('readMapDataSnapshot(gapEvidence)');
+  });
+
+  it('Gap Observatory truth/store/resolver/renderer/routing/CEH yazarı değildir', () => {
+    const detector = stripComments(GAP_DETECTOR_SRC);
+    for (const re of [/from\s+['"][^'"]*MapStore/i, /\.setState\s*\(/,
+      /\bmapStore\s*\./i, /\bfuseBuildings\s*\(/, /\bresolveBuilding\w*\s*\(/,
+      /\bmaplibre\b/i, /\brouting\w*\s*\./i, /\bceh\w*\s*\./i]) {
+      expect(`${re.source}:${re.test(detector)}`).toBe(`${re.source}:false`);
+    }
+    expect(detector).not.toContain('setInterval(');
+    expect(detector).not.toContain('setTimeout(');
   });
 
   it('GİZLİLİK: ekran koordinat/adres/sorgu alanı OKUMAZ', () => {

@@ -4,6 +4,7 @@ import {
   classifyBuildingSourceQuality,
   detectPotentialBuildingGaps,
   fuseBuildings,
+  observePotentialBuildingGaps,
 } from '../platform/mapdata';
 
 const release = {
@@ -56,6 +57,34 @@ describe('MAPDATA · ML building quality ve gap sınırı', () => {
     const ml = square('ml-covered', 'Microsoft ML Buildings', 34);
     const osm = square('osm-known', 'OpenStreetMap', 34);
     expect(detectPotentialBuildingGaps([ml], [osm])).toEqual([]);
+  });
+
+  it('LAB projeksiyonu bağlı olmayan akış için 0 uydurmaz', () => {
+    expect(observePotentialBuildingGaps(null)).toMatchObject({
+      availability: 'UNAVAILABLE', total: null, publishable: false,
+      sources: [], sourceFamilies: [], licenseEligibility: [],
+    });
+  });
+
+  it('LAB projeksiyonu gap provenance ve kalite kanıtını salt-okunur özetler', () => {
+    const gaps = detectPotentialBuildingGaps(
+      [square('ml-gap', 'Microsoft ML Buildings', 34)],
+      [square('osm-known', 'OpenStreetMap', 34.01)],
+    );
+    const observed = observePotentialBuildingGaps(gaps);
+    expect(observed).toMatchObject({
+      availability: 'OBSERVED', total: 1, publishable: false,
+      sources: [{ value: 'OVERTURE', count: 1 }],
+      sourceFamilies: [{ value: 'ML_DERIVED_UNVERIFIED', count: 1 }],
+      reasons: [{ value: 'NO_CANONICAL_BUILDING_NEARBY', count: 1 }],
+      evidenceGrades: [{ value: 'DERIVED', count: 1 }],
+      releases: [{ value: '2026-08-19.0', count: 1 }],
+      freshness: [{ value: 'UNKNOWN', count: 1 }],
+      confidenceKnown: 0, medianConfidence: null, distanceMeasured: 1, overlapMeasured: 1,
+      withContainment: 0, medianAreaRatio: 1,
+      licenseEligibility: [{ value: 'ALLOW_WITH_ATTRIBUTION', count: 1 }],
+    });
+    expect(observed).not.toHaveProperty('geometry');
   });
 
 });

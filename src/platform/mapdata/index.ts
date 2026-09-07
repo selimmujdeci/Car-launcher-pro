@@ -93,10 +93,10 @@ export {
 } from './resolvers/buildingQuality';
 export type {
   PotentialBuildingGapReason, PotentialBuildingGap, BuildingGapPolicy,
-  BuildingGapVerificationEvidence,
+  BuildingGapVerificationEvidence, BuildingGapCountRow, BuildingGapObservatorySnapshot,
 } from './resolvers/buildingGapDetector';
 export {
-  DEFAULT_BUILDING_GAP_POLICY, detectPotentialBuildingGaps,
+  DEFAULT_BUILDING_GAP_POLICY, detectPotentialBuildingGaps, observePotentialBuildingGaps,
 } from './resolvers/buildingGapDetector';
 
 /* ── Adres/Place index dikişi (F5) — PORT TANIMI, çalışan index DEĞİL ────── */

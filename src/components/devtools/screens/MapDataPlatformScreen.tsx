@@ -27,13 +27,14 @@ import {
   readMapDataSnapshot, type MapDataRawSnapshot,
 } from '../../../platform/devtools/mapDataSources';
 import {
-  buildMapDataFields, deriveMapDataVerdict, summarizeLicenses, mapDataHeadline,
+  buildMapDataFields, buildBuildingGapFields, deriveMapDataVerdict, summarizeLicenses, mapDataHeadline,
   MAP_DATA_LAB_VERDICT_LABEL, PORT_LABEL, PORT_UNBOUND_REASON,
   type MapDataLabVerdict,
 } from '../../../platform/devtools/mapDataLabModel';
 import {
   OBSERVABILITY_LABEL, type InspectorField, type Observability,
 } from '../../../platform/devtools/sessionInspectorModel';
+import type { PotentialBuildingGap } from '../../../platform/mapdata/resolvers/buildingGapDetector';
 
 const CLASS_STYLE: Record<Observability, string> = {
   OBSERVED:    'border-[var(--oem-good)] bg-[var(--oem-good-soft)] text-[var(--oem-good)]',
@@ -75,7 +76,7 @@ const FieldRow = memo(function FieldRow({ field }: { field: InspectorField }) {
           <span className="break-all font-mono text-[11px] text-[var(--oem-ink)]">{field.value}</span>
         </div>
         <div className="mt-0.5 font-mono text-[9px] text-[var(--oem-ink-3)]">
-          {field.source} · zaman damgası yok (kod sabiti)
+          {field.source} · LAB okuma anı damgalanmaz
         </div>
         {field.note && (
           <div className="mt-0.5 text-[9px] leading-relaxed text-[var(--oem-ink-3)]">{field.note}</div>
@@ -91,9 +92,16 @@ const FieldRow = memo(function FieldRow({ field }: { field: InspectorField }) {
   );
 });
 
-export const MapDataPlatformScreen = memo(function MapDataPlatformScreen() {
+export interface MapDataPlatformScreenProps {
+  /** Mevcut detector çıktısı; ekran saklamaz, yalnız açılışta/YENİLE'de okur. */
+  readonly gapEvidence?: readonly PotentialBuildingGap[] | null;
+}
+
+export const MapDataPlatformScreen = memo(function MapDataPlatformScreen({
+  gapEvidence = null,
+}: MapDataPlatformScreenProps) {
   // Açılışta TEK okuma. TIMER YOK, ABONELİK YOK, POLLING YOK.
-  const [snap, setSnap] = useState<MapDataRawSnapshot>(() => readMapDataSnapshot());
+  const [snap, setSnap] = useState<MapDataRawSnapshot>(() => readMapDataSnapshot(gapEvidence));
 
   /* Unmount sonrası setState YASAK (zero-leak). */
   const mountedRef = useRef(true);
@@ -103,10 +111,11 @@ export const MapDataPlatformScreen = memo(function MapDataPlatformScreen() {
   }, []);
 
   const refresh = useCallback(() => {
-    if (mountedRef.current) setSnap(readMapDataSnapshot());
-  }, []);
+    if (mountedRef.current) setSnap(readMapDataSnapshot(gapEvidence));
+  }, [gapEvidence]);
 
   const fields  = useMemo(() => buildMapDataFields(snap), [snap]);
+  const gapFields = useMemo(() => buildBuildingGapFields(snap), [snap]);
   const verdict = useMemo(() => deriveMapDataVerdict(snap), [snap]);
   const lic     = useMemo(() => summarizeLicenses(snap.sources), [snap.sources]);
 
@@ -136,6 +145,23 @@ export const MapDataPlatformScreen = memo(function MapDataPlatformScreen() {
           Navigation Core ekranındadır — ikinci harita gerçeği yüzeyi kurulmaz.
           Koordinat, adres ve sorgu metni bu ekrana hiç gelmez. Periyodik yenileme YOKTUR.
         </p>
+      </div>
+
+      {/* Gap evidence — bina gerçeği değildir */}
+      <div
+        data-testid="mdp-gap-observatory"
+        data-publishable="false"
+        className="shrink-0 rounded border border-[var(--oem-warn)] bg-[var(--oem-surface-1)]"
+      >
+        <div className="border-b border-[var(--oem-line)] px-3 py-1.5 font-mono text-[11px] font-bold uppercase tracking-wide text-[var(--oem-warn)]">
+          GAP EVIDENCE ≠ MAP TRUTH
+        </div>
+        <div className="px-3 py-1.5 font-mono text-[9px] leading-relaxed text-[var(--oem-ink-3)]">
+          PotentialBuildingGap bir BUILDING değildir. Bu yüzey MapStore yazamaz,
+          resolver hükmünü değiştiremez, renderer/routing/CEH davranışı üretemez.
+          Evidence akışı bağlı değilse sayılar UNKNOWN kalır. Yalnız elle YENİLE vardır.
+        </div>
+        {gapFields.map((f) => <FieldRow key={f.id} field={f} />)}
       </div>
 
       {/* Hüküm */}

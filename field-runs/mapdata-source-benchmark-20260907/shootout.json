@@ -1,0 +1,177 @@
+{
+  "measuredAt": "2026-09-07",
+  "method": {
+    "scope": "three fixed ML-rescue AOIs; upstream OSM compared with local Overture fixtures",
+    "iou": "deterministic 100x100 raster approximation; only source-id-matched OSM records",
+    "grossShapeMismatch": "areaRatio < 0.5 OR centroid > 5m OR approximate IoU < 0.8",
+    "falsePositive": "UNKNOWN without independent ground truth",
+    "missingBuilding": "UNKNOWN without independent ground truth"
+  },
+  "sources": {
+    "osm": {
+      "endpoint": "https://api.openstreetmap.org/api/0.6/map",
+      "intent": "MEASUREMENT_ONLY",
+      "license": "ODbL-1.0",
+      "attribution": "© OpenStreetMap contributors",
+      "productionAccess": "Use planet/extract/Overpass for read-only bulk work; map API is not an ingestion adapter."
+    },
+    "overture": {
+      "release": "2026-08-19.0",
+      "access": "bounded repository fixtures extracted from the official Overture Buildings release",
+      "license": "record-level ODbL-1.0 in the measured building fixtures",
+      "attribution": "© Overture Maps Foundation · © OpenStreetMap contributors where OSM-derived"
+    }
+  },
+  "regions": [
+    {
+      "id": "TARSUS",
+      "bbox": [
+        34.85985,
+        36.9157,
+        34.86435,
+        36.9193
+      ],
+      "osm": {
+        "closedBuildingWays": 11,
+        "buildingRelations": 0,
+        "footprintObjects": 11,
+        "medianClosedWayAreaM2": 162.42980004200203,
+        "latestObservedRecordTimestamp": "2026-01-09T13:04:24Z",
+        "geometryPayloadSha256": "e84707c4db0e02e6cde43c4501d4cc89e922766f2a114579e68fd6c688e2e75f"
+      },
+      "overture": {
+        "total": 123,
+        "sourceFamilies": {
+          "ML_DERIVED": 112,
+          "OSM_DERIVED": 11
+        },
+        "osmDerived": 11,
+        "mlDerived": 112,
+        "otherFamilies": 0,
+        "medianAreaM2": {
+          "osmDerived": 162.4296341274524,
+          "mlDerived": 73.56315160975043,
+          "otherFamilies": null
+        },
+        "osmIdAgreement": 11,
+        "osmBaselineIdentityOverlapRate": 1,
+        "osmIdDuplicateRateWithinOverture": 0,
+        "osmGeometryAgreement": {
+          "n": 11,
+          "medianAreaRatio": 0.9999989798701114,
+          "minAreaRatio": 0.9999985288048809,
+          "medianCentroidM": 0,
+          "maxCentroidM": 7.900879950284434e-10,
+          "medianIouApprox": 1,
+          "minIouApprox": 1,
+          "grossShapeMismatch": 0
+        }
+      },
+      "verifiedAlternative": {
+        "count": 0,
+        "uniqueIncremental": 0,
+        "verification": "NO_RECORDS"
+      }
+    },
+    {
+      "id": "MERSIN",
+      "bbox": [
+        34.6304,
+        36.8093,
+        34.6374,
+        36.8149
+      ],
+      "osm": {
+        "closedBuildingWays": 28,
+        "buildingRelations": 0,
+        "footprintObjects": 28,
+        "medianClosedWayAreaM2": 389.2228545344458,
+        "latestObservedRecordTimestamp": "2026-06-25T13:16:56Z",
+        "geometryPayloadSha256": "4bd5d85f262c26ecadcea54f919ca57d606146bd26693ee066da9d3dc833cfdb"
+      },
+      "overture": {
+        "total": 435,
+        "sourceFamilies": {
+          "ML_DERIVED": 407,
+          "OSM_DERIVED": 28
+        },
+        "osmDerived": 28,
+        "mlDerived": 407,
+        "otherFamilies": 0,
+        "medianAreaM2": {
+          "osmDerived": 389.22201514658957,
+          "mlDerived": 135.47959393738736,
+          "otherFamilies": null
+        },
+        "osmIdAgreement": 28,
+        "osmBaselineIdentityOverlapRate": 1,
+        "osmIdDuplicateRateWithinOverture": 0,
+        "osmGeometryAgreement": {
+          "n": 28,
+          "medianAreaRatio": 0.9999989283136883,
+          "minAreaRatio": 0.9999966207503119,
+          "medianCentroidM": 0,
+          "maxCentroidM": 7.900879950284434e-10,
+          "medianIouApprox": 1,
+          "minIouApprox": 1,
+          "grossShapeMismatch": 0
+        }
+      },
+      "verifiedAlternative": {
+        "count": 0,
+        "uniqueIncremental": 0,
+        "verification": "NO_RECORDS"
+      }
+    },
+    {
+      "id": "ERDEMLI",
+      "bbox": [
+        34.29,
+        36.6318,
+        34.298,
+        36.6382
+      ],
+      "osm": {
+        "closedBuildingWays": 1,
+        "buildingRelations": 0,
+        "footprintObjects": 1,
+        "medianClosedWayAreaM2": 267.8590439138088,
+        "latestObservedRecordTimestamp": "2021-11-01T10:01:48Z",
+        "geometryPayloadSha256": "019ef2239d18fa69fba860d72f600c6e993b4af43032d18e67ae3e977ee741c5"
+      },
+      "overture": {
+        "total": 113,
+        "sourceFamilies": {
+          "ML_DERIVED": 112,
+          "OSM_DERIVED": 1
+        },
+        "osmDerived": 1,
+        "mlDerived": 112,
+        "otherFamilies": 0,
+        "medianAreaM2": {
+          "osmDerived": 267.8588516614383,
+          "mlDerived": 98.11085205834198,
+          "otherFamilies": null
+        },
+        "osmIdAgreement": 1,
+        "osmBaselineIdentityOverlapRate": 1,
+        "osmIdDuplicateRateWithinOverture": 0,
+        "osmGeometryAgreement": {
+          "n": 1,
+          "medianAreaRatio": 0.9999992822629107,
+          "minAreaRatio": 0.9999992822629107,
+          "medianCentroidM": 0,
+          "maxCentroidM": 0,
+          "medianIouApprox": 1,
+          "minIouApprox": 1,
+          "grossShapeMismatch": 0
+        }
+      },
+      "verifiedAlternative": {
+        "count": 0,
+        "uniqueIncremental": 0,
+        "verification": "NO_RECORDS"
+      }
+    }
+  ]
+}

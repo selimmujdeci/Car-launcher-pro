@@ -1,4 +1,5 @@
 /// <reference types="vitest" />
+import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vite';
 
 export default defineConfig({
@@ -7,7 +8,7 @@ export default defineConfig({
     globals:     true,
     include:     ['src/__tests__/**/*.test.ts', 'src/__tests__/**/*.test.tsx'],
     exclude:     ['src/__tests__/**/*.integration.test.ts', 'src/__tests__/fixtures/**'],
-    setupFiles: ['src/__tests__/setup.ts'],
+    setupFiles: [fileURLToPath(new URL('./src/__tests__/setup.ts', import.meta.url))],
 
     /**
      * Varsayılan 5 sn YETMİYOR — ve bu bir ÜRÜN kusuru DEĞİL.

@@ -1,0 +1,57 @@
+{
+  "region": "ERDEMLI",
+  "bbox": [
+    34.29,
+    36.6318,
+    34.298,
+    36.6382
+  ],
+  "retrievedAt": "2026-09-07T08:41:03.088Z",
+  "source": {
+    "id": "OSM",
+    "endpoint": "https://api.openstreetmap.org/api/0.6/map",
+    "intent": "MEASUREMENT_ONLY",
+    "license": "ODbL-1.0",
+    "attribution": "© OpenStreetMap contributors"
+  },
+  "geometryPayloadSha256": "019ef2239d18fa69fba860d72f600c6e993b4af43032d18e67ae3e977ee741c5",
+  "ways": [
+    {
+      "id": "way/976857007",
+      "timestamp": "2021-11-01T10:01:48Z",
+      "ring": [
+        [
+          34.2945342,
+          36.6359596
+        ],
+        [
+          34.2946368,
+          36.6358001
+        ],
+        [
+          34.2947705,
+          36.6358555
+        ],
+        [
+          34.2946679,
+          36.6360149
+        ],
+        [
+          34.2945342,
+          36.6359596
+        ]
+      ],
+      "tags": {
+        "addr:city": "Mersin",
+        "addr:district": "Erdemli",
+        "addr:neighbourhood": "Barbaros Mah.",
+        "amenity": "place_of_worship",
+        "building": "mosque",
+        "denomination": "sunni",
+        "name": "Güney Camii",
+        "religion": "muslim"
+      }
+    }
+  ],
+  "relations": []
+}

@@ -13333,3 +13333,37 @@ describe('🔒 MAPDATA-F4 · karoda var olan veri stilde tüketiliyor', () => {
     expect(DECLUTTER_OWNED_LAYERS).toContain('housenumber');
   });
 });
+
+/* ══════════════════════════════════════════════════════════════════════════
+   🔒 QA + MAPDATA GAP OBSERVATORY · SETUP YOLU VE TRUTH SINIRI
+   ══════════════════════════════════════════════════════════════════════════ */
+describe('🔒 QA + MAPDATA · guard setup yolu ve Gap Observatory sınırı', () => {
+  it('Vitest setup yolu çalışma dizinine değil config dosyasına sabitlenir', () => {
+    const config = read('vitest.config.ts');
+    expect(config).toContain("fileURLToPath(new URL('./src/__tests__/setup.ts', import.meta.url))");
+    expect(config).not.toMatch(/setupFiles:\s*\[\s*['"]src\/__tests__\/setup\.ts['"]\s*\]/);
+  });
+
+  it('PotentialBuildingGap publishable değildir ve üretim otoritelerine yazamaz', () => {
+    const detector = read('src/platform/mapdata/resolvers/buildingGapDetector.ts')
+      .replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+    expect(detector).toContain('readonly publishable: false');
+    expect(detector).toContain('publishable: false');
+    for (const re of [/\bmapStore\s*\./i, /\bfuseBuildings\s*\(/,
+      /\bresolveBuilding\w*\s*\(/, /\bmaplibre\b/i,
+      /\brouting\w*\s*\./i, /\bceh\w*\s*\./i,
+      /\bsetInterval\s*\(/, /\bsetTimeout\s*\(/]) {
+      expect(`${re.source}:${re.test(detector)}`).toBe(`${re.source}:false`);
+    }
+  });
+
+  it('LAB veri akışı yokken 0 uydurmaz ve sınırı ekranda ilan eder', () => {
+    const sources = read('src/platform/devtools/mapDataSources.ts');
+    const screen = read('src/components/devtools/screens/MapDataPlatformScreen.tsx');
+    expect(sources).toContain('gapEvidence: readonly PotentialBuildingGap[] | null = null');
+    expect(sources).toContain('observePotentialBuildingGaps(gapEvidence)');
+    expect(screen).toContain('GAP EVIDENCE ≠ MAP TRUTH');
+    expect(screen).toContain('data-publishable="false"');
+    expect(screen).toContain('Evidence akışı bağlı değilse sayılar UNKNOWN kalır');
+  });
+});

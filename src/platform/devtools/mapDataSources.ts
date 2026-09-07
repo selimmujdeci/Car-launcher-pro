@@ -39,6 +39,10 @@ import {
 } from '../mapdata/resolvers/buildingResolver';
 import { NULL_ADDRESS_INDEX, NULL_PLACE_INDEX } from '../mapdata/indexes/addressPlaceIndex';
 import { NULL_LIVE_ROAD_CONDITIONS, LIVE_FRESHNESS_BUDGET_MS, LIVE_CONDITION_KINDS } from '../mapdata/live/liveRoadConditions';
+import {
+  observePotentialBuildingGaps,
+  type BuildingGapObservatorySnapshot, type PotentialBuildingGap,
+} from '../mapdata/resolvers/buildingGapDetector';
 
 /* ── Kaynak satırı ───────────────────────────────────────────────────────── */
 
@@ -83,13 +87,16 @@ export interface MapDataRawSnapshot {
   readonly featureKinds: readonly { kind: MapFeatureKind; fieldCount: number }[];
   readonly recognizedSpdxLabels: readonly string[];
   readonly liveBudgets: readonly { kind: string; budgetMs: number }[];
+  /** Kanonik Gap Detector çıktısının salt-okunur özeti; veri akışı yoksa UNAVAILABLE. */
+  readonly buildingGaps: BuildingGapObservatorySnapshot;
   /** Okuma sırasında yakalanan hata sayısı — 0 değilse ekran bunu söyler. */
   readonly readErrors: number;
 }
 
 export const EMPTY_MAP_DATA_SNAPSHOT: MapDataRawSnapshot = {
   readOk: false, sources: [], ports: [], fusion: null,
-  featureKinds: [], recognizedSpdxLabels: [], liveBudgets: [], readErrors: 0,
+  featureKinds: [], recognizedSpdxLabels: [], liveBudgets: [],
+  buildingGaps: observePotentialBuildingGaps(null), readErrors: 0,
 };
 
 /* ── Okuyucular ──────────────────────────────────────────────────────────── */
@@ -158,7 +165,9 @@ function readFusionPolicy(): MapDataFusionPolicyRow | null {
  * Anlık görüntüyü SENKRON okur. Çağrı başına TEK okuma; abonelik/timer YOK.
  * Kısmi hata sonucu düşürmez — `readErrors` ile ilan edilir.
  */
-export function readMapDataSnapshot(): MapDataRawSnapshot {
+export function readMapDataSnapshot(
+  gapEvidence: readonly PotentialBuildingGap[] | null = null,
+): MapDataRawSnapshot {
   let errors = 0;
 
   const { rows: sources, errors: srcErrors } = readSources();
@@ -188,6 +197,7 @@ export function readMapDataSnapshot(): MapDataRawSnapshot {
   return {
     readOk: sources.length > 0 && ports.length > 0,
     sources, ports, fusion, featureKinds, recognizedSpdxLabels, liveBudgets,
+    buildingGaps: observePotentialBuildingGaps(gapEvidence),
     readErrors: errors,
   };
 }

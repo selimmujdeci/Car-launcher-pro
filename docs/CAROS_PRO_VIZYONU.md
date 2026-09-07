@@ -8568,3 +8568,42 @@ edilmeyen viewport'taki kaybı geçersiz kılmaz.
 
 Kanıt: `field-runs/mapdata-device-20260907/` (ekran görüntüleri, PROVENANCE.md,
 device-results.json). Detay: `docs/DEVICE_VALIDATION_LEDGER.md` #1318 · #1319.
+
+---
+
+## MAPDATA — GAP OBSERVATORY + AÇIK KAYNAK BENCHMARKI (2026-09-07)
+
+**Hüküm: NO VERIFIED OPEN CANONICAL BUILDING SOURCE FOUND · SHADOW BLOCKED.**
+Microsoft ML'nin önceki `GEOMETRY RESCUE FAIL` hükmü değişmedi; doğrulanmamış
+ML footprint yalnız `PotentialBuildingGap` kanıtıdır.
+
+**QA blocker kapandı.** Vitest 4, göreli `setupFiles` değerini Windows'ta
+çalışma dizininin kökünden `/src/__tests__/setup.ts` diye çözüyordu. Yol config
+dosyasına `import.meta.url` + `fileURLToPath` ile sabitlendi; test/guard
+gevşetilmedi ve ana `npm run guard` gerçek testleri çalıştırarak geçti.
+
+**Gözlemlenebilirlik:** mevcut CAROS LAB → Araç → Harita Veri Platformu ekranı
+genişletildi. `BuildingGapDetector` çıktısının toplamı, kaynak/kalite ailesi,
+reason, `EvidenceGrade`, confidence varlığı, release/tazelik, canonical mesafe,
+overlap/containment/alan oranı ve mevcut license gate hükmü gösterilir.
+`publishable` daima `FALSE`; veri akışı bağlı değilse `0` yerine `UNAVAILABLE`.
+Ekran **GAP EVIDENCE ≠ MAP TRUTH** sınırını ilan eder; MapStore, resolver,
+renderer, routing veya CEH davranışına yazmaz ve timer/polling açmaz.
+
+**Aynı-region shootout:** Tarsus/Mersin/Erdemli bounded AOI'lerinde upstream
+OSM sırasıyla **11/28/1** footprint nesnesi; Overture 2026-08-19.0 sırasıyla
+**123/435/113** bina taşıdı. Overture ayrımı: OSM-derived **11/28/1**,
+ML-derived **112/407/112**, diğer family **0/0/0**. OSM kimlik uyumu **40/40**,
+duplicate **0/40**; eşleşmiş geometrilerde medyan centroid farkı **0 m** ve
+yaklaşık IoU **1,00**. Doğrulanmış açık alternatif artış **0**.
+
+TUCBS/yerel belediye CBS envanteri ve HGM TOPOVT gerçek veri ihtimalini
+kanıtlıyor; ancak bu turda belirli bir bina WFS/download ile ticari kullanım,
+offline paketleme ve yeniden dağıtım hakları birlikte doğrulanamadı. Google Open
+Buildings V3 Türkiye'yi kapsamıyor; OpenBuildingMap ve GlobalBuildingAtlas'ın
+Türkiye footprint'leri yeni bağımsız ground truth değil, OSM/Microsoft veya
+ticari kullanıma kapalı ML birleşimleridir. Bu nedenle yeni adapter yazılmadı,
+canonical bounded dataset ve shadow tile üretilmedi.
+
+Kanıt: `field-runs/mapdata-source-benchmark-20260907/` · cihaz yerleşim borcu:
+`docs/DEVICE_VALIDATION_LEDGER.md` #1323.
