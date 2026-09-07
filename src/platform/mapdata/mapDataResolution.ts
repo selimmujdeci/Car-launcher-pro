@@ -228,6 +228,8 @@ export interface ResolveOptions {
    * anahtar). `null` dönerse varsayılan anahtar kullanılır.
    */
   readonly agreementKeyFor?: (field: MapFeatureField, o: MapSourceObservation) => string | null;
+  /** Domain kalite kapısı; lisans hükmünden sonra, puanlamadan önce uygulanır. */
+  readonly observationEligibleFor?: (field: MapFeatureField, o: MapSourceObservation) => boolean;
 }
 
 export const DEFAULT_MIN_ACCEPTED_SCORE = 0.25;
@@ -262,13 +264,17 @@ export function resolveField<T extends MapFieldValue | MapGeometry>(
   // 1) LİSANS — elenir, düşük puanlanmaz.
   // Hak KAYIT düzeyinden hesaplanır: aynı kaynağın iki kaydı farklı lisans
   // taşıyabilir (ölçüldü — Overture buildings ODbL, places permissive).
-  const eligible = withValue.filter(
+  const licensed = withValue.filter(
     (o) => evaluateLicenseGate(
       effectiveLicensePolicy(o.provenance.sourceId, o.provenance.recordLicenses),
       options.intent,
     ).verdict !== 'DENY',
   );
-  if (eligible.length === 0) return emptyResolution(field, 'LICENSE_BLOCKED') as ResolvedField<T>;
+  if (licensed.length === 0) return emptyResolution(field, 'LICENSE_BLOCKED') as ResolvedField<T>;
+  const eligible = options.observationEligibleFor
+    ? licensed.filter((o) => options.observationEligibleFor?.(field, o) !== false)
+    : licensed;
+  if (eligible.length === 0) return emptyResolution(field, 'BELOW_QUALITY_GATE') as ResolvedField<T>;
 
   // 2) MUTABAKAT — aynı değeri söyleyen BAĞIMSIZ kaynak sayısı.
   const keyCounts = new Map<string, Set<MapDataSourceId>>();

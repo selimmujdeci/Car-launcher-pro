@@ -6,6 +6,13 @@
 > **Güncelleme kuralı:** İlgili her PR sonrasında güncellenir
 > **Son güncelleme:** 2026-08-28 · Branch: `feat/fleet-offline-final-local-completion`
 
+> **MAPDATA ML RESCUE (2026-09-07):** Microsoft ML footprint geometry rescue
+> **FAIL**; `BuildingGapDetector` **ENTEGRE / CODE PASS**; shadow tile **BLOCKED**.
+> Doğrulanmamış ML geometrisi canonical/publishable bina olamaz. Üçüncü doku
+> Erdemli n=113 (ML 112, OSM-derived 1); geometri referansı yetersiz alanlar
+> UNKNOWN. Saha/cihaz doğrulaması yok; kütük #1322 ve
+> `field-runs/mapdata-ml-accuracy-20260907/RESCUE_REPORT.md` otoritedir.
+
 > ⚠️ **VERİ KAYBI BİLDİRİMİ (2026-08-28 · dürüst kayıt — silinmesin)**
 >
 > Bu belgenin **işlenmemiş (uncommitted) çalışma kopyası** 2026-08-28'de F6-B turu

@@ -52,8 +52,8 @@ export function distanceM(a: LonLat, b: LonLat): number {
 
 /** Poligonun DIŞ halkası. Halkasız geometri `null`. */
 export function outerRing(g: MapGeometry | null | undefined): readonly LonLat[] | null {
-  if (!g || g.type !== 'POLYGON') return null;
-  const ring = g.rings[0];
+  if (!g || (g.type !== 'POLYGON' && g.type !== 'MULTIPOLYGON')) return null;
+  const ring = g.type === 'POLYGON' ? g.rings[0] : g.polygons[0]?.[0];
   return Array.isArray(ring) && ring.length >= 4 ? ring : null;
 }
 
@@ -73,13 +73,16 @@ export function signedAreaM2(ring: readonly LonLat[], f: LocalFrame): number {
  * Sıfır/negatif alan `null` döner: "alanı ölçülemedi" ≠ "alanı sıfır".
  */
 export function polygonAreaM2(g: MapGeometry | null | undefined): number | null {
-  const outer = outerRing(g);
-  if (!outer || !g || g.type !== 'POLYGON') return null;
-  const f = makeLocalFrame(outer[0][0], outer[0][1]);
-  let area = Math.abs(signedAreaM2(outer, f));
-  for (let i = 1; i < g.rings.length; i += 1) {
-    const hole = g.rings[i];
-    if (Array.isArray(hole) && hole.length >= 4) area -= Math.abs(signedAreaM2(hole, f));
+  if (!g || (g.type !== 'POLYGON' && g.type !== 'MULTIPOLYGON')) return null;
+  const polygons = g.type === 'POLYGON' ? [g.rings] : g.polygons;
+  let area = 0;
+  for (const polygon of polygons) {
+    const outer = polygon[0];
+    if (!outer) continue;
+    const f = makeLocalFrame(outer[0][0], outer[0][1]);
+    let part = Math.abs(signedAreaM2(outer, f));
+    for (let i = 1; i < polygon.length; i += 1) part -= Math.abs(signedAreaM2(polygon[i], f));
+    if (part > 0) area += part;
   }
   return area > 0 ? area : null;
 }
@@ -89,26 +92,31 @@ export function polygonAreaM2(g: MapGeometry | null | undefined): number | null 
  * ortalamasına DÜŞÜLÜR — sessizce `[0,0]` üretilmez.
  */
 export function polygonCentroid(g: MapGeometry | null | undefined): LonLat | null {
-  const ring = outerRing(g);
-  if (!ring) return null;
-  const f = makeLocalFrame(ring[0][0], ring[0][1]);
-  let cx = 0, cy = 0, a2 = 0;
-  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
-    const [xi, yi] = toLocalXY(ring[i], f);
-    const [xj, yj] = toLocalXY(ring[j], f);
-    const cross = xj * yi - xi * yj;
-    a2 += cross;
-    cx += (xi + xj) * cross;
-    cy += (yi + yj) * cross;
+  if (!g || (g.type !== 'POLYGON' && g.type !== 'MULTIPOLYGON')) return null;
+  const polygons = g.type === 'POLYGON' ? [g.rings] : g.polygons;
+  const origin = polygons[0]?.[0]?.[0];
+  if (!origin) return null;
+  const f = makeLocalFrame(origin[0], origin[1]);
+  let weightedX = 0, weightedY = 0, totalArea = 0;
+  for (const polygon of polygons) {
+    for (let r = 0; r < polygon.length; r += 1) {
+      const ring = polygon[r];
+      let cx = 0, cy = 0, a2 = 0;
+      for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+        const [xi, yi] = toLocalXY(ring[i], f), [xj, yj] = toLocalXY(ring[j], f);
+        const cross = xj * yi - xi * yj;
+        a2 += cross; cx += (xi + xj) * cross; cy += (yi + yj) * cross;
+      }
+      if (Math.abs(a2) < 1e-9) continue;
+      const signedWeight = (r === 0 ? 1 : -1) * Math.abs(a2 / 2);
+      weightedX += (cx / (3 * a2)) * signedWeight;
+      weightedY += (cy / (3 * a2)) * signedWeight;
+      totalArea += signedWeight;
+    }
   }
-  if (Math.abs(a2) < 1e-9) {
-    let sx = 0, sy = 0;
-    for (const p of ring) { sx += p[0]; sy += p[1]; }
-    return [sx / ring.length, sy / ring.length];
-  }
-  const area = a2 / 2;
-  const x = cx / (6 * area), y = cy / (6 * area);
-  return [f.lon0 + x / f.mPerDegLon, f.lat0 + y / f.mPerDegLat];
+  if (totalArea <= 0) return null;
+  return [f.lon0 + weightedX / totalArea / f.mPerDegLon,
+    f.lat0 + weightedY / totalArea / f.mPerDegLat];
 }
 
 /** Nokta halkanın içinde mi (ray casting, sınır dâhil sayılmaz). */
@@ -125,22 +133,23 @@ export function pointInRing(pt: LonLat, ring: readonly LonLat[]): boolean {
 
 /** Nokta poligonun içinde mi (iç halkalar delik sayılır). */
 export function pointInPolygon(pt: LonLat, g: MapGeometry | null | undefined): boolean {
-  const outer = outerRing(g);
-  if (!outer || !g || g.type !== 'POLYGON') return false;
-  if (!pointInRing(pt, outer)) return false;
-  for (let i = 1; i < g.rings.length; i += 1) {
-    const hole = g.rings[i];
-    if (Array.isArray(hole) && hole.length >= 4 && pointInRing(pt, hole)) return false;
+  if (!g || (g.type !== 'POLYGON' && g.type !== 'MULTIPOLYGON')) return false;
+  const polygons = g.type === 'POLYGON' ? [g.rings] : g.polygons;
+  for (const polygon of polygons) {
+    const outer = polygon[0];
+    if (!outer || !pointInRing(pt, outer)) continue;
+    if (!polygon.slice(1).some((hole) => pointInRing(pt, hole))) return true;
   }
-  return true;
+  return false;
 }
 
 /** Eksen hizalı sınır kutusu `[minLon, minLat, maxLon, maxLat]`. */
 export function bboxOf(g: MapGeometry | null | undefined): readonly [number, number, number, number] | null {
-  const ring = outerRing(g);
-  if (!ring) return null;
+  if (!g || (g.type !== 'POLYGON' && g.type !== 'MULTIPOLYGON')) return null;
+  const points = g.type === 'POLYGON' ? g.rings.flat() : g.polygons.flat(2);
+  if (points.length === 0) return null;
   let minLon = Infinity, minLat = Infinity, maxLon = -Infinity, maxLat = -Infinity;
-  for (const [lon, lat] of ring) {
+  for (const [lon, lat] of points) {
     if (lon < minLon) minLon = lon;
     if (lat < minLat) minLat = lat;
     if (lon > maxLon) maxLon = lon;

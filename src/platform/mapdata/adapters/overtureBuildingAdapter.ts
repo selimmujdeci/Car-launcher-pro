@@ -94,14 +94,20 @@ export function overtureGeometryToCanonical(geometry: unknown): MapGeometry | nu
       rings.push(ring);
     }
   } else if (g.type === 'MultiPolygon' && Array.isArray(g.coordinates)) {
+    const polygons: (readonly (readonly LonLat[])[])[] = [];
     for (const poly of g.coordinates) {
       if (!Array.isArray(poly)) return null;
+      const polygon: (readonly LonLat[])[] = [];
       for (const r of poly) {
         const ring = toRing(r);
         if (!ring) return null;
-        rings.push(ring);
+        polygon.push(ring);
       }
+      if (polygon.length === 0) return null;
+      polygons.push(polygon);
     }
+    const out: MapGeometry = { type: 'MULTIPOLYGON', polygons };
+    return isValidGeometry(out) ? out : null;
   } else return null;
 
   if (rings.length === 0) return null;
@@ -152,7 +158,9 @@ export const overtureBuildingAdapter: MapSourceAdapter<OvertureBuildingRaw> = {
 
     const machineDerived = datasets.length > 0 && datasets.every(isMachineDerivedDataset);
     const vertexCount = geometry.type === 'POLYGON'
-      ? geometry.rings.reduce((n, r) => n + r.length, 0) : null;
+      ? geometry.rings.reduce((n, r) => n + r.length, 0)
+      : geometry.type === 'MULTIPOLYGON'
+        ? geometry.polygons.flat().reduce((n, r) => n + r.length, 0) : null;
 
     return accepted({
       kind: 'BUILDING',

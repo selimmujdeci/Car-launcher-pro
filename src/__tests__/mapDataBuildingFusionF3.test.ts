@@ -247,22 +247,22 @@ describe('MAPDATA-F3 · fusion sonucu', () => {
   const obs = allObservations();
   const result = fuseBuildings(obs, { intent: 'OFFLINE_PACKAGING' });
 
-  it('ölçülen kapsam korunur: 11 OSM binası → 123 canonical bina', () => {
+  it('ML kapsamı canonical bina sayılmaz: yalnız 11 OSM-kökenli geometri yayımlanır', () => {
     expect(FIXTURE.osmBuildings.length).toBe(11);
     expect(result.features.length).toBe(123);
-    expect(result.publishable).toBe(123);
-    expect(result.degraded).toBe(0);
+    expect(result.publishable).toBe(11);
+    expect(result.degraded).toBe(112);
   });
 
   it('UYDURMA GEOMETRİ YOK — her canonical geometri GERÇEK bir kaynak kaydıdır', () => {
     const sourceGeometries = new Set(obs.map((o) => geometryKey(o.geometry)));
-    for (const f of result.features) {
+    for (const f of result.features.filter((feature) => feature.geometry.value !== null)) {
       expect(sourceGeometries.has(geometryKey(f.geometry.value))).toBe(true);
     }
   });
 
   it('her canonical nesne kaynağını ve gerekçesini taşır', () => {
-    for (const f of result.features) {
+    for (const f of result.features.filter((feature) => feature.geometry.value !== null)) {
       expect(f.geometry.sourceId).not.toBeNull();
       expect(f.geometry.sourceFeatureId).not.toBeNull();
       expect(f.geometry.scores.length).toBeGreaterThan(0);
@@ -274,7 +274,7 @@ describe('MAPDATA-F3 · fusion sonucu', () => {
   });
 
   it('ODbL share-alike yükümlülüğü fusion çıktısında KAYBOLMAZ', () => {
-    for (const f of result.features) {
+    for (const f of result.features.filter((feature) => feature.geometry.value !== null)) {
       expect(f.license.verdict).toBe('ALLOW_WITH_ATTRIBUTION');
       expect(f.license.shareAlikeObligation).toBe(true);
       expect(f.license.requiredAttribution).toContain('OpenStreetMap');

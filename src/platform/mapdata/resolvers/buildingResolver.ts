@@ -32,6 +32,7 @@ import { resolveCandidate } from '../mapDataResolution';
 import type { MapDataSourceId } from '../mapDataSource';
 import type { FootprintOverlap } from './buildingGeometry';
 import { bboxIntersects, bboxOf, measureOverlap, polygonAreaM2 } from './buildingGeometry';
+import { isCanonicalBuildingGeometryEligible } from './buildingQuality';
 
 /* ══════════════════════════════════════════════════════════════════════════
    1) EŞLEŞTİRME POLİTİKASI — sayılar gerekçelidir
@@ -270,6 +271,10 @@ export function fuseBuildings(
     const geomKeys = buildGeometryAgreementKeys(c.observations, policy);
     return resolveCandidate(c, {
       ...options,
+      observationEligibleFor: (field, o) => {
+        if (options.observationEligibleFor?.(field, o) === false) return false;
+        return field !== 'geometry' || isCanonicalBuildingGeometryEligible(o);
+      },
       agreementKeyFor: (field, o) => (field === 'geometry'
         ? geomKeys.get(o.provenance.sourceFeatureId) ?? null
         : null),

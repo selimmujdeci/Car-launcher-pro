@@ -38,6 +38,7 @@ export type MapGeometry =
   | { readonly type: 'POINT'; readonly coordinates: LonLat }
   /** Dış halka + (varsa) iç halkalar. Halka kapalı varsayılır. */
   | { readonly type: 'POLYGON'; readonly rings: readonly (readonly LonLat[])[] }
+  | { readonly type: 'MULTIPOLYGON'; readonly polygons: readonly (readonly (readonly LonLat[])[])[] }
   | { readonly type: 'LINESTRING'; readonly coordinates: readonly LonLat[] };
 
 export function isFiniteLonLat(p: unknown): p is LonLat {
@@ -58,6 +59,13 @@ export function isValidGeometry(g: unknown): g is MapGeometry {
   if (geom.type === 'POLYGON') {
     if (!Array.isArray(geom.rings) || geom.rings.length === 0) return false;
     return geom.rings.every((ring) => Array.isArray(ring) && ring.length >= 4 && ring.every(isFiniteLonLat));
+  }
+  if (geom.type === 'MULTIPOLYGON') {
+    if (!Array.isArray((geom as { polygons?: unknown }).polygons)
+      || (geom as { polygons: unknown[] }).polygons.length === 0) return false;
+    return (geom as { polygons: unknown[] }).polygons.every((polygon) =>
+      Array.isArray(polygon) && polygon.length > 0 && polygon.every((ring) =>
+        Array.isArray(ring) && ring.length >= 4 && ring.every(isFiniteLonLat)));
   }
   return false;
 }

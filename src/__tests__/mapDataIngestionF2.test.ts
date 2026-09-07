@@ -156,8 +156,8 @@ describe('MAPDATA-F2 · Overture bina adaptörü', () => {
         [[[34.862, 36.912], [34.863, 36.912], [34.863, 36.913], [34.862, 36.912]]],
       ],
     });
-    expect(g?.type).toBe('POLYGON');
-    expect(g && g.type === 'POLYGON' ? g.rings.length : 0).toBe(2);
+    expect(g?.type).toBe('MULTIPOLYGON');
+    expect(g && g.type === 'MULTIPOLYGON' ? g.polygons.length : 0).toBe(2);
   });
 });
 
