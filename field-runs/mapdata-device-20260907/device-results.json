@@ -1,0 +1,35 @@
+{
+  "device": {
+    "model": "Xiaomi 23090RA98I",
+    "android": "13", "api": 33,
+    "physical": "1220x2712", "density": 480,
+    "cssViewport": "904x406", "dpr": 3,
+    "apkSha256HostDevice": "23aea0bd09a3aa623083ca16f67e58547526471c807f641f58da9805733ca381",
+    "head": "a81b5ea6"
+  },
+  "1318_housenumber": {
+    "canonicalPoint": {"lon": 34.87115, "lat": 36.9269},
+    "z16": {"rendered": 0, "expected": 0, "pass": true},
+    "z17_day": {"rendered": 2, "values": ["8","6"], "collisionWithRoadLabel": false},
+    "z18_day": {"rendered": 4, "values": ["8","10","6","4"], "collisionWithRoadLabel": false, "clipping": false},
+    "z17.5_night": {"rendered": 4, "values": ["8","10","6","4"], "collisionWithRoadLabel": false, "styleName": "Vector (Automotive Night)"},
+    "phoneNumberFilterLiveStyle": {"filter": "[\"<=\",[\"length\",[\"to-string\",[\"get\",\"housenumber\"]]],8]", "minzoom": 17, "verified": true},
+    "mini": {"renderedAtZ16": 0, "note": "declutter mini=0, visually confirmed empty on home widget"},
+    "routeCollision": {"tested": true, "result": "route geometry did not pass through this specific frame — not directly observable this session, not fabricated"},
+    "800x480": {"tested": false, "reason": "no real 800x480 head-unit device available, phone only"}
+  },
+  "1319_labelSpacing": {
+    "center": [34.8621, 36.9175],
+    "tests": [
+      {"spacing": 460, "zoom": 16, "pitch": 0, "localCount": 10, "note": "baseline"},
+      {"spacing": 240, "zoom": 16, "pitch": 0, "localCount": 13, "gained": ["1951. Sokak","1965. Sokak","1971. Sokak"], "lost": []},
+      {"spacing": 460, "zoom": 16, "pitch": 45, "localCount": 14, "names": ["0212. Sokak","0437. Sokak","0441. Sokak","0443. Sokak","0451. Sokak","0469. Sokak","0476. Sokak","0478. Sokak","0486. Sokak","1958. Sokak","1961. Sokak","1968. Sokak","Mavi Bulvar","Şamil Basayev Caddesi"]},
+      {"spacing": 240, "zoom": 16, "pitch": 45, "localCount": 17, "gained": ["0403. Sokak","1965. Sokak","1971. Sokak"], "lost": []},
+      {"spacing": 460, "zoom": 17, "pitch": 0, "localCount": 2, "names": ["0469. Sokak","Mavi Bulvar"]},
+      {"spacing": 240, "zoom": 17, "pitch": 0, "localCount": 5, "gained": ["0451. Sokak","1965. Sokak","1971. Sokak"], "lost": []}
+    ],
+    "deviceVerdict": "3/3 tested zoom/pitch combos (904x406 viewport): 240 = net gain only, ZERO loss observed on device",
+    "hostSweepComparison": "Host sweep (800x480, pitch0, z17) reported 460->380 net -2 loss; this device test used 240 not 380, and 904x406 not 800x480 — different variant, not a direct contradiction",
+    "productionDecision": "460 KEPT — host sweep's architectural reason (symbol-spacing is a static LAYOUT property with no runtime writer; making it pitch/viewport-aware would require a new runtime layout writer, breaking the 'road-label LAYOUT has zero writers' invariant that the abbreviation expression also depends on) still applies. 800x480 not verifiable this session (no such device). Single-device/single-scene result cannot override a documented architectural constraint + an untested viewport."
+  }
+}

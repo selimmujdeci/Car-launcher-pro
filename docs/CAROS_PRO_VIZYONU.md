@@ -8532,3 +8532,32 @@ döndü, dürüstçe denenmedi).
 
 Detay: `docs/DEVICE_VALIDATION_LEDGER.md` #1321 ·
 `field-runs/mapdata-ml-accuracy-20260907/REPORT.md` (ek bölüm).
+
+---
+
+## MAPDATA — #1318/#1319 CİHAZ TESTLERİ (2026-09-07, sabah devamı)
+
+**Durum:** #1318 KISMEN DOĞRULANDI (800×480 ve rehberlik-soluklaşma hariç) ·
+#1319 cihaz deneyi tamamlandı, **460 KORUNUR** (üretim değişmedi).
+
+Cihaz bağlandıktan sonra APK provenance ile (`npm run apk:safe`, host↔cihaz
+SHA-256 eşleşti) Xiaomi 23090RA98I'de test edildi.
+
+**#1318 — housenumber:** kanonik nokta (34,87115/36,92690) doğrulandı: z16'da
+0 numara, z17'de 2, z18'de 4 — host tahminiyle birebir tutarlı. DAY+NIGHT
+ikisinde de sokak adıyla çakışma yok, MINI'de hiç görünmedi, telefon numarası
+filtresi canlı stilde doğrulandı. **800×480 ve rota-üstü collision bu turda
+da kapanmadı** — gerçek head unit yok, rota kanonik kareden geçmedi (zorlanmadı).
+
+**#1319 — 460 vs 240:** canlı `map.setLayoutProperty` ile üç zoom/pitch
+kombinasyonunda A/B test edildi (üretim kodu değişmedi, test sonunda 460'a
+geri alındı). **904×406'da 3/3 senaryoda 240 sadece kazanç sağladı, sıfır
+kayıp gözlemlendi** — host sweep'in pitch45 kaybı bu cihaz/viewport'ta
+tekrarlanmadı (farklı spacing değeri test edilmişti, 380 değil 240).
+**Karar değişmedi: 460 korunur** — mimari gerekçe (spacing statik LAYOUT,
+yazarsız invaryant) tek başına yeterli VE 800×480 (host'un kaybı bulduğu tek
+viewport) hâlâ hiç test edilmedi. Tek viewport'ta kayıp bulunmaması, test
+edilmeyen viewport'taki kaybı geçersiz kılmaz.
+
+Kanıt: `field-runs/mapdata-device-20260907/` (ekran görüntüleri, PROVENANCE.md,
+device-results.json). Detay: `docs/DEVICE_VALIDATION_LEDGER.md` #1318 · #1319.
