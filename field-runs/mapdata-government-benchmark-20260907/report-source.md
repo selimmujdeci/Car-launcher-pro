@@ -259,7 +259,7 @@ Bugünkü registry'de hem OSM baseline hem Overture Places `PERMISSION_REQUIRED`
 - Canonical ML geometry kararı: `8ed91a10`
 - Önceki MapData implementation/guard: `2a7f3969`
 - Önceki source benchmark report: `324a9c39`
-- Bu tur: `PENDING_COMMIT`
+- Bu turun implementation commit'i: `adb52615`
 
 Unrelated media/native/navigation dirty dosyaları değiştirilmedi veya stage edilmedi.
 
