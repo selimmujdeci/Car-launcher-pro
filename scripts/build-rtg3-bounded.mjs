@@ -38,15 +38,15 @@ async function source(name, bbox) {
   return JSON.parse(text);
 }
 
-function build(data, allowed) {
+export function build(data, allowed) {
   const nodes = new Map(), ways = [], relations = [];
   for (const el of data.elements ?? []) {
     if (el.type === 'node' && Number.isFinite(el.lat) && Number.isFinite(el.lon)) nodes.set(el.id, [el.lat, el.lon]);
     else if (el.type === 'way') ways.push(el);
     else if (el.type === 'relation' && el.tags?.type === 'restriction') relations.push(el);
   }
-  const used = new Map(), coords = [], edges = [], classCount = {};
-  const idx = (id) => { if (used.has(id)) return used.get(id); const p=nodes.get(id); if(!p)return null; const i=coords.length; used.set(id,i); coords.push(p); return i; };
+  const used = new Map(), coords = [], nodeIds = [], edges = [], classCount = {};
+  const idx = (id) => { if (used.has(id)) return used.get(id); const p=nodes.get(id); if(!p)return null; const i=coords.length; used.set(id,i); coords.push(p); nodeIds.push(id); return i; };
   for (const way of ways) {
     const decision = classifyDrivableWay(way.tags ?? {}, allowed);
     if (!decision) continue;
@@ -68,10 +68,10 @@ function build(data, allowed) {
   }
   const restrictions=[]; let unsupported=0,malformed=0;
   for(const rel of relations){const type=RESTRICTION[rel.tags?.restriction];if(!type){unsupported++;continue;} const from=rel.members?.find(m=>m.role==='from'&&m.type==='way')?.ref; const to=rel.members?.find(m=>m.role==='to'&&m.type==='way')?.ref; const viaId=rel.members?.find(m=>m.role==='via'&&m.type==='node')?.ref; const via=used.get(viaId); if(from==null||to==null||via==null){malformed++;continue;} const ins=edges.map((e,i)=>({e,i})).filter(x=>x.e.wayId===from&&(x.e.to===via||x.e.direction===0&&x.e.from===via)); const outs=edges.map((e,i)=>({e,i})).filter(x=>x.e.wayId===to&&(x.e.from===via||x.e.direction===0&&x.e.to===via)); if(!ins.length||!outs.length){malformed++;continue;} for(const a of ins)for(const b of outs)restrictions.push({fromEdge:a.i,toEdge:b.i,viaNode:via,type});}
-  return {coords,edges,restrictions,classCount,restrictionStats:{source:relations.length,supported:restrictions.length,unsupported,malformed}};
+  return {coords,nodeIds,edges,restrictions,classCount,restrictionStats:{source:relations.length,supported:restrictions.length,unsupported,malformed}};
 }
 
-function serialize(g){const size=16+g.coords.length*NODE_STRIDE+g.edges.length*EDGE_STRIDE+g.restrictions.length*RESTRICTION_STRIDE;const b=Buffer.alloc(size);let o=0;b.writeUInt32LE(RTG3_MAGIC,o);o+=4;b.writeUInt32LE(g.coords.length,o);o+=4;b.writeUInt32LE(g.edges.length,o);o+=4;b.writeUInt32LE(g.restrictions.length,o);o+=4;for(const p of g.coords){b.writeFloatLE(p[0],o);b.writeFloatLE(p[1],o+4);o+=NODE_STRIDE;}for(const e of g.edges){b.writeUInt32LE(e.from,o);b.writeUInt32LE(e.to,o+4);b.writeUInt32LE(e.cost,o+8);b.writeBigUInt64LE(BigInt(e.wayId),o+12);b[o+20]=e.cls;b[o+21]=e.accessRole;b[o+22]=e.direction;b[o+23]=e.structure;b.writeInt8(e.layer,o+24);o+=EDGE_STRIDE;}for(const r of g.restrictions){b.writeUInt32LE(r.fromEdge,o);b.writeUInt32LE(r.toEdge,o+4);b.writeUInt32LE(r.viaNode,o+8);b[o+12]=r.type;o+=RESTRICTION_STRIDE;}return b;}
+export function serialize(g){const size=16+g.coords.length*NODE_STRIDE+g.edges.length*EDGE_STRIDE+g.restrictions.length*RESTRICTION_STRIDE;const b=Buffer.alloc(size);let o=0;b.writeUInt32LE(RTG3_MAGIC,o);o+=4;b.writeUInt32LE(g.coords.length,o);o+=4;b.writeUInt32LE(g.edges.length,o);o+=4;b.writeUInt32LE(g.restrictions.length,o);o+=4;for(let i=0;i<g.coords.length;i++){const p=g.coords[i];b.writeFloatLE(p[0],o);b.writeFloatLE(p[1],o+4);b.writeBigUInt64LE(BigInt(g.nodeIds?.[i]??0),o+8);o+=NODE_STRIDE;}for(const e of g.edges){b.writeUInt32LE(e.from,o);b.writeUInt32LE(e.to,o+4);b.writeUInt32LE(e.cost,o+8);b.writeBigUInt64LE(BigInt(e.wayId),o+12);b[o+20]=e.cls;b[o+21]=e.accessRole;b[o+22]=e.direction;b[o+23]=e.structure;b.writeInt8(e.layer,o+24);o+=EDGE_STRIDE;}for(const r of g.restrictions){b.writeUInt32LE(r.fromEdge,o);b.writeUInt32LE(r.toEdge,o+4);b.writeUInt32LE(r.viaNode,o+8);b[o+12]=r.type;o+=RESTRICTION_STRIDE;}return b;}
 const percentile=(a,p)=>{const s=[...a].sort((x,y)=>x-y);return s[Math.min(s.length-1,Math.floor((s.length-1)*p))]??null;};
 function loadMetrics(b){const times=[];for(let k=0;k<100;k++){const t=performance.now(),v=new DataView(b.buffer,b.byteOffset,b.byteLength),n=v.getUint32(4,true),e=v.getUint32(8,true),r=v.getUint32(12,true);let checksum=0,o=16+n*NODE_STRIDE;for(let i=0;i<e;i++){checksum^=v.getUint32(o,true);o+=EDGE_STRIDE;}for(let i=0;i<r;i++){checksum^=v.getUint32(o,true);o+=RESTRICTION_STRIDE;}if(o!==b.length||checksum<0)throw new Error('RTG3 load doğrulaması düştü');times.push(performance.now()-t);}return{p50Ms:percentile(times,.5),p95Ms:percentile(times,.95)};}
 

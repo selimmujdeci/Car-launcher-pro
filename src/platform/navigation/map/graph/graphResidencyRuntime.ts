@@ -38,6 +38,9 @@ import type { EdgeSpatialIndex } from './edgeSpatialIndex';
 import { buildEdgeSpatialIndex } from './edgeSpatialIndex';
 import { recordOfflineGraphOutcome } from '../../offlineRoutingStatus';
 import { readMonotonicNow } from '../../time/navClock';
+import {
+  mergeRegionalGraphViews, validateTurkeyGraphManifest,
+} from './turkeyGraphManifest';
 
 /* ══════════════════════════════════════════════════════════════════════════
    1) SABİTLER
@@ -46,6 +49,8 @@ import { readMonotonicNow } from '../../time/navClock';
 /** Worker ile AYNI artefakt yolu (ikinci kaynak YOK). */
 export const ROUTING_GRAPH_URL = '/maps/routing-graph.bin';
 const FETCH_TIMEOUT_MS = 5_000;
+export const REGIONAL_GRAPH_MAX_BYTES = 64 * 1024 * 1024;
+export const REGIONAL_GRAPH_MAX_RESIDENT = 3;
 
 /* ══════════════════════════════════════════════════════════════════════════
    2) DURUM
@@ -76,6 +81,7 @@ let _loadCount = 0;
 let _parseMs: number | null = null;
 let _bytes: number | null = null;
 let _observedAtMonoMs: number | null = null;
+let _residentRegions: readonly string[] = [];
 
 /* ══════════════════════════════════════════════════════════════════════════
    3) YÜKLEME
@@ -166,6 +172,59 @@ export function acquireRoutingGraph(): Promise<RoutingGraphView | null> {
   if (_inFlight !== null) return _inFlight;
   _inFlight = _load();
   return _inFlight;
+}
+
+async function _sha256(buffer: ArrayBuffer): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', buffer);
+  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+/**
+ * Manifest ile seçilmiş komşu paketleri mevcut residency authority içine alır.
+ * Bir paket dahi eksik/bozuk/hash uyumsuzsa birleşik graph yayınlanmaz.
+ */
+export async function acquireRegionalRoutingGraph(
+  manifestValue: unknown,
+  requiredRegionIds: readonly string[],
+  baseUrl = '/maps/rtg3/',
+): Promise<RoutingGraphView | null> {
+  _holders++;
+  _state = 'LOADING'; _loadCount++;
+  const manifest = validateTurkeyGraphManifest(manifestValue);
+  if (!manifest || requiredRegionIds.length < 1 || requiredRegionIds.length > REGIONAL_GRAPH_MAX_RESIDENT) {
+    _report('UNSUPPORTED', 'regional manifest veya residency region bütçesi geçersiz');
+    return null;
+  }
+  const selected = requiredRegionIds.map((id) => manifest.regions.find((r) => r.regionId === id));
+  if (selected.some((r) => !r)) { _report('MISSING', 'gerekli region manifestte yok'); return null; }
+  const bytes = selected.reduce((n, r) => n + r!.byteSize, 0);
+  if (bytes > REGIONAL_GRAPH_MAX_BYTES) { _report('UNSUPPORTED', 'regional graph bellek bütçesini aşıyor'); return null; }
+  try {
+    const views: RoutingGraphView[] = [];
+    for (const region of selected) {
+      const graphUrl = `${baseUrl.replace(/\/$/, '')}/${region!.graphFile.replace(/^\//, '')}`;
+      const res = await fetch(graphUrl);
+      if (!res.ok) throw new Error(`${region!.regionId}: HTTP ${res.status}`);
+      const buffer = await res.arrayBuffer();
+      if (buffer.byteLength !== region!.byteSize || await _sha256(buffer) !== region!.sha256) {
+        _report('CORRUPT', `${region!.regionId}: SHA/boyut uyumsuz`); return null;
+      }
+      const parsed = parseRoutingGraph(buffer);
+      if (parsed.outcome !== 'OK' || !parsed.view || parsed.view.version !== 3) {
+        _report('CORRUPT', `${region!.regionId}: ${parsed.outcome}`); return null;
+      }
+      views.push(parsed.view);
+    }
+    const merged = mergeRegionalGraphViews(views);
+    if (!merged) { _report('CORRUPT', 'region portal kimlikleri birleştirilemedi'); return null; }
+    _strongView = merged; _weakView = new WeakRef(merged); _bytes = bytes;
+    _residentRegions = [...requiredRegionIds];
+    _report('AVAILABLE', `RTG3 regions: ${_residentRegions.join(',')}`);
+    return merged;
+  } catch (error) {
+    _report('MISSING', error instanceof Error ? error.message : 'regional load hatası');
+    return null;
+  }
 }
 
 /**
@@ -263,6 +322,7 @@ export interface GraphResidencySnapshot {
   readonly detail: string | null;
   /** Son ölçümün monotonik anı. */
   readonly observedAtMonoMs: number | null;
+  readonly residentRegions: readonly string[];
 }
 
 export function getGraphResidencySnapshot(): GraphResidencySnapshot {
@@ -281,6 +341,7 @@ export function getGraphResidencySnapshot(): GraphResidencySnapshot {
     spatialIndexBuilt: _index !== null,
     detail: _detail,
     observedAtMonoMs: _observedAtMonoMs,
+    residentRegions: _residentRegions,
   };
 }
 
@@ -299,6 +360,7 @@ export function _resetGraphResidencyForTest(): void {
   _parseMs = null;
   _bytes = null;
   _observedAtMonoMs = null;
+  _residentRegions = [];
 }
 
 /** @internal testler için görünümü doğrudan kurar (ağ YOK). */

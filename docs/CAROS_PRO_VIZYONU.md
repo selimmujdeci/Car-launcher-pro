@@ -8652,3 +8652,6 @@ ve turn restriction metadata taşımadığı için full door-to-door graph hâl�
 ## RTG3 bounded full-drivable validation — 2026-09-07
 
 Tarsus, Mersin dense ve Erdemli sabit AOI'lerinde gerçek OSM Overpass verisinden major-only ve full-drivable RTG3 shadow artefact'ları üretildi. Local road endpoint corpus'u bounded CODE PASS verdi; production `routing-graph.bin` değiştirilmedi. RTG3 road/access/direction/structure/source/restriction truth taşır ve tek kanonik reader/worker authority içinde RTG2 geriye uyumluluğunu korur. Gerçek AOI'lerde restriction, bridge/tunnel ve destination-only örneği çıkmadığından overall durum PARTIAL; DEVICE/FIELD kırmızıdır. Kanıt: `field-runs/routing-graph-v3-20260907/report-source.md`.
+## Turkey regional RTG3 platform — 2026-09-08
+
+İki gerçek Mersin corridor RTG3 partition, reciprocal-neighbor manifest, stable OSM portal merge ve SHA doğrulamalı mevcut residency authority entegrasyonu shadow olarak üretildi. Gerçek 6.007 km cross-region route desktop benchmark'ta PASS. PBF streaming builder ve production worker manifest handoff eksik olduğundan overall PARTIAL; production RTG2 değişmedi. Kanıt: `field-runs/turkey-regional-rtg3-20260908/report-source.md`.

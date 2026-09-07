@@ -1,0 +1,139 @@
+{
+  "sourceBytes": 1387071,
+  "sourceHash": "7639c70628458ee57351bee64045e762aaf0d20c1128dc66d9c50c04056c9a94",
+  "sourceTimestamp": "2026-06-01T08:52:28Z",
+  "buildMs": 10821.7345,
+  "peakRssBytes": 308097024,
+  "regions": [
+    {
+      "regionId": "tr-mersin-34e-west",
+      "bbox": [
+        34.62,
+        36.79,
+        34.652,
+        36.83
+      ],
+      "neighbors": [
+        "tr-mersin-34e-east"
+      ],
+      "graphFile": "tr-mersin-34e-west.rtg3",
+      "sha256": "194a36c2ceba040021df5839a4bccf959031cb3f297b2e05a32f511acf52ec0d",
+      "byteSize": 341612,
+      "nodeCount": 6584,
+      "edgeCount": 8437,
+      "sourceHash": "7639c70628458ee57351bee64045e762aaf0d20c1128dc66d9c50c04056c9a94",
+      "buildMs": 30.1856,
+      "classCount": {
+        "primary": 407,
+        "residential": 5386,
+        "tertiary": 1282,
+        "unclassified": 137,
+        "secondary": 709,
+        "trunk": 234,
+        "living_street": 122,
+        "service": 160
+      },
+      "restrictions": {
+        "source": 3,
+        "supported": 1,
+        "unsupported": 0,
+        "malformed": 2
+      },
+      "structure": {
+        "bridge": 39,
+        "tunnel": 2,
+        "layer": 46
+      }
+    },
+    {
+      "regionId": "tr-mersin-34e-east",
+      "bbox": [
+        34.647999999999996,
+        36.79,
+        34.68,
+        36.83
+      ],
+      "neighbors": [
+        "tr-mersin-34e-west"
+      ],
+      "graphFile": "tr-mersin-34e-east.rtg3",
+      "sha256": "a78b250c3dd7bea22b834936aacfb691bd8b2ea71251fdfe4cae8272c21d142c",
+      "byteSize": 126660,
+      "nodeCount": 2575,
+      "edgeCount": 3051,
+      "sourceHash": "7639c70628458ee57351bee64045e762aaf0d20c1128dc66d9c50c04056c9a94",
+      "buildMs": 10.305999999999997,
+      "classCount": {
+        "primary": 122,
+        "trunk": 274,
+        "tertiary": 677,
+        "secondary": 183,
+        "residential": 1148,
+        "unclassified": 59,
+        "motorway": 92,
+        "service": 491,
+        "living_street": 5
+      },
+      "restrictions": {
+        "source": 1,
+        "supported": 1,
+        "unsupported": 0,
+        "malformed": 0
+      },
+      "structure": {
+        "bridge": 107,
+        "tunnel": 0,
+        "layer": 107
+      }
+    }
+  ],
+  "portalCount": 746,
+  "crossRoute": {
+    "originNodeId": 13299004308,
+    "targetNodeId": 1960295892,
+    "regions": [
+      "tr-mersin-34e-west",
+      "tr-mersin-34e-east"
+    ],
+    "routeFound": true,
+    "distanceM": 6007,
+    "solveP50Ms": 52.45029999999997,
+    "solveP95Ms": 62.826300000000174,
+    "expanded": 14415,
+    "accessLegal": true,
+    "onewayLegal": true,
+    "restrictionLegal": true
+  },
+  "localRoutes": [
+    {
+      "name": "arterial-to-residential",
+      "routeFound": true,
+      "distanceM": 1865,
+      "solveP50Ms": 1.2160000000003492,
+      "solveP95Ms": 1.5327999999990425,
+      "accessLegal": true,
+      "onewayLegal": true,
+      "restrictionLegal": true
+    },
+    {
+      "name": "residential-to-residential",
+      "routeFound": true,
+      "distanceM": 4097,
+      "solveP50Ms": 34.35990000000129,
+      "solveP95Ms": 35.70420000000013,
+      "accessLegal": true,
+      "onewayLegal": true,
+      "restrictionLegal": true
+    },
+    {
+      "name": "local-to-arterial",
+      "routeFound": true,
+      "distanceM": 0,
+      "solveP50Ms": 0.0010999999994965037,
+      "solveP95Ms": 0.01299999999901047,
+      "accessLegal": true,
+      "onewayLegal": true,
+      "restrictionLegal": true
+    }
+  ]
+}

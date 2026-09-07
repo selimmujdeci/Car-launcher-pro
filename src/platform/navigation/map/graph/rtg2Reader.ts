@@ -101,6 +101,8 @@ export interface RoutingGraphView {
   readonly trailingBytes: number;
   readonly nodeLat: Float32Array;
   readonly nodeLon: Float32Array;
+  /** RTG3 OSM node kimliği; RTG1/2 ve eski RTG3 artefact'ta 0. */
+  readonly nodeSourceId: BigUint64Array;
   readonly edgeFrom: Uint32Array;
   readonly edgeTo: Uint32Array;
   readonly edgeCostM: Uint32Array;
@@ -255,9 +257,11 @@ export function parseRoutingGraph(buffer: ArrayBuffer | null | undefined): Routi
 
   const nodeLat = new Float32Array(nodeCount);
   const nodeLon = new Float32Array(nodeCount);
+  const nodeSourceId = new BigUint64Array(nodeCount);
   for (let i = 0; i < nodeCount; i++) {
     nodeLat[i] = view.getFloat32(off, true);
     nodeLon[i] = view.getFloat32(off + 4, true);
+    if (version === 3) nodeSourceId[i] = view.getBigUint64(off + 8, true);
     off += RTG_NODE_STRIDE;   // 8 bayt REZERVE atlanır (formatın parçası)
   }
 
@@ -354,6 +358,7 @@ export function parseRoutingGraph(buffer: ArrayBuffer | null | undefined): Routi
     trailingBytes: Math.max(0, total - off),
     nodeLat,
     nodeLon,
+    nodeSourceId,
     edgeFrom,
     edgeTo,
     edgeCostM,
