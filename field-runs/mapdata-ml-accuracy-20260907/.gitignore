@@ -9,5 +9,7 @@
 # TAM OLARAK yeniden üretilebilir:
 #   node build-sheet.mjs && node render-sheet.mjs
 tiles/
+tiles-r2/
 *.png
 *.html
+*.jpg

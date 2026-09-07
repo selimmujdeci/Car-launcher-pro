@@ -8497,3 +8497,38 @@ z17'de 2 / z18'de 4 numara yerleşiyor.
 karoları ve ekran görüntüleri **repoya alınmadı** — yeniden dağıtım hakkı
 kanıtlanmadı, `mapDataLicense` kapısının fail-closed kuralı burada da geçerli.
 Artefaktlar provenance (URL + SHA-256) ile yeniden üretilebilir.
+
+---
+
+## MAPDATA — #1321 BİNA DOĞRULUK KAPISI: COVERAGE PASS / GEOMETRY FAIL (2026-09-07)
+
+**Durum: VERİ KARARI TAMAMLANDI** · **Building Fusion → Shadow Tile: BAŞLATILMADI**
+
+Sabah vardiyası, gece vardiyasının bıraktığı "kararsız" kapıyı KAPATTI. Kör
+örneklem n=20'den n=215'e (189 ML + 26 OSM), tek bölgeden (Tarsus) iki farklı
+kentsel dokuya (Tarsus düşük yoğunluk + Mersin merkez yoğun apartman)
+genişletildi.
+
+**COVERAGE PASS:** ML yanlış pozitif %95 GA `[%0,83–%5,31]` — %10 eşiği
+kesin altında, iki bölgede de tutarlı.
+
+**GEOMETRY FAIL:** footprint alan sistematik küçültmesi (Tarsus 2,19× ·
+Mersin 3,16×) İKİ dokuda da doğrulandı ve yoğun dokuda DAHA KÖTÜLEŞTİ —
+bu "genelleniyor mu" sorusunun kesin kanıtıdır.
+
+**Karar:** Building Fusion → Shadow Tile Pipeline aşamasına GEÇİLMEDİ.
+Politika koşuldur (VE), coverage tek başına yeterli değildir. Ayrık hüküm
+gizlenmedi — tek "PASS" altında sunulmadı.
+
+**Yeni öneri (test kanıtlı, kod DEĞİŞTİRİLMEDİ):** OSM-kökenli Overture
+gözlemleri (VAR %93–100) ile ML-kökenli gözlemler (VAR %72–83 + sistematik
+küçültme) resolver'da AYNI güven seviyesinde değerlendirilmemeli. Somut bir
+puan/katsayı bu turda YAZILMADI — kanıt yönü gösteriyor, büyüklüğü değil.
+
+**Açık kalan (bu turda ölçülmedi):** üçüncü kentsel doku (kırsal/yeni
+gelişen) · ikinci bağımsız değerlendirici (inter-rater güvenilirliği) ·
+#1318/#1319'un cihaz ayağı (bu sabah bağlı cihaz YOKTU — `adb devices` boş
+döndü, dürüstçe denenmedi).
+
+Detay: `docs/DEVICE_VALIDATION_LEDGER.md` #1321 ·
+`field-runs/mapdata-ml-accuracy-20260907/REPORT.md` (ek bölüm).

@@ -156,3 +156,133 @@ dâhil), geri alınınca 22/22 geçti.
 Veri atfı: © Overture Maps Foundation · Microsoft ML Buildings (ODbL-1.0) ·
 © OpenStreetMap katkıcıları (ODbL) · uydu görüntüsü © Esri World Imagery
 (yalnız ölçüm amaçlı görüntülendi; ürüne gömülmedi, yeniden dağıtılmadı).
+
+---
+
+# EK — GENİŞLETİLMİŞ ÖRNEKLEM: n=20 → n=215, İKİ BÖLGE (2026-09-07 sabah)
+
+**Tek cümlelik hüküm:** n=189 ML (iki farklı urban morphology, iki bölge)
+ile yanlış pozitif **%95 Wilson GA [%0,83 – %5,31]** — **sabah kapısı (>%10 →
+askıya al) artık GEÇİLDİ, kapı ELENDİ: COVERAGE PASS.** Ama alan bias'ı HER
+İKİ bölgede de doğrulandı ve ikinci bölgede (yoğun apartman) DAHA KÖTÜ
+(2,19× → 3,16× küçültme) — **GEOMETRY FAIL.** Ayrık hüküm: **COVERAGE PASS /
+GEOMETRY FAIL.** Renderer entegrasyonu (Building Fusion → Shadow Tile)
+**bu turda başlatılmadı.**
+
+## Neden n=20 yetersizdi, n=189 nasıl elde edildi
+
+Önceki turun kendi hükmü: *"gerçek oran ~%5 ise GA üst sınırını %10'un
+altına indirmek n≈150-200 ister."* Bu tur o hedefi karşıladı:
+
+| Bölge | Doku | ML havuzu | ML örneklem | OSM örneklem |
+|---|---|---:|---:|---:|
+| **Region 1 — Tarsus** | Düşük yoğunluklu, bahçeli/müstakil parsel | 109 (mozaik içi) | **109 — HAVUZUN TAMAMI** | 11 — TAMAMI |
+| **Region 2 — Mersin merkez** | Yoğun apartman bloğu, düzenli sokak ağı | 381 (mozaik içi) | **80 — hedefli kör örneklem** | 15 — hedefli |
+| **Toplam** | 2 farklı morfoloji | — | **189** | **26** |
+
+Region 1'de HAVUZUN TAMAMI örneklendi (109/109 — seçim yanlılığı YOK, örneklem
+=populasyon). Region 2 merkez koordinatı (34.6339, 36.8121) bina aranarak
+DEĞİL, bilinen bir kentsel merkez referansı olarak seçildi; bbox içindeki
+TÜM 402 mozaik-içi binadan kör/tohum'lu örneklem (80 ML + 15 OSM) alındı.
+
+Aynı yöntem: deterministik tohum 20260907, körlük (`sample-key-*.json` hüküm
+verilene kadar okunmadı), aynı hüküm sözlüğü (VAR/KAYIK/BELİRSİZ/YOK), aynı
+kontrol grubu mantığı (OSM-kökenli Overture kayıtları). Görüntü Esri World
+Imagery z18 (~0,48 m/px kaynak, 2× görsel büyütme) — REPORT §2'deki sınırlar
+AYNEN geçerli (görüntü tarihi bilinmiyor, değerlendirme görseldir).
+
+## Sonuç — kapsam (coverage)
+
+| Grup | n | VAR | KAYIK | BELİRSİZ | YOK | VAR% | Wilson %95 GA (YOK) |
+|---|---:|---:|---:|---:|---:|---:|---|
+| **ML — Region1** | 109 | 78 | 0 | 30 | 1 | 71,6 | — |
+| **ML — Region2** | 80 | 66 | 0 | 11 | 3 | 82,5 | — |
+| **ML — TOPLAM** | **189** | 144 | 0 | 41 | 4 | 76,2 | **[0,83 – 5,31]** |
+| OSM — Region1 | 11 | 11 | 0 | 0 | 0 | 100 | — |
+| OSM — Region2 | 15 | 14 | 0 | 1 | 0 | 93,3 | — |
+| **OSM — TOPLAM** | **26** | 25 | 0 | 1 | 0 | 96,2 | [0 – 12,87] (açık kusur) |
+
+**Nokta tahmini %2,12 (4/189), GA üst sınırı %5,31 — %10 eşiğinin KESİN
+ALTINDA.** n=20 turunda GA üst sınırı %23,6 idi; 9,4×'lük örneklem büyümesi
+GA'yı ~4,4× daraltı. Bu istatistiksel olarak beklenen sonuçtur, şans eseri
+değil.
+
+**"En kötü durum" (belirsizler de kusur sayılırsa): %95 GA [%18,3 – %30,4].**
+Bu hâlâ yüksek ama devir belgesinin zaten teşhis ettiği **görüntü çözünürlüğü
+kusurudur** (0,48 m/px'te teras/müştemilat/düz dam ayrımı yapılamıyor), veri
+kusuru değil — daha yüksek çözünürlüklü referans olmadan kapanmaz.
+
+**Region 2'de açık kusur oranı (%3,8) Region 1'den (%0,9) yüksek** ama hâlâ
+%10 eşiğinin altında; tek KAYIK/YOK örneği yoğun apartman dokusunda daha sık
+çıktı (park/açık alan üzerine düşen 2 net YOK: bir spor sahası, bir boş
+meydan — REPORT ekinde hücre 5, 13, 42 olarak işaretli).
+
+## Sonuç — geometry (footprint kalitesi) — GENELLENDİ, KÖTÜLEŞTİ
+
+Örneklem gerektirmeyen, TÜM havuz üzerinden hesap (`area-bias.mjs`):
+
+| Bölge | ML medyan | OSM medyan | **Oran (OSM/ML)** | ML n | OSM n |
+|---|---:|---:|---:|---:|---:|
+| Region 1 — Tarsus | 74 m² | 162 m² | **2,19×** | 112 | 11 |
+| Region 2 — Mersin | 135 m² | 426 m² | **3,16×** | 407 | 28 |
+
+**Sistematik küçültme İKİ FARKLI dokuda da doğrulandı — bu "genelleniyor mu"
+sorusunun kesin YANITIDIR: evet.** Yoğun apartman dokusunda (Region 2) oran
+DAHA KÖTÜ — muhtemelen büyük apartman bloklarının ML modeli tarafından
+parçalara bölünmesi/eksik yakalanmasıyla tutarlı (Region 2 kontak sayfasında
+görsel olarak da gözlemlendi: büyük bir çatının yalnız bir bölümünü kapsayan
+çerçeveler Region 1'den daha sık).
+
+## OSM-origin vs ML-origin — ayrık güven
+
+Overture'ın **OSM-kökenli** kayıtları (upstream OSM ile birebir, `record_id`
+taşıyan) HER İKİ bölgede de neredeyse kusursuz: Region1 %100 VAR (11/11),
+Region2 %93,3 VAR (14/15, kalan 1 BELİRSİZ — hiç YOK/KAYIK yok). **ML-kökenli
+kayıtlar için durum belirgin biçimde farklı** (VAR %71,6–%82,5, sistematik
+alan küçültmesi). Bu iki köken **AYNI güven seviyesinde değerlendirilmemeli**
+— öneri BUILDING GATE hükmünde.
+
+## BUILDING ACCEPTANCE POLICY değerlendirmesi
+
+| Politika şartı | Sonuç |
+|---|---|
+| False-positive oranı düşük + GA kabul edilebilir | ✅ **PASS** — %2,12 nokta, GA üst sınırı %5,31 < %10 |
+| Büyük sistematik geometry shrink/bias kabul edilebilir seviyeye insin | ❌ **FAIL** — 2,19×–3,16× küçültme, İKİ bölgede de, düzelmedi |
+| İkinci bölgede sonuç tamamen bozulmasın | ✅ **KISMİ** — coverage bozulmadı (%82,5 VAR), geometry DAHA KÖTÜLEŞTİ |
+| Provenance ayrımı korunsun | ✅ **PASS** — ML/OSM ayrımı her ölçümde korundu |
+| ODbL/lisans kapısı geçerli olsun | ✅ **PASS** — `mapDataLicense` fail-closed, kod okunarak doğrulandı (değiştirilmedi) |
+
+**OVERALL: COVERAGE PASS / GEOMETRY FAIL → Building Fusion → Shadow Tile
+Pipeline'a GEÇİLMEDİ.** Politika VE koşuludur: coverage tek başına yeterli
+değildir.
+
+## Öneri (karar kullanıcının) — test kanıtıyla desteklenmiş
+
+1. **Renderer entegrasyonu bu turda da askıda kalmalı** — artık gerekçe
+   "belirsiz" değil, **iki ayrı ölçülmüş neden**: (a) coverage yeterli AMA
+   (b) geometry sistematik ve genellenmiş biçimde bozuk.
+2. **Kaynak-kalite ayrımı düşünülmeli:** OSM-kökenli Overture gözlemleri
+   ML-kökenlilerle AYNI güven puanıyla değerlendirilmemeli — ölçülen kanıt
+   bunu net destekliyor (OSM-kökenli VAR %93-100, ML-kökenli VAR %72-83 +
+   sistematik alan bias'ı). **Somut bir puan/katsayı burada ÖNERİLMİYOR** —
+   test kanıtı ayrımın YÖNÜNÜ gösteriyor, büyüklüğünü değil.
+3. **ML footprint kullanılacaksa** (renderer DIŞINDA, ör. LAB gözlem amaçlı)
+   alan bilgisi "gerçek ayak izi" gibi SUNULMAMALI — sistematik küçültme
+   kullanıcıyı yanıltır.
+
+## Ölçüm sınırları (uydurma yok)
+
+REPORT §7'deki tüm sınırlar (görüntü tarihi bilinmiyor, değerlendirme
+görseldir, n hâlâ sonsuz değildir) AYNEN geçerli. Ek sınırlar:
+- Region 2 merkezi TEK bir kentsel morfoloji örneğidir (yoğun apartman);
+  "kırsal/yeni gelişen" üçüncü doku bu turda ÖLÇÜLMEDİ.
+- Region 2'nin görüntü mozaiği ayrı indirildi (aynı Esri kaynağı, aynı z18);
+  provenance `mosaic-provenance-r2.json`'da ayrı kayıtlı.
+- Değerlendirici (Claude) HER İKİ turda da AYNI kişi/model — değerlendirici
+  içi tutarlılık var ama ikinci bağımsız değerlendirici YOK (inter-rater
+  güvenilirliği ölçülmedi).
+
+Veri atfı: © Overture Maps Foundation · Microsoft ML Buildings (ODbL-1.0) ·
+© OpenStreetMap katkıcıları (ODbL) · uydu görüntüsü © Esri World Imagery
+(yalnız ölçüm amaçlı görüntülendi; ürüne gömülmedi, yeniden dağıtılmadı,
+repoya girmedi).
