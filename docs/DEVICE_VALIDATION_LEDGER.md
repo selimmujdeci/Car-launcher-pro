@@ -1528,3 +1528,13 @@ sadeleştirme fırsatı, P0 değil.
 - Independent 100-address corpus: NOT AVAILABLE; current bounded evidence is
   1 OSM-labelled address feature, so exact coverage is reported as 0/1, not
   extrapolated.
+## Routing Graph v2 — 2026-09-07
+
+- Kod: drivable-road policy + one-way semantics tests PASS.
+- Cihaz: 🔴 test edilmedi.
+- Saha: 🔴 test edilmedi.
+- Kabul ölçütü: bounded üç AOI’de local-road gain, illegal-access regression,
+  route latency ve graph load ölçülmeden production graph swap yapılamaz.
+- Mevcut graph: 238.252 node / 295.346 edge; residential/service/local
+  sınıfları mevcut binary’de yok.
+- Blocker: RTG2 access-role ve turn-restriction metadata taşımıyor.

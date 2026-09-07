@@ -8641,3 +8641,11 @@ comparison. Development eligibility and commercial-release eligibility are
 separate gates. Unknown commercial permission is fail-closed for release, but
 does not block a lawful bounded development benchmark. See
 `field-runs/turkey-address-readiness-20260907/report-source.md`.
+## Routing Graph v2 — 2026-09-07
+
+Durum: İSKELET. Builder default kapsamı tertiary, unclassified, residential ve
+living_street’i hedefleyecek şekilde ayrıştırıldı; erişim politikası
+fail-closed olarak ortak saf modüle çıkarıldı. Yeni production graph
+üretilmedi ve route authority değişmedi. RTG2 access-role, bridge/tunnel/layer
+ve turn restriction metadata taşımadığı için full door-to-door graph hâlâ
+ölçüm/format kararı bekliyor. Device/field doğrulaması yapılmadı.

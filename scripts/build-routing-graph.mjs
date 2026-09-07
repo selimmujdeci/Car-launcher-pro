@@ -34,13 +34,11 @@
  * GERİYE UYUMLU: eski grafiklerde bu bitler 0'dır → `UNKNOWN` → worker eski
  * sabit hıza düşer. Yeni bir sürüm numarası GEREKMEZ.
  *
- * ── KAPSAM KARARI (bilinçli, ölçülebilir) ───────────────────────────────────
- * Yalnız `motorway · trunk · primary · secondary` (+ `_link`) alınır. Gerekçe:
- * ① şehirlerarası ve ana arter yönlendirmesi bu sınıflarla yapılır;
- * ② `residential`/`service` eklemek düğüm sayısını ~10× büyütür — hem APK
- *    bütçesini hem A* arama uzayını patlatır.
- * Sonuç DÜRÜSTÇE SINIRLIDIR: "şehirlerarası + ana arter çevrimdışı rota" evet,
- * "kapı önüne kadar son kilometre" HAYIR. Ürün bunu böyle sunmalıdır.
+ * ── KAPSAM KARARI ──────────────────────────────────────────────────────────
+ * Varsayılan kapsam tertiary/unclassified/residential/living_street içerir.
+ * `service` yalnız politika tarafından güvenli bulunan public türleri için
+ * ayrıca istenir; driveway gibi destination-only yollar RTG2 rol biti
+ * olmadığı için transit edge olarak sessizce terfi ettirilmez.
  *
  * ── A* BÜTÇESİ İLE ÇELİŞKİ (format kaynaklı, burada YÖNETİLİR) ──────────────
  * RTG2 kenar başına POLİLİNE TAŞIMAZ; rota geometrisi düğüm zincirinin
@@ -61,7 +59,7 @@
  * ── KULLANIM ────────────────────────────────────────────────────────────────
  *   node --max-old-space-size=6144 scripts/build-routing-graph.mjs \
  *        --in <turkey.osm.pbf> [--out public/maps/routing-graph.bin]
- *        [--simplify 100] [--classes motorway,trunk,primary,secondary]
+ *        [--simplify 100] [--classes motorway,trunk,primary,secondary,tertiary,residential]
  *
  * Bu script BUILD ZAMANI çalışır; ürün kodundan ASLA import edilmez.
  */
@@ -70,6 +68,7 @@ import { createReadStream, createWriteStream, mkdirSync, writeFileSync, statSync
 import { inflateSync } from 'node:zlib';
 import { dirname, resolve } from 'node:path';
 import Pbf from 'pbf';
+import { DEFAULT_GRAPH_CLASSES, classifyDrivableWay, onewaySemantics } from './routingGraphPolicy.mjs';
 
 /* ── Sabitler ────────────────────────────────────────────────────────────── */
 
@@ -88,7 +87,7 @@ export const ROAD_CLASS = Object.freeze({
 });
 
 /** Varsayılan kapsam — bkz. başlıktaki kapsam kararı. */
-const DEFAULT_CLASSES = ['motorway', 'trunk', 'primary', 'secondary'];
+const DEFAULT_CLASSES = DEFAULT_GRAPH_CLASSES;
 
 /* ── Argümanlar ──────────────────────────────────────────────────────────── */
 
@@ -317,19 +316,14 @@ function classIdOf(highway, allowed) {
   const base = isLink ? highway.slice(0, -5) : highway;
   if (!allowed.has(base)) return null;
   if (isLink) return ROAD_CLASS.link;
+  if (base === 'unclassified' || base === 'living_street') return ROAD_CLASS.residential;
+  if (base === 'service' || base === 'road' || base === 'track') return ROAD_CLASS.link;
   return ROAD_CLASS[base] ?? ROAD_CLASS.unknown;
 }
 
 /** OSM `oneway` etiketi → {oneway, reversed}. `-1` ters yön demektir. */
 function onewayOf(v, highway) {
-  if (v === 'yes' || v === 'true' || v === '1') return { oneway: true, reversed: false };
-  if (v === '-1' || v === 'reverse') return { oneway: true, reversed: true };
-  if (v === 'no' || v === 'false' || v === '0') return { oneway: false, reversed: false };
-  /* Etiket yoksa: motorway ve _link varsayılan olarak TEK YÖNLÜDÜR (OSM kuralı). */
-  if (!v && (highway === 'motorway' || highway.endsWith('_link'))) {
-    return { oneway: true, reversed: false };
-  }
-  return { oneway: false, reversed: false };
+  return onewaySemantics(v, highway);
 }
 
 /* ── Ana akış ────────────────────────────────────────────────────────────── */
@@ -360,7 +354,10 @@ async function main() {
           if (k === 'highway') highway = stStr(blk, w.vals[i]);
           else if (k === 'oneway') onewayTag = stStr(blk, w.vals[i]);
         }
-        const cls = classIdOf(highway, allowed);
+        const tags = {};
+        for (let i = 0; i < w.keys.length; i++) tags[stStr(blk, w.keys[i])] = stStr(blk, w.vals[i]);
+        const decision = classifyDrivableWay(tags, allowed);
+        const cls = decision ? classIdOf(highway, allowed) : null;
         if (cls === null || w.refs.length < 2) return;
 
         const refs = new Float64Array(w.refs.length);
