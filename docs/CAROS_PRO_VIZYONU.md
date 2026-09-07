@@ -8355,3 +8355,106 @@ muhtemelen #1309 açık borcuyla ilişkili, kök neden araştırılmadı.
 - **REAL VEHICLE FIELD PASS:** VERİLMEDİ. Bu tur duran araçla (0 km/h) yapıldı;
   hareket halindeki hiçbir davranış (kamera takibi, hız bandına bağlı bina/HUD
   tepkisi) gerçek sürüşle doğrulanmadı.
+
+---
+
+## MAPDATA F0–F6 — AÇIK KAYNAK HİBRİT HARİTA VERİ PLATFORMU (2026-09-07)
+
+**Durum: ENTEGRE** (sözleşme + ölçüm + sınırlı fusion) · **ÜRÜN HAZIR: HAYIR**
+Üretim davranışını değiştiren tek madde kapı numarası katmanıdır ve o
+**🔴 cihazda doğrulanmadı** (kütük #1318).
+
+### Neden bu tur açıldı
+
+`field-runs/map-data-coverage-20260907` Tarsus'ta üç ayrı kusur ölçtü:
+bina kapsamı boşluğu (uydu görüntüsündeki üç çatı ne OSM'de ne production
+karosunda vardı; en yakın OSM bina köşesi 111–128 m), 426/564 adsız yerel
+yol, ve karoda VAR olan `housenumber` verisinin stilde hiç tüketilmemesi.
+Tek bir "kaynağı değiştir" hamlesi bu üçünü birden çözmez — çünkü üçü farklı
+katmanların kusurudur.
+
+### Ölçülen gerçek (MAPDATA-F1 · `field-runs/mapdata-shootout-20260907`)
+
+Aynı z14/9778/6381 karosu, aynı bbox, Overture 2026-08-19.0 (public S3, DuckDB):
+
+| | OSM | OpenFreeMap (üretim) | Overture | Dedup edilmiş artış |
+|---|---:|---:|---:|---|
+| Bina | 340 way | 11 feature / 351 polygon | **2627** | **+2290** (Microsoft ML Buildings) |
+| Bina (yakın 400×400 m) | 11 | 11 polygon | **123** | **+112** |
+| Yol adı (ayrık) | 138 | 117 ad feature | 527 segment | **+3** (hiçbiri yerel sokak değil) |
+| Adres | 3 `addr:*` | 7 housenumber | **0** | **−7 (Overture DAHA KÖTÜ)** |
+| POI/Place | — | 120 poi | 337 | +217 (permissive lisans) |
+
+Uydu çatı örnekleri: en yakın bina köşesi **111–128 m → 6.3 / 14.7 / 8.0 m**;
+her noktanın 30 m çevresinde 4–9 Overture binası. Yani **cihazda görülen
+footprint boşluğunun gerçek doldurucusu Overture bina temasıdır.**
+
+**Yol adı ve adres Overture ile ÇÖZÜLMÜYOR** — bu yüzden o temalar için
+adapter YAZILMADI (kanıtsız ingestion yasağı).
+
+### Lisans bulgusu (ürün riski)
+
+Overture'ın **dağıtım** lisansı CDLA-Permissive-2.0'dır, ama **kayıt düzeyinde**
+buildings 2627/2627 ve transportation 1627/1627 **ODbL-1.0** taşır; places ise
+CDLA-Permissive-2.0 / CC0-1.0 / Apache-2.0. Yani permissive dağıtım bina/yol
+temasında share-alike'ı KALDIRMAZ. Lisans kapısı bu ölçümden sonra **kayıt
+düzeyine** indirildi (`effectiveLicensePolicy`). Pratik sonuç: bina
+footprint'lerini kullanmak satışı ENGELLEMEZ (ODbL ticari kullanıma izinli)
+ama dağıtılan **veri paketi** için ODbL atıf + share-alike yükümlülüğü doğurur —
+uygulama kodu etkilenmez.
+
+### Kurulan mimari (L1 MapStore'un ALTINDA)
+
+```
+Kaynak (OSM · OpenFreeMap · Overture · TUCBS · belediye · lisanslı)
+   → SourceAdapter (saf; ağ/saat yok, reddedilen kayıt gerekçeli döner)
+   → LİSANS KAPISI (fail-closed; UNKNOWN hak = RED; kayıt düzeyi lisans üstün)
+   → CandidateMapFeature (gözlemler YAN YANA, üst üste YAZILMAZ)
+   → Resolver (alan alan; tazelik+mutabakat+kalite+yetki önseli EŞİT ağırlık)
+   → CanonicalMapFeature (her alan için "neden bu?" puan dökümü)
+```
+
+**Otorite sınırı:** ikinci harita gerçeği otoritesi KURULMADI — çalışma zamanı
+truth sahibi `navigation/map/store` olarak kalır. `EvidenceGrade` navEvidence'ten
+gelir; kopyalanmaz (kilit denetler). `MapSourceMask` (fiziksel düzlem) ile
+`MapDataSourceId` (üretici) ayrı eksenlerdir.
+
+**Sabit öncelik listesi YOK:** `municipality > Overture > OSM` gibi kör sıralama
+yasaktır. Yetki önseli yalnız dörtte bir ağırlıktadır; taze ve mutabık bir OSM
+gözlemi bayat bir "yüksek yetkili" gözlemi yenebilir (kilit bunu ölçüyor).
+
+**Uydurma geometri YASAK:** bina fusion'ı iki footprint'i ortalamaz/birleştirmez;
+canonical geometri DAİMA gerçek bir kaynak kaydıdır (123/123 kilitli).
+
+### Üretim davranışında ne değişti
+
+**Tek değişiklik:** `housenumber` kaynak katmanının stil tüketicisi eklendi
+(z17, çakışma önceliğinde en altta, `mapDeclutterModel` sahipliğinde,
+`text-field` doğrudan `['get','housenumber']` — türetme YOK). Kaynak kapsamı
+çok seyrek olduğu için bazı sahnelerde HİÇ numara görünmemesi DOĞRU davranıştır.
+
+**Bilinçli olarak DEĞİŞTİRİLMEYEN:** yerel sokak adı eşiği (z16) ve aralığı
+(460 px). Host deneyi 460→100'de z16'da 10→16 ad gösterdi ama deney DPR1/pitch0
+ortamındadır ve kaybolan ad ölçülmedi → cihaz deneyi kütüğe yazıldı (#1319).
+
+### Gözlemlenebilirlik
+
+CAROS LAB → Araç → **Harita Veri Platformu** (`map-data-platform`). Salt-okunur;
+lisans kapısı her açılışta gerçekten çalıştırılır; üç portun (adres · yer ·
+canlı koşul) hiçbiri BAĞLI DEĞİLDİR ve ekran bunu böyle söyler.
+
+### Açık borçlar
+
+- **#1318** kapı numarası cihazda görülmedi (üretim davranışı değişti).
+- **#1319** yerel sokak adı aralığı cihaz deneyi yapılmadı.
+- **#1320** LAB ekranı cihazda açılmadı (800×480 taşma kanıtı yok).
+- Overture bina fusion'ı **renderer'a BAĞLANMADI** — bugün yalnız fixture/gölge
+  karşılaştırmasıdır. Üretim karosuna girmesi için ayrı bir tile üretim hattı
+  (ve ODbL share-alike'lı veri paketi kararı) gerekir.
+- ML footprint doğruluğu **yer gerçeğiyle ölçülmedi**: "2290 bina var" ≠
+  "2290 bina doğrudur". Overture bina yüksekliği YOKTUR (0/2627).
+- Adres kapsamı için kaynak YOK; yerel yol adı için kaynak YOK. İkisi de
+  ayrı veri tedariki (kamu/belediye/saha toplama) gerektirir.
+
+**Hüküm ayrımı:** bu tur **CODE PASS**'tir. `DEVICE PASS` verilmedi,
+`REAL VEHICLE FIELD PASS` verilmedi.

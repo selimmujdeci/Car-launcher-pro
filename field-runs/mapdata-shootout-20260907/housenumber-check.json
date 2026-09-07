@@ -1,0 +1,46 @@
+{
+  "tile": "14/9778/6381",
+  "measuredAt": "2026-09-07",
+  "themes": {
+    "day": {
+      "layerExists": true,
+      "sourceLayer": "housenumber",
+      "minzoom": 17,
+      "textField": "[\"get\",\"housenumber\"]",
+      "textOpacity": 0.75,
+      "indexOfHousenumber": 37,
+      "indexOfRoadLabel": 39,
+      "tileFeatureCount": 7,
+      "acceptedAtZ17": 7,
+      "values": [
+        "22/D",
+        "4",
+        "26",
+        "6",
+        "10",
+        "8",
+        "15"
+      ]
+    },
+    "night": {
+      "layerExists": true,
+      "sourceLayer": "housenumber",
+      "minzoom": 17,
+      "textField": "[\"get\",\"housenumber\"]",
+      "textOpacity": 0.75,
+      "indexOfHousenumber": 37,
+      "indexOfRoadLabel": 39,
+      "tileFeatureCount": 7,
+      "acceptedAtZ17": 7,
+      "values": [
+        "22/D",
+        "4",
+        "26",
+        "6",
+        "10",
+        "8",
+        "15"
+      ]
+    }
+  }
+}
