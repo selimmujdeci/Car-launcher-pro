@@ -87,3 +87,25 @@ export {
   matchBuildings, clusterBuildingObservations, buildGeometryAgreementKeys,
   fuseBuildings, explainBuildingChoice,
 } from './resolvers/buildingResolver';
+
+/* ── Adres/Place index dikişi (F5) — PORT TANIMI, çalışan index DEĞİL ────── */
+export type {
+  CanonicalAddress, CanonicalPlace, AddressQuery, PlaceQuery,
+  IndexUnavailableReason, IndexResult, AddressIndexPort, PlaceIndexPort,
+} from './indexes/addressPlaceIndex';
+export {
+  INDEX_UNAVAILABLE_REASONS, NULL_ADDRESS_INDEX, NULL_PLACE_INDEX,
+  unavailableIndexResult, isMeaningfulAddressQuery, isMeaningfulPlaceQuery,
+  isRoutableAddress, formatAddress,
+} from './indexes/addressPlaceIndex';
+
+/* ── Canlı yol koşulu dikişi (F6) — sağlayıcı BAĞLI DEĞİL ───────────────── */
+export type {
+  LiveConditionKind, LiveRoadObservation, LiveRoadEvidence, LiveRoadQuery,
+  LiveProviderUnavailableReason, LiveRoadConditionsResult, LiveRoadConditionsPort,
+} from './live/liveRoadConditions';
+export {
+  LIVE_CONDITION_KINDS, LIVE_FRESHNESS_BUDGET_MS, NULL_LIVE_ROAD_CONDITIONS,
+  gradeLiveObservation, unavailableLiveResult, isMeaningfulLiveQuery,
+  usableLiveEvidence, canLiveConditionMutateStaticTruth,
+} from './live/liveRoadConditions';
