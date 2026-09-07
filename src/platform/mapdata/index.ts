@@ -70,3 +70,20 @@ export {
 } from './adapters/overtureBuildingAdapter';
 export type { OsmBuildingRaw } from './adapters/osmBuildingAdapter';
 export { osmBuildingAdapter } from './adapters/osmBuildingAdapter';
+
+/* ── Bina fusion (F3) — SAF, deterministik ──────────────────────────────── */
+export type { LocalFrame, FootprintOverlap } from './resolvers/buildingGeometry';
+export {
+  EARTH_RADIUS_M, NO_OVERLAP, makeLocalFrame, toLocalXY, distanceM, outerRing,
+  signedAreaM2, polygonAreaM2, polygonCentroid, pointInRing, pointInPolygon,
+  bboxOf, bboxIntersects, measureOverlap,
+} from './resolvers/buildingGeometry';
+export type {
+  BuildingMatchPolicy, BuildingMatchVerdict, BuildingClusterStats,
+  BuildingClusterResult, BuildingFusionResult,
+} from './resolvers/buildingResolver';
+export {
+  DEFAULT_BUILDING_MATCH_POLICY, AGREEMENT_MIN_AREA_RATIO,
+  matchBuildings, clusterBuildingObservations, buildGeometryAgreementKeys,
+  fuseBuildings, explainBuildingChoice,
+} from './resolvers/buildingResolver';

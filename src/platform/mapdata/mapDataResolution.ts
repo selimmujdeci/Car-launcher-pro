@@ -183,14 +183,23 @@ function qualityScore(o: MapSourceObservation): number {
   return parts.reduce((a, b) => a + b, 0) / parts.length;
 }
 
-/** Değerlerin karşılaştırma anahtarı — mutabakat sayımı için. */
-function agreementKey(field: MapFeatureField, o: MapSourceObservation): string {
+/**
+ * Değerlerin karşılaştırma anahtarı — mutabakat sayımı için.
+ * Domain çözücüsü `agreementKeyFor` verdiyse O KULLANILIR (bkz. ResolveOptions).
+ */
+function agreementKey(
+  field: MapFeatureField,
+  o: MapSourceObservation,
+  override?: ResolveOptions['agreementKeyFor'],
+): string {
+  const domainKey = override?.(field, o);
+  if (typeof domainKey === 'string' && domainKey.length > 0) return domainKey;
   if (field === 'geometry') {
     const g = o.geometry;
     if (!g) return 'NONE';
-    // Geometri eşitliği metrik bir sorudur (F3 BuildingResolver'ın işi).
-    // Burada yalnız TÜR bazında kaba mutabakat sayılır; yanlış kesinlik
-    // üretmemek için koordinat karşılaştırması YAPILMAZ.
+    // Domain anahtarı YOKSA metrik karşılaştırma yapılmaz: yalnız TÜR bazında
+    // kaba mutabakat sayılır — yanlış kesinlik üretmemek için koordinatlar
+    // karşılaştırılmaz.
     return `GEOM:${g.type}`;
   }
   const v = o.fields?.[field];
@@ -207,6 +216,18 @@ export interface ResolveOptions {
   readonly weights?: ResolutionWeights;
   /** Bu puanın altındaki en iyi aday bile kabul EDİLMEZ. */
   readonly minAcceptedScore?: number;
+  /**
+   * ALAN BAZLI mutabakat anahtarı üreticisi — **domain çözücüsü verir**.
+   *
+   * Genel çözücü metrik geometri karşılaştırması YAPAMAZ (bu poligon
+   * kesişimi bilgisi ister ve burada yanlış kesinlik üretir). Bina gibi
+   * domainlerde "iki footprint aynı şeyi mi söylüyor" sorusunu ancak o
+   * domainin çözücüsü yanıtlayabilir; bu kanca o cevabı içeri taşır.
+   *
+   * SÖZLEŞME: fonksiyon SAF ve DETERMİNİSTİK olmalıdır (aynı gözlem → aynı
+   * anahtar). `null` dönerse varsayılan anahtar kullanılır.
+   */
+  readonly agreementKeyFor?: (field: MapFeatureField, o: MapSourceObservation) => string | null;
 }
 
 export const DEFAULT_MIN_ACCEPTED_SCORE = 0.25;
@@ -252,7 +273,7 @@ export function resolveField<T extends MapFieldValue | MapGeometry>(
   // 2) MUTABAKAT — aynı değeri söyleyen BAĞIMSIZ kaynak sayısı.
   const keyCounts = new Map<string, Set<MapDataSourceId>>();
   for (const o of eligible) {
-    const k = agreementKey(field, o);
+    const k = agreementKey(field, o, options.agreementKeyFor);
     const set = keyCounts.get(k) ?? new Set<MapDataSourceId>();
     set.add(o.provenance.sourceId);
     keyCounts.set(k, set);
@@ -262,7 +283,7 @@ export function resolveField<T extends MapFieldValue | MapGeometry>(
   const w = options.weights ?? DEFAULT_RESOLUTION_WEIGHTS;
   const scores: FieldScoreBreakdown[] = eligible.map((o) => {
     const freshnessScore = FRESHNESS_SCORE[o.freshness.classification] ?? 0.35;
-    const supporters = keyCounts.get(agreementKey(field, o))?.size ?? 1;
+    const supporters = keyCounts.get(agreementKey(field, o, options.agreementKeyFor))?.size ?? 1;
     const agreementScore = distinctSources <= 1 ? 0.5 : (supporters - 1) / (distinctSources - 1);
     const q = qualityScore(o);
     const authority = authorityPrior(candidate.kind, field, o.provenance.sourceId);
@@ -287,11 +308,11 @@ export function resolveField<T extends MapFieldValue | MapGeometry>(
   const minScore = options.minAcceptedScore ?? DEFAULT_MIN_ACCEPTED_SCORE;
   if (best.s.total < minScore) return emptyResolution(field, 'BELOW_QUALITY_GATE') as ResolvedField<T>;
 
-  const bestKey = agreementKey(field, best.o);
+  const bestKey = agreementKey(field, best.o, options.agreementKeyFor);
   const runnerUp = order[1];
   const contested = !!runnerUp
     && (best.s.total - runnerUp.s.total) < CONTESTED_SCORE_EPSILON
-    && agreementKey(field, runnerUp.o) !== bestKey;
+    && agreementKey(field, runnerUp.o, options.agreementKeyFor) !== bestKey;
 
   const agreementCount = keyCounts.get(bestKey)?.size ?? 1;
   const value = (field === 'geometry' ? best.o.geometry : best.o.fields?.[field] ?? null) as T | null;
