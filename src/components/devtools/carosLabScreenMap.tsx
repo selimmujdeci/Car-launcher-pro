@@ -88,6 +88,8 @@ const LocationEngineScreen = lazyWithRetry(() =>
   import('./screens/LocationEngineScreen'));
 const NavigationCoreScreen = lazyWithRetry(() =>
   import('./screens/NavigationCoreScreen'));
+const MapDataPlatformScreen = lazyWithRetry(() =>
+  import('./screens/MapDataPlatformScreen'));
 const AddressSearchEvidenceScreen = lazyWithRetry(() =>
   import('./screens/AddressSearchEvidenceScreen'));
 const TripEngineScreen = lazyWithRetry(() =>
@@ -201,6 +203,7 @@ export function renderAvailableTool(id: CarosLabToolId): ReactElement | null {
     case 'ai-evidence-engine': return <AiEvidenceEngineScreen />;
     case 'location-engine':    return <LocationEngineScreen />;
     case 'navigation-core':    return <NavigationCoreScreen />;
+    case 'map-data-platform':  return <MapDataPlatformScreen />;
     case 'discovery-capability': return <DiscoveryCapabilityScreen />;
     case 'early-vehicle-identity': return <EarlyVehicleIdentityScreen />;
     case 'ecu-endpoint-inventory': return <EcuEndpointInventoryScreen />;
