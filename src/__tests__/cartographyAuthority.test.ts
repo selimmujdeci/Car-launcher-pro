@@ -511,6 +511,14 @@ describe('5 · etiket hiyerarşisi ve yoğunluk bütçesi', () => {
     for (const st of [DAY, NIGHT]) {
       const lay = layoutOf(st, 'housenumber') as Record<string, unknown>;
       expect(JSON.stringify(lay['text-field'])).toBe('["get","housenumber"]');
+      /* MAKUL OLMAYAN DEĞER ÇİZİLMEZ: ölçüldü (2026-09-07) — dokuz üretim
+         karosundaki 32 `housenumber` kaydının biri upstream'de kapı numarası
+         alanına yazılmış bir TELEFON NUMARASIDIR (`03246245701`). Filtre
+         uzunluk tabanlıdır; İÇERİK kalıbına bakmaz çünkü `22/D` gibi harfli
+         numaralar Türkçe adreste meşrudur. */
+      expect(JSON.stringify(filterOf(st, 'housenumber')))
+        .toContain('length');
+      expect(filterOf(st, 'housenumber')).toContain('housenumber');
       expect(minzoomOf(st, 'housenumber')).toBe(LABEL_VISIBILITY.housenumber);
       expect(LABEL_VISIBILITY.housenumber).toBeGreaterThan(LABEL_VISIBILITY['road-label']);
       expect(idx(st, 'housenumber')).toBeLessThan(idx(st, 'road-label'));

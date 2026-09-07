@@ -150,3 +150,88 @@ ve uygulanırsa `cartographyAuthority` kilidi yeni ölçülmüş değere
 
 Veri atfı: © OpenStreetMap katkıcıları / OpenMapTiles / OpenFreeMap (ODbL).
 Ölçüm verisi üretime gömülmedi.
+
+---
+
+# EK — #1318 KAPI NUMARASI: ÇAKIŞMA VE VERİ KALİTESİ (aynı harness)
+
+**Hüküm:** Kapı numarası katmanı **48/48 sahnede hiçbir etiketi elemedi**;
+numaralar veri olan yerde gerçekten çiziliyor (z17'de 2, z18'de 4); kanonik
+noktada 0 çıkması **doğru davranıştır**. Ayrıca ölçüm gerçek bir veri kusuru
+ortaya çıkardı — upstream'de kapı numarası alanına yazılmış **telefon numarası**
+— ve buna karşı uzunluk filtresi eklendi.
+
+## E1. Çakışma ölçütü (#1318 kabul ölçütü 3)
+
+Kütükteki ölçüt cihaz GEREKTİRMEZ: aynı stil/karo/viewport'ta katman
+AÇIK/KAPALI iki koşu yeterlidir. 48 sahne (2 tema × 2 viewport × 2 merkez ×
+2 pitch × 3 zoom):
+
+| merkez | pitch | z | yerel ad KAPALI→AÇIK | major KAPALI→AÇIK | yerleşen numara | kayıp |
+|---|---:|---:|---|---|---:|---|
+| kanonik | 0 | 16 | 10 → 10 | 0 → 0 | 0 | YOK |
+| kanonik | 0 | 17 | 2 → 2 · 4 → 4 | 0 → 0 | 0 | YOK |
+| kanonik | 45 | 16 | 15 → 15 · 16 → 16 | 1 → 1 | 0 | YOK |
+| numara kümesi | 0 | 17 | 2 → 2 | 1 → 1 | **2** | YOK |
+| numara kümesi | 0 | 18 | 2 → 2 | 1 → 1 | **4** | YOK |
+| numara kümesi | 45 | 17 | 2 → 2 | 1 → 1 | **2** | YOK |
+| numara kümesi | 45 | 18 | 2 → 2 | 1 → 1 | **4** | YOK |
+
+**KAYIP GÖZLENEN SAHNE: 0 / 48** (gündüz ve gece). Katman sırasının en altta
+olması işe yarıyor: numara hiçbir sokak adını ve hiçbir arter adını elemiyor.
+
+**z16'da yerleşen numara 0** → `minzoom 17` sözleşmesi host'ta doğrulandı.
+
+## E2. Kanonik noktada numara ÇIKMAMASI doğru davranıştır
+
+İlk koşu kanonik nokta (36.9175/34.8621) çevresinde **24/24 sahnede 0 numara**
+verdi. Bu bir kusur değildir: audit §6 zaten *"yakın 400×400 m çevrede numara 0"*
+diyordu. Kaydedilmiş karolardaki numaraların gerçek konumları çıkarıldı; en
+yoğun küme **34,87115 / 36,92690** çevresinde (`4` · `6` · `8` · `10`).
+
+> **Cihaz testi için kritik uyarı:** #1318'i kanonik noktada denemek
+> **YANILTIR** — orada hiç numara yoktur. Test **34,87115 / 36,92690**
+> noktasında yapılmalıdır.
+
+## E3. VERİ KALİTESİ KUSURU — telefon numarası kapı numarası olarak
+
+Dokuz üretim karosundaki **32** `housenumber` kaydı tarandı. Biri:
+
+```
+14-9779-6381.pbf  "03246245701"  34.886345, 36.923162
+```
+
+Bu bir **telefon numarasıdır** ve upstream'de `addr:housenumber` alanına
+yazılmıştır. Filtresiz katman onu kapı numarası gibi basardı.
+
+**Eklenen filtre:** `["<=", ["length", ["to-string", ["get","housenumber"]]], 8]`
+
+Doğrulama (`housenumber-filter-check.mjs`, gerçek karolar):
+
+| | |
+|---|---:|
+| Toplam kayıt | 32 |
+| Filtreden **geçen** | **31** |
+| **Reddedilen** | **1** (`03246245701`) |
+| En uzun kabul edilen değer | `22/D` (4 karakter) |
+
+Eşik neden 8: ölçülen meşru değerlerin tamamı ≤ 4 karakter; 8 iki kat pay
+bırakır ve `12/A-3` gibi bileşik numaraları kesmez. **İçerik kalıbına
+BAKILMAZ** — Türkçe adreste `22/D` gibi harfli numaralar meşrudur.
+
+Bu **uydurma değil, çekimserliktir**: filtre değer ÜRETMEZ, yalnız makul
+olmayanı çizmez.
+
+**Kilitler (ikisi de mutasyonla kanıtlandı):** `cartographyAuthority` ve
+`regression.guards` filtrenin varlığını denetler; filtre kaldırıldığında
+ikisi de düşer, geri konunca geçer.
+
+## E4. #1318'de cihazda kalan ne?
+
+Host bu ölçütleri KAPATTI: numara veri olan yerde çiziliyor · z16'da
+çizilmiyor · hiçbir sokak/arter adını elemiyor · veri olmayan yerde uydurma
+numara basmıyor.
+
+**Cihazda kalan (🔴):** gerçek DPR'de metin boyutu ve okunabilirliği · güneş
+altında kontrast · mini haritada gerçekten görünmemesi · rehberlik sırasında
+opaklık hiyerarşisinin gözle doğrulanması · 800×480 gerçek panelde taşma.

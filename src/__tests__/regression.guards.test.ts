@@ -13310,6 +13310,11 @@ describe('🔒 MAPDATA-F4 · karoda var olan veri stilde tüketiliyor', () => {
       /* UYDURMA YASAĞI: numara yalnız kaynak alandan okunur — bina
          poligonundan, sokak adından veya interpolasyondan TÜRETİLMEZ. */
       expect(JSON.stringify(layer!.layout?.['text-field'])).toBe('["get","housenumber"]');
+      /* ÖLÇÜLDÜ: upstream `housenumber` alanına telefon numarası yazılmış
+         kayıt VAR (32 kayıttan 1'i). Uzunluk filtresi olmadan harita onu
+         kapı numarası gibi basar. */
+      expect(JSON.stringify(layer!.filter ?? null), 'kapı numarası filtresi kalkmış')
+        .toContain('length');
     }
   });
 

@@ -1470,6 +1470,22 @@ export function buildVectorLayers(night: boolean): LayerSpecification[] {
           source: 'omv',
           'source-layer': 'housenumber',
           minzoom: LABEL_VISIBILITY.housenumber,
+          /* MAKUL OLMAYAN DEĞER ÇİZİLMEZ (2026-09-07 ölçümü).
+             ÖLÇÜLDÜ (`field-runs/mapdata-label-sweep-20260907`): kaydedilmiş
+             dokuz üretim karosundaki 32 `housenumber` kaydının BİRİ
+             `03246245701` — yani upstream'de kapı numarası alanına yazılmış
+             bir TELEFON NUMARASI. Filtre olmasaydı harita bunu kapı numarası
+             gibi basardı (11 hane, ekranda saçma).
+
+             Eşik neden 8: ölçülen gerçek değerlerin tamamı ≤ 4 karakterdi
+             (`22/D` · `68/C` · `225` · `106` · `3`); 8 cömert bir üst sınırdır
+             ve `12/A-3` gibi bileşik numaraları KESMEZ.
+
+             UYDURMA DEĞİL, ÇEKİMSERLİK: filtre değer ÜRETMEZ, yalnız makul
+             olmayanı çizmez — "UNKNOWN > uydurma" kuralının bu katmandaki
+             karşılığı. İçerik kalıbına (yalnız rakam vb.) BAKILMAZ: Türkçe
+             adreslerde `22/D` gibi harfli numaralar meşrudur. */
+          filter: ['<=', ['length', ['to-string', ['get', 'housenumber']]], 8] as FilterSpecification,
           layout: {
             'text-field': ['get', 'housenumber'] as unknown as string,
             'text-font': ['Noto Sans Regular'],
