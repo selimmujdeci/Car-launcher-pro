@@ -54,6 +54,7 @@ function obs(init: {
   freshness?: MapSourceObservation['freshness']['classification'];
   accuracyM?: number | null;
   geometry?: MapSourceObservation['geometry'];
+  recordLicenses?: readonly string[];
 }): MapSourceObservation {
   const budget = SOURCE_FRESHNESS_BUDGET_MS[init.sourceId];
   const observedAt = init.ageDays === undefined ? null : NOW - init.ageDays * DAY;
@@ -68,6 +69,7 @@ function obs(init: {
       release: unknownRelease(init.sourceId),
       recordUpdatedAtEpochMs: observedAt,
       upstreamDatasets: [],
+      recordLicenses: init.recordLicenses ?? [],
     },
     geometry: init.geometry ?? {
       type: 'LINESTRING',

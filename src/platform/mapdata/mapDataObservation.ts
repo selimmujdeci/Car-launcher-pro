@@ -153,6 +153,14 @@ export interface MapDataProvenance {
    * DEĞİL, "ilan edilmedi" demektir.
    */
   readonly upstreamDatasets: readonly string[];
+  /**
+   * Kaydın KENDİ ilan ettiği lisans etiketleri (Overture `sources[].license`).
+   * Boş dizi = kayıt düzeyinde lisans İLAN EDİLMEDİ → kaynak taban politikası
+   * kullanılır. ÖLÇÜLDÜ (F1): Overture bina/yol kayıtları burada `ODbL-1.0`
+   * taşır, place kayıtları permissive — bu yüzden hak kaynak kimliğinden
+   * DEĞİL, buradan hesaplanır (`effectiveLicensePolicy`).
+   */
+  readonly recordLicenses: readonly string[];
 }
 
 /* ══════════════════════════════════════════════════════════════════════════

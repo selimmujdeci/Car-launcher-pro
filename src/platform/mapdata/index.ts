@@ -28,11 +28,12 @@ export {
 
 export type {
   LicenseRight, MapDataUseIntent, MapLicensePolicy, LicenseGateVerdict, LicenseGateResult,
+  SpdxRights,
 } from './mapDataLicense';
 export {
-  LICENSE_RIGHTS, MAP_DATA_USE_INTENTS, MAP_LICENSE_REGISTRY,
+  LICENSE_RIGHTS, MAP_DATA_USE_INTENTS, MAP_LICENSE_REGISTRY, SPDX_RIGHTS,
   unknownLicensePolicy, licensePolicyFor, requiresOsmShareAlike,
-  evaluateLicenseGate, evaluateFusionLicenseGate,
+  effectiveLicensePolicy, evaluateLicenseGate, evaluateFusionLicenseGate,
 } from './mapDataLicense';
 
 export type {
@@ -54,3 +55,18 @@ export {
   NEUTRAL_AUTHORITY_PRIOR, DEFAULT_MIN_ACCEPTED_SCORE,
   authorityPrior, resolveField, resolveCandidate, isPublishable,
 } from './mapDataResolution';
+
+/* ── Kaynak adaptörleri (F2) — ham kayıt → gözlem, SAF ──────────────────── */
+export type {
+  AdapterRejectReason, AdapterRejection, AdapterContext, AdapterResult,
+  MapSourceAdapter, AdapterBatchResult,
+} from './adapters/adapterContract';
+export {
+  ADAPTER_REJECT_REASONS, accepted, rejected, normalizeBatch, parseIsoEpochMs,
+} from './adapters/adapterContract';
+export type { OvertureBuildingRaw, OvertureSourceRef } from './adapters/overtureBuildingAdapter';
+export {
+  overtureBuildingAdapter, overtureGeometryToCanonical, isMachineDerivedDataset,
+} from './adapters/overtureBuildingAdapter';
+export type { OsmBuildingRaw } from './adapters/osmBuildingAdapter';
+export { osmBuildingAdapter } from './adapters/osmBuildingAdapter';

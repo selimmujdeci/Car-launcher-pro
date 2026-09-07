@@ -35,7 +35,7 @@ import type { EvidenceGrade } from '../navigation/contracts/navEvidence';
 import type { MapDataSourceId, MapFeatureField, MapFeatureKind } from './mapDataSource';
 import { FIELDS_BY_KIND, fieldAppliesToKind } from './mapDataSource';
 import type { LicenseGateResult, MapDataUseIntent } from './mapDataLicense';
-import { evaluateFusionLicenseGate, evaluateLicenseGate, licensePolicyFor } from './mapDataLicense';
+import { effectiveLicensePolicy, evaluateLicenseGate, evaluateFusionLicenseGate } from './mapDataLicense';
 import type {
   CandidateMapFeature, MapFieldValue, MapGeometry, MapSourceObservation,
 } from './mapDataObservation';
@@ -239,8 +239,13 @@ export function resolveField<T extends MapFieldValue | MapGeometry>(
   if (withValue.length === 0) return emptyResolution(field, 'NO_OBSERVATION') as ResolvedField<T>;
 
   // 1) LİSANS — elenir, düşük puanlanmaz.
+  // Hak KAYIT düzeyinden hesaplanır: aynı kaynağın iki kaydı farklı lisans
+  // taşıyabilir (ölçüldü — Overture buildings ODbL, places permissive).
   const eligible = withValue.filter(
-    (o) => evaluateLicenseGate(licensePolicyFor(o.provenance.sourceId), options.intent).verdict !== 'DENY',
+    (o) => evaluateLicenseGate(
+      effectiveLicensePolicy(o.provenance.sourceId, o.provenance.recordLicenses),
+      options.intent,
+    ).verdict !== 'DENY',
   );
   if (eligible.length === 0) return emptyResolution(field, 'LICENSE_BLOCKED') as ResolvedField<T>;
 
@@ -338,7 +343,19 @@ export function resolveCandidate(
   push(geometry.sourceId);
   for (const r of Object.values(fields)) push(r?.sourceId ?? null);
 
-  const license = evaluateFusionLicenseGate(contributing, options.intent);
+  // Fusion kapısı yalnız kaynak kimliğine bakarsa kayıt düzeyi ODbL yükümlülüğü
+  // kaybolur; bu yüzden KAZANAN gözlemlerin kayıt lisansları kaynak başına
+  // toplanıp kapıya verilir (ölçüldü: Overture buildings ODbL, places permissive).
+  const winners = new Set<string>([geometry.sourceFeatureId ?? '',
+    ...Object.values(fields).map((r) => r?.sourceFeatureId ?? '')].filter(Boolean));
+  const recordLicensesBySource: Partial<Record<MapDataSourceId, string[]>> = {};
+  for (const o of candidate?.observations ?? []) {
+    if (!winners.has(o.provenance.sourceFeatureId)) continue;
+    const bucket = recordLicensesBySource[o.provenance.sourceId] ?? [];
+    for (const l of o.provenance.recordLicenses ?? []) if (!bucket.includes(l)) bucket.push(l);
+    recordLicensesBySource[o.provenance.sourceId] = bucket;
+  }
+  const license = evaluateFusionLicenseGate(contributing, options.intent, recordLicensesBySource);
   const degraded = geometry.value === null
     && Object.values(fields).every((r) => !r || r.value === null);
 
