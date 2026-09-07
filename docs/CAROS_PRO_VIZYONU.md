@@ -8649,3 +8649,6 @@ fail-closed olarak ortak saf modüle çıkarıldı. Yeni production graph
 üretilmedi ve route authority değişmedi. RTG2 access-role, bridge/tunnel/layer
 ve turn restriction metadata taşımadığı için full door-to-door graph hâlâ
 ölçüm/format kararı bekliyor. Device/field doğrulaması yapılmadı.
+## RTG3 bounded full-drivable validation — 2026-09-07
+
+Tarsus, Mersin dense ve Erdemli sabit AOI'lerinde gerçek OSM Overpass verisinden major-only ve full-drivable RTG3 shadow artefact'ları üretildi. Local road endpoint corpus'u bounded CODE PASS verdi; production `routing-graph.bin` değiştirilmedi. RTG3 road/access/direction/structure/source/restriction truth taşır ve tek kanonik reader/worker authority içinde RTG2 geriye uyumluluğunu korur. Gerçek AOI'lerde restriction, bridge/tunnel ve destination-only örneği çıkmadığından overall durum PARTIAL; DEVICE/FIELD kırmızıdır. Kanıt: `field-runs/routing-graph-v3-20260907/report-source.md`.

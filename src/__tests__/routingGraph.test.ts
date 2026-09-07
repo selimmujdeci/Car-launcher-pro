@@ -146,7 +146,7 @@ describe('routingGraph › worker sözleşmesi', () => {
        geçti (`costM` yerel değişkeni + `edgeRoadClass(graph.view, ordinal)`
        erişimcisi) — anlam AYNI (kenar başına sınıf hızıyla toplama), sözdizimi
        taşındı. Kilit güncel erişim biçimine yeniden bağlanır. */
-    expect(worker).toMatch(/durationS \+= _edgeSeconds\(costM, edgeRoadClass\(graph\.view, ordinal\)\)/);
+    expect(worker).toMatch(/durationS \+= _edgeSeconds\(costM, edgeRoadClass\(graph\.view, ordinal\), graph\.version\)/);
     /* Eski hata deseni geri gelmemeli: tüm mesafeyi tek ortalamaya bölmek. */
     expect(worker).not.toMatch(/durationS: distanceM \/ AVG_ROUTE_SPEED_MS,\s*\n\s*steps: \[\],\s*\n\s*\}\);\s*\n\s*\} catch/);
   });

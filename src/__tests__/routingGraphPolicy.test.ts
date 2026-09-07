@@ -19,5 +19,6 @@ describe('RTG v2 drivable road policy', () => {
     expect(policy.onewaySemantics('-1', 'residential')).toEqual({ oneway: true, reversed: true });
     expect(policy.onewaySemantics(undefined, 'motorway')).toEqual({ oneway: true, reversed: false });
     expect(policy.onewaySemantics(undefined, 'residential')).toEqual({ oneway: false, reversed: false });
+    expect(policy.onewaySemantics(undefined, 'residential', 'roundabout')).toEqual({ oneway: true, reversed: false });
   });
 });

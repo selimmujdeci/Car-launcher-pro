@@ -249,7 +249,7 @@ export interface GraphResidencySnapshot {
   readonly loadCount: number;
   readonly nodeCount: number | null;
   readonly edgeCount: number | null;
-  readonly version: 1 | 2 | null;
+  readonly version: 1 | 2 | 3 | null;
   readonly bytes: number | null;
   /** Ayrıştırma süresi (ms) — `null` = ölçülemedi. */
   readonly parseMs: number | null;

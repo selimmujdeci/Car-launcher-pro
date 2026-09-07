@@ -322,8 +322,8 @@ function classIdOf(highway, allowed) {
 }
 
 /** OSM `oneway` etiketi → {oneway, reversed}. `-1` ters yön demektir. */
-function onewayOf(v, highway) {
-  return onewaySemantics(v, highway);
+function onewayOf(v, highway, junction) {
+  return onewaySemantics(v, highway, junction);
 }
 
 /* ── Ana akış ────────────────────────────────────────────────────────────── */
@@ -364,7 +364,7 @@ async function main() {
         let acc = 0;
         for (let i = 0; i < w.refs.length; i++) { acc += w.refs[i]; refs[i] = acc; }
 
-        const ow = onewayOf(onewayTag, highway);
+        const ow = onewayOf(onewayTag, highway, tags.junction);
         ways.push({ cls, oneway: ow.oneway, reversed: ow.reversed, refs });
 
         for (let i = 0; i < refs.length; i++) {

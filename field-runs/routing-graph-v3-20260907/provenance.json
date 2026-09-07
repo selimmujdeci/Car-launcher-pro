@@ -1,0 +1,38 @@
+{
+  "source": "OpenStreetMap via official Overpass API",
+  "retrievedAt": "2026-09-07T20:20:57.087Z",
+  "aois": {
+    "tarsus": {
+      "bbox": [
+        34.85985,
+        36.9157,
+        34.86435,
+        36.9193
+      ],
+      "sha256": "157a0a39ad795aed7aa149ec0a54aeae3340465f002c0549cdbabe94686d86db",
+      "osmTimestamp": "2026-09-07T20:11:10Z"
+    },
+    "mersin": {
+      "bbox": [
+        34.6304,
+        36.8093,
+        34.6374,
+        36.8149
+      ],
+      "sha256": "54cf80683360d02e792b16c2373c0c4cddcd45c3855547493e19ea0bfb46f216",
+      "osmTimestamp": "2026-09-07T20:11:10Z"
+    },
+    "erdemli": {
+      "bbox": [
+        34.29,
+        36.6318,
+        34.298,
+        36.6382
+      ],
+      "sha256": "4418e38663d01002854136e2e95ddf7dd585f1c2a7a77cbe5c09bcf624dc3078",
+      "osmTimestamp": "2026-09-07T20:11:10Z"
+    }
+  },
+  "buildCommand": "node scripts/build-rtg3-bounded.mjs",
+  "policyVersion": "2b4f5de8"
+}

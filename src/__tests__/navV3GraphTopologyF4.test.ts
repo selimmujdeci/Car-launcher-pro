@@ -270,8 +270,8 @@ describe('F4.0 · bozuk girdi ASLA yarım graf üretmez', () => {
   });
 
   it('RTG ailesinden DESTEKLENMEYEN sürüm → UNSUPPORTED_VERSION', () => {
-    /* 'RTG3' = 0x33475452 */
-    const buf = buildSynthBuffer(SYNTH_NODES, SYNTH_EDGES, { magic: 0x33475452 });
+    /* RTG3 artık desteklenir; RTG4 hâlâ fail-closed reddedilir. */
+    const buf = buildSynthBuffer(SYNTH_NODES, SYNTH_EDGES, { magic: 0x34475452 });
     const r = parseRoutingGraph(buf);
     expect(r.outcome).toBe('UNSUPPORTED_VERSION');
     expect(r.view).toBeNull();
@@ -1164,12 +1164,10 @@ describe('F4 · mimari kilitler', () => {
     }
   });
 
-  it('K16 — binary üretici/format DEĞİŞMEDİ', () => {
-    /* Yeni bir yazıcı/format sürümü `src/` içinde YOKTUR. */
-    const writers = walkSrc().filter(
-      (f) => /RTG3|writeRoutingGraph|buildRoutingGraph/.test(strip(readSrc(f))));
-    expect(writers).toEqual([]);
-    /* Okuyucu bugünkü sürüm sabitlerini KORUR. */
+  it('K16 — RTG2 geriye uyumu korunur, RTG3 aynı okuyucudadır', () => {
+    const reader = strip(readSrc('platform/navigation/map/graph/rtg2Reader.ts'));
+    expect(reader).toContain('RTG3_MAGIC');
+    /* Eski production graph sözleşmesi değişmeden kalır. */
     expect(RTG2_MAGIC).toBe(0x32475452);
     expect(RTG_NODE_STRIDE).toBe(16);
     expect(RTG2_EDGE_STRIDE).toBe(13);

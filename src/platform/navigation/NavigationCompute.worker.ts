@@ -19,7 +19,10 @@
 import { foldTr } from './core/turkishFold';
 /* NAV v3 · F4 — `RTG2` ayrıştırma artık BURADA DEĞİL: tek kanonik okuyucuda.
    Worker graf YÜRÜTME (A*) sahibidir; graf OKUMA sahibi değildir. */
-import { parseRoutingGraph, edgeRoadClass, type RoutingGraphView }
+import {
+  parseRoutingGraph, edgeAccessRole, edgeRoadClass, turnIsAllowed,
+  type RoutingGraphView,
+}
   from './map/graph/rtg2Reader';
 import { buildGraphAdjacency, outgoingRange, type GraphAdjacency }
   from './map/graph/graphAdjacency';
@@ -38,7 +41,7 @@ import { buildGraphAdjacency, outgoingRange, type GraphAdjacency }
 interface RoutingGraph {
   view:      RoutingGraphView;
   adjacency: GraphAdjacency;
-  version:   1 | 2;
+  version:   1 | 2 | 3;
 }
 
 /* ── Sabitler ────────────────────────────────────────────────────────────── */
@@ -150,6 +153,7 @@ const HEURISTIC_WEIGHT = 1.2;
 /* ── A* algoritması (binary min-heap) ────────────────────────────────────── */
 
 function _aStar(g: RoutingGraph, startIdx: number, goalIdx: number): number[] | null {
+  if (g.version === 3) return routeRtg3EdgeState(g, startIdx, goalIdx);
   const { view, adjacency } = g;
   const { nodeLat, nodeLon, edgeCostM } = view;
   const goalLat = nodeLat[goalIdx];
@@ -222,6 +226,92 @@ function _aStar(g: RoutingGraph, startIdx: number, goalIdx: number): number[] | 
   return null;
 }
 
+/**
+ * RTG3'te dönüş yasağı önceki kenara bağlıdır; düğüm tek başına arama durumu
+ * olamaz. Bu genişleme aynı route authority içinde `(node, previousEdge)`
+ * durumu kullanır. Destination-only kenar yalnız hedefe son girişte açılır;
+ * böylece driveway/service transit kestirme olamaz.
+ */
+function routeRtg3EdgeState(g: RoutingGraph, startIdx: number, goalIdx: number): number[] | null {
+  const { view, adjacency } = g;
+  const goalLat = view.nodeLat[goalIdx], goalLon = view.nodeLon[goalIdx];
+  type Entry = [number, number, number, string]; // f, node, previous edge, state key
+  const startKey = `${startIdx}:-1`;
+  const heap: Entry[] = [[0, startIdx, -1, startKey]];
+  const gCost = new Map<string, number>([[startKey, 0]]);
+  const previous = new Map<string, string>();
+  const stateNode = new Map<string, number>([[startKey, startIdx]]);
+  const closed = new Set<string>();
+
+  const push = (item: Entry) => {
+    heap.push(item);
+    let i = heap.length - 1;
+    while (i > 0) {
+      const p = (i - 1) >> 1;
+      if (heap[p][0] <= heap[i][0]) break;
+      [heap[p], heap[i]] = [heap[i], heap[p]]; i = p;
+    }
+  };
+  const pop = (): Entry | undefined => {
+    if (!heap.length) return undefined;
+    const top = heap[0], last = heap.pop()!;
+    if (heap.length) {
+      heap[0] = last;
+      let i = 0;
+      for (;;) {
+        const l = 2 * i + 1, r = l + 1; let s = i;
+        if (l < heap.length && heap[l][0] < heap[s][0]) s = l;
+        if (r < heap.length && heap[r][0] < heap[s][0]) s = r;
+        if (s === i) break;
+        [heap[s], heap[i]] = [heap[i], heap[s]]; i = s;
+      }
+    }
+    return top;
+  };
+
+  while (heap.length) {
+    const entry = pop(); if (!entry) break;
+    const [, cur, previousEdge, key] = entry;
+    if (closed.has(key)) continue;
+    if (cur === goalIdx) {
+      const path: number[] = [];
+      let cursor: string | undefined = key;
+      while (cursor !== undefined) {
+        path.unshift(stateNode.get(cursor)!);
+        cursor = previous.get(cursor);
+      }
+      return path;
+    }
+    closed.add(key);
+    if (closed.size > MAX_CLOSED) return null;
+    const curG = gCost.get(key) ?? Infinity;
+    const range = outgoingRange(adjacency, cur);
+    for (let k = range.start; k < range.end; k++) {
+      const ordinal = adjacency.edgeOrdinal[k];
+      const to = adjacency.targetNode[k];
+      if (!turnIsAllowed(view, previousEdge, ordinal, cur)) continue;
+      const accessRole = edgeAccessRole(view, ordinal);
+      if (accessRole === 2 && to !== goalIdx) continue;
+      if (accessRole !== 1 && accessRole !== 2) continue; // bilinmeyen RTG3 rolü fail-closed
+      const nextKey = `${to}:${ordinal}`;
+      if (closed.has(nextKey)) continue;
+      const edgeCost = view.edgeCostM[ordinal];
+      const accessPenalty = accessRole === 2 ? edgeCost * 20 : 0;
+      const newG = curG + edgeCost + accessPenalty;
+      if (newG < (gCost.get(nextKey) ?? Infinity)) {
+        gCost.set(nextKey, newG);
+        previous.set(nextKey, key);
+        stateNode.set(nextKey, to);
+        push([
+          newG + HEURISTIC_WEIGHT * _havM(view.nodeLat[to], view.nodeLon[to], goalLat, goalLon),
+          to, ordinal, nextKey,
+        ]);
+      }
+    }
+  }
+  return null;
+}
+
 /* ── Rota hesaplama ──────────────────────────────────────────────────────── */
 
 /**
@@ -254,12 +344,18 @@ const ROAD_CLASS_SPEED_MS: readonly number[] = [
   45 / 3.6,   // 7 link/other  — bağlantı kolları ve rampa
 ];
 
+const RTG3_ROAD_CLASS_SPEED_MS: readonly number[] = [
+  30 / 3.6, 110 / 3.6, 85 / 3.6, 65 / 3.6, 50 / 3.6,
+  40 / 3.6, 35 / 3.6, 30 / 3.6, 10 / 3.6, 15 / 3.6,
+];
+
 /** Sınıfsız/eski yol için ortalama — düz çizgi rehberliğinde de kullanılır. */
 const AVG_ROUTE_SPEED_MS = ROAD_CLASS_SPEED_MS[0];
 
 /** Kenar süresini saniye olarak verir; sınıf bilinmiyorsa sabit hıza düşer. */
-function _edgeSeconds(costM: number, roadClass: number): number {
-  const v = ROAD_CLASS_SPEED_MS[roadClass] ?? AVG_ROUTE_SPEED_MS;
+function _edgeSeconds(costM: number, roadClass: number, version: 1 | 2 | 3): number {
+  const speeds = version === 3 ? RTG3_ROAD_CLASS_SPEED_MS : ROAD_CLASS_SPEED_MS;
+  const v = speeds[roadClass] ?? AVG_ROUTE_SPEED_MS;
   return v > 0 ? costM / v : costM / AVG_ROUTE_SPEED_MS;
 }
 
@@ -321,7 +417,7 @@ async function _handleRoute(
       if (ordinal >= 0) {
         const costM = graph.view.edgeCostM[ordinal];
         distanceM += costM;
-        durationS += _edgeSeconds(costM, edgeRoadClass(graph.view, ordinal));
+        durationS += _edgeSeconds(costM, edgeRoadClass(graph.view, ordinal), graph.version);
       } else {
         const d = _havM(
           graph.view.nodeLat[fromIdx], graph.view.nodeLon[fromIdx],

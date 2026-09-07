@@ -23,9 +23,10 @@ function normalized(v) { return typeof v === 'string' ? v.trim().toLowerCase() :
  */
 export function classifyDrivableWay(tags = {}, requested = null) {
   const highway = normalized(tags.highway);
+  const baseHighway = highway.endsWith('_link') ? highway.slice(0, -5) : highway;
   if (!highway || EXCLUDED_HIGHWAYS.includes(highway)) return null;
-  if (requested && !requested.has(highway)) return null;
-  if (!ROUTABLE_HIGHWAYS.includes(highway)) return null;
+  if (requested && !requested.has(highway) && !requested.has(baseHighway)) return null;
+  if (!ROUTABLE_HIGHWAYS.includes(baseHighway)) return null;
   const restrictions = ['access', 'motor_vehicle', 'motorcar', 'vehicle']
     .map((k) => normalized(tags[k])).filter(Boolean);
   if (restrictions.some((v) => DENY.has(v))) return null;
@@ -41,10 +42,10 @@ export function classifyDrivableWay(tags = {}, requested = null) {
   return { highway, role: 'ROUTABLE_PUBLIC' };
 }
 
-export function onewaySemantics(value, highway) {
+export function onewaySemantics(value, highway, junction = '') {
   const v = normalized(value);
   if (v === 'yes' || v === 'true' || v === '1') return { oneway: true, reversed: false };
   if (v === '-1' || v === 'reverse') return { oneway: true, reversed: true };
   if (v === 'no' || v === 'false' || v === '0') return { oneway: false, reversed: false };
-  return { oneway: highway === 'motorway' || highway.endsWith('_link'), reversed: false };
+  return { oneway: highway === 'motorway' || highway.endsWith('_link') || normalized(junction) === 'roundabout', reversed: false };
 }
