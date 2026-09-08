@@ -4,7 +4,7 @@
   "country": "TR",
   "source": "OpenStreetMap / Geofabrik Turkey extract; Mersin relation 223131",
   "sourceTimestamp": "2026-09-06T19:53:37Z",
-  "buildTimestamp": "2026-09-08T05:36:19.430Z",
+  "buildTimestamp": "2026-09-08T06:17:42.764Z",
   "policyVersion": "2b4f5de8",
   "graphFormat": "RTG3",
   "regions": [
@@ -17,8 +17,8 @@
         36.5
       ],
       "graphFile": "regions/tr-33-65-72.rtg3",
-      "sha256": "1f9048a1fca18a43fe12a6c59b91f8a4f7e03741bbcf73c091c957e0551a0461",
-      "byteSize": 1614660,
+      "sha256": "7fc9b226b9db0c58daff4fbc1fc2ae081d57ee1b6b46daa29809d02a5bfea344",
+      "byteSize": 1614692,
       "nodeCount": 36168,
       "edgeCount": 36995,
       "neighbors": [
@@ -222,8 +222,8 @@
         37
       ],
       "graphFile": "regions/tr-33-69-73.rtg3",
-      "sha256": "82eff8c14c95ef74909828de459d301f5b75800c1ed9b04a1d023503a63f8e90",
-      "byteSize": 6586696,
+      "sha256": "e644c71cd3a26cac01a9c5aee74c5739c16f868910e129068248fc9512989099",
+      "byteSize": 6586728,
       "nodeCount": 139098,
       "edgeCount": 155702,
       "neighbors": [

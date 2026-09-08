@@ -20,7 +20,7 @@ import { foldTr } from './core/turkishFold';
 /* NAV v3 · F4 — `RTG2` ayrıştırma artık BURADA DEĞİL: tek kanonik okuyucuda.
    Worker graf YÜRÜTME (A*) sahibidir; graf OKUMA sahibi değildir. */
 import {
-  parseRoutingGraph, edgeAccessRole, edgeRoadClass, turnIsAllowed,
+  parseRoutingGraph, edgeAccessRole, edgeRoadClass, turnIsAllowed, viaWayStep,
   type RoutingGraphView,
 }
   from './map/graph/rtg2Reader';
@@ -233,13 +233,22 @@ function _aStar(g: RoutingGraph, startIdx: number, goalIdx: number): number[] | 
  * olamaz. Bu genişleme aynı route authority içinde `(node, previousEdge)`
  * durumu kullanır. Destination-only kenar yalnız hedefe son girişte açılır;
  * böylece driveway/service transit kestirme olamaz.
+ *
+ * ── VIA-WAY (bounded) ────────────────────────────────────────────────────
+ * `from way → via way(lar) → to way` kısıtı tek kavşakta yanıtlanamaz: yasak
+ * olan, DİZİNİN tamamlanmasıdır. Bu yüzden duruma ÜÇÜNCÜ bir bileşen eklenir:
+ * `viaWayStep`in döndürdüğü **maske** — o kenar üzerindeki en fazla 8 zincir
+ * yuvasından hangilerinin izlenmekte olduğu. Sınırsız rota geçmişi TUTULMAZ.
+ *
+ * Maske via-way kaydı olmayan grafta DAİMA 0'dır → durum anahtarı ve arama
+ * davranışı önceki sürümle birebir aynı kalır (ölçülen parite).
  */
 function routeRtg3EdgeState(g: RoutingGraph, startIdx: number, goalIdx: number): number[] | null {
   const { view, adjacency } = g;
   const goalLat = view.nodeLat[goalIdx], goalLon = view.nodeLon[goalIdx];
-  type Entry = [number, number, number, string]; // f, node, previous edge, state key
+  type Entry = [number, number, number, number, string]; // f, node, previous edge, via-way mask, state key
   const startKey = `${startIdx}:-1`;
-  const heap: Entry[] = [[0, startIdx, -1, startKey]];
+  const heap: Entry[] = [[0, startIdx, -1, 0, startKey]];
   const gCost = new Map<string, number>([[startKey, 0]]);
   const previous = new Map<string, string>();
   const stateNode = new Map<string, number>([[startKey, startIdx]]);
@@ -273,7 +282,7 @@ function routeRtg3EdgeState(g: RoutingGraph, startIdx: number, goalIdx: number):
 
   while (heap.length) {
     const entry = pop(); if (!entry) break;
-    const [, cur, previousEdge, key] = entry;
+    const [, cur, previousEdge, viaWayMask, key] = entry;
     if (closed.has(key)) continue;
     if (cur === goalIdx) {
       const path: number[] = [];
@@ -292,10 +301,12 @@ function routeRtg3EdgeState(g: RoutingGraph, startIdx: number, goalIdx: number):
       const ordinal = adjacency.edgeOrdinal[k];
       const to = adjacency.targetNode[k];
       if (!turnIsAllowed(view, previousEdge, ordinal, cur)) continue;
+      const nextMask = viaWayStep(view, previousEdge, viaWayMask, cur, ordinal);
+      if (nextMask < 0) continue;                        // via-way dizisi yasak/zorunlu ihlali
       const accessRole = edgeAccessRole(view, ordinal);
       if (accessRole === 2 && to !== goalIdx) continue;
       if (accessRole !== 1 && accessRole !== 2) continue; // bilinmeyen RTG3 rolü fail-closed
-      const nextKey = `${to}:${ordinal}`;
+      const nextKey = nextMask === 0 ? `${to}:${ordinal}` : `${to}:${ordinal}:${nextMask}`;
       if (closed.has(nextKey)) continue;
       const edgeCost = view.edgeCostM[ordinal];
       const accessPenalty = accessRole === 2 ? edgeCost * 20 : 0;
@@ -306,7 +317,7 @@ function routeRtg3EdgeState(g: RoutingGraph, startIdx: number, goalIdx: number):
         stateNode.set(nextKey, to);
         push([
           newG + HEURISTIC_WEIGHT * _havM(view.nodeLat[to], view.nodeLon[to], goalLat, goalLon),
-          to, ordinal, nextKey,
+          to, ordinal, nextMask, nextKey,
         ]);
       }
     }

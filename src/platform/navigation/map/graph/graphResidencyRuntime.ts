@@ -332,6 +332,10 @@ export interface GraphResidencySnapshot {
   readonly reverseAdjacencyBuilt: boolean;
   /** Yakınlık indeksi kuruldu mu (tembel). */
   readonly spatialIndexBuilt: boolean;
+  /** RTG3 dönüş kısıtı kayıt sayısı — `null` = graf çözülmedi (sahte 0 YOK). */
+  readonly restrictionCount: number | null;
+  /** Via-way zincir sayısı; RTG3 grafta kayıt yoksa 0, çözülmediyse `null`. */
+  readonly viaWayChainCount: number | null;
   /** Makine-okur gerekçe/ayrıntı — `null` = hiç ölçülmedi. */
   readonly detail: string | null;
   /** Son ölçümün monotonik anı. */
@@ -353,6 +357,8 @@ export function getGraphResidencySnapshot(): GraphResidencySnapshot {
     adjacencyBuilt: _adjacency !== null,
     reverseAdjacencyBuilt: _reverseAdjacency !== null,
     spatialIndexBuilt: _index !== null,
+    restrictionCount: view?.restrictionCount ?? null,
+    viaWayChainCount: view ? (view.viaWay?.chainCount ?? 0) : null,
     detail: _detail,
     observedAtMonoMs: _observedAtMonoMs,
     residentRegions: _residentRegions,

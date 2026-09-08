@@ -339,6 +339,7 @@ function full(over: Partial<NavigationCoreRawSnapshot> = {}): NavigationCoreRawS
       nodeCount: 238252, edgeCount: 295346, version: 2, bytes: 7651542,
       parseMs: 180, adjacencyBuilt: true, reverseAdjacencyBuilt: true,
       spatialIndexBuilt: true, detail: 'v2 · 238252 düğüm · 295346 kenar',
+      restrictionCount: 117, viaWayChainCount: 2,
       observedAtMonoMs: 1000,
     },
     /* NAV v3 · F5 — gölge karşılaştırma. Fixture DOLU olmalıdır: dolu anlık
@@ -715,6 +716,7 @@ const REGISTRY: Record<string, Reg> = {
   'hz-graph-size':    { source: SRC_GRAPH_AUDIT, key: 'graphResidency.nodeCount',  stamp: 'NONE' },
   'hz-graph-parse':   { source: SRC_GRAPH_AUDIT, key: 'graphResidency.parseMs',    stamp: 'NONE' },
   'hz-graph-derived': { source: SRC_GRAPH_AUDIT, key: 'graphResidency.adjacencyBuilt', stamp: 'NONE' },
+  'hz-graph-restrictions': { source: SRC_GRAPH_AUDIT, key: 'graphResidency.restrictionCount', stamp: 'NONE' },
 
   /* 16b · NAV v3 · F5 — gölge karşılaştırma + cutover kapısı */
   'hz-shadow-mode':      { source: SRC_SHADOW_AUDIT, key: 'cehShadow.ticks',              stamp: 'NONE' },

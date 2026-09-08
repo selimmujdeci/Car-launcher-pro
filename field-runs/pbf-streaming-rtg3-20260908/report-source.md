@@ -1,5 +1,12 @@
 # CAROS PRO — RTG3 PROVINCE HARDENING REPORT
 
+> **SÜRSEKMİŞ (SUPERSEDED) — 2026-09-08.** Bu belgedeki sayılar bu dizindeki
+> `benchmark.json` / `hardening-validation.json` dosyalarının ÖNCEKİ hâline aittir.
+> Aynı dizin via-way turunda YENİDEN üretildi: restriction 110 → 112 supported
+> (110 via-node + 2 via-way), RTG3 toplamı 27 232 796 B → 27 232 860 B, tepe
+> process-tree RSS 363.92 MiB → 290.28 MiB (koşu değişkenliği; ikisi de PASS).
+> Güncel kanıt: `field-runs/turkey-rtg3-preflight-20260908/report-source.md`.
+
 ## Analysis
 
 Gerçek kaynak, Geofabrik `turkey-260906.osm.pbf` içinden OSM Mersin administrative relation `223131` ile çıkarılmış Mersin province PBF'dir. Provider source 645,061,454 B; province extract 9,899,746 B ve SHA-256 `3548f3e82ceee708898c4dad4d0fef5110cf5a40b3beae81cd38fd1c5c99079a` değerindedir. Veri timestamp'i `2026-09-06T19:53:37Z`dir.

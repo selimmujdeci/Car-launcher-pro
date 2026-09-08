@@ -1,0 +1,88 @@
+{
+  "ok": true,
+  "checks": [
+    {
+      "check": "node-runtime",
+      "required": ">=22.13.0",
+      "measured": "22.22.1",
+      "result": "PASS",
+      "detail": "node:sqlite (DatabaseSync) bayraksiz kullanilabilir olmali"
+    },
+    {
+      "check": "node-sqlite-capability",
+      "required": "DatabaseSync + prepare + iterate + WAL journal",
+      "measured": "USABLE",
+      "result": "PASS",
+      "detail": "DatabaseSync + prepare + iterate"
+    },
+    {
+      "check": "osmium-tool",
+      "required": ">=1.14.0",
+      "measured": "1.19.0",
+      "result": "PASS",
+      "detail": null
+    },
+    {
+      "check": "source-pbf",
+      "required": "okunabilir OSM PBF",
+      "measured": "9899746 B",
+      "result": "PASS",
+      "detail": "BlobHeader 13 bayt"
+    },
+    {
+      "check": "temp-writable",
+      "required": "yazilabilir dizin",
+      "measured": "/mnt/c/Users/selim/Desktop/caros pro/field-runs/pbf-streaming-rtg3-20260908/tmp",
+      "result": "PASS",
+      "detail": null
+    },
+    {
+      "check": "output-writable",
+      "required": "yazilabilir dizin",
+      "measured": "/mnt/c/Users/selim/Desktop/caros pro/field-runs/pbf-streaming-rtg3-20260908/regions",
+      "result": "PASS",
+      "detail": null
+    },
+    {
+      "check": "free-disk",
+      "required": ">=247493650 B",
+      "measured": "48963969024 B",
+      "result": "PASS",
+      "detail": null
+    },
+    {
+      "check": "memory-budget",
+      "required": ">=256 MiB",
+      "measured": "512 MiB",
+      "result": "PASS",
+      "detail": null
+    }
+  ],
+  "toolchain": {
+    "node": {
+      "min": "22.13.0",
+      "reason": "node:sqlite (DatabaseSync) bayraksiz kullanilabilir olmali",
+      "verified": [
+        "22.22.1",
+        "24.15.0"
+      ]
+    },
+    "osmium": {
+      "min": "1.14.0",
+      "reason": "osmium tags-filter -R + cat -t node OPL akisi",
+      "verified": [
+        "1.19.0"
+      ]
+    },
+    "sqlite": {
+      "backend": "node:sqlite (Node ile gelen gomulu SQLite)",
+      "requires": [
+        "DatabaseSync",
+        "prepare",
+        "iterate",
+        "WAL journal"
+      ]
+    },
+    "minMemoryBudgetMiB": 256
+  }
+}

@@ -3,6 +3,7 @@ import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { classifyDrivableWay } from './routingGraphPolicy.mjs';
+import { RESTRICTION_TYPE, RTG3_MAGIC, RTG3_EDGE_STRIDE, RTG3_NODE_STRIDE, RTG3_RESTRICTION_STRIDE, serializeRtg3 } from './rtg3Codec.mjs';
 
 const OUT = resolve('field-runs/routing-graph-v3-20260907');
 const RAW = resolve(OUT, 'raw');
@@ -15,8 +16,9 @@ const AOIS = {
 const OLD = new Set(['motorway', 'trunk', 'primary', 'secondary']);
 const NEW = new Set(['motorway', 'trunk', 'primary', 'secondary', 'tertiary', 'unclassified', 'residential', 'living_street', 'service', 'road']);
 const CLASS = { motorway: 1, trunk: 2, primary: 3, secondary: 4, tertiary: 5, unclassified: 6, residential: 7, living_street: 8, service: 9, road: 9 };
-const RESTRICTION = { no_left_turn: 1, no_right_turn: 2, no_straight_on: 3, no_u_turn: 4, only_left_turn: 5, only_right_turn: 6, only_straight_on: 7 };
-const RTG3_MAGIC = 0x33475452, NODE_STRIDE = 16, EDGE_STRIDE = 28, RESTRICTION_STRIDE = 16;
+/* RTG3 yazma otoritesi TEK dosyadadir (`rtg3Codec.mjs`); burada kopya tutulmaz. */
+const RESTRICTION = RESTRICTION_TYPE;
+const NODE_STRIDE = RTG3_NODE_STRIDE, EDGE_STRIDE = RTG3_EDGE_STRIDE, RESTRICTION_STRIDE = RTG3_RESTRICTION_STRIDE;
 
 const sha = (b) => createHash('sha256').update(b).digest('hex');
 const hav = (a, b) => { const r=6371000,p=Math.PI/180,d1=(b[0]-a[0])*p,d2=(b[1]-a[1])*p; const q=Math.sin(d1/2)**2+Math.cos(a[0]*p)*Math.cos(b[0]*p)*Math.sin(d2/2)**2; return r*2*Math.atan2(Math.sqrt(q),Math.sqrt(1-q)); };
@@ -71,7 +73,7 @@ export function build(data, allowed) {
   return {coords,nodeIds,edges,restrictions,classCount,restrictionStats:{source:relations.length,supported:restrictions.length,unsupported,malformed}};
 }
 
-export function serialize(g){const size=16+g.coords.length*NODE_STRIDE+g.edges.length*EDGE_STRIDE+g.restrictions.length*RESTRICTION_STRIDE;const b=Buffer.alloc(size);let o=0;b.writeUInt32LE(RTG3_MAGIC,o);o+=4;b.writeUInt32LE(g.coords.length,o);o+=4;b.writeUInt32LE(g.edges.length,o);o+=4;b.writeUInt32LE(g.restrictions.length,o);o+=4;for(let i=0;i<g.coords.length;i++){const p=g.coords[i];b.writeFloatLE(p[0],o);b.writeFloatLE(p[1],o+4);b.writeBigUInt64LE(BigInt(g.nodeIds?.[i]??0),o+8);o+=NODE_STRIDE;}for(const e of g.edges){b.writeUInt32LE(e.from,o);b.writeUInt32LE(e.to,o+4);b.writeUInt32LE(e.cost,o+8);b.writeBigUInt64LE(BigInt(e.wayId),o+12);b[o+20]=e.cls;b[o+21]=e.accessRole;b[o+22]=e.direction;b[o+23]=e.structure;b.writeInt8(e.layer,o+24);o+=EDGE_STRIDE;}for(const r of g.restrictions){b.writeUInt32LE(r.fromEdge,o);b.writeUInt32LE(r.toEdge,o+4);b.writeUInt32LE(r.viaNode,o+8);b[o+12]=r.type;o+=RESTRICTION_STRIDE;}return b;}
+export function serialize(g){return serializeRtg3(g);}
 const percentile=(a,p)=>{const s=[...a].sort((x,y)=>x-y);return s[Math.min(s.length-1,Math.floor((s.length-1)*p))]??null;};
 function loadMetrics(b){const times=[];for(let k=0;k<100;k++){const t=performance.now(),v=new DataView(b.buffer,b.byteOffset,b.byteLength),n=v.getUint32(4,true),e=v.getUint32(8,true),r=v.getUint32(12,true);let checksum=0,o=16+n*NODE_STRIDE;for(let i=0;i<e;i++){checksum^=v.getUint32(o,true);o+=EDGE_STRIDE;}for(let i=0;i<r;i++){checksum^=v.getUint32(o,true);o+=RESTRICTION_STRIDE;}if(o!==b.length||checksum<0)throw new Error('RTG3 load doğrulaması düştü');times.push(performance.now()-t);}return{p50Ms:percentile(times,.5),p95Ms:percentile(times,.95)};}
 

@@ -8659,3 +8659,39 @@ Tarsus, Mersin dense ve Erdemli sabit AOI'lerinde gerçek OSM Overpass verisinde
 ## RTG3 province hardening — 2026-09-08
 
 Durum: DOĞRULANDI (CODE/desktop shadow), ÜRÜN HAZIR: HAYIR. SQLite-backed iki geçişli Mersin province build 374.73 MiB process-tree peak ile 512 MiB kapısını geçti ve önceki graph binary'leriyle exact parity korudu. 110 gerçek via-node OSM restriction RTG3'e çözüldü. Manifest → mevcut graph residency → mevcut NavigationCompute worker zincirinde iki ve üç partition gerçek rota PASS verdi. Production RTG2 değiştirilmedi; device/field gate kırmızıdır. Kanıt: `field-runs/pbf-streaming-rtg3-20260908/report-source.md`.
+
+## RTG3 via-way restrictions + pinned build toolchain — 2026-09-08
+
+Durum: DOĞRULANDI (CODE/desktop shadow), ÜRÜN HAZIR: HAYIR.
+
+Türkiye çapı build öncesindeki iki teknik açık kapatıldı.
+
+**1) Reproducible build toolchain.** `node:sqlite` riski gizlenmedi, ölçüldü:
+Node 22.13.0'dan itibaren bayraksız kullanılabilir, Node 22.22.1 (WSL) ve
+24.15.0 (Windows) üzerinde `DatabaseSync + prepare + iterate` ile GERÇEK sorgu
+koşularak kanıtlandı. Sözleşme tek yerde (`scripts/rtg3BuildPreflight.mjs`
+`RTG3_TOOLCHAIN`) ve `package.json#engines` ile senkron kilitli. Builder artık
+Node sürümü · SQLite yeteneği · osmium sürümü · kaynak PBF imzası ·
+temp/çıktı yazılabilirliği · serbest disk · bellek bütçesi doğrulanmadan
+veritabanı AÇMIYOR (fail-fast, yarım graf yok).
+
+**2) Via-way turn restriction.** Gerçek OSM `from way → via way(lar) → to way`
+semantiği RTG3'e ZİNCİR olarak yazıldı (`type` baytının 0x80/0x40 bitleri;
+via-way içermeyen artefakt bayt bayt AYNI, eski okuyucu yeni artefaktı
+fail-closed reddeder). Kanonik edge-state A* ikinci bir router KAZANMADI;
+durumuna kenar başına ≤8 yuvalık **bounded maske** eklendi. Maske via-way
+kaydı olmayan grafta daima 0 → durum anahtarı ve rota sonucu birebir aynı
+(3 gerçek rotada mesafe paritesi ölçüldü).
+
+Gerçek Mersin verisi: 147 relation gözlendi · 124 geçerli · **112 desteklendi
+(110 via-node + 2 via-way)** · 4 araç-özel (`except`) desteklenmedi ·
+8 çözülemedi · 23 kaynak hatalı. Via-node temeli 110'da KORUNDU. Üç via-way
+relation'dan biri (`10048814`) via yolu tek yön olduğu için sürülemez → jenerik
+kısıt olarak UYDURULMADI, `UNRESOLVED_TOPOLOGY` yazıldı.
+
+`TURKEY_RTG3_BUILD_GATE = READY_FOR_NATIONWIDE_SHADOW_BUILD` (12/12 kanıt).
+Nationwide build bu turda BAŞLATILMADI; `public/maps/routing-graph.bin`
+değişmedi. Cihaz/saha kapısı kırmızıdır (kütük #1209).
+
+Kanıt: `field-runs/pbf-streaming-rtg3-20260908/report-source.md` ·
+`field-runs/turkey-rtg3-preflight-20260908/turkey-build-preflight.json`.

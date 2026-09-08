@@ -63,6 +63,31 @@ export const RTG1_EDGE_STRIDE = 12;
 export const RTG3_EDGE_STRIDE = 28;
 export const RTG3_RESTRICTION_STRIDE = 16;
 
+/* ── Via-way dönüş kısıtı bit sözleşmesi ───────────────────────────────────
+   `type` baytı 1..7 iken kayıt KLASİK via-node kısıtıdır (format DEĞİŞMEDİ).
+   0x80 biti kurulu ise kayıt bir via-way ZİNCİR HALKASIDIR; 0x40 biti o
+   halkanın zincirin SON geçişi olduğunu söyler, düşük 3 bit temel türdür.
+
+   Bu bilinçli olarak `RTG4` sihirli sayısı DEĞİLDİR: eski okuyucu `type`
+   1..7 dışını `INVALID` sayıp grafı TÜMDEN reddeder → eski uygulama yeni
+   grafı "kısıtı görmeden" sürmez (fail-closed). Via-way içermeyen RTG3
+   artefaktı bayt bayt aynıdır; RTG1/RTG2 hiç etkilenmez. */
+export const RTG3_VIA_WAY_FLAG = 0x80;
+export const RTG3_VIA_WAY_FINAL = 0x40;
+export const RTG3_VIA_WAY_BASE_MASK = 0x07;
+
+/**
+ * Bir kenardan geçebilecek EN FAZLA via-way zincir yuvası.
+ *
+ * A* durum anahtarı bu yuvalar üzerinde bir bit maskesi taşır: `(düğüm,
+ * önceki kenar, maske)`. Maske sınırsız büyürse arama uzayı üstel olur —
+ * bu tavan "bounded transition context" sözünün SAYISAL karşılığıdır.
+ * Aşan graf sessizce kırpılmaz, `INVALID` ile reddedilir.
+ */
+export const RTG3_MAX_VIA_WAY_SLOTS_PER_EDGE = 8;
+/** `chainSeq` alanı u8 — bir zincirde en fazla 256 geçiş. */
+export const RTG3_MAX_VIA_WAY_CHAIN_LINKS = 256;
+
 /** Kimlik uzayı tavanı (F0 `localIdx` 23 bit) — aşan graf REDDEDİLİR. */
 export const RTG_MAX_EDGE_COUNT = 8_388_607;
 
@@ -120,6 +145,47 @@ export interface RoutingGraphView {
   readonly restrictionToEdge: Uint32Array;
   readonly restrictionViaNode: Uint32Array;
   readonly restrictionType: Uint8Array;
+  /** Via-way zincir kimliği; via-node kaydında ANLAMSIZ (0). */
+  readonly restrictionChainId: Uint32Array;
+  /** Via-way zincirindeki halka sırası; via-node kaydında ANLAMSIZ (0). */
+  readonly restrictionChainSeq: Uint8Array;
+  /** Via-way otomatı — kayıt yoksa `null` (davranış RTG3 öncesiyle AYNI). */
+  readonly viaWay: ViaWayRestrictionIndex | null;
+}
+
+/**
+ * Via-way dönüş kısıtı otomatı — **saf veri**, karar `viaWayStep`tedir.
+ *
+ * Bir OSM `from way → via way(lar) → to way` kısıtı, kenar dizisi
+ * `e0 → e1 → … → em` biçiminde ZİNCİR olarak taşınır. `link j` zincirin
+ * `e_j → e_{j+1}` geçişidir ve `linkViaNode[j]` o geçişin kavşağıdır.
+ */
+export interface ViaWayRestrictionIndex {
+  readonly chainCount: number;
+  /** Temel kısıt türü (1..7) — `>=5` ise `only_*`. */
+  readonly chainType: Uint8Array;
+  readonly chainStart: Uint32Array;
+  /** Zincirdeki geçiş (link) sayısı `m`. */
+  readonly chainLength: Uint32Array;
+  readonly linkFromEdge: Uint32Array;
+  readonly linkToEdge: Uint32Array;
+  readonly linkViaNode: Uint32Array;
+  /**
+   * Kenar → o kenarın üzerinde duran yuvalar. Yuva değeri `chain*256 + step`
+   * paketlenmiştir; `step`, zincirin o kenardan ÇIKAN halkasının indeksidir.
+   * Dizideki SIRA, A* durum maskesindeki bit sırasıdır.
+   */
+  readonly slotsByEdge: ReadonlyMap<number, readonly number[]>;
+  /**
+   * Sıcak yol koruması: kenarın ÜZERİNDE yuva var mı (1 bit/kenar).
+   *
+   * `viaWayStep` her kenar genişlemesinde çağrılır. Yuvası olmayan kenar
+   * grafın neredeyse tamamıdır; orada `Map.get` yapmak ölçülebilir bir
+   * yavaşlamadır. Bu bitset ile ortak durum tek dizi okumasıyla elenir
+   * (`edgeCount/8` bayt — 629k kenarlı bölgede ≈ 79 KB, yalnız via-way
+   * kaydı VARSA ayrılır).
+   */
+  readonly slotEdgeBits: Uint8Array;
 }
 
 export interface RoutingGraphParseResult {
@@ -157,7 +223,13 @@ export function edgeAccessRole(view: RoutingGraphView, ordinal: number): number 
   return view.edgeAccessRole[ordinal];
 }
 
-/** RTG3 restriction lookup. RTG1/2 have no restrictions and remain allowed. */
+/**
+ * RTG3 **via-node** dönüş kısıtı sorgusu. RTG1/2'de kısıt yoktur → serbest.
+ *
+ * Via-way zincir kayıtları BURADA DEĞERLENDİRİLMEZ: tek kavşak bakışı bir
+ * via-way kısıtını doğru yanıtlayamaz (yasak olan, tüm dizinin tamamlanması).
+ * Onların sahibi `viaWayStep`tir.
+ */
 export function turnIsAllowed(
   view: RoutingGraphView, previousEdge: number, nextEdge: number, viaNode: number,
 ): boolean {
@@ -165,6 +237,7 @@ export function turnIsAllowed(
   let hasOnly = false;
   let matchedOnly = false;
   for (let i = 0; i < view.restrictionCount; i++) {
+    if ((view.restrictionType[i] & RTG3_VIA_WAY_FLAG) !== 0) continue;
     if (view.restrictionViaNode[i] !== viaNode || view.restrictionFromEdge[i] !== previousEdge) continue;
     const type = view.restrictionType[i];
     if (type >= 1 && type <= 4 && view.restrictionToEdge[i] === nextEdge) return false;
@@ -174,6 +247,174 @@ export function turnIsAllowed(
     }
   }
   return !hasOnly || matchedOnly;
+}
+
+/** Yuva paketleme — `chain*256 + step`. */
+const _slotChain = (slot: number): number => slot >>> 8;
+const _slotStep = (slot: number): number => slot & 0xff;
+
+/**
+ * Via-way otomatının TEK geçiş kuralı.
+ *
+ * Girdi durum: `(previousEdge, mask)` — `mask`, `previousEdge` üzerindeki
+ * yuvalardan hangilerinin AKTİF olduğudur (yani hangi zincirlerin o ana kadar
+ * eksiksiz izlendiği). Çıktı, `nextEdge` üzerindeki YENİ maskedir.
+ *
+ * Dönüş `-1` ise geçiş YASAK:
+ *  - `no_*`  → zincirin SON halkası tamamlanmak üzere (yasak manevra),
+ *  - `only_*`→ zincire girilmiş ama izin verilen devam kenarı seçilmemiş.
+ *
+ * Zincire GİRİLMEMİŞSE hiçbir kenar bloklanmaz — alakasız yollar kapanmaz.
+ * Via-way kaydı olmayan grafta daima `0` döner → durum anahtarı ve arama
+ * davranışı RTG3'ün önceki hâliyle BİREBİR aynıdır.
+ */
+export function viaWayStep(
+  view: RoutingGraphView, previousEdge: number, mask: number,
+  viaNode: number, nextEdge: number,
+): number {
+  const index = view.viaWay;
+  if (!index) return 0;
+
+  const bits = index.slotEdgeBits;
+  const previousHasSlots = previousEdge >= 0 && mask !== 0
+    && (bits[previousEdge >> 3] & (1 << (previousEdge & 7))) !== 0;
+  const nextHasSlots = (bits[nextEdge >> 3] & (1 << (nextEdge & 7))) !== 0;
+  if (!previousHasSlots && !nextHasSlots) return 0;   // sıcak yol: zincirle ilgisiz
+
+  const previousSlots = previousHasSlots ? index.slotsByEdge.get(previousEdge) : undefined;
+
+  if (previousSlots) {
+    for (let i = 0; i < previousSlots.length; i++) {
+      if ((mask & (1 << i)) === 0) continue;
+      const chain = _slotChain(previousSlots[i]);
+      const step = _slotStep(previousSlots[i]);
+      const link = index.chainStart[chain] + step;
+      /* Zincir bu kavşakta ilerlemiyorsa (kenarın DİĞER ucundayız) kısıt
+         uygulanmaz — ne yasaklar ne zorlar; yalnızca sönümlenir. */
+      if (index.linkViaNode[link] !== viaNode) continue;
+      const expected = index.linkToEdge[link];
+      if (index.chainType[chain] >= 5) {
+        if (nextEdge !== expected) return -1;          // only_* → zorunlu devam
+      } else if (nextEdge === expected && step === index.chainLength[chain] - 1) {
+        return -1;                                      // no_* → yasak dizi tamamlanıyor
+      }
+    }
+  }
+
+  const nextSlots = index.slotsByEdge.get(nextEdge);
+  if (!nextSlots) return 0;
+  let next = 0;
+  for (let j = 0; j < nextSlots.length; j++) {
+    const chain = _slotChain(nextSlots[j]);
+    const step = _slotStep(nextSlots[j]);
+    if (step === 0) { next |= 1 << j; continue; }       // zincirin `from` kenarındayız
+    if (!previousSlots) continue;
+    for (let i = 0; i < previousSlots.length; i++) {
+      if ((mask & (1 << i)) === 0) continue;
+      if (_slotChain(previousSlots[i]) !== chain || _slotStep(previousSlots[i]) !== step - 1) continue;
+      const link = index.chainStart[chain] + step - 1;
+      if (index.linkViaNode[link] === viaNode && index.linkToEdge[link] === nextEdge) {
+        next |= 1 << j;
+      }
+    }
+  }
+  return next;
+}
+
+/**
+ * Via-way kayıtlarından otomat indeksini kurar (saf).
+ *
+ * Ayrıştırıcı ve `mergeRegionalGraphViews` AYNI kurucuyu kullanır — ikinci bir
+ * zincir yorumu bırakmak, aynı kısıtın iki farklı anlamı demektir.
+ * Tutarsız zincir sessizce atılmaz: `error` döner → çağıran fail-closed reddeder.
+ */
+export function buildViaWayIndex(
+  restrictionType: Uint8Array, restrictionFromEdge: Uint32Array,
+  restrictionToEdge: Uint32Array, restrictionViaNode: Uint32Array,
+  restrictionChainId: Uint32Array, restrictionChainSeq: Uint8Array,
+  count: number, edgeCount: number,
+): { index: ViaWayRestrictionIndex | null; error: string | null } {
+  const groups = new Map<number, number[]>();
+  for (let i = 0; i < count; i++) {
+    if ((restrictionType[i] & RTG3_VIA_WAY_FLAG) === 0) continue;
+    const id = restrictionChainId[i];
+    const bucket = groups.get(id);
+    if (bucket) bucket.push(i); else groups.set(id, [i]);
+  }
+  if (!groups.size) return { index: null, error: null };
+
+  const chainType: number[] = [];
+  const chainStart: number[] = [];
+  const chainLength: number[] = [];
+  const linkFromEdge: number[] = [];
+  const linkToEdge: number[] = [];
+  const linkViaNode: number[] = [];
+  const slotsByEdge = new Map<number, number[]>();
+
+  const chainIds = [...groups.keys()].sort((a, b) => a - b);
+  for (const id of chainIds) {
+    const records = groups.get(id)!.sort((a, b) => restrictionChainSeq[a] - restrictionChainSeq[b]);
+    const links = records.length;
+    if (links > RTG3_MAX_VIA_WAY_CHAIN_LINKS) {
+      return { index: null, error: `via-way zinciri ${id} çok uzun (${links})` };
+    }
+    const base = restrictionType[records[0]] & RTG3_VIA_WAY_BASE_MASK;
+    if (base < 1 || base > 7) {
+      return { index: null, error: `via-way zinciri ${id} temel türü geçersiz (${base})` };
+    }
+    const chain = chainType.length;
+    if (chain > 0xffff) return { index: null, error: 'via-way zincir sayısı taşıyor' };
+    chainType.push(base);
+    chainStart.push(linkFromEdge.length);
+    chainLength.push(links);
+    for (let j = 0; j < links; j++) {
+      const record = records[j];
+      if (restrictionChainSeq[record] !== j) {
+        return { index: null, error: `via-way zinciri ${id} halka sırası bozuk (${restrictionChainSeq[record]} ≠ ${j})` };
+      }
+      if ((restrictionType[record] & RTG3_VIA_WAY_BASE_MASK) !== base) {
+        return { index: null, error: `via-way zinciri ${id} halkaları farklı tür taşıyor` };
+      }
+      const isFinal = (restrictionType[record] & RTG3_VIA_WAY_FINAL) !== 0;
+      if (isFinal !== (j === links - 1)) {
+        return { index: null, error: `via-way zinciri ${id} son halka işareti yanlış (halka ${j})` };
+      }
+      if (j > 0 && restrictionFromEdge[record] !== linkToEdge[linkToEdge.length - 1]) {
+        return { index: null, error: `via-way zinciri ${id} halka ${j} bitişik değil` };
+      }
+      const slotEdge = restrictionFromEdge[record];
+      const slots = slotsByEdge.get(slotEdge) ?? [];
+      if (slots.length >= RTG3_MAX_VIA_WAY_SLOTS_PER_EDGE) {
+        return { index: null, error: `kenar ${slotEdge} via-way yuva tavanını aşıyor (${RTG3_MAX_VIA_WAY_SLOTS_PER_EDGE})` };
+      }
+      slots.push(chain * 256 + j);
+      slotsByEdge.set(slotEdge, slots);
+      linkFromEdge.push(slotEdge);
+      linkToEdge.push(restrictionToEdge[record]);
+      linkViaNode.push(restrictionViaNode[record]);
+    }
+  }
+
+  const slotEdgeBits = new Uint8Array(Math.ceil(Math.max(edgeCount, 1) / 8));
+  for (const edge of slotsByEdge.keys()) {
+    if (edge >= edgeCount) return { index: null, error: `via-way yuvası kenar aralığı dışında (${edge})` };
+    slotEdgeBits[edge >> 3] |= 1 << (edge & 7);
+  }
+
+  return {
+    index: {
+      chainCount: chainType.length,
+      chainType: Uint8Array.from(chainType),
+      chainStart: Uint32Array.from(chainStart),
+      chainLength: Uint32Array.from(chainLength),
+      linkFromEdge: Uint32Array.from(linkFromEdge),
+      linkToEdge: Uint32Array.from(linkToEdge),
+      linkViaNode: Uint32Array.from(linkViaNode),
+      slotsByEdge,
+      slotEdgeBits,
+    },
+    error: null,
+  };
 }
 
 function _inEdgeRange(view: RoutingGraphView, ordinal: number): boolean {
@@ -333,6 +574,8 @@ export function parseRoutingGraph(buffer: ArrayBuffer | null | undefined): Routi
   const restrictionToEdge = new Uint32Array(declaredRestrictionCount);
   const restrictionViaNode = new Uint32Array(declaredRestrictionCount);
   const restrictionType = new Uint8Array(declaredRestrictionCount);
+  const restrictionChainId = new Uint32Array(declaredRestrictionCount);
+  const restrictionChainSeq = new Uint8Array(declaredRestrictionCount);
   for (let i = 0; i < declaredRestrictionCount; i++) {
     const fromEdge = view.getUint32(off, true);
     const toEdge = view.getUint32(off + 4, true);
@@ -343,12 +586,26 @@ export function parseRoutingGraph(buffer: ArrayBuffer | null | undefined): Routi
     restrictionFromEdge[i] = fromEdge;
     restrictionToEdge[i] = toEdge;
     restrictionViaNode[i] = viaNode;
-    restrictionType[i] = view.getUint8(off + 12);
-    if (restrictionType[i] < 1 || restrictionType[i] > 7) {
+    const type = view.getUint8(off + 12);
+    restrictionType[i] = type;
+    if ((type & RTG3_VIA_WAY_FLAG) !== 0) {
+      const base = type & RTG3_VIA_WAY_BASE_MASK;
+      if (base < 1 || base > 7 || (type & ~(RTG3_VIA_WAY_FLAG | RTG3_VIA_WAY_FINAL | RTG3_VIA_WAY_BASE_MASK)) !== 0) {
+        return _fail('INVALID', `RTG3 via-way kısıtı ${i} tür baytı geçersiz (0x${type.toString(16)})`);
+      }
+      restrictionChainSeq[i] = view.getUint8(off + 13);
+      restrictionChainId[i] = view.getUint16(off + 14, true);
+    } else if (type < 1 || type > 7) {
       return _fail('INVALID', `RTG3 dönüş kısıtı ${i} türü desteklenmiyor`);
     }
     off += RTG3_RESTRICTION_STRIDE;
   }
+
+  const viaWay = buildViaWayIndex(
+    restrictionType, restrictionFromEdge, restrictionToEdge, restrictionViaNode,
+    restrictionChainId, restrictionChainSeq, declaredRestrictionCount, edgeCount,
+  );
+  if (viaWay.error) return _fail('INVALID', `RTG3 via-way zinciri tutarsız: ${viaWay.error}`);
 
   const parsed: RoutingGraphView = {
     version,
@@ -374,6 +631,9 @@ export function parseRoutingGraph(buffer: ArrayBuffer | null | undefined): Routi
     restrictionToEdge,
     restrictionViaNode,
     restrictionType,
+    restrictionChainId,
+    restrictionChainSeq,
+    viaWay: viaWay.index,
   };
 
   return { outcome: 'OK', view: parsed, detail: `v${version} · ${nodeCount} düğüm · ${edgeCount} kenar` };

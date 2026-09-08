@@ -1616,6 +1616,17 @@ export function buildNavigationCoreCards(s: NavigationCoreRawSnapshot): readonly
             'komşuluk ' + (_gr.adjacencyBuilt ? 'VAR' : 'yok')
               + ' · ters ' + (_gr.reverseAdjacencyBuilt ? 'VAR' : 'yok')
               + ' · indeks ' + (_gr.spatialIndexBuilt ? 'VAR' : 'yok')),
+      _gr === null || _gr.restrictionCount === null
+        ? unavailable({ id: 'hz-graph-restrictions', label: 'Dönüş kısıtları', source: SRC_GRAPH,
+            note: 'Graf çözülmedi — kısıt sayısı ÖLÇÜLMEDİ; sahte 0 ÜRETİLMEZ. '
+              + 'RTG1/RTG2 grafta dönüş kısıtı YOKTUR (0 = "kayıt yok", '
+              + '"kısıt uygulanmıyor" DEĞİL).', updatedAt: null }, 'ölçülmedi')
+        : observed({ id: 'hz-graph-restrictions', label: 'Dönüş kısıtları', source: SRC_GRAPH,
+            note: 'Kayıt sayısı ve via-way zinciri KANONİK okuyucudan gelir; bu satır '
+              + 'kendi hükmünü ÜRETMEZ. Via-way zinciri kenar dizisiyle uygulanır '
+              + '(tek kavşak kaydı DEĞİL).', updatedAt: null },
+            _gr.restrictionCount + ' kayıt · via-way zinciri '
+              + (_gr.viaWayChainCount === null ? 'ölçülmedi' : String(_gr.viaWayChainCount))),
 
       /* ── F5 · GÖLGE KARŞILAŞTIRMA + CUTOVER KAPISI ─────────────────────
        * DÜRÜSTLÜK SINIRI: bu satırlar bir HÜKÜM ÜRETMEZ. Gölge katmanı

@@ -1,4 +1,5 @@
 import type { RoutingGraphView } from './rtg2Reader';
+import { buildViaWayIndex, RTG3_VIA_WAY_FLAG } from './rtg2Reader';
 
 export const TURKEY_GRAPH_MANIFEST_SCHEMA = 1;
 
@@ -118,14 +119,53 @@ export function mergeRegionalGraphViews(views: readonly RoutingGraphView[]): Rou
     }
     edgeRemaps.push(map);
   });
+  /* Kısıtlar: via-node kayıtları doğrudan yeniden eşlenir. Via-way ZİNCİRLERİ
+     bölge-yerel `chainId` taşır; birleşmede yeniden numaralanır ve aynı ilişki
+     iki örtüşen bölgede göründüğünde İÇERİĞE göre tekilleştirilir (aksi hâlde
+     aynı kısıt iki yuva tüketir ve kenar tavanına gereksiz baskı yapar). */
   const restrictions: Array<[number,number,number,number]> = [];
-  views.forEach((view, vi) => { for (let i=0;i<view.restrictionCount;i++) restrictions.push([edgeRemaps[vi][view.restrictionFromEdge[i]],edgeRemaps[vi][view.restrictionToEdge[i]],remaps[vi][view.restrictionViaNode[i]],view.restrictionType[i]]); });
+  const chainIdOf: number[] = [];
+  const chainSeqOf: number[] = [];
+  const chainSignatures = new Map<string, number>();
+  views.forEach((view, vi) => {
+    const chainRecords = new Map<number, number[]>();
+    for (let i = 0; i < view.restrictionCount; i++) {
+      if ((view.restrictionType[i] & RTG3_VIA_WAY_FLAG) !== 0) {
+        const bucket = chainRecords.get(view.restrictionChainId[i]);
+        if (bucket) bucket.push(i); else chainRecords.set(view.restrictionChainId[i], [i]);
+        continue;
+      }
+      restrictions.push([edgeRemaps[vi][view.restrictionFromEdge[i]], edgeRemaps[vi][view.restrictionToEdge[i]], remaps[vi][view.restrictionViaNode[i]], view.restrictionType[i]]);
+      chainIdOf.push(0); chainSeqOf.push(0);
+    }
+    for (const records of chainRecords.values()) {
+      const ordered = records.sort((a, b) => view.restrictionChainSeq[a] - view.restrictionChainSeq[b]);
+      const links = ordered.map((i) => [edgeRemaps[vi][view.restrictionFromEdge[i]], edgeRemaps[vi][view.restrictionToEdge[i]], remaps[vi][view.restrictionViaNode[i]], view.restrictionType[i]] as const);
+      const signature = links.map((l) => l.join(':')).join('|');
+      if (chainSignatures.has(signature)) continue;
+      const chainId = chainSignatures.size + 1;
+      chainSignatures.set(signature, chainId);
+      links.forEach((link, seq) => {
+        restrictions.push([link[0], link[1], link[2], link[3]]);
+        chainIdOf.push(chainId); chainSeqOf.push(seq);
+      });
+    }
+  });
+  const restrictionType = Uint8Array.from(restrictions.map((r) => r[3]));
+  const restrictionFromEdge = Uint32Array.from(restrictions.map((r) => r[0]));
+  const restrictionToEdge = Uint32Array.from(restrictions.map((r) => r[1]));
+  const restrictionViaNode = Uint32Array.from(restrictions.map((r) => r[2]));
+  const restrictionChainId = Uint32Array.from(chainIdOf);
+  const restrictionChainSeq = Uint8Array.from(chainSeqOf);
+  const viaWay = buildViaWayIndex(restrictionType, restrictionFromEdge, restrictionToEdge, restrictionViaNode, restrictionChainId, restrictionChainSeq, restrictions.length, edges.length);
+  if (viaWay.error) return null;   // fail-closed: tutarsız zincirle rota ÜRETİLMEZ
   return {
     version:3,nodeCount:nodeLat.length,edgeCount:edges.length,parsedBytes:views.reduce((n,v)=>n+v.parsedBytes,0),trailingBytes:0,
     nodeLat:Float32Array.from(nodeLat),nodeLon:Float32Array.from(nodeLon),nodeSourceId:BigUint64Array.from(nodeIds),
     edgeFrom:Uint32Array.from(edges.map(e=>e.from)),edgeTo:Uint32Array.from(edges.map(e=>e.to)),edgeCostM:Uint32Array.from(edges.map(e=>e.cost)),
     edgeFlags:Uint8Array.from(edges.map(e=>(e.dir?1:0)|((e.cls&7)<<1))),edgeRoadClassV3:Uint8Array.from(edges.map(e=>e.cls)),
     edgeAccessRole:Uint8Array.from(edges.map(e=>e.access)),edgeDirection:Uint8Array.from(edges.map(e=>e.dir)),edgeStructure:Uint8Array.from(edges.map(e=>e.structure)),edgeLayer:Int8Array.from(edges.map(e=>e.layer)),edgeSourceWayId:BigUint64Array.from(edges.map(e=>e.way)),
-    restrictionCount:restrictions.length,restrictionFromEdge:Uint32Array.from(restrictions.map(r=>r[0])),restrictionToEdge:Uint32Array.from(restrictions.map(r=>r[1])),restrictionViaNode:Uint32Array.from(restrictions.map(r=>r[2])),restrictionType:Uint8Array.from(restrictions.map(r=>r[3])),
+    restrictionCount:restrictions.length,restrictionFromEdge,restrictionToEdge,restrictionViaNode,restrictionType,
+    restrictionChainId,restrictionChainSeq,viaWay:viaWay.index,
   };
 }

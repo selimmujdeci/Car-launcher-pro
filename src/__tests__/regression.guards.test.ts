@@ -4521,6 +4521,64 @@ describe('NAV-CORE-P0 kilitleri', () => {
     expect(w, 'sezgisel ağırlık değişmiş').toContain('HEURISTIC_WEIGHT = 1.2');
   });
 
+  it('🔒 RTG3 via-way: dönüş kısıtı otomatı TEK otoritededir', () => {
+    /* NEDEN: via-way kısıtı tek kavşakla yanıtlanamaz; kararı `viaWayStep`
+       verir. Otomatın ikinci bir kopyası, aynı kısıtın iki farklı yorumu
+       (biri fazla bloklayan, biri yasak manevraya izin veren) demektir. */
+    const walk = (dir: string): string[] => {
+      const out: string[] = [];
+      for (const e of readdirSync(resolve(root, dir), { withFileTypes: true })) {
+        if (e.name === '__tests__') continue;
+        const next = `${dir}/${e.name}`;
+        if (e.isDirectory()) out.push(...walk(next));
+        else if (e.name.endsWith('.ts') || e.name.endsWith('.tsx')) out.push(next);
+      }
+      return out;
+    };
+    const files = walk('src');
+    expect(files.filter((f) => read(f).includes('export function viaWayStep')),
+      'ikinci via-way otomatı').toEqual(['src/platform/navigation/map/graph/rtg2Reader.ts']);
+    expect(files.filter((f) => read(f).includes('export function buildViaWayIndex')),
+      'ikinci via-way indeks kurucusu').toEqual(['src/platform/navigation/map/graph/rtg2Reader.ts']);
+    /* Yuva/zincir iç yapısına okuyucu DIŞINDA dokunan olmamalı. */
+    const outsiders = files.filter((f) => f !== 'src/platform/navigation/map/graph/rtg2Reader.ts'
+      && stripSrc(read(f)).includes('slotsByEdge'));
+    expect(outsiders, 'via-way iç yapısı okuyucu dışına sızdı').toEqual([]);
+  });
+
+  it('🔒 RTG3 via-way: kanonik A* durumu maskeyi TAŞIR, geçmişi DEĞİL', () => {
+    const w = stripSrc(read('src/platform/navigation/NavigationCompute.worker.ts'));
+    /* Sınırsız rota geçmişi arama uzayını patlatır; durum bounded maskedir. */
+    expect(w, 'via-way maskesi A* durumunda değil')
+      .toContain('viaWayStep(view, previousEdge, viaWayMask, cur, ordinal)');
+    expect(w, 'yasak geçiş reddedilmiyor').toContain('if (nextMask < 0) continue;');
+    /* Maske 0 iken durum anahtarı ESKİSİYLE AYNI kalmalı — via-way kaydı
+       olmayan grafta davranış paritesi budur. */
+    expect(w, 'maske 0 iken anahtar değişmiş')
+      .toContain("nextMask === 0 ? `${to}:${ordinal}` : `${to}:${ordinal}:${nextMask}`");
+    expect(w.match(/function routeRtg3EdgeState\(/g), 'ikinci RTG3 router').toHaveLength(1);
+  });
+
+  it('🔒 RTG3: via-node sorgusu via-way kayıtlarını YORUMLAMAZ', () => {
+    const r = stripSrc(read('src/platform/navigation/map/graph/rtg2Reader.ts'));
+    /* `turnIsAllowed` bir via-way halkasını via-node kısıtı sanarsa meşru
+       dönüşleri bloklar (aşırı kısıt = sessiz rota bozulması). */
+    expect(r, 'turnIsAllowed via-way kaydını atlamıyor')
+      .toContain('if ((view.restrictionType[i] & RTG3_VIA_WAY_FLAG) !== 0) continue;');
+  });
+
+  it('🔒 RTG3: bayt YAZMA otoritesi tek dosyadadır', () => {
+    /* Okuma tarafı tek otoriteyken (rtg2Reader) yazma tarafında iki kopya
+       tutmak, aynı formatın iki gerçeği demektir. */
+    const codec = read('scripts/rtg3Codec.mjs');
+    expect(codec).toContain('export function serializeRtg3');
+    for (const builder of ['scripts/build-pbf-streaming-rtg3.mjs', 'scripts/build-rtg3-bounded.mjs']) {
+      const src = read(builder);
+      expect(src, `${builder}: ortak codec kullanılmıyor`).toContain("from './rtg3Codec.mjs'");
+      expect(src.includes('writeBigUInt64LE'), `${builder}: ikinci RTG3 yazarı`).toBe(false);
+    }
+  });
+
   it('🔒 NAV v3 F4: L2/L3 ham graf belleğini/okuyucusunu GÖREMEZ', () => {
     const dirs = [
       'src/platform/navigation/ego',

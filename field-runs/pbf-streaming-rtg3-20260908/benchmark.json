@@ -6,6 +6,94 @@
     "provider": "Geofabrik/OpenStreetMap",
     "coverage": "Mersin province relation 223131"
   },
+  "preflight": {
+    "ok": true,
+    "checks": [
+      {
+        "check": "node-runtime",
+        "required": ">=22.13.0",
+        "measured": "22.22.1",
+        "result": "PASS",
+        "detail": "node:sqlite (DatabaseSync) bayraksiz kullanilabilir olmali"
+      },
+      {
+        "check": "node-sqlite-capability",
+        "required": "DatabaseSync + prepare + iterate + WAL journal",
+        "measured": "USABLE",
+        "result": "PASS",
+        "detail": "DatabaseSync + prepare + iterate"
+      },
+      {
+        "check": "osmium-tool",
+        "required": ">=1.14.0",
+        "measured": "1.19.0",
+        "result": "PASS",
+        "detail": null
+      },
+      {
+        "check": "source-pbf",
+        "required": "okunabilir OSM PBF",
+        "measured": "9899746 B",
+        "result": "PASS",
+        "detail": "BlobHeader 13 bayt"
+      },
+      {
+        "check": "temp-writable",
+        "required": "yazilabilir dizin",
+        "measured": "/mnt/c/Users/selim/Desktop/caros pro/field-runs/pbf-streaming-rtg3-20260908/tmp",
+        "result": "PASS",
+        "detail": null
+      },
+      {
+        "check": "output-writable",
+        "required": "yazilabilir dizin",
+        "measured": "/mnt/c/Users/selim/Desktop/caros pro/field-runs/pbf-streaming-rtg3-20260908/regions",
+        "result": "PASS",
+        "detail": null
+      },
+      {
+        "check": "free-disk",
+        "required": ">=247493650 B",
+        "measured": "48963969024 B",
+        "result": "PASS",
+        "detail": null
+      },
+      {
+        "check": "memory-budget",
+        "required": ">=256 MiB",
+        "measured": "512 MiB",
+        "result": "PASS",
+        "detail": null
+      }
+    ],
+    "toolchain": {
+      "node": {
+        "min": "22.13.0",
+        "reason": "node:sqlite (DatabaseSync) bayraksiz kullanilabilir olmali",
+        "verified": [
+          "22.22.1",
+          "24.15.0"
+        ]
+      },
+      "osmium": {
+        "min": "1.14.0",
+        "reason": "osmium tags-filter -R + cat -t node OPL akisi",
+        "verified": [
+          "1.19.0"
+        ]
+      },
+      "sqlite": {
+        "backend": "node:sqlite (Node ile gelen gomulu SQLite)",
+        "requires": [
+          "DatabaseSync",
+          "prepare",
+          "iterate",
+          "WAL journal"
+        ]
+      },
+      "minMemoryBudgetMiB": 256
+    }
+  },
   "parser": "osmium-tool + node:sqlite",
   "strategy": "SQLite-indexed two-pass PBF stream; sequential deterministic 0.5 degree RTG3 partitions",
   "memoryBudgetMiB": 512,
@@ -16,13 +104,16 @@
   "restrictionStats": {
     "observed": 147,
     "valid": 124,
-    "supported": 110,
-    "unsupported": 7,
+    "supported": 112,
+    "supportedViaNode": 110,
+    "supportedViaWay": 2,
+    "unsupported": 4,
     "malformed": 23,
-    "unresolved": 7,
+    "unresolved": 8,
     "conditional": 0,
     "vehicleSpecific": 4,
-    "viaWay": 3
+    "viaWay": 3,
+    "unsupportedType": 0
   },
   "regions": [
     {
@@ -34,8 +125,8 @@
         36.5
       ],
       "graphFile": "regions/tr-33-65-72.rtg3",
-      "sha256": "1f9048a1fca18a43fe12a6c59b91f8a4f7e03741bbcf73c091c957e0551a0461",
-      "byteSize": 1614660,
+      "sha256": "7fc9b226b9db0c58daff4fbc1fc2ae081d57ee1b6b46daa29809d02a5bfea344",
+      "byteSize": 1614692,
       "nodeCount": 36168,
       "edgeCount": 36995,
       "neighbors": [
@@ -55,12 +146,18 @@
       "restrictions": {
         "source": 147,
         "valid": 8,
-        "supported": 6,
-        "unsupported": 2,
+        "supported": 7,
+        "supportedViaWay": 1,
+        "unsupported": 0,
         "malformed": 0,
-        "unresolved": 0,
+        "unresolved": 1,
         "conditional": 0,
-        "vehicleSpecific": 0
+        "vehicleSpecific": 0,
+        "viaWayObserved": 2,
+        "viaWayCapacity": 0,
+        "unsupportedType": 0,
+        "records": 8,
+        "viaWayChains": 1
       },
       "structure": {
         "bridge": 40,
@@ -92,11 +189,17 @@
         "source": 147,
         "valid": 0,
         "supported": 0,
+        "supportedViaWay": 0,
         "unsupported": 0,
         "malformed": 0,
         "unresolved": 0,
         "conditional": 0,
-        "vehicleSpecific": 0
+        "vehicleSpecific": 0,
+        "viaWayObserved": 0,
+        "viaWayCapacity": 0,
+        "unsupportedType": 0,
+        "records": 0,
+        "viaWayChains": 0
       },
       "structure": {
         "bridge": 0,
@@ -140,11 +243,17 @@
         "source": 147,
         "valid": 0,
         "supported": 0,
+        "supportedViaWay": 0,
         "unsupported": 0,
         "malformed": 0,
         "unresolved": 0,
         "conditional": 0,
-        "vehicleSpecific": 0
+        "vehicleSpecific": 0,
+        "viaWayObserved": 0,
+        "viaWayCapacity": 0,
+        "unsupportedType": 0,
+        "records": 0,
+        "viaWayChains": 0
       },
       "structure": {
         "bridge": 50,
@@ -187,11 +296,17 @@
         "source": 147,
         "valid": 0,
         "supported": 0,
+        "supportedViaWay": 0,
         "unsupported": 0,
         "malformed": 0,
         "unresolved": 0,
         "conditional": 0,
-        "vehicleSpecific": 0
+        "vehicleSpecific": 0,
+        "viaWayObserved": 0,
+        "viaWayCapacity": 0,
+        "unsupportedType": 0,
+        "records": 0,
+        "viaWayChains": 0
       },
       "structure": {
         "bridge": 29,
@@ -236,11 +351,17 @@
         "source": 147,
         "valid": 1,
         "supported": 1,
+        "supportedViaWay": 0,
         "unsupported": 0,
         "malformed": 0,
         "unresolved": 0,
         "conditional": 0,
-        "vehicleSpecific": 0
+        "vehicleSpecific": 0,
+        "viaWayObserved": 0,
+        "viaWayCapacity": 0,
+        "unsupportedType": 0,
+        "records": 1,
+        "viaWayChains": 0
       },
       "structure": {
         "bridge": 152,
@@ -286,11 +407,17 @@
         "source": 147,
         "valid": 0,
         "supported": 0,
+        "supportedViaWay": 0,
         "unsupported": 0,
         "malformed": 0,
         "unresolved": 0,
         "conditional": 0,
-        "vehicleSpecific": 0
+        "vehicleSpecific": 0,
+        "viaWayObserved": 0,
+        "viaWayCapacity": 0,
+        "unsupportedType": 0,
+        "records": 0,
+        "viaWayChains": 0
       },
       "structure": {
         "bridge": 23,
@@ -329,11 +456,17 @@
         "source": 147,
         "valid": 0,
         "supported": 0,
+        "supportedViaWay": 0,
         "unsupported": 0,
         "malformed": 0,
         "unresolved": 0,
         "conditional": 0,
-        "vehicleSpecific": 0
+        "vehicleSpecific": 0,
+        "viaWayObserved": 0,
+        "viaWayCapacity": 0,
+        "unsupportedType": 0,
+        "records": 0,
+        "viaWayChains": 0
       },
       "structure": {
         "bridge": 1,
@@ -374,12 +507,18 @@
       "restrictions": {
         "source": 147,
         "valid": 11,
-        "supported": 14,
+        "supported": 11,
+        "supportedViaWay": 0,
         "unsupported": 0,
         "malformed": 0,
         "unresolved": 0,
         "conditional": 0,
-        "vehicleSpecific": 0
+        "vehicleSpecific": 0,
+        "viaWayObserved": 0,
+        "viaWayCapacity": 0,
+        "unsupportedType": 0,
+        "records": 14,
+        "viaWayChains": 0
       },
       "structure": {
         "bridge": 41,
@@ -427,11 +566,17 @@
         "source": 147,
         "valid": 5,
         "supported": 1,
+        "supportedViaWay": 0,
         "unsupported": 4,
         "malformed": 0,
         "unresolved": 0,
         "conditional": 0,
-        "vehicleSpecific": 4
+        "vehicleSpecific": 4,
+        "viaWayObserved": 0,
+        "viaWayCapacity": 0,
+        "unsupportedType": 0,
+        "records": 1,
+        "viaWayChains": 0
       },
       "structure": {
         "bridge": 115,
@@ -473,11 +618,17 @@
         "source": 147,
         "valid": 0,
         "supported": 0,
+        "supportedViaWay": 0,
         "unsupported": 0,
         "malformed": 0,
         "unresolved": 0,
         "conditional": 0,
-        "vehicleSpecific": 0
+        "vehicleSpecific": 0,
+        "viaWayObserved": 0,
+        "viaWayCapacity": 0,
+        "unsupportedType": 0,
+        "records": 0,
+        "viaWayChains": 0
       },
       "structure": {
         "bridge": 6,
@@ -496,8 +647,8 @@
         37
       ],
       "graphFile": "regions/tr-33-69-73.rtg3",
-      "sha256": "82eff8c14c95ef74909828de459d301f5b75800c1ed9b04a1d023503a63f8e90",
-      "byteSize": 6586696,
+      "sha256": "e644c71cd3a26cac01a9c5aee74c5739c16f868910e129068248fc9512989099",
+      "byteSize": 6586728,
       "nodeCount": 139098,
       "edgeCount": 155702,
       "neighbors": [
@@ -522,12 +673,18 @@
       "restrictions": {
         "source": 147,
         "valid": 94,
-        "supported": 91,
-        "unsupported": 1,
+        "supported": 92,
+        "supportedViaWay": 1,
+        "unsupported": 0,
         "malformed": 2,
         "unresolved": 2,
         "conditional": 0,
-        "vehicleSpecific": 0
+        "vehicleSpecific": 0,
+        "viaWayObserved": 1,
+        "viaWayCapacity": 0,
+        "unsupportedType": 0,
+        "records": 93,
+        "viaWayChains": 1
       },
       "structure": {
         "bridge": 511,
@@ -574,11 +731,17 @@
         "source": 147,
         "valid": 0,
         "supported": 0,
+        "supportedViaWay": 0,
         "unsupported": 0,
         "malformed": 0,
         "unresolved": 0,
         "conditional": 0,
-        "vehicleSpecific": 0
+        "vehicleSpecific": 0,
+        "viaWayObserved": 0,
+        "viaWayCapacity": 0,
+        "unsupportedType": 0,
+        "records": 0,
+        "viaWayChains": 0
       },
       "structure": {
         "bridge": 89,
@@ -621,11 +784,17 @@
         "source": 147,
         "valid": 0,
         "supported": 0,
+        "supportedViaWay": 0,
         "unsupported": 0,
         "malformed": 0,
         "unresolved": 0,
         "conditional": 0,
-        "vehicleSpecific": 0
+        "vehicleSpecific": 0,
+        "viaWayObserved": 0,
+        "viaWayCapacity": 0,
+        "unsupportedType": 0,
+        "records": 0,
+        "viaWayChains": 0
       },
       "structure": {
         "bridge": 69,
@@ -665,11 +834,17 @@
         "source": 147,
         "valid": 0,
         "supported": 0,
+        "supportedViaWay": 0,
         "unsupported": 0,
         "malformed": 0,
         "unresolved": 0,
         "conditional": 0,
-        "vehicleSpecific": 0
+        "vehicleSpecific": 0,
+        "viaWayObserved": 0,
+        "viaWayCapacity": 0,
+        "unsupportedType": 0,
+        "records": 0,
+        "viaWayChains": 0
       },
       "structure": {
         "bridge": 24,
@@ -682,1243 +857,2275 @@
   ],
   "totalNodes": 600821,
   "totalEdges": 629201,
-  "totalBytes": 27232796,
+  "totalBytes": 27232860,
   "tempBytes": 107040768,
-  "peakTempBytes": 155619720,
-  "buildMs": 42049.079326,
-  "peakNodeRssBytes": 378322944,
-  "peakProcessTreeRssBytes": 378322944,
+  "peakTempBytes": 153353720,
+  "buildMs": 113681.611443,
+  "peakNodeRssBytes": 304377856,
+  "peakProcessTreeRssBytes": 304377856,
   "telemetry": [
     {
       "stage": "periodic",
-      "atMs": 10391.865703000001,
-      "nodeRss": 97951744,
-      "childRss": 5255168,
-      "processTreeRss": 103206912,
-      "tempDisk": 102972112
+      "atMs": 34010.594254,
+      "nodeRss": 98443264,
+      "childRss": 5976064,
+      "processTreeRss": 104419328,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 10441.617222,
-      "nodeRss": 97951744,
-      "childRss": 7368704,
-      "processTreeRss": 105320448,
-      "tempDisk": 102972112
+      "atMs": 34060.430440000004,
+      "nodeRss": 97796096,
+      "childRss": 7299072,
+      "processTreeRss": 105095168,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 10491.891352,
-      "nodeRss": 97951744,
-      "childRss": 7417856,
-      "processTreeRss": 105369600,
-      "tempDisk": 102972112
+      "atMs": 34110.596621000004,
+      "nodeRss": 97796096,
+      "childRss": 7340032,
+      "processTreeRss": 105136128,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 10542.236932000002,
-      "nodeRss": 98082816,
-      "childRss": 18579456,
-      "processTreeRss": 116662272,
-      "tempDisk": 102972112
+      "atMs": 34161.142932,
+      "nodeRss": 97796096,
+      "childRss": 7348224,
+      "processTreeRss": 105144320,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 10592.440065,
-      "nodeRss": 98082816,
-      "childRss": 44843008,
-      "processTreeRss": 142925824,
-      "tempDisk": 102972112
+      "atMs": 34211.281905,
+      "nodeRss": 97796096,
+      "childRss": 7389184,
+      "processTreeRss": 105185280,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 10654.200657000001,
-      "nodeRss": 107126784,
-      "childRss": 37937152,
-      "processTreeRss": 145063936,
-      "tempDisk": 102972112
+      "atMs": 34261.148491,
+      "nodeRss": 97796096,
+      "childRss": 7430144,
+      "processTreeRss": 105226240,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 10722.167253000001,
-      "nodeRss": 108830720,
-      "childRss": 37937152,
-      "processTreeRss": 146767872,
-      "tempDisk": 102972112
+      "atMs": 34311.582140000006,
+      "nodeRss": 97796096,
+      "childRss": 18305024,
+      "processTreeRss": 116101120,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 10782.446008,
-      "nodeRss": 109850624,
-      "childRss": 37937152,
-      "processTreeRss": 147787776,
-      "tempDisk": 102972112
+      "atMs": 34362.815907000004,
+      "nodeRss": 97796096,
+      "childRss": 41390080,
+      "processTreeRss": 139186176,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 10840.098861,
-      "nodeRss": 110366720,
-      "childRss": 37937152,
-      "processTreeRss": 148303872,
-      "tempDisk": 102972112
+      "atMs": 34428.66539,
+      "nodeRss": 98058240,
+      "childRss": 45715456,
+      "processTreeRss": 143773696,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 10900.160011000002,
-      "nodeRss": 112070656,
-      "childRss": 37937152,
-      "processTreeRss": 150007808,
-      "tempDisk": 102972112
+      "atMs": 34517.586601,
+      "nodeRss": 106184704,
+      "childRss": 45715456,
+      "processTreeRss": 151900160,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 10955.21047,
-      "nodeRss": 112156672,
-      "childRss": 37937152,
-      "processTreeRss": 150093824,
-      "tempDisk": 102972112
+      "atMs": 34569.720652,
+      "nodeRss": 106971136,
+      "childRss": 45715456,
+      "processTreeRss": 152686592,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 11014.357854000002,
-      "nodeRss": 114778112,
-      "childRss": 37937152,
-      "processTreeRss": 152715264,
-      "tempDisk": 102972112
+      "atMs": 34665.093434,
+      "nodeRss": 109723648,
+      "childRss": 45715456,
+      "processTreeRss": 155439104,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 11069.817327,
-      "nodeRss": 119758848,
-      "childRss": 37937152,
-      "processTreeRss": 157696000,
-      "tempDisk": 102972112
+      "atMs": 34736.231314000004,
+      "nodeRss": 110247936,
+      "childRss": 45715456,
+      "processTreeRss": 155963392,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 11129.645721,
-      "nodeRss": 116187136,
-      "childRss": 37937152,
-      "processTreeRss": 154124288,
-      "tempDisk": 102972112
+      "atMs": 34798.90984,
+      "nodeRss": 110379008,
+      "childRss": 45715456,
+      "processTreeRss": 156094464,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 11184.348163,
-      "nodeRss": 116580352,
-      "childRss": 37937152,
-      "processTreeRss": 154517504,
-      "tempDisk": 102972112
+      "atMs": 34888.716120000005,
+      "nodeRss": 116408320,
+      "childRss": 45715456,
+      "processTreeRss": 162123776,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 11235.567686,
-      "nodeRss": 117407744,
-      "childRss": 37937152,
-      "processTreeRss": 155344896,
-      "tempDisk": 102972112
+      "atMs": 34978.889787,
+      "nodeRss": 118898688,
+      "childRss": 45715456,
+      "processTreeRss": 164614144,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 11288.361208,
-      "nodeRss": 117678080,
-      "childRss": 37937152,
-      "processTreeRss": 155615232,
-      "tempDisk": 102972112
+      "atMs": 35064.139852,
+      "nodeRss": 121765888,
+      "childRss": 45715456,
+      "processTreeRss": 167481344,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 11349.311165000001,
-      "nodeRss": 118095872,
-      "childRss": 37937152,
-      "processTreeRss": 156033024,
-      "tempDisk": 102972112
+      "atMs": 35150.217132000005,
+      "nodeRss": 121561088,
+      "childRss": 45715456,
+      "processTreeRss": 167276544,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 11403.894257000002,
-      "nodeRss": 118358016,
-      "childRss": 37937152,
-      "processTreeRss": 156295168,
-      "tempDisk": 102972112
+      "atMs": 35221.566832000004,
+      "nodeRss": 121962496,
+      "childRss": 45715456,
+      "processTreeRss": 167677952,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 11470.819248000002,
-      "nodeRss": 118652928,
-      "childRss": 37937152,
-      "processTreeRss": 156590080,
-      "tempDisk": 102972112
+      "atMs": 35297.871776,
+      "nodeRss": 122249216,
+      "childRss": 45715456,
+      "processTreeRss": 167964672,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 11522.793105,
-      "nodeRss": 118800384,
-      "childRss": 37937152,
-      "processTreeRss": 156737536,
-      "tempDisk": 102972112
+      "atMs": 35378.090628000005,
+      "nodeRss": 122806272,
+      "childRss": 45715456,
+      "processTreeRss": 168521728,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 11574.460495000001,
-      "nodeRss": 119062528,
-      "childRss": 37937152,
-      "processTreeRss": 156999680,
-      "tempDisk": 102972112
+      "atMs": 35464.712980000004,
+      "nodeRss": 122826752,
+      "childRss": 45715456,
+      "processTreeRss": 168542208,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 11639.547145,
-      "nodeRss": 119746560,
-      "childRss": 37937152,
-      "processTreeRss": 157683712,
-      "tempDisk": 102972112
+      "atMs": 35516.39093,
+      "nodeRss": 122830848,
+      "childRss": 45715456,
+      "processTreeRss": 168546304,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 11701.531908,
-      "nodeRss": 123826176,
-      "childRss": 37937152,
-      "processTreeRss": 161763328,
-      "tempDisk": 102972112
+      "atMs": 35601.77722,
+      "nodeRss": 123092992,
+      "childRss": 45715456,
+      "processTreeRss": 168808448,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 11766.727222000001,
-      "nodeRss": 128028672,
-      "childRss": 37937152,
-      "processTreeRss": 165965824,
-      "tempDisk": 102972112
+      "atMs": 35670.469411000005,
+      "nodeRss": 123236352,
+      "childRss": 45715456,
+      "processTreeRss": 168951808,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 11823.782247000001,
-      "nodeRss": 128159744,
-      "childRss": 37937152,
-      "processTreeRss": 166096896,
-      "tempDisk": 102972112
+      "atMs": 35741.989651,
+      "nodeRss": 123248640,
+      "childRss": 45715456,
+      "processTreeRss": 168964096,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 11888.957669000001,
-      "nodeRss": 128552960,
-      "childRss": 37937152,
-      "processTreeRss": 166490112,
-      "tempDisk": 102972112
+      "atMs": 35812.533475000004,
+      "nodeRss": 123256832,
+      "childRss": 45715456,
+      "processTreeRss": 168972288,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 11939.730575000001,
-      "nodeRss": 128561152,
-      "childRss": 37937152,
-      "processTreeRss": 166498304,
-      "tempDisk": 102972112
+      "atMs": 35886.185897,
+      "nodeRss": 118665216,
+      "childRss": 45715456,
+      "processTreeRss": 164380672,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 12002.781493,
-      "nodeRss": 128610304,
-      "childRss": 37937152,
-      "processTreeRss": 166547456,
-      "tempDisk": 102972112
+      "atMs": 35989.244955,
+      "nodeRss": 118808576,
+      "childRss": 45715456,
+      "processTreeRss": 164524032,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 12061.890114000002,
-      "nodeRss": 128880640,
-      "childRss": 37937152,
-      "processTreeRss": 166817792,
-      "tempDisk": 102972112
+      "atMs": 36064.387294,
+      "nodeRss": 119201792,
+      "childRss": 45715456,
+      "processTreeRss": 164917248,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 12133.260729000001,
-      "nodeRss": 128774144,
-      "childRss": 21037056,
-      "processTreeRss": 149811200,
-      "tempDisk": 102972112
+      "atMs": 36126.080449,
+      "nodeRss": 119087104,
+      "childRss": 45715456,
+      "processTreeRss": 164802560,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 12207.149809,
-      "nodeRss": 129175552,
-      "childRss": 21037056,
-      "processTreeRss": 150212608,
-      "tempDisk": 102972112
+      "atMs": 36221.865237000005,
+      "nodeRss": 119230464,
+      "childRss": 45715456,
+      "processTreeRss": 164945920,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 12275.683844000001,
-      "nodeRss": 129048576,
-      "childRss": 21037056,
-      "processTreeRss": 150085632,
-      "tempDisk": 102972112
+      "atMs": 36278.359695,
+      "nodeRss": 119361536,
+      "childRss": 45715456,
+      "processTreeRss": 165076992,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 12340.818283,
+      "atMs": 36347.881595000006,
+      "nodeRss": 119361536,
+      "childRss": 45715456,
+      "processTreeRss": 165076992,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 36401.461169,
+      "nodeRss": 119492608,
+      "childRss": 45715456,
+      "processTreeRss": 165208064,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 36505.27068,
+      "nodeRss": 119623680,
+      "childRss": 45715456,
+      "processTreeRss": 165339136,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 36612.475072,
+      "nodeRss": 119754752,
+      "childRss": 45715456,
+      "processTreeRss": 165470208,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 36739.875689,
+      "nodeRss": 119529472,
+      "childRss": 45715456,
+      "processTreeRss": 165244928,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 36823.108603,
+      "nodeRss": 119791616,
+      "childRss": 45715456,
+      "processTreeRss": 165507072,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 36954.744606,
+      "nodeRss": 119660544,
+      "childRss": 45715456,
+      "processTreeRss": 165376000,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 37085.608927,
+      "nodeRss": 119922688,
+      "childRss": 45715456,
+      "processTreeRss": 165638144,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 37195.185876,
+      "nodeRss": 120053760,
+      "childRss": 45715456,
+      "processTreeRss": 165769216,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 37292.228610000006,
+      "nodeRss": 120729600,
+      "childRss": 45715456,
+      "processTreeRss": 166445056,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 37387.213081,
+      "nodeRss": 124399616,
+      "childRss": 45715456,
+      "processTreeRss": 170115072,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 37509.457357,
+      "nodeRss": 127414272,
+      "childRss": 45715456,
+      "processTreeRss": 173129728,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 37610.127851000005,
+      "nodeRss": 128528384,
+      "childRss": 45715456,
+      "processTreeRss": 174243840,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 37714.420004,
+      "nodeRss": 128790528,
+      "childRss": 45715456,
+      "processTreeRss": 174505984,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 37834.633084,
+      "nodeRss": 128671744,
+      "childRss": 45715456,
+      "processTreeRss": 174387200,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 37964.444818,
+      "nodeRss": 129064960,
+      "childRss": 28815360,
+      "processTreeRss": 157880320,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 38067.743182000006,
+      "nodeRss": 128942080,
+      "childRss": 28815360,
+      "processTreeRss": 157757440,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 38171.403335,
       "nodeRss": 129204224,
-      "childRss": 21037056,
-      "processTreeRss": 150241280,
-      "tempDisk": 102972112
+      "childRss": 28815360,
+      "processTreeRss": 158019584,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 12391.972848000001,
-      "nodeRss": 129466368,
-      "childRss": 21037056,
-      "processTreeRss": 150503424,
-      "tempDisk": 102972112
+      "atMs": 38299.406309000005,
+      "nodeRss": 129081344,
+      "childRss": 28815360,
+      "processTreeRss": 157896704,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 12456.786712000001,
-      "nodeRss": 129343488,
-      "childRss": 21037056,
-      "processTreeRss": 150380544,
-      "tempDisk": 102972112
+      "atMs": 38419.561514,
+      "nodeRss": 129474560,
+      "childRss": 28815360,
+      "processTreeRss": 158289920,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 12514.789711000001,
-      "nodeRss": 129605632,
-      "childRss": 21037056,
-      "processTreeRss": 150642688,
-      "tempDisk": 102972112
+      "atMs": 38528.154545000005,
+      "nodeRss": 129085440,
+      "childRss": 28815360,
+      "processTreeRss": 157900800,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 12588.453412,
-      "nodeRss": 129654784,
-      "childRss": 21037056,
-      "processTreeRss": 150691840,
-      "tempDisk": 102972112
+      "atMs": 38606.604189000005,
+      "nodeRss": 129097728,
+      "childRss": 28815360,
+      "processTreeRss": 157913088,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 12638.165775000001,
-      "nodeRss": 130048000,
-      "childRss": 21037056,
-      "processTreeRss": 151085056,
-      "tempDisk": 102972112
+      "atMs": 38680.280835000005,
+      "nodeRss": 129490944,
+      "childRss": 28815360,
+      "processTreeRss": 158306304,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 12722.389082000002,
-      "nodeRss": 130060288,
-      "childRss": 21037056,
-      "processTreeRss": 151097344,
-      "tempDisk": 102972112
+      "atMs": 38735.735815,
+      "nodeRss": 129232896,
+      "childRss": 28815360,
+      "processTreeRss": 158048256,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 12813.393892,
-      "nodeRss": 129937408,
-      "childRss": 21037056,
-      "processTreeRss": 150974464,
-      "tempDisk": 102972112
+      "atMs": 38786.598892,
+      "nodeRss": 129105920,
+      "childRss": 28815360,
+      "processTreeRss": 157921280,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 12883.176885,
-      "nodeRss": 129806336,
-      "childRss": 21037056,
-      "processTreeRss": 150843392,
-      "tempDisk": 102972112
+      "atMs": 38844.771453,
+      "nodeRss": 129499136,
+      "childRss": 28815360,
+      "processTreeRss": 158314496,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 12960.090803000001,
+      "atMs": 38923.533293,
+      "nodeRss": 129630208,
+      "childRss": 28815360,
+      "processTreeRss": 158445568,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 39033.065306000004,
+      "nodeRss": 129105920,
+      "childRss": 28815360,
+      "processTreeRss": 157921280,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 39094.572497,
+      "nodeRss": 129499136,
+      "childRss": 28815360,
+      "processTreeRss": 158314496,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 39172.250391,
+      "nodeRss": 129245184,
+      "childRss": 28815360,
+      "processTreeRss": 158060544,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 39245.058598,
+      "nodeRss": 129638400,
+      "childRss": 28815360,
+      "processTreeRss": 158453760,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 39296.568448000005,
+      "nodeRss": 129388544,
+      "childRss": 28815360,
+      "processTreeRss": 158203904,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 39375.612505000005,
+      "nodeRss": 129650688,
+      "childRss": 28815360,
+      "processTreeRss": 158466048,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 39500.827992000006,
+      "nodeRss": 130043904,
+      "childRss": 28815360,
+      "processTreeRss": 158859264,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 39637.899994,
+      "nodeRss": 129658880,
+      "childRss": 28815360,
+      "processTreeRss": 158474240,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 39722.929901,
+      "nodeRss": 129789952,
+      "childRss": 28815360,
+      "processTreeRss": 158605312,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 39864.456846,
+      "nodeRss": 129658880,
+      "childRss": 28815360,
+      "processTreeRss": 158474240,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 39936.852953,
+      "nodeRss": 130052096,
+      "childRss": 28815360,
+      "processTreeRss": 158867456,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 40040.883023,
+      "nodeRss": 129667072,
+      "childRss": 28815360,
+      "processTreeRss": 158482432,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 40137.889612,
+      "nodeRss": 129929216,
+      "childRss": 28815360,
+      "processTreeRss": 158744576,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 40261.705988,
+      "nodeRss": 129912832,
+      "childRss": 28815360,
+      "processTreeRss": 158728192,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 40370.012163,
+      "nodeRss": 130306048,
+      "childRss": 28815360,
+      "processTreeRss": 159121408,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 40475.019168000006,
+      "nodeRss": 130056192,
+      "childRss": 28815360,
+      "processTreeRss": 158871552,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 40588.804852,
+      "nodeRss": 130449408,
+      "childRss": 28815360,
+      "processTreeRss": 159264768,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 40712.184728,
+      "nodeRss": 130056192,
+      "childRss": 28815360,
+      "processTreeRss": 158871552,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 40783.980018,
+      "nodeRss": 130318336,
+      "childRss": 28815360,
+      "processTreeRss": 159133696,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 40890.620174,
+      "nodeRss": 130449408,
+      "childRss": 28815360,
+      "processTreeRss": 159264768,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 40987.21517,
+      "nodeRss": 130318336,
+      "childRss": 28815360,
+      "processTreeRss": 159133696,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 41063.429358,
+      "nodeRss": 130580480,
+      "childRss": 28815360,
+      "processTreeRss": 159395840,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 41118.172247,
       "nodeRss": 130330624,
-      "childRss": 21037056,
-      "processTreeRss": 151367680,
-      "tempDisk": 102972112
+      "childRss": 28815360,
+      "processTreeRss": 159145984,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 13052.186189,
-      "nodeRss": 130338816,
-      "childRss": 21037056,
-      "processTreeRss": 151375872,
-      "tempDisk": 102972112
+      "atMs": 41171.802881,
+      "nodeRss": 130592768,
+      "childRss": 28815360,
+      "processTreeRss": 159408128,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 13109.835229,
-      "nodeRss": 130220032,
-      "childRss": 21037056,
-      "processTreeRss": 151257088,
-      "tempDisk": 102972112
+      "atMs": 41244.527981,
+      "nodeRss": 130723840,
+      "childRss": 28815360,
+      "processTreeRss": 159539200,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 13161.948612,
-      "nodeRss": 130482176,
-      "childRss": 21037056,
-      "processTreeRss": 151519232,
-      "tempDisk": 102972112
+      "atMs": 41303.540427,
+      "nodeRss": 130682880,
+      "childRss": 28815360,
+      "processTreeRss": 159498240,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 13262.919483000001,
-      "nodeRss": 130621440,
-      "childRss": 21037056,
-      "processTreeRss": 151658496,
-      "tempDisk": 102972112
+      "atMs": 41381.781908000004,
+      "nodeRss": 130945024,
+      "childRss": 28815360,
+      "processTreeRss": 159760384,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 13318.282519,
-      "nodeRss": 130367488,
-      "childRss": 21037056,
-      "processTreeRss": 151404544,
-      "tempDisk": 102972112
+      "atMs": 41524.586135000005,
+      "nodeRss": 130703360,
+      "childRss": 28815360,
+      "processTreeRss": 159518720,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 13398.210751,
-      "nodeRss": 130519040,
-      "childRss": 21037056,
-      "processTreeRss": 151556096,
-      "tempDisk": 102972112
+      "atMs": 41670.901858000005,
+      "nodeRss": 130834432,
+      "childRss": 28815360,
+      "processTreeRss": 159649792,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 13474.807914,
-      "nodeRss": 131436544,
-      "childRss": 21037056,
-      "processTreeRss": 152473600,
-      "tempDisk": 102972112
+      "atMs": 41819.021778,
+      "nodeRss": 131096576,
+      "childRss": 28815360,
+      "processTreeRss": 159911936,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 13557.178103,
-      "nodeRss": 130879488,
-      "childRss": 21037056,
-      "processTreeRss": 151916544,
-      "tempDisk": 102972112
+      "atMs": 41954.790008,
+      "nodeRss": 130834432,
+      "childRss": 28815360,
+      "processTreeRss": 159649792,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 13626.513893000001,
-      "nodeRss": 131141632,
-      "childRss": 21037056,
-      "processTreeRss": 152178688,
-      "tempDisk": 102972112
+      "atMs": 42112.350613,
+      "nodeRss": 131096576,
+      "childRss": 28815360,
+      "processTreeRss": 159911936,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 13701.18302,
-      "nodeRss": 131043328,
-      "childRss": 21037056,
-      "processTreeRss": 152080384,
-      "tempDisk": 102972112
+      "atMs": 42260.19183,
+      "nodeRss": 130965504,
+      "childRss": 28815360,
+      "processTreeRss": 159780864,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 13772.202009,
-      "nodeRss": 131305472,
-      "childRss": 21037056,
-      "processTreeRss": 152342528,
-      "tempDisk": 102972112
+      "atMs": 42397.212431,
+      "nodeRss": 131227648,
+      "childRss": 28815360,
+      "processTreeRss": 160043008,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 13839.266246000001,
-      "nodeRss": 131059712,
-      "childRss": 21037056,
-      "processTreeRss": 152096768,
-      "tempDisk": 102972112
+      "atMs": 42545.947572000005,
+      "nodeRss": 131108864,
+      "childRss": 28815360,
+      "processTreeRss": 159924224,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 13906.141869000001,
-      "nodeRss": 131321856,
-      "childRss": 21037056,
-      "processTreeRss": 152358912,
-      "tempDisk": 102972112
-    },
-    {
-      "stage": "periodic",
-      "atMs": 13974.418500000002,
-      "nodeRss": 131203072,
-      "childRss": 21037056,
-      "processTreeRss": 152240128,
-      "tempDisk": 102972112
-    },
-    {
-      "stage": "periodic",
-      "atMs": 14042.189453,
-      "nodeRss": 131465216,
-      "childRss": 21037056,
-      "processTreeRss": 152502272,
-      "tempDisk": 102972112
-    },
-    {
-      "stage": "periodic",
-      "atMs": 14104.688296,
-      "nodeRss": 131203072,
-      "childRss": 21037056,
-      "processTreeRss": 152240128,
-      "tempDisk": 102972112
-    },
-    {
-      "stage": "periodic",
-      "atMs": 14180.259983000002,
-      "nodeRss": 131334144,
-      "childRss": 21037056,
-      "processTreeRss": 152371200,
-      "tempDisk": 102972112
+      "atMs": 42654.422761,
+      "nodeRss": 131239936,
+      "childRss": 0,
+      "processTreeRss": 131239936,
+      "tempDisk": 153353720
     },
     {
       "stage": "pass1-complete",
-      "atMs": 14240.308188,
-      "nodeRss": 131465216,
+      "atMs": 42704.371079000004,
+      "nodeRss": 130985984,
       "childRss": 0,
-      "processTreeRss": 131465216,
-      "tempDisk": 102972112
+      "processTreeRss": 130985984,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 19826.064397000002,
-      "nodeRss": 131465216,
-      "childRss": 2392064,
-      "processTreeRss": 133857280,
-      "tempDisk": 113111432
+      "atMs": 59980.693279,
+      "nodeRss": 130985984,
+      "childRss": 21377024,
+      "processTreeRss": 152363008,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 19880.946869,
-      "nodeRss": 134008832,
-      "childRss": 22429696,
-      "processTreeRss": 156438528,
-      "tempDisk": 113111432
+      "atMs": 60029.385823000004,
+      "nodeRss": 131178496,
+      "childRss": 21999616,
+      "processTreeRss": 153178112,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 19934.629501,
-      "nodeRss": 135487488,
-      "childRss": 22896640,
-      "processTreeRss": 158384128,
-      "tempDisk": 113111432
+      "atMs": 60110.358648,
+      "nodeRss": 128487424,
+      "childRss": 22233088,
+      "processTreeRss": 150720512,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 19989.230844,
-      "nodeRss": 137224192,
-      "childRss": 23633920,
-      "processTreeRss": 160858112,
-      "tempDisk": 113111432
+      "atMs": 60197.728594,
+      "nodeRss": 128749568,
+      "childRss": 22315008,
+      "processTreeRss": 151064576,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 20043.820085,
-      "nodeRss": 131973120,
-      "childRss": 23961600,
-      "processTreeRss": 155934720,
-      "tempDisk": 113111432
+      "atMs": 60252.633759000004,
+      "nodeRss": 129142784,
+      "childRss": 22528000,
+      "processTreeRss": 151670784,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 20097.262006,
-      "nodeRss": 132390912,
-      "childRss": 24383488,
-      "processTreeRss": 156774400,
-      "tempDisk": 113111432
+      "atMs": 60313.536233000006,
+      "nodeRss": 129404928,
+      "childRss": 22740992,
+      "processTreeRss": 152145920,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 20148.513827000002,
-      "nodeRss": 132550656,
-      "childRss": 24899584,
-      "processTreeRss": 157450240,
-      "tempDisk": 113111432
+      "atMs": 60385.137118000006,
+      "nodeRss": 129765376,
+      "childRss": 23011328,
+      "processTreeRss": 152776704,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 20206.360952,
-      "nodeRss": 132689920,
-      "childRss": 25026560,
-      "processTreeRss": 157716480,
-      "tempDisk": 113111432
+      "atMs": 60444.060571,
+      "nodeRss": 130035712,
+      "childRss": 23408640,
+      "processTreeRss": 153444352,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 20255.762168,
-      "nodeRss": 133828608,
-      "childRss": 25743360,
-      "processTreeRss": 159571968,
-      "tempDisk": 113111432
+      "atMs": 60517.113199,
+      "nodeRss": 130297856,
+      "childRss": 23408640,
+      "processTreeRss": 153706496,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 20317.184184,
-      "nodeRss": 144089088,
-      "childRss": 25911296,
-      "processTreeRss": 170000384,
-      "tempDisk": 113111432
+      "atMs": 60602.277765000006,
+      "nodeRss": 130596864,
+      "childRss": 23511040,
+      "processTreeRss": 154107904,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 20372.427022,
-      "nodeRss": 153919488,
-      "childRss": 25972736,
-      "processTreeRss": 179892224,
-      "tempDisk": 113111432
+      "atMs": 60660.630843,
+      "nodeRss": 128516096,
+      "childRss": 23601152,
+      "processTreeRss": 152117248,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 20433.163155000002,
-      "nodeRss": 156147712,
-      "childRss": 25989120,
-      "processTreeRss": 182136832,
-      "tempDisk": 113111432
+      "atMs": 60750.048573,
+      "nodeRss": 128917504,
+      "childRss": 23748608,
+      "processTreeRss": 152666112,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 20487.168157,
-      "nodeRss": 155553792,
-      "childRss": 26394624,
-      "processTreeRss": 181948416,
-      "tempDisk": 113111432
+      "atMs": 60816.374561000004,
+      "nodeRss": 128933888,
+      "childRss": 23752704,
+      "processTreeRss": 152686592,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 20543.451469,
-      "nodeRss": 155729920,
-      "childRss": 26312704,
-      "processTreeRss": 182042624,
-      "tempDisk": 113111432
+      "atMs": 60875.992215000006,
+      "nodeRss": 129073152,
+      "childRss": 23867392,
+      "processTreeRss": 152940544,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 20600.911703,
-      "nodeRss": 156385280,
-      "childRss": 25141248,
-      "processTreeRss": 181526528,
-      "tempDisk": 113111432
+      "atMs": 60973.286457,
+      "nodeRss": 129073152,
+      "childRss": 23728128,
+      "processTreeRss": 152801280,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 20653.840261,
-      "nodeRss": 157048832,
-      "childRss": 25100288,
-      "processTreeRss": 182149120,
-      "tempDisk": 113111432
+      "atMs": 61055.013787,
+      "nodeRss": 129351680,
+      "childRss": 23814144,
+      "processTreeRss": 153165824,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 20705.72218,
-      "nodeRss": 156393472,
-      "childRss": 25194496,
-      "processTreeRss": 181587968,
-      "tempDisk": 113111432
+      "atMs": 61113.795105000005,
+      "nodeRss": 129490944,
+      "childRss": 23764992,
+      "processTreeRss": 153255936,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 20760.643528,
-      "nodeRss": 156786688,
-      "childRss": 26083328,
-      "processTreeRss": 182870016,
-      "tempDisk": 113111432
+      "atMs": 61154.058808,
+      "nodeRss": 129490944,
+      "childRss": 23674880,
+      "processTreeRss": 153165824,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 20809.698211000003,
-      "nodeRss": 156286976,
-      "childRss": 26947584,
-      "processTreeRss": 183234560,
-      "tempDisk": 113111432
+      "atMs": 61212.723283,
+      "nodeRss": 129503232,
+      "childRss": 23687168,
+      "processTreeRss": 153190400,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 20872.711027,
-      "nodeRss": 156950528,
-      "childRss": 27222016,
-      "processTreeRss": 184172544,
-      "tempDisk": 113111432
+      "atMs": 61304.831184,
+      "nodeRss": 129642496,
+      "childRss": 24195072,
+      "processTreeRss": 153837568,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 20922.967465,
-      "nodeRss": 156950528,
-      "childRss": 24403968,
-      "processTreeRss": 181354496,
-      "tempDisk": 113111432
+      "atMs": 61375.390733,
+      "nodeRss": 129642496,
+      "childRss": 24203264,
+      "processTreeRss": 153845760,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 20972.760130000002,
-      "nodeRss": 158539776,
-      "childRss": 24518656,
-      "processTreeRss": 183058432,
-      "tempDisk": 113111432
+      "atMs": 61428.146674,
+      "nodeRss": 129642496,
+      "childRss": 24092672,
+      "processTreeRss": 153735168,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 21023.660276000002,
-      "nodeRss": 158855168,
-      "childRss": 25038848,
-      "processTreeRss": 183894016,
-      "tempDisk": 113111432
+      "atMs": 61481.066432,
+      "nodeRss": 129642496,
+      "childRss": 24186880,
+      "processTreeRss": 153829376,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 21077.1284,
-      "nodeRss": 161218560,
-      "childRss": 25243648,
-      "processTreeRss": 186462208,
-      "tempDisk": 113111432
+      "atMs": 61566.588289,
+      "nodeRss": 129642496,
+      "childRss": 24207360,
+      "processTreeRss": 153849856,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 21132.731657,
-      "nodeRss": 161701888,
-      "childRss": 25837568,
-      "processTreeRss": 187539456,
-      "tempDisk": 113111432
+      "atMs": 61644.515741,
+      "nodeRss": 130166784,
+      "childRss": 24473600,
+      "processTreeRss": 154640384,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 21184.386621,
-      "nodeRss": 160976896,
-      "childRss": 27430912,
-      "processTreeRss": 188407808,
-      "tempDisk": 113111432
+      "atMs": 61701.982057,
+      "nodeRss": 132132864,
+      "childRss": 24473600,
+      "processTreeRss": 156606464,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 21235.298676000002,
-      "nodeRss": 163467264,
-      "childRss": 27631616,
-      "processTreeRss": 191098880,
-      "tempDisk": 113111432
+      "atMs": 61778.521357000005,
+      "nodeRss": 134881280,
+      "childRss": 24551424,
+      "processTreeRss": 159432704,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 21285.592080000002,
-      "nodeRss": 162299904,
-      "childRss": 28110848,
-      "processTreeRss": 190410752,
-      "tempDisk": 113111432
+      "atMs": 61827.624974000006,
+      "nodeRss": 136978432,
+      "childRss": 24801280,
+      "processTreeRss": 161779712,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 21335.037626,
-      "nodeRss": 163823616,
-      "childRss": 28483584,
-      "processTreeRss": 192307200,
-      "tempDisk": 113111432
+      "atMs": 61924.988617,
+      "nodeRss": 138592256,
+      "childRss": 24993792,
+      "processTreeRss": 163586048,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 21391.840037,
-      "nodeRss": 165359616,
-      "childRss": 28602368,
-      "processTreeRss": 193961984,
-      "tempDisk": 113111432
+      "atMs": 62014.114310000004,
+      "nodeRss": 137453568,
+      "childRss": 24903680,
+      "processTreeRss": 162357248,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 21441.892335,
-      "nodeRss": 164093952,
-      "childRss": 26132480,
-      "processTreeRss": 190226432,
-      "tempDisk": 113111432
+      "atMs": 62086.831527,
+      "nodeRss": 137474048,
+      "childRss": 25030656,
+      "processTreeRss": 162504704,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 21493.276694,
-      "nodeRss": 164093952,
-      "childRss": 25735168,
-      "processTreeRss": 189829120,
-      "tempDisk": 113111432
+      "atMs": 62146.993628000004,
+      "nodeRss": 137588736,
+      "childRss": 25108480,
+      "processTreeRss": 162697216,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 21545.016313,
-      "nodeRss": 164225024,
-      "childRss": 25772032,
-      "processTreeRss": 189997056,
-      "tempDisk": 113111432
+      "atMs": 62213.72625,
+      "nodeRss": 137326592,
+      "childRss": 25202688,
+      "processTreeRss": 162529280,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 21600.214382000002,
-      "nodeRss": 165195776,
-      "childRss": 25780224,
-      "processTreeRss": 190976000,
-      "tempDisk": 113111432
+      "atMs": 62310.858765000004,
+      "nodeRss": 137457664,
+      "childRss": 25350144,
+      "processTreeRss": 162807808,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 21651.909251,
-      "nodeRss": 164278272,
-      "childRss": 26169344,
-      "processTreeRss": 190447616,
-      "tempDisk": 113111432
+      "atMs": 62386.936333000005,
+      "nodeRss": 137326592,
+      "childRss": 25370624,
+      "processTreeRss": 162697216,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 21701.633618,
-      "nodeRss": 164540416,
-      "childRss": 26845184,
-      "processTreeRss": 191385600,
-      "tempDisk": 113111432
+      "atMs": 62501.149476000006,
+      "nodeRss": 137588736,
+      "childRss": 25370624,
+      "processTreeRss": 162959360,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 21752.785538,
-      "nodeRss": 164671488,
-      "childRss": 24895488,
-      "processTreeRss": 189566976,
-      "tempDisk": 113111432
+      "atMs": 62610.353793,
+      "nodeRss": 137326592,
+      "childRss": 25362432,
+      "processTreeRss": 162689024,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 21808.219163,
-      "nodeRss": 164810752,
-      "childRss": 25755648,
-      "processTreeRss": 190566400,
-      "tempDisk": 113111432
+      "atMs": 62696.669914000006,
+      "nodeRss": 137326592,
+      "childRss": 25362432,
+      "processTreeRss": 162689024,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 21858.095072,
-      "nodeRss": 165203968,
+      "atMs": 62755.273087,
+      "nodeRss": 137719808,
+      "childRss": 25718784,
+      "processTreeRss": 163438592,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 62828.522150000004,
+      "nodeRss": 137326592,
+      "childRss": 25485312,
+      "processTreeRss": 162811904,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 62903.420167000004,
+      "nodeRss": 137326592,
+      "childRss": 25501696,
+      "processTreeRss": 162828288,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 62957.257765,
+      "nodeRss": 137326592,
+      "childRss": 25145344,
+      "processTreeRss": 162471936,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 63007.686097000005,
+      "nodeRss": 137326592,
+      "childRss": 25169920,
+      "processTreeRss": 162496512,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 63082.055503,
+      "nodeRss": 137449472,
+      "childRss": 25260032,
+      "processTreeRss": 162709504,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 63154.047060000004,
+      "nodeRss": 137457664,
+      "childRss": 25276416,
+      "processTreeRss": 162734080,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 63211.888639000004,
+      "nodeRss": 137326592,
+      "childRss": 25366528,
+      "processTreeRss": 162693120,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 63290.217981,
+      "nodeRss": 137588736,
+      "childRss": 25436160,
+      "processTreeRss": 163024896,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 63366.813243000004,
+      "nodeRss": 137465856,
+      "childRss": 25436160,
+      "processTreeRss": 162902016,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 63417.937599000004,
+      "nodeRss": 138252288,
+      "childRss": 25493504,
+      "processTreeRss": 163745792,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 63507.153501,
+      "nodeRss": 137523200,
+      "childRss": 25493504,
+      "processTreeRss": 163016704,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 63568.390434,
+      "nodeRss": 138440704,
+      "childRss": 25919488,
+      "processTreeRss": 164360192,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 63635.882770000004,
+      "nodeRss": 138186752,
       "childRss": 26001408,
-      "processTreeRss": 191205376,
-      "tempDisk": 113111432
+      "processTreeRss": 164188160,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 21910.481138,
-      "nodeRss": 164691968,
-      "childRss": 26263552,
-      "processTreeRss": 190955520,
-      "tempDisk": 113111432
+      "atMs": 63690.621519,
+      "nodeRss": 138391552,
+      "childRss": 26320896,
+      "processTreeRss": 164712448,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 21967.541161,
-      "nodeRss": 164831232,
-      "childRss": 26697728,
-      "processTreeRss": 191528960,
-      "tempDisk": 113111432
+      "atMs": 63748.06388,
+      "nodeRss": 138260480,
+      "childRss": 26324992,
+      "processTreeRss": 164585472,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 22022.280659,
-      "nodeRss": 164700160,
-      "childRss": 26632192,
-      "processTreeRss": 191332352,
-      "tempDisk": 113111432
+      "atMs": 63819.591926,
+      "nodeRss": 138076160,
+      "childRss": 26447872,
+      "processTreeRss": 164524032,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 22075.299299000002,
-      "nodeRss": 163725312,
-      "childRss": 27021312,
-      "processTreeRss": 190746624,
-      "tempDisk": 113111432
+      "atMs": 63882.457945,
+      "nodeRss": 138076160,
+      "childRss": 26771456,
+      "processTreeRss": 164847616,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 22132.230455,
-      "nodeRss": 163725312,
-      "childRss": 27054080,
-      "processTreeRss": 190779392,
-      "tempDisk": 113111432
+      "atMs": 63937.641499000005,
+      "nodeRss": 138338304,
+      "childRss": 27156480,
+      "processTreeRss": 165494784,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 22186.963412,
-      "nodeRss": 163725312,
-      "childRss": 27152384,
-      "processTreeRss": 190877696,
-      "tempDisk": 113111432
+      "atMs": 63986.934297,
+      "nodeRss": 138608640,
+      "childRss": 27156480,
+      "processTreeRss": 165765120,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 22242.463855,
-      "nodeRss": 163725312,
-      "childRss": 25772032,
-      "processTreeRss": 189497344,
-      "tempDisk": 113111432
+      "atMs": 64052.418913,
+      "nodeRss": 138625024,
+      "childRss": 27078656,
+      "processTreeRss": 165703680,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 22292.148038,
-      "nodeRss": 164126720,
-      "childRss": 25772032,
-      "processTreeRss": 189898752,
-      "tempDisk": 113111432
+      "atMs": 64112.705169,
+      "nodeRss": 138493952,
+      "childRss": 27078656,
+      "processTreeRss": 165572608,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 22347.605352000002,
-      "nodeRss": 164397056,
-      "childRss": 25776128,
-      "processTreeRss": 190173184,
-      "tempDisk": 113111432
+      "atMs": 64167.854578000006,
+      "nodeRss": 139374592,
+      "childRss": 27103232,
+      "processTreeRss": 166477824,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 22399.501886000002,
-      "nodeRss": 164782080,
-      "childRss": 26054656,
-      "processTreeRss": 190836736,
-      "tempDisk": 113111432
+      "atMs": 64222.408743,
+      "nodeRss": 140460032,
+      "childRss": 27103232,
+      "processTreeRss": 167563264,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 22454.050808,
-      "nodeRss": 164265984,
-      "childRss": 25952256,
-      "processTreeRss": 190218240,
-      "tempDisk": 113111432
+      "atMs": 64274.845154,
+      "nodeRss": 140738560,
+      "childRss": 27238400,
+      "processTreeRss": 167976960,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 22510.5818,
-      "nodeRss": 164528128,
-      "childRss": 25960448,
-      "processTreeRss": 190488576,
-      "tempDisk": 113111432
+      "atMs": 64334.565057,
+      "nodeRss": 141541376,
+      "childRss": 27357184,
+      "processTreeRss": 168898560,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 22562.30195,
-      "nodeRss": 164265984,
-      "childRss": 26411008,
-      "processTreeRss": 190676992,
-      "tempDisk": 113111432
+      "atMs": 64396.839043,
+      "nodeRss": 141991936,
+      "childRss": 27471872,
+      "processTreeRss": 169463808,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 22619.058873,
-      "nodeRss": 165052416,
-      "childRss": 26411008,
-      "processTreeRss": 191463424,
-      "tempDisk": 113111432
+      "atMs": 64451.991757,
+      "nodeRss": 143302656,
+      "childRss": 27332608,
+      "processTreeRss": 170635264,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 22672.460698000003,
-      "nodeRss": 165584896,
-      "childRss": 26411008,
-      "processTreeRss": 191995904,
-      "tempDisk": 113111432
+      "atMs": 64503.665053000004,
+      "nodeRss": 143212544,
+      "childRss": 27406336,
+      "processTreeRss": 170618880,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 22724.108556,
-      "nodeRss": 164544512,
-      "childRss": 26517504,
-      "processTreeRss": 191062016,
-      "tempDisk": 113111432
+      "atMs": 64561.906820000004,
+      "nodeRss": 142987264,
+      "childRss": 27729920,
+      "processTreeRss": 170717184,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 22775.263815000002,
-      "nodeRss": 164544512,
-      "childRss": 26824704,
-      "processTreeRss": 191369216,
-      "tempDisk": 113111432
-    },
-    {
-      "stage": "periodic",
-      "atMs": 22827.915654,
-      "nodeRss": 164544512,
+      "atMs": 64627.327772000004,
+      "nodeRss": 143360000,
       "childRss": 26439680,
-      "processTreeRss": 190984192,
-      "tempDisk": 113111432
+      "processTreeRss": 169799680,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 22882.646882,
-      "nodeRss": 163426304,
+      "atMs": 64681.539487,
+      "nodeRss": 143511552,
+      "childRss": 26501120,
+      "processTreeRss": 170012672,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 64748.006893000005,
+      "nodeRss": 143642624,
+      "childRss": 26509312,
+      "processTreeRss": 170151936,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 64802.24167,
+      "nodeRss": 143773696,
+      "childRss": 26660864,
+      "processTreeRss": 170434560,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 64855.793951,
+      "nodeRss": 144109568,
+      "childRss": 26963968,
+      "processTreeRss": 171073536,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 64915.173453,
+      "nodeRss": 144707584,
+      "childRss": 26963968,
+      "processTreeRss": 171671552,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 64970.306692000006,
+      "nodeRss": 142573568,
+      "childRss": 26226688,
+      "processTreeRss": 168800256,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 65024.415551000006,
+      "nodeRss": 143753216,
+      "childRss": 27140096,
+      "processTreeRss": 170893312,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 65077.218989,
+      "nodeRss": 152010752,
+      "childRss": 27172864,
+      "processTreeRss": 179183616,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 65138.344669000006,
+      "nodeRss": 156520448,
+      "childRss": 27090944,
+      "processTreeRss": 183611392,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 65215.232606000005,
+      "nodeRss": 156684288,
+      "childRss": 27414528,
+      "processTreeRss": 184098816,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 65284.913725000006,
+      "nodeRss": 156573696,
+      "childRss": 27303936,
+      "processTreeRss": 183877632,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 65390.153644000005,
+      "nodeRss": 156835840,
+      "childRss": 27316224,
+      "processTreeRss": 184152064,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 65442.791016,
+      "nodeRss": 156749824,
+      "childRss": 27783168,
+      "processTreeRss": 184532992,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 65493.963199000005,
+      "nodeRss": 156749824,
+      "childRss": 26660864,
+      "processTreeRss": 183410688,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 65543.828698,
+      "nodeRss": 156880896,
+      "childRss": 26566656,
+      "processTreeRss": 183447552,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 65597.846063,
+      "nodeRss": 156880896,
+      "childRss": 26828800,
+      "processTreeRss": 183709696,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 65652.308678,
+      "nodeRss": 156880896,
+      "childRss": 26923008,
+      "processTreeRss": 183803904,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 65703.63266,
+      "nodeRss": 156880896,
+      "childRss": 26648576,
+      "processTreeRss": 183529472,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 65762.425409,
+      "nodeRss": 157143040,
+      "childRss": 26759168,
+      "processTreeRss": 183902208,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 65813.432311,
+      "nodeRss": 157417472,
+      "childRss": 26849280,
+      "processTreeRss": 184266752,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 65867.140503,
+      "nodeRss": 157417472,
+      "childRss": 27238400,
+      "processTreeRss": 184655872,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 65916.692838,
+      "nodeRss": 157417472,
+      "childRss": 26804224,
+      "processTreeRss": 184221696,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 65972.341591,
+      "nodeRss": 157679616,
+      "childRss": 26456064,
+      "processTreeRss": 184135680,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 66021.807225,
+      "nodeRss": 158072832,
+      "childRss": 26456064,
+      "processTreeRss": 184528896,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 66076.391794,
+      "nodeRss": 157679616,
+      "childRss": 25591808,
+      "processTreeRss": 183271424,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 66128.490504,
+      "nodeRss": 157679616,
+      "childRss": 26148864,
+      "processTreeRss": 183828480,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 66184.546347,
+      "nodeRss": 158466048,
+      "childRss": 26513408,
+      "processTreeRss": 184979456,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 66240.435112,
+      "nodeRss": 157679616,
+      "childRss": 26513408,
+      "processTreeRss": 184193024,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 66301.22180300001,
+      "nodeRss": 158990336,
+      "childRss": 26779648,
+      "processTreeRss": 185769984,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 66353.65453700001,
+      "nodeRss": 157679616,
+      "childRss": 26779648,
+      "processTreeRss": 184459264,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 66408.120395,
+      "nodeRss": 158990336,
+      "childRss": 26660864,
+      "processTreeRss": 185651200,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 66466.25636,
+      "nodeRss": 157941760,
+      "childRss": 26750976,
+      "processTreeRss": 184692736,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 66520.040556,
+      "nodeRss": 158466048,
+      "childRss": 26755072,
+      "processTreeRss": 185221120,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 66570.162692,
+      "nodeRss": 157679616,
+      "childRss": 26796032,
+      "processTreeRss": 184475648,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 66620.63887000001,
+      "nodeRss": 158334976,
+      "childRss": 26796032,
+      "processTreeRss": 185131008,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 66688.745782,
+      "nodeRss": 158072832,
+      "childRss": 26320896,
+      "processTreeRss": 184393728,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 66747.725938,
+      "nodeRss": 158060544,
+      "childRss": 26738688,
+      "processTreeRss": 184799232,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 66799.490934,
+      "nodeRss": 158191616,
+      "childRss": 26738688,
+      "processTreeRss": 184930304,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 66873.106069,
+      "nodeRss": 158584832,
+      "childRss": 26738688,
+      "processTreeRss": 185323520,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 66928.95199100001,
+      "nodeRss": 157798400,
+      "childRss": 26845184,
+      "processTreeRss": 184643584,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 66979.965469,
+      "nodeRss": 157798400,
+      "childRss": 26963968,
+      "processTreeRss": 184762368,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 67044.453861,
+      "nodeRss": 157798400,
+      "childRss": 26357760,
+      "processTreeRss": 184156160,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 67120.428331,
+      "nodeRss": 158846976,
+      "childRss": 26484736,
+      "processTreeRss": 185331712,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 67185.588564,
+      "nodeRss": 159895552,
+      "childRss": 26488832,
+      "processTreeRss": 186384384,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 67251.504883,
+      "nodeRss": 160813056,
+      "childRss": 26488832,
+      "processTreeRss": 187301888,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 67304.886712,
+      "nodeRss": 161599488,
       "childRss": 26644480,
-      "processTreeRss": 190070784,
-      "tempDisk": 113111432
+      "processTreeRss": 188243968,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 22943.137608,
-      "nodeRss": 163950592,
-      "childRss": 26673152,
-      "processTreeRss": 190623744,
-      "tempDisk": 113111432
+      "atMs": 67362.426303,
+      "nodeRss": 162648064,
+      "childRss": 26800128,
+      "processTreeRss": 189448192,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 22998.079156,
-      "nodeRss": 163819520,
-      "childRss": 27152384,
-      "processTreeRss": 190971904,
-      "tempDisk": 113111432
+      "atMs": 67420.405115,
+      "nodeRss": 164483072,
+      "childRss": 26890240,
+      "processTreeRss": 191373312,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 23049.150092,
-      "nodeRss": 163688448,
-      "childRss": 27766784,
-      "processTreeRss": 191455232,
-      "tempDisk": 113111432
+      "atMs": 67472.571597,
+      "nodeRss": 164827136,
+      "childRss": 27537408,
+      "processTreeRss": 192364544,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 23099.042839,
-      "nodeRss": 164474880,
-      "childRss": 28012544,
-      "processTreeRss": 192487424,
-      "tempDisk": 113111432
+      "atMs": 67530.901563,
+      "nodeRss": 165109760,
+      "childRss": 27582464,
+      "processTreeRss": 192692224,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 23148.693146,
-      "nodeRss": 163598336,
-      "childRss": 28016640,
-      "processTreeRss": 191614976,
-      "tempDisk": 113111432
+      "atMs": 67580.750392,
+      "nodeRss": 165576704,
+      "childRss": 27668480,
+      "processTreeRss": 193245184,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 23199.659519,
-      "nodeRss": 163729408,
-      "childRss": 28082176,
-      "processTreeRss": 191811584,
-      "tempDisk": 113111432
+      "atMs": 67644.906902,
+      "nodeRss": 166481920,
+      "childRss": 28098560,
+      "processTreeRss": 194580480,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 23252.974922,
-      "nodeRss": 165310464,
-      "childRss": 27947008,
-      "processTreeRss": 193257472,
-      "tempDisk": 113111432
+      "atMs": 67715.216097,
+      "nodeRss": 167739392,
+      "childRss": 28123136,
+      "processTreeRss": 195862528,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 23304.409899000002,
-      "nodeRss": 163999744,
-      "childRss": 28356608,
-      "processTreeRss": 192356352,
-      "tempDisk": 113111432
+      "atMs": 67764.75432600001,
+      "nodeRss": 168656896,
+      "childRss": 28135424,
+      "processTreeRss": 196792320,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 23354.583281,
-      "nodeRss": 163737600,
-      "childRss": 28442624,
-      "processTreeRss": 192180224,
-      "tempDisk": 113111432
+      "atMs": 67817.317501,
+      "nodeRss": 169414656,
+      "childRss": 28463104,
+      "processTreeRss": 197877760,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 23404.89746,
-      "nodeRss": 163868672,
-      "childRss": 29138944,
-      "processTreeRss": 193007616,
-      "tempDisk": 113111432
+      "atMs": 67869.010979,
+      "nodeRss": 169893888,
+      "childRss": 28545024,
+      "processTreeRss": 198438912,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 23459.595317,
-      "nodeRss": 164139008,
-      "childRss": 29483008,
-      "processTreeRss": 193622016,
-      "tempDisk": 113111432
+      "atMs": 67937.701438,
+      "nodeRss": 169472000,
+      "childRss": 27729920,
+      "processTreeRss": 197201920,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 23517.292676,
-      "nodeRss": 164925440,
-      "childRss": 30134272,
-      "processTreeRss": 195059712,
-      "tempDisk": 113111432
+      "atMs": 67992.784574,
+      "nodeRss": 169603072,
+      "childRss": 28147712,
+      "processTreeRss": 197750784,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 23570.747438000002,
-      "nodeRss": 163745792,
-      "childRss": 30330880,
-      "processTreeRss": 194076672,
-      "tempDisk": 113111432
+      "atMs": 68056.057376,
+      "nodeRss": 170061824,
+      "childRss": 28143616,
+      "processTreeRss": 198205440,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 23627.753510000002,
-      "nodeRss": 163745792,
-      "childRss": 30474240,
-      "processTreeRss": 194220032,
-      "tempDisk": 113111432
+      "atMs": 68125.854238,
+      "nodeRss": 169545728,
+      "childRss": 28176384,
+      "processTreeRss": 197722112,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 23693.26285,
-      "nodeRss": 164409344,
-      "childRss": 30474240,
-      "processTreeRss": 194883584,
-      "tempDisk": 113111432
+      "atMs": 68176.967365,
+      "nodeRss": 171118592,
+      "childRss": 28184576,
+      "processTreeRss": 199303168,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 23746.670563,
-      "nodeRss": 164106240,
-      "childRss": 30629888,
-      "processTreeRss": 194736128,
-      "tempDisk": 113111432
+      "atMs": 68230.696411,
+      "nodeRss": 169545728,
+      "childRss": 27979776,
+      "processTreeRss": 197525504,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 23798.487644,
-      "nodeRss": 164237312,
-      "childRss": 29356032,
-      "processTreeRss": 193593344,
-      "tempDisk": 113111432
+      "atMs": 68293.986623,
+      "nodeRss": 169545728,
+      "childRss": 26931200,
+      "processTreeRss": 196476928,
+      "tempDisk": 153353720
     },
     {
       "stage": "periodic",
-      "atMs": 23847.885247000002,
-      "nodeRss": 164499456,
-      "childRss": 19374080,
-      "processTreeRss": 183873536,
-      "tempDisk": 113111432
+      "atMs": 68348.381641,
+      "nodeRss": 169545728,
+      "childRss": 26931200,
+      "processTreeRss": 196476928,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 68411.42432800001,
+      "nodeRss": 169545728,
+      "childRss": 26931200,
+      "processTreeRss": 196476928,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 68464.719226,
+      "nodeRss": 169545728,
+      "childRss": 26955776,
+      "processTreeRss": 196501504,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 68519.954583,
+      "nodeRss": 169545728,
+      "childRss": 27426816,
+      "processTreeRss": 196972544,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 68574.223832,
+      "nodeRss": 169807872,
+      "childRss": 27430912,
+      "processTreeRss": 197238784,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 68630.784445,
+      "nodeRss": 170332160,
+      "childRss": 27435008,
+      "processTreeRss": 197767168,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 68682.841703,
+      "nodeRss": 169545728,
+      "childRss": 27435008,
+      "processTreeRss": 196980736,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 68746.256767,
+      "nodeRss": 169545728,
+      "childRss": 27185152,
+      "processTreeRss": 196730880,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 68805.172511,
+      "nodeRss": 169807872,
+      "childRss": 27443200,
+      "processTreeRss": 197251072,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 68856.117213,
+      "nodeRss": 169684992,
+      "childRss": 27721728,
+      "processTreeRss": 197406720,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 68909.423261,
+      "nodeRss": 169684992,
+      "childRss": 28180480,
+      "processTreeRss": 197865472,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 68959.895418,
+      "nodeRss": 169684992,
+      "childRss": 28270592,
+      "processTreeRss": 197955584,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 69033.596942,
+      "nodeRss": 170864640,
+      "childRss": 28024832,
+      "processTreeRss": 198889472,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 69086.558347,
+      "nodeRss": 169816064,
+      "childRss": 28491776,
+      "processTreeRss": 198307840,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 69144.22497,
+      "nodeRss": 170995712,
+      "childRss": 28880896,
+      "processTreeRss": 199876608,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 69200.383438,
+      "nodeRss": 170078208,
+      "childRss": 28897280,
+      "processTreeRss": 198975488,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 69259.238704,
+      "nodeRss": 171520000,
+      "childRss": 29134848,
+      "processTreeRss": 200654848,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 69312.864136,
+      "nodeRss": 170995712,
+      "childRss": 29134848,
+      "processTreeRss": 200130560,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 69385.23163000001,
+      "nodeRss": 170086400,
+      "childRss": 29134848,
+      "processTreeRss": 199221248,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 69445.413562,
+      "nodeRss": 170086400,
+      "childRss": 29544448,
+      "processTreeRss": 199630848,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 69498.976848,
+      "nodeRss": 171397120,
+      "childRss": 29782016,
+      "processTreeRss": 201179136,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 69587.57652,
+      "nodeRss": 170094592,
+      "childRss": 29786112,
+      "processTreeRss": 199880704,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 69661.1967,
+      "nodeRss": 169545728,
+      "childRss": 30031872,
+      "processTreeRss": 199577600,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 69711.402202,
+      "nodeRss": 169938944,
+      "childRss": 30208000,
+      "processTreeRss": 200146944,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 69771.63650600001,
+      "nodeRss": 170201088,
+      "childRss": 29110272,
+      "processTreeRss": 199311360,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 69826.253765,
+      "nodeRss": 169947136,
+      "childRss": 27672576,
+      "processTreeRss": 197619712,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 69895.677878,
+      "nodeRss": 170741760,
+      "childRss": 27811840,
+      "processTreeRss": 198553600,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 69960.009344,
+      "nodeRss": 169963520,
+      "childRss": 27811840,
+      "processTreeRss": 197775360,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 70033.416452,
+      "nodeRss": 171012096,
+      "childRss": 27963392,
+      "processTreeRss": 198975488,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 70110.370302,
+      "nodeRss": 170889216,
+      "childRss": 28504064,
+      "processTreeRss": 199393280,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 70173.437211,
+      "nodeRss": 171028480,
+      "childRss": 28618752,
+      "processTreeRss": 199647232,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 70238.044802,
+      "nodeRss": 170774528,
+      "childRss": 28618752,
+      "processTreeRss": 199393280,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 70294.616317,
+      "nodeRss": 170381312,
+      "childRss": 28831744,
+      "processTreeRss": 199213056,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 70349.150873,
+      "nodeRss": 170086400,
+      "childRss": 29122560,
+      "processTreeRss": 199208960,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 70404.062315,
+      "nodeRss": 170364928,
+      "childRss": 29257728,
+      "processTreeRss": 199622656,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 70461.05827000001,
+      "nodeRss": 170860544,
+      "childRss": 29257728,
+      "processTreeRss": 200118272,
+      "tempDisk": 153353720
+    },
+    {
+      "stage": "periodic",
+      "atMs": 70511.715008,
+      "nodeRss": 170401792,
+      "childRss": 18751488,
+      "processTreeRss": 189153280,
+      "tempDisk": 153353720
     },
     {
       "stage": "pass2-complete",
-      "atMs": 23862.376637,
-      "nodeRss": 164368384,
+      "atMs": 70566.64157800001,
+      "nodeRss": 171057152,
       "childRss": 0,
-      "processTreeRss": 164368384,
-      "tempDisk": 113111432
+      "processTreeRss": 171057152,
+      "tempDisk": 153353720
     },
     {
       "stage": "partition-index-complete",
-      "atMs": 35540.351435,
-      "nodeRss": 166559744,
+      "atMs": 99942.756819,
+      "nodeRss": 172711936,
       "childRss": 0,
-      "processTreeRss": 166559744,
-      "tempDisk": 155619720
+      "processTreeRss": 172711936,
+      "tempDisk": 153353720
     },
     {
       "stage": "region:tr-33-65-72",
-      "atMs": 35862.130653,
-      "nodeRss": 181755904,
+      "atMs": 100618.179303,
+      "nodeRss": 185323520,
       "childRss": 0,
-      "processTreeRss": 181755904,
-      "tempDisk": 155619720
+      "processTreeRss": 185323520,
+      "tempDisk": 153353720
     },
     {
       "stage": "region:tr-33-65-73",
-      "atMs": 35911.702521,
-      "nodeRss": 193003520,
+      "atMs": 100736.243079,
+      "nodeRss": 195153920,
       "childRss": 0,
-      "processTreeRss": 193003520,
-      "tempDisk": 155619720
+      "processTreeRss": 195153920,
+      "tempDisk": 153353720
     },
     {
       "stage": "region:tr-33-66-72",
-      "atMs": 36168.338546,
-      "nodeRss": 193028096,
+      "atMs": 101261.040872,
+      "nodeRss": 212074496,
       "childRss": 0,
-      "processTreeRss": 193028096,
-      "tempDisk": 155619720
+      "processTreeRss": 212074496,
+      "tempDisk": 153353720
     },
     {
       "stage": "region:tr-33-66-73",
-      "atMs": 36412.2501,
-      "nodeRss": 196042752,
+      "atMs": 101712.74334100001,
+      "nodeRss": 199553024,
       "childRss": 0,
-      "processTreeRss": 196042752,
-      "tempDisk": 155619720
+      "processTreeRss": 199553024,
+      "tempDisk": 153353720
     },
     {
       "stage": "region:tr-33-67-72",
-      "atMs": 36805.047156,
-      "nodeRss": 213032960,
+      "atMs": 102550.785464,
+      "nodeRss": 200990720,
       "childRss": 0,
-      "processTreeRss": 213032960,
-      "tempDisk": 155619720
+      "processTreeRss": 200990720,
+      "tempDisk": 153353720
     },
     {
       "stage": "region:tr-33-67-73",
-      "atMs": 37309.310272999996,
-      "nodeRss": 237555712,
+      "atMs": 103587.442871,
+      "nodeRss": 237469696,
       "childRss": 0,
-      "processTreeRss": 237555712,
-      "tempDisk": 155619720
+      "processTreeRss": 237469696,
+      "tempDisk": 153353720
     },
     {
       "stage": "region:tr-33-67-74",
-      "atMs": 37373.988342,
-      "nodeRss": 247386112,
+      "atMs": 103715.789855,
+      "nodeRss": 237469696,
       "childRss": 0,
-      "processTreeRss": 247386112,
-      "tempDisk": 155619720
+      "processTreeRss": 237469696,
+      "tempDisk": 153353720
     },
     {
       "stage": "region:tr-33-68-72",
-      "atMs": 37517.657423,
-      "nodeRss": 222838784,
+      "atMs": 103972.369013,
+      "nodeRss": 248086528,
       "childRss": 0,
-      "processTreeRss": 222838784,
-      "tempDisk": 155619720
+      "processTreeRss": 248086528,
+      "tempDisk": 153353720
     },
     {
       "stage": "region:tr-33-68-73",
-      "atMs": 38409.608664,
-      "nodeRss": 258301952,
+      "atMs": 105749.029076,
+      "nodeRss": 279572480,
       "childRss": 0,
-      "processTreeRss": 258301952,
-      "tempDisk": 155619720
+      "processTreeRss": 279572480,
+      "tempDisk": 153353720
     },
     {
       "stage": "region:tr-33-68-74",
-      "atMs": 38532.227610999995,
-      "nodeRss": 259391488,
+      "atMs": 105987.069205,
+      "nodeRss": 282820608,
       "childRss": 0,
-      "processTreeRss": 259391488,
-      "tempDisk": 155619720
+      "processTreeRss": 282820608,
+      "tempDisk": 153353720
     },
     {
       "stage": "region:tr-33-69-73",
-      "atMs": 39927.381847,
-      "nodeRss": 336547840,
+      "atMs": 108632.882346,
+      "nodeRss": 269279232,
       "childRss": 0,
-      "processTreeRss": 336547840,
-      "tempDisk": 155619720
+      "processTreeRss": 269279232,
+      "tempDisk": 153353720
     },
     {
       "stage": "region:tr-33-69-74",
-      "atMs": 40489.437831999996,
-      "nodeRss": 378322944,
+      "atMs": 109674.606786,
+      "nodeRss": 282619904,
       "childRss": 0,
-      "processTreeRss": 378322944,
-      "tempDisk": 155619720
+      "processTreeRss": 282619904,
+      "tempDisk": 153353720
     },
     {
       "stage": "region:tr-33-70-73",
-      "atMs": 40617.986967,
-      "nodeRss": 322560000,
+      "atMs": 109934.474898,
+      "nodeRss": 283406336,
       "childRss": 0,
-      "processTreeRss": 322560000,
-      "tempDisk": 155619720
+      "processTreeRss": 283406336,
+      "tempDisk": 153353720
     },
     {
       "stage": "region:tr-33-70-74",
-      "atMs": 40693.432448,
-      "nodeRss": 332914688,
+      "atMs": 110125.140773,
+      "nodeRss": 293367808,
       "childRss": 0,
-      "processTreeRss": 332914688,
-      "tempDisk": 155619720
+      "processTreeRss": 293367808,
+      "tempDisk": 153353720
     },
     {
       "stage": "complete",
-      "atMs": 42046.282453,
-      "nodeRss": 343924736,
+      "atMs": 113675.00429,
+      "nodeRss": 304377856,
       "childRss": 0,
-      "processTreeRss": 343924736,
+      "processTreeRss": 304377856,
       "tempDisk": 107040768
     }
   ],
@@ -2422,6 +3629,62 @@
       "viaNodeId": 11889671274,
       "fromEdge": 149640,
       "toEdge": 149642
+    }
+  ],
+  "viaWayEvidence": [
+    {
+      "relationId": 10048813,
+      "regionId": "tr-33-65-72",
+      "restrictionType": "no_u_turn",
+      "viaWays": [
+        725695223
+      ],
+      "outcome": "SUPPORTED_VIA_WAY",
+      "chainIds": [
+        1
+      ],
+      "chainLinks": 2,
+      "viaEdgeCount": 1,
+      "fromEdges": [
+        30196
+      ],
+      "toEdges": [
+        29997
+      ],
+      "entryNodeId": 5481143515,
+      "exitNodeId": 3407259719
+    },
+    {
+      "relationId": 10048814,
+      "regionId": "tr-33-65-72",
+      "restrictionType": "no_u_turn",
+      "viaWays": [
+        725695223
+      ],
+      "outcome": "UNRESOLVED_TOPOLOGY",
+      "detail": "via yol 725695223 uçtan bağlanmıyor veya tek yön ters"
+    },
+    {
+      "relationId": 17574418,
+      "regionId": "tr-33-69-73",
+      "restrictionType": "only_straight_on",
+      "viaWays": [
+        1280952494
+      ],
+      "outcome": "SUPPORTED_VIA_WAY",
+      "chainIds": [
+        1
+      ],
+      "chainLinks": 2,
+      "viaEdgeCount": 1,
+      "fromEdges": [
+        149638
+      ],
+      "toEdges": [
+        149415
+      ],
+      "entryNodeId": 11889671272,
+      "exitNodeId": 3973868582
     }
   ]
 }

@@ -39,11 +39,51 @@ describe('RTG3 province hardening',()=>{
     expect(getGraphResidencySnapshot().state).toBe('MISSING');
   });
 
+  it('via-node kısıt temelini korur ve via-way desteğini gerçek veriyle kanıtlar',()=>{
+    const benchmark=JSON.parse(readFileSync(resolve(root,'benchmark.json'),'utf8'));
+    const stats=benchmark.restrictionStats;
+    /* REGRESYON KAPISI: via-way desteği via-node çözümünü AZALTAMAZ. */
+    expect(stats.supportedViaNode,'via-node temeli düştü').toBeGreaterThanOrEqual(110);
+    expect(stats.supported).toBe(stats.supportedViaNode+stats.supportedViaWay);
+    expect(stats.supported+stats.unsupported+stats.unresolved).toBe(stats.valid);
+    expect(stats.observed).toBe(stats.valid+stats.malformed);
+    /* Araç-özel (`except`) ilişki ASLA jenerik kısıta YÜKSELTİLMEZ. */
+    expect(stats.vehicleSpecific).toBeGreaterThan(0);
+    expect(stats.supportedViaWay+stats.vehicleSpecific).toBeLessThanOrEqual(stats.valid);
+    /* Her via-way ilişkisi AÇIKÇA sınıflandırılmış olmalı — sessiz düşürme yok. */
+    const outcomes=new Set(['SUPPORTED_VIA_WAY','UNRESOLVED_TOPOLOGY','UNSUPPORTED_CAPACITY']);
+    expect(benchmark.viaWayEvidence.length).toBe(stats.viaWay);
+    for(const evidence of benchmark.viaWayEvidence)expect(outcomes,JSON.stringify(evidence)).toContain(evidence.outcome);
+    /* Bayt paritesi: yalnız via-way kayıtları eklendi (2 zincir × 2 halka × 16 B). */
+    expect(benchmark.totalBytes).toBe(27232796+stats.supportedViaWay*2*16);
+  });
+
+  it('gerçek via-way kısıtı kanonik A* içinde uçtan uca uygulanır',()=>{
+    const validation=JSON.parse(readFileSync(resolve(root,'hardening-validation.json'),'utf8'));
+    expect(validation.viaWayCases.length,'gerçek via-way kanıtı yok').toBeGreaterThan(0);
+    for(const item of validation.viaWayCases){
+      expect(item.automatonEnforced,`${item.relationId} otomat uygulamadı`).toBe(true);
+      /* Zincire GİRİLMEDEN alakasız yol bloklanmamalı (aşırı kısıt YASAK). */
+      expect(item.unrelatedEntryAllowed,`${item.relationId} alakasız geçişi blokladı`).toBe(true);
+      expect(item.intermediateAlternativesFree,`${item.relationId} ara kavşağı blokladı`).toBe(true);
+      expect(item.workerAutomatonViolation,`${item.relationId} rota otomatı ihlal etti`).toBe(false);
+    }
+    expect(validation.viaNodeEvidence.outcome).toBe('FORBIDDEN_DIRECT_TURN');
+    expect(validation.failures.every((f:{rejected:boolean})=>f.rejected)).toBe(true);
+    /* Rota sonucu paritesi: via-way desteği mevcut rotaları DEĞİŞTİRMEDİ. */
+    expect(validation.routesBefore).not.toBeNull();
+    validation.routes.forEach((route:{distanceM:number},index:number)=>{
+      expect(route.distanceM).toBe(validation.routesBefore[index].distanceM);
+    });
+  });
+
   it('uses SQLite state and preserves the single worker A* authority',()=>{
     const builder=readFileSync(resolve('scripts/build-pbf-streaming-rtg3.mjs'),'utf8');
     expect(builder).toContain("from 'node:sqlite'");
     expect(builder).toContain("['cat',SOURCE,'-t','node'");
     expect(builder).not.toContain("['getid'");
+    /* Preflight builder'a AİT: eksik araç zinciriyle build BAŞLAMAZ. */
+    expect(builder).toContain('assertPreflight(preflight)');
     const worker=readFileSync(resolve('src/platform/navigation/NavigationCompute.worker.ts'),'utf8');
     expect(worker.match(/function _aStar/g)).toHaveLength(1);
     expect(worker).toContain('INSTALL_REGIONAL_GRAPH');
