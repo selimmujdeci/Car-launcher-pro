@@ -39,10 +39,11 @@ import {
 } from './navigation/core/routeProviderReadiness';
 import type { RouteStep }    from './routingService';
 import {
-  acquireRegionalRoutingGraph, releaseRoutingGraph,
+  acquireRegionalRoutingGraph, acquireRegionWindow, releaseRegionWindow,
+  releaseRoutingGraph, REGIONAL_GRAPH_MAX_RESIDENT,
 } from './navigation/map/graph/graphResidencyRuntime';
 import {
-  selectRegionalRouteCorridor, validateTurkeyGraphManifest,
+  planCrossRegionSearchEnvelope, selectRegionalRouteCorridor, validateTurkeyGraphManifest,
 } from './navigation/map/graph/turkeyGraphManifest';
 
 /* ── Tipler ──────────────────────────────────────────────────── */
@@ -245,6 +246,11 @@ const _searchPending = new Map<string, {
 }>();
 let _searchReqCounter  = 0;
 const SEARCH_TIMEOUT_MS = 3_000;
+/** Aktif uzun-rota oturumları — pencere talebini karşılayan tek yer. */
+const _crossRegionPending = new Map<string, {
+  onNeedWindow: (windowIndex: number) => Promise<void>;
+}>();
+
 const _graphInstallPending = new Map<string, {
   resolve: (installed: boolean) => void;
   timer: ReturnType<typeof setTimeout>;
@@ -279,7 +285,19 @@ function _getOrCreateNavWorker(): Worker | null {
         reason?: string;
         count?: number;
         results?: POIWorkerResult[];
+        windowIndex?: number;
+        requestedRegionIds?: string[];
+        fromRegionIds?: string[];
+        crossRegion?: Record<string, number> | null;
       };
+
+      /* Uzun rota: worker "sıradaki pencere lazım" der; sakinlik kararı ve
+         bütçe BURADA (residency authority) kalır — worker kendi indirmez. */
+      if (msg.type === 'CROSS_REGION_NEED_WINDOW' && msg.requestId) {
+        const session = _crossRegionPending.get(msg.requestId);
+        if (session) void session.onNeedWindow(Number(msg.windowIndex ?? 0));
+        return;
+      }
 
       if ((msg.type === 'GRAPH_INSTALLED' || msg.type === 'GRAPH_INSTALL_ERROR') && msg.requestId) {
         const install = _graphInstallPending.get(msg.requestId);
@@ -432,6 +450,101 @@ export async function computeRegionalOfflineRoute(
     worker.postMessage({ type:'CLEAR_REGIONAL_GRAPH' });
     releaseRoutingGraph();
   }
+}
+
+/**
+ * Ülke ölçeğinde SINIRLI SAKİNLİKLE uzun rota (RTG4).
+ *
+ * ── NE DEĞİŞTİ ────────────────────────────────────────────────────────────
+ * `computeRegionalOfflineRoute` koridoru tek seferde belleğe alır ve bu yüzden
+ * yalnız `REGIONAL_GRAPH_MAX_RESIDENT` bölgeye kadar çalışır. Mersin→İstanbul
+ * gibi 22 bölgelik bir koridor 77 MB'tır: 64 MiB tavanına SIĞMAZ. Çözüm tavanı
+ * büyütmek değil, pencereyi kaydırmaktır.
+ *
+ * ── SORUMLULUK SINIRI ─────────────────────────────────────────────────────
+ * Bu fonksiyon rota HESAPLAMAZ; yalnız hangi bölgenin ne zaman yerleşik
+ * olacağına karar verir. Rota gerçeği tek kanonik kenar-durumlu A*'ta kalır.
+ * Portal v2 koridoru yalnız pencere sırasını belirleyen budama kanıtıdır ve
+ * hiçbir koşulda araç rotası olarak yayınlanmaz.
+ */
+export async function computeCrossRegionOfflineRoute(
+  manifestValue: unknown,
+  fromLat: number, fromLon: number,
+  toLat: number, toLon: number,
+  baseUrl = '/maps/rtg3/',
+  options: { maxClosedStates?: number } = {},
+): Promise<OfflineRouteResult | null> {
+  const manifest = validateTurkeyGraphManifest(manifestValue);
+  if (!manifest) return null;
+  const envelope = planCrossRegionSearchEnvelope(
+    manifest, [fromLat, fromLon], [toLat, toLon], REGIONAL_GRAPH_MAX_RESIDENT);
+  if (!envelope) return null;
+  const worker = _getOrCreateNavWorker();
+  if (!worker) return null;
+
+  const requestId = `x${++_reqCounter}`;
+  let settled = false;
+
+  return new Promise<OfflineRouteResult | null>((resolve) => {
+    const finish = (value: OfflineRouteResult | null) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      _pending.delete(requestId);
+      _crossRegionPending.delete(requestId);
+      worker.postMessage({ type: 'CROSS_REGION_ABORT', requestId });
+      releaseRegionWindow();
+      resolve(value);
+    };
+
+    /* Zaman aşımı TÜM oturumu kapsar: her pencere için ayrı sayaç, sessizce
+       dakikalarca süren bir arama demekti. */
+    const timer = setTimeout(() => {
+      logError('NavigationCompute:crossRegionTimeout', new Error(`Request ${requestId} timed out`));
+      finish(null);
+    }, NAV_WORKER_TIMEOUT_MS * Math.max(1, envelope.windows.length));
+
+    _pending.set(requestId, {
+      resolve: (value) => finish(value),
+      reject: () => finish(null),
+      timer,
+    });
+
+    _crossRegionPending.set(requestId, {
+      onNeedWindow: async (windowIndex: number) => {
+        if (settled) return;
+        if (windowIndex < 0 || windowIndex >= envelope.windows.length) {
+          /* Koridor bitti ama hedef bulunamadı → rota UYDURULMAZ. */
+          finish(null);
+          return;
+        }
+        const regionIds = envelope.windows[windowIndex];
+        const residency = await acquireRegionWindow(manifest, regionIds, baseUrl);
+        if (settled) return;
+        if (!residency) { finish(null); return; }
+        const isFinal = windowIndex === envelope.windows.length - 1;
+        /* Sınır kanıtı DAR tutulur: yalnız bu pencerenin ÖNCÜ bölgesinden
+           koridorun bir sonraki bölgesine geçiren, seçilmiş bileşen çiftine
+           ait portal düğümleri. Pencerenin her yönündeki tüm çıkışları sınır
+           saymak, aramayı ilk birkaç kilometrede ilerletip süpürmeyi salınıma
+           sokuyordu (ölçüldü: koridor tamamlanamadı). */
+        worker.postMessage({
+          type: 'CROSS_REGION_WINDOW', requestId, windowIndex,
+          graphView: residency.view, identity: residency.identity,
+          exitPortals: isFinal ? [] : envelope.transitions[windowIndex].portalNodeIds.map(
+            (nodeId) => ({ nodeId, regionIds: [envelope.transitions[windowIndex].toRegionId] })),
+          isFinal,
+        });
+      },
+    });
+
+    worker.postMessage({
+      type: 'CROSS_REGION_BEGIN', requestId,
+      fromLat, fromLon, toLat, toLon,
+      windowCount: envelope.windows.length,
+      maxClosedStates: options.maxClosedStates,
+    });
+  });
 }
 
 /* ── Straight-line fallback (son çare) ───────────────────────── */

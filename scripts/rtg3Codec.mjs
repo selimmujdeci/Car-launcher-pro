@@ -24,9 +24,11 @@
  */
 
 export const RTG3_MAGIC = 0x33475452;
+export const RTG4_MAGIC = 0x34475452;
 export const RTG3_NODE_STRIDE = 16;
 export const RTG3_EDGE_STRIDE = 28;
 export const RTG3_RESTRICTION_STRIDE = 16;
+export const RTG4_RESTRICTION_STRIDE = 24;
 
 /** Via-node kısıt türleri — okuyucu ile BİREBİR aynı sayılar. */
 export const RESTRICTION_TYPE = Object.freeze({
@@ -62,14 +64,23 @@ export function viaWayTypeByte(baseType, isFinal) {
  * `type` ya 1..7 (via-node) ya da `viaWayTypeByte(...)` sonucudur.
  */
 export function serializeRtg3(graph) {
+  return serializeRoutingGraph(graph, 3);
+}
+
+/** Stable restriction relation kimliği taşıyan shadow RTG4 yazarı. */
+export function serializeRtg4(graph) {
+  return serializeRoutingGraph(graph, 4);
+}
+
+function serializeRoutingGraph(graph, version) {
   const nodeCount = graph.coords.length;
   const edgeCount = graph.edges.length;
   const restrictionCount = graph.restrictions.length;
   const buffer = Buffer.alloc(
     16 + nodeCount * RTG3_NODE_STRIDE + edgeCount * RTG3_EDGE_STRIDE
-    + restrictionCount * RTG3_RESTRICTION_STRIDE,
+    + restrictionCount * (version === 4 ? RTG4_RESTRICTION_STRIDE : RTG3_RESTRICTION_STRIDE),
   );
-  buffer.writeUInt32LE(RTG3_MAGIC, 0);
+  buffer.writeUInt32LE(version === 4 ? RTG4_MAGIC : RTG3_MAGIC, 0);
   buffer.writeUInt32LE(nodeCount, 4);
   buffer.writeUInt32LE(edgeCount, 8);
   buffer.writeUInt32LE(restrictionCount, 12);
@@ -100,7 +111,12 @@ export function serializeRtg3(graph) {
     buffer[offset + 12] = restriction.type;
     buffer[offset + 13] = restriction.chainSeq ?? 0;
     buffer.writeUInt16LE(restriction.chainId ?? 0, offset + 14);
-    offset += RTG3_RESTRICTION_STRIDE;
+    if (version === 4) {
+      const relationId = BigInt(restriction.relationId ?? 0);
+      if (relationId <= 0n) throw new Error('RTG4 restriction relationId eksik/geçersiz');
+      buffer.writeBigUInt64LE(relationId, offset + 16);
+    }
+    offset += version === 4 ? RTG4_RESTRICTION_STRIDE : RTG3_RESTRICTION_STRIDE;
   }
   return buffer;
 }

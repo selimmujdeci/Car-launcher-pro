@@ -8728,3 +8728,73 @@ bölge SAYISIDIR. Tavan ölçülmeden değiştirilmeyecek.
 Cihaz/saha kapısı kırmızıdır (kütük #1210).
 
 Kanıt: `field-runs/turkey-rtg3-national-20260908/report-source.md`.
+
+## RTG4 directed component + Portal v2 nationwide shadow — 2026-09-08
+
+Durum: DOĞRULANDI (CODE/desktop shadow), ÜRÜN HAZIR: HAYIR.
+
+Mevcut graph/navigation authority değiştirilmeden region-local directed SCC,
+directed condensation ve gerçek core-tile crossing edge tabanlı Portal v2
+kanıtı eklendi. Destination-only kenarlar component metadata'sında access rolüyle
+korunur fakat transit corridor bağlantısına yükseltilmez. Stable component kimliği
+`regionId:minStableNodeId`; node→component eşlemesi kompakt UInt32-LE shadow
+sidecar'dadır.
+
+Nationwide RTG4 shadow sonucu: 402 region · 21.874.202 node · 23.004.155 edge ·
+181.625 directed component · 172.911 directed component link · 38.314 Portal v2.
+Eski 1.063 shared-node linkinin tamamı UNKNOWN bırakılmadan sınıflandı:
+720 ROUTABLE · 343 NON_ROUTABLE · 0 INVALID · 0 AMBIGUOUS. Beş şehirler arası
+corpus'ta directed portal/component continuity bulundu; Mersin→İstanbul kanıt
+envelope'u 22 region'dır. Bu envelope final road route değildir ve kullanıcıya
+route truth olarak yayınlanmaz.
+
+Sonraki atomik faz, yalnız mevcut `routeRtg3EdgeState` içinde stable frontier ve
+restriction state'i graph residency'den ayırarak bounded on-demand expansion'dır.
+Production RTG2 değişmedi; cihaz/saha ve LAB gözlem kapıları kırmızıdır
+(kütük #1211).
+
+## RTG4 bounded on-demand uzun rota (ülke çapı) — 2026-09-08
+
+Durum: **ENTEGRE** (kod + masaüstü gölge doğrulaması), ÜRÜN HAZIR: **HAYIR**.
+
+Önceki fazda uzun şehirler arası rotalar `BLOCKED_RESIDENCY_BUDGET` idi: 22 bölgelik
+Mersin→İstanbul koridoru 77 539 328 B'tır ve 64 MiB residency tavanına SIĞMAZ.
+Bu faz tavanı yükseltmeden çözdü.
+
+**Mimari.** İkinci bir yönlendirici, ikinci bir graph manager veya ikinci bir
+residency otoritesi EKLENMEDİ. Kanonik `routeRtg3EdgeState` kenar-durumlu A*
+askıya alınabilir hâle geldi: sınır portalına ulaştığında durumunu KORUYARAK
+durur, ana iş parçacığındaki `graphResidencyRuntime` bir sonraki bölge
+penceresini (≤3 bölge, ≤64 MiB) yerleştirir, canlı arama durumu bölge-yerel
+kimlik tablosuyla (`mergeRegionalGraphWindow`) kesin olarak çevrilir ve AYNI
+mantıksal arama kaldığı yerden sürer. Graf sakinliği ile arama sakinliği
+ayrıldı: yeniden kurma kaydı pencere-BAĞIMSIZ tutulduğu için bir bölge belleği
+bıraktıktan sonra da gerçek kenar dizisi kurulabiliyor.
+
+**Koridor artık bileşen düzeyindedir.** Bölge komşuluk grafında en kısa yol
+karayoluyla geçilebilir olmak zorunda değildir; ölçüldü: İstanbul→Ankara için
+bölge düzeyi koridor Marmara'yı kesiyordu ve arama 757 304 durum açıp
+tükeniyordu. Koridor yönlü Portal v2 **bileşen** sürekliliğine taşındı — bir
+bölgeye hangi güçlü bağlı bileşenden girildiyse aynı bileşenin portalıyla
+çıkılır. Portal koridoru hâlâ yalnız BUDAMA KANITIDIR; kullanıcıya rota olarak
+YAYINLANMAZ.
+
+**Ölçülen sonuç (gerçek 402 bölgelik RTG4 gölge veri seti).** 8/8 rota gerçek
+kenar düzeyi A* rotası üretti. Mersin→İstanbul 1 069 198 m · 22 bölge dokunuldu ·
+20 pencere · 19 tahliye · tepe yerleşik **3 bölge / 29 392 832 B**. En yüksek
+tepe bayt İstanbul→Ankara'da 42 133 556 B (64 MiB içinde). Arıza korpusu 5/5
+fail-closed. `REGIONAL_GRAPH_MAX_RESIDENT=3` ve `REGIONAL_GRAPH_MAX_BYTES=64 MiB`
+DEĞİŞMEDİ. `public/maps/routing-graph.bin` değişmedi.
+
+**Açık engel (cihaz).** Uzun rotalar 821 215 – 1 597 469 arama durumu açıyor;
+worker'ın cihaz varsayılanı `MAX_CLOSED = 200 000`. Bu rotalar cihazda bugün
+`CROSS_REGION_CLOSED_LIMIT` ile fail-closed olur — uydurma rota üretmez ama
+ÇALIŞMAZ. Ölçüm gölge tavanı yalnız doğrulama koşumundadır. Sonraki atomik faz
+bu bütçeyi büyütmek DEĞİL, arama uzayını küçültmektir (koridor-yönelimli
+sezgisel / hiyerarşik kısayol), çünkü bütçeyi büyütmek düşük-uç head unit'te
+30–61 MB yeniden kurma arşiviyle birlikte RAM riskidir.
+
+Rota kalitesi gerçek en kısa karayoluna göre %6–%21 uzun. Cihaz/saha ve LAB
+kapıları kırmızıdır (kütük #1212).
+
+Kanıt: `field-runs/rtg4-ondemand-longroute-20260908/ondemand-longroute-validation.json`.

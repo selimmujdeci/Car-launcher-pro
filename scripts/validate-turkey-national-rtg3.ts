@@ -16,7 +16,7 @@ import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { resolve } from 'node:path';
 import { performance } from 'node:perf_hooks';
-import { parseRoutingGraph, type RoutingGraphView } from '../src/platform/navigation/map/graph/rtg2Reader';
+import { parseRoutingGraph, stableDirectedEdgeId, type RoutingGraphView } from '../src/platform/navigation/map/graph/rtg2Reader';
 import {
   acquireRegionalRoutingGraph, releaseRoutingGraph, _resetGraphResidencyForTest,
   REGIONAL_GRAPH_MAX_BYTES, REGIONAL_GRAPH_MAX_RESIDENT,
@@ -68,12 +68,23 @@ const push = (check: string, measured: string, ok: boolean) =>
 
 const ids = new Set(manifest.regions.map((r) => r.regionId));
 push('region-ids-unique', `${ids.size}/${manifest.regions.length}`, ids.size === manifest.regions.length);
-push('graph-format', manifest.graphFormat, manifest.graphFormat === 'RTG3');
-push('manifest-schema', String(manifest.schemaVersion), manifest.schemaVersion === 1);
+push('graph-format', manifest.graphFormat, manifest.graphFormat === 'RTG3' || manifest.graphFormat === 'RTG4');
+push('manifest-schema', String(manifest.schemaVersion), manifest.schemaVersion === 1 || manifest.schemaVersion === 2);
 const sourceHashes = new Set(manifest.regions.map((r) => r.sourceHash));
 push('source-hash-consistent', `${sourceHashes.size} farklı`, sourceHashes.size === 1);
 
 let missingFiles = 0, sizeMismatch = 0, shaMismatch = 0, parseFail = 0;
+let componentMissing = 0, componentSizeMismatch = 0, componentShaMismatch = 0, componentInvalid = 0;
+let componentIndexMissing = 0, componentIndexSizeMismatch = 0, componentIndexShaMismatch = 0, componentIndexInvalid = 0;
+const portalEdgesByRegion = new Map<string, Set<string>>(), portalNodesByRegion = new Map<string, Set<bigint>>();
+for (const portal of manifest.portals ?? []) {
+  for (const regionId of [portal.sourceRegionId, portal.destinationRegionId]) {
+    const edges = portalEdgesByRegion.get(regionId) ?? new Set<string>(); edges.add(portal.incidentEdgeId); portalEdgesByRegion.set(regionId, edges);
+  }
+  const sourceNodes = portalNodesByRegion.get(portal.sourceRegionId) ?? new Set<bigint>(); sourceNodes.add(BigInt(portal.sourceNodeId)); portalNodesByRegion.set(portal.sourceRegionId, sourceNodes);
+  const destinationNodes = portalNodesByRegion.get(portal.destinationRegionId) ?? new Set<bigint>(); destinationNodes.add(BigInt(portal.destinationNodeId)); portalNodesByRegion.set(portal.destinationRegionId, destinationNodes);
+}
+const missingPortalEdges = new Set<string>(), missingPortalNodes = new Set<string>();
 const inventory: Array<{ regionId: string; bbox: readonly number[]; nodeCount: number; edgeCount: number; byteSize: number; sha256: string; neighbors: number }> = [];
 type Topology = { components: number; largestPct: number; selfLoops: number; zeroLength: number; duplicates: number; invalidRefs: number; deadEnds: number };
 const topologies: Array<{ regionId: string } & Topology> = [];
@@ -137,6 +148,43 @@ for (const region of manifest.regions) {
   const parsed = parseRoutingGraph(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer);
   if (parsed.outcome !== 'OK' || !parsed.view) { parseFail++; continue; }
   const view = parsed.view;
+  const wantedEdges = portalEdgesByRegion.get(region.regionId);
+  if (wantedEdges?.size) {
+    const found = new Set<string>();
+    for (let i = 0; i < view.edgeCount; i++) { const id = stableDirectedEdgeId(view, i); if (id && wantedEdges.has(id)) found.add(id); }
+    for (const id of wantedEdges) if (!found.has(id)) missingPortalEdges.add(`${region.regionId}:${id}`);
+  }
+  const wantedNodes = portalNodesByRegion.get(region.regionId);
+  if (wantedNodes?.size) {
+    const found = new Set<bigint>(view.nodeSourceId);
+    for (const id of wantedNodes) if (!found.has(id)) missingPortalNodes.add(`${region.regionId}:${id}`);
+  }
+  if (manifest.schemaVersion === 2) {
+    const descriptor = region.components;
+    const componentPath = descriptor ? regionPath(descriptor.file) : '';
+    if (!descriptor || !existsSync(componentPath)) componentMissing++;
+    else {
+      const componentBytes = readFileSync(componentPath);
+      if (componentBytes.byteLength !== descriptor.byteSize) componentSizeMismatch++;
+      if (sha(componentBytes) !== descriptor.sha256) componentShaMismatch++;
+      try {
+        const artifact = JSON.parse(componentBytes.toString('utf8')) as { schemaVersion:number;regionId:string;componentIds:string[];representativeNodeIds:string[];links:Array<{sourceComponentId:string;destinationComponentId:string;accessRole:number}> };
+        const componentIds = new Set(artifact.componentIds);
+        if (artifact.schemaVersion !== 1 || artifact.regionId !== region.regionId || artifact.componentIds.length !== descriptor.count ||
+            componentIds.size !== artifact.componentIds.length || artifact.representativeNodeIds.length !== artifact.componentIds.length ||
+            artifact.links.length !== descriptor.directedLinkCount || descriptor.portalComponentIds.some(id => !componentIds.has(id)) ||
+            artifact.links.some(link => !componentIds.has(link.sourceComponentId) || !componentIds.has(link.destinationComponentId) || (link.accessRole !== 1 && link.accessRole !== 2))) componentInvalid++;
+      } catch { componentInvalid++; }
+      const indexPath = regionPath(descriptor.indexFile);
+      if (!existsSync(indexPath)) componentIndexMissing++;
+      else {
+        const indexBytes = readFileSync(indexPath);
+        if (indexBytes.byteLength !== descriptor.indexByteSize || indexBytes.byteLength !== region.nodeCount * 4) componentIndexSizeMismatch++;
+        if (sha(indexBytes) !== descriptor.indexSha256) componentIndexShaMismatch++;
+        for (let offset=0;offset<indexBytes.byteLength;offset+=4) if (indexBytes.readUInt32LE(offset) >= descriptor.count) { componentIndexInvalid++; break; }
+      }
+    }
+  }
   totalNodes += view.nodeCount; totalEdges += view.edgeCount; totalBytes += bytes.byteLength;
   metadataTotals.restrictionRecords += view.restrictionCount;
   metadataTotals.viaWayChains += view.viaWay?.chainCount ?? 0;
@@ -156,6 +204,20 @@ push('all-region-files-exist', `${manifest.regions.length - missingFiles}/${mani
 push('byte-sizes-match', `${sizeMismatch} uyumsuz`, sizeMismatch === 0);
 push('sha256-match', `${shaMismatch} uyumsuz`, shaMismatch === 0);
 push('all-regions-parse', `${parseFail} ayrıştırılamadı`, parseFail === 0);
+if (manifest.schemaVersion === 2) {
+  push('all-component-files-exist', `${manifest.regions.length-componentMissing}/${manifest.regions.length}`, componentMissing === 0);
+  push('component-byte-sizes-match', `${componentSizeMismatch} uyumsuz`, componentSizeMismatch === 0);
+  push('component-sha256-match', `${componentShaMismatch} uyumsuz`, componentShaMismatch === 0);
+  push('component-integrity', `${componentInvalid} geçersiz`, componentInvalid === 0);
+  push('all-component-index-files-exist', `${manifest.regions.length-componentIndexMissing}/${manifest.regions.length}`, componentIndexMissing === 0);
+  push('component-index-byte-sizes-match', `${componentIndexSizeMismatch} uyumsuz`, componentIndexSizeMismatch === 0);
+  push('component-index-sha256-match', `${componentIndexShaMismatch} uyumsuz`, componentIndexShaMismatch === 0);
+  push('component-index-integrity', `${componentIndexInvalid} geçersiz`, componentIndexInvalid === 0);
+  push('portal-incident-edges-exist', `${missingPortalEdges.size} eksik`, missingPortalEdges.size === 0);
+  push('portal-stable-nodes-exist', `${missingPortalNodes.size} eksik`, missingPortalNodes.size === 0);
+  push('neighbor-audit-complete', `${manifest.neighborAudit?.links.length ?? 0}/${manifest.neighborAudit?.total ?? 0}`,
+    !!manifest.neighborAudit && manifest.neighborAudit.links.length === manifest.neighborAudit.total);
+}
 
 let dangling = 0, nonReciprocal = 0, selfNeighbor = 0;
 for (const region of manifest.regions) {
@@ -329,6 +391,60 @@ for (const [fromName, toName] of PAIRS) {
   routes.push(record);
 }
 
+/* Portal/component corridor yalnız CONNECTIVITY KANITIDIR; final yol veya
+   kullanıcı rotası değildir. Destination-only linkler transit graph'a alınmaz. */
+const portalCorridors: Array<Record<string, unknown>> = [];
+if (manifest.schemaVersion === 2) {
+  const componentAdjacency = new Map<string, string[]>();
+  const addComponentArc = (from: string, to: string) => {
+    const list = componentAdjacency.get(from); if (list) list.push(to); else componentAdjacency.set(from, [to]);
+  };
+  for (const region of manifest.regions) {
+    const descriptor = region.components!;
+    const artifact = JSON.parse(readFileSync(regionPath(descriptor.file), 'utf8')) as { links:Array<{sourceComponentId:string;destinationComponentId:string;accessRole:number}> };
+    for (const link of artifact.links) if (link.accessRole === 1) addComponentArc(link.sourceComponentId, link.destinationComponentId);
+  }
+  for (const portal of manifest.portals ?? []) if (portal.accessRole === 1) addComponentArc(portal.sourceComponentId, portal.destinationComponentId);
+
+  const endpointComponent = (point: readonly [number,number]): string | null => {
+    const region = regionOf(point); if (!region?.components) return null;
+    const bytes = readFileSync(regionPath(region.graphFile));
+    const parsed = parseRoutingGraph(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer);
+    if (!parsed.view) return null;
+    let nearest = -1, best = Infinity;
+    for (let i=0;i<parsed.view.nodeCount;i++) {
+      const d = (parsed.view.nodeLat[i]-point[0])**2 + (parsed.view.nodeLon[i]-point[1])**2;
+      if (d < best) { best=d; nearest=i; }
+    }
+    const artifact = JSON.parse(readFileSync(regionPath(region.components.file),'utf8')) as { componentIds:string[] };
+    const index = readFileSync(regionPath(region.components.indexFile));
+    if (nearest < 0 || nearest*4+4 > index.byteLength) return null;
+    return artifact.componentIds[index.readUInt32LE(nearest*4)] ?? null;
+  };
+  const componentCorridor = (from: string, to: string): string[] | null => {
+    if (from === to) return [from];
+    const queue=[from], seen=new Set([from]), previous=new Map<string,string>();
+    for (let cursor=0;cursor<queue.length;cursor++) {
+      const current=queue[cursor];
+      for (const next of componentAdjacency.get(current) ?? []) {
+        if (seen.has(next)) continue; seen.add(next); previous.set(next,current);
+        if (next===to) { const path=[to]; let p=to; while (p!==from) { p=previous.get(p)!; path.push(p); } return path.reverse(); }
+        queue.push(next);
+      }
+    }
+    return null;
+  };
+  for (const [fromName,toName] of PAIRS.filter(([from,to]) => from !== to && to !== 'Mersin-yerel' && to !== 'Tarsus')) {
+    const fromComponent=endpointComponent(CITY[fromName]),toComponent=endpointComponent(CITY[toName]);
+    const path=fromComponent&&toComponent?componentCorridor(fromComponent,toComponent):null;
+    const regions:string[]=[];
+    for (const component of path ?? []) { const region=component.slice(0,component.indexOf(':')); if (regions.at(-1)!==region) regions.push(region); }
+    portalCorridors.push({from:fromName,to:toName,originComponent:fromComponent,destinationComponent:toComponent,
+      componentContinuity:!!path,componentCount:path?.length??null,regionCount:path?regions.length:null,regions:path?regions:null,
+      portalTransitions:path?Math.max(0,regions.length-1):null,result:path?'PORTAL_COMPONENT_CONTINUITY':'DISCONNECTED'});
+  }
+}
+
 /* ══════════════════════════════════════════════════════════════════════════
    ÖZET
    ══════════════════════════════════════════════════════════════════════════ */
@@ -366,6 +482,7 @@ const evidence = {
   topology: { totals: topologyTotals, regionComponents: regionComponents.length, largestRegionComponent: regionComponents[0]?.length ?? 0, isolatedRegions },
   residencyPolicy: { maxResidentRegions: REGIONAL_GRAPH_MAX_RESIDENT, maxBytes: REGIONAL_GRAPH_MAX_BYTES },
   routes,
+  portalCorridors,
   build: benchmark ? {
     buildMs: Math.round(benchmark.buildMs), peakProcessTreeRssBytes: benchmark.peakProcessTreeRssBytes,
     peakNodeRssBytes: benchmark.peakNodeRssBytes, peakChildRssBytes: benchmark.peakChildRssBytes,

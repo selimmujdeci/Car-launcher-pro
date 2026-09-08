@@ -53,6 +53,7 @@
 /** `RTG2` sihirli sayısı (LE) — worker ile AYNI değer. */
 export const RTG2_MAGIC = 0x32475452;
 export const RTG3_MAGIC = 0x33475452;
+export const RTG4_MAGIC = 0x34475452;
 
 /** Düğüm kaydı: lat(4) + lon(4) + 8 bayt rezerve. */
 export const RTG_NODE_STRIDE = 16;
@@ -62,6 +63,7 @@ export const RTG2_EDGE_STRIDE = 13;
 export const RTG1_EDGE_STRIDE = 12;
 export const RTG3_EDGE_STRIDE = 28;
 export const RTG3_RESTRICTION_STRIDE = 16;
+export const RTG4_RESTRICTION_STRIDE = 24;
 
 /* ── Via-way dönüş kısıtı bit sözleşmesi ───────────────────────────────────
    `type` baytı 1..7 iken kayıt KLASİK via-node kısıtıdır (format DEĞİŞMEDİ).
@@ -117,7 +119,7 @@ export type RtgParseOutcome =
  * tutuyordu ve GC baskısı yaratıyordu.
  */
 export interface RoutingGraphView {
-  readonly version: 1 | 2 | 3;
+  readonly version: 1 | 2 | 3 | 4;
   readonly nodeCount: number;
   readonly edgeCount: number;
   /** Ayrıştırılan bayt uzunluğu (artakalan baytlar dâhil DEĞİL). */
@@ -149,8 +151,199 @@ export interface RoutingGraphView {
   readonly restrictionChainId: Uint32Array;
   /** Via-way zincirindeki halka sırası; via-node kaydında ANLAMSIZ (0). */
   readonly restrictionChainSeq: Uint8Array;
+  /** RTG4 stable OSM restriction relation identity; older formats carry 0. */
+  readonly restrictionRelationId?: BigUint64Array;
   /** Via-way otomatı — kayıt yoksa `null` (davranış RTG3 öncesiyle AYNI). */
   readonly viaWay: ViaWayRestrictionIndex | null;
+}
+
+/** Cross-region canonical directed edge identity; ordinal is never part of it. */
+export function stableDirectedEdgeId(view: RoutingGraphView, ordinal: number): string | null {
+  if (view.version < 3 || !_inEdgeRange(view, ordinal)) return null;
+  const from = view.nodeSourceId[view.edgeFrom[ordinal]], to = view.nodeSourceId[view.edgeTo[ordinal]];
+  const way = view.edgeSourceWayId[ordinal];
+  if (from === 0n || to === 0n || way === 0n) return null;
+  return `${way}:${from}:${to}:${view.edgeDirection[ordinal]}`;
+}
+
+export function stableRestrictionId(view: RoutingGraphView, ordinal: number): string | null {
+  if (view.version !== 4 || ordinal < 0 || ordinal >= view.restrictionCount) return null;
+  const relation = view.restrictionRelationId?.[ordinal] ?? 0n;
+  if (relation === 0n) return null;
+  const from = stableDirectedEdgeId(view, view.restrictionFromEdge[ordinal]);
+  const to = stableDirectedEdgeId(view, view.restrictionToEdge[ordinal]);
+  if (!from || !to) return null;
+  return `${relation}:${view.restrictionChainSeq[ordinal]}:${from}>${to}`;
+}
+
+export interface StableRtg3SearchState {
+  readonly nodeId: bigint;
+  readonly previousEdgeId: string | null;
+  readonly activeRestrictionIds: readonly string[];
+}
+
+export interface LocalRtg3SearchState {
+  readonly node: number;
+  readonly previousEdge: number;
+  readonly viaWayMask: number;
+}
+
+function _stableRestrictionIdForSlot(view: RoutingGraphView, packed: number): string | null {
+  const index = view.viaWay;
+  if (!index) return null;
+  const chain = packed >>> 8, seq = packed & 0xff;
+  if (chain >= index.chainCount || seq >= index.chainLength[chain]) return null;
+  const link = index.chainStart[chain] + seq;
+  let found: string | null = null;
+  for (let i = 0; i < view.restrictionCount; i++) {
+    if (view.restrictionChainSeq[i] !== seq ||
+        view.restrictionFromEdge[i] !== index.linkFromEdge[link] ||
+        view.restrictionToEdge[i] !== index.linkToEdge[link] ||
+        view.restrictionViaNode[i] !== index.linkViaNode[link]) continue;
+    const id = stableRestrictionId(view, i);
+    if (!id || found !== null) return null;
+    found = id;
+  }
+  return found;
+}
+
+/** Loaded local handles are disposable; this is the eviction-safe state seam. */
+export function captureStableRtg3SearchState(
+  view: RoutingGraphView, node: number, previousEdge: number, viaWayMask: number,
+): StableRtg3SearchState | null {
+  if (view.version !== 4 || node < 0 || node >= view.nodeCount) return null;
+  const previousEdgeId = previousEdge < 0 ? null : stableDirectedEdgeId(view, previousEdge);
+  if (previousEdge >= 0 && !previousEdgeId) return null;
+  const activeRestrictionIds: string[] = [];
+  if (viaWayMask !== 0) {
+    if (previousEdge < 0 || !view.viaWay) return null;
+    const slots = view.viaWay.slotsByEdge.get(previousEdge) ?? [];
+    if ((viaWayMask >>> slots.length) !== 0) return null;
+    for (let bit = 0; bit < slots.length; bit++) if ((viaWayMask & (1 << bit)) !== 0) {
+      const found = _stableRestrictionIdForSlot(view, slots[bit]);
+      if (!found) return null;
+      activeRestrictionIds.push(found);
+    }
+  }
+  activeRestrictionIds.sort();
+  return { nodeId:view.nodeSourceId[node], previousEdgeId, activeRestrictionIds };
+}
+
+/** Missing/ambiguous stable identity is never guessed. */
+export function restoreLocalRtg3SearchState(
+  view: RoutingGraphView, stable: StableRtg3SearchState,
+): LocalRtg3SearchState | null {
+  if (view.version !== 4 || stable.nodeId === 0n) return null;
+  let node = -1;
+  for (let i = 0; i < view.nodeCount; i++) if (view.nodeSourceId[i] === stable.nodeId) {
+    if (node !== -1) return null; node = i;
+  }
+  if (node < 0) return null;
+  let previousEdge = -1;
+  if (stable.previousEdgeId !== null) {
+    for (let i = 0; i < view.edgeCount; i++) if (stableDirectedEdgeId(view, i) === stable.previousEdgeId) {
+      if (previousEdge !== -1) return null; previousEdge = i;
+    }
+    if (previousEdge < 0) return null;
+  }
+  if (!stable.activeRestrictionIds.length) return { node, previousEdge, viaWayMask:0 };
+  if (previousEdge < 0 || !view.viaWay) return null;
+  const wanted = new Set(stable.activeRestrictionIds);
+  let viaWayMask = 0;
+  const slots = view.viaWay.slotsByEdge.get(previousEdge) ?? [];
+  for (let bit = 0; bit < slots.length; bit++) {
+    const id = _stableRestrictionIdForSlot(view, slots[bit]);
+    if (id && wanted.delete(id)) viaWayMask |= 1 << bit;
+  }
+  return wanted.size === 0 ? { node, previousEdge, viaWayMask } : null;
+}
+
+/**
+ * Via-way maskesini BİR PENCEREDEN DİĞERİNE taşır (RTG4 bounded on-demand A*).
+ *
+ * ── NEDEN GEREKLİ ──────────────────────────────────────────────────────────
+ * Maske bitleri `slotsByEdge` dizisindeki SIRAYA bağlıdır; o sıra, birleştirilen
+ * bölge kümesine (yani PENCEREYE) göre değişir. Pencere kaydığında aynı fiziksel
+ * zincir başka bir bit konumuna düşebilir. Biti körlemesine taşımak, aktif bir
+ * `only_*` zincirini sessizce DÜŞÜRMEK ya da alakasız bir `no_*` zincirini
+ * aktifmiş gibi göstermek demektir — ikisi de yasa dışı rota üretir.
+ *
+ * ── NEDEN BURADA ──────────────────────────────────────────────────────────
+ * `slotsByEdge` iç yapısı yalnız bu okuyucunundur (kilit: regresyon kasası).
+ * Çevirici de bu yüzden BURADA durur; worker maskeyi yorumlamaz, yalnız taşır.
+ *
+ * Eşleme kimliği yuvanın İÇERİĞİDİR: zincir türü + zincir uzunluğu + adım +
+ * halkanın (from-edge, to-edge, via-node) üçlüsü — hepsi `mapEdge`/`mapNode`
+ * ile HEDEF pencere kimliklerine çevrilmiş hâlde. Tahmin YAPILMAZ.
+ *
+ * ── ÜÇ AYRI SONUÇ (birbirine KARIŞTIRILMAZ) ──────────────────────────────
+ *  · `number` → kesin çeviri; kısıt hedef pencerede AYNI anlamı taşır.
+ *  · `RTG3_VIA_WAY_MASK_ABSENT` (-1) → zincir hedef pencerede YOK (bölgesi
+ *    tahliye edilmiş). Bu bir bozulma DEĞİLDİR; çağıran o arama durumunu
+ *    DÜŞÜRÜR. Kısıt asla "yokmuş gibi" sıfırlanıp devam ettirilmez.
+ *  · `null` → kaynak durumu tutarsız ya da hedefte BİRDEN ÇOK aday var.
+ *    Belirsizlikle rota üretmek yasa dışı manevra riski demektir → fail-closed.
+ */
+export const RTG3_VIA_WAY_MASK_ABSENT = -1;
+
+export function remapViaWayMask(
+  fromView: RoutingGraphView, fromEdge: number, mask: number,
+  toView: RoutingGraphView, toEdge: number,
+  mapEdge: (edge: number) => number, mapNode: (node: number) => number,
+): number | null {
+  if (mask === 0) return 0;
+  const fromIndex = fromView.viaWay;
+  if (!fromIndex || fromEdge < 0) return null;
+  const fromSlots = fromIndex.slotsByEdge.get(fromEdge);
+  if (!fromSlots || (mask >>> fromSlots.length) !== 0) return null;
+  const toIndex = toView.viaWay;
+  if (!toIndex || toEdge < 0) return RTG3_VIA_WAY_MASK_ABSENT;
+  const toSlots = toIndex.slotsByEdge.get(toEdge);
+  if (!toSlots) return RTG3_VIA_WAY_MASK_ABSENT;
+
+  /* İmza TÜM ZİNCİRİ kapsar, tek halkayı değil. Ölçüldü: gerçek Türkiye
+     verisinde aynı kavşakta aynı türde, aynı ilk halkayla başlayıp SONRA
+     ayrılan iki zincir var; tek halkalık imza bunları ayırt edemiyor ve
+     meşru bir rota "belirsiz" diye fail-closed ediliyordu. */
+  const signature = (
+    index: ViaWayRestrictionIndex, slot: number,
+    edgeOf: (edge: number) => number, nodeOf: (node: number) => number,
+  ): string | null => {
+    const chain = _slotChain(slot), step = _slotStep(slot);
+    if (chain >= index.chainCount || step >= index.chainLength[chain]) return null;
+    const parts: string[] = [`${index.chainType[chain]}:${index.chainLength[chain]}:${step}`];
+    for (let j = 0; j < index.chainLength[chain]; j++) {
+      const link = index.chainStart[chain] + j;
+      const from = edgeOf(index.linkFromEdge[link]);
+      const to = edgeOf(index.linkToEdge[link]);
+      const via = nodeOf(index.linkViaNode[link]);
+      if (from < 0 || to < 0 || via < 0) return null;
+      parts.push(`${from}>${to}@${via}`);
+    }
+    return parts.join('|');
+  };
+
+  const identity = (value: number): number => value;
+  const targets: (string | null)[] = toSlots.map((slot) => signature(toIndex, slot, identity, identity));
+
+  let next = 0;
+  for (let bit = 0; bit < fromSlots.length; bit++) {
+    if ((mask & (1 << bit)) === 0) continue;
+    const wanted = signature(fromIndex, fromSlots[bit], mapEdge, mapNode);
+    /* Zincirin kendi kenarları hedef pencerede yoksa `signature` çeviremez —
+       bu, kısıtın BOZUK olduğu değil, o bölgenin artık yerleşik OLMADIĞI
+       anlamına gelir. */
+    if (wanted === null) return RTG3_VIA_WAY_MASK_ABSENT;
+    let matched = -1;
+    for (let j = 0; j < targets.length; j++) {
+      if (targets[j] !== wanted) continue;
+      if (matched !== -1) return null;   // belirsiz eşleşme → fail-closed
+      matched = j;
+    }
+    if (matched === -1) return RTG3_VIA_WAY_MASK_ABSENT;   // zincir hedef pencerede YOK
+    next |= 1 << matched;
+  }
+  return next;
 }
 
 /**
@@ -203,7 +396,7 @@ export interface RoutingGraphParseResult {
 /** Kenar tek yönlü mü (flags bit 0). v1'de daima `false` (bilgi YOK). */
 export function edgeIsOneway(view: RoutingGraphView, ordinal: number): boolean {
   if (!_inEdgeRange(view, ordinal)) return false;
-  if (view.version === 3) return view.edgeDirection[ordinal] !== 0;
+  if (view.version >= 3) return view.edgeDirection[ordinal] !== 0;
   return (view.edgeFlags[ordinal] & 0x01) === 1;
 }
 
@@ -213,13 +406,13 @@ export function edgeIsOneway(view: RoutingGraphView, ordinal: number): boolean {
  */
 export function edgeRoadClass(view: RoutingGraphView, ordinal: number): number {
   if (!_inEdgeRange(view, ordinal)) return 0;
-  if (view.version === 3) return view.edgeRoadClassV3[ordinal];
+  if (view.version >= 3) return view.edgeRoadClassV3[ordinal];
   return (view.edgeFlags[ordinal] >> 1) & 0x07;
 }
 
 /** 0=UNKNOWN/legacy, 1=ROUTABLE_PUBLIC, 2=DESTINATION_ACCESS_ONLY. */
 export function edgeAccessRole(view: RoutingGraphView, ordinal: number): number {
-  if (!_inEdgeRange(view, ordinal) || view.version !== 3) return 0;
+  if (!_inEdgeRange(view, ordinal) || view.version < 3) return 0;
   return view.edgeAccessRole[ordinal];
 }
 
@@ -233,7 +426,7 @@ export function edgeAccessRole(view: RoutingGraphView, ordinal: number): number 
 export function turnIsAllowed(
   view: RoutingGraphView, previousEdge: number, nextEdge: number, viaNode: number,
 ): boolean {
-  if (view.version !== 3 || previousEdge < 0) return true;
+  if (view.version < 3 || previousEdge < 0) return true;
   let hasOnly = false;
   let matchedOnly = false;
   for (let i = 0; i < view.restrictionCount; i++) {
@@ -456,8 +649,10 @@ export function parseRoutingGraph(buffer: ArrayBuffer | null | undefined): Routi
      "sihirli sayı tutmadı → bozuk" DENEMEZ. Ama `RTG` ailesinden BAŞKA bir
      sürüm (ör. `RTG3`) gelirse bu, sessizce v1 sanılacak bir çöp DEĞİL,
      desteklenmeyen bir SÜRÜMDÜR ve öyle raporlanır. */
-  let version: 1 | 2 | 3;
-  if (firstWord === RTG3_MAGIC) {
+  let version: 1 | 2 | 3 | 4;
+  if (firstWord === RTG4_MAGIC) {
+    version = 4;
+  } else if (firstWord === RTG3_MAGIC) {
     version = 3;
   } else if (firstWord === RTG2_MAGIC) {
     version = 2;
@@ -469,7 +664,7 @@ export function parseRoutingGraph(buffer: ArrayBuffer | null | undefined): Routi
 
   let off = 0;
   let nodeCount: number;
-  if (version === 2 || version === 3) {
+  if (version >= 2) {
     off = 4;
     nodeCount = view.getUint32(off, true);
     off += 4;
@@ -485,7 +680,7 @@ export function parseRoutingGraph(buffer: ArrayBuffer | null | undefined): Routi
 
   let declaredEdgeCount: number | null = null;
   let declaredRestrictionCount = 0;
-  if (version === 3) {
+  if (version >= 3) {
     if (off + 8 > total) return _fail('TRUNCATED', 'RTG3 sayaç başlığı eksik');
     declaredEdgeCount = view.getUint32(off, true); off += 4;
     declaredRestrictionCount = view.getUint32(off, true); off += 4;
@@ -502,7 +697,7 @@ export function parseRoutingGraph(buffer: ArrayBuffer | null | undefined): Routi
   for (let i = 0; i < nodeCount; i++) {
     nodeLat[i] = view.getFloat32(off, true);
     nodeLon[i] = view.getFloat32(off + 4, true);
-    if (version === 3) nodeSourceId[i] = view.getBigUint64(off + 8, true);
+    if (version >= 3) nodeSourceId[i] = view.getBigUint64(off + 8, true);
     off += RTG_NODE_STRIDE;   // 8 bayt REZERVE atlanır (formatın parçası)
   }
 
@@ -518,9 +713,10 @@ export function parseRoutingGraph(buffer: ArrayBuffer | null | undefined): Routi
       `kenar sayısı kimlik uzayını aşıyor (${edgeCount} > ${RTG_MAX_EDGE_COUNT})`);
   }
 
-  const stride = version === 3 ? RTG3_EDGE_STRIDE : version === 2 ? RTG2_EDGE_STRIDE : RTG1_EDGE_STRIDE;
+  const stride = version >= 3 ? RTG3_EDGE_STRIDE : version === 2 ? RTG2_EDGE_STRIDE : RTG1_EDGE_STRIDE;
   const edgeBytes = edgeCount * stride;
-  const restrictionBytes = declaredRestrictionCount * RTG3_RESTRICTION_STRIDE;
+  const restrictionStride = version === 4 ? RTG4_RESTRICTION_STRIDE : RTG3_RESTRICTION_STRIDE;
+  const restrictionBytes = declaredRestrictionCount * restrictionStride;
   if (off + edgeBytes + restrictionBytes > total) {
     return _fail('TRUNCATED',
       `kenar tablosu sığmıyor (gereken ${off + edgeBytes}, dosya ${total})`);
@@ -551,7 +747,7 @@ export function parseRoutingGraph(buffer: ArrayBuffer | null | undefined): Routi
     edgeFrom[i] = from;
     edgeTo[i] = to;
     edgeCostM[i] = cost;
-    if (version === 3) {
+    if (version >= 3) {
       edgeSourceWayId[i] = view.getBigUint64(off + 12, true);
       edgeRoadClassV3[i] = view.getUint8(off + 20);
       edgeAccessRole[i] = view.getUint8(off + 21);
@@ -569,6 +765,16 @@ export function parseRoutingGraph(buffer: ArrayBuffer | null | undefined): Routi
     }
     off += stride;
   }
+  if (version === 4) {
+    const stableEdges = new Map<string, string>();
+    for (let i = 0; i < edgeCount; i++) {
+      const id = `${edgeSourceWayId[i]}:${nodeSourceId[edgeFrom[i]]}:${nodeSourceId[edgeTo[i]]}:${edgeDirection[i]}`;
+      const semantics = `${edgeCostM[i]}:${edgeRoadClassV3[i]}:${edgeAccessRole[i]}:${edgeStructure[i]}:${edgeLayer[i]}`;
+      const prior = stableEdges.get(id);
+      if (prior !== undefined && prior !== semantics) return _fail('INVALID', `stable directed edge identity çakışması: ${id}`);
+      stableEdges.set(id, semantics);
+    }
+  }
 
   const restrictionFromEdge = new Uint32Array(declaredRestrictionCount);
   const restrictionToEdge = new Uint32Array(declaredRestrictionCount);
@@ -576,6 +782,7 @@ export function parseRoutingGraph(buffer: ArrayBuffer | null | undefined): Routi
   const restrictionType = new Uint8Array(declaredRestrictionCount);
   const restrictionChainId = new Uint32Array(declaredRestrictionCount);
   const restrictionChainSeq = new Uint8Array(declaredRestrictionCount);
+  const restrictionRelationId = new BigUint64Array(declaredRestrictionCount);
   for (let i = 0; i < declaredRestrictionCount; i++) {
     const fromEdge = view.getUint32(off, true);
     const toEdge = view.getUint32(off + 4, true);
@@ -598,7 +805,11 @@ export function parseRoutingGraph(buffer: ArrayBuffer | null | undefined): Routi
     } else if (type < 1 || type > 7) {
       return _fail('INVALID', `RTG3 dönüş kısıtı ${i} türü desteklenmiyor`);
     }
-    off += RTG3_RESTRICTION_STRIDE;
+    if (version === 4) {
+      restrictionRelationId[i] = view.getBigUint64(off + 16, true);
+      if (restrictionRelationId[i] === 0n) return _fail('INVALID', `RTG4 dönüş kısıtı ${i} relation kimliği eksik`);
+    }
+    off += restrictionStride;
   }
 
   const viaWay = buildViaWayIndex(
@@ -606,6 +817,18 @@ export function parseRoutingGraph(buffer: ArrayBuffer | null | undefined): Routi
     restrictionChainId, restrictionChainSeq, declaredRestrictionCount, edgeCount,
   );
   if (viaWay.error) return _fail('INVALID', `RTG3 via-way zinciri tutarsız: ${viaWay.error}`);
+
+  if (version === 4) {
+    const stableRestrictions = new Map<string, string>();
+    for (let i = 0; i < declaredRestrictionCount; i++) {
+      const transition = `${edgeSourceWayId[restrictionFromEdge[i]]}:${nodeSourceId[edgeFrom[restrictionFromEdge[i]]]}:${nodeSourceId[edgeTo[restrictionFromEdge[i]]]}>${edgeSourceWayId[restrictionToEdge[i]]}:${nodeSourceId[edgeFrom[restrictionToEdge[i]]]}:${nodeSourceId[edgeTo[restrictionToEdge[i]]]}`;
+      const key = `${restrictionRelationId[i]}:${restrictionChainSeq[i]}:${transition}`;
+      const semantics = String(restrictionType[i]);
+      const prior = stableRestrictions.get(key);
+      if (prior !== undefined && prior !== semantics) return _fail('INVALID', `stable restriction identity çakışması: ${key}`);
+      stableRestrictions.set(key, semantics);
+    }
+  }
 
   const parsed: RoutingGraphView = {
     version,
@@ -633,6 +856,7 @@ export function parseRoutingGraph(buffer: ArrayBuffer | null | undefined): Routi
     restrictionType,
     restrictionChainId,
     restrictionChainSeq,
+    restrictionRelationId,
     viaWay: viaWay.index,
   };
 

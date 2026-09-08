@@ -21,9 +21,12 @@ import { foldTr } from './core/turkishFold';
    Worker graf YÜRÜTME (A*) sahibidir; graf OKUMA sahibi değildir. */
 import {
   parseRoutingGraph, edgeAccessRole, edgeRoadClass, turnIsAllowed, viaWayStep,
+  remapViaWayMask, RTG3_VIA_WAY_MASK_ABSENT,
   type RoutingGraphView,
 }
   from './map/graph/rtg2Reader';
+import { REGION_WINDOW_NO_LOCAL, type RegionWindowIdentity }
+  from './map/graph/turkeyGraphManifest';
 import { buildGraphAdjacency, outgoingRange, type GraphAdjacency }
   from './map/graph/graphAdjacency';
 
@@ -41,7 +44,7 @@ import { buildGraphAdjacency, outgoingRange, type GraphAdjacency }
 interface RoutingGraph {
   view:      RoutingGraphView;
   adjacency: GraphAdjacency;
-  version:   1 | 2 | 3;
+  version:   1 | 2 | 3 | 4;
 }
 
 /* ── Sabitler ────────────────────────────────────────────────────────────── */
@@ -155,7 +158,7 @@ const HEURISTIC_WEIGHT = 1.2;
 /* ── A* algoritması (binary min-heap) ────────────────────────────────────── */
 
 function _aStar(g: RoutingGraph, startIdx: number, goalIdx: number): number[] | null {
-  if (g.version === 3) return routeRtg3EdgeState(g, startIdx, goalIdx);
+  if (g.version >= 3) return routeRtg3EdgeState(g, startIdx, goalIdx);
   const { view, adjacency } = g;
   const { nodeLat, nodeLon, edgeCostM } = view;
   const goalLat = nodeLat[goalIdx];
@@ -228,6 +231,210 @@ function _aStar(g: RoutingGraph, startIdx: number, goalIdx: number): number[] | 
   return null;
 }
 
+/* ══════════════════════════════════════════════════════════════════════════
+   BOUNDED ON-DEMAND CROSS-REGION OTURUMU (RTG4)
+
+   ── TEK ROTA OTORİTESİ ────────────────────────────────────────────────────
+   Aşağıda İKİNCİ bir yönlendirici YOKTUR. Uzun rota, `routeRtg3EdgeState`in
+   TAM OLARAK AYNI kenar-durumlu A*'ı tarafından çözülür; tek fark, aramanın
+   bir pencerede tükenmeyip **askıya alınıp devam etmesidir**.
+
+   ── NEDEN ASKIYA ALMA, NEDEN DİKİŞ DEĞİL ─────────────────────────────────
+   Bölge bölge ayrı rotalar hesaplayıp uç uca eklemek (dikiş), her sınırda
+   yerel olarak en iyi ama küresel olarak yanlış bir seçim yapar ve dönüş
+   kısıtı zincirini sıfırlar. Burada `gScore`, öncül zinciri ve via-way durumu
+   pencere boyunca KESİNTİSİZ taşınır: aynı mantıksal arama devam eder.
+
+   ── GRAF SAKİNLİĞİ ≠ ARAMA SAKİNLİĞİ ─────────────────────────────────────
+   Büyük tipli diziler ana iş parçacığındaki residency authority'ye aittir ve
+   tahliye edilir. Arama durumu BURADA yaşar ve tahliyeden sağ çıkar; yeniden
+   kurma kaydı pencere-BAĞIMSIZ (koordinat + maliyet + sınıf) tutulur, bu
+   yüzden bir bölge belleği bıraktıktan sonra da rota kurulabilir.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/** Pencere-bağımsız yeniden kurma arşivi — ordinal DEĞİL, ölçülmüş değer taşır. */
+interface ReconArchive {
+  prev: Int32Array;      // öncül global durum kimliği (-1 = başlangıç)
+  lon:  Float64Array;
+  lat:  Float64Array;
+  cost: Float64Array;    // BU duruma giren kenarın metre maliyeti
+  cls:  Uint8Array;      // aynı kenarın yol sınıfı (ETA için)
+  count: number;
+}
+
+function _reconCreate(): ReconArchive {
+  return {
+    prev: new Int32Array(1024), lon: new Float64Array(1024), lat: new Float64Array(1024),
+    cost: new Float64Array(1024), cls: new Uint8Array(1024), count: 0,
+  };
+}
+
+function _reconPush(a: ReconArchive, prev: number, lon: number, lat: number, cost: number, cls: number): number {
+  if (a.count === a.prev.length) {
+    const size = a.prev.length * 2;
+    const prevNext = new Int32Array(size); prevNext.set(a.prev); a.prev = prevNext;
+    const lonNext = new Float64Array(size); lonNext.set(a.lon); a.lon = lonNext;
+    const latNext = new Float64Array(size); latNext.set(a.lat); a.lat = latNext;
+    const costNext = new Float64Array(size); costNext.set(a.cost); a.cost = costNext;
+    const clsNext = new Uint8Array(size); clsNext.set(a.cls); a.cls = clsNext;
+  }
+  const id = a.count++;
+  a.prev[id] = prev; a.lon[id] = lon; a.lat[id] = lat; a.cost[id] = cost; a.cls[id] = cls;
+  return id;
+}
+
+/** Arşiv baytı — P17 ölçümü (uydurma değil, gerçek dizi boyutları). */
+function _reconBytes(a: ReconArchive): number {
+  return a.prev.byteLength + a.lon.byteLength + a.lat.byteLength + a.cost.byteLength + a.cls.byteLength;
+}
+
+type CrossRegionEntry = [number, number, number, number, string];
+
+type CrossRegionOutcome =
+  | { kind: 'GOAL'; globalId: number }
+  /** Sınır portalına ulaşıldı: bu bölgelerden biri yerleşmeden ilerlenemez. */
+  | { kind: 'NEED_WINDOW'; regionIds: readonly string[]; fromRegionIds: readonly string[] }
+  /** Pencere içinde genişletilecek durum kalmadı ve hedef bulunamadı. */
+  | { kind: 'EXHAUSTED' }
+  | { kind: 'CLOSED_LIMIT' }
+  | { kind: 'FAIL_CLOSED'; reason: string };
+
+interface CrossRegionSession {
+  requestId: string;
+  fromLat: number; fromLon: number;
+  toLat: number; toLon: number;
+  windowIndex: number;
+  windowCount: number;
+  graph: RoutingGraph | null;
+  identity: RegionWindowIdentity | null;
+  /**
+   * Pencereden ÇIKIŞ portalları: düğüm kimliği → gidilebilecek bölge(ler).
+   * Hangi bölgenin sıradaki olacağını PLAN değil, aramanın ulaştığı portal
+   * söyler — bölge düzeyi en kısa koridor karayoluyla geçilebilir olmayabilir.
+   */
+  boundary: Map<bigint, readonly string[]>;
+  isFinal: boolean;
+  started: boolean;
+  heap: CrossRegionEntry[];
+  gCost: Map<string, number>;
+  closed: Set<string>;
+  keyToGlobal: Map<string, number>;
+  recon: ReconArchive;
+  maxClosed: number;
+  outcome: CrossRegionOutcome | null;
+  stats: {
+    expansions: number; windowsUsed: number; migratedStates: number;
+    droppedStates: number; peakOpen: number; peakGCost: number;
+  };
+}
+
+let _crossSession: CrossRegionSession | null = null;
+
+/** `${node}:${ordinal}` / `${node}:${ordinal}:${mask}` anahtarını çözer. */
+function _parseStateKey(key: string): [number, number, number] {
+  const first = key.indexOf(':');
+  const second = key.indexOf(':', first + 1);
+  const node = Number(key.slice(0, first));
+  if (second < 0) return [node, Number(key.slice(first + 1)), 0];
+  return [node, Number(key.slice(first + 1, second)), Number(key.slice(second + 1))];
+}
+
+/**
+ * Canlı arama durumunu ESKİ pencereden YENİ pencereye taşır.
+ *
+ * Çeviri bölge-yerel indeks üzerinden KESİNDİR (aynı bölge dosyası, SHA ile
+ * doğrulanmış). Pencerede kalmayan bölgedeki durumlar düşer — onlar süpürmenin
+ * GERİSİNDE kalmıştır ve yeni pencerede yeniden üretilemezler; yeniden kurma
+ * kayıtları ise arşivde DURUR, bu yüzden rota geometrisi kaybolmaz.
+ *
+ * Via-way maskesi tahmin edilmez: kanonik `remapViaWayMask` tek ve kesin
+ * eşleşme bulamazsa TÜM rota fail-closed edilir.
+ */
+function _migrateCrossRegionWindow(
+  session: CrossRegionSession, nextGraph: RoutingGraph, nextIdentity: RegionWindowIdentity,
+): string | null {
+  const previousGraph = session.graph, previousIdentity = session.identity;
+  if (!previousGraph || !previousIdentity) return null;      // ilk pencere: taşıma yok
+  const oldView = previousGraph.view, newView = nextGraph.view;
+
+  const slotMap: number[] = previousIdentity.regionIds.map(
+    (id) => nextIdentity.regionIds.indexOf(id));
+
+  const mapNode = (node: number): number => {
+    for (let slot = 0; slot < slotMap.length; slot++) {
+      const target = slotMap[slot];
+      if (target < 0) continue;
+      const local = previousIdentity.nodeMergedToLocal[slot][node];
+      if (local === REGION_WINDOW_NO_LOCAL) continue;
+      return nextIdentity.nodeLocalToMerged[target][local];
+    }
+    return -1;
+  };
+  const mapEdge = (edge: number): number => {
+    if (edge < 0) return -1;
+    for (let slot = 0; slot < slotMap.length; slot++) {
+      const target = slotMap[slot];
+      if (target < 0) continue;
+      const local = previousIdentity.edgeMergedToLocal[slot][edge];
+      if (local === REGION_WINDOW_NO_LOCAL) continue;
+      return nextIdentity.edgeLocalToMerged[target][local];
+    }
+    return -1;
+  };
+
+  const translate = (key: string): string | null | undefined => {
+    const [node, ordinal, mask] = _parseStateKey(key);
+    const to = mapNode(node);
+    if (to < 0) return undefined;                              // pencere gerisinde kaldı
+    const nextOrdinal = ordinal < 0 ? -1 : mapEdge(ordinal);
+    if (ordinal >= 0 && nextOrdinal < 0) return undefined;
+    if (mask === 0) return `${to}:${nextOrdinal}`;
+    const nextMask = remapViaWayMask(oldView, ordinal, mask, newView, nextOrdinal, mapEdge, mapNode);
+    if (nextMask === null) return null;                        // belirsiz → fail-closed
+    /* Zincir yeni pencerede YOK: durum DÜŞÜRÜLÜR. Maskeyi 0'a indirip devam
+       etmek, aktif bir `only_*`/`no_*` dizisini sessizce iptal etmek olurdu. */
+    if (nextMask === RTG3_VIA_WAY_MASK_ABSENT) return undefined;
+    return nextMask === 0 ? `${to}:${nextOrdinal}` : `${to}:${nextOrdinal}:${nextMask}`;
+  };
+
+  const gCost = new Map<string, number>();
+  const closed = new Set<string>();
+  const keyToGlobal = new Map<string, number>();
+  for (const [key, cost] of session.gCost) {
+    const next = translate(key);
+    if (next === null) return 'VIA_WAY_STATE_NOT_TRANSLATABLE';
+    if (next === undefined) { session.stats.droppedStates++; continue; }
+    gCost.set(next, cost);
+    const global = session.keyToGlobal.get(key);
+    if (global === undefined) return 'RECONSTRUCTION_RECORD_MISSING';
+    keyToGlobal.set(next, global);
+    if (session.closed.has(key)) closed.add(next);
+    session.stats.migratedStates++;
+  }
+
+  const goalLat = session.toLat, goalLon = session.toLon;
+  const heap: CrossRegionEntry[] = [];
+  for (const entry of session.heap) {
+    const next = translate(entry[4]);
+    if (next === null) return 'VIA_WAY_STATE_NOT_TRANSLATABLE';
+    if (next === undefined) continue;
+    const cost = gCost.get(next);
+    if (cost === undefined) continue;
+    const [node, ordinal, mask] = _parseStateKey(next);
+    heap.push([
+      cost + HEURISTIC_WEIGHT * _havM(newView.nodeLat[node], newView.nodeLon[node], goalLat, goalLon),
+      node, ordinal, mask, next,
+    ]);
+  }
+  heap.sort((a, b) => a[0] - b[0]);   // ikili yığın invaryantı: sıralı dizi geçerli bir min-heap'tir
+
+  session.gCost = gCost;
+  session.closed = closed;
+  session.keyToGlobal = keyToGlobal;
+  session.heap = heap;
+  return null;
+}
+
 /**
  * RTG3'te dönüş yasağı önceki kenara bağlıdır; düğüm tek başına arama durumu
  * olamaz. Bu genişleme aynı route authority içinde `(node, previousEdge)`
@@ -243,16 +450,30 @@ function _aStar(g: RoutingGraph, startIdx: number, goalIdx: number): number[] | 
  * Maske via-way kaydı olmayan grafta DAİMA 0'dır → durum anahtarı ve arama
  * davranışı önceki sürümle birebir aynı kalır (ölçülen parite).
  */
-function routeRtg3EdgeState(g: RoutingGraph, startIdx: number, goalIdx: number): number[] | null {
+function routeRtg3EdgeState(
+  g: RoutingGraph, startIdx: number, goalIdx: number, session?: CrossRegionSession,
+): number[] | null {
   const { view, adjacency } = g;
-  const goalLat = view.nodeLat[goalIdx], goalLon = view.nodeLon[goalIdx];
+  /* Uzun rotada hedef düğüm yalnız SON pencerede vardır; sezgisel bu yüzden
+     düğüm ordinali yerine hedefin coğrafi konumunu kullanır. Tek pencerede
+     ikisi AYNI değerdir (ölçülen parite) — davranış değişmez. */
+  const goalLat = session ? session.toLat : view.nodeLat[goalIdx];
+  const goalLon = session ? session.toLon : view.nodeLon[goalIdx];
   type Entry = [number, number, number, number, string]; // f, node, previous edge, via-way mask, state key
   const startKey = `${startIdx}:-1`;
-  const heap: Entry[] = [[0, startIdx, -1, 0, startKey]];
-  const gCost = new Map<string, number>([[startKey, 0]]);
+  const heap: Entry[] = session ? session.heap : [[0, startIdx, -1, 0, startKey]];
+  const gCost = session ? session.gCost : new Map<string, number>([[startKey, 0]]);
   const previous = new Map<string, string>();
   const stateNode = new Map<string, number>([[startKey, startIdx]]);
-  const closed = new Set<string>();
+  const closed = session ? session.closed : new Set<string>();
+  const maxClosed = session ? session.maxClosed : MAX_CLOSED;
+  if (session && !session.started) {
+    session.started = true;
+    heap.push([0, startIdx, -1, 0, startKey]);
+    gCost.set(startKey, 0);
+    session.keyToGlobal.set(startKey, _reconPush(
+      session.recon, -1, view.nodeLon[startIdx], view.nodeLat[startIdx], 0, 0));
+  }
 
   const push = (item: Entry) => {
     heap.push(item);
@@ -281,10 +502,37 @@ function routeRtg3EdgeState(g: RoutingGraph, startIdx: number, goalIdx: number):
   };
 
   while (heap.length) {
+    if (session) session.stats.peakOpen = Math.max(session.stats.peakOpen, heap.length);
     const entry = pop(); if (!entry) break;
     const [, cur, previousEdge, viaWayMask, key] = entry;
     if (closed.has(key)) continue;
-    if (cur === goalIdx) {
+    if (session) {
+      if (session.isFinal && cur === goalIdx) {
+        const globalId = session.keyToGlobal.get(key);
+        session.outcome = globalId === undefined
+          ? { kind: 'FAIL_CLOSED', reason: 'RECONSTRUCTION_RECORD_MISSING' }
+          : { kind: 'GOAL', globalId };
+        return null;
+      }
+      /* Sınır portalı: bu durum ancak SONRAKİ bölge yerleşince ilerleyebilir.
+         En düşük `f` ile açıldığı için ileri yönde EN UMUT VERİCİ durumdur —
+         pencereyi tam burada kaydırmak, aramayı boşuna tüketmeden ilerletir. */
+      const exitRegions = session.isFinal ? undefined : session.boundary.get(view.nodeSourceId[cur]);
+      if (exitRegions !== undefined) {
+        push(entry);                       // durum KAYBOLMAZ: yeni pencerede yeniden açılır
+        /* Bu düğümü TAŞIYAN bölge yeni pencerede KALMALI; yoksa sınıra kadar
+           yapılmış arama tahliyeyle düşer ve süpürme yerinde sayar. */
+        const fromRegionIds: string[] = [];
+        const identity = session.identity;
+        if (identity) for (let slot = 0; slot < identity.regionIds.length; slot++) {
+          if (identity.nodeMergedToLocal[slot][cur] !== REGION_WINDOW_NO_LOCAL) {
+            fromRegionIds.push(identity.regionIds[slot]);
+          }
+        }
+        session.outcome = { kind: 'NEED_WINDOW', regionIds: exitRegions, fromRegionIds };
+        return null;
+      }
+    } else if (cur === goalIdx) {
       const path: number[] = [];
       let cursor: string | undefined = key;
       while (cursor !== undefined) {
@@ -294,7 +542,17 @@ function routeRtg3EdgeState(g: RoutingGraph, startIdx: number, goalIdx: number):
       return path;
     }
     closed.add(key);
-    if (closed.size > MAX_CLOSED) return null;
+    if (session) {
+      session.stats.expansions++;
+      session.stats.peakGCost = Math.max(session.stats.peakGCost, gCost.size);
+    }
+    /* RAM koruması uzun rotada TOPLAM iş üzerinden ölçülür: `closed` pencere
+       tahliyesinde küçülür, bu yüzden tek başına küresel bir tavan DEĞİLDİR.
+       `expansions` ise hiç azalmaz — dürüst sınır odur. */
+    if (closed.size > maxClosed || (session !== undefined && session.stats.expansions > maxClosed)) {
+      if (session) session.outcome = { kind: 'CLOSED_LIMIT' };
+      return null;
+    }
     const curG = gCost.get(key) ?? Infinity;
     const range = outgoingRange(adjacency, cur);
     for (let k = range.start; k < range.end; k++) {
@@ -313,8 +571,21 @@ function routeRtg3EdgeState(g: RoutingGraph, startIdx: number, goalIdx: number):
       const newG = curG + edgeCost + accessPenalty;
       if (newG < (gCost.get(nextKey) ?? Infinity)) {
         gCost.set(nextKey, newG);
-        previous.set(nextKey, key);
-        stateNode.set(nextKey, to);
+        if (session) {
+          const parent = session.keyToGlobal.get(key);
+          if (parent === undefined) {
+            session.outcome = { kind: 'FAIL_CLOSED', reason: 'RECONSTRUCTION_RECORD_MISSING' };
+            return null;
+          }
+          /* Yeniden kurma kaydı ORDİNAL DEĞİL, ölçülmüş değer saklar; bu yüzden
+             kaydı üreten bölge tahliye edildikten sonra da geçerlidir. */
+          session.keyToGlobal.set(nextKey, _reconPush(
+            session.recon, parent, view.nodeLon[to], view.nodeLat[to],
+            edgeCost, edgeRoadClass(view, ordinal)));
+        } else {
+          previous.set(nextKey, key);
+          stateNode.set(nextKey, to);
+        }
         push([
           newG + HEURISTIC_WEIGHT * _havM(view.nodeLat[to], view.nodeLon[to], goalLat, goalLon),
           to, ordinal, nextMask, nextKey,
@@ -322,6 +593,7 @@ function routeRtg3EdgeState(g: RoutingGraph, startIdx: number, goalIdx: number):
       }
     }
   }
+  if (session) session.outcome = { kind: 'EXHAUSTED' };
   return null;
 }
 
@@ -366,8 +638,8 @@ const RTG3_ROAD_CLASS_SPEED_MS: readonly number[] = [
 const AVG_ROUTE_SPEED_MS = ROAD_CLASS_SPEED_MS[0];
 
 /** Kenar süresini saniye olarak verir; sınıf bilinmiyorsa sabit hıza düşer. */
-function _edgeSeconds(costM: number, roadClass: number, version: 1 | 2 | 3): number {
-  const speeds = version === 3 ? RTG3_ROAD_CLASS_SPEED_MS : ROAD_CLASS_SPEED_MS;
+function _edgeSeconds(costM: number, roadClass: number, version: 1 | 2 | 3 | 4): number {
+  const speeds = version >= 3 ? RTG3_ROAD_CLASS_SPEED_MS : ROAD_CLASS_SPEED_MS;
   const v = speeds[roadClass] ?? AVG_ROUTE_SPEED_MS;
   return v > 0 ? costM / v : costM / AVG_ROUTE_SPEED_MS;
 }
@@ -451,6 +723,129 @@ async function _handleRoute(
     const reason = err instanceof Error ? err.message : String(err);
     (self as unknown as Worker).postMessage({ type: 'ROUTE_ERROR', requestId, reason });
   }
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   CROSS-REGION PROTOKOLÜ (worker tarafı)
+
+   Graf sakinliğinin SAHİBİ ana iş parçacığıdır (`graphResidencyRuntime`).
+   Worker hangi pencereye ihtiyacı olduğunu SÖYLER, kendi indirmez — ikinci bir
+   residency/bütçe otoritesi kurulmaz. Arama durumu ise burada kalır ve pencere
+   tahliyesinden sağ çıkar.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+function _crossRegionFail(requestId: string, reason: string): void {
+  _crossSession = null;
+  (self as unknown as Worker).postMessage({ type: 'ROUTE_ERROR', requestId, reason });
+}
+
+/**
+ * Kanonik yeniden kurma: rota, arşivdeki ÖLÇÜLMÜŞ kenar dizisinden kurulur.
+ * Portal koridoru burada KULLANILMAZ — o yalnız hangi bölgenin yükleneceğini
+ * söyleyen budama kanıtıydı; kullanıcının süreceği yol bu dizidir.
+ */
+function _reconstructCrossRegionRoute(session: CrossRegionSession, globalId: number): {
+  geometry: [number, number][]; distanceM: number; durationS: number;
+} | null {
+  const archive = session.recon;
+  if (globalId < 0 || globalId >= archive.count) return null;
+  const geometry: [number, number][] = [];
+  let distanceM = 0, durationS = 0, cursor = globalId, guard = 0;
+  while (cursor >= 0) {
+    if (++guard > archive.count + 1) return null;      // bozuk zincir → fail-closed
+    geometry.push([archive.lon[cursor], archive.lat[cursor]]);
+    distanceM += archive.cost[cursor];
+    durationS += _edgeSeconds(archive.cost[cursor], archive.cls[cursor], 4);
+    cursor = archive.prev[cursor];
+  }
+  geometry.reverse();
+  return geometry.length >= 2 ? { geometry, distanceM, durationS } : null;
+}
+
+/* Ayrı fonksiyon: çağrı yerinde `session.outcome = null` daraltması sonucu
+   gizlemesin — hüküm aramadan gelir, çağıranın varsayımından değil. */
+function _takeCrossRegionOutcome(session: CrossRegionSession): CrossRegionOutcome {
+  return session.outcome ?? { kind: 'FAIL_CLOSED', reason: 'CROSS_REGION_NO_OUTCOME' };
+}
+
+function _crossRegionStats(session: CrossRegionSession): Record<string, number> {
+  return {
+    expansions: session.stats.expansions,
+    windowsUsed: session.stats.windowsUsed,
+    migratedStates: session.stats.migratedStates,
+    droppedStates: session.stats.droppedStates,
+    peakOpenStates: session.stats.peakOpen,
+    peakSearchStates: session.stats.peakGCost,
+    reconstructionRecords: session.recon.count,
+    reconstructionBytes: _reconBytes(session.recon),
+    closedStates: session.closed.size,
+  };
+}
+
+/** Pencere kurulur/kaydırılır ve AYNI mantıksal arama devam eder. */
+function _crossRegionAdvance(
+  session: CrossRegionSession, windowIndex: number, view: RoutingGraphView,
+  identity: RegionWindowIdentity,
+  exitPortals: readonly { readonly nodeId: string; readonly regionIds: readonly string[] }[],
+  isFinal: boolean,
+): void {
+  let graph: RoutingGraph;
+  try {
+    graph = { view, adjacency: buildGraphAdjacency(view), version: view.version };
+  } catch {
+    _crossRegionFail(session.requestId, 'CROSS_REGION_ADJACENCY_FAILED');
+    return;
+  }
+  if (view.version !== 4) { _crossRegionFail(session.requestId, 'CROSS_REGION_REQUIRES_RTG4'); return; }
+
+  const migrationError = _migrateCrossRegionWindow(session, graph, identity);
+  if (migrationError !== null) { _crossRegionFail(session.requestId, migrationError); return; }
+
+  session.graph = graph;
+  session.identity = identity;
+  session.windowIndex = windowIndex;
+  session.isFinal = isFinal;
+  session.boundary = new Map(exitPortals.map((portal) => [BigInt(portal.nodeId), portal.regionIds]));
+  session.stats.windowsUsed++;
+
+  const startIdx = session.started ? -1 : _nearest(graph, session.fromLat, session.fromLon);
+  const goalIdx = isFinal ? _nearest(graph, session.toLat, session.toLon) : -1;
+  session.outcome = null;
+  try {
+    routeRtg3EdgeState(graph, startIdx, goalIdx, session);
+  } catch (error) {
+    _crossRegionFail(session.requestId, error instanceof Error ? error.message : 'CROSS_REGION_SEARCH_THREW');
+    return;
+  }
+
+  const outcome = _takeCrossRegionOutcome(session);
+  if (outcome.kind === 'NEED_WINDOW') {
+    (self as unknown as Worker).postMessage({
+      type: 'CROSS_REGION_NEED_WINDOW', requestId: session.requestId,
+      windowIndex: windowIndex + 1, requestedRegionIds: outcome.regionIds,
+      fromRegionIds: outcome.fromRegionIds, stats: _crossRegionStats(session),
+    });
+    return;
+  }
+  if (outcome.kind === 'GOAL') {
+    const route = _reconstructCrossRegionRoute(session, outcome.globalId);
+    if (!route) { _crossRegionFail(session.requestId, 'CROSS_REGION_RECONSTRUCTION_FAILED'); return; }
+    const stats = _crossRegionStats(session);
+    _crossSession = null;
+    (self as unknown as Worker).postMessage({
+      type: 'ROUTE_RESULT', requestId: session.requestId,
+      geometry: route.geometry, distanceM: route.distanceM, durationS: route.durationS,
+      steps: [], crossRegion: stats,
+    });
+    return;
+  }
+  /* EXHAUSTED · CLOSED_LIMIT · FAIL_CLOSED → rota UYDURULMAZ. */
+  const stats = _crossRegionStats(session);
+  const reason = outcome.kind === 'FAIL_CLOSED' ? outcome.reason : `CROSS_REGION_${outcome.kind}`;
+  _crossSession = null;
+  (self as unknown as Worker).postMessage({
+    type: 'ROUTE_ERROR', requestId: session.requestId, reason, crossRegion: stats,
+  });
 }
 
 /* ── SQLite WASM FTS5 POI Arama ──────────────────────────────────────────── */
@@ -677,6 +1072,12 @@ self.onmessage = (e: MessageEvent): void => {
     maxResults?: number;
     sab?: SharedArrayBuffer;
     graphView?: RoutingGraphView;
+    identity?: RegionWindowIdentity;
+    exitPortals?: { nodeId: string; regionIds: string[] }[];
+    isFinal?: boolean;
+    windowIndex?: number;
+    windowCount?: number;
+    maxClosedStates?: number;
   };
 
   if (msg.type === 'STOP') { self.close(); return; }
@@ -692,7 +1093,7 @@ self.onmessage = (e: MessageEvent): void => {
 
   if (msg.type === 'INSTALL_REGIONAL_GRAPH' && msg.requestId != null) {
     const view = msg.graphView;
-    if (!view || view.version !== 3 || view.nodeCount < 1 || view.edgeCount < 1 ||
+    if (!view || view.version < 3 || view.nodeCount < 1 || view.edgeCount < 1 ||
         view.nodeLat.length !== view.nodeCount || view.edgeFrom.length !== view.edgeCount) {
       (self as unknown as Worker).postMessage({ type:'GRAPH_INSTALL_ERROR', requestId:msg.requestId, reason:'RTG3 görünümü geçersiz' });
       return;
@@ -708,6 +1109,50 @@ self.onmessage = (e: MessageEvent): void => {
     }
     return;
   }
+
+  if (msg.type === 'CROSS_REGION_BEGIN' && msg.requestId != null &&
+      msg.fromLat != null && msg.fromLon != null && msg.toLat != null && msg.toLon != null) {
+    _crossSession = {
+      requestId: msg.requestId,
+      fromLat: msg.fromLat, fromLon: msg.fromLon, toLat: msg.toLat, toLon: msg.toLon,
+      windowIndex: -1, windowCount: Number(msg.windowCount ?? 0),
+      graph: null, identity: null, boundary: new Map<bigint, readonly string[]>(), isFinal: false, started: false,
+      heap: [], gCost: new Map(), closed: new Set(), keyToGlobal: new Map(),
+      recon: _reconCreate(),
+      /* Varsayılan cihaz koruması DEĞİŞMEDİ. Gölge ölçüm koşumu bu tavanı
+         AÇIKÇA yükseltebilir; ürün sürücüsü bunu ASLA göndermez, böylece
+         "ölçüm için gerekli" ile "cihazda geçerli" birbirine karışmaz. */
+      maxClosed: Number.isFinite(msg.maxClosedStates) && Number(msg.maxClosedStates) > 0
+        ? Number(msg.maxClosedStates) : MAX_CLOSED,
+      outcome: null,
+      stats: { expansions: 0, windowsUsed: 0, migratedStates: 0, droppedStates: 0, peakOpen: 0, peakGCost: 0 },
+    };
+    (self as unknown as Worker).postMessage({
+      type: 'CROSS_REGION_NEED_WINDOW', requestId: msg.requestId, windowIndex: 0,
+      requestedRegionIds: [], fromRegionIds: [], stats: null,
+    });
+    return;
+  }
+
+  if (msg.type === 'CROSS_REGION_WINDOW' && msg.requestId != null) {
+    const session = _crossSession;
+    if (!session || session.requestId !== msg.requestId) {
+      (self as unknown as Worker).postMessage({
+        type: 'ROUTE_ERROR', requestId: msg.requestId, reason: 'CROSS_REGION_SESSION_MISSING' });
+      return;
+    }
+    const view = msg.graphView;
+    if (!view || !msg.identity || !Array.isArray(msg.exitPortals)) {
+      _crossRegionFail(session.requestId, 'CROSS_REGION_WINDOW_INVALID');
+      return;
+    }
+    _crossRegionAdvance(
+      session, Number(msg.windowIndex ?? 0), view, msg.identity,
+      msg.exitPortals, msg.isFinal === true);
+    return;
+  }
+
+  if (msg.type === 'CROSS_REGION_ABORT') { _crossSession = null; return; }
 
   if (msg.type === 'CLEAR_REGIONAL_GRAPH') {
     _installedRegionalGraph = null;

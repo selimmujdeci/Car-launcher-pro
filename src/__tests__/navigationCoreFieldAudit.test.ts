@@ -341,6 +341,12 @@ function full(over: Partial<NavigationCoreRawSnapshot> = {}): NavigationCoreRawS
       spatialIndexBuilt: true, detail: 'v2 · 238252 düğüm · 295346 kenar',
       restrictionCount: 117, viaWayChainCount: 2,
       observedAtMonoMs: 1000,
+      /* RTG4 — sınırlı sakinlikle talep üzerine pencere sayaçları. */
+      residentRegions: ['tr-69-73', 'tr-69-74', 'tr-68-74'],
+      residentGraphBytes: 18023424, peakResidentRegions: 3,
+      peakResidentGraphBytes: 18023424, maxResidentRegions: 3,
+      maxResidentGraphBytes: 67108864, onDemandRegionLoads: 11,
+      regionEvictions: 8, windowFailClosedReason: null,
     },
     /* NAV v3 · F5 — gölge karşılaştırma. Fixture DOLU olmalıdır: dolu anlık
        görüntüde UNAVAILABLE kalan bir alan, kaynağı olmayan alandır. */
@@ -717,6 +723,9 @@ const REGISTRY: Record<string, Reg> = {
   'hz-graph-parse':   { source: SRC_GRAPH_AUDIT, key: 'graphResidency.parseMs',    stamp: 'NONE' },
   'hz-graph-derived': { source: SRC_GRAPH_AUDIT, key: 'graphResidency.adjacencyBuilt', stamp: 'NONE' },
   'hz-graph-restrictions': { source: SRC_GRAPH_AUDIT, key: 'graphResidency.restrictionCount', stamp: 'NONE' },
+  /* RTG4 — sınırlı sakinlikle talep üzerine pencere. Sayaç alanı: damga YOK. */
+  'hz-graph-window':   { source: SRC_GRAPH_AUDIT, key: 'graphResidency.residentGraphBytes',  stamp: 'NONE' },
+  'hz-graph-ondemand': { source: SRC_GRAPH_AUDIT, key: 'graphResidency.onDemandRegionLoads', stamp: 'NONE' },
 
   /* 16b · NAV v3 · F5 — gölge karşılaştırma + cutover kapısı */
   'hz-shadow-mode':      { source: SRC_SHADOW_AUDIT, key: 'cehShadow.ticks',              stamp: 'NONE' },

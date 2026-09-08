@@ -1628,6 +1628,33 @@ export function buildNavigationCoreCards(s: NavigationCoreRawSnapshot): readonly
             _gr.restrictionCount + ' kayıt · via-way zinciri '
               + (_gr.viaWayChainCount === null ? 'ölçülmedi' : String(_gr.viaWayChainCount))),
 
+      /* ── RTG4 · SINIRLI SAKİNLİKLE TALEP ÜZERİNE PENCERE ────────────────
+       * DÜRÜSTLÜK SINIRI: bu iki satır bir HÜKÜM ÜRETMEZ ve komut GÖNDERMEZ;
+       * residency authority'nin kendi ölçtüğü sayıları basar. Bütçe kararı
+       * orada verilir, burada yalnız GÖRÜNÜR. */
+      _gr === null || _gr.residentGraphBytes === undefined
+        ? unavailable({ id: 'hz-graph-window', label: 'Bölge penceresi (yerleşik)', source: SRC_GRAPH,
+            note: 'Pencere sakinliği hiç ölçülmedi — sahte 0 bölge/0 bayt ÜRETİLMEZ.',
+            updatedAt: null }, 'ölçülmedi')
+        : observed({ id: 'hz-graph-window', label: 'Bölge penceresi (yerleşik)', source: SRC_GRAPH,
+            note: 'Ülke grafı TEK PARÇA yüklenmez. Tavan pazarlıksızdır; uzun rota '
+              + 'tavanı yükselterek değil, pencereyi kaydırarak çözülür.',
+            updatedAt: null },
+            (_gr.residentRegions?.length ?? 0) + '/' + _gr.maxResidentRegions + ' bölge · '
+              + _gr.residentGraphBytes + '/' + _gr.maxResidentGraphBytes + ' B · tepe '
+              + _gr.peakResidentRegions + ' bölge / ' + _gr.peakResidentGraphBytes + ' B'),
+      _gr === null || _gr.onDemandRegionLoads === undefined
+        ? unavailable({ id: 'hz-graph-ondemand', label: 'Talep üzerine yükleme / tahliye', source: SRC_GRAPH,
+            note: 'Talep üzerine yükleme hiç ölçülmedi — sahte "0 yükleme" ÜRETİLMEZ.',
+            updatedAt: null }, 'ölçülmedi')
+        : observed({ id: 'hz-graph-ondemand', label: 'Talep üzerine yükleme / tahliye', source: SRC_GRAPH,
+            note: 'Tahliye güvenlidir: arama durumu worker katmanında yaşar ve bölge belleği '
+              + 'bırakıldıktan sonra da rota YENİDEN KURULABİLİR. Fail-closed nedeni '
+              + 'yoksa "yok" basılır — sahte "sağlıklı" ÜRETİLMEZ.',
+            updatedAt: null },
+            _gr.onDemandRegionLoads + ' yükleme · ' + _gr.regionEvictions + ' tahliye · '
+              + 'son red: ' + (_gr.windowFailClosedReason ?? 'yok')),
+
       /* ── F5 · GÖLGE KARŞILAŞTIRMA + CUTOVER KAPISI ─────────────────────
        * DÜRÜSTLÜK SINIRI: bu satırlar bir HÜKÜM ÜRETMEZ. Gölge katmanı
        * üretim kararını değiştirmez; burada yalnız legacy ↔ CEH farkının

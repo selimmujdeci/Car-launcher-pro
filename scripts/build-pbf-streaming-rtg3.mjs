@@ -8,7 +8,8 @@ import { resolve, relative } from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { DatabaseSync } from 'node:sqlite';
 import { classifyDrivableWay, onewaySemantics, ROUTABLE_HIGHWAYS } from './routingGraphPolicy.mjs';
-import { RESTRICTION_TYPE, serializeRtg3, viaWayTypeByte, MAX_VIA_WAY_SLOTS_PER_EDGE, MAX_VIA_WAY_CHAINS, MAX_VIA_WAY_CHAIN_LINKS } from './rtg3Codec.mjs';
+import { RESTRICTION_TYPE, serializeRtg4, viaWayTypeByte, MAX_VIA_WAY_SLOTS_PER_EDGE, MAX_VIA_WAY_CHAINS, MAX_VIA_WAY_CHAIN_LINKS } from './rtg3Codec.mjs';
+import { buildDirectedComponents, buildPortalV2, collectSeamEvidence } from './rtg4PortalComponents.mjs';
 import { assertPreflight, runRtg3BuildPreflight } from './rtg3BuildPreflight.mjs';
 
 const RUN=resolve(process.env.RTG3_RUN_DIR??'field-runs/pbf-streaming-rtg3-20260908');
@@ -167,7 +168,7 @@ const hav=(a,b)=>{const p=Math.PI/180,d1=(b[0]-a[0])*p,d2=(b[1]-a[1])*p,q=Math.s
 const wayRows=db.prepare('SELECT w.id,w.tags,w.access_role FROM region_ways rw JOIN ways w ON w.id=rw.way_id WHERE rw.region_id=? ORDER BY w.id');
 const wayNodes=db.prepare('SELECT wn.node_id,n.lat,n.lon FROM way_nodes wn JOIN nodes n ON n.id=wn.node_id WHERE wn.way_id=? ORDER BY wn.ord');
 const restrictionRows=db.prepare('SELECT r.* FROM restrictions r JOIN region_ways a ON a.way_id=r.from_way AND a.region_id=? JOIN region_ways b ON b.way_id=r.to_way AND b.region_id=? ORDER BY r.id');
-const regions=[],restrictionEvidence=[],viaWayEvidence=[];
+const regions=[],componentRegions=[],allSeamEvidence=[],restrictionEvidence=[],viaWayEvidence=[];
 for(const regionId of regionIds){
   const used=new Map(),coords=[],nodeIds=[],edges=[],edgeByWay=new Map(),classCount={};
   const indexNode=(id,lat,lon)=>{let index=used.get(id);if(index===undefined){index=coords.length;used.set(id,index);coords.push([lat,lon]);nodeIds.push(id)}return index};
@@ -233,24 +234,45 @@ for(const regionId of regionIds){
       if(overflow||nextChainId+planned.length-1>MAX_VIA_WAY_CHAINS){stats.unsupported++;stats.viaWayCapacity++;viaWayEvidence.push({relationId:relation.id,regionId,restrictionType:relation.type,viaWays,outcome:'UNSUPPORTED_CAPACITY',detail:`kenar yuva tavanı ${MAX_VIA_WAY_SLOTS_PER_EDGE}`});continue}
       const chainIds=[];
       for(const links of planned){const chainId=nextChainId++;chainIds.push(chainId);
-        links.forEach((link,seq)=>{restrictions.push({fromEdge:link.fromEdge,toEdge:link.toEdge,viaNode:link.viaNode,type:viaWayTypeByte(type,seq===links.length-1),chainSeq:seq,chainId});slotUse.set(link.fromEdge,(slotUse.get(link.fromEdge)??0)+1)})}
+        links.forEach((link,seq)=>{restrictions.push({fromEdge:link.fromEdge,toEdge:link.toEdge,viaNode:link.viaNode,type:viaWayTypeByte(type,seq===links.length-1),chainSeq:seq,chainId,relationId:relation.id});slotUse.set(link.fromEdge,(slotUse.get(link.fromEdge)??0)+1)})}
       stats.supported++;stats.supportedViaWay++;
       viaWayEvidence.push({relationId:relation.id,regionId,restrictionType:relation.type,viaWays,outcome:'SUPPORTED_VIA_WAY',chainIds,chainLinks:linkCount,viaEdgeCount:viaEdges.length,fromEdges,toEdges,entryNodeId:nodeIds[entry],exitNodeId:nodeIds[exitNode]});
       continue;
     }
     const via=used.get(relation.via_node),incoming=(edgeByWay.get(relation.from_way)??[]).filter(i=>edges[i].to===via||(!edges[i].direction&&edges[i].from===via)),outgoing=(edgeByWay.get(relation.to_way)??[]).filter(i=>edges[i].from===via||(!edges[i].direction&&edges[i].to===via));
     if(via===undefined||!incoming.length||!outgoing.length){stats.unresolved++;continue}
-    for(const fromEdge of incoming)for(const toEdge of outgoing){restrictions.push({fromEdge,toEdge,viaNode:via,type});restrictionEvidence.push({relationId:relation.id,restrictionType:relation.type,regionId,fromWay:relation.from_way,toWay:relation.to_way,viaNodeId:relation.via_node,fromEdge,toEdge})}
+    for(const fromEdge of incoming)for(const toEdge of outgoing){restrictions.push({fromEdge,toEdge,viaNode:via,type,relationId:relation.id});restrictionEvidence.push({relationId:relation.id,restrictionType:relation.type,regionId,fromWay:relation.from_way,toWay:relation.to_way,viaNodeId:relation.via_node,fromEdge,toEdge})}
     stats.supported++;
   }
-  const graph={coords,nodeIds,edges,restrictions},binary=serializeRtg3(graph),file=`${regionId}.rtg3`;writeFileSync(resolve(OUTPUT,file),binary);
-  const parts=regionId.split('-'),x=Number(parts[parts.length-2]),y=Number(parts[parts.length-1]);regions.push({regionId,bbox:[x*TILE,y*TILE,(x+1)*TILE,(y+1)*TILE],graphFile:`regions/${file}`,sha256:createHash('sha256').update(binary).digest('hex'),byteSize:binary.length,nodeCount:nodeIds.length,edgeCount:edges.length,neighbors:[],sourceHash,classCount,restrictions:{source:restrictionRelations,...stats,records:restrictions.length,viaWayChains:nextChainId-1},structure:{bridge:edges.filter(e=>e.structure&1).length,tunnel:edges.filter(e=>e.structure&2).length,layer:edges.filter(e=>e.layer).length},destinationOnly:edges.filter(e=>e.accessRole===2).length,oneway:edges.filter(e=>e.direction===1).length});sample(`region:${regionId}`)
+  const graph={coords,nodeIds,edges,restrictions},binary=serializeRtg4(graph),file=`${regionId}.rtg4`;writeFileSync(resolve(OUTPUT,file),binary);
+  const components=buildDirectedComponents({regionId,nodeIds,edges});
+  const componentFile=`${regionId}.components.json`;
+  const componentArtifact={schemaVersion:components.schemaVersion,regionId,componentIds:components.componentIds,representativeNodeIds:components.representativeNodeIds,links:components.links};
+  const componentBytes=Buffer.from(JSON.stringify(componentArtifact));
+  writeFileSync(resolve(OUTPUT,componentFile),componentBytes);
+  /* Node sırası RTG4 node ordinal sırasıyla birebirdir. Bu kompakt sidecar
+     origin/destination stable node'un component'ini graph unload edilse bile
+     tahminsiz bulmayı sağlar; tüm node kimliklerini JSON'da tekrar etmez. */
+  const componentIndexFile=`${regionId}.component-index.bin`;
+  const componentIndexBytes=Buffer.from(components.componentIndex.buffer,components.componentIndex.byteOffset,components.componentIndex.byteLength);
+  writeFileSync(resolve(OUTPUT,componentIndexFile),componentIndexBytes);
+  const seamEvidence=collectSeamEvidence({regionId,regionPrefix:REGION_PREFIX,tileSize:TILE,coords,nodeIds,edges,componentIndex:components.componentIndex,componentIds:components.componentIds});
+  componentRegions.push({regionId,componentIds:[...new Set(seamEvidence.flatMap(item=>[item.localSourceComponentId,item.localDestinationComponentId]))]});
+  allSeamEvidence.push(...seamEvidence);
+  const portalComponentIds=componentRegions[componentRegions.length-1].componentIds.sort();
+  const parts=regionId.split('-'),x=Number(parts[parts.length-2]),y=Number(parts[parts.length-1]);regions.push({regionId,bbox:[x*TILE,y*TILE,(x+1)*TILE,(y+1)*TILE],graphFile:`regions/${file}`,sha256:createHash('sha256').update(binary).digest('hex'),byteSize:binary.length,nodeCount:nodeIds.length,edgeCount:edges.length,neighbors:[],sourceHash,components:{schemaVersion:1,file:`regions/${componentFile}`,sha256:createHash('sha256').update(componentBytes).digest('hex'),byteSize:componentBytes.length,indexFile:`regions/${componentIndexFile}`,indexSha256:createHash('sha256').update(componentIndexBytes).digest('hex'),indexByteSize:componentIndexBytes.length,indexEncoding:'UINT32_LE_LOCAL_NODE_COMPONENT_INDEX',count:components.componentIds.length,directedLinkCount:components.links.length,portalComponentIds},classCount,restrictions:{source:restrictionRelations,...stats,records:restrictions.length,viaWayChains:nextChainId-1},structure:{bridge:edges.filter(e=>e.structure&1).length,tunnel:edges.filter(e=>e.structure&2).length,layer:edges.filter(e=>e.layer).length},destinationOnly:edges.filter(e=>e.accessRole===2).length,oneway:edges.filter(e=>e.direction===1).length});sample(`region:${regionId}`)
 }
 
+const legacyNeighborPairs=[...db.prepare('SELECT DISTINCT a.region_id AS a,b.region_id AS b FROM region_nodes a JOIN region_nodes b ON a.node_id=b.node_id WHERE a.region_id<b.region_id ORDER BY a.region_id,b.region_id').iterate()].map(row=>[row.a,row.b]);
+const portalResult=buildPortalV2({regions:componentRegions,legacyNeighborPairs,seamEvidence:allSeamEvidence});
+for(const portal of portalResult.portals)portal.sourceHash=sourceHash;
 const neighborSets=new Map(regions.map(region=>[region.regionId,new Set()]));
-for(const portal of db.prepare('SELECT DISTINCT a.region_id AS a,b.region_id AS b FROM region_nodes a JOIN region_nodes b ON a.node_id=b.node_id WHERE a.region_id<b.region_id').iterate()){neighborSets.get(portal.a)?.add(portal.b);neighborSets.get(portal.b)?.add(portal.a)}
+for(const portal of portalResult.portals)if(portal.accessRole===1){neighborSets.get(portal.sourceRegionId)?.add(portal.destinationRegionId);neighborSets.get(portal.destinationRegionId)?.add(portal.sourceRegionId)}
 for(const region of regions)region.neighbors=[...neighborSets.get(region.regionId)].sort();
-const manifest={schemaVersion:1,datasetId:`osm-${REGION_PREFIX}-${sourceHash.slice(0,12)}`,country:'TR',source:process.env.RTG3_SOURCE_LABEL??'OpenStreetMap / Geofabrik Turkey extract; Mersin relation 223131',sourceTimestamp:process.env.RTG3_SOURCE_TIMESTAMP??'2026-09-06T19:53:37Z',buildTimestamp:new Date().toISOString(),policyVersion:'2b4f5de8',graphFormat:'RTG3',regions:regions.map(({classCount,restrictions,structure,destinationOnly,oneway,...region})=>region)};
+const auditCounts={ROUTABLE:0,NON_ROUTABLE:0,INVALID:0,AMBIGUOUS:0};
+for(const link of portalResult.links)auditCounts[link.classification]++;
+if(portalResult.links.length!==legacyNeighborPairs.length)throw new Error('RTG4_PORTAL_AUDIT_INCOMPLETE');
+const manifest={schemaVersion:2,datasetId:`osm-${REGION_PREFIX}-${sourceHash.slice(0,12)}`,country:'TR',source:process.env.RTG3_SOURCE_LABEL??'OpenStreetMap / Geofabrik Turkey extract; Mersin relation 223131',sourceTimestamp:process.env.RTG3_SOURCE_TIMESTAMP??'2026-09-06T19:53:37Z',buildTimestamp:new Date().toISOString(),policyVersion:'2b4f5de8',graphFormat:'RTG4',portalSchemaVersion:2,portals:portalResult.portals,neighborAudit:{total:portalResult.links.length,...auditCounts,links:portalResult.links},regions:regions.map(({classCount,restrictions,structure,destinationOnly,oneway,...region})=>region)};
 writeFileSync(resolve(RUN,'turkey-graph-manifest.json'),JSON.stringify(manifest,null,2));
 const supportedIds=new Set(restrictionEvidence.map(r=>r.relationId)),viaWaySupportedIds=new Set(viaWayEvidence.filter(r=>r.outcome==='SUPPORTED_VIA_WAY').map(r=>r.relationId));
 const restrictionStats={observed:0,valid:0,supported:0,supportedViaNode:0,supportedViaWay:0,unsupported:0,malformed:0,unresolved:0,conditional:0,vehicleSpecific:0,viaWay:0,unsupportedType:0},hasWay=db.prepare('SELECT 1 FROM ways WHERE id=?');
@@ -269,7 +291,7 @@ for(const relation of db.prepare('SELECT * FROM restrictions ORDER BY id').itera
   if(supportedIds.has(relation.id)){restrictionStats.supported++;restrictionStats.supportedViaNode++}else restrictionStats.unresolved++;
 }
 db.exec('PRAGMA wal_checkpoint(TRUNCATE)');sample('complete');clearInterval(timer);
-const summary={source:{file:relative(RUN,SOURCE),bytes:statSync(SOURCE).size,sha256:sourceHash,provider:'Geofabrik/OpenStreetMap',coverage:process.env.RTG3_SOURCE_LABEL??'Mersin province relation 223131'},preflight,parser:'osmium-tool + node:sqlite',strategy:'SQLite-indexed two-pass PBF stream; sequential deterministic 0.5 degree RTG3 partitions',memoryBudgetMiB:MEMORY_BUDGET_MIB,selectedWays,deniedWays,requiredCoordinates,restrictionRelations,restrictionStats,regions,totalNodes:regions.reduce((n,r)=>n+r.nodeCount,0),totalEdges:regions.reduce((n,r)=>n+r.edgeCount,0),totalBytes:regions.reduce((n,r)=>n+r.byteSize,0),tempBytes:tempBytes(),peakTempBytes:peaks.tempDisk,buildMs:performance.now()-started,peakNodeRssBytes:peaks.nodeRss,peakChildRssBytes:peaks.childRss,peakProcessTreeRssBytes:peaks.processTreeRss,telemetry,restrictionEvidence:restrictionEvidence.slice(0,50),viaWayEvidence};
+const summary={source:{file:relative(RUN,SOURCE),bytes:statSync(SOURCE).size,sha256:sourceHash,provider:'Geofabrik/OpenStreetMap',coverage:process.env.RTG3_SOURCE_LABEL??'Mersin province relation 223131'},preflight,parser:'osmium-tool + node:sqlite',strategy:'SQLite-indexed two-pass PBF stream; sequential deterministic 0.5 degree RTG4 partitions + region-local SCC + directed Portal v2 audit',memoryBudgetMiB:MEMORY_BUDGET_MIB,selectedWays,deniedWays,requiredCoordinates,restrictionRelations,restrictionStats,regions,totalNodes:regions.reduce((n,r)=>n+r.nodeCount,0),totalEdges:regions.reduce((n,r)=>n+r.edgeCount,0),totalBytes:regions.reduce((n,r)=>n+r.byteSize,0),componentMetadataBytes:regions.reduce((n,r)=>n+r.components.byteSize,0),totalComponents:regions.reduce((n,r)=>n+r.components.count,0),totalDirectedComponentLinks:regions.reduce((n,r)=>n+r.components.directedLinkCount,0),portalRecords:portalResult.portals.length,portalAudit:{total:portalResult.links.length,...auditCounts},tempBytes:tempBytes(),peakTempBytes:peaks.tempDisk,buildMs:performance.now()-started,peakNodeRssBytes:peaks.nodeRss,peakChildRssBytes:peaks.childRss,peakProcessTreeRssBytes:peaks.processTreeRss,telemetry,restrictionEvidence:restrictionEvidence.slice(0,50),viaWayEvidence};
 db.close();
 writeFileSync(resolve(RUN,'benchmark.json'),JSON.stringify(summary,null,2));
 /* TAMAMLANMA ISARETI — en son adim. Bu dosya yoksa kosu YARIMDIR ve o

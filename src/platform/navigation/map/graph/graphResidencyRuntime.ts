@@ -39,7 +39,8 @@ import { buildEdgeSpatialIndex } from './edgeSpatialIndex';
 import { recordOfflineGraphOutcome } from '../../offlineRoutingStatus';
 import { readMonotonicNow } from '../../time/navClock';
 import {
-  mergeRegionalGraphViews, validateTurkeyGraphManifest,
+  mergeRegionalGraphViews, mergeRegionalGraphWindow, validateTurkeyGraphManifest,
+  type RegionWindowIdentity, type TurkeyGraphManifest, type TurkeyGraphRegion,
 } from './turkeyGraphManifest';
 
 /* ══════════════════════════════════════════════════════════════════════════
@@ -82,6 +83,13 @@ let _parseMs: number | null = null;
 let _bytes: number | null = null;
 let _observedAtMonoMs: number | null = null;
 let _residentRegions: readonly string[] = [];
+/* On-demand pencere sayaclari — LAB gozlemi ve butce KANITI (uydurma yok). */
+let _residentGraphBytes = 0;
+let _peakResidentRegions = 0;
+let _peakResidentGraphBytes = 0;
+let _onDemandRegionLoads = 0;
+let _regionEvictions = 0;
+let _windowFailClosedReason: string | null = null;
 
 /* ══════════════════════════════════════════════════════════════════════════
    3) YÜKLEME
@@ -224,7 +232,8 @@ export async function acquireRegionalRoutingGraph(
         _report('CORRUPT', `${region!.regionId}: SHA/boyut uyumsuz`); return null;
       }
       const parsed = parseRoutingGraph(buffer);
-      if (parsed.outcome !== 'OK' || !parsed.view || parsed.view.version !== 3) {
+      const expectedVersion = manifest.graphFormat === 'RTG4' ? 4 : 3;
+      if (parsed.outcome !== 'OK' || !parsed.view || parsed.view.version !== expectedVersion) {
         _report('CORRUPT', `${region!.regionId}: ${parsed.outcome}`); return null;
       }
       views.push(parsed.view);
@@ -239,6 +248,135 @@ export async function acquireRegionalRoutingGraph(
     _report('MISSING', error instanceof Error ? error.message : 'regional load hatası');
     return null;
   }
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   3b) BOUNDED ON-DEMAND PENCERE SAKİNLİĞİ (RTG4)
+
+   ── GRAF SAKİNLİĞİ ≠ ARAMA SAKİNLİĞİ ─────────────────────────────────────
+   Burada YALNIZ büyük tipli diziler (bölge grafı) yaşar ve ölür. Kanonik A*
+   arama durumu (frontier · gScore · yeniden kurma kaydı) worker'da durur ve
+   bölge tahliyesinden SAĞ ÇIKAR. Bir bölgeyi "öncül bilgisi lazım olabilir"
+   diye bellekte TUTMAK bu yüzden gereksizdir ve yapılmaz.
+
+   Bütçe pazarlıksızdır: en fazla `REGIONAL_GRAPH_MAX_RESIDENT` bölge ve
+   `REGIONAL_GRAPH_MAX_BYTES` bayt. Meşru bir rota bu sınırda ilerleyemiyorsa
+   sınır büyütülmez — FAIL-CLOSED edilir ve ölçülen engel bildirilir.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/** Ayrıştırılmış bölge önbelleği — pencere kayarken KALAN bölge yeniden indirilmez. */
+const _regionCache = new Map<string, { view: RoutingGraphView; bytes: number }>();
+
+export interface RegionWindowResidency {
+  readonly view: RoutingGraphView;
+  readonly identity: RegionWindowIdentity;
+  readonly regionIds: readonly string[];
+  /** Yerleşik bölge ikili artefakt baytları (bütçenin ölçüldüğü büyüklük). */
+  readonly graphBytes: number;
+  /** Bu çağrıda AĞDAN yüklenen bölgeler (önbellekten gelen sayılmaz). */
+  readonly loadedRegionIds: readonly string[];
+  readonly evictedRegionIds: readonly string[];
+}
+
+async function _fetchRegionView(
+  region: TurkeyGraphRegion, expectedVersion: 3 | 4, baseUrl: string,
+): Promise<{ view: RoutingGraphView; bytes: number } | null> {
+  const graphUrl = `${baseUrl.replace(/\/$/, '')}/${region.graphFile.replace(/^\//, '')}`;
+  const res = await fetch(graphUrl);
+  if (!res.ok) { _report('MISSING', `${region.regionId}: HTTP ${res.status}`); return null; }
+  const buffer = await res.arrayBuffer();
+  if (buffer.byteLength !== region.byteSize || await _sha256(buffer) !== region.sha256) {
+    _report('CORRUPT', `${region.regionId}: SHA/boyut uyumsuz`); return null;
+  }
+  const parsed = parseRoutingGraph(buffer);
+  if (parsed.outcome !== 'OK' || !parsed.view || parsed.view.version !== expectedVersion) {
+    _report('CORRUPT', `${region.regionId}: ${parsed.outcome}`); return null;
+  }
+  return { view: parsed.view, bytes: buffer.byteLength };
+}
+
+/**
+ * Koridorun BİR penceresini yerleşik hâle getirir (talep üzerine).
+ *
+ * Pencerede olmayan her bölge TAHLİYE EDİLİR — "belki lazım olur" diye tutmak
+ * bütçeyi sessizce şişirirdi. Tahliye güvenlidir çünkü arama durumu buraya
+ * değil worker'a aittir ve kararlı/bölge-yerel kimlikle taşınır.
+ */
+export async function acquireRegionWindow(
+  manifestValue: unknown, regionIds: readonly string[], baseUrl = '/maps/rtg3/',
+): Promise<RegionWindowResidency | null> {
+  _windowFailClosedReason = null;
+  const manifest: TurkeyGraphManifest | null = validateTurkeyGraphManifest(manifestValue);
+  if (!manifest || regionIds.length < 1 || regionIds.length > REGIONAL_GRAPH_MAX_RESIDENT) {
+    _windowFailClosedReason = 'WINDOW_REGION_BUDGET';
+    _report('UNSUPPORTED', 'pencere bölge bütçesi geçersiz');
+    return null;
+  }
+  const selected: TurkeyGraphRegion[] = [];
+  for (const id of regionIds) {
+    const region = manifest.regions.find((candidate) => candidate.regionId === id);
+    if (!region) {
+      _windowFailClosedReason = 'WINDOW_REGION_MISSING';
+      _report('MISSING', `pencere bölgesi manifestte yok: ${id}`);
+      return null;
+    }
+    selected.push(region);
+  }
+  const graphBytes = selected.reduce((total, region) => total + region.byteSize, 0);
+  if (graphBytes > REGIONAL_GRAPH_MAX_BYTES) {
+    _windowFailClosedReason = 'WINDOW_BYTE_BUDGET';
+    _report('UNSUPPORTED', `pencere ${graphBytes} B > ${REGIONAL_GRAPH_MAX_BYTES} B`);
+    return null;
+  }
+
+  /* TAHLİYE ÖNCE: yeni pencereyi yüklerken eski bölgeleri de tutmak, tavanı
+     anlık olarak iki katına çıkarırdı. Bütçe "ortalama" değil, HER AN geçerlidir. */
+  const wanted = new Set(regionIds);
+  const evictedRegionIds: string[] = [];
+  for (const id of [..._regionCache.keys()]) if (!wanted.has(id)) {
+    _regionCache.delete(id); evictedRegionIds.push(id); _regionEvictions++;
+  }
+
+  const expectedVersion = manifest.graphFormat === 'RTG4' ? 4 : 3;
+  const loadedRegionIds: string[] = [];
+  _state = 'LOADING'; _loadCount++;
+  for (const region of selected) {
+    if (_regionCache.has(region.regionId)) continue;
+    const loaded = await _fetchRegionView(region, expectedVersion, baseUrl);
+    if (!loaded) { _windowFailClosedReason = 'WINDOW_REGION_LOAD'; return null; }
+    _regionCache.set(region.regionId, loaded);
+    loadedRegionIds.push(region.regionId);
+    _onDemandRegionLoads++;
+  }
+
+  const merged = mergeRegionalGraphWindow(regionIds.map((id) => _regionCache.get(id)!.view), regionIds);
+  if (!merged) {
+    _windowFailClosedReason = 'WINDOW_MERGE_FAILED';
+    _report('CORRUPT', 'pencere portal kimlikleri birleştirilemedi');
+    return null;
+  }
+
+  _strongView = merged.view; _weakView = new WeakRef(merged.view);
+  _adjacency = null; _reverseAdjacency = null; _index = null;
+  _bytes = graphBytes; _residentGraphBytes = graphBytes;
+  _residentRegions = [...regionIds];
+  _peakResidentRegions = Math.max(_peakResidentRegions, regionIds.length);
+  _peakResidentGraphBytes = Math.max(_peakResidentGraphBytes, graphBytes);
+  _report('AVAILABLE', `RTG4 window: ${_residentRegions.join(',')}`);
+  return {
+    view: merged.view, identity: merged.identity, regionIds: [...regionIds],
+    graphBytes, loadedRegionIds, evictedRegionIds,
+  };
+}
+
+/** Pencere sakinliğini tamamen bırakır (Zero-Leak); sayaçlar gözlem için kalır. */
+export function releaseRegionWindow(): void {
+  _regionEvictions += _regionCache.size;
+  _regionCache.clear();
+  _residentRegions = [];
+  _residentGraphBytes = 0;
+  _strongView = null; _weakView = null;
+  _adjacency = null; _reverseAdjacency = null; _index = null;
 }
 
 /**
@@ -322,7 +460,7 @@ export interface GraphResidencySnapshot {
   readonly loadCount: number;
   readonly nodeCount: number | null;
   readonly edgeCount: number | null;
-  readonly version: 1 | 2 | 3 | null;
+  readonly version: 1 | 2 | 3 | 4 | null;
   readonly bytes: number | null;
   /** Ayrıştırma süresi (ms) — `null` = ölçülemedi. */
   readonly parseMs: number | null;
@@ -341,6 +479,16 @@ export interface GraphResidencySnapshot {
   /** Son ölçümün monotonik anı. */
   readonly observedAtMonoMs: number | null;
   readonly residentRegions: readonly string[];
+  /** Yerleşik bölge ikili baytı — bütçe kanıtı. */
+  readonly residentGraphBytes: number;
+  readonly peakResidentRegions: number;
+  readonly peakResidentGraphBytes: number;
+  readonly maxResidentRegions: number;
+  readonly maxResidentGraphBytes: number;
+  readonly onDemandRegionLoads: number;
+  readonly regionEvictions: number;
+  /** Son pencere reddinin makine-okur nedeni — başarı hâlinde `null`. */
+  readonly windowFailClosedReason: string | null;
 }
 
 export function getGraphResidencySnapshot(): GraphResidencySnapshot {
@@ -362,6 +510,14 @@ export function getGraphResidencySnapshot(): GraphResidencySnapshot {
     detail: _detail,
     observedAtMonoMs: _observedAtMonoMs,
     residentRegions: _residentRegions,
+    residentGraphBytes: _residentGraphBytes,
+    peakResidentRegions: _peakResidentRegions,
+    peakResidentGraphBytes: _peakResidentGraphBytes,
+    maxResidentRegions: REGIONAL_GRAPH_MAX_RESIDENT,
+    maxResidentGraphBytes: REGIONAL_GRAPH_MAX_BYTES,
+    onDemandRegionLoads: _onDemandRegionLoads,
+    regionEvictions: _regionEvictions,
+    windowFailClosedReason: _windowFailClosedReason,
   };
 }
 
@@ -381,6 +537,13 @@ export function _resetGraphResidencyForTest(): void {
   _bytes = null;
   _observedAtMonoMs = null;
   _residentRegions = [];
+  _regionCache.clear();
+  _residentGraphBytes = 0;
+  _peakResidentRegions = 0;
+  _peakResidentGraphBytes = 0;
+  _onDemandRegionLoads = 0;
+  _regionEvictions = 0;
+  _windowFailClosedReason = null;
 }
 
 /** @internal testler için görünümü doğrudan kurar (ağ YOK). */

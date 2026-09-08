@@ -270,8 +270,8 @@ describe('F4.0 · bozuk girdi ASLA yarım graf üretmez', () => {
   });
 
   it('RTG ailesinden DESTEKLENMEYEN sürüm → UNSUPPORTED_VERSION', () => {
-    /* RTG3 artık desteklenir; RTG4 hâlâ fail-closed reddedilir. */
-    const buf = buildSynthBuffer(SYNTH_NODES, SYNTH_EDGES, { magic: 0x34475452 });
+    /* RTG3/RTG4 desteklenir; tanınmayan RTG5 fail-closed reddedilir. */
+    const buf = buildSynthBuffer(SYNTH_NODES, SYNTH_EDGES, { magic: 0x35475452 });
     const r = parseRoutingGraph(buf);
     expect(r.outcome).toBe('UNSUPPORTED_VERSION');
     expect(r.view).toBeNull();

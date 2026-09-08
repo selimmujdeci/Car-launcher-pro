@@ -150,7 +150,7 @@ export interface NavFieldSample {
   /* ── NAV v3 · F8 — F4/graf sakinliği teşhisi (`graphResidencyRuntime`) ── */
   readonly graph: {
     state: string; holders: number; loadCount: number;
-    nodeCount: number | null; edgeCount: number | null; version: 1 | 2 | 3 | null;
+    nodeCount: number | null; edgeCount: number | null; version: 1 | 2 | 3 | 4 | null;
     parseMs: number | null; adjacencyBuilt: boolean;
   } | null;
 
