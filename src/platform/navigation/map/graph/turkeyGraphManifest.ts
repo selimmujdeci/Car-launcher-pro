@@ -17,6 +17,43 @@ export interface TurkeyGraphComponentArtifact {
   readonly portalComponentIds: readonly string[];
 }
 
+/**
+ * ALT (landmark) dilimi — bölge grafının YANINDA dağıtılan OPSİYONEL kanıt.
+ *
+ * Bu artefakt bir OPTİMİZASYON KANITIDIR: rota otoritesi değildir, yokluğunda
+ * rota yine çıkar (sezgisel coğrafi moda düşer). Bu yüzden manifest şeması
+ * onu zorunlu kılmaz; ama VARSA kimliği graf sürümüne SIKI bağlanır —
+ * uyumsuz çift asla kullanılmaz.
+ */
+export interface TurkeyGraphAltSlice {
+  readonly schemaVersion: 1;
+  readonly file: string;
+  readonly sha256: string;
+  readonly byteSize: number;
+  /** Landmark seti kimliği: graf sürümü + landmark düğümleri üzerinden türer. */
+  readonly landmarkSetId: string;
+  readonly landmarkCount: number;
+  readonly scaleM: number;
+  readonly unreachableBucket: number;
+  /** Dilim, bölgenin KENDİ düğüm sırasındadır; sayı tutmazsa kullanılamaz. */
+  readonly nodeCount: number;
+  readonly encoding: 'UINT16_LE_PER_NODE_LANDMARK_PAIR';
+}
+
+/** Landmark setinin köken kaydı — manifest düzeyinde TEK kez taşınır. */
+export interface TurkeyGraphAltLandmarkSet {
+  readonly schemaVersion: 1;
+  readonly landmarkSetId: string;
+  readonly landmarkCount: number;
+  readonly scaleM: number;
+  readonly unreachableBucket: number;
+  readonly metric: 'ONEWAY_ONLY_BASE_COST_M';
+  readonly selection: 'BACKBONE_CONSTRAINED_FARTHEST_POINT_REACHABILITY_VERIFIED';
+  readonly buildTimestamp: string;
+  readonly landmarks: readonly { readonly index: number; readonly nodeId: string;
+    readonly lat: number; readonly lon: number }[];
+}
+
 export interface TurkeyGraphPortalV2 {
   readonly portalId: string;
   readonly portalNodeId: string;
@@ -55,6 +92,8 @@ export interface TurkeyGraphRegion {
   readonly neighbors: readonly string[];
   readonly sourceHash: string;
   readonly components?: TurkeyGraphComponentArtifact;
+  /** Bu bölgenin ALT dilimi — OPSİYONEL; yoksa rota coğrafi sezgiselle çıkar. */
+  readonly alt?: TurkeyGraphAltSlice;
 }
 
 export interface TurkeyGraphManifest {
@@ -69,6 +108,8 @@ export interface TurkeyGraphManifest {
   readonly portalSchemaVersion?: 2;
   readonly portals?: readonly TurkeyGraphPortalV2[];
   readonly neighborAudit?: TurkeyGraphNeighborAudit;
+  /** ALT landmark setinin kökeni — bölge dilimleri buna bağlanır. */
+  readonly altLandmarkSet?: TurkeyGraphAltLandmarkSet;
   readonly regions: readonly TurkeyGraphRegion[];
 }
 
@@ -147,6 +188,42 @@ export function validateTurkeyGraphManifest(value: unknown): TurkeyGraphManifest
         if (a === region.regionId) expected.add(b); else if (b === region.regionId) expected.add(a);
       }
       if (region.neighbors.length !== expected.size || region.neighbors.some((id: string) => !expected.has(id))) return null;
+    }
+  }
+
+  /* ── ALT (landmark) kanıtı — OPSİYONEL ama YARIM OLAMAZ ─────────────────
+     ALT bir optimizasyon kanıtıdır; hiç olmayabilir. Ama manifest ALT iddia
+     ediyorsa iddia TAM olmalıdır: set kaydı + her dilimin sete bağlı kimliği +
+     bölge düğüm sayısıyla tutan boyut. Yarım/uyumsuz kanıt manifestin tamamını
+     reddettirir — çünkü "bir kısmı doğru" bir alt sınır GÜVENLİ DEĞİLDİR. */
+  const altSet = m.altLandmarkSet;
+  const altRegions = m.regions.filter((region) => region.alt !== undefined);
+  if (altSet !== undefined || altRegions.length > 0) {
+    if (!altSet || altSet.schemaVersion !== 1 || !altSet.landmarkSetId ||
+        !Number.isInteger(altSet.landmarkCount) || altSet.landmarkCount <= 0 ||
+        !Number.isInteger(altSet.scaleM) || altSet.scaleM <= 0 ||
+        !Number.isInteger(altSet.unreachableBucket) || altSet.unreachableBucket <= 0 ||
+        altSet.metric !== 'ONEWAY_ONLY_BASE_COST_M' ||
+        altSet.selection !== 'BACKBONE_CONSTRAINED_FARTHEST_POINT_REACHABILITY_VERIFIED' ||
+        !Array.isArray(altSet.landmarks) || altSet.landmarks.length !== altSet.landmarkCount) return null;
+    const seenIndex = new Set<number>();
+    for (const landmark of altSet.landmarks) {
+      if (!Number.isInteger(landmark.index) || landmark.index < 0 ||
+          landmark.index >= altSet.landmarkCount || seenIndex.has(landmark.index) ||
+          typeof landmark.nodeId !== 'string' || !landmark.nodeId ||
+          !Number.isFinite(landmark.lat) || !Number.isFinite(landmark.lon)) return null;
+      seenIndex.add(landmark.index);
+    }
+    for (const region of altRegions) {
+      const alt = region.alt!;
+      if (alt.schemaVersion !== 1 || !alt.file || !/^[a-f0-9]{64}$/.test(alt.sha256) ||
+          alt.landmarkSetId !== altSet.landmarkSetId ||
+          alt.landmarkCount !== altSet.landmarkCount || alt.scaleM !== altSet.scaleM ||
+          alt.unreachableBucket !== altSet.unreachableBucket ||
+          alt.encoding !== 'UINT16_LE_PER_NODE_LANDMARK_PAIR' ||
+          alt.nodeCount !== region.nodeCount) return null;
+      /* Boyut tek doğru değerdir: 24 B başlık + düğüm × landmark × 2 × 2 B. */
+      if (alt.byteSize !== 24 + region.nodeCount * altSet.landmarkCount * 4) return null;
     }
   }
   return m as TurkeyGraphManifest;

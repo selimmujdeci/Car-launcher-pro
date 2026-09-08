@@ -39,7 +39,8 @@ import {
 } from './navigation/core/routeProviderReadiness';
 import type { RouteStep }    from './routingService';
 import {
-  acquireRegionalRoutingGraph, acquireRegionWindow, releaseRegionWindow,
+  acquireRegionalRoutingGraph, acquireRegionWindow, releaseRegionWindow, resolveAltTargetRow,
+  markAltNotAttempted,
   releaseRoutingGraph, REGIONAL_GRAPH_MAX_RESIDENT,
 } from './navigation/map/graph/graphResidencyRuntime';
 import {
@@ -322,6 +323,22 @@ function _getOrCreateNavWorker(): Worker | null {
       { type: 'module', name: 'NavigationCompute' },
     );
 
+    _attachNavWorkerHandlers(w);
+
+    _navWorker = w;
+    runtimeManager.registerWorker('NavigationCompute', w, 'OPTIONAL');
+    return w;
+  } catch (e) {
+    return _navWorkerCreateFailed(e);
+  }
+}
+
+/**
+ * Worker mesaj/hata bağlantıları — TEK yerde. Ölçüm koşumu worker taşıyıcısını
+ * enjekte ettiğinde de AYNI bağlantılar kurulur; yoksa ürün mesaj sözleşmesi
+ * ölçümde çalışmaz ve ölçüm ürün yolunu temsil etmez.
+ */
+function _attachNavWorkerHandlers(w: Worker): void {
     w.onmessage = (e: MessageEvent) => {
       const msg = e.data as {
         type: string;
@@ -425,14 +442,11 @@ function _getOrCreateNavWorker(): Worker | null {
     w.onmessageerror = () => {
       logError('NavigationCompute:messageerror', new Error('Deserialize failed'));
     };
+}
 
-    _navWorker = w;
-    runtimeManager.registerWorker('NavigationCompute', w, 'OPTIONAL');
-    return w;
-  } catch (e) {
-    logError('NavigationCompute:create', e);
-    return null;
-  }
+function _navWorkerCreateFailed(e: unknown): Worker | null {
+  logError('NavigationCompute:create', e);
+  return null;
 }
 
 /**
@@ -534,6 +548,19 @@ export async function computeCrossRegionOfflineRoute(
   const worker = _getOrCreateNavWorker();
   if (!worker) return null;
 
+  /* ── ALT (landmark) kanıtı — ÜRÜN YOLU ────────────────────────────────
+     Hedef satırı rota BAŞINDA çözülür; sezgisel ona ilk pencereden itibaren
+     ihtiyaç duyar. Çözülemezse ALT hiç gönderilmez ve arama coğrafi
+     (GEOMETRIC) profille koşar — bu bir hata değil, TANIMLI moddur. Bütçe
+     ALT yok diye BÜYÜTÜLMEZ; sığmazsa mevcut fail-closed hükmü geçerlidir. */
+  const altTarget = envelope.windows.length > 1
+    ? await resolveAltTargetRow(
+        manifest, envelope.windows[envelope.windows.length - 1], toLat, toLon, baseUrl)
+    : null;
+  /* Tek pencereli rota ALT'yi hiç DENEMEZ; sebep bu olarak kaydedilir ki
+     gözlemde "ALT bozuk" ile "ALT gerekmedi" karışmasın. */
+  if (envelope.windows.length <= 1) markAltNotAttempted('ALT_SHORT_ROUTE_NOT_ELIGIBLE');
+
   const requestId = `x${++_reqCounter}`;
   let settled = false;
 
@@ -571,7 +598,10 @@ export async function computeCrossRegionOfflineRoute(
           return;
         }
         const regionIds = envelope.windows[windowIndex];
-        const residency = await acquireRegionWindow(manifest, regionIds, baseUrl);
+        /* ALT dilimi YALNIZ hedef satırı çözülebildiyse istenir: satırsız dilim
+           sezgisele hiçbir şey katmaz, yalnız bellek ve indirme maliyetidir. */
+        const residency = await acquireRegionWindow(
+          manifest, regionIds, baseUrl, { alt: altTarget !== null });
         if (settled) return;
         if (!residency) { finish(null); return; }
         const isFinal = windowIndex === envelope.windows.length - 1;
@@ -590,6 +620,9 @@ export async function computeCrossRegionOfflineRoute(
           boundaryBox: isFinal ? null : envelope.transitions[windowIndex].boundaryBox,
           remainingLowerBoundM: isFinal ? 0 : envelope.transitions[windowIndex].remainingLowerBoundM,
           isFinal,
+          /* ALT dilimi PENCEREYLE gelir; residency authority onu bölgenin
+             ömrüne bağlar. Kanıt yoksa `null` → worker GEOMETRIC'te kalır. */
+          altWindow: altTarget ? (residency.alt?.window ?? null) : null,
         });
       },
     });
@@ -599,6 +632,14 @@ export async function computeCrossRegionOfflineRoute(
       fromLat, fromLon, toLat, toLon,
       windowCount: envelope.windows.length,
       maxClosedStates: options.maxClosedStates,
+      ...(altTarget ? {
+        altLandmarkCount: altTarget.landmarkCount,
+        altScaleM: altTarget.scaleM,
+        altUnreachable: altTarget.unreachableBucket,
+        altTargetFromL: altTarget.fromLandmark,
+        altTargetToL: altTarget.toLandmark,
+        altTargetNodeId: altTarget.targetNodeId,
+      } : {}),
     });
   });
 }
@@ -631,6 +672,19 @@ export function straightLineRoute(
  * SystemBoot.restartService('NavigationCompute') tarafından çağrılır.
  * Worker crash sonrası yeni worker önceden ısıtılır; sonraki rota isteği beklemez.
  */
+/**
+ * ÖLÇÜM KANCASI — worker TAŞIYICISINI değiştirir, rota mantığını DEĞİŞTİRMEZ.
+ *
+ * Masaüstü doğrulama koşumu Node'da çalışır ve `new Worker(new URL(...))`
+ * orada yoktur. Bu kanca yalnız taşıyıcıyı enjekte eder; envelope planlama,
+ * residency, ALT çözümü ve mesaj sözleşmesi ÜRÜN KODUNDAN gelir. Yani ölçüm
+ * "gölge enjeksiyon" değildir: ALT kanıtını ürün yolu kendisi yükler.
+ */
+export function _setNavWorkerForTest(worker: Worker | null): void {
+  _navWorker = worker;
+  if (worker) _attachNavWorkerHandlers(worker);
+}
+
 export function restartNavWorker(): void {
   if (_navWorker) return; // zaten çalışıyorsa no-op
   _getOrCreateNavWorker(); // _navWorker null ise yeni oluşturur ve runtimeManager'a kaydeder

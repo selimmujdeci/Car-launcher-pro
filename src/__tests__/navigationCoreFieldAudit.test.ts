@@ -347,6 +347,8 @@ function full(over: Partial<NavigationCoreRawSnapshot> = {}): NavigationCoreRawS
       peakResidentGraphBytes: 18023424, maxResidentRegions: 3,
       maxResidentGraphBytes: 67108864, onDemandRegionLoads: 11,
       regionEvictions: 8, windowFailClosedReason: null,
+      altResidentBytes: 20010080, altPeakResidentBytes: 20010080,
+      altSliceLoads: 22, altSliceEvictions: 19, altUnavailableReason: null,
     },
     crossRegionSearch: {
       closedStates: 139229, maxClosedBudget: 200000, windowsUsed: 20,
@@ -740,6 +742,7 @@ const REGISTRY: Record<string, Reg> = {
   'hz-longroute-search': { source: SRC_LONGROUTE_AUDIT, key: 'crossRegionSearch.closedStates',   stamp: 'NONE' },
   'hz-longroute-alt':    { source: SRC_LONGROUTE_AUDIT, key: 'crossRegionSearch.altActive',      stamp: 'NONE' },
   'hz-longroute-class':  { source: SRC_LONGROUTE_AUDIT, key: 'crossRegionSearch.closedByClass',  stamp: 'NONE' },
+  'hz-longroute-altmem': { source: SRC_GRAPH_AUDIT,     key: 'graphResidency.altResidentBytes',  stamp: 'NONE' },
 
   /* 16b · NAV v3 · F5 — gölge karşılaştırma + cutover kapısı */
   'hz-shadow-mode':      { source: SRC_SHADOW_AUDIT, key: 'cehShadow.ticks',              stamp: 'NONE' },

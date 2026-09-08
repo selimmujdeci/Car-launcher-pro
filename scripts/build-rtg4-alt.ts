@@ -44,9 +44,11 @@ const ALT_MAGIC = 0x414c5431;                       // "ALT1"
 const UNREACHABLE = 0xffff;                         // Uint16 kovasında "yok"
 
 const manifestPath = resolve(RUN, 'turkey-graph-manifest.json');
-const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as {
+const manifestRaw = JSON.parse(readFileSync(manifestPath, 'utf8')) as Record<string, unknown>;
+const manifest = manifestRaw as unknown as {
   datasetId: string; policyVersion: string;
-  regions: { regionId: string; graphFile: string; sha256: string; nodeCount: number; edgeCount: number }[];
+  regions: { regionId: string; graphFile: string; sha256: string; nodeCount: number; edgeCount: number;
+    alt?: unknown }[];
 };
 mkdirSync(OUT, { recursive: true });
 
@@ -63,7 +65,7 @@ log(`manifest: ${manifest.regions.length} bölge · ${totalNodes} düğüm · ${
 const readRegion = (region: typeof manifest.regions[number]) => {
   const buf = readFileSync(resolve(RUN, region.graphFile));
   const parsed = parseRoutingGraph(buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength));
-  if (!parsed.view) throw new Error(`RTG4 okunamadı: ${region.regionId} — ${parsed.error ?? '?'}`);
+  if (!parsed.view) throw new Error(`RTG4 okunamadı: ${region.regionId} — ${parsed.outcome}`);
   return parsed.view;
 };
 
@@ -355,7 +357,54 @@ for (const region of manifest.regions) {
 }
 log(`dilimler yazıldı: ${slices.length}`);
 
-/* ── 8) ALT manifesti (köken kanıtı + fail-closed bağları) ───────────────── */
+/* ── 8) KANONİK MANİFESTE YAZ (ikinci paket otoritesi KURULMAZ) ──────────
+   ALT dilimi, bölge grafının yanında ve AYNI manifest kaydında yaşar. Böylece
+   "hangi ALT hangi grafa ait" sorusunun tek bir cevabı olur ve uyumsuz çift
+   kanonik doğrulayıcı tarafından reddedilir. */
+const landmarkSetId = createHash('sha256')
+  .update(manifest.datasetId).update('|')
+  .update(landmarks.map((g) => String(globalIds[g])).join(','))
+  .update('|').update(String(SCALE_M))
+  .digest('hex').slice(0, 32);
+
+const productManifest: Record<string, unknown> = { ...manifestRaw };
+productManifest.altLandmarkSet = {
+  schemaVersion: SCHEMA_VERSION,
+  landmarkSetId,
+  landmarkCount: K,
+  scaleM: SCALE_M,
+  unreachableBucket: UNREACHABLE,
+  metric: 'ONEWAY_ONLY_BASE_COST_M',
+  selection: 'BACKBONE_CONSTRAINED_FARTHEST_POINT_REACHABILITY_VERIFIED',
+  buildTimestamp: new Date().toISOString(),
+  landmarks: landmarks.map((g, i) => ({
+    index: i, nodeId: String(globalIds[g]), lat: globalLat[g], lon: globalLon[g],
+  })),
+};
+const sliceByRegion = new Map(slices.map((slice) => [slice.regionId, slice]));
+productManifest.regions = manifest.regions.map((region) => {
+  const slice = sliceByRegion.get(region.regionId);
+  if (!slice) return region;
+  return {
+    ...region,
+    alt: {
+      schemaVersion: SCHEMA_VERSION,
+      file: slice.file,
+      sha256: slice.sha256,
+      byteSize: slice.byteSize,
+      landmarkSetId,
+      landmarkCount: K,
+      scaleM: SCALE_M,
+      unreachableBucket: UNREACHABLE,
+      nodeCount: slice.nodeCount,
+      encoding: 'UINT16_LE_PER_NODE_LANDMARK_PAIR',
+    },
+  };
+});
+writeFileSync(resolve(OUT, 'turkey-graph-manifest.json'), JSON.stringify(productManifest, null, 2));
+log('kanonik manifest ALT ile yazıldı (turkey-graph-manifest.json)');
+
+/* Ayrıca ÖLÇÜM kaydı: build kökeni, reddedilen adaylar, erişilebilirlik. */
 const altManifest = {
   schemaVersion: SCHEMA_VERSION,
   kind: 'RTG4_ALT_LANDMARKS',
@@ -375,6 +424,7 @@ const altManifest = {
   acceptRatio: ACCEPT_RATIO,
   rejectedCandidates: rejected,
   globalNodeCount: unique,
+  landmarkSetId,
   landmarks: landmarks.map((g, i) => ({
     index: i, nodeId: String(globalIds[g]), lat: globalLat[g], lon: globalLon[g],
     settledForward: reach[i].forward, settledBackward: reach[i].backward,

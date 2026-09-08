@@ -1674,14 +1674,28 @@ export function buildNavigationCoreCards(s: NavigationCoreRawSnapshot): readonly
               + (_xr.windowsUsed ?? '?') + ' pencere · ' + (_xr.weightEscalations ?? 0) + ' tırmanma · '
               + 'arşiv ' + (_xr.reconstructionBytes ?? '?') + ' B'),
       _xr === null || _xr.altActive === null
-        ? unavailable({ id: 'hz-longroute-alt', label: 'ALT landmark kanıtı', source: SRC_LONGROUTE,
-            note: 'ALT kanıtının durumu hiç ölçülmedi — "açık" veya "kapalı" UYDURULMAZ.',
+        ? unavailable({ id: 'hz-longroute-alt', label: 'Sezgisel modu (ALT / GEOMETRIC)', source: SRC_LONGROUTE,
+            note: 'Sezgisel modu hiç ölçülmedi — "ALT etkin" veya "kapalı" UYDURULMAZ.',
             updatedAt: null }, 'ölçülmedi')
-        : observed({ id: 'hz-longroute-alt', label: 'ALT landmark kanıtı', source: SRC_LONGROUTE,
+        : observed({ id: 'hz-longroute-alt', label: 'Sezgisel modu (ALT / GEOMETRIC)', source: SRC_LONGROUTE,
             note: 'ALT bir ALT SINIRDIR, rota otoritesi DEĞİLDİR: yalnız sezgiseli sıkılaştırır. '
-              + 'Kanıt eksik/uyumsuzsa kapanır ve arama coğrafi sezgiselle sürer (fail-soft).',
+              + 'Kanıt eksik/uyumsuzsa mod GEOMETRIC olur ve rota yine çıkar (fail-soft); '
+              + 'bütçe ALT yok diye BÜYÜTÜLMEZ.',
             updatedAt: null },
-            (_xr.altActive ? 'etkin' : 'kapalı') + ' · ' + (_xr.altLandmarkCount ?? 0) + ' landmark'),
+            (_xr.altActive ? 'ALT' : 'GEOMETRIC') + ' · ' + (_xr.altLandmarkCount ?? 0) + ' landmark'),
+      /* ALT dilim sakinliği residency authority'den okunur — graf baytından AYRI. */
+      _gr === null || _gr.altSliceLoads === undefined
+        ? unavailable({ id: 'hz-longroute-altmem', label: 'ALT dilim sakinliği', source: SRC_GRAPH,
+            note: 'ALT dilim sakinliği hiç ölçülmedi — sahte 0 bayt ÜRETİLMEZ.',
+            updatedAt: null }, 'ölçülmedi')
+        : observed({ id: 'hz-longroute-altmem', label: 'ALT dilim sakinliği', source: SRC_GRAPH,
+            note: 'ALT baytı grafın 64 MiB bütçesine KARIŞTIRILMAZ; dilim bölgenin ömrüne '
+              + 'bağlıdır, bölge tahliye edilince düşer. Neden alanı doluysa ALT o rotada '
+              + 'kullanılamamıştır (uydurma sınır üretilmez).',
+            updatedAt: null },
+            _gr.altResidentBytes + ' B yerleşik · tepe ' + _gr.altPeakResidentBytes + ' B · '
+              + _gr.altSliceLoads + ' yükleme · ' + _gr.altSliceEvictions + ' tahliye · '
+              + 'neden: ' + (_gr.altUnavailableReason ?? 'yok')),
       _xr === null || _xr.closedByClass === null
         ? unavailable({ id: 'hz-longroute-class', label: 'Arama sınıf dağılımı', source: SRC_LONGROUTE,
             note: 'Sınıf histogramı hiç ölçülmedi — sahte dağılım ÜRETİLMEZ.',

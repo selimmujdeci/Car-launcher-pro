@@ -8972,3 +8972,81 @@ Kanıt: `field-runs/rtg4-alt-final-l8-20260908/ondemand-longroute-validation.jso
 (8 landmark, ürün profili) · `field-runs/rtg4-alt-corpus-20260908/` (16 landmark
 karşılaştırması) · `field-runs/rtg4-longroute-devicebudget-20260908/` (ALT
 öncesi 200k temel çizgisi).
+
+## RTG4 ALT ürün yolu teslimi — 2026-09-08
+
+Durum: **ENTEGRE** (kod + masaüstü ürün yolu), ÜRÜN HAZIR: **HAYIR**
+(cihaz/saha kapıları kırmızı — kütük #1216; bölgesel VERİ dağıtımı açık borç).
+
+Önceki fazın engeli şuydu: ALT kanıtı yalnız gölge koşumunda vardı, doğrulama
+scripti onu worker'a KENDİSİ enjekte ediyordu. Ürün akışı ALT dilimini ne
+dağıtıyor ne yüklüyordu — yani masaüstünde kanıtlanan kalite kazancı ürüne
+ulaşmıyordu. Bu faz o yolu kurdu.
+
+**Tek paket otoritesi.** ALT için ikinci bir manifest/paket otoritesi
+KURULMADI: dilim kaydı kanonik `turkey-graph-manifest.json` içine, bölge
+kaydının yanına yazılır (`region.alt`) ve manifest düzeyinde tek bir
+`altLandmarkSet` köken kaydı taşınır. Kanonik doğrulayıcı ALT'yi opsiyonel
+kabul eder ama **yarım kabul etmez**: dilim varken set yoksa, landmark seti
+kimliği tutmuyorsa, ölçek/landmark sayısı/düğüm sayısı uyuşmuyorsa ya da bayt
+boyutu `24 + düğüm × landmark × 4` değilse manifestin TAMAMI reddedilir.
+Gerekçe: "bir kısmı doğru" bir alt sınır güvenli değildir.
+
+**Yaşam döngüsü residency authority'nindir.** Yeni bir sakinlik yöneticisi
+eklenmedi: `acquireRegionWindow` ALT dilimini bölge grafıyla aynı çağrıda
+indirir, SHA + başlık + düğüm sayısıyla doğrular, pencere düğüm sırasına
+yerleştirir; bölge tahliye edilince dilim de düşer. ALT baytı grafın 64 MiB
+bütçesine **karıştırılmaz** — ayrı sayaçtır (`altResidentBytes`,
+`altPeakResidentBytes`, `altSliceLoads`, `altSliceEvictions`). ALT için ayrı
+bir ürün tavanı UYDURULMADI: dilim bölgenin ömrüne bağlı olduğu için ALT
+belleği zaten yerleşik bölge sayısıyla (≤3) sınırlıdır.
+
+**Hedef satırı ürün yolunda çözülür.** `resolveAltTargetRow` hedef bölgesini
+bir kez okuyup hedef düğümün landmark satırını ve KARARLI OSM kimliğini verir;
+worker son pencerede kendi bulduğu hedefle karşılaştırır, tutmuyorsa ALT'yi
+kapatır. Yani satır yanlışsa sonuç bozulmaz, yalnız hızlanma kaybolur.
+
+**Mod açıktır ve kanıta bağlıdır.** `ALT` yalnız tam ve uyumlu kanıt varken;
+aksi hâlde `GEOMETRIC`. Bütçe ALT yok diye BÜYÜTÜLMEZ. Kısa (bölge içi) rota
+ALT'yi hiç denemez (`ALT_SHORT_ROUTE_NOT_ELIGIBLE`) — ölçüldü: denemesi
+Mersin→Adana'da 6,5 MB'lık boşuna dilim indirmesiydi.
+
+**Ölçülen sonuç — ürün girişinden (`computeCrossRegionOfflineRoute`), ALT
+enjeksiyonu OLMADAN:** korpusun 8/8'i ROUTE_RESULT · bağımsız yasallık
+denetimi 50 965 adımda **0 ihlal** · tepe yerleşik ≤3 bölge / ≤42 133 556 B ·
+yeniden kurma ≤7 794 468 B. Uzun rotalarda mod `ALT` ve sonuçlar gölge
+ölçümüyle **BİREBİR aynı** (Mersin→İstanbul 139 229 durum · 1 068 702 m).
+Kısa rotalar `GEOMETRIC` ve önceki fazlarla birebir (686/335/9 345).
+
+**Kontrol koşumu (ALT kasıtlı olarak kaldırılmış).** Aynı ürün yolu 8/8
+ROUTE_RESULT verdi, mod `GEOMETRIC`, 0 ihlal. Fark: İstanbul→Ankara −%6,6 ·
+Eskişehir→İstanbul −%11,4 · Mersin→İstanbul −%4,0 · Mersin→Ankara −%2,1 daha
+KISA rota (ALT lehine); Mersin→Antalya +%1,9 daha uzun (ALT aleyhine, bilinen
+borç). Yani ALT yokluğu rota ÜRETİMİNİ engellemiyor, yalnız kaliteyi düşürüyor
+— fail-soft tasarım doğrulandı.
+
+**Açık borç 1 — VERİ DAĞITIMI.** Bölgesel RTG4 grafı bugün ürün paketinde
+YOK: `public/maps/` yalnız tek parça `routing-graph.bin` (7,4 MB) ve `poi.db`
+taşıyor; `graphResidencyRuntime` bölgeleri `/maps/rtg3/` altından fetch eder ve
+o içerik henüz paketlenmemiştir. ALT dilimi AYNI kanala, bölge grafının yanına
+bağlandı — ALT için ayrı bir indirme/güncelleme sistemi icat EDİLMEDİ. Ülke
+çapı ALT 699 984 112 B'dir (bölge başına ortalama 1 741 254 B, medyan
+1 295 640 B, en büyük 12 176 568 B, grafın %70'i) ve **uygulama paketine
+konmaz**; bir regresyon kilidi `public/maps` altında `.alt`/`.rtg4`/`regions/`
+görürse testi düşürür.
+
+**Açık borç 2 — ÇİFT TAHSİS.** ALT bugün iki yerde durur: dilim önbelleği
+(≤3 bölge) ve pencere dizisi. Ölçüldü — İstanbul→Ankara: 28 538 304 B dilim +
+28 347 040 B pencere. Ayrıca masaüstü ölçümünde worker taşıyıcısı yapısal
+kopya (structured clone) YAPMAZ; gerçek `Worker` yapar, dolayısıyla cihazda
+pencere dizisinin bir kopyası daha oluşur. Bu üç katmanın gerçek toplamı
+**yalnız cihazda** ölçülebilir.
+
+**Açık borç 3 — ANTALYA.** Mersin→Antalya ALT ile hâlâ +%1,9 daha uzun ve
+140 900 durum kullanıyor. Bu fazda bilinçli olarak DOKUNULMADI (entegrasyonu
+raydan çıkarmamak için) ve sonuç aynen korundu.
+
+Kanıt: `field-runs/rtg4-alt-productpath-20260908/alt-product-path-validation.json`
+(ALT) · `field-runs/rtg4-alt-productpath-noalt-20260908/` (kontrol) ·
+`scripts/validate-rtg4-alt-product-path.ts` (ürün girişini çağırır; yalnız
+worker TAŞIYICISI enjekte edilir).

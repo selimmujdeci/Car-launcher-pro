@@ -4,7 +4,7 @@
   "datasetId": "osm-tr-c841556847bd",
   "graphPolicyVersion": "2b4f5de8",
   "graphManifestSha256": "877677000c0d8705111562c077e5dff57941f58fc1ee326068e3cc24dba21404",
-  "buildTimestamp": "2026-09-08T18:11:37.899Z",
+  "buildTimestamp": "2026-09-08T18:53:02.456Z",
   "landmarkCount": 8,
   "scaleM": 50,
   "unreachableBucket": 65535,
@@ -20,6 +20,7 @@
     }
   ],
   "globalNodeCount": 20913743,
+  "landmarkSetId": "e4c617d7a31103bdc80652ce5b9e1df4",
   "landmarks": [
     {
       "index": 0,

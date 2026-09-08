@@ -41,6 +41,7 @@ import { readMonotonicNow } from '../../time/navClock';
 import {
   mergeRegionalGraphViews, mergeRegionalGraphWindow, validateTurkeyGraphManifest,
   type RegionWindowIdentity, type TurkeyGraphManifest, type TurkeyGraphRegion,
+  type TurkeyGraphAltLandmarkSet,
 } from './turkeyGraphManifest';
 
 /* ══════════════════════════════════════════════════════════════════════════
@@ -90,6 +91,21 @@ let _peakResidentGraphBytes = 0;
 let _onDemandRegionLoads = 0;
 let _regionEvictions = 0;
 let _windowFailClosedReason: string | null = null;
+
+/* ── ALT (landmark) dilim sakinliği ──────────────────────────────────────
+   ALT, grafın YANINDA yaşayan OPSİYONEL bir kanıttır. Baytı grafın 64 MiB
+   bütçesine KARIŞTIRILMAZ: ayrı sayılır, ayrı raporlanır. Kendi tavanı bu
+   fazda ÜRETİLMEZ — cihazda ölçülmemiş bir sayıyı ürün tavanı yapmak,
+   anayasanın "bütçesiz/kanıtsız özellik" yasağına girer. Bunun yerine ALT
+   dilimleri bölgenin ÖMRÜNE bağlanır: bölge tahliye edilince dilim de düşer,
+   dolayısıyla ALT belleği yerleşik bölge sayısıyla (≤3) SINIRLIDIR. */
+const _altSliceCache = new Map<string, Uint16Array>();
+let _altResidentBytes = 0;
+let _altPeakResidentBytes = 0;
+let _altSliceLoads = 0;
+let _altSliceEvictions = 0;
+/** ALT neden kullanılamadı — başarı hâlinde `null` (sahte "açık" YOK). */
+let _altUnavailableReason: string | null = null;
 
 /* ══════════════════════════════════════════════════════════════════════════
    3) YÜKLEME
@@ -276,6 +292,22 @@ export interface RegionWindowResidency {
   /** Bu çağrıda AĞDAN yüklenen bölgeler (önbellekten gelen sayılmaz). */
   readonly loadedRegionIds: readonly string[];
   readonly evictedRegionIds: readonly string[];
+  /**
+   * Pencerenin ALT kanıtı — `null` ise arama coğrafi sezgiselle koşar.
+   * Dizi PENCERE düğüm sırasındadır: worker ek eşleme yapmaz.
+   */
+  readonly alt: RegionWindowAlt | null;
+}
+
+export interface RegionWindowAlt {
+  readonly window: Uint16Array;
+  readonly landmarkCount: number;
+  readonly scaleM: number;
+  readonly unreachableBucket: number;
+  readonly landmarkSetId: string;
+  /** Bu pencerenin dilimlerinin toplam baytı (graf baytından AYRI). */
+  readonly bytes: number;
+  readonly regionIds: readonly string[];
 }
 
 async function _fetchRegionView(
@@ -295,6 +327,50 @@ async function _fetchRegionView(
   return { view: parsed.view, bytes: buffer.byteLength };
 }
 
+const ALT_MAGIC = 0x414c5431;                 // "ALT1"
+const ALT_HEADER_BYTES = 24;
+
+/**
+ * Bir bölgenin ALT dilimini indirir ve KİMLİĞİNİ doğrular.
+ *
+ * Doğrulama TAMDIR: boyut · SHA · sihirli sayı · şema · landmark sayısı ·
+ * ölçek · düğüm sayısı. Biri bile tutmazsa `null` döner — KISMEN geçerli veri
+ * TÜKETİLMEZ, çünkü yanlış bir alt sınır rotayı bozabilir.
+ */
+async function _fetchAltSlice(
+  region: TurkeyGraphRegion, set: TurkeyGraphAltLandmarkSet, baseUrl: string,
+): Promise<Uint16Array | null> {
+  const alt = region.alt;
+  if (!alt) { _altUnavailableReason = `ALT_SLICE_ABSENT:${region.regionId}`; return null; }
+  const url = `${baseUrl.replace(/\/$/, '')}/${alt.file.replace(/^\//, '')}`;
+  let buffer: ArrayBuffer;
+  try {
+    const res = await fetch(url);
+    if (!res.ok) { _altUnavailableReason = `ALT_HTTP_${res.status}:${region.regionId}`; return null; }
+    buffer = await res.arrayBuffer();
+  } catch {
+    _altUnavailableReason = `ALT_FETCH_FAILED:${region.regionId}`;
+    return null;
+  }
+  if (buffer.byteLength !== alt.byteSize) {
+    _altUnavailableReason = `ALT_SIZE_MISMATCH:${region.regionId}`; return null;
+  }
+  if (await _sha256(buffer) !== alt.sha256) {
+    _altUnavailableReason = `ALT_SHA_MISMATCH:${region.regionId}`; return null;
+  }
+  const header = new Uint32Array(buffer.slice(0, ALT_HEADER_BYTES));
+  if (header[0] !== ALT_MAGIC || header[1] !== alt.schemaVersion ||
+      header[2] !== set.landmarkCount || header[3] !== set.scaleM ||
+      header[4] !== region.nodeCount || header[5] !== set.unreachableBucket) {
+    _altUnavailableReason = `ALT_HEADER_MISMATCH:${region.regionId}`; return null;
+  }
+  const body = new Uint16Array(buffer.slice(ALT_HEADER_BYTES));
+  if (body.length !== region.nodeCount * set.landmarkCount * 2) {
+    _altUnavailableReason = `ALT_BODY_TRUNCATED:${region.regionId}`; return null;
+  }
+  return body;
+}
+
 /**
  * Koridorun BİR penceresini yerleşik hâle getirir (talep üzerine).
  *
@@ -304,6 +380,15 @@ async function _fetchRegionView(
  */
 export async function acquireRegionWindow(
   manifestValue: unknown, regionIds: readonly string[], baseUrl = '/maps/rtg3/',
+  options: {
+    /**
+     * ALT dilimi bu pencere için İSTENİYOR mu? Varsayılan `false`: bölge içi
+     * (tek pencereli) rota landmark sınırını KULLANMAZ, dolayısıyla dilimi
+     * indirmesi de saf maliyettir (ölçüldü: Mersin→Adana'da 6,5 MB boşuna).
+     * Karar rota katmanınındır; residency kendi başına ALT talep etmez.
+     */
+    readonly alt?: boolean;
+  } = {},
 ): Promise<RegionWindowResidency | null> {
   _windowFailClosedReason = null;
   const manifest: TurkeyGraphManifest | null = validateTurkeyGraphManifest(manifestValue);
@@ -336,6 +421,11 @@ export async function acquireRegionWindow(
   for (const id of [..._regionCache.keys()]) if (!wanted.has(id)) {
     _regionCache.delete(id); evictedRegionIds.push(id); _regionEvictions++;
   }
+  /* ALT dilimi bölgeyle BİRLİKTE düşer: grafı gitmiş bir bölgenin landmark
+     dilimini tutmak, ölçülmeyen bir bellek sızıntısı olurdu. */
+  for (const id of [..._altSliceCache.keys()]) if (!wanted.has(id)) {
+    _altSliceCache.delete(id); _altSliceEvictions++;
+  }
 
   const expectedVersion = manifest.graphFormat === 'RTG4' ? 4 : 3;
   const loadedRegionIds: string[] = [];
@@ -356,6 +446,58 @@ export async function acquireRegionWindow(
     return null;
   }
 
+  /* ── ALT dilimleri — bölgenin ÖMRÜNE bağlı, GRAF BAYTINDAN AYRI ────────
+     Politika BİLEREK basit: pencerenin BÜTÜN bölgeleri uyumlu dilim
+     sağlayamıyorsa ALT hiç kullanılmaz. Karışık durumda "eksik bölgede sınır
+     0 olur, yine kabul edilebilir" doğrudur ama arama profili (daha düşük
+     ağırlık) tüm rota için tek seçilir; yarım kanıtla o profili seçmek
+     bütçeyi riske atardı. Kanıt tamsa tam, değilse hiç. */
+  const altSet = options.alt === true ? manifest.altLandmarkSet : undefined;
+  let alt: RegionWindowAlt | null = null;
+  if (options.alt !== true) {
+    /* DAHA SPESİFİK bir sebep varsa (ör. hedef satırı çözülemedi) ÜSTÜNE
+       YAZILMAZ: gözlemde kök neden kaybolmamalı. */
+    if (_altUnavailableReason === null) _altUnavailableReason = 'ALT_NOT_REQUESTED';
+  } else if (altSet !== undefined) {
+    const slices: Uint16Array[] = [];
+    let ok = true;
+    for (const region of selected) {
+      const cached = _altSliceCache.get(region.regionId);
+      if (cached) { slices.push(cached); continue; }
+      const loaded = await _fetchAltSlice(region, altSet, baseUrl);
+      if (!loaded) { ok = false; break; }
+      _altSliceCache.set(region.regionId, loaded);
+      _altSliceLoads++;
+      slices.push(loaded);
+    }
+    if (ok) {
+      const k = altSet.landmarkCount;
+      const window = new Uint16Array(merged.view.nodeCount * k * 2)
+        .fill(altSet.unreachableBucket);
+      for (let slot = 0; slot < regionIds.length; slot++) {
+        const slice = slices[slot];
+        const localToMerged = merged.identity.nodeLocalToMerged[slot];
+        for (let local = 0; local < localToMerged.length; local++) {
+          const target = localToMerged[local];
+          if (target >= merged.view.nodeCount) continue;
+          const src = local * k * 2, dst = target * k * 2;
+          for (let i = 0; i < k * 2; i++) window[dst + i] = slice[src + i];
+        }
+      }
+      const bytes = slices.reduce((total, slice) => total + slice.byteLength, 0);
+      alt = {
+        window, landmarkCount: k, scaleM: altSet.scaleM,
+        unreachableBucket: altSet.unreachableBucket, landmarkSetId: altSet.landmarkSetId,
+        bytes, regionIds: [...regionIds],
+      };
+      _altUnavailableReason = null;
+    }
+  } else {
+    _altUnavailableReason = 'ALT_SET_ABSENT';
+  }
+  _altResidentBytes = alt?.bytes ?? 0;
+  _altPeakResidentBytes = Math.max(_altPeakResidentBytes, _altResidentBytes);
+
   _strongView = merged.view; _weakView = new WeakRef(merged.view);
   _adjacency = null; _reverseAdjacency = null; _index = null;
   _bytes = graphBytes; _residentGraphBytes = graphBytes;
@@ -365,14 +507,99 @@ export async function acquireRegionWindow(
   _report('AVAILABLE', `RTG4 window: ${_residentRegions.join(',')}`);
   return {
     view: merged.view, identity: merged.identity, regionIds: [...regionIds],
-    graphBytes, loadedRegionIds, evictedRegionIds,
+    graphBytes, loadedRegionIds, evictedRegionIds, alt,
   };
+}
+
+export interface AltTargetRowResult {
+  readonly fromLandmark: Uint16Array;
+  readonly toLandmark: Uint16Array;
+  /** Satırın ait olduğu düğümün KARARLI OSM kimliği — worker doğrular. */
+  readonly targetNodeId: string;
+  readonly landmarkCount: number;
+  readonly scaleM: number;
+  readonly unreachableBucket: number;
+  readonly landmarkSetId: string;
+}
+
+/**
+ * HEDEF LANDMARK SATIRI — ALT sezgiseli ilk pencereden itibaren hedefin
+ * landmark mesafelerini bilmek zorundadır, ama hedef bölgesi ancak SON
+ * pencerede yerleşik olur. Bu yüzden hedef bölgeleri burada BİR KEZ,
+ * pencere sakinliğini KİRLETMEDEN okunur.
+ *
+ * Hedef düğüm seçimi worker'ın `_nearest` mantığıyla AYNI ölçütü kullanır
+ * (en küçük mesafe, eşitlikte ilk düğüm). Yine de satır, düğümün kararlı OSM
+ * kimliğiyle birlikte gönderilir: worker son pencerede kendi bulduğu hedefle
+ * karşılaştırır, tutmuyorsa ALT'yi KAPATIR. Yani buradaki seçim yanlışsa
+ * sonuç bozulmaz, yalnız hızlanma kaybolur.
+ *
+ * Okunamayan/uyumsuz her durumda `null` döner → çağıran GEOMETRIC moda düşer.
+ */
+export async function resolveAltTargetRow(
+  manifestValue: unknown, regionIds: readonly string[],
+  lat: number, lon: number, baseUrl = '/maps/rtg3/',
+): Promise<AltTargetRowResult | null> {
+  const manifest = validateTurkeyGraphManifest(manifestValue);
+  const set = manifest?.altLandmarkSet;
+  if (!manifest || !set) { _altUnavailableReason = 'ALT_SET_ABSENT'; return null; }
+  const k = set.landmarkCount;
+  let bestDistance = Infinity, bestNodeId: string | null = null;
+  let bestFrom: Uint16Array | null = null, bestTo: Uint16Array | null = null;
+  for (const regionId of regionIds) {
+    const region = manifest.regions.find((candidate) => candidate.regionId === regionId);
+    if (!region?.alt) { _altUnavailableReason = `ALT_TARGET_REGION_SLICE_ABSENT:${regionId}`; return null; }
+    const cachedView = _regionCache.get(regionId)?.view ?? null;
+    const view = cachedView ?? (await _fetchRegionView(
+      region, manifest.graphFormat === 'RTG4' ? 4 : 3, baseUrl))?.view ?? null;
+    if (!view) { _altUnavailableReason = `ALT_TARGET_REGION_LOAD:${regionId}`; return null; }
+    const slice = _altSliceCache.get(regionId) ?? await _fetchAltSlice(region, set, baseUrl);
+    if (!slice) return null;                        // sebep `_fetchAltSlice`te yazıldı
+    let localBest = -1, localBestDistance = Infinity;
+    for (let i = 0; i < view.nodeCount; i++) {
+      const dLat = (view.nodeLat[i] - lat) * 111_000;
+      const dLon = (view.nodeLon[i] - lon) * 111_000 * Math.cos(lat * (Math.PI / 180));
+      const distance = dLat * dLat + dLon * dLon;
+      if (distance < localBestDistance) { localBestDistance = distance; localBest = i; }
+    }
+    if (localBest < 0 || localBestDistance >= bestDistance) continue;
+    bestDistance = localBestDistance;
+    bestNodeId = String(view.nodeSourceId[localBest]);
+    const fromLandmark = new Uint16Array(k), toLandmark = new Uint16Array(k);
+    for (let i = 0; i < k; i++) {
+      fromLandmark[i] = slice[(localBest * k + i) * 2];
+      toLandmark[i] = slice[(localBest * k + i) * 2 + 1];
+    }
+    bestFrom = fromLandmark; bestTo = toLandmark;
+  }
+  if (!bestNodeId || !bestFrom || !bestTo) {
+    _altUnavailableReason = 'ALT_TARGET_NODE_UNRESOLVED';
+    return null;
+  }
+  return {
+    fromLandmark: bestFrom, toLandmark: bestTo, targetNodeId: bestNodeId,
+    landmarkCount: k, scaleM: set.scaleM, unreachableBucket: set.unreachableBucket,
+    landmarkSetId: set.landmarkSetId,
+  };
+}
+
+/**
+ * ALT'nin HİÇ DENENMEDİĞİNİ kaydeder (bozukluk DEĞİL, uygunluk kararı).
+ * Gözlemde "ALT bozuk" ile "ALT gerekmedi" birbirine karışmamalıdır.
+ */
+export function markAltNotAttempted(reason: string): void {
+  _altUnavailableReason = reason;
 }
 
 /** Pencere sakinliğini tamamen bırakır (Zero-Leak); sayaçlar gözlem için kalır. */
 export function releaseRegionWindow(): void {
   _regionEvictions += _regionCache.size;
   _regionCache.clear();
+  /* ALT dilimleri de bırakılır — bölge gitmişken landmark dilimini tutmak
+     ölçülmeyen bir bellek borcu olurdu (Zero-Leak). */
+  _altSliceEvictions += _altSliceCache.size;
+  _altSliceCache.clear();
+  _altResidentBytes = 0;
   _residentRegions = [];
   _residentGraphBytes = 0;
   _strongView = null; _weakView = null;
@@ -489,6 +716,14 @@ export interface GraphResidencySnapshot {
   readonly regionEvictions: number;
   /** Son pencere reddinin makine-okur nedeni — başarı hâlinde `null`. */
   readonly windowFailClosedReason: string | null;
+  /* ── ALT (landmark) dilim sakinliği — GRAF BAYTINDAN AYRI ─────────────── */
+  /** Yerleşik ALT dilimlerinin toplam baytı; ALT yoksa 0 (sahte tahmin YOK). */
+  readonly altResidentBytes: number;
+  readonly altPeakResidentBytes: number;
+  readonly altSliceLoads: number;
+  readonly altSliceEvictions: number;
+  /** ALT neden kullanılamadı — kullanılabiliyorsa `null`. */
+  readonly altUnavailableReason: string | null;
 }
 
 export function getGraphResidencySnapshot(): GraphResidencySnapshot {
@@ -518,6 +753,11 @@ export function getGraphResidencySnapshot(): GraphResidencySnapshot {
     onDemandRegionLoads: _onDemandRegionLoads,
     regionEvictions: _regionEvictions,
     windowFailClosedReason: _windowFailClosedReason,
+    altResidentBytes: _altResidentBytes,
+    altPeakResidentBytes: _altPeakResidentBytes,
+    altSliceLoads: _altSliceLoads,
+    altSliceEvictions: _altSliceEvictions,
+    altUnavailableReason: _altUnavailableReason,
   };
 }
 
@@ -544,6 +784,12 @@ export function _resetGraphResidencyForTest(): void {
   _onDemandRegionLoads = 0;
   _regionEvictions = 0;
   _windowFailClosedReason = null;
+  _altSliceCache.clear();
+  _altResidentBytes = 0;
+  _altPeakResidentBytes = 0;
+  _altSliceLoads = 0;
+  _altSliceEvictions = 0;
+  _altUnavailableReason = null;
 }
 
 /** @internal testler için görünümü doğrudan kurar (ağ YOK). */
