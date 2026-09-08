@@ -27,6 +27,7 @@ import {
   from './map/graph/rtg2Reader';
 import { REGION_WINDOW_NO_LOCAL, distanceToBoxM, type RegionWindowIdentity }
   from './map/graph/turkeyGraphManifest';
+import { altLowerBoundM } from './map/graph/altLowerBound';
 import { buildGraphAdjacency, outgoingRange, type GraphAdjacency }
   from './map/graph/graphAdjacency';
 
@@ -386,6 +387,32 @@ interface CrossRegionSession {
   /** Bu pencerede tırmanmanın uygulandığı basamak sayısı (ölçüm). */
   escalations: number;
   /**
+   * ── ALT (landmark) ALT SINIRI ────────────────────────────────────────────
+   * Ön işlemeyle üretilmiş GERÇEK YOL mesafeleri. Kuş uçuşu sezgisel dolambaçlı
+   * arazide kalan yolu çok düşük tahmin eder; ALT terimi gerçek karayolu
+   * topolojisini bilir ve aramayı daraltır.
+   *
+   * Kabul edilebilirlik: ön işleme metriği en gevşek graftır (yalnız tek yön;
+   * dönüş/via-way/destination-only cezası YOK), mesafeler AŞAĞI yuvarlanmış
+   * kovalardır ve terim `(kova_a − kova_b − 1) × ölçek` ile hesaplanır — yani
+   * yuvarlama belirsizliği DAİMA sınırın aleyhine yazılır. Bu yüzden değer
+   * gerçek kalan maliyeti ASLA aşamaz.
+   *
+   * `altK = 0` iken ALT KAPALIDIR ve davranış birebir eskisidir.
+   */
+  altK: number;
+  altScaleM: number;
+  altUnreachable: number;
+  /** Hedef satırı: landmark başına `d(L→t)` ve `d(t→L)` kovaları. */
+  altTargetFromL: Uint16Array | null;
+  altTargetToL: Uint16Array | null;
+  /** Hedef düğümün kararlı OSM kimliği — pencere gelince DOĞRULANIR. */
+  altTargetNodeId: bigint;
+  /** Bu pencerenin düğüm sırasına göre `[d(L→v), d(v→L)]` çiftleri. */
+  altWindow: Uint16Array | null;
+  /** ALT sonradan güvensiz bulunduysa kapatılır (fail-soft, uydurma YOK). */
+  altDisabledReason: string | null;
+  /**
    * Bu pencerede AŞILMASI ZORUNLU portal düğümlerinin KÜMELENMİŞ sınır
    * kutuları; son pencerede boş. Karo kenarının tamamı yerine GERÇEK portal
    * konumları kullanılır — aradaki fark ölçüldü (aşağıya bakınız).
@@ -541,18 +568,61 @@ function _inCorridorFreeZone(session: CrossRegionSession, lat: number, lon: numb
    `field-runs/rtg4-e20000f1.8-20260908` (sonrası) koşumlarından seçildi:
    ürün bütçesi 200 000 kapalı durumda ülke korpusunun TAMAMI çözülür.
    Yalnız ÇOK PENCERELİ (bölgeler arası) rotada uygulanır. */
+/**
+ * İKİ PROFİL — kanıta göre seçilir, tahmine göre değil.
+ *
+ * `GEOMETRIC`: ALT kanıtı YOKKEN geçerli olan ölçülmüş profil. Sezgisel yalnız
+ * coğrafidir, bu yüzden aramanın daha sert yönlendirilmesi gerekir.
+ *
+ * `ALT`: landmark alt sınırı varken geçerli profil. ALT, koridorun kalan yolunu
+ * GERÇEK karayolu üzerinden bildiği için aynı bütçe daha az zorlamayla yeter;
+ * kazanılan marj KALİTEYE çevrilir — taban ağırlık düşer, omurga katmanı
+ * gevşer (tertiary de birinci katmana girer), tırmanma yumuşar ve tavanı iner.
+ *
+ * Ölçüldü (ürün bütçesi 200 000, aynı korpus):
+ *   İstanbul→Ankara   608 686 → 568 536 m · 98 027 → 128 908 durum
+ *   Eskişehir→İstanbul 390 923 → 346 260 m · 98 881 → 106 515 durum
+ *   Mersin→İstanbul   1 103 586 → 1 068 458 m · 184 866 → 138 300 durum
+ */
 const CORRIDOR_BASE_WEIGHT = 1.6;
 const CORRIDOR_CLASS_LIMIT = 4;            // secondary ve üstü = omurga katmanı
 const CORRIDOR_FREE_RADIUS_M = 2_000;      // ilk/son kilometre ve portal erişimi
 const CORRIDOR_TIER_OFFSET_M = 150_000;
-const CORRIDOR_ESCALATE_AFTER = 20_000;
+const ALT_CORRIDOR_BASE_WEIGHT = 1.35;
+const ALT_CORRIDOR_CLASS_LIMIT = 5;
+const ALT_CORRIDOR_TIER_OFFSET_M = 60_000;
+const ALT_CORRIDOR_ESCALATE_FACTOR = 1.5;
+const ALT_CORRIDOR_ESCALATE_MAX_WEIGHT = 2.5;
+/**
+ * Tırmanma eşiği SABİT DEĞİL, bütçeye ve koridor uzunluğuna bağlıdır:
+ * `maxClosed / (ESCALATE_WINDOW_SHARE × pencereSayısı)`.
+ *
+ * ── NEDEN (ÖLÇÜLDÜ) ──────────────────────────────────────────────────────
+ * Sabit 20 000'lik eşik 9–12 pencerelik rotalarda doğru, 20 pencerelik
+ * Mersin→İstanbul'da ise ÇOK GEÇ kalıyordu: taban ağırlık düşürülünce
+ * (kalite için) o rota bütçeyi tüketip düşüyordu. Bütçenin pencere başına
+ * payı neyse eşik odur — böylece uzun koridor kendiliğinden daha erken
+ * sıkışır, kısa koridor gereksiz yere sıkışmaz.
+ */
+const CORRIDOR_ESCALATE_WINDOW_SHARE = 2;
+const CORRIDOR_ESCALATE_MIN = 4_000;
 const CORRIDOR_ESCALATE_FACTOR = 1.8;
 const CORRIDOR_ESCALATE_MAX_WEIGHT = 4;
 
+/** Bütçenin pencere başına payı; çok kısa koridorda taban değerin altına inmez. */
+function _corridorEscalateAfter(budget: number, windowCount: number): number {
+  if (!Number.isFinite(budget) || budget <= 0 || !Number.isFinite(windowCount) || windowCount <= 0) {
+    return CORRIDOR_ESCALATE_MIN;
+  }
+  return Math.max(CORRIDOR_ESCALATE_MIN,
+    Math.floor(budget / (CORRIDOR_ESCALATE_WINDOW_SHARE * windowCount)));
+}
+
 /** Ölçüm koşumu ağırlık gönderebilir; ürün sürücüsü GÖNDERMEZ. */
-function _corridorBaseWeight(sent: number | undefined, multiWindow: boolean): number {
+function _corridorBaseWeight(sent: number | undefined, multiWindow: boolean, alt: boolean): number {
   if (Number.isFinite(sent) && Number(sent) > 0) return Number(sent);
-  return multiWindow ? CORRIDOR_BASE_WEIGHT : HEURISTIC_WEIGHT;
+  if (!multiWindow) return HEURISTIC_WEIGHT;
+  return alt ? ALT_CORRIDOR_BASE_WEIGHT : CORRIDOR_BASE_WEIGHT;
 }
 
 function _corridorTier(
@@ -565,9 +635,33 @@ function _corridorTier(
   return cls <= session.classLimit + 2 ? 1 : 2;
 }
 
-function _crossRegionHeuristicM(session: CrossRegionSession, lat: number, lon: number): number {
+/** ALT alt sınırı — matematik SAF modüldedir (`altLowerBound.ts`), burada yalnız
+    oturum alanları ona bağlanır. İkinci bir sınır hesabı KURULMAZ. */
+function _altLowerBoundM(session: CrossRegionSession, node: number): number {
+  const fromT = session.altTargetFromL, toT = session.altTargetToL;
+  if (fromT === null || toT === null) return 0;
+  return altLowerBoundM(
+    session.altWindow, node, session.altK, session.altScaleM, session.altUnreachable,
+    { fromLandmark: fromT, toLandmark: toT });
+}
+
+function _crossRegionHeuristicM(
+  session: CrossRegionSession, node: number, lat: number, lon: number,
+): number {
+  /* İki bağımsız ALT SINIR: koridor (coğrafi) ve ALT (gerçek yol). İkisi de
+     asla fazla tahmin etmediği için BÜYÜĞÜ alınır — daha sıkı sınır, aynı
+     kabul edilebilirlik. */
   const boxes = session.isFinal ? null : session.boundaryBoxes;
-  if (boxes === null || boxes.length === 0) return _havM(lat, lon, session.toLat, session.toLon);
+  if (boxes === null || boxes.length === 0) {
+    /* SON pencere: hedef GERÇEKTEN buradadır → ALT doğrudan kullanılır.
+       İki alt sınırın büyüğü alınır; ikisi de fazla tahmin etmez. */
+    const direct = _havM(lat, lon, session.toLat, session.toLon);
+    const alt = session.altK > 0 ? _altLowerBoundM(session, node) : 0;
+    return alt > direct ? alt : direct;
+  }
+  /* ARA pencere: ALT doğrudan KULLANILMAZ (ölçüldü — aşağıya bakınız); onun
+     yerine "sınırdan sonra kalan yol" terimini GÜÇLENDİRİR. Böylece arama
+     koridorun zorunlu sınırına yönelmeye devam eder. */
   const remaining = session.boundaryRemainingM;
   let best = Infinity;
   for (let i = 0; i < boxes.length; i++) {
@@ -596,6 +690,7 @@ const RTG4_BOUNDARY_CLUSTERS = 6;
 
 function _clusterBoundaryBoxes(
   points: readonly number[],   // [lat0, lon0, lat1, lon1, ...]
+  members?: number[][],        // doldurulursa: kutu → o kutudaki portal sırası
 ): (readonly [number, number, number, number])[] {
   const count = points.length >> 1;
   if (count === 0) return [];
@@ -620,12 +715,15 @@ function _clusterBoundaryBoxes(
     const end = Math.floor(((c + 1) * count) / clusters);
     if (end <= start) continue;
     let bLatMin = Infinity, bLatMax = -Infinity, bLonMin = Infinity, bLonMax = -Infinity;
+    const bucket: number[] = [];
     for (let k = start; k < end; k++) {
       const lat = points[index[k] * 2], lon = points[index[k] * 2 + 1];
       if (lat < bLatMin) bLatMin = lat; if (lat > bLatMax) bLatMax = lat;
       if (lon < bLonMin) bLonMin = lon; if (lon > bLonMax) bLonMax = lon;
+      bucket.push(index[k]);
     }
     boxes.push([bLonMin, bLatMin, bLonMax, bLatMax]);
+    if (members) members.push(bucket);
   }
   return boxes;
 }
@@ -724,7 +822,7 @@ function _migrateCrossRegionWindow(
     const [node, ordinal, mask] = _parseStateKey(next);
     heap.push([
       cost + session.weight * _crossRegionHeuristicM(
-        session, newView.nodeLat[node], newView.nodeLon[node])
+        session, node, newView.nodeLat[node], newView.nodeLon[node])
         /* Katman ofseti YENİ pencerede yeniden uygulanır: serbest bölge
            (sınır kutuları) değişmiştir, eski katman artık geçerli değildir. */
         + _corridorTier(session, newView, ordinal, newView.nodeLat[node], newView.nodeLon[node])
@@ -768,8 +866,8 @@ function routeRtg3EdgeState(
   /* Uzun rotada sezgisel koridor alt sınırıyla SIKILAŞTIRILIR; tek pencerede
      ve son pencerede sonuç kuş uçuşuyla BİREBİR aynıdır (parite). */
   const heuristicM = session
-    ? (lat: number, lon: number) => _crossRegionHeuristicM(session, lat, lon)
-    : (lat: number, lon: number) => _havM(lat, lon, goalLat, goalLon);
+    ? (node: number, lat: number, lon: number) => _crossRegionHeuristicM(session, node, lat, lon)
+    : (_node: number, lat: number, lon: number) => _havM(lat, lon, goalLat, goalLon);
   /* Ağırlık DÖNGÜ İÇİNDE okunur: bütçe-farkında tırmanma onu değiştirebilir. */
   const weightOf = () => (session ? session.weight : HEURISTIC_WEIGHT);
   type Entry = [number, number, number, number, string]; // f, node, previous edge, via-way mask, state key
@@ -925,7 +1023,7 @@ function routeRtg3EdgeState(
           previous.set(nextKey, key);
           stateNode.set(nextKey, to);
         }
-        const priority = newG + weightOf() * heuristicM(view.nodeLat[to], view.nodeLon[to]);
+        const priority = newG + weightOf() * heuristicM(to, view.nodeLat[to], view.nodeLon[to]);
         push([
           session === undefined ? priority
             : priority + _corridorTier(session, view, ordinal, view.nodeLat[to], view.nodeLon[to])
@@ -1132,9 +1230,57 @@ function _crossRegionStats(session: CrossRegionSession): Record<string, number> 
     relaxations: session.stats.relaxations,
     maxClosedBudget: session.maxClosed,
     weightEscalations: session.escalations,
+    altLandmarkCount: session.altK,
+    altActive: session.altK > 0 && session.altWindow !== null ? 1 : 0,
     /* Sınıf histogramı düz alan olarak yayılır (mesaj sözleşmesi sayı taşır). */
     ...Object.fromEntries(session.stats.closedByClass.map((n, i) => [`closedClass${i}`, n])),
   };
+}
+
+/**
+ * ALT hedef kanıtını kurar. EKSİK ya da TUTARSIZ kanıt sessizce kabul edilmez:
+ * ALT KAPALI kalır (davranış eskisiyle aynı) ve sebep kaydedilir. Uydurma
+ * mesafe ÜRETİLMEZ.
+ */
+/** ALT kanıtı KULLANILABİLİR mi — profil seçimi bunun ÖNCESİNDE yapılamaz. */
+function _altEvidenceIsUsable(
+  msg: { altLandmarkCount?: number; altScaleM?: number;
+         altTargetFromL?: Uint16Array | number[]; altTargetToL?: Uint16Array | number[];
+         altTargetNodeId?: string },
+): boolean {
+  const k = Number(msg.altLandmarkCount ?? 0);
+  if (!Number.isFinite(k) || k <= 0) return false;
+  if (!Number.isFinite(Number(msg.altScaleM ?? 0)) || Number(msg.altScaleM ?? 0) <= 0) return false;
+  if (!msg.altTargetFromL || !msg.altTargetToL) return false;
+  if (msg.altTargetFromL.length !== k || msg.altTargetToL.length !== k) return false;
+  return typeof msg.altTargetNodeId === 'string' && msg.altTargetNodeId.length > 0
+    && msg.altTargetNodeId !== '0';
+}
+
+function _installAltTargetEvidence(
+  session: CrossRegionSession,
+  msg: { altLandmarkCount?: number; altScaleM?: number; altUnreachable?: number;
+         altTargetFromL?: Uint16Array | number[]; altTargetToL?: Uint16Array | number[];
+         altTargetNodeId?: string },
+): void {
+  const k = Number(msg.altLandmarkCount ?? 0);
+  if (!Number.isFinite(k) || k <= 0) return;
+  const scale = Number(msg.altScaleM ?? 0);
+  if (!Number.isFinite(scale) || scale <= 0) { session.altDisabledReason = 'ALT_SCALE_INVALID'; return; }
+  const fromL = msg.altTargetFromL, toL = msg.altTargetToL;
+  if (!fromL || !toL || fromL.length !== k || toL.length !== k) {
+    session.altDisabledReason = 'ALT_TARGET_ROW_INVALID'; return;
+  }
+  let targetNode: bigint;
+  try { targetNode = BigInt(msg.altTargetNodeId ?? '0'); }
+  catch { session.altDisabledReason = 'ALT_TARGET_NODE_INVALID'; return; }
+  if (targetNode === 0n) { session.altDisabledReason = 'ALT_TARGET_NODE_INVALID'; return; }
+  session.altK = k;
+  session.altScaleM = scale;
+  session.altUnreachable = Number(msg.altUnreachable ?? 0xffff);
+  session.altTargetFromL = fromL instanceof Uint16Array ? fromL : Uint16Array.from(fromL);
+  session.altTargetToL = toL instanceof Uint16Array ? toL : Uint16Array.from(toL);
+  session.altTargetNodeId = targetNode;
 }
 
 /** Pencere kurulur/kaydırılır ve AYNI mantıksal arama devam eder. */
@@ -1145,6 +1291,7 @@ function _crossRegionAdvance(
   isFinal: boolean,
   boundaryBox: readonly [number, number, number, number] | null,
   remainingLowerBoundM: number,
+  altWindow: Uint16Array | null,
 ): void {
   let graph: RoutingGraph;
   try {
@@ -1158,6 +1305,21 @@ function _crossRegionAdvance(
   /* Sezgisel girdileri taşımadan ÖNCE kurulur: `f` yeniden hesabı YENİ
      pencerenin sınırına göre yapılmalıdır. Portal düğümleri BU pencerede
      yerleşiktir; koordinatları buradan okunur — manifest koordinat taşımaz. */
+  /* ALT dilimi pencereyle BİRLİKTE gelir; boyutu tutmuyorsa ALT KAPATILIR. */
+  if (session.altK > 0) {
+    if (altWindow === null) {
+      session.altWindow = null;
+      if (session.altDisabledReason === null) session.altDisabledReason = 'ALT_WINDOW_SLICE_MISSING';
+      session.altK = 0;
+    } else if (altWindow.length < view.nodeCount * session.altK * 2) {
+      session.altWindow = null;
+      session.altDisabledReason = 'ALT_WINDOW_SLICE_TRUNCATED';
+      session.altK = 0;
+    } else {
+      session.altWindow = altWindow;
+    }
+  }
+
   session.isFinal = isFinal;
   /* Ağırlık her pencerede TABANA döner: bir penceredeki arazi cezası sonraki
      pencerenin rota kalitesini bozmaz. */
@@ -1167,20 +1329,45 @@ function _crossRegionAdvance(
   else {
     const wanted = new Set(exitPortals.map((portal) => BigInt(portal.nodeId)));
     const points: number[] = [];
+    const portalNodes: number[] = [];
     for (let i = 0; i < view.nodeCount && wanted.size > 0; i++) {
       if (!wanted.has(view.nodeSourceId[i])) continue;
       points.push(view.nodeLat[i], view.nodeLon[i]);
+      portalNodes.push(i);
       wanted.delete(view.nodeSourceId[i]);
     }
     /* Portal düğümü bu pencerede bulunamazsa karo kenarına düşülür: daha geniş
        ama HÂLÂ kabul edilebilir bir hedef — uydurma yapılmaz. */
+    const members: number[][] = [];
     session.boundaryBoxes = points.length > 0
-      ? _clusterBoundaryBoxes(points)
+      ? _clusterBoundaryBoxes(points, members)
       : (boundaryBox ? [boundaryBox] : []);
-    /* Kutu başına kalan alt sınır: koridor terimi ile "kutudan hedefe kuş
-       uçuşu" teriminin MAKSİMUMU — ikisi de alt sınırdır, büyüğü daha sıkıdır. */
-    session.boundaryRemainingM = session.boundaryBoxes.map((box) => Math.max(
-      remainingLowerBoundM, distanceToBoxM(session.toLat, session.toLon, box)));
+    /* Kutu başına kalan alt sınır — ÜÇ bağımsız alt sınırın en büyüğü:
+       (a) koridor sınır zinciri, (b) kutudan hedefe kuş uçuşu ve
+       (c) ALT: o kutudaki portallardan hedefe GERÇEK YOL alt sınırının en
+       küçüğü. (c) "bu sınırdan geçersen hedefe en az şu kadar var" der ve
+       dolambaçlı arazide (b)'den çok daha sıkıdır.
+
+       ── NEDEN ALT BURADA, DURUMUN KENDİSİNDE DEĞİL (ÖLÇÜLDÜ) ──────────────
+       ALT ara pencerede doğrudan `h(v)` olarak da denendi: arama koridorun
+       ZORUNLU sınırı yerine ülke ölçeğinde en kısa yola yöneldi — o yol bu
+       pencerede yerleşik OLMAYAN bölgelerden geçtiği için sınıra ulaşılamadı.
+       Ölçüm: Mersin→Ankara 86 338 → 200 001 (tavana çarptı), İstanbul→Ankara
+       98 027 → 196 637 ve rota 608 686 → 662 861 m. Bu yüzden ALT ara
+       pencerede yalnız KALAN terimi güçlendirir; yönlendirme koridorundur. */
+    session.boundaryRemainingM = session.boundaryBoxes.map((box, i) => {
+      let bound = Math.max(remainingLowerBoundM, distanceToBoxM(session.toLat, session.toLon, box));
+      const bucket = members[i];
+      if (session.altK > 0 && session.altWindow !== null && bucket !== undefined && bucket.length > 0) {
+        let altBest = Infinity;
+        for (const memberIndex of bucket) {
+          const value = _altLowerBoundM(session, portalNodes[memberIndex]);
+          if (value < altBest) altBest = value;
+        }
+        if (altBest !== Infinity && altBest > bound) bound = altBest;
+      }
+      return bound;
+    });
   }
 
   const migrationError = _migrateCrossRegionWindow(session, graph, identity);
@@ -1195,6 +1382,12 @@ function _crossRegionAdvance(
 
   const startIdx = session.started ? -1 : _nearest(graph, session.fromLat, session.fromLon);
   const goalIdx = isFinal ? _nearest(graph, session.toLat, session.toLon) : -1;
+  /* ALT satırı BAŞKA bir düğüm için üretilmişse sınır bu rota için geçerli
+     DEĞİLDİR → ALT kapatılır (fail-soft). Sessizce kullanılmaz. */
+  if (isFinal && session.altK > 0 && view.nodeSourceId[goalIdx] !== session.altTargetNodeId) {
+    session.altK = 0; session.altWindow = null;
+    session.altDisabledReason = 'ALT_TARGET_NODE_MISMATCH';
+  }
   session.outcome = null;
   try {
     routeRtg3EdgeState(graph, startIdx, goalIdx, session);
@@ -1470,6 +1663,14 @@ self.onmessage = (e: MessageEvent): void => {
     corridorTierOffsetM?: number;
     finalHeuristicWeight?: number;
     escalateAfterStates?: number;
+    /** ALT ön işleme kanıtı; YOKSA sezgisel eskisiyle birebir aynı çalışır. */
+    altLandmarkCount?: number;
+    altScaleM?: number;
+    altUnreachable?: number;
+    altTargetFromL?: Uint16Array | number[];
+    altTargetToL?: Uint16Array | number[];
+    altTargetNodeId?: string;
+    altWindow?: Uint16Array | null;
     escalateFactor?: number;
     escalateMaxWeight?: number;
     isFinal?: boolean;
@@ -1517,6 +1718,13 @@ self.onmessage = (e: MessageEvent): void => {
        pencereli (bölge içi) rotada mekanizmalar KAPALIDIR ve davranış birebir
        eski sürümdür — kısa rota kalitesi bu değişiklikten etkilenmez. */
     const multiWindow = Number(msg.windowCount ?? 0) > 1;
+    /* Bütçe session'dan ÖNCE bilinir: tırmanma eşiği ondan türetilir. */
+    const budget = Number.isFinite(msg.maxClosedStates) && Number(msg.maxClosedStates) > 0
+      ? Number(msg.maxClosedStates) : MAX_CLOSED;
+    /* ALT KANITI, profil seçiminden ÖNCE doğrulanır: profil kanıta göre seçilir.
+       ALT yalnız ÇOK PENCERELİ rotada kullanılır — bölge içi rota, dilim bile
+       okumadan birebir eski davranışta kalır (ölçülen parite). */
+    const altReady = multiWindow && _altEvidenceIsUsable(msg);
     _crossSession = {
       requestId: msg.requestId,
       fromLat: msg.fromLat, fromLon: msg.fromLon, toLat: msg.toLat, toLon: msg.toLon,
@@ -1525,22 +1733,30 @@ self.onmessage = (e: MessageEvent): void => {
       heap: [], gCost: new Map(), closed: new Set(), keyToGlobal: new Map(),
       boundaryBoxes: [], boundaryRemainingM: [], remainingLowerBoundM: 0,
       classLimit: Number.isFinite(msg.corridorClassLimit) ? Number(msg.corridorClassLimit)
-        : (multiWindow ? CORRIDOR_CLASS_LIMIT : 0),
+        : (multiWindow ? (altReady ? ALT_CORRIDOR_CLASS_LIMIT : CORRIDOR_CLASS_LIMIT) : 0),
       tierOffsetM: Number.isFinite(msg.corridorTierOffsetM) && Number(msg.corridorTierOffsetM) > 0
-        ? Number(msg.corridorTierOffsetM) : CORRIDOR_TIER_OFFSET_M,
+        ? Number(msg.corridorTierOffsetM)
+        : (altReady ? ALT_CORRIDOR_TIER_OFFSET_M : CORRIDOR_TIER_OFFSET_M),
       freeRadiusM: Number.isFinite(msg.corridorFreeRadiusM) ? Number(msg.corridorFreeRadiusM)
         : (multiWindow ? CORRIDOR_FREE_RADIUS_M : 0),
-      weight: _corridorBaseWeight(msg.heuristicWeight, multiWindow),
-      baseWeight: _corridorBaseWeight(msg.heuristicWeight, multiWindow),
+      weight: _corridorBaseWeight(msg.heuristicWeight, multiWindow, altReady),
+      baseWeight: _corridorBaseWeight(msg.heuristicWeight, multiWindow, altReady),
       escalateAfter: Number.isFinite(msg.escalateAfterStates) && Number(msg.escalateAfterStates) > 0
-        ? Number(msg.escalateAfterStates) : (multiWindow ? CORRIDOR_ESCALATE_AFTER : 0),
+        ? Number(msg.escalateAfterStates)
+        : (multiWindow ? _corridorEscalateAfter(budget, Number(msg.windowCount ?? 0)) : 0),
       escalateFactor: Number.isFinite(msg.escalateFactor) && Number(msg.escalateFactor) > 1
-        ? Number(msg.escalateFactor) : CORRIDOR_ESCALATE_FACTOR,
+        ? Number(msg.escalateFactor)
+        : (altReady ? ALT_CORRIDOR_ESCALATE_FACTOR : CORRIDOR_ESCALATE_FACTOR),
       escalateMaxWeight: Number.isFinite(msg.escalateMaxWeight) && Number(msg.escalateMaxWeight) > 0
-        ? Number(msg.escalateMaxWeight) : CORRIDOR_ESCALATE_MAX_WEIGHT,
+        ? Number(msg.escalateMaxWeight)
+        : (altReady ? ALT_CORRIDOR_ESCALATE_MAX_WEIGHT : CORRIDOR_ESCALATE_MAX_WEIGHT),
       escalations: 0,
+      altK: 0, altScaleM: 0, altUnreachable: 0xffff,
+      altTargetFromL: null, altTargetToL: null, altTargetNodeId: 0n,
+      altWindow: null, altDisabledReason: null,
       finalWeight: Number.isFinite(msg.finalHeuristicWeight) && Number(msg.finalHeuristicWeight) > 0
-        ? Number(msg.finalHeuristicWeight) : _corridorBaseWeight(msg.heuristicWeight, multiWindow),
+        ? Number(msg.finalHeuristicWeight)
+        : _corridorBaseWeight(msg.heuristicWeight, multiWindow, altReady),
       /* Varsayılan cihaz koruması DEĞİŞMEDİ. Gölge ölçüm koşumu bu tavanı
          AÇIKÇA yükseltebilir; ürün sürücüsü bunu ASLA göndermez, böylece
          "ölçüm için gerekli" ile "cihazda geçerli" birbirine karışmaz. */
@@ -1554,8 +1770,7 @@ self.onmessage = (e: MessageEvent): void => {
         closedPerWindow: [],
       },
     };
-    const budget = Number.isFinite(msg.maxClosedStates) && Number(msg.maxClosedStates) > 0
-      ? Number(msg.maxClosedStates) : MAX_CLOSED;
+    if (altReady) _installAltTargetEvidence(_crossSession, msg);
     _crossSession.maxClosed = budget;
     /* Arşiv tavanı arama tavanına BAĞLIDIR: her kapatılan durum en fazla birkaç
        gevşetme üretir. Tavan aşılırsa rota uydurulmaz, fail-closed edilir. */
@@ -1582,7 +1797,8 @@ self.onmessage = (e: MessageEvent): void => {
     _crossRegionAdvance(
       session, Number(msg.windowIndex ?? 0), view, msg.identity,
       msg.exitPortals, msg.isFinal === true,
-      msg.boundaryBox ?? null, Number(msg.remainingLowerBoundM ?? 0));
+      msg.boundaryBox ?? null, Number(msg.remainingLowerBoundM ?? 0),
+      msg.altWindow ?? null);
     return;
   }
 

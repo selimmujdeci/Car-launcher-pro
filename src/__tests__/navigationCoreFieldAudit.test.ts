@@ -348,6 +348,13 @@ function full(over: Partial<NavigationCoreRawSnapshot> = {}): NavigationCoreRawS
       maxResidentGraphBytes: 67108864, onDemandRegionLoads: 11,
       regionEvictions: 8, windowFailClosedReason: null,
     },
+    crossRegionSearch: {
+      closedStates: 139229, maxClosedBudget: 200000, windowsUsed: 20,
+      weightEscalations: 14, altLandmarkCount: 8, altActive: true,
+      reconstructionBytes: 7794468,
+      closedByClass: [0, 3200, 8400, 9100, 21000, 44000, 18000, 30000, 900, 4600],
+      observedAtMs: 1000,
+    },
     /* NAV v3 · F5 — gölge karşılaştırma. Fixture DOLU olmalıdır: dolu anlık
        görüntüde UNAVAILABLE kalan bir alan, kaynağı olmayan alandır. */
     cehShadow: {
@@ -435,6 +442,8 @@ const SRC_CEH_AUDIT    = 'horizon/cehAuthority.getDiagnostics';
 const SRC_YAW_AUDIT    = 'navOrientationFeed.getSnapshot';
 const SRC_BRIDGE_AUDIT = 'navEgoHorizonBridge.getSnapshot';
 const SRC_GRAPH_AUDIT  = 'map/graph/graphResidencyRuntime.getSnapshot';
+/** RTG4 — son uzun rota arama profili (bütçe · ALT kanıtı · sınıf dağılımı). */
+const SRC_LONGROUTE_AUDIT = 'offlineRoutingService.getCrossRegionSearchSnapshot';
 /** NAV v3 · F5 — gölge karşılaştırma + cutover kapısı. */
 const SRC_SHADOW_AUDIT = 'shadow/cehShadowRuntime.getSnapshot';
 /** NAV v3 · F6 — sınırlı koridor + kenar-tabanlı denetim noktası. */
@@ -726,6 +735,11 @@ const REGISTRY: Record<string, Reg> = {
   /* RTG4 — sınırlı sakinlikle talep üzerine pencere. Sayaç alanı: damga YOK. */
   'hz-graph-window':   { source: SRC_GRAPH_AUDIT, key: 'graphResidency.residentGraphBytes',  stamp: 'NONE' },
   'hz-graph-ondemand': { source: SRC_GRAPH_AUDIT, key: 'graphResidency.onDemandRegionLoads', stamp: 'NONE' },
+
+  /* 16c · RTG4 — uzun rota arama profili (sayaç; koordinat/hedef TAŞIMAZ) */
+  'hz-longroute-search': { source: SRC_LONGROUTE_AUDIT, key: 'crossRegionSearch.closedStates',   stamp: 'NONE' },
+  'hz-longroute-alt':    { source: SRC_LONGROUTE_AUDIT, key: 'crossRegionSearch.altActive',      stamp: 'NONE' },
+  'hz-longroute-class':  { source: SRC_LONGROUTE_AUDIT, key: 'crossRegionSearch.closedByClass',  stamp: 'NONE' },
 
   /* 16b · NAV v3 · F5 — gölge karşılaştırma + cutover kapısı */
   'hz-shadow-mode':      { source: SRC_SHADOW_AUDIT, key: 'cehShadow.ticks',              stamp: 'NONE' },

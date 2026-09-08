@@ -195,6 +195,7 @@ const SRC_CEH    = 'horizon/cehAuthority.getDiagnostics';
 const SRC_YAW    = 'navOrientationFeed.getSnapshot';
 const SRC_BRIDGE = 'navEgoHorizonBridge.getSnapshot';
 const SRC_GRAPH  = 'map/graph/graphResidencyRuntime.getSnapshot';
+const SRC_LONGROUTE = 'offlineRoutingService.getCrossRegionSearchSnapshot';
 /** NAV v3 · F5 — gölge karşılaştırma + cutover kapısı kaynağı. */
 const SRC_CEH_SHADOW = 'shadow/cehShadowRuntime.getSnapshot';
 /** NAV v3 · F6 — sınırlı koridor + kenar-tabanlı denetim noktası kaynağı. */
@@ -1465,6 +1466,7 @@ export function buildNavigationCoreCards(s: NavigationCoreRawSnapshot): readonly
   const _yaw = s.yawFeed ?? null;
   const _br  = s.egoHorizonBridge ?? null;
   const _gr  = s.graphResidency ?? null;
+  const _xr  = s.crossRegionSearch ?? null;
   const _sh  = s.cehShadow ?? null;
   const _ep  = s.enforcementHorizonPort ?? null;
 
@@ -1654,6 +1656,52 @@ export function buildNavigationCoreCards(s: NavigationCoreRawSnapshot): readonly
             updatedAt: null },
             _gr.onDemandRegionLoads + ' yükleme · ' + _gr.regionEvictions + ' tahliye · '
               + 'son red: ' + (_gr.windowFailClosedReason ?? 'yok')),
+
+      /* ── RTG4 · UZUN ROTA ARAMA PROFİLİ ────────────────────────────────
+       * DÜRÜSTLÜK SINIRI: hüküm ÜRETİLMEZ, komut GÖNDERİLMEZ. Worker'ın kendi
+       * ölçtüğü sayaçlar basılır; hiç uzun rota çözülmediyse "ölçülmedi" der,
+       * sahte 0 durum / sahte "ALT açık" ÜRETİLMEZ. */
+      _xr === null || _xr.closedStates === null
+        ? unavailable({ id: 'hz-longroute-search', label: 'Uzun rota arama bütçesi', source: SRC_LONGROUTE,
+            note: 'Bu oturumda bölgeler arası uzun rota hiç çözülmedi — sahte bütçe ÜRETİLMEZ.',
+            updatedAt: null }, 'ölçülmedi')
+        : observed({ id: 'hz-longroute-search', label: 'Uzun rota arama bütçesi', source: SRC_LONGROUTE,
+            note: 'Bütçe tavanı cihaz belleğinden gelir ve uzun rota için YÜKSELTİLMEZ; '
+              + 'arama küçültülerek sığdırılır. Tırmanma, bir pencere araziye takıldığında '
+              + 'sezgisel ağırlığın geçici olarak artmasıdır (her pencerede tabana döner).',
+            updatedAt: null },
+            _xr.closedStates + '/' + (_xr.maxClosedBudget ?? '?') + ' durum · '
+              + (_xr.windowsUsed ?? '?') + ' pencere · ' + (_xr.weightEscalations ?? 0) + ' tırmanma · '
+              + 'arşiv ' + (_xr.reconstructionBytes ?? '?') + ' B'),
+      _xr === null || _xr.altActive === null
+        ? unavailable({ id: 'hz-longroute-alt', label: 'ALT landmark kanıtı', source: SRC_LONGROUTE,
+            note: 'ALT kanıtının durumu hiç ölçülmedi — "açık" veya "kapalı" UYDURULMAZ.',
+            updatedAt: null }, 'ölçülmedi')
+        : observed({ id: 'hz-longroute-alt', label: 'ALT landmark kanıtı', source: SRC_LONGROUTE,
+            note: 'ALT bir ALT SINIRDIR, rota otoritesi DEĞİLDİR: yalnız sezgiseli sıkılaştırır. '
+              + 'Kanıt eksik/uyumsuzsa kapanır ve arama coğrafi sezgiselle sürer (fail-soft).',
+            updatedAt: null },
+            (_xr.altActive ? 'etkin' : 'kapalı') + ' · ' + (_xr.altLandmarkCount ?? 0) + ' landmark'),
+      _xr === null || _xr.closedByClass === null
+        ? unavailable({ id: 'hz-longroute-class', label: 'Arama sınıf dağılımı', source: SRC_LONGROUTE,
+            note: 'Sınıf histogramı hiç ölçülmedi — sahte dağılım ÜRETİLMEZ.',
+            updatedAt: null }, 'ölçülmedi')
+        : observed({ id: 'hz-longroute-class', label: 'Arama sınıf dağılımı', source: SRC_LONGROUTE,
+            note: 'Kapatılan durumların GİRİŞ kenar sınıfı. Omurga payının düşmesi, aramanın '
+              + 'şehirlerarası rotanın kullanmayacağı sokak ağına harcandığının işaretidir.',
+            updatedAt: null },
+            (() => {
+              const h = _xr.closedByClass!;
+              const total = h.reduce((a, b) => a + b, 0);
+              if (total <= 0) return 'ölçüm boş';
+              const pct = (from: number, to: number) => {
+                let sum = 0;
+                for (let i = from; i <= to; i++) sum += h[i] ?? 0;
+                return Math.round((sum / total) * 100);
+              };
+              return 'omurga %' + pct(1, 3) + ' · ara %' + pct(4, 5) + ' · yerel %' + pct(6, 9)
+                + ' · toplam ' + total;
+            })()),
 
       /* ── F5 · GÖLGE KARŞILAŞTIRMA + CUTOVER KAPISI ─────────────────────
        * DÜRÜSTLÜK SINIRI: bu satırlar bir HÜKÜM ÜRETMEZ. Gölge katmanı

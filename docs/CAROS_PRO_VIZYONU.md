@@ -8898,3 +8898,77 @@ DEĞİŞTİRİLMEDİ — karar cihaz kanıtı bekliyor.
 Kanıt: `field-runs/rtg4-longroute-devicebudget-20260908/ondemand-longroute-validation.json`
 (sonrası) · `field-runs/rtg4-device-budget-20260908/` (öncesi, aynı kod tabanında
 ürün bütçesiyle ölçülmüş fail-closed temel çizgisi).
+
+## RTG4 ALT (landmark) rota kalitesi — 2026-09-08
+
+Durum: **ENTEGRE** (kod + masaüstü gölge), ÜRÜN HAZIR: **HAYIR**
+(cihaz/saha kapıları kırmızı — kütük #1215; ALT artefaktının ürün dağıtım
+yolu AÇIK BORÇTUR).
+
+Önceki faz aramayı ürün bütçesine sığdırmıştı ama bedeli rota kalitesiydi
+(İstanbul→Ankara +%16,0 · Eskişehir→İstanbul +%14,2) ve Mersin→İstanbul
+bütçenin **%92,4**'ünü kullanıyordu. Bu faz o borcu YAPISAL çözümle azalttı:
+landmark (ALT) alt sınırı.
+
+**ALT nedir, ne DEĞİLDİR.** Ön işlemeyle her düğüm için seçilmiş landmark'lara
+GERÇEK YOL mesafeleri (`d(L→v)` ve `d(v→L)`) hesaplanır; arama sırasında yönlü
+üçgen eşitsizliğiyle "buradan hedefe en az şu kadar var" denir. ALT bir
+**alt sınırdır**; rota otoritesi DEĞİLDİR, ikinci router DEĞİLDİR. Rota gerçeği
+aynı kanonik `routeRtg3EdgeState`ten gelir.
+
+**Kabul edilebilirlik üç katmanlı garantiye bağlandı.** (1) Ön işleme metriği
+KASITLI olarak en gevşek graftır: yalnız tek yön uygulanır; dönüş yasağı,
+via-way zinciri ve destination-only cezası uygulanmaz — kanonik maliyet bu
+metrikten küçük olamaz. (2) Mesafeler 50 m'lik kovalara AŞAĞI yuvarlanır ve
+sınır `(kova_a − kova_b − 1) × ölçek` ile hesaplanır: yuvarlama belirsizliği
+daima sınırın aleyhinedir. (3) Bilinmeyen mesafe sınıra hiç katılmaz.
+25 m ölçek denendi ve REDDEDİLDİ: 1 638 km'de taşıyor, taşan değeri kırpmak
+`d(t→L)` terimini küçültüp sınırı fazla tahmin ettirebilirdi.
+
+**Landmark seçimi deterministiktir ve ŞEHİR ADI SABİTLENMEZ.** Aday havuzu
+şehirlerarası omurgaya (motorway/trunk/primary) dokunan düğümlerdir; ilk aday
+havuzun coğrafi uç noktası, sonrakiler en-uzak-nokta örneklemesiyle gelir.
+Her aday ERİŞİLEBİLİRLİK ölçümüyle sınanır: ülke düğümlerinin en az yarısını
+çözemeyen aday reddedilir. Ölçüldü — bu doğrulama olmadan seçim, ileri yönde
+yalnız 1 düğüm çözebilen çıkışsız bir uç düğümü landmark yapıyordu.
+
+**ALT'nin YERİ ölçümle bulundu (önemli).** ALT ara pencerede doğrudan sezgisel
+yapıldığında arama KÖTÜLEŞTİ: koridorun zorunlu sınırı yerine ülke ölçeğindeki
+en kısa yola yöneldi, o yol pencerede yerleşik olmayan bölgelerden geçtiği için
+sınıra ulaşılamadı (Mersin→Ankara 86 338 → 200 001 tavan; İstanbul→Ankara rotası
+608 686 → 662 861 m). Doğru yer şu çıktı: ara pencerede ALT, **portal
+kümesinden hedefe kalan yolun** alt sınırını güçlendirir; yönlendirme
+koridorundur. Son pencerede (hedef gerçekten oradadır) ALT doğrudan kullanılır.
+
+**Kazanılan marj KALİTEYE çevrildi.** ALT varken profil ayrı: taban ağırlık
+1,6 → 1,35 · omurga katmanı sınıf 4 → 5 (tertiary de birinci katmana girer) ·
+katman ofseti 150 → 60 km · tırmanma çarpanı 1,8 → 1,5 ve tavanı 4 → 2,5.
+Tırmanma eşiği artık sabit değil, **bütçenin pencere başına payıdır**
+(`maxClosed / (2 × pencereSayısı)`) — 20 pencerelik Mersin→İstanbul'da sabit
+eşik çok geç kalıyordu.
+
+**Ölçülen sonuç (8 landmark, ürün bütçesi 200 000).** Ülke korpusu 8/8
+ROUTE_RESULT · bağımsız yasallık denetimi 50 965 adımda **0 ihlal** · arıza
+korpusu **11/11** (dördü yeni ALT senaryosu) · tepe yerleşik ≤3 bölge /
+≤42 133 556 B · yeniden kurma ≤7 794 468 B. Kalite borcu düştü:
+İstanbul→Ankara **+%16,0 → +%8,3** · Eskişehir→İstanbul **+%14,2 → +%1,2** ·
+Mersin→Ankara +%5,2 → +%3,0 · Mersin→İstanbul +%6,4 → +%3,0. Mersin→İstanbul
+arama marjı **15 134 → 60 771 durum** (bütçe kullanımı %92,4 → %69,6).
+
+**Açık kalan iki borç (gizlenmiyor).** (a) Mersin→Antalya kaliteyi geri
+vermedi, hafifçe geriledi: +%6,6 → +%8,6; aynı rota 100 000'lik kademede de
+düşüyor (100k kademesi 7/8 → 6/8). Toros koridorunda pencerelerin tamamı ağır
+ve tırmanma sürekli tetikleniyor. (b) **ALT artefaktı bugün yalnız gölgededir**:
+8 landmark nationwide 700 MB (16 landmark 1,4 GB), bölge dilimi ortalama
+1,74 MB / en büyük 12,18 MB. Ürün sürücüsü ALT göndermediği için cihazda
+GEOMETRIC profil çalışır — yani bu fazın kalite kazancı henüz ÜRÜN YOLUNDA
+DEĞİLDİR. Dilimlerin bölge grafıyla birlikte indirilmesi ayrı bir fazdır.
+
+**Neden 8 landmark.** 16 landmark ile kalite pratikte AYNI (aynı rotalar,
+aynı mesafeler), arama farkı %0–11; buna karşılık artefakt ve çalışma zamanı
+belleği iki katı. Tepe eşzamanlı ALT belleği 8 landmark'ta 4,47–28,54 MB.
+
+Kanıt: `field-runs/rtg4-alt-final-l8-20260908/ondemand-longroute-validation.json`
+(8 landmark, ürün profili) · `field-runs/rtg4-alt-corpus-20260908/` (16 landmark
+karşılaştırması) · `field-runs/rtg4-longroute-devicebudget-20260908/` (ALT
+öncesi 200k temel çizgisi).

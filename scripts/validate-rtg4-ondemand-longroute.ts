@@ -29,6 +29,7 @@ import {
   type RegionWindowIdentity, type TurkeyGraphManifest,
 } from '../src/platform/navigation/map/graph/turkeyGraphManifest';
 import { auditRouteLegality, type RouteLegalityReport } from './rtg4RouteLegalityAudit';
+import { parseRoutingGraph } from '../src/platform/navigation/map/graph/rtg2Reader';
 
 const RUN = resolve(process.env.RTG4_RUN_DIR ?? 'field-runs/rtg4-portal-v2-national-20260908');
 const OUT = resolve(process.env.RTG4_OUT_DIR ?? 'field-runs/rtg4-ondemand-longroute-20260908');
@@ -42,6 +43,109 @@ const manifest: TurkeyGraphManifest | null =
 if (!manifest) throw new Error('MANIFEST_INVALID — kanonik doğrulayıcı reddetti');
 
 const sha = (b: Buffer) => createHash('sha256').update(b).digest('hex');
+
+/* ── ALT (landmark) kanıtı — VARSA yüklenir, yoksa sezgisel eskisi gibi ──── */
+const ALT_DIR = process.env.RTG4_ALT_DIR ? resolve(process.env.RTG4_ALT_DIR) : null;
+interface AltManifest {
+  schemaVersion: number; datasetId: string; graphPolicyVersion: string;
+  landmarkCount: number; scaleM: number; unreachableBucket: number;
+  slices: { regionId: string; file: string; sha256: string; byteSize: number; nodeCount: number }[];
+}
+const altManifest: AltManifest | null = (() => {
+  if (!ALT_DIR) return null;
+  const path = resolve(ALT_DIR, 'turkey-alt-manifest.json');
+  if (!existsSync(path)) throw new Error(`ALT manifesti yok: ${path}`);
+  const parsed = JSON.parse(readFileSync(path, 'utf8')) as AltManifest;
+  /* Yanlış graf + ALT birleşimi REDDEDİLİR (fail-closed). */
+  if (parsed.datasetId !== manifest!.datasetId) throw new Error('ALT_DATASET_MISMATCH');
+  if (parsed.graphPolicyVersion !== manifest!.policyVersion) throw new Error('ALT_POLICY_MISMATCH');
+  return parsed;
+})();
+const altSliceCache = new Map<string, Uint16Array>();
+/**
+ * EŞZAMANLI yerleşik ALT baytı. Ölçümün ilk hâli rota boyunca OKUNAN toplamı
+ * sayıyordu; bu, cihazda aynı anda bellekte duran miktarı ABARTIYOR (dilim de
+ * bölge gibi pencere kaydıkça bırakılır). Doğru ölçü, pencere başına yerleşik
+ * dilim toplamının TEPE değeridir.
+ */
+let altPeakResidentBytes = 0;
+
+function altSlice(regionId: string): Uint16Array | null {
+  if (!altManifest || !ALT_DIR) return null;
+  const cached = altSliceCache.get(regionId);
+  if (cached) return cached;
+  const entry = altManifest.slices.find((slice) => slice.regionId === regionId);
+  if (!entry) return null;
+  const bytes = readFileSync(resolve(ALT_DIR, entry.file));
+  if (sha(bytes) !== entry.sha256) throw new Error(`ALT_SLICE_SHA_MISMATCH:${regionId}`);
+  const header = new Uint32Array(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + 24));
+  if (header[0] !== 0x414c5431 || header[1] !== altManifest.schemaVersion ||
+      header[2] !== altManifest.landmarkCount || header[3] !== altManifest.scaleM) {
+    throw new Error(`ALT_SLICE_HEADER_MISMATCH:${regionId}`);
+  }
+  const body = new Uint16Array(
+    bytes.buffer.slice(bytes.byteOffset + 24, bytes.byteOffset + bytes.byteLength));
+  altSliceCache.set(regionId, body);
+  return body;
+}
+
+/** Pencere düğüm sırasına göre ALT dizisi (bölge dilimleri kimlik tablosuyla yerleşir). */
+function altWindowFor(identity: RegionWindowIdentity, nodeCount: number): Uint16Array | null {
+  if (!altManifest) return null;
+  const k = altManifest.landmarkCount;
+  const out = new Uint16Array(nodeCount * k * 2).fill(altManifest.unreachableBucket);
+  let windowBytes = 0;
+  for (let slot = 0; slot < identity.regionIds.length; slot++) {
+    const slice = altSlice(identity.regionIds[slot]);
+    if (!slice) return null;
+    windowBytes += slice.byteLength;
+    if (windowBytes > altPeakResidentBytes) altPeakResidentBytes = windowBytes;
+    const localToMerged = identity.nodeLocalToMerged[slot];
+    for (let local = 0; local < localToMerged.length; local++) {
+      const merged = localToMerged[local];
+      if (merged >= nodeCount) continue;
+      const src = local * k * 2, dst = merged * k * 2;
+      for (let i = 0; i < k * 2; i++) out[dst + i] = slice[src + i];
+    }
+  }
+  return out;
+}
+
+/**
+ * Hedef ALT satırı. Hedef düğüm SON pencerenin bölgelerinde aranır (worker da
+ * orada arar); satır o düğümün bölge dilimindendir. Uyuşmazlık olursa worker
+ * ALT'yi kendisi KAPATIR — burada uydurma yapılmaz.
+ */
+function altTargetRow(regionIds: readonly string[], lat: number, lon: number): {
+  fromL: Uint16Array; toL: Uint16Array; nodeId: string;
+} | null {
+  if (!altManifest) return null;
+  const k = altManifest.landmarkCount;
+  let bestD = Infinity, bestRegion = '', bestLocal = -1, bestNodeId = '';
+  for (const regionId of regionIds) {
+    const region = manifest!.regions.find((r) => r.regionId === regionId);
+    if (!region) return null;
+    const buf = readFileSync(resolve(RUN, region.graphFile));
+    const parsed = parseRoutingGraph(buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength));
+    const view = parsed.view;
+    if (!view) return null;
+    for (let i = 0; i < view.nodeCount; i++) {
+      const dLat = (view.nodeLat[i] - lat) * 111_000;
+      const dLon = (view.nodeLon[i] - lon) * 111_000 * Math.cos(lat * (Math.PI / 180));
+      const d = dLat * dLat + dLon * dLon;
+      if (d < bestD) { bestD = d; bestRegion = regionId; bestLocal = i; bestNodeId = String(view.nodeSourceId[i]); }
+    }
+  }
+  if (bestLocal < 0) return null;
+  const slice = altSlice(bestRegion);
+  if (!slice) return null;
+  const fromL = new Uint16Array(k), toL = new Uint16Array(k);
+  for (let i = 0; i < k; i++) {
+    fromL[i] = slice[(bestLocal * k + i) * 2];
+    toL[i] = slice[(bestLocal * k + i) * 2 + 1];
+  }
+  return { fromL, toL, nodeId: bestNodeId };
+}
 
 /* ── Worker köprüsü (kanonik worker, gerçek mesaj protokolü) ─────────────── */
 
@@ -152,6 +256,10 @@ interface RouteMeasurement {
   closedPerWindow: number[] | null;
   /** Kapatılan durumların GİRİŞ kenar sınıfı histogramı (indis = RTG3 sınıfı). */
   closedByClass: number[] | null;
+  altLandmarkCount: number | null;
+  altActive: boolean | null;
+  altResidentBytes: number | null;
+  weightEscalations: number | null;
   result: string;
   detail?: string;
 }
@@ -172,6 +280,7 @@ async function measureRoute(
     searchStateBytesEstimate: null, reconstructionBytes: null, reconstructionRecords: null,
     expansions: null, peakSearchStates: null, migratedStates: null, droppedStates: null,
     geometryPoints: null, budgetRespected: null, closedByClass: null,
+    altLandmarkCount: null, altActive: null, altResidentBytes: null, weightEscalations: null,
     result: 'NOT_RUN',
   };
 
@@ -184,12 +293,21 @@ async function measureRoute(
   record.portalTransitions = envelope.transitions.length;
 
   _resetGraphResidencyForTest();
+  altSliceCache.clear();
+  altPeakResidentBytes = 0;
   posted.length = 0;
   const requestId = `x-${fromName}-${toName}`;
   const touched = new Set<string>();
   let loadMs = 0, solveMs = 0, budgetRespected = true;
   const started = performance.now();
 
+  /* ALT hedef satırı rota BAŞINDA çıkarılır: sezgisel ilk pencereden itibaren
+     gerekir, son pencereyi beklemek kazancın tamamını kaybettirir. */
+  /* Bölge içi (tek pencereli) rotada worker ALT KULLANMAZ; ölçüm de dilim
+     okumasın — yoksa rapor, ürün akışında hiç ödenmeyen bir belleği sayar. */
+  const altTarget = envelope.windows.length > 1
+    ? altTargetRow(envelope.windows[envelope.windows.length - 1], to[0], to[1])
+    : null;
   send({
     type: 'CROSS_REGION_BEGIN', requestId,
     fromLat: from[0], fromLon: from[1], toLat: to[0], toLon: to[1],
@@ -199,6 +317,14 @@ async function measureRoute(
     ...(SWEEP_ESCALATE_AFTER > 0 ? { escalateAfterStates: SWEEP_ESCALATE_AFTER } : {}),
     ...(SWEEP_ESCALATE_FACTOR > 1 ? { escalateFactor: SWEEP_ESCALATE_FACTOR } : {}),
     ...(SWEEP_ESCALATE_MAX_W > 0 ? { escalateMaxWeight: SWEEP_ESCALATE_MAX_W } : {}),
+    ...(altManifest && altTarget ? {
+      altLandmarkCount: altManifest.landmarkCount,
+      altScaleM: altManifest.scaleM,
+      altUnreachable: altManifest.unreachableBucket,
+      altTargetFromL: altTarget.fromL,
+      altTargetToL: altTarget.toL,
+      altTargetNodeId: altTarget.nodeId,
+    } : {}),
     ...(SWEEP_CLASS_LIMIT > 0
       ? {
           corridorClassLimit: SWEEP_CLASS_LIMIT, corridorFreeRadiusM: SWEEP_FREE_RADIUS_M,
@@ -246,6 +372,10 @@ async function measureRoute(
         boundaryBox: isFinal || CORRIDOR_BOUND_OFF ? null : envelope.transitions[windowIndex].boundaryBox,
         remainingLowerBoundM: isFinal || CORRIDOR_BOUND_OFF ? 0 : envelope.transitions[windowIndex].remainingLowerBoundM,
         isFinal,
+        altWindow: altManifest
+          ? altWindowFor(residency.identity as RegionWindowIdentity,
+              (residency.view as RoutingGraphView).nodeCount)
+          : null,
       });
       solveMs += performance.now() - solveStart;
       continue;
@@ -290,6 +420,9 @@ async function measureRoute(
       const histogram = Array.from({ length: 10 }, (_v, i) =>
         Number(message.crossRegion![`closedClass${i}`] ?? 0));
       record.closedByClass = histogram.some((n) => n > 0) ? histogram : null;
+      record.altLandmarkCount = message.crossRegion.altLandmarkCount ?? null;
+      record.altActive = (message.crossRegion.altActive ?? 0) === 1;
+      record.weightEscalations = message.crossRegion.weightEscalations ?? null;
     }
     break;
   }
@@ -304,6 +437,7 @@ async function measureRoute(
   record.loadMs = Number(loadMs.toFixed(1));
   record.solveMs = Number(solveMs.toFixed(1));
   record.totalMs = Number((performance.now() - started).toFixed(1));
+  record.altResidentBytes = altManifest ? altPeakResidentBytes : null;
   record.budgetRespected = budgetRespected &&
     snapshot.peakResidentRegions <= REGIONAL_GRAPH_MAX_RESIDENT &&
     snapshot.peakResidentGraphBytes <= REGIONAL_GRAPH_MAX_BYTES;
@@ -359,6 +493,56 @@ const expectFail = (name: string, expected: string, actual: string, ok: boolean)
   fetchBase = RUN;
   expectFail('next-region-missing', 'BLOCKED_WINDOW_LOAD', missing.result,
     missing.result.startsWith('BLOCKED_WINDOW_LOAD') && missing.distanceM === null);
+}
+
+if (altManifest) {
+  /* ── ALT ARIZA KORPUSU ────────────────────────────────────────────────
+     ALT bir KANIT katmanıdır: bozuk/uyumsuz kanıt sessizce kullanılamaz.
+     Beklenen davranış rota UYDURMAK değil, ALT'yi kapatıp coğrafi sezgiselle
+     devam etmektir (fail-soft) — çünkü ALT rota otoritesi DEĞİLDİR. */
+  const k = altManifest.landmarkCount;
+  const probe = (
+    name: string, expected: string,
+    patch: Record<string, unknown>,
+  ) => {
+    _resetGraphResidencyForTest();
+    posted.length = 0;
+    send({
+      type: 'CROSS_REGION_BEGIN', requestId: `alt-${name}`,
+      fromLat: CITY['Mersin'][0], fromLon: CITY['Mersin'][1],
+      toLat: CITY['Ankara'][0], toLon: CITY['Ankara'][1],
+      windowCount: 9, maxClosedStates: AUDIT_BUDGET,
+      altLandmarkCount: k, altScaleM: altManifest!.scaleM,
+      altUnreachable: altManifest!.unreachableBucket,
+      altTargetFromL: new Uint16Array(k), altTargetToL: new Uint16Array(k),
+      altTargetNodeId: '123456',
+      ...patch,
+    });
+    const first = posted.shift();
+    const accepted = first?.type === 'CROSS_REGION_NEED_WINDOW';
+    send({ type: 'CROSS_REGION_ABORT', requestId: `alt-${name}` });
+    expectFail(name, expected, accepted ? 'oturum açıldı (fail-soft)' : `red: ${first?.type ?? '?'}`, accepted);
+  };
+  probe('alt-missing-target-row', 'ALT kapalı, rota akışı sürüyor', { altTargetFromL: undefined });
+  probe('alt-landmark-count-mismatch', 'ALT kapalı, rota akışı sürüyor',
+    { altTargetToL: new Uint16Array(k + 1) });
+  probe('alt-invalid-scale', 'ALT kapalı, rota akışı sürüyor', { altScaleM: 0 });
+  probe('alt-invalid-target-node', 'ALT kapalı, rota akışı sürüyor', { altTargetNodeId: '0' });
+
+  /* Yanlış graf ↔ ALT birleşimi manifest düzeyinde REDDEDİLİR (fail-closed). */
+  const wrongDataset = altManifest.datasetId !== manifest.datasetId;
+  expectFail('alt-dataset-binding', 'ALT manifesti graf datasetId ile bağlı',
+    wrongDataset ? 'bağ YOK' : 'bağlı', !wrongDataset);
+
+  /* Dilim SHA'sı manifestteki değerle doğrulanır (bozuk dilim kullanılamaz). */
+  let sliceShaVerified = false;
+  try {
+    const entry = altManifest.slices[0];
+    const bytes = readFileSync(resolve(ALT_DIR!, entry.file));
+    sliceShaVerified = sha(bytes) === entry.sha256;
+  } catch { sliceShaVerified = false; }
+  expectFail('alt-slice-sha', 'dilim SHA doğrulanır',
+    sliceShaVerified ? 'doğrulandı' : 'DOĞRULANMADI', sliceShaVerified);
 }
 
 {
@@ -418,6 +602,9 @@ const evidence = {
     measuredBudgets: BUDGETS,
     auditBudget: AUDIT_BUDGET,
     corridorLowerBoundEnabled: !CORRIDOR_BOUND_OFF,
+    altDir: ALT_DIR,
+    altLandmarkCount: altManifest?.landmarkCount ?? null,
+    altScaleM: altManifest?.scaleM ?? null,
     heuristicWeightUsed: SWEEP_WEIGHT ?? 1.2,
   },
   routes,

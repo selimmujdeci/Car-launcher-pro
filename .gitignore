@@ -159,3 +159,10 @@ field-runs/**/logcat*.txt
 field-runs/**/*.log
 field-runs/**/trace-*.json
 field-runs/carto-2026-09-06/caros-nav-galeri.html
+
+# Gölge yol ağı artefaktları — ÜRÜN PAKETİ DEĞİL, ölçüm veri setidir.
+# RTG4 bölge grafları (~1 GB) ve ALT landmark dilimleri (8 landmark ~700 MB,
+# 16 landmark ~1,4 GB) depoya girmez; köken kanıtı manifest JSON'larıdır.
+field-runs/**/*.rtg4
+field-runs/**/*.alt
+field-runs/**/regions/*.bin

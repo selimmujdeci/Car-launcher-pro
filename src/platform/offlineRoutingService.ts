@@ -251,6 +251,54 @@ const _crossRegionPending = new Map<string, {
   onNeedWindow: (windowIndex: number) => Promise<void>;
 }>();
 
+/**
+ * SON uzun-rota arama profili — YALNIZ GÖZLEM.
+ *
+ * CAROS LAB, aramanın hangi profille koştuğunu (ALT kanıtı var mıydı, bütçenin
+ * ne kadarı harcandı, kaç kez ağırlık tırmandı) başka türlü göremez. Burada
+ * yalnız worker'ın KENDİ ölçtüğü sayılar saklanır: hüküm üretilmez, komut
+ * gönderilmez, konum/hedef/VIN gibi hiçbir kişisel veri TUTULMAZ.
+ * Hiç ölçüm yapılmadıysa `null` kalır — sahte sıfır ÜRETİLMEZ.
+ */
+export interface CrossRegionSearchSnapshot {
+  readonly closedStates: number | null;
+  readonly maxClosedBudget: number | null;
+  readonly windowsUsed: number | null;
+  readonly weightEscalations: number | null;
+  readonly altLandmarkCount: number | null;
+  readonly altActive: boolean | null;
+  readonly reconstructionBytes: number | null;
+  /** RTG3 sınıfına göre kapatılan durum histogramı (indis = sınıf). */
+  readonly closedByClass: readonly number[] | null;
+  readonly observedAtMs: number;
+}
+
+let _lastCrossRegionSearch: CrossRegionSearchSnapshot | null = null;
+
+/** LAB için salt-okunur projeksiyon. İkinci bir gerçek kaynağı DEĞİLDİR. */
+export function getCrossRegionSearchSnapshot(): CrossRegionSearchSnapshot | null {
+  return _lastCrossRegionSearch;
+}
+
+function _recordCrossRegionStats(stats: Record<string, number> | null | undefined): void {
+  if (!stats) return;
+  const numberOrNull = (value: unknown) =>
+    typeof value === 'number' && Number.isFinite(value) ? value : null;
+  const histogram: number[] = [];
+  for (let i = 0; i < 10; i++) histogram.push(numberOrNull(stats[`closedClass${i}`]) ?? 0);
+  _lastCrossRegionSearch = {
+    closedStates: numberOrNull(stats.expansions),
+    maxClosedBudget: numberOrNull(stats.maxClosedBudget),
+    windowsUsed: numberOrNull(stats.windowsUsed),
+    weightEscalations: numberOrNull(stats.weightEscalations),
+    altLandmarkCount: numberOrNull(stats.altLandmarkCount),
+    altActive: numberOrNull(stats.altActive) === null ? null : stats.altActive === 1,
+    reconstructionBytes: numberOrNull(stats.reconstructionBytes),
+    closedByClass: histogram.some((n) => n > 0) ? histogram : null,
+    observedAtMs: Date.now(),
+  };
+}
+
 const _graphInstallPending = new Map<string, {
   resolve: (installed: boolean) => void;
   timer: ReturnType<typeof setTimeout>;
@@ -289,11 +337,15 @@ function _getOrCreateNavWorker(): Worker | null {
         requestedRegionIds?: string[];
         fromRegionIds?: string[];
         crossRegion?: Record<string, number> | null;
+        stats?: Record<string, number> | null;
       };
+      /* Rota sonucu/hatası da profil taşır; en güncel ölçüm saklanır. */
+      if (msg.crossRegion) _recordCrossRegionStats(msg.crossRegion);
 
       /* Uzun rota: worker "sıradaki pencere lazım" der; sakinlik kararı ve
          bütçe BURADA (residency authority) kalır — worker kendi indirmez. */
       if (msg.type === 'CROSS_REGION_NEED_WINDOW' && msg.requestId) {
+        _recordCrossRegionStats(msg.stats);
         const session = _crossRegionPending.get(msg.requestId);
         if (session) void session.onNeedWindow(Number(msg.windowIndex ?? 0));
         return;

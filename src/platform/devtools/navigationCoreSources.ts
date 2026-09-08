@@ -101,6 +101,8 @@ import {
 import {
   getGraphResidencySnapshot, type GraphResidencySnapshot,
 } from '../navigation/map/graph/graphResidencyRuntime';
+import { getCrossRegionSearchSnapshot, type CrossRegionSearchSnapshot }
+  from '../offlineRoutingService';
 import {
   getCehShadowSnapshot, type CehShadowSnapshot,
 } from '../navigation/shadow/cehShadowRuntime';
@@ -167,6 +169,12 @@ export interface NavigationCoreRawSnapshot {
   readonly egoHorizonBridge: NavEgoHorizonBridgeSnapshot | null;
   /** F4 — yol ağı grafının ana iş parçacığındaki sakinliği (koordinat YOK). */
   readonly graphResidency: GraphResidencySnapshot | null;
+  /**
+   * RTG4 — son uzun-rota ARAMA PROFİLİ. Yalnız sayaç: bütçe kullanımı, ALT
+   * kanıtının varlığı, ağırlık tırmanması ve sınıf dağılımı. Başlangıç, hedef,
+   * geometri ve rota kimliği TAŞINMAZ.
+   */
+  readonly crossRegionSearch: CrossRegionSearchSnapshot | null;
   /**
    * F5 — legacy ↔ CEH gölge karşılaştırması + cutover kapısı. Yalnız sayaç ve
    * hüküm taşır; koordinat, talimat metni ve nokta kimliği TAŞIMAZ.
@@ -960,6 +968,7 @@ export function readNavigationCoreSnapshot(): NavigationCoreRawSnapshot {
     yawFeed:          _safe(() => getNavOrientationFeedSnapshot(), null),
     egoHorizonBridge: _safe(() => getNavEgoHorizonBridgeSnapshot(), null),
     graphResidency:   _safe(() => getGraphResidencySnapshot(), null),
+    crossRegionSearch: _safe(() => getCrossRegionSearchSnapshot(), null),
     /* F5 — gölge okuması SAYAÇLARI KİRLETMEZ: `getCehShadowSnapshot` yalnız
        okur, gölge tikini tetiklemez (ölçüm gözlemden etkilenmez). */
     cehShadow:        _safe(() => getCehShadowSnapshot(), null),

@@ -454,14 +454,17 @@ describe('RTG4 bounded on-demand uzun rota', () => {
     const worker = readFileSync(resolve(root, 'src/platform/navigation/NavigationCompute.worker.ts'), 'utf8');
     /* Bölge içi rota sezgiseli DEĞİŞMEDİ. */
     expect(worker).toContain('HEURISTIC_WEIGHT = 1.2');
-    expect(worker).toContain('return multiWindow ? CORRIDOR_BASE_WEIGHT : HEURISTIC_WEIGHT;');
+    expect(worker).toContain('if (!multiWindow) return HEURISTIC_WEIGHT;');
     /* Uzun rota profili tek yerde tanımlıdır (dağınık sihirli sayı yok). */
     expect(worker).toContain('const CORRIDOR_BASE_WEIGHT = 1.6;');
     expect(worker).toContain('const CORRIDOR_CLASS_LIMIT = 4;');
-    expect(worker).toContain('const CORRIDOR_ESCALATE_AFTER = 20_000;');
+    /* Tırmanma eşiği SABİT DEĞİL, bütçenin pencere başına payıdır: 20 pencerelik
+       koridorda sabit eşik çok geç kalıyordu (ölçüldü). */
+    expect(worker).toContain('const CORRIDOR_ESCALATE_WINDOW_SHARE = 2;');
+    expect(worker).toContain('budget / (CORRIDOR_ESCALATE_WINDOW_SHARE * windowCount)');
     /* Tek pencerede mekanizmalar KAPALIDIR (parite ölçüldü: 686/335/9345 durum). */
-    expect(worker).toContain('(multiWindow ? CORRIDOR_CLASS_LIMIT : 0)');
-    expect(worker).toContain('(multiWindow ? CORRIDOR_ESCALATE_AFTER : 0)');
+    expect(worker).toContain('(multiWindow ? (altReady ? ALT_CORRIDOR_CLASS_LIMIT : CORRIDOR_CLASS_LIMIT) : 0)');
+    expect(worker).toContain('(multiWindow ? _corridorEscalateAfter(budget, Number(msg.windowCount ?? 0)) : 0)');
   });
 
   /**
