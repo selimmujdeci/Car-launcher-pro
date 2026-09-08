@@ -1,0 +1,118 @@
+{
+  "generatedAt": "2026-09-08T05:37:44.929Z",
+  "chain": [
+    "tr-33-65-72",
+    "tr-33-66-72",
+    "tr-33-66-73"
+  ],
+  "routes": [
+    {
+      "name": "cross-region-arterial-to-residential",
+      "regions": [
+        "tr-33-65-72",
+        "tr-33-66-72"
+      ],
+      "origin": [
+        36.06233596801758,
+        32.82647705078125
+      ],
+      "destination": [
+        36.365997314453125,
+        33.11225509643555
+      ],
+      "distanceM": 70407,
+      "solveMs": 149.32130000000143,
+      "endpointErrorM": 0,
+      "accessLegal": true,
+      "onewayLegal": true,
+      "restrictionLegal": true,
+      "nodeCount": 65976,
+      "edgeCount": 67417
+    },
+    {
+      "name": "cross-region-residential-to-residential",
+      "regions": [
+        "tr-33-65-72",
+        "tr-33-66-72"
+      ],
+      "origin": [
+        36.4293212890625,
+        32.933292388916016
+      ],
+      "destination": [
+        36.365997314453125,
+        33.11225509643555
+      ],
+      "distanceM": 26468,
+      "solveMs": 64.20989999999983,
+      "endpointErrorM": 0,
+      "accessLegal": true,
+      "onewayLegal": true,
+      "restrictionLegal": true,
+      "nodeCount": 65976,
+      "edgeCount": 67417
+    },
+    {
+      "name": "three-region-local-to-arterial",
+      "regions": [
+        "tr-33-65-72",
+        "tr-33-66-72",
+        "tr-33-66-73"
+      ],
+      "origin": [
+        36.4293212890625,
+        32.933292388916016
+      ],
+      "destination": [
+        36.65037536621094,
+        33.425724029541016
+      ],
+      "distanceM": 90636,
+      "solveMs": 138.53260000000046,
+      "endpointErrorM": 0,
+      "accessLegal": true,
+      "onewayLegal": true,
+      "restrictionLegal": true,
+      "nodeCount": 93053,
+      "edgeCount": 95558
+    }
+  ],
+  "failures": [
+    {
+      "name": "manifest-missing-neighbor",
+      "rejected": true
+    },
+    {
+      "name": "sha-mismatch",
+      "rejected": true
+    },
+    {
+      "name": "corrupt-truncated-rtg3",
+      "rejected": true
+    },
+    {
+      "name": "missing-required-region",
+      "rejected": true
+    },
+    {
+      "name": "unsupported-manifest-version",
+      "rejected": true
+    }
+  ],
+  "realRestriction": {
+    "relationId": 10048729,
+    "restrictionType": "no_u_turn",
+    "regionId": "tr-33-65-72",
+    "fromWay": 114439024,
+    "toWay": 114439024,
+    "viaNodeId": 1296383068,
+    "fromEdge": 7828,
+    "toEdge": 7828,
+    "rtg3DirectTurnAllowed": false,
+    "canonicalRouteFound": false,
+    "canonicalRouteLegal": true,
+    "canonicalOutcome": "FORBIDDEN_DIRECT_TURN_NO_ALTERNATE",
+    "detail": "real-no-restriction-enforcement: rota yok"
+  },
+  "restrictionRecordCount": 6
+}

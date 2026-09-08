@@ -62,8 +62,10 @@ const MAX_CLOSED = _computeMaxClosed();
 
 let _graphWeakRef:  WeakRef<RoutingGraph> | null = null;
 let _graphFailed    = false;
+let _installedRegionalGraph: RoutingGraph | null = null;
 
 async function _loadGraph(): Promise<RoutingGraph | null> {
+  if (_installedRegionalGraph) return _installedRegionalGraph;
   const cached = _graphWeakRef?.deref();
   if (cached) return cached;
   if (_graphFailed) return null;
@@ -663,6 +665,7 @@ self.onmessage = (e: MessageEvent): void => {
     lat?: number; lon?: number;
     maxResults?: number;
     sab?: SharedArrayBuffer;
+    graphView?: RoutingGraphView;
   };
 
   if (msg.type === 'STOP') { self.close(); return; }
@@ -673,6 +676,31 @@ self.onmessage = (e: MessageEvent): void => {
     const existing = _poiDbRef?.deref();
     if (existing) { try { existing.close(); } catch { /* ignore */ } }
     _poiDbRef = null;
+    return;
+  }
+
+  if (msg.type === 'INSTALL_REGIONAL_GRAPH' && msg.requestId != null) {
+    const view = msg.graphView;
+    if (!view || view.version !== 3 || view.nodeCount < 1 || view.edgeCount < 1 ||
+        view.nodeLat.length !== view.nodeCount || view.edgeFrom.length !== view.edgeCount) {
+      (self as unknown as Worker).postMessage({ type:'GRAPH_INSTALL_ERROR', requestId:msg.requestId, reason:'RTG3 görünümü geçersiz' });
+      return;
+    }
+    try {
+      _installedRegionalGraph = { view, adjacency:buildGraphAdjacency(view), version:3 };
+      _graphWeakRef = new WeakRef(_installedRegionalGraph);
+      _graphFailed = false;
+      (self as unknown as Worker).postMessage({ type:'GRAPH_INSTALLED', requestId:msg.requestId });
+    } catch {
+      _installedRegionalGraph = null;
+      (self as unknown as Worker).postMessage({ type:'GRAPH_INSTALL_ERROR', requestId:msg.requestId, reason:'RTG3 komşuluğu kurulamadı' });
+    }
+    return;
+  }
+
+  if (msg.type === 'CLEAR_REGIONAL_GRAPH') {
+    _installedRegionalGraph = null;
+    _graphWeakRef = null;
     return;
   }
 

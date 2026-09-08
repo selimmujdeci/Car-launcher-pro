@@ -38,6 +38,12 @@ import {
   getProviderReadinessSnapshot, LOCAL_PROBE_TIMEOUT_MS,
 } from './navigation/core/routeProviderReadiness';
 import type { RouteStep }    from './routingService';
+import {
+  acquireRegionalRoutingGraph, releaseRoutingGraph,
+} from './navigation/map/graph/graphResidencyRuntime';
+import {
+  selectRegionalRouteCorridor, validateTurkeyGraphManifest,
+} from './navigation/map/graph/turkeyGraphManifest';
 
 /* ── Tipler ──────────────────────────────────────────────────── */
 
@@ -239,6 +245,10 @@ const _searchPending = new Map<string, {
 }>();
 let _searchReqCounter  = 0;
 const SEARCH_TIMEOUT_MS = 3_000;
+const _graphInstallPending = new Map<string, {
+  resolve: (installed: boolean) => void;
+  timer: ReturnType<typeof setTimeout>;
+}>();
 
 function _getOrCreateNavWorker(): Worker | null {
   if (_navWorker) return _navWorker;
@@ -270,6 +280,16 @@ function _getOrCreateNavWorker(): Worker | null {
         count?: number;
         results?: POIWorkerResult[];
       };
+
+      if ((msg.type === 'GRAPH_INSTALLED' || msg.type === 'GRAPH_INSTALL_ERROR') && msg.requestId) {
+        const install = _graphInstallPending.get(msg.requestId);
+        if (install) {
+          clearTimeout(install.timer);
+          _graphInstallPending.delete(msg.requestId);
+          install.resolve(msg.type === 'GRAPH_INSTALLED');
+        }
+        return;
+      }
 
       // POI arama yanıtı
       if ((msg.type === 'SEARCH_RESULT' || msg.type === 'SEARCH_ERROR') && msg.requestId) {
@@ -321,6 +341,11 @@ function _getOrCreateNavWorker(): Worker | null {
         clearTimeout(req.timer);
         req.resolve(null);
         _pending.delete(id);
+      }
+      for (const [id, install] of _graphInstallPending.entries()) {
+        clearTimeout(install.timer);
+        install.resolve(false);
+        _graphInstallPending.delete(id);
       }
       _navWorker = null;
       runtimeManager.registerWorker('NavigationCompute', null, 'OPTIONAL'); // referansı temizle
@@ -374,6 +399,39 @@ export async function computeOfflineRoute(
     _pending.set(requestId, { resolve, reject, timer });
     w.postMessage({ type: 'COMPUTE_ROUTE', requestId, fromLat, fromLon, toLat, toLon });
   });
+}
+
+/**
+ * Shadow regional RTG3 yolu: manifest/residency görünümünü mevcut tek
+ * NavigationCompute worker'ına kurar ve aynı `computeOfflineRoute` authority'sini çalıştırır.
+ */
+export async function computeRegionalOfflineRoute(
+  manifestValue: unknown,
+  fromLat: number, fromLon: number,
+  toLat: number, toLon: number,
+  baseUrl = '/maps/rtg3/',
+): Promise<OfflineRouteResult | null> {
+  const manifest = validateTurkeyGraphManifest(manifestValue);
+  if (!manifest) return null;
+  const corridor = selectRegionalRouteCorridor(manifest, [fromLat,fromLon], [toLat,toLon]);
+  if (!corridor) return null;
+  const view = await acquireRegionalRoutingGraph(manifest, corridor.requiredRegionIds, baseUrl);
+  if (!view) { releaseRoutingGraph(); return null; }
+  const worker = _getOrCreateNavWorker();
+  if (!worker) { releaseRoutingGraph(); return null; }
+  const requestId = `g${++_reqCounter}`;
+  const installed = await new Promise<boolean>((resolve) => {
+    const timer = setTimeout(() => { _graphInstallPending.delete(requestId); resolve(false); }, NAV_WORKER_TIMEOUT_MS);
+    _graphInstallPending.set(requestId, { resolve, timer });
+    worker.postMessage({ type:'INSTALL_REGIONAL_GRAPH', requestId, graphView:view });
+  });
+  if (!installed) { releaseRoutingGraph(); return null; }
+  try {
+    return await computeOfflineRoute(fromLat,fromLon,toLat,toLon);
+  } finally {
+    worker.postMessage({ type:'CLEAR_REGIONAL_GRAPH' });
+    releaseRoutingGraph();
+  }
 }
 
 /* ── Straight-line fallback (son çare) ───────────────────────── */

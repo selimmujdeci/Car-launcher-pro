@@ -8655,3 +8655,7 @@ Tarsus, Mersin dense ve Erdemli sabit AOI'lerinde gerçek OSM Overpass verisinde
 ## Turkey regional RTG3 platform — 2026-09-08
 
 İki gerçek Mersin corridor RTG3 partition, reciprocal-neighbor manifest, stable OSM portal merge ve SHA doğrulamalı mevcut residency authority entegrasyonu shadow olarak üretildi. Gerçek 6.007 km cross-region route desktop benchmark'ta PASS. PBF streaming builder ve production worker manifest handoff eksik olduğundan overall PARTIAL; production RTG2 değişmedi. Kanıt: `field-runs/turkey-regional-rtg3-20260908/report-source.md`.
+
+## RTG3 province hardening — 2026-09-08
+
+Durum: DOĞRULANDI (CODE/desktop shadow), ÜRÜN HAZIR: HAYIR. SQLite-backed iki geçişli Mersin province build 374.73 MiB process-tree peak ile 512 MiB kapısını geçti ve önceki graph binary'leriyle exact parity korudu. 110 gerçek via-node OSM restriction RTG3'e çözüldü. Manifest → mevcut graph residency → mevcut NavigationCompute worker zincirinde iki ve üç partition gerçek rota PASS verdi. Production RTG2 değiştirilmedi; device/field gate kırmızıdır. Kanıt: `field-runs/pbf-streaming-rtg3-20260908/report-source.md`.

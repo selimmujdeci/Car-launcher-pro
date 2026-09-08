@@ -6,12 +6,24 @@
     "provider": "Geofabrik/OpenStreetMap",
     "coverage": "Mersin province relation 223131"
   },
-  "parser": "osmium-tool osmium",
-  "strategy": "PBF stream pass 1 ways/restrictions + disk ID ledger; PBF pass 2 required nodes; bounded 0.5 degree partitions",
+  "parser": "osmium-tool + node:sqlite",
+  "strategy": "SQLite-indexed two-pass PBF stream; sequential deterministic 0.5 degree RTG3 partitions",
+  "memoryBudgetMiB": 512,
   "selectedWays": 48646,
   "deniedWays": 9730,
-  "requiredNodes": 578513,
-  "relationSource": 147,
+  "requiredCoordinates": 578513,
+  "restrictionRelations": 147,
+  "restrictionStats": {
+    "observed": 147,
+    "valid": 124,
+    "supported": 110,
+    "unsupported": 7,
+    "malformed": 23,
+    "unresolved": 7,
+    "conditional": 0,
+    "vehicleSpecific": 4,
+    "viaWay": 3
+  },
   "regions": [
     {
       "regionId": "tr-33-65-72",
@@ -42,9 +54,13 @@
       },
       "restrictions": {
         "source": 147,
+        "valid": 8,
         "supported": 6,
-        "unsupported": 0,
-        "malformed": 141
+        "unsupported": 2,
+        "malformed": 0,
+        "unresolved": 0,
+        "conditional": 0,
+        "vehicleSpecific": 0
       },
       "structure": {
         "bridge": 40,
@@ -74,9 +90,13 @@
       },
       "restrictions": {
         "source": 147,
+        "valid": 0,
         "supported": 0,
         "unsupported": 0,
-        "malformed": 147
+        "malformed": 0,
+        "unresolved": 0,
+        "conditional": 0,
+        "vehicleSpecific": 0
       },
       "structure": {
         "bridge": 0,
@@ -118,9 +138,13 @@
       },
       "restrictions": {
         "source": 147,
+        "valid": 0,
         "supported": 0,
         "unsupported": 0,
-        "malformed": 147
+        "malformed": 0,
+        "unresolved": 0,
+        "conditional": 0,
+        "vehicleSpecific": 0
       },
       "structure": {
         "bridge": 50,
@@ -161,9 +185,13 @@
       },
       "restrictions": {
         "source": 147,
+        "valid": 0,
         "supported": 0,
         "unsupported": 0,
-        "malformed": 147
+        "malformed": 0,
+        "unresolved": 0,
+        "conditional": 0,
+        "vehicleSpecific": 0
       },
       "structure": {
         "bridge": 29,
@@ -206,9 +234,13 @@
       },
       "restrictions": {
         "source": 147,
+        "valid": 1,
         "supported": 1,
         "unsupported": 0,
-        "malformed": 146
+        "malformed": 0,
+        "unresolved": 0,
+        "conditional": 0,
+        "vehicleSpecific": 0
       },
       "structure": {
         "bridge": 152,
@@ -252,9 +284,13 @@
       },
       "restrictions": {
         "source": 147,
+        "valid": 0,
         "supported": 0,
         "unsupported": 0,
-        "malformed": 147
+        "malformed": 0,
+        "unresolved": 0,
+        "conditional": 0,
+        "vehicleSpecific": 0
       },
       "structure": {
         "bridge": 23,
@@ -291,9 +327,13 @@
       },
       "restrictions": {
         "source": 147,
+        "valid": 0,
         "supported": 0,
         "unsupported": 0,
-        "malformed": 147
+        "malformed": 0,
+        "unresolved": 0,
+        "conditional": 0,
+        "vehicleSpecific": 0
       },
       "structure": {
         "bridge": 1,
@@ -333,9 +373,13 @@
       },
       "restrictions": {
         "source": 147,
+        "valid": 11,
         "supported": 14,
         "unsupported": 0,
-        "malformed": 136
+        "malformed": 0,
+        "unresolved": 0,
+        "conditional": 0,
+        "vehicleSpecific": 0
       },
       "structure": {
         "bridge": 41,
@@ -381,9 +425,13 @@
       },
       "restrictions": {
         "source": 147,
+        "valid": 5,
         "supported": 1,
-        "unsupported": 0,
-        "malformed": 146
+        "unsupported": 4,
+        "malformed": 0,
+        "unresolved": 0,
+        "conditional": 0,
+        "vehicleSpecific": 4
       },
       "structure": {
         "bridge": 115,
@@ -423,9 +471,13 @@
       },
       "restrictions": {
         "source": 147,
+        "valid": 0,
         "supported": 0,
         "unsupported": 0,
-        "malformed": 147
+        "malformed": 0,
+        "unresolved": 0,
+        "conditional": 0,
+        "vehicleSpecific": 0
       },
       "structure": {
         "bridge": 6,
@@ -469,9 +521,13 @@
       },
       "restrictions": {
         "source": 147,
+        "valid": 94,
         "supported": 91,
-        "unsupported": 0,
-        "malformed": 56
+        "unsupported": 1,
+        "malformed": 2,
+        "unresolved": 2,
+        "conditional": 0,
+        "vehicleSpecific": 0
       },
       "structure": {
         "bridge": 511,
@@ -516,9 +572,13 @@
       },
       "restrictions": {
         "source": 147,
+        "valid": 0,
         "supported": 0,
         "unsupported": 0,
-        "malformed": 147
+        "malformed": 0,
+        "unresolved": 0,
+        "conditional": 0,
+        "vehicleSpecific": 0
       },
       "structure": {
         "bridge": 89,
@@ -559,9 +619,13 @@
       },
       "restrictions": {
         "source": 147,
+        "valid": 0,
         "supported": 0,
         "unsupported": 0,
-        "malformed": 147
+        "malformed": 0,
+        "unresolved": 0,
+        "conditional": 0,
+        "vehicleSpecific": 0
       },
       "structure": {
         "bridge": 69,
@@ -599,9 +663,13 @@
       },
       "restrictions": {
         "source": 147,
+        "valid": 0,
         "supported": 0,
         "unsupported": 0,
-        "malformed": 147
+        "malformed": 0,
+        "unresolved": 0,
+        "conditional": 0,
+        "vehicleSpecific": 0
       },
       "structure": {
         "bridge": 24,
@@ -615,8 +683,1745 @@
   "totalNodes": 600821,
   "totalEdges": 629201,
   "totalBytes": 27232796,
-  "tempBytes": 50872877,
-  "buildMs": 11664.696686,
-  "peakRssBytes": 989564928,
-  "rssSamples": 301
+  "tempBytes": 107040768,
+  "peakTempBytes": 155619720,
+  "buildMs": 42049.079326,
+  "peakNodeRssBytes": 378322944,
+  "peakProcessTreeRssBytes": 378322944,
+  "telemetry": [
+    {
+      "stage": "periodic",
+      "atMs": 10391.865703000001,
+      "nodeRss": 97951744,
+      "childRss": 5255168,
+      "processTreeRss": 103206912,
+      "tempDisk": 102972112
+    },
+    {
+      "stage": "periodic",
+      "atMs": 10441.617222,
+      "nodeRss": 97951744,
+      "childRss": 7368704,
+      "processTreeRss": 105320448,
+      "tempDisk": 102972112
+    },
+    {
+      "stage": "periodic",
+      "atMs": 10491.891352,
+      "nodeRss": 97951744,
+      "childRss": 7417856,
+      "processTreeRss": 105369600,
+      "tempDisk": 102972112
+    },
+    {
+      "stage": "periodic",
+      "atMs": 10542.236932000002,
+      "nodeRss": 98082816,
+      "childRss": 18579456,
+      "processTreeRss": 116662272,
+      "tempDisk": 102972112
+    },
+    {
+      "stage": "periodic",
+      "atMs": 10592.440065,
+      "nodeRss": 98082816,
+      "childRss": 44843008,
+      "processTreeRss": 142925824,
+      "tempDisk": 102972112
+    },
+    {
+      "stage": "periodic",
+      "atMs": 10654.200657000001,
+      "nodeRss": 107126784,
+      "childRss": 37937152,
+      "processTreeRss": 145063936,
+      "tempDisk": 102972112
+    },
+    {
+      "stage": "periodic",
+      "atMs": 10722.167253000001,
+      "nodeRss": 108830720,
+      "childRss": 37937152,
+      "processTreeRss": 146767872,
+      "tempDisk": 102972112
+    },
+    {
+      "stage": "periodic",
+      "atMs": 10782.446008,
+      "nodeRss": 109850624,
+      "childRss": 37937152,
+      "processTreeRss": 147787776,
+      "tempDisk": 102972112
+    },
+    {
+      "stage": "periodic",
+      "atMs": 10840.098861,
+      "nodeRss": 110366720,
+      "childRss": 37937152,
+      "processTreeRss": 148303872,
+      "tempDisk": 102972112
+    },
+    {
+      "stage": "periodic",
+      "atMs": 10900.160011000002,
+      "nodeRss": 112070656,
+      "childRss": 37937152,
+      "processTreeRss": 150007808,
+      "tempDisk": 102972112
+    },
+    {
+      "stage": "periodic",
+      "atMs": 10955.21047,
+      "nodeRss": 112156672,
+      "childRss": 37937152,
+      "processTreeRss": 150093824,
+      "tempDisk": 102972112
+    },
+    {
+      "stage": "periodic",
+      "atMs": 11014.357854000002,
+      "nodeRss": 114778112,
+      "childRss": 37937152,
+      "processTreeRss": 152715264,
+      "tempDisk": 102972112
+    },
+    {
+      "stage": "periodic",
+      "atMs": 11069.817327,
+      "nodeRss": 119758848,
+      "childRss": 37937152,
+      "processTreeRss": 157696000,
+      "tempDisk": 102972112
+    },
+    {
+      "stage": "periodic",
+      "atMs": 11129.645721,
+      "nodeRss": 116187136,
+      "childRss": 37937152,
+      "processTreeRss": 154124288,
+      "tempDisk": 102972112
+    },
+    {
+      "stage": "periodic",
+      "atMs": 11184.348163,
+      "nodeRss": 116580352,
+      "childRss": 37937152,
+      "processTreeRss": 154517504,
+      "tempDisk": 102972112
+    },
+    {
+      "stage": "periodic",
+      "atMs": 11235.567686,
+      "nodeRss": 117407744,
+      "childRss": 37937152,
+      "processTreeRss": 155344896,
+      "tempDisk": 102972112
+    },
+    {
+      "stage": "periodic",
+      "atMs": 11288.361208,
+      "nodeRss": 117678080,
+      "childRss": 37937152,
+      "processTreeRss": 155615232,
+      "tempDisk": 102972112
+    },
+    {
+      "stage": "periodic",
+      "atMs": 11349.311165000001,
+      "nodeRss": 118095872,
+      "childRss": 37937152,
+      "processTreeRss": 156033024,
+      "tempDisk": 102972112
+    },
+    {
+      "stage": "periodic",
+      "atMs": 11403.894257000002,
+      "nodeRss": 118358016,
+      "childRss": 37937152,
+      "processTreeRss": 156295168,
+      "tempDisk": 102972112
+    },
+    {
+      "stage": "periodic",
+      "atMs": 11470.819248000002,
+      "nodeRss": 118652928,
+      "childRss": 37937152,
+      "processTreeRss": 156590080,
+      "tempDisk": 102972112
+    },
+    {
+      "stage": "periodic",
+      "atMs": 11522.793105,
+      "nodeRss": 118800384,
+      "childRss": 37937152,
+      "processTreeRss": 156737536,
+      "tempDisk": 102972112
+    },
+    {
+      "stage": "periodic",
+      "atMs": 11574.460495000001,
+      "nodeRss": 119062528,
+      "childRss": 37937152,
+      "processTreeRss": 156999680,
+      "tempDisk": 102972112
+    },
+    {
+      "stage": "periodic",
+      "atMs": 11639.547145,
+      "nodeRss": 119746560,
+      "childRss": 37937152,
+      "processTreeRss": 157683712,
+      "tempDisk": 102972112
+    },
+    {
+      "stage": "periodic",
+      "atMs": 11701.531908,
+      "nodeRss": 123826176,
+      "childRss": 37937152,
+      "processTreeRss": 161763328,
+      "tempDisk": 102972112
+    },
+    {
+      "stage": "periodic",
+      "atMs": 11766.727222000001,
+      "nodeRss": 128028672,
+      "childRss": 37937152,
+      "processTreeRss": 165965824,
+      "tempDisk": 102972112
+    },
+    {
+      "stage": "periodic",
+      "atMs": 11823.782247000001,
+      "nodeRss": 128159744,
+      "childRss": 37937152,
+      "processTreeRss": 166096896,
+      "tempDisk": 102972112
+    },
+    {
+      "stage": "periodic",
+      "atMs": 11888.957669000001,
+      "nodeRss": 128552960,
+      "childRss": 37937152,
+      "processTreeRss": 166490112,
+      "tempDisk": 102972112
+    },
+    {
+      "stage": "periodic",
+      "atMs": 11939.730575000001,
+      "nodeRss": 128561152,
+      "childRss": 37937152,
+      "processTreeRss": 166498304,
+      "tempDisk": 102972112
+    },
+    {
+      "stage": "periodic",
+      "atMs": 12002.781493,
+      "nodeRss": 128610304,
+      "childRss": 37937152,
+      "processTreeRss": 166547456,
+      "tempDisk": 102972112
+    },
+    {
+      "stage": "periodic",
+      "atMs": 12061.890114000002,
+      "nodeRss": 128880640,
+      "childRss": 37937152,
+      "processTreeRss": 166817792,
+      "tempDisk": 102972112
+    },
+    {
+      "stage": "periodic",
+      "atMs": 12133.260729000001,
+      "nodeRss": 128774144,
+      "childRss": 21037056,
+      "processTreeRss": 149811200,
+      "tempDisk": 102972112
+    },
+    {
+      "stage": "periodic",
+      "atMs": 12207.149809,
+      "nodeRss": 129175552,
+      "childRss": 21037056,
+      "processTreeRss": 150212608,
+      "tempDisk": 102972112
+    },
+    {
+      "stage": "periodic",
+      "atMs": 12275.683844000001,
+      "nodeRss": 129048576,
+      "childRss": 21037056,
+      "processTreeRss": 150085632,
+      "tempDisk": 102972112
+    },
+    {
+      "stage": "periodic",
+      "atMs": 12340.818283,
+      "nodeRss": 129204224,
+      "childRss": 21037056,
+      "processTreeRss": 150241280,
+      "tempDisk": 102972112
+    },
+    {
+      "stage": "periodic",
+      "atMs": 12391.972848000001,
+      "nodeRss": 129466368,
+      "childRss": 21037056,
+      "processTreeRss": 150503424,
+      "tempDisk": 102972112
+    },
+    {
+      "stage": "periodic",
+      "atMs": 12456.786712000001,
+      "nodeRss": 129343488,
+      "childRss": 21037056,
+      "processTreeRss": 150380544,
+      "tempDisk": 102972112
+    },
+    {
+      "stage": "periodic",
+      "atMs": 12514.789711000001,
+      "nodeRss": 129605632,
+      "childRss": 21037056,
+      "processTreeRss": 150642688,
+      "tempDisk": 102972112
+    },
+    {
+      "stage": "periodic",
+      "atMs": 12588.453412,
+      "nodeRss": 129654784,
+      "childRss": 21037056,
+      "processTreeRss": 150691840,
+      "tempDisk": 102972112
+    },
+    {
+      "stage": "periodic",
+      "atMs": 12638.165775000001,
+      "nodeRss": 130048000,
+      "childRss": 21037056,
+      "processTreeRss": 151085056,
+      "tempDisk": 102972112
+    },
+    {
+      "stage": "periodic",
+      "atMs": 12722.389082000002,
+      "nodeRss": 130060288,
+      "childRss": 21037056,
+      "processTreeRss": 151097344,
+      "tempDisk": 102972112
+    },
+    {
+      "stage": "periodic",
+      "atMs": 12813.393892,
+      "nodeRss": 129937408,
+      "childRss": 21037056,
+      "processTreeRss": 150974464,
+      "tempDisk": 102972112
+    },
+    {
+      "stage": "periodic",
+      "atMs": 12883.176885,
+      "nodeRss": 129806336,
+      "childRss": 21037056,
+      "processTreeRss": 150843392,
+      "tempDisk": 102972112
+    },
+    {
+      "stage": "periodic",
+      "atMs": 12960.090803000001,
+      "nodeRss": 130330624,
+      "childRss": 21037056,
+      "processTreeRss": 151367680,
+      "tempDisk": 102972112
+    },
+    {
+      "stage": "periodic",
+      "atMs": 13052.186189,
+      "nodeRss": 130338816,
+      "childRss": 21037056,
+      "processTreeRss": 151375872,
+      "tempDisk": 102972112
+    },
+    {
+      "stage": "periodic",
+      "atMs": 13109.835229,
+      "nodeRss": 130220032,
+      "childRss": 21037056,
+      "processTreeRss": 151257088,
+      "tempDisk": 102972112
+    },
+    {
+      "stage": "periodic",
+      "atMs": 13161.948612,
+      "nodeRss": 130482176,
+      "childRss": 21037056,
+      "processTreeRss": 151519232,
+      "tempDisk": 102972112
+    },
+    {
+      "stage": "periodic",
+      "atMs": 13262.919483000001,
+      "nodeRss": 130621440,
+      "childRss": 21037056,
+      "processTreeRss": 151658496,
+      "tempDisk": 102972112
+    },
+    {
+      "stage": "periodic",
+      "atMs": 13318.282519,
+      "nodeRss": 130367488,
+      "childRss": 21037056,
+      "processTreeRss": 151404544,
+      "tempDisk": 102972112
+    },
+    {
+      "stage": "periodic",
+      "atMs": 13398.210751,
+      "nodeRss": 130519040,
+      "childRss": 21037056,
+      "processTreeRss": 151556096,
+      "tempDisk": 102972112
+    },
+    {
+      "stage": "periodic",
+      "atMs": 13474.807914,
+      "nodeRss": 131436544,
+      "childRss": 21037056,
+      "processTreeRss": 152473600,
+      "tempDisk": 102972112
+    },
+    {
+      "stage": "periodic",
+      "atMs": 13557.178103,
+      "nodeRss": 130879488,
+      "childRss": 21037056,
+      "processTreeRss": 151916544,
+      "tempDisk": 102972112
+    },
+    {
+      "stage": "periodic",
+      "atMs": 13626.513893000001,
+      "nodeRss": 131141632,
+      "childRss": 21037056,
+      "processTreeRss": 152178688,
+      "tempDisk": 102972112
+    },
+    {
+      "stage": "periodic",
+      "atMs": 13701.18302,
+      "nodeRss": 131043328,
+      "childRss": 21037056,
+      "processTreeRss": 152080384,
+      "tempDisk": 102972112
+    },
+    {
+      "stage": "periodic",
+      "atMs": 13772.202009,
+      "nodeRss": 131305472,
+      "childRss": 21037056,
+      "processTreeRss": 152342528,
+      "tempDisk": 102972112
+    },
+    {
+      "stage": "periodic",
+      "atMs": 13839.266246000001,
+      "nodeRss": 131059712,
+      "childRss": 21037056,
+      "processTreeRss": 152096768,
+      "tempDisk": 102972112
+    },
+    {
+      "stage": "periodic",
+      "atMs": 13906.141869000001,
+      "nodeRss": 131321856,
+      "childRss": 21037056,
+      "processTreeRss": 152358912,
+      "tempDisk": 102972112
+    },
+    {
+      "stage": "periodic",
+      "atMs": 13974.418500000002,
+      "nodeRss": 131203072,
+      "childRss": 21037056,
+      "processTreeRss": 152240128,
+      "tempDisk": 102972112
+    },
+    {
+      "stage": "periodic",
+      "atMs": 14042.189453,
+      "nodeRss": 131465216,
+      "childRss": 21037056,
+      "processTreeRss": 152502272,
+      "tempDisk": 102972112
+    },
+    {
+      "stage": "periodic",
+      "atMs": 14104.688296,
+      "nodeRss": 131203072,
+      "childRss": 21037056,
+      "processTreeRss": 152240128,
+      "tempDisk": 102972112
+    },
+    {
+      "stage": "periodic",
+      "atMs": 14180.259983000002,
+      "nodeRss": 131334144,
+      "childRss": 21037056,
+      "processTreeRss": 152371200,
+      "tempDisk": 102972112
+    },
+    {
+      "stage": "pass1-complete",
+      "atMs": 14240.308188,
+      "nodeRss": 131465216,
+      "childRss": 0,
+      "processTreeRss": 131465216,
+      "tempDisk": 102972112
+    },
+    {
+      "stage": "periodic",
+      "atMs": 19826.064397000002,
+      "nodeRss": 131465216,
+      "childRss": 2392064,
+      "processTreeRss": 133857280,
+      "tempDisk": 113111432
+    },
+    {
+      "stage": "periodic",
+      "atMs": 19880.946869,
+      "nodeRss": 134008832,
+      "childRss": 22429696,
+      "processTreeRss": 156438528,
+      "tempDisk": 113111432
+    },
+    {
+      "stage": "periodic",
+      "atMs": 19934.629501,
+      "nodeRss": 135487488,
+      "childRss": 22896640,
+      "processTreeRss": 158384128,
+      "tempDisk": 113111432
+    },
+    {
+      "stage": "periodic",
+      "atMs": 19989.230844,
+      "nodeRss": 137224192,
+      "childRss": 23633920,
+      "processTreeRss": 160858112,
+      "tempDisk": 113111432
+    },
+    {
+      "stage": "periodic",
+      "atMs": 20043.820085,
+      "nodeRss": 131973120,
+      "childRss": 23961600,
+      "processTreeRss": 155934720,
+      "tempDisk": 113111432
+    },
+    {
+      "stage": "periodic",
+      "atMs": 20097.262006,
+      "nodeRss": 132390912,
+      "childRss": 24383488,
+      "processTreeRss": 156774400,
+      "tempDisk": 113111432
+    },
+    {
+      "stage": "periodic",
+      "atMs": 20148.513827000002,
+      "nodeRss": 132550656,
+      "childRss": 24899584,
+      "processTreeRss": 157450240,
+      "tempDisk": 113111432
+    },
+    {
+      "stage": "periodic",
+      "atMs": 20206.360952,
+      "nodeRss": 132689920,
+      "childRss": 25026560,
+      "processTreeRss": 157716480,
+      "tempDisk": 113111432
+    },
+    {
+      "stage": "periodic",
+      "atMs": 20255.762168,
+      "nodeRss": 133828608,
+      "childRss": 25743360,
+      "processTreeRss": 159571968,
+      "tempDisk": 113111432
+    },
+    {
+      "stage": "periodic",
+      "atMs": 20317.184184,
+      "nodeRss": 144089088,
+      "childRss": 25911296,
+      "processTreeRss": 170000384,
+      "tempDisk": 113111432
+    },
+    {
+      "stage": "periodic",
+      "atMs": 20372.427022,
+      "nodeRss": 153919488,
+      "childRss": 25972736,
+      "processTreeRss": 179892224,
+      "tempDisk": 113111432
+    },
+    {
+      "stage": "periodic",
+      "atMs": 20433.163155000002,
+      "nodeRss": 156147712,
+      "childRss": 25989120,
+      "processTreeRss": 182136832,
+      "tempDisk": 113111432
+    },
+    {
+      "stage": "periodic",
+      "atMs": 20487.168157,
+      "nodeRss": 155553792,
+      "childRss": 26394624,
+      "processTreeRss": 181948416,
+      "tempDisk": 113111432
+    },
+    {
+      "stage": "periodic",
+      "atMs": 20543.451469,
+      "nodeRss": 155729920,
+      "childRss": 26312704,
+      "processTreeRss": 182042624,
+      "tempDisk": 113111432
+    },
+    {
+      "stage": "periodic",
+      "atMs": 20600.911703,
+      "nodeRss": 156385280,
+      "childRss": 25141248,
+      "processTreeRss": 181526528,
+      "tempDisk": 113111432
+    },
+    {
+      "stage": "periodic",
+      "atMs": 20653.840261,
+      "nodeRss": 157048832,
+      "childRss": 25100288,
+      "processTreeRss": 182149120,
+      "tempDisk": 113111432
+    },
+    {
+      "stage": "periodic",
+      "atMs": 20705.72218,
+      "nodeRss": 156393472,
+      "childRss": 25194496,
+      "processTreeRss": 181587968,
+      "tempDisk": 113111432
+    },
+    {
+      "stage": "periodic",
+      "atMs": 20760.643528,
+      "nodeRss": 156786688,
+      "childRss": 26083328,
+      "processTreeRss": 182870016,
+      "tempDisk": 113111432
+    },
+    {
+      "stage": "periodic",
+      "atMs": 20809.698211000003,
+      "nodeRss": 156286976,
+      "childRss": 26947584,
+      "processTreeRss": 183234560,
+      "tempDisk": 113111432
+    },
+    {
+      "stage": "periodic",
+      "atMs": 20872.711027,
+      "nodeRss": 156950528,
+      "childRss": 27222016,
+      "processTreeRss": 184172544,
+      "tempDisk": 113111432
+    },
+    {
+      "stage": "periodic",
+      "atMs": 20922.967465,
+      "nodeRss": 156950528,
+      "childRss": 24403968,
+      "processTreeRss": 181354496,
+      "tempDisk": 113111432
+    },
+    {
+      "stage": "periodic",
+      "atMs": 20972.760130000002,
+      "nodeRss": 158539776,
+      "childRss": 24518656,
+      "processTreeRss": 183058432,
+      "tempDisk": 113111432
+    },
+    {
+      "stage": "periodic",
+      "atMs": 21023.660276000002,
+      "nodeRss": 158855168,
+      "childRss": 25038848,
+      "processTreeRss": 183894016,
+      "tempDisk": 113111432
+    },
+    {
+      "stage": "periodic",
+      "atMs": 21077.1284,
+      "nodeRss": 161218560,
+      "childRss": 25243648,
+      "processTreeRss": 186462208,
+      "tempDisk": 113111432
+    },
+    {
+      "stage": "periodic",
+      "atMs": 21132.731657,
+      "nodeRss": 161701888,
+      "childRss": 25837568,
+      "processTreeRss": 187539456,
+      "tempDisk": 113111432
+    },
+    {
+      "stage": "periodic",
+      "atMs": 21184.386621,
+      "nodeRss": 160976896,
+      "childRss": 27430912,
+      "processTreeRss": 188407808,
+      "tempDisk": 113111432
+    },
+    {
+      "stage": "periodic",
+      "atMs": 21235.298676000002,
+      "nodeRss": 163467264,
+      "childRss": 27631616,
+      "processTreeRss": 191098880,
+      "tempDisk": 113111432
+    },
+    {
+      "stage": "periodic",
+      "atMs": 21285.592080000002,
+      "nodeRss": 162299904,
+      "childRss": 28110848,
+      "processTreeRss": 190410752,
+      "tempDisk": 113111432
+    },
+    {
+      "stage": "periodic",
+      "atMs": 21335.037626,
+      "nodeRss": 163823616,
+      "childRss": 28483584,
+      "processTreeRss": 192307200,
+      "tempDisk": 113111432
+    },
+    {
+      "stage": "periodic",
+      "atMs": 21391.840037,
+      "nodeRss": 165359616,
+      "childRss": 28602368,
+      "processTreeRss": 193961984,
+      "tempDisk": 113111432
+    },
+    {
+      "stage": "periodic",
+      "atMs": 21441.892335,
+      "nodeRss": 164093952,
+      "childRss": 26132480,
+      "processTreeRss": 190226432,
+      "tempDisk": 113111432
+    },
+    {
+      "stage": "periodic",
+      "atMs": 21493.276694,
+      "nodeRss": 164093952,
+      "childRss": 25735168,
+      "processTreeRss": 189829120,
+      "tempDisk": 113111432
+    },
+    {
+      "stage": "periodic",
+      "atMs": 21545.016313,
+      "nodeRss": 164225024,
+      "childRss": 25772032,
+      "processTreeRss": 189997056,
+      "tempDisk": 113111432
+    },
+    {
+      "stage": "periodic",
+      "atMs": 21600.214382000002,
+      "nodeRss": 165195776,
+      "childRss": 25780224,
+      "processTreeRss": 190976000,
+      "tempDisk": 113111432
+    },
+    {
+      "stage": "periodic",
+      "atMs": 21651.909251,
+      "nodeRss": 164278272,
+      "childRss": 26169344,
+      "processTreeRss": 190447616,
+      "tempDisk": 113111432
+    },
+    {
+      "stage": "periodic",
+      "atMs": 21701.633618,
+      "nodeRss": 164540416,
+      "childRss": 26845184,
+      "processTreeRss": 191385600,
+      "tempDisk": 113111432
+    },
+    {
+      "stage": "periodic",
+      "atMs": 21752.785538,
+      "nodeRss": 164671488,
+      "childRss": 24895488,
+      "processTreeRss": 189566976,
+      "tempDisk": 113111432
+    },
+    {
+      "stage": "periodic",
+      "atMs": 21808.219163,
+      "nodeRss": 164810752,
+      "childRss": 25755648,
+      "processTreeRss": 190566400,
+      "tempDisk": 113111432
+    },
+    {
+      "stage": "periodic",
+      "atMs": 21858.095072,
+      "nodeRss": 165203968,
+      "childRss": 26001408,
+      "processTreeRss": 191205376,
+      "tempDisk": 113111432
+    },
+    {
+      "stage": "periodic",
+      "atMs": 21910.481138,
+      "nodeRss": 164691968,
+      "childRss": 26263552,
+      "processTreeRss": 190955520,
+      "tempDisk": 113111432
+    },
+    {
+      "stage": "periodic",
+      "atMs": 21967.541161,
+      "nodeRss": 164831232,
+      "childRss": 26697728,
+      "processTreeRss": 191528960,
+      "tempDisk": 113111432
+    },
+    {
+      "stage": "periodic",
+      "atMs": 22022.280659,
+      "nodeRss": 164700160,
+      "childRss": 26632192,
+      "processTreeRss": 191332352,
+      "tempDisk": 113111432
+    },
+    {
+      "stage": "periodic",
+      "atMs": 22075.299299000002,
+      "nodeRss": 163725312,
+      "childRss": 27021312,
+      "processTreeRss": 190746624,
+      "tempDisk": 113111432
+    },
+    {
+      "stage": "periodic",
+      "atMs": 22132.230455,
+      "nodeRss": 163725312,
+      "childRss": 27054080,
+      "processTreeRss": 190779392,
+      "tempDisk": 113111432
+    },
+    {
+      "stage": "periodic",
+      "atMs": 22186.963412,
+      "nodeRss": 163725312,
+      "childRss": 27152384,
+      "processTreeRss": 190877696,
+      "tempDisk": 113111432
+    },
+    {
+      "stage": "periodic",
+      "atMs": 22242.463855,
+      "nodeRss": 163725312,
+      "childRss": 25772032,
+      "processTreeRss": 189497344,
+      "tempDisk": 113111432
+    },
+    {
+      "stage": "periodic",
+      "atMs": 22292.148038,
+      "nodeRss": 164126720,
+      "childRss": 25772032,
+      "processTreeRss": 189898752,
+      "tempDisk": 113111432
+    },
+    {
+      "stage": "periodic",
+      "atMs": 22347.605352000002,
+      "nodeRss": 164397056,
+      "childRss": 25776128,
+      "processTreeRss": 190173184,
+      "tempDisk": 113111432
+    },
+    {
+      "stage": "periodic",
+      "atMs": 22399.501886000002,
+      "nodeRss": 164782080,
+      "childRss": 26054656,
+      "processTreeRss": 190836736,
+      "tempDisk": 113111432
+    },
+    {
+      "stage": "periodic",
+      "atMs": 22454.050808,
+      "nodeRss": 164265984,
+      "childRss": 25952256,
+      "processTreeRss": 190218240,
+      "tempDisk": 113111432
+    },
+    {
+      "stage": "periodic",
+      "atMs": 22510.5818,
+      "nodeRss": 164528128,
+      "childRss": 25960448,
+      "processTreeRss": 190488576,
+      "tempDisk": 113111432
+    },
+    {
+      "stage": "periodic",
+      "atMs": 22562.30195,
+      "nodeRss": 164265984,
+      "childRss": 26411008,
+      "processTreeRss": 190676992,
+      "tempDisk": 113111432
+    },
+    {
+      "stage": "periodic",
+      "atMs": 22619.058873,
+      "nodeRss": 165052416,
+      "childRss": 26411008,
+      "processTreeRss": 191463424,
+      "tempDisk": 113111432
+    },
+    {
+      "stage": "periodic",
+      "atMs": 22672.460698000003,
+      "nodeRss": 165584896,
+      "childRss": 26411008,
+      "processTreeRss": 191995904,
+      "tempDisk": 113111432
+    },
+    {
+      "stage": "periodic",
+      "atMs": 22724.108556,
+      "nodeRss": 164544512,
+      "childRss": 26517504,
+      "processTreeRss": 191062016,
+      "tempDisk": 113111432
+    },
+    {
+      "stage": "periodic",
+      "atMs": 22775.263815000002,
+      "nodeRss": 164544512,
+      "childRss": 26824704,
+      "processTreeRss": 191369216,
+      "tempDisk": 113111432
+    },
+    {
+      "stage": "periodic",
+      "atMs": 22827.915654,
+      "nodeRss": 164544512,
+      "childRss": 26439680,
+      "processTreeRss": 190984192,
+      "tempDisk": 113111432
+    },
+    {
+      "stage": "periodic",
+      "atMs": 22882.646882,
+      "nodeRss": 163426304,
+      "childRss": 26644480,
+      "processTreeRss": 190070784,
+      "tempDisk": 113111432
+    },
+    {
+      "stage": "periodic",
+      "atMs": 22943.137608,
+      "nodeRss": 163950592,
+      "childRss": 26673152,
+      "processTreeRss": 190623744,
+      "tempDisk": 113111432
+    },
+    {
+      "stage": "periodic",
+      "atMs": 22998.079156,
+      "nodeRss": 163819520,
+      "childRss": 27152384,
+      "processTreeRss": 190971904,
+      "tempDisk": 113111432
+    },
+    {
+      "stage": "periodic",
+      "atMs": 23049.150092,
+      "nodeRss": 163688448,
+      "childRss": 27766784,
+      "processTreeRss": 191455232,
+      "tempDisk": 113111432
+    },
+    {
+      "stage": "periodic",
+      "atMs": 23099.042839,
+      "nodeRss": 164474880,
+      "childRss": 28012544,
+      "processTreeRss": 192487424,
+      "tempDisk": 113111432
+    },
+    {
+      "stage": "periodic",
+      "atMs": 23148.693146,
+      "nodeRss": 163598336,
+      "childRss": 28016640,
+      "processTreeRss": 191614976,
+      "tempDisk": 113111432
+    },
+    {
+      "stage": "periodic",
+      "atMs": 23199.659519,
+      "nodeRss": 163729408,
+      "childRss": 28082176,
+      "processTreeRss": 191811584,
+      "tempDisk": 113111432
+    },
+    {
+      "stage": "periodic",
+      "atMs": 23252.974922,
+      "nodeRss": 165310464,
+      "childRss": 27947008,
+      "processTreeRss": 193257472,
+      "tempDisk": 113111432
+    },
+    {
+      "stage": "periodic",
+      "atMs": 23304.409899000002,
+      "nodeRss": 163999744,
+      "childRss": 28356608,
+      "processTreeRss": 192356352,
+      "tempDisk": 113111432
+    },
+    {
+      "stage": "periodic",
+      "atMs": 23354.583281,
+      "nodeRss": 163737600,
+      "childRss": 28442624,
+      "processTreeRss": 192180224,
+      "tempDisk": 113111432
+    },
+    {
+      "stage": "periodic",
+      "atMs": 23404.89746,
+      "nodeRss": 163868672,
+      "childRss": 29138944,
+      "processTreeRss": 193007616,
+      "tempDisk": 113111432
+    },
+    {
+      "stage": "periodic",
+      "atMs": 23459.595317,
+      "nodeRss": 164139008,
+      "childRss": 29483008,
+      "processTreeRss": 193622016,
+      "tempDisk": 113111432
+    },
+    {
+      "stage": "periodic",
+      "atMs": 23517.292676,
+      "nodeRss": 164925440,
+      "childRss": 30134272,
+      "processTreeRss": 195059712,
+      "tempDisk": 113111432
+    },
+    {
+      "stage": "periodic",
+      "atMs": 23570.747438000002,
+      "nodeRss": 163745792,
+      "childRss": 30330880,
+      "processTreeRss": 194076672,
+      "tempDisk": 113111432
+    },
+    {
+      "stage": "periodic",
+      "atMs": 23627.753510000002,
+      "nodeRss": 163745792,
+      "childRss": 30474240,
+      "processTreeRss": 194220032,
+      "tempDisk": 113111432
+    },
+    {
+      "stage": "periodic",
+      "atMs": 23693.26285,
+      "nodeRss": 164409344,
+      "childRss": 30474240,
+      "processTreeRss": 194883584,
+      "tempDisk": 113111432
+    },
+    {
+      "stage": "periodic",
+      "atMs": 23746.670563,
+      "nodeRss": 164106240,
+      "childRss": 30629888,
+      "processTreeRss": 194736128,
+      "tempDisk": 113111432
+    },
+    {
+      "stage": "periodic",
+      "atMs": 23798.487644,
+      "nodeRss": 164237312,
+      "childRss": 29356032,
+      "processTreeRss": 193593344,
+      "tempDisk": 113111432
+    },
+    {
+      "stage": "periodic",
+      "atMs": 23847.885247000002,
+      "nodeRss": 164499456,
+      "childRss": 19374080,
+      "processTreeRss": 183873536,
+      "tempDisk": 113111432
+    },
+    {
+      "stage": "pass2-complete",
+      "atMs": 23862.376637,
+      "nodeRss": 164368384,
+      "childRss": 0,
+      "processTreeRss": 164368384,
+      "tempDisk": 113111432
+    },
+    {
+      "stage": "partition-index-complete",
+      "atMs": 35540.351435,
+      "nodeRss": 166559744,
+      "childRss": 0,
+      "processTreeRss": 166559744,
+      "tempDisk": 155619720
+    },
+    {
+      "stage": "region:tr-33-65-72",
+      "atMs": 35862.130653,
+      "nodeRss": 181755904,
+      "childRss": 0,
+      "processTreeRss": 181755904,
+      "tempDisk": 155619720
+    },
+    {
+      "stage": "region:tr-33-65-73",
+      "atMs": 35911.702521,
+      "nodeRss": 193003520,
+      "childRss": 0,
+      "processTreeRss": 193003520,
+      "tempDisk": 155619720
+    },
+    {
+      "stage": "region:tr-33-66-72",
+      "atMs": 36168.338546,
+      "nodeRss": 193028096,
+      "childRss": 0,
+      "processTreeRss": 193028096,
+      "tempDisk": 155619720
+    },
+    {
+      "stage": "region:tr-33-66-73",
+      "atMs": 36412.2501,
+      "nodeRss": 196042752,
+      "childRss": 0,
+      "processTreeRss": 196042752,
+      "tempDisk": 155619720
+    },
+    {
+      "stage": "region:tr-33-67-72",
+      "atMs": 36805.047156,
+      "nodeRss": 213032960,
+      "childRss": 0,
+      "processTreeRss": 213032960,
+      "tempDisk": 155619720
+    },
+    {
+      "stage": "region:tr-33-67-73",
+      "atMs": 37309.310272999996,
+      "nodeRss": 237555712,
+      "childRss": 0,
+      "processTreeRss": 237555712,
+      "tempDisk": 155619720
+    },
+    {
+      "stage": "region:tr-33-67-74",
+      "atMs": 37373.988342,
+      "nodeRss": 247386112,
+      "childRss": 0,
+      "processTreeRss": 247386112,
+      "tempDisk": 155619720
+    },
+    {
+      "stage": "region:tr-33-68-72",
+      "atMs": 37517.657423,
+      "nodeRss": 222838784,
+      "childRss": 0,
+      "processTreeRss": 222838784,
+      "tempDisk": 155619720
+    },
+    {
+      "stage": "region:tr-33-68-73",
+      "atMs": 38409.608664,
+      "nodeRss": 258301952,
+      "childRss": 0,
+      "processTreeRss": 258301952,
+      "tempDisk": 155619720
+    },
+    {
+      "stage": "region:tr-33-68-74",
+      "atMs": 38532.227610999995,
+      "nodeRss": 259391488,
+      "childRss": 0,
+      "processTreeRss": 259391488,
+      "tempDisk": 155619720
+    },
+    {
+      "stage": "region:tr-33-69-73",
+      "atMs": 39927.381847,
+      "nodeRss": 336547840,
+      "childRss": 0,
+      "processTreeRss": 336547840,
+      "tempDisk": 155619720
+    },
+    {
+      "stage": "region:tr-33-69-74",
+      "atMs": 40489.437831999996,
+      "nodeRss": 378322944,
+      "childRss": 0,
+      "processTreeRss": 378322944,
+      "tempDisk": 155619720
+    },
+    {
+      "stage": "region:tr-33-70-73",
+      "atMs": 40617.986967,
+      "nodeRss": 322560000,
+      "childRss": 0,
+      "processTreeRss": 322560000,
+      "tempDisk": 155619720
+    },
+    {
+      "stage": "region:tr-33-70-74",
+      "atMs": 40693.432448,
+      "nodeRss": 332914688,
+      "childRss": 0,
+      "processTreeRss": 332914688,
+      "tempDisk": 155619720
+    },
+    {
+      "stage": "complete",
+      "atMs": 42046.282453,
+      "nodeRss": 343924736,
+      "childRss": 0,
+      "processTreeRss": 343924736,
+      "tempDisk": 107040768
+    }
+  ],
+  "restrictionEvidence": [
+    {
+      "relationId": 10048729,
+      "restrictionType": "no_u_turn",
+      "regionId": "tr-33-65-72",
+      "fromWay": 114439024,
+      "toWay": 114439024,
+      "viaNodeId": 1296383068,
+      "fromEdge": 7828,
+      "toEdge": 7828
+    },
+    {
+      "relationId": 10048730,
+      "restrictionType": "no_left_turn",
+      "regionId": "tr-33-65-72",
+      "fromWay": 725692200,
+      "toWay": 725685172,
+      "viaNodeId": 1296383068,
+      "fromEdge": 29984,
+      "toEdge": 29831
+    },
+    {
+      "relationId": 10048731,
+      "restrictionType": "no_left_turn",
+      "regionId": "tr-33-65-72",
+      "fromWay": 725686369,
+      "toWay": 725686625,
+      "viaNodeId": 1296383068,
+      "fromEdge": 29838,
+      "toEdge": 29839
+    },
+    {
+      "relationId": 10048732,
+      "restrictionType": "no_right_turn",
+      "regionId": "tr-33-65-72",
+      "fromWay": 725686369,
+      "toWay": 725685172,
+      "viaNodeId": 1296383068,
+      "fromEdge": 29838,
+      "toEdge": 29831
+    },
+    {
+      "relationId": 10048811,
+      "restrictionType": "no_u_turn",
+      "regionId": "tr-33-65-72",
+      "fromWay": 333600708,
+      "toWay": 333600708,
+      "viaNodeId": 3407259719,
+      "fromEdge": 16821,
+      "toEdge": 16821
+    },
+    {
+      "relationId": 10048812,
+      "restrictionType": "no_u_turn",
+      "regionId": "tr-33-65-72",
+      "fromWay": 725695222,
+      "toWay": 725695222,
+      "viaNodeId": 5481143515,
+      "fromEdge": 29985,
+      "toEdge": 29985
+    },
+    {
+      "relationId": 16507579,
+      "restrictionType": "no_left_turn",
+      "regionId": "tr-33-67-72",
+      "fromWay": 568916792,
+      "toWay": 707306423,
+      "viaNodeId": 5472584381,
+      "fromEdge": 20725,
+      "toEdge": 29485
+    },
+    {
+      "relationId": 14632220,
+      "restrictionType": "no_left_turn",
+      "regionId": "tr-33-68-72",
+      "fromWay": 1098434437,
+      "toWay": 602441962,
+      "viaNodeId": 5722283232,
+      "fromEdge": 6976,
+      "toEdge": 4716
+    },
+    {
+      "relationId": 14632221,
+      "restrictionType": "no_u_turn",
+      "regionId": "tr-33-68-72",
+      "fromWay": 1098434438,
+      "toWay": 1098434438,
+      "viaNodeId": 5722283233,
+      "fromEdge": 6977,
+      "toEdge": 6977
+    },
+    {
+      "relationId": 14632222,
+      "restrictionType": "no_u_turn",
+      "regionId": "tr-33-68-72",
+      "fromWay": 1098434443,
+      "toWay": 1098434443,
+      "viaNodeId": 10057548156,
+      "fromEdge": 6994,
+      "toEdge": 6994
+    },
+    {
+      "relationId": 14632223,
+      "restrictionType": "no_u_turn",
+      "regionId": "tr-33-68-72",
+      "fromWay": 1098434445,
+      "toWay": 1098434445,
+      "viaNodeId": 10057548158,
+      "fromEdge": 6998,
+      "toEdge": 6998
+    },
+    {
+      "relationId": 14632224,
+      "restrictionType": "no_u_turn",
+      "regionId": "tr-33-68-72",
+      "fromWay": 1098434447,
+      "toWay": 1098434447,
+      "viaNodeId": 10057548161,
+      "fromEdge": 7005,
+      "toEdge": 7005
+    },
+    {
+      "relationId": 14632225,
+      "restrictionType": "no_u_turn",
+      "regionId": "tr-33-68-72",
+      "fromWay": 1098434449,
+      "toWay": 1098434449,
+      "viaNodeId": 2825705172,
+      "fromEdge": 7009,
+      "toEdge": 7009
+    },
+    {
+      "relationId": 14632231,
+      "restrictionType": "no_u_turn",
+      "regionId": "tr-33-68-72",
+      "fromWay": 1098436236,
+      "toWay": 1098436236,
+      "viaNodeId": 10057563140,
+      "fromEdge": 7156,
+      "toEdge": 7156
+    },
+    {
+      "relationId": 14632232,
+      "restrictionType": "no_u_turn",
+      "regionId": "tr-33-68-72",
+      "fromWay": 557214319,
+      "toWay": 557214319,
+      "viaNodeId": 5374254516,
+      "fromEdge": 4132,
+      "toEdge": 4132
+    },
+    {
+      "relationId": 14632233,
+      "restrictionType": "no_u_turn",
+      "regionId": "tr-33-68-72",
+      "fromWay": 557214320,
+      "toWay": 557214320,
+      "viaNodeId": 5374254520,
+      "fromEdge": 4137,
+      "toEdge": 4137
+    },
+    {
+      "relationId": 14632902,
+      "restrictionType": "no_u_turn",
+      "regionId": "tr-33-68-72",
+      "fromWay": 556997996,
+      "toWay": 556997996,
+      "viaNodeId": 8016251667,
+      "fromEdge": 3683,
+      "toEdge": 3683
+    },
+    {
+      "relationId": 14632902,
+      "restrictionType": "no_u_turn",
+      "regionId": "tr-33-68-72",
+      "fromWay": 556997996,
+      "toWay": 556997996,
+      "viaNodeId": 8016251667,
+      "fromEdge": 3683,
+      "toEdge": 3684
+    },
+    {
+      "relationId": 14632902,
+      "restrictionType": "no_u_turn",
+      "regionId": "tr-33-68-72",
+      "fromWay": 556997996,
+      "toWay": 556997996,
+      "viaNodeId": 8016251667,
+      "fromEdge": 3684,
+      "toEdge": 3683
+    },
+    {
+      "relationId": 14632902,
+      "restrictionType": "no_u_turn",
+      "regionId": "tr-33-68-72",
+      "fromWay": 556997996,
+      "toWay": 556997996,
+      "viaNodeId": 8016251667,
+      "fromEdge": 3684,
+      "toEdge": 3684
+    },
+    {
+      "relationId": 14632903,
+      "restrictionType": "no_u_turn",
+      "regionId": "tr-33-68-72",
+      "fromWay": 1098483982,
+      "toWay": 1098483982,
+      "viaNodeId": 10058013373,
+      "fromEdge": 7413,
+      "toEdge": 7413
+    },
+    {
+      "relationId": 14632313,
+      "restrictionType": "no_u_turn",
+      "regionId": "tr-33-68-73",
+      "fromWay": 1098454868,
+      "toWay": 1098454868,
+      "viaNodeId": 10057752169,
+      "fromEdge": 67317,
+      "toEdge": 67317
+    },
+    {
+      "relationId": 5224130,
+      "restrictionType": "no_left_turn",
+      "regionId": "tr-33-69-73",
+      "fromWay": 113747441,
+      "toWay": 206230946,
+      "viaNodeId": 2162348393,
+      "fromEdge": 7180,
+      "toEdge": 21080
+    },
+    {
+      "relationId": 5308727,
+      "restrictionType": "only_straight_on",
+      "regionId": "tr-33-69-73",
+      "fromWay": 355493434,
+      "toWay": 355493424,
+      "viaNodeId": 3610934556,
+      "fromEdge": 63626,
+      "toEdge": 63604
+    },
+    {
+      "relationId": 5308728,
+      "restrictionType": "only_straight_on",
+      "regionId": "tr-33-69-73",
+      "fromWay": 355493427,
+      "toWay": 355493435,
+      "viaNodeId": 3610934552,
+      "fromEdge": 63608,
+      "toEdge": 63627
+    },
+    {
+      "relationId": 5311496,
+      "restrictionType": "only_straight_on",
+      "regionId": "tr-33-69-73",
+      "fromWay": 113723352,
+      "toWay": 355750032,
+      "viaNodeId": 1289222955,
+      "fromEdge": 5942,
+      "toEdge": 63784
+    },
+    {
+      "relationId": 5311497,
+      "restrictionType": "only_straight_on",
+      "regionId": "tr-33-69-73",
+      "fromWay": 114471418,
+      "toWay": 355750033,
+      "viaNodeId": 1289222948,
+      "fromEdge": 10040,
+      "toEdge": 63785
+    },
+    {
+      "relationId": 5311498,
+      "restrictionType": "only_straight_on",
+      "regionId": "tr-33-69-73",
+      "fromWay": 355750028,
+      "toWay": 355750011,
+      "viaNodeId": 1289222955,
+      "fromEdge": 63743,
+      "toEdge": 63682
+    },
+    {
+      "relationId": 5311499,
+      "restrictionType": "only_straight_on",
+      "regionId": "tr-33-69-73",
+      "fromWay": 113723340,
+      "toWay": 355750046,
+      "viaNodeId": 1289222948,
+      "fromEdge": 5831,
+      "toEdge": 63872
+    },
+    {
+      "relationId": 5311704,
+      "restrictionType": "no_u_turn",
+      "regionId": "tr-33-69-73",
+      "fromWay": 355759780,
+      "toWay": 355759785,
+      "viaNodeId": 2161161938,
+      "fromEdge": 64043,
+      "toEdge": 64054
+    },
+    {
+      "relationId": 5311705,
+      "restrictionType": "no_u_turn",
+      "regionId": "tr-33-69-73",
+      "fromWay": 355759757,
+      "toWay": 216605292,
+      "viaNodeId": 1885053261,
+      "fromEdge": 63985,
+      "toEdge": 48672
+    },
+    {
+      "relationId": 9482788,
+      "restrictionType": "no_u_turn",
+      "regionId": "tr-33-69-73",
+      "fromWay": 652418349,
+      "toWay": 653565306,
+      "viaNodeId": 1282473236,
+      "fromEdge": 84826,
+      "toEdge": 84899
+    },
+    {
+      "relationId": 9483013,
+      "restrictionType": "no_left_turn",
+      "regionId": "tr-33-69-73",
+      "fromWay": 683610025,
+      "toWay": 120271887,
+      "viaNodeId": 1348973083,
+      "fromEdge": 87111,
+      "toEdge": 11634
+    },
+    {
+      "relationId": 10437318,
+      "restrictionType": "no_right_turn",
+      "regionId": "tr-33-69-73",
+      "fromWay": 407755454,
+      "toWay": 211568121,
+      "viaNodeId": 2215600506,
+      "fromEdge": 81751,
+      "toEdge": 22507
+    },
+    {
+      "relationId": 10437319,
+      "restrictionType": "no_u_turn",
+      "regionId": "tr-33-69-73",
+      "fromWay": 211568121,
+      "toWay": 211568121,
+      "viaNodeId": 2215600506,
+      "fromEdge": 22507,
+      "toEdge": 22507
+    },
+    {
+      "relationId": 10437320,
+      "restrictionType": "no_right_turn",
+      "regionId": "tr-33-69-73",
+      "fromWay": 211568121,
+      "toWay": 756923343,
+      "viaNodeId": 2215600506,
+      "fromEdge": 22507,
+      "toEdge": 89725
+    },
+    {
+      "relationId": 13056455,
+      "restrictionType": "no_left_turn",
+      "regionId": "tr-33-69-73",
+      "fromWay": 970454330,
+      "toWay": 970454328,
+      "viaNodeId": 1296496480,
+      "fromEdge": 91621,
+      "toEdge": 91620
+    },
+    {
+      "relationId": 13056457,
+      "restrictionType": "no_right_turn",
+      "regionId": "tr-33-69-73",
+      "fromWay": 970455441,
+      "toWay": 110517838,
+      "viaNodeId": 6969837222,
+      "fromEdge": 91682,
+      "toEdge": 1450
+    },
+    {
+      "relationId": 13056485,
+      "restrictionType": "no_right_turn",
+      "regionId": "tr-33-69-73",
+      "fromWay": 122530032,
+      "toWay": 970455439,
+      "viaNodeId": 1261906688,
+      "fromEdge": 12069,
+      "toEdge": 91622
+    },
+    {
+      "relationId": 15906332,
+      "restrictionType": "no_u_turn",
+      "regionId": "tr-33-69-73",
+      "fromWay": 1176267833,
+      "toWay": 1176267833,
+      "viaNodeId": 1287639893,
+      "fromEdge": 135997,
+      "toEdge": 135997
+    },
+    {
+      "relationId": 17574398,
+      "restrictionType": "only_straight_on",
+      "regionId": "tr-33-69-73",
+      "fromWay": 1249178747,
+      "toWay": 1280952495,
+      "viaNodeId": 11889671272,
+      "fromEdge": 148950,
+      "toEdge": 149634
+    },
+    {
+      "relationId": 17574399,
+      "restrictionType": "only_left_turn",
+      "regionId": "tr-33-69-73",
+      "fromWay": 1280952503,
+      "toWay": 1280952496,
+      "viaNodeId": 11610987134,
+      "fromEdge": 149642,
+      "toEdge": 149635
+    },
+    {
+      "relationId": 17574400,
+      "restrictionType": "only_straight_on",
+      "regionId": "tr-33-69-73",
+      "fromWay": 1249178744,
+      "toWay": 1280952501,
+      "viaNodeId": 11889671273,
+      "fromEdge": 148942,
+      "toEdge": 149640
+    },
+    {
+      "relationId": 17574401,
+      "restrictionType": "only_left_turn",
+      "regionId": "tr-33-69-73",
+      "fromWay": 1280952504,
+      "toWay": 1280952502,
+      "viaNodeId": 11610987122,
+      "fromEdge": 149643,
+      "toEdge": 149641
+    },
+    {
+      "relationId": 17574402,
+      "restrictionType": "only_straight_on",
+      "regionId": "tr-33-69-73",
+      "fromWay": 1280952502,
+      "toWay": 1280952455,
+      "viaNodeId": 9820866399,
+      "fromEdge": 149641,
+      "toEdge": 149414
+    },
+    {
+      "relationId": 17574403,
+      "restrictionType": "only_straight_on",
+      "regionId": "tr-33-69-73",
+      "fromWay": 1280952497,
+      "toWay": 1280952496,
+      "viaNodeId": 11610987134,
+      "fromEdge": 149636,
+      "toEdge": 149635
+    },
+    {
+      "relationId": 17574404,
+      "restrictionType": "only_straight_on",
+      "regionId": "tr-33-69-73",
+      "fromWay": 1280952457,
+      "toWay": 1280952497,
+      "viaNodeId": 9820866395,
+      "fromEdge": 149418,
+      "toEdge": 149636
+    },
+    {
+      "relationId": 17574405,
+      "restrictionType": "only_straight_on",
+      "regionId": "tr-33-69-73",
+      "fromWay": 1280952496,
+      "toWay": 1280952491,
+      "viaNodeId": 9820866397,
+      "fromEdge": 149635,
+      "toEdge": 149627
+    },
+    {
+      "relationId": 17574406,
+      "restrictionType": "only_straight_on",
+      "regionId": "tr-33-69-73",
+      "fromWay": 1280952495,
+      "toWay": 1280952503,
+      "viaNodeId": 11889671274,
+      "fromEdge": 149634,
+      "toEdge": 149642
+    },
+    {
+      "relationId": 17574407,
+      "restrictionType": "no_right_turn",
+      "regionId": "tr-33-69-73",
+      "fromWay": 1280952501,
+      "toWay": 1280952503,
+      "viaNodeId": 11889671274,
+      "fromEdge": 149640,
+      "toEdge": 149642
+    }
+  ]
 }

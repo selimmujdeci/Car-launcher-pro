@@ -197,6 +197,20 @@ export async function acquireRegionalRoutingGraph(
   }
   const selected = requiredRegionIds.map((id) => manifest.regions.find((r) => r.regionId === id));
   if (selected.some((r) => !r)) { _report('MISSING', 'gerekli region manifestte yok'); return null; }
+  const selectedIds = new Set(requiredRegionIds);
+  const reached = new Set<string>([requiredRegionIds[0]]);
+  const queue = [requiredRegionIds[0]];
+  while (queue.length) {
+    const current = queue.shift()!;
+    const region = manifest.regions.find((candidate) => candidate.regionId === current);
+    for (const neighbor of region?.neighbors ?? []) if (selectedIds.has(neighbor) && !reached.has(neighbor)) {
+      reached.add(neighbor); queue.push(neighbor);
+    }
+  }
+  if (reached.size !== selectedIds.size) {
+    _report('MISSING', 'gerekli cross-region corridor komşuluk zinciri kırık');
+    return null;
+  }
   const bytes = selected.reduce((n, r) => n + r!.byteSize, 0);
   if (bytes > REGIONAL_GRAPH_MAX_BYTES) { _report('UNSUPPORTED', 'regional graph bellek bütçesini aşıyor'); return null; }
   try {

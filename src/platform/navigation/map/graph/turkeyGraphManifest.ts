@@ -46,6 +46,41 @@ export function validateTurkeyGraphManifest(value: unknown): TurkeyGraphManifest
   return m as TurkeyGraphManifest;
 }
 
+export interface RegionalRouteCorridor {
+  readonly originRegionId: string;
+  readonly destinationRegionId: string;
+  readonly requiredRegionIds: readonly string[];
+}
+
+/** Manifest komşuluk grafında en kısa bounded corridor'u seçer; coğrafi boşlukta fail-closed döner. */
+export function selectRegionalRouteCorridor(
+  manifest: TurkeyGraphManifest,
+  origin: readonly [number, number],
+  destination: readonly [number, number],
+  maxRegions = 3,
+): RegionalRouteCorridor | null {
+  const contains = (bbox: readonly [number,number,number,number], point: readonly [number,number]) =>
+    point[1] >= bbox[0] && point[1] <= bbox[2] && point[0] >= bbox[1] && point[0] <= bbox[3];
+  const originRegion = manifest.regions.find((region) => contains(region.bbox, origin));
+  const destinationRegion = manifest.regions.find((region) => contains(region.bbox, destination));
+  if (!originRegion || !destinationRegion || maxRegions < 1) return null;
+  const queue: string[][] = [[originRegion.regionId]];
+  const visited = new Set<string>([originRegion.regionId]);
+  while (queue.length) {
+    const path = queue.shift()!;
+    const current = path[path.length - 1];
+    if (current === destinationRegion.regionId) {
+      return { originRegionId:originRegion.regionId, destinationRegionId:destinationRegion.regionId, requiredRegionIds:path };
+    }
+    if (path.length >= maxRegions) continue;
+    const region = manifest.regions.find((candidate) => candidate.regionId === current);
+    for (const neighbor of region?.neighbors ?? []) if (!visited.has(neighbor)) {
+      visited.add(neighbor); queue.push([...path, neighbor]);
+    }
+  }
+  return null;
+}
+
 /** Stable OSM node kimliğiyle overlap düğümlerini birleştirir; ikinci authority değildir. */
 export function mergeRegionalGraphViews(views: readonly RoutingGraphView[]): RoutingGraphView | null {
   if (!views.length || views.some((v) => v.version !== 3)) return null;
