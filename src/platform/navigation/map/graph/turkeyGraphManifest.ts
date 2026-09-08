@@ -365,8 +365,75 @@ export interface CrossRegionSearchEnvelope {
     readonly fromRegionId: string;
     readonly toRegionId: string;
     readonly portalNodeIds: readonly string[];
+    /**
+     * Bu geçişte AŞILMASI ZORUNLU coğrafi sınır — iki karo bbox'ının kesişimi
+     * (`[lonMin, latMin, lonMax, latMax]`, bir kenarda dejenere).
+     *
+     * ── NEDEN KANITTIR ─────────────────────────────────────────────────────
+     * Bölgeler coğrafi karolardır. `fromRegionId`den `toRegionId`ye geçen HER
+     * yol poligonu bu doğru parçasını FİZİKSEL OLARAK KESER. Dolayısıyla bir
+     * durumdan bu kutuya olan uzaklık, kalan yolun kabul edilebilir (asla
+     * fazla tahmin etmeyen) bir ALT SINIRIDIR. Portal düğüm koordinatı
+     * gerekmez; manifest bbox'ı yeter.
+     */
+    readonly boundaryBox: readonly [number, number, number, number];
+    /**
+     * Bu sınır AŞILDIKTAN sonra hedefe kalan yolun alt sınırı (m): sonraki
+     * zorunlu sınırlar arasındaki en kısa mesafelerin toplamı + son sınırdan
+     * hedefe en kısa mesafe.
+     *
+     * ── NE İŞE YARAR ───────────────────────────────────────────────────────
+     * Kuş uçuşu sezgisel, koridor dolambaçlıyken kalan yolu ÇOK DÜŞÜK tahmin
+     * eder ve A* geniş bir elips tarar. Bu terim aramayı UZAK hedefe değil
+     * SIRADAKİ zorunlu sınıra yöneltir; pencere başına arama menzili
+     * koridor genişliğine iner. Kabul edilebilirlik korunur → rota gerçeği
+     * DEĞİŞMEZ, yalnız aynı rotaya daha az durum açarak varılır.
+     */
+    readonly remainingLowerBoundM: number;
   }[];
   readonly maxResidentRegions: number;
+}
+
+/** İki bbox'ın kesişimi; komşu karolarda bir kenarda dejenere dikdörtgendir. */
+function _boxIntersection(
+  a: readonly [number, number, number, number], b: readonly [number, number, number, number],
+): [number, number, number, number] {
+  return [
+    Math.max(a[0], b[0]), Math.max(a[1], b[1]),
+    Math.min(a[2], b[2]), Math.min(a[3], b[3]),
+  ];
+}
+
+const _EARTH_R = 6_371_000;
+
+function _havMeters(la1: number, lo1: number, la2: number, lo2: number): number {
+  const rad = Math.PI / 180;
+  const dLa = (la2 - la1) * rad, dLo = (lo2 - lo1) * rad;
+  const h = Math.sin(dLa / 2) ** 2 +
+    Math.cos(la1 * rad) * Math.cos(la2 * rad) * Math.sin(dLo / 2) ** 2;
+  return _EARTH_R * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
+}
+
+/** Nokta → bbox en kısa mesafesi (içerideyse 0). Kutu `[lonMin,latMin,lonMax,latMax]`. */
+export function distanceToBoxM(
+  lat: number, lon: number, box: readonly [number, number, number, number],
+): number {
+  const nearestLon = Math.min(Math.max(lon, box[0]), box[2]);
+  const nearestLat = Math.min(Math.max(lat, box[1]), box[3]);
+  return _havMeters(lat, lon, nearestLat, nearestLon);
+}
+
+/** İki bbox arasındaki en kısa mesafe (kesişiyorlarsa 0). */
+function _boxToBoxM(
+  a: readonly [number, number, number, number], b: readonly [number, number, number, number],
+): number {
+  const lonGap = Math.max(0, Math.max(a[0] - b[2], b[0] - a[2]));
+  const latGap = Math.max(0, Math.max(a[1] - b[3], b[1] - a[3]));
+  if (lonGap === 0 && latGap === 0) return 0;
+  const lat = (Math.max(a[1], b[1]) + Math.min(a[3], b[3])) / 2;
+  const lonM = lonGap * 111_320 * Math.cos(lat * (Math.PI / 180));
+  const latM = latGap * 110_540;
+  return Math.sqrt(lonM * lonM + latM * latM);
 }
 
 /**
@@ -478,15 +545,35 @@ export function planCrossRegionSearchEnvelope(
     }
     return [...nodes];
   };
-  const transitions = windows.slice(0, -1).map((_window, i) => {
-    const step = i + maxResidentRegions - 1;      // pencerenin ÖNCÜ bölgesi
+  const boxOf = (regionId: string) =>
+    manifest.regions.find((region) => region.regionId === regionId)!.bbox as
+      readonly [number, number, number, number];
+  const partial = windows.slice(0, -1).map((_window, i) => {
+    /* Tetik pencerenin ÖNCÜ bölgesinde DEĞİL, bir SONRAKİ karo sınırındadır.
+       Öncü sınırı hedeflemek, aramanın her pencerede ~2,5 karo boyu ilerlemesi
+       demekti ve sezgisel hedefi 110 km uzağa taşıyordu; yakın sınır hedefi
+       pencere başına taranan alanı belirgin küçültür. Gereken graf zaten
+       yerleşiktir → ek yükleme YOK. */
+    const step = i + 1;
     return {
       fromRegionId: corridorRegionIds[step],
       toRegionId: corridorRegionIds[step + 1],
       portalNodeIds: nodesForPair(componentPath[step], componentPath[step + 1]),
+      boundaryBox: _boxIntersection(boxOf(corridorRegionIds[step]), boxOf(corridorRegionIds[step + 1])),
     };
   });
-  if (transitions.some((t) => t.portalNodeIds.length === 0)) return null;   // fail-closed
+  if (partial.some((t) => t.portalNodeIds.length === 0)) return null;   // fail-closed
+
+  /* Kalan alt sınır SONDAN başa toplanır. Her terim iki ZORUNLU sınır arasındaki
+     en kısa mesafedir; hiçbiri gerçek yoldan uzun olamaz → toplam kabul
+     edilebilir bir alt sınırdır (asla fazla tahmin etmez). */
+  const remaining = new Array<number>(partial.length).fill(0);
+  for (let i = partial.length - 1; i >= 0; i--) {
+    remaining[i] = i === partial.length - 1
+      ? distanceToBoxM(destination[0], destination[1], partial[i].boundaryBox)
+      : _boxToBoxM(partial[i].boundaryBox, partial[i + 1].boundaryBox) + remaining[i + 1];
+  }
+  const transitions = partial.map((t, i) => ({ ...t, remainingLowerBoundM: remaining[i] }));
 
   return {
     originRegionId: originRegion.regionId,

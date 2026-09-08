@@ -8798,3 +8798,103 @@ Rota kalitesi gerçek en kısa karayoluna göre %6–%21 uzun. Cihaz/saha ve LAB
 kapıları kırmızıdır (kütük #1212).
 
 Kanıt: `field-runs/rtg4-ondemand-longroute-20260908/ondemand-longroute-validation.json`.
+
+## Uzun rota arama uzayı azaltımı (RTG4) — 2026-09-08
+
+Durum: **ENTEGRE** (kod + masaüstü gölge), ÜRÜN HAZIR: **HAYIR**.
+
+Önceki fazın açık cihaz engeli, uzun rotanın 0,8–1,6 milyon arama durumu
+açması ve cihaz bütçesinin (`MAX_CLOSED = 200 000`) bunu karşılamamasıydı.
+Bu fazda bütçe YÜKSELTİLMEDİ; arama uzayı küçültüldü.
+
+**Kayıpsız üç iyileştirme (ölçüldü).** (1) Pencere tetiği pencerenin öncü
+sınırından bir sonraki karo sınırına çekildi — sezgisel hedefi ~110 km'den
+~44 km'ye indi, gereken graf zaten yerleşikti. (2) Sezgisel koridor-yönelimli
+kabul edilebilir alt sınıra taşındı: iki karo arasındaki sınır fiziksel olarak
+kesilmek zorunda olduğundan "portal kümesine uzaklık + kalan sınır zinciri"
+asla fazla tahmin etmez. Kuş uçuşuyla maksimum ALINMAZ; ölçüldü ki uzak hedefe
+kuş uçuşu pencere içinde gradyan üretmiyor ve A* Dijkstra'ya dönüşüyordu.
+(3) Yeniden kurma arşivi 33 B/kayıt kompakt düzene ve tavana bağlandı.
+
+Sonuç: kapatılan durum **%18,6–%64,8 azaldı** ve rota kalitesi 8 rotanın
+7'sinde **iyileşti**. Mersin→İstanbul 1 597 469 → 1 124 042 durum ve
+1 069 198 → 1 037 343 m. Yeni bağımsız yasallık denetleyicisi 8/8 rotada
+**0 ihlal** ölçtü (Mersin→İstanbul: 15 050/15 050 adım çözüldü, 22 bölge
+tarandı, 0 doğrulanamayan dönüş) — yasallık artık yalnız yapısal iddia değil,
+ÖLÇÜLMÜŞ kanıttır.
+
+**Reddedilen kısayol.** Transit yol-sınıfı budaması aramayı %49–64 azaltıyordu
+fakat Mersin→Antalya rotasını tamamen kaybettiriyordu. Tamlık gerilemesi kabul
+edilmedi ve budama KALDIRILDI.
+
+**Kalan engel arazidir.** Tek pencerede Bolu geçişi 208 768, Toros çıkışı
+254 928 durum açıyor: düz çizgi sezgiselinin yapısal sınırı. Doğru çözüm
+landmark (ALT) alt sınırları veya kısayol/hiyerarşi ön işlemesidir; ikisi de
+yeni artefakt gerektirir ve ayrı bir fazdır.
+
+**Açık ürün kararı.** Sezgisel ağırlığı ölçüldü: W=2,0'de beş uzun rotanın
+dördü 200k bütçeye sığıyor, W=3,0'de hepsi sığıyor; bedeli rota uzunluğunda
++%5…+%14. Ürün ağırlığı bilinçli olarak 1,2'de bırakıldı — kaliteyi sessizce
+takas etmek yasaktır. Bu takas ayrı ve açık bir ürün kararıdır.
+
+Cihaz/saha kapıları kırmızıdır (kütük #1213).
+
+Kanıt: `field-runs/rtg4-longroute-searchreduction-20260908/ondemand-longroute-validation.json`.
+
+## Uzun rota CİHAZ ARAMA BÜTÇESİ (RTG4) — 2026-09-08
+
+Durum: **ENTEGRE** (kod + masaüstü gölge), ÜRÜN HAZIR: **HAYIR**
+(cihaz/saha kapıları kırmızı — kütük #1214).
+
+Önceki fazın kapanmamış kararı buydu: uzun rotalar yalnız 4 000 000'luk gölge
+tavanda çözülüyordu; ÜRÜN bütçesiyle (`MAX_CLOSED = 200 000`) ölçüm hiç
+yapılmamıştı. Yapıldı: **beş uzun rotanın beşi de** `CROSS_REGION_CLOSED_LIMIT`
+ile düşüyordu (`field-runs/rtg4-device-budget-20260908`). Yani özellik cihazda
+çalışmıyordu.
+
+**Kök neden ÖLÇÜLDÜ, tahmin edilmedi.** Kapatılan durumların giriş kenarı yol
+sınıfına göre sayıldı (yeni `closedByClass` enstrümanı). Ürün bütçesindeki
+dağılım: motorway+trunk+primary **%2,4** · tertiary ve altı **%94,6**
+(yalnız residential **%52**). Bütçenin tamamı, şehirlerarası bir rotanın hiç
+kullanmayacağı sokak ağını süpürmeye gidiyordu.
+
+**Üç mekanizma (hepsi ölçülerek seçildi, hiçbiri rota kaybı üretmez).**
+1. **Omurga katmanı — budama DEĞİL, sıralama.** Sert budama önce denendi ve
+   REDDEDİLDİ: koridoru kopardı (sınıf ≤4 → 83 793 durumda `EXHAUSTED`).
+   Bunun yerine düşük sınıf kenarın `f` değerine ölçülü katman ofseti eklenir
+   (150 km); durum ATILMAZ, yalnız geriye alınır. Omurga hedefe ulaşamazsa alt
+   katman kendiliğinden devreye girer. Ofset sonsuz DEĞİLDİR — sonsuz ofsette
+   hedef metropolüne son yaklaşma tek başına 94 489 durum yiyordu.
+2. **Koridor ağırlığı 1,6.** Yalnız ÇOK PENCERELİ rotada. Bölge içi (tek
+   pencere) rota 1,2'de kaldı ve paritesi ölçüldü: 686 / 335 / 9 345 durum ve
+   3 274 / 25 981 / 66 847 m — öncekiyle BİREBİR aynı.
+3. **Bütçe-farkında ağırlık tırmanması.** Koridorun bir penceresi araziye
+   takılabiliyor: Mersin→İstanbul'un Bolu penceresi tek başına 135 759 durum
+   yiyordu (diğer 19 pencerenin toplamı ~137 000). Pencerede 20 000 durum
+   aşıldıkça ağırlık ×1,8 artar (tavan 4) ve **her pencerede tabana döner**.
+
+**Ölçülen sonuç — ürün bütçesi 200 000, hiçbir ölçüm parametresi gönderilmeden:**
+ülke korpusunun **8/8 rotası ROUTE_RESULT**, bağımsız yasallık denetimi
+**8/8 rotada 0 ihlal**, arıza korpusu **5/5 fail-closed**, tepe yerleşik
+**≤3 bölge / ≤42 133 556 B**. Mersin→İstanbul 1 124 042 → **184 866 durum**
+(%83,6 azaltım) ve yeniden kurma arşivi 39 459 453 → **7 794 468 B** (8 MiB
+hedefinin altında). `MAX_CLOSED` YÜKSELTİLMEDİ; üretim RTG2 grafı DEĞİŞMEDİ
+(SHA `e7713f75…691da`).
+
+**Açıkça ödenen bedel (gizlenmiyor).** Rota uzunluğu 4 000 000'luk gölge
+çözüme göre uzadı: Ankara +%5,2 · Antalya +%6,6 · Mersin→İstanbul +%6,4 ·
+Eskişehir→İstanbul +%14,2 · **İstanbul→Ankara +%16,0**. Kısa rotalarda değişim
+**%0,0**. Bu bilinçli bir takastır: önceki durumda bu rotaların cihazda
+KARŞILIĞI YOKTU (fail-closed). Kalite borcu kapanmadı; kapatacak olan doğru
+çözüm landmark (ALT) alt sınırları veya kısayol/hiyerarşi ön işlemesidir ve
+yeni artefakt gerektirdiği için ayrı bir fazdır.
+
+**Donanım kademesi ölçüldü (P8).** 200k → 8/8 · 100k → 7/8 (yalnız
+Mersin→İstanbul düşer) · 50k → 3/8 · 30k → 3/8. Yani ülke çapı çevrimdışı uzun
+rota bugün yalnız `deviceMemory > 4` kademesinde gerçekçidir; 1–2 GB kademesi
+bölge içi rotalarla sınırlıdır. Runtime tier politikası bu ölçümle
+DEĞİŞTİRİLMEDİ — karar cihaz kanıtı bekliyor.
+
+Kanıt: `field-runs/rtg4-longroute-devicebudget-20260908/ondemand-longroute-validation.json`
+(sonrası) · `field-runs/rtg4-device-budget-20260908/` (öncesi, aynı kod tabanında
+ürün bütçesiyle ölçülmüş fail-closed temel çizgisi).

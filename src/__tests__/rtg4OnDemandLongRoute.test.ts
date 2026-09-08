@@ -196,9 +196,20 @@ describe('RTG4 bounded on-demand uzun rota', () => {
       expect(envelope.windows[i].slice(0, 2)).toEqual(envelope.windows[i - 1].slice(1));
     }
     expect(envelope.transitions).toHaveLength(5);
-    expect(envelope.transitions[0].fromRegionId).toBe(envelope.windows[0][2]);
-    expect(envelope.transitions[0].toRegionId).toBe(envelope.windows[1][2]);
+    /* 🔒 Tetik pencerenin ÖNCÜ sınırında DEĞİL, bir SONRAKİ karo sınırındadır.
+       Öncü sınırı hedeflemek sezgisel hedefi ~2,5 karo öteye taşıyor ve pencere
+       başına taranan alanı büyütüyordu (ölçüldü: uzun rotada %30–65 fazla
+       durum). Gereken graf zaten yerleşiktir → ek yükleme YOK. */
+    expect(envelope.transitions[0].fromRegionId).toBe(envelope.windows[0][1]);
+    expect(envelope.transitions[0].toRegionId).toBe(envelope.windows[0][2]);
     expect(envelope.transitions[0].portalNodeIds.length).toBeGreaterThan(0);
+    /* Koridor alt sınırı: her geçişten sonra kalan yol alt sınırı AZALMALI
+       (monoton) ve son geçişte hedefe uzaklığa inmeli. */
+    for (let i = 1; i < envelope.transitions.length; i++) {
+      expect(envelope.transitions[i].remainingLowerBoundM)
+        .toBeLessThanOrEqual(envelope.transitions[i - 1].remainingLowerBoundM);
+    }
+    expect(envelope.transitions[0].boundaryBox).toHaveLength(4);
   });
 
   it('kapsam dışı hedef ve kanıtsız yön için fail-closed döner', () => {
@@ -282,6 +293,14 @@ describe('RTG4 bounded on-demand uzun rota', () => {
   it('sabitler DEĞİŞMEDİ — uzun rota tavanı yükselterek çözülmez', () => {
     expect(REGIONAL_GRAPH_MAX_RESIDENT).toBe(3);
     expect(REGIONAL_GRAPH_MAX_BYTES).toBe(64 * 1024 * 1024);
+    /* Arama tavanı da yükseltilmedi: ülke korpusu bütçeyi BÜYÜTEREK değil,
+       aramayı KÜÇÜLTEREK çözüldü. Cihaz kademeleri aynen duruyor. */
+    const worker = readFileSync(
+      resolve(__dirname, '../../src/platform/navigation/NavigationCompute.worker.ts'), 'utf8');
+    expect(worker).toContain('if (!mem || mem <= 1) return 30_000;');
+    expect(worker).toContain('if (mem <= 2)         return 50_000;');
+    expect(worker).toContain('if (mem <= 4)         return 100_000;');
+    expect(worker).toContain('return 200_000;');
   });
 
   /* ── P3/P7 · TALEP ÜZERİNE YÜKLEME VE TAHLİYE ──────────────────────── */
@@ -409,6 +428,81 @@ describe('RTG4 bounded on-demand uzun rota', () => {
       resolve(root, 'src/platform/navigation/map/graph/graphResidencyRuntime.ts'), 'utf8');
     expect(residency).toContain('REGIONAL_GRAPH_MAX_RESIDENT = 3');
     expect(residency).toContain('REGIONAL_GRAPH_MAX_BYTES = 64 * 1024 * 1024');
+  });
+
+  it('🔒 arama uzayı azaltımı: koridor alt sınırı TEK sezgiseldir', () => {
+    const root = resolve(__dirname, '../..');
+    const worker = readFileSync(resolve(root, 'src/platform/navigation/NavigationCompute.worker.ts'), 'utf8');
+    /* Sezgisel tek yerde hesaplanır; ikinci bir "yakınlık tahmini" kurulamaz. */
+    expect(worker.match(/function _crossRegionHeuristicM\(/g)).toHaveLength(1);
+    expect(worker).toContain('distanceToBoxM(lat, lon, boxes[i])');
+    /* Kuş uçuşuyla MAKSİMUM alınırsa gradyan kaybolur (ölçüldü) — geri gelmesin. */
+    expect(worker).not.toContain('Math.max(direct, distanceToBoxM');
+  });
+
+  /**
+   * KİLİT GÜNCELLENDİ (kaldırılmadı) — eski kilit "ürün ağırlığı 1,2 kalır"
+   * diyordu. ÖLÇÜLDÜ: 1,2 ile ürün bütçesinde (200 000) ülke korpusunun BEŞ
+   * uzun rotası `CROSS_REGION_CLOSED_LIMIT` ile DÜŞÜYORDU
+   * (`field-runs/rtg4-device-budget-20260908`). Yani eski kilit, cihazda
+   * çalışmayan bir davranışı koruyordu. Yeni kilit doğru ayrımı korur:
+   * BÖLGE İÇİ (tek pencere) rota birebir eski davranıştır; uzun rota profili
+   * ölçülmüş sabitlerden gelir ve arama TAVANI yükseltilmez.
+   */
+  it('🔒 uzun rota profili: tek pencerede 1,2 · çok pencerede ölçülmüş sabitler', () => {
+    const root = resolve(__dirname, '../..');
+    const worker = readFileSync(resolve(root, 'src/platform/navigation/NavigationCompute.worker.ts'), 'utf8');
+    /* Bölge içi rota sezgiseli DEĞİŞMEDİ. */
+    expect(worker).toContain('HEURISTIC_WEIGHT = 1.2');
+    expect(worker).toContain('return multiWindow ? CORRIDOR_BASE_WEIGHT : HEURISTIC_WEIGHT;');
+    /* Uzun rota profili tek yerde tanımlıdır (dağınık sihirli sayı yok). */
+    expect(worker).toContain('const CORRIDOR_BASE_WEIGHT = 1.6;');
+    expect(worker).toContain('const CORRIDOR_CLASS_LIMIT = 4;');
+    expect(worker).toContain('const CORRIDOR_ESCALATE_AFTER = 20_000;');
+    /* Tek pencerede mekanizmalar KAPALIDIR (parite ölçüldü: 686/335/9345 durum). */
+    expect(worker).toContain('(multiWindow ? CORRIDOR_CLASS_LIMIT : 0)');
+    expect(worker).toContain('(multiWindow ? CORRIDOR_ESCALATE_AFTER : 0)');
+  });
+
+  /**
+   * Katman mekanizması bir BUDAMA değildir. Sert budama ölçüldü ve koridoru
+   * KOPARDI (sınıf ≤4: 83 793 durumda `EXHAUSTED`). Bu yüzden düşük sınıf
+   * kenar ELENMEZ, yalnız `f` sıralamasında geriye alınır → rota kaybı yok.
+   */
+  it('🔒 omurga katmanı SIRALAMADIR, budama DEĞİLDİR (rota kaybı olamaz)', () => {
+    const root = resolve(__dirname, '../..');
+    const worker = readFileSync(resolve(root, 'src/platform/navigation/NavigationCompute.worker.ts'), 'utf8');
+    /* Katman yalnız önceliğe eklenir. */
+    expect(worker).toContain('priority + _corridorTier(session, view, ordinal');
+    expect(worker).toContain('* session.tierOffsetM,');
+    /* Sınıfa bakıp komşuyu ATLAYAN bir eleme YOK. */
+    expect(worker).not.toMatch(/edgeRoadClass\(view, ordinal\) > session\.classLimit[\s\S]{0,120}continue;/);
+    /* Ofset SONSUZ değildir: sonsuz ofset hedef metropolünü boğuyordu (ölçüldü). */
+    expect(worker).toContain('const CORRIDOR_TIER_OFFSET_M = 150_000;');
+    expect(worker).not.toContain('CORRIDOR_TIER_OFFSET_M = 1e9');
+  });
+
+  /** Tırmanma pencere yereldir: bir penceredeki arazi cezası sonrakine taşınmaz. */
+  it('🔒 bütçe-farkında ağırlık tırmanması her pencerede TABANA döner', () => {
+    const root = resolve(__dirname, '../..');
+    const worker = readFileSync(resolve(root, 'src/platform/navigation/NavigationCompute.worker.ts'), 'utf8');
+    expect(worker).toContain('session.weight = isFinal ? session.finalWeight : session.baseWeight;');
+    expect(worker).toContain('session.weight < session.escalateMaxWeight');
+    expect(worker).toContain('const CORRIDOR_ESCALATE_MAX_WEIGHT = 4;');
+  });
+
+  it('🔒 yeniden kurma arşivi KOMPAKT ve TAVANLIDIR (sınırsız büyüme yok)', () => {
+    const root = resolve(__dirname, '../..');
+    const worker = readFileSync(resolve(root, 'src/platform/navigation/NavigationCompute.worker.ts'), 'utf8');
+    /* Koordinat graf ile AYNI hassasiyette: çift hassasiyet bilgi taşımaz, bayt yer. */
+    expect(worker).toContain('lon:    Float32Array;');
+    expect(worker).toContain('cost:   Uint32Array;');
+    /* Kararlı kimlik denetim için saklanır (P10). */
+    expect(worker).toContain('nodeId: BigUint64Array;');
+    expect(worker).toContain('wayId:  BigUint64Array;');
+    /* Tavan aşılırsa rota UYDURULMAZ. */
+    expect(worker).toContain('CROSS_REGION_RECONSTRUCTION_BUDGET');
+    expect(worker).toContain('if (a.count >= a.capacity) return -1;');
   });
 
   it('🔒 üretim RTG2 grafı bu fazda DEĞİŞMEDİ', () => {

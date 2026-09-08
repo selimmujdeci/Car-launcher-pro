@@ -533,6 +533,10 @@ export async function computeCrossRegionOfflineRoute(
           graphView: residency.view, identity: residency.identity,
           exitPortals: isFinal ? [] : envelope.transitions[windowIndex].portalNodeIds.map(
             (nodeId) => ({ nodeId, regionIds: [envelope.transitions[windowIndex].toRegionId] })),
+          /* Koridor alt sınırı: aramayı UZAK hedefe değil SIRADAKİ zorunlu
+             sınıra yöneltir (kabul edilebilir → rota gerçeği değişmez). */
+          boundaryBox: isFinal ? null : envelope.transitions[windowIndex].boundaryBox,
+          remainingLowerBoundM: isFinal ? 0 : envelope.transitions[windowIndex].remainingLowerBoundM,
           isFinal,
         });
       },

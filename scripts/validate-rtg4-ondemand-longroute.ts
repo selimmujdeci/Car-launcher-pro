@@ -28,6 +28,7 @@ import {
   planCrossRegionSearchEnvelope, validateTurkeyGraphManifest,
   type RegionWindowIdentity, type TurkeyGraphManifest,
 } from '../src/platform/navigation/map/graph/turkeyGraphManifest';
+import { auditRouteLegality, type RouteLegalityReport } from './rtg4RouteLegalityAudit';
 
 const RUN = resolve(process.env.RTG4_RUN_DIR ?? 'field-runs/rtg4-portal-v2-national-20260908');
 const OUT = resolve(process.env.RTG4_OUT_DIR ?? 'field-runs/rtg4-ondemand-longroute-20260908');
@@ -49,6 +50,8 @@ type Posted = {
   requestedRegionIds?: string[]; fromRegionIds?: string[];
   geometry?: [number, number][]; distanceM?: number; durationS?: number;
   reason?: string; crossRegion?: Record<string, number> | null;
+  routeNodeIds?: string[]; routeWayIds?: string[];
+  crossRegionClosedPerWindow?: number[];
 };
 
 const posted: Posted[] = [];
@@ -95,7 +98,23 @@ const CITY: Record<string, readonly [number, number]> = {
  * gerçekte ne kadar arama gerektirdiği" ölçümünü BİRBİRİNE KARIŞTIRMAMAKTIR.
  * Rapor her iki sayıyı da ayrı verir.
  */
-const SHADOW_MAX_CLOSED = Number(process.env.RTG4_MAX_CLOSED ?? 4_000_000);
+/** Ölçülecek arama bütçeleri. Varsayılan cihaz profilleri + ürün bütçesi. */
+const BUDGETS = (process.env.RTG4_BUDGETS ?? '30000,50000,100000,200000')
+  .split(',').map((v) => Number(v.trim())).filter((v) => Number.isFinite(v) && v > 0);
+/** Bağımsız yasallık denetiminin koşulacağı bütçe (ürün bütçesi). */
+const AUDIT_BUDGET = Number(process.env.RTG4_AUDIT_BUDGET ?? 200_000);
+/** Ağırlık/rota-kalitesi taraması — ürün DAİMA 1,2 kullanır (gönderilmez). */
+const SWEEP_WEIGHT = process.env.RTG4_W ? Number(process.env.RTG4_W) : null;
+/** Omurga uygunluk taraması: sınıf tavanı ve budamasız yarıçap (0 = kapalı). */
+const SWEEP_CLASS_LIMIT = Number(process.env.RTG4_CLASS_LIMIT ?? 0);
+const SWEEP_FREE_RADIUS_M = Number(process.env.RTG4_FREE_RADIUS_M ?? 0);
+const SWEEP_TIER_OFFSET_M = Number(process.env.RTG4_TIER_OFFSET_M ?? 0);
+const SWEEP_FINAL_W = process.env.RTG4_FINAL_W ? Number(process.env.RTG4_FINAL_W) : null;
+const SWEEP_ESCALATE_AFTER = Number(process.env.RTG4_ESCALATE_AFTER ?? 0);
+const SWEEP_ESCALATE_FACTOR = Number(process.env.RTG4_ESCALATE_FACTOR ?? 0);
+const SWEEP_ESCALATE_MAX_W = Number(process.env.RTG4_ESCALATE_MAX_W ?? 0);
+/** Temel çizgi ölçümü: koridor alt sınırını kapatıp eski davranışı ölç. */
+const CORRIDOR_BOUND_OFF = process.env.RTG4_NO_CORRIDOR_BOUND === '1';
 const DEVICE_DEFAULT_MAX_CLOSED = 200_000;   // deviceMemory=8 dalı (worker `_computeMaxClosed`)
 
 interface RouteMeasurement {
@@ -119,30 +138,40 @@ interface RouteMeasurement {
   searchStateBytesEstimate: number | null;
   reconstructionBytes: number | null;
   reconstructionRecords: number | null;
+  budget: number;
   expansions: number | null;
+  pops: number | null;
+  stalePops: number | null;
+  relaxations: number | null;
   peakSearchStates: number | null;
   migratedStates: number | null;
   droppedStates: number | null;
   geometryPoints: number | null;
   budgetRespected: boolean | null;
+  legality: RouteLegalityReport | null;
+  closedPerWindow: number[] | null;
+  /** Kapatılan durumların GİRİŞ kenar sınıfı histogramı (indis = RTG3 sınıfı). */
+  closedByClass: number[] | null;
   result: string;
   detail?: string;
 }
 
-async function measureRoute(fromName: string, toName: string): Promise<RouteMeasurement> {
+async function measureRoute(
+  fromName: string, toName: string, budget: number, audit = false,
+): Promise<RouteMeasurement> {
   const from = CITY[fromName], to = CITY[toName];
   const record: RouteMeasurement = {
-    from: fromName, to: toName,
+    from: fromName, to: toName, budget, legality: null, closedPerWindow: null,
     originRegionId: null, destinationRegionId: null,
     envelopeRegions: null, windowCount: null, touchedRegions: null,
     peakResidentRegions: null, peakResidentGraphBytes: null,
     onDemandRegionLoads: null, regionEvictions: null, portalTransitions: null,
-    windowAdvances: null,
+    windowAdvances: null, pops: null, stalePops: null, relaxations: null,
     loadMs: null, solveMs: null, totalMs: null,
     distanceM: null, endpointErrorM: null,
     searchStateBytesEstimate: null, reconstructionBytes: null, reconstructionRecords: null,
     expansions: null, peakSearchStates: null, migratedStates: null, droppedStates: null,
-    geometryPoints: null, budgetRespected: null,
+    geometryPoints: null, budgetRespected: null, closedByClass: null,
     result: 'NOT_RUN',
   };
 
@@ -164,7 +193,18 @@ async function measureRoute(fromName: string, toName: string): Promise<RouteMeas
   send({
     type: 'CROSS_REGION_BEGIN', requestId,
     fromLat: from[0], fromLon: from[1], toLat: to[0], toLon: to[1],
-    windowCount: envelope.windows.length, maxClosedStates: SHADOW_MAX_CLOSED,
+    windowCount: envelope.windows.length, maxClosedStates: budget,
+    ...(SWEEP_WEIGHT === null ? {} : { heuristicWeight: SWEEP_WEIGHT }),
+    ...(SWEEP_FINAL_W === null ? {} : { finalHeuristicWeight: SWEEP_FINAL_W }),
+    ...(SWEEP_ESCALATE_AFTER > 0 ? { escalateAfterStates: SWEEP_ESCALATE_AFTER } : {}),
+    ...(SWEEP_ESCALATE_FACTOR > 1 ? { escalateFactor: SWEEP_ESCALATE_FACTOR } : {}),
+    ...(SWEEP_ESCALATE_MAX_W > 0 ? { escalateMaxWeight: SWEEP_ESCALATE_MAX_W } : {}),
+    ...(SWEEP_CLASS_LIMIT > 0
+      ? {
+          corridorClassLimit: SWEEP_CLASS_LIMIT, corridorFreeRadiusM: SWEEP_FREE_RADIUS_M,
+          ...(SWEEP_TIER_OFFSET_M > 0 ? { corridorTierOffsetM: SWEEP_TIER_OFFSET_M } : {}),
+        }
+      : {}),
   });
 
   /* Sürücüyle AYNI politika (ürün: `computeCrossRegionOfflineRoute`). */
@@ -201,6 +241,10 @@ async function measureRoute(fromName: string, toName: string): Promise<RouteMeas
         identity: residency.identity as RegionWindowIdentity,
         exitPortals: isFinal ? [] : envelope.transitions[windowIndex].portalNodeIds.map(
           (nodeId) => ({ nodeId, regionIds: [envelope.transitions[windowIndex].toRegionId] })),
+        /* Ölçüm koşumu koridor alt sınırını KAPATABİLİR (`RTG4_NO_CORRIDOR_BOUND=1`);
+           bu, optimizasyon ÖNCESİ temel çizgiyi aynı kodla ölçmek içindir. */
+        boundaryBox: isFinal || CORRIDOR_BOUND_OFF ? null : envelope.transitions[windowIndex].boundaryBox,
+        remainingLowerBoundM: isFinal || CORRIDOR_BOUND_OFF ? 0 : envelope.transitions[windowIndex].remainingLowerBoundM,
         isFinal,
       });
       solveMs += performance.now() - solveStart;
@@ -219,8 +263,22 @@ async function measureRoute(fromName: string, toName: string): Promise<RouteMeas
     } else {
       record.result = `UNEXPECTED:${message.type}`;
     }
+    if (message.type === 'ROUTE_RESULT' && audit && message.routeNodeIds && message.routeWayIds) {
+      /* BAĞIMSIZ denetim: worker'ın kararına güvenmez, bölge artefaktlarını
+         kendisi okur. Rota otoritesi DEĞİLDİR. */
+      record.legality = auditRouteLegality(
+        envelope.corridorRegionIds.map((regionId) => ({
+          regionId,
+          path: resolve(RUN, manifest!.regions.find((r) => r.regionId === regionId)!.graphFile),
+        })),
+        message.routeNodeIds, message.routeWayIds);
+    }
+    record.closedPerWindow = message.crossRegionClosedPerWindow ?? null;
     if (message.crossRegion) {
       record.expansions = message.crossRegion.expansions ?? null;
+      record.pops = message.crossRegion.pops ?? null;
+      record.stalePops = message.crossRegion.stalePops ?? null;
+      record.relaxations = message.crossRegion.relaxations ?? null;
       record.peakSearchStates = message.crossRegion.peakSearchStates ?? null;
       record.migratedStates = message.crossRegion.migratedStates ?? null;
       record.droppedStates = message.crossRegion.droppedStates ?? null;
@@ -229,6 +287,9 @@ async function measureRoute(fromName: string, toName: string): Promise<RouteMeas
       /* Arama durumu belleği: anahtar dizgesi + Map girdisi kaba tahminidir.
          ÖLÇÜLEN değil TAHMİN olduğu adıyla da belirtilir. */
       record.searchStateBytesEstimate = Math.round((message.crossRegion.peakSearchStates ?? 0) * 96);
+      const histogram = Array.from({ length: 10 }, (_v, i) =>
+        Number(message.crossRegion![`closedClass${i}`] ?? 0));
+      record.closedByClass = histogram.some((n) => n > 0) ? histogram : null;
     }
     break;
   }
@@ -254,6 +315,7 @@ async function measureRoute(fromName: string, toName: string): Promise<RouteMeas
 
 /* ── P11 · ÜLKE ROTA KORPUSU ────────────────────────────────────────────── */
 
+const ONLY = (process.env.RTG4_PAIRS ?? '').split(',').map((v) => v.trim()).filter(Boolean);
 const PAIRS: Array<[string, string]> = [
   ['Mersin', 'Mersin-yerel'],
   ['Mersin', 'Tarsus'],
@@ -265,15 +327,23 @@ const PAIRS: Array<[string, string]> = [
   ['Eskişehir', 'İstanbul'],
 ];
 
-const routes: RouteMeasurement[] = [];
-for (const [fromName, toName] of PAIRS) {
-  const measurement = await measureRoute(fromName, toName);
-  routes.push(measurement);
-  console.log(`${fromName} → ${toName}: ${measurement.result} · ` +
-    `zarf ${measurement.envelopeRegions} · dokunulan ${measurement.touchedRegions} · ` +
-    `tepe yerleşik ${measurement.peakResidentRegions} · ${measurement.peakResidentGraphBytes} B · ` +
-    `mesafe ${measurement.distanceM ?? '—'} m · ${measurement.totalMs} ms`);
+const routesByBudget: Record<string, RouteMeasurement[]> = {};
+for (const budget of BUDGETS) {
+  const rows: RouteMeasurement[] = [];
+  for (const [fromName, toName] of PAIRS) {
+    if (ONLY.length && !ONLY.includes(`${fromName}>${toName}`)) continue;
+    const measurement = await measureRoute(fromName, toName, budget, budget === AUDIT_BUDGET);
+    rows.push(measurement);
+    console.log(`[${budget}] ${fromName} → ${toName}: ${measurement.result} · ` +
+      `kapatılan ${measurement.expansions ?? '—'} · zarf ${measurement.envelopeRegions} · ` +
+      `tepe yerleşik ${measurement.peakResidentRegions} · ${measurement.peakResidentGraphBytes} B · ` +
+      `arşiv ${measurement.reconstructionBytes ?? '—'} B · mesafe ${measurement.distanceM ?? '—'} m · ` +
+      `${measurement.totalMs} ms` +
+      (measurement.legality ? ` · ihlal ${measurement.legality.totalViolations}` : ''));
+  }
+  routesByBudget[String(budget)] = rows;
 }
+const routes = routesByBudget[String(AUDIT_BUDGET)] ?? routesByBudget[String(BUDGETS.at(-1))] ?? [];
 
 /* ── P13 · GERÇEK VERİYLE ARIZA KORPUSU (fabrikasyon rota OLMAMALI) ─────── */
 
@@ -285,7 +355,7 @@ const expectFail = (name: string, expected: string, actual: string, ok: boolean)
   /* Bölge dosyası YOK → pencere yüklenemez, rota uydurulmaz. */
   _resetGraphResidencyForTest();
   fetchBase = resolve(RUN, 'regions-does-not-exist');
-  const missing = await measureRoute('Mersin', 'Adana');
+  const missing = await measureRoute('Mersin', 'Adana', AUDIT_BUDGET);
   fetchBase = RUN;
   expectFail('next-region-missing', 'BLOCKED_WINDOW_LOAD', missing.result,
     missing.result.startsWith('BLOCKED_WINDOW_LOAD') && missing.distanceM === null);
@@ -345,9 +415,13 @@ const evidence = {
     maxResidentRegions: REGIONAL_GRAPH_MAX_RESIDENT,
     maxResidentGraphBytes: REGIONAL_GRAPH_MAX_BYTES,
     deviceDefaultMaxClosedStates: DEVICE_DEFAULT_MAX_CLOSED,
-    shadowMaxClosedStates: SHADOW_MAX_CLOSED,
+    measuredBudgets: BUDGETS,
+    auditBudget: AUDIT_BUDGET,
+    corridorLowerBoundEnabled: !CORRIDOR_BOUND_OFF,
+    heuristicWeightUsed: SWEEP_WEIGHT ?? 1.2,
   },
   routes,
+  routesByBudget,
   failures,
   failureCorpusPass: failures.every((f) => f.result === 'PASS'),
   process: {

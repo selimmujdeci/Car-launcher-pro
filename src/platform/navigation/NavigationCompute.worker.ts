@@ -25,7 +25,7 @@ import {
   type RoutingGraphView,
 }
   from './map/graph/rtg2Reader';
-import { REGION_WINDOW_NO_LOCAL, type RegionWindowIdentity }
+import { REGION_WINDOW_NO_LOCAL, distanceToBoxM, type RegionWindowIdentity }
   from './map/graph/turkeyGraphManifest';
 import { buildGraphAdjacency, outgoingRange, type GraphAdjacency }
   from './map/graph/graphAdjacency';
@@ -252,40 +252,72 @@ function _aStar(g: RoutingGraph, startIdx: number, goalIdx: number): number[] | 
    yüzden bir bölge belleği bıraktıktan sonra da rota kurulabilir.
    ══════════════════════════════════════════════════════════════════════════ */
 
-/** Pencere-bağımsız yeniden kurma arşivi — ordinal DEĞİL, ölçülmüş değer taşır. */
+/**
+ * Pencere-bağımsız yeniden kurma arşivi — ordinal DEĞİL, ölçülmüş değer taşır.
+ *
+ * ── NEDEN BU GENİŞLİKLER ─────────────────────────────────────────────────
+ * Koordinat zaten grafta `Float32Array`tir; arşivde `Float64` tutmak baytı
+ * ikiye katlıyor ama TEK BİT bilgi eklemiyordu. Maliyet `edgeCostM` gibi
+ * tamsayı metredir. Kayıt 33 bayta indi (önce 29 B'lık dar kayıt + 8 B'lık
+ * çift hassasiyet israfı; ölçülen arşiv 121 MB'a çıkabiliyordu).
+ *
+ * `nodeId`/`wayId` KARARLI KİMLİKTİR: rota yeniden kurulduktan sonra bağımsız
+ * yasallık denetimi ancak bunlarla yapılabilir (koordinat eşleşmesi belirsizlik
+ * üretir). Bunlar rota otoritesi DEĞİL, kanıttır.
+ */
 interface ReconArchive {
-  prev: Int32Array;      // öncül global durum kimliği (-1 = başlangıç)
-  lon:  Float64Array;
-  lat:  Float64Array;
-  cost: Float64Array;    // BU duruma giren kenarın metre maliyeti
-  cls:  Uint8Array;      // aynı kenarın yol sınıfı (ETA için)
-  count: number;
+  prev:   Int32Array;      // öncül global durum kimliği (-1 = başlangıç)
+  lon:    Float32Array;    // graf ile AYNI hassasiyet (fazlası bilgi taşımaz)
+  lat:    Float32Array;
+  cost:   Uint32Array;     // BU duruma giren kenarın metre maliyeti
+  cls:    Uint8Array;      // aynı kenarın yol sınıfı (ETA için)
+  nodeId: BigUint64Array;  // kararlı OSM düğüm kimliği (denetim kanıtı)
+  wayId:  BigUint64Array;  // kararlı OSM yol kimliği (denetim kanıtı)
+  count:  number;
+  /** Kayıt tavanı; aşılırsa rota UYDURULMAZ, fail-closed edilir. */
+  capacity: number;
 }
 
-function _reconCreate(): ReconArchive {
+const _RECON_INITIAL = 4096;
+
+function _reconCreate(capacity: number): ReconArchive {
   return {
-    prev: new Int32Array(1024), lon: new Float64Array(1024), lat: new Float64Array(1024),
-    cost: new Float64Array(1024), cls: new Uint8Array(1024), count: 0,
+    prev: new Int32Array(_RECON_INITIAL), lon: new Float32Array(_RECON_INITIAL),
+    lat: new Float32Array(_RECON_INITIAL), cost: new Uint32Array(_RECON_INITIAL),
+    cls: new Uint8Array(_RECON_INITIAL),
+    nodeId: new BigUint64Array(_RECON_INITIAL), wayId: new BigUint64Array(_RECON_INITIAL),
+    count: 0, capacity,
   };
 }
 
-function _reconPush(a: ReconArchive, prev: number, lon: number, lat: number, cost: number, cls: number): number {
+/** Kayıt eklenemezse `-1` döner (tavan aşıldı) — çağıran fail-closed eder. */
+function _reconPush(
+  a: ReconArchive, prev: number, lon: number, lat: number, cost: number, cls: number,
+  nodeId: bigint, wayId: bigint,
+): number {
   if (a.count === a.prev.length) {
-    const size = a.prev.length * 2;
+    if (a.count >= a.capacity) return -1;
+    /* 1,5 kat büyüme: ikiye katlama tavana yakınken yarısı boş bir dizi ayırıp
+       ölçülen belleği gereksiz yere şişiriyordu. */
+    const size = Math.min(a.capacity, Math.max(a.prev.length + 1, Math.floor(a.prev.length * 1.5)));
     const prevNext = new Int32Array(size); prevNext.set(a.prev); a.prev = prevNext;
-    const lonNext = new Float64Array(size); lonNext.set(a.lon); a.lon = lonNext;
-    const latNext = new Float64Array(size); latNext.set(a.lat); a.lat = latNext;
-    const costNext = new Float64Array(size); costNext.set(a.cost); a.cost = costNext;
+    const lonNext = new Float32Array(size); lonNext.set(a.lon); a.lon = lonNext;
+    const latNext = new Float32Array(size); latNext.set(a.lat); a.lat = latNext;
+    const costNext = new Uint32Array(size); costNext.set(a.cost); a.cost = costNext;
     const clsNext = new Uint8Array(size); clsNext.set(a.cls); a.cls = clsNext;
+    const nodeNext = new BigUint64Array(size); nodeNext.set(a.nodeId); a.nodeId = nodeNext;
+    const wayNext = new BigUint64Array(size); wayNext.set(a.wayId); a.wayId = wayNext;
   }
   const id = a.count++;
-  a.prev[id] = prev; a.lon[id] = lon; a.lat[id] = lat; a.cost[id] = cost; a.cls[id] = cls;
+  a.prev[id] = prev; a.lon[id] = lon; a.lat[id] = lat;
+  a.cost[id] = cost; a.cls[id] = cls; a.nodeId[id] = nodeId; a.wayId[id] = wayId;
   return id;
 }
 
-/** Arşiv baytı — P17 ölçümü (uydurma değil, gerçek dizi boyutları). */
+/** Arşiv baytı — ölçüm (uydurma değil, gerçek dizi boyutları). */
 function _reconBytes(a: ReconArchive): number {
-  return a.prev.byteLength + a.lon.byteLength + a.lat.byteLength + a.cost.byteLength + a.cls.byteLength;
+  return a.prev.byteLength + a.lon.byteLength + a.lat.byteLength + a.cost.byteLength
+    + a.cls.byteLength + a.nodeId.byteLength + a.wayId.byteLength;
 }
 
 type CrossRegionEntry = [number, number, number, number, string];
@@ -315,6 +347,96 @@ interface CrossRegionSession {
   boundary: Map<bigint, readonly string[]>;
   isFinal: boolean;
   started: boolean;
+  /**
+   * Sezgisel ağırlığı. ÜRÜN DAİMA `HEURISTIC_WEIGHT` (1,2) kullanır; alan
+   * yalnız gölge ölçüm koşumunun ağırlık/rota-kalitesi taraması yapabilmesi
+   * içindir (`maxClosed` ile aynı desen). Ürün sürücüsü DEĞER GÖNDERMEZ.
+   */
+  weight: number;
+  /**
+   * SON pencerenin ağırlığı. Ara pencerelerde sezgisel, aşılması ZORUNLU sınır
+   * kutusuna olan uzaklıktır — güçlü bir gradyan. Son pencerede kutu yoktur,
+   * geriye zayıf kuş uçuşu kalır ve arama hedef metropolüne yayılır: ölçüldü,
+   * İstanbul son penceresi tek başına 94 489 durum yiyordu (aynı koşumda
+   * ara koridor pencerelerinin tamamı ~50 000). Bu yüzden ağırlık YALNIZ son
+   * pencerede ayrıca ayarlanabilir; gönderilmezse `weight` ile aynıdır.
+   */
+  finalWeight: number;
+  /**
+   * BÜTÇE-FARKINDA AĞIRLIK TIRMANMASI.
+   *
+   * ── ÖLÇÜLEN SORUN ──────────────────────────────────────────────────────
+   * Koridorun bir penceresi araziye takılabilir: Mersin→İstanbul'un 18.
+   * penceresi (Bolu geçişi) tek başına 135 759 durum yer — aynı koşumda
+   * DİĞER 19 pencerenin toplamı ~137 000. Sabit ağırlıkla bu tek pencere
+   * bütçenin tamamını yutuyor ve rota HİÇ bulunamıyordu.
+   *
+   * ── DAVRANIŞ ───────────────────────────────────────────────────────────
+   * Bir pencerede kapatılan durum `escalateAfter`ı aşarsa ağırlık
+   * `escalateFactor` ile çarpılır (tavan `escalateMaxWeight`). Arama daha
+   * hızlı hedefe yönelir; karşılığında rota bir miktar uzayabilir. Bu bir
+   * DEĞİŞ TOKUŞTUR ve ölçülür: fail-closed yerine ölçülmüş kalite kaybı.
+   * Ağırlık pencere sonunda taban değerine döner. `escalateAfter = 0` iken
+   * mekanizma KAPALIDIR (davranış birebir eskisi).
+   */
+  baseWeight: number;
+  escalateAfter: number;
+  escalateFactor: number;
+  escalateMaxWeight: number;
+  /** Bu pencerede tırmanmanın uygulandığı basamak sayısı (ölçüm). */
+  escalations: number;
+  /**
+   * Bu pencerede AŞILMASI ZORUNLU portal düğümlerinin KÜMELENMİŞ sınır
+   * kutuları; son pencerede boş. Karo kenarının tamamı yerine GERÇEK portal
+   * konumları kullanılır — aradaki fark ölçüldü (aşağıya bakınız).
+   */
+  boundaryBoxes: readonly (readonly [number, number, number, number])[];
+  /**
+   * KUTU BAŞINA kalan alt sınır (m) — `boundaryBoxes` ile aynı sırada.
+   *
+   * ── NEDEN KUTU BAŞINA (ÖLÇÜLDÜ) ────────────────────────────────────────
+   * Sınır portalları bir karo kenarı boyunca en çok 6 kümeye ayrılır. TEK bir
+   * `remainingLowerBoundM` kullanılırken bu kümelerin hepsi eşit derecede
+   * "iyi" görünüyordu ve arama sınır boyunca AYNI ANDA altı hedefe yayılıyordu
+   * (Bolu geçişi penceresi tek başına ~94 000 durum). Kutunun kendisinden
+   * hedefe olan kuş uçuşu da kalan yolun alt sınırıdır; ikisinin MAKSİMUMU
+   * hâlâ asla fazla tahmin etmez ama hedeften uzak kümeyi CEZALANDIRIR.
+   */
+  boundaryRemainingM: readonly number[];
+  /** Sınır aşıldıktan sonra hedefe kalan yolun kabul edilebilir alt sınırı (m). */
+  remainingLowerBoundM: number;
+  /**
+   * KORİDOR OMURGA UYGUNLUĞU — bu tur genişletilebilecek EN DÜŞÜK yol sınıfı
+   * (RTG3 sınıfı: 1 motorway … 9 service). `0` = sınırsız (budama YOK).
+   *
+   * ── NEDEN VAR (ÖLÇÜLDÜ) ────────────────────────────────────────────────
+   * Ürün bütçesiyle (200 000) koşulan uzun rotada kapatılan durumların
+   * sınıf dağılımı: motorway+trunk+primary %2,4 · tertiary ve altı %94,6
+   * (residential tek başına %52). Yani arama bütçesinin neredeyse tamamı,
+   * şehirlerarası bir rotanın ASLA kullanmayacağı sokak ağını süpürmeye
+   * gidiyordu ve rota bulunmadan tavana çarpıyordu.
+   *
+   * ── NEDEN ROTA GERÇEĞİNİ BOZMAZ ────────────────────────────────────────
+   * Bu bir MALİYET değişikliği değildir; uygunluk (admission) filtresidir:
+   * kenar maliyeti, tek yön, erişim, via-node/via-way kısıtları AYNEN
+   * uygulanır. Filtre KADEMELİDİR: tur sonuç bulamazsa çağıran daha gevşek
+   * bir turla yeniden dener ve son tur DAİMA budamasızdır — yani budama bir
+   * rotayı yok edemez, yalnız bulunma SIRASINI değiştirir.
+   */
+  classLimit: number;
+  /**
+   * Katman ofseti (m). SONSUZ DEĞİLDİR (ölçüldü): ofset 1e9 iken hedefe son
+   * yaklaşmadaki sokak durumları koridorun TAMAMINDAKİ omurga durumlarının
+   * ardına düşüyor ve İstanbul penceresi tek başına 86 000 durum yiyordu.
+   * Ölçülü ofset "bu yolu ancak gerçekten gerekiyorsa aç" anlamına gelir.
+   */
+  tierOffsetM: number;
+  /**
+   * Sınıf filtresinin UYGULANMADIĞI yarıçap (m): başlangıç, hedef ve bu
+   * pencerede aşılması zorunlu sınır kutuları çevresi. İlk/son kilometre ve
+   * portal erişimi sokak ağından geçebilir; oralarda budama yapılmaz.
+   */
+  freeRadiusM: number;
   heap: CrossRegionEntry[];
   gCost: Map<string, number>;
   closed: Set<string>;
@@ -325,10 +447,188 @@ interface CrossRegionSession {
   stats: {
     expansions: number; windowsUsed: number; migratedStates: number;
     droppedStates: number; peakOpen: number; peakGCost: number;
+    /** Yığından çekilen toplam kayıt (kapalı durumlar dâhil). */
+    pops: number;
+    /** Zaten kapalı olduğu için atılan pop — bayat yığın kaydı ölçüsü. */
+    stalePops: number;
+    /** Kenar gevşetme sayısı = arşive yazılan kayıt sayısı. */
+    relaxations: number;
+    /** Pencere başına kapatılan durum (koridor süpürmesinin dağılımı). */
+    closedPerWindow: number[];
+    /**
+     * ÖLÇÜM — kapatılan durumun GİRİŞ kenarının RTG3 yol sınıfı histogramı
+     * (indis = sınıf: 1 motorway … 9 service; 0 = başlangıç/bilinmeyen).
+     *
+     * Aramanın nereye harcandığını KANITLAR: uzun rotada süpürmenin hangi
+     * oranda şehirlerarası omurgaya, hangi oranda yerel sokağa gittiği başka
+     * türlü görülemez. Karar üretmez; yalnız gözlem (bir dizi artırımı).
+     */
+    closedByClass: number[];
   };
 }
 
 let _crossSession: CrossRegionSession | null = null;
+
+/**
+ * KORİDOR YÖNELİMLİ KABUL EDİLEBİLİR ALT SINIR.
+ *
+ * ── ÖLÇÜLEN SORUN ────────────────────────────────────────────────────────
+ * Kuş uçuşu sezgisel, uzun ve dolambaçlı koridorda kalan yolu ÇOK DÜŞÜK
+ * tahmin eder; A* uzak hedefe doğru geniş bir elips tarar. Mersin→İstanbul
+ * 1 597 469 durum açıyordu — cihaz bütçesi 200 000.
+ *
+ * ── ÇÖZÜM ────────────────────────────────────────────────────────────────
+ * Bölgeler coğrafi karolardır: bir sonraki bölgeye geçen HER yol, iki karo
+ * arasındaki sınır doğrusunu FİZİKSEL OLARAK KESER. Bu yüzden
+ * "sınıra uzaklık + sınırdan sonra kalan alt sınır" kabul edilebilir bir
+ * alt sınırdır.
+ *
+ * ── NEDEN KUŞ UÇUŞUYLA MAKSİMUM ALINMAZ (ÖLÇÜLDÜ) ────────────────────────
+ * İkisinin maksimumunu almak MAGNİTÜD olarak daha sıkı bir sınır verir ama
+ * ARAMAYA YÖN VERMEZ: uzak hedefe olan kuş uçuşu, bir pencerenin içindeki tüm
+ * düğümler için neredeyse aynıdır (gradyan ~0) → A* pencere içinde Dijkstra'ya
+ * dönüşür. Ölçüldü: pencere başına ~80 bin durum, yani pencerenin TAMAMI.
+ *
+ * Bu yüzden sınır kutusu varken DOĞRUDAN koridor alt sınırı kullanılır. Daha
+ * küçük bir alt sınır olması kabul edilebilirliği bozmaz (hâlâ asla fazla
+ * tahmin etmez); kazanç, `distanceToBoxM` teriminin pencere içinde GERÇEK bir
+ * gradyan üretmesidir — arama sıradaki zorunlu sınıra yönelir.
+ *
+ * `HEURISTIC_WEIGHT` DEĞİŞMEDİ; rota gerçeği aynı kanonik A*'tan gelir.
+ * Sınır kutusu YOKSA (tek pencereli rota veya son pencere) davranış eskisiyle
+ * BİREBİR aynıdır.
+ */
+/**
+ * Sınıf filtresinin uygulanmadığı bölge: başlangıç, hedef ve bu pencerede
+ * aşılması zorunlu sınır kutuları çevresi. Budama buralarda YAPILMAZ, çünkü
+ * ilk/son kilometre ve portal erişimi sokak ağından geçebilir.
+ */
+function _inCorridorFreeZone(session: CrossRegionSession, lat: number, lon: number): boolean {
+  const r = session.freeRadiusM;
+  if (r <= 0) return false;
+  if (_havM(lat, lon, session.fromLat, session.fromLon) <= r) return true;
+  if (_havM(lat, lon, session.toLat, session.toLon) <= r) return true;
+  const boxes = session.boundaryBoxes;
+  for (let i = 0; i < boxes.length; i++) {
+    if (distanceToBoxM(lat, lon, boxes[i]) <= r) return true;
+  }
+  return false;
+}
+
+/**
+ * KADEMELİ ERTELEME KATMANI — yığın sırası değişir, ARAMA UZAYI DEĞİŞMEZ.
+ *
+ * ── ÖLÇÜLEN SORUN ────────────────────────────────────────────────────────
+ * Ürün bütçesiyle (200 000) koşulan uzun rotalarda kapatılan durumların
+ * sınıf dağılımı ölçüldü: motorway+trunk+primary %2,4 · tertiary ve altı
+ * %94,6 (yalnız residential %52). Bütçe, şehirlerarası bir rotanın hiç
+ * kullanmayacağı sokak ağını süpürerek tükeniyor ve rota BULUNAMADAN
+ * `CLOSED_LIMIT`e çarpıyordu.
+ *
+ * ── NEDEN FİLTRE DEĞİL, ERTELEME (ÖLÇÜLDÜ) ───────────────────────────────
+ * Düşük sınıfları GENİŞLETMEDEN ELEMEK denendi: koridor koptu, arama
+ * `EXHAUSTED` verdi (sınıf ≤4: 83 793 durumda tükendi; ≤5: 159 691). Yani
+ * sert budama bir rotayı YOK EDEBİLİR. Bu yüzden durum atılmaz, yalnız
+ * yığında GERİYE alınır: `f`ye katman ofseti eklenir. Omurga katmanı
+ * tükenmeden alt katman açılmaz; omurga hedefe ulaşamazsa alt katman
+ * kendiliğinden devreye girer → rota kaybı YOK, fail-soft korunur.
+ *
+ * `gCost` ve yasallık kuralları DEĞİŞMEZ; ofset yalnız `f` sıralamasındadır.
+ * `classLimit = 0` iken (ürün varsayılanı değişmeden) davranış BİREBİR eskisidir.
+ */
+/* ── UZUN ROTA ARAMA PROFİLİ (ölçülmüş ürün varsayılanları) ───────────────
+   Değerler `field-runs/rtg4-device-budget-20260908` (öncesi) ve
+   `field-runs/rtg4-e20000f1.8-20260908` (sonrası) koşumlarından seçildi:
+   ürün bütçesi 200 000 kapalı durumda ülke korpusunun TAMAMI çözülür.
+   Yalnız ÇOK PENCERELİ (bölgeler arası) rotada uygulanır. */
+const CORRIDOR_BASE_WEIGHT = 1.6;
+const CORRIDOR_CLASS_LIMIT = 4;            // secondary ve üstü = omurga katmanı
+const CORRIDOR_FREE_RADIUS_M = 2_000;      // ilk/son kilometre ve portal erişimi
+const CORRIDOR_TIER_OFFSET_M = 150_000;
+const CORRIDOR_ESCALATE_AFTER = 20_000;
+const CORRIDOR_ESCALATE_FACTOR = 1.8;
+const CORRIDOR_ESCALATE_MAX_WEIGHT = 4;
+
+/** Ölçüm koşumu ağırlık gönderebilir; ürün sürücüsü GÖNDERMEZ. */
+function _corridorBaseWeight(sent: number | undefined, multiWindow: boolean): number {
+  if (Number.isFinite(sent) && Number(sent) > 0) return Number(sent);
+  return multiWindow ? CORRIDOR_BASE_WEIGHT : HEURISTIC_WEIGHT;
+}
+
+function _corridorTier(
+  session: CrossRegionSession, view: RoutingGraphView, ordinal: number, lat: number, lon: number,
+): number {
+  if (session.classLimit <= 0 || ordinal < 0) return 0;
+  const cls = edgeRoadClass(view, ordinal);
+  if (cls <= session.classLimit) return 0;
+  if (_inCorridorFreeZone(session, lat, lon)) return 0;
+  return cls <= session.classLimit + 2 ? 1 : 2;
+}
+
+function _crossRegionHeuristicM(session: CrossRegionSession, lat: number, lon: number): number {
+  const boxes = session.isFinal ? null : session.boundaryBoxes;
+  if (boxes === null || boxes.length === 0) return _havM(lat, lon, session.toLat, session.toLon);
+  const remaining = session.boundaryRemainingM;
+  let best = Infinity;
+  for (let i = 0; i < boxes.length; i++) {
+    const d = distanceToBoxM(lat, lon, boxes[i]) + (remaining[i] ?? session.remainingLowerBoundM);
+    if (d < best) best = d;
+  }
+  return best;
+}
+
+/**
+ * Portal düğümlerini en fazla `RTG4_BOUNDARY_CLUSTERS` sıkı kutuya böler.
+ *
+ * ── NEDEN KÜMELEME ───────────────────────────────────────────────────────
+ * Karo kenarının TAMAMINI (≈55 km'lik doğru) hedef almak, pencere içinde yine
+ * zayıf bir gradyan verir: doğrunun her noktası eşit derecede "iyi" görünür ve
+ * arama sınır boyunca YAYILIR. Ölçüldü: pencere başına ~65 bin durum.
+ * Gerçek portal düğümleri ise birkaç yol geçişinde KÜMELENİR; onları küçük
+ * kutulara ayırmak hedefi noktaya yaklaştırır.
+ *
+ * Kabul edilebilirlik korunur: her kutu kendi portallarını KAPSAR, dolayısıyla
+ * kutuya uzaklık o portallara olan uzaklıktan büyük olamaz. Kutu sayısı
+ * sınırlıdır → sıcak yolda sabit maliyet.
+ */
+const RTG4_BOUNDARY_CLUSTERS = 6;
+
+
+function _clusterBoundaryBoxes(
+  points: readonly number[],   // [lat0, lon0, lat1, lon1, ...]
+): (readonly [number, number, number, number])[] {
+  const count = points.length >> 1;
+  if (count === 0) return [];
+  const index = Array.from({ length: count }, (_, i) => i);
+  /* Portallar bir karo kenarı boyunca dizilir; baskın eksene göre sıralayıp
+     eşit sayıda parçaya bölmek, o doğruyu sıkı parçalara ayırır. */
+  let latMin = Infinity, latMax = -Infinity, lonMin = Infinity, lonMax = -Infinity;
+  for (let i = 0; i < count; i++) {
+    const lat = points[i * 2], lon = points[i * 2 + 1];
+    if (lat < latMin) latMin = lat; if (lat > latMax) latMax = lat;
+    if (lon < lonMin) lonMin = lon; if (lon > lonMax) lonMax = lon;
+  }
+  const byLat = (latMax - latMin) >= (lonMax - lonMin);
+  index.sort((a, b) => byLat
+    ? points[a * 2] - points[b * 2]
+    : points[a * 2 + 1] - points[b * 2 + 1]);
+
+  const clusters = Math.min(RTG4_BOUNDARY_CLUSTERS, count);
+  const boxes: (readonly [number, number, number, number])[] = [];
+  for (let c = 0; c < clusters; c++) {
+    const start = Math.floor((c * count) / clusters);
+    const end = Math.floor(((c + 1) * count) / clusters);
+    if (end <= start) continue;
+    let bLatMin = Infinity, bLatMax = -Infinity, bLonMin = Infinity, bLonMax = -Infinity;
+    for (let k = start; k < end; k++) {
+      const lat = points[index[k] * 2], lon = points[index[k] * 2 + 1];
+      if (lat < bLatMin) bLatMin = lat; if (lat > bLatMax) bLatMax = lat;
+      if (lon < bLonMin) bLonMin = lon; if (lon > bLonMax) bLonMax = lon;
+    }
+    boxes.push([bLonMin, bLatMin, bLonMax, bLatMax]);
+  }
+  return boxes;
+}
 
 /** `${node}:${ordinal}` / `${node}:${ordinal}:${mask}` anahtarını çözer. */
 function _parseStateKey(key: string): [number, number, number] {
@@ -412,7 +712,8 @@ function _migrateCrossRegionWindow(
     session.stats.migratedStates++;
   }
 
-  const goalLat = session.toLat, goalLon = session.toLon;
+  /* `f` YENİ pencerenin sezgiseliyle yeniden hesaplanır: sınır kutusu ve kalan
+     alt sınır değişmiştir, eski `f` artık aynı sıralamayı ifade etmez. */
   const heap: CrossRegionEntry[] = [];
   for (const entry of session.heap) {
     const next = translate(entry[4]);
@@ -422,7 +723,12 @@ function _migrateCrossRegionWindow(
     if (cost === undefined) continue;
     const [node, ordinal, mask] = _parseStateKey(next);
     heap.push([
-      cost + HEURISTIC_WEIGHT * _havM(newView.nodeLat[node], newView.nodeLon[node], goalLat, goalLon),
+      cost + session.weight * _crossRegionHeuristicM(
+        session, newView.nodeLat[node], newView.nodeLon[node])
+        /* Katman ofseti YENİ pencerede yeniden uygulanır: serbest bölge
+           (sınır kutuları) değişmiştir, eski katman artık geçerli değildir. */
+        + _corridorTier(session, newView, ordinal, newView.nodeLat[node], newView.nodeLon[node])
+          * session.tierOffsetM,
       node, ordinal, mask, next,
     ]);
   }
@@ -459,6 +765,13 @@ function routeRtg3EdgeState(
      ikisi AYNI değerdir (ölçülen parite) — davranış değişmez. */
   const goalLat = session ? session.toLat : view.nodeLat[goalIdx];
   const goalLon = session ? session.toLon : view.nodeLon[goalIdx];
+  /* Uzun rotada sezgisel koridor alt sınırıyla SIKILAŞTIRILIR; tek pencerede
+     ve son pencerede sonuç kuş uçuşuyla BİREBİR aynıdır (parite). */
+  const heuristicM = session
+    ? (lat: number, lon: number) => _crossRegionHeuristicM(session, lat, lon)
+    : (lat: number, lon: number) => _havM(lat, lon, goalLat, goalLon);
+  /* Ağırlık DÖNGÜ İÇİNDE okunur: bütçe-farkında tırmanma onu değiştirebilir. */
+  const weightOf = () => (session ? session.weight : HEURISTIC_WEIGHT);
   type Entry = [number, number, number, number, string]; // f, node, previous edge, via-way mask, state key
   const startKey = `${startIdx}:-1`;
   const heap: Entry[] = session ? session.heap : [[0, startIdx, -1, 0, startKey]];
@@ -471,8 +784,15 @@ function routeRtg3EdgeState(
     session.started = true;
     heap.push([0, startIdx, -1, 0, startKey]);
     gCost.set(startKey, 0);
-    session.keyToGlobal.set(startKey, _reconPush(
-      session.recon, -1, view.nodeLon[startIdx], view.nodeLat[startIdx], 0, 0));
+    const startRecord = _reconPush(
+      session.recon, -1, view.nodeLon[startIdx], view.nodeLat[startIdx], 0, 0,
+      view.nodeSourceId[startIdx], 0n);
+    if (startRecord < 0) {
+      session.outcome = { kind: 'FAIL_CLOSED', reason: 'CROSS_REGION_RECONSTRUCTION_BUDGET' };
+      return null;
+    }
+    session.keyToGlobal.set(startKey, startRecord);
+    session.stats.relaxations++;
   }
 
   const push = (item: Entry) => {
@@ -504,8 +824,9 @@ function routeRtg3EdgeState(
   while (heap.length) {
     if (session) session.stats.peakOpen = Math.max(session.stats.peakOpen, heap.length);
     const entry = pop(); if (!entry) break;
+    if (session) session.stats.pops++;
     const [, cur, previousEdge, viaWayMask, key] = entry;
-    if (closed.has(key)) continue;
+    if (closed.has(key)) { if (session) session.stats.stalePops++; continue; }
     if (session) {
       if (session.isFinal && cur === goalIdx) {
         const globalId = session.keyToGlobal.get(key);
@@ -544,7 +865,18 @@ function routeRtg3EdgeState(
     closed.add(key);
     if (session) {
       session.stats.expansions++;
+      session.stats.closedByClass[previousEdge >= 0 ? edgeRoadClass(view, previousEdge) : 0]++;
       session.stats.peakGCost = Math.max(session.stats.peakGCost, gCost.size);
+      const windowSlot = session.stats.closedPerWindow.length - 1;
+      if (windowSlot >= 0) {
+        const closedHere = ++session.stats.closedPerWindow[windowSlot];
+        /* Tırmanma: bu PENCEREDE harcanan durum eşiği katladıkça ağırlık artar. */
+        if (session.escalateAfter > 0 && closedHere % session.escalateAfter === 0 &&
+            session.weight < session.escalateMaxWeight) {
+          session.weight = Math.min(session.escalateMaxWeight, session.weight * session.escalateFactor);
+          session.escalations++;
+        }
+      }
     }
     /* RAM koruması uzun rotada TOPLAM iş üzerinden ölçülür: `closed` pencere
        tahliyesinde küçülür, bu yüzden tek başına küresel bir tavan DEĞİLDİR.
@@ -579,15 +911,25 @@ function routeRtg3EdgeState(
           }
           /* Yeniden kurma kaydı ORDİNAL DEĞİL, ölçülmüş değer saklar; bu yüzden
              kaydı üreten bölge tahliye edildikten sonra da geçerlidir. */
-          session.keyToGlobal.set(nextKey, _reconPush(
+          const record = _reconPush(
             session.recon, parent, view.nodeLon[to], view.nodeLat[to],
-            edgeCost, edgeRoadClass(view, ordinal)));
+            edgeCost, edgeRoadClass(view, ordinal),
+            view.nodeSourceId[to], view.edgeSourceWayId[ordinal]);
+          if (record < 0) {
+            session.outcome = { kind: 'FAIL_CLOSED', reason: 'CROSS_REGION_RECONSTRUCTION_BUDGET' };
+            return null;
+          }
+          session.keyToGlobal.set(nextKey, record);
+          session.stats.relaxations++;
         } else {
           previous.set(nextKey, key);
           stateNode.set(nextKey, to);
         }
+        const priority = newG + weightOf() * heuristicM(view.nodeLat[to], view.nodeLon[to]);
         push([
-          newG + HEURISTIC_WEIGHT * _havM(view.nodeLat[to], view.nodeLon[to], goalLat, goalLon),
+          session === undefined ? priority
+            : priority + _corridorTier(session, view, ordinal, view.nodeLat[to], view.nodeLon[to])
+              * session.tierOffsetM,
           to, ordinal, nextMask, nextKey,
         ]);
       }
@@ -746,20 +1088,26 @@ function _crossRegionFail(requestId: string, reason: string): void {
  */
 function _reconstructCrossRegionRoute(session: CrossRegionSession, globalId: number): {
   geometry: [number, number][]; distanceM: number; durationS: number;
+  nodeIds: string[]; wayIds: string[];
 } | null {
   const archive = session.recon;
   if (globalId < 0 || globalId >= archive.count) return null;
   const geometry: [number, number][] = [];
+  /* Kararlı kimlik dizisi BAĞIMSIZ yasallık denetimi içindir; rota otoritesi
+     değildir. Denetleyici bu kimliklerle bölge grafını kendisi okur. */
+  const nodeIds: string[] = [], wayIds: string[] = [];
   let distanceM = 0, durationS = 0, cursor = globalId, guard = 0;
   while (cursor >= 0) {
     if (++guard > archive.count + 1) return null;      // bozuk zincir → fail-closed
     geometry.push([archive.lon[cursor], archive.lat[cursor]]);
+    nodeIds.push(String(archive.nodeId[cursor]));
+    wayIds.push(String(archive.wayId[cursor]));
     distanceM += archive.cost[cursor];
     durationS += _edgeSeconds(archive.cost[cursor], archive.cls[cursor], 4);
     cursor = archive.prev[cursor];
   }
-  geometry.reverse();
-  return geometry.length >= 2 ? { geometry, distanceM, durationS } : null;
+  geometry.reverse(); nodeIds.reverse(); wayIds.reverse();
+  return geometry.length >= 2 ? { geometry, distanceM, durationS, nodeIds, wayIds } : null;
 }
 
 /* Ayrı fonksiyon: çağrı yerinde `session.outcome = null` daraltması sonucu
@@ -779,6 +1127,13 @@ function _crossRegionStats(session: CrossRegionSession): Record<string, number> 
     reconstructionRecords: session.recon.count,
     reconstructionBytes: _reconBytes(session.recon),
     closedStates: session.closed.size,
+    pops: session.stats.pops,
+    stalePops: session.stats.stalePops,
+    relaxations: session.stats.relaxations,
+    maxClosedBudget: session.maxClosed,
+    weightEscalations: session.escalations,
+    /* Sınıf histogramı düz alan olarak yayılır (mesaj sözleşmesi sayı taşır). */
+    ...Object.fromEntries(session.stats.closedByClass.map((n, i) => [`closedClass${i}`, n])),
   };
 }
 
@@ -788,6 +1143,8 @@ function _crossRegionAdvance(
   identity: RegionWindowIdentity,
   exitPortals: readonly { readonly nodeId: string; readonly regionIds: readonly string[] }[],
   isFinal: boolean,
+  boundaryBox: readonly [number, number, number, number] | null,
+  remainingLowerBoundM: number,
 ): void {
   let graph: RoutingGraph;
   try {
@@ -798,15 +1155,43 @@ function _crossRegionAdvance(
   }
   if (view.version !== 4) { _crossRegionFail(session.requestId, 'CROSS_REGION_REQUIRES_RTG4'); return; }
 
+  /* Sezgisel girdileri taşımadan ÖNCE kurulur: `f` yeniden hesabı YENİ
+     pencerenin sınırına göre yapılmalıdır. Portal düğümleri BU pencerede
+     yerleşiktir; koordinatları buradan okunur — manifest koordinat taşımaz. */
+  session.isFinal = isFinal;
+  /* Ağırlık her pencerede TABANA döner: bir penceredeki arazi cezası sonraki
+     pencerenin rota kalitesini bozmaz. */
+  session.weight = isFinal ? session.finalWeight : session.baseWeight;
+  session.remainingLowerBoundM = isFinal ? 0 : remainingLowerBoundM;
+  if (isFinal) { session.boundaryBoxes = []; session.boundaryRemainingM = []; }
+  else {
+    const wanted = new Set(exitPortals.map((portal) => BigInt(portal.nodeId)));
+    const points: number[] = [];
+    for (let i = 0; i < view.nodeCount && wanted.size > 0; i++) {
+      if (!wanted.has(view.nodeSourceId[i])) continue;
+      points.push(view.nodeLat[i], view.nodeLon[i]);
+      wanted.delete(view.nodeSourceId[i]);
+    }
+    /* Portal düğümü bu pencerede bulunamazsa karo kenarına düşülür: daha geniş
+       ama HÂLÂ kabul edilebilir bir hedef — uydurma yapılmaz. */
+    session.boundaryBoxes = points.length > 0
+      ? _clusterBoundaryBoxes(points)
+      : (boundaryBox ? [boundaryBox] : []);
+    /* Kutu başına kalan alt sınır: koridor terimi ile "kutudan hedefe kuş
+       uçuşu" teriminin MAKSİMUMU — ikisi de alt sınırdır, büyüğü daha sıkıdır. */
+    session.boundaryRemainingM = session.boundaryBoxes.map((box) => Math.max(
+      remainingLowerBoundM, distanceToBoxM(session.toLat, session.toLon, box)));
+  }
+
   const migrationError = _migrateCrossRegionWindow(session, graph, identity);
   if (migrationError !== null) { _crossRegionFail(session.requestId, migrationError); return; }
 
   session.graph = graph;
   session.identity = identity;
   session.windowIndex = windowIndex;
-  session.isFinal = isFinal;
   session.boundary = new Map(exitPortals.map((portal) => [BigInt(portal.nodeId), portal.regionIds]));
   session.stats.windowsUsed++;
+  session.stats.closedPerWindow.push(0);
 
   const startIdx = session.started ? -1 : _nearest(graph, session.fromLat, session.fromLon);
   const goalIdx = isFinal ? _nearest(graph, session.toLat, session.toLon) : -1;
@@ -836,6 +1221,9 @@ function _crossRegionAdvance(
       type: 'ROUTE_RESULT', requestId: session.requestId,
       geometry: route.geometry, distanceM: route.distanceM, durationS: route.durationS,
       steps: [], crossRegion: stats,
+      crossRegionClosedPerWindow: [...session.stats.closedPerWindow],
+      /* Denetim kanıtı — ürün tüketicisi bu alanları OKUMAZ. */
+      routeNodeIds: route.nodeIds, routeWayIds: route.wayIds,
     });
     return;
   }
@@ -845,6 +1233,7 @@ function _crossRegionAdvance(
   _crossSession = null;
   (self as unknown as Worker).postMessage({
     type: 'ROUTE_ERROR', requestId: session.requestId, reason, crossRegion: stats,
+    crossRegionClosedPerWindow: [...session.stats.closedPerWindow],
   });
 }
 
@@ -1074,10 +1463,20 @@ self.onmessage = (e: MessageEvent): void => {
     graphView?: RoutingGraphView;
     identity?: RegionWindowIdentity;
     exitPortals?: { nodeId: string; regionIds: string[] }[];
+    boundaryBox?: [number, number, number, number] | null;
+    remainingLowerBoundM?: number;
+    corridorClassLimit?: number;
+    corridorFreeRadiusM?: number;
+    corridorTierOffsetM?: number;
+    finalHeuristicWeight?: number;
+    escalateAfterStates?: number;
+    escalateFactor?: number;
+    escalateMaxWeight?: number;
     isFinal?: boolean;
     windowIndex?: number;
     windowCount?: number;
     maxClosedStates?: number;
+    heuristicWeight?: number;
   };
 
   if (msg.type === 'STOP') { self.close(); return; }
@@ -1112,21 +1511,55 @@ self.onmessage = (e: MessageEvent): void => {
 
   if (msg.type === 'CROSS_REGION_BEGIN' && msg.requestId != null &&
       msg.fromLat != null && msg.fromLon != null && msg.toLat != null && msg.toLon != null) {
+    /* ── UZUN ROTA ÜRÜN VARSAYILANLARI ────────────────────────────────────
+       Aşağıdaki değerler ölçümle seçildi (bkz. `_corridorTier` ve
+       `escalateAfter` başlıkları). ÇOK PENCERELİ rotada uygulanır; TEK
+       pencereli (bölge içi) rotada mekanizmalar KAPALIDIR ve davranış birebir
+       eski sürümdür — kısa rota kalitesi bu değişiklikten etkilenmez. */
+    const multiWindow = Number(msg.windowCount ?? 0) > 1;
     _crossSession = {
       requestId: msg.requestId,
       fromLat: msg.fromLat, fromLon: msg.fromLon, toLat: msg.toLat, toLon: msg.toLon,
       windowIndex: -1, windowCount: Number(msg.windowCount ?? 0),
       graph: null, identity: null, boundary: new Map<bigint, readonly string[]>(), isFinal: false, started: false,
       heap: [], gCost: new Map(), closed: new Set(), keyToGlobal: new Map(),
-      recon: _reconCreate(),
+      boundaryBoxes: [], boundaryRemainingM: [], remainingLowerBoundM: 0,
+      classLimit: Number.isFinite(msg.corridorClassLimit) ? Number(msg.corridorClassLimit)
+        : (multiWindow ? CORRIDOR_CLASS_LIMIT : 0),
+      tierOffsetM: Number.isFinite(msg.corridorTierOffsetM) && Number(msg.corridorTierOffsetM) > 0
+        ? Number(msg.corridorTierOffsetM) : CORRIDOR_TIER_OFFSET_M,
+      freeRadiusM: Number.isFinite(msg.corridorFreeRadiusM) ? Number(msg.corridorFreeRadiusM)
+        : (multiWindow ? CORRIDOR_FREE_RADIUS_M : 0),
+      weight: _corridorBaseWeight(msg.heuristicWeight, multiWindow),
+      baseWeight: _corridorBaseWeight(msg.heuristicWeight, multiWindow),
+      escalateAfter: Number.isFinite(msg.escalateAfterStates) && Number(msg.escalateAfterStates) > 0
+        ? Number(msg.escalateAfterStates) : (multiWindow ? CORRIDOR_ESCALATE_AFTER : 0),
+      escalateFactor: Number.isFinite(msg.escalateFactor) && Number(msg.escalateFactor) > 1
+        ? Number(msg.escalateFactor) : CORRIDOR_ESCALATE_FACTOR,
+      escalateMaxWeight: Number.isFinite(msg.escalateMaxWeight) && Number(msg.escalateMaxWeight) > 0
+        ? Number(msg.escalateMaxWeight) : CORRIDOR_ESCALATE_MAX_WEIGHT,
+      escalations: 0,
+      finalWeight: Number.isFinite(msg.finalHeuristicWeight) && Number(msg.finalHeuristicWeight) > 0
+        ? Number(msg.finalHeuristicWeight) : _corridorBaseWeight(msg.heuristicWeight, multiWindow),
       /* Varsayılan cihaz koruması DEĞİŞMEDİ. Gölge ölçüm koşumu bu tavanı
          AÇIKÇA yükseltebilir; ürün sürücüsü bunu ASLA göndermez, böylece
          "ölçüm için gerekli" ile "cihazda geçerli" birbirine karışmaz. */
-      maxClosed: Number.isFinite(msg.maxClosedStates) && Number(msg.maxClosedStates) > 0
-        ? Number(msg.maxClosedStates) : MAX_CLOSED,
+      maxClosed: 0,
+      recon: _reconCreate(0),
       outcome: null,
-      stats: { expansions: 0, windowsUsed: 0, migratedStates: 0, droppedStates: 0, peakOpen: 0, peakGCost: 0 },
+      stats: {
+        expansions: 0, windowsUsed: 0, migratedStates: 0, droppedStates: 0,
+        closedByClass: new Array<number>(10).fill(0),
+        peakOpen: 0, peakGCost: 0, pops: 0, stalePops: 0, relaxations: 0,
+        closedPerWindow: [],
+      },
     };
+    const budget = Number.isFinite(msg.maxClosedStates) && Number(msg.maxClosedStates) > 0
+      ? Number(msg.maxClosedStates) : MAX_CLOSED;
+    _crossSession.maxClosed = budget;
+    /* Arşiv tavanı arama tavanına BAĞLIDIR: her kapatılan durum en fazla birkaç
+       gevşetme üretir. Tavan aşılırsa rota uydurulmaz, fail-closed edilir. */
+    _crossSession.recon = _reconCreate(budget * 4);
     (self as unknown as Worker).postMessage({
       type: 'CROSS_REGION_NEED_WINDOW', requestId: msg.requestId, windowIndex: 0,
       requestedRegionIds: [], fromRegionIds: [], stats: null,
@@ -1148,7 +1581,8 @@ self.onmessage = (e: MessageEvent): void => {
     }
     _crossRegionAdvance(
       session, Number(msg.windowIndex ?? 0), view, msg.identity,
-      msg.exitPortals, msg.isFinal === true);
+      msg.exitPortals, msg.isFinal === true,
+      msg.boundaryBox ?? null, Number(msg.remainingLowerBoundM ?? 0));
     return;
   }
 
