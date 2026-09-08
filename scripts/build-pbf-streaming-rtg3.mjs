@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
-import { mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { createReadStream, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { getHeapStatistics } from 'node:v8';
 import { once } from 'node:events';
 import { spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
@@ -12,7 +13,10 @@ import { assertPreflight, runRtg3BuildPreflight } from './rtg3BuildPreflight.mjs
 
 const RUN=resolve(process.env.RTG3_RUN_DIR??'field-runs/pbf-streaming-rtg3-20260908');
 const SOURCE=resolve(process.argv[2]??resolve(RUN,'raw/mersin-province.osm.pbf'));
-const TEMP=resolve(RUN,'tmp'),OUTPUT=resolve(RUN,'regions'),DB_PATH=resolve(TEMP,'routing-build.sqlite');
+/* Ulke olceginde SQLite yazma hizi baskindir; temp'i hizli bir yerel
+   dosya sistemine almak build'i saatlerden dakikalara indirir. Cikti ve
+   kanit RUN_DIR'de KALIR — kanit yeri degismez. */
+const TEMP=resolve(process.env.RTG3_TEMP_DIR??resolve(RUN,'tmp')),OUTPUT=resolve(RUN,'regions'),DB_PATH=resolve(TEMP,'routing-build.sqlite');
 const OSMIUM=process.env.OSMIUM??'osmium',TILE=.5,MEMORY_BUDGET_MIB=Number(process.env.RTG3_MEMORY_BUDGET_MIB??512);
 const REGION_PREFIX=process.env.RTG3_REGION_PREFIX??'tr-33';
 const ALLOWED=new Set(ROUTABLE_HIGHWAYS);
@@ -24,24 +28,103 @@ mkdirSync(TEMP,{recursive:true});mkdirSync(OUTPUT,{recursive:true});
    Disk beklentisi Mersin ölçümünden türetilmiş muhafazakâr katsayıdır
    (kaynak 9 899 746 B → tepe temp 155 619 720 B ≈ 15.7×; +çıktı ≈ 2.8×). */
 const DISK_FACTOR=Number(process.env.RTG3_DISK_FACTOR??25);
+/* P12 — YARIM BUILD GECERLI DATASET DEGILDIR. Isaret dosyasi bastan SILINIR;
+   yalniz tum bolgeler + manifest yazildiktan SONRA konur. Manifest de en
+   sonda yazildigi icin yarim kosu tuketiciye ASLA yayinlanmaz. */
+const COMPLETE_MARKER=resolve(RUN,'build-complete.json');
+rmSync(COMPLETE_MARKER,{force:true});
+rmSync(resolve(RUN,'turkey-graph-manifest.json'),{force:true});
 const preflight=await runRtg3BuildPreflight({sourcePath:SOURCE,tempDir:TEMP,outputDir:OUTPUT,memoryBudgetMiB:MEMORY_BUDGET_MIB,osmiumBin:OSMIUM,minFreeBytes:Math.round((statSync(SOURCE,{throwIfNoEntry:false})?.size??0)*DISK_FACTOR)});
+/* ÖLÇÜLDÜ (Türkiye, 2026-09-08): bölge döngüsü her turda yüzlerce MB kısa
+   ömürlü nesne üretiyor. V8 old-space varsayılan tavanı (~4 GB) altında GC
+   ertelenir ve RSS KADEMELİ tırmanır: 153 bölge sonunda 518 MiB → 512 MiB
+   ağaç bütçesi fail-closed düştü. Çözüm bütçeyi büyütmek DEĞİL, V8'e bütçeyle
+   uyumlu bir tavan vermektir (`--max-old-space-size`), böylece GC erken
+   toplar. Bu kontrol o gereksinimi araç zinciri sözleşmesinin parçası yapar —
+   kabile bilgisi olarak bırakmaz. */
+const heapLimitMiB=Math.round(getHeapStatistics().heap_size_limit/1048576);
+const heapCeilingMiB=Math.max(128,Math.round(MEMORY_BUDGET_MIB*0.7));
+preflight.checks.push({check:'v8-heap-limit',required:`<=${heapCeilingMiB} MiB`,measured:`${heapLimitMiB} MiB`,
+  result:heapLimitMiB<=heapCeilingMiB?'PASS':'FAIL',
+  /* `heap_size_limit` old-space + new-space toplamidir; onerilen deger o
+     farki (olculen fark) dusen bir tavandir — yoksa oneri kendi kapisini
+     gecemez. */
+  detail:heapLimitMiB<=heapCeilingMiB?null:`NODE_OPTIONS=--max-old-space-size=${Math.max(96,heapCeilingMiB-(heapLimitMiB-Math.round(getHeapStatistics().total_available_size/1048576)>0?48:48))} ile calistirin (butce ${MEMORY_BUDGET_MIB} MiB, olculen V8 tavani ${heapLimitMiB} MiB)`});
+preflight.ok=preflight.checks.every(c=>c.result==='PASS');
 writeFileSync(resolve(RUN,'build-preflight.json'),JSON.stringify(preflight,null,2));
 assertPreflight(preflight);
 
-const started=performance.now(),telemetry=[];let activeChildPid=null;
-const tempBytes=()=>{let n=0;for(const p of [DB_PATH,`${DB_PATH}-wal`,`${DB_PATH}-shm`])try{n+=statSync(p).size}catch{}return n};
+const started=performance.now(),telemetry=[],peaks={nodeRss:0,childRss:0,processTreeRss:0,tempDisk:0};let activeChildPid=null;
+const SPILL=name=>resolve(TEMP,name);
+const tempBytes=()=>{let n=0;for(const p of [DB_PATH,`${DB_PATH}-wal`,`${DB_PATH}-shm`,SPILL('pass1.opl'),SPILL('pass2.opl')])try{n+=statSync(p).size}catch{}return n};
 function procRss(pid){if(process.platform!=='linux'||!pid)return 0;try{const m=readFileSync(`/proc/${pid}/status`,'utf8').match(/^VmRSS:\s+(\d+)\s+kB$/m);return m?Number(m[1])*1024:0}catch{return 0}}
-function sample(stage){const nodeRss=process.memoryUsage().rss,childRss=procRss(activeChildPid),processTreeRss=nodeRss+childRss;telemetry.push({stage,atMs:performance.now()-started,nodeRss,childRss,processTreeRss,tempDisk:tempBytes()});if(processTreeRss>MEMORY_BUDGET_MIB*1024*1024)throw new Error(`RTG3_MEMORY_BUDGET_EXCEEDED:${stage}`)}
+/* Zirveler HER ornekte guncellenir; kutuge yalniz ADLANDIRILMIS asamalar
+   yazilir. Ulke olceginde 50 ms'lik ornekler on binlerce kayda cikar:
+   bellekte de benchmark.json'da da sinirsiz buyur ve `Math.max(...dizi)`
+   yigini tasirir. Olcum kaybi YOK — butce kapisi her ornekte calisir. */
+function sample(stage){
+  const nodeRss=process.memoryUsage().rss,childRss=procRss(activeChildPid),processTreeRss=nodeRss+childRss,tempDisk=tempBytes();
+  if(nodeRss>peaks.nodeRss)peaks.nodeRss=nodeRss;
+  if(childRss>peaks.childRss)peaks.childRss=childRss;
+  if(processTreeRss>peaks.processTreeRss)peaks.processTreeRss=processTreeRss;
+  if(tempDisk>peaks.tempDisk)peaks.tempDisk=tempDisk;
+  if(stage!=='periodic')telemetry.push({stage,atMs:performance.now()-started,nodeRss,childRss,processTreeRss,tempDisk});
+  if(processTreeRss>MEMORY_BUDGET_MIB*1024*1024)throw new Error(`RTG3_MEMORY_BUDGET_EXCEEDED:${stage}`);
+}
 const timer=setInterval(()=>sample('periodic'),50);
-const shaFile=p=>createHash('sha256').update(readFileSync(p)).digest('hex');
+/* Kaynak SHA'si TEK KEZ ve AKISLA hesaplanir. Onceki hali her bolge icin
+   `readFileSync(SOURCE)` cagiriyordu: 14 bolgede fark edilmiyordu, ulke
+   olceginde 645 MB'i yuzlerce kez okuyup RAM'e almak demekti (hem bellek
+   butcesini hem build suresini tek basina patlatir). */
+async function shaStream(path){const hash=createHash('sha256');for await(const chunk of createReadStream(path))hash.update(chunk);return hash.digest('hex')}
 const decode=s=>s.replace(/%([0-9A-Fa-f]{2})/g,(_,h)=>String.fromCharCode(parseInt(h,16))).replace(/%([^0-9A-Fa-f]|$)/g,'$1');
 const tags=s=>Object.fromEntries((s??'').split(',').filter(Boolean).map(x=>{const i=x.indexOf('=');return[decode(i<0?x:x.slice(0,i)),decode(i<0?'':x.slice(i+1))]}));
 const field=(line,key)=>line.match(new RegExp(`(?:^| )${key}([^ ]*)`))?.[1]??'';
-async function runLines(args,onLine,stage){const child=spawn(OSMIUM,args,{stdio:['ignore','pipe','pipe']});activeChildPid=child.pid??null;const closed=once(child,'close');let stderr='';child.stderr.on('data',b=>stderr+=b);for await(const line of createInterface({input:child.stdout,crlfDelay:Infinity}))onLine(line);const[code]=await closed;activeChildPid=null;if(code)throw new Error(`${OSMIUM} ${args[0]} (${code}): ${stderr}`);sample(stage)}
+/**
+ * osmium AKISI DOSYAYA DÜŞÜRÜLÜR, sonra okunur — boru DEĞİL.
+ *
+ * ÖLÇÜLDÜ (Türkiye 645 MB, 2026-09-08): boruyla `tags-filter` tüketici
+ * yavaşladıkça blokta şişiyor ve tepe RSS **546 MiB**'ye çıkıyor → 512 MiB
+ * ağaç bütçesi 14. saniyede fail-closed düşüyor. Aynı komut dosyaya yazarken
+ * **216 MiB**, düğüm akışı **27 MiB**. Üstelik çocuk süreç Node ayrıştırmaya
+ * BAŞLAMADAN bitiyor → süreç ağacı tepesi max(), TOPLAM değil.
+ *
+ * Bedeli disktir (Türkiye: 648 MB + 7,1 GB geçici OPL) ve bilinçlidir; dosya
+ * aşama biter bitmez SİLİNİR. Bütçe YÜKSELTİLMEDİ.
+ */
+async function runLines(args,onLine,stage,spillName){
+  /* `add_metadata=false`: sürüm/zaman damgası/kullanıcı/changeset alanları
+     OKUNMUYOR; yazmak yalnız disk ve ayrıştırma maliyeti. Ölçüldü (Mersin):
+     124 808 974 B → 64 049 519 B (%48,7 azalma). Graf çıktısı DEĞİŞMEZ. */
+  const spill=SPILL(spillName);
+  const child=spawn(OSMIUM,[...args,'-o',spill,'--overwrite'],{stdio:['ignore','ignore','pipe']});
+  activeChildPid=child.pid??null;
+  let stderr='';child.stderr.on('data',b=>stderr+=b);
+  const [code]=await once(child,'close');
+  activeChildPid=null;
+  if(code)throw new Error(`${OSMIUM} ${args[0]} (${code}): ${stderr}`);
+  sample(`${stage}-extract`);
+  for await(const line of createInterface({input:createReadStream(spill,{highWaterMark:1<<20}),crlfDelay:Infinity}))onLine(line);
+  sample(stage);
+  rmSync(spill,{force:true});
+}
 
 const db=new DatabaseSync(DB_PATH);
-db.exec(`PRAGMA journal_mode=WAL;PRAGMA synchronous=NORMAL;PRAGMA temp_store=FILE;PRAGMA cache_size=-32768;
-DROP TABLE IF EXISTS ways;DROP TABLE IF EXISTS way_nodes;DROP TABLE IF EXISTS required_nodes;DROP TABLE IF EXISTS nodes;DROP TABLE IF EXISTS restrictions;DROP TABLE IF EXISTS region_ways;DROP TABLE IF EXISTS region_nodes;
+db.exec('PRAGMA journal_mode=WAL;PRAGMA synchronous=NORMAL;PRAGMA temp_store=FILE;PRAGMA cache_size=-32768;CREATE TABLE IF NOT EXISTS build_meta(key TEXT PRIMARY KEY,value TEXT NOT NULL)');
+const readMeta=k=>db.prepare('SELECT value FROM build_meta WHERE key=?').get(k)?.value??null;
+const writeMeta=(k,v)=>db.prepare('INSERT INTO build_meta VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value').run(k,String(v));
+const sourceHash=await shaStream(SOURCE);
+/* Yalniz AYNI kaynaktan uretilmis ve INDEKSE KADAR tamamlanmis bir DB
+   yeniden kullanilir; aksi halde bastan kurulur. Bayat DB sessizce kabul
+   EDILMEZ (yanlis grafi dogru sanmak, eksik graftan kotudur). */
+const reusable=process.env.RTG3_REUSE_DB==='1'&&readMeta('source_sha256')===sourceHash&&readMeta('stage')==='partition-index-complete';
+let selectedWays=0,deniedWays=0,restrictionRelations=0,requiredCoordinates=0;
+if(reusable){
+  selectedWays=Number(readMeta('selected_ways'));deniedWays=Number(readMeta('denied_ways'));
+  restrictionRelations=Number(readMeta('restriction_relations'));requiredCoordinates=Number(readMeta('required_coordinates'));
+  sample('reuse-existing-index');
+}else{
+db.exec(`DROP TABLE IF EXISTS ways;DROP TABLE IF EXISTS way_nodes;DROP TABLE IF EXISTS required_nodes;DROP TABLE IF EXISTS nodes;DROP TABLE IF EXISTS restrictions;DROP TABLE IF EXISTS region_ways;DROP TABLE IF EXISTS region_nodes;
 CREATE TABLE ways(id INTEGER PRIMARY KEY,tags TEXT NOT NULL,access_role INTEGER NOT NULL);
 CREATE TABLE way_nodes(way_id INTEGER NOT NULL,ord INTEGER NOT NULL,node_id INTEGER NOT NULL,PRIMARY KEY(way_id,ord));CREATE INDEX way_nodes_node ON way_nodes(node_id);
 CREATE TABLE required_nodes(id INTEGER PRIMARY KEY);CREATE TABLE nodes(id INTEGER PRIMARY KEY,lat REAL NOT NULL,lon REAL NOT NULL);
@@ -51,9 +134,8 @@ const insertWay=db.prepare('INSERT INTO ways VALUES(?,?,?)');
 const insertWayNode=db.prepare('INSERT INTO way_nodes VALUES(?,?,?)');
 const insertRequired=db.prepare('INSERT OR IGNORE INTO required_nodes VALUES(?)');
 const insertRestriction=db.prepare('INSERT INTO restrictions VALUES(?,?,?,?,?,?,?,?,?)');
-let selectedWays=0,deniedWays=0,restrictionRelations=0;
 db.exec('BEGIN');
-await runLines(['tags-filter','-R',SOURCE,'w/highway','r/type=restriction','-f','opl','-o','-'],line=>{
+await runLines(['tags-filter','-R',SOURCE,'w/highway','r/type=restriction','-f','opl,add_metadata=false'],line=>{
   if(line[0]==='w'){
     const wayTags=tags(field(line,'T')),decision=classifyDrivableWay(wayTags,ALLOWED);if(!decision){deniedWays++;return}
     const id=Number(line.slice(1,line.indexOf(' '))),nodeIds=field(line,'N').split(',').filter(Boolean).map(x=>Number(x.slice(1)));if(nodeIds.length<2)return;
@@ -68,14 +150,17 @@ await runLines(['tags-filter','-R',SOURCE,'w/highway','r/type=restriction','-f',
     const memberState=from.length===1&&to.length===1&&((viaNode.length===1&&viaWay.length===0)||(viaNode.length===0&&viaWay.length>=1))?'VALID':'MALFORMED_SOURCE';
     insertRestriction.run(id,relationTags.restriction??null,relationTags['restriction:conditional']?1:0,relationTags.except??null,from[0]?.ref??null,to[0]?.ref??null,viaNode[0]?.ref??null,viaWay.length?JSON.stringify(viaWay.map(m=>m.ref)):null,memberState);
   }
-},'pass1-complete');db.exec('COMMIT');
+},'pass1-complete','pass1.opl');db.exec('COMMIT');
 
-const required=db.prepare('SELECT 1 FROM required_nodes WHERE id=?'),insertNode=db.prepare('INSERT INTO nodes VALUES(?,?,?)');let requiredCoordinates=0;
+const required=db.prepare('SELECT 1 FROM required_nodes WHERE id=?'),insertNode=db.prepare('INSERT INTO nodes VALUES(?,?,?)');
 db.exec('BEGIN');
-await runLines(['cat',SOURCE,'-t','node','-f','opl','-o','-'],line=>{const id=Number(line.slice(1,line.indexOf(' ')));if(!required.get(id))return;const lon=Number(field(line,'x')),lat=Number(field(line,'y'));if(Number.isFinite(lat)&&Number.isFinite(lon)){insertNode.run(id,lat,lon);requiredCoordinates++}},'pass2-complete');
+await runLines(['cat',SOURCE,'-t','node','-f','opl,add_metadata=false'],line=>{const id=Number(line.slice(1,line.indexOf(' ')));if(!required.get(id))return;const lon=Number(field(line,'x')),lat=Number(field(line,'y'));if(Number.isFinite(lat)&&Number.isFinite(lon)){insertNode.run(id,lat,lon);requiredCoordinates++}},'pass2-complete','pass2.opl');
 db.exec('COMMIT');
 db.exec(`INSERT OR IGNORE INTO region_ways SELECT printf('${REGION_PREFIX}-%d-%d',CAST(n.lon/${TILE} AS INTEGER),CAST(n.lat/${TILE} AS INTEGER)),wn.way_id FROM way_nodes wn JOIN nodes n ON n.id=wn.node_id;CREATE INDEX region_ways_region ON region_ways(region_id);INSERT OR IGNORE INTO region_nodes SELECT rw.region_id,wn.node_id FROM region_ways rw JOIN way_nodes wn ON wn.way_id=rw.way_id;CREATE INDEX region_nodes_node ON region_nodes(node_id);ANALYZE;`);
 sample('partition-index-complete');
+writeMeta('source_sha256',sourceHash);writeMeta('selected_ways',selectedWays);writeMeta('denied_ways',deniedWays);
+writeMeta('restriction_relations',restrictionRelations);writeMeta('required_coordinates',requiredCoordinates);writeMeta('stage','partition-index-complete');
+}
 
 const regionIds=[...db.prepare('SELECT DISTINCT region_id FROM region_ways ORDER BY region_id').iterate()].map(r=>r.region_id);
 const hav=(a,b)=>{const p=Math.PI/180,d1=(b[0]-a[0])*p,d2=(b[1]-a[1])*p,q=Math.sin(d1/2)**2+Math.cos(a[0]*p)*Math.cos(b[0]*p)*Math.sin(d2/2)**2;return 6371000*2*Math.atan2(Math.sqrt(q),Math.sqrt(1-q))};
@@ -159,13 +244,13 @@ for(const regionId of regionIds){
     stats.supported++;
   }
   const graph={coords,nodeIds,edges,restrictions},binary=serializeRtg3(graph),file=`${regionId}.rtg3`;writeFileSync(resolve(OUTPUT,file),binary);
-  const parts=regionId.split('-'),x=Number(parts[parts.length-2]),y=Number(parts[parts.length-1]);regions.push({regionId,bbox:[x*TILE,y*TILE,(x+1)*TILE,(y+1)*TILE],graphFile:`regions/${file}`,sha256:createHash('sha256').update(binary).digest('hex'),byteSize:binary.length,nodeCount:nodeIds.length,edgeCount:edges.length,neighbors:[],sourceHash:shaFile(SOURCE),classCount,restrictions:{source:restrictionRelations,...stats,records:restrictions.length,viaWayChains:nextChainId-1},structure:{bridge:edges.filter(e=>e.structure&1).length,tunnel:edges.filter(e=>e.structure&2).length,layer:edges.filter(e=>e.layer).length},destinationOnly:edges.filter(e=>e.accessRole===2).length,oneway:edges.filter(e=>e.direction===1).length});sample(`region:${regionId}`)
+  const parts=regionId.split('-'),x=Number(parts[parts.length-2]),y=Number(parts[parts.length-1]);regions.push({regionId,bbox:[x*TILE,y*TILE,(x+1)*TILE,(y+1)*TILE],graphFile:`regions/${file}`,sha256:createHash('sha256').update(binary).digest('hex'),byteSize:binary.length,nodeCount:nodeIds.length,edgeCount:edges.length,neighbors:[],sourceHash,classCount,restrictions:{source:restrictionRelations,...stats,records:restrictions.length,viaWayChains:nextChainId-1},structure:{bridge:edges.filter(e=>e.structure&1).length,tunnel:edges.filter(e=>e.structure&2).length,layer:edges.filter(e=>e.layer).length},destinationOnly:edges.filter(e=>e.accessRole===2).length,oneway:edges.filter(e=>e.direction===1).length});sample(`region:${regionId}`)
 }
 
 const neighborSets=new Map(regions.map(region=>[region.regionId,new Set()]));
 for(const portal of db.prepare('SELECT DISTINCT a.region_id AS a,b.region_id AS b FROM region_nodes a JOIN region_nodes b ON a.node_id=b.node_id WHERE a.region_id<b.region_id').iterate()){neighborSets.get(portal.a)?.add(portal.b);neighborSets.get(portal.b)?.add(portal.a)}
 for(const region of regions)region.neighbors=[...neighborSets.get(region.regionId)].sort();
-const sourceHash=shaFile(SOURCE),manifest={schemaVersion:1,datasetId:`osm-${REGION_PREFIX}-${sourceHash.slice(0,12)}`,country:'TR',source:process.env.RTG3_SOURCE_LABEL??'OpenStreetMap / Geofabrik Turkey extract; Mersin relation 223131',sourceTimestamp:process.env.RTG3_SOURCE_TIMESTAMP??'2026-09-06T19:53:37Z',buildTimestamp:new Date().toISOString(),policyVersion:'2b4f5de8',graphFormat:'RTG3',regions:regions.map(({classCount,restrictions,structure,destinationOnly,oneway,...region})=>region)};
+const manifest={schemaVersion:1,datasetId:`osm-${REGION_PREFIX}-${sourceHash.slice(0,12)}`,country:'TR',source:process.env.RTG3_SOURCE_LABEL??'OpenStreetMap / Geofabrik Turkey extract; Mersin relation 223131',sourceTimestamp:process.env.RTG3_SOURCE_TIMESTAMP??'2026-09-06T19:53:37Z',buildTimestamp:new Date().toISOString(),policyVersion:'2b4f5de8',graphFormat:'RTG3',regions:regions.map(({classCount,restrictions,structure,destinationOnly,oneway,...region})=>region)};
 writeFileSync(resolve(RUN,'turkey-graph-manifest.json'),JSON.stringify(manifest,null,2));
 const supportedIds=new Set(restrictionEvidence.map(r=>r.relationId)),viaWaySupportedIds=new Set(viaWayEvidence.filter(r=>r.outcome==='SUPPORTED_VIA_WAY').map(r=>r.relationId));
 const restrictionStats={observed:0,valid:0,supported:0,supportedViaNode:0,supportedViaWay:0,unsupported:0,malformed:0,unresolved:0,conditional:0,vehicleSpecific:0,viaWay:0,unsupportedType:0},hasWay=db.prepare('SELECT 1 FROM ways WHERE id=?');
@@ -184,6 +269,10 @@ for(const relation of db.prepare('SELECT * FROM restrictions ORDER BY id').itera
   if(supportedIds.has(relation.id)){restrictionStats.supported++;restrictionStats.supportedViaNode++}else restrictionStats.unresolved++;
 }
 db.exec('PRAGMA wal_checkpoint(TRUNCATE)');sample('complete');clearInterval(timer);
-const summary={source:{file:relative(RUN,SOURCE),bytes:statSync(SOURCE).size,sha256:sourceHash,provider:'Geofabrik/OpenStreetMap',coverage:process.env.RTG3_SOURCE_LABEL??'Mersin province relation 223131'},preflight,parser:'osmium-tool + node:sqlite',strategy:'SQLite-indexed two-pass PBF stream; sequential deterministic 0.5 degree RTG3 partitions',memoryBudgetMiB:MEMORY_BUDGET_MIB,selectedWays,deniedWays,requiredCoordinates,restrictionRelations,restrictionStats,regions,totalNodes:regions.reduce((n,r)=>n+r.nodeCount,0),totalEdges:regions.reduce((n,r)=>n+r.edgeCount,0),totalBytes:regions.reduce((n,r)=>n+r.byteSize,0),tempBytes:tempBytes(),peakTempBytes:Math.max(...telemetry.map(x=>x.tempDisk)),buildMs:performance.now()-started,peakNodeRssBytes:Math.max(...telemetry.map(x=>x.nodeRss)),peakProcessTreeRssBytes:Math.max(...telemetry.map(x=>x.processTreeRss)),telemetry,restrictionEvidence:restrictionEvidence.slice(0,50),viaWayEvidence};
+const summary={source:{file:relative(RUN,SOURCE),bytes:statSync(SOURCE).size,sha256:sourceHash,provider:'Geofabrik/OpenStreetMap',coverage:process.env.RTG3_SOURCE_LABEL??'Mersin province relation 223131'},preflight,parser:'osmium-tool + node:sqlite',strategy:'SQLite-indexed two-pass PBF stream; sequential deterministic 0.5 degree RTG3 partitions',memoryBudgetMiB:MEMORY_BUDGET_MIB,selectedWays,deniedWays,requiredCoordinates,restrictionRelations,restrictionStats,regions,totalNodes:regions.reduce((n,r)=>n+r.nodeCount,0),totalEdges:regions.reduce((n,r)=>n+r.edgeCount,0),totalBytes:regions.reduce((n,r)=>n+r.byteSize,0),tempBytes:tempBytes(),peakTempBytes:peaks.tempDisk,buildMs:performance.now()-started,peakNodeRssBytes:peaks.nodeRss,peakChildRssBytes:peaks.childRss,peakProcessTreeRssBytes:peaks.processTreeRss,telemetry,restrictionEvidence:restrictionEvidence.slice(0,50),viaWayEvidence};
 db.close();
-writeFileSync(resolve(RUN,'benchmark.json'),JSON.stringify(summary,null,2));console.log(JSON.stringify(summary,null,2));
+writeFileSync(resolve(RUN,'benchmark.json'),JSON.stringify(summary,null,2));
+/* TAMAMLANMA ISARETI — en son adim. Bu dosya yoksa kosu YARIMDIR ve o
+   region kumesi gecerli bir dataset SAYILMAZ. */
+writeFileSync(COMPLETE_MARKER,JSON.stringify({completedAt:new Date().toISOString(),sourceSha256:sourceHash,regions:regions.length,totalBytes:summary.totalBytes,manifest:'turkey-graph-manifest.json',memoryBudgetMiB:MEMORY_BUDGET_MIB,peakProcessTreeRssBytes:peaks.processTreeRss},null,2));
+console.log(JSON.stringify(summary,null,2));

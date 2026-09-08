@@ -4567,6 +4567,45 @@ describe('NAV-CORE-P0 kilitleri', () => {
       .toContain('if ((view.restrictionType[i] & RTG3_VIA_WAY_FLAG) !== 0) continue;');
   });
 
+  it('🔒 RTG3 ülke ölçeği: builder bütçeyi patlatan üç deseni GERİ GETİREMEZ', () => {
+    /* Üçü de Türkiye build'inde ÖLÇÜLDÜ ve fail-closed düşüşe yol açtı;
+       hepsi Mersin ölçeğinde GÖRÜNMÜYORDU. Kilit, "küçük veride çalışıyor"
+       yanılgısının geri gelmesini engeller. */
+    const b = read('scripts/build-pbf-streaming-rtg3.mjs');
+
+    /* (1) osmium çıktısı BORUYA yazılırsa tüketici yavaşladıkça çocuk süreç
+       şişer (ölçüldü: 546 MiB → 512 MiB ağaç bütçesi düşer). Dosyaya düşür. */
+    expect(b, 'osmium çıktısı boruya dönmüş').not.toContain("'-o','-'");
+    expect(b, 'spill dosyası kullanılmıyor').toContain("'-o',spill,'--overwrite'");
+    expect(b, 'spill okunmuyor').toContain('createReadStream(spill');
+
+    /* (2) Kaynak SHA'si bölge başına hesaplanırsa 645 MB dosya yüzlerce kez
+       RAM'e okunur. TEK KEZ ve AKIŞLA hesaplanmalı. */
+    expect(b, 'readFileSync ile kaynak hash').not.toContain("update(readFileSync(p)).digest");
+    expect(b, 'akışlı hash yok').toContain('async function shaStream');
+    expect(b.match(/await shaStream\(SOURCE\)/g), 'kaynak hash birden fazla kez').toHaveLength(1);
+
+    /* (3) 50 ms'lik telemetri örnekleri diziye yazılırsa ~3 saatlik build'de
+       yüz binlerce kayıt olur (bellek + dev JSON + Math.max yığın taşması). */
+    expect(b, 'periodic örnek kütüğe yazılıyor').toContain("if(stage!=='periodic')telemetry.push");
+    expect(b, 'zirve Math.max(...dizi) ile hesaplanıyor').not.toContain('Math.max(...telemetry');
+  });
+
+  it('🔒 RTG3 build: yarım koşu geçerli dataset SAYILMAZ', () => {
+    const b = read('scripts/build-pbf-streaming-rtg3.mjs');
+    /* Manifest ve tamamlanma işareti koşu BAŞINDA silinir, yalnız tam
+       başarıda yazılır → yarım region kümesi tüketiciye yayınlanmaz. */
+    expect(b).toContain("rmSync(COMPLETE_MARKER,{force:true})");
+    expect(b).toContain("rmSync(resolve(RUN,'turkey-graph-manifest.json'),{force:true})");
+    const markerWrite = b.indexOf('writeFileSync(COMPLETE_MARKER');
+    const manifestWrite = b.indexOf("writeFileSync(resolve(RUN,'turkey-graph-manifest.json')");
+    expect(markerWrite, 'tamamlanma işareti yazılmıyor').toBeGreaterThan(0);
+    expect(markerWrite, 'işaret manifestten ÖNCE yazılıyor').toBeGreaterThan(manifestWrite);
+    /* V8 old-space tavanı bütçeyle uyumlu olmalı; yoksa GC ertelenir ve RSS
+       kademeli tırmanır (ölçüldü: 153 bölge sonunda 518 MiB). */
+    expect(b).toContain("check:'v8-heap-limit'");
+  });
+
   it('🔒 RTG3: bayt YAZMA otoritesi tek dosyadadır', () => {
     /* Okuma tarafı tek otoriteyken (rtg2Reader) yazma tarafında iki kopya
        tutmak, aynı formatın iki gerçeği demektir. */

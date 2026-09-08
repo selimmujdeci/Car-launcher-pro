@@ -8695,3 +8695,36 @@ değişmedi. Cihaz/saha kapısı kırmızıdır (kütük #1209).
 
 Kanıt: `field-runs/pbf-streaming-rtg3-20260908/report-source.md` ·
 `field-runs/turkey-rtg3-preflight-20260908/turkey-build-preflight.json`.
+
+## Turkey nationwide RTG3 shadow build — 2026-09-08
+
+Durum: DOĞRULANDI (CODE/desktop shadow), ÜRÜN HAZIR: HAYIR.
+Sonuç sınıfı: **`NATIONWIDE_SHADOW_BUILD_PASS`** +
+**`COUNTRY_ROUTE_CORRIDOR = BLOCKED_RESIDENCY_BUDGET`**.
+
+Türkiye'nin tamamı gerçek Geofabrik PBF'inden gölge RTG3 olarak üretildi:
+**402 bölge · 21 874 202 düğüm · 23 004 155 kenar · 948,2 MiB · 12 dk 01 s ·
+tepe process-tree RSS 398,47 MiB** (512 MiB fail-closed bütçe içinde).
+Manifest bütünlüğü 402 bölgede 12/12 PASS; topolojide 0 self-loop, 0 sıfır
+uzunluklu kenar, 0 yinelenen kenar, 0 geçersiz referans. Ülke geneli 6 891
+dönüş kısıtı çözüldü (6 193 via-node + 698 via-way zinciri) — via-way desteği
+ölçekte çalışıyor.
+
+Build ölçek engelleri **ölçülerek** kapatıldı, bütçe bir kez bile
+yükseltilmedi: (1) osmium boru geri basıncı (546 MiB) → çıktı geçici dosyaya
+düşürüldü (216/27 MiB), (2) V8 old-space kademeli tırmanması (518 MiB) → yeni
+`v8-heap-limit` preflight kontrolü, (3) kaynak SHA'sinin bölge başına yeniden
+hesaplanması + sınırsız telemetri + gereksiz OPL metadata'sı. Her düzeltmeden
+sonra Mersin çıktısı **bayt bayt** doğrulandı.
+
+Kanonik zincir (manifest → graphResidencyRuntime → NavigationCompute A*) ülke
+dataset'i üzerinde 1 ve 2 bölgeli gerçek rotaları çözüyor (Mersin→Adana
+66 847 m · 40,1 ms). **Uzun şehirler arası rotalar mimari olarak bloklu**:
+gerçek koridor Mersin→Ankara 7, İstanbul→Ankara 9, Mersin→İstanbul 13 bölge
+iken `REGIONAL_GRAPH_MAX_RESIDENT` 3'tür. Bayt bütçesi sorun değildir; sınır
+bölge SAYISIDIR. Tavan ölçülmeden değiştirilmeyecek.
+
+`public/maps/routing-graph.bin` değişmedi; production swap yapılmadı.
+Cihaz/saha kapısı kırmızıdır (kütük #1210).
+
+Kanıt: `field-runs/turkey-rtg3-national-20260908/report-source.md`.
