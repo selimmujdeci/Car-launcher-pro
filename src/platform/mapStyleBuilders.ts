@@ -71,6 +71,7 @@ export const NAV_SUPPRESS_TIERS: ReadonlyArray<ReadonlyArray<SuppressEntry>> = [
     ['road-tertiary',         'line-opacity', 1.00],
     ['road-minor',            'line-opacity', 1.00],
     ['road-service',          'line-opacity', 1.00],
+    ['road-service-casing',   'line-opacity', 1.00],
     ['road-label',            'text-opacity', 1.00],
     ['place-town',            'text-opacity', 1.00],
   ],
@@ -85,6 +86,7 @@ export const NAV_SUPPRESS_TIERS: ReadonlyArray<ReadonlyArray<SuppressEntry>> = [
     ['road-tertiary',         'line-opacity', 0.80],
     ['road-minor',            'line-opacity', 0.75],
     ['road-service',          'line-opacity', 0.70],
+    ['road-service-casing',   'line-opacity', 0.70],
     ['road-label',            'text-opacity', 0.70],
     ['place-town',            'text-opacity', 0.70],
   ],
@@ -99,6 +101,7 @@ export const NAV_SUPPRESS_TIERS: ReadonlyArray<ReadonlyArray<SuppressEntry>> = [
     ['road-tertiary',         'line-opacity', 0.66],
     ['road-minor',            'line-opacity', 0.60],
     ['road-service',          'line-opacity', 0.56],
+    ['road-service-casing',   'line-opacity', 0.56],
     ['road-label',            'text-opacity', 0.55],
     ['place-town',            'text-opacity', 0.55],
   ],
@@ -245,6 +248,17 @@ interface VectorPalette {
       olmadan secondary ile aynı görsel ağırlıkta okunuyordu. */
   readonly tertiaryCasing: string;
   readonly minorCasing: string;
+  /**
+   * Servis/park-yolu kasası — 2026-09-09 kartografi turu.
+   *
+   * ÖLÇÜLDÜ: `road-service` gövdesi hiçbir kasa TAŞIMIYORDU (`#f4f4f5` ailesi,
+   * zemine karşı kontrast oranı yalnız **1,06** — pratikte görünmezdi; kütükteki
+   * `%85` opaklık zemine harmanlanınca bu değer daha da düşüyordu). `minor` ile
+   * AYNI "yerel ağ" kademesini paylaşır (kod içinde zaten `GECE_YEREL` ortak
+   * çarpanıyla birlikte ele alınıyorlardı) — bu yüzden tonu da `minorCasing`le
+   * BİREBİR aynı: yeni bir kademe icat edilmedi, var olan kademe TAMAMLANDI.
+   */
+  readonly serviceCasing: string;
   readonly motorway: string;
   readonly primary: string;
   readonly secondary: string;
@@ -335,6 +349,10 @@ export const NIGHT_PALETTE: VectorPalette = {
      (zemine karşı 1,24→1,32 ve 1,25→1,36). Ton merdivenine DOKUNULMADI. */
   tertiaryCasing:  '#111620',
   minorCasing:     '#0e131b',
+  /* Gece DEĞİŞMEZ: gövdeyle (`minor` = '#e9edf2') BİREBİR aynı ton + katman
+     tanımında AYNI genişlik ifadesi kullanılır → gece ekranda tek piksel
+     farkı YOK (kasa gövdenin altında tamamen kaybolur, kasıtlı no-op). */
+  serviceCasing:   '#e9edf2',
   /* ── GECE YOLLARI BEYAZ (2026-09-05 akşamı · GERÇEK CİHAZ KARARI) ────────
    * Kullanıcı gece navigasyon ekran görüntüsüyle: *"yolları tam beyaz yap"*.
    * Eski merdiven `#ccd3dc`→`#6f757e` idi ve tali sokaklar koyu gri kalıyordu.
@@ -475,6 +493,11 @@ export const DAY_PALETTE: VectorPalette = {
      uçtan uca 1,725. Tertiary ESKİ minor kademesini aldı, minor GERİ ÇEKİLDİ. */
   tertiaryCasing:  '#b5b7b9',
   minorCasing:     '#c2c3c4',
+  /* `minorCasing` ile BİREBİR aynı ton — servis "yerel ağ" kademesinin bir
+     parçasıdır, ayrı bir kademe İCAT EDİLMEDİ. Katman gündüzde `minorCasing`den
+     GENİŞ çizilir (bkz. `road-service-casing`), böylece gövdesi zeminde artık
+     kaybolmaz (ölçülen eski kontrast: zemine karşı 1,06). */
+  serviceCasing:   '#c2c3c4',
   /* Gövde merdiveni — saf beyazdan sıcak beyaza doğru monoton kırılır. */
   motorway:        '#ffffff',
   primary:         '#fcfcfc',
@@ -919,6 +942,10 @@ export function buildVectorLayers(night: boolean): LayerSpecification[] {
     (night ? stops.map(([z, w]) => [z, Math.round(w * k * 100) / 100] as const) : stops);
   const GECE_YEREL   = 0.72;   // minor · service
   const GECE_UCUNCUL = 0.84;   // tertiary
+  /* `road-service` gövdesinin TEK genişlik kaynağı — gece kasası (aşağıda)
+     AYNI referansı kullanır ki iki katman piksel düzeyinde ÇAKIŞSIN. */
+  const roadServiceWidth = ['interpolate', ['linear'], ['zoom'],
+    15, night ? 0.65 : 0.9, 18, night ? 2.45 : 3.4] as unknown as number;
 
   return [
       /* ═══════════════════════════════════════════════════════════════════
@@ -1169,16 +1196,75 @@ export function buildVectorLayers(night: boolean): LayerSpecification[] {
          Kasa, ince yolu zeminden ayıran öğedir; gövdeden bir ton koyudur ve
          gövdeden GENİŞTİR. Kasa merdiveni gövde merdiveniyle aynı sırada
          çizilir ki kavşakta üst sınıf altı sınıfı kessin.                  */
+      /* ── SAHA KUSURU (2026-09-09) · `road-service` HİÇ KASA TAŞIMIYORDU ─────
+       * ÖLÇÜLDÜ: gövde `#f4f4f5` (`P.minor`), zemine (`#e9eef3`) karşı çıplak
+       * kontrast **1,06** — üstüne `line-opacity: 0.85` harmanlanınca ekranda
+       * fiilen görünmez. `minor` ile AYNI "yerel ağ" kademesini paylaşır
+       * (`serviceCasing` tokeni `minorCasing` ile BİREBİR aynı — yeni bir
+       * kademe İCAT EDİLMEDİ) ve draw-order kilidi gereği (`road-service`
+       * gövdesi `road-minor` gövdesinden KÜÇÜK sayılır) kasası da diğer
+       * kasalardan ÖNCE, en küçükten büyüğe sırada durur.
+       *
+       * GECE piksel düzeyinde DOKUNULMAZ: genişlik `roadServiceWidth` — YANİ
+       * GÖVDENİN KENDİ ifadesiyle BİREBİR AYNI referans — ve renk gövdeyle
+       * (`P.minor`) BİREBİR aynı. Kasa gecede gövdenin TAM ALTINDA, TAM AYNI
+       * genişlik ve renkte kalır → ekranda hiçbir ek piksel oluşmaz (kasıtlı
+       * no-op). Yalnız GÜNDÜZ genişliği kendi (daha geniş) eğrisini kullanır. */
+      { id: 'road-service-casing',
+        type: 'line',
+        source: 'omv',
+        'source-layer': 'transportation',
+        filter: surfaceOnly(classIn('service', 'track', 'busway')),
+        minzoom: ROAD_VISIBILITY.service.minzoom,
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: {
+          'line-color': P.serviceCasing,
+          'line-width': (night
+            ? roadServiceWidth                                          // gece — gövdeyle BİREBİR (no-op)
+            : ['interpolate', ['linear'], ['zoom'], 15, 1.3, 18, 4.6]    // gündüz — gövdeden geniş
+          ) as unknown as number,
+        } },
+
+      /* ── SAHA KUSURU (2026-09-09) · `road-minor-casing` z13'te YOKTU ─────────
+       * `road-minor` GÖVDESİ z13'te (`ROAD_VISIBILITY.minor.minzoom`) çizilmeye
+       * başlıyordu ama KASASI bir zoom kademesi GECİKMELİ açılıyordu
+       * (`minzoom + 1` = 14) — z13'te ekranda yalnız gövde vardı: `#f4f4f5`
+       * (neredeyse beyaz) zemine (`#e9eef3`) karşı ÖLÇÜLEN kontrast **1,06**,
+       * yani o tam kademe boyunca yerel yol PRATİKTE görünmezdi. Bu, bu turun
+       * "yerel yolların okunabilirliği zayıf" bulgusunun BİREBİR ölçülebilir
+       * kanıtıdır (z13 tipik şehir-yaklaşım zoom'udur, prompt'un odaklandığı
+       * z14–z17 bandının hemen altı).
+       *
+       * `minzoom` GÜNDÜZ/GECE ARASINDA PAYLAŞILIR (yapısal zorunluluk, tercih
+       * DEĞİL): `applyMapDayNight` "restyle OLMADAN canlı paint güncellemesi"dir
+       * — yalnız `paint`/`layout` içini iki tema arasında farklı olan alanlarda
+       * yamar (`MapLayerManager.ts` içindeki diff döngüsü). `minzoom` o iki
+       * bölümün de DIŞINDA, katmanın yapısal bir alanıdır; canlı geçişte HİÇBİR
+       * ZAMAN düzeltilmez. Temaya göre farklı `minzoom` yazılsaydı, MINI/FULL
+       * gibi FARKLI `night` değeriyle kurulmuş iki yüzey aynı temaya geçse
+       * BİLE yapısal olarak KALICI AYRIŞIRDI — tam olarak bunu yakalayan
+       * mevcut bir kilit var (`mapDeviceLifecycleCampaign.test.ts`, "MINI ve
+       * FULL aynı canlı DAY/NIGHT paletine döner") ve ilk denemede DÜŞTÜ; bu
+       * yorum o düşüşün kaydıdır. Düzeltme bu yüzden HER İKİ temaya uygulanır.
+       *
+       * GENİŞLİK (`paint.line-width`) ise diff döngüsünün İÇİNDEDİR ve canlı
+       * senkronize edilir — bu yüzden GECE ifadesi ESKİ değerleriyle BAĞIMSIZ
+       * kalabilir ve BİREBİR KORUNUR (gece zaten `minor` gövdesi tek başına
+       * ~12:1 kontrastla fazlasıyla okunaklıydı; kasa bir zoom kademesi erken
+       * gelmesi zarasız — sorun oradaki genişlikte hiç yoktu). */
       { id: 'road-minor-casing',
         type: 'line',
         source: 'omv',
         'source-layer': 'transportation',
         filter: surfaceOnly(classIn('minor', 'service', 'track')),
-        minzoom: ROAD_VISIBILITY.minor.minzoom + 1,
+        minzoom: ROAD_VISIBILITY.minor.minzoom,
         layout: { 'line-cap': 'round', 'line-join': 'round' },
         paint: {
           'line-color': P.minorCasing,
-          'line-width': roadWidth([[14, 2.6], [16, 4.6], [18, 9]]) as unknown as number,
+          'line-width': roadWidth(night
+            ? [[14, 2.6], [16, 4.6], [18, 9]]                 // gece — DEĞİŞMEDİ
+            : [[13, 1.8], [14, 3.0], [16, 5.2], [18, 9]],     // gündüz — z13 eklendi, z14/16 genişledi
+          ) as unknown as number,
         } },
       /* ── ÜÇÜNCÜL YOL KENDİ KASASINI ALDI (ÖLÇÜM 2026-09-06) ──────────────
          Eskiden `secondary` ve `tertiary` TEK kasayı paylaşıyordu; gövde tonu da
@@ -1264,8 +1350,7 @@ export function buildVectorLayers(night: boolean): LayerSpecification[] {
         paint: {
           'line-color': P.minor,
           'line-opacity': 0.85,
-          'line-width': ['interpolate', ['linear'], ['zoom'],
-            15, night ? 0.65 : 0.9, 18, night ? 2.45 : 3.4],
+          'line-width': roadServiceWidth,
         } },
       { id: 'road-minor',
         type: 'line',
@@ -1276,7 +1361,14 @@ export function buildVectorLayers(night: boolean): LayerSpecification[] {
         layout: { 'line-cap': 'round', 'line-join': 'round' },
         paint: {
           'line-color': P.minor,
-          'line-width': roadWidth(gece([[13, 0.9], [14, 2.2], [16, 4], [18, 7.4]], GECE_YEREL)) as unknown as number,
+          /* z18 durağı (7,4) BİLEREK dokunulmadı: otoyol/tali oranı kilidinin
+             (`cartographyAuthority` §4) en dar marjı orada (2,70:1 — eşik 2,5).
+             z14/z16 GÜNDÜZ için genişletildi — z13–z18 arası GECE ifadesi
+             (`gece()` ile ölçeklenen dizi) ESKİ DEĞERLERİYLE BİREBİR AYNI. */
+          'line-width': roadWidth(night
+            ? gece([[13, 0.9], [14, 2.2], [16, 4],   [18, 7.4]], GECE_YEREL)   // gece — DEĞİŞMEDİ
+            : [[13, 0.9], [14, 2.6], [16, 4.6], [18, 7.4]],                     // gündüz — z14/16 genişledi
+          ) as unknown as number,
         } },
       { id: 'road-tertiary',
         type: 'line',
