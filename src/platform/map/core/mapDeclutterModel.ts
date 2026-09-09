@@ -151,8 +151,21 @@ const NOISE_DAY: readonly NoiseLayer[] = [
  * Su yolu gece zaten düşük kontrastlıdır, ek bastırma gerekmez.
  */
 const NOISE_NIGHT: readonly NoiseLayer[] = [
-  { id: 'building',            prop: 'fill-opacity',           full: 0.78, fullNav: 0.50, mini: 0,    miniNav: 0 },
-  { id: 'building-3d',         prop: 'fill-extrusion-opacity', full: 0.72, fullNav: 0.40, mini: 0,    miniNav: 0 },
+  /* ── ŞEHİR DOKUSU NAVİGASYONDA SİLİNMEZ (2026-09-09 saha kararı) ─────────
+   * Kullanıcı gece navigasyon ekranını Google ile yan yana koydu: bizde şehir
+   * BOŞ görünüyordu. Ölçüldü — Mersin sahil bandı z17, yüklü karolarda bina
+   * VAR; ekranda sönük olmasının sebebi bu satırdı (gece + navigasyon → 0,50 /
+   * 0,40 opaklık, üstelik zemine yakın bir tonla). Yol ailesi aynı turda
+   * rotanın altına indirildiği için binayı söndürmenin gerekçesi de kalktı:
+   * rota artık ekranın en parlak öğesidir, doku onunla yarışmaz.
+   * ⚠️ Veri boşluğu AYRI bir sorundur ve bu satır onu ÇÖZMEZ: iç mahallelerde
+   * OSM bina kapsamı seyrektir (kütük #1321–#1323 ML footprint turu).
+   *
+   * İKİ SÖZLEŞME KORUNDU (kilitler bunu ölçüyor, değerler ONLARA uyduruldu —
+   * kilit gevşetilmedi): rehberlikte gürültü ARTMAZ (`fullNav < full`) ve gece
+   * bina kütlesi gündüzden DAHA ÇOK geri çekilir (`gece < gündüz`). */
+  { id: 'building',            prop: 'fill-opacity',           full: 0.92, fullNav: 0.82, mini: 0,    miniNav: 0 },
+  { id: 'building-3d',         prop: 'fill-extrusion-opacity', full: 0.85, fullNav: 0.68, mini: 0,    miniNav: 0 },
   { id: 'landuse-park',        prop: 'fill-opacity',           full: 0.85, fullNav: 0.75, mini: 0.50, miniNav: 0.35 },
   { id: 'landcover-wood',      prop: 'fill-opacity',           full: 0.85, fullNav: 0.75, mini: 0.45, miniNav: 0.32 },
   { id: 'landcover-grass',     prop: 'fill-opacity',           full: 0.70, fullNav: 0.60, mini: 0.38, miniNav: 0.26 },

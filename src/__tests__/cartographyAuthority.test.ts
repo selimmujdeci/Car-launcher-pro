@@ -709,12 +709,23 @@ describe('8 · semantik palet (dekoratif tema değil)', () => {
        Yerine yolun doygunluğu, PARLAKLIĞA GÖRE sınırlandırılır: açık bir
        kırık-beyaz yolda r−b farkı doğal olarak küçüktür; koyulaştıkça doygun
        bir bronz olmadan bu farkı büyütmek mümkün değildir. */
+    /* ── KİLİT HUE-FARKINDA OLDU (2026-09-09) — KÖR NOKTA KAPATILDI ────────
+     * Kilit ham doygunluğa (max−min ≤ 20) bakıyordu ve HANGİ EKSENDE olduğunu
+     * SORMUYORDU. Reddedilen şey bronz/altın, yani SICAK eksendi (r > b).
+     * Yol ailesi 2026-09-09'da rotanın altına indirilince renkler zorunlu
+     * olarak serin-nötr griye taşındı (#8792a5 → r−b = −30) ve ham doygunluk
+     * 30'a çıktı — kilit, yasakladığı şeyle HİÇ İLGİSİ OLMAYAN bir değişikliği
+     * düşürdü. Artık iki ayrı şey ölçülür:
+     *   (a) SICAK eksende doygunluk YASAK  → r − b ≤ 6 (bronz/altın buradan gelir),
+     *   (b) her eksende AŞIRI doygunluk yasak → max−min ≤ 34 (dekoratif tema). */
     for (const [ad, P] of [['gündüz', DAY_PALETTE], ['gece', NIGHT_PALETTE]] as const) {
       for (const yol of [P.motorway, P.primary, P.secondary, P.minor] as const) {
         const [r, g, b] = [1, 3, 5].map((i) => parseInt(yol.slice(i, i + 2), 16)) as number[];
         const doygunluk = Math.max(r!, g!, b!) - Math.min(r!, g!, b!);
-        expect(doygunluk, `${ad} yol rengi ${yol} doygun (bronz/altın) eksende`)
-          .toBeLessThanOrEqual(20);
+        expect(r! - b!, `${ad} yol rengi ${yol} SICAK (bronz/altın) eksende`)
+          .toBeLessThanOrEqual(6);
+        expect(doygunluk, `${ad} yol rengi ${yol} aşırı doygun (dekoratif tema)`)
+          .toBeLessThanOrEqual(34);
       }
       /* Reddedilen SOMUT değerler bir daha giremez — kilidin çıpası. */
       const json = JSON.stringify([P.motorway, P.primary, P.secondary, P.minor]).toLowerCase();

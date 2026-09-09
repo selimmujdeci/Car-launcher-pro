@@ -376,11 +376,39 @@ export const NIGHT_PALETTE: VectorPalette = {
    *
    * Ölçülen (zemine karşı): tali 11,96 · ara 12,85 · ana 13,55 · otoyol 14,06.
    * Rota ↔ yol ayrımı: en dar hâlde **1,95** (turkuaz durak ↔ tali yol). */
-  motorway:        '#ffffff',
-  primary:         '#f9fbfc',
-  secondary:       '#f2f5f8',
-  tertiary:        '#ecf0f5',
-  minor:           '#e9edf2',
+  /* ── YOL AİLESİ ROTANIN ALTINA İNDİ (2026-09-09 · SAHA KARARI) ───────────
+   * KULLANICI, gerçek cihaz ekranını Google gece navigasyonuyla YAN YANA
+   * koyup reddetti. Tek yapısal fark ölçüldü
+   * (`field-runs/nav-visual-20260909/road-tone-sweep.mjs` · `tone-final.mjs`):
+   *
+   *     rota çekirdeği (#52A0F0) / YEREL YOL parlaklığı → **0,39**
+   *     rota çekirdeği / OTOYOL   parlaklığı            → **0,33**
+   *
+   * Yani ekranın EN PARLAK öğesi hiyerarşinin EN ALTINDAKİ sokaktı ve rota
+   * ondan **2,6 kat sönüktü**. "Amatör/şematik" hissinin kökü budur: bir
+   * navigasyon ekranında en parlak şey ROTA olmalıdır.
+   *
+   * ⚠️ BU, 2026-08-17 ("yollar daha beyaz/keskin") ve 2026-09-05 ("yolları tam
+   * beyaz yap") CİHAZ KARARLARINI GÜNCELLER — kullanıcının 2026-09-09 saha
+   * gözlemiyle. Eski kararlar "yollar zeminden ayrışmıyor" şikâyetinden
+   * doğmuştu; o ayrışma KORUNUYOR, yalnız tavanı rotanın altına çekiliyor.
+   *
+   * ÖLÇÜLEN SONUÇ (mevcut → yeni):
+   *     rota / yerel yol parlaklık   0,39 → **2,58**   (rota artık daha parlak)
+   *     rota / otoyol parlaklık      0,33 → **1,17**
+   *     rota ↔ yerel yol kontrast    2,34 → 2,14   (kilit ≥1,9 KORUNUR)
+   *     yerel yol ↔ zemin           11,96 → 2,39   (Google ölçümü 1,31 → hâlâ
+   *                                                 ondan %82 keskin)
+   *     otoyol ↔ zemin              14,06 → 4,48   (Google 2,48 → %81 keskin)
+   *     kasa ↔ yerel gövde          15,84 → 3,17   (kilit ≥3,0 KORUNUR)
+   *
+   * TON YÖNÜ ve merdiven sırası DEĞİŞMEDİ; genişlik/kasa merdiveni de aynen
+   * yerinde (hiyerarşiyi onlar taşımaya devam eder). */
+  motorway:        '#8792a5',
+  primary:         '#7d8898',
+  secondary:       '#737d8d',
+  tertiary:        '#6a7383',
+  minor:           '#5c6575',
   railway:         '#5a6274',
   pathLine:        '#5f6673',
   labelText:       '#e6eaf0',
@@ -792,8 +820,12 @@ export const LOCAL_ROAD_RAMP = {
   farZoom: 15.5,
   /** Bu zoom ve üstünde taban opaklığın TAMAMI uygulanır. */
   nearZoom: 16.6,
-  /** Uzak banttaki oran — ölçülen tatlı nokta (parlak −%26, orta bant +%61). */
-  farOpacity: 0.62,
+  /** Uzak banttaki oran.
+   *  0,62 idi (yol gövdesi BEYAZ ailedeyken ölçülen tatlı nokta). Yol ailesi
+   *  2026-09-09'da rotanın altına indirilince asıl kaldıraç TON oldu; rampa
+   *  ince ayara döndü ve yumuşatıldı — koyu tonun üstüne 0,62 binince yerel
+   *  ağ uzak zoomda gereğinden fazla siliniyordu. */
+  farOpacity: 0.78,
 } as const;
 
 /**

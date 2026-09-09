@@ -72,15 +72,23 @@ describe('#609 (2) — gece paleti ÖLÇÜLMÜŞ kontrast sözleşmesi', () => {
   /* Saha şikâyeti "yollar ile genel harita aynı gibi" idi; ölçülen eski
      değerler: minor 1.20 · secondary 1.47 · primary 1.78 · motorway 2.76. */
   it('yol kademeleri zeminden YETERİNCE ayrılır', () => {
-    /* Eşikler 2026-08-17 KULLANICI KARARIYLA yükseltildi ("yollar daha beyaz,
-       daha keskin olsun"). Referans olarak Google Maps gece stili ÖLÇÜLDÜ:
-       normal yol 1.31 · otoyol 2.48 (kendi zeminine karşı). Hedefimiz bilinçli
-       olarak ondan keskin. Kilit ZAYIFLATILMADI, YUKARI güncellendi. */
+    /* ── EŞİKLER 2026-09-09 SAHA KARARIYLA YENİDEN HEDEFLENDİ ──────────────
+     * Eşikler 2026-08-17'de kullanıcı kararıyla YÜKSELTİLMİŞTİ ("yollar daha
+     * beyaz, daha keskin olsun"). 2026-09-09'da kullanıcı gerçek cihaz
+     * ekranını Google gece navigasyonuyla yan yana koyup REDDETTİ; ölçüm
+     * sebebi gösterdi: rota çekirdeği / yerel yol parlaklık oranı **0,39**,
+     * yani ekranın en parlak öğesi hiyerarşinin en altındaki sokaktı.
+     *
+     * Eşikler bu yüzden rotanın altına indi — ama ZEMİNDEN AYRIŞMA ŞARTI
+     * KALDIRILMADI, yalnız Google'dan %80 keskin bir bantta yeniden çizildi
+     * (ölçülen yeni değerler: minor 2,39 · secondary 3,47 · primary 4,01 ·
+     * motorway 4,48). Kilidin koruduğu asıl regresyon — "yollar ile harita
+     * aynı gibi" — bu bantta hâlâ imkânsızdır. */
     const hedef: Array<[keyof typeof NIGHT_PALETTE, number]> = [
-      ['minor',     3.0],
-      ['secondary', 4.2],
-      ['primary',   6.0],
-      ['motorway',  8.0],
+      ['minor',     2.3],
+      ['secondary', 3.3],
+      ['primary',   3.8],
+      ['motorway',  4.2],
     ];
     for (const [ad, min] of hedef) {
       const cr = contrast(bg, NIGHT_PALETTE[ad] as string);
@@ -160,8 +168,12 @@ describe('#609 (2) — gece paleti ÖLÇÜLMÜŞ kontrast sözleşmesi', () => {
   it('yollar Google Maps gece stilinden DAHA KESKİN (kullanıcı hedefi, ölçülü)', () => {
     /* Google "Night mode" kanonik değerleri kendi zeminine (#242f3e) karşı:
        normal yol #38414e = 1.31 · otoyol #746855 = 2.48. Hedef: net biçimde üstü. */
-    expect(contrast(bg, NIGHT_PALETTE.minor)).toBeGreaterThan(1.31 * 2);
-    expect(contrast(bg, NIGHT_PALETTE.motorway)).toBeGreaterThan(2.48 * 2);
+    /* Çarpan 2,0 → 1,7 (2026-09-09): yol ailesi rotanın altına indirilince
+       2,0 kat matematiksel olarak imkânsız hale geldi (rota çekirdeği sabit).
+       Ölçülen yeni pay: minor 1,82× · motorway 1,81× — kilidin ANLAMI ("net
+       biçimde Google'ın üstü") korunuyor, çıpası ölçüme oturtuldu. */
+    expect(contrast(bg, NIGHT_PALETTE.minor)).toBeGreaterThan(1.31 * 1.7);
+    expect(contrast(bg, NIGHT_PALETTE.motorway)).toBeGreaterThan(2.48 * 1.7);
   });
 
   it('alan dolguları yollarla YARIŞMAZ (geniş yüzey, sakin kalmalı)', () => {

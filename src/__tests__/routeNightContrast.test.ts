@@ -87,15 +87,30 @@ describe('#619 — gece rota çekirdeği', () => {
     }
   });
 
-  it('ESKİ AÇIK-MAVİ gece durakları beyaz yolda bu kilidi GEÇEMEZDİ', () => {
-    /* 2026-09-05 · kullanıcı gece yollarını beyaz istedi. Eski duraklar
-       (`#72B6FF · #9CA2FF · #24D6C4`) KOYU GRİ yol için tasarlanmıştı; beyaz
-       yolun üstünde turkuaz durak 1,83'e düşüyor ve ≥1,9 kuralını KIRIYORDU.
-       Kilidin anlamı budur: yeni duraklar bu sınavı geçer, eskiler geçemez. */
-    expect(cr(NIGHT_ROAD, '#24D6C4'), 'eski turkuaz durak beyaz yolda ayrışıyor mu?')
-      .toBeLessThan(1.9);
-    expect(cr(NIGHT_ROAD, ROUTE_CORE_STOPS_DARK_BASEMAP[2]), 'yeni durak ayrışmıyor')
-      .toBeGreaterThanOrEqual(1.9);
+  it('🔒 ROTA EKRANIN EN PARLAK ÖĞESİDİR — hiçbir yol sınıfı ondan parlak olamaz', () => {
+    /* ── KİLİT YENİDEN HEDEFLENDİ (2026-09-09) · ÖLÇÜLEN KÖR NOKTA ─────────
+     * Buradaki eski kilit "eski turkuaz durak BEYAZ yolda 1,83'e düşerdi"
+     * diyordu; dayanağı 2026-09-05'in beyaz yol sözleşmesiydi ve o sözleşme
+     * 2026-09-09 saha kararıyla değişti.
+     *
+     * Daha önemlisi: bu dosyadaki kilitlerin HİÇBİRİ yönü ölçmüyordu. Hepsi
+     * kontrast ORANI istiyordu ve oran, yol rotadan PARLAK olduğunda da
+     * sağlanır. Nitekim üretimde tam bu oldu — ölçüldü: rota çekirdeği /
+     * yerel yol parlaklık oranı **0,39**, yani sokak ağı rotadan 2,6 kat
+     * parlaktı ve tüm kilitler YEŞİLDİ. Kullanıcının "amatör" dediği ekranın
+     * sayısı budur.
+     *
+     * Yeni kilit YÖNÜ ölçer: bir navigasyon ekranında en parlak öğe ROTA
+     * olmalıdır. Oran kilitleri (≥1,9 · ≥4,5) yukarıda AYNEN duruyor. */
+    for (const s of stops) {
+      for (const yol of ['motorway', 'primary', 'secondary', 'tertiary', 'minor'] as const) {
+        expect(
+          lum(s),
+          `rota durağı ${s}, ${yol} (${NIGHT_PALETTE[yol]}) yolundan SÖNÜK — ` +
+          'ekranın en parlak öğesi rota olmalı',
+        ).toBeGreaterThan(lum(NIGHT_PALETTE[yol] as string));
+      }
+    }
   });
 
   it('eski (kusurlu) tema-bağımsız gradient bu kilidi GEÇEMEZDİ — kilidin anlamı', () => {
