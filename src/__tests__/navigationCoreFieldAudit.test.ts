@@ -350,6 +350,15 @@ function full(over: Partial<NavigationCoreRawSnapshot> = {}): NavigationCoreRawS
       altResidentBytes: 20010080, altPeakResidentBytes: 20010080,
       altSliceLoads: 22, altSliceEvictions: 19, altUnavailableReason: null,
     },
+    regionalDistribution: {
+      manifestStatus: 'READY', datasetId: 'osm-tr-fixture', datasetVersion: '2026-09-A',
+      installedRegions: 22, installedGraphBytes: 77_539_328, installedAltBytes: 53_240_688,
+      diskBudgetBytes: 500_000_000, pinnedBytes: 130_780_016, evictableBytes: 0,
+      activeDownloads: 0, downloadRetries: 1, stagingBytes: 0,
+      lastDownloadFailure: null, lastIntegrityFailure: null, registryRecoveryStatus: 'NORMAL',
+      recoveredGenerations: 0, rejectedGenerations: 0, orphanGenerations: 0,
+      lastRebuildFailure: null, lastPublishFailure: null,
+    },
     crossRegionSearch: {
       closedStates: 139229, maxClosedBudget: 200000, windowsUsed: 20,
       weightEscalations: 14, altLandmarkCount: 8, altActive: true,
@@ -444,6 +453,7 @@ const SRC_CEH_AUDIT    = 'horizon/cehAuthority.getDiagnostics';
 const SRC_YAW_AUDIT    = 'navOrientationFeed.getSnapshot';
 const SRC_BRIDGE_AUDIT = 'navEgoHorizonBridge.getSnapshot';
 const SRC_GRAPH_AUDIT  = 'map/graph/graphResidencyRuntime.getSnapshot';
+const SRC_DISTRIBUTION_AUDIT = 'map/graph/regionalDataDistribution.getSnapshot';
 /** RTG4 — son uzun rota arama profili (bütçe · ALT kanıtı · sınıf dağılımı). */
 const SRC_LONGROUTE_AUDIT = 'offlineRoutingService.getCrossRegionSearchSnapshot';
 /** NAV v3 · F5 — gölge karşılaştırma + cutover kapısı. */
@@ -743,6 +753,8 @@ const REGISTRY: Record<string, Reg> = {
   'hz-longroute-alt':    { source: SRC_LONGROUTE_AUDIT, key: 'crossRegionSearch.altActive',      stamp: 'NONE' },
   'hz-longroute-class':  { source: SRC_LONGROUTE_AUDIT, key: 'crossRegionSearch.closedByClass',  stamp: 'NONE' },
   'hz-longroute-altmem': { source: SRC_GRAPH_AUDIT,     key: 'graphResidency.altResidentBytes',  stamp: 'NONE' },
+  'hz-regional-distribution': { source: SRC_DISTRIBUTION_AUDIT, key: 'regionalDistribution.manifestStatus', stamp: 'NONE' },
+  'hz-regional-storage': { source: SRC_DISTRIBUTION_AUDIT, key: 'regionalDistribution.installedGraphBytes', stamp: 'NONE' },
 
   /* 16b · NAV v3 · F5 — gölge karşılaştırma + cutover kapısı */
   'hz-shadow-mode':      { source: SRC_SHADOW_AUDIT, key: 'cehShadow.ticks',              stamp: 'NONE' },

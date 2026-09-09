@@ -43,6 +43,7 @@ import {
   type RegionWindowIdentity, type TurkeyGraphManifest, type TurkeyGraphRegion,
   type TurkeyGraphAltLandmarkSet,
 } from './turkeyGraphManifest';
+import { readInstalledRegionalArtifact } from './regionalDataDistribution';
 
 /* ══════════════════════════════════════════════════════════════════════════
    1) SABİTLER
@@ -314,9 +315,10 @@ async function _fetchRegionView(
   region: TurkeyGraphRegion, expectedVersion: 3 | 4, baseUrl: string,
 ): Promise<{ view: RoutingGraphView; bytes: number } | null> {
   const graphUrl = `${baseUrl.replace(/\/$/, '')}/${region.graphFile.replace(/^\//, '')}`;
-  const res = await fetch(graphUrl);
-  if (!res.ok) { _report('MISSING', `${region.regionId}: HTTP ${res.status}`); return null; }
-  const buffer = await res.arrayBuffer();
+  const installed = await readInstalledRegionalArtifact(region, 'graph');
+  const res = installed ? null : await fetch(graphUrl);
+  if (res && !res.ok) { _report('MISSING', `${region.regionId}: HTTP ${res.status}`); return null; }
+  const buffer = installed ?? await res!.arrayBuffer();
   if (buffer.byteLength !== region.byteSize || await _sha256(buffer) !== region.sha256) {
     _report('CORRUPT', `${region.regionId}: SHA/boyut uyumsuz`); return null;
   }
@@ -345,9 +347,10 @@ async function _fetchAltSlice(
   const url = `${baseUrl.replace(/\/$/, '')}/${alt.file.replace(/^\//, '')}`;
   let buffer: ArrayBuffer;
   try {
-    const res = await fetch(url);
-    if (!res.ok) { _altUnavailableReason = `ALT_HTTP_${res.status}:${region.regionId}`; return null; }
-    buffer = await res.arrayBuffer();
+    const installed = await readInstalledRegionalArtifact(region, 'alt');
+    const res = installed ? null : await fetch(url);
+    if (res && !res.ok) { _altUnavailableReason = `ALT_HTTP_${res.status}:${region.regionId}`; return null; }
+    buffer = installed ?? await res!.arrayBuffer();
   } catch {
     _altUnavailableReason = `ALT_FETCH_FAILED:${region.regionId}`;
     return null;

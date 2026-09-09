@@ -195,6 +195,7 @@ const SRC_CEH    = 'horizon/cehAuthority.getDiagnostics';
 const SRC_YAW    = 'navOrientationFeed.getSnapshot';
 const SRC_BRIDGE = 'navEgoHorizonBridge.getSnapshot';
 const SRC_GRAPH  = 'map/graph/graphResidencyRuntime.getSnapshot';
+const SRC_DISTRIBUTION = 'map/graph/regionalDataDistribution.getSnapshot';
 const SRC_LONGROUTE = 'offlineRoutingService.getCrossRegionSearchSnapshot';
 /** NAV v3 · F5 — gölge karşılaştırma + cutover kapısı kaynağı. */
 const SRC_CEH_SHADOW = 'shadow/cehShadowRuntime.getSnapshot';
@@ -1466,6 +1467,7 @@ export function buildNavigationCoreCards(s: NavigationCoreRawSnapshot): readonly
   const _yaw = s.yawFeed ?? null;
   const _br  = s.egoHorizonBridge ?? null;
   const _gr  = s.graphResidency ?? null;
+  const _rd  = s.regionalDistribution ?? null;
   const _xr  = s.crossRegionSearch ?? null;
   const _sh  = s.cehShadow ?? null;
   const _ep  = s.enforcementHorizonPort ?? null;
@@ -1656,6 +1658,25 @@ export function buildNavigationCoreCards(s: NavigationCoreRawSnapshot): readonly
             updatedAt: null },
             _gr.onDemandRegionLoads + ' yükleme · ' + _gr.regionEvictions + ' tahliye · '
               + 'son red: ' + (_gr.windowFailClosedReason ?? 'yok')),
+      _rd === null
+        ? unavailable({ id: 'hz-regional-distribution', label: 'Bölgesel veri dağıtımı', source: SRC_DISTRIBUTION,
+            note: 'Dağıtım otoritesi okunamadı — hazır/sağlıklı iddiası üretilmez.', updatedAt: null }, 'okunamadı')
+        : observed({ id: 'hz-regional-distribution', label: 'Bölgesel veri dağıtımı', source: SRC_DISTRIBUTION,
+            note: 'Salt-okunur dağıtım görünümü; LAB indirme, tahliye veya retry başlatmaz.', updatedAt: null },
+            _rd.manifestStatus + ' · dataset ' + (_rd.datasetId ?? 'UNAVAILABLE') + '/' + (_rd.datasetVersion ?? 'UNAVAILABLE')
+              + ' · ' + _rd.installedRegions + ' bölge · graph ' + _rd.installedGraphBytes + ' B · ALT '
+              + _rd.installedAltBytes + ' B'),
+      _rd === null
+        ? unavailable({ id: 'hz-regional-storage', label: 'Bölgesel depolama / indirme', source: SRC_DISTRIBUTION,
+            note: 'Depolama ölçümü okunamadı.', updatedAt: null }, 'okunamadı')
+        : observed({ id: 'hz-regional-storage', label: 'Bölgesel depolama / indirme', source: SRC_DISTRIBUTION,
+            note: 'Bütçe yapılandırılmadıysa UNKNOWN kalır; sahte kapasite üretilmez.', updatedAt: null },
+            'bütçe ' + (_rd.diskBudgetBytes ?? 'UNKNOWN') + ' B · pinned ' + _rd.pinnedBytes + ' B · evictable '
+              + _rd.evictableBytes + ' B · aktif ' + _rd.activeDownloads + ' · retry ' + _rd.downloadRetries
+              + ' · staging ' + _rd.stagingBytes + ' B · son hata ' + (_rd.lastDownloadFailure ?? _rd.lastIntegrityFailure ?? 'yok')
+              + ' · registry ' + _rd.registryRecoveryStatus + ' · recovered ' + _rd.recoveredGenerations
+              + ' · rejected ' + _rd.rejectedGenerations + ' · orphan ' + _rd.orphanGenerations
+              + ' · rebuild/publish ' + (_rd.lastRebuildFailure ?? _rd.lastPublishFailure ?? 'yok')),
 
       /* ── RTG4 · UZUN ROTA ARAMA PROFİLİ ────────────────────────────────
        * DÜRÜSTLÜK SINIRI: hüküm ÜRETİLMEZ, komut GÖNDERİLMEZ. Worker'ın kendi

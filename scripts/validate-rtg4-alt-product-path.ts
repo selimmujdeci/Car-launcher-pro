@@ -22,6 +22,7 @@
  */
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { createHash } from 'node:crypto';
+import { createServer, type Server } from 'node:http';
 import { resolve } from 'node:path';
 import { performance } from 'node:perf_hooks';
 import {
@@ -39,6 +40,7 @@ const OUT = resolve(process.env.RTG4_OUT_DIR ?? 'field-runs/rtg4-alt-productpath
 /** ALT'yi KASITLI olarak kullanılamaz kılar (P12 kontrol koşumu). */
 const ALT_DISABLED = process.env.RTG4_ALT_DISABLED === '1';
 const BUDGET = Number(process.env.RTG4_BUDGET ?? 200_000);
+const DISTRIBUTION = process.env.RTG4_DISTRIBUTION === '1' || process.argv.includes('--distribution');
 mkdirSync(OUT, { recursive: true });
 
 const manifestPath = resolve(RUN, 'turkey-graph-manifest.json');
@@ -127,14 +129,52 @@ const workerTransport = {
   dispatchEvent: () => false,
 } as unknown as Worker;
 
-const { computeCrossRegionOfflineRoute, _setNavWorkerForTest, getCrossRegionSearchSnapshot } =
+const { computeCrossRegionOfflineRoute, computeDiscoveredCrossRegionOfflineRoute,
+  _setNavWorkerForTest, getCrossRegionSearchSnapshot } =
   await import('../src/platform/offlineRoutingService');
 _setNavWorkerForTest(workerTransport);
+const { _resetRegionalDataForTest, _restartRegionalDataRuntimeForTest,
+  _setRegionalDataStorageAdapterForTest, getRegionalDataSnapshot } =
+  await import('../src/platform/navigation/map/graph/regionalDataDistribution');
+
+type ValidationStored = string | ArrayBuffer;
+const validationRegionalStore = new Map<string, ValidationStored>();
+const validationStorageAdapter = {
+  readBytes: async (path: string) => {
+    const value = validationRegionalStore.get(path);
+    if (value === undefined) return null;
+    if (typeof value === 'string') return new TextEncoder().encode(value).buffer;
+    return value.slice(0);
+  },
+  writeBytes: async (path: string, bytes: ArrayBuffer) => { validationRegionalStore.set(path, bytes.slice(0)); },
+  readText: async (path: string) => {
+    const value = validationRegionalStore.get(path);
+    if (value === undefined) return null;
+    return typeof value === 'string' ? value : new TextDecoder().decode(value);
+  },
+  writeText: async (path: string, value: string) => { validationRegionalStore.set(path, value); },
+  remove: async (path: string) => { validationRegionalStore.delete(path); },
+  rename: async (from: string, to: string) => {
+    const value = validationRegionalStore.get(from);
+    if (value === undefined) throw new Error(`Kaynak yok: ${from}`);
+    validationRegionalStore.set(to, value); validationRegionalStore.delete(from);
+  },
+  list: async (path: string) => {
+    const prefix = path.endsWith('/') ? path : `${path}/`;
+    return [...new Set([...validationRegionalStore.keys()]
+      .filter((key) => key.startsWith(prefix))
+      .map((key) => key.slice(prefix.length).split('/')[0])
+      .filter(Boolean))];
+  },
+  mkdir: async () => {},
+};
 
 /* ── Bölge/ALT dosyaları diskten servis edilir (ürün `fetch` yolu) ──────── */
 
 let fetchBytes = 0;
-globalThis.fetch = (async (input: RequestInfo | URL) => {
+let distributionServer: Server | null = null;
+let distributionConfig: { manifestUrl:string;channel:string;expectedDatasetId:string;expectedGraphManifestSha256:string } | null = null;
+if (!DISTRIBUTION) globalThis.fetch = (async (input: RequestInfo | URL) => {
   const file = String(input).replace(/^.*\/(regions\/[^/]+)$/, '$1');
   /* Graf `.rtg4` grafik koşumunda, `.alt` ALT koşumunda üretildi; ikisi de
      aynı sanal `/maps/rtg3/` kökünden servis edilir. */
@@ -147,6 +187,33 @@ globalThis.fetch = (async (input: RequestInfo | URL) => {
   }
   return new Response(null, { status: 404 });
 }) as typeof fetch;
+else {
+  _resetRegionalDataForTest();
+  _setRegionalDataStorageAdapterForTest(validationStorageAdapter);
+  const graphManifestSha256 = createHash('sha256').update(JSON.stringify(manifestRaw)).digest('hex');
+  distributionServer = createServer((request, response) => {
+    const requestUrl = new URL(request.url ?? '/', 'http://127.0.0.1');
+    if (requestUrl.pathname === '/manifest.json') {
+      const origin = `http://127.0.0.1:${(distributionServer!.address() as { port:number }).port}`;
+      const body = JSON.stringify({ schemaVersion:1, datasetId:manifest.datasetId,
+        datasetVersion:manifest.buildTimestamp, policyVersion:manifest.policyVersion,
+        graphManifestSha256, graphManifest:manifestRaw,
+        regions:manifest.regions.map((region) => ({ regionId:region.regionId,
+          generation:graphManifestSha256.slice(0,16), graphUrl:`${origin}/${region.graphFile}`,
+          ...(region.alt ? { altUrl:`${origin}/${region.alt.file}` } : {}) })) });
+      response.setHeader('content-type','application/json'); response.setHeader('content-length',Buffer.byteLength(body)); response.end(body); return;
+    }
+    const relative = decodeURIComponent(requestUrl.pathname.replace(/^\//,''));
+    const path = [resolve(RUN, relative), resolve(GRAPH_RUN, relative)].find(existsSync);
+    if (!path) { response.statusCode=404; response.end(); return; }
+    const bytes=readFileSync(path); fetchBytes += bytes.byteLength;
+    response.setHeader('content-length',bytes.byteLength); response.end(bytes);
+  });
+  await new Promise<void>((done) => distributionServer!.listen(0,'127.0.0.1',done));
+  const port = (distributionServer.address() as { port:number }).port;
+  distributionConfig = { manifestUrl:`http://127.0.0.1:${port}/manifest.json`, channel:'validation',
+    expectedDatasetId:manifest.datasetId, expectedGraphManifestSha256:graphManifestSha256 };
+}
 
 const CITY: Record<string, readonly [number, number]> = {
   'Mersin':       [36.8121, 34.6415],
@@ -165,6 +232,7 @@ const PAIRS: Array<[string, string]> = [
   ['Mersin', 'İstanbul'], ['Eskişehir', 'İstanbul'],
 ];
 const ONLY = (process.env.RTG4_PAIRS ?? '').split(',').map((v) => v.trim()).filter(Boolean);
+if (process.argv.includes('--mersin-istanbul')) ONLY.push('Mersin>İstanbul');
 
 interface ProductRouteRow {
   from: string; to: string;
@@ -201,8 +269,11 @@ async function measure(fromName: string, toName: string): Promise<ProductRouteRo
   fetchBytes = 0;
   lastRouteNodeIds = null; lastRouteWayIds = null; lastAltWindowBytes = 0;
   const started = performance.now();
-  const route = await computeCrossRegionOfflineRoute(
-    manifest, from[0], from[1], to[0], to[1], '/maps/rtg3/', { maxClosedStates: BUDGET });
+  const distributed = DISTRIBUTION ? await computeDiscoveredCrossRegionOfflineRoute(
+    from[0], from[1], to[0], to[1], { allowDownload:true, maxClosedStates:BUDGET,
+      distributionConfig:distributionConfig! }) : null;
+  const route = distributed?.outcome === 'ROUTE_RESULT' ? distributed.route : DISTRIBUTION ? null
+    : await computeCrossRegionOfflineRoute(manifest, from[0], from[1], to[0], to[1], '/maps/rtg3/', { maxClosedStates: BUDGET });
   const totalMs = performance.now() - started;
   const snapshot = getGraphResidencySnapshot();
   const search = getCrossRegionSearchSnapshot();
@@ -232,7 +303,7 @@ async function measure(fromName: string, toName: string): Promise<ProductRouteRo
     budgetRespected: snapshot.peakResidentRegions <= REGIONAL_GRAPH_MAX_RESIDENT &&
       snapshot.peakResidentGraphBytes <= REGIONAL_GRAPH_MAX_BYTES,
     legality: null,
-    result: route ? 'ROUTE_RESULT' : 'ROUTE_FAIL_CLOSED',
+    result: route ? 'ROUTE_RESULT' : (distributed?.outcome ?? 'ROUTE_FAIL_CLOSED'),
   };
   if (route) {
     const endpoint = route.geometry.at(-1)!;
@@ -275,6 +346,33 @@ for (const [fromName, toName] of PAIRS) {
     `graf ${row.peakResidentGraphBytes} B · mesafe ${row.distanceM ?? '—'} m · ` +
     `${row.totalMs} ms` + (row.altUnavailableReason ? ` · ALT yok: ${row.altUnavailableReason}` : ''));
 }
+const distributionSnapshot = DISTRIBUTION ? await getRegionalDataSnapshot() : null;
+if (distributionServer) await new Promise<void>((done) => distributionServer!.close(() => done()));
+let offlineRestart: Record<string, unknown> | null = null;
+if (DISTRIBUTION) {
+  validationRegionalStore.delete('navigation/regional-routing/installed-regions.json');
+  validationRegionalStore.delete('navigation/regional-routing/installed-regions.json.next');
+  _restartRegionalDataRuntimeForTest();
+  _resetGraphResidencyForTest(); lastRouteNodeIds=null; lastRouteWayIds=null;
+  const before=fetchBytes, from=CITY.Mersin, to=CITY['İstanbul'];
+  const started=performance.now();
+  const repeated=await computeDiscoveredCrossRegionOfflineRoute(from[0],from[1],to[0],to[1],{
+    allowDownload:false,maxClosedStates:BUDGET,distributionConfig:distributionConfig! });
+  const search=getCrossRegionSearchSnapshot(), residency=getGraphResidencySnapshot();
+  const recoveredDistribution=await getRegionalDataSnapshot();
+  offlineRestart={ outcome:repeated.outcome, networkArtifactBytes:fetchBytes-before,
+    registryRecoveryStatus:recoveredDistribution.registryRecoveryStatus,
+    recoveredGenerations:recoveredDistribution.recoveredGenerations,
+    rejectedGenerations:recoveredDistribution.rejectedGenerations,
+    orphanGenerations:recoveredDistribution.orphanGenerations,
+    lastRebuildFailure:recoveredDistribution.lastRebuildFailure,
+    lastPublishFailure:recoveredDistribution.lastPublishFailure,
+    installedRegionsAfterRebuild:recoveredDistribution.installedRegions,
+    heuristicMode:search?.altActive?'ALT':'GEOMETRIC', closedStates:search?.closedStates ?? null,
+    distanceM:repeated.outcome==='ROUTE_RESULT'?Math.round(repeated.route.distanceM):null,
+    peakResidentRegions:residency.peakResidentRegions,peakResidentGraphBytes:residency.peakResidentGraphBytes,
+    totalMs:Number((performance.now()-started).toFixed(1)) };
+}
 
 const sha = (b: Buffer) => createHash('sha256').update(b).digest('hex');
 const productionGraphPath = resolve('public/maps/routing-graph.bin');
@@ -283,6 +381,8 @@ const productionGraph = readFileSync(productionGraphPath);
 writeFileSync(resolve(OUT, 'alt-product-path-validation.json'), JSON.stringify({
   generatedAt: new Date().toISOString(),
   manifestPath, graphRunDir: GRAPH_RUN, altDisabled: ALT_DISABLED, budget: BUDGET,
+  distribution: distributionSnapshot,
+  offlineRestart,
   altLandmarkSet: manifest.altLandmarkSet
     ? {
         landmarkSetId: manifest.altLandmarkSet.landmarkSetId,

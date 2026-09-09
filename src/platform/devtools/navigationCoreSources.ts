@@ -101,6 +101,9 @@ import {
 import {
   getGraphResidencySnapshot, type GraphResidencySnapshot,
 } from '../navigation/map/graph/graphResidencyRuntime';
+import {
+  getRegionalDistributionSnapshotSync, type RegionalDistributionSnapshot,
+} from '../navigation/map/graph/regionalDataDistribution';
 import { getCrossRegionSearchSnapshot, type CrossRegionSearchSnapshot }
   from '../offlineRoutingService';
 import {
@@ -169,6 +172,8 @@ export interface NavigationCoreRawSnapshot {
   readonly egoHorizonBridge: NavEgoHorizonBridgeSnapshot | null;
   /** F4 — yol ağı grafının ana iş parçacığındaki sakinliği (koordinat YOK). */
   readonly graphResidency: GraphResidencySnapshot | null;
+  /** Bölgesel veri dağıtım otoritesinin salt-okunur projeksiyonu. */
+  readonly regionalDistribution: RegionalDistributionSnapshot | null;
   /**
    * RTG4 — son uzun-rota ARAMA PROFİLİ. Yalnız sayaç: bütçe kullanımı, ALT
    * kanıtının varlığı, ağırlık tırmanması ve sınıf dağılımı. Başlangıç, hedef,
@@ -968,6 +973,7 @@ export function readNavigationCoreSnapshot(): NavigationCoreRawSnapshot {
     yawFeed:          _safe(() => getNavOrientationFeedSnapshot(), null),
     egoHorizonBridge: _safe(() => getNavEgoHorizonBridgeSnapshot(), null),
     graphResidency:   _safe(() => getGraphResidencySnapshot(), null),
+    regionalDistribution: _safe(() => getRegionalDistributionSnapshotSync(), null),
     crossRegionSearch: _safe(() => getCrossRegionSearchSnapshot(), null),
     /* F5 — gölge okuması SAYAÇLARI KİRLETMEZ: `getCehShadowSnapshot` yalnız
        okur, gölge tikini tetiklemez (ölçüm gözlemden etkilenmez). */

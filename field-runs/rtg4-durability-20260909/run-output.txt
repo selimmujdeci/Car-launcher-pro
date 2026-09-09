@@ -1,0 +1,3 @@
+[ürün] Mersin → İstanbul: ROUTE_RESULT · mod ALT · kapatılan 139229/200000 · ALT 20010080 B (22 dilim) · graf 29392832 B · mesafe 1068702 m · 35095.9 ms
+
+Yazıldı: C:\Users\selim\Desktop\caros pro\field-runs\rtg4-durability-20260909\alt-product-path-validation.json

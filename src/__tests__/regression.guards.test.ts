@@ -13464,3 +13464,51 @@ describe('🔒 QA + MAPDATA · guard setup yolu ve Gap Observatory sınırı', (
     expect(screen).toContain('Evidence akışı bağlı değilse sayılar UNKNOWN kalır');
   });
 });
+
+describe('🔒 RTG4 BÖLGESEL VERİ · tek dağıtım/registry otoritesi ve dayanıklılık sırası', () => {
+  /* NEDEN: registry ikinci bir modülden yazılırsa "kurulu generation" için iki
+     gerçek doğar; çökme sonrası hangisinin kazanacağı belirsizleşir. Kilit
+     kaynak metni değil, DOSYA KÜMESİNİ tarar → yeni bir yazar eklenirse düşer. */
+  it('installed-regions.json yalnız kanonik dağıtım otoritesi tarafından yazılır', () => {
+    const roots = ['src'];
+    const hits: string[] = [];
+    const walk = (dir: string) => {
+      for (const entry of readdirSync(resolve(dir), { withFileTypes: true })) {
+        const full = join(dir, entry.name);
+        if (entry.isDirectory()) { walk(full); continue; }
+        if (!/\.(ts|tsx)$/.test(entry.name)) continue;
+        if (read(full).includes('installed-regions.json')) hits.push(full.replace(/\\/g, '/'));
+      }
+    };
+    roots.forEach(walk);
+    /* Kör guard koruması: küme BOŞ olamaz — boşsa kilit hiçbir şeyi korumuyordur. */
+    expect(hits.length).toBeGreaterThan(0);
+    const writers = hits.filter((path) => !path.includes('__tests__'));
+    expect(writers).toEqual(['src/platform/navigation/map/graph/regionalDataDistribution.ts']);
+  });
+
+  /* NEDEN: tamamlanma imzası artefaktlardan ÖNCE yazılırsa çökme sonrası yarım
+     generation READY görünür. Sıra bozulursa bu kilit düşer. */
+  it('tamamlanma imzası yayınlanmış artefaktlar doğrulandıktan SONRA yazılır', () => {
+    const src = read('src/platform/navigation/map/graph/regionalDataDistribution.ts');
+    const verify = src.indexOf("throw new Error('PUBLISHED_VERIFY')");
+    const marker = src.indexOf('const markerNext =');
+    const registryNext = src.indexOf('async function publishRegistry');
+    expect(verify).toBeGreaterThan(0);
+    expect(marker).toBeGreaterThan(verify);
+    expect(registryNext).toBeGreaterThan(0);
+    /* Registry yayını imzadan bağımsız bir yardımcıdır ve `.next` + rename kullanır. */
+    expect(src).toContain('await writeText(next, JSON.stringify(value))');
+    expect(src).toContain('await remove(REGISTRY); await rename(next, REGISTRY)');
+  });
+
+  /* NEDEN: yeniden doğrulama reddi bir SİLME sebebine dönüşürse geçici bir okuma
+     hatası son iyi kopyayı yok eder. Yalnız imzasız artık toplanabilir. */
+  it('rebuild yalnız imzasız artıkları toplar; reddedilen generation silinmez', () => {
+    const src = read('src/platform/navigation/map/graph/regionalDataDistribution.ts');
+    const pushes = src.match(/discardable\.push\(/g) ?? [];
+    expect(pushes.length).toBe(1);
+    expect(src).toContain('orphanGenerations++; discardable.push(');
+    expect(src).toContain('if (activeDownloads > 0) return;');
+  });
+});

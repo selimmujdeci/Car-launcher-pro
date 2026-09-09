@@ -46,6 +46,12 @@ import {
 import {
   planCrossRegionSearchEnvelope, selectRegionalRouteCorridor, validateTurkeyGraphManifest,
 } from './navigation/map/graph/turkeyGraphManifest';
+import {
+  acquireRegionalPackages, validateDistributionManifest,
+  verifyRegionalPackagesLocal, discoverRegionalDistribution, pinRegionalDataset,
+  type RegionalDistributionConfig,
+  type RegionalDataFailure,
+} from './navigation/map/graph/regionalDataDistribution';
 
 /* ── Tipler ──────────────────────────────────────────────────── */
 
@@ -56,6 +62,13 @@ export interface OfflineRouteResult {
   steps:     RouteStep[];
   source:    'offline-worker' | 'offline-daemon' | 'straight-line';
 }
+
+export type DistributedRouteResult =
+  | { readonly outcome: 'ROUTE_RESULT'; readonly route: OfflineRouteResult; readonly downloadedRegions: readonly string[] }
+  | { readonly outcome: 'MAP_DATA_MISSING'; readonly reason: 'REGIONAL_DATA_NOT_INSTALLED' }
+  | { readonly outcome: 'DATA_CORRUPT'; readonly reason: 'DATA_CORRUPT' | 'DISTRIBUTION_MANIFEST_INVALID' }
+  | { readonly outcome: 'DOWNLOAD_FAILED'; readonly reason: Exclude<RegionalDataFailure, 'REGIONAL_DATA_NOT_INSTALLED' | 'DATA_CORRUPT' | 'DISTRIBUTION_MANIFEST_INVALID'> }
+  | { readonly outcome: 'NO_ROUTE'; readonly reason: 'NO_ROUTE' };
 
 /* ── OSRM maneuver → Türkçe (daemon için yerel kopya) ─────────── */
 
@@ -642,6 +655,64 @@ export async function computeCrossRegionOfflineRoute(
       } : {}),
     });
   });
+}
+
+/**
+ * Dağıtım manifestinden başlayan kanonik ürün seam'i.
+ * Ağ davranışı çağıranın açık `allowDownload` politikasına bağlıdır; bu servis
+ * çevrimdışıyken sessiz indirme başlatmaz. Koridor yalnız veri gereksinimini
+ * belirler, rota yine `computeCrossRegionOfflineRoute` içindeki aynı worker/A*'tır.
+ */
+export async function computeDistributedCrossRegionOfflineRoute(
+  distributionValue: unknown,
+  fromLat: number, fromLon: number, toLat: number, toLon: number,
+  options: { readonly allowDownload: boolean; readonly signal?: AbortSignal; readonly maxClosedStates?: number },
+): Promise<DistributedRouteResult> {
+  const distribution = await validateDistributionManifest(distributionValue);
+  if (!distribution) return { outcome: 'DATA_CORRUPT', reason: 'DISTRIBUTION_MANIFEST_INVALID' };
+  const envelope = planCrossRegionSearchEnvelope(
+    distribution.graphManifest, [fromLat, fromLon], [toLat, toLon], REGIONAL_GRAPH_MAX_RESIDENT,
+  );
+  if (!envelope) return { outcome: 'NO_ROUTE', reason: 'NO_ROUTE' };
+  let acquired: Awaited<ReturnType<typeof acquireRegionalPackages>> = { ok: true, downloaded: [] };
+  if (options.allowDownload) {
+    acquired = await acquireRegionalPackages(distribution, envelope.corridorRegionIds, options.signal);
+  } else {
+    /* Salt-okunur doğrulama acquire içinde indirme ile birleşmez: indirme kapalıyken
+       residency kurulu dosyaları okuyacak, eksikse açık veri-missing dönecektir. */
+    if (!await verifyRegionalPackagesLocal(distribution.graphManifest, envelope.corridorRegionIds)) {
+      return { outcome: 'MAP_DATA_MISSING', reason: 'REGIONAL_DATA_NOT_INSTALLED' };
+    }
+  }
+  if (!acquired.ok) {
+    if (acquired.reason === 'REGIONAL_DATA_NOT_INSTALLED') return { outcome: 'MAP_DATA_MISSING', reason: acquired.reason };
+    if (acquired.reason === 'DATA_CORRUPT' || acquired.reason === 'DISTRIBUTION_MANIFEST_INVALID') return { outcome: 'DATA_CORRUPT', reason: acquired.reason };
+    return { outcome: 'DOWNLOAD_FAILED', reason: acquired.reason };
+  }
+  const routePin = await pinRegionalDataset(distribution.graphManifest, envelope.corridorRegionIds);
+  if (!routePin) return { outcome: 'DATA_CORRUPT', reason: 'DATA_CORRUPT' };
+  let route: OfflineRouteResult | null;
+  try {
+    route = await computeCrossRegionOfflineRoute(
+      distribution.graphManifest, fromLat, fromLon, toLat, toLon, '/__installed_regional_data__/',
+      { maxClosedStates: options.maxClosedStates },
+    );
+  } finally { routePin.release(); }
+  return route
+    ? { outcome: 'ROUTE_RESULT', route, downloadedRegions: acquired.downloaded }
+    : { outcome: options.allowDownload ? 'NO_ROUTE' : 'MAP_DATA_MISSING', reason: options.allowDownload ? 'NO_ROUTE' : 'REGIONAL_DATA_NOT_INSTALLED' } as DistributedRouteResult;
+}
+
+/** Normal ürün girişi: URL çağırandan alınmaz, güvenilir product config okunur. */
+export async function computeDiscoveredCrossRegionOfflineRoute(
+  fromLat: number, fromLon: number, toLat: number, toLon: number,
+  options: { readonly allowDownload: boolean; readonly signal?: AbortSignal; readonly maxClosedStates?: number;
+    /** Yalnız test/deployment composition root'u; UI ve rota çağırıcısı URL vermez. */
+    readonly distributionConfig?: RegionalDistributionConfig },
+): Promise<DistributedRouteResult> {
+  const distribution = await discoverRegionalDistribution(options.distributionConfig, options.signal);
+  if (!distribution) return { outcome: 'DOWNLOAD_FAILED', reason: 'DOWNLOAD_FAILED' };
+  return computeDistributedCrossRegionOfflineRoute(distribution, fromLat, fromLon, toLat, toLon, options);
 }
 
 /* ── Straight-line fallback (son çare) ───────────────────────── */

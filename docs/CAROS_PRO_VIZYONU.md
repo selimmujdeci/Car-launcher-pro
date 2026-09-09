@@ -9050,3 +9050,106 @@ Kanıt: `field-runs/rtg4-alt-productpath-20260908/alt-product-path-validation.js
 (ALT) · `field-runs/rtg4-alt-productpath-noalt-20260908/` (kontrol) ·
 `scripts/validate-rtg4-alt-product-path.ts` (ürün girişini çağırır; yalnız
 worker TAŞIYICISI enjekte edilir).
+
+## RTG4 + ALT bölgesel veri dağıtım seam'i — 2026-09-08
+
+**Durum: ENTEGRE KISMİ · ÜRÜN HAZIR: HAYIR.** Navigation map-data katmanına
+`regionalDataDistribution` eklendi. `Directory.Data/navigation/regional-routing`
+altında generation-scoped graph/ALT dosyaları, SHA + RTG4/ALT başlık doğrulaması,
+staging ve kurulu-bölge registry sözleşmesi vardır. `graphResidencyRuntime` önce
+bu doğrulanmış kurulu dosyaları okur; rota yine mevcut worker ve kanonik
+`routeRtg3EdgeState` üzerinden çıkar. Ağ izni açıkça `allowDownload` ile verilir;
+kapalı/eksik veri `MAP_DATA_MISSING / REGIONAL_DATA_NOT_INSTALLED` olur.
+
+Kod kanıtı: hedefli RTG4/ALT + dağıtım testleri 41/41, full suite PASS, TypeScript,
+değişen dosya lint ve production build PASS. Nationwide veri APK'ya eklenmedi,
+production `routing-graph.bin` değiştirilmedi, `MAX_CLOSED` ve residency limitleri
+değişmedi. Kalan kapanış engelleri: imzalı remote manifest yayın/keşif authority'si,
+kanonik cihaz disk bütçesi/eviction politikası, gerçek 22-bölgeli Mersin→İstanbul
+acquisition koşumu, tam failure/restart corpus ve fiziksel head-unit ölçümü.
+CODE PASS ≠ DEVICE PASS ≠ FIELD PASS.
+
+## RTG4 + ALT dağıtım finalizasyonu — 2026-09-09
+
+**Durum: ENTEGRE KISMİ · ÜRÜN HAZIR: HAYIR.** Aynı
+`regionalDataDistribution` authority; güvenilir build-time endpoint/channel/dataset/
+graph-manifest SHA konfigürasyonu, 32 MiB sınırlı manifest yanıtı, üç denemeli
+sınırlı retry/backoff, iptal, kurulu nesne pinleri, yapılandırılabilir disk bütçesi,
+pin-aware deterministik LRU ve salt-okunur LAB telemetrisiyle genişletildi.
+
+Gerçek shadow veriler yerel HTTP sunucusundan normal ürün seam'i ile indirildi:
+Mersin→İstanbul için 22 bölge, 77.539.328 B graph + 53.240.688 B ALT;
+ALT, 139.229/200.000 closed, 1.068.702 m, 0 yasallık ihlali ve en fazla
+3 bölge / 29.392.832 B resident graph. Sunucu kapatılıp runtime sıfırlandığında
+tekrar rota sıfır artefakt ağ baytıyla aynı sonucu verdi.
+
+Kalan CODE borcu: kayıp/bozuk registry'nin generation dizinlerindeki doğrulanmış
+metadata'dan yeniden kurulması ve istenen eksiksiz fault-injection matrisi. Üretim
+CDN endpoint'i ve gerçek güven provisioning'i de repoda mevcut değildir. Capacitor
+Filesystem'in büyük dosya Base64 kopyaları fiziksel cihaz ölçümü gerektirir.
+CODE PASS ≠ DEVICE PASS ≠ FIELD PASS.
+
+## Bölgesel veri dayanıklılığı — registry rebuild + arıza matrisi — 2026-09-09
+
+**Durum: ENTEGRE · ÜRÜN HAZIR: HAYIR** (cihaz kalıcılığı ve dağıtım sağlaması
+bekliyor; saha durumunda `docs/DEVICE_VALIDATION_LEDGER.md` madde 1217 otoritedir).
+
+Bir önceki turun açık CODE borcu kapandı. Aynı `regionalDataDistribution`
+otoritesi genişletildi; yeni downloader, registry, updater veya storage
+otoritesi KURULMADI. Routing algoritmasına, ALT matematiğine, `MAX_CLOSED`
+(200.000) değerine, residency tavanlarına (≤3 bölge / 64 MiB) ve üretim
+`routing-graph.bin` dosyasına DOKUNULMADI.
+
+**Tamamlanma imzası.** Her generation, artefaktları tam yazılıp doğrulandıktan
+SONRA yazılan bir `complete.json` taşır: şema sürümü · regionId · generation ·
+dataset kimliği/sürümü · policy sürümü · graph-manifest SHA · graph formatı ·
+graph SHA/bayt · düğüm/kenar sayısı · ALT var/yok · ALT SHA/bayt · landmark set
+kimliği/sayısı/ölçeği. Dizinin var olması tamamlanma SAYILMAZ.
+
+**Yayın sırası (kesin).** staging indirme → SHA + RTG4/ALT başlık doğrulaması →
+generation dosyalarının yayına alınması → tamamlanma imzası → `installed-regions
+.json.next` → atomik rename. Bu sıradan önceki her noktada süreç ölürse
+generation READY OLMAZ. İmza yazıldıktan sonra registry yayını düşerse
+generation kaybolmaz: sonraki turda doğrulanmış rebuild ile kurtarılır.
+
+**Registry rebuild.** `installed-regions.json` kayıp veya bozuksa yalnız
+yönetilen bölge kökü taranır; imza şeması, dataset kimliği, graph SHA/başlık ve
+(beyan edilmişse) ALT SHA/başlık YENİDEN DOĞRULANIR. Metadata'ya tek başına
+güvenilmez. Doğrulanan generation'ların TAMAMI kurtarılır — tek generation'a
+indirgemek eski kopyayı registry dışında bırakır ve temizliği imkânsızlaştırırdı.
+Hangi generation'ın kullanılacağı runtime'da deterministik seçilir; dosya adına
+göre "en yeni" seçimi yapılmaz.
+
+**Çöp toplama sınırı.** İmzasız (orphan) generation artıkları ve sahipsiz
+staging partial'ları kurtarma turunda toplanır (aktif indirme varken staging'e
+dokunulmaz). Buna karşılık kimlik uyuşmazlığı veya yeniden doğrulama reddi
+SİLME sebebi DEĞİLDİR: geçici bir okuma hatası son iyi kopyayı yok edemez.
+
+**Ölçülen sonuç (masaüstü · gerçek 22 bölge · gerçek HTTP · ürün rota yolu).**
+Kurulum 130.780.016 B; rota ALT modunda 139.229/200.000 closed · 1.068.702 m ·
+uç nokta hatası 4,5 m · 15.019 adımda 0 yasallık ihlali · tepe 3 bölge /
+29.392.832 B. Ardından registry SİLİNDİ ve ağ KAPATILDI: dosya sisteminden 22
+generation kurtarıldı (0 reddedilen · 0 orphan) ve **0 artefakt ağ baytıyla**
+aynı rota birebir üretildi. Üretim grafı SHA `e7713f75…691da` değişmedi.
+
+**Arıza korpusu.** Enjekte edilen dosya sistemi hatalarıyla: graph staging · ALT
+staging · graph rename · ALT rename · imza yazımı · registry `.next` yazımı ·
+registry rename. Hiçbirinde kısmi generation READY olmadı; disk dolu
+senaryosunda önceden kurulu geçerli generation bozulmadı. Çökme sınırları
+(yalnız partial · graph yayında ALT yok · graph+ALT yayında imza yok · tam
+zincir) ve graph↔ALT atomikliği ayrı ayrı kilitlendi: ALT beyan eden generation
+sessizce graph-only'ye düşürülmez.
+
+**Gözlemlenebilirlik.** LAB · Navigasyon Çekirdeği mevcut ekranı genişletildi
+(`hz-regional-distribution` · `hz-regional-storage`): registry kaynağı
+NORMAL/NEXT_RECOVERY/FILESYSTEM_REBUILD/EMPTY/FAILED, kurtarılan/reddedilen/
+orphan generation sayısı, son rebuild ve publish hatası. Salt-okunur; yeni ekran
+ve yeni timer eklenmedi.
+
+**Kalan borç — DAĞITIM SAĞLAMASI (kod değil, işletme).** Kod tarafındaki güven
+dikişi tamdır: dataset kimliği + graph-manifest SHA pinleme, üretimde HTTPS
+zorunluluğu, şema doğrulaması, sınırlı retry/timeout/iptal. Eksik olan gerçek
+üretim CDN uç noktası ve (ürün gerektiriyorsa) imzalama anahtarı
+provisioning'idir. Ayrıca Capacitor Filesystem'in büyük dosya Base64 kopyaları
+ve `Directory.Data` kalıcılığı fiziksel cihaz ölçümü ister.
+CODE PASS ≠ DEVICE PASS ≠ FIELD PASS.
