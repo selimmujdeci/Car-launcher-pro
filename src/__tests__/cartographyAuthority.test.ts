@@ -524,6 +524,14 @@ describe('5 · etiket hiyerarşisi ve yoğunluk bütçesi', () => {
       expect(filterOf(st, 'housenumber')).toContain('housenumber');
       expect(minzoomOf(st, 'housenumber')).toBe(LABEL_VISIBILITY.housenumber);
       expect(LABEL_VISIBILITY.housenumber).toBeGreaterThan(LABEL_VISIBILITY['road-label']);
+      /* ── EŞİK KAMERA EĞRİSİNE BAĞLANDI (2026-09-09) ─────────────────────
+       * Bu kilit eskiden yalnız "sokak adından sonra başlar" diyordu ve eşik
+       * 17'ydi; ölçüldüğünde 30 km/sa'lik şehir sürüşünün zoom'u **17,5**
+       * çıktı — yani kapı numarası tam seyir ortasında ekranın en kalabalık
+       * kalemiydi (40 etiketin 31'i). Eşik artık ÖLÇÜLEN zoom eğrisine
+       * bağlıdır: 30 km/sa bandının ÜSTÜNDE, durak bandının ALTINDA. */
+      expect(LABEL_VISIBILITY.housenumber).toBeGreaterThan(CAMERA_CFG.ZOOM_AT_30);
+      expect(LABEL_VISIBILITY.housenumber).toBeLessThanOrEqual(CAMERA_CFG.ZOOM_AT_0);
       expect(idx(st, 'housenumber')).toBeLessThan(idx(st, 'road-label'));
       /* Kapı numarası her zoomda yerel sokak adından KÜÇÜK — hiyerarşi. */
       for (const z of [17, 18, 19]) {

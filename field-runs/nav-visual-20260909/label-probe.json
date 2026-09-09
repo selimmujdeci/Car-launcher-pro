@@ -1,0 +1,39 @@
+[
+  {
+    "zoom": 14,
+    "pitch": 44,
+    "total": 31,
+    "road-label-major": 17,
+    "road-shield": 6,
+    "place-town": 1,
+    "place-suburb": 7
+  },
+  {
+    "zoom": 15.5,
+    "pitch": 47,
+    "total": 22,
+    "road-label-major": 12,
+    "road-shield": 1,
+    "place-town": 1,
+    "place-suburb": 2,
+    "poi-hospital": 5,
+    "poi-police": 1
+  },
+  {
+    "zoom": 16.7,
+    "pitch": 44,
+    "total": 23,
+    "road-label": 18,
+    "road-label-major": 3,
+    "place-suburb": 1,
+    "poi-hospital": 1
+  },
+  {
+    "zoom": 17.5,
+    "pitch": 40,
+    "total": 36,
+    "road-label": 6,
+    "road-label-major": 2,
+    "housenumber": 28
+  }
+]

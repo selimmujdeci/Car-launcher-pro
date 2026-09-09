@@ -711,11 +711,32 @@ export const LABEL_VISIBILITY = {
   /* ÖLÇÜM (7 Eylül 2026, `field-runs/map-data-coverage-20260907`): `housenumber`
      kaynak katmanı üretim karosunda VAR (merkez z14 karosunda 7 kayıt, çekirdek
      alanda 3) ama stilin HİÇBİR tüketicisi yoktu — veri boru hattında değil,
-     STİLDE kayboluyordu. Kapı numarası yalnız VARIŞ/park anında karar verdirir;
-     seyir zoom'unda (z16 ve altı) mürekkepten ibarettir. Bu yüzden eşik yerel
-     sokak adının (16) ÜSTÜNDE: z17. Kaynak katman sağlayıcıda z14-14'tür;
-     z17'de overzoom edilir — bu ek karo maliyeti YARATMAZ. */
-  'housenumber':      17,
+     STİLDE kayboluyordu. Kapı numarası yalnız VARIŞ/park anında karar verdirir.
+
+     ⚠️ EŞİK DÜZELTİLDİ 17 → 18,4 (2026-09-09, ÖLÇÜMLE). Eski eşiğin gerekçesi
+     *"seyir zoom'u z16 ve altıdır"* varsayımıydı; `cameraEngine`in ÖLÇÜLMÜŞ
+     zoom eğrisi bunu çürütür: **0 km/sa → 18,5 · 30 km/sa → 17,5 · 60 km/sa →
+     16,7.** Yani şehir sürüşünün tam ortası (30 km/sa) z17,5'tir ve eşik 17
+     iken orada ekranda şunlar sayıldı
+     (`field-runs/nav-visual-20260909/housenumber-probe.mjs`, gerçek karolar):
+
+         z16,7 (60 km/sa) → kapı no  0 · sokak adı 18 · ana yol 2 → 21 etiket
+         z17,5 (30 km/sa) → kapı no **31** · sokak adı 7 · ana yol 2 → **40**
+         z18,0 (~15 km/sa)→ kapı no 14 · sokak adı 1
+         z18,5 (DURAK)    → kapı no  8 · sokak adı 0
+
+     Kapı numarası sürüşün ortasında ekranın EN KALABALIK kalemiydi: 40 etiketin
+     31'i. Eşik düzeltildikten sonra AYNI sahnede z17,5 toplamı **40 → 9**'a
+     indi ve varış bandı (z18,5) 8 kapı numarasıyla AYNEN korundu.
+     ⚠️ "Kapı numarası sokak adını eliyordu" hipotezi ÖLÇÜMLE DOĞRULANMADI:
+     kapı numarası kalkınca z17,5'teki sokak adı sayısı 7'de KALDI — o düşüş
+     zoom'la ekrandaki farklı sokak sayısının azalmasından geliyor. Kazanç
+     eleme değil, MÜREKKEP bütçesidir.
+     Yeni eşik, ölçülen zoom eğrisinde yalnız DURAK/park
+     bandına (0–10 km/sa) denk gelir. Sayı `cameraEngine`den İTHAL EDİLMEZ
+     (katman sınırı + döngü riski); eğri değişirse bu yorum ve `cartographyAuthority`
+     kilidi birlikte güncellenir. */
+  'housenumber':      18.4,
 } as const;
 
 /**
