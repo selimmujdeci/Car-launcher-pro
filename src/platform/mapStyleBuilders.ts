@@ -461,59 +461,95 @@ export const NIGHT_PALETTE: VectorPalette = {
  * doygunluk tavanı ve sınıf ayrışması da kilitlidir. */
 export const DAY_PALETTE: VectorPalette = {
   bg:              MAP_BG_DAY_VECTOR,
-  water:           '#9cc7dc',
-  /* OLCUM 2026-09-06: park CR/zemin 1,21 idi -> 1,32; forest 1,41 -> 1,53.
-     Dogal alan artik "anlasilir" esigin ustunde ama yol merdiveninin (kasa
-     1,51-2,61) ALTINDA kalir; farmland bilerek sessiz birakildi (CR 1,03) --
-     bu cografyada EN YOGUN landcover (94 parca) ve navigasyon icin bilgi
-     tasimaz, sakin tuval gorevi gorur. */
-  park:            '#c1d7b1',
-  forest:          '#adcb9a',
-  farmland:        '#e9eaeb',
-  // Yerleşim/sanayi dokusu zeminden bir tık koyu — bina kütlesinin altında kalır.
-  residential:     '#e7e8e9',
-  urban:           '#dedfe1',
-  /* Bina artık haritanın en açık öğesi DEĞİL: yol ondan açıktır. Kütle zeminden
-     koyu (1,26) ve konturuyla ayrılır (1,29) — "evler beyaz" ilkesi kullanıcının
-     2026-09-05 cihaz kararıyla yerini "yollar beyaz"a bıraktı. */
-  buildingFill:    '#d5d7d9',
-  buildingOutline: '#bcbec0',
-  bldg3d:          ['#d5d7d9', '#dfe1e2', '#e9eaeb'],
+  /* ── DOĞA: SAKİN AMA TANINABİLİR + YOLUN ALTINDAN ÇEKİLDİ (2026-09-09) ────
+   * ÖLÇÜLEN KUSUR: eski `forest` (#adcb9a) L* 78,4 idi; `minorCasing` (#c2c3c4)
+   * L* 78,7. İki değer BİREBİR aynı açıklıkta olduğu için orman üstünden geçen
+   * yolun KASASI tamamen kayboluyordu — ölçülen kontrast **1,01** (1,00 = görünmez).
+   * Park üstünde 1,15. Yani Türkiye'nin orman/yayla coğrafyasında (Çamlıyayla,
+   * Sarıkoyak) yol kenarı ekranda YOKTU. Mevcut kilitler bunu göremiyordu çünkü
+   * yalnız ARKA PLANA karşı ölçüyorlardı.
+   * DÜZELTME: doğa açıldı (park L* 83,5→89 · orman 78,4→84), kroma korundu
+   * (kromatik aile kilidi >0,10 sürüyor). Su ise bir tık DERİNLEŞTİ (L* 77,9→76):
+   * bu turda denenip REDDEDİLEN açık su adayı bina kütlesiyle karışıyordu
+   * (su↔bina 1,09 — kilit ≥1,2). Sevk edilen değer 1,22'dir (önceki palet 1,25;
+   * fark kasıtlı: su derinleşirken bina da açıldı, ikisi aynı yöne gitmedi).
+   * Sonuç: yol kasası orman üstünde 1,01 → **1,29**;
+   * doğa hâlâ zeminden net ayrı (ΔE2000 park 17,6 · orman 18,9 · su 20,8)
+   * ama artık yol ağının ÜSTÜNE çıkmıyor — P2'nin "sakin fakat tanınabilir"
+   * ve "aşırı yeşil yok" şartı. */
+  water:           '#95c2d8',
+  park:            '#d2e6c4',
+  forest:          '#c1d9b1',
+  /* ── ZEMİN AİLESİ: AYRIM AÇIKLIKLA DEĞİL, DÜŞÜK-KROMA TONLA ──────────────
+   * ÖLÇÜLEN KUSUR (CIEDE2000): tarım↔konut **0,43** · sanayi↔bina 1,94 ·
+   * konut↔sanayi 2,04 — hepsi "geniş alanda ayırt edilebilir" eşiğinin (~2,3)
+   * ALTINDA. Zemin ailesi tek düz kütleydi; haritanın "CAD çizimi" hissinin
+   * kaynağı budur.
+   * NEDEN AÇIKLIKLA DEĞİL: alanları koyulaştırmak, ÜSTÜNDEN GEÇEN yolun kasa
+   * kontrastını düşürüyor (ölçüldü: şehir dolgusu üstünde 1,31). Bu yüzden
+   * yüzeyler AÇIK kalır, ayrım hue/kroma ekseninde üretilir: tarım sarı-yeşil
+   * (44°), konut sıcak-nötr (30°), sanayi/kurum serin-gri (kroma 0,008).
+   * Sonuç: alan ailesinin EN ZAYIF ikili ayrımı 0,43 → **2,23**. */
+  farmland:        '#e9e5da',
+  residential:     '#e4dfda',
+  urban:           '#dadad8',
+  /* Bina haritanın en açık öğesi DEĞİL: yol ondan açıktır (2026-09-05 cihaz
+     kararı korunur). Kütle zeminden koyu, konturuyla ayrılır; kontur/dolgu
+     farkı 9 L* olarak sabitlendi ki bitişik binalar birbirine yapışmasın. */
+  buildingFill:    '#d0cecd',
+  buildingOutline: '#b7b6b4',
+  bldg3d:          ['#d0cecd', '#dcdad8', '#e6e4e1'],
   bldg3dOpacity:   0.95,
   bldg3dAO:        0.48,
   shieldImage:     SHIELD_IMG_DAY,
   tunnelOpacity:   0.34,
-  bridgeCasing:    '#87888a',
-  /* Kasa merdiveni — gündüz okunabilirliğin TAŞIYICISI (bkz. §4). */
-  motorwayCasing:  '#929496',
-  primaryCasing:   '#9c9ea0',
-  secondaryCasing: '#a8aaac',
-  /* ÖLÇÜLDÜ (2026-09-06, zemin #e9eef3): beş kademeli kasa merdiveni —
-     kasa/zemin 2,61 · 2,30 · 2,00 · 1,72 · 1,51; komşu ayrışma 1,13–1,16;
-     uçtan uca 1,725. Tertiary ESKİ minor kademesini aldı, minor GERİ ÇEKİLDİ. */
-  tertiaryCasing:  '#b5b7b9',
-  minorCasing:     '#c2c3c4',
+  bridgeCasing:    '#7c7c7c',
+  /* ── KASA MERDİVENİ: AKROMATİK, DAHA DERİN (2026-09-09) ──────────────────
+   * Gündüz okunabilirliğini KASA taşır (2026-09-05 cihaz kararı: yollar beyaz).
+   * Kasa artık SAF NÖTR gridir (kroma 0,000) — zemin ailesi sıcak-nötr olduğu
+   * için aile düzeyinde hue ayrımı doğar ve "tek krem/tek mavi ağ" çöküşü
+   * yapısal olarak imkânsızlaşır (bkz. AMBER/SEPIA invariantı).
+   * Merdiven bir tık derinleşti; kasa/zemin: 2,90 · 2,51 · 2,17 · 1,88 · 1,63
+   * (eski: 2,61 · 2,30 · 2,00 · 1,72 · 1,51). Komşu ayrışma 1,152–1,160,
+   * uçtan uca 1,783 (eski 1,725). "Siyah kontur" DEĞİLDİR: en koyu kademe
+   * L* 57 orta gridir ve ekranda yalnız ~1,2 px kenar olarak görünür. */
+  motorwayCasing:  '#898989',
+  primaryCasing:   '#949494',
+  secondaryCasing: '#a0a0a0',
+  tertiaryCasing:  '#acacac',
+  minorCasing:     '#b9b9b9',
   /* `minorCasing` ile BİREBİR aynı ton — servis "yerel ağ" kademesinin bir
      parçasıdır, ayrı bir kademe İCAT EDİLMEDİ. Katman gündüzde `minorCasing`den
-     GENİŞ çizilir (bkz. `road-service-casing`), böylece gövdesi zeminde artık
-     kaybolmaz (ölçülen eski kontrast: zemine karşı 1,06). */
-  serviceCasing:   '#c2c3c4',
-  /* Gövde merdiveni — saf beyazdan sıcak beyaza doğru monoton kırılır. */
+     GENİŞ çizilir (bkz. `road-service-casing`). */
+  serviceCasing:   '#b9b9b9',
+  /* Gövde merdiveni AKROMATİK ve bir tık genişledi (uçtan uca ΔE 2,27 → 2,84):
+     "bütün yollar aynı beyaz şerit" izlenimine karşı sınıflar arası fark
+     büyütüldü. Otoyol #ffffff KİLİTLİDİR (cihaz kararı).
+     TAKAS ÖLÇÜLDÜ: yerel gövdeyi koyulaştırmak merdiveni açar ama gövdenin
+     zeminden luminans ayrımını kısar. Seçilen nokta (L* 95,0) HER İKİSİNİ de
+     eski paletin üstünde tutar: merdiven ΔE 2,27→2,84 · gövde/zemin 1,062→1,069. */
   motorway:        '#ffffff',
-  primary:         '#fcfcfc',
+  primary:         '#fbfbfb',
   secondary:       '#f8f8f8',
-  tertiary:        '#f6f6f7',
-  minor:           '#f4f4f5',
-  railway:         '#b1b3b5',
+  tertiary:        '#f4f4f4',
+  minor:           '#f1f1f1',
+  railway:         '#b2b2b2',
   /* Yaya yolu kendi tokenini taşır: gövde rengi (beyaz) açık zeminde
      görünmezdi, kasa rengi ise gecede siyah zeminde görünmezdi. */
-  pathLine:        '#a8aaac',
-  labelText:       '#3a3b3c',
-  labelHalo:       '#ffffff',
-  townText:        '#323334',
-  townHalo:        '#ffffff',
-  cityText:        '#1a1b1c',
-  cityHalo:        '#ffffff',
+  pathLine:        '#a6a6a6',
+  /* ── ETİKET: HALO ZEMİN AİLESİNDEN (2026-09-09) ──────────────────────────
+   * Halo eskiden SAF BEYAZDI. Sıcak-nötr zemin üstünde saf beyaz halo, her
+   * etiketin çevresinde parlak bir "delik" açar ve etiketi yüzeyden koparır.
+   * Halo artık zemin ailesinin bir tık açığı (ΔE2000 zemine 2,0) — etiket
+   * yüzeyin İÇİNDE durur. Metin/halo kontrastı 10,5 (kilit >4,5).
+   * Şehir adı da yumuşatıldı: 14,95 → 13,4 kontrast; hâlâ en güçlü etiket ama
+   * artık "siyah duvar" değil (P6). */
+  labelText:       '#3b3936',
+  labelHalo:       '#faf7f2',
+  townText:        '#333029',
+  townHalo:        '#faf7f2',
+  cityText:        '#26241f',
+  cityHalo:        '#faf7f2',
   waterText:       '#3d7495',
   poiStrong:       0.9,
   poiWeak:         0.75,
@@ -1221,7 +1257,7 @@ export function buildVectorLayers(night: boolean): LayerSpecification[] {
           'line-color': P.serviceCasing,
           'line-width': (night
             ? roadServiceWidth                                          // gece — gövdeyle BİREBİR (no-op)
-            : ['interpolate', ['linear'], ['zoom'], 15, 1.3, 18, 4.6]    // gündüz — gövdeden geniş
+            : ['interpolate', ['linear'], ['zoom'], 15, 2.0, 18, 4.8]    // gündüz — kenar 0,20 → 0,55 px
           ) as unknown as number,
         } },
 
@@ -1262,8 +1298,14 @@ export function buildVectorLayers(night: boolean): LayerSpecification[] {
         paint: {
           'line-color': P.minorCasing,
           'line-width': roadWidth(night
-            ? [[14, 2.6], [16, 4.6], [18, 9]]                 // gece — DEĞİŞMEDİ
-            : [[13, 1.8], [14, 3.0], [16, 5.2], [18, 9]],     // gündüz — z13 eklendi, z14/16 genişledi
+            ? [[14, 2.6], [16, 4.6], [18, 9]]                  // gece — DEĞİŞMEDİ
+            /* z16 durağı 5,8 → 6,2: ÖLÇÜLDÜ, kenar sürüş bandının TAM ORTASINDA
+               0,80 → **0,60 px**'e düşüyordu (z14 0,80 · z15 0,70 · z16 0,60 ·
+               z17 0,85). Yani yerel ağın en çok bakılan zoom'unda kenar en
+               zayıf noktasındaydı. Yeni durakla kenar z14–z16 boyunca SABİT
+               0,80 px, sonra 0,95 → 1,10 olarak büyür (monoton, dipsiz).
+               Hiyerarşi korunur: z16 kasa 6,20 < üçüncül 7,70, > servis 2,93. */
+            : [[13, 2.1], [14, 4.2], [16, 6.2], [18, 9.6]],    // gündüz — kenar 0,20 → 0,80 px (dipsiz)
           ) as unknown as number,
         } },
       /* ── ÜÇÜNCÜL YOL KENDİ KASASINI ALDI (ÖLÇÜM 2026-09-06) ──────────────
@@ -1274,6 +1316,19 @@ export function buildVectorLayers(night: boolean): LayerSpecification[] {
          gereken sınıfın ağırlığını taşıyordu. Kullanıcının *"çok fazla yol aynı
          görsel ağırlıkta"* bildiriminin sayısal karşılığı budur.
          Artık: ayrı kasa tonu + ayrı gövde tonu + daha dar genişlik. */
+      /* ── SAHA KUSURU (2026-09-09) · KASA KENARI SUB-PİKSELDİ ────────────────
+       * Ekranda görünen kasa = (kasa − gövde) / 2. ÖLÇÜLDÜ (sürüş bandı, CSS px):
+       *     otoyol 1,19–2,00 · ana 1,00–1,50 · ikincil 0,50–1,25
+       *     üçüncül **0,30–0,45** · yerel **0,20–0,80** · servis **0,20–0,60**
+       * Yani yerel ağın kenarı z14'te her yanda 0,2 px'ti — bir cihaz pikselinin
+       * ALTINDA. Kasanın RENGİNİ koyulaştırmak bunu düzeltemez; çizilecek piksel
+       * yoktu. "Yerel yollar zayıf" şikâyetinin geometrik kökü budur ve renk
+       * turlarının neden yalnız kısmi kazanç verdiğini de bu açıklar.
+       * DÜZELTME (yalnız GÜNDÜZ): alt sınıflarda kenar ≥ ~0,75 px'e çıkarıldı.
+       * Gövde genişlikleri DEĞİŞMEDİ → otoyol/tali gövde oranı kilidi (≥2,5)
+       * aynen korunur; algılanan genişlik hiyerarşisi de monotoniktir
+       * (z14: 11,5 > 8,4 > 6,0 > 4,6 > 4,2). GECE ifadesi BİREBİR korunur:
+       * gecede kasa koyu bir gölgedir ve beyaz gövde zaten ~12:1 kontrasttadır. */
       { id: 'road-tertiary-casing',
         type: 'line',
         source: 'omv',
@@ -1283,7 +1338,10 @@ export function buildVectorLayers(night: boolean): LayerSpecification[] {
         layout: { 'line-cap': 'round', 'line-join': 'round' },
         paint: {
           'line-color': P.tertiaryCasing,
-          'line-width': roadWidth([[12, 1.2], [14, 3.6], [18, 9.6]]) as unknown as number,
+          'line-width': roadWidth(night
+            ? [[12, 1.2], [14, 3.6], [18, 9.6]]                 // gece — DEĞİŞMEDİ
+            : [[12, 2.2], [14, 4.6], [18, 10.8]],               // gündüz — kenar 0,30 → 0,80 px
+          ) as unknown as number,
         } },
       { id: 'road-secondary-casing',
         type: 'line',
@@ -1297,7 +1355,10 @@ export function buildVectorLayers(night: boolean): LayerSpecification[] {
           /* Kasa artik z9'dan (secondary'nin kendi minzoom'u) basliyor; rampa
              govdeyle hizalandi: govde [[9,0.8],[12,2.2],[14,4.2],[18,10.5]] -> kasa
              her zoomda GENIS kalir (kilit: cartographyAuthority 'kasa govdeden genis'). */
-          'line-width': roadWidth([[9, 1.5], [12, 3.3], [14, 5.2], [18, 13]]) as unknown as number,
+          'line-width': roadWidth(night
+            ? [[9, 1.5], [12, 3.3], [14, 5.2], [18, 13]]        // gece — DEĞİŞMEDİ
+            : [[9, 2.0], [12, 3.8], [14, 6.0], [18, 13.0]],     // gündüz — kenar 0,50 → 0,90 px
+          ) as unknown as number,
         } },
       { id: 'road-primary-casing',
         type: 'line',

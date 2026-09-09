@@ -96,7 +96,33 @@ export const ROUTE_PILL_IMG_NIGHT = 'route-step-pill-night';
  * (tile boşluğu saf siyah görünüyordu); bu tur aynı yönde ikinci adımdır.
  */
 export const MAP_BG_NIGHT = '#222c3c';
-export const MAP_BG_DAY   = '#e9eef3';
+/**
+ * GÜNDÜZ ZEMİNİ — 2026-09-09 kartografi kalibrasyonu.
+ *
+ * ── NEDEN DEĞİŞTİ (ölçüm, tahmin değil) ───────────────────────────────────
+ * Eski değer `#e9eef3` SOĞUK MAVİ-GRİYDİ (RGB hue 210°, kroma 0,039) ve
+ * yapısal ailedeki 10 rengin 10'u da AYNI 210–220° penceresindeydi. Yani
+ * harita zemin · bina · kasa · yol · arazi olarak tek hue ailesine yığılmıştı —
+ * bu, 2026-09-06'da kullanıcının REDDETTİĞİ amber paletin (12/12 renk 40–48°)
+ * kusurunun SOĞUK TARAFTAKİ İKİZİDİR; yalnız şiddeti daha düşüktü.
+ *
+ * ÖLÇÜLEN SONUÇ (CIEDE2000, büyük yüzeyler): zemin↔tarım 2,46 · tarım↔konut
+ * **0,43** · konut↔sanayi 2,04 · sanayi↔bina 1,94. Yani haritanın TÜM zemin
+ * ailesi tek düz kütle olarak okunuyordu (ΔE<2,3 = geniş alanda ayırt edilemez)
+ * — sahadaki "soğuk/klinik, CAD çizimi gibi, soluk" izleniminin sayısal
+ * karşılığı budur.
+ *
+ * YENİ DEĞER `#eee9e3`: aynı KROMA BÜYÜKLÜĞÜ (0,043 ≈ eski 0,039) ama yön
+ * soğuktan SICAK-NÖTRE döndü (hue 33°) ve açıklık bir tık indi (L* 93,9→92,6).
+ * Sepia DEĞİLDİR: reddedilen paletin ortalama kroması 0,0705, tepe 0,114 idi —
+ * bu değer onun ~%60'ı ve yalnız ZEMİN ailesine uygulanır; yol gövdeleri ve
+ * kasaları AKROMATİKTİR (kroma 0,000). Aile düzeyinde hue ayrımı, "her şey tek
+ * krem ağ" çöküşünü yapısal olarak imkânsız kılar (bkz. `mapDayPaletteContrast`
+ * §AMBER/SEPIA invariantı ve `DAY_PALETTE` gerekçesi).
+ *
+ * Raster ve vektör yolu AYNI tokeni yazar (tek gündüz zemini sözleşmesi).
+ */
+export const MAP_BG_DAY   = '#eee9e3';
 
 /**
  * #609 — Verilen kaynak TÜRÜ zemini (basemap) çizen bir KARO kaynağı mı?

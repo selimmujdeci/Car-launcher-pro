@@ -1,0 +1,175 @@
+{
+  "uretildi": "2026-09-09T15:10:54.112Z",
+  "kaynak": "OpenFreeMap planet (OpenMapTiles şeması) — gerçek karolar",
+  "not": "AFTER paleti ÜRÜN KODUNDAN (DAY_PALETTE) import edilir; BEFORE bu turdan önceki donmuş kopyadır.",
+  "before": {
+    "bg": "#e9eef3",
+    "farmland": "#e9eaeb",
+    "residential": "#e7e8e9",
+    "urban": "#dedfe1",
+    "park": "#c1d7b1",
+    "forest": "#adcb9a",
+    "water": "#9cc7dc",
+    "buildingFill": "#d5d7d9",
+    "buildingOutline": "#bcbec0",
+    "body": [
+      "#ffffff",
+      "#fcfcfc",
+      "#f8f8f8",
+      "#f6f6f7",
+      "#f4f4f5"
+    ],
+    "cas": [
+      "#929496",
+      "#9c9ea0",
+      "#a8aaac",
+      "#b5b7b9",
+      "#c2c3c4"
+    ]
+  },
+  "after": {
+    "bg": "#eee9e3",
+    "farmland": "#e9e5da",
+    "residential": "#e4dfda",
+    "urban": "#dadad8",
+    "park": "#d2e6c4",
+    "forest": "#c1d9b1",
+    "water": "#95c2d8",
+    "buildingFill": "#d0cecd",
+    "buildingOutline": "#b7b6b4",
+    "body": [
+      "#ffffff",
+      "#fbfbfb",
+      "#f8f8f8",
+      "#f4f4f4",
+      "#f1f1f1"
+    ],
+    "cas": [
+      "#898989",
+      "#949494",
+      "#a0a0a0",
+      "#acacac",
+      "#b9b9b9"
+    ]
+  },
+  "sahneler": [
+    {
+      "id": "A-camliyayla",
+      "ad": "Çamlıyayla — dağ/orman (z16)",
+      "lon": 34.6088,
+      "lat": 37.1707,
+      "zTile": 14,
+      "zView": 16,
+      "yol": 55,
+      "bina": 11,
+      "yesil": 34,
+      "su": 4
+    },
+    {
+      "id": "B-kirsal",
+      "ad": "Kırsal yerel ağ — Gözne (z16)",
+      "lon": 34.53,
+      "lat": 36.98,
+      "zTile": 14,
+      "zView": 16,
+      "yol": 35,
+      "bina": 16,
+      "yesil": 7,
+      "su": 6
+    },
+    {
+      "id": "C-mersin",
+      "ad": "Mersin merkez — yoğun kent (z16)",
+      "lon": 34.6415,
+      "lat": 36.8121,
+      "zTile": 14,
+      "zView": 16,
+      "yol": 982,
+      "bina": 90,
+      "yesil": 227,
+      "su": 35
+    },
+    {
+      "id": "D-gazipasa",
+      "ad": "Gazipaşa — cihaz konumu (z16)",
+      "lon": 34.8621,
+      "lat": 36.9175,
+      "zTile": 14,
+      "zView": 16,
+      "yol": 467,
+      "bina": 77,
+      "yesil": 102,
+      "su": 101
+    },
+    {
+      "id": "E-sahil",
+      "ad": "Sahil — su komşuluğu (z16)",
+      "lon": 34.62,
+      "lat": 36.785,
+      "zTile": 14,
+      "zView": 16,
+      "yol": 785,
+      "bina": 81,
+      "yesil": 167,
+      "su": 17
+    },
+    {
+      "id": "F-tarsus",
+      "ad": "Tarsus — karma ağ (z16)",
+      "lon": 34.8951,
+      "lat": 36.9177,
+      "zTile": 14,
+      "zView": 16,
+      "yol": 462,
+      "bina": 74,
+      "yesil": 134,
+      "su": 59
+    },
+    {
+      "id": "G-mersin-z12",
+      "ad": "Mersin — bölgesel yapı (z12)",
+      "lon": 34.6415,
+      "lat": 36.8121,
+      "zTile": 12,
+      "zView": 12,
+      "yol": 2280,
+      "bina": 0,
+      "yesil": 40,
+      "su": 34
+    },
+    {
+      "id": "H-camliyayla-z15",
+      "ad": "Çamlıyayla — kasaba yaklaşımı (z15)",
+      "lon": 34.6088,
+      "lat": 37.1707,
+      "zTile": 14,
+      "zView": 15,
+      "yol": 55,
+      "bina": 11,
+      "yesil": 34,
+      "su": 4
+    },
+    {
+      "id": "I-mersin-z17",
+      "ad": "Mersin — yerel detay (z17)",
+      "lon": 34.6415,
+      "lat": 36.8121,
+      "zTile": 14,
+      "zView": 17,
+      "yol": 982,
+      "bina": 90,
+      "yesil": 227,
+      "su": 35
+    }
+  ],
+  "navigasyon": {
+    "id": "J-navigasyon",
+    "ad": "Mersin — etkin rota (z16)",
+    "lon": 34.6415,
+    "lat": 36.8121,
+    "zTile": 14,
+    "zView": 16,
+    "rotaPikselUzunlugu": 579,
+    "rotaBulundu": true
+  }
+}

@@ -9153,3 +9153,102 @@ zorunluluğu, şema doğrulaması, sınırlı retry/timeout/iptal. Eksik olan ge
 provisioning'idir. Ayrıca Capacitor Filesystem'in büyük dosya Base64 kopyaları
 ve `Directory.Data` kalıcılığı fiziksel cihaz ölçümü ister.
 CODE PASS ≠ DEVICE PASS ≠ FIELD PASS.
+
+
+---
+
+## GÜNDÜZ KARTOGRAFİSİ — SİSTEM KALİBRASYONU (2026-09-09)
+
+**Durum: ENTEGRE.** **SAHADA DOĞRULANDI DEĞİL** — kütük **#1222** 🔴 kaldıkça
+yükseltilemez. **ÜRÜN HAZIR: HAYIR** (gerçek head unit görüntüsü alınmadı).
+
+### Sorun ifadesi
+
+Kullanıcı gündüz basemap'ini gerçek cihaz karesiyle reddetti: *"genel zemin fazla
+soğuk/açık gri · yolların önemli kısmı beyaz/gri zemine fazla yakın · harita hâlâ
+soluk · ana/tali/yerel hiyerarşisi yeterince güçlü değil · browse görünümü
+teknik/CAD benzeri · doğal alan ile ulaşım ağı arasında derinlik yok."* Ayrıca
+**tek tek yama istemediğini** ("biraz kalınlaştır", "biraz kasa ekle") açıkça yazdı:
+LAND + ROAD FILL + CASING + HIERARCHY + NATURAL + WATER + LABELS + ZOOM + ROUTE
+**birlikte** kalibre edilecekti.
+
+### Üç sessiz kök (ölçüldü, tahmin edilmedi)
+
+| # | Ölçülen gerçek | Sonuç |
+|---|-----------------|-------|
+| 1 | Görünen kasa = (kasa−gövde)/2 → **yerel yol z14'te 0,20 px** · üçüncül 0,30 · servis 0,20 | Kenar bir cihaz pikselinin ALTINDAYDI; **renkle çözülemezdi** — önceki renk turlarının neden yetmediği |
+| 2 | Kilitler yolu yalnız ARKA PLANA karşı ölçüyordu → yerel kasa **orman üstünde 1,01** · park 1,15 · kent dolgusu 1,31 | Orman/yayla coğrafyasında yol kenarı ekranda YOKTU; hiçbir test görmüyordu |
+| 3 | CIEDE2000: tarım↔konut **0,43** · sanayi↔bina 1,94 · konut↔sanayi 2,04 (eşik ~2,3) | Zemin ailesi tek düz kütleydi — "CAD çizimi gibi" izleniminin sayısal karşılığı |
+
+Sonradan bulunan dördüncü kusur: geometri düzeltmesi taban koydu ama kenar
+bandın **içinde çöküyordu** — yerel yol z14 0,80 → **z16 0,60** → z18 1,10. Yani en
+çok bakılan zoom'da kenar en zayıf noktasındaydı. Kasa z16 durağı 5,8→6,2 ile
+kenar bandı **dipsiz** hale getirildi.
+
+### AMBER CAST kuralı — kaldırılmadı, DÜZELTİLDİ
+
+Eski kilit *"yapısal ailedeki hiçbir renk 15–75° hue bandında olamaz"* diyordu.
+Ölçüm iki hatasını gösterdi: **(a)** reddedilen paletin gerçek kusuru yön değil
+**yığılma + büyüklüktü** (12/12 renk 8°'lik tek pencerede, ortalama kroma 0,0705,
+**ve yol gövdeleri de kremdi**); **(b)** kural aynı patolojinin soğuk ikizini
+göremİyordu — yürürlükteki paletin yapısal 10 renginin 10'u da 210–220°
+penceresindeydi. Yeni kural yönden bağımsızdır ve patolojiyi yasaklar:
+
+* **R1** yüzey başına kroma tavanı (0,055 — reddedilen tepe 0,114'ün altı)
+* **R2** yapısal aile ortalama kroma tavanı (0,030 — reddedilenin yarısından düşük)
+* **R3** **yol ailesi AKROMATİK** (çöküşün asıl mekanizmasıydı)
+* **R4** zemin ile yol aynı hue ailesinde olamaz (>60°)
+
+Reddedilen palet bu kuralların **üçünü birden** ihlal eder ve bu karşıt-örnek
+testleriyle kanıtlanır — koruma zayıflamadı, **keskinleşti**.
+
+### Ölçülen sonuç (önce → sonra)
+
+| İlişki | Önce | Sonra |
+|--------|------|-------|
+| Zemin ailesinin EN ZAYIF ikili ayrımı (ΔE2000) | 0,43 | **2,23** |
+| Yerel kasa · orman üstünde (kontrast) | 1,01 | **1,29** |
+| Yerel kasa · park üstünde | 1,15 | **1,48** |
+| Kasa merdiveni (otoyol→yerel, zemine karşı) | 2,61→1,51 | **2,90→1,63** |
+| Gövde merdiveni uçtan uca (ΔE2000) | 2,27 | **2,84** |
+| Yol ailesi TEPE kroma | 0,0157 | **0,0000** |
+| Zemin L* / kroma | 93,9 / 0,039 | **92,6 / 0,043** |
+| Gündüz kenarı z14–z18 (yerel yol, px) | 0,20 → 1,10 (dipli) | **0,80 · 0,80 · 0,80 · 0,95 · 1,10** |
+
+Doğa bilerek **sakinleşti** (park ΔE 19,6→15,3 · orman 23,7→17,8): hedef yeşili
+azaltmak değil, yol ağının ÜSTÜNE çıkmasını engellemekti — ikisi de hâlâ
+ayırt edilebilirlik eşiğinin çok üstünde.
+
+### Yeni kilitler
+
+`dayCartographySystem.test.ts` **13 bölüm / 40 kilit**: yol her zemin üstünde
+okunur · zemin ailesi çakışmaz · hiyerarşi · doğa · browse↔navigasyon · etiket ·
+**gece birebir değişmedi** · tek otorite · **kasa geometrisi (sub-piksel yasak)** ·
+etiket ölçüsü · **zoom matrisi (dip yasağı + genel bakış bandı)** · **navigasyon
+bastırması gündüz zemininde** (önceki kilit yalnız GECE zeminine bakıyordu) ·
+**MINI/FULL · raster · style reload paritesi**.
+
+### Referans sahneler
+
+`field-runs/carto-2026-09-09/` — gerçek OpenMapTiles karolarıyla **9 sahne**
+(orman/yayla · kırsal yerel ağ · yoğun kent · cihaz konumu · sahil · karma ağ)
+**üç zoom bandında** (z12 bölgesel · z15 kasaba yaklaşımı · z16–z17 sürüş detayı)
+ve bir **navigasyon karesi** (aynı sahne · rotasız ↔ etkin rota). Palet, genişlik
+ve görünürlük eşikleri **ürün kodundan** okunur; sahne üreticisi ikinci bir
+gerçek kurmaz. Sentetik yol ızgarası KULLANILMADI.
+
+### Sınırlar (hiçbiri ihlal edilmedi)
+
+Routing/RTG4/ALT/MAX_CLOSED/residency · rota maliyeti · navigasyon durum otoritesi ·
+kamera otoritesi · Mavi · Music · OBD/CAN · adres hattı **DEĞİŞMEDİ**. Gece paleti
+ve gece geometrisi birebir korundu (kilitle kanıtlandı). Yeni stil sistemi, ikinci
+renk kaynağı veya paralel renderer KURULMADI.
+
+### Açık borç
+
+1. **Cihaz görsel doğrulaması (#1222)** — kod yeşil olması görsel PASS değildir.
+2. **CAROS LAB kartografi gözlem yüzeyi** — yürürlükteki palet kimliği, çözümlenen
+   zoom bandı ve stil kaynağı hâlâ salt-okunur bir LAB kartında görülemiyor
+   (2026-09-05 turundan devreden borç; bu tur kapatılmadı).
+3. **Rampa kenarları** üst sınıflarda 0,66–1,10 px, alt sınıflarda 0,33–0,60 px —
+   bilinçli olarak ast kalmıştır; otoyol çıkışları cihazda ayrıca bakılmalı.

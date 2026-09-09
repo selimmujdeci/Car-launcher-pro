@@ -46,7 +46,7 @@ import {
 } from '../platform/mapSourceManager';
 import { getOnlineTileStyle } from '../platform/map/_mapState';
 import {
-  RASTER_PAINT_DAY, RASTER_PAINT_NIGHT, MAP_BG_NIGHT, MAP_BG_DAY_VECTOR,
+  RASTER_PAINT_DAY, RASTER_PAINT_NIGHT, MAP_BG_NIGHT, MAP_BG_DAY_VECTOR, MAP_BG_DAY,
 } from '../platform/mapStyleBuilders';
 
 /* ── Yardımcılar ── */
@@ -70,7 +70,11 @@ describe('getMapStyle — gündüz/gece raster paleti', () => {
     const style = getMapStyle();
     expect(getMapNight()).toBe(false);
     expect(tilesPaint(style)).toEqual({ ...RASTER_PAINT_DAY });
-    expect(backgroundColor(style)).toBe('#e9eef3');
+    /* Zemin KANONİK TOKENDEN okunur — hex kopyalanmaz. (2026-09-09: token
+       `#e9eef3` → `#eee9e3` olarak yeniden kalibre edildiğinde bu kilit
+       değer kopyaladığı için düşmüştü; kilidin amacı "gündüzde gündüz zemini
+       yazılır" davranışıdır, belirli bir hex DEĞİL.) */
+    expect(backgroundColor(style)).toBe(MAP_BG_DAY);
   });
 
   it("theme='dark' (mapNight=true) → GECE paleti: grafit raster + koyu arka plan", () => {
@@ -135,7 +139,7 @@ describe('getMapStyle — vector modda gündüz', () => {
 
     // Hangi motor kullanılırsa kullanılsın zemin GÜNDÜZ tonunda olmalı:
     // vektör yolunda MAP_BG_DAY_VECTOR, raster yolunda MAP_BG_DAY.
-    expect([MAP_BG_DAY_VECTOR, '#e9eef3']).toContain(bg);
+    expect([MAP_BG_DAY_VECTOR, MAP_BG_DAY]).toContain(bg);
 
     // Raster yoluna düşüldüyse gündüz raster paint'i uygulanmalı.
     const paint = tilesPaint(style);
@@ -149,7 +153,7 @@ describe('getOnlineTileStyle — son çare fallback', () => {
   it('varsayılan (parametresiz) → GÜNDÜZ paleti (fallback asla koyu kurulmaz)', () => {
     const style = getOnlineTileStyle();
     expect(tilesPaint(style)).toEqual({ ...RASTER_PAINT_DAY });
-    expect(backgroundColor(style)).toBe('#e9eef3');
+    expect(backgroundColor(style)).toBe(MAP_BG_DAY);
   });
 
   it('night=true → GECE paleti', () => {

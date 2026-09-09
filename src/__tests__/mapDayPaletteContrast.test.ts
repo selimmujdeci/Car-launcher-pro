@@ -260,12 +260,40 @@ describe('gündüz etiketleri — halo palete bağlı (gece sabiti sızmaz)', ()
  *   2) SINIF AYRIMI gerçekten var mı?     (kasa merdiveni ayrışması)
  *   3) Kromatik olanlar kromatik kaldı mı? (nötrleme fazla uygulanmasın)
  */
+/* ═══════════════════════════════════════════════════════════════════════════
+ * ⚠️ INVARIANT YENİDEN TANIMLANDI (2026-09-09) — KİLİT KALDIRILMADI, DÜZELTİLDİ
+ * ═══════════════════════════════════════════════════════════════════════════
+ * ESKİ KURAL: "yapısal ailedeki hiçbir renk 15–75° hue bandında olamaz."
+ * Bu kural reddedilen paleti yakalıyordu ama YANLIŞ ŞEYİ yasaklıyordu: hue
+ * YÖNÜNÜ. Sonucu, gündüz zeminini sonsuza kadar SOĞUK tarafta kilitlemekti.
+ *
+ * ÖLÇÜM (2026-09-09) o kuralın iki hatasını gösterdi:
+ *
+ *  (a) REDDEDİLEN PALETİN gerçek kusuru yön değil YIĞILMA + BÜYÜKLÜKTÜ:
+ *      12/12 renk 40–48° gibi 8°'lik TEK pencerede · ortalama kroma 0,0705 ·
+ *      tepe 0,114 · ve KRİTİK OLAN: yol GÖVDELERİ de kremdi (0,020–0,043).
+ *      Zemin de yol da aynı hue ailesinde olunca sınıf sınırları kayboluyor,
+ *      harita "tek parça krem ağ" olarak okunuyordu.
+ *
+ *  (b) ESKİ KURAL, AYNI KUSURUN SOĞUK TARAFTAKİ İKİZİNİ GÖREMİYORDU:
+ *      2026-09-06 sonrası yürürlükteki paletin yapısal 10 renginin 10'u da
+ *      210–220° penceresindeydi. Yani yığılma sürüyordu, yalnız yönü mavi
+ *      olduğu için kilit sessiz kaldı. Sahadaki "soğuk/klinik, CAD çizimi
+ *      gibi" izlenim bunun sonucudur.
+ *
+ * YENİ KURAL — yön değil PATOLOJİ yasaklanır:
+ *   R1 · yüzey başına kroma tavanı        (aşırı doygunluk)
+ *   R2 · ortalama kroma tavanı            (sepia/cast)
+ *   R3 · YOL AİLESİ AKROMATİK olmalı      (asıl çöküş mekanizması)
+ *   R4 · zemin ile yol AYNI hue ailesinde olamaz (tek-ağ çöküşü imkânsız)
+ * Sınıf ayrımı böylece TONDAN değil AÇIKLIKTAN gelmek zorunda kalır.
+ *
+ * Reddedilen palet bu dört kuralın ÜÇÜNÜ birden ihlal eder (aşağıdaki
+ * karşıt-örnek testi bunu kanıtlar) → koruma zayıflamadı, KESKİNLEŞTİ. */
 /* ÖLÇÜ SEÇİMİ — neden HSL doygunluğu DEĞİL:
    Beyaza yakın renklerde HSL doygunluğu patlar (`#e9eef3` tamamen nötr olduğu
-   hâlde %29 çıkar) → kilit sahte pozitif verirdi. Kusur zaten BÜYÜKLÜK değildi:
-   reddedilen paletin 12 renginin 12'si de **40–48° sıcak hue bandındaydı**, yeni
-   paletin 13 renginin hiçbiri değil (210–240° ya da saf gri). Ölçü bu yüzden
-   **hue YÖNÜ** + mutlak kroma tavanıdır. */
+   hâlde %29 çıkar) → kilit sahte pozitif verirdi. Ölçü bu yüzden mutlak
+   kroma (RGB max−min) ve hue AİLESİDİR. */
 function chroma(hex: string): number {
   const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
   return (Math.max(r, g, b) - Math.min(r, g, b)) / 255;
@@ -284,6 +312,35 @@ function hueOf(hex: string): number | null {
 const AMBER_BAND: readonly [number, number] = [15, 75];
 /** Bu kromanın altında hue anlamsızdır (yuvarlama gürültüsü). */
 const HUE_SIGNIFICANT_CHROMA = 0.015;
+
+/**
+ * ZEMİN AİLESİ — haritanın altındaki büyük yüzeyler.
+ * Düşük kromalı bir TON taşıyabilir (kâğıt/taş karakteri); yasak olan
+ * aşırı doygunluk ve yol ailesiyle aynı hue ailesini paylaşmaktır.
+ */
+const GROUND_FAMILY: ReadonlyArray<readonly [string, string]> = [
+  ['background', 'background-color'],
+  ['landuse-residential', 'fill-color'],
+  ['landuse-urban', 'fill-color'],
+];
+
+/**
+ * YOL AİLESİ — gövdeler ve kasalar. AKROMATİK olmak ZORUNDA:
+ * reddedilen palette bunlar da kremdi ve sınıf sınırları hue içinde eriyordu.
+ * Akromatik kalırlarsa hiyerarşi AÇIKLIKLA taşınmak zorundadır.
+ */
+const ROAD_FAMILY: ReadonlyArray<readonly [string, string]> = [
+  ['road-motorway', 'line-color'],
+  ['road-primary', 'line-color'],
+  ['road-secondary', 'line-color'],
+  ['road-tertiary', 'line-color'],
+  ['road-minor', 'line-color'],
+  ['road-motorway-casing', 'line-color'],
+  ['road-primary-casing', 'line-color'],
+  ['road-secondary-casing', 'line-color'],
+  ['road-tertiary-casing', 'line-color'],
+  ['road-minor-casing', 'line-color'],
+];
 
 /** Nötr aile: yapıyı çizen, kendi anlamı olan rengi OLMAYAN katmanlar. */
 const NEUTRAL_FAMILY: ReadonlyArray<readonly [string, string]> = [
@@ -308,37 +365,107 @@ const CHROMATIC_FAMILY: ReadonlyArray<readonly [string, string]> = [
   ['landuse-park', 'fill-color'],
 ];
 
-/** Ölçüldü: yeni palette nötr ailenin en yüksek kroması %3,9. Tavan %15 —
- *  asıl kapı hue YÖNÜDÜR; bu yalnız "hiçbir yapısal renk kuvvetli boyanmasın" sınırı. */
-const MAX_NEUTRAL_CHROMA = 0.15;
+/** Reddedilen paletin TEPE kroması 0,114 idi; tavan onun altında tutulur. */
+const MAX_STRUCTURAL_CHROMA = 0.055;
+/** Reddedilen paletin ORTALAMA kroması 0,0705 idi; tavan onun yarısından düşük. */
+const MAX_STRUCTURAL_MEAN_CHROMA = 0.030;
 
 describe('🔒 gündüz paleti — AMBER CAST YASAK (kullanıcı saha reddi 2026-09-06)', () => {
-  it('yapısal (nötr) aile AMBER BANDINDA DEĞİLDİR — sıcak cast geri gelemez', () => {
+  it('R1 · hiçbir yapısal yüzey AŞIRI DOYGUN değildir (reddedilen palet tepe 0,114)', () => {
     for (const [id, prop] of NEUTRAL_FAMILY) {
       const hex = paintColor(DAY, id, prop);
-      expect(chroma(hex), `${id}.${prop} = ${hex} — nötr aile fazla renkli`)
-        .toBeLessThanOrEqual(MAX_NEUTRAL_CHROMA);
-      const h = hueOf(hex);
-      if (h === null || chroma(hex) < HUE_SIGNIFICANT_CHROMA) continue;
-      expect(h >= AMBER_BAND[0] && h <= AMBER_BAND[1],
-        `${id}.${prop} = ${hex} hue ${h.toFixed(0)}° — AMBER BANDINDA; kullanıcının reddettiği cast geri gelmiş`)
-        .toBe(false);
+      expect(chroma(hex), `${id}.${prop} = ${hex} — yapısal yüzey fazla renkli`)
+        .toBeLessThanOrEqual(MAX_STRUCTURAL_CHROMA);
     }
   });
 
-  it('reddedilen krem paletin HER RENGİ bu kilidi GEÇEMEZDİ (karşıt-örnek — kilit kör değil)', () => {
-    /* 2026-09-06'da kullanıcının işaretleyerek reddettiği paletin bire bir değerleri. */
-    const REDDEDİLEN = ['#f2efe6', '#ded6c6', '#c6bda9', '#ece8dc', '#e4dfd0',
-      '#9a9384', '#a49d8e', '#b0a999', '#bdb6a6', '#fdfcf8', '#faf8f1', '#f7f4ec'];
-    for (const hex of REDDEDİLEN) {
-      const h = hueOf(hex);
-      expect(h, `${hex} gri çıktı — karşıt-örnek bozulmuş`).not.toBeNull();
-      expect(chroma(hex), `${hex} kroma eşiğinin altında — karşıt-örnek zayıf`)
-        .toBeGreaterThanOrEqual(HUE_SIGNIFICANT_CHROMA);
-      expect(h! >= AMBER_BAND[0] && h! <= AMBER_BAND[1],
-        `${hex} (hue ${h!.toFixed(0)}°) kilidi GEÇİYOR — kilit artık hiçbir şeyi korumuyor`)
-        .toBe(true);
+  it('R2 · yapısal ailenin ORTALAMA kroması sepia eşiğinin altında', () => {
+    /* Reddedilen palet: ortalama 0,0705. Tavan onun yarısından da düşük tutuldu;
+       "cast" tek bir yüzeyden değil, ailenin TOPLAM renk yükünden doğar. */
+    const vals = NEUTRAL_FAMILY.map(([id, prop]) => chroma(paintColor(DAY, id, prop)));
+    const mean = vals.reduce((a, b) => a + b, 0) / vals.length;
+    expect(mean, `yapısal aile ortalama kroması ${mean.toFixed(4)} — sepia/cast sınırı aşıldı`)
+      .toBeLessThanOrEqual(MAX_STRUCTURAL_MEAN_CHROMA);
+  });
+
+  it('R3 · YOL AİLESİ AKROMATİKTİR — hiyerarşi tondan değil AÇIKLIKTAN gelir', () => {
+    /* Reddedilen paletin çöküş mekanizması buydu: yol gövdeleri de kremdi
+       (0,020–0,043) ve sınıf sınırları hue içinde eriyordu. */
+    for (const [id, prop] of ROAD_FAMILY) {
+      const hex = paintColor(DAY, id, prop);
+      expect(chroma(hex), `${id}.${prop} = ${hex} — yol ailesi renk taşıyor, sınıflar hue içinde erir`)
+        .toBeLessThan(HUE_SIGNIFICANT_CHROMA);
     }
+  });
+
+  it('R4 · ZEMİN ile YOL aynı hue ailesinde OLAMAZ — "tek ağ" çöküşü imkânsız', () => {
+    /* Tek-hue yığılması hem sıcak (2026-09-06 reddi) hem soğuk (sonraki palet)
+       tarafta ölçüldü. Kural yönden bağımsızdır: zemin tonluysa yol nötr kalır. */
+    const groundHues = GROUND_FAMILY
+      .map(([id, prop]) => paintColor(DAY, id, prop))
+      .filter((hex) => chroma(hex) >= HUE_SIGNIFICANT_CHROMA)
+      .map((hex) => hueOf(hex))
+      .filter((h): h is number => h !== null);
+    const roadHues = ROAD_FAMILY
+      .map(([id, prop]) => paintColor(DAY, id, prop))
+      .filter((hex) => chroma(hex) >= HUE_SIGNIFICANT_CHROMA)
+      .map((hex) => hueOf(hex))
+      .filter((h): h is number => h !== null);
+    for (const g of groundHues) {
+      for (const r of roadHues) {
+        const d = Math.min(Math.abs(g - r), 360 - Math.abs(g - r));
+        expect(d, `zemin ${g.toFixed(0)}° ile yol ${r.toFixed(0)}° aynı hue ailesinde — tek-ağ çöküşü riski`)
+          .toBeGreaterThan(60);
+      }
+    }
+  });
+
+  /* 2026-09-06'da kullanıcının işaretleyerek REDDETTİĞİ paletin bire bir değerleri.
+     İlk dokuzu zemin/bina/kasa ailesi, son üçü YOL GÖVDELERİdir. */
+  const REDDEDİLEN = ['#f2efe6', '#ded6c6', '#c6bda9', '#ece8dc', '#e4dfd0',
+    '#9a9384', '#a49d8e', '#b0a999', '#bdb6a6'];
+  const REDDEDİLEN_YOL = ['#fdfcf8', '#faf8f1', '#f7f4ec'];
+
+  it('KARŞIT-ÖRNEK · reddedilen palet R1 (yüzey kroma tavanı) kilidini GEÇEMEZ', () => {
+    const asiri = [...REDDEDİLEN, ...REDDEDİLEN_YOL].filter((h) => chroma(h) > MAX_STRUCTURAL_CHROMA);
+    expect(asiri.length, 'kilit körleşmiş: reddedilen paletin hiçbir rengi tavanı aşmıyor')
+      .toBeGreaterThan(0);
+  });
+
+  it('KARŞIT-ÖRNEK · reddedilen palet R2 (ortalama kroma / sepia) kilidini GEÇEMEZ', () => {
+    const hepsi = [...REDDEDİLEN, ...REDDEDİLEN_YOL];
+    const mean = hepsi.reduce((a, h) => a + chroma(h), 0) / hepsi.length;
+    expect(mean, `reddedilen paletin ortalama kroması ${mean.toFixed(4)} — tavanın altında kalıyorsa kilit kör`)
+      .toBeGreaterThan(MAX_STRUCTURAL_MEAN_CHROMA);
+  });
+
+  it('KARŞIT-ÖRNEK · reddedilen palet R3 (yol ailesi akromatik) kilidini GEÇEMEZ', () => {
+    /* Çöküşün asıl mekanizması: o palette YOL GÖVDELERİ de kremdi. */
+    for (const hex of REDDEDİLEN_YOL) {
+      expect(chroma(hex), `${hex} akromatik sayılıyor — R3 karşıt-örneği bozulmuş`)
+        .toBeGreaterThanOrEqual(HUE_SIGNIFICANT_CHROMA);
+    }
+  });
+
+  it('KARŞIT-ÖRNEK · reddedilen palet TEK HUE PENCERESİNE yığılmıştı (R4 gerekçesi)', () => {
+    const hues = [...REDDEDİLEN, ...REDDEDİLEN_YOL]
+      .map((h) => hueOf(h)).filter((h): h is number => h !== null);
+    expect(hues.length).toBe(12);
+    const yayilim = Math.max(...hues) - Math.min(...hues);
+    expect(yayilim, `reddedilen paletin hue yayılımı ${yayilim.toFixed(0)}° — yığılma kanıtı kaybolmuş`)
+      .toBeLessThanOrEqual(15);
+    /* ...ve o pencere AMBER bandındaydı (tarihsel kayıt; kural artık yönden bağımsız). */
+    for (const h of hues) expect(h >= AMBER_BAND[0] && h <= AMBER_BAND[1]).toBe(true);
+  });
+
+  it('KARŞIT-ÖRNEK · YÜRÜRLÜKTEKİ palet R4\'ü gerçekten sınar (zemin tonlu, yol nötr)', () => {
+    /* Kilidin bugünkü palette anlamlı olduğunu kanıtlar: zemin ailesinde
+       anlamlı kroma VAR (yani R4 boş kümede çalışmıyor), yol ailesinde YOK. */
+    const zeminKromalari = GROUND_FAMILY.map(([id, prop]) => chroma(paintColor(DAY, id, prop)));
+    expect(Math.max(...zeminKromalari), 'zemin ailesi tamamen gri — R4 boş kümede çalışıyor olabilir')
+      .toBeGreaterThanOrEqual(HUE_SIGNIFICANT_CHROMA);
+    const yolKromalari = ROAD_FAMILY.map(([id, prop]) => chroma(paintColor(DAY, id, prop)));
+    expect(Math.max(...yolKromalari), 'yol ailesi renk taşıyor').toBeLessThan(HUE_SIGNIFICANT_CHROMA);
   });
 
   it('su ve park KROMATİK kalır — nötrleme fazla uygulanmamış', () => {
