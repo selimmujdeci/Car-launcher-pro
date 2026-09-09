@@ -9,6 +9,8 @@ tipinde ve kullanıcının yazdığı dil ne olursa olsun geçerlidir — kullan
 İngilizce yazsa bile yanıt Türkçe verilir. Rapor, denetim, plan, hata açıklaması,
 kod yorumu ve commit mesajı gövdesi dahil: **istisna yoktur**.
 
+**İNGİLİZCE YOK.** Araç çağrıları arasında görünen kısa ilerleme/niyet cümleleri de bu kuralın İÇİNDEDİR — "şimdi X'i okuyorum", "Y'yi düzeltiyorum" gibi anlık açıklamalar dahil, terminalde kullanıcıya görünen HİÇBİR metin İngilizce yazılmaz. "Sadece teknik/araç-arası not" gerekçesiyle İngilizceye geçmek İSTİSNA SAYILMAZ.
+
 ## 📋 KOPYALANABİLİR ÇIKTI KURALI (ZORUNLU)
 
 **Her yanıt kopyalanabilir olarak verilecek.** Rapor, analiz, plan, denetim sonucu,
@@ -319,7 +321,109 @@ onaylı maliyet politikası; "agent spawn etme" varsayılanını bu politika eze
 Delege edilen işin sonucu ana oturumda DOĞRULANIR (test/tsc) — ajan çıktısına
 körlemesine güvenilmez.
 
+## ⚙️ DEVELOPMENT EXECUTION LAW — FAST DEV / PHASE GATE / RELEASE GATE (ZORUNLU — YÜRÜTME YASASI)
+
+**ANA YASA:** Full suite, production build ve release kapıları normal
+geliştirme döngüsünün PARÇASI DEĞİLDİR; yalnız **PHASE GATE** veya
+**RELEASE GATE** kapanışında çalıştırılır. Varsayılan çalışma modu:
+**FAST DEV**.
+
+Bu bölüm üç kademeyi CANONICAL olarak adlandırır ve ZAMANLAMA otoritesidir.
+§🔁 IMPLEMENTATION / QA AYRIMI ve §REGRESYON KASASI bu üç kademenin YÜRÜTME
+DETAYINI taşımaya devam eder — aşağıdaki eşleme DIŞINDA hiçbir yeni veya
+çelişen doğrulama takvimi KURULMAZ (aynı konu iki ayrı yerde farklı
+söylenmez):
+
+| Kademe | Neyle eşleşir | Hüküm |
+|--------|----------------|-------|
+| **FAST DEV** (varsayılan) | IMPLEMENTATION SESSION | `IMPLEMENTATION COMPLETE — QA REQUIRED` |
+| **PHASE GATE** | QA SESSION kapanışı | `QA PASS — PHASE CLOSURE ELIGIBLE` / `QA FAIL` |
+| **RELEASE GATE** | `npm run apk:safe` (sevkiyat) | temiz APK + provenance / APK ÜRETİLMEDİ |
+
+### 1 — FAST DEV (varsayılan)
+
+Normal geliştirme turunda YALNIZ: değişen modülün targeted testleri · ilgili
+regresyon/authority/safety kilitleri (`npm run guard`) · TypeScript (`tsc -b`)
+· yalnız değişen dosyada lint · gerekiyorsa hızlı runtime/cihaz smoke testi
+(yürütme detayı: §IMPLEMENTATION/QA AYRIMI "IMPLEMENTATION SESSION"). Full
+suite · production build · `apk:safe` · ilgisiz alt sistem testi · gereksiz
+geniş repo denetimi · uzun kapanış raporu bu turda ÇALIŞMAZ/YAZILMAZ — kısa
+rapor yeter: kök neden/ne değişti · hangi targeted doğrulama geçti · açık
+risk/borç · commit SHA.
+
+### 2 — PHASE GATE
+
+Faz gerçekten tamamlandığında BİR KEZ: geniş regresyon · authority
+guard'ları · full suite · production build · `git diff --check` ·
+gerekiyorsa cihaz doğrulaması (yürütme detayı: §IMPLEMENTATION/QA AYRIMI
+"QA SESSION" ve "Faz kapanış protokolü" — verdict metinleri DEĞİŞMEDİ).
+`QA PASS`, `docs/DEVICE_VALIDATION_LEDGER.md` maddelerini 🔴'dan ÇIKARMAZ ve
+vizyon durumunu en fazla **ENTEGRE**ye taşır (bkz. §CAROS PRO Vizyon Kaynağı).
+
+### 3 — RELEASE GATE
+
+Satış/gerçek sevkiyat ÖNCESİNDE: full suite · production build ·
+`npm run apk:safe` (compat:verify + temiz gradle APK) · APK provenance/hash ·
+gerekli cihaz/saha doğrulaması · lisans denetimi (bkz. §REGRESYON KASASI ·
+§⚖️ TİCARİ LİSANS / SATIŞA UYGUNLUK). **RELEASE GATE normal geliştirme aracı
+DEĞİLDİR** ve PHASE GATE'in otomatik uzantısı da DEĞİLDİR: PHASE GATE
+kod/build kapanışıdır, RELEASE GATE paketleme + WebView uyumluluğu + saha
+kapanışıdır — biri diğerinin kanıtı yerine GEÇMEZ.
+
+### 4 — Risk tabanlı kapsam genişletmesi
+
+security/authorization · kalıcı veri/migration · crypto/identity · CAN/OBD
+safety · navigasyon rota yasallığı · release uyumluluğu · cross-system
+authority değişikliklerinde FAST DEV kapsamı GEREKTİĞİ KADAR genişler — ama
+bu OTOMATİK olarak full suite anlamına GELMEZ. Önce o risk alanının targeted
+doğrulaması çalışır; full suite normalde yine PHASE GATE'e bırakılır.
+
+### 5 — Mimari kalite, kök neden, atomiklik pazarlık konusu DEĞİL
+
+FAST DEV doğrulama TEKRARINI azaltır, kaliteyi DEĞİL. Tek otorite/tek gerçek
+· fail-closed · provenance/kanıt · bilinmeyen > uydurulmuş · paralel alt
+sistem YOK · UI karar otoritesi DEĞİLDİR kuralları HER kademede AYNEN
+geçerlidir (bkz. §🧭 CROSS-DOMAIN ARCHITECTURE RULES · §🔒 AI EXECUTION
+RULES). Bug işi: reproduce → otorite → kanıtlanmış kök neden → minimum doğru
+düzeltme → targeted regresyon; kök neden kanıtlanmadan büyük refactor YOK
+(bkz. `AI.md` CORE RULE). Bir geliştirme turu tek hedef taşır, ilgisiz alt
+sisteme SIÇRAMAZ (bkz. §🎯 LOCAL SCOPE INTEGRITY RULE).
+
+### 6 — Ağır kapı tekrar yasağı RELEASE GATE'i de kapsar
+
+Aynı commit state üzerinde PASS olmuş full suite/production build/
+`apk:safe`, onu etkileyen production kodu değişmediyse tekrar
+ÇALIŞTIRILMAZ (bkz. §IMPLEMENTATION/QA AYRIMI "Ağır doğrulama tekrar
+yasağı" — aynı kural şimdi RELEASE GATE'i de kapsayacak şekilde genişledi).
+Örnek: full suite PASS → yalnız docs değişti → full suite TEKRAR YOK;
+production build PASS → yalnız docs değişti → build TEKRAR YOK. Daha önce
+doğrulanmış authority map ve repo gerçekleri de aynı şekilde: ilgili
+production mimarisi değişmediyse sıfırdan çıkarılmaz, yalnız etkilenen
+otorite alanı yeniden doğrulanır — ama ilgili kod değişmişse eski kanıt
+körlemesine kabul EDİLMEZ.
+
+### 7 — Worktree güvenliği
+
+HER ZAMAN yasak: `git reset --hard` · `git clean` · `git add .` /
+bulk staging · ilgisiz kirli dosyaya dokunmak. Yalnız SEÇİCİ staging
+kullanılır. Paralel oturumların değişiklikleri SİLİNMEZ, sahiplenilmez,
+commit edilmez.
+
+### 8 — Cihaz/saha doğrulaması gereksiz TEKRAR edilmez
+
+CODE PASS ≠ DEVICE PASS ≠ FIELD PASS ≠ ÜRÜN HAZIR (bkz. §CAROS PRO Vizyon
+Kaynağı). Ama her küçük kod değişikliği cihaz testi GEREKTİRMEZ: cihaz
+doğrulaması yalnız gerçek cihaz kanıtı gerektiren davranış için, uygun
+checkpoint'te (PHASE/RELEASE GATE) yapılır; aynı fazda değişmeyen, önceden
+kanıtlanmış kriter gereksiz yere tekrar SINANMAZ.
+
+**Yürütme önceliği:** *"Az test değil; doğru testi doğru zamanda çalıştır."*
+Varsayılan **FAST DEV** → faz tamamlandığında **PHASE GATE** → satış/
+sevkiyatta **RELEASE GATE**.
+
 ## 🔁 IMPLEMENTATION / QA AYRIMI (ZORUNLU — YÜRÜTME POLİTİKASI)
+
+*(Bu bölüm §⚙️ DEVELOPMENT EXECUTION LAW'ın FAST DEV/PHASE GATE kademelerinin YÜRÜTME DETAYIDIR — kademe adları ve zamanlama otoritesi oradadır, burada TEKRAR tanımlanmaz.)*
 
 > **Bu bir test AZALTMA politikası DEĞİLDİR.** Güvence aynı kalır; yalnız aynı ağır
 > doğrulamanın gereksiz TEKRARI kaldırılır ve geliştirme oturumunun bağlamı ağır QA
@@ -329,7 +433,7 @@ Ağır doğrulama (full suite · production build · native build) tek bir oturu
 dakikalarca bloklar ve bağlamı doldurur. Bu yüzden iş **iki role** ayrılır. İkisi de
 aynı anayasaya tabidir; ayrım YETKİ değil, YÜRÜTME ZAMANLAMASI ayrımıdır.
 
-### IMPLEMENTATION SESSION (varsayılan)
+### IMPLEMENTATION SESSION — FAST DEV (varsayılan)
 
 Görevi: repo denetimi · mimariyi koruyarak kod yazmak · atomik patch.
 
@@ -343,7 +447,7 @@ Görevi: repo denetimi · mimariyi koruyarak kod yazmak · atomik patch.
 - Full test suite · production build · gereksiz full lint
 - Aynı ağır doğrulamanın tekrarı
 
-### QA SESSION (ayrı pencere)
+### QA SESSION — PHASE GATE (ayrı pencere)
 
 Ayrı bir Claude/Codex penceresinde çalışır — bu, §🤖'daki `caros-tester` ajanını
 KALDIRMAZ: ajan oturum-içi hedefli doğrulama içindir, QA SESSION ise fazın bağımsız
@@ -542,10 +646,11 @@ sesli rota uygulama-içi, reroute eşiği, saat siyah-dikdörtgen…).
   bir daha sessizce geri gelmesin).
 - **Cihaza APK göndermeden önce `npm run apk:safe`** kullan: test geçmezse APK
   üretilmez. Manuel build'de bile önce `npm run test` koş — yeşil olmadan APK YOK.
-  ↳ Bu kapı **sevkiyat ve faz kapanışı** kapısıdır (§IMPLEMENTATION / QA AYRIMI):
-  her implementation döngüsünde değil, **APK üretiminden ve `QA PASS` hükmünden
-  önce** koşar. Geliştirme döngüsünün hızlı karşılığı `npm run guard`'dır — o
-  kasayı ATLAMAK serbest değildir, yalnız FULL suite ertelenir.
+  ↳ Bu kapı **RELEASE GATE**'dir (§⚙️ DEVELOPMENT EXECUTION LAW): her
+  FAST DEV döngüsünde değil, **APK üretiminden önce** koşar — PHASE GATE
+  (`QA PASS`) ile KARIŞTIRILMAZ, biri diğerinin yerine geçmez. Geliştirme
+  döngüsünün hızlı karşılığı `npm run guard`'dır (**FAST DEV**) — o
+  kasayı ATLAMAK serbest değildir, yalnız FULL suite/RELEASE GATE ertelenir.
 - **Stale-APK tuzağı:** gradle "up-to-date" deyip eski APK paketleyebilir;
   `apk:safe` bu yüzden `gradlew clean` kullanır (taze APK garantisi).
 
