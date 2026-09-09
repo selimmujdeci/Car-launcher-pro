@@ -59,8 +59,22 @@ export const TripSummary = memo(function TripSummary({
     ? <span aria-hidden style={{ color: 'var(--oem-warn)', marginRight: 2 }}>~</span>
     : null;
 
-  const cell = (label: string, value: React.ReactNode, testid: string) => (
-    <div className="flex flex-1 flex-col min-w-0" data-testid={testid}>
+  /* ── HÜCRE PAYI İÇERİĞE GÖRE (2026-09-09 · cihazda ölçüldü) ──────────────
+   * Üç hücre eşit `flex-1` payı alıyordu; oysa taşıdıkları metinler eşit
+   * DEĞİL: "13:37" (5) · "43 dk" (5) · "55.7 km" (7-8 karakter). Portre kartta
+   * (100vw−24px ≈ 419 px) eşit bölüşüm hücre başına ~95 px bırakıyor ve mesafe
+   * 22 px tabular rakamla bu alana sığmayıp `truncate` ile "55…" oluyordu —
+   * telefonda BİREBİR bu görüldü. Font küçültülmedi; en uzun metni taşıyan
+   * hücreye orantılı pay verildi.
+   *
+   * `flex-basis` NEDEN `auto` (0% DEĞİL): kart `absolute` ve genişliği içeriğe
+   * göre belirlenir (shrink-to-fit). `0%` tabanla hücreler kartın DOĞAL
+   * genişliğine hiç katkı vermiyor, kart minimumda kalıyor (cihazda ölçüldü:
+   * ~303 CSS px — `maxWidth: 520`e hiç ulaşmıyordu) ve pay ne olursa olsun
+   * metin kırpılıyordu. `auto` tabanla içerik genişliği toplanır, kart
+   * gereken kadar (tavana kadar) açılır. */
+  const cell = (label: string, value: React.ReactNode, testid: string, grow = 1) => (
+    <div className="flex flex-col min-w-0" style={{ flex: `${grow} 1 auto` }} data-testid={testid}>
       <span
         className="font-black uppercase leading-none"
         style={{
@@ -140,7 +154,7 @@ export const TripSummary = memo(function TripSummary({
           <div className="w-px self-stretch" style={{ background: 'var(--oem-line, rgba(255,240,210,0.12))' }} />
           {cell('Kalan', <>{approx(honesty.etaApproximate && etaOk)}{remainTime}</>, 'trip-remaining-time')}
           <div className="w-px self-stretch" style={{ background: 'var(--oem-line, rgba(255,240,210,0.12))' }} />
-          {cell('Mesafe', <>{approx(honesty.distanceApproximate)}{distFmt}</>, 'trip-remaining-dist')}
+          {cell('Mesafe', <>{approx(honesty.distanceApproximate)}{distFmt}</>, 'trip-remaining-dist', 1.35)}
         </div>
 
         <div className="w-px self-stretch" style={{ background: 'var(--oem-line-strong, rgba(255,240,210,0.18))' }} />

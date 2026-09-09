@@ -10031,9 +10031,21 @@ describe('P0-NAV-05 · HUD çakışma kökleri kapalı', () => {
 
   it('KİLİT: sonlandır düğmesi BİLGİ alanının dışında', () => {
     const trip = stripSrc(read(`${HUDDIR}/TripSummary.tsx`));
-    /* Üç sütun kendi kabında `flex-1`; düğme AYRI bölmede → rakamları ezemez. */
+    /* Üç sütun kendi kabında esnek pay alır; düğme AYRI bölmede → rakamları ezemez.
+       ── KİLİT SABİT SINIF METNİNE DEĞİL YAPIYA BAĞLI (2026-09-09) ──────────
+       Eskiden `flex flex-1 flex-col min-w-0` metni aranıyordu. Cihazda ölçüldü
+       (kütük #1220): EŞİT `flex-1` payı portre kartta mesafeyi kırpıyordu
+       ("55…"). Pay artık içeriğe orantılı verilir (`style={{ flex: … }}`), ama
+       kilidin KORUDUĞU şey değişmedi: hücreler daralabilir (`min-w-0`) ve
+       sonlandır düğmesi bilgi kabının DIŞINDA kalır. */
     expect(trip).toContain('flex flex-1 min-w-0 items-center');
-    expect(trip).toContain('flex flex-1 flex-col min-w-0');
+    expect(trip, 'hücre daralamaz hâle gelmiş (min-w-0 kayboldu)')
+      .toContain('flex flex-col min-w-0');
+    /* `flex-basis` `auto` OLMALI: kart shrink-to-fit'tir, `0%` tabanla hücreler
+       kartın doğal genişliğine katkı vermez ve kart tavanına hiç açılmaz
+       (cihazda ölçüldü: ~303 CSS px) → metin yine kırpılır. */
+    expect(trip, 'hücre payı esnek değil veya flex-basis 0% (kart açılmaz)')
+      .toMatch(/style=\{\{ flex: `\$\{grow\} 1 auto` \}\}/);
     expect(trip, 'düğme bilgi kabının içine dönmüş')
       .not.toMatch(/trip-remaining-dist[\s\S]{0,200}trip-stop/);
   });
