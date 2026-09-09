@@ -726,6 +726,91 @@ export const LABEL_VISIBILITY_MAX = {
   'place-city': 15,
 } as const;
 
+/* ═══════════════════════════════════════════════════════════════════════════
+   YEREL AĞIN ZOOM'A GÖRE GERİ ÇEKİLMESİ — "BEYAZ TEL KAFES"İN KÖKÜ
+   ═══════════════════════════════════════════════════════════════════════════
+   ÖLÇÜLEN KUSUR (2026-09-09, üretim stili · gerçek OMT karoları · headless
+   WebGL · `field-runs/nav-visual-20260909/ink-probe.mjs`): gece z15,5 · pitch
+   47 sahnesinde ekranın **%10,4'ü** parlak (L>170) piksel ve bu mürekkebin
+   dağılımı ŞU:
+
+       primary %34,3 · **minor %26,6** · tertiary %8,3 · motorway %5,7 ·
+       secondary %5,0 · service %0,7
+
+   Yani hiyerarşinin EN ALT sınıfı, EN ÜST sınıfın (`motorway` %5,7) **4,7
+   katı** mürekkep harcıyor. Ekranda görülen "beyaz tel kafes" budur: uzak
+   zoomda şehrin TÜM yerel ağı tam güçte beyaz çizilir, arter ondan ayrışamaz.
+
+   ── NEDEN TON DEĞİL, NEDEN GENİŞLİK DEĞİL ─────────────────────────────────
+   · TON: gece gövde merdiveni (#ffffff…#e9edf2, uçtan uca 1,176) kullanıcının
+     2026-09-05 CİHAZ KARARIDIR (*"yollar tam beyaz"*) ve `routeNightContrast`
+     kilidi ona bağlıdır. Merdiveni açmak o kararı ezerdi.
+   · GENİŞLİK: ölçüldü (`minor-sweep.mjs`) — gövde ×0,70 yapıldığında parlak
+     piksel %10,4 → %9,23, yalnız **−%11**. Zayıf kaldıraç: sorun tek çizginin
+     kalınlığı değil, ÇİZGİ SAYISI.
+   · OPAKLIK: ölçüldü (`opacity-sweep.mjs`) — 1,00 → 0,65'te parlak %10,46 →
+     **%7,70 (−%26)** ve aynı anda ORTA parlaklık bandı %2,93 → **%4,72**.
+     Yani yollar SİLİNMİYOR, orta tona iniyor: "bağlam ver, rotayla yarışma".
+     0,35'te orta bant %1,39'a düşüyor → orada gerçekten siliniyor, o yüzden
+     seçilmedi (#621 kararı: *"rota BASKIN olur, şehir SİLİNMEZ"*).
+
+   ── ZOOM'A BAĞLI, ÇÜNKÜ KUSUR ZOOM'A BAĞLI ────────────────────────────────
+   Sürüş zoom'unda (z16,6+) üzerinde gidilen sokak TAM GÜÇTE kalır — beyaz yol
+   kararı orada aynen yürürlüktedir. Geri çekilme yalnız z15,5 ve altında,
+   yani "tüm şehir ağı aynı anda ekranda" bandında uygulanır.
+
+   ── GÜNDÜZ NEDEN KAPSAM DIŞI ──────────────────────────────────────────────
+   Gündüz hiyerarşiyi KASA taşır (2026-09-05 kararı) ve gövde açık zeminde
+   zaten düşük kontrastlıdır; saydamlaştırmak yolu görünmez yapardı. Ölçülen
+   kusur da gecede raporlandı. Gündüzde `factor` aynen döner: ifade YOK,
+   davranış BİREBİR eskisi.                                                  */
+
+/** Yerel ağın geri çekildiği zoom bandı — tek kaynak (kilitler bunu okur). */
+export const LOCAL_ROAD_RAMP = {
+  /** Bu zoom ve altında yerel gövde `farOpacity` oranıyla çizilir. */
+  farZoom: 15.5,
+  /** Bu zoom ve üstünde taban opaklığın TAMAMI uygulanır. */
+  nearZoom: 16.6,
+  /** Uzak banttaki oran — ölçülen tatlı nokta (parlak −%26, orta bant +%61). */
+  farOpacity: 0.62,
+} as const;
+
+/**
+ * Yerel yol GÖVDESİNİN opaklığı — gece zoom rampası, gündüz sabit.
+ *
+ * `factor` katmanın kendi taban opaklığı **veya** navigasyon bastırma kademesi
+ * (`NAV_SUPPRESS_TIERS`) olabilir. İkisi de AYNI fonksiyondan geçer: bastırma
+ * tablosu kendi zoom rampasını KURMAZ, bu rampayı ÖLÇEKLER → yerel ağ
+ * opaklığının tek sahibi burasıdır.
+ *
+ * ⚠️ ÇARPIM STOP DEĞERLERİNE GÖMÜLÜR, dışarıya `['*', …]` yazılmaz: bir
+ * ifadede zoom'a bağlı alt-ifade EN DIŞTA olmak zorundadır; `['*', interpolate,
+ * k]` MapLibre tarafından REDDEDİLİR ve katman sessizce varsayılana düşer
+ * (aynı tuzak kütük #552'de `line-width` üzerinde yaşandı).
+ */
+export function localRoadBodyOpacity(night: boolean, factor = 1): number {
+  const f = Number.isFinite(factor) ? Math.max(0, Math.min(1, factor)) : 1;
+  if (!night) return f;
+  const r = (v: number) => Math.round(v * 1000) / 1000;
+  return ['interpolate', ['linear'], ['zoom'],
+    LOCAL_ROAD_RAMP.farZoom,  r(LOCAL_ROAD_RAMP.farOpacity * f),
+    LOCAL_ROAD_RAMP.nearZoom, r(f),
+  ] as unknown as number;
+}
+
+/**
+ * Rampanın SAHİP OLDUĞU katmanlar ve stil TABAN opaklıkları.
+ *
+ * Bastırma tablosu (`NAV_SUPPRESS_TIERS`) bu katmanlara yazarken değeri bir
+ * ÇARPAN olarak kullanır: `localRoadBodyOpacity(night, base × tier)`. Böylece
+ * `road-service`in kartografik tabanı (0,85) navigasyon açılınca da korunur —
+ * eski davranışta tier 0 tablosu ona düz `1.00` yazıp tabanı siliyordu.
+ */
+export const LOCAL_ROAD_BASE_OPACITY: Readonly<Record<string, number>> = {
+  'road-minor':   1,
+  'road-service': 0.85,
+};
+
 /**
  * Rampa genişlik çarpanı.
  *
@@ -1410,7 +1495,9 @@ export function buildVectorLayers(night: boolean): LayerSpecification[] {
         layout: { 'line-cap': 'round', 'line-join': 'round' },
         paint: {
           'line-color': P.minor,
-          'line-opacity': 0.85,
+          /* Taban 0,85 KORUNDU; gecede zoom rampasıyla ölçeklenir (uzak bantta
+             0,527, sürüş zoom'unda yine 0,85). Bkz. `localRoadBodyOpacity`. */
+          'line-opacity': localRoadBodyOpacity(night, 0.85),
           'line-width': roadServiceWidth,
         } },
       { id: 'road-minor',
@@ -1422,6 +1509,10 @@ export function buildVectorLayers(night: boolean): LayerSpecification[] {
         layout: { 'line-cap': 'round', 'line-join': 'round' },
         paint: {
           'line-color': P.minor,
+          /* Yerel ağın uzak-zoom mürekkebi burada kesilir (ölçüm: ekranın en
+             büyük ikinci mürekkep kalemi, %26,6). Sürüş zoom'unda 1,0'a döner
+             → beyaz yol kararı orada aynen yürürlükte. */
+          'line-opacity': localRoadBodyOpacity(night),
           /* z18 durağı (7,4) BİLEREK dokunulmadı: otoyol/tali oranı kilidinin
              (`cartographyAuthority` §4) en dar marjı orada (2,70:1 — eşik 2,5).
              z14/z16 GÜNDÜZ için genişletildi — z13–z18 arası GECE ifadesi

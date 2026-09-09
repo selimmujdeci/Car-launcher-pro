@@ -1,0 +1,74 @@
+[
+  {
+    "id": "mevcut-sehir",
+    "fov": 36.87,
+    "pitch": 30,
+    "zoom": 16.7,
+    "horizonFromBottom": 1100,
+    "tiles": 1,
+    "lookAheadM": 268
+  },
+  {
+    "id": "mevcut-yol",
+    "fov": 36.87,
+    "pitch": 40,
+    "zoom": 16,
+    "horizonFromBottom": 820,
+    "tiles": 2,
+    "lookAheadM": 515
+  },
+  {
+    "id": "mevcut-otoyol",
+    "fov": 36.87,
+    "pitch": 47,
+    "zoom": 15.5,
+    "horizonFromBottom": 686,
+    "tiles": 4,
+    "lookAheadM": 864
+  },
+  {
+    "id": "aday50-sehir",
+    "fov": 50,
+    "pitch": 30,
+    "zoom": 16.7,
+    "horizonFromBottom": 844,
+    "tiles": 1,
+    "lookAheadM": 279
+  },
+  {
+    "id": "aday50-yol",
+    "fov": 50,
+    "pitch": 40,
+    "zoom": 16,
+    "horizonFromBottom": 644,
+    "tiles": 2,
+    "lookAheadM": 560
+  },
+  {
+    "id": "aday50-otoyol",
+    "fov": 50,
+    "pitch": 47,
+    "zoom": 15.5,
+    "horizonFromBottom": 548,
+    "tiles": 4,
+    "lookAheadM": 1003
+  },
+  {
+    "id": "gun-mevcut",
+    "fov": 36.87,
+    "pitch": 30,
+    "zoom": 16.7,
+    "horizonFromBottom": 1100,
+    "tiles": 1,
+    "lookAheadM": 268
+  },
+  {
+    "id": "gun-aday50",
+    "fov": 50,
+    "pitch": 30,
+    "zoom": 16.7,
+    "horizonFromBottom": 844,
+    "tiles": 1,
+    "lookAheadM": 279
+  }
+]

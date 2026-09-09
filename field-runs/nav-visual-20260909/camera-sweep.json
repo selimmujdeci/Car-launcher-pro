@@ -1,0 +1,146 @@
+[
+  {
+    "fov": 36.87,
+    "pitch": 30,
+    "anchorY": 0.58,
+    "topPad": 65,
+    "ileriM": 193,
+    "karo": 1,
+    "parlak": 4.83
+  },
+  {
+    "fov": 36.87,
+    "pitch": 30,
+    "anchorY": 0.66,
+    "topPad": 130,
+    "ileriM": 229,
+    "karo": 1,
+    "parlak": 4.95
+  },
+  {
+    "fov": 36.87,
+    "pitch": 38,
+    "anchorY": 0.58,
+    "topPad": 65,
+    "ileriM": 236,
+    "karo": 1,
+    "parlak": 4.51
+  },
+  {
+    "fov": 36.87,
+    "pitch": 38,
+    "anchorY": 0.66,
+    "topPad": 130,
+    "ileriM": 286,
+    "karo": 1,
+    "parlak": 4.83
+  },
+  {
+    "fov": 36.87,
+    "pitch": 45,
+    "anchorY": 0.58,
+    "topPad": 65,
+    "ileriM": 299,
+    "karo": 1,
+    "parlak": 4.27
+  },
+  {
+    "fov": 36.87,
+    "pitch": 45,
+    "anchorY": 0.66,
+    "topPad": 130,
+    "ileriM": 373,
+    "karo": 1,
+    "parlak": 4.67
+  },
+  {
+    "fov": 36.87,
+    "pitch": 50,
+    "anchorY": 0.58,
+    "topPad": 65,
+    "ileriM": 374,
+    "karo": 1,
+    "parlak": 4.63
+  },
+  {
+    "fov": 36.87,
+    "pitch": 50,
+    "anchorY": 0.66,
+    "topPad": 130,
+    "ileriM": 482,
+    "karo": 1,
+    "parlak": 4.82
+  },
+  {
+    "fov": 50,
+    "pitch": 30,
+    "anchorY": 0.58,
+    "topPad": 65,
+    "ileriM": 218,
+    "karo": 1,
+    "parlak": 4.67
+  },
+  {
+    "fov": 50,
+    "pitch": 30,
+    "anchorY": 0.66,
+    "topPad": 130,
+    "ileriM": 265,
+    "karo": 1,
+    "parlak": 4.93
+  },
+  {
+    "fov": 50,
+    "pitch": 38,
+    "anchorY": 0.58,
+    "topPad": 65,
+    "ileriM": 285,
+    "karo": 2,
+    "parlak": 4.39
+  },
+  {
+    "fov": 50,
+    "pitch": 38,
+    "anchorY": 0.66,
+    "topPad": 130,
+    "ileriM": 361,
+    "karo": 2,
+    "parlak": 4.77
+  },
+  {
+    "fov": 50,
+    "pitch": 45,
+    "anchorY": 0.58,
+    "topPad": 65,
+    "ileriM": 398,
+    "karo": 2,
+    "parlak": 4.37
+  },
+  {
+    "fov": 50,
+    "pitch": 45,
+    "anchorY": 0.66,
+    "topPad": 130,
+    "ileriM": 541,
+    "karo": 3,
+    "parlak": 4.7
+  },
+  {
+    "fov": 50,
+    "pitch": 50,
+    "anchorY": 0.58,
+    "topPad": 65,
+    "ileriM": 565,
+    "karo": 4,
+    "parlak": 4.15
+  },
+  {
+    "fov": 50,
+    "pitch": 50,
+    "anchorY": 0.66,
+    "topPad": 130,
+    "ileriM": 856,
+    "karo": 4,
+    "parlak": 4.27
+  }
+]

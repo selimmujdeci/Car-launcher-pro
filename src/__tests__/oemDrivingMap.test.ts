@@ -629,3 +629,76 @@ describe('OEM++ Faz 2 · palet otoritesi', () => {
     }
   });
 });
+
+/* ── YEREL AĞ RAMPASI: BASTIRMA TABLOSU RAMPAYI EZMEZ (2026-09-09) ─────────
+ *
+ * Stil tarafındaki kilit (`cartographyAuthority`) rampanın VAR olduğunu ölçer.
+ * Bu blok onun EKRANA ULAŞTIĞINI ölçer: `applyMapDeclutter` yerel gövde
+ * katmanlarına düz sayı yazarsa rampa ilk yazımda silinir ve "beyaz tel
+ * kafes" tam da navigasyon açılınca geri gelir (tier 0 tablosu `1.00` yazar).
+ * `cartographyAuthority`deki ifade muafiyeti BU kilide dayanır — ikisinden
+ * biri kaldırılırsa muafiyet kör kalır. */
+describe('yerel ağ rampası uygulayıcıda korunur', () => {
+  interface Fake {
+    painted: Array<[string, string, unknown]>;
+    isStyleLoaded(): boolean;
+    on(ev: string, cb: () => void): void;
+    once(): void;
+    getLayer(id: string): unknown;
+    getPaintProperty(): unknown;
+    setPaintProperty(id: string, prop: string, v: unknown): void;
+  }
+  const makeMap = (): Fake => ({
+    painted: [],
+    isStyleLoaded() { return true; },
+    on() { /* gözlemci bu kilidin konusu değil */ },
+    once() { /* noop */ },
+    getLayer() { return {}; },
+    getPaintProperty() { return undefined; },
+    setPaintProperty(id, prop, v) { this.painted.push([id, prop, v]); },
+  });
+
+  it('gece tier 0: yerel gövdeye DÜZ SAYI değil, ZOOM RAMPASI yazılır', async () => {
+    const { applyMapDeclutter, invalidateMapDeclutter } =
+      await import('../platform/map/MapLayerManager');
+    const { LOCAL_ROAD_RAMP } = await import('../platform/mapStyleBuilders');
+    invalidateMapDeclutter();
+    const m = makeMap();
+    applyMapDeclutter(m as never, 'FULL', true, true, 0);
+
+    const minor = m.painted.find(([id, p]) => id === 'road-minor' && p === 'line-opacity');
+    expect(minor, 'yerel gövdeye hiç yazılmadı — kilit KÖR').toBeDefined();
+    expect(Array.isArray(minor![2]), 'düz sayı yazıldı → rampa SİLİNDİ').toBe(true);
+    const expr = minor![2] as unknown[];
+    expect(expr[0]).toBe('interpolate');
+    expect(expr).toContain(LOCAL_ROAD_RAMP.farZoom);
+    expect(expr).toContain(LOCAL_ROAD_RAMP.nearZoom);
+    invalidateMapDeclutter();
+  });
+
+  it('bastırma kademesi rampayı ÇARPAN olarak ölçekler (tier 2 < tier 0)', async () => {
+    const { applyMapDeclutter, invalidateMapDeclutter } =
+      await import('../platform/map/MapLayerManager');
+    const near = (p: Array<[string, string, unknown]>): number => {
+      const e = p.find(([id, pr]) => id === 'road-minor' && pr === 'line-opacity')![2] as unknown[];
+      return e[e.length - 1] as number;         // son stop = yakın zoom değeri
+    };
+    invalidateMapDeclutter();
+    const m0 = makeMap(); applyMapDeclutter(m0 as never, 'FULL', true, true, 0);
+    invalidateMapDeclutter();
+    const m2 = makeMap(); applyMapDeclutter(m2 as never, 'FULL', true, true, 2);
+    expect(near(m2.painted)).toBeLessThan(near(m0.painted));
+    invalidateMapDeclutter();
+  });
+
+  it('GÜNDÜZ düz sayı yazılır — gündüz davranışı değişmedi', async () => {
+    const { applyMapDeclutter, invalidateMapDeclutter } =
+      await import('../platform/map/MapLayerManager');
+    invalidateMapDeclutter();
+    const m = makeMap();
+    applyMapDeclutter(m as never, 'FULL', false, true, 0);
+    const minor = m.painted.find(([id, p]) => id === 'road-minor' && p === 'line-opacity');
+    expect(typeof minor![2]).toBe('number');
+    invalidateMapDeclutter();
+  });
+});

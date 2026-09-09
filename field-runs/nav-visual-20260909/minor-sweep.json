@@ -1,0 +1,86 @@
+[
+  {
+    "sahne": "uzak/otoyol",
+    "zoom": 15.5,
+    "minorCarpan": 1,
+    "minorGenislikPx": 2.56,
+    "parlakYuzde": 10.4
+  },
+  {
+    "sahne": "uzak/otoyol",
+    "zoom": 15.5,
+    "minorCarpan": 0.85,
+    "minorGenislikPx": 2.17,
+    "parlakYuzde": 9.82
+  },
+  {
+    "sahne": "uzak/otoyol",
+    "zoom": 15.5,
+    "minorCarpan": 0.7,
+    "minorGenislikPx": 1.79,
+    "parlakYuzde": 9.23
+  },
+  {
+    "sahne": "uzak/otoyol",
+    "zoom": 15.5,
+    "minorCarpan": 0.55,
+    "minorGenislikPx": 1.41,
+    "parlakYuzde": 8.68
+  },
+  {
+    "sahne": "yol",
+    "zoom": 16,
+    "minorCarpan": 1,
+    "minorGenislikPx": 2.88,
+    "parlakYuzde": 6.06
+  },
+  {
+    "sahne": "yol",
+    "zoom": 16,
+    "minorCarpan": 0.85,
+    "minorGenislikPx": 2.45,
+    "parlakYuzde": 5.7
+  },
+  {
+    "sahne": "yol",
+    "zoom": 16,
+    "minorCarpan": 0.7,
+    "minorGenislikPx": 2.02,
+    "parlakYuzde": 5.31
+  },
+  {
+    "sahne": "yol",
+    "zoom": 16,
+    "minorCarpan": 0.55,
+    "minorGenislikPx": 1.58,
+    "parlakYuzde": 4.9
+  },
+  {
+    "sahne": "sürüş/şehir",
+    "zoom": 16.7,
+    "minorCarpan": 1,
+    "minorGenislikPx": 3.33,
+    "parlakYuzde": 5.11
+  },
+  {
+    "sahne": "sürüş/şehir",
+    "zoom": 16.7,
+    "minorCarpan": 0.85,
+    "minorGenislikPx": 2.83,
+    "parlakYuzde": 4.95
+  },
+  {
+    "sahne": "sürüş/şehir",
+    "zoom": 16.7,
+    "minorCarpan": 0.7,
+    "minorGenislikPx": 2.33,
+    "parlakYuzde": 4.79
+  },
+  {
+    "sahne": "sürüş/şehir",
+    "zoom": 16.7,
+    "minorCarpan": 0.55,
+    "minorGenislikPx": 1.83,
+    "parlakYuzde": 4.63
+  }
+]

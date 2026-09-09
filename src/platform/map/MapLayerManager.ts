@@ -48,6 +48,8 @@ import {
   vectorStyleName,
   NAV_SUPPRESS_LAYERS,
   NAV_SUPPRESS_TIERS,
+  localRoadBodyOpacity,
+  LOCAL_ROAD_BASE_OPACITY,
   RASTER_PAINT_DAY,
   RASTER_PAINT_NIGHT,
   MAP_BG_NIGHT,
@@ -2348,7 +2350,21 @@ export function applyMapDeclutter(
 
   for (const [id, prop, value] of decision.entries) {
     try {
-      if (map.getLayer(id)) map.setPaintProperty(id, prop, value);
+      if (!map.getLayer(id)) continue;
+      /* ── YEREL AĞ OPAKLIĞININ TEK SAHİBİ STİLDİR ─────────────────────────
+       * `road-minor` / `road-service` gövdesi stilde ZOOM RAMPASI taşır
+       * (`localRoadBodyOpacity` — uzak zoomda geri çekilir, sürüş zoom'unda
+       * tam güce döner). Buraya düz bir sayı yazmak o rampayı SESSİZCE
+       * SİLERDİ: navigasyon açılır açılmaz tier 0 tablosu `1.00` yazar ve
+       * "beyaz tel kafes" tam da sürüşte geri gelirdi — bu, `fill-extrusion-
+       * opacity`de yaşanan "üç yazarlı alan" kusurunun aynısıdır.
+       * Bastırma kademesi artık rampayı EZMEZ, ÇARPAN olarak ona girer;
+       * ölçekleme stil dosyasındaki tek fonksiyonda yapılır. */
+      const base = LOCAL_ROAD_BASE_OPACITY[id];
+      const v = (prop === 'line-opacity' && base !== undefined)
+        ? localRoadBodyOpacity(night, base * value)
+        : value;
+      map.setPaintProperty(id, prop, v);
     } catch { /* ignore — tek katman sözleşmenin tamamını düşürmez */ }
   }
   _lastDeclutterKey = key;

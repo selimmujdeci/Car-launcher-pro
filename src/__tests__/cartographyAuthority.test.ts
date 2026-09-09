@@ -30,9 +30,12 @@ import {
   buildVectorStyle, NAV_SUPPRESS_TIERS,
   ROAD_VISIBILITY, AREA_VISIBILITY, LABEL_VISIBILITY, LABEL_VISIBILITY_MAX,
   RAMP_WIDTH_FACTOR, NIGHT_PALETTE, DAY_PALETTE, BUILDING_3D_RISE,
+  LOCAL_ROAD_RAMP, LOCAL_ROAD_BASE_OPACITY, localRoadBodyOpacity,
 } from '../platform/mapStyleBuilders';
 import { DECLUTTER_OWNED_LAYERS, resolveDeclutter } from '../platform/map/core/mapDeclutterModel';
 import { CAMERA_CFG } from '../platform/cameraEngine';
+import { SPEED_BANDS, CAMERA_POLICY_VERSION } from '../platform/navigation/core/cameraPolicyModel';
+import { ANCHOR_MAX } from '../platform/map/core/cameraCompositionModel';
 import type { MapSource } from '../platform/mapSourceTypes';
 
 /* ── Stil kurulumu ────────────────────────────────────────────────────────── */
@@ -547,21 +550,36 @@ describe('5 · etiket hiyerarşisi ve yoğunluk bütçesi', () => {
     }
   });
 
-  it('🔒 yerel sokak etiketi `text-opacity`ye ZOOM İFADESİ koymaz (iki otorite yasağı)', () => {
-    /* `road-label.text-opacity` `NAV_SUPPRESS_TIERS` + `MapLayerManager`
-       tarafından DÜZ SAYIYLA yazılır. Stile zoom ifadesi konsaydı ilk yazımda
-       kalıcı olarak silinirdi — genelleştirme `minzoom`/`text-size` ile taşınır. */
+  it('🔒 bastırma otoritesine ait alanlarda stil ifadesi YALNIZ ölçeklenen katmanlarda olur', () => {
+    /* ── KİLİT GÜNCELLENDİ (2026-09-09), ZAYIFLATILMADI ────────────────────
+     * ESKİ KURAL: `NAV_SUPPRESS_TIERS`in yazdığı hiçbir alanda stil ifadesi
+     * OLAMAZ — çünkü `applyMapDeclutter` oraya DÜZ SAYI yazıp ifadeyi ilk
+     * yazımda kalıcı olarak siliyordu. O gerekçe hâlâ geçerlidir ve kural
+     * varsayılan olarak AYNEN sürüyor.
+     *
+     * DEĞİŞEN GERÇEK: yerel yol GÖVDESİ (`road-minor`/`road-service`) artık
+     * stilde bir zoom rampası taşır (`localRoadBodyOpacity` — ölçülen "beyaz
+     * tel kafes" düzeltmesi) ve `applyMapDeclutter` o katmanlar için düz sayı
+     * DEĞİL, rampanın ÖLÇEKLENMİŞ hâlini yazar. Yani ezme yolu kapatıldı.
+     *
+     * İstisna KÖR OLMASIN diye iki koşula bağlıdır: (1) katman ölçekleme
+     * kaydında olacak, (2) uygulayıcı GERÇEKTEN ölçekleyecek — ikincisi
+     * `oemDrivingMap.test.ts` içinde sahte harita üzerinde ölçülür. */
     const suppressed = new Set(NAV_SUPPRESS_TIERS[0]!.map(([id, prop]) => `${id}|${prop}`));
+    const scaled = new Set(Object.keys(LOCAL_ROAD_BASE_OPACITY));
     for (const s of [DAY, NIGHT]) {
       for (const l of s.layers) {
         const paint = (l as unknown as { paint?: Record<string, unknown> }).paint ?? {};
         for (const prop of ['text-opacity', 'line-opacity']) {
           if (!suppressed.has(`${l.id}|${prop}`)) continue;
+          if (prop === 'line-opacity' && scaled.has(l.id)) continue;   // ölçeklenen katman
           expect(typeof paint[prop] === 'undefined' || typeof paint[prop] === 'number',
             `${l.id}.${prop} bastırma otoritesine ait; stilde ifade OLAMAZ`).toBe(true);
         }
       }
     }
+    /* Etiket alanları istisna DIŞINDA kalır — muafiyet sızmasın. */
+    expect(typeof paintOf(NIGHT, 'road-label')['text-opacity']).not.toBe('object');
   });
 });
 
@@ -955,3 +973,151 @@ function readSource(rel: string): string {
   const { resolve } = require('node:path') as typeof import('node:path');
   return readFileSync(resolve(process.cwd(), rel), 'utf8');
 }
+
+/* ═══ YEREL AĞIN ZOOM'A GÖRE GERİ ÇEKİLMESİ ═════════════════════════════
+ *
+ * ÖLÇÜLEN KUSUR (2026-09-09 · `field-runs/nav-visual-20260909/`): gece z15,5
+ * sahnesinde ekranın %10,4'ü parlak piksel ve payların dağılımı
+ * primary %34,3 · **minor %26,6** · motorway %5,7 — yani EN ALT sınıf, EN ÜST
+ * sınıfın 4,7 katı mürekkep harcıyordu ("beyaz tel kafes").
+ *
+ * Düzeltme opaklık rampasıdır (ölçüm: parlak −%26, ORTA bant +%61 → yol
+ * silinmiyor, geri çekiliyor). Bu blok üç şeyi kilitler:
+ *   · rampa GECEYE ait ve sürüş zoom'unda TAM GÜCE döner (beyaz yol kararı),
+ *   · gündüz DEĞİŞMEDİ (ifade yok, düz sayı),
+ *   · çarpım stop DEĞERLERİNE gömülür — `['*', interpolate, k]` MapLibre'de
+ *     geçersizdir ve katmanı sessizce varsayılana düşürürdü.
+ */
+describe('yerel ağın zoom geri çekilmesi (2026-09-09 mürekkep ölçümü)', () => {
+  const evalAt = (expr: unknown, zoom: number): number => {
+    const c = createExpression(expr as never, {
+      type: 'number', 'property-type': 'data-constant',
+      expression: { interpolated: true, parameters: ['zoom'] },
+      transition: false,
+    } as never);
+    if (c.result !== 'success') throw new Error('ifade derlenemedi — kilit KÖR');
+    return (c.value as { evaluate: (g: { zoom: number }) => number }).evaluate({ zoom });
+  };
+
+  it('🔒 GECE yerel gövde uzak zoomda geri çekilir, sürüş zoom\'unda TAM GÜÇTEDİR', () => {
+    const minor = paintOf(NIGHT, 'road-minor')['line-opacity'];
+    expect(Array.isArray(minor), 'gece rampası YOK — tel kafes düzeltmesi kaybolmuş').toBe(true);
+    expect(evalAt(minor, LOCAL_ROAD_RAMP.farZoom)).toBeCloseTo(LOCAL_ROAD_RAMP.farOpacity, 3);
+    expect(evalAt(minor, 14)).toBeCloseTo(LOCAL_ROAD_RAMP.farOpacity, 3);
+    /* Sürüş zoom'u: kullanıcının 2026-09-05 "yollar tam beyaz" kararı burada
+       AYNEN yürürlüktedir — rampa oraya karışmaz. */
+    expect(evalAt(minor, LOCAL_ROAD_RAMP.nearZoom)).toBeCloseTo(1, 3);
+    expect(evalAt(minor, 17.5)).toBeCloseTo(1, 3);
+  });
+
+  it('🔒 geri çekilme SİLME DEĞİLDİR — uzak bant görünürlük tabanının üstünde kalır', () => {
+    /* Ölçüldü: 0,35'te orta parlaklık bandı %1,39'a düşüyor (yol siliniyor).
+       #621 kararı: "rota BASKIN olur, şehir SİLİNMEZ". */
+    expect(LOCAL_ROAD_RAMP.farOpacity).toBeGreaterThanOrEqual(0.5);
+    expect(LOCAL_ROAD_RAMP.farOpacity).toBeLessThan(0.8);
+    expect(LOCAL_ROAD_RAMP.farZoom).toBeLessThan(LOCAL_ROAD_RAMP.nearZoom);
+  });
+
+  it('🔒 `road-service` KARTOGRAFİK TABANI (0,85) rampanın iki ucunda da korunur', () => {
+    const svc = paintOf(NIGHT, 'road-service')['line-opacity'];
+    expect(evalAt(svc, LOCAL_ROAD_RAMP.nearZoom)).toBeCloseTo(LOCAL_ROAD_BASE_OPACITY['road-service'], 3);
+    expect(evalAt(svc, LOCAL_ROAD_RAMP.farZoom))
+      .toBeCloseTo(LOCAL_ROAD_RAMP.farOpacity * LOCAL_ROAD_BASE_OPACITY['road-service'], 3);
+  });
+
+  it('🔒 GÜNDÜZ dokunulmadı — ifade YOK, düz taban sayı', () => {
+    /* Gündüz hiyerarşiyi KASA taşır; gövdeyi saydamlaştırmak açık zeminde yolu
+       görünmez yapardı. Ölçülen kusur da gecede raporlandı. */
+    expect(paintOf(DAY, 'road-minor')['line-opacity']).toBe(1);
+    expect(paintOf(DAY, 'road-service')['line-opacity'])
+      .toBe(LOCAL_ROAD_BASE_OPACITY['road-service']);
+  });
+
+  it('🔒 ÇARPAN stop değerlerine gömülür — `["*", interpolate, k]` ÜRETİLMEZ', () => {
+    /* MapLibre: bir ifadede zoom'a bağlı alt-ifade EN DIŞTA olmalıdır. Dıştan
+       çarpım REDDEDİLİR ve katman sessizce varsayılana düşer (kütük #552). */
+    const scaled = localRoadBodyOpacity(true, 0.6);
+    expect(Array.isArray(scaled)).toBe(true);
+    expect((scaled as unknown as unknown[])[0]).toBe('interpolate');
+    expect(JSON.stringify(scaled)).not.toContain('"*"');
+    expect(evalAt(scaled, LOCAL_ROAD_RAMP.nearZoom)).toBeCloseTo(0.6, 3);
+    expect(evalAt(scaled, LOCAL_ROAD_RAMP.farZoom))
+      .toBeCloseTo(0.6 * LOCAL_ROAD_RAMP.farOpacity, 3);
+  });
+
+  it('🔒 rampa BASTIRMA tablosunun sahip olduğu katmanları kapsar (tek otorite)', () => {
+    /* `NAV_SUPPRESS_TIERS` bu katmanlara `line-opacity` yazar. Ölçekleme
+       yapılmazsa navigasyon açılır açılmaz tier 0 tablosu rampayı `1.00` ile
+       SİLER — tel kafes tam da sürüşte geri gelirdi. */
+    const tier0 = NAV_SUPPRESS_TIERS[0];
+    for (const id of Object.keys(LOCAL_ROAD_BASE_OPACITY)) {
+      expect(
+        tier0.some(([lid, prop]) => lid === id && prop === 'line-opacity'),
+        `${id} bastırma tablosunda yok — ölçekleme kapısı KÖR kaldı`,
+      ).toBe(true);
+    }
+  });
+
+  it('🔒 stil MapLibre şemasına göre GEÇERLİ kalır (ifade reddedilirse katman düşer)', () => {
+    for (const s of [DAY, NIGHT]) expect(validateStyleMin(s as never)).toEqual([]);
+  });
+});
+
+/* ═══ SÜRÜŞ KORİDORU KOMPOZİSYONU (2026-09-09 kamera ölçümü) ═════════════
+ *
+ * ÖLÇÜLEN KUSUR: şehir sürüş zoom'unda (z16,7) kamera yalnız 193 m ileri
+ * gösteriyordu — 50 km/sa'te 14 saniyelik ufuk. Ekranın "harita üzerine rota
+ * çizilmiş" gibi okunmasının kamera tarafındaki kökü buydu.
+ *
+ * Düzeltme iki sayıda: PITCH (30° → 44°) ve ÇAPA (0,58 → 0,65). Ölçüm:
+ * ileri görüş 193 → 373 m, KARO YÜKÜ 1 → 1, parlak piksel %4,83 → %4,67.
+ * Bu blok kazancın geri sürüklenmesini ve tavan güvenliğinin bozulmasını
+ * engeller.
+ */
+describe('sürüş koridoru kompozisyonu', () => {
+  const mapCore = readSource('src/platform/map/MapCore.ts');
+  const maxPitch = Number(/maxPitch:\s*(\d+(?:\.\d+)?)/.exec(mapCore)?.[1]);
+
+  it('🔒 pitch eğrisi MONOTONİK ve tavanın ALTINDA', () => {
+    expect(Number.isFinite(maxPitch), 'maxPitch okunamadı — kilit KÖR').toBe(true);
+    expect(CAMERA_CFG.PITCH_IDLE).toBeLessThan(CAMERA_CFG.PITCH_URBAN);
+    expect(CAMERA_CFG.PITCH_URBAN).toBeLessThan(CAMERA_CFG.PITCH_ROAD);
+    expect(CAMERA_CFG.PITCH_ROAD).toBeLessThan(CAMERA_CFG.PITCH_HIGHWAY);
+    expect(CAMERA_CFG.PITCH_HIGHWAY).toBeLessThan(maxPitch);
+  });
+
+  it('🔒 ŞEHİR bandı "düz harita" olamaz — sürüş koridoru pitch tabanı', () => {
+    /* 30°'de ölçülen ileri görüş 193 m idi; 44°'de 299 m (çapa sabitken).
+       Taban 40°: altına inen her değer o kusuru geri getirir. */
+    expect(CAMERA_CFG.PITCH_URBAN).toBeGreaterThanOrEqual(40);
+    /* Durakta da tam düz bakış YOK — ama manevra tilt tabanının üstünde. */
+    expect(CAMERA_CFG.PITCH_IDLE).toBeGreaterThan(CAMERA_CFG.PITCH_TURN_MIN);
+  });
+
+  it('🔒 ÇAPA merdiveni monotonik; şehirde araç ekranın alt yarısında', () => {
+    const L = SPEED_BANDS.map((b) => b.anchorYLandscape);
+    for (let i = 1; i < L.length; i++) expect(L[i]).toBeGreaterThanOrEqual(L[i - 1]);
+    const city = SPEED_BANDS.find((b) => b.id === 'CITY')!;
+    expect(city.anchorYLandscape).toBeGreaterThanOrEqual(0.62);
+    /* Dikeyde aynı oran aracı fiziksel olarak daha aşağı taşır → daha ölçülü. */
+    for (const b of SPEED_BANDS) {
+      expect(b.anchorYPortrait).toBeLessThanOrEqual(b.anchorYLandscape);
+    }
+  });
+
+  it('🔒 ARAÇ EKRANDA KALIR — en yüksek çapa güvenlik bandını aşmaz', () => {
+    const top = Math.max(...SPEED_BANDS.map((b) => b.anchorYLandscape));
+    expect(top).toBeLessThanOrEqual(ANCHOR_MAX);
+    /* Piksel tabanlı son savunma: 406 px yüzeyde araç alt kenara en az
+       `VEHICLE_MIN_BOTTOM_PX` uzaklıkta kalmalı. */
+    const H = 406;
+    expect(top * H).toBeLessThanOrEqual(H - CAMERA_CFG.VEHICLE_MIN_BOTTOM_PX);
+  });
+
+  it('🔒 kamera POLİTİKA SÜRÜMÜ çapa tablosuyla birlikte yükseldi', () => {
+    /* Sürüm CAROS LAB'da görünür; tablo değişip sürüm sabit kalırsa saha
+       teşhisi hangi kompozisyonun ekranda olduğunu söyleyemez. */
+    expect(CAMERA_POLICY_VERSION).not.toBe('CAM-2026.08.05');
+    expect(CAMERA_POLICY_VERSION).toMatch(/^CAM-\d{4}\.\d{2}\.\d{2}$/);
+  });
+});
