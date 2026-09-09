@@ -1155,7 +1155,7 @@ export function buildNavigationCoreCards(s: NavigationCoreRawSnapshot): readonly
         : unavailable({ id: 'dl-dur-remain', label: 'Kalan rota süresi', source: SRC_DUR,
             note: '', updatedAt: null }, 'süre modeli kullanılamıyor'),
       observed({ id: 'dl-rev', label: 'Rota / süre revizyonu', source: 'useRouteStore',
-        note: 'Farklıysa ETA BAYAT sayılır ve sayı üretilmez.', updatedAt: null },
+        note: 'Süre KANITI varken farklıysa ETA BAYAT sayılır. `0 / -1` = hiç rota commit edilmedi (bayat DEĞİL).', updatedAt: null },
         `${_n(s.routeRevision)} / ${_n(s.durationRevision)}`),
 
       observed({ id: 'dl-eta-state', label: 'ETA durumu', source: SRC_ETA,

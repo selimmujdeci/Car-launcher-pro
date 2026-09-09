@@ -102,7 +102,13 @@ export const TripSummary = memo(function TripSummary({
         bottom: 'calc(env(safe-area-inset-bottom, 0px) + 10px)',
         /* Alt bar artık TÜM genişliği kaplamıyor: sağ alt köşe hız kümesine
            bırakıldı, harita alt-orta bandı açıldı. */
-        maxWidth: portrait ? 'calc(100vw - 24px)' : 460,
+        /* ── SAHA KUSURU (2026-09-09) · KIRPILAN MESAFE ────────────────────
+         * 460 px kart üç eşit hücreye bölününce hücre başına ~108 px kalıyordu;
+         * 26 px tabular rakamla 7-8 karakterlik bir mesafe ("99.9 km") bu alana
+         * sığmıyor ve `truncate` değeri "34…" hâline getiriyordu. Çözüm FONT
+         * KÜÇÜLTMEK DEĞİL: kart en uzun biçime (8 karakter) yer verecek kadar
+         * genişletildi. Alt-orta bant hâlâ açık kalır (ekranın yarısından az). */
+        maxWidth: portrait ? 'calc(100vw - 24px)' : 520,
         background: 'var(--oem-surface-1, rgba(38,44,60,0.86))',
         border: '1px solid var(--oem-line-strong, rgba(255,240,210,0.18))',
         boxShadow: 'var(--oem-shadow-card, 0 20px 44px -22px rgba(0,0,0,0.55))',

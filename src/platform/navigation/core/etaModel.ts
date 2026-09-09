@@ -276,8 +276,20 @@ export function computeEta(input: EtaInput): EtaVerdict {
   const buffer = Number.isFinite(stopBufferS) && stopBufferS > 0 ? Math.round(stopBufferS) : 0;
 
   /* Bayat süre: rota değişti ama süre dizisi eski revizyona ait. Eski rotanın
-     süresini yeni rotaya uygulamak sessiz bir yalandır → sayı üretilmez. */
-  if (durationRevision !== routeRevision) {
+     süresini yeni rotaya uygulamak sessiz bir yalandır → sayı üretilmez.
+
+     ── SAHA KUSURU (2026-09-09) · YANLIŞ TEŞHİS ──────────────────────────
+     Bu kapı süre KANITINA bakmadan yalnız revizyonları karşılaştırıyordu.
+     `routingService` INITIAL/`clearRoute` durumunda `routeRevision = 0` ve
+     `durationRevision = -1`tir; yani ROTA HİÇ YOKKEN de eşitsizlik doğar ve
+     ekranda "VARIŞ BAYAT" yazardı. "Bayat" bir süre dizisinin VAR olduğunu
+     ama eskidiğini iddia eder — ortada süre yokken bu iddia YANLIŞTIR ve
+     doğru hüküm `INSUFFICIENT_ROUTE_DATA`dır ("ne süre ne mesafe var").
+     Kapı kaldırılmadı, KANITA bağlandı: gerçek bayatlık aynen yakalanır. */
+  const hasDurationEvidence =
+    (remainingRouteDurationS !== null && Number.isFinite(remainingRouteDurationS)) ||
+    durationIntegrity !== 'MISSING';
+  if (hasDurationEvidence && durationRevision !== routeRevision) {
     return _NO_ETA('STALE', durationSource,
       `süre dizisi rev#${durationRevision}, aktif rota rev#${routeRevision}`);
   }

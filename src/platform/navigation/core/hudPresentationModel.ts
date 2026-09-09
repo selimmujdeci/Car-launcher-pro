@@ -105,6 +105,17 @@ export interface HudPresentationInput {
   readonly accuracyM: number | null;
   /** `navigationHonestyModel` hükmünün ağırlığı. */
   readonly honestyLevel: HonestyLevel;
+  /**
+   * Kusurlu olan gerçekten ROTA mı (`route` chip'i `DEGRADED`).
+   *
+   * ── SAHA KUSURU (2026-09-09) ────────────────────────────────────────────
+   * Üst durum şeridi `honestyLevel === 'DEGRADED'` gördüğü an "Rota kusurlu"
+   * yazıyordu — oysa o seviye MESAFE · ETA · ROTA chip'lerinin BİRLEŞİK
+   * ağırlığıdır. Rota kusursuzken bile bayat bir ETA "Rota kusurlu" yazdırıyor,
+   * yani kusurun KAYNAĞINI yanlış gösteriyordu. Uyarı gizlenmez: ETA/mesafe
+   * kusuru dürüstlük şeridinde kendi chip'iyle görünmeye devam eder.
+   */
+  readonly routeVerdictDegraded: boolean;
   readonly layout: HudLayout;
   /** Gerçek şerit verisi var mı (`RouteStep.lanes`). */
   readonly hasLaneData: boolean;
@@ -231,9 +242,11 @@ export function resolveHudPresentation(input: HudPresentationInput): HudPresenta
   } else if (approaching) {
     state = 'MANEUVER_APPROACH';
     reason = `manevraya ${MANEUVER_BANDS.APPROACH_M} m'den yakın`;
-  } else if (input.honestyLevel === 'DEGRADED') {
+  } else if (input.honestyLevel === 'DEGRADED' && input.routeVerdictDegraded) {
+    /* YALNIZ rota hükmü kusurluyken. ETA/mesafe kusuru bu şeridi ele geçirmez;
+       onlar dürüstlük şeridindeki kendi chip'leriyle görünür (bkz. TripSummary). */
     state = 'ROUTE_DEGRADED';
-    reason = 'rota veya varış hükmü kusurlu — sakin uyarı';
+    reason = 'rota doğrulama hükmü kusurlu — sakin uyarı';
   } else {
     state = 'ACTIVE_NORMAL';
     reason = 'seyir';

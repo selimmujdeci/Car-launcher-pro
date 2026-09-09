@@ -1296,7 +1296,16 @@ export function formatDistance(meters: number): string {
   if (Math.round(meters) < 1000) {
     return `${Math.round(meters)} m`;
   }
-  return `${(meters / 1000).toFixed(1)} km`;
+  const km = meters / 1000;
+  /* ── SAHA KUSURU (2026-09-09) · HUD'DA "34…" KIRPILMASI ──────────────────
+   * Tek ondalıkta ısrar uzun rotada 9 karakterlik değer üretiyordu
+   * ("1034.0 km"). `TripSummary` hücresi yatayda ~108 px'dir (460 px kart ÷ 3)
+   * ve 26 px tabular rakamla bu değer sığmaz → `truncate` devreye girip
+   * ekranda "34…" bırakıyordu. 100 km üstünde ondalık zaten BİLGİ TAŞIMAZ
+   * (±100 m hassasiyet 300 km'lik rotada anlamsızdır) — atılır.
+   * Sonuç en fazla 8 karakter: "999 m" · "99.9 km" · "342 km" · "9999 km". */
+  if (km < 100) return `${km.toFixed(1)} km`;
+  return `${Math.round(km)} km`;
 }
 
 /**

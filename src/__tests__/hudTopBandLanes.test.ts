@@ -156,8 +156,22 @@ describe('YAPISAL kilitler — eksenler karışmaz, ikinci gözlemci doğmaz', (
     const trip = read('src/components/map/hud/TripSummary.tsx');
     expect(trip).toContain("const portrait = hud.layout === 'PORTRAIT';");
     expect(trip).toContain('fontSize: portrait ? 22 : 26');
-    expect(trip, 'özet tüm genişliği kaplamaya dönmüş')
-      .toContain("maxWidth: portrait ? 'calc(100vw - 24px)' : 460");
+    /* ── KİLİT SABİT SAYIYA DEĞİL DAVRANIŞA BAĞLI (2026-09-09) ─────────────
+       Eskiden tam metin `… : 460` aranıyordu. 460 px kart üç eşit hücreye
+       bölününce mesafe değeri kırpılıyordu ("34…" saha kusuru, kütük #1220) ve
+       genişlik 520'ye çıkarıldı — kilidin KORUDUĞU davranış (dikeyde viewport
+       göreli yeniden akış · yatayda ekranın tamamını KAPLAMAMA) bozulmadığı
+       hâlde kilit yalnız sayı değiştiği için düşüyordu. Artık ölçüt ölçülür:
+       dikey viewport-göreli, yatay SABİT ve makul bir tavanla sınırlı. */
+    const m = trip.match(/maxWidth: portrait \? 'calc\(100vw - 24px\)' : (\d+)/);
+    expect(m, 'özet yerleşimi yerleşimden okunmuyor').not.toBeNull();
+    const landscapeMax = Number(m![1]);
+    expect(landscapeMax, 'özet tüm genişliği kaplamaya dönmüş')
+      .toBeLessThanOrEqual(560);
+    /* En uzun mesafe biçimi ("9999 km" · 8 karakter) 26 px tabular rakamla
+       üç eşit hücrenin birine sığmalı — aksi hâlde `truncate` yine kırpar. */
+    expect(landscapeMax, 'kart mesafe hücresini kırpacak kadar dar')
+      .toBeGreaterThanOrEqual(500);
   });
 
   it('🔒 `narrow` GÜVENLİK modlarıyla KARIŞTIRILMAZ', () => {

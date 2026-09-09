@@ -1385,6 +1385,10 @@ export const NavigationHUD = memo(function NavigationHUD({
     gpsUsable: gpsValid,
     accuracyM: location?.accuracy ?? null,
     honestyLevel: honesty.level,
+    /* Kusurun KAYNAĞI: üst şerit yalnız ROTA hükmü kusurluyken "Rota kusurlu"
+       der. ETA/mesafe kusuru dürüstlük şeridinde kendi chip'iyle görünür. */
+    routeVerdictDegraded: honesty.chips.some(
+      (c) => c.id === 'route' && c.level === 'DEGRADED'),
     layout: narrowHud ? 'PORTRAIT' : 'LANDSCAPE',
     hasLaneData: ((route.steps[route.currentStepIndex + 1] ?? route.steps[route.currentStepIndex])
       ?.lanes?.length ?? 0) > 0,
