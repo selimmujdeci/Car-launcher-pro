@@ -9252,3 +9252,73 @@ renk kaynağı veya paralel renderer KURULMADI.
    (2026-09-05 turundan devreden borç; bu tur kapatılmadı).
 3. **Rampa kenarları** üst sınıflarda 0,66–1,10 px, alt sınıflarda 0,33–0,60 px —
    bilinçli olarak ast kalmıştır; otoyol çıkışları cihazda ayrıca bakılmalı.
+
+---
+
+## NAV-VISUAL — SÜRÜŞ KORİDORU: MÜREKKEP BÜTÇESİ + KAMERA (2026-09-09, kütük #1324–#1325)
+
+**Durum: ENTEGRE** (kod + kilitler yeşil · cihaz görsel doğrulaması 🔴 açık).
+Vizyon durumu **DOĞRULANDI'ya YÜKSELTİLMEDİ**: kütük mutlak otoritedir ve
+#1324/#1325 hâlâ 🔴.
+
+### Kullanıcı şikâyeti ve gerçek kök neden
+
+Bildirilen: *"küçük ve orta yollar parlak beyaz tel/iskelet gibi"* ·
+*"kamera fazla yukarıdan/düz harita hissi veriyor"* · *"navigasyon ürünü değil,
+harita üzerine rota çizilmiş"*.
+
+Bu turda hiçbir hipoteze güvenilmedi; **üretim stili gerçek OpenMapTiles
+karolarıyla headless WebGL'de çalıştırılıp ekran pikseli ölçüldü**
+(`field-runs/nav-visual-20260909/`). İki ayrı kök neden çıktı:
+
+| Kök neden | Ölçüm | Düzeltme |
+|-----------|-------|----------|
+| Yerel ağ, hiyerarşinin en altındayken ekranın en büyük ikinci mürekkep kalemiydi | gece z15,5: parlak piksel %10,4 · paylar primary %34,3 · **minor %26,6** · motorway %5,7 (**4,7×**) | gece yerel gövdeye zoom rampası (z≤15,5 → 0,62 · z≥16,6 → taban) |
+| Şehir sürüş zoom'unda ileri görüş 193 m (50 km/sa'te 14 sn) | pitch 30° · çapa 0,58 | pitch 44° · çapa 0,65 → **373 m (+%93)**, karo yükü **1 → 1** |
+
+### Elenen adaylar (ölçülerek, gerekçesiyle)
+
+- **Gece yol tonunu koyulaştırmak** — kullanıcının 2026-09-05 cihaz kararına
+  (*"yollar tam beyaz"*) ve `routeNightContrast` kilidine aykırı. ELENDİ.
+- **Genişlik daraltma** — gövde ×0,70'te parlak piksel yalnız −%11. ZAYIF.
+- **FOV 36,87° → 50°** — ileri görüş 541 m'ye çıkıyordu ama karo yükü **1 → 3**.
+  Bütçe gerekçesiyle SEÇİLMEDİ (ölçüm `camera-sweep.json` içinde durur).
+- **Kök `sky` bildirimi** — MapLibre 4.7.1'de gök yalnız pitch **>68,6°**'de
+  kadraja girer (bundle formülünden çözülüp render'da doğrulandı: fov 36,87'de
+  pitch 70'e kadar %0 gök pikseli). Sürüş bandında ölü stil olurdu; mevcut
+  `cartographyAuthority` "ölü stil yasağı" kilidi bunu zaten koruyordu ve
+  denemede DÜŞTÜ → geri alındı (bkz. #1312).
+
+### Tek otorite nasıl korundu
+
+`NAV_SUPPRESS_TIERS` yerel gövdeye `line-opacity` yazan ikinci yazardır. Rampa
+oraya düz sayı olarak yazılsaydı navigasyon açılır açılmaz silinirdi. Çözüm:
+bastırma kademesi rampayı **ezmez, ÇARPAN olarak ölçekler**
+(`localRoadBodyOpacity(night, base × tier)`), ölçekleme stil dosyasındaki tek
+fonksiyonda yapılır. Çarpım **stop değerlerine gömülür**; `['*', interpolate, k]`
+MapLibre'de geçersizdir (kütük #552'nin tuzağı).
+
+Bu muafiyet nedeniyle `cartographyAuthority`nin "bastırma alanında stil ifadesi
+olamaz" kilidi **güncellendi (kaldırılmadı)** ve muafiyetin kör kalmaması için
+uygulayıcı tarafı `oemDrivingMap.test.ts` içinde sahte harita üzerinde ayrıca
+kilitlendi. Her iki kilidin de **kör olmadığı**, kusur geri konularak kanıtlandı
+(ölçekleme kapısı kaldırılınca 2 kilit, rampa kaldırılınca 3 kilit DÜŞTÜ).
+
+### Sınırlar (hiçbiri ihlal edilmedi)
+
+Routing/RTG4/ALT/MAX_CLOSED/residency · rota maliyeti ve renk/genişlik otoritesi ·
+navigasyon durum otoritesi · `cameraFollowAuthority` · Mavi · Music · OBD/CAN ·
+adres hattı **DEĞİŞMEDİ**. Gündüz kartografyası birebir korundu (kilitle
+kanıtlandı). `MapCore.maxPitch = 50` değişmedi. Yeni kamera FSM'i, yeni scheduler,
+ikinci stil/renk otoritesi KURULMADI.
+
+### Açık borç
+
+1. **Cihaz görsel doğrulaması (#1324, #1325)** — kod yeşil olması görsel PASS
+   değildir; gerçek araçta gece/gündüz sürüş gözlemi bekliyor.
+2. **Pitch artışının GPU maliyeti** — karo yükü ölçüldü (artış YOK), ama düşük
+   uçlu head unit'te FPS/termal etkisi cihazda ölçülmedi.
+3. **Gündüz yerel ağ mürekkebi** ölçülmedi; gündüz bu turda bilinçli olarak
+   kapsam dışı tutuldu.
+4. **CAROS LAB kartografi/kamera gözlem yüzeyi** — 2026-09-05'ten devreden borç;
+   bu tur da kapatılmadı.

@@ -27,13 +27,36 @@ export const CAMERA_CFG = {
   ZOOM_TURN_BOOST:  1.6,   // dönüşe yaklaşınca maksimum ek zoom
   ZOOM_TURN_ZONE_M: 180,   // boost'un başladığı mesafe (metre)
 
-  // ── Pitch curve (degrees) — Faz 3.3: scale realism ─────────────
-  // 50°+ değerler MapLibre'de siyah köşe oluşturur (tile ufku aşılır).
-  // Maksimum güvenli pitch ~48° — tüm değerler bunun altında tutulur.
-  PITCH_IDLE:     20,   //  0–10 km/h — park/bekleme (neredeyse düz)
-  PITCH_URBAN:    30,   // 10–50 km/h — şehir içi
-  PITCH_ROAD:     40,   // 50–100 km/h — karayolu
-  PITCH_HIGHWAY:  47,   // 100+ km/h — otoyol (tile sınırı altında)
+  /* ── Pitch curve (derece) — SÜRÜŞ KORİDORU ─────────────────────────────
+   * ÖLÇÜLEN KUSUR (2026-09-09 · `field-runs/nav-visual-20260909/camera-sweep.mjs`
+   * · üretim stili · gerçek OMT karoları · 904×406): şehir sürüş zoom'unda
+   * (z16,7) kamera sürücüye yalnız **193 m** ileri gösteriyordu — 50 km/sa'te
+   * **14 saniyelik** ufuk. Ekran bu yüzden "harita üzerine rota çizilmiş" gibi
+   * okunuyordu; kusur zoom'da değil PITCH'teydi (30°).
+   *
+   * ÖLÇÜLEN KAZANÇ ve MALİYET (aynı sahne, tek değişkenli):
+   *     pitch 30 → 193 m · karo 1 · parlak %4,83
+   *     pitch 38 → 236 m · karo 1 · parlak %4,51
+   *     pitch 45 → 299 m · karo 1 · parlak %4,27
+   *   `anchorY` 0,58 → 0,66 ile birlikte (bkz. `cameraPolicyModel.SPEED_BANDS`):
+   *     pitch 45 → **373 m** (+%93) · karo **1** · parlak %4,67
+   * Yani ileri görüş iki katına çıkarken KARO YÜKÜ ARTMIYOR ve ekrandaki
+   * mürekkep de artmıyor: bu, bütçesiz bir görsel süs değil, ölçülmüş bedava
+   * kazançtır. (FOV'u 50°'ye açmak 541 m verirdi ama karo 1 → 3 olurdu —
+   * o yol ÖLÇÜLDÜ ve bütçe gerekçesiyle SEÇİLMEDİ.)
+   *
+   * MİNİ HARİTA da aynı eğriyi kullanır (`MiniMapWidget` → `setDrivingView`).
+   * 440×210 yüzeyde ölçüldü: pitch 44'te ileri görüş 100 → 148 m, ufuk hâlâ
+   * ekranın 172 px ÜSTÜNDE (kadraja girmiyor), karo 1 → ayrı bir mini pitch
+   * politikası GEREKMEDİ.
+   *
+   * TAVAN DEĞİŞMEDİ: `MapCore.maxPitch = 50` aynen durur ve `PITCH_HIGHWAY`
+   * onun altındadır (`cartographyAuthority` sky/ufuk kilidi bunu ölçer —
+   * ufuk kadraja ~68,6°'de girer, orada `sky` kararı yeniden açılır). */
+  PITCH_IDLE:     26,   //  0–10 km/h — park/bekleme (yol perspektifi korunur)
+  PITCH_URBAN:    44,   // 10–50 km/h — şehir içi (asıl sürüş bandı)
+  PITCH_ROAD:     47,   // 50–100 km/h — karayolu
+  PITCH_HIGHWAY:  49,   // 100+ km/h — otoyol (maxPitch 50'nin ALTINDA)
   PITCH_TURN_MIN: 15,   // kavşak görünümü için minimum tilt
 
   // ── Look-ahead (metre) ──────────────────────────────────────────

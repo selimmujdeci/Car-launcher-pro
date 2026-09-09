@@ -76,7 +76,7 @@ export type ViewportProfile = 'MINI' | 'FULL';
  * Sayılar dağınık sabit olarak koda serpiştirilmez; tek tabloda ve versiyonlu
  * durur. Sürüm herhangi bir satır değişince yükselir ve CAROS LAB'da görünür. */
 
-export const CAMERA_POLICY_VERSION = 'CAM-2026.08.05' as const;
+export const CAMERA_POLICY_VERSION = 'CAM-2026.09.09' as const;
 
 export interface SpeedBandProfile {
   readonly id: SpeedBand;
@@ -96,21 +96,39 @@ export interface SpeedBandProfile {
  * girilir, 55 km/sa'e düşünce çıkılır → 60 km/sa civarında gidip gelen araçta
  * profil salınmaz.
  */
+/* ── ÇAPA DEĞERLERİ ÖLÇÜLEREK YÜKSELTİLDİ (2026-09-09) ──────────────────────
+ * `field-runs/nav-visual-20260909/camera-sweep.mjs` · üretim stili · gerçek
+ * OMT karoları · 904×406 · z16,7 şehir sürüş zoom'u:
+ *
+ *     anchorY 0,58 · pitch 30 → ileri görüş 193 m   (MEVCUT)
+ *     anchorY 0,66 · pitch 30 → 229 m
+ *     anchorY 0,58 · pitch 45 → 299 m
+ *     anchorY 0,66 · pitch 45 → **373 m**  · karo 1 · parlak %4,67
+ *
+ * Çapa yükselmesi aracı aşağı iter; kazanılan piksel doğrudan İLERİ YOLA
+ * gider ve karo yükü ARTMAZ. Araç ekran-içi garantisi bozulmaz: en yüksek
+ * değer (0,74) `ANCHOR_MAX` (0,78) altındadır ve `cameraEngine`in piksel
+ * tabanlı son savunması (`VEHICLE_MIN_BOTTOM_PX = 72`) 406 px yüzeyde
+ * 0,82'ye karşılık gelir. Kare başı sıçrama tavanı (`ANCHOR_MAX_STEP`)
+ * bant atlamasını zaten yumuşatır.
+ *
+ * DİKEY (portrait) değerler yataydan DÜŞÜK kalır: dikey ekranda aynı oran
+ * aracı fiziksel olarak daha aşağı taşır. */
 export const SPEED_BANDS: readonly SpeedBandProfile[] = [
   { id: 'STOPPED',  enterKmh: 0,   exitKmh: 0,
-    anchorYLandscape: 0.50, anchorYPortrait: 0.50,
+    anchorYLandscape: 0.52, anchorYPortrait: 0.52,
     note: 'park/dur — araç merkeze yakın, ileri bakış yok' },
   { id: 'CITY',     enterKmh: 3,   exitKmh: 2,
-    anchorYLandscape: 0.58, anchorYPortrait: 0.55,
-    note: 'şehir içi — ayrıntı öncelikli' },
+    anchorYLandscape: 0.65, anchorYPortrait: 0.61,
+    note: 'şehir içi — sürüş koridoru öncelikli (ölçüm: 193 m → 373 m)' },
   { id: 'SUBURBAN', enterKmh: 55,  exitKmh: 48,
-    anchorYLandscape: 0.62, anchorYPortrait: 0.59,
+    anchorYLandscape: 0.69, anchorYPortrait: 0.65,
     note: 'şehirlerarası — ön yol uzar' },
   { id: 'CRUISE',   enterKmh: 90,  exitKmh: 82,
-    anchorYLandscape: 0.66, anchorYPortrait: 0.63,
+    anchorYLandscape: 0.72, anchorYPortrait: 0.68,
     note: '90–110 km/sa — kamera belirgin geri çekilir' },
   { id: 'HIGHWAY',  enterKmh: 115, exitKmh: 105,
-    anchorYLandscape: 0.68, anchorYPortrait: 0.65,
+    anchorYLandscape: 0.74, anchorYPortrait: 0.70,
     note: 'otoyol — rota bağlamı ve bağlantı yolu görünür' },
 ] as const;
 

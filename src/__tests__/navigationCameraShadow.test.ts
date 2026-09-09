@@ -286,11 +286,22 @@ describe('B. Gölge runtime sayaçları', () => {
    C. YAPISAL KİLİTLER — ÜRÜN DAVRANIŞI DEĞİŞMEDİ
    ══════════════════════════════════════════════════════════════════════════ */
 describe('C. 🔒 Ürün kamerası değişmedi', () => {
-  it('🔒 cameraEngine EĞRİLERİ DEĞİŞMEDİ (sahada ayarlı sabitler korunuyor)', () => {
+  it('🔒 cameraEngine EĞRİLERİ sessizce SÜRÜKLENMEZ (gölge katmanı ürünü değiştirmez)', () => {
+    /* ── KİLİT GÜNCELLENDİ (2026-09-09), ZAYIFLATILMADI ────────────────────
+     * Bu kilidin işi "gölge/telemetri turu ürün kamerasına dokunmasın"dır ve
+     * o iş SÜRÜYOR: sabitler burada tek tek yazılıdır, biri sessizce değişirse
+     * kilit düşer.
+     *
+     * DEĞİŞEN: pitch eğrisi 2026-09-09'da ÖLÇÜLEREK yükseltildi
+     * (`field-runs/nav-visual-20260909/camera-sweep.mjs`): şehir sürüş
+     * zoom'unda ileri görüş 193 m → 373 m, karo yükü 1 → 1. Gerekçe ve ölçüm
+     * `cameraEngine.CAMERA_CFG` başlığındadır. ZOOM eğrisi, look-ahead tavanı
+     * ve top-pad sabitleri AYNEN korundu — bu tur yalnız pitch/çapa
+     * kompozisyonunu değiştirdi. */
     const s = code(camEngineSrc);
     for (const k of ['ZOOM_AT_0:    18.5', 'ZOOM_AT_30:   17.5', 'ZOOM_AT_60:   16.7',
                      'ZOOM_AT_100:  15.5', 'ZOOM_MIN:     14.2',
-                     'PITCH_IDLE:     20', 'PITCH_HIGHWAY:  47',
+                     'PITCH_IDLE:     26', 'PITCH_URBAN:    44', 'PITCH_HIGHWAY:  49',
                      'LOOK_MAX_M: 140', 'TOP_PAD_BASE:  0.50', 'TOP_PAD_MAX:   0.70']) {
       expect(s, `cameraEngine sabiti değişmiş: ${k}`).toContain(k);
     }
