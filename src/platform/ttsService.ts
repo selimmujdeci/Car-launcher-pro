@@ -28,6 +28,44 @@ import { markMaviLatency } from './assistant/maviLatencyTrace';
 
 const _isNative = Capacitor.isNativePlatform();
 
+/* ══════════════════════════════════════════════════════════════════════════
+ * MAVI-FIELD-1 · NATIVE İLK SES KANITI
+ * ════════════════════════════════════════════════════════════════════════
+ * ÖLÇÜLEN BOŞLUK: Edge · Gemini · klip · web yollarının hepsi gerçek oynatma
+ * geri bildirimi veriyordu (`HTMLAudioElement.onplaying` · `utter.onstart`) ve
+ * `first_audio_confirmed` basıyordu. NATIVE yol basmıyordu — çünkü Java'daki
+ * `UtteranceProgressListener.onStart` BOŞTU. Sonuç: baş ünitede (ağ yokken ya
+ * da Edge soğumadayken TEK yol native'dir) ana KPI kalıcı olarak `PROXY_ONLY`
+ * kalıyordu.
+ *
+ * KANIT SINIRI (dürüstlük): Android hoparlör/DAC başlangıcını AÇMAZ. `onStart`
+ * motorun bu utterance için çıktı üretmeye başladığı andır — platformun verdiği
+ * EN YAKIN güvenilir playback-start sinyali. Gerçek hoparlör çıkışı DEĞİLDİR ve
+ * öyle sunulmaz; LAB'da kanıt derecesi bu ayrımı taşır.
+ *
+ * SINIRLAR: yeni otorite YOK · yeni timer YOK · kuyruk/Promise/half-duplex
+ * davranışı DEĞİŞMEZ. Yalnız mevcut kanonik ize damga besler. Yabancı ses
+ * kapısı (`markMaviLatency` → `tts_request` şartı) navigasyon/güvenlik sesinin
+ * bu damgayı çalmasını ZATEN yapısal olarak engeller.
+ */
+let _nativeTtsStartBound = false;
+
+function _bindNativeTtsStartEvidence(): void {
+  if (_nativeTtsStartBound || !_isNative) return;
+  _nativeTtsStartBound = true;                 // tek abonelik (idempotent)
+  try {
+    const add = (CarLauncher as unknown as {
+      addListener?: (e: string, h: () => void) => Promise<unknown>;
+    }).addListener;
+    if (typeof add !== 'function') return;     // eski APK → PROXY_ONLY kalır
+    void Promise.resolve(
+      add.call(CarLauncher, 'ttsStarted', () => {
+        markMaviLatency('first_audio_confirmed');
+      }),
+    ).catch(() => { /* olay yoksa sessizce PROXY_ONLY */ });
+  } catch { /* fail-soft: gözlem ASLA seslendirmeyi bozmaz */ }
+}
+
 /* ── Availability check ──────────────────────────────────── */
 
 function isTTSAvailable(): boolean {
@@ -624,11 +662,17 @@ export function ttsSpeak(text: string, opts: SpeakOptions = {}): void {
     const estimatedMs = _maxSpeechMsFor(spoken.length);
     const safety = setTimeout(() => settle('NO_ENGINE_REPORT'), estimatedMs);
     _noteTtsAttempt(spoken.length);
-    /* MAVI-F0 · DÜRÜSTLÜK SINIRI: Android `TextToSpeech` bu derlemede BAŞLANGIÇ
-     * geri bildirimi VERMEZ — `CarLauncher.speak()` Promise'i seslendirme BİTİNCE
-     * çözülür (UtteranceProgressListener.onDone). Bu yüzden native yolda yalnız
-     * `first_audio_requested` (PROXY) damgalanır; `first_audio_confirmed` ASLA
-     * basılmaz. Kuyruklama, sesin duyulduğunun kanıtı DEĞİLDİR. */
+    /* MAVI-F0 · DÜRÜSTLÜK SINIRI: `CarLauncher.speak()` Promise'i seslendirme
+     * BİTİNCE çözülür (UtteranceProgressListener.onDone) → kuyruklama, sesin
+     * duyulduğunun kanıtı DEĞİLDİR ve yalnız `first_audio_requested` (PROXY)
+     * damgalanır.
+     *
+     * MAVI-FIELD-1: `first_audio_confirmed` artık AYRI ve gerçek bir kaynaktan
+     * gelir — native `ttsStarted` olayı (`UtteranceProgressListener.onStart`).
+     * Abonelik burada TEMBEL kurulur (boot maliyeti yok, tek sefer). Olayı
+     * yayınlamayan eski APK'da damga HİÇ basılmaz ve kanıt dürüstçe
+     * `PROXY_ONLY` kalır — sahte onay ÜRETİLMEZ. */
+    _bindNativeTtsStartEvidence();
     markMaviLatency('first_audio_requested');
     // Çok segmentli → speakSegments (kuyruk native'de yönetilir, son segmentte çözülür).
     // Tek segment → klasik speak (pitch artık native'de uygulanır).

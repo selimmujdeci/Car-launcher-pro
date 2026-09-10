@@ -270,7 +270,23 @@ public class CarLauncherPlugin extends Plugin {
                 // JS "konuşma bitti" anını bilemiyordu: ducking TTS sürerken geri açılıyor,
                 // cevap-sonrası otomatik dinleme (takip modu) kurulamıyordu).
                 ttsEngine.setOnUtteranceProgressListener(new android.speech.tts.UtteranceProgressListener() {
-                    @Override public void onStart(String utteranceId) {}
+                    /* MAVI-FIELD-1 · İLK SES KANITI (native yol).
+                     * Bu callback şimdiye kadar BOŞTU: native TTS yolunda JS yalnız
+                     * `first_audio_requested` (kuyruklama = PROXY) damgalayabiliyor,
+                     * `first_audio_confirmed` HİÇ basılamıyordu. Android hoparlör
+                     * DAC başlangıcını API seviyesinde AÇMAZ; `onStart` motorun bu
+                     * utterance için çıktı üretmeye başladığı andır ve platformun
+                     * verdiği EN YAKIN güvenilir playback-start sinyalidir.
+                     * Sınırı JS tarafında `NATIVE_TTS_ONSTART` derecesiyle taşınır —
+                     * gerçek hoparlör çıkışı diye SUNULMAZ. Yalnız olay yayar:
+                     * kuyruk/Promise/half-duplex davranışı DEĞİŞMEZ. */
+                    @Override public void onStart(String utteranceId) {
+                        try {
+                            JSObject ev = new JSObject();
+                            ev.put("utteranceId", utteranceId == null ? "" : utteranceId);
+                            notifyListeners("ttsStarted", ev);
+                        } catch (Exception ignored) { /* gözlem ASLA seslendirmeyi bozmaz */ }
+                    }
                     @Override public void onDone(String utteranceId)  { settleTtsCall(utteranceId); }
                     @Override public void onError(String utteranceId) { settleTtsCall(utteranceId); }
                     @Override public void onStop(String utteranceId, boolean interrupted) { settleTtsCall(utteranceId); }

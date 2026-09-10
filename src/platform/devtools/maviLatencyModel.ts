@@ -792,6 +792,73 @@ export function buildTraceRows(traces: readonly TraceShape[]): TraceRow[] {
   return rows;
 }
 
+/* ══════════════════════════════════════════════════════════════════════════
+ * SAHA KAYDI (MAVI-FIELD-1) — SAF BİÇİMLENDİRİCİ, YENİ OTORİTE DEĞİL
+ * ════════════════════════════════════════════════════════════════════════
+ * Gerçek head-unit turunda her Mavi turu tek okunabilir satıra iner. Bu blok
+ * HİÇBİR yeni ölçüm yapmaz: yalnız `deriveTraceSegments` + `slaClassOfRoute` +
+ * `firstAudioEvidenceOf` çıktısını kopyalanabilir metne çevirir.
+ *
+ * DÜRÜSTLÜK KURALLARI:
+ *  · Ölçülmeyen alan `-` yazılır; sıfır UYDURULMAZ.
+ *  · Sağlayıcı kritik yolda değilse `provider=BYPASSED_LOCAL` AÇIKÇA görünür.
+ *  · `total` kanıtlı süredir; yalnız proxy varsa `~` öneki ve `PROXY` etiketi
+ *    taşır — proxy, kanıtlanmış ilk ses gibi SUNULMAZ.
+ *  · `speech_end` türetilmişse (native VAD deltası) `speechEnd=derived` yazar.
+ */
+
+/** Sağlayıcı kritik yolda mıydı — rota bunu zaten söyler. */
+function providerCellOf(t: TraceShape, seg: TraceSegments): string {
+  if (seg.brainMs !== null) return `${t.provider ?? 'provider'}:${seg.brainMs}ms`;
+  return slaClassOfRoute(t.route) === 'CLOUD' ? 'NO_PROVIDER_MARK' : 'BYPASSED_LOCAL';
+}
+
+const cell = (v: number | null): string => (v === null ? '-' : `${v}`);
+
+/**
+ * Tek turun saha satırı. Sıra saha raporundaki sütun sırasıyla BİREBİRDİR.
+ * En yeni tur BAŞTA döner (`buildTraceRows` ile aynı kural).
+ */
+export function buildFieldTraceLines(traces: readonly TraceShape[]): string[] {
+  const out: string[] = [];
+  for (let i = traces.length - 1; i >= 0; i--) {
+    const t = traces[i];
+    const s = deriveTraceSegments(t);
+    const ev = firstAudioEvidenceOf(t);
+    const conf = s.speechEndToFirstAudioConfirmedMs;
+    const req = s.speechEndToFirstAudioRequestedMs;
+    const total = conf !== null ? `${conf}` : req !== null ? `~${req}` : '-';
+    const ttsMs = conf !== null
+      ? (s.ttsToFirstAudioMs !== null && s.requestedToConfirmedMs !== null
+        ? s.ttsToFirstAudioMs + s.requestedToConfirmedMs : null)
+      : s.ttsToFirstAudioMs;
+    const routing = s.textToRouteMs !== null && s.routeToBrainMs !== null
+      ? s.textToRouteMs + s.routeToBrainMs
+      : s.textToRouteMs;
+    out.push([
+      `turn=${t.turnId ?? '-'}`,
+      `trace=${t.traceId}`,
+      `sla=${slaClassOfRoute(t.route)}`,
+      `route=${t.route ?? '-'}`,
+      `outcome=${t.outcome}`,
+      `endpoint=${cell(s.speechEndToEndpointMs)}`,
+      `asr=${cell(s.endpointToFinalMs)}`,
+      `routing=${cell(routing)}`,
+      `provider=${providerCellOf(t, s)}`,
+      `tts=${cell(ttsMs)}`,
+      `total=${total}`,
+      `evidence=${ev}`,
+      `speechEnd=${speechEndIsDerived(t) ? 'derived' : 'observed'}`,
+      `endpointReason=${t.endpointReason ?? '-'}`,
+      `endpointCommanded=${t.endpointCommanded === true}`,
+      `filler=${t.fillerCount}`,
+      `bargeIn=${t.bargeIn}`,
+      `fail=${t.failureCode ?? '-'}`,
+    ].join(' '));
+  }
+  return out;
+}
+
 /** Ham damga listesi (drill-down) — sıralı, TÜRETİLMİŞ olanlar işaretli. */
 export interface MarkRow {
   readonly marker: string;

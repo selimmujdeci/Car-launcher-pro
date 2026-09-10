@@ -1183,6 +1183,23 @@ export interface CarLauncherPlugin {
   ): Promise<PluginListenerHandle>;
 
   /**
+   * MAVI-FIELD-1 · Native `TextToSpeech` bu utterance için ÇIKTI ÜRETMEYE
+   * başladı (`UtteranceProgressListener.onStart`).
+   *
+   * KANIT SINIRI: Android hoparlör/DAC başlangıcını API seviyesinde AÇMAZ.
+   * Bu olay platformun verdiği EN YAKIN güvenilir playback-start sinyalidir ve
+   * `first_audio_confirmed` damgasının native yoldaki TEK kaynağıdır —
+   * `speak()` kuyruklaması (PROXY) ile KARIŞTIRILMAZ.
+   *
+   * Opsiyonel: eski APK'larda olay HİÇ gelmez → native yol `PROXY_ONLY`
+   * kanıt seviyesinde kalır ve bu dürüstçe raporlanır (sahte onay üretilmez).
+   */
+  addListener(
+    event: 'ttsStarted',
+    handler: (data: { utteranceId: string }) => void,
+  ): Promise<PluginListenerHandle>;
+
+  /**
    * MAVI-F3 · **SEMANTİK ENDPOINT KOMUTU** — çalışan tanıma oturumunu erken
    * finalize eder (yalnız mikrofonu kapatır; HİÇBİR CarOS eylemi tetiklemez).
    *

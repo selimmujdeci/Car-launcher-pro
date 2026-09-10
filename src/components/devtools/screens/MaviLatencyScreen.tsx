@@ -323,8 +323,10 @@ export const MaviLatencyScreen = memo(function MaviLatencyScreen() {
         <p className="mt-1 font-mono text-[9px] leading-relaxed text-[var(--oem-ink-3)]">
           Transcript, prompt ve cevap metni bu ekrana GELMEZ — yalnız süre, sabit marker adı,
           route/provider kodu ve sayaç. Defter süreç ömürlüdür. "PROXY" satırı bir KANIT
-          DEĞİLDİR: yalnız oynatmanın istendiği anı ölçer. Android native TextToSpeech bu
-          derlemede başlangıç bildirimi VERMEZ → native yolda doğrulama YAPILAMAZ.
+          DEĞİLDİR: yalnız oynatmanın istendiği anı ölçer. Native TextToSpeech yolunda
+          doğrulama artık `ttsStarted` olayından (UtteranceProgressListener.onStart) gelir —
+          bu, Android'in AÇTIĞI en yakın playback-start sinyalidir, hoparlör/DAC çıkışı
+          DEĞİLDİR. Olayı yayınlamayan eski APK'da damga basılmaz ve satır PROXY kalır.
           <strong className="text-[var(--oem-warn)]"> GERÇEK CİHAZ ÖLÇÜMÜ YAPILMADI —
           DEVICE VALIDATION REQUIRED (kütük F0).</strong>
         </p>
