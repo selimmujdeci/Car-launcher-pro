@@ -126,8 +126,24 @@ const CONV_IDLE_FALLBACK_MS = 15_000;
  * `ttsService`in kendi `MAX_SPEAKING_MS` tavanı takılı motoru "bitmiş" sayar.
  * Böylece gerçek asılma yine kurtarılır, gerçek konuşma asla kesilmez. */
 const SPEAKING_EXTEND_MS = 5_000;
-/** Azami uzatma — sonsuz uzatma YASAK (24 × 5sn = 120sn ek tavan). */
-const MAX_SPEAKING_EXTENSIONS = 24;
+
+/* ── SAHA: "uzun cevap HÂLÂ yarıda kesiliyor" (9d94ed2b'den SONRA) ─────────
+ * ÖLÇÜLEN KÖK: bu pencere SAHİBİNDEN ÖNCE kapanıyordu. "Bu konuşma hâlâ meşru
+ * mu" sorusunun TEK sahibi `ttsService`tir ve orada tavan uzunlukla orantılıdır
+ * (mutlak sınır `TTS_ABSOLUTE_CEILING_MS` = 300 sn). Buradaki uzatma sayacı ise
+ * SABİT 24 idi → pencere 20 sn + 24×5 sn = **140 sn**'de doluyordu. `P.speaking()`
+ * HÂLÂ `true` iken uzatma bütçesi bittiği için akış `P.startListening()`e
+ * düşüyor, o da İLK İŞ olarak `ttsCancel()` çağırıp cevabı ORTASINDAN kesiyordu.
+ * 3200 karakterlik bir cevap sahibin bütçesinde ~300 sn meşrudur; 140 sn'de
+ * kesilmesi "birkaç bölge anlatıp susma" belirtisinin ta kendisidir.
+ *
+ * ÇÖZÜM: ikinci watchdog KALDIRILMADI, ama artık sahibinden ÖNCE ateşLEYEMEZ.
+ * Pencere sahibin mutlak tavanını AŞACAK şekilde bounded tutulur; gerçek asılma
+ * yine kurtarılır (sonsuz uzatma YOK). Bu bir süre "büyütmesi" değil, iki
+ * otoritenin sıralamasının düzeltilmesidir (CLAUDE.md §6 tek otorite). */
+const MAX_SPEAKING_WINDOW_MS = 360_000;   // > ttsService.TTS_ABSOLUTE_CEILING_MS
+/** Azami uzatma — sonsuz uzatma YASAK; tavan yukarıdaki pencereden TÜRETİLİR. */
+const MAX_SPEAKING_EXTENSIONS = Math.ceil(MAX_SPEAKING_WINDOW_MS / SPEAKING_EXTEND_MS);
 
 let _convIdleExtensions = 0;
 let _followUpExtensions = 0;
