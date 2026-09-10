@@ -35,6 +35,8 @@ import { useSystemStore } from '../../store/useSystemStore';
 import { onOBDData } from '../obdService';
 import { onDTCState } from '../dtcService';
 import { diagnoseDtc } from '../diagnosticKnowledgeEngine';
+/* Cevap uzunluk politikasının TEK sahibi (saf modül, döngü yok). */
+import { ANSWER_CHAR_LIMIT } from '../companion/companionAnswerShaping';
 
 /* ══════════════════════════════════════════════════════════════════════════
  * Güvenlik şablonları (additive · doğrulanmış · SAFETY_ASSISTANT_STANDARD hizalı)
@@ -168,9 +170,26 @@ const LOW_VOLTAGE_V = 11.8;
 /** Bağlam üretiminde değerlendirilecek maksimum aktif DTC (bounded). */
 const MAX_DTC_EVAL = 12;
 
-/** Cevap uzunluk tavanı — sürüşte kısa (ISO 15008 dikkat), park halinde daha uzun. */
+/* ── CEVAP UZUNLUK TAVANI ──────────────────────────────────────────────────
+ * SAHA 2026-09-10 (gerçek cihaz · CDP izi): "Türkiye'nin 7 bölgesini detaylı
+ * anlat" sorusunda model TAM cevabı üretti (850 karakter · `finishReason:STOP`),
+ * ama TTS'e giden metin **254 karakterdi** — Mavi iki bölge anlatıp susuyordu ve
+ * soru her tekrarlandığında AYNI yerde kesildiği için kullanıcı "döngüye girmiş"
+ * yaşıyordu. Ölçüm: `truncateAtSentence(cevap, 400)` = tam olarak 254 karakter.
+ *
+ * KÖK SINIFI — MÜKERRER UZUNLUK OTORİTESİ (CLAUDE.md §6):
+ * "Cevap kaç karakter olabilir" sorusunun sahibi `companionAnswerShaping`tir
+ * (dikkat bütçesi politikası). 2026-08-30'da park tavanı orada 2400 → 5000
+ * yapıldı, ama BU dosyadaki ikinci tavan 400'de kaldı ve post-gate olarak
+ * SONRA çalıştığı için sahibin kararını sessizce eziyordu → o düzeltme hiç
+ * yürürlüğe girmedi.
+ *
+ * SÜRÜŞ TAVANI DEĞİŞMEDİ (200): sürücünün dikkat bütçesi kernel'in MEŞRU
+ * güvenlik kısıtıdır ve sahibin 300'ünden bilinçli olarak DAHA SIKIDIR.
+ * Park halinde böyle bir güvenlik gerekçesi YOKTUR; tavan artık sahibinden
+ * TÜRETİLİR, ikinci bir politika burada tutulmaz. */
 const DRIVING_MAX_CHARS = 200;
-const PARK_MAX_CHARS = 400;
+const PARK_MAX_CHARS = ANSWER_CHAR_LIMIT.parked;
 
 /* ══════════════════════════════════════════════════════════════════════════
  * PRE-GATE — online çağrıdan ÖNCE (SAF · asla throw etmez)
