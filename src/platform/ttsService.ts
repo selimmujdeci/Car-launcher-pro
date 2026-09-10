@@ -104,10 +104,43 @@ export function registerTtsEndListener(cb: TtsEndListener): () => void {
  * Süre MONOTONİK saatten (performance.now) — clock-jump güvenli (§4).
  */
 
-/** Bir konuşma bundan uzun sürüyorsa motoru takılmış say (sonsuz uzatma YASAK). */
+/** Uzunluk bilinmeyen yollar için taban tavan (kısa sözler). */
 const MAX_SPEAKING_MS = 120_000;
+
+/* ── MEŞRU KONUŞMA SÜRESİ — SABİT DEĞİL, UZUNLUKLA ORANTILI ────────────────
+ * SAHA: *"Mavi uzun cevapları yarıda kesiyor"* (ör. "7 bölgeyi detaylıca
+ * anlat" → birkaç bölge sonra kesiliyor).
+ * KÖK: aşağıdaki emniyet zamanlayıcısı `Math.min(30_000, 3_000 + len*110)`
+ * idi. Formülün KENDİSİ doğruydu (TR TTS ~9 karakter/sn → 110 ms/karakter),
+ * ama düz `30_000` tavanı onu ~245 karakterden sonrası için ANLAMSIZ kılıyordu:
+ * motor hâlâ konuşurken 30. saniyede `settle('NO_ENGINE_REPORT')` çalışıyor,
+ * `_notifyTtsEnd()` "cevap bitti" diyor ve takip dinlemesi `startListening()`
+ * → `ttsCancel()` ile sesi ORTASINDAN kesiyordu. Aynı kusur `isTtsSpeaking()`
+ * tavanında da vardı (sabit 120 sn): bayrak yalan söyleyince tüm "konuşuyor
+ * ise pencereyi uzat" korumaları çöküyordu.
+ *
+ * ÇÖZÜM: iki tavan da AYNI orantılı bütçeden türer. Watchdog rolü KAYBOLMAZ —
+ * mutlak tavan bounded'dır, gerçekten takılmış motor yine kurtarılır. */
+const TTS_SAFETY_BASE_MS = 3_000;
+/** TR TTS ölçülen hız payı (muhafazakâr: gerçek konuşmadan UZUN olmalı). */
+const TTS_MS_PER_CHAR = 110;
+/** Mutlak tavan — sonsuz bekleme YASAK (gerçek stall yine yakalanır). */
+const TTS_ABSOLUTE_CEILING_MS = 300_000;
+
+/** Bu uzunluktaki bir sözün MEŞRU azami süresi (bounded). */
+function _maxSpeechMsFor(chars: number): number {
+  return Math.min(TTS_ABSOLUTE_CEILING_MS, TTS_SAFETY_BASE_MS + chars * TTS_MS_PER_CHAR);
+}
+
 /** Aktif konuşmanın başlangıcı (monotonik); 0 = konuşmuyor. */
 let _speakingSince = 0;
+/** Uçuştaki sözün bütçesi — uzunluk bilinmeyen yollarda taban tavan. */
+let _speakingMaxMs = MAX_SPEAKING_MS;
+
+/** Seslendirilecek metnin uzunluğu bilinir bilinmez bütçe genişletilir. */
+function _noteSpeakingBudget(chars: number): void {
+  _speakingMaxMs = Math.max(MAX_SPEAKING_MS, _maxSpeechMsFor(chars));
+}
 
 function _nowMono(): number {
   return typeof performance !== 'undefined' ? performance.now() : Date.now();
@@ -159,6 +192,7 @@ function _markTransport(t: MaviTtsTransport): void { _speechTransport = t; }
 
 function _markSpeakingStart(): void {
   _speakingSince = _nowMono();
+  _speakingMaxMs = MAX_SPEAKING_MS;   // uzunluk bilinince genişletilir
   _speechChannel = _nextSpeechChannel ?? 'ASSISTANT';
   _nextSpeechChannel = null;
 }
@@ -166,6 +200,7 @@ function _markSpeakingStart(): void {
 function _refreshSpeakingClock(): void { _speakingSince = _nowMono(); }
 function _markSpeakingEnd():   void {
   _speakingSince = 0;
+  _speakingMaxMs = MAX_SPEAKING_MS;
   _speechChannel = 'NONE';
   _speechTransport = 'NONE';
 }
@@ -205,7 +240,7 @@ export function isMicCaptureOpenDuringSpeech(): boolean {
  */
 export function isTtsSpeaking(): boolean {
   if (_speakingSince === 0) return false;
-  if (_nowMono() - _speakingSince > MAX_SPEAKING_MS) { _speakingSince = 0; return false; }
+  if (_nowMono() - _speakingSince > _speakingMaxMs) { _speakingSince = 0; return false; }
   return true;
 }
 
@@ -552,6 +587,9 @@ export function ttsSpeak(text: string, opts: SpeakOptions = {}): void {
   const baseRate  = opts.rate  ?? (_isNative ? 1.0 : 1.05);
   const basePitch = opts.pitch ?? 1.0;
   const spoken    = normalizeForSpeech(text);
+  /* Uzunluk artık BİLİNİYOR → "konuşuyor" tavanı bu söze göre genişler.
+     Kısa sözlerde davranış değişmez (taban tavan zaten daha büyüktür). */
+  _noteSpeakingBudget(spoken.length);
   // segment === false → güvenlik/acil uyarısı: tek utterance, gecikmesiz, prozodi yok.
   const segments: SpeechSegment[] = opts.segment === false
     ? [{ text: spoken, rate: baseRate, pitch: basePitch, pauseMs: 0 }]
@@ -583,7 +621,7 @@ export function ttsSpeak(text: string, opts: SpeakOptions = {}): void {
       }
       opts.onEnd?.();
     };
-    const estimatedMs = Math.min(30_000, 3_000 + spoken.length * 110);
+    const estimatedMs = _maxSpeechMsFor(spoken.length);
     const safety = setTimeout(() => settle('NO_ENGINE_REPORT'), estimatedMs);
     _noteTtsAttempt(spoken.length);
     /* MAVI-F0 · DÜRÜSTLÜK SINIRI: Android `TextToSpeech` bu derlemede BAŞLANGIÇ
