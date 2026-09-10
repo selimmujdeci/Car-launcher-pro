@@ -5,7 +5,7 @@
  *   node scripts/nav-field-analyze.mjs field-runs/nav-P0-1-....jsonl
  *
  * İLKE: ölçülemeyen metrik "NOT_MEASURED" döner. Varsayılan/uydurma değer YOK.
- * Kabul ölçütleri `docs/NAVIGATION_CORE_RELIABILITY_P0_REPORT.md` §16'dan gelir.
+ * Kabul ölçütleri `docs/archive/NAVIGATION_CORE_RELIABILITY_P0_REPORT.md` §16'dan gelir.
  */
 import { readFileSync } from 'node:fs';
 

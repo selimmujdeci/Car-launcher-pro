@@ -33,7 +33,7 @@ Lütfen bildiriminize şunları ekleyin:
 Bu ürünün güvenliği araç güvenliğiyle doğrudan ilişkilidir. Özellikle önemli alanlar:
 
 - **Zero-trust telemetri** — OBD/CAN/BLE üzerinden gelen güvenilmez sensör verisi;
-- **Uzaktan komut** (`TECHNICAL_SPEC_REMOTE_COMMAND.md`) ve companion PWA köprüsü;
+- **Uzaktan komut** (`src/platform/remoteCommandService.ts`; tasarım geçmişi: `docs/archive/TECHNICAL_SPEC_REMOTE_COMMAND.md`) ve companion PWA köprüsü;
 - **Supabase RLS / GRANT** politikaları (bkz. `CLAUDE.md` §Supabase Security);
 - **BYOK API anahtarları** — kullanıcı anahtarlarının cihaz içinde saklanması;
 - **Güvenlik-kritik sürüş katmanları** (overheat, düşük yağ basıncı, reverse overlay).

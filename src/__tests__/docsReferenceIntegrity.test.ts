@@ -114,8 +114,8 @@ describe('belge ↔ kod bütünlüğü', () => {
  * "bugünün mimarisi" sanılmamaları için durum bandı TAŞIMALIDIR.
  */
 const STALE_SPECS = [
-  'TECHNICAL_SPEC_STYLE_ENGINE.md',
-  'TECHNICAL_SPEC_REMOTE_COMMAND.md',
+  'docs/archive/TECHNICAL_SPEC_STYLE_ENGINE.md',
+  'docs/archive/TECHNICAL_SPEC_REMOTE_COMMAND.md',
   'docs/COMPANION_AI_ARCHITECTURE.md',
 ] as const;
 
