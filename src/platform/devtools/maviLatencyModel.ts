@@ -423,6 +423,112 @@ export function deriveMaviLatencyVerdict(
  * Alan (InspectorField) üretimi
  * ════════════════════════════════════════════════════════════════════════ */
 
+/* ══════════════════════════════════════════════════════════════════════════
+ * SLA SINIFLARI (MAVI-P0-LATENCY) — SAF TÜRETME, YENİ OTORİTE DEĞİL
+ * ════════════════════════════════════════════════════════════════════════
+ * Tek bir ortalama, "yerel komut" ile "bulut sohbeti"ni aynı kovaya atıp
+ * gerçek sorunu GİZLER. Bu blok yeni bir ölçüm kaynağı KURMAZ: mevcut
+ * `route` alanını (zaten `setMaviLatencyRoute` ile yazılıyor) ve mevcut
+ * `computeStat`/`deriveTraceSegments`i kullanarak izleri sınıflara ayırır.
+ *
+ * Sınıflandırılamayan rota `UNCLASSIFIED`tır — uydurma sınıf ATANMAZ.
+ */
+
+export type MaviSlaClass =
+  /** A — yerel/deterministik komut (sağlayıcı kritik yolda DEĞİL). */
+  | 'LOCAL'
+  /** B — bulut sohbeti/eylemi (sağlayıcı kritik yolda). */
+  | 'CLOUD'
+  /** D — bekleyen onaya verilen "evet"/"hayır" cevabı. */
+  | 'CONFIRMATION'
+  /** Rotası olmayan/bilinmeyen iz — sayılır ama hedefe SOKULMAZ. */
+  | 'UNCLASSIFIED';
+
+/**
+ * Rota → SLA sınıfı. Rota adları `voiceService`de üretilir; buradaki eşleme
+ * SALT OKUMA'dır ve hiçbir davranışı etkilemez.
+ *
+ * ⚠️ C sınıfı (takip turu) rota adından TÜRETİLEMEZ: takip turu da yerel ya da
+ * bulut olabilir. Ayrı bir "followUp" damgası bulunmadığı sürece bu model
+ * takip turunu KENDİ sınıfına ayırmaz — uydurmak yerine eksik olduğunu söyler.
+ */
+export function slaClassOfRoute(route: string | null | undefined): MaviSlaClass {
+  if (typeof route !== 'string' || route.length === 0) return 'UNCLASSIFIED';
+  if (route === 'confirmation_ack') return 'CONFIRMATION';
+  if (
+    route === 'critical_bypass'
+    || route === 'local_fast_path'
+    || route === 'weather_local_bypass'
+    || route === 'sensor_local_bypass'
+    || route === 'saved_location_local_bypass'
+    || route === 'music_intent_local_bypass'
+    || route === 'offline_chat'
+  ) return 'LOCAL';
+  return 'CLOUD';
+}
+
+/** Bir SLA sınıfının hedefi (ms) — `null` = tanımlı hedef yok. */
+export const MAVI_SLA_TARGET_P95_MS: Readonly<Record<MaviSlaClass, number | null>> = Object.freeze({
+  LOCAL:        1_000,
+  CLOUD:        2_000,
+  CONFIRMATION:   750,
+  UNCLASSIFIED:  null,
+});
+
+export interface MaviSlaClassStat {
+  readonly slaClass: MaviSlaClass;
+  /** `speech_end → first_audio_requested` (PROXY — `play()` çağrıldı). */
+  readonly requestedStat: LatencyStat;
+  /** `speech_end → first_audio_confirmed` (DOĞRULANMIŞ ilk ses). */
+  readonly confirmedStat: LatencyStat;
+  readonly targetP95Ms: number | null;
+  /**
+   * Hedef tutuyor mu. Kanıt DOĞRULANMIŞ ses varsa ONDAN, yoksa PROXY'den
+   * okunur; hiç örnek yoksa `null` (PASS de FAIL de DENMEZ).
+   */
+  readonly meetsTarget: boolean | null;
+  /** Hükmün hangi kanıta dayandığı — proxy ile doğrulanmış KARIŞTIRILMAZ. */
+  readonly evidence: 'CONFIRMED' | 'PROXY_ONLY' | 'NONE';
+}
+
+/**
+ * İzleri SLA sınıflarına ayırıp her sınıf için p50/p95/en kötü üretir.
+ * İstatistiğe YALNIZ tamamlanmış izler girer (`summarize` ile aynı kural —
+ * iptal/devralınan tur "hızlı" görünüp ortancayı yanlış iyileştiremez).
+ */
+export function summarizeSlaClasses(
+  traces: readonly TraceShape[],
+): readonly MaviSlaClassStat[] {
+  const order: readonly MaviSlaClass[] = ['LOCAL', 'CLOUD', 'CONFIRMATION', 'UNCLASSIFIED'];
+  const req = new Map<MaviSlaClass, (number | null)[]>();
+  const conf = new Map<MaviSlaClass, (number | null)[]>();
+  for (const c of order) { req.set(c, []); conf.set(c, []); }
+
+  for (const t of traces) {
+    if (!isCompletedTrace(t)) continue;
+    const cls = slaClassOfRoute(t.route);
+    const s = deriveTraceSegments(t);
+    req.get(cls)!.push(s.speechEndToFirstAudioRequestedMs);
+    conf.get(cls)!.push(s.speechEndToFirstAudioConfirmedMs);
+  }
+
+  return Object.freeze(order.map((cls) => {
+    const requestedStat = computeStat(req.get(cls) ?? []);
+    const confirmedStat = computeStat(conf.get(cls) ?? []);
+    const target = MAVI_SLA_TARGET_P95_MS[cls];
+    const evidence: MaviSlaClassStat['evidence'] =
+      confirmedStat.count > 0 ? 'CONFIRMED'
+        : requestedStat.count > 0 ? 'PROXY_ONLY'
+          : 'NONE';
+    const observed = confirmedStat.count > 0 ? confirmedStat.p95 : requestedStat.p95;
+    const meetsTarget = (target === null || observed === null) ? null : observed <= target;
+    return Object.freeze({
+      slaClass: cls, requestedStat, confirmedStat,
+      targetP95Ms: target, meetsTarget, evidence,
+    });
+  }));
+}
+
 function statText(s: LatencyStat): string | null {
   if (s.count === 0) return null;
   return `p50 ${s.p50} ms · p95 ${s.p95} ms · en kötü ${s.worst} ms (${s.count} örnek)`;

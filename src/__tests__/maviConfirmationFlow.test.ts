@@ -42,7 +42,7 @@ vi.mock('../platform/bridge', () => ({
 }));
 vi.mock('../platform/headUnitCompat', () => ({ isLowEndDevice: () => false }));
 vi.mock('../platform/nativePlugin', () => ({ CarLauncher: {} }));
-vi.mock('../platform/commandParser', () => ({ parseCommandFull: () => M.parseResult }));
+vi.mock('../platform/commandParser', () => ({ parseCommandFull: () => M.parseResult, matchDeterministicWholeInput: () => null }));
 vi.mock('../platform/offlineConversationEngine', () => ({
   tryOfflineConversation: () => ({ handled: false, response: '' }),
 }));

@@ -173,13 +173,29 @@ describe('P0-4B · korunan eylem bloklandığında SEMANTIC DİRİLİŞ YOK', ()
     expect(M.brain.mock.calls.length).toBe(1);
   });
 
-  it('6. sıradan sohbet/komut yolları bozulmadı', async () => {
+  /* MAVI-P0-LATENCY: bu maddenin sözleşmesi DEĞİŞTİ ve GÜÇLENDİ.
+   * ÖNCE: "müziği aç" da Single Brain'e gidiyor, sağlayıcı `null` dönünce
+   * yerel komut uygulanıyordu → kapalı biçimli bir komut sağlayıcı bütçesini
+   * (park hâlinde 8 sn'ye kadar) ödüyordu.
+   * ŞİMDİ: girdinin TAMAMI canonical bir ifadeyse deterministik hızlı yol
+   * açılır ve sağlayıcı HİÇ çağrılmaz. Dispatch kilidi AYNEN korunur; üstüne
+   * "sağlayıcı çağrılmadı" kilidi EKLENİR. Madde 5'in yanlışlama kilidi
+   * (bloklanmayan BİLİNMEYEN cümle sağlayıcıyı gerçekten çağırır) yerinde
+   * durduğu için mock ölü DEĞİLDİR. */
+  it('6. kapalı biçimli komut dispatch edilir ve sağlayıcı ÇAĞRILMAZ', async () => {
     M.brain.mockClear();
     M.dispatched.length = 0;
     await processTextCommand('müziği aç', STOPPED);
-    // Beyin denenir (Single Brain), null döndüğü için yerel komut uygulanır.
-    expect(M.brain.mock.calls.length).toBe(1);
     expect(M.dispatched).toContain('open_music');
+    expect(M.brain.mock.calls.length).toBe(0);
+  });
+
+  it('6b. kapalı biçimli OLMAYAN komut cümlesi sağlayıcıya GİDER', async () => {
+    M.brain.mockClear();
+    M.dispatched.length = 0;
+    // Alt-dizi eşleşmesi hızlı yolu açmaz → bugünkü Single Brain yolu korunur.
+    await processTextCommand('müziği aç bakalım biraz', STOPPED);
+    expect(M.brain.mock.calls.length).toBe(1);
   });
 });
 

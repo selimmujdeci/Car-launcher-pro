@@ -921,6 +921,133 @@ export function getProtectedCommandCatalog(): readonly ProtectedPhraseEntry[] {
   return PROTECTED_CATALOG;
 }
 
+/* ══════════════════════════════════════════════════════════════════════════
+ * DETERMİNİSTİK HIZLI YOL — WHOLE-INPUT (MAVI-P0-LATENCY)
+ * ════════════════════════════════════════════════════════════════════════
+ * ── ÖLÇÜLEN KUSUR ─────────────────────────────────────────────────────────
+ * `voiceService`de yalnız BEŞ komut tipi (`volume_up` · `volume_down` ·
+ * `stop_music` · `toggle_wifi` · `toggle_bluetooth`) beyni atlıyordu. "sonraki
+ * şarkı" gibi TAM eşleşen, kapalı biçimli ve sağlayıcının İYİLEŞTİREMEYECEĞİ
+ * komutlar bile önce birleşik beyne gidiyor ve park hâlinde `BRAIN_TIMEOUT_
+ * PARKED_MS = 8000` bütçesine kadar bekleyebiliyordu. Bu, konuşma sonu →
+ * ilk duyulabilir cevap bütçesinin en büyük tek kalemiydi.
+ *
+ * ── NEDEN "WHOLE-INPUT", NEDEN "confidence >= 1.0" DEĞİL ──────────────────
+ * `EXACT_SCORE` bir ALT-DİZİ skorudur (`normalized.includes(kw)`), girdinin
+ * TAMAMI değildir. Beyni atlamak için alt-dizi kanıtı YETERSİZDİR — tam da
+ * `protectedCommandGate`in P0'da reddettiği kanıt sınıfı. Bu yüzden hızlı yol
+ * yalnız **normalize edilmiş girdinin TAMAMI canonical bir ifadeye EŞİTSE**
+ * açılır. Eşit değilse davranış BUGÜNKÜYLE BİREBİR aynıdır (beyne gider).
+ *
+ * ── SINIRLAR (pazarlıksız) ────────────────────────────────────────────────
+ *  · **YETKİ ÜRETMEZ.** Dönen değer yalnız "bu metin kapalı biçimli, bilinen
+ *    bir komuttur" der. Kapı (`maviActionAuthority`), onay, capability ve
+ *    yürütme zinciri DEĞİŞMEZ — hızlı yol yalnız SAĞLAYICI ÇAĞRISINI atlar.
+ *  · **KORUNAN/ARAÇ ETKİLİ EYLEM GİREMEZ.** `PROTECTED_ACTION_TYPES` ve
+ *    geri alınamaz dış etkili tipler kümeden YAPISAL olarak dışlanır
+ *    (`FAST_PATH_TYPES` bir allowlist'tir, kara liste DEĞİL).
+ *  · **SERBEST METİNLİ KOMUT GİREMEZ.** Adres · müzik sorgusu · kişi adı gibi
+ *    sağlayıcının ASR onarımından fayda gördüğü tipler kümede YOKTUR.
+ *  · SAF: I/O yok · timer yok · `Date.now` yok · global durum yok.
+ */
+
+/**
+ * Beyne gitmesi GEREKMEYEN, kapalı biçimli komut tipleri.
+ *
+ * Ölçüt (üçü birden): (a) parametre taşımaz ya da parametresi kapalı kümedir,
+ * (b) sağlayıcı ASR onarımı sonucu DEĞİŞTİREMEZ, (c) korunan/geri alınamaz
+ * değildir. Bu listeye yeni tip eklemek bir ÜRÜN kararıdır — kilit testi
+ * kümenin korunan eylemlerle kesişmediğini doğrular.
+ */
+const FAST_PATH_TYPES: ReadonlySet<CommandType> = new Set<CommandType>([
+  /* Medya taşıma — kapalı biçim, parametresiz. */
+  'music_next', 'music_prev', 'stop_music', 'open_music',
+  /* Ses — refleks (mevcut kritik bypass'la aynı aile). */
+  'volume_up', 'volume_down',
+  /* Yüzey/panel açma — hedef kapalı kümedir (`screenRegistry`). */
+  'open_maps', 'show_traffic', 'show_favorites', 'open_camera',
+  'open_dashcam', 'open_recent', 'open_settings', 'open_radio',
+  /* Tema/görünüm — kapalı küme. */
+  'theme_night', 'theme_day', 'theme_dark', 'theme_oled', 'theme_cycle',
+  'screen_brightness_up', 'screen_brightness_down',
+  /* Mod — kapalı küme. */
+  'driving_mode', 'toggle_sleep_mode',
+  /* Donanım toggle — refleks (mevcut kritik bypass'la aynı aile). */
+  'toggle_wifi', 'toggle_bluetooth',
+  /* Sabit hedefli navigasyon — hedef kullanıcı ayarından gelir, metinden DEĞİL;
+     serbest adres (`navigate_address`/`navigate_place`) BİLİNÇLİ olarak YOK. */
+  'navigate_home', 'navigate_work',
+]);
+
+/**
+ * Hızlı yol kataloğu — `PATTERNS`ten TÜRETİLİR (ikinci ifade listesi TUTULMAZ).
+ * Korunan eylem tipleri savunma derinliği olarak AYRICA elenir.
+ */
+const FAST_PATH_CATALOG: ReadonlyMap<string, CommandType> = (() => {
+  const out = new Map<string, CommandType>();
+  for (const p of NORM_PATTERNS) {
+    if (!FAST_PATH_TYPES.has(p.type)) continue;
+    if (PROTECTED_ACTION_TYPES.has(p.type)) continue;      // savunma derinliği
+    for (const kw of p.keywords) {
+      if (!kw) continue;
+      // Katalog sırası belirleyicidir: ilk giren kazanır → aynı girdi HER ZAMAN
+      // aynı tipi verir (deterministik).
+      if (!out.has(kw)) out.set(kw, p.type);
+    }
+  }
+  return out;
+})();
+
+/** Hızlı yol eşleşmesi — yalnız GÖZLEM/yönlendirme, yetki DEĞİL. */
+export interface DeterministicFastMatch {
+  readonly type: CommandType;
+  /** Eşleşen canonical (normalize) ifade — LAB/tanı için. */
+  readonly phrase: string;
+}
+
+/**
+ * Girdinin TAMAMI kapalı biçimli bir komut ifadesine eşit mi?
+ *
+ * `null` → hızlı yol AÇILMAZ (bugünkü davranış: beyne git). Nezaket ekleri
+ * `protectedCommandGate`in AÇIK allowlist'iyle AYNI ilkeyle soyulur; genel
+ * önek/sonek toleransı YOKTUR.
+ */
+export function matchDeterministicWholeInput(rawInput: string): DeterministicFastMatch | null {
+  if (typeof rawInput !== 'string') return null;
+  const raw = rawInput.trim();
+  if (!raw) return null;
+  /* Tırnak taşıyan girdi KULLANIM değil ZİKİRDİR (korunan kapıyla aynı kural) →
+     hızlı yol açılmaz, metin normal akışına devam eder. */
+  if (/["'«»“”„‟‘’`´]/.test(raw)) return null;
+
+  let normalized: string;
+  try { normalized = normalizeText(raw); } catch { return null; }
+  if (!normalized) return null;
+
+  const direct = FAST_PATH_CATALOG.get(normalized);
+  if (direct) return { type: direct, phrase: normalized };
+
+  /* AÇIK nezaket eki allowlist'i — `protectedCommandGate.SAFE_PREFIXES` ile
+     aynı ürün politikası (uzun olan önce denenir). */
+  for (const prefix of ['mavi lutfen', 'mavi', 'lutfen', 'simdi']) {
+    if (!normalized.startsWith(`${prefix} `)) continue;
+    const rest = normalized.slice(prefix.length + 1).trim();
+    const hit = rest ? FAST_PATH_CATALOG.get(rest) : undefined;
+    if (hit) return { type: hit, phrase: rest };
+  }
+  if (normalized.endsWith(' lutfen')) {
+    const rest = normalized.slice(0, normalized.length - ' lutfen'.length).trim();
+    const hit = rest ? FAST_PATH_CATALOG.get(rest) : undefined;
+    if (hit) return { type: hit, phrase: rest };
+  }
+  return null;
+}
+
+/** @internal — kilit testleri (küme ikinci bir yerde KOPYALANMAZ). */
+export function getFastPathTypes(): readonly CommandType[] {
+  return [...FAST_PATH_TYPES];
+}
+
 /**
  * Girdi, AÇIK bir komut ifadesini TAM KELİME olarak içeriyor mu?
  * En UZUN eşleşen kalıp kazanır ("kapıların kilidini aç" → aç, kilitle DEĞİL).

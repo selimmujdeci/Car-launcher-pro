@@ -12,7 +12,10 @@ import { useState, useEffect } from 'react';
 import { isNative } from './bridge';
 import { isLowEndDevice } from './headUnitCompat';
 import { CarLauncher } from './nativePlugin';
-import { parseCommandFull, type ParsedCommand, type ParseSuggestion } from './commandParser';
+import {
+  parseCommandFull, matchDeterministicWholeInput,
+  type ParsedCommand, type ParseSuggestion,
+} from './commandParser';
 /* MAVI-STT-CONTEXT-GRAMMAR: offline aktif dinleme sözlüğünün TEK çözüm noktası.
    Gramer yalnız TANIMA adaylarını daraltır — intent/eylem/onay kararı ÜRETMEZ;
    onay otoritesi bu dosyadaki M4 bloğu ve `pendingActionConfirmation`tır. */
@@ -1757,6 +1760,11 @@ export async function processTextCommand(
    * · Başka bir şey → onay düşer, girdi normal komut olarak işlenir. */
   if (peekPendingAction(now)) {
     if (AFFIRM_RE.test(trimmed)) {
+      /* MAVI-P0-LATENCY · YALNIZ GÖZLEM: onay turu bugüne kadar rotasız
+       * (`route: null`) kapanıyordu → SLA-D (onay cevabı) ÖLÇÜLEMİYORDU.
+       * Kararı, sırayı veya yan etkiyi DEĞİŞTİRMEZ; yalnız mevcut F0 izine
+       * bounded bir rota adı yazar. */
+      setMaviLatencyRoute('confirmation_ack');
       const approved = consumePendingAction(turn.id, now);
       _lastCommandTime = now;
       const runConfirmed = getConfirmedActionExecutor();
@@ -1791,6 +1799,8 @@ export async function processTextCommand(
   if (_pendingCmd) {
     if ((now - _pendingAt) < PENDING_TTL_MS) {
       if (AFFIRM_RE.test(trimmed)) {
+        /* MAVI-P0-LATENCY · YALNIZ GÖZLEM (yukarıdaki rıza dalıyla aynı gerekçe). */
+        setMaviLatencyRoute('confirmation_ack');
         const cmd = _pendingCmd; _pendingCmd = null; _lastCommandTime = now;
         if (ctx?.isDriving) { dispatchDriving(cmd, ctx, turn); } else { dispatch(cmd, ctx, turn); }
         completeMaviTurn(turn);
@@ -1902,6 +1912,46 @@ export async function processTextCommand(
     if (ctx?.isDriving) { dispatchDriving(result.command, ctx, turn); } else { dispatch(result.command, ctx, turn); }
     completeMaviTurn(turn);
     return true;
+  }
+
+  /* ── 1a. DETERMİNİSTİK HIZLI YOL (MAVI-P0-LATENCY) ────────────────────────
+   * ÖLÇÜLEN KUSUR: "sonraki şarkı" gibi TAM eşleşen, kapalı biçimli komutlar
+   * bile önce birleşik beyne gidiyordu; park hâlinde bütçe
+   * `BRAIN_TIMEOUT_PARKED_MS = 8000`e kadar uzayabiliyor ve konuşma sonu →
+   * ilk duyulabilir cevap süresinin EN BÜYÜK kalemini oluşturuyordu.
+   * Sağlayıcı bu komutlarda hiçbir şey İYİLEŞTİRMEZ (parametre yok ya da
+   * kapalı küme) → kritik yolda olmasının gerekçesi de yoktur.
+   *
+   * KAPI ŞARTI ALT-DİZİ DEĞİL, TAM EŞİTLİK: `confidence >= 1.0` bir alt-dizi
+   * skorudur ve beyni atlamak için YETERSİZ kanıttır (P0'da reddedilen sınıf).
+   * `matchDeterministicWholeInput` yalnız girdinin TAMAMI canonical ifadeyse
+   * eşleşir; aksi hâlde bu blok HİÇ çalışmaz ve davranış bugünküyle birebir
+   * aynı kalır.
+   *
+   * GÜVENLİK DEĞİŞMEDİ: bu blok yalnız SAĞLAYICI ÇAĞRISINI atlar. Aynı
+   * `dispatch`/`dispatchDriving` otoritesine gider → korunan eylem kapısı,
+   * `maviActionAuthority`, onay, capability ve tur mühürü AYNEN uygulanır.
+   * Korunan/araç etkili ve serbest metinli tipler kümede YAPISAL olarak yoktur. */
+  {
+    const fast = matchDeterministicWholeInput(trimmed);
+    /* Parser aynı metni FARKLI bir tipe çözdüyse hızlı yol AÇILMAZ: iki yerel
+     * karar çelişiyorsa hakem sağlayıcıdır (fail-closed — hızlı yol asla
+     * parser'ın kararını EZMEZ). */
+    const agrees = fast !== null
+      && (result.command === null || result.command.type === fast.type);
+    if (fast && agrees) {
+      _lastCommandTime = now;
+      void reportVoiceDiag('voice_route', { route: 'local_fast_path' });
+      setMaviLatencyRoute('local_fast_path');                // MAVI-F0
+      /* Parser bir komut ürettiyse ONU kullan (feedback/extra alanları dolu);
+       * üretmediyse hızlı yolun tipinden asgari komut kurulur. */
+      const cmd: ParsedCommand = result.command ?? {
+        type: fast.type, raw: trimmed, confidence: 1, feedback: '', priority: 'normal',
+      };
+      if (ctx?.isDriving) { dispatchDriving(cmd, ctx, turn); } else { dispatch(cmd, ctx, turn); }
+      completeMaviTurn(turn);
+      return true;
+    }
   }
 
   // ── 1b. HAVA DURUMU BYPASS — yerel hava servisi kotasız/anında cevaplar ──
@@ -2631,7 +2681,17 @@ export function startListening(opts?: StartListeningOpts): void {
           const wav = (result as { audioWav?: string }).audioWav;
           let transcript = voskTranscript;
           let alts = result.alternatives;
-          if (wav) {
+          /* MAVI-P0-LATENCY · BULUT STT ATLAMA (yalnız kapalı biçimli komutta).
+           * Vosk metninin TAMAMI zaten canonical bir komut ifadesiyse buluttan
+           * dönebilecek en iyi sonuç AYNI metindir → WAV yükleme + uzak sentez
+           * round-trip'i saf gecikmedir. Şart alt-dizi DEĞİL tam eşitliktir;
+           * eşleşme yoksa bulut yolu BUGÜNKÜ GİBİ çalışır (davranış değişmez).
+           * Serbest metinli komutlar (adres · müzik sorgusu · kişi adı) küme
+           * dışıdır ve onarımdan faydalanmaya devam eder. */
+          const _fastStt = wav ? matchDeterministicWholeInput(voskTranscript) : null;
+          if (_fastStt) {
+            void reportVoiceDiag('voice_route', { route: 'cloud_stt_skipped_fast' });
+          } else if (wav) {
             // Round-trip boyunca geri bildirim (mikrofon kapandı, işliyoruz).
             void reportVoiceDiag('voice_route', { route: 'cloud_try' });
             push({ status: 'processing', transcript: voskTranscript });

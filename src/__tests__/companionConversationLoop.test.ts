@@ -61,7 +61,7 @@ vi.mock('../platform/nativePlugin', () => ({
     addListener: () => Promise.resolve({ remove: async () => {} }),
   },
 }));
-vi.mock('../platform/commandParser', () => ({ parseCommandFull: () => M.parseResult, buildCommandGrammar: () => ['[unk]'] }));
+vi.mock('../platform/commandParser', () => ({ parseCommandFull: () => M.parseResult, matchDeterministicWholeInput: () => null, buildCommandGrammar: () => ['[unk]'] }));
 /* MUSIC F14 · "1c0" yerel müzik bypass'ı `result.command === null` iken F9'un
    resolver'ını dener — bu test sahte zamanlayıcı (`vi.useFakeTimers`)
    kullanır ve gerçek dinamik import zinciri o kurguyla GÜVENİLİR biçimde

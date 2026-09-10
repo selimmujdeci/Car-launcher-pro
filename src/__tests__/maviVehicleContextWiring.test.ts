@@ -30,7 +30,7 @@ const M = vi.hoisted(() => ({
 vi.mock('../platform/bridge', () => ({ isNative: false, bridge: {} }));
 vi.mock('../platform/headUnitCompat', () => ({ isLowEndDevice: () => false }));
 vi.mock('../platform/nativePlugin', () => ({ CarLauncher: {} }));
-vi.mock('../platform/commandParser', () => ({ parseCommandFull: () => M.parseResult }));
+vi.mock('../platform/commandParser', () => ({ parseCommandFull: () => M.parseResult, matchDeterministicWholeInput: () => null }));
 vi.mock('../platform/offlineConversationEngine', () => ({
   // voiceService bu fonksiyona ctx.isDriving + ctx.speedKmh iletir → bağlamın
   // aşağı akışa GERÇEKTEN taşındığının doğrudan gözlem noktası.
