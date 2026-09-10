@@ -1240,27 +1240,46 @@ class SystemBoot {
       logError('SystemBoot:aiProviderReadiness', e);
     }
 
-    // Vosk STT modelini boot sonrası arka planda ısıt — eskiden ilk mikrofon
-    // basışında unpack+load (zayıf head unit CPU'sunda 20-40 sn) ödeniyor,
-    // JS failsafe 14 sn'de pes edip "Dinliyorum"da takılı kalıyordu.
-    // PERF 2026-06-11: 8 sn → 30 sn. 8 sn'de model unpack'i hâlâ süren boot
-    // I/O'su + ilk render + OBD/CAN bağlantısıyla yarışıp Capacitor Bridge'i
-    // tıkıyordu (10 sn'lik UI kilitlenmeleri). 30 sn'de sistem oturmuş olur.
-    // AWAIT EDİLMEZ (fire-and-forget): boot zinciri AI modeli beklemez.
-    // Fail-soft: preload başarısız olsa da ilk basışta normal yol (kuyruklu) çalışır.
+    /* Vosk STT modelini boot sonrası arka planda ısıt.
+     *
+     * ── SAHA: "uygulama açılınca Mavi bir süre uyanmıyor" ────────────────
+     * Native'de pasif dinleme `_voskReady` kapısının ARKASINDADIR ve o kapıyı
+     * yalnız `notifyVoskModelReady()` açar. Bu ısıtma eskiden DÜZ BİR DUVAR
+     * SAATİNE bağlıydı (`setTimeout(..., 30_000)`) → kapı, sistem çoktan boşta
+     * olsa bile 30 sn'den ÖNCE AÇILAMIYORDU; üstüne modelin kendi unpack+load
+     * süresi (zayıf head unit'te 20-40 sn) biniyordu. "Hey Mavi" bu yüzden
+     * ilk açılışta sağırdı.
+     *
+     * ── NEDEN 30 SN KONMUŞTU (korunan gerekçe) ──────────────────────────
+     * PERF 2026-06-11: 8 sn'de unpack, süren boot I/O'su + ilk render +
+     * OBD/CAN bağlanmasıyla yarışıp Capacitor Bridge'i tıkıyordu (10 sn'lik
+     * UI kilitlenmeleri). Yani beklenen şey SÜRE değil, SİSTEMİN OTURMASIDIR.
+     *
+     * ── ÇÖZÜM: aynı niyeti MEVCUT otoriteye sor ─────────────────────────
+     * `bootDeferral` zaten "ne zaman boştayız" sorusunun sahibidir (aynı
+     * dalgada PushService de bunu kullanır) ve `IDLE` tetiği `requestIdleCallback`
+     * ile GERÇEK boşluğu bekler — üstelik kendi üst sınırı vardır. Yeni
+     * zamanlayıcı/otorite KURULMAZ; kör bir süre kısaltması da yapılmaz:
+     * duvar saati yerine gerçek boşluk sinyaline geçilir. Boot iptal olursa
+     * iş hiç başlamaz (nesil + `abort` sahibinde).
+     * Fail-soft KORUNDU: preload patlasa da kapı AÇILIR (native loop kendi
+     * `ensureVoskModel` kuyruğuyla yükler; wake sonsuza dek sağır kalmaz). */
     if (isNative) {
       if (typeof CarLauncher.preloadVoskModel === 'function') {
-        const voskWarmTimer = setTimeout(() => {
-          try {
-            CarLauncher.preloadVoskModel!()
-              // Model hazır → wake kapısını aç (bekleyen pasif dinleme başlar).
-              .then(() => { _log('  › Vosk model preloaded ✓'); notifyVoskModelReady(); })
-              // Başarısız olsa da kapıyı aç: native loop kendi ensureVoskModel
-              // kuyruğuyla yükler — wake sonsuza dek sağır kalmaz (fail-soft).
-              .catch((e: unknown) => { logError('SystemBoot:VoskPreload', e); notifyVoskModelReady(); });
-          } catch (e) { logError('SystemBoot:VoskPreload', e); notifyVoskModelReady(); }
-        }, 30_000);
-        this._reg(() => clearTimeout(voskWarmTimer));
+        bootDeferral.schedule({
+          jobId: 'VoskPreload', wave: 4, bootClass: 'IDLE_ONLY',
+          trigger: 'IDLE',
+          run: async () => {
+            try {
+              await CarLauncher.preloadVoskModel!();
+              _log('  › Vosk model preloaded ✓');
+            } catch (e) {
+              logError('SystemBoot:VoskPreload', e);
+            }
+            // Başarı da hata da wake kapısını AÇAR (bekleyen pasif dinleme başlar).
+            notifyVoskModelReady();
+          },
+        });
       } else {
         // Eski APK: preload metodu yok → kapıyı hemen aç (gate'i bekletme).
         notifyVoskModelReady();
