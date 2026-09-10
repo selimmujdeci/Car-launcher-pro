@@ -888,6 +888,18 @@ export function speakAssistant(text: string, onEnd?: () => void): void {
   // Asistan cevabı BAŞLIYOR — hangi tier'a düşerse düşsün (klip/Edge/online/native)
   // emniyet zamanlayıcıları bu cevabı ortasından kesmesin (isTtsSpeaking).
   _markSpeakingStart();
+  /* ── SAHA 2026-09-10 · BU YOLDA TAVAN UZUNLUKLA ORANTILI DEĞİLDİ ─────────
+   * `_markSpeakingStart()` tavanı TABANA (`MAX_SPEAKING_MS` = 120 sn) çeker;
+   * uzunluğa göre genişletme YALNIZ `ttsSpeak` içinde yapılıyordu. Asistan
+   * cevabı ise klip/Edge/online tier'larında `ttsSpeak`e HİÇ UĞRAMAZ →
+   * 120 sn'yi aşan her premium cevapta `isTtsSpeaking()` sözün ORTASINDA
+   * `false` dönerdi. O anda takip penceresi mikrofonu açar (`startListening`
+   * İLK İŞ olarak `ttsCancel()` çağırır) ve wake self-echo kapısı da açılır →
+   * ses kesilir. Edge parçalı sentezle uzun cevaplar artık GERÇEKTEN 120 sn'yi
+   * aştığı için bu tavan burada da söze göre genişletilir. Sahip AYNI kalır
+   * (`_maxSpeechMsFor`, mutlak sınır `TTS_ABSOLUTE_CEILING_MS`) — ikinci bir
+   * süre otoritesi kurulmaz, watchdog rolü de kaybolmaz. */
+  _noteSpeakingBudget(t.length);
   /* MUSIC F6.1: duck sebebi BURADA sabitlenir. Hibrit zincir (klip → Edge →
      online) asenkron ilerler; araya yeni bir kanal pinlenirse eski cevabın
      duck sebebi DEĞİŞMEMELİDİR (bayat sebep = yanlış seviye). */
