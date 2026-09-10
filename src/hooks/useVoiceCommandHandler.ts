@@ -1,6 +1,9 @@
 import { useEffect, useRef } from 'react';
 import { toIntent, routeIntent, type AppIntent } from '../platform/intentEngine';
-import { registerCommandHandler, registerAIResultHandler, cancelAssistantDuck, isResultAckCommand } from '../platform/voiceService';
+import {
+  registerCommandHandler, registerAIResultHandler, cancelAssistantDuck, isResultAckCommand,
+  setSavedLocationResolver,
+} from '../platform/voiceService';
 // MAVI-M3: sahte ACK yerine YÜRÜTME SONUCUNDAN türeyen tek geri bildirim zarfı.
 import { buildIntentExecutionFeedback } from '../platform/intentExecutionResult';
 // MAVI-M5: geç dönen yürütme sonucu yeni turu bozamaz.
@@ -299,10 +302,43 @@ function _speakAndToast(msg: string): void {
 import { resolveAndNavigate } from '../platform/addressNavigationEngine';
 import { dispatchNearbyPoiNavigation } from '../platform/nearbyPoiNavigation';
 import { getGPSState } from '../platform/gpsService';
+import { startNavigation } from '../platform/navigationService';
+// Özel Konumlar — TEK otorite. UI (NavigationHUD) ve Mavi AYNI servisi çağırır.
+import {
+  addSavedLocation, renameSavedLocation, removeSavedLocation,
+  findSavedLocationByName, shareSavedLocation,
+} from '../platform/savedLocations/savedLocationsService';
 import type { ParsedCommand } from '../platform/commandParser';
 import type { SmartSnapshot } from '../platform/smartEngine';
 import type { DrawerType } from '../components/layout/DockBar';
 import { executeAIResult } from '../platform/commandExecutor';
+
+/**
+ * Serbest adres navigasyonu — ÖNCE Özel Konumlar'da isim eşleşmesi arar
+ * (bulursa `resolveAndNavigate`in yaptığı geocoding'i ATLAR, kayıtlı
+ * koordinatla DOĞRUDAN `startNavigation` çağırır — Mavi kendi rota sistemi
+ * KURMAZ, aynı navigasyon otoritesini kullanır). Eşleşme yoksa/belirsizse
+ * eski davranış (mevcut geocoding zinciri) BİREBİR korunur.
+ *
+ * Yerel parser (`navigate_address`/`navigate_place`, ~526) VE çevrimiçi beyin
+ * portu (`navigateToPlace`, ~353) AYNI fonksiyonu çağırır — iki kopya YOK.
+ */
+function _resolveAndNavigateOrSaved(dest: string): void {
+  const { match, ambiguous } = findSavedLocationByName(dest);
+  if (ambiguous.length > 0) {
+    speakMaviAnswer(`Birden fazla "${dest}" adında kayıtlı konum var, hangisini kastettiğini netleştirir misin?`);
+    return;
+  }
+  if (match) {
+    startNavigation(
+      { id: match.id, name: match.name, latitude: match.lat, longitude: match.lng, type: 'history' },
+      false, 'USER_VOICE',
+    );
+    return;
+  }
+  const gps = getGPSState().location;
+  resolveAndNavigate(dest, gps ? { lat: gps.latitude, lng: gps.longitude } : undefined);
+}
 
 interface UseVoiceCommandHandlerParams {
   settings: AppSettings;
@@ -349,10 +385,7 @@ export function useVoiceCommandHandler({
         // Uygulama-içi navigasyon — offline routeIntent yolu ile aynı. AI yolunun
         // (Gemini) "rota oluştur" komutunu harici Google Maps'e değil kendi
         // haritamıza yönlendirir.
-        navigateToPlace: (query: string) => {
-          const gps = getGPSState().location;
-          resolveAndNavigate(query, gps ? { lat: gps.latitude, lng: gps.longitude } : undefined);
-        },
+        navigateToPlace: (query: string) => { _resolveAndNavigateOrSaved(query); },
         // NAVIGATION-P1-1: AI/Mavi beyin hattı da hastane ile AYNI merkezi "en yakın X"
         // dispatch'ine bağlanır (GPS fail-closed + dedupe + bounded TTS).
         dispatchNearbyPoi: (cat) => {
@@ -424,6 +457,16 @@ export function useVoiceCommandHandler({
       });
     });
     return () => { setConfirmedActionExecutor(null); };
+  }, []);
+
+  /* Özel Konumlar SİL onayı — voiceService `savedLocationsService`i DOĞRUDAN
+   * import ETMEZ (o dosya `useStore`in tüm uygulama mağazasını taşır, ölçüldü:
+   * voiceService'in mock'lanmış test grafiğini kırar). `setConfirmedActionExecutor`
+   * ile AYNI DI deseni: isim çözümleyici burada KAYIT edilir, voiceService yalnız
+   * çağırır (tek otorite `savedLocationsService`de KALIR — ikinci CRUD KURULMAZ). */
+  useEffect(() => {
+    setSavedLocationResolver(findSavedLocationByName);
+    return () => { setSavedLocationResolver(null); };
   }, []);
 
   useEffect(() => {
@@ -525,11 +568,71 @@ export function useVoiceCommandHandler({
           void reportVoiceDiag('voice_command_execute', { command: cmd.type, errorCode: 'empty_destination' });
           return;
         }
-        const gps  = getGPSState().location;
-        resolveAndNavigate(
-          dest,
-          gps ? { lat: gps.latitude, lng: gps.longitude } : undefined,
-        );
+        _resolveAndNavigateOrSaved(dest);
+        return;
+      }
+
+      // ── Özel Konumlar (Mavi entegrasyonu) — TEK otorite: savedLocationsService.
+      // Sonuç-temelli ACK: parser metni ("X kaydediliyor") burada KONUŞULMAZ
+      // (voiceCommandPolicy.RESULT_ACK_COMMAND_TYPES) — cevap GERÇEK sonuçtan üretilir.
+      if (cmd.type === 'save_location') {
+        const gps = getGPSState().location;
+        if (!gps) {
+          // GPS kanıtı YOK → konum UYDURULMAZ, sahte kayıt oluşmaz (fail-closed).
+          speakMaviAnswer('GPS sinyali yok, konumu kaydedemedim.');
+          return;
+        }
+        const rawName = cmd.extra?.name ?? '';
+        const saved = addSavedLocation(gps.latitude, gps.longitude, rawName || null);
+        speakMaviAnswer(saved ? `${saved.name} olarak kaydettim.` : 'Konumu kaydedemedim.');
+        return;
+      }
+
+      if (cmd.type === 'rename_location') {
+        const targetName = cmd.extra?.name ?? '';
+        const newName = cmd.extra?.newName ?? '';
+        const { match, ambiguous } = findSavedLocationByName(targetName);
+        if (ambiguous.length > 0) {
+          speakMaviAnswer(`Birden fazla "${targetName}" kaydı var, hangisini kastettiğini netleştirir misin?`);
+          return;
+        }
+        if (!match) {
+          speakMaviAnswer(`"${targetName}" adında kayıtlı bir konum bulamadım.`);
+          return;
+        }
+        const ok = newName ? renameSavedLocation(match.id, newName) : false;
+        speakMaviAnswer(ok ? `${match.name} artık ${newName}.` : `${match.name} konumunun adını değiştiremedim.`);
+        return;
+      }
+
+      if (cmd.type === 'share_location') {
+        const targetName = cmd.extra?.name ?? '';
+        const { match, ambiguous } = findSavedLocationByName(targetName);
+        if (ambiguous.length > 0) {
+          speakMaviAnswer(`Birden fazla "${targetName}" kaydı var, hangisini kastettiğini netleştirir misin?`);
+          return;
+        }
+        if (!match) {
+          speakMaviAnswer(`"${targetName}" adında kayıtlı bir konum bulamadım.`);
+          return;
+        }
+        void shareSavedLocation(match).then((r) => {
+          // Sessiz "başarılı" YASAK: kullanıcı paylaşım sayfasını iptal etse bile
+          // (route:'native', ok:true) burada ekstra konuşma GEREKMEZ — sistem
+          // sayfası zaten açıldı/kapandı, ikinci bir TTS onayı gürültü olurdu.
+          if (!r.ok) speakMaviAnswer(`${match.name} konumunu paylaşamadım.`);
+        });
+        return;
+      }
+
+      if (cmd.type === 'delete_location') {
+        // Buraya YALNIZ açık onaydan SONRA ulaşılır (voiceService `_pendingCmd`
+        // "evet" akışı) — `resolvedId` orada ÇÖZÜLMÜŞTÜR, burada TEKRAR
+        // aranmaz (aynı isim o sırada eklenmiş/silinmiş olabilir; ID sabit kalır).
+        const resolvedId = cmd.extra?.resolvedId;
+        const targetName = cmd.extra?.name ?? 'Konum';
+        const ok = resolvedId ? removeSavedLocation(resolvedId) : false;
+        speakMaviAnswer(ok ? `${targetName} konumunu sildim.` : `${targetName} konumunu silemedim.`);
         return;
       }
       // activeMediaSourceKey geçerli bir MusicOptionKey ise defaultMusic'e öncelik tanır.

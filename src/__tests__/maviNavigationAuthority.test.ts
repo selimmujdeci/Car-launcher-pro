@@ -140,14 +140,22 @@ describe('KİLİT — eski hat kaynağı', () => {
     expect(guardAt).toBeLessThan(navAt);
   });
 
-  it('boş hedefte resolveAndNavigate ÇAĞRILMAZ (fail-closed guard kaynakta)', () => {
+  it('boş hedefte navigasyon ÇAĞRILMAZ (fail-closed guard kaynakta)', () => {
     expect(src).toContain('empty_destination');
-    // Guard, resolveAndNavigate çağrısından ÖNCE olmalı.
-    // (satır sonu CRLF olabilir → boşluğa duyarsız arama)
+    /* Özel Konumlar (görev: saved-location kısa yolu) eski doğrudan
+       `resolveAndNavigate(dest, ...)` çağrısını `_resolveAndNavigateOrSaved(dest)`
+       yardımcısına TAŞIDI — invariant AYNI: guard, navigasyon çağrısından ÖNCE
+       olmalı. Yardımcının kendisi de (ayrıca doğrulanır) `resolveAndNavigate`i
+       DEĞİŞMEDEN kullanır — geocoding zinciri KALDIRILMADI, yalnız saved-location
+       eşleşmesinde ATLANIR. */
     const guard = src.indexOf('empty_destination');
-    const call = src.search(/resolveAndNavigate\(\s*dest,/);
+    const call = src.search(/_resolveAndNavigateOrSaved\(\s*dest\s*\)/);
     expect(guard).toBeGreaterThan(0);
     expect(call).toBeGreaterThan(guard);
+    // Yardımcının GERÇEKTEN resolveAndNavigate'e düştüğünü doğrula (kaldırılmadı).
+    const helperDef = src.indexOf('function _resolveAndNavigateOrSaved');
+    expect(helperDef).toBeGreaterThan(0);
+    expect(src.slice(helperDef).search(/resolveAndNavigate\(\s*dest,/)).toBeGreaterThan(0);
   });
 
   /* Bu turda TAKEOVER_ELIGIBLE GENİŞLETİLMEDİ — gerekçe testte kayıtlı:

@@ -71,6 +71,10 @@ const RESULT_ACK_COMMAND_TYPES: ReadonlySet<ParsedCommand['type']> = new Set<Par
    * yalnız yürütme sonucu zarfından üretilir. Bu M3'ün MEVCUT desenidir; yeni
    * politika KURULMAZ. Refleks bypass'ın HIZI korunur — yalnız kanıtsız İDDİA kalkar. */
   'volume_up', 'volume_down',
+  /* Özel Konumlar: parser metni ("X kaydediliyor") NİYETTİR, sonuç DEĞİL —
+   * GPS kanıtı yoksa/ambiguous isimse/ID bulunamazsa yürütme başarısız olabilir.
+   * Ses yalnız savedLocationsService'in GERÇEK sonucundan üretilir (M3 deseni). */
+  'save_location', 'rename_location', 'delete_location', 'share_location',
 ]);
 
 /** Sesi YALNIZ yürütme sonucundan gelen komut mu (parser metni konuşulmaz). */

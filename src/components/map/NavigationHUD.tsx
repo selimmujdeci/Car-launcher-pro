@@ -15,7 +15,7 @@ import {
   memo, useState, useCallback, useEffect, useRef, useMemo, type ReactNode,
 } from 'react';
 import {
-  MapPin, Home, Briefcase, Fuel, Star, Plus, Trash2,
+  MapPin, Home, Briefcase, Fuel, Star,
   Play, X, Loader2, AlertCircle, CheckCircle2, GitBranch,
 } from 'lucide-react';
 import {
@@ -40,6 +40,7 @@ import { _haversineMeters } from '../../platform/gps/gpsMath';
 import { speakNavigation } from '../../platform/ttsService';
 import { useUnifiedVehicleStore } from '../../platform/vehicleDataLayer/UnifiedVehicleStore';
 import type { Address } from '../../platform/addressBookService';
+import { SavedLocationsPanel } from './hud/SavedLocationsPanel';
 import { useEffectiveSpeedLimit } from '../../platform/navigation/useEffectiveSpeedLimit';
 import { useNavigationHonesty } from '../../hooks/useNavigationHonesty';
 import { formatManeuverDistance as fmtTurn } from './hud/formatManeuverDistance';
@@ -991,12 +992,10 @@ const QuickDestinations = memo(function QuickDestinations({
   const recentDestinations = useStore(s => s.settings.recentDestinations);
   const homeLocation       = useStore(s => s.settings.homeLocation);
   const workLocation       = useStore(s => s.settings.workLocation);
-  const customLocations    = useStore(s => s.settings.customLocations ?? []);
   const updateSettings     = useStore(s => s.updateSettings);
   const [fuelLoading, setFuelLoading] = useState(false);
   const [fuelError, setFuelError]     = useState('');
   const [customOpen, setCustomOpen]   = useState(false);
-  const [addError, setAddError]       = useState('');
 
   // ── Hızlı hedef km'leri — TEK kaynak (_haversineMeters) + TEK format (formatDistance) ──
   // Kuş-uçuşu (düz çizgi) mesafe; rota mesafesi değil. GPS yoksa null → km gizlenir.
@@ -1044,25 +1043,6 @@ const QuickDestinations = memo(function QuickDestinations({
     if (!gpsLat || !gpsLon) return;
     updateSettings({ workLocation: { lat: gpsLat, lng: gpsLon, name: 'İş' } });
   }, [gpsLat, gpsLon, updateSettings]);
-
-  const addCurrentLocation = useCallback(() => {
-    if (!gpsLat || !gpsLon) {
-      setAddError('GPS sinyali yok');
-      setTimeout(() => setAddError(''), 2500);
-      return;
-    }
-    const ts   = Date.now();
-    const name = `Konum ${customLocations.length + 1}`;
-    const next = [
-      { id: `loc-${ts}`, lat: gpsLat, lng: gpsLon, name, timestamp: ts },
-      ...customLocations,
-    ].slice(0, 20);
-    updateSettings({ customLocations: next });
-  }, [gpsLat, gpsLon, customLocations, updateSettings]);
-
-  const removeCustomLocation = useCallback((id: string) => {
-    updateSettings({ customLocations: customLocations.filter(l => l.id !== id) });
-  }, [customLocations, updateSettings]);
 
   const handleFuel = useCallback(async () => {
     if (!gpsLat || !gpsLon || fuelLoading) return;
@@ -1146,123 +1126,13 @@ const QuickDestinations = memo(function QuickDestinations({
         )}
       </div>
 
-      {/* Özel Konumlar paneli */}
       {customOpen && (
-        <div
-          className="absolute left-full ml-2 rounded-2xl overflow-hidden animate-in fade-in slide-in-from-left-2 duration-200"
-          style={{
-            bottom:        0,
-            width:         260,
-            maxHeight:     320,
-            background:    'rgba(10,14,26,0.45)',
-            backdropFilter:'blur(22px)',
-            border:        '1px solid rgba(255,255,255,0.10)',
-            boxShadow:     '0 20px 50px rgba(0,0,0,0.5)',
-          }}
-        >
-          {/* Başlık */}
-          <div className="flex items-center justify-between px-3 py-2 border-b border-white/[0.08]">
-            <div className="flex items-center gap-2">
-              <Star className="w-3.5 h-3.5" style={{ color: '#E0A23C' }} />
-              <span className="text-[11px] font-black uppercase tracking-widest text-white">
-                Özel Konumlar
-              </span>
-            </div>
-            <button
-              onClick={() => setCustomOpen(false)}
-              aria-label="Kapat"
-              className="w-6 h-6 rounded-lg flex items-center justify-center active:scale-90 transition-all bg-white/[0.04] border border-white/[0.06]"
-            >
-              <X className="w-3.5 h-3.5 text-[color:var(--oem-ink-3,rgba(240,235,224,0.52))]" />
-            </button>
-          </div>
-
-          {/* Konum Ekle butonu */}
-          <button
-            onClick={addCurrentLocation}
-            disabled={!gpsLat || !gpsLon}
-            className="w-full flex items-center gap-2 px-3 py-2.5 border-b border-white/[0.06] active:scale-[0.98] transition-all disabled:opacity-40 disabled:cursor-not-allowed"
-            style={{ background: 'rgba(224,162,60,0.08)' }}
-          >
-            <div className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0"
-              style={{ background: 'rgba(224,162,60,0.18)', border: '1px solid rgba(224,162,60,0.35)' }}>
-              <Plus className="w-4 h-4" style={{ color: '#E0A23C' }} />
-            </div>
-            <div className="flex flex-col items-start min-w-0">
-              <span className="text-[12px] font-black uppercase tracking-wider leading-none" style={{ color: '#E8B86A' }}>
-                Konum Ekle
-              </span>
-              <span className="text-[9px] font-bold text-[color:var(--oem-ink-3,rgba(240,235,224,0.52))] mt-1">
-                Bulunduğun yeri kaydet
-              </span>
-            </div>
-          </button>
-
-          {addError && (
-            <div className="mx-2 mt-2 px-2 py-1 rounded-lg text-[10px] font-mono text-center bg-red-900/60 border border-red-700/50 text-red-300">
-              {addError}
-            </div>
-          )}
-
-          {/* Liste */}
-          <div className="overflow-y-auto" style={{ maxHeight: 220 }}>
-            {customLocations.length === 0 ? (
-              <div className="px-3 py-5 text-center">
-                <MapPin className="w-5 h-5 text-[color:var(--oem-ink-3,rgba(240,235,224,0.52))] mx-auto mb-2" />
-                <span className="text-[10px] font-bold text-[color:var(--oem-ink-3,rgba(240,235,224,0.52))] uppercase tracking-wider">
-                  Henüz kayıtlı konum yok
-                </span>
-              </div>
-            ) : (
-              customLocations.map((loc) => (
-                <div
-                  key={loc.id}
-                  className="flex items-center gap-2 px-3 py-2 border-b border-white/[0.04] last:border-0 hover:bg-white/[0.03]"
-                >
-                  <button
-                    onClick={() => {
-                      navigate({
-                        id:        loc.id,
-                        name:      loc.name,
-                        latitude:  loc.lat,
-                        longitude: loc.lng,
-                        type:      'history',
-                      });
-                      setCustomOpen(false);
-                    }}
-                    className="flex-1 flex items-center gap-2 min-w-0 active:scale-[0.98] transition-all text-left"
-                  >
-                    <div className="w-6 h-6 rounded-md flex items-center justify-center flex-shrink-0"
-                      style={{ background: 'rgba(224,162,60,0.10)', border: '1px solid rgba(224,162,60,0.20)' }}>
-                      <MapPin className="w-3 h-3" style={{ color: '#E0A23C' }} />
-                    </div>
-                    <div className="flex flex-col min-w-0">
-                      <span className="text-[11px] font-black text-white truncate leading-none">
-                        {loc.name}
-                      </span>
-                      <span className="text-[9px] font-mono text-[color:var(--oem-ink-3,rgba(240,235,224,0.52))] mt-1 truncate">
-                        {loc.lat.toFixed(4)}, {loc.lng.toFixed(4)}
-                      </span>
-                    </div>
-                  </button>
-                  {/* Km — aynı kanonik kaynak (_haversineMeters) + format (formatDistance) */}
-                  {gpsLat != null && gpsLon != null && (
-                    <span className="text-[10px] font-black tabular-nums whitespace-nowrap flex-shrink-0" style={{ color: '#E0A23C' }}>
-                      {formatDistance(_haversineMeters(gpsLat, gpsLon, loc.lat, loc.lng))}
-                    </span>
-                  )}
-                  <button
-                    onClick={() => removeCustomLocation(loc.id)}
-                    aria-label="Sil"
-                    className="w-6 h-6 rounded-md flex items-center justify-center flex-shrink-0 active:scale-90 transition-all bg-[var(--oem-danger-soft)] border border-[var(--oem-danger)]"
-                  >
-                    <Trash2 className="w-3 h-3 text-[color:var(--oem-danger)]" />
-                  </button>
-                </div>
-              ))
-            )}
-          </div>
-        </div>
+        <SavedLocationsPanel
+          gpsLat={gpsLat}
+          gpsLon={gpsLon}
+          onNavigate={(dest) => { navigate(dest); setCustomOpen(false); }}
+          onClose={() => setCustomOpen(false)}
+        />
       )}
     </div>
   );

@@ -17,6 +17,7 @@
  */
 
 import { tryParseNavAddress } from './addressParser';
+import { tryParseSavedLocationCommand } from './savedLocationCommandParser';
 import { tryParseMusicCommand } from './musicCommandParser';
 import { classifyHardwareSpeechAct } from './hardwareSpeechActGuard';
 import {
@@ -102,7 +103,14 @@ export type CommandType =
   | 'vehicle_status'
   | 'open_radio'
   // V1 — araç sensör sorgusu (vehicleIntents.ts tohumu, extra.sensorQuery ile)
-  | 'query_sensor';
+  | 'query_sensor'
+  // Özel Konumlar (saved locations) — TEK otorite: savedLocationsService.
+  // extra.name (save: null olabilir · rename/delete/share: hedef ad) ·
+  // extra.newName (yalnız rename).
+  | 'save_location'
+  | 'rename_location'
+  | 'delete_location'
+  | 'share_location';
 
 export type CommandPriority = 'critical' | 'high' | 'normal';
 
@@ -1219,6 +1227,34 @@ export function parseCommandFull(input: string): ParseResult {
           settingKind:   settingMatch.kind,
           settingAction: settingMatch.action,
           settingValue:  settingMatch.value != null ? String(settingMatch.value) : '',
+        },
+      },
+      suggestions:   [],
+      needsSemantic: false,
+    };
+  }
+
+  // Ön kontrol: Özel Konumlar fiilleri (kaydet/adını değiştir/sil/paylaş) —
+  // navigasyon ön-kontrolünden ÖNCE: "Mavi Göl'ü sil" navigasyon TETİKLEYİCİSİ
+  // taşımaz (tryParseNavAddress zaten eşleşmez) ama sıra netlik için bilinçli.
+  const savedLocMatch = tryParseSavedLocationCommand(trimmed);
+  if (savedLocMatch) {
+    const typeByVerb: Record<typeof savedLocMatch.verb, CommandType> = {
+      save:   'save_location',
+      rename: 'rename_location',
+      delete: 'delete_location',
+      share:  'share_location',
+    };
+    return {
+      command: {
+        type:       typeByVerb[savedLocMatch.verb],
+        raw:        trimmed,
+        confidence: 1.0,
+        feedback:   savedLocMatch.feedback,
+        priority:   savedLocMatch.verb === 'delete' ? 'critical' : 'normal',
+        extra: {
+          name:    savedLocMatch.name ?? '',
+          ...(savedLocMatch.newName ? { newName: savedLocMatch.newName } : {}),
         },
       },
       suggestions:   [],

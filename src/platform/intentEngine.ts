@@ -241,6 +241,13 @@ const CMD_TO_INTENT: Record<CommandType, IntentType> = {
   hw_screen_off:   'HARDWARE_SCREEN_OFF',
   vehicle_status:  'VEHICLE_STATUS',
   query_sensor:    'QUERY_SENSOR',
+  // Özel Konumlar: `voiceService`in yerel bypass'ında (savedLocationsService
+  // TEK otoritesiyle) çözülür — `find_nearby_restaurant` ile AYNI desen,
+  // bu satırlara PRATİKTE hiç ulaşılmaz. Harita eksiksiz kalsın diye tanımlı.
+  save_location:    'UNKNOWN',
+  rename_location:  'UNKNOWN',
+  delete_location:  'UNKNOWN',
+  share_location:   'UNKNOWN',
 };
 
 /**

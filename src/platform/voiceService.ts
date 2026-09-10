@@ -110,6 +110,32 @@ import {
    `processTextCommand`ı ÇAĞIRAMAZ: kısmi sonuç yalnız artımlı anlama ve endpoint
    kanıtı üretir. Eylem YALNIZ aşağıdaki nihai (final) transkript dalından doğar. */
 import { getSttPartialDiagnostics } from './voice/sttPartialStream';
+/* Özel Konumlar — TEK otorite `savedLocationsService`dedir; voiceService onu
+   DOĞRUDAN import ETMEZ (o dosya `useStore`in TÜM uygulama mağazasını taşır —
+   voiceService'in test grafiği bunu beklemez, ölçüldü: mevcut mock'lanmış
+   testler `useStore` → `obdService` → `performanceMode` zincirini ANMIYOR ve
+   gerçek import onları KIRAR). Bunun yerine `configureVoiceConversation`/
+   `setConfirmedActionExecutor` ile AYNI DI deseni: SİL komutunun açık onayı
+   için isim çözümleyici `useVoiceCommandHandler`den KAYIT EDİLİR. */
+export interface SavedLocationLookup {
+  readonly id: string;
+  readonly name: string;
+}
+export type SavedLocationResolver = (rawName: string) => {
+  readonly match: SavedLocationLookup | null;
+  readonly ambiguous: readonly SavedLocationLookup[];
+};
+let _savedLocationResolver: SavedLocationResolver | null = null;
+/** `useVoiceCommandHandler` kaydeder (orada `savedLocationsService` vardır). */
+export function setSavedLocationResolver(fn: SavedLocationResolver | null): void {
+  _savedLocationResolver = fn;
+}
+/** Kayıt yoksa (wiring henüz kurulmadı) FAIL-CLOSED: eşleşme UYDURULMAZ. */
+function _resolveSavedLocationForDelete(rawName: string): ReturnType<SavedLocationResolver> {
+  try {
+    return _savedLocationResolver?.(rawName) ?? { match: null, ambiguous: [] };
+  } catch { return { match: null, ambiguous: [] }; }
+}
 /* MAVI-F13/2 · SESLİ SOHBET OTURUMU RUNTIME'I — oturum bayrağı, takip dinlemesi
    ve iki emniyet penceresi TEK sahiptedir. OTORİTE DEĞİLDİR: mikrofonu ve UI'yı
    kökün portlarından sürer, hiçbir platform modülü import etmez. */
@@ -1919,6 +1945,62 @@ export async function processTextCommand(
     // MAVI-M5: fire-and-forget async yol — tur token'ı TAŞINIR; sensör cevabı
     // ancak tur hâlâ güncelse konuşur ve turu KENDİSİ tamamlar.
     void _answerSensorQuery(result.command.extra?.sensorQuery ?? trimmed, turn);
+    return true;
+  }
+
+  // ── 1b3. ÖZEL KONUM (SAVED LOCATION) BYPASS ───────────────────────────────
+  // "Burayı kaydet, adı X olsun" / "X'e git" (navigate_place içinde AYRICA
+  // çözülür) / "X'i paylaş" / "X'in adını Y yap" / "X'i sil" — hava (1b)/sensör
+  // (1b2) ile AYNI ilke: deterministik yerel eşleşme beyne HİÇ GİTMEZ. KAYDET/
+  // YENİDEN ADLANDIR/PAYLAŞ doğrudan `dispatch`e gider (gerçek CRUD tek otoriteden
+  // — `useVoiceCommandHandler`in kayıtlı handler'ı — çalışır, sonuç-temelli ACK
+  // `voiceCommandPolicy.RESULT_ACK_COMMAND_TYPES`te). SİL ise GERİ ALINAMAZ →
+  // mevcut açık-onay mekanizmasıyla (`_pendingCmd`/AFFIRM_RE/NEGATE_RE, "orta
+  // güven" akışıyla AYNI kod yolu) sorulur; yeni bir onay otoritesi KURULMAZ.
+  if (
+    result.command &&
+    (result.command.type === 'save_location'
+      || result.command.type === 'rename_location'
+      || result.command.type === 'share_location'
+      || result.command.type === 'delete_location')
+    && result.command.confidence >= 0.7
+  ) {
+    _lastCommandTime = now;
+    void reportVoiceDiag('voice_route', { route: 'saved_location_local_bypass' });
+    setMaviLatencyRoute('saved_location_local_bypass');       // MAVI-F0
+
+    if (result.command.type !== 'delete_location') {
+      if (ctx?.isDriving) { dispatchDriving(result.command, ctx, turn); } else { dispatch(result.command, ctx, turn); }
+      completeMaviTurn(turn);
+      return true;
+    }
+
+    // ── SİL — açık onay ZORUNLU (yıkıcı, geri alınamaz) ──────────────────
+    const rawName = result.command.extra?.name ?? '';
+    const { match, ambiguous } = _resolveSavedLocationForDelete(rawName);
+    if (ambiguous.length > 0) {
+      _emitVoiceEvent('execution_result', { result: 'unsupported' });
+      speakMaviAnswer(
+        `Birden fazla "${rawName}" kaydı var, hangisini kastettiğini netleştirir misin?`,
+      );
+      push({ status: 'error', transcript: trimmed, error: 'Belirsiz konum adı', suggestions: [] });
+      completeMaviTurn(turn);
+      return true;
+    }
+    if (!match) {
+      _emitVoiceEvent('execution_result', { result: 'unsupported' });
+      speakMaviAnswer(`"${rawName}" adında kayıtlı bir konum bulamadım.`);
+      push({ status: 'error', transcript: trimmed, error: 'Konum bulunamadı', suggestions: [] });
+      completeMaviTurn(turn);
+      return true;
+    }
+    _pendingCmd = { ...result.command, extra: { ...result.command.extra, resolvedId: match.id } };
+    _pendingAt  = now;
+    const q = `${match.name} konumunu silmek istediğine emin misin? Evet ya da hayır de.`;
+    armVoiceFollowUp(); // soru bitince mikrofon açılır — kullanıcı evet/hayır'ı SÖYLEYEBİLİR
+    speakMaviAnswer(q);
+    push({ status: 'error', transcript: trimmed, error: q, suggestions: [] });
+    completeMaviTurn(turn);
     return true;
   }
 
