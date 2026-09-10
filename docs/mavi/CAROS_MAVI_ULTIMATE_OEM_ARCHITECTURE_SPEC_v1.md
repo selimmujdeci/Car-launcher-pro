@@ -5,8 +5,8 @@
 > **Kapsam:** Mavi = *Real-Time Road Companion + Universal CarOS Copilot* (TEK asistan)
 > **Kaynak otoritesi:** Bu belgedeki "MEVCUT" iddialarının tamamı gerçek koddan
 > `dosya:satır` ile çıkarılmıştır. Ölçülmemiş hiçbir şey "var" diye yazılmamıştır.
-> **Bağlayıcı üst belgeler:** `CLAUDE.md` · `AI.md` · `docs/CAROS_PRO_VIZYONU.md` ·
-> `docs/DEVICE_VALIDATION_LEDGER.md` (saha otoritesi) · `docs/MAVI_NEXT_VISION.md` (ürün yönü)
+> **Bağlayıcı üst belgeler:** `CLAUDE.md` · `docs/archive/AI.md` · `docs/CAROS_PRO_VIZYONU.md` ·
+> `docs/DEVICE_VALIDATION_LEDGER.md` (saha otoritesi) · `docs/archive/MAVI_NEXT_VISION.md` (ürün yönü)
 
 ---
 
@@ -1892,7 +1892,7 @@ rota/hız değiştirmesi · sesli reklam/öneri monetizasyonu.
 
 ### 28.1 Temel ilke — **STRANGLER FIG, BIG-BANG DEĞİL**
 
-`AI.md` ve CLAUDE.md gereği: **çok-sistemli refactor yasak · atomik patch zorunlu ·
+`docs/archive/AI.md` ve CLAUDE.md gereği: **çok-sistemli refactor yasak · atomik patch zorunlu ·
 kısmi mantık bırakılmaz.** Bu yüzden geçiş **hat değiştirme** ile değil,
 **yetki devri** ile yapılır.
 

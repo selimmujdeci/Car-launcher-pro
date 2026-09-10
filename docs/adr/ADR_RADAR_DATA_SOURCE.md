@@ -52,7 +52,7 @@ soru şuydu:
 > **Ücretsiz tek aday olan OSM'de gerçekten kaç sabit radar var ve o veriden
 > bir UYARI kararı üretilebilir mi?**
 
-"Büyük ihtimalle vardır" cevabı bu projede kabul edilmez (`AI.md` · kanıt kuralı).
+"Büyük ihtimalle vardır" cevabı bu projede kabul edilmez (`docs/archive/AI.md` · kanıt kuralı).
 Bu yüzden gerçek sorgu atıldı ve sayıldı.
 
 ---
@@ -241,7 +241,7 @@ koridorlarında gerçek dışı**. Bu tam da ürünün en çok ihtiyaç duyduğu
 |---|---|---|---|
 | OpenStreetMap (radar noktaları dahil) | **ODbL 1.0** | ✅ serbest | atıf + türev veritabanı paylaşımı |
 
-`docs/ADR_OFFLINE_ROUTING.md` §2 ile **aynı çerçeve**, iki ek notla:
+`docs/adr/ADR_OFFLINE_ROUTING.md` §2 ile **aynı çerçeve**, iki ek notla:
 
 1. **Atıf zorunlu:** `© OpenStreetMap katkıcıları`. Zaten harita için verdiğimiz
    atıf bu veriyi de kapsar; **ek maliyet yok**.
@@ -412,7 +412,7 @@ Bu tek gözlem, hangi ihtimalin doğru olduğunu söyler.
 
 | Konu | Bugünkü hüküm |
 |---|---|
-| Başarsoft / SCDB / HERE / TomTom teklifleri | **ERTELENDİ** — teklif metinleri (`docs/RADAR_VERI_TEKLIF_TALEBI_TASLAKLARI.md`) gelir oluşunca kullanılmak üzere **hazır bekliyor** |
+| Başarsoft / SCDB / HERE / TomTom teklifleri | **ERTELENDİ** — teklif metinleri (`docs/archive/RADAR_VERI_TEKLIF_TALEBI_TASLAKLARI.md`) gelir oluşunca kullanılmak üzere **hazır bekliyor** |
 | `SPEED_CAMERA_WARNING` yuvası | **BOŞ KALIR** — bu, bütçe kısıtının değil, ADR §6'nın zaten verdiği karar. Bütçe kararı onu yalnız **pekiştirir** |
 | Radar kodu yazmak | ~~YASAK~~ → **AÇILDI (§6-D):** kaynak seçildi (EGM), şema sabitlendi → kod yazılabilir |
 | Ürün sözü ("radara yakalanmaz") | **KULLANILMAZ** — pazarlama/satış malzemesinde bu vaat **verilemez**. Veri yokken verilen söz, satış sonrası sorumluluk doğurur |
@@ -436,7 +436,7 @@ kendi başlatması gereken** adımlardır:
 
 Bu ADR **gelir oluştuğunda** yeniden açılır. Somut tetikleyici: **ilk ticari
 head unit siparişi** veya **ilk ödemeli filo müşterisi**. O gün yapılacak ilk iş,
-`RADAR_VERI_TEKLIF_TALEBI_TASLAKLARI.md` içindeki üç metni göndermektir —
+`docs/archive/RADAR_VERI_TEKLIF_TALEBI_TASLAKLARI.md` içindeki üç metni göndermektir —
 araştırma tekrarlanmaz, ölçümler bu belgede duruyor.
 
 ---

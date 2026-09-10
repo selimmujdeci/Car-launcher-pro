@@ -11,10 +11,10 @@
 > F8 = saha ölçüm hazırlığı / enstrümantasyon / replay kanıt paketi
 > (§F8.0–F8.12). **Hiçbiri saha doğrulaması ALMADI** — kütük #1205–#1275
 > 🔴 `UNKNOWN / DEVICE VALIDATION REQUIRED`.
-**Öncelik:** `AI.md` > `CLAUDE.md` > bu belge > `NAVIGATION_ARCHITECTURE_SPEC_v2.md`
+**Öncelik:** `docs/archive/AI.md` > `CLAUDE.md` > bu belge > `docs/archive/NAVIGATION_ARCHITECTURE_SPEC_v2.md`
 > tüm diğer navigasyon belgeleri.
 
-**v2 ile ilişki:** `NAVIGATION_ARCHITECTURE_SPEC_v2.md` **baseline/geçiş referansıdır** ve
+**v2 ile ilişki:** `docs/archive/NAVIGATION_ARCHITECTURE_SPEC_v2.md` **baseline/geçiş referansıdır** ve
 algoritma seviyesindeki (EKF denklemleri, HMM emisyon/geçiş, karo formatları `GTL1`/`ADL1`,
 maliyet modeli, FMEA) tanımların ayrıntı kaynağı olmaya devam eder. v3, v2'nin **F1 —
 Sözleşme Omurgası** fazını **F0** olarak yeniden kapsamlar ve dört sözleşmeyi ekler:
@@ -1189,7 +1189,7 @@ F5 kodu ve kilitleri repoda mevcuttur — `horizon/cehConsumerContract.ts` ·
 **AÇIK BORÇ (F6'da KAPATILMADI, bilinçli):** bu belgeye F5 bölümünü geriye
 dönük yazmak F6'nın kapsamı değildir ve F6 sınır belgesi *"scope'u sessizce
 genişletme"* der. Borç burada KAYITLIDIR; F6 metni F5'e atıf yaparken
-`CAROS_PRO_VIZYONU.md` → NAV-V3-F5 maddesini kaynak gösterir.
+`docs/CAROS_PRO_VIZYONU.md` → NAV-V3-F5 maddesini kaynak gösterir.
 
 ---
 
@@ -1544,7 +1544,7 @@ getirdi. **Sıra: önce saha turu, sonra tüketici taşıma.**
 
 > **⚠️ ÖNCE BİR DÜZELTME (kanıtla):** bu belgede **v3-F7 diye TANIMLANMIŞ bir faz
 > YOKTU.** F7 kelimesi yalnız borç tablolarında "F7+" olarak geçiyordu
-> (§F1.7/B8 · §F6.10). Kanonik faz planı `NAVIGATION_ARCHITECTURE_SPEC_v2.md`
+> (§F1.7/B8 · §F6.10). Kanonik faz planı `docs/archive/NAVIGATION_ARCHITECTURE_SPEC_v2.md`
 > **§12**'dedir ve **farklı numaralandırır**: v2/F1 = sözleşme omurgası (v3'te
 > F0'a çekildi) · v2/F2 = EGO · v2/F3 = CEH · **v2/F4 = ROTA** · v2/F5 =
 > REHBERLİK·ARBİTRAJ·GÖSTERİM · v2/F6 = İLERİ (tetikleyici eşikle).

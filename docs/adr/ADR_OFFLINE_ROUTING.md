@@ -5,7 +5,7 @@
 > gerçek head unit'te **ölçüm** yapılmadan kesinleşmez (§6 Kabul Kapısı).
 >
 > Vizyon bağlamı: `docs/CAROS_PRO_VIZYONU.md` §7.9 **Katman 4**.
-> Ölçülmüş açık: **G15** (`docs/NAV_FIELD_GAPS_2026-08-05.md`) — çevrimdışı rota
+> Ölçülmüş açık: **G15** (`docs/archive/NAV_FIELD_GAPS_2026-08-05.md`) — çevrimdışı rota
 > motoru YOK; ağ kesilince rehberlik tamamen düşüyor.
 
 ---

@@ -20,7 +20,7 @@
 
 **HESAP DEĞİŞİMİ — DEVİR VERİLDİ / COMMIT PENDING**
 
-Tam devir notu: **`docs/HANDOFF_2026-07-27.md`** (bu oturumun tamamı orada).
+Tam devir notu: **`docs/archive/HANDOFF_2026-07-27.md`** (bu oturumun tamamı orada).
 Son iş: P0 saha turu — ısınma/kasma **sahada doğrulandı** (kütük #139), kök neden
 sınıfı CDP profiliyle **kanıtlandı** (#140), **düzeltme YAPILMADI**, commit YOK.
 
@@ -71,7 +71,7 @@ Bunlar birbirine karışmış durumda. **Yeni oturum kendi işini bunlarla karı
 | **CAROS LAB** | `src/platform/devtools/*`, `src/components/devtools/screens/*` | Tamam, commit bekliyor |
 | **Mavi** | `companionChatProvider`, `companionContext`, `maviCore/*`, `aiCore/runtime/*` | Tamam, commit bekliyor |
 | **Deep Scan** | `deepScan/ignitionEvidenceAdapter.ts`, `deepScanRuntimeService.ts` | Tamam, commit bekliyor |
-| **Doküman** | `docs/audits/`, `docs/RELEASE_CHECKLIST.md`, ledger/vizyon güncellemeleri | Tamam, commit bekliyor |
+| **Doküman** | `docs/audits/`, `docs/operations/RELEASE_CHECKLIST.md`, ledger/vizyon güncellemeleri | Tamam, commit bekliyor |
 
 ## 6. Saha doğrulama kuyruğu
 
@@ -88,13 +88,13 @@ Bunlar birbirine karışmış durumda. **Yeni oturum kendi işini bunlarla karı
 > Kapanış ölçütü ve kanıtla birlikte tam liste: `docs/workspace/03_DEBT.md`.
 
 1. **Çelişkili giriş talimatları düzeltilmedi** — `CONTRIBUTING.md §0`, `HANDOFF.md §1`,
-   `docs/project/MASTER_PROMPT.md` hâlâ eski/çakışan sıraları dayatıyor. Bu belge ve
+   `docs/archive/project/MASTER_PROMPT.md` hâlâ eski/çakışan sıraları dayatıyor. Bu belge ve
    `00_START_HERE.md` onları ezer ama **kaynak metinler düzeltilmedi**. Açık dokümantasyon borcu.
 2. **Gerçek araç doğrulaması gerekiyor** — 130 açık 🔴 kayıt.
 3. **Çalışma ağacı atomik commit için karışık** — altı bağımsız küme iç içe (§5).
    İzole commit derlenmiyor; bu yüzden bu oturumdaki hiçbir iş commit edilmedi.
-4. **İnsan kararı bekleyen dokümantasyon birleştirmeleri** — `docs/audits/MARKDOWN_DOCUMENTATION_AUDIT.md`
-   §15'te 8 madde (özellikle `docs/project/` setinin ve `PROJECT_STATE.md`'nin geleceği).
+4. **İnsan kararı bekleyen dokümantasyon birleştirmeleri** — `docs/archive/audits/MARKDOWN_DOCUMENTATION_AUDIT.md`
+   §15'te 8 madde (özellikle `docs/project/` setinin ve `docs/archive/PROJECT_STATE.md`'nin geleceği).
 
 ## 8. Sonraki güvenli adım
 
@@ -109,7 +109,7 @@ Bunlar birbirine karışmış durumda. **Yeni oturum kendi işini bunlarla karı
 
 - **İlk okunacak dosya:** `docs/workspace/00_START_HERE.md`
 - **Devam edilecek görev:** DEBT-012 kök nedeni (store setState probe) — bkz. devir notu §10
-- **Tam devir notu:** `docs/HANDOFF_2026-07-27.md`
+- **Tam devir notu:** `docs/archive/HANDOFF_2026-07-27.md`
 - **Dokunulmayacak kümeler:** §5'teki Workspace dışı altı küme — commit edilmemiş, tamamlanmış iş
 - **Commit durumu:** bu oturumda **hiçbir commit atılmadı**
 - **Saha borcu:** 130 açık 🔴 kayıt; otorite `docs/DEVICE_VALIDATION_LEDGER.md`

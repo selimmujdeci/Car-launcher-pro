@@ -1,6 +1,6 @@
 # TEST MATRIX — CarOS Pro
 
-> Senaryo bazlı test durumu. "Mevcut durum" `PROJECT_STATE.md` + `HANDOFF.md`'den
+> Senaryo bazlı test durumu. "Mevcut durum" `docs/archive/PROJECT_STATE.md` + `docs/archive/HANDOFF.md`'den
 > alındı (güncelleme 2026-06-09); çoğu native/saha senaryosu **SAHA TESTİ BEKLİYOR**.
 > Release öncesi `RELEASE_CHECKLIST.md` ile birlikte kullanılır.
 
@@ -18,7 +18,7 @@
 | **YouTube video probe** | YT debug/probe flag ile video teşhisi | — | **Belirsiz** | `YT_DEBUG_PROBE`/iframe probe kodda YOK (grep boş) |
 | **Low-end performans** | Faz 1 GPU patch sonrası dokunma gecikmesi ölçümü | K24'te dokunma gecikmesini ölç; `--rt-blur` guard etkin mi | Bekliyor | Faz 1 commit 2fbbd57; Faz 2 interval gating YAPILMADI |
 | **Vosk STT (mikrofon)** | Offline Türkçe STT + AGC/NS/AEC + ducking | K24 internetsiz; sesli komut ver, müzik %12'ye iniyor mu | Bekliyor | CarLauncherPlugin.java; Java compile OK, cihazda doğrulanmadı |
-| **8–24h Soak (uzun süre)** | RAM/PSS plato, BT/OBD reconnect, CAN sinyal, eMMC, termal, saat-sıçraması, ducking, media session | `docs/SOAK_MANUAL_K24_CHECKLIST.md` adımları (8–24h) + `tools/diag-restart.ps1` | Bekliyor | Mantık/sözleşme sanal kapsandı (T4); gerçek-donanım manuel |
+| **8–24h Soak (uzun süre)** | RAM/PSS plato, BT/OBD reconnect, CAN sinyal, eMMC, termal, saat-sıçraması, ducking, media session | `docs/field/SOAK_MANUAL_K24_CHECKLIST.md` adımları (8–24h) + `tools/diag-restart.ps1` | Bekliyor | Mantık/sözleşme sanal kapsandı (T4); gerçek-donanım manuel |
 
 ## Otomatik test kapsamı (referans — bunlar geçiyor)
 
@@ -30,23 +30,23 @@
 | Soak / endurance (sanal-saat, T4) | `npm test -- soak` | 49 test; 8–24h fake-timer; gerçek sleep yok |
 | Performans (sanal, P-serisi) | `npm test -- perf` | 36 test; notify/RAF/theme/map/blur/worker/fps proxy |
 | E2E (Playwright) | `npm run test:e2e` | CLAUDE.md E2E tablosu; release öncesi koş |
-| Web build (tsc + vite) | `npm run build` | OK (`PROJECT_STATE.md`) |
+| Web build (tsc + vite) | `npm run build` | OK (`docs/archive/PROJECT_STATE.md`) |
 | Type/lint | `npx tsc -b` · `npm run lint` | tsc -b + eslint temiz (2026-06-09) |
 
 > **T1–T4 sanal test altyapısı** (`src/__tests__/sim/` + `soak.*.test.ts` + `cleanup.*.test.ts`):
 > OBD/CAN simülatörü, leak harness, low-end/runtime simülatörü, sanal-saat soak motoru.
 > safeStorage / OBD reconnect / runtime zombie-thermal / telemetry / connectivity /
 > remoteCommand / cross-service 24h **mantığını** araçsız deterministik doğrular.
-> Gerçek-donanım soak için → `docs/SOAK_MANUAL_K24_CHECKLIST.md`.
+> Gerçek-donanım soak için → `docs/field/SOAK_MANUAL_K24_CHECKLIST.md`.
 >
 > **Performans P-serisi** (`src/__tests__/sim/perfHarness.ts` + `perf.*.test.ts`):
 > store notify disiplini, rafSmoother 20Hz throttle, theme-switching guard, map
 > ownership singleton, media blurOff matrisi, worker/main-thread bütçe, FPS sayaç
 > matematiği. jsdom'da tam render kırılgan (testing-library yok) → render storm
 > KÖK-NEDENİNDEN (notify + RAF throttle) proxy ile ölçülür. Plan/kabul:
-> `docs/PERF_AUDIT.md`; gerçek-donanım FPS/RAM/WebGL için → `docs/PERF_K24_CHECKLIST.md`.
+> `docs/archive/PERF_AUDIT.md`; gerçek-donanım FPS/RAM/WebGL için → `docs/field/PERF_K24_CHECKLIST.md`.
 | Lint | `npm run lint` | Release öncesi koş |
-| Native compile | `gradlew compileDebugJavaWithJavac` | OK (mic/ducking; `PROJECT_STATE.md`) |
+| Native compile | `gradlew compileDebugJavaWithJavac` | OK (mic/ducking; `docs/archive/PROJECT_STATE.md`) |
 
 ## Durum lejantı
 

@@ -85,7 +85,7 @@ Kaydedici **hedef seçmeden ÖNCE** başlatılır, senaryo bitince durdurulur.
 ## 4 · DÖNÜŞTE (araç durduktan sonra)
 - [ ] LAB → Navigation Core → **TÜMÜNÜ KOPYALA** → her senaryo için ayrı kaydet
 - [ ] Ekran görüntüsü: `adb exec-out screencap -p > docs/evidence/<senaryo>.png`
-- [ ] `nav-field-analyze.mjs` çıktılarını `docs/REAL_VEHICLE_VALIDATION_REPORT.md`'ye işle
+- [ ] `nav-field-analyze.mjs` çıktılarını `docs/archive/REAL_VEHICLE_VALIDATION_REPORT.md`'ye işle
 - [ ] Kütük **#364–#372** maddelerini 🔴 → 🟢 / ❌ olarak taşı (kanıtla birlikte)
 
 ---

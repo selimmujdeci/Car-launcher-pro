@@ -43,7 +43,7 @@ Bu bayrağı **bu makinede** açan dosya: `.env.production.local`
 geçici olarak kaldırılıp gerçek `vite build` alınarak **doğrulanmıştır** —
 derlenmiş çıktı `developerFeaturesEnabled:!1` üretir ve `shouldRenderCarosLab`
 `!0===t` şartını korur (kapı çalışma zamanında KAPALI).
-**5. ve 6. maddeler CİHAZDA DOĞRULANMAMIŞTIR** (bkz. `DEVICE_VALIDATION_LEDGER.md` #117).
+**5. ve 6. maddeler CİHAZDA DOĞRULANMAMIŞTIR** (bkz. `docs/DEVICE_VALIDATION_LEDGER.md` #117).
 
 ---
 

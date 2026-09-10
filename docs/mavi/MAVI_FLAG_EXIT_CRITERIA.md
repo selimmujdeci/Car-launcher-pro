@@ -1,7 +1,7 @@
 # CAROS PRO — MAVİ FEATURE FLAG EXIT CRITERIA
 
 **Tarih:** 2026-08-30 · **Faz:** MAVI-F13/2 · **Kütük maddesi:** #1031
-**Otorite:** `docs/CAROS_MAVI_ULTIMATE_OEM_ARCHITECTURE_SPEC_v1.md` §28.4 (bayrak disiplini)
+**Otorite:** `docs/mavi/CAROS_MAVI_ULTIMATE_OEM_ARCHITECTURE_SPEC_v1.md` §28.4 (bayrak disiplini)
 **Saha gerçeği:** `docs/DEVICE_VALIDATION_LEDGER.md` (bu belge kütüğü EZMEZ)
 
 ---

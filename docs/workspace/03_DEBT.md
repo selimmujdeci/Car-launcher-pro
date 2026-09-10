@@ -30,17 +30,6 @@
 - Bağımlılık / blokaj: Yok (CI runner maliyeti dışında).
 - İlgili dosyalar: `.github/workflows/main.yml`, `.github/workflows/codeql.yml`, `android/`
 
-## DEBT-004 — Eski giriş talimatları yönlendiriciye dönüştürülmedi
-
-- Alan: Documentation
-- Öncelik: P1
-- Durum: OPEN
-- Kanıt: `CONTRIBUTING.md:10` "0. İşe Başlamadan Önce (zorunlu okuma sırası)" ve `:23` "`PROJECT_STATE.md` + `HANDOFF.md` mutlaka okunur"; `docs/project/MASTER_PROMPT.md:3` kendini "TEK GERÇEK KAYNAK" ilan ediyor (audit `DOC-P1-01`). DEC-004 bunları ezer ama kaynak metinler duruyor.
-- Risk: Workspace'i bilmeyen bir oturum eski sıraya girip eskimiş durum belgelerini güncel sanır — Workspace'in tüm değeri buharlaşır.
-- Kapanış ölçütü: Üç belgenin giriş bölümü `docs/workspace/00_START_HERE.md`'ye yönlendiren tek cümleye indirilir; hiçbiri kendi başına okuma sırası dayatmaz.
-- Bağımlılık / blokaj: Yok.
-- İlgili dosyalar: `CONTRIBUTING.md`, `HANDOFF.md`, `docs/project/MASTER_PROMPT.md`
-
 ## DEBT-006 — Saha doğrulama kuyruğu: açık 🔴 kayıtların tamamı
 
 - Alan: Validation
@@ -103,7 +92,7 @@
 - Öncelik: P0
 - Durum: OPEN
 - Kanıt: `thermalWatchdog.injectDeviceTemp()` üretimde **hiç çağrılmıyor** — tek çağıranlar `ChaosSimulator`, `TestControlPanel`, `ScenarioEngine`, `SystemBoot` kaos alıcısı (hepsi DEV/kaos). `CarLauncherPlugin.java`'da termal listener **yok** (`thermalStatus`/`cpuTemp` grep boş). Cihazın Android termal HAL'i de ölü: `dumpsys thermalservice` → `HAL Ready: false`, `Thermal Status: -2147483648`. Buna karşılık **sysfs okunabiliyor**: `thermal_zone0=cpu`, `1=gpu`, `2=ddr`. Yani cihaz 90 °C'ye çıkarken `thermalWatchdog` `source:'unknown'` kalıyor ve L1/L2/L3 eşikleri hiç tetiklenmiyor.
-- Risk: `AI.md`/ADR-0002'nin "termal bütçe" invaryantı bu cihaz sınıfında **kâğıt üstünde**. Aşırı ısınmada runtime kendini kısmıyor; DEBT-012'nin şiddetini doğrudan artırıyor.
+- Risk: `docs/archive/AI.md`/ADR-0002'nin "termal bütçe" invaryantı bu cihaz sınıfında **kâğıt üstünde**. Aşırı ısınmada runtime kendini kısmıyor; DEBT-012'nin şiddetini doğrudan artırıyor.
 - Kapanış ölçütü: Üretimde gerçek bir sıcaklık kaynağı bağlanır (native `CarLauncherPlugin` → sysfs `thermal_zone*` okuması → `injectDeviceTemp`), kaynak yoksa `source` dürüstçe `unknown`/`UNAVAILABLE` kalır (sahte sıcaklık ÜRETİLMEZ), ve gerçek cihazda sıcaklık yükselince runtime tavanının düştüğü + düşüş nedeninin görünür olduğu ölçülür.
 - Bağımlılık / blokaj: DEBT-011 (düşüş nedeni bugün üretimde görülemiyor). Yeni termal algoritma YAZILMAZ — mevcut `thermalWatchdog` zaten var, eksik olan yalnız **girdi**.
 - İlgili dosyalar: `src/platform/thermalWatchdog.ts` (yalnız OKUNDU), `android/app/src/main/java/com/cockpitos/pro/CarLauncherPlugin.java`
@@ -135,8 +124,8 @@
 - Alan: Documentation
 - Öncelik: P2
 - Durum: HUMAN_DECISION_REQUIRED
-- Kanıt: Audit K-2 — beş proje durumu belgesi, beş farklı tarih; audit `D-02` — `RELEASE_CHECKLIST.md` (kök, 154 satır, izlenen) ↔ `docs/RELEASE_CHECKLIST.md` (87 satır, **izlenmiyor**), içerikleri farklı. Audit §15/1-3: `docs/project/` setinin ve `PROJECT_STATE.md`'nin geleceği süreç kararı.
+- Kanıt: Audit K-2 — beş proje durumu belgesi, beş farklı tarih; audit `D-02` — `docs/operations/RELEASE_CHECKLIST.md` (kök, 154 satır, izlenen) ↔ `docs/operations/RELEASE_CHECKLIST.md` (87 satır, **izlenmiyor**), içerikleri farklı. Audit §15/1-3: `docs/project/` setinin ve `docs/archive/PROJECT_STATE.md`'nin geleceği süreç kararı.
 - Risk: Yanlış belgeden okuyan biri eskimiş yayın adımlarını uygular; birleştirmede içerik kaybı riski **orta-yüksek**.
 - Kapanış ölçütü: Sahibi hangi belgenin bağlayıcı olduğuna karar verir; diğerleri yönlendiriciye dönüşür veya arşivlenir ve hiçbir benzersiz madde kaybolmaz.
 - Bağımlılık / blokaj: **İnsan kararı** — otomatik çözülemez (audit §15).
-- İlgili dosyalar: `RELEASE_CHECKLIST.md`, `docs/RELEASE_CHECKLIST.md`, `docs/project/`, `PROJECT_STATE.md`
+- İlgili dosyalar: `docs/operations/RELEASE_CHECKLIST.md`, `docs/operations/RELEASE_CHECKLIST.md`, `docs/project/`, `docs/archive/PROJECT_STATE.md`

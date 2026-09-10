@@ -3,7 +3,7 @@
 ## Status
 
 Kısmen kabul edildi. **Faz 1 TAMAMLANDI** (commit `2fbbd57`). **Faz 2 (interval
-gating) PENDING** — kullanıcı onayı bekliyor (`PROJECT_STATE.md`, `ROADMAP.md`).
+gating) PENDING** — kullanıcı onayı bekliyor (`docs/archive/PROJECT_STATE.md`, `docs/archive/ROADMAP.md`).
 
 ## Context
 
@@ -44,7 +44,7 @@ bundan beslenir.
   (`MainLayout.tsx:349-351, 431`).
 
 ### Faz 2 — PENDING (onay bekliyor)
-Interval gating (frekanslar `PROJECT_STATE.md`'de doğrulandı): VehicleSignalResolver
+Interval gating (frekanslar `docs/archive/PROJECT_STATE.md`'de doğrulandı): VehicleSignalResolver
 20→10/5Hz, NativeHALAdapter 2→1Hz (`NativeHALAdapter.ts:43`), CognitivePriorityEngine
 1→0.5Hz (`CognitivePriorityEngine.ts:46`), vehicleIntelligenceService durağanda 2→1Hz.
 **`blackBoxService.ts:54` 10Hz DEĞİŞMEZ** (kaza kara kutusu, yüksek risk).
@@ -55,7 +55,7 @@ Interval gating (frekanslar `PROJECT_STATE.md`'de doğrulandı): VehicleSignalRe
 - (+) `SAFE_MODE` altında halo-pulse/heavy blur otomatik kapanır (SplitScreen,
   BootSplash, QuickControlsOverlay vb. `RuntimeMode.SAFE_MODE` aboneliği).
 - (−) Faz 1'in cihaz etkisi henüz ölçülmedi (saha testi bekliyor) — Faz 2'ye
-  gerçekten ihtiyaç olup olmadığı ölçümle netleşmeli (`HANDOFF.md` §4 notu).
+  gerçekten ihtiyaç olup olmadığı ölçümle netleşmeli (`docs/archive/HANDOFF.md` §4 notu).
 - (!) `VehicleSignalResolver` Seqlock/SAB yapısına dokunulmaz; Faz 2'de yalnızca
   polling periyodu değişir.
 

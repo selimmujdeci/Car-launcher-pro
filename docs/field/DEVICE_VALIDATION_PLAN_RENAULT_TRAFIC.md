@@ -2,7 +2,7 @@
 
 > **Amaç:** PR #39 (P2-5 Learning Integration) merge sonrası, öğrenme zincirini gerçek
 > araçta (Renault Trafic) doğrulamak. Bu belge YALNIZ plan + gözlem kontrol listesidir;
-> kod/branch/PR/migration içermez. Sonuçlar gözlemlendikçe `DEVICE_VALIDATION_LEDGER.md`
+> kod/branch/PR/migration içermez. Sonuçlar gözlemlendikçe `docs/DEVICE_VALIDATION_LEDGER.md`
 > gerçek sonuca göre güncellenir (test edilmeyen madde yeşil YAPILMAZ).
 >
 > **Referans main:** `20b0282` (PR #39 merge sonrası).

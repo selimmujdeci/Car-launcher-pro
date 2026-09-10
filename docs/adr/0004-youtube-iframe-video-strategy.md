@@ -3,7 +3,7 @@
 ## Status
 
 Kabul edildi. **Gömülü YouTube video REVERT edildi**; mevcut strateji **audio/stream
-odaklı**. Video özelliği **ertelendi** (`PROJECT_STATE.md`, `ARCHITECTURE_DATAFLOW.md` §6).
+odaklı**. Video özelliği **ertelendi** (`docs/archive/PROJECT_STATE.md`, `docs/architecture/ARCHITECTURE_DATAFLOW.md` §6).
 
 ## Context
 
@@ -38,13 +38,13 @@ YouTube içeriğine erişim **Piped** (YouTube proxy) üzerinden sağlanıyor. �
 - (+) Düşük güçlü head unit'te video decode yükü yok (audio/stream odaklı).
 - (−) **Tek nokta arıza riski:** canlı doğrulanmış tek instance private.coffee düşerse
   YouTube arama/stream çöker. Kalıcı çözüm (alternatif kaynak / yerel proxy / graceful
-  fallback) **netleşmemiş** (`ROADMAP.md` — **Belirsiz**, hedeflenen çözüm yok).
+  fallback) **netleşmemiş** (`docs/archive/ROADMAP.md` — **Belirsiz**, hedeflenen çözüm yok).
 - (−) Video oynatma yok; gelecekte istenirse yeni ADR ile yeniden değerlendirilir.
 
 ## Links & affected files
 
 - `src/platform/media/pipedProvider.ts:22-28` (INSTANCES), `:36-37` (timeout), `:39-45` (sticky)
 - `src/platform/media/carosMediaLayer.ts:32, 203` (playYouTube; `_playYouTubeLight` YOK)
-- `ARCHITECTURE_DATAFLOW.md` §6 (YouTube / Medya Mimarisi)
-- `ROADMAP.md` (Piped tek-instance riski — çözüm Belirsiz)
+- `docs/architecture/ARCHITECTURE_DATAFLOW.md` §6 (YouTube / Medya Mimarisi)
+- `docs/archive/ROADMAP.md` (Piped tek-instance riski — çözüm Belirsiz)
 - YouTube debug probe flag: **Belirsiz / kodda bu adla yok**

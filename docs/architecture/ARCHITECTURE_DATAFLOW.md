@@ -1,8 +1,8 @@
 # ARCHITECTURE — Veri Akışı Haritası (CarOS Pro)
 
-> NOT: Bu repoda zaten `ARCHITECTURE.md` var (üst-düzey "Sistem Manifestosu" — vizyon
+> NOT: Bu repoda zaten `docs/archive/ARCHITECTURE.md` var (üst-düzey "Sistem Manifestosu" — vizyon
 > ve standartlar). O dosyaya DOKUNULMADI. Bu dosya onu tamamlar: **somut veri akışları
-> ve kod tabanından doğrulanmış referanslar**. Üst-düzey vizyon için `ARCHITECTURE.md`.
+> ve kod tabanından doğrulanmış referanslar**. Üst-düzey vizyon için `docs/archive/ARCHITECTURE.md`.
 > Son güncelleme: 2026-06-24.
 
 ---
@@ -143,7 +143,7 @@ SafetyOverlay (UI)   ← banner + ikon şeridi (App.tsx mount); reverse → Reve
   sahip → hook/tick `now` da `performance.now()`. CAN için stale yerine `resetCanData()` reset-safe.
 - **HENÜZ YOK:** `voiceAnnouncementAlert` tüketicisi (VoiceSafetyAnnouncer — Faz 3B);
   `signalsAvailable`'ın CAN handshake/profile bağlantısı (gerçek araç canlı verisi).
-- Standart: `SAFETY_ASSISTANT_STANDARD.md`; kod: `src/platform/safety/*`,
+- Standart: `docs/mavi/SAFETY_ASSISTANT_STANDARD.md`; kod: `src/platform/safety/*`,
   `src/components/safety/SafetyOverlay.tsx`.
 
 ---
@@ -151,4 +151,4 @@ SafetyOverlay (UI)   ← banner + ikon şeridi (App.tsx mount); reverse → Reve
 ## Çapraz Kesen Standartlar
 
 `CLAUDE.md` (V8 hidden-class, zero-allocation hot-path, sensor resiliency) ve
-`ARCHITECTURE.md` (manifesto) içinde. Tekrar yazılmadı — oraya bakın.
+`docs/archive/ARCHITECTURE.md` (manifesto) içinde. Tekrar yazılmadı — oraya bakın.

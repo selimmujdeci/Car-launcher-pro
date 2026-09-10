@@ -5,7 +5,7 @@
 **Kapattığı çatal:** kütük #286 — *"`buildVehicleVerdict` taşıma çatalı AÇIK: kanıt/karar
 omurgası sunucuda, cihazda kanıt üreten ürün kodu yok, ama tanı verdisi çevrimdışı
 çalışmak zorunda"*
-**İlgili:** #280 · #283 · #285 · #287 · migration 055–060 · `docs/HANDOFF_2026-08-08_PROJE_DEVIR.md`
+**İlgili:** #280 · #283 · #285 · #287 · migration 055–060 · `docs/archive/HANDOFF_2026-08-08_PROJE_DEVIR.md`
 
 > Bu belge **tasarımdır**. Kod yazılmadı, migration koşulmadı, commit atılmadı.
 

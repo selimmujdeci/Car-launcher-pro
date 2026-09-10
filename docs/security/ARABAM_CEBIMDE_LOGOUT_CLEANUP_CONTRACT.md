@@ -4,7 +4,7 @@
 **Tarih:** 2026-07-29  
 **Branch:** `feat/caros-lab-phase-a1`  
 **HEAD:** `f89540c3b332cf0bfea897d8d22a1c2103f26889`  
-**Canonical roadmap:** [`../ARABAM_CEBIMDE_PWA_ROADMAP.md`](../ARABAM_CEBIMDE_PWA_ROADMAP.md)  
+**Canonical roadmap:** [`docs/archive/ARABAM_CEBIMDE_PWA_ROADMAP.md`](../archive/ARABAM_CEBIMDE_PWA_ROADMAP.md)  
 **Authority envanteri:** [`ARABAM_CEBIMDE_CREDENTIAL_AUTHORITY_INVENTORY.md`](ARABAM_CEBIMDE_CREDENTIAL_AUTHORITY_INVENTORY.md)  
 **Kapsam:** Tasarım ve test sözleşmesi; production cleanup implementasyonu yok.
 

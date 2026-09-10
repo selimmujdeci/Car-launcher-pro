@@ -3,7 +3,7 @@
 **Tarih:** 2026-07-29  
 **Görev:** PWA-P1-004  
 **Durum:** Foundation locally tested; production cleanup wiring yok  
-**Canonical roadmap:** `docs/ARABAM_CEBIMDE_PWA_ROADMAP.md`
+**Canonical roadmap:** `docs/archive/ARABAM_CEBIMDE_PWA_ROADMAP.md`
 
 Bu belge roadmap değildir. İstemci storage authority envanteri, registry
 sözleşmesi ve sonraki purge/migration görevleri için canonical detay ekidir.

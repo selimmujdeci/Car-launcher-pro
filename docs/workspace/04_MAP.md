@@ -18,7 +18,7 @@
 |---|---|---|---|---|---|
 | SystemBoot | ACTIVE | `platform/system/SystemBoot.ts` | Dalgalı boot; tüm servisleri `_reg()` ile kaydeder, LIFO kapatır | `SystemBoot.ts:623-951` | — |
 | Adaptive Runtime / DeviceTier | ACTIVE | `core/runtime/AdaptiveRuntimeManager.ts` | Mod seçer, `--rt-blur`/`--rt-anim` sürer, histerezisli | `AdaptiveRuntimeManager.ts:238,325` · ADR 0002 · kütük #138 | AÇILIŞ modu daima `BASIC_JS`; K24'te ölçüldü ama cihaz LOW-tier olduğu için ayırt edici DEĞİL → DEBT-002 |
-| Event Bus | ACTIVE | `system/platformCoreEventBusWiring.ts` | Tek sahipli singleton; Kernel DI ile publisher | `SystemBoot.ts:623` · `PROJECT_MEMORY.md` | — |
+| Event Bus | ACTIVE | `system/platformCoreEventBusWiring.ts` | Tek sahipli singleton; Kernel DI ile publisher | `SystemBoot.ts:623` · `docs/archive/project/PROJECT_MEMORY.md` | — |
 | Vehicle HAL (+ bridge) | ACTIVE | `platformCoreVehicleHalWiring.ts` | Store'dan HAL'e batch ingest + bus köprüsü | `SystemBoot.ts:734,745` | Saha kayıtları 🔴 |
 | Capability Registry (+ bridge) | WIRED | `platformCoreCapabilityWiring.ts` | Yetenek kaydı ve bus köprüsü; karar otoritesi değil | `SystemBoot.ts:757,769` | — |
 | System Orchestrator | ACTIVE | `system/SystemOrchestrator.ts` | Event-driven güvenlik/uyarı orkestrasyonu; **poll yok** | `SystemBoot.ts:789` | — |
@@ -68,8 +68,8 @@
 | Phone Hub | PARTIAL | `platform/phoneHub/*` | Yalnız CAROS LAB ekranlarından erişilir; `SystemBoot`'ta **kayıt YOK** | grep: `SystemBoot` içinde `phoneHub` yok | Cihazda hiç çalışmadı → DEBT-006 |
 | VCOMP (VehicleCompute worker) | ACTIVE | `vehicleDataLayer/VehicleCompute.worker.ts` | Hız/odometre/geofence; global fail-safe + fail-closed kaynak kapısı + `_odoTMR` | `:245-269` · kütük #136/#137 | `FUSED` gönderen taraf → DEBT-007 |
 | SAB / crossOriginIsolated | DISABLED | `vite.config.ts` (COEP kaldırıldı) | **Bilinçli ve kabul edilmiş politika**: üretim SAB'a bağımlı değil, her yol JSON fallback ile çalışır; kod korunuyor | DEC-014 · DEC-017 · `offlineRoutingService.ts:333` | SAB borç DEĞİLDİR; runtime bütçe seçimi AYRI değerlendiriliyor (DEBT-002). Kör COOP/COEP yaması YASAK |
-| Offline haritalar | ACTIVE | `mapSourceManager.ts` · `public/maps/` | Online/offline/cached kaynak anahtarlama + SW önbelleği | `SERVICE_WORKER_OFFLINE.md` | OSM atıfı zorunlu (DEC-015) |
-| Navigasyon | ACTIVE | `navigationService.ts` · `NavigationCompute.worker.ts` | Rota + rehberlik; AI.md navigasyon invaryantlarına tabi | `AI.md` NAVIGATION RULES | Offline routing sınırlı |
+| Offline haritalar | ACTIVE | `mapSourceManager.ts` · `public/maps/` | Online/offline/cached kaynak anahtarlama + SW önbelleği | `docs/archive/SERVICE_WORKER_OFFLINE.md` | OSM atıfı zorunlu (DEC-015) |
+| Navigasyon | ACTIVE | `navigationService.ts` · `NavigationCompute.worker.ts` | Rota + rehberlik; AI.md navigasyon invaryantlarına tabi | `docs/archive/AI.md` NAVIGATION RULES | Offline routing sınırlı |
 | Traffic provider | PARTIAL | `trafficService.ts:48` | HERE/TomTom yalnız `VITE_*_API_KEY` varsa; yoksa sağlayıcı yok | `:5-6,48` | Anahtar build'e inline olur (ölçülmedi) |
 | OTA | WIRED | `otaUpdateService.ts` | Boot kontrolü + 6 saatlik poll | `SystemBoot.ts:927` | Sunucu tarafı repo'da yok |
 | Remote log / self-pair | WIRED | `remoteLogService.ts` · `vehicleIdentityService.ts` | Sessiz cihaz kaydı + uzak log sink | `SystemBoot.ts:936,941` | Supabase env yoksa no-op |
@@ -82,5 +82,5 @@
 |---|---|---|---|
 | Smart Surveillance · Continuous Surveillance | VISION | `docs/CAROS_PRO_VIZYONU.md:1059-1060` (`YOK`) · kodda karşılık yok | Güç bütçesi tanımlanmadan uygulanması **yasak**; Battery Protection bunları kapsamaz |
 | Hidden Fault Hunter · Vehicle MRI · Scan Completeness | VISION | Vizyon `:926,931,990` | Deep Scan + UDS'e bağımlı |
-| Mavi'nin tek karar otoritesine dönüşmesi | VISION | DEC-013 · `docs/MAVI_NEXT_VISION.md` | Bugün SHADOW + tek eylemlik takeover |
-| Diğer uzun vadeli Vehicle OS zekâ yetenekleri | VISION | `docs/CAROS_VEHICLE_INTELLIGENCE_ARCHITECTURE.md` | Tek tek listelenmez; otoriter belgeye bakılır |
+| Mavi'nin tek karar otoritesine dönüşmesi | VISION | DEC-013 · `docs/archive/MAVI_NEXT_VISION.md` | Bugün SHADOW + tek eylemlik takeover |
+| Diğer uzun vadeli Vehicle OS zekâ yetenekleri | VISION | `docs/architecture/CAROS_VEHICLE_INTELLIGENCE_ARCHITECTURE.md` | Tek tek listelenmez; otoriter belgeye bakılır |

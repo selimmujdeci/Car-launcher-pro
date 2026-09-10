@@ -4,7 +4,7 @@
 **Tarih:** 2026-07-29  
 **Branch:** `feat/caros-lab-phase-a1`  
 **HEAD:** `f89540c3b332cf0bfea897d8d22a1c2103f26889`  
-**Canonical roadmap:** [`../ARABAM_CEBIMDE_PWA_ROADMAP.md`](../ARABAM_CEBIMDE_PWA_ROADMAP.md)  
+**Canonical roadmap:** [`docs/archive/ARABAM_CEBIMDE_PWA_ROADMAP.md`](../archive/ARABAM_CEBIMDE_PWA_ROADMAP.md)  
 **Kapsam:** Analiz ve sözleşme; davranışsal kod değişikliği yok.
 
 ## 1. Sonuç
