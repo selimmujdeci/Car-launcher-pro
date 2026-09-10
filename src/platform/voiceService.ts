@@ -468,6 +468,49 @@ function _clearProcessingFailsafe(): void {
   }
 }
 
+/* ── Terminal durum bekçisi ('success' / 'error') ─────────────
+ * KÖK (kanıtlandı): 'processing' ve 'listening' için bekçi VARDI, terminal
+ * gösterim durumları için YOKTU — 'success'/'error' idle'a yalnız ~20 ayrı
+ * çağrı yerindeki `setTimeout` ile dönüyordu. O zamanlayıcılardan biri hiç
+ * kurulmazsa (handler fırlatması · zamanlayıcısı olmayan push yolu) durum
+ * KALICI olarak terminal kalıyor ve wake kapısı (`status !== 'idle'`) her
+ * "Hey Mavi" tetiğini bastırıyordu.
+ *
+ * Bu bekçi yeni bir durum makinesi DEĞİLDİR: mevcut `push()` funnel'ının
+ * halihazırda 'processing' için yaptığı garantiyi terminal durumlara genişletir.
+ * SON ÇAREdir — süre her meşru penceresinden (en uzunu sohbet-idle 15 sn)
+ * uzundur, dolayısıyla normal akışların zamanlaması DEĞİŞMEZ. Konuşma hâlâ
+ * sürüyorsa pencere uzatılır (tavanlı): gerçek cevap ASLA yarıda kesilmez. */
+const TERMINAL_FAILSAFE_MS = 30_000;
+const TERMINAL_SPEAKING_EXTEND_MS = 5_000;
+const TERMINAL_MAX_EXTENSIONS = 24;
+let _terminalFailsafeTimer: ReturnType<typeof setTimeout> | null = null;
+let _terminalExtensions = 0;
+
+function _clearTerminalFailsafe(): void {
+  if (_terminalFailsafeTimer !== null) {
+    clearTimeout(_terminalFailsafeTimer);
+    _terminalFailsafeTimer = null;
+  }
+}
+
+function _armTerminalFailsafe(delayMs: number = TERMINAL_FAILSAFE_MS): void {
+  _clearTerminalFailsafe();
+  _terminalFailsafeTimer = setTimeout(() => {
+    _terminalFailsafeTimer = null;
+    const st = _current.status;
+    if (st !== 'success' && st !== 'error') return;   // sahibi zaten kapatmış
+    if (isTtsSpeaking() && _terminalExtensions < TERMINAL_MAX_EXTENSIONS) {
+      _terminalExtensions++;
+      _armTerminalFailsafe(TERMINAL_SPEAKING_EXTEND_MS);
+      return;
+    }
+    console.warn('[Voice] terminal failsafe — forcing idle (wake yeniden kurulur)');
+    endConversationSession();
+    push({ status: 'idle', error: null });
+  }, delayMs);
+}
+
 function _armProcessingFailsafe(): void {
   _clearProcessingFailsafe();
   _processingFailsafeTimer = setTimeout(() => {
@@ -697,6 +740,11 @@ function push(partial: Partial<VoiceState>): void {
     applyAssistantDuck(prevStatus, _current.status);
     if (_current.status === 'processing') _armProcessingFailsafe();
     else _clearProcessingFailsafe();
+    /* Terminal gösterim durumu → son çare bekçisi (yukarıdaki gerekçe). */
+    if (_current.status === 'success' || _current.status === 'error') {
+      _terminalExtensions = 0;
+      _armTerminalFailsafe();
+    } else _clearTerminalFailsafe();
     // Tanı: terminal STT sonucu — 'success' başarı, 'error' hata. 'throttled'
     // gerçek bir tanıma sonucu değil (hız sınırı) — bilinçli olarak sayılmaz.
     if (_current.status === 'success') { _lastSttOutcomeAt = Date.now(); _lastSttOk = true; }
@@ -806,14 +854,21 @@ function dispatch(cmd: ParsedCommand, ctx?: VehicleContext, turn?: MaviTurnToken
     throw e; // orijinal davranış korunur: hata YUTULMAZ, yalnız sonuç önce kaydedilir
   } finally {
     _emitVoiceEvent('execution_result', { result: _execOutcome });
+    /* ⚠️ SAHA: "komuttan sonra 'Hey Mavi' bir daha uyandırmıyor".
+       KÖK: bu zamanlayıcı eskiden `catch`in `throw`undan SONRA kuruluyordu →
+       handler'lardan biri fırlattığında HİÇ kurulmuyor ve durum KALICI olarak
+       'success'te kalıyordu. Wake kapısı (`wakeWordService.onWakeWordDetected`)
+       `status !== 'idle'` iken her tetiği bastırır → asistan sağır kalıyordu.
+       Kurulum `finally`ye alındı: başarı yolunda ZAMANLAMA AYNI, hata yolunda
+       pencere artık kapanıyor. */
+    const delays = getResetDelays();
+    setTimeout(() => {
+      try {
+        if (_current.status === 'success') push({ status: 'idle' });
+      } catch { /* ignore */ }
+    }, delays[cmd.priority] ?? 2500);
   }
   void reportVoiceDiag('voice_success', { intent: cmd.type });
-  const delays = getResetDelays();
-  setTimeout(() => {
-    try {
-      if (_current.status === 'success') push({ status: 'idle' });
-    } catch { /* ignore */ }
-  }, delays[cmd.priority] ?? 2500);
 }
 
 function dispatchDriving(cmd: ParsedCommand, ctx?: VehicleContext, turn?: MaviTurnToken | null): void {
@@ -2838,6 +2893,8 @@ export function clearVoiceHistory(): void { push({ history: [] }); }
 /** @internal — modül durumunu sıfırlar (testler arası izolasyon). */
 export function _resetVoiceServiceForTest(): void {
   _clearProcessingFailsafe();
+  _clearTerminalFailsafe();
+  _terminalExtensions = 0;
   _voiceCogPaused  = false;
   _pendingCmd      = null;
   _lastCommandTime = 0;
