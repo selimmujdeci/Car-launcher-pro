@@ -111,23 +111,33 @@ export const MapSearchBar = memo(function MapSearchBar({
     <div
       className="absolute z-[var(--z-map-search)] pointer-events-auto"
       style={{
-        top:       'calc(var(--sat, 0px) + 12px)',
+        /* SAHA 2026-09-10 (UI tutarlılık turu): üst bant `--sat + 12px` idi.
+           Head unit WebView'ında `env(safe-area-inset-top)` çentik YOKKEN 0
+           raporlar — ama sistem çubuğu (immersive kaçtığında) hâlâ üstte
+           çizilir → arama kutusu duruma yapışık görünüyordu. Taban 12 px
+           eklendi; gerçek inset varsa BÜYÜR (max). Harita HUD'ının KAPAT
+           düğmesiyle (`--sat + 16px`) aynı üst banda oturur. */
+        top:       'calc(max(var(--sat, 0px), 12px) + 12px)',
         left:      '50%',
         transform: 'translateX(-50%)',
         width:     'min(440px, 64vw)',
       }}
     >
       {/* Arama girişi — adaptif --oem-* (gündüz açık/koyu yazı, gece tersi).
-          Opak yüzey: harita üstünde kontrast garantisi + Mali-400 dostu (blur yok). */}
+          Opak yüzey: harita üstünde kontrast garantisi + Mali-400 dostu (blur yok).
+          Kenar `--oem-line-strong` (ÇİZGİ token'ı) — eskiden `--oem-ink-4` (METİN
+          token'ı) kullanılıyordu; gündüz modunda o token `#3A4049` KATI koyu bir
+          renge dönüştüğü için kutu "kalın siyah çerçeveli prototip" gibi
+          görünüyordu. Route Preview kartı da `--oem-line` ailesini kullanır. */}
       <div
-        className="flex items-center gap-2 px-3 h-11 rounded-2xl"
+        className="flex items-center gap-2.5 px-3 h-12 rounded-[1.25rem]"
         style={{
-          background:      'var(--oem-surface-1)',
-          border:          '1px solid var(--oem-ink-4)',
-          boxShadow:       '0 12px 30px rgba(0,0,0,0.25)',
+          background: 'var(--oem-surface-0)',
+          border:     '1px solid var(--oem-line-strong)',
+          boxShadow:  'var(--oem-shadow-card)',
         }}
       >
-        <Search className="w-4 h-4 flex-shrink-0" style={{ color: 'var(--oem-accent)' }} />
+        <Search className="w-[18px] h-[18px] flex-shrink-0" style={{ color: 'var(--oem-accent)' }} />
         {/* KONTROLSÜZ giriş (`defaultValue`) — IME kompozisyonu bölünmesin.
             Kontrollü olsaydı React her render'da DOM değerini geri yazar ve
             Android'de uzun-basma ile üretilen `ş ç ğ ı ö ü` harfleri
@@ -140,26 +150,38 @@ export const MapSearchBar = memo(function MapSearchBar({
           onChange={(e) => setQuery(e.target.value)}
           onFocus={() => { if (results.length) setOpen(true); }}
           placeholder="Adres veya yer ara…"
-          className="flex-1 bg-transparent outline-none text-sm font-semibold text-[color:var(--oem-ink)] placeholder:text-[color:var(--oem-ink-4)]"
+          className="flex-1 bg-transparent outline-none text-[15px] font-bold leading-tight text-[color:var(--oem-ink)] placeholder:font-semibold placeholder:text-[color:var(--oem-ink-4)]"
           aria-label="Adres ara"
         />
         {loading && <Loader2 className="w-4 h-4 animate-spin flex-shrink-0 text-[color:var(--oem-ink-3)]" />}
         {!loading && query.length > 0 && (
-          <button onClick={clear} aria-label="Temizle" className="flex-shrink-0 active:scale-90 transition-all">
+          /* Kapat/temizle eylemi PreviewCard'ın iptal düğmesiyle AYNI dili
+             kullanır (w-9 h-9 · rounded-xl · surface-2 + line) — eskiden
+             çerçevesiz çıplak bir ikondu, dokunma hedefi de 16 px'ti. */
+          <button
+            onClick={clear}
+            aria-label="Temizle"
+            className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 active:scale-90 transition-all bg-[var(--oem-surface-2)] border border-[var(--oem-line)]"
+          >
             <X className="w-4 h-4 text-[color:var(--oem-ink-3)]" />
           </button>
         )}
       </div>
 
-      {/* Sonuç listesi */}
+      {/* Sonuç listesi — PreviewCard ile aynı kabuk dili: surface-0 gövde,
+          `--oem-line` kenar, `--oem-shadow-pop` yükseklik. Satırlar arasında
+          KESKİN ayraç YOK; her sonuç kendi surface-2 kartıdır (ritim boşlukla
+          kurulur). Eski `borderBottom: --oem-ink-4` gündüz modunda her satırı
+          siyah çizgiyle kutuluyordu ve `last:border-0` sınıfı satır içi stille
+          ezildiği için SON satırda da çiziliyordu. */}
       {open && results.length > 0 && (
         <div
-          className="mt-2 rounded-2xl overflow-hidden overflow-y-auto"
+          className="mt-2 rounded-[1.5rem] p-2 flex flex-col gap-1.5 overflow-y-auto animate-in fade-in slide-in-from-top-1 duration-200"
           style={{
-            maxHeight:      '52vh',
-            background:     'var(--oem-surface-1)',
-            border:         '1px solid var(--oem-ink-4)',
-            boxShadow:      '0 20px 50px rgba(0,0,0,0.3)',
+            maxHeight:  '52vh',
+            background: 'var(--oem-surface-0)',
+            border:     '1px solid var(--oem-line)',
+            boxShadow:  'var(--oem-shadow-pop)',
           }}
         >
           {results.map((loc) => {
@@ -170,22 +192,33 @@ export const MapSearchBar = memo(function MapSearchBar({
               <button
                 key={loc.id}
                 onClick={() => pick(loc)}
-                className="w-full flex items-center gap-3 px-3 py-2.5 last:border-0 active:scale-[0.99] transition-all text-left"
-                style={{ borderBottom: '1px solid var(--oem-ink-4)' }}
+                className="w-full flex items-center gap-3 px-3 py-2.5 min-h-[60px] rounded-2xl text-left active:scale-[0.99] transition-all bg-[var(--oem-surface-2)] border border-[var(--oem-line)]"
               >
                 <div
-                  className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
+                  className="w-11 h-11 rounded-2xl flex items-center justify-center flex-shrink-0"
                   style={{ background: 'var(--oem-accent-soft)', border: '1px solid var(--oem-accent-glow)' }}
                 >
-                  <MapPin className="w-4 h-4" style={{ color: 'var(--oem-accent)' }} />
+                  <MapPin className="w-5 h-5" style={{ color: 'var(--oem-accent)' }} />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <div className="text-[13px] font-bold truncate text-[color:var(--oem-ink)]">{loc.name}</div>
-                  {loc.address && <div className="text-[10px] truncate text-[color:var(--oem-ink-3)]">{loc.address}</div>}
+                  <div className="text-[15px] font-black leading-tight tracking-tight truncate text-[color:var(--oem-ink)]">{loc.name}</div>
+                  {loc.address && (
+                    <div className="text-[12px] font-semibold leading-snug truncate mt-0.5 text-[color:var(--oem-ink-3)]">{loc.address}</div>
+                  )}
                 </div>
                 {km && (
-                  <span className="text-[12px] font-black tabular-nums flex-shrink-0" style={{ color: 'var(--oem-accent)' }}>
-                    {km}
+                  /* MESAFE ANLAMI (kütük #404 deseni): buradaki değer KUŞ UÇUŞU
+                     haversine'dir — Route Preview'deki sayı ise sağlayıcının
+                     YOL BOYU rota toplamı. İkisi aynı şeymiş gibi sunulmaz;
+                     repoda zaten kullanılan `~` ön eki (bkz. useNavSummary)
+                     tahmin olduğunu bildirir. Mesafe otoritesi DEĞİŞMEDİ. */
+                  <span
+                    title="Kuş uçuşu (yaklaşık) — rota mesafesi değil"
+                    aria-label={`Kuş uçuşu yaklaşık ${km}`}
+                    className="text-[14px] font-black tabular-nums flex-shrink-0 whitespace-nowrap"
+                    style={{ color: 'var(--oem-accent)' }}
+                  >
+                    ~{km}
                   </span>
                 )}
               </button>
@@ -197,8 +230,12 @@ export const MapSearchBar = memo(function MapSearchBar({
       {/* Sonuç yok bilgisi (sorgu var ama eşleşme yok) */}
       {open && !loading && query.trim().length >= 2 && results.length === 0 && (
         <div
-          className="mt-2 px-3 py-3 rounded-2xl text-center text-[11px] font-bold text-[color:var(--oem-ink-3)]"
-          style={{ background: 'var(--oem-surface-1)', border: '1px solid var(--oem-ink-4)' }}
+          className="mt-2 px-4 py-4 rounded-[1.5rem] text-center text-[13px] font-bold text-[color:var(--oem-ink-3)] animate-in fade-in duration-200"
+          style={{
+            background: 'var(--oem-surface-0)',
+            border:     '1px solid var(--oem-line)',
+            boxShadow:  'var(--oem-shadow-card)',
+          }}
         >
           Sonuç bulunamadı
         </div>

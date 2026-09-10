@@ -161,7 +161,13 @@ export const MapHudControls = memo(function MapHudControls({
             background: 'var(--oem-surface-1, rgba(38,44,60,0.86))',
             borderWidth: 1, borderStyle: 'solid',
             borderColor: 'var(--oem-line-strong, rgba(255,240,210,0.18))',
-            color: 'rgba(226,232,240,0.82)', fontWeight: 700, fontSize: 12,
+            /* UI TUTARLILIK TURU 2026-09-10: yüzey token'a bağlıydı ama METİN
+               SABİT AÇIK GRİ kalmıştı (`rgba(226,232,240,0.82)`). Gündüz/güneş
+               modunda `--oem-surface-1` BEYAZa döner → açık gri ikon+yazı beyaz
+               kutunun içinde neredeyse kayboluyor, düğme "ham/yarım çizilmiş"
+               görünüyordu. Mürekkep de token'a bağlandı; PreviewCard'ın iptal
+               düğmesiyle aynı aile. Dokunma hedefi ve konum DEĞİŞMEDİ. */
+            color: 'var(--oem-ink-2, rgba(226,232,240,0.82))', fontWeight: 700, fontSize: 12,
             letterSpacing: '0.08em', cursor: 'pointer',
             boxShadow: 'var(--oem-shadow-card, 0 20px 44px -22px rgba(0,0,0,0.55))',
           }}

@@ -3170,6 +3170,67 @@ describe('Adres arama girişi IME-güvenli', () => {
   });
 });
 
+/* ───────────────────────────────────────────────────────────────
+   Arama → Rota Önizleme: TEK CarOS navigasyon UI dili (saha 2026-09-10)
+   Cihazda arama yüzeyi "kalın siyah çerçeveli prototip" gibi görünüyordu:
+   kenarlar METİN token'ı `--oem-ink-4` ile çiziliyordu ve o token gündüz/
+   güneş modunda `#3A4049` KATI koyu renge dönüşüyor (bkz. day-mode.css).
+   Route Preview kartı ise ÇİZGİ ailesini (`--oem-line*`) kullanıyor.
+   ─────────────────────────────────────────────────────────────── */
+describe('Navigasyon arama yüzeyi Route Preview ile aynı token ailesini kullanır', () => {
+  /** Yorumları sıyırıp yalnız GERÇEK kullanımı sınar (docblock kullanım değildir). */
+  const searchCode = stripSrc(mapSearchBarSrc);
+  const hudCode    = stripSrc(mapHudControlsSrc);
+
+  it('🔒 arama yüzeyinde KENAR metin token ile çizilmez (--oem-ink-4 border YOK)', () => {
+    /* `--oem-ink-4` yalnız METİN/placeholder rengi olarak kalabilir; kenar,
+       ayraç veya borderBottom olarak KULLANILAMAZ — gündüz modunda siyah
+       dikdörtgen üretir. */
+    expect(searchCode).not.toMatch(/border[A-Za-z]*:\s*'[^']*var\(--oem-ink-4\)/);
+    expect(searchCode).not.toMatch(/border:\s*'1px solid var\(--oem-ink-4\)'/);
+    expect(searchCode).not.toContain('borderBottom');
+  });
+
+  it('🔒 arama kabuğu PreviewCard ile aynı yüzey/çizgi/gölge ailesini kullanır', () => {
+    expect(searchCode).toContain('var(--oem-surface-0)');
+    expect(searchCode).toContain('var(--oem-line-strong)');
+    expect(searchCode).toContain('var(--oem-shadow-pop)');
+    // PreviewCard'ın kabuk token'ları — aile ortak kalsın.
+    expect(navigationHudSrc).toContain('var(--oem-surface-0)');
+    expect(navigationHudSrc).toContain('shadow-[var(--oem-shadow-pop)]');
+  });
+
+  it('🔒 sonuç satırı sürüşe uygun dokunma hedefi taşır (min 60px)', () => {
+    expect(searchCode).toContain('min-h-[60px]');
+  });
+
+  it('🔒 temizle düğmesi PreviewCard iptal düğmesiyle aynı dili taşır', () => {
+    /* Eskiden çerçevesiz çıplak 16 px ikondu — sürüşte isabet ettirilemezdi. */
+    expect(searchCode).toContain('w-9 h-9 rounded-xl');
+    expect(navigationHudSrc).toContain('w-9 h-9 rounded-xl');
+  });
+
+  it('🔒 arama üst bandı sistem çubuğu için TABAN boşluk taşır', () => {
+    /* Head unit WebView'ında env(safe-area-inset-top) çentik yokken 0 döner;
+       düz `--sat + 12px` kutuyu duruma yapıştırıyordu. */
+    expect(searchCode).toContain('max(var(--sat, 0px), 12px)');
+  });
+
+  it('🔒 kuş uçuşu mesafe rota mesafesiymiş gibi sunulmaz (~ öneki)', () => {
+    /* Listedeki değer haversine'dir; PreviewCard'daki sağlayıcının YOL BOYU
+       toplamıdır. Kütük #404 deseni: tahmin `~` ile işaretlenir. */
+    expect(searchCode).toContain('~{km}');
+    expect(searchCode).toContain('_haversineMeters');
+  });
+
+  it('🔒 haritayı KAPAT düğmesinin mürekkebi SABİT açık gri değildir', () => {
+    /* Yüzey token'a bağlıyken metin sabit kalırsa gündüz modunda beyaz
+       kutunun içinde açık gri yazı kaybolur → "ham/yarım çizilmiş" düğme. */
+    expect(hudCode).toContain("color: 'var(--oem-ink-2");
+    expect(hudCode).not.toContain("color: 'rgba(226,232,240,0.82)', fontWeight: 700, fontSize: 12,");
+  });
+});
+
 describe('Adres motoru cihaz-içi veriyi ONLINE iken de kullanır', () => {
   it('🔒 online 0 sonuçta yerel arama DENENİR, doğrudan hata basılmaz', () => {
     expect(addressNavEngineSrc).toContain('_localSearch');
