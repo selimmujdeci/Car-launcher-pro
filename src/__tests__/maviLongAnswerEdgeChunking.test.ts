@@ -60,7 +60,7 @@ describe('splitForSynthesis — parça sözleşmesi', () => {
   it('İLK parça küçüktür — ilk kelime hızlı duyulsun', () => {
     const parts = splitForSynthesis(SENTENCE.repeat(20));
     expect(parts.length).toBeGreaterThan(1);
-    expect(parts[0].length).toBeLessThanOrEqual(320);
+    expect(parts[0].length).toBeLessThanOrEqual(160);
   });
 
   it('tek bir dev cümle bile bölünür (kırpılmaz)', () => {

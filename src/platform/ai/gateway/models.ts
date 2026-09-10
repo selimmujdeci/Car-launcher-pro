@@ -67,25 +67,44 @@ export type AiModelAlias = keyof typeof AI_MODELS;
  * `gemini-flash-latest` bugün kotası dolu olan model). Çözüm: SIRALI ZİNCİR.
  */
 export const GEMINI_MODELS = {
-  flash25:      'gemini-2.5-flash',
+  flashLite35:  'gemini-3.5-flash-lite',
   flash36:      'gemini-3.6-flash',
   flashLite31:  'gemini-3.1-flash-lite',
   flashLite:    'gemini-flash-lite-latest',
   flashLatest:  'gemini-flash-latest',
 } as const satisfies Record<string, AiModelId>;
 
-/**
- * Gemini model TERCİH SIRASI — kota (429) / emekli model (404) / geçici
- * yoğunluk (503) durumunda sıradaki DENENİR. Sıra: denge → en yeni → en hızlı.
- * `flashLatest` en sonda bilinçli tutulur: bugün kotası dolu ama kota
- * yenilendiğinde yeniden kullanılabilir olur (kalıcı olarak silmeye gerek yok).
- */
+/* ── SAHA 2026-09-11 · ZİNCİRİN BAŞI ÖLÜYDÜ (gerçek cihaz, kullanıcının anahtarı)
+ * ŞİKAYET: "ben konuştuktan sonra çok geç cevap veriyor" — ölçülen tur
+ * 18,1 sn (`listen_start` → ilk duyulabilir ses); bunun 10,1 sn'si BEYİNDİ ve
+ * o sürenin ~4,1 sn'si ÖLÜ SAĞLAYICI DENEMELERİNDE harcanıyordu.
+ *
+ * Her model tek tek denendi (aynı anahtar, aynı cihaz, aynı dakika):
+ *   gemini-2.5-flash          → 404 "no longer available to new users"  ⛔ KALICI
+ *   gemini-3.6-flash          → 400 (thinkingConfig) / 429 (kota)
+ *   gemini-3.1-flash-lite     → 200 · 2,04 sn
+ *   gemini-flash-lite-latest  → 200 · 0,62 sn  (yalnız thinkingConfig'SİZ)
+ *   gemini-flash-latest       → 200 · 0,97 sn  (thinkingConfig İLE; alansız 503)
+ *   gemini-3.5-flash-lite     → 200 · 0,56 sn  (yalnız thinkingConfig'SİZ)  ⚡
+ *   gemini-3.5-flash          → 200 · 6,3-12,6 sn  🐢 (sesli asistan için çok yavaş)
+ *
+ * `gemini-2.5-flash` ZİNCİRDEN ÇIKARILDI: 2026-07-24'te 880 ms ile zincirin
+ * BAŞIYDI, bugün Google tarafından emekliye ayrıldı ve hata mesajı KALICI
+ * ("no longer available to new users") — 429/503 gibi geri dönmez, dolayısıyla
+ * "kota yenilenir" gerekçesiyle listede tutmanın karşılığı yok. Her oturumun
+ * ilk turunda 2 istek (0,62 sn) boşa gidiyordu.
+ *
+ * SIRA ARTIK ÖLÇÜLEN GECİKMEYE GÖRE: araç içi sesli asistanda cevap süresi bir
+ * UX kısıtıdır ve zincir zaten bir KALİTE sıralaması değil, "ilk çalışan
+ * kullanılır" listesidir — bugün fiilen hizmet veren model zaten `flashLite31`
+ * (bir "lite" model) idi; `flashLite35` onun daha yeni ve 4 kat hızlı eşi.
+ * `flash36` kotası bugün dolu ama 429 GEÇİCİDİR → listede, sonda kalır. */
 export const GEMINI_MODEL_CHAIN: readonly AiModelId[] = [
-  GEMINI_MODELS.flash25,
-  GEMINI_MODELS.flash36,
-  GEMINI_MODELS.flashLite31,  // saha: thinkingConfig İLE de 200 (kota ayrı havuz)
-  GEMINI_MODELS.flashLite,    // saha: yalnız thinkingConfig'SİZ 200 (aşağıdaki nota bak)
-  GEMINI_MODELS.flashLatest,
+  GEMINI_MODELS.flashLite35,  // saha: 0,56 sn — yalnız thinkingConfig'SİZ 200
+  GEMINI_MODELS.flashLite,    // saha: 0,62 sn — yalnız thinkingConfig'SİZ 200
+  GEMINI_MODELS.flashLatest,  // saha: 0,97 sn — thinkingConfig İLE 200
+  GEMINI_MODELS.flashLite31,  // saha: 2,04 sn — thinkingConfig'li de çalışır
+  GEMINI_MODELS.flash36,      // saha: bugün 429 (kota) — yenilenirse geri gelir
 ];
 
 /**

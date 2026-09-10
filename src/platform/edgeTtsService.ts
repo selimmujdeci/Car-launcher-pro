@@ -57,7 +57,13 @@ let _releaseDuck: (() => void) | null = null;
  * VE ilk kelime gecikmesi düşer. Yeni otorite kurulmaz: sıra, iptal ve
  * `onEnd` sözleşmesi aynen korunur (`onEnd` yalnız SON parça bitince). */
 const CHUNK_HARD_MAX  = 800;   // sunucunun sabit sınırı — ASLA aşılmaz
-const CHUNK_FIRST_MAX = 320;   // ilk parça KÜÇÜK: ilk kelime hızlı duyulsun
+/* İlk parça KÜÇÜK: kullanıcının duyduğu gecikme İLK parçanın sentez süresidir.
+ * SAHA 2026-09-11 (Edge proxy, cihazdan ölçüldü): 124 kar → 2,4 sn ·
+ * 248 → 3,2 sn · 301 → 3,1 sn · 315 → 4,19 sn. Süre uzunlukla artıyor, bu yüzden
+ * ilk parça 320 → 160'a çekildi (~1,5 sn daha erken ilk kelime). Kalan parçalar
+ * ZATEN ilk parça çalarken sentezleniyor (160 karakter ≈ 11 sn ses; sonraki
+ * parça ölçülen 2,2-4,2 sn'de hazır) → boşluk oluşmaz. */
+const CHUNK_FIRST_MAX = 160;
 const CHUNK_NEXT_MAX  = 700;   // sonrakiler büyük: istek sayısı düşsün (<800)
 
 /** Tavanı aşan bir parçayı kelime sınırından böler (son çare — metin KAYBOLMAZ). */

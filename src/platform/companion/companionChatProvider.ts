@@ -646,8 +646,31 @@ function _advanceGeminiModel(status: number): boolean {
   return true;
 }
 
+/* ── `thinkingConfig` DESTEĞİ — ÖĞRENİLEN BİLGİ OTURUM BOYUNCA KALIR ────────
+ * Bazı "lite" modeller `generationConfig.thinkingConfig` alanını REDDEDER
+ * (`400 INVALID_ARGUMENT`), aynı model alansız 200 döner. Model adından
+ * çıkarım YAPILAMAZ (ölçüm: `3.1-flash-lite` KABUL eder, `3.5-flash-lite`
+ * ETMEZ) → davranış kendi kendini onarır. SAHA 2026-09-11: bu onarım
+ * fonksiyon-yerel bir bayrakla yapıldığı için TUR BİTİNCE UNUTULUYORDU ve
+ * alanı reddeden model her turda fazladan bir 400 round-trip'e mal oluyordu.
+ * Küme bounded'dır: en fazla zincir uzunluğu kadar model adı tutar. */
+const _geminiThinkingRejected = new Set<string>();
+
+/** Bu model `thinkingConfig`i reddetti mi (ÖLÇÜLDÜ — varsayım değil). */
+export function isGeminiThinkingRejected(model: string): boolean {
+  return _geminiThinkingRejected.has(model);
+}
+
+/** Ölçülen reddi kaydet — bir daha o alanla denenmez. */
+export function noteGeminiThinkingRejected(model: string): void {
+  if (model) _geminiThinkingRejected.add(model);
+}
+
 /** @internal — testler arası izolasyon. */
-export function _resetGeminiModelForTest(): void { _geminiModelIdx = 0; }
+export function _resetGeminiModelForTest(): void {
+  _geminiModelIdx = 0;
+  _geminiThinkingRejected.clear();
+}
 // SAHA 2026-07-04: gemini-flash-latest artık gemini-3.5-flash'a çözülüyor; SICAK
 // çağrı ~1-1.8sn ama DERİN SOĞUK BAŞLANGIÇ ~7sn (kullanıcı anahtarıyla ölçüldü).
 // 6sn tavan soğuk başlangıcı kesip null→REASK ("of orayı kaçırdım") üretiyordu.
@@ -1645,36 +1668,50 @@ async function askCompanionBrain(
   // tavanına clamp'lenir → beyin ASLA 6sn'den uzun bloklamaz; süre dolunca fetch
   // abort olur, çağıran (tryCompanionBrain) recordAiNetFailure + fallback'e düşer.
   const decisionMs = Math.min(timeoutMs ?? GEMINI_TIMEOUT_MS, GEMINI_TIMEOUT_MS);
-  let _thinkingSupported = true;
   const send = (): Promise<Response> => fetch(_geminiEndpoint(), {
     method:  'POST',
     headers: { 'Content-Type': 'application/json', 'X-goog-api-key': apiKey },
-    body:    mkBody(_thinkingSupported),
+    /* Alan desteği AKTİF MODELE göre, İSTEK ANINDA sorulur: zincir ilerlediğinde
+       yeni model için doğru gövde gider (eski davranış bayrağı taşıyordu). */
+    body:    mkBody(!isGeminiThinkingRejected(getActiveGeminiModel())),
     signal:  signalWithTimeout(decisionMs), // Chrome <103 WebView güvenli (abortCompat)
   });
 
-  let resp = await send();
-  // PARAMETRE UYUMSUZLUĞU → alanı düşürüp BİR KEZ yeniden dene (model başına).
-  // ⚠️ 400 İKİ AYRI ŞEY olabilir: (a) `API_KEY_INVALID` — anahtar gerçekten
-  // geçersiz, KULLANICIYA DÜRÜSTÇE söylenmeli, yeniden denemek o mesajı yutar;
-  // (b) `INVALID_ARGUMENT` — bizim gönderdiğimiz alan modelce desteklenmiyor.
-  // Yalnız (b) yeniden denenir; gövde okunamıyorsa muhafazakâr davranıp DENEME.
-  if (resp.status === 400 && _thinkingSupported) {
+  /**
+   * Bir istek + PARAMETRE UYUMSUZLUĞU kurtarması (model başına EN FAZLA bir kez).
+   *
+   * ⚠️ 400 İKİ AYRI ŞEY olabilir: (a) `API_KEY_INVALID` — anahtar gerçekten
+   * geçersiz, KULLANICIYA DÜRÜSTÇE söylenmeli, yeniden denemek o mesajı yutar;
+   * (b) `INVALID_ARGUMENT` — bizim gönderdiğimiz alan modelce desteklenmiyor.
+   * Yalnız (b) yeniden denenir; gövde okunamıyorsa muhafazakâr davranıp DENEME.
+   *
+   * SAHA 2026-09-11: bu kurtarma eskiden YALNIZ ilk istekte vardı ve öğrendiğini
+   * TUR SONUNDA UNUTUYORDU (`_thinkingSupported` fonksiyon-yereldi). Zincirin
+   * ilk iki modeli alanı reddettiği için bu, HER TURDA fazladan bir başarısız
+   * round-trip demekti. Artık öğrenilen bilgi oturum boyunca hatırlanır ve
+   * kurtarma zincirin HER adımında geçerlidir (aksi halde alanı reddeden ikinci
+   * bir model 400 ile zinciri komple düşürürdü).
+   */
+  const sendWithThinkingRecovery = async (): Promise<Response> => {
+    const model = getActiveGeminiModel();
+    const r = await send();
+    if (r.status !== 400 || isGeminiThinkingRejected(model)) return r;
     let body = '';
-    try { body = await resp.clone().text(); } catch { body = ''; }
-    if (body && !/API_KEY_INVALID/i.test(body)) {
-      _thinkingSupported = false;
-      console.warn(`GEMINI_THINKING_UNSUPPORTED: ${getActiveGeminiModel()} → thinkingConfig düşürüldü`);
-      resp = await send();
-    }
-  }
+    try { body = await r.clone().text(); } catch { body = ''; }
+    if (!body || /API_KEY_INVALID/i.test(body)) return r;
+    noteGeminiThinkingRejected(model);
+    console.warn(`GEMINI_THINKING_UNSUPPORTED: ${model} → thinkingConfig düşürüldü`);
+    return send();
+  };
+
+  let resp = await sendWithThinkingRecovery();
   // MODEL-BAZLI ARIZA → SIRADAKİ MODEL (SAHA 2026-07-24): kota model bazlıdır;
-  // `gemini-flash-latest` 429 verirken AYNI anahtarla `gemini-2.5-flash` 200
-  // dönüyordu. Sağlayıcıyı komple susturmak yerine önce zincirdeki sonraki
-  // modeli dene — sağlayıcı cooldown'ı YALNIZ zincir tükendiğinde uygulanır.
+  // `gemini-flash-latest` 429 verirken AYNI anahtarla başka model 200 dönüyordu.
+  // Sağlayıcıyı komple susturmak yerine önce zincirdeki sonraki modeli dene —
+  // sağlayıcı cooldown'ı YALNIZ zincir tükendiğinde uygulanır.
   // Bütçe zaten `decisionMs` ile sınırlı; en fazla zincir uzunluğu kadar deneme.
   while (!resp.ok && _advanceGeminiModel(resp.status)) {
-    resp = await send();
+    resp = await sendWithThinkingRecovery();
   }
 
   // 429: Google'ın söylediği kadar bekle (retryDelay) — sabit 60sn asistanı
@@ -1912,7 +1949,12 @@ async function runCompanionBrain(
       // KENDİ soğuma penceresindeki aday ATLANIR (sıradaki denenir). Pencereler
       // sağlayıcı-bazlıdır: birinin 429'u diğerini asla kilitlemez — eski paylaşılan
       // pencere Groq 429'unda Gemini'yi de susturuyordu (çapraz kirlenme).
-      if (cand.provider !== 'gateway' && isProviderCoolingDown(cand.provider)) {
+      /* SAHA 2026-09-11: `gateway` bu kapıdan MUAFTI ("kendi devre kesicisi var"),
+         ama o kesici kredi/kimlik arızasını KAPSAMIYORDU → kredisi bitmiş hat
+         her turun başında yeniden denenip 0,45 sn gecikme ekliyordu. Kapı artık
+         TÜM adaylar için aynı; gateway penceresi YALNIZ `auth`/`insufficient_credit`
+         görüldüğünde kurulur (429/timeout davranışı DEĞİŞMEZ). */
+      if (isProviderCoolingDown(cand.provider)) {
         skippedByCooldown = true; continue;
       }
       aiAttempted = true;

@@ -49,17 +49,30 @@ export function monotonicNow(): number {
 export const RATE_LIMIT_COOLDOWN_MS = 60_000;
 
 /** Kota penceresi tutulan sağlayıcılar (gateway kendi devre kesicisini kullanır). */
-export type QuotaProvider = 'gemini' | 'groq' | 'haiku';
+export type QuotaProvider = 'gemini' | 'groq' | 'haiku' | 'gateway';
 
 /* ⚠️ SAĞLAYICI-BAZLI (SAHA 2026-07-04, "ilk istek online sonrakiler offline"):
  * eskiden TEK paylaşılan pencereydi — Groq/Haiku 429'u da bunu kuruyordu ve
  * GEMINI 60sn kilitleniyordu (çapraz kirlenme). Artık her sağlayıcının kendi
  * penceresi var; birinin kotası diğerini asla susturmaz. */
 const _cooldownUntil: Record<QuotaProvider, number> = {
-  gemini: 0,   // düzenli generateContent (beyin/sohbet) kotası
-  groq:   0,
-  haiku:  0,
+  gemini:  0,   // düzenli generateContent (beyin/sohbet) kotası
+  groq:    0,
+  haiku:   0,
+  gateway: 0,   // sağlayıcı-bağımsız hat (bkz. NO_CREDIT_COOLDOWN_MS)
 };
+
+/* ── KREDİ/KİMLİK ARIZASI — İNSAN MÜDAHALESİ GEREKTİRİR ───────────────────
+ * SAHA 2026-09-11 (gerçek cihaz, gecikme izi): sağlayıcı hattı her turun
+ * BAŞINDA deneniyor ve `402 insufficient_credit` ile 0,45 sn sonra düşüyordu.
+ * 402 bir hız sınırı DEĞİLDİR: kendiliğinden geçmez, kullanıcı bakiye
+ * yükleyene (ya da anahtar yenileyene) kadar AYNI cevabı verir — yani her
+ * turda ödenen sabit bir gecikme vergisiydi.
+ *
+ * Pencere 429'unkinden UZUN ama SONSUZ DEĞİL: kalıcı devre dışı bırakmak,
+ * bakiye yüklendiğinde asistanı sebepsiz kısıtlı bırakırdı. Süre dolunca
+ * sağlayıcı kendiliğinden yeniden denenir (fail-soft, kendi kendini onarır). */
+export const NO_CREDIT_COOLDOWN_MS = 10 * 60_000;
 
 /* google_search GROUNDING kotası soğuması AYRI (SAHA 2026-07-04): grounding
  * ücretsiz katmanda çok küçük kotalı, sık 429 verir. Eskiden bu 429 Gemini'nin
@@ -177,6 +190,11 @@ export function noteGatewayFailureKind(kind: string, provider = 'gateway'): void
   } else if (kind === 'insufficient_credit') {
     _noCreditAtMs = monotonicNow();
   }
+  /* Kredi/kimlik arızası kendiliğinden GEÇMEZ → sağlayıcı bounded bir süre
+     atlanır. Bu YENİ bir otorite değildir: mevcut soğuma defterine yazılır. */
+  if (kind === 'auth' || kind === 'insufficient_credit') {
+    _cooldownUntil.gateway = monotonicNow() + NO_CREDIT_COOLDOWN_MS;
+  }
 }
 
 /** Gemini 400/401/403 gövdesini sınıflandırır — anahtar hatasıysa işaretler.
@@ -273,4 +291,5 @@ export function _resetProviderHealthForTest(): void {
   _authFailureAtMs        = 0;
   _authFailureProvider    = null;   // #698 işaretleri testler arası SIZMASIN
   _noCreditAtMs           = 0;
+  _cooldownUntil.gateway  = 0;
 }

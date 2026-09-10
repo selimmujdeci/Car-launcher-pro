@@ -1173,8 +1173,14 @@ describe('Sesli asistan — hava/trafik dürüstlüğü + hibrit beyin zinciri k
     /* MAVI-F13/3: soğuma sorgusu `companionProviderHealth.isProviderCoolingDown`
        kapısına taşındı. Kilit korunur: soğumadaki aday ATLANIR ve atlama
        `skippedByCooldown` ile İŞARETLENİR (dürüst kota cevabı sessizce
-       kaybolmasın). `gateway` kendi devre kesicisini kullanır → dışarıda. */
-    expect(src).toMatch(/cand\.provider !== 'gateway' && isProviderCoolingDown\(cand\.provider\)/);
+       kaybolmasın).
+       SAHA 2026-09-11: `gateway` bu kapıdan MUAFTI ("kendi devre kesicisi var"),
+       ama o kesici kredi/kimlik arızasını kapsamıyordu → kredisi bitmiş hat her
+       turun başında yeniden denenip ölçülen 0,45 sn gecikme ekliyordu. Kapı artık
+       TÜM adaylar için aynı; muafiyetin geri gelmemesi de kilitlenir. */
+    expect(src).toMatch(/if \(isProviderCoolingDown\(cand\.provider\)\) \{/);
+    expect(src, 'gateway soğuma kapısından yeniden muaf tutulmuş — 402 her turda tekrar denenir')
+      .not.toMatch(/cand\.provider !== 'gateway' && isProviderCoolingDown/);
     expect(src, 'soğumada atlanan aday işaretlenmiyor — dürüst kota cevabı düşer')
       .toMatch(/skippedByCooldown = true; continue;/);
     expect(src).toMatch(/askCompanionBrainHaiku/); // hibrit zincirin son halkası
