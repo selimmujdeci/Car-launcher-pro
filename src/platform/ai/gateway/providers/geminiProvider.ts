@@ -49,7 +49,9 @@ import type {
   AiProviderRequest,
   AiUsage,
 } from '../types';
-import { DEFAULT_GEMINI_MODEL } from '../models';
+import {
+  DEFAULT_GEMINI_MODEL, geminiThinkingConfig, noteGeminiThinkingRejectedIf400,
+} from '../models';
 
 export const GEMINI_PROVIDER_ID = 'gemini';
 
@@ -129,7 +131,7 @@ function classifyThrown(err: unknown, external?: AbortSignal): AiError {
  *  - `system` mesajları `system_instruction`da BİRLEŞTİRİLİR
  *  - `assistant` rolü Gemini'de `model` adını alır
  */
-function toGeminiPayload(request: AiProviderRequest): Record<string, unknown> {
+function toGeminiPayload(request: AiProviderRequest, model: string): Record<string, unknown> {
   const systemParts: string[] = [];
   const contents: Array<{ role: 'user' | 'model'; parts: Array<{ text: string }> }> = [];
 
@@ -141,11 +143,13 @@ function toGeminiPayload(request: AiProviderRequest): Record<string, unknown> {
     });
   }
 
+  /* SAHA 2026-07-03: düşünen modeller bütçesiz istekte düşünme token'larını
+   * yiyip MAX_TOKENS ile METİNSİZ yanıt döndürüyor → düşünme kapalı.
+   * SAHA 2026-09-11: ama bazı modeller alanı REDDEDER (400 INVALID_ARGUMENT) ve
+   * bu yol alanı KOŞULSUZ gönderiyordu → cihazda ölçülen turda 0,63 sn boşa
+   * gitti. Alan artık yetenek sahibine sorularak eklenir (models.ts). */
   const generationConfig: Record<string, unknown> = {
-    // SAHA 2026-07-03: flash-latest DÜŞÜNEN modeldir; bütçesiz istekte düşünme
-    // token'ları çıktı bütçesini yiyip MAX_TOKENS ile METİNSİZ yanıt döndürüyor.
-    // Araç içi gecikme > derinlik → düşünme kapalı (mevcut yollarla AYNI).
-    thinkingConfig: { thinkingBudget: 0 },
+    ...geminiThinkingConfig(model),
   };
   if (request.temperature !== undefined) generationConfig['temperature']     = request.temperature;
   if (request.maxTokens   !== undefined) generationConfig['maxOutputTokens'] = request.maxTokens;
@@ -256,7 +260,7 @@ async function tryStreamGemini(
           'Content-Type':   'application/json',
           'x-goog-api-key': apiKey,                    // anahtarin TEK yeri (URL'de YOK)
         },
-        body: JSON.stringify(toGeminiPayload(request)),
+        body: JSON.stringify(toGeminiPayload(request, model)),
         ...(signal ? { signal } : {}),
       },
     );
@@ -396,15 +400,27 @@ export function createGeminiProvider(deps: GeminiProviderDependencies): AiProvid
           // `null` = akış KURULAMADI → aşağıdaki tek seferlik yola düşülür (fail-soft).
           if (streamed) return streamed;
         }
-        const response = await fetchImpl(`${baseUrl}/models/${encodeURIComponent(model)}:generateContent`, {
-          method: 'POST',
-          headers: {
-            'Content-Type':   'application/json',
-            'x-goog-api-key': apiKey,                  // anahtarın TEK yeri (URL'de YOK)
-          },
-          body: JSON.stringify(toGeminiPayload(request)),
-          ...(signal ? { signal } : {}),
-        });
+        const send = (): Promise<Response> =>
+          fetchImpl(`${baseUrl}/models/${encodeURIComponent(model)}:generateContent`, {
+            method: 'POST',
+            headers: {
+              'Content-Type':   'application/json',
+              'x-goog-api-key': apiKey,                // anahtarın TEK yeri (URL'de YOK)
+            },
+            /* Gövde HER denemede yeniden kurulur: ret öğrenildiyse ikinci istek
+               alansız gider (aynı gövdeyi tekrarlamak aynı 400'ü üretirdi). */
+            body: JSON.stringify(toGeminiPayload(request, model)),
+            ...(signal ? { signal } : {}),
+          });
+
+        /* SAHA 2026-09-11: alanı reddeden modelde bu yol 400 alıp hatayı yukarı
+           taşıyordu → çağıran sıradaki sağlayıcıya düşüyor, ölçülen 0,63 sn boşa
+           gidiyordu. Ret BİR KEZ öğrenilir ve istek alansız TEKRARLANIR. */
+        let response = await send();
+        if (response && typeof response.ok === 'boolean'
+            && await noteGeminiThinkingRejectedIf400(model, response)) {
+          response = await send();
+        }
 
         if (!response || typeof response.ok !== 'boolean') {
           return { ok: false, error: mkError('malformed_response', 'AI sağlayıcısından yanıt alınamadı.', false) };

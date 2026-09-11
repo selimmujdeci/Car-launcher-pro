@@ -145,6 +145,7 @@ describe('geminiThinkingConfig — tek kapı', () => {
       'src/platform/companion/companionChatProvider.ts',
       'src/platform/ai/semanticAiService.ts',
       'src/platform/aiVoiceService.ts',
+      'src/platform/ai/gateway/providers/geminiProvider.ts',
     ]) {
       const kod = read(rel).replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/.*$/gm, '$1');
       expect(kod, `${rel}: thinkingConfig kapıdan geçmeden gönderiliyor`)
@@ -156,5 +157,34 @@ describe('geminiThinkingConfig — tek kapı', () => {
     for (const rel of ['src/platform/ai/semanticAiService.ts', 'src/platform/aiVoiceService.ts']) {
       expect(read(rel)).toMatch(/if \(await noteGeminiThinkingRejectedIf400\(DEFAULT_GEMINI_MODEL, resp\)\) resp = await send\(\);/);
     }
+  });
+});
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * ÖĞRENME KAYDI — REDDİ İLK GÖREN KAYDEDER
+ *
+ * SAHA 2026-09-11 (cihaz, gövde parmak izleriyle ayrıştırıldı): tek turda ÜÇ
+ * ayrı yol aynı reddi SIFIRDAN keşfetti —
+ *   54,56s  `max=1 think=VAR`                → 400  (ısıtma; sonucu ATIYORDU)
+ *   59,51s  `temp=0.4 max=2600 mime=- VAR`   → 400  (gateway geminiProvider)
+ *   60,14s  `temp=0.4 max=2600 mime=json VAR`→ 400  (beyin; kurtardı → 200)
+ * Toplam ~1,9 sn. Isıtma zaten yapılan bir istektir: sonucunu OKUMAK ek maliyet
+ * getirmez ve zincirin tamamını tek seferde öğretir.
+ * ════════════════════════════════════════════════════════════════════════ */
+describe('🔒 reddi ilk gören KAYDEDER', () => {
+  it('ısıtma isteği sonucunu okur ve reddi kaydeder', () => {
+    const src = read('src/platform/companion/companionChatProvider.ts');
+    const i = src.indexOf('export async function warmupGemini');
+    expect(i).toBeGreaterThan(-1);
+    const govde = src.slice(i, i + 1800);
+    expect(govde, 'ısıtma sonucu yine atılıyor — zincir reddi sıfırdan öğrenir')
+      .toMatch(/await noteGeminiThinkingRejectedIf400\(model, resp\)/);
+  });
+
+  it('gateway Gemini sağlayıcısı reddi kaydeder ve isteği TEKRARLAR', () => {
+    const src = read('src/platform/ai/gateway/providers/geminiProvider.ts');
+    expect(src).toMatch(/await noteGeminiThinkingRejectedIf400\(model, response\)/);
+    expect(src).toMatch(/response = await send\(\);/);
+    expect(src).toMatch(/\.\.\.geminiThinkingConfig\(model\)/);
   });
 });

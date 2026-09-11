@@ -674,16 +674,24 @@ export async function warmupGemini(apiKey: string): Promise<void> {
   // Kota soğumasındayken ısıtma da atlanır — 429 penceresinde ekstra istek hem
   // boşa kota yakar hem pencereyi tazeleyebilir (SAHA 2026-07-04).
   if (isProviderCoolingDown('gemini')) return;
+  /* SAHA 2026-09-11: ısıtma oturumun İLK Gemini çağrısıdır ve sonucu TAMAMEN
+     atılıyordu. Alanı reddeden bir modelde 400 alıyor, ama öğrendiğini
+     kaydetmediği için ARDINDAN gelen her yol (gateway · beyin) aynı reddi
+     SIFIRDAN keşfediyordu → ölçülen turda 0,63 + 0,68 sn boşa gitti.
+     Isıtma zaten yapılan bir istektir; sonucunu OKUMAK ek maliyet getirmez ve
+     tüm zinciri tek seferde öğretir. Isıtmanın best-effort doğası KORUNUR. */
   try {
-    await fetch(_geminiEndpoint(), {
+    const model = getActiveGeminiModel();
+    const resp = await fetch(_geminiEndpoint(), {
       method:  'POST',
       headers: { 'Content-Type': 'application/json', 'X-goog-api-key': apiKey },
       body:    JSON.stringify({
         contents: [{ role: 'user', parts: [{ text: 'ping' }] }],
-        generationConfig: { maxOutputTokens: 1, ...geminiThinkingConfig(getActiveGeminiModel()) },
+        generationConfig: { maxOutputTokens: 1, ...geminiThinkingConfig(model) },
       }),
       signal: signalWithTimeout(GEMINI_TIMEOUT_MS),
     });
+    await noteGeminiThinkingRejectedIf400(model, resp);
   } catch { /* ısıtma best-effort — sonuç/hata önemsiz */ }
 }
 
