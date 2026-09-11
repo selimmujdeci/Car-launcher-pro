@@ -248,6 +248,7 @@ const CMD_TO_INTENT: Record<CommandType, IntentType> = {
   rename_location:  'UNKNOWN',
   delete_location:  'UNKNOWN',
   share_location:   'UNKNOWN',
+  send_location_contact: 'UNKNOWN',
 };
 
 /**

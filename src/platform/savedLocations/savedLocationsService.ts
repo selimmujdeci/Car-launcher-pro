@@ -145,8 +145,13 @@ export function buildLocationMapsUrl(loc: Pick<SavedLocation, 'lat' | 'lng'>): s
   return `https://www.google.com/maps?q=${loc.lat.toFixed(6)},${loc.lng.toFixed(6)}`;
 }
 
-/** Paylaşılacak anlaşılır metin: ad + koordinat + HTTPS bağlantı. */
-export function buildLocationShareText(loc: SavedLocation): string {
+/**
+ * Paylaşılacak anlaşılır metin: ad + koordinat + HTTPS bağlantı.
+ * `Pick` ile geniş tip: tam bir kayıtlı `SavedLocation` gerekmez — WhatsApp
+ * gönderiminde "şu anki konum" (kayıtlı DEĞİL, id/timestamp'i YOK) için de
+ * AYNI metin üretilir; paralel bir formatter KURULMAZ.
+ */
+export function buildLocationShareText(loc: Pick<SavedLocation, 'name' | 'lat' | 'lng'>): string {
   return `${loc.name}\n${loc.lat.toFixed(6)}, ${loc.lng.toFixed(6)}\n${buildLocationMapsUrl(loc)}`;
 }
 

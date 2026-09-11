@@ -2012,7 +2012,8 @@ export async function processTextCommand(
     (result.command.type === 'save_location'
       || result.command.type === 'rename_location'
       || result.command.type === 'share_location'
-      || result.command.type === 'delete_location')
+      || result.command.type === 'delete_location'
+      || result.command.type === 'send_location_contact')
     && result.command.confidence >= 0.7
   ) {
     _lastCommandTime = now;

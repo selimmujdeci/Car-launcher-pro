@@ -306,8 +306,10 @@ import { startNavigation } from '../platform/navigationService';
 // Özel Konumlar — TEK otorite. UI (NavigationHUD) ve Mavi AYNI servisi çağırır.
 import {
   addSavedLocation, renameSavedLocation, removeSavedLocation,
-  findSavedLocationByName, shareSavedLocation,
+  findSavedLocationByName, shareSavedLocation, buildLocationShareText,
 } from '../platform/savedLocations/savedLocationsService';
+import { searchContacts } from '../platform/contactsService';
+import { prepareWhatsAppMessage } from '../platform/whatsappShare';
 import type { ParsedCommand } from '../platform/commandParser';
 import type { SmartSnapshot } from '../platform/smartEngine';
 import type { DrawerType } from '../components/layout/DockBar';
@@ -633,6 +635,74 @@ export function useVoiceCommandHandler({
         const targetName = cmd.extra?.name ?? 'Konum';
         const ok = resolvedId ? removeSavedLocation(resolvedId) : false;
         speakMaviAnswer(ok ? `${targetName} konumunu sildim.` : `${targetName} konumunu silemedim.`);
+        return;
+      }
+
+      /* ── WhatsApp konum gönderimi ("Ev konumunu Ahmet'e gönder") ──────────
+       * ÜRÜN KARARI: WhatsApp'ın Gönder tuşuna kullanıcı adına BASILMAZ (resmî
+       * sınır — bkz. `whatsappShare.ts` başlığı) → ekstra "onaylıyor musun?"
+       * diyaloğu da YOK; WhatsApp'ın kendi Gönder düğmesi nihai onaydır.
+       * Konum: `getGPSState`/`findSavedLocationByName` (TEK otorite, aynı
+       * save/share akışıyla). Kişi: `contactsService.searchContacts` (TEK
+       * otorite, `OPEN_PHONE`ın kullandığı AYNI yol). Belirsizlikte (0 veya
+       * >1 eşleşme) rastgele seçim YOK — kullanıcıya sorulur/dürüstçe söylenir.
+       * "Gönderdim" ASLA denmez — yalnız "hazırladım" (gerçek gönderim
+       * doğrulanamaz, WhatsApp'ın kendi sınırı). */
+      if (cmd.type === 'send_location_contact') {
+        const recipientRaw = cmd.extra?.recipient ?? '';
+        const isCurrent = cmd.extra?.isCurrent === '1';
+
+        const finishWithLocation = (locName: string, lat: number, lng: number): void => {
+          const contactMatches = searchContacts(recipientRaw, 'frequent');
+          if (contactMatches.length === 0) {
+            speakMaviAnswer(`${recipientRaw} rehberde bulunamadı.`);
+            return;
+          }
+          if (contactMatches.length > 1) {
+            speakMaviAnswer(`Rehberde birden fazla "${recipientRaw}" var, hangisini kastettiğini netleştirir misin?`);
+            return;
+          }
+          const contact = contactMatches[0];
+          const phone = contact.phones.find((p) => p.label === 'mobile') ?? contact.phones[0];
+          if (!phone) {
+            speakMaviAnswer(`${contact.name} için kayıtlı bir telefon numarası yok.`);
+            return;
+          }
+          const text = buildLocationShareText({ name: locName, lat, lng });
+          void prepareWhatsAppMessage(phone.number, text).then((r) => {
+            if (r.ok) { speakMaviAnswer(`${contact.name} için WhatsApp'ta hazırladım.`); return; }
+            if (r.failure === 'not_installed') {
+              speakMaviAnswer('WhatsApp kurulu değil, konumu gönderemedim.');
+            } else if (r.failure === 'invalid_phone') {
+              speakMaviAnswer(`${contact.name} için kayıtlı numara WhatsApp'a uygun değil, gönderemedim.`);
+            } else {
+              speakMaviAnswer(`${contact.name} için WhatsApp'ı açamadım.`);
+            }
+          });
+        };
+
+        if (isCurrent) {
+          const gps = getGPSState().location;
+          if (!gps) {
+            // GPS kanıtı YOK → konum UYDURULMAZ (fail-closed) — save_location ile AYNI ilke.
+            speakMaviAnswer('GPS sinyali yok, konumu gönderemedim.');
+            return;
+          }
+          finishWithLocation('Şu anki konum', gps.latitude, gps.longitude);
+          return;
+        }
+
+        const targetName = cmd.extra?.name ?? '';
+        const { match, ambiguous } = findSavedLocationByName(targetName);
+        if (ambiguous.length > 0) {
+          speakMaviAnswer(`Birden fazla "${targetName}" kaydı var, hangisini kastettiğini netleştirir misin?`);
+          return;
+        }
+        if (!match) {
+          speakMaviAnswer(`"${targetName}" adında kayıtlı bir konum bulamadım.`);
+          return;
+        }
+        finishWithLocation(match.name, match.lat, match.lng);
         return;
       }
       // activeMediaSourceKey geçerli bir MusicOptionKey ise defaultMusic'e öncelik tanır.

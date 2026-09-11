@@ -37,13 +37,40 @@ function stripApostropheSuffix(s: string): string {
 }
 
 /**
- * "Şu anki konumu" ifade eden ÖZNELER — kaydet fiilinin konum kaydı olduğunu
- * gösteren tek kanıt budur (fiil tek başına müzik favorisi de olabilir:
- * "bu şarkıyı kaydet"). Liste BİLİNÇLİ olarak konum-özgüdür; şarkı/favori/
- * çalma listesi gibi medya özneleri BURAYA GİRMEZ.
+ * GÖNDER akışında alıcı adındaki Türkçe hal ekini soyar. Özel isim + kesme
+ * işareti ("Ahmet'e") ZATEN `stripApostropheSuffix` ile ayrılır — bu yalnız
+ * kesmesiz, 1. tekil iyelik+yönelme ekli ORTAK isimler içindir ("anneme"→
+ * "anne", "sevgilime"→"sevgili", "babama"→"baba"). Kapsam BİLİNÇLİ dar:
+ * yalnız kök zaten ünlüyle bitiyorsa "-me/-ma" ekini soyar (tampon ünlü
+ * gerektiren ünsüz-biten kökler — "kardeşime" gibi — KAPSAM DIŞI, genel bir
+ * Türkçe çekim çözümleyici KURULMAZ). Eşleşmezse dokunulmadan döner.
  */
-const SAVE_SUBJECT_RE =
-  /(?:^|\s)(buray[ıi]|burasını|burası|buraya|burada|burda|şuray[ıi]|şurası|konumumuzu|konumumu|konumu|yerimizi|yerimi|yeri)(?:\s|$)/;
+function stripDativeSuffix(sRaw: string): string {
+  const s = clean(sRaw);
+  const withApostrophe = stripApostropheSuffix(s);
+  if (withApostrophe !== s) return withApostrophe;
+  const lower = s.toLocaleLowerCase('tr-TR');
+  const m = /^(.+[aeıioöuü])(me|ma)$/.exec(lower);
+  if (m && m[1].length >= 2) return clean(s.slice(0, m[1].length));
+  return s;
+}
+
+/**
+ * "Şu anki konumu" ifade eden ÖZNE kelimeleri — hem KAYDET fiilinin konum
+ * kaydı olduğunu göstermek (fiil tek başına müzik favorisi de olabilir: "bu
+ * şarkıyı kaydet") hem de GÖNDER fiilinde "şu anki konum" ile "kayıtlı X
+ * konumu" ayrımını yapmak için TEK kaynak. Liste BİLİNÇLİ olarak konum-
+ * özgüdür; şarkı/favori/çalma listesi gibi medya özneleri BURAYA GİRMEZ.
+ */
+const CURRENT_LOCATION_WORDS =
+  'buray[ıi]|burasını|burası|buraya|burada|burda|şuray[ıi]|şurası|konumumuzu|konumumu|konumu|yerimizi|yerimi|yeri';
+
+const SAVE_SUBJECT_RE = new RegExp(`(?:^|\\s)(${CURRENT_LOCATION_WORDS})(?:\\s|$)`);
+
+/** GÖNDER akışında konum-önekleri (`stripLocationPrefixes`) soyulduktan SONRA
+ * kalan ifadenin "şu anki konum" mu ("X konumu" gibi ADLANDIRILMIŞ bir kayıt
+ * değil) olduğunu test eder — TAM eşleşme (bare token), gömülü arama değil. */
+const CURRENT_LOCATION_BARE_RE = new RegExp(`^(${CURRENT_LOCATION_WORDS})$`);
 
 /**
  * İsim adayının başındaki konum ÖNEKLERİNİ soyar ("bulunduğum konumu ev" →
@@ -64,14 +91,19 @@ function stripLocationPrefixes(s: string): string {
   return out;
 }
 
-export type SavedLocationVerb = 'save' | 'rename' | 'delete' | 'share';
+export type SavedLocationVerb = 'save' | 'rename' | 'delete' | 'share' | 'send';
 
 export interface ParsedSavedLocationCommand {
   readonly verb: SavedLocationVerb;
-  /** save: null olabilir (fallback isim kullanılır). rename/delete/share: hedef kaydın adı. */
+  /** save: null olabilir (fallback isim kullanılır). rename/delete/share: hedef kaydın adı.
+   *  send + isCurrentLocation=true: null (GPS kullanılır). send + isCurrentLocation=false: kayıtlı konum adı. */
   readonly name: string | null;
   /** yalnız rename: yeni ad. */
   readonly newName?: string;
+  /** yalnız send: alıcı adı (rehberde çözülür — çözüm BURADA yapılmaz). */
+  readonly recipient?: string;
+  /** yalnız send: true ise `name` yok sayılır, canlı GPS kullanılır. */
+  readonly isCurrentLocation?: boolean;
   readonly feedback: string;
 }
 
@@ -192,6 +224,62 @@ export function tryParseSavedLocationCommand(rawText: string): ParsedSavedLocati
     if (m && m[1].trim().length > 0) {
       const nameRaw = stripApostropheSuffix(raw.slice(0, m[1].length));
       if (nameRaw) return { verb: 'share', name: nameRaw, feedback: `${nameRaw} paylaşılıyor` };
+    }
+  }
+
+  /* ── GÖNDER (WhatsApp) ───────────────────────────────────────────────────
+   * "Ev konumunu Ahmet'e gönder" · "Bu konumu Ahmet'e gönder" · "Şu anki
+   * konumumu anneme gönder" · "Bulunduğum konumu anneme gönder" · "Kayıtlı
+   * ev konumunu Ahmet'e gönder" · "Mavi Göl konumunu Mehmet'e gönder" ·
+   * "Konumumu sevgilime WhatsApp'tan gönder".
+   *
+   * Yalnız KONUM+ALICI METNİ çıkarılır — kişi/konum ÇÖZÜMÜ (rehber araması,
+   * `findSavedLocationByName`, GPS) ve WhatsApp dispatch BURADA YAPILMAZ
+   * (tek otorite ihlali olurdu); çağıran (`useVoiceCommandHandler`) bunları
+   * kanonik otoritelerden çözer. Alıcı GRUBU tek TOKEN'dır (boşluksuz) —
+   * çok kelimeli alıcı adları ("büyük amcama") kapsam DIŞI.
+   *
+   * Genel "X'e Y gönder" (konum içermeyen, ör. "Ahmet'e mesaj gönder")
+   * YANLIŞLIKLA yakalanmaz: konum ifadesi ya çıplak "şu anki konum" öznesi
+   * (`CURRENT_LOCATION_BARE_RE`) ya da "… konumu(nu)" son ekli bir isim
+   * OLMAK ZORUNDADIR — ikisi de değilse eşleşme reddedilir (aşağıda `return`
+   * YOK, fonksiyon sonundaki `null`e düşer).
+   */
+  {
+    const m = /^(.+?)\s+(\S+?)\s+(?:whatsap+['’]?(?:tan|dan)?\s+)?gönder\s*$/.exec(lower);
+    if (m) {
+      const locPhraseRaw = clean(raw.slice(0, m[1].length));
+      const recTokenLower = m[2];
+      const recStart = lower.indexOf(recTokenLower, m[1].length);
+      const recipientRaw = recStart >= 0
+        ? stripDativeSuffix(raw.slice(recStart, recStart + recTokenLower.length))
+        : '';
+
+      if (locPhraseRaw && recipientRaw) {
+        const strippedLocRaw = stripLocationPrefixes(locPhraseRaw);
+        const strippedLocLower = strippedLocRaw.toLocaleLowerCase('tr-TR');
+
+        if (CURRENT_LOCATION_BARE_RE.test(strippedLocLower)) {
+          return {
+            verb: 'send', name: null, recipient: recipientRaw, isCurrentLocation: true,
+            feedback: `Konum ${recipientRaw} için WhatsApp'ta hazırlanıyor`,
+          };
+        }
+
+        const savedM = /^(?:kayıtlı\s+)?(.+?)\s+konumu(?:nu)?$/.exec(strippedLocLower);
+        if (savedM) {
+          const nameStart = strippedLocLower.indexOf(savedM[1]);
+          const nameRaw = nameStart >= 0
+            ? clean(strippedLocRaw.slice(nameStart, nameStart + savedM[1].length))
+            : '';
+          if (nameRaw) {
+            return {
+              verb: 'send', name: nameRaw, recipient: recipientRaw, isCurrentLocation: false,
+              feedback: `${nameRaw} konumu ${recipientRaw} için WhatsApp'ta hazırlanıyor`,
+            };
+          }
+        }
+      }
     }
   }
 

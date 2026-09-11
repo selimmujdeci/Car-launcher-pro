@@ -75,6 +75,11 @@ const RESULT_ACK_COMMAND_TYPES: ReadonlySet<ParsedCommand['type']> = new Set<Par
    * GPS kanıtı yoksa/ambiguous isimse/ID bulunamazsa yürütme başarısız olabilir.
    * Ses yalnız savedLocationsService'in GERÇEK sonucundan üretilir (M3 deseni). */
   'save_location', 'rename_location', 'delete_location', 'share_location',
+  /* WhatsApp konum gönderimi: parser metni ("… hazırlanıyor") burada da
+   * NİYETTİR — kişi/numara bulunamayabilir, WhatsApp kurulu olmayabilir.
+   * "Hazırladım" YALNIZ gerçek `prepareWhatsAppMessage` sonucundan gelir;
+   * ASLA "gönderdim" (WhatsApp gerçek gönderimi doğrulanamaz — M3 deseni). */
+  'send_location_contact',
 ]);
 
 /** Sesi YALNIZ yürütme sonucundan gelen komut mu (parser metni konuşulmaz). */

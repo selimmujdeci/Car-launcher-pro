@@ -110,7 +110,10 @@ export type CommandType =
   | 'save_location'
   | 'rename_location'
   | 'delete_location'
-  | 'share_location';
+  | 'share_location'
+  // WhatsApp konum gönderimi — extra.recipient (alıcı adı) · extra.isCurrent
+  // ('1' ise şu anki GPS, aksi halde extra.name kayıtlı konum adı).
+  | 'send_location_contact';
 
 export type CommandPriority = 'critical' | 'high' | 'normal';
 
@@ -1371,6 +1374,7 @@ export function parseCommandFull(input: string): ParseResult {
       rename: 'rename_location',
       delete: 'delete_location',
       share:  'share_location',
+      send:   'send_location_contact',
     };
     return {
       command: {
@@ -1382,6 +1386,10 @@ export function parseCommandFull(input: string): ParseResult {
         extra: {
           name:    savedLocMatch.name ?? '',
           ...(savedLocMatch.newName ? { newName: savedLocMatch.newName } : {}),
+          ...(savedLocMatch.verb === 'send' ? {
+            recipient: savedLocMatch.recipient ?? '',
+            isCurrent: savedLocMatch.isCurrentLocation ? '1' : '',
+          } : {}),
         },
       },
       suggestions:   [],

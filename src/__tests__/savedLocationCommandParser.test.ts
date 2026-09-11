@@ -174,3 +174,77 @@ describe('savedLocationCommandParser — "kayıt et" fiil varyantı (SAHA 2026-0
     expect(tryParseSavedLocationCommand('bu şarkıyı kayıt et')).toBeNull();
   });
 });
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * GÖNDER (WhatsApp) — ÜRÜN KARARI (2026-09-11)
+ *
+ * "Ev konumunu Ahmet'e gönder" → konum + alıcı METNİ çıkarılır. Kişi/konum
+ * ÇÖZÜMÜ ve WhatsApp dispatch BURADA YAPILMAZ (bkz. `useVoiceCommandHandler`,
+ * `whatsappShare.ts`) — bu blok YALNIZ deterministik metin ayrıştırmayı
+ * kilitler: doğru konum türü (current/saved) + doğru alıcı adı + generic
+ * "gönder" cümlelerine (konum içermeyen) YANLIŞLIKLA düşmeme.
+ * ════════════════════════════════════════════════════════════════════════ */
+describe('savedLocationCommandParser — GÖNDER (WhatsApp, ÜRÜN KARARI 2026-09-11)', () => {
+  it('"Bu konumu Ahmet\'e gönder" → şu anki konum, alıcı Ahmet', () => {
+    const r = tryParseSavedLocationCommand("Bu konumu Ahmet'e gönder");
+    expect(r?.verb).toBe('send');
+    expect(r?.isCurrentLocation).toBe(true);
+    expect(r?.name).toBeNull();
+    expect(r?.recipient).toBe('Ahmet');
+  });
+
+  it('"Şu anki konumumu Ahmet\'e gönder" → şu anki konum, alıcı Ahmet', () => {
+    const r = tryParseSavedLocationCommand("Şu anki konumumu Ahmet'e gönder");
+    expect(r?.verb).toBe('send');
+    expect(r?.isCurrentLocation).toBe(true);
+    expect(r?.recipient).toBe('Ahmet');
+  });
+
+  it('"Bulunduğum konumu anneme gönder" → şu anki konum, alıcı "anne" (iyelik+yönelme soyulur)', () => {
+    const r = tryParseSavedLocationCommand('Bulunduğum konumu anneme gönder');
+    expect(r?.verb).toBe('send');
+    expect(r?.isCurrentLocation).toBe(true);
+    expect(r?.recipient).toBe('anne');
+  });
+
+  it('"Ev konumunu Ahmet\'e gönder" → KAYITLI "Ev" konumu, alıcı Ahmet', () => {
+    const r = tryParseSavedLocationCommand("Ev konumunu Ahmet'e gönder");
+    expect(r?.verb).toBe('send');
+    expect(r?.isCurrentLocation).toBe(false);
+    expect(r?.name).toBe('Ev');
+    expect(r?.recipient).toBe('Ahmet');
+  });
+
+  it('"Kayıtlı ev konumunu Ahmet\'e gönder" → "kayıtlı" filler soyulur, ad "ev"', () => {
+    const r = tryParseSavedLocationCommand("Kayıtlı ev konumunu Ahmet'e gönder");
+    expect(r?.verb).toBe('send');
+    expect(r?.isCurrentLocation).toBe(false);
+    expect(r?.name).toBe('ev');
+    expect(r?.recipient).toBe('Ahmet');
+  });
+
+  it('"Mavi Göl konumunu Mehmet\'e gönder" → çok kelimeli kayıtlı ad KORUNUR', () => {
+    const r = tryParseSavedLocationCommand("Mavi Göl konumunu Mehmet'e gönder");
+    expect(r?.verb).toBe('send');
+    expect(r?.isCurrentLocation).toBe(false);
+    expect(r?.name).toBe('Mavi Göl');
+    expect(r?.recipient).toBe('Mehmet');
+  });
+
+  it('"Konumumu sevgilime WhatsApp\'tan gönder" → şu anki konum, alıcı "sevgili", "whatsapp\'tan" dolgu kelimesi yutulur', () => {
+    const r = tryParseSavedLocationCommand("Konumumu sevgilime WhatsApp'tan gönder");
+    expect(r?.verb).toBe('send');
+    expect(r?.isCurrentLocation).toBe(true);
+    expect(r?.recipient).toBe('sevgili');
+  });
+
+  it('konum içermeyen genel "gönder" cümlesine YANLIŞLIKLA düşmez (ör. mesaj gönderme)', () => {
+    expect(tryParseSavedLocationCommand("Ahmet'e mesaj gönder")).toBeNull();
+    expect(tryParseSavedLocationCommand("Ahmet'e hediye gönder")).toBeNull();
+  });
+
+  it('CALL_CONTACT / REMEMBER cümleleri GÖNDER\'e düşmez (çapraz kirlenme yok)', () => {
+    expect(tryParseSavedLocationCommand("Ahmet'i ara")).toBeNull();
+    expect(tryParseSavedLocationCommand('yarın Ahmeti arayacağımı hatırla')).toBeNull();
+  });
+});

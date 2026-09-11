@@ -31,6 +31,13 @@ const M = vi.hoisted(() => ({
   gps: { latitude: 36.9, longitude: 34.8 } as { latitude: number; longitude: number } | null,
   startNavCalls: [] as unknown[],
   shareCalls: [] as unknown[],
+  // WhatsApp konum gönderimi (ÜRÜN KARARI 2026-09-11) — `contactsService`/
+  // `whatsappShare` GERÇEK modülleri BURADA mock DEĞİL: `useVoiceCommandHandler`
+  // ile AYNI mantığı, AYNI dosyanın öteki bloklarıyla (share_location vb.)
+  // TUTARLI şekilde M-izlenen sahte kişi rehberiyle taklit eder.
+  contacts: [] as Array<{ name: string; phones: Array<{ number: string; label: string }> }>,
+  whatsappCalls: [] as unknown[],
+  whatsappShouldFail: false,
 }));
 
 vi.mock('../platform/bridge', () => ({ isNative: false, bridge: {} }));
@@ -135,6 +142,35 @@ function registerSavedLocationHandler(): () => void {
       const { match } = findSavedLocationByName(dest);
       if (match) M.startNavCalls.push({ id: match.id, name: match.name, lat: match.lat, lng: match.lng });
     }
+    if (cmd.type === 'send_location_contact') {
+      const recipientRaw = cmd.extra?.recipient ?? '';
+      const isCurrent = cmd.extra?.isCurrent === '1';
+      const finish = (name: string, lat: number, lng: number): void => {
+        const matches = M.contacts.filter((c) => c.name.toLowerCase().includes(recipientRaw.toLowerCase()));
+        if (matches.length === 0) { M.speak(`${recipientRaw} rehberde bulunamadı.`); return; }
+        if (matches.length > 1) {
+          M.speak(`Rehberde birden fazla "${recipientRaw}" var, hangisini kastettiğini netleştirir misin?`);
+          return;
+        }
+        const contact = matches[0];
+        if (M.whatsappShouldFail) { M.speak(`${contact.name} için WhatsApp'ı açamadım.`); return; }
+        M.whatsappCalls.push({ contactName: contact.name, name, lat, lng });
+        M.speak(`${contact.name} için WhatsApp'ta hazırladım.`);
+      };
+      if (isCurrent) {
+        if (!M.gps) { M.speak('GPS sinyali yok, konumu gönderemedim.'); return; }
+        finish('Şu anki konum', M.gps.latitude, M.gps.longitude);
+        return;
+      }
+      const targetName = cmd.extra?.name ?? '';
+      const { match, ambiguous } = findSavedLocationByName(targetName);
+      if (ambiguous.length > 0) {
+        M.speak(`Birden fazla "${targetName}" kaydı var, hangisini kastettiğini netleştirir misin?`);
+        return;
+      }
+      if (!match) { M.speak(`"${targetName}" adında kayıtlı bir konum bulamadım.`); return; }
+      finish(match.name, match.lat, match.lng);
+    }
   });
 }
 
@@ -146,6 +182,9 @@ beforeEach(() => {
   M.speak.mockClear();
   M.startNavCalls = [];
   M.shareCalls = [];
+  M.contacts = [];
+  M.whatsappCalls = [];
+  M.whatsappShouldFail = false;
   M.gps = { latitude: 36.9, longitude: 34.8 };
   _unsub = registerSavedLocationHandler();
   // `useVoiceCommandHandler`in GERÇEK DI kaydı — bu testte manuel.
@@ -301,5 +340,104 @@ describe('Mavi · Özel Konumlar — SİL (açık onay ZORUNLU)', () => {
     await processTextCommand("Mavi Göl'ü sil");
     expect(getSavedLocations()).toHaveLength(2);           // ikisi de duruyor
     expect(M.speak).toHaveBeenCalledWith(expect.stringContaining('Birden fazla'));
+  });
+});
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * ÜRÜN KARARI (2026-09-11) — WhatsApp konum gönderimi
+ *
+ * "Ev konumunu Ahmet'e gönder" → REMEMBER/CALL_CONTACT/NAVIGATE_HOME'a
+ * DÜŞMEDEN, deterministik olarak `send_location_contact`'e yönlenir; konum
+ * kanonik otoriteden (GPS/savedLocationsService), kişi rehberden çözülür.
+ * Ekstra "onaylıyor musun?" diyaloğu YOK (WhatsApp'ın kendi Gönder düğmesi
+ * nihai onaydır) — ama belirsizlik/yokluk HER ZAMAN dürüstçe söylenir ve
+ * "gönderdim" ASLA denmez (gerçek gönderim doğrulanamaz).
+ * ════════════════════════════════════════════════════════════════════════ */
+describe('Mavi · WhatsApp konum gönderimi (ÜRÜN KARARI 2026-09-11)', () => {
+  it('"Ev konumunu Ahmet\'e gönder" → kayıtlı konum + tek kişi eşleşmesi, "hazırladım" der (GÖNDERDİM DEMEZ)', async () => {
+    addSavedLocation(10, 20, 'Ev');
+    M.contacts = [{ name: 'Ahmet Yılmaz', phones: [{ number: '+905321112233', label: 'mobile' }] }];
+    await processTextCommand("Ev konumunu Ahmet'e gönder");
+    expect(M.whatsappCalls).toHaveLength(1);
+    expect(M.whatsappCalls[0]).toMatchObject({ contactName: 'Ahmet Yılmaz', name: 'Ev', lat: 10, lng: 20 });
+    expect(M.speak).toHaveBeenCalledWith(expect.stringContaining('hazırladım'));
+    expect(M.speak).not.toHaveBeenCalledWith(expect.stringContaining('gönderdim'));
+  });
+
+  it('"Bu konumu Ahmet\'e gönder" → ŞU ANKİ GPS kullanılır, kayıtlı konum ARANMAZ', async () => {
+    M.contacts = [{ name: 'Ahmet', phones: [{ number: '+905321112233', label: 'mobile' }] }];
+    await processTextCommand("Bu konumu Ahmet'e gönder");
+    expect(M.whatsappCalls).toHaveLength(1);
+    expect(M.whatsappCalls[0]).toMatchObject({ lat: 36.9, lng: 34.8 });
+  });
+
+  it('şu anki konum + GPS YOKSA fail-closed, WhatsApp hiç denenmez', async () => {
+    M.gps = null;
+    M.contacts = [{ name: 'Ahmet', phones: [{ number: '+905321112233', label: 'mobile' }] }];
+    await processTextCommand("Bu konumu Ahmet'e gönder");
+    expect(M.whatsappCalls).toHaveLength(0);
+    expect(M.speak).toHaveBeenCalledWith(expect.stringContaining('GPS'));
+  });
+
+  it('kayıtlı konum bulunamazsa fail-closed, uydurma YOK', async () => {
+    M.contacts = [{ name: 'Ahmet', phones: [{ number: '+905321112233', label: 'mobile' }] }];
+    await processTextCommand("Olmayan Yer konumunu Ahmet'e gönder");
+    expect(M.whatsappCalls).toHaveLength(0);
+    expect(M.speak).toHaveBeenCalledWith(expect.stringContaining('bulamadım'));
+  });
+
+  it('AMBIGUOUS kayıtlı konum → rastgele SEÇİLMEZ, kullanıcıya sorulur', async () => {
+    addSavedLocation(1, 2, 'Mavi Göl');
+    addSavedLocation(3, 4, 'Mavi Göl');
+    M.contacts = [{ name: 'Ahmet', phones: [{ number: '+905321112233', label: 'mobile' }] }];
+    await processTextCommand("Mavi Göl konumunu Ahmet'e gönder");
+    expect(M.whatsappCalls).toHaveLength(0);
+    expect(M.speak).toHaveBeenCalledWith(expect.stringContaining('Birden fazla'));
+  });
+
+  it('kişi rehberde bulunamazsa fail-closed, WhatsApp denenmez', async () => {
+    addSavedLocation(10, 20, 'Ev');
+    M.contacts = [];
+    await processTextCommand("Ev konumunu Ahmet'e gönder");
+    expect(M.whatsappCalls).toHaveLength(0);
+    expect(M.speak).toHaveBeenCalledWith(expect.stringContaining('rehberde bulunamadı'));
+  });
+
+  it('AMBIGUOUS kişi eşleşmesi → rastgele SEÇİLMEZ, kullanıcıya sorulur', async () => {
+    addSavedLocation(10, 20, 'Ev');
+    M.contacts = [
+      { name: 'Ahmet Yılmaz', phones: [{ number: '+905321112233', label: 'mobile' }] },
+      { name: 'Ahmet Kaya', phones: [{ number: '+905321112244', label: 'mobile' }] },
+    ];
+    await processTextCommand("Ev konumunu Ahmet'e gönder");
+    expect(M.whatsappCalls).toHaveLength(0);
+    expect(M.speak).toHaveBeenCalledWith(expect.stringContaining('Rehberde birden fazla'));
+  });
+
+  it('WhatsApp hazırlama BAŞARISIZ olursa dürüst söylenir, "gönderdim"/"hazırladım" DENMEZ', async () => {
+    addSavedLocation(10, 20, 'Ev');
+    M.contacts = [{ name: 'Ahmet', phones: [{ number: '+905321112233', label: 'mobile' }] }];
+    M.whatsappShouldFail = true;
+    await processTextCommand("Ev konumunu Ahmet'e gönder");
+    expect(M.whatsappCalls).toHaveLength(0);
+    expect(M.speak).toHaveBeenCalledWith(expect.stringContaining('açamadım'));
+    expect(M.speak).not.toHaveBeenCalledWith(expect.stringContaining('hazırladım'));
+    expect(M.speak).not.toHaveBeenCalledWith(expect.stringContaining('gönderdim'));
+  });
+
+  it('"Ev konumunu Ahmet\'e gönder" → REMEMBER/NAVIGATE_HOME/CALL_CONTACT tetiklenmez', async () => {
+    addSavedLocation(10, 20, 'Ev');
+    M.contacts = [{ name: 'Ahmet', phones: [{ number: '+905321112233', label: 'mobile' }] }];
+    await processTextCommand("Ev konumunu Ahmet'e gönder");
+    expect(M.startNavCalls).toHaveLength(0); // navigate_home/navigate_place tetiklenmedi
+    expect(M.speak).not.toHaveBeenCalledWith(expect.stringContaining('aklımda'));
+  });
+
+  it('ekstra "onaylıyor musun?" diyaloğu YOK — tek turda hazırlanır', async () => {
+    addSavedLocation(10, 20, 'Ev');
+    M.contacts = [{ name: 'Ahmet', phones: [{ number: '+905321112233', label: 'mobile' }] }];
+    await processTextCommand("Ev konumunu Ahmet'e gönder");
+    expect(M.whatsappCalls).toHaveLength(1); // "evet" beklemeden tek turda tamamlandı
+    expect(M.speak).not.toHaveBeenCalledWith(expect.stringContaining('onaylıyor musun'));
   });
 });
