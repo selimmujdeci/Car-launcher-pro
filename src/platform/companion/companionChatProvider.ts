@@ -51,7 +51,7 @@ import { useStore } from '../../store/useStore';
 import { resolveCompanionIdentity, type CompanionIdentity, type CompanionSettingsInput } from './companionIdentity';
 import {
   interpretFuel, interpretBatteryCharge, interpretEngineTempConcern, interpretTripDuration,
-  interpretTripSession,
+  interpretTripSession, interpretMotionState,
   interpretRangeVsRoute, interpretDtcStatus, interpretDiagnosticTrend,
   classifyDriverStyle, driverToneInstruction, type DriverStyle,
   selectActiveTopic, topicFreshness, buildTopicHintLine, resolveDemonstrativeReference,
@@ -62,7 +62,7 @@ import { readDiagnosticTrendInput } from '../ai/mechanic/concrete/maviMechanicHi
 import { tryOfflineConversation } from '../offlineConversationEngine';
 import { onOBDData } from '../obdService';
 import { onDTCState } from '../dtcService';
-import { getTripSnapshot } from '../tripLogService';
+import { getTripSnapshot, getTripJournalGlance } from '../tripLogService';
 /* ÇALIŞMA ZAMANI BAĞIMLILIĞI OLMAYAN ince kapı: `tripSessionService`i buraya
    statik import etmek Mavi'nin bağlam grafiğini ölçülebilir biçimde ağırlaştırdı
    (`regression.guards` dinamik-import kilidi varsayılan timeout'ta düştü).
@@ -515,6 +515,12 @@ function buildInterpretedVehicleContext(): string {
       if (trip) line = interpretTripDuration(trip.liveDurationMin, trip.liveDistanceKm);
     }
     if (line) parts.push(line);
+
+    /* (2b) ŞU ANKİ hareket durumu — kanonik Seyir Defteri projeksiyonu.
+     *      Birikmiş süreden TÜRETİLEMEZ (40 dk yolda olan araç şu an ışıkta
+     *      duruyor olabilir) ve ölçülemediğinde AÇIKÇA bilinmiyor denir. */
+    const motion = interpretMotionState(getTripJournalGlance().state);
+    if (motion) parts.push(motion);
   } catch { /* trip servisi yok — süresiz bağlam */ }
   // (4) Menzil vs. aktif rota: "yakıtım X'e yeter mi" gerçek veriyle. Yalnız
   //     navigasyon aktifken + geçerli menzil varken (aksi hâlde bağlama girmez).

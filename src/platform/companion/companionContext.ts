@@ -267,6 +267,41 @@ export function interpretTripSession(s: {
 }
 
 /**
+ * ŞU ANKİ hareket durumu cümlesi — kanonik Seyir Defteri projeksiyonundan.
+ *
+ * ── NEDEN AYRI BİR SATIR ──────────────────────────────────────────────
+ * `interpretTripSession` "ne kadar zamandır yoldayız / kaç km / ne kadar
+ * mola" sorularını yanıtlar; hepsi BİRİKMİŞ büyüklüklerdir. "Şu anda
+ * hareket ediyor muyuz?" ise ANLIK bir olgudur ve birikmiş süreden
+ * TÜRETİLEMEZ: 40 dakikadır yolda olan bir araç şu an kırmızı ışıkta
+ * duruyor olabilir. Mavi bunu tahmin etmemeli, OKUMALIDIR.
+ *
+ * `null` döner = satır üretilmez. Yolculuk yokken ("park hâlinde") bunu her
+ * çağrıda prompt'a yazmak boşta token harcar; durum BİLİNMİYORSA ise
+ * uydurma yapmamak için AÇIKÇA söylenir — Mavi "duruyoruz" diyemesin.
+ */
+export function interpretMotionState(
+  state: 'PARKED' | 'MOVING' | 'STOPPED_IN_TRIP' | 'TRIP_ENDING'
+       | 'COMPLETED' | 'UNKNOWN_DEGRADED' | null | undefined,
+): string | null {
+  switch (state) {
+    case 'MOVING':
+      return 'Şu anda hareket hâlindeyiz.';
+    case 'STOPPED_IN_TRIP':
+      return 'Şu anda duruyoruz ama yolculuk bitmedi (trafik ya da kısa mola).';
+    case 'TRIP_ENDING':
+      return 'Duruş sürüyor; yolculuk birazdan kapanabilir.';
+    case 'UNKNOWN_DEGRADED':
+      /* Konum/OBD susmuşsa "duruyoruz" DA "gidiyoruz" DA denemez. */
+      return 'Şu anda hareket edip etmediğimizi ölçemiyorum (konum ve araç verisi yok).';
+    case 'PARKED':
+    case 'COMPLETED':
+    default:
+      return null;
+  }
+}
+
+/**
  * Mola ihtiyacı kararı + cümlesi (PromptScheduler'ın "mola" tetiği — §5).
  * Yalnız eşik AŞILDIYSA cümle döner; aksi hâlde null (= konuşma, sus).
  *

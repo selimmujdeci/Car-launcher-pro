@@ -19,7 +19,15 @@
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { RefreshCw, Route, AlertTriangle, ShieldCheck, CloudUpload } from 'lucide-react';
 import { readTripUploadSnapshot } from '../../../platform/trip/tripUploadRuntime';
-import { getTripSnapshot } from '../../../platform/tripLogService';
+import {
+  getTripSnapshot, getTripJournalGlance, type TripJournalGlance,
+} from '../../../platform/tripLogService';
+import {
+  readOpenJournal, listJournalIds,
+} from '../../../platform/trip/tripJournalStore';
+import {
+  tripJournalStateLabel, tripEndReasonLabel,
+} from '../../../platform/trip/tripJournalModel';
 import { getTripMeterSnapshot, type TripMeterSnapshot } from '../../../platform/trip/tripMeterService';
 import {
   getTripSessionSnapshot, isTripSessionRunning,
@@ -115,6 +123,24 @@ interface Snap {
    */
   readonly session: TripSessionProjection | null;
   readonly sessionRunning: boolean;
+  /**
+   * SEYİR DEFTERİ kanıtı (salt gözlem).
+   *
+   * Kendi ölçümü YOKTUR: kanonik durum `tripJournalModel` projeksiyonundan,
+   * ham kanıt sayaçları `tripJournalStore`dan okunur. LAB hiçbir yolculuk
+   * başlatmaz/kapatmaz ve deftere YAZMAZ.
+   */
+  readonly journal: TripJournalGlance | null;
+  readonly openJournal: {
+    readonly tripId: string;
+    readonly startedAtMs: number;
+    readonly routePointCount: number;
+    readonly stopCount: number;
+    readonly eventCount: number;
+    readonly stopOpen: boolean;
+  } | null;
+  /** Cihazda mühürlenmiş yolculuk kaydı sayısı. */
+  readonly journalRecordCount: number | null;
   readonly readAtMs: number;
 }
 
@@ -167,8 +193,16 @@ function readSnap(): Snap {
   let fieldSessionActive = false;
   let session: TripSessionProjection | null = null;
   let sessionRunning = false;
+  let journal: TripJournalGlance | null = null;
+  let openJournal: Snap['openJournal'] = null;
+  let journalRecordCount: number | null = null;
 
   try { upload = readTripUploadSnapshot(); } catch { upload = null; }
+  /* Seyir defteri: üç ayrı okuma, üçü de AYRI fail-soft — biri düşse öteki
+     kanıt kaybolmasın (kısmi kanıt, kanıtsızlıktan iyidir). */
+  try { journal = getTripJournalGlance(); } catch { journal = null; }
+  try { openJournal = readOpenJournal(); } catch { openJournal = null; }
+  try { journalRecordCount = listJournalIds().length; } catch { journalRecordCount = null; }
   try { meter = getTripMeterSnapshot(); } catch { meter = null; }
   try {
     const s = getTripSessionSnapshot();
@@ -204,6 +238,7 @@ function readSnap(): Snap {
     upload, stats, activeState, liveDistanceKm, liveDurationMin, lastTrip,
     meter, fieldSessionDistanceKm, fieldSessionActive,
     session, sessionRunning,
+    journal, openJournal, journalRecordCount,
     readAtMs: Date.now(),
   };
 }
@@ -294,6 +329,97 @@ function TripEngineScreenBase() {
               : `${snap.liveDurationMin} dk`}
           </Row>
         </div>
+      </Section>
+
+      {/* 1b · SEYİR DEFTERİ — kanonik durum + ham kanıt (salt gözlem) */}
+      <Section title="Trip Journal · kanonik seyir durumu (projeksiyon — yeni otorite YOK)">
+        <div className="flex flex-col">
+          <Row label="tripState">
+            <Chip tone={snap?.journal?.state === 'MOVING' ? OK
+              : snap?.journal?.state === 'UNKNOWN_DEGRADED' ? WARN : NONE}>
+              {snap?.journal
+                ? `${snap.journal.state} · ${tripJournalStateLabel(snap.journal.state)}`
+                : UNAVAILABLE}
+            </Chip>
+          </Row>
+          <Row label="motionState (kanıt kapısı)">
+            {snap?.journal == null ? UNAVAILABLE : (
+              <Chip tone={snap.journal.motionEvidenceReady ? OK : NONE}>
+                {snap.journal.motionEvidenceReady ? 'YETERLİ' : 'BİRİKİYOR'}
+                {` · ${snap.journal.motionSampleCount} örnek`}
+              </Chip>
+            )}
+          </Row>
+          <Row label="tripId (açık)">
+            {snap?.journal?.tripId ?? UNAVAILABLE}
+          </Row>
+          <Row label="startedAt (yaş)">
+            {/* MUTLAK saat basılmaz (LAB sözleşmesi): duvar saati damgası hem
+                ekran görüntüsüyle birlikte kişisel bir iz bırakır hem de saat
+                sıçramasında yanıltır. Yaş monotonik farktan gelir. */}
+            {snap?.openJournal == null
+              ? UNAVAILABLE
+              : `${mins(snap.readAtMs - snap.openJournal.startedAtMs)} önce`}
+          </Row>
+          <Row label="duration / movingDuration / stoppedDuration">
+            {/* Süre SAHİBİ seyahat oturumudur; burada YENİDEN hesaplanmaz. */}
+            {snap?.session == null ? UNAVAILABLE : (
+              `${mins(snap.session.elapsedMs)} · ${mins(snap.session.movingMs)}`
+              + ` · ${mins(snap.session.stoppedMs)}`
+            )}
+          </Row>
+          <Row label="distance / maxSpeed">
+            {/* Mesafe `tripLogService`in, tepe hız son kapanan trip'in. */}
+            {snap?.session == null
+              ? UNAVAILABLE
+              : `${(snap.session.distanceMeters / 1000).toFixed(2)} km`}
+            {' · '}
+            {snap?.lastTrip
+              ? metricLabel(snap.lastTrip.metrics.maximumSpeedKmh, 'km/sa')
+              : UNAVAILABLE}
+          </Row>
+          <Row label="lastTripEndReason">
+            {snap?.journal?.lastEndReason == null ? UNAVAILABLE : (
+              <Chip tone={snap.journal.lastEndReason === 'IDLE_WINDOW' ? OK : WARN}>
+                {`${snap.journal.lastEndReason} · ${tripEndReasonLabel(snap.journal.lastEndReason)}`}
+              </Chip>
+            )}
+          </Row>
+          <Row label="completionCardTripId">
+            {/* Tamamlandı kartı bu kimlik için YALNIZ BİR KEZ açılır. */}
+            {snap?.journal?.lastCompletedTripId ?? UNAVAILABLE}
+          </Row>
+          <Row label="endPending (kapanış penceresi)">
+            {snap?.journal == null ? UNAVAILABLE
+              : (snap.journal.endPending ? 'İŞLİYOR' : 'HAYIR')}
+          </Row>
+          <Row label="ham kanıt (rota / duruş / olay)">
+            {snap?.openJournal == null ? UNAVAILABLE : (
+              `${snap.openJournal.routePointCount} nokta · `
+              + `${snap.openJournal.stopCount} duruş · `
+              + `${snap.openJournal.eventCount} olay`
+              + (snap.openJournal.stopOpen ? ' · duruş AÇIK' : '')
+            )}
+          </Row>
+          <Row label="mühürlenmiş kayıt (cihazda)">
+            {snap?.journalRecordCount === null || snap?.journalRecordCount === undefined
+              ? UNAVAILABLE
+              : `${snap.journalRecordCount} yolculuk`}
+          </Row>
+          <Row label="syncState / pendingSync">
+            {snap?.upload == null ? UNAVAILABLE : (
+              `${snap.upload.uploadedCount} yüklendi · `
+              + `${snap.upload.duplicateCount} tekrar · `
+              + `${snap.upload.queuedCount + snap.upload.retryCount} bekliyor · `
+              + `${snap.upload.failedCount} başarısız`
+            )}
+          </Row>
+        </div>
+        <p className="mt-2 text-[10px] leading-snug text-[var(--oem-ink-3)]">
+          Rota izi ve koordinatlar YALNIZ bu cihazda saklanır; buluta yalnız
+          kaba alan adı (metin) gider. Bu ekran hiçbir yolculuk başlatmaz,
+          kapatmaz, silmez ve deftere yazmaz.
+        </p>
       </Section>
 
       {/* 1a · Seyahat oturumu — molalarla birleştirilmiş yolculuk (salt gözlem) */}
