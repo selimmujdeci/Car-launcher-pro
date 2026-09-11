@@ -12,7 +12,10 @@
  * saklanır. Sunucu yok — trafik doğrudan cihaz ↔ API arasında (BYOK).
  */
 
-import { geminiChatEndpoint } from './ai/gateway/models';
+import {
+  geminiChatEndpoint, DEFAULT_GEMINI_MODEL,
+  geminiThinkingConfig, noteGeminiThinkingRejectedIf400,
+} from './ai/gateway/models';
 import type { IntentType } from './intentEngine';
 import type { MaintenanceAssessment } from './vehicleMaintenanceService';
 import type { DTCCode } from './dtcService';
@@ -225,26 +228,33 @@ const GEMINI_ENDPOINT =
   geminiChatEndpoint();
 
 async function askGemini(text: string, apiKey: string, ctx?: VehicleContext): Promise<AIVoiceResult | null> {
-  const body = {
+  const mkBody = (): unknown => ({
     system_instruction: { parts: [{ text: buildSystemPrompt(ctx) }] },
     contents: [{ role: 'user', parts: [{ text }] }],
     generationConfig: {
       responseMimeType: 'application/json',
       temperature: 0.1,
       maxOutputTokens: 256,
-      // flash-latest DÜŞÜNEN model: bütçesiz istekte düşünme 256 token'ı yiyip
-      // MAX_TOKENS + markdown-sargılı yarım metin dönüyordu ("Geçersiz yanıt").
-      // Araç içi komutta gecikme > derinlik → düşünme kapalı (SAHA 2026-07-03).
-      thinkingConfig: { thinkingBudget: 0 },
+      // DÜŞÜNEN model: bütçesiz istekte düşünme 256 token'ı yiyip MAX_TOKENS +
+      // markdown-sargılı yarım metin dönüyordu ("Geçersiz yanıt"). Araç içi
+      // komutta gecikme > derinlik → düşünme kapalı (SAHA 2026-07-03).
+      // SAHA 2026-09-11: alanı REDDEDEN modellerde bu 400 üretiyordu → alan artık
+      // sahibine sorularak eklenir ve ret bir kez öğrenilince istek tekrarlanır.
+      ...geminiThinkingConfig(DEFAULT_GEMINI_MODEL),
     },
-  };
+  });
 
-  const resp = await fetch(GEMINI_ENDPOINT, {
+  const send = (): Promise<Response> => fetch(GEMINI_ENDPOINT, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'X-goog-api-key': apiKey },
-    body: JSON.stringify(body),
+    /* Gövde HER denemede yeniden kurulur: ret öğrenildiyse ikinci istek alansız
+       gider (sabit bir gövdeyi tekrar göndermek aynı 400'ü üretirdi). */
+    body: JSON.stringify(mkBody()),
     signal: signalWithTimeout(3000), // Chrome <103 WebView güvenli (abortCompat)
   });
+
+  let resp = await send();
+  if (await noteGeminiThinkingRejectedIf400(DEFAULT_GEMINI_MODEL, resp)) resp = await send();
 
   if (!resp.ok) return null;
 

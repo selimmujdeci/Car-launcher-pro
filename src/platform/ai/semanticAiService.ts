@@ -14,7 +14,10 @@
  *   voiceService → semanticAiService.enrichBackground() → proaktif log
  */
 
-import { geminiChatEndpoint } from './gateway/models';
+import {
+  geminiChatEndpoint, DEFAULT_GEMINI_MODEL,
+  geminiThinkingConfig, noteGeminiThinkingRejectedIf400,
+} from './gateway/models';
 import type { IntentType } from '../intentEngine';
 import type { VehicleContext } from '../aiVoiceService';
 import { resolveApiKey, type AIProvider } from '../aiVoiceService';
@@ -172,18 +175,29 @@ function parseSemanticJson(raw: string): SemanticResult | null {
 async function _askGemini(text: string, apiKey: string, ctx?: VehicleContext): Promise<SemanticResult | null> {
   // gemini-flash-latest: yeni "AQ." anahtarlarda sabit-adlı modeller 429 veriyor (SAHA 2026-07-03).
   const endpoint = geminiChatEndpoint();
-  const resp = await fetch(endpoint, {
+  /* thinkingBudget:0 — düşünen modeller bütçesizde düşünme token'larını yiyip
+     MAX_TOKENS ile metinsiz dönüyor (SAHA 2026-07-03). Ama bazı modeller alanı
+     REDDEDER (400) → alan artık sahibine sorularak eklenir (models.ts). */
+  const send = (): Promise<Response> => fetch(endpoint, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'X-goog-api-key': apiKey },
     body: JSON.stringify({
       system_instruction: { parts: [{ text: buildContextPrompt(ctx) }] },
       contents: [{ role: 'user', parts: [{ text }] }],
-      // thinkingBudget:0 — flash-latest düşünen model; bütçesizde düşünme token'ları
-      // yiyip MAX_TOKENS ile metinsiz dönüyor (SAHA 2026-07-03).
-      generationConfig: { responseMimeType: 'application/json', temperature: 0.05, maxOutputTokens: 128, thinkingConfig: { thinkingBudget: 0 } },
+      generationConfig: {
+        responseMimeType: 'application/json', temperature: 0.05, maxOutputTokens: 128,
+        ...geminiThinkingConfig(DEFAULT_GEMINI_MODEL),
+      },
     }),
     signal: signalWithTimeout(5_000), // Chrome <103 WebView güvenli (abortCompat)
   });
+
+  /* SAHA 2026-09-11: bu yol her turun İLK Gemini çağrısıdır. Alanı reddeden bir
+     varsayılan modelde 400 alıp SESSİZCE `null` dönüyordu → semantik yönlendirme
+     her turda kayboluyor, üstelik ölçülen ~0,55 sn boşa gidiyordu. Artık ret
+     BİR KEZ öğrenilir ve istek alansız TEKRARLANIR (aynı tur kurtarılır). */
+  let resp = await send();
+  if (await noteGeminiThinkingRejectedIf400(DEFAULT_GEMINI_MODEL, resp)) resp = await send();
 
   if (!resp.ok) return null;
   const data = await resp.json() as { candidates?: { content?: { parts?: { text?: string }[] } }[] };

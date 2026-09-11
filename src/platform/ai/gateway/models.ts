@@ -139,3 +139,67 @@ export const DEFAULT_AI_MODEL: AiModelId = AI_MODELS.claudeHaiku;
 export function resolveModelAlias(alias: string): AiModelId | undefined {
   return (AI_MODELS as Record<string, AiModelId>)[alias];
 }
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * `thinkingConfig` DESTEĞİ — ÖLÇÜLEN YETENEK, TEK SAHİP
+ *
+ * Bazı modeller `generationConfig.thinkingConfig` alanını REDDEDER
+ * (`400 INVALID_ARGUMENT`); aynı model alansız 200 döner. Model adından çıkarım
+ * YAPILAMAZ (ölçüm: `3.1-flash-lite` KABUL eder, `3.5-flash-lite` ETMEZ).
+ *
+ * SAHA 2026-09-11 (cihaz, ağ izi): alan SEKİZ ayrı çağrı yerinden KOŞULSUZ
+ * gönderiliyordu ve öğrenilen ret yalnız beyin yolunda tutuluyordu → tek turda
+ * AYNI model üç kez 400 aldı (ölçülen 0,51 + 0,60 + 0,41 sn ≈ 1,5 sn boşa).
+ * Yetenek bilgisi artık BURADA (zincirin sahibi, yaprak modül) durur; her çağrı
+ * yeri gövdeyi kurarken BURAYA sorar. İkinci bir kopya tutulmaz.
+ *
+ * Küme bounded: en fazla zincir uzunluğu kadar model adı. Oturum ömürlü —
+ * yeniden başlatmada yeniden öğrenilir (kalıcı depoya YAZILMAZ: model yetenekleri
+ * sağlayıcı tarafında değişebilir, bayat bilgi sahte kısıt üretir).
+ * ════════════════════════════════════════════════════════════════════════ */
+const _thinkingRejected = new Set<string>();
+
+/** Bu model `thinkingConfig`i reddetti mi (ÖLÇÜLDÜ — varsayım değil). */
+export function isGeminiThinkingRejected(model: string): boolean {
+  return _thinkingRejected.has(model);
+}
+
+/** Ölçülen reddi kaydet — o model bir daha bu alanla denenmez. */
+export function noteGeminiThinkingRejected(model: string): void {
+  if (model) _thinkingRejected.add(model);
+}
+
+/**
+ * `generationConfig`e serpilecek `thinkingConfig` parçası — model kabul
+ * ediyorsa alan, etmiyorsa BOŞ nesne. TEK KAPI: çağrı yerleri kendi koşullarını
+ * yazmaz (yazdıkları anda bilgi yeniden ayrışır).
+ */
+export function geminiThinkingConfig(
+  model: string, thinkingBudget = 0,
+): { thinkingConfig?: { thinkingBudget: number } } {
+  return isGeminiThinkingRejected(model) ? {} : { thinkingConfig: { thinkingBudget } };
+}
+
+/** @internal — testler arası izolasyon. */
+export function _resetGeminiThinkingForTest(): void { _thinkingRejected.clear(); }
+
+/**
+ * `400` gördüyse bunun PARAMETRE reddi olup olmadığına karar verir ve öyleyse
+ * kaydeder. **Girdiyi tüketmez** (`clone`), throw ETMEZ.
+ *
+ * ⚠️ 400 İKİ AYRI ŞEY olabilir: (a) `API_KEY_INVALID` — anahtar gerçekten
+ * geçersiz; bunu "alan desteklenmiyor" sanmak yanlış öğrenme olur ve
+ * `thinkingBudget:0` kalkınca DÜŞÜNEN modeller metinsiz `MAX_TOKENS` döner
+ * (SAHA 2026-07-03). (b) `INVALID_ARGUMENT` — alan desteklenmiyor.
+ * Gövde okunamıyorsa muhafazakâr davranılır: KAYIT YOK.
+ */
+export async function noteGeminiThinkingRejectedIf400(
+  model: string, resp: Response,
+): Promise<boolean> {
+  if (resp.status !== 400 || isGeminiThinkingRejected(model)) return false;
+  let body = '';
+  try { body = await resp.clone().text(); } catch { body = ''; }
+  if (!body || /API_KEY_INVALID/i.test(body)) return false;
+  noteGeminiThinkingRejected(model);
+  return true;
+}

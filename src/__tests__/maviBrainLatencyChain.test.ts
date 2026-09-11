@@ -16,10 +16,12 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { GEMINI_MODEL_CHAIN, GEMINI_MODELS } from '../platform/ai/gateway/models';
 import {
-  isGeminiThinkingRejected, noteGeminiThinkingRejected, _resetGeminiModelForTest,
-} from '../platform/companion/companionChatProvider';
+  GEMINI_MODEL_CHAIN, GEMINI_MODELS, DEFAULT_GEMINI_MODEL,
+  isGeminiThinkingRejected, noteGeminiThinkingRejected, geminiThinkingConfig,
+  noteGeminiThinkingRejectedIf400, _resetGeminiThinkingForTest,
+} from '../platform/ai/gateway/models';
+import { _resetGeminiModelForTest } from '../platform/companion/companionChatProvider';
 import {
   isProviderCoolingDown, noteGatewayFailureKind, noteProviderRateLimited,
   _resetProviderHealthForTest, NO_CREDIT_COOLDOWN_MS, RATE_LIMIT_COOLDOWN_MS,
@@ -47,7 +49,7 @@ describe('Gemini model zinciri — ölü model taşınmaz', () => {
 });
 
 describe('thinkingConfig reddi — ÖĞRENİLEN BİLGİ TUR SONUNDA UNUTULMAZ', () => {
-  beforeEach(() => { _resetGeminiModelForTest(); });
+  beforeEach(() => { _resetGeminiModelForTest(); _resetGeminiThinkingForTest(); });
 
   it('reddedilen model hatırlanır (oturum ömürlü)', () => {
     expect(isGeminiThinkingRejected('gemini-3.5-flash-lite')).toBe(false);
@@ -59,7 +61,8 @@ describe('thinkingConfig reddi — ÖĞRENİLEN BİLGİ TUR SONUNDA UNUTULMAZ', 
 
   it('🔒 istek gövdesi AKTİF MODELİN öğrenilmiş durumunu okur (tur-yerel bayrak DEĞİL)', () => {
     const src = read('src/platform/companion/companionChatProvider.ts');
-    expect(src).toMatch(/mkBody\(!isGeminiThinkingRejected\(getActiveGeminiModel\(\)\)\)/);
+    expect(src).toMatch(/body:\s+mkBody\(getActiveGeminiModel\(\)\)/);
+    expect(src).toMatch(/\.\.\.geminiThinkingConfig\(model\)/);
     expect(src, 'tur-yerel bayrak geri gelmiş — öğrenilen bilgi her turda unutulur')
       .not.toMatch(/let _thinkingSupported/);
   });
@@ -95,5 +98,63 @@ describe('Kredi/kimlik arızası — her turda yeniden denenmez', () => {
     noteProviderRateLimited('gemini');
     expect(isProviderCoolingDown('gemini')).toBe(true);
     expect(isProviderCoolingDown('groq')).toBe(false);      // çapraz kirlenme yok
+  });
+});
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * TEK KAPI — `thinkingConfig` HER ÇAĞRI YERİNDE AYNI BİLGİYİ OKUR
+ *
+ * SAHA 2026-09-11 (ağ izi): alan SEKİZ ayrı yerden KOŞULSUZ gönderiliyordu ve
+ * öğrenilen ret yalnız beyin yolunda tutuluyordu → tek turda AYNI model üç kez
+ * 400 aldı (0,51 + 0,60 + 0,41 sn ≈ 1,5 sn boşa). Ayrıca semantik yönlendirici
+ * ve AI komut yolu `DEFAULT_GEMINI_MODEL`e sabit olduğu için HER turda 400 alıp
+ * sessizce `null` dönüyordu.
+ * ════════════════════════════════════════════════════════════════════════ */
+describe('geminiThinkingConfig — tek kapı', () => {
+  beforeEach(() => { _resetGeminiThinkingForTest(); });
+
+  it('reddedilmemiş modelde alan EKLENİR (düşünen modeller metinsiz dönmesin)', () => {
+    expect(geminiThinkingConfig('gemini-3.1-flash-lite')).toEqual({ thinkingConfig: { thinkingBudget: 0 } });
+  });
+
+  it('reddeden modelde alan HİÇ gönderilmez', () => {
+    noteGeminiThinkingRejected('gemini-3.5-flash-lite');
+    expect(geminiThinkingConfig('gemini-3.5-flash-lite')).toEqual({});
+  });
+
+  it('400 sınıflandırması TEK KURAL: API_KEY_INVALID öğrenilmez', async () => {
+    const anahtarHatasi = new Response('{"error":{"message":"API_KEY_INVALID"}}', { status: 400 });
+    expect(await noteGeminiThinkingRejectedIf400(DEFAULT_GEMINI_MODEL, anahtarHatasi)).toBe(false);
+    expect(isGeminiThinkingRejected(DEFAULT_GEMINI_MODEL)).toBe(false);
+  });
+
+  it('400 INVALID_ARGUMENT öğrenilir; 200/429 öğrenilmez', async () => {
+    expect(await noteGeminiThinkingRejectedIf400('m1', new Response('{"error":{"status":"INVALID_ARGUMENT"}}', { status: 400 }))).toBe(true);
+    expect(isGeminiThinkingRejected('m1')).toBe(true);
+    expect(await noteGeminiThinkingRejectedIf400('m2', new Response('{}', { status: 429 }))).toBe(false);
+    expect(await noteGeminiThinkingRejectedIf400('m3', new Response('{}', { status: 200 }))).toBe(false);
+  });
+
+  it('gövde okunamıyorsa MUHAFAZAKÂR: kayıt YOK', async () => {
+    expect(await noteGeminiThinkingRejectedIf400('m4', new Response('', { status: 400 }))).toBe(false);
+    expect(isGeminiThinkingRejected('m4')).toBe(false);
+  });
+
+  it('🔒 hiçbir Gemini çağrı yeri alanı KOŞULSUZ göndermez', () => {
+    for (const rel of [
+      'src/platform/companion/companionChatProvider.ts',
+      'src/platform/ai/semanticAiService.ts',
+      'src/platform/aiVoiceService.ts',
+    ]) {
+      const kod = read(rel).replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/.*$/gm, '$1');
+      expect(kod, `${rel}: thinkingConfig kapıdan geçmeden gönderiliyor`)
+        .not.toMatch(/thinkingConfig:\s*\{/);
+    }
+  });
+
+  it('🔒 yönlendirici ve AI komut yolu ret sonrası isteği TEKRARLAR', () => {
+    for (const rel of ['src/platform/ai/semanticAiService.ts', 'src/platform/aiVoiceService.ts']) {
+      expect(read(rel)).toMatch(/if \(await noteGeminiThinkingRejectedIf400\(DEFAULT_GEMINI_MODEL, resp\)\) resp = await send\(\);/);
+    }
   });
 });

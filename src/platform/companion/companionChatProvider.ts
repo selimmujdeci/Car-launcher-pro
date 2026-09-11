@@ -126,7 +126,11 @@ const NO_NET_EVIDENCE_KINDS: ReadonlySet<string> = new Set([
  * `companionAnswerShaping`e TAŞINDI (SAF — durum·I/O·sağlayıcı bilgisi YOK).
  * Bütçeler ve kırpma kuralı DEĞİŞMEDİ; yalnız sahibi netleşti: bu bir
  * sağlayıcı işi değil, dikkat bütçesi politikasıdır. */
-import { geminiChatEndpoint, GEMINI_MODEL_CHAIN } from '../ai/gateway/models';
+import {
+  geminiChatEndpoint, GEMINI_MODEL_CHAIN,
+  geminiThinkingConfig, noteGeminiThinkingRejectedIf400,
+  _resetGeminiThinkingForTest,
+} from '../ai/gateway/models';
 import { tavilySearch } from '../webSearchService';
 import { getWeatherNarrative, refreshWeather, onWeatherState, weatherQueryNamesCity, type WeatherState } from '../weatherService';
 // MAVI-F5: beyin intent listesinin TEK KAYNAĞI (elle liste YASAK).
@@ -646,30 +650,10 @@ function _advanceGeminiModel(status: number): boolean {
   return true;
 }
 
-/* ── `thinkingConfig` DESTEĞİ — ÖĞRENİLEN BİLGİ OTURUM BOYUNCA KALIR ────────
- * Bazı "lite" modeller `generationConfig.thinkingConfig` alanını REDDEDER
- * (`400 INVALID_ARGUMENT`), aynı model alansız 200 döner. Model adından
- * çıkarım YAPILAMAZ (ölçüm: `3.1-flash-lite` KABUL eder, `3.5-flash-lite`
- * ETMEZ) → davranış kendi kendini onarır. SAHA 2026-09-11: bu onarım
- * fonksiyon-yerel bir bayrakla yapıldığı için TUR BİTİNCE UNUTULUYORDU ve
- * alanı reddeden model her turda fazladan bir 400 round-trip'e mal oluyordu.
- * Küme bounded'dır: en fazla zincir uzunluğu kadar model adı tutar. */
-const _geminiThinkingRejected = new Set<string>();
-
-/** Bu model `thinkingConfig`i reddetti mi (ÖLÇÜLDÜ — varsayım değil). */
-export function isGeminiThinkingRejected(model: string): boolean {
-  return _geminiThinkingRejected.has(model);
-}
-
-/** Ölçülen reddi kaydet — bir daha o alanla denenmez. */
-export function noteGeminiThinkingRejected(model: string): void {
-  if (model) _geminiThinkingRejected.add(model);
-}
-
 /** @internal — testler arası izolasyon. */
 export function _resetGeminiModelForTest(): void {
   _geminiModelIdx = 0;
-  _geminiThinkingRejected.clear();
+  _resetGeminiThinkingForTest();   // yetenek hafızası sahibinde sıfırlanır
 }
 // SAHA 2026-07-04: gemini-flash-latest artık gemini-3.5-flash'a çözülüyor; SICAK
 // çağrı ~1-1.8sn ama DERİN SOĞUK BAŞLANGIÇ ~7sn (kullanıcı anahtarıyla ölçüldü).
@@ -696,7 +680,7 @@ export async function warmupGemini(apiKey: string): Promise<void> {
       headers: { 'Content-Type': 'application/json', 'X-goog-api-key': apiKey },
       body:    JSON.stringify({
         contents: [{ role: 'user', parts: [{ text: 'ping' }] }],
-        generationConfig: { maxOutputTokens: 1, thinkingConfig: { thinkingBudget: 0 } },
+        generationConfig: { maxOutputTokens: 1, ...geminiThinkingConfig(getActiveGeminiModel()) },
       }),
       signal: signalWithTimeout(GEMINI_TIMEOUT_MS),
     });
@@ -847,7 +831,7 @@ async function askCompanionGemini(
       maxOutputTokens: answerTokens('chat', isDriving),
       // flash-latest düşünen model: düşünme kapalı — küçük bütçeyi yemesin,
       // araç içi gecikme kısa kalsın (SAHA 2026-07-03).
-      thinkingConfig:  { thinkingBudget: 0 },
+      ...geminiThinkingConfig(getActiveGeminiModel()),
     },
   };
 
@@ -1649,7 +1633,7 @@ async function askCompanionBrain(
      AYNI model alansız 200 verir. Model adından çıkarım yapılamadığı için
      (`gemini-3.1-flash-lite` alanı KABUL eder) 400'de alan düşürülüp bir kez
      yeniden denenir — sabit uyumluluk listesi tutmaya gerek kalmaz. */
-  const mkBody = (withThinking: boolean): string => JSON.stringify({
+  const mkBody = (model: string): string => JSON.stringify({
     system_instruction: {
       // Gemini grounding'i destekler → supportsGrounding: true (varsayılan)
       parts: [{ text: buildBrainSystemPrompt(id, isDriving, buildInterpretedVehicleContext(), true, text) }],
@@ -1659,8 +1643,8 @@ async function askCompanionBrain(
       responseMimeType: 'application/json',
       temperature:      0.4,
       maxOutputTokens:  answerTokens('brain', isDriving),
-      // düşünen model bütçe koruması (SAHA 2026-07-03)
-      ...(withThinking ? { thinkingConfig: { thinkingBudget: 0 } } : {}),
+      // düşünen model bütçe koruması (SAHA 2026-07-03) — alan TEK KAPIDAN
+      ...geminiThinkingConfig(model),
     },
   });
 
@@ -1673,7 +1657,7 @@ async function askCompanionBrain(
     headers: { 'Content-Type': 'application/json', 'X-goog-api-key': apiKey },
     /* Alan desteği AKTİF MODELE göre, İSTEK ANINDA sorulur: zincir ilerlediğinde
        yeni model için doğru gövde gider (eski davranış bayrağı taşıyordu). */
-    body:    mkBody(!isGeminiThinkingRejected(getActiveGeminiModel())),
+    body:    mkBody(getActiveGeminiModel()),
     signal:  signalWithTimeout(decisionMs), // Chrome <103 WebView güvenli (abortCompat)
   });
 
@@ -1695,11 +1679,9 @@ async function askCompanionBrain(
   const sendWithThinkingRecovery = async (): Promise<Response> => {
     const model = getActiveGeminiModel();
     const r = await send();
-    if (r.status !== 400 || isGeminiThinkingRejected(model)) return r;
-    let body = '';
-    try { body = await r.clone().text(); } catch { body = ''; }
-    if (!body || /API_KEY_INVALID/i.test(body)) return r;
-    noteGeminiThinkingRejected(model);
+    /* Sınıflandırma kuralı TEK YERDE (models.ts): "400 = alan reddi mi, yoksa
+       geçersiz anahtar mı" sorusunun ikinci bir kopyası burada tutulmaz. */
+    if (!await noteGeminiThinkingRejectedIf400(model, r)) return r;
     console.warn(`GEMINI_THINKING_UNSUPPORTED: ${model} → thinkingConfig düşürüldü`);
     return send();
   };
@@ -1758,7 +1740,7 @@ async function askGroundedGemini(
       { role: 'user', parts: [{ text: query }] },
     ],
     tools: [{ google_search: {} }],
-    generationConfig: { temperature: 0.3, maxOutputTokens: answerTokens('grounded', isDriving), thinkingConfig: { thinkingBudget: 0 } },
+    generationConfig: { temperature: 0.3, maxOutputTokens: answerTokens('grounded', isDriving), ...geminiThinkingConfig(getActiveGeminiModel()) },
   };
   try {
     const resp = await fetch(_geminiEndpoint(), {
@@ -1825,7 +1807,7 @@ async function groundGeminiViaTavily(
       body:    JSON.stringify({
         system_instruction: { parts: [{ text: sysPrompt }] },
         contents: [{ role: 'user', parts: [{ text: `Soru: ${userText}\n\n${ctxBlock}` }] }],
-        generationConfig: { temperature: 0.3, maxOutputTokens: answerTokens('synth', isDriving), thinkingConfig: { thinkingBudget: 0 } },
+        generationConfig: { temperature: 0.3, maxOutputTokens: answerTokens('synth', isDriving), ...geminiThinkingConfig(getActiveGeminiModel()) },
       }),
       signal: signalWithTimeout(GEMINI_TIMEOUT_MS),
     });
@@ -2258,7 +2240,7 @@ export async function repairMusicQuery(query: string, apiKey: string): Promise<s
         'En olası GERÇEK adı döndür; emin değilsen metni AYNEN döndür. SADECE JSON: {"q":"..."}',
       }] },
       contents: [{ role: 'user', parts: [{ text: q }] }],
-      generationConfig: { responseMimeType: 'application/json', temperature: 0, maxOutputTokens: 50, thinkingConfig: { thinkingBudget: 0 } },
+      generationConfig: { responseMimeType: 'application/json', temperature: 0, maxOutputTokens: 50, ...geminiThinkingConfig(getActiveGeminiModel()) },
     };
     const resp = await fetch(_geminiEndpoint(), {
       method:  'POST',
