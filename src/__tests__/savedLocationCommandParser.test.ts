@@ -248,3 +248,42 @@ describe('savedLocationCommandParser — GÖNDER (WhatsApp, ÜRÜN KARARI 2026-0
     expect(tryParseSavedLocationCommand('yarın Ahmeti arayacağımı hatırla')).toBeNull();
   });
 });
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * "X OLAN KİŞİYE" — SAHA KUSURU (2026-09-11, kullanıcı bildirdi, GERÇEK CİHAZ)
+ *
+ * Kullanıcı BİREBİR: "Konumumu aşkım olan kişiye gönder" → hiç eşleşmiyordu
+ * (alıcı ifadesi tek TOKEN değildi), cümle AI beynine düşüyor, beyin "böyle
+ * bir özelliğim yok" diyordu — konum-gönderme desteği VARDI ama bu doğal
+ * tanımlayıcı-yan-cümle kalıbını hiç GÖRMEDİ. "X olan kişiye/kişisine" artık
+ * "X'e" ile EŞDEĞER kabul edilir.
+ * ════════════════════════════════════════════════════════════════════════ */
+describe('savedLocationCommandParser — "X olan kişiye" tanımlayıcı alıcı (SAHA 2026-09-11)', () => {
+  it('"Konumumu aşkım olan kişiye gönder" → KULLANICININ BİREBİR cümlesi, şu anki konum + alıcı "aşkım"', () => {
+    const r = tryParseSavedLocationCommand('Konumumu aşkım olan kişiye gönder');
+    expect(r?.verb).toBe('send');
+    expect(r?.isCurrentLocation).toBe(true);
+    expect(r?.recipient).toBe('aşkım');
+  });
+
+  it('"Ev konumunu sevgilim olan kişiye gönder" → kayıtlı "Ev" konumu, alıcı "sevgilim"', () => {
+    const r = tryParseSavedLocationCommand('Ev konumunu sevgilim olan kişiye gönder');
+    expect(r?.verb).toBe('send');
+    expect(r?.isCurrentLocation).toBe(false);
+    expect(r?.name).toBe('Ev');
+    expect(r?.recipient).toBe('sevgilim');
+  });
+
+  it('"kişisine" varyantı da desteklenir', () => {
+    const r = tryParseSavedLocationCommand("Mavi Göl konumunu eşim olan kişisine gönder");
+    expect(r?.verb).toBe('send');
+    expect(r?.name).toBe('Mavi Göl');
+    expect(r?.recipient).toBe('eşim');
+  });
+
+  it('normal tek-token alıcı deseni ETKİLENMEZ (regresyon kilidi)', () => {
+    const r = tryParseSavedLocationCommand("Bu konumu Ahmet'e gönder");
+    expect(r?.verb).toBe('send');
+    expect(r?.recipient).toBe('Ahmet');
+  });
+});

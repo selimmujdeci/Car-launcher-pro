@@ -231,22 +231,38 @@ export function tryParseSavedLocationCommand(rawText: string): ParsedSavedLocati
    * "Ev konumunu Ahmet'e gönder" · "Bu konumu Ahmet'e gönder" · "Şu anki
    * konumumu anneme gönder" · "Bulunduğum konumu anneme gönder" · "Kayıtlı
    * ev konumunu Ahmet'e gönder" · "Mavi Göl konumunu Mehmet'e gönder" ·
-   * "Konumumu sevgilime WhatsApp'tan gönder".
+   * "Konumumu sevgilime WhatsApp'tan gönder" · "Konumumu aşkım olan kişiye
+   * gönder" (SAHA 2026-09-11, kullanıcı bildirdi — bkz. alttaki blok).
    *
    * Yalnız KONUM+ALICI METNİ çıkarılır — kişi/konum ÇÖZÜMÜ (rehber araması,
    * `findSavedLocationByName`, GPS) ve WhatsApp dispatch BURADA YAPILMAZ
    * (tek otorite ihlali olurdu); çağıran (`useVoiceCommandHandler`) bunları
-   * kanonik otoritelerden çözer. Alıcı GRUBU tek TOKEN'dır (boşluksuz) —
-   * çok kelimeli alıcı adları ("büyük amcama") kapsam DIŞI.
+   * kanonik otoritelerden çözer. Alıcı İFADESİ tek TOKEN'dır (boşluksuz) —
+   * çok kelimeli alıcı adları ("büyük amcama") kapsam DIŞI — TEK istisna
+   * hemen aşağıdaki "X olan kişiye" kalıbıdır (bilinçli, dar, saha kanıtlı).
    *
    * Genel "X'e Y gönder" (konum içermeyen, ör. "Ahmet'e mesaj gönder")
    * YANLIŞLIKLA yakalanmaz: konum ifadesi ya çıplak "şu anki konum" öznesi
    * (`CURRENT_LOCATION_BARE_RE`) ya da "… konumu(nu)" son ekli bir isim
    * OLMAK ZORUNDADIR — ikisi de değilse eşleşme reddedilir (aşağıda `return`
    * YOK, fonksiyon sonundaki `null`e düşer).
+   *
+   * ── SAHA KUSURU (2026-09-11, kullanıcı bildirdi) ─────────────────────────
+   * "Konumumu aşkım olan kişiye gönder" hiç eşleşmiyordu: alıcı ifadesi TEK
+   * TOKEN değil, "aşkım olan kişiye" (tanımlayıcı YAN CÜMLE) idi — cümle bu
+   * kapıdan GEÇEMEDİ, AI beynine düştü, beyin "böyle bir özelliğim yok" dedi
+   * (deterministik konum-gönderme desteği zaten VARDI ama bu cümleyi hiç
+   * GÖRMEDİ). "X olan kişiye/kişisine" — günlük konuşmada "sevgilim/aşkım/
+   * eşim gibi bir sıfatla nitelenen kişi" anlamında YAYGIN bir örüntü — artık
+   * ÖNCELİKLE denenir; eşleşirse X (tek kelime) alıcı olarak alınır, tıpkı
+   * "X'e gönder"deki gibi. Eşleşmezse (yaygın durum) genel tek-token deseni
+   * KORUNUR — davranış değişmez.
    */
   {
-    const m = /^(.+?)\s+(\S+?)\s+(?:whatsap+['’]?(?:tan|dan)?\s+)?gönder\s*$/.exec(lower);
+    const relClauseM =
+      /^(.+?)\s+(\S+?)\s+olan\s+kişi(?:ye|sine)\s+(?:whatsap+['’]?(?:tan|dan)?\s+)?gönder\s*$/.exec(lower);
+    const m = relClauseM
+      ?? /^(.+?)\s+(\S+?)\s+(?:whatsap+['’]?(?:tan|dan)?\s+)?gönder\s*$/.exec(lower);
     if (m) {
       const locPhraseRaw = clean(raw.slice(0, m[1].length));
       const recTokenLower = m[2];
