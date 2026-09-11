@@ -21,7 +21,7 @@ import {
 import {
   deriveTraceSegments, firstAudioEvidenceOf, speechEndIsDerived, summarize,
   computeStat, deriveMaviLatencyVerdict, buildMaviLatencyFields, buildTraceRows,
-  buildMarkRows, type TraceShape,
+  buildMarkRows, deriveLatencyBottleneck, type TraceShape,
 } from '../platform/devtools/maviLatencyModel';
 
 /* ── Yardımcı: monotonik saati adım adım ilerlet ───────────────────────────── */
@@ -512,5 +512,97 @@ describe('maviLatencyModel · hüküm ve alanlar', () => {
       expect(Object.keys(t)).not.toContain('text');
       expect(Object.keys(t)).not.toContain('transcript');
     }
+  });
+});
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * deriveLatencyBottleneck — P0-MAVI-FORENSIC-DEVICE-1
+ *
+ * SAHA (2026-09-11): gerçek cihazda `speech_end` HİÇ damgalanmadı (native STT
+ * VAD telemetrisi bu yolda yok) → tüm SLA sınıfları evidence:NONE, hüküm
+ * NO_METRIC. Ama STT yakalama / sağlayıcı / TTS kuyruğu segmentleri bu damgaya
+ * BAĞLI DEĞİLDİR. Bu blok tam olarak o senaryoyu üretip darboğazın YİNE DE
+ * türetilebildiğini kilitler.
+ * ════════════════════════════════════════════════════════════════════════ */
+describe('deriveLatencyBottleneck — speech_end YOKKEN bile türetilir (SAHA 2026-09-11)', () => {
+  beforeEach(enable);
+
+  /** `speech_end` KASITLI OLARAK atlanır — gerçek cihazda ölçülemeyen tam senaryo. */
+  function runTurnWithoutSpeechEnd(turnId: number): void {
+    openMaviLatencyTrace();
+    tick(300); markMaviLatency('stt_request_start');
+    tick(2000); markMaviLatency('stt_result');          // STT yakalama ≈ 2000ms
+    bindMaviLatencyTurn(turnId);
+    tick(20); markMaviLatency('route_start');
+    tick(30); markMaviLatency('brain_request_start');
+    tick(9000); markMaviLatency('brain_complete');        // sağlayıcı ≈ 9000ms (en yavaş)
+    setMaviLatencyRoute('companion_haiku', 'haiku');
+    tick(15); markMaviLatency('tts_request');
+    tick(400); markMaviLatency('tts_audio_ready');
+    tick(30); markMaviLatency('first_audio_requested');   // tts kuyruğu ≈ 45ms
+    tick(2000); markMaviLatency('response_complete');
+    closeMaviLatencyTrace('completed');
+  }
+
+  it('speech_end yokken üst hüküm NO_METRIC kalır (sahte SLA üretilmez)', () => {
+    runTurnWithoutSpeechEnd(1);
+    const t = traces();
+    expect(deriveMaviLatencyVerdict({
+      enabled: true, traceCount: t.length, summary: summarize(t),
+    })).toBe('NO_METRIC');
+  });
+
+  it('ama darboğaz GERÇEK segment kanıtından türetilir — PROVIDER en yavaş', () => {
+    runTurnWithoutSpeechEnd(1);
+    const bn = deriveLatencyBottleneck(summarize(traces()));
+    expect(bn.bottleneck).toBe('PROVIDER');
+    expect(bn.providerMs).toBe(9000);
+    expect(bn.sttMs).toBe(2000);
+    expect(bn.ttsQueueMs).toBe(430);   // tts_request → first_audio_requested (400+30)
+  });
+
+  it('hiç segment yoksa UNKNOWN döner (uydurma darboğaz YOK)', () => {
+    const bn = deriveLatencyBottleneck(summarize([]));
+    expect(bn.bottleneck).toBe('UNKNOWN');
+    expect(bn.sttMs).toBeNull();
+    expect(bn.providerMs).toBeNull();
+    expect(bn.ttsQueueMs).toBeNull();
+  });
+
+  it('STT en yavaşsa darboğaz STT olur (sabit sıra varsayılmaz)', () => {
+    openMaviLatencyTrace();
+    tick(300); markMaviLatency('stt_request_start');
+    tick(12000); markMaviLatency('stt_result');           // STT bu kez en yavaş
+    bindMaviLatencyTurn(2);
+    tick(20); markMaviLatency('route_start');
+    tick(30); markMaviLatency('brain_request_start');
+    tick(500); markMaviLatency('brain_complete');
+    setMaviLatencyRoute('companion_gemini', 'gemini');
+    tick(15); markMaviLatency('tts_request');
+    tick(400); markMaviLatency('tts_audio_ready');
+    tick(30); markMaviLatency('first_audio_requested');
+    tick(2000); markMaviLatency('response_complete');
+    closeMaviLatencyTrace('completed');
+
+    const bn = deriveLatencyBottleneck(summarize(traces()));
+    expect(bn.bottleneck).toBe('STT');
+  });
+
+  it('buildMaviLatencyFields darboğaz alanını taşır ve ölçüm yoksa UNKNOWN gösterir', () => {
+    const emptyFields = buildMaviLatencyFields({
+      enabled: true, traces: [], capacity: 20, openTraceId: null,
+      tracesOpened: 0, tracesClosed: 0, orphanMarks: 0, invalidMarks: 0,
+      duplicateMarks: 0, foreignAudioMarks: 0,
+    });
+    expect(emptyFields.find((f) => f.id === 'bottleneck')!.value).toContain('UNKNOWN');
+
+    runTurnWithoutSpeechEnd(3);
+    const t = traces();
+    const fields = buildMaviLatencyFields({
+      enabled: true, traces: t, capacity: 20, openTraceId: null,
+      tracesOpened: 1, tracesClosed: 1, orphanMarks: 0, invalidMarks: 0,
+      duplicateMarks: 0, foreignAudioMarks: 0,
+    });
+    expect(fields.find((f) => f.id === 'bottleneck')!.value).toContain('PROVIDER');
   });
 });

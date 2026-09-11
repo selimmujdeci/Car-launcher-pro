@@ -12,7 +12,7 @@
 
 import { describe, it, expect } from 'vitest';
 import {
-  detectMaviAnomalies, buildMaviEventTimeline, type MaviAnomalyId,
+  detectMaviAnomalies, buildMaviEventTimeline, deriveActionTurnLatency, type MaviAnomalyId,
 } from '../platform/devtools/maviForensicModel';
 import type { MaviRawSnapshot } from '../platform/devtools/maviConsoleModel';
 
@@ -199,5 +199,63 @@ describe('buildMaviEventTimeline — SAF birleştirme, en yeni BAŞTA', () => {
     );
     expect(rows).toHaveLength(1);
     expect(rows[0].atMs).toBe(5);
+  });
+});
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * deriveActionTurnLatency — P0-MAVI-FORENSIC-DEVICE-1
+ *
+ * SAHA (2026-09-11): `maviLatencyTrace`in ince damga zinciri gerçek cihazda
+ * boştu (`speech_end` hiç damgalanmadı), ama `maviActionTrace`in ZATEN yazdığı
+ * `turn_started`/`speech` çiftleri elle hesaplandığında gerçek turlar 9,8/21,0/
+ * 16,6/1,7/7,2 saniye sürmüştü. Bu blok o hesabı KİLİTLER — `maviLatencyTrace`e
+ * hiç dokunmadan, yalnız `maviActionTrace` kayıtlarından çalışır.
+ * ════════════════════════════════════════════════════════════════════════ */
+describe('deriveActionTurnLatency — maviLatencyTrace olmadan da çalışır (SAHA 2026-09-11)', () => {
+  it('aynı turnId için turn_started→speech farkını hesaplar', () => {
+    const stat = deriveActionTurnLatency([
+      { stage: 'turn_started', turnId: 1, atMs: 1_000 },
+      { stage: 'speech', turnId: 1, atMs: 10_800 },        // 9,8 sn — saha örneği tur1
+      { stage: 'turn_started', turnId: 2, atMs: 20_000 },
+      { stage: 'speech', turnId: 2, atMs: 41_000 },        // 21,0 sn — saha örneği tur2
+    ]);
+    expect(stat.count).toBe(2);
+    expect(stat.worst).toBe(21_000);
+  });
+
+  it('proactive_speech (turnId:null) turu KİRLETMEZ', () => {
+    const stat = deriveActionTurnLatency([
+      { stage: 'proactive_speech', turnId: null, atMs: 500 },
+      { stage: 'turn_started', turnId: 1, atMs: 1_000 },
+      { stage: 'proactive_speech', turnId: null, atMs: 1_500 },
+      { stage: 'speech', turnId: 1, atMs: 3_000 },
+    ]);
+    expect(stat.count).toBe(1);
+    expect(stat.worst).toBe(2_000);
+  });
+
+  it('eşleşmeyen turn_started (hiç speech gelmemiş) örneğe GİRMEZ', () => {
+    const stat = deriveActionTurnLatency([
+      { stage: 'turn_started', turnId: 1, atMs: 1_000 },
+      { stage: 'turn_started', turnId: 2, atMs: 5_000 },
+      { stage: 'speech', turnId: 2, atMs: 6_000 },
+    ]);
+    expect(stat.count).toBe(1);
+    expect(stat.worst).toBe(1_000);
+  });
+
+  it('null/boş girdi güvenle boş istatistik üretir (throw etmez)', () => {
+    expect(deriveActionTurnLatency(null).count).toBe(0);
+    expect(deriveActionTurnLatency([]).count).toBe(0);
+  });
+
+  it('aynı turnId ikinci kez speech yazarsa mükerrer sayılmaz (tek otorite varsayımı korunur)', () => {
+    const stat = deriveActionTurnLatency([
+      { stage: 'turn_started', turnId: 1, atMs: 1_000 },
+      { stage: 'speech', turnId: 1, atMs: 2_000 },
+      { stage: 'speech', turnId: 1, atMs: 9_000 },   // eşlenecek turn_started artık YOK
+    ]);
+    expect(stat.count).toBe(1);
+    expect(stat.worst).toBe(1_000);
   });
 });

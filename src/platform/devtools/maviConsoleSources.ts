@@ -71,10 +71,21 @@ import { getWakeForensics } from '../voice/wakeForensics';
 /* P0-MAVI-FORENSIC · gecikme özeti — YENİ ölçüm KURULMAZ, ZATEN var olan iz
    halkası okunup `maviLatencyModel`in SAF istatistiğinden geçirilir. */
 import { getMaviLatencyEvidence } from '../assistant/maviLatencyTrace';
-import { summarize as summarizeMaviLatency, summarizeSlaClasses, deriveMaviLatencyVerdict, MAVI_LATENCY_VERDICT_LABEL } from './maviLatencyModel';
+import {
+  summarize as summarizeMaviLatency, summarizeSlaClasses, deriveMaviLatencyVerdict,
+  deriveLatencyBottleneck, MAVI_LATENCY_VERDICT_LABEL,
+  type LatencyStat,
+} from './maviLatencyModel';
 /* P0-MAVI-FORENSIC · eylem zinciri özeti — ZATEN var olan bounded halka okunur.
    `dispatchWithoutResult` halkanın TARANMASIYLA türetilir; ikinci depo YOK. */
 import { getMaviActionTrace, getMaviActionTraceCounters } from '../action/maviActionTrace';
+/* P0-MAVI-FORENSIC-DEVICE-1 · `turn_started→speech` süresi — maviLatencyTrace
+   damga zincirinden BAĞIMSIZ ikinci bir kanıt (bkz. SAHA 2026-09-11). */
+import { deriveActionTurnLatency } from './maviForensicModel';
+
+function _seg(s: LatencyStat): { p50Ms: number | null; p95Ms: number | null; count: number } {
+  return { p50Ms: s.p50, p95Ms: s.p95, count: s.count };
+}
 /* MAVI-F13: kanonik runtime konsolidasyon tanısı. SAF SAYIM — yeni defter/telemetri
    AÇILMAZ, `maviEvidence`in ZATEN tuttuğu bounded kayıtlar sayılır. */
 import { getMaviRuntimeConsolidationDiagnostics } from '../maviCore/wiring/maviEvidence';
@@ -464,6 +475,7 @@ export function readMaviConsoleSnapshot(): MaviRawSnapshot {
       const verdict = deriveMaviLatencyVerdict({
         enabled: latencyEv.enabled, traceCount: latencyEv.traces.length, summary,
       });
+      const bn = deriveLatencyBottleneck(summary);
       return {
         enabled: latencyEv.enabled,
         traceCount: latencyEv.traces.length,
@@ -481,6 +493,12 @@ export function readMaviConsoleSnapshot(): MaviRawSnapshot {
         orphanMarks: _num(latencyEv.orphanMarks),
         duplicateMarks: _num(latencyEv.duplicateMarks),
         invalidMarks: _num(latencyEv.invalidMarks),
+        /* P0-MAVI-FORENSIC-DEVICE-1: bu üç segment `speech_end`e bağlı DEĞİLDİR —
+           native STT VAD telemetrisi yokken bile (SAHA 2026-09-11) ölçülür. */
+        sttCapture: _seg(summary.sttCaptureStat),
+        provider:   _seg(summary.brainStat),
+        ttsQueue:   _seg(summary.ttsToAudioStat),
+        bottleneck: bn.bottleneck,
       };
     })() : null,
 
@@ -493,6 +511,9 @@ export function readMaviConsoleSnapshot(): MaviRawSnapshot {
       saturated: actionCounters.saturated === true,
       dispatchWithoutResult,
       byStage: _counts(byStageCounts),
+      /* P0-MAVI-FORENSIC-DEVICE-1: `maviLatencyTrace` boş olsa bile çalışan
+         ikinci, bağımsız gecikme kanıtı (SAHA 2026-09-11). */
+      turnLatency: _seg(deriveActionTurnLatency(Array.isArray(actionRing) ? actionRing : null)),
     } : null,
 
     /* MAVI-F13 · GİZLİLİK: komut metni, parametre, correlationId ve eylem

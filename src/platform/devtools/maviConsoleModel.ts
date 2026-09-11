@@ -199,6 +199,13 @@ export interface MaviLatencySlaClassRaw {
   readonly evidence: string;
 }
 
+/** Tek segmentin p50/p95/örnek adedi. Örnek yoksa p50/p95 `null` (uydurma YOK). */
+export interface MaviLatencySegmentRaw {
+  readonly p50Ms: number | null;
+  readonly p95Ms: number | null;
+  readonly count: number;
+}
+
 export interface MaviLatencyRaw {
   readonly enabled: boolean;
   readonly traceCount: number;
@@ -210,6 +217,17 @@ export interface MaviLatencyRaw {
   readonly orphanMarks: number;
   readonly duplicateMarks: number;
   readonly invalidMarks: number;
+  /**
+   * P0-MAVI-FORENSIC-DEVICE-1 · SAHA (2026-09-11): bu üç segment `speech_end`e
+   * BAĞLI DEĞİLDİR (yalnız SLA sınıfları bağlıdır) — native STT VAD telemetrisi
+   * yokken (`speech_end` hiç damgalanmaz) BİLE bunlar ölçülür. Önceden bu alanlar
+   * `summarize()` tarafından ZATEN üretiliyordu ama dışa hiç taşınmıyordu.
+   */
+  readonly sttCapture: MaviLatencySegmentRaw;
+  readonly provider: MaviLatencySegmentRaw;
+  readonly ttsQueue: MaviLatencySegmentRaw;
+  /** `deriveLatencyBottleneck` — üç segmentin p50'sinden en büyüğü. */
+  readonly bottleneck: string;
 }
 
 /**
@@ -225,6 +243,12 @@ export interface MaviActionTraceRaw {
   /** `gate:allowed` yazıldı ama halkada eşlik eden `result` YOK — sessiz kayıp. */
   readonly dispatchWithoutResult: number;
   readonly byStage: Readonly<Record<string, number>>;
+  /**
+   * P0-MAVI-FORENSIC-DEVICE-1 · `turn_started → speech` GERÇEK süresi —
+   * `maviLatencyTrace` damga zincirinden BAĞIMSIZ (o zincir boş olsa bile
+   * çalışır; SAHA 2026-09-11'de tam olarak bu durum yaşandı).
+   */
+  readonly turnLatency: MaviLatencySegmentRaw;
 }
 
 export interface MaviRawSnapshot {

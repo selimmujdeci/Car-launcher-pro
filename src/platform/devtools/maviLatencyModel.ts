@@ -420,6 +420,44 @@ export function deriveMaviLatencyVerdict(
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
+ * DARBOĞAZ (BOTTLENECK) — P0-MAVI-FORENSIC-DEVICE-1
+ * ════════════════════════════════════════════════════════════════════════
+ * SAHA (2026-09-11): gerçek cihazda `speech_end→ilk ses` SLA sınıfları hep
+ * `evidence:NONE` çıktı — bu bir KUSUR DEĞİL: `speech_end` yalnız native STT
+ * VAD telemetrisi (`speechEndDetectedAtMs`) geldiğinde damgalanır (bkz.
+ * `voiceService` — sahte taban ÜRETİLMEZ) ve bu cihaz/yol o telemetriyi
+ * vermiyordu. Ama STT yakalama · sağlayıcı (beyin) · TTS kuyruğu segmentleri
+ * `speech_end`e bağlı DEĞİLDİR — `summarize()` bunları ZATEN üretiyordu, yalnız
+ * dışa hiç TAŞINMIYORDU. Bu fonksiyon YENİ ölçüm YAPMAZ: var olan üç istatistiği
+ * (p50) karşılaştırıp en büyüğünü adlandırır — ikinci bir hesap KURMAZ.
+ */
+export type MaviLatencyBottleneck = 'STT' | 'PROVIDER' | 'TTS_QUEUE' | 'UNKNOWN';
+
+export interface MaviLatencyBottleneckVerdict {
+  readonly bottleneck: MaviLatencyBottleneck;
+  /** Native STT yakalama (p50, ms). Ölçüm yoksa `null`. */
+  readonly sttMs: number | null;
+  /** Sağlayıcı/beyin çağrısı (p50, ms). Ağ + üretim ayrıştırılmaz — tek damga çifti. */
+  readonly providerMs: number | null;
+  /** TTS isteği → oynatma istendi (p50, ms). */
+  readonly ttsQueueMs: number | null;
+}
+
+export function deriveLatencyBottleneck(summary: MaviLatencySummary): MaviLatencyBottleneckVerdict {
+  const sttMs      = summary.sttCaptureStat.count > 0 ? summary.sttCaptureStat.p50 : null;
+  const providerMs = summary.brainStat.count > 0 ? summary.brainStat.p50 : null;
+  const ttsQueueMs = summary.ttsToAudioStat.count > 0 ? summary.ttsToAudioStat.p50 : null;
+
+  const candidates: ReadonlyArray<[MaviLatencyBottleneck, number]> = [
+    ['STT', sttMs], ['PROVIDER', providerMs], ['TTS_QUEUE', ttsQueueMs],
+  ].filter((c): c is [MaviLatencyBottleneck, number] => c[1] !== null);
+
+  if (candidates.length === 0) return { bottleneck: 'UNKNOWN', sttMs, providerMs, ttsQueueMs };
+  const winner = candidates.reduce((a, b) => (b[1] > a[1] ? b : a));
+  return { bottleneck: winner[0], sttMs, providerMs, ttsQueueMs };
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
  * Alan (InspectorField) üretimi
  * ════════════════════════════════════════════════════════════════════════ */
 
@@ -555,6 +593,18 @@ export function buildMaviLatencyFields(input: MaviLatencyInput): InspectorField[
     { id: 'completed', label: 'Tamamlanmış tur (istatistiğe giren)', source: SRC_TRACE,
       note: 'İptal/devralınan/timeout turlar istatistiğe GİRMEZ — "hızlı" görünüp ortancayı yanlış iyileştirirlerdi.' },
     summary.completed,
+  ));
+
+  /* P0-MAVI-FORENSIC-DEVICE-1 (SAHA 2026-09-11): bu üç segment `speech_end`e
+     BAĞLI DEĞİLDİR — native STT VAD telemetrisi yokken (yukarıdaki DOĞRULANMIŞ/
+     PROXY alanları boş kalsa) BİLE ölçülür. "en yavaş adım hangisi" sorusunu
+     ince damga zinciri boşken de cevaplar. */
+  const bn = deriveLatencyBottleneck(summary);
+  out.push(observed(
+    { id: 'bottleneck', label: 'Darboğaz (STT/sağlayıcı/TTS kuyruğu — p50 kıyası)', source: SRC_TRACE,
+      note: 'STT = native yakalama süresi · PROVIDER = sağlayıcı/beyin çağrısı (ağ+üretim ayrıştırılmaz) · '
+          + 'TTS_QUEUE = TTS isteği → oynatma istendi. Segmentlerden hiçbiri ölçülmediyse UNKNOWN.' },
+    `${bn.bottleneck} (stt=${bn.sttMs ?? '-'}ms · provider=${bn.providerMs ?? '-'}ms · ttsQueue=${bn.ttsQueueMs ?? '-'}ms)`,
   ));
 
   const confText = statText(summary.confirmedStat);

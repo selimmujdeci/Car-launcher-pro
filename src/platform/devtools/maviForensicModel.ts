@@ -24,6 +24,7 @@
  */
 
 import type { MaviRawSnapshot } from './maviConsoleModel';
+import { computeStat, type LatencyStat } from './maviLatencyModel';
 
 /* ══════════════════════════════════════════════════════════════════════════
  * Anomali tespiti
@@ -134,6 +135,49 @@ export function detectMaviAnomalies(s: MaviRawSnapshot | null | undefined): read
   }
 
   return Object.freeze(out);
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * EYLEM/ARAÇ TUR SÜRESİ — P0-MAVI-FORENSIC-DEVICE-1
+ * ════════════════════════════════════════════════════════════════════════
+ * SAHA (2026-09-11): `maviLatencyTrace`in ince damga zinciri bu cihazda/yolda
+ * boştu (`speech_end` kanıtı YOK — bkz. `deriveLatencyBottleneck` başlığı),
+ * ama `maviActionTrace`in ZATEN yazdığı `turn_started`/`speech` aşamaları
+ * turn_id ile eşleşiyor ve TAMAMEN BAĞIMSIZ bir kanıt veriyor: elle hesaplanan
+ * saha örneğinde tur1 9,8 sn · tur2 21,0 sn · tur3 16,6 sn sürdü. Bu fonksiyon
+ * o hesabı KALICI hale getirir — yeni ölçüm YAPMAZ, var olan iki aşamanın
+ * zaman farkını alır.
+ */
+export interface MaviActionTurnLatencyInput {
+  readonly stage: string;
+  readonly turnId: number | null;
+  readonly atMs: number;
+}
+
+/**
+ * `turn_started → speech` (aynı turnId) toplam süresi. `maviLatencyTrace`
+ * damgalarından BAĞIMSIZDIR — ince zincir boş olsa bile çalışır.
+ */
+export function deriveActionTurnLatency(
+  records: readonly MaviActionTurnLatencyInput[] | null | undefined,
+): LatencyStat {
+  if (!Array.isArray(records)) return computeStat([]);
+  const started = new Map<number, number>();
+  const samples: number[] = [];
+  for (const r of records) {
+    if (!r || typeof r.turnId !== 'number' || typeof r.atMs !== 'number' || !Number.isFinite(r.atMs)) continue;
+    if (r.stage === 'turn_started') {
+      // Aynı turnId için İLK gerçekleşme korunur (M5 tek otorite — mükerrer beklenmez,
+      // ama savunmacı davranış fail-closed'dır).
+      if (!started.has(r.turnId)) started.set(r.turnId, r.atMs);
+    } else if (r.stage === 'speech' && started.has(r.turnId)) {
+      const t0 = started.get(r.turnId) as number;
+      const d = r.atMs - t0;
+      if (d >= 0) samples.push(d);
+      started.delete(r.turnId); // her tur TEK örnek üretir
+    }
+  }
+  return computeStat(samples);
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
