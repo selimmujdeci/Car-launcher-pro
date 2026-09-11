@@ -110,6 +110,26 @@ function isObject<T>(v: T): v is T & Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
 }
 
+/* ══════════════════════════════════════════════════════════════════════════
+ * İNSAN MÜDAHALESİ GEREKTİREN SAĞLAYICI ARIZASI — BOUNDED HAFIZA
+ *
+ * SAHA 2026-09-11 (cihaz, ağ izi · 4/4 tur): zincirin İLK sağlayıcısı her turun
+ * başında deneniyor ve `402 Insufficient credits` ile düşüyordu
+ * (ölçülen 0,17-0,78 sn). 402 bir hız sınırı DEĞİLDİR: kullanıcı bakiye
+ * yükleyene (ya da anahtar yenileyene) kadar AYNI cevabı verir — yani her turda
+ * ödenen sabit bir gecikme vergisiydi. Zincirin kendi `retryable:false` kararı
+ * YALNIZ o çağrı içinde geçerliydi; bir sonraki tur sıfırdan deniyordu.
+ *
+ * Pencere SONSUZ DEĞİL: bakiye yüklenirse sağlayıcı kendiliğinden geri döner.
+ * FAIL-SOFT: hafıza TÜM sağlayıcıları elerse YOK SAYILIR — asistanı susturmak,
+ * bir sağlayıcıyı boşuna denemekten daha kötüdür.
+ * ════════════════════════════════════════════════════════════════════════ */
+
+/** Kendiliğinden geçmeyen, kullanıcı eylemi gerektiren hata sınıfları. */
+const HUMAN_ACTION_KINDS: readonly AiErrorKind[] = ['auth', 'insufficient_credit'];
+/** Bounded pencere — 429 soğumasından uzun, kalıcı devre dışı bırakmadan kısa. */
+const PROVIDER_UNUSABLE_MS = 10 * 60_000;
+
 function fail(kind: AiErrorKind, message: string, retryable = false): AiError {
   return { kind, message, retryable };
 }
@@ -194,6 +214,29 @@ export function createAiGateway(deps: AiGatewayDependencies): AiGateway {
   }
   const maxAttempts = Math.min(rawAttempts, MAX_ATTEMPTS_CEILING);
 
+  /* Hafıza GATEWAY ÖRNEĞİNE aittir — modül seviyesinde global durum TUTULMAZ.
+     Üretimde gateway tek örnektir (davranış aynı), testlerde her örnek kendi
+     hafızasıyla doğar → örnekler arası sızıntı YAPISAL OLARAK imkânsızdır. */
+  const _providerUnusableUntil = new Map<string, number>();
+
+  const _noteProviderUnusable = (providerId: string, kind: AiErrorKind): void => {
+    if (!providerId || !HUMAN_ACTION_KINDS.includes(kind)) return;
+    _providerUnusableUntil.set(providerId, Date.now() + PROVIDER_UNUSABLE_MS);
+  };
+
+  const _isProviderUnusable = (providerId: string): boolean => {
+    const until = _providerUnusableUntil.get(providerId);
+    if (until === undefined) return false;
+    const now = Date.now();
+    /* Saat geriye giderse pencere sonsuzlaşmasın: gelecekteki uç makul sınırı
+       aşıyorsa kayıt DÜŞÜRÜLÜR (bayat kısıt üretme). */
+    if (until <= now || until - now > PROVIDER_UNUSABLE_MS) {
+      _providerUnusableUntil.delete(providerId);
+      return false;
+    }
+    return true;
+  };
+
   return {
     async generateResponse(
       request:  AiGenerateRequest,
@@ -207,9 +250,13 @@ export function createAiGateway(deps: AiGatewayDependencies): AiGateway {
          `providerId` verilmişse zincir O TEK sağlayıcıya daraltılır: dışarıda
          (orchestrator) zincir yönetiliyordur, gateway kendi fallback'ini
          uygulamamalıdır. Verilmezse davranış BİREBİR eskisi. */
-      const activeProviders = request.providerId
+      const _chain = request.providerId
         ? providers.filter((p) => p.id === request.providerId)
         : providers;
+      /* Kullanıcı eylemi bekleyen sağlayıcı bounded süre ATLANIR. Hepsi elenirse
+         hafıza YOK SAYILIR — susmak, boşuna denemekten kötüdür (fail-soft). */
+      const _usable = _chain.filter((p) => !_isProviderUnusable(p.id));
+      const activeProviders = _usable.length > 0 ? _usable : _chain;
 
       if (activeProviders.length === 0) {
         return {
@@ -308,6 +355,8 @@ export function createAiGateway(deps: AiGatewayDependencies): AiGateway {
 
           if (attempt > 1) retries++;
           lastError = result.error;
+          /* Kendiliğinden geçmeyen arıza → sağlayıcı bounded süre elenir. */
+          _noteProviderUnusable(provider.id, result.error.kind);
           attempts.push({
             provider:  provider.id,
             model:     providerRequest.model,
