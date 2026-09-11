@@ -172,10 +172,11 @@ describe('KİLİT 3 — fail-soft: kaynak patlarsa ekran ayakta kalır', () => {
        A-F (M6 konuşma + M5 tur kapıları) · G (MAVI-F8 sürüş iş yükü) ·
        H (MAVI-F9 proaktif politika) · I (MAVI-F11 görünen durum) ·
        J (MAVI-F12 barge-in / duplex) · K (MAVI-F13 kanonik runtime) ·
-       L (wake tetiğinin akıbeti — saha 2026-09-03/04).
+       L (wake tetiğinin akıbeti — saha 2026-09-03/04) · M (P0-MAVI-FORENSIC
+       anomali tespiti — çapraz-kesen, TÜRETİLMİŞ).
        Yeni bölüm eklendiğinde bu sayı GÜNCELLENİR — kaldırılmaz (yoksa bölüm
        enflasyonu sessizce büyür). */
-    expect(sections).toHaveLength(12);
+    expect(sections).toHaveLength(13);
     for (const s of sections) {
       expect(s.fields.length).toBeGreaterThan(0);
       for (const f of s.fields) expect(f.klass).toBe('UNAVAILABLE');
@@ -258,6 +259,13 @@ describe('KİLİT 3 — fail-soft: kaynak patlarsa ekran ayakta kalır', () => {
        hâlde "her kaynak patladı" iddiası yalan olurdu ve bu kilit yeni kaynağı
        sessizce ATLARDI (kör guard yasağı). */
     vi.doMock('../platform/ttsService', () => ({ getTtsEngineDiagnostics: boom }));
+    /* P0-MAVI-FORENSIC: gecikme özeti ve eylem zinciri özeti de bu senaryoya
+       DAHİLDİR — aksi hâlde "her kaynak patladı" iddiası yalan olurdu ve bu
+       kilit yeni kaynakları sessizce ATLARDI (kör guard yasağı). */
+    vi.doMock('../platform/assistant/maviLatencyTrace', () => ({ getMaviLatencyEvidence: boom }));
+    vi.doMock('../platform/action/maviActionTrace', () => ({
+      getMaviActionTrace: boom, getMaviActionTraceCounters: boom,
+    }));
 
     const sources = await import('../platform/devtools/maviConsoleSources');
     const model   = await import('../platform/devtools/maviConsoleModel');
@@ -276,6 +284,8 @@ describe('KİLİT 3 — fail-soft: kaynak patlarsa ekran ayakta kalır', () => {
     expect(s.bargeIn).toBeNull();       // MAVI-F12: kaynak patlarsa "kanıt yok"
     expect(s.runtime).toBeNull();       // MAVI-F13: defter patlarsa "kanıt yok"
     expect(s.wakeForensics).toBeNull(); // wake defteri patlarsa "tetik yok" UYDURULMAZ
+    expect(s.latency).toBeNull();       // P0-MAVI-FORENSIC: iz halkası patlarsa "gecikme yok" UYDURULMAZ
+    expect(s.actionTrace).toBeNull();   // P0-MAVI-FORENSIC: eylem halkası patlarsa "sonuç var" UYDURULMAZ
     expect(s.readAt).toBeGreaterThan(0);
 
     const v = model.deriveMaviVerdict(s);
@@ -662,7 +672,8 @@ describe('KİLİT 9 — katalog AVAILABLE ve eşleme doğru', () => {
 
   it('bölümler ve alanlar BOUNDED', () => {
     const sections = buildMaviSections(snapshot());
-    expect(sections).toHaveLength(12);  // A-F + G (F8) + H (F9) + I (F11) + J (F12) + K (F13) + L (wake akıbeti)
+    // A-F + G (F8) + H (F9) + I (F11) + J (F12) + K (F13) + L (wake akıbeti) + M (anomali tespiti)
+    expect(sections).toHaveLength(13);
     for (const s of sections) {
       expect(s.fields.length).toBeLessThanOrEqual(MAX_FIELDS_PER_MAVI_SECTION);
       for (const f of s.fields) expect(f.value.length).toBeLessThan(200);

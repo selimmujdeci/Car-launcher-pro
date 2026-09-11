@@ -178,6 +178,25 @@ export interface CarosLabCopyInput {
    * izi, G tamponu) LAB'a TAŞINMAZ.
    */
   readonly crashDetection: unknown | null;
+  /**
+   * P0-MAVI-FORENSIC (§11 · ÇOK ÖNEMLİ) — CAROS LAB kataloğunda Mavi kartları
+   * AVAILABLE görünüyordu ama içerikleri "TÜMÜNÜ KOPYALA" çıktısına HİÇ
+   * GİRMİYORDU (bu dosyada tek bir Mavi/wake/latency/TTS referansı YOKTU).
+   * Aşağıdaki 9 alan bunu kapatır. Kaynak KANONİKTİR — ikinci Mavi state'i
+   * KURULMAZ, `maviConsoleSources.readMaviConsoleSnapshot()` + var olan bounded
+   * halkalar (`wakeForensics`/`maviActionTrace`) OKUNUR. `null` = okunamadı.
+   */
+  readonly maviCurrentState: unknown | null;
+  readonly maviWakeForensics: unknown | null;
+  readonly maviLastTurn: unknown | null;
+  readonly maviLatency: unknown | null;
+  readonly maviSttMic: unknown | null;
+  readonly maviTts: unknown | null;
+  readonly maviActionTool: unknown | null;
+  /** Anomali LİSTESİ (dizi) — `detectMaviAnomalies()` çıktısı, TÜRETİLMİŞ. */
+  readonly maviAnomalies: readonly unknown[] | null;
+  /** Olay zaman çizelgesi — `buildMaviEventTimeline()` çıktısı, en yeni BAŞTA. */
+  readonly maviEventTimeline: readonly unknown[] | null;
 }
 
 export interface CarosLabCopyResult {
@@ -341,6 +360,17 @@ function errorLogSection(rows: readonly unknown[] | null): Section {
 export function buildCarosLabCopy(input: CarosLabCopyInput): CarosLabCopyResult {
   const meta = input?.meta;
   const sections: Section[] = [
+    /* P0-MAVI-FORENSIC (§11) — Mavi bölümleri EN BAŞTA: katalogda AVAILABLE
+       görünen kartların içeriği artık kopyada da vardır (önceden HİÇ yoktu). */
+    fromObject('MAVİ CURRENT STATE', input?.maviCurrentState ?? null),
+    fromObject('MAVİ WAKE FORENSICS', input?.maviWakeForensics ?? null),
+    fromObject('MAVİ LAST TURN', input?.maviLastTurn ?? null),
+    fromObject('MAVİ LATENCY', input?.maviLatency ?? null),
+    fromObject('MAVİ STT / MIC', input?.maviSttMic ?? null),
+    fromObject('MAVİ TTS', input?.maviTts ?? null),
+    fromObject('MAVİ ACTION / TOOL', input?.maviActionTool ?? null),
+    fromRows('MAVİ ANOMALIES', input?.maviAnomalies ?? null, (r) => r),
+    fromRows('MAVİ EVENT TIMELINE', input?.maviEventTimeline ?? null, (r) => r),
     fromRows('KATALOG DURUMU', input?.catalog ?? null, (r) => r),
     fromObject('ANLIK ARAÇ VERİSİ', input?.obdData ?? null),
     fromObject('KAYNAK SAĞLIĞI (HAL · null = BİLİNMİYOR)', input?.sourceHealth ?? null),

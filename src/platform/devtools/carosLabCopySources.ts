@@ -43,6 +43,17 @@ import {
   describeGpsAuthorities, explainGpsAuthorityDivergence,
 } from '../gps/gpsHealthReconcile';
 import { getConnectivitySnapshot } from '../canBus/VehicleConnectivityManager';
+/**
+ * P0-MAVI-FORENSIC (§11) — Mavi'nin "TÜMÜNÜ KOPYALA"ya HİÇ girmeyen kanıtı.
+ * İkinci bir Mavi state KURULMAZ: `readMaviConsoleSnapshot()` Mavi Konsolu'nun
+ * ZATEN tek okuma noktasıdır (bkz. o dosyanın başlığı); burada TEKRAR çağrılır.
+ * Zaman çizelgesi/anomali için gereken tek EK okuma, o iki halkanın (wake ·
+ * action) DAHA GENİŞ bir dilimidir (10 yerine 30/60) — yeni depo YOK.
+ */
+import { readMaviConsoleSnapshot } from './maviConsoleSources';
+import { getWakeForensics } from '../voice/wakeForensics';
+import { getMaviActionTrace } from '../action/maviActionTrace';
+import { detectMaviAnomalies, buildMaviEventTimeline } from './maviForensicModel';
 
 /**
  * D — kopyanın GPS fix TAZELİK penceresi (ms).
@@ -87,9 +98,54 @@ export interface CopyContext {
   readonly activeTool: string | null;
 }
 
+/**
+ * P0-MAVI-FORENSIC (§11) — Mavi Konsolu'nun ZATEN tek okuma noktası olan
+ * `readMaviConsoleSnapshot()`ı kopya yolu için de kullanır (ikinci Mavi state
+ * KURULMAZ). Wake/eylem halkaları kopya için DAHA GENİŞ dilimle okunur — LAB
+ * konsolunun canlı görünümü (10 kayıt) ile kopyanın dökümü (30/tam halka)
+ * FARKLI derinliktedir; ikisi de AYNI kanonik kaynağı okur.
+ */
+function _readMaviCopyBundle() {
+  const snap = safe(() => readMaviConsoleSnapshot());
+  const wakeFull = safe(() => getWakeForensics(30));
+  const actionRing = safe(() => getMaviActionTrace());
+
+  const wakeRecentPlain = wakeFull ? wakeFull.recent.map((r) => ({
+    atMs: r.atMs, reason: r.reason, path: r.path, sessionId: r.sessionId,
+    generationId: r.generationId, tokenCount: r.tokenCount,
+    matchedAtIndex: r.matchedAtIndex, bareNameCandidate: r.bareNameCandidate,
+    viaNbestAlternative: r.viaNbestAlternative,
+  })) : null;
+  const actionRingPlain = actionRing ? actionRing.map((r) => ({
+    atMs: r.atMs, stage: r.stage, turnId: r.turnId, actionId: r.actionId,
+    intent: r.intent, status: r.status, reason: r.reason,
+  })) : null;
+
+  return {
+    maviCurrentState: snap ? { voice: snap.voice, surface: snap.surface } as unknown : null,
+    maviWakeForensics: snap ? { summary: snap.wakeForensics, recent: wakeRecentPlain } as unknown : null,
+    maviLastTurn: snap ? { turn: snap.turn, speech: snap.speech } as unknown : null,
+    maviLatency: snap ? (snap.latency as unknown) : null,
+    maviSttMic: snap ? {
+      diag: snap.diag,
+      micAvailable: snap.voice?.micAvailable ?? null,
+      volumeLevel: snap.voice?.volumeLevel ?? null,
+      hasTranscript: snap.voice?.hasTranscript ?? null,
+    } as unknown : null,
+    maviTts: snap ? { ttsEngine: snap.ttsEngine, bargeIn: snap.bargeIn } as unknown : null,
+    maviActionTool: snap ? { summary: snap.actionTrace, records: actionRingPlain } as unknown : null,
+    maviAnomalies: snap ? (detectMaviAnomalies(snap) as unknown as readonly unknown[]) : null,
+    maviEventTimeline: (wakeRecentPlain || actionRingPlain)
+      ? (buildMaviEventTimeline(wakeRecentPlain, actionRingPlain) as unknown as readonly unknown[])
+      : null,
+  };
+}
+
 /** Tüm salt-okunur kaynakları TEK seferde okur. TIMER YOK, ABONELİK YOK. */
 export function readCarosLabCopyInput(ctx: CopyContext): CarosLabCopyInput {
+  const maviBundle = _readMaviCopyBundle();
   return {
+    ...maviBundle,
     meta: {
       generatedAtWallMs: ctx.generatedAtWallMs,
       platform:          ctx.platform,

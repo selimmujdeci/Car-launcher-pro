@@ -68,6 +68,13 @@ import { getMaviBargeInDiagnostics } from '../assistant/maviBargeIn';
    yuttuğu (PAUSED · VOICE_ACTIVE · SELF_ECHO · DEBOUNCE · REJECTED_TOKEN)
    cihazda görülemiyordu. Yeni sayaç ÜRETİLMEDİ: var olan projeksiyon okunur. */
 import { getWakeForensics } from '../voice/wakeForensics';
+/* P0-MAVI-FORENSIC · gecikme özeti — YENİ ölçüm KURULMAZ, ZATEN var olan iz
+   halkası okunup `maviLatencyModel`in SAF istatistiğinden geçirilir. */
+import { getMaviLatencyEvidence } from '../assistant/maviLatencyTrace';
+import { summarize as summarizeMaviLatency, summarizeSlaClasses, deriveMaviLatencyVerdict, MAVI_LATENCY_VERDICT_LABEL } from './maviLatencyModel';
+/* P0-MAVI-FORENSIC · eylem zinciri özeti — ZATEN var olan bounded halka okunur.
+   `dispatchWithoutResult` halkanın TARANMASIYLA türetilir; ikinci depo YOK. */
+import { getMaviActionTrace, getMaviActionTraceCounters } from '../action/maviActionTrace';
 /* MAVI-F13: kanonik runtime konsolidasyon tanısı. SAF SAYIM — yeni defter/telemetri
    AÇILMAZ, `maviEvidence`in ZATEN tuttuğu bounded kayıtlar sayılır. */
 import { getMaviRuntimeConsolidationDiagnostics } from '../maviCore/wiring/maviEvidence';
@@ -205,6 +212,32 @@ export function readMaviConsoleSnapshot(): MaviRawSnapshot {
      yazar; "hiç tetik yok" diye UYDURULMAZ. */
   const wakeF = _safe(() => getWakeForensics(10));
   const rt    = _safe(() => getMaviRuntimeConsolidationDiagnostics());
+  /* P0-MAVI-FORENSIC · gecikme özeti — mevcut iz halkasından SAF istatistik. */
+  const latencyEv = _safe(() => getMaviLatencyEvidence());
+  /* P0-MAVI-FORENSIC · eylem zinciri — mevcut bounded halka + sayaçlar.
+     `dispatchWithoutResult`: `gate` aşaması `status==='allowed'` yazdı ama AYNI
+     `actionId` için halkada `result` aşaması YOK → sessiz kayıp (ring TARANIR,
+     ikinci depo KURULMAZ). Halka ≤120 kayıt — tarama pahalı değildir. */
+  const actionRing = _safe(() => getMaviActionTrace());
+  const actionCounters = _safe(() => getMaviActionTraceCounters());
+  const dispatchWithoutResult = (() => {
+    if (!Array.isArray(actionRing)) return 0;
+    const resultedActionIds = new Set<string>();
+    for (const r of actionRing) if (r.stage === 'result' && r.actionId) resultedActionIds.add(r.actionId);
+    let missing = 0;
+    for (const r of actionRing) {
+      if (r.stage === 'gate' && r.status === 'allowed' && r.actionId && !resultedActionIds.has(r.actionId)) {
+        missing += 1;
+      }
+    }
+    return missing;
+  })();
+  const byStageCounts = (() => {
+    if (!Array.isArray(actionRing)) return {};
+    const out: Record<string, number> = {};
+    for (const r of actionRing) out[r.stage] = (out[r.stage] ?? 0) + 1;
+    return out;
+  })();
   /* Bayraklar TEK try/catch altında okunur: biri patlarsa "hepsi kapalı"
      UYDURULMAZ — liste `null` kalır ve LAB "okunamadı" yazar. */
   const flags = _safe<readonly string[]>(() => {
@@ -421,6 +454,45 @@ export function readMaviConsoleSnapshot(): MaviRawSnapshot {
         ? wakeF.pendingAcceptAgeMs : null,
       lastReason:          _ident(wakeF.recent[0]?.reason),
       lastPath:            _ident(wakeF.recent[0]?.path),
+    } : null,
+
+    /* P0-MAVI-FORENSIC · GİZLİLİK: rota/sağlayıcı/gerekçe zaten bounded kod
+       (kullanıcı metni DEĞİL) — `maviLatencyModel` bunu ZATEN böyle taşır. */
+    latency: latencyEv ? (() => {
+      const summary = summarizeMaviLatency(latencyEv.traces);
+      const slaStats = summarizeSlaClasses(latencyEv.traces);
+      const verdict = deriveMaviLatencyVerdict({
+        enabled: latencyEv.enabled, traceCount: latencyEv.traces.length, summary,
+      });
+      return {
+        enabled: latencyEv.enabled,
+        traceCount: latencyEv.traces.length,
+        completed: summary.completed,
+        verdict: MAVI_LATENCY_VERDICT_LABEL[verdict] ?? verdict,
+        slaClasses: slaStats.map((c) => ({
+          slaClass: c.slaClass,
+          targetP95Ms: c.targetP95Ms,
+          p95Ms: c.evidence === 'CONFIRMED' ? c.confirmedStat.p95 : c.requestedStat.p95,
+          meetsTarget: c.meetsTarget,
+          evidence: c.evidence,
+        })),
+        byOutcome: _counts(summary.byOutcome),
+        byFirstAudio: _counts(summary.byFirstAudio),
+        orphanMarks: _num(latencyEv.orphanMarks),
+        duplicateMarks: _num(latencyEv.duplicateMarks),
+        invalidMarks: _num(latencyEv.invalidMarks),
+      };
+    })() : null,
+
+    /* P0-MAVI-FORENSIC · GİZLİLİK: `actionId`/`intent`/`reason` zaten bounded
+       makine-okur kod (bkz. `maviActionTrace`in kendi gizlilik sözleşmesi). */
+    actionTrace: actionCounters ? {
+      recorded: _num(actionCounters.recorded),
+      dropped: _num(actionCounters.dropped),
+      capacity: _num(actionCounters.capacity),
+      saturated: actionCounters.saturated === true,
+      dispatchWithoutResult,
+      byStage: _counts(byStageCounts),
     } : null,
 
     /* MAVI-F13 · GİZLİLİK: komut metni, parametre, correlationId ve eylem

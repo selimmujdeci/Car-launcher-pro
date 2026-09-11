@@ -22,6 +22,7 @@ import {
   observed, derived, unavailable,
   type InspectorField, type Observability,
 } from './sessionInspectorModel';
+import { detectMaviAnomalies, type MaviAnomalyRecord } from './maviForensicModel';
 
 /* ══════════════════════════════════════════════════════════════════════════
  * Repo GERÇEĞİ — durum değerleri tahmin EDİLMEZ
@@ -186,6 +187,46 @@ export interface MaviTurnRaw {
   readonly countersSaturated:           boolean;
 }
 
+/**
+ * P0-MAVI-FORENSIC · gecikme özet kanıtı — `maviLatencyTrace`/`maviLatencyModel`in
+ * ZATEN ürettiği istatistiği taşır (yeni ölçüm YOK, ikinci hesap YOK).
+ */
+export interface MaviLatencySlaClassRaw {
+  readonly slaClass: string;
+  readonly targetP95Ms: number | null;
+  readonly p95Ms: number | null;
+  readonly meetsTarget: boolean | null;
+  readonly evidence: string;
+}
+
+export interface MaviLatencyRaw {
+  readonly enabled: boolean;
+  readonly traceCount: number;
+  readonly completed: number;
+  readonly verdict: string;
+  readonly slaClasses: readonly MaviLatencySlaClassRaw[];
+  readonly byOutcome: Readonly<Record<string, number>>;
+  readonly byFirstAudio: Readonly<Record<string, number>>;
+  readonly orphanMarks: number;
+  readonly duplicateMarks: number;
+  readonly invalidMarks: number;
+}
+
+/**
+ * P0-MAVI-FORENSIC · eylem zinciri özeti — `maviActionTrace`in ZATEN tuttuğu
+ * bounded halkanın sayaçları + halka TARANARAK türetilen tek anomali sayacı
+ * (`dispatchWithoutResult`). İkinci bir depo KURULMAZ, var olan halka okunur.
+ */
+export interface MaviActionTraceRaw {
+  readonly recorded: number;
+  readonly dropped: number;
+  readonly capacity: number;
+  readonly saturated: boolean;
+  /** `gate:allowed` yazıldı ama halkada eşlik eden `result` YOK — sessiz kayıp. */
+  readonly dispatchWithoutResult: number;
+  readonly byStage: Readonly<Record<string, number>>;
+}
+
 export interface MaviRawSnapshot {
   readonly readAt: number;
   readonly voice:    MaviVoiceRaw | null;
@@ -210,6 +251,10 @@ export interface MaviRawSnapshot {
   readonly runtime: MaviRuntimeRaw | null;
   /** Wake karar defteri (`recordWake` projeksiyonu). `null` = okunamadı. */
   readonly wakeForensics: MaviWakeForensicsRaw | null;
+  /** P0-MAVI-FORENSIC · gecikme özeti (`maviLatencyTrace`). `null` = okunamadı. */
+  readonly latency: MaviLatencyRaw | null;
+  /** P0-MAVI-FORENSIC · eylem zinciri özeti (`maviActionTrace`). `null` = okunamadı. */
+  readonly actionTrace: MaviActionTraceRaw | null;
 }
 
 /**
@@ -358,7 +403,8 @@ export interface MaviWorkloadRaw {
 
 export type MaviSectionId =
   | 'lifecycle' | 'diag' | 'ai-health' | 'quota' | 'proactive' | 'speech' | 'workload'
-  | 'proactive-policy' | 'surface' | 'barge-in' | 'canonical-runtime' | 'wake-forensics';
+  | 'proactive-policy' | 'surface' | 'barge-in' | 'canonical-runtime' | 'wake-forensics'
+  | 'anomalies';
 
 export interface MaviSection {
   readonly id:     MaviSectionId;
@@ -379,6 +425,7 @@ export const MAVI_SECTION_TITLE: Readonly<Record<MaviSectionId, string>> = {
   'barge-in': 'J · Barge-in ve Konuşma Kontrolü (F12)',
   'canonical-runtime': 'K · Kanonik Runtime / Konsolidasyon (F13)',
   'wake-forensics': 'L · Wake Tetiğinin Akıbeti (kim yuttu?)',
+  'anomalies': 'M · Anomali Tespiti (çapraz-kesen, TÜRETİLMİŞ — otorite DEĞİL)',
 } as const;
 
 const SRC = {
@@ -401,6 +448,11 @@ const SRC = {
          + ' + ai/gateway/aiGatewayFlag + capability/fabric/capabilityFabric',
   wakeForensics: 'voice/wakeForensics.getWakeForensics()'
          + ' (voice/core/wakeDecisionModel.projectWakeForensics)',
+  latency: 'assistant/maviLatencyTrace.getMaviLatencyEvidence()'
+         + ' (devtools/maviLatencyModel.summarize + summarizeSlaClasses)',
+  actionTrace: 'action/maviActionTrace.getMaviActionTrace() + getMaviActionTraceCounters()',
+  anomalies: 'devtools/maviForensicModel.detectMaviAnomalies()'
+         + ' (yukarıdaki bölümlerin SAF türetimi — yeni ölçüm yapmaz)',
 } as const;
 
 function _bound(fields: readonly InspectorField[]): readonly InspectorField[] {
@@ -1496,13 +1548,63 @@ function _canonicalRuntimeSection(s: MaviRawSnapshot): MaviSection {
   return { id: ID, title: MAVI_SECTION_TITLE[ID], fields: _bound(f) };
 }
 
+/* ── M · Anomali tespiti (çapraz-kesen, TÜRETİLMİŞ) ──────────────────────────
+ * Yukarıdaki bölümlerin (F/G/L + latency/action) ZATEN topladığı kanıtı okuyup
+ * adı konmuş sonuçlar üretir. Bu bölüm YENİ ölçüm YAPMAZ, YENİ karar VERMEZ —
+ * `detectMaviAnomalies` saf türetimidir (bkz. `maviForensicModel.ts`). */
+
+const MAVI_ANOMALY_SEVERITY_LABEL: Readonly<Record<MaviAnomalyRecord['severity'], string>> = {
+  critical: 'KRİTİK',
+  warn:     'UYARI',
+  info:     'BİLGİ',
+};
+
+function _anomaliesSection(s: MaviRawSnapshot): MaviSection {
+  const f: InspectorField[] = [];
+  const ID: MaviSectionId = 'anomalies';
+  const anomalies = detectMaviAnomalies(s);
+  /* En az bir kanıt yüzeyi OKUNABİLMİŞ olmalı — hepsi null iken "0 anomali"
+     OBSERVED denemez: bu "kontrol ettim, temiz" DEĞİL, "hiçbir şey ÖLÇEMEDİM"dir. */
+  const anyEvidence = s.ttsEngine != null || s.wakeForensics != null || s.aiHealth != null
+    || s.turn != null || s.bargeIn != null || s.latency != null || s.actionTrace != null;
+
+  if (!anyEvidence) {
+    f.push(unavailable(
+      { id: 'anEmpty', label: 'tespit edilen anomali', source: SRC.anomalies, note: '' },
+      'Anomali tespiti hiçbir kanıt yüzeyini OKUYAMADI — "0 anomali" İDDİA EDİLEMEZ.'));
+    return { id: ID, title: MAVI_SECTION_TITLE[ID], fields: _bound(f) };
+  }
+
+  if (anomalies.length === 0) {
+    f.push(observed(
+      { id: 'anEmpty', label: 'tespit edilen anomali', source: SRC.anomalies,
+        note: 'Bu, "Mavi sağlıklı" İDDİASI DEĞİLDİR — yalnız aşağıdaki kapsamda '
+            + '(TTS motor sonucu · wake sonuçlanma · AI devre kesici · SLA hedefi · '
+            + 'eylem zinciri bütünlüğü · eskimiş nesil yakalama · TTS/mikrofon '
+            + 'çakışma riski) tanımlı hiçbir eşik AŞILMADI demektir. Native-only '
+            + 'sınıflar (mikrofon izni, duplicate wake listener, audio focus) bu '
+            + 'katmanda GÖZLEMLENEMEZ — susmaları "yok" ANLAMINA GELMEZ.' },
+      '0'));
+    return { id: ID, title: MAVI_SECTION_TITLE[ID], fields: _bound(f) };
+  }
+
+  for (const a of anomalies) {
+    f.push(derived(
+      { id: `an_${a.id}`, label: `${MAVI_ANOMALY_SEVERITY_LABEL[a.severity]} · ${a.id}`,
+        source: SRC.anomalies, note: a.evidence },
+      a.evidence));
+  }
+
+  return { id: ID, title: MAVI_SECTION_TITLE[ID], fields: _bound(f) };
+}
+
 export function buildMaviSections(s: MaviRawSnapshot): MaviSection[] {
   if (!s) return [];
   return [
     _lifecycleSection(s), _diagSection(s), _aiHealthSection(s),
     _quotaSection(s), _proactiveSection(s), _speechSection(s), _workloadSection(s),
     _proactivePolicySection(s), _surfaceSection(s), _bargeInSection(s),
-    _canonicalRuntimeSection(s), _wakeForensicsSection(s),
+    _canonicalRuntimeSection(s), _wakeForensicsSection(s), _anomaliesSection(s),
   ];
 }
 

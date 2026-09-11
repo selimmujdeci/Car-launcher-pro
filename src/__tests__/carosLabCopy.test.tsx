@@ -157,7 +157,12 @@ describe('KİLİT 5 — model SAF ve bağlam dürüst', () => {
     // Kopyada `hal.gpsAlive:false` ile `connectivity[GPS].connected:true` YAN YANA
     // duruyor ve çelişki sanılıyordu; üçü FARKLI ekseni ölçer. Ayrışma artık
     // kopyanın KENDİSİ tarafından açıklanır. Kilit yine kaldırılmadı.
-    expect(r.sectionCount).toBe(21);
+    // P0-MAVI-FORENSIC (2026-09-11, ÇOK ÖNEMLİ): 9 Mavi bölümü eklendi (CURRENT
+    // STATE · WAKE FORENSICS · LAST TURN · LATENCY · STT/MIC · TTS · ACTION/TOOL
+    // · ANOMALIES · EVENT TIMELINE). Öncesinde CAROS LAB kataloğunda Mavi
+    // kartları AVAILABLE görünüyordu ama içerikleri kopyaya HİÇ GİRMİYORDU.
+    // Kilit yine kaldırılmadı — bölüm sayısı yeni doğru değere (21+9=30) taşındı.
+    expect(r.sectionCount).toBe(30);
     expect(r.text).toContain('GPS OTORİTE SÖZLEŞMESİ');
     expect(r.text).toContain('KANONİK TANI İZİ');
     expect(r.text).toContain('ANLIK ARAÇ VERİSİ');
@@ -174,6 +179,17 @@ describe('KİLİT 5 — model SAF ve bağlam dürüst', () => {
        okunamadıysa bile "okunamadı" gerekçesiyle. Bölümün HİÇ OLMAMASI,
        sahada olanın ta kendisiydi. */
     expect(r.text).toContain('ECU KEŞİF / ADRESLENEBİLİRLİK KANITI');
+    /* P0-MAVI-FORENSIC — Mavi bölümleri kopyada HER ZAMAN görünür: veri yoksa
+       bile "okunamadı" gerekçesiyle (bölümün HİÇ OLMAMASI sahada olanın kendisiydi). */
+    expect(r.text).toContain('MAVİ CURRENT STATE');
+    expect(r.text).toContain('MAVİ WAKE FORENSICS');
+    expect(r.text).toContain('MAVİ LAST TURN');
+    expect(r.text).toContain('MAVİ LATENCY');
+    expect(r.text).toContain('MAVİ STT / MIC');
+    expect(r.text).toContain('MAVİ TTS');
+    expect(r.text).toContain('MAVİ ACTION / TOOL');
+    expect(r.text).toContain('MAVİ ANOMALIES');
+    expect(r.text).toContain('MAVİ EVENT TIMELINE');
   });
 
   it('aynı girdi → aynı çıktı (saat/rastgelelik okumaz)', () => {
@@ -305,5 +321,63 @@ describe('KİLİT 8 — tazelenmemiş kanıtla alınan rapor UYARI taşır', () 
     const r = buildCarosLabCopy(input({ meta: { ...META, pollEvidenceCacheState: null } }));
     expect(r.pollEvidenceStale).toBe(false);
     expect(r.text).toContain('BİLİNMİYOR');
+  });
+});
+
+/* ─────────────────────────────────────────────────────────────────
+   KİLİT 9 (P0-MAVI-FORENSIC · §11 · ÇOK ÖNEMLİ) — Mavi verisi kopyaya
+   GERÇEKTEN girer.
+
+   SAHA KUSURU: CAROS LAB kataloğunda Mavi kartları (Mavi Konsolu · Mavi
+   Latency · wake forensics) AVAILABLE görünüyordu ama "TÜMÜNÜ KOPYALA"
+   çıktısında içerikleri HİÇ YOKTU — kod tabanında `carosLabCopyModel`/
+   `carosLabCopySources` dosyalarında tek bir Mavi/wake/latency/TTS referansı
+   yoktu. Bu kilit üç şeyi kanıtlar: (1) veri VARSA gerçekten metne girer,
+   (2) kaynak okunamadıysa "okunamadı" yazar, (3) dizi GERÇEKTEN boşsa
+   "okunamadı" ile KARIŞTIRILMAZ ("kayıt yok" yazar) — ikisi ASLA aynı satırla
+   ifade edilmez.
+   ───────────────────────────────────────────────────────────────── */
+describe('KİLİT 9 — Mavi forensic verisi kopyaya GERÇEKTEN girer (§11)', () => {
+  it('veri VARSA Mavi bölümleri gerçek içerikle dolar (uydurma yok)', () => {
+    const r = buildCarosLabCopy(input({
+      maviCurrentState: { voice: { status: 'listening', micAvailable: true }, surface: null },
+      maviWakeForensics: { summary: { total: 3, evicted: 0 }, recent: [{ atMs: 1, reason: 'ACCEPTED', path: 'GRAMMAR' }] },
+      maviLastTurn: { turn: { activeTurnId: 7, activeState: 'active' }, speech: null },
+      maviLatency: { enabled: true, traceCount: 2, verdict: 'CONFIRMED' },
+      maviSttMic: { diag: [], micAvailable: true, volumeLevel: 0.4 },
+      maviTts: { ttsEngine: { requested: 4, engineDone: 4 }, bargeIn: null },
+      maviActionTool: { summary: { recorded: 5, dropped: 0 }, records: [] },
+      maviAnomalies: [{ id: 'TTS_ENGINE_SILENT', severity: 'critical', evidence: 'noEngineReport=2' }],
+      maviEventTimeline: [{ atMs: 1, source: 'wake', label: 'wake:ACCEPTED@GRAMMAR' }],
+    }));
+    expect(r.text).toContain('listening');
+    expect(r.text).toContain('activeTurnId');
+    expect(r.text).toContain('CONFIRMED');
+    expect(r.text).toContain('TTS_ENGINE_SILENT');
+    expect(r.text).toContain('wake:ACCEPTED@GRAMMAR');
+  });
+
+  it('kaynak okunamadıysa (null) Mavi bölümü "okunamadı" yazar — boş VARSAYILMAZ', () => {
+    const r = buildCarosLabCopy(input({
+      maviCurrentState: null, maviWakeForensics: null, maviAnomalies: null, maviEventTimeline: null,
+    }));
+    const anomaliesBlock = r.text.split('## MAVİ ANOMALIES')[1]?.split('## ')[0] ?? '';
+    expect(anomaliesBlock).toContain('okunamadı');
+    const timelineBlock = r.text.split('## MAVİ EVENT TIMELINE')[1]?.split('## ')[0] ?? '';
+    expect(timelineBlock).toContain('okunamadı');
+  });
+
+  it('anomali listesi GERÇEKTEN boşsa "kayıt yok" yazar — "okunamadı" ile KARIŞTIRILMAZ', () => {
+    const r = buildCarosLabCopy(input({ maviAnomalies: [], maviEventTimeline: [] }));
+    const anomaliesBlock = r.text.split('## MAVİ ANOMALIES')[1]?.split('## ')[0] ?? '';
+    expect(anomaliesBlock).toContain('kayıt yok');
+    expect(anomaliesBlock).not.toContain('okunamadı');
+  });
+
+  it('sağlayıcı anahtarı Mavi bölümüne de sızmaz (üç maskeleme kapısı burada da çalışır)', () => {
+    const r = buildCarosLabCopy(input({
+      maviLastTurn: { note: 'authorization: bearer_abcdef1234567890xyz' },
+    }));
+    expect(r.text).not.toContain('bearer_abcdef1234567890xyz');
   });
 });
