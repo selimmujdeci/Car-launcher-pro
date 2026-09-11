@@ -1107,6 +1107,8 @@ async function askCompanionBrainGateway(
   isDriving: boolean,
   timeoutMs?: number,
   onToken?: (token: string) => void,
+  /* SİSTEMİN arama yeteneği (bu HATTIN değil) — bkz. aşağıdaki prompt notu. */
+  canGround = false,
 ): Promise<{ result: BrainRaw | null; netFailure: boolean; errorKind: string }> {
   const [{ getDefaultAiGateway }, { askGatewayChat }, { isMaviOrchestratorEnabled }] = await Promise.all([
     import('../ai/gateway/concrete/defaultAiGateway'),
@@ -1117,7 +1119,17 @@ async function askCompanionBrainGateway(
   const decisionMs = Math.min(timeoutMs ?? GATEWAY_BRAIN_TIMEOUT_MS, GATEWAY_BRAIN_TIMEOUT_MS);
   const chatParams = {
     gateway:     getDefaultAiGateway(),
-    system:      buildBrainSystemPrompt(id, isDriving, buildInterpretedVehicleContext(), false, text),
+    /* ── SAHA 2026-09-11 · MAVİ "İNTERNET ERİŞİMİM YOK" DİYORDU ──────────────
+     * Burada `supportsGrounding` SABİT `false` geçiliyordu ve o bayrak modele
+     * şunu SÖYLETİYOR: "Senin canlı/güncel internet erişimin YOK ... ASLA
+     * type:'web' döndürme". Yani cevap modelin bir gözlemi değil, BİZİM
+     * talimatımızdı — üstelik YANLIŞ bir talimat: yeteneksiz olan bu HAT'tır,
+     * SİSTEM değil (arama anahtarı varsa Gemini beyin hattı aramayı yapabilir).
+     * Cihazda ölçüldü: ağ ayaktayken (google/tavily/gemini erişilebilir) Mavi
+     * "internet erişimim olmadığı için güncel bilgi alamıyorum" diyordu.
+     * Artık SİSTEMİN yeteneği bildirilir: model gerektiğinde type:'web' döner,
+     * bu hat turu tüketmez (ede551b8) ve aramayı yapabilen aday devralır. */
+    system:      buildBrainSystemPrompt(id, isDriving, buildInterpretedVehicleContext(), canGround, text),
     history:     historyToOpenAI(),
     user:        text,
     timeoutMs:   decisionMs,
@@ -1162,9 +1174,10 @@ async function tryGatewayBrainAndRecord(
   isDriving:  boolean,
   timeoutMs?: number,
   onToken?:   (token: string) => void,
+  canGround = false,
 ): Promise<{ result: CompanionBrainResult | null; netFailure: boolean; errorKind: string }> {
   const { result, netFailure, errorKind } =
-    await askCompanionBrainGateway(brainInput, id, isDriving, timeoutMs, onToken);
+    await askCompanionBrainGateway(brainInput, id, isDriving, timeoutMs, onToken, canGround);
   if (!result) return { result: null, netFailure, errorKind };
 
   recordAiNetSuccess(); // beyin cevap verdi → ağ sağlıklı, kesici sayacı sıfır
@@ -1975,8 +1988,13 @@ async function runCompanionBrain(
           // Sağlayıcı-bağımsız hat: gateway kendi tekrar/timeout/devre-kesici
           // politikasını içeride uygular. Başarısızsa zincirdeki eski adaylar
           // (Gemini/Groq/Haiku) aynen denenmeye devam eder.
+          /* SİSTEMİN arama yeteneği: Groq/Haiku yollarındaki `canGround` ile
+             AYNI kural (searchKey VEYA tavilyKey) — üçüncü bir tanım YOK. */
+          const _sysCanGround =
+            (!!opts.searchKey && opts.searchKey.trim().length > 8) ||
+            (!!opts.tavilyKey && opts.tavilyKey.trim().length > 8);
           const gw = await tryGatewayBrainAndRecord(
-            brainInput, trimmed, id, isDriving, opts.timeoutMs, opts.onToken);
+            brainInput, trimmed, id, isDriving, opts.timeoutMs, opts.onToken, _sysCanGround);
           if (gw.result) return gw.result;
           // GERÇEK ağ ölümü → kesiciye say. Gateway throw ETMEZ; hata türü tipli
           // bayrakla taşınır, tür de kesiciye iletilir (timeout ayrı eşikte sayılır).

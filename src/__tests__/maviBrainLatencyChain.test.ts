@@ -245,3 +245,37 @@ describe('🔒 gateway hattı yapamadığı işi "yapılamaz" diye kapatmaz', ()
     expect((oncesi.match(/pushHistory/g) || []).length).toBe(2); // yalnız localWeather dalı
   });
 });
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * "İNTERNET ERİŞİMİM YOK" — BU BİR GÖZLEM DEĞİL, BİZİM TALİMATIMIZDI
+ *
+ * SAHA 2026-09-11: ağ AYAKTAYKEN (cihazdan ölçüldü: google 304 ms ·
+ * api.tavily.com 596 ms · generativelanguage 94 ms) Mavi "internet erişimim
+ * olmadığı için güncel bilgi alamıyorum" diyordu.
+ * KÖK: gateway hattı sistem prompt'unu `supportsGrounding = false` SABİTİYLE
+ * kuruyordu; o dal modele birebir şunu söyletir:
+ *   "Senin canlı/güncel internet erişimin YOK ... ASLA type:'web' döndürme."
+ * Yeteneksiz olan bu HAT'tır, SİSTEM değil: arama anahtarı varsa Gemini beyin
+ * hattı aramayı yapabiliyor. İki kavram karışmıştı.
+ * ════════════════════════════════════════════════════════════════════════ */
+describe('🔒 gateway promptu SİSTEMİN arama yeteneğini bildirir', () => {
+  const src = read('src/platform/companion/companionChatProvider.ts');
+
+  it('SAHA: `supportsGrounding` artık SABİT false DEĞİL', () => {
+    expect(src, 'gateway hâlâ modele "internetin yok" diye sabit talimat veriyor')
+      .not.toMatch(/buildBrainSystemPrompt\([^)]*buildInterpretedVehicleContext\(\), false, text\)/);
+  });
+
+  it('gateway promptu dışarıdan gelen yetenek bayrağını kullanır', () => {
+    expect(src).toMatch(/system:\s+buildBrainSystemPrompt\(id, isDriving, buildInterpretedVehicleContext\(\), canGround, text\)/);
+  });
+
+  it('yetenek kuralı Groq/Haiku ile AYNI (üçüncü tanım yok)', () => {
+    const i = src.indexOf('_sysCanGround');
+    expect(i).toBeGreaterThan(-1);
+    const govde = src.slice(i, i + 260);
+    expect(govde).toMatch(/opts\.searchKey/);
+    expect(govde).toMatch(/opts\.tavilyKey/);
+    expect(govde).toMatch(/length > 8/);
+  });
+});
