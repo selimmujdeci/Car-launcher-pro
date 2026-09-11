@@ -29,14 +29,33 @@ import {
 } from './tripUploadCoordinator';
 import { toCanonicalTripSummary } from './tripLifecycle';
 import type { TripSummary } from './tripCanonicalModel';
+import { readJournal, attachJournalAreas } from './tripJournalStore';
+import { TRIP_JOURNAL_SCHEMA_VERSION } from './tripJournalModel';
 
 /** Yükleme defterinin kalıcı anahtarı — dedupe hafızası yeniden başlatmada yaşar. */
 const LEDGER_KEY = 'caros.trip.uploadLedger';
 /** Defter üst sınırı — sınırsız büyüme yok. */
 const MAX_LEDGER_ENTRIES = 200;
 
+/**
+ * AÇILIŞTA taranacak geçmiş yolculuk sayısı (bekleyen senkron kurtarma).
+ *
+ * ── KAPATILAN BORÇ ────────────────────────────────────────────────────
+ * Eskiden açılışta geçmişin uzunluğu ÇAPA alınıyordu ve "yalnız bundan
+ * sonraki tripler taşınır" deniyordu. Sonucu şuydu: araç çevrimdışıyken
+ * (tünel · kırsal · veri yok) biten bir yolculuk kapandıktan sonra uygulama
+ * kapanırsa o yolculuk **BİR DAHA ASLA** yüklenmiyordu. Kullanıcı için bu,
+ * "Seyir Defteri'nde dünkü yolculuğum yok" demekti.
+ *
+ * Artık açılışta son N yolculuk defterle karşılaştırılır; defterde HİÇ
+ * kaydı olmayanlar kuyruğa verilir. Tekrar riski YOKTUR: sunucu `tripKey`
+ * ile dedupe eder ve ikinci gönderim `DUPLICATE` döner (başarı sayılır).
+ * N sınırlıdır — tüm geçmişin toptan göçü bu turun işi değildir.
+ */
+const BACKFILL_SCAN_LIMIT = 20;
+
 class TripUploadRuntime {
-  private readonly _coordinator = new TripUploadCoordinator();
+  private _coordinator = new TripUploadCoordinator();
   private _unsub: (() => void) | null = null;
   private _started = false;
   /** Son görülen geçmiş uzunluğu — YENİ kaydı bundan tespit ederiz. */
@@ -51,9 +70,9 @@ class TripUploadRuntime {
     this._hydrate();
 
     try {
-      /* Açılıştaki mevcut geçmiş uzunluğunu çapa al: eski tripler
-         YÜKLENMEZ (bu tur yalnız BUNDAN SONRAKİ tripleri taşır). Geçmişin
-         toptan göçü ayrı bir turdur — açık borç. */
+      /* Açılıştaki geçmiş uzunluğunu çapa al — YENİ kapanan trip'i bundan
+         tespit ederiz. Açılıştan ÖNCE kapanmış ama hiç yüklenememiş
+         tripler ayrı bir yoldan (backfill) taşınır. */
       this._lastHistoryLength = getTripSnapshot().history.length;
     } catch { this._lastHistoryLength = -1; }
 
@@ -63,7 +82,34 @@ class TripUploadRuntime {
       });
     } catch { /* abonelik kurulamadıysa runtime sessiz kalır */ }
 
+    /* Bekleyen senkron kurtarma — ağ çağrıları asenkron, boot'u BEKLETMEZ. */
+    void this._backfillPending();
+
     return () => this.stop();
+  }
+
+  /**
+   * Açılışta: defterde HİÇ kaydı olmayan geçmiş tripleri kuyruğa ver.
+   *
+   * Çevrimdışıyken kapanıp sonra uygulama kapandığı için hiç gönderilememiş
+   * yolculukları kurtarır. Zaten yüklenmiş/tekrar sayılmış tripler defterde
+   * göründüğü için ATLANIR; defter kaybolsa bile sunucu `tripKey` dedupe'u
+   * ikinci kapıdır.
+   */
+  private async _backfillPending(): Promise<void> {
+    try {
+      const history = getTripSnapshot().history.slice(0, BACKFILL_SCAN_LIMIT);
+      for (const record of history) {
+        if (!this._started) return;   // durduruldu → yarıda kes
+        if (!record) continue;
+        const summary = this._toSummary(record);
+        /* Defterde kaydı VARSA bu trip zaten ele alınmıştır (yüklendi,
+           tekrar sayıldı ya da bütçesi tükendi) — yeniden denemek
+           koordinatörün hükmünü ezmek olurdu. */
+        if (this._coordinator.getEntry(summary.tripKey) !== null) continue;
+        await this._processTrip(record);
+      }
+    } catch { /* FAIL-SOFT: kurtarma düşse bile canlı yol çalışır */ }
   }
 
   stop(): void {
@@ -94,18 +140,76 @@ class TripUploadRuntime {
     for (let i = 0; i < newCount && i < history.length; i += 1) {
       const record = history[i];
       if (!record) continue;
-      /* P2: `tripLogService` artık mesafe/yakıt/maliyet kaynağını ve
-         kanıta dayalı confidence'ı KAYDIN İÇİNDE üretiyor. Buradan sabit
-         bağlam GEÇİLMEZ — geçilirse ölçülmüş bir metrik "tahmin" diye
-         yüklenir (P1'de öyleydi). Bağlam yalnız kayıtta ALAN YOKSA
-         (eski P1 kayıtları) devreye giren fallback'tir. */
-      const summary = toCanonicalTripSummary(record, 'COMPLETED', {
-        distanceSource: 'DERIVED',   // yalnız eski kayıtlar için taban
-        fuelMeasured: false,         // yalnız eski kayıtlar için taban
-        fuelPriceKnown: false,       // yalnız eski kayıtlar için taban
-      });
-      void this._upload(summary);
+      void this._processTrip(record);
     }
+  }
+
+  /**
+   * Kanonik özet + kaba alan adı çözümü + yükleme.
+   *
+   * Alan adı ÇÖZÜMÜ yüklemeyi BEKLETİR ama engellemez: ters geocode düşerse
+   * (çevrimdışı, zaman aşımı) trip alansız yüklenir — "Bilinmiyor" göstermek,
+   * yolculuğu hiç göstermemekten iyidir ve uydurma bir yer adı yazmaktan
+   * dürüsttür.
+   */
+  private async _processTrip(record: TripRecord): Promise<void> {
+    try {
+      await this._resolveAreas(record.id);
+    } catch { /* alan adı bir SÜSLEMEDİR — yüklemeyi düşürmez */ }
+    try {
+      await this._upload(this._toSummary(record));
+    } catch { /* FAIL-SOFT */ }
+  }
+
+  /**
+   * P2: `tripLogService` artık mesafe/yakıt/maliyet kaynağını ve kanıta
+   * dayalı confidence'ı KAYDIN İÇİNDE üretiyor. Buradan sabit bağlam
+   * GEÇİLMEZ — geçilirse ölçülmüş bir metrik "tahmin" diye yüklenir
+   * (P1'de öyleydi). Bağlam yalnız kayıtta ALAN YOKSA (eski P1 kayıtları)
+   * devreye giren fallback'tir.
+   */
+  private _toSummary(record: TripRecord): TripSummary {
+    return toCanonicalTripSummary(record, 'COMPLETED', {
+      distanceSource: 'DERIVED',   // yalnız eski kayıtlar için taban
+      fuelMeasured: false,         // yalnız eski kayıtlar için taban
+      fuelPriceKnown: false,       // yalnız eski kayıtlar için taban
+    });
+  }
+
+  /**
+   * Başlangıç/varış KONUMUNU kaba ALAN ADINA çevir ve deftere iliştir.
+   *
+   * ── KOORDİNAT BULUTA GİTMEZ ───────────────────────────────────────
+   * Çözüm BURADA, cihazda yapılır; buluta yalnız METİN ("Tarsus") gider.
+   * Koordinatı gönderip sunucuda çözmek, tam da kaçınılan şeydir.
+   *
+   * Zaten çözülmüş bir kayıt YENİDEN çözülmez (ağ israfı + ToS).
+   * `geocodingService` dinamik import edilir: yalnız bir yolculuk
+   * kapandığında yüklenir, boot grafiğine girmez.
+   */
+  private async _resolveAreas(tripId: string): Promise<void> {
+    const rec = readJournal(tripId);
+    if (rec === null) return;
+    if (rec.startArea !== null && rec.endArea !== null) return;
+    if (rec.startLocation === null && rec.endLocation === null) return;
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
+
+    const { reverseGeocodeParts } = await import('../geocodingService');
+
+    /* Kaba alan = şehir; yoksa ilçe. Yol adı KULLANILMAZ — "D400 üzerinde"
+       bir yolculuk özetinde yer adı değildir ve gereğinden fazla bilgi verir. */
+    const area = async (p: { lat: number; lon: number } | null): Promise<string | null> => {
+      if (p === null) return null;
+      try {
+        const parts = await reverseGeocodeParts(p.lat, p.lon);
+        return parts === null ? null : (parts.city ?? parts.district);
+      } catch { return null; }
+    };
+
+    const startArea = rec.startArea ?? await area(rec.startLocation);
+    const endArea = rec.endArea ?? await area(rec.endLocation);
+    if (startArea === null && endArea === null) return;   // uydurma YOK
+    attachJournalAreas(tripId, startArea, endArea);
   }
 
   /* ── Yükleme ────────────────────────────────────────────────────────── */
@@ -149,6 +253,11 @@ class TripUploadRuntime {
         p_coverage: this._coveragePayload(summary),
         p_metrics_version: summary.metricsVersion,
         p_events: summary.events,
+        /* SEYİR DEFTERİ: yalnız KÜÇÜK özet — kaba alan ADI (metin), bitiş
+           gerekçesi, cihazın kapanış anı ve şema sürümü. Rota izi ·
+           saniyelik GPS · koordinat BU YÜKTE YOKTUR ve sunucu şeması
+           koordinat kolonunu yasaklar (migration 074/b). */
+        p_journal: this._journalPayload(summary),
       });
 
       if (raw === null) {
@@ -240,6 +349,30 @@ class TripUploadRuntime {
     return out;
   }
 
+  /**
+   * Seyir defteri özeti.
+   *
+   * Bilinmeyen alan **HİÇ KONMAZ** — sunucudaki `coalesce(yeni, eski)`
+   * sözleşmesiyle uyumludur: eksik alan var olan değeri EZMEZ. Kayıt
+   * bulunamazsa yük BOŞTUR; uydurma yer adı veya gerekçe ÜRETİLMEZ.
+   */
+  private _journalPayload(s: TripSummary): Record<string, number | string> {
+    const out: Record<string, number | string> = {};
+    try {
+      const rec = readJournal(s.tripId);
+      if (rec === null) return out;
+      if (rec.startArea !== null) out.startArea = rec.startArea;
+      if (rec.endArea !== null) out.endArea = rec.endArea;
+      /* `UNKNOWN` gerekçesi de GERÇEK bir bilgidir ("nasıl bittiğini
+         bilmiyoruz") ve gönderilir — alan adının aksine bu bir iddia
+         değil, dürüst bir kayıttır. */
+      out.endReason = rec.endReason;
+      if (rec.endedAtMs !== null) out.completedAtMs = rec.endedAtMs;
+      out.schemaVersion = TRIP_JOURNAL_SCHEMA_VERSION;
+    } catch { /* defter okunamazsa yük BOŞ kalır */ }
+    return out;
+  }
+
   /** §9 confidence kanıtı. Eksik kanıt KONMAZ — `0` bir kanıt DEĞİLDİR. */
   private _coveragePayload(s: TripSummary): Record<string, number | string> {
     const out: Record<string, number | string> = {};
@@ -277,6 +410,14 @@ class TripUploadRuntime {
 
   isStarted(): boolean {
     return this._started;
+  }
+
+  /** @internal testler için — defteri ve çapayı sıfırlar (diske DOKUNMAZ). */
+  _resetForTest(): void {
+    this.stop();
+    this._coordinator = new TripUploadCoordinator();
+    this._lastHistoryLength = -1;
+    this._inFlight = 0;
   }
 }
 

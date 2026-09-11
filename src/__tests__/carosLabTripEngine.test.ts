@@ -182,10 +182,44 @@ describe('§5 · canlı ölçüm GÖNDERİLMEZ', () => {
     expect(c).toMatch(/summary\.state !== 'COMPLETED'/);
   });
 
-  it('19. 🔒 açılışta ESKİ geçmiş yüklenmiyor (çapa kurulur)', () => {
+  /**
+   * 19 — DEĞİŞEN SÖZLEŞME (borç kapatıldı).
+   *
+   * Eskiden bu kilit "açılışta eski geçmiş YÜKLENMEZ" diyordu. Sonucu şuydu:
+   * çevrimdışıyken (tünel/kırsal) kapanan bir yolculuk, uygulama da kapanırsa
+   * BİR DAHA ASLA yüklenmiyordu — kullanıcı için "dünkü yolculuğum Seyir
+   * Defteri'nde yok" demekti.
+   *
+   * Yeni sözleşme: YENİ trip tespiti hâlâ çapayla yapılır (canlı ölçüm
+   * bildirimleri elenir), ama açılışta SINIRLI bir pencere taranır ve
+   * defterde HİÇ kaydı olmayanlar kuyruğa verilir. Tekrar riski yoktur:
+   * defterde kaydı olan ATLANIR ve sunucu `tripKey` ile dedupe eder.
+   */
+  it('19. 🔒 açılışta bekleyen senkron KURTARILIR, yüklenmiş trip atlanır', () => {
     const src = read(RUNTIME);
-    expect(src).toMatch(/Açılıştaki mevcut geçmiş uzunluğunu çapa al/);
+    /* Çapa KORUNDU — canlı bildirim seli hâlâ eleniyor. */
     expect(src).toMatch(/if \(this\._lastHistoryLength < 0\)/);
+    /* Kurtarma SINIRLI bir pencerede çalışır. */
+    expect(src).toMatch(/BACKFILL_SCAN_LIMIT/);
+    expect(src).toMatch(/_backfillPending/);
+    /* Defterde kaydı OLAN trip yeniden gönderilmez. */
+    expect(src).toMatch(/getEntry\(summary\.tripKey\) !== null\) continue/);
+  });
+
+  /**
+   * 19b — GİZLİLİK: seyir defteri yükü KOORDİNAT TAŞIMAZ.
+   *
+   * Rota izi cihazda kalır; buluta yalnız kaba alan ADI (metin), bitiş
+   * gerekçesi, kapanış anı ve şema sürümü gider.
+   */
+  it('19b. 🔒 seyir defteri yükü yalnız METİN alan taşır (koordinat YOK)', () => {
+    const c = code(RUNTIME);
+    expect(c).toMatch(/_journalPayload/);
+    expect(c).toMatch(/out\.startArea = rec\.startArea/);
+    expect(c).toMatch(/out\.endReason = rec\.endReason/);
+    /* Rota/koordinat yüke KONMAZ. */
+    expect(c).not.toMatch(/out\.route\s*=/);
+    expect(c).not.toMatch(/out\.(lat|lon|startLocation|endLocation)\s*=/);
   });
 
   it('20. 🔒 bilinmeyen metrik yüke KONMAZ (null gönderilmez)', () => {
