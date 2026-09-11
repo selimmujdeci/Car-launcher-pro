@@ -122,7 +122,14 @@ function _readMaviCopyBundle() {
   })) : null;
 
   return {
-    maviCurrentState: snap ? { voice: snap.voice, surface: snap.surface } as unknown : null,
+    /* P0-MAVI-PROVIDER-EVIDENCE · SAHA (2026-09-11): provider p95 12.3 sn
+       ölçüldü ama "sağlayıcı soğumada mıydı · devre kesici açık mıydı"
+       kanıtı export'ta YOKTU → gecikmenin sebebi KANITLANAMIYORDU. Bu iki
+       alan `MaviRawSnapshot`ta ZATEN vardı (Mavi Konsolu C ve D bölümleri),
+       yalnız TAM KOPYA'ya taşınmıyordu. Yeni sayaç/telemetri YOK. */
+    maviCurrentState: snap
+      ? { voice: snap.voice, surface: snap.surface, aiHealth: snap.aiHealth, quota: snap.quota } as unknown
+      : null,
     maviWakeForensics: snap ? { summary: snap.wakeForensics, recent: wakeRecentPlain } as unknown : null,
     maviLastTurn: snap ? { turn: snap.turn, speech: snap.speech } as unknown : null,
     maviLatency: snap ? (snap.latency as unknown) : null,
@@ -131,6 +138,10 @@ function _readMaviCopyBundle() {
       micAvailable: snap.voice?.micAvailable ?? null,
       volumeLevel: snap.voice?.volumeLevel ?? null,
       hasTranscript: snap.voice?.hasTranscript ?? null,
+      /* P0-MAVI-STT-PHASE: `speech` (kullanıcı ne kadar konuştu) ile
+         `postSpeechSilence` (konuşma bitti, ne kadar beklendi) AYRI —
+         `sttCapture` tek başına bu ikisini AYIRT EDEMEZ. */
+      phases: snap.sttPhases,
     } as unknown : null,
     maviTts: snap ? { ttsEngine: snap.ttsEngine, bargeIn: snap.bargeIn } as unknown : null,
     maviActionTool: snap ? { summary: snap.actionTrace, records: actionRingPlain } as unknown : null,

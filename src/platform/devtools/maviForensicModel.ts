@@ -152,30 +152,58 @@ export interface MaviActionTurnLatencyInput {
   readonly stage: string;
   readonly turnId: number | null;
   readonly atMs: number;
+  /** `speech` aşamasının sonucu — YALNIZ `spoken` gerçek seslendirmedir. */
+  readonly status?: string;
 }
 
 /**
- * `turn_started → speech` (aynı turnId) toplam süresi. `maviLatencyTrace`
+ * `turn_started → speech:spoken` (aynı turnId) toplam süresi. `maviLatencyTrace`
  * damgalarından BAĞIMSIZDIR — ince zincir boş olsa bile çalışır.
+ *
+ * ── SAHA KUSURU (2026-09-11, gerçek cihaz) ─────────────────────────────────
+ * İlk sürüm diziyi KRONOLOJİK sırada varsayıyordu ve her turda `count:0`
+ * üretti. Kök neden: `maviActionTrace.getMaviActionTrace()` halkayı **EN YENİ →
+ * EN ESKİ** döndürür (o dosyanın kendi sözleşmesi), dolayısıyla her turun
+ * `speech` kaydı `turn_started` kaydından ÖNCE görülüyor, eşleşme kapısı hiç
+ * açılmıyordu. Testler veriyi eski→yeni verdiği için kusur testte GÖRÜNMEDİ.
+ *
+ * Çözüm SIRADAN BAĞIMSIZDIR: iki geçişte tur başına en erken `turn_started` ve
+ * ona ait en erken `speech:spoken` seçilir — halka hangi sırada gelirse gelsin
+ * aynı sonucu verir.
+ *
+ * FAIL-CLOSED kurallar:
+ *  · YALNIZ `status === 'spoken'` bitiş sayılır. `suppressed_duplicate`,
+ *    `suppressed_stale_late`, `suppressed_late_progress`, `rejected_filler`,
+ *    `tts_error` bir tur bitişi DEĞİLDİR (bkz. `maviSpeech`) → sayılmaz.
+ *  · Mükerrer `spoken` metriği bozmaz: tur başına EN ERKEN olan alınır.
+ *  · Negatif süre (spoken < turn_started — saat anomalisi/eskimiş kayıt) DÜŞER.
+ *  · Eşleşmeyen `turn_started` (hiç konuşulmamış tur) örneğe GİRMEZ.
  */
 export function deriveActionTurnLatency(
   records: readonly MaviActionTurnLatencyInput[] | null | undefined,
 ): LatencyStat {
   if (!Array.isArray(records)) return computeStat([]);
-  const started = new Map<number, number>();
-  const samples: number[] = [];
+
+  const startedAt = new Map<number, number>();
+  const spokenAt  = new Map<number, number>();
+
   for (const r of records) {
     if (!r || typeof r.turnId !== 'number' || typeof r.atMs !== 'number' || !Number.isFinite(r.atMs)) continue;
     if (r.stage === 'turn_started') {
-      // Aynı turnId için İLK gerçekleşme korunur (M5 tek otorite — mükerrer beklenmez,
-      // ama savunmacı davranış fail-closed'dır).
-      if (!started.has(r.turnId)) started.set(r.turnId, r.atMs);
-    } else if (r.stage === 'speech' && started.has(r.turnId)) {
-      const t0 = started.get(r.turnId) as number;
-      const d = r.atMs - t0;
-      if (d >= 0) samples.push(d);
-      started.delete(r.turnId); // her tur TEK örnek üretir
+      const prev = startedAt.get(r.turnId);
+      if (prev === undefined || r.atMs < prev) startedAt.set(r.turnId, r.atMs);
+    } else if (r.stage === 'speech' && r.status === 'spoken') {
+      const prev = spokenAt.get(r.turnId);
+      if (prev === undefined || r.atMs < prev) spokenAt.set(r.turnId, r.atMs);
     }
+  }
+
+  const samples: number[] = [];
+  for (const [turnId, t0] of startedAt) {
+    const t1 = spokenAt.get(turnId);
+    if (t1 === undefined) continue;          // konuşulmamış tur — örnek ÜRETMEZ
+    const d = t1 - t0;
+    if (d >= 0) samples.push(d);             // negatif = bozuk/eskimiş → düşer
   }
   return computeStat(samples);
 }

@@ -179,6 +179,57 @@ describe('Mavi · Özel Konumlar — KAYDET', () => {
   });
 });
 
+/* ══════════════════════════════════════════════════════════════════════════
+ * SAHA KUSURU (2026-09-11) — doğal Türkçe konum cümleleri YANLIŞ komuta düşüyordu
+ *
+ * Ölçülen (düzeltme ÖNCESİ, gerçek `parseCommand` çıktısı):
+ *   "yerimi kaydet" · "bulunduğum yeri kaydet" → add_music_favorite (0.82)
+ *   "buraya ev diye kaydet"                    → navigate_home      (0.82)
+ * 0.82 ≥ AUTO_DISPATCH_MIN (0.7) → yanlış eylem ONAYSIZ yürütülüyordu
+ * (müzik favorisi eklenir / eve navigasyon başlar). Bu blok UÇTAN UCA
+ * gerçek zincirle (parser → dispatch → savedLocationsService) kilitler.
+ * ════════════════════════════════════════════════════════════════════════ */
+describe('Mavi · Özel Konumlar — doğal Türkçe varyantlar (SAHA 2026-09-11)', () => {
+  it('"yerimi kaydet" → KONUM kaydeder (müzik favorisine DÜŞMEZ)', async () => {
+    await processTextCommand('yerimi kaydet');
+    const all = getSavedLocations();
+    expect(all).toHaveLength(1);
+    expect(all[0].lat).toBe(36.9);
+  });
+
+  it('"buraya ev diye kaydet" → "ev" adıyla kaydeder (eve NAVİGASYON başlatmaz)', async () => {
+    await processTextCommand('buraya ev diye kaydet');
+    const all = getSavedLocations();
+    expect(all).toHaveLength(1);
+    expect(all[0].name).toBe('ev');
+    expect(M.startNavCalls).toHaveLength(0);
+  });
+
+  it('"Şu an bulunduğum yeri annemler olarak kaydet" → ad "annemler"', async () => {
+    await processTextCommand('Şu an bulunduğum yeri annemler olarak kaydet');
+    const all = getSavedLocations();
+    expect(all).toHaveLength(1);
+    expect(all[0].name).toBe('annemler');
+  });
+
+  it('"Bulunduğum konumu ev olarak kaydet" → ad "ev" (önek isme KARIŞMAZ)', async () => {
+    await processTextCommand('Bulunduğum konumu ev olarak kaydet');
+    expect(getSavedLocations()[0]?.name).toBe('ev');
+  });
+
+  it('"Burayı Mavi Göl adıyla kaydet" → ad "Mavi Göl" (isim KAYBOLMAZ)', async () => {
+    await processTextCommand('Burayı Mavi Göl adıyla kaydet');
+    expect(getSavedLocations()[0]?.name).toBe('Mavi Göl');
+  });
+
+  it('GPS yokken doğal varyant da fail-closed ("kaydettim" DEMEZ)', async () => {
+    M.gps = null;
+    await processTextCommand('yerimi kaydet');
+    expect(getSavedLocations()).toHaveLength(0);
+    expect(M.speak).not.toHaveBeenCalledWith(expect.stringContaining('kaydettim'));
+  });
+});
+
 describe('Mavi · Özel Konumlar — GİT (saved-location kısa yolu)', () => {
   it('"Mavi Göl\'e git" → kayıtlı konum ÇÖZÜLÜR (geocoding ATLANIR)', async () => {
     addSavedLocation(36.9, 34.8, 'Mavi Göl');

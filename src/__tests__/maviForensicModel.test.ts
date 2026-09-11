@@ -212,50 +212,91 @@ describe('buildMaviEventTimeline — SAF birleştirme, en yeni BAŞTA', () => {
  * hiç dokunmadan, yalnız `maviActionTrace` kayıtlarından çalışır.
  * ════════════════════════════════════════════════════════════════════════ */
 describe('deriveActionTurnLatency — maviLatencyTrace olmadan da çalışır (SAHA 2026-09-11)', () => {
-  it('aynı turnId için turn_started→speech farkını hesaplar', () => {
+  const spoken = (turnId: number, atMs: number) =>
+    ({ stage: 'speech', turnId, atMs, status: 'spoken' } as const);
+  const started = (turnId: number, atMs: number) =>
+    ({ stage: 'turn_started', turnId, atMs, status: 'accepted' } as const);
+
+  it('aynı turnId için turn_started→speech:spoken farkını hesaplar', () => {
     const stat = deriveActionTurnLatency([
-      { stage: 'turn_started', turnId: 1, atMs: 1_000 },
-      { stage: 'speech', turnId: 1, atMs: 10_800 },        // 9,8 sn — saha örneği tur1
-      { stage: 'turn_started', turnId: 2, atMs: 20_000 },
-      { stage: 'speech', turnId: 2, atMs: 41_000 },        // 21,0 sn — saha örneği tur2
+      started(1, 1_000), spoken(1, 10_800),        // 9,8 sn — saha örneği tur1
+      started(2, 20_000), spoken(2, 41_000),       // 21,0 sn — saha örneği tur2
     ]);
     expect(stat.count).toBe(2);
     expect(stat.worst).toBe(21_000);
   });
 
+  /* ⛔ KİLİT — ASIL SAHA KUSURU: halka EN YENİ → EN ESKİ döner
+     (`maviActionTrace.getMaviActionTrace()` sözleşmesi). İlk sürüm diziyi
+     kronolojik varsayıyordu → gerçek cihazda `count:0`. Testler eski→yeni
+     veri verdiği için kusur GÖRÜNMEMİŞTİ. */
+  it('🔒 halka EN YENİ→EN ESKİ sırada gelse bile eşleşir (cihaz sırası)', () => {
+    const stat = deriveActionTurnLatency([
+      spoken(2, 41_000), started(2, 20_000),       // newest first
+      spoken(1, 10_800), started(1, 1_000),
+    ]);
+    expect(stat.count).toBe(2);
+    expect(stat.worst).toBe(21_000);
+    expect(stat.p50).toBe(9_800);
+  });
+
+  it('YALNIZ status:"spoken" bitiş sayılır — suppressed_duplicate sayılmaz', () => {
+    const stat = deriveActionTurnLatency([
+      started(1, 1_000),
+      { stage: 'speech', turnId: 1, atMs: 2_000, status: 'suppressed_duplicate' },
+      { stage: 'speech', turnId: 1, atMs: 3_000, status: 'suppressed_stale_late' },
+      { stage: 'speech', turnId: 1, atMs: 4_000, status: 'rejected_filler' },
+      { stage: 'speech', turnId: 1, atMs: 5_000, status: 'tts_error' },
+      spoken(1, 8_000),                            // GERÇEK bitiş
+    ]);
+    expect(stat.count).toBe(1);
+    expect(stat.worst).toBe(7_000);
+  });
+
+  it('yalnız bastırılmış speech varsa tur örneğe GİRMEZ (sahte süre yok)', () => {
+    const stat = deriveActionTurnLatency([
+      started(1, 1_000),
+      { stage: 'speech', turnId: 1, atMs: 2_000, status: 'suppressed_duplicate' },
+    ]);
+    expect(stat.count).toBe(0);
+  });
+
+  it('mükerrer spoken metriği bozmaz — EN ERKEN olan alınır', () => {
+    const stat = deriveActionTurnLatency([
+      started(1, 1_000), spoken(1, 2_000), spoken(1, 9_000),
+    ]);
+    expect(stat.count).toBe(1);
+    expect(stat.worst).toBe(1_000);
+  });
+
   it('proactive_speech (turnId:null) turu KİRLETMEZ', () => {
     const stat = deriveActionTurnLatency([
-      { stage: 'proactive_speech', turnId: null, atMs: 500 },
-      { stage: 'turn_started', turnId: 1, atMs: 1_000 },
-      { stage: 'proactive_speech', turnId: null, atMs: 1_500 },
-      { stage: 'speech', turnId: 1, atMs: 3_000 },
+      { stage: 'proactive_speech', turnId: null, atMs: 500, status: 'spoken' },
+      started(1, 1_000),
+      { stage: 'proactive_speech', turnId: null, atMs: 1_500, status: 'spoken' },
+      spoken(1, 3_000),
     ]);
     expect(stat.count).toBe(1);
     expect(stat.worst).toBe(2_000);
   });
 
-  it('eşleşmeyen turn_started (hiç speech gelmemiş) örneğe GİRMEZ', () => {
+  it('eşleşmeyen turn_started (hiç konuşulmamış tur) örneğe GİRMEZ', () => {
     const stat = deriveActionTurnLatency([
-      { stage: 'turn_started', turnId: 1, atMs: 1_000 },
-      { stage: 'turn_started', turnId: 2, atMs: 5_000 },
-      { stage: 'speech', turnId: 2, atMs: 6_000 },
+      started(1, 1_000), started(2, 5_000), spoken(2, 6_000),
     ]);
     expect(stat.count).toBe(1);
     expect(stat.worst).toBe(1_000);
+  });
+
+  it('negatif süre (spoken < turn_started) FAIL-CLOSED düşer', () => {
+    const stat = deriveActionTurnLatency([
+      started(1, 10_000), spoken(1, 3_000),        // eskimiş/saat anomalisi
+    ]);
+    expect(stat.count).toBe(0);
   });
 
   it('null/boş girdi güvenle boş istatistik üretir (throw etmez)', () => {
     expect(deriveActionTurnLatency(null).count).toBe(0);
     expect(deriveActionTurnLatency([]).count).toBe(0);
-  });
-
-  it('aynı turnId ikinci kez speech yazarsa mükerrer sayılmaz (tek otorite varsayımı korunur)', () => {
-    const stat = deriveActionTurnLatency([
-      { stage: 'turn_started', turnId: 1, atMs: 1_000 },
-      { stage: 'speech', turnId: 1, atMs: 2_000 },
-      { stage: 'speech', turnId: 1, atMs: 9_000 },   // eşlenecek turn_started artık YOK
-    ]);
-    expect(stat.count).toBe(1);
-    expect(stat.worst).toBe(1_000);
   });
 });

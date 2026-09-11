@@ -1389,6 +1389,24 @@ export function parseCommandFull(input: string): ParseResult {
     };
   }
 
+  /* ── HAFIZA CÜMLESİ MUAFİYETİ (SAHA 2026-09-11, ölçülen) ─────────────────
+   * "yarın Ahmeti arayacağımı hatırla" → `call_contact` (güven 1.0) çıkıyordu:
+   * AUTO_DISPATCH_MIN'in (0.7) ÜSTÜNDE olduğu için Mavi hatırlatma yerine
+   * ONAYSIZ TELEFON ARIYORDU. Kök neden: komut sözlüğü "ara" gövdesini
+   * cümlenin geri kalanından bağımsız eşleştiriyor.
+   *
+   * Kapı BİLİNÇLİ OLARAK DAR: yalnız cümle bir hafıza fiiliyle BİTİYORSA
+   * sözlük eşleşmesi bastırılır → cümle beyne gider ve REMEMBER/FORGET olarak
+   * çözülür (kanonik hafıza yolu `companionMemory`; burada YENİ hafıza otoritesi
+   * KURULMAZ). "Ahmet'i ara" gibi gerçek komutlar cümle sonunda bu fiilleri
+   * taşımadığı için ETKİLENMEZ.
+   *
+   * Konum kaydı bu kapıdan ÖNCE çözülür (yukarıdaki `savedLocMatch`) — yani
+   * "burayı ev diye kaydet" hafıza muafiyetine HİÇ girmez (§4 önceliği). */
+  if (/\s(hatırla|unutma)\s*$/.test(trimmed) || /\s(aklında|aklınd[ae])\s+tut\s*$/.test(trimmed)) {
+    return { command: null, suggestions: [], needsSemantic: true };
+  }
+
   // Ön kontrol: serbest adres navigasyonu (keyword matching'den önce)
   const navMatch = tryParseNavAddress(trimmed);
   if (navMatch) {

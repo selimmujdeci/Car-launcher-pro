@@ -73,7 +73,7 @@ import { getWakeForensics } from '../voice/wakeForensics';
 import { getMaviLatencyEvidence } from '../assistant/maviLatencyTrace';
 import {
   summarize as summarizeMaviLatency, summarizeSlaClasses, deriveMaviLatencyVerdict,
-  deriveLatencyBottleneck, MAVI_LATENCY_VERDICT_LABEL,
+  deriveLatencyBottleneck, computeStat, MAVI_LATENCY_VERDICT_LABEL,
   type LatencyStat,
 } from './maviLatencyModel';
 /* P0-MAVI-FORENSIC · eylem zinciri özeti — ZATEN var olan bounded halka okunur.
@@ -82,6 +82,9 @@ import { getMaviActionTrace, getMaviActionTraceCounters } from '../action/maviAc
 /* P0-MAVI-FORENSIC-DEVICE-1 · `turn_started→speech` süresi — maviLatencyTrace
    damga zincirinden BAĞIMSIZ ikinci bir kanıt (bkz. SAHA 2026-09-11). */
 import { deriveActionTurnLatency } from './maviForensicModel';
+/* P0-MAVI-STT-PHASE · native STT faz ölçümleri ZATEN türetiliyordu ama LAB'a
+   hiç taşınmıyordu (bkz. MaviSttPhasesRaw başlığı). YENİ ölçüm YOK. */
+import { getRecentSttLatencyMetrics, type SttLatencyMetrics } from '../sttLatencyTelemetry';
 
 function _seg(s: LatencyStat): { p50Ms: number | null; p95Ms: number | null; count: number } {
   return { p50Ms: s.p50, p95Ms: s.p95, count: s.count };
@@ -242,6 +245,34 @@ export function readMaviConsoleSnapshot(): MaviRawSnapshot {
       }
     }
     return missing;
+  })();
+  /* P0-MAVI-STT-PHASE · native faz halkası — `speechDurationMs` ile
+     `postSpeechSilenceMs` AYRI taşınır: "konuşma bitti, sonra ne kadar
+     beklendi" sorusu ancak bu ayrımla cevaplanabilir. */
+  const sttRing = _safe(() => getRecentSttLatencyMetrics());
+  const sttPhases = (() => {
+    if (!Array.isArray(sttRing)) return null;
+    const pick = (f: (m: SttLatencyMetrics) => number | undefined): (number | null)[] =>
+      sttRing.map((m) => { const v = f(m); return typeof v === 'number' ? v : null; });
+    const terminal: Record<string, number> = {};
+    let nonMonotonic = 0;
+    for (const m of sttRing) {
+      const k = typeof m.terminalStatus === 'string' ? m.terminalStatus : 'unknown';
+      terminal[k] = (terminal[k] ?? 0) + 1;
+      if (m.monotonic === false) nonMonotonic += 1;
+    }
+    return {
+      sessions: sttRing.length,
+      micOpen:           _seg(computeStat(pick((m) => m.requestToAudioStartMs))),
+      vadFloor:          _seg(computeStat(pick((m) => m.vadFloorLearningMs))),
+      speech:            _seg(computeStat(pick((m) => m.speechDurationMs))),
+      postSpeechSilence: _seg(computeStat(pick((m) => m.postSpeechSilenceMs))),
+      decode:            _seg(computeStat(pick((m) => m.decodeMs))),
+      bridgeResolve:     _seg(computeStat(pick((m) => m.decodeEndToResolveMs))),
+      nativeTotal:       _seg(computeStat(pick((m) => m.nativeTotalMs))),
+      terminalStatus:    _counts(terminal),
+      nonMonotonic,
+    };
   })();
   const byStageCounts = (() => {
     if (!Array.isArray(actionRing)) return {};
@@ -515,6 +546,10 @@ export function readMaviConsoleSnapshot(): MaviRawSnapshot {
          ikinci, bağımsız gecikme kanıtı (SAHA 2026-09-11). */
       turnLatency: _seg(deriveActionTurnLatency(Array.isArray(actionRing) ? actionRing : null)),
     } : null,
+
+    /* P0-MAVI-STT-PHASE · "STT neden yavaş" sorusunun TEK cevaplanabilir yolu:
+       konuşma süresi ile konuşma-sonrası bekleme AYRI görünmeli. */
+    sttPhases,
 
     /* MAVI-F13 · GİZLİLİK: komut metni, parametre, correlationId ve eylem
        argümanı TAŞINMAZ — yalnız ADET, bayrak ADI ve bounded uyarı. */

@@ -36,6 +36,34 @@ function stripApostropheSuffix(s: string): string {
   return idx > 0 ? clean(t.slice(0, idx)) : t;
 }
 
+/**
+ * "Şu anki konumu" ifade eden ÖZNELER — kaydet fiilinin konum kaydı olduğunu
+ * gösteren tek kanıt budur (fiil tek başına müzik favorisi de olabilir:
+ * "bu şarkıyı kaydet"). Liste BİLİNÇLİ olarak konum-özgüdür; şarkı/favori/
+ * çalma listesi gibi medya özneleri BURAYA GİRMEZ.
+ */
+const SAVE_SUBJECT_RE =
+  /(?:^|\s)(buray[ıi]|burasını|burası|buraya|burada|burda|şuray[ıi]|şurası|konumumuzu|konumumu|konumu|yerimizi|yerimi|yeri)(?:\s|$)/;
+
+/**
+ * İsim adayının başındaki konum ÖNEKLERİNİ soyar ("bulunduğum konumu ev" →
+ * "ev"). Birden fazla önek zincirlenebilir ("şu an bulunduğum yeri annemler"),
+ * bu yüzden eşleşme kalmayana kadar tekrarlanır. Bounded: her tur dizgeyi
+ * KISALTIR, dolayısıyla döngü sonludur.
+ */
+const SAVE_NAME_PREFIX_RE =
+  /^(şu\s+anki|şu\s+an|şuanki|şuan|mevcut|bulunduğumuz|bulunduğum|buradaki|buray[ıi]|burasını|burası|buraya|burada|burda|şuray[ıi]|şurası|konumumuzu|konumumu|konumu|yerimizi|yerimi|yeri|bu)\s+/i;
+
+function stripLocationPrefixes(s: string): string {
+  let out = clean(s);
+  for (let i = 0; i < 8; i++) {
+    const next = out.replace(SAVE_NAME_PREFIX_RE, '');
+    if (next === out) break;
+    out = clean(next);
+  }
+  return out;
+}
+
 export type SavedLocationVerb = 'save' | 'rename' | 'delete' | 'share';
 
 export interface ParsedSavedLocationCommand {
@@ -87,21 +115,35 @@ export function tryParseSavedLocationCommand(rawText: string): ParsedSavedLocati
   /* ── KAYDET ────────────────────────────────────────────────────────────
    * "kaydet" ASCII olduğu için `\b` burada güvenlidir (tuzak yalnız Türkçe
    * karaktere bitişik sınırlarda oluşur) — cümlenin HERHANGİ bir yerinde
-   * olabilir ("Burayı kaydet, adı X olsun" → "kaydet" ortada). */
+   * olabilir ("Burayı kaydet, adı X olsun" → "kaydet" ortada).
+   *
+   * ── SAHA KUSURU (2026-09-11, ölçülen) ────────────────────────────────
+   * Özne listesi yalnız `burayı|burasını|konumumu|konumu` idi. Doğal Türkçe
+   * varyantlar (`yerimi` · `bulunduğum yeri` · `buraya` · `burada` · `şurayı`)
+   * bu kapıdan GEÇEMİYOR ve cümle aşağıdaki komut sözlüğüne düşüyordu.
+   * Ölçülen sonuç (parseCommand çıktısı):
+   *   "yerimi kaydet"                → add_music_favorite (0.82)  ← MÜZİK!
+   *   "bulunduğum yeri kaydet"       → add_music_favorite (0.82)
+   *   "buraya ev diye kaydet"        → navigate_home      (0.82)  ← NAVİGASYON!
+   *   "şu an bulunduğum yeri annemler olarak kaydet" → add_music_favorite
+   * 0.82 < AUTO_DISPATCH_MIN (0.7) DEĞİLDİR → yanlış komut doğrudan YÜRÜTÜLÜR.
+   * Özne listesi genişletilerek konum cümleleri kanonik `save_location`
+   * yoluna geri alınır (yeni otorite/store YOK — aynı `savedLocationsService`). */
   if (/\bkaydet\b/.test(lower)) {
-    const hasSubject = /(?:^|\s)(burayı|burasını|konumumu|konumu)(?:\s|$)/.test(lower);
+    const hasSubject = SAVE_SUBJECT_RE.test(lower);
     if (hasSubject || lower.trim() === 'kaydet') {
       let name: string | null = null;
       const adiOlsun = /adı\s+(.+?)\s+olsun/.exec(lower);
+      /* "… adıyla kaydet" (SAHA: "Burayı Mavi Göl adıyla kaydet" → isim
+         KAYBOLUYORDU, kayıt varsayılan adla oluşuyordu). */
+      const adiylaKaydet = /(?:^|\s)(.+?)\s+ad[ıi]yla\s+kaydet/.exec(lower);
       const olarakKaydet = /(?:^|\s)(.+?)\s+olarak\s+kaydet/.exec(lower);
       const diyeKaydet = /(?:^|\s)(.+?)\s+diye\s+kaydet/.exec(lower);
-      const m = adiOlsun ?? olarakKaydet ?? diyeKaydet;
+      const m = adiOlsun ?? adiylaKaydet ?? olarakKaydet ?? diyeKaydet;
       if (m) {
         const capStart = lower.indexOf(m[1], m.index);
         if (capStart >= 0) {
-          let cand = raw.slice(capStart, capStart + m[1].length);
-          cand = cand.replace(/^(burayı|burasını|konumumu|konumu)\s*/i, '');
-          cand = clean(cand);
+          const cand = stripLocationPrefixes(raw.slice(capStart, capStart + m[1].length));
           name = cand.length > 0 ? cand : null;
         }
       }

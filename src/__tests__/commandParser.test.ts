@@ -315,3 +315,40 @@ describe('buildCommandGrammar — offline komut grammar (Yol A)', () => {
     expect(buildCommandGrammar()).toBe(buildCommandGrammar());
   });
 });
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * HAFIZA CÜMLESİ vs KOMUT — SAHA KUSURU (2026-09-11, ölçülen)
+ *
+ * "yarın Ahmeti arayacağımı hatırla" → `call_contact` güven 1.0 çıkıyordu;
+ * AUTO_DISPATCH_MIN (0.7) ÜSTÜ olduğu için Mavi hatırlatma yerine ONAYSIZ
+ * TELEFON ARIYORDU. Kapı DAR tutuldu: yalnız cümle hafıza fiiliyle BİTİYORSA
+ * sözlük bastırılır → beyin REMEMBER/FORGET olarak çözer.
+ * ════════════════════════════════════════════════════════════════════════ */
+describe('commandParser · hafıza cümlesi muafiyeti (SAHA 2026-09-11)', () => {
+  const MEMORY_SENTENCES = [
+    'yarın Ahmeti arayacağımı hatırla',
+    'şunu aklında tut',
+    'en sevdiğim renk mavidir bunu hatırla',
+    'yarın markete gideceğimi unutma',
+  ];
+
+  for (const s of MEMORY_SENTENCES) {
+    it(`"${s}" → yerel komut ÜRETİLMEZ (beyne gider)`, () => {
+      const r = parseCommandFull(s);
+      expect(r.command).toBeNull();
+      expect(r.needsSemantic).toBe(true);
+    });
+  }
+
+  it('GERÇEK komutlar bozulmaz (kapı yalnız cümle SONUNDA çalışır)', () => {
+    expect(parseCommandFull('Ahmeti ara').command?.type).toBe('call_contact');
+    expect(parseCommandFull('haritayı aç').command?.type).toBe('open_maps');
+    expect(parseCommandFull('eve git').command?.type).toBe('navigate_home');
+  });
+
+  it('KONUM kaydı hafıza muafiyetinden ÖNCE çözülür (§4 önceliği)', () => {
+    // "kaydet" ile biten konum cümlesi hafıza kapısına HİÇ girmez.
+    expect(parseCommandFull('burayı ev diye kaydet').command?.type).toBe('save_location');
+    expect(parseCommandFull('yerimi kaydet').command?.type).toBe('save_location');
+  });
+});

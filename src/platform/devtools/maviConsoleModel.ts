@@ -251,6 +251,40 @@ export interface MaviActionTraceRaw {
   readonly turnLatency: MaviLatencySegmentRaw;
 }
 
+/**
+ * P0-MAVI-STT-PHASE · SAHA (2026-09-11): gerçek cihazda `bottleneck=STT`
+ * (sttCapture p50 4597 ms · p95 8327 ms) çıktı, ama `sttCapture` damgası
+ * `stt_request_start → stt_result` aralığıdır ve KULLANICININ KONUŞMA SÜRESİNİ
+ * DE İÇERİR — "konuşma bitti, sonra 4-8 sn beklendi" İDDİASI bu sayıdan
+ * TÜRETİLEMEZ. Faz kırılımı native'de (CarLauncherPlugin · runVoskListening)
+ * ZATEN ölçülüyor ve `sttLatencyTelemetry.deriveSttLatencyMetrics` ile saf
+ * biçimde türetiliyordu; yalnız CAROS LAB'a HİÇ TAŞINMIYORDU (aynı sınıf kusur:
+ * "ölçüm yapıldı, dışarı çıkarılmadı"). Bu alanlar o boşluğu kapatır —
+ * YENİ ölçüm YOK, var olan halka (`getRecentSttLatencyMetrics`) okunur.
+ */
+export interface MaviSttPhasesRaw {
+  /** Halkadaki oturum sayısı (bounded 20). 0 = native Vosk yolu hiç koşmadı. */
+  readonly sessions: number;
+  /** Dinleme isteği → AudioRecord başladı. */
+  readonly micOpen: MaviLatencySegmentRaw;
+  /** İlk PCM → gürültü tabanı öğrenildi (VAD kalibrasyonu). */
+  readonly vadFloor: MaviLatencySegmentRaw;
+  /** İlk konuşma → son konuşma çerçevesi = KULLANICININ KONUŞMA SÜRESİ. */
+  readonly speech: MaviLatencySegmentRaw;
+  /** Son konuşma çerçevesi → endpoint kararı = KONUŞMA BİTTİKTEN SONRAKİ BEKLEME. */
+  readonly postSpeechSilence: MaviLatencySegmentRaw;
+  /** Vosk çözümleme (decode) süresi. */
+  readonly decode: MaviLatencySegmentRaw;
+  /** Çözümleme bitti → köprü JS'e döndü. */
+  readonly bridgeResolve: MaviLatencySegmentRaw;
+  /** İstek → köprü çözümü (native toplam). */
+  readonly nativeTotal: MaviLatencySegmentRaw;
+  /** Terminal durum dağılımı (success/no_speech/timeout/…). */
+  readonly terminalStatus: Readonly<Record<string, number>>;
+  /** Faz sırası azalmayan DEĞİLSE sayılır — bozuk native veri göstergesi. */
+  readonly nonMonotonic: number;
+}
+
 export interface MaviRawSnapshot {
   readonly readAt: number;
   readonly voice:    MaviVoiceRaw | null;
@@ -279,6 +313,8 @@ export interface MaviRawSnapshot {
   readonly latency: MaviLatencyRaw | null;
   /** P0-MAVI-FORENSIC · eylem zinciri özeti (`maviActionTrace`). `null` = okunamadı. */
   readonly actionTrace: MaviActionTraceRaw | null;
+  /** P0-MAVI-STT-PHASE · native STT faz kırılımı. `null` = halka okunamadı. */
+  readonly sttPhases: MaviSttPhasesRaw | null;
 }
 
 /**
