@@ -72,18 +72,62 @@ export async function fetchVehicleTrips(
   vehicleId: string,
   limit = 50,
 ): Promise<TripRow[] | null> {
+  const res = await fetchVehicleTripsResult(vehicleId, limit);
+  return res.ok ? res.rows : null;
+}
+
+/**
+ * OKUNAMAMA GEREKÇESİNİ TAŞIYAN sürüm.
+ *
+ * `fetchVehicleTrips` "okunamadı"yı tek bir `null` ile anlatır; bu, bir
+ * FİLO panelinde yeterliydi. "Arabam Cebimde" Seyir Defteri'nde yetmez:
+ * kullanıcıya **"çevrimdışısınız"** ile **"bu araca erişiminiz yok"** aynı
+ * ekranı göstermek, birini "sistem bozuk" diye düşündürür. Gerekçe burada
+ * ÜRETİLMEZ, yalnız TAŞINIR.
+ *
+ * İkinci bir veri otoritesi DEĞİLDİR: tek RPC çağrısı buradadır ve
+ * `fetchVehicleTrips` artık bunun üstünde ince bir sarmalayıcıdır.
+ */
+export type TripFetchFailure =
+  | 'NOT_CONFIGURED'   // Supabase yapılandırılmamış
+  | 'OFFLINE'          // cihaz çevrimdışı — ağa HİÇ çıkılmadı
+  | 'UNAUTHORIZED'     // oturum yok ya da bu araca yetki yok
+  | 'UNAVAILABLE';     // RPC yok / sunucu hatası / ağ hatası
+
+export type TripFetchResult =
+  | { readonly ok: true; readonly rows: TripRow[] }
+  | { readonly ok: false; readonly reason: TripFetchFailure };
+
+export async function fetchVehicleTripsResult(
+  vehicleId: string,
+  limit = 50,
+): Promise<TripFetchResult> {
   const supabase = getSupabaseBrowserClient();
-  if (!supabase) return null;
+  if (!supabase) return { ok: false, reason: 'NOT_CONFIGURED' };
+
+  /* Çevrimdışıyken ağa çıkmak anlamsız bir zaman aşımı üretir ve kullanıcıya
+     "sunucu hatası" gibi görünür. Durumu OLDUĞU GİBİ söyle. */
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+    return { ok: false, reason: 'OFFLINE' };
+  }
+
   try {
     const { data, error } = await supabase.rpc('list_vehicle_trips', {
       p_vehicle_id: vehicleId,
       p_limit: limit,
     });
-    /* 046 uygulanmamış ortamda RPC yoktur → "okunamadı" (sahte boşluk YOK). */
-    if (error) return null;
-    return (data ?? []) as TripRow[];
+    if (error) {
+      /* PostgREST yetki kodları: 42501 (insufficient_privilege) ·
+         PGRST301 (JWT yok/geçersiz). Bunlar "sunucu bozuk" DEĞİLDİR. */
+      const code = String((error as { code?: unknown }).code ?? '');
+      const msg = String((error as { message?: unknown }).message ?? '').toLowerCase();
+      const unauthorized = code === '42501' || code === 'PGRST301'
+        || msg.includes('permission denied') || msg.includes('jwt');
+      return { ok: false, reason: unauthorized ? 'UNAUTHORIZED' : 'UNAVAILABLE' };
+    }
+    return { ok: true, rows: (data ?? []) as TripRow[] };
   } catch {
-    return null;
+    return { ok: false, reason: 'UNAVAILABLE' };
   }
 }
 

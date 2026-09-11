@@ -110,6 +110,18 @@ export interface TripRow {
   readonly source_switch_count?: number | null;
   readonly metrics_version?: number | null;
 
+  /* ── Seyir defteri özeti (migration 074) ───────────────────────────────
+     `start_area`/`end_area` **METİNDİR** — koordinat DEĞİL. Tam rota
+     cihazda kalır ve bu satırlara HİÇBİR ZAMAN gelmez.
+     Eski satırlarda bu alanlar YOKTUR → `undefined` → "Bilinmiyor". */
+  readonly start_area?: string | null;
+  readonly end_area?: string | null;
+  /** `IDLE_WINDOW` · `DATA_SILENCE` · `SERVICE_STOPPED` · … */
+  readonly end_reason?: string | null;
+  /** Cihazın yolculuğu KAPATTIĞI an — `received_at` ile AYNI ŞEY DEĞİL. */
+  readonly completed_at?: string | null;
+  readonly journal_schema_version?: number | null;
+
   /* ── Sürücü attribution (migration 048) ────────────────────────────────
      Sürücüsü bilinmeyen yolculuk NORMALDİR: alanlar `null` kalır ve UI
      "Sürücü bilinmiyor" der — araç sahibine veya son kullanıcıya DÜŞMEZ. */
