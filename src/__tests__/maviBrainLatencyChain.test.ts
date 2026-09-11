@@ -188,3 +188,60 @@ describe('🔒 reddi ilk gören KAYDEDER', () => {
     expect(src).toMatch(/\.\.\.geminiThinkingConfig\(model\)/);
   });
 });
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * "İNTERNETTEN BİLGİ ÇEKEMİYOR" — YETENEKSİZ HAT TURU TÜKETMEZ
+ *
+ * SAHA 2026-09-11 (cihaz, 4 ardışık tur): tek bir `api.tavily.com` isteği
+ * görülmedi; öncesinde görülüyordu. KÖK: gateway hattı yalnız SOHBET üretir,
+ * web araması yeteneği YOKTUR — ama beyin `kind:'web'` dediğinde
+ * "Şu an canlı bilgilere bakamıyorum" deyip TURU KAPATIYORDU. Aramayı
+ * gerçekten yapabilen sıradaki aday (Gemini beyin hattı → grounded/Tavily)
+ * hiç çalışmıyordu.
+ *
+ * Uzun süre görünmedi çünkü bu hattın Gemini sağlayıcısı `thinkingConfig`
+ * reddi yüzünden her turda 400 alıp düşüyordu (akış kendiliğinden gerçek beyne
+ * ulaşıyordu). O 400 düzeltilince arıza ortaya çıktı — yani o cevap hiçbir
+ * zaman bir yetenek beyanı değildi.
+ * ════════════════════════════════════════════════════════════════════════ */
+describe('🔒 gateway hattı yapamadığı işi "yapılamaz" diye kapatmaz', () => {
+  const src = read('src/platform/companion/companionChatProvider.ts');
+
+  it('SAHA: canlı bilgi kararında tur SIRADAKİ ADAYA bırakılır', () => {
+    const i = src.indexOf("if (result.kind === 'web')");
+    expect(i).toBeGreaterThan(-1);
+    const govde = src.slice(i, i + 2200);
+    expect(govde, 'gateway canlı bilgi turunu hâlâ kendisi kapatıyor')
+      .toMatch(/return \{ result: null, netFailure: false, errorKind: 'no_live_info_capability' \}/);
+  });
+
+  /* Aynı hazır cevap Groq ve Haiku yollarında da var ve orada MEŞRUDUR: o iki
+     aday zincirde aramayı yapabilen Gemini'den SONRA gelir, yani gerçekten son
+     çaredir. Yanlış olan yalnız gateway'di — arama yapabilen adaydan ÖNCE
+     geldiği hâlde turu kapatıyordu. Kilit bu yüzden YALNIZ gateway bloğuna bakar. */
+  it('gateway bloğunda sahte terminal cevap KALDIRILDI (yorumla susturulmadı)', () => {
+    const i = src.indexOf("if (result.kind === 'web')");
+    const kod = src.slice(i, i + 2200)
+      .replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/.*$/gm, '$1');
+    expect(kod, 'gateway hâlâ hazır "bakamıyorum" cevabı üretiyor')
+      .not.toMatch(/bakamıyorum/);
+    expect(src, 'sabit yorumla susturulmuş, silinmemiş')
+      .not.toMatch(/const GATEWAY_NO_LIVE_INFO_REPLY\s*=/);
+  });
+
+  it('GERÇEK veri varsa (yerel hava servisi) tur normal kapanır', () => {
+    const i = src.indexOf("if (result.kind === 'web')");
+    const govde = src.slice(i, i + 2200);
+    expect(govde).toMatch(/if \(localWeather\)/);
+    expect(govde).toMatch(/route: 'companion_gateway'/);
+  });
+
+  it('tüketilmeyen tur GEÇMİŞE yazılmaz (konuşulmamış cevap bağlamı kirletmez)', () => {
+    const i = src.indexOf("if (result.kind === 'web')");
+    const govde = src.slice(i, i + 2200);
+    const nullDonus = govde.indexOf("errorKind: 'no_live_info_capability'");
+    // null dönüşten ÖNCE pushHistory yalnız localWeather dalında olmalı.
+    const oncesi = govde.slice(0, nullDonus);
+    expect((oncesi.match(/pushHistory/g) || []).length).toBe(2); // yalnız localWeather dalı
+  });
+});

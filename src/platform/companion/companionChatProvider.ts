@@ -1095,9 +1095,11 @@ async function tryGroqBrainAndRecord(
 
 const GATEWAY_BRAIN_TIMEOUT_MS = 6000;
 
-/** Dürüst "canlı bilgi yok" cevabı — Groq'un anahtarsız hâliyle aynı metin. */
-const GATEWAY_NO_LIVE_INFO_REPLY =
-  'Şu an canlı bilgilere bakamıyorum ama bildiğimce yardımcı olmaya çalışırım.';
+/* `GATEWAY_NO_LIVE_INFO_REPLY` KALDIRILDI (SAHA 2026-09-11). "Şu an canlı
+ * bilgilere bakamıyorum" bir YETENEK beyanı gibi görünüyordu, oysa bu hattın
+ * arama yeteneği olmaması SİSTEMİN yeteneksizliği DEĞİLDİ: sıradaki aday
+ * (Gemini beyin hattı → grounded/Tavily) aramayı yapabiliyor. Sabit, yorumla
+ * susturulmadı — kod olarak SİLİNDİ; yerine tur sıradaki adaya bırakılır. */
 
 async function askCompanionBrainGateway(
   text: string,
@@ -1168,12 +1170,31 @@ async function tryGatewayBrainAndRecord(
   recordAiNetSuccess(); // beyin cevap verdi → ağ sağlıklı, kesici sayacı sıfır
 
   if (result.kind === 'web') {
-    // Canlı bilgi kararı: önce yerel hava servisi (gerçek veri), yoksa dürüst cevap.
+    // Canlı bilgi kararı: önce yerel hava servisi (GERÇEK veri, ağ araması gerekmez).
     const localWeather = await tryLocalWeatherAnswer(result.query, cleanText);
-    const response = localWeather ?? GATEWAY_NO_LIVE_INFO_REPLY;
-    pushHistory('user', cleanText);
-    pushHistory('model', response);
-    return { result: { kind: 'chat', response, route: 'companion_gateway' }, netFailure: false, errorKind: 'none' };
+    if (localWeather) {
+      pushHistory('user', cleanText);
+      pushHistory('model', localWeather);
+      return { result: { kind: 'chat', response: localWeather, route: 'companion_gateway' }, netFailure: false, errorKind: 'none' };
+    }
+    /* ── SAHA 2026-09-11 · "internetten bilgi çekemiyor" ─────────────────────
+     * Burada `GATEWAY_NO_LIVE_INFO_REPLY` ("Şu an canlı bilgilere bakamıyorum")
+     * dönülüyor ve TUR KAPATILIYORDU. Ama bu hat yalnız SOHBET üretir: web
+     * araması yeteneği YOKTUR. Turu kapatmak, aramayı GERÇEKTEN yapabilen
+     * sıradaki adayı (Gemini beyin hattı → grounded/Tavily) devre dışı
+     * bırakıyordu.
+     *
+     * Uzun süre görünmedi çünkü bu hattın Gemini sağlayıcısı `thinkingConfig`
+     * reddi yüzünden her turda 400 alıp düşüyordu; akış kendiliğinden gerçek
+     * beyne ulaşıyordu. O 400 düzeltilince (20f32cf1) hat cevap vermeye başladı
+     * ve arama yolu sessizce kapandı — yani bu cevap hiçbir zaman bir YETENEK
+     * beyanı değildi, bir ARIZANIN gölgesiydi.
+     *
+     * DOĞRU DAVRANIŞ: yapamadığı işi "yapılamaz" diye ilan etmek yerine TURU
+     * TÜKETME — sıradaki adaya bırak (CLAUDE.md §8: yetenek yokluğu, sahte
+     * terminal cevaba dönüştürülmez). Geçmişe de YAZILMAZ: konuşulmamış bir
+     * cevap bağlamı kirletmemeli. */
+    return { result: null, netFailure: false, errorKind: 'no_live_info_capability' };
   }
 
   // parseBrainJson CHAT'e her zaman 'companion_gemini' yazar (paylaşılan parser) —
