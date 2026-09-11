@@ -34,6 +34,16 @@ import {
   capturePriceSnapshot, computeTripCost, deriveEvidenceConfidence,
   type PriceSnapshot,
 } from './trip/tripCostModel';
+/* SEYİR DEFTERİ: hareket kanıtı kapısı + ham kanıt kaydı. İkisi de SAF/ince
+   yardımcılardır; trip başlatma/bitirme hükmü BU DOSYADA kalır. */
+import {
+  observeMotion, hasMotionEvidence, emptyMotionEvidence, deriveTripJournalState,
+  type MotionEvidence, type TripEndReason, type TripJournalState,
+} from './trip/tripJournalModel';
+import {
+  beginJournal, finalizeJournal, recordJournalFix,
+  recordJournalStopState, recordJournalEvent, recoverOpenJournal,
+} from './trip/tripJournalStore';
 
 /* ── Types ───────────────────────────────────────────────── */
 
@@ -110,6 +120,14 @@ export interface TripRecord {
 export const TRIP_METRICS_VERSION = 1;
 
 interface ActiveTrip {
+  /**
+   * Yolculuk kimliği — artık BAŞLANGIÇTA üretilir (eskiden kapanışta).
+   *
+   * Seyir defteri ham kanıdı yolculuk SÜRERKEN yazılır ve türetilmiş özetle
+   * (`TripRecord`) aynı anahtar üzerinden birleşir. Kimliği kapanışta üretmek,
+   * sürerken yazılan kanıdın hangi yolculuğa ait olduğunu bilinmez kılardı.
+   */
+  tripId:      string;
   startTime:   number;   // Date.now()        — display/storage timestamp only
   startPerfMs: number;   // performance.now() — monotonic trip duration source
   distanceKm:  number;
@@ -252,6 +270,23 @@ let _idleTimer: ReturnType<typeof setTimeout>  | null = null;
 let _liveClock: ReturnType<typeof setInterval> | null = null;
 let _started  = false;
 
+/**
+ * BİRİKEN HAREKET KANITI — yolculuk açılmadan ÖNCE.
+ *
+ * ÖLÇÜLEN KUSUR: tek bir GPS fix'i 5 km/h'i aştığı anda yolculuk açılıyordu.
+ * Park hâlindeki araçta tek bozuk fix (otopark yansıması, soğuk başlangıç hız
+ * sıçraması) sahte yolculuk üretir — ve o sahte yolculuk sonradan buluta
+ * yüklenip Fleet mesafesini kirletir. **Konum bilmek hareket etmek DEĞİLDİR.**
+ * Kapı `tripJournalModel`'dedir (saf, test edilebilir); burada yalnız birikim
+ * tutulur.
+ */
+let _motion: MotionEvidence = emptyMotionEvidence();
+
+/** Son yolculuğun kapanış gerekçesi — LAB gözlemi (sahte "başarı" YOK). */
+let _lastEndReason: TripEndReason | null = null;
+/** Son KAPANMIŞ yolculuğun kimliği — tamamlandı kartı tek atış kilidi. */
+let _lastCompletedTripId: string | null = null;
+
 // Son OBD verisini cache'le — GPS olmadığında fallback için
 let _lastObdFuel = -1;
 
@@ -350,19 +385,47 @@ function _liveTick(): void {
     if (silentMs >= TRIP_SILENCE_END_MS) {
       if (_idleTimer) { clearTimeout(_idleTimer); _idleTimer = null; }
       /* Duruşu GÖRMEDİK, kanıtı kaybettik → `cleanClose` FALSE kalır. */
-      _endTrip();
+      _endTrip('DATA_SILENCE');
       return;   // _endTrip zaten durum yayınlar
     }
   }
   _notify();
 }
 
-function _startTrip(speedKmh: number, fuelLevel: number): void {
+/**
+ * Hareket kanıtını işle; YETERSE yolculuğu aç.
+ *
+ * Kapı geçilmeden yolculuk AÇILMAZ ve kanıt eşiğin altındaki ilk örnekte
+ * SIFIRLANIR (`observeMotion` hükmü) — birikmiş kanıt bir kalkışı anlatmıyorsa
+ * saklanmaz.
+ */
+function _considerStart(speedKmh: number, source: 'GPS' | 'OBD', fuelLevel: number): void {
+  _motion = observeMotion(_motion, {
+    monoMs: performance.now(),
+    speedKmh,
+    source,
+    thresholdKmh: TRIP_START_SPEED_KMH,
+  });
+  if (_active) return;
+  if (!hasMotionEvidence(_motion)) return;
+  _startTrip(speedKmh, fuelLevel, _motion);
+}
+
+function _startTrip(speedKmh: number, fuelLevel: number, evidence: MotionEvidence): void {
   if (_active) return;
   const perfNow = performance.now();
+  /* Yolculuk İLK kanıtın anında başlamıştır, kapının geçildiği anda değil —
+     aksi halde kalkışın ilk saniyeleri süreden düşerdi. */
+  const startPerfMs = evidence.firstMonoMs !== null
+    && Number.isFinite(evidence.firstMonoMs)
+    && evidence.firstMonoMs <= perfNow
+      ? evidence.firstMonoMs
+      : perfNow;
+  const startWallMs = Date.now() - Math.round(perfNow - startPerfMs);
   _active = {
-    startTime:   Date.now(),
-    startPerfMs: perfNow,
+    tripId:      generateTripId(),
+    startTime:   startWallMs,
+    startPerfMs,
     distanceKm:  0,
     maxSpeedKmh: speedKmh,
     speedSum:    speedKmh,
@@ -390,17 +453,77 @@ function _startTrip(speedKmh: number, fuelLevel: number): void {
   if (_liveClock) clearInterval(_liveClock);
   _liveClock = setInterval(_liveTick, 5_000);
 
+  /* Ham kanıt defterini aç. Depo hatası yolculuğu BOZMAZ (fail-soft): özet
+     yine üretilir, yalnız rota izi eksik kalır. */
+  beginJournal({
+    tripId: _active.tripId,
+    startedAtMs: startWallMs,
+    startMonoMs: startPerfMs,
+    startLocation: null,
+    motionEvidence: {
+      sampleCount: evidence.count,
+      spanMs: evidence.firstMonoMs !== null && evidence.lastMonoMs !== null
+        ? Math.max(0, evidence.lastMonoMs - evidence.firstMonoMs) : 0,
+      sourceCount: evidence.sourceCount,
+    },
+  });
+
   _setState({ active: true });
 }
 
-function _endTrip(): void {
+/**
+ * Örnek sonrası defter kaydı — duruş geçişi + adaptif rota noktası.
+ *
+ * Duruş hükmü `tripMetricsAccumulator`'ındır; burada yalnız GEÇİŞ gözlenir
+ * (aynı duruş iki kez mühürlenmesin).
+ */
+function _journalSample(
+  trip: ActiveTrip,
+  prevStopSincePerfMs: number | null,
+  monoMs: number,
+  lat: number | null,
+  lon: number | null,
+  speedKmh: number | null,
+): void {
+  try {
+    const stopped = trip.metrics.stopSincePerfMs !== null;
+    if (stopped !== (prevStopSincePerfMs !== null)) {
+      recordJournalStopState(monoMs, stopped);
+    }
+    recordJournalFix({ monoMs, lat, lon, speedKmh, stopped });
+  } catch { /* kanıt kaydı yolculuk akışını ASLA bozmaz */ }
+}
+
+/**
+ * Yolculuğu kapat.
+ *
+ * `reason` KAPANIŞIN KANITIDIR ve uydurulmaz: duruş penceresi dolduysa
+ * `IDLE_WINDOW`, veri kesildiyse `DATA_SILENCE`, uygulama kapandıysa
+ * `SERVICE_STOPPED`. Yalnız `IDLE_WINDOW` düzgün kapanış sayılır
+ * (`cleanClose`) — kanıtı kaybetmek bir bitiş kanıtı DEĞİLDİR.
+ */
+function _endTrip(reason: TripEndReason = 'UNKNOWN'): void {
   if (!_active) return;
 
-  const durationMs  = performance.now() - _active.startPerfMs;
+  const endPerfMs   = performance.now();
+  const durationMs  = endPerfMs - _active.startPerfMs;
   const durationMin = Math.round(durationMs / 60_000);
+  const endLocation = _active.lastGPSLat !== null && _active.lastGPSLng !== null
+    ? { lat: _active.lastGPSLat, lon: _active.lastGPSLng }
+    : null;
 
   // 1 dakika veya 100m altındaki yolculukları kaydetme
   if (durationMin < 1 || _active.distanceKm < 0.1) {
+    /* Özet ÜRETİLMEZ ama ham kanıt gerekçesiyle mühürlenir: "kaydedilmedi"
+       ile "hiç olmadı" aynı şey değildir. */
+    try {
+      finalizeJournal({
+        tripId: _active.tripId, endedAtMs: Date.now(), endMonoMs: endPerfMs,
+        endLocation, endReason: 'DISCARDED_TOO_SHORT',
+      });
+    } catch { /* fail-soft */ }
+    _lastEndReason = 'DISCARDED_TOO_SHORT';
+    _motion = emptyMotionEvidence();
     _active = null;
     if (_liveClock) { clearInterval(_liveClock); _liveClock = null; }
     _setState({ active: false, current: null });
@@ -515,10 +638,13 @@ function _endTrip(): void {
   /* Eski sözleşme: P2 üretilemediyse sabit varsayım kullanılır (DEĞİŞMEDİ). */
   const legacyFuelL = Math.round((distanceKm / 100) * FUEL_L_PER_100KM * 10) / 10;
 
+  const endedAtMs = Date.now();
+
   const record: TripRecord = {
-    id:               generateTripId(),
+    /* Kimlik BAŞLANGIÇTA üretildi — ham kanıt defteri bu anahtarla yazıldı. */
+    id:               _active.tripId,
     startTime:        _active.startTime,
-    endTime:          Date.now(),
+    endTime:          endedAtMs,
     distanceKm,
     durationMin,
     avgSpeedKmh:      avgSpeed,
@@ -529,6 +655,17 @@ function _endTrip(): void {
     harshEvents:      _active.harshEvents,
     ...p2,
   };
+
+  /* Ham kanıdı özetle AYNI anahtar altında mühürle. */
+  try {
+    finalizeJournal({
+      tripId: _active.tripId, endedAtMs, endMonoMs: endPerfMs,
+      endLocation, endReason: reason,
+    });
+  } catch { /* fail-soft */ }
+  _lastEndReason = reason;
+  _lastCompletedTripId = record.id;
+  _motion = emptyMotionEvidence();
 
   _active = null;
   if (_liveClock) { clearInterval(_liveClock); _liveClock = null; }
@@ -552,22 +689,27 @@ function _onGPS(loc: GPSLocation | null): void {
 
   const speedKmh = loc.speed != null ? loc.speed * 3.6 : 0;
 
-  // Trip başlat (GPS hızıyla)
+  // Trip başlat (GPS hızıyla) — TEK fix yetmez, hareket kanıtı birikmelidir.
   if (speedKmh > TRIP_START_SPEED_KMH) {
     if (_idleTimer) { clearTimeout(_idleTimer); _idleTimer = null; }
-
-    if (!_active) {
-      _startTrip(speedKmh, _lastObdFuel);
-    }
-  } else if (_active && speedKmh < 1) {
-    // Durdu — idle timer
-    if (!_idleTimer) {
-      _idleTimer = setTimeout(() => {
-        _idleTimer = null;
-        /* P2: duruş penceresi DOLDU → düzgün kapanış (confidence kanıtı). */
-        if (_active) _active.cleanClose = true;
-        _endTrip();
-      }, TRIP_END_IDLE_MS);
+    _considerStart(speedKmh, 'GPS', _lastObdFuel);
+  } else if (speedKmh < 1) {
+    /* Eşik altı örnek birikmiş kanıtı sıfırlar (park hâlindeki sıçramalar
+       gün boyu toplanıp sahte yolculuk açmasın). */
+    _motion = observeMotion(_motion, {
+      monoMs: performance.now(), speedKmh, source: 'GPS',
+      thresholdKmh: TRIP_START_SPEED_KMH,
+    });
+    if (_active) {
+      // Durdu — idle timer
+      if (!_idleTimer) {
+        _idleTimer = setTimeout(() => {
+          _idleTimer = null;
+          /* P2: duruş penceresi DOLDU → düzgün kapanış (confidence kanıtı). */
+          if (_active) _active.cleanClose = true;
+          _endTrip('IDLE_WINDOW');
+        }, TRIP_END_IDLE_MS);
+      }
     }
   }
 
@@ -599,14 +741,25 @@ function _onGPS(loc: GPSLocation | null): void {
   }
 
   /* ── P2: örneği saf birikime ver (fail-soft) ────────────────────────── */
+  const _prevStopGps = _active.metrics.stopSincePerfMs;
+  const _sampleMonoGps = performance.now();
   try {
     _active.metrics = applySample(_active.metrics, {
-      perfNowMs: performance.now(),
+      perfNowMs: _sampleMonoGps,
       source: 'GPS',
       speedKmh: speedKmh > 0 ? speedKmh : (loc.speed != null ? 0 : null),
       fresh: true,   // GPS fix'i buraya geldiyse gpsService kapılarını geçmiştir
     });
   } catch { /* metrik birikimi trip akışını ASLA bozmaz */ }
+
+  /* SEYİR DEFTERİ: duruş geçişi + adaptif rota noktası. Koordinat yalnız
+     kabul edilebilir doğrulukta yazılır — kötü fix rota izini bozar. */
+  _journalSample(
+    _active, _prevStopGps, _sampleMonoGps,
+    hasGoodAccuracy ? loc.latitude : null,
+    hasGoodAccuracy ? loc.longitude : null,
+    loc.speed != null ? speedKmh : null,
+  );
 
   // Sonraki delta için bu fix'i kaydet
   if (hasGoodAccuracy) {
@@ -628,6 +781,13 @@ function _onGPS(loc: GPSLocation | null): void {
       _active.harshEvents += 1;
       if (speedDelta < 0) _active.harshBrakeEvents += 1;
       else                _active.harshAccelEvents += 1;
+      /* Defterde olay ZAMANI ve ŞİDDETİ durur; KONUM durmaz (§ olay
+         koordinat taşımaz — rota izi ayrı ve yalnız yereldir). */
+      recordJournalEvent(
+        _sampleMonoGps,
+        speedDelta < 0 ? 'HARSH_BRAKE' : 'HARSH_ACCEL',
+        Math.round(Math.abs(speedDelta)),
+      );
     }
     _active.lastSpeed = speedKmh;
   }
@@ -654,14 +814,19 @@ function _onOBD(data: OBDData): void {
 
   if (speedKmh > TRIP_START_SPEED_KMH) {
     if (_idleTimer) { clearTimeout(_idleTimer); _idleTimer = null; }
-    if (!_active) _startTrip(speedKmh, fuelLevel);
-  } else if (_active && speedKmh === 0) {
-    if (!_idleTimer) {
+    _considerStart(speedKmh, 'OBD', fuelLevel);
+  } else if (speedKmh === 0) {
+    /* Eşik altı örnek birikmiş kanıtı sıfırlar (bkz. GPS yolu). */
+    _motion = observeMotion(_motion, {
+      monoMs: performance.now(), speedKmh, source: 'OBD',
+      thresholdKmh: TRIP_START_SPEED_KMH,
+    });
+    if (_active && !_idleTimer) {
       _idleTimer = setTimeout(() => {
         _idleTimer = null;
         /* P2: duruş penceresi DOLDU → düzgün kapanış (confidence kanıtı). */
         if (_active) _active.cleanClose = true;
-        _endTrip();
+        _endTrip('IDLE_WINDOW');
       }, TRIP_END_IDLE_MS);
     }
   }
@@ -692,9 +857,11 @@ function _onOBD(data: OBDData): void {
   /* ── P2: OBD örneğini saf birikime ver (fail-soft) ──────────────────
      Tazelik kapısı `data.dataFresh`tir: bayat ECU verisi tepe değer,
      yakıt okuması veya sert olay ÜRETMEZ. */
+  const _prevStopObd = trip.metrics.stopSincePerfMs;
+  const _sampleMonoObd = performance.now();
   try {
     trip.metrics = applySample(trip.metrics, {
-      perfNowMs: performance.now(),
+      perfNowMs: _sampleMonoObd,
       source: 'OBD',
       speedKmh: data.speed,
       fresh: data.dataFresh !== false,
@@ -704,6 +871,10 @@ function _onOBD(data: OBDData): void {
       transportConnected: data.transportConnected,
     });
   } catch { /* metrik birikimi trip akışını ASLA bozmaz */ }
+
+  /* SEYİR DEFTERİ: OBD örneği KONUM TAŞIMAZ → rota noktası üretmez, yalnız
+     duruş geçişi mühürlenir (duruş kanıtı GPS'e bağlı değildir). */
+  _journalSample(trip, _prevStopObd, _sampleMonoObd, null, null, data.speed);
 }
 
 /* ── Public API ──────────────────────────────────────────── */
@@ -714,6 +885,11 @@ let _obdUnsub: (() => void) | null = null;
 export function startTripLog(): void {
   if (_started) return;
   _started = true;
+
+  /* ÇÖKME KURTARMA: diskte mühürlenmemiş bir taslak kaldıysa `UNKNOWN`
+     gerekçesiyle kapatılır. Bunu YAPMAMAK, çökmeden önceki yolculuğun
+     kanıtını sessizce kaybetmek olurdu. Yolculuk AÇMAZ, kanıt ÜRETMEZ. */
+  try { recoverOpenJournal(); } catch { /* fail-soft */ }
 
   // GPS primary — haversine mesafe
   _gpsUnsub = onGPSLocation((loc) => {
@@ -733,7 +909,7 @@ export function stopTripLog(): void {
   if (_obdUnsub) { try { _obdUnsub(); } catch { /* ignore */ } _obdUnsub = null; }
   if (_idleTimer) { clearTimeout(_idleTimer); _idleTimer = null; }
   if (_liveClock) { clearInterval(_liveClock); _liveClock = null; }
-  _endTrip();
+  _endTrip('SERVICE_STOPPED');
 }
 
 export function deleteTrip(id: string): void {
@@ -782,6 +958,58 @@ export function onTripState(fn: (s: TripState) => void): () => void {
  */
 export function getTripSnapshot(): TripState {
   return _computeSnapshot();
+}
+
+/* ── Kanonik seyir durumu (PROJEKSİYON — yeni otorite DEĞİL) ─────────── */
+
+export interface TripJournalGlance {
+  /** Kanonik seyir durumu — `tripJournalModel` hükmü. */
+  readonly state: TripJournalState;
+  /** Açık yolculuğun kimliği; yoksa `null`. */
+  readonly tripId: string | null;
+  /** Son KAPANMIŞ yolculuğun kimliği — tamamlandı kartı tek atış anahtarı. */
+  readonly lastCompletedTripId: string | null;
+  readonly lastEndReason: TripEndReason | null;
+  /** Hareket kanıtı yolculuk açmaya yeter mi (kapı durumu). */
+  readonly motionEvidenceReady: boolean;
+  readonly motionSampleCount: number;
+  /** Kapanış penceresi işliyor mu. */
+  readonly endPending: boolean;
+}
+
+/**
+ * Seyir durumunun TEK okuma noktası — Mavi · UI · LAB buradan okur.
+ *
+ * PROJEKSİYONDUR: hiçbir şey ölçmez, başlatmaz, kapatmaz. Durum, bu dosyanın
+ * ZATEN sahip olduğu gerçeklerden (aktif yolculuk · son örnek anı · duruş ·
+ * kapanış penceresi) saf bir fonksiyonla türetilir. ASLA fırlatmaz.
+ */
+export function getTripJournalGlance(): TripJournalGlance {
+  try {
+    const trip = _active;
+    return {
+      state: deriveTripJournalState({
+        monoMs: performance.now(),
+        active: trip !== null,
+        lastSampleMonoMs: trip !== null ? trip.lastSamplePerfMs : null,
+        stopSinceMonoMs: trip !== null ? trip.metrics.stopSincePerfMs : null,
+        endPending: _idleTimer !== null,
+        justCompleted: false,
+      }),
+      tripId: trip !== null ? trip.tripId : null,
+      lastCompletedTripId: _lastCompletedTripId,
+      lastEndReason: _lastEndReason,
+      motionEvidenceReady: hasMotionEvidence(_motion),
+      motionSampleCount: _motion.count,
+      endPending: _idleTimer !== null,
+    };
+  } catch {
+    return {
+      state: 'UNKNOWN_DEGRADED', tripId: null, lastCompletedTripId: null,
+      lastEndReason: null, motionEvidenceReady: false, motionSampleCount: 0,
+      endPending: false,
+    };
+  }
 }
 
 export function useTripState(): TripState {
