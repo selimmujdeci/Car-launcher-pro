@@ -72,7 +72,7 @@ import {
   CHAIN_STEP_ORDER, MAX_CHAIN_GROUPS,
 } from '../platform/devtools/maviChainModel';
 import { buildEvidenceRows, EVIDENCE_CHANNELS } from '../platform/devtools/evidenceViewerModel';
-import { executeIntent, type CommandContext } from '../platform/commandExecutor';
+import { executeIntent, executeAIResult, type CommandContext } from '../platform/commandExecutor';
 import { speakMaviAnswer, _resetMaviSpeechForTest } from '../platform/assistant/maviSpeech';
 import {
   beginMaviTurn, getActiveMaviTurn, continueIfTurnCurrent, getMaviTurnDiagnostics,
@@ -564,5 +564,69 @@ describe('MAVI-M4-LAB-2 · 10. gözlem üretimi değiştirmez', () => {
     expect(getActiveMaviTurn()).toBeNull();
     recordMaviActionStage({ stage: 'gate', status: 'allowed', reason: 'x' });
     expect(getMaviActionTrace()[0].turnId).toBeNull();
+  });
+});
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * 11 — AI-yönlendirmeli yol (`executeAIResult`) da `result` aşaması YAZAR
+ *
+ * SAHA 2026-09-11 (CAROS LAB · gerçek cihaz): `executeAIResult` `dispatchIntent`i
+ * DOĞRUDAN çağırıp sonucu yukarı taşıyordu — `executeIntent`in yaptığı
+ * `stage:'result'` yazımını YAPMIYORDU. AI-yönlendirmeli turlarda (beyin/
+ * companion rotası) `gate:allowed` kaydı hiçbir zaman eşleşen bir sonuca
+ * kavuşmuyordu → forensic anomali `ACTION_DISPATCH_NO_RESULT` (cihazda
+ * `dispatchWithoutResult=2`, ikisi de `phone.call.start`). Kilit bunun BİR
+ * DAHA geri gelmemesini korur — iki dispatch yolu ARTIK AYNI otoriteyi
+ * (`_recordVehicleActionResult`) paylaşıyor.
+ * ════════════════════════════════════════════════════════════════════════ */
+
+describe('MAVI-M4-LAB-2 · 11. AI yolu da result aşaması yazar (SAHA 2026-09-11)', () => {
+  it('executeAIResult (OPEN_PHONE) sonrası gate VE result AYNI actionId altında birleşir', async () => {
+    H.callNumber.mockResolvedValue({ placed: true });
+    const turn = beginMaviTurn();
+    recordMaviActionStage({ stage: 'turn_started', status: 'accepted', reason: 'len:9', turnId: turn.id });
+
+    // `fromAIResponse` yalnız İZİN VERİLEN intentleri kabul eder (VALID_INTENTS) —
+    // cihazda ölçülen GERÇEK vakayla AYNI intent: OPEN_PHONE → phone.call.start.
+    const outcome = await executeAIResult(
+      { intent: 'OPEN_PHONE', payload: { contactName: SECRET_CONTACT }, confidence: 0.9, feedback: '' },
+      ctx({ actionConfirmed: true }),
+    );
+    expect(outcome?.result.status).toBe('succeeded');
+
+    const view = buildChainView(getMaviActionTrace());
+    const g = view.groups.find((x) => x.turnId === turn.id);
+    expect(g?.actionId).toBe('phone.call.start');
+    const gateStep   = g?.steps.find((s) => s.stage === 'gate');
+    const resultStep = g?.steps.find((s) => s.stage === 'result');
+    expect(gateStep?.observed).toBe(true);
+    /* ASIL KİLİT: eskiden burada `observed:false` dönerdi — cihazda ölçülen
+       forensic anomali `ACTION_DISPATCH_NO_RESULT` (dispatchWithoutResult=2)
+       TAM OLARAK bu boşluktu. */
+    expect(resultStep?.observed).toBe(true);
+    expect(resultStep?.status).toBe('succeeded');
+    expect(g?.verdict).toBe('SUCCEEDED');
+  });
+
+  it('düşük güvende (<0.45) hiçbir dispatch/kayıt OLUŞMAZ — mevcut eşik korunur', async () => {
+    beginMaviTurn();
+    const before = getMaviActionTrace().length;
+    const outcome = await executeAIResult(
+      { intent: 'OPEN_PHONE', payload: { contactName: SECRET_CONTACT }, confidence: 0.2, feedback: '' },
+      ctx({ actionConfirmed: true }),
+    );
+    expect(outcome).toBeNull();
+    expect(getMaviActionTrace().length).toBe(before);
+  });
+
+  it('araç-etkisiz intentler için result YAZILMAZ (eski davranış korunur)', async () => {
+    beginMaviTurn();
+    const before = getMaviActionTrace().filter((r) => r.stage === 'result').length;
+    await executeAIResult(
+      { intent: 'OPEN_SETTINGS', payload: {}, confidence: 0.9, feedback: '' },
+      ctx(),
+    );
+    const after = getMaviActionTrace().filter((r) => r.stage === 'result').length;
+    expect(after).toBe(before);
   });
 });

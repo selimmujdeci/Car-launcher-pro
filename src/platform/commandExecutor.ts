@@ -1202,6 +1202,38 @@ function _recordCapabilityOutcome(
  * intentEngine.routeIntent() yerine bu fonksiyon kullanılabilir;
  * TTS geri bildirimi ve hata yönetimini otomatik sağlar.
  */
+/**
+ * MAVI-M4-LAB-2: yürütücünün GERÇEK sonucunu, kapı kararıyla AYNI `actionId`
+ * altında gözlem halkasına yazar — TEK yazıcı, `executeIntent` VE
+ * `executeAIResult` bunu çağırır (ikinci bir kopya AÇILMAZ).
+ *
+ * SAHA 2026-09-11 (CAROS LAB · gerçek cihaz): `executeAIResult` bu kaydı
+ * HİÇ yapmıyordu — `dispatchIntent`i DOĞRUDAN çağırıp sonucu yukarı
+ * taşıyordu, `stage:'result'` yazımını ATLIYORDU. Sonuç: AI-yönlendirmeli
+ * turlarda (`companion_action`/`companion_gateway` rotası) `gate:allowed`
+ * kaydı hiçbir zaman eşleşen bir sonuca kavuşmuyordu → forensic anomali
+ * `ACTION_DISPATCH_NO_RESULT` (`dispatchWithoutResult=2`, ikisi de
+ * `phone.call.start`) ölçüldü. Yalnız DETERMİNİSTİK yoldan (`executeIntent`,
+ * `useVoiceCommandHandler`) gelen komutlar kayıt bırakıyordu — iki dispatch
+ * yolu AYNI telemetri sözleşmesini paylaşmıyordu.
+ *
+ * Yalnız araç etkili intentler kaydedilir (defter dışı UI/medya komutları
+ * zinciri kirletmez). GİZLİLİK: `result.detail` KAYDEDİLMEZ — içinde gerçek
+ * kullanıcı metni vardır (`"${contact.name} aranıyor"` → KİŞİ ADI, araç
+ * sağlığı özeti, sensör değeri). Yalnız `status` + makine-okur `reason`
+ * alınır. Kayıt fail-soft'tur ve dönüşü DEĞİŞTİRMEZ.
+ */
+function _recordVehicleActionResult(intent: AppIntent, result: IntentExecutionResult): void {
+  if (!isVehicleEffectiveIntent(intent.type)) return;
+  recordMaviActionStage({
+    stage:    'result',
+    intent:   intent.type,
+    actionId: getVehicleActionDef(intent.type)?.actionId ?? null,
+    status:   result.status,
+    reason:   result.reason ?? '',
+  });
+}
+
 export async function executeIntent(
   intent: AppIntent,
   ctx:    CommandContext,
@@ -1212,24 +1244,7 @@ export async function executeIntent(
      SONRA üretilen kayıtlardan okunur. */
   const _baseline = captureObservationBaseline(Date.now());
   const result = await dispatchIntent(intent, ctx);
-  /* MAVI-M4-LAB-2: yürütücünün GERÇEK sonucu, kapı kararıyla AYNI turId altında
-   * gözlem halkasına yazılır. Tek nokta — `dispatchIntent`in onlarca `return`ü
-   * dolaşılmaz. Yalnız araç etkili intentler kaydedilir (defter dışı UI/medya
-   * komutları zinciri kirletmez).
-   *
-   * GİZLİLİK: `result.detail` KAYDEDİLMEZ — içinde gerçek kullanıcı metni vardır
-   * (`"${contact.name} aranıyor"` → KİŞİ ADI, araç sağlığı özeti, sensör değeri).
-   * Yalnız `status` + makine-okur `reason` alınır. Kayıt fail-soft'tur ve
-   * dönüşü DEĞİŞTİRMEZ. */
-  if (isVehicleEffectiveIntent(intent.type)) {
-    recordMaviActionStage({
-      stage:    'result',
-      intent:   intent.type,
-      actionId: getVehicleActionDef(intent.type)?.actionId ?? null,
-      status:   result.status,
-      reason:   result.reason ?? '',
-    });
-  }
+  _recordVehicleActionResult(intent, result);
   _recordCapabilityOutcome(intent.type, result.status, _baseline, ctx.turn?.id != null ? String(ctx.turn.id) : null);
   return result;
 }
@@ -1295,6 +1310,9 @@ export async function executeAIResult(
    * AI yolu artık AYNI sözleşmeyi kullanır (ikinci otorite YOK). */
   const _baseline = captureObservationBaseline(Date.now());
   const execResult = await dispatchIntent(intent, ctx);
+  /* SAHA 2026-09-11: bu yol eskiden `_recordVehicleActionResult` çağırmıyordu
+     — bkz. o fonksiyonun başındaki not. `executeIntent` ile AYNI otorite. */
+  _recordVehicleActionResult(intent, execResult);
   _recordCapabilityOutcome(intent.type, execResult.status, _baseline, ctx.turn?.id != null ? String(ctx.turn.id) : null);
   return { intent, result: execResult };
 }

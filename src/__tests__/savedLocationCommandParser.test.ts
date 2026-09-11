@@ -120,3 +120,57 @@ describe('savedLocationCommandParser — doğal Türkçe konum özneleri (SAHA 2
     expect(tryParseSavedLocationCommand('beğendim ekle')).toBeNull();
   });
 });
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * "KAYIT ET" FİİL VARYANTI (SAHA 2026-09-11, kullanıcı bildirimi)
+ *
+ * KULLANICI ŞİKAYETİ: "örnek konumu kayıt et diyorum bazen kayıt ediyor bazen
+ * aklımda diyor". Kök neden: `tryParseSavedLocationCommand` yalnız BİTİŞİK
+ * "kaydet" fiilini tanıyordu; "kayıt et" (isim + yardımcı fiil — eşit derecede
+ * doğal, günlük konuşmada YAYGIN) bu deseni HİÇ tetiklemiyordu. Sonuç: cümle bu
+ * deterministik kapıdan GEÇEMİYOR, AI beynine düşüyor ve TUR TURDAN farklı
+ * sonuç üretiyordu — bazen doğru (`save_location`), bazen YANLIŞ (`REMEMBER` /
+ * "aklımda tutuyorum"). AYNI NİYET, İKİ FARKLI DAVRANIŞ — artık `kayıt et`
+ * `kaydet` ile TAM EŞDEĞER: aynı özne kapısı, aynı isim-çıkarma desenleri.
+ * ════════════════════════════════════════════════════════════════════════ */
+describe('savedLocationCommandParser — "kayıt et" fiil varyantı (SAHA 2026-09-11)', () => {
+  const KAYIT_ET_CASES: [string, string | null][] = [
+    // Kullanıcının BİREBİR kendi örneği:
+    ['örnek konumu kayıt et',           null],
+    ['Şu anki konumumu kayıt et',       null],
+    ['Burayı kayıt et',                 null],
+    ['yerimi kayıt et',                 null],
+    ['bulunduğum yeri kayıt et',        null],
+    ['Burayı ev olarak kayıt et',       'ev'],
+    ['Konumumu ev diye kayıt et',       'ev'],
+    ['Burayı Mavi Göl adıyla kayıt et', 'Mavi Göl'],
+    // Kibar istek biçimi — komutlar emir/istek kipindedir (pazarlıksız).
+    ['Burayı kayıt eder misin',         null],
+  ];
+
+  for (const [text, expectedName] of KAYIT_ET_CASES) {
+    it(`"${text}" → save${expectedName ? ` (ad: ${expectedName})` : ' (isimsiz)'} — "kaydet" İLE BİREBİR AYNI DAVRANIR`, () => {
+      const r = tryParseSavedLocationCommand(text);
+      expect(r).not.toBeNull();
+      expect(r?.verb).toBe('save');
+      expect(r?.name).toBe(expectedName);
+    });
+  }
+
+  it('"kaydet" ve "kayıt et" AYNI cümlede AYNI isim ve verb üretir (tutarlılık kilidi)', () => {
+    const a = tryParseSavedLocationCommand('Burayı ev olarak kaydet');
+    const b = tryParseSavedLocationCommand('Burayı ev olarak kayıt et');
+    expect(b?.verb).toBe(a?.verb);
+    expect(b?.name).toBe(a?.name);
+  });
+
+  it('"kayıt" (fiilsiz, yalnız isim) konum kaydı OLARAK yorumlanmaz — sahte tetik yok', () => {
+    // "kayıt" başlı başına bir fiil DEĞİLDİR (ör. "kayıt ol", "ses kaydı" gibi
+    // bağlamlarda geçer) — yalnız "kayıt et" (+ kibar istek biçimi) tetikler.
+    expect(tryParseSavedLocationCommand('burayı kayıt')).toBeNull();
+  });
+
+  it('MEDYA cümleleri "kayıt et" ile de konum kaydına DÜŞMEZ', () => {
+    expect(tryParseSavedLocationCommand('bu şarkıyı kayıt et')).toBeNull();
+  });
+});

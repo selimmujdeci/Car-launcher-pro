@@ -128,17 +128,39 @@ export function tryParseSavedLocationCommand(rawText: string): ParsedSavedLocati
    *   "şu an bulunduğum yeri annemler olarak kaydet" → add_music_favorite
    * 0.82 < AUTO_DISPATCH_MIN (0.7) DEĞİLDİR → yanlış komut doğrudan YÜRÜTÜLÜR.
    * Özne listesi genişletilerek konum cümleleri kanonik `save_location`
-   * yoluna geri alınır (yeni otorite/store YOK — aynı `savedLocationsService`). */
-  if (/\bkaydet\b/.test(lower)) {
+   * yoluna geri alınır (yeni otorite/store YOK — aynı `savedLocationsService`).
+   *
+   * ── SAHA KUSURU 2 (2026-09-11, CAROS LAB gerçek cihaz kaydı) ───────────
+   * FİİL kendisi de tek biçimli değildi: yalnız BİTİŞİK "kaydet" yakalanıyordu.
+   * "örnek konumu KAYIT ET" (isim + yardımcı fiil — eşit derecede doğal, günlük
+   * konuşmada YAYGIN) bu deseni HİÇ tetiklemiyordu → `tryParseSavedLocationCommand`
+   * `null` dönüyor, cümle komut sözlüğüne/beyne düşüyor ve TUR TURTAN farklı
+   * sonuç üretiyordu: bazen (deterministik "kaydet" biçimiyle) gerçekten kaydediyor,
+   * bazen (AI beyni "kayıt et"i REMEMBER/hafıza fiili sanıp) "aklımda tutuyorum"
+   * diyordu — AYNI NİYET, İKİ FARKLI DAVRANIŞ. `kayıt et` artık `kaydet` ile
+   * TAM EŞDEĞER kabul edilir (aynı özne kapısı, aynı isim-çıkarma desenleri). */
+  const kaydetVerb = /\bkaydet\b/.test(lower);
+  /* Emir kipi "kayıt et" + kibar istek biçimi "kayıt eder misin(iz)" — komutlar
+   * pazarlıksız EMİR/İSTEK kipindedir ("kayıt ediyorum" bir KOMUT değil, bir
+   * BİLDİRİMDİR; buraya bilerek alınmadı). "et" kökü ünsüz yumuşamasıyla
+   * "ed-" olur (ediyorum) — imperative/istek formunda bu YUMUŞAMA olmaz, "et"
+   * sabit kalır (et · ettim değil, komut için yalnız "et" ve "eder misin"). */
+  const kayitEtVerb = /\bkay[ıi]t\s+et\b/.test(lower)
+    || /\bkay[ıi]t\s+eder\s+mi(?:sin|siniz)\b/.test(lower);
+  if (kaydetVerb || kayitEtVerb) {
     const hasSubject = SAVE_SUBJECT_RE.test(lower);
-    if (hasSubject || lower.trim() === 'kaydet') {
+    if (hasSubject || lower.trim() === 'kaydet' || /^kay[ıi]t\s+et$/.test(lower.trim())) {
       let name: string | null = null;
       const adiOlsun = /adı\s+(.+?)\s+olsun/.exec(lower);
       /* "… adıyla kaydet" (SAHA: "Burayı Mavi Göl adıyla kaydet" → isim
-         KAYBOLUYORDU, kayıt varsayılan adla oluşuyordu). */
-      const adiylaKaydet = /(?:^|\s)(.+?)\s+ad[ıi]yla\s+kaydet/.exec(lower);
-      const olarakKaydet = /(?:^|\s)(.+?)\s+olarak\s+kaydet/.exec(lower);
-      const diyeKaydet = /(?:^|\s)(.+?)\s+diye\s+kaydet/.exec(lower);
+         KAYBOLUYORDU, kayıt varsayılan adla oluşuyordu). "adıyla kayıt et"
+         eşdeğeri de aynı gerekçeyle desteklenir. */
+      const adiylaKaydet = /(?:^|\s)(.+?)\s+ad[ıi]yla\s+kaydet/.exec(lower)
+        ?? /(?:^|\s)(.+?)\s+ad[ıi]yla\s+kay[ıi]t\s+et/.exec(lower);
+      const olarakKaydet = /(?:^|\s)(.+?)\s+olarak\s+kaydet/.exec(lower)
+        ?? /(?:^|\s)(.+?)\s+olarak\s+kay[ıi]t\s+et/.exec(lower);
+      const diyeKaydet = /(?:^|\s)(.+?)\s+diye\s+kaydet/.exec(lower)
+        ?? /(?:^|\s)(.+?)\s+diye\s+kay[ıi]t\s+et/.exec(lower);
       const m = adiOlsun ?? adiylaKaydet ?? olarakKaydet ?? diyeKaydet;
       if (m) {
         const capStart = lower.indexOf(m[1], m.index);
