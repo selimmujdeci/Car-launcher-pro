@@ -197,6 +197,16 @@ export interface CarosLabCopyInput {
   readonly maviAnomalies: readonly unknown[] | null;
   /** Olay zaman çizelgesi — `buildMaviEventTimeline()` çıktısı, en yeni BAŞTA. */
   readonly maviEventTimeline: readonly unknown[] | null;
+  /**
+   * BÖLÜM-BAZLI KOPYA · PHONE LINK — Phone Hub canlı bağlantısının ham anlık
+   * görüntüsü. Kaynak KANONİKTİR: `phoneHubLinkSources.readPhoneHubLinkSnapshot()`
+   * — o dosyanın kendi sözleşmesi "TEK okuma noktası"dır, ikinci bir Phone Link
+   * state KURULMAZ. Native sözleşme zaten MAC · cihaz adı · doğrulama kodu ·
+   * anahtar · ham yük TAŞIMAZ (bkz. `phoneHubLink.ts` başlığı) — üç kapılı
+   * maskeleme zinciri yine de aynen uygulanır (ikinci bir istisna açılmaz).
+   * `null` = önbellek okunamadı ("bağlantı yok" ANLAMINA GELMEZ).
+   */
+  readonly phoneLink: unknown | null;
 }
 
 export interface CarosLabCopyResult {
@@ -252,14 +262,44 @@ function tail<T>(rows: readonly T[], n: number): readonly T[] {
   return rows.length > n ? rows.slice(rows.length - n) : rows;
 }
 
-interface Section {
+/* ── BÖLÜM-BAZLI KOPYA (domain projeksiyonu) ──────────────────────────────
+ * TAM KOPYA saha teşhisinde bazen ÇOK BÜYÜK: yalnız Mavi'ye bakan biri 180 bin
+ * karakterlik dökümü paylaşmak zorunda kalıyordu. Domain kopyası YENİ bir
+ * teşhis otoritesi DEĞİLDİR — `buildSections()` AYNI bölümleri AYNI kaynaklardan
+ * AYNI maskeleme zinciriyle üretir; domain yalnız bir SÜZGEÇtir. Dolayısıyla
+ * "Mavi kopyası"ndaki bir satır, TAM KOPYA'daki satırla BİREBİR aynıdır. */
+export type CarosLabCopyDomain =
+  'mavi' | 'obd' | 'can' | 'navigation' | 'runtime' | 'phoneLink' | 'genel';
+
+export const CAROS_LAB_COPY_DOMAIN_LABEL: Readonly<Record<CarosLabCopyDomain, string>> = {
+  mavi:       'MAVİ',
+  obd:        'OBD',
+  can:        'CAN',
+  navigation: 'NAVİGASYON',
+  runtime:    'RUNTIME',
+  phoneLink:  'PHONE LINK',
+  genel:      'GENEL',
+} as const;
+
+/** Domain etiketi OLMADAN bölüm gövdesi — üreticiler (fromRows/fromObject…) bunu döndürür. */
+interface SectionBody {
   readonly title: string;
   readonly lines: string[];
   readonly dropped: number;
   readonly truncated: boolean;
 }
 
-function unreadable(title: string, why: string): Section {
+interface Section extends SectionBody {
+  /** Hangi domaine ait — bölüm kopyası bu alana göre SÜZER. */
+  readonly domain: CarosLabCopyDomain;
+}
+
+/** Bölüme domain etiketi iliştirir (üretim mantığı DEĞİŞMEZ). */
+function dom(domain: CarosLabCopyDomain, s: SectionBody): Section {
+  return { ...s, domain };
+}
+
+function unreadable(title: string, why: string): SectionBody {
   // "veri yok" DEĞİL — "okunamadı". Boş küme varsaymak yasak.
   return { title, lines: [`(okunamadı — ${why})`], dropped: 0, truncated: false };
 }
@@ -268,7 +308,7 @@ function fromRows(
   title: string,
   rows: readonly unknown[] | null,
   render: (row: unknown, i: number) => unknown,
-): Section {
+): SectionBody {
   if (rows === null || rows === undefined) return unreadable(title, 'kaynak getter hata verdi veya yok');
   if (!Array.isArray(rows)) return unreadable(title, 'kaynak beklenen dizi biçiminde değil');
   if (rows.length === 0) return { title, lines: ['(kayıt yok)'], dropped: 0, truncated: false };
@@ -286,7 +326,7 @@ function fromRows(
   return { title, lines, dropped, truncated: kept.length < rows.length };
 }
 
-function fromObject(title: string, value: unknown | null): Section {
+function fromObject(title: string, value: unknown | null): SectionBody {
   if (value === null || value === undefined) return unreadable(title, 'kaynak getter hata verdi veya yok');
   const masked = maskUnknown(value, MAX_COPY_OBJECT_CHARS);
   if (masked === null) return unreadable(title, 'maskelenemedi → fail-closed düşürüldü');
@@ -295,7 +335,7 @@ function fromObject(title: string, value: unknown | null): Section {
 
 /* ── OBD trafiği: ÜÇÜNCÜ kapı (a) burada uygulanır ────────────────────────── */
 
-function obdSection(entries: CarosLabCopyInput['obdTraffic']): Section {
+function obdSection(entries: CarosLabCopyInput['obdTraffic']): SectionBody {
   const title = 'HAM OBD TRAFİĞİ (maskeli)';
   if (entries === null || entries === undefined) return unreadable(title, 'trafik tamponu okunamadı');
   if (!Array.isArray(entries)) return unreadable(title, 'tampon beklenen dizi biçiminde değil');
@@ -340,7 +380,7 @@ function obdSection(entries: CarosLabCopyInput['obdTraffic']): Section {
  * okuma patlamış olabilir (o durumda `fromRows` "okunamadı" yazar). Bu ayrım
  * korunur — sessiz "sağlıklı" iddiası ÜRETİLMEZ.
  */
-function errorLogSection(rows: readonly unknown[] | null): Section {
+function errorLogSection(rows: readonly unknown[] | null): SectionBody {
   const title = 'HATA KÜTÜĞÜ';
   const base  = fromRows(title, rows, (r) => r);
   if (Array.isArray(rows) && rows.length === 0) {
@@ -357,71 +397,93 @@ function errorLogSection(rows: readonly unknown[] | null): Section {
 
 /* ── Ana kurucu ───────────────────────────────────────────────────────────── */
 
-export function buildCarosLabCopy(input: CarosLabCopyInput): CarosLabCopyResult {
-  const meta = input?.meta;
-  const sections: Section[] = [
+/**
+ * TÜM bölümleri domain etiketiyle üretir — TAM KOPYA ve BÖLÜM KOPYASI AYNI
+ * fonksiyonu kullanır (ikinci bir üretim yolu YOK, dolayısıyla iki çıktı
+ * birbirinden AYRIŞAMAZ).
+ */
+function buildSections(input: CarosLabCopyInput): Section[] {
+  return [
     /* P0-MAVI-FORENSIC (§11) — Mavi bölümleri EN BAŞTA: katalogda AVAILABLE
        görünen kartların içeriği artık kopyada da vardır (önceden HİÇ yoktu). */
-    fromObject('MAVİ CURRENT STATE', input?.maviCurrentState ?? null),
-    fromObject('MAVİ WAKE FORENSICS', input?.maviWakeForensics ?? null),
-    fromObject('MAVİ LAST TURN', input?.maviLastTurn ?? null),
-    fromObject('MAVİ LATENCY', input?.maviLatency ?? null),
-    fromObject('MAVİ STT / MIC', input?.maviSttMic ?? null),
-    fromObject('MAVİ TTS', input?.maviTts ?? null),
-    fromObject('MAVİ ACTION / TOOL', input?.maviActionTool ?? null),
-    fromRows('MAVİ ANOMALIES', input?.maviAnomalies ?? null, (r) => r),
-    fromRows('MAVİ EVENT TIMELINE', input?.maviEventTimeline ?? null, (r) => r),
-    fromRows('KATALOG DURUMU', input?.catalog ?? null, (r) => r),
-    fromObject('ANLIK ARAÇ VERİSİ', input?.obdData ?? null),
-    fromObject('KAYNAK SAĞLIĞI (HAL · null = BİLİNMİYOR)', input?.sourceHealth ?? null),
+    dom('mavi', fromObject('MAVİ CURRENT STATE', input?.maviCurrentState ?? null)),
+    dom('mavi', fromObject('MAVİ WAKE FORENSICS', input?.maviWakeForensics ?? null)),
+    dom('mavi', fromObject('MAVİ LAST TURN', input?.maviLastTurn ?? null)),
+    dom('mavi', fromObject('MAVİ LATENCY', input?.maviLatency ?? null)),
+    dom('mavi', fromObject('MAVİ STT / MIC', input?.maviSttMic ?? null)),
+    dom('mavi', fromObject('MAVİ TTS', input?.maviTts ?? null)),
+    dom('mavi', fromObject('MAVİ ACTION / TOOL', input?.maviActionTool ?? null)),
+    dom('mavi', fromRows('MAVİ ANOMALIES', input?.maviAnomalies ?? null, (r) => r)),
+    dom('mavi', fromRows('MAVİ EVENT TIMELINE', input?.maviEventTimeline ?? null, (r) => r)),
+    dom('genel', fromRows('KATALOG DURUMU', input?.catalog ?? null, (r) => r)),
+    dom('obd', fromObject('ANLIK ARAÇ VERİSİ', input?.obdData ?? null)),
+    dom('obd', fromObject('KAYNAK SAĞLIĞI (HAL · null = BİLİNMİYOR)', input?.sourceHealth ?? null)),
     /* D: HAL bölümünün HEMEN ARDINDAN — okuyucu `gpsAlive:false` satırını görür
        görmez onun hangi ekseni ölçtüğünü (ve hangisini ÖLÇMEDİĞİNİ) okusun. */
-    fromObject('GPS OTORİTE SÖZLEŞMESİ (üç eksen · ayrışma açıklaması)', input?.gpsAuthority ?? null),
+    dom('navigation', fromObject('GPS OTORİTE SÖZLEŞMESİ (üç eksen · ayrışma açıklaması)', input?.gpsAuthority ?? null)),
     /* #526 — yaş bölümü sayaçlardan ÖNCE gelir: okuyucu sayıya bakmadan önce
        hangi ANDAN geldiğini görsün. */
-    fromObject('NATIVE SAYAÇ SNAPSHOT YAŞI (#526)', input?.nativeSnapshotAge ?? null),
+    dom('runtime', fromObject('NATIVE SAYAÇ SNAPSHOT YAŞI (#526)', input?.nativeSnapshotAge ?? null)),
     /* #535: navigasyon ölçümü — #508 (fixAgeMs) ve #530 (ETA sıçramaları). */
-    fromObject('NAVİGASYON ÇEKİRDEĞİ (#508 · fixAgeMs)', input?.navigationCore ?? null),
+    dom('navigation', fromObject('NAVİGASYON ÇEKİRDEĞİ (#508 · fixAgeMs)', input?.navigationCore ?? null)),
     /* #537: dağılım AYRI bölümdür — tek anlık örnekle karıştırılmasın. #508
        hükmü burada okunur; nav çekirdeği bölümündeki tek örnek KANIT DEĞİLDİR. */
-    fromObject('KANONİK TANI İZİ — ÖZET (P0-VDK-F2A)', input?.tanIzi ?? null),
-    fromObject('KONUM FIX YAŞI DAĞILIMI (#537 · #508 hükmü)', input?.fixAgeDistribution ?? null),
-    fromObject('ETA SIÇRAMA DEFTERİ (#530)', input?.etaJumps ?? null),
+    dom('runtime', fromObject('KANONİK TANI İZİ — ÖZET (P0-VDK-F2A)', input?.tanIzi ?? null)),
+    dom('navigation', fromObject('KONUM FIX YAŞI DAĞILIMI (#537 · #508 hükmü)', input?.fixAgeDistribution ?? null)),
+    dom('navigation', fromObject('ETA SIÇRAMA DEFTERİ (#530)', input?.etaJumps ?? null)),
     /* #536: kopma kanıtı — sayaçlardan (kalite/baskı) SONRA değil ÖNCE okunmalı
        ki okuyucu "8 timeout" görmeden önce imzaların ne söylediğini görsün. */
-    fromObject('KOPMA KANIT DEFTERİ (#536 · GÖREV A)', input?.linkLosses ?? null),
-    fromObject('KAZA ALGILAMA (yalnız sayaç · null = BİLİNMİYOR)', input?.crashDetection ?? null),
-    fromObject('OTURUM DENETÇİSİ (ham snapshot)', input?.session ?? null),
-    fromObject('ÇALIŞMA ZAMANI ZAMANLAMA (ham snapshot)', input?.scheduling ?? null),
-    fromRows('KANITLAR', input?.evidence ?? null, (r) => r),
-    obdSection(input?.obdTraffic ?? null),
-    fromRows('CAN KÜTÜĞÜ', input?.canRaw ?? null, (r) => r),
-    fromRows('KEŞİF GÖZLEMLERİ', input?.discovery ?? null, (r) => r),
-    fromRows('BLACKBOX ÖRNEKLERİ (1 Hz)', input?.blackBox ?? null, (r) => r),
+    dom('obd', fromObject('KOPMA KANIT DEFTERİ (#536 · GÖREV A)', input?.linkLosses ?? null)),
+    dom('runtime', fromObject('KAZA ALGILAMA (yalnız sayaç · null = BİLİNMİYOR)', input?.crashDetection ?? null)),
+    dom('obd', fromObject('OTURUM DENETÇİSİ (ham snapshot)', input?.session ?? null)),
+    dom('runtime', fromObject('ÇALIŞMA ZAMANI ZAMANLAMA (ham snapshot)', input?.scheduling ?? null)),
+    dom('genel', fromRows('KANITLAR', input?.evidence ?? null, (r) => r)),
+    dom('obd', obdSection(input?.obdTraffic ?? null)),
+    dom('can', fromRows('CAN KÜTÜĞÜ', input?.canRaw ?? null, (r) => r)),
+    dom('obd', fromRows('KEŞİF GÖZLEMLERİ', input?.discovery ?? null, (r) => r)),
+    dom('runtime', fromRows('BLACKBOX ÖRNEKLERİ (1 Hz)', input?.blackBox ?? null, (r) => r)),
     /* #523 — deney sonucu kopyaya GİRER. Sahada bu bölüm yoktu ve gerçek araçta
        koşmuş bir ölçüm dışarı çıkarılamadı. `null` ise "ekran okunmadı" yazılır —
        "deney yok" DİYE OKUNMAMALIDIR. */
-    input?.pidTimingExperiment
+    dom('obd', input?.pidTimingExperiment
       ? fromObject('H-A DENEYİ · ATST YANIT SÜRESİ (#518)', input.pidTimingExperiment)
       : unreadable('H-A DENEYİ · ATST YANIT SÜRESİ (#518)',
           'bu oturumda deney ekranı hiç okunmadı — kopya yolu senkrondur, veri ancak '
-          + 'ekran bir kez açıldıysa önbellekte olur. "deney koşmadı" ANLAMINA GELMEZ'),
+          + 'ekran bir kez açıldıysa önbellekte olur. "deney koşmadı" ANLAMINA GELMEZ')),
     /* ── P0-OBD-FINAL-02 · ECU KEŞİF / ADRESLENEBİLİRLİK KANITI ────────────
        AYRI ve AÇIK bir bölümdür: okuyucu "ECU keşfedildi mi · fiziksel adrese
        ulaşıldı mı · KWP oturumu ne dedi · 0x18 gönderildi mi" sorularını TEK
        yapıştırmayla cevaplayabilmelidir. Kaynak okunamazsa "okunamadı" yazılır
        — boş/0 VARSAYILMAZ. */
-    input?.ecuDiscovery
+    dom('obd', input?.ecuDiscovery
       ? fromObject('ECU KEŞİF / ADRESLENEBİLİRLİK KANITI', input.ecuDiscovery)
       : unreadable('ECU KEŞİF / ADRESLENEBİLİRLİK KANITI',
           'kanıt kaynağı okunamadı — bu "araçta ECU yok" ANLAMINA GELMEZ; '
-          + 'tam araç taraması bu oturumda hiç koşmamış da olabilir'),
+          + 'tam araç taraması bu oturumda hiç koşmamış da olabilir')),
     /* SAHA (2026-07-25): cihaz çıktısında bu bölüm boştu, oysa KANITLAR'da 40+
        `OBD:Reconnect — CONNECT_FAILED` vardı. Sebep: `dbgPushError`in ÇAĞIRANI YOK —
        kanal yapısal olarak boş. "(kayıt yok)" burada "hata olmadı" diye OKUNUR;
-       bu YANLIŞ olur. Kanalın ölü olduğu açıkça yazılır. */
-    errorLogSection(input?.errorLog ?? null),
+       bu YANLIŞ olur. Kanalın ölü olduğu açıkça yazılır. Domain 'genel': hata
+       kütüğü herhangi bir bileşenden gelebilir, tek domaine ait değildir. */
+    dom('genel', errorLogSection(input?.errorLog ?? null)),
+    /* BÖLÜM-BAZLI KOPYA · PHONE LINK — kaynak kanonik (`phoneHubLinkSources`),
+       ikinci bir Phone Link state kurulmaz. `null` = önbellek okunamadı. */
+    dom('phoneLink', fromObject('PHONE LINK (Phone Hub canlı bağlantı · ham anlık görüntü)', input?.phoneLink ?? null)),
   ];
+}
+
+/**
+ * `buildSections()` çıktısını METNE çevirir — TAM KOPYA ve BÖLÜM KOPYASI AYNI
+ * fonksiyonu kullanır (`domain: null` = tüm domainler, aksi halde SÜZÜLMÜŞ alt
+ * küme). Süzme yeni bir teşhis otoritesi DEĞİLDİR: filtrelenmiş bölümdeki bir
+ * satır, TAM KOPYA'daki satırla BİREBİR aynıdır — ikinci bir üretim yolu yok.
+ */
+function renderCopyText(
+  allSections: readonly Section[],
+  meta: CarosLabCopyInput['meta'] | undefined,
+  domain: CarosLabCopyDomain | null,
+): CarosLabCopyResult {
+  const sections = domain === null ? allSections : allSections.filter((s) => s.domain === domain);
 
   const dropped   = sections.reduce((a, s) => a + s.dropped, 0);
   let   truncated = sections.some((s) => s.truncated);
@@ -446,13 +508,25 @@ export function buildCarosLabCopy(input: CarosLabCopyInput): CarosLabCopyResult 
     ]
     : [`kanıt tazeliği: extended poll önbelleği = ${clampTo(String(cacheState ?? 'BİLİNMİYOR'), 40)}`];
 
+  /* Bölüm kopyası TAM KOPYA'nın SÜZÜLMÜŞ alt kümesidir — bu dürüstçe başlıkta
+     ve gövdede beyan edilir (kaç bölümden kaçı gösteriliyor), sessizce
+     "bu kadar var" izlenimi verilmez. */
+  const titleLine = domain === null
+    ? `# CAROS LAB — TAM KOPYA (${CAROS_LAB_COPY_SCHEMA})`
+    : `# CAROS LAB — ${CAROS_LAB_COPY_DOMAIN_LABEL[domain]} KOPYASI (${CAROS_LAB_COPY_SCHEMA})`;
+  const scopeLine = domain === null
+    ? `kapsam       : TÜM domainler (${sections.length} bölüm)`
+    : `kapsam       : yalnız ${CAROS_LAB_COPY_DOMAIN_LABEL[domain]} (${sections.length}/${allSections.length} bölüm) — ` +
+      'TAM KOPYA\'nın süzülmüş alt kümesi, ikinci bir üretim yolu YOK';
+
   const head = [
-    `# CAROS LAB — TAM KOPYA (${CAROS_LAB_COPY_SCHEMA})`,
+    titleLine,
     `zaman        : ${meta?.generatedAtWallMs ?? 0}`,
     `platform     : ${clampTo(String(meta?.platform ?? 'bilinmiyor'), 120)}`,
     `sürüm        : ${clampTo(String(meta?.appVersion ?? 'bilinmiyor'), 120)}`,
     `kategori     : ${clampTo(String(meta?.category ?? '-'), 120)}`,
     `açık araç    : ${clampTo(String(meta?.activeTool ?? '(katalog)'), 120)}`,
+    scopeLine,
     capLine,
     `maskeleme    : AÇIK (3 kapı) · düşürülen kayıt: ${dropped}`,
     `tavanlar     : ${MAX_COPY_ROWS_PER_SECTION} satır/bölüm · ${MAX_COPY_LINE_CHARS} kr/satır · ` +
@@ -482,4 +556,20 @@ export function buildCarosLabCopy(input: CarosLabCopyInput): CarosLabCopyResult 
     text, sectionCount: sections.length, droppedCount: dropped, truncated,
     chars: text.length, pollEvidenceStale,
   };
+}
+
+/** TAM KOPYA — tüm domainler. Davranış f444ccc8'e kadar birebir korunur. */
+export function buildCarosLabCopy(input: CarosLabCopyInput): CarosLabCopyResult {
+  return renderCopyText(buildSections(input), input?.meta, null);
+}
+
+/**
+ * BÖLÜM-BAZLI KOPYA — yalnız `domain`e etiketli bölümler. `buildSections()` ve
+ * maskeleme zinciri TAM KOPYA ile BİREBİR AYNIDIR; bu fonksiyon yeni bir teşhis
+ * otoritesi DEĞİL, yalnız bir SÜZGEÇtir (CLAUDE.md §6 — ikinci otorite kurulmaz).
+ */
+export function buildCarosLabDomainCopy(
+  input: CarosLabCopyInput, domain: CarosLabCopyDomain,
+): CarosLabCopyResult {
+  return renderCopyText(buildSections(input), input?.meta, domain);
 }

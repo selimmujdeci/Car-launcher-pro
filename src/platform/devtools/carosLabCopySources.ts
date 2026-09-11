@@ -54,6 +54,12 @@ import { readMaviConsoleSnapshot } from './maviConsoleSources';
 import { getWakeForensics } from '../voice/wakeForensics';
 import { getMaviActionTrace } from '../action/maviActionTrace';
 import { detectMaviAnomalies, buildMaviEventTimeline } from './maviForensicModel';
+/**
+ * BÖLÜM-BAZLI KOPYA · PHONE LINK — kaynak KANONİKTİR: bu dosyanın kendi
+ * sözleşmesi "TEK okuma noktası"dır (bkz. dosya başlığı), ikinci bir Phone
+ * Link state KURULMAZ. Senkron · yan etkisiz · önbellekten okur.
+ */
+import { readPhoneHubLinkSnapshot, readPhoneHubLinkCachedAt } from './phoneHubLinkSources';
 
 /**
  * D — kopyanın GPS fix TAZELİK penceresi (ms).
@@ -507,5 +513,13 @@ export function readCarosLabCopyInput(ctx: CopyContext): CarosLabCopyInput {
         })),
       } as unknown;
     }),
+    /* BÖLÜM-BAZLI KOPYA · PHONE LINK — ham anlık görüntü + önbelleğin JS
+       damgası. Native sözleşme zaten MAC/cihaz adı/doğrulama kodu/anahtar/ham
+       yük TAŞIMAZ (bkz. `phoneHubLink.ts` başlığı); yine de üç kapılı
+       maskeleme zinciri modelde AYNEN uygulanır (ikinci istisna açılmaz). */
+    phoneLink: safe(() => ({
+      snapshot:   readPhoneHubLinkSnapshot(),
+      cachedAtMs: readPhoneHubLinkCachedAt(),
+    }) as unknown),
   };
 }

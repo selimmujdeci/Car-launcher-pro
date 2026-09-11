@@ -13,6 +13,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   buildCarosLabCopy,
+  buildCarosLabDomainCopy,
   CAROS_LAB_COPY_SCHEMA,
   MAX_COPY_ROWS_PER_SECTION,
   MAX_COPY_CHARS,
@@ -162,7 +163,12 @@ describe('KİLİT 5 — model SAF ve bağlam dürüst', () => {
     // · ANOMALIES · EVENT TIMELINE). Öncesinde CAROS LAB kataloğunda Mavi
     // kartları AVAILABLE görünüyordu ama içerikleri kopyaya HİÇ GİRMİYORDU.
     // Kilit yine kaldırılmadı — bölüm sayısı yeni doğru değere (21+9=30) taşındı.
-    expect(r.sectionCount).toBe(30);
+    // BÖLÜM-BAZLI KOPYA (2026-09-11): PHONE LINK bölümü eklendi (Phone Hub canlı
+    // bağlantı, kaynak `phoneHubLinkSources` — kanonik TEK okuma noktası).
+    // TAM KOPYA bu bölümü de içerir (domain süzme yalnız bölüm-kopyasında
+    // devreye girer, TAM KOPYA hep tüm domainleri taşır). 30 → 31.
+    expect(r.sectionCount).toBe(31);
+    expect(r.text).toContain('PHONE LINK');
     expect(r.text).toContain('GPS OTORİTE SÖZLEŞMESİ');
     expect(r.text).toContain('KANONİK TANI İZİ');
     expect(r.text).toContain('ANLIK ARAÇ VERİSİ');
@@ -379,5 +385,160 @@ describe('KİLİT 9 — Mavi forensic verisi kopyaya GERÇEKTEN girer (§11)', (
       maviLastTurn: { note: 'authorization: bearer_abcdef1234567890xyz' },
     }));
     expect(r.text).not.toContain('bearer_abcdef1234567890xyz');
+  });
+});
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * KİLİT 10 — BÖLÜM-BAZLI KOPYA (domain projeksiyonu)
+ *
+ * `buildCarosLabDomainCopy` YENİ bir teşhis otoritesi DEĞİLDİR — `buildSections()`
+ * AYNI bölümleri AYNI kaynaklardan AYNI maskeleme zinciriyle üretir; domain
+ * yalnız bir SÜZGEÇtir. Kilitler bunu doğrular: bölüm kopyasındaki bir satır
+ * TAM KOPYA'daki satırla BİREBİR aynı · yabancı domain sızmaz · maskeleme/
+ * fail-closed/unreadable/size-cap davranışı SÜZÜLMÜŞ küme için de AYNEN sürer.
+ * ══════════════════════════════════════════════════════════════════════════ */
+describe('KİLİT 10 — bölüm-bazlı kopya (domain süzgeci)', () => {
+  it('MAVİ KOPYASI yalnız Mavi bölümlerini içerir — OBD/CAN/Navigasyon/Runtime SIZMAZ', () => {
+    const full = input({
+      maviCurrentState: { voice: { status: 'listening' } },
+      obdData: { speed: 77 },
+      canRaw: [{ ts: 1, frameId: '7E8', payload: '02 10 03' }],
+      navigationCore: { navStatus: 'ACTIVE' },
+      scheduling: { readAt: 42 },
+    });
+    const r = buildCarosLabDomainCopy(full, 'mavi');
+    expect(r.text).toContain('# CAROS LAB — MAVİ KOPYASI');
+    expect(r.text).toContain('MAVİ CURRENT STATE');
+    expect(r.text).toContain('listening');
+    // Yabancı domainlerin BÖLÜM BAŞLIKLARI da, İÇERİKLERİ de görünmez.
+    expect(r.text).not.toContain('ANLIK ARAÇ VERİSİ');
+    expect(r.text).not.toContain('CAN KÜTÜĞÜ');
+    expect(r.text).not.toContain('NAVİGASYON ÇEKİRDEĞİ');
+    expect(r.text).not.toContain('ÇALIŞMA ZAMANI ZAMANLAMA');
+    expect(r.text).not.toContain('"speed":77');
+    expect(r.text).not.toContain('7E8');
+  });
+
+  it('OBD KOPYASI yalnız OBD bölümlerini içerir — Mavi/CAN SIZMAZ', () => {
+    const full = input({
+      maviCurrentState: { voice: { status: 'idle' } },
+      obdData: { speed: 42, rpm: 900 },
+      obdTraffic: [{ cmd: '0100', resp: '41 00 BE', ms: 5, ts: 1 }],
+      canRaw: [{ ts: 1, frameId: '123', payload: 'AA BB' }],
+    });
+    const r = buildCarosLabDomainCopy(full, 'obd');
+    expect(r.text).toContain('# CAROS LAB — OBD KOPYASI');
+    expect(r.text).toContain('ANLIK ARAÇ VERİSİ');
+    expect(r.text).toContain('"rpm":900');
+    expect(r.text).toContain('0100');
+    expect(r.text).not.toContain('MAVİ CURRENT STATE');
+    expect(r.text).not.toContain('CAN KÜTÜĞÜ');
+  });
+
+  it('CAN KOPYASI yalnız CAN kütüğünü içerir', () => {
+    const full = input({
+      canRaw: [{ ts: 1, frameId: '7E8', payload: '02 10 03' }],
+      obdData: { speed: 10 },
+    });
+    const r = buildCarosLabDomainCopy(full, 'can');
+    expect(r.text).toContain('# CAROS LAB — CAN KOPYASI');
+    expect(r.text).toContain('CAN KÜTÜĞÜ');
+    expect(r.text).toContain('7E8');
+    expect(r.text).not.toContain('ANLIK ARAÇ VERİSİ');
+  });
+
+  it('NAVİGASYON KOPYASI yalnız navigasyon/GPS bölümlerini içerir', () => {
+    const full = input({
+      navigationCore: { navStatus: 'ACTIVE', etaSeconds: 120 },
+      gpsAuthority: { tazelikPenceresiMs: 10_000 },
+      obdData: { speed: 5 },
+    });
+    const r = buildCarosLabDomainCopy(full, 'navigation');
+    expect(r.text).toContain('# CAROS LAB — NAVİGASYON KOPYASI');
+    expect(r.text).toContain('NAVİGASYON ÇEKİRDEĞİ');
+    expect(r.text).toContain('GPS OTORİTE SÖZLEŞMESİ');
+    expect(r.text).not.toContain('ANLIK ARAÇ VERİSİ');
+  });
+
+  it('RUNTIME KOPYASI yalnız çalışma zamanı bölümlerini içerir', () => {
+    const full = input({
+      scheduling: { readAt: 99 },
+      crashDetection: { written: 2, rejected: 0 },
+      obdData: { speed: 5 },
+    });
+    const r = buildCarosLabDomainCopy(full, 'runtime');
+    expect(r.text).toContain('# CAROS LAB — RUNTIME KOPYASI');
+    expect(r.text).toContain('ÇALIŞMA ZAMANI ZAMANLAMA');
+    expect(r.text).toContain('KAZA ALGILAMA');
+    expect(r.text).not.toContain('ANLIK ARAÇ VERİSİ');
+  });
+
+  it('PHONE LINK KOPYASI yalnız Phone Hub bağlantı anlık görüntüsünü içerir', () => {
+    const full = input({
+      phoneLink: { snapshot: { present: true, server: { state: 'LISTENING' } }, cachedAtMs: 123 },
+      obdData: { speed: 5 },
+    });
+    const r = buildCarosLabDomainCopy(full, 'phoneLink');
+    expect(r.text).toContain('# CAROS LAB — PHONE LINK KOPYASI');
+    expect(r.text).toContain('PHONE LINK');
+    expect(r.text).toContain('LISTENING');
+    expect(r.text).not.toContain('ANLIK ARAÇ VERİSİ');
+  });
+
+  it('kaynak yoksa domain kopyasında da "okunamadı" yazar — boş VARSAYILMAZ', () => {
+    const r = buildCarosLabDomainCopy(input({ phoneLink: null }), 'phoneLink');
+    expect(r.text).toContain('okunamadı');
+  });
+
+  it('maskeleme domain kopyasında da AYNEN çalışır (sızıntı yok)', () => {
+    const r = buildCarosLabDomainCopy(input({
+      obdTraffic: [{ cmd: '0902', resp: '49 02 01 57 46 30 41 58 58 54 54 52 41 35 52 31 32 33 34 35', ms: 40, ts: 1 }],
+    }), 'obd');
+    expect(r.text).not.toContain('WF0AXXTTRA5R12345');
+  });
+
+  it('fail-closed düşürme domain kopyasında da beyan edilir', () => {
+    const r = buildCarosLabDomainCopy(input({
+      obdTraffic: [{ cmd: 10, resp: null, ms: 1, ts: 1 } as never],
+    }), 'obd');
+    expect(r.droppedCount).toBeGreaterThanOrEqual(1);
+    expect(r.text).toContain('maskelenemediği için düşürüldü');
+  });
+
+  it('satır/toplam karakter tavanı domain kopyasında da uygulanır', () => {
+    const bigTraffic = Array.from({ length: 400 }, (_, i) => ({
+      cmd: '0100', resp: '41 00 BE', ms: i, ts: i,
+    }));
+    const r = buildCarosLabDomainCopy(input({ obdTraffic: bigTraffic }), 'obd');
+    expect(r.truncated).toBe(true);
+    expect(r.text).toContain(`yalnız son ${MAX_COPY_ROWS_PER_SECTION} kayıt`);
+    expect(r.chars).toBeLessThanOrEqual(MAX_COPY_CHARS + 200); // kesme notu payı
+  });
+
+  it('kapsam satırı süzülen/toplam bölüm sayısını dürüstçe beyan eder', () => {
+    const r = buildCarosLabDomainCopy(input(), 'can');
+    expect(r.text).toMatch(/kapsam\s+: yalnız CAN \(\d+\/\d+ bölüm\)/);
+  });
+
+  it('bölüm kopyasındaki satır TAM KOPYA\'daki satırla BİREBİR AYNIDIR (ikinci üretim yolu yok)', () => {
+    const full = input({ obdData: { speed: 88, rpm: 1234 } });
+    const tam = buildCarosLabCopy(full);
+    const obd = buildCarosLabDomainCopy(full, 'obd');
+    const tamBlock = tam.text.split('## ANLIK ARAÇ VERİSİ')[1]?.split('## ')[0] ?? '';
+    const obdBlock = obd.text.split('## ANLIK ARAÇ VERİSİ')[1]?.split('## ')[0] ?? '';
+    expect(obdBlock).toBe(tamBlock);
+  });
+
+  it('TAM KOPYA hâlâ TÜM domainleri içerir — domain süzgeci yalnız BÖLÜM kopyasında devreye girer', () => {
+    const r = buildCarosLabCopy(input({
+      maviCurrentState: { voice: { status: 'idle' } },
+      obdData: { speed: 1 },
+      canRaw: [{ ts: 1, frameId: 'AAA', payload: '00' }],
+      phoneLink: { snapshot: { present: false } },
+    }));
+    expect(r.text).toContain('MAVİ CURRENT STATE');
+    expect(r.text).toContain('ANLIK ARAÇ VERİSİ');
+    expect(r.text).toContain('CAN KÜTÜĞÜ');
+    expect(r.text).toContain('PHONE LINK');
   });
 });

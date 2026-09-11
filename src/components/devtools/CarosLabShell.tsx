@@ -24,9 +24,26 @@ import {
 import { CarosLabToolHost } from './CarosLabToolHost';
 import { CarosLabRefreshBar } from './CarosLabRefreshBar';
 import { useObdTrafficCapture, useCanCollect } from '../../hooks/useDevtoolsCapture';
-import { buildCarosLabCopy } from '../../platform/devtools/carosLabCopyModel';
+import {
+  buildCarosLabCopy, buildCarosLabDomainCopy, type CarosLabCopyDomain,
+} from '../../platform/devtools/carosLabCopyModel';
 import { readCarosLabCopyInput } from '../../platform/devtools/carosLabCopySources';
 import { copyTextFailSoft, describeClipboardRoute } from '../../platform/devtools/carosLabClipboard';
+
+/* BÖLÜM-BAZLI KOPYA MENÜSÜ — repo authority map'inde GERÇEKTEN bulunan ana LAB
+   domainleri (`CarosLabCopyDomain`, bkz. carosLabCopyModel.ts). 'genel' bilerek
+   DIŞARIDA: o bir domain değil, tek bir kategoriye ait olmayan kalıntı
+   kovasıdır (katalog/kanıt/hata kütüğü) — hızlı menüde AYRI bir "ana domain"
+   gibi sunulması yanıltıcı olurdu; `buildCarosLabDomainCopy(input,'genel')`
+   programatik olarak yine kullanılabilir. */
+const DOMAIN_COPY_BUTTONS: readonly [CarosLabCopyDomain, string][] = [
+  ['mavi',       'Mavi Kopyala'],
+  ['obd',        'OBD Kopyala'],
+  ['can',        'CAN Kopyala'],
+  ['navigation', 'Navigasyon Kopyala'],
+  ['runtime',    'Runtime Kopyala'],
+  ['phoneLink',  'Phone Link Kopyala'],
+];
 
 /* TEMA (SAHA 2026-07-25): CAROS LAB gündüz/aydınlık temada da SİYAH kalıyor ve
    düşük-opaklık metinler okunmuyordu — shell ve tüm araç ekranları sabit `#070b12`
@@ -125,8 +142,16 @@ export const CarosLabShell = memo(function CarosLabShell({ onClose }: { onClose:
   const [copyMsg,  setCopyMsg]  = useState<string | null>(null);
   const [copyText, setCopyText] = useState<string | null>(null);
   const [copyBusy, setCopyBusy] = useState(false);
+  const [domainMenuOpen, setDomainMenuOpen] = useState(false);
 
-  const copyEverything = useCallback(async () => {
+  /**
+   * TEK ÜRETİM YOLU: `domain === null` → TAM KOPYA (`buildCarosLabCopy`),
+   * aksi halde BÖLÜM KOPYASI (`buildCarosLabDomainCopy`) — ikisi de AYNI
+   * `readCarosLabCopyInput` + AYNI maskeleme zincirini kullanır; bölüm
+   * kopyası TAM KOPYA'nın süzülmüş alt kümesidir, ikinci bir okuma/üretim
+   * yolu AÇILMAZ.
+   */
+  const runCopy = useCallback(async (domain: CarosLabCopyDomain | null) => {
     setCopyBusy(true);
     setCopyText(null);
     try {
@@ -136,14 +161,15 @@ export const CarosLabShell = memo(function CarosLabShell({ onClose }: { onClose:
         platform = Capacitor.getPlatform();
       } catch { /* fail-soft: platform bilinmiyor */ }
 
-      const built = buildCarosLabCopy(readCarosLabCopyInput({
+      const input = readCarosLabCopyInput({
         generatedAtWallMs: Date.now(),
         platform,
         // vite.config `VITE_APP_VERSION`i gradle versionName'den enjekte eder.
         appVersion: (import.meta.env.VITE_APP_VERSION as string | undefined) ?? null,
         category,
         activeTool: activeId,
-      }));
+      });
+      const built = domain === null ? buildCarosLabCopy(input) : buildCarosLabDomainCopy(input, domain);
 
       const route = await copyTextFailSoft(built.text);
       const extra = [
@@ -164,6 +190,12 @@ export const CarosLabShell = memo(function CarosLabShell({ onClose }: { onClose:
       setCopyBusy(false);
     }
   }, [category, activeId]);
+
+  const copyEverything = useCallback(() => runCopy(null), [runCopy]);
+  const copyDomain = useCallback((domain: CarosLabCopyDomain) => {
+    setDomainMenuOpen(false);
+    void runCopy(domain);
+  }, [runCopy]);
 
   return (
     <div className="flex h-full w-full flex-col bg-[var(--oem-bg)] text-[var(--oem-ink)]" style={{ fontFamily: 'monospace' }}>
@@ -214,6 +246,45 @@ export const CarosLabShell = memo(function CarosLabShell({ onClose }: { onClose:
         >
           <ClipboardCopy size={11} /> {copyBusy ? 'KOPYALANIYOR…' : 'TÜMÜNÜ KOPYALA'}
         </button>
+
+        {/* BÖLÜM-BAZLI KOPYA — TAM KOPYA saha teşhisinde bazen ÇOK BÜYÜK
+            (Mavi'ye bakan biri 180 bin karakterlik dökümü paylaşmak zorunda
+            kalıyordu). Tek dokunuşluk domain kopyası: AYNI kaynak, AYNI
+            maskeleme, yalnız SÜZÜLMÜŞ alt küme. Menü — 6 ayrı tam-boy düğme
+            dar ekranda komuta şeridini taşırdı (bkz. dosya başındaki şerit
+            notu). */}
+        <div className="relative shrink-0">
+          <button
+            type="button"
+            data-testid="lab-copy-domain-toggle"
+            onClick={() => setDomainMenuOpen((v) => !v)}
+            disabled={copyBusy}
+            title="Yalnız tek domain — Mavi/OBD/CAN/Navigasyon/Runtime/Phone Link"
+            aria-expanded={domainMenuOpen}
+            className="flex items-center gap-1 rounded border border-[var(--oem-line-strong)] px-2 py-1 text-[10px] text-[var(--oem-ink-2)] hover:bg-[var(--oem-surface-2)] disabled:opacity-50"
+          >
+            <ClipboardCopy size={11} /> BÖLÜM ▾
+          </button>
+          {domainMenuOpen && (
+            <div
+              data-testid="lab-copy-domain-menu"
+              className="absolute right-0 top-full z-10 mt-1 flex w-44 flex-col overflow-hidden rounded border border-[var(--oem-line)] bg-[var(--oem-surface-1)] py-1 shadow-lg"
+            >
+              {DOMAIN_COPY_BUTTONS.map(([domain, label]) => (
+                <button
+                  key={domain}
+                  type="button"
+                  data-testid={`lab-copy-domain-${domain}`}
+                  onClick={() => copyDomain(domain)}
+                  disabled={copyBusy}
+                  className="px-2 py-1.5 text-left text-[10px] text-[var(--oem-ink-2)] hover:bg-[var(--oem-surface-2)] disabled:opacity-50"
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
 
         <button
           type="button"
